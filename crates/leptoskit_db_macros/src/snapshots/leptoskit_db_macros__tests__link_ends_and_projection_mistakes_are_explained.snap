@@ -8,7 +8,7 @@ same columns: both ends would be the column `user_id`; name them, such as `from_
 declared end: `tag_id` is one of the link's ends, which `#[db::link]` declares itself; declare only the link's own columns
 own key: a link's key is its two ends; it can't have another
 unique: a link already holds each pair of rows at most once: its two ends are its key, so `unique` isn't needed. `exclusive` lets each `to` row be linked from one `from` row only
-unknown link option: unknown link option; expected `name`, `from`, `to`, `from_column`, `to_column`, `exclusive`, `namespace`, `public`, `projection`, `index`, `check`, `hooks`, `audit`, `renamed_from`, `pack`, or `crate`
+unknown link option: unknown link option; expected `name`, `from`, `to`, `from_column`, `to_column`, `exclusive`, `namespace`, `public`, `projection`, `index`, `check`, `hooks`, `audit`, `live`, `renamed_from`, `pack`, or `crate`
 ends on a table: `from`, `to`, and `exclusive` describe a link table: use `#[db::link(...)]`
 undeclared projection: `SelfUser`: declare it on the table first: `projection(...)`
 secret in a projection: `SelfUser`: a `secret` column never leaves the server, so it can't be in a projection

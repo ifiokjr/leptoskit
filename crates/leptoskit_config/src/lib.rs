@@ -1017,6 +1017,20 @@ pub struct DbConfig {
 	/// What `leptoskit dev` does when the tables change.
 	#[serde(skip_serializing_if = "DbWatch::is_default")]
 	pub watch: DbWatch,
+	/// Whether each git branch gets its own database on the development
+	/// Postgres, copied from the main branch's the first time it's used, so
+	/// switching branches never mixes their tables or rows. Off, every branch
+	/// shares the app's database.
+	#[serde(skip_serializing_if = "is_true")]
+	pub branch_databases: bool,
+}
+
+#[expect(
+	clippy::trivially_copy_pass_by_ref,
+	reason = "serde's `skip_serializing_if` passes a reference"
+)]
+fn is_true(value: &bool) -> bool {
+	*value
 }
 
 impl Default for DbConfig {
@@ -1029,6 +1043,7 @@ impl Default for DbConfig {
 			url_env: "DATABASE_URL".to_owned(),
 			dev_server: DbDevServer::default(),
 			watch: DbWatch::default(),
+			branch_databases: true,
 		}
 	}
 }
@@ -1073,6 +1088,12 @@ pub enum DbWatch {
 	/// nothing and say which command to run.
 	#[default]
 	Migrate,
+	/// Applies changes straight to the development database, without
+	/// writing migrations, so the tables can change many times while an
+	/// idea takes shape. `leptoskit db migration create` then writes one
+	/// migration for all of them. Changes that would delete data are applied
+	/// only by `leptoskit db push --allow-destructive`.
+	Push,
 	/// Only prints what changed since the latest migration.
 	Report,
 	/// Ignores the tables.

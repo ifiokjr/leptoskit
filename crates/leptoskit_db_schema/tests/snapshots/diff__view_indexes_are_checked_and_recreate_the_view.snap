@@ -1,0 +1,15 @@
+---
+source: crates/leptoskit_db_schema/tests/diff.rs
+expression: invalid.validate().unwrap_err().to_string()
+---
+the schema has 10 problem(s):
+  - titles: index `titles_title_key`: only a materialized view keeps rows to index
+  - titles: index `titles_missing_idx`: only a materialized view keeps rows to index
+  - titles: index `titles_missing_idx` names `missing`, which isn't one of the view's columns
+  - titles: the index name `Bad` must be lowercase snake case (a-z, 0-9, _), starting with a letter or _
+  - titles: index `Bad`: only a materialized view keeps rows to index
+  - titles: index `Bad` covers no columns
+  - titles: index `Bad` names `gone`, which isn't one of the view's columns
+  - titles: another table or view already has an index named `users_handle_key`
+  - titles: index `users_handle_key`: only a materialized view keeps rows to index
+  - titles: index `users_handle_key` names `handle`, which isn't one of the view's columns

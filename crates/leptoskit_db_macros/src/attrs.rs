@@ -34,6 +34,8 @@ pub(crate) struct TableArgs {
 	pub hooks: Vec<Ident>,
 	/// Every change is recorded in the audit log.
 	pub audit: bool,
+	/// Every change is published to live subscribers.
+	pub live: bool,
 	/// Declared by the database layer itself, such as the audit log: not
 	/// registered for export, and written only from inside its crate.
 	pub internal: bool,
@@ -124,6 +126,7 @@ impl TableArgs {
 		let mut exclusive = false;
 		let mut hooks = Vec::new();
 		let mut audit = false;
+		let mut live = false;
 		let mut internal = false;
 		let mut is_view = false;
 		let mut sql = None;
@@ -155,6 +158,8 @@ impl TableArgs {
 				internal = true;
 			} else if meta.path.is_ident("audit") {
 				audit = true;
+			} else if meta.path.is_ident("live") {
+				live = true;
 			} else if meta.path.is_ident("hooks") {
 				hooks = hook_list(&meta)?;
 			} else if meta.path.is_ident("from") {
@@ -202,11 +207,11 @@ impl TableArgs {
 				return Err(meta.error(if is_link {
 					"unknown link option; expected `name`, `from`, `to`, `from_column`, \
 					 `to_column`, `exclusive`, `namespace`, `public`, `projection`, `index`, \
-					 `check`, `hooks`, `audit`, `renamed_from`, `pack`, or `crate`"
+					 `check`, `hooks`, `audit`, `live`, `renamed_from`, `pack`, or `crate`"
 				} else {
 					"unknown table option; expected `name`, `namespace`, `public`, `projection`, \
-					 `index`, `unique`, `check`, `hooks`, `audit`, `renamed_from`, `pack`, or \
-					 `crate`"
+					 `index`, `unique`, `check`, `hooks`, `audit`, `live`, `renamed_from`, `pack`, \
+					 or `crate`"
 				}));
 			}
 
@@ -222,11 +227,10 @@ impl TableArgs {
 			)
 		})?;
 
-		let view = if is_view {
-			Some(ViewArgs::new(sql)?.materialized(materialized))
-		} else {
-			None
-		};
+		let keeps_indexes = !indexes.is_empty() || !uniques.is_empty();
+		let view = is_view
+			.then(|| ViewArgs::new(sql, materialized, keeps_indexes))
+			.transpose()?;
 
 		let link = if is_link {
 			let (Some(mut from), Some(mut to)) = (from, to) else {
@@ -261,6 +265,7 @@ impl TableArgs {
 			krate,
 			hooks,
 			audit,
+			live,
 			internal,
 			view,
 		})
@@ -328,7 +333,15 @@ fn view_option(
 	sql: &mut Option<(LitStr, LitStr)>,
 	materialized: &mut bool,
 ) -> syn::Result<bool> {
-	const VIEW_OPTIONS: &[&str] = &["name", "namespace", "public", "projection", "crate"];
+	const VIEW_OPTIONS: &[&str] = &[
+		"name",
+		"namespace",
+		"public",
+		"projection",
+		"index",
+		"unique",
+		"crate",
+	];
 	let own = meta.path.is_ident("sql") || meta.path.is_ident("materialized");
 
 	if !is_view {
@@ -346,7 +359,7 @@ fn view_option(
 	} else if !VIEW_OPTIONS.iter().any(|option| meta.path.is_ident(option)) {
 		return Err(meta.error(
 			"unknown view option; expected `name`, `sql`, `materialized`, `namespace`, `public`, \
-			 `projection`, or `crate`",
+			 `projection`, `index`, `unique`, or `crate`",
 		));
 	}
 
@@ -354,7 +367,16 @@ fn view_option(
 }
 
 impl ViewArgs {
-	fn new(sql: Option<(LitStr, LitStr)>) -> syn::Result<Self> {
+	/// A view's options, refusing indexes on one that keeps no rows.
+	fn new(sql: Option<(LitStr, LitStr)>, materialized: bool, indexed: bool) -> syn::Result<Self> {
+		if indexed && !materialized {
+			return Err(syn::Error::new(
+				Span::call_site(),
+				"only a materialized view keeps rows to index: add `materialized`, or drop \
+				 `index(...)` and `unique(...)`",
+			));
+		}
+
 		let sql = sql.ok_or_else(|| {
 			syn::Error::new(
 				Span::call_site(),
@@ -362,15 +384,7 @@ impl ViewArgs {
 				 \"…\")`",
 			)
 		})?;
-		Ok(Self {
-			sql,
-			materialized: false,
-		})
-	}
-
-	fn materialized(mut self, materialized: bool) -> Self {
-		self.materialized = materialized;
-		self
+		Ok(Self { sql, materialized })
 	}
 }
 

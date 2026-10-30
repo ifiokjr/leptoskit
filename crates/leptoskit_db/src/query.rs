@@ -107,6 +107,11 @@ impl<T: Table> Query<T> {
 		self
 	}
 
+	/// Whether the query has a limit or an offset.
+	pub(crate) fn is_paged(&self) -> bool {
+		self.limit.is_some() || self.offset.is_some()
+	}
+
 	/// The query's own condition and whether it keeps soft-deleted rows, for
 	/// a policy that counts it.
 	pub(crate) fn into_condition(self) -> (Option<Expr>, bool) {
@@ -185,7 +190,7 @@ impl<T: Table> Query<T> {
 		let changes = update.changes(connection.access())?;
 
 		#[cfg(any(feature = "postgres", feature = "sqlite"))]
-		if T::AUDIT || crate::cascade::has_cascades::<T>() {
+		if audit::records::<T>() || crate::cascade::has_cascades::<T>() {
 			return atomically!(connection, |tx| {
 				soft_delete_cascading::<T>(tx, &changes, policy.as_ref(), now).await
 			});
@@ -205,11 +210,24 @@ impl<T: Table> Query<T> {
 	pub async fn destroy(mut self, connection: &impl Connection) -> Result<u64> {
 		refuse_bulk::<T>(T::HOOKS.after_delete, self.skip_hooks)?;
 		self.with_deleted = true;
+
+		if crate::fallout::reaches::<T>() {
+			let mut condition = self.filter.take().unwrap_or_else(Expr::always);
+
+			if let Some(policy) = policy::condition::<T>(connection.access(), Action::Delete) {
+				condition = condition & policy;
+			}
+
+			return atomically!(connection, |tx| {
+				destroy_with_fallout::<T>(tx, &condition).await
+			});
+		}
+
 		let mut sql = Sql::new(connection.dialect());
 		sql.push("DELETE FROM ").table::<T>();
 		self.write_filter(&mut sql, connection, Action::Delete)?;
 
-		if !T::AUDIT {
+		if !audit::records::<T>() {
 			return connection.execute(sql.finish()).await;
 		}
 
@@ -332,7 +350,7 @@ impl<T: Table> Update<T> {
 		let policy = policy::condition::<T>(connection.access(), self.action);
 		let changes = self.changes(connection.access())?;
 
-		if T::AUDIT || policy.is_some() {
+		if audit::records::<T>() || policy.is_some() {
 			return atomically!(connection, |tx| {
 				changes.apply(tx, policy.as_ref()).await
 			})
@@ -491,7 +509,7 @@ impl<T: Table> Changes<T> {
 		connection: &impl Connection,
 		policy: Option<&Expr>,
 	) -> Result<Vec<Vec<Value>>> {
-		let keys = if T::AUDIT {
+		let keys = if audit::records::<T>() {
 			self.audited(connection, policy).await?
 		} else {
 			let mut sql = self.statement(connection.dialect(), None, policy)?;
@@ -588,6 +606,41 @@ async fn audited_destroy<T: Table>(connection: &impl Connection, sql: Sql) -> Re
 		.collect();
 	audit::record_changes(connection, audit::Subject::of::<T>(), changes).await?;
 	Ok(count)
+}
+
+/// Removes the rows matching `condition` for good, and records them and
+/// the rows the database's own cascades change with them: reads and locks
+/// them first, then deletes exactly those.
+async fn destroy_with_fallout<T: Table>(
+	connection: &impl Connection,
+	condition: &Expr,
+) -> Result<u64> {
+	let rows: Vec<Vec<Value>> = crate::write::select_for_update::<T>(connection, condition)
+		.await?
+		.iter()
+		.map(Table::to_values)
+		.collect::<Result<_, _>>()?;
+	let fallout =
+		crate::fallout::before_delete(connection, T::table_name(), T::COLUMNS, rows.clone())
+			.await?;
+	let mut removed = 0;
+
+	for batch in rows.chunks(BATCH) {
+		let keys: Vec<Vec<Value>> = batch.iter().map(|row| policy::key_of::<T>(row)).collect();
+		let mut sql = Sql::new(connection.dialect());
+		sql.push("DELETE FROM ").table::<T>().push(" WHERE ");
+		policy::keys_condition::<T>(&keys).write(&mut sql)?;
+
+		if audit::records::<T>() {
+			sql.push(" RETURNING ").columns(T::COLUMNS);
+			removed += audited_destroy::<T>(connection, sql).await?;
+		} else {
+			removed += connection.execute(sql.finish()).await?;
+		}
+	}
+
+	fallout.record(connection).await?;
+	Ok(removed)
 }
 
 /// Soft-deletes the rows an update matches and the rows their cascading

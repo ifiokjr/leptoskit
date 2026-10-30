@@ -63,6 +63,8 @@ postgres = [
 	"dep:tokio-postgres",
 	"dep:tokio-postgres-rustls",
 	"dep:webpki-roots",
+	"tokio/rt",
+	"tokio/time",
 ]
 ## Connect to SQLite, bundled, through `rusqlite`: the same SQLite the
 ## on-device plugin uses, run on tokio's blocking pool.

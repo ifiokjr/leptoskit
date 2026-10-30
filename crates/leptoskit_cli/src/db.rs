@@ -21,6 +21,7 @@ use anyhow::bail;
 use anyhow::ensure;
 use leptoskit_config::DbConfig;
 use leptoskit_config::DbDialect;
+use leptoskit_config::DbWatch;
 use leptoskit_config::LeptoskitConfig;
 use leptoskit_db_schema::Column;
 use leptoskit_db_schema::Dialect;
@@ -35,7 +36,9 @@ use leptoskit_db_schema::TableName;
 
 use crate::cli::invoked_name;
 
+pub(crate) mod branches;
 pub(crate) mod dev_server;
+mod push;
 mod watch;
 
 pub(crate) use watch::DevDatabase;
@@ -64,6 +67,24 @@ pub enum DbCommand {
 		#[arg(long)]
 		url: Option<String>,
 	},
+	/// Brings the development database to the tables without writing a
+	/// migration, as `leptoskit dev` does with `db.watch = "push"`.
+	/// `leptoskit db migration create` later turns every push into one
+	/// migration.
+	Push {
+		/// The database URL; defaults to the variable `db.url_env` names.
+		#[arg(long)]
+		url: Option<String>,
+		/// Allow steps that delete data, such as dropping a column.
+		#[arg(long)]
+		allow_destructive: bool,
+	},
+	/// Lists or deletes the databases git branches use on the development
+	/// Postgres.
+	Branch {
+		#[command(subcommand)]
+		command: BranchCommand,
+	},
 	/// Recreates a local development database from the migrations, deleting
 	/// every row.
 	Reset {
@@ -71,6 +92,20 @@ pub enum DbCommand {
 		#[arg(long)]
 		url: Option<String>,
 		/// Confirms that every row may be deleted.
+		#[arg(long)]
+		yes: bool,
+	},
+}
+
+/// The `leptoskit db branch` subcommands.
+#[derive(Debug, clap::Subcommand)]
+pub enum BranchCommand {
+	/// Lists each branch's database.
+	List,
+	/// Deletes the databases of branches that are deleted or merged into the
+	/// main branch.
+	Prune {
+		/// Confirms that the databases, and their rows, may be deleted.
 		#[arg(long)]
 		yes: bool,
 	},
@@ -119,13 +154,36 @@ pub fn run(command: DbCommand) -> Result<()> {
 				allow_destructive,
 				empty,
 			};
-			let created = if no_renames {
-				create(&project, &name, &target, &options, &mut NoRenames)
-			} else if std::io::stdin().is_terminal() {
-				create(&project, &name, &target, &options, &mut Ask)
+			// In push mode, the migration takes over the development
+			// database's pushes.
+			let (url, _server) = if project.config.watch == DbWatch::Push {
+				let (url, server) = project.database(None)?;
+				(Some(url), server)
 			} else {
-				create(&project, &name, &target, &options, &mut RequireHints)
+				(None, None)
+			};
+			let created = if no_renames {
+				create_squashing(
+					&project,
+					&name,
+					&target,
+					&options,
+					&mut NoRenames,
+					url.as_deref(),
+				)
+			} else if std::io::stdin().is_terminal() {
+				create_squashing(&project, &name, &target, &options, &mut Ask, url.as_deref())
+			} else {
+				create_squashing(
+					&project,
+					&name,
+					&target,
+					&options,
+					&mut RequireHints,
+					url.as_deref(),
+				)
 			}?;
+
 			print!("{}", created.summary());
 			Ok(())
 		}
@@ -158,8 +216,108 @@ pub fn run(command: DbCommand) -> Result<()> {
 
 			Ok(())
 		}
+		DbCommand::Push {
+			url,
+			allow_destructive,
+		} => {
+			let target = project.export()?;
+			let (url, _server) = project.database(url)?;
+			push_command(&project, &target, &url, allow_destructive)
+		}
+		DbCommand::Branch { command } => {
+			branch(
+				&project,
+				&command,
+				dev_server::binaries_from_env().as_deref(),
+			)
+		}
 		DbCommand::Reset { url, yes } => reset(&project, url, yes),
 	}
+}
+
+/// `leptoskit db push`: pushes `target` to the database at `url`, and fails
+/// when that would delete data without `allow_destructive`.
+fn push_command(
+	project: &Project,
+	target: &Schema,
+	url: &str,
+	allow_destructive: bool,
+) -> Result<()> {
+	let pushed = push::push(project, url, target, allow_destructive)?;
+	let refused = matches!(pushed, push::Pushed::Refused(_));
+	print!(
+		"{}",
+		pushed
+			.message()
+			.unwrap_or_else(|| "the database already has the tables\n".to_owned())
+	);
+	ensure!(!refused, "nothing was pushed");
+	Ok(())
+}
+
+/// Lists or prunes the branch databases on the development Postgres,
+/// running `binaries` when the embedded server has to start.
+fn branch(project: &Project, command: &BranchCommand, binaries: Option<&Path>) -> Result<()> {
+	ensure!(
+		std::env::var_os(&project.config.url_env).is_none(),
+		"branch databases live on the development Postgres, but {} names another database",
+		project.config.url_env
+	);
+	let Some(source) = dev_server::source(project) else {
+		bail!("branch databases need the development Postgres; db.dev_server is off");
+	};
+	let server = dev_server::start(project, source, binaries)?;
+	let url = dev_server::with_database(&server.url, "postgres")?;
+	let databases = branches::list(project, &url)?;
+
+	match command {
+		BranchCommand::List => {
+			if databases.is_empty() {
+				println!(
+					"no branch has its own database; the main branch's is {}",
+					project.database_name()
+				);
+			}
+
+			for database in &databases {
+				println!("{}  {}", database.name, database.branch);
+			}
+		}
+		BranchCommand::Prune { yes } => {
+			let prunable = branches::prunable(&project.root, &databases)?;
+
+			if prunable.is_empty() {
+				println!("every branch database belongs to a branch still in use");
+				return Ok(());
+			}
+
+			for (database, gone) in &prunable {
+				let why = match gone {
+					branches::Gone::Deleted => "deleted",
+					branches::Gone::Merged => "merged",
+				};
+
+				if *yes {
+					branches::drop_database(&url, &database.name)?;
+					println!(
+						"deleted {} (branch `{}`, {why})",
+						database.name, database.branch
+					);
+				} else {
+					println!(
+						"would delete {} (branch `{}`, {why})",
+						database.name, database.branch
+					);
+				}
+			}
+
+			if !yes {
+				println!("pass --yes to delete them, and every row in them");
+			}
+		}
+	}
+
+	Ok(())
 }
 
 /// The app's database settings, resolved.
@@ -473,6 +631,46 @@ pub(crate) fn create(
 	})
 }
 
+/// Writes a migration from the latest snapshot to `target`, as [`create`]
+/// does, and when the development database at `dev_url` has pushes, makes
+/// the migration theirs: catches the database up with `target`, then
+/// records the migration as applied there and forgets the pushes. When that
+/// fails, the migration is removed again.
+pub(crate) fn create_squashing(
+	project: &Project,
+	name: &str,
+	target: &Schema,
+	options: &CreateOptions,
+	renames: &mut dyn RenameResolver,
+	dev_url: Option<&str>,
+) -> Result<Created> {
+	let squash = match dev_url {
+		Some(url) => push::prepare_squash(project, url, target, options.allow_destructive)?,
+		None => None,
+	};
+	let created = create(project, name, target, options, renames)?;
+
+	if let Some(squash) = squash {
+		let sql = fs::read_to_string(created.directory.join("migration.sql"))?;
+		let migration = leptoskit_db::Migration::new(&created.name, sql);
+
+		if let Err(error) = squash.adopt(&migration, target) {
+			watch::discard(project, &created)?;
+			return Err(error.context(
+				"the development database couldn't take the migration over from its pushes, so \
+				 the migration was removed again",
+			));
+		}
+
+		println!(
+			"the development database's pushes are now migration {}",
+			created.name
+		);
+	}
+
+	Ok(created)
+}
+
 /// Fails when `target` differs from the latest snapshot, listing what changed.
 pub(crate) fn check(history: &History, target: &Schema) -> Result<()> {
 	let target = target.without_rename_hints();
@@ -519,10 +717,19 @@ fn status(project: &Project, url: Option<String>) -> Result<()> {
 			return Ok(());
 		}
 	};
-	let applied = runtime()?.block_on(async {
+	let (applied, pushed) = runtime()?.block_on(async {
 		let db = leptoskit_db::Db::connect(&url).await?;
-		anyhow::Ok(db.applied_migrations().await?)
+		anyhow::Ok((db.applied_migrations().await?, db.pushed_schema().await?))
 	})?;
+
+	if pushed.is_some() {
+		println!(
+			"the database has changes pushed in development; `{} db migration create <name>` \
+			 turns them into a migration",
+			invoked_name()
+		);
+	}
+
 	let pending: Vec<&String> = history
 		.names
 		.iter()

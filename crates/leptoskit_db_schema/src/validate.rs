@@ -45,6 +45,66 @@ pub(crate) fn list(problems: &[Problem]) -> String {
 	text
 }
 
+/// An index on a view: only a materialized view has rows to index, and only
+/// over its own columns.
+fn validate_view_index<'a>(
+	view: &crate::View,
+	index: &'a crate::Index,
+	location: &str,
+	index_names: &mut HashSet<&'a str>,
+	problems: &mut Problems,
+) {
+	problems.identifier(location, "index name", &index.name);
+
+	if !index_names.insert(index.name.as_str()) {
+		problems.push(
+			location,
+			format!(
+				"another table or view already has an index named `{}`",
+				index.name
+			),
+		);
+	}
+
+	if !view.materialized {
+		problems.push(
+			location,
+			format!(
+				"index `{}`: only a materialized view keeps rows to index",
+				index.name
+			),
+		);
+	}
+
+	if index.columns.is_empty() {
+		problems.push(
+			location,
+			format!("index `{}` covers no columns", index.name),
+		);
+	}
+
+	let predicate_column = match &index.predicate {
+		Some(Predicate::IsNull(column) | Predicate::IsNotNull(column)) => Some(column),
+		_ => None,
+	};
+
+	for column in index.columns.iter().chain(predicate_column) {
+		if !view
+			.columns
+			.iter()
+			.any(|candidate| &candidate.name == column)
+		{
+			problems.push(
+				location,
+				format!(
+					"index `{}` names `{column}`, which isn't one of the view's columns",
+					index.name
+				),
+			);
+		}
+	}
+}
+
 impl Schema {
 	/// Checks that every name is valid and unique, and that every key,
 	/// index, and constraint refers to columns that exist with compatible
@@ -149,6 +209,19 @@ impl Schema {
 					format!("the view has no query for {}", self.dialect),
 				);
 			}
+
+			for index in &view.indexes {
+				validate_view_index(view, index, &location, &mut index_names, &mut problems);
+			}
+		}
+
+		if let Err(cycle) = self.views_in_order() {
+			let names: Vec<String> = cycle.iter().map(ToString::to_string).collect();
+			problems.push(
+				&names.join(", "),
+				"these views read each other, so none can be created first; a view is taken to \
+				 read every view its query names",
+			);
 		}
 
 		problems.0

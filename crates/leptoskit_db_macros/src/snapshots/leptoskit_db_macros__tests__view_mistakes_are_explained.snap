@@ -3,8 +3,10 @@ source: crates/leptoskit_db_macros/src/tests.rs
 expression: "report.join(\"\\n\")"
 ---
 no query: a view needs its query: `sql = "SELECT …"`, or `sql(postgres = "…", sqlite = "…")`
-table option: unknown view option; expected `name`, `sql`, `materialized`, `namespace`, `public`, `projection`, or `crate`
-audit: unknown view option; expected `name`, `sql`, `materialized`, `namespace`, `public`, `projection`, or `crate`
+table option: unknown view option; expected `name`, `sql`, `materialized`, `namespace`, `public`, `projection`, `index`, `unique`, or `crate`
+index on a plain view: only a materialized view keeps rows to index: add `materialized`, or drop `index(...)` and `unique(...)`
+audit: unknown view option; expected `name`, `sql`, `materialized`, `namespace`, `public`, `projection`, `index`, `unique`, or `crate`
+live: unknown view option; expected `name`, `sql`, `materialized`, `namespace`, `public`, `projection`, `index`, `unique`, or `crate`
 one dialect: `sql(...)` needs both `postgres = "…"` and `sqlite = "…"`; for one expression on both, write `sql = "…"`
 column option: a view's columns are what its query returns, so they take only `column`, `private`, `secret`, and `in(...)`
 key: a view's columns are what its query returns, so they take only `column`, `private`, `secret`, and `in(...)`

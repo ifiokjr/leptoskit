@@ -6,6 +6,8 @@ mod sqlite;
 use std::collections::HashMap;
 use std::fmt::Write;
 
+pub use postgres::sql_type as postgres_type;
+
 use crate::Dialect;
 use crate::Plan;
 use crate::Risk;

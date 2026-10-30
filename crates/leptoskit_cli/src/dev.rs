@@ -243,6 +243,7 @@ fn watch(
 
 	let (mut watcher, heard, scope) = start_watcher(config, root, events_tx, database)?;
 	watch_roots(&mut watcher, &scope)?;
+	heard.branch.watch(&mut watcher)?;
 
 	anstream::println!(
 		"{DIM}watching{DIM:#} {} {DIM}for changes{DIM:#}",
@@ -275,6 +276,7 @@ struct Watching {
 struct Heard {
 	config_changed: Arc<AtomicBool>,
 	tables_changed: Arc<AtomicBool>,
+	branch: BranchWatch,
 }
 
 /// The files the watcher covers.
@@ -300,6 +302,7 @@ fn start_watcher(
 	// The package that declares the tables: a change there may change them.
 	let tables_dir = database.and_then(|database| database.package_dir(&metadata));
 	let tables_changed = Arc::new(AtomicBool::new(false));
+	let branch = BranchWatch::new(database.is_some(), root);
 
 	let filter = WatchFilter {
 		public: public.clone(),
@@ -316,8 +319,10 @@ fn start_watcher(
 	let watched_config = config_file.clone();
 	let changed = Arc::clone(&config_changed);
 	let tables = Arc::clone(&tables_changed);
+	let switched = branch.clone();
 	let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
 		match event {
+			Ok(event) if switched.heard(&event) => drop(events_tx.send(Wake::Changed)),
 			Ok(event) if event.paths.iter().any(|path| filter.is_relevant(path)) => {
 				if event.paths.contains(&watched_config) {
 					changed.store(true, Ordering::Relaxed);
@@ -346,6 +351,7 @@ fn start_watcher(
 		Heard {
 			config_changed,
 			tables_changed,
+			branch,
 		},
 		Watched {
 			metadata,
@@ -406,12 +412,14 @@ fn rebuild(mut started: Started, watching: &Watching) {
 				Err(RecvTimeoutError::Timeout) => break,
 			}
 		}
-		// Before the rebuild, so the server embeds a migration written now.
-		if let Some(database) = &started.database
-			&& heard.tables_changed.swap(false, Ordering::Relaxed)
-		{
-			database.tables_changed();
-		}
+		// Before the rebuild, so the server starts on the branch's database
+		// and embeds a migration written now.
+		follow_database(
+			started.database.as_mut(),
+			&heard.branch,
+			&heard.tables_changed,
+			started.web.as_mut(),
+		);
 
 		if let Some(web) = &mut started.web {
 			web.rebuild();
@@ -440,6 +448,88 @@ fn reload_native(native: &native::NativeDev, config_changed: &AtomicBool) {
 		Err(error) => {
 			ui::warning(format_args!("could not reload leptoskit.toml: {error:#}"));
 		}
+	}
+}
+
+/// Git's `HEAD`, which it rewrites when the project switches branch: each
+/// branch may have its own database.
+#[derive(Clone)]
+struct BranchWatch {
+	head: Option<PathBuf>,
+	switched: Arc<AtomicBool>,
+}
+
+impl BranchWatch {
+	/// Follows the project's branch, when it has a database.
+	fn new(database: bool, root: &Path) -> Self {
+		Self {
+			head: database
+				.then(|| crate::db::branches::head_file(root))
+				.flatten(),
+			switched: Arc::new(AtomicBool::new(false)),
+		}
+	}
+
+	/// Notes an event about `HEAD`, and says whether it was one.
+	fn heard(&self, event: &notify::Event) -> bool {
+		let heard = self
+			.head
+			.as_ref()
+			.is_some_and(|head| event.paths.contains(head));
+
+		if heard {
+			self.switched.store(true, Ordering::Relaxed);
+		}
+
+		heard
+	}
+
+	/// Watches `HEAD`'s directory, since git replaces the file rather than
+	/// writing it.
+	fn watch(&self, watcher: &mut impl Watcher) -> Result<()> {
+		if let Some(directory) = self.head.as_ref().and_then(|head| head.parent()) {
+			watcher
+				.watch(directory, RecursiveMode::NonRecursive)
+				.with_context(|| format!("could not watch {}", directory.display()))?;
+		}
+
+		Ok(())
+	}
+}
+
+/// Keeps the database in step with the project: the branch's own database
+/// after a switch, which the app server restarts on with the next rebuild,
+/// and the tables after they change.
+fn follow_database(
+	database: Option<&mut crate::db::DevDatabase>,
+	branch: &BranchWatch,
+	tables_changed: &AtomicBool,
+	mut web: Option<&mut Web>,
+) {
+	let Some(database) = database else {
+		return;
+	};
+
+	if branch.switched.swap(false, Ordering::Relaxed) {
+		// Postgres copies a database only while nothing is connected to
+		// it, and the server is connected to the branch it's leaving.
+		if let Some(web) = web.as_deref_mut() {
+			web.stop_app_server();
+		}
+
+		match database.switch_branch() {
+			Ok(Some(env)) => {
+				if let Some(web) = web {
+					web.env = env;
+				}
+			}
+			Ok(None) => {}
+			Err(error) => eprintln!("[db] couldn't switch to the branch's database: {error:#}"),
+		}
+	}
+
+	if tables_changed.swap(false, Ordering::Relaxed) {
+		database.tables_changed();
 	}
 }
 
@@ -550,13 +640,17 @@ impl Web {
 		format!("http://{}", self.address)
 	}
 
-	fn rebuild(&mut self) {
-		// Stop the app server before cargo replaces its binary: Windows
-		// refuses to overwrite a running executable.
+	/// Stops the app server, if it's running, until the next rebuild.
+	fn stop_app_server(&mut self) {
 		if let Some(mut child) = self.app_server.take() {
 			stop(&mut child);
 		}
+	}
 
+	fn rebuild(&mut self) {
+		// Stop the app server before cargo replaces its binary: Windows
+		// refuses to overwrite a running executable.
+		self.stop_app_server();
 		let started = Instant::now();
 
 		match crate::build::run(false, None, None, DEV_OUT) {
@@ -756,6 +850,51 @@ fn open_browser(url: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn the_dev_loop_follows_git_s_head_and_the_tables() {
+		let root = tempfile::tempdir().unwrap();
+		assert!(
+			BranchWatch::new(true, root.path()).head.is_none(),
+			"not a repository"
+		);
+		let status = Command::new("git")
+			.args(["init", "--quiet"])
+			.arg(root.path())
+			.status()
+			.unwrap();
+		assert!(status.success());
+		assert!(
+			BranchWatch::new(false, root.path()).head.is_none(),
+			"no database"
+		);
+
+		let branch = BranchWatch::new(true, root.path());
+		let head = branch.head.clone().unwrap();
+		let event =
+			|path: &Path| notify::Event::new(notify::EventKind::Any).add_path(path.to_path_buf());
+		assert!(!branch.heard(&event(&root.path().join("src/lib.rs"))));
+		assert!(branch.heard(&event(&head)));
+		let mut watcher = notify::recommended_watcher(|_| {}).unwrap();
+		branch.watch(&mut watcher).unwrap();
+
+		// Without a database there's nothing to follow; with one, a switch
+		// outside the development Postgres changes nothing, and changed
+		// tables are read again, which fails here and carries on.
+		let tables = AtomicBool::new(true);
+		follow_database(None, &branch, &tables, None);
+		assert!(tables.load(Ordering::Relaxed));
+
+		let config: LeptoskitConfig =
+			toml::from_str("[app]\nname = \"app\"\n[db]\ndialect = \"sqlite\"\nwatch = \"push\"\n")
+				.unwrap();
+		let mut database = crate::db::DevDatabase::start(&config, root.path())
+			.unwrap()
+			.unwrap();
+		follow_database(Some(&mut database), &branch, &tables, None);
+		assert!(!branch.switched.load(Ordering::Relaxed));
+		assert!(!tables.load(Ordering::Relaxed));
+	}
 
 	fn filter(generated: &[&str]) -> WatchFilter {
 		WatchFilter {

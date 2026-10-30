@@ -343,9 +343,116 @@ impl<J: WritableLink, Near: HasId, Far: HasId> Links<J, Near, Far> {
 	}
 }
 
+impl<J: WritableLink, Near: HasId, Far: HasId> Links<J, Near, Far> {
+	/// Makes `links` exactly the rows linked, each with its properties, in
+	/// one transaction: links the ones that aren't, replaces the properties
+	/// of the ones that are, and unlinks the rest. Returns the links as
+	/// stored, in the order given.
+	///
+	/// ```ignore
+	/// post.tags().set(&db, [(rust, PostTagProperties { position: 0 }), (sql, PostTagProperties { position: 1 })]).await?;
+	/// ```
+	///
+	/// Only what the request sees is replaced: a link to a row it can't
+	/// see stays, unseen, and filters narrow which links are replaced, so
+	/// `post.tags().filter(|tag| tag.kind.eq("topic")).set(…)` leaves other
+	/// tags alone. Every row in `links` must be one the request may see,
+	/// as for [`Links::add`]. When a policy keeps a link from being
+	/// removed, the whole change fails with
+	/// [`DbError::Forbidden`](crate::DbError::Forbidden) and nothing
+	/// changes.
+	pub async fn set(
+		self,
+		connection: &impl Connection,
+		links: impl IntoIterator<Item = (Id<Far>, J::Properties)>,
+	) -> Result<Vec<J>> {
+		let links: Vec<(Id<Far>, J::Properties)> = links.into_iter().collect();
+		let mut seen = std::collections::HashSet::new();
+
+		if let Some((far, _)) = links.iter().find(|(far, _)| !seen.insert(*far)) {
+			return Err(crate::expr::invalid(&format!(
+				"`{far}` is listed twice; a link holds each pair of rows once"
+			)));
+		}
+
+		if self.rows.is_paged() {
+			return Err(crate::expr::invalid(
+				"`set` replaces every link the filters match, so it takes no `limit` or `offset`",
+			));
+		}
+
+		atomically!(connection, |tx| set_links(tx, self, links).await)
+	}
+}
+
+/// Removes the visible links to rows not in `links`, then adds or updates
+/// each of `links`.
+async fn set_links<J: Link, Near: HasId, Far: HasId>(
+	connection: &impl Connection,
+	current: Links<J, Near, Far>,
+	links: Vec<(Id<Far>, J::Properties)>,
+) -> Result<Vec<J>> {
+	let Links {
+		near,
+		near_column,
+		far_column,
+		build,
+		far_filter,
+		rows,
+		..
+	} = current;
+	require_visible(connection, near).await?;
+
+	let near_key = Col::<J, Id<Near>>::new(near_column);
+	let far_key = Col::<J, Id<Far>>::new(far_column);
+	let kept: Vec<Id<Far>> = links.iter().map(|(far, _)| *far).collect();
+	let stale = visible_ends::<J, Near, Far>(
+		connection,
+		rows.filter(|_| near_key.eq(near) & !far_key.in_list(kept.iter().copied())),
+		near_column,
+		far_column,
+		far_filter,
+	);
+	let (condition, _) = stale.into_condition();
+	let condition = condition.unwrap_or_else(Expr::always);
+	let visible = Query::<J>::new()
+		.filter(|_| condition.clone())
+		.count(connection)
+		.await?;
+	let deletable = Query::<J>::new().filter(|_| condition.clone());
+	let removed = if J::HOOKS.after_delete {
+		remove_each_counted(connection, deletable).await?
+	} else {
+		deletable.delete(connection).await?
+	};
+
+	if removed < visible {
+		return Err(crate::policy::refuse::<J>(connection, &condition, Action::Delete).await?);
+	}
+
+	let mut stored = Vec::with_capacity(links.len());
+
+	for (far, properties) in links {
+		require_visible(connection, far).await?;
+		let link = build(near, far, properties);
+		stored.push(crate::write::upsert(connection, link, &[J::FROM, J::TO]).await?);
+	}
+
+	Ok(stored)
+}
+
 /// Deletes the links `links` finds that the request may delete, one at a
 /// time, so the link table's hooks run for each.
 async fn remove_each<J: Link>(connection: &impl Connection, links: Query<J>) -> Result<bool> {
+	Ok(remove_each_counted(connection, links).await? > 0)
+}
+
+/// Deletes the links `links` finds that the request may delete, one at a
+/// time, and returns how many it deleted.
+async fn remove_each_counted<J: Link>(
+	connection: &impl Connection,
+	links: Query<J>,
+) -> Result<u64> {
 	let (filter, _) = links.into_condition();
 	let mut condition = filter.unwrap_or_else(Expr::always);
 
@@ -362,7 +469,7 @@ async fn remove_each<J: Link>(connection: &impl Connection, links: Query<J>) -> 
 	}
 
 	let rows = crate::write::select_for_update::<J>(connection, &condition).await?;
-	let removed = !rows.is_empty();
+	let removed = rows.len() as u64;
 
 	for mut row in rows {
 		crate::write::delete(connection, &mut row).await?;

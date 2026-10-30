@@ -135,8 +135,16 @@ impl std::fmt::Debug for AuditReader {
 	}
 }
 
-/// What the audit log needs to know about a table to record its rows,
-/// without its Rust type: cascades reach tables they know only by name.
+/// Whether changes to `T`'s rows are recorded: in the audit log, or as live
+/// changes for subscribers. Writes to such a table read the rows they
+/// change, and run in a transaction.
+pub(crate) const fn records<T: Table>() -> bool {
+	T::AUDIT || T::LIVE
+}
+
+/// What the audit log and live changes need to know about a table to record
+/// its rows, without its Rust type: cascades reach tables they know only by
+/// name.
 #[derive(Clone, Copy)]
 pub(crate) struct Subject {
 	pub(crate) table: fn() -> TableName,
@@ -147,6 +155,10 @@ pub(crate) struct Subject {
 	/// the same whichever statement returned them: SQLite returns a UUID as
 	/// bytes, for one.
 	pub(crate) normalize: fn(Vec<Value>) -> Result<Vec<Value>>,
+	/// Whether changes go into the audit log.
+	pub(crate) audit: bool,
+	/// Whether changes are published to live subscribers.
+	pub(crate) live: bool,
 }
 
 impl Subject {
@@ -157,10 +169,21 @@ impl Subject {
 			key: T::KEY,
 			secret: T::SECRET,
 			normalize: normalize::<T>,
+			audit: T::AUDIT,
+			live: T::LIVE,
 		}
 	}
 
-	fn key_of(&self, values: &[Value]) -> Vec<Value> {
+	/// The subject, when its table records changes at all.
+	pub(crate) const fn recorded<T: Table>() -> Option<Self> {
+		if records::<T>() {
+			Some(Self::of::<T>())
+		} else {
+			None
+		}
+	}
+
+	pub(crate) fn key_of(&self, values: &[Value]) -> Vec<Value> {
 		self.key
 			.iter()
 			.filter_map(|key| {
@@ -203,7 +226,7 @@ pub(crate) async fn record<T: Table>(
 	before: Option<&T>,
 	after: Option<&T>,
 ) -> Result<()> {
-	if !T::AUDIT {
+	if !records::<T>() {
 		return Ok(());
 	}
 
@@ -219,7 +242,9 @@ pub(crate) async fn record<T: Table>(
 /// limits on bound values.
 const BATCH: usize = 200;
 
-/// Records changes to rows of one table, in as few statements as fit.
+/// Records changes to rows of one table: in the audit log, in as few
+/// statements as fit, and for live subscribers, once the transaction
+/// commits.
 pub(crate) async fn record_changes(
 	connection: &impl Connection,
 	subject: Subject,
@@ -229,8 +254,10 @@ pub(crate) async fn record_changes(
 	let actor = access.actor().map(|actor| actor.uuid());
 	let reason = access.reason().map(ToString::to_string);
 	let at = crate::now();
-	let table = (subject.table)().to_string();
+	let name = (subject.table)();
+	let table = name.to_string();
 	let mut entries = Vec::with_capacity(changes.len());
+	let mut published = Vec::new();
 
 	for change in changes {
 		let before = change.before.map(subject.normalize).transpose()?;
@@ -238,6 +265,21 @@ pub(crate) async fn record_changes(
 		let Some(values) = after.as_ref().or(before.as_ref()) else {
 			continue;
 		};
+
+		if subject.live {
+			published.push(crate::live::RowChange::new(
+				&subject,
+				name.clone(),
+				change.op,
+				before.as_deref(),
+				after.as_deref(),
+			));
+		}
+
+		if !subject.audit {
+			continue;
+		}
+
 		let entry = AuditEntry {
 			id: Id::new(),
 			at,
@@ -277,6 +319,10 @@ pub(crate) async fn record_changes(
 		connection.execute(sql.finish()).await?;
 	}
 
+	if !published.is_empty() {
+		connection.publish(published).await?;
+	}
+
 	Ok(())
 }
 
@@ -287,7 +333,7 @@ fn row_key_of(key: &[Value]) -> String {
 
 /// A value as JSON: text for UUIDs, instants (RFC 3339), dates, and bytes
 /// (hexadecimal); numbers that JSON can't hold, such as `NaN`, as text.
-fn json(value: &Value) -> serde_json::Value {
+pub(crate) fn json(value: &Value) -> serde_json::Value {
 	use serde_json::Value as Json;
 
 	match value {
@@ -363,6 +409,8 @@ mod tests {
 			key: &["id"],
 			secret: &["password_hash"],
 			normalize: Ok,
+			audit: true,
+			live: false,
 		};
 		let values = [
 			Value::Int(1),
@@ -379,6 +427,29 @@ mod tests {
 			format!("{:?}", AuditReader::everything()),
 			"AuditReader { .. }"
 		);
+	}
+
+	/// A table whose changes go to live subscribers only.
+	#[crate::table(name = "live_things", live)]
+	pub struct Thing {
+		pub id: Id<Self>,
+		#[db(secret)]
+		pub token: String,
+	}
+
+	#[test]
+	fn only_tables_that_record_changes_have_a_subject() {
+		assert!(Subject::recorded::<AuditEntry>().is_none());
+		let subject = Subject::recorded::<Thing>().unwrap();
+		assert!(subject.live && !subject.audit);
+		assert_eq!(subject.secret, ["token"]);
+		assert_eq!((subject.table)(), TableName::new("live_things"));
+		assert!(records::<Thing>() && !records::<AuditEntry>());
+
+		let entry = table::TableEntry::of::<Thing>();
+		assert_eq!((entry.name)(), TableName::new("live_things"));
+		assert_eq!((entry.definition)().columns.len(), 2);
+		assert!(entry.subject.live);
 	}
 
 	#[test]
