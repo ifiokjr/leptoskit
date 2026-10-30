@@ -11,9 +11,14 @@ use leptoskit_db::ReadEntry;
 use leptoskit_db::Tracked;
 use leptoskit_db::Tx;
 use leptoskit_query::BoxFuture;
+use serde::Serialize;
 
 use super::Identity;
 use super::OperationContext;
+use super::effects::Effects;
+use super::effects::Enqueued;
+use super::effects::JobRecord;
+use super::effects::Published;
 use super::sealed::Sealed;
 use crate::Error;
 use crate::Operation;
@@ -127,6 +132,8 @@ pub struct MutationCx {
 	identity: Identity,
 	attempt: u32,
 	after_commit: Mutex<Vec<AfterCommit>>,
+	enqueued: Mutex<Vec<Enqueued>>,
+	published: Mutex<Vec<Published>>,
 }
 
 impl MutationCx {
@@ -136,6 +143,8 @@ impl MutationCx {
 			identity,
 			attempt,
 			after_commit: Mutex::new(Vec::new()),
+			enqueued: Mutex::new(Vec::new()),
+			published: Mutex::new(Vec::new()),
 		}
 	}
 
@@ -197,6 +206,41 @@ impl MutationCx {
 			.ok_or_else(|| Error::unauthorized("sign in to do this"))
 	}
 
+	/// Enqueues `job` in the mutation's transaction: the job exists only if
+	/// the mutation commits, never when it rolls back or is retried.
+	///
+	/// The job workers that run queued jobs arrive in L5. Until then the
+	/// record is kept with the mutation's effects and released, unrun, once
+	/// it commits.
+	pub fn enqueue<J: Serialize>(&self, job: J) -> Enqueued {
+		let enqueued = Enqueued::new(JobRecord::new(job));
+		self.enqueued
+			.lock()
+			.unwrap_or_else(PoisonError::into_inner)
+			.push(enqueued.clone());
+		enqueued
+	}
+
+	/// Publishes an ephemeral message after the mutation commits: at most
+	/// once, never when it rolls back, and never to a caller who leaves
+	/// before the commit.
+	///
+	/// Typed channels and their delivery arrive in L4. Until then the message
+	/// is kept with the mutation's effects and released, unsent, once it
+	/// commits.
+	pub fn publish(&self, channel: impl Into<String>, message: impl Serialize) {
+		let Ok(message) = serde_json::to_value(message) else {
+			return;
+		};
+		self.published
+			.lock()
+			.unwrap_or_else(PoisonError::into_inner)
+			.push(Published {
+				channel: channel.into(),
+				message,
+			});
+	}
+
 	/// Which run of the body this is: `0` the first time, `1` after the
 	/// first retry, and so on.
 	pub fn attempt(&self) -> u32 {
@@ -215,13 +259,24 @@ impl MutationCx {
 			.push(Box::pin(work));
 	}
 
-	/// The transaction, and the work to run once it commits.
-	pub(crate) fn into_parts(self) -> (Tx, Vec<AfterCommit>) {
+	/// The transaction, and everything it leaves behind once it commits.
+	pub(crate) fn into_parts(self) -> (Tx, Effects) {
 		(
 			self.tx,
-			self.after_commit
-				.into_inner()
-				.unwrap_or_else(PoisonError::into_inner),
+			Effects {
+				after_commit: self
+					.after_commit
+					.into_inner()
+					.unwrap_or_else(PoisonError::into_inner),
+				jobs: self
+					.enqueued
+					.into_inner()
+					.unwrap_or_else(PoisonError::into_inner),
+				publications: self
+					.published
+					.into_inner()
+					.unwrap_or_else(PoisonError::into_inner),
+			},
 		)
 	}
 }

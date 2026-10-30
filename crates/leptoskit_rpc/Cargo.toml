@@ -13,14 +13,15 @@ rust-version.workspace = true
 description = "The app's operations: leptos server functions with retries and error classification, queries and mutations that run on the database, one client for every platform, and publishing it all to generated clients."
 
 [dependencies]
-axum = { workspace = true, optional = true }
+axum = { workspace = true, optional = true, features = ["ws"] }
 chrono = { workspace = true, optional = true }
+# The retry backoff timer, which covers every host leptoskit_query does, and
+# the cache the client's queries and mutations live in.
+futures = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 inventory = { workspace = true, optional = true }
 leptos = { workspace = true }
 leptoskit_db = { workspace = true, optional = true }
-# The retry backoff timer, which covers every host leptoskit_query does, and
-# the cache the client's queries and mutations live in.
 leptoskit_query = { workspace = true }
 leptoskit_rpc_codegen = { workspace = true, optional = true, features = [] }
 leptoskit_rpc_macros = { workspace = true }
@@ -32,6 +33,7 @@ serde_json = { workspace = true }
 sha2 = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = ["rt"] }
+uuid = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 leptoskit_bridge = { workspace = true, optional = true }
@@ -51,6 +53,7 @@ http-body-util = "0.1"
 insta = { workspace = true, features = ["json"] }
 leptos = { workspace = true, features = ["csr", "ssr"] }
 leptoskit_db = { workspace = true, features = ["postgres", "sqlite"] }
+leptoskit_db_schema = { workspace = true }
 parking_lot = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
@@ -99,11 +102,21 @@ guest = [
 server = ["axum", "client", "leptoskit_rpc_macros/server", "dep:tokio"]
 # Queries and mutations over `leptoskit_db`: their contexts, `Identify`, and
 # the `rpc` schema pack's receipts. Pick a driver with `postgres` or `sqlite`.
-db = ["server", "dep:chrono", "dep:leptoskit_db", "leptoskit_db/server", "dep:sha2"]
+db = [
+	"server",
+	"dep:chrono",
+	"dep:leptoskit_db",
+	"dep:sha2",
+	"dep:uuid",
+	"leptoskit_db/server",
+]
+# The live hub: subscriptions over queries, and the fan-out of committed
+# changes to every connection watching a table. Needs a driver.
+live = ["db", "dep:futures"]
 # Runs operations on Postgres.
-postgres = ["db", "leptoskit_db/postgres"]
+postgres = ["db", "leptoskit_db/postgres", "live"]
 # Runs operations on SQLite.
-sqlite = ["db", "leptoskit_db/sqlite"]
+sqlite = ["db", "leptoskit_db/sqlite", "live"]
 
 [lints]
 workspace = true
