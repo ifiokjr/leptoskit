@@ -1,0 +1,134 @@
+error[E0277]: the trait bound `Owner: Table` is not satisfied
+  --> tests/ui/shape_through_a_polymorphic_link.rs:34:13
+   |
+34 | #[db(from = Owner)]
+   |             ^^^^^ unsatisfied trait bound
+   |
+help: the trait `Table` is not implemented for `Owner`
+  --> tests/ui/shape_through_a_polymorphic_link.rs:4:1
+   |
+ 4 | #[leptoskit_db::polymorphic(name = "owners")]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: the following other types implement trait `Table`
+  --> tests/ui/shape_through_a_polymorphic_link.rs:4:1
+   |
+ 4 |   #[leptoskit_db::polymorphic(name = "owners")]
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `OwnerRow`
+...
+10 |   #[leptoskit_db::table(name = "users", extends = Owner)]
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `User`
+...
+17 |   #[leptoskit_db::table(name = "budgets")]
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Budget`
+   |
+  ::: $WORKSPACE/crates/leptoskit_db/src/audit.rs
+   |
+   | / #[table(
+   | |     name = "_leptoskit_audit",
+   | |     __internal,
+   | |     index(table_name, row_key),
+   | |     index(at)
+   | | )]
+   | |__^ `AuditEntry`
+note: required by a bound in `leptoskit_db::Shape::From`
+  --> $WORKSPACE/crates/leptoskit_db/src/shape.rs
+   |
+   | pub trait Shape: Sized + 'static {
+   |     /// The table each shaped row comes from.
+   |     type From: Table;
+   |                ^^^^^ required by this bound in `Shape::From`
+   = note: this error originates in the attribute macro `leptoskit_db::polymorphic` which comes from the expansion of the attribute macro `table` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0599]: the method `one` exists for struct `leptoskit_db::__private::shape::Relation<Budget, Owner, leptoskit_db::__private::shape::One>`, but its trait bounds were not satisfied
+  --> tests/ui/shape_through_a_polymorphic_link.rs:25:10
+   |
+ 4 | #[leptoskit_db::polymorphic(name = "owners")]
+   | --------------------------------------------- doesn't satisfy `Owner: Table`
+...
+25 | #[derive(leptoskit_db::Shape)]
+   |          ^^^^^^^^^^^^^^^^^^^ method cannot be called due to unsatisfied trait bounds
+26 | #[db(from = Budget)]
+   |
+   = note: the following trait bounds were not satisfied:
+           `Owner: Table`
+note: the trait `Table` must be implemented
+  --> $WORKSPACE/crates/leptoskit_db/src/table.rs
+   |
+   | pub trait Table: Sized + 'static {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = note: this error originates in the derive macro `leptoskit_db::Shape` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Owner: Table` is not satisfied
+  --> tests/ui/shape_through_a_polymorphic_link.rs:34:13
+   |
+34 | #[db(from = Owner)]
+   |             ^^^^^ unsatisfied trait bound
+   |
+help: the trait `Table` is not implemented for `Owner`
+  --> tests/ui/shape_through_a_polymorphic_link.rs:4:1
+   |
+ 4 | #[leptoskit_db::polymorphic(name = "owners")]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: the following other types implement trait `Table`
+  --> tests/ui/shape_through_a_polymorphic_link.rs:4:1
+   |
+ 4 |   #[leptoskit_db::polymorphic(name = "owners")]
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `OwnerRow`
+...
+10 |   #[leptoskit_db::table(name = "users", extends = Owner)]
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `User`
+...
+17 |   #[leptoskit_db::table(name = "budgets")]
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Budget`
+   |
+  ::: $WORKSPACE/crates/leptoskit_db/src/audit.rs
+   |
+   | / #[table(
+   | |     name = "_leptoskit_audit",
+   | |     __internal,
+   | |     index(table_name, row_key),
+   | |     index(at)
+   | | )]
+   | |__^ `AuditEntry`
+note: required by a bound in `leptoskit_db::__private::shape::Selected::column`
+  --> $WORKSPACE/crates/leptoskit_db/src/shape.rs
+   |
+   | impl Selected {
+   |     /// A column of the shape's table.
+   |     pub fn column<T: Table, V: Column>(column: Col<T, V>) -> Self {
+   |                      ^^^^^ required by this bound in `Selected::column`
+   = note: this error originates in the attribute macro `leptoskit_db::polymorphic` which comes from the expansion of the attribute macro `table` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Owner: Table` is not satisfied
+  --> tests/ui/shape_through_a_polymorphic_link.rs:33:10
+   |
+33 | #[derive(leptoskit_db::Shape)]
+   |          ^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Table` is not implemented for `Owner`
+  --> tests/ui/shape_through_a_polymorphic_link.rs:4:1
+   |
+ 4 | #[leptoskit_db::polymorphic(name = "owners")]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: the following other types implement trait `Table`
+  --> tests/ui/shape_through_a_polymorphic_link.rs:4:1
+   |
+ 4 |   #[leptoskit_db::polymorphic(name = "owners")]
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `OwnerRow`
+...
+10 |   #[leptoskit_db::table(name = "users", extends = Owner)]
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `User`
+...
+17 |   #[leptoskit_db::table(name = "budgets")]
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Budget`
+   |
+  ::: $WORKSPACE/crates/leptoskit_db/src/audit.rs
+   |
+   | / #[table(
+   | |     name = "_leptoskit_audit",
+   | |     __internal,
+   | |     index(table_name, row_key),
+   | |     index(at)
+   | | )]
+   | |__^ `AuditEntry`
+   = note: this error originates in the derive macro `leptoskit_db::Shape` which comes from the expansion of the attribute macro `table` (in Nightly builds, run with -Z macro-backtrace for more info)

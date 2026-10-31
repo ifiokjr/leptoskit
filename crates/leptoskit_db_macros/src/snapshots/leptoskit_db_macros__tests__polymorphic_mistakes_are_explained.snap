@@ -1,0 +1,17 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "report.join(\"\\n\")"
+---
+no name: a polymorphic table needs an explicit name for its supertype table, such as #[db::polymorphic(name = "actors")]
+unknown option: unknown polymorphic option; expected `name`, `namespace`, `public`, `live`, `audit`, or `crate`
+generic: a polymorphic table can't be generic
+unit variant: each variant holds one table, such as `User(User)`
+two tables in a variant: each variant holds one table, such as `User(User)`
+named fields: each variant holds one table, such as `User(User)`
+one table twice: `User` is already the `User` variant: each table is one variant
+no variants: a polymorphic table needs at least one variant
+options on the enum: a polymorphic table takes its options in `#[db::polymorphic(...)]`
+unknown variant option: a variant takes `rename = "..."`, the kind its supertype rows record
+a variant with a composite key: a variant of a polymorphic table is keyed by a single `id: Id<Self>`, which its supertype row shares
+a variant keyed by another table: a variant of a polymorphic table is keyed by a single `id: Id<Self>`, which its supertype row shares
+a link can't be a variant: unknown link option; expected `name`, `from`, `to`, `from_column`, `to_column`, `exclusive`, `namespace`, `public`, `projection`, `index`, `check`, `hooks`, `audit`, `live`, `search`, `renamed_from`, `pack`, or `crate`

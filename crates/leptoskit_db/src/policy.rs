@@ -232,6 +232,17 @@ impl Subquery {
 		}
 	}
 
+	/// The rows of `table` that `policy` allows, as a condition on another
+	/// table reads them: a variant table reading its supertype's.
+	pub(crate) fn rows_of(table: TableName, policy: Expr) -> Self {
+		Self {
+			table,
+			filter: None,
+			policy: Some(Box::new(policy)),
+			deleted_at: None,
+		}
+	}
+
 	/// Whether every row of the table qualifies, so the subquery can be left
 	/// out.
 	pub(crate) fn is_everything(&self) -> bool {
@@ -347,13 +358,15 @@ pub(crate) fn row_security<T: Table>()
 	use leptoskit_db_schema::PolicyCommand;
 	use leptoskit_db_schema::RowPolicy;
 
-	let policies = T::policies();
+	let cx = Context::symbolic();
+	let access = Access::Context(cx.clone());
 
-	if policies.is_empty() {
+	// A table with no rules of its own, and none from a supertype, is open.
+	if condition::<T>(&access, Action::Select).is_none() {
 		return Ok(None);
 	}
 
-	let cx = Context::symbolic();
+	let rules_for = |action| condition::<T>(&access, action).unwrap_or_else(Expr::always);
 	let mut rendered = Vec::new();
 
 	for (action, command) in [
@@ -362,14 +375,14 @@ pub(crate) fn row_security<T: Table>()
 		(Action::Update, PolicyCommand::Update),
 		(Action::Delete, PolicyCommand::Delete),
 	] {
-		let condition = evaluate(policies, &cx, action);
+		let condition = rules_for(action);
 		// The database layer soft-deletes with an `UPDATE` it checks against
 		// the delete rules, which Postgres checks against the update
 		// policy: that admits what the delete rules allow too, as long as
 		// the row it leaves is soft-deleted.
 		let soft_delete = T::DELETED_AT
 			.filter(|_| action == Action::Update)
-			.map(|column| (evaluate(policies, &cx, Action::Delete), column));
+			.map(|column| (rules_for(Action::Delete), column));
 		let mut counted = Vec::new();
 		subquery_tables(&condition, &mut counted);
 
@@ -565,9 +578,20 @@ impl Default for Access {
 }
 
 /// The condition a row must meet for `action`, or `None` when nothing
-/// restricts it: the table has no policies, or the connection bypasses
-/// them.
+/// restricts it: neither the table nor its supertype has policies, or the
+/// connection bypasses them.
 pub(crate) fn condition<T: Table>(access: &Access, action: Action) -> Option<Expr> {
+	match (
+		own_condition::<T>(access, action),
+		crate::polymorphic::inherited::<T>(access, action),
+	) {
+		(Some(own), Some(inherited)) => Some(own & inherited),
+		(own, inherited) => own.or(inherited),
+	}
+}
+
+/// What the table's own rules require for `action`.
+fn own_condition<T: Table>(access: &Access, action: Action) -> Option<Expr> {
 	let policies = T::policies();
 
 	if policies.is_empty() {
@@ -625,26 +649,29 @@ fn evaluate<T: Table>(policies: &[Policy<T>], cx: &Context, action: Action) -> E
 	}
 }
 
+/// A rule a refusal is explained by: the rows it matches, its message, and
+/// whether it denies.
+pub(crate) type Explanation = (Expr, Option<&'static str>, bool);
+
 /// The rules a refused write is checked against to explain itself: each
-/// `deny` that matched, then the `allow`s, in declaration order.
-pub(crate) fn explanations<T: Table>(
-	access: &Access,
-	action: Action,
-) -> Vec<(Expr, Option<&'static str>, bool)> {
+/// `deny` that matched, then the `allow`s, in declaration order, the
+/// table's own before its supertype's.
+pub(crate) fn explanations<T: Table>(access: &Access, action: Action) -> Vec<Explanation> {
 	let Access::Context(cx) = access else {
 		return Vec::new();
 	};
 	let columns = T::columns();
-	let policies = T::policies()
+	let mut rules: Vec<Explanation> = T::policies()
 		.iter()
-		.filter(|policy| policy.actions.contains(&action));
-	let (denies, allows): (Vec<_>, Vec<_>) = policies.partition(|policy| policy.deny);
-
-	denies
-		.into_iter()
-		.chain(allows)
+		.filter(|policy| policy.actions.contains(&action))
 		.map(|policy| ((policy.rule)(columns, cx), policy.message, policy.deny))
-		.collect()
+		.chain(crate::polymorphic::inherited_explanations::<T>(
+			access, action,
+		))
+		.collect();
+	// Stable, so each group keeps its order.
+	rules.sort_by_key(|(_, _, deny)| !deny);
+	rules
 }
 
 /// The rows with these keys, each key in [`Table::KEY`] order.

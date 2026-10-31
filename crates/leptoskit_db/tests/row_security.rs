@@ -375,6 +375,68 @@ async fn raw_sql_is_filtered_by_the_database() {
 	);
 }
 
+/// What a save and an upsert the rules refuse fail with, for Grace.
+async fn refusals(db: &Db) -> Vec<String> {
+	let (ada, grace) = seed(db).await;
+	let as_grace = as_writer(db, grace);
+	let mut locked = Post::query()
+		.filter(|post| post.title.eq("grace-locked".to_string()))
+		.one(&db.system("finding"))
+		.await
+		.unwrap();
+	locked.title = "unlocked".into();
+	let saved = locked.save(&as_grace).await.unwrap_err();
+	let forged = NewPost {
+		writer_id: ada,
+		title: "forged".into(),
+		published: true,
+		locked: false,
+	}
+	.upsert(&as_grace, |post| post.id)
+	.await
+	.unwrap_err();
+	let mut taken = Post::query()
+		.filter(|post| post.title.eq("grace-shared".to_string()))
+		.one(&db.system("finding"))
+		.await
+		.unwrap();
+	taken.writer_id = ada;
+	let given_away = taken.save(&as_grace).await.unwrap_err();
+
+	[saved, forged, given_away]
+		.iter()
+		.map(|error| {
+			assert!(error.is_forbidden(), "{error:?}");
+			kind(error)
+		})
+		.collect()
+}
+
+#[tokio::test]
+async fn refused_saves_and_upserts_say_which_rule_refused_them() {
+	let Some(cluster) = PostgresCluster::start() else {
+		return;
+	};
+	let with = refusals(&secured(&cluster).await).await;
+	let without = refusals(&plain(&cluster).await).await;
+	// The database layer checks first, so Postgres's own refusal, which
+	// names no rule, never reaches the caller.
+	assert!(
+		with.iter()
+			.all(|refusal| !refusal.contains("row-level security")),
+		"{with:?}"
+	);
+	assert_eq!(with, without);
+	assert_eq!(
+		with,
+		[
+			"forbidden: you may not change this `posts` row",
+			"forbidden: you may not insert this `posts` row",
+			"forbidden: you may not change this `posts` row",
+		]
+	);
+}
+
 /// The URL of the database `db` uses, as its owning role, for a second
 /// client that sets nothing.
 async fn db_url(db: &Db, cluster: &PostgresCluster) -> String {

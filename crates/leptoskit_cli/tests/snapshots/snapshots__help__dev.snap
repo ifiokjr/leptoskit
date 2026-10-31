@@ -29,6 +29,9 @@ Options:
       --devtools-port <PORT>
           The port the `DevTools` hub binds; defaults to 7340
 
+      --studio
+          Serve the database studio beside the app, as `leptoskit db studio` does
+
   -h, --help
           Print help (see a summary with '-h')
 

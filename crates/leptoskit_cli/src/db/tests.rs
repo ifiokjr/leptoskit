@@ -687,3 +687,93 @@ fn the_push_and_branch_commands_say_what_they_did() {
 		[] as [super::branches::BranchDatabase; 0]
 	);
 }
+
+#[test]
+fn the_studio_turns_on_through_whichever_crate_the_db_crate_uses() {
+	let manifest = |dependencies: &str| -> toml::Table {
+		format!("[package]\nname = \"app_db\"\n\n[dependencies]\n{dependencies}\n")
+			.parse()
+			.unwrap()
+	};
+
+	assert_eq!(
+		super::studio_features(
+			&manifest("leptoskit_db = \"0.1\""),
+			leptoskit_config::DbDialect::Sqlite
+		)
+		.unwrap(),
+		["leptoskit_db/studio", "leptoskit_db/sqlite"]
+	);
+	assert_eq!(
+		super::studio_features(
+			&manifest("leptoskit = { version = \"0.1\", features = [\"db\"] }"),
+			leptoskit_config::DbDialect::Postgres
+		)
+		.unwrap(),
+		["leptoskit/db-studio", "leptoskit/db-postgres"]
+	);
+	let error = super::studio_features(
+		&manifest("serde = \"1\""),
+		leptoskit_config::DbDialect::Postgres,
+	)
+	.unwrap_err();
+	assert!(
+		error
+			.to_string()
+			.contains("neither leptoskit_db nor leptoskit")
+	);
+}
+
+#[test]
+fn the_studio_runs_the_export_test_with_its_settings() {
+	let root = tempfile::tempdir().unwrap();
+	std::fs::write(
+		root.path().join("Cargo.toml"),
+		"[workspace]\nmembers = [\"app_db\"]\nresolver = \"2\"\n",
+	)
+	.unwrap();
+	std::fs::create_dir_all(root.path().join("app_db/src")).unwrap();
+	std::fs::write(
+		root.path().join("app_db/Cargo.toml"),
+		"[package]\nname = \"app_db\"\nversion = \"0.0.0\"\nedition = \
+		 \"2024\"\n\n[dependencies]\nleptoskit_db = \"0.1\"\n",
+	)
+	.unwrap();
+	std::fs::write(root.path().join("app_db/src/lib.rs"), "").unwrap();
+	let project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+
+	// `cargo metadata --no-deps` reads the manifest without resolving it.
+	let command = project.studio("sqlite::memory:", 4000).unwrap();
+	let args: Vec<String> = command
+		.get_args()
+		.map(|arg| arg.to_string_lossy().into_owned())
+		.collect();
+	assert_eq!(
+		args,
+		[
+			"test",
+			"--quiet",
+			"--package",
+			"app_db",
+			"--lib",
+			"--features",
+			"server,leptoskit_db/studio,leptoskit_db/sqlite",
+			"--",
+			"__leptoskit_db_export_schema",
+			"--nocapture",
+		]
+	);
+	let env: std::collections::HashMap<String, String> = command
+		.get_envs()
+		.filter_map(|(name, value)| {
+			Some((
+				name.to_string_lossy().into_owned(),
+				value?.to_string_lossy().into_owned(),
+			))
+		})
+		.collect();
+	assert_eq!(env[leptoskit_db::STUDIO_ENV], "127.0.0.1:4000");
+	assert_eq!(env[leptoskit_db::STUDIO_DATABASE_ENV], "sqlite::memory:");
+	assert_eq!(env[leptoskit_db::DIALECT_ENV], "sqlite");
+	assert!(env[leptoskit_db::STUDIO_MIGRATIONS_ENV].ends_with("migrations"));
+}

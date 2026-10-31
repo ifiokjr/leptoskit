@@ -77,6 +77,11 @@ pub trait Table: Sized + 'static {
 	/// Whether the table is a view, which nothing writes to.
 	const READ_ONLY: bool = false;
 
+	/// The supertype of a variant of a polymorphic table,
+	/// `#[db::table(extends = …)]`, whose policies the table inherits.
+	#[doc(hidden)]
+	const SUPERTYPE: Option<crate::__private::polymorphic::Supertype> = None;
+
 	/// The typed columns, for filters and orderings.
 	type Columns: 'static;
 
@@ -151,6 +156,26 @@ pub trait Table: Sized + 'static {
 		async { Ok(()) }
 	}
 
+	/// Inserts a variant row's supertype row, before the row itself.
+	#[doc(hidden)]
+	fn write_supertype(
+		&self,
+		connection: &impl crate::Connection,
+	) -> impl Future<Output = crate::Result<()>> + Send {
+		let _ = connection;
+		async { Ok(()) }
+	}
+
+	/// Removes the supertype rows of variant rows just removed, by key.
+	#[doc(hidden)]
+	fn remove_supertypes(
+		keys: Vec<Value>,
+		connection: &impl crate::Connection,
+	) -> impl Future<Output = crate::Result<()>> + Send {
+		let _ = (keys, connection);
+		async { Ok(()) }
+	}
+
 	/// The table's access policy, which `#[db::policy]` declares. Empty means
 	/// open to server code.
 	fn policies() -> &'static [crate::Policy<Self>] {
@@ -188,6 +213,13 @@ pub struct TableEntry {
 	images: VisibleImages,
 	/// The table's policies as row-level security.
 	row_security: fn() -> Result<Option<leptoskit_db_schema::RowSecurity>, String>,
+	/// What the studio does to the table.
+	#[cfg(all(
+		feature = "studio",
+		debug_assertions,
+		any(feature = "postgres", feature = "sqlite")
+	))]
+	pub(crate) studio: crate::studio::TableOps,
 }
 
 /// Builds the statements that check rows of a table, which aren't stored,
@@ -212,6 +244,12 @@ impl TableEntry {
 			#[cfg(any(feature = "postgres", feature = "sqlite"))]
 			images: crate::live::visible_images::<T>,
 			row_security: crate::policy::row_security::<T>,
+			#[cfg(all(
+				feature = "studio",
+				debug_assertions,
+				any(feature = "postgres", feature = "sqlite")
+			))]
+			studio: crate::studio::TableOps::of::<T>(),
 		}
 	}
 
@@ -632,6 +670,18 @@ pub const SCHEMA_OUT_ENV: &str = "LEPTOSKIT_DB_SCHEMA_OUT";
 /// The environment variable naming the dialect `export_schema!` exports for.
 pub const DIALECT_ENV: &str = "LEPTOSKIT_DB_DIALECT";
 
+/// The environment variable that makes `export_schema!` serve the studio
+/// instead of exporting the schema: the loopback address to listen on, such
+/// as `127.0.0.1:0`. `leptoskit db studio` sets it.
+pub const STUDIO_ENV: &str = "LEPTOSKIT_DB_STUDIO";
+
+/// The environment variable naming the database the studio opens.
+pub const STUDIO_DATABASE_ENV: &str = "LEPTOSKIT_DB_STUDIO_DATABASE";
+
+/// The environment variable naming the app's migrations directory, for the
+/// studio's migrations page.
+pub const STUDIO_MIGRATIONS_ENV: &str = "LEPTOSKIT_DB_STUDIO_MIGRATIONS";
+
 /// Writes every table's schema as `schema.json` when `leptoskit db` asks, by
 /// setting [`SCHEMA_OUT_ENV`]; otherwise does nothing, so an ordinary
 /// `cargo test` passes through it.
@@ -642,6 +692,11 @@ pub const DIALECT_ENV: &str = "LEPTOSKIT_DB_DIALECT";
 /// panic is the error `leptoskit db` shows.
 #[doc(hidden)]
 pub fn export_schema_if_requested() {
+	if std::env::var_os(STUDIO_ENV).is_some() {
+		serve_studio();
+		return;
+	}
+
 	let Some(out) = std::env::var_os(SCHEMA_OUT_ENV) else {
 		return;
 	};
@@ -668,4 +723,31 @@ pub fn export_schema_if_requested() {
 		}
 		Err(error) => panic!("{error}"),
 	}
+}
+
+/// Serves the studio, when this build has it.
+#[cfg(all(
+	feature = "studio",
+	debug_assertions,
+	any(feature = "postgres", feature = "sqlite")
+))]
+fn serve_studio() {
+	crate::studio::serve_from_env();
+}
+
+/// Says why this build has no studio.
+///
+/// # Panics
+///
+/// Always: the panic is the message `leptoskit db studio` shows.
+#[cfg(not(all(
+	feature = "studio",
+	debug_assertions,
+	any(feature = "postgres", feature = "sqlite")
+)))]
+fn serve_studio() {
+	panic!(
+		"this build has no studio: it needs the `studio` feature of leptoskit_db, a database \
+		 driver, and debug assertions, which release builds turn off"
+	);
 }

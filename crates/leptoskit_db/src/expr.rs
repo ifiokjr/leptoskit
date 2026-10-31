@@ -592,6 +592,17 @@ pub struct Order {
 }
 
 impl Order {
+	/// An ordering by a column known only by name, such as one the studio
+	/// was asked to sort by.
+	#[cfg(all(
+		feature = "studio",
+		debug_assertions,
+		any(feature = "postgres", feature = "sqlite")
+	))]
+	pub(crate) const fn by(column: &'static str, descending: bool) -> Self {
+		Self { column, descending }
+	}
+
 	pub(crate) fn write(self, sql: &mut Sql) {
 		sql.identifier(self.column)
 			.push(if self.descending { " DESC" } else { " ASC" });
