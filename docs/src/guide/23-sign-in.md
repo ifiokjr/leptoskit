@@ -510,7 +510,7 @@ The same passkey works on your site and in your apps, because they share the rel
 
 ## Sign in with other sites
 
-Many people would rather "Continue with Google" than wait for an email. leptoskit signs in with Google, Apple, Microsoft, and GitHub, and with any OpenID Connect provider, such as Okta, Auth0, Keycloak, or your company's Entra tenant. Each has a [setup page](auth/providers/google.md).
+Many people would rather "Continue with Google" than wait for an email. leptoskit has built-in definitions for Google, Apple, Microsoft, GitHub, Facebook, X, Discord, LinkedIn, GitLab, and Slack, and signs in with any OpenID Connect provider, such as Okta, Auth0, Keycloak, or your company's Entra tenant. Each has a [setup page](auth/providers/google.md).
 
 Add one from the command line, which writes its `[auth.providers.<id>]` table and prints its setup steps:
 
@@ -558,7 +558,7 @@ The page goes to the provider's sign-in page, and comes back to `redirect_to` (a
 | `Merge`            | It belongs to another account here, which can be merged into this one                     |
 | `Failed(code)`     | It didn't work: `cancelled`, `sign_in_expired`, `provider`, `locked`, …                   |
 
-Who someone is at a provider is the provider's own ID for them, never their email address: some providers let people set any address, and trusting it is how accounts get taken over. So a provider sign-in never signs in to an account just because the email matches. When it does match, the outcome is `EmailInUse`: the person can sign in to that account with their email and connect the provider from its security screen, or `continue_provider_sign_up()` for a separate account without that address. An address is only stored as verified when the provider vouches for it; Microsoft's never is.
+Who someone is at a provider is the provider's own ID for them, never their email address: some providers let people set any address, and trusting it is how accounts get taken over. So a provider sign-in never signs in to an account just because the email matches. When it does match, the outcome is `EmailInUse`: the person can sign in to that account with their email and connect the provider from its security screen, or `continue_provider_sign_up()` for a separate account without that address. An address is only stored as verified when the provider vouches for it. Microsoft, Facebook, and X never do, so accounts made with them start without an address.
 
 ### Connecting, disconnecting, and merging
 

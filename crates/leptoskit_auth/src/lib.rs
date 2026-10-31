@@ -15,9 +15,9 @@
 //! - **Passkeys** (the `passkey` feature): WebAuthn on the web, through
 //!   `webauthn-rs`, with ceremony state sealed on the server.
 //! - **Third-party sign-in** (the `oauth` feature): Google, Apple, Microsoft,
-//!   GitHub, and any OpenID Connect provider, identified by the provider's
-//!   subject, never an email address; with linking, unlinking, and merging
-//!   accounts.
+//!   GitHub, Facebook, X, Discord, LinkedIn, GitLab, Slack, and any OpenID
+//!   Connect provider, identified by the provider's subject, never an email
+//!   address; with linking, unlinking, and merging accounts.
 //! - **Solana wallets** (the `solana` feature): linked to an account with a
 //!   signed Sign-In With Solana message, re-proved when an action needs a fresh
 //!   signature, and used to sign in only when their owner turns that on.
@@ -174,6 +174,10 @@ pub use mfa::SecondFactorChallenge;
 pub use mfa::SignInStep;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use mfa::TotpConfirmed;
+#[cfg(all(feature = "oauth", any(feature = "postgres", feature = "sqlite")))]
+pub use oauth::FACEBOOK_GRAPH_VERSION;
+#[cfg(all(feature = "oauth", any(feature = "postgres", feature = "sqlite")))]
+pub use oauth::GITLAB_COM;
 #[cfg(all(feature = "oauth", any(feature = "postgres", feature = "sqlite")))]
 pub use oauth::Provider;
 #[cfg(all(feature = "oauth", any(feature = "postgres", feature = "sqlite")))]

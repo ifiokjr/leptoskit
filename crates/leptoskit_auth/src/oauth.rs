@@ -44,6 +44,14 @@ use crate::providers::Intent;
 use crate::providers::ProviderProfile;
 use crate::secrets;
 
+mod catalog;
+mod profiles;
+
+pub use catalog::FACEBOOK_GRAPH_VERSION;
+pub use catalog::GITLAB_COM;
+pub(crate) use catalog::built_in;
+use profiles::ApiProfile;
+
 /// How long a provider has to send the person back: long enough to sign
 /// in there, with its own second factor.
 const FLOW_LIFETIME: chrono::TimeDelta = chrono::TimeDelta::minutes(10);
@@ -82,6 +90,7 @@ pub struct Provider {
 	secret: Secret,
 	pub(crate) scopes: Vec<String>,
 	endpoints: Option<Endpoints>,
+	quirks: Quirks,
 }
 
 impl fmt::Debug for Provider {
@@ -108,9 +117,75 @@ pub(crate) enum Flavor {
 	/// Microsoft: the issuer names the person's tenant, and the email claim
 	/// is never trusted.
 	Microsoft { tenant: String },
-	/// GitHub: OAuth 2, then the REST API for the profile and verified
-	/// addresses.
-	GitHub,
+	/// Fixed endpoints, whose issuer (if it issues ID tokens) is fixed too.
+	Fixed,
+}
+
+/// How a provider differs from plain OpenID Connect with a client secret in
+/// the form: data, so each provider is a definition rather than code.
+#[derive(Clone, Debug)]
+pub(crate) struct Quirks {
+	/// How it says who signed in.
+	identify: Identify,
+	/// How the app proves who it is at the token endpoint.
+	client_auth: ClientAuth,
+	/// Whether connecting an account asks it to show its account picker,
+	/// with `prompt=select_account`. Only providers known to accept it.
+	select_account: bool,
+}
+
+impl Default for Quirks {
+	fn default() -> Self {
+		Self {
+			identify: Identify::IdToken(IdTokenRules::default()),
+			client_auth: ClientAuth::Form,
+			select_account: false,
+		}
+	}
+}
+
+/// How a provider says who signed in.
+#[derive(Clone, Debug)]
+pub(crate) enum Identify {
+	/// An OpenID Connect ID token from the token endpoint.
+	IdToken(IdTokenRules),
+	/// Its own API, read with the access token.
+	Api(ApiProfile),
+}
+
+/// What an ID token needs beyond the standard checks.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct IdTokenRules {
+	/// Whether its `email_verified` is believed. Microsoft's never is.
+	trust_email: bool,
+	/// Whether it may leave out the nonce, which LinkedIn's always does. Its
+	/// token still comes straight from the token endpoint, for a code bound
+	/// to this browser by `state`; a nonce it does send must match.
+	nonce_optional: bool,
+	/// A claim that scopes the subject, such as Slack's workspace: the
+	/// identity is `{claim}:{sub}`, and a token without the claim is
+	/// refused.
+	scope_claim: Option<&'static str>,
+}
+
+impl Default for IdTokenRules {
+	fn default() -> Self {
+		Self {
+			trust_email: true,
+			nonce_optional: false,
+			scope_claim: None,
+		}
+	}
+}
+
+/// How the app authenticates at the token endpoint, with a shared secret.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClientAuth {
+	/// `client_secret` in the form (`client_secret_post`).
+	Form,
+	/// HTTP Basic (`client_secret_basic`), which X, Spotify, Reddit,
+	/// Bitbucket, Notion, and Zoom require.
+	Basic,
 }
 
 /// How the app proves who it is to the provider.
@@ -160,6 +235,12 @@ pub const VERIFIED: &[(&str, &str)] = &[
 	("apple", "2026-10-30"),
 	("microsoft", "2026-10-30"),
 	("github", "2026-10-30"),
+	("facebook", "2026-10-31"),
+	("x", "2026-10-31"),
+	("discord", "2026-10-31"),
+	("linkedin", "2026-10-31"),
+	("gitlab", "2026-10-31"),
+	("slack", "2026-10-31"),
 ];
 
 /// Microsoft's tenant for personal accounts.
@@ -181,6 +262,10 @@ impl Provider {
 				Some("https://www.googleapis.com/oauth2/v3/certs"),
 				Some("https://accounts.google.com"),
 			)),
+			quirks: Quirks {
+				select_account: true,
+				..Quirks::default()
+			},
 		}
 	}
 
@@ -221,6 +306,7 @@ impl Provider {
 				Some("https://appleid.apple.com/auth/keys"),
 				Some("https://appleid.apple.com"),
 			)),
+			quirks: Quirks::default(),
 		})
 	}
 
@@ -246,6 +332,14 @@ impl Provider {
 				Some(&format!("{base}/discovery/v2.0/keys")),
 				None,
 			)),
+			quirks: Quirks {
+				identify: Identify::IdToken(IdTokenRules {
+					trust_email: false,
+					..IdTokenRules::default()
+				}),
+				select_account: true,
+				..Quirks::default()
+			},
 		}
 	}
 
@@ -254,7 +348,7 @@ impl Provider {
 		Self {
 			id: "github".into(),
 			name: "GitHub".into(),
-			flavor: Flavor::GitHub,
+			flavor: Flavor::Fixed,
 			client_id: client_id.into(),
 			secret: Secret::Shared(client_secret.into()),
 			scopes: vec!["read:user".into(), "user:email".into()],
@@ -264,6 +358,11 @@ impl Provider {
 				None,
 				None,
 			)),
+			quirks: Quirks {
+				identify: Identify::Api(ApiProfile::github()),
+				select_account: true,
+				..Quirks::default()
+			},
 		}
 	}
 
@@ -307,6 +406,10 @@ impl Provider {
 			secret: client_secret.map_or(Secret::None, Secret::Shared),
 			scopes: vec!["openid".into(), "email".into(), "profile".into()],
 			endpoints: None,
+			quirks: Quirks {
+				select_account: true,
+				..Quirks::default()
+			},
 		})
 	}
 
@@ -315,9 +418,8 @@ impl Provider {
 	#[must_use]
 	pub fn scopes<S: Into<String>>(mut self, scopes: impl IntoIterator<Item = S>) -> Self {
 		self.scopes = scopes.into_iter().map(Into::into).collect();
-		let oidc = !matches!(self.flavor, Flavor::GitHub | Flavor::Apple);
 
-		if oidc && !self.scopes.iter().any(|scope| scope == "openid") {
+		if self.asks_for_openid() && !self.scopes.iter().any(|scope| scope == "openid") {
 			self.scopes.insert(0, "openid".into());
 		}
 
@@ -334,6 +436,28 @@ impl Provider {
 	/// Its ID, such as `google`.
 	pub fn id(&self) -> &str {
 		&self.id
+	}
+
+	/// Names it `id` in routes and `[auth.providers]`, for a built-in
+	/// provider configured under another name.
+	pub(crate) fn with_id(mut self, id: impl Into<String>) -> Self {
+		self.id = id.into();
+		self
+	}
+
+	/// Whether it signs in with OpenID Connect's `openid` scope: every
+	/// provider that issues ID tokens, except Apple, which has its own.
+	fn asks_for_openid(&self) -> bool {
+		matches!(self.quirks.identify, Identify::IdToken(_))
+			&& !matches!(self.flavor, Flavor::Apple)
+	}
+
+	/// The rules its ID tokens follow, if it issues them.
+	fn id_token_rules(&self) -> Option<IdTokenRules> {
+		match &self.quirks.identify {
+			Identify::IdToken(rules) => Some(*rules),
+			Identify::Api(_) => None,
+		}
 	}
 
 	/// The issuer its ID tokens must name, for the token's `tid` when it's
@@ -850,6 +974,10 @@ struct IdClaims {
 	preferred_username: Option<String>,
 	#[serde(default)]
 	picture: Option<String>,
+	/// Everything else, for a provider's own claims, such as Slack's
+	/// workspace.
+	#[serde(flatten)]
+	other: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Checks an ID token from `provider`: its signature, then its claims.
@@ -881,6 +1009,9 @@ struct Expected<'a> {
 	/// or the app's bundle ID for Sign in with Apple on the device.
 	audience: &'a str,
 	nonce: &'a str,
+	/// Whether a token without a nonce passes. One with a nonce must match
+	/// either way.
+	nonce_optional: bool,
 	now: i64,
 }
 
@@ -893,6 +1024,7 @@ fn check_claims(
 	let Expected {
 		audience,
 		nonce,
+		nonce_optional,
 		now,
 	} = expected;
 	let refuse = |what: &str| {
@@ -924,10 +1056,10 @@ fn check_claims(
 		return refuse("issue time");
 	}
 
-	let matches = claims
-		.nonce
-		.as_deref()
-		.is_some_and(|claimed| bool::from(claimed.as_bytes().ct_eq(nonce.as_bytes())));
+	let matches = match claims.nonce.as_deref() {
+		Some(claimed) => bool::from(claimed.as_bytes().ct_eq(nonce.as_bytes())),
+		None => nonce_optional,
+	};
 
 	if !matches {
 		return refuse("nonce");
@@ -938,17 +1070,6 @@ fn check_claims(
 	}
 
 	Ok(())
-}
-
-/// The token endpoint's answer.
-#[derive(Deserialize)]
-struct TokenResponse {
-	#[serde(default)]
-	access_token: Option<String>,
-	#[serde(default)]
-	id_token: Option<String>,
-	#[serde(default)]
-	error: Option<String>,
 }
 
 /// A flow that has started: where to send the browser, and the token that
@@ -1176,7 +1297,7 @@ impl Auth {
 				.append_pair("code_challenge", &challenge)
 				.append_pair("code_challenge_method", "S256");
 
-			if !matches!(provider.flavor, Flavor::GitHub) {
+			if provider.id_token_rules().is_some() {
 				query.append_pair("nonce", &nonce);
 			}
 
@@ -1184,7 +1305,7 @@ impl Auth {
 				query.append_pair("response_mode", "form_post");
 			}
 
-			if me.is_some() && !matches!(provider.flavor, Flavor::Apple) {
+			if me.is_some() && provider.quirks.select_account {
 				// Connecting should pick the account, not reuse whichever
 				// one the browser is signed in to there.
 				query.append_pair("prompt", "select_account");
@@ -1335,6 +1456,7 @@ impl Auth {
 		let expected = Expected {
 			audience: &self.inner.native.package_id,
 			nonce: &flow.nonce,
+			nonce_optional: false,
 			now: leptoskit_db::now().timestamp(),
 		};
 		let claims = verify_id_token(providers, provider, &endpoints, id_token, expected).await?;
@@ -1391,91 +1513,50 @@ impl Auth {
 		let providers = &self.inner.providers;
 		let endpoints = providers.endpoints(provider).await?;
 		let redirect_uri = self.redirect_uri(provider)?;
-		let client_secret = match &provider.secret {
-			Secret::None => None,
-			Secret::Shared(secret) => Some(secret.clone()),
-			Secret::Apple {
-				team_id,
-				key_id,
-				key,
-			} => {
-				Some(apple_client_secret(
-					team_id,
-					key_id,
-					&provider.client_id,
-					key,
-				)?)
-			}
-		};
-		// The serializer isn't `Send`, so it's finished before anything
-		// waits.
-		let body = {
-			let mut form = url::form_urlencoded::Serializer::new(String::new());
-			form.append_pair("grant_type", "authorization_code")
-				.append_pair("code", code)
-				.append_pair("redirect_uri", &redirect_uri)
-				.append_pair("client_id", &provider.client_id)
-				.append_pair("code_verifier", &flow.verifier);
+		let request = token_request(provider, &endpoints, code, &redirect_uri, &flow.verifier)?;
+		let tokens: serde_json::Value = providers.json(request).await?;
 
-			if let Some(secret) = &client_secret {
-				form.append_pair("client_secret", secret);
-			}
-
-			form.finish()
-		};
-		let tokens: TokenResponse = providers
-			.json(ProviderRequest {
-				method: "POST",
-				url: endpoints.token_endpoint.clone(),
-				headers: vec![
-					("accept".into(), "application/json".into()),
-					(
-						"content-type".into(),
-						"application/x-www-form-urlencoded".into(),
-					),
-				],
-				body: Some(body),
-			})
-			.await?;
-
-		if let Some(error) = tokens.error {
+		if let Some(error) = tokens.get("error").filter(|error| !error.is_null()) {
 			return Err(AuthError::Provider(format!(
-				"the token endpoint refused: {error}"
+				"the token endpoint refused: {}",
+				describe(error)
 			)));
 		}
 
-		let now = leptoskit_db::now().timestamp();
-		let profile = match &provider.flavor {
-			Flavor::GitHub => {
-				let access = tokens
-					.access_token
+		let text = |name: &str| {
+			tokens
+				.get(name)
+				.and_then(serde_json::Value::as_str)
+				.map(str::to_owned)
+		};
+		let profile = match &provider.quirks.identify {
+			Identify::Api(api) => {
+				let access = text("access_token")
 					.ok_or_else(|| AuthError::Provider("no access token".into()))?;
-				github_profile(providers, &access).await?
+				api.read(providers, &access).await?
 			}
-			flavor => {
-				let id_token = tokens
-					.id_token
-					.ok_or_else(|| AuthError::Provider("no ID token".into()))?;
+			Identify::IdToken(rules) => {
+				let id_token =
+					text("id_token").ok_or_else(|| AuthError::Provider("no ID token".into()))?;
 				let expected = Expected {
 					audience: &provider.client_id,
 					nonce: &flow.nonce,
-					now,
+					nonce_optional: rules.nonce_optional,
+					now: leptoskit_db::now().timestamp(),
 				};
 				let claims =
 					verify_id_token(providers, provider, &endpoints, &id_token, expected).await?;
 				let mut profile = ProviderProfile {
-					subject: claims.sub,
+					subject: scoped_subject(rules, &claims)?,
 					email: claims.email,
-					// Microsoft's email claim can be set to anything by a
-					// tenant's administrator, so it's never vouched for.
-					email_verified: !matches!(flavor, Flavor::Microsoft { .. })
+					email_verified: rules.trust_email
 						&& claims.email_verified.is_some_and(|flag| flag.is_true()),
 					name: claims.name,
 					preferred_username: claims.preferred_username,
 					picture: claims.picture,
 				};
 
-				if matches!(flavor, Flavor::Apple) && profile.name.is_none() {
+				if matches!(provider.flavor, Flavor::Apple) && profile.name.is_none() {
 					profile.name = params.user.as_deref().and_then(apple_name);
 				}
 
@@ -1503,6 +1584,116 @@ fn refusal(error: &str) -> AuthError {
 	} else {
 		AuthError::Provider(format!("the provider refused: {error}"))
 	}
+}
+
+/// The request that trades `code` for tokens, authenticated as the
+/// provider asks.
+fn token_request(
+	provider: &Provider,
+	endpoints: &Endpoints,
+	code: &str,
+	redirect_uri: &str,
+	verifier: &str,
+) -> Result<ProviderRequest> {
+	let client_secret = match &provider.secret {
+		Secret::None => None,
+		Secret::Shared(secret) => Some(secret.clone()),
+		Secret::Apple {
+			team_id,
+			key_id,
+			key,
+		} => {
+			Some(apple_client_secret(
+				team_id,
+				key_id,
+				&provider.client_id,
+				key,
+			)?)
+		}
+	};
+	let basic = provider.quirks.client_auth == ClientAuth::Basic;
+	let mut headers = vec![
+		("accept".to_owned(), "application/json".to_owned()),
+		(
+			"content-type".to_owned(),
+			"application/x-www-form-urlencoded".to_owned(),
+		),
+	];
+	let mut form = url::form_urlencoded::Serializer::new(String::new());
+	form.append_pair("grant_type", "authorization_code")
+		.append_pair("code", code)
+		.append_pair("redirect_uri", redirect_uri)
+		.append_pair("code_verifier", verifier);
+
+	match client_secret {
+		Some(secret) if basic => {
+			headers.push((
+				"authorization".to_owned(),
+				basic_credentials(&provider.client_id, &secret),
+			));
+		}
+		secret => {
+			form.append_pair("client_id", &provider.client_id);
+
+			if let Some(secret) = &secret {
+				form.append_pair("client_secret", secret);
+			}
+		}
+	}
+
+	Ok(ProviderRequest {
+		method: "POST",
+		url: endpoints.token_endpoint.clone(),
+		headers,
+		body: Some(form.finish()),
+	})
+}
+
+/// HTTP Basic credentials, each part form-encoded first, as RFC 6749
+/// §2.3.1 asks.
+fn basic_credentials(client_id: &str, secret: &str) -> String {
+	let encode =
+		|part: &str| url::form_urlencoded::byte_serialize(part.as_bytes()).collect::<String>();
+	format!(
+		"Basic {}",
+		STANDARD.encode(format!("{}:{}", encode(client_id), encode(secret)))
+	)
+}
+
+/// A provider's `error`, for the server's logs: its code, or its message.
+fn describe(error: &serde_json::Value) -> String {
+	error
+		.as_str()
+		.or_else(|| error.get("message").and_then(serde_json::Value::as_str))
+		.or_else(|| error.get("code").and_then(serde_json::Value::as_str))
+		.unwrap_or("an error")
+		.chars()
+		.take(200)
+		.collect()
+}
+
+/// The identity an ID token names: its subject, within the claim that
+/// scopes it, when the provider's subjects are only unique within one, such
+/// as Slack's workspaces.
+fn scoped_subject(rules: &IdTokenRules, claims: &IdClaims) -> Result<String> {
+	let Some(claim) = rules.scope_claim else {
+		return Ok(claims.sub.clone());
+	};
+	let scope = claims
+		.other
+		.get(claim)
+		.and_then(serde_json::Value::as_str)
+		.filter(|scope| !scope.is_empty() && !scope.contains(':'))
+		.ok_or_else(|| AuthError::Provider(format!("the ID token has no `{claim}`")))?;
+	let subject = format!("{scope}:{}", claims.sub);
+
+	if subject.len() > 255 {
+		return Err(AuthError::Provider(
+			"the ID token's subject is too long".into(),
+		));
+	}
+
+	Ok(subject)
 }
 
 /// Sign in with Apple's client secret: an ES256 JWT, signed with the
@@ -1559,49 +1750,6 @@ fn apple_name(user: &str) -> Option<String> {
 		.collect::<Vec<_>>()
 		.join(" ");
 	(!full.is_empty()).then(|| full.chars().take(200).collect())
-}
-
-/// Who someone is on GitHub, and their verified primary address.
-async fn github_profile(providers: &Providers, access: &str) -> Result<ProviderProfile> {
-	#[derive(Deserialize)]
-	struct User {
-		id: u64,
-		login: String,
-		#[serde(default)]
-		name: Option<String>,
-		#[serde(default)]
-		avatar_url: Option<String>,
-	}
-	#[derive(Deserialize)]
-	struct Address {
-		email: String,
-		primary: bool,
-		verified: bool,
-	}
-
-	let request = |path: &str| {
-		ProviderRequest {
-			method: "GET",
-			url: format!("https://api.github.com{path}"),
-			headers: vec![
-				("accept".into(), "application/vnd.github+json".into()),
-				("authorization".into(), format!("Bearer {access}")),
-				("x-github-api-version".into(), "2022-11-28".into()),
-			],
-			body: None,
-		}
-	};
-	let user: User = providers.json(request("/user")).await?;
-	let addresses: Vec<Address> = providers.json(request("/user/emails")).await?;
-	let primary = addresses.into_iter().find(|address| address.primary);
-	Ok(ProviderProfile {
-		subject: user.id.to_string(),
-		email_verified: primary.as_ref().is_some_and(|address| address.verified),
-		email: primary.map(|address| address.email),
-		name: user.name,
-		preferred_username: Some(user.login),
-		picture: user.avatar_url,
-	})
 }
 
 #[cfg(test)]
@@ -1727,6 +1875,7 @@ mod tests {
 			let expected = Expected {
 				audience: "client",
 				nonce: "n-0S6_WzA2Mj",
+				nonce_optional: false,
 				now,
 			};
 			check_claims(&provider, &endpoints, &claims(json), expected)

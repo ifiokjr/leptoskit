@@ -916,6 +916,11 @@ fn the_auth_table_names_secrets_by_variable() {
 	assert_eq!(auth.providers.len(), 4);
 	assert_eq!(auth.providers["company"].kind("company"), "oidc");
 	assert_eq!(auth.providers["google"].kind("google"), "google");
+	assert_eq!(auth.providers["company"].kind("x"), "x");
+	assert_eq!(
+		leptoskit_config::AuthProviderConfig::default().kind("myspace"),
+		"oidc"
+	);
 	assert_eq!(
 		auth.providers["google"].env_names(),
 		[
@@ -1024,7 +1029,28 @@ fn auth_settings_are_checked() {
 		),
 		(
 			"[auth.providers.x]\nkind = \"myspace\"",
-			"isn't one of google",
+			"isn't oidc or a built-in provider: google, apple",
+		),
+		(
+			"[auth.providers.slack]\nissuer = \"https://slack.example\"\nclient_id_env = \"A\"",
+			"add kind = \"oidc\"",
+		),
+		(
+			"[auth.providers.gitlab]\nissuer = \"http://gitlab.example\"\nclient_id_env = \"A\"",
+			"must be an `https://` URL",
+		),
+		(
+			"[auth.providers.facebook]\napi_version = \"26\"\nclient_id_env = \
+			 \"A\"\nclient_secret_env = \"B\"",
+			"a Graph API version",
+		),
+		(
+			"[auth.providers.discord]\napi_version = \"v26.0\"",
+			"only for facebook",
+		),
+		(
+			"[auth.providers.discord]\nclient_id_env = \"A\"",
+			"needs `client_secret_env`",
 		),
 		(
 			"[auth.providers.google]\nclient_id_env = \"A\"\nclient_secret = \"inline\"",

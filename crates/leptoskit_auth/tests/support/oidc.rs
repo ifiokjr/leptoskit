@@ -1,10 +1,11 @@
 //! A fake identity provider, answering from memory: OpenID Connect
 //! discovery, a key set, an authorization step, and a token endpoint that
-//! checks PKCE and the client's credentials, then signs ID tokens with a
-//! P-256 key made at test time. It answers for a generic issuer
-//! (`https://sso.example`) and at Google's, Apple's, Microsoft's, and
-//! GitHub's own URLs, so their definitions run as they would against the
-//! real thing, without a network.
+//! checks PKCE and the client's credentials the way each provider wants
+//! them, then signs ID tokens with a P-256 key made at test time, or hands
+//! out an access token for its profile API. It answers for a generic issuer
+//! (`https://sso.example`) and at each built-in provider's own URLs (see
+//! [`SPECS`]), so their definitions run as they would against the real
+//! thing, without a network.
 
 #![allow(dead_code, reason = "each test file uses part of this")]
 
@@ -46,6 +47,8 @@ pub enum Tamper {
 	Audience,
 	/// Echoes a nonce of its own.
 	Nonce,
+	/// Leaves the nonce out.
+	NoNonce,
 	/// Issues a token that expired an hour ago.
 	Expired,
 	/// Names another issuer.
@@ -54,8 +57,106 @@ pub enum Tamper {
 	Unsigned,
 }
 
+/// What the fake checks and answers for one provider.
+#[derive(Clone, Copy, Debug)]
+pub struct Spec {
+	/// Its authorization endpoint's host.
+	pub authorize_host: &'static str,
+	/// Its token endpoint's host.
+	pub token_host: &'static str,
+	/// Its ID tokens' issuer; `None` for a provider whose API says who
+	/// signed in.
+	pub issuer: Option<&'static str>,
+	/// Whether the client must authenticate with HTTP Basic, and never in
+	/// the form.
+	pub basic: bool,
+	/// Whether its ID tokens carry the nonce.
+	pub echoes_nonce: bool,
+}
+
+const fn id_tokens(
+	authorize_host: &'static str,
+	token_host: &'static str,
+	issuer: &'static str,
+) -> Spec {
+	Spec {
+		authorize_host,
+		token_host,
+		issuer: Some(issuer),
+		basic: false,
+		echoes_nonce: true,
+	}
+}
+
+const fn api(authorize_host: &'static str, token_host: &'static str, basic: bool) -> Spec {
+	Spec {
+		authorize_host,
+		token_host,
+		issuer: None,
+		basic,
+		echoes_nonce: false,
+	}
+}
+
+/// Every provider the fake stands in for. Microsoft's issuer names the
+/// token's tenant, so it's filled in from the `tid` claim.
+pub const SPECS: &[Spec] = &[
+	id_tokens("sso.example", "sso.example", ISSUER),
+	id_tokens(
+		"accounts.google.com",
+		"oauth2.googleapis.com",
+		"https://accounts.google.com",
+	),
+	id_tokens(
+		"appleid.apple.com",
+		"appleid.apple.com",
+		"https://appleid.apple.com",
+	),
+	id_tokens(
+		"login.microsoftonline.com",
+		"login.microsoftonline.com",
+		"microsoft",
+	),
+	api("github.com", "github.com", false),
+	api("www.facebook.com", "graph.facebook.com", false),
+	api("x.com", "api.x.com", true),
+	api("discord.com", "discord.com", false),
+	Spec {
+		echoes_nonce: false,
+		..id_tokens(
+			"www.linkedin.com",
+			"www.linkedin.com",
+			"https://www.linkedin.com/oauth",
+		)
+	},
+	id_tokens("gitlab.com", "gitlab.com", "https://gitlab.com"),
+	id_tokens("gitlab.example", "gitlab.example", "https://gitlab.example"),
+	id_tokens("slack.com", "slack.com", "https://slack.com"),
+];
+
+/// The key sets the fake publishes, at each provider's own address.
+const KEY_SETS: &[&str] = &[
+	"https://sso.example/jwks",
+	"https://www.googleapis.com/oauth2/v3/certs",
+	"https://appleid.apple.com/auth/keys",
+	"https://www.linkedin.com/oauth/openid/jwks",
+	"https://gitlab.com/oauth/discovery/keys",
+	"https://gitlab.example/oauth/discovery/keys",
+	"https://slack.com/openid/connect/keys",
+];
+
+/// The hosts whose `GET`s, with an access token the fake issued, answer
+/// from the person's `user` (or `emails`) claims.
+const API_HOSTS: &[&str] = &[
+	"api.github.com",
+	"graph.facebook.com",
+	"api.x.com",
+	"discord.com",
+];
+
 /// An authorization the person granted, waiting for its code.
 struct Grant {
+	spec: Spec,
 	client_id: String,
 	redirect_uri: String,
 	challenge: String,
@@ -145,31 +246,38 @@ impl FakeIdp {
 		assert_eq!(query["response_type"], "code");
 		assert_eq!(query["code_challenge_method"], "S256");
 		let host = url.host_str().unwrap();
-		let issuer = match host {
-			"accounts.google.com" => "https://accounts.google.com".to_owned(),
-			"appleid.apple.com" => "https://appleid.apple.com".to_owned(),
-			"login.microsoftonline.com" => {
+		let spec = *SPECS
+			.iter()
+			.find(|spec| spec.authorize_host == host)
+			.unwrap_or_else(|| panic!("the fake doesn't stand in for {host}"));
+		let issuer = match spec.issuer {
+			Some("microsoft") => {
 				format!(
 					"https://login.microsoftonline.com/{}/v2.0",
 					claims["tid"].as_str().unwrap()
 				)
 			}
-			"github.com" => "https://github.com".to_owned(),
-			_ => ISSUER.to_owned(),
+			Some(issuer) => issuer.to_owned(),
+			None => String::new(),
 		};
 
 		if host == "appleid.apple.com" {
 			assert_eq!(query["response_mode"], "form_post");
 		}
 
+		// An OpenID Connect sign-in carries a nonce; an API's has no use for
+		// one.
+		assert_eq!(query.contains_key("nonce"), spec.issuer.is_some(), "{host}");
+
 		let code = URL_SAFE_NO_PAD.encode(digest(&SHA256, url.as_str().as_bytes()));
 		self.state.lock().unwrap().grants.insert(
 			code.clone(),
 			Grant {
+				spec,
 				client_id: query["client_id"].clone(),
 				redirect_uri: query["redirect_uri"].clone(),
 				challenge: query["code_challenge"].clone(),
-				nonce: query.get("nonce").cloned(),
+				nonce: query.get("nonce").cloned().filter(|_| spec.echoes_nonce),
 				issuer,
 				claims,
 			},
@@ -184,6 +292,7 @@ impl FakeIdp {
 	/// `bundle_id`, carrying `nonce`, for someone with `claims`.
 	pub fn apple_id_token(&self, bundle_id: &str, nonce: &str, claims: Value) -> String {
 		self.id_token(&Grant {
+			spec: SPECS[2],
 			client_id: bundle_id.to_owned(),
 			redirect_uri: String::new(),
 			challenge: String::new(),
@@ -201,8 +310,11 @@ impl FakeIdp {
 			"aud": grant.client_id,
 			"exp": now + 300,
 			"iat": now,
-			"nonce": grant.nonce,
 		});
+
+		if let Some(nonce) = &grant.nonce {
+			claims["nonce"] = nonce.as_str().into();
+		}
 
 		for (name, value) in grant.claims.as_object().unwrap() {
 			claims[name] = value.clone();
@@ -211,6 +323,9 @@ impl FakeIdp {
 		match tamper {
 			Tamper::Audience => claims["aud"] = "someone-else".into(),
 			Tamper::Nonce => claims["nonce"] = "a-nonce-of-its-own".into(),
+			Tamper::NoNonce => {
+				claims.as_object_mut().unwrap().remove("nonce");
+			}
 			Tamper::Expired => {
 				claims["exp"] = (now - 3600).into();
 				claims["iat"] = (now - 3900).into();
@@ -253,34 +368,63 @@ impl FakeIdp {
 		})
 	}
 
-	/// The token endpoint: checks the code, the redirect, the client, and
+	/// The token endpoint: checks the code, the redirect, the client (in
+	/// the form, or with HTTP Basic where the provider wants that), and
 	/// PKCE, then answers with tokens.
-	fn token(&self, body: &str) -> (u16, Value) {
+	fn token(&self, request: &ProviderRequest) -> (u16, Value) {
+		let body = request.body.as_deref().unwrap_or_default();
 		let form: HashMap<String, String> = url::form_urlencoded::parse(body.as_bytes())
 			.into_owned()
 			.collect();
 		let Some(grant) = self.state.lock().unwrap().grants.remove(&form["code"]) else {
 			return (400, json!({ "error": "invalid_grant" }));
 		};
-		let verifier = URL_SAFE_NO_PAD.encode(digest(&SHA256, form["code_verifier"].as_bytes()));
-		let client_ok = match grant.issuer.as_str() {
-			"https://appleid.apple.com" => self.apple_secret_ok(&form["client_secret"], &grant),
-			_ => {
-				form.get("client_secret")
-					.is_none_or(|secret| secret == SECRET)
+		let host = url::Url::parse(&request.url)
+			.unwrap()
+			.host_str()
+			.unwrap()
+			.to_owned();
+		let basic = header(request, "authorization")
+			.and_then(|value| value.strip_prefix("Basic "))
+			.map(|credentials| {
+				let decoded = String::from_utf8(STANDARD.decode(credentials).unwrap()).unwrap();
+				let (id, secret) = decoded.split_once(':').unwrap();
+				(decode(id), decode(secret))
+			});
+		let (client_id, secret) = match &basic {
+			Some((id, secret)) => (Some(id.clone()), Some(secret.clone())),
+			None => {
+				(
+					form.get("client_id").cloned(),
+					form.get("client_secret").cloned(),
+				)
 			}
 		};
+		let authenticated_as_asked = if grant.spec.basic {
+			basic.is_some() && !form.contains_key("client_secret")
+		} else {
+			basic.is_none()
+		};
+		let verifier = URL_SAFE_NO_PAD.encode(digest(&SHA256, form["code_verifier"].as_bytes()));
+		let client_ok = match grant.issuer.as_str() {
+			"https://appleid.apple.com" => {
+				self.apple_secret_ok(secret.as_deref().unwrap_or_default(), &grant)
+			}
+			_ => secret.is_none_or(|secret| secret == SECRET),
+		};
 
-		if form["grant_type"] != "authorization_code"
-			|| form["client_id"] != grant.client_id
+		if host != grant.spec.token_host
+			|| form["grant_type"] != "authorization_code"
+			|| client_id.as_deref() != Some(grant.client_id.as_str())
 			|| form["redirect_uri"] != grant.redirect_uri
 			|| verifier != grant.challenge
+			|| !authenticated_as_asked
 			|| !client_ok
 		{
 			return (400, json!({ "error": "invalid_grant" }));
 		}
 
-		if grant.issuer == "https://github.com" {
+		if grant.spec.issuer.is_none() {
 			let access = URL_SAFE_NO_PAD.encode(digest(&SHA256, form["code"].as_bytes()));
 			self.state
 				.lock()
@@ -320,7 +464,9 @@ impl FakeIdp {
 			&& claims["aud"] == "https://appleid.apple.com"
 	}
 
-	fn github(&self, path: &str, authorization: Option<&str>) -> (u16, Value) {
+	/// A profile API: the person's `emails` for a list of addresses, and
+	/// their `user` for anything else.
+	fn profile(&self, url: &url::Url, authorization: Option<&str>) -> (u16, Value) {
 		let token = authorization
 			.and_then(|value| value.strip_prefix("Bearer "))
 			.unwrap_or_default();
@@ -328,25 +474,19 @@ impl FakeIdp {
 			return (401, json!({ "message": "Bad credentials" }));
 		};
 
-		match path {
-			"/user" => (200, claims["user"].clone()),
-			"/user/emails" => (200, claims["emails"].clone()),
-			_ => (404, json!({})),
+		if url.path().ends_with("/emails") {
+			(200, claims["emails"].clone())
+		} else {
+			(200, claims["user"].clone())
 		}
 	}
 
 	fn answer(&self, request: &ProviderRequest) -> (u16, Value) {
-		let url = request.url.as_str();
-		let header = |name: &str| {
-			request
-				.headers
-				.iter()
-				.find(|(key, _)| key.eq_ignore_ascii_case(name))
-				.map(|(_, value)| value.as_str())
-		};
+		let url = url::Url::parse(&request.url).unwrap();
+		let host = url.host_str().unwrap_or_default();
 
-		match (request.method, url) {
-			("GET", "https://sso.example/.well-known/openid-configuration") => {
+		match request.method {
+			"GET" if request.url == "https://sso.example/.well-known/openid-configuration" => {
 				(
 					200,
 					json!({
@@ -357,34 +497,31 @@ impl FakeIdp {
 					}),
 				)
 			}
-			(
-				"GET",
-				"https://sso.example/jwks"
-				| "https://www.googleapis.com/oauth2/v3/certs"
-				| "https://appleid.apple.com/auth/keys",
-			) => (200, self.jwks()),
-			("GET", url) if url.starts_with("https://login.microsoftonline.com/") => {
-				(200, self.jwks())
+			"GET" if KEY_SETS.contains(&request.url.as_str()) => (200, self.jwks()),
+			"GET" if host == "login.microsoftonline.com" => (200, self.jwks()),
+			"GET" if API_HOSTS.contains(&host) => {
+				self.profile(&url, header(request, "authorization"))
 			}
-			(
-				"POST",
-				"https://sso.example/token"
-				| "https://oauth2.googleapis.com/token"
-				| "https://appleid.apple.com/auth/token"
-				| "https://github.com/login/oauth/access_token",
-			) => self.token(request.body.as_deref().unwrap_or_default()),
-			("POST", url) if url.starts_with("https://login.microsoftonline.com/") => {
-				self.token(request.body.as_deref().unwrap_or_default())
-			}
-			("GET", url) if url.starts_with("https://api.github.com") => {
-				self.github(
-					url.trim_start_matches("https://api.github.com"),
-					header("authorization"),
-				)
-			}
+			"POST" if SPECS.iter().any(|spec| spec.token_host == host) => self.token(request),
 			_ => (404, json!({ "error": "not_found" })),
 		}
 	}
+}
+
+fn header<'a>(request: &'a ProviderRequest, name: &str) -> Option<&'a str> {
+	request
+		.headers
+		.iter()
+		.find(|(key, _)| key.eq_ignore_ascii_case(name))
+		.map(|(_, value)| value.as_str())
+}
+
+fn decode(part: &str) -> String {
+	url::form_urlencoded::parse(format!("x={part}").as_bytes())
+		.next()
+		.unwrap()
+		.1
+		.into_owned()
 }
 
 impl ProviderHttp for FakeIdp {

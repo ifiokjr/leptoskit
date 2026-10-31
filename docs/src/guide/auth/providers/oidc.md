@@ -1,6 +1,6 @@
 # Any OpenID Connect provider
 
-Lets people sign in through any OpenID Connect provider: Okta, Auth0, Keycloak, Authentik, Zitadel, GitLab, your company's own Microsoft Entra tenant, or another leptoskit app. Give it an ID of your own, such as `company`, which names it in routes and in `leptoskit.toml`.
+Lets people sign in through any OpenID Connect provider: Okta, Auth0, Keycloak, Authentik, Zitadel, your company's own Microsoft Entra tenant, or another leptoskit app. Give it an ID of your own, such as `company`, which names it in routes and in `leptoskit.toml`. An ID that names a built-in provider, such as `slack`, uses that provider's definition; add `kind = "oidc"` to use the issuer's discovery document instead.
 
 ## Set it up
 
@@ -24,4 +24,4 @@ leptoskit reads the issuer's discovery document, `/.well-known/openid-configurat
 
 ## Platforms
 
-It works on the web. Native apps answer `unsupported` until the system-browser plugin arrives.
+It works on the web, and in iOS, macOS, and Android apps through the system browser, with the same redirect URIs: the browser comes back to your site, which sends it on to the app. See [Sign-in](../../23-sign-in.md#sign-in-with-other-sites) for each platform.

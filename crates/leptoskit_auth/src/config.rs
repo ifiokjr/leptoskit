@@ -92,13 +92,9 @@ fn providers(mut builder: AuthBuilder, auth: &AuthConfig) -> Result<AuthBuilder>
 	for (id, config) in &auth.providers {
 		let get =
 			|name: &Option<String>| -> Result<String> { env(name.as_deref().unwrap_or_default()) };
-		let mut provider = match config.kind(id).as_str() {
-			"google" => {
-				Provider::google(get(&config.client_id_env)?, get(&config.client_secret_env)?)
-			}
-			"github" => {
-				Provider::github(get(&config.client_id_env)?, get(&config.client_secret_env)?)
-			}
+		let optional = |name: &Option<String>| name.as_deref().map(env).transpose();
+		let kind = config.kind(id);
+		let mut provider = match kind.as_str() {
 			"microsoft" => {
 				Provider::microsoft(
 					get(&config.client_id_env)?,
@@ -114,21 +110,44 @@ fn providers(mut builder: AuthBuilder, auth: &AuthConfig) -> Result<AuthBuilder>
 					&get(&config.private_key_env)?,
 				)?
 			}
-			_ => {
-				let secret = config
-					.client_secret_env
-					.as_ref()
-					.map(|name| env(name))
-					.transpose()?;
+			"facebook" => {
+				Provider::facebook(
+					get(&config.client_id_env)?,
+					get(&config.client_secret_env)?,
+					config
+						.api_version
+						.as_deref()
+						.unwrap_or(crate::oauth::FACEBOOK_GRAPH_VERSION),
+				)
+			}
+			"gitlab" => {
+				Provider::gitlab(
+					get(&config.client_id_env)?,
+					optional(&config.client_secret_env)?,
+					config.issuer.as_deref().unwrap_or(crate::oauth::GITLAB_COM),
+				)?
+			}
+			"oidc" => {
 				Provider::oidc(
 					id,
 					config.name.clone().unwrap_or_else(|| id.clone()),
 					config.issuer.clone().unwrap_or_default(),
 					get(&config.client_id_env)?,
-					secret,
+					optional(&config.client_secret_env)?,
 				)?
 			}
-		};
+			kind => {
+				crate::oauth::built_in(
+					kind,
+					get(&config.client_id_env)?,
+					get(&config.client_secret_env)?,
+				)
+				.ok_or_else(|| {
+					AuthError::Config(format!("`{kind}` isn't a provider leptoskit knows"))
+				})?
+			}
+		}
+		.with_id(id);
 
 		if let Some(name) = &config.name {
 			provider = provider.name(name);

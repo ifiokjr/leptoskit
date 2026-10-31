@@ -7,9 +7,9 @@ Adds `[auth.providers.<id>]` to leptoskit.toml, naming the environment variables
 Usage: leptoskit auth provider add [OPTIONS] <ID>
 
 Arguments:
-  <ID>  `google`, `apple`, `microsoft`, `github`, or your own ID for an OpenID Connect issuer, such as `company`
+  <ID>  A built-in provider, such as `google`, `github`, `discord`, or `slack`, or your own ID for an OpenID Connect issuer, such as `company`
 
 Options:
-      --issuer <ISSUER>  For an OpenID Connect provider: its issuer, such as `https://sso.example.com`
+      --issuer <ISSUER>  For an OpenID Connect provider: its issuer, such as `https://sso.example.com`. For `gitlab`: a self-managed GitLab's address
   -h, --help             Print help
   -V, --version          Print version
