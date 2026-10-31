@@ -3,7 +3,11 @@
 
 use std::sync::Arc;
 use std::sync::RwLock;
+#[cfg(feature = "devtools")]
+use std::time::Instant;
 
+#[cfg(feature = "devtools")]
+use leptoskit_devtools_protocol::Commit;
 use leptoskit_yoga::NodeId;
 use leptoskit_yoga::Rect;
 use leptoskit_yoga::Size;
@@ -216,6 +220,69 @@ fn measured_content(element: &Element) -> Option<&str> {
 /// [`set_root`](NativeSurface::set_root), and the surface computes the minimal
 /// mutation batch, applies it to the backend, lays out, and pushes only the
 /// changed frames.
+/// A commit observer for the `DevTools` host agent.
+#[cfg(feature = "devtools")]
+type CommitObserver = Box<dyn FnMut(&Commit)>;
+
+/// Commit observation for the `DevTools` host agent.
+#[cfg(feature = "devtools")]
+struct Devtools {
+	observer: Option<CommitObserver>,
+	profiling: bool,
+	seq: u64,
+	mutations: usize,
+	apply_us: u64,
+	started: Instant,
+}
+
+#[cfg(feature = "devtools")]
+impl Default for Devtools {
+	fn default() -> Self {
+		Self {
+			observer: None,
+			profiling: false,
+			seq: 0,
+			mutations: 0,
+			apply_us: 0,
+			started: Instant::now(),
+		}
+	}
+}
+
+#[cfg(feature = "devtools")]
+impl Devtools {
+	fn source(&mut self, mutations: usize, start: Instant) {
+		self.mutations += mutations;
+		if self.profiling {
+			self.apply_us += micros(start);
+		}
+	}
+
+	fn finish(&mut self, layout_mutations: usize, layout_start: Instant) -> Commit {
+		let commit = Commit {
+			seq: self.seq,
+			at_ms: millis(self.started),
+			mutations: self.mutations + layout_mutations,
+			layout_us: self.profiling.then(|| micros(layout_start)),
+			apply_us: self.profiling.then_some(self.apply_us),
+		};
+		self.seq += 1;
+		self.mutations = 0;
+		self.apply_us = 0;
+		commit
+	}
+}
+
+#[cfg(feature = "devtools")]
+fn micros(start: Instant) -> u64 {
+	u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX)
+}
+
+#[cfg(feature = "devtools")]
+fn millis(start: Instant) -> u64 {
+	u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
 pub struct NativeSurface<B: NativeBackend> {
 	#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
 	rive: rive::Players,
@@ -234,6 +301,8 @@ pub struct NativeSurface<B: NativeBackend> {
 	/// The control the user is holding down, resolved with its `active:`
 	/// utilities until it is released or leaves the tree.
 	pressed: Option<NodeId>,
+	#[cfg(feature = "devtools")]
+	devtools: Devtools,
 }
 
 impl<B: NativeBackend> NativeSurface<B> {
@@ -253,6 +322,8 @@ impl<B: NativeBackend> NativeSurface<B> {
 			dark: false,
 			safe_area: Rect::default(),
 			pressed: None,
+			#[cfg(feature = "devtools")]
+			devtools: Devtools::default(),
 		}
 	}
 
@@ -425,5 +496,57 @@ impl<B: NativeBackend> NativeSurface<B> {
 	/// The yoga layout of a committed node, in parent-relative coordinates.
 	pub fn layout(&self, id: NodeId) -> leptoskit_yoga::Layout {
 		*self.yoga.layout(id)
+	}
+
+	/// Records every commit, for the `DevTools` host agent.
+	#[cfg(feature = "devtools")]
+	pub fn set_commit_observer(&mut self, observer: CommitObserver) {
+		self.devtools.observer = Some(observer);
+	}
+
+	/// Turns commit timing on or off.
+	#[cfg(feature = "devtools")]
+	pub fn set_profiling(&mut self, on: bool) {
+		self.devtools.profiling = on;
+	}
+}
+
+#[cfg(all(test, feature = "devtools"))]
+mod devtools_tests {
+	use std::sync::Arc;
+	use std::sync::Mutex;
+
+	use super::NativeSurface;
+	use crate::Element;
+	use crate::HeadlessBackend;
+
+	#[test]
+	fn a_commit_reaches_the_observer() {
+		let seen = Arc::new(Mutex::new(Vec::new()));
+		let commits = Arc::clone(&seen);
+		let mut surface = NativeSurface::new(HeadlessBackend::new());
+		surface.set_commit_observer(Box::new(move |commit| {
+			commits.lock().unwrap().push(commit.clone());
+		}));
+		let element = Element::view();
+		surface.set_root(&element);
+		let commits = seen.lock().unwrap();
+		assert!(!commits.is_empty());
+		assert!(commits.last().unwrap().mutations > 0);
+	}
+
+	#[test]
+	fn profiling_records_timings() {
+		let seen = Arc::new(Mutex::new(Vec::new()));
+		let commits = Arc::clone(&seen);
+		let mut surface = NativeSurface::new(HeadlessBackend::new());
+		surface.set_profiling(true);
+		surface.set_commit_observer(Box::new(move |commit| {
+			commits.lock().unwrap().push(commit.clone());
+		}));
+		let element = Element::view();
+		surface.set_root(&element);
+		let commits = seen.lock().unwrap();
+		assert!(commits.last().unwrap().layout_us.is_some());
 	}
 }
