@@ -164,7 +164,7 @@ fn an_edited_file_is_kept_unless_forced() {
 
 	let forced = generate(root.path(), &config, Target::Docker, true).unwrap();
 	assert_eq!(forced.changed, ["replaced Dockerfile"]);
-	assert!(forced.kept.is_empty());
+	assert_eq!(forced.kept, [] as [String; 0]);
 	assert_eq!(std::fs::read_to_string(&dockerfile).unwrap(), original);
 }
 
