@@ -39,7 +39,7 @@ Use `View` plus Tailwind for rows, grids, and layered content. Helpers remain av
 | `ListTile(leading, content, trailing)` | A noninteractive row with optional leading and trailing slots and an expanded content slot. Slots can contain real controls.                                         |
 | `AppBar(title)`                        | A header with an expanded title. Additional children are action slots. It does not control window chrome.                                                            |
 | `Scaffold(header, body, footer)`       | A column with optional header and footer and an expanded body. It needs a definite height or a parent allocation.                                                    |
-| `ScrollView()`                         | A scroll container.                                                                                                                                                  |
+| `ScrollView()`                         | A scroll container. `scroll_offset` scrolls it from code; see [programmatic scrolling](../guide/17-virtualized-lists.md#programmatic-scrolling).                     |
 | `ListView()`, `GridView(columns)`      | Eager scrolling collections that fill the available height in a bounded column. Every item is constructed and laid out.                                              |
 
 `BoxConstraints::new(min_width, max_width, min_height, max_height)` accepts finite nonnegative minima and optional finite maxima. A maximum cannot be smaller than its minimum. `BoxConstraints::tight(width, height)` fixes both dimensions. These constraints apply to the CSS box, rather than Flutter's parent-to-child constraint protocol.

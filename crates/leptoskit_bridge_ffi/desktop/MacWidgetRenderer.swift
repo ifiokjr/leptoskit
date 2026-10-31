@@ -71,12 +71,14 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
     private static let pressOut: UInt32 = 9
     private let view: NSView
     private var widgets: [Int: NSView] = [:]
+    private let scrolls = ScrollTracker()
     private var applying = false
     var onEvent: ((Int, UInt32, String) -> Void)?
     init(view: NSView) { self.view = view }
     func close() {
         for widget in widgets.values { (widget as? NSImageView)?.image = nil }
         widgets.removeAll()
+        scrolls.removeAll()
     }
 
     func riveVisible(_ node: Int) -> Bool {
@@ -99,7 +101,10 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
     func render(_ transaction: Transaction) throws {
         guard transaction.version == 1 else { throw PluginError.unavailable }
         applying = true
-        defer { applying = false }
+        defer {
+            applying = false
+            scrolls.transactionApplied { [weak self] id in self?.reportScroll(id) }
+        }
 
         for change in transaction.mutations { try apply(change) }
 
@@ -108,6 +113,21 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
         }
 
         updateScrollSizes()
+        scrollToTargets()
+    }
+
+    /// Scrolls each view whose target changed, once its document is sized.
+    private func scrollToTargets() {
+        for (id, target) in scrolls.takeChanged() { (widgets[id] as? MacScrollView)?.scroll(to: target) }
+    }
+
+    private func scrolled(_ id: Int) {
+        if applying { scrolls.movedWhileApplying(id) } else { reportScroll(id) }
+    }
+
+    private func reportScroll(_ id: Int) {
+        guard let scroll = widgets[id] as? NSScrollView else { return }
+        event(id, ScrollTracker.event, ScrollTracker.payload(scroll.contentView.bounds.origin))
     }
 
     private func updateScrollSizes() {
@@ -147,7 +167,8 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
             field.action = #selector(submitted(_:))
             widget = field
         case "scroll_view", "ScrollView":
-            let scroll = NSScrollView()
+            let scroll = MacScrollView()
+            scroll.onScroll = { [weak self] in self?.scrolled(item.id) }
             scroll.contentView.postsBoundsChangedNotifications = true
             scroll.documentView = FlippedView()
             scroll.hasVerticalScroller = true
@@ -163,6 +184,7 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
         widget.identifier = NSUserInterfaceItemIdentifier(String(item.id))
         widgets[item.id] = widget
         try MacWidgetStyle.apply(item.props, to: widget)
+        scrolls.receive(item.props.scrollOffset, for: item.id)
     }
 
     private func apply(_ change: Change) throws {
@@ -170,6 +192,7 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
 
         if let item = change.updateProps, let widget = widgets[item.id] {
             try MacWidgetStyle.apply(item.props, to: widget)
+            scrolls.receive(item.props.scrollOffset, for: item.id)
         }
 
         if let item = change.updateLayout, let widget = widgets[item.id] {
@@ -186,7 +209,10 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
 
         if let edge = change.removeChild { widgets[edge.child]?.removeFromSuperview() }
 
-        if let item = change.delete { widgets.removeValue(forKey: item.id)?.removeFromSuperview() }
+        if let item = change.delete {
+            scrolls.forget(item.id)
+            widgets.removeValue(forKey: item.id)?.removeFromSuperview()
+        }
     }
 
     private func insertChild(_ edge: Change.Edge) {

@@ -2,6 +2,7 @@
 //! report; nothing here waits on UI automation.
 
 mod echo;
+mod scroll;
 
 use leptoskit::prelude::Element;
 
@@ -55,7 +56,8 @@ pub async fn run(host: Host, arena: Arena, scenario: Scenario) {
 		Scenario::Mount => mount(host, &arena).await,
 		Scenario::Echo => echo::run(host, &arena).await,
 		Scenario::Ticker => ticker(host, &arena).await,
-		Scenario::Autoscroll | Scenario::Busy => Err(UNSUPPORTED_SCROLL.to_owned()),
+		Scenario::Autoscroll => scroll::autoscroll(host, &arena).await,
+		Scenario::Busy => scroll::busy(host, &arena).await,
 	};
 	let report = report.unwrap_or_else(|error| {
 		let reason = error.clone();
@@ -72,11 +74,6 @@ pub async fn run(host: Host, arena: Arena, scenario: Scenario) {
 		arena.update(|model| fail(model, error));
 	}
 }
-
-/// Why `autoscroll` and `busy` cannot run.
-const UNSUPPORTED_SCROLL: &str = "leptoskit cannot set a scroll view's offset, animated or not, \
-                                  on any platform, and the generated iOS, Android, and macOS apps \
-                                  report no scroll events to the guest";
 
 fn fail(model: &mut crate::services::Model, error: String) {
 	model.phase = Phase::Failed;

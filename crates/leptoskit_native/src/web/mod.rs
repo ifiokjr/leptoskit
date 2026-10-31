@@ -69,6 +69,7 @@ pub fn render(element: Element) -> AnyView {
 		.validate()
 		.unwrap_or_else(|error| panic!("invalid leptoskit element tree: {error}"));
 	let wants_focus = asks_for_focus(&element);
+	let scrolls = sets_scroll_offset(&element);
 	let mut sheets = BTreeMap::new();
 	let root = render_node(element, true, true, false, &[], &mut sheets);
 	let css = sheets.into_values().collect::<String>();
@@ -77,12 +78,81 @@ pub fn render(element: Element) -> AnyView {
 		focus_after_render();
 	}
 
+	if scrolls {
+		scroll_after_render();
+	}
+
 	(html::style().child(css), root).into_any()
 }
 
 /// Whether any element in the tree asks for keyboard focus.
 fn asks_for_focus(element: &Element) -> bool {
 	element.props.focused == Some(true) || element.children.iter().any(asks_for_focus)
+}
+
+/// Whether any element in the tree sets a scroll offset.
+fn sets_scroll_offset(element: &Element) -> bool {
+	element.props.scroll_offset.is_some() || element.children.iter().any(sets_scroll_offset)
+}
+
+/// The `data-lk-scroll` value naming a scroll target, which the renderer
+/// compares with the last target it applied to the same DOM element.
+fn scroll_target(offset: crate::ScrollOffset) -> String {
+	let animated = if offset.animated { " smooth" } else { "" };
+	format!("{} {}{animated}", offset.x, offset.y)
+}
+
+/// Scrolls every element whose target changed since the renderer last
+/// scrolled it, once the new DOM is in place: in a microtask, so a target set
+/// from an animation frame scrolls before that frame paints. The applied
+/// target is kept on the element, so a rebuild that keeps the DOM node leaves
+/// the person's own scrolling alone, and a new node scrolls to its target.
+fn scroll_after_render() {
+	#[cfg(target_arch = "wasm32")]
+	queue_microtask(|| {
+		const APPLIED: &str = "data-lk-scrolled";
+
+		let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+			return;
+		};
+		let Ok(targets) = document.query_selector_all("[data-lk-scroll]") else {
+			return;
+		};
+
+		for index in 0..targets.length() {
+			let Some(element) = targets
+				.item(index)
+				.and_then(|node| node.dyn_into::<web_sys::Element>().ok())
+			else {
+				continue;
+			};
+			let Some(target) = element.get_attribute("data-lk-scroll") else {
+				continue;
+			};
+
+			if element.get_attribute(APPLIED).as_deref() == Some(target.as_str()) {
+				continue;
+			}
+
+			let mut parts = target.split(' ');
+			let (Some(Ok(x)), Some(Ok(y))) = (
+				parts.next().map(str::parse::<f64>),
+				parts.next().map(str::parse::<f64>),
+			) else {
+				continue;
+			};
+			let options = web_sys::ScrollToOptions::new();
+			options.set_left(x);
+			options.set_top(y);
+			options.set_behavior(if parts.next() == Some("smooth") {
+				web_sys::ScrollBehavior::Smooth
+			} else {
+				web_sys::ScrollBehavior::Instant
+			});
+			element.scroll_to_with_scroll_to_options(&options);
+			let _ = element.set_attribute(APPLIED, &target);
+		}
+	});
 }
 
 /// Moves focus to the last element asking for it, once the browser has the
@@ -182,10 +252,12 @@ fn render_node(
 		.map(|child| render_node(child, false, enabled, hidden, &chain, sheets))
 		.collect::<Vec<_>>();
 	let focused = props.focused == Some(true);
+	let scroll = props.scroll_offset.map(scroll_target);
 
 	let attrs = (
 		custom_attribute("data-lk-style", scope),
 		custom_attribute("data-lk-focus", focused.then_some("true")),
+		custom_attribute("data-lk-scroll", scroll),
 		custom_attribute("class", classes),
 		custom_attribute("aria-label", label.clone()),
 		custom_attribute("aria-disabled", (!enabled).then_some("true")),

@@ -27,10 +27,6 @@
 		"windows": "the arena's native plugin (launch scenario, frame clock, report, echo) is written for Apple and Android only; leptoskit's Windows app runs plugins in Rust and the arena has no Rust implementation of it yet",
 		"linux": "the arena's native plugin (launch scenario, frame clock, report, echo) is written for Apple and Android only; leptoskit's Linux app runs plugins in Rust and the arena has no Rust implementation of it yet"
 	},
-	"unsupported": {
-		"autoscroll": "leptoskit cannot set a scroll view's offset, animated or not, on any platform, and the generated iOS, Android, and macOS apps report no scroll events to the guest",
-		"busy": "leptoskit cannot start a native animated scroll: scroll views have no programmatic offset"
-	},
 	"tiers": {
 		"shell": "tier",
 		"emitter": "emit/leptoskit.ts",

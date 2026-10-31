@@ -418,6 +418,12 @@ pub struct NativeProps {
 	/// controlled value overrides what the user typed.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub focused: Option<bool>,
+	/// Where a scroll view's content is scrolled to, set by
+	/// [`Element::scroll_offset`](crate::Element::scroll_offset). A backend
+	/// scrolls there when the value changes, and leaves the person's own
+	/// scrolling alone while it stays the same.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub scroll_offset: Option<ScrollOffset>,
 	/// Platform-specific properties, keyed by name.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "BTreeMap::is_empty"))]
 	pub extra: BTreeMap<String, PropValue>,
@@ -584,6 +590,53 @@ impl BorderWidths {
 	#[must_use]
 	pub fn any(self) -> bool {
 		self.top > 0.0 || self.right > 0.0 || self.bottom > 0.0 || self.left > 0.0
+	}
+}
+
+/// Where a scroll view's content is scrolled to: the content point at the
+/// view's top-left corner, in layout units.
+///
+/// Platforms keep the offset inside the scrollable range, so a target past
+/// the end stops at the end.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ScrollOffset {
+	/// The horizontal offset.
+	pub x: f32,
+	/// The vertical offset.
+	pub y: f32,
+	/// Whether the platform's own scroll animation carries the content there.
+	#[cfg_attr(
+		feature = "serde",
+		serde(default, skip_serializing_if = "std::ops::Not::not")
+	)]
+	pub animated: bool,
+}
+
+impl ScrollOffset {
+	/// An offset the content jumps to.
+	#[must_use]
+	pub const fn new(x: f32, y: f32) -> Self {
+		Self {
+			x,
+			y,
+			animated: false,
+		}
+	}
+
+	/// The same offset, reached with the platform's scroll animation.
+	#[must_use]
+	pub const fn animated(self) -> Self {
+		Self {
+			animated: true,
+			..self
+		}
+	}
+
+	/// Whether both coordinates are finite numbers.
+	#[must_use]
+	pub fn is_finite(self) -> bool {
+		self.x.is_finite() && self.y.is_finite()
 	}
 }
 

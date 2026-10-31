@@ -10,6 +10,12 @@
 //! nearest native ancestor at the right index, with frames offset by the
 //! flattened containers' positions.
 //!
+//! A container placed straight inside a `ScrollView` keeps its view, as
+//! React Native's scroll content container does: platforms size the
+//! scrollable area from the scroll view's native children, so flattening it
+//! would lose its own size, such as a virtual list's full height or bottom
+//! padding.
+//!
 //! A flattened container that later needs a view, because it gained a
 //! background, say, becomes a native view in place and takes its descendants
 //! back. It stays one: promotion is never undone, which keeps the stream
@@ -230,8 +236,11 @@ impl Flattener {
 			self.decide(parent, true, out);
 		}
 
+		let scroll_content = self.node(parent).kind == NativeKind::ScrollView;
+
 		if self.node(child).undecided {
-			let flatten = is_layout_only(self.node(child).kind, &self.node(child).props);
+			let flatten =
+				!scroll_content && is_layout_only(self.node(child).kind, &self.node(child).props);
 			self.decide(child, !flatten, out);
 		}
 
@@ -257,6 +266,11 @@ impl Flattener {
 
 		for root in roots {
 			self.emit_frame(root, out);
+		}
+
+		// A flattened container moved into a scroll view becomes its content.
+		if scroll_content && !self.node(child).native {
+			self.promote(child, out);
 		}
 	}
 

@@ -777,9 +777,11 @@ pub unsafe extern "C" fn lk_app_resize(app: *mut App, width: f32, height: f32, d
 }
 
 /// Dispatches an event using the rendered node ID. Text is borrowed UTF-8.
-/// Kinds: press 0, change 1, submit 2, focus 3, blur 4, press in 8, and
-/// press out 9. Press in and out bracket a button's platform pressed state;
-/// they restyle it with its `active:` utilities without running the guest.
+/// Kinds: press 0, change 1, submit 2, focus 3, blur 4, scroll 5, press in 8,
+/// and press out 9. Press in and out bracket a button's platform pressed
+/// state; they restyle it with its `active:` utilities without running the
+/// guest. A scroll's text is its content offset in layout units, as
+/// `{"x": 0, "y": 120.5}`.
 ///
 /// # Safety
 /// `app` is exclusive; `text` addresses `len` bytes (null only when empty).
@@ -829,6 +831,14 @@ pub unsafe extern "C" fn lk_app_event(
 		}
 		3 => NativeEvent::Focus,
 		4 => NativeEvent::Blur,
+		5 => {
+			let Some((offset_x, offset_y)) = scroll_offset(value) else {
+				app.error = "a scroll event's text is a finite {\"x\", \"y\"} offset".into();
+
+				return -1;
+			};
+			NativeEvent::Scroll { offset_x, offset_y }
+		}
 		8 => NativeEvent::PressIn,
 		9 => NativeEvent::PressOut,
 		_ => {
@@ -842,6 +852,20 @@ pub unsafe extern "C" fn lk_app_event(
 	};
 	let result = app.host_mut().dispatch(node, &event).map(|_| ());
 	app.record(result)
+}
+
+/// Reads a scroll event's `{"x": …, "y": …}` content offset.
+fn scroll_offset(text: &str) -> Option<(f32, f32)> {
+	let offset: serde_json::Value = serde_json::from_str(text).ok()?;
+	let coordinate = |key: &str| {
+		offset
+			.get(key)?
+			.as_f64()
+			.map(|value| value as f32)
+			.filter(|value| value.is_finite())
+	};
+
+	Some((coordinate("x")?, coordinate("y")?))
 }
 
 /// Wakes the guest after completing native work or emitting an event.

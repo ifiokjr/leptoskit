@@ -53,9 +53,29 @@ Overscan widens the window on both sides cheaply (`with_overscan`), absorbing sc
 
 ## Programmatic scrolling
 
-`offset_for_index` computes where to scroll for an item: `Align::Auto` moves the least distance that shows it, `Start`, `Center`, and `End` place it deliberately, and every target is clamped to the scrollable range. An index past the end and an invalid estimate are both errors, since neither has an offset.
+A "jump to today" button, a chat that follows its newest message, or a feed that scrolls itself all need to move the list from code. `offset_for_index` computes where to scroll for an item: `Align::Auto` moves the least distance that shows it, `Start`, `Center`, and `End` place it deliberately, and every target is clamped to the scrollable range. An index past the end and an invalid estimate are both errors, since neither has an offset.
 
-leptoskit cannot set a scroll view's offset yet, on any platform, so the target is a number to act on yourself — to decide whether an item is in view, or to report how far through the list the reader is — rather than a scroll you can perform. The window follows the person's own scrolling.
+Hand the target to the list with `scroll_offset`, and build the window around it in the same render, so the items are there when the list arrives:
+
+```rust,ignore
+use leptoskit_native::ScrollOffset;
+use leptoskit_virtual::Align;
+
+fn jump_to(state: &mut Contacts, index: usize) {
+    let target = state.virtualizer.offset_for_index(index, Align::Start).expect("the index is in the list");
+    state.virtualizer.scroll_to(target);
+    state.target = Some(ScrollOffset::new(0.0, target as f32).animated());
+}
+
+// In the screen:
+let list = VirtualList(&state.virtualizer, Axis::Vertical, on_scroll, item)?;
+let list = match state.target {
+    Some(target) => list.scroll_offset(target),
+    None => list,
+};
+```
+
+`.animated()` uses the platform's own scroll animation; without it the list jumps. The list scrolls only when the target changes, so the person's own scrolling isn't undone by the next render. To return to a place you scrolled to before, set the target again from the offset `on_scroll` last reported. The list also reports where a target left it, so `on_scroll` sees programmatic scrolls too.
 
 When the list shrinks under its scroll position, the window resolves against the offset clamped to the new end, so the last items show until the container reports where it settled. The same clamp keeps an elastic overscroll at either edge from emptying the window.
 
@@ -63,4 +83,6 @@ When the list shrinks under its scroll position, the window resolves against the
 
 The core is axis-agnostic arithmetic and the container is the shared `ScrollView`, so one list builds on the web renderer and every native backend. Pass `Axis::Horizontal` for a carousel; the offsets and content size apply to whichever axis the container scrolls.
 
-The window only moves when the platform reports scrolling. The web and every native backend crate report it. The apps `leptoskit new` generates for macOS, iOS, and Android don't report scroll events yet, so there a `VirtualList` stays on its first window.
+The window only moves when the platform reports scrolling. The web, the apps `leptoskit new` generates, and every native backend crate report it; HarmonyOS doesn't yet, so there a `VirtualList` stays on its first window.
+
+`scroll_offset` moves the list on the web and in the generated macOS, iOS, and Android apps. The native backend crates, and so the generated Windows and Linux apps, HarmonyOS, and the terminal don't apply it yet: there the list stays where the person scrolled it.

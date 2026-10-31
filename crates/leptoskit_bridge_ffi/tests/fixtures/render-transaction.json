@@ -28,6 +28,11 @@
           "italic": true,
           "opacity": 0.25,
           "placeholder": "Search",
+          "scroll_offset": {
+            "animated": true,
+            "x": 0.0,
+            "y": 120.5
+          },
           "source": "file:///image.png",
           "text": "Card 7 — ✓",
           "text_align": "end",

@@ -5,6 +5,7 @@ use leptoskit_native::FontWeight;
 use leptoskit_native::Mutation;
 use leptoskit_native::NativeKind;
 use leptoskit_native::NativeProps;
+use leptoskit_native::ScrollOffset;
 use leptoskit_native::TextAlign;
 use leptoskit_yoga::NodeId;
 use leptoskit_yoga::Yoga;
@@ -173,6 +174,7 @@ fn sample() -> (Option<usize>, Vec<Mutation>) {
 		checked: Some(true),
 		id: Some("card-7".into()),
 		italic: Some(true),
+		scroll_offset: Some(ScrollOffset::new(0.0, 120.5).animated()),
 		..NativeProps::default()
 	};
 	let mutations = vec![

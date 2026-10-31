@@ -11,6 +11,7 @@ use leptoskit_native::NativeKind;
 use leptoskit_native::NativeProps;
 use leptoskit_native::NativeSurface;
 use leptoskit_native::components::Button;
+use leptoskit_native::components::ScrollView;
 use leptoskit_native::components::Text;
 use leptoskit_native::components::View;
 use leptoskit_native::flatten::Flattener;
@@ -166,6 +167,7 @@ const CLASSES: &[&str] = &[
 	"text-white",
 	"hidden",
 	"overflow-hidden",
+	"overflow-scroll",
 ];
 
 fn element(random: &mut Random, depth: u32) -> Element {
@@ -225,6 +227,12 @@ fn flattening_keeps_every_drawn_element_in_place() {
 						is_layout_only(node.kind, &node.props),
 						"{context}: {id:?} draws but has no view"
 					);
+					assert!(
+						node.parent.is_none_or(|parent| {
+							logical.nodes[&parent].kind != NativeKind::ScrollView
+						}),
+						"{context}: {id:?} is a scroll view's content, which sizes its scrolling"
+					);
 					flattened_checked += 1;
 					continue;
 				}
@@ -249,4 +257,29 @@ fn flattening_keeps_every_drawn_element_in_place() {
 		"only {flattened_checked} flattened containers checked"
 	);
 	assert!(promotions > 20, "only {promotions} promotions checked");
+}
+
+/// A scroll view's direct content keeps its view and its size, even when
+/// its children cover only part of it, as a virtual list's window does.
+#[test]
+fn a_scroll_views_content_keeps_its_view_and_size() {
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.set_viewport(390.0, 844.0);
+	let screen = ScrollView().class("h-[400px]").child(
+		View().class("h-[10000px] w-full").child(
+			View()
+				.class("absolute top-[200px] h-[72px] w-full")
+				.child(Text("Item")),
+		),
+	);
+	surface.set_root(&screen);
+	let mut flattener = Flattener::default();
+	let mut native = Model::default();
+	native.apply(&flattener.translate(surface.backend_mut().take_log()));
+
+	let root = native.root().expect("the scroll view is the root");
+	assert_eq!(native.nodes[&root].kind, NativeKind::ScrollView);
+	let content = native.nodes[&root].children[0];
+	assert_eq!(native.nodes[&content].kind, NativeKind::View);
+	assert!((native.nodes[&content].frame[3] - 10_000.0).abs() < f32::EPSILON);
 }

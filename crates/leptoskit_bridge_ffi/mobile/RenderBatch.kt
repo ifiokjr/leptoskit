@@ -30,6 +30,9 @@ internal class WidgetProps(
     val textAlign: String? = null,
     val rest: JSONObject? = null,
 ) {
+    /** Where a scroll view's content is scrolled to; it travels in [rest]. */
+    val scrollOffset: ScrollOffset? = rest?.optJSONObject("scroll_offset")?.let(ScrollOffset::fromJson)
+
     companion object {
         /** Missing and JSON-null properties are both unset. */
         fun fromJson(props: JSONObject): WidgetProps {
@@ -62,6 +65,17 @@ internal class WidgetProps(
                 rest = props,
             )
         }
+    }
+}
+
+/** Where a scroll view's content is scrolled to, in layout units, as `Element::scroll_offset` sets it. */
+internal data class ScrollOffset(
+    val x: Double,
+    val y: Double,
+    val animated: Boolean,
+) {
+    companion object {
+        fun fromJson(offset: JSONObject) = ScrollOffset(offset.getDouble("x"), offset.getDouble("y"), offset.optBoolean("animated"))
     }
 }
 
