@@ -66,6 +66,13 @@ pub(crate) fn expand(raw_args: &TokenStream, mut item: ItemStruct) -> syn::Resul
 			}
 		}
 
+		if let Some(projection) = args.projections.first() {
+			return Err(syn::Error::new_spanned(
+				projection,
+				"a mixin's field can't be `in(...)` a projection: projections belong to tables",
+			));
+		}
+
 		fields.push((ident, field.clone(), args));
 	}
 

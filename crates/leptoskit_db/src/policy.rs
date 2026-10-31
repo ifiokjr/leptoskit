@@ -119,10 +119,7 @@ impl Context {
 		};
 
 		Count {
-			table: U::table_name(),
-			filter: filter.map(Box::new),
-			policy: policy.map(Box::new),
-			deleted_at: U::DELETED_AT.filter(|_| !with_deleted),
+			rows: Subquery::new::<U>(filter, policy, with_deleted),
 		}
 	}
 
@@ -138,10 +135,84 @@ impl Context {
 #[derive(Clone, Debug, PartialEq)]
 #[must_use = "a count does nothing until it's compared with a number"]
 pub struct Count {
+	rows: Subquery,
+}
+
+/// The rows of another table that a condition reads: a filter, the policy
+/// the request reading them obeys, and the soft-delete column to skip by.
+/// Counts and link lookups write one as a subquery in its own scope.
+#[doc(hidden)]
+#[derive(Clone, Debug, PartialEq)]
+pub struct Subquery {
 	table: TableName,
 	filter: Option<Box<Expr>>,
 	policy: Option<Box<Expr>>,
 	deleted_at: Option<&'static str>,
+}
+
+impl Subquery {
+	/// The rows of `U` matching `filter` and `policy`, leaving soft-deleted
+	/// ones out unless `with_deleted`.
+	pub(crate) fn new<U: Table>(
+		filter: Option<Expr>,
+		policy: Option<Expr>,
+		with_deleted: bool,
+	) -> Self {
+		Self {
+			table: U::table_name(),
+			filter: filter.map(Box::new),
+			policy: policy.map(Box::new),
+			deleted_at: U::DELETED_AT.filter(|_| !with_deleted),
+		}
+	}
+
+	/// Whether every row of the table qualifies, so the subquery can be left
+	/// out.
+	pub(crate) fn is_everything(&self) -> bool {
+		self.filter.is_none() && self.policy.is_none() && self.deleted_at.is_none()
+	}
+
+	/// `(SELECT selected FROM table AS lk_<kind>_<depth> WHERE …)`,
+	/// correlated with the rows around it through the filter's columns.
+	pub(crate) fn write(&self, sql: &mut Sql, selected: &str, kind: &str) -> Result<()> {
+		sql.push("(SELECT ")
+			.push(selected)
+			.push(" FROM ")
+			.enter(&self.table, kind);
+		let written = self.write_where(sql);
+		sql.leave();
+		sql.push(")");
+		written
+	}
+
+	fn write_where(&self, sql: &mut Sql) -> Result<()> {
+		let mut first = true;
+		let mut next = |sql: &mut Sql| {
+			sql.push(if first { " WHERE " } else { " AND " });
+			first = false;
+		};
+
+		if let Some(filter) = &self.filter {
+			next(sql);
+			sql.push("(");
+			filter.write(sql)?;
+			sql.push(")");
+		}
+
+		if let Some(policy) = &self.policy {
+			next(sql);
+			sql.push("(");
+			sql.isolated(|sql| policy.write(sql))?;
+			sql.push(")");
+		}
+
+		if let Some(column) = self.deleted_at {
+			next(sql);
+			sql.identifier(column).push(" IS NULL");
+		}
+
+		Ok(())
+	}
 }
 
 impl Count {
@@ -186,40 +257,7 @@ impl Count {
 	/// `(SELECT count(*) FROM table AS alias WHERE …)`, correlated with the
 	/// rows around it through the filter's columns.
 	pub(crate) fn write(&self, sql: &mut Sql) -> Result<()> {
-		sql.push("(SELECT count(*) FROM ").enter(&self.table);
-		let written = self.write_where(sql);
-		sql.leave();
-		sql.push(")");
-		written
-	}
-
-	fn write_where(&self, sql: &mut Sql) -> Result<()> {
-		let mut first = true;
-		let mut next = |sql: &mut Sql| {
-			sql.push(if first { " WHERE " } else { " AND " });
-			first = false;
-		};
-
-		if let Some(filter) = &self.filter {
-			next(sql);
-			sql.push("(");
-			filter.write(sql)?;
-			sql.push(")");
-		}
-
-		if let Some(policy) = &self.policy {
-			next(sql);
-			sql.push("(");
-			sql.isolated(|sql| policy.write(sql))?;
-			sql.push(")");
-		}
-
-		if let Some(column) = self.deleted_at {
-			next(sql);
-			sql.identifier(column).push(" IS NULL");
-		}
-
-		Ok(())
+		self.rows.write(sql, "count(*)", "count")
 	}
 }
 

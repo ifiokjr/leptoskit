@@ -92,6 +92,7 @@ impl ::leptoskit_db::Table for User {
     );
     const VERSION: ::core::option::Option<&'static str> = ::core::option::Option::None;
     const PACK: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const GENERATED: &'static [&'static str] = &[];
     type Columns = UserColumns;
     fn columns() -> &'static UserColumns {
         static COLUMNS: UserColumns = UserColumns {
@@ -577,6 +578,15 @@ impl User {
     pub fn by_invited_by(id: ::leptoskit_db::Id<User>) -> ::leptoskit_db::Query<Self> {
         Self::query().filter(|columns| columns.invited_by.eq(id))
     }
+    /// The link, for shapes to follow.
+    #[doc(hidden)]
+    pub fn __via_invited_by() -> ::leptoskit_db::__private::shape::Relation<
+        Self,
+        User,
+        ::leptoskit_db::__private::shape::MaybeOne,
+    > {
+        ::leptoskit_db::__private::shape::Relation::forward_optional("invited_by")
+    }
     /// The row `legacy_id` points at, if it's set and the row exists and isn't soft-deleted.
     pub async fn legacy(
         &self,
@@ -587,6 +597,52 @@ impl User {
     /// The rows whose `legacy_id` points at `id`.
     pub fn by_legacy(id: ::leptoskit_db::Id<User>) -> ::leptoskit_db::Query<Self> {
         Self::query().filter(|columns| columns.legacy_id.eq(id))
+    }
+    /// The link, for shapes to follow.
+    #[doc(hidden)]
+    pub fn __via_legacy() -> ::leptoskit_db::__private::shape::Relation<
+        Self,
+        User,
+        ::leptoskit_db::__private::shape::MaybeOne,
+    > {
+        ::leptoskit_db::__private::shape::Relation::forward_optional("legacy_id")
+    }
+}
+/// The columns a public shape may read.
+#[doc(hidden)]
+pub struct UserPublicColumns {
+    pub id: ::leptoskit_db::Col<User, Id<User>>,
+    pub handle: ::leptoskit_db::Col<User, String>,
+    pub karma: ::leptoskit_db::Col<User, i32>,
+    pub theme: ::leptoskit_db::Col<User, String>,
+    pub balance: ::leptoskit_db::Col<User, f64>,
+    pub slug: ::leptoskit_db::Col<User, String>,
+    pub invited_by: ::leptoskit_db::Col<User, Option<Id<User>>>,
+    pub legacy_id: ::leptoskit_db::Col<User, Option<Id<User>>>,
+    pub created_at: ::leptoskit_db::Col<User, Timestamp>,
+    pub updated_at: ::leptoskit_db::Col<User, Timestamp>,
+    pub deleted_at: ::leptoskit_db::Col<User, Option<Timestamp>>,
+    pub active: ::leptoskit_db::Col<User, bool>,
+}
+impl User {
+    /// The columns a public shape may read.
+    #[doc(hidden)]
+    pub fn __public_columns() -> &'static UserPublicColumns {
+        static COLUMNS: UserPublicColumns = UserPublicColumns {
+            id: ::leptoskit_db::Col::new("id"),
+            handle: ::leptoskit_db::Col::new("handle"),
+            karma: ::leptoskit_db::Col::new("karma"),
+            theme: ::leptoskit_db::Col::new("theme"),
+            balance: ::leptoskit_db::Col::new("balance"),
+            slug: ::leptoskit_db::Col::new("slug"),
+            invited_by: ::leptoskit_db::Col::new("invited_by"),
+            legacy_id: ::leptoskit_db::Col::new("legacy_id"),
+            created_at: ::leptoskit_db::Col::new("created_at"),
+            updated_at: ::leptoskit_db::Col::new("updated_at"),
+            deleted_at: ::leptoskit_db::Col::new("deleted_at"),
+            active: ::leptoskit_db::Col::new("active"),
+        };
+        &COLUMNS
     }
 }
 ::leptoskit_db::__private::inventory::submit! {

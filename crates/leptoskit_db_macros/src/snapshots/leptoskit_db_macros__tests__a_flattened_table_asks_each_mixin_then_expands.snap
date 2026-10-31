@@ -63,6 +63,7 @@ impl ::leptoskit_db::Table for Order {
     const DELETED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
     const VERSION: ::core::option::Option<&'static str> = ::core::option::Option::None;
     const PACK: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const GENERATED: &'static [&'static str] = &[];
     type Columns = OrderColumns;
     fn columns() -> &'static OrderColumns {
         static COLUMNS: OrderColumns = OrderColumns {
@@ -349,6 +350,41 @@ impl ::leptoskit_db::HasMixin<db::Timestamps> for Order {
 impl ::leptoskit_db::HasId for Order {
     fn id(&self) -> ::leptoskit_db::Id<Self> {
         self.id
+    }
+}
+/// The columns a public shape may read.
+#[doc(hidden)]
+pub struct OrderPublicColumns {
+    pub id: ::leptoskit_db::Col<Order, Id<Order>>,
+    pub billing_street: ::leptoskit_db::Col<
+        Order,
+        <Address as ::leptoskit_db::MixinField<0usize>>::Type,
+    >,
+    pub billing_city: ::leptoskit_db::Col<
+        Order,
+        <Address as ::leptoskit_db::MixinField<1usize>>::Type,
+    >,
+    pub created_at: ::leptoskit_db::Col<
+        Order,
+        <db::Timestamps as ::leptoskit_db::MixinField<0usize>>::Type,
+    >,
+    pub updated_at: ::leptoskit_db::Col<
+        Order,
+        <db::Timestamps as ::leptoskit_db::MixinField<1usize>>::Type,
+    >,
+}
+impl Order {
+    /// The columns a public shape may read.
+    #[doc(hidden)]
+    pub fn __public_columns() -> &'static OrderPublicColumns {
+        static COLUMNS: OrderPublicColumns = OrderPublicColumns {
+            id: ::leptoskit_db::Col::new("id"),
+            billing_street: ::leptoskit_db::Col::new("billing_street"),
+            billing_city: ::leptoskit_db::Col::new("billing_city"),
+            created_at: ::leptoskit_db::Col::new("created_at"),
+            updated_at: ::leptoskit_db::Col::new("updated_at"),
+        };
+        &COLUMNS
     }
 }
 ::leptoskit_db::__private::inventory::submit! {

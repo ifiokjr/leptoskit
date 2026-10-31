@@ -15,6 +15,7 @@ mod enums;
 mod migrations;
 mod mixin;
 mod scalar;
+mod shape;
 mod table;
 
 use proc_macro::TokenStream;
@@ -27,6 +28,36 @@ use syn::ItemStruct;
 #[proc_macro_attribute]
 pub fn table(args: TokenStream, item: TokenStream) -> TokenStream {
 	match table::expand(&args.into(), &item.into(), &[]) {
+		Ok(tokens) => tokens.into(),
+		Err(error) => error.to_compile_error().into(),
+	}
+}
+
+/// Declares a table that links two others many to many. See
+/// `leptoskit::db::link`.
+#[proc_macro_attribute]
+pub fn link(args: TokenStream, item: TokenStream) -> TokenStream {
+	let args = proc_macro2::TokenStream::from(args);
+	let marker = syn::Ident::new(attrs::LINK_MARKER, proc_macro2::Span::call_site());
+	let args = if args.is_empty() {
+		quote!(#marker)
+	} else {
+		quote!(#marker, #args)
+	};
+
+	match table::expand(&args, &item.into(), &[]) {
+		Ok(tokens) => tokens.into(),
+		Err(error) => error.to_compile_error().into(),
+	}
+}
+
+/// Fetches a row and the rows linked to it in one statement. See
+/// `leptoskit::db::Shape`.
+#[proc_macro_derive(Shape, attributes(db))]
+pub fn derive_shape(input: TokenStream) -> TokenStream {
+	let result = syn::parse::<DeriveInput>(input).and_then(|input| shape::expand(&input));
+
+	match result {
 		Ok(tokens) => tokens.into(),
 		Err(error) => error.to_compile_error().into(),
 	}

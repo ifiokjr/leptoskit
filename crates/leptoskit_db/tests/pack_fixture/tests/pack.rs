@@ -6,6 +6,7 @@ use leptoskit_db::Db;
 use leptoskit_db::Dialect;
 use leptoskit_db_pack_fixture::Note;
 use leptoskit_db_pack_fixture::add_note;
+use leptoskit_db_pack_fixture::relate;
 use leptoskit_db_schema::RequireHints;
 use leptoskit_db_schema::Schema;
 use leptoskit_db_schema::TableName;
@@ -44,6 +45,12 @@ async fn the_pack_writes_and_the_app_reads() {
 		add_note(&db, "", "ada").await.is_err(),
 		"the pack's rules hold"
 	);
+
+	// The app reads the pack's links; only the pack adds them.
+	let other = add_note(&db, "world", "ada").await.unwrap();
+	relate(&db, note.id, other.id).await.unwrap();
+	assert_eq!(read.related().ids(&db).await.unwrap(), [other.id]);
+	assert_eq!(other.related_from().count(&db).await.unwrap(), 1);
 }
 
 #[test]

@@ -68,3 +68,23 @@ fn non_portable_tables_are_explained() {
 
 	insta::assert_snapshot!(problems(&[accounts]).join("\n"));
 }
+
+#[test]
+fn a_packs_column_is_never_generated() {
+	let profiles = table(
+		"profiles",
+		vec![
+			Column::new("handle", ColumnType::TEXT),
+			Column::new("handle_key", ColumnType::TEXT)
+				.generated(leptoskit_db_schema::Generated::new("lower(\"handle\")")),
+		],
+	);
+
+	assert_eq!(
+		problems(&[profiles]),
+		[
+			"auth.profiles.handle_key: a pack's column can't be generated: its expression is raw \
+			 SQL"
+		]
+	);
+}

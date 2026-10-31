@@ -6,14 +6,15 @@ use leptoskit_db::Id;
 use leptoskit_db::Scalar;
 use leptoskit_db::table;
 
-/// Someone with an account.
-#[table(name = "users", public)]
+/// Someone with an account. They see their own email; everyone else sees
+/// the public type.
+#[table(name = "users", public, projection(SelfUser))]
 pub struct User {
 	pub id: Id<Self>,
 	#[db(max_len = 32)]
 	pub handle: String,
 	pub avatar: Option<leptoskit_db::Url>,
-	#[db(private)]
+	#[db(private, in(SelfUser))]
 	pub email: leptoskit_db::Email,
 	#[db(secret)]
 	pub password_hash: String,
@@ -23,6 +24,45 @@ pub struct User {
 	pub times: leptoskit_db::Timestamps,
 	#[db(flatten, prefix = "home_")]
 	pub home: Place,
+}
+
+/// One user following another. On the client a link is a marker, like a
+/// table.
+#[leptoskit_db::link(
+	name = "follows",
+	from = User as following,
+	to = User as followers,
+	from_column = "follower_id",
+	to_column = "followed_id"
+)]
+pub struct Follow {}
+
+/// A profile and its followers, as the server fetches it. The derive adds
+/// nothing on the client, so the struct is an ordinary client type.
+#[derive(leptoskit_db::Shape, Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[db(from = User, public)]
+pub struct Profile {
+	pub id: Id<User>,
+	pub handle: String,
+	#[db(via = followers)]
+	pub followers: Vec<Follower>,
+}
+
+/// One follower, nested in a profile.
+#[derive(leptoskit_db::Shape, Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[db(from = User, public)]
+pub struct Follower {
+	pub handle: String,
+}
+
+/// What a client does with a shape: reads it like any other value.
+pub fn follower_count(profile: &Profile) -> usize {
+	profile.followers.len()
+}
+
+/// The signed-in user's own view, with their email.
+pub fn own_email(user: &SelfUser) -> &str {
+	user.email.as_ref()
 }
 
 /// A label shown next to a name. Scalars are client types too: a form can

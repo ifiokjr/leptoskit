@@ -1,0 +1,44 @@
+error[E0609]: no field `email` on type `&'static PersonPublicColumns`
+  --> tests/ui/public_shape_reads_a_private_column.rs:20:6
+   |
+20 |     pub email: String,
+   |         ^^^^^ unknown field
+   |
+   = note: available fields are: `id`, `name`, `friend_id`
+
+error[E0277]: the trait bound `Contact: PublicShape` is not satisfied
+  --> tests/ui/public_shape_reads_a_private_column.rs:28:19
+   |
+28 |     pub friends: Vec<Contact>,
+   |                      ^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `PublicShape` is not implemented for `Contact`
+  --> tests/ui/public_shape_reads_a_private_column.rs:33:1
+   |
+33 | pub struct Contact {
+   | ^^^^^^^^^^^^^^^^^^
+help: the following other types implement trait `PublicShape`
+  --> tests/ui/public_shape_reads_a_private_column.rs:16:10
+   |
+16 | #[derive(Shape)]
+   |          ^^^^^ `Card`
+...
+24 | #[derive(Shape)]
+   |          ^^^^^ `Friends`
+note: required by a bound in `_::public`
+  --> tests/ui/public_shape_reads_a_private_column.rs:24:10
+   |
+24 | #[derive(Shape)]
+   |          ^^^^^ required by this bound in `public`
+   = note: this error originates in the derive macro `Shape` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0599]: no associated function or constant named `__via_enemies` found for struct `Person` in the current scope
+  --> tests/ui/public_shape_reads_a_private_column.rs:41:13
+   |
+ 5 | #[table(name = "people")]
+   | ------------------------- associated function or constant `__via_enemies` not found for this struct
+...
+39 | #[db(from = Person)]
+40 | pub struct Lost {
+41 |     #[db(count(enemies))]
+   |                ^^^^^^^ associated function or constant not found in `Person`

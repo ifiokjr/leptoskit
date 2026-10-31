@@ -7,6 +7,7 @@ use std::ops::Not;
 
 use leptoskit_db_schema::Dialect;
 use leptoskit_db_schema::TableName;
+use leptoskit_db_schema::quote_identifier;
 
 use crate::Column;
 use crate::DbError;
@@ -350,6 +351,14 @@ pub enum Expr {
 		comparison: Comparison,
 		value: i64,
 	},
+	/// The column is one of the values another table's rows hold: the rows
+	/// of a link table, or the rows a request may see.
+	#[doc(hidden)]
+	Within {
+		column: &'static str,
+		selected: &'static str,
+		rows: Box<crate::policy::Subquery>,
+	},
 	/// Every row, or none.
 	#[doc(hidden)]
 	Constant(bool),
@@ -482,6 +491,14 @@ impl Expr {
 			} => {
 				count.write(sql)?;
 				sql.push(comparison.operator()).value(Value::Int(*value));
+			}
+			Self::Within {
+				column,
+				selected,
+				rows,
+			} => {
+				sql.identifier(column).push(" IN ");
+				rows.write(sql, &quote_identifier(selected), "in")?;
 			}
 			Self::Constant(true) => {
 				sql.push("1 = 1");
