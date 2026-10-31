@@ -57,7 +57,11 @@ class RenderBatchTest {
             }
         }
 
-    /** Typed fields as they are; of the rest, only properties no typed field carries. */
+    /**
+     * Typed fields as they are; of the rest, only properties no typed field
+     * carries. The scroll offset is typed, read from the rest, so its JSON,
+     * whose key order differs between the two forms, is left out.
+     */
     private fun describe(props: WidgetProps): String {
         val typed =
             listOf(
@@ -112,6 +116,7 @@ class RenderBatchTest {
                 "font_size",
                 "font_weight",
                 "text_align",
+                "scroll_offset",
             )
     }
 }
