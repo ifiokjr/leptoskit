@@ -706,6 +706,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "auth_pages_example"
+version = "0.1.0"
+dependencies = [
+ "any_spawner",
+ "chrono",
+ "leptoskit",
+ "leptoskit_router",
+ "leptoskit_testing",
+ "reactive_graph",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4963,6 +4977,7 @@ dependencies = [
 name = "leptoskit_idp"
 version = "0.1.0"
 dependencies = [
+ "any_spawner",
  "axum",
  "base64 0.22.1",
  "chrono",
@@ -4970,11 +4985,15 @@ dependencies = [
  "http-body-util",
  "leptos",
  "leptoskit_auth",
+ "leptoskit_config",
  "leptoskit_db",
+ "leptoskit_query",
  "leptoskit_rpc",
  "p256",
+ "ring",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sha2 0.10.9",
  "subtle",
  "tempfile",

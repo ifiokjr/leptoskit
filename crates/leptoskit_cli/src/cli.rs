@@ -398,6 +398,11 @@ pub enum GenerateCommand {
 	/// server's sign-in module when it has a server and a database. Running it
 	/// again changes nothing; a file you've edited is kept.
 	Auth {
+		/// Also the "Sign in with your app" screens: consent, entering a
+		/// device's code, connected apps, and the developer portal, with
+		/// `[auth.idp]` and the provider's builder on the server.
+		#[arg(long)]
+		idp: bool,
 		/// Replace files that differ from the templates.
 		#[arg(long)]
 		force: bool,
@@ -616,7 +621,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 						auth,
 					)
 				}
-				GenerateCommand::Auth { force } => crate::auth_pages::run(force),
+				GenerateCommand::Auth { idp, force } => crate::auth_pages::run(idp, force),
 				GenerateCommand::Plugin {
 					path,
 					name,

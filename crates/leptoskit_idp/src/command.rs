@@ -74,6 +74,21 @@ impl Idp {
 					.await
 					.map(|removed| ClientCommandOutput::Removed { removed })
 			}
+			ClientCommand::RotateSecret { client_id } => {
+				match self.rotate_secret(client_id).await {
+					Ok(Some(secret)) => {
+						Ok(ClientCommandOutput::Rotated {
+							secret: secret.expose().to_owned(),
+						})
+					}
+					Ok(None) => {
+						Ok(ClientCommandOutput::Failed {
+							message: "no app with a secret has that client ID".into(),
+						})
+					}
+					Err(error) => Err(error),
+				}
+			}
 		};
 
 		result.unwrap_or_else(|error| {
