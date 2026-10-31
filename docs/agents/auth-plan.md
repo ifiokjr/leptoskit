@@ -764,6 +764,40 @@ These phases interleave with the [database phases](database-plan.md#delivery). A
   - The scopes run against a real `QueryClient`, and the SSR reads run inside the layer under a leptos owner.
 - **Left for later:** a host-provided clock for guests; registering `http` and `secure-store` automatically in the Windows and Linux hosts; and a cookie-less browser mode for an app served from a different origin than its API, which this deliberately doesn't support.
 
+**As built (Auth 1, seventh layer: generated pages and the scaffold):**
+
+- **The screens** (`crates/leptoskit_cli/src/auth_pages/templates/`) are leptoskit `Element` trees over the headless client, not leptos views, so one file renders on the web and in a native guest. Each is a `Copy` state struct (`SignIn`, `Devices`) of signals and query handles with a `screen()` method, like the scaffold's `Counter`.
+  - `auth::provide()` creates both in the current owner, which needs a `QueryClient`, and puts a `Screens` in context; `auth::screens()` reads it. Context rather than a global keeps one request's sign-in state from leaking into another's during server rendering.
+  - `Screens::gate(|| home)` shows the sign-in screen until someone is signed in, then `home` under a bar with "Where you're signed in" and "Sign out".
+  - `SignIn` reports nothing about the session until an `Effect` marks it mounted. Effects never run during server rendering, so the server always renders "Checking…", and the browser's first render matches it however quickly the in-process session read resolves. Without this, a loaded server sometimes rendered the signed-out form, and hydration would have met different markup.
+  - Text inputs take their value untracked (as harbor's search does), so typing doesn't re-render the tree and drop focus. The email is checked loosely before sending; the server's check is the real one.
+  - After `rate_limited`, a `spawn_local` task counts a signal down from `retry_after` with `leptoskit_query::sleep`, and the buttons stay disabled until it reaches zero. On a guest without a host timer, `sleep` resolves at once, so the countdown ends immediately and the server's limit still holds.
+  - The devices query is enabled only while someone is signed in, so a signed-out screen never asks for it.
+  - The screens' pure helpers (`looks_like_email`, `retry_after`, `sentence`, `day`) carry unit tests, which run in the generated app.
+- **`lk generate auth`** (`auth_pages.rs`):
+  - It finds the client crate from `build.client_package` (the root package, or a workspace member), writes `src/auth/`, declares `pub mod auth;`, and adds the `auth`, `leptos`, and `query` features to its `leptoskit` dependency with `toml_edit`, keeping the manifest's formatting.
+  - `leptos` is the facade's re-export, so the screens can import signals in a native build, where the app's own `leptos` dependency is off.
+  - With the file router, it adds `sign-in.rs` and `devices.rs` to the routes directory, unless a route file by that name exists anywhere under it, then regenerates the routes module. A failed regeneration becomes a next step, not an error.
+  - Without `[auth]`, it appends one to `leptoskit.toml`, after checking the result still loads.
+  - With a server (`src/main.rs` and `leptoskit`'s `server` feature) and a `[db]`, it writes `src/sign_in.rs` (`service::<U: OnSignUp>(&db)`: `Auth::from_config` over the embedded `leptoskit.toml`, plus `dev_mailbox()` and `dev_sign_in()` under `cfg(debug_assertions)`), declares it, and turns on `auth`. Without a database it says so and stops there.
+  - It never edits the app's own code beyond appending module declarations. Router composition, `auth::provide()`, and the user table become numbered next steps, each printed only while its marker (`auth::provide(`, `sign_in::service`) is missing.
+  - Idempotence: a file that matches is skipped silently, a differing one is reported as kept unless `--force`, and a run that changes nothing says so.
+- **`leptoskit new --auth`** implies `--db sqlite` unless `--db` is given. It reuses the same page and server-module templates, plus:
+  - `db_auth.rs`: `packs!(leptoskit_auth)`, and a `User` keyed by `Id<auth::Account>` whose `OnSignUp` names the user from the email's local part.
+  - `server_auth.rs`: it merges `auth.router()` and adds `auth.layer()` last.
+  - `backend_auth.rs`: the backend no longer adds its own `Extension(db)`, so handlers get the layer's policy-scoped `Db`.
+  - `app_auth.rs`: `provide()` in the web `App`, and `configure(ClientConfig::new())` in `hydrate`/`start`. In the native entry it calls `configure` with a `SERVER` origin constant, installs an `any_spawner` local executor over a `futures` `LocalPool`, and exports `leptoskit_poll`. The pool runs after every event and plugin reply, and then renders again.
+  - The scaffold leaves `[auth] origin` unset, so a browser can use either `localhost` or `127.0.0.1`, and the cookie is `__Host-session`. The README says to set it before deploying.
+- **Tests:**
+  - Unit tests cover generation on temporary projects: first run, a second run changing nothing, kept and forced files, the router with and without a clashing route, a failed regeneration, a single-crate app, missing crates, and every dependency shape.
+  - Snapshots pin the `--auth` scaffold, `generate auth`'s files and output on a `--db` scaffold, a second run's output, and the new help text.
+  - The ignored end-to-end test in `tests/db.rs` builds `new --auth` against this repository. It migrates, builds the server, runs the generated tests, and checks the app for `wasm32` with `hydrate` and `native`. It then signs in with a code read from `/_leptoskit/mail`, reads the session with the cookie, and posts a note under the auth layer.
+- **Left for later:**
+  - The scaffold doesn't grant `http` and `secure-store` in `[native] plugins`, because the native registry requires each to be a direct dependency of the host runner, and those dependencies aren't wired or verified yet.
+  - Separately, the facade and `leptoskit_auth` take `leptoskit_query` with its default `browser` feature. The scaffold's `native` guest build imports wasm-bindgen's `setTimeout`, `Date.now`, `Window`, and `navigator` glue from it, outside the interpreter's shim set, so a host can't instantiate it until guest builds turn that feature off.
+  - Both block running the screens in a native host. They compile for `wasm32` with `native` today; the server is verified end to end, and the browser bundle builds.
+  - Sign-up, email verification and MFA pages, and `--idp` pages, wait for their phases.
+
 **As built (Auth 1, third layer: mailers and config):**
 
 - **`[auth]` in `leptoskit.toml`:** `app_name`, `origin`, `keys_env`, `client_ip_header`, `idle_days` and `absolute_days`, plus `[auth.mail]` with `from`, `smtp_url_env`, `webhook_url_env` and `webhook_secret_env`.

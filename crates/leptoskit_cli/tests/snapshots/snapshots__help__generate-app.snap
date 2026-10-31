@@ -16,5 +16,6 @@ Options:
       --sdk-path <SDK_PATH>            A local leptoskit repository whose crates the project depends on by path instead of the published release
       --db <postgres|sqlite>           Add a database: a crate of tables, migrations, and an example `Note` table the backend serves
       --extension                      Add a browser extension: the `extension` platform, a popup and a background worker in `[extension]`, and the app's entry points
+      --auth                           Start with sign-in wired up: email codes, a user table, and the sign-in screens in front of the app. Adds a SQLite database unless `--db` picks one
   -h, --help                           Print help
   -V, --version                        Print version

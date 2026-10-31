@@ -1,0 +1,17 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+[package]
+name = "snapshotted_db"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+leptoskit_auth = { version = "=[version]", default-features = false }
+leptoskit_db = { version = "=[version]", default-features = false }
+
+[features]
+# The server side of the tables: rows, queries, migrations, and the driver.
+server = ["leptoskit_db/sqlite", "leptoskit_auth/sqlite"]
