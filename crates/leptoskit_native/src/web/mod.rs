@@ -71,7 +71,7 @@ pub fn render(element: Element) -> AnyView {
 	let wants_focus = asks_for_focus(&element);
 	let scrolls = sets_scroll_offset(&element);
 	let mut sheets = BTreeMap::new();
-	let root = render_node(element, true, true, false, &[], &mut sheets);
+	let root = render_node(element, true, true, false, &[], &mut sheets, "");
 	let css = sheets.into_values().collect::<String>();
 
 	if wants_focus {
@@ -208,6 +208,7 @@ fn render_node(
 	parent_hidden: bool,
 	ancestors: &[Handlers],
 	sheets: &mut BTreeMap<String, String>,
+	path: &str,
 ) -> AnyView {
 	let (scope, sheet) = scoped_sheet(&element, root);
 	let handlers: Handlers = element.handlers().to_vec().into();
@@ -249,7 +250,11 @@ fn render_node(
 	let children = element
 		.children
 		.into_iter()
-		.map(|child| render_node(child, false, enabled, hidden, &chain, sheets))
+		.enumerate()
+		.map(|(index, child)| {
+			let child_path = format!("{path}.{index}");
+			render_node(child, false, enabled, hidden, &chain, sheets, &child_path)
+		})
 		.collect::<Vec<_>>();
 	let focused = props.focused == Some(true);
 	let scroll = props.scroll_offset.map(scroll_target);
@@ -259,6 +264,7 @@ fn render_node(
 		custom_attribute("data-lk-focus", focused.then_some("true")),
 		custom_attribute("data-lk-scroll", scroll),
 		custom_attribute("class", classes),
+		custom_attribute("data-lk-node", devtools_path(path)),
 		custom_attribute("aria-label", label.clone()),
 		custom_attribute("aria-disabled", (!enabled).then_some("true")),
 		custom_attribute("data-testid", test_id),
@@ -459,6 +465,11 @@ fn listeners(
 /// Changing handlers attach to typed elements before erasure. In the pinned
 /// Tachys version, rebuilding attributes spread onto `AnyView` keeps the
 /// original listener state instead of replacing its callbacks.
+/// The node path a `DevTools` pick reports, when the feature is on.
+fn devtools_path(path: &str) -> Option<String> {
+	cfg!(feature = "devtools").then(|| path.to_owned())
+}
+
 fn typed_element(parts: NodeParts, attrs: impl Attribute + 'static) -> AnyView {
 	let NodeParts {
 		kind,
@@ -684,4 +695,15 @@ fn spans_view(spans: Vec<crate::TextSpan>) -> AnyView {
 		})
 		.collect_view()
 		.into_any()
+}
+
+#[cfg(test)]
+mod devtools_tests {
+	#[test]
+	fn the_devtools_path_is_the_node_path() {
+		#[cfg(feature = "devtools")]
+		assert_eq!(super::devtools_path("0.1"), Some("0.1".to_owned()));
+		#[cfg(not(feature = "devtools"))]
+		assert_eq!(super::devtools_path("0.1"), None);
+	}
 }
