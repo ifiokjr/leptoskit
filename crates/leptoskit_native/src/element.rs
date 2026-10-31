@@ -42,7 +42,7 @@ use crate::vector::ViewBox;
 /// [`NativeSurface`](crate::NativeSurface) diffs them against the committed
 /// tree and turns the difference into native mutations. This mirrors how a
 /// leptos component's view is a description that the renderer reconciles.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Element {
 	/// The widget kind.
 	pub kind: NativeKind,
@@ -57,6 +57,30 @@ pub struct Element {
 	source: Option<&'static std::panic::Location<'static>>,
 	classes: Tailwind,
 	handlers: Vec<HandlerEntry>,
+}
+
+/// Describes what the element renders, leaving out where it was created: the
+/// `devtools` source location would make the output change with the feature,
+/// and with every edit that moves a line.
+#[cfg_attr(
+	feature = "devtools",
+	expect(
+		clippy::missing_fields_in_debug,
+		reason = "the source location is left out on purpose, so the output describes only what \
+		          renders"
+	)
+)]
+impl std::fmt::Debug for Element {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("Element")
+			.field("kind", &self.kind)
+			.field("style", &self.style)
+			.field("props", &self.props)
+			.field("children", &self.children)
+			.field("classes", &self.classes)
+			.field("handlers", &self.handlers)
+			.finish()
+	}
 }
 
 #[derive(Clone)]
