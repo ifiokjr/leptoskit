@@ -112,6 +112,14 @@ pub fn build(root: &Path, config: &LeptoskitConfig, release: bool) -> Result<()>
 	}
 
 	let bundle = assemble(root, config, &binary)?;
+	if super::safari::configured(config) {
+		super::safari::assemble_macos(
+			root,
+			config,
+			&bundle,
+			&root.join(crate::extension::OUTPUT).join("safari"),
+		)?;
+	}
 
 	super::run_tool(
 		Command::new("codesign")

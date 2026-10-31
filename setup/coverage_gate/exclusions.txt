@@ -8,3 +8,10 @@
 # hardware instead; see the device control journeys in the pull requests
 # that touch them.
 crates/leptoskit_testing/src/control/device.rs
+
+# The Safari app extension is assembled by compiling Swift and signing the
+# .appex with macOS's swiftc and codesign, which the measuring lanes do not
+# provide. The macOS applications lane checks the signed extension inside
+# Commonplace's app.
+crates/leptoskit_cli/src/native/safari.rs
+crates/leptoskit_cli/src/native/desktop.rs

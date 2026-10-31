@@ -147,11 +147,32 @@ That builds your client once, with the `extension` feature, and writes one packa
 
 The zips are deterministic: the same source gives the same bytes. Every generated page loads its own script, because extension pages forbid inline scripts, and the pages may load WebAssembly only from the package.
 
-To try it, load the unpacked folder: in Chrome, turn on developer mode at `chrome://extensions` and choose **Load unpacked**; in Firefox, open `about:debugging`, choose **This Firefox**, and **Load Temporary Add-on**, picking the folder's `manifest.json`.
+## Safari
+
+Safari installs extensions only from inside an app, so when `browsers` has `safari`, your macOS and iOS apps carry the extension:
+
+```bash
+leptoskit build --platform macos
+leptoskit build --platform ios
+```
+
+Each of those builds first packages the extension for Safari, then:
+
+- **macOS:** adds `Contents/PlugIns/SafariExtension.appex` to the app, signed with the App Sandbox entitlement that Safari requires of extensions.
+- **iOS:** adds a `SafariExtension` app extension target to the generated Xcode project, and embeds it in the app.
+
+The extension's bundle identifier is your `native.package_id` plus `.SafariExtension`; set `[extension.safari].bundle_id_suffix` to change the last part. Apple requires it to start with the app's.
+
+People turn the extension on themselves, after installing the app: on a Mac in Safari's settings, under **Extensions**, and on an iPhone or iPad in **Settings**, then **Apps**, **Safari**, **Extensions**. Tell them how from your app's first screen. A development build on a Mac is signed only for this computer, so Safari shows it after you turn on **Allow unsigned extensions** in Safari's **Develop** menu.
+
+Safari has no side panel and can't replace the new tab page, so those surfaces aren't in its package.
+
+## Try it
+
+To try it in Chromium or Firefox, load the unpacked folder: in Chrome, turn on developer mode at `chrome://extensions` and choose **Load unpacked**; in Firefox, open `about:debugging`, choose **This Firefox**, and **Load Temporary Add-on**, picking the folder's `manifest.json`.
 
 ## What doesn't work yet
 
-- **Safari:** the build writes Safari's package, but doesn't yet put it inside your macOS and iOS apps, which is how Safari installs extensions.
 - **Development:** `leptoskit dev` doesn't run the extension yet; build it, and reload it in the browser.
 - **Publishing:** the zips are ready for the stores, but `leptoskit publish` doesn't upload them yet.
 - **Plugins:** the runtime plugins don't yet declare the extension permissions they need, so add those to `permissions` yourself.

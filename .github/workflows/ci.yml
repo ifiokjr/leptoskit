@@ -384,6 +384,21 @@ jobs:
           "$cli" native build macos
           test -s .leptoskit/macos/App.app/Contents/Resources/app.wasm
 
+      # Safari installs extensions only from inside an app, so Commonplace's
+      # macOS app carries its Safari extension, sandboxed as Safari requires.
+      - name: check commonplace's Safari extension
+        if: runner.os == 'macOS'
+        shell: bash
+        working-directory: examples/commonplace/.leptoskit/macos/App.app
+        run: |
+          set -euo pipefail
+          appex=Contents/PlugIns/SafariExtension.appex
+          test -s "$appex/Contents/Resources/manifest.json"
+          test -x "$appex/Contents/MacOS/SafariExtension"
+          plutil -lint "$appex/Contents/Info.plist"
+          codesign --verify --strict --deep .
+          codesign -d --entitlements - "$appex" 2>&1 | grep -q com.apple.security.app-sandbox
+
       - name: build generated Windows application
         if: runner.os == 'Windows'
         shell: bash

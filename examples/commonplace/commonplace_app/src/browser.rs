@@ -8,6 +8,22 @@ use commonplace_shared::PageInput;
 /// Whether these screens are running in the browser extension.
 pub const IN_EXTENSION: bool = cfg!(feature = "extension");
 
+/// How to turn on the Safari extension this app carries, on the Apple
+/// apps; Safari asks people to do it themselves.
+pub const SAFARI: Option<&str> = if cfg!(feature = "ios") {
+	Some(
+		"To clip from Safari, turn on the Commonplace extension in Settings, then Apps, Safari, \
+		 Extensions.",
+	)
+} else if cfg!(feature = "macos") {
+	Some(
+		"To clip from Safari, turn on the Commonplace extension in Safari's settings, under \
+		 Extensions.",
+	)
+} else {
+	None
+};
+
 /// Asks the extension's worker, and waits for its answer.
 pub async fn ask(message: ExtensionMessage) -> ExtensionReply {
 	#[cfg(feature = "extension")]

@@ -126,3 +126,53 @@ fn assert_android_sources(root: &Path, registry: &Registry) {
 			.exists()
 	);
 }
+
+#[test]
+fn an_app_with_a_safari_extension_embeds_it_as_an_app_extension_target() {
+	let directory = tempfile::tempdir().unwrap();
+	let root = directory.path().canonicalize().unwrap();
+	let registry = metadata_registry(&root, &[]);
+	let config = leptoskit_config::LeptoskitConfig::from_toml(
+		"[app]\nplatforms = [\"web\", \"ios\", \"extension\"]\n[native]\npackage_id = \
+		 \"com.example.notes\"\n[extension]\nbrowsers = [\"safari\"]\n[extension.popup]\nroute = \
+		 \"/\"\n",
+		&root,
+	)
+	.unwrap();
+	write(&registry.bridge.join("Package.swift"), "// bridge package").unwrap();
+	for source in platform_sources::IOS {
+		write(&registry.bridge.join(source), source).unwrap();
+	}
+	let package = root.join(".leptoskit/extension/safari");
+	write(&package.join("manifest.json"), "{}").unwrap();
+	write(&package.join("pkg/app_bg.wasm"), "").unwrap();
+
+	ios::generate(&root, &config, &registry).unwrap();
+	let project =
+		std::fs::read_to_string(root.join(".leptoskit/ios/Host.xcodeproj/project.pbxproj"))
+			.unwrap();
+	let mut ids = BTreeSet::new();
+	for line in project.lines() {
+		if let Some((key, _)) = line.trim().split_once(" = {isa = ") {
+			assert!(ids.insert(key), "duplicate Xcode object {key}");
+		}
+	}
+	assert!(project.contains("productType = \"com.apple.product-type.app-extension\""));
+	assert!(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.example.notes.SafariExtension;"));
+	assert!(project.contains("name = \"Embed Foundation Extensions\""));
+	assert!(project.contains("dstSubfolderSpec = 13;"));
+	// The package's files and folders go to the extension's top level.
+	assert_eq!(project.matches("lastKnownFileType = folder;").count(), 1);
+	assert!(project.contains("manifest.json"));
+	let extension = root.join(".leptoskit/ios/SafariExtension");
+	assert!(
+		std::fs::read_to_string(extension.join("Info.plist"))
+			.unwrap()
+			.contains("com.apple.Safari.web-extension")
+	);
+	assert!(
+		std::fs::read_to_string(extension.join("SafariWebExtensionHandler.swift"))
+			.unwrap()
+			.contains("NSExtensionRequestHandling")
+	);
+}

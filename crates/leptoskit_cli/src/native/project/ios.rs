@@ -36,16 +36,21 @@ pub(super) fn generate(
 		)?;
 	}
 
+	let extras = if super::super::safari::configured(config) {
+		safari_target(&mut objects, root, config, &dir)?
+	} else {
+		Extras::default()
+	};
 	build_phases(
 		&mut objects,
 		root,
 		config,
-		&source_refs,
+		&format!("{source_refs}{}", extras.group),
 		&source_files,
 		&frameworks,
 	)?;
 	ios_configurations(&mut objects, root, config, &package_root)?;
-	targets(&mut objects, &products, &package_refs)?;
+	targets(&mut objects, &products, &package_refs, &extras)?;
 	write(
 		&dir.join("Host.xcodeproj/project.pbxproj"),
 		&format!(
@@ -402,7 +407,177 @@ fn build_phases(
 	Ok(())
 }
 
-fn targets(objects: &mut String, products: &str, package_refs: &str) -> Result<()> {
+/// What a second target adds to the app's: files in the project's group, a
+/// build phase and dependency of the app, and the target itself.
+#[derive(Default)]
+struct Extras {
+	group: String,
+	app_phases: String,
+	app_dependencies: String,
+	targets: String,
+}
+
+const SAFARI_SOURCE: usize = 60;
+const SAFARI_SOURCE_BUILD: usize = 61;
+const SAFARI_PRODUCT: usize = 62;
+const SAFARI_SOURCE_PHASE: usize = 63;
+const SAFARI_RESOURCE_PHASE: usize = 64;
+const SAFARI_TARGET: usize = 65;
+const SAFARI_CONFIGURATIONS: usize = 66;
+const SAFARI_DEBUG: usize = 67;
+const SAFARI_RELEASE: usize = 68;
+const SAFARI_EMBED_PHASE: usize = 69;
+const SAFARI_EMBED_BUILD: usize = 70;
+const SAFARI_DEPENDENCY: usize = 71;
+const SAFARI_PROXY: usize = 72;
+const SAFARI_RESOURCE_START: usize = 3000;
+
+/// The Safari extension: an app extension target whose resources are the
+/// extension's Safari package, embedded in the app.
+fn safari_target(
+	objects: &mut String,
+	root: &Path,
+	config: &leptoskit_config::LeptoskitConfig,
+	dir: &Path,
+) -> Result<Extras> {
+	use super::super::safari;
+
+	let extension_dir = dir.join(safari::NAME);
+	write(
+		&extension_dir.join("SafariWebExtensionHandler.swift"),
+		safari::handler_swift(),
+	)?;
+	write(
+		&extension_dir.join("Info.plist"),
+		&safari::info_plist(config, false),
+	)?;
+	let package = root.join(crate::extension::OUTPUT).join("safari");
+	anyhow::ensure!(
+		package.is_dir(),
+		"the Safari package is missing from {}; build the extension first",
+		package.display()
+	);
+
+	writeln!(
+		objects,
+		"{} = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {}; \
+		 sourceTree = \"<absolute>\"; }};\n{} = {{isa = PBXBuildFile; fileRef = {}; }};\n{} = \
+		 {{isa = PBXFileReference; explicitFileType = \"wrapper.app-extension\"; path = {}.appex; \
+		 sourceTree = BUILT_PRODUCTS_DIR; }};",
+		id(SAFARI_SOURCE),
+		quote(&extension_dir.join("SafariWebExtensionHandler.swift"))?,
+		id(SAFARI_SOURCE_BUILD),
+		id(SAFARI_SOURCE),
+		id(SAFARI_PRODUCT),
+		safari::NAME
+	)?;
+	// Safari reads the extension from the app extension's resources, which
+	// on iOS is the bundle's top level: each file and folder of the package
+	// goes there as it is.
+	let mut entries: Vec<_> = std::fs::read_dir(&package)
+		.with_context(|| format!("could not read {}", package.display()))?
+		.collect::<std::io::Result<Vec<_>>>()?;
+	entries.sort_by_key(std::fs::DirEntry::file_name);
+	let mut group = format!("{},{},", id(SAFARI_SOURCE), id(SAFARI_PRODUCT));
+	let mut resources = String::new();
+	for (index, entry) in entries.iter().enumerate() {
+		let reference = SAFARI_RESOURCE_START + index * 2;
+		let kind = if entry.file_type()?.is_dir() {
+			"folder"
+		} else {
+			"file"
+		};
+		writeln!(
+			objects,
+			"{} = {{isa = PBXFileReference; lastKnownFileType = {kind}; path = {}; sourceTree = \
+			 \"<absolute>\"; }};\n{} = {{isa = PBXBuildFile; fileRef = {}; }};",
+			id(reference),
+			quote(&entry.path())?,
+			id(reference + 1),
+			id(reference)
+		)?;
+		write!(group, "{},", id(reference))?;
+		write!(resources, "{},", id(reference + 1))?;
+	}
+	writeln!(
+		objects,
+		"{} = {{isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ({}); \
+		 runOnlyForDeploymentPostprocessing = 0; }};\n{} = {{isa = PBXResourcesBuildPhase; \
+		 buildActionMask = 2147483647; files = ({resources}); runOnlyForDeploymentPostprocessing \
+		 = 0; }};",
+		id(SAFARI_SOURCE_PHASE),
+		id(SAFARI_SOURCE_BUILD),
+		id(SAFARI_RESOURCE_PHASE)
+	)?;
+	for (offset, name) in [(0, "Debug"), (1, "Release")] {
+		writeln!(
+			objects,
+			"{} = {{isa = XCBuildConfiguration; name = {name}; buildSettings = {{ PRODUCT_NAME = \
+			 {}; PRODUCT_BUNDLE_IDENTIFIER = {}; INFOPLIST_FILE = {}; SWIFT_VERSION = 6.0; \
+			 TARGETED_DEVICE_FAMILY = \"1,2\"; SUPPORTED_PLATFORMS = \"iphoneos \
+			 iphonesimulator\"; CODE_SIGN_STYLE = Automatic; SKIP_INSTALL = YES; \
+			 APPLICATION_EXTENSION_API_ONLY = YES; LD_RUNPATH_SEARCH_PATHS = \
+			 (\"$(inherited)\",\"@executable_path/Frameworks\",\"@executable_path/../../\
+			 Frameworks\"); }}; }};",
+			id(SAFARI_DEBUG + offset),
+			safari::NAME,
+			safari::bundle_id(config),
+			quote(&extension_dir.join("Info.plist"))?
+		)?;
+	}
+	writeln!(
+		objects,
+		"{} = {{isa = XCConfigurationList; buildConfigurations = ({},{}); \
+		 defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug; }};\n{} = {{isa = \
+		 PBXNativeTarget; buildConfigurationList = {}; buildPhases = ({},{}); buildRules = (); \
+		 dependencies = (); name = {}; productName = {}; productReference = {}; productType = \
+		 \"com.apple.product-type.app-extension\"; }};",
+		id(SAFARI_CONFIGURATIONS),
+		id(SAFARI_DEBUG),
+		id(SAFARI_RELEASE),
+		id(SAFARI_TARGET),
+		id(SAFARI_CONFIGURATIONS),
+		id(SAFARI_SOURCE_PHASE),
+		id(SAFARI_RESOURCE_PHASE),
+		safari::NAME,
+		safari::NAME,
+		id(SAFARI_PRODUCT)
+	)?;
+	writeln!(
+		objects,
+		"{} = {{isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = \"\"; \
+		 dstSubfolderSpec = 13; files = ({}); name = \"Embed Foundation Extensions\"; \
+		 runOnlyForDeploymentPostprocessing = 0; }};\n{} = {{isa = PBXBuildFile; fileRef = {}; \
+		 settings = {{ATTRIBUTES = (RemoveHeadersOnCopy, ); }}; }};\n{} = {{isa = \
+		 PBXTargetDependency; target = {}; targetProxy = {}; }};\n{} = {{isa = \
+		 PBXContainerItemProxy; containerPortal = {}; proxyType = 1; remoteGlobalIDString = {}; \
+		 remoteInfo = {}; }};",
+		id(SAFARI_EMBED_PHASE),
+		id(SAFARI_EMBED_BUILD),
+		id(SAFARI_EMBED_BUILD),
+		id(SAFARI_PRODUCT),
+		id(SAFARI_DEPENDENCY),
+		id(SAFARI_TARGET),
+		id(SAFARI_PROXY),
+		id(SAFARI_PROXY),
+		id(PROJECT),
+		id(SAFARI_TARGET),
+		safari::NAME
+	)?;
+	Ok(Extras {
+		group,
+		app_phases: format!(",{}", id(SAFARI_EMBED_PHASE)),
+		app_dependencies: id(SAFARI_DEPENDENCY),
+		targets: format!(",{}", id(SAFARI_TARGET)),
+	})
+}
+
+fn targets(
+	objects: &mut String,
+	products: &str,
+	package_refs: &str,
+	extras: &Extras,
+) -> Result<()> {
 	writeln!(
 		objects,
 		"{} = {{isa = XCConfigurationList; buildConfigurations = ({},{}); \
@@ -421,8 +596,8 @@ fn targets(objects: &mut String, products: &str, package_refs: &str) -> Result<(
 	)?;
 	writeln!(
 		objects,
-		"{} = {{isa = PBXNativeTarget; buildConfigurationList = {}; buildPhases = ({},{},{}); \
-		 buildRules = (); dependencies = (); name = App; productName = App; productReference = \
+		"{} = {{isa = PBXNativeTarget; buildConfigurationList = {}; buildPhases = ({},{},{}{}); \
+		 buildRules = (); dependencies = ({}); name = App; productName = App; productReference = \
 		 {}; productType = \"com.apple.product-type.application\"; packageProductDependencies = \
 		 ({products}); }};",
 		id(APP_TARGET),
@@ -430,6 +605,8 @@ fn targets(objects: &mut String, products: &str, package_refs: &str) -> Result<(
 		id(SOURCE_PHASE),
 		id(RESOURCE_PHASE),
 		id(FRAMEWORK_PHASE),
+		extras.app_phases,
+		extras.app_dependencies,
 		id(APP_PRODUCT)
 	)?;
 	writeln!(
@@ -437,12 +614,13 @@ fn targets(objects: &mut String, products: &str, package_refs: &str) -> Result<(
 		"{} = {{isa = PBXProject; attributes = {{ LastUpgradeCheck = 1600; }}; \
 		 buildConfigurationList = {}; compatibilityVersion = \"Xcode 14.0\"; developmentRegion = \
 		 en; knownRegions = (en,Base); mainGroup = {}; projectDirPath = \"\"; projectRoot = \"\"; \
-		 targets = ({},{}); packageReferences = ({package_refs}); }};",
+		 targets = ({},{}{}); packageReferences = ({package_refs}); }};",
 		id(PROJECT),
 		id(PROJECT_CONFIGURATIONS),
 		id(ROOT_GROUP),
 		id(APP_TARGET),
-		id(TEST_TARGET)
+		id(TEST_TARGET),
+		extras.targets
 	)?;
 	Ok(())
 }
@@ -463,4 +641,48 @@ pub(in crate::native) fn apple_plugins(
 			}
 		})
 		.collect())
+}
+
+#[cfg(test)]
+mod tests {
+	use std::path::Path;
+
+	use leptoskit_config::LeptoskitConfig;
+
+	use super::safari_target;
+
+	fn config() -> LeptoskitConfig {
+		LeptoskitConfig::from_toml(
+			"[app]\nplatforms = [\"web\", \"ios\", \"extension\"]\nversion = \
+			 \"1.2.3\"\n[native]\npackage_id = \"com.example.notes\"\n[extension]\nname = \
+			 \"Notes\"\nbrowsers = [\"safari\"]\n[extension.popup]\nroute = \"/\"\n",
+			Path::new("notes"),
+		)
+		.unwrap()
+	}
+
+	#[test]
+	fn the_safari_target_embeds_the_extension_s_package() {
+		let base = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+		let temporary = tempfile::Builder::new()
+			.prefix("leptoskit-ios-")
+			.tempdir_in(base)
+			.unwrap();
+		let root = temporary.path();
+		let dir = root.join(".leptoskit/ios");
+		let package = root.join(".leptoskit/extension/safari");
+		std::fs::create_dir_all(package.join("assets")).unwrap();
+		std::fs::write(package.join("manifest.json"), "{}").unwrap();
+		std::fs::write(package.join("assets/icon.png"), "png").unwrap();
+
+		let mut objects = String::new();
+		let extras = safari_target(&mut objects, root, &config(), &dir).unwrap();
+
+		assert!(objects.contains("SafariExtension"));
+		assert!(objects.contains("manifest.json"));
+		assert!(objects.contains("assets"));
+		assert!(objects.contains("lastKnownFileType = folder"));
+		assert_ne!(extras.targets, "");
+		assert!(dir.join("SafariExtension/Info.plist").is_file());
+	}
 }
