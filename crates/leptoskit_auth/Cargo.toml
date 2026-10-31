@@ -19,12 +19,15 @@ aes-gcm-siv = { version = "0.11", optional = true }
 axum = { workspace = true, optional = true, features = ["form", "json", "query"] }
 base64 = { workspace = true, optional = true }
 chrono = { workspace = true }
+# Verifies wallets' Sign-In With Solana signatures, strictly (no small-order
+# keys, no malleable signatures).
+ed25519-dalek = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 getrandom = { workspace = true, optional = true }
 hmac = { workspace = true, optional = true }
 leptos = { workspace = true, optional = true }
 leptoskit_config = { workspace = true, optional = true }
-leptoskit_db = { workspace = true }
+leptoskit_db = { workspace = true, features = ["solana"] }
 leptoskit_query = { workspace = true, optional = true }
 lettre = { version = "0.11", optional = true, default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1-rustls-tls"] }
 # webauthn-rs verifies signatures with OpenSSL. Building it from source keeps
@@ -63,16 +66,18 @@ leptoskit_plugin_secure_store = { path = "../leptoskit_plugin_secure_store", ver
 send_wrapper = { workspace = true, optional = true, features = ["futures"] }
 wasm-bindgen = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true, optional = true }
-web-sys = { workspace = true, optional = true, features = ["AbortController", "AbortSignal", "CredentialCreationOptions", "CredentialRequestOptions", "CredentialsContainer", "Headers", "Location", "Navigator", "PublicKeyCredential", "Request", "RequestCredentials", "RequestInit", "RequestMode", "Response", "Window"] }
+web-sys = { workspace = true, optional = true, features = ["AbortController", "AbortSignal", "CredentialCreationOptions", "CredentialRequestOptions", "CredentialsContainer", "CustomEvent", "CustomEventInit", "Event", "EventTarget", "Headers", "Location", "Navigator", "PublicKeyCredential", "Request", "RequestCredentials", "RequestInit", "RequestMode", "Response", "Window"] }
 js-sys = { workspace = true, optional = true }
 
 [dev-dependencies]
 any_spawner = { workspace = true, features = ["tokio"] }
 axum = { workspace = true, features = ["tokio"] }
 base64 = { workspace = true }
+ed25519-dalek = { workspace = true }
 hmac = { workspace = true }
 http-body-util = "0.1"
 leptoskit_config = { workspace = true }
+proptest = { workspace = true }
 # The tests' passkey and fake identity provider sign with keys made at test
 # time.
 ring = "0.17"
@@ -112,6 +117,10 @@ passkey = ["server", "dep:openssl", "dep:url", "dep:webauthn-rs"]
 ## Third-party sign-in: OpenID Connect and OAuth 2 providers, such as Google,
 ## Apple, Microsoft, GitHub, or any OpenID Connect issuer.
 oauth = ["server", "dep:reqwest", "dep:ring", "dep:url"]
+## Solana wallets: linking with Sign-In With Solana proofs, fresh proofs,
+## and optional sign-in, verified as ed25519. Needs `[auth] origin`, whose
+## host the messages are bound to.
+solana = ["server", "dep:ed25519-dalek"]
 ## Sends email over SMTP, with `SmtpMailer`.
 smtp = ["server", "dep:lettre"]
 ## Sends email as a signed webhook, with `WebhookMailer`.

@@ -65,6 +65,14 @@ impl Auth {
 			required: auth.mfa == AuthMfa::Required,
 			required_for: auth.required_for.clone(),
 		});
+		builder = builder.solana(crate::SolanaOptions {
+			sign_in: auth.solana.sign_in,
+			chain_id: auth
+				.solana
+				.chain_id
+				.clone()
+				.unwrap_or_else(|| crate::SolanaOptions::default().chain_id),
+		});
 		builder = providers(builder, auth)?;
 		mailer(builder, auth)
 	}

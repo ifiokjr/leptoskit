@@ -45,6 +45,7 @@ use crate::Device;
 use crate::ErrorResponse;
 use crate::FactorCode;
 use crate::IdentityInfo;
+use crate::LinkWallet;
 use crate::MergeAccounts;
 use crate::MergeOffer;
 use crate::MfaStatus;
@@ -53,6 +54,7 @@ use crate::PasskeyAssertion;
 use crate::PasskeyInfo;
 use crate::PasskeyOptions;
 use crate::PasskeyStep;
+use crate::ProveWallet;
 use crate::ProviderInfo;
 use crate::ProviderOutcome;
 use crate::PublicSession;
@@ -81,7 +83,16 @@ use crate::TotpConfirmedResponse;
 use crate::TotpSetup;
 use crate::Transport;
 use crate::UnlinkIdentity;
+use crate::UnlinkWallet;
+use crate::UpdateWallet;
 use crate::VerifyCode;
+use crate::WalletChallenge;
+use crate::WalletInfo;
+use crate::WalletLinked;
+use crate::WalletProof;
+use crate::WalletSettings;
+use crate::WalletSignIn;
+use crate::WalletSignInStart;
 
 /// What the session layer learned about a request, as a request
 /// extension.
@@ -147,6 +158,13 @@ impl Auth {
 	/// | `GET`/`POST /auth/merge`             | the merge offer ([`MergeOffer`]), and merging       |
 	/// | `POST /auth/merge/passkey/options`   | the other account's passkey, for a merge           |
 	/// | `POST /auth/merge/cancel`            | drops the offer                                    |
+	/// | `GET /auth/wallets/config`           | whether wallets work here ([`WalletSettings`])      |
+	/// | `GET /auth/wallets`                  | the account's wallets ([`WalletInfo`])              |
+	/// | `POST /auth/wallets/link/…`          | links one: `options`, then it ([`LinkWallet`])      |
+	/// | `POST /auth/wallets/proof/…`         | a fresh proof: `options`, then it ([`WalletProof`]) |
+	/// | `POST /auth/wallets/update`          | label, public, signs in ([`UpdateWallet`])          |
+	/// | `POST /auth/wallets/unlink`          | unlinks one ([`UnlinkWallet`])                      |
+	/// | `POST /auth/wallets/sign-in/…`       | signs in: `options`, then it ([`WalletSignIn`])     |
 	///
 	/// In development,
 	/// [`AuthBuilder::dev_mailbox`](crate::AuthBuilder::dev_mailbox)
@@ -209,7 +227,20 @@ impl Auth {
 			.route("/auth/identities/unlink", post(unlink_identity))
 			.route("/auth/merge", get(merge_offer).post(merge_accounts))
 			.route("/auth/merge/passkey/options", post(merge_passkey_options))
-			.route("/auth/merge/cancel", post(cancel_merge));
+			.route("/auth/merge/cancel", post(cancel_merge))
+			.route("/auth/wallets/config", get(wallet_settings))
+			.route("/auth/wallets", get(wallets))
+			.route("/auth/wallets/link/options", post(wallet_link_options))
+			.route("/auth/wallets/link", post(link_wallet))
+			.route("/auth/wallets/proof/options", post(wallet_proof_options))
+			.route("/auth/wallets/proof", post(prove_wallet))
+			.route("/auth/wallets/update", post(update_wallet))
+			.route("/auth/wallets/unlink", post(unlink_wallet))
+			.route(
+				"/auth/wallets/sign-in/options",
+				post(wallet_sign_in_options),
+			)
+			.route("/auth/wallets/sign-in", post(wallet_sign_in));
 
 		if cfg!(debug_assertions) {
 			if self.inner.dev_mailbox.is_some() {
@@ -321,6 +352,7 @@ impl Auth {
 			self.second_factor_cookie_name(),
 			self.passkey_cookie_name(),
 			self.provider_cookie_name(),
+			self.wallet_cookie_name(),
 		]
 		.into_iter()
 		.all(|name| cookie(headers, name).is_none())
@@ -372,6 +404,16 @@ impl Auth {
 			"__Host-provider"
 		} else {
 			"provider"
+		}
+	}
+
+	/// The cookie that matches a wallet sign-in to its challenge, for five
+	/// minutes: `__Host-wallet` when secure.
+	fn wallet_cookie_name(&self) -> &'static str {
+		if self.secure() {
+			"__Host-wallet"
+		} else {
+			"wallet"
 		}
 	}
 
@@ -571,10 +613,11 @@ where
 				Ok(current) => current,
 				Err(error) => return Ok(error.into_response()),
 			};
-			let db = auth
-				.inner
-				.db
-				.with_context(crate::context(current.signed_in.clone()));
+			let context = match auth.request_context(current.signed_in.clone()).await {
+				Ok(context) => context,
+				Err(error) => return Ok(error.into_response()),
+			};
+			let db = auth.inner.db.with_context(context);
 			request.extensions_mut().insert(db);
 			request.extensions_mut().insert(auth.clone());
 			request.extensions_mut().insert(current);
@@ -608,6 +651,11 @@ impl AuthError {
 			Self::Provider(_) => (StatusCode::BAD_GATEWAY, "provider"),
 			Self::InvalidRedirect => (StatusCode::BAD_REQUEST, "invalid_redirect"),
 			Self::Cancelled => (StatusCode::BAD_REQUEST, "cancelled"),
+			Self::WalletFailed => (StatusCode::BAD_REQUEST, "wallet_failed"),
+			Self::WalletInUse => (StatusCode::CONFLICT, "wallet_in_use"),
+			Self::UnknownWallet => (StatusCode::NOT_FOUND, "unknown_wallet"),
+			Self::ProofRequired => (StatusCode::FORBIDDEN, "proof_required"),
+			Self::MergeConflict(_) => (StatusCode::CONFLICT, "merge_conflict"),
 			Self::Unsupported(_) => (StatusCode::NOT_IMPLEMENTED, "unsupported"),
 			Self::Mail(_) => (StatusCode::BAD_GATEWAY, "mail"),
 			Self::SignUp(_) => (StatusCode::UNPROCESSABLE_ENTITY, "sign_up"),
@@ -624,6 +672,11 @@ impl AuthError {
 			Self::Mail(_) => "the email couldn't be sent; try again".to_owned(),
 			Self::SignUp(_) => "the account couldn't be created".to_owned(),
 			Self::Provider(_) => "signing in with that account didn't work; try again".to_owned(),
+			Self::MergeConflict(_) => {
+				"the other account's data couldn't move here, so nothing changed; try moving only \
+				 its sign-in methods"
+					.to_owned()
+			}
 			_ => self.to_string(),
 		};
 		(
@@ -1570,4 +1623,187 @@ async fn merge_passkey_options(
 async fn cancel_merge(State(auth): State<Auth>, me: SignedIn) -> Result<StatusCode, AuthError> {
 	auth.cancel_merge(&me).await?;
 	Ok(StatusCode::NO_CONTENT)
+}
+
+async fn wallet_settings(State(auth): State<Auth>) -> Json<WalletSettings> {
+	Json(auth.wallet_settings())
+}
+
+async fn wallets(
+	State(auth): State<Auth>,
+	me: SignedIn,
+) -> Result<Json<Vec<WalletInfo>>, AuthError> {
+	Ok(Json(auth.wallets(me.account).await?))
+}
+
+async fn wallet_link_options(
+	State(auth): State<Auth>,
+	me: SignedIn,
+	request: RequestInfo,
+) -> Result<Json<WalletChallenge>, AuthError> {
+	Ok(Json(WalletChallenge {
+		input: auth.begin_wallet_link(&me, &request).await?,
+		token: None,
+	}))
+}
+
+async fn link_wallet(
+	State(auth): State<Auth>,
+	me: SignedIn,
+	request: RequestInfo,
+	Json(body): Json<LinkWallet>,
+) -> Result<Json<WalletLinked>, AuthError> {
+	Ok(Json(auth.finish_wallet_link(&me, &body, &request).await?))
+}
+
+async fn wallet_proof_options(
+	State(auth): State<Auth>,
+	me: SignedIn,
+	request: RequestInfo,
+	Json(body): Json<ProveWallet>,
+) -> Result<Json<WalletChallenge>, AuthError> {
+	Ok(Json(WalletChallenge {
+		input: auth
+			.begin_wallet_proof(&me, &body.address, &request)
+			.await?,
+		token: None,
+	}))
+}
+
+async fn prove_wallet(
+	State(auth): State<Auth>,
+	me: SignedIn,
+	request: RequestInfo,
+	Json(body): Json<WalletProof>,
+) -> Result<Json<WalletInfo>, AuthError> {
+	Ok(Json(auth.finish_wallet_proof(&me, &body, &request).await?))
+}
+
+async fn update_wallet(
+	State(auth): State<Auth>,
+	me: SignedIn,
+	request: RequestInfo,
+	Json(body): Json<UpdateWallet>,
+) -> Result<Json<WalletInfo>, AuthError> {
+	Ok(Json(auth.update_wallet(&me, &body, &request).await?))
+}
+
+async fn unlink_wallet(
+	State(auth): State<Auth>,
+	me: SignedIn,
+	request: RequestInfo,
+	Json(body): Json<UnlinkWallet>,
+) -> Result<StatusCode, AuthError> {
+	auth.unlink_wallet(&me, body.id, &request).await?;
+	Ok(StatusCode::NO_CONTENT)
+}
+
+async fn wallet_sign_in_options(
+	State(auth): State<Auth>,
+	request: RequestInfo,
+	Json(body): Json<WalletSignInStart>,
+) -> Result<Response, AuthError> {
+	let challenge = auth.begin_wallet_sign_in(&request).await?;
+	let bearer = body.transport == Transport::Bearer;
+	let mut response = Json(WalletChallenge {
+		input: challenge.input,
+		token: bearer.then(|| challenge.token.expose().to_owned()),
+	})
+	.into_response();
+
+	if !bearer {
+		let lifetime = crate::passkeys::CEREMONY_LIFETIME
+			.num_seconds()
+			.unsigned_abs();
+		response.headers_mut().insert(
+			header::SET_COOKIE,
+			auth.named_cookie(
+				auth.wallet_cookie_name(),
+				challenge.token.expose(),
+				lifetime,
+			),
+		);
+	}
+
+	Ok(response)
+}
+
+async fn wallet_sign_in(
+	State(auth): State<Auth>,
+	request: RequestInfo,
+	headers: HeaderMap,
+	Json(body): Json<WalletSignIn>,
+) -> Result<Response, AuthError> {
+	let token = ceremony_token(
+		body.transport,
+		body.token,
+		&headers,
+		auth.wallet_cookie_name(),
+	)
+	.ok_or(AuthError::WalletFailed)?;
+	let request = RequestInfo {
+		transport: body.transport,
+		device_name: body.device_name,
+		..request
+	};
+	// The challenge works once, so its cookie goes whatever happens.
+	let mut response = match auth
+		.finish_wallet_sign_in(&token, &body.proof, &request)
+		.await
+	{
+		Ok(SignInStep::SignedIn(sign_in)) => auth.signed_in_response(*sign_in),
+		Ok(SignInStep::SecondFactor(challenge)) => {
+			auth.second_factor_response(challenge, request.transport)
+		}
+		Err(error) => error.into_response(),
+	};
+
+	if body.transport == Transport::Cookie {
+		response.headers_mut().append(
+			header::SET_COOKIE,
+			auth.named_cookie(auth.wallet_cookie_name(), "", 0),
+		);
+	}
+
+	Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn wallet_and_merge_errors_have_stable_codes_and_keep_details_home() {
+		for (error, status, code) in [
+			(
+				AuthError::WalletFailed,
+				StatusCode::BAD_REQUEST,
+				"wallet_failed",
+			),
+			(
+				AuthError::WalletInUse,
+				StatusCode::CONFLICT,
+				"wallet_in_use",
+			),
+			(
+				AuthError::UnknownWallet,
+				StatusCode::NOT_FOUND,
+				"unknown_wallet",
+			),
+			(
+				AuthError::ProofRequired,
+				StatusCode::FORBIDDEN,
+				"proof_required",
+			),
+			(
+				AuthError::MergeConflict("badges.user_id: duplicate key".into()),
+				StatusCode::CONFLICT,
+				"merge_conflict",
+			),
+		] {
+			let (got, body) = error.describe();
+			assert_eq!((got, body.error.as_str()), (status, code));
+			assert!(!body.message.contains("badges"), "{}", body.message);
+		}
+	}
 }

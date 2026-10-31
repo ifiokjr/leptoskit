@@ -561,17 +561,18 @@ Who someone is at a provider is the provider's own ID for them, never their emai
 
 From the security screen, `link_provider()` connects a provider to the signed-in account, after a recent sign-in or step-up. `use_identities()` lists connected accounts, and `unlink_identity()` disconnects one, as long as the account keeps a way to sign in.
 
-If the provider's account already has its own account here, say from signing up with GitHub months ago, the outcome is `Merge`. `use_merge_offer()` describes the other account: when it was created, and the email addresses, connected accounts, and passkeys that would move. `merge_accounts()` merges it after the person confirms, with `confirm: true`:
+If the provider's account already has its own account here, say from signing up with GitHub months ago, the outcome is `Merge`. `use_merge_offer()` describes the other account, with a preview of its data, and `merge_accounts()` merges it after the person confirms, with `confirm: true`:
 
 ```rust
+use leptoskit::auth::MergeMode;
 use leptoskit::auth::client::MergeInput;
 use leptoskit::auth::client::merge_accounts;
 
 let merge = use_mutation(merge_accounts());
-merge.mutate(MergeInput { confirm: true, code: Some(code_from_its_authenticator), ..MergeInput::default() });
+merge.mutate(MergeInput { mode: Some(MergeMode::BringData), confirm: true, code: Some(code_from_its_authenticator), ..MergeInput::default() });
 ```
 
-Merging moves the other account's email addresses, connected accounts, and passkeys here, signs it out everywhere, and deletes it and its data through your tables' `on_delete = cascade`. Its second factors are discarded; this account's stay. It can't be undone. It needs a recent sign-in or step-up on this account, and, when the other account has two-step verification, its code or passkey too, so a merge never gets around either. Both accounts' addresses are emailed. `auth.resolve_merged(old_id)` returns the account an old ID became, for links you stored. Bringing the other account's data across, rather than deleting it, isn't available yet.
+Merging moves the other account's email addresses, connected accounts, passkeys, and wallets here, and either brings its data along, as your tables' `on_account_merge` strategies say, or deletes it. It can't be undone, and needs a recent sign-in or step-up on this account and the other account's second factor when it has one. [Merging accounts](auth/merging.md) covers both modes, the preview, and your own merge code.
 
 ### On every platform
 
@@ -588,6 +589,10 @@ Native apps need the system browser to sign in with another site safely, which a
 - ID tokens must be signed by a key the provider publishes (RS256, PS256, ES256, ES384, or EdDSA; never `none` or a shared secret), for your client, from the right issuer (for Microsoft, the person's own tenant), unexpired, and with the flow's nonce.
 - Apple posts its answer from its own site, which `SameSite` cookies don't follow, so that post only gets a page that posts it again from your site; it never signs anyone in by itself.
 - Provider secrets come from environment variables; Apple's client secret is signed for each request from your `.p8` key, so there's nothing to rotate.
+
+## Solana wallets
+
+People can link a Solana wallet to their account with a message their wallet signs for your site, show it on their profile, require a fresh signature before a payout, and, if they choose, sign in with it. Rules can name a wallet's owner with `cx.wallets()`. In the browser, any wallet that supports the Wallet Standard works; native apps manage linked wallets, and answer `unsupported` for asking a wallet to sign until a native wallet adapter arrives. See [Solana wallets](auth/wallets.md).
 
 ## Check the configuration
 
@@ -643,19 +648,33 @@ pub struct Post {
 
 `me.user_id()` is the person's ID in your user table, since it shares the account's key.
 
+`cx.wallets()` is the addresses of the person's [linked wallets](auth/wallets.md), so a rule can say "whoever holds this wallet". It's empty for a signed-out request, so the rule matches nothing then:
+
+```rust
+#[db::table(name = "vaults")]
+#[db::policy(update, |vault, cx| vault.treasury.in_list(cx.wallets()))]
+pub struct Vault {
+	pub id: Id<Vault>,
+	pub treasury: Pubkey,
+}
+```
+
+`auth.request_context(signed_in)` builds a context with both, as the layer does; `auth::context(signed_in)` has the person without their wallets.
+
 The auth tables have policies of their own. A signed-in person reads only their own account, emails, sessions, and events, and nobody reads codes or rate-limit counters. Only `leptoskit_auth` writes any of them.
 
 ## Limits
 
 Every step is rate limited, by address and by IP address:
 
-| Step                           | Default limit                                        |
-| ------------------------------ | ---------------------------------------------------- |
-| Sending code                   | 5 per address per 15 minutes; 20 per IP per hour     |
-| Checking one                   | 30 per IP per 15 minutes, and 5 guesses per code     |
-| Authenticator or recovery code | 10 per account per 15 minutes, and 5 per second step |
-| Starting a passkey or provider | 120 per IP per 15 minutes                            |
-| Wrong second factors           | 20 per account per day, then locked for an hour      |
+| Step                                            | Default limit                                        |
+| ----------------------------------------------- | ---------------------------------------------------- |
+| Sending code                                    | 5 per address per 15 minutes; 20 per IP per hour     |
+| Checking one                                    | 30 per IP per 15 minutes, and 5 guesses per code     |
+| Authenticator or recovery code                  | 10 per account per 15 minutes, and 5 per second step |
+| Starting a passkey, provider, or wallet request | 120 per IP per 15 minutes                            |
+| Signing in with a wallet                        | 30 per IP per 15 minutes                             |
+| Wrong second factors                            | 20 per account per day, then locked for an hour      |
 
 Change them with `Limits`. An attempt over the limit fails with `AuthError::RateLimited`, which says how long to wait. The counters live in `auth.rate_limits`, and concurrent attempts can't both take the last one. To count somewhere faster, such as Redis, implement `auth::RateLimiter`.
 

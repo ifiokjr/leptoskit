@@ -3,7 +3,7 @@ source: crates/leptoskit_db_macros/src/tests.rs
 expression: "report.join(\"\\n\")"
 ---
 no name: a table needs an explicit name, such as #[db::table(name = "users")]: renaming the struct then never renames the table
-unknown table option: unknown table option; expected `name`, `namespace`, `public`, `projection`, `index`, `unique`, `check`, `hooks`, `audit`, `live`, `search`, `extends`, `renamed_from`, `pack`, or `crate`
+unknown table option: unknown table option; expected `name`, `namespace`, `public`, `projection`, `index`, `unique`, `check`, `hooks`, `audit`, `live`, `search`, `extends`, `renamed_from`, `pack`, `on_account_merge`, or `crate`
 check without sql: `check` needs both `name = "..."` and `sql = "..."`
 check with an unknown part: `check` takes `name = "..."` and `sql = "..."`
 empty index: name at least one field, such as `index(author_id, created_at)`
@@ -26,3 +26,4 @@ unique except a missing field: `User` has no field `gone`
 generated key that isn't Id<Self>: only a single `Id<Self>` key can be generated; set the key yourself with #[db(key, generate = false)]
 two created_at: only one column can be #[db(created_at)]
 timestamp key: a key can't also be a timestamp or a version
+unknown merge strategy: `on_account_merge` is `reassign`, `reassign_skip_conflicts`, `keep_survivor`, `keep_newest`, or `custom`

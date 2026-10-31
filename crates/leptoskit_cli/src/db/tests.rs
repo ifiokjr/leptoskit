@@ -777,3 +777,68 @@ fn the_studio_runs_the_export_test_with_its_settings() {
 	assert_eq!(env[leptoskit_db::DIALECT_ENV], "sqlite");
 	assert!(env[leptoskit_db::STUDIO_MIGRATIONS_ENV].ends_with("migrations"));
 }
+
+#[test]
+fn merging_accounts_needs_every_unique_reference_covered() {
+	use leptoskit_db_schema::ForeignKey;
+	use leptoskit_db_schema::MergeStrategy;
+
+	// Without sign-in's tables there's nothing to check.
+	let plain = users(Dialect::Postgres, Vec::new());
+	assert_eq!(super::check_account_merges(&plain).unwrap(), None);
+
+	let accounts = TableName::namespaced("auth", "accounts");
+	let follows = TableName::new("follows");
+	let mut follow = Table::new(
+		follows.clone(),
+		vec![
+			Column::new("follower_id", ColumnType::Uuid),
+			Column::new("followee_id", ColumnType::Uuid),
+		],
+		vec!["follower_id".into(), "followee_id".into()],
+	);
+
+	for column in ["follower_id", "followee_id"] {
+		follow.foreign_keys.push(ForeignKey::new(
+			&follows,
+			&[column],
+			accounts.clone(),
+			&["id"],
+		));
+	}
+
+	let mut schema = Schema::new(
+		Dialect::Postgres,
+		vec![
+			Table::new(
+				accounts,
+				vec![Column::new("id", ColumnType::Uuid)],
+				vec!["id".into()],
+			),
+			follow,
+		],
+	);
+	let error = super::check_account_merges(&schema)
+		.unwrap_err()
+		.to_string();
+	assert!(
+		error.starts_with("merging accounts can't bring their data along"),
+		"{error}"
+	);
+	assert!(
+		error.contains("follows.follower_id is in a unique constraint"),
+		"{error}"
+	);
+
+	for table in &mut schema.tables {
+		if table.name == follows {
+			table.on_account_merge = Some(MergeStrategy::ReassignSkipConflicts);
+		}
+	}
+
+	assert_eq!(
+		super::check_account_merges(&schema).unwrap().unwrap(),
+		"merging accounts brings their data along: 0 table(s) keyed by the account, 2 \
+		 reference(s) to it"
+	);
+}

@@ -92,6 +92,8 @@ geo = [
 	"dep:wkb",
 	"rusqlite?/functions",
 ]
+## Solana's `Pubkey` and `Signature` scalars, in strict base58.
+solana = []
 ## Checks `regex` rules in `validate()`. Always on with `server`; opt in on the
 ## client.
 regex = ["dep:regex"]

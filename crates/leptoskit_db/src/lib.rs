@@ -62,6 +62,8 @@ mod json;
 mod links;
 pub mod live;
 #[cfg(feature = "server")]
+pub mod merge;
+#[cfg(feature = "server")]
 mod migrate;
 mod mixins;
 #[cfg(feature = "server")]
@@ -81,6 +83,8 @@ mod search;
 mod settings;
 #[cfg(feature = "server")]
 mod shape;
+#[cfg(feature = "solana")]
+mod solana;
 #[cfg(feature = "server")]
 mod sql;
 #[cfg(feature = "sqlite")]
@@ -386,6 +390,12 @@ pub use shape::PublicShape;
 pub use shape::Shape;
 #[cfg(feature = "server")]
 pub use shape::Shaped;
+#[cfg(feature = "solana")]
+pub use solana::Pubkey;
+#[cfg(feature = "solana")]
+pub use solana::Signature;
+#[cfg(feature = "solana")]
+pub use solana::base58;
 #[cfg(feature = "server")]
 pub use sql::Statement;
 #[cfg(feature = "server")]

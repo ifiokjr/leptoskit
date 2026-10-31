@@ -6,9 +6,11 @@
 //!
 //! A passkey signs in on its own: from the button, or, in a browser that
 //! offers them, from the email field's suggestions as soon as the screen
-//! opens. Each provider the server set up gets a "Continue with …" button.
-//! Native apps answer `unsupported` to both for now, and the screen says so
-//! only when the person asked.
+//! opens. Each provider the server set up gets a "Continue with …" button,
+//! and, when the server lets wallets sign in, each Solana wallet app in the
+//! browser gets a "Sign in with …" button. Native apps answer `unsupported`
+//! to passkeys and providers for now, and the screen says so only when the
+//! person asked; it shows no wallet buttons where there are no wallet apps.
 
 use std::time::Duration;
 
@@ -18,10 +20,12 @@ use leptoskit::auth::ProviderInfo;
 use leptoskit::auth::ProviderOutcome;
 use leptoskit::auth::PublicSession;
 use leptoskit::auth::StartProvider;
+use leptoskit::auth::WalletSettings;
 use leptoskit::auth::client::EmailCode;
 use leptoskit::auth::client::PasskeyMode;
 use leptoskit::auth::client::SecondFactorPrompt;
 use leptoskit::auth::client::SignInStep;
+use leptoskit::auth::client::WalletApp;
 use leptoskit::auth::client::cancel_passkey_sign_in;
 use leptoskit::auth::client::complete_sign_in;
 use leptoskit::auth::client::complete_sign_in_with_passkey;
@@ -33,7 +37,10 @@ use leptoskit::auth::client::sign_in_with_provider;
 use leptoskit::auth::client::sign_out_mutation;
 use leptoskit::auth::client::use_auth;
 use leptoskit::auth::client::use_providers;
+use leptoskit::auth::client::use_wallet_settings;
 use leptoskit::auth::client::verify_code;
+use leptoskit::auth::client::wallet_apps;
+use leptoskit::auth::client::wallet_sign_in;
 use leptoskit::leptos::prelude::Effect;
 use leptoskit::leptos::prelude::Get;
 use leptoskit::leptos::prelude::GetUntracked;
@@ -45,7 +52,10 @@ use leptoskit::query::ErrorArgs;
 use leptoskit::query::MutateCallbacks;
 use leptoskit::query::MutationHandle;
 use leptoskit::query::QueryHandle;
+use leptoskit::query::QueryObserverOptions;
+use leptoskit::query::SuccessArgs;
 use leptoskit::query::use_mutation;
+use leptoskit::query::use_query_with;
 
 /// The sign-in screen's state. It's `Copy`, so handlers capture it freely.
 #[derive(Clone, Copy)]
@@ -82,6 +92,9 @@ pub struct SignIn {
 	provider: MutationHandle<StartProvider, (), ErrorResponse>,
 	separately: MutationHandle<(), PublicSession, ErrorResponse>,
 	sign_out: MutationHandle<(), (), ErrorResponse>,
+	wallet_settings: QueryHandle<WalletSettings, ErrorResponse>,
+	wallet_apps: QueryHandle<Vec<WalletApp>, ErrorResponse>,
+	wallet: MutationHandle<String, SignInStep, ErrorResponse>,
 }
 
 impl SignIn {
@@ -110,6 +123,14 @@ impl SignIn {
 			passkey.mutate(PasskeyMode::Autofill);
 		});
 
+		let wallet_settings = use_wallet_settings();
+		// The wallet apps are asked for only when wallets may sign in.
+		let wallets_sign_in = move || {
+			wallet_settings
+				.data()
+				.is_some_and(|settings| settings.sign_in)
+		};
+
 		Self {
 			email: RwSignal::new(String::new()),
 			code: RwSignal::new(String::new()),
@@ -131,6 +152,13 @@ impl SignIn {
 			provider: use_mutation(sign_in_with_provider()),
 			separately: use_mutation(continue_provider_sign_up()),
 			sign_out: use_mutation(sign_out_mutation()),
+			wallet_settings,
+			wallet_apps: use_query_with(
+				wallet_apps(),
+				|| (),
+				QueryObserverOptions::default().with_enabled(wallets_sign_in),
+			),
+			wallet: use_mutation(wallet_sign_in()),
 		}
 	}
 
@@ -267,11 +295,52 @@ impl SignIn {
 			);
 		}
 
+		let wallets_sign_in = self
+			.wallet_settings
+			.data()
+			.is_some_and(|settings| settings.sign_in);
+
+		if wallets_sign_in {
+			for app in self.wallet_apps.data().unwrap_or_default() {
+				let name = app.name.clone();
+				let signing = self.wallet.is_pending();
+				ways = ways.child(
+					Button(if signing {
+						"Waiting for your wallet…".to_owned()
+					} else {
+						format!("Sign in with {}", app.name)
+					})
+					.enabled(!signing)
+					.aria_busy(signing)
+					.on_press(move || this.sign_in_with_wallet(&name))
+					.class("rounded-lg bg-slate-700 px-4 py-3 font-semibold"),
+				);
+			}
+		}
+
 		ways.children(
 			self.provider
 				.error()
 				.map(|error| Alert(passkey_problem(&error)).class("text-sm text-rose-300")),
 		)
+		.children(
+			self.wallet
+				.error()
+				.map(|error| Alert(wallet_problem(&error)).class("text-sm text-rose-300")),
+		)
+	}
+
+	fn sign_in_with_wallet(&self, wallet: &str) {
+		cancel_passkey_sign_in();
+		let this = *self;
+		self.wallet.mutate_with(
+			wallet.to_owned(),
+			MutateCallbacks::new().on_success(move |args: SuccessArgs<SignInStep, String, ()>| {
+				if let SignInStep::SecondFactor(prompt) = args.data {
+					this.second.set(Some(prompt));
+				}
+			}),
+		);
 	}
 
 	/// What a provider sign-in that came back with a problem says.
@@ -672,6 +741,21 @@ pub fn passkey_problem(error: &ErrorResponse) -> String {
 	}
 }
 
+/// What a wallet sign-in that failed says to the person.
+pub fn wallet_problem(error: &ErrorResponse) -> String {
+	match error.error.as_str() {
+		"cancelled" => "Nothing was signed.".to_owned(),
+		"unknown_wallet" => {
+			"That wallet can't sign in here. Sign in another way, then let it sign in from \
+			 Security."
+				.to_owned()
+		}
+		"wallet_failed" => "That wallet's signature didn't work. Try again.".to_owned(),
+		"no_wallet" => "That wallet isn't available here anymore.".to_owned(),
+		_ => passkey_problem(error),
+	}
+}
+
 /// What a provider sign-in that came back failed says to the person.
 pub fn provider_failure(code: &str) -> String {
 	match code {
@@ -751,6 +835,22 @@ mod tests {
 		);
 		assert_eq!(provider_failure("cancelled"), "Signing in was cancelled.");
 		assert!(provider_failure("provider").contains("didn't work"));
+	}
+
+	#[test]
+	fn wallet_failures_are_explained_in_words() {
+		for (code, words) in [
+			("cancelled", "Nothing was signed."),
+			("unknown_wallet", "That wallet can't sign in here."),
+			("wallet_failed", "That wallet's signature didn't work."),
+			("no_wallet", "That wallet isn't available here anymore."),
+			("unsupported", "This device can't use that yet."),
+		] {
+			assert!(
+				wallet_problem(&refusal(code, None)).starts_with(words),
+				"{code}"
+			);
+		}
 	}
 
 	#[test]

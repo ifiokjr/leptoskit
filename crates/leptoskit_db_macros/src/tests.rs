@@ -296,6 +296,13 @@ fn table_mistakes_are_explained() {
 				quote! { pub struct User { #[db(key, created_at)] pub at: Timestamp } },
 			),
 		),
+		(
+			"unknown merge strategy",
+			table_error(
+				quote!(name = "users", on_account_merge = shuffle),
+				quote! { pub struct User { pub id: Id<Self> } },
+			),
+		),
 	];
 
 	let report: Vec<String> = cases
