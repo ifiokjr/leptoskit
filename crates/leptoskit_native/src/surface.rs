@@ -509,6 +509,27 @@ impl<B: NativeBackend> NativeSurface<B> {
 	pub fn set_profiling(&mut self, on: bool) {
 		self.devtools.profiling = on;
 	}
+
+	/// The viewport-space highlight rectangle for every committed node, keyed
+	/// by its dense node index.
+	#[cfg(feature = "devtools")]
+	pub fn highlight_rects(&self) -> impl Iterator<Item = (usize, Frame)> + '_ {
+		self.hit_areas
+			.iter()
+			.enumerate()
+			.filter(|(_, area)| area.width > 0.0 || area.height > 0.0)
+			.map(|(index, area)| {
+				(
+					index,
+					Frame {
+						x: area.left,
+						y: area.top,
+						width: area.width,
+						height: area.height,
+					},
+				)
+			})
+	}
 }
 
 #[cfg(all(test, feature = "devtools"))]
@@ -533,6 +554,21 @@ mod devtools_tests {
 		let commits = seen.lock().unwrap();
 		assert!(!commits.is_empty());
 		assert!(commits.last().unwrap().mutations > 0);
+	}
+
+	#[test]
+	fn highlight_rects_cover_committed_nodes() {
+		let mut surface = NativeSurface::new(HeadlessBackend::new());
+		surface.set_viewport(100.0, 100.0);
+		let element = Element::view();
+		surface.set_root(&element);
+		let rects: Vec<_> = surface.highlight_rects().collect();
+		assert_ne!(rects, Vec::new());
+		assert!(
+			rects
+				.iter()
+				.any(|(_, frame)| frame.width > 0.0 || frame.height > 0.0)
+		);
 	}
 
 	#[test]
