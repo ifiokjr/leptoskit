@@ -1,0 +1,11 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "report.join(\"\\n\")"
+---
+bare: `geo` takes `index` (a spatial index), `valid` (shapes must be valid), or both: `geo(index, valid)`
+empty: `geo` takes `index` (a spatial index), `valid` (shapes must be valid), or both: `geo(index, valid)`
+unknown option: `geo` takes `index` (a spatial index), `valid` (shapes must be valid), or both: `geo(index, valid)`
+generated: a generated column can't take `geo`; index and check the columns it's computed from: the database computes its value from the row's other columns
+flattened mixin: `geo` marks one geospatial column; put it on the mixin's own fields
+key: a shape can't be the key; key the table by an `Id` and index the shape with `geo(index)`
+view: a view's columns are what its query returns, so they take only `column`, `private`, `secret`, and `in(...)`

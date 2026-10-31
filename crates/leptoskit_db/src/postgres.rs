@@ -250,6 +250,13 @@ impl ToSql for Param {
 			Value::Float(value) if *ty == Type::FLOAT4 => (*value as f32).to_sql_checked(ty, out),
 			Value::Float(value) => value.to_sql_checked(ty, out),
 			Value::Text(value) => value.as_str().to_sql_checked(ty, out),
+			// A shape, held as GeoPackage's encoding, goes to PostGIS as the
+			// EWKB its binary input reads.
+			#[cfg(feature = "geo")]
+			Value::Bytes(value) if is_geospatial(ty) => {
+				out.extend_from_slice(&crate::geo::codec::to_ewkb(value)?);
+				Ok(IsNull::No)
+			}
 			Value::Bytes(value) => value.as_slice().to_sql_checked(ty, out),
 			Value::Uuid(value) => value.to_sql_checked(ty, out),
 			Value::Timestamp(value) if *ty == Type::TIMESTAMP => {
@@ -295,6 +302,19 @@ fn decode_column(row: &Row, index: usize) -> Result<Value> {
 		}
 		Type::DATE => get::<chrono::NaiveDate>(row, index)?.map(Value::Date),
 		Type::JSON | Type::JSONB => get::<serde_json::Value>(row, index)?.map(Value::Json),
+		#[cfg(feature = "geo")]
+		ref other if is_geospatial(other) => {
+			get::<Raw>(row, index)?
+				.map(|raw| crate::geo::codec::ewkb_to_gpkg(&raw.0))
+				.transpose()
+				.map_err(|error| {
+					DbError::Decode(DecodeError::custom(format!(
+						"column `{}`: {error}",
+						row.columns()[index].name()
+					)))
+				})?
+				.map(Value::Bytes)
+		}
 		ref other => {
 			return Err(DbError::Decode(DecodeError::custom(format!(
 				"column `{}` has Postgres type `{other}`, which leptoskit_db doesn't read yet",
@@ -304,6 +324,31 @@ fn decode_column(row: &Row, index: usize) -> Result<Value> {
 	};
 
 	Ok(value.unwrap_or(Value::Null))
+}
+
+/// Whether a type is PostGIS's: its binary form is EWKB.
+#[cfg(feature = "geo")]
+fn is_geospatial(ty: &Type) -> bool {
+	matches!(ty.name(), "geometry" | "geography")
+}
+
+/// A value's binary form, whatever its type, for the extensions' types
+/// whose formats the database layer reads itself.
+#[cfg(feature = "geo")]
+struct Raw(Vec<u8>);
+
+#[cfg(feature = "geo")]
+impl<'a> tokio_postgres::types::FromSql<'a> for Raw {
+	fn from_sql(
+		_: &Type,
+		raw: &'a [u8],
+	) -> std::result::Result<Self, Box<dyn Error + Sync + Send>> {
+		Ok(Self(raw.to_vec()))
+	}
+
+	fn accepts(ty: &Type) -> bool {
+		is_geospatial(ty)
+	}
 }
 
 fn get<'a, T: tokio_postgres::types::FromSql<'a>>(row: &'a Row, index: usize) -> Result<Option<T>> {

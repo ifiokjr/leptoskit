@@ -1,0 +1,27 @@
+error[E0277]: distances between a `leptoskit_db::geo::Polygon` and a `_` aren't measured in `Spheroid`
+  --> tests/ui/measures_geography_between_polygons.rs:18:21
+   |
+18 |             .within_distance(&Geography(Point::new(0.0, 0.0)), Meters(10.0))
+   |              --------------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ on the globe, `Geography` measures distances between points; use `Geo<T, Srid<N>>` in a projected system for other shapes
+   |              |
+   |              required by a bound introduced by this call
+   |
+help: the trait `MeasuresDistance<leptoskit_db::geo::Polygon, _>` is not implemented for `Spheroid`
+      but trait `MeasuresDistance<leptoskit_db::geo::Point, leptoskit_db::geo::Point>` is implemented for it
+  --> $WORKSPACE/crates/leptoskit_db/src/geo/query.rs
+   |
+   | impl MeasuresDistance<Point, Point> for Spheroid {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `leptoskit_db::geo::Point`, found `leptoskit_db::geo::Polygon`
+note: required by a bound in `geo::query::<impl Col<T, V>>::within_distance`
+  --> $WORKSPACE/crates/leptoskit_db/src/geo/query.rs
+   |
+   |         pub fn within_distance<G>(&self, other: &G, distance: <$space as Space>::Distance) -> Expr
+...
+   |             $space: MeasuresDistance<$shape, G::Shape>,
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `geo::query::<impl Col<T, V>>::within_distance`
+...
+   | impl<T: Table, V: GeoColumn> Col<T, V> {
+   |     spatial_methods!(<V::Value as GeoValue>::Space, <V::Value as GeoValue>::Shape);
+   |     ------------------------------------------------------------------------------ in this macro invocation
+   = note: this error originates in the macro `spatial_methods` (in Nightly builds, run with -Z macro-backtrace for more info)

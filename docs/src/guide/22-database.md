@@ -961,6 +961,111 @@ for segment in hits[0].highlights[0].segments() {
 
 **Migrations.** Adding `search` to a table indexes the rows it already has. Changing which columns are searched, their weights, or the language, renaming the table, or renaming or retyping a searched or key column recreates the index; it holds only words derived from the table, so nothing is lost. Searched columns must hold text (`String`, `Option<String>`, or a text scalar such as `Email`) and can't be generated.
 
+## Places and shapes
+
+"Shops within 500 metres", "which delivery zone covers this address", and "everything on the visible map" are slow and wrong when written over a pair of latitude and longitude columns: degrees aren't metres, the distance has to be computed for every row, and nothing indexes it. Turn on the `db-geo` feature and store shapes instead:
+
+```toml
+[dependencies]
+leptoskit = { version = "…", features = ["db-geo"] }
+```
+
+```rust
+use leptoskit::db::geo::{Geo, Geography, Meters, MultiPolygon, Point, Polygon, Srid, point};
+
+#[table(name = "shops", public)]
+pub struct Shop {
+	pub id: Id<Shop>,
+	pub name: String,
+	#[db(geo(index))]
+	pub location: Geography<Point>,
+	#[db(geo(index, valid))]
+	pub delivery_area: Option<Geography<MultiPolygon>>,
+	#[db(private)]
+	pub site_plan: Option<Geo<Polygon, Srid<27700>>>, // British National Grid, in metres
+}
+
+let here = Geography(point!(x: -0.1276, y: 51.5072));
+
+// Within 500 metres, nearest first, with the distance.
+let nearby: Vec<(Shop, Meters)> = Shop::query()
+	.filter(|shop| shop.location.within_distance(&here, Meters(500.0)))
+	.nearest(|shop| shop.location, &here)
+	.with_distance()
+	.limit(20)
+	.all(&db)
+	.await?;
+
+// Which shops deliver here?
+let delivering = Shop::query()
+	.filter(|shop| shop.delivery_area.contains(&here))
+	.all(&db)
+	.await?;
+```
+
+This runs on the server, against Postgres or SQLite; the same code works on both. A client receives `PublicShop` with each shape as GeoJSON, `{"type":"Point","coordinates":[-0.1276,51.5072]}`, which map libraries such as MapLibre and Leaflet draw directly.
+
+**Two kinds of shape.** `Geography<T>` holds longitude and latitude on the earth: distances, areas, and lengths are in metres and follow its curve. Use it for anything on the real globe. `Geo<T, Srid<N>>` holds planar coordinates in the coordinate system with EPSG code `N`, measured in that system's units: national grids, floor plans, game maps. A value in one system can't be compared with a column in another; the code doesn't compile. `T` is any shape from the `geo-types` crate, re-exported in `leptoskit::db::geo`: `Point`, `LineString`, `Polygon`, `MultiPoint`, `MultiLineString`, `MultiPolygon`, `GeometryCollection`, `Rect` (stored as a polygon), or `Geometry` for any of them. The database holds each column to its shape and coordinate system.
+
+**Column options.**
+
+- `#[db(geo(index))]` adds a spatial index, which spatial filters and `nearest` use.
+- `#[db(geo(valid))]` refuses shapes that aren't valid, such as a polygon whose edges cross: `validate()` checks it before a write, and the database checks it too.
+- Coordinates are checked everywhere: a `Geography` longitude outside −180 to 180, a latitude outside −90 to 90, or any coordinate that isn't a finite number fails to deserialize and fails to be written. With `geo(…)`, `validate()` reports it as a `Coordinates` rule, which a form can show beside the field.
+
+Precise locations are often personal data. Mark a column `private` unless every client may see it.
+
+**Filters.** Each takes a shape in the column's coordinate system and works like any other filter: combine them with `&`, `|`, and `!`, and the table's policies apply.
+
+| Filter                                  | Matches rows whose shape                                     |
+| --------------------------------------- | ------------------------------------------------------------ |
+| `intersects(&shape)`                    | shares at least one point with it                            |
+| `contains(&shape)`                      | holds every point of it                                      |
+| `within(&shape)`                        | lies entirely inside it                                      |
+| `disjoint(&shape)`                      | shares no point with it                                      |
+| `touches(&shape)`                       | meets it only at their boundaries                            |
+| `within_distance(&shape, distance)`     | is at most that far away: `Meters` on the globe              |
+| `distance_to(&shape).lt(x)`, `.gte(x)`… | is nearer or farther than `x`                                |
+| `area().gt(x)`, `length().lte(x)`…      | is larger or smaller (square metres and metres on the globe) |
+
+On the globe, `contains` counts a point on the boundary as inside and `within` does too; for planar shapes a boundary point isn't contained, as in PostGIS. Distances on the globe are measured between points, so `within_distance`, `distance_to`, and `nearest` on a `Geography` column take a `Geography<Point>` column and point; measure other shapes in a projected `Geo` system instead.
+
+**Nearest first.** `query().nearest(|row| row.column, &shape)` returns rows nearest first, with ties broken by the query's own orderings and then the key, and leaves out rows without a shape. `with_distance()` returns each row's distance as well. Give it a `limit`: that's what lets the index stop early.
+
+**On the client.** The shape types are client-safe and serialize as GeoJSON (RFC 7946), and their JSON Schema describes it. For big polygons, `Wkb<Geography<MultiPolygon>>` stores the same column but sends it as base64 well-known binary. The `geo` crate's algorithms are re-exported as `leptoskit::db::geo::algorithms`, so a map component can measure or test shapes in the browser without a round trip; `bounding_box()` gives a shape's extent.
+
+**On each database.**
+
+- **Postgres** uses PostGIS. The first migration with a shape runs `CREATE EXTENSION IF NOT EXISTS postgis`, columns become `geography(Point, 4326)` or `geometry(Polygon, 27700)`, and `geo(index)` creates a GiST index. The database must have PostGIS available: devenv's `services.postgres` takes `extensions = extensions: [ extensions.postgis ];`, the `postgis/postgis` container image has it, and so do most managed Postgres services. The embedded development server doesn't, so set `DATABASE_URL` to one that does. Planar `nearest` uses the index; on the globe it orders by the exact distance on the spheroid, which the index can't, so pair it with `within_distance` on large tables. PostGIS coerces geography coordinates outside the valid range into it rather than refusing them; leptoskit refuses them before they reach it.
+- **SQLite** needs nothing installed, on servers and in the on-device database alike. A shape is stored as a GeoPackage geometry, a `BLOB` that the database checks for its shape, coordinate system, and range. `geo(index)` keeps an R*Tree, `rtree_<table>_<column>`, of each row's bounding box, and a table numbering the rows by key, with triggers that follow every write, raw SQL included. Spatial filters narrow candidates by box first, then test each exactly. Distances, areas, and lengths on the globe use the same geodesic algorithm as PostGIS, so they agree to well under a millimetre.
+
+**Known differences.** Both databases give the same answers for valid shapes away from the cases below, and the same tests run on both.
+
+- On the globe, PostGIS draws polygon and line edges as great circles; SQLite's layer draws them straight in longitude and latitude. They agree away from long edges, but a point within metres of an edge many kilometres long can fall on different sides, and SQLite doesn't handle shapes that cross the antimeridian or circle a pole. Keep edges short, or use a projected `Geo` system.
+- The two engines (GEOS in PostGIS, the `geo` crate in SQLite) can disagree about degenerate shapes and points exactly on a boundary.
+
+**PostGIS-only operations.** On Postgres, a column can be turned into another shape before it's tested or measured: `buffer(distance)`, `transform::<Srid<3857>>()`, and, on planar shapes, `term().simplify(tolerance)` and `term().union(&shape)`:
+
+```rust
+let near_the_river = Plot::query()
+	.filter(|plot| plot.boundary.buffer(50.0).intersects(&river))
+	.all(&db)
+	.await?;
+```
+
+They exist in SQLite builds when both drivers are compiled in, but a query using one fails there with `DbError::Encode`. Raster, topology, and routing stay in raw SQL.
+
+**Migrations.** Adding `geo(index)` indexes the rows already there. Renaming the table, renaming or retyping the column, or changing the key recreates the index, which holds nothing that can't be recomputed. Changing a column to `Geometry` (any shape) in the same coordinate system keeps every value; other changes of shape or system need `--allow-destructive`.
+
+**GeoPackage files.** A SQLite database can also be a GeoPackage, the file format GIS tools open as layers. Set it in `leptoskit.toml`:
+
+```toml
+[db.geo]
+geopackage = true
+```
+
+Migrations then keep GeoPackage's metadata tables, registering each table's geometry column, and QGIS and GDAL open the file and read the shapes. GeoPackage allows one geometry column per table, so a table with two fails the migration with a message saying which. GIS tools read the layers without the spatial index, which keys rows differently from GeoPackage's own.
+
 ## Refetch what changed
 
 A page that lists posts shows stale data the moment someone else writes one, and polling every few seconds is wasteful and still late. Mark the table `live`, and every committed write to it says which rows changed, so each client refetches exactly the queries those rows touch:
@@ -1119,6 +1224,9 @@ dev_server = "auto" # "devenv", "embedded", or "off"; Postgres only
 watch = "migrate" # or "push", "report", or "off"
 branch_databases = true # a database per git branch on the development Postgres
 policies = "orm" # or "rls": Postgres enforces policies too
+
+[db.geo]
+geopackage = false # SQLite: keep GeoPackage metadata for GIS tools
 ```
 
 An empty `[db]` table uses every default. `dev_server` picks the development database when `DATABASE_URL` isn't set: `auto` uses devenv's `services.postgres` when `devenv.nix` turns it on and the embedded server otherwise, `devenv` and `embedded` choose one, and `off` starts none. `watch` says what `leptoskit dev` does when the tables change.

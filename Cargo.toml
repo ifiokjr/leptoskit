@@ -57,6 +57,10 @@ deadpool-postgres = { version = "0.14", default-features = false }
 ed25519-dalek = "3"
 flate2 = "1"
 futures = "0.3"
+geo = { version = "0.33", default-features = false }
+geo-traits = "0.3"
+geo-types = { version = "0.7", default-features = false, features = ["std"] }
+geojson = { version = "1", default-features = false }
 getrandom = "0.4"
 globset = "0.4"
 heck = "0.5"
@@ -142,6 +146,7 @@ wasmi_core = "2"
 wasmparser = "0.261"
 web-sys = "0.3"
 webpki-roots = "1"
+wkb = "0.9"
 
 # internal: every publishable crate, so members depend on them with
 # `workspace = true` instead of their own relative paths

@@ -49,6 +49,11 @@ pub struct Schema {
 	/// The views, sorted by name.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub views: Vec<View>,
+	/// SQLite only: whether the database also holds GeoPackage's metadata
+	/// tables, registering each table's geometry column, so GIS tools such
+	/// as QGIS open the file as layers. `[db.geo] geopackage = true`.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub geopackage: bool,
 }
 
 impl Schema {
@@ -59,6 +64,7 @@ impl Schema {
 			dialect,
 			tables: Vec::new(),
 			views: Vec::new(),
+			geopackage: false,
 		}
 	}
 
@@ -72,6 +78,7 @@ impl Schema {
 			dialect,
 			tables,
 			views: Vec::new(),
+			geopackage: false,
 		}
 	}
 
@@ -81,6 +88,48 @@ impl Schema {
 		views.sort_by(|left, right| left.name.cmp(&right.name));
 		self.views = views;
 		self
+	}
+
+	/// The same schema, keeping GeoPackage's metadata tables or not.
+	#[must_use]
+	pub fn with_geopackage(mut self, geopackage: bool) -> Self {
+		self.geopackage = geopackage;
+		self
+	}
+
+	/// The GeoPackage layer `table` registers: its geometry column, when the
+	/// schema keeps GeoPackage's metadata and the table has one.
+	pub fn geopackage_layer(&self, table: &Table) -> Option<GeoPackageLayer> {
+		if !self.geopackage {
+			return None;
+		}
+
+		table.columns.iter().find_map(|column| {
+			let (shape, srid) = column.ty.geo()?;
+			Some(GeoPackageLayer {
+				column: column.name.clone(),
+				shape,
+				srid,
+			})
+		})
+	}
+
+	/// The Postgres extensions the schema's columns need: `postgis` for
+	/// geospatial columns.
+	pub fn extensions(&self) -> Vec<&'static str> {
+		let columns = || {
+			self.tables
+				.iter()
+				.flat_map(|table| &table.columns)
+				.chain(self.views.iter().flat_map(|view| &view.columns))
+		};
+		let mut extensions = Vec::new();
+
+		if columns().any(|column| column.ty.geo().is_some()) {
+			extensions.push(POSTGIS);
+		}
+
+		extensions
 	}
 
 	/// The view with this name, if there is one.
@@ -271,6 +320,9 @@ pub struct Table {
 	/// itself as well as by the database layer. Postgres only.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub row_security: Option<RowSecurity>,
+	/// Spatial indexes over geospatial columns, in declaration order.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub geo_indexes: Vec<GeoIndex>,
 }
 
 impl Table {
@@ -287,6 +339,7 @@ impl Table {
 			renamed_from: None,
 			search: None,
 			row_security: None,
+			geo_indexes: Vec::new(),
 		}
 	}
 
@@ -425,11 +478,35 @@ pub enum ColumnType {
 		/// The element type.
 		element: Box<ColumnType>,
 	},
+	/// A planar shape in a coordinate system: PostGIS's `geometry` on
+	/// Postgres, GeoPackage's binary encoding in a `BLOB` on SQLite.
+	Geometry {
+		/// The kind of shape every value has.
+		shape: GeoShape,
+		/// The coordinate system's EPSG code, such as 27700.
+		srid: u32,
+	},
+	/// A shape in longitude and latitude on the WGS 84 spheroid, measured in
+	/// metres: PostGIS's `geography` on Postgres, a `BLOB` on SQLite.
+	Geography {
+		/// The kind of shape every value has.
+		shape: GeoShape,
+	},
 }
 
 impl ColumnType {
 	/// Text with no length limit.
 	pub const TEXT: Self = Self::Text { max_len: None };
+
+	/// The shape and SRID of a geospatial column: geography is always in
+	/// WGS 84, 4326.
+	pub fn geo(&self) -> Option<(GeoShape, u32)> {
+		match self {
+			Self::Geometry { shape, srid } => Some((*shape, *srid)),
+			Self::Geography { shape } => Some((*shape, WGS84)),
+			_ => None,
+		}
+	}
 
 	/// Whether every value of `self` converts to `to` without loss.
 	pub(crate) fn widens_to(&self, to: &Self) -> bool {
@@ -438,9 +515,23 @@ impl ColumnType {
 		}
 
 		match (self, to) {
+			// Any shape fits a column of every shape, in the same system.
 			(Self::Int16, Self::Int32 | Self::Int64 | Self::Float64)
 			| (Self::Int32, Self::Int64 | Self::Float64)
-			| (Self::Float32, Self::Float64) => true,
+			| (Self::Float32, Self::Float64)
+			| (
+				Self::Geography { .. },
+				Self::Geography {
+					shape: GeoShape::Geometry,
+				},
+			) => true,
+			(
+				Self::Geometry { srid: from, .. },
+				Self::Geometry {
+					shape: GeoShape::Geometry,
+					srid: to,
+				},
+			) => from == to,
 			(Self::Text { max_len: from }, Self::Text { max_len: to }) => {
 				match (from, to) {
 					(_, None) => true,
@@ -477,8 +568,133 @@ impl fmt::Display for ColumnType {
 			Self::Date => f.write_str("date"),
 			Self::Json => f.write_str("json"),
 			Self::Array { element } => write!(f, "{element}[]"),
+			Self::Geometry { shape, srid } => write!(f, "geometry({shape}, {srid})"),
+			Self::Geography { shape } => write!(f, "geography({shape})"),
 		}
 	}
+}
+
+/// The EPSG code of WGS 84 longitude and latitude, which every geography
+/// column uses.
+pub const WGS84: u32 = 4326;
+
+/// The largest SRID PostGIS accepts.
+pub const MAX_SRID: u32 = 999_999;
+
+/// The Postgres extension geospatial columns need.
+pub const POSTGIS: &str = "postgis";
+
+/// The kind of shape a geospatial column holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GeoShape {
+	/// One position.
+	Point,
+	/// A line through two or more positions.
+	LineString,
+	/// An area: an outer ring and any holes.
+	Polygon,
+	/// Several points.
+	MultiPoint,
+	/// Several lines.
+	MultiLineString,
+	/// Several areas.
+	MultiPolygon,
+	/// Shapes of any kinds together.
+	GeometryCollection,
+	/// Any one shape.
+	Geometry,
+}
+
+impl GeoShape {
+	/// Every shape.
+	pub const ALL: [Self; 8] = [
+		Self::Point,
+		Self::LineString,
+		Self::Polygon,
+		Self::MultiPoint,
+		Self::MultiLineString,
+		Self::MultiPolygon,
+		Self::GeometryCollection,
+		Self::Geometry,
+	];
+
+	/// The name PostGIS types and GeoJSON use: `Point`, `MultiPolygon`.
+	pub fn name(self) -> &'static str {
+		match self {
+			Self::Point => "Point",
+			Self::LineString => "LineString",
+			Self::Polygon => "Polygon",
+			Self::MultiPoint => "MultiPoint",
+			Self::MultiLineString => "MultiLineString",
+			Self::MultiPolygon => "MultiPolygon",
+			Self::GeometryCollection => "GeometryCollection",
+			Self::Geometry => "Geometry",
+		}
+	}
+
+	/// The shape with this [`GeoShape::name`].
+	pub fn from_name(name: &str) -> Option<Self> {
+		Self::ALL.into_iter().find(|shape| shape.name() == name)
+	}
+}
+
+impl fmt::Display for GeoShape {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.write_str(self.name())
+	}
+}
+
+/// A spatial index over one geospatial column: GiST on Postgres; on SQLite,
+/// an R*Tree of each row's bounding box with a table numbering the rows by
+/// key, both kept current by triggers, so raw SQL writes are indexed too.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeoIndex {
+	/// The indexed column.
+	pub column: String,
+}
+
+impl GeoIndex {
+	/// An index over `column`.
+	pub fn new(column: impl Into<String>) -> Self {
+		Self {
+			column: column.into(),
+		}
+	}
+
+	/// The GiST index on Postgres.
+	pub fn index_name(&self, table: &TableName) -> String {
+		crate::constraint_name(table, &[&self.column], "gist")
+	}
+
+	/// The R*Tree holding each row's bounding box on SQLite:
+	/// `rtree_<table>_<column>`, as GeoPackage names it.
+	pub fn rtree_table(&self, table: &TableName) -> String {
+		crate::shorten_identifier(&format!("rtree_{}_{}", table.flat(), self.column))
+	}
+
+	/// The table numbering the indexed rows by key on SQLite.
+	pub fn rows_table(&self, table: &TableName) -> String {
+		crate::shorten_identifier(&format!("rtree_{}_{}_rows", table.flat(), self.column))
+	}
+
+	/// The trigger that indexes a row after `event` (`insert`, `update`, or
+	/// `delete`) on SQLite.
+	pub fn trigger_name(&self, table: &TableName, event: &str) -> String {
+		crate::shorten_identifier(&format!("rtree_{}_{}_{event}", table.flat(), self.column))
+	}
+}
+
+/// The geometry column a table registers as a GeoPackage layer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GeoPackageLayer {
+	/// The column.
+	pub column: String,
+	/// Its shape.
+	pub shape: GeoShape,
+	/// Its coordinate system.
+	pub srid: u32,
 }
 
 /// The expressions a generated column is computed from, one per dialect,
@@ -1090,6 +1306,14 @@ pub enum CheckRule {
 		/// The expression.
 		sql: String,
 	},
+	/// A shape that is valid as OGC defines it: rings closed and not
+	/// crossing themselves, holes inside their polygon. PostGIS's
+	/// `ST_IsValid` on Postgres, the `geo` crate's validation on SQLite and in
+	/// Rust.
+	ValidGeometry {
+		/// The constrained column.
+		column: String,
+	},
 }
 
 impl CheckRule {
@@ -1099,7 +1323,8 @@ impl CheckRule {
 			Self::Range { column, .. }
 			| Self::Length { column, .. }
 			| Self::OneOf { column, .. }
-			| Self::Regex { column, .. } => Some(column),
+			| Self::Regex { column, .. }
+			| Self::ValidGeometry { column } => Some(column),
 			Self::Sql { .. } => None,
 		}
 	}

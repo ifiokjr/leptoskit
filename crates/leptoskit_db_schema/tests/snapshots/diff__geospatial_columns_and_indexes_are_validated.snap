@@ -1,0 +1,19 @@
+---
+source: crates/leptoskit_db_schema/tests/diff.rs
+expression: schema.validate().unwrap_err().to_string()
+---
+the schema has 14 problem(s):
+  - places: the spatial index on `at` is `places_at_gist`, which is already another index's name
+  - places: on SQLite a spatial index numbers its rows in `lk_row`, so the key can't use that name
+  - posts: the spatial index on `location` keeps its boxes in `rtree_posts_location`, which is already another table's name
+  - posts: the spatial index on `location` keeps its boxes in `rtree_posts_location_rows`, which is already another table's name
+  - posts: GeoPackage allows one geometry column per table, and this one has location, boundary, bad_srid, centre
+  - posts.bad_srid: SRID 0 isn't a coordinate system; SRIDs run from 1 to 999999
+  - posts.shapes: SQLite has no array columns; store the list as JSON instead
+  - posts.shapes: arrays of shapes aren't supported; use a Multi shape
+  - posts: `location` has two spatial indexes
+  - posts: a spatial index covers `title`, whose type is text; only shapes are indexed spatially
+  - posts: a spatial index covers `missing`, which isn't a column
+  - posts: a spatial index covers `centre`, a generated column; index a column the app writes
+  - posts: check `posts_title_valid` doesn't apply to `title`, whose type is text
+  - rtree_places_at: another table has the name `rtree_places_at` once namespaces are flattened

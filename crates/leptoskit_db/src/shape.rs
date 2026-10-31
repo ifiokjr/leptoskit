@@ -493,7 +493,20 @@ fn json_column(sql: &mut Sql, alias: &str, name: &str, ty: &ColumnType) {
 		(Dialect::Postgres, ColumnType::Bytes) => {
 			sql.push("encode(").push(&column).push(", 'hex')");
 		}
-		(Dialect::Sqlite, ColumnType::Uuid | ColumnType::Bytes) => {
+		// Shapes travel as EWKB, which decoding reads as well as GeoPackage's
+		// encoding.
+		(Dialect::Postgres, ColumnType::Geometry { .. } | ColumnType::Geography { .. }) => {
+			sql.push("encode(ST_AsEWKB(")
+				.push(&column)
+				.push("::geometry), 'hex')");
+		}
+		(
+			Dialect::Sqlite,
+			ColumnType::Uuid
+			| ColumnType::Bytes
+			| ColumnType::Geometry { .. }
+			| ColumnType::Geography { .. },
+		) => {
 			// `hex(NULL)` is an empty string, so `NULL` stays `NULL` first.
 			sql.push("CASE WHEN ")
 				.push(&column)
@@ -878,7 +891,10 @@ fn from_json(kind: &Kind, json: serde_json::Value) -> std::result::Result<Value,
 		(ColumnType::Uuid, Json::String(text)) => {
 			Value::Uuid(uuid::Uuid::parse_str(&text).map_err(DecodeError::custom)?)
 		}
-		(ColumnType::Bytes, Json::String(text)) => Value::Bytes(from_hex(&text)?),
+		(
+			ColumnType::Bytes | ColumnType::Geometry { .. } | ColumnType::Geography { .. },
+			Json::String(text),
+		) => Value::Bytes(from_hex(&text)?),
 		(ColumnType::Json, json) => Value::Json(json),
 		(ColumnType::Decimal { .. } | ColumnType::Array { .. }, _) => {
 			return Err(DecodeError::custom(format!(

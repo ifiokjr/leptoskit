@@ -29,7 +29,10 @@ fn every_scenario_lists_its_steps() {
 		summary.push_str(scenario.name);
 		summary.push('\n');
 
-		for step in &scenario.plan(Dialect::Postgres).steps {
+		for step in &scenario
+			.plan(scenario.only.unwrap_or(Dialect::Postgres))
+			.steps
+		{
 			let _ = writeln!(summary, "  {step}");
 		}
 	}

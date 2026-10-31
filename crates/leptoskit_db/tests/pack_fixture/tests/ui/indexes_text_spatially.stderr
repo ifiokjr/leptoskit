@@ -1,0 +1,54 @@
+error[E0277]: `String` isn't a geospatial column
+ --> tests/ui/indexes_text_spatially.rs:8:12
+  |
+8 |     pub name: String,
+  |               ^^^^^^ `#[db(geo(…))]` needs `Geography<T>` or `Geo<T, Srid<N>>`
+  |
+  = help: the trait `GeoValue` is not implemented for `String`
+help: the following other types implement trait `GeoValue`
+ --> $WORKSPACE/crates/leptoskit_db/src/geo/mod.rs
+  |
+  | impl<T: Shape> GeoValue for Geography<T> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Geography<T>`
+...
+  | impl<T: Shape, S: CoordinateSystem> GeoValue for Geo<T, S> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Geo<T, S>`
+...
+  | impl<G: GeoValue> GeoValue for Wkb<G> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Wkb<G>`
+  = note: required for `String` to implement `leptoskit_db::geo::rules::Checked`
+note: required by a bound in `leptoskit_db::geo::rules::geo`
+ --> $WORKSPACE/crates/leptoskit_db/src/geo/mod.rs
+  |
+  |     pub fn geo<C: Checked>(errors: &mut ValidationErrors, field: &str, value: &C, valid: bool) {
+  |                   ^^^^^^^ required by this bound in `geo`
+
+error[E0277]: `String` isn't a geospatial column
+ --> tests/ui/indexes_text_spatially.rs:8:12
+  |
+8 |     pub name: String,
+  |               ^^^^^^ `#[db(geo(…))]` and spatial filters need `Geography<T>` or `Geo<T, Srid<N>>`
+  |
+  = help: the trait `GeoColumn` is not implemented for `String`
+help: the following other types implement trait `GeoColumn`
+ --> $WORKSPACE/crates/leptoskit_db/src/geo/column.rs
+  |
+  |   impl<T: Shape> GeoColumn for Geography<T> {
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Geography<T>`
+...
+  |   impl<T: Shape, S: CoordinateSystem> GeoColumn for Geo<T, S> {
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Geo<T, S>`
+...
+  | / impl<G: GeoValue> GeoColumn for Wkb<G>
+  | | where
+  | |     Self: Column,
+  | |_________________^ `Wkb<G>`
+...
+  |   impl<C: GeoColumn> GeoColumn for Option<C> {
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Option<C>`
+note: required by a bound in `geo`
+ --> tests/ui/indexes_text_spatially.rs:4:1
+  |
+4 | #[leptoskit_db::table(name = "towns")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `geo`
+  = note: this error originates in the attribute macro `leptoskit_db::table` (in Nightly builds, run with -Z macro-backtrace for more info)

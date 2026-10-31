@@ -52,6 +52,8 @@ mod error;
 mod expr;
 #[cfg(feature = "server")]
 mod fallout;
+#[cfg(feature = "geo")]
+pub mod geo;
 #[cfg(feature = "server")]
 mod hooks;
 mod id;
@@ -129,6 +131,8 @@ pub use error::Result;
 pub use expr::Col;
 #[cfg(feature = "server")]
 pub use expr::ConflictTarget;
+#[cfg(feature = "server")]
+pub use expr::Contained;
 #[cfg(feature = "server")]
 pub use expr::Expr;
 #[cfg(feature = "server")]
@@ -387,6 +391,8 @@ pub use sql::Statement;
 #[cfg(feature = "server")]
 pub use table::DIALECT_ENV;
 #[cfg(feature = "server")]
+pub use table::GEOPACKAGE_ENV;
+#[cfg(feature = "server")]
 pub use table::POLICIES_ENV;
 #[cfg(feature = "server")]
 pub use table::SCHEMA_OUT_ENV;
@@ -402,6 +408,8 @@ pub use table::Table;
 pub use table::schema;
 #[cfg(feature = "server")]
 pub use table::schema_with_row_security;
+#[cfg(feature = "server")]
+pub use table::with_geopackage;
 pub use time::Timestamp;
 #[cfg(feature = "server")]
 pub use time::now;

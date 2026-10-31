@@ -28,7 +28,7 @@ impl ValidationErrors {
 		if self.is_empty() { Ok(()) } else { Err(self) }
 	}
 
-	fn push(&mut self, field: &str, rule: Rule) {
+	pub(crate) fn push(&mut self, field: &str, rule: Rule) {
 		self.errors.push(FieldError {
 			field: field.to_string(),
 			rule,
@@ -65,6 +65,13 @@ impl fmt::Display for FieldError {
 			Rule::Max(max) => write!(f, "`{field}` can't be more than {max}"),
 			Rule::OneOf(values) => write!(f, "`{field}` must be one of {}", values.join(", ")),
 			Rule::Pattern(pattern) => write!(f, "`{field}` must match `{pattern}`"),
+			Rule::Coordinates(problem) => write!(f, "`{field}`: {problem}"),
+			Rule::ValidGeometry => {
+				write!(
+					f,
+					"`{field}` must be a valid shape: rings closed and not crossing themselves"
+				)
+			}
 		}
 	}
 }
@@ -93,6 +100,12 @@ pub enum Rule {
 	OneOf(Vec<String>),
 	/// Matching this regular expression.
 	Pattern(String),
+	/// Positions with finite coordinates, and for geography a longitude
+	/// from −180 to 180 and a latitude from −90 to 90; the limit says what
+	/// was wrong.
+	Coordinates(String),
+	/// A valid shape, as OGC defines it.
+	ValidGeometry,
 }
 
 /// The checks generated `validate()` methods call. Optional values are only

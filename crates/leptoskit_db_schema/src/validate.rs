@@ -13,6 +13,7 @@ use crate::DefaultValue;
 use crate::Dialect;
 use crate::ForeignKey;
 use crate::MAX_IDENTIFIER_LEN;
+use crate::MAX_SRID;
 use crate::PolicyCommand;
 use crate::Predicate;
 use crate::ReferentialAction;
@@ -181,7 +182,15 @@ impl Schema {
 				}
 			}
 
+			self.validate_geo_names(table, &mut flat_names, &mut problems);
 			self.validate_table(table, &mut problems);
+		}
+
+		if self.geopackage && self.dialect != Dialect::Sqlite {
+			problems.push(
+				"schema",
+				"GeoPackage metadata is for SQLite files; Postgres keeps PostGIS's own",
+			);
 		}
 
 		for view in &self.views {
@@ -258,6 +267,68 @@ impl Schema {
 		}
 
 		problems.0
+	}
+
+	/// The names a table's spatial indexes give their companion tables and
+	/// indexes are free, and with GeoPackage metadata, the table has one
+	/// geometry column at most.
+	fn validate_geo_names(
+		&self,
+		table: &Table,
+		flat_names: &mut HashSet<String>,
+		problems: &mut Problems,
+	) {
+		let location = table.name.to_string();
+
+		for index in &table.geo_indexes {
+			for name in [
+				index.rtree_table(&table.name),
+				index.rows_table(&table.name),
+			] {
+				if !flat_names.insert(name.clone()) {
+					problems.push(
+						&location,
+						format!(
+							"the spatial index on `{}` keeps its boxes in `{name}`, which is \
+							 already another table's name",
+							index.column
+						),
+					);
+				}
+			}
+
+			let name = index.index_name(&table.name);
+
+			if table.indexes.iter().any(|other| other.name == name) {
+				problems.push(
+					&location,
+					format!(
+						"the spatial index on `{}` is `{name}`, which is already another index's \
+						 name",
+						index.column
+					),
+				);
+			}
+		}
+
+		if self.geopackage {
+			let geo_columns: Vec<&str> = table
+				.columns
+				.iter()
+				.filter(|column| column.ty.geo().is_some())
+				.map(|column| column.name.as_str())
+				.collect();
+
+			if geo_columns.len() > 1 {
+				problems.push(
+					&location,
+					format!(
+						"GeoPackage allows one geometry column per table, and this one has {}",
+						geo_columns.join(", ")
+					),
+				);
+			}
+		}
 	}
 
 	/// Checks that `tables` work on every dialect, as a schema pack's must,
@@ -384,6 +455,8 @@ impl Schema {
 		if let Some(search) = &table.search {
 			validate_search(self.dialect, table, search, problems);
 		}
+
+		validate_geo_indexes(table, problems);
 
 		if let Some(security) = &table.row_security {
 			if self.dialect == Dialect::Sqlite {
@@ -606,6 +679,24 @@ fn validate_column(dialect: Dialect, column: &Column, location: &str, problems: 
 		problems.push(location, "arrays of arrays aren't supported");
 	}
 
+	if let ColumnType::Geometry { srid, .. } = &column.ty
+		&& !(1..=MAX_SRID).contains(srid)
+	{
+		problems.push(
+			location,
+			format!("SRID {srid} isn't a coordinate system; SRIDs run from 1 to {MAX_SRID}"),
+		);
+	}
+
+	if let ColumnType::Array { element } = &column.ty
+		&& element.geo().is_some()
+	{
+		problems.push(
+			location,
+			"arrays of shapes aren't supported; use a Multi shape",
+		);
+	}
+
 	if let Some(generated) = &column.generated {
 		if column.default.is_some() {
 			problems.push(
@@ -746,6 +837,64 @@ fn validate_search(dialect: Dialect, table: &Table, search: &Search, problems: &
 	}
 }
 
+/// A spatial index covers a geospatial column the app writes, once.
+fn validate_geo_indexes(table: &Table, problems: &mut Problems) {
+	let location = table.name.to_string();
+	let mut seen = HashSet::new();
+
+	if !table.geo_indexes.is_empty() && table.primary_key.iter().any(|key| key == SEARCH_ROW) {
+		problems.push(
+			&location,
+			format!(
+				"on SQLite a spatial index numbers its rows in `{SEARCH_ROW}`, so the key can't \
+				 use that name"
+			),
+		);
+	}
+
+	for index in &table.geo_indexes {
+		if !seen.insert(index.column.as_str()) {
+			problems.push(
+				&location,
+				format!("`{}` has two spatial indexes", index.column),
+			);
+		}
+
+		match table.column(&index.column) {
+			None => {
+				problems.push(
+					&location,
+					format!(
+						"a spatial index covers `{}`, which isn't a column",
+						index.column
+					),
+				);
+			}
+			Some(column) if column.ty.geo().is_none() => {
+				problems.push(
+					&location,
+					format!(
+						"a spatial index covers `{}`, whose type is {}; only shapes are indexed \
+						 spatially",
+						index.column, column.ty
+					),
+				);
+			}
+			Some(column) if column.generated.is_some() => {
+				problems.push(
+					&location,
+					format!(
+						"a spatial index covers `{}`, a generated column; index a column the app \
+						 writes",
+						index.column
+					),
+				);
+			}
+			Some(_) => {}
+		}
+	}
+}
+
 fn validate_check(table: &Table, check: &Check, problems: &mut Problems) {
 	let location = table.name.to_string();
 	let Some(column_name) = check.rule.column() else {
@@ -779,6 +928,7 @@ fn validate_check(table: &Table, check: &Check, problems: &mut Problems) {
 		CheckRule::Length { .. } | CheckRule::OneOf { .. } | CheckRule::Regex { .. } => {
 			matches!(column.ty, ColumnType::Text { .. })
 		}
+		CheckRule::ValidGeometry { .. } => column.ty.geo().is_some(),
 		CheckRule::Sql { .. } => true,
 	};
 

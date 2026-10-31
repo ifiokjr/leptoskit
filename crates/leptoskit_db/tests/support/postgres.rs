@@ -24,7 +24,7 @@ pub struct PostgresCluster {
 
 impl PostgresCluster {
 	pub fn start() -> Option<Self> {
-		let Some(binaries) = find_binaries() else {
+		let Some((binaries, server)) = find_binaries() else {
 			assert!(
 				env::var_os("LEPTOSKIT_REQUIRE_POSTGRES").is_none(),
 				"LEPTOSKIT_REQUIRE_POSTGRES is set, but no Postgres binaries were found"
@@ -67,6 +67,12 @@ impl PostgresCluster {
 		let started = Command::new(binaries.join("pg_ctl"))
 			.arg("-D")
 			.arg(&data)
+			// The `postgres` beside where the binaries were found: a Nix
+			// `postgresql.withPackages` environment links `initdb` to plain
+			// Postgres but builds its own `postgres`, which finds the
+			// extensions.
+			.arg("-p")
+			.arg(&server)
 			.arg("-l")
 			.arg(&log)
 			.arg("-o")
@@ -91,6 +97,49 @@ impl PostgresCluster {
 			port,
 			databases: AtomicUsize::new(0),
 		})
+	}
+
+	/// A cluster that has `extension` to install, such as `postgis`. Without
+	/// it the tests that need it are skipped, unless
+	/// `LEPTOSKIT_REQUIRE_POSTGRES_EXTENSIONS` names it, as it does in CI.
+	#[allow(
+		dead_code,
+		reason = "only the geospatial and vector tests need extensions"
+	)]
+	pub fn start_with(extension: &str) -> Option<Self> {
+		let cluster = Self::start()?;
+		let available = run(Command::new(cluster.binaries.join("psql"))
+			.args([
+				"-X",
+				"-q",
+				"-A",
+				"-t",
+				"-h",
+				"127.0.0.1",
+				"-U",
+				"postgres",
+				"-d",
+				"postgres",
+			])
+			.arg("-p")
+			.arg(cluster.port.to_string())
+			.arg("-c")
+			.arg(format!(
+				"SELECT count(*) FROM pg_available_extensions WHERE name = '{extension}'"
+			)));
+
+		if available.trim() == "1" {
+			return Some(cluster);
+		}
+
+		let required = env::var("LEPTOSKIT_REQUIRE_POSTGRES_EXTENSIONS").unwrap_or_default();
+		assert!(
+			!required.split(',').any(|name| name.trim() == extension),
+			"LEPTOSKIT_REQUIRE_POSTGRES_EXTENSIONS names `{extension}`, but this Postgres can't \
+			 install it"
+		);
+		eprintln!("skipping: this Postgres has no `{extension}` extension");
+		None
 	}
 
 	/// A new, empty database, as a connection URL.
@@ -134,7 +183,7 @@ impl Drop for PostgresCluster {
 	}
 }
 
-fn find_binaries() -> Option<PathBuf> {
+fn find_binaries() -> Option<(PathBuf, PathBuf)> {
 	let has_initdb = |directory: &Path| {
 		directory.join("initdb").exists() || directory.join("initdb.exe").exists()
 	};
@@ -166,13 +215,15 @@ fn find_binaries() -> Option<PathBuf> {
 	// its data files relative to where it really is. Windows needs no
 	// resolving, and canonical paths there take a form initdb can't use.
 	if cfg!(windows) {
-		return Some(directory);
+		return Some((directory.clone(), directory.join("postgres.exe")));
 	}
 
-	fs::canonicalize(directory.join("initdb"))
+	let server = directory.join("postgres");
+	let binaries = fs::canonicalize(directory.join("initdb"))
 		.ok()?
 		.parent()
-		.map(Path::to_path_buf)
+		.map(Path::to_path_buf)?;
+	Some((binaries, server))
 }
 
 fn run(command: &mut Command) -> String {

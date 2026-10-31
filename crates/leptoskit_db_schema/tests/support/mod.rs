@@ -698,7 +698,185 @@ pub fn scenarios() -> Vec<Scenario> {
 			seed: SEED,
 			expected_rows: &[("posts", 3)],
 		},
+		Scenario {
+			name: "add_geo",
+			before: blog,
+			after: with_geo,
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
+		Scenario {
+			name: "rebuild_a_geo_table",
+			before: with_geo,
+			after: |dialect| {
+				let mut schema = with_geo(dialect);
+				let posts = table_mut(&mut schema, "posts");
+				posts.checks[0].rule = CheckRule::Range {
+					column: "score".into(),
+					min: Some(0.0),
+					max: Some(200.0),
+				};
+				schema
+			},
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
+		Scenario {
+			name: "change_geo",
+			before: with_geo,
+			after: |dialect| {
+				let mut schema = with_geo(dialect);
+				let posts = table_mut(&mut schema, "posts");
+				let location = column_mut(posts, "location");
+				location.name = "position".into();
+				location.renamed_from = Some("location".into());
+				posts.geo_indexes = vec![GeoIndex::new("position")];
+				posts
+					.checks
+					.retain(|check| check.name != "posts_boundary_valid");
+				let places = table_mut(&mut schema, "places");
+				places.name = TableName::new("sites");
+				places.renamed_from = Some(TableName::new("places"));
+				column_mut(places, "at").ty = ColumnType::Geography {
+					shape: GeoShape::Geometry,
+				};
+				schema
+			},
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
+		Scenario {
+			name: "drop_geo",
+			before: with_geo,
+			after: blog,
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
+		Scenario {
+			name: "add_geopackage",
+			before: blog,
+			after: |dialect| with_geopackage(dialect, "places"),
+			no_renames: false,
+			only: Some(Dialect::Sqlite),
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
+		Scenario {
+			name: "rename_a_geopackage_layer",
+			before: |dialect| with_geopackage(dialect, "places"),
+			after: |dialect| {
+				let mut schema = with_geopackage(dialect, "sites");
+				table_mut(&mut schema, "sites").renamed_from = Some(TableName::new("places"));
+				schema
+			},
+			no_renames: false,
+			only: Some(Dialect::Sqlite),
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
+		Scenario {
+			name: "drop_geopackage",
+			before: |dialect| with_geopackage(dialect, "places"),
+			after: |dialect| {
+				let mut schema = with_geopackage(dialect, "places");
+				schema.geopackage = false;
+				schema
+			},
+			no_renames: false,
+			only: Some(Dialect::Sqlite),
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
 	]
+}
+
+/// [`blog`] with shapes: each post's location on the globe, spatially
+/// indexed, and an optional boundary on the British National Grid, which
+/// must be valid; and a table of places, each a point.
+pub fn with_geo(dialect: Dialect) -> Schema {
+	let mut schema = blog(dialect);
+	let posts = table_mut(&mut schema, "posts");
+	posts.columns.push(
+		Column::new(
+			"location",
+			ColumnType::Geography {
+				shape: GeoShape::Point,
+			},
+		)
+		.nullable(),
+	);
+	posts.columns.push(
+		Column::new(
+			"boundary",
+			ColumnType::Geometry {
+				shape: GeoShape::Polygon,
+				srid: 27700,
+			},
+		)
+		.nullable(),
+	);
+	posts.geo_indexes.push(GeoIndex::new("location"));
+	posts.checks.push(Check {
+		name: "posts_boundary_valid".into(),
+		rule: CheckRule::ValidGeometry {
+			column: "boundary".into(),
+		},
+	});
+
+	let places_name = TableName::new("places");
+	let mut places = Table::new(
+		places_name,
+		vec![
+			Column::new("id", ColumnType::Int64),
+			Column::new(
+				"at",
+				ColumnType::Geography {
+					shape: GeoShape::Point,
+				},
+			),
+		],
+		vec!["id".into()],
+	);
+	places.geo_indexes.push(GeoIndex::new("at"));
+	schema.tables.push(places);
+	schema
+		.tables
+		.sort_by(|left, right| left.name.cmp(&right.name));
+	schema
+}
+
+/// [`blog`] with a table of places named `name`, one point each, kept as a
+/// GeoPackage layer.
+pub fn with_geopackage(dialect: Dialect, name: &str) -> Schema {
+	let mut schema = blog(dialect).with_geopackage(true);
+	let mut places = Table::new(
+		TableName::new(name),
+		vec![
+			Column::new("id", ColumnType::Int64),
+			Column::new(
+				"at",
+				ColumnType::Geometry {
+					shape: GeoShape::Point,
+					srid: 27700,
+				},
+			),
+		],
+		vec!["id".into()],
+	);
+	places.geo_indexes.push(GeoIndex::new("at"));
+	schema.tables.push(places);
+	schema
+		.tables
+		.sort_by(|left, right| left.name.cmp(&right.name));
+	schema
 }
 
 /// Rows for [`blog`], valid in both dialects.
