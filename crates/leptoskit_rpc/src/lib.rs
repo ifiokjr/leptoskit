@@ -77,7 +77,10 @@ pub use channel::assert_channel_message;
 pub use channel::assert_channel_presence;
 #[cfg(feature = "client")]
 pub use client::use_channel;
-#[cfg(feature = "client")]
+#[cfg(all(
+	feature = "client",
+	any(not(feature = "server"), feature = "postgres", feature = "sqlite")
+))]
 pub use client::use_job;
 #[cfg(feature = "client")]
 pub use client::use_live;

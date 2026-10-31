@@ -4,7 +4,9 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
 
+#[cfg(any(not(feature = "server"), feature = "postgres", feature = "sqlite"))]
 use crate::Kind;
+#[cfg(any(not(feature = "server"), feature = "postgres", feature = "sqlite"))]
 use crate::Operation;
 
 /// A job's state and result, as a client reads it.
@@ -33,6 +35,9 @@ pub struct JobStatusArgs {
 	pub id: String,
 }
 
+// A server build with no database driver has no `QueryCx` to name, so it
+// has no job status to read; everything else does.
+#[cfg(any(not(feature = "server"), feature = "postgres", feature = "sqlite"))]
 impl Operation for JobStatusArgs {
 	#[cfg(any(feature = "postgres", feature = "sqlite"))]
 	type Context = crate::QueryCx;

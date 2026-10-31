@@ -303,7 +303,7 @@ pub struct WireError {
 	pub message: String,
 }
 
-#[cfg(feature = "server")]
+#[cfg(any(feature = "live", feature = "postgres", feature = "sqlite"))]
 impl WireError {
 	/// The failure `error` carries.
 	pub(crate) fn new(error: &crate::Error) -> Self {

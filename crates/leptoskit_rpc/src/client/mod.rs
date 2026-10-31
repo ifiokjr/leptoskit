@@ -388,6 +388,7 @@ where
 /// let invite = use_job(move || invite_id.get().to_string());
 /// invite.data().map(|job| job.state);
 /// ```
+#[cfg(any(not(feature = "server"), feature = "postgres", feature = "sqlite"))]
 #[track_caller]
 pub fn use_job(
 	id: impl Fn() -> String + Send + Sync + 'static,
