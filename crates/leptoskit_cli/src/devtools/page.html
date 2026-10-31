@@ -38,6 +38,7 @@
 	</aside>
 	<section>
 		<h2>Tree</h2>
+		<p id="route"></p>
 		<div id="tree">Choose a session.</div>
 	</section>
 	<section>
@@ -80,6 +81,7 @@
 	}
 
 	function render(view) {
+		document.getElementById('route').textContent = view.route ? `Route: ${view.route}` : '';
 		const tree = view.tree;
 		const root = document.getElementById('tree');
 		root.textContent = '';

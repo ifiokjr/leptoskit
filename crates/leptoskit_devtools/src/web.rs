@@ -1,5 +1,7 @@
 //! The web agent: reports a browser page to the local hub.
 
+use std::cell::Cell;
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use gloo_net::http::Request;
@@ -18,6 +20,7 @@ use leptoskit_devtools_protocol::Tree;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::closure::Closure;
 use wasm_bindgen_futures::spawn_local;
 
 /// How long one snapshot-and-poll cycle waits.
@@ -76,16 +79,84 @@ async fn run(hub: String, app: String) -> Result<(), String> {
 		after += commands.len();
 
 		for command in commands {
-			apply(command);
+			apply(command, &hub, &session);
 		}
 
 		gloo_timers::future::TimeoutFuture::new(POLL_MS).await;
 	}
 }
 
-fn apply(command: Command) {
-	if let Command::Highlight { key } | Command::Select { key, .. } = command {
-		highlight(&key.0);
+fn apply(command: Command, hub: &str, session: &SessionId) {
+	match command {
+		Command::Highlight { key } | Command::Select { key, .. } => highlight(&key.0),
+		Command::Pick { on } => set_picking(on, hub, session),
+		_ => {}
+	}
+}
+
+type PickListener = RefCell<Option<Closure<dyn FnMut(web_sys::MouseEvent)>>>;
+
+thread_local! {
+	static PICKING: Cell<bool> = const { Cell::new(false) };
+	static PICK_LISTENER: PickListener = const { RefCell::new(None) };
+}
+
+fn set_picking(on: bool, hub: &str, session: &SessionId) {
+	if !on {
+		stop_picking();
+		return;
+	}
+	if PICKING.with(Cell::get) {
+		return;
+	}
+	PICKING.with(|picking| picking.set(true));
+	let hub = hub.to_owned();
+	let session = session.0.clone();
+	let closure =
+		Closure::<dyn FnMut(web_sys::MouseEvent)>::new(move |event: web_sys::MouseEvent| {
+			let Some(target) = event
+				.target()
+				.and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+			else {
+				return;
+			};
+			let Ok(Some(element)) = target.closest("[data-lk-node]") else {
+				return;
+			};
+			let path = element.get_attribute("data-lk-node").unwrap_or_default();
+			let hub = hub.clone();
+			let session = session.clone();
+			spawn_local(async move {
+				let event = Event::Picked {
+					node: NodeRef::Web(path.clone()),
+					key: MatchKey::new(path),
+				};
+				let _ = post(&format!("{hub}/agent/sessions/{session}/events"), &[event]).await;
+			});
+			stop_picking();
+		});
+	if let Some(document) = web_sys::window().and_then(|window| window.document()) {
+		let _ =
+			document.add_event_listener_with_callback("click", closure.as_ref().unchecked_ref());
+	}
+	PICK_LISTENER.with(|listener| *listener.borrow_mut() = Some(closure));
+}
+
+fn stop_picking() {
+	PICKING.with(|picking| picking.set(false));
+	PICK_LISTENER.with(|listener| {
+		let Some(closure) = listener.borrow_mut().take() else {
+			return;
+		};
+		if let Some(document) = web_sys::window().and_then(|window| window.document()) {
+			let _ = document
+				.remove_event_listener_with_callback("click", closure.as_ref().unchecked_ref());
+		}
+	});
+	if let Some(document) = web_sys::window().and_then(|window| window.document())
+		&& let Some(overlay) = document.get_element_by_id("leptoskit-devtools-overlay")
+	{
+		overlay.remove();
 	}
 }
 
@@ -148,7 +219,7 @@ fn snapshot() -> Snapshot {
 
 	Snapshot {
 		tree: Tree { root, nodes },
-		route: None,
+		route: web_sys::window().and_then(|window| window.location().pathname().ok()),
 		queries: Vec::new(),
 		mutations: Vec::new(),
 		forms: Vec::new(),
