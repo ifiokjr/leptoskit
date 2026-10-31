@@ -76,21 +76,24 @@ consent_page = "/connect" # where people say yes or no; the default is /consent
 device_page = "/device" # where people enter a CLI's or a TV's code
 ```
 
-| Setting            | Default    | What it's for                                                                                      |
-| ------------------ | ---------- | -------------------------------------------------------------------------------------------------- |
-| `issuer`           | `origin`   | The address apps discover you at. Leave it to `[auth] origin` unless your sign-in lives elsewhere. |
-| `audience`         | the issuer | What access tokens name as their audience: your API's origin, if it isn't the issuer.              |
-| `sign_in_page`     | `/sign-in` | Where signed-out people sign in first.                                                             |
-| `consent_page`     | `/consent` | Where people answer an app.                                                                        |
-| `signed_out_page`  | `/`        | Where people land after an app signs them out, if it named nowhere.                                |
-| `device_page`      | `/device`  | Where people enter a device's code.                                                                |
-| `rsa_key_env`      | none       | The environment variable holding an RSA key, for apps that need RS256 ID tokens.                   |
-| `access_minutes`   | 10         | How long an access token lasts, at most 60.                                                        |
-| `id_token_minutes` | 10         | How long an ID token lasts.                                                                        |
-| `refresh_days`     | 90         | How long an app stays signed in, however often it refreshes.                                       |
-| `signing_key_days` | 30         | How long a signing key signs before the next takes over.                                           |
-| `developer_portal` | `false`    | Lets your users register apps of their own.                                                        |
-| `apps_per_person`  | 10         | How many apps one person may register in the portal.                                               |
+| Setting                  | Default    | What it's for                                                                                      |
+| ------------------------ | ---------- | -------------------------------------------------------------------------------------------------- |
+| `issuer`                 | `origin`   | The address apps discover you at. Leave it to `[auth] origin` unless your sign-in lives elsewhere. |
+| `audience`               | the issuer | What access tokens name as their audience: your API's origin, if it isn't the issuer.              |
+| `sign_in_page`           | `/sign-in` | Where signed-out people sign in first.                                                             |
+| `consent_page`           | `/consent` | Where people answer an app.                                                                        |
+| `signed_out_page`        | `/`        | Where people land after an app signs them out, if it named nowhere.                                |
+| `device_page`            | `/device`  | Where people enter a device's code.                                                                |
+| `rsa_key_env`            | none       | The environment variable holding an RSA key, for apps that need RS256 ID tokens.                   |
+| `access_minutes`         | 10         | How long an access token lasts, at most 60.                                                        |
+| `id_token_minutes`       | 10         | How long an ID token lasts.                                                                        |
+| `refresh_days`           | 90         | How long an app stays signed in, however often it refreshes.                                       |
+| `signing_key_days`       | 30         | How long a signing key signs before the next takes over.                                           |
+| `developer_portal`       | `false`    | Lets your users register apps of their own.                                                        |
+| `apps_per_person`        | 10         | How many apps one person may register in the portal.                                               |
+| `dpop`                   | `false`    | Lets apps bind their tokens to a key they hold, so a stolen token is useless without it.           |
+| `dynamic_registration`   | `false`    | Lets apps register themselves at `/oauth/register`.                                                |
+| `registration_token_env` | none       | The environment variable holding the token apps must send to register. Without it, anyone may.     |
 
 Build the provider next to `Auth`, add its routes inside the session layer, and its own layer outside it:
 
@@ -230,6 +233,7 @@ The other app sees a standard OpenID Connect provider, so any OAuth 2.1 or OIDC 
 | `GET /oauth/end_session`                | Signs the person out of the app, and of your site, with the ID token it got (`id_token_hint`). |
 | `POST /oauth/par`                       | Pushes a sign-in request from the app's server ahead of the browser (RFC 9126).                |
 | `POST /oauth/device_authorization`      | Starts a sign-in for a CLI or a TV (RFC 8628).                                                 |
+| `POST /oauth/register`                  | An app registers itself, with `dynamic_registration` on (RFC 7591).                            |
 
 The token endpoints answer requests from any site, since they read no cookies, so single-page apps can call them directly. `/oauth/authorize` and `/oauth/end_session` also take a form `POST`, as OpenID Connect allows: the browser is sent on to the same page with the same parameters.
 
@@ -328,8 +332,59 @@ Signed-in people can then register, change, and delete apps of their own. `lepto
 - A secret is shown once, when it's made.
 - Taking a scope away from an app takes it from everyone who connected it, and ends the sign-ins that carried it. Deleting an app disconnects it from everyone, and their activity says so.
 
+## Bind tokens to the app's key
+
+A bearer token works for whoever holds it. If an app's token leaks, from a log, a proxy, or a compromised device, anyone can use it until it expires, and a leaked refresh token keeps working for months. DPoP (RFC 9449) closes that gap: the app makes a key pair, keeps the private key, and signs a short proof for every request. Its tokens are bound to that key, so a copy without the key is useless.
+
+Turn it on in `leptoskit.toml`:
+
+```toml
+[auth.idp]
+dpop = true
+```
+
+Nothing changes for apps that don't use it. An app opts in by sending a `DPoP` header with its token requests, and most OAuth libraries for single-page and native apps can. Then:
+
+- `/oauth/token` answers with `token_type: "DPoP"`, and the access token names the key's thumbprint. A public app's refresh token is bound to the key too; a confidential app's is already bound by its secret.
+- Your API, and `userinfo`, take that access token only as `Authorization: DPoP …`, with a fresh proof signed by the same key for that very request. The same token sent as `Bearer`, without a proof, with someone else's proof, or with a proof already used, gets `401` with `WWW-Authenticate: DPoP error="invalid_dpop_proof"`.
+- Introspection says `token_type: "DPoP"` and gives the key's thumbprint as `cnf`, so a resource server elsewhere can check the proof itself.
+- Proofs must be made within a minute of the server's clock, and each works once.
+
+To require it of an app, so a misconfigured client can't fall back to bearer tokens, register it with `--dpop`:
+
+```console
+$ leptoskit auth idp client add "Notes for iOS" --public --redirect com.example.notes:/callback --scopes openid,notes:read --dpop
+```
+
+Proofs are signed with ES256 or RS256. The server doesn't send nonces (`DPoP-Nonce`): freshness comes from the proof's time and from remembering every proof until it's too old to accept.
+
+## Let apps register themselves
+
+Registering every app by hand doesn't scale when your API is open to integrations, and some clients, such as the OpenID Foundation's test suite or tools that configure themselves from discovery, expect to register on their own. Dynamic registration (RFC 7591) lets an app post its own details and get a client ID back:
+
+```toml
+[auth.idp]
+dynamic_registration = true
+registration_token_env = "IDP_REGISTRATION_TOKEN" # optional: only apps you give this token can register
+```
+
+```console
+$ curl -X POST https://notes.example/oauth/register \
+    -H 'content-type: application/json' \
+    -H "authorization: Bearer $IDP_REGISTRATION_TOKEN" \
+    -d '{"client_name": "Partner", "redirect_uris": ["https://partner.example/callback"], "scope": "openid notes:read"}'
+```
+
+The answer holds the new `client_id`, a `client_secret` unless the app asked for `token_endpoint_auth_method: "none"` or `private_key_jwt`, and a `registration_access_token`, each shown this once. With that token, the app reads, changes, and deletes its registration at its `registration_client_uri` (RFC 7592): `GET`, `PUT` with its whole metadata, and `DELETE`.
+
+- Without `registration_token_env`, anyone can register, at most 10 apps an hour from one address. The token must be at least 32 characters.
+- A self-registered app is like one from the developer portal: never first-party, never able to introspect other apps' tokens, and limited to the scopes you offer. People still consent to it, and `leptoskit auth idp client list` marks it.
+- It may ask for the code, device, and `client_credentials` grants, and the `code` response type only. `jwks_uri` isn't supported; it sends its keys as `jwks`.
+- Without `scope`, it gets `openid profile email`. Without `id_token_signed_response_alg`, its ID tokens are RS256 if the server has an RSA key, as OpenID Connect makes the default, and ES256 otherwise.
+- Taking scopes away in a change takes them from everyone who connected it, and changing how it authenticates ends its sign-ins. Deleting it disconnects it from everyone.
+
 ## What isn't there yet
 
-- DPoP-bound tokens and dynamic client registration.
 - PKCE is required for every app, including confidential ones. Some older libraries, and the OpenID Foundation's basic certification tests, sign in without it; those can't use your provider yet.
+- Binding an authorization code to a DPoP key at `/oauth/authorize` (`dpop_jkt`) and server-provided DPoP nonces.
 - The generated CLI keeps its tokens in a file in your config directory, not in the operating system's keychain.

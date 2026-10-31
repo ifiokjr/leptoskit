@@ -9,6 +9,7 @@ doc-valid-idents = [
 	"ArkTS",
 	"DevEco",
 	"OpenAPI",
+	"DPoP",
 	"TypeScript",
 	"JavaScript",
 	"WebAssembly",
