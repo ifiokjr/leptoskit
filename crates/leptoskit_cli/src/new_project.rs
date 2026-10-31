@@ -332,11 +332,7 @@ pub(crate) fn sdk_dependency(
 			path.join("Cargo.toml").is_file(),
 			"--sdk-path lacks {package}"
 		);
-		write!(
-			dependency,
-			", path = {}",
-			toml::Value::from(manifest_path(path.as_str()))
-		)?;
+		write!(dependency, ", path = {}", toml::Value::from(path.as_str()))?;
 	}
 
 	if !features.is_empty() {
@@ -345,13 +341,6 @@ pub(crate) fn sdk_dependency(
 
 	dependency.push_str(" }");
 	Ok(dependency)
-}
-
-/// A path as a manifest spells it: with `/` between components, which Cargo
-/// reads on every platform, so a manifest written on Windows doesn't mix
-/// separators or carry backslashes.
-pub(crate) fn manifest_path(path: &str) -> String {
-	path.replace('\\', "/")
 }
 
 /// Assembles every template before creating any destination files.
@@ -1212,7 +1201,6 @@ pub fn verify_scaffold(dir: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
 	use super::host_manifest;
-	use super::manifest_path;
 
 	#[test]
 	fn the_terminal_host_is_gated_on_the_architecture_alone() {
@@ -1233,18 +1221,6 @@ mod tests {
 		);
 		// Desktop runners can't host plugins, so they don't link sign-in's.
 		assert!(!windows.contains("leptoskit_plugin_http"), "{windows}");
-	}
-
-	#[test]
-	fn manifest_paths_use_forward_slashes() {
-		assert_eq!(
-			manifest_path(r"C:\sdk\crates\leptoskit_plugin_http"),
-			"C:/sdk/crates/leptoskit_plugin_http"
-		);
-		assert_eq!(
-			manifest_path("/sdk/crates/leptoskit_plugin_http"),
-			"/sdk/crates/leptoskit_plugin_http"
-		);
 	}
 
 	#[test]
