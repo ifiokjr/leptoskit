@@ -116,7 +116,8 @@ The native table has a column for every `benchmarks/results/native-<platform>.js
 Releases go through [monochange](https://crates.io/crates/monochange) changesets:
 
 1. A feature branch carries a changeset: `monochange run change --package leptoskit --bump patch --reason "..."`.
-2. The `release` workflow keeps one release pull request open that summarises the pending changesets. Merging it cuts the release.
-3. The merge pushes the tag, drafts the GitHub release, and dispatches the `publish` workflow. That workflow publishes every crate to crates.io in dependency order.
+2. Every pull request runs `release pr (simulated)`. It performs the same validation, release planning, lockfile refreshes, and formatting as the release job, but commits and opens nothing, so a broken release preparation fails on the change that caused it.
+3. The `release` workflow keeps one release pull request open that summarises the pending changesets. It writes and opens that pull request with the job token, so it does not depend on an external release service. Merging it cuts the release.
+4. The merge pushes the tag, drafts the GitHub release, and dispatches the `publish` workflow. That workflow publishes every crate to crates.io in dependency order.
 
 Every published crate releases together as one version group under a single tag.

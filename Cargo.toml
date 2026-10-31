@@ -195,7 +195,7 @@ leptoskit_plugin_filesystem = { path = "crates/leptoskit_plugin_filesystem", ver
 leptoskit_plugin_global_shortcut = { path = "crates/leptoskit_plugin_global_shortcut", version = "0.1.0" }
 leptoskit_plugin_gyroscope = { path = "crates/leptoskit_plugin_gyroscope", version = "0.1.0" }
 leptoskit_plugin_haptics = { path = "crates/leptoskit_plugin_haptics", version = "0.1.0" }
-leptoskit_plugin_http = { path = "crates/leptoskit_plugin_http", version = "0.1.0" }
+leptoskit_plugin_http = { path = "crates/leptoskit_plugin_http", version = "0.1.0", default-features = false }
 leptoskit_plugin_image_manipulator = { path = "crates/leptoskit_plugin_image_manipulator", version = "0.1.0" }
 leptoskit_plugin_keep_awake = { path = "crates/leptoskit_plugin_keep_awake", version = "0.1.0" }
 leptoskit_plugin_light_sensor = { path = "crates/leptoskit_plugin_light_sensor", version = "0.1.0" }
