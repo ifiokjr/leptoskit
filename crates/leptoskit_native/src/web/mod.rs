@@ -114,12 +114,14 @@ fn scroll_after_render() {
 				continue;
 			};
 
-			if element.get_attribute("data-lk-applied-scroll").as_deref() == Some(command.as_str()) {
+			if element.get_attribute("data-lk-applied-scroll").as_deref() == Some(command.as_str())
+			{
 				continue;
 			}
 
 			let mut parts = command.split(',');
-			let (Some(x), Some(y), Some(animated)) = (parts.next(), parts.next(), parts.next()) else {
+			let (Some(x), Some(y), Some(animated)) = (parts.next(), parts.next(), parts.next())
+			else {
 				continue;
 			};
 			let (Ok(x), Ok(y)) = (x.parse::<f64>(), y.parse::<f64>()) else {
@@ -241,7 +243,11 @@ fn render_node(
 			"{},{},{}",
 			command.x,
 			command.y,
-			if command.animated { "smooth" } else { "instant" }
+			if command.animated {
+				"smooth"
+			} else {
+				"instant"
+			}
 		)
 	});
 

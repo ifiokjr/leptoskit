@@ -49,6 +49,7 @@ internal class NativeWidgetRenderer(
     private val recycledTexts = ArrayList<TextView>()
     private val riveBitmaps = mutableMapOf<Long, Bitmap>()
     var onRiveViewportChange: (() -> Unit)? = null
+
     /** The scroll views a batch asked to move, applied once they are laid out. */
     private val programmaticScrolls = mutableSetOf<ScrollView>()
     private val props = NativeWidgetProps({ density }) { programmaticScrolls.add(it) }
@@ -381,6 +382,7 @@ internal class NativeWidgetRenderer(
         const val FOCUS = 3
         const val BLUR = 4
         const val SCROLL = 5
+
         /** How many animation frames a scroll waits for its view to be laid out. */
         const val SCROLL_ATTEMPTS = 120
         const val PRESS_IN = 8

@@ -4,6 +4,7 @@ pub(crate) const MACOS: &[&str] = &[
 	"mobile/NativeRive.swift",
 	"desktop/LeptosKitMacViewController.swift",
 	"desktop/MacWidgetRenderer.swift",
+	"desktop/MacWidgetScroll.swift",
 	"desktop/MacTextLabel.swift",
 	"mobile/RenderTransaction.swift",
 	"mobile/WidgetProps.swift",

@@ -41,7 +41,7 @@ private extension Change {
 private struct WidgetExtras: Decodable {
     let drawing: VectorDrawing?
     let aria: WidgetAria?
-    let scroll: WidgetProps.Scroll?
+    let scroll: WidgetScroll?
 }
 
 /// A cursor over one binary transaction; every read checks it stays in bounds.

@@ -80,9 +80,10 @@ pub async fn run(host: Host, arena: Arena, scenario: Scenario) {
 /// scroll container with no height on Android, so its offsets never leave
 /// zero, and `busy` needs the guest off the UI thread for a native animation
 /// to run while app logic blocks. Both are the next step, not an API gap.
-const UNSUPPORTED_SCROLL: &str = "leptoskit's scroll command and scroll events reach the platform, but the \
-                                  arena's feed reports a zero-height container on Android and the busy \
-                                  scenario needs the guest off the UI thread";
+const UNSUPPORTED_SCROLL: &str = "leptoskit's scroll command and scroll events reach the \
+                                  platform, but the arena's feed reports a zero-height container \
+                                  on Android and the busy scenario needs the guest off the UI \
+                                  thread";
 
 /// How fast `autoscroll` moves the feed, in layout units per millisecond.
 const AUTOSCROLL_SPEED: f64 = 1.5;
@@ -367,8 +368,8 @@ async fn autoscroll(host: Host, arena: &Arena) -> Result<Report, String> {
 	report.metric("final_offset", shown);
 	report.samples("final_offset", &[shown]);
 	report.note(
-		"the feed is leptoskit's virtual list: only the window the viewport shows is \
-		 rendered, and every frame lays it out at the offset the app computed",
+		"the feed is leptoskit's virtual list: only the window the viewport shows is rendered, \
+		 and every frame lays it out at the offset the app computed",
 	);
 
 	if (shown - offset).abs() > 2.0 * AUTOSCROLL_SPEED * 16.667 {

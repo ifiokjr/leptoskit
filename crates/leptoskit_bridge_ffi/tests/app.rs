@@ -125,9 +125,7 @@ fn generated_runtime_starts_renders_and_polls_rust_plugin_completions() {
 			lk_app_event(app, usize::MAX, 5, broken.as_ptr(), broken.len()),
 			-1
 		);
-		assert!(
-			String::from_utf8_lossy(&take(lk_app_error(app))).contains("scroll events carry")
-		);
+		assert!(String::from_utf8_lossy(&take(lk_app_error(app))).contains("scroll events carry"));
 		assert_eq!(lk_app_start(app, 100.0, 100.0), -1);
 		lk_app_destroy(app);
 	}

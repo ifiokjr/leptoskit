@@ -69,14 +69,14 @@ final class PressView: NSView {
 final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
     private static let pressIn: UInt32 = 8
     private static let pressOut: UInt32 = 9
-    private static let scroll: UInt32 = 5
+    static let scroll: UInt32 = 5
     /// How long an animated scroll takes, matching UIKit's own default.
-    private static let scrollAnimationSeconds = 0.25
+    static let scrollAnimationSeconds = 0.25
     private let view: NSView
     private var widgets: [Int: NSView] = [:]
     /// The last scroll command each scroll view received, so an unrelated prop
     /// change never re-applies an offset the user has since scrolled away from.
-    private var scrollCommands: [Int: WidgetProps.Scroll] = [:]
+    var scrollCommands: [Int: WidgetScroll] = [:]
     private var applying = false
     var onEvent: ((Int, UInt32, String) -> Void)?
     init(view: NSView) { self.view = view }
@@ -84,7 +84,6 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
         for widget in widgets.values { (widget as? NSImageView)?.image = nil }
         widgets.removeAll()
         scrollCommands.removeAll()
-        NotificationCenter.default.removeObserver(self)
     }
 
     func riveVisible(_ node: Int) -> Bool {
@@ -217,7 +216,7 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
         }
     }
 
-    private func node(_ widget: NSView) -> Int? { widget.identifier.flatMap { Int($0.rawValue) } }
+    func node(_ widget: NSView) -> Int? { widget.identifier.flatMap { Int($0.rawValue) } }
 
     @objc private func pressed(_ sender: NSButton) {
         if let id = node(sender) { event(id, 0) }
@@ -245,38 +244,7 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
         if let field = notification.object as? NSTextField, let id = node(field) { event(id, 4) }
     }
 
-    /// Moves a scroll view to the offset its props ask for, once per command.
-    private func applyScroll(_ command: WidgetProps.Scroll?, to widget: NSView, node: Int) {
-        guard let command, let scroll = widget as? NSScrollView else { return }
-
-        if scrollCommands[node] == command { return }
-
-        scrollCommands[node] = command
-        let origin = NSPoint(x: command.x, y: command.y)
-
-        if command.animated {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = Self.scrollAnimationSeconds
-                scroll.contentView.animator().setBoundsOrigin(origin)
-            }
-        } else {
-            scroll.contentView.scroll(to: origin)
-            scroll.reflectScrolledClipView(scroll.contentView)
-        }
-    }
-
-    /// Reports the offset a scroll view scrolled to, in layout units.
-    @objc private func scrolled(_ notification: Notification) {
-        guard let clip = notification.object as? NSClipView,
-            let scroll = clip.enclosingScrollView,
-            let id = node(scroll)
-        else { return }
-
-        let offset = clip.bounds.origin
-        event(id, Self.scroll, #"{"x":\#(offset.x),"y":\#(offset.y)}"#)
-    }
-
-    private func event(_ node: Int, _ kind: UInt32, _ text: String = "") {
+    func event(_ node: Int, _ kind: UInt32, _ text: String = "") {
         guard !applying else { return }
         onEvent?(node, kind, text)
     }

@@ -34,7 +34,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
     private var radii: [Int: CGFloat] = [:]
     /// The last scroll command each scroll view received, so an unrelated prop
     /// change never re-applies an offset the user has since scrolled away from.
-    private var scrollCommands: [Int: WidgetProps.Scroll] = [:]
+    private var scrollCommands: [Int: WidgetScroll] = [:]
     /// The scroll views a batch moved, reported once it finishes.
     private var programmaticScrolls: [UIScrollView] = []
     /// How many children the renderer has inserted into each widget. Reading
@@ -246,14 +246,14 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         return field
     }
     /// Moves a scroll view to the offset its props ask for, once per command.
-    private func applyScroll(_ command: WidgetProps.Scroll?, to widget: UIView, node: Int) {
+    private func applyScroll(_ command: WidgetScroll?, to widget: UIView, node: Int) {
         guard let command, let scroll = widget as? UIScrollView else { return }
 
         if scrollCommands[node] == command { return }
 
         scrollCommands[node] = command
         scroll.setContentOffset(
-            CGPoint(x: command.x, y: command.y), animated: command.animated)
+            CGPoint(x: command.offsetX, y: command.offsetY), animated: command.animated)
         programmaticScrolls.append(scroll)
     }
 

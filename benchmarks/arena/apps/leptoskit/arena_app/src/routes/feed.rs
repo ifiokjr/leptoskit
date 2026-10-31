@@ -2,8 +2,8 @@
 
 use leptoskit::prelude::Color;
 use leptoskit::prelude::Dimension;
-use leptoskit::prelude::Rect;
 use leptoskit::prelude::Element;
+use leptoskit::prelude::Rect;
 use leptoskit::prelude::Text;
 use leptoskit::prelude::View;
 use leptoskit_virtual::Axis;

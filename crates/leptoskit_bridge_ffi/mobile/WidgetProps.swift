@@ -21,22 +21,26 @@ struct WidgetProps: Decodable {
     let textAlign: String?
     let drawing: VectorDrawing?
     let aria: WidgetAria?
-    let scroll: Scroll?
+    let scroll: WidgetScroll?
+}
 
-    /// Where a scroll container's content sits, and whether to animate there.
-    struct Scroll: Decodable, Equatable {
-        let x: CGFloat
-        let y: CGFloat
-        let animated: Bool
+/// Where a scroll container's content sits, and whether to animate there.
+struct WidgetScroll: Decodable, Equatable {
+    let offsetX: CGFloat
+    let offsetY: CGFloat
+    let animated: Bool
 
-        private enum CodingKeys: String, CodingKey { case x, y, animated }
+    private enum CodingKeys: String, CodingKey {
+        case offsetX = "x"
+        case offsetY = "y"
+        case animated
+    }
 
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            x = try container.decode(CGFloat.self, forKey: .x)
-            y = try container.decode(CGFloat.self, forKey: .y)
-            animated = try container.decodeIfPresent(Bool.self, forKey: .animated) ?? false
-        }
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        offsetX = try container.decode(CGFloat.self, forKey: .offsetX)
+        offsetY = try container.decode(CGFloat.self, forKey: .offsetY)
+        animated = try container.decodeIfPresent(Bool.self, forKey: .animated) ?? false
     }
 }
 
