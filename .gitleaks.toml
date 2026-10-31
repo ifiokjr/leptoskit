@@ -7,3 +7,7 @@ useDefault = true
 [[allowlists]]
 description = "CocoaPods lockfiles list a SHA-1 checksum for every pod spec, which the generic-api-key rule reads as a key"
 paths = ['''(^|/)Podfile\.lock$''']
+
+[[allowlists]]
+description = "A throwaway RSA key the IdP tests sign RS256 ID tokens with; it signs nothing outside the test suite"
+paths = ['''^crates/leptoskit_idp/tests/fixtures/test-only-[a-z-]+\.pem$''']

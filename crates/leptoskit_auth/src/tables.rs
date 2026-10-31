@@ -229,6 +229,24 @@ pub enum EventKind {
 	WalletSignInChanged,
 	/// A wallet's signature was refused.
 	WalletFailed,
+	/// They let another app sign in with their account, or let it do more.
+	/// `detail` names the app.
+	AppConnected,
+	/// They disconnected an app, ending every token it held for them.
+	/// `detail` names the app.
+	AppDisconnected,
+	/// An app's code or refresh token was used twice, so the sign-in it
+	/// belonged to was ended. `detail` names the app.
+	AppTokenReused,
+	/// They registered an app of their own, in the developer portal.
+	/// `detail` names the app.
+	AppRegistered,
+	/// They changed an app of their own, or replaced its secret, in the
+	/// developer portal. `detail` names the app.
+	AppChanged,
+	/// They deleted an app of their own, ending every grant and token it
+	/// held. `detail` names the app.
+	AppDeleted,
 }
 
 /// The audit trail: what happened to an account, and from where. Never
@@ -240,6 +258,10 @@ pub struct Event {
 	#[db(on_delete = cascade, backlink = events)]
 	pub account_id: Option<Id<Account>>,
 	pub kind: EventKind,
+	/// What it concerns, such as the app that was connected: never a
+	/// credential.
+	#[db(max_len = 200)]
+	pub detail: Option<String>,
 	#[db(max_len = 64, private)]
 	pub ip: Option<String>,
 	#[db(max_len = 512, private)]

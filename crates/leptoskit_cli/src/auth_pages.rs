@@ -15,37 +15,90 @@ use anyhow::Context;
 use anyhow::Result;
 use leptoskit_config::LeptoskitConfig;
 
-/// The screens, relative to the client crate's `src/`.
-pub(crate) const PAGES: [(&str, &str); 4] = [
-	("auth/mod.rs", include_str!("auth_pages/templates/mod.rs")),
+/// The screens, relative to the client crate's `src/`, and whether each is
+/// only for `--idp`. The templates hold the `--idp` version: lines between
+/// `// leptoskit: idp` and `// leptoskit: end idp` are left out without it.
+const PAGES: [(&str, &str, bool); 8] = [
+	(
+		"auth/mod.rs",
+		include_str!("auth_pages/templates/mod.rs"),
+		false,
+	),
 	(
 		"auth/sign_in.rs",
 		include_str!("auth_pages/templates/sign_in.rs"),
+		false,
 	),
 	(
 		"auth/devices.rs",
 		include_str!("auth_pages/templates/devices.rs"),
+		false,
 	),
 	(
 		"auth/security.rs",
 		include_str!("auth_pages/templates/security.rs"),
+		false,
+	),
+	(
+		"auth/consent.rs",
+		include_str!("auth_pages/templates/consent.rs"),
+		true,
+	),
+	(
+		"auth/device_code.rs",
+		include_str!("auth_pages/templates/device_code.rs"),
+		true,
+	),
+	(
+		"auth/connected_apps.rs",
+		include_str!("auth_pages/templates/connected_apps.rs"),
+		true,
+	),
+	(
+		"auth/developer_apps.rs",
+		include_str!("auth_pages/templates/developer_apps.rs"),
+		true,
 	),
 ];
 
 /// The route files for an app that uses the file router, relative to its
-/// routes directory.
-const ROUTES: [(&str, &str); 3] = [
+/// routes directory: the file, its template, and its `--idp` template, or
+/// `None` when it's only for `--idp`.
+const ROUTES: [(&str, Option<&str>, Option<&str>); 7] = [
 	(
 		"sign-in.rs",
-		include_str!("auth_pages/templates/route_sign_in.rs"),
+		Some(include_str!("auth_pages/templates/route_sign_in.rs")),
+		Some(include_str!("auth_pages/templates/route_sign_in_idp.rs")),
 	),
 	(
 		"devices.rs",
-		include_str!("auth_pages/templates/route_devices.rs"),
+		Some(include_str!("auth_pages/templates/route_devices.rs")),
+		None,
 	),
 	(
 		"security.rs",
-		include_str!("auth_pages/templates/route_security.rs"),
+		Some(include_str!("auth_pages/templates/route_security.rs")),
+		None,
+	),
+	(
+		"consent.rs",
+		None,
+		Some(include_str!("auth_pages/templates/route_consent.rs")),
+	),
+	(
+		"device.rs",
+		None,
+		Some(include_str!("auth_pages/templates/route_device.rs")),
+	),
+	(
+		"connected-apps.rs",
+		None,
+		Some(include_str!("auth_pages/templates/route_connected_apps.rs")),
+	),
+	(
+		"developer-apps.rs",
+		None,
+		Some(include_str!("auth_pages/templates/route_developer_apps.rs")),
 	),
 ];
 
@@ -60,22 +113,83 @@ const AUTH_TABLE: &str = "
 keys_env = \"AUTH_ENCRYPTION_KEYS\"
 ";
 
+/// The `[auth.idp]` table added for `--idp` when there's none.
+const IDP_TABLE: &str = "
+# Sign in with this app: other apps, CLIs, and TVs sign people in through it.
+[auth.idp]
+";
+
+/// A template with its `--idp` lines kept or left out. The marker lines
+/// themselves never are.
+pub(crate) fn render(template: &str, idp: bool) -> String {
+	let mut out = String::with_capacity(template.len());
+	let mut in_idp = false;
+
+	for line in template.split_inclusive('\n') {
+		match line.trim() {
+			"// leptoskit: idp" => in_idp = true,
+			"// leptoskit: end idp" => in_idp = false,
+			_ if in_idp && !idp => {}
+			_ => out.push_str(line),
+		}
+	}
+
+	out
+}
+
+/// The screens, relative to the client crate's `src/`, as `generate auth`
+/// writes them, with `idp` for `--idp`.
+pub(crate) fn pages(idp: bool) -> Vec<(&'static str, String)> {
+	PAGES
+		.iter()
+		.filter(|(_, _, only_idp)| idp || !only_idp)
+		.map(|(path, template, _)| (*path, render(template, idp)))
+		.collect()
+}
+
+/// The route files, relative to the routes directory, with `idp` for
+/// `--idp`.
+fn routes(idp: bool) -> Vec<(&'static str, String)> {
+	ROUTES
+		.iter()
+		.filter_map(|(file, base, with_idp)| {
+			let template = if idp { with_idp.or(*base) } else { *base };
+			template.map(|template| (*file, render(template, idp)))
+		})
+		.collect()
+}
+
 /// The server's sign-in module, reading the configuration at `config`,
-/// relative to the module.
-pub(crate) fn server_module(config: &str) -> String {
-	include_str!("auth_pages/templates/server.rs").replace("__CONFIG_PATH__", config)
+/// relative to the module, with the provider's builder for `idp`.
+pub(crate) fn server_module(config: &str, idp: bool) -> String {
+	render(include_str!("auth_pages/templates/server.rs"), idp).replace("__CONFIG_PATH__", config)
+}
+
+/// The same file as the other mode writes it, when that differs: a page
+/// written without `--idp` that `--idp` brings up to date, or one written
+/// with it that a run without it leaves alone.
+fn other_mode(
+	file: &str,
+	idp: bool,
+	all: fn(bool) -> Vec<(&'static str, String)>,
+) -> Option<String> {
+	all(!idp)
+		.into_iter()
+		.find(|(path, _)| *path == file)
+		.map(|(_, contents)| contents)
 }
 
 /// Runs `leptoskit generate auth` in the project around the current
-/// directory, and prints what it did and what's left to do.
+/// directory, and prints what it did and what's left to do. `idp` adds the
+/// "Sign in with your app" screens.
 ///
 /// # Errors
 ///
 /// Returns an error when there's no project, its client crate can't be
 /// found, or a file can't be read or written.
-pub fn run(force: bool) -> Result<()> {
+pub fn run(idp: bool, force: bool) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
-	let report = generate(&root, &config, force)?;
+	let report = generate(&root, &config, idp, force)?;
 	print!("{report}");
 	Ok(())
 }
@@ -121,12 +235,13 @@ impl fmt::Display for Report {
 	}
 }
 
-/// Writes the screens into the project at `root`, and reports what changed.
+/// Writes the screens into the project at `root`, with the "Sign in with
+/// your app" ones for `idp`, and reports what changed.
 ///
 /// # Errors
 ///
 /// As [`run`].
-pub fn generate(root: &Path, config: &LeptoskitConfig, force: bool) -> Result<Report> {
+pub fn generate(root: &Path, config: &LeptoskitConfig, idp: bool, force: bool) -> Result<Report> {
 	let mut report = Report::default();
 	let client = client_dir(root, config)?;
 	let source = client.join("src");
@@ -146,24 +261,33 @@ pub fn generate(root: &Path, config: &LeptoskitConfig, force: bool) -> Result<Re
 		relative(root, &source.join("auth.rs"))
 	);
 
-	for (path, contents) in PAGES {
-		write_owned(root, &source.join(path), contents, force, &mut report)?;
+	for (path, contents) in pages(idp) {
+		let earlier = other_mode(path, idp, pages);
+		let file = Template {
+			contents: &contents,
+			other: earlier.as_deref(),
+			idp,
+		};
+		write_template(root, &source.join(path), &file, force, &mut report)?;
 	}
 
 	declare_module(root, &entry, "auth", &mut report)?;
-	add_features(
-		root,
-		&client.join("Cargo.toml"),
-		&CLIENT_FEATURES,
-		&mut report,
-	)?;
+	let features: Vec<&str> = CLIENT_FEATURES
+		.into_iter()
+		.chain(idp.then_some("idp"))
+		.collect();
+	add_features(root, &client.join("Cargo.toml"), &features, &mut report)?;
 
 	if let Some(routes) = routes_dir(root, config) {
-		add_routes(root, config, &routes, force, &mut report)?;
+		add_routes(root, config, &routes, idp, force, &mut report)?;
 	}
 
 	if config.auth.is_none() {
-		add_auth_table(root, &mut report)?;
+		add_auth_table(root, AUTH_TABLE, "[auth]", &mut report)?;
+	}
+
+	if idp && config.auth.as_ref().is_none_or(|auth| auth.idp.is_none()) {
+		add_auth_table(root, IDP_TABLE, "[auth.idp]", &mut report)?;
 	}
 
 	let granted = native_plugins(root, &mut report)?;
@@ -189,7 +313,16 @@ pub fn generate(root: &Path, config: &LeptoskitConfig, force: bool) -> Result<Re
 		});
 	}
 
-	server(root, config, &client, force, &mut report)?;
+	if idp && !std::fs::read_to_string(&entry)?.contains("navigate_with(") {
+		report.next.push(format!(
+			"In {}, after `auth::provide()`, say how the screens leave the app, such as back to \
+			 an app asking for consent: `auth::screens().navigate_with(|address| ...)`, with \
+			 `window.location.assign(address)` in the browser. The screens' module docs show how.",
+			relative(root, &entry)
+		));
+	}
+
+	server(root, config, &client, idp, force, &mut report)?;
 	Ok(report)
 }
 
@@ -199,6 +332,7 @@ fn server(
 	root: &Path,
 	config: &LeptoskitConfig,
 	client: &Path,
+	idp: bool,
 	force: bool,
 	report: &mut Report,
 ) -> Result<()> {
@@ -221,20 +355,36 @@ fn server(
 	// A server that is also the client crate already has `src/auth/`, so the
 	// server's module takes another name.
 	let module = root.join("src/sign_in.rs");
-	write_owned(
-		root,
-		&module,
-		&server_module("../leptoskit.toml"),
-		force,
-		report,
-	)?;
+	let contents = server_module("../leptoskit.toml", idp);
+	let other = server_module("../leptoskit.toml", !idp);
+	let file = Template {
+		contents: &contents,
+		other: Some(&other),
+		idp,
+	};
+	write_template(root, &module, &file, force, report)?;
 	declare_module(root, &main, "sign_in", report)?;
 
 	if client != root {
-		add_features(root, &manifest, &["auth"], report)?;
+		let features: &[&str] = if idp { &["auth", "idp"] } else { &["auth"] };
+		add_features(root, &manifest, features, report)?;
 	}
 
-	if !std::fs::read_to_string(&main)?.contains("sign_in::service") {
+	let main_source = std::fs::read_to_string(&main)?;
+
+	if idp && !main_source.contains("sign_in::provider") {
+		report.next.push(
+			"In src/main.rs, build the provider next to the sign-in service, with your scopes and \
+			 claims: `let idp = sign_in::provider(&db, \
+			 &auth)?.scopes::<Scope>().claims::<User>().build()?;`. Merge `idp.router()` next to \
+			 `auth.router()`, and add `.layer(idp.layer())` after `.layer(auth.layer())`, so it's \
+			 outermost. Add `leptoskit_idp` after `leptoskit_auth` in `packs!`, and run \
+			 `leptoskit db migration create idp`."
+				.to_owned(),
+		);
+	}
+
+	if !main_source.contains("sign_in::service") {
 		report.next.push(
 			"In src/main.rs, build the service once the database is migrated, with your user \
 			 table: `let auth = sign_in::service::<User>(&db)?;`. Then add \
@@ -307,21 +457,23 @@ fn routes_dir(root: &Path, config: &LeptoskitConfig) -> Option<PathBuf> {
 	Some(root.join(dir))
 }
 
-/// Adds `/sign-in`, `/devices`, and `/security` to the file router, unless the
-/// app already has routes by those names, then brings the generated module up
-/// to date.
+/// Adds `/sign-in`, `/devices`, and `/security` to the file router, and for
+/// `idp` `/consent`, `/device`, `/connected-apps`, and `/developer-apps`,
+/// unless the app already has routes by those names, then brings the
+/// generated module up to date.
 fn add_routes(
 	root: &Path,
 	config: &LeptoskitConfig,
-	routes: &Path,
+	dir: &Path,
+	idp: bool,
 	force: bool,
 	report: &mut Report,
 ) -> Result<()> {
 	let mut wrote = false;
 
-	for (file, contents) in ROUTES {
-		let target = routes.join(file);
-		let existing = walkdir::WalkDir::new(routes)
+	for (file, contents) in routes(idp) {
+		let target = dir.join(file);
+		let existing = walkdir::WalkDir::new(dir)
 			.into_iter()
 			.filter_map(Result::ok)
 			.find(|entry| entry.file_name() == file && entry.path() != target);
@@ -334,7 +486,13 @@ fn add_routes(
 			continue;
 		}
 
-		wrote |= write_owned(root, &target, contents, force, report)?;
+		let earlier = other_mode(file, idp, routes);
+		let template = Template {
+			contents: &contents,
+			other: earlier.as_deref(),
+			idp,
+		};
+		wrote |= write_template(root, &target, &template, force, report)?;
 	}
 
 	if wrote && let Err(error) = crate::routes::sync(root, config) {
@@ -552,9 +710,9 @@ fn grant_plugins(root: &Path, report: &mut Report) -> Result<()> {
 	Ok(())
 }
 
-/// Appends the `[auth]` table to `leptoskit.toml`, checking that the file
-/// still loads.
-fn add_auth_table(root: &Path, report: &mut Report) -> Result<()> {
+/// Appends a table, `[auth]` or `[auth.idp]`, to `leptoskit.toml`, checking
+/// that the file still loads.
+fn add_auth_table(root: &Path, table: &str, name: &str, report: &mut Report) -> Result<()> {
 	let path = root.join(leptoskit_config::CONFIG_FILE);
 	let mut contents = std::fs::read_to_string(&path)
 		.with_context(|| format!("could not read {}", path.display()))?;
@@ -563,16 +721,57 @@ fn add_auth_table(root: &Path, report: &mut Report) -> Result<()> {
 		contents.push('\n');
 	}
 
-	contents.push_str(AUTH_TABLE);
+	contents.push_str(table);
 	LeptoskitConfig::from_toml(&contents, root)
-		.with_context(|| format!("adding [auth] would break {}", path.display()))?;
+		.with_context(|| format!("adding {name} would break {}", path.display()))?;
 	std::fs::write(&path, contents)
 		.with_context(|| format!("could not write {}", path.display()))?;
 	report.changed.push(format!(
-		"updated {}: added [auth]",
+		"updated {}: added {name}",
 		leptoskit_config::CONFIG_FILE
 	));
 	Ok(())
+}
+
+/// A file to write, and how the same file reads when written in the other
+/// mode, with or without `--idp`.
+struct Template<'a> {
+	contents: &'a str,
+	other: Option<&'a str>,
+	idp: bool,
+}
+
+/// Writes a template like [`write_owned`], except that a file still exactly
+/// as the other mode wrote it isn't the app's own: `--idp` brings one written
+/// without it up to date, and a run without `--idp` leaves one written with
+/// it alone. Returns whether it wrote.
+fn write_template(
+	root: &Path,
+	path: &Path,
+	template: &Template<'_>,
+	force: bool,
+	report: &mut Report,
+) -> Result<bool> {
+	let earlier = template
+		.other
+		.filter(|other| *other != template.contents)
+		.filter(|_| path.is_file())
+		.is_some_and(|other| std::fs::read_to_string(path).is_ok_and(|existing| existing == other));
+
+	if !earlier {
+		return write_owned(root, path, template.contents, force, report);
+	}
+
+	if !template.idp {
+		return Ok(false);
+	}
+
+	let shown = relative(root, path);
+	std::fs::write(path, template.contents).with_context(|| format!("could not write {shown}"))?;
+	report
+		.changed
+		.push(format!("updated {shown}: added what --idp needs"));
+	Ok(true)
 }
 
 /// Writes a file the app owns once it exists: creates it when missing, and

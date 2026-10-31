@@ -27,7 +27,9 @@ use leptoskit_idp::ClientAuth;
 use leptoskit_idp::ClientCommand;
 use leptoskit_idp::ClientCommandOutput;
 use leptoskit_idp::ClientInfo;
+use leptoskit_idp::GrantType;
 use leptoskit_idp::NewClientSpec;
+use leptoskit_idp::SigningAlgorithm;
 
 use crate::wasm;
 
@@ -55,8 +57,9 @@ pub enum ClientArgs {
 	Add {
 		/// The app's name, as the consent screen shows it.
 		name: String,
-		/// Where codes may be sent, compared exactly (repeatable).
-		#[arg(long = "redirect", required = true)]
+		/// Where codes may be sent, compared exactly (repeatable). Needed for
+		/// the `code` grant.
+		#[arg(long = "redirect")]
 		redirects: Vec<String>,
 		/// Where people may be sent after signing out (repeatable).
 		#[arg(long = "post-logout-redirect")]
@@ -65,13 +68,26 @@ pub enum ClientArgs {
 		/// `openid,profile,posts:read`.
 		#[arg(long, value_delimiter = ',', required = true)]
 		scopes: Vec<String>,
-		/// A public app, such as a native or single-page app: no secret, and
-		/// PKCE protects its codes.
-		#[arg(long, conflicts_with = "secret_post")]
+		/// How it gets tokens (repeatable): `code`, sending people to sign in
+		/// in a browser; `device`, showing a code to enter on another device,
+		/// for CLIs and TVs; or `machine`, acting as itself.
+		#[arg(long = "grant", value_enum, default_values_t = [GrantArg::Code])]
+		grants: Vec<GrantArg>,
+		/// A public app, such as a native or single-page app or a CLI: no
+		/// secret, and PKCE protects its codes.
+		#[arg(long, conflicts_with_all = ["secret_post", "jwks"])]
 		public: bool,
 		/// Sends its secret in the form body instead of with HTTP Basic.
-		#[arg(long)]
+		#[arg(long, conflicts_with = "jwks")]
 		secret_post: bool,
+		/// Authenticates with `private_key_jwt` instead of a secret: the JSON
+		/// file holding its public keys as a JWK set.
+		#[arg(long, value_name = "FILE")]
+		jwks: Option<Utf8PathBuf>,
+		/// Signs its ID tokens with RS256 instead of ES256. The server needs an
+		/// RSA key (`rsa_key_env` in `[auth.idp]`).
+		#[arg(long)]
+		rs256: bool,
 		/// One of your own apps: it sees the account ID as `sub`, and needs no
 		/// consent.
 		#[arg(long)]
@@ -87,6 +103,33 @@ pub enum ClientArgs {
 		/// The app's client ID.
 		client_id: String,
 	},
+	/// Replaces an app's secret, printing the new one this once. Tokens the
+	/// app got as itself end; people's sign-ins with it carry on.
+	RotateSecret {
+		/// The app's client ID.
+		client_id: String,
+	},
+}
+
+/// How an app gets tokens, as `--grant` names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum GrantArg {
+	/// The authorization code flow.
+	Code,
+	/// The device flow (RFC 8628).
+	Device,
+	/// Client credentials: the app acting as itself.
+	Machine,
+}
+
+impl From<GrantArg> for GrantType {
+	fn from(grant: GrantArg) -> Self {
+		match grant {
+			GrantArg::Code => Self::AuthorizationCode,
+			GrantArg::Device => Self::DeviceCode,
+			GrantArg::Machine => Self::ClientCredentials,
+		}
+	}
 }
 
 /// Runs an `auth` command.
@@ -96,7 +139,7 @@ pub enum ClientArgs {
 /// When the server can't be built or run, or refuses the command.
 pub fn run(command: IdpCommand, config: &LeptoskitConfig, root: PathBuf) -> Result<()> {
 	let IdpCommand::Client { command } = command;
-	let command = client_command(command);
+	let command = client_command(command)?;
 	let root = Utf8PathBuf::from_path_buf(root)
 		.map_err(|_| anyhow::anyhow!("project path is not UTF-8"))?;
 	let binary = server_binary(config, &root)?;
@@ -119,20 +162,33 @@ pub fn run(command: IdpCommand, config: &LeptoskitConfig, root: PathBuf) -> Resu
 }
 
 /// The command the server carries out.
-fn client_command(args: ClientArgs) -> ClientCommand {
-	match args {
+fn client_command(args: ClientArgs) -> Result<ClientCommand> {
+	Ok(match args {
 		ClientArgs::Add {
 			name,
 			redirects,
 			post_logout_redirects,
 			scopes,
+			grants,
 			public,
 			secret_post,
+			jwks,
+			rs256,
 			first_party,
 			introspect,
 		} => {
+			let jwks = jwks
+				.map(|path| -> Result<serde_json::Value> {
+					let text = std::fs::read_to_string(&path)
+						.with_context(|| format!("could not read {path}"))?;
+					serde_json::from_str(&text)
+						.with_context(|| format!("{path} isn't a JSON JWK set"))
+				})
+				.transpose()?;
 			let auth_method = if public {
 				ClientAuth::None
+			} else if jwks.is_some() {
+				ClientAuth::PrivateKeyJwt
 			} else if secret_post {
 				ClientAuth::SecretPost
 			} else {
@@ -144,13 +200,21 @@ fn client_command(args: ClientArgs) -> ClientCommand {
 				post_logout_redirect_uris: post_logout_redirects,
 				scopes,
 				auth_method,
+				grant_types: grants.into_iter().map(GrantType::from).collect(),
+				jwks,
+				id_token_alg: if rs256 {
+					SigningAlgorithm::Rs256
+				} else {
+					SigningAlgorithm::Es256
+				},
 				first_party,
 				introspection: introspect,
 			})
 		}
 		ClientArgs::List => ClientCommand::List,
 		ClientArgs::Remove { client_id } => ClientCommand::Remove { client_id },
-	}
+		ClientArgs::RotateSecret { client_id } => ClientCommand::RotateSecret { client_id },
+	})
 }
 
 fn server_binary(config: &LeptoskitConfig, root: &Utf8PathBuf) -> Result<Utf8PathBuf> {
@@ -244,6 +308,12 @@ fn render(output: &ClientCommandOutput) -> (String, bool) {
 						 hash is kept. Store it in the app's secrets now."
 					);
 				}
+				None if client.auth_method == ClientAuth::PrivateKeyJwt => {
+					let _ = writeln!(
+						text,
+						"\nIt signs in with its own key (private_key_jwt): there's no secret."
+					);
+				}
 				None => {
 					let _ = writeln!(text, "\nA public app: it has no secret, and uses PKCE.");
 				}
@@ -268,6 +338,14 @@ fn render(output: &ClientCommandOutput) -> (String, bool) {
 			text.push_str("No app has that client ID.\n");
 			return (text, true);
 		}
+		ClientCommandOutput::Rotated { secret } => {
+			let _ = writeln!(
+				text,
+				"  client secret: {secret}\n\nThe old secret no longer works, and the tokens the \
+				 app got as itself have ended. The new secret is shown this once; store it in the \
+				 app's secrets now."
+			);
+		}
 		ClientCommandOutput::Failed { message } => {
 			text.push_str(message);
 			return (text, true);
@@ -280,7 +358,14 @@ fn render(output: &ClientCommandOutput) -> (String, bool) {
 fn describe(text: &mut String, client: &ClientInfo) {
 	let _ = writeln!(text, "  client id: {}", client.client_id);
 	let _ = writeln!(text, "  auth: {}", client.auth_method.as_str());
-	let _ = writeln!(text, "  redirects: {}", client.redirect_uris.join(", "));
+	let grants: Vec<&str> = client.grant_types.iter().map(GrantType::as_str).collect();
+	let _ = writeln!(text, "  grants: {}", grants.join(", "));
+	if !client.redirect_uris.is_empty() {
+		let _ = writeln!(text, "  redirects: {}", client.redirect_uris.join(", "));
+	}
+	if client.id_token_alg == SigningAlgorithm::Rs256 {
+		let _ = writeln!(text, "  ID tokens: RS256");
+	}
 	if !client.post_logout_redirect_uris.is_empty() {
 		let _ = writeln!(
 			text,
@@ -319,7 +404,7 @@ mod tests {
 		else {
 			panic!("not an `auth idp client` command");
 		};
-		client_command(command)
+		client_command(command).unwrap()
 	}
 
 	fn client(name: &str) -> ClientInfo {
@@ -327,6 +412,9 @@ mod tests {
 			client_id: "abc".into(),
 			name: name.into(),
 			auth_method: ClientAuth::SecretBasic,
+			grant_types: leptoskit_idp::default_grant_types(),
+			jwks: None,
+			id_token_alg: SigningAlgorithm::Rs256,
 			redirect_uris: vec!["https://partner.example/cb".into()],
 			post_logout_redirect_uris: vec!["https://partner.example/out".into()],
 			scopes: vec!["openid".into(), "posts:read".into()],
@@ -356,10 +444,86 @@ mod tests {
 				post_logout_redirect_uris: Vec::new(),
 				scopes: vec!["openid".into(), "profile".into(), "posts:read".into()],
 				auth_method: ClientAuth::None,
+				grant_types: vec![GrantType::AuthorizationCode],
+				jwks: None,
+				id_token_alg: SigningAlgorithm::Es256,
 				first_party: false,
 				introspection: false,
 			})
 		);
+		let ClientCommand::Add(cli) = parse(&[
+			"idp",
+			"client",
+			"add",
+			"Notes CLI",
+			"--scopes",
+			"notes:read",
+			"--public",
+			"--grant",
+			"device",
+		]) else {
+			panic!("an add");
+		};
+		assert_eq!(cli.grant_types, [GrantType::DeviceCode]);
+		assert_eq!(cli.redirect_uris, [] as [String; 0]);
+
+		let directory = tempfile::tempdir().unwrap();
+		let jwks = directory.path().join("jwks.json");
+		std::fs::write(&jwks, r#"{"keys":[{"kty":"EC"}]}"#).unwrap();
+		let ClientCommand::Add(keyed) = parse(&[
+			"idp",
+			"client",
+			"add",
+			"Worker",
+			"--scopes",
+			"notes:read",
+			"--grant",
+			"machine",
+			"--grant",
+			"code",
+			"--redirect",
+			"https://a.example/cb",
+			"--jwks",
+			jwks.to_str().unwrap(),
+			"--rs256",
+		]) else {
+			panic!("an add");
+		};
+		assert_eq!(keyed.auth_method, ClientAuth::PrivateKeyJwt);
+		assert_eq!(
+			keyed.grant_types,
+			[GrantType::ClientCredentials, GrantType::AuthorizationCode]
+		);
+		assert_eq!(keyed.jwks.unwrap()["keys"][0]["kty"], "EC");
+		assert_eq!(keyed.id_token_alg, SigningAlgorithm::Rs256);
+		assert_eq!(
+			parse(&["idp", "client", "rotate-secret", "abc"]),
+			ClientCommand::RotateSecret {
+				client_id: "abc".into()
+			}
+		);
+		for bad in [
+			"{not json".to_owned(),
+			directory.path().join("missing.json").display().to_string(),
+		] {
+			let path = if bad.starts_with('{') {
+				std::fs::write(directory.path().join("bad.json"), &bad).unwrap();
+				directory.path().join("bad.json").display().to_string()
+			} else {
+				bad
+			};
+			let harness = Harness::try_parse_from([
+				"auth", "idp", "client", "add", "X", "--scopes", "openid", "--jwks", &path,
+			])
+			.unwrap();
+			let AuthCommand::Idp {
+				command: IdpCommand::Client { command },
+			} = harness.command
+			else {
+				panic!("not an `auth idp client` command");
+			};
+			assert!(client_command(command).is_err(), "{path}");
+		}
 		let ClientCommand::Add(spec) = parse(&[
 			"idp",
 			"client",
@@ -418,11 +582,27 @@ mod tests {
 		assert!(text.contains("shown this once"), "{text}");
 		assert!(text.contains("first party"), "{text}");
 
+		assert!(text.contains("grants: authorization_code"), "{text}");
+		assert!(text.contains("ID tokens: RS256"), "{text}");
 		let (text, _) = render(&ClientCommandOutput::Added {
 			client: client("Phone"),
 			secret: None,
 		});
 		assert!(text.contains("uses PKCE"), "{text}");
+		let mut keyed = client("Worker");
+		keyed.auth_method = ClientAuth::PrivateKeyJwt;
+		keyed.redirect_uris.clear();
+		let (text, _) = render(&ClientCommandOutput::Added {
+			client: keyed,
+			secret: None,
+		});
+		assert!(text.contains("private_key_jwt"), "{text}");
+		assert!(!text.contains("\n  redirects:"), "{text}");
+		let (text, failed) = render(&ClientCommandOutput::Rotated {
+			secret: "n3w".into(),
+		});
+		assert!(!failed);
+		assert!(text.contains("client secret: n3w"), "{text}");
 
 		let (text, _) = render(&ClientCommandOutput::Listed {
 			clients: vec![client("One"), client("Two")],
@@ -501,6 +681,9 @@ mod tests {
 				post_logout_redirect_uris: Vec::new(),
 				scopes: Vec::new(),
 				auth_method: ClientAuth::None,
+				grant_types: Vec::new(),
+				jwks: None,
+				id_token_alg: SigningAlgorithm::Es256,
 				first_party: false,
 				introspection: false,
 			}),

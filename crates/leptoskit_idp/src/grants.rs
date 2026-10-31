@@ -1,6 +1,7 @@
 //! Connected apps, which people see and disconnect, and signing out from an
 //! app that signed them in (OpenID Connect RP-Initiated Logout).
 
+use leptoskit_auth::EventKind;
 use leptoskit_auth::RequestInfo;
 use leptoskit_auth::SignedIn;
 use leptoskit_db::Id;
@@ -12,6 +13,7 @@ use crate::AppInfo;
 use crate::Authorization;
 use crate::Client;
 use crate::ConnectedApp;
+use crate::DeviceCode;
 use crate::Family;
 use crate::Grant;
 use crate::Idp;
@@ -94,12 +96,18 @@ impl Idp {
 
 	/// Disconnects an app from `me`'s account: its grant goes, and with it
 	/// every refresh token it holds and every access token checked against
-	/// this server. Returns whether it was connected.
+	/// this server, and their audit trail says so. Returns whether it was
+	/// connected.
 	///
 	/// # Errors
 	///
 	/// When the database fails.
-	pub async fn disconnect(&self, me: &SignedIn, client_id: &str) -> Result<bool> {
+	pub async fn disconnect(
+		&self,
+		me: &SignedIn,
+		client_id: &str,
+		info: &RequestInfo,
+	) -> Result<bool> {
 		let Some(client) = self.client(client_id).await? else {
 			return Ok(false);
 		};
@@ -110,10 +118,28 @@ impl Idp {
 				.filter(|row| row.account_id.eq(me.account) & row.client_id.eq(client.id))
 				.delete(&tx)
 				.await?;
+			// Devices still waiting for a code go too.
+			DeviceCode::query()
+				.filter(|row| row.account_id.eq(me.account) & row.client_id.eq(client.id))
+				.delete(&tx)
+				.await?;
 			let removed = Grant::query()
 				.filter(|grant| grant.account_id.eq(me.account) & grant.client_id.eq(client.id))
 				.delete(&tx)
 				.await?;
+
+			if removed > 0 {
+				self.inner
+					.auth
+					.record(
+						&tx,
+						Some(me.account),
+						EventKind::AppDisconnected,
+						Some(&client.name),
+						info,
+					)
+					.await?;
+			}
 			Ok(removed > 0)
 		}
 		.await;
@@ -188,7 +214,7 @@ impl Idp {
 			if let Some(family) = family {
 				revoke_family(&self.inner.db, family.id).await?;
 
-				if let Some(me) = signed_in.filter(|me| me.account == family.account_id) {
+				if let Some(me) = signed_in.filter(|me| Some(me.account) == family.account_id) {
 					signed_out = self.inner.auth.revoke(me, me.session, info).await?;
 				}
 			}

@@ -9,38 +9,18 @@
 // `#[server]` functions are async by contract, awaited or not.
 #![allow(clippy::unused_async)]
 
-#[path = "../../leptoskit_db/tests/support/postgres.rs"]
-mod postgres;
+mod support;
 
-use axum::Extension;
-use axum::Router;
 use axum::body::Body;
 use axum::http::Request;
 use axum::http::StatusCode;
 use axum::http::header;
-use axum::response::Response;
-use axum::routing::get;
-use axum::routing::post;
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use http_body_util::BodyExt;
-use leptos::prelude::ServerFnError;
 use leptoskit_auth::Account;
 use leptoskit_auth::Auth;
-use leptoskit_auth::AuthContext;
 use leptoskit_auth::Keys;
 use leptoskit_auth::Mailbox;
-use leptoskit_auth::OnSignUp;
-use leptoskit_auth::Profile;
-use leptoskit_auth::SignedIn;
 use leptoskit_db::Db;
 use leptoskit_db::Id;
-use leptoskit_db::Tx;
-use leptoskit_db::policy;
-use leptoskit_db::table;
-use leptoskit_idp::ClaimSet;
-use leptoskit_idp::Claims;
 use leptoskit_idp::ClientAuth;
 use leptoskit_idp::ClientCommand;
 use leptoskit_idp::ClientCommandOutput;
@@ -48,429 +28,14 @@ use leptoskit_idp::ConnectedApp;
 use leptoskit_idp::ConsentRedirect;
 use leptoskit_idp::ConsentRequest;
 use leptoskit_idp::Grant;
-use leptoskit_idp::GrantedScopes;
 use leptoskit_idp::Idp;
 use leptoskit_idp::Introspection;
 use leptoskit_idp::NewClientSpec;
-use leptoskit_idp::OAuthError;
 use leptoskit_idp::TokenResponse;
-use p256::ecdsa::Signature;
-use p256::ecdsa::VerifyingKey;
-use p256::ecdsa::signature::Verifier;
 use postgres::PostgresCluster;
 use serde_json::Value;
 use serde_json::json;
-use sha2::Digest;
-use tower::ServiceExt;
-use url::Url;
-
-const ORIGIN: &str = "https://notes.example";
-const CALLBACK: &str = "https://partner.example/callback";
-const SIGNED_OUT: &str = "https://partner.example/signed-out";
-const VERIFIER: &str = "a-verifier-of-at-least-forty-three-characters-0123456789";
-
-leptoskit_idp::scopes! {
-	/// What other apps may do with someone's notes.
-	pub enum Scope {
-		/// Read your notes.
-		NotesRead = "notes:read",
-		/// Write notes for you.
-		NotesWrite = "notes:write",
-	}
-}
-
-/// The app's user table, sharing its key with the account.
-#[table(name = "users")]
-#[policy(all, |user, cx| cx.signed_in(|me| user.id.eq(me.account)))]
-pub struct User {
-	#[db(on_delete = cascade)]
-	pub id: Id<Account>,
-	#[db(max_len = 254)]
-	pub name: String,
-}
-
-impl OnSignUp for User {
-	async fn on_sign_up(
-		tx: &Tx,
-		account: Id<Account>,
-		profile: &Profile,
-	) -> leptoskit_auth::Result<()> {
-		let name = profile
-			.email
-			.as_ref()
-			.map(|email| email.to_string().replace("@example.com", ""))
-			.unwrap_or_default();
-		NewUser { id: account, name }.insert(tx).await?;
-		Ok(())
-	}
-}
-
-impl Claims for User {
-	async fn claims(
-		db: &Db,
-		account: Id<Account>,
-		scopes: &GrantedScopes,
-		out: &mut ClaimSet,
-	) -> leptoskit_idp::Result<()> {
-		if scopes.has("profile") {
-			// `db` acts as the person, so their own policy lets this through.
-			if let Some(user) = User::find(db, account).await? {
-				out.name(&user.name);
-			}
-		}
-		Ok(())
-	}
-}
-
-/// Lists the caller's notes: what a partner app calls with its token.
-#[leptoskit_rpc::api(scope = Scope::NotesRead)]
-#[leptos::server]
-pub async fn list_notes() -> Result<Vec<String>, ServerFnError> {
-	Ok(Vec::new())
-}
-
-/// Needs both scopes.
-#[leptoskit_rpc::api(scope = Scope::NotesRead, scope = Scope::NotesWrite)]
-#[leptos::server]
-pub async fn write_note() -> Result<(), ServerFnError> {
-	Ok(())
-}
-
-/// Only the app's own sessions call this.
-#[leptoskit_rpc::api]
-#[leptos::server]
-pub async fn delete_everything() -> Result<(), ServerFnError> {
-	Ok(())
-}
-
-struct App {
-	router: Router,
-	mailbox: Mailbox,
-	idp: Idp,
-	db: Db,
-}
-
-/// What the scoped routes answer: who the call is from, and which users
-/// their policies let them see.
-async fn whoami(me: SignedIn, Extension(db): Extension<Db>) -> String {
-	let visible = User::query().count(&db).await.unwrap();
-	format!("{} sees {visible}", me.account)
-}
-
-async fn app(db: Db) -> App {
-	leptoskit_db::testing::create_tables(&db).await.unwrap();
-	let mailbox = Mailbox::new();
-	let auth = Auth::builder(&db, Keys::single("test", [5; 32]))
-		.app_name("Notes")
-		.origin(ORIGIN)
-		.mailer(mailbox.clone())
-		.on_sign_up::<User>()
-		.build()
-		.unwrap();
-	let idp = Idp::builder(&db, &auth)
-		.scopes::<Scope>()
-		.claims::<User>()
-		.sign_in_page("/sign-in")
-		.consent_page("/consent")
-		.build()
-		.unwrap();
-	let router = Router::new()
-		.route("/api/list_notes", post(whoami))
-		.route("/api/write_note", post(whoami))
-		.route("/api/delete_everything", post(whoami))
-		.route("/me", get(whoami))
-		.merge(auth.router())
-		.merge(idp.router())
-		.layer(auth.layer())
-		.layer(idp.layer());
-
-	App {
-		router,
-		mailbox,
-		idp,
-		db,
-	}
-}
-
-/// Both databases, each with every table, including both packs.
-async fn databases(cluster: Option<&PostgresCluster>) -> Vec<Db> {
-	let mut databases = vec![Db::connect("sqlite::memory:").await.unwrap()];
-	if let Some(cluster) = cluster {
-		databases.push(Db::connect(&cluster.database()).await.unwrap());
-	}
-	databases
-}
-
-fn challenge(verifier: &str) -> String {
-	URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(verifier.as_bytes()))
-}
-
-fn basic(client_id: &str, secret: &str) -> String {
-	format!("Basic {}", STANDARD.encode(format!("{client_id}:{secret}")))
-}
-
-fn query(location: &str) -> Vec<(String, String)> {
-	Url::parse(ORIGIN)
-		.unwrap()
-		.join(location)
-		.unwrap()
-		.query_pairs()
-		.into_owned()
-		.collect()
-}
-
-fn param(location: &str, name: &str) -> Option<String> {
-	query(location)
-		.into_iter()
-		.find(|(key, _)| key == name)
-		.map(|(_, value)| value)
-}
-
-fn location(response: &Response) -> String {
-	assert_eq!(response.status(), StatusCode::SEE_OTHER, "{response:?}");
-	response.headers()[header::LOCATION]
-		.to_str()
-		.unwrap()
-		.to_owned()
-}
-
-async fn body<T: serde::de::DeserializeOwned>(response: Response) -> T {
-	let bytes = response.into_body().collect().await.unwrap().to_bytes();
-	serde_json::from_slice(&bytes).unwrap_or_else(|error| {
-		panic!("{error}: {}", String::from_utf8_lossy(&bytes));
-	})
-}
-
-async fn text(response: Response) -> String {
-	let bytes = response.into_body().collect().await.unwrap().to_bytes();
-	String::from_utf8(bytes.to_vec()).unwrap()
-}
-
-/// The claims of a JWT, unchecked.
-fn claims(token: &str) -> Value {
-	let payload = token.split('.').nth(1).unwrap();
-	serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload).unwrap()).unwrap()
-}
-
-impl App {
-	async fn send(&self, request: Request<Body>) -> Response {
-		self.router.clone().oneshot(request).await.unwrap()
-	}
-
-	async fn get(&self, path: &str, cookie: Option<&str>) -> Response {
-		let mut builder = Request::get(path);
-		if let Some(cookie) = cookie {
-			builder = builder.header(header::COOKIE, cookie);
-		}
-		self.send(builder.body(Body::empty()).unwrap()).await
-	}
-
-	async fn post_json(&self, path: &str, body: Value, cookie: Option<&str>) -> Response {
-		let mut builder = Request::post(path)
-			.header(header::ORIGIN, ORIGIN)
-			.header(header::CONTENT_TYPE, "application/json");
-		if let Some(cookie) = cookie {
-			builder = builder.header(header::COOKIE, cookie);
-		}
-		self.send(builder.body(Body::from(body.to_string())).unwrap())
-			.await
-	}
-
-	/// A form post, as another app's server or browser sends it.
-	async fn post_form(
-		&self,
-		path: &str,
-		pairs: &[(&str, &str)],
-		authorization: Option<&str>,
-	) -> Response {
-		let form = url::form_urlencoded::Serializer::new(String::new())
-			.extend_pairs(pairs)
-			.finish();
-		let mut builder = Request::post(path)
-			.header(header::ORIGIN, "https://partner.example")
-			.header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
-		if let Some(authorization) = authorization {
-			builder = builder.header(header::AUTHORIZATION, authorization);
-		}
-		self.send(builder.body(Body::from(form)).unwrap()).await
-	}
-
-	async fn with_bearer(&self, method: &str, path: &str, token: &str) -> Response {
-		self.send(
-			Request::builder()
-				.method(method)
-				.uri(path)
-				.header(header::ORIGIN, "https://partner.example")
-				.header(header::AUTHORIZATION, format!("Bearer {token}"))
-				.body(Body::empty())
-				.unwrap(),
-		)
-		.await
-	}
-
-	/// Signs in with an emailed code, returning the cookie to send back.
-	async fn sign_in(&self, address: &str) -> String {
-		let sent = self
-			.post_json("/auth/email/send", json!({ "email": address }), None)
-			.await;
-		assert_eq!(sent.status(), StatusCode::NO_CONTENT);
-		let mail = self.mailbox.latest_to(address).unwrap();
-		let code = mail.subject.rsplit(' ').next().unwrap().to_owned();
-		let verified = self
-			.post_json(
-				"/auth/email/verify",
-				json!({ "email": address, "code": code }),
-				None,
-			)
-			.await;
-		assert_eq!(verified.status(), StatusCode::OK);
-		let cookie = verified.headers()[header::SET_COOKIE].to_str().unwrap();
-		cookie.split(';').next().unwrap().to_owned()
-	}
-
-	async fn register(&self, auth_method: ClientAuth, scopes: &[&str]) -> (String, Option<String>) {
-		let output = self
-			.idp
-			.run_command(&ClientCommand::Add(NewClientSpec {
-				name: "Partner".into(),
-				redirect_uris: vec![CALLBACK.into()],
-				post_logout_redirect_uris: vec![SIGNED_OUT.into()],
-				scopes: scopes.iter().map(|scope| (*scope).to_owned()).collect(),
-				auth_method,
-				first_party: false,
-				introspection: false,
-			}))
-			.await;
-		let ClientCommandOutput::Added { client, secret } = output else {
-			panic!("the client should register: {output:?}");
-		};
-		(client.client_id, secret)
-	}
-
-	/// The `/oauth/authorize` address for `client_id`.
-	fn authorize_url(client_id: &str, scope: &str, extra: &[(&str, &str)]) -> String {
-		let challenge = challenge(VERIFIER);
-		let mut pairs = vec![
-			("response_type", "code"),
-			("client_id", client_id),
-			("redirect_uri", CALLBACK),
-			("scope", scope),
-			("state", "af0ifjsldkj"),
-			("nonce", "n-0S6_WzA2Mj"),
-			("code_challenge", challenge.as_str()),
-			("code_challenge_method", "S256"),
-		];
-		pairs.extend_from_slice(extra);
-		let query = url::form_urlencoded::Serializer::new(String::new())
-			.extend_pairs(pairs)
-			.finish();
-		format!("/oauth/authorize?{query}")
-	}
-
-	/// Runs the browser half: authorize, consent if asked, and the code.
-	async fn code(&self, client_id: &str, scope: &str, cookie: &str) -> String {
-		let response = self
-			.get(&Self::authorize_url(client_id, scope, &[]), Some(cookie))
-			.await;
-		let mut to = location(&response);
-
-		if to.starts_with("/consent?") {
-			let request = param(&to, "request").unwrap();
-			let decided = self
-				.post_json(
-					"/oauth/consent",
-					json!({ "request": request, "approve": true }),
-					Some(cookie),
-				)
-				.await;
-			assert_eq!(decided.status(), StatusCode::OK);
-			to = body::<ConsentRedirect>(decided).await.redirect_to;
-		}
-
-		assert!(to.starts_with(CALLBACK), "{to}");
-		assert_eq!(param(&to, "state").as_deref(), Some("af0ifjsldkj"));
-		assert_eq!(param(&to, "iss").as_deref(), Some(ORIGIN));
-		param(&to, "code").unwrap()
-	}
-
-	async fn exchange(
-		&self,
-		client_id: &str,
-		secret: Option<&str>,
-		code: &str,
-		verifier: &str,
-	) -> Response {
-		let authorization = secret.map(|secret| basic(client_id, secret));
-		let mut pairs = vec![
-			("grant_type", "authorization_code"),
-			("code", code),
-			("redirect_uri", CALLBACK),
-			("code_verifier", verifier),
-		];
-		if secret.is_none() {
-			pairs.push(("client_id", client_id));
-		}
-		self.post_form("/oauth/token", &pairs, authorization.as_deref())
-			.await
-	}
-
-	async fn refresh(&self, client_id: &str, secret: &str, refresh_token: &str) -> Response {
-		self.post_form(
-			"/oauth/token",
-			&[
-				("grant_type", "refresh_token"),
-				("refresh_token", refresh_token),
-			],
-			Some(&basic(client_id, secret)),
-		)
-		.await
-	}
-
-	async fn introspect(&self, client_id: &str, secret: &str, token: &str) -> Introspection {
-		let response = self
-			.post_form(
-				"/oauth/introspect",
-				&[("token", token)],
-				Some(&basic(client_id, secret)),
-			)
-			.await;
-		assert_eq!(response.status(), StatusCode::OK);
-		body(response).await
-	}
-
-	async fn error(response: Response, status: StatusCode) -> String {
-		assert_eq!(response.status(), status);
-		body::<OAuthError>(response).await.error
-	}
-}
-
-/// Verifies an ID token's signature against the published key set, as a
-/// relying party does.
-async fn verify_with_jwks(app: &App, token: &str) {
-	let jwks: Value = body(app.get("/oauth/jwks", None).await).await;
-	let header: Value = serde_json::from_slice(
-		&URL_SAFE_NO_PAD
-			.decode(token.split('.').next().unwrap())
-			.unwrap(),
-	)
-	.unwrap();
-	assert_eq!(header["alg"], "ES256");
-	let key = jwks["keys"]
-		.as_array()
-		.unwrap()
-		.iter()
-		.find(|key| key["kid"] == header["kid"])
-		.expect("the token's key is published");
-	let coordinate = |name: &str| URL_SAFE_NO_PAD.decode(key[name].as_str().unwrap()).unwrap();
-	let mut point = vec![4];
-	point.extend(coordinate("x"));
-	point.extend(coordinate("y"));
-	let key = VerifyingKey::from_sec1_bytes(&point).unwrap();
-	let (input, signature) = token.rsplit_once('.').unwrap();
-	let signature = Signature::from_slice(&URL_SAFE_NO_PAD.decode(signature).unwrap()).unwrap();
-	key.verify(input.as_bytes(), &signature)
-		.expect("the signature verifies");
-}
+use support::*;
 
 #[tokio::test]
 #[expect(
@@ -601,7 +166,7 @@ async fn a_partner_app_signs_someone_in_and_calls_the_api() {
 
 		// The ID token is signed with a published key, for this app.
 		let id_token = tokens.id_token.clone().unwrap();
-		verify_with_jwks(&app, &id_token).await;
+		assert_eq!(verify_with_jwks(&app, &id_token).await, "ES256");
 		let id = claims(&id_token);
 		assert_eq!(id["iss"], ORIGIN);
 		assert_eq!(id["aud"], client_id.as_str());
@@ -665,35 +230,55 @@ async fn a_partner_app_signs_someone_in_and_calls_the_api() {
 		assert_eq!(described.token_type.as_deref(), Some("Bearer"));
 		assert_eq!(described.sub.as_deref(), id["sub"].as_str());
 		let described = app
-			.introspect(&client_id, &secret, &tokens.refresh_token)
+			.introspect(
+				&client_id,
+				&secret,
+				tokens.refresh_token.as_deref().unwrap(),
+			)
 			.await;
 		assert!(described.active);
 		assert_eq!(described.token_type.as_deref(), Some("refresh_token"));
 
 		// Refreshing rotates the refresh token.
 		let refreshed = app
-			.refresh(&client_id, &secret, &tokens.refresh_token)
+			.refresh(
+				&client_id,
+				&secret,
+				tokens.refresh_token.as_deref().unwrap(),
+			)
 			.await;
 		assert_eq!(refreshed.status(), StatusCode::OK);
 		let refreshed: TokenResponse = body(refreshed).await;
 		assert_ne!(refreshed.refresh_token, tokens.refresh_token);
 		assert!(refreshed.id_token.is_some());
 		assert!(
-			!app.introspect(&client_id, &secret, &tokens.refresh_token)
-				.await
-				.active
+			!app.introspect(
+				&client_id,
+				&secret,
+				tokens.refresh_token.as_deref().unwrap()
+			)
+			.await
+			.active
 		);
 
 		// Using the old one again ends the whole family.
 		let second_use = app
-			.refresh(&client_id, &secret, &tokens.refresh_token)
+			.refresh(
+				&client_id,
+				&secret,
+				tokens.refresh_token.as_deref().unwrap(),
+			)
 			.await;
 		assert_eq!(
 			App::error(second_use, StatusCode::BAD_REQUEST).await,
 			"invalid_grant"
 		);
 		let after = app
-			.refresh(&client_id, &secret, &refreshed.refresh_token)
+			.refresh(
+				&client_id,
+				&secret,
+				refreshed.refresh_token.as_deref().unwrap(),
+			)
 			.await;
 		assert_eq!(
 			App::error(after, StatusCode::BAD_REQUEST).await,
@@ -731,7 +316,7 @@ async fn a_partner_app_signs_someone_in_and_calls_the_api() {
 			.post_form(
 				"/oauth/revoke",
 				&[
-					("token", tokens.refresh_token.as_str()),
+					("token", tokens.refresh_token.as_deref().unwrap()),
 					("token_type_hint", "refresh_token"),
 				],
 				Some(&basic(&client_id, &secret)),
@@ -779,7 +364,11 @@ async fn a_partner_app_signs_someone_in_and_calls_the_api() {
 			.await;
 		assert_eq!(disconnected.status(), StatusCode::NO_CONTENT);
 		let after = app
-			.refresh(&client_id, &secret, &tokens.refresh_token)
+			.refresh(
+				&client_id,
+				&secret,
+				tokens.refresh_token.as_deref().unwrap(),
+			)
 			.await;
 		assert_eq!(
 			App::error(after, StatusCode::BAD_REQUEST).await,
@@ -834,7 +423,7 @@ async fn a_public_app_signs_in_with_pkce_and_signs_out() {
 				"/oauth/token",
 				&[
 					("grant_type", "refresh_token"),
-					("refresh_token", tokens.refresh_token.as_str()),
+					("refresh_token", tokens.refresh_token.as_deref().unwrap()),
 					("client_id", client_id.as_str()),
 				],
 				None,
@@ -1131,6 +720,9 @@ async fn operators_manage_clients_and_removing_one_ends_its_grants() {
 			post_logout_redirect_uris: Vec::new(),
 			scopes: vec!["openid".into()],
 			auth_method: ClientAuth::None,
+			grant_types: leptoskit_idp::default_grant_types(),
+			jwks: None,
+			id_token_alg: leptoskit_idp::SigningAlgorithm::Es256,
 			first_party: false,
 			introspection: false,
 		}))
@@ -1147,6 +739,9 @@ async fn operators_manage_clients_and_removing_one_ends_its_grants() {
 			post_logout_redirect_uris: Vec::new(),
 			scopes: vec!["admin".into()],
 			auth_method: ClientAuth::SecretBasic,
+			grant_types: leptoskit_idp::default_grant_types(),
+			jwks: None,
+			id_token_alg: leptoskit_idp::SigningAlgorithm::Es256,
 			first_party: false,
 			introspection: false,
 		}))
@@ -1191,6 +786,9 @@ async fn first_party_apps_see_the_account_id_and_skip_consent() {
 			post_logout_redirect_uris: Vec::new(),
 			scopes: vec!["openid".into()],
 			auth_method: ClientAuth::None,
+			grant_types: leptoskit_idp::default_grant_types(),
+			jwks: None,
+			id_token_alg: leptoskit_idp::SigningAlgorithm::Es256,
 			first_party: true,
 			introspection: false,
 		}))
@@ -1257,7 +855,7 @@ async fn edges_of_the_token_endpoints_are_refused_or_handled() {
 			"/oauth/token",
 			&[
 				("grant_type", "refresh_token"),
-				("refresh_token", tokens.refresh_token.as_str()),
+				("refresh_token", tokens.refresh_token.as_deref().unwrap()),
 				("scope", "notes:read"),
 			],
 			Some(&auth),
@@ -1271,7 +869,7 @@ async fn edges_of_the_token_endpoints_are_refused_or_handled() {
 			"/oauth/token",
 			&[
 				("grant_type", "refresh_token"),
-				("refresh_token", narrowed.refresh_token.as_str()),
+				("refresh_token", narrowed.refresh_token.as_deref().unwrap()),
 				("scope", "openid profile"),
 			],
 			Some(&auth),
@@ -1334,6 +932,9 @@ async fn edges_of_the_token_endpoints_are_refused_or_handled() {
 			post_logout_redirect_uris: Vec::new(),
 			scopes: vec!["openid".into()],
 			auth_method: ClientAuth::SecretPost,
+			grant_types: leptoskit_idp::default_grant_types(),
+			jwks: None,
+			id_token_alg: leptoskit_idp::SigningAlgorithm::Es256,
 			first_party: false,
 			introspection: true,
 		}))
@@ -1464,7 +1065,7 @@ async fn edges_of_signing_in_and_out_are_refused_or_handled() {
 			"/oauth/token",
 			&[
 				("grant_type", "refresh_token"),
-				("refresh_token", tokens.refresh_token.as_str()),
+				("refresh_token", tokens.refresh_token.as_deref().unwrap()),
 			],
 			Some(&auth),
 		)
@@ -1534,6 +1135,9 @@ async fn the_provider_is_configured_carefully() {
 			post_logout_redirect_uris: Vec::new(),
 			scopes: vec!["openid".into()],
 			auth_method: ClientAuth::None,
+			grant_types: leptoskit_idp::default_grant_types(),
+			jwks: None,
+			id_token_alg: leptoskit_idp::SigningAlgorithm::Es256,
 			first_party: true,
 			introspection: false,
 		}))

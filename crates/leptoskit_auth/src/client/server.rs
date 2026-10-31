@@ -11,8 +11,10 @@ use leptoskit_db::Id;
 
 use super::Api;
 use super::EmailCode;
+use super::HttpResponse;
 use super::LinkWalletInput;
 use super::MergeInput;
+use super::Method;
 use super::PasskeyAdded;
 use super::PasskeyMode;
 use super::Pending;
@@ -209,6 +211,18 @@ impl Api for Server {
 
 	fn wallet_sign_in(&self, _wallet: String) -> Pending<'_, SignInStep> {
 		in_the_browser()
+	}
+
+	fn send(
+		&self,
+		_method: Method,
+		_path: String,
+		_body: Option<String>,
+	) -> Pending<'_, HttpResponse> {
+		Box::pin(std::future::ready(Err(error(
+			"server",
+			"requests to the server run in the browser or the app, not while the server renders",
+		))))
 	}
 }
 

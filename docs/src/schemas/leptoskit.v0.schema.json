@@ -277,6 +277,17 @@
 					"default": 14,
 					"minimum": 0
 				},
+				"idp": {
+					"description": "\"Sign in with your app\": other apps signing people in through this\none, with `leptoskit::idp`.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/AuthIdpConfig"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
 				"keys_env": {
 					"description": "The environment variable holding the server's keys.",
 					"type": "string",
@@ -314,6 +325,94 @@
 				"solana": {
 					"description": "Solana wallets, which people link to their account with a signed\nmessage. Needs `leptoskit_auth`'s `solana` feature and an `origin`.",
 					"$ref": "#/$defs/AuthSolanaConfig"
+				}
+			},
+			"additionalProperties": false
+		},
+		"AuthIdpConfig": {
+			"description": "\"Sign in with your app\", through `leptoskit::idp`: an OAuth 2.1 and\nOpenID Connect provider, so other apps sign people in with yours. The\nscopes and claims it offers come from the app's code; this table holds\nwhere its pages are and how long its tokens last.",
+			"type": "object",
+			"properties": {
+				"access_minutes": {
+					"description": "Minutes an access token lasts: revoking one reaches servers that only\ncheck its signature after this long.",
+					"type": "integer",
+					"format": "uint32",
+					"default": 10,
+					"minimum": 0
+				},
+				"apps_per_person": {
+					"description": "The most apps one person may register in the developer portal.",
+					"type": "integer",
+					"format": "uint32",
+					"default": 10,
+					"minimum": 0
+				},
+				"audience": {
+					"description": "What access tokens name as their audience: your API. Defaults to the\nissuer.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"consent_page": {
+					"description": "The page that asks people whether an app may sign them in.",
+					"type": "string",
+					"default": "/consent"
+				},
+				"developer_portal": {
+					"description": "Lets signed-in people register apps of their own, for third-party\ndevelopers.",
+					"type": "boolean",
+					"default": false
+				},
+				"device_page": {
+					"description": "The page where people enter the code a CLI or a TV shows them.",
+					"type": "string",
+					"default": "/device"
+				},
+				"id_token_minutes": {
+					"description": "Minutes an ID token lasts.",
+					"type": "integer",
+					"format": "uint32",
+					"default": 10,
+					"minimum": 0
+				},
+				"issuer": {
+					"description": "The issuer other apps discover the provider at, such as\n`https://myapp.com`. Defaults to `auth.origin`.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"refresh_days": {
+					"description": "Days an app stays signed in, however often it refreshes.",
+					"type": "integer",
+					"format": "uint32",
+					"default": 90,
+					"minimum": 0
+				},
+				"rsa_key_env": {
+					"description": "The environment variable holding an RSA private key, as PEM, for apps\nthat need RS256 ID tokens. Without it every token is ES256.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"sign_in_page": {
+					"description": "The page signed-out people sign in on before an app may sign them in.",
+					"type": "string",
+					"default": "/sign-in"
+				},
+				"signed_out_page": {
+					"description": "Where people go after an app signs them out, when it names nowhere.",
+					"type": "string",
+					"default": "/"
+				},
+				"signing_key_days": {
+					"description": "Days a signing key signs before the next one takes over.",
+					"type": "integer",
+					"format": "uint32",
+					"default": 30,
+					"minimum": 0
 				}
 			},
 			"additionalProperties": false

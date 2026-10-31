@@ -33,7 +33,7 @@ It writes three screens into your app's `src/auth/` folder: a sign-in screen, wi
 - a `src/sign_in.rs` module that builds the service, if your app has a server and a database;
 - for an app with iOS, Android, or macOS hosts, the `http` and `secure-store` plugins those hosts need, granted in `leptoskit.toml` and added to each host's `Cargo.toml`.
 
-Then it lists the few lines it can't add for you, such as putting the sign-in screen in front of your app. Running it again changes nothing, and a screen you've edited is kept unless you pass `--force`.
+Then it lists the few lines it can't add for you, such as putting the sign-in screen in front of your app. Running it again changes nothing, and a screen you've edited is kept unless you pass `--force`. With `--idp`, it also writes the screens for [other apps signing in with yours](24-sign-in-with-your-app.md#build-the-consent-page).
 
 The screens are built from leptoskit's own components and Tailwind classes, on the [sign-in client](#build-the-sign-in-screen), so the same files build and render in the browser and in native apps on every platform. They show a message while they load, show the server's error messages, and after too many attempts disable the button until the server will take another. They're yours to restyle.
 

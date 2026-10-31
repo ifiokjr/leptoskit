@@ -88,6 +88,7 @@ server = [
 	"ssr",
 	"leptoskit_auth?/ssr",
 	"leptoskit_idp?/axum",
+	"leptoskit_idp?/ssr",
 ]
 rpc = ["dep:leptoskit_rpc"]
 # The server side of `#[api]` through `leptoskit::rpc` (with `crate =
@@ -105,6 +106,7 @@ guest = [
 	"leptoskit_bridge/guest",
 	"leptoskit_auth?/guest",
 	"leptoskit_query?/guest",
+	"leptoskit_idp?/guest",
 ]
 tui = ["dep:leptoskit_tui"]
 gtk = ["dep:leptoskit_gtk"]
@@ -140,8 +142,9 @@ auth = ["db", "dep:leptoskit_auth", "leptoskit_auth/client"]
 ## provider with the `idp` schema pack. Its server side follows `db-server`,
 ## `db-postgres`, and `db-sqlite`, like `auth`, and `server` adds the `/oauth`
 ## routes and the layer that lets third-party tokens call `#[api(scope = …)]`
-## functions.
-idp = ["auth", "dep:leptoskit_idp"]
+## functions. Its headless client (`idp::client`) reaches the server the way
+## `auth`'s does.
+idp = ["auth", "dep:leptoskit_idp", "leptoskit_idp/client"]
 ## Sign-in email over SMTP: `auth::SmtpMailer`, and `smtp_url_env` in `[auth.mail]`.
 auth-smtp = ["auth", "leptoskit_auth/smtp"]
 ## Sign-in email as a signed webhook: `auth::WebhookMailer`, and
@@ -181,6 +184,7 @@ web = [
 	"leptoskit_auth?/web",
 	"leptoskit_query?/browser",
 	"leptoskit_rpc?/browser",
+	"leptoskit_idp?/web",
 ]
 # A browser extension built from the web client: `leptoskit::extension`, with
 # the surfaces' runtime and typed WebExtensions APIs.

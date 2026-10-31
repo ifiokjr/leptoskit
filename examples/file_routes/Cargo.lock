@@ -2144,6 +2144,7 @@ dependencies = [
  "leptoskit_bridge",
  "leptoskit_config",
  "leptoskit_gtk",
+ "leptoskit_idp",
  "leptoskit_l10n",
  "leptoskit_macros",
  "leptoskit_native",
@@ -2294,6 +2295,19 @@ dependencies = [
  "leptoskit_native",
  "leptoskit_yoga",
  "pangocairo",
+]
+
+[[package]]
+name = "leptoskit_idp"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "leptoskit_auth",
+ "leptoskit_db",
+ "leptoskit_query",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

@@ -87,13 +87,16 @@ use crate::WalletSignInStart;
 
 /// `GET` or `POST`, the only methods the routes use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Method {
+pub enum Method {
+	/// A read.
 	Get,
+	/// A change, with a JSON body or none.
 	Post,
 }
 
 impl Method {
-	pub(crate) fn as_str(self) -> &'static str {
+	/// The method's name, such as `GET`.
+	pub fn as_str(self) -> &'static str {
 		match self {
 			Self::Get => "GET",
 			Self::Post => "POST",
@@ -130,10 +133,12 @@ impl HttpRequest {
 	}
 }
 
-/// What came back.
+/// What came back: the status, and the body as it was sent.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct HttpResponse {
+pub struct HttpResponse {
+	/// The HTTP status, such as `200`.
 	pub status: u16,
+	/// The body.
 	pub body: Vec<u8>,
 }
 
@@ -778,6 +783,15 @@ impl<H: Http, C: Credentials> Api for Remote<H, C> {
 
 	fn wallet_sign_in(&self, wallet: String) -> Pending<'_, SignInStep> {
 		Box::pin(Self::wallet_sign_in(self, wallet))
+	}
+
+	fn send(
+		&self,
+		method: Method,
+		path: String,
+		body: Option<String>,
+	) -> Pending<'_, HttpResponse> {
+		Box::pin(async move { self.call(method, &path, body, unauthorized).await })
 	}
 }
 
