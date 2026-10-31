@@ -2,7 +2,7 @@
 "release": perf
 ---
 
-# Measure a screen through the guest adapter, and measure text once per style
+# Measure a screen through the guest adapter
 
 `benchmarks/native` gains a screen layer: a Rust guest that renders the arena's ticker and card screens through the real element-tree adapter, so the benchmark prices the work a shipped app does — builders, Tailwind resolution, the retained tree, and the wire — rather than a hand-written ABI sequence. It reports the interpreter instructions one frame consumes, its wall time, and the mutations a frame queues, and `WasmHost::last_fuel_used` exposes that interpreted work so a simulator or device run can attribute it.
 
