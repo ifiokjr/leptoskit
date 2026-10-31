@@ -269,19 +269,11 @@ impl Auth {
 						Ok(ProviderResult::Outcome(ProviderOutcome::AlreadyLinked))
 					}
 					Some(identity) => {
-						let offer = PendingMerge {
-							survivor: *account,
-							absorbed: identity.account_id,
-							provider: flow.provider.clone(),
-						};
-						let state = serde_json::to_vec(&offer)
-							.map_err(|_| AuthError::Config("an offer couldn't be stored".into()))?;
-						self.store_ceremony_for(
-							db,
-							Purpose::Merge,
-							&merge_subject(*session),
-							&state,
-							MERGE_LIFETIME,
+						self.store_merge_offer(
+							*account,
+							*session,
+							identity.account_id,
+							&flow.provider,
 						)
 						.await?;
 						Ok(ProviderResult::Outcome(ProviderOutcome::Merge))
@@ -294,6 +286,45 @@ impl Auth {
 				}
 			}
 		}
+	}
+
+	/// Offers to merge `absorbed` into the signed-in account, after the
+	/// person proved they can sign in to it through `via`: a provider's ID,
+	/// or `solana` for a wallet. The offer is bound to the session, lasts ten
+	/// minutes, and replaces any earlier one.
+	pub(crate) async fn offer_merge(
+		&self,
+		me: &SignedIn,
+		absorbed: Id<Account>,
+		via: &str,
+	) -> Result<()> {
+		self.store_merge_offer(me.account, me.session, absorbed, via)
+			.await
+	}
+
+	async fn store_merge_offer(
+		&self,
+		survivor: Id<Account>,
+		session: Id<Session>,
+		absorbed: Id<Account>,
+		via: &str,
+	) -> Result<()> {
+		let offer = PendingMerge {
+			survivor,
+			absorbed,
+			provider: via.to_owned(),
+		};
+		let state = serde_json::to_vec(&offer)
+			.map_err(|_| AuthError::Config("an offer couldn't be stored".into()))?;
+		self.store_ceremony_for(
+			&self.inner.db,
+			Purpose::Merge,
+			&merge_subject(session),
+			&state,
+			MERGE_LIFETIME,
+		)
+		.await?;
+		Ok(())
 	}
 
 	/// Signs in with a known identity: a session, or the second step when
@@ -590,6 +621,17 @@ impl Auth {
 			.filter(|passkey| passkey.account_id.eq(absorbed.id))
 			.count(db)
 			.await?;
+		let wallets = crate::Wallet::query()
+			.filter(|wallet| wallet.account_id.eq(absorbed.id))
+			.all(db)
+			.await?;
+		let data = self.account_data()?;
+		let mut modes = vec![MergeMode::MoveLogin];
+
+		if self.can_bring_data(&data) {
+			modes.insert(0, MergeMode::BringData);
+		}
+
 		let expires_in = (expires_at - leptoskit_db::now()).num_seconds().max(0);
 		Ok(Some(MergeOffer {
 			provider: offer.provider,
@@ -603,8 +645,10 @@ impl Auth {
 				.map(|identity| self.provider_display_name(&identity.provider))
 				.collect(),
 			passkeys: u32::try_from(passkeys).unwrap_or(u32::MAX),
+			wallets: wallets.into_iter().map(|wallet| wallet.address).collect(),
+			data: self.merge_data(&data, absorbed.id).await?,
 			second_factor: self.factors(db, absorbed.id).await?,
-			modes: vec![MergeMode::MoveLogin],
+			modes,
 			expires_in: u64::try_from(expires_in).unwrap_or_default(),
 		}))
 	}
@@ -641,11 +685,13 @@ impl Auth {
 	}
 
 	/// Merges the other account into the signed-in one, as the offer
-	/// described, once the person confirms. "Move only the login" moves the
-	/// other account's emails, connected accounts, and passkeys here,
-	/// discards its second factors, ends its sessions, and deletes it and
-	/// its data. A tombstone keeps its ID resolving here. It can't be
-	/// undone.
+	/// described, once the person confirms. Both modes move the other
+	/// account's emails, connected accounts, passkeys, and wallets here,
+	/// discard its second factors, end its sessions, and delete it. "Move
+	/// only the login" deletes its data with it; "bring its data" first
+	/// moves its rows in the app's tables here, each table by its
+	/// `on_account_merge` strategy, in the same transaction. A tombstone
+	/// keeps its ID resolving here. It can't be undone.
 	///
 	/// It needs a fresh sign-in or step-up on this account, and the other
 	/// account's own second factor when it has one, so a merge can't get
@@ -656,8 +702,10 @@ impl Auth {
 	/// [`AuthError::SignInExpired`] without an offer;
 	/// [`AuthError::Reauthenticate`] or [`AuthError::StepUpRequired`];
 	/// [`AuthError::InvalidCode`] or [`AuthError::PasskeyFailed`] for the
-	/// other account's factor; or [`AuthError::Unsupported`] without
-	/// `confirm`.
+	/// other account's factor; [`AuthError::MergeConflict`] when its data
+	/// can't move, which changes nothing; or [`AuthError::Unsupported`]
+	/// without `confirm`, or for "bring its data" when a table doesn't say
+	/// how its rows move.
 	pub async fn merge_accounts(
 		&self,
 		me: &SignedIn,
@@ -670,7 +718,21 @@ impl Auth {
 			));
 		}
 
-		let MergeMode::MoveLogin = merge.mode;
+		let data = match merge.mode {
+			MergeMode::MoveLogin => None,
+			MergeMode::BringData => {
+				let data = self.account_data()?;
+
+				if !self.can_bring_data(&data) {
+					return Err(AuthError::Unsupported(
+						"this app can't bring the other account's data along yet: every table \
+						 that holds it must say how with `on_account_merge`",
+					));
+				}
+
+				Some(data)
+			}
+		};
 		let db = &self.inner.db;
 		self.require_fresh(db, me).await?;
 		let (offer, _) = self.peek_merge(me).await?.ok_or(AuthError::SignInExpired)?;
@@ -716,18 +778,28 @@ impl Auth {
 			.await?
 			.ok_or(AuthError::SignInExpired)?;
 		let tx = db.begin().await?;
-		let result = self
-			.move_login(&tx, me.account, offer.absorbed, request)
-			.await;
-		finish(tx, result).await?;
-		self.notify(
-			me.account,
-			"Two accounts were merged",
-			"Another account's sign-in methods were moved into this one, and the other account \
-			 and its data were deleted. If you didn't do this, sign in and sign out everywhere, \
-			 then contact support.",
-		)
+		let result = async {
+			if let Some(data) = &data {
+				self.bring_data(&tx, data, me.account, offer.absorbed)
+					.await?;
+			}
+
+			self.move_login(&tx, me.account, offer.absorbed, request)
+				.await
+		}
 		.await;
+		finish(tx, result).await?;
+		let text = if data.is_some() {
+			"Another account's sign-in methods and data were moved into this one, and the other \
+			 account was deleted. If you didn't do this, sign in and sign out everywhere, then \
+			 contact support."
+		} else {
+			"Another account's sign-in methods were moved into this one, and the other account and \
+			 its data were deleted. If you didn't do this, sign in and sign out everywhere, then \
+			 contact support."
+		};
+		self.notify(me.account, "Two accounts were merged", text)
+			.await;
 		Ok(())
 	}
 
@@ -765,6 +837,13 @@ impl Auth {
 			.run(tx)
 			.await?;
 		Passkey::update()
+			.filter(|row| row.account_id.eq(absorbed))
+			.set(|row| row.account_id, survivor)
+			.run(tx)
+			.await?;
+		// Wallets keep whether they may sign in: the person proved they could
+		// sign in to the other account, which is where that was chosen.
+		crate::Wallet::update()
 			.filter(|row| row.account_id.eq(absorbed))
 			.set(|row| row.account_id, survivor)
 			.run(tx)

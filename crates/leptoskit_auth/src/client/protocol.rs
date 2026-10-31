@@ -14,13 +14,16 @@ use serde::de::DeserializeOwned;
 use super::Api;
 use super::ClientConfig;
 use super::EmailCode;
+use super::LinkWalletInput;
 use super::MergeInput;
 use super::PasskeyAdded;
 use super::PasskeyMode;
 use super::Pending;
+use super::ProveWalletInput;
 use super::SecondFactorPrompt;
 use super::SignInStep;
 use super::TotpConfirmation;
+use super::WalletApp;
 use crate::AddPasskey;
 use crate::CreationChallengeResponse;
 use crate::Device;
@@ -28,6 +31,7 @@ use crate::ErrorResponse;
 use crate::FactorCode;
 use crate::Identity;
 use crate::IdentityInfo;
+use crate::LinkWallet;
 use crate::MergeAccounts;
 use crate::MergeMode;
 use crate::MergeOffer;
@@ -38,6 +42,7 @@ use crate::PasskeyAssertion;
 use crate::PasskeyInfo;
 use crate::PasskeyOptions;
 use crate::PasskeyStep;
+use crate::ProveWallet;
 use crate::ProviderInfo;
 use crate::ProviderOutcome;
 use crate::ProviderRedirect;
@@ -55,14 +60,25 @@ use crate::SendCode;
 use crate::Session;
 use crate::SessionResponse;
 use crate::SignedInResponse;
+use crate::SiwsInput;
 use crate::StartProvider;
 use crate::Tokens;
 use crate::TotpConfirmedResponse;
 use crate::TotpSetup;
 use crate::Transport;
 use crate::UnlinkIdentity;
+use crate::UnlinkWallet;
+use crate::UpdateWallet;
 use crate::VerifyCode;
 use crate::VerifyResponse;
+use crate::Wallet;
+use crate::WalletChallenge;
+use crate::WalletInfo;
+use crate::WalletLinked;
+use crate::WalletProof;
+use crate::WalletSettings;
+use crate::WalletSignIn;
+use crate::WalletSignInStart;
 
 /// `GET` or `POST`, the only methods the routes use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,9 +173,10 @@ pub(crate) trait Credentials: Send + Sync + 'static {
 	fn second_factor(&self) -> Option<String>;
 }
 
-/// What the device itself does for sign-in: passkeys, and sending the
-/// browser to a provider. A browser does both; a native app does neither
-/// until its system plugins arrive, and says `unsupported`.
+/// What the device itself does for sign-in: passkeys, sending the browser
+/// to a provider, and asking a wallet to sign. A browser does all three; a
+/// native app does none until its system plugins and a native wallet
+/// adapter arrive, and says `unsupported`.
 pub(crate) trait Platform: Send + Sync + 'static {
 	/// Makes a passkey, as `navigator.credentials.create`.
 	fn create(
@@ -183,6 +200,17 @@ pub(crate) trait Platform: Send + Sync + 'static {
 
 	/// The page's query string, where a provider's outcome arrives.
 	fn query(&self) -> Option<String>;
+
+	/// The Solana wallet apps this device offers.
+	fn wallet_apps(&self) -> BoxFuture<'static, Result<Vec<WalletApp>, ErrorResponse>>;
+
+	/// Asks the wallet app named `wallet` to sign the Sign-In With Solana
+	/// message `input` describes, with `input.address` when it names one.
+	fn sign_with_wallet(
+		&self,
+		wallet: String,
+		input: SiwsInput,
+	) -> BoxFuture<'static, Result<WalletProof, ErrorResponse>>;
 }
 
 /// A device without passkeys or a page to send anywhere.
@@ -195,6 +223,16 @@ pub(crate) fn unsupported<T>() -> Result<T, ErrorResponse> {
 		"unsupported",
 		"this device can't do that yet: passkeys and sign-in with other sites work in the \
 		 browser, and arrive in native apps with their system plugins",
+	))
+}
+
+/// What a native app answers for asking a wallet to sign, until a native
+/// wallet adapter exists.
+pub(crate) fn no_wallets<T>() -> Result<T, ErrorResponse> {
+	Err(error(
+		"unsupported",
+		"this device can't reach Solana wallets yet: linking a wallet and signing in with one \
+		 work in the browser, through the Wallet Standard",
 	))
 }
 
@@ -222,6 +260,18 @@ impl Platform for NoPlatform {
 
 	fn query(&self) -> Option<String> {
 		None
+	}
+
+	fn wallet_apps(&self) -> BoxFuture<'static, Result<Vec<WalletApp>, ErrorResponse>> {
+		Box::pin(std::future::ready(no_wallets()))
+	}
+
+	fn sign_with_wallet(
+		&self,
+		_wallet: String,
+		_input: SiwsInput,
+	) -> BoxFuture<'static, Result<WalletProof, ErrorResponse>> {
+		Box::pin(std::future::ready(no_wallets()))
 	}
 }
 
@@ -392,22 +442,7 @@ impl<H: Http, C: Credentials> Api for Remote<H, C> {
 				.server
 				.send(Method::Post, "/auth/email/verify", None, Some(body))
 				.await?;
-
-			match decode(&response)? {
-				VerifyResponse::SignedIn(signed_in) => {
-					self.credentials.hold_second_factor(None);
-					self.credentials.keep(signed_in.tokens).await?;
-					Ok(SignInStep::SignedIn(signed_in.session))
-				}
-				VerifyResponse::SecondFactor(step) => {
-					let step = step.second_factor;
-					self.credentials.hold_second_factor(step.token);
-					Ok(SignInStep::SecondFactor(SecondFactorPrompt {
-						factors: step.factors,
-						expires_in: step.expires_in,
-					}))
-				}
-			}
+			self.first_step(&response).await
 		})
 	}
 
@@ -634,6 +669,38 @@ impl<H: Http, C: Credentials> Api for Remote<H, C> {
 	fn cancel_merge(&self) -> Pending<'_, ()> {
 		Box::pin(Self::cancel_merge(self))
 	}
+
+	fn wallet_settings(&self) -> Pending<'_, WalletSettings> {
+		Box::pin(Self::wallet_settings(self))
+	}
+
+	fn wallet_apps(&self) -> Pending<'_, Vec<WalletApp>> {
+		Box::pin(Self::wallet_apps(self))
+	}
+
+	fn wallets(&self) -> Pending<'_, Vec<WalletInfo>> {
+		Box::pin(Self::wallets(self))
+	}
+
+	fn link_wallet(&self, input: LinkWalletInput) -> Pending<'_, WalletLinked> {
+		Box::pin(Self::link_wallet(self, input))
+	}
+
+	fn prove_wallet(&self, input: ProveWalletInput) -> Pending<'_, WalletInfo> {
+		Box::pin(Self::prove_wallet(self, input))
+	}
+
+	fn update_wallet(&self, input: UpdateWallet) -> Pending<'_, WalletInfo> {
+		Box::pin(Self::update_wallet(self, input))
+	}
+
+	fn unlink_wallet(&self, id: Id<Wallet>) -> Pending<'_, ()> {
+		Box::pin(Self::unlink_wallet(self, id))
+	}
+
+	fn wallet_sign_in(&self, wallet: String) -> Pending<'_, SignInStep> {
+		Box::pin(Self::wallet_sign_in(self, wallet))
+	}
 }
 
 impl<H: Http, C: Credentials> Remote<H, C> {
@@ -643,6 +710,26 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 		match C::TRANSPORT {
 			Transport::Cookie => Ok(()),
 			Transport::Bearer => unsupported(),
+		}
+	}
+
+	/// Keeps what a first factor's answer returned: a session, or the second
+	/// step's token.
+	async fn first_step(&self, response: &HttpResponse) -> Result<SignInStep, ErrorResponse> {
+		match decode(response)? {
+			VerifyResponse::SignedIn(signed_in) => {
+				self.credentials.hold_second_factor(None);
+				self.credentials.keep(signed_in.tokens).await?;
+				Ok(SignInStep::SignedIn(signed_in.session))
+			}
+			VerifyResponse::SecondFactor(step) => {
+				let step = step.second_factor;
+				self.credentials.hold_second_factor(step.token);
+				Ok(SignInStep::SecondFactor(SecondFactorPrompt {
+					factors: step.factors,
+					expires_in: step.expires_in,
+				}))
+			}
 		}
 	}
 
@@ -933,6 +1020,154 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 
 	pub(crate) fn cancel_passkey(&self) {
 		self.platform.cancel();
+	}
+
+	/// A browser asks its wallets; a native app answers `unsupported`
+	/// before asking the server anything.
+	fn wallets_here() -> Result<(), ErrorResponse> {
+		match C::TRANSPORT {
+			Transport::Cookie => Ok(()),
+			Transport::Bearer => no_wallets(),
+		}
+	}
+
+	pub(crate) async fn wallet_settings(&self) -> Result<WalletSettings, ErrorResponse> {
+		let response = self
+			.server
+			.send(Method::Get, "/auth/wallets/config", None, None)
+			.await?;
+		decode(&response)
+	}
+
+	pub(crate) async fn wallet_apps(&self) -> Result<Vec<WalletApp>, ErrorResponse> {
+		Self::wallets_here()?;
+		self.platform.wallet_apps().await
+	}
+
+	pub(crate) async fn wallets(&self) -> Result<Vec<WalletInfo>, ErrorResponse> {
+		let response = self
+			.call(Method::Get, "/auth/wallets", None, unauthorized)
+			.await?;
+		decode(&response)
+	}
+
+	pub(crate) async fn link_wallet(
+		&self,
+		input: LinkWalletInput,
+	) -> Result<WalletLinked, ErrorResponse> {
+		Self::wallets_here()?;
+		let response = self
+			.call(
+				Method::Post,
+				"/auth/wallets/link/options",
+				None,
+				unauthorized,
+			)
+			.await?;
+		let challenge: WalletChallenge = decode(&response)?;
+		let proof = self
+			.platform
+			.sign_with_wallet(input.wallet, challenge.input)
+			.await?;
+		let body = json(&LinkWallet {
+			proof,
+			label: input.label,
+		});
+		let response = self
+			.call(Method::Post, "/auth/wallets/link", Some(body), unauthorized)
+			.await?;
+		decode(&response)
+	}
+
+	pub(crate) async fn prove_wallet(
+		&self,
+		input: ProveWalletInput,
+	) -> Result<WalletInfo, ErrorResponse> {
+		Self::wallets_here()?;
+		let body = json(&ProveWallet {
+			address: input.address,
+		});
+		let response = self
+			.call(
+				Method::Post,
+				"/auth/wallets/proof/options",
+				Some(body),
+				unauthorized,
+			)
+			.await?;
+		let challenge: WalletChallenge = decode(&response)?;
+		let proof = self
+			.platform
+			.sign_with_wallet(input.wallet, challenge.input)
+			.await?;
+		let response = self
+			.call(
+				Method::Post,
+				"/auth/wallets/proof",
+				Some(json(&proof)),
+				unauthorized,
+			)
+			.await?;
+		decode(&response)
+	}
+
+	pub(crate) async fn update_wallet(
+		&self,
+		input: UpdateWallet,
+	) -> Result<WalletInfo, ErrorResponse> {
+		let response = self
+			.call(
+				Method::Post,
+				"/auth/wallets/update",
+				Some(json(&input)),
+				unauthorized,
+			)
+			.await?;
+		decode(&response)
+	}
+
+	pub(crate) async fn unlink_wallet(&self, id: Id<Wallet>) -> Result<(), ErrorResponse> {
+		let response = self
+			.call(
+				Method::Post,
+				"/auth/wallets/unlink",
+				Some(json(&UnlinkWallet { id })),
+				unauthorized,
+			)
+			.await?;
+		succeeded(&response)
+	}
+
+	pub(crate) async fn wallet_sign_in(&self, wallet: String) -> Result<SignInStep, ErrorResponse> {
+		Self::wallets_here()?;
+		let body = json(&WalletSignInStart {
+			transport: C::TRANSPORT,
+		});
+		let response = self
+			.server
+			.send(
+				Method::Post,
+				"/auth/wallets/sign-in/options",
+				None,
+				Some(body),
+			)
+			.await?;
+		let challenge: WalletChallenge = decode(&response)?;
+		let proof = self
+			.platform
+			.sign_with_wallet(wallet, challenge.input)
+			.await?;
+		let body = json(&WalletSignIn {
+			proof,
+			token: challenge.token,
+			transport: C::TRANSPORT,
+			device_name: self.device_name(),
+		});
+		let response = self
+			.server
+			.send(Method::Post, "/auth/wallets/sign-in", None, Some(body))
+			.await?;
+		self.first_step(&response).await
 	}
 }
 

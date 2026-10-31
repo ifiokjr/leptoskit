@@ -131,6 +131,14 @@ pub enum Purpose {
 	/// An offer to merge another account into the signed-in one, after the
 	/// person proved they control it.
 	Merge,
+	/// Linking a wallet to the signed-in account. Its subject is the
+	/// session, and its state the Sign-In With Solana message's fields.
+	WalletLink,
+	/// A linked wallet proving it's still the person's. Its subject is the
+	/// session.
+	WalletProof,
+	/// Signing in with a wallet. Its token finds it.
+	WalletSignIn,
 }
 
 /// A short-lived secret a sign-in method sent or expects, such as an email
@@ -211,6 +219,16 @@ pub enum EventKind {
 	IdentityUnlinked,
 	/// Another account was merged into this one.
 	AccountMerged,
+	/// A wallet was linked, with a signed proof.
+	WalletLinked,
+	/// A wallet was unlinked.
+	WalletUnlinked,
+	/// A linked wallet signed a fresh proof.
+	WalletProved,
+	/// Signing in with a wallet was turned on or off.
+	WalletSignInChanged,
+	/// A wallet's signature was refused.
+	WalletFailed,
 }
 
 /// The audit trail: what happened to an account, and from where. Never
@@ -328,6 +346,49 @@ pub struct Identity {
 	pub name: Option<String>,
 	/// When it last signed in.
 	pub last_used_at: Option<Timestamp>,
+	#[db(created_at)]
+	pub created_at: Timestamp,
+}
+
+/// A wallet linked to an account, with proof that the account's owner
+/// controls it: a Sign-In With Solana message signed by its key. A wallet
+/// belongs to one account. It's private unless its owner shows it, and
+/// signs in only when its owner turns that on.
+#[table(
+	name = "wallets",
+	pack = "auth",
+	unique(chain, address),
+	index(account_id)
+)]
+#[policy(select, |wallet, cx| cx.global(|me: &crate::SignedIn| wallet.account_id.eq(me.account)))]
+pub struct Wallet {
+	pub id: Id<Self>,
+	#[db(on_delete = cascade, backlink = wallets)]
+	pub account_id: Id<Account>,
+	/// The chain: `solana`.
+	#[db(max_len = 32)]
+	pub chain: String,
+	/// The address.
+	#[db(private)]
+	pub address: leptoskit_db::Pubkey,
+	/// What the person calls it, such as "Treasury".
+	#[db(max_len = 100)]
+	pub label: Option<String>,
+	/// Whether it may sign in to the account. Off until its owner turns it
+	/// on.
+	pub can_sign_in: bool,
+	/// Whether it shows on its owner's public profile.
+	pub is_public: bool,
+	/// When it was linked.
+	pub verified_at: Timestamp,
+	/// When it last signed a proof.
+	pub last_proved_at: Timestamp,
+	/// The latest signed message, kept for audit.
+	#[db(private, max_len = 4096)]
+	pub proof: String,
+	/// The message's signature.
+	#[db(private)]
+	pub proof_signature: leptoskit_db::Signature,
 	#[db(created_at)]
 	pub created_at: Timestamp,
 }

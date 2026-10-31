@@ -2,6 +2,8 @@
 //! they need no server code.
 
 use leptoskit_db::Id;
+use leptoskit_db::Pubkey;
+use leptoskit_db::Signature;
 use leptoskit_db::Timestamp;
 use serde::Deserialize;
 use serde::Serialize;
@@ -13,6 +15,8 @@ pub use webauthn_rs_proto::RequestChallengeResponse;
 use crate::Identity;
 use crate::Passkey;
 use crate::PublicSession;
+use crate::SiwsInput;
+use crate::Wallet;
 
 /// The body of `POST /auth/email/send`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -297,12 +301,15 @@ pub struct ErrorResponse {
 	/// `already_enrolled`, `not_enrolled`, `mfa_required`, `passkey_failed`,
 	/// `last_sign_in_method`, `not_found`, `invalid_name`,
 	/// `unknown_provider`, `provider`, `invalid_redirect`, `cancelled`,
-	/// `unsupported`, `forbidden`, `mail`, `sign_up`, or `server`; and from
+	/// `wallet_failed`, `wallet_in_use`, `unknown_wallet`, `proof_required`,
+	/// `merge_conflict`, `unsupported`, `forbidden`, `mail`, `sign_up`, or
+	/// `server`; and from
 	/// the client, `network` when the server can't be reached, `config` when
 	/// the app isn't set up to reach it, `storage` when a native app's secure
-	/// store fails, `cancelled` when the person dismissed a passkey prompt,
-	/// or `unsupported` when this device can't do that yet, such as passkeys
-	/// in a native app.
+	/// store fails, `cancelled` when the person dismissed a passkey or wallet
+	/// prompt, `no_wallet` when the browser has no wallet by that name, or
+	/// `unsupported` when this device can't do that yet, such as wallets in
+	/// a native app.
 	pub error: String,
 	/// What went wrong, for people.
 	pub message: String,
@@ -612,6 +619,13 @@ pub struct MergeOffer {
 	pub identities: Vec<String>,
 	/// How many passkeys move here.
 	pub passkeys: u32,
+	/// Its linked wallets' addresses, which move here.
+	#[serde(default)]
+	pub wallets: Vec<Pubkey>,
+	/// Its data, table by table, for "bring its data": what moves here, and
+	/// what's dropped because this account already has its own.
+	#[serde(default)]
+	pub data: Vec<MergeData>,
 	/// The other account's second factors, one of which the merge needs,
 	/// since merging mustn't get around them. Empty when it has none.
 	pub second_factor: Vec<Factor>,
@@ -621,12 +635,222 @@ pub struct MergeOffer {
 	pub expires_in: u64,
 }
 
+/// Some of the other account's data, as the merge preview counts it,
+/// such as "12 posts".
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MergeData {
+	/// What it is, such as `posts`: the app's own label, or the table's
+	/// name.
+	pub label: String,
+	/// How many there are.
+	pub count: u64,
+	/// What "bring its data" does with them.
+	pub fate: MergeFate,
+}
+
+/// What "bring its data" does with some of the other account's data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeFate {
+	/// It moves here.
+	Moves,
+	/// It moves here, except what duplicates this account's own.
+	MovesUnlessDuplicate,
+	/// Whichever of the two accounts' is newer stays.
+	NewestStays,
+	/// It's dropped: this account's own stays.
+	Dropped,
+	/// The app decides.
+	AppDecides,
+}
+
 /// What a merge does with the other account's data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MergeMode {
 	/// Move its sign-in methods here, and delete its data.
 	MoveLogin,
+	/// Move its sign-in methods and its data here, as each table's
+	/// `on_account_merge` says, then delete what's left. Only offered when
+	/// every table says.
+	BringData,
+}
+
+/// Which Solana cluster a wallet is asked to sign for, and whether the
+/// server lets wallets sign in: `GET /auth/wallets/config`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WalletSettings {
+	/// Whether wallets can be linked here: the server has the `solana`
+	/// feature and an origin to bind messages to.
+	pub enabled: bool,
+	/// Whether a wallet whose owner turned it on may sign in.
+	pub sign_in: bool,
+	/// The cluster messages name, such as `mainnet`.
+	pub chain_id: String,
+}
+
+/// One of the signed-in person's linked wallets, as `GET /auth/wallets`
+/// lists them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WalletInfo {
+	/// The link.
+	pub id: Id<Wallet>,
+	/// The chain: `solana`.
+	pub chain: String,
+	/// The address.
+	pub address: Pubkey,
+	/// What the person calls it.
+	pub label: Option<String>,
+	/// Whether it may sign in to this account.
+	pub can_sign_in: bool,
+	/// Whether it shows on the person's public profile.
+	pub is_public: bool,
+	/// When it was linked.
+	pub verified_at: Timestamp,
+	/// When it last signed a proof that the person still controls it.
+	pub last_proved_at: Timestamp,
+}
+
+/// A wallet someone chose to show, as their profile lists it: the address
+/// and its label, nothing else.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicWallet {
+	/// The chain: `solana`.
+	pub chain: String,
+	/// The address.
+	pub address: Pubkey,
+	/// What its owner calls it.
+	pub label: Option<String>,
+}
+
+/// What a wallet must sign: `POST /auth/wallets/link/options`,
+/// `/auth/wallets/proof/options`, and `/auth/wallets/sign-in/options`.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct WalletChallenge {
+	/// The Sign-In With Solana fields, for the wallet's `solana:signIn`; or,
+	/// with [`SiwsInput::message`], the text for `solana:signMessage`.
+	pub input: SiwsInput,
+	/// For signing in, what a native app sends back with the signature. A
+	/// browser gets it in an `HttpOnly` cookie instead.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
+}
+
+impl std::fmt::Debug for WalletChallenge {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("WalletChallenge")
+			.field("input", &self.input)
+			.finish_non_exhaustive()
+	}
+}
+
+/// What a wallet signed: the address, the exact message, and its ed25519
+/// signature.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WalletProof {
+	/// The address that signed.
+	pub address: Pubkey,
+	/// The message, exactly as signed.
+	pub message: String,
+	/// The signature over the message's bytes.
+	pub signature: Signature,
+}
+
+/// The body of `POST /auth/wallets/link`: a proof, and what to call the
+/// wallet.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinkWallet {
+	/// The signed challenge.
+	pub proof: WalletProof,
+	/// A name, such as "Treasury". At most 100 characters.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub label: Option<String>,
+}
+
+/// What linking a wallet did.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "outcome", content = "wallet")]
+#[allow(
+	variant_size_differences,
+	reason = "one is made per link, and never kept in bulk"
+)]
+pub enum WalletLinked {
+	/// It's linked to the signed-in account now.
+	Linked(WalletInfo),
+	/// It was already linked to the signed-in account; its proof is fresh
+	/// now.
+	AlreadyLinked(WalletInfo),
+	/// It belongs to another account that it can sign in to, which can be
+	/// merged into this one: `GET /auth/merge` describes it.
+	Merge,
+}
+
+/// The body of `POST /auth/wallets/proof/options`: which linked wallet must
+/// prove it's still the person's.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProveWallet {
+	/// The wallet's address.
+	pub address: Pubkey,
+}
+
+/// The body of `POST /auth/wallets/sign-in/options`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WalletSignInStart {
+	/// How the device keeps its session, and so where the challenge's token
+	/// goes: a cookie, or the body.
+	#[serde(default)]
+	pub transport: Transport,
+}
+
+/// The body of `POST /auth/wallets/sign-in`.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct WalletSignIn {
+	/// The signed challenge.
+	pub proof: WalletProof,
+	/// A native app's [`WalletChallenge::token`].
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
+	/// How the device keeps its session.
+	#[serde(default)]
+	pub transport: Transport,
+	/// What a native app calls its device.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub device_name: Option<String>,
+}
+
+impl std::fmt::Debug for WalletSignIn {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("WalletSignIn")
+			.field("address", &self.proof.address)
+			.field("transport", &self.transport)
+			.field("device_name", &self.device_name)
+			.finish_non_exhaustive()
+	}
+}
+
+/// The body of `POST /auth/wallets/update`: what to change about a linked
+/// wallet. Fields left out stay as they are.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateWallet {
+	/// The wallet.
+	pub id: Id<Wallet>,
+	/// A new name; an empty one clears it.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub label: Option<String>,
+	/// Whether it may sign in. Turning it on needs a fresh sign-in or
+	/// step-up.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub can_sign_in: Option<bool>,
+	/// Whether it shows on the person's public profile.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub is_public: Option<bool>,
+}
+
+/// The body of `POST /auth/wallets/unlink`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnlinkWallet {
+	/// The wallet to unlink.
+	pub id: Id<Wallet>,
 }
 
 /// The body of `POST /auth/merge`: the person's explicit go-ahead, and the
@@ -754,5 +978,24 @@ mod tests {
 			format!("{add:?}"),
 			r#"AddPasskey { name: Some("Laptop"), .. }"#
 		);
+		let challenge = WalletChallenge {
+			input: SiwsInput::default(),
+			token: Some("secret-token".into()),
+		};
+		assert!(!format!("{challenge:?}").contains("secret-token"));
+		let address = Pubkey::from_bytes([7; 32]);
+		let sign_in = WalletSignIn {
+			proof: WalletProof {
+				address: address.clone(),
+				message: "message".into(),
+				signature: Signature::from_bytes([1; 64]),
+			},
+			token: Some("secret-token".into()),
+			transport: Transport::Bearer,
+			device_name: None,
+		};
+		let printed = format!("{sign_in:?}");
+		assert!(!printed.contains("secret-token"), "{printed}");
+		assert!(printed.contains(address.as_str()), "{printed}");
 	}
 }

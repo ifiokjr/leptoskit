@@ -158,8 +158,8 @@ impl Auth {
 		Ok(())
 	}
 
-	/// How the account can sign in on its own: `email`, `passkey`, and each
-	/// connected provider.
+	/// How the account can sign in on its own: `email`, `passkey`, each
+	/// connected provider, and `solana` for wallets that may sign in.
 	pub(crate) async fn sign_in_methods(
 		&self,
 		connection: &impl Connection,
@@ -189,6 +189,18 @@ impl Auth {
 			.all(connection)
 			.await?;
 		methods.extend(identities.into_iter().map(|identity| identity.provider));
+
+		if self.wallet_settings().sign_in {
+			let wallets = crate::Wallet::query()
+				.filter(|wallet| wallet.account_id.eq(account) & wallet.can_sign_in.eq(true))
+				.count(connection)
+				.await?;
+
+			if wallets > 0 {
+				methods.push(crate::wallets::CHAIN.to_owned());
+			}
+		}
+
 		Ok(methods)
 	}
 
@@ -343,6 +355,9 @@ pub(crate) fn ceremony_context<'a>(
 		Purpose::Provider => b"provider",
 		Purpose::ProviderSignUp => b"provider-sign-up",
 		Purpose::Merge => b"merge",
+		Purpose::WalletLink => b"wallet-link",
+		Purpose::WalletProof => b"wallet-proof",
+		Purpose::WalletSignIn => b"wallet-sign-in",
 		Purpose::EmailCode | Purpose::SecondFactor => b"code",
 	};
 	[b"ceremony", purpose, subject.as_bytes(), hash]

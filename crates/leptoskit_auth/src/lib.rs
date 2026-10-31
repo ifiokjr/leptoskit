@@ -18,8 +18,15 @@
 //!   GitHub, and any OpenID Connect provider, identified by the provider's
 //!   subject, never an email address; with linking, unlinking, and merging
 //!   accounts.
+//! - **Solana wallets** (the `solana` feature): linked to an account with a
+//!   signed Sign-In With Solana message, re-proved when an action needs a fresh
+//!   signature, and used to sign in only when their owner turns that on.
+//! - **Merging accounts** in either mode: moving only the sign-in methods, or
+//!   bringing the other account's data along, as each table's
+//!   `on_account_merge` says.
 //! - **[`SignedIn`]:** the signed-in person, as access policies read them:
-//!   `cx.signed_in(|me| post.author_id.eq(me.user_id()))`.
+//!   `cx.signed_in(|me| post.author_id.eq(me.user_id()))`, and their linked
+//!   wallets, as `cx.wallets()`.
 //!
 //! The tables, [`SignedIn`], and the public row types work everywhere. The
 //! service itself, [`Auth`], needs the `server` feature and a database:
@@ -39,6 +46,7 @@ mod api;
 #[cfg(feature = "client")]
 pub mod client;
 mod signed_in;
+mod siws;
 mod tables;
 
 #[cfg(all(feature = "leptos", any(feature = "postgres", feature = "sqlite")))]
@@ -62,6 +70,8 @@ mod limits;
 mod mail;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod mailers;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod merge;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod mfa;
 #[cfg(all(feature = "oauth", any(feature = "postgres", feature = "sqlite")))]
@@ -90,6 +100,8 @@ mod secrets;
 mod sessions;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod totp;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod wallets;
 
 pub use api::*;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -149,6 +161,8 @@ pub use mailers::SmtpMailer;
 #[cfg(all(feature = "webhook", any(feature = "postgres", feature = "sqlite")))]
 pub use mailers::WebhookMailer;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use merge::OnMerge;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use mfa::STEP_UP_WINDOW;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use mfa::SecondFactorChallenge;
@@ -189,4 +203,13 @@ pub use sessions::SignIn;
 #[cfg(feature = "server")]
 pub use signed_in::AuthContext;
 pub use signed_in::SignedIn;
+pub use signed_in::Wallets;
+pub use siws::MAX_MESSAGE_LENGTH;
+pub use siws::SiwsError;
+pub use siws::SiwsInput;
+pub use siws::SiwsMessage;
 pub use tables::*;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use wallets::SolanaOptions;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use wallets::WalletSignInChallenge;

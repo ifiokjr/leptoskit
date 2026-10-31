@@ -280,7 +280,7 @@ Built-in scalars:
 - `Url` and `Slug`;
 - with the `solana` feature, `Pubkey` and `Signature`.
 
-**As built:** `Email`, `Url` and `Slug` shipped with the derive. A scalar wraps one `String` or number, so the rest moved: `NonEmpty<String>` is `min_len = 1` on a text scalar; `Money` has two columns, so it is a mixin (§4.5); and `Pubkey` and `Signature` land with Solana wallets in phase Auth 7. `parse` takes `impl Into<String>` for text and the exact type for numbers, so integer literals infer.
+**As built:** `Email`, `Url` and `Slug` shipped with the derive. A scalar wraps one `String` or number, so the rest moved: `NonEmpty<String>` is `min_len = 1` on a text scalar; `Money` has two columns, so it is a mixin (§4.5); and `Pubkey` and `Signature` landed with Solana wallets in phase Auth 4, behind `leptoskit_db`'s `solana` feature, using a new `validate_with` derive option for their decoded-length check. `parse` takes `impl Into<String>` for text and the exact type for numbers, so integer literals infer.
 
 ### 4.5 Mixins and abstract types
 
