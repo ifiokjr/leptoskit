@@ -451,17 +451,29 @@ fn client_module(context: &Context<'_>, types: &mut PyTypes, names: &[String]) -
 		} else {
 			docstring(&docs, "\t\t")
 		};
+		// A mutation takes an idempotency key, so a retried call runs once.
+		let (parameters, key) = if function.kind.is_idempotent_with_key() {
+			let keyword = "idempotency_key: Optional[str] = None";
+			let parameters = if parameters.is_empty() {
+				format!("*, {keyword}")
+			} else {
+				format!("{parameters}, {keyword}")
+			};
+			(parameters, ", idempotency_key")
+		} else {
+			(parameters, "")
+		};
 		let separator = if parameters.is_empty() { "" } else { ", " };
 		methods.push_str(&format!(
 			"\n\tdef {name}(self{separator}{parameters}) -> {output}:\n{docs}\t\treturn \
-			 self._call({}, {}, {}, {payload})\n",
+			 self._call({}, {}, {}, {payload}{key})\n",
 			py_string(&function.method),
 			py_string(&function.path),
 			py_string(encoding),
 		));
 		async_methods.push_str(&format!(
 			"\n\tasync def {name}(self{separator}{parameters}) -> {output}:\n{docs}\t\treturn \
-			 await self._call({}, {}, {}, {payload})\n",
+			 await self._call({}, {}, {}, {payload}{key})\n",
 			py_string(&function.method),
 			py_string(&function.path),
 			py_string(encoding),
@@ -480,9 +492,9 @@ fn client_module(context: &Context<'_>, types: &mut PyTypes, names: &[String]) -
 		 Client(_BaseClient):\n\t\"\"\"A synchronous client over the standard library.\n\n\tPass \
 		 ``server_url`` to point it at a server, ``headers`` for authorization, \
 		 and\n\t``timeout`` in seconds.\n\t\"\"\"\n\n\tdef _call(self, method: str, path: str, \
-		 encoding: str, payload: Mapping[str, Any]) -> Any:\n\t\turl, headers, data = \
-		 self._prepare(method, path, encoding, payload)\n\t\trequest = \
-		 urllib.request.Request(url, data=data, method=method, \
+		 encoding: str, payload: Mapping[str, Any], idempotency_key: Optional[str] = None) -> \
+		 Any:\n\t\turl, headers, data = self._prepare(method, path, encoding, payload, \
+		 idempotency_key)\n\t\trequest = urllib.request.Request(url, data=data, method=method, \
 		 headers=headers)\n\t\ttry:\n\t\t\twith urllib.request.urlopen(request, \
 		 timeout=self.timeout) as response:\n\t\t\t\tstatus = response.status\n\t\t\t\tbody = \
 		 response.read().decode(\"utf-8\")\n\t\texcept urllib.error.HTTPError as \
@@ -504,8 +516,9 @@ fn client_module(context: &Context<'_>, types: &mut PyTypes, names: &[String]) -
 		 self.http.aclose()\n\n\tasync def __aenter__(self) -> \"AsyncClient\":\n\t\treturn \
 		 self\n\n\tasync def __aexit__(self, *exc_info: object) -> None:\n\t\tawait \
 		 self.aclose()\n\n\tasync def _call(self, method: str, path: str, encoding: str, payload: \
-		 Mapping[str, Any]) -> Any:\n\t\turl, headers, data = self._prepare(method, path, \
-		 encoding, payload)\n\t\ttry:\n\t\t\tresponse = await self.http.request(method, url, \
+		 Mapping[str, Any], idempotency_key: Optional[str] = None) -> Any:\n\t\turl, headers, \
+		 data = self._prepare(method, path, encoding, payload, \
+		 idempotency_key)\n\t\ttry:\n\t\t\tresponse = await self.http.request(method, url, \
 		 headers=headers, content=data)\n\t\texcept Exception as error:  # httpx.TransportError \
 		 and friends\n\t\t\traise FnError(\"network\", f\"could not reach {{url}}: {{error}}\") \
 		 from error\n\t\tif response.status_code >= 400:\n\t\t\traise \
@@ -734,10 +747,19 @@ class _BaseClient:
         self.timeout = timeout
 
     def _prepare(
-        self, method: str, path: str, encoding: str, payload: Mapping[str, Any]
+        self,
+        method: str,
+        path: str,
+        encoding: str,
+        payload: Mapping[str, Any],
+        idempotency_key: Optional[str] = None,
     ) -> tuple[str, dict[str, str], Optional[bytes]]:
         url = f"{self.base_url}{path}"
         headers = {"Accept": "application/json", **self.headers}
+        if idempotency_key is not None:
+            # A repeat with the same key and arguments returns the first
+            # call's result instead of running the mutation again.
+            headers["Idempotency-Key"] = idempotency_key
         data: Optional[bytes] = None
         if encoding == "query":
             query = to_query_string(payload)

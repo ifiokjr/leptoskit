@@ -109,6 +109,104 @@ Options: `internal`, `name = "..."` (the operation name and the route, when the 
 
 Encodings that compile but that generated clients cannot build or decode, such as CBOR, are published and then skipped by the generators, as described under [generating clients](#generating-clients).
 
+## Queries and mutations
+
+A leptos `#[server]` function only exists where leptos does. A native app runs its interface as a Wasm guest with no server functions in it, so on iOS, Android, macOS, Windows, Linux, and HarmonyOS a screen can't call one the way a browser page does. Queries and mutations are operations that every platform calls the same way: by name, with their arguments as one value.
+
+```rust
+use leptoskit_rpc as rpc;
+
+/// The caller's notes, newest first.
+#[api(tag = "notes")]
+#[rpc::query]
+pub async fn notes(cx: &rpc::QueryCx, limit: u32) -> rpc::Result<Vec<PublicNote>> {
+	let notes = Note::query()
+		.order_by(|note| note.created_at.desc())
+		.limit(u64::from(limit.min(100)))
+		.all(cx.db())
+		.await?;
+	Ok(notes.into_iter().map(Into::into).collect())
+}
+
+/// Keeps a note for the signed-in person.
+#[api(tag = "notes")]
+#[rpc::mutation]
+pub async fn add_note(cx: &rpc::MutationCx, title: String) -> rpc::Result<Id<Note>> {
+	let me = cx.require::<auth::SignedIn>()?;
+	if title.trim().is_empty() {
+		return Err(rpc::Error::invalid("a note needs a title"));
+	}
+	let note = NewNote { owner: me.account, title }.insert(cx.tx()).await?;
+	Ok(note.id)
+}
+```
+
+Put this in the crate the app shares between its server and its screens. On every platform, each function becomes a struct of its arguments, named in `PascalCase`: `Notes { limit }` and `AddNote { title }`. Any screen sends one:
+
+```rust
+let latest = rpc::client::call(Notes { limit: 20 }).await?;
+let id = rpc::client::call(AddNote { title: "Milk".into() }).await?;
+```
+
+### What each platform does
+
+| Where                                                       | What `call` does                                                                                                                                                     |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The web                                                     | A same-origin `fetch` to `POST /api/<name>`, which carries the session cookie                                                                                        |
+| iOS, Android, macOS, Windows, Linux, and HarmonyOS (guests) | The same request through the HTTP plugin, so add `"http"` to `[native] plugins` and the server to its allowed origins. Add `"crypto"` too (see below)                |
+| The server, while it renders a page                         | Runs the operation in process, as the person whose request is being rendered, with no HTTP hop                                                                       |
+| The terminal                                                | In process, when the terminal build includes the server (`server` and a database). A terminal app that is only a client of a remote server can't call operations yet |
+
+A guest build contains the argument structs and the client, and nothing else: the bodies, and every database type they use, exist only in the server build.
+
+### The context
+
+The first argument is the context, and the body can only do what its context allows:
+
+- **`QueryCx`** reads. `cx.db()` is the database as the caller: their access policies apply to every row, and it has no write methods, so a query that tries to write doesn't compile.
+- **`MutationCx`** writes in one transaction, `cx.tx()`, as the caller. On Postgres the transaction is `SERIALIZABLE`; SQLite runs one writer at a time, so it already is. When another transaction gets in its way, the whole body runs again, up to five more times, or `#[rpc::mutation(retries = N)]`. So a mutation must not reach the outside world itself: `cx.after_commit(async move { … })` runs work, such as sending an email, once the transaction has committed.
+- Both have `cx.get::<T>()` and `cx.require::<T>()`, which read what policies read, such as the signed-in person. `require` fails with `rpc::Error::Unauthorized` when it isn't there.
+
+A body returns `rpc::Result<T>`. `?` on a database error turns a missing row into `NotFound`, a policy's refusal into `Forbidden`, a broken rule into `Invalid`, and anything else into a `Server` error that says nothing about the database.
+
+### Serving them
+
+The server merges one router, which answers `POST /api/<name>` for every query and mutation. With [sign-in](23-sign-in.md), each runs as the signed-in person:
+
+```rust
+let rpc = leptoskit::rpc::server::Server::new(db.clone()).identify(auth.clone());
+let app = Router::new()
+	.merge(rpc.router())
+	.merge(auth.router())
+	.layer(auth.layer());
+```
+
+Without `identify`, every caller is anonymous. Anything that implements `rpc::Identify`, such as an API-key check, can tell callers apart instead. Server code calls operations directly with `rpc::call(&db, AddNote { … })`: a mutation still gets its transaction and retries.
+
+### Calls that run once
+
+On a phone, the commonest real-time bug is "did my send go through?": the request arrived, the answer was lost, and sending again saves it twice. A mutation called with an `Idempotency-Key` header runs once: the server keeps a receipt, and a repeat with the same key and arguments gets the first call's result back. A repeat with the same key and other arguments is refused with `409`. Each signed-in session's keys are its own.
+
+The app's own client does this for you: every `call` of a mutation sends a fresh key, and sends the same key again when the network drops the answer. In a native app the key comes from the crypto plugin when the app has it, and is harder to guess. Receipts live in the `rpc` schema pack's `rpc.receipts` table, which joins your migrations once you add `leptoskit::db::packs!(leptoskit_rpc)` next to your tables. Delete old ones now and then with `rpc::server::receipts::prune`.
+
+### Caching
+
+`use_rpc_query` reads a query through `leptoskit_query`, cached by its arguments, shared by every screen that reads it, and carried from the server's render to the browser. `mutation_scope` is a `leptoskit_query` mutation, so an optimistic update is its `with_on_mutate`:
+
+```rust
+let notes = use_rpc_query(move || Notes { limit: 20 });
+let add = use_mutation(mutation_scope::<AddNote>().with_on_success_async(|args| async move {
+	args.client.invalidate_scope(&query_scope::<Notes>()).await;
+}));
+add.mutate(AddNote { title: "Milk".into() });
+```
+
+### Setting it up
+
+Through the `leptoskit` crate, `rpc` adds the client, `web` and `guest` give it a way to reach the server, `server` serves operations and calls them in process while rendering, and `db-postgres` or `db-sqlite` runs them on the database. Write `#[rpc::query(crate = "leptoskit::rpc")]` and `#[api(crate = "leptoskit::rpc")]` when the app reaches `leptoskit_rpc` through `leptoskit`. With [sign-in](23-sign-in.md), its `client::configure` sets up this client too, so a native app's calls carry its access token; otherwise call `leptoskit::rpc::client::configure(ClientConfig::new().origin("https://notes.example"))` when a native app starts.
+
+Without `#[api]`, a query or mutation is still served and callable by the app's own screens; it just isn't in the published spec. With it, generated clients call it like any other function, as below.
+
 ## Exporting the spec
 
 The spec comes from the server binary itself, so it always matches the code that was just compiled. Call `export_if_requested` first thing in `main`:
@@ -229,6 +327,8 @@ The command line:
 todos-cli --server-url https://api.todos.example list-todos --filter '"all"' --limit '20'
 ```
 
+Mutations take an optional idempotency key: `idempotencyKey` in TypeScript's options and Dart's named arguments, `idempotency_key=` in Python, a context from `WithIdempotencyKey` in Go, `Client::with_idempotency_key` in Rust, and `--idempotency-key` on the command line. Send the same key again when a call's answer was lost, and it still runs once.
+
 Every `--flag` takes one JSON value — `'"all"'` for the enum, `'20'` for the number, `'["urgent"]'` for a list — parsed into the function's own type, so invalid input is rejected before anything is sent:
 
 ```
@@ -260,6 +360,7 @@ The generated clients reproduce what leptos's own codecs do, per function:
 - `#[server(input = GetUrl)]` sends `GET` with the same encoding in the query string, and `DeleteUrl` sends `DELETE` the same way;
 - `PatchUrl` and `PutUrl` send `PATCH` and `PUT` with the form-urlencoded body, and `PatchJson` and `PutJson` with a JSON body;
 - `#[server(input = Json)]` sends `POST` with a JSON body, absent optional arguments omitted so the server's `#[server(default)]` applies;
+- queries and mutations always send `POST /api/<name>` with a JSON body, and a mutation may carry an `Idempotency-Key` header. The spec marks them with `kind`, and the OpenAPI document with `x-leptoskit-kind`;
 - responses are JSON; errors are the `text/plain` `Kind|message` body above.
 
 Because the schemas come from `schemars`, `serde` attributes — `rename_all`, `tag`, `default`, `skip` — are already reflected in the generated types; the clients do not guess.

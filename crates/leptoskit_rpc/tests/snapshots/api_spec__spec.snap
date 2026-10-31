@@ -3,7 +3,7 @@ source: crates/leptoskit_rpc/tests/api_spec.rs
 expression: spec
 ---
 {
-  "leptoskit_rpc_spec": 1,
+  "leptoskit_rpc_spec": 2,
   "title": "Todos",
   "version": "1.2.3",
   "description": null,
@@ -13,6 +13,7 @@ expression: spec
   "functions": [
     {
       "name": "create_todo",
+      "kind": "call",
       "module_path": "api_spec",
       "struct_name": "CreateTodo",
       "docs": "Creates a todo.",
@@ -53,6 +54,7 @@ expression: spec
     },
     {
       "name": "events_since",
+      "kind": "call",
       "module_path": "api_spec",
       "struct_name": "OldEvents",
       "docs": "Events since a point in time.",
@@ -88,6 +90,7 @@ expression: spec
     },
     {
       "name": "flush_caches",
+      "kind": "call",
       "module_path": "api_spec",
       "struct_name": "FlushCaches",
       "docs": "Flushes caches. For operators only.",
@@ -106,6 +109,7 @@ expression: spec
     },
     {
       "name": "get_todo",
+      "kind": "call",
       "module_path": "api_spec",
       "struct_name": "GetTodo",
       "docs": "Reads one todo.",
@@ -142,6 +146,7 @@ expression: spec
     },
     {
       "name": "legacy_ping",
+      "kind": "call",
       "module_path": "api_spec",
       "struct_name": "LegacyPing",
       "docs": "The legacy positional `#[server]` form keeps its own route.",
@@ -163,6 +168,7 @@ expression: spec
     },
     {
       "name": "list_todos",
+      "kind": "call",
       "module_path": "api_spec",
       "struct_name": "ListTodos",
       "docs": "Lists todos.\n\nNewest first.",

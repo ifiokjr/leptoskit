@@ -583,6 +583,13 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 			}
 		}
 
+		// A mutation takes an idempotency key, so a retried call runs once.
+		let key = if function.kind.is_idempotent_with_key() {
+			parameters.push("String? idempotencyKey".to_owned());
+			", idempotencyKey: idempotencyKey"
+		} else {
+			""
+		};
 		let returns = matches!(output, DartType::Void);
 		let return_type = if returns {
 			"Future<void>".to_owned()
@@ -610,7 +617,7 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 		};
 		out.push_str(&format!(
 			"\t{return_type} {name}({parameter_list}) async {{\n\t\t{binding}await _invoke({}, \
-			 {}, {}, {payload_map});{decode}\n\t}}\n",
+			 {}, {}, {payload_map}{key});{decode}\n\t}}\n",
 			dart_string(&function.method),
 			dart_string(&function.path),
 			dart_string(match function.input {
@@ -620,28 +627,7 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 			}),
 		));
 	}
-	out.push_str(
-		"\n\tFuture<Object?> _invoke(\n\t\tString method,\n\t\tString path,\n\t\tString \
-		 encoding,\n\t\tMap<String, Object?> payload,\n\t) async {\n\t\tvar url = '${serverUrl ?? \
-		 ''}$path';\n\t\tfinal headers = <String, String>{'Accept': \
-		 'application/json'};\n\t\tUint8List? body;\n\t\tif (encoding == 'query') {\n\t\t\tfinal \
-		 query = toQueryString(payload);\n\t\t\tif (query.isNotEmpty) {\n\t\t\t\turl += \
-		 (url.contains('?') ? '&' : '?') + query;\n\t\t\t}\n\t\t} else if (encoding == 'form') \
-		 {\n\t\t\theaders['Content-Type'] = 'application/x-www-form-urlencoded';\n\t\t\tbody = \
-		 Uint8List.fromList(utf8.encode(toQueryString(payload)));\n\t\t} else \
-		 {\n\t\t\theaders['Content-Type'] = 'application/json';\n\t\t\t// Absent optional \
-		 arguments are omitted, as `serde_qs` omits them.\n\t\t\tfinal present = <String, \
-		 Object?>{\n\t\t\t\tfor (final entry in payload.entries)\n\t\t\t\t\tif (entry.value != \
-		 null) entry.key: entry.value,\n\t\t\t};\n\t\t\tbody = \
-		 Uint8List.fromList(utf8.encode(jsonEncode(present)));\n\t\t}\n\t\tlate http.Response \
-		 response;\n\t\ttry {\n\t\t\tfinal uri = Uri.parse(url);\n\t\t\tfinal request = \
-		 http.Request(method, uri)\n\t\t\t\t..headers.addAll(headers);\n\t\t\tif (body != null) \
-		 request.bodyBytes = body;\n\t\t\tresponse = await http.Response.fromStream(await \
-		 _http.send(request));\n\t\t} catch (error) {\n\t\t\tthrow FnError('network', 'could not \
-		 reach $url: $error');\n\t\t}\n\t\tif (response.statusCode >= 400) {\n\t\t\tthrow \
-		 FnError.fromResponse(response.statusCode, response.body);\n\t\t}\n\t\tif \
-		 (response.body.isEmpty) return null;\n\t\treturn jsonDecode(response.body);\n\t}\n}\n",
-	);
+	out.push_str(INVOKE);
 	out
 }
 
@@ -806,3 +792,29 @@ String toQueryString(Map<String, Object?> value) {
 }
 
 ";
+
+/// The transport every generated method calls, closing the client class.
+const INVOKE: &str =
+	"\n\tFuture<Object?> _invoke(\n\t\tString method,\n\t\tString path,\n\t\tString \
+	 encoding,\n\t\tMap<String, Object?> payload, {\n\t\tString? idempotencyKey,\n\t}) async \
+	 {\n\t\tvar url = '${serverUrl ?? ''}$path';\n\t\tfinal headers = <String, String>{'Accept': \
+	 'application/json'};\n\t\t// A repeat with the same key and arguments returns the first \
+	 call's result\n\t\t// instead of running the mutation again.\n\t\tif (idempotencyKey != \
+	 null) headers['Idempotency-Key'] = idempotencyKey;\n\t\tUint8List? body;\n\t\tif (encoding \
+	 == 'query') {\n\t\t\tfinal query = toQueryString(payload);\n\t\t\tif (query.isNotEmpty) \
+	 {\n\t\t\t\turl += (url.contains('?') ? '&' : '?') + query;\n\t\t\t}\n\t\t} else if (encoding \
+	 == 'form') {\n\t\t\theaders['Content-Type'] = \
+	 'application/x-www-form-urlencoded';\n\t\t\tbody = \
+	 Uint8List.fromList(utf8.encode(toQueryString(payload)));\n\t\t} else \
+	 {\n\t\t\theaders['Content-Type'] = 'application/json';\n\t\t\t// Absent optional arguments \
+	 are omitted, as `serde_qs` omits them.\n\t\t\tfinal present = <String, \
+	 Object?>{\n\t\t\t\tfor (final entry in payload.entries)\n\t\t\t\t\tif (entry.value != null) \
+	 entry.key: entry.value,\n\t\t\t};\n\t\t\tbody = \
+	 Uint8List.fromList(utf8.encode(jsonEncode(present)));\n\t\t}\n\t\tlate http.Response \
+	 response;\n\t\ttry {\n\t\t\tfinal uri = Uri.parse(url);\n\t\t\tfinal request = \
+	 http.Request(method, uri)\n\t\t\t\t..headers.addAll(headers);\n\t\t\tif (body != null) \
+	 request.bodyBytes = body;\n\t\t\tresponse = await http.Response.fromStream(await \
+	 _http.send(request));\n\t\t} catch (error) {\n\t\t\tthrow FnError('network', 'could not \
+	 reach $url: $error');\n\t\t}\n\t\tif (response.statusCode >= 400) {\n\t\t\tthrow \
+	 FnError.fromResponse(response.statusCode, response.body);\n\t\t}\n\t\tif \
+	 (response.body.isEmpty) return null;\n\t\treturn jsonDecode(response.body);\n\t}\n}\n";

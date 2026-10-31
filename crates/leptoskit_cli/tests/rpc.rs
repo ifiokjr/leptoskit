@@ -108,7 +108,16 @@ fn spec_writes_every_format() {
 	let json = leptoskit(&scratch.path, &["rpc", "spec", "--from", "spec.json"]);
 	assert!(json.status.success(), "{}", stderr(&json));
 	let spec: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("spec json");
-	assert_eq!(spec["leptoskit_rpc_spec"], 1);
+	// The fixture is a version 1 spec: it still reads, and is written as the
+	// current version, every function a `call`.
+	assert_eq!(spec["leptoskit_rpc_spec"], 2);
+	assert!(
+		spec["functions"]
+			.as_array()
+			.expect("functions")
+			.iter()
+			.all(|function| function["kind"] == "call")
+	);
 	let names: Vec<&str> = spec["functions"]
 		.as_array()
 		.expect("functions")

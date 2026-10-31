@@ -482,6 +482,13 @@ fn client_file(
 				docs.push(format!("{identifier} is {}", param.docs.trim()));
 			}
 		}
+		if function.kind.is_idempotent_with_key() {
+			docs.push(String::new());
+			docs.push(
+				"Pass a context from WithIdempotencyKey to make a retried call run once."
+					.to_owned(),
+			);
+		}
 		if function.deprecated {
 			docs.push(String::new());
 			docs.push("Deprecated: this function is going away.".to_owned());
@@ -709,6 +716,18 @@ func (c *Client) callInto(ctx context.Context, method string, path string, encod
 	return nil
 }
 
+// idempotencyKeyContext is the context key WithIdempotencyKey stores under.
+type idempotencyKeyContext struct{}
+
+// WithIdempotencyKey returns a context that sends key as the Idempotency-Key
+// of the mutation called with it. Calling a mutation again with the same key
+// and arguments returns the first call's result instead of running it twice,
+// so a call whose answer was lost is safe to retry. Use any unique string,
+// such as a UUID.
+func WithIdempotencyKey(ctx context.Context, key string) context.Context {
+	return context.WithValue(ctx, idempotencyKeyContext{}, key)
+}
+
 func (c *Client) exchange(ctx context.Context, method string, path string, encoding string, payload any) ([]byte, error) {
 	target := c.ServerURL + path
 	request, err := http.NewRequestWithContext(ctx, method, target, nil)
@@ -716,6 +735,9 @@ func (c *Client) exchange(ctx context.Context, method string, path string, encod
 		return nil, &FnError{Kind: KindOther, Message: err.Error()}
 	}
 	request.Header.Set("Accept", "application/json")
+	if key, ok := ctx.Value(idempotencyKeyContext{}).(string); ok && key != "" {
+		request.Header.Set("Idempotency-Key", key)
+	}
 	switch encoding {
 	case "query":
 		values, err := toQueryValues(payload)

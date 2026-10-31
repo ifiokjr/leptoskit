@@ -295,33 +295,12 @@ pub(crate) trait Api: Send + Sync + 'static {
 	fn revoke(&self, id: Id<Session>) -> Pending<'_, bool>;
 	fn revoke_others(&self) -> Pending<'_, ()>;
 	fn sign_out_everywhere(&self) -> Pending<'_, ()>;
-	fn passkey_sign_in(&self, mode: PasskeyMode) -> Pending<'_, PublicSession>;
-	fn cancel_passkey(&self);
-	fn add_passkey(&self, name: Option<String>) -> Pending<'_, PasskeyAdded>;
-	fn complete_sign_in_with_passkey(&self) -> Pending<'_, PublicSession>;
-	fn step_up_with_passkey(&self) -> Pending<'_, PublicSession>;
-	fn passkeys(&self) -> Pending<'_, Vec<PasskeyInfo>>;
-	fn rename_passkey(&self, input: RenamePasskey) -> Pending<'_, ()>;
-	fn remove_passkey(&self, id: Id<Passkey>) -> Pending<'_, ()>;
-	fn providers(&self) -> Pending<'_, Vec<ProviderInfo>>;
-	fn start_provider(&self, input: StartProvider, link: bool) -> Pending<'_, ()>;
-	fn continue_provider_sign_up(&self) -> Pending<'_, PublicSession>;
-	fn provider_outcome(&self) -> Option<ProviderOutcome>;
-	fn identities(&self) -> Pending<'_, Vec<IdentityInfo>>;
-	fn unlink_identity(&self, id: Id<Identity>) -> Pending<'_, ()>;
-	fn merge_offer(&self) -> Pending<'_, Option<MergeOffer>>;
-	fn merge_accounts(&self, input: MergeInput) -> Pending<'_, ()>;
-	fn cancel_merge(&self) -> Pending<'_, ()>;
-	fn wallet_settings(&self) -> Pending<'_, WalletSettings>;
-	fn wallet_apps(&self) -> Pending<'_, Vec<WalletApp>>;
-	fn wallets(&self) -> Pending<'_, Vec<WalletInfo>>;
-	fn link_wallet(&self, input: LinkWalletInput) -> Pending<'_, WalletLinked>;
-	fn prove_wallet(&self, input: ProveWalletInput) -> Pending<'_, WalletInfo>;
-	fn update_wallet(&self, input: UpdateWallet) -> Pending<'_, WalletInfo>;
-	fn unlink_wallet(&self, id: Id<Wallet>) -> Pending<'_, ()>;
-	fn wallet_sign_in(&self, wallet: String) -> Pending<'_, SignInStep>;
-	fn send(&self, method: Method, path: String, body: Option<String>)
-	-> Pending<'_, HttpResponse>;
+	/// The `Authorization` header this device's next request carries.
+	#[cfg(feature = "rpc")]
+	fn authorization(&self) -> Pending<'_, Option<String>>;
+	/// Renews after the server refused `sent`; whether to send again.
+	#[cfg(feature = "rpc")]
+	fn refused(&self, sent: Option<String>) -> Pending<'_, bool>;
 }
 
 /// A call to the server, in flight.
@@ -334,8 +313,55 @@ static CLIENT: RwLock<Option<Arc<dyn Api>>> = RwLock::new(None);
 /// again starts a fresh client. Without it, the client uses the page's own
 /// origin, which works in the browser; a native app answers `config` until
 /// it has an origin.
+///
+/// With the `rpc` feature it also configures `leptoskit_rpc`'s client: the
+/// same origin, and calls signed the way sign-in signs its own, so queries
+/// and mutations run as the signed-in person on every platform.
 pub fn configure(config: ClientConfig) {
+	#[cfg(feature = "rpc")]
+	let origin = config.origin.clone();
 	install(backend(config));
+	#[cfg(feature = "rpc")]
+	configure_rpc(origin);
+}
+
+/// Points `leptoskit_rpc`'s client at the same server, signed like this one.
+#[cfg(feature = "rpc")]
+fn configure_rpc(origin: Option<String>) {
+	let mut config = leptoskit_rpc::client::ClientConfig::new().credentials(RpcCredentials);
+	config.origin = origin;
+	leptoskit_rpc::client::configure(config);
+}
+
+/// Signs `leptoskit_rpc`'s calls with this client's credentials: nothing in
+/// the browser, where the cookie goes along, and the access token in a
+/// native app, renewed as sign-in renews it.
+#[cfg(feature = "rpc")]
+struct RpcCredentials;
+
+#[cfg(feature = "rpc")]
+impl leptoskit_rpc::client::Credentials for RpcCredentials {
+	fn authorization(
+		&self,
+	) -> leptoskit_query::BoxFuture<'_, Result<Option<String>, leptoskit_rpc::FnError>> {
+		Box::pin(async { api().authorization().await.map_err(rpc_error) })
+	}
+
+	fn refused(
+		&self,
+		sent: Option<String>,
+	) -> leptoskit_query::BoxFuture<'_, Result<bool, leptoskit_rpc::FnError>> {
+		Box::pin(async move { api().refused(sent).await.map_err(rpc_error) })
+	}
+}
+
+#[cfg(feature = "rpc")]
+fn rpc_error(error: ErrorResponse) -> leptoskit_rpc::FnError {
+	if error.error == "network" {
+		leptoskit_rpc::FnError::Network(error.message)
+	} else {
+		leptoskit_rpc::FnError::Other(error.message)
+	}
 }
 
 pub(crate) fn install(api: Arc<dyn Api>) {

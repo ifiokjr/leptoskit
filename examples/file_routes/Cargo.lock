@@ -2199,7 +2199,7 @@ dependencies = [
  "leptoskit_plugin_secure_store",
  "leptoskit_plugin_web_auth",
  "leptoskit_query",
- "qrcode",
+ "leptoskit_rpc",
  "send_wrapper",
  "serde",
  "serde_json",
@@ -2359,6 +2359,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_plugin_crypto"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "leptoskit_bridge",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "leptoskit_plugin_http"
 version = "0.1.0"
 dependencies = [
@@ -2468,8 +2477,18 @@ name = "leptoskit_rpc"
 version = "0.1.0"
 dependencies = [
  "leptos",
+ "leptoskit_bridge",
+ "leptoskit_plugin_crypto",
+ "leptoskit_plugin_http",
  "leptoskit_query",
  "leptoskit_rpc_macros",
+ "schemars",
+ "send_wrapper",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

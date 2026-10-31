@@ -1,0 +1,184 @@
+error[E0277]: the trait bound `Opaque: serde::Serialize` is not satisfied
+ --> tests/ui/query_argument_not_serializable.rs:8:1
+  |
+8 | #[rpc::query]
+  | ^^^^^^^^^^^^^ unsatisfied trait bound
+9 | pub async fn lookup(cx: &rpc::QueryCx, key: Opaque) -> rpc::Result<u32> {
+  | -------------------------------------------------- required by a bound introduced by this call
+  |
+help: the trait `leptoskit_rpc::__private::serde::Serialize` is not implemented for `Opaque`
+ --> tests/ui/query_argument_not_serializable.rs:5:1
+  |
+5 | pub struct Opaque(std::sync::Arc<()>);
+  | ^^^^^^^^^^^^^^^^^
+  = note: for local types consider adding `#[derive(serde::Serialize)]` to your `Opaque` type
+  = note: for types from other crates check whether the crate offers a `serde` feature flag
+  = help: the following other types implement trait `leptoskit_rpc::__private::serde::Serialize`:
+            &'a T
+            &'a mut T
+            ()
+            (T,)
+            (T0, T1)
+            (T0, T1, T2)
+            (T0, T1, T2, T3)
+            (T0, T1, T2, T3, T4)
+          and $N others
+note: required by a bound in `leptoskit_rpc::__private::serde::ser::SerializeStruct::serialize_field`
+ --> $CARGO/serde_core-$VERSION/src/ser/mod.rs
+  |
+  | pub trait SerializeStruct {
+...
+  |     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
+  |     where
+  |         T: ?Sized + Serialize;
+  |                     ^^^^^^^^^ required by this bound in `SerializeStruct::serialize_field`
+  = note: this error originates in the derive macro `::leptoskit_rpc::__private::serde::Serialize` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Opaque: serde::Deserialize<'de>` is not satisfied
+ --> tests/ui/query_argument_not_serializable.rs:9:45
+  |
+9 | pub async fn lookup(cx: &rpc::QueryCx, key: Opaque) -> rpc::Result<u32> {
+  |                                             ^^^^^^ unsatisfied trait bound
+  |
+help: the trait `leptoskit_rpc::__private::serde::Deserialize<'_>` is not implemented for `Opaque`
+ --> tests/ui/query_argument_not_serializable.rs:5:1
+  |
+5 | pub struct Opaque(std::sync::Arc<()>);
+  | ^^^^^^^^^^^^^^^^^
+  = note: for local types consider adding `#[derive(serde::Deserialize)]` to your `Opaque` type
+  = note: for types from other crates check whether the crate offers a `serde` feature flag
+  = help: the following other types implement trait `leptoskit_rpc::__private::serde::Deserialize<'de>`:
+            `&'a Path` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `&'a [u8]` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `&'a str` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `()` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `(T,)` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `(T0, T1)` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `(T0, T1, T2)` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `(T0, T1, T2, T3)` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+          and $N others
+note: required by a bound in `leptoskit_rpc::__private::serde::de::SeqAccess::next_element`
+ --> $CARGO/serde_core-$VERSION/src/de/mod.rs
+  |
+  | pub trait SeqAccess<'de> {
+...
+  |     fn next_element<T>(&mut self) -> Result<Option<T>, Self::Error>
+  |     where
+  |         T: Deserialize<'de>,
+  |            ^^^^^^^^^^^^^^^^ required by this bound in `SeqAccess::next_element`
+
+error[E0277]: the trait bound `Opaque: serde::Deserialize<'de>` is not satisfied
+ --> tests/ui/query_argument_not_serializable.rs:9:45
+  |
+9 | pub async fn lookup(cx: &rpc::QueryCx, key: Opaque) -> rpc::Result<u32> {
+  |                                             ^^^^^^ unsatisfied trait bound
+  |
+help: the trait `leptoskit_rpc::__private::serde::Deserialize<'_>` is not implemented for `Opaque`
+ --> tests/ui/query_argument_not_serializable.rs:5:1
+  |
+5 | pub struct Opaque(std::sync::Arc<()>);
+  | ^^^^^^^^^^^^^^^^^
+  = note: for local types consider adding `#[derive(serde::Deserialize)]` to your `Opaque` type
+  = note: for types from other crates check whether the crate offers a `serde` feature flag
+  = help: the following other types implement trait `leptoskit_rpc::__private::serde::Deserialize<'de>`:
+            `&'a Path` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `&'a [u8]` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `&'a str` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `()` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `(T,)` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `(T0, T1)` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `(T0, T1, T2)` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `(T0, T1, T2, T3)` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+          and $N others
+note: required by a bound in `leptoskit_rpc::__private::serde::de::MapAccess::next_value`
+ --> $CARGO/serde_core-$VERSION/src/de/mod.rs
+  |
+  | pub trait MapAccess<'de> {
+...
+  |     fn next_value<V>(&mut self) -> Result<V, Self::Error>
+  |     where
+  |         V: Deserialize<'de>,
+  |            ^^^^^^^^^^^^^^^^ required by this bound in `MapAccess::next_value`
+
+error[E0277]: the trait bound `Opaque: serde::Deserialize<'de>` is not satisfied
+ --> tests/ui/query_argument_not_serializable.rs:8:1
+  |
+8 | #[rpc::query]
+  | ^^^^^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `leptoskit_rpc::__private::serde::Deserialize<'_>` is not implemented for `Opaque`
+ --> tests/ui/query_argument_not_serializable.rs:5:1
+  |
+5 | pub struct Opaque(std::sync::Arc<()>);
+  | ^^^^^^^^^^^^^^^^^
+  = note: for local types consider adding `#[derive(serde::Deserialize)]` to your `Opaque` type
+  = note: for types from other crates check whether the crate offers a `serde` feature flag
+  = help: the following other types implement trait `leptoskit_rpc::__private::serde::Deserialize<'de>`:
+            `&'a Path` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `&'a [u8]` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `&'a str` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `()` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `(T,)` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `(T0, T1)` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `(T0, T1, T2)` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+            `(T0, T1, T2, T3)` implements `leptoskit_rpc::__private::serde::Deserialize<'de>`
+          and $N others
+note: required by a bound in `leptoskit_rpc::__private::serde::__private229::de::missing_field`
+ --> $CARGO/serde-$VERSION/src/private/de.rs
+  |
+  | pub fn missing_field<'de, V, E>(field: &'static str) -> Result<V, E>
+  | where
+  |     V: Deserialize<'de>,
+  |        ^^^^^^^^^^^^^^^^ required by this bound in `missing_field`
+  = note: this error originates in the derive macro `::leptoskit_rpc::__private::serde::Deserialize` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Opaque: JsonSchema` is not satisfied
+ --> tests/ui/query_argument_not_serializable.rs:9:45
+  |
+9 | pub async fn lookup(cx: &rpc::QueryCx, key: Opaque) -> rpc::Result<u32> {
+  |                                             ^^^^^^ unsatisfied trait bound
+  |
+help: the trait `JsonSchema` is not implemented for `Opaque`
+ --> tests/ui/query_argument_not_serializable.rs:5:1
+  |
+5 | pub struct Opaque(std::sync::Arc<()>);
+  | ^^^^^^^^^^^^^^^^^
+  = help: the following other types implement trait `JsonSchema`:
+            &'a T
+            &'a mut T
+            ()
+            (T0, T1)
+            (T0, T1, T2)
+            (T0, T1, T2, T3)
+            (T0, T1, T2, T3, T4)
+            (T0, T1, T2, T3, T4, T5)
+          and $N others
+
+error[E0277]: `Opaque` can't be an operation's argument
+ --> tests/ui/query_argument_not_serializable.rs:9:45
+  |
+9 | pub async fn lookup(cx: &rpc::QueryCx, key: Opaque) -> rpc::Result<u32> {
+  |                                             ^^^^^^ arguments must implement `Serialize`, `Deserialize`, and `JsonSchema`
+  |
+help: the trait `leptoskit_rpc::__private::serde::Serialize` is not implemented for `Opaque`
+ --> tests/ui/query_argument_not_serializable.rs:5:1
+  |
+5 | pub struct Opaque(std::sync::Arc<()>);
+  | ^^^^^^^^^^^^^^^^^
+  = note: an operation's arguments travel as JSON and are described in the RPC spec; derive `serde::Serialize`, `serde::Deserialize`, and `schemars::JsonSchema` for it
+  = help: the following other types implement trait `leptoskit_rpc::__private::serde::Serialize`:
+            &'a T
+            &'a mut T
+            ()
+            (T,)
+            (T0, T1)
+            (T0, T1, T2)
+            (T0, T1, T2, T3)
+            (T0, T1, T2, T3, T4)
+          and $N others
+  = note: required for `Opaque` to implement `leptoskit_rpc::operation::Argument`
+note: required by a bound in `leptoskit_rpc::__private::assert_argument`
+ --> src/operation.rs
+  |
+  | pub const fn assert_argument<T: Argument>() {}
+  |                                 ^^^^^^^^ required by this bound in `assert_argument`

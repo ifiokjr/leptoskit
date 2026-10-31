@@ -39,6 +39,7 @@ fn go_wire_names_cannot_escape_struct_tags() {
 	);
 	for required in [true, false] {
 		spec.functions.push(ApiFunction {
+			kind: leptoskit_rpc_codegen::ApiKind::Call,
 			name: if required {
 				"send_required"
 			} else {

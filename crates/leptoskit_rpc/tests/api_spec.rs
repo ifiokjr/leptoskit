@@ -272,6 +272,7 @@ fn descriptor(
 	output: &'static str,
 ) -> spec::ApiFnDescriptor {
 	spec::ApiFnDescriptor {
+		kind: spec::ApiKind::Call,
 		name,
 		module_path: "hand::built",
 		struct_name: "HandBuilt",

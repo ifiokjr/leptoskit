@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
+assertion_line: 459
 expression: "generate(TargetLanguage::OpenApi, \"todos-openapi\")"
 ---
 ===== openapi.json (Code) =====
@@ -61,6 +62,121 @@ expression: "generate(TargetLanguage::OpenApi, \"todos-openapi\")"
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/clear_done": {
+      "post": {
+        "operationId": "clear_done",
+        "parameters": [
+          {
+            "description": "Any unique string, such as a UUID. The first call with a key runs; a repeat with the same key and arguments returns the first call's result without running again.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {},
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "null"
+                }
+              }
+            },
+            "description": "The function's return value."
+          },
+          "default": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                },
+                "x-leptoskit-error-encoding": "kind-pipe-message"
+              }
+            },
+            "description": "An error; see the leptoskit error encoding"
+          }
+        },
+        "x-leptoskit-kind": "mutation"
+      }
+    },
+    "/api/complete_todo": {
+      "post": {
+        "operationId": "complete_todo",
+        "parameters": [
+          {
+            "description": "Any unique string, such as a UUID. The first call with a key runs; a repeat with the same key and arguments returns the first call's result without running again.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "id": {
+                    "description": "The todo.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Todo"
+                }
+              }
+            },
+            "description": "The function's return value."
+          },
+          "default": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                },
+                "x-leptoskit-error-encoding": "kind-pipe-message"
+              }
+            },
+            "description": "An error; see the leptoskit error encoding"
+          }
+        },
+        "summary": "Marks a todo done.",
+        "x-leptoskit-kind": "mutation"
+      }
+    },
     "/api/counts": {
       "post": {
         "deprecated": true,
@@ -263,6 +379,58 @@ expression: "generate(TargetLanguage::OpenApi, \"todos-openapi\")"
         },
         "summary": "Lists todos."
       }
+    },
+    "/api/search_todos": {
+      "post": {
+        "operationId": "search_todos",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "text": {
+                    "description": "What to look for.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "text"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Todo"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The function's return value."
+          },
+          "default": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                },
+                "x-leptoskit-error-encoding": "kind-pipe-message"
+              }
+            },
+            "description": "An error; see the leptoskit error encoding"
+          }
+        },
+        "summary": "Finds todos whose title contains the text.",
+        "x-leptoskit-kind": "query"
+      }
     }
   },
   "servers": [
@@ -315,6 +483,80 @@ expression: "generate(TargetLanguage::OpenApi, \"todos-openapi\")"
   "version": "1.2.3"
 "openapi": "3.1.0"
 "paths":
+  "/api/clear_done":
+    "post":
+      "operationId": "clear_done"
+      "parameters":
+        - "description": "Any unique string, such as a UUID. The first call with a key runs; a repeat with the same key and arguments returns the first call's result without running again."
+          "in": "header"
+          "name": "Idempotency-Key"
+          "required": false
+          "schema":
+            "maxLength": 255
+            "type": "string"
+      "requestBody":
+        "content":
+          "application/json":
+            "schema":
+              "properties": {}
+              "type": "object"
+        "required": true
+      "responses":
+        "200":
+          "content":
+            "application/json":
+              "schema":
+                "type": "null"
+          "description": "The function's return value."
+        "default":
+          "content":
+            "text/plain":
+              "schema":
+                "type": "string"
+              "x-leptoskit-error-encoding": "kind-pipe-message"
+          "description": "An error; see the leptoskit error encoding"
+      "x-leptoskit-kind": "mutation"
+  "/api/complete_todo":
+    "post":
+      "operationId": "complete_todo"
+      "parameters":
+        - "description": "Any unique string, such as a UUID. The first call with a key runs; a repeat with the same key and arguments returns the first call's result without running again."
+          "in": "header"
+          "name": "Idempotency-Key"
+          "required": false
+          "schema":
+            "maxLength": 255
+            "type": "string"
+      "requestBody":
+        "content":
+          "application/json":
+            "schema":
+              "properties":
+                "id":
+                  "description": "The todo."
+                  "format": "uint64"
+                  "minimum": 0
+                  "type": "integer"
+              "required":
+                - "id"
+              "type": "object"
+        "required": true
+      "responses":
+        "200":
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Todo"
+          "description": "The function's return value."
+        "default":
+          "content":
+            "text/plain":
+              "schema":
+                "type": "string"
+              "x-leptoskit-error-encoding": "kind-pipe-message"
+          "description": "An error; see the leptoskit error encoding"
+      "summary": "Marks a todo done."
+      "x-leptoskit-kind": "mutation"
   "/api/counts":
     "post":
       "deprecated": true
@@ -442,5 +684,38 @@ expression: "generate(TargetLanguage::OpenApi, \"todos-openapi\")"
               "x-leptoskit-error-encoding": "kind-pipe-message"
           "description": "An error; see the leptoskit error encoding"
       "summary": "Lists todos."
+  "/api/search_todos":
+    "post":
+      "operationId": "search_todos"
+      "requestBody":
+        "content":
+          "application/json":
+            "schema":
+              "properties":
+                "text":
+                  "description": "What to look for."
+                  "type": "string"
+              "required":
+                - "text"
+              "type": "object"
+        "required": true
+      "responses":
+        "200":
+          "content":
+            "application/json":
+              "schema":
+                "items":
+                  "$ref": "#/components/schemas/Todo"
+                "type": "array"
+          "description": "The function's return value."
+        "default":
+          "content":
+            "text/plain":
+              "schema":
+                "type": "string"
+              "x-leptoskit-error-encoding": "kind-pipe-message"
+          "description": "An error; see the leptoskit error encoding"
+      "summary": "Finds todos whose title contains the text."
+      "x-leptoskit-kind": "query"
 "servers":
   - "url": "https://todos.example"

@@ -87,6 +87,27 @@ jobs:
             exit 1
           fi
 
+      # A crate an app shares between its server and its native guest:
+      # `#[rpc::query]` and `#[rpc::mutation]` keep their bodies only in the
+      # server build. The guest's Wasm may hold the client, but no body, and
+      # nothing that talks to a database.
+      - name: check operations build for a native guest without server code
+        run: |
+          set -euo pipefail
+          cargo build --locked --package leptoskit_rpc_guest_fixture --features guest \
+            --target wasm32-unknown-unknown --release
+          if cargo tree --locked --package leptoskit_rpc_guest_fixture --features guest \
+            --target wasm32-unknown-unknown --edges normal,no-proc-macro --prefix none \
+            | grep -E '^(leptoskit_db|axum|inventory|tokio|tokio-postgres|rusqlite) '; then
+            echo "server-only crates reached the guest build" >&2
+            exit 1
+          fi
+          wasm=target/wasm32-unknown-unknown/release/leptoskit_rpc_guest_fixture.wasm
+          if grep -a -q 'server-only body' "$wasm"; then
+            echo "an operation's body reached the guest build" >&2
+            exit 1
+          fi
+
       - name: lint browser storage and shared screen tests
         run: cargo clippy --locked --package leptoskit_use --features local-storage,web --lib --test web_storage --test web_storage_worker --target wasm32-unknown-unknown -- -D warnings
 

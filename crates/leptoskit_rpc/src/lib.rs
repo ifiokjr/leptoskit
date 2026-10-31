@@ -13,6 +13,11 @@
 //!   with the same error handling;
 //! - [`FnError`] classifies failures so "offline" and "your input was invalid"
 //!   stop looking identical in the UI;
+//! - [`query`] and [`mutation`](macro@mutation) declare operations that run on
+//!   the database as the caller, called by their argument structs from every
+//!   platform through [`client::call`] (features `client`, `web`, `guest`) and
+//!   served at `POST /api/<name>` by [`server::Server`] (features `server`,
+//!   `db`, and `postgres` or `sqlite`);
 //! - [`api`] publishes a server function to generated clients — the same RPC,
 //!   described, with docs — so `leptoskit rpc generate` can write typed clients
 //!   for TypeScript, Python, Go, Rust, Dart, and the command line (see the
@@ -70,21 +75,73 @@ use leptos::prelude::Action;
 use leptos::prelude::ArcAsyncDerived;
 use leptos::prelude::ServerFnError;
 pub use leptoskit_rpc_macros::api;
+pub use leptoskit_rpc_macros::mutation;
+pub use leptoskit_rpc_macros::query;
+pub use operation::Error;
+pub use operation::Kind;
+pub use operation::Operation;
+pub use operation::Result;
 pub use scopes::ScopeInfo;
 pub use scopes::Scopes;
 pub use scopes::is_scope_name;
+#[cfg(feature = "db")]
+pub use server::Identify;
+#[cfg(feature = "db")]
+pub use server::Identity;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use server::MutationCx;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use server::QueryCx;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use server::call;
 
+#[cfg(feature = "client")]
+pub mod client;
+mod operation;
 pub mod scopes;
+#[cfg(feature = "server")]
+pub mod server;
 #[cfg(feature = "ssr")]
 pub mod spec;
 
-/// Re-exports the `#[api]` macro and the generated clients expand to; not
-/// part of the public API.
+/// Re-exports the macros and the generated clients expand to; not part of
+/// the public API.
 #[doc(hidden)]
 pub mod __private {
 	#[cfg(feature = "ssr")]
 	pub use inventory;
 	pub use leptos::server_fn::ServerFn;
+	pub use schemars;
+	pub use serde;
+
+	pub use crate::operation::assert_argument;
+	pub use crate::operation::assert_output;
+	#[cfg(any(feature = "postgres", feature = "sqlite"))]
+	pub use crate::server::handle;
+}
+
+/// Refuses a server build that declares queries or mutations without a
+/// database to run them on.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __require_db {
+	() => {};
+}
+
+/// Refuses a server build that declares queries or mutations without a
+/// database to run them on.
+#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __require_db {
+	() => {
+		::core::compile_error!(
+			"queries and mutations run on a database: turn on leptoskit_rpc's `postgres` or \
+			 `sqlite` feature in the server build (`db-postgres` or `db-sqlite` through \
+			 `leptoskit`)"
+		);
+	};
 }
 
 /// One classified server-fn failure.

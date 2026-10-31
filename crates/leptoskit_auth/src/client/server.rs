@@ -115,114 +115,15 @@ impl Api for Server {
 		in_the_browser()
 	}
 
-	fn passkey_sign_in(&self, _mode: PasskeyMode) -> Pending<'_, PublicSession> {
-		in_the_browser()
+	/// The RPC identifies the request being rendered itself.
+	#[cfg(feature = "rpc")]
+	fn authorization(&self) -> Pending<'_, Option<String>> {
+		Box::pin(std::future::ready(Ok(None)))
 	}
 
-	fn cancel_passkey(&self) {}
-
-	fn add_passkey(&self, _name: Option<String>) -> Pending<'_, PasskeyAdded> {
-		in_the_browser()
-	}
-
-	fn complete_sign_in_with_passkey(&self) -> Pending<'_, PublicSession> {
-		in_the_browser()
-	}
-
-	fn step_up_with_passkey(&self) -> Pending<'_, PublicSession> {
-		in_the_browser()
-	}
-
-	fn passkeys(&self) -> Pending<'_, Vec<PasskeyInfo>> {
-		Box::pin(reads::passkeys())
-	}
-
-	fn rename_passkey(&self, _input: RenamePasskey) -> Pending<'_, ()> {
-		in_the_browser()
-	}
-
-	fn remove_passkey(&self, _id: Id<Passkey>) -> Pending<'_, ()> {
-		in_the_browser()
-	}
-
-	fn providers(&self) -> Pending<'_, Vec<ProviderInfo>> {
-		Box::pin(reads::providers())
-	}
-
-	fn start_provider(&self, _input: StartProvider, _link: bool) -> Pending<'_, ()> {
-		in_the_browser()
-	}
-
-	fn continue_provider_sign_up(&self) -> Pending<'_, PublicSession> {
-		in_the_browser()
-	}
-
-	fn provider_outcome(&self) -> Option<ProviderOutcome> {
-		None
-	}
-
-	fn identities(&self) -> Pending<'_, Vec<IdentityInfo>> {
-		Box::pin(reads::identities())
-	}
-
-	fn unlink_identity(&self, _id: Id<Identity>) -> Pending<'_, ()> {
-		in_the_browser()
-	}
-
-	fn merge_offer(&self) -> Pending<'_, Option<MergeOffer>> {
-		Box::pin(reads::merge_offer())
-	}
-
-	fn merge_accounts(&self, _input: MergeInput) -> Pending<'_, ()> {
-		in_the_browser()
-	}
-
-	fn cancel_merge(&self) -> Pending<'_, ()> {
-		in_the_browser()
-	}
-
-	fn wallet_settings(&self) -> Pending<'_, WalletSettings> {
-		Box::pin(reads::wallet_settings())
-	}
-
-	fn wallet_apps(&self) -> Pending<'_, Vec<WalletApp>> {
-		in_the_browser()
-	}
-
-	fn wallets(&self) -> Pending<'_, Vec<WalletInfo>> {
-		Box::pin(reads::wallets())
-	}
-
-	fn link_wallet(&self, _input: LinkWalletInput) -> Pending<'_, WalletLinked> {
-		in_the_browser()
-	}
-
-	fn prove_wallet(&self, _input: ProveWalletInput) -> Pending<'_, WalletInfo> {
-		in_the_browser()
-	}
-
-	fn update_wallet(&self, _input: UpdateWallet) -> Pending<'_, WalletInfo> {
-		in_the_browser()
-	}
-
-	fn unlink_wallet(&self, _id: Id<Wallet>) -> Pending<'_, ()> {
-		in_the_browser()
-	}
-
-	fn wallet_sign_in(&self, _wallet: String) -> Pending<'_, SignInStep> {
-		in_the_browser()
-	}
-
-	fn send(
-		&self,
-		_method: Method,
-		_path: String,
-		_body: Option<String>,
-	) -> Pending<'_, HttpResponse> {
-		Box::pin(std::future::ready(Err(error(
-			"server",
-			"requests to the server run in the browser or the app, not while the server renders",
-		))))
+	#[cfg(feature = "rpc")]
+	fn refused(&self, _sent: Option<String>) -> Pending<'_, bool> {
+		Box::pin(std::future::ready(Ok(false)))
 	}
 }
 

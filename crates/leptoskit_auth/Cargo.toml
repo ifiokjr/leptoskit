@@ -29,6 +29,7 @@ leptos = { workspace = true, optional = true }
 leptoskit_config = { workspace = true, optional = true }
 leptoskit_db = { workspace = true, features = ["solana"] }
 leptoskit_query = { workspace = true, optional = true }
+leptoskit_rpc = { workspace = true, optional = true }
 lettre = { version = "0.11", optional = true, default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1-rustls-tls"] }
 # webauthn-rs verifies signatures with OpenSSL. Building it from source keeps
 # servers buildable where no OpenSSL headers are installed (macOS, Windows,
@@ -79,12 +80,8 @@ ed25519-dalek = { workspace = true }
 hmac = { workspace = true }
 http-body-util = "0.1"
 leptoskit_config = { workspace = true }
-# The desktop loopback, end to end against the fake identity provider.
-leptoskit_plugin_web_auth = { workspace = true }
-proptest = { workspace = true }
-# The tests' passkey and fake identity provider sign with keys made at test
-# time.
-ring = "0.17"
+leptoskit_rpc = { workspace = true, features = ["sqlite"] }
+schemars = { workspace = true }
 serde_json = { workspace = true }
 sha1 = "0.10"
 sha2 = { workspace = true }
@@ -108,6 +105,7 @@ server = [
 	"dep:sha2",
 	"dep:subtle",
 	"leptoskit_db/server",
+	"leptoskit_rpc?/db",
 ]
 ## Sign-in backed by Postgres.
 postgres = ["server", "leptoskit_db/postgres"]
@@ -139,8 +137,7 @@ client = ["dep:futures", "dep:leptos", "dep:leptoskit_query", "dep:qrcode", "dep
 ## `HttpOnly` cookie.
 web = [
 	"client",
-	"leptoskit_query/browser",
-	"dep:js-sys",
+	"leptoskit_rpc?/web",
 	"dep:send_wrapper",
 	"dep:wasm-bindgen",
 	"dep:wasm-bindgen-futures",
@@ -153,7 +150,7 @@ web = [
 ## web-auth plugin.
 guest = [
 	"client",
-	"leptoskit_query/guest",
+	"leptoskit_rpc?/guest",
 	"dep:leptoskit_bridge",
 	"dep:leptoskit_plugin_http",
 	"dep:leptoskit_plugin_passkeys",
@@ -163,6 +160,11 @@ guest = [
 ## The client during server rendering: it reads the request's session in
 ## process.
 ssr = ["client", "leptos", "leptos/ssr"]
+## Sign-in for `leptoskit_rpc`: with `axum` and a database, `Auth` implements
+## `leptoskit_rpc::Identify`, so queries and mutations run as the signed-in
+## person; with `client`, `client::configure` also sets up the RPC client,
+## signing its calls the way it signs its own.
+rpc = ["dep:leptoskit_rpc", "leptoskit_rpc/client"]
 
 [lints]
 workspace = true

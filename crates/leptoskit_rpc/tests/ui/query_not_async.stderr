@@ -1,0 +1,5 @@
+error: #[rpc::query] needs an `async fn`: the operation runs on the server and answers over the network
+ --> tests/ui/query_not_async.rs:5:5
+  |
+5 | pub fn latest(cx: &rpc::QueryCx) -> rpc::Result<u32> {
+  |     ^^

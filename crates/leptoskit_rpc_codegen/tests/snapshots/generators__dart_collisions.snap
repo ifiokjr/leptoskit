@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
+assertion_line: 1049
 expression: code
 ---
 ===== lib/clash.dart =====
@@ -240,10 +241,14 @@ class Client {
 		String method,
 		String path,
 		String encoding,
-		Map<String, Object?> payload,
-	) async {
+		Map<String, Object?> payload, {
+		String? idempotencyKey,
+	}) async {
 		var url = '${serverUrl ?? ''}$path';
 		final headers = <String, String>{'Accept': 'application/json'};
+		// A repeat with the same key and arguments returns the first call's result
+		// instead of running the mutation again.
+		if (idempotencyKey != null) headers['Idempotency-Key'] = idempotencyKey;
 		Uint8List? body;
 		if (encoding == 'query') {
 			final query = toQueryString(payload);
