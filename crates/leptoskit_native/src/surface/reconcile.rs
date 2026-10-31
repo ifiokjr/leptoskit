@@ -76,6 +76,10 @@ impl<B: NativeBackend> NativeSurface<B> {
 			children: Vec::new(),
 			parent: None,
 			text_cell: None,
+			#[cfg(feature = "devtools")]
+			source: None,
+			#[cfg(feature = "devtools")]
+			classes: Vec::new(),
 		});
 		self.frames.push(None);
 		self.hit_areas.push(HitArea::DETACHED);
@@ -97,6 +101,16 @@ impl<B: NativeBackend> NativeSurface<B> {
 		let id = self.allocate(element.kind);
 		self.shadows[id.index()].props = element.props.clone();
 		self.shadows[id.index()].handlers = element.handlers().to_vec();
+		#[cfg(feature = "devtools")]
+		{
+			self.shadows[id.index()].source = element.source_location();
+			self.shadows[id.index()].classes = element
+				.classes()
+				.classes()
+				.split_whitespace()
+				.map(str::to_owned)
+				.collect();
+		}
 		self.yoga.set_style(id, element.style.clone());
 
 		if let Some(text) = measured_content(element) {
@@ -187,6 +201,16 @@ impl<B: NativeBackend> NativeSurface<B> {
 		}
 
 		self.shadows[id.index()].handlers = element.handlers().to_vec();
+		#[cfg(feature = "devtools")]
+		{
+			self.shadows[id.index()].source = element.source_location();
+			self.shadows[id.index()].classes = element
+				.classes()
+				.classes()
+				.split_whitespace()
+				.map(str::to_owned)
+				.collect();
+		}
 		self.yoga.set_style(id, element.style.clone());
 
 		let old_children = self.shadows[id.index()].children.clone();
