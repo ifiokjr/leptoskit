@@ -170,13 +170,6 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 			};
 			out.push_str(&format!("\t\t#[arg(long)]\n\t\t{ident}: {field_type},\n"));
 		}
-		if function.kind.is_idempotent_with_key() {
-			out.push_str(
-				"\t\t/// Any unique string. Running the command again with the same key and \
-				 arguments\n\t\t/// prints the first run's result instead of running it \
-				 twice.\n\t\t#[arg(long)]\n\t\tidempotency_key: Option<String>,\n",
-			);
-		}
 		out.push_str("\t},\n");
 	}
 	if let Some(sign_in) = &sign_in {
@@ -253,36 +246,14 @@ fn main_source(context: &Context<'_>, sign_in: bool) -> String {
 			}
 		}
 		let argument_list = fields.join(", ");
-		if function.kind.is_idempotent_with_key() {
-			let mut bindings = arguments.clone();
-			bindings.push("idempotency_key".to_owned());
-			arms.push_str(&format!(
-				"\t\tCommand::{variant} {{ {} }} => match keyed(&api, idempotency_key) \
-				 {{\n\t\t\tOk(api) => \
-				 run(api.{method}({argument_list}).await).await,\n\t\t\tErr(error) => \
-				 Err(error),\n\t\t}},\n",
-				bindings.join(", "),
-			));
-		} else {
-			arms.push_str(&format!(
-				"\t\tCommand::{variant} {{ {} }} => \
-				 run(api.{method}({argument_list}).await).await,\n",
-				arguments.join(", "),
-			));
-		}
+		arms.push_str(&format!(
+			"\t\tCommand::{variant} {{ {} }} => run(api.{method}({argument_list}).await).await,\n",
+			arguments.join(", "),
+		));
 	}
-	let keyed = if context
-		.functions()
-		.any(|function| function.kind.is_idempotent_with_key())
-	{
-		"\n/// The client, sending `key` as the `Idempotency-Key` when there is one.\nfn \
-		 keyed(api: &api::Client, key: Option<String>) -> Result<api::Client, String> {\n\tmatch \
-		 key {\n\t\tSome(key) => reqwest::header::HeaderValue::from_str(&key)\n\t\t\t.map(|key| \
-		 api.with_idempotency_key(key))\n\t\t\t.map_err(|_| \"--idempotency-key must be printable \
-		 ASCII\".to_owned()),\n\t\tNone => Ok(api.clone()),\n\t}\n}\n"
-	} else {
-		""
-	};
+	if sign_in {
+		return signed_main(&arms);
+	}
 	format!(
 		"fn main() {{\n\tlet cli = Cli::parse();\n\tlet runtime = \
 		 tokio::runtime::Builder::new_current_thread()\n\t\t.enable_all()\n\t\t.build()\n\t\t.\
@@ -305,7 +276,7 @@ fn main_source(context: &Context<'_>, sign_in: bool) -> String {
 		 format!(\"not valid JSON for this argument: {{error}}\"))\n\t}}\n}}\n\nimpl<T: \
 		 serde::Serialize> std::fmt::Debug for Json<T> {{\n\tfn fmt(&self, formatter: &mut \
 		 std::fmt::Formatter<'_>) -> std::fmt::Result {{\n\t\twrite!(formatter, \"{{}}\", \
-		 serde_json::to_string(&self.0).expect(\"serializable\"))\n\t}}\n}}\n{keyed}",
+		 serde_json::to_string(&self.0).expect(\"serializable\"))\n\t}}\n}}\n",
 	)
 }
 

@@ -81,6 +81,9 @@ pub use operation::Error;
 pub use operation::Kind;
 pub use operation::Operation;
 pub use operation::Result;
+pub use scopes::ScopeInfo;
+pub use scopes::Scopes;
+pub use scopes::is_scope_name;
 #[cfg(feature = "db")]
 pub use server::Identify;
 #[cfg(feature = "db")]
@@ -95,6 +98,7 @@ pub use server::call;
 #[cfg(feature = "client")]
 pub mod client;
 mod operation;
+pub mod scopes;
 #[cfg(feature = "server")]
 pub mod server;
 #[cfg(feature = "ssr")]

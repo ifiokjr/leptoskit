@@ -263,6 +263,15 @@ impl ApiArgs {
 	}
 }
 
+/// Whether `name` can be an OAuth scope (RFC 6749 §3.3), as
+/// `leptoskit_rpc::is_scope_name` checks it.
+fn is_scope_name(name: &str) -> bool {
+	!name.is_empty()
+		&& name
+			.bytes()
+			.all(|byte| matches!(byte, 0x21 | 0x23..=0x5b | 0x5d..=0x7e))
+}
+
 /// Whether `name` can stand alone as one path segment of a route: letters,
 /// digits, `_`, `-`, and `.` for a namespaced operation such as
 /// `chat.messages`.
@@ -764,6 +773,7 @@ fn expand_operation(
 						internal: #internal,
 						deprecated: #deprecated,
 						tags: &[#(#tags),*],
+						scopes: &[],
 					}
 				}
 			};

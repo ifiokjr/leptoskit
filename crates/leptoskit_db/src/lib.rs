@@ -103,6 +103,8 @@ mod table;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub mod testing;
 mod time;
+#[cfg(feature = "server")]
+mod tracked;
 pub mod validate;
 #[cfg(feature = "server")]
 mod value;
@@ -423,6 +425,12 @@ pub use table::with_geopackage;
 pub use time::Timestamp;
 #[cfg(feature = "server")]
 pub use time::now;
+#[cfg(feature = "server")]
+pub use tracked::Read;
+#[cfg(feature = "server")]
+pub use tracked::ReadEntry;
+#[cfg(feature = "server")]
+pub use tracked::Tracked;
 pub use validate::ValidationErrors;
 #[cfg(feature = "server")]
 pub use value::Column;

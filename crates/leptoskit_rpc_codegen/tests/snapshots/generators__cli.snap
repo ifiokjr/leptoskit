@@ -1,6 +1,5 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
-assertion_line: 495
 expression: "generate(TargetLanguage::Cli, \"todos-cli\")"
 ---
 ===== Cargo.toml (Scaffold) =====
@@ -474,18 +473,10 @@ enum Command {
 		/// The todo.
 		#[arg(long)]
 		id: Json<u64>,
-		/// Any unique string. Running the command again with the same key and arguments
-		/// prints the first run's result instead of running it twice.
-		#[arg(long)]
-		idempotency_key: Option<String>,
 	},
 	/// Runs clear_done.
 	#[command(name = "clear-done")]
 	ClearDone {
-		/// Any unique string. Running the command again with the same key and arguments
-		/// prints the first run's result instead of running it twice.
-		#[arg(long)]
-		idempotency_key: Option<String>,
 	},
 }
 
@@ -506,14 +497,8 @@ fn main() {
 		Command::GetTodo { id } => run(api.get_todo(id.0).await).await,
 		Command::Counts {  } => run(api.counts().await).await,
 		Command::SearchTodos { text } => run(api.search_todos(text.0).await).await,
-		Command::CompleteTodo { id, idempotency_key } => match keyed(&api, idempotency_key) {
-			Ok(api) => run(api.complete_todo(id.0).await).await,
-			Err(error) => Err(error),
-		},
-		Command::ClearDone { idempotency_key } => match keyed(&api, idempotency_key) {
-			Ok(api) => run(api.clear_done().await).await,
-			Err(error) => Err(error),
-		},
+		Command::CompleteTodo { id } => run(api.complete_todo(id.0).await).await,
+		Command::ClearDone {  } => run(api.clear_done().await).await,
 		};
 		match outcome {
 			Ok(output) => println!("{output}"),
@@ -548,16 +533,6 @@ impl<T: DeserializeOwned> std::str::FromStr for Json<T> {
 impl<T: serde::Serialize> std::fmt::Debug for Json<T> {
 	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(formatter, "{}", serde_json::to_string(&self.0).expect("serializable"))
-	}
-}
-
-/// The client, sending `key` as the `Idempotency-Key` when there is one.
-fn keyed(api: &api::Client, key: Option<String>) -> Result<api::Client, String> {
-	match key {
-		Some(key) => reqwest::header::HeaderValue::from_str(&key)
-			.map(|key| api.with_idempotency_key(key))
-			.map_err(|_| "--idempotency-key must be printable ASCII".to_owned()),
-		None => Ok(api.clone()),
 	}
 }
 

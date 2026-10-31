@@ -518,16 +518,15 @@ async fn server_code_calls_operations(db: &Db) {
 	assert_eq!(first, again);
 	assert_ne!(first, id);
 
-	// A query records what it read, for live queries to come.
+	// A query runs as the caller. Read sets return with the server-side
+	// matcher; the invalidation feed drives live updates for now.
 	let cx = rpc::QueryCx::new(ada.clone(), Identity::of(&ada));
 	assert_eq!(cx.reads(), Vec::new());
 	Notes { starting: None }.run(&cx).await.unwrap();
 	assert!(cx.get::<Me>().is_some());
 	assert!(cx.require::<String>().is_err());
 	assert!(format!("{cx:?}").contains("QueryCx"));
-	let reads = cx.into_reads();
-	assert_eq!(reads.len(), 1);
-	assert_eq!(reads[0].table.to_string().replace('.', "_"), "notes");
+	assert_eq!(cx.into_reads(), Vec::new());
 }
 
 #[tokio::test]

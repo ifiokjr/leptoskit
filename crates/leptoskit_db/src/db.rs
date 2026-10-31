@@ -269,6 +269,10 @@ impl Db {
 		let tx = Tx {
 			inner,
 			access: self.access.clone(),
+			row_security: self.row_security,
+			#[cfg(feature = "sqlite")]
+			live: Arc::clone(&self.live),
+			pending: Mutex::new(Vec::new()),
 		};
 
 		#[cfg(feature = "postgres")]

@@ -625,10 +625,6 @@ fn empty_specs_generate_valid_packages() {
 /// case-colliding enum values, `const` strings, floats, free-form values,
 /// `$ref`s to missing schemas, zero-argument functions, and a function whose
 /// output encoding no client can decode.
-#[expect(
-	clippy::too_many_lines,
-	reason = "one literal fixture reads best top to bottom"
-)]
 fn edge_spec() -> ApiSpec {
 	let mut schemas: BTreeMap<String, serde_json::Value> = BTreeMap::new();
 	schemas.insert(

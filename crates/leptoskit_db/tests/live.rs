@@ -347,13 +347,11 @@ async fn policies_never_see_secret_columns() {
 		pub token: String,
 	}
 
-			tokio::time::sleep(Duration::from_millis(10)).await;
-			let removed = leptoskit_db::prune_live(&db, Duration::from_secs(0))
-				.await
-				.unwrap();
-			assert!(removed > 0);
-			assert!(db.changes().all().await.unwrap().is_empty());
-			assert!(commits(&db).await.is_empty());
+	on_both(async |db, _| {
+		let system = db.system("a live test");
+		let mut anyone = db.changes().await.unwrap();
+		let vault = NewVault {
+			token: "open sesame".into(),
 		}
 		.insert(&system)
 		.await
