@@ -163,8 +163,8 @@ pub enum Command {
 		#[command(subcommand)]
 		command: RpcCommand,
 	},
-	/// Generates an application, sign-in screens, a runtime plugin crate, or
-	/// a tooling plugin program.
+	/// Generates an application, sign-in screens, a runtime plugin crate, a
+	/// tooling plugin program, or deployment files.
 	Generate {
 		#[command(subcommand)]
 		kind: GenerateCommand,
@@ -415,6 +415,20 @@ pub enum GenerateCommand {
 		#[arg(long)]
 		name: Option<String>,
 	},
+	/// Writes the files that deploy the app's server: a Dockerfile, and the
+	/// target platform's own file.
+	///
+	/// Everything they need comes from leptoskit.toml and Cargo.toml, and
+	/// they're yours to edit. Running it again changes nothing, and keeps a
+	/// file you've edited unless you pass --force.
+	Deploy {
+		/// Where the server runs.
+		#[arg(long, value_enum)]
+		target: crate::deploy::Target,
+		/// Replace files that differ from the templates.
+		#[arg(long)]
+		force: bool,
+	},
 }
 
 /// Code push subcommands.
@@ -630,6 +644,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 				GenerateCommand::ToolPlugin { path, name } => {
 					generate::tool_plugin(&path, name.as_deref())
 				}
+				GenerateCommand::Deploy { target, force } => crate::deploy::run(target, force),
 			}
 		}
 		Command::New {

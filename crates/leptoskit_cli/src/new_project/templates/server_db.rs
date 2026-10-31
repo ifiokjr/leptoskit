@@ -7,6 +7,8 @@
 
 use __CRATE___app::App;
 use __CRATE___app::shell;
+use leptoskit::server::GracefulShutdown;
+use leptoskit::server::Readiness;
 use leptoskit::server::leptos_axum::LeptosRoutes;
 use leptoskit::server::leptos_axum::generate_route_list;
 use leptoskit::server::tokio;
@@ -23,6 +25,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let address = options.site_addr;
 	let package_dir = format!("{}/{}", options.site_root, options.site_pkg_dir);
 	let assets_dir = format!("{}/assets", options.site_root);
+	// `/readyz` answers 200 once every check passes, so a load balancer only
+	// sends traffic to an instance that can serve it.
+	let readiness = Readiness::new();
+	let migrated = readiness.check("migrations");
 	// The database, migrated before the first request.
 	let url = __DATABASE_URL__;
 	let db = leptoskit::db::Db::connect(&url).await?;
@@ -30,6 +36,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	for name in db.migrate(__CRATE___db::MIGRATIONS).await? {
 		println!("applied migration {name}");
 	}
+
+	migrated.pass();
 
 	let routes = generate_route_list(App);
 	let app_options = options.clone();
@@ -45,13 +53,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 			leptoskit::server::static_files(assets_dir.as_ref()),
 		)
 		.leptos_routes(&options, routes, move || shell(app_options.clone()))
-		.with_state(options);
+		.with_state(options)
+		.merge(readiness.routes());
 	let listener = tokio::net::TcpListener::bind(address).await?;
 
 	println!("listening on http://{address}");
-	// Serves until Ctrl-C or the SIGTERM a container runtime sends, finishing
-	// the requests in flight first.
-	leptoskit::server::serve_listener(listener, app).await?;
+	// Serves until Ctrl-C or the SIGTERM a container runtime sends. Then
+	// `/readyz` fails, and after a few seconds for the load balancer to
+	// notice, the server stops accepting and finishes the requests in flight.
+	let shutdown = GracefulShutdown::new().readiness(&readiness);
+	leptoskit::server::serve_listener_with(listener, app, shutdown).await?;
 
 	Ok(())
 }
