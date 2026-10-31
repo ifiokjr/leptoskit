@@ -34,6 +34,11 @@ pub(crate) fn built_in(kind: &str, client_id: String, client_secret: String) -> 
 		"discord" => Provider::discord(client_id, client_secret),
 		"linkedin" => Provider::linkedin(client_id, client_secret),
 		"slack" => Provider::slack(client_id, client_secret),
+		"twitch" => Provider::twitch(client_id, client_secret),
+		"spotify" => Provider::spotify(client_id, client_secret),
+		"reddit" => Provider::reddit(client_id, client_secret),
+		"amazon" => Provider::amazon(client_id, client_secret),
+		"dropbox" => Provider::dropbox(client_id, client_secret),
 		_ => return None,
 	})
 }
@@ -241,6 +246,127 @@ impl Provider {
 				}),
 				..Quirks::default()
 			},
+		)
+	}
+
+	/// Twitch, through its OpenID Connect sign-in. Twitch puts the address
+	/// and username in the ID token only when asked for each by name, with
+	/// the `claims` parameter.
+	pub fn twitch(client_id: impl Into<String>, client_secret: impl Into<String>) -> Self {
+		let claims = r#"{"id_token":{"email":null,"email_verified":null,"picture":null,"preferred_username":null}}"#;
+		fixed(
+			"twitch",
+			"Twitch",
+			client_id.into(),
+			client_secret.into(),
+			&["openid", "user:read:email"],
+			Endpoints::fixed(
+				"https://id.twitch.tv/oauth2/authorize",
+				"https://id.twitch.tv/oauth2/token",
+				Some("https://id.twitch.tv/oauth2/keys"),
+				Some("https://id.twitch.tv/oauth2"),
+			),
+			Quirks {
+				authorize: vec![("claims", claims.to_owned())],
+				..Quirks::default()
+			},
+		)
+	}
+
+	/// Spotify, with an app from its developer dashboard. Spotify doesn't
+	/// check addresses, so none is trusted.
+	pub fn spotify(client_id: impl Into<String>, client_secret: impl Into<String>) -> Self {
+		fixed(
+			"spotify",
+			"Spotify",
+			client_id.into(),
+			client_secret.into(),
+			&["user-read-email"],
+			Endpoints::fixed(
+				"https://accounts.spotify.com/authorize",
+				"https://accounts.spotify.com/api/token",
+				None,
+				None,
+			),
+			Quirks {
+				client_auth: ClientAuth::Basic,
+				..api(ApiProfile {
+					name: Some("/display_name"),
+					picture: Some("/images/0/url"),
+					email: Some("/email"),
+					..ApiProfile::at("https://api.spotify.com/v1/me", "/id")
+				})
+			},
+		)
+	}
+
+	/// Reddit, with a "web app". Reddit shares no address, and asks every
+	/// app to name itself in `User-Agent`, which carries the app's name and
+	/// nothing about the person.
+	pub fn reddit(client_id: impl Into<String>, client_secret: impl Into<String>) -> Self {
+		fixed(
+			"reddit",
+			"Reddit",
+			client_id.into(),
+			client_secret.into(),
+			&["identity"],
+			Endpoints::fixed(
+				"https://www.reddit.com/api/v1/authorize",
+				"https://www.reddit.com/api/v1/access_token",
+				None,
+				None,
+			),
+			Quirks {
+				client_auth: ClientAuth::Basic,
+				authorize: vec![("duration", "temporary".to_owned())],
+				user_agent: true,
+				..api(ApiProfile {
+					username: Some("/name"),
+					picture: Some("/icon_img"),
+					..ApiProfile::at("https://oauth.reddit.com/api/v1/me", "/id")
+				})
+			},
+		)
+	}
+
+	/// Login with Amazon, with a security profile's web client. Amazon
+	/// doesn't say whether it checked an address, so none is trusted.
+	pub fn amazon(client_id: impl Into<String>, client_secret: impl Into<String>) -> Self {
+		fixed(
+			"amazon",
+			"Amazon",
+			client_id.into(),
+			client_secret.into(),
+			&["profile"],
+			Endpoints::fixed(
+				"https://www.amazon.com/ap/oa",
+				"https://api.amazon.com/auth/o2/token",
+				None,
+				None,
+			),
+			api(ApiProfile {
+				name: Some("/name"),
+				email: Some("/email"),
+				..ApiProfile::at("https://api.amazon.com/user/profile", "/user_id")
+			}),
+		)
+	}
+
+	/// Dropbox, through its OpenID Connect sign-in, with `email_verified`.
+	pub fn dropbox(client_id: impl Into<String>, client_secret: impl Into<String>) -> Self {
+		fixed(
+			"dropbox",
+			"Dropbox",
+			client_id.into(),
+			client_secret.into(),
+			&["openid", "profile", "email"],
+			Endpoints::fixed(
+				"https://www.dropbox.com/oauth2/authorize",
+				"https://api.dropboxapi.com/oauth2/token",
+				Some("https://www.dropbox.com/.well-known/jwks"),
+				Some("https://www.dropbox.com"),
+			),
+			Quirks::default(),
 		)
 	}
 }

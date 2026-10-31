@@ -1339,6 +1339,11 @@ pub const AUTH_PROVIDER_KINDS: &[&str] = &[
 	"linkedin",
 	"gitlab",
 	"slack",
+	"twitch",
+	"spotify",
+	"reddit",
+	"amazon",
+	"dropbox",
 ];
 
 /// A third-party sign-in provider. Its secrets are named by the

@@ -132,6 +132,19 @@ pub const SPECS: &[Spec] = &[
 	id_tokens("gitlab.com", "gitlab.com", "https://gitlab.com"),
 	id_tokens("gitlab.example", "gitlab.example", "https://gitlab.example"),
 	id_tokens("slack.com", "slack.com", "https://slack.com"),
+	id_tokens(
+		"id.twitch.tv",
+		"id.twitch.tv",
+		"https://id.twitch.tv/oauth2",
+	),
+	api("accounts.spotify.com", "accounts.spotify.com", true),
+	api("www.reddit.com", "www.reddit.com", true),
+	api("www.amazon.com", "api.amazon.com", false),
+	id_tokens(
+		"www.dropbox.com",
+		"api.dropboxapi.com",
+		"https://www.dropbox.com",
+	),
 ];
 
 /// The key sets the fake publishes, at each provider's own address.
@@ -143,6 +156,8 @@ const KEY_SETS: &[&str] = &[
 	"https://gitlab.com/oauth/discovery/keys",
 	"https://gitlab.example/oauth/discovery/keys",
 	"https://slack.com/openid/connect/keys",
+	"https://id.twitch.tv/oauth2/keys",
+	"https://www.dropbox.com/.well-known/jwks",
 ];
 
 /// The hosts whose `GET`s, with an access token the fake issued, answer
@@ -152,7 +167,14 @@ const API_HOSTS: &[&str] = &[
 	"graph.facebook.com",
 	"api.x.com",
 	"discord.com",
+	"api.spotify.com",
+	"oauth.reddit.com",
+	"api.amazon.com",
 ];
+
+/// The hosts that refuse requests that don't name the app in `User-Agent`,
+/// as Reddit does, with `429`.
+const NAMED_APPS_ONLY: &[&str] = &["www.reddit.com", "oauth.reddit.com"];
 
 /// An authorization the person granted, waiting for its code.
 struct Grant {
@@ -263,6 +285,15 @@ impl FakeIdp {
 
 		if host == "appleid.apple.com" {
 			assert_eq!(query["response_mode"], "form_post");
+		}
+
+		// Twitch's ID token carries only the claims asked for by name.
+		if host == "id.twitch.tv" {
+			let asked: Value = serde_json::from_str(&query["claims"]).unwrap();
+
+			for claim in ["email", "email_verified", "preferred_username"] {
+				assert!(asked["id_token"].get(claim).is_some(), "{claim}");
+			}
 		}
 
 		// An OpenID Connect sign-in carries a nonce; an API's has no use for
@@ -484,6 +515,11 @@ impl FakeIdp {
 	fn answer(&self, request: &ProviderRequest) -> (u16, Value) {
 		let url = url::Url::parse(&request.url).unwrap();
 		let host = url.host_str().unwrap_or_default();
+		let named = header(request, "user-agent").is_some_and(|agent| agent.starts_with("web:"));
+
+		if NAMED_APPS_ONLY.contains(&host) && !named {
+			return (429, json!({ "message": "Too Many Requests" }));
+		}
 
 		match request.method {
 			"GET" if request.url == "https://sso.example/.well-known/openid-configuration" => {

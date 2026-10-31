@@ -71,6 +71,11 @@ fn app(db: &Db) -> App {
 			.unwrap(),
 		)
 		.provider(Provider::slack("slack-client", SECRET))
+		.provider(Provider::twitch("twitch-client", SECRET))
+		.provider(Provider::spotify("spotify-client", SECRET))
+		.provider(Provider::reddit("reddit-client", SECRET))
+		.provider(Provider::amazon("amazon-client", SECRET))
+		.provider(Provider::dropbox("dropbox-client", SECRET))
 		.provider_http(idp.clone())
 		.build()
 		.unwrap();
@@ -258,6 +263,52 @@ fn fixtures() -> Vec<Fixture> {
 			name: "Katherine",
 			trusted: Some("katherine@slack.example"),
 		},
+		Fixture {
+			provider: "twitch",
+			claims: json!({
+				"sub": "141981764", "preferred_username": "twitchdev",
+				"email": "dev@twitch.example", "email_verified": true,
+			}),
+			subject: "141981764",
+			name: "twitchdev",
+			trusted: Some("dev@twitch.example"),
+		},
+		Fixture {
+			provider: "spotify",
+			claims: json!({ "user": {
+				"id": "wizzler", "display_name": "JM Wizzler", "email": "wizzler@spotify.example",
+				"images": [{ "url": "https://i.scdn.example/wizzler.jpg" }],
+			}}),
+			subject: "wizzler",
+			name: "JM Wizzler",
+			trusted: None,
+		},
+		Fixture {
+			provider: "reddit",
+			claims: json!({ "user": { "id": "abc12", "name": "spez" } }),
+			subject: "abc12",
+			name: "spez",
+			trusted: None,
+		},
+		Fixture {
+			provider: "amazon",
+			claims: json!({ "user": {
+				"user_id": "amzn1.account.AF", "name": "Jeff", "email": "jeff@amazon.example",
+			}}),
+			subject: "amzn1.account.AF",
+			name: "Jeff",
+			trusted: None,
+		},
+		Fixture {
+			provider: "dropbox",
+			claims: json!({
+				"sub": "dbid:AAH4f", "given_name": "Drew", "family_name": "Houston",
+				"email": "drew@dropbox.example", "email_verified": true,
+			}),
+			subject: "dbid:AAH4f",
+			name: "Drew Houston",
+			trusted: Some("drew@dropbox.example"),
+		},
 	]
 }
 
@@ -359,6 +410,27 @@ async fn each_provider_is_asked_the_way_it_expects() {
 			"https://slack.com/openid/connect/authorize",
 			"openid email profile",
 		),
+		(
+			"twitch",
+			"https://id.twitch.tv/oauth2/authorize",
+			"openid user:read:email",
+		),
+		(
+			"spotify",
+			"https://accounts.spotify.com/authorize",
+			"user-read-email",
+		),
+		(
+			"reddit",
+			"https://www.reddit.com/api/v1/authorize",
+			"identity",
+		),
+		("amazon", "https://www.amazon.com/ap/oa", "profile"),
+		(
+			"dropbox",
+			"https://www.dropbox.com/oauth2/authorize",
+			"openid profile email",
+		),
 	];
 
 	for (fixture, (provider, authorize, scope)) in fixtures().into_iter().zip(expectations) {
@@ -370,11 +442,18 @@ async fn each_provider_is_asked_the_way_it_expects() {
 		assert_eq!(query["scope"], scope, "{provider}");
 		assert_eq!(query["code_challenge_method"], "S256", "{provider}");
 		assert!(!query.contains_key("prompt"), "{provider}");
+
+		// Reddit gives a short-lived grant unless asked for a lasting one.
+		if provider == "reddit" {
+			assert_eq!(query["duration"], "temporary");
+		}
 	}
 
 	// The fake refuses a client that authenticates any other way than its
-	// provider wants, so these requests reached it as X and Facebook ask.
+	// provider wants, and Reddit answers `429` to requests that don't name
+	// the app, so these requests reached it as each provider asks.
 	let requests = app.idp.requests();
+	assert!(requests.contains(&"GET https://oauth.reddit.com/api/v1/me".to_owned()));
 	assert!(requests.contains(&"POST https://api.x.com/2/oauth2/token".to_owned()));
 	assert!(requests.contains(
 		&"GET https://graph.facebook.com/v26.0/me?fields=id,name,email,picture".to_owned()

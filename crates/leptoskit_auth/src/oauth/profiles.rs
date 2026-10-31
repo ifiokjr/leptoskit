@@ -95,8 +95,14 @@ impl ApiProfile {
 		&self,
 		providers: &Providers,
 		access: &str,
+		user_agent: Option<(String, String)>,
 	) -> Result<ProviderProfile> {
-		let profile: Value = providers.json(self.request(&self.url, access)).await?;
+		let request = |url: &str| {
+			let mut request = self.request(url, access);
+			request.headers.extend(user_agent.clone());
+			request
+		};
+		let profile: Value = providers.json(request(&self.url)).await?;
 		let subject = match profile.pointer(self.subject) {
 			Some(Value::String(subject)) => subject.clone(),
 			Some(Value::Number(subject)) => subject.to_string(),
@@ -110,7 +116,7 @@ impl ApiProfile {
 		}
 
 		let (email, email_verified) = if let Some(list) = &self.emails {
-			let answer: Value = providers.json(self.request(list.url, access)).await?;
+			let answer: Value = providers.json(request(list.url)).await?;
 			list.primary(&answer)
 		} else {
 			let verified = self
