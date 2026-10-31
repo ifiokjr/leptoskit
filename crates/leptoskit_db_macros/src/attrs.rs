@@ -30,7 +30,38 @@ pub(crate) struct TableArgs {
 	pub projections: Vec<Ident>,
 	/// What a `#[db::link]` table links.
 	pub link: Option<LinkArgs>,
+	/// The hooks the table implements: `hooks(before_write, after_update)`.
+	pub hooks: Vec<Ident>,
+	/// Every change is recorded in the audit log.
+	pub audit: bool,
+	/// Declared by the database layer itself, such as the audit log: not
+	/// registered for export, and written only from inside its crate.
+	pub internal: bool,
+	/// What a `#[db::view]` selects.
+	pub view: Option<ViewArgs>,
 }
+
+/// The query behind a `#[db::view]`.
+pub(crate) struct ViewArgs {
+	/// The query on Postgres and on SQLite.
+	pub sql: (LitStr, LitStr),
+	/// It keeps its rows until refreshed.
+	pub materialized: bool,
+}
+
+/// The first argument `#[db::view]` passes `#[db::table]`.
+pub(crate) const VIEW_MARKER: &str = "__view";
+
+/// The hooks a table can declare.
+pub(crate) const HOOKS: [&str; 4] = [
+	"before_write",
+	"after_insert",
+	"after_update",
+	"after_delete",
+];
+
+/// The hidden argument the database layer's own tables pass.
+pub(crate) const INTERNAL_MARKER: &str = "__internal";
 
 /// The ends of a `#[db::link]` table.
 pub(crate) struct LinkArgs {
@@ -91,8 +122,23 @@ impl TableArgs {
 		let mut from_column = None;
 		let mut to_column = None;
 		let mut exclusive = false;
+		let mut hooks = Vec::new();
+		let mut audit = false;
+		let mut internal = false;
+		let mut is_view = false;
+		let mut sql = None;
+		let mut materialized = false;
 
 		let parser = syn::meta::parser(|meta| {
+			if meta.path.is_ident(VIEW_MARKER) {
+				is_view = true;
+				return Ok(());
+			}
+
+			if view_option(&meta, is_view, &mut sql, &mut materialized)? {
+				return Ok(());
+			}
+
 			let link_option = ["from", "to", "from_column", "to_column", "exclusive"]
 				.iter()
 				.any(|option| meta.path.is_ident(option));
@@ -105,6 +151,12 @@ impl TableArgs {
 
 			if meta.path.is_ident(LINK_MARKER) {
 				is_link = true;
+			} else if meta.path.is_ident(INTERNAL_MARKER) {
+				internal = true;
+			} else if meta.path.is_ident("audit") {
+				audit = true;
+			} else if meta.path.is_ident("hooks") {
+				hooks = hook_list(&meta)?;
 			} else if meta.path.is_ident("from") {
 				from = Some(LinkEnd::parse(&meta)?);
 			} else if meta.path.is_ident("to") {
@@ -139,26 +191,7 @@ impl TableArgs {
 			} else if meta.path.is_ident("unique") {
 				uniques.push(idents(&meta)?);
 			} else if meta.path.is_ident("check") {
-				let mut check_name = None;
-				let mut sql = None;
-				meta.parse_nested_meta(|inner| {
-					if inner.path.is_ident("name") {
-						check_name = Some(string(&inner)?);
-					} else if inner.path.is_ident("sql") {
-						sql = Some(string(&inner)?);
-					} else {
-						return Err(
-							inner.error("`check` takes `name = \"...\"` and `sql = \"...\"`")
-						);
-					}
-					Ok(())
-				})?;
-				let (Some(check_name), Some(sql)) = (check_name, sql) else {
-					return Err(
-						meta.error("`check` needs both `name = \"...\"` and `sql = \"...\"`")
-					);
-				};
-				checks.push((check_name, sql));
+				checks.push(check(&meta)?);
 			} else if meta.path.is_ident("renamed_from") {
 				renamed_from = Some(string(&meta)?);
 			} else if meta.path.is_ident("pack") {
@@ -169,10 +202,11 @@ impl TableArgs {
 				return Err(meta.error(if is_link {
 					"unknown link option; expected `name`, `from`, `to`, `from_column`, \
 					 `to_column`, `exclusive`, `namespace`, `public`, `projection`, `index`, \
-					 `check`, `renamed_from`, `pack`, or `crate`"
+					 `check`, `hooks`, `audit`, `renamed_from`, `pack`, or `crate`"
 				} else {
 					"unknown table option; expected `name`, `namespace`, `public`, `projection`, \
-					 `index`, `unique`, `check`, `renamed_from`, `pack`, or `crate`"
+					 `index`, `unique`, `check`, `hooks`, `audit`, `renamed_from`, `pack`, or \
+					 `crate`"
 				}));
 			}
 
@@ -187,6 +221,12 @@ impl TableArgs {
 				 the struct then never renames the table",
 			)
 		})?;
+
+		let view = if is_view {
+			Some(ViewArgs::new(sql)?.materialized(materialized))
+		} else {
+			None
+		};
 
 		let link = if is_link {
 			let (Some(mut from), Some(mut to)) = (from, to) else {
@@ -219,7 +259,118 @@ impl TableArgs {
 			renamed_from,
 			pack,
 			krate,
+			hooks,
+			audit,
+			internal,
+			view,
 		})
+	}
+
+	/// Whether the table declares `hook`.
+	pub fn has_hook(&self, hook: &str) -> bool {
+		self.hooks.iter().any(|declared| declared == hook)
+	}
+}
+
+/// `check(name = "…", sql = "…")`.
+fn check(meta: &ParseNestedMeta<'_>) -> syn::Result<(LitStr, LitStr)> {
+	let mut check_name = None;
+	let mut sql = None;
+	meta.parse_nested_meta(|inner| {
+		if inner.path.is_ident("name") {
+			check_name = Some(string(&inner)?);
+		} else if inner.path.is_ident("sql") {
+			sql = Some(string(&inner)?);
+		} else {
+			return Err(inner.error("`check` takes `name = \"...\"` and `sql = \"...\"`"));
+		}
+		Ok(())
+	})?;
+
+	match (check_name, sql) {
+		(Some(check_name), Some(sql)) => Ok((check_name, sql)),
+		_ => Err(meta.error("`check` needs both `name = \"...\"` and `sql = \"...\"`")),
+	}
+}
+
+/// `hooks(before_write, …)`, each a known hook, once.
+fn hook_list(meta: &ParseNestedMeta<'_>) -> syn::Result<Vec<Ident>> {
+	let mut hooks: Vec<Ident> = Vec::new();
+
+	for hook in idents(meta)? {
+		if !HOOKS.contains(&hook.to_string().as_str()) {
+			return Err(syn::Error::new(
+				hook.span(),
+				"a table's hooks are `before_write`, `after_insert`, `after_update`, and \
+				 `after_delete`",
+			));
+		}
+
+		if hooks.contains(&hook) {
+			return Err(syn::Error::new(
+				hook.span(),
+				format!("`{hook}` is listed twice"),
+			));
+		}
+
+		hooks.push(hook);
+	}
+
+	Ok(hooks)
+}
+
+/// Reads a view's own options, `sql` and `materialized`, and refuses the
+/// table options a view can't take, or a view's options on a table.
+/// Whether `meta` was a view's own option.
+fn view_option(
+	meta: &ParseNestedMeta<'_>,
+	is_view: bool,
+	sql: &mut Option<(LitStr, LitStr)>,
+	materialized: &mut bool,
+) -> syn::Result<bool> {
+	const VIEW_OPTIONS: &[&str] = &["name", "namespace", "public", "projection", "crate"];
+	let own = meta.path.is_ident("sql") || meta.path.is_ident("materialized");
+
+	if !is_view {
+		return if own {
+			Err(meta.error("`sql` and `materialized` describe a view: use `#[db::view(...)]`"))
+		} else {
+			Ok(false)
+		};
+	}
+
+	if meta.path.is_ident("sql") {
+		*sql = Some(dialect_sql(meta, "sql")?);
+	} else if meta.path.is_ident("materialized") {
+		*materialized = true;
+	} else if !VIEW_OPTIONS.iter().any(|option| meta.path.is_ident(option)) {
+		return Err(meta.error(
+			"unknown view option; expected `name`, `sql`, `materialized`, `namespace`, `public`, \
+			 `projection`, or `crate`",
+		));
+	}
+
+	Ok(own)
+}
+
+impl ViewArgs {
+	fn new(sql: Option<(LitStr, LitStr)>) -> syn::Result<Self> {
+		let sql = sql.ok_or_else(|| {
+			syn::Error::new(
+				Span::call_site(),
+				"a view needs its query: `sql = \"SELECT …\"`, or `sql(postgres = \"…\", sqlite = \
+				 \"…\")`",
+			)
+		})?;
+		Ok(Self {
+			sql,
+			materialized: false,
+		})
+	}
+
+	fn materialized(mut self, materialized: bool) -> Self {
+		self.materialized = materialized;
+		self
 	}
 }
 
@@ -288,6 +439,13 @@ pub(crate) enum Timestamp {
 	Deleted,
 }
 
+/// A column the ORM fills in with who is acting.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ActorMark {
+	Created,
+	Updated,
+}
+
 /// A default value from `#[db(default = ...)]`.
 pub(crate) enum DefaultSpec {
 	Lit(Lit),
@@ -335,6 +493,10 @@ pub(crate) struct FieldArgs {
 	/// The SQL the database computes the column from, on Postgres and on
 	/// SQLite.
 	pub generated: Option<(LitStr, LitStr)>,
+	/// `created_by` or `updated_by`.
+	pub actor: Option<ActorMark>,
+	/// The field a slug column is made from: `slug(from = title)`.
+	pub slug: Option<Ident>,
 }
 
 impl FieldArgs {
@@ -365,6 +527,8 @@ impl FieldArgs {
 			on_soft_delete: None,
 			projections: Vec::new(),
 			generated: None,
+			actor: None,
+			slug: None,
 		};
 
 		for attr in attrs.iter().filter(|attr| is_db_attr(attr)) {
@@ -451,6 +615,27 @@ impl FieldArgs {
 			self.timestamp = Some(Timestamp::Updated);
 		} else if path.is_ident("deleted_at") {
 			self.timestamp = Some(Timestamp::Deleted);
+		} else if path.is_ident("created_by") {
+			self.actor = Some(ActorMark::Created);
+		} else if path.is_ident("updated_by") {
+			self.actor = Some(ActorMark::Updated);
+		} else if path.is_ident("slug") {
+			const HINT: &str = "`slug` takes `from = field`, the text it's made from, such as \
+			                    `slug(from = title)`";
+			let content;
+			parenthesized!(content in meta.input);
+			let key: Option<Ident> = content.parse()?;
+
+			if key.as_ref().is_none_or(|key| key != "from") {
+				return Err(meta.error(HINT));
+			}
+
+			content.parse::<Token![=]>()?;
+			self.slug = Some(content.parse()?);
+
+			if !content.is_empty() {
+				return Err(content.error(HINT));
+			}
 		} else if path.is_ident("on_delete") {
 			self.on_delete = Some(action(
 				meta,
@@ -477,7 +662,7 @@ impl FieldArgs {
 		} else if path.is_ident("backlink") {
 			self.backlink = Some(meta.value()?.parse()?);
 		} else if path.is_ident("generated") {
-			self.generated = Some(generated(meta)?);
+			self.generated = Some(dialect_sql(meta, "generated")?);
 		} else if path.is_ident("in") {
 			self.projections.extend(idents(meta)?);
 		} else if path.is_ident("on_soft_delete") {
@@ -490,9 +675,9 @@ impl FieldArgs {
 			return Err(meta.error(
 				"unknown column option; expected one of `key`, `generate`, `column`, `unique`, \
 				 `index`, `private`, `secret`, `default`, `min_len`, `max_len`, `min`, `max`, \
-				 `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `version`, \
-				 `on_delete`, `on_soft_delete`, `backlink`, `no_foreign_key`, `renamed_from`, \
-				 `flatten`, `prefix`, `in`, or `generated`",
+				 `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `created_by`, \
+				 `updated_by`, `version`, `slug`, `on_delete`, `on_soft_delete`, `backlink`, \
+				 `no_foreign_key`, `renamed_from`, `flatten`, `prefix`, `in`, or `generated`",
 			));
 		}
 
@@ -600,9 +785,9 @@ fn default(meta: &ParseNestedMeta<'_>) -> syn::Result<DefaultSpec> {
 	}
 }
 
-/// `generated = "sql"`, the same on both dialects, or `generated(postgres =
-/// "…", sqlite = "…")`.
-fn generated(meta: &ParseNestedMeta<'_>) -> syn::Result<(LitStr, LitStr)> {
+/// `option = "sql"`, the same on both dialects, or `option(postgres = "…",
+/// sqlite = "…")`, for `generated` and a view's `sql`.
+fn dialect_sql(meta: &ParseNestedMeta<'_>, option: &str) -> syn::Result<(LitStr, LitStr)> {
 	if !meta.input.peek(syn::token::Paren) {
 		let sql = string(meta)?;
 		return Ok((sql.clone(), sql));
@@ -616,9 +801,9 @@ fn generated(meta: &ParseNestedMeta<'_>) -> syn::Result<(LitStr, LitStr)> {
 		} else if inner.path.is_ident("sqlite") {
 			sqlite = Some(string(&inner)?);
 		} else {
-			return Err(
-				inner.error("`generated(...)` takes `postgres = \"…\"` and `sqlite = \"…\"`")
-			);
+			return Err(inner.error(format!(
+				"`{option}(...)` takes `postgres = \"…\"` and `sqlite = \"…\"`"
+			)));
 		}
 
 		Ok(())
@@ -627,10 +812,10 @@ fn generated(meta: &ParseNestedMeta<'_>) -> syn::Result<(LitStr, LitStr)> {
 	match (postgres, sqlite) {
 		(Some(postgres), Some(sqlite)) => Ok((postgres, sqlite)),
 		_ => {
-			Err(meta.error(
-				"`generated(...)` needs both `postgres = \"…\"` and `sqlite = \"…\"`; for one \
-				 expression on both, write `generated = \"…\"`",
-			))
+			Err(meta.error(format!(
+				"`{option}(...)` needs both `postgres = \"…\"` and `sqlite = \"…\"`; for one \
+				 expression on both, write `{option} = \"…\"`"
+			)))
 		}
 	}
 }

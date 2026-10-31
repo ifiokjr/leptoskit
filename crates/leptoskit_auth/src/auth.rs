@@ -415,10 +415,16 @@ pub(crate) type SignUpHook = for<'a> fn(
 ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
 /// The context a request's policies read: [`SignedIn`] when it has a live
-/// session, and nothing when it doesn't.
+/// session, with the account as the [`Actor`](leptoskit_db::Actor) that
+/// `#[db(created_by)]`, `#[db(updated_by)]`, and the audit log record, and
+/// nothing when it doesn't.
 pub fn context(signed_in: Option<SignedIn>) -> Context {
 	match signed_in {
-		Some(signed_in) => Context::new().with(signed_in),
+		Some(signed_in) => {
+			Context::new()
+				.with(leptoskit_db::Actor::of(signed_in.account))
+				.with(signed_in)
+		}
 		None => Context::new(),
 	}
 }

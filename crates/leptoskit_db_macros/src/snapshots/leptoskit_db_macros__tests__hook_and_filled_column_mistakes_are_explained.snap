@@ -1,0 +1,20 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "report.join(\"\\n\")"
+---
+unknown hook: a table's hooks are `before_write`, `after_insert`, `after_update`, and `after_delete`
+hook twice: `after_insert` is listed twice
+two created_by: only one column can be #[db(created_by)]
+actor key: a `created_by` or `updated_by` column can't be the key: writes fill it in
+actor default: a `created_by` or `updated_by` column can't have a `default`: writes fill it in
+actor timestamp: a `created_by` or `updated_by` column can't also be a timestamp or a version: writes fill it in
+generated actor: a generated column can't be a timestamp, a version, or `created_by`/`updated_by`: the database computes its value from the row's other columns
+slug without unique: a slug is unique among the table's rows: add `unique`, or `unique(except = deleted_at)` to free it when its row is soft-deleted
+slug of nothing: `Post` has no field `heading` to make a slug from
+slug of a filled column: `deleted_at` is filled in by the database layer; make a slug from a field an insert provides, such as a title
+slug of itself: `slug` is filled in by the database layer; make a slug from a field an insert provides, such as a title
+slug key: a slug can't be the key
+slug default: a slug can't have a `default` or be a timestamp or a version
+slug option: `slug` takes `from = field`, the text it's made from, such as `slug(from = title)`
+slug without from: `slug` takes `from = field`, the text it's made from, such as `slug(from = title)`
+cascade into an after_delete hook: `Post` has an `after_delete` hook, which a soft-delete cascade can't run: it changes rows without loading them. Delete the linked rows in the other table's `after_delete` hook instead

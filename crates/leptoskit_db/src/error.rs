@@ -66,6 +66,35 @@ pub enum DbError {
 		#[source]
 		source: Source,
 	},
+	/// A bulk write would skip hooks the table declares, because it never
+	/// loads the rows it changes. Call `allow_skipping_hooks()` on the bulk
+	/// write to skip them on purpose, or write the rows one at a time.
+	#[error(
+		"`{table}` has hooks that a bulk write can't run; write the rows one at a time, or call \
+		 `allow_skipping_hooks()`"
+	)]
+	HooksSkipped {
+		/// The table.
+		table: String,
+	},
+	/// A write records who made it in a required `created_by` or
+	/// `updated_by` column, and nobody is acting: the request has no
+	/// [`Actor`](crate::Actor).
+	#[error("a `{table}` row records who wrote it in `{column}`, and nobody is acting")]
+	NoActor {
+		/// The table.
+		table: String,
+		/// The column that needs someone acting.
+		column: String,
+	},
+	/// A view, or a column the database layer fills in, can't be written.
+	#[error("{message}")]
+	ReadOnly {
+		/// The view or table.
+		table: String,
+		/// What can't be written, and why.
+		message: String,
+	},
 	/// A row broke the rules its columns declare, before reaching the database.
 	#[error(transparent)]
 	Invalid(#[from] ValidationErrors),
