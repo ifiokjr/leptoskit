@@ -10,6 +10,7 @@ use anyhow::Result;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use leptoskit_config::AppConfig;
+use leptoskit_config::AuthConfig;
 use leptoskit_config::BuildConfig;
 use leptoskit_config::DbConfig;
 use leptoskit_config::DbDialect;
@@ -67,10 +68,32 @@ pub fn run_with_database(
 	database: Option<DbDialect>,
 	extension: bool,
 ) -> Result<()> {
+	run_with_options(path, platform, name, sdk, database, extension, false)
+}
+
+/// Writes a new workspace like [`run_with_database`], with sign-in wired up
+/// when `auth` is set: the `[auth]` table, a user table created on sign-up,
+/// the server's routes and layer, and the generated sign-in screens in front
+/// of the app. Sign-in keeps its accounts in the database, so `auth` without
+/// `database` picks SQLite.
+///
+/// # Errors
+///
+/// As [`run_with_database`].
+pub fn run_with_options(
+	path: &str,
+	platform: Platform,
+	name: Option<&str>,
+	sdk: Option<&str>,
+	database: Option<DbDialect>,
+	extension: bool,
+	auth: bool,
+) -> Result<()> {
 	if platform == Platform::Harmonyos {
 		anyhow::ensure!(
-			database.is_none(),
-			"the HarmonyOS starter has no server; create a standard workspace for a database"
+			database.is_none() && !auth,
+			"the HarmonyOS starter has no server; create a standard workspace for a database or \
+			 sign-in"
 		);
 		anyhow::ensure!(
 			!extension,
@@ -84,6 +107,7 @@ pub fn run_with_database(
 		);
 	}
 
+	let database = database.or(auth.then_some(DbDialect::Sqlite));
 	let sdk = sdk.map(resolve_sdk).transpose()?;
 	std::fs::create_dir_all(path).with_context(|| format!("could not create {path}"))?;
 	let dir = std::fs::canonicalize(path).with_context(|| format!("could not resolve {path}"))?;
@@ -126,6 +150,7 @@ pub fn run_with_database(
 			}
 		}),
 		extension: extension.then(|| extension_config(name)),
+		auth: auth.then(AuthConfig::default),
 		..LeptoskitConfig::default()
 	};
 	let files = template(&config, sdk.as_deref())?;
@@ -166,6 +191,14 @@ pub fn run_with_database(
 		"working with a coding agent? give it leptoskit's skill: {} skill install",
 		crate::cli::invoked_name()
 	);
+
+	if auth {
+		println!(
+			"before starting the server, set AUTH_ENCRYPTION_KEYS: export \
+			 AUTH_ENCRYPTION_KEYS=\"$(date +%Y-%m):$(openssl rand 32 | basenc --base64url | tr -d \
+			 =)\""
+		);
+	}
 
 	Ok(())
 }
@@ -301,13 +334,16 @@ fn template(config: &LeptoskitConfig, sdk: Option<&Utf8Path>) -> Result<Vec<(Str
 		),
 		(
 			"Cargo.toml".into(),
-			server_manifest(name, sdk, config.db.as_ref())?,
+			server_manifest(name, sdk, config.db.as_ref(), config.auth.is_some())?,
 		),
 		(
 			"src/main.rs".into(),
 			expand(include_str!("new_project/templates/server.rs")),
 		),
-		(format!("{app}/Cargo.toml"), app_manifest(name, sdk)?),
+		(
+			format!("{app}/Cargo.toml"),
+			app_manifest(name, sdk, config.auth.is_some())?,
+		),
 		(
 			format!("{app}/build.rs"),
 			"fn main() -> Result<(), leptoskit_build::Error> \
@@ -373,7 +409,11 @@ fn template(config: &LeptoskitConfig, sdk: Option<&Utf8Path>) -> Result<Vec<(Str
 		("README.md".into(), readme(name)),
 	];
 	if let Some(db) = &config.db {
-		database_files(&mut files, name, db, sdk)?;
+		database_files(&mut files, name, db, sdk, config.auth.is_some())?;
+
+		if config.auth.is_some() {
+			auth_files(&mut files, name);
+		}
 	}
 	if config.extension.is_some() {
 		extension_files(&mut files, name)?;
@@ -486,14 +526,17 @@ fn database_feature(db: &DbConfig) -> &'static str {
 
 /// Replaces the backend and server with versions that use the database, and
 /// adds the crate that declares the tables and the empty migrations directory.
+/// With `auth`, the server signs people in, the backend reads the database
+/// the sign-in layer gives each request, and the tables include the users.
 fn database_files(
 	files: &mut Vec<(String, String)>,
 	name: &str,
 	db: &DbConfig,
 	sdk: Option<&Utf8Path>,
+	auth: bool,
 ) -> Result<()> {
 	let crate_name = name.replace('-', "_");
-	let backend = format!("{name}_backend");
+	let backend_crate = format!("{name}_backend");
 	let shared = format!("{name}_shared");
 	let database = format!("{name}_db");
 	let feature = database_feature(db);
@@ -524,43 +567,58 @@ fn database_files(
 		}
 	};
 
+	let (server, backend, tables) = if auth {
+		(
+			include_str!("new_project/templates/server_auth.rs"),
+			include_str!("new_project/templates/backend_auth.rs"),
+			include_str!("new_project/templates/db_auth.rs"),
+		)
+	} else {
+		(
+			include_str!("new_project/templates/server_db.rs"),
+			include_str!("new_project/templates/backend_db.rs"),
+			include_str!("new_project/templates/db.rs"),
+		)
+	};
+	replace("src/main.rs".into(), expand(server));
 	replace(
-		"src/main.rs".into(),
-		expand(include_str!("new_project/templates/server_db.rs")),
-	);
-	replace(
-		format!("{backend}/Cargo.toml"),
+		format!("{backend_crate}/Cargo.toml"),
 		format!(
-			"[package]\nname = \"{backend}\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = \
-			 false\n\n[dependencies]\n{database} = {{ path = \"../{database}\", features = \
-			 [\"server\"] }}\n{shared} = {{ path = \"../{shared}\" }}\nleptoskit = \
-			 {leptoskit}\nserde = {{ version = \"1\", features = [\"derive\"] }}\n",
+			"[package]\nname = \"{backend_crate}\"\nversion = \"0.1.0\"\nedition = \
+			 \"2024\"\npublish = false\n\n[dependencies]\n{database} = {{ path = \
+			 \"../{database}\", features = [\"server\"] }}\n{shared} = {{ path = \"../{shared}\" \
+			 }}\nleptoskit = {leptoskit}\nserde = {{ version = \"1\", features = [\"derive\"] }}\n",
 			leptoskit = sdk_dependency("leptoskit", sdk, &["server", feature])?,
 		),
 	);
+	replace(format!("{backend_crate}/src/lib.rs"), backend.into());
 	replace(
-		format!("{backend}/src/lib.rs"),
-		include_str!("new_project/templates/backend_db.rs").into(),
-	);
-	replace(
-		format!("{backend}/src/rpc/mod.rs"),
+		format!("{backend_crate}/src/rpc/mod.rs"),
 		expand(include_str!("new_project/templates/rpc_db.rs")),
 	);
+	let dialect = db.dialect.as_str();
+	let (auth_dependency, auth_feature) = if auth {
+		(
+			format!(
+				"leptoskit_auth = {}\n",
+				sdk_dependency("leptoskit_auth", sdk, &[])?
+			),
+			format!(", \"leptoskit_auth/{dialect}\""),
+		)
+	} else {
+		(String::new(), String::new())
+	};
 	replace(
 		format!("{database}/Cargo.toml"),
 		format!(
 			"[package]\nname = \"{database}\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = \
-			 false\n\n[dependencies]\nleptoskit_db = {dependency}\n\n[features]\n# The server \
-			 side of the tables: rows, queries, migrations, and the driver.\nserver = \
-			 [\"leptoskit_db/{dialect}\"]\n",
+			 false\n\n[dependencies]\n{auth_dependency}leptoskit_db = \
+			 {dependency}\n\n[features]\n# The server side of the tables: rows, queries, \
+			 migrations, and the driver.\nserver = [\"leptoskit_db/{dialect}\"{auth_feature}]\n",
 			dependency = sdk_dependency("leptoskit_db", sdk, &[])?,
-			dialect = db.dialect.as_str(),
 		),
 	);
-	replace(
-		format!("{database}/src/lib.rs"),
-		include_str!("new_project/templates/db.rs").into(),
-	);
+	replace(format!("{database}/src/lib.rs"), tables.into());
 	replace(
 		format!("{}/registry.txt", db.migrations.display()),
 		"# The migrations, in the order they apply. `leptoskit db migration create` adds to it.\n"
@@ -581,6 +639,52 @@ fn database_files(
 		.expect("the scaffold writes README.md");
 	readme.1.push_str(&database_readme(name, db));
 	Ok(())
+}
+
+/// Puts the sign-in screens in front of the app, and gives the server its
+/// sign-in module.
+fn auth_files(files: &mut Vec<(String, String)>, name: &str) {
+	let app = format!("{name}_app");
+	let lib = format!("{app}/src/lib.rs");
+	let source = include_str!("new_project/templates/app_auth.rs").replace("__NAME__", name);
+
+	match files.iter_mut().find(|(path, _)| *path == lib) {
+		Some(entry) => entry.1 = source,
+		None => files.push((lib, source)),
+	}
+
+	for (path, contents) in crate::auth_pages::PAGES {
+		files.push((format!("{app}/src/{path}"), contents.to_owned()));
+	}
+
+	files.push((
+		"src/sign_in.rs".into(),
+		crate::auth_pages::server_module("../leptoskit.toml"),
+	));
+
+	if let Some(readme) = files.iter_mut().find(|(path, _)| path == "README.md") {
+		readme.1.push_str(&auth_readme(name));
+	}
+}
+
+fn auth_readme(name: &str) -> String {
+	format!(
+		r#"
+## Sign-in
+
+The app starts on a sign-in screen: an email address, then a code emailed to it. The same two steps create an account for a new address, and each new account gets a row in `{name}_db`'s `User` table. Once signed in, the bar at the top shows where you're signed in and signs you out.
+
+The server needs its keys before it starts. Keep them in your secret store:
+
+```sh
+export AUTH_ENCRYPTION_KEYS="$(date +%Y-%m):$(openssl rand 32 | basenc --base64url | tr -d =)"
+```
+
+Before you deploy, set `origin` in `[auth]` to your site's URL, such as `https://myapp.com`, and say how to send email in `[auth.mail]`. In a debug build, emails aren't sent: open `/_leptoskit/mail` to read them, or sign in to any address without a code by posting `{{ "email": "ada@example.com" }}` to `/auth/dev/sign-in`. Release builds have neither, and refuse to start without `[auth.mail]`.
+
+The screens live in `{name}_app/src/auth/` and are yours to restyle. They work the same in the browser and in native apps. A native app finds the server at `SERVER` in `{name}_app/src/lib.rs`, and needs the `http` and `secure-store` plugins, with that origin in the HTTP plugin's `origins`.
+"#
+	)
 }
 
 fn database_readme(name: &str, db: &DbConfig) -> String {
@@ -626,13 +730,24 @@ While `leptoskit dev` runs, a change to the tables that keeps every row becomes 
 /// `leptos`, and `leptos_axum` come re-exported through its `server`
 /// feature, at the versions leptoskit was built against. With a database it
 /// also depends on the crate that declares the tables, to embed their
-/// migrations.
-fn server_manifest(name: &str, sdk: Option<&Utf8Path>, db: Option<&DbConfig>) -> Result<String> {
-	let features: &[&str] = match db {
-		Some(db) => &["server", database_feature(db)],
-		None => &["server"],
-	};
-	let dependency = sdk_dependency("leptoskit", sdk, features)?;
+/// migrations, and with sign-in it turns on `auth`.
+fn server_manifest(
+	name: &str,
+	sdk: Option<&Utf8Path>,
+	db: Option<&DbConfig>,
+	auth: bool,
+) -> Result<String> {
+	let mut features = vec!["server"];
+
+	if let Some(db) = db {
+		features.push(database_feature(db));
+	}
+
+	if auth {
+		features.push("auth");
+	}
+
+	let dependency = sdk_dependency("leptoskit", sdk, &features)?;
 	let (database_member, database_dependency) = match db {
 		Some(_) => {
 			(
@@ -675,8 +790,26 @@ strip = "none"
 }
 
 /// One application library supplies SSR, browser Wasm, and native Wasm exports.
-fn app_manifest(name: &str, sdk: Option<&Utf8Path>) -> Result<String> {
-	let dependency = sdk_dependency("leptoskit", sdk, &[])?;
+///
+/// With sign-in, the app uses the auth client, the query cache, and leptos's
+/// signals, and a native build keeps its own executor for their tasks.
+fn app_manifest(name: &str, sdk: Option<&Utf8Path>, auth: bool) -> Result<String> {
+	let features: &[&str] = if auth {
+		&["auth", "leptos", "query"]
+	} else {
+		&[]
+	};
+	let dependency = sdk_dependency("leptoskit", sdk, features)?;
+	let (native, executor) = if auth {
+		(
+			"\"leptoskit/guest\", \"dep:any_spawner\", \"dep:futures\"",
+			"# The native build's executor for sign-in requests.\nany_spawner = { version = \
+			 \"0.3\", optional = true }\nfutures = { version = \"0.3\", default-features = false, \
+			 features = [\"executor\"], optional = true }\n",
+		)
+	} else {
+		("\"leptoskit/guest\"", "")
+	};
 	let build_dependency = sdk_dependency("leptoskit_build", sdk, &[])?;
 	let wasm_bindgen = crate::wasm::embedded_wasm_bindgen();
 	Ok(format!(
@@ -692,7 +825,7 @@ crate-type = ["rlib", "cdylib"]
 [features]
 default = []
 web = ["leptoskit/web", "dep:leptos", "dep:wasm-bindgen"]
-native = ["leptoskit/guest"]
+native = [{native}]
 ios = ["native", "leptoskit/ios"]
 android = ["native", "leptoskit/android"]
 macos = ["native", "leptoskit/macos"]
@@ -709,7 +842,7 @@ leptoskit = {dependency}
 leptos = {{ version = "0.9.0-rc0", default-features = false, optional = true }}
 # The embedded wasm-bindgen CLI accepts exactly its matching library version.
 wasm-bindgen = {{ version = "={wasm_bindgen}", optional = true }}
-
+{executor}
 [build-dependencies]
 leptoskit_build = {build_dependency}
 "#
