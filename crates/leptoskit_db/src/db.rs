@@ -2,6 +2,7 @@
 //! `postgres` or `sqlite` feature.
 
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use leptoskit_db_schema::Dialect;
 
@@ -12,6 +13,10 @@ use crate::MigrationError;
 use crate::PoolOptions;
 use crate::Result;
 use crate::Value;
+#[cfg(feature = "sqlite")]
+use crate::live::Event;
+use crate::live::Hub;
+use crate::live::RowChange;
 use crate::policy::Access;
 use crate::policy::Context;
 use crate::sql::Statement;
@@ -20,6 +25,7 @@ use crate::sql::Statement;
 #[derive(Clone)]
 pub struct Db {
 	pool: Arc<Pool>,
+	pub(crate) live: Arc<Hub>,
 	access: Access,
 }
 
@@ -49,6 +55,7 @@ impl Db {
 		let pool = Pool::open(url, options)?;
 		Ok(Self {
 			pool: Arc::new(pool),
+			live: Arc::new(Hub::new()),
 			access: Access::default(),
 		})
 	}
@@ -59,6 +66,7 @@ impl Db {
 	pub fn with_context(&self, cx: Context) -> Self {
 		Self {
 			pool: Arc::clone(&self.pool),
+			live: Arc::clone(&self.live),
 			access: Access::Context(cx),
 		}
 	}
@@ -71,6 +79,7 @@ impl Db {
 	pub fn system(&self, reason: &'static str) -> Self {
 		Self {
 			pool: Arc::clone(&self.pool),
+			live: Arc::clone(&self.live),
 			access: Access::System {
 				reason,
 				actor: self.access.actor(),
@@ -136,7 +145,50 @@ impl Db {
 		Ok(Tx {
 			inner,
 			access: self.access.clone(),
+			#[cfg(feature = "sqlite")]
+			live: Arc::clone(&self.live),
+			pending: Mutex::new(Vec::new()),
 		})
+	}
+
+	/// The changes to `#[db::table(live)]` tables this handle may know
+	/// about, from now on: each committed insert, update, and delete whose
+	/// row this handle's `select` policy allows, before or after the change.
+	/// Make one per subscriber, from the request's handle.
+	///
+	/// ```ignore
+	/// let mut changes = request_db.changes().await?;
+	/// while let Ok(invalidation) = changes.next().await {
+	/// 	events.send(invalidation).await?;
+	/// }
+	/// ```
+	///
+	/// On Postgres the first call opens a connection that listens for every
+	/// server's changes, and returns once it's listening.
+	#[cfg_attr(
+		not(feature = "postgres"),
+		expect(
+			clippy::unused_async,
+			reason = "only Postgres listens before subscribing"
+		)
+	)]
+	pub async fn changes(&self) -> Result<crate::live::Feed> {
+		match &*self.pool {
+			#[cfg(feature = "postgres")]
+			Pool::Postgres(pool) => {
+				self.live
+					.listener
+					.get_or_try_init(|| {
+						crate::postgres::Listener::start(pool.url(), Arc::downgrade(&self.live))
+					})
+					.await?;
+			}
+			// Commits in this process are all there is to hear.
+			#[cfg(feature = "sqlite")]
+			Pool::Sqlite(_) => {}
+		}
+
+		Ok(crate::live::Feed::new(self.clone(), self.live.subscribe()))
 	}
 
 	/// Applies every migration this database hasn't had yet, in registry
@@ -164,28 +216,88 @@ impl Db {
 		}
 	}
 
-	/// The migrations this database has had, in the order they were applied.
-	/// Reads only: a database that has never migrated has none.
-	pub async fn applied_migrations(&self) -> Result<Vec<String>> {
+	/// Applies `migration` to a development database without recording it as
+	/// a migration, and records `schema`, a `schema.json` snapshot, as the
+	/// schema the database now has. For `leptoskit dev`'s push mode: once a
+	/// database has pushes, [`Db::migrate`] refuses to apply a migration on
+	/// top of them until [`Db::adopt`] turns them into one.
+	#[doc(hidden)]
+	pub async fn push(
+		&self,
+		migration: &Migration,
+		schema: &str,
+	) -> std::result::Result<(), MigrationError> {
+		match &*self.pool {
+			#[cfg(feature = "postgres")]
+			Pool::Postgres(pool) => pool.push(migration, schema).await,
+			#[cfg(feature = "sqlite")]
+			Pool::Sqlite(pool) => pool.push(migration.clone(), schema.to_string()).await,
+		}
+	}
+
+	/// Records `migration` as applied without running it, since the
+	/// database's pushes already made its changes, and forgets the pushes,
+	/// in one transaction. Fails, changing nothing, when there are none.
+	#[doc(hidden)]
+	pub async fn adopt(&self, migration: &Migration) -> std::result::Result<(), MigrationError> {
+		match &*self.pool {
+			#[cfg(feature = "postgres")]
+			Pool::Postgres(pool) => pool.adopt(migration).await,
+			#[cfg(feature = "sqlite")]
+			Pool::Sqlite(pool) => pool.adopt(migration.clone()).await,
+		}
+	}
+
+	/// The `schema.json` snapshot of what pushes left this database with,
+	/// when it has pushes no migration records yet.
+	#[doc(hidden)]
+	pub async fn pushed_schema(&self) -> Result<Option<String>> {
+		if !self.has_table(crate::migrate::PUSH_TABLE).await? {
+			return Ok(None);
+		}
+
+		let rows = self
+			.fetch(Statement {
+				sql: "SELECT \"schema\" FROM \"_leptoskit_push\"".to_owned(),
+				args: Vec::new(),
+			})
+			.await?;
+
+		Ok(rows.into_iter().find_map(|row| {
+			match row.into_iter().next() {
+				Some(Value::Text(schema)) => Some(schema),
+				_ => None,
+			}
+		}))
+	}
+
+	/// Whether the database has a table named `name`, outside any
+	/// namespace.
+	async fn has_table(&self, name: &str) -> Result<bool> {
 		let exists = match self.dialect() {
 			Dialect::Postgres => {
-				"SELECT count(*) FROM pg_catalog.pg_tables WHERE tablename = \
-				 '_leptoskit_migrations'"
+				"SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname = current_schema() AND \
+				 tablename = $1"
 			}
 			Dialect::Sqlite => {
-				"SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = \
-				 '_leptoskit_migrations'"
+				"SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = ?1"
 			}
 		};
 		let rows = self
 			.fetch(Statement {
 				sql: exists.to_owned(),
-				args: Vec::new(),
+				args: vec![Value::Text(name.to_owned())],
 			})
 			.await?;
+		Ok(
+			matches!(rows.first().and_then(|row| row.first()), Some(Value::Int(count)) if *count > 0),
+		)
+	}
 
-		if !matches!(rows.first().and_then(|row| row.first()), Some(Value::Int(count)) if *count > 0)
-		{
+	/// The migrations this database has had, in the order they were applied.
+	/// Reads only: a database that has never migrated has none.
+	pub async fn applied_migrations(&self) -> Result<Vec<String>> {
+		if !self.has_table(crate::MIGRATIONS_TABLE).await? {
 			return Ok(Vec::new());
 		}
 
@@ -282,6 +394,38 @@ impl Connection for Db {
 	async fn begin_unless_in_transaction(&self) -> Result<Option<Tx>> {
 		self.begin().await.map(Some)
 	}
+
+	async fn publish(&self, changes: Vec<RowChange>) -> Result<()> {
+		match &*self.pool {
+			#[cfg(feature = "postgres")]
+			Pool::Postgres(_) => {
+				for statement in notifications(&changes)? {
+					self.execute(statement).await?;
+				}
+			}
+			#[cfg(feature = "sqlite")]
+			Pool::Sqlite(_) => self.live.send(Event::Changes(changes.into())),
+		}
+
+		Ok(())
+	}
+}
+
+/// `SELECT pg_notify(…)` for each part of a change set.
+#[cfg(feature = "postgres")]
+fn notifications(changes: &[RowChange]) -> Result<Vec<Statement>> {
+	Ok(crate::live::encode(changes)?
+		.into_iter()
+		.map(|payload| {
+			Statement {
+				sql: "SELECT pg_notify($1, $2)".to_string(),
+				args: vec![
+					Value::Text(crate::live::CHANNEL.to_string()),
+					Value::Text(payload),
+				],
+			}
+		})
+		.collect())
 }
 
 /// A transaction. Queries through it see each other's writes, and nothing
@@ -289,6 +433,12 @@ impl Connection for Db {
 pub struct Tx {
 	inner: TxInner,
 	access: Access,
+	/// Where SQLite's commits tell live subscribers; Postgres tells them
+	/// itself.
+	#[cfg(feature = "sqlite")]
+	live: Arc<Hub>,
+	/// Live changes, published when the transaction commits.
+	pending: Mutex<Vec<RowChange>>,
 }
 
 enum TxInner {
@@ -299,13 +449,34 @@ enum TxInner {
 }
 
 impl Tx {
-	/// Makes every write permanent.
+	/// Makes every write permanent, and tells live subscribers what it
+	/// changed.
 	pub async fn commit(self) -> Result<()> {
+		let pending = std::mem::take(&mut *lock(&self.pending));
+
 		match self.inner {
 			#[cfg(feature = "postgres")]
-			TxInner::Postgres(tx) => tx.finish("COMMIT").await,
+			TxInner::Postgres(tx) => {
+				// Postgres delivers a transaction's notifications when, and
+				// only if, it commits.
+				if !pending.is_empty() {
+					for statement in notifications(&pending)? {
+						tx.execute(statement).await?;
+					}
+				}
+
+				tx.finish("COMMIT").await
+			}
 			#[cfg(feature = "sqlite")]
-			TxInner::Sqlite(tx) => tx.finish("COMMIT").await,
+			TxInner::Sqlite(tx) => {
+				tx.finish("COMMIT").await?;
+
+				if !pending.is_empty() {
+					self.live.send(Event::Changes(pending.into()));
+				}
+
+				Ok(())
+			}
 		}
 	}
 
@@ -355,4 +526,18 @@ impl Connection for Tx {
 	fn begin_unless_in_transaction(&self) -> impl Future<Output = Result<Option<Tx>>> + Send {
 		std::future::ready(Ok(None))
 	}
+
+	fn publish(&self, changes: Vec<RowChange>) -> impl Future<Output = Result<()>> + Send {
+		// A transaction keeps its changes until it commits.
+		lock(&self.pending).extend(changes);
+		std::future::ready(Ok(()))
+	}
+}
+
+/// The pending changes, even after a panic elsewhere poisoned the lock:
+/// they're only ever appended to.
+fn lock(pending: &Mutex<Vec<RowChange>>) -> std::sync::MutexGuard<'_, Vec<RowChange>> {
+	pending
+		.lock()
+		.unwrap_or_else(std::sync::PoisonError::into_inner)
 }

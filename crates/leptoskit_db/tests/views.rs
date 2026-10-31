@@ -77,6 +77,45 @@ pub struct AuthorSnapshot {
 	pub entries: i64,
 }
 
+/// The authors whose best entry scores five or more: a view over a view,
+/// named so that creating views by name would create it first.
+#[view(
+	name = "author_bests",
+	sql = "SELECT author_id, best FROM author_totals WHERE best >= 5"
+)]
+pub struct AuthorBest {
+	pub author_id: Id<Author>,
+	pub best: i64,
+}
+
+/// Entries per author, indexed, so Postgres can refresh it while it's read.
+#[view(
+	name = "author_counts",
+	materialized,
+	unique(author_id),
+	index(entries),
+	sql = "SELECT author_id, count(*) FROM entries GROUP BY author_id"
+)]
+pub struct AuthorCount {
+	pub author_id: Id<Author>,
+	pub entries: i64,
+}
+
+/// A view's row with the author it links to.
+#[derive(leptoskit_db::Shape, Debug, PartialEq)]
+#[db(from = AuthorTotals)]
+pub struct TotalsCard {
+	pub entries: i64,
+	#[db(via = author)]
+	pub author: AuthorName,
+}
+
+#[derive(leptoskit_db::Shape, Debug, PartialEq)]
+#[db(from = Author)]
+pub struct AuthorName {
+	pub name: String,
+}
+
 async fn create_schema(db: &Db) -> Schema {
 	let dialect = db.dialect();
 	let schema = leptoskit_db::schema(dialect).unwrap();
@@ -219,7 +258,7 @@ async fn views_refuse_every_write() {
 				.unwrap_err(),
 			AuthorTotals::query().delete(&system).await.unwrap_err(),
 			AuthorTotals::query().destroy(&system).await.unwrap_err(),
-			leptoskit_db::__private::refresh::<AuthorTotals>(&system)
+			leptoskit_db::__private::refresh::<AuthorTotals>(&system, false)
 				.await
 				.unwrap_err(),
 		] {
@@ -309,6 +348,122 @@ async fn migrations_recreate_views_around_table_changes() {
 			.unwrap();
 		assert!(AuthorTotals::query().count(&system).await.is_err());
 		assert_eq!(Entry::query().count(&db).await.unwrap(), 1);
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn views_read_other_views_and_are_created_after_them() {
+	on_both(async |db, schema| {
+		// `author_bests` sorts first, but reads `author_totals`.
+		let order: Vec<&str> = schema
+			.views_in_order()
+			.unwrap()
+			.iter()
+			.map(|view| view.name.name.as_str())
+			.collect();
+		let position = |name| order.iter().position(|view| *view == name).unwrap();
+		assert!(
+			position("author_totals") < position("author_bests"),
+			"{order:?}"
+		);
+
+		let ada = author(&db, "Ada", &[9]).await;
+		author(&db, "Grace", &[2]).await;
+		let bests = AuthorBest::query().all(&db).await.unwrap();
+		assert_eq!(bests.len(), 1);
+		assert_eq!((bests[0].author_id, bests[0].best), (ada, 9));
+
+		// Changing the view it reads recreates both, around it.
+		let mut changed = schema.clone();
+		let totals = changed
+			.views
+			.iter_mut()
+			.find(|view| view.name.name == "author_totals")
+			.unwrap();
+		totals.sql = leptoskit_db_schema::Generated::new(
+			"SELECT author_id, count(*), max(score) * 2 FROM entries GROUP BY author_id",
+		);
+		let plan = leptoskit_db_schema::diff(&schema, &changed, &mut RequireHints).unwrap();
+		let steps: Vec<String> = plan.steps.iter().map(ToString::to_string).collect();
+		assert_eq!(
+			steps,
+			[
+				"- view author_bests",
+				"- view author_totals",
+				"+ view author_totals",
+				"+ view author_bests",
+			]
+		);
+		let migration = leptoskit_db_schema::render(&plan, &schema, &changed);
+		db.run_script(&migration.statements.join(";\n"))
+			.await
+			.unwrap();
+		assert_eq!(AuthorBest::query().count(&db).await.unwrap(), 1);
+		assert_eq!(AuthorBest::query().one(&db).await.unwrap().best, 18);
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn indexed_materialized_views_refresh_concurrently() {
+	on_both(async |db, schema| {
+		let view = schema
+			.views
+			.iter()
+			.find(|view| view.name.name == "author_counts")
+			.unwrap();
+		assert_eq!(view.indexes.len(), 2);
+		assert!(view.indexes.iter().any(|index| index.unique));
+
+		let ada = author(&db, "Ada", &[1, 2]).await;
+		AuthorCount::refresh_concurrently(&db).await.unwrap();
+		assert_eq!(AuthorCount::query().one(&db).await.unwrap().entries, 2);
+
+		author(&db, "Grace", &[3]).await;
+		AuthorCount::refresh_concurrently(&db).await.unwrap();
+		assert_eq!(AuthorCount::query().count(&db).await.unwrap(), 2);
+		AuthorCount::refresh(&db).await.unwrap();
+		assert_eq!(
+			AuthorCount::query()
+				.filter(|count| count.author_id.eq(ada))
+				.one(&db)
+				.await
+				.unwrap()
+				.entries,
+			2
+		);
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn shapes_start_from_views() {
+	on_both(async |db, _| {
+		let grace = author(&db, "Grace", &[4, 6]).await;
+		let cards = AuthorTotals::query()
+			.shape::<TotalsCard>()
+			.all(&as_author(&db, grace))
+			.await
+			.unwrap();
+		assert_eq!(
+			cards,
+			[TotalsCard {
+				entries: 2,
+				author: AuthorName {
+					name: "Grace".into()
+				},
+			}]
+		);
+		// The view's own policy applies to the shape's rows.
+		assert_eq!(
+			AuthorTotals::query()
+				.shape::<TotalsCard>()
+				.all(&db)
+				.await
+				.unwrap(),
+			[] as [TotalsCard; 0]
+		);
 	})
 	.await;
 }

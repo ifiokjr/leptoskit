@@ -28,6 +28,14 @@ pub trait Connection: Send + Sync {
 	#[doc(hidden)]
 	fn execute(&self, statement: Statement) -> impl Future<Output = Result<u64>> + Send;
 
+	/// Hands changes to `#[db::table(live)]` rows to live subscribers: when
+	/// the transaction commits, inside one, and at once otherwise.
+	#[doc(hidden)]
+	fn publish(
+		&self,
+		changes: Vec<crate::live::RowChange>,
+	) -> impl Future<Output = Result<()>> + Send;
+
 	/// A transaction for work that must happen all at once, or `None` when
 	/// this already is one and the work joins it.
 	#[doc(hidden)]

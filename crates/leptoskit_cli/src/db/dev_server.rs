@@ -128,14 +128,17 @@ pub(crate) fn start(
 			)?
 		}
 	};
-	adopt_database(&mut server, &project.database_name())?;
+	// The app's database, or the branch's own.
+	let database = super::branches::ensure(project, &server.url)?;
+	server.url = with_database(&server.url, &database)?;
 	Ok(server)
 }
 
 /// Creates `database` on the server, unless it exists, and points the
 /// server's URL, which names the `postgres` database, at it.
+#[cfg(test)]
 fn adopt_database(server: &mut DevServer, database: &str) -> Result<()> {
-	ensure_database(&server.url, database)?;
+	super::branches::ensure_database(&server.url, database, None)?;
 	server.url = with_database(&server.url, database)?;
 	Ok(())
 }
@@ -363,28 +366,6 @@ fn installation_of(binaries: &Path) -> Result<PathBuf> {
 		.with_context(|| format!("{} isn't inside an installation", resolved.display()))
 }
 
-/// Creates `database` on the server `url` points at, unless it exists.
-fn ensure_database(url: &str, database: &str) -> Result<()> {
-	super::runtime()?.block_on(async {
-		let db = leptoskit_db::Db::connect(url).await?;
-		let statement = leptoskit_db::Statement {
-			sql: "SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1".to_owned(),
-			args: vec![leptoskit_db::Value::Text(database.to_owned())],
-		};
-		let found = leptoskit_db::Connection::fetch(&db, statement).await?;
-
-		if found.is_empty() {
-			db.run_script(&format!(
-				"CREATE DATABASE {}",
-				leptoskit_db_schema::quote_identifier(database)
-			))
-			.await?;
-		}
-
-		anyhow::Ok(())
-	})
-}
-
 /// `url` with its database replaced by `database`.
 pub(crate) fn with_database(url: &str, database: &str) -> Result<String> {
 	let mut url = url::Url::parse(url).context("the database URL isn't a URL")?;
@@ -573,7 +554,7 @@ mod tests {
 		let second = embedded(&directory, &cache, Some(&binaries)).unwrap();
 		assert!(!second.started_here());
 		drop(second);
-		ensure_database(&first.url, "my_app").unwrap();
+		super::super::branches::ensure_database(&first.url, "my_app", None).unwrap();
 		drop(first);
 		assert!(!directory.join("data/postmaster.pid").exists());
 

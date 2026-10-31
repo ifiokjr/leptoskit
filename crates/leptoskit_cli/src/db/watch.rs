@@ -87,6 +87,29 @@ impl DevDatabase {
 		})
 	}
 
+	/// Moves to the database of the branch the project is on now, when
+	/// `leptoskit dev` runs the development Postgres and the branch changed:
+	/// copied from the main branch's database the first time. Returns the app
+	/// server's new variables when the database changed, and brings the
+	/// branch's database in step with the tables.
+	pub(crate) fn switch_branch(&mut self) -> Result<Option<Vec<(String, String)>>> {
+		let Some(server) = &self.server else {
+			return Ok(None);
+		};
+		let postgres = dev_server::with_database(&server.url, "postgres")?;
+		let database = super::branches::ensure(&self.project, &postgres)?;
+		let url = dev_server::with_database(&server.url, &database)?;
+
+		if self.url.as_deref() == Some(url.as_str()) {
+			return Ok(None);
+		}
+
+		println!("[db] switched to the database `{database}`");
+		self.url = Some(url);
+		self.tables_changed();
+		Ok(Some(self.env()))
+	}
+
 	/// The variables the app server needs to find the database: the URL,
 	/// when `leptoskit dev` provides it.
 	pub(crate) fn env(&self) -> Vec<(String, String)> {
@@ -125,6 +148,23 @@ impl DevDatabase {
 
 	/// Brings the development database in step with `target`.
 	fn sync_to(&self, target: &Schema) -> Result<()> {
+		if self.project.config.watch == DbWatch::Push {
+			let Some(url) = &self.url else {
+				anyhow::bail!(
+					"push mode changes the development database, but `{} dev` doesn't know its \
+					 URL; set {}",
+					invoked_name(),
+					self.project.config.url_env
+				);
+			};
+
+			if let Some(message) = super::push::push(&self.project, url, target, false)?.message() {
+				print!("{message}");
+			}
+
+			return Ok(());
+		}
+
 		let history = History::read(&self.project.migrations_dir(), self.project.dialect())?;
 		let change = classify(&history, target);
 
@@ -296,7 +336,7 @@ fn apply(project: &Project, url: &str) -> Result<()> {
 
 /// Removes a migration this watch wrote and couldn't apply: its directory
 /// and its line in `registry.txt`.
-fn discard(project: &Project, created: &Created) -> Result<()> {
+pub(crate) fn discard(project: &Project, created: &Created) -> Result<()> {
 	fs::remove_dir_all(&created.directory)?;
 	let registry = project.migrations_dir().join("registry.txt");
 	let text = fs::read_to_string(&registry)?;
@@ -574,5 +614,131 @@ mod tests {
 		std::thread::sleep(std::time::Duration::from_secs(1));
 		database.sync_to(&with_tags("labels")).unwrap();
 		assert_eq!(migrations(&database), 2);
+	}
+}
+
+#[cfg(test)]
+mod push_tests {
+	use leptoskit_config::DbConfig;
+	use leptoskit_config::DbDialect;
+	use leptoskit_db_schema::Column;
+	use leptoskit_db_schema::ColumnType;
+	use leptoskit_db_schema::Dialect;
+	use leptoskit_db_schema::Table;
+	use leptoskit_db_schema::TableName;
+
+	use super::*;
+
+	#[test]
+	fn the_dev_loop_moves_to_each_branch_s_database() {
+		let git = |root: &Path, args: &[&str]| {
+			let status = std::process::Command::new("git")
+				.arg("-C")
+				.arg(root)
+				.args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
+				.args(args)
+				.env("GIT_CONFIG_GLOBAL", root.join("no-global-config"))
+				.env("GIT_CONFIG_NOSYSTEM", "1")
+				.stdout(std::process::Stdio::null())
+				.stderr(std::process::Stdio::null())
+				.status()
+				.unwrap();
+			assert!(status.success(), "git {args:?}");
+		};
+		let root = tempfile::tempdir().unwrap();
+		let project = Project {
+			root: root.path().to_path_buf(),
+			config: DbConfig {
+				dialect: DbDialect::Sqlite,
+				watch: DbWatch::Off,
+				..DbConfig::default()
+			},
+			package: "app_db".into(),
+			name: "app".into(),
+		};
+		let mut without_server = DevDatabase::open(project, None, None).unwrap();
+		assert_eq!(without_server.switch_branch().unwrap(), None);
+
+		let Some(binaries) = dev_server::test_binaries() else {
+			return;
+		};
+		git(root.path(), &["init", "--quiet", "--initial-branch=main"]);
+		git(
+			root.path(),
+			&["commit", "--quiet", "--allow-empty", "-m", "first"],
+		);
+		let project = Project {
+			root: root.path().to_path_buf(),
+			config: DbConfig {
+				dialect: DbDialect::Postgres,
+				dev_server: leptoskit_config::DbDevServer::Embedded,
+				watch: DbWatch::Off,
+				..DbConfig::default()
+			},
+			package: "app_db".into(),
+			name: "app".into(),
+		};
+		let mut database = DevDatabase::open(project, None, Some(&binaries)).unwrap();
+		assert!(database.env()[0].1.contains("/app?"));
+		assert_eq!(database.switch_branch().unwrap(), None, "still on main");
+
+		git(root.path(), &["checkout", "--quiet", "-b", "feature"]);
+		let env = database.switch_branch().unwrap().unwrap();
+		assert!(env[0].1.contains("/app__feature?"), "{env:?}");
+		assert_eq!(database.switch_branch().unwrap(), None);
+
+		git(root.path(), &["checkout", "--quiet", "main"]);
+		let env = database.switch_branch().unwrap().unwrap();
+		assert!(env[0].1.contains("/app?"), "{env:?}");
+	}
+
+	#[test]
+	fn push_mode_changes_the_database_and_writes_no_migration() {
+		let root = tempfile::tempdir().unwrap();
+		let project = Project {
+			root: root.path().to_path_buf(),
+			config: DbConfig {
+				dialect: DbDialect::Sqlite,
+				watch: DbWatch::Push,
+				..DbConfig::default()
+			},
+			package: "app_db".into(),
+			name: "app".into(),
+		};
+		let url = format!("sqlite://{}", root.path().join("dev.sqlite3").display());
+		let mut database = DevDatabase {
+			project,
+			url: None,
+			server: None,
+		};
+		let notes = Schema::new(
+			Dialect::Sqlite,
+			vec![Table::new(
+				TableName::new("notes"),
+				vec![Column::new("id", ColumnType::Int64)],
+				vec!["id".into()],
+			)],
+		);
+
+		let error = database.sync_to(&notes).unwrap_err();
+		assert!(
+			error.to_string().contains("doesn't know its URL"),
+			"{error}"
+		);
+
+		database.url = Some(url.clone());
+		database.sync_to(&notes).unwrap();
+		database.sync_to(&notes).unwrap();
+		let history = History::read(&database.project.migrations_dir(), Dialect::Sqlite).unwrap();
+		assert!(history.names.is_empty(), "pushes write no migration");
+		let pushed = super::super::runtime()
+			.unwrap()
+			.block_on(async {
+				let db = leptoskit_db::Db::connect(&url).await?;
+				db.pushed_schema().await
+			})
+			.unwrap()
+			.unwrap();
+		assert_eq!(Schema::from_json(&pushed).unwrap(), notes);
 	}
 }

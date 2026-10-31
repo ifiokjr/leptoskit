@@ -67,6 +67,10 @@ pub trait Table: Sized + 'static {
 	/// `#[db::table(audit)]`.
 	const AUDIT: bool = false;
 
+	/// Whether every change is published to live subscribers, so clients can
+	/// refetch what changed: `#[db::table(live)]`.
+	const LIVE: bool = false;
+
 	/// The hooks the table declares with `hooks(...)`.
 	const HOOKS: crate::Hooks = crate::Hooks::NONE;
 
@@ -171,22 +175,74 @@ pub trait Table: Sized + 'static {
 /// without listing tables by hand.
 #[doc(hidden)]
 pub struct TableEntry {
-	definition: fn() -> leptoskit_db_schema::Table,
+	pub(crate) name: fn() -> TableName,
+	pub(crate) definition: fn() -> leptoskit_db_schema::Table,
 	pack: Option<&'static str>,
 	audit: bool,
+	#[cfg(any(feature = "postgres", feature = "sqlite"))]
+	live: bool,
+	/// How to record the table's rows, for the changes the database makes
+	/// to them on its own.
+	pub(crate) subject: crate::audit::Subject,
+	#[cfg(any(feature = "postgres", feature = "sqlite"))]
+	images: VisibleImages,
 }
+
+/// Builds the statements that check rows of a table, which aren't stored,
+/// against a request's `select` policy: [`crate::live::visible_images`].
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+type VisibleImages = fn(
+	&crate::policy::Access,
+	Dialect,
+	&[&[Value]],
+) -> crate::Result<Option<Vec<crate::Statement>>>;
 
 impl TableEntry {
 	pub const fn of<T: Table>() -> Self {
 		Self {
+			name: T::table_name,
 			definition: T::definition,
 			pack: T::PACK,
 			audit: T::AUDIT,
+			#[cfg(any(feature = "postgres", feature = "sqlite"))]
+			live: T::LIVE,
+			subject: crate::audit::Subject::of::<T>(),
+			#[cfg(any(feature = "postgres", feature = "sqlite"))]
+			images: crate::live::visible_images::<T>,
 		}
+	}
+
+	/// Statements returning the number of each image the access may read,
+	/// or `None` when it may read every one.
+	#[cfg(any(feature = "postgres", feature = "sqlite"))]
+	pub(crate) fn visible_images(
+		&self,
+		access: &crate::policy::Access,
+		dialect: Dialect,
+		images: &[&[Value]],
+	) -> crate::Result<Option<Vec<crate::Statement>>> {
+		(self.images)(access, dialect, images)
 	}
 }
 
 inventory::collect!(TableEntry);
+
+/// Every registered table, by name.
+pub(crate) fn entries() -> &'static std::collections::HashMap<TableName, &'static TableEntry> {
+	static ENTRIES: std::sync::OnceLock<std::collections::HashMap<TableName, &'static TableEntry>> =
+		std::sync::OnceLock::new();
+	ENTRIES.get_or_init(|| {
+		inventory::iter::<TableEntry>()
+			.map(|entry| ((entry.name)(), entry))
+			.collect()
+	})
+}
+
+/// The registered `#[db::table(live)]` table with this name.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub(crate) fn live_entry(table: &TableName) -> Option<&'static TableEntry> {
+	entries().get(table).copied().filter(|entry| entry.live)
+}
 
 /// Every table and view linked into this program, as a schema for
 /// `dialect`, with the audit log's `_leptoskit_audit` when any table is

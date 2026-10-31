@@ -22,10 +22,16 @@ use crate::PoolOptions;
 use crate::Result;
 use crate::Value;
 use crate::migrate::CREATE_MIGRATIONS_TABLE;
+use crate::migrate::CREATE_PUSH_TABLE;
+use crate::migrate::Record;
 use crate::migrate::pending;
 use crate::sql::Statement;
 
-pub(crate) struct Pool(deadpool_postgres::Pool);
+pub(crate) struct Pool {
+	pool: deadpool_postgres::Pool,
+	/// Where to open the connection that listens for live changes.
+	url: String,
+}
 
 impl Pool {
 	/// Builds the pool; connections open lazily, on first use.
@@ -41,11 +47,18 @@ impl Pool {
 			.build()
 			.map_err(DbError::connection)?;
 
-		Ok(Self(pool))
+		Ok(Self {
+			pool,
+			url: url.to_string(),
+		})
+	}
+
+	pub(crate) fn url(&self) -> &str {
+		&self.url
 	}
 
 	async fn client(&self) -> Result<Object> {
-		self.0.get().await.map_err(DbError::connection)
+		self.pool.get().await.map_err(DbError::connection)
 	}
 
 	pub(crate) async fn fetch(&self, statement: Statement) -> Result<Vec<Vec<Value>>> {
@@ -279,19 +292,65 @@ impl Pool {
 		&self,
 		migrations: &[Migration],
 	) -> std::result::Result<Vec<String>, MigrationError> {
+		self.locked(async |client| apply_migrations(client, migrations).await)
+			.await
+	}
+
+	/// Applies a change without a migration, and records the schema it
+	/// leaves.
+	pub(crate) async fn push(
+		&self,
+		migration: &Migration,
+		schema: &str,
+	) -> std::result::Result<(), MigrationError> {
+		self.locked(async |client| {
+			prepare(client).await?;
+			apply_one(client, migration, &Record::Pushed(schema)).await
+		})
+		.await
+	}
+
+	/// Records a migration as applied, without running it, and forgets the
+	/// pushes that made its changes.
+	pub(crate) async fn adopt(
+		&self,
+		migration: &Migration,
+	) -> std::result::Result<(), MigrationError> {
+		self.locked(async |client| {
+			prepare(client).await?;
+			apply_one(client, migration, &Record::Adopted).await
+		})
+		.await
+	}
+
+	/// Runs `work` holding the migration lock, which keeps servers starting
+	/// together from migrating twice.
+	async fn locked<T>(
+		&self,
+		work: impl AsyncFnOnce(&Object) -> std::result::Result<T, MigrationError>,
+	) -> std::result::Result<T, MigrationError> {
 		let client = self.client().await?;
 		client
 			.execute("SELECT pg_advisory_lock($1)", &[&MIGRATION_LOCK])
 			.await
 			.map_err(error)?;
-		let applied = apply_migrations(&client, migrations).await;
+		let result = work(&client).await;
 		// The lock also ends with the session, so a failed unlock changes
 		// nothing.
 		let _ = client
 			.execute("SELECT pg_advisory_unlock($1)", &[&MIGRATION_LOCK])
 			.await;
-		applied
+		result
 	}
+}
+
+/// Creates the bookkeeping tables a migration needs.
+async fn prepare(client: &Object) -> std::result::Result<(), MigrationError> {
+	client
+		.batch_execute(&format!("{CREATE_MIGRATIONS_TABLE}; {CREATE_PUSH_TABLE}"))
+		.await
+		.map_err(error)?;
+	Ok(())
 }
 
 async fn apply_migrations(
@@ -310,38 +369,325 @@ async fn apply_migrations(
 		.await
 		.map_err(error)?;
 	let applied: Vec<(String, String)> = rows.iter().map(|row| (row.get(0), row.get(1))).collect();
+	let pending = pending(&applied, migrations)?;
+
+	if let Some(first) = pending.first()
+		&& has_pushes(client).await?
+	{
+		return Err(MigrationError::Pushed {
+			name: first.name.to_string(),
+		});
+	}
+
 	let mut names = Vec::new();
 
-	for migration in pending(&applied, migrations)? {
-		client.batch_execute("BEGIN").await.map_err(error)?;
-		let result = async {
-			client.batch_execute(&migration.sql).await.map_err(error)?;
-			client
-				.execute(
-					"INSERT INTO \"_leptoskit_migrations\" (\"name\", \"checksum\", \
-					 \"applied_at\") VALUES ($1, $2, $3)",
-					&[
-						&migration.name.as_ref(),
-						&migration.checksum.as_ref(),
-						&crate::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-					],
-				)
-				.await
-				.map_err(error)?;
-			client.batch_execute("COMMIT").await.map_err(error)
-		}
-		.await;
-
-		if let Err(source) = result {
-			let _ = client.batch_execute("ROLLBACK").await;
-			return Err(MigrationError::Failed {
-				name: migration.name.to_string(),
-				source,
-			});
-		}
-
+	for migration in pending {
+		apply_one(client, migration, &Record::Applied).await?;
 		names.push(migration.name.to_string());
 	}
 
 	Ok(names)
+}
+
+/// Whether the database holds pushed changes no migration records.
+async fn has_pushes(client: &Object) -> std::result::Result<bool, MigrationError> {
+	let exists: bool = client
+		.query_one("SELECT to_regclass('\"_leptoskit_push\"') IS NOT NULL", &[])
+		.await
+		.map_err(error)?
+		.get(0);
+
+	if !exists {
+		return Ok(false);
+	}
+
+	let count: i64 = client
+		.query_one("SELECT count(*) FROM \"_leptoskit_push\"", &[])
+		.await
+		.map_err(error)?
+		.get(0);
+	Ok(count > 0)
+}
+
+/// Runs one migration in its own transaction, and records it as `record`
+/// says.
+async fn apply_one(
+	client: &Object,
+	migration: &Migration,
+	record: &Record<'_>,
+) -> std::result::Result<(), MigrationError> {
+	let failed = |source| {
+		MigrationError::Failed {
+			name: migration.name.to_string(),
+			source,
+		}
+	};
+	let now = crate::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+	client.batch_execute("BEGIN").await.map_err(error)?;
+	let result = async {
+		match record {
+			Record::Applied => {
+				client.batch_execute(&migration.sql).await.map_err(error)?;
+			}
+			Record::Pushed(schema) => {
+				client.batch_execute(&migration.sql).await.map_err(error)?;
+				client
+					.execute(
+						"INSERT INTO \"_leptoskit_push\" (\"id\", \"schema\", \"pushed_at\") \
+						 VALUES (1, $1, $2) ON CONFLICT (\"id\") DO UPDATE SET \"schema\" = \
+						 EXCLUDED.\"schema\", \"pushed_at\" = EXCLUDED.\"pushed_at\"",
+						&[schema, &now],
+					)
+					.await
+					.map_err(error)?;
+				client.batch_execute("COMMIT").await.map_err(error)?;
+				return Ok(false);
+			}
+			Record::Adopted => {
+				let forgotten = client
+					.execute("DELETE FROM \"_leptoskit_push\"", &[])
+					.await
+					.map_err(error)?;
+
+				if forgotten == 0 {
+					return Ok(true);
+				}
+			}
+		}
+
+		client
+			.execute(
+				"INSERT INTO \"_leptoskit_migrations\" (\"name\", \"checksum\", \"applied_at\") \
+				 VALUES ($1, $2, $3)",
+				&[&migration.name.as_ref(), &migration.checksum.as_ref(), &now],
+			)
+			.await
+			.map_err(error)?;
+		client.batch_execute("COMMIT").await.map_err(error)?;
+		Ok(false)
+	}
+	.await;
+
+	match result {
+		Ok(false) => Ok(()),
+		Ok(true) => {
+			let _ = client.batch_execute("ROLLBACK").await;
+			Err(MigrationError::NothingPushed {
+				name: migration.name.to_string(),
+			})
+		}
+		Err(source) => {
+			let _ = client.batch_execute("ROLLBACK").await;
+			Err(failed(source))
+		}
+	}
+}
+
+/// The connection that listens for live changes, from every server sharing
+/// the database, and hands them to the hub. It reconnects when the
+/// connection drops, telling subscribers changes may have been missed, and
+/// stops when the database's last handle is dropped.
+pub(crate) struct Listener {
+	_stop: tokio::sync::oneshot::Sender<()>,
+}
+
+impl Listener {
+	/// Connects and listens, and returns once `LISTEN` has taken effect, so
+	/// that a subscriber made after it hears every change committed after it.
+	pub(crate) async fn start(url: &str, hub: std::sync::Weak<crate::live::Hub>) -> Result<Self> {
+		let config: tokio_postgres::Config = url.parse().map_err(DbError::connection)?;
+		let (ready, listening) = tokio::sync::oneshot::channel();
+		let (stop, stopped) = tokio::sync::oneshot::channel();
+		tokio::spawn(listen(config, hub, ready, stopped));
+
+		match listening.await {
+			Ok(Ok(())) => Ok(Self { _stop: stop }),
+			Ok(Err(error)) => Err(error),
+			Err(_) => Err(DbError::connection(ListenerEnded)),
+		}
+	}
+}
+
+/// The listening connection ended.
+#[derive(Debug, thiserror::Error)]
+#[error("the connection listening for live changes ended")]
+struct ListenerEnded;
+
+/// What happened on a listening connection.
+enum Heard<'a> {
+	/// `LISTEN` took effect.
+	Listening,
+	/// A notification's payload.
+	Payload(&'a str),
+}
+
+/// Why a listening connection stopped.
+enum Outcome {
+	/// The hub is gone, so nobody needs changes any more.
+	Stopped,
+	/// The connection failed or ended.
+	Failed(DbError),
+}
+
+/// Listens until the hub is gone, reconnecting with a growing delay.
+async fn listen(
+	config: tokio_postgres::Config,
+	hub: std::sync::Weak<crate::live::Hub>,
+	ready: tokio::sync::oneshot::Sender<Result<()>>,
+	mut stop: tokio::sync::oneshot::Receiver<()>,
+) {
+	use crate::live::Event;
+
+	let mut ready = Some(ready);
+	let mut delay = std::time::Duration::from_millis(100);
+
+	loop {
+		let mut assembler = crate::live::Assembler::default();
+		let mut heard = |heard: Heard<'_>| -> bool {
+			let Some(hub) = hub.upgrade() else {
+				return false;
+			};
+
+			match heard {
+				Heard::Listening => {
+					delay = std::time::Duration::from_millis(100);
+
+					match ready.take() {
+						Some(ready) => {
+							let _ = ready.send(Ok(()));
+						}
+						// Whatever committed while reconnecting was missed.
+						None => hub.send(Event::Lost),
+					}
+				}
+				Heard::Payload(payload) => {
+					match assembler.push(payload) {
+						Ok(Some(changes)) => hub.send(Event::Changes(changes.into())),
+						Ok(None) => {}
+						Err(_) => {
+							assembler.clear();
+							hub.send(Event::Lost);
+						}
+					}
+				}
+			}
+
+			true
+		};
+
+		let error = match session(&config, &mut stop, &mut heard).await {
+			Outcome::Stopped => return,
+			Outcome::Failed(error) => error,
+		};
+
+		// The first connection's failure is the caller's to see; a later
+		// one is retried.
+		if let Some(ready) = ready.take() {
+			let _ = ready.send(Err(error));
+			return;
+		}
+
+		match hub.upgrade() {
+			Some(hub) => hub.send(Event::Lost),
+			None => return,
+		}
+
+		let mut sleep = std::pin::pin!(tokio::time::sleep(delay));
+		let stopped = std::future::poll_fn(|cx| {
+			if std::pin::Pin::new(&mut stop).poll(cx).is_ready() {
+				return std::task::Poll::Ready(true);
+			}
+
+			sleep.as_mut().poll(cx).map(|()| false)
+		})
+		.await;
+
+		if stopped {
+			return;
+		}
+
+		delay = (delay * 2).min(std::time::Duration::from_secs(30));
+	}
+}
+
+/// One listening connection, until it fails or `stop` fires.
+async fn session(
+	config: &tokio_postgres::Config,
+	stop: &mut tokio::sync::oneshot::Receiver<()>,
+	heard: &mut (dyn FnMut(Heard<'_>) -> bool + Send),
+) -> Outcome {
+	if config.get_ssl_mode() == SslMode::Disable {
+		match config.connect(tokio_postgres::NoTls).await {
+			Ok((client, connection)) => drive(client, connection, stop, heard).await,
+			Err(failure) => Outcome::Failed(error(failure)),
+		}
+	} else {
+		let tls = match tls() {
+			Ok(tls) => tls,
+			Err(error) => return Outcome::Failed(error),
+		};
+
+		match config.connect(tls).await {
+			Ok((client, connection)) => drive(client, connection, stop, heard).await,
+			Err(failure) => Outcome::Failed(error(failure)),
+		}
+	}
+}
+
+/// Runs `LISTEN` and hands over notifications, polling the connection
+/// itself, which is where notifications arrive.
+async fn drive<S, T>(
+	client: tokio_postgres::Client,
+	mut connection: tokio_postgres::Connection<S, T>,
+	stop: &mut tokio::sync::oneshot::Receiver<()>,
+	heard: &mut (dyn FnMut(Heard<'_>) -> bool + Send),
+) -> Outcome
+where
+	S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+	T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+	use std::task::Poll;
+
+	let command = format!("LISTEN {}", crate::live::CHANNEL);
+	let mut listen = std::pin::pin!(client.batch_execute(&command));
+	let mut listening = false;
+
+	std::future::poll_fn(|cx| {
+		if std::pin::Pin::new(&mut *stop).poll(cx).is_ready() {
+			return Poll::Ready(Outcome::Stopped);
+		}
+
+		loop {
+			match connection.poll_message(cx) {
+				Poll::Ready(Some(Ok(tokio_postgres::AsyncMessage::Notification(notification)))) => {
+					if !heard(Heard::Payload(notification.payload())) {
+						return Poll::Ready(Outcome::Stopped);
+					}
+				}
+				Poll::Ready(Some(Ok(_))) => {}
+				Poll::Ready(Some(Err(failure))) => {
+					return Poll::Ready(Outcome::Failed(error(failure)));
+				}
+				Poll::Ready(None) => {
+					return Poll::Ready(Outcome::Failed(DbError::connection(ListenerEnded)));
+				}
+				Poll::Pending => break,
+			}
+		}
+
+		if !listening && let Poll::Ready(result) = listen.as_mut().poll(cx) {
+			if let Err(failure) = result {
+				return Poll::Ready(Outcome::Failed(error(failure)));
+			}
+
+			listening = true;
+
+			if !heard(Heard::Listening) {
+				return Poll::Ready(Outcome::Stopped);
+			}
+		}
+
+		Poll::Pending
+	})
+	.await
 }

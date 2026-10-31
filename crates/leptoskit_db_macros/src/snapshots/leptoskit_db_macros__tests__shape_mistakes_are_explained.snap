@@ -9,9 +9,9 @@ enum: a shape is a struct with a field for each value it reads
 tuple: a shape needs named fields: one per value it reads
 empty: a shape reads at least one value
 too many fields: a shape reads at most 100 values; nest some in another shape
-unknown field option: unknown shape field option; expected `column = field`, `count(link)`, `via = link`, `filter = |row| …`, `order_by = |row| …`, `limit`, or `offset`
+unknown field option: unknown shape field option; expected `column = field`, `count(link)`, `via = link`, `filter = |row| …`, `order_by = |row| …`, `limit`, `offset`, or `with_deleted`
 two sources: a field reads one thing: a column, `count(…)`, or `via = …`
-filter on a column: `filter`, `order_by`, `limit`, and `offset` narrow linked rows; this field reads a column
+filter on a column: `filter`, `order_by`, `limit`, `offset`, and `with_deleted` choose linked rows; this field reads a column
 order on a count: a count takes `filter`, but not `order_by`, `limit`, or `offset`
 narrowing a required row: a required nested row is the one its link points at; to narrow, order, or skip rows, make the field an `Option` or a `Vec`
 two tables: a shape reads one table; `from` is given twice
