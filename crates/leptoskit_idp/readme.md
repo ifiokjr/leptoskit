@@ -45,5 +45,6 @@ let app = router
 - **Signing keys** rotate, and only their public halves are stored: the private keys derive from `AUTH_ENCRYPTION_KEYS`.
 - **Pairwise subjects:** each app sees its own `sub` for a person, unless it's one of your own.
 - **Consent is headless:** your page reads `GET /oauth/consent` and posts the answer.
+- **Opt-in hardening and openness:** DPoP (RFC 9449) binds an app's tokens to its key, and dynamic registration (RFC 7591 and 7592) lets apps register themselves, with or without an initial access token. Both are off by default.
 
 The tables and the wire types build everywhere. `Idp` needs the `server` feature and a database, `postgres` or `sqlite`; its routes need `axum`.

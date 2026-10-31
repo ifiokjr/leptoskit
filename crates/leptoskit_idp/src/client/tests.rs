@@ -170,6 +170,7 @@ impl Server {
 				id_token_alg: SigningAlgorithm::Es256,
 				first_party: false,
 				introspection: false,
+				dpop_bound: false,
 			})
 			.await
 			.unwrap();

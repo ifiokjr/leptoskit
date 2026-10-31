@@ -518,6 +518,7 @@ pub fn spec(auth_method: ClientAuth, scopes: &[&str]) -> NewClientSpec {
 		id_token_alg: leptoskit_idp::SigningAlgorithm::Es256,
 		first_party: false,
 		introspection: false,
+		dpop_bound: false,
 	}
 }
 

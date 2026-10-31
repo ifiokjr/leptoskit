@@ -39,15 +39,17 @@ impl Idp {
 		&self,
 		spec: NewClientSpec,
 	) -> Result<(ClientInfo, Option<ClientSecret>)> {
-		self.insert_client(spec, None, &self.inner.db).await
+		self.insert_client(spec, None, None, &self.inner.db).await
 	}
 
 	/// Checks a new app and adds it, owned by `owner` when someone registered
-	/// it in the developer portal.
+	/// it in the developer portal, or managed with the token `registration`
+	/// hashes when it registered itself.
 	pub(crate) async fn insert_client(
 		&self,
 		spec: NewClientSpec,
 		owner: Option<Id<Account>>,
+		registration: Option<Vec<u8>>,
 		connection: &impl Connection,
 	) -> Result<(ClientInfo, Option<ClientSecret>)> {
 		let name = self.check_metadata(
@@ -62,6 +64,11 @@ impl Idp {
 		if spec.introspection && spec.auth_method == ClientAuth::None {
 			return Err(metadata(
 				"a public app can't introspect tokens; give it a secret",
+			));
+		}
+		if spec.dpop_bound && !self.inner.dpop {
+			return Err(metadata(
+				"DPoP-bound tokens need DPoP on the server: turn on `dpop` in [auth.idp]",
 			));
 		}
 		if spec.id_token_alg == SigningAlgorithm::Rs256 && self.inner.rsa_key.is_none() {
@@ -90,6 +97,8 @@ impl Idp {
 			introspection: spec.introspection,
 			subject_salt: secrets::random::<32>()?.to_vec(),
 			owner_id: owner,
+			dpop_bound: spec.dpop_bound,
+			registration_hash: registration,
 		}
 		.insert(connection)
 		.await?;
@@ -374,7 +383,7 @@ fn parse_basic(header: &str) -> Result<(String, String)> {
 /// An address an app may have people sent back to: an absolute URL with
 /// no fragment, over `https`, over `http` only to this device (RFC 8252
 /// §7.3), or with an app's own reverse-domain scheme (RFC 8252 §7.1).
-fn check_redirect_uri(uri: &str) -> Result<()> {
+pub(crate) fn check_redirect_uri(uri: &str) -> Result<()> {
 	let url = Url::parse(uri).map_err(|_| metadata(format!("`{uri}` isn't an absolute URL")))?;
 	let loopback = matches!(url.host_str(), Some("127.0.0.1" | "[::1]" | "localhost"));
 	let allowed = match url.scheme() {
@@ -480,6 +489,8 @@ impl From<Client> for ClientInfo {
 			scopes: client.scopes.0,
 			first_party: client.first_party,
 			introspection: client.introspection,
+			dpop_bound: client.dpop_bound,
+			self_registered: client.registration_hash.is_some(),
 			created_at: client.created_at,
 		}
 	}

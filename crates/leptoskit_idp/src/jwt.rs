@@ -28,6 +28,9 @@ pub(crate) const ACCESS_TOKEN_TYPE: &str = "at+jwt";
 /// The `typ` of an ID token.
 pub(crate) const ID_TOKEN_TYPE: &str = "JWT";
 
+/// The `typ` of a DPoP proof (RFC 9449 §4.2).
+pub(crate) const PROOF_TYPE: &str = "dpop+jwt";
+
 #[derive(Serialize, Deserialize)]
 struct Header {
 	alg: String,
@@ -35,6 +38,9 @@ struct Header {
 	typ: Option<String>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	kid: Option<String>,
+	/// The public key a DPoP proof carries, which it's signed with.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	jwk: Option<Value>,
 }
 
 /// A private key this server signs with.
@@ -134,6 +140,7 @@ pub(crate) fn sign(
 		alg: algorithm.as_str().into(),
 		typ: Some(typ.into()),
 		kid: Some(signer.kid.clone()),
+		jwk: None,
 	};
 	let header = serde_json::to_vec(&header).expect("a header always serializes");
 	let claims = serde_json::to_vec(claims).expect("claims always serialize");
@@ -162,6 +169,8 @@ pub(crate) fn sign(
 pub(crate) struct Unverified<'a> {
 	/// The key ID the token names, if any.
 	pub kid: Option<String>,
+	/// The public key in the header, which only a DPoP proof carries.
+	pub jwk: Option<Value>,
 	pub algorithm: SigningAlgorithm,
 	typ: Option<String>,
 	input: &'a str,
@@ -189,6 +198,7 @@ pub(crate) fn parse(token: &str) -> Option<Unverified<'_>> {
 
 	Some(Unverified {
 		kid: header.kid,
+		jwk: header.jwk,
 		algorithm,
 		typ: header.typ,
 		input,
@@ -218,6 +228,12 @@ impl Unverified<'_> {
 		});
 
 		(typ_allowed && self.signed_by(key)).then(|| self.claims.clone())
+	}
+
+	/// The claims of a DPoP proof, if `key`, the one in its own header,
+	/// signed them, and its `typ` is `dpop+jwt`.
+	pub(crate) fn verify_proof(&self, key: &PublicKey) -> Option<Value> {
+		self.verify(key, PROOF_TYPE)
 	}
 
 	fn signed_by(&self, key: &PublicKey) -> bool {
@@ -310,6 +326,22 @@ pub(crate) fn jwk(kid: &str, key: &PublicKey) -> Value {
 				"e": base64url(e),
 			})
 		}
+	}
+}
+
+/// A public key's RFC 7638 thumbprint: the SHA-256 of its required members
+/// in lexicographic order, with no whitespace, in base64url. DPoP binds
+/// tokens to it as `jkt`.
+pub(crate) fn thumbprint(key: &PublicKey) -> String {
+	use sha2::Digest;
+
+	match key {
+		PublicKey::Ec(key) => {
+			let (x, y) = coordinates(key);
+			let canonical = format!(r#"{{"crv":"P-256","kty":"EC","x":"{x}","y":"{y}"}}"#);
+			base64url(&sha2::Sha256::digest(canonical.as_bytes()))
+		}
+		PublicKey::Rsa { n, e } => rsa_thumbprint(n, e),
 	}
 }
 
@@ -458,6 +490,28 @@ pub(crate) mod tests {
 		let signature: Signature = private.sign(input.as_bytes());
 		let untyped = format!("{input}.{}", base64url(&signature.to_bytes()));
 		assert!(parse(&untyped).unwrap().verify_assertion(&public).is_some());
+	}
+
+	#[test]
+	fn thumbprints_follow_rfc_7638() {
+		// The key and `jkt` from RFC 9449's examples (§4.1 and §6.1).
+		let key = PublicKey::from_jwk(&json!({
+			"kty": "EC",
+			"x": "l8tFrhx-34tV3hRICRDY9zCkDlpBhF42UQUfWVAWBFs",
+			"y": "9VE4jf_Ok_o64zbTTlcuNJajHmt6v9TDVrU0CdvGRDA",
+			"crv": "P-256",
+		}))
+		.unwrap();
+		assert_eq!(
+			thumbprint(&key),
+			"0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I"
+		);
+
+		let rsa = public(&rsa());
+		let PublicKey::Rsa { n, e } = &rsa else {
+			unreachable!("an RSA key");
+		};
+		assert_eq!(thumbprint(&rsa), rsa_thumbprint(n, e));
 	}
 
 	#[test]

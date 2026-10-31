@@ -418,6 +418,8 @@ async fn the_portal_lists_apps_and_registers_more() {
 					scopes: vec!["openid".into()],
 					first_party: false,
 					introspection: false,
+					dpop_bound: false,
+					self_registered: false,
 					created_at: chrono::Utc::now(),
 				}
 			};
