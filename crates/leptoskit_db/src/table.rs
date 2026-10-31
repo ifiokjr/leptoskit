@@ -660,6 +660,24 @@ impl TableBuilder {
 		));
 	}
 
+	/// A spatial index over a geospatial column.
+	pub fn geo_index(&mut self, column: &str) {
+		self.table
+			.geo_indexes
+			.push(leptoskit_db_schema::GeoIndex::new(column));
+	}
+
+	/// A check that a geospatial column's shapes are valid.
+	pub fn geo_valid(&mut self, column: &str) {
+		self.check(
+			column,
+			"valid",
+			CheckRule::ValidGeometry {
+				column: column.to_string(),
+			},
+		);
+	}
+
 	pub fn build(self) -> leptoskit_db_schema::Table {
 		self.table
 	}
@@ -670,6 +688,15 @@ impl TableBuilder {
 			rule,
 		});
 	}
+}
+
+/// The same schema, keeping GeoPackage's metadata tables when `geopackage`,
+/// and checked again: GeoPackage needs SQLite and one geometry column per
+/// table.
+pub fn with_geopackage(schema: Schema, geopackage: bool) -> Result<Schema, SchemaError> {
+	let schema = schema.with_geopackage(geopackage);
+	schema.validate()?;
+	Ok(schema)
 }
 
 /// The environment variable naming the file `export_schema!` writes to.
@@ -719,6 +746,12 @@ pub fn export_schema_if_requested() {
 		Ok("orm") | Err(_) => schema(dialect),
 		Ok(other) => panic!("{POLICIES_ENV} is `{other}`; expected `orm` or `rls`"),
 	};
+	let geopackage = match std::env::var(GEOPACKAGE_ENV).as_deref() {
+		Ok("1") => true,
+		Ok("0") | Err(_) => false,
+		Ok(other) => panic!("{GEOPACKAGE_ENV} is `{other}`; expected `0` or `1`"),
+	};
+	let exported = exported.and_then(|schema| with_geopackage(schema, geopackage));
 
 	match exported {
 		Ok(schema) => {
