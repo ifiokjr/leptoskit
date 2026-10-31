@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use leptoskit_config::AuthConfig;
+use leptoskit_config::AuthMfa;
 use leptoskit_config::LeptoskitConfig;
 use leptoskit_db::Db;
 
@@ -10,6 +11,7 @@ use crate::Auth;
 use crate::AuthBuilder;
 use crate::AuthError;
 use crate::Keys;
+use crate::MfaPolicy;
 use crate::Result;
 use crate::SessionLifetimes;
 
@@ -59,7 +61,85 @@ impl Auth {
 			builder = builder.client_ip_header(header);
 		}
 
+		builder = builder.mfa(MfaPolicy {
+			required: auth.mfa == AuthMfa::Required,
+			required_for: auth.required_for.clone(),
+		});
+		builder = providers(builder, auth)?;
 		mailer(builder, auth)
+	}
+}
+
+/// Adds `[auth.providers]`, reading each one's secrets from the
+/// environment.
+#[cfg(feature = "oauth")]
+fn providers(mut builder: AuthBuilder, auth: &AuthConfig) -> Result<AuthBuilder> {
+	use crate::Provider;
+
+	for (id, config) in &auth.providers {
+		let get =
+			|name: &Option<String>| -> Result<String> { env(name.as_deref().unwrap_or_default()) };
+		let mut provider = match config.kind(id).as_str() {
+			"google" => {
+				Provider::google(get(&config.client_id_env)?, get(&config.client_secret_env)?)
+			}
+			"github" => {
+				Provider::github(get(&config.client_id_env)?, get(&config.client_secret_env)?)
+			}
+			"microsoft" => {
+				Provider::microsoft(
+					get(&config.client_id_env)?,
+					get(&config.client_secret_env)?,
+					config.tenant.as_deref().unwrap_or("common"),
+				)
+			}
+			"apple" => {
+				Provider::apple(
+					get(&config.client_id_env)?,
+					get(&config.team_id_env)?,
+					get(&config.key_id_env)?,
+					&get(&config.private_key_env)?,
+				)?
+			}
+			_ => {
+				let secret = config
+					.client_secret_env
+					.as_ref()
+					.map(|name| env(name))
+					.transpose()?;
+				Provider::oidc(
+					id,
+					config.name.clone().unwrap_or_else(|| id.clone()),
+					config.issuer.clone().unwrap_or_default(),
+					get(&config.client_id_env)?,
+					secret,
+				)?
+			}
+		};
+
+		if let Some(name) = &config.name {
+			provider = provider.name(name);
+		}
+
+		if let Some(scopes) = &config.scopes {
+			provider = provider.scopes(scopes.iter().cloned());
+		}
+
+		builder = builder.provider(provider);
+	}
+
+	Ok(builder)
+}
+
+#[cfg(not(feature = "oauth"))]
+fn providers(builder: AuthBuilder, auth: &AuthConfig) -> Result<AuthBuilder> {
+	if auth.providers.is_empty() {
+		Ok(builder)
+	} else {
+		Err(AuthError::Config(
+			"[auth.providers] signs in with other sites; turn on leptoskit_auth's `oauth` feature"
+				.into(),
+		))
 	}
 }
 

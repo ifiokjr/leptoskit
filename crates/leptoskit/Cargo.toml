@@ -132,6 +132,15 @@ auth-smtp = ["auth", "leptoskit_auth/smtp"]
 ## Sign-in email as a signed webhook: `auth::WebhookMailer`, and
 ## `webhook_url_env` in `[auth.mail]`.
 auth-webhook = ["auth", "leptoskit_auth/webhook"]
+## Passkeys on the server: WebAuthn with `webauthn-rs`, which builds OpenSSL
+## from source. Turn it on in the server's crate only. Without it, the
+## client's passkey functions still exist, and the server answers
+## `unsupported`.
+auth-passkeys = ["auth", "leptoskit_auth/passkey"]
+## Third-party sign-in on the server: `auth::Provider` and
+## `[auth.providers]`, for Google, Apple, Microsoft, GitHub, and any OpenID
+## Connect issuer. Turn it on in the server's crate only.
+auth-providers = ["auth", "leptoskit_auth/oauth"]
 linux = ["gtk"]
 macos = ["appkit"]
 # leptos's `nightly` feature, for its macro and renderer. Requires a nightly

@@ -34,6 +34,11 @@
 - [Foldable phones](guide/21-foldable-phones.md)
 - [The database](guide/22-database.md)
 - [Sign-in](guide/23-sign-in.md)
+  - [Google](guide/auth/providers/google.md)
+  - [Sign in with Apple](guide/auth/providers/apple.md)
+  - [Microsoft](guide/auth/providers/microsoft.md)
+  - [GitHub](guide/auth/providers/github.md)
+  - [Any OpenID Connect provider](guide/auth/providers/oidc.md)
 - [Publishing to the stores](guide/24-publishing.md)
 
 # Reference

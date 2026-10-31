@@ -574,3 +574,166 @@ async fn second_factor_attempts_are_limited_per_account() {
 		));
 	}
 }
+
+#[tokio::test]
+async fn repeated_wrong_second_factors_lock_the_account_and_email_it() {
+	let cluster = PostgresCluster::start();
+
+	for db in databases(cluster.as_ref()).await {
+		let mailbox = Mailbox::new();
+		let plenty = leptoskit_auth::Limit::new(100, Duration::from_secs(600));
+		let auth = Auth::builder(&db, Keys::single("test", [7; 32]))
+			.app_name("Notes")
+			.mailer(mailbox.clone())
+			.limits(leptoskit_auth::Limits {
+				second_factor_per_account: plenty,
+				verify_per_ip: plenty,
+				failures_before_lock: leptoskit_auth::Limit::new(3, Duration::from_secs(3600)),
+				..leptoskit_auth::Limits::default()
+			})
+			.build()
+			.unwrap();
+		let (secret, enrolled, _) = enrolled(&auth, &mailbox, "ada@example.com").await;
+		let account = enrolled.session.account_id;
+		let SignInStep::SecondFactor(step) =
+			email(&auth, &mailbox, "ada@example.com", &request()).await
+		else {
+			panic!("a second factor");
+		};
+
+		// Three wrong codes are just wrong; the fourth locks the account.
+		for _ in 0..4 {
+			assert!(matches!(
+				auth.complete_sign_in(&step.token, "000000", &request())
+					.await,
+				Err(AuthError::InvalidCode)
+			));
+		}
+
+		let locked = Account::get(&db.system("test"), account).await.unwrap();
+		assert!(locked.locked_until.is_some());
+		assert!(events(&db, account).await.contains(&EventKind::Locked));
+		let mail = mailbox.latest_to("ada@example.com").unwrap();
+		assert!(
+			mail.subject.contains("Sign-in is locked"),
+			"{}",
+			mail.subject
+		);
+		assert!(mail.text.contains("UTC"));
+
+		// Now even the right code, a new emailed code, and step-up are
+		// refused until it unlocks.
+		next_step(&db, account).await;
+		assert!(matches!(
+			auth.complete_sign_in(&step.token, &totp(&secret, 0), &request())
+				.await,
+			Err(AuthError::Locked { .. })
+		));
+		auth.send_email_code("ada@example.com", &request())
+			.await
+			.unwrap();
+		let code = mailbox
+			.latest_to("ada@example.com")
+			.unwrap()
+			.subject
+			.rsplit(' ')
+			.next()
+			.unwrap()
+			.to_owned();
+		assert!(matches!(
+			auth.verify_email_code("ada@example.com", &code, &request())
+				.await,
+			Err(AuthError::Locked { .. })
+		));
+		assert!(matches!(
+			auth.step_up(&enrolled.signed_in(), &totp(&secret, 0), &request())
+				.await,
+			Err(AuthError::Locked { .. })
+		));
+
+		// An administrator lifts it.
+		auth.unlock(account, &request()).await.unwrap();
+		assert!(events(&db, account).await.contains(&EventKind::Unlocked));
+		let SignInStep::SecondFactor(step) =
+			email(&auth, &mailbox, "ada@example.com", &request()).await
+		else {
+			panic!("a second factor");
+		};
+		next_step(&db, account).await;
+		auth.complete_sign_in(&step.token, &totp(&secret, 0), &request())
+			.await
+			.unwrap();
+	}
+}
+
+#[tokio::test]
+async fn an_administrator_resets_two_step_verification() {
+	let cluster = PostgresCluster::start();
+
+	for db in databases(cluster.as_ref()).await {
+		let mailbox = Mailbox::new();
+		let auth = auth(&db, &mailbox);
+		let (_, enrolled, _) = enrolled(&auth, &mailbox, "ada@example.com").await;
+		let account = enrolled.session.account_id;
+
+		auth.reset_mfa(account, &request()).await.unwrap();
+		assert!(auth.resolve(&enrolled.token).await.unwrap().is_none());
+		let status = auth.mfa_status(account).await.unwrap();
+		assert!(!status.totp);
+		assert_eq!(status.recovery_codes, 0);
+		assert!(events(&db, account).await.contains(&EventKind::MfaReset));
+		assert!(
+			mailbox
+				.latest_to("ada@example.com")
+				.unwrap()
+				.subject
+				.contains("Two-step verification was reset")
+		);
+
+		// The emailed code alone signs in again.
+		sign_in(&auth, &mailbox, "ada@example.com").await;
+	}
+}
+
+#[tokio::test]
+async fn rotating_keys_re_encrypts_secrets_under_the_newest() {
+	let cluster = PostgresCluster::start();
+	let encode = |byte: u8| {
+		use base64::Engine;
+		base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([byte; 32])
+	};
+
+	for db in databases(cluster.as_ref()).await {
+		let mailbox = Mailbox::new();
+		let old = Auth::builder(&db, Keys::parse(&format!("old:{}", encode(1))).unwrap())
+			.mailer(mailbox.clone())
+			.build()
+			.unwrap();
+		let (secret, enrolled, _) = enrolled(&old, &mailbox, "ada@example.com").await;
+		let rotated_keys = Keys::parse(&format!("new:{},old:{}", encode(2), encode(1))).unwrap();
+		let both = Auth::builder(&db, rotated_keys)
+			.mailer(mailbox.clone())
+			.build()
+			.unwrap();
+
+		let rotated = both.rotate_keys().await.unwrap();
+		assert_eq!(rotated.totp, 1);
+		assert_eq!(rotated.current, 0);
+		let again = both.rotate_keys().await.unwrap();
+		assert_eq!(
+			(again.totp, again.current),
+			(0, 1),
+			"running it again does nothing"
+		);
+
+		// The old key can go: the authenticator still works.
+		let new = Auth::builder(&db, Keys::parse(&format!("new:{}", encode(2))).unwrap())
+			.mailer(mailbox.clone())
+			.build()
+			.unwrap();
+		next_step(&db, enrolled.session.account_id).await;
+		new.step_up(&enrolled.signed_in(), &totp(&secret, 0), &request())
+			.await
+			.unwrap();
+	}
+}

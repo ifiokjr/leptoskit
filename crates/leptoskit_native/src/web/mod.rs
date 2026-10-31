@@ -628,6 +628,7 @@ fn text_input(
 		})
 		.disabled(!enabled)
 		.placeholder(props.placeholder.unwrap_or_default())
+		.attr("autocomplete", props.autocomplete)
 		.value(value.clone())
 		.attr("data-lk-value", value)
 		.directive(controls::restore_input, ())

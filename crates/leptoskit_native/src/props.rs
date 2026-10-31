@@ -303,6 +303,11 @@ pub struct NativeProps {
 	/// The placeholder for `TextInput`.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub placeholder: Option<String>,
+	/// What a browser may suggest for `TextInput`, as HTML's `autocomplete`,
+	/// such as `email`, or `username webauthn`, which offers saved
+	/// passkeys. Native platforms don't use it yet.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub autocomplete: Option<String>,
 	/// The current value of `TextInput`.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub value: Option<String>,

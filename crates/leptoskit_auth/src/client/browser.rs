@@ -111,3 +111,162 @@ async fn fetch(
 		body: text.as_string().unwrap_or_default().into_bytes(),
 	})
 }
+
+/// The browser's passkeys and page: `navigator.credentials`, and
+/// `location`.
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+pub(crate) struct Browser;
+
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+thread_local! {
+	/// Stops the passkey request that's waiting, if any. The browser allows
+	/// one at a time, so starting another stops this one first.
+	static WAITING: std::cell::RefCell<Option<web_sys::AbortController>> =
+		const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+impl Browser {
+	/// A signal for a new passkey request, after stopping the one waiting.
+	fn signal() -> Result<web_sys::AbortSignal, ErrorResponse> {
+		let controller = web_sys::AbortController::new().map_err(|_| unavailable())?;
+		let signal = controller.signal();
+		WAITING.with(|waiting| {
+			if let Some(previous) = waiting.borrow_mut().replace(controller) {
+				previous.abort();
+			}
+		});
+		Ok(signal)
+	}
+
+	fn credentials() -> Result<web_sys::CredentialsContainer, ErrorResponse> {
+		let window = web_sys::window().ok_or_else(unavailable)?;
+		Ok(window.navigator().credentials())
+	}
+}
+
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+fn unavailable() -> ErrorResponse {
+	super::protocol::error("unsupported", "this browser can't use passkeys")
+}
+
+/// What a refused WebAuthn request means: the person said no, or the
+/// browser can't.
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+fn refused(error: &wasm_bindgen::JsValue) -> ErrorResponse {
+	let name = js_sys::Reflect::get(error, &"name".into())
+		.ok()
+		.and_then(|name| name.as_string())
+		.unwrap_or_default();
+
+	match name.as_str() {
+		"NotAllowedError" | "AbortError" => {
+			super::protocol::error("cancelled", "the passkey request was cancelled")
+		}
+		"NotSupportedError" | "SecurityError" => unavailable(),
+		_ => super::protocol::error("passkey_failed", "that passkey didn't work; try again"),
+	}
+}
+
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+impl super::protocol::Platform for Browser {
+	fn create(
+		&self,
+		options: crate::CreationChallengeResponse,
+	) -> BoxFuture<'static, Result<crate::RegisterPublicKeyCredential, ErrorResponse>> {
+		Box::pin(send_wrapper::SendWrapper::new(async move {
+			use wasm_bindgen::JsCast;
+
+			let credentials = Self::credentials()?;
+			let options = web_sys::CredentialCreationOptions::from(options);
+			let signal: wasm_bindgen::JsValue = Self::signal()?.into();
+			js_sys::Reflect::set(&options, &"signal".into(), &signal).map_err(|_| unavailable())?;
+			let promise = credentials
+				.create_with_options(&options)
+				.map_err(|error| refused(&error))?;
+			let credential = wasm_bindgen_futures::JsFuture::from(promise)
+				.await
+				.map_err(|error| refused(&error))?
+				.dyn_into::<web_sys::PublicKeyCredential>()
+				.map_err(|_| unavailable())?;
+			Ok(crate::RegisterPublicKeyCredential::from(credential))
+		}))
+	}
+
+	fn get(
+		&self,
+		options: crate::RequestChallengeResponse,
+		autofill: bool,
+	) -> BoxFuture<'static, Result<crate::PublicKeyCredential, ErrorResponse>> {
+		Box::pin(send_wrapper::SendWrapper::new(async move {
+			use wasm_bindgen::JsCast;
+
+			if autofill && !conditional_mediation().await {
+				return Err(unavailable());
+			}
+
+			let credentials = Self::credentials()?;
+			let options = web_sys::CredentialRequestOptions::from(options);
+			let signal: wasm_bindgen::JsValue = Self::signal()?.into();
+			js_sys::Reflect::set(&options, &"signal".into(), &signal).map_err(|_| unavailable())?;
+			let promise = credentials
+				.get_with_options(&options)
+				.map_err(|error| refused(&error))?;
+			let credential = wasm_bindgen_futures::JsFuture::from(promise)
+				.await
+				.map_err(|error| refused(&error))?
+				.dyn_into::<web_sys::PublicKeyCredential>()
+				.map_err(|_| unavailable())?;
+			Ok(crate::PublicKeyCredential::from(credential))
+		}))
+	}
+
+	fn cancel(&self) {
+		WAITING.with(|waiting| {
+			if let Some(controller) = waiting.borrow_mut().take() {
+				controller.abort();
+			}
+		});
+	}
+
+	fn open(&self, url: &str) -> Result<(), ErrorResponse> {
+		web_sys::window()
+			.ok_or_else(unavailable)?
+			.location()
+			.assign(url)
+			.map_err(|_| super::protocol::error("network", "couldn't open the sign-in page"))
+	}
+
+	fn query(&self) -> Option<String> {
+		web_sys::window()?.location().search().ok()
+	}
+}
+
+/// Whether the browser offers passkeys in autofill:
+/// `PublicKeyCredential.isConditionalMediationAvailable()`.
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+async fn conditional_mediation() -> bool {
+	let Some(window) = web_sys::window() else {
+		return false;
+	};
+	let Ok(class) = js_sys::Reflect::get(&window, &"PublicKeyCredential".into()) else {
+		return false;
+	};
+	let Ok(check) = js_sys::Reflect::get(&class, &"isConditionalMediationAvailable".into()) else {
+		return false;
+	};
+	let Ok(check) = wasm_bindgen::JsCast::dyn_into::<js_sys::Function>(check) else {
+		return false;
+	};
+	let Ok(promise) = check.call0(&class) else {
+		return false;
+	};
+	let Ok(promise) = wasm_bindgen::JsCast::dyn_into::<js_sys::Promise>(promise) else {
+		return false;
+	};
+	wasm_bindgen_futures::JsFuture::from(promise)
+		.await
+		.ok()
+		.and_then(|available| available.as_bool())
+		.unwrap_or(false)
+}

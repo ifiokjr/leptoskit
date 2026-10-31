@@ -1,0 +1,12 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Checks `[auth]`: that every secret's environment variable is set (never printing it), the origin and passkey relying party, where providers send people back, and how old each provider's definition is. Exits non-zero when something would fail
+
+Usage: leptoskit auth doctor [OPTIONS]
+
+Options:
+      --release  Checks for a release build: `http` origins, including those a native app may reach, and the development mailbox are errors
+  -h, --help     Print help
+  -V, --version  Print version
