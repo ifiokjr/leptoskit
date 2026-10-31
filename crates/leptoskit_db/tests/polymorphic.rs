@@ -415,7 +415,10 @@ async fn writes_through_the_enum_reach_the_variant() {
 		assert_eq!(supertype_rows(&db).await.len(), 1);
 
 		actor.destroy(&system).await.unwrap();
-		assert!(supertype_rows(&db).await.is_empty());
+		assert_eq!(
+			supertype_rows(&db).await,
+			Vec::<(Id<Actor>, ActorKind)>::new()
+		);
 	})
 	.await;
 }
@@ -725,7 +728,10 @@ fn migrations_create_the_supertype_and_its_foreign_keys() {
 				.collect::<Vec<_>>(),
 			["id", "kind"]
 		);
-		assert!(actors.foreign_keys.is_empty());
+		assert_eq!(
+			actors.foreign_keys,
+			Vec::<leptoskit_db_schema::ForeignKey>::new()
+		);
 
 		let empty = Schema::empty(dialect);
 		let plan = leptoskit_db_schema::diff(&empty, &schema, &mut RequireHints).unwrap();
@@ -850,7 +856,10 @@ fn variants_inherit_the_supertype_as_row_level_security() {
 				.await
 				.unwrap()
 		};
-		assert!(raw(&anonymous, "SELECT id FROM bots").await.is_empty());
+		assert_eq!(
+			raw(&anonymous, "SELECT id FROM bots").await,
+			Vec::<Vec<Value>>::new()
+		);
 		assert_eq!(
 			raw(&as_actor(&db, helper.id.upcast()), "SELECT id FROM bots")
 				.await

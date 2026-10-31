@@ -99,7 +99,7 @@ fn values_show_as_text() {
 fn filters_name_their_comparisons() {
 	for op in Op::ALL {
 		assert_eq!(Op::parse(op.name()), Some(op));
-		assert!(!op.label().is_empty());
+		assert_ne!(op.label(), "");
 	}
 	assert_eq!(Op::parse("like"), None);
 }
