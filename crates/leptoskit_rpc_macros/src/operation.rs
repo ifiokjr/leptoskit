@@ -583,6 +583,12 @@ fn server_items(
 		None => quote!(),
 	};
 	let handler = quote!(#krate::__private::handle::<#struct_ident>);
+	let query_handler = match kind {
+		OperationKind::Query => {
+			quote!(::core::option::Option::Some(#krate::__private::handle_query::<#struct_ident>))
+		}
+		OperationKind::Mutation => quote!(::core::option::Option::None),
+	};
 	let call = quote_spanned! {signature.output_span=>
 		#fn_ident(cx, #(#bindings),*)
 	};
@@ -628,6 +634,7 @@ fn server_items(
 						kind: <#struct_ident as #krate::Operation>::KIND,
 						module_path: ::core::module_path!(),
 						handler: #handler,
+						query: #query_handler,
 					}
 				}
 			};

@@ -16,6 +16,8 @@
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod cx;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod effects;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod http;
 #[cfg(feature = "db")]
 mod identity;
@@ -28,6 +30,12 @@ mod run;
 pub use cx::MutationCx;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use cx::QueryCx;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use effects::Enqueued;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use effects::JobRecord;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use effects::Published;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use http::IDEMPOTENCY_KEY;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -54,6 +62,9 @@ pub use run::call_as;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 #[doc(hidden)]
 pub use run::handle;
+#[cfg(all(feature = "live", any(feature = "postgres", feature = "sqlite")))]
+#[doc(hidden)]
+pub use run::handle_query;
 
 /// What an operation's body receives: [`QueryCx`] or [`MutationCx`]. Sealed:
 /// a new kind of operation brings its own.
@@ -88,6 +99,11 @@ pub struct Registration {
 	/// Decodes the arguments, runs the operation, and encodes its result.
 	#[doc(hidden)]
 	pub handler: run::Handler,
+	/// For a query: the same, with the read set that produced it, which the
+	/// live hub indexes so that a write can decide which queries to re-run.
+	#[cfg(all(feature = "live", any(feature = "postgres", feature = "sqlite")))]
+	#[doc(hidden)]
+	pub query: Option<run::QueryHandler>,
 }
 
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -162,18 +178,21 @@ mod tests {
 		kind: crate::Kind::Query,
 		module_path: "app::one",
 		handler,
+		query: None,
 	};
 	static B: Registration = Registration {
 		name: "b",
 		kind: crate::Kind::Mutation,
 		module_path: "app::one",
 		handler,
+		query: None,
 	};
 	static A_AGAIN: Registration = Registration {
 		name: "a",
 		kind: crate::Kind::Mutation,
 		module_path: "app::two",
 		handler,
+		query: None,
 	};
 
 	#[test]

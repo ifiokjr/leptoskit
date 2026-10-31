@@ -50,6 +50,7 @@ const _: () = {
         leptoskit::rpc::server::Registration { name : < SendMessage as
         leptoskit::rpc::Operation > ::NAME, kind : < SendMessage as
         leptoskit::rpc::Operation > ::KIND, module_path : ::core::module_path!(), handler
-        : leptoskit::rpc::__private::handle:: < SendMessage >, }
+        : leptoskit::rpc::__private::handle:: < SendMessage >, query :
+        ::core::option::Option::None, }
     }
 };

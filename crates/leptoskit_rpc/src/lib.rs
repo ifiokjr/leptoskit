@@ -92,6 +92,8 @@ pub use server::call;
 
 #[cfg(feature = "client")]
 pub mod client;
+#[cfg(all(feature = "live", any(feature = "postgres", feature = "sqlite")))]
+pub mod live;
 mod operation;
 #[cfg(feature = "server")]
 pub mod server;
@@ -112,6 +114,8 @@ pub mod __private {
 	pub use crate::operation::assert_output;
 	#[cfg(any(feature = "postgres", feature = "sqlite"))]
 	pub use crate::server::handle;
+	#[cfg(all(feature = "live", any(feature = "postgres", feature = "sqlite")))]
+	pub use crate::server::handle_query;
 }
 
 /// Refuses a server build that declares queries or mutations without a
