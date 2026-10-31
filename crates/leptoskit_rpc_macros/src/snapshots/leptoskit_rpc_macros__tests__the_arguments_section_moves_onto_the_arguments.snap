@@ -1,6 +1,5 @@
 ---
 source: crates/leptoskit_rpc_macros/src/tests.rs
-assertion_line: 198
 expression: "expansion(TokenStream::new(), quote!\n{\n    #[doc = r\" Lists todos.\"] #[doc = r\"\"] #[doc = r\" Newest first.\"]\n    #[doc = r\"\"] #[doc = r\" # Arguments\"] #[doc = r\"\"]\n    #[doc = r\" * `filter` - Which todos to list.\"]\n    #[doc = r\" * `limit` - How many to return; the server caps it\"]\n    #[doc = r\"   at a hundred.\"]\n    #[doc = r\" * `type` - Loses to the doc comment on the argument.\"]\n    #[doc = r\"\"] #[doc = r\" # Errors\"] #[doc = r\"\"]\n    #[doc = r\" When the database is down.\"] #[server] pub async fn\n    list_todos(filter: TodoFilter, limit: Option<u32>,\n    #[doc = r\" Overrides the section.\"] r#type: Option<String>,) ->\n    Result<Vec<Todo>, ServerFnError> { Ok(Vec::new()) }\n})"
 ---
 /// Lists todos.
@@ -65,4 +64,5 @@ static REGISTERED: ::leptoskit_rpc::spec::ApiFnDescriptor = ::leptoskit_rpc::spe
     internal: false,
     deprecated: false,
     tags: &[],
+    scopes: &[],
 };

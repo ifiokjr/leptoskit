@@ -302,8 +302,11 @@ pub enum Command {
 		#[command(subcommand)]
 		command: crate::db::DbCommand,
 	},
-	/// Checks sign-in's configuration, rotates its keys, and adds
-	/// third-party providers.
+	/// Checks sign-in's configuration, rotates its keys, adds third-party
+	/// providers, and registers the apps that may sign people in with yours.
+	///
+	/// `auth idp client add`, `list`, and `remove` register and remove those
+	/// apps, through the app's own server.
 	Auth {
 		#[command(subcommand)]
 		command: crate::auth_command::AuthCommand,

@@ -64,6 +64,7 @@ leptoskit_db = { workspace = true, features = ["postgres", "sqlite"] }
 leptoskit_db_schema = { workspace = true }
 leptoskit_devtools_protocol = { workspace = true }
 leptoskit_fmt = { workspace = true, features = ["cli"] }
+leptoskit_idp = { workspace = true }
 leptoskit_l10n_codegen = { workspace = true }
 leptoskit_lint = { workspace = true }
 leptoskit_plugin = { workspace = true }

@@ -111,6 +111,17 @@ impl Keys {
 		}
 	}
 
+	/// 32 bytes derived from the key named `id` for one `purpose`, such as
+	/// a signing key that another crate keeps only the public half of. Each
+	/// purpose gets bytes unrelated to every other's, and to the hashes this
+	/// crate keeps. `None` when no key has that ID, such as after it was
+	/// retired.
+	pub fn derive(&self, id: &str, purpose: &[u8]) -> Option<[u8; 32]> {
+		let key = self.keys.iter().find(|key| key.id == id)?;
+		let bytes = mac(&key.secret, &[b"leptoskit derived key", purpose]);
+		<[u8; 32]>::try_from(bytes).ok()
+	}
+
 	/// The keyed hash of `parts` under the newest key. Each part is length
 	/// prefixed, so ("ab", "c") and ("a", "bc") hash apart.
 	pub(crate) fn hash(&self, parts: &[&[u8]]) -> Vec<u8> {
@@ -155,7 +166,8 @@ impl Keys {
 		Ok(sealed)
 	}
 
-	/// The ID of the key that encrypts new secrets.
+	/// The ID of the newest key: the one that encrypts new secrets, and that
+	/// new [derived](Self::derive) keys come from.
 	pub fn newest(&self) -> &str {
 		&self.keys[0].id
 	}
@@ -377,6 +389,24 @@ mod tests {
 		assert!(!keys.verify(&keys.hash(&[b"code"]), &[b"other"]));
 		assert!(!keys.verify(&keys.hash(&[b"ab", b"c"]), &[b"a", b"bc"]));
 		assert_eq!(format!("{keys:?}"), r#"Keys { ids: ["new", "old"], .. }"#);
+	}
+
+	#[test]
+	fn derived_keys_are_per_key_and_per_purpose() {
+		let keys = Keys::parse(&format!(
+			"new:{},old:{}",
+			URL_SAFE_NO_PAD.encode([2; 32]),
+			URL_SAFE_NO_PAD.encode([1; 32])
+		))
+		.unwrap();
+		let signing = keys.derive("new", b"signing").unwrap();
+
+		assert_eq!(keys.newest(), "new");
+		assert_eq!(keys.derive("new", b"signing"), Some(signing));
+		assert_ne!(keys.derive("old", b"signing"), Some(signing));
+		assert_ne!(keys.derive("new", b"other"), Some(signing));
+		assert_ne!(keys.hash(&[b"signing"]), signing.to_vec());
+		assert_eq!(keys.derive("gone", b"signing"), None);
 	}
 
 	#[test]

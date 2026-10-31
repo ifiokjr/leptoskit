@@ -1,5 +1,6 @@
 //! `leptoskit auth`: checking sign-in's configuration, rotating its keys,
-//! and adding third-party providers.
+//! adding third-party providers, and registering the apps that may sign
+//! people in with yours.
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -9,6 +10,8 @@ use anyhow::Result;
 use anyhow::bail;
 use leptoskit_config::LeptoskitConfig;
 use leptoskit_config::Platform;
+
+pub mod idp;
 
 /// The `leptoskit auth` subcommands.
 #[derive(Debug, clap::Subcommand)]
@@ -34,6 +37,12 @@ pub enum AuthCommand {
 	Provider {
 		#[command(subcommand)]
 		command: ProviderCommand,
+	},
+	/// Manages "Sign in with your app": the apps that may sign people in with
+	/// yours (`leptoskit_idp`).
+	Idp {
+		#[command(subcommand)]
+		command: idp::IdpCommand,
 	},
 }
 
@@ -80,6 +89,7 @@ pub fn run(command: AuthCommand) -> Result<()> {
 			print!("{output}");
 			Ok(())
 		}
+		AuthCommand::Idp { command } => idp::run(command, &config, root),
 	}
 }
 

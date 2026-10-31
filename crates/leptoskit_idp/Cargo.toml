@@ -1,0 +1,72 @@
+[package]
+name = "leptoskit_idp"
+version.workspace = true
+authors.workspace = true
+categories = ["authentication", "web-programming"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["oauth", "openid", "identity", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Sign in with your app: an OAuth 2.1 and OpenID Connect provider for leptoskit apps, built on their own database, sessions, and access policies."
+
+[dependencies]
+axum = { workspace = true, optional = true, features = ["form", "json", "query"] }
+base64 = { workspace = true, optional = true }
+chrono = { workspace = true }
+getrandom = { workspace = true, optional = true }
+leptoskit_auth = { workspace = true }
+leptoskit_db = { workspace = true }
+leptoskit_rpc = { workspace = true, optional = true }
+p256 = { version = "0.14", optional = true, default-features = false, features = ["ecdsa"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true, optional = true }
+subtle = { workspace = true, optional = true }
+thiserror = { workspace = true }
+tower = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
+
+[dev-dependencies]
+axum = { workspace = true, features = ["tokio"] }
+base64 = { workspace = true }
+http-body-util = "0.1"
+leptos = { workspace = true, features = ["ssr"] }
+leptoskit_rpc = { workspace = true, features = ["ssr"] }
+p256 = { version = "0.14", default-features = false, features = ["ecdsa"] }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower = { workspace = true, features = ["util"] }
+url = { workspace = true }
+
+[features]
+default = []
+## The provider itself: clients, consent, codes, tokens, and signing keys.
+## Pick a database too, with `postgres` or `sqlite`.
+server = [
+	"dep:base64",
+	"dep:getrandom",
+	"dep:leptoskit_rpc",
+	"dep:p256",
+	"dep:sha2",
+	"dep:subtle",
+	"dep:url",
+	"dep:uuid",
+	"leptoskit_auth/server",
+	"leptoskit_db/server",
+]
+## The provider backed by Postgres.
+postgres = ["server", "leptoskit_auth/postgres"]
+## The provider backed by SQLite.
+sqlite = ["server", "leptoskit_auth/sqlite"]
+## The `/oauth` routes and the layer that serves the token endpoints and
+## lets third-party tokens reach `#[api(scope = …)]` functions, for axum
+## servers.
+axum = ["server", "dep:axum", "dep:tower", "leptoskit_auth/axum", "leptoskit_rpc/ssr"]
+
+[lints]
+workspace = true
