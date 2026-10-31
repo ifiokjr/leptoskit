@@ -6,6 +6,7 @@ use std::ops::BitOr;
 use std::ops::Not;
 
 use leptoskit_db_schema::Dialect;
+use leptoskit_db_schema::TableName;
 
 use crate::Column;
 use crate::DbError;
@@ -130,6 +131,15 @@ impl<T: Table, V: Column> Col<T, V> {
 	}
 
 	fn compare(&self, comparison: Comparison, value: impl Operand<V>) -> Expr {
+		if let Some((table, other)) = value.column() {
+			return Expr::CompareColumn {
+				column: self.name,
+				comparison,
+				table,
+				other,
+			};
+		}
+
 		match value.into_value() {
 			Ok(value) => {
 				Expr::Compare {
@@ -171,9 +181,64 @@ impl<T: TextColumn> TextColumn for Option<T> {}
 
 /// A value a column of type `V` can be compared with: `V` itself, a
 /// reference to it, the inside of an optional column, or `&str` for text.
+///
+/// Inside a policy's `cx.count(…)`, a column of the row the policy checks
+/// works too, which is how a count follows a link back to that row:
+///
+/// ```ignore
+/// cx.count(Member::query().filter(|member| member.team_id.eq(project.team_id)))
+/// ```
 pub trait Operand<V> {
 	#[doc(hidden)]
 	fn into_value(self) -> Result<Value, EncodeError>;
+
+	/// The table and name of the column this operand is, when it's one.
+	#[doc(hidden)]
+	fn column(&self) -> Option<(TableName, &'static str)> {
+		None
+	}
+}
+
+/// A column compared with another column, which only a filter can do: a
+/// column has no value of its own to write or list.
+fn column_operand<U: Table>(name: &'static str) -> (TableName, &'static str) {
+	(U::table_name(), name)
+}
+
+fn column_as_value(name: &str) -> EncodeError {
+	EncodeError::new(format!(
+		"column `{name}` has no value of its own; compare with it in a filter instead"
+	))
+}
+
+impl<U: Table, V: Column> Operand<V> for Col<U, V> {
+	fn into_value(self) -> Result<Value, EncodeError> {
+		Err(column_as_value(self.name))
+	}
+
+	fn column(&self) -> Option<(TableName, &'static str)> {
+		Some(column_operand::<U>(self.name))
+	}
+}
+
+impl<U: Table, V: Column> Operand<Option<V>> for Col<U, V> {
+	fn into_value(self) -> Result<Value, EncodeError> {
+		Err(column_as_value(self.name))
+	}
+
+	fn column(&self) -> Option<(TableName, &'static str)> {
+		Some(column_operand::<U>(self.name))
+	}
+}
+
+impl<U: Table, V: Column> Operand<V> for Col<U, Option<V>> {
+	fn into_value(self) -> Result<Value, EncodeError> {
+		Err(column_as_value(self.name))
+	}
+
+	fn column(&self) -> Option<(TableName, &'static str)> {
+		Some(column_operand::<U>(self.name))
+	}
 }
 
 impl<V: Column> Operand<V> for V {
@@ -223,6 +288,19 @@ pub enum Comparison {
 	LessOrEqual,
 }
 
+impl Comparison {
+	fn operator(self) -> &'static str {
+		match self {
+			Self::Equal => " = ",
+			Self::NotEqual => " <> ",
+			Self::Greater => " > ",
+			Self::GreaterOrEqual => " >= ",
+			Self::Less => " < ",
+			Self::LessOrEqual => " <= ",
+		}
+	}
+}
+
 /// A condition on a table's rows. Combine with `&`, `|`, and `!`.
 #[derive(Clone, Debug, PartialEq)]
 #[must_use = "a condition does nothing until a query filters by it"]
@@ -232,6 +310,15 @@ pub enum Expr {
 		column: &'static str,
 		comparison: Comparison,
 		value: Value,
+	},
+	/// A column compared with a column of another row: the row a policy
+	/// checks, from inside one of its counts.
+	#[doc(hidden)]
+	CompareColumn {
+		column: &'static str,
+		comparison: Comparison,
+		table: TableName,
+		other: &'static str,
 	},
 	#[doc(hidden)]
 	In {
@@ -256,6 +343,13 @@ pub enum Expr {
 	Or(Box<Expr>, Box<Expr>),
 	#[doc(hidden)]
 	Not(Box<Expr>),
+	/// How many rows of another query there are, compared with a number.
+	#[doc(hidden)]
+	Count {
+		count: Box<crate::Count>,
+		comparison: Comparison,
+		value: i64,
+	},
 	/// Every row, or none.
 	#[doc(hidden)]
 	Constant(bool),
@@ -321,15 +415,18 @@ impl Expr {
 				comparison,
 				value,
 			} => {
-				let operator = match comparison {
-					Comparison::Equal => " = ",
-					Comparison::NotEqual => " <> ",
-					Comparison::Greater => " > ",
-					Comparison::GreaterOrEqual => " >= ",
-					Comparison::Less => " < ",
-					Comparison::LessOrEqual => " <= ",
-				};
-				sql.identifier(column).push(operator).value(value.clone());
+				sql.identifier(column)
+					.push(comparison.operator())
+					.value(value.clone());
+			}
+			Self::CompareColumn {
+				column,
+				comparison,
+				table,
+				other,
+			} => {
+				sql.identifier(column).push(comparison.operator());
+				sql.outer_column(table, other)?;
 			}
 			Self::In { values, .. } if values.is_empty() => {
 				sql.push("1 = 0");
@@ -378,6 +475,14 @@ impl Expr {
 				inner.write(sql)?;
 				sql.push(")");
 			}
+			Self::Count {
+				count,
+				comparison,
+				value,
+			} => {
+				count.write(sql)?;
+				sql.push(comparison.operator()).value(Value::Int(*value));
+			}
 			Self::Constant(true) => {
 				sql.push("1 = 1");
 			}
@@ -400,7 +505,7 @@ impl Expr {
 	}
 }
 
-fn invalid(message: &str) -> DbError {
+pub(crate) fn invalid(message: &str) -> DbError {
 	DbError::Encode(EncodeError::new(message))
 }
 

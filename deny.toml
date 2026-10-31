@@ -69,6 +69,21 @@ allow = ["CDLA-Permissive-2.0"]
 name = "quoted_printable"
 allow = ["0BSD"]
 
+# `postgresql_embedded` runs the Postgres that `leptoskit dev` starts when a
+# project has no devenv. Its crates are also under the PostgreSQL License, a
+# permissive BSD-style license with attribution only.
+[[licenses.exceptions]]
+name = "postgresql_embedded"
+allow = ["PostgreSQL"]
+
+[[licenses.exceptions]]
+name = "postgresql_archive"
+allow = ["PostgreSQL"]
+
+[[licenses.exceptions]]
+name = "postgresql_commands"
+allow = ["PostgreSQL"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

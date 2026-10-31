@@ -17,13 +17,17 @@
 
 use std::any::Any;
 use std::any::TypeId;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
+use leptoskit_db_schema::TableName;
+
 use crate::Connection;
 use crate::DbError;
 use crate::Expr;
+use crate::Query;
 use crate::Result;
 use crate::Table;
 use crate::Value;
@@ -75,6 +79,147 @@ impl Context {
 	/// ```
 	pub fn global<G: 'static>(&self, condition: impl FnOnce(&G) -> Expr) -> Expr {
 		self.get().map_or_else(Expr::never, condition)
+	}
+
+	/// How many rows `query` finds, for a rule to compare with a number. It
+	/// counts what this request may see, as `query.count(&db)` would: the
+	/// counted table's own `select` policy applies, and soft-deleted rows are
+	/// left out unless the query asks for them. The one exception is a count
+	/// inside the counted table's own `select` rules, such as "members see
+	/// the members of their teams": applying the rule there would never end,
+	/// so it counts every row.
+	///
+	/// Inside the query's filter, a column of the row the policy checks
+	/// follows a link back to it, so "a member of the team that owns this
+	/// project" is:
+	///
+	/// ```ignore
+	/// |project, cx| cx.global(|viewer: &Viewer| {
+	/// 	cx.count(Member::query().filter(|member| {
+	/// 		member.team_id.eq(project.team_id) & member.user_id.eq(viewer.0)
+	/// 	}))
+	/// 	.gt(0)
+	/// })
+	/// ```
+	///
+	/// When the query's table is the policy's own, its columns on the right
+	/// of a comparison are the checked row's:
+	/// `post.author_id.eq(row.author_id)` counts the posts that share the
+	/// checked post's author.
+	pub fn count<U: Table>(&self, query: Query<U>) -> Count {
+		let (filter, with_deleted) = query.into_condition();
+
+		// Inside `U`'s own read policy, its counts of `U` can't apply that
+		// policy again without going round forever; as in Gel, they count
+		// the table's rows as they are.
+		let policy = if Reading::underway::<U>() {
+			None
+		} else {
+			condition::<U>(&Access::Context(self.clone()), Action::Select)
+		};
+
+		Count {
+			table: U::table_name(),
+			filter: filter.map(Box::new),
+			policy: policy.map(Box::new),
+			deleted_at: U::DELETED_AT.filter(|_| !with_deleted),
+		}
+	}
+
+	/// Whether `query` finds any row this request may see:
+	/// `count(query).gt(0)`.
+	pub fn exists<U: Table>(&self, query: Query<U>) -> Expr {
+		self.count(query).gt(0)
+	}
+}
+
+/// The number of rows a query finds, inside a policy's rule. Compare it with
+/// a number to make a condition; [`Context::count`] makes one.
+#[derive(Clone, Debug, PartialEq)]
+#[must_use = "a count does nothing until it's compared with a number"]
+pub struct Count {
+	table: TableName,
+	filter: Option<Box<Expr>>,
+	policy: Option<Box<Expr>>,
+	deleted_at: Option<&'static str>,
+}
+
+impl Count {
+	/// Exactly `value` rows.
+	pub fn eq(self, value: i64) -> Expr {
+		self.compare(Comparison::Equal, value)
+	}
+
+	/// Any number of rows but `value`.
+	pub fn ne(self, value: i64) -> Expr {
+		self.compare(Comparison::NotEqual, value)
+	}
+
+	/// More than `value` rows.
+	pub fn gt(self, value: i64) -> Expr {
+		self.compare(Comparison::Greater, value)
+	}
+
+	/// At least `value` rows.
+	pub fn gte(self, value: i64) -> Expr {
+		self.compare(Comparison::GreaterOrEqual, value)
+	}
+
+	/// Fewer than `value` rows.
+	pub fn lt(self, value: i64) -> Expr {
+		self.compare(Comparison::Less, value)
+	}
+
+	/// At most `value` rows.
+	pub fn lte(self, value: i64) -> Expr {
+		self.compare(Comparison::LessOrEqual, value)
+	}
+
+	fn compare(self, comparison: Comparison, value: i64) -> Expr {
+		Expr::Count {
+			count: Box::new(self),
+			comparison,
+			value,
+		}
+	}
+
+	/// `(SELECT count(*) FROM table AS alias WHERE …)`, correlated with the
+	/// rows around it through the filter's columns.
+	pub(crate) fn write(&self, sql: &mut Sql) -> Result<()> {
+		sql.push("(SELECT count(*) FROM ").enter(&self.table);
+		let written = self.write_where(sql);
+		sql.leave();
+		sql.push(")");
+		written
+	}
+
+	fn write_where(&self, sql: &mut Sql) -> Result<()> {
+		let mut first = true;
+		let mut next = |sql: &mut Sql| {
+			sql.push(if first { " WHERE " } else { " AND " });
+			first = false;
+		};
+
+		if let Some(filter) = &self.filter {
+			next(sql);
+			sql.push("(");
+			filter.write(sql)?;
+			sql.push(")");
+		}
+
+		if let Some(policy) = &self.policy {
+			next(sql);
+			sql.push("(");
+			sql.isolated(|sql| policy.write(sql))?;
+			sql.push(")");
+		}
+
+		if let Some(column) = self.deleted_at {
+			next(sql);
+			sql.identifier(column).push(" IS NULL");
+		}
+
+		Ok(())
 	}
 }
 
@@ -161,7 +306,34 @@ pub(crate) fn condition<T: Table>(access: &Access, action: Action) -> Option<Exp
 	Some(evaluate(policies, cx, action))
 }
 
+thread_local! {
+	/// The read policies being worked out on this thread, innermost last.
+	static READING: RefCell<Vec<TypeId>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Marks a table's read policy as being worked out, until dropped.
+struct Reading;
+
+impl Reading {
+	fn enter<T: Table>() -> Self {
+		READING.with_borrow_mut(|reading| reading.push(TypeId::of::<T>()));
+		Self
+	}
+
+	/// Whether `T`'s read policy is being worked out further out.
+	fn underway<T: Table>() -> bool {
+		READING.with_borrow(|reading| reading.contains(&TypeId::of::<T>()))
+	}
+}
+
+impl Drop for Reading {
+	fn drop(&mut self) {
+		READING.with_borrow_mut(Vec::pop);
+	}
+}
+
 fn evaluate<T: Table>(policies: &[Policy<T>], cx: &Context, action: Action) -> Expr {
+	let _reading = (action == Action::Select).then(Reading::enter::<T>);
 	let columns = T::columns();
 	let matching = |deny: bool| {
 		policies
@@ -373,6 +545,52 @@ mod tests {
 		pub left: i32,
 		#[db(key)]
 		pub right: i32,
+	}
+
+	/// A shelf anyone sees once it holds a book.
+	#[table(name = "shelves")]
+	#[policy(select, |shelf, cx| cx.exists(Book::query().filter(|book| book.shelf_id.eq(shelf.id))))]
+	pub struct Shelf {
+		pub id: crate::Id<Self>,
+	}
+
+	/// A book, seen while its shelf holds fewer than ten: a count of its own
+	/// table, which skips its own read rule.
+	#[table(name = "books", namespace = "library")]
+	#[policy(select, |book, cx| cx.count(Book::query().filter(|other| other.shelf_id.eq(book.shelf_id))).lt(10))]
+	pub struct Book {
+		pub id: crate::Id<Self>,
+		pub shelf_id: crate::Id<Shelf>,
+		#[db(deleted_at)]
+		pub deleted_at: Option<crate::Timestamp>,
+	}
+
+	fn select_sql<T: Table>(dialect: crate::Dialect) -> String {
+		let mut sql = Sql::new(dialect);
+		sql.push("SELECT * FROM ").table::<T>().push(" WHERE ");
+		condition::<T>(&Access::default(), Action::Select)
+			.unwrap()
+			.write(&mut sql)
+			.unwrap();
+		sql.finish().sql
+	}
+
+	#[test]
+	fn counts_are_correlated_subqueries_on_both_dialects() {
+		assert_eq!(
+			select_sql::<Shelf>(crate::Dialect::Postgres),
+			"SELECT * FROM \"shelves\" WHERE (SELECT count(*) FROM \"library\".\"books\" AS \
+			 \"lk_count_1\" WHERE (\"shelf_id\" = \"shelves\".\"id\") AND ((SELECT count(*) FROM \
+			 \"library\".\"books\" AS \"lk_count_2\" WHERE (\"shelf_id\" = \
+			 \"lk_count_1\".\"shelf_id\") AND \"deleted_at\" IS NULL) < $1) AND \"deleted_at\" IS \
+			 NULL) > $2"
+		);
+		assert_eq!(
+			select_sql::<Book>(crate::Dialect::Sqlite),
+			"SELECT * FROM \"library_books\" WHERE (SELECT count(*) FROM \"library_books\" AS \
+			 \"lk_count_1\" WHERE (\"shelf_id\" = \"library_books\".\"shelf_id\") AND \
+			 \"deleted_at\" IS NULL) < ?1"
+		);
 	}
 
 	#[test]

@@ -35,6 +35,11 @@ use leptoskit_db_schema::TableName;
 
 use crate::cli::invoked_name;
 
+pub(crate) mod dev_server;
+mod watch;
+
+pub(crate) use watch::DevDatabase;
+
 /// The `leptoskit db` subcommands.
 #[derive(Debug, clap::Subcommand)]
 pub enum DbCommand {
@@ -97,18 +102,7 @@ pub enum MigrationCommand {
 
 /// Runs a `leptoskit db` subcommand.
 pub fn run(command: DbCommand) -> Result<()> {
-	let (config, root) = LeptoskitConfig::load()?;
-	let db = config.db.as_ref().with_context(|| {
-		format!(
-			"the database is off; add a `[db]` table to {}",
-			leptoskit_config::CONFIG_FILE
-		)
-	})?;
-	let project = Project {
-		package: db.package(&config.app),
-		config: db.clone(),
-		root,
-	};
+	let project = Project::load()?;
 
 	match command {
 		DbCommand::Migration {
@@ -147,7 +141,7 @@ pub fn run(command: DbCommand) -> Result<()> {
 		}
 		DbCommand::Status { url } => status(&project, url),
 		DbCommand::Migrate { url } => {
-			let url = project.url(url)?;
+			let (url, _server) = project.database(url)?;
 			let migrations = leptoskit_db::load_migrations(&project.migrations_dir())?;
 			let applied = runtime()?.block_on(async {
 				let db = leptoskit_db::Db::connect(&url).await?;
@@ -173,9 +167,39 @@ pub(crate) struct Project {
 	pub root: PathBuf,
 	pub config: DbConfig,
 	pub package: String,
+	/// The app's name, `app.name`.
+	pub name: String,
 }
 
 impl Project {
+	/// The project's database settings, or an error naming what's missing
+	/// when it has none.
+	pub(crate) fn load() -> Result<Self> {
+		let (config, root) = LeptoskitConfig::load()?;
+		Self::of(&config, root).with_context(|| {
+			format!(
+				"the database is off; add a `[db]` table to {}",
+				leptoskit_config::CONFIG_FILE
+			)
+		})
+	}
+
+	/// The database settings in `config`, when it has some.
+	pub(crate) fn of(config: &LeptoskitConfig, root: PathBuf) -> Option<Self> {
+		let db = config.db.as_ref()?;
+		Some(Self {
+			package: db.package(&config.app),
+			name: config.app.name.clone(),
+			config: db.clone(),
+			root,
+		})
+	}
+
+	/// The development database's name: the app's, with `_` for `-`.
+	pub(crate) fn database_name(&self) -> String {
+		self.name.replace('-', "_")
+	}
+
 	pub(crate) fn dialect(&self) -> Dialect {
 		match self.config.dialect {
 			DbDialect::Postgres => Dialect::Postgres,
@@ -187,23 +211,29 @@ impl Project {
 		self.root.join(&self.config.migrations)
 	}
 
-	fn url(&self, url: Option<String>) -> Result<String> {
-		match url {
-			Some(url) => Ok(url),
-			None => {
-				std::env::var(&self.config.url_env).with_context(|| {
-					format!(
-						"set {} to the database URL, or pass --url",
-						self.config.url_env
-					)
-				})
-			}
+	/// The database a command works on: `--url`, the variable `db.url_env`
+	/// names, or the development database, which stays up while the server
+	/// returned with it lives.
+	fn database(&self, url: Option<String>) -> Result<(String, Option<dev_server::DevServer>)> {
+		if let Some(url) = url.or_else(|| std::env::var(&self.config.url_env).ok()) {
+			return Ok((url, None));
 		}
+
+		let Some(source) = dev_server::source(self) else {
+			bail!(
+				"set {} to the database URL, or pass --url",
+				self.config.url_env
+			);
+		};
+		let binaries = dev_server::binaries_from_env();
+		let server = dev_server::start(self, source, binaries.as_deref())?;
+		println!("using the development database {}", server.display_url());
+		Ok((server.url.clone(), Some(server)))
 	}
 
 	/// The schema the app's tables declare, from the test
 	/// `export_schema!()` adds to the db crate.
-	fn export(&self) -> Result<Schema> {
+	pub(crate) fn export(&self) -> Result<Schema> {
 		let out =
 			tempfile::NamedTempFile::new().context("couldn't create a file for the schema")?;
 		let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
@@ -482,12 +512,12 @@ fn status(project: &Project, url: Option<String>) -> Result<()> {
 		Err(error) => println!("{error}"),
 	}
 
-	let Ok(url) = project.url(url) else {
-		println!(
-			"set {} to see which migrations the database needs",
-			project.config.url_env
-		);
-		return Ok(());
+	let (url, _server) = match project.database(url) {
+		Ok(database) => database,
+		Err(error) => {
+			println!("{error:#}, to see which migrations the database needs");
+			return Ok(());
+		}
 	};
 	let applied = runtime()?.block_on(async {
 		let db = leptoskit_db::Db::connect(&url).await?;
@@ -518,7 +548,7 @@ fn reset(project: &Project, url: Option<String>, yes: bool) -> Result<()> {
 		yes,
 		"this deletes every row in the database; pass --yes to confirm"
 	);
-	let url = project.url(url)?;
+	let (url, _server) = project.database(url)?;
 	let history = History::read(&project.migrations_dir(), project.dialect())?;
 	let migrations = leptoskit_db::load_migrations(&project.migrations_dir())?;
 
@@ -606,7 +636,7 @@ pub(crate) fn slug(name: &str) -> Result<String> {
 	Ok(slug)
 }
 
-fn runtime() -> Result<tokio::runtime::Runtime> {
+pub(crate) fn runtime() -> Result<tokio::runtime::Runtime> {
 	tokio::runtime::Builder::new_multi_thread()
 		.enable_all()
 		.build()

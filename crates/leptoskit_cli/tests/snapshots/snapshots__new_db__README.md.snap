@@ -43,6 +43,6 @@ leptoskit db migration create init
 leptoskit dev
 ```
 
-After changing a table, run `leptoskit db migration create <name>` and commit what it writes under `migrations/`. `leptoskit db check` fails when the tables changed without a migration, so run it in CI. The server keeps its data in `snapshotted.sqlite3`, in the directory it starts from, unless `DATABASE_URL` names another database.
+While `leptoskit dev` runs, a change to the tables that keeps every row becomes a migration under `migrations/`, applied straight away; a change that would delete data writes nothing and says which command to run. You can also run `leptoskit db migration create <name>` yourself. Review and commit what it writes. `leptoskit db check` fails when the tables changed without a migration, so run it in CI. The server keeps its data in `snapshotted.sqlite3`, in the directory it starts from, unless `DATABASE_URL` names another database.
 
 `snapshotted_backend` serves `GET /api/notes` and `POST /api/notes` from the example `Note` table.
