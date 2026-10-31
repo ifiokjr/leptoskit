@@ -317,12 +317,11 @@ fn router(state: Arc<HubState>) -> Router {
 		.with_state(state)
 }
 
+/// The hub page.
+const PAGE: &str = include_str!("page.html");
+
 async fn page() -> Html<&'static str> {
-	Html(
-		"<!doctype html><meta charset=\"utf-8\"><title>leptoskit devtools</title><h1>leptoskit \
-		 devtools hub</h1><p>The interface is built separately; the hub's sessions are at <a \
-		 href=\"/api/sessions\">/api/sessions</a>.</p>",
-	)
+	Html(PAGE)
 }
 
 async fn create_session(
@@ -790,6 +789,13 @@ mod tests {
 	async fn body<T: serde::de::DeserializeOwned>(response: Response) -> T {
 		let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
 		serde_json::from_slice(&bytes).unwrap()
+	}
+
+	#[test]
+	fn the_page_lists_sessions_and_nodes() {
+		assert!(PAGE.contains("id=\"sessions\""));
+		assert!(PAGE.contains("/api/stream"));
+		assert!(PAGE.contains("request_snapshot"));
 	}
 
 	#[tokio::test]
