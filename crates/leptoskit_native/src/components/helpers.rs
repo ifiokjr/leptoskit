@@ -188,16 +188,19 @@ impl Alignment {
 }
 
 /// Places children horizontally, without wrapping or shrinking by default.
+#[track_caller]
 pub fn Row() -> Element {
 	Flex(FlexDirection::Row)
 }
 
 /// Places children vertically, without wrapping or shrinking by default.
+#[track_caller]
 pub fn Column() -> Element {
 	Flex(FlexDirection::Column)
 }
 
 /// Places children along an explicit flex direction.
+#[track_caller]
 pub fn Flex(direction: FlexDirection) -> Element {
 	View().with_style(|style| style.flex_direction = direction)
 }
@@ -205,6 +208,7 @@ pub fn Flex(direction: FlexDirection) -> Element {
 /// Places children in horizontal runs that wrap at the available width.
 ///
 /// Item sizes follow flexbox rather than Flutter's `Wrap` constraint protocol.
+#[track_caller]
 pub fn Wrap() -> Element {
 	Row().with_style(|style| {
 		style.flex_wrap = FlexWrap::Wrap;
@@ -216,6 +220,7 @@ pub fn Wrap() -> Element {
 ///
 /// Columns use `minmax(0, 1fr)`, allowing content to shrink to the available
 /// width. The nonzero count is limited to 255 columns by its input type.
+#[track_caller]
 pub fn Grid(columns: NonZeroU8) -> Element {
 	View().with_style(|style| {
 		style.display = Display::Grid;
@@ -226,6 +231,7 @@ pub fn Grid(columns: NonZeroU8) -> Element {
 /// Adds the supplied box-model padding around its children.
 ///
 /// Percentages resolve against the containing block width. `Auto` means zero.
+#[track_caller]
 pub fn Padding(insets: Rect<Dimension>) -> Element {
 	View().with_style(|style| style.padding = insets)
 }
@@ -234,6 +240,7 @@ pub fn Padding(insets: Rect<Dimension>) -> Element {
 ///
 /// `Auto` leaves an axis sized by content and its parent layout. This uses the
 /// shared CSS box model rather than Flutter's tight constraints on a child.
+#[track_caller]
 pub fn SizedBox(width: Dimension, height: Dimension) -> Element {
 	View().with_style(|style| {
 		style.width = width;
@@ -242,6 +249,7 @@ pub fn SizedBox(width: Dimension, height: Dimension) -> Element {
 }
 
 /// Constrains the wrapper's border box to validated pixel bounds.
+#[track_caller]
 pub fn ConstrainedBox(constraints: BoxConstraints) -> Element {
 	View().with_style(|style| {
 		style.min_width = Dimension::Points(constraints.min_width);
@@ -273,6 +281,7 @@ pub fn AspectRatio(ratio: f32) -> Result<Element, LayoutError> {
 ///
 /// Multiple children form a column. Start and end follow this wrapper's
 /// `direction` style, which defaults to LTR in the shared element model.
+#[track_caller]
 pub fn Align(alignment: Alignment) -> Element {
 	let (vertical, horizontal) = alignment.axes();
 	View().with_style(|style| {
@@ -282,6 +291,7 @@ pub fn Align(alignment: Alignment) -> Element {
 }
 
 /// Centers children as a column inside its allocated box.
+#[track_caller]
 pub fn Center() -> Element {
 	Align(Alignment::Center)
 }
@@ -291,6 +301,7 @@ pub fn Center() -> Element {
 /// Edits the supplied child's parent data without adding a wrapper. It uses
 /// `flex: 1 1 0` and zero minimum dimensions, and must be a direct child of a
 /// flex container. Set `flex_grow` to change its share.
+#[track_caller]
 pub fn Expanded(child: Element) -> Element {
 	child.with_style(|style| {
 		style.flex_grow = 1.0;
@@ -302,6 +313,7 @@ pub fn Expanded(child: Element) -> Element {
 }
 
 /// Empty flex space that shares the main-axis remainder with expanded items.
+#[track_caller]
 pub fn Spacer() -> Element {
 	Expanded(View()).with_style(|style| {
 		style.width = Dimension::Points(0.0);
@@ -316,6 +328,7 @@ pub fn Spacer() -> Element {
 /// children do not contribute to sizing. Pass
 /// every overlapping child here: later `.child` calls use normal grid
 /// placement.
+#[track_caller]
 pub fn Stack(children: impl IntoIterator<Item = Element>) -> Element {
 	View()
 		.with_style(|style| {
@@ -343,6 +356,7 @@ pub fn Stack(children: impl IntoIterator<Item = Element>) -> Element {
 /// supplied child directly, without inserting another element. In a [`Stack`],
 /// the assigned grid cell defines the containing block; in a flex container,
 /// the parent's padding box does.
+#[track_caller]
 pub fn Positioned(insets: Rect<Dimension>, child: Element) -> Element {
 	child.with_style(|style| {
 		style.position = PositionType::Absolute;
@@ -351,11 +365,13 @@ pub fn Positioned(insets: Rect<Dimension>, child: Element) -> Element {
 }
 
 /// Paints a solid background behind its children.
+#[track_caller]
 pub fn ColoredBox(color: Color) -> Element {
 	View().background(color)
 }
 
 /// Clips overflowing descendants to the wrapper's rectangular bounds.
+#[track_caller]
 pub fn ClipRect() -> Element {
 	View().with_style(|style| style.overflow = Overflow::Hidden)
 }
@@ -385,6 +401,7 @@ pub fn Opacity(opacity: f32) -> Result<Element, LayoutError> {
 ///
 /// A child's explicit text properties or Tailwind utilities override defaults.
 /// Set `.color(...)` on this wrapper to supply an inherited foreground as well.
+#[track_caller]
 pub fn DefaultTextStyle(text_style: TextStyle) -> Element {
 	View()
 		.font(text_style.font_size, text_style.font_weight)
@@ -396,6 +413,7 @@ pub fn DefaultTextStyle(text_style: TextStyle) -> Element {
 /// Hidden descendants retain their reconciled nodes but receive no input and
 /// occupy no space. This does not preserve hidden layout as Flutter `Offstage`
 /// does.
+#[track_caller]
 pub fn Visibility(visible: bool) -> Element {
 	View().with_style(|style| {
 		style.display = if visible {
@@ -407,6 +425,7 @@ pub fn Visibility(visible: bool) -> Element {
 }
 
 /// A one-pixel horizontal separator that stretches across a column.
+#[track_caller]
 pub fn Divider() -> Element {
 	ColoredBox(separator_color())
 		.role(Role::Separator)
@@ -418,6 +437,7 @@ pub fn Divider() -> Element {
 }
 
 /// A one-pixel vertical separator that stretches across a row's height.
+#[track_caller]
 pub fn VerticalDivider() -> Element {
 	ColoredBox(separator_color())
 		.role(Role::Separator)
@@ -430,6 +450,7 @@ pub fn VerticalDivider() -> Element {
 
 /// A neutral padded, rounded surface, with no elevation or implicit
 /// interaction.
+#[track_caller]
 pub fn Card() -> Element {
 	View()
 		.background(Color::rgba(255, 255, 255, 255))
@@ -438,6 +459,7 @@ pub fn Card() -> Element {
 }
 
 /// A compact, rounded label; positioning beside an icon is the caller's choice.
+#[track_caller]
 pub fn Badge(label: impl Into<String>) -> Element {
 	Center()
 		.background(Color::rgba(30, 64, 175, 255))
@@ -459,6 +481,7 @@ pub fn Badge(label: impl Into<String>) -> Element {
 }
 
 /// A decorative label capsule, with no selection, deletion, or press behavior.
+#[track_caller]
 pub fn Chip(label: impl Into<String>) -> Element {
 	Row()
 		.background(Color::rgba(241, 245, 249, 255))
@@ -484,6 +507,7 @@ pub fn Chip(label: impl Into<String>) -> Element {
 ///
 /// This is a noninteractive layout. Supply actual controls in slots when
 /// needed.
+#[track_caller]
 pub fn ListTile(leading: Option<Element>, content: Element, trailing: Option<Element>) -> Element {
 	let mut tile = Row().role(Role::ListItem).with_style(|style| {
 		style.align_items = BoxAlign::Center;
@@ -509,6 +533,7 @@ pub fn ListTile(leading: Option<Element>, content: Element, trailing: Option<Ele
 /// slots, announced as the page banner with a level-one heading title.
 ///
 /// System window chrome and safe-area insets remain the host's responsibility.
+#[track_caller]
 pub fn AppBar(title: Element) -> Element {
 	Row()
 		.role(Role::Banner)
@@ -526,6 +551,7 @@ pub fn AppBar(title: Element) -> Element {
 ///
 /// Give this box a definite height or let its parent size it. It provides no
 /// navigation, overlays, safe areas, or platform window behavior.
+#[track_caller]
 pub fn Scaffold(app_bar: Option<Element>, body: Element, bottom_bar: Option<Element>) -> Element {
 	let mut scaffold = Column();
 
@@ -547,6 +573,7 @@ pub fn Scaffold(app_bar: Option<Element>, body: Element, bottom_bar: Option<Elem
 /// Every item is constructed and laid out; this is not a virtualized list.
 /// Inside a bounded column, this flex item grows or shrinks to the available
 /// height, with zero automatic minimum dimensions so its content can overflow.
+#[track_caller]
 pub fn ListView() -> Element {
 	ScrollView().role(Role::List).with_style(|style| {
 		style.flex_direction = FlexDirection::Column;
@@ -562,6 +589,7 @@ pub fn ListView() -> Element {
 ///
 /// Every item is constructed and laid out. Like [`ListView`], this flex item
 /// fills the available height of a bounded column and permits content overflow.
+#[track_caller]
 pub fn GridView(columns: NonZeroU8) -> Element {
 	ScrollView().role(Role::List).with_style(|style| {
 		style.display = Display::Grid;

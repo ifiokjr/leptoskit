@@ -18,6 +18,8 @@ impl<B: NativeBackend> NativeSurface<B> {
 		let Some(root) = self.root else {
 			return;
 		};
+		#[cfg(feature = "devtools")]
+		let layout_start = std::time::Instant::now();
 		let available = Size::new(
 			AvailableSpace::Definite(self.viewport.width.max(0.0)),
 			AvailableSpace::Definite(self.viewport.height.max(0.0)),
@@ -33,6 +35,13 @@ impl<B: NativeBackend> NativeSurface<B> {
 		let mut frames = MutationList::new();
 		self.collect_frames(root, 0.0, 0.0, &mut frames);
 		self.backend.apply(&frames);
+		#[cfg(feature = "devtools")]
+		{
+			let commit = self.devtools.finish(frames.len(), layout_start);
+			if let Some(observer) = &mut self.devtools.observer {
+				observer(&commit);
+			}
+		}
 	}
 
 	/// Pushes changed frames for a subtree and rebuilds its hit areas.

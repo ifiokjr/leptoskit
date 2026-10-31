@@ -52,6 +52,9 @@ pub struct Element {
 	pub props: NativeProps,
 	/// The children, in order.
 	pub children: Vec<Element>,
+	/// Where the element was created, when the `devtools` feature is on.
+	#[cfg(feature = "devtools")]
+	source: Option<&'static std::panic::Location<'static>>,
 	classes: Tailwind,
 	handlers: Vec<HandlerEntry>,
 }
@@ -316,23 +319,35 @@ impl Element {
 	}
 
 	/// Creates an element of the given kind with default style and props.
+	#[track_caller]
 	pub fn new(kind: NativeKind) -> Self {
 		Self {
 			kind,
 			style: Style::default(),
 			props: NativeProps::default(),
 			children: Vec::new(),
+			#[cfg(feature = "devtools")]
+			source: Some(std::panic::Location::caller()),
 			classes: Tailwind::default(),
 			handlers: Vec::new(),
 		}
 	}
 
+	/// Where the element was created, when the `devtools` feature is on.
+	#[cfg(feature = "devtools")]
+	#[must_use]
+	pub fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+		self.source
+	}
+
 	/// A `View` element.
+	#[track_caller]
 	pub fn view() -> Self {
 		Self::new(NativeKind::View)
 	}
 
 	/// A `Text` element with the given content.
+	#[track_caller]
 	pub fn text(content: impl Into<String>) -> Self {
 		let mut element = Self::new(NativeKind::Text);
 		element.props.text = Some(content.into());
@@ -340,6 +355,7 @@ impl Element {
 	}
 
 	/// An `Image` element with the given source.
+	#[track_caller]
 	pub fn image(source: impl Into<String>) -> Self {
 		let mut element = Self::new(NativeKind::Image);
 		element.props.source = Some(source.into());
@@ -348,6 +364,7 @@ impl Element {
 
 	/// A `Vector` element drawing paths in `view_box` coordinates, scaled to
 	/// fit its frame. Add paths with [`Self::path`].
+	#[track_caller]
 	pub fn vector(view_box: ViewBox) -> Self {
 		let mut element = Self::new(NativeKind::Vector);
 		element.props.drawing = Some(Drawing::new(view_box));
@@ -357,6 +374,7 @@ impl Element {
 	/// A Rive scene owned and animated by the native host. Give it an explicit
 	/// size and an accessible label, or mark it decorative with `aria_hidden`.
 	/// Playback is initially paused; use `running(true)` to request animation.
+	#[track_caller]
 	pub fn rive(playback: leptoskit_rive::Playback) -> Self {
 		let mut element = Self::new(NativeKind::Rive);
 		element.props.rive = Some(Box::new(playback));
@@ -372,16 +390,19 @@ impl Element {
 	}
 
 	/// A `ScrollView` element; its children scroll when they overflow it.
+	#[track_caller]
 	pub fn scroll_view() -> Self {
 		Self::new(NativeKind::ScrollView)
 	}
 
 	/// A `TextInput` element.
+	#[track_caller]
 	pub fn text_input() -> Self {
 		Self::new(NativeKind::TextInput)
 	}
 
 	/// A `Button` element with the given label.
+	#[track_caller]
 	pub fn button(label: impl Into<String>) -> Self {
 		let mut element = Self::new(NativeKind::Button);
 		element.style.justify_content = leptoskit_yoga::JustifyContent::Center;
@@ -493,6 +514,8 @@ impl Element {
 			style: self.style.clone(),
 			props: self.props.clone(),
 			children: Vec::new(),
+			#[cfg(feature = "devtools")]
+			source: self.source,
 			classes: Tailwind::default(),
 			handlers: self.handlers.clone(),
 		};
@@ -1416,5 +1439,40 @@ impl Element {
 	/// The handlers registered on this element.
 	pub(crate) fn handlers(&self) -> &[HandlerEntry] {
 		&self.handlers
+	}
+}
+
+#[cfg(all(test, feature = "devtools"))]
+mod devtools_tests {
+	use super::Element;
+
+	#[test]
+	fn constructors_record_the_call_site() {
+		let line = line!() + 1;
+		let view = Element::view();
+		let source = view.source_location().expect("a source location");
+		assert_eq!(source.file(), file!());
+		assert_eq!(source.line(), line);
+	}
+
+	#[test]
+	fn components_record_the_call_site() {
+		use crate::components::Switch;
+
+		let line = line!() + 1;
+		let switch = Switch(true);
+		let source = switch.source_location().expect("a source location");
+		assert_eq!(source.file(), file!());
+		assert_eq!(source.line(), line);
+	}
+
+	#[test]
+	fn resolved_elements_keep_their_source() {
+		use super::StyleContext;
+
+		let view = Element::view();
+		let source = view.source_location();
+		let resolved = view.resolved(&StyleContext::default());
+		assert_eq!(resolved.source_location(), source);
 	}
 }

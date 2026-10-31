@@ -4427,6 +4427,7 @@ dependencies = [
  "insta",
  "js-sys",
  "leptos",
+ "leptoskit_devtools_protocol",
  "leptoskit_rive",
  "leptoskit_yoga",
  "roxmltree",

@@ -48,7 +48,11 @@ impl<B: NativeBackend> NativeSurface<B> {
 		self.root = Some(new_root);
 		#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
 		let mutations = self.sync_rive(mutations);
+		#[cfg(feature = "devtools")]
+		let source_start = std::time::Instant::now();
 		self.backend.apply(&mutations);
+		#[cfg(feature = "devtools")]
+		self.devtools.source(mutations.len(), source_start);
 		self.commit_layout();
 
 		// A held control that was replaced, removed, disabled, or hidden by
