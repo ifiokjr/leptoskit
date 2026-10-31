@@ -491,6 +491,10 @@ jobs:
       LLVM_COV_ENV: ${{ github.workspace }}/target/llvm-cov.env
       BINARYEN_VERSION: "132"
       BINARYEN_SHA256: 195ddc94f9bc89f45abdabb0b9eea86023d727ba90eac8b35b80f2544fc30572
+      # The instrumented `leptoskit_cli` test binaries are large. Linking all
+      # of them at once on a four-core runner has killed `ld` with SIGBUS, so
+      # build and link two at a time; the job has the time budget for it.
+      CARGO_BUILD_JOBS: 2
     steps:
       # The instrumented workspace, its test binaries, and the release builds
       # below outgrow the runner's free disk, which fails the job or stalls it
