@@ -15,3 +15,9 @@ crates/leptoskit_testing/src/control/device.rs
 # Commonplace's app.
 crates/leptoskit_cli/src/native/safari.rs
 crates/leptoskit_cli/src/native/desktop.rs
+
+# The extension developer loop and its browser harness launch Chrome for
+# Testing and chromedriver. The measuring lanes provide neither, so the macOS
+# applications lane runs both against a real browser instead.
+crates/leptoskit_cli/src/extension/dev.rs
+crates/leptoskit_cli/src/extension/test.rs
