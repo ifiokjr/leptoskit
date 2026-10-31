@@ -52,6 +52,7 @@ clap_complete = { workspace = true }
 crc32fast = { workspace = true }
 flate2 = { workspace = true }
 fs4 = "1"
+futures = { workspace = true }
 getrandom = { workspace = true }
 hex = { workspace = true }
 ignore = { workspace = true }
@@ -60,6 +61,7 @@ leptoskit_codepush = { workspace = true }
 leptoskit_config = { workspace = true }
 leptoskit_db = { workspace = true, features = ["postgres", "sqlite"] }
 leptoskit_db_schema = { workspace = true }
+leptoskit_devtools_protocol = { workspace = true }
 leptoskit_fmt = { workspace = true, features = ["cli"] }
 leptoskit_l10n_codegen = { workspace = true }
 leptoskit_lint = { workspace = true }
@@ -84,6 +86,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "syn
 toml = { workspace = true }
 ureq = { workspace = true, features = ["rustls"] }
 url = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
 walkdir = { workspace = true }
 wasm-bindgen-cli-support = { workspace = true }
 wasm-bindgen-shared = { workspace = true }

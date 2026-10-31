@@ -225,6 +225,12 @@ pub enum Command {
 		/// that is shut down boots.
 		#[arg(long = "device", value_name = "DEVICE")]
 		devices: Vec<String>,
+		/// Don't start the `DevTools` hub.
+		#[arg(long)]
+		no_devtools: bool,
+		/// The port the `DevTools` hub binds; defaults to 7340.
+		#[arg(long, value_name = "PORT")]
+		devtools_port: Option<u16>,
 	},
 	/// Builds the project for a platform.
 	Build {
@@ -475,6 +481,7 @@ pub enum CodepushCommand {
 /// are one-line wrappers over this.
 pub fn main() {
 	let arguments: Vec<String> = std::env::args().skip(1).collect();
+
 	if arguments
 		.first()
 		.is_some_and(|argument| crate::plugin_command::matches(argument))
@@ -483,15 +490,18 @@ pub fn main() {
 			crate::ui::error(&error);
 			std::process::exit(1);
 		}
+
 		return;
 	}
 	let mut command = Cli::command();
+
 	if let Some(root) = std::env::current_dir().ok()
 		&& let Some(plugins) = crate::plugin_command::help_section(&root)
 	{
 		command = command.after_help(plugins);
 	}
 	let cli = Cli::from_arg_matches(&command.get_matches()).expect("clap derive matches");
+
 	if let Err(error) = run(cli) {
 		crate::ui::error(&error);
 		std::process::exit(1);
@@ -548,6 +558,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 							Some(target),
 						);
 					}
+
 					new_project::run_with_database(
 						&path,
 						platform,
@@ -595,7 +606,9 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 			port,
 			platforms,
 			devices,
-		} => dev::run(open, port, &platforms, &devices),
+			no_devtools,
+			devtools_port,
+		} => dev::run(open, port, &platforms, &devices, no_devtools, devtools_port),
 		Command::Build {
 			release,
 			platform,
