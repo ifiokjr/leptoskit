@@ -15,6 +15,12 @@
 //! for an empty [`Context`] until [`Db::with_context`](crate::Db::with_context)
 //! gives it one. Only [`Db::system`](crate::Db::system) skips them, explicitly.
 
+#![allow(
+	clippy::missing_const_for_thread_local,
+	reason = "the initializer is already a const block; the lint cannot see through the macro on \
+	          every toolchain"
+)]
+
 use std::any::Any;
 use std::any::TypeId;
 use std::cell::RefCell;
