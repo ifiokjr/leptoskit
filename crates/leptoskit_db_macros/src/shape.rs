@@ -96,6 +96,8 @@ struct FieldArgs {
 	order_by: Vec<syn::Expr>,
 	limit: Option<syn::Expr>,
 	offset: Option<syn::Expr>,
+	/// Where `with_deleted` was given: soft-deleted linked rows count.
+	with_deleted: Option<Span>,
 }
 
 impl FieldArgs {
@@ -106,6 +108,7 @@ impl FieldArgs {
 			order_by: Vec::new(),
 			limit: None,
 			offset: None,
+			with_deleted: None,
 		};
 
 		for attr in field.attrs.iter().filter(|attr| is_db_attr(attr)) {
@@ -130,11 +133,18 @@ impl FieldArgs {
 				} else if meta.path.is_ident("offset") {
 					once(&meta, &mut args.offset, "offset")?;
 					None
+				} else if meta.path.is_ident("with_deleted") {
+					if args.with_deleted.is_some() {
+						return Err(meta.error("`with_deleted` is given twice"));
+					}
+
+					args.with_deleted = Some(meta.path.span());
+					None
 				} else {
 					return Err(meta.error(
 						"unknown shape field option; expected `column = field`, `count(link)`, \
-						 `via = link`, `filter = |row| …`, `order_by = |row| …`, `limit`, or \
-						 `offset`",
+						 `via = link`, `filter = |row| …`, `order_by = |row| …`, `limit`, \
+						 `offset`, or `with_deleted`",
 					));
 				};
 
@@ -336,11 +346,11 @@ impl Shape<'_> {
 
 		match source {
 			Source::Column(column) => {
-				if let Some(option) = refinements.first() {
+				if let Some(span) = refinements.first().map(Spanned::span).or(args.with_deleted) {
 					return Err(syn::Error::new(
-						option.span(),
-						"`filter`, `order_by`, `limit`, and `offset` narrow linked rows; this \
-						 field reads a column",
+						span,
+						"`filter`, `order_by`, `limit`, `offset`, and `with_deleted` choose \
+						 linked rows; this field reads a column",
 					));
 				}
 
@@ -361,9 +371,10 @@ impl Shape<'_> {
 				}
 
 				let via = via(&link);
+				let with_deleted = with_deleted(&args);
 				Ok(Generated {
 					selected: quote_spanned! { link.span()=>
-						#private::Selected::from(#from::#via().count() #(#refinements)*)
+						#private::Selected::from(#from::#via().count() #(#refinements)* #with_deleted)
 					},
 					decoder: decode_column,
 					nested: None,
@@ -398,9 +409,10 @@ impl Shape<'_> {
 					Nesting::Many(_) => (quote!(many), quote!(decode_many)),
 				};
 
+				let with_deleted = with_deleted(&args);
 				Ok(Generated {
 					selected: quote_spanned! { link.span()=>
-						#private::Selected::from(#from::#via().#fetch::<#shape>() #(#refinements)*)
+						#private::Selected::from(#from::#via().#fetch::<#shape>() #(#refinements)* #with_deleted)
 					},
 					decoder: quote_spanned! { span=>
 						#ident: #private::#decode::<#shape>(&mut values, #label, #field_label)?
@@ -439,6 +451,14 @@ fn refinements(args: &FieldArgs) -> Vec<TokenStream> {
 	}
 
 	calls
+}
+
+/// `.with_deleted()`, when the field asks for soft-deleted rows too. A
+/// required nested row takes it, unlike the options that narrow rows: it
+/// reads a soft-deleted row its link points at instead of failing.
+fn with_deleted(args: &FieldArgs) -> Option<TokenStream> {
+	args.with_deleted
+		.map(|span| quote_spanned! { span=> .with_deleted() })
 }
 
 /// The type inside `wrapper<…>`, when `ty` is one.

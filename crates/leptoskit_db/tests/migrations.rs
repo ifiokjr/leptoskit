@@ -4,6 +4,7 @@
 
 mod support;
 
+use leptoskit_db::Connection;
 use leptoskit_db::Db;
 use leptoskit_db::DbError;
 use leptoskit_db::Id;
@@ -281,4 +282,110 @@ async fn databases_report_their_applied_migrations() {
 			["20261028T0900_create"]
 		);
 	}
+}
+
+/// Each database these tests run on: SQLite in a file, and Postgres when
+/// its binaries are around.
+async fn each_database(check: impl AsyncFn(Db)) {
+	let directory = tempfile::tempdir().unwrap();
+	let url = format!(
+		"sqlite://{}",
+		directory.path().join("push.sqlite3").display()
+	);
+	check(Db::connect(&url).await.unwrap()).await;
+
+	if let Some(cluster) = support::postgres::PostgresCluster::start() {
+		check(Db::connect(&cluster.database()).await.unwrap()).await;
+	}
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pushes_change_a_database_until_a_migration_adopts_them() {
+	each_database(async |db| {
+		let first = Migration::new(
+			"20260101T000000_notes",
+			"CREATE TABLE \"pushed_notes\" (\"id\" INTEGER NOT NULL PRIMARY KEY)",
+		);
+		db.migrate(std::slice::from_ref(&first)).await.unwrap();
+		assert_eq!(db.pushed_schema().await.unwrap(), None);
+
+		// A push changes the database and records the schema it leaves.
+		let push = Migration::new(
+			"push",
+			"ALTER TABLE \"pushed_notes\" ADD COLUMN \"body\" TEXT",
+		);
+		db.push(&push, "{\"pushed\": 1}").await.unwrap();
+		db.run_script("INSERT INTO \"pushed_notes\" (\"id\", \"body\") VALUES (1, 'kept')")
+			.await
+			.unwrap();
+		let again = Migration::new(
+			"push",
+			"ALTER TABLE \"pushed_notes\" ADD COLUMN \"rank\" INTEGER",
+		);
+		db.push(&again, "{\"pushed\": 2}").await.unwrap();
+		assert_eq!(
+			db.pushed_schema().await.unwrap().as_deref(),
+			Some("{\"pushed\": 2}")
+		);
+		// Pushes aren't migrations.
+		assert_eq!(
+			db.applied_migrations().await.unwrap(),
+			[first.name.as_ref()]
+		);
+
+		// A failing push changes nothing.
+		let broken = Migration::new("push", "ALTER TABLE \"missing\" ADD COLUMN \"x\" TEXT");
+		assert!(matches!(
+			db.push(&broken, "{\"pushed\": 3}").await,
+			Err(MigrationError::Failed { .. })
+		));
+		assert_eq!(
+			db.pushed_schema().await.unwrap().as_deref(),
+			Some("{\"pushed\": 2}")
+		);
+
+		// With pushes, a migration it hasn't had won't apply on top of them.
+		let squashed = Migration::new(
+			"20260102T000000_body_and_rank",
+			"ALTER TABLE \"pushed_notes\" ADD COLUMN \"body\" TEXT;\nALTER TABLE \"pushed_notes\" \
+			 ADD COLUMN \"rank\" INTEGER",
+		);
+		let both = [first.clone(), squashed.clone()];
+		let refused = db.migrate(&both).await.unwrap_err();
+		assert!(
+			matches!(&refused, MigrationError::Pushed { name } if name == "20260102T000000_body_and_rank"),
+			"{refused}"
+		);
+		// Nothing pending is fine: the server still starts.
+		assert_eq!(
+			db.migrate(std::slice::from_ref(&first)).await.unwrap(),
+			[] as [String; 0]
+		);
+
+		// Adopting records the migration without running it, and forgets the
+		// pushes; the rows stay.
+		db.adopt(&squashed).await.unwrap();
+		assert_eq!(db.pushed_schema().await.unwrap(), None);
+		assert_eq!(
+			db.applied_migrations().await.unwrap(),
+			[first.name.as_ref(), squashed.name.as_ref()]
+		);
+		assert_eq!(db.migrate(&both).await.unwrap(), [] as [String; 0]);
+		let rows = db
+			.fetch(leptoskit_db::Statement {
+				sql: "SELECT count(*) FROM \"pushed_notes\" WHERE \"body\" = 'kept'".into(),
+				args: Vec::new(),
+			})
+			.await
+			.unwrap();
+		assert_eq!(rows, [[leptoskit_db::Value::Int(1)]]);
+
+		// Without pushes there's nothing to adopt.
+		let refused = db.adopt(&squashed).await.unwrap_err();
+		assert!(
+			matches!(refused, MigrationError::NothingPushed { .. }),
+			"{refused}"
+		);
+	})
+	.await;
 }

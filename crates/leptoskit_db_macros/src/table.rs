@@ -1102,7 +1102,22 @@ impl Table<'_> {
 				/// in one transaction: readers see the old rows or the new
 				/// ones, never a mix.
 				pub async fn refresh(connection: &impl #krate::Connection) -> #krate::Result<()> {
-					#krate::__private::refresh::<Self>(connection).await
+					#krate::__private::refresh::<Self>(connection, false).await
+				}
+			}
+		});
+		// Postgres refreshes concurrently only by a unique index over every
+		// row, which `unique(...)` declares.
+		let concurrently = (materialized && !self.args.uniques.is_empty()).then(|| {
+			quote! {
+				/// Refreshes the view without locking out readers while its
+				/// query runs: Postgres's `REFRESH MATERIALIZED VIEW
+				/// CONCURRENTLY`, which compares the rows by the view's
+				/// unique index and changes only those that differ. On
+				/// SQLite this is [`Self::refresh`], whose transaction
+				/// already lets readers carry on.
+				pub async fn refresh_concurrently(connection: &impl #krate::Connection) -> #krate::Result<()> {
+					#krate::__private::refresh::<Self>(connection, true).await
 				}
 			}
 		});
@@ -1139,6 +1154,7 @@ impl Table<'_> {
 					}
 
 					#refresh
+					#concurrently
 				}
 
 				#links
@@ -1421,6 +1437,10 @@ impl Table<'_> {
 
 		if self.args.audit {
 			consts.push(quote! { const AUDIT: bool = true; });
+		}
+
+		if self.args.live {
+			consts.push(quote! { const LIVE: bool = true; });
 		}
 
 		if self.args.view.is_some() {

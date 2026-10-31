@@ -22,12 +22,17 @@ browser = ["dep:send_wrapper", "dep:wasm-bindgen", "dep:web-sys"]
 # leptos's `nightly` feature, for its macro and renderer. Requires a nightly
 # compiler; a no-op on stable.
 nightly = ["leptos/nightly"]
+# `QueryClient::apply_invalidation`, which refetches the queries a
+# `leptoskit_db` live change touches, and the tags that tie queries to
+# tables. Pulls in only `leptoskit_db`'s client-safe types.
+db = ["dep:leptoskit_db"]
 
 [dependencies]
 any_spawner = { workspace = true }
 futures = { workspace = true }
 hydration_context = { workspace = true }
 leptos = { workspace = true }
+leptoskit_db = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

@@ -128,6 +128,33 @@ pub struct Vote {
 	pub weight: i16,
 }
 
+/// An author's posts, soft-deleted ones too, next to the count without.
+#[derive(Shape, Debug, PartialEq)]
+#[db(from = Author)]
+pub struct Archive {
+	pub handle: String,
+	#[db(via = posts, with_deleted, order_by = |post| post.rank.asc())]
+	pub posts: Vec<RankOnly>,
+	#[db(count(posts), with_deleted)]
+	pub every: i64,
+	#[db(count(posts))]
+	pub live: i64,
+}
+
+#[derive(Shape, Debug, PartialEq)]
+#[db(from = Post)]
+pub struct RankOnly {
+	pub rank: i16,
+	#[db(via = author, with_deleted)]
+	pub author: HandleOnly,
+}
+
+#[derive(Shape, Debug, PartialEq)]
+#[db(from = Author)]
+pub struct HandleOnly {
+	pub handle: String,
+}
+
 /// A post's votes: narrowed twice, paged, and ordered by the votes'
 /// composite key once the explicit order runs out.
 #[derive(Shape, Debug, PartialEq)]
@@ -535,6 +562,50 @@ async fn shapes_follow_links_to_the_rows_they_point_at() {
 			.await
 			.unwrap_err();
 		assert!(missing.is_not_found(), "{missing:?}");
+	})
+	.await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn nested_rows_can_include_soft_deleted_ones() {
+	on_both(async |db| {
+		let ada = author(&db, "ada").await;
+		let as_ada = db.with_context(Context::new().with(Viewer(ada.id)));
+		post(&db, &ada, "Engines", true, 1).await;
+		let mut looms = post(&db, &ada, "Looms", true, 2).await;
+		looms.delete(&as_ada).await.unwrap();
+		let mut gone = Author::get(&db, ada.id).await.unwrap();
+		gone.delete(&db).await.unwrap();
+
+		let archive = Author::query()
+			.with_deleted()
+			.shape::<Archive>()
+			.one(&db)
+			.await
+			.unwrap();
+		let handle = || {
+			HandleOnly {
+				handle: "ada".into(),
+			}
+		};
+		assert_eq!(
+			archive,
+			Archive {
+				handle: "ada".into(),
+				posts: vec![
+					RankOnly {
+						rank: 1,
+						author: handle(),
+					},
+					RankOnly {
+						rank: 2,
+						author: handle(),
+					},
+				],
+				every: 2,
+				live: 1,
+			}
+		);
 	})
 	.await;
 }

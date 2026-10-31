@@ -105,6 +105,16 @@ views_follow_table_changes
 change_a_view
   - materialized view published_posts
   + materialized view published_posts
+views_over_views
+  + view post_counts
+  + view busy_authors
+  + materialized view published_posts
+  + view reports.long_titles
+change_a_view_another_reads
+  - view busy_authors
+  - view post_counts
+  + view post_counts
+  + view busy_authors
 drop_views
   - view post_counts
   - materialized view published_posts

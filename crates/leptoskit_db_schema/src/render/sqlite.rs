@@ -392,13 +392,19 @@ fn create_view(view: &View) -> Vec<String> {
 	}
 
 	let definitions: Vec<String> = view.columns.iter().map(column_definition).collect();
-	vec![
+	let mut statements = vec![
 		format!(
 			"CREATE TABLE {name} (\n\t{}\n) STRICT",
 			definitions.join(",\n\t")
 		),
 		format!("INSERT INTO {name} ({})\n{query}", columns(&names)),
-	]
+	];
+	statements.extend(
+		view.indexes
+			.iter()
+			.map(|index| create_index(&view.name, index)),
+	);
+	statements
 }
 
 fn create_table(table: &Table, notes: &mut Vec<String>) -> String {

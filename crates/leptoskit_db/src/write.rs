@@ -27,20 +27,21 @@ use crate::policy;
 use crate::sql::Sql;
 
 /// Whether inserting a `T` does more than write it: hooks to run, slugs to
-/// fill, or a change to record. Such inserts run in a transaction.
+/// fill, or a change to record, in the audit log or for live subscribers. Such
+/// inserts run in a transaction.
 fn insert_effects<T: Table>() -> bool {
-	T::HOOKS.before_write || T::HOOKS.after_insert || T::AUDIT || !T::SLUGS.is_empty()
+	T::HOOKS.before_write || T::HOOKS.after_insert || audit::records::<T>() || !T::SLUGS.is_empty()
 }
 
 /// Whether changing a `T` needs the row as stored first, for hooks or the
 /// audit log.
 fn update_effects<T: Table>() -> bool {
-	T::HOOKS.on_update() || T::AUDIT
+	T::HOOKS.on_update() || audit::records::<T>()
 }
 
 /// Whether deleting a `T` does more than delete it.
 fn delete_effects<T: Table>() -> bool {
-	T::HOOKS.after_delete || T::AUDIT
+	T::HOOKS.after_delete || audit::records::<T>()
 }
 
 /// Gets a row ready to be written, once whatever it replaces is known: the
@@ -706,7 +707,7 @@ async fn effected_soft_delete<T: Table>(
 	filter: Option<&Expr>,
 ) -> Result<T> {
 	let values = row.to_values()?;
-	let old = if T::AUDIT {
+	let old = if audit::records::<T>() {
 		match stored_row::<T>(connection, &values, filter).await? {
 			Some(old) => Some(old),
 			None => {
@@ -817,7 +818,7 @@ pub async fn destroy<T: Table>(connection: &impl Connection, row: &T) -> Result<
 	let values = row.to_values()?;
 	let filter = policy::condition::<T>(connection.access(), Action::Delete);
 
-	if delete_effects::<T>() {
+	if delete_effects::<T>() || crate::fallout::reaches::<T>() {
 		return atomically!(connection, |tx| {
 			effected_destroy::<T>(tx, &values, filter.as_ref()).await
 		});
@@ -836,12 +837,30 @@ pub async fn destroy<T: Table>(connection: &impl Connection, row: &T) -> Result<
 }
 
 /// Removes a row with the audit log and `after_delete`, which get the row
-/// as it was stored.
+/// as it was stored, and records the rows the database's own cascades
+/// change with it.
 async fn effected_destroy<T: Table>(
 	connection: &impl Connection,
 	values: &[Value],
 	filter: Option<&Expr>,
 ) -> Result<()> {
+	let fallout = if crate::fallout::reaches::<T>() {
+		let Some(old) = stored_row::<T>(connection, values, filter).await? else {
+			return Err(policy::missing::<T>(connection, values, Action::Delete, false).await?);
+		};
+		Some(
+			crate::fallout::before_delete(
+				connection,
+				T::table_name(),
+				T::COLUMNS,
+				vec![old.to_values()?],
+			)
+			.await?,
+		)
+	} else {
+		None
+	};
+
 	let mut sql = Sql::new(connection.dialect());
 	sql.push("DELETE FROM ").table::<T>();
 	write_key::<T>(&mut sql, values);
@@ -853,6 +872,11 @@ async fn effected_destroy<T: Table>(
 	};
 	let old = T::from_values(stored)?;
 	audit::record(connection, AuditOp::Delete, Some(&old), None).await?;
+
+	if let Some(fallout) = fallout {
+		fallout.record(connection).await?;
+	}
+
 	old.hook_after_delete(connection).await
 }
 

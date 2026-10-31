@@ -758,3 +758,106 @@ fn views_round_trip_through_snapshots_and_change_only_when_they_differ() {
 		plan.steps
 	);
 }
+
+#[test]
+fn views_know_which_views_their_queries_name() {
+	let view = |name: TableName, sql: &str| {
+		View::new(
+			name,
+			vec![Column::new("id", ColumnType::Int64)],
+			Generated::new(sql),
+		)
+	};
+	let totals = TableName::new("totals");
+	let reports = TableName::namespaced("reports", "totals");
+	let reads = |sql: &str, other: &TableName| {
+		view(TableName::new("reader"), sql).may_read(other, Dialect::Postgres)
+	};
+
+	assert!(reads("SELECT id FROM totals", &totals));
+	assert!(reads("select id from \"totals\" t", &totals));
+	assert!(reads("SELECT id FROM TOTALS", &totals));
+	assert!(reads("SELECT id FROM reports.totals", &reports));
+	assert!(reads("SELECT id FROM reports_totals", &reports));
+	assert!(!reads("SELECT 'totals' AS id FROM posts", &totals));
+	assert!(!reads("SELECT id FROM posts -- not totals\n", &totals));
+	assert!(!reads("SELECT id FROM subtotals", &totals));
+	assert!(!reads("SELECT 'it''s totals' FROM posts", &totals));
+
+	// Ordered by what they read, then by name; a cycle has no order.
+	let schema = blog(Dialect::Postgres).with_views(vec![
+		view(TableName::new("a_top"), "SELECT id FROM b_middle"),
+		view(TableName::new("b_middle"), "SELECT id FROM c_bottom"),
+		view(TableName::new("c_bottom"), "SELECT id FROM posts"),
+		view(TableName::new("d_alone"), "SELECT id FROM posts"),
+	]);
+	let names = |views: Vec<&View>| -> Vec<String> {
+		views.iter().map(|view| view.name.to_string()).collect()
+	};
+	assert_eq!(
+		names(schema.views_in_order().unwrap()),
+		["c_bottom", "b_middle", "a_top", "d_alone"]
+	);
+	assert_eq!(
+		names(schema.views_reading(&TableName::new("c_bottom"))),
+		["b_middle", "a_top"]
+	);
+	schema.validate().unwrap();
+
+	let cycle = blog(Dialect::Postgres).with_views(vec![
+		view(TableName::new("left_view"), "SELECT id FROM right_view"),
+		view(TableName::new("right_view"), "SELECT id FROM left_view"),
+	]);
+	assert_eq!(
+		cycle.views_in_order().unwrap_err(),
+		[TableName::new("left_view"), TableName::new("right_view")]
+	);
+	insta::assert_snapshot!(cycle.validate().unwrap_err().to_string(), @r"
+	the schema has 1 problem(s):
+	  - left_view, right_view: these views read each other, so none can be created first; a view is taken to read every view its query names
+	");
+}
+
+#[test]
+fn view_indexes_are_checked_and_recreate_the_view() {
+	let name = TableName::new("titles");
+	let mut view = View::new(
+		name.clone(),
+		vec![Column::new("title", ColumnType::TEXT)],
+		Generated::new("SELECT title FROM posts"),
+	);
+	view.materialized = true;
+	let schema = blog(Dialect::Postgres).with_views(vec![view.clone()]);
+
+	let mut indexed = view.clone();
+	indexed.indexes = vec![Index::unique(&name, &["title"])];
+	let target = blog(Dialect::Postgres).with_views(vec![indexed.clone()]);
+	target.validate().unwrap();
+	assert_eq!(Schema::from_json(&target.to_json()).unwrap(), target);
+	let json: serde_json::Value = serde_json::from_str(&schema.to_json()).unwrap();
+	assert!(json["views"][0].get("indexes").is_none(), "{json}");
+	let plan = diff(&schema, &target, &mut RequireHints).unwrap();
+	assert_eq!(
+		plan.steps,
+		[
+			Step::DropView(view.clone()),
+			Step::CreateView(indexed.clone())
+		]
+	);
+
+	let mut unmaterialized = indexed.clone();
+	unmaterialized.materialized = false;
+	unmaterialized.indexes.push(Index::new(&name, &["missing"]));
+	unmaterialized.indexes.push(Index {
+		name: "Bad".into(),
+		columns: Vec::new(),
+		unique: false,
+		predicate: Some(Predicate::IsNull("gone".into())),
+	});
+	// An index named like a table's.
+	unmaterialized
+		.indexes
+		.push(Index::unique(&TableName::new("users"), &["handle"]));
+	let invalid = blog(Dialect::Postgres).with_views(vec![unmaterialized]);
+	insta::assert_snapshot!(invalid.validate().unwrap_err().to_string());
+}

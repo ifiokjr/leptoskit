@@ -53,6 +53,20 @@ If the project uses [devenv](https://devenv.sh) and its `devenv.nix` turns on `s
 }
 ```
 
+### A database for each branch
+
+Switching git branches with one development database mixes them up: a feature branch adds a column, and back on `main` the app fails on a table it doesn't expect. So on the development Postgres each branch gets its own database, copied from the main branch's, rows and all, the first time you use the branch:
+
+```console
+$ git switch -c feat/karma
+$ leptoskit dev
+[db] branch `feat/karma` has its own database, `my_app__feat_karma`, copied from `my_app`
+```
+
+`leptoskit dev` follows `git switch` while it runs: it stops the app server, moves to the branch's database, brings it in step with the tables, and restarts the server on it. `leptoskit db migrate`, `status`, `push`, and `reset` use the branch's database too. The main branch, `main` or `master` or whatever `origin` points at, keeps the app's database, and so does a detached `HEAD`.
+
+Postgres copies a database only while nothing is connected to it, so stop a `psql` session on the main branch's database before using a new branch. `leptoskit db branch list` shows each branch's database, and `leptoskit db branch prune --yes` deletes those whose branch is deleted or merged into the main branch; without `--yes` it only says what it would delete. Set `branch_databases = false` under `[db]` to share one database across branches. A database you name with `DATABASE_URL`, and SQLite apps, are left as they are.
+
 To use a database of your own, set `DATABASE_URL`, and `leptoskit dev` leaves it to you. To never start one, set `dev_server = "off"` under `[db]`. To skip the download, set `LEPTOSKIT_POSTGRES_BIN` to the `bin` directory of a Postgres you've installed; `leptoskit dev` runs that instead. SQLite apps need no server, so none of this applies to them.
 
 ## Declare a table
@@ -414,6 +428,9 @@ let tagged = tag.posts().count(&db).await?;
 let has_it = post.tags().contains(&db, tag.id).await?;
 
 post.tags().remove(&db, tag.id).await?;
+
+// Exactly these tags, in this order: the rest are removed.
+post.tags().set(&db, [(rust, PostTagProperties { position: 0 }), (sql, PostTagProperties { position: 1 })]).await?;
 ```
 
 The macro adds the two ends, `post_id` and `tag_id`, which together are the table's key, so a post holds each tag once. Adding the same tag again replaces the link's properties. Deleting a post or a tag for good deletes its links. `PostTagProperties` holds everything an insert would provide except the two ends; a link with nothing else on it takes `()`. Write it as `db::link`: a bare `#[link]` is Rust's own attribute for native libraries.
@@ -425,6 +442,7 @@ Narrow what you read with `filter(|tag| …)` on the linked rows and `filter_lin
 - **A table can link to itself.** Name the two columns: `#[db::link(name = "follows", from = User as following, to = User as followers, from_column = "follower_id", to_column = "followed_id")]`.
 - **One owner per row.** `exclusive` lets each `to` row be linked from one `from` row only, so a second post pinning the same tag fails with `DbError::Conflict`.
 - **Both tables in one crate.** `post.tags()` and `tag.posts()` are methods on the linked tables, so, as with backlinks, both must be declared in the crate that declares the link. For others, `Links::<PostTag, _, _>::forward(post_id)` and `Links::<PostTag, _, _>::backward(tag_id)` do the same.
+- **Replacing every link at once.** `set` adds, updates, and removes links in one transaction. It replaces only what the request sees: a link to a row it can't see stays, and filters narrow it, so `post.tags().filter(|tag| tag.kind.eq("topic")).set(…)` leaves other tags alone. If a policy keeps a link from being removed, the whole change fails with `DbError::Forbidden`.
 - **A schema pack's links** are read like any other, but only the pack adds or removes them.
 
 ## Fetch linked rows in one query
@@ -477,7 +495,7 @@ Each field reads one thing:
 What the query returns follows the same rules as every other query:
 
 - **Policies apply at every level.** A nested post is there only if the request may read it, and a count counts what the request may see, so a shape never reveals more than separate queries would.
-- **Soft-deleted rows are left out** of nested rows and counts. A required link to one, such as the author of a post whose author was deleted, fails with `DbError::NotFound`, as `post.author(&db)` does.
+- **Soft-deleted rows are left out** of nested rows and counts. A required link to one, such as the author of a post whose author was deleted, fails with `DbError::NotFound`, as `post.author(&db)` does. Add `with_deleted` to a field to include them: `#[db(via = posts, with_deleted)]` for an archive page, or `#[db(via = author, with_deleted)]` to keep showing a deleted author.
 - **Nested rows always come in the same order:** `order_by`, then the linked table's key.
 
 `public` on a shape checks, when it compiles, that it reads only public columns and nests only public shapes, so it's safe to return from a server function; without `public`, a shape can read `private` columns, for use on the server. A shape is an ordinary struct on clients, so derive `Serialize` and `Deserialize` and return it from a server function to the web or native app as you would `PublicUser`. On Postgres and SQLite alike, a shape is one statement, with each nested field a subquery; a shape reads at most 100 fields, so nest some in another shape if you need more.
@@ -698,7 +716,7 @@ let history = AuditEntry::for_row(&invoice)?.all(&db).await?;
 let purged = AuditEntry::query().filter(|entry| entry.at.lt(cutoff)).destroy(&db.system("retention")).await?;
 ```
 
-The log records what goes through the database layer. Raw SQL, and rows the database removes itself through `on_delete = cascade`, aren't recorded.
+The log also records the rows the database changes on its own when a row is deleted for good: rows it removes through `on_delete = cascade`, as deletes, and links it empties through `set_null`, as updates. Before such a delete, the database layer reads and locks them, so the record matches what the delete did. Raw SQL isn't recorded.
 
 ## Views
 
@@ -739,7 +757,65 @@ Leaderboard::refresh(&db).await?;
 
 On Postgres it's a materialized view. SQLite has none, so it's a table that `refresh` empties and fills again in one transaction. Either way, readers see the old rows or the new ones, never a mix.
 
+A materialized view takes `index(...)` and `unique(...)` over its columns, as a table does. On Postgres, `refresh` locks out readers while the query runs; with a `unique(...)` index the view also gets `refresh_concurrently`, which lets them carry on and changes only the rows that differ. On SQLite, `refresh_concurrently` is `refresh`, whose transaction already lets readers carry on.
+
+```rust
+#[db::view(name = "leaderboard", materialized, unique(author_id), index(posts), sql = "…")]
+pub struct Leaderboard { … }
+
+Leaderboard::refresh_concurrently(&db).await?;
+```
+
+A view can read another view: migrations create each view after the views its query names, and drop it before them. Shapes can start from a view, too: `AuthorStats::query().shape::<StatsCard>()` with `#[db(from = AuthorStats)]`, following the view's `Id<T>` columns with `via`.
+
 Migrations create views after every table change and drop them before. A view's SQL isn't parsed, so when a migration changes a table in a way a view could notice, it drops and recreates every view, which refills materialized ones.
+
+## Refetch what changed
+
+A page that lists posts shows stale data the moment someone else writes one, and polling every few seconds is wasteful and still late. Mark the table `live`, and every committed write to it says which rows changed, so each client refetches exactly the queries those rows touch:
+
+```rust
+#[table(name = "posts", public, live)]
+#[db::policy(select, |post, cx| post.published.eq(true) | cx.global(|viewer: &Viewer| post.author_id.eq(viewer.0)))]
+pub struct Post { … }
+```
+
+On the server, give each signed-in client a feed of changes made from its request's handle, and send each one over whatever your app uses to push to clients, such as server-sent events or a WebSocket:
+
+```rust
+let mut changes = request_db.changes().await?;
+loop {
+	let invalidation = changes.next().await?;
+	send(serde_json::to_string(&invalidation)?).await?;
+}
+```
+
+On the client, in the web app or the native app's interface, tag queries with the tables and rows they read, and apply each invalidation with `leptoskit_query` (with the `db` feature, which `leptoskit`'s `db` and `query` features turn on together):
+
+```rust
+use leptoskit_query::live::{row_tag, table_tag};
+
+fn posts() -> QueryScope<(), Vec<PublicPost>, ServerFnError> {
+	QueryScope::new(|()| list_posts()).with_tags_for(|()| vec![table_tag("posts")])
+}
+
+fn post() -> QueryScope<Id<Post>, PublicPost, ServerFnError> {
+	QueryScope::new(get_post).with_tags_for(|id| vec![row_tag("posts", [id])])
+}
+
+client.apply_invalidation(&invalidation);
+```
+
+A change to a post refetches queries tagged with its table and with its own row, and nothing else.
+
+- **Invalidate, don't replicate.** An invalidation carries the table and the changed rows' keys, never their data. The refetch goes through the same policies as any query.
+- **Nobody learns about rows they can't see.** A subscriber hears of a change only when its `select` policy allows the row as it was before the write or as it is after it, so a post made private still reaches the readers who saw it, and a private draft reaches only its author. Secret columns never take part, so a policy that reads one never matches a change: it fails closed.
+- **Only what commits.** Changes are published when their transaction commits, all of one transaction's together, and never for one that rolls back. Rows the database deletes or empties through `on_delete` cascades are published too.
+- **Every server hears every change.** On Postgres, changes travel through `LISTEN`/`NOTIFY`, so a write on one server reaches subscribers on all of them; the first `changes()` call opens a listening connection. On SQLite they stay in the process.
+- **When changes may be missed**, a feed returns `Invalidation::Everything`: a subscriber that fell far behind, a server that lost its listening connection and reconnected, or a change to a table this build doesn't know, as during a rolling deploy. `apply_invalidation` then refetches every query with a database tag.
+- **What isn't published:** raw SQL, migrations, and refreshing a materialized view.
+
+Each write to a `live` table reads the rows it changes, as an audited table's do, and runs in a transaction.
 
 ## Tables that come from a library
 
@@ -801,6 +877,21 @@ reading the tables in my_app_db
 
 Set `watch = "report"` under `[db]` to only print what changed, or `watch = "off"` to ignore the tables.
 
+#### Push changes without migrations
+
+While an idea takes shape, the tables change many times, and a migration for each step is noise to review and squash later. Set `watch = "push"` under `[db]`, and `leptoskit dev` applies each change straight to the development database without writing a migration:
+
+```console
+[db] pushed to the development database:
+  + column notes.pinned (bool)
+```
+
+When the tables are right, `leptoskit db migration create <name>` writes one migration from the latest committed one to the tables as they are now, and the development database takes it over without running it, so its rows stay. `leptoskit db push` does what the dev loop does, outside it.
+
+- **Deleting data needs consent.** A push that would drop a column or a table pushes nothing and says so; `leptoskit db push --allow-destructive` pushes it.
+- **No migration lands on top of pushes.** While the development database has pushes, the server refuses to apply a migration it hasn't had, such as a teammate's you just pulled, and says to create your migration or `leptoskit db reset --yes`. Migrations it already has are fine, so the server still starts.
+- **`leptoskit db status`** says when the database has pushes no migration records yet.
+
 The server applies migrations as it starts:
 
 ```rust
@@ -819,6 +910,8 @@ The rest of the commands work against a database:
 | `leptoskit db status`      | Lists applied and pending migrations.                                                                        |
 | `leptoskit db migrate`     | Applies pending migrations without starting the server.                                                      |
 | `leptoskit db reset --yes` | Recreates a local database from the migrations, deleting its data. It refuses any database that isn't local. |
+| `leptoskit db push`        | Applies the tables to the database without a migration, as push mode does.                                   |
+| `leptoskit db branch list` | Lists each branch's database on the development Postgres; `prune --yes` deletes those of finished branches.  |
 
 They read the URL from `--url`, or from `DATABASE_URL`. A Postgres app with neither uses [the development database](#a-database-while-you-develop).
 
@@ -832,7 +925,8 @@ features = ["server"] # the features that compile its server side
 migrations = "migrations" # relative to the project root
 url_env = "DATABASE_URL" # where status, migrate, and reset find the database
 dev_server = "auto" # "devenv", "embedded", or "off"; Postgres only
-watch = "migrate" # or "report" or "off"
+watch = "migrate" # or "push", "report", or "off"
+branch_databases = true # a database per git branch on the development Postgres
 ```
 
 An empty `[db]` table uses every default. `dev_server` picks the development database when `DATABASE_URL` isn't set: `auto` uses devenv's `services.postgres` when `devenv.nix` turns it on and the embedded server otherwise, `devenv` and `embedded` choose one, and `off` starts none. `watch` says what `leptoskit dev` does when the tables change.

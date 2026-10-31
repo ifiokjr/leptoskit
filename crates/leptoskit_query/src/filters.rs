@@ -138,6 +138,26 @@ impl QueryFilter {
 		}
 	}
 
+	/// The queries whose tags satisfy `predicate`, for matches a prefix
+	/// can't express, such as a tag that is exactly `["users"]`.
+	///
+	/// ```
+	/// use leptoskit_query::QueryFilter;
+	/// use leptoskit_query::Tag;
+	///
+	/// let users = Tag::new(["users"]);
+	/// let _ = QueryFilter::tags_where(move |tags| tags.contains(&users));
+	/// ```
+	#[must_use]
+	pub fn tags_where(predicate: impl Fn(&[Tag]) -> bool + Send + Sync + 'static) -> Self {
+		Self {
+			predicate: Some(Arc::new(move |query: &Arc<dyn AnyQuery>| {
+				predicate(query.tags())
+			})),
+			..Self::default()
+		}
+	}
+
 	/// Narrows to queries with an enabled observer.
 	#[must_use]
 	pub fn active(self) -> Self {

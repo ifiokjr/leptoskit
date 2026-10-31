@@ -18,6 +18,8 @@ use crate::PoolOptions;
 use crate::Result;
 use crate::Value;
 use crate::migrate::CREATE_MIGRATIONS_TABLE;
+use crate::migrate::CREATE_PUSH_TABLE;
+use crate::migrate::Record;
 use crate::migrate::pending;
 use crate::sql::Statement;
 
@@ -385,6 +387,44 @@ impl Pool {
 		&self,
 		migrations: Vec<Migration>,
 	) -> std::result::Result<Vec<String>, MigrationError> {
+		self.with_connection(move |connection| apply_migrations(connection, &migrations))
+			.await
+	}
+
+	/// Applies a change without a migration, and records the schema it
+	/// leaves.
+	pub(crate) async fn push(
+		&self,
+		migration: Migration,
+		schema: String,
+	) -> std::result::Result<(), MigrationError> {
+		self.with_connection(move |connection| {
+			prepare(connection)?;
+			apply_with_foreign_keys(connection, &migration, &Record::Pushed(&schema)).map(|_| ())
+		})
+		.await
+	}
+
+	/// Records a migration as applied, without running it, and forgets the
+	/// pushes that made its changes.
+	pub(crate) async fn adopt(
+		&self,
+		migration: Migration,
+	) -> std::result::Result<(), MigrationError> {
+		self.with_connection(move |connection| {
+			prepare(connection)?;
+			apply_migration(connection, &migration, false, &Record::Adopted).map(|_| ())
+		})
+		.await
+	}
+
+	/// Runs `work` on a connection of its own, off the async threads.
+	async fn with_connection<T: Send + 'static>(
+		&self,
+		work: impl FnOnce(&mut rusqlite::Connection) -> std::result::Result<T, MigrationError>
+		+ Send
+		+ 'static,
+	) -> std::result::Result<T, MigrationError> {
 		let permit = self
 			.shared
 			.permits
@@ -396,7 +436,7 @@ impl Pool {
 
 		tokio::task::spawn_blocking(move || {
 			let mut connection = shared.check_out()?;
-			let result = apply_migrations(&mut connection, &migrations);
+			let result = work(&mut connection);
 			shared.check_in(connection);
 			drop(permit);
 			result
@@ -404,6 +444,14 @@ impl Pool {
 		.await
 		.map_err(|join| MigrationError::Database(DbError::query(join)))?
 	}
+}
+
+/// Creates the bookkeeping tables a migration needs.
+fn prepare(connection: &rusqlite::Connection) -> std::result::Result<(), MigrationError> {
+	connection
+		.execute_batch(&format!("{CREATE_MIGRATIONS_TABLE}; {CREATE_PUSH_TABLE}"))
+		.map_err(error)?;
+	Ok(())
 }
 
 fn apply_migrations(
@@ -421,32 +469,73 @@ fn apply_migrations(
 				.collect::<rusqlite::Result<Vec<_>>>()
 		})
 		.map_err(error)?;
+	let pending = pending(&applied, migrations)?;
+
+	if let Some(first) = pending.first()
+		&& has_pushes(connection)?
+	{
+		return Err(MigrationError::Pushed {
+			name: first.name.to_string(),
+		});
+	}
+
 	let mut names = Vec::new();
 
-	for migration in pending(&applied, migrations)? {
-		let foreign_keys_off = migration.foreign_keys_off();
-
-		// The pragma has no effect inside a transaction, so it goes around it.
-		if foreign_keys_off {
-			connection
-				.execute_batch("PRAGMA foreign_keys = OFF")
-				.map_err(error)?;
-		}
-
-		let result = apply_migration(connection, migration, foreign_keys_off);
-
-		if foreign_keys_off {
-			connection
-				.execute_batch("PRAGMA foreign_keys = ON")
-				.map_err(error)?;
-		}
-
-		if result? {
+	for migration in pending {
+		if apply_with_foreign_keys(connection, migration, &Record::Applied)? {
 			names.push(migration.name.to_string());
 		}
 	}
 
 	Ok(names)
+}
+
+/// Whether the database holds pushed changes no migration records.
+fn has_pushes(connection: &rusqlite::Connection) -> std::result::Result<bool, MigrationError> {
+	let exists: i64 = connection
+		.query_row(
+			"SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = '_leptoskit_push'",
+			[],
+			|row| row.get(0),
+		)
+		.map_err(error)?;
+
+	if exists == 0 {
+		return Ok(false);
+	}
+
+	let count: i64 = connection
+		.query_row("SELECT count(*) FROM \"_leptoskit_push\"", [], |row| {
+			row.get(0)
+		})
+		.map_err(error)?;
+	Ok(count > 0)
+}
+
+/// Applies one migration with foreign keys off around it when it asks.
+fn apply_with_foreign_keys(
+	connection: &mut rusqlite::Connection,
+	migration: &Migration,
+	record: &Record<'_>,
+) -> std::result::Result<bool, MigrationError> {
+	let foreign_keys_off = migration.foreign_keys_off();
+
+	// The pragma has no effect inside a transaction, so it goes around it.
+	if foreign_keys_off {
+		connection
+			.execute_batch("PRAGMA foreign_keys = OFF")
+			.map_err(error)?;
+	}
+
+	let result = apply_migration(connection, migration, foreign_keys_off, record);
+
+	if foreign_keys_off {
+		connection
+			.execute_batch("PRAGMA foreign_keys = ON")
+			.map_err(error)?;
+	}
+
+	result
 }
 
 /// Applies one migration, unless another process got there first. Returns
@@ -455,6 +544,7 @@ fn apply_migration(
 	connection: &mut rusqlite::Connection,
 	migration: &Migration,
 	foreign_keys_off: bool,
+	record: &Record<'_>,
 ) -> std::result::Result<bool, MigrationError> {
 	let failed = |source: DbError| {
 		MigrationError::Failed {
@@ -465,6 +555,47 @@ fn apply_migration(
 	let transaction = connection
 		.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
 		.map_err(error)?;
+	let now = crate::now().format(TIMESTAMP_FORMAT).to_string();
+
+	match record {
+		Record::Applied => {}
+		Record::Pushed(schema) => {
+			transaction
+				.execute_batch(&migration.sql)
+				.map_err(|source| failed(error(source)))?;
+			check_foreign_keys(&transaction, migration, foreign_keys_off)?;
+			transaction
+				.execute(
+					"INSERT INTO \"_leptoskit_push\" (\"id\", \"schema\", \"pushed_at\") VALUES \
+					 (1, ?1, ?2) ON CONFLICT (\"id\") DO UPDATE SET \"schema\" = \
+					 excluded.\"schema\", \"pushed_at\" = excluded.\"pushed_at\"",
+					[schema, &now.as_str()],
+				)
+				.map_err(|source| failed(error(source)))?;
+			transaction
+				.commit()
+				.map_err(|source| failed(error(source)))?;
+			return Ok(true);
+		}
+		Record::Adopted => {
+			let forgotten = transaction
+				.execute("DELETE FROM \"_leptoskit_push\"", [])
+				.map_err(error)?;
+
+			if forgotten == 0 {
+				return Err(MigrationError::NothingPushed {
+					name: migration.name.to_string(),
+				});
+			}
+
+			record_applied(&transaction, migration, &now).map_err(failed)?;
+			transaction
+				.commit()
+				.map_err(|source| failed(error(source)))?;
+			return Ok(true);
+		}
+	}
+
 	let already: i64 = transaction
 		.query_row(
 			"SELECT count(*) FROM \"_leptoskit_migrations\" WHERE \"name\" = ?1",
@@ -480,35 +611,53 @@ fn apply_migration(
 	transaction
 		.execute_batch(&migration.sql)
 		.map_err(|source| failed(error(source)))?;
-
-	if foreign_keys_off {
-		let violations: i64 = transaction
-			.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
-				row.get(0)
-			})
-			.map_err(error)?;
-
-		if violations > 0 {
-			return Err(MigrationError::ForeignKeys {
-				name: migration.name.to_string(),
-				violations,
-			});
-		}
-	}
-
-	transaction
-		.execute(
-			"INSERT INTO \"_leptoskit_migrations\" (\"name\", \"checksum\", \"applied_at\") \
-			 VALUES (?1, ?2, ?3)",
-			[
-				migration.name.as_ref(),
-				migration.checksum.as_ref(),
-				&crate::now().format(TIMESTAMP_FORMAT).to_string(),
-			],
-		)
-		.map_err(|source| failed(error(source)))?;
+	check_foreign_keys(&transaction, migration, foreign_keys_off)?;
+	record_applied(&transaction, migration, &now).map_err(failed)?;
 	transaction
 		.commit()
 		.map_err(|source| failed(error(source)))?;
 	Ok(true)
+}
+
+/// Fails when a migration that ran with foreign keys off left rows pointing
+/// at missing ones.
+fn check_foreign_keys(
+	transaction: &rusqlite::Transaction<'_>,
+	migration: &Migration,
+	foreign_keys_off: bool,
+) -> std::result::Result<(), MigrationError> {
+	if !foreign_keys_off {
+		return Ok(());
+	}
+
+	let violations: i64 = transaction
+		.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+			row.get(0)
+		})
+		.map_err(error)?;
+
+	if violations > 0 {
+		return Err(MigrationError::ForeignKeys {
+			name: migration.name.to_string(),
+			violations,
+		});
+	}
+
+	Ok(())
+}
+
+/// Records `migration` as applied, in its transaction.
+fn record_applied(
+	transaction: &rusqlite::Transaction<'_>,
+	migration: &Migration,
+	now: &str,
+) -> Result<()> {
+	transaction
+		.execute(
+			"INSERT INTO \"_leptoskit_migrations\" (\"name\", \"checksum\", \"applied_at\") \
+			 VALUES (?1, ?2, ?3)",
+			[migration.name.as_ref(), migration.checksum.as_ref(), now],
+		)
+		.map_err(error)?;
+	Ok(())
 }

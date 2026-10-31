@@ -27,6 +27,29 @@ pub(crate) const CREATE_MIGRATIONS_TABLE: &str =
 	"CREATE TABLE IF NOT EXISTS \"_leptoskit_migrations\" (\"name\" TEXT NOT NULL PRIMARY KEY, \
 	 \"checksum\" TEXT NOT NULL, \"applied_at\" TEXT NOT NULL)";
 
+/// The table that records the schema a development database was pushed to,
+/// without migrations, in `leptoskit dev`'s push mode: one row at most.
+pub const PUSH_TABLE: &str = "_leptoskit_push";
+
+/// The SQL that creates [`PUSH_TABLE`], valid in both dialects.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub(crate) const CREATE_PUSH_TABLE: &str =
+	"CREATE TABLE IF NOT EXISTS \"_leptoskit_push\" (\"id\" INTEGER NOT NULL PRIMARY KEY CHECK \
+	 (\"id\" = 1), \"schema\" TEXT NOT NULL, \"pushed_at\" TEXT NOT NULL)";
+
+/// What applying a migration records.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub(crate) enum Record<'a> {
+	/// That the migration was applied, in [`MIGRATIONS_TABLE`].
+	Applied,
+	/// The schema it leaves the database with, in [`PUSH_TABLE`], for a
+	/// change pushed without a migration.
+	Pushed(&'a str),
+	/// That the migration was applied, without running it, because pushes
+	/// already made its changes; the pushes are forgotten.
+	Adopted,
+}
+
 /// One migration: its name, its SQL, and a checksum of that SQL.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Migration {
@@ -178,6 +201,23 @@ pub enum MigrationError {
 		name: String,
 		#[source]
 		source: DbError,
+	},
+	/// The database holds changes pushed without a migration, and a
+	/// migration it hasn't had would apply on top of them.
+	#[error(
+		"the database has changes pushed in development that no migration records, so migration \
+		 `{name}` can't apply on top of them; run `leptoskit db migration create` to turn the \
+		 pushes into a migration, or `leptoskit db reset` to start again"
+	)]
+	Pushed {
+		/// The first migration that would have applied.
+		name: String,
+	},
+	/// Adopting a migration needs pushes to adopt.
+	#[error("migration `{name}` can't be adopted: the database has no pushed changes")]
+	NothingPushed {
+		/// The migration.
+		name: String,
 	},
 	/// The database couldn't be read or locked before migrating.
 	#[error("couldn't prepare the database for migrations")]
