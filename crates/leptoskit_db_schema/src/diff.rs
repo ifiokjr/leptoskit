@@ -10,12 +10,15 @@ use crate::CheckRule;
 use crate::Column;
 use crate::Dialect;
 use crate::ForeignKey;
+use crate::Function;
 use crate::Index;
 use crate::Predicate;
 use crate::Schema;
 use crate::SchemaError;
+use crate::Sequence;
 use crate::Table;
 use crate::TableName;
+use crate::Trigger;
 use crate::View;
 
 /// The steps that turn one schema into another, in the order they apply.
@@ -179,6 +182,27 @@ pub enum Step {
 	/// created again, and so is every view when a table it may read
 	/// changes: a view's SQL isn't parsed, so what it reads isn't known.
 	DropView(View),
+	/// Create a sequence, Postgres only.
+	CreateSequence(Sequence),
+	/// Drop a sequence, after the tables and functions that use it.
+	DropSequence(Sequence),
+	/// Create a function, before any trigger that calls it.
+	CreateFunction(Function),
+	/// Replace a function's definition in place, as `CREATE OR REPLACE`.
+	ReplaceFunction {
+		/// The function as it was.
+		from: Function,
+		/// The function as it should be.
+		to: Function,
+	},
+	/// Drop a function, after every trigger that called it.
+	DropFunction(Function),
+	/// Create a trigger, after every table, function, and view change.
+	CreateTrigger(Trigger),
+	/// Drop a trigger, before any table change. A changed trigger is dropped
+	/// and created again; so is every trigger on a SQLite table the
+	/// migration alters, since rebuilding a table drops its triggers.
+	DropTrigger(Trigger),
 }
 
 /// How safe a step is to run against a database that already holds data.
@@ -214,6 +238,11 @@ impl Step {
 			| Self::SetTableComment { table, .. }
 			| Self::SetColumnComment { table, .. } => table,
 			Self::CreateView(view) | Self::DropView(view) => &view.name,
+			Self::CreateSequence(sequence) | Self::DropSequence(sequence) => &sequence.name,
+			Self::CreateFunction(function)
+			| Self::DropFunction(function)
+			| Self::ReplaceFunction { to: function, .. } => &function.name,
+			Self::CreateTrigger(trigger) | Self::DropTrigger(trigger) => &trigger.table,
 		}
 	}
 
@@ -264,28 +293,34 @@ impl Step {
 	/// destruction last.
 	fn phase(&self) -> u8 {
 		match self {
-			Self::DropView(_) => 0,
-			Self::DropForeignKey { .. } => 1,
-			Self::DropIndex { .. } => 2,
-			Self::DropCheck { .. } => 3,
-			Self::RenameTable { .. } => 4,
+			Self::DropTrigger(_) => 0,
+			Self::DropView(_) => 1,
+			Self::DropForeignKey { .. } => 2,
+			Self::DropIndex { .. } => 3,
+			Self::DropCheck { .. } => 4,
+			Self::RenameTable { .. } => 5,
 			Self::RenameColumn { .. }
 			| Self::RenameIndex { .. }
-			| Self::RenameConstraint { .. } => 5,
-			Self::CreateTable(_) => 6,
+			| Self::RenameConstraint { .. } => 6,
+			Self::CreateTable(_) => 7,
+			Self::CreateSequence(_) => 8,
+			Self::CreateFunction(_) | Self::ReplaceFunction { .. } => 9,
 			// A generated column goes before the columns it reads change type,
 			// which Postgres refuses while something is computed from them.
-			Self::AddColumn { .. } => 7,
-			Self::DropColumn { column, .. } if column.generated.is_some() => 7,
-			Self::AlterColumn { .. } => 8,
-			Self::DropColumn { .. } => 9,
-			Self::SetPrimaryKey { .. } => 10,
-			Self::CreateIndex { .. } => 11,
-			Self::AddCheck { .. } => 12,
-			Self::AddForeignKey { .. } => 13,
-			Self::SetTableComment { .. } | Self::SetColumnComment { .. } => 14,
-			Self::DropTable(_) => 15,
-			Self::CreateView(_) => 16,
+			Self::AddColumn { .. } => 10,
+			Self::DropColumn { column, .. } if column.generated.is_some() => 10,
+			Self::AlterColumn { .. } => 11,
+			Self::DropColumn { .. } => 12,
+			Self::SetPrimaryKey { .. } => 13,
+			Self::CreateIndex { .. } => 14,
+			Self::AddCheck { .. } => 15,
+			Self::AddForeignKey { .. } => 16,
+			Self::SetTableComment { .. } | Self::SetColumnComment { .. } => 17,
+			Self::DropTable(_) => 18,
+			Self::DropFunction(_) => 19,
+			Self::DropSequence(_) => 20,
+			Self::CreateView(_) => 21,
+			Self::CreateTrigger(_) => 22,
 		}
 	}
 }
@@ -370,8 +405,28 @@ impl fmt::Display for Step {
 			}
 			Self::CreateView(view) => write!(f, "+ {} {}", view_kind(view), view.name),
 			Self::DropView(view) => write!(f, "- {} {}", view_kind(view), view.name),
+			Self::CreateSequence(sequence) => write!(f, "+ sequence {}", sequence.name),
+			Self::DropSequence(sequence) => write!(f, "- sequence {}", sequence.name),
+			Self::CreateFunction(function) => write!(f, "+ function {}", function.name),
+			Self::ReplaceFunction { from, to } => {
+				write!(
+					f,
+					"~ function {}: body {} → {}",
+					to.name,
+					short_checksum(&from.checksum),
+					short_checksum(&to.checksum)
+				)
+			}
+			Self::DropFunction(function) => write!(f, "- function {}", function.name),
+			Self::CreateTrigger(trigger) => write!(f, "+ {trigger}"),
+			Self::DropTrigger(trigger) => write!(f, "- {trigger}"),
 		}
 	}
+}
+
+/// A checksum's first eight digits, enough to tell two apart in a summary.
+fn short_checksum(checksum: &str) -> &str {
+	checksum.get(..8).unwrap_or(checksum)
 }
 
 fn view_kind(view: &View) -> &'static str {
@@ -632,6 +687,7 @@ pub fn diff(
 	}
 
 	diff_views(previous, target, &mut steps);
+	diff_routines(previous, target, &mut steps);
 
 	// A stable sort keeps each phase in table and declaration order.
 	steps.sort_by_key(Step::phase);
@@ -655,6 +711,13 @@ fn diff_views(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
 				| Step::CreateIndex { .. }
 				| Step::SetTableComment { .. }
 				| Step::SetColumnComment { .. }
+				| Step::CreateSequence(_)
+				| Step::DropSequence(_)
+				| Step::CreateFunction(_)
+				| Step::ReplaceFunction { .. }
+				| Step::DropFunction(_)
+				| Step::CreateTrigger(_)
+				| Step::DropTrigger(_)
 		)
 	});
 	let kept = |view: &View| {
@@ -671,6 +734,91 @@ fn diff_views(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
 
 	for view in target.views.iter().filter(|view| !kept(view)) {
 		steps.push(Step::CreateView(view.clone()));
+	}
+}
+
+/// Creates, replaces, and drops sequences, functions, and triggers.
+///
+/// A trigger whose definition changed, or whose table was renamed, is
+/// dropped and created again. On SQLite, so is every trigger on a table the
+/// plan alters at all: a rebuild drops the table and its triggers with it,
+/// and `ALTER TABLE` may rewrite a trigger's statements. Called once every
+/// table step is in `steps`.
+fn diff_routines(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
+	for sequence in &previous.sequences {
+		if !target
+			.sequences
+			.iter()
+			.any(|kept| kept.name == sequence.name)
+		{
+			steps.push(Step::DropSequence(sequence.clone()));
+		}
+	}
+
+	for sequence in &target.sequences {
+		if !previous
+			.sequences
+			.iter()
+			.any(|old| old.name == sequence.name)
+		{
+			steps.push(Step::CreateSequence(sequence.clone()));
+		}
+	}
+
+	for function in &previous.functions {
+		if target.function(&function.name).is_none() {
+			steps.push(Step::DropFunction(function.clone()));
+		}
+	}
+
+	for function in &target.functions {
+		match previous.function(&function.name) {
+			None => steps.push(Step::CreateFunction(function.clone())),
+			Some(old) if old != function => {
+				steps.push(Step::ReplaceFunction {
+					from: old.clone(),
+					to: function.clone(),
+				});
+			}
+			Some(_) => {}
+		}
+	}
+
+	let altered: HashSet<TableName> = if target.dialect == Dialect::Sqlite {
+		steps
+			.iter()
+			.filter(|step| {
+				!matches!(
+					step,
+					Step::SetTableComment { .. }
+						| Step::SetColumnComment { .. }
+						| Step::CreateIndex { .. }
+						| Step::DropIndex { .. }
+						| Step::RenameIndex { .. }
+						| Step::RenameConstraint { .. }
+						| Step::CreateView(_)
+						| Step::DropView(_)
+				)
+			})
+			.map(|step| step.table().clone())
+			.collect()
+	} else {
+		HashSet::new()
+	};
+	let kept = |trigger: &Trigger| {
+		!altered.contains(&trigger.table)
+			&& previous.triggers.contains(trigger)
+			&& target.triggers.contains(trigger)
+	};
+
+	for trigger in previous.triggers.iter().filter(|trigger| !kept(trigger)) {
+		// Dropping a table drops its triggers, but the table goes last, and
+		// dropping the trigger first costs nothing.
+		steps.push(Step::DropTrigger(trigger.clone()));
+	}
+
+	for trigger in target.triggers.iter().filter(|trigger| !kept(trigger)) {
+		steps.push(Step::CreateTrigger(trigger.clone()));
 	}
 }
 

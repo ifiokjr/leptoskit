@@ -207,6 +207,7 @@ pub(crate) fn expand(
 
 	let mut fields = Vec::new();
 	let mut errors: Option<syn::Error> = None;
+	let live_table = args.live;
 
 	for field in &mut named.named {
 		let mut ty = field.ty.clone();
@@ -221,6 +222,16 @@ pub(crate) fn expand(
 				continue;
 			}
 		};
+
+		if args.live_skip && !live_table {
+			combine(
+				&mut errors,
+				syn::Error::new_spanned(
+					&ident,
+					"`live = skip` describes a live table: add `live` to `#[db::table(...)]`",
+				),
+			);
+		}
 		let points_at_self = id_target(&ty).is_some_and(|target| is_type_named(target, &name));
 
 		fields.push(Field {
@@ -1314,6 +1325,11 @@ impl Table<'_> {
 		let stamp = self.stamp_fn(&all);
 		let hooks = self.hook_fns();
 		let reads_through = self.reads_through_fn();
+		let live_impl = self.args.live.then(|| {
+			quote! {
+				impl #krate::LiveTable for #name {}
+			}
+		});
 
 		quote! {
 			impl #krate::Table for #name {
@@ -1369,6 +1385,7 @@ impl Table<'_> {
 				#policies
 				#reads_through
 			}
+			#live_impl
 		}
 	}
 
@@ -1423,6 +1440,23 @@ impl Table<'_> {
 
 		if self.args.audit {
 			consts.push(quote! { const AUDIT: bool = true; });
+		}
+
+		if self.args.live {
+			let columns: Vec<&str> = columns
+				.iter()
+				.filter(|column| {
+					column.args.visibility != Visibility::Secret
+						&& column.field.args.visibility != Visibility::Secret
+						&& !column.args.live_skip
+						&& !column.field.args.live_skip
+				})
+				.map(|column| column.name)
+				.collect();
+			consts.push(quote! {
+				const LIVE: bool = true;
+				const LIVE_COLUMNS: &'static [&'static str] = &[#(#columns),*];
+			});
 		}
 
 		if self.args.view.is_some() {

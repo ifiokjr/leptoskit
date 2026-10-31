@@ -221,7 +221,11 @@ impl Transaction {
 			.await
 	}
 
-	pub(crate) async fn finish(mut self, command: &'static str) -> Result<()> {
+	pub(crate) async fn finish(
+		mut self,
+		command: &'static str,
+		actor: Option<uuid::Uuid>,
+	) -> Result<()> {
 		let connection = self.connection.clone();
 		let shared = self.shared.clone();
 		let permit = self.permit.take();
@@ -232,7 +236,17 @@ impl Transaction {
 				.unwrap_or_else(std::sync::PoisonError::into_inner)
 				.take()
 				.expect("a transaction finishes once");
-			let result = connection.execute_batch(command).map_err(error);
+			let result = if command == "COMMIT" {
+				match crate::live::seal_sqlite(&connection, actor, "sql") {
+					Ok(()) => connection.execute_batch(command).map_err(error),
+					Err(failure) => {
+						let _ = connection.execute_batch("ROLLBACK");
+						Err(error(failure))
+					}
+				}
+			} else {
+				connection.execute_batch(command).map_err(error)
+			};
 			shared.check_in(connection);
 			drop(permit);
 			result

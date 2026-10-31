@@ -34,6 +34,9 @@ pub(crate) struct TableArgs {
 	pub hooks: Vec<Ident>,
 	/// Every change is recorded in the audit log.
 	pub audit: bool,
+	/// Every write to the table is captured for live queries, and the table
+	/// can be read through a live query.
+	pub live: bool,
 	/// Declared by the database layer itself, such as the audit log: not
 	/// registered for export, and written only from inside its crate.
 	pub internal: bool,
@@ -108,6 +111,10 @@ impl LinkEnd {
 pub(crate) const LINK_MARKER: &str = "__link";
 
 impl TableArgs {
+	#[expect(
+		clippy::too_many_lines,
+		reason = "one parser for every table option keeps the accepted list in one place"
+	)]
 	pub fn parse(tokens: TokenStream) -> syn::Result<Self> {
 		let mut name = None;
 		let mut namespace = None;
@@ -127,6 +134,7 @@ impl TableArgs {
 		let mut exclusive = false;
 		let mut hooks = Vec::new();
 		let mut audit = false;
+		let mut live = false;
 		let mut internal = false;
 		let mut is_view = false;
 		let mut view = ViewOptions::default();
@@ -157,6 +165,8 @@ impl TableArgs {
 				internal = true;
 			} else if meta.path.is_ident("audit") {
 				audit = true;
+			} else if meta.path.is_ident("live") {
+				live = true;
 			} else if meta.path.is_ident("hooks") {
 				hooks = hook_list(&meta)?;
 			} else if meta.path.is_ident("from") {
@@ -207,8 +217,8 @@ impl TableArgs {
 					 `check`, `hooks`, `audit`, `renamed_from`, `pack`, or `crate`"
 				} else {
 					"unknown table option; expected `name`, `namespace`, `public`, `projection`, \
-					 `index`, `unique`, `check`, `hooks`, `audit`, `renamed_from`, `pack`, or \
-					 `crate`"
+					 `index`, `unique`, `check`, `hooks`, `audit`, `live`, `renamed_from`, `pack`, \
+					 or `crate`"
 				}));
 			}
 
@@ -229,6 +239,13 @@ impl TableArgs {
 		} else {
 			None
 		};
+
+		if live && view.is_some() {
+			return Err(syn::Error::new(
+				Span::call_site(),
+				"a view has no writes to capture: `live` is for tables",
+			));
+		}
 
 		let link = if is_link {
 			let (Some(mut from), Some(mut to)) = (from, to) else {
@@ -263,6 +280,7 @@ impl TableArgs {
 			krate,
 			hooks,
 			audit,
+			live,
 			internal,
 			view,
 		})
@@ -500,6 +518,8 @@ pub(crate) struct FieldArgs {
 	pub timestamp: Option<Timestamp>,
 	pub on_delete: Option<Ident>,
 	pub no_foreign_key: bool,
+	/// The column is left out of the change log, for wide or secret data.
+	pub live_skip: bool,
 	pub renamed_from: Option<LitStr>,
 	/// The field is a `#[db::mixin]` struct whose columns join the table.
 	pub flatten: bool,
@@ -542,6 +562,7 @@ impl FieldArgs {
 			timestamp: None,
 			on_delete: None,
 			no_foreign_key: false,
+			live_skip: false,
 			renamed_from: None,
 			flatten: false,
 			prefix: None,
@@ -674,6 +695,15 @@ impl FieldArgs {
 			)?);
 		} else if path.is_ident("no_foreign_key") {
 			self.no_foreign_key = true;
+		} else if path.is_ident("live") {
+			let value: Ident = meta.value()?.parse()?;
+
+			if value != "skip" {
+				return Err(meta
+					.error("`live` takes `skip`: the column is never copied into the change log"));
+			}
+
+			self.live_skip = true;
 		} else if path.is_ident("renamed_from") {
 			self.renamed_from = Some(string(meta)?);
 		} else if path.is_ident("flatten") {
@@ -700,7 +730,8 @@ impl FieldArgs {
 				 `index`, `private`, `secret`, `default`, `min_len`, `max_len`, `min`, `max`, \
 				 `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `created_by`, \
 				 `updated_by`, `version`, `slug`, `on_delete`, `on_soft_delete`, `backlink`, \
-				 `no_foreign_key`, `renamed_from`, `flatten`, `prefix`, `in`, or `generated`",
+				 `no_foreign_key`, `live`, `renamed_from`, `flatten`, `prefix`, `in`, or \
+				 `generated`",
 			));
 		}
 

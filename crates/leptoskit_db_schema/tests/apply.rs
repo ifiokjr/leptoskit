@@ -103,7 +103,7 @@ fn postgres_migrations_match_fresh_schemas_and_keep_rows() {
 		);
 		assert_rows(&scenario, |table| {
 			let qualified = match table.split_once('_') {
-				Some((namespace @ ("auth" | "content" | "reports"), name)) => {
+				Some((namespace @ ("auth" | "content" | "reports" | "live"), name)) => {
 					format!("{namespace}.\"{name}\"")
 				}
 				_ => format!("\"{table}\""),
@@ -246,6 +246,22 @@ fn describe_sqlite(connection: &Connection) -> Vec<String> {
 		lines.extend(foreign_keys);
 	}
 
+	let mut triggers: Vec<String> = connection
+		.prepare("SELECT tbl_name, name, sql FROM sqlite_schema WHERE type = 'trigger'")
+		.unwrap()
+		.query_map([], |row| {
+			Ok(format!(
+				"{} trigger {} {}",
+				row.get::<_, String>(0)?,
+				row.get::<_, String>(1)?,
+				row.get::<_, String>(2)?,
+			))
+		})
+		.unwrap()
+		.collect::<Result<_, _>>()
+		.unwrap();
+	triggers.sort();
+	lines.extend(triggers);
 	lines
 }
 
@@ -427,6 +443,18 @@ impl PostgresCluster {
 				 = c.relnamespace JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND \
 				 NOT a.attisdropped WHERE c.relkind = 'r' AND n.nspname {USER_SCHEMAS} ORDER BY \
 				 1, 2, 3"
+			),
+			"SELECT c.relname, t.tgname, pg_get_triggerdef(t.oid) FROM pg_trigger t JOIN pg_class \
+			 c ON c.oid = t.tgrelid WHERE NOT t.tgisinternal"
+				.to_string(),
+			format!(
+				"SELECT n.nspname, p.proname, p.prosecdef, md5(p.prosrc), p.proconfig FROM \
+				 pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname \
+				 {USER_SCHEMAS}"
+			),
+			format!(
+				"SELECT sequence_schema, sequence_name FROM information_schema.sequences WHERE \
+				 sequence_schema {USER_SCHEMAS}"
 			),
 		];
 

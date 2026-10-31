@@ -109,3 +109,39 @@ drop_views
   - view post_counts
   - materialized view published_posts
   - view reports.long_titles
+capture_writes_to_live_tables
+  + table live.changes (9 columns)
+  + table live.commits (5 columns)
+  + table live.pending (1 column)
+  + sequence live.change_seq
+  + sequence live.version_seq
+  + function live.capture
+  + function live.seal
+  + trigger live_capture on posts
+  + trigger live_capture on users
+  + constraint trigger seal on live.pending
+live_columns_change
+  - trigger live_capture on posts
+  + column posts.summary (text)
+  + trigger live_capture on posts
+rename_a_live_table
+  - trigger live_capture on posts
+  ~ table posts renamed to articles
+  + trigger live_capture on articles
+stop_capturing_a_table
+  - trigger live_capture on posts
+rebuild_a_live_table
+  ~ column posts.title: text → text(200)
+replace_a_capture_function
+  ~ function live.capture: body 73a341f0 → c5457bc7
+remove_the_live_pack
+  - trigger live_capture on posts
+  - trigger live_capture on users
+  - constraint trigger seal on live.pending
+  - table live.changes
+  - table live.commits
+  - table live.pending
+  - function live.capture
+  - function live.seal
+  - sequence live.change_seq
+  - sequence live.version_seq

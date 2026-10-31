@@ -144,10 +144,23 @@ impl Db {
 			Pool::Sqlite(pool) => TxInner::Sqlite(pool.begin().await?),
 		};
 
-		Ok(Tx {
+		let tx = Tx {
 			inner,
 			access: self.access.clone(),
-		})
+		};
+
+		#[cfg(feature = "postgres")]
+		if matches!(tx.inner, TxInner::Postgres(_))
+			&& let Some(actor) = tx.access.actor()
+		{
+			tx.execute(Statement {
+				sql: format!("SET LOCAL \"leptoskit.user_id\" = '{}'", actor.uuid()),
+				args: Vec::new(),
+			})
+			.await?;
+		}
+
+		Ok(tx)
 	}
 
 	/// Applies every migration this database hasn't had yet, in registry
@@ -323,7 +336,10 @@ impl Tx {
 			#[cfg(feature = "postgres")]
 			TxInner::Postgres(tx) => tx.finish("COMMIT").await,
 			#[cfg(feature = "sqlite")]
-			TxInner::Sqlite(tx) => tx.finish("COMMIT").await,
+			TxInner::Sqlite(tx) => {
+				tx.finish("COMMIT", self.access.actor().map(|actor| actor.uuid()))
+					.await
+			}
 		}
 	}
 
@@ -333,7 +349,7 @@ impl Tx {
 			#[cfg(feature = "postgres")]
 			TxInner::Postgres(tx) => tx.finish("ROLLBACK").await,
 			#[cfg(feature = "sqlite")]
-			TxInner::Sqlite(tx) => tx.finish("ROLLBACK").await,
+			TxInner::Sqlite(tx) => tx.finish("ROLLBACK", None).await,
 		}
 	}
 }

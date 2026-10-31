@@ -6,6 +6,8 @@
 //! difference between that schema and the snapshot committed beside the
 //! latest migration, so generating one never needs a database.
 
+use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::fs;
 use std::io::BufRead;
@@ -22,6 +24,9 @@ use anyhow::ensure;
 use leptoskit_config::DbConfig;
 use leptoskit_config::DbDialect;
 use leptoskit_config::LeptoskitConfig;
+use leptoskit_db::Db;
+use leptoskit_db::Read as _;
+use leptoskit_db::Statement;
 use leptoskit_db_schema::Column;
 use leptoskit_db_schema::Dialect;
 use leptoskit_db_schema::DiffError;
@@ -49,8 +54,19 @@ pub enum DbCommand {
 		command: MigrationCommand,
 	},
 	/// Fails when the tables changed without a migration, or the migrations
-	/// directory is inconsistent. For CI.
-	Check,
+	/// directory is inconsistent. With `--live`, also checks the connected
+	/// database's capture triggers. For CI.
+	Check {
+		/// Check the connected database's live pack: every trigger the schema
+		/// expects exists, unchanged, and no capture trigger copies a wide
+		/// column.
+		#[arg(long)]
+		live: bool,
+		/// The database URL `--live` checks; defaults to the variable
+		/// `db.url_env` names.
+		#[arg(long, requires = "live")]
+		url: Option<String>,
+	},
 	/// Shows the migrations, whether the tables changed since the latest, and,
 	/// when the database URL is set, which ones the database still needs.
 	Status {
@@ -129,7 +145,7 @@ pub fn run(command: DbCommand) -> Result<()> {
 			print!("{}", created.summary());
 			Ok(())
 		}
-		DbCommand::Check => {
+		DbCommand::Check { live, url } => {
 			let history = History::read(&project.migrations_dir(), project.dialect())?;
 			let target = project.export()?;
 			check(&history, &target)?;
@@ -137,6 +153,11 @@ pub fn run(command: DbCommand) -> Result<()> {
 				"the tables match {}",
 				history.latest_name().unwrap_or("an empty database")
 			);
+
+			if live {
+				check_live(&project, &target, url)?;
+			}
+
 			Ok(())
 		}
 		DbCommand::Status { url } => status(&project, url),
@@ -144,7 +165,7 @@ pub fn run(command: DbCommand) -> Result<()> {
 			let (url, _server) = project.database(url)?;
 			let migrations = leptoskit_db::load_migrations(&project.migrations_dir())?;
 			let applied = runtime()?.block_on(async {
-				let db = leptoskit_db::Db::connect(&url).await?;
+				let db = Db::connect(&url).await?;
 				anyhow::Ok(db.migrate(&migrations).await?)
 			})?;
 
@@ -499,6 +520,251 @@ pub(crate) fn check(history: &History, target: &Schema) -> Result<()> {
 	)
 }
 
+/// Checks the connected database's live pack against `target`: every capture
+/// trigger, function, and sequence the schema expects is there and unchanged,
+/// and no capture trigger copies a wide column that should be skipped.
+#[expect(
+	clippy::too_many_lines,
+	reason = "the check reads each dialect's catalog in one pass, then compares one expected set"
+)]
+pub(crate) fn check_live(project: &Project, target: &Schema, url: Option<String>) -> Result<()> {
+	if target.triggers.is_empty() && target.functions.is_empty() && target.sequences.is_empty() {
+		println!("no live tables to check");
+		return Ok(());
+	}
+
+	let (url, _server) = project.database(url)?;
+	let dialect = project.dialect();
+	let rows = runtime()?.block_on(async {
+		let db = Db::connect(&url).await?;
+		let statements: Vec<Statement> = match dialect {
+			Dialect::Postgres => {
+				vec![
+					Statement {
+						sql: "SELECT n.nspname, c.relname, t.tgname FROM pg_trigger t JOIN \
+						      pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = \
+						      c.relnamespace WHERE NOT t.tgisinternal"
+							.into(),
+						args: Vec::new(),
+					},
+					Statement {
+						sql: "SELECT n.nspname, p.proname, pg_get_functiondef(p.oid) FROM pg_proc \
+						      p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = \
+						      'live'"
+							.into(),
+						args: Vec::new(),
+					},
+					Statement {
+						sql: "SELECT n.nspname, c.relname FROM pg_class c JOIN pg_namespace n ON \
+						      n.oid = c.relnamespace WHERE c.relkind = 'S' AND n.nspname = 'live'"
+							.into(),
+						args: Vec::new(),
+					},
+				]
+			}
+			Dialect::Sqlite => {
+				vec![Statement {
+					sql: "SELECT tbl_name, name FROM sqlite_schema WHERE type = 'trigger'".into(),
+					args: Vec::new(),
+				}]
+			}
+		};
+		let mut rows = Vec::new();
+
+		for statement in statements {
+			rows.push(db.fetch(statement).await?);
+		}
+
+		anyhow::Ok(rows)
+	})?;
+
+	let mut found_triggers = BTreeSet::new();
+	let mut found_functions = BTreeSet::new();
+	let mut found_sequences = BTreeSet::new();
+
+	match dialect {
+		Dialect::Postgres => {
+			for row in &rows[0] {
+				let [
+					leptoskit_db::Value::Text(namespace),
+					leptoskit_db::Value::Text(table),
+					leptoskit_db::Value::Text(trigger),
+				] = row.as_slice()
+				else {
+					continue;
+				};
+				let table = if namespace == "public" {
+					table.clone()
+				} else {
+					format!("{namespace}.{table}")
+				};
+				found_triggers.insert((table, trigger.clone()));
+			}
+
+			for row in &rows[1] {
+				let [
+					leptoskit_db::Value::Text(_),
+					leptoskit_db::Value::Text(function),
+					leptoskit_db::Value::Text(body),
+				] = row.as_slice()
+				else {
+					continue;
+				};
+				found_functions.insert(function.clone());
+
+				if let Some(expected) = target
+					.functions
+					.iter()
+					.find(|expected| &expected.name.name == function)
+				{
+					ensure!(
+						body.contains(expected.body.trim()),
+						"the database's `{}` has changed: run `{} db migrate`",
+						expected.name,
+						invoked_name()
+					);
+				}
+			}
+
+			for row in &rows[2] {
+				let [
+					leptoskit_db::Value::Text(_),
+					leptoskit_db::Value::Text(sequence),
+				] = row.as_slice()
+				else {
+					continue;
+				};
+				found_sequences.insert(sequence.clone());
+			}
+		}
+		Dialect::Sqlite => {
+			for row in &rows[0] {
+				let [
+					leptoskit_db::Value::Text(table),
+					leptoskit_db::Value::Text(trigger),
+				] = row.as_slice()
+				else {
+					continue;
+				};
+				found_triggers.insert((table.clone(), trigger.clone()));
+			}
+		}
+	}
+
+	let expected_triggers: BTreeSet<(String, String)> = target
+		.triggers
+		.iter()
+		.map(|trigger| {
+			(
+				match dialect {
+					Dialect::Postgres => trigger.table.to_string(),
+					Dialect::Sqlite => trigger.table.flat(),
+				},
+				trigger.name.clone(),
+			)
+		})
+		.collect();
+	let missing: Vec<String> = expected_triggers
+		.difference(&found_triggers)
+		.map(|(table, trigger)| format!("{trigger} on {table}"))
+		.collect();
+	let extra: Vec<String> = found_triggers
+		.difference(&expected_triggers)
+		.map(|(table, trigger)| format!("{trigger} on {table}"))
+		.collect();
+
+	ensure!(
+		missing.is_empty(),
+		"the database is missing live triggers:\n  {}\nrun `{} db migrate`",
+		missing.join("\n  "),
+		invoked_name()
+	);
+	ensure!(
+		extra.is_empty(),
+		"the database has live triggers the schema doesn't:\n  {}\nrun `{} db migrate` to replace \
+		 them",
+		extra.join("\n  "),
+		invoked_name()
+	);
+
+	if dialect == Dialect::Postgres {
+		let expected_functions: BTreeSet<String> = target
+			.functions
+			.iter()
+			.map(|function| function.name.name.clone())
+			.collect();
+		let missing: Vec<String> = expected_functions
+			.difference(&found_functions)
+			.cloned()
+			.collect();
+		ensure!(
+			missing.is_empty(),
+			"the database is missing live functions:\n  {}\nrun `{} db migrate`",
+			missing.join("\n  "),
+			invoked_name()
+		);
+
+		let expected_sequences: BTreeSet<String> = target
+			.sequences
+			.iter()
+			.map(|sequence| sequence.name.name.clone())
+			.collect();
+		let missing: Vec<String> = expected_sequences
+			.difference(&found_sequences)
+			.cloned()
+			.collect();
+		ensure!(
+			missing.is_empty(),
+			"the database is missing live sequences:\n  {}\nrun `{} db migrate`",
+			missing.join("\n  "),
+			invoked_name()
+		);
+	}
+
+	let mut warnings = HashSet::new();
+
+	for trigger in &target.triggers {
+		if !leptoskit_db_schema::live::is_capture(trigger) {
+			continue;
+		}
+
+		let Some(table) = target.table(&trigger.table) else {
+			continue;
+		};
+
+		for column in &trigger.columns {
+			let Some(column) = table.column(column) else {
+				continue;
+			};
+
+			if matches!(
+				column.ty,
+				leptoskit_db_schema::ColumnType::Bytes
+					| leptoskit_db_schema::ColumnType::Array { .. }
+			) {
+				warnings.insert(format!(
+					"{}.{} is copied into the change log; mark it #[db(live = skip)]",
+					table.name, column.name
+				));
+			}
+		}
+	}
+
+	for warning in warnings {
+		println!("warning: {warning}");
+	}
+
+	println!(
+		"the database has every live trigger{}",
+		if dialect == Dialect::Postgres {
+			", function, and sequence"
+		} else {
+			""
+		}
+	);
+	Ok(())
+}
+
 fn status(project: &Project, url: Option<String>) -> Result<()> {
 	let history = History::read(&project.migrations_dir(), project.dialect())?;
 	println!(
@@ -520,7 +786,7 @@ fn status(project: &Project, url: Option<String>) -> Result<()> {
 		}
 	};
 	let applied = runtime()?.block_on(async {
-		let db = leptoskit_db::Db::connect(&url).await?;
+		let db = Db::connect(&url).await?;
 		anyhow::Ok(db.applied_migrations().await?)
 	})?;
 	let pending: Vec<&String> = history
@@ -589,13 +855,13 @@ fn reset(project: &Project, url: Option<String>, yes: bool) -> Result<()> {
 		}
 
 		runtime()?.block_on(async {
-			let db = leptoskit_db::Db::connect(&url).await?;
+			let db = Db::connect(&url).await?;
 			anyhow::Ok(db.run_script(&script).await?)
 		})?;
 	}
 
 	let applied = runtime()?.block_on(async {
-		let db = leptoskit_db::Db::connect(&url).await?;
+		let db = Db::connect(&url).await?;
 		anyhow::Ok(db.migrate(&migrations).await?)
 	})?;
 	println!(

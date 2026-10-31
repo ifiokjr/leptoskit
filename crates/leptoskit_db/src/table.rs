@@ -18,6 +18,12 @@ use crate::DecodeError;
 use crate::EncodeError;
 use crate::Value;
 
+/// A table whose writes are captured for live queries: `#[db::table(live)]`.
+///
+/// Only a live table can be read through a live query, so forgetting `live`
+/// is a compile error at the query rather than a screen that never updates.
+pub trait LiveTable: Table {}
+
 /// A table declared with `#[db::table]`. The attribute implements it; you
 /// don't.
 pub trait Table: Sized + 'static {
@@ -66,6 +72,14 @@ pub trait Table: Sized + 'static {
 	/// Whether every change is recorded in the audit log:
 	/// `#[db::table(audit)]`.
 	const AUDIT: bool = false;
+
+	/// Whether every write is captured for live queries: `#[db::table(live)]`.
+	const LIVE: bool = false;
+
+	/// The columns a live table's capture triggers copy: every column except
+	/// `secret` ones and those marked `#[db(live = skip)]`. Empty when the
+	/// table isn't live.
+	const LIVE_COLUMNS: &'static [&'static str] = &[];
 
 	/// The hooks the table declares with `hooks(...)`.
 	const HOOKS: crate::Hooks = crate::Hooks::NONE;
@@ -182,6 +196,8 @@ pub struct TableEntry {
 	definition: fn() -> leptoskit_db_schema::Table,
 	pack: Option<&'static str>,
 	audit: bool,
+	live: bool,
+	columns: &'static [&'static str],
 }
 
 impl TableEntry {
@@ -190,6 +206,8 @@ impl TableEntry {
 			definition: T::definition,
 			pack: T::PACK,
 			audit: T::AUDIT,
+			live: T::LIVE,
+			columns: T::LIVE_COLUMNS,
 		}
 	}
 }
@@ -207,12 +225,30 @@ pub fn schema(dialect: Dialect) -> Result<Schema, SchemaError> {
 	let entries: Vec<&TableEntry> = inventory::iter::<TableEntry>().collect();
 	let mut tables: Vec<leptoskit_db_schema::Table> =
 		entries.iter().map(|entry| (entry.definition)()).collect();
+	let live: Vec<&TableEntry> = entries.iter().filter(|entry| entry.live).copied().collect();
 
 	if entries.iter().any(|entry| entry.audit) {
 		tables.push(crate::AuditEntry::definition());
 	}
 
-	let schema = Schema::new(dialect, tables).with_views(crate::view::views());
+	let (sequences, functions, triggers) = if live.is_empty() {
+		(Vec::new(), Vec::new(), Vec::new())
+	} else {
+		tables.extend(crate::live::tables(dialect));
+
+		let captured: Vec<(leptoskit_db_schema::Table, &'static [&'static str])> = live
+			.iter()
+			.map(|entry| ((entry.definition)(), entry.columns))
+			.collect();
+		let (sequences, functions, mut triggers) = leptoskit_db_schema::live::pack(dialect);
+		triggers.extend(crate::live::capture_triggers(dialect, &captured));
+
+		(sequences, functions, triggers)
+	};
+
+	let schema = Schema::new(dialect, tables)
+		.with_views(crate::view::views())
+		.with_routines(sequences, functions, triggers);
 	let mut problems = schema.problems();
 
 	let mut packs: Vec<&str> = entries.iter().filter_map(|entry| entry.pack).collect();
