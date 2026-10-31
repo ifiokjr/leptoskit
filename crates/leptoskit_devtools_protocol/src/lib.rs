@@ -348,6 +348,7 @@ impl Value {
 	#[must_use]
 	pub fn from_json(type_name: impl Into<String>, json: serde_json::Value) -> Self {
 		let bytes = json.to_string().len();
+
 		if bytes > MAX_VALUE_BYTES {
 			Self {
 				type_name: type_name.into(),
@@ -727,6 +728,7 @@ mod tests {
 				key: MatchKey::new("row"),
 			},
 		];
+
 		for event in events {
 			let json = serde_json::to_value(&event).unwrap();
 			assert_eq!(serde_json::from_value::<Event>(json).unwrap(), event);
@@ -769,6 +771,7 @@ mod tests {
 			Command::StopProfiling,
 			Command::RequestSnapshot,
 		];
+
 		for command in commands {
 			let json = serde_json::to_value(&command).unwrap();
 			assert_eq!(serde_json::from_value::<Command>(json).unwrap(), command);

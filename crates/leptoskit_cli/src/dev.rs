@@ -73,60 +73,157 @@ pub fn run(
 	port: Option<u16>,
 	platforms: &[Platform],
 	devices: &[String],
+	no_devtools: bool,
+	devtools_port: Option<u16>,
 ) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
-	let terminal_only = match platforms {
-		[] => config.app.default_platform == Platform::Tui,
-		platforms => platforms.iter().all(|platform| *platform == Platform::Tui),
-	};
-	if terminal_only {
-		anyhow::ensure!(
-			!open && port.is_none() && devices.is_empty(),
-			"--open, --port, and --device choose where other platforms run; the terminal app runs \
-			 in this terminal"
-		);
-		return terminal(&config, &root);
+
+	if terminal_only(&config, &root, platforms, open, port, devices)? {
+		return Ok(());
 	}
 
 	let tools = native::Tools::from_environment();
 	let selection = native::select(&config, platforms, &tools)?;
-
-	for (platform, reason) in &selection.skipped {
-		ui::tagged(platform, format_args!("{DIM}skipped: {reason}{DIM:#}"));
-	}
-
+	report_skipped(&selection);
 	anyhow::ensure!(
 		selection.web || selection.extension || !selection.native.is_empty(),
 		"this machine can run none of the platforms in app.platforms"
 	);
+
 	// Held for the whole loop: dropping the runtime would stop the servers.
 	let runtime = tokio::runtime::Runtime::new().context("could not start the async runtime")?;
-	let mut web = if selection.web {
-		Some(Web::start(&config, &root, port, &runtime)?)
-	} else {
-		None
-	};
-	let mut extension = if selection.extension {
-		Some(crate::extension::dev::ExtensionDev::start(&root, &runtime)?)
-	} else {
-		None
-	};
-	let native = if selection.native.is_empty() {
-		None
-	} else {
-		let native =
-			native::NativeDev::start(&root, &config, &selection.native, devices, tools, &runtime)?;
-		anyhow::ensure!(
-			web.is_some() || extension.is_some() || !native.is_empty(),
-			"no platform started"
-		);
-		(!native.is_empty()).then_some(native)
+	let started = Started::start(Start {
+		config: &config,
+		root: &root,
+		port,
+		devices,
+		tools,
+		selection: &selection,
+		runtime: &runtime,
+		no_devtools,
+		devtools_port,
+	})?;
+	let (_watcher, events_rx, config_changed) =
+		watch(&config, &root, &runtime, open, started.web.as_ref())?;
+	rebuild(started, &events_rx, &config_changed);
+	Ok(())
+}
+
+fn terminal_only(
+	config: &LeptoskitConfig,
+	root: &Path,
+	platforms: &[Platform],
+	open: bool,
+	port: Option<u16>,
+	devices: &[String],
+) -> Result<bool> {
+	let terminal_only = match platforms {
+		[] => config.app.default_platform == Platform::Tui,
+		platforms => platforms.iter().all(|platform| *platform == Platform::Tui),
 	};
 
-	// From here, stopping ends the loop rather than the process, so the app
-	// server and the native apps this run started stop with it. It is armed
-	// only now: during the first builds, Ctrl-C must still stop `dev` rather
-	// than just the build it interrupted.
+	if !terminal_only {
+		return Ok(false);
+	}
+
+	anyhow::ensure!(
+		!open && port.is_none() && devices.is_empty(),
+		"--open, --port, and --device choose where other platforms run; the terminal app runs in \
+		 this terminal"
+	);
+	terminal(config, root)?;
+	Ok(true)
+}
+
+fn report_skipped(selection: &native::Selection) {
+	for (platform, reason) in &selection.skipped {
+		ui::tagged(platform, format_args!("{DIM}skipped: {reason}{DIM:#}"));
+	}
+}
+
+struct Started {
+	web: Option<Web>,
+	extension: Option<crate::extension::dev::ExtensionDev>,
+	native: Option<native::NativeDev>,
+	_devtools: Option<crate::devtools::Hub>,
+}
+
+struct Start<'a> {
+	config: &'a LeptoskitConfig,
+	root: &'a Path,
+	port: Option<u16>,
+	devices: &'a [String],
+	tools: native::Tools,
+	selection: &'a native::Selection,
+	runtime: &'a tokio::runtime::Runtime,
+	no_devtools: bool,
+	devtools_port: Option<u16>,
+}
+
+impl Started {
+	fn start(start: Start<'_>) -> Result<Self> {
+		let Start {
+			config,
+			root,
+			port,
+			devices,
+			tools,
+			selection,
+			runtime,
+			no_devtools,
+			devtools_port,
+		} = start;
+		let devtools = if no_devtools {
+			None
+		} else {
+			Some(crate::devtools::start(
+				root,
+				runtime,
+				devtools_port,
+				port.unwrap_or(config.serve.port),
+			)?)
+		};
+
+		let web = selection
+			.web
+			.then(|| Web::start(config, root, port, runtime))
+			.transpose()?;
+		let extension = selection
+			.extension
+			.then(|| crate::extension::dev::ExtensionDev::start(root, runtime))
+			.transpose()?;
+		let native = if selection.native.is_empty() {
+			None
+		} else {
+			let native =
+				native::NativeDev::start(root, config, &selection.native, devices, tools, runtime)?;
+			anyhow::ensure!(
+				web.is_some() || extension.is_some() || !native.is_empty(),
+				"no platform started"
+			);
+			(!native.is_empty()).then_some(native)
+		};
+
+		Ok(Self {
+			web,
+			extension,
+			native,
+			_devtools: devtools,
+		})
+	}
+}
+
+fn watch(
+	config: &LeptoskitConfig,
+	root: &Path,
+	runtime: &tokio::runtime::Runtime,
+	open: bool,
+	web: Option<&Web>,
+) -> Result<(
+	notify::RecommendedWatcher,
+	mpsc::Receiver<Wake>,
+	Arc<AtomicBool>,
+)> {
 	let (events_tx, events_rx) = mpsc::channel::<Wake>();
 	let stop = events_tx.clone();
 	runtime.spawn(async move {
@@ -134,7 +231,38 @@ pub fn run(
 		let _ = stop.send(Wake::Stop);
 	});
 
-	let metadata = crate::wasm::cargo_metadata(&root)?;
+	let (mut watcher, config_changed, scope) = start_watcher(config, root, events_tx)?;
+	watch_roots(&mut watcher, &scope)?;
+
+	anstream::println!(
+		"{DIM}watching{DIM:#} {} {DIM}for changes{DIM:#}",
+		root.display()
+	);
+
+	if let Some(web) = web
+		&& open
+		&& let Err(error) = open_browser(&web.url())
+	{
+		ui::warning(format_args!("could not open the browser: {error:#}"));
+	}
+
+	Ok((watcher, events_rx, config_changed))
+}
+
+/// The files the watcher covers.
+struct Watched {
+	metadata: crate::wasm::CargoMetadata,
+	public: PathBuf,
+	excluded: Vec<PathBuf>,
+	config_file: PathBuf,
+}
+
+fn start_watcher(
+	config: &LeptoskitConfig,
+	root: &Path,
+	events_tx: mpsc::Sender<Wake>,
+) -> Result<(notify::RecommendedWatcher, Arc<AtomicBool>, Watched)> {
+	let metadata = crate::wasm::cargo_metadata(root)?;
 	let out_dir = root.join(DEV_OUT);
 	let mut excluded = vec![
 		metadata.target_directory.clone(),
@@ -142,7 +270,7 @@ pub fn run(
 		root.join(".leptoskit"),
 	];
 	// Gradle keeps its caches and outputs inside the app-owned Android project.
-	let android = crate::native::host_dir(&root, crate::native::Target::Android);
+	let android = crate::native::host_dir(root, crate::native::Target::Android);
 	excluded.extend([".gradle", "build", "app/build", "app/.cxx"].map(|path| android.join(path)));
 	let public = root.join("public");
 	let config_file = root.join(leptoskit_config::CONFIG_FILE);
@@ -155,14 +283,14 @@ pub fn run(
 		// Each build rewrites the generated modules when their inputs
 		// changed; those writes must not trigger another build. Plugins
 		// report theirs; the translations module is hardwired for now.
-		generated: crate::build::generate_outputs(&root, &config)?
+		generated: crate::build::generate_outputs(root, config)?
 			.into_iter()
 			.chain(config.l10n.as_ref().map(|l10n| root.join(&l10n.output)))
 			.collect(),
 	};
 	let watched_config = config_file.clone();
 	let changed = Arc::clone(&config_changed);
-	let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+	let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
 		match event {
 			Ok(event) if event.paths.iter().any(|path| filter.is_relevant(path)) => {
 				if event.paths.contains(&watched_config) {
@@ -171,71 +299,102 @@ pub fn run(
 
 				let _ = events_tx.send(Wake::Changed);
 			}
+
 			Ok(_) => {}
 			Err(error) => ui::warning(format_args!("could not watch for changes: {error}")),
 		}
 	})
 	.context("could not start the file watcher")?;
 
+	Ok((
+		watcher,
+		config_changed,
+		Watched {
+			metadata,
+			public,
+			excluded,
+			config_file,
+		},
+	))
+}
+
+fn watch_roots(watcher: &mut notify::RecommendedWatcher, scope: &Watched) -> Result<()> {
 	let mut recursive_roots = Vec::new();
-	for package in &metadata.packages {
+
+	for package in &scope.metadata.packages {
 		if let Some(dir) = package.manifest_path.parent() {
-			watch_tree(&mut watcher, dir, &excluded, &mut recursive_roots)?;
+			watch_tree(watcher, dir, &scope.excluded, &mut recursive_roots)?;
 		}
 	}
-	if public.is_dir() && !recursive_roots.iter().any(|dir| public.starts_with(dir)) {
-		watch_tree(&mut watcher, &public, &excluded, &mut recursive_roots)?;
+
+	if scope.public.is_dir()
+		&& !recursive_roots
+			.iter()
+			.any(|dir| scope.public.starts_with(dir))
+	{
+		watch_tree(
+			watcher,
+			&scope.public,
+			&scope.excluded,
+			&mut recursive_roots,
+		)?;
 	}
-	for file in [metadata.workspace_root.join("Cargo.toml"), config_file] {
+
+	for file in [
+		scope.metadata.workspace_root.join("Cargo.toml"),
+		scope.config_file.clone(),
+	] {
 		watcher
 			.watch(&file, RecursiveMode::NonRecursive)
 			.with_context(|| format!("could not watch {}", file.display()))?;
 	}
 
-	anstream::println!(
-		"{DIM}watching{DIM:#} {} {DIM}for changes{DIM:#}",
-		root.display()
-	);
-	if let Some(web) = &web
-		&& open
-		&& let Err(error) = open_browser(&web.url())
-	{
-		ui::warning(format_args!("could not open the browser: {error:#}"));
-	}
+	Ok(())
+}
 
+/// Rebuilds every platform after a debounced change. A config change warns
+/// that the native apps themselves still need a restart, then reloads the
+/// guests with the new configuration.
+fn rebuild(mut started: Started, events_rx: &mpsc::Receiver<Wake>, config_changed: &AtomicBool) {
 	while let Ok(Wake::Changed) = events_rx.recv() {
 		// Debounce: keep absorbing events until none arrives for a whole
 		// window, so an editor's burst of writes triggers one rebuild.
 		loop {
 			match events_rx.recv_timeout(REBUILD_DEBOUNCE) {
 				Ok(Wake::Changed) => {}
-				Ok(Wake::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
+				Ok(Wake::Stop) | Err(RecvTimeoutError::Disconnected) => return,
 				Err(RecvTimeoutError::Timeout) => break,
 			}
 		}
-		if let Some(web) = &mut web {
+
+		if let Some(web) = &mut started.web {
 			web.rebuild();
 		}
-		if let Some(extension) = &mut extension {
+
+		if let Some(extension) = &mut started.extension {
 			extension.rebuild();
 		}
-		if let Some(native) = &native {
-			if config_changed.swap(false, Ordering::Relaxed) {
-				ui::warning(
-					"leptoskit.toml changed: guests rebuild with it, but restart `leptoskit dev` \
-					 to rebuild the native apps themselves",
-				);
-			}
 
-			match LeptoskitConfig::load() {
-				Ok((config, _)) => native.reload(&config),
-				Err(error) => {
-					ui::warning(format_args!("could not reload leptoskit.toml: {error:#}"));
-				}
-			}
+		if let Some(native) = &started.native {
+			reload_native(native, config_changed);
 		}
 	}
-	Ok(())
+}
+
+fn reload_native(native: &native::NativeDev, config_changed: &AtomicBool) {
+	if config_changed.swap(false, Ordering::Relaxed) {
+		ui::warning(
+			"leptoskit.toml changed: guests rebuild with it, but restart `leptoskit dev` to \
+			 rebuild the native apps themselves",
+		);
+	}
+
+	match LeptoskitConfig::load() {
+		Ok((config, _)) => native.reload(&config),
+		Err(error) => {
+			ui::warning(format_args!("could not reload leptoskit.toml: {error:#}"));
+		}
+	}
 }
 
 /// What wakes the dev loop.
@@ -347,7 +506,9 @@ impl Web {
 		if let Some(mut child) = self.app_server.take() {
 			stop(&mut child);
 		}
+
 		let started = Instant::now();
+
 		match crate::build::run(false, None, None, DEV_OUT) {
 			Ok(output) => {
 				ui::tagged(
@@ -461,25 +622,31 @@ fn watch_tree(
 	{
 		return Ok(());
 	}
+
 	if !excluded.iter().any(|excluded| excluded.starts_with(dir)) {
 		watcher
 			.watch(dir, RecursiveMode::Recursive)
 			.with_context(|| format!("could not watch {}", dir.display()))?;
 		recursive_roots.push(dir.to_path_buf());
+
 		return Ok(());
 	}
+
 	watcher
 		.watch(dir, RecursiveMode::NonRecursive)
 		.with_context(|| format!("could not watch {}", dir.display()))?;
 	let entries =
 		std::fs::read_dir(dir).with_context(|| format!("could not list {}", dir.display()))?;
+
 	for entry in entries {
 		let entry = entry.with_context(|| format!("could not list {}", dir.display()))?;
 		let hidden = entry.file_name().to_string_lossy().starts_with('.');
+
 		if !hidden && entry.file_type().is_ok_and(|kind| kind.is_dir()) {
 			watch_tree(watcher, &entry.path(), excluded, recursive_roots)?;
 		}
 	}
+
 	Ok(())
 }
 
@@ -495,6 +662,7 @@ fn open_browser(url: &str) -> Result<()> {
 	} else {
 		Command::new("xdg-open")
 	};
+
 	let program = command.get_program().display().to_string();
 	let status = command
 		.arg(url)
@@ -527,6 +695,7 @@ mod tests {
 		assert!(filter.is_relevant(Path::new("/app/web/favicon.ico")));
 		assert!(!filter.is_relevant(Path::new("/app/src/notes.txt")));
 		assert!(!filter.is_relevant(Path::new("/app/target/debug/app.rs")));
+
 		assert!(!filter.is_relevant(Path::new("/app/dist/pkg/app.wasm")));
 	}
 

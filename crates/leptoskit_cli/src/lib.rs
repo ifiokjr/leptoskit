@@ -17,6 +17,7 @@ pub mod compress;
 pub mod db;
 pub mod dev;
 pub mod device;
+pub mod devtools;
 pub mod doctor;
 pub mod extension;
 pub mod generate;

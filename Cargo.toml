@@ -157,6 +157,7 @@ leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
 leptoskit_db = { path = "crates/leptoskit_db", version = "0.1.0" }
 leptoskit_db_macros = { path = "crates/leptoskit_db_macros", version = "0.1.0" }
 leptoskit_db_schema = { path = "crates/leptoskit_db_schema", version = "0.1.0" }
+leptoskit_devtools_protocol = { path = "crates/leptoskit_devtools_protocol", version = "0.1.0" }
 leptoskit_docs = { path = "crates/leptoskit_docs", version = "0.1.0" }
 leptoskit_extension = { path = "crates/leptoskit_extension", version = "0.1.0" }
 leptoskit_fmt = { path = "crates/leptoskit_fmt", version = "0.1.0" }
