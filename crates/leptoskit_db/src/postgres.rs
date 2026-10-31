@@ -623,10 +623,11 @@ async fn apply_one(
 	}
 }
 
-/// The connection that listens for live changes, from every server sharing
-/// the database, and hands them to the hub. It reconnects when the
-/// connection drops, telling subscribers changes may have been missed, and
-/// stops when the database's last handle is dropped.
+/// The connection that listens for commits to live tables, from every
+/// server sharing the database, and wakes the hub's readers, which read the
+/// change log themselves. It reconnects when the connection drops, waking
+/// them again so they catch up on whatever committed meanwhile, and stops
+/// when the database's last handle is dropped.
 pub(crate) struct Listener {
 	_stop: tokio::sync::oneshot::Sender<()>,
 }
@@ -654,11 +655,11 @@ impl Listener {
 struct ListenerEnded;
 
 /// What happened on a listening connection.
-enum Heard<'a> {
+enum Heard {
 	/// `LISTEN` took effect.
 	Listening,
-	/// A notification's payload.
-	Payload(&'a str),
+	/// A commit's notification.
+	Commit,
 }
 
 /// Why a listening connection stopped.
@@ -676,14 +677,11 @@ async fn listen(
 	ready: tokio::sync::oneshot::Sender<Result<()>>,
 	mut stop: tokio::sync::oneshot::Receiver<()>,
 ) {
-	use crate::live::Event;
-
 	let mut ready = Some(ready);
 	let mut delay = std::time::Duration::from_millis(100);
 
 	loop {
-		let mut assembler = crate::live::Assembler::default();
-		let mut heard = |heard: Heard<'_>| -> bool {
+		let mut heard = |heard: Heard| -> bool {
 			let Some(hub) = hub.upgrade() else {
 				return false;
 			};
@@ -696,20 +694,12 @@ async fn listen(
 						Some(ready) => {
 							let _ = ready.send(Ok(()));
 						}
-						// Whatever committed while reconnecting was missed.
-						None => hub.send(Event::Lost),
+						// Whatever committed while reconnecting is in the
+						// log: readers catch up.
+						None => hub.wake(),
 					}
 				}
-				Heard::Payload(payload) => {
-					match assembler.push(payload) {
-						Ok(Some(changes)) => hub.send(Event::Changes(changes.into())),
-						Ok(None) => {}
-						Err(_) => {
-							assembler.clear();
-							hub.send(Event::Lost);
-						}
-					}
-				}
+				Heard::Commit => hub.wake(),
 			}
 
 			true
@@ -727,9 +717,8 @@ async fn listen(
 			return;
 		}
 
-		match hub.upgrade() {
-			Some(hub) => hub.send(Event::Lost),
-			None => return,
+		if hub.upgrade().is_none() {
+			return;
 		}
 
 		let mut sleep = std::pin::pin!(tokio::time::sleep(delay));
@@ -754,7 +743,7 @@ async fn listen(
 async fn session(
 	config: &tokio_postgres::Config,
 	stop: &mut tokio::sync::oneshot::Receiver<()>,
-	heard: &mut (dyn FnMut(Heard<'_>) -> bool + Send),
+	heard: &mut (dyn FnMut(Heard) -> bool + Send),
 ) -> Outcome {
 	if config.get_ssl_mode() == SslMode::Disable {
 		match config.connect(tokio_postgres::NoTls).await {
@@ -780,7 +769,7 @@ async fn drive<S, T>(
 	client: tokio_postgres::Client,
 	mut connection: tokio_postgres::Connection<S, T>,
 	stop: &mut tokio::sync::oneshot::Receiver<()>,
-	heard: &mut (dyn FnMut(Heard<'_>) -> bool + Send),
+	heard: &mut (dyn FnMut(Heard) -> bool + Send),
 ) -> Outcome
 where
 	S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -799,8 +788,8 @@ where
 
 		loop {
 			match connection.poll_message(cx) {
-				Poll::Ready(Some(Ok(tokio_postgres::AsyncMessage::Notification(notification)))) => {
-					if !heard(Heard::Payload(notification.payload())) {
+				Poll::Ready(Some(Ok(tokio_postgres::AsyncMessage::Notification(_)))) => {
+					if !heard(Heard::Commit) {
 						return Poll::Ready(Outcome::Stopped);
 					}
 				}

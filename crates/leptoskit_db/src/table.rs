@@ -67,9 +67,15 @@ pub trait Table: Sized + 'static {
 	/// `#[db::table(audit)]`.
 	const AUDIT: bool = false;
 
-	/// Whether every change is published to live subscribers, so clients can
-	/// refetch what changed: `#[db::table(live)]`.
+	/// Whether every write is captured in the change log, by triggers that
+	/// migrations create, so live subscribers hear of it:
+	/// `#[db::table(live)]`.
 	const LIVE: bool = false;
+
+	/// The columns a live table's capture triggers copy into the change
+	/// log: every column except `secret` ones and those marked
+	/// `#[db(live = skip)]`. Empty when the table isn't live.
+	const LIVE_COLUMNS: &'static [&'static str] = &[];
 
 	/// The hooks the table declares with `hooks(...)`.
 	const HOOKS: crate::Hooks = crate::Hooks::NONE;
@@ -215,8 +221,9 @@ pub struct TableEntry {
 	pub(crate) definition: fn() -> leptoskit_db_schema::Table,
 	pack: Option<&'static str>,
 	audit: bool,
-	#[cfg(any(feature = "postgres", feature = "sqlite"))]
 	live: bool,
+	/// The columns its capture triggers copy, when it's live.
+	live_columns: &'static [&'static str],
 	/// How to record the table's rows, for the changes the database makes
 	/// to them on its own.
 	pub(crate) subject: crate::audit::Subject,
@@ -249,8 +256,8 @@ impl TableEntry {
 			definition: T::definition,
 			pack: T::PACK,
 			audit: T::AUDIT,
-			#[cfg(any(feature = "postgres", feature = "sqlite"))]
 			live: T::LIVE,
+			live_columns: T::LIVE_COLUMNS,
 			subject: crate::audit::Subject::of::<T>(),
 			#[cfg(any(feature = "postgres", feature = "sqlite"))]
 			images: crate::live::visible_images::<T>,
@@ -298,7 +305,8 @@ pub(crate) fn live_entry(table: &TableName) -> Option<&'static TableEntry> {
 
 /// Every table and view linked into this program, as a schema for
 /// `dialect`, with the audit log's `_leptoskit_audit` when any table is
-/// audited.
+/// audited, and the `live` pack's change log and capture triggers when any
+/// is live.
 ///
 /// `leptoskit db` builds a small program that calls this and diffs the result
 /// against the latest migration's snapshot. A schema pack's tables must also
@@ -312,7 +320,31 @@ pub fn schema(dialect: Dialect) -> Result<Schema, SchemaError> {
 		tables.push(crate::AuditEntry::definition());
 	}
 
-	let schema = Schema::new(dialect, tables).with_views(crate::view::views());
+	// A live table brings the `live` pack: its tables, and on Postgres the
+	// functions and sequences that version commits, then each live table's
+	// capture triggers.
+	let mut triggers = Vec::new();
+	let (sequences, functions) = if entries.iter().any(|entry| entry.live) {
+		let (sequences, functions, pack) = leptoskit_db_schema::live::pack(dialect);
+		triggers.extend(pack);
+
+		for entry in entries.iter().filter(|entry| entry.live) {
+			triggers.extend(leptoskit_db_schema::live::capture(
+				dialect,
+				&(entry.definition)(),
+				entry.live_columns,
+			));
+		}
+
+		tables.extend(crate::live::tables(dialect));
+		(sequences, functions)
+	} else {
+		(Vec::new(), Vec::new())
+	};
+
+	let schema = Schema::new(dialect, tables)
+		.with_views(crate::view::views())
+		.with_routines(sequences, functions, triggers);
 	let mut problems = schema.problems();
 
 	let mut packs: Vec<&str> = entries.iter().filter_map(|entry| entry.pack).collect();

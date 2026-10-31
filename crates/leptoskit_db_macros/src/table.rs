@@ -233,6 +233,7 @@ pub(crate) fn expand(
 
 	let mut fields = Vec::new();
 	let mut errors: Option<syn::Error> = None;
+	let live_table = args.live;
 
 	for field in &mut named.named {
 		let mut ty = field.ty.clone();
@@ -247,6 +248,16 @@ pub(crate) fn expand(
 				continue;
 			}
 		};
+
+		if args.live_skip && !live_table {
+			combine(
+				&mut errors,
+				syn::Error::new_spanned(
+					&ident,
+					"`live = skip` describes a live table: add `live` to `#[db::table(...)]`",
+				),
+			);
+		}
 		let points_at_self = id_target(&ty).is_some_and(|target| is_type_named(target, &name));
 
 		fields.push(Field {
@@ -1594,7 +1605,20 @@ impl Table<'_> {
 		}
 
 		if self.args.live {
-			consts.push(quote! { const LIVE: bool = true; });
+			let columns: Vec<&str> = columns
+				.iter()
+				.filter(|column| {
+					column.args.visibility != Visibility::Secret
+						&& column.field.args.visibility != Visibility::Secret
+						&& !column.args.live_skip
+						&& !column.field.args.live_skip
+				})
+				.map(|column| column.name)
+				.collect();
+			consts.push(quote! {
+				const LIVE: bool = true;
+				const LIVE_COLUMNS: &'static [&'static str] = &[#(#columns),*];
+			});
 		}
 
 		if self.args.view.is_some() {

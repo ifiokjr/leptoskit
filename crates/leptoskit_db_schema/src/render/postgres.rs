@@ -9,6 +9,7 @@ use super::Migration;
 use super::float_literal;
 use super::names_before_renames;
 use super::number_literal;
+use crate::BODY_QUOTE;
 use crate::BYPASS_SETTING;
 use crate::Check;
 use crate::CheckRule;
@@ -17,6 +18,7 @@ use crate::ColumnType;
 use crate::DefaultValue;
 use crate::Dialect;
 use crate::ForeignKey;
+use crate::Function;
 use crate::Index;
 use crate::Plan;
 use crate::Predicate;
@@ -27,6 +29,8 @@ use crate::Search;
 use crate::Step;
 use crate::Table;
 use crate::TableName;
+use crate::Trigger;
+use crate::TriggerAction;
 use crate::View;
 use crate::quote_identifier as ident;
 use crate::quote_literal as literal;
@@ -43,6 +47,8 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 			.iter()
 			.map(|table| &table.name)
 			.chain(schema.views.iter().map(|view| &view.name))
+			.chain(schema.sequences.iter().map(|sequence| &sequence.name))
+			.chain(schema.functions.iter().map(|function| &function.name))
 			.filter_map(|name| name.namespace.clone())
 			.collect()
 	};
@@ -67,6 +73,7 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 
 	let mut pending_foreign_keys = Vec::new();
 	let mut dropped_tables = Vec::new();
+	let mut dropped_routines = Vec::new();
 	let mut created_views = Vec::new();
 	// A dropped table's search column goes with it.
 	let dropping: BTreeSet<&TableName> = plan
@@ -79,6 +86,7 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 			}
 		})
 		.collect();
+	let mut created_triggers = Vec::new();
 
 	for step in &plan.steps {
 		if matches!(
@@ -117,6 +125,13 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 					.is_some_and(|table| table.row_security.is_some());
 				writer.drop_row_security(&table, security, !reenabled);
 			}
+			Step::DropFunction(function) => {
+				dropped_routines.push(format!("DROP FUNCTION {}()", qualified(&function.name)));
+			}
+			Step::DropSequence(sequence) => {
+				dropped_routines.push(format!("DROP SEQUENCE {}", qualified(&sequence.name)));
+			}
+			Step::CreateTrigger(trigger) => created_triggers.push(create_trigger(trigger)),
 			step => writer.step(step),
 		}
 	}
@@ -130,7 +145,9 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 			.push(format!("DROP TABLE {}", dropped_tables.join(", ")));
 	}
 
+	writer.statements.append(&mut dropped_routines);
 	writer.statements.append(&mut created_views);
+	writer.statements.append(&mut created_triggers);
 
 	Migration {
 		dialect: Dialect::Postgres,
@@ -254,8 +271,30 @@ impl Writer {
 		let table = self.name_for(step, step.table()).clone();
 
 		match step {
-			Step::CreateTable(_) | Step::DropTable(_) | Step::CreateView(_) | Step::DropView(_) => {
+			Step::CreateTable(_)
+			| Step::DropTable(_)
+			| Step::CreateView(_)
+			| Step::DropView(_)
+			| Step::DropFunction(_)
+			| Step::DropSequence(_)
+			| Step::CreateTrigger(_) => {
 				unreachable!("handled by `render`")
+			}
+			Step::CreateSequence(sequence) => {
+				self.statements
+					.push(format!("CREATE SEQUENCE {}", qualified(&sequence.name)));
+			}
+			Step::CreateFunction(function) | Step::ReplaceFunction { to: function, .. } => {
+				self.statements.push(create_function(function));
+			}
+			// The trigger as it was, on its table's old name: drops run
+			// before renames.
+			Step::DropTrigger(trigger) => {
+				self.statements.push(format!(
+					"DROP TRIGGER {} ON {}",
+					ident(&trigger.name),
+					qualified(&trigger.table)
+				));
 			}
 			Step::RenameTable { from, to } => self.rename_table(from, to),
 			Step::AddColumn { column, .. } => {
@@ -466,6 +505,56 @@ fn search_vector(search: &Search) -> String {
 		})
 		.collect::<Vec<_>>()
 		.join(" || ")
+}
+
+/// `CREATE OR REPLACE FUNCTION`. A function that runs with its owner's
+/// privileges fixes its search path, so that nobody can slip their own
+/// objects in front of the ones it names.
+fn create_function(function: &Function) -> String {
+	let security = if function.security_definer {
+		" SECURITY DEFINER SET search_path = pg_catalog, pg_temp"
+	} else {
+		""
+	};
+
+	format!(
+		"CREATE OR REPLACE FUNCTION {}() RETURNS {} LANGUAGE {}{security} AS \
+		 {BODY_QUOTE}\n{}\n{BODY_QUOTE}",
+		qualified(&function.name),
+		function.returns,
+		function.language,
+		function.body.trim()
+	)
+}
+
+/// `CREATE TRIGGER`, or `CREATE CONSTRAINT TRIGGER … DEFERRABLE INITIALLY
+/// DEFERRED`, calling its function for each row.
+fn create_trigger(trigger: &Trigger) -> String {
+	let TriggerAction::Function {
+		function,
+		arguments,
+	} = &trigger.action
+	else {
+		unreachable!("validation keeps statements out of Postgres triggers")
+	};
+	let constraint = if trigger.deferred { "CONSTRAINT " } else { "" };
+	let deferred = if trigger.deferred {
+		" DEFERRABLE INITIALLY DEFERRED"
+	} else {
+		""
+	};
+	let events: Vec<&str> = trigger.events.iter().map(|event| event.sql()).collect();
+	let arguments: Vec<String> = arguments.iter().map(|argument| literal(argument)).collect();
+
+	format!(
+		"CREATE {constraint}TRIGGER {} {} {} ON {}{deferred} FOR EACH ROW EXECUTE FUNCTION {}({})",
+		ident(&trigger.name),
+		trigger.timing.sql(),
+		events.join(" OR "),
+		qualified(&trigger.table),
+		qualified(function),
+		arguments.join(", ")
+	)
 }
 
 fn view_keyword(view: &View) -> &'static str {
