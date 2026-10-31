@@ -4264,6 +4264,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_devtools"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "leptoskit_devtools_protocol",
+ "leptoskit_native",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "leptoskit_devtools_protocol"
 version = "0.1.0"
 dependencies = [

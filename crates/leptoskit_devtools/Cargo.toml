@@ -1,0 +1,28 @@
+[package]
+name = "leptoskit_devtools"
+version.workspace = true
+authors.workspace = true
+categories = ["development-tools::debugging", "gui"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "devtools", "debugging", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "The DevTools agents that report a running leptoskit app to the local hub."
+
+[features]
+default = ["host"]
+host = ["dep:leptoskit_native", "dep:ureq"]
+
+[dependencies]
+anyhow = { workspace = true }
+leptoskit_devtools_protocol = { workspace = true }
+leptoskit_native = { workspace = true, optional = true, features = ["devtools"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+ureq = { workspace = true, optional = true, features = ["rustls"] }
+
+[lints]
+workspace = true
