@@ -184,11 +184,19 @@ A loopback port is not private from the web. Any page open in the developer's br
 ## Front ends
 
 - **The hub page.** `leptoskit dev` prints its address next to the app's. It needs no installation, which makes it the way to debug a phone.
+  - Implemented: the interface in `devtools/` (a leptoskit app built with `devenv shell devtools:build`) shows sessions grouped by app, the element tree with search and picking, node details with "open in editor" (`vscode://file/…`, resolved against the project root from `GET /api/hub`), class editing, the styles, route, queries, mutations, forms, state, calls, and commits panels, guest reloads on the timelines, and the selected node's frame on every other platform with "Highlight everywhere". Panels a session's `Hello.capabilities` don't cover say so.
+  - The hub serves it at `/` with `Content-Security-Policy: frame-ancestors 'self' chrome-extension: moz-extension:` (`FRAME_ANCESTORS` in `crates/leptoskit_cli/src/devtools/ui.rs`), from `LEPTOSKIT_DEVTOOLS_UI`, else the downloaded build in `<user cache>/leptoskit/devtools/<version>/`, else the plain `page.html` with a note on how to get the interface.
+  - The stream also carries `{kind: "opened", info}` and `{kind: "closed", session}`, so front ends see sessions start and end without polling. `SessionView`, `SessionState`, and the stream's `Change` live in the protocol crate, so the hub and the interface apply events the same way.
 - **The DevTools panel.**
   - A small shell built with leptoskit's extension platform, using a `devtools_page` surface that calls `devtools.panels.create("leptoskit", …)`.
   - The panel frames the hub's page, `http://127.0.0.1:<port>/?embed=panel`, instead of bundling the interface (D6). Stores forbid remotely hosted code inside an extension, but framing a page is allowed, and the framed page runs as a web page, not with the extension's privileges.
   - This way, the version a user installed from a store never matters: the interface always comes from the CLI that is running. The shell needs a new store release only when the shell itself changes, which is rare.
   - The shell finds the session by evaluating `window.__LEPTOSKIT_DEVTOOLS_SESSION__` in the inspected tab, and passes it to the framed page with `postMessage`, addressed to the hub's origin.
+  - **The message contract** (implemented in `devtools/src/hub.rs`):
+    1. On load, the framed page posts `{type: "leptoskit-devtools-ready"}` to `window.parent`. It carries no data, so its target origin is `*`.
+    2. The shell answers with `{type: "leptoskit-devtools-session", session: "<id>"}`, and may send it again whenever the inspected tab's session changes.
+    3. The page accepts that message only when `event.source === window.parent`, and shows that session, waiting for it if the hub hasn't reported it yet.
+    4. If no session is named within 1.5 seconds, the page shows the newest web session, and still switches to the named one when it appears.
   - The hub allows the frame with `Content-Security-Policy: frame-ancestors` listing the panel origins from D7.
   - When no hub is running, the shell shows how to start one, and a port field for a hub on another port.
   - The interface's tab list also shows the native sessions, so a web developer can jump to a simulator from the same panel.
@@ -267,7 +275,7 @@ Each pull request carries a changeset. Dependent layers go in a `gh stack`.
 2. `feat(native)`: source locations, the commit observer, frame access, and `Tailwind::explain`, behind `devtools`.
 3. `feat(devtools)`: the host agent in `leptoskit_devtools` for `NativeSurface`, and the in-process headless test.
 4. `feat(dev)`: the hub in `leptoskit dev`, with its `Host`, `Origin`, and `Sec-Fetch-Site` checks, `.leptoskit/devtools.json`, `--no-devtools`, and the release gate in CI.
-5. `feat(devtools)`: the `devtools/` interface with the tree, node details, and styles panels, served by the hub, plus the macOS host agent in `leptoskit_bridge_ffi`.
+5. `feat(devtools)`: the `devtools/` interface with the tree, node details, and styles panels, served by the hub, plus the macOS host agent in `leptoskit_bridge_ffi`. **Interface and serving done**; native snapshots carry classes and their declarations (`Node.styles`).
 6. `ci`: the interface archive in the publish workflow, the hash compiled into the CLI, and `leptoskit devtools fetch`.
 
 **Phase 1: the web.**

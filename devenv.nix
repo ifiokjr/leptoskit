@@ -466,6 +466,37 @@ in
       binary = "bash";
     };
 
+    # The DevTools interface in devtools/, built for the web with this
+    # checkout's CLI. The build lands in <out>/ui, where the hub serves it
+    # with LEPTOSKIT_DEVTOOLS_UI=<out>/ui, beside the release archive
+    # leptoskit-devtools-<version>.tar.gz and its SHA-256, which the release
+    # workflow uploads and compiles into the CLI. <out> defaults to
+    # target/devtools.
+    "devtools:build" = {
+      exec = ''
+        set -euo pipefail
+        root="$(git rev-parse --show-toplevel)"
+        out="$(realpath -m "''${1:-$root/target/devtools}")"
+        metadata="$(cargo metadata --no-deps --format-version 1 --manifest-path "$root/Cargo.toml")"
+        version="$(jq -r '.packages[] | select(.name == "leptoskit_cli") | .version' <<<"$metadata")"
+        target="$(jq -r .target_directory <<<"$metadata")"
+        cargo build --quiet --locked --manifest-path "$root/Cargo.toml" --package leptoskit_cli --bin leptoskit
+        rm -rf "$root/devtools/dist" "$out/ui"
+        (cd "$root/devtools" && "$target/debug/leptoskit" build --platform web --release)
+        mkdir -p "$out"
+        cp -R "$root/devtools/dist" "$out/ui"
+        archive="$out/leptoskit-devtools-$version.tar.gz"
+        # The same files always make the same archive, so its hash is stable.
+        tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -C "$out/ui" -cf - . | gzip -n -9 >"$archive"
+        sha256sum "$archive" | cut -d' ' -f1 >"$archive.sha256"
+        echo "built the DevTools interface into $out/ui"
+        echo "serve it with: LEPTOSKIT_DEVTOOLS_UI=$out/ui leptoskit dev"
+        echo "archive: $archive (sha256 $(cat "$archive.sha256"))"
+      '';
+      description = "Build the DevTools interface and its release archive.";
+      binary = "bash";
+    };
+
     "test:all" = {
       exec = ''
         set -euo pipefail

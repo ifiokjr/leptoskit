@@ -7,7 +7,9 @@
 <style>
 	:root { color-scheme: light dark; font: 14px/1.5 ui-sans-serif, system-ui, sans-serif; }
 	body { margin: 0; display: grid; grid-template-rows: auto 1fr; height: 100vh; }
-	header { display: flex; align-items: baseline; gap: 12px; padding: 10px 16px; border-bottom: 1px solid #8884; }
+	header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; padding: 10px 16px; border-bottom: 1px solid #8884; }
+	#notice { flex-basis: 100%; margin: 0; font-size: 13px; }
+	code { font: 12px ui-monospace, monospace; background: #8882; padding: 1px 4px; border-radius: 4px; }
 	h1 { font-size: 16px; margin: 0; }
 	#status { color: #888; font-size: 12px; }
 	main { display: grid; grid-template-columns: 240px 1fr 280px; min-height: 0; }
@@ -30,6 +32,7 @@
 <header>
 	<h1>leptoskit devtools</h1>
 	<span id="status">connecting…</span>
+	<!-- notice -->
 </header>
 <main>
 	<aside>

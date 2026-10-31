@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:," />
+    <title>leptoskit devtools</title>
+    <style>
+      html, body { margin: 0; height: 100%; }
+      body { font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+    </style>
+  </head>
+  <body>
+    <script type="module">
+      import init from "/pkg/leptoskit_devtools_ui.js";
+      await init({ module_or_path: "/pkg/leptoskit_devtools_ui_bg.wasm" });
+    </script>
+  </body>
+</html>

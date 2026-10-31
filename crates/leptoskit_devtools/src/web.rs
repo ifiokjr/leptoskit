@@ -278,6 +278,7 @@ fn node_for(element: &web_sys::Element, path: &str) -> Node {
 			.collect(),
 		text: element.text_content(),
 		children: Vec::new(),
+		styles: Vec::new(),
 	}
 }
 

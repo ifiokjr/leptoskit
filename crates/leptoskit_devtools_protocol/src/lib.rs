@@ -9,9 +9,18 @@
 //! capabilities the session can feed, and the [`PROTOCOL_VERSION`] it speaks. A
 //! hub refuses a session on another version with a [`VersionMismatch`] that
 //! names both versions.
+//!
+//! The hub mirrors each session into a [`SessionView`] and streams every
+//! [`Change`] to front ends, which apply the same events to their own copy.
+
+mod mirror;
 
 use std::collections::BTreeSet;
 
+pub use mirror::Change;
+pub use mirror::HISTORY;
+pub use mirror::SessionState;
+pub use mirror::SessionView;
 use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
@@ -275,6 +284,23 @@ pub struct Node {
 	/// The children, in order.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub children: Vec<NodeRef>,
+	/// The active classes with the declarations each resolved to, when the
+	/// session can explain its styles.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub styles: Vec<StyleRule>,
+}
+
+/// One active Tailwind class and what it resolved to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StyleRule {
+	/// The class token, such as `md:p-4`.
+	pub class: String,
+	/// The declarations, in CSS syntax.
+	pub declarations: String,
+	/// The conditions that made the class active, such as `dark` or
+	/// `min-width: 768px`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub variant: Option<String>,
 }
 
 /// A whole tree, sent with a snapshot.
@@ -643,6 +669,11 @@ mod tests {
 			classes: vec!["gap-2".into()],
 			text: None,
 			children: Vec::new(),
+			styles: vec![StyleRule {
+				class: "gap-2".into(),
+				declarations: "gap:0.5rem;".into(),
+				variant: None,
+			}],
 		}
 	}
 

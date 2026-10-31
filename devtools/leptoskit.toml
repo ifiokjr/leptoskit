@@ -1,0 +1,31 @@
+#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
+
+schema_version = 0
+
+# The DevTools interface: the page `leptoskit dev`'s hub serves, and the
+# browser DevTools panel frames. It is built once per release, archived, and
+# downloaded by the CLI of the same version; `devenv shell devtools:build`
+# builds it from this checkout.
+
+[app]
+name = "leptoskit-devtools"
+version = "0.1.0"
+default_platform = "web"
+platforms = ["web"]
+# Rendered in the browser; the hub serves the files and the API.
+render = "csr"
+
+[build]
+client_package = "leptoskit_devtools_ui"
+features = []
+rustflags = []
+
+[bundle]
+optimize = "smallest"
+split = false
+wasm_opt = true
+# The hub serves the files as they are.
+precompress = false
+
+[lint]
+markup = "builder"

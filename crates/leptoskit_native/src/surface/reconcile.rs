@@ -105,7 +105,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 		{
 			self.shadows[id.index()].source = element.source_location();
 			self.shadows[id.index()].classes = element
-				.classes()
+				.applied_classes()
 				.classes()
 				.split_whitespace()
 				.map(str::to_owned)
@@ -205,7 +205,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 		{
 			self.shadows[id.index()].source = element.source_location();
 			self.shadows[id.index()].classes = element
-				.classes()
+				.applied_classes()
 				.classes()
 				.split_whitespace()
 				.map(str::to_owned)

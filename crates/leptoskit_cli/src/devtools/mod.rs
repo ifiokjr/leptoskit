@@ -6,12 +6,18 @@
 //! commands. The hub refuses a session on another protocol version, binds
 //! only loopback, and checks `Host`, `Origin`, `Sec-Fetch-Site`, and the JSON
 //! content type on every request.
+//!
+//! The hub serves the interface at `/` (see [`ui`]): a local build, the
+//! archive downloaded for this CLI's version, or a plain page.
+
+pub mod ui;
 
 use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::SystemTime;
@@ -28,9 +34,9 @@ use axum::extract::State;
 use axum::http::HeaderValue;
 use axum::http::Method;
 use axum::http::StatusCode;
+use axum::http::Uri;
 use axum::http::header;
 use axum::middleware::Next;
-use axum::response::Html;
 use axum::response::IntoResponse;
 use axum::response::Response;
 use axum::response::sse::Event as SseEvent;
@@ -39,20 +45,15 @@ use axum::response::sse::Sse;
 use axum::routing::get;
 use axum::routing::post;
 use futures::stream;
-use leptoskit_devtools_protocol::CallRecord;
+use leptoskit_devtools_protocol::Change;
 use leptoskit_devtools_protocol::Command;
-use leptoskit_devtools_protocol::Commit;
 use leptoskit_devtools_protocol::Event;
-use leptoskit_devtools_protocol::Node;
-use leptoskit_devtools_protocol::NodeRef;
-use leptoskit_devtools_protocol::RpcAttempt;
+use leptoskit_devtools_protocol::HISTORY;
+use leptoskit_devtools_protocol::PROTOCOL_VERSION;
 use leptoskit_devtools_protocol::SessionId;
 use leptoskit_devtools_protocol::SessionInfo;
-use leptoskit_devtools_protocol::Snapshot;
-use leptoskit_devtools_protocol::Tree;
-use leptoskit_devtools_protocol::TreeOp;
-use leptoskit_devtools_protocol::TreePatch;
-use leptoskit_devtools_protocol::Value;
+use leptoskit_devtools_protocol::SessionState;
+pub use leptoskit_devtools_protocol::SessionView;
 use leptoskit_devtools_protocol::VersionMismatch;
 use serde::Deserialize;
 use serde::Serialize;
@@ -69,9 +70,6 @@ const POLL: Duration = Duration::from_secs(25);
 
 /// How long a session lives after its last request.
 const EXPIRY: Duration = Duration::from_secs(60);
-
-/// How many commits, calls, or rpc attempts a session keeps.
-const HISTORY: usize = 256;
 
 /// The running hub.
 pub struct Hub {
@@ -113,7 +111,10 @@ pub fn start(
 	let address = listener.local_addr()?;
 	let url = format!("http://{address}");
 	write_config(root, &url, std::process::id())?;
-	let state = Arc::new(HubState::new(address.port(), web_port, POLL, EXPIRY));
+	let mut state = HubState::new(address.port(), web_port, POLL, EXPIRY);
+	state.root = root.to_owned();
+	state.interface = ui::Sources::from_env();
+	let state = Arc::new(state);
 	let router = router(state.clone());
 	let listener = {
 		let _guard = runtime.enter();
@@ -153,6 +154,11 @@ struct HubState {
 	expiry: Duration,
 	sessions: RwLock<BTreeMap<SessionId, Session>>,
 	changes: broadcast::Sender<Change>,
+	/// The project `leptoskit dev` runs in, so the interface can open source
+	/// files in an editor.
+	root: PathBuf,
+	/// Where the interface is looked up.
+	interface: ui::Sources,
 }
 
 impl HubState {
@@ -165,6 +171,8 @@ impl HubState {
 			expiry,
 			sessions: RwLock::new(BTreeMap::new()),
 			changes,
+			root: PathBuf::new(),
+			interface: ui::Sources::default(),
 		}
 	}
 
@@ -176,11 +184,18 @@ impl HubState {
 				tick.tick().await;
 				let now = now_ms();
 				let expiry = u64::try_from(state.expiry.as_millis()).unwrap_or(u64::MAX);
-				state
-					.sessions
-					.write()
-					.await
-					.retain(|_, session| now.saturating_sub(session.info.last_seen_ms) <= expiry);
+				let mut ended = Vec::new();
+				state.sessions.write().await.retain(|id, session| {
+					let alive = now.saturating_sub(session.info.last_seen_ms) <= expiry;
+					if !alive {
+						ended.push(id.clone());
+					}
+					alive
+				});
+
+				for session in ended {
+					state.broadcast(Change::Closed { session });
+				}
 			}
 		});
 	}
@@ -198,65 +213,17 @@ struct Session {
 	notify: Arc<Notify>,
 }
 
-/// The hub's mirror of a session's state.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct SessionView {
-	/// The latest tree.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub tree: Option<Tree>,
-	/// The current route.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub route: Option<String>,
-	/// The current queries, by key.
-	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub queries: BTreeMap<String, Value>,
-	/// The current mutations, by key.
-	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub mutations: BTreeMap<String, Value>,
-	/// The current forms, by name.
-	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub forms: BTreeMap<String, Value>,
-	/// The current named state, by name.
-	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub state: BTreeMap<String, Value>,
-	/// The latest commits.
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub commits: Vec<Commit>,
-	/// The latest bridge calls.
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub calls: Vec<CallRecord>,
-	/// The latest rpc attempts.
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub rpc: Vec<RpcAttempt>,
-}
-
-/// A change a front end sees on the stream.
+/// What `GET /api/hub` answers: who the hub is and what it serves.
 #[derive(Clone, Debug, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum Change {
-	/// An agent event.
-	Event {
-		/// The session it belongs to.
-		session: SessionId,
-		/// The event.
-		event: Event,
-	},
-	/// A command sent to an agent.
-	Command {
-		/// The session it belongs to.
-		session: SessionId,
-		/// The command.
-		command: Command,
-	},
-}
-
-/// One session as `GET /api/sessions/{id}` returns it.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SessionResponse {
-	#[serde(flatten)]
-	info: SessionInfo,
-	#[serde(flatten)]
-	view: SessionView,
+struct HubInfo {
+	/// The CLI's version, which is also the interface's.
+	version: &'static str,
+	/// The protocol the hub speaks.
+	protocol: u32,
+	/// The project's root, for opening source files in an editor.
+	root: PathBuf,
+	/// Which interface the hub serves: `local`, `downloaded`, or `missing`.
+	interface: &'static str,
 }
 
 #[derive(Deserialize)]
@@ -302,7 +269,7 @@ impl From<VersionMismatch> for ApiError {
 
 fn router(state: Arc<HubState>) -> Router {
 	Router::new()
-		.route("/", get(page))
+		.route("/api/hub", get(hub))
 		.route("/agent/sessions", post(create_session))
 		.route("/agent/sessions/{id}/events", post(events))
 		.route("/agent/sessions/{id}/commands", get(commands))
@@ -310,6 +277,7 @@ fn router(state: Arc<HubState>) -> Router {
 		.route("/api/sessions/{id}", get(session))
 		.route("/api/sessions/{id}/commands", post(send_command))
 		.route("/api/stream", get(sse))
+		.fallback(interface)
 		.layer(axum::middleware::from_fn_with_state(
 			Arc::clone(&state),
 			secure,
@@ -317,11 +285,26 @@ fn router(state: Arc<HubState>) -> Router {
 		.with_state(state)
 }
 
-/// The hub page.
-const PAGE: &str = include_str!("page.html");
+/// The interface's files, for any `GET` the API does not answer.
+async fn interface(State(state): State<Arc<HubState>>, method: Method, uri: Uri) -> Response {
+	if method != Method::GET && method != Method::HEAD {
+		return StatusCode::METHOD_NOT_ALLOWED.into_response();
+	}
 
-async fn page() -> Html<&'static str> {
-	Html(PAGE)
+	if uri.path().starts_with("/api/") || uri.path().starts_with("/agent/") {
+		return ApiError::new(StatusCode::NOT_FOUND, "no such route").into_response();
+	}
+
+	state.interface.resolve().respond(uri.path())
+}
+
+async fn hub(State(state): State<Arc<HubState>>) -> Json<HubInfo> {
+	Json(HubInfo {
+		version: env!("CARGO_PKG_VERSION"),
+		protocol: PROTOCOL_VERSION,
+		root: state.root.clone(),
+		interface: state.interface.resolve().kind(),
+	})
 }
 
 async fn create_session(
@@ -331,18 +314,20 @@ async fn create_session(
 	hello.check_protocol()?;
 	let id = SessionId::new(Uuid::new_v4().to_string());
 	let now = now_ms();
+	let info = SessionInfo {
+		id: id.clone(),
+		hello,
+		connected_at_ms: now,
+		last_seen_ms: now,
+	};
 	let session = Session {
-		info: SessionInfo {
-			id: id.clone(),
-			hello,
-			connected_at_ms: now,
-			last_seen_ms: now,
-		},
+		info: info.clone(),
 		view: SessionView::default(),
 		commands: Vec::new(),
 		notify: Arc::new(Notify::new()),
 	};
 	state.sessions.write().await.insert(id.clone(), session);
+	state.broadcast(Change::Opened { info });
 	Ok(Json(id))
 }
 
@@ -358,7 +343,7 @@ async fn events(
 		session.info.last_seen_ms = now_ms();
 
 		for event in events {
-			apply_event(&mut session.view, &event);
+			session.view.apply(&event);
 			state.broadcast(Change::Event {
 				session: id.clone(),
 				event,
@@ -412,12 +397,12 @@ async fn sessions(State(state): State<Arc<HubState>>) -> Json<Vec<SessionInfo>> 
 async fn session(
 	State(state): State<Arc<HubState>>,
 	AxumPath(id): AxumPath<String>,
-) -> Result<Json<SessionResponse>, ApiError> {
+) -> Result<Json<SessionState>, ApiError> {
 	let sessions = state.sessions.read().await;
 	let session = sessions
 		.get(&SessionId(id))
 		.ok_or_else(ApiError::not_found)?;
-	Ok(Json(SessionResponse {
+	Ok(Json(SessionState {
 		info: session.info.clone(),
 		view: session.view.clone(),
 	}))
@@ -584,142 +569,6 @@ fn allowed_origin(origin: &str, port: u16, web_port: u16) -> bool {
 	.any(|allowed| allowed == origin)
 }
 
-/// Mirror one event into a session's view.
-fn apply_event(view: &mut SessionView, event: &Event) {
-	match event {
-		Event::Snapshot { snapshot } => apply_snapshot(view, snapshot),
-		Event::TreePatch { patch } => {
-			if let Some(tree) = &mut view.tree {
-				apply_patch(tree, patch);
-			}
-		}
-		Event::Commit { commit } => push(&mut view.commits, commit.clone()),
-		Event::RouteChanged { route } => view.route = Some(route.clone()),
-		Event::QueryChanged { key, value } => {
-			view.queries.insert(key.clone(), value.clone());
-		}
-		Event::MutationChanged { key, value } => {
-			view.mutations.insert(key.clone(), value.clone());
-		}
-		Event::FormChanged { name, value } => {
-			view.forms.insert(name.clone(), value.clone());
-		}
-		Event::StateChanged { name, value } => {
-			view.state.insert(name.clone(), value.clone());
-		}
-		Event::Call { call } => {
-			match view.calls.iter_mut().find(|item| item.id == call.id) {
-				Some(item) => *item = call.clone(),
-				None => push(&mut view.calls, call.clone()),
-			}
-		}
-		Event::RpcAttempt { attempt } => {
-			match view.rpc.iter_mut().find(|item| item.id == attempt.id) {
-				Some(item) => *item = attempt.clone(),
-				None => push(&mut view.rpc, attempt.clone()),
-			}
-		}
-		Event::Picked { .. } => {}
-	}
-}
-
-fn apply_snapshot(view: &mut SessionView, snapshot: &Snapshot) {
-	view.tree = Some(snapshot.tree.clone());
-	view.route.clone_from(&snapshot.route);
-	view.queries = snapshot
-		.queries
-		.iter()
-		.map(|value| (value.name.clone(), value.value.clone()))
-		.collect();
-	view.mutations = snapshot
-		.mutations
-		.iter()
-		.map(|value| (value.name.clone(), value.value.clone()))
-		.collect();
-	view.forms = snapshot
-		.forms
-		.iter()
-		.map(|value| (value.name.clone(), value.value.clone()))
-		.collect();
-	view.state = snapshot
-		.state
-		.iter()
-		.map(|value| (value.name.clone(), value.value.clone()))
-		.collect();
-	view.calls.clone_from(&snapshot.calls);
-	view.rpc.clone_from(&snapshot.rpc);
-
-	view.commits.clear();
-}
-
-fn apply_patch(tree: &mut Tree, patch: &TreePatch) {
-	for operation in &patch.ops {
-		match operation {
-			TreeOp::Insert { node } => insert_node(tree, node),
-			TreeOp::Update { node } => update_node(tree, node),
-			TreeOp::Remove { id } => remove_subtree(tree, id),
-		}
-	}
-}
-
-fn insert_node(tree: &mut Tree, node: &Node) {
-	if tree.nodes.iter().any(|item| item.id == node.id) {
-		return;
-	}
-
-	match &node.parent {
-		Some(parent) => {
-			if let Some(slot) = tree.nodes.iter_mut().find(|item| &item.id == parent) {
-				slot.children.push(node.id.clone());
-			}
-		}
-		None => tree.root = node.id.clone(),
-	}
-
-	tree.nodes.push(node.clone());
-}
-
-fn update_node(tree: &mut Tree, node: &Node) {
-	if let Some(slot) = tree.nodes.iter_mut().find(|item| item.id == node.id) {
-		*slot = node.clone();
-	}
-}
-
-fn remove_subtree(tree: &mut Tree, id: &NodeRef) {
-	let remove = descendants(tree, id);
-	tree.nodes.retain(|node| !remove.contains(&node.id));
-
-	for node in &mut tree.nodes {
-		node.children.retain(|child| !remove.contains(child));
-	}
-}
-
-fn descendants(tree: &Tree, root: &NodeRef) -> Vec<NodeRef> {
-	let mut found = vec![root.clone()];
-	let mut index = 0;
-
-	while index < found.len() {
-		let current = found[index].clone();
-		found.extend(
-			tree.nodes
-				.iter()
-				.filter(|node| node.parent.as_ref() == Some(&current))
-				.map(|node| node.id.clone()),
-		);
-		index += 1;
-	}
-
-	found
-}
-
-fn push<T>(items: &mut Vec<T>, item: T) {
-	if items.len() == HISTORY {
-		items.remove(0);
-	}
-
-	items.push(item);
-}
-
 fn now_ms() -> u64 {
 	SystemTime::now()
 		.duration_since(UNIX_EPOCH)
@@ -736,9 +585,13 @@ mod tests {
 	use leptoskit_devtools_protocol::Capability;
 	use leptoskit_devtools_protocol::Hello;
 	use leptoskit_devtools_protocol::MatchKey;
-	use leptoskit_devtools_protocol::PROTOCOL_VERSION;
+	use leptoskit_devtools_protocol::Node;
+	use leptoskit_devtools_protocol::NodeRef;
 	use leptoskit_devtools_protocol::Platform;
+	use leptoskit_devtools_protocol::Snapshot;
 	use leptoskit_devtools_protocol::SourceLocation;
+	use leptoskit_devtools_protocol::Tree;
+	use leptoskit_devtools_protocol::Value;
 	use tower::ServiceExt;
 
 	use super::*;
@@ -791,11 +644,77 @@ mod tests {
 		serde_json::from_slice(&bytes).unwrap()
 	}
 
-	#[test]
-	fn the_page_lists_sessions_and_nodes() {
-		assert!(PAGE.contains("id=\"sessions\""));
-		assert!(PAGE.contains("/api/stream"));
-		assert!(PAGE.contains("request_snapshot"));
+	#[tokio::test]
+	async fn the_plain_page_is_served_without_an_interface_build() {
+		let state = state();
+		let response = app(&state)
+			.oneshot(request("GET", "/?embed=panel", None))
+			.await
+			.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+		assert_eq!(
+			response.headers()[header::CONTENT_SECURITY_POLICY],
+			ui::FRAME_ANCESTORS
+		);
+		let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+		let page = String::from_utf8(bytes.to_vec()).unwrap();
+		assert!(page.contains("id=\"sessions\""));
+		assert!(page.contains("/api/stream"));
+		assert!(page.contains("request_snapshot"));
+		assert!(page.contains("id=\"notice\""));
+	}
+
+	#[tokio::test]
+	async fn a_local_interface_build_is_served() {
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::write(dir.path().join("index.html"), "<html>ui</html>").unwrap();
+		let mut hub = HubState::new(
+			PORT,
+			WEB,
+			Duration::from_millis(100),
+			Duration::from_secs(60),
+		);
+		hub.interface.local = Some(dir.path().to_owned());
+		let state = Arc::new(hub);
+		let response = app(&state)
+			.oneshot(request("GET", "/", None))
+			.await
+			.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+		let response = app(&state)
+			.oneshot(request("GET", "/api/hub", None))
+			.await
+			.unwrap();
+		let info: serde_json::Value = body(response).await;
+		assert_eq!(info["interface"], "local");
+		assert_eq!(info["version"], env!("CARGO_PKG_VERSION"));
+		assert_eq!(info["protocol"], PROTOCOL_VERSION);
+		let response = app(&state)
+			.oneshot(request("GET", "/api/nothing", None))
+			.await
+			.unwrap();
+		assert_eq!(response.status(), StatusCode::NOT_FOUND);
+	}
+
+	#[tokio::test]
+	async fn opening_a_session_is_streamed() {
+		let state = state();
+		let mut changes = state.changes.subscribe();
+		let id: SessionId = body(
+			app(&state)
+				.oneshot(request(
+					"POST",
+					"/agent/sessions",
+					Some(serde_json::to_value(hello()).unwrap()),
+				))
+				.await
+				.unwrap(),
+		)
+		.await;
+		let Change::Opened { info } = changes.recv().await.unwrap() else {
+			panic!("a new session is announced first");
+		};
+		assert_eq!(info.id, id);
 	}
 
 	#[tokio::test]
@@ -873,6 +792,7 @@ mod tests {
 				classes: Vec::new(),
 				text: None,
 				children: Vec::new(),
+				styles: Vec::new(),
 			}],
 		};
 		let snapshot = Snapshot {
@@ -903,7 +823,7 @@ mod tests {
 			.await
 			.unwrap();
 
-		let view: SessionResponse = body(response).await;
+		let view: SessionState = body(response).await;
 		assert_eq!(view.view.route.as_deref(), Some("/clips"));
 		assert_eq!(view.view.tree.as_ref().unwrap().nodes.len(), 1);
 		assert_eq!(view.view.queries.len(), 1);
