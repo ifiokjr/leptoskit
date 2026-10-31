@@ -53,7 +53,7 @@ extern "C" void test_async_finish() {
     for (auto item : drained) std::thread([item] { complete(item); }).join();
 }
 extern "C" lk_async_job* lk_app_async(lk_app*, const lk_request* request) {
-    assert(request->id == 1); // JNI must preserve the call ID used for permission lookup.
+    assert(request->id == 1); // The call ID is preserved for permission lookup.
 
     return test_async_create(request->method);
 }
@@ -95,7 +95,13 @@ extern "C" void lk_worker_reply_release(lk_worker_reply* reply) {
         delete reply;
     }
 }
+// The main-thread runtime completes on the bridge; the guest runtime on its guest.
 extern "C" int32_t lk_worker_complete(lk_bridge*, uint64_t, lk_worker_reply* reply) {
+    lk_worker_reply_release(reply);
+
+    return 0;
+}
+extern "C" int32_t lk_guest_complete_worker(const lk_guest*, uint64_t, lk_worker_reply* reply) {
     lk_worker_reply_release(reply);
 
     return 0;

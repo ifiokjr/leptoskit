@@ -9,30 +9,40 @@ extern "C" void lk_buffer_release(lk_buffer) {}
 extern "C" void lk_app_destroy(lk_app*) {}
 
 extern "C" lk_bridge* lk_app_plugins(lk_app*) { return nullptr; }
-extern "C" int32_t lk_app_start(lk_app*, float, float) { return 0; }
-extern "C" int32_t lk_app_resize(lk_app*, float, float, bool) { return 0; }
-extern "C" int32_t lk_app_wake(lk_app*) { return 0; }
-extern "C" int32_t lk_app_event(lk_app*, size_t, uint32_t, const uint8_t*, size_t) { return 0; }
-extern "C" int32_t lk_app_render_pending(lk_app*) { return 0; }
-extern "C" lk_buffer lk_app_render(lk_app*) { return {}; }
-extern "C" lk_buffer lk_app_render_binary(lk_app*) { return {}; }
+extern "C" int32_t lk_app_enable_frames(lk_app*) { return 0; }
 extern "C" lk_buffer lk_app_error(lk_app*) { return {}; }
-extern "C" int32_t lk_app_next_request(lk_app*, lk_request*) { return 0; }
+
+// These callback ownership tests never run a guest thread.
+extern "C" lk_guest* lk_guest_spawn(lk_app*, lk_guest_callbacks) { std::abort(); }
+extern "C" int32_t lk_guest_stop(lk_guest*) { std::abort(); }
+extern "C" void lk_guest_ack(const lk_guest*) { std::abort(); }
+extern "C" int32_t lk_guest_start(const lk_guest*, float, float) { std::abort(); }
+extern "C" int32_t lk_guest_resize(const lk_guest*, float, float, bool) { std::abort(); }
+extern "C" int32_t lk_guest_event(const lk_guest*, size_t, uint32_t, const uint8_t*, size_t) { std::abort(); }
+extern "C" int32_t lk_guest_frame(const lk_guest*, uint64_t, uint64_t) { std::abort(); }
+extern "C" int32_t lk_guest_frame_requested(const lk_guest*) { std::abort(); }
+extern "C" int32_t lk_guest_wake(const lk_guest*) { std::abort(); }
+extern "C" int32_t lk_guest_complete(const lk_guest*, uint64_t, int32_t, const uint8_t*, size_t) {
+    std::abort();
+}
+extern "C" lk_buffer lk_guest_take_render(const lk_guest*) { std::abort(); }
+extern "C" int32_t lk_guest_next_request(const lk_guest*, lk_request*, lk_rust_worker**, lk_async_job**) {
+    std::abort();
+}
+extern "C" int64_t lk_guest_next_cancelled(const lk_guest*) { std::abort(); }
+extern "C" int32_t lk_guest_has_rive(const lk_guest*) { std::abort(); }
+extern "C" int32_t lk_guest_rive_tick(const lk_guest*, double, float, uint32_t, const size_t*, size_t) {
+    std::abort();
+}
+extern "C" lk_buffer lk_guest_take_rive_frame(const lk_guest*, size_t*, uint32_t*, uint32_t*) {
+    std::abort();
+}
+extern "C" int32_t lk_guest_failed(const lk_guest*) { std::abort(); }
+extern "C" lk_buffer lk_guest_error(const lk_guest*) { std::abort(); }
 
 // Async callback controls cannot enter the independent application service lifecycle.
 extern "C" int32_t lk_app_activate_service(lk_app*, lk_service_callbacks) { std::abort(); }
 extern "C" int32_t lk_app_set_text_measurer(lk_app*, lk_text_measurer) { std::abort(); }
-// Nor do they reach frames or Rive; macOS links refuse undefined symbols.
-extern "C" int32_t lk_app_enable_frames(lk_app*) { std::abort(); }
-extern "C" int32_t lk_app_frame_requested(lk_app*) { std::abort(); }
-extern "C" int32_t lk_app_frame(lk_app*, uint64_t, uint64_t) { std::abort(); }
-extern "C" int32_t lk_app_has_rive(const lk_app*) { std::abort(); }
-extern "C" int32_t lk_app_rive_tick(lk_app*, double, float, uint32_t, void*, lk_rive_visible_fn,
-    lk_rive_present_fn) {
-    std::abort();
-}
-extern "C" int32_t lk_app_poll_service(lk_app*) { std::abort(); }
-extern "C" int64_t lk_app_next_cancelled(lk_app*) { std::abort(); }
 extern "C" lk_closing_app* lk_app_begin_close(lk_app*) { std::abort(); }
 extern "C" int32_t lk_app_close_poll(lk_closing_app*) { std::abort(); }
 extern "C" void lk_app_close_release(lk_closing_app*) { std::abort(); }
@@ -54,3 +64,7 @@ extern "C" JNIEXPORT jint JNICALL
 Java_dev_leptoskit_mobile_AsyncTest_liveTokens(JNIEnv*, jclass) { return test_async_live_tokens(); }
 extern "C" JNIEXPORT void JNICALL
 Java_dev_leptoskit_mobile_AsyncTest_finish(JNIEnv*, jclass) { test_async_finish(); }
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_leptoskit_mobile_AsyncTest_job(JNIEnv*, jclass, jint mode) {
+    return static_cast<jlong>(reinterpret_cast<uintptr_t>(test_async_create(mode)));
+}

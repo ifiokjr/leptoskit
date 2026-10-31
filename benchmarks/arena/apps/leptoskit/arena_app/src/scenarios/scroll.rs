@@ -5,6 +5,7 @@ use leptoskit::native::ScrollOffset;
 
 use super::elapsed_ms;
 use crate::host::Host;
+use crate::host::PLATFORM;
 use crate::report::Report;
 use crate::routes::feed::ITEM_HEIGHT;
 use crate::services::Arena;
@@ -114,14 +115,20 @@ pub async fn busy(host: Host, arena: &Arena) -> Result<Report, String> {
 	let mut report = Report::new(Scenario::Busy);
 	report.metric("blocks_count", blocks as f64);
 	report.note(format!(
-		"leptoskit runs app logic in the guest on the UI thread, so each block stops the \
-		 platform's scroll animation too; the guest spun a calibrated loop for {:.1} ms per block",
+		"the guest spun a calibrated loop for {:.1} ms per block",
 		if blocks == 0 {
 			0.0
 		} else {
 			blocked_ms / blocks as f64
 		}
 	));
+	report.note(if matches!(PLATFORM, "ios" | "android") {
+		"the generated app runs the guest on a thread of its own, so the platform's scroll \
+		 animation keeps the UI thread while it blocks"
+	} else {
+		"the guest runs on the UI thread here, so each block stops the platform's scroll animation \
+		 too"
+	});
 
 	Ok(report)
 }

@@ -2,6 +2,8 @@
 
 On Android, your screens are drawn with Android views: a `Button` is an `android.widget.Button`, a `TextInput` an `EditText`, a `ScrollView` a `ScrollView`. The app that `leptoskit new` generates is a small Kotlin activity that runs your screens as WebAssembly, so it can also replace them over the air with [code push](../guide/05-code-push.md). Text is measured with the same fonts Android draws it with, so each label and button gets exactly the space it needs.
 
+The generated app runs your screens' code on a thread of its own, not Android's main thread. Updating state, laying the screen out, and measuring text happen there, and the main thread only applies the result to the views. A slow update delays what you draw next, but scrolling, animations, and touches keep running meanwhile.
+
 ## What you need
 
 - Java 17 or newer, the Android SDK with platform 35, CMake, and an NDK. Set `ANDROID_HOME` to the SDK; `ANDROID_NDK_HOME` picks a specific NDK.

@@ -2,6 +2,8 @@
 
 On iOS, your screens are drawn with UIKit: a `Button` is a `UIButton`, a `TextInput` a `UITextField`, a `ScrollView` a `UIScrollView`. The app that `leptoskit new` generates is a small UIKit app that runs your screens as WebAssembly, so it can also replace them over the air with [code push](../guide/05-code-push.md). Text is measured with the same fonts UIKit draws it with, so each label and button gets exactly the space it needs.
 
+The generated app runs your screens' code on a thread of its own, not UIKit's main thread. Updating state, laying the screen out, and measuring text happen there, and the main thread only applies the result to the views. A slow update delays what you draw next, but scrolling, animations, and touches keep running meanwhile.
+
 ## What you need
 
 - A Mac with Xcode and an installed iOS simulator runtime.

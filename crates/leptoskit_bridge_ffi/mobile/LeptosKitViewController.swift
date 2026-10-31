@@ -8,7 +8,7 @@ typealias RuntimeFailure = NativeAppError
 /// Owns the platform view while the shared runtime owns native admission and teardown.
 @MainActor
 public final class LeptosKitViewController: UIViewController, UITextFieldDelegate {
-    private var runtime: NativeAppRuntime?
+    private var runtime: NativeGuestRuntime?
     private var renderer: MobileWidgetRenderer?
     private var riveAnimator: NativeRiveAnimator?
     private static let errorInset = CGSize(width: 20, height: 40)
@@ -33,8 +33,14 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
         register: (OpaquePointer, NativeDispatcher, NativePluginContext) throws -> Void
     ) throws {
         super.init(nibName: nil, bundle: nil)
-        runtime = try NativeAppRuntime(wasm: wasm, identifier: nil, owner: self, register: register)
-        runtime?.onRender = { [weak self] raw in try self?.render(raw) }
+        runtime = try NativeGuestRuntime(wasm: wasm, identifier: nil, owner: self, register: register)
+        runtime?.onTransaction = { [weak self] bytes in try self?.renderer?.render(try Transaction(binary: bytes)) }
+        runtime?.onRiveFrame = { [weak self] node, width, height, pixels in
+            try self?.renderer?.presentRive(node, width: width, height: height, pixels: pixels)
+        }
+        runtime?.onRive = { [weak self] scenes in
+            if scenes { self?.riveAnimator?.requestFrame() } else { self?.riveAnimator?.stop() }
+        }
         runtime?.onFailure = { [weak self] error in self?.fail(error) }
     }
 
@@ -56,8 +62,10 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
         let animator = NativeRiveAnimator(view: view)
         animator.sink = renderer
         animator.hasScenes = { [weak runtime = self.runtime] in runtime?.hasRive == true }
-        animator.tick = { [weak runtime = self.runtime] elapsed, scale, flags, callbacks in
-            try runtime?.riveTick(elapsed, scale: scale, flags: flags, callbacks: callbacks) ?? false
+        // The guest thread advances the scenes; their frames come back through onRiveFrame.
+        animator.tick = { [weak runtime = self.runtime, weak renderer] elapsed, scale, flags, _ in
+            try runtime?.riveTick(
+                elapsed, scale: scale, flags: flags, visible: renderer?.visibleRiveNodes() ?? []) ?? false
         }
         animator.onFailure = { [weak self] error in self?.fail(error) }
         renderer.onRiveViewportChange = { [weak animator] in animator?.requestFrame() }
@@ -132,25 +140,5 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
             label.topAnchor.constraint(equalTo: view.topAnchor, constant: Self.errorInset.height),
             label.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -Self.errorInset.height)
         ])
-    }
-
-    private func render(_ raw: OpaquePointer) throws {
-        // Most pumps follow a plugin reply that changed nothing on screen.
-        guard lk_app_render_pending(raw) != 0 else {
-            if lk_app_has_rive(raw) == 1 { riveAnimator?.requestFrame() } else { riveAnimator?.stop() }
-
-            return
-        }
-
-        let buffer = NativeBuffer(taking: lk_app_render_binary(raw))
-
-        // An empty transaction is a failed render; the runtime says why.
-        guard buffer.count > 0 else {
-            throw NativeAppError(message: try NativeBuffer(taking: lk_app_error(raw)).utf8())
-        }
-
-        let transaction = try buffer.withUnsafeBytes { try Transaction(binary: $0) }
-        try renderer?.render(transaction)
-        if lk_app_has_rive(raw) == 1 { riveAnimator?.requestFrame() } else { riveAnimator?.stop() }
     }
 }

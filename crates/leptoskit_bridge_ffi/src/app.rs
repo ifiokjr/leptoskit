@@ -31,11 +31,15 @@ use crate::Buffer;
 use crate::NativeRequest;
 
 mod binary;
+#[cfg(not(target_arch = "wasm32"))]
+mod guest;
 mod render;
 #[cfg(not(target_arch = "wasm32"))]
 mod rive;
 mod services;
 mod text;
+#[cfg(not(target_arch = "wasm32"))]
+pub use guest::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use rive::lk_app_has_rive;
 #[cfg(not(target_arch = "wasm32"))]
@@ -470,6 +474,107 @@ impl App {
 	}
 }
 
+impl App {
+	/// Runs the guest's entry point once.
+	fn start(&mut self, width: f32, height: f32) -> i32 {
+		if self.started
+			|| matches!(
+				self.service,
+				Some(ServiceState::Deferred(_) | ServiceState::Failed)
+			)
+			|| !valid_viewport(width, height)
+		{
+			self.error = "invalid viewport or application already started".into();
+
+			return -1;
+		}
+
+		self.started = true;
+		let result = self.host_mut().start(width, height);
+		self.record(result)
+	}
+
+	/// Lays the screen out again for a new viewport or appearance.
+	fn resize(&mut self, width: f32, height: f32, dark: bool) -> i32 {
+		if !self.started || !valid_viewport(width, height) {
+			self.error = "cannot resize before start or with an invalid viewport".into();
+
+			return -1;
+		}
+
+		self.host_mut().set_viewport(width, height);
+		self.host_mut().set_dark_mode(dark);
+		self.record(Ok(()))
+	}
+
+	/// Sends an event to the rendered node it names, if it still exists.
+	fn dispatch_event(&mut self, node: usize, event: &NativeEvent) -> i32 {
+		let Some(node) = self.nodes.get(&node).copied() else {
+			return 0;
+		};
+		let result = self.host_mut().dispatch(node, event).map(|_| ());
+		self.record(result)
+	}
+
+	/// Delivers a display frame to the guest calls waiting for one, then lets
+	/// the guest run.
+	fn deliver_frame(&mut self, frame: leptoskit_bridge::frame::Frame) -> i32 {
+		if let Err(error) = self.frame(frame) {
+			self.error = format!("deliver a display frame: {error:?}");
+
+			return -1;
+		}
+
+		let result = self.host_mut().wake_plugins();
+		self.record(result)
+	}
+
+	/// Whether there is a transaction to send: committed changes, a new root,
+	/// or a render failure to report.
+	fn render_pending(&mut self) -> bool {
+		if self.render_failed || self.host_mut().render_error().is_some() {
+			return true;
+		}
+
+		let rendered_root = self.rendered_root;
+		let surface = self.host_mut().surface();
+		!surface.backend().log().is_empty() || surface.root().map(NodeId::index) != rendered_root
+	}
+
+	/// Answers up to 64 Rust plugin calls inline, then returns the next call
+	/// for the platform. `Err` records why in [`Self::error`].
+	fn next_platform_request(&mut self) -> Result<NextRequest, ()> {
+		for _ in 0..64 {
+			let Some(request) = self.next_request() else {
+				return Ok(NextRequest::Idle);
+			};
+
+			let Some(plugin) = self.plugins.get_mut(&request.plugin.0) else {
+				return Ok(NextRequest::Platform(request));
+			};
+			let reply = plugin.invoke(request.method, request.payload);
+
+			if let Err(error) = self.host_mut().plugins().complete(request.id, reply) {
+				self.error = format!("complete Rust plugin: {error:?}");
+
+				return Err(());
+			}
+
+			let result = self.host_mut().wake_plugins();
+
+			if self.record(result) != 0 {
+				return Err(());
+			}
+		}
+
+		Ok(NextRequest::Yield)
+	}
+}
+
+fn valid_viewport(width: f32, height: f32) -> bool {
+	width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0
+}
+
 impl Drop for App {
 	fn drop(&mut self) {
 		let closing = ClosingApp::new(
@@ -730,28 +835,7 @@ pub unsafe extern "C" fn lk_app_plugins(app: *mut App) -> *mut Bridge {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn lk_app_start(app: *mut App, width: f32, height: f32) -> i32 {
 	// SAFETY: The embedding host owns the app.
-	let Some(app) = (unsafe { app.as_mut() }) else {
-		return -1;
-	};
-
-	if app.started
-		|| matches!(
-			app.service,
-			Some(ServiceState::Deferred(_) | ServiceState::Failed)
-		)
-		|| !width.is_finite()
-		|| !height.is_finite()
-		|| width <= 0.0
-		|| height <= 0.0
-	{
-		app.error = "invalid viewport or application already started".into();
-
-		return -1;
-	}
-
-	app.started = true;
-	let result = app.host_mut().start(width, height);
-	app.record(result)
+	unsafe { app.as_mut() }.map_or(-1, |app| app.start(width, height))
 }
 
 /// Updates layout after resizing or a native appearance change.
@@ -761,19 +845,7 @@ pub unsafe extern "C" fn lk_app_start(app: *mut App, width: f32, height: f32) ->
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn lk_app_resize(app: *mut App, width: f32, height: f32, dark: bool) -> i32 {
 	// SAFETY: The embedding host owns the app.
-	let Some(app) = (unsafe { app.as_mut() }) else {
-		return -1;
-	};
-
-	if !app.started || !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
-		app.error = "cannot resize before start or with an invalid viewport".into();
-
-		return -1;
-	}
-
-	app.host_mut().set_viewport(width, height);
-	app.host_mut().set_dark_mode(dark);
-	app.record(Ok(()))
+	unsafe { app.as_mut() }.map_or(-1, |app| app.resize(width, height, dark))
 }
 
 /// Dispatches an event using the rendered node ID. Text is borrowed UTF-8.
@@ -798,26 +870,39 @@ pub unsafe extern "C" fn lk_app_event(
 		return -1;
 	};
 
+	// SAFETY: The caller supplies `len` readable bytes, or none.
+	match unsafe { decode_event(kind, text, len) } {
+		Ok(event) => app.dispatch_event(node, &event),
+		Err(error) => {
+			app.error = error.into();
+			-1
+		}
+	}
+}
+
+/// Decodes an event the platform reported for [`lk_app_event`] and the guest
+/// thread's [`guest::lk_guest_event`].
+///
+/// # Safety
+/// `text` addresses `len` readable bytes, and is null only when `len` is 0.
+unsafe fn decode_event(
+	kind: u32,
+	text: *const u8,
+	len: usize,
+) -> Result<NativeEvent, &'static str> {
 	let value = if len == 0 {
 		""
 	} else {
 		if text.is_null() {
-			app.error = "null event text with nonzero length".into();
-
-			return -1;
+			return Err("null event text with nonzero length");
 		}
 
 		// SAFETY: Caller supplies the declared readable bytes.
-		let Ok(value) = std::str::from_utf8(unsafe { std::slice::from_raw_parts(text, len) })
-		else {
-			app.error = "event text must be UTF-8".into();
-
-			return -1;
-		};
-		value
+		std::str::from_utf8(unsafe { std::slice::from_raw_parts(text, len) })
+			.map_err(|_| "event text must be UTF-8")?
 	};
 
-	let event = match kind {
+	Ok(match kind {
 		0 => NativeEvent::Press,
 		1 => {
 			NativeEvent::Change {
@@ -832,26 +917,14 @@ pub unsafe extern "C" fn lk_app_event(
 		3 => NativeEvent::Focus,
 		4 => NativeEvent::Blur,
 		5 => {
-			let Some((offset_x, offset_y)) = scroll_offset(value) else {
-				app.error = "a scroll event's text is a finite {\"x\", \"y\"} offset".into();
-
-				return -1;
-			};
+			let (offset_x, offset_y) = scroll_offset(value)
+				.ok_or("a scroll event's text is a finite {\"x\", \"y\"} offset")?;
 			NativeEvent::Scroll { offset_x, offset_y }
 		}
 		8 => NativeEvent::PressIn,
 		9 => NativeEvent::PressOut,
-		_ => {
-			app.error = "unknown event kind".into();
-			return -1;
-		}
-	};
-
-	let Some(node) = app.nodes.get(&node).copied() else {
-		return 0;
-	};
-	let result = app.host_mut().dispatch(node, &event).map(|_| ());
-	app.record(result)
+		_ => return Err("unknown event kind"),
+	})
 }
 
 /// Reads a scroll event's `{"x": …, "y": …}` content offset.
@@ -931,18 +1004,10 @@ pub unsafe extern "C" fn lk_app_frame(app: *mut App, timestamp_ns: u64, period_n
 	let Some(app) = (unsafe { app.as_mut() }) else {
 		return -1;
 	};
-	let frame = leptoskit_bridge::frame::Frame {
+	app.deliver_frame(leptoskit_bridge::frame::Frame {
 		timestamp_ns,
 		period_ns,
-	};
-	if let Err(error) = app.frame(frame) {
-		app.error = format!("deliver a display frame: {error:?}");
-
-		return -1;
-	}
-
-	let result = app.host_mut().wake_plugins();
-	app.record(result)
+	})
 }
 
 /// Drains render transactions. Release the returned buffer once.
@@ -959,19 +1024,7 @@ pub unsafe extern "C" fn lk_app_frame(app: *mut App, timestamp_ns: u64, period_n
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn lk_app_render_pending(app: *mut App) -> i32 {
 	// SAFETY: The embedding host owns the app.
-	let Some(app) = (unsafe { app.as_mut() }) else {
-		return -1;
-	};
-
-	if app.render_failed || app.host_mut().render_error().is_some() {
-		return 1;
-	}
-
-	let rendered_root = app.rendered_root;
-	let surface = app.host_mut().surface();
-	i32::from(
-		!surface.backend().log().is_empty() || surface.root().map(NodeId::index) != rendered_root,
-	)
+	unsafe { app.as_mut() }.map_or(-1, |app| i32::from(app.render_pending()))
 }
 
 /// The v1 JSON rendering protocol is separate from binary plugin payloads.
@@ -1021,6 +1074,15 @@ impl App {
 		&mut self,
 		encode: impl FnOnce(Option<usize>, &[Mutation]) -> Result<Vec<u8>, String>,
 	) -> Option<Buffer> {
+		self.encode_render(encode)
+			.map(|bytes| Buffer::new(bytes.into()))
+	}
+
+	/// [`Self::render`]'s transaction, as the encoder wrote it.
+	fn encode_render(
+		&mut self,
+		encode: impl FnOnce(Option<usize>, &[Mutation]) -> Result<Vec<u8>, String>,
+	) -> Option<Vec<u8>> {
 		if self.render_failed {
 			return None;
 		}
@@ -1059,7 +1121,7 @@ impl App {
 			}
 		}
 
-		Some(Buffer::new(bytes.into()))
+		Some(bytes)
 	}
 }
 
@@ -1095,39 +1157,35 @@ pub unsafe extern "C" fn lk_app_next_request(app: *mut App, out: *mut NativeRequ
 		return -1;
 	}
 
-	for _ in 0..64 {
-		let Some(request) = app.next_request() else {
-			return 0;
-		};
-
-		if let Some(plugin) = app.plugins.get_mut(&request.plugin.0) {
-			let reply = plugin.invoke(request.method, request.payload);
-
-			if let Err(error) = app.host_mut().plugins().complete(request.id, reply) {
-				app.error = format!("complete Rust plugin: {error:?}");
-
-				return -1;
-			}
-
-			let result = app.host_mut().wake_plugins();
-
-			if app.record(result) != 0 {
-				return -1;
-			}
-		} else {
+	match app.next_platform_request() {
+		Err(()) => -1,
+		Ok(NextRequest::Idle) => 0,
+		Ok(NextRequest::Yield) => 2,
+		Ok(NextRequest::Platform(request)) => {
 			// SAFETY: `out` points to caller-owned output storage.
-			unsafe {
-				out.write(NativeRequest {
-					id: request.id.0,
-					plugin: request.plugin.0,
-					method: request.method.0,
-					payload: Buffer::new(request.payload),
-				});
-			}
-
-			return 1;
+			unsafe { out.write(NativeRequest::new(request)) };
+			1
 		}
 	}
+}
 
-	2
+/// What [`App::next_platform_request`] found.
+enum NextRequest {
+	/// A call for a Swift, Kotlin, worker, or async plugin.
+	Platform(leptoskit_bridge::Request),
+	/// No call is waiting.
+	Idle,
+	/// It answered its limit of Rust calls; ask again on the next turn.
+	Yield,
+}
+
+impl NativeRequest {
+	fn new(request: leptoskit_bridge::Request) -> Self {
+		Self {
+			id: request.id.0,
+			plugin: request.plugin.0,
+			method: request.method.0,
+			payload: Buffer::new(request.payload),
+		}
+	}
 }

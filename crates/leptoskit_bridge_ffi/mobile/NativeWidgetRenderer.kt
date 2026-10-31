@@ -80,6 +80,13 @@ internal class NativeWidgetRenderer(
         recycledTexts.clear()
     }
 
+    /** The Rive views on screen now, for the guest thread to advance. */
+    fun visibleRiveNodes(): LongArray =
+        widgets
+            .filter { (id, view) -> view is NativeRiveImage && riveVisible(id) }
+            .keys
+            .toLongArray()
+
     fun riveVisible(id: Long): Boolean {
         val view = widgets[id] ?: return false
         return view.isShown && view.getGlobalVisibleRect(Rect())

@@ -2,13 +2,13 @@ package dev.leptoskit.mobile
 
 import android.os.Handler
 import android.util.Log
-import dev.leptoskit.bridge.NativeBridge
 import dev.leptoskit.bridge.NativeDispatcher
 import dev.leptoskit.bridge.NativeJobBudget
 import dev.leptoskit.bridge.NativeRequest
 import dev.leptoskit.bridge.PluginException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -17,13 +17,12 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlin.coroutines.coroutineContext
 
+/** Runs the platform calls the guest thread posts, and hands their replies back to it. */
 internal class NativePluginJobs(
-    private val app: () -> Long,
+    private val guest: () -> Long,
     private val dispatcher: NativeDispatcher,
     private val handler: Handler,
-    private val runUi: (() -> Unit) -> Unit,
-    private val checkStatus: (Int) -> Unit,
-    private val schedulePump: () -> Unit,
+    private val onCapacity: () -> Unit,
 ) {
     private class PluginJob(
         val task: Job,
@@ -53,17 +52,22 @@ internal class NativePluginJobs(
         return joining
     }
 
-    fun launch(request: NativeRequest) {
+    /** Runs [request], with the Rust [worker] or async job the guest resolved for it, if any. */
+    fun launch(
+        request: NativeRequest,
+        worker: NativeRustOperation?,
+    ) {
         try {
             budget.acquire(request.id, request.bytes().remaining())
         } catch (error: Exception) {
             request.close()
+            worker?.close()
             throw error
         }
-        val worker: NativeRustOperation? =
-            NativeRustWorker.retain(app(), request) ?: NativeRustAsync.retain(app(), request)
-        // Main queues execution until the registry owns the job.
-        val task = scope.launch { execute(request, worker) }
+        // Starts in place: a plugin that answers at once replies in this turn
+        // rather than one main-looper message later. Completion only posts
+        // the registry's cleanup, so it never runs before the job is stored.
+        val task = scope.launch(start = CoroutineStart.UNDISPATCHED) { execute(request, worker) }
         task.invokeOnCompletion { completed(request, worker) }
 
         jobs[request.id] = PluginJob(task, worker)
@@ -88,8 +92,9 @@ internal class NativePluginJobs(
         worker: NativeRustOperation,
         id: Long,
     ) {
-        if (app() == 0L) return
-        runUi { complete(worker.complete(NativeApp.plugins(app()), id)) }
+        val guest = guest()
+
+        if (guest != 0L) worker.complete(guest, id)
     }
 
     /** Preserve cancellation while translating only plugin failures into ABI replies. */
@@ -110,15 +115,9 @@ internal class NativePluginJobs(
                 byteArrayOf()
             }
 
-        if (app() == 0L) return
-        runUi { complete(NativeBridge.complete(NativeApp.plugins(app()), request.id, code, payload)) }
-    }
+        val guest = guest()
 
-    private fun complete(status: Int) {
-        if (status == -PluginException.INVALID_CALL) return
-        checkStatus(status)
-        checkStatus(NativeApp.wake(app()))
-        schedulePump()
+        if (guest != 0L) NativeApp.guestComplete(guest, request.id, code, payload)
     }
 
     private fun completed(
@@ -131,7 +130,7 @@ internal class NativePluginJobs(
         handler.post {
             jobs.remove(request.id)
             budget.release(request.id)
-            schedulePump()
+            onCapacity()
         }
     }
 }

@@ -1,13 +1,11 @@
 package dev.leptoskit.mobile
 
 import dev.leptoskit.bridge.NativeJobBudget
-import dev.leptoskit.bridge.NativeRequest
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
@@ -23,12 +21,12 @@ object AsyncTest {
     @JvmStatic external fun liveTokens(): Int
 
     @JvmStatic external fun finish()
+
+    /** An async job, as the guest thread resolves one for a request. */
+    @JvmStatic external fun job(mode: Int): Long
 }
 
-private fun operation(mode: Int): NativeRustAsync =
-    checkNotNull(
-        NativeRustAsync.retain(1, NativeRequest(1, 1, mode, ByteBuffer.allocate(0), 1)),
-    )
+private fun operation(mode: Int): NativeRustAsync = checkNotNull(NativeRustAsync.adopt(AsyncTest.job(mode)))
 
 fun main() {
     System.loadLibrary("async_host_test")

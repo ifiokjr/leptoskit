@@ -17,6 +17,17 @@ enum NativeRustOperation: Sendable {
         }
     }
 
+    /// The job the guest thread resolved for a request, if it has one.
+    init?(worker: OpaquePointer?, job: OpaquePointer?) {
+        if let worker {
+            self = .worker(NativeRustWorker(taking: worker))
+        } else if let job {
+            self = .future(NativeRustAsync(taking: job))
+        } else {
+            return nil
+        }
+    }
+
     func run() async -> NativeRustReply {
         switch self {
         case .worker(let worker): return await worker.run()
