@@ -25,6 +25,8 @@ pub const PROTOCOL_VERSION: u32 = 1;
 /// The largest value an event or command carries before it is truncated.
 pub const MAX_VALUE_BYTES: usize = 64 * 1024;
 
+pub mod sink;
+
 /// One live agent session.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -397,15 +399,31 @@ pub struct CallRecord {
 	pub method: String,
 	/// When the call started, in milliseconds since the session opened.
 	pub started_ms: u64,
-	/// When the call finished, when it has.
+	/// When the host picked the call up to run it, when it has.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub running_ms: Option<u64>,
+	/// When the call finished, when it has: answered, or cancelled.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub finished_ms: Option<u64>,
+	/// When the app read the answer, when it has.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub taken_ms: Option<u64>,
+	/// When the host answered a call that had already been cancelled. The
+	/// answer was dropped; this shows native work that outlived its caller.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub completed_late_ms: Option<u64>,
 	/// How the call ended.
 	pub status: CallStatus,
+	/// The size of the call's arguments.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub request_bytes: Option<u64>,
+	/// The size of the call's answer, when it answered successfully.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub response_bytes: Option<u64>,
 }
 
 /// How a plugin call ended.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CallStatus {
 	/// Still running.
@@ -648,8 +666,13 @@ mod tests {
 				plugin: "clipboard".into(),
 				method: "read".into(),
 				started_ms: 10,
+				running_ms: Some(12),
 				finished_ms: Some(20),
+				taken_ms: Some(21),
+				completed_late_ms: None,
 				status: CallStatus::Ok,
+				request_bytes: Some(4),
+				response_bytes: Some(128),
 			}],
 			rpc: vec![RpcAttempt {
 				id: 1,
@@ -709,8 +732,13 @@ mod tests {
 					plugin: "notifications".into(),
 					method: "show".into(),
 					started_ms: 50,
+					running_ms: None,
 					finished_ms: None,
+					taken_ms: None,
+					completed_late_ms: None,
 					status: CallStatus::Pending,
+					request_bytes: None,
+					response_bytes: None,
 				},
 			},
 			Event::RpcAttempt {
@@ -733,6 +761,24 @@ mod tests {
 			let json = serde_json::to_value(&event).unwrap();
 			assert_eq!(serde_json::from_value::<Event>(json).unwrap(), event);
 		}
+	}
+
+	#[test]
+	fn call_records_without_timings_or_sizes_still_parse() {
+		let call: CallRecord = serde_json::from_value(serde_json::json!({
+			"id": 3,
+			"plugin": "clipboard",
+			"method": "read",
+			"started_ms": 5,
+			"status": "cancelled",
+		}))
+		.unwrap();
+		assert_eq!(call.running_ms, None);
+		assert_eq!(call.taken_ms, None);
+		assert_eq!(call.completed_late_ms, None);
+		assert_eq!(call.request_bytes, None);
+		assert_eq!(call.response_bytes, None);
+		assert_eq!(call.status, CallStatus::Cancelled);
 	}
 
 	#[test]

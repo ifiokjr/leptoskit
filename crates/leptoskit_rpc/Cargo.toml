@@ -21,6 +21,7 @@ http = { workspace = true, optional = true }
 inventory = { workspace = true, optional = true }
 leptos = { workspace = true }
 leptoskit_db = { workspace = true, optional = true }
+leptoskit_devtools_protocol = { workspace = true, optional = true }
 # The retry backoff timer, which covers every host leptoskit_query does, and
 # the cache the client's queries and mutations live in.
 leptoskit_plugin_websocket = { workspace = true, optional = true, default-features = false }
@@ -115,6 +116,9 @@ db = ["server", "dep:chrono", "dep:leptoskit_db", "leptoskit_db/server", "dep:sh
 postgres = ["db", "leptoskit_db/postgres"]
 # Runs operations on SQLite.
 sqlite = ["db", "leptoskit_db/sqlite"]
+# Records every retrying call's attempts for leptoskit's devtools; see
+# `devtools`.
+devtools = ["dep:leptoskit_devtools_protocol"]
 # Serves live queries over a WebSocket at `/live`, on top of the database's
 # change feed. Pick a driver with `postgres` or `sqlite`.
 live = ["server", "db", "dep:futures"]

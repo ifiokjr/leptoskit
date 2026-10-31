@@ -52,10 +52,11 @@ Payloads are `Bytes`, so Rust-to-Rust handoff moves ownership without copying; o
 
 ## Features
 
-| Feature      | What it adds                                                                                                                                                |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `guest`      | The `guest` module for `wasm32` bundles run by the interpreter. Not for browser bundles.                                                                    |
-| `async-host` | `async_host::CancellationToken` and the `PluginFuture` handler type, so a native host can run cancellable async plugin work. Creates no runtime of its own. |
+| Feature      | What it adds                                                                                                                                                                                                     |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `guest`      | The `guest` module for `wasm32` bundles run by the interpreter. Not for browser bundles.                                                                                                                         |
+| `async-host` | `async_host::CancellationToken` and the `PluginFuture` handler type, so a native host can run cancellable async plugin work. Creates no runtime of its own.                                                      |
+| `devtools`   | The `devtools` module: every call's timeline (submitted, running, answered or cancelled, read, answered late), sizes, and status, for leptoskit's devtools. Bounded at 256 records and allocation-free per call. |
 
 The default build pulls in no async runtime, and CI checks that.
 

@@ -134,6 +134,8 @@ pub use server::jobs::job_registration;
 mod channel;
 #[cfg(feature = "client")]
 pub mod client;
+#[cfg(feature = "devtools")]
+pub mod devtools;
 mod jobs;
 pub mod live;
 mod operation;
@@ -221,6 +223,25 @@ impl FnError {
 		matches!(self, Self::Network(_))
 	}
 
+	/// The error's class: `network`, `invalid`, `server`, `decode`, or
+	/// `other`.
+	///
+	/// ```
+	/// use leptoskit_rpc::FnError;
+	///
+	/// assert_eq!(FnError::Network("offline".to_owned()).class(), "network");
+	/// ```
+	#[must_use]
+	pub const fn class(&self) -> &'static str {
+		match self {
+			Self::Network(_) => "network",
+			Self::Invalid(_) => "invalid",
+			Self::Server(_) => "server",
+			Self::Decode(_) => "decode",
+			Self::Other(_) => "other",
+		}
+	}
+
 	/// The human-readable message.
 	#[must_use]
 	pub fn message(&self) -> &str {
@@ -269,14 +290,7 @@ impl FnError {
 
 impl std::fmt::Display for FnError {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let kind = match self {
-			Self::Network(_) => "network",
-			Self::Invalid(_) => "invalid",
-			Self::Server(_) => "server",
-			Self::Decode(_) => "decode",
-			Self::Other(_) => "other",
-		};
-		write!(f, "{kind} error: {}", self.message())
+		write!(f, "{} error: {}", self.class(), self.message())
 	}
 }
 
@@ -378,15 +392,35 @@ pub type RetryFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, FnError>> + 
 /// thread otherwise on native targets, the global `setTimeout` in browser
 /// windows and workers, and whatever [`leptoskit_query::install_sleep`]
 /// installed anywhere else.
+///
+/// With the `devtools` feature, each attempt is recorded for leptoskit's
+/// devtools; see [`devtools`].
 pub fn call_with_retry<T, F>(policy: RetryPolicy, fetch: F) -> RetryFuture<'static, T>
 where
 	T: Send + Sync + 'static,
 	F: Fn() -> Pin<Box<dyn Future<Output = Result<T, FnError>> + Send>> + Send + Sync + 'static,
 {
+	retry_as(std::any::type_name::<F>(), policy, fetch)
+}
+
+/// [`call_with_retry`], naming the call `function` on the devtools timeline:
+/// a type name, trimmed to the function that made the call.
+fn retry_as<T, F>(function: &'static str, policy: RetryPolicy, fetch: F) -> RetryFuture<'static, T>
+where
+	T: Send + Sync + 'static,
+	F: Fn() -> Pin<Box<dyn Future<Output = Result<T, FnError>> + Send>> + Send + Sync + 'static,
+{
+	#[cfg(not(feature = "devtools"))]
+	let _ = function;
 	Box::pin(async move {
 		let mut attempt = 0_u32;
 		loop {
-			match fetch().await {
+			#[cfg(feature = "devtools")]
+			let trace = devtools::Attempt::start(function, attempt + 1);
+			let result = fetch().await;
+			#[cfg(feature = "devtools")]
+			trace.finish(result.as_ref().err());
+			match result {
 				Ok(value) => return Ok(value),
 				Err(error) => {
 					attempt += 1;
@@ -415,7 +449,7 @@ where
 	let fetch = Arc::new(fetch);
 	ArcAsyncDerived::new(move || {
 		let fetch = Arc::clone(&fetch);
-		call_with_retry(policy, move || {
+		retry_as(std::any::type_name::<Fu>(), policy, move || {
 			let fut = fetch();
 			Box::pin(fut)
 		})
@@ -452,6 +486,8 @@ where
 	Action::new(move |input: &I| {
 		let input = input.clone();
 		let action_fn = Arc::clone(&action_fn);
-		call_with_retry(policy, move || Box::pin(action_fn(&input)))
+		retry_as(std::any::type_name::<Fu>(), policy, move || {
+			Box::pin(action_fn(&input))
+		})
 	})
 }

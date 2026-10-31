@@ -13,9 +13,12 @@ description = "Bounded binary calls and events between LeptosKit guests and nati
 [features]
 guest = []
 async-host = ["dep:tokio-util"]
+# Records every call's timeline for leptoskit's devtools; see `devtools`.
+devtools = ["dep:leptoskit_devtools_protocol"]
 
 [dependencies]
 bytes = { workspace = true }
+leptoskit_devtools_protocol = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
