@@ -291,6 +291,7 @@ fn descriptor(
 		internal: false,
 		deprecated: false,
 		tags: &[],
+		scopes: &[],
 	}
 }
 

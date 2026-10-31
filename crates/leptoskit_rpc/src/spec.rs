@@ -87,6 +87,10 @@ pub struct ApiFnDescriptor {
 	pub deprecated: bool,
 	/// `#[api(tag = "...")]`, in order.
 	pub tags: &'static [&'static str],
+	/// `#[api(scope = ...)]`: every scope a third-party app's access token
+	/// must carry to call the function. Empty when only the app's own
+	/// sessions may call it.
+	pub scopes: &'static [&'static str],
 }
 
 /// One argument of an [`ApiFnDescriptor`].
@@ -241,6 +245,20 @@ pub fn descriptors() -> Vec<&'static ApiFnDescriptor> {
 	descriptors
 }
 
+/// The scopes `#[api(scope = ...)]` requires of the function served at
+/// `method` and `path`: `None` when no `#[api]` function is served there,
+/// and an empty slice when one is but declares no scope.
+///
+/// A server that accepts third-party access tokens, such as
+/// `leptoskit_idp`'s layer, lets such a token reach only the routes this
+/// names with at least one scope, and only when the token carries every one
+/// of them.
+pub fn scopes_for(method: &http::Method, path: &str) -> Option<&'static [&'static str]> {
+	inventory::iter::<ApiFnDescriptor>()
+		.find(|descriptor| descriptor.method == *method && descriptor.path == path)
+		.map(|descriptor| descriptor.scopes)
+}
+
 /// Builds the spec from every registered `#[api]` function, internal ones
 /// included; filter with [`ApiSpec::public`] for publication.
 ///
@@ -349,6 +367,11 @@ pub fn collect_from(
 					.tags
 					.iter()
 					.map(|tag| (*tag).to_owned())
+					.collect(),
+				scopes: descriptor
+					.scopes
+					.iter()
+					.map(|scope| (*scope).to_owned())
 					.collect(),
 			}
 		})

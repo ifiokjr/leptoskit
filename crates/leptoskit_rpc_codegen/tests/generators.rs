@@ -301,6 +301,7 @@ fn api_function(name: &str, method: &str, input: HttpInput) -> ApiFunction {
 		internal: false,
 		deprecated: false,
 		tags: Vec::new(),
+		scopes: Vec::new(),
 	}
 }
 
@@ -535,6 +536,7 @@ fn unsupported_encodings_are_skipped_with_the_reason() {
 		internal: false,
 		deprecated: true,
 		tags: Vec::new(),
+		scopes: Vec::new(),
 	});
 	let generated = spec.generate(&GenerateOptions::new(TargetLanguage::TypeScript, "todos"));
 	let cli = spec.generate(&GenerateOptions::new(TargetLanguage::Cli, "todos-cli"));
@@ -586,6 +588,10 @@ fn empty_specs_generate_valid_packages() {
 /// case-colliding enum values, `const` strings, floats, free-form values,
 /// `$ref`s to missing schemas, zero-argument functions, and a function whose
 /// output encoding no client can decode.
+#[expect(
+	clippy::too_many_lines,
+	reason = "one literal fixture reads best top to bottom"
+)]
 fn edge_spec() -> ApiSpec {
 	let mut schemas: BTreeMap<String, serde_json::Value> = BTreeMap::new();
 	schemas.insert(
@@ -677,6 +683,7 @@ fn edge_spec() -> ApiSpec {
 				internal: false,
 				deprecated: false,
 				tags: Vec::new(),
+				scopes: Vec::new(),
 			},
 			ApiFunction {
 				name: "summarize".to_owned(),
@@ -698,6 +705,7 @@ fn edge_spec() -> ApiSpec {
 				internal: false,
 				deprecated: false,
 				tags: Vec::new(),
+				scopes: Vec::new(),
 			},
 			ApiFunction {
 				name: "closed".to_owned(),
@@ -714,6 +722,7 @@ fn edge_spec() -> ApiSpec {
 				internal: false,
 				deprecated: false,
 				tags: Vec::new(),
+				scopes: Vec::new(),
 			},
 			ApiFunction {
 				name: "blob".to_owned(),
@@ -732,6 +741,7 @@ fn edge_spec() -> ApiSpec {
 				internal: false,
 				deprecated: false,
 				tags: Vec::new(),
+				scopes: Vec::new(),
 			},
 		],
 		schemas: schemas.into_iter().collect(),
@@ -856,6 +866,7 @@ fn colliding_spec() -> ApiSpec {
 			internal: false,
 			deprecated: false,
 			tags: Vec::new(),
+			scopes: Vec::new(),
 		}
 	};
 	let param = |name: &str, docs: &str, schema: serde_json::Value| {

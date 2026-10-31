@@ -47,7 +47,9 @@
 //! published RPC: a stable `/api/<name>` route, a JSON Schema description of
 //! its arguments and result, and its doc comment — including the
 //! `# Arguments` section — as documentation. `#[api(internal)]` keeps a
-//! function callable but takes it out of generated clients. Enable the `ssr`
+//! function callable but takes it out of generated clients, and
+//! `#[api(scope = Scope::PostsRead)]` lets apps that sign in with yours call
+//! it with a token carrying that scope (see [`scopes!`]). Enable the `ssr`
 //! feature next to `leptos/ssr`, call
 //! `leptoskit_rpc::spec::export_if_requested()` first in `main`, and
 //! `leptoskit rpc generate` writes typed clients for any language that speak
@@ -68,7 +70,11 @@ use leptos::prelude::Action;
 use leptos::prelude::ArcAsyncDerived;
 use leptos::prelude::ServerFnError;
 pub use leptoskit_rpc_macros::api;
+pub use scopes::ScopeInfo;
+pub use scopes::Scopes;
+pub use scopes::is_scope_name;
 
+pub mod scopes;
 #[cfg(feature = "ssr")]
 pub mod spec;
 

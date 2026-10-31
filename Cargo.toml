@@ -163,6 +163,7 @@ leptoskit_extension = { path = "crates/leptoskit_extension", version = "0.1.0" }
 leptoskit_fmt = { path = "crates/leptoskit_fmt", version = "0.1.0" }
 leptoskit_form = { path = "crates/leptoskit_form", version = "0.1.0" }
 leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.0" }
+leptoskit_idp = { path = "crates/leptoskit_idp", version = "0.1.0" }
 leptoskit_l10n = { path = "crates/leptoskit_l10n", version = "0.1.0" }
 leptoskit_l10n_codegen = { path = "crates/leptoskit_l10n_codegen", version = "0.1.0" }
 leptoskit_lint = { path = "crates/leptoskit_lint", version = "0.1.0" }

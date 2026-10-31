@@ -135,6 +135,8 @@ pub use guards::*;
 #[cfg(all(feature = "axum", any(feature = "postgres", feature = "sqlite")))]
 pub use http::CurrentSession;
 #[cfg(all(feature = "axum", any(feature = "postgres", feature = "sqlite")))]
+pub use http::Delegation;
+#[cfg(all(feature = "axum", any(feature = "postgres", feature = "sqlite")))]
 pub use http::SessionLayer;
 #[cfg(all(feature = "axum", any(feature = "postgres", feature = "sqlite")))]
 pub use http::SessionService;

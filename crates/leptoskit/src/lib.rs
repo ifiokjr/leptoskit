@@ -296,6 +296,13 @@ pub mod auth {
 	pub use leptoskit_auth::*;
 }
 
+#[cfg(feature = "idp")]
+pub mod idp {
+	//! Sign in with your app: an OAuth 2.1 and OpenID Connect provider, with
+	//! the `idp` schema pack, consent, tokens, and typed scopes on `#[api]`.
+	pub use leptoskit_idp::*;
+}
+
 #[cfg(feature = "l10n")]
 pub mod l10n {
 	//! Typed translations: locales, negotiation, plural rules, and the

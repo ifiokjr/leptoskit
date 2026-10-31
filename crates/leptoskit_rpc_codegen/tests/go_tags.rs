@@ -68,6 +68,7 @@ fn go_wire_names_cannot_escape_struct_tags() {
 			internal: false,
 			deprecated: false,
 			tags: Vec::new(),
+			scopes: Vec::new(),
 		});
 	}
 	// Exercise the same JSON parsing boundary as a consumed RPC specification.

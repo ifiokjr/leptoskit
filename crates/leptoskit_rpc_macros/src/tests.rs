@@ -183,6 +183,33 @@ fn options_name_tag_and_crate() {
 }
 
 #[test]
+fn scopes_are_registered_as_names() {
+	let output = expansion(
+		quote!(scope = Scope::PostsRead, scope = "posts:write"),
+		quote! {
+			#[server]
+			pub async fn edit_post(id: u64) -> Result<(), ServerFnError> {
+				Ok(())
+			}
+		},
+	);
+	assert!(
+		output.contains(r#"scopes: &[(Scope::PostsRead).as_str(), "posts:write"]"#),
+		"{output}"
+	);
+}
+
+#[test]
+fn scope_literals_must_be_scope_names() {
+	let (message, underlined) = error(
+		r#"scope = "posts read""#,
+		"#[server] pub async fn ping() -> Result<(), ServerFnError> {}",
+	);
+	assert!(message.contains("printable ASCII"), "{message}");
+	assert_eq!(underlined, r#""posts read""#);
+}
+
+#[test]
 fn internal_functions_say_so() {
 	let output = expansion(
 		quote!(internal),
