@@ -63,10 +63,13 @@ pub struct ExtensionConfig {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub server: Option<String>,
 	/// Extension permissions, added to those the app's plugins need.
+	#[serde(skip_serializing_if = "Vec::is_empty")]
 	pub permissions: Vec<String>,
 	/// Match patterns granted at install.
+	#[serde(skip_serializing_if = "Vec::is_empty")]
 	pub host_permissions: Vec<String>,
 	/// Match patterns the extension asks for at run time.
+	#[serde(skip_serializing_if = "Vec::is_empty")]
 	pub optional_host_permissions: Vec<String>,
 	/// The toolbar button's popup.
 	#[serde(skip_serializing_if = "Option::is_none")]
@@ -82,16 +85,19 @@ pub struct ExtensionConfig {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub new_tab: Option<ExtensionPage>,
 	/// Interfaces shown on other sites' pages.
+	#[serde(skip_serializing_if = "Vec::is_empty")]
 	pub content_scripts: Vec<ContentScript>,
 	/// The background worker: the events it wakes for.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub background: Option<ExtensionBackground>,
 	/// Keyboard shortcuts, by name.
+	#[serde(skip_serializing_if = "BTreeMap::is_empty")]
 	pub commands: BTreeMap<String, ExtensionCommand>,
 	/// Firefox's settings.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub firefox: Option<FirefoxSettings>,
 	/// Safari's settings.
+	#[serde(skip_serializing_if = "SafariSettings::is_default")]
 	pub safari: SafariSettings,
 }
 
@@ -279,6 +285,12 @@ pub struct SafariSettings {
 	/// Appended to `native.package_id` to make the Safari extension's bundle
 	/// identifier, which Apple requires to start with the app's.
 	pub bundle_id_suffix: String,
+}
+
+impl SafariSettings {
+	fn is_default(&self) -> bool {
+		*self == Self::default()
+	}
 }
 
 impl Default for SafariSettings {

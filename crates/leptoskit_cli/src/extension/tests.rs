@@ -3,10 +3,12 @@
 use leptoskit_config::Browser;
 use leptoskit_config::LeptoskitConfig;
 
+use super::declared_permissions;
 use super::manifest::DevManifest;
 use super::manifest::ManifestInput;
 use super::manifest::manifest;
 use super::manifest::store_version;
+use super::plugin_permissions;
 use super::route_matches;
 
 /// Commonplace's configuration: every surface, each injection mode, a
@@ -106,7 +108,7 @@ route = "/"
 "#,
 	);
 	let dev = DevManifest {
-		key: "MIIBIjANBgkq".into(),
+		key: Some("MIIBIjANBgkq".into()),
 		server: "http://127.0.0.1:3000".into(),
 	};
 	let manifest = manifest(&ManifestInput {
@@ -123,6 +125,52 @@ route = "/"
 		serde_json::json!(["http://127.0.0.1/*"])
 	);
 	assert_eq!(manifest["background"]["service_worker"], "background.js");
+}
+
+#[test]
+fn plugins_in_the_client_s_graph_add_their_permissions() {
+	let metadata = serde_json::json!({
+		"packages": [
+			{ "id": "app", "name": "app", "metadata": null },
+			{ "id": "notify", "name": "leptoskit_plugin_notifications",
+			  "metadata": { "leptoskit": { "runtime": { "extension-permissions": ["notifications"] } } } },
+			{ "id": "clip", "name": "leptoskit_plugin_clipboard",
+			  "metadata": { "leptoskit": { "runtime": { "extension-permissions": ["clipboardWrite"] } } } },
+		],
+		"resolve": { "nodes": [
+			{ "id": "app", "deps": [{ "pkg": "notify" }] },
+			{ "id": "notify", "deps": [] },
+			{ "id": "clip", "deps": [] },
+		]},
+	});
+	// The clipboard plugin is in the workspace, but not the app's graph.
+	assert_eq!(declared_permissions(&metadata, "app"), ["notifications"]);
+}
+
+#[test]
+fn repeated_and_unknown_packages_are_skipped() {
+	let metadata = serde_json::json!({
+		"packages": [
+			{ "id": "app", "name": "app", "metadata": null },
+			{ "id": "notify", "name": "notify",
+			  "metadata": { "leptoskit": { "runtime": { "extension-permissions": ["notifications"] } } } },
+		],
+		"resolve": { "nodes": [
+			{ "id": "app", "deps": [{ "pkg": "notify" }, { "pkg": "notify" }, { "pkg": "gone" }] },
+			{ "id": "notify", "deps": [{ "pkg": "app" }] },
+		]},
+	});
+	// The duplicate, the cycle back to the app, and the package that isn't in
+	// the graph are all walked once or skipped.
+	assert_eq!(declared_permissions(&metadata, "app"), ["notifications"]);
+}
+
+#[test]
+fn plugin_permissions_reads_the_workspace_metadata() {
+	let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+	let permissions = plugin_permissions(root, "leptoskit_plugin_notifications")
+		.expect("the workspace's cargo metadata");
+	assert!(permissions.contains(&"notifications".to_owned()));
 }
 
 #[test]

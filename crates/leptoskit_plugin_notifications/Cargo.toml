@@ -17,6 +17,7 @@ apple-type = "NotificationsPlugin"
 android-type = "dev.leptoskit.plugins.notifications.NotificationsPlugin"
 android-context = true
 android-permissions = ["android.permission.POST_NOTIFICATIONS"]
+extension-permissions = ["notifications"]
 
 [features]
 guest = ["leptoskit_bridge/guest"]

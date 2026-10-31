@@ -35,7 +35,9 @@ pub struct ManifestInput<'a> {
 /// What a development build adds.
 pub struct DevManifest {
 	/// The public key that fixes the extension's ID across runs, in base64.
-	pub key: String,
+	/// Chromium derives an unpacked extension's ID from its folder otherwise,
+	/// which is also stable while the folder stays put.
+	pub key: Option<String>,
 	/// The dev server the reload shim polls.
 	pub server: String,
 }
@@ -285,10 +287,10 @@ fn insert_access(
 			}),
 		);
 	}
-	if let Some(dev) = input.dev
+	if let Some(key) = input.dev.and_then(|dev| dev.key.as_ref())
 		&& browser == Browser::Chromium
 	{
-		manifest.insert("key".into(), json!(dev.key));
+		manifest.insert("key".into(), json!(key));
 	}
 }
 

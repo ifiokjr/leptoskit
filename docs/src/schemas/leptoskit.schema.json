@@ -685,13 +685,11 @@
 					"type": "object",
 					"additionalProperties": {
 						"$ref": "#/$defs/ExtensionCommand"
-					},
-					"default": {}
+					}
 				},
 				"content_scripts": {
 					"description": "Interfaces shown on other sites' pages.",
 					"type": "array",
-					"default": [],
 					"items": {
 						"$ref": "#/$defs/ContentScript"
 					}
@@ -717,7 +715,6 @@
 				"host_permissions": {
 					"description": "Match patterns granted at install.",
 					"type": "array",
-					"default": [],
 					"items": {
 						"type": "string"
 					}
@@ -743,7 +740,6 @@
 				"optional_host_permissions": {
 					"description": "Match patterns the extension asks for at run time.",
 					"type": "array",
-					"default": [],
 					"items": {
 						"type": "string"
 					}
@@ -762,7 +758,6 @@
 				"permissions": {
 					"description": "Extension permissions, added to those the app's plugins need.",
 					"type": "array",
-					"default": [],
 					"items": {
 						"type": "string"
 					}
@@ -780,10 +775,7 @@
 				},
 				"safari": {
 					"description": "Safari's settings.",
-					"$ref": "#/$defs/SafariSettings",
-					"default": {
-						"bundle_id_suffix": "SafariExtension"
-					}
+					"$ref": "#/$defs/SafariSettings"
 				},
 				"server": {
 					"description": "The server the extension's API calls reach, such as\n`https://api.example.com`. Its origin becomes a host permission.",

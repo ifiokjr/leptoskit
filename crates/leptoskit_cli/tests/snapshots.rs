@@ -220,6 +220,35 @@ fn web_scaffold_is_pinned_file_by_file() {
 	}
 }
 
+/// The files `--extension` adds or changes. Without the flag, the web
+/// scaffold's snapshots above don't change.
+#[test]
+fn extension_scaffold_is_pinned() {
+	let _version = with_cli_version_masked().bind_to_scope();
+	let scratch = Scratch::new("snap-extension");
+	let output = leptoskit(&scratch.path, &["new", "snapshotted", "--extension"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	insta::assert_snapshot!(
+		"new_extension__stdout",
+		normalize(&stdout(&output), &scratch.path)
+	);
+	let project = scratch.path.join("snapshotted");
+	for file in [
+		leptoskit_config::CONFIG_FILE,
+		"README.md",
+		"snapshotted_app/Cargo.toml",
+		"snapshotted_app/src/lib.rs",
+		"snapshotted_app/src/extension.rs",
+	] {
+		let contents = std::fs::read_to_string(project.join(file))
+			.unwrap_or_else(|error| panic!("read {file}: {error}"));
+		insta::assert_snapshot!(
+			format!("new_extension__{}", file.replace(['/', '\\'], "_")),
+			contents
+		);
+	}
+}
+
 /// The files `--db sqlite` adds or changes. A Postgres scaffold differs only in
 /// its dialect, its `leptoskit_db` driver, and how the server finds the
 /// database, so those are pinned separately.

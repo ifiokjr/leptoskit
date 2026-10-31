@@ -96,7 +96,7 @@ pub fn run(
 	}
 
 	anyhow::ensure!(
-		selection.web || !selection.native.is_empty(),
+		selection.web || selection.extension || !selection.native.is_empty(),
 		"this machine can run none of the platforms in app.platforms"
 	);
 	// Held for the whole loop: dropping the runtime would stop the servers.
@@ -106,12 +106,20 @@ pub fn run(
 	} else {
 		None
 	};
+	let mut extension = if selection.extension {
+		Some(crate::extension::dev::ExtensionDev::start(&root, &runtime)?)
+	} else {
+		None
+	};
 	let native = if selection.native.is_empty() {
 		None
 	} else {
 		let native =
 			native::NativeDev::start(&root, &config, &selection.native, devices, tools, &runtime)?;
-		anyhow::ensure!(web.is_some() || !native.is_empty(), "no platform started");
+		anyhow::ensure!(
+			web.is_some() || extension.is_some() || !native.is_empty(),
+			"no platform started"
+		);
 		(!native.is_empty()).then_some(native)
 	};
 
@@ -207,6 +215,9 @@ pub fn run(
 		}
 		if let Some(web) = &mut web {
 			web.rebuild();
+		}
+		if let Some(extension) = &mut extension {
+			extension.rebuild();
 		}
 		if let Some(native) = &native {
 			if config_changed.swap(false, Ordering::Relaxed) {

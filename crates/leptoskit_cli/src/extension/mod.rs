@@ -12,8 +12,10 @@
 //! └── safari/              copied into the Apple apps' Safari extension
 //! ```
 
+pub mod dev;
 pub mod manifest;
 pub mod pages;
+pub mod test;
 pub mod zip;
 
 use std::path::Path;
@@ -147,6 +149,7 @@ pub fn build_for(release: bool, dev: Option<&DevManifest>, browsers: &[Browser])
 		.filter(|size| assets.join(format!("icon-{size}.png")).is_file())
 		.collect();
 
+	let plugin_permissions = plugin_permissions(&root, &client.name)?;
 	let output_dir = root.join(OUTPUT);
 	let browsers: Vec<Browser> = if dev.is_some() {
 		vec![Browser::Chromium]
@@ -166,7 +169,7 @@ pub fn build_for(release: bool, dev: Option<&DevManifest>, browsers: &[Browser])
 			browser,
 			config: &config,
 			extension: &extension,
-			plugin_permissions: &[],
+			plugin_permissions: &plugin_permissions,
 			icons: &icons,
 			dev,
 		};
@@ -272,6 +275,76 @@ fn write_package(
 		copy_dir(assets, &dir.join("assets"))?;
 	}
 	Ok(())
+}
+
+/// The extension permissions the client's plugins declare in
+/// `[package.metadata.leptoskit.runtime] extension-permissions`, from every
+/// package in its dependency graph, sorted.
+fn plugin_permissions(root: &Path, client: &str) -> Result<Vec<String>> {
+	let output = std::process::Command::new("cargo")
+		.args(["metadata", "--format-version", "1"])
+		.current_dir(root)
+		.output()
+		.context("could not run cargo metadata")?;
+	anyhow::ensure!(
+		output.status.success(),
+		"cargo metadata failed: {}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	let metadata: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+	Ok(declared_permissions(&metadata, client))
+}
+
+/// Walks the resolved graph from `client` and collects what its packages
+/// declare.
+fn declared_permissions(metadata: &serde_json::Value, client: &str) -> Vec<String> {
+	use std::collections::BTreeSet;
+	use std::collections::HashMap;
+
+	let packages: HashMap<&str, &serde_json::Value> = metadata["packages"]
+		.as_array()
+		.into_iter()
+		.flatten()
+		.filter_map(|package| Some((package["id"].as_str()?, package)))
+		.collect();
+	let nodes: HashMap<&str, Vec<&str>> = metadata["resolve"]["nodes"]
+		.as_array()
+		.into_iter()
+		.flatten()
+		.filter_map(|node| {
+			let deps = node["deps"]
+				.as_array()
+				.into_iter()
+				.flatten()
+				.filter_map(|dep| dep["pkg"].as_str())
+				.collect();
+			Some((node["id"].as_str()?, deps))
+		})
+		.collect();
+	let mut stack: Vec<&str> = packages
+		.iter()
+		.filter(|(_, package)| package["name"] == client)
+		.map(|(id, _)| *id)
+		.collect();
+	let mut seen = BTreeSet::new();
+	let mut permissions = BTreeSet::new();
+	while let Some(id) = stack.pop() {
+		if !seen.insert(id) {
+			continue;
+		}
+		if let Some(package) = packages.get(id) {
+			for permission in package["metadata"]["leptoskit"]["runtime"]["extension-permissions"]
+				.as_array()
+				.into_iter()
+				.flatten()
+				.filter_map(serde_json::Value::as_str)
+			{
+				permissions.insert(permission.to_owned());
+			}
+		}
+		stack.extend(nodes.get(id).into_iter().flatten().copied());
+	}
+	permissions.into_iter().collect()
 }
 
 fn copy_dir(from: &Path, to: &Path) -> Result<()> {

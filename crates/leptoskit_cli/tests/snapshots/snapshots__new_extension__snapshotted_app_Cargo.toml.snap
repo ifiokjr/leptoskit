@@ -1,0 +1,38 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+[package]
+name = "snapshotted_app"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+web = ["leptoskit/web", "dep:leptos", "dep:wasm-bindgen"]
+native = ["leptoskit/guest"]
+ios = ["native", "leptoskit/ios"]
+android = ["native", "leptoskit/android"]
+macos = ["native", "leptoskit/macos"]
+windows = ["native", "leptoskit/windows"]
+linux = ["native", "leptoskit/linux"]
+tui = ["native", "leptoskit/tui"]
+csr = ["web", "leptos/csr"]
+hydrate = ["web", "leptos/hydrate"]
+ssr = ["web", "leptos/ssr"]
+# The browser extension: `leptoskit build --platform extension`.
+extension = ["csr", "leptoskit/extension"]
+
+[dependencies]
+snapshotted_shared = { path = "../snapshotted_shared" }
+leptoskit = { version = "=[version]", default-features = false }
+leptos = { version = "0.9.0-rc0", default-features = false, optional = true }
+# The embedded wasm-bindgen CLI accepts exactly its matching library version.
+wasm-bindgen = { version = "=0.2.129", optional = true }
+
+[build-dependencies]
+leptoskit_build = { version = "=[version]", default-features = false }

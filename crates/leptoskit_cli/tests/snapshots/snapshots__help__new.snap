@@ -15,5 +15,6 @@ Options:
       --name <NAME>                    The app name; defaults to the directory name
       --sdk-path <SDK_PATH>            A local leptoskit repository whose crates the project depends on by path instead of the published release
       --db <postgres|sqlite>           Add a database: a crate of tables, migrations, and an example `Note` table the backend serves
+      --extension                      Add a browser extension: the `extension` platform, a popup and a background worker in `[extension]`, and the app's entry points
   -h, --help                           Print help
   -V, --version                        Print version

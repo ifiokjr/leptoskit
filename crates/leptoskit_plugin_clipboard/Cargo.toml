@@ -16,6 +16,7 @@ apple-module = "LeptosKitClipboard"
 apple-type = "ClipboardPlugin"
 android-type = "dev.leptoskit.plugins.clipboard.ClipboardPlugin"
 android-context = true
+extension-permissions = ["clipboardRead", "clipboardWrite"]
 
 [features]
 guest = ["leptoskit_bridge/guest"]
