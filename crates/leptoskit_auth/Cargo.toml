@@ -34,7 +34,7 @@ tower = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 leptoskit_bridge = { workspace = true, optional = true }
-leptoskit_plugin_http = { workspace = true, optional = true, default-features = false, features = ["guest"] }
+leptoskit_plugin_http = { workspace = true, optional = true, features = ["guest"] }
 leptoskit_plugin_secure_store = { workspace = true, optional = true, features = ["guest"] }
 send_wrapper = { workspace = true, optional = true, features = ["futures"] }
 wasm-bindgen = { workspace = true, optional = true }
