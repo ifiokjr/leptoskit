@@ -50,13 +50,25 @@ use leptoskit_query::use_query;
 use serde::Deserialize;
 use serde::Serialize;
 
+pub use self::qr::QrCode;
+pub use self::qr::qr_code;
 use crate::Device;
 use crate::ErrorResponse;
 use crate::Factor;
+use crate::Identity;
+use crate::IdentityInfo;
+use crate::MergeMode;
+use crate::MergeOffer;
 use crate::MfaStatus;
+use crate::Passkey;
+use crate::PasskeyInfo;
+use crate::ProviderInfo;
+use crate::ProviderOutcome;
 use crate::PublicSession;
 use crate::RecoveryCodes;
+use crate::RenamePasskey;
 use crate::Session;
+use crate::StartProvider;
 use crate::TotpSetup;
 
 #[cfg_attr(
@@ -70,6 +82,7 @@ mod browser;
 ))]
 mod native;
 mod protocol;
+mod qr;
 #[cfg(feature = "ssr")]
 mod server;
 #[cfg(all(test, feature = "axum", feature = "sqlite"))]
@@ -162,6 +175,57 @@ pub struct TotpConfirmation {
 	pub recovery_codes: Option<RecoveryCodes>,
 }
 
+/// How [`passkey_sign_in`] asks for a passkey.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PasskeyMode {
+	/// In the browser's own dialog, when the person picks "Sign in with a
+	/// passkey".
+	#[default]
+	Prompt,
+	/// In the email field's autofill, which offers saved passkeys as soon
+	/// as the sign-in page opens. Give the field
+	/// `autocomplete="username webauthn"`. It waits until the person picks
+	/// one, or [`cancel_passkey_sign_in`] stops it; in a browser without
+	/// passkey autofill it fails at once with `unsupported`.
+	Autofill,
+}
+
+/// A passkey that was just added.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PasskeyAdded {
+	/// The passkey.
+	pub passkey: PasskeyInfo,
+	/// The session, now at `aal2`.
+	pub session: PublicSession,
+	/// New recovery codes, to show once, when the account had none.
+	pub recovery_codes: Option<RecoveryCodes>,
+}
+
+/// What [`merge_accounts`] needs: the person's go-ahead, and when the other
+/// account has two-step verification, its second factor.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MergeInput {
+	/// What happens to the other account's data.
+	pub mode: Option<MergeMode>,
+	/// Must be `true`: a merge can't be undone.
+	pub confirm: bool,
+	/// A code from the other account's authenticator app, or one of its
+	/// recovery codes.
+	pub code: Option<String>,
+	/// Prove the other account with one of its passkeys instead.
+	pub passkey: bool,
+}
+
+impl std::fmt::Debug for MergeInput {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("MergeInput")
+			.field("mode", &self.mode)
+			.field("confirm", &self.confirm)
+			.field("passkey", &self.passkey)
+			.finish_non_exhaustive()
+	}
+}
+
 /// What every target's client can do. The scopes call it.
 pub(crate) trait Api: Send + Sync + 'static {
 	fn session(&self) -> Pending<'_, Option<PublicSession>>;
@@ -179,6 +243,23 @@ pub(crate) trait Api: Send + Sync + 'static {
 	fn revoke(&self, id: Id<Session>) -> Pending<'_, bool>;
 	fn revoke_others(&self) -> Pending<'_, ()>;
 	fn sign_out_everywhere(&self) -> Pending<'_, ()>;
+	fn passkey_sign_in(&self, mode: PasskeyMode) -> Pending<'_, PublicSession>;
+	fn cancel_passkey(&self);
+	fn add_passkey(&self, name: Option<String>) -> Pending<'_, PasskeyAdded>;
+	fn complete_sign_in_with_passkey(&self) -> Pending<'_, PublicSession>;
+	fn step_up_with_passkey(&self) -> Pending<'_, PublicSession>;
+	fn passkeys(&self) -> Pending<'_, Vec<PasskeyInfo>>;
+	fn rename_passkey(&self, input: RenamePasskey) -> Pending<'_, ()>;
+	fn remove_passkey(&self, id: Id<Passkey>) -> Pending<'_, ()>;
+	fn providers(&self) -> Pending<'_, Vec<ProviderInfo>>;
+	fn start_provider(&self, input: StartProvider, link: bool) -> Pending<'_, ()>;
+	fn continue_provider_sign_up(&self) -> Pending<'_, PublicSession>;
+	fn provider_outcome(&self) -> Option<ProviderOutcome>;
+	fn identities(&self) -> Pending<'_, Vec<IdentityInfo>>;
+	fn unlink_identity(&self, id: Id<Identity>) -> Pending<'_, ()>;
+	fn merge_offer(&self) -> Pending<'_, Option<MergeOffer>>;
+	fn merge_accounts(&self, input: MergeInput) -> Pending<'_, ()>;
+	fn cancel_merge(&self) -> Pending<'_, ()>;
 }
 
 /// A call to the server, in flight.
@@ -231,11 +312,9 @@ fn backend(config: ClientConfig) -> Arc<dyn Api> {
 /// In the browser: `fetch`, and the cookie.
 #[cfg(all(feature = "web", not(feature = "guest"), target_arch = "wasm32"))]
 fn backend(config: ClientConfig) -> Arc<dyn Api> {
-	Arc::new(protocol::Remote::new(
-		config,
-		browser::Fetch,
-		browser::Cookie,
-	))
+	Arc::new(
+		protocol::Remote::new(config, browser::Fetch, browser::Cookie).platform(browser::Browser),
+	)
 }
 
 /// Anywhere else there's no way to reach the server, and each call says so.
@@ -429,5 +508,232 @@ pub fn sign_out_everywhere_mutation() -> MutationScope<(), (), ErrorResponse> {
 	MutationScope::new(|()| async { api().sign_out_everywhere().await }).with_on_success(|args| {
 		args.client.set_query_data(&session(), (), None);
 		args.client.set_query_data(&devices(), (), Vec::new());
+	})
+}
+
+/// Signs in with a passkey: in the browser's dialog, or from the email
+/// field's autofill. A passkey that verifies its user is two factors in one,
+/// so there's no second step. On success, the session query holds the new
+/// session.
+///
+/// Fails with `passkey_failed`, `cancelled` when the person closes the
+/// prompt or [`cancel_passkey_sign_in`] stops it, `disabled`, `locked`,
+/// `rate_limited`, or `unsupported` where the device can't do passkeys yet,
+/// as in native apps today.
+pub fn passkey_sign_in() -> MutationScope<PasskeyMode, PublicSession, ErrorResponse> {
+	MutationScope::new(|mode: PasskeyMode| async move { api().passkey_sign_in(mode).await })
+		.with_on_success(|args| {
+			args.client.set_query_data(&session(), (), Some(args.data));
+		})
+}
+
+/// Stops a passkey request that's waiting, such as the autofill one when
+/// the person signs in another way.
+pub fn cancel_passkey_sign_in() {
+	api().cancel_passkey();
+}
+
+/// Adds a passkey to the signed-in person's account, named as given or
+/// after the device. On success, the session query holds the elevated
+/// session, the passkeys and two-step queries refetch, and an account that
+/// had no recovery codes gets them, to show once.
+///
+/// Fails with `reauthenticate`, `step_up_required`, `passkey_failed`,
+/// `cancelled`, or `unsupported`.
+pub fn add_passkey() -> MutationScope<Option<String>, PasskeyAdded, ErrorResponse> {
+	MutationScope::new(|name: Option<String>| async move { api().add_passkey(name).await })
+		.with_on_success_async(|args| {
+			async move {
+				args.client
+					.set_query_data(&session(), (), Some(args.data.session.clone()));
+				args.client.invalidate_scope(&passkeys()).await;
+				args.client.invalidate_scope(&mfa()).await;
+			}
+		})
+}
+
+/// Finishes signing in with one of the account's passkeys, after
+/// [`verify_code`] answered [`SignInStep::SecondFactor`] with
+/// [`Factor::Passkey`] among its factors.
+///
+/// Fails with `passkey_failed` (try again), `sign_in_expired`,
+/// `cancelled`, or `unsupported`.
+pub fn complete_sign_in_with_passkey() -> MutationScope<(), PublicSession, ErrorResponse> {
+	MutationScope::new(|()| async { api().complete_sign_in_with_passkey().await }).with_on_success(
+		|args| {
+			args.client.set_query_data(&session(), (), Some(args.data));
+		},
+	)
+}
+
+/// Confirms it's still the signed-in person with one of their passkeys,
+/// when an action answered `step_up_required`. Then try the action again.
+///
+/// Fails with `passkey_failed`, `cancelled`, `not_enrolled`, or
+/// `unsupported`.
+pub fn step_up_with_passkey() -> MutationScope<(), PublicSession, ErrorResponse> {
+	MutationScope::new(|()| async { api().step_up_with_passkey().await }).with_on_success(|args| {
+		args.client.set_query_data(&session(), (), Some(args.data));
+	})
+}
+
+/// The passkeys query: the signed-in person's passkeys, newest first.
+pub fn passkeys() -> QueryScope<(), Vec<PasskeyInfo>, ErrorResponse> {
+	QueryScope::new(|()| async { api().passkeys().await })
+}
+
+/// The signed-in person's passkeys, as a query handle.
+#[track_caller]
+pub fn use_passkeys() -> QueryHandle<Vec<PasskeyInfo>, ErrorResponse> {
+	use_query(passkeys(), || ())
+}
+
+/// Renames a passkey. On success, the passkeys query refetches.
+///
+/// Fails with `invalid_name` or `not_found`.
+pub fn rename_passkey() -> MutationScope<RenamePasskey, (), ErrorResponse> {
+	MutationScope::new(|input: RenamePasskey| async move { api().rename_passkey(input).await })
+		.with_on_success_async(|args| {
+			async move {
+				args.client.invalidate_scope(&passkeys()).await;
+			}
+		})
+}
+
+/// Removes a passkey, after step-up. Every other device is signed out. On
+/// success, the passkeys, two-step, and devices queries refetch.
+///
+/// Fails with `step_up_required`, `not_found`, or `last_sign_in_method`.
+pub fn remove_passkey() -> MutationScope<Id<Passkey>, (), ErrorResponse> {
+	MutationScope::new(|id: Id<Passkey>| async move { api().remove_passkey(id).await })
+		.with_on_success_async(|args| {
+			async move {
+				args.client.invalidate_scope(&passkeys()).await;
+				args.client.invalidate_scope(&mfa()).await;
+				args.client.invalidate_scope(&devices()).await;
+			}
+		})
+}
+
+/// The providers query: the third-party sign-ins the server offers.
+pub fn providers() -> QueryScope<(), Vec<ProviderInfo>, ErrorResponse> {
+	QueryScope::new(|()| async { api().providers().await })
+}
+
+/// The server's providers, as a query handle, for a row of "Continue with
+/// …" buttons.
+#[track_caller]
+pub fn use_providers() -> QueryHandle<Vec<ProviderInfo>, ErrorResponse> {
+	use_query(providers(), || ())
+}
+
+/// Signs in with a provider: the page goes to its sign-in page, and comes
+/// back to `redirect_to` with the outcome in its query, which
+/// [`provider_outcome`] reads.
+///
+/// Fails with `unknown_provider`, `invalid_redirect`, `rate_limited`, or
+/// `unsupported` in native apps until their system-browser plugin arrives.
+pub fn sign_in_with_provider() -> MutationScope<StartProvider, (), ErrorResponse> {
+	MutationScope::new(
+		|input: StartProvider| async move { api().start_provider(input, false).await },
+	)
+}
+
+/// Connects a provider to the signed-in person's account, as
+/// [`sign_in_with_provider`] does. Coming back, the outcome is `linked`,
+/// `already_linked`, or `merge` when the provider's account is another
+/// account here: then [`merge_offer`] describes it.
+///
+/// Also fails with `reauthenticate` or `step_up_required`.
+pub fn link_provider() -> MutationScope<StartProvider, (), ErrorResponse> {
+	MutationScope::new(
+		|input: StartProvider| async move { api().start_provider(input, true).await },
+	)
+}
+
+/// After the outcome `email_in_use`: creates a separate account with the
+/// provider, without the address another account already has. On success,
+/// the session query holds the new session.
+///
+/// Fails with `sign_in_expired`, or `unsupported` in native apps.
+pub fn continue_provider_sign_up() -> MutationScope<(), PublicSession, ErrorResponse> {
+	MutationScope::new(|()| async { api().continue_provider_sign_up().await }).with_on_success(
+		|args| {
+			args.client.set_query_data(&session(), (), Some(args.data));
+		},
+	)
+}
+
+/// How a provider sign-in that just came back ended, from the page's
+/// query, or `None` when the page didn't come from one. After
+/// `signed_in`, refetch the session query.
+pub fn provider_outcome() -> Option<ProviderOutcome> {
+	api().provider_outcome()
+}
+
+/// The connected accounts query: the providers the signed-in person can
+/// sign in with.
+pub fn identities() -> QueryScope<(), Vec<IdentityInfo>, ErrorResponse> {
+	QueryScope::new(|()| async { api().identities().await })
+}
+
+/// The signed-in person's connected accounts, as a query handle.
+#[track_caller]
+pub fn use_identities() -> QueryHandle<Vec<IdentityInfo>, ErrorResponse> {
+	use_query(identities(), || ())
+}
+
+/// Disconnects a provider, after a fresh sign-in or step-up. On success,
+/// the connected accounts query refetches.
+///
+/// Fails with `reauthenticate`, `step_up_required`, `not_found`, or
+/// `last_sign_in_method`.
+pub fn unlink_identity() -> MutationScope<Id<Identity>, (), ErrorResponse> {
+	MutationScope::new(|id: Id<Identity>| async move { api().unlink_identity(id).await })
+		.with_on_success_async(|args| {
+			async move {
+				args.client.invalidate_scope(&identities()).await;
+			}
+		})
+}
+
+/// The merge offer query: what merging would do, after connecting a
+/// provider found another account, or `None`.
+pub fn merge_offer() -> QueryScope<(), Option<MergeOffer>, ErrorResponse> {
+	QueryScope::new(|()| async { api().merge_offer().await })
+}
+
+/// The merge offer, as a query handle.
+#[track_caller]
+pub fn use_merge_offer() -> QueryHandle<Option<MergeOffer>, ErrorResponse> {
+	use_query(merge_offer(), || ())
+}
+
+/// Merges the other account into this one, as the offer says. It can't be
+/// undone: `confirm` must be `true`. On success, the merge offer, connected
+/// accounts, passkeys, and two-step queries refetch.
+///
+/// Fails with `reauthenticate` or `step_up_required` (for this account, or
+/// when the other account's second factor is missing), `invalid_code` or
+/// `passkey_failed` (for the other account's), `sign_in_expired` when the
+/// offer is gone, or `unsupported` without `confirm`.
+pub fn merge_accounts() -> MutationScope<MergeInput, (), ErrorResponse> {
+	MutationScope::new(|input: MergeInput| async move { api().merge_accounts(input).await })
+		.with_on_success_async(|args| {
+			async move {
+				args.client.invalidate_scope(&merge_offer()).await;
+				args.client.invalidate_scope(&identities()).await;
+				args.client.invalidate_scope(&passkeys()).await;
+				args.client.invalidate_scope(&mfa()).await;
+			}
+		})
+}
+
+/// Drops the merge offer. On success, the merge offer query refetches.
+pub fn cancel_merge() -> MutationScope<(), (), ErrorResponse> {
+	MutationScope::new(|()| async { api().cancel_merge().await }).with_on_success_async(|args| {
+		async move {
+			args.client.invalidate_scope(&merge_offer()).await;
+		}
 	})
 }

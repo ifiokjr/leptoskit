@@ -18,7 +18,7 @@ export AUTH_ENCRYPTION_KEYS="$(date +%Y-%m):$(openssl rand 32 | basenc --base64u
 leptoskit dev
 ```
 
-The app opens on a sign-in screen. Type any address, then open `/_leptoskit/mail` to read the code, which a debug build keeps instead of sending. Once you're signed in, the bar at the top lists where you're signed in, turns on [two-step verification](#two-step-verification), and signs you out. The project has a SQLite database unless `--db postgres` picks Postgres, a `User` table that gets a row for each new account, and the server's routes and layer.
+The app opens on a sign-in screen. Type any address, then open `/_leptoskit/mail` to read the code, which a debug build keeps instead of sending. Once you're signed in, the bar at the top lists where you're signed in, opens the security screen for [passkeys](#passkeys), [two-step verification](#two-step-verification), and [connected accounts](#sign-in-with-other-sites), and signs you out. The project has a SQLite database unless `--db postgres` picks Postgres, a `User` table that gets a row for each new account, and the server's routes and layer.
 
 For an app you already have, generate the screens:
 
@@ -26,7 +26,7 @@ For an app you already have, generate the screens:
 leptoskit generate auth
 ```
 
-It writes three screens into your app's `src/auth/` folder: an email-and-code sign-in screen, which also asks for the second step when an account has one; a "where you're signed in" screen; and a two-step verification screen. It also adds what they need:
+It writes three screens into your app's `src/auth/` folder: a sign-in screen, with an emailed code, a passkey button and the email field's passkey suggestions, a "Continue with …" button for each provider, and the second step when an account has one; a "where you're signed in" screen; and a security screen for passkeys, an authenticator app with its QR code, connected accounts, and merging accounts. It also adds what they need:
 
 - the `[auth]` table in `leptoskit.toml`, and the `auth`, `leptos`, and `query` features of `leptoskit`;
 - `/sign-in`, `/devices`, and `/security` routes, if your app uses the [file router](10-file-routes.md);
@@ -131,7 +131,7 @@ let auth = auth::Auth::from_config(&db, &config)?
 echo "AUTH_ENCRYPTION_KEYS=$(date +%Y-%m):$(openssl rand 32 | basenc --base64url | tr -d =)"
 ```
 
-The newest key hashes new codes and encrypts new authenticator secrets, and any listed key checks or decrypts one. To rotate, put a new key first and keep the old one listed: until the codes it hashed have expired, and for as long as authenticator secrets encrypted with it are in use. Recovery codes hashed with a removed key stop working, so ask people to make new ones before you remove it. Keep the variable in your secret store.
+The newest key hashes new codes and encrypts new authenticator secrets, and any listed key checks or decrypts one. To rotate, put a new key first, keep the old one listed, and run `leptoskit auth rotate-keys` to re-encrypt what's stored. Recovery codes hashed with a removed key stop working, so ask people to make new ones before you remove it. Keep the variable in your secret store.
 
 `Auth::builder(&db, keys)` configures the same things in code, for tests and for apps without a `leptoskit.toml`.
 
@@ -334,7 +334,7 @@ Each `Device` has the session's `device` label, when it signed in, when it was l
 
 An emailed code proves someone can read the inbox, so whoever gets into a person's email can also get into their account. Two-step verification closes that gap: the person turns on an authenticator app, such as 1Password, Google Authenticator, or the iPhone's Passwords app, and from then on signing in asks for the six-digit code it shows after the emailed one.
 
-It's optional, and each person turns it on for themselves. The generated two-step verification screen does all of it; this section explains what that screen calls.
+It's optional unless you [require it](#require-it), and each person turns it on for themselves. The generated security screen does all of it; this section explains what that screen calls.
 
 ### Turn it on
 
@@ -351,7 +351,7 @@ enroll.mutate(());                              // TotpSetup { secret, uri }
 confirm.mutate(code_from_the_app);              // TotpConfirmation { session, recovery_codes }
 ```
 
-1. `enroll_totp()` makes a new secret. Show the person its `secret`, grouped for typing, or its `otpauth://` `uri`, which apps that take a link accept.
+1. `enroll_totp()` makes a new secret. Show its `uri` as a QR code for the phone's camera, and its `secret`, grouped for typing. `auth::client::qr_code(&setup.uri)` makes the code on the device, so the secret never goes to another service; draw its `path()` in a `Vector` (every platform but HarmonyOS draws one), or use its `svg()` on the web.
 2. They add it to their app, and type the code it shows. `confirm_totp()` turns the authenticator on only if that code matches, so a mistyped secret never locks anyone out.
 3. The first time, they also get ten **recovery codes**, such as `K7QMR-2XDPA`. Each signs in once, in place of the app, if the phone is lost. Show them once and ask the person to save them; the server keeps only their hashes.
 
@@ -417,6 +417,191 @@ Authenticator codes and recovery codes work the same in the browser and in nativ
 - Attempts are limited per account and per IP address, on top of the second step's own five.
 - Every change, failed code, and recovery code use is recorded in the audit trail, and the account is emailed about changes.
 
+### Require it
+
+`mfa` in `[auth]` decides who must use two-step verification:
+
+```toml
+[auth]
+mfa = "required" # everyone; the default is "optional"
+required_for = ["Admin"] # or only people with these roles
+```
+
+For `required_for`, tell sign-in how to read an account's roles:
+
+```rust
+impl auth::Roles for User {
+	async fn roles(db: &db::Db, account: db::Id<auth::Account>) -> auth::Result<Vec<String>> {
+		let user = User::get(db, account.into()).await?;
+		Ok(vec![user.role.to_string()])
+	}
+}
+
+let auth = auth::Auth::from_config(&db, &config)?
+	.on_sign_up::<User>()
+	.roles::<User>()
+	.build()?;
+```
+
+Someone who must use it, and hasn't, still signs in with their emailed code, but their session can only set up a passkey or an authenticator app, read its own status, and sign out. Everything else answers `mfa_required`, and your policies see no one. `use_mfa()` reports `required: true`, so the generated screens send them to the security screen; once a factor is on, the session works normally. The last passkey or authenticator of an account that must have one can't be removed (`last_sign_in_method`).
+
+### Locked accounts
+
+After 20 wrong second factors in a day (authenticator codes, recovery codes, or passkeys, at sign-in or step-up), the account is locked for an hour, and its owner is emailed: getting that far needed their emailed code, or a device they're signed in on. Signing in answers `locked` until then. Wrong emailed codes don't count, since anyone who knows an address can get those wrong. `Limits::failures_before_lock` and `Limits::lock_for` change this, and `auth.unlock(account, &request)` lifts a lock early.
+
+When someone is locked out of their own two-step verification, such as after losing both their phone and their recovery codes, an administrator can check who they are another way and call `auth.reset_mfa(account, &request)`. It removes the account's authenticator, recovery codes, and passkeys, lifts any lock, signs out every device, and emails the account. The emailed code alone then signs them in.
+
+## Passkeys
+
+An emailed code can be phished: a fake site asks for it and passes it on. A passkey can't. It's a key pair the person's device makes for your site alone, unlocked with their fingerprint, face, or screen lock, and the browser only lets your origin use it. It's also faster than a code: one tap.
+
+Passkeys need the `auth-passkeys` feature on your server's `leptoskit` dependency, and `[auth] origin`: its host is the relying party, so `https://myapp.com` makes passkeys that work on `myapp.com` and nowhere else. The feature builds OpenSSL from source the first time, which adds a minute or two to a clean build. Without it, the functions below still exist, and the server answers `unsupported`.
+
+### Add one
+
+From the security screen, after a recent sign-in (or step-up, once the account has a second factor):
+
+```rust
+use leptoskit::auth::client::add_passkey;
+
+let add = use_mutation(add_passkey());
+add.mutate(Some("Work laptop".into()));        // PasskeyAdded { passkey, session, recovery_codes }
+```
+
+The browser asks the person to confirm with their fingerprint, face, or screen lock. The passkey is named as given, or after the device, such as "Passkey on Safari on macOS". Like turning on an authenticator, adding one emails the account, moves the session to `aal2` with a new token, and gives an account without recovery codes ten of them, shown once.
+
+### Sign in with one
+
+```rust
+use leptoskit::auth::client::PasskeyMode;
+use leptoskit::auth::client::passkey_sign_in;
+
+let passkey = use_mutation(passkey_sign_in());
+passkey.mutate(PasskeyMode::Prompt);           // "Sign in with a passkey"
+passkey.mutate(PasskeyMode::Autofill);         // offered in the email field's suggestions
+```
+
+No email address is needed: the device offers the person's passkeys for your site. `Autofill` waits for them to pick one from the email field's suggestions, so start it when the screen opens, and give the field `.autocomplete("username webauthn")`. `cancel_passkey_sign_in()` stops it when they choose another way. A passkey that checks who's holding the device is two factors at once, so passkey sign-in starts an `aal2` session, with no second step.
+
+Once an account has a passkey, signing in with an emailed code asks for it as the second step, with `Factor::Passkey` first in the prompt's factors. `complete_sign_in_with_passkey()` finishes, and `step_up_with_passkey()` answers `step_up_required`. Recovery codes stand in for a lost passkey, as they do for a lost phone.
+
+### Manage them
+
+`use_passkeys()` lists them, newest first: each one's name, whether it's synced to the person's other devices, when it was added, and when it was last used. `rename_passkey()` renames one; `remove_passkey()` removes one after step-up, and signs out every other device.
+
+### On every platform
+
+| Platform                                                               | Passkeys                                                                            |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Web                                                                    | Everything above; `Autofill` where the browser offers passkeys in suggestions       |
+| iOS, Android, macOS, Windows, Linux, and HarmonyOS (experimental) apps | The same functions answer `unsupported`; listing, renaming, and removing still work |
+
+Native passkeys need the platforms' own passkey APIs, which arrive with a plugin; until then, native apps sign in with an emailed code and an authenticator app. Your code doesn't change when they arrive.
+
+### How it's kept safe
+
+- The server stores only public keys. A copy of the database signs no one in.
+- Each ceremony's challenge is kept on the server, encrypted, for five minutes, and works once, even when the answer is wrong. The browser holds only a random token in an `HttpOnly` cookie.
+- Passkeys must verify their user, and a signature counter that goes backwards, which can mean a cloned key, is refused.
+- A passkey from another site, or registered to another account, is refused, and the attempt recorded.
+
+## Sign in with other sites
+
+Many people would rather "Continue with Google" than wait for an email. leptoskit signs in with Google, Apple, Microsoft, and GitHub, and with any OpenID Connect provider, such as Okta, Auth0, Keycloak, or your company's Entra tenant. Each has a [setup page](auth/providers/google.md).
+
+Add one from the command line, which writes its `[auth.providers.<id>]` table and prints its setup steps:
+
+```sh
+leptoskit auth provider add google
+leptoskit auth provider add company --issuer https://sso.example.com
+```
+
+```toml
+[auth.providers.google]
+client_id_env = "GOOGLE_CLIENT_ID"
+client_secret_env = "GOOGLE_CLIENT_SECRET"
+
+[auth.providers.company]
+name = "Company SSO"
+issuer = "https://sso.example.com"
+client_id_env = "COMPANY_CLIENT_ID"
+client_secret_env = "COMPANY_CLIENT_SECRET"
+```
+
+Then turn on the `auth-providers` feature on your server's `leptoskit` dependency. `Auth::from_config` reads each provider's secrets from the variables it names; `AuthBuilder::provider(auth::Provider::google(…))` does the same in code.
+
+### Signing in
+
+```rust
+use leptoskit::auth::StartProvider;
+use leptoskit::auth::client::provider_outcome;
+use leptoskit::auth::client::sign_in_with_provider;
+use leptoskit::auth::client::use_providers;
+
+let providers = use_providers();               // [ProviderInfo { id: "google", name: "Google" }, …]
+let start = use_mutation(sign_in_with_provider());
+start.mutate(StartProvider { provider: "google".into(), redirect_to: Some("/notes".into()) });
+```
+
+The page goes to the provider's sign-in page, and comes back to `redirect_to` (a path on your site; anything else is refused) with the outcome in its query, which `provider_outcome()` reads:
+
+| Outcome            | Meaning                                                                                   |
+| ------------------ | ----------------------------------------------------------------------------------------- |
+| `SignedIn`         | Signed in, or signed up                                                                   |
+| `SecondFactor(..)` | The account has two-step verification; finish with a code or a passkey, as after an email |
+| `EmailInUse`       | Another account already has the provider's email address; see below                       |
+| `Linked`           | Connected to the signed-in account                                                        |
+| `AlreadyLinked`    | It was connected already                                                                  |
+| `Merge`            | It belongs to another account here, which can be merged into this one                     |
+| `Failed(code)`     | It didn't work: `cancelled`, `sign_in_expired`, `provider`, `locked`, …                   |
+
+Who someone is at a provider is the provider's own ID for them, never their email address: some providers let people set any address, and trusting it is how accounts get taken over. So a provider sign-in never signs in to an account just because the email matches. When it does match, the outcome is `EmailInUse`: the person can sign in to that account with their email and connect the provider from its security screen, or `continue_provider_sign_up()` for a separate account without that address. An address is only stored as verified when the provider vouches for it; Microsoft's never is.
+
+### Connecting, disconnecting, and merging
+
+From the security screen, `link_provider()` connects a provider to the signed-in account, after a recent sign-in or step-up. `use_identities()` lists connected accounts, and `unlink_identity()` disconnects one, as long as the account keeps a way to sign in.
+
+If the provider's account already has its own account here, say from signing up with GitHub months ago, the outcome is `Merge`. `use_merge_offer()` describes the other account: when it was created, and the email addresses, connected accounts, and passkeys that would move. `merge_accounts()` merges it after the person confirms, with `confirm: true`:
+
+```rust
+use leptoskit::auth::client::MergeInput;
+use leptoskit::auth::client::merge_accounts;
+
+let merge = use_mutation(merge_accounts());
+merge.mutate(MergeInput { confirm: true, code: Some(code_from_its_authenticator), ..MergeInput::default() });
+```
+
+Merging moves the other account's email addresses, connected accounts, and passkeys here, signs it out everywhere, and deletes it and its data through your tables' `on_delete = cascade`. Its second factors are discarded; this account's stay. It can't be undone. It needs a recent sign-in or step-up on this account, and, when the other account has two-step verification, its code or passkey too, so a merge never gets around either. Both accounts' addresses are emailed. `auth.resolve_merged(old_id)` returns the account an old ID became, for links you stored. Bringing the other account's data across, rather than deleting it, isn't available yet.
+
+### On every platform
+
+| Platform                                                               | Third-party sign-in                                                                                                                  |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Web                                                                    | Everything above                                                                                                                     |
+| iOS, Android, macOS, Windows, Linux, and HarmonyOS (experimental) apps | `sign_in_with_provider()`, `link_provider()`, and `continue_provider_sign_up()` answer `unsupported`; listing and disconnecting work |
+
+Native apps need the system browser to sign in with another site safely, which arrives with a plugin; your code doesn't change when it does.
+
+### How it's kept safe
+
+- Every flow uses PKCE (`S256`), a random `state`, and, for OpenID Connect, a `nonce`. They're kept on the server, encrypted, for ten minutes, and the browser keeps only a random token in an `HttpOnly` cookie, so a sign-in only finishes in the browser that started it.
+- ID tokens must be signed by a key the provider publishes (RS256, PS256, ES256, ES384, or EdDSA; never `none` or a shared secret), for your client, from the right issuer (for Microsoft, the person's own tenant), unexpired, and with the flow's nonce.
+- Apple posts its answer from its own site, which `SameSite` cookies don't follow, so that post only gets a page that posts it again from your site; it never signs anyone in by itself.
+- Provider secrets come from environment variables; Apple's client secret is signed for each request from your `.p8` key, so there's nothing to rotate.
+
+## Check the configuration
+
+`leptoskit auth doctor` checks `[auth]` against the environment it runs in, and never prints a secret:
+
+- that each variable is set, and the keys parse;
+- the origin, and the relying party passkeys belong to;
+- where each provider sends people back, and whether its built-in definition was checked within the last year;
+- that an iOS app with third-party sign-in also offers Sign in with Apple, as the App Store expects.
+
+With `--release`, it fails on what a release build mustn't have: a plain `http` origin, the development mailbox, or a plain `http` origin in `[native.plugin-options.http]` origins, which would send a native app's tokens unencrypted. Run it in CI before you ship.
+
+`leptoskit auth rotate-keys` re-encrypts stored authenticator secrets, and sign-ins in progress, under the newest key in `AUTH_ENCRYPTION_KEYS`, so you can retire an old key. It's safe to run while the app is running, and again. Recovery codes and emailed codes are hashes, which can't be re-encrypted: keep the old key listed until people have made new recovery codes, or accept that their old ones stop working.
+
 ## Sessions
 
 Every token is 256 random bits. The device keeps it, and the database keeps only its SHA-256 hash, so a copy of the database signs no one in. Tokens aren't signed, and carry nothing a script could read or forge: the server looks each one up on every request, so ending a session takes effect immediately, with no lifetime to wait out. The layer turns the token back into the person on each request; outside a request, `auth.resolve(&token)` does the same.
@@ -469,6 +654,8 @@ Every step is rate limited, by address and by IP address:
 | Sending code                   | 5 per address per 15 minutes; 20 per IP per hour     |
 | Checking one                   | 30 per IP per 15 minutes, and 5 guesses per code     |
 | Authenticator or recovery code | 10 per account per 15 minutes, and 5 per second step |
+| Starting a passkey or provider | 120 per IP per 15 minutes                            |
+| Wrong second factors           | 20 per account per day, then locked for an hour      |
 
 Change them with `Limits`. An attempt over the limit fails with `AuthError::RateLimited`, which says how long to wait. The counters live in `auth.rate_limits`, and concurrent attempts can't both take the last one. To count somewhere faster, such as Redis, implement `auth::RateLimiter`.
 

@@ -2,30 +2,62 @@
 source: crates/leptoskit_cli/tests/snapshots.rs
 expression: contents
 ---
-//! "Two-step verification": turning an authenticator app on and off, and
-//! the recovery codes that stand in for it when the phone is lost.
+//! "Security": the ways to sign in and to prove it's you. Passkeys, an
+//! authenticator app with the recovery codes that stand in for it when the
+//! phone is lost, and connected accounts such as Google, which can also
+//! bring another account's sign-in methods into this one.
 //!
-//! Changing these asks the person to prove it's them again. With an
-//! authenticator on, the screen asks for a code from it and then tries the
-//! change again; without one, signing in again is the only proof left.
+//! Changing these asks the person to prove it's them again. With a passkey
+//! or an authenticator on, the screen asks for one and then tries the change
+//! again; without either, signing in again is the only proof left.
 
 use leptoskit::auth::ErrorResponse;
+use leptoskit::auth::Factor;
+use leptoskit::auth::Identity;
+use leptoskit::auth::IdentityInfo;
+use leptoskit::auth::MergeOffer;
 use leptoskit::auth::MfaStatus;
+use leptoskit::auth::Passkey;
+use leptoskit::auth::PasskeyInfo;
+use leptoskit::auth::ProviderInfo;
+use leptoskit::auth::ProviderOutcome;
 use leptoskit::auth::PublicSession;
 use leptoskit::auth::RecoveryCodes;
+use leptoskit::auth::StartProvider;
 use leptoskit::auth::TotpSetup;
+use leptoskit::auth::client::MergeInput;
+use leptoskit::auth::client::PasskeyAdded;
 use leptoskit::auth::client::TotpConfirmation;
+use leptoskit::auth::client::add_passkey;
+use leptoskit::auth::client::cancel_merge;
 use leptoskit::auth::client::confirm_totp;
 use leptoskit::auth::client::disable_totp;
 use leptoskit::auth::client::enroll_totp;
+use leptoskit::auth::client::identities;
+use leptoskit::auth::client::link_provider;
+use leptoskit::auth::client::merge_accounts;
+use leptoskit::auth::client::merge_offer;
 use leptoskit::auth::client::mfa;
+use leptoskit::auth::client::passkeys;
+use leptoskit::auth::client::provider_outcome;
+use leptoskit::auth::client::qr_code;
 use leptoskit::auth::client::regenerate_recovery_codes;
+use leptoskit::auth::client::remove_passkey;
 use leptoskit::auth::client::sign_out_mutation;
 use leptoskit::auth::client::step_up;
+use leptoskit::auth::client::step_up_with_passkey;
+use leptoskit::auth::client::unlink_identity;
+use leptoskit::auth::client::use_providers;
+use leptoskit::db::Id;
+use leptoskit::leptos::prelude::Effect;
 use leptoskit::leptos::prelude::Get;
 use leptoskit::leptos::prelude::GetUntracked;
 use leptoskit::leptos::prelude::RwSignal;
 use leptoskit::leptos::prelude::Set;
+use leptoskit::native::Color;
+use leptoskit::native::PathData;
+use leptoskit::native::VectorPath;
+use leptoskit::native::ViewBox;
 use leptoskit::prelude::*;
 use leptoskit::query::ErrorArgs;
 use leptoskit::query::MutateCallbacks;
@@ -36,10 +68,13 @@ use leptoskit::query::SuccessArgs;
 use leptoskit::query::use_mutation;
 use leptoskit::query::use_query_with;
 
+use super::devices::day;
+use super::sign_in::passkey_problem;
+use super::sign_in::provider_failure;
 use super::sign_in::sentence;
 
 /// A change that asked for step-up, to try again once it's done.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Change {
 	/// Turning an authenticator app on.
 	Enroll,
@@ -47,19 +82,41 @@ pub enum Change {
 	Regenerate,
 	/// Turning the authenticator app off.
 	Disable,
+	/// Adding a passkey.
+	AddPasskey,
+	/// Removing a passkey.
+	RemovePasskey(Id<Passkey>),
+	/// Connecting a provider.
+	Link(String),
+	/// Disconnecting a provider.
+	Unlink(Id<Identity>),
+	/// Merging the other account in.
+	Merge,
 }
 
 /// The security screen's state. It's `Copy`, so handlers capture it freely.
 #[derive(Clone, Copy)]
 pub struct Security {
 	status: QueryHandle<MfaStatus, ErrorResponse>,
+	passkeys: QueryHandle<Vec<PasskeyInfo>, ErrorResponse>,
+	identities: QueryHandle<Vec<IdentityInfo>, ErrorResponse>,
+	providers: QueryHandle<Vec<ProviderInfo>, ErrorResponse>,
+	offer: QueryHandle<Option<MergeOffer>, ErrorResponse>,
 	enroll: MutationHandle<(), TotpSetup, ErrorResponse>,
 	confirm: MutationHandle<String, TotpConfirmation, ErrorResponse>,
 	disable: MutationHandle<(), (), ErrorResponse>,
 	regenerate: MutationHandle<(), RecoveryCodes, ErrorResponse>,
+	add_passkey: MutationHandle<Option<String>, PasskeyAdded, ErrorResponse>,
+	remove_passkey: MutationHandle<Id<Passkey>, (), ErrorResponse>,
+	link: MutationHandle<StartProvider, (), ErrorResponse>,
+	unlink: MutationHandle<Id<Identity>, (), ErrorResponse>,
+	merge: MutationHandle<MergeInput, (), ErrorResponse>,
+	cancel_merge: MutationHandle<(), (), ErrorResponse>,
 	step_up: MutationHandle<String, PublicSession, ErrorResponse>,
+	step_up_passkey: MutationHandle<(), PublicSession, ErrorResponse>,
 	sign_out: MutationHandle<(), (), ErrorResponse>,
-	/// The code typed to turn the authenticator on, or to step up.
+	/// The code typed to turn the authenticator on, to step up, or for the
+	/// other account in a merge.
 	code: RwSignal<String>,
 	/// Recovery codes to show once, until the person says they've saved
 	/// them.
@@ -68,31 +125,70 @@ pub struct Security {
 	waiting: RwSignal<Option<Change>>,
 	/// What the server last refused, in words.
 	problem: RwSignal<Option<String>>,
+	/// What a provider that just sent the person back said.
+	notice: RwSignal<Option<String>>,
 	/// Whether the person must sign in again before changing anything.
 	reauthenticate: RwSignal<bool>,
 }
 
 impl Security {
 	/// Creates the state in the current reactive owner, which needs a
-	/// `QueryClient`. The status is read only while `enabled` says so, such
-	/// as while someone is signed in.
-	pub fn new(enabled: impl Fn() -> bool + Send + Sync + 'static) -> Self {
+	/// `QueryClient`. The queries run only while `enabled` says so, such as
+	/// while someone is signed in.
+	pub fn new(enabled: impl Fn() -> bool + Clone + Send + Sync + 'static) -> Self {
+		let notice = RwSignal::new(None);
+		// Coming back from connecting a provider, say how it went.
+		Effect::new(move |_| {
+			notice.set(match provider_outcome() {
+				Some(ProviderOutcome::Linked) => Some("It's connected.".to_owned()),
+				Some(ProviderOutcome::AlreadyLinked) => {
+					Some("That account was already connected.".to_owned())
+				}
+				Some(ProviderOutcome::Failed(code)) => Some(provider_failure(&code)),
+				_ => None,
+			});
+		});
+
 		Self {
 			status: use_query_with(
 				mfa(),
 				|| (),
-				QueryObserverOptions::default().with_enabled(enabled),
+				QueryObserverOptions::default().with_enabled(enabled.clone()),
+			),
+			passkeys: use_query_with(
+				passkeys(),
+				|| (),
+				QueryObserverOptions::default().with_enabled(enabled.clone()),
+			),
+			identities: use_query_with(
+				identities(),
+				|| (),
+				QueryObserverOptions::default().with_enabled(enabled.clone()),
+			),
+			providers: use_providers(),
+			offer: use_query_with(
+				merge_offer(),
+				|| (),
+				QueryObserverOptions::default().with_enabled(enabled.clone()),
 			),
 			enroll: use_mutation(enroll_totp()),
 			confirm: use_mutation(confirm_totp()),
 			disable: use_mutation(disable_totp()),
 			regenerate: use_mutation(regenerate_recovery_codes()),
+			add_passkey: use_mutation(add_passkey()),
+			remove_passkey: use_mutation(remove_passkey()),
+			link: use_mutation(link_provider()),
+			unlink: use_mutation(unlink_identity()),
+			merge: use_mutation(merge_accounts()),
+			cancel_merge: use_mutation(cancel_merge()),
 			step_up: use_mutation(step_up()),
+			step_up_passkey: use_mutation(step_up_with_passkey()),
 			sign_out: use_mutation(sign_out_mutation()),
 			code: RwSignal::new(String::new()),
 			codes: RwSignal::new(None),
 			waiting: RwSignal::new(None),
 			problem: RwSignal::new(None),
+			notice,
 			reauthenticate: RwSignal::new(false),
 		}
 	}
@@ -101,13 +197,11 @@ impl Security {
 	pub fn screen(&self) -> Element {
 		let screen = View()
 			.class("w-full max-w-[640px] gap-4 p-6")
-			.child(Heading(1, "Two-step verification").class("text-2xl font-bold"))
-			.child(
-				Text(
-					"With an authenticator app, signing in asks for a code from your phone after \
-					 the emailed one, so someone who gets into your email still can't get in.",
-				)
-				.class("text-sm text-slate-300"),
+			.child(Heading(1, "Security").class("text-2xl font-bold"))
+			.children(
+				self.notice
+					.get()
+					.map(|notice| Status(notice).class("text-sm text-emerald-300")),
 			);
 
 		if let Some(codes) = self.codes.get() {
@@ -116,10 +210,6 @@ impl Security {
 
 		if self.reauthenticate.get() {
 			return screen.child(self.sign_in_again());
-		}
-
-		if self.waiting.get().is_some() {
-			return screen.child(self.confirm_its_you());
 		}
 
 		let status = match self.status.data() {
@@ -131,7 +221,16 @@ impl Security {
 				});
 			}
 		};
-		let body = if status.totp {
+
+		if self.waiting.get().is_some() {
+			return screen.child(self.confirm_its_you(&status));
+		}
+
+		if let Some(offer) = self.offer.data().flatten() {
+			return screen.child(self.merge_offer(&offer));
+		}
+
+		let authenticator = if status.totp {
 			self.turned_on(&status)
 		} else {
 			match self.enroll.data() {
@@ -139,11 +238,84 @@ impl Security {
 				None => self.turned_off(),
 			}
 		};
+		let required = status.required && !status.enrolled();
 
-		screen.child(body).children(
-			self.problem
-				.get()
-				.map(|problem| Alert(problem).class("text-sm text-rose-300")),
+		screen
+			.children(required.then(|| {
+				Alert(
+					"Your account must use two-step verification. Add a passkey or an \
+					 authenticator app to continue.",
+				)
+				.class("text-sm text-amber-300")
+			}))
+			.child(self.passkeys())
+			.child(Heading(2, "Authenticator app").class("text-lg font-semibold"))
+			.child(authenticator)
+			.child(self.connected_accounts())
+			.children(
+				self.problem
+					.get()
+					.map(|problem| Alert(problem).class("text-sm text-rose-300")),
+			)
+	}
+
+	/// The account's passkeys, and adding one.
+	fn passkeys(&self) -> Element {
+		let this = *self;
+		let adding = self.add_passkey.is_pending();
+		let mut list = View()
+			.class("gap-3")
+			.child(Heading(2, "Passkeys").class("text-lg font-semibold"))
+			.child(
+				Text(
+					"A passkey signs you in with your fingerprint, face, or screen lock, and only \
+					 works on this site, so it can't be phished.",
+				)
+				.class("text-sm text-slate-300"),
+			);
+
+		for passkey in self.passkeys.data().unwrap_or_default() {
+			let id = passkey.id;
+			let used = passkey.last_used_at.map_or_else(
+				|| "Not used yet".to_owned(),
+				|at| format!("Last used {}", day(at)),
+			);
+			let synced = if passkey.backed_up {
+				"Synced to your other devices"
+			} else {
+				"On one device"
+			};
+			list = list.child(
+				View()
+					.class("flex-row items-center gap-3 rounded-lg bg-slate-800 p-3")
+					.child(
+						View()
+							.class("flex-1 gap-1")
+							.child(Text(passkey.name.clone()).class("font-semibold"))
+							.child(
+								Text(format!("{synced}. {used}.")).class("text-xs text-slate-400"),
+							),
+					)
+					.child(
+						Button("Remove")
+							.enabled(!self.remove_passkey.is_pending())
+							.aria_label(format!("Remove {}", passkey.name))
+							.on_press(move || this.run(Change::RemovePasskey(id)))
+							.class("rounded-lg bg-slate-700 px-3 py-2 text-sm font-semibold"),
+					),
+			);
+		}
+
+		list.child(
+			Button(if adding {
+				"Waiting for your passkey…"
+			} else {
+				"Add a passkey"
+			})
+			.enabled(!adding)
+			.aria_busy(adding)
+			.on_press(move || this.run(Change::AddPasskey))
+			.class("rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
 		)
 	}
 
@@ -154,7 +326,7 @@ impl Security {
 
 		View()
 			.class("gap-3")
-			.child(Status("Two-step verification is off.").class("text-slate-300"))
+			.child(Status("No authenticator app is set up.").class("text-slate-300"))
 			.child(
 				Button(if busy {
 					"Starting…"
@@ -164,11 +336,12 @@ impl Security {
 				.enabled(!busy)
 				.aria_busy(busy)
 				.on_press(move || this.run(Change::Enroll))
-				.class("rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
+				.class("rounded-lg bg-slate-700 px-4 py-3 font-semibold"),
 			)
 	}
 
-	/// The secret to add to the app, and the code that proves it was added.
+	/// The code to scan or key to type into the app, and the code that
+	/// proves it was added.
 	fn setting_up(&self, setup: &TotpSetup) -> Element {
 		let this = *self;
 		let code = self.code;
@@ -178,17 +351,17 @@ impl Security {
 			.class("gap-3")
 			.child(
 				Text(
-					"In your authenticator app, add an account and enter this key. Apps that take \
-					 a link can use the one below it instead.",
+					"Scan this code with your authenticator app, or add an account and enter the \
+					 key below it.",
 				)
 				.class("text-sm text-slate-300"),
 			)
+			.children(qr(&setup.uri))
 			.child(
 				Text(group(&setup.secret))
 					.aria_label("Setup key")
 					.class("rounded-lg bg-slate-800 p-3 text-lg font-semibold"),
 			)
-			.child(Text(setup.uri.clone()).class("text-xs text-slate-400"))
 			.child(Text("Code from the app").class("text-sm font-semibold"))
 			.child(
 				TextInput()
@@ -229,7 +402,7 @@ impl Security {
 
 		View()
 			.class("gap-3")
-			.child(Status("Two-step verification is on.").class("text-emerald-300"))
+			.child(Status("An authenticator app is on.").class("text-emerald-300"))
 			.child(Text(left).class("text-sm text-slate-300"))
 			.child(
 				Button("Make new recovery codes")
@@ -239,11 +412,149 @@ impl Security {
 					.class("rounded-lg bg-slate-700 px-4 py-3 font-semibold"),
 			)
 			.child(
-				Button("Turn off two-step verification")
+				Button("Turn off the authenticator app")
 					.enabled(!busy)
 					.aria_description("Also signs out every other device")
 					.on_press(move || this.run(Change::Disable))
 					.class("rounded-lg bg-rose-600 px-4 py-3 font-semibold"),
+			)
+	}
+
+	/// Connected accounts, and the providers that could be.
+	fn connected_accounts(&self) -> Element {
+		let this = *self;
+		let identities = self.identities.data().unwrap_or_default();
+		let providers = self.providers.data().unwrap_or_default();
+
+		if identities.is_empty() && providers.is_empty() {
+			return View();
+		}
+
+		let mut section = View()
+			.class("gap-3")
+			.child(Heading(2, "Connected accounts").class("text-lg font-semibold"));
+
+		for identity in &identities {
+			let id = identity.id;
+			let who = identity
+				.name
+				.clone()
+				.or_else(|| identity.email.clone())
+				.unwrap_or_default();
+			section = section.child(
+				View()
+					.class("flex-row items-center gap-3 rounded-lg bg-slate-800 p-3")
+					.child(
+						View()
+							.class("flex-1 gap-1")
+							.child(Text(identity.provider_name.clone()).class("font-semibold"))
+							.child(Text(who).class("text-xs text-slate-400")),
+					)
+					.child(
+						Button("Disconnect")
+							.enabled(!self.unlink.is_pending())
+							.aria_label(format!("Disconnect {}", identity.provider_name))
+							.on_press(move || this.run(Change::Unlink(id)))
+							.class("rounded-lg bg-slate-700 px-3 py-2 text-sm font-semibold"),
+					),
+			);
+		}
+
+		for provider in providers {
+			if identities
+				.iter()
+				.any(|identity| identity.provider == provider.id)
+			{
+				continue;
+			}
+
+			let id = provider.id.clone();
+			section = section.child(
+				Button(format!("Connect {}", provider.name))
+					.enabled(!self.link.is_pending())
+					.on_press(move || this.run(Change::Link(id.clone())))
+					.class("rounded-lg bg-slate-700 px-4 py-3 font-semibold"),
+			);
+		}
+
+		section
+	}
+
+	/// Connecting a provider found another account: merge it in?
+	fn merge_offer(&self, offer: &MergeOffer) -> Element {
+		let this = *self;
+		let code = self.code;
+		let merging = self.merge.is_pending();
+		let needs_code = offer.second_factor.contains(&Factor::Totp)
+			|| offer.second_factor.contains(&Factor::RecoveryCode);
+		let needs_passkey = offer.second_factor.contains(&Factor::Passkey);
+		let mut moves = offer.emails.clone();
+		moves.extend(offer.identities.iter().cloned());
+
+		if offer.passkeys > 0 {
+			moves.push(format!(
+				"{} passkey{}",
+				offer.passkeys,
+				if offer.passkeys == 1 { "" } else { "s" }
+			));
+		}
+
+		View()
+			.class("gap-3 rounded-lg bg-slate-800 p-4")
+			.child(
+				Heading(2, "That login already has its own account").class("text-lg font-semibold"),
+			)
+			.child(
+				Text(format!(
+					"It was created on {}. Merging moves its sign-in methods here ({}) and \
+					 deletes its data. This can't be undone.",
+					day(offer.created_at),
+					moves.join(", ")
+				))
+				.class("text-sm text-slate-300"),
+			)
+			.children(needs_code.then(|| {
+				TextInput()
+					.id("security-merge-code")
+					.aria_label("A code from the other account's authenticator app")
+					.placeholder("123456")
+					.value(code.get_untracked())
+					.on_change(move |text| code.set(text.to_owned()))
+					.class("h-11 rounded-lg px-3 bg-white text-slate-900")
+			}))
+			.children(
+				self.problem
+					.get()
+					.map(|problem| Alert(problem).class("text-sm text-rose-300")),
+			)
+			.child(
+				View()
+					.class("flex-row gap-3")
+					.child(
+						Button("Cancel")
+							.on_press(move || {
+								this.problem.set(None);
+								this.cancel_merge.mutate(());
+							})
+							.class("flex-1 rounded-lg bg-slate-700 px-4 py-3 font-semibold"),
+					)
+					.children(needs_passkey.then(|| {
+						Button("Use its passkey")
+							.enabled(!merging)
+							.on_press(move || this.merge_with(true))
+							.class("flex-1 rounded-lg bg-slate-700 px-4 py-3 font-semibold")
+					}))
+					.child(
+						Button(if merging {
+							"Merging…"
+						} else {
+							"Merge accounts"
+						})
+						.enabled(!merging)
+						.aria_busy(merging)
+						.on_press(move || this.merge_with(false))
+						.class("flex-1 rounded-lg bg-rose-600 px-4 py-3 font-semibold"),
+					),
 			)
 	}
 
@@ -261,7 +572,8 @@ impl Security {
 			.child(
 				Status(
 					"Save these recovery codes somewhere safe, such as a password manager. Each \
-					 one signs you in once if you lose your phone. You won't see them again.",
+					 one signs you in once if you lose your phone or passkey. You won't see them \
+					 again.",
 				)
 				.class("text-sm text-slate-300"),
 			)
@@ -273,51 +585,60 @@ impl Security {
 			)
 	}
 
-	/// Step-up: a code from the app before the change goes through.
-	fn confirm_its_you(&self) -> Element {
+	/// Step-up: a passkey, or a code from the app, before the change goes
+	/// through.
+	fn confirm_its_you(&self, status: &MfaStatus) -> Element {
 		let this = *self;
 		let code = self.code;
-		let checking = self.step_up.is_pending();
-
-		View()
+		let checking = self.step_up.is_pending() || self.step_up_passkey.is_pending();
+		let mut confirm = View()
 			.class("gap-3")
-			.child(
-				Status(
-					"Confirm it's you: enter a code from your authenticator app, or a recovery \
-					 code.",
+			.child(Status("Confirm it's you before this change.").class("text-sm text-slate-300"));
+
+		if status.passkeys > 0 {
+			confirm = confirm.child(
+				Button("Use a passkey")
+					.enabled(!checking)
+					.on_press(move || this.confirm_with_passkey())
+					.class("rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
+			);
+		}
+
+		if status.totp || status.recovery_codes > 0 {
+			confirm = confirm
+				.child(
+					TextInput()
+						.id("security-step-up-code")
+						.aria_label("Authenticator or recovery code")
+						.aria_required(true)
+						.placeholder("123456")
+						.value(code.get_untracked())
+						.on_change(move |text| code.set(text.to_owned()))
+						.class("h-11 rounded-lg px-3 bg-white text-slate-900"),
 				)
-				.class("text-sm text-slate-300"),
-			)
-			.child(
-				TextInput()
-					.id("security-step-up-code")
-					.aria_label("Authenticator or recovery code")
-					.aria_required(true)
-					.placeholder("123456")
-					.value(code.get_untracked())
-					.on_change(move |text| code.set(text.to_owned()))
-					.class("h-11 rounded-lg px-3 bg-white text-slate-900"),
-			)
+				.child(
+					Button(if checking {
+						"Checking…"
+					} else {
+						"Confirm with the code"
+					})
+					.enabled(!checking)
+					.aria_busy(checking)
+					.on_press(move || this.confirm_step_up())
+					.class("rounded-lg bg-slate-700 px-4 py-3 font-semibold"),
+				);
+		}
+
+		confirm
 			.children(
 				self.problem
 					.get()
 					.map(|problem| Alert(problem).class("text-sm text-rose-300")),
 			)
 			.child(
-				View()
-					.class("flex-row gap-3")
-					.child(
-						Button(if checking { "Checking…" } else { "Confirm" })
-							.enabled(!checking)
-							.aria_busy(checking)
-							.on_press(move || this.confirm_step_up())
-							.class("flex-1 rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
-					)
-					.child(
-						Button("Cancel")
-							.on_press(move || this.cancel())
-							.class("flex-1 rounded-lg bg-slate-700 px-4 py-3 font-semibold"),
-					),
+				Button("Cancel")
+					.on_press(move || this.cancel())
+					.class("rounded-lg px-4 py-2 text-sm text-indigo-300"),
 			)
 	}
 
@@ -348,7 +669,11 @@ impl Security {
 	fn run(&self, change: Change) {
 		let this = *self;
 		self.problem.set(None);
-		let failed = move |error: &ErrorResponse| this.refused(change, error);
+		self.notice.set(None);
+		let failed = {
+			let change = change.clone();
+			move |error: &ErrorResponse| this.refused(change.clone(), error)
+		};
 
 		match change {
 			Change::Enroll => {
@@ -373,7 +698,81 @@ impl Security {
 					MutateCallbacks::new().on_error(move |args| failed(&args.error)),
 				);
 			}
+			Change::AddPasskey => {
+				self.add_passkey.mutate_with(
+					None,
+					MutateCallbacks::new()
+						.on_success(move |args: SuccessArgs<PasskeyAdded, Option<String>, ()>| {
+							this.codes
+								.set(args.data.recovery_codes.map(|codes| codes.codes));
+						})
+						.on_error(move |args| failed(&args.error)),
+				);
+			}
+			Change::RemovePasskey(id) => {
+				self.remove_passkey.mutate_with(
+					id,
+					MutateCallbacks::new().on_error(move |args| failed(&args.error)),
+				);
+			}
+			Change::Link(provider) => {
+				self.link.mutate_with(
+					StartProvider {
+						provider,
+						redirect_to: None,
+					},
+					MutateCallbacks::new().on_error(move |args| failed(&args.error)),
+				);
+			}
+			Change::Unlink(id) => {
+				self.unlink.mutate_with(
+					id,
+					MutateCallbacks::new().on_error(move |args| failed(&args.error)),
+				);
+			}
+			Change::Merge => self.merge_with(false),
 		}
+	}
+
+	/// Merges the other account in, with its code or passkey when it has
+	/// two-step verification.
+	fn merge_with(&self, passkey: bool) {
+		let this = *self;
+		let code = self.code.get_untracked().trim().to_owned();
+		self.problem.set(None);
+		self.merge.mutate_with(
+			MergeInput {
+				mode: None,
+				confirm: true,
+				code: (!code.is_empty()).then_some(code),
+				passkey,
+			},
+			MutateCallbacks::new()
+				.on_success(move |_| {
+					this.code.set(String::new());
+					this.notice.set(Some("The accounts are merged.".to_owned()));
+				})
+				.on_error(move |args: ErrorArgs<ErrorResponse, MergeInput, ()>| {
+					match args.error.error.as_str() {
+						"step_up_required"
+							if this
+								.offer
+								.data()
+								.flatten()
+								.is_some_and(|offer| !offer.second_factor.is_empty())
+								&& !passkey
+								&& args.variables.code.is_none() =>
+						{
+							this.problem.set(Some(
+								"Enter a code from the other account's authenticator app, or use \
+								 its passkey."
+									.into(),
+							));
+						}
+						_ => this.refused(Change::Merge, &args.error),
+					}
+				}),
+		);
 	}
 
 	fn turn_on(&self) {
@@ -414,18 +813,34 @@ impl Security {
 		self.step_up.mutate_with(
 			code,
 			MutateCallbacks::new()
-				.on_success(move |_| {
-					this.code.set(String::new());
-
-					if let Some(change) = this.waiting.get_untracked() {
-						this.waiting.set(None);
-						this.run(change);
-					}
-				})
+				.on_success(move |_| this.stepped_up())
 				.on_error(move |args: ErrorArgs<ErrorResponse, String, ()>| {
 					this.problem.set(Some(sentence(&args.error.message)));
 				}),
 		);
+	}
+
+	fn confirm_with_passkey(&self) {
+		let this = *self;
+		self.problem.set(None);
+		self.step_up_passkey.mutate_with(
+			(),
+			MutateCallbacks::new()
+				.on_success(move |_| this.stepped_up())
+				.on_error(move |args: ErrorArgs<ErrorResponse, (), ()>| {
+					this.problem.set(Some(passkey_problem(&args.error)));
+				}),
+		);
+	}
+
+	/// Step-up worked: try the change that asked for it again.
+	fn stepped_up(&self) {
+		self.code.set(String::new());
+
+		if let Some(change) = self.waiting.get_untracked() {
+			self.waiting.set(None);
+			self.run(change);
+		}
 	}
 
 	fn cancel(&self) {
@@ -439,9 +854,31 @@ impl Security {
 		match error.error.as_str() {
 			"step_up_required" => self.waiting.set(Some(change)),
 			"reauthenticate" => self.reauthenticate.set(true),
-			_ => self.problem.set(Some(sentence(&error.message))),
+			"last_sign_in_method" => {
+				self.problem.set(Some(
+					"Keep at least one way to sign in, and a second factor if your account needs \
+					 one."
+						.into(),
+				));
+			}
+			_ => self.problem.set(Some(passkey_problem(error))),
 		}
 	}
+}
+
+/// The setup link as a QR code, black on white, which every platform
+/// draws. `None` when it can't be one; the key below it still works.
+fn qr(uri: &str) -> Option<Element> {
+	let code = qr_code(uri)?;
+	let side = code.side() as f32;
+	let view_box = ViewBox::new(0.0, 0.0, side, side).ok()?;
+	let path = PathData::parse(&code.path()).ok()?;
+	Some(
+		Vector(view_box)
+			.aria_label("QR code for your authenticator app")
+			.class("w-48 h-48 bg-white")
+			.path(VectorPath::new(path).fill(Color::rgba(0, 0, 0, 255))),
+	)
 }
 
 /// A setup key in groups of four, as authenticator apps print them, so it's
@@ -463,5 +900,11 @@ mod tests {
 		assert_eq!(group("GEZDGNBVGY3TQOJQ"), "GEZD GNBV GY3T QOJQ");
 		assert_eq!(group("ABCDEF"), "ABCD EF");
 		assert_eq!(group(""), "");
+	}
+
+	#[test]
+	fn a_setup_link_draws_as_a_code() {
+		assert!(qr("otpauth://totp/Notes:ada%40example.com?issuer=Notes").is_some());
+		assert!(qr(&"x".repeat(4000)).is_none());
 	}
 }

@@ -15,6 +15,14 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
+# Git for Windows puts its own MSYS perl first on the path, and that perl
+# lacks the modules OpenSSL's Configure needs to build `openssl-sys` with the
+# `vendored` feature. Strawberry Perl, which the Windows runner also has,
+# does. This is a no-op elsewhere, where the directory does not exist.
+if [ -d /c/Strawberry/perl/bin ]; then
+	export PATH="/c/Strawberry/perl/bin:$PATH"
+fi
+
 # `build.warnings` fails the run on any warning without changing rustc's
 # flags, so it reuses the build cache, unlike `-D warnings`.
 # `--keep-going` lints every package even after one fails, so a run reports
@@ -42,12 +50,12 @@ wasm_full=(
 	leptoskit_plugin_global_shortcut leptoskit_plugin_gyroscope leptoskit_plugin_http
 	leptoskit_plugin_image_manipulator leptoskit_plugin_light_sensor
 	leptoskit_plugin_local_authentication leptoskit_plugin_magnetometer leptoskit_plugin_menu
-	leptoskit_plugin_os leptoskit_plugin_pedometer leptoskit_plugin_screen_capture
-	leptoskit_plugin_secure_store leptoskit_plugin_sharing leptoskit_plugin_shell
-	leptoskit_plugin_single_instance leptoskit_plugin_sqlite leptoskit_plugin_store_review
-	leptoskit_plugin_tracking_transparency leptoskit_plugin_tray leptoskit_plugin_websocket
-	leptoskit_plugin_window_state leptoskit_query leptoskit_rive leptoskit_router
-	leptoskit_testing_library plugin_guest_probe plugin_replies_probe
+	leptoskit_plugin_os leptoskit_plugin_passkeys leptoskit_plugin_pedometer
+	leptoskit_plugin_screen_capture leptoskit_plugin_secure_store leptoskit_plugin_sharing
+	leptoskit_plugin_shell leptoskit_plugin_single_instance leptoskit_plugin_sqlite
+	leptoskit_plugin_store_review leptoskit_plugin_tracking_transparency leptoskit_plugin_tray
+	leptoskit_plugin_web_auth leptoskit_plugin_websocket leptoskit_plugin_window_state leptoskit_query
+	leptoskit_rive leptoskit_router leptoskit_testing_library plugin_guest_probe plugin_replies_probe
 )
 # Every feature, the library only: their tests need the host.
 wasm_library=(
@@ -109,6 +117,10 @@ android_compiler() {
 	# The native Rive runtime builds C++.
 	export "CXX_$variable=$toolchain/bin/${target}24-clang++"
 	export "AR_$variable=$toolchain/bin/llvm-ar"
+	# OpenSSL archives its static libraries with the toolchain's ranlib, and
+	# derives the command from the target triple unless this is set, which names
+	# a binary the runner does not have.
+	export "RANLIB_$variable=$toolchain/bin/llvm-ranlib"
 	# bindgen (QuickJS, in the native benchmark) reads the headers too.
 	export "BINDGEN_EXTRA_CLANG_ARGS_$variable=--sysroot=$toolchain/sysroot"
 }

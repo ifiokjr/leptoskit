@@ -155,6 +155,29 @@ impl Keys {
 		Ok(sealed)
 	}
 
+	/// The ID of the key that encrypts new secrets.
+	pub fn newest(&self) -> &str {
+		&self.keys[0].id
+	}
+
+	/// The IDs of every key, newest first.
+	pub fn ids(&self) -> Vec<&str> {
+		self.keys.iter().map(|key| key.id.as_str()).collect()
+	}
+
+	/// The ID of the key that sealed `sealed`, from its header, if it has
+	/// one.
+	pub(crate) fn sealed_with(sealed: &[u8]) -> Option<&str> {
+		let (&format, rest) = sealed.split_first()?;
+		let (&length, rest) = rest.split_first()?;
+
+		if format != SEALED_FORMAT || rest.len() < usize::from(length) {
+			return None;
+		}
+
+		std::str::from_utf8(&rest[..usize::from(length)]).ok()
+	}
+
 	/// Decrypts what [`Keys::seal`] made with the same `context`.
 	///
 	/// # Errors
@@ -315,6 +338,12 @@ pub(crate) fn random<const N: usize>() -> Result<[u8; N], AuthError> {
 	Ok(bytes)
 }
 
+/// SHA-256 of `bytes` alone, as PKCE's `S256` hashes its verifier.
+#[cfg_attr(not(feature = "oauth"), allow(dead_code, reason = "PKCE needs it"))]
+pub(crate) fn digest_plain(bytes: &[u8]) -> Vec<u8> {
+	Sha256::digest(bytes).to_vec()
+}
+
 /// A plain SHA-256 hash, for rate-limit keys.
 pub(crate) fn digest(parts: &[&[u8]]) -> Vec<u8> {
 	let mut hasher = Sha256::new();
@@ -399,6 +428,11 @@ mod tests {
 		))
 		.unwrap();
 		assert_eq!(rotated.open(&ADA, &sealed).unwrap(), b"the secret");
+		assert_eq!(Keys::sealed_with(&sealed), Some("old"));
+		assert_eq!(Keys::sealed_with(&[SEALED_FORMAT]), None);
+		assert_eq!(Keys::sealed_with(&[9, 0]), None);
+		assert_eq!(rotated.newest(), "new");
+		assert_eq!(rotated.ids(), ["new", "old"]);
 		let dropped = Keys::single("new", [2; 32]);
 		let error = dropped.open(&ADA, &sealed).unwrap_err().to_string();
 		assert!(error.contains("key `old`"), "{error}");
