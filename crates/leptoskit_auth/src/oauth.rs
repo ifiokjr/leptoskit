@@ -132,6 +132,13 @@ pub(crate) struct Quirks {
 	/// Whether connecting an account asks it to show its account picker,
 	/// with `prompt=select_account`. Only providers known to accept it.
 	select_account: bool,
+	/// More parameters for its authorization page, such as Twitch's
+	/// `claims`.
+	authorize: Vec<(&'static str, String)>,
+	/// Whether its requests must name the app in `User-Agent`, as Reddit
+	/// asks: `web:<app name>:leptoskit-auth`, the app's name only, never
+	/// anything about the person.
+	user_agent: bool,
 }
 
 impl Default for Quirks {
@@ -140,6 +147,8 @@ impl Default for Quirks {
 			identify: Identify::IdToken(IdTokenRules::default()),
 			client_auth: ClientAuth::Form,
 			select_account: false,
+			authorize: Vec::new(),
+			user_agent: false,
 		}
 	}
 }
@@ -241,6 +250,11 @@ pub const VERIFIED: &[(&str, &str)] = &[
 	("linkedin", "2026-10-31"),
 	("gitlab", "2026-10-31"),
 	("slack", "2026-10-31"),
+	("twitch", "2026-10-31"),
+	("spotify", "2026-10-31"),
+	("reddit", "2026-10-31"),
+	("amazon", "2026-10-31"),
+	("dropbox", "2026-10-31"),
 ];
 
 /// Microsoft's tenant for personal accounts.
@@ -1305,6 +1319,10 @@ impl Auth {
 				query.append_pair("response_mode", "form_post");
 			}
 
+			for (name, value) in &provider.quirks.authorize {
+				query.append_pair(name, value);
+			}
+
 			if me.is_some() && provider.quirks.select_account {
 				// Connecting should pick the account, not reuse whichever
 				// one the browser is signed in to there.
@@ -1513,7 +1531,12 @@ impl Auth {
 		let providers = &self.inner.providers;
 		let endpoints = providers.endpoints(provider).await?;
 		let redirect_uri = self.redirect_uri(provider)?;
-		let request = token_request(provider, &endpoints, code, &redirect_uri, &flow.verifier)?;
+		let user_agent = provider
+			.quirks
+			.user_agent
+			.then(|| app_user_agent(&self.inner.app_name));
+		let mut request = token_request(provider, &endpoints, code, &redirect_uri, &flow.verifier)?;
+		request.headers.extend(user_agent.clone());
 		let tokens: serde_json::Value = providers.json(request).await?;
 
 		if let Some(error) = tokens.get("error").filter(|error| !error.is_null()) {
@@ -1533,7 +1556,7 @@ impl Auth {
 			Identify::Api(api) => {
 				let access = text("access_token")
 					.ok_or_else(|| AuthError::Provider("no access token".into()))?;
-				api.read(providers, &access).await?
+				api.read(providers, &access, user_agent).await?
 			}
 			Identify::IdToken(rules) => {
 				let id_token =
@@ -1551,7 +1574,7 @@ impl Auth {
 					email: claims.email,
 					email_verified: rules.trust_email
 						&& claims.email_verified.is_some_and(|flag| flag.is_true()),
-					name: claims.name,
+					name: claims.name.or_else(|| given_and_family_name(&claims.other)),
 					preferred_username: claims.preferred_username,
 					picture: claims.picture,
 				};
@@ -1647,6 +1670,40 @@ fn token_request(
 		headers,
 		body: Some(form.finish()),
 	})
+}
+
+/// The `User-Agent` header naming the app, for providers that ask every
+/// app to say who it is: only characters that are safe in a header, and
+/// nothing about the person signing in.
+fn app_user_agent(app_name: &str) -> (String, String) {
+	let name: String = app_name
+		.chars()
+		.filter(|character| character.is_ascii_alphanumeric() || " -_.".contains(*character))
+		.take(64)
+		.collect();
+	let name = name.trim().replace(' ', "-");
+	let name = if name.is_empty() {
+		"app"
+	} else {
+		name.as_str()
+	};
+	(
+		"user-agent".to_owned(),
+		format!("web:{name}:leptoskit-auth/{}", env!("CARGO_PKG_VERSION")),
+	)
+}
+
+/// A name from `given_name` and `family_name`, for providers whose ID
+/// tokens carry no `name`, such as Dropbox's.
+fn given_and_family_name(claims: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
+	let full = ["given_name", "family_name"]
+		.into_iter()
+		.filter_map(|claim| claims.get(claim)?.as_str())
+		.map(str::trim)
+		.filter(|part| !part.is_empty())
+		.collect::<Vec<_>>()
+		.join(" ");
+	(!full.is_empty()).then_some(full)
 }
 
 /// HTTP Basic credentials, each part form-encoded first, as RFC 6749
@@ -2032,6 +2089,23 @@ mod tests {
 			.unwrap_err();
 		assert!(matches!(unreachable, AuthError::Provider(_)));
 		assert!(!format!("{:?}", get("https://x.example/a")).contains("accept"));
+	}
+
+	#[test]
+	fn the_app_names_itself_and_nothing_else() {
+		let (name, value) = app_user_agent("My App: \"notes\"\r\nX-Evil: 1");
+		assert_eq!(name, "user-agent");
+		assert!(
+			value.starts_with("web:My-App-notesX-Evil-1:leptoskit-auth/"),
+			"{value}"
+		);
+		assert!(app_user_agent("  ").1.starts_with("web:app:"));
+		let claims = serde_json::json!({ "given_name": "Ada", "family_name": " Lovelace " });
+		assert_eq!(
+			given_and_family_name(claims.as_object().unwrap()).as_deref(),
+			Some("Ada Lovelace")
+		);
+		assert_eq!(given_and_family_name(&serde_json::Map::new()), None);
 	}
 
 	#[test]

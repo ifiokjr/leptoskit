@@ -288,6 +288,10 @@ fn providers(config: &LeptoskitConfig, env: &impl Fn(&str) -> Option<String>) ->
 	let mut findings = Vec::new();
 	let origin = auth.origin.as_deref().unwrap_or("http://localhost:3000");
 	let today = chrono::Utc::now().date_naive();
+	let app_name = auth
+		.app_name
+		.clone()
+		.unwrap_or_else(|| config.app.name.clone());
 
 	for (id, provider) in &auth.providers {
 		let kind = provider.kind(id);
@@ -301,7 +305,7 @@ fn providers(config: &LeptoskitConfig, env: &impl Fn(&str) -> Option<String>) ->
 			}
 		}
 
-		findings.extend(provider_notes(id, provider, &kind));
+		findings.extend(provider_notes(id, provider, &kind, &app_name));
 		let verified = leptoskit_auth::PROVIDERS_VERIFIED
 			.iter()
 			.find(|(provider, _)| *provider == kind)
@@ -340,13 +344,14 @@ fn providers(config: &LeptoskitConfig, env: &impl Fn(&str) -> Option<String>) ->
 
 /// The providers that never vouch for an email address: what they give is
 /// kept on the connected account, never as the account's own.
-const UNVOUCHED_EMAIL: &[&str] = &["microsoft", "facebook", "x"];
+const UNVOUCHED_EMAIL: &[&str] = &["microsoft", "facebook", "x", "spotify", "reddit", "amazon"];
 
 /// What `doctor` says about one provider beyond its variables and age.
 fn provider_notes(
 	id: &str,
 	provider: &leptoskit_config::AuthProviderConfig,
 	kind: &str,
+	app_name: &str,
 ) -> Vec<Finding> {
 	let mut findings = Vec::new();
 
@@ -368,6 +373,13 @@ fn provider_notes(
 				 after the next ships"
 			)));
 		}
+	}
+
+	if kind == "reddit" {
+		findings.push(ok(format!(
+			"{id}: requests to Reddit name the app, \"{app_name}\", in User-Agent, as Reddit \
+			 asks; set [auth] app_name to change it"
+		)));
 	}
 
 	findings
@@ -656,6 +668,52 @@ fn setup(kind: &str) -> Option<(&'static str, &'static str, Option<&'static str>
 				),
 			)
 		}
+		"twitch" => {
+			(
+				"Open https://dev.twitch.tv/console/apps and register an application with the \
+				 category \"Website Integration\" and the client type \"Confidential\".",
+				"Add these OAuth Redirect URLs:",
+				None,
+			)
+		}
+		"spotify" => {
+			(
+				"Open https://developer.spotify.com/dashboard, create an app, and tick Web API.",
+				"Add these Redirect URIs:",
+				Some(
+					"Spotify doesn't check email addresses, so accounts made with it start \
+					 without one.",
+				),
+			)
+		}
+		"reddit" => {
+			(
+				"Open https://www.reddit.com/prefs/apps and create an app of type \"web app\".",
+				"Set its redirect uri to one of these (Reddit takes one per app, so make a second \
+				 app for development):",
+				Some(
+					"Reddit shares no email address, and asks each app to name itself: requests \
+					 carry `User-Agent: web:<your app's name>:leptoskit-auth/…`.",
+				),
+			)
+		}
+		"amazon" => (
+			"Open https://developer.amazon.com/loginwithamazon/console/site/lwa/overview.html, \
+			 create a security profile, and open its Web Settings.",
+			"Add these Allowed Return URLs:",
+			Some(
+				"Amazon doesn't say whether it checked an address, so accounts made with it start \
+				 without one.",
+			),
+		),
+		"dropbox" => {
+			(
+				"Open https://www.dropbox.com/developers/apps, create an app with scoped access, \
+				 and on its Permissions tab turn on `openid`, `email`, and `profile`.",
+				"On its Settings tab, add these Redirect URIs:",
+				None,
+			)
+		}
 		_ => return None,
 	})
 }
@@ -906,7 +964,9 @@ mod tests {
 			"{facebook}"
 		);
 
-		for id in ["x", "discord", "linkedin", "slack"] {
+		for id in [
+			"x", "discord", "linkedin", "slack", "twitch", "spotify", "reddit", "amazon", "dropbox",
+		] {
 			let output = add_provider(root.path(), &config, id, None).unwrap();
 			assert!(
 				output.contains(&format!("https://notes.example/auth/callback/{id}")),
@@ -936,7 +996,7 @@ mod tests {
 		let written = std::fs::read_to_string(root.path().join("leptoskit.toml")).unwrap();
 		let reloaded = LeptoskitConfig::from_toml(&written, root.path()).unwrap();
 		let providers = reloaded.auth.unwrap().providers;
-		assert_eq!(providers.len(), 11);
+		assert_eq!(providers.len(), 16);
 		assert_eq!(
 			providers["facebook"].api_version.as_deref(),
 			Some(leptoskit_auth::FACEBOOK_GRAPH_VERSION)
@@ -975,6 +1035,15 @@ mod tests {
 			"{report}"
 		);
 		assert!(!report.contains("slack: slack never vouches"), "{report}");
+		let reddit = load(
+			"[app]\nname = \"notes\"\n\n[auth]\n\n[auth.providers.reddit]\nclient_id_env = \
+			 \"R_ID\"\nclient_secret_env = \"R_SECRET\"\n",
+		);
+		let notes = super::report(&doctor(&reddit, env(&[]), false));
+		assert!(
+			notes.contains("reddit: requests to Reddit name the app, \"notes\""),
+			"{notes}"
+		);
 		assert!(graph_version("v26.0") > graph_version("v9.9"));
 		assert_eq!(graph_version("nonsense"), (0, 0));
 	}
