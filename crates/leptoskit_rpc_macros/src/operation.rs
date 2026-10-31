@@ -59,6 +59,7 @@ use syn::spanned::Spanned;
 pub(crate) enum OperationKind {
 	Query,
 	Mutation,
+	Job,
 }
 
 impl OperationKind {
@@ -67,6 +68,7 @@ impl OperationKind {
 		match self {
 			Self::Query => "query",
 			Self::Mutation => "mutation",
+			Self::Job => "job",
 		}
 	}
 
@@ -75,6 +77,7 @@ impl OperationKind {
 		match self {
 			Self::Query => "QueryCx",
 			Self::Mutation => "MutationCx",
+			Self::Job => "JobCx",
 		}
 	}
 
@@ -82,7 +85,7 @@ impl OperationKind {
 	fn other(self) -> Self {
 		match self {
 			Self::Query => Self::Mutation,
-			Self::Mutation => Self::Query,
+			Self::Mutation | Self::Job => Self::Query,
 		}
 	}
 
@@ -91,6 +94,7 @@ impl OperationKind {
 		match self {
 			Self::Query => format_ident!("Query"),
 			Self::Mutation => format_ident!("Mutation"),
+			Self::Job => format_ident!("Job"),
 		}
 	}
 
@@ -165,7 +169,9 @@ impl OperationArgs {
 				}
 				other => {
 					let expected = match kind {
-						OperationKind::Query => "`name = \"...\"` or `crate = \"...\"`",
+						OperationKind::Query | OperationKind::Job => {
+							"`name = \"...\"` or `crate = \"...\"`"
+						}
 						OperationKind::Mutation => {
 							"`name = \"...\"`, `retries = N`, or `crate = \"...\"`"
 						}
@@ -243,6 +249,7 @@ pub(crate) fn signature(kind: OperationKind, function: &ItemFn) -> syn::Result<S
 				match kind {
 					OperationKind::Query => "reads the database as the caller",
 					OperationKind::Mutation => "writes in one transaction as the caller",
+					OperationKind::Job => "has its own database handle and runs later",
 				}
 			),
 		));
@@ -359,6 +366,10 @@ fn check_context(kind: OperationKind, first: &FnArg) -> syn::Result<()> {
 			OperationKind::Mutation => {
 				"a mutation's context is `&rpc::MutationCx`, which writes in one transaction; \
 				 `&rpc::QueryCx` only reads, and belongs to #[rpc::query]"
+			}
+			OperationKind::Job => {
+				"a job's context is `&rpc::JobCx`, which runs in the background with its own \
+				 database handle"
 			}
 		};
 		return Err(syn::Error::new_spanned(&reference.elem, message));
@@ -553,6 +564,15 @@ pub(crate) fn expand(
 				type Output = #output;
 			}
 		});
+		if kind == OperationKind::Job {
+			out.extend(quote! {
+				#[allow(deprecated)]
+				impl #krate::Job for #struct_ident {
+					const NAME: &'static str = #name;
+					type Output = #output;
+				}
+			});
+		}
 	}
 
 	Ok(out)
@@ -597,6 +617,60 @@ fn server_items(
 			typed.attrs.retain(|attr| attr.path().is_ident("doc"));
 		}
 	}
+	let dos = quote! { #krate::__private::inventory::submit! {
+		#krate::server::Registration {
+			name: <#struct_ident as #krate::Operation>::NAME,
+			kind: <#struct_ident as #krate::Operation>::KIND,
+			module_path: ::core::module_path!(),
+			handler: #handler,
+		}
+	} };
+	let job_impl = if kind == OperationKind::Job {
+		quote! {
+			#[allow(deprecated)]
+			impl #krate::Job for #struct_ident {
+				const NAME: &'static str = #name;
+				type Output = #output;
+
+				fn run(
+					self,
+					cx: &#krate::JobCx,
+				) -> impl ::core::future::Future<Output = #krate::Result<Self::Output>>
+				+ ::core::marker::Send {
+					let Self { #(#bindings),* } = self;
+					#call
+				}
+			}
+		}
+	} else {
+		quote!()
+	};
+	let registry = if kind == OperationKind::Job {
+		quote! {
+			#krate::__private::inventory::submit! {
+				#krate::server::jobs::JobRegistration {
+					name: <#struct_ident as #krate::Operation>::NAME,
+					handler: |run: #krate::server::jobs::JobRun|
+					 -> #krate::__private::BoxFuture<'static, #krate::Result<#krate::__private::serde_json::Value>> {
+						#krate::__private::Box::pin(async move {
+							let op: #struct_ident = #krate::__private::serde_json::from_value(run.arguments)
+								.map_err(|error| #krate::Error::invalid(format!(
+									"the arguments of `{}` don't fit: {error}",
+									<#struct_ident as #krate::Operation>::NAME
+								)))?;
+							let cx = #krate::JobCx::new(run.db, run.identity, run.id, run.attempt);
+							let output = <#struct_ident as #krate::Operation>::run(op, &cx).await?;
+							#krate::__private::serde_json::to_value(output)
+								.map_err(|_| #krate::Error::server("a job's result isn't JSON"))
+						})
+					},
+				}
+			}
+		}
+	} else {
+		dos
+	};
+
 	quote! {
 			#function
 
@@ -618,18 +692,13 @@ fn server_items(
 				}
 			}
 
+			#job_impl
+
 			#krate::__require_db!();
 
 			#[allow(deprecated)]
 			const _: () = {
-				#krate::__private::inventory::submit! {
-					#krate::server::Registration {
-						name: <#struct_ident as #krate::Operation>::NAME,
-						kind: <#struct_ident as #krate::Operation>::KIND,
-						module_path: ::core::module_path!(),
-						handler: #handler,
-					}
-				}
+				#registry
 			};
 	}
 }

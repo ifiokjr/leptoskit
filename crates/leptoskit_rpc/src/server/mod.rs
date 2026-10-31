@@ -21,6 +21,8 @@ mod cx;
 mod http;
 #[cfg(feature = "db")]
 mod identity;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub mod jobs;
 #[cfg(feature = "live")]
 mod live;
 #[cfg(feature = "db")]
@@ -49,6 +51,16 @@ pub use identity::HasContext;
 pub use identity::Identify;
 #[cfg(feature = "db")]
 pub use identity::Identity;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use jobs::JobCx;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use jobs::JobRegistration;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use jobs::JobRun;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use jobs::Jobs;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use jobs::JobsHandle;
 #[cfg(feature = "live")]
 pub use live::Live;
 #[cfg(feature = "live")]

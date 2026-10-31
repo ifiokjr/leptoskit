@@ -153,6 +153,30 @@ pub fn mutation(
 	operation_macro(OperationKind::Mutation, args, item)
 }
 
+/// Declares a job: work that runs later, in the background.
+///
+/// ```ignore
+/// #[rpc::job]
+/// pub async fn send_invite(cx: &rpc::JobCx, invite: Id<Invite>) -> rpc::Result<()> {
+/// 	// ...
+/// 	Ok(())
+/// }
+/// ```
+///
+/// On every target it declares the argument struct, so a mutation enqueues it
+/// with `cx.enqueue(SendInvite { invite })`. In a server build it keeps the
+/// body, registers it with the job runner, and runs it with `rpc::JobCx`,
+/// which gives the job its own database handle and id.
+///
+/// Options: `name = "..."` and `crate = "..."`, as `#[rpc::query]`.
+#[proc_macro_attribute]
+pub fn job(
+	args: proc_macro::TokenStream,
+	item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+	operation_macro(OperationKind::Job, args, item)
+}
+
 fn operation_macro(
 	kind: OperationKind,
 	args: proc_macro::TokenStream,
