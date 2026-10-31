@@ -13,6 +13,19 @@ mod async_plugins;
 use async_plugins::configure_plugin;
 use async_plugins::host_features;
 use async_plugins::validate_async;
+mod implementation;
+#[cfg(test)]
+pub use implementation::Capability;
+pub use implementation::Constructor;
+pub use implementation::Flavour;
+pub use implementation::HostCapabilities;
+pub use implementation::Implementation;
+#[cfg(test)]
+pub use implementation::Missing;
+pub use implementation::MissingPlugin;
+pub use implementation::PlatformRegistration;
+pub use implementation::RustRegistration;
+use implementation::select_for_target;
 
 #[derive(Debug, Deserialize)]
 struct Metadata {
@@ -100,6 +113,15 @@ pub struct Plugin {
 	/// Passes the ability context to the ArkTS plugin's constructor.
 	#[serde(default)]
 	pub harmonyos_context: bool,
+	/// Per-platform registration, which takes precedence over the shared Rust
+	/// fields and the platform's native type.
+	pub ios: Option<PlatformRegistration>,
+	pub macos: Option<PlatformRegistration>,
+	pub android: Option<PlatformRegistration>,
+	pub harmonyos: Option<PlatformRegistration>,
+	pub windows: Option<PlatformRegistration>,
+	pub linux: Option<PlatformRegistration>,
+	pub tui: Option<PlatformRegistration>,
 	#[serde(skip)]
 	pub directory: PathBuf,
 	#[serde(skip)]
@@ -139,28 +161,11 @@ pub struct Registry {
 	pub bridge: PathBuf,
 	pub target: PathBuf,
 	pub host_features: Vec<String>,
+	/// Selected plugins this destination leaves out, and why.
+	pub missing: Vec<MissingPlugin>,
 }
 
 impl Plugin {
-	/// Whether generated Rust installs a plugin or application service.
-	pub fn has_rust_registration(&self) -> bool {
-		self.rust_type.is_some()
-			|| self.rust_factory.is_some()
-			|| self.rust_service_factory.is_some()
-	}
-
-	/// A service may own separate capabilities alongside a native dispatcher.
-	/// Ordinary Rust plugins retain their existing Rust-only registration.
-	pub fn uses_platform_dispatcher(&self, target: Target) -> bool {
-		let native = match target {
-			Target::Macos | Target::Ios | Target::IosSimulator => self.apple_type.is_some(),
-			Target::Android | Target::AndroidX86_64 => self.android_type.is_some(),
-			Target::Harmonyos | Target::HarmonyosX86_64 => self.harmonyos_type.is_some(),
-			_ => false,
-		};
-		!self.has_rust_registration() || (self.rust_service_factory.is_some() && native)
-	}
-
 	fn validate_service(&self) -> Result<()> {
 		let Some(factory) = &self.rust_service_factory else {
 			return Ok(());
@@ -177,6 +182,10 @@ impl Plugin {
 				&& !self.rust_async,
 			"rust-service-factory cannot be combined with rust-type, rust-factory, rust-worker or \
 			 rust-async"
+		);
+		anyhow::ensure!(
+			self.platform_tables().all(|(_, table)| table.unavailable),
+			"rust-service-factory cannot be combined with per-platform Rust registration"
 		);
 		Ok(())
 	}
@@ -203,7 +212,7 @@ pub fn resolve(
 	let mut host_config = config.clone();
 
 	if !has_host {
-		return resolve_metadata(metadata, &host_config);
+		return resolve_for_target(metadata, &host_config, Some(target));
 	}
 
 	// A host is usually a member of the app's workspace. One inside a larger
@@ -228,7 +237,7 @@ pub fn resolve(
 		.context("platform host Cargo.toml must be a workspace member")?;
 	host_config.app.name.clone_from(&host.name);
 
-	resolve_metadata(metadata, &host_config)
+	resolve_for_target(metadata, &host_config, Some(target))
 }
 
 /// `cargo metadata` for the target, from the app's workspace or, with
@@ -265,9 +274,21 @@ fn cargo_metadata(
 	Ok(serde_json::from_slice(&output.stdout)?)
 }
 
+#[cfg(test)]
 fn resolve_metadata(
 	metadata: Metadata,
 	config: &leptoskit_config::LeptoskitConfig,
+) -> Result<Registry> {
+	resolve_for_target(metadata, config, None)
+}
+
+/// Resolve the selected plugins. With a target, the plugins it can't run are
+/// left out and recorded in [`Registry::missing`] before native helpers and
+/// host features are derived from the rest.
+fn resolve_for_target(
+	metadata: Metadata,
+	config: &leptoskit_config::LeptoskitConfig,
+	target: Option<Target>,
 ) -> Result<Registry> {
 	let app = metadata
 		.packages
@@ -289,9 +310,13 @@ fn resolve_metadata(
 		.collect();
 	let (available, bridge) = available_plugins(node, &packages)?;
 	let plugins = selected_plugins(available, config)?;
+	let (plugins, missing) = match target {
+		Some(target) => select_for_target(plugins, target, config.native.missing_plugins)?,
+		None => (plugins, Vec::new()),
+	};
 	let bridge = bridge.context("native apps need a direct leptoskit_bridge_ffi dependency")?;
 	let support = resolve_support(&metadata, &plugins, &bridge)?;
-	let host_features = host_features(app, node, &packages, &plugins)?;
+	let host_features = host_features(app, node, &packages, &plugins, target)?;
 	Ok(Registry {
 		package: app.name.clone(),
 		plugins,
@@ -299,6 +324,7 @@ fn resolve_metadata(
 		bridge,
 		target: metadata.target_directory,
 		host_features,
+		missing,
 	})
 }
 
@@ -458,7 +484,17 @@ fn validate_plugin(plugin: &Plugin, alias: &str) -> Result<()> {
 		!plugin.apple_context || (plugin.apple_type.is_some() && plugin.apple_module.is_some()),
 		"apple-context requires apple-type and apple-module"
 	);
+	anyhow::ensure!(
+		plugin.apple_type.is_some() == plugin.apple_module.is_some(),
+		"apple-type and apple-module must be declared together"
+	);
 	validate_async(plugin)?;
+
+	for (platform, table) in plugin.platform_tables() {
+		table
+			.validate(platform)
+			.with_context(|| format!("{} runtime metadata", plugin.name))?;
+	}
 
 	if let Some(path) = &plugin.rust_factory {
 		anyhow::ensure!(type_path(path, "::"), "invalid Rust plugin factory");

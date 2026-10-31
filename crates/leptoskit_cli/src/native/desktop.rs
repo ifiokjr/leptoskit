@@ -195,19 +195,7 @@ fn plugin_packages(
 	registrant: &mut String,
 	registrations: &mut String,
 ) -> Result<()> {
-	for plugin in &registry.plugins {
-		if !plugin.uses_platform_dispatcher(Target::Macos) {
-			continue;
-		}
-
-		let module = plugin
-			.apple_module
-			.as_deref()
-			.context("missing Apple module")?;
-		let kind = plugin
-			.apple_type
-			.as_deref()
-			.context("missing Apple plugin type")?;
+	for (plugin, module, kind) in super::project::apple_plugins(registry, Target::Macos)? {
 		copy_package(&plugin.directory, &packages.join(&plugin.package_name))?;
 		writeln!(
 			dependencies,

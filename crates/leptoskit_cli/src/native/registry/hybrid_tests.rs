@@ -14,9 +14,29 @@ fn selects_one_service_with_both_native_implementations() {
 	)
 	.unwrap();
 	let plugin = &registry.plugins[0];
-	assert!(plugin.has_rust_registration());
-	assert!(plugin.uses_platform_dispatcher(Target::Macos));
-	assert!(plugin.uses_platform_dispatcher(Target::Android));
+	for (target, native) in [
+		(
+			Target::Macos,
+			Implementation::Apple {
+				module: "Echo",
+				ty: "EchoPlatform",
+			},
+		),
+		(
+			Target::Android,
+			Implementation::Android {
+				ty: "dev.example.EchoPlatform",
+			},
+		),
+	] {
+		assert_eq!(
+			plugin.implementation(target, HostCapabilities::of(target)),
+			Ok(Implementation::Hybrid {
+				service: "native::from_app_dirs",
+				native: Box::new(native),
+			})
+		);
+	}
 	assert_eq!(plugin.crate_name, "renamed_echo");
 	assert_eq!(plugin.apple_type.as_deref(), Some("EchoPlatform"));
 	assert_eq!(
@@ -67,4 +87,20 @@ fn hybrid_package_does_not_bypass_the_one_service_limit() {
 	config.native.plugins.push("second".into());
 	let error = resolve_metadata(metadata, &config).err().unwrap();
 	assert!(error.to_string().contains("multiple rust-service-factory"));
+}
+
+#[test]
+fn a_declared_apple_type_requires_its_module_beside_the_service() {
+	for fields in [
+		json!({"name": "echo", "rust-service-factory": "new", "apple-type": "EchoPlatform"}),
+		json!({"name": "echo", "rust-service-factory": "new", "apple-module": "Echo"}),
+	] {
+		let error = resolve_metadata(service_metadata(&fields), &service_config())
+			.err()
+			.unwrap();
+		assert!(
+			format!("{error:#}").contains("apple-type and apple-module must be declared together"),
+			"{error:#}"
+		);
+	}
 }

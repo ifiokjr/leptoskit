@@ -7,6 +7,8 @@ mod hybrid_tests {
 mod platform_tests {
 	include!("platform_tests.rs");
 }
+use leptoskit_config::MissingPlugins;
+
 use super::*;
 
 fn metadata_registry(root: &Path, metadata: &[serde_json::Value]) -> Registry {
@@ -24,6 +26,7 @@ fn metadata_registry(root: &Path, metadata: &[serde_json::Value]) -> Registry {
 		bridge: root.join("bridge"),
 		target: root.join("target"),
 		host_features: vec![],
+		missing: Vec::new(),
 	}
 }
 
@@ -157,6 +160,7 @@ fn ios_passes_presentation_context_only_to_plugins_that_request_it() {
 		bridge,
 		target: root.join("target"),
 		host_features: vec![],
+		missing: Vec::new(),
 	};
 	ios::generate(
 		&root,
@@ -399,6 +403,7 @@ fn host_registry(root: &Path) -> Registry {
 		bridge,
 		target: root.join("target"),
 		host_features: vec![],
+		missing: Vec::new(),
 	}
 }
 
@@ -433,24 +438,82 @@ fn reject_missing_purpose(root: &Path, registry: &Registry, plist: &Path) {
 }
 
 #[test]
-fn platform_plugins_need_an_implementation_for_each_destination() {
+fn each_destination_resolves_the_implementation_it_can_run() {
+	use super::super::registry::HostCapabilities;
+	use super::super::registry::Missing;
+
 	let arkts = plugin(
 		serde_json::json!({"name": "posture", "harmonyos-type": "PosturePlugin"}),
 		Path::new("/posture"),
 		"posture_crate",
 	);
-	for (target, supported) in [
-		(Target::Harmonyos, true),
-		(Target::HarmonyosX86_64, true),
-		(Target::Android, false),
-		(Target::Ios, false),
-		(Target::Windows, false),
-		(Target::Linux, false),
+	for (target, expected) in [
+		(
+			Target::Harmonyos,
+			Ok(Implementation::ArkTs {
+				ty: "PosturePlugin",
+			}),
+		),
+		(
+			Target::HarmonyosX86_64,
+			Ok(Implementation::ArkTs {
+				ty: "PosturePlugin",
+			}),
+		),
+		(Target::Android, Err(Missing::NoImplementation)),
+		(Target::Ios, Err(Missing::NoImplementation)),
+		(Target::Windows, Err(Missing::NoImplementation)),
+		(Target::Linux, Err(Missing::NoImplementation)),
 	] {
 		assert_eq!(
-			validate_platform_plugin(&arkts, target).is_ok(),
-			supported,
+			arkts.implementation(target, HostCapabilities::of(target)),
+			expected,
 			"{target:?}"
 		);
 	}
+}
+
+#[test]
+fn an_android_build_skips_an_apple_only_plugin_with_a_warning() {
+	let directory = tempfile::tempdir().unwrap();
+	let root = directory.path().canonicalize().unwrap();
+	let mut registry = host_registry(&root);
+	let haptics = &mut registry.plugins[2];
+	haptics.android_type = None;
+	haptics.android_context = false;
+	haptics.android_permissions.clear();
+	haptics.android_query_intents.clear();
+
+	registry
+		.select(Target::Android, MissingPlugins::Warn)
+		.unwrap();
+	assert_eq!(
+		registry.warnings().collect::<Vec<_>>(),
+		["warning: haptics has no Android implementation; calls fail with Unavailable"]
+	);
+	generate(
+		&root,
+		&leptoskit_config::LeptoskitConfig::default(),
+		&registry,
+		Target::Android,
+		false,
+	)
+	.unwrap();
+	let kotlin =
+		std::fs::read_to_string(root.join(".leptoskit/android/sources/GeneratedPlugins.kt"))
+			.unwrap();
+	assert!(!kotlin.contains("dispatcher.register("));
+	let registrant = std::fs::read_to_string(root.join(".leptoskit/registrant.rs")).unwrap();
+	assert!(registrant.contains("store_crate::Store::default()"));
+	assert!(!registrant.contains("haptics"));
+
+	let mut strict = host_registry(&root);
+	strict.plugins[2].android_type = None;
+	let error = strict
+		.select(Target::Android, MissingPlugins::Error)
+		.unwrap_err();
+	assert_eq!(
+		error.to_string(),
+		"native.missing-plugins = \"error\" stops the build: haptics has no Android implementation"
+	);
 }

@@ -68,7 +68,28 @@ A runtime plugin gives your app an operating-system service, such as the clipboa
 plugins = ["os", "crypto", "clipboard"]
 ```
 
-At build time, the CLI reads each listed dependency's metadata and generates the code that registers it with the host and grants your app access to its methods. Renamed dependencies work. A plugin that is only a dependency of another dependency isn't registered. A missing dependency, a duplicate name, or a plugin with no implementation for the platform being built stops the build with an error.
+At build time, the CLI reads each listed dependency's metadata and generates the code that registers it with the host and grants your app access to its methods. Renamed dependencies work. A plugin that is only a dependency of another dependency isn't registered. A missing dependency or a duplicate name stops the build with an error.
+
+### Plugins a platform can't run
+
+One `leptoskit.toml` serves every platform, even when a plugin doesn't exist everywhere. When a listed plugin has no implementation for the platform being built, or that platform's app can't run it yet, the build leaves it out and warns:
+
+```text
+warning: haptics has no Linux implementation; calls fail with Unavailable
+```
+
+The app still builds. On that platform, creating the plugin's client or calling it fails with `Error::Unavailable`, the same error a plugin returns for anything else the device can't do, so handle it where you call the plugin. Today:
+
+- the generated Windows, Linux, and terminal apps leave every runtime plugin out;
+- HarmonyOS apps run synchronous Rust plugins, such as `os`, and ArkTS plugins, such as `posture`. They leave out plugins that run on a worker thread or on the async host, such as `crypto`, `http`, `shell`, and `websocket`, and app-owned services;
+- iOS, Android, and macOS leave out only plugins that have no implementation for them.
+
+A plugin can also declare that a platform doesn't have the service at all; the build leaves it out there without a warning. To stop the build instead whenever a listed plugin is left out, including those, set:
+
+```toml
+[native]
+missing-plugins = "error"
+```
 
 Registering a plugin doesn't grant operating-system permissions. Add the permission strings and entitlements the plugin's README asks for to your host, such as `NSMotionUsageDescription` in `ios/Info.plist` for the pedometer, or `android.permission.ACTIVITY_RECOGNITION` in the Android manifest. Your app still asks the user at run time.
 
@@ -111,7 +132,7 @@ android-context = true
 android-permissions = ["android.permission.VIBRATE"]
 ```
 
-Apple plugins ship a `Package.swift` exporting the module; Android sources live in the crate's `android/` directory. HarmonyOS sources live in `harmonyos/`: `harmonyos-type = "ExamplePlugin"` names the class that `harmonyos/ExamplePlugin.ts` exports, which implements the host's `NativePlugin` interface from `../plugins`. With `harmonyos-context = true` its constructor receives the ability's `common.Context`. Every `.ts` file there except `*_test.ts` is copied into the app, so keep test fakes in a subdirectory. A HarmonyOS plugin is either ArkTS or synchronous Rust, not both. A crate of shared native code that several plugins use declares `[package.metadata.leptoskit.native-support]` with `apple-module`, `android = true`, or both. `android-query-actions` declares the intent actions a plugin needs to see other apps; the generated manifest keeps your own queries and permissions.
+Apple plugins ship a `Package.swift` exporting the module, and declare `apple-module` and `apple-type` together; Android sources live in the crate's `android/` directory. HarmonyOS sources live in `harmonyos/`: `harmonyos-type = "ExamplePlugin"` names the class that `harmonyos/ExamplePlugin.ts` exports, which implements the host's `NativePlugin` interface from `../plugins`. With `harmonyos-context = true` its constructor receives the ability's `common.Context`. Every `.ts` file there except `*_test.ts` is copied into the app, so keep test fakes in a subdirectory. A crate of shared native code that several plugins use declares `[package.metadata.leptoskit.native-support]` with `apple-module`, `android = true`, or both. `android-query-actions` declares the intent actions a plugin needs to see other apps; the generated manifest keeps your own queries and permissions.
 
 On Android, a plugin that opens a URI needs a query for its scheme as well as its action. Pair them in the plugin's runtime metadata so installed apps with matching intent filters are visible:
 
@@ -122,6 +143,35 @@ android-query-intents = [
 ```
 
 The generated manifest adds the action and scheme together in one `<intent>`. An existing action-only query does not replace this declaration. Your own queries remain in place, including queries for particular hosts or categories.
+
+### Per-platform registration
+
+A plugin often has a Swift and a Kotlin implementation for phones and a Rust one for the desktop. Say which platform uses which in a table named after the platform:
+
+```toml
+[package.metadata.leptoskit.runtime]
+name = "clipboard"
+apple-module = "LeptosKitClipboard"
+apple-type = "ClipboardPlugin"
+android-type = "dev.leptoskit.plugins.clipboard.ClipboardPlugin"
+android-context = true
+
+[package.metadata.leptoskit.runtime.windows]
+rust-factory = "desktop::from_context"
+
+[package.metadata.leptoskit.runtime.linux]
+rust-factory = "desktop::from_context"
+```
+
+The tables are `ios`, `macos`, `android`, `harmonyos`, `windows`, `linux`, and `tui` (the terminal). Each takes `rust-type` or `rust-factory`, with `rust-worker` or `rust-async` as in the shared fields, or only `unavailable = true`, which says the platform doesn't have the service at all: the plugin is left out there without a warning. Any other key or table name is an error.
+
+For each platform, the CLI uses the first of these that the plugin declares:
+
+1. the platform's table;
+2. the shared `rust-type` or `rust-factory`, which apply to every platform;
+3. the platform's native handler: `apple-type` on iOS and macOS, `android-type` on Android, `harmonyos-type` on HarmonyOS.
+
+If the platform's app can't run the Rust handler, for example a worker plugin on HarmonyOS, the native handler is used when there is one. Otherwise the plugin is [left out with a warning](#plugins-a-platform-cant-run). A plugin with an app-owned service can't declare Rust handlers in platform tables.
 
 An async factory takes the options as a `&str` of JSON and returns `Result<Plugin, leptoskit_bridge::Error>`; it must reject invalid options before starting any I/O. A blocking factory returns `Result<impl Plugin + Send, Error>`. Cancelling a queued call means it never runs, but a call already inside the operating system may still finish, so cancellation doesn't undo side effects.
 

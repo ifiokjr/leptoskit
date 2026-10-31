@@ -16,7 +16,7 @@ pub(super) fn configure_plugin(
 	config: &leptoskit_config::LeptoskitConfig,
 	name: &str,
 ) -> Result<()> {
-	if plugin.rust_async {
+	if plugin.declares_async() {
 		let options = config.native.plugin_options.get(name).with_context(|| {
 			format!(
 				"async plugin `{name}` requires [native.plugin-options.{name}] host configuration"
@@ -44,10 +44,26 @@ pub(super) fn host_features(
 	node: &Node,
 	packages: &BTreeMap<&String, &Package>,
 	plugins: &[Plugin],
+	target: Option<Target>,
 ) -> Result<Vec<String>> {
+	// Without a target, every async declaration counts.
+	let runs_async = |plugin: &Plugin| {
+		match target {
+			Some(target) => {
+				plugin
+					.implementation(target, HostCapabilities::of(target))
+					.is_ok_and(|implementation| {
+						implementation
+							.rust()
+							.is_some_and(|rust| rust.flavour == Flavour::Async)
+					})
+			}
+			None => plugin.declares_async(),
+		}
+	};
 	let mut features: Vec<_> = plugins
 		.iter()
-		.filter(|plugin| plugin.rust_async)
+		.filter(|plugin| runs_async(plugin))
 		.map(|plugin| {
 			cargo_dependency_key(app, &plugin.package_name, &plugin.crate_name)
 				.map(|key| format!("{key}/async-host"))

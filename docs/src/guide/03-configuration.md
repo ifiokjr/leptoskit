@@ -114,12 +114,13 @@ What a release build ships: how hard the wasm client is optimized, how the outpu
 | ----------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `package_id`      | `com.leptoskit.<name>`        | The reverse-domain application id used by native hosts.                                                      |
 | `plugins`         | `[]`                          | Names of runtime plugins installed from direct dependencies of the selected host package.                    |
+| `missing-plugins` | `"warn"`                      | What a build does with a listed plugin the platform can't run: `"warn"` leaves it out, `"error"` stops.      |
 | `targets`         | `["macos", "ios", "android"]` | The native platform for the HarmonyOS starter and older projects. Six-platform projects use `app.platforms`. |
 | `viewport_width`  | `390.0`                       | The initial viewport width for the headless layout pass.                                                     |
 | `viewport_height` | `844.0`                       | The initial viewport height for the headless layout pass.                                                    |
 | `update_contract` | `"mobile-v1"`                 | The native compatibility contract named by code-pushed bundles in `runtime.json`.                            |
 
-`native.package_id` defaults to `com.leptoskit.<name>`, with punctuation removed from the app name. Runtime plugin names belong in `native.plugins`. Each selected plugin must be a direct Cargo dependency of the selected platform's host package. See [automatic plugin registration](../platforms/host-projects.md#automatic-plugin-registration).
+`native.package_id` defaults to `com.leptoskit.<name>`, with punctuation removed from the app name. Runtime plugin names belong in `native.plugins`. Each selected plugin must be a direct Cargo dependency of the selected platform's host package. See [automatic plugin registration](../platforms/host-projects.md#automatic-plugin-registration). A plugin left out of a platform's build answers every call with `Unavailable` there; set `missing-plugins = "error"` to fail the build instead, as described in [plugins a platform can't run](../platforms/host-projects.md#plugins-a-platform-cant-run).
 
 Each package id segment starts with an ASCII letter and contains only ASCII letters and digits. Change `native.update_contract` in a store release when plugin grants or native behavior change incompatibly. Shared app workspaces append the destination, such as `mobile-v1/ios`, so hosts reject another platform's update bundle.
 

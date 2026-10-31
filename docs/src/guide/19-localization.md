@@ -158,7 +158,7 @@ let preferred = use_context::<http::request::Parts>()
 </Tab>
 <Tab label="Native">
 
-The `localization` runtime plugin reports the device's languages in preference order, on iOS, Android, macOS, Windows, and Linux. Grant it in `leptoskit.toml` as described in [runtime plugins](../platforms/plugins.md), then parse the tags it returns.
+The `localization` runtime plugin reports the device's languages in preference order on iOS, Android, and macOS. Grant it in `leptoskit.toml` as described in [runtime plugins](../platforms/plugins.md), then parse the tags it returns. The generated Windows, Linux, terminal, and HarmonyOS apps don't register it yet, so there `Localization::new()` returns `Unavailable`: fall back to your default locale.
 
 ```rust
 use leptoskit_l10n::Locale;
