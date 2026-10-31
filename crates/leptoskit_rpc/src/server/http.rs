@@ -114,6 +114,10 @@ impl Server {
 		self.install();
 		let mut router = Router::new();
 		for registration in registrations {
+			// Jobs run in the background; a worker claims them, not a route.
+			if registration.kind == Kind::Job {
+				continue;
+			}
 			let server = self.clone();
 			router = router.route(
 				&format!("/api/{}", registration.name),

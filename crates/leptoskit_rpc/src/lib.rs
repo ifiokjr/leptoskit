@@ -78,12 +78,17 @@ pub use channel::assert_channel_presence;
 #[cfg(feature = "client")]
 pub use client::use_channel;
 #[cfg(feature = "client")]
+pub use client::use_job;
+#[cfg(feature = "client")]
 pub use client::use_live;
+pub use jobs::JobStatus;
+pub use jobs::JobStatusArgs;
 use leptos::prelude::Action;
 use leptos::prelude::ArcAsyncDerived;
 use leptos::prelude::ServerFnError;
 pub use leptoskit_rpc_macros::api;
 pub use leptoskit_rpc_macros::channel;
+pub use leptoskit_rpc_macros::job;
 pub use leptoskit_rpc_macros::mutation;
 pub use leptoskit_rpc_macros::query;
 pub use operation::Error;
@@ -98,6 +103,13 @@ pub use server::Identify;
 #[cfg(feature = "db")]
 pub use server::Identity;
 #[cfg(feature = "live")]
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use server::JobCx;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use server::Jobs;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use server::JobsHandle;
+#[cfg(feature = "live")]
 pub use server::Live;
 #[cfg(feature = "live")]
 pub use server::LiveStats;
@@ -107,10 +119,19 @@ pub use server::MutationCx;
 pub use server::QueryCx;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use server::call;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use server::jobs::Enqueue;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use server::jobs::Job;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use server::jobs::enqueue;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use server::jobs::job_registration;
 
 mod channel;
 #[cfg(feature = "client")]
 pub mod client;
+mod jobs;
 pub mod live;
 mod operation;
 pub mod scopes;

@@ -1,6 +1,7 @@
 //! What an operation's body receives: the database as the caller, and who
 //! the caller is.
 
+use std::future::Future;
 use std::sync::Mutex;
 use std::sync::PoisonError;
 
@@ -93,6 +94,13 @@ impl QueryCx {
 			.ok_or_else(|| Error::unauthorized("sign in to do this"))
 	}
 
+	/// The database with policies bypassed, for the RPC's own bookkeeping.
+	/// Not for app code.
+	#[doc(hidden)]
+	pub fn system(&self, reason: &'static str) -> Db {
+		self.db.connection().system(reason)
+	}
+
 	/// Every read the body has made so far.
 	pub fn reads(&self) -> Vec<ReadEntry> {
 		self.db.reads()
@@ -152,6 +160,32 @@ impl MutationCx {
 	/// What policies read.
 	pub fn context(&self) -> &Context {
 		&self.identity.context
+	}
+
+	/// Enqueues `job` in this mutation's transaction: it exists exactly when
+	/// the mutation commits, and never when it rolls back.
+	///
+	/// For a job that should wait, enqueue it in
+	/// [`after_commit`](Self::after_commit) with [`crate::enqueue`].
+	///
+	/// # Errors
+	///
+	/// When the job can't be written, such as a taken key.
+	pub async fn enqueue<J: crate::Job>(
+		&self,
+		job: J,
+	) -> crate::Result<Id<crate::server::jobs::JobRow>> {
+		crate::server::jobs::insert(
+			&self.tx,
+			&job,
+			self.identity.caller.as_deref().unwrap_or_default(),
+			None,
+			None,
+			None,
+			0,
+			None,
+		)
+		.await
 	}
 
 	/// The caller's global of type `G`, such as the signed-in person.
@@ -243,6 +277,18 @@ fn require<G: 'static>(context: &Context) -> Result<&G, Error> {
 
 impl Sealed for QueryCx {}
 impl Sealed for MutationCx {}
+
+impl OperationContext for crate::JobCx {
+	fn dispatch<O: Operation<Context = Self>>(
+		db: &Db,
+		identity: Identity,
+		_request_id: Option<&str>,
+		op: O,
+	) -> impl Future<Output = crate::Result<O::Output>> + Send {
+		let cx = crate::JobCx::new(db.clone(), identity, String::new(), 0);
+		async move { op.run(&cx).await }
+	}
+}
 
 impl OperationContext for QueryCx {
 	async fn dispatch<O: Operation<Context = Self>>(

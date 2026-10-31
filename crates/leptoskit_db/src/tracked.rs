@@ -37,6 +37,11 @@ impl<C: Connection> Tracked<C> {
 		Self { connection }
 	}
 
+	/// The connection being tracked.
+	pub fn connection(&self) -> &C {
+		&self.connection
+	}
+
 	/// Everything read so far. Empty until read sets return.
 	pub fn reads(&self) -> Vec<ReadEntry> {
 		Vec::new()

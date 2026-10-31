@@ -381,6 +381,25 @@ where
 		.with_ssr()
 }
 
+/// A background job's state, polled every second while the component is
+/// mounted.
+///
+/// ```ignore
+/// let invite = use_job(move || invite_id.get().to_string());
+/// invite.data().map(|job| job.state);
+/// ```
+#[track_caller]
+pub fn use_job(
+	id: impl Fn() -> String + Send + Sync + 'static,
+) -> QueryHandle<crate::jobs::JobStatus, FnError> {
+	let scope = QueryScope::new(|args: Args<crate::jobs::JobStatusArgs>| call(args.into_inner()))
+		.with_name("rpc:job_status")
+		.with_refetch_interval(std::time::Duration::from_secs(1));
+	use_query(scope, move || {
+		Args::new(crate::jobs::JobStatusArgs { id: id() })
+	})
+}
+
 /// A query's result, as a query handle that refetches when the arguments
 /// `args` reads change.
 ///

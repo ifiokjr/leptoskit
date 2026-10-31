@@ -16,6 +16,7 @@ use crate::FnError;
 /// | [`Call`](Self::Call)    | `#[server]`        | as a leptos server function, with its own encoding                   |
 /// | [`Query`](Self::Query)  | `#[rpc::query]`    | reading the database as the caller, read-only by type                |
 /// | [`Mutation`](Self::Mutation) | `#[rpc::mutation]` | in one serializable transaction, retried when another gets in its way |
+/// | [`Job`](Self::Job)         | `#[rpc::job]`      | later, in the background, when something enqueues it |
 ///
 /// More kinds will join these, such as actions, streams, channels, and jobs,
 /// so matching on a `Kind` needs a wildcard arm.
@@ -28,6 +29,9 @@ pub enum Kind {
 	Query,
 	/// An `#[rpc::mutation]`.
 	Mutation,
+	/// An `#[rpc::job]`: work that runs later, in the background, not a
+	/// route a client calls.
+	Job,
 }
 
 impl Kind {
@@ -38,6 +42,7 @@ impl Kind {
 			Self::Call => "call",
 			Self::Query => "query",
 			Self::Mutation => "mutation",
+			Self::Job => "job",
 		}
 	}
 }
