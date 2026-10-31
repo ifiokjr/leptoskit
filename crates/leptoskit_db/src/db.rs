@@ -150,14 +150,14 @@ impl Db {
 		};
 
 		#[cfg(feature = "postgres")]
-		if matches!(tx.inner, TxInner::Postgres(_)) {
-			if let Some(actor) = tx.access.actor() {
-				tx.execute(Statement {
-					sql: format!("SET LOCAL \"leptoskit.user_id\" = '{}'", actor.uuid()),
-					args: Vec::new(),
-				})
-				.await?;
-			}
+		if matches!(tx.inner, TxInner::Postgres(_))
+			&& let Some(actor) = tx.access.actor()
+		{
+			tx.execute(Statement {
+				sql: format!("SET LOCAL \"leptoskit.user_id\" = '{}'", actor.uuid()),
+				args: Vec::new(),
+			})
+			.await?;
 		}
 
 		Ok(tx)
