@@ -369,6 +369,16 @@
 					"type": "string",
 					"default": "/device"
 				},
+				"dpop": {
+					"description": "Takes DPoP proofs (RFC 9449), so apps can bind their tokens to a key\nthey hold, and a stolen token is useless without it.",
+					"type": "boolean",
+					"default": false
+				},
+				"dynamic_registration": {
+					"description": "Lets apps register themselves at `/oauth/register` (RFC 7591), and\nmanage their registration with the token they get (RFC 7592).",
+					"type": "boolean",
+					"default": false
+				},
 				"id_token_minutes": {
 					"description": "Minutes an ID token lasts.",
 					"type": "integer",
@@ -389,6 +399,13 @@
 					"format": "uint32",
 					"default": 90,
 					"minimum": 0
+				},
+				"registration_token_env": {
+					"description": "The environment variable holding the initial access token apps must\nsend to register, at least 32 characters. Without it, anyone may\nregister, at most 10 apps an hour from one address.",
+					"type": [
+						"string",
+						"null"
+					]
 				},
 				"rsa_key_env": {
 					"description": "The environment variable holding an RSA private key, as PEM, for apps\nthat need RS256 ID tokens. Without it every token is ES256.",

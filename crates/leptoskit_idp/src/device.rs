@@ -308,6 +308,7 @@ impl Idp {
 					device.scopes.0.clone(),
 					Vec::new(),
 					auth_time,
+					request.dpop_jkt.as_deref(),
 				)
 				.await?;
 			DeviceCode::update()
@@ -324,6 +325,7 @@ impl Idp {
 				&family.scopes,
 				Extras {
 					refresh: true,
+					dpop: request.dpop_jkt.as_deref(),
 					..Extras::default()
 				},
 			)

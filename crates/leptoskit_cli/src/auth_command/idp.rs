@@ -95,6 +95,11 @@ pub enum ClientArgs {
 		/// May introspect other apps' tokens, as a resource server does.
 		#[arg(long)]
 		introspect: bool,
+		/// Must bind every access token to its own key with DPoP (RFC 9449),
+		/// so a stolen token is useless without the key. The server needs
+		/// `dpop = true` in `[auth.idp]`.
+		#[arg(long)]
+		dpop: bool,
 	},
 	/// Lists every registered app.
 	List,
@@ -176,6 +181,7 @@ fn client_command(args: ClientArgs) -> Result<ClientCommand> {
 			rs256,
 			first_party,
 			introspect,
+			dpop,
 		} => {
 			let jwks = jwks
 				.map(|path| -> Result<serde_json::Value> {
@@ -209,6 +215,7 @@ fn client_command(args: ClientArgs) -> Result<ClientCommand> {
 				},
 				first_party,
 				introspection: introspect,
+				dpop_bound: dpop,
 			})
 		}
 		ClientArgs::List => ClientCommand::List,
@@ -380,6 +387,12 @@ fn describe(text: &mut String, client: &ClientInfo) {
 	if client.introspection {
 		let _ = writeln!(text, "  may introspect other apps' tokens");
 	}
+	if client.dpop_bound {
+		let _ = writeln!(text, "  tokens bound to its key with DPoP");
+	}
+	if client.self_registered {
+		let _ = writeln!(text, "  registered itself (dynamic registration)");
+	}
 }
 
 #[cfg(test)]
@@ -420,6 +433,8 @@ mod tests {
 			scopes: vec!["openid".into(), "posts:read".into()],
 			first_party: true,
 			introspection: true,
+			dpop_bound: false,
+			self_registered: false,
 			created_at: chrono::DateTime::default(),
 		}
 	}
@@ -449,6 +464,7 @@ mod tests {
 				id_token_alg: SigningAlgorithm::Es256,
 				first_party: false,
 				introspection: false,
+				dpop_bound: false,
 			})
 		);
 		let ClientCommand::Add(cli) = parse(&[
@@ -538,12 +554,13 @@ mod tests {
 			"--secret-post",
 			"--first-party",
 			"--introspect",
+			"--dpop",
 		]) else {
 			panic!("an add");
 		};
 		assert_eq!(spec.auth_method, ClientAuth::SecretPost);
 		assert_eq!(spec.post_logout_redirect_uris, ["https://a.example/out"]);
-		assert!(spec.first_party && spec.introspection);
+		assert!(spec.first_party && spec.introspection && spec.dpop_bound);
 		assert_eq!(parse(&["idp", "client", "list"]), ClientCommand::List);
 		assert_eq!(
 			parse(&["idp", "client", "remove", "abc"]),
@@ -604,11 +621,16 @@ mod tests {
 		assert!(!failed);
 		assert!(text.contains("client secret: n3w"), "{text}");
 
+		let mut bound = client("Two");
+		bound.dpop_bound = true;
+		bound.self_registered = true;
 		let (text, _) = render(&ClientCommandOutput::Listed {
-			clients: vec![client("One"), client("Two")],
+			clients: vec![client("One"), bound],
 		});
 		assert!(text.contains("One\n") && text.contains("\nTwo\n"), "{text}");
 		assert!(text.contains("post-logout redirects"), "{text}");
+		assert!(text.contains("bound to its key with DPoP"), "{text}");
+		assert!(text.contains("registered itself"), "{text}");
 		let (text, _) = render(&ClientCommandOutput::Listed {
 			clients: Vec::new(),
 		});
@@ -686,6 +708,7 @@ mod tests {
 				id_token_alg: SigningAlgorithm::Es256,
 				first_party: false,
 				introspection: false,
+				dpop_bound: false,
 			}),
 			Duration::from_millis(200),
 		)

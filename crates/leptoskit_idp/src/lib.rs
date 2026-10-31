@@ -47,6 +47,8 @@ mod config;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod device;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod dpop;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod error;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod grants;
@@ -62,6 +64,8 @@ mod keys;
 mod par;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod portal;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod registration;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod secrets;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -101,11 +105,17 @@ pub use idp::Lifetimes;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use idp::Portal;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use idp::Registration;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use leptoskit_rpc::ScopeInfo;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use leptoskit_rpc::Scopes;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use leptoskit_rpc::scopes;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use registration::ClientMetadata;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use registration::ClientRegistration;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use secrets::ClientSecret;
 pub use tables::*;

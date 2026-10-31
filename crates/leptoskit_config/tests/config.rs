@@ -1046,6 +1046,18 @@ fn auth_settings_are_checked() {
 			"apps_per_person",
 		),
 		("[auth.idp]\nrsa_key = \"-----BEGIN\"", "could not parse"),
+		(
+			"[auth.idp]\ndynamic_registration = true\nregistration_token_env = \"\"",
+			"registration_token_env must name",
+		),
+		(
+			"[auth.idp]\nregistration_token_env = \"IDP_REGISTRATION_TOKEN\"",
+			"needs dynamic_registration",
+		),
+		(
+			"[auth.idp]\nregistration_token = \"inline\"",
+			"could not parse",
+		),
 	] {
 		let error = load("auth_bad", &format!("[auth]\n{settings}\n")).unwrap_err();
 		assert!(error.to_string().contains(message), "{settings}: {error}");
