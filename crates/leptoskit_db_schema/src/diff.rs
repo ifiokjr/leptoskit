@@ -10,6 +10,8 @@ use crate::CheckRule;
 use crate::Column;
 use crate::Dialect;
 use crate::ForeignKey;
+use crate::GeoIndex;
+use crate::GeoPackageLayer;
 use crate::Index;
 use crate::Predicate;
 use crate::RowSecurity;
@@ -209,6 +211,39 @@ pub enum Step {
 		/// The policies as they were.
 		security: RowSecurity,
 	},
+	/// Create a spatial index over a geospatial column, after every other
+	/// change to the table, and index the rows it already has.
+	CreateGeoIndex {
+		/// The table, by its new name.
+		table: TableName,
+		/// The index.
+		index: GeoIndex,
+	},
+	/// Drop a spatial index, before any other change to the table. It's
+	/// derived from the table's own shapes, so nothing is lost; a changed
+	/// index is dropped and created again.
+	DropGeoIndex {
+		/// The table, by its new name.
+		table: TableName,
+		/// The index as it was.
+		index: GeoIndex,
+	},
+	/// Register a table's geometry column in GeoPackage's metadata tables,
+	/// creating them first if they're missing. SQLite only.
+	RegisterGeoPackage {
+		/// The table, by its new name.
+		table: TableName,
+		/// The registered column.
+		layer: GeoPackageLayer,
+	},
+	/// Remove a table's registration from GeoPackage's metadata tables, before
+	/// any other change. SQLite only.
+	UnregisterGeoPackage {
+		/// The table, by its new name.
+		table: TableName,
+		/// The registration as it was.
+		layer: GeoPackageLayer,
+	},
 	/// Create a view, after every table change.
 	CreateView(View),
 	/// Drop a view, before any table change. A changed view is dropped and
@@ -252,7 +287,11 @@ impl Step {
 			| Self::CreateSearch { table, .. }
 			| Self::DropSearch { table, .. }
 			| Self::CreateRowSecurity { table, .. }
-			| Self::DropRowSecurity { table, .. } => table,
+			| Self::DropRowSecurity { table, .. }
+			| Self::CreateGeoIndex { table, .. }
+			| Self::DropGeoIndex { table, .. }
+			| Self::RegisterGeoPackage { table, .. }
+			| Self::UnregisterGeoPackage { table, .. } => table,
 			Self::CreateView(view) | Self::DropView(view) => &view.name,
 		}
 	}
@@ -304,7 +343,11 @@ impl Step {
 	/// destruction last.
 	fn phase(&self) -> u8 {
 		match self {
-			Self::DropView(_) | Self::DropSearch { .. } | Self::DropRowSecurity { .. } => 0,
+			Self::DropView(_)
+			| Self::DropSearch { .. }
+			| Self::DropRowSecurity { .. }
+			| Self::DropGeoIndex { .. }
+			| Self::UnregisterGeoPackage { .. } => 0,
 			Self::DropForeignKey { .. } => 1,
 			Self::DropIndex { .. } => 2,
 			Self::DropCheck { .. } => 3,
@@ -323,7 +366,10 @@ impl Step {
 			Self::CreateIndex { .. } => 11,
 			Self::AddCheck { .. } => 12,
 			Self::AddForeignKey { .. } => 13,
-			Self::CreateSearch { .. } | Self::CreateRowSecurity { .. } => 14,
+			Self::CreateSearch { .. }
+			| Self::CreateRowSecurity { .. }
+			| Self::CreateGeoIndex { .. }
+			| Self::RegisterGeoPackage { .. } => 14,
 			Self::SetTableComment { .. } | Self::SetColumnComment { .. } => 15,
 			Self::DropTable(_) => 16,
 			Self::CreateView(_) => 17,
@@ -437,6 +483,18 @@ impl fmt::Display for Step {
 			}
 			Self::DropRowSecurity { table, .. } => {
 				write!(f, "- row-level security on {table}")
+			}
+			Self::CreateGeoIndex { table, index } => {
+				write!(f, "+ spatial index {table}({})", index.column)
+			}
+			Self::DropGeoIndex { table, index } => {
+				write!(f, "- spatial index {table}({})", index.column)
+			}
+			Self::RegisterGeoPackage { table, layer } => {
+				write!(f, "+ GeoPackage layer {table}({})", layer.column)
+			}
+			Self::UnregisterGeoPackage { table, layer } => {
+				write!(f, "- GeoPackage layer {table}({})", layer.column)
 			}
 			Self::CreateView(view) => write!(f, "+ {} {}", view_kind(view), view.name),
 			Self::DropView(view) => write!(f, "- {} {}", view_kind(view), view.name),
@@ -695,10 +753,26 @@ pub fn diff(
 
 	for (pair, columns) in &matched_tables {
 		diff_search(pair, columns, &rekeyed, &mut steps);
+		diff_geo_indexes(pair, columns, &rekeyed, &mut steps);
+		diff_geopackage(previous, target, pair, columns, &mut steps);
 	}
 
 	for table in pairs.added {
 		steps.push(Step::CreateTable(table.clone()));
+
+		for index in &table.geo_indexes {
+			steps.push(Step::CreateGeoIndex {
+				table: table.name.clone(),
+				index: index.clone(),
+			});
+		}
+
+		if let Some(layer) = target.geopackage_layer(table) {
+			steps.push(Step::RegisterGeoPackage {
+				table: table.name.clone(),
+				layer,
+			});
+		}
 
 		if let Some(search) = &table.search {
 			steps.push(Step::CreateSearch {
@@ -709,6 +783,20 @@ pub fn diff(
 	}
 
 	for table in pairs.removed {
+		if let Some(layer) = previous.geopackage_layer(table) {
+			steps.push(Step::UnregisterGeoPackage {
+				table: table.name.clone(),
+				layer,
+			});
+		}
+
+		for index in &table.geo_indexes {
+			steps.push(Step::DropGeoIndex {
+				table: table.name.clone(),
+				index: index.clone(),
+			});
+		}
+
 		if let Some(search) = &table.search {
 			steps.push(Step::DropSearch {
 				table: table.name.clone(),
@@ -750,6 +838,8 @@ fn diff_row_security(
 				| Step::SetTableComment { .. }
 				| Step::SetColumnComment { .. }
 				| Step::CreateSearch { .. }
+				| Step::CreateGeoIndex { .. }
+				| Step::RegisterGeoPackage { .. }
 		)
 	});
 	let renamed: HashMap<&TableName, &TableName> = table_renames
@@ -804,6 +894,8 @@ fn diff_views(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
 				| Step::SetColumnComment { .. }
 				| Step::CreateRowSecurity { .. }
 				| Step::DropRowSecurity { .. }
+				| Step::CreateGeoIndex { .. }
+				| Step::RegisterGeoPackage { .. }
 		)
 	});
 	let unchanged = |view: &View| {
@@ -919,6 +1011,111 @@ fn diff_search(
 		steps.push(Step::CreateSearch {
 			table: pair.target.name.clone(),
 			search: search.clone(),
+		});
+	}
+}
+
+/// Recreates each spatial index that changes, and each one the table
+/// changes under: the table is renamed or rekeyed, or the indexed or a key
+/// column is renamed, retyped, or dropped. SQLite's companion tables and
+/// triggers are named after the table and column and keyed by the key, and
+/// Postgres's index is named after them.
+fn diff_geo_indexes(
+	pair: &TablePair<'_>,
+	columns: &ColumnMatches<'_>,
+	rekeyed: &HashSet<TableName>,
+	steps: &mut Vec<Step>,
+) {
+	let changed = |from: &Column, to: &Column| from.name != to.name || from.ty != to.ty;
+	let key_moved = columns
+		.matched
+		.iter()
+		.any(|(from, to)| changed(from, to) && pair.previous.primary_key.contains(&from.name))
+		|| columns
+			.removed
+			.iter()
+			.any(|column| pair.previous.primary_key.contains(&column.name));
+	let table_changed =
+		pair.previous.name != pair.target.name || rekeyed.contains(&pair.target.name) || key_moved;
+
+	for index in &pair.previous.geo_indexes {
+		let survives = pair
+			.target
+			.geo_indexes
+			.iter()
+			.any(|kept| kept.column == index.column);
+		let disturbed = columns
+			.matched
+			.iter()
+			.any(|(from, to)| from.name == index.column && changed(from, to))
+			|| columns
+				.removed
+				.iter()
+				.any(|column| column.name == index.column);
+
+		if !survives || disturbed || table_changed {
+			steps.push(Step::DropGeoIndex {
+				table: pair.target.name.clone(),
+				index: index.clone(),
+			});
+		}
+	}
+
+	for index in &pair.target.geo_indexes {
+		let existed = pair
+			.previous
+			.geo_indexes
+			.iter()
+			.any(|old| old.column == index.column);
+		let disturbed = columns
+			.matched
+			.iter()
+			.any(|(from, to)| to.name == index.column && changed(from, to))
+			|| columns
+				.added
+				.iter()
+				.any(|column| column.name == index.column);
+
+		if !existed || disturbed || table_changed {
+			steps.push(Step::CreateGeoIndex {
+				table: pair.target.name.clone(),
+				index: index.clone(),
+			});
+		}
+	}
+}
+
+/// Registers a table's GeoPackage layer again when it changes, or when the
+/// table or its geometry column is renamed.
+fn diff_geopackage(
+	previous: &Schema,
+	target: &Schema,
+	pair: &TablePair<'_>,
+	columns: &ColumnMatches<'_>,
+	steps: &mut Vec<Step>,
+) {
+	let before = previous.geopackage_layer(pair.previous);
+	let after = target.geopackage_layer(pair.target);
+	let renamed = pair.previous.name != pair.target.name
+		|| before
+			.as_ref()
+			.is_some_and(|layer| columns.renames.contains_key(&layer.column));
+
+	if before == after && !renamed {
+		return;
+	}
+
+	if let Some(layer) = before {
+		steps.push(Step::UnregisterGeoPackage {
+			table: pair.target.name.clone(),
+			layer,
+		});
+	}
+
+	if let Some(layer) = after {
+		steps.push(Step::RegisterGeoPackage {
+			table: pair.target.name.clone(),
+			layer,
 		});
 	}
 }
@@ -1177,7 +1374,8 @@ impl ColumnMatches<'_> {
 			CheckRule::Range { column, .. }
 			| CheckRule::Length { column, .. }
 			| CheckRule::OneOf { column, .. }
-			| CheckRule::Regex { column, .. } => *column = self.rename(column),
+			| CheckRule::Regex { column, .. }
+			| CheckRule::ValidGeometry { column } => *column = self.rename(column),
 			CheckRule::Sql { .. } => {}
 		}
 

@@ -21,7 +21,7 @@ thiserror = { workspace = true }
 [dev-dependencies]
 insta = { workspace = true }
 # Apply tests: run generated SQLite migrations against a real database.
-rusqlite = { workspace = true, features = ["bundled"] }
+rusqlite = { workspace = true, features = ["bundled", "functions"] }
 tempfile = { workspace = true }
 
 [lints]

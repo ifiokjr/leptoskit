@@ -812,6 +812,27 @@ fn row_level_security_is_chosen_in_the_db_table() {
 }
 
 #[test]
+fn geopackage_metadata_is_chosen_in_the_db_geo_table() {
+	let geopackage = load(
+		"db_gpkg",
+		"[db]\ndialect = \"sqlite\"\n\n[db.geo]\ngeopackage = true\n",
+	)
+	.expect("load");
+	let db = geopackage.db.as_ref().expect("[db] is set");
+	assert!(db.geo.geopackage);
+	assert!(
+		geopackage
+			.to_toml_string()
+			.unwrap()
+			.contains("geopackage = true")
+	);
+	let defaults = load("db_gpkg_defaults", "[db]\n").unwrap();
+	assert!(!defaults.db.as_ref().unwrap().geo.geopackage);
+	assert!(!defaults.to_toml_string().unwrap().contains("geo"));
+	assert!(load("db_gpkg_bad", "[db.geo]\nshapefile = true\n").is_err());
+}
+
+#[test]
 fn database_settings_are_checked() {
 	for migrations in ["", "/abs/migrations", "../migrations"] {
 		let error = load(
