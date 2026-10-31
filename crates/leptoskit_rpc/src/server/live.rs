@@ -27,8 +27,12 @@
 //! connection that could have seen it: correct, and more work than the
 //! matcher in the plan will do once it exists.
 
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::MutexGuard;
+use std::sync::PoisonError;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -57,6 +61,7 @@ use tokio::sync::mpsc;
 use super::Identify;
 use super::Identity;
 use super::Invocation;
+use super::QueryCx;
 use super::registration;
 use crate::Kind;
 use crate::live::ClientFrame;
@@ -64,6 +69,7 @@ use crate::live::HEARTBEAT_SECONDS;
 use crate::live::MAX_FRAME_BYTES;
 use crate::live::MAX_RESULT_BYTES;
 use crate::live::MAX_SUBSCRIPTIONS;
+use crate::live::PresenceMember;
 use crate::live::SUBPROTOCOL;
 use crate::live::ServerFrame;
 use crate::live::SubscriptionUpdate;
@@ -90,6 +96,14 @@ struct Inner {
 	version: AtomicU64,
 	drain: broadcast::Sender<u64>,
 	stats: Arc<Stats>,
+	connections: Arc<Mutex<HashMap<u32, mpsc::Sender<Message>>>>,
+	rooms: Arc<Mutex<HashMap<String, Room>>>,
+}
+
+/// Who is in one channel instance.
+#[derive(Default)]
+struct Room {
+	members: BTreeMap<u32, PresenceMember>,
 }
 
 #[derive(Default)]
@@ -125,6 +139,8 @@ impl Live {
 				version: AtomicU64::new(0),
 				drain: broadcast::channel(8).0,
 				stats: Arc::new(Stats::default()),
+				connections: Arc::new(Mutex::new(HashMap::new())),
+				rooms: Arc::new(Mutex::new(HashMap::new())),
 			}),
 		}
 	}
@@ -165,6 +181,8 @@ impl Live {
 			version: AtomicU64::new(self.inner.version.load(Ordering::Relaxed)),
 			drain: self.inner.drain.clone(),
 			stats: Arc::clone(&self.inner.stats),
+			connections: Arc::clone(&self.inner.connections),
+			rooms: Arc::clone(&self.inner.rooms),
 		};
 		change(&mut inner);
 		Self {
@@ -205,6 +223,20 @@ impl Live {
 
 	fn version(&self) -> u64 {
 		self.inner.version.load(Ordering::Relaxed)
+	}
+
+	fn connections(&self) -> MutexGuard<'_, HashMap<u32, mpsc::Sender<Message>>> {
+		self.inner
+			.connections
+			.lock()
+			.unwrap_or_else(PoisonError::into_inner)
+	}
+
+	fn rooms(&self) -> MutexGuard<'_, HashMap<String, Room>> {
+		self.inner
+			.rooms
+			.lock()
+			.unwrap_or_else(PoisonError::into_inner)
 	}
 
 	fn next_version(&self) -> u64 {
@@ -255,6 +287,9 @@ struct Session {
 	db: Db,
 	feed: Feed,
 	subscriptions: HashMap<u32, Subscription>,
+	joined: HashMap<String, Joined>,
+	number: u32,
+	member: String,
 	last_sent: u64,
 	full_next: bool,
 	out: mpsc::Sender<Message>,
@@ -267,9 +302,15 @@ struct Subscription {
 	result: Value,
 }
 
+struct Joined {
+	name: String,
+	args: Value,
+	state: Value,
+}
+
 impl Live {
 	async fn run(self, socket: WebSocket, identity: Identity) {
-		let number = self.inner.stats.connections.fetch_add(1, Ordering::Relaxed) + 1;
+		let number = self.inner.stats.connections.fetch_add(1, Ordering::Relaxed) as u32 + 1;
 		let db = self.inner.db.with_context(identity.context.clone());
 		let Ok(feed) = db.changes().await else {
 			return;
@@ -287,17 +328,25 @@ impl Live {
 		});
 
 		let version = self.version();
+		let member = identity
+			.caller
+			.clone()
+			.unwrap_or_else(|| format!("live-{number}"));
 		let mut session = Session {
 			live: self.clone(),
 			identity,
 			db,
 			feed,
 			subscriptions: HashMap::new(),
+			joined: HashMap::new(),
+			number,
+			member,
 			last_sent: version,
 			full_next: false,
-			out,
+			out: out.clone(),
 			drain: false,
 		};
+		self.connections().insert(number, out);
 
 		session
 			.send(ServerFrame::Welcome {
@@ -340,6 +389,8 @@ impl Live {
 			let after_ms = 250 + (session.last_sent % 2_000);
 			session.send(ServerFrame::Reconnect { after_ms }).await;
 		}
+		session.leave_all();
+		let _ = self.connections().remove(&number);
 		drop(session.out);
 		let _ = writer.await;
 	}
@@ -412,6 +463,20 @@ impl Session {
 			ClientFrame::Sub { id, query, args } => self.subscribe(id, query, args).await,
 			ClientFrame::Unsub { id } => {
 				self.subscriptions.remove(&id);
+				true
+			}
+			ClientFrame::Join {
+				channel,
+				name,
+				args,
+				state,
+			} => self.join(channel, &name, args, state).await,
+			ClientFrame::Leave { channel } => {
+				self.leave(&channel);
+				true
+			}
+			ClientFrame::Signal { channel, message } => {
+				self.signal(&channel, message);
 				true
 			}
 			ClientFrame::Mutate {
@@ -551,7 +616,7 @@ impl Session {
 					updates.push(SubscriptionUpdate {
 						id,
 						update: Update::Err(error),
-					})
+					});
 				}
 			}
 		}
@@ -559,6 +624,48 @@ impl Session {
 		if !updates.is_empty() {
 			let to = self.live.next_version();
 			self.send_transition(updates, to, true);
+		}
+
+		// The identity changed, so every channel is checked again.
+		self.member = self
+			.identity
+			.caller
+			.clone()
+			.unwrap_or_else(|| format!("live-{}", self.number));
+		let keys: Vec<String> = self.joined.keys().cloned().collect();
+		for key in keys {
+			let Some((name, args, state)) = self.joined.get(&key).map(|joined| {
+				(
+					joined.name.clone(),
+					joined.args.clone(),
+					joined.state.clone(),
+				)
+			}) else {
+				continue;
+			};
+			let Some(registration) = super::channel::registration(&name) else {
+				self.leave(&key);
+				continue;
+			};
+			let cx = QueryCx::new(self.db.clone(), self.identity.clone());
+			match (registration.authorize)(args, cx).await {
+				Ok(()) => {
+					{
+						let mut rooms = self.live.rooms();
+						if let Some(room) = rooms.get_mut(&key)
+							&& let Some(member) = room.members.get_mut(&self.number)
+						{
+							member.id.clone_from(&self.member);
+							member.state = state;
+						}
+					}
+					self.broadcast_presence(&key);
+				}
+				Err(error) => {
+					self.leave(&key);
+					self.channel_error(&key, WireError::new(&error)).await;
+				}
+			}
 		}
 
 		self.send(ServerFrame::AuthStatus {
@@ -593,22 +700,21 @@ impl Session {
 								subscription.result = result;
 							}
 						}
-						Invalidation::Rows(_) => {
-							if result != previous {
-								let update = patch(&previous, &result);
-								if let Some(subscription) = self.subscriptions.get_mut(&id) {
-									subscription.result = result;
-								}
-								updates.push(SubscriptionUpdate { id, update });
+						Invalidation::Rows(_) if result != previous => {
+							let update = patch(&previous, &result);
+							if let Some(subscription) = self.subscriptions.get_mut(&id) {
+								subscription.result = result;
 							}
+							updates.push(SubscriptionUpdate { id, update });
 						}
+						Invalidation::Rows(_) => {}
 					}
 				}
 				Err(error) => {
 					updates.push(SubscriptionUpdate {
 						id,
 						update: Update::Err(error),
-					})
+					});
 				}
 			}
 		}
@@ -687,6 +793,144 @@ impl Session {
 				.transitions
 				.fetch_add(1, Ordering::Relaxed);
 		}
+	}
+
+	async fn join(&mut self, channel: String, name: &str, args: Value, state: Value) -> bool {
+		if self.joined.contains_key(&channel) {
+			self.leave(&channel);
+		}
+		let Some(registration) = super::channel::registration(name) else {
+			return self
+				.channel_error(
+					&channel,
+					WireError::invalid(format!("no channel is named `{name}`")),
+				)
+				.await;
+		};
+
+		let cx = QueryCx::new(self.db.clone(), self.identity.clone());
+		if let Err(error) = (registration.authorize)(args.clone(), cx).await {
+			return self.channel_error(&channel, WireError::new(&error)).await;
+		}
+
+		{
+			let mut rooms = self.live.rooms();
+			let room = rooms.entry(channel.clone()).or_default();
+			room.members.insert(
+				self.number,
+				PresenceMember {
+					id: self.member.clone(),
+					state: state.clone(),
+				},
+			);
+		}
+		self.joined.insert(
+			channel.clone(),
+			Joined {
+				name: name.to_owned(),
+				args,
+				state,
+			},
+		);
+		self.broadcast_presence(&channel);
+		true
+	}
+
+	fn leave(&mut self, channel: &str) {
+		if self.joined.remove(channel).is_none() {
+			return;
+		}
+		let empty = {
+			let mut rooms = self.live.rooms();
+			if let Some(room) = rooms.get_mut(channel) {
+				room.members.remove(&self.number);
+			}
+			rooms
+				.get(channel)
+				.is_none_or(|room| room.members.is_empty())
+		};
+		if empty {
+			self.live.rooms().remove(channel);
+		} else {
+			self.broadcast_presence(channel);
+		}
+	}
+
+	fn leave_all(&mut self) {
+		let keys: Vec<String> = self.joined.keys().cloned().collect();
+		for key in keys {
+			self.leave(&key);
+		}
+	}
+
+	fn signal(&self, channel: &str, message: Value) {
+		if !self.joined.contains_key(channel) {
+			return;
+		}
+		let (senders, from) = {
+			let rooms = self.live.rooms();
+			let Some(room) = rooms.get(channel) else {
+				return;
+			};
+			let connections = self.live.connections();
+			let senders: Vec<mpsc::Sender<Message>> = room
+				.members
+				.keys()
+				.filter(|id| **id != self.number)
+				.filter_map(|id| connections.get(id).cloned())
+				.collect();
+			let from = room
+				.members
+				.get(&self.number)
+				.map(|member| member.id.clone());
+			(senders, from)
+		};
+		let frame = ServerFrame::Signal {
+			channel: channel.to_owned(),
+			from,
+			message,
+		};
+		let Ok(text) = serde_json::to_string(&frame) else {
+			return;
+		};
+		for sender in senders {
+			let _ = sender.try_send(Message::Text(text.clone().into()));
+		}
+	}
+
+	fn broadcast_presence(&self, channel: &str) {
+		let (members, senders) = {
+			let rooms = self.live.rooms();
+			let Some(room) = rooms.get(channel) else {
+				return;
+			};
+			let members: Vec<PresenceMember> = room.members.values().cloned().collect();
+			let connections = self.live.connections();
+			let senders: Vec<mpsc::Sender<Message>> = room
+				.members
+				.keys()
+				.filter_map(|id| connections.get(id).cloned())
+				.collect();
+			(members, senders)
+		};
+		let frame = ServerFrame::Presence {
+			channel: channel.to_owned(),
+			members,
+		};
+		let Ok(text) = serde_json::to_string(&frame) else {
+			return;
+		};
+		for sender in senders {
+			let _ = sender.try_send(Message::Text(text.clone().into()));
+		}
+	}
+
+	async fn channel_error(&self, channel: &str, err: WireError) -> bool {
+		self.send(ServerFrame::ChannelError {
+			channel: channel.to_owned(),
+			err,
+		})
+		.await
 	}
 
 	async fn query(&self, name: &str, args: Value) -> Result<Value, WireError> {

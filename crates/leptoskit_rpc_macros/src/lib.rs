@@ -49,6 +49,7 @@ use syn::parse::ParseStream;
 use syn::parse::Parser;
 use syn::punctuated::Punctuated;
 
+mod channel;
 mod operation;
 
 use operation::OperationArgs;
@@ -107,6 +108,43 @@ pub fn query(
 /// five more times by default, or `retries = N`. So it must not reach the
 /// outside world itself; `cx.after_commit(…)` runs work once the
 /// transaction has committed.
+/// Declares a channel: a join argument struct, the messages members send,
+/// the presence they show, and the check that decides who may join.
+///
+/// ```ignore
+/// #[rpc::channel(message = Typing, presence = Presence, authorize = may_join)]
+/// pub struct Chat {
+/// 	pub channel: Id<Channel>,
+/// }
+///
+/// async fn may_join(cx: &rpc::QueryCx, chat: &Chat) -> rpc::Result<()> {
+/// 	// read the membership as the caller
+/// 	Ok(())
+/// }
+/// ```
+///
+/// The join arguments serialize and implement `rpc::Channel` on every
+/// target, so `rpc::use_channel::<Chat>(…)` works in the browser and in a
+/// native guest. In a server build it also registers who may join, which
+/// runs as the connection's identity and again when that identity changes.
+///
+/// Options: `message = Type` (required), `authorize = path` (required),
+/// `presence = Type` (default `()`), `name = "..."`, and `crate = "..."`.
+#[proc_macro_attribute]
+pub fn channel(
+	args: proc_macro::TokenStream,
+	item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+	let item = TokenStream::from(item);
+	let server = cfg!(feature = "server");
+	match channel::expand(args.into(), item.clone(), server) {
+		Ok(tokens) => tokens.into(),
+		// Only the error: the struct's field types may not compile on a
+		// client, and the server check certainly won't.
+		Err(error) => error.to_compile_error().into(),
+	}
+}
+
 #[proc_macro_attribute]
 pub fn mutation(
 	args: proc_macro::TokenStream,

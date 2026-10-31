@@ -75,6 +75,32 @@ pub enum ClientFrame {
 		/// The id the subscription was made with.
 		id: u32,
 	},
+	/// Join a channel. `channel` is the instance key, the join arguments
+	/// serialized; `name` is the channel operation.
+	Join {
+		/// The instance key: the join arguments, serialized.
+		channel: String,
+		/// The channel operation's name.
+		name: String,
+		/// The join arguments.
+		#[serde(default)]
+		args: Value,
+		/// What this connection shows the others, or `null` for the default.
+		#[serde(default)]
+		state: Value,
+	},
+	/// Leave a channel.
+	Leave {
+		/// The instance key the connection joined with.
+		channel: String,
+	},
+	/// Send a signal to everyone else in a channel.
+	Signal {
+		/// The instance key the connection joined with.
+		channel: String,
+		/// The message.
+		message: Value,
+	},
 	/// Run a mutation. Its `request` echoes in [`ServerFrame::Done`].
 	Mutate {
 		/// The client's name for the call.
@@ -160,12 +186,20 @@ pub enum ServerFrame {
 		/// The signal's message.
 		message: Value,
 	},
-	/// Who is in a channel.
+	/// Who is in a channel, after a join or a leave.
 	Presence {
-		/// The channel's name.
+		/// The instance key.
 		channel: String,
 		/// Everyone now in the channel.
 		members: Vec<PresenceMember>,
+	},
+	/// A channel operation was refused, such as when the caller may not
+	/// join.
+	ChannelError {
+		/// The instance key.
+		channel: String,
+		/// Why it failed.
+		err: WireError,
 	},
 	/// An item from a stream.
 	Item {

@@ -220,3 +220,108 @@ async fn a_bad_subscription_is_refused_and_the_socket_stays_open() {
 
 	server.abort();
 }
+
+/// What a member shows the others.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct Present {
+	pub name: String,
+}
+
+/// What members send each other.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct Typing {
+	pub who: String,
+}
+
+/// A room everyone may join.
+#[rpc::channel(message = Typing, presence = Present, authorize = may_join)]
+pub struct Chat {
+	pub channel: String,
+}
+
+#[allow(clippy::unused_async, reason = "the signature the macro expects")]
+async fn may_join(cx: &rpc::QueryCx, chat: &Chat) -> rpc::Result<()> {
+	if chat.channel == "secret" {
+		return Err(rpc::Error::forbidden("that room is private"));
+	}
+	let _ = cx;
+	Ok(())
+}
+
+async fn join(socket: &mut Socket, channel: &str, member: &str) {
+	send(
+		socket,
+		ClientFrame::Join {
+			channel: channel.to_owned(),
+			name: "chat".into(),
+			args: json!({ "channel": channel }),
+			state: json!({ "name": member }),
+		},
+	)
+	.await;
+}
+
+async fn presence(socket: &mut Socket) -> Vec<String> {
+	let ServerFrame::Presence { members, .. } = next(socket).await else {
+		panic!("presence");
+	};
+	members.into_iter().map(|member| member.id).collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn channels_carry_signals_and_presence() {
+	let (_db, url, server) = start().await;
+	let (mut ada, _) = connect_async(&url).await.unwrap();
+	let (mut grace, _) = connect_async(&url).await.unwrap();
+	let _ = next(&mut ada).await;
+	let _ = next(&mut grace).await;
+
+	join(&mut ada, "room-1", "ada").await;
+	assert_eq!(presence(&mut ada).await, ["live-1"]);
+
+	join(&mut grace, "room-1", "grace").await;
+	assert_eq!(presence(&mut grace).await, ["live-1", "live-2"]);
+	assert_eq!(presence(&mut ada).await, ["live-1", "live-2"]);
+
+	send(
+		&mut ada,
+		ClientFrame::Signal {
+			channel: "room-1".into(),
+			message: json!({ "who": "ada" }),
+		},
+	)
+	.await;
+	let ServerFrame::Signal {
+		channel,
+		from,
+		message,
+	} = next(&mut grace).await
+	else {
+		panic!("a signal");
+	};
+	assert_eq!(channel, "room-1");
+	assert_eq!(from.as_deref(), Some("live-1"));
+	assert_eq!(message, json!({ "who": "ada" }));
+
+	drop(ada);
+	let remaining = presence(&mut grace).await;
+	assert_eq!(remaining, ["live-2"]);
+
+	server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_channel_says_why() {
+	let (_db, url, server) = start().await;
+	let (mut socket, _) = connect_async(&url).await.unwrap();
+	let _ = next(&mut socket).await;
+
+	join(&mut socket, "secret", "ada").await;
+	let ServerFrame::ChannelError { channel, err } = next(&mut socket).await else {
+		panic!("a refusal");
+	};
+	assert_eq!(channel, "secret");
+	assert!(err.message.contains("private"));
+
+	server.abort();
+}

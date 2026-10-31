@@ -60,7 +60,10 @@ mod server;
 #[cfg(test)]
 mod tests;
 
+pub use live::ChannelEvent;
+pub use live::ChannelHandle;
 pub use live::LiveClient;
+pub use live::use_channel;
 pub use live::use_live;
 pub use protocol::Credentials;
 
