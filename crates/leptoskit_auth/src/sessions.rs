@@ -33,6 +33,15 @@ const SEEN_PRECISION: TimeDelta = TimeDelta::minutes(1);
 /// this, it means someone else holds a copy, and the session ends.
 const REFRESH_GRACE: TimeDelta = TimeDelta::seconds(30);
 
+/// A live session, as [`Auth::resolve_session`] found it.
+pub(crate) struct Resolved {
+	/// Who it signs in.
+	pub signed_in: SignedIn,
+	/// Whether its account must have a second factor, and the session
+	/// hasn't used one, so it may only set one up.
+	pub enrolling: bool,
+}
+
 /// A session that just started: the token for the device, and its row.
 #[derive(Debug)]
 pub struct SignIn {
@@ -72,10 +81,23 @@ impl Auth {
 	/// also stops working after its own short lifetime. Each use extends the
 	/// session's idle lifetime, up to the absolute one.
 	///
+	/// A session of an account that must have two-step verification, which
+	/// hasn't used it, signs no one in here: it may only set it up.
+	///
 	/// # Errors
 	///
 	/// When the database fails. An unknown or dead token is `Ok(None)`.
 	pub async fn resolve(&self, token: &SessionToken) -> Result<Option<SignedIn>> {
+		Ok(self
+			.resolve_session(token)
+			.await?
+			.filter(|resolved| !resolved.enrolling)
+			.map(|resolved| resolved.signed_in))
+	}
+
+	/// The live session `token` belongs to, and whether it may only set up
+	/// a second factor.
+	pub(crate) async fn resolve_session(&self, token: &SessionToken) -> Result<Option<Resolved>> {
 		let db = &self.inner.db;
 		let now = leptoskit_db::now();
 		let session = Session::query()
@@ -106,7 +128,13 @@ impl Auth {
 				.await?;
 		}
 
-		Ok(Some(signed_in(&session)))
+		let enrolling = session.aal == Aal::One
+			&& !self.inner.mfa.optional()
+			&& self.mfa_required(db, session.account_id).await?;
+		Ok(Some(Resolved {
+			signed_in: signed_in(&session),
+			enrolling,
+		}))
 	}
 
 	/// Trades a native app's refresh token for new tokens. Each refresh token

@@ -52,6 +52,42 @@ pub enum AuthError {
 	/// There's no authenticator app to confirm, turn off, or back up.
 	#[error("there's no authenticator app set up")]
 	NotEnrolled,
+	/// The account must have two-step verification, and this session hasn't
+	/// set it up or used it: it may only do that, or sign out.
+	#[error("set up two-step verification to continue")]
+	MfaRequired,
+	/// The passkey was refused: unknown, cancelled, for another site, or a
+	/// signature that didn't check out.
+	#[error("that passkey didn't work; try again")]
+	PasskeyFailed,
+	/// Removing it would leave the account with no way to sign in, or
+	/// without the second factor it must have.
+	#[error("keep at least one way to sign in, and a second factor if your account needs one")]
+	LastSignInMethod,
+	/// A name was empty.
+	#[error("enter a name")]
+	InvalidName,
+	/// There's no such passkey or connected account, or it isn't theirs.
+	#[error("that wasn't found")]
+	NotFound,
+	/// There's no provider by that name in `[auth.providers]`.
+	#[error("that sign-in provider isn't set up")]
+	UnknownProvider,
+	/// The provider refused, or answered with something that didn't check
+	/// out, such as an ID token with a bad signature. The details are for
+	/// the server's logs, never the client.
+	#[error("signing in with that account didn't work: {0}")]
+	Provider(String),
+	/// The person cancelled signing in at the provider.
+	#[error("signing in was cancelled")]
+	Cancelled,
+	/// Where to go after signing in isn't a path on this site.
+	#[error("that address to return to isn't on this site")]
+	InvalidRedirect,
+	/// This server or this device can't do that yet, such as passkeys
+	/// without the `passkey` feature.
+	#[error("{0}")]
+	Unsupported(&'static str),
 	/// The email couldn't be sent.
 	#[error("the email couldn't be sent: {0}")]
 	Mail(#[from] crate::MailError),

@@ -16,7 +16,7 @@ description = "Sign-in for leptoskit apps: the auth schema pack, sessions, email
 # TOTP secrets are encrypted at rest with AES-256-GCM-SIV, which stays safe if
 # a nonce ever repeats.
 aes-gcm-siv = { version = "0.11", optional = true }
-axum = { workspace = true, optional = true, features = ["json"] }
+axum = { workspace = true, optional = true, features = ["form", "json", "query"] }
 base64 = { workspace = true, optional = true }
 chrono = { workspace = true }
 futures = { workspace = true, optional = true }
@@ -27,7 +27,17 @@ leptoskit_config = { workspace = true, optional = true }
 leptoskit_db = { workspace = true }
 leptoskit_query = { workspace = true, optional = true }
 lettre = { version = "0.11", optional = true, default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1-rustls-tls"] }
+# webauthn-rs verifies signatures with OpenSSL. Building it from source keeps
+# servers buildable where no OpenSSL headers are installed (macOS, Windows,
+# containers), at the cost of a longer first build.
+openssl = { version = "0.10", optional = true, features = ["vendored"] }
+# Draws the authenticator setup link as a QR code, in the browser and in
+# native apps alike.
+qrcode = { version = "0.14", optional = true, default-features = false }
 reqwest = { workspace = true, optional = true, features = ["rustls-tls"] }
+# Verifies third-party ID tokens (RS256, PS256, ES256, ES384, EdDSA) and signs
+# Sign in with Apple's client secret. Already in the graph through rustls.
+ring = { version = "0.17", optional = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }
 # HMAC-SHA-1 for TOTP: RFC 6238's algorithm, the one every authenticator app
@@ -37,6 +47,14 @@ sha2 = { workspace = true, optional = true }
 subtle = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tower = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
+# Passkeys: the kanidm project's WebAuthn relying party. Ceremony state is
+# serialized, sealed, and kept in `auth.challenges`; credential internals are
+# read for the backup flags only.
+webauthn-rs = { version = "0.5.4", optional = true, default-features = false, features = ["conditional-ui", "danger-allow-state-serialisation", "danger-credential-internals"] }
+# The WebAuthn messages the routes carry. Serde types only, so every client
+# can build them.
+webauthn-rs-proto = "0.5.4"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 leptoskit_bridge = { workspace = true, optional = true }
@@ -45,7 +63,8 @@ leptoskit_plugin_secure_store = { path = "../leptoskit_plugin_secure_store", ver
 send_wrapper = { workspace = true, optional = true, features = ["futures"] }
 wasm-bindgen = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true, optional = true }
-web-sys = { workspace = true, optional = true, features = ["Headers", "Request", "RequestCredentials", "RequestInit", "RequestMode", "Response", "Window"] }
+web-sys = { workspace = true, optional = true, features = ["AbortController", "AbortSignal", "CredentialCreationOptions", "CredentialRequestOptions", "CredentialsContainer", "Headers", "Location", "Navigator", "PublicKeyCredential", "Request", "RequestCredentials", "RequestInit", "RequestMode", "Response", "Window"] }
+js-sys = { workspace = true, optional = true }
 
 [dev-dependencies]
 any_spawner = { workspace = true, features = ["tokio"] }
@@ -54,12 +73,16 @@ base64 = { workspace = true }
 hmac = { workspace = true }
 http-body-util = "0.1"
 leptoskit_config = { workspace = true }
+# The tests' passkey and fake identity provider sign with keys made at test
+# time.
+ring = "0.17"
 serde_json = { workspace = true }
 sha1 = "0.10"
 sha2 = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread"] }
 tower = { workspace = true, features = ["util"] }
+url = { workspace = true }
 
 [features]
 default = []
@@ -71,6 +94,7 @@ server = [
 	"dep:getrandom",
 	"dep:hmac",
 	"dep:leptoskit_config",
+	"dep:serde_json",
 	"dep:sha1",
 	"dep:sha2",
 	"dep:subtle",
@@ -82,6 +106,12 @@ postgres = ["server", "leptoskit_db/postgres"]
 sqlite = ["server", "leptoskit_db/sqlite"]
 ## The `/auth` routes and the session layer, for axum servers.
 axum = ["server", "dep:axum", "dep:tower"]
+## Passkeys: WebAuthn registration and sign-in, with `webauthn-rs`. Needs
+## `[auth] origin`, whose host is the relying party.
+passkey = ["server", "dep:openssl", "dep:url", "dep:webauthn-rs"]
+## Third-party sign-in: OpenID Connect and OAuth 2 providers, such as Google,
+## Apple, Microsoft, GitHub, or any OpenID Connect issuer.
+oauth = ["server", "dep:reqwest", "dep:ring", "dep:url"]
 ## Sends email over SMTP, with `SmtpMailer`.
 smtp = ["server", "dep:lettre"]
 ## Sends email as a signed webhook, with `WebhookMailer`.
@@ -91,16 +121,18 @@ leptos = ["axum", "dep:leptos"]
 ## The headless client: the query and mutation scopes a sign-in screen is
 ## built from, the same on every platform. On its own it has no way to reach
 ## the server; `web`, `guest`, or `ssr` gives it one.
-client = ["dep:futures", "dep:leptos", "dep:leptoskit_query", "dep:serde_json"]
+client = ["dep:futures", "dep:leptos", "dep:leptoskit_query", "dep:qrcode", "dep:serde_json"]
 ## The client in the browser: same-origin `fetch`, with the session in the
 ## `HttpOnly` cookie.
 web = [
 	"client",
 	"leptoskit_query/browser",
+	"dep:js-sys",
 	"dep:send_wrapper",
 	"dep:wasm-bindgen",
 	"dep:wasm-bindgen-futures",
 	"dep:web-sys",
+	"webauthn-rs-proto/wasm",
 ]
 ## The client in a native app's Wasm guest: the HTTP plugin, with the refresh
 ## token in the secure store.

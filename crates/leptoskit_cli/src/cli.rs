@@ -302,6 +302,12 @@ pub enum Command {
 		#[command(subcommand)]
 		command: crate::db::DbCommand,
 	},
+	/// Checks sign-in's configuration, rotates its keys, and adds
+	/// third-party providers.
+	Auth {
+		#[command(subcommand)]
+		command: crate::auth_command::AuthCommand,
+	},
 	/// Manages code push releases.
 	Codepush {
 		#[command(subcommand)]
@@ -672,6 +678,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		Command::Routes { check } => routes::command(check),
 		Command::L10n { check } => l10n::command(check),
 		Command::Db { command } => crate::db::run(command),
+		Command::Auth { command } => crate::auth_command::run(command),
 		Command::Codepush { command } => codepush::run(command),
 		Command::Doctor => doctor::run(),
 		Command::Format(args) => {

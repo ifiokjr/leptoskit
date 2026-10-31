@@ -14,27 +14,53 @@ use serde::de::DeserializeOwned;
 use super::Api;
 use super::ClientConfig;
 use super::EmailCode;
+use super::MergeInput;
+use super::PasskeyAdded;
+use super::PasskeyMode;
 use super::Pending;
 use super::SecondFactorPrompt;
 use super::SignInStep;
 use super::TotpConfirmation;
+use crate::AddPasskey;
+use crate::CreationChallengeResponse;
 use crate::Device;
 use crate::ErrorResponse;
 use crate::FactorCode;
+use crate::Identity;
+use crate::IdentityInfo;
+use crate::MergeAccounts;
+use crate::MergeMode;
+use crate::MergeOffer;
 use crate::MfaStatus;
+use crate::Passkey;
+use crate::PasskeyAddedResponse;
+use crate::PasskeyAssertion;
+use crate::PasskeyInfo;
+use crate::PasskeyOptions;
+use crate::PasskeyStep;
+use crate::ProviderInfo;
+use crate::ProviderOutcome;
+use crate::ProviderRedirect;
+use crate::PublicKeyCredential;
 use crate::PublicSession;
 use crate::RecoveryCodes;
 use crate::RefreshTokens;
+use crate::RegisterPublicKeyCredential;
+use crate::RemovePasskey;
+use crate::RenamePasskey;
+use crate::RequestChallengeResponse;
 use crate::RevokeSession;
 use crate::SecondFactorCode;
 use crate::SendCode;
 use crate::Session;
 use crate::SessionResponse;
 use crate::SignedInResponse;
+use crate::StartProvider;
 use crate::Tokens;
 use crate::TotpConfirmedResponse;
 use crate::TotpSetup;
 use crate::Transport;
+use crate::UnlinkIdentity;
 use crate::VerifyCode;
 use crate::VerifyResponse;
 
@@ -131,6 +157,74 @@ pub(crate) trait Credentials: Send + Sync + 'static {
 	fn second_factor(&self) -> Option<String>;
 }
 
+/// What the device itself does for sign-in: passkeys, and sending the
+/// browser to a provider. A browser does both; a native app does neither
+/// until its system plugins arrive, and says `unsupported`.
+pub(crate) trait Platform: Send + Sync + 'static {
+	/// Makes a passkey, as `navigator.credentials.create`.
+	fn create(
+		&self,
+		options: CreationChallengeResponse,
+	) -> BoxFuture<'static, Result<RegisterPublicKeyCredential, ErrorResponse>>;
+
+	/// Signs with a passkey, as `navigator.credentials.get`; in the
+	/// username field's autofill when `autofill`.
+	fn get(
+		&self,
+		options: RequestChallengeResponse,
+		autofill: bool,
+	) -> BoxFuture<'static, Result<PublicKeyCredential, ErrorResponse>>;
+
+	/// Stops a passkey request that's waiting, such as the autofill one.
+	fn cancel(&self);
+
+	/// Sends the page to `url`, such as a provider's sign-in page.
+	fn open(&self, url: &str) -> Result<(), ErrorResponse>;
+
+	/// The page's query string, where a provider's outcome arrives.
+	fn query(&self) -> Option<String>;
+}
+
+/// A device without passkeys or a page to send anywhere.
+pub(crate) struct NoPlatform;
+
+/// What a native app answers until its passkey and system-browser plugins
+/// arrive.
+pub(crate) fn unsupported<T>() -> Result<T, ErrorResponse> {
+	Err(error(
+		"unsupported",
+		"this device can't do that yet: passkeys and sign-in with other sites work in the \
+		 browser, and arrive in native apps with their system plugins",
+	))
+}
+
+impl Platform for NoPlatform {
+	fn create(
+		&self,
+		_options: CreationChallengeResponse,
+	) -> BoxFuture<'static, Result<RegisterPublicKeyCredential, ErrorResponse>> {
+		Box::pin(std::future::ready(unsupported()))
+	}
+
+	fn get(
+		&self,
+		_options: RequestChallengeResponse,
+		_autofill: bool,
+	) -> BoxFuture<'static, Result<PublicKeyCredential, ErrorResponse>> {
+		Box::pin(std::future::ready(unsupported()))
+	}
+
+	fn cancel(&self) {}
+
+	fn open(&self, _url: &str) -> Result<(), ErrorResponse> {
+		unsupported()
+	}
+
+	fn query(&self) -> Option<String> {
+		None
+	}
+}
+
 /// The server: its origin, and how to reach it.
 pub(crate) struct Endpoint<H> {
 	origin: String,
@@ -181,6 +275,7 @@ pub(crate) struct Remote<H, C> {
 	server: Endpoint<H>,
 	credentials: C,
 	device_name: Option<String>,
+	platform: Box<dyn Platform>,
 }
 
 impl<H: Http, C: Credentials> Remote<H, C> {
@@ -189,7 +284,14 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 			server: Endpoint::new(config.origin.as_deref(), http),
 			credentials,
 			device_name: config.device_name,
+			platform: Box::new(NoPlatform),
 		}
+	}
+
+	/// Uses `platform` for passkeys and provider pages.
+	pub(crate) fn platform(mut self, platform: impl Platform) -> Self {
+		self.platform = Box::new(platform);
+		self
 	}
 
 	#[cfg(test)]
@@ -463,6 +565,374 @@ impl<H: Http, C: Credentials> Api for Remote<H, C> {
 			self.credentials.forget().await;
 			Ok(())
 		})
+	}
+
+	fn passkey_sign_in(&self, mode: PasskeyMode) -> Pending<'_, PublicSession> {
+		Box::pin(Self::passkey_sign_in(self, mode))
+	}
+
+	fn cancel_passkey(&self) {
+		Self::cancel_passkey(self);
+	}
+
+	fn add_passkey(&self, name: Option<String>) -> Pending<'_, PasskeyAdded> {
+		Box::pin(Self::add_passkey(self, name))
+	}
+
+	fn complete_sign_in_with_passkey(&self) -> Pending<'_, PublicSession> {
+		Box::pin(Self::complete_sign_in_with_passkey(self))
+	}
+
+	fn step_up_with_passkey(&self) -> Pending<'_, PublicSession> {
+		Box::pin(Self::step_up_with_passkey(self))
+	}
+
+	fn passkeys(&self) -> Pending<'_, Vec<PasskeyInfo>> {
+		Box::pin(Self::passkeys(self))
+	}
+
+	fn rename_passkey(&self, input: RenamePasskey) -> Pending<'_, ()> {
+		Box::pin(Self::rename_passkey(self, input))
+	}
+
+	fn remove_passkey(&self, id: Id<Passkey>) -> Pending<'_, ()> {
+		Box::pin(Self::remove_passkey(self, id))
+	}
+
+	fn providers(&self) -> Pending<'_, Vec<ProviderInfo>> {
+		Box::pin(Self::providers(self))
+	}
+
+	fn start_provider(&self, input: StartProvider, link: bool) -> Pending<'_, ()> {
+		Box::pin(Self::start_provider(self, input, link))
+	}
+
+	fn continue_provider_sign_up(&self) -> Pending<'_, PublicSession> {
+		Box::pin(Self::continue_provider_sign_up(self))
+	}
+
+	fn provider_outcome(&self) -> Option<ProviderOutcome> {
+		Self::provider_outcome(self)
+	}
+
+	fn identities(&self) -> Pending<'_, Vec<IdentityInfo>> {
+		Box::pin(Self::identities(self))
+	}
+
+	fn unlink_identity(&self, id: Id<Identity>) -> Pending<'_, ()> {
+		Box::pin(Self::unlink_identity(self, id))
+	}
+
+	fn merge_offer(&self) -> Pending<'_, Option<MergeOffer>> {
+		Box::pin(Self::merge_offer(self))
+	}
+
+	fn merge_accounts(&self, input: MergeInput) -> Pending<'_, ()> {
+		Box::pin(Self::merge_accounts(self, input))
+	}
+
+	fn cancel_merge(&self) -> Pending<'_, ()> {
+		Box::pin(Self::cancel_merge(self))
+	}
+}
+
+impl<H: Http, C: Credentials> Remote<H, C> {
+	/// A browser does passkeys and provider pages; a native app answers
+	/// `unsupported` before asking the server anything.
+	fn browser_only() -> Result<(), ErrorResponse> {
+		match C::TRANSPORT {
+			Transport::Cookie => Ok(()),
+			Transport::Bearer => unsupported(),
+		}
+	}
+
+	/// Keeps what a sign-in returned, and answers its session.
+	async fn signed_in(&self, response: &HttpResponse) -> Result<PublicSession, ErrorResponse> {
+		let signed_in: SignedInResponse = decode(response)?;
+		self.credentials.keep(signed_in.tokens).await?;
+		Ok(signed_in.session)
+	}
+
+	pub(crate) async fn passkey_sign_in(
+		&self,
+		mode: PasskeyMode,
+	) -> Result<PublicSession, ErrorResponse> {
+		Self::browser_only()?;
+		let body = json(&PasskeyStep {
+			token: None,
+			transport: C::TRANSPORT,
+		});
+		let response = self
+			.server
+			.send(
+				Method::Post,
+				"/auth/passkey/sign-in/options",
+				None,
+				Some(body),
+			)
+			.await?;
+		let mut started: PasskeyOptions = decode(&response)?;
+		let autofill = mode == PasskeyMode::Autofill;
+
+		if !autofill {
+			started.options.mediation = None;
+		}
+
+		let credential = self.platform.get(started.options, autofill).await?;
+		let body = json(&PasskeyAssertion {
+			credential,
+			token: started.token,
+			transport: C::TRANSPORT,
+			device_name: self.device_name(),
+		});
+		let response = self
+			.server
+			.send(Method::Post, "/auth/passkey/sign-in", None, Some(body))
+			.await?;
+		self.signed_in(&response).await
+	}
+
+	pub(crate) async fn add_passkey(
+		&self,
+		name: Option<String>,
+	) -> Result<PasskeyAdded, ErrorResponse> {
+		Self::browser_only()?;
+		let response = self
+			.call(
+				Method::Post,
+				"/auth/passkey/register/options",
+				None,
+				unauthorized,
+			)
+			.await?;
+		let options: CreationChallengeResponse = decode(&response)?;
+		let credential = self.platform.create(options).await?;
+		let body = json(&AddPasskey { credential, name });
+		let response = self
+			.call(
+				Method::Post,
+				"/auth/passkey/register",
+				Some(body),
+				unauthorized,
+			)
+			.await?;
+		let added: PasskeyAddedResponse = decode(&response)?;
+		self.rotated(added.tokens).await?;
+		Ok(PasskeyAdded {
+			passkey: added.passkey,
+			session: added.session,
+			recovery_codes: added.recovery_codes,
+		})
+	}
+
+	pub(crate) async fn complete_sign_in_with_passkey(
+		&self,
+	) -> Result<PublicSession, ErrorResponse> {
+		Self::browser_only()?;
+		let token = self.credentials.second_factor();
+		let body = json(&PasskeyStep {
+			token: token.clone(),
+			transport: C::TRANSPORT,
+		});
+		let response = self
+			.server
+			.send(
+				Method::Post,
+				"/auth/passkey/second-factor/options",
+				None,
+				Some(body),
+			)
+			.await?;
+		let started: PasskeyOptions = decode(&response)?;
+		let credential = self.platform.get(started.options, false).await?;
+		let body = json(&PasskeyAssertion {
+			credential,
+			token,
+			transport: C::TRANSPORT,
+			device_name: self.device_name(),
+		});
+		let response = self
+			.server
+			.send(
+				Method::Post,
+				"/auth/passkey/second-factor",
+				None,
+				Some(body),
+			)
+			.await?;
+		let session = self.signed_in(&response).await.inspect_err(|refused| {
+			if refused.error == "sign_in_expired" {
+				self.credentials.hold_second_factor(None);
+			}
+		})?;
+		self.credentials.hold_second_factor(None);
+		Ok(session)
+	}
+
+	pub(crate) async fn step_up_with_passkey(&self) -> Result<PublicSession, ErrorResponse> {
+		Self::browser_only()?;
+		let response = self
+			.call(
+				Method::Post,
+				"/auth/passkey/step-up/options",
+				None,
+				unauthorized,
+			)
+			.await?;
+		let started: PasskeyOptions = decode(&response)?;
+		let credential = self.platform.get(started.options, false).await?;
+		let body = json(&PasskeyAssertion {
+			credential,
+			token: None,
+			transport: C::TRANSPORT,
+			device_name: None,
+		});
+		let response = self
+			.call(
+				Method::Post,
+				"/auth/passkey/step-up",
+				Some(body),
+				unauthorized,
+			)
+			.await?;
+		let signed_in: SignedInResponse = decode(&response)?;
+		self.rotated(signed_in.tokens).await?;
+		Ok(signed_in.session)
+	}
+
+	pub(crate) async fn passkeys(&self) -> Result<Vec<PasskeyInfo>, ErrorResponse> {
+		let response = self
+			.call(Method::Get, "/auth/passkeys", None, unauthorized)
+			.await?;
+		decode(&response)
+	}
+
+	pub(crate) async fn rename_passkey(&self, input: RenamePasskey) -> Result<(), ErrorResponse> {
+		let response = self
+			.call(
+				Method::Post,
+				"/auth/passkeys/rename",
+				Some(json(&input)),
+				unauthorized,
+			)
+			.await?;
+		succeeded(&response)
+	}
+
+	pub(crate) async fn remove_passkey(&self, id: Id<Passkey>) -> Result<(), ErrorResponse> {
+		let response = self
+			.call(
+				Method::Post,
+				"/auth/passkeys/remove",
+				Some(json(&RemovePasskey { id })),
+				unauthorized,
+			)
+			.await?;
+		succeeded(&response)
+	}
+
+	pub(crate) async fn providers(&self) -> Result<Vec<ProviderInfo>, ErrorResponse> {
+		let response = self
+			.server
+			.send(Method::Get, "/auth/providers", None, None)
+			.await?;
+		decode(&response)
+	}
+
+	pub(crate) async fn start_provider(
+		&self,
+		input: StartProvider,
+		link: bool,
+	) -> Result<(), ErrorResponse> {
+		Self::browser_only()?;
+		let path = if link {
+			"/auth/oauth/link"
+		} else {
+			"/auth/oauth/start"
+		};
+		let response = self
+			.call(Method::Post, path, Some(json(&input)), unauthorized)
+			.await?;
+		let redirect: ProviderRedirect = decode(&response)?;
+		self.platform.open(&redirect.url)
+	}
+
+	pub(crate) async fn continue_provider_sign_up(&self) -> Result<PublicSession, ErrorResponse> {
+		Self::browser_only()?;
+		let response = self
+			.server
+			.send(Method::Post, "/auth/oauth/continue", None, None)
+			.await?;
+		self.signed_in(&response).await
+	}
+
+	pub(crate) fn provider_outcome(&self) -> Option<ProviderOutcome> {
+		ProviderOutcome::from_query(&self.platform.query()?)
+	}
+
+	pub(crate) async fn identities(&self) -> Result<Vec<IdentityInfo>, ErrorResponse> {
+		let response = self
+			.call(Method::Get, "/auth/identities", None, unauthorized)
+			.await?;
+		decode(&response)
+	}
+
+	pub(crate) async fn unlink_identity(&self, id: Id<Identity>) -> Result<(), ErrorResponse> {
+		let response = self
+			.call(
+				Method::Post,
+				"/auth/identities/unlink",
+				Some(json(&UnlinkIdentity { id })),
+				unauthorized,
+			)
+			.await?;
+		succeeded(&response)
+	}
+
+	pub(crate) async fn merge_offer(&self) -> Result<Option<MergeOffer>, ErrorResponse> {
+		let response = self
+			.call(Method::Get, "/auth/merge", None, unauthorized)
+			.await?;
+		decode(&response)
+	}
+
+	pub(crate) async fn merge_accounts(&self, input: MergeInput) -> Result<(), ErrorResponse> {
+		let credential = if input.passkey {
+			Self::browser_only()?;
+			let response = self
+				.call(
+					Method::Post,
+					"/auth/merge/passkey/options",
+					None,
+					unauthorized,
+				)
+				.await?;
+			let started: PasskeyOptions = decode(&response)?;
+			Some(self.platform.get(started.options, false).await?)
+		} else {
+			None
+		};
+		let body = json(&MergeAccounts {
+			mode: input.mode.unwrap_or(MergeMode::MoveLogin),
+			confirm: input.confirm,
+			code: input.code,
+			credential,
+		});
+		let response = self
+			.call(Method::Post, "/auth/merge", Some(body), unauthorized)
+			.await?;
+		succeeded(&response)
+	}
+
+	pub(crate) async fn cancel_merge(&self) -> Result<(), ErrorResponse> {
+		let response = self
+			.call(Method::Post, "/auth/merge/cancel", None, unauthorized)
+			.await?;
+		succeeded(&response)
+	}
+
+	pub(crate) fn cancel_passkey(&self) {
+		self.platform.cancel();
 	}
 }
 

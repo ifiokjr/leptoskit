@@ -156,7 +156,8 @@ fn every_aria_property_renders_as_its_attribute() {
 					.aria_expanded(false)
 					.aria_busy(true)
 					.aria_current(Current::Step)
-					.aria_attr("aria-autocomplete", "list"),
+					.aria_attr("aria-autocomplete", "list")
+					.autocomplete("username webauthn"),
 			)
 			.child(
 				View()
@@ -203,6 +204,7 @@ fn every_aria_property_renders_as_its_attribute() {
 		"aria-busy=\"true\"",
 		"aria-current=\"step\"",
 		"aria-autocomplete=\"list\"",
+		"autocomplete=\"username webauthn\"",
 		"role=\"listbox\"",
 		"aria-orientation=\"vertical\"",
 		"aria-roledescription=\"suggestion list\"",

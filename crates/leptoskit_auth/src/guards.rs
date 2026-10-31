@@ -31,9 +31,16 @@ pub fn current_session() -> Result<CurrentSession, AuthError> {
 ///
 /// # Errors
 ///
-/// As [`current_session`].
+/// [`AuthError::MfaRequired`] for a session that must set up two-step
+/// verification first, or as [`current_session`].
 pub fn signed_in() -> Result<Option<SignedIn>, AuthError> {
-	current_session().map(|current| current.signed_in)
+	let current = current_session()?;
+
+	if current.enrolling.is_some() {
+		return Err(AuthError::MfaRequired);
+	}
+
+	Ok(current.signed_in)
 }
 
 /// The signed-in person, or [`AuthError::SignedOut`].
@@ -41,7 +48,7 @@ pub fn signed_in() -> Result<Option<SignedIn>, AuthError> {
 /// # Errors
 ///
 /// [`AuthError::SignedOut`] for a signed-out request, or as
-/// [`current_session`].
+/// [`signed_in`].
 pub fn require_signed_in() -> Result<SignedIn, AuthError> {
 	signed_in()?.ok_or(AuthError::SignedOut)
 }
@@ -117,6 +124,7 @@ mod tests {
 		let session = |signed_in: Option<SignedIn>| {
 			CurrentSession {
 				signed_in,
+				enrolling: None,
 				request: RequestInfo::default(),
 				token: None,
 			}
@@ -162,6 +170,18 @@ mod tests {
 				require_step_up(crate::STEP_UP_WINDOW),
 				Err(AuthError::SignedOut)
 			));
+
+			// A session that must set up two-step verification first is
+			// neither signed in nor signed out to the app.
+			let person = me.clone();
+			provide_context(parts(|extensions| {
+				extensions.insert(CurrentSession {
+					enrolling: Some(person),
+					..session(None)
+				});
+			}));
+			assert!(matches!(signed_in(), Err(AuthError::MfaRequired)));
+			assert!(matches!(require_signed_in(), Err(AuthError::MfaRequired)));
 		});
 	}
 }

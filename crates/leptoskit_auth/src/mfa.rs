@@ -24,6 +24,7 @@ use crate::MfaStatus;
 use crate::NewChallenge;
 use crate::NewRecoveryCode;
 use crate::NewTotpSecret;
+use crate::Passkey;
 use crate::Purpose;
 use crate::RecoveryCode;
 use crate::RecoveryCodes;
@@ -98,11 +99,40 @@ pub struct TotpConfirmed {
 	pub recovery_codes: Option<RecoveryCodes>,
 }
 
-/// Which factor a code turned out to be.
+/// Which factor a proof turned out to be.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Used {
 	Totp,
 	RecoveryCode,
+	Passkey,
+}
+
+/// What someone offers as a second factor.
+#[derive(Clone, Copy)]
+pub(crate) enum Proof<'a> {
+	/// A code from the authenticator, or a recovery code, as typed.
+	Code(&'a str),
+	/// A passkey's answer to the ceremony bound to `subject`.
+	Passkey {
+		credential: &'a crate::PublicKeyCredential,
+		subject: &'a str,
+	},
+}
+
+impl Proof<'_> {
+	/// What a proof that didn't check out fails with.
+	fn refused(self) -> AuthError {
+		match self {
+			Self::Code(_) => AuthError::InvalidCode,
+			Self::Passkey { .. } => AuthError::PasskeyFailed,
+		}
+	}
+}
+
+/// Whether `error` means a second factor was wrong, which counts toward
+/// locking the account.
+fn wrong(error: &AuthError) -> bool {
+	matches!(error, AuthError::InvalidCode | AuthError::PasskeyFailed)
 }
 
 impl SignedIn {
@@ -152,10 +182,38 @@ impl Auth {
 			.filter(|code| code.account_id.eq(account) & code.used_at.is_null())
 			.count(db)
 			.await?;
+		let passkeys = Passkey::query()
+			.filter(|passkey| passkey.account_id.eq(account))
+			.count(db)
+			.await?;
 		Ok(MfaStatus {
 			totp,
 			recovery_codes: u32::try_from(left).unwrap_or(u32::MAX),
+			passkeys: u32::try_from(passkeys).unwrap_or(u32::MAX),
+			required: self.mfa_required(db, account).await?,
 		})
+	}
+
+	/// Whether `account` must have a second factor, as the [`MfaPolicy`]
+	/// says.
+	///
+	/// [`MfaPolicy`]: crate::MfaPolicy
+	pub(crate) async fn mfa_required(
+		&self,
+		db: &leptoskit_db::Db,
+		account: Id<Account>,
+	) -> Result<bool> {
+		let policy = &self.inner.mfa;
+
+		if policy.required {
+			return Ok(true);
+		}
+
+		let Some(roles) = self.inner.roles.filter(|_| !policy.required_for.is_empty()) else {
+			return Ok(false);
+		};
+		let roles = roles(db, account).await?;
+		Ok(roles.iter().any(|role| policy.required_for.contains(role)))
 	}
 
 	/// The factors `account` can use as a second step, best first.
@@ -165,10 +223,20 @@ impl Auth {
 		account: Id<Account>,
 	) -> Result<Vec<Factor>> {
 		let mut factors = Vec::new();
+		let passkeys = Passkey::query()
+			.filter(|passkey| passkey.account_id.eq(account))
+			.count(connection)
+			.await?;
+
+		if passkeys > 0 {
+			factors.push(Factor::Passkey);
+		}
 
 		if confirmed_totp(connection, account).await?.is_some() {
 			factors.push(Factor::Totp);
+		}
 
+		if !factors.is_empty() {
 			let left = RecoveryCode::query()
 				.filter(|code| code.account_id.eq(account) & code.used_at.is_null())
 				.count(connection)
@@ -206,6 +274,7 @@ impl Auth {
 			purpose: Purpose::SecondFactor,
 			subject: account.to_string(),
 			secret_hash: token.hash(),
+			state: None,
 			attempts: 0,
 			expires_at,
 			used_at: None,
@@ -237,6 +306,46 @@ impl Auth {
 		&self,
 		token: &SessionToken,
 		code: &str,
+		request: &RequestInfo,
+	) -> Result<SignIn> {
+		self.complete_second_step(token, |_| Proof::Code(code), request)
+			.await
+	}
+
+	/// Finishes signing in with one of the account's passkeys, which
+	/// answered [`Auth::begin_passkey_second_factor`]'s options, and starts
+	/// an `aal2` session.
+	///
+	/// # Errors
+	///
+	/// [`AuthError::PasskeyFailed`] when the answer doesn't check out, or as
+	/// [`Auth::complete_sign_in`].
+	pub async fn complete_sign_in_with_passkey(
+		&self,
+		token: &SessionToken,
+		credential: &crate::PublicKeyCredential,
+		request: &RequestInfo,
+	) -> Result<SignIn> {
+		let subject = std::sync::OnceLock::new();
+		self.complete_second_step(
+			token,
+			|challenge| {
+				Proof::Passkey {
+					credential,
+					subject: subject
+						.get_or_init(|| crate::passkeys::second_factor_subject(challenge)),
+				}
+			},
+			request,
+		)
+		.await
+	}
+
+	/// The second step, with whatever `proof` makes of its challenge.
+	async fn complete_second_step<'a>(
+		&self,
+		token: &SessionToken,
+		proof: impl FnOnce(Id<Challenge>) -> Proof<'a>,
 		request: &RequestInfo,
 	) -> Result<SignIn> {
 		if let Some(ip) = request.ip_text() {
@@ -283,9 +392,11 @@ impl Auth {
 			return Err(AuthError::SignInExpired);
 		}
 
+		let proof = proof(challenge.id);
+		let ceremony = self.ceremony(proof).await?;
 		let tx = db.begin().await?;
 		let result = self
-			.finish_second_factor(&tx, &challenge, account, code, request)
+			.finish_second_factor(&tx, &challenge, account, proof, ceremony, request)
 			.await;
 		let result = finish(tx, result).await;
 
@@ -298,7 +409,9 @@ impl Auth {
 				 verification off and on again, and make new recovery codes.",
 			)
 			.await;
-		} else if let Err(AuthError::InvalidCode) = &result {
+		} else if let Err(error) = &result
+			&& wrong(error)
+		{
 			// The last attempt retires the step.
 			if attempts >= allowed {
 				Challenge::update()
@@ -307,7 +420,7 @@ impl Auth {
 					.run(db)
 					.await?;
 			}
-			record(db, Some(account), EventKind::SecondFactorFailed, request).await?;
+			self.second_factor_failed(account, request).await?;
 		}
 
 		result.map(|(sign_in, _)| sign_in)
@@ -319,7 +432,8 @@ impl Auth {
 		tx: &Tx,
 		challenge: &Challenge,
 		account: Id<Account>,
-		code: &str,
+		proof: Proof<'_>,
+		ceremony: Option<Vec<u8>>,
 		request: &RequestInfo,
 	) -> Result<(SignIn, Used)> {
 		let claimed = Challenge::update()
@@ -334,9 +448,9 @@ impl Auth {
 
 		refuse_unusable(&Account::get(tx, account).await?)?;
 		let used = self
-			.use_factor(tx, account, code)
+			.use_factor(tx, account, proof, ceremony)
 			.await?
-			.ok_or(AuthError::InvalidCode)?;
+			.ok_or(proof.refused())?;
 		let now = leptoskit_db::now();
 		let sign_in = self
 			.start_session(
@@ -373,6 +487,36 @@ impl Auth {
 		code: &str,
 		request: &RequestInfo,
 	) -> Result<SignIn> {
+		self.step_up_with(me, Proof::Code(code), request).await
+	}
+
+	/// Steps up with one of the account's passkeys, which answered
+	/// [`Auth::begin_passkey_step_up`]'s options.
+	///
+	/// # Errors
+	///
+	/// [`AuthError::PasskeyFailed`] when the answer doesn't check out, or as
+	/// [`Auth::step_up`].
+	pub async fn step_up_with_passkey(
+		&self,
+		me: &SignedIn,
+		credential: &crate::PublicKeyCredential,
+		request: &RequestInfo,
+	) -> Result<SignIn> {
+		let subject = crate::passkeys::step_up_subject(me.session);
+		let proof = Proof::Passkey {
+			credential,
+			subject: &subject,
+		};
+		self.step_up_with(me, proof, request).await
+	}
+
+	async fn step_up_with(
+		&self,
+		me: &SignedIn,
+		proof: Proof<'_>,
+		request: &RequestInfo,
+	) -> Result<SignIn> {
 		if let Some(ip) = request.ip_text() {
 			self.limit(
 				&[b"second-factor-ip", ip.as_bytes()],
@@ -381,13 +525,15 @@ impl Auth {
 			.await?;
 		}
 		self.limit_second_factor(me.account).await?;
+		refuse_unusable(&Account::get(&self.inner.db, me.account).await?)?;
+		let ceremony = self.ceremony(proof).await?;
 
 		let tx = self.inner.db.begin().await?;
 		let result = async {
 			let used = self
-				.use_factor(&tx, me.account, code)
+				.use_factor(&tx, me.account, proof, ceremony)
 				.await?
-				.ok_or(AuthError::InvalidCode)?;
+				.ok_or(proof.refused())?;
 			let sign_in = self.elevate(&tx, me, request).await?;
 			record(&tx, Some(me.account), EventKind::SteppedUp, request).await?;
 
@@ -412,14 +558,8 @@ impl Auth {
 				)
 				.await;
 			}
-			Err(AuthError::InvalidCode) => {
-				record(
-					&self.inner.db,
-					Some(me.account),
-					EventKind::SecondFactorFailed,
-					request,
-				)
-				.await?;
+			Err(error) if wrong(error) => {
+				self.second_factor_failed(me.account, request).await?;
 			}
 			_ => {}
 		}
@@ -594,6 +734,7 @@ impl Auth {
 	/// there's no authenticator.
 	pub async fn disable_totp(&self, me: &SignedIn, request: &RequestInfo) -> Result<()> {
 		me.require_step_up(STEP_UP_WINDOW)?;
+		let required = self.mfa_required(&self.inner.db, me.account).await?;
 		let tx = self.inner.db.begin().await?;
 		let result = async {
 			let removed = TotpSecret::query()
@@ -605,9 +746,11 @@ impl Auth {
 				return Err(AuthError::NotEnrolled);
 			}
 
-			RecoveryCode::query()
-				.filter(|code| code.account_id.eq(me.account))
-				.delete(&tx)
+			if required && self.factors(&tx, me.account).await?.is_empty() {
+				return Err(AuthError::LastSignInMethod);
+			}
+
+			self.forget_recovery_codes_without_factors(&tx, me.account)
 				.await?;
 			self.end_others(&tx, me.account, me.session, request)
 				.await?;
@@ -640,7 +783,7 @@ impl Auth {
 		me.require_step_up(STEP_UP_WINDOW)?;
 		let tx = self.inner.db.begin().await?;
 		let result = async {
-			if confirmed_totp(&tx, me.account).await?.is_none() {
+			if self.factors(&tx, me.account).await?.is_empty() {
 				return Err(AuthError::NotEnrolled);
 			}
 
@@ -661,7 +804,11 @@ impl Auth {
 	/// Whether `me` may change their sign-in methods: step-up when the
 	/// account has a second factor, and otherwise a sign-in within the
 	/// step-up window.
-	async fn require_fresh(&self, connection: &impl Connection, me: &SignedIn) -> Result<()> {
+	pub(crate) async fn require_fresh(
+		&self,
+		connection: &impl Connection,
+		me: &SignedIn,
+	) -> Result<()> {
 		if !self.factors(connection, me.account).await?.is_empty() {
 			return me.require_step_up(STEP_UP_WINDOW);
 		}
@@ -683,10 +830,23 @@ impl Auth {
 	/// code.
 	async fn use_factor(
 		&self,
-		connection: &impl Connection,
+		tx: &Tx,
 		account: Id<Account>,
-		input: &str,
+		proof: Proof<'_>,
+		ceremony: Option<Vec<u8>>,
 	) -> Result<Option<Used>> {
+		let input = match proof {
+			Proof::Code(code) => code,
+			Proof::Passkey { credential, .. } => {
+				let Some(state) = ceremony else {
+					return Ok(None);
+				};
+				let checked = self.check_passkey(tx, account, &state, credential).await?;
+				let verified = matches!(checked, crate::passkeys::Checked::Verified);
+				return Ok(verified.then_some(Used::Passkey));
+			}
+		};
+		let connection = tx;
 		let now = leptoskit_db::now();
 
 		if totp::normalize(input).is_some() {
@@ -749,9 +909,37 @@ impl Auth {
 		Ok((claimed == 1).then_some(Used::RecoveryCode))
 	}
 
+	/// Whether `proof` is a working second factor of `account`'s, using it
+	/// up when it is. `ceremony` is the opened state of the passkey
+	/// ceremony a passkey proof answers.
+	pub(crate) async fn use_proof(
+		&self,
+		tx: &Tx,
+		account: Id<Account>,
+		proof: Proof<'_>,
+		ceremony: Option<Vec<u8>>,
+	) -> Result<bool> {
+		Ok(self
+			.use_factor(tx, account, proof, ceremony)
+			.await?
+			.is_some())
+	}
+
+	/// Uses up the passkey ceremony a passkey proof answers, before the
+	/// transaction that checks it, so it works once whatever the answer.
+	async fn ceremony(&self, proof: Proof<'_>) -> Result<Option<Vec<u8>>> {
+		match proof {
+			Proof::Code(_) => Ok(None),
+			Proof::Passkey { subject, .. } => {
+				self.take_ceremony(Purpose::PasskeyAuthentication, subject, None)
+					.await
+			}
+		}
+	}
+
 	/// Moves `me`'s session to `aal2` now, with a new token in place of the
 	/// old one, or new tokens for a native app.
-	async fn elevate(
+	pub(crate) async fn elevate(
 		&self,
 		connection: &impl Connection,
 		me: &SignedIn,
@@ -811,7 +999,7 @@ impl Auth {
 	}
 
 	/// Ends every live session of `account`'s but `keep`.
-	async fn end_others(
+	pub(crate) async fn end_others(
 		&self,
 		tx: &Tx,
 		account: Id<Account>,
@@ -831,6 +1019,154 @@ impl Auth {
 		Ok(())
 	}
 
+	/// Deletes the account's recovery codes once it has no second factor
+	/// left for them to back up.
+	pub(crate) async fn forget_recovery_codes_without_factors(
+		&self,
+		tx: &Tx,
+		account: Id<Account>,
+	) -> Result<()> {
+		let passkeys = Passkey::query()
+			.filter(|passkey| passkey.account_id.eq(account))
+			.count(tx)
+			.await?;
+
+		if passkeys == 0 && confirmed_totp(tx, account).await?.is_none() {
+			RecoveryCode::query()
+				.filter(|code| code.account_id.eq(account))
+				.delete(tx)
+				.await?;
+		}
+
+		Ok(())
+	}
+
+	/// After a wrong second factor: records it, and once the account has had
+	/// too many, locks it for a while and emails its owner. Only the first
+	/// failure past the limit locks and emails; the rest find it locked.
+	pub(crate) async fn second_factor_failed(
+		&self,
+		account: Id<Account>,
+		request: &RequestInfo,
+	) -> Result<()> {
+		let db = &self.inner.db;
+		record(db, Some(account), EventKind::SecondFactorFailed, request).await?;
+		let counted = self
+			.inner
+			.limiter
+			.hit(
+				&secrets::digest(&[b"failures-account", account.uuid().as_bytes()]),
+				self.inner.limits.failures_before_lock,
+			)
+			.await;
+
+		match counted {
+			Ok(()) => return Ok(()),
+			Err(AuthError::RateLimited { .. }) => {}
+			Err(error) => return Err(error),
+		}
+
+		let now = leptoskit_db::now();
+		let until = now + crate::sessions::lifetime(self.inner.limits.lock_for)?;
+		let locked = Account::update()
+			.filter(|row| {
+				row.id.eq(account) & (row.locked_until.is_null() | row.locked_until.lt(now))
+			})
+			.set(|row| row.locked_until, Some(until))
+			.run(db)
+			.await?;
+
+		if locked == 0 {
+			return Ok(());
+		}
+
+		record(db, Some(account), EventKind::Locked, request).await?;
+		self.notify(
+			account,
+			"Sign-in is locked for a while",
+			&format!(
+				"Someone who got past the first step of signing in to your account entered too \
+				 many wrong codes or passkeys, so signing in is locked until {} UTC. That needed \
+				 a code emailed to you, or access to a device you're signed in on: if it wasn't \
+				 you, secure your email and sign out everywhere.",
+				until.format("%Y-%m-%d %H:%M")
+			),
+		)
+		.await;
+		Ok(())
+	}
+
+	/// Lets a locked account sign in again now. For administrators; check
+	/// that the caller may.
+	///
+	/// # Errors
+	///
+	/// When the database fails.
+	pub async fn unlock(&self, account: Id<Account>, request: &RequestInfo) -> Result<()> {
+		let db = &self.inner.db;
+		let unlocked = Account::update()
+			.filter(|row| row.id.eq(account) & row.locked_until.is_not_null())
+			.set(|row| row.locked_until, None)
+			.run(db)
+			.await?;
+
+		if unlocked > 0 {
+			record(db, Some(account), EventKind::Unlocked, request).await?;
+		}
+
+		Ok(())
+	}
+
+	/// Resets `account`'s two-step verification, for someone locked out of
+	/// it: removes its authenticator, recovery codes, and passkeys, lifts any
+	/// lock, ends every session, and emails the account. Signing in then
+	/// takes only the emailed code, as for a new account. For administrators
+	/// and support, after checking who's asking another way; check that the
+	/// caller may.
+	///
+	/// # Errors
+	///
+	/// When the database fails.
+	pub async fn reset_mfa(&self, account: Id<Account>, request: &RequestInfo) -> Result<()> {
+		let tx = self.inner.db.begin().await?;
+		let result = async {
+			TotpSecret::query()
+				.filter(|row| row.account_id.eq(account))
+				.delete(&tx)
+				.await?;
+			RecoveryCode::query()
+				.filter(|row| row.account_id.eq(account))
+				.delete(&tx)
+				.await?;
+			Passkey::query()
+				.filter(|row| row.account_id.eq(account))
+				.delete(&tx)
+				.await?;
+			Account::update()
+				.filter(|row| row.id.eq(account))
+				.set(|row| row.locked_until, None)
+				.run(&tx)
+				.await?;
+			Session::update()
+				.filter(|row| row.account_id.eq(account) & row.revoked_at.is_null())
+				.set(|row| row.revoked_at, Some(leptoskit_db::now()))
+				.run(&tx)
+				.await?;
+			record(&tx, Some(account), EventKind::MfaReset, request).await
+		}
+		.await;
+		finish(tx, result).await?;
+		self.notify(
+			account,
+			"Two-step verification was reset",
+			"An administrator removed your account's authenticator app, recovery codes, and \
+			 passkeys, and signed out every device. Sign in with an emailed code and set two-step \
+			 verification up again. If you didn't ask for this, contact support.",
+		)
+		.await;
+		Ok(())
+	}
+
 	/// Second-factor attempts for one account, from anywhere.
 	async fn limit_second_factor(&self, account: Id<Account>) -> Result<()> {
 		self.limit(
@@ -843,7 +1179,7 @@ impl Auth {
 	/// Emails the account's primary address about a change to how it signs
 	/// in. Best effort: the change has already happened and been recorded in
 	/// the audit trail, so a mailer failure doesn't undo or hide it.
-	async fn notify(&self, account: Id<Account>, subject: &str, text: &str) {
+	pub(crate) async fn notify(&self, account: Id<Account>, subject: &str, text: &str) {
 		let Ok(Some(to)) = primary_email(&self.inner.db, account).await else {
 			return;
 		};
@@ -870,7 +1206,7 @@ async fn confirmed_totp(
 }
 
 /// The account's primary, verified address.
-async fn primary_email(
+pub(crate) async fn primary_email(
 	connection: &impl Connection,
 	account: Id<Account>,
 ) -> Result<Option<String>> {
@@ -887,7 +1223,7 @@ async fn primary_email(
 
 /// Deletes the account's recovery codes and stores ten new ones, returning
 /// them as the person writes them down.
-async fn replace_recovery_codes(
+pub(crate) async fn replace_recovery_codes(
 	auth: &Auth,
 	tx: &Tx,
 	account: Id<Account>,
@@ -920,7 +1256,7 @@ async fn replace_recovery_codes(
 
 /// What an authenticator's encrypted secret is bound to: its purpose and
 /// account, so a secret copied to another row doesn't decrypt.
-fn totp_context(account: &[u8]) -> [&[u8]; 2] {
+pub(crate) fn totp_context(account: &[u8]) -> [&[u8]; 2] {
 	[b"totp", account]
 }
 
