@@ -18,6 +18,14 @@ jobs:
       SDK_SHA256: f06a2a8ae38a3cf01c583557f5a4bb1e6e3626df975599aa71f4a59e9af70ecc
       HYPIUM_SHA512: bqUqieP5ZSXoKQ43CzWexk5Qr0E7KlPhtr+B/II/aYIfM/UK4irwDzEb1lZ09pjyTKdhjVdETt/3MSiZ+6OaMg==
     steps:
+      # The SDK, two OHOS target builds, and the compiled CLI outgrow the
+      # runner's free disk; a full disk killed the linker with no space left.
+      # Drop toolchains this job never uses.
+      - name: free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
