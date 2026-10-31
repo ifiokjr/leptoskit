@@ -1,7 +1,6 @@
 //! An app using the pack: its tables join the app's schema in their own
 //! namespace, the pack's API writes them, and the app reads them.
 
-use leptoskit_db::Connection;
 use leptoskit_db::Db;
 use leptoskit_db::Dialect;
 use leptoskit_db_pack_fixture::Note;

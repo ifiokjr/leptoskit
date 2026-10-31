@@ -7,7 +7,6 @@
 mod support;
 
 use leptoskit_db as db;
-use leptoskit_db::Connection;
 use leptoskit_db::Db;
 use leptoskit_db::Id;
 use leptoskit_db::Shape;

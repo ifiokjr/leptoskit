@@ -6,7 +6,6 @@
 
 mod support;
 
-use leptoskit_db::Connection;
 use leptoskit_db::Db;
 use leptoskit_db::Dialect;
 use leptoskit_db::Email;

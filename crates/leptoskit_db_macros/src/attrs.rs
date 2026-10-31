@@ -47,6 +47,9 @@ pub(crate) struct ViewArgs {
 	pub sql: (LitStr, LitStr),
 	/// It keeps its rows until refreshed.
 	pub materialized: bool,
+	/// The tables its query reads, `reads(Post, User)`, which a tracked
+	/// read records in its place.
+	pub reads: Option<Vec<Path>>,
 }
 
 /// The first argument `#[db::view]` passes `#[db::table]`.
@@ -126,8 +129,7 @@ impl TableArgs {
 		let mut audit = false;
 		let mut internal = false;
 		let mut is_view = false;
-		let mut sql = None;
-		let mut materialized = false;
+		let mut view = ViewOptions::default();
 
 		let parser = syn::meta::parser(|meta| {
 			if meta.path.is_ident(VIEW_MARKER) {
@@ -135,7 +137,7 @@ impl TableArgs {
 				return Ok(());
 			}
 
-			if view_option(&meta, is_view, &mut sql, &mut materialized)? {
+			if view_option(&meta, is_view, &mut view)? {
 				return Ok(());
 			}
 
@@ -223,7 +225,7 @@ impl TableArgs {
 		})?;
 
 		let view = if is_view {
-			Some(ViewArgs::new(sql)?.materialized(materialized))
+			Some(ViewArgs::new(view)?)
 		} else {
 			None
 		};
@@ -325,37 +327,62 @@ fn hook_list(meta: &ParseNestedMeta<'_>) -> syn::Result<Vec<Ident>> {
 fn view_option(
 	meta: &ParseNestedMeta<'_>,
 	is_view: bool,
-	sql: &mut Option<(LitStr, LitStr)>,
-	materialized: &mut bool,
+	view: &mut ViewOptions,
 ) -> syn::Result<bool> {
 	const VIEW_OPTIONS: &[&str] = &["name", "namespace", "public", "projection", "crate"];
-	let own = meta.path.is_ident("sql") || meta.path.is_ident("materialized");
+	let own = meta.path.is_ident("sql")
+		|| meta.path.is_ident("materialized")
+		|| meta.path.is_ident("reads");
 
 	if !is_view {
 		return if own {
-			Err(meta.error("`sql` and `materialized` describe a view: use `#[db::view(...)]`"))
+			Err(meta.error(
+				"`sql`, `materialized`, and `reads` describe a view: use `#[db::view(...)]`",
+			))
 		} else {
 			Ok(false)
 		};
 	}
 
 	if meta.path.is_ident("sql") {
-		*sql = Some(dialect_sql(meta, "sql")?);
+		view.sql = Some(dialect_sql(meta, "sql")?);
 	} else if meta.path.is_ident("materialized") {
-		*materialized = true;
+		view.materialized = true;
+	} else if meta.path.is_ident("reads") {
+		if view.reads.is_some() {
+			return Err(meta.error("`reads` is given twice; list every table in one"));
+		}
+
+		let content;
+		parenthesized!(content in meta.input);
+		let tables = content.parse_terminated(Path::parse_mod_style, Token![,])?;
+
+		if tables.is_empty() {
+			return Err(meta.error("name the tables the view's query reads: `reads(Post, User)`"));
+		}
+
+		view.reads = Some(tables.into_iter().collect());
 	} else if !VIEW_OPTIONS.iter().any(|option| meta.path.is_ident(option)) {
 		return Err(meta.error(
-			"unknown view option; expected `name`, `sql`, `materialized`, `namespace`, `public`, \
-			 `projection`, or `crate`",
+			"unknown view option; expected `name`, `sql`, `materialized`, `reads`, `namespace`, \
+			 `public`, `projection`, or `crate`",
 		));
 	}
 
 	Ok(own)
 }
 
+/// A view's own options, as `#[db::view(...)]` gives them.
+#[derive(Default)]
+struct ViewOptions {
+	sql: Option<(LitStr, LitStr)>,
+	materialized: bool,
+	reads: Option<Vec<Path>>,
+}
+
 impl ViewArgs {
-	fn new(sql: Option<(LitStr, LitStr)>) -> syn::Result<Self> {
-		let sql = sql.ok_or_else(|| {
+	fn new(options: ViewOptions) -> syn::Result<Self> {
+		let sql = options.sql.ok_or_else(|| {
 			syn::Error::new(
 				Span::call_site(),
 				"a view needs its query: `sql = \"SELECT …\"`, or `sql(postgres = \"…\", sqlite = \
@@ -364,13 +391,9 @@ impl ViewArgs {
 		})?;
 		Ok(Self {
 			sql,
-			materialized: false,
+			materialized: options.materialized,
+			reads: options.reads,
 		})
-	}
-
-	fn materialized(mut self, materialized: bool) -> Self {
-		self.materialized = materialized;
-		self
 	}
 }
 
