@@ -81,6 +81,8 @@ jobs:
         run: |
           cargo test --locked -p leptoskit_cli harmonyos
           cargo test --locked -p leptoskit_cli --test wasm_pipeline harmonyos_counter -- --ignored
+      - name: build every plugin crate for arm64 HarmonyOS
+        run: bash setup/scripts/harmonyos_plugins_build.sh
       - name: build real app and instrumentation HAPs for both ABIs
         run: cargo test --locked -p leptoskit_cli --test harmonyos_sdk -- --ignored --nocapture
       - name: retain HarmonyOS build evidence
