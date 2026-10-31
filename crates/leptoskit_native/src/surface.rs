@@ -20,6 +20,8 @@ use crate::props::NativeKind;
 use crate::props::NativeProps;
 use crate::props::TextStyle;
 
+#[cfg(feature = "devtools")]
+mod devtools;
 mod events;
 mod layout;
 mod measurement;
@@ -112,6 +114,12 @@ struct ShadowNode {
 	/// Live text content and font shared with the yoga measure function, so a
 	/// props update re-measures without rebuilding the node.
 	text_cell: Option<Arc<RwLock<TextCell>>>,
+	/// Where the element that built this node was created.
+	#[cfg(feature = "devtools")]
+	source: Option<&'static std::panic::Location<'static>>,
+	/// The element's active Tailwind classes.
+	#[cfg(feature = "devtools")]
+	classes: Vec<String>,
 }
 
 impl ShadowNode {

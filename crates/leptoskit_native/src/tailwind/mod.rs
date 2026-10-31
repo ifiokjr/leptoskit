@@ -544,11 +544,9 @@ mod tests {
 		assert!(!explained.iter().any(|item| item.class == "dark:bg-black"));
 
 		let explained = tailwind.explain(&context(true, true));
-		assert!(
-			explained.iter().any(|item| {
-				item.class == "dark:bg-black" && item.variant.as_deref() == Some("dark")
-			})
-		);
+		assert!(explained.iter().any(|item| {
+			item.class == "dark:bg-black" && item.variant.as_deref() == Some("dark")
+		}));
 		assert!(explained.iter().any(|item| {
 			item.class == "active:opacity-50" && item.variant.as_deref() == Some("active")
 		}));
