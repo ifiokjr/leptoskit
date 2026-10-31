@@ -22,13 +22,12 @@ fn the_provider_tables_export_as_row_level_security() {
 			.unwrap_or_else(|| panic!("`idp.{table}` has a select policy"))
 	};
 
-	for table in ["grants", "families"] {
-		assert_eq!(
-			using(table),
-			"\"account_id\" = NULLIF(current_setting('leptoskit.account', true), '')::uuid",
-			"idp.{table}"
-		);
-	}
-
-	assert_eq!(using("clients"), "1 = 0");
+	let mine = |column: &str| {
+		format!("\"{column}\" = NULLIF(current_setting('leptoskit.account', true), '')::uuid")
+	};
+	assert_eq!(using("clients"), mine("owner_id"));
+	assert_eq!(using("grants"), mine("account_id"));
+	assert_eq!(using("families"), mine("account_id"));
+	// Tables nobody reads directly stay closed to raw SQL too.
+	assert_eq!(using("authorizations"), "1 = 0");
 }

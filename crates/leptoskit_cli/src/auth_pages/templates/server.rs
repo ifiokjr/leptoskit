@@ -7,6 +7,11 @@ use leptoskit::auth::AuthError;
 use leptoskit::auth::OnSignUp;
 use leptoskit::config::LeptoskitConfig;
 use leptoskit::db::Db;
+// leptoskit: idp
+use leptoskit::idp::Idp;
+use leptoskit::idp::IdpBuilder;
+use leptoskit::idp::IdpError;
+// leptoskit: end idp
 
 /// The sign-in service. `U` is the table that gets a row for each new
 /// account, through its `OnSignUp`.
@@ -48,3 +53,29 @@ fn config() -> Result<LeptoskitConfig, AuthError> {
 	)
 	.map_err(|error| AuthError::Config(error.to_string()))
 }
+
+// leptoskit: idp
+
+/// The provider other apps sign in with, from `[auth.idp]`. Add your scopes
+/// and claims, then build it:
+///
+/// ```ignore
+/// let idp = sign_in::provider(&db, &auth)?
+/// 	.scopes::<Scope>()
+/// 	.claims::<User>()
+/// 	.build()?;
+/// ```
+///
+/// # Errors
+///
+/// When `[auth.idp]` is missing or invalid.
+pub fn provider(db: &Db, auth: &Auth) -> Result<IdpBuilder, IdpError> {
+	let config = config().map_err(|error| {
+		match error {
+			AuthError::Config(message) => IdpError::Config(message),
+			error => error.into(),
+		}
+	})?;
+	Idp::from_config(db, auth, &config)
+}
+// leptoskit: end idp

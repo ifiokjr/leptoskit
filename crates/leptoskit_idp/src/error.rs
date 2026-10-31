@@ -72,7 +72,17 @@ impl IdpError {
 			Self::OAuth { code, .. } => code,
 			Self::SignedOut => "login_required",
 			Self::NotFound => "not_found",
+			Self::Auth(AuthError::RateLimited { .. }) => "rate_limited",
 			Self::Config(_) | Self::Auth(_) | Self::Db(_) => "server_error",
+		}
+	}
+
+	/// How long to wait before trying again, when the answer was
+	/// `rate_limited`.
+	pub fn retry_after(&self) -> Option<std::time::Duration> {
+		match self {
+			Self::Auth(AuthError::RateLimited { retry_after }) => Some(*retry_after),
+			_ => None,
 		}
 	}
 
@@ -81,6 +91,7 @@ impl IdpError {
 	pub fn description(&self) -> String {
 		match self {
 			Self::OAuth { description, .. } => description.clone(),
+			Self::Auth(error @ AuthError::RateLimited { .. }) => error.to_string(),
 			Self::Config(_) | Self::Auth(_) | Self::Db(_) => {
 				"something went wrong; try again".into()
 			}
@@ -106,6 +117,13 @@ mod tests {
 		assert_eq!(error.code(), "invalid_grant");
 		assert_eq!(error.description(), "that code was already used");
 		assert_eq!(IdpError::SignedOut.code(), "login_required");
+		let limited = IdpError::Auth(AuthError::RateLimited {
+			retry_after: std::time::Duration::from_secs(30),
+		});
+		assert_eq!(limited.code(), "rate_limited");
+		assert!(limited.description().contains("30 seconds"));
+		assert_eq!(limited.retry_after().unwrap().as_secs(), 30);
+		assert_eq!(IdpError::NotFound.retry_after(), None);
 		assert_eq!(IdpError::NotFound.description(), "that no longer exists");
 	}
 }

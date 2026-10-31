@@ -55,6 +55,8 @@ use leptoskit_query::MutationScope;
 use leptoskit_query::QueryHandle;
 use leptoskit_query::QueryScope;
 use leptoskit_query::use_query;
+pub use protocol::HttpResponse;
+pub use protocol::Method;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -318,6 +320,8 @@ pub(crate) trait Api: Send + Sync + 'static {
 	fn update_wallet(&self, input: UpdateWallet) -> Pending<'_, WalletInfo>;
 	fn unlink_wallet(&self, id: Id<Wallet>) -> Pending<'_, ()>;
 	fn wallet_sign_in(&self, wallet: String) -> Pending<'_, SignInStep>;
+	fn send(&self, method: Method, path: String, body: Option<String>)
+	-> Pending<'_, HttpResponse>;
 }
 
 /// A call to the server, in flight.
@@ -939,4 +943,25 @@ pub fn wallet_sign_in() -> MutationScope<String, SignInStep, ErrorResponse> {
 				args.client.set_query_data(&session(), (), Some(signed_in));
 			}
 		})
+}
+
+/// Sends a request to a route of the app's server next to `/auth`, the way
+/// this client sends its own: with this device's session, renewed and sent
+/// again once if the server answers `401`. For crates that add routes next
+/// to sign-in's, such as `leptoskit_idp`'s connected apps, so their hooks
+/// work on every platform with no code of their own for each.
+///
+/// `path` is the route's path, such as `/oauth/grants`, and `body` a JSON
+/// body for a `POST`. The answer comes back as it was sent, whatever its
+/// status; an error means the request never got an answer: `network`,
+/// `config`, or `storage`. While the server renders a page, it answers
+/// `server`: read in process there instead.
+pub fn send(
+	method: Method,
+	path: impl Into<String>,
+	body: Option<String>,
+) -> leptoskit_query::BoxFuture<'static, Result<HttpResponse, ErrorResponse>> {
+	let path = path.into();
+	let api = api();
+	Box::pin(async move { api.send(method, path, body).await })
 }

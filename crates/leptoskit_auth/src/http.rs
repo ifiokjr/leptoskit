@@ -126,9 +126,11 @@ pub struct CurrentSession {
 /// so it skips the same-site check.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Delegation {
-	/// The person who granted access. A delegated request has no session of
-	/// its own, so `signed_in.session` is the nil ID.
-	pub signed_in: SignedIn,
+	/// The person who granted access, or `None` when the app acts as itself,
+	/// as a machine-to-machine token does: then the request is signed out,
+	/// and policies see no one. A delegated request has no session of its
+	/// own, so `signed_in.session` is the nil ID.
+	pub signed_in: Option<SignedIn>,
 	/// The app acting for them: its OAuth client ID.
 	pub client_id: String,
 	/// What they let it do.
@@ -283,6 +285,31 @@ impl Auth {
 		router.with_state(self.clone())
 	}
 
+	/// Where a request came from: the client's IP address, as
+	/// [`AuthBuilder::client_ip_header`](crate::AuthBuilder::client_ip_header)
+	/// says to read it, and its user agent. For routes outside
+	/// [`Auth::layer`] that record events, such as `leptoskit_idp`'s token
+	/// endpoint; inside it, take [`RequestInfo`] as an extractor.
+	pub fn request_info(&self, request: &Request<Body>) -> RequestInfo {
+		self.request_info_from(request.headers(), peer(request))
+	}
+
+	fn request_info_from(&self, headers: &HeaderMap, peer: Option<SocketAddr>) -> RequestInfo {
+		RequestInfo {
+			ip: self.client_ip(headers, peer),
+			user_agent: headers
+				.get(header::USER_AGENT)
+				.and_then(|agent| agent.to_str().ok())
+				.map(str::to_owned),
+			transport: if bearer(headers).is_some() {
+				Transport::Bearer
+			} else {
+				Transport::Cookie
+			},
+			device_name: None,
+		}
+	}
+
 	/// What the layer learns about a request: its session, from the bearer
 	/// token or the session cookie, and where it came from.
 	async fn current_session(
@@ -291,19 +318,7 @@ impl Auth {
 		peer: Option<SocketAddr>,
 	) -> Result<CurrentSession, AuthError> {
 		let bearer = bearer(parts_headers);
-		let request = RequestInfo {
-			ip: self.client_ip(parts_headers, peer),
-			user_agent: parts_headers
-				.get(header::USER_AGENT)
-				.and_then(|agent| agent.to_str().ok())
-				.map(str::to_owned),
-			transport: if bearer.is_some() {
-				Transport::Bearer
-			} else {
-				Transport::Cookie
-			},
-			device_name: None,
-		};
+		let request = self.request_info_from(parts_headers, peer);
 		let token = bearer.or_else(|| cookie(parts_headers, self.cookie_name()));
 		let resolved = match &token {
 			Some(token) => self.resolve_session(token).await?,
@@ -624,17 +639,11 @@ where
 
 			if let Some(delegation) = delegation {
 				let current = CurrentSession {
-					signed_in: Some(delegation.signed_in.clone()),
+					signed_in: delegation.signed_in.clone(),
 					enrolling: None,
 					request: RequestInfo {
-						ip: auth.client_ip(request.headers(), peer(&request)),
-						user_agent: request
-							.headers()
-							.get(header::USER_AGENT)
-							.and_then(|agent| agent.to_str().ok())
-							.map(str::to_owned),
 						transport: Transport::Bearer,
-						device_name: None,
+						..auth.request_info(&request)
 					},
 					delegation: Some(delegation),
 					token: None,

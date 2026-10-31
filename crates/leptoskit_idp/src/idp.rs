@@ -16,9 +16,12 @@ use leptoskit_db::Timestamp;
 use leptoskit_rpc::Scopes;
 use serde_json::Value;
 
+use crate::GrantType;
 use crate::IdpError;
 use crate::Result;
 use crate::ScopeDescription;
+use crate::SigningAlgorithm;
+use crate::jwt::PublicKey;
 
 /// Sign in with your app: the OAuth 2.1 and OpenID Connect provider, over
 /// the `idp` and `auth` tables in the app's database.
@@ -53,10 +56,15 @@ pub(crate) struct Inner {
 	pub sign_in_page: String,
 	pub consent_page: String,
 	pub signed_out_page: String,
+	pub device_page: String,
 	pub lifetimes: Lifetimes,
+	/// The RSA key RS256 ID tokens are signed with, if the server has one.
+	pub rsa_key: Option<Arc<ring::signature::RsaKeyPair>>,
+	/// Whether signed-in people may register apps of their own.
+	pub developer_portal: Option<Portal>,
 	/// Public keys by key ID, with when each leaves the key set: they never
 	/// change, so once read they're kept.
-	pub verifying_keys: Mutex<HashMap<String, (p256::ecdsa::VerifyingKey, Timestamp)>>,
+	pub verifying_keys: Mutex<HashMap<String, (PublicKey, Timestamp)>>,
 }
 
 impl Idp {
@@ -73,7 +81,10 @@ impl Idp {
 			sign_in_page: "/sign-in".into(),
 			consent_page: "/consent".into(),
 			signed_out_page: "/".into(),
+			device_page: "/device".into(),
 			lifetimes: Lifetimes::default(),
+			rsa_key: None,
+			developer_portal: None,
 		}
 	}
 
@@ -99,6 +110,11 @@ impl Idp {
 			.map(|scope| scope.name.as_str())
 			.collect();
 
+		let mut id_token_algorithms = vec![SigningAlgorithm::Es256.as_str()];
+		if self.inner.rsa_key.is_some() {
+			id_token_algorithms.push(SigningAlgorithm::Rs256.as_str());
+		}
+
 		serde_json::json!({
 			"issuer": issuer,
 			"authorization_endpoint": endpoint("/oauth/authorize"),
@@ -108,28 +124,38 @@ impl Idp {
 			"revocation_endpoint": endpoint("/oauth/revoke"),
 			"introspection_endpoint": endpoint("/oauth/introspect"),
 			"end_session_endpoint": endpoint("/oauth/end_session"),
+			"pushed_authorization_request_endpoint": endpoint("/oauth/par"),
+			"device_authorization_endpoint": endpoint("/oauth/device_authorization"),
 			"scopes_supported": scopes,
 			"response_types_supported": ["code"],
 			"response_modes_supported": ["query"],
-			"grant_types_supported": ["authorization_code", "refresh_token"],
+			"grant_types_supported": [
+				GrantType::AuthorizationCode.as_str(),
+				"refresh_token",
+				GrantType::DeviceCode.as_str(),
+				GrantType::ClientCredentials.as_str(),
+			],
 			"subject_types_supported": ["pairwise", "public"],
-			"id_token_signing_alg_values_supported": [crate::jwt::ALGORITHM],
-			"token_endpoint_auth_methods_supported":
-				["client_secret_basic", "client_secret_post", "none"],
-			"revocation_endpoint_auth_methods_supported":
-				["client_secret_basic", "client_secret_post", "none"],
+			"id_token_signing_alg_values_supported": id_token_algorithms,
+			"token_endpoint_auth_methods_supported": AUTH_METHODS,
+			"token_endpoint_auth_signing_alg_values_supported": ["ES256", "RS256"],
+			"revocation_endpoint_auth_methods_supported": AUTH_METHODS,
+			"revocation_endpoint_auth_signing_alg_values_supported": ["ES256", "RS256"],
 			"introspection_endpoint_auth_methods_supported":
-				["client_secret_basic", "client_secret_post"],
+				["client_secret_basic", "client_secret_post", "private_key_jwt"],
+			"introspection_endpoint_auth_signing_alg_values_supported": ["ES256", "RS256"],
 			"code_challenge_methods_supported": ["S256"],
 			"prompt_values_supported": ["none", "login", "consent"],
+			"claim_types_supported": ["normal"],
 			"claims_supported": [
 				"sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "sid",
 				"email", "email_verified", "name", "given_name", "family_name",
 				"preferred_username", "picture", "locale", "zoneinfo", "updated_at",
 			],
-			"claims_parameter_supported": false,
+			"claims_parameter_supported": true,
 			"request_parameter_supported": false,
 			"request_uri_parameter_supported": false,
+			"require_pushed_authorization_requests": false,
 			"authorization_response_iss_parameter_supported": true,
 		})
 	}
@@ -173,6 +199,14 @@ impl std::fmt::Debug for Idp {
 	}
 }
 
+/// How apps may authenticate at the token, revocation and PAR endpoints.
+const AUTH_METHODS: [&str; 4] = [
+	"client_secret_basic",
+	"client_secret_post",
+	"private_key_jwt",
+	"none",
+];
+
 /// The scopes OpenID Connect defines, which every provider offers.
 const STANDARD_SCOPES: [(&str, &str); 3] = [
 	("openid", "Sign you in with your account."),
@@ -192,7 +226,10 @@ pub struct IdpBuilder {
 	sign_in_page: String,
 	consent_page: String,
 	signed_out_page: String,
+	device_page: String,
 	lifetimes: Lifetimes,
+	rsa_key: Option<Vec<u8>>,
+	developer_portal: Option<Portal>,
 }
 
 impl std::fmt::Debug for IdpBuilder {
@@ -257,9 +294,40 @@ impl IdpBuilder {
 		self
 	}
 
+	/// Your device page, where people enter the code a CLI or a TV shows
+	/// them (RFC 8628). It reads `GET /oauth/device?user_code=…` and posts the
+	/// answer to `POST /oauth/device`. Defaults to `/device`.
+	pub fn device_page(mut self, path: impl Into<String>) -> Self {
+		self.device_page = path.into();
+		self
+	}
+
 	/// How long codes, tokens and signing keys last.
 	pub fn lifetimes(mut self, lifetimes: Lifetimes) -> Self {
 		self.lifetimes = lifetimes;
+		self
+	}
+
+	/// The RSA private key that signs ID tokens for apps registered for
+	/// RS256, as PEM (`PRIVATE KEY` or `RSA PRIVATE KEY`) or DER, of at least
+	/// 2048 bits. Without one, every token is ES256, which most libraries
+	/// verify; OpenID certification also wants RS256.
+	///
+	/// Make one with `openssl genpkey -algorithm RSA -pkeyopt
+	/// rsa_keygen_bits:3072`, and keep it with the server's other secrets.
+	/// To rotate it, give the server a new one: the old key stays published
+	/// until every token it signed has expired.
+	pub fn rsa_key(mut self, key: impl Into<Vec<u8>>) -> Self {
+		self.rsa_key = Some(key.into());
+		self
+	}
+
+	/// Lets signed-in people register apps of their own, for third-party
+	/// developers: the `/oauth/apps` routes. Each person sees and manages
+	/// only their own apps, which are never first-party and can't introspect
+	/// other apps' tokens. Off by default.
+	pub fn developer_portal(mut self, portal: Portal) -> Self {
+		self.developer_portal = Some(portal);
 		self
 	}
 
@@ -281,6 +349,7 @@ impl IdpBuilder {
 			&self.sign_in_page,
 			&self.consent_page,
 			&self.signed_out_page,
+			&self.device_page,
 		] {
 			if !is_local_path(page) {
 				return Err(IdpError::Config(format!(
@@ -317,6 +386,27 @@ impl IdpBuilder {
 
 		self.lifetimes.check()?;
 
+		let rsa_key = match &self.rsa_key {
+			Some(key) => {
+				Some(Arc::new(crate::jwt::rsa_key(key).ok_or_else(|| {
+					IdpError::Config(
+						"the RSA key isn't a PEM or DER RSA private key of at least 2048 bits"
+							.into(),
+					)
+				})?))
+			}
+			None => None,
+		};
+
+		if self
+			.developer_portal
+			.is_some_and(|portal| portal.apps_per_person == 0)
+		{
+			return Err(IdpError::Config(
+				"the developer portal must allow at least one app per person".into(),
+			));
+		}
+
 		Ok(Idp {
 			inner: Arc::new(Inner {
 				db: self.db,
@@ -328,7 +418,10 @@ impl IdpBuilder {
 				sign_in_page: self.sign_in_page,
 				consent_page: self.consent_page,
 				signed_out_page: self.signed_out_page,
+				device_page: self.device_page,
 				lifetimes: self.lifetimes,
+				rsa_key,
+				developer_portal: self.developer_portal,
 				verifying_keys: Mutex::new(HashMap::new()),
 			}),
 		})
@@ -376,6 +469,12 @@ pub struct Lifetimes {
 	/// How long a signing key signs before the next one takes over: 30
 	/// days.
 	pub signing_key: Duration,
+	/// A pushed authorization request's `request_uri` (RFC 9126): 10
+	/// minutes, at most an hour, long enough to sign in on the way.
+	pub pushed_request: Duration,
+	/// A device code (RFC 8628): how long someone has to enter it, 10
+	/// minutes, at most an hour.
+	pub device_code: Duration,
 }
 
 impl Default for Lifetimes {
@@ -387,6 +486,8 @@ impl Default for Lifetimes {
 			consent: Duration::from_mins(10),
 			refresh: Duration::from_hours(90 * 24),
 			signing_key: Duration::from_hours(30 * 24),
+			pushed_request: Duration::from_mins(10),
+			device_code: Duration::from_mins(10),
 		}
 	}
 }
@@ -401,6 +502,8 @@ impl Lifetimes {
 			&& within(self.consent, Duration::from_hours(1))
 			&& within(self.refresh, Duration::from_hours(400 * 24))
 			&& within(self.signing_key, Duration::from_hours(400 * 24))
+			&& within(self.pushed_request, Duration::from_hours(1))
+			&& within(self.device_code, Duration::from_hours(1))
 		{
 			Ok(())
 		} else {
@@ -409,6 +512,21 @@ impl Lifetimes {
 				 most ten minutes"
 					.into(),
 			))
+		}
+	}
+}
+
+/// The developer portal's limits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Portal {
+	/// The most apps one person may register: 10 by default.
+	pub apps_per_person: u32,
+}
+
+impl Default for Portal {
+	fn default() -> Self {
+		Self {
+			apps_per_person: 10,
 		}
 	}
 }
