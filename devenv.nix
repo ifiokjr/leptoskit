@@ -52,6 +52,7 @@ in
       taplo
       unzip
       xpkgs.monochange
+      xpkgs.monostyle
       zip
       zizmor
     ]

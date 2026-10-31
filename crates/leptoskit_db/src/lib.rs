@@ -158,7 +158,7 @@ pub use leptoskit_db_macros::mixin;
 /// #[db::policy(select, |post, cx| post.published.eq(true) | cx.global(|viewer: &Viewer| post.author_id.eq(viewer.0)))]
 /// #[db::policy(insert, update, delete, |post, cx| cx.global(|viewer: &Viewer| post.author_id.eq(viewer.0)),
 /// 	message = "Only the author can change a post")]
-/// pub struct Post { … }
+/// pub struct Post { /* … */ }
 /// ```
 ///
 /// Once a table has a policy, only what a rule allows is allowed and a `deny`
@@ -195,6 +195,8 @@ pub use mixins::Versioned;
 pub use policy::Action;
 #[cfg(feature = "server")]
 pub use policy::Context;
+#[cfg(feature = "server")]
+pub use policy::Count;
 #[cfg(feature = "server")]
 pub use policy::Policy;
 #[cfg(feature = "server")]

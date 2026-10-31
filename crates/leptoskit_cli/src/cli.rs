@@ -190,8 +190,13 @@ pub enum Command {
 		#[arg(long)]
 		sdk_path: Option<String>,
 		/// Add a database: a crate of tables, migrations, and an example `Note`
-		/// table the backend serves.
-		#[arg(long, value_name = "postgres|sqlite")]
+		/// table the backend serves. Postgres unless you name SQLite.
+		#[arg(
+			long,
+			value_name = "postgres|sqlite",
+			num_args = 0..=1,
+			default_missing_value = "postgres"
+		)]
 		db: Option<leptoskit_config::DbDialect>,
 		/// Add a browser extension: the `extension` platform, a popup and a
 		/// background worker in `[extension]`, and the app's entry points.
@@ -335,8 +340,13 @@ pub enum GenerateCommand {
 		#[arg(long)]
 		sdk_path: Option<String>,
 		/// Add a database: a crate of tables, migrations, and an example `Note`
-		/// table the backend serves.
-		#[arg(long, value_name = "postgres|sqlite")]
+		/// table the backend serves. Postgres unless you name SQLite.
+		#[arg(
+			long,
+			value_name = "postgres|sqlite",
+			num_args = 0..=1,
+			default_missing_value = "postgres"
+		)]
 		db: Option<leptoskit_config::DbDialect>,
 		/// Add a browser extension: the `extension` platform, a popup and a
 		/// background worker in `[extension]`, and the app's entry points.

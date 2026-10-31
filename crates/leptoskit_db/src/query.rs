@@ -84,6 +84,12 @@ impl<T: Table> Query<T> {
 		self
 	}
 
+	/// The query's own condition and whether it keeps soft-deleted rows, for
+	/// a policy that counts it.
+	pub(crate) fn into_condition(self) -> (Option<Expr>, bool) {
+		(self.filter, self.with_deleted)
+	}
+
 	/// Every matching row.
 	pub async fn all(self, connection: &impl Connection) -> Result<Vec<T>> {
 		let mut sql = Sql::new(connection.dialect());

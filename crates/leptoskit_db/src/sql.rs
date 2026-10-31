@@ -3,6 +3,7 @@
 use std::fmt::Write;
 
 use leptoskit_db_schema::Dialect;
+use leptoskit_db_schema::TableName;
 use leptoskit_db_schema::quote_identifier;
 
 use crate::Table;
@@ -22,6 +23,12 @@ pub(crate) struct Sql {
 	dialect: Dialect,
 	text: String,
 	args: Vec<Value>,
+	/// The rows a condition can name, outermost first: the statement's
+	/// table, then each count's, with the text that qualifies their columns.
+	scopes: Vec<(TableName, String)>,
+	/// The outermost scope the condition being written may name. A counted
+	/// table's own policy reads its rows, never the rows around the count.
+	origin: usize,
 }
 
 impl Sql {
@@ -30,6 +37,8 @@ impl Sql {
 			dialect,
 			text: String::new(),
 			args: Vec::new(),
+			scopes: Vec::new(),
+			origin: 0,
 		}
 	}
 
@@ -65,18 +74,83 @@ impl Sql {
 		self.table_name(&T::table_name())
 	}
 
-	/// A table known only by name, such as one a cascade reaches.
-	pub(crate) fn table_name(&mut self, table: &leptoskit_db_schema::TableName) -> &mut Self {
-		match (self.dialect, &table.namespace) {
-			(Dialect::Postgres, Some(namespace)) => {
-				self.text.push_str(&quote_identifier(namespace));
-				self.text.push('.');
-				self.text.push_str(&quote_identifier(&table.name));
-			}
-			_ => self.text.push_str(&quote_identifier(&table.flat())),
+	/// A table known only by name, such as one a cascade reaches. The first
+	/// table a statement names is the row its conditions are about.
+	pub(crate) fn table_name(&mut self, table: &TableName) -> &mut Self {
+		let name = self.render_table(table);
+		self.text.push_str(&name);
+
+		if self.scopes.is_empty() {
+			self.scopes.push((table.clone(), name));
 		}
 
 		self
+	}
+
+	fn render_table(&self, table: &TableName) -> String {
+		match (self.dialect, &table.namespace) {
+			(Dialect::Postgres, Some(namespace)) => {
+				format!(
+					"{}.{}",
+					quote_identifier(namespace),
+					quote_identifier(&table.name)
+				)
+			}
+			_ => quote_identifier(&table.flat()),
+		}
+	}
+
+	/// Opens a subquery's scope: writes `table AS alias`, so its columns
+	/// can't be mistaken for those of the same table outside it.
+	pub(crate) fn enter(&mut self, table: &TableName) -> &mut Self {
+		let alias = quote_identifier(&format!("lk_count_{}", self.scopes.len()));
+		let name = self.render_table(table);
+		let _ = write!(self.text, "{name} AS {alias}");
+		self.scopes.push((table.clone(), alias));
+		self
+	}
+
+	/// Closes the scope [`Sql::enter`] opened.
+	pub(crate) fn leave(&mut self) {
+		self.scopes.pop();
+	}
+
+	/// Writes a condition that may only name the innermost scope and the
+	/// subqueries inside it, such as a counted table's own policy.
+	pub(crate) fn isolated(
+		&mut self,
+		write: impl FnOnce(&mut Self) -> crate::Result<()>,
+	) -> crate::Result<()> {
+		let origin = std::mem::replace(&mut self.origin, self.scopes.len().saturating_sub(1));
+		let written = write(self);
+		self.origin = origin;
+		written
+	}
+
+	/// A column of a row around the current one: the outermost row of
+	/// `table` the condition being written may name. The innermost row's
+	/// columns need no qualifier.
+	pub(crate) fn outer_column(&mut self, table: &TableName, column: &str) -> crate::Result<()> {
+		let Some(position) = self
+			.scopes
+			.iter()
+			.skip(self.origin)
+			.position(|(scope, _)| scope == table)
+			.map(|position| position + self.origin)
+		else {
+			return Err(crate::expr::invalid(&format!(
+				"`{}.{column}` belongs to neither the row being checked nor a table it counts",
+				table.flat()
+			)));
+		};
+
+		if position + 1 < self.scopes.len() {
+			self.text.push_str(&self.scopes[position].1);
+			self.text.push('.');
+		}
+
+		self.identifier(column);
+		Ok(())
 	}
 
 	/// The columns, separated by commas.

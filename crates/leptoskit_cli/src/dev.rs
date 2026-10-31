@@ -7,6 +7,9 @@
 //! to the platforms named. Every change rebuilds the web app and each native
 //! guest, and the native apps swap their new guest in without being
 //! reinstalled.
+//!
+//! With a `[db]` table, it also runs the development database (see
+//! `db::dev_server`) and keeps it in step with the tables as they change.
 
 mod guests;
 mod native;
@@ -103,9 +106,15 @@ pub fn run(
 		no_devtools,
 		devtools_port,
 	})?;
-	let (_watcher, events_rx, config_changed) =
-		watch(&config, &root, &runtime, open, started.web.as_ref())?;
-	rebuild(started, &events_rx, &config_changed);
+	let watching = watch(
+		&config,
+		&root,
+		&runtime,
+		open,
+		started.web.as_ref(),
+		started.database.as_ref(),
+	)?;
+	rebuild(started, &watching);
 	Ok(())
 }
 
@@ -143,6 +152,8 @@ fn report_skipped(selection: &native::Selection) {
 
 struct Started {
 	web: Option<Web>,
+	/// The development database, stopped after the server that uses it.
+	database: Option<crate::db::DevDatabase>,
 	extension: Option<crate::extension::dev::ExtensionDev>,
 	native: Option<native::NativeDev>,
 	_devtools: Option<crate::devtools::Hub>,
@@ -184,9 +195,10 @@ impl Started {
 			)?)
 		};
 
+		let database = start_database(config, root)?;
 		let web = selection
 			.web
-			.then(|| Web::start(config, root, port, runtime))
+			.then(|| Web::start(config, root, port, runtime, database.as_ref()))
 			.transpose()?;
 		let extension = selection
 			.extension
@@ -206,6 +218,7 @@ impl Started {
 
 		Ok(Self {
 			web,
+			database,
 			extension,
 			native,
 			_devtools: devtools,
@@ -219,11 +232,8 @@ fn watch(
 	runtime: &tokio::runtime::Runtime,
 	open: bool,
 	web: Option<&Web>,
-) -> Result<(
-	notify::RecommendedWatcher,
-	mpsc::Receiver<Wake>,
-	Arc<AtomicBool>,
-)> {
+	database: Option<&crate::db::DevDatabase>,
+) -> Result<Watching> {
 	let (events_tx, events_rx) = mpsc::channel::<Wake>();
 	let stop = events_tx.clone();
 	runtime.spawn(async move {
@@ -231,7 +241,7 @@ fn watch(
 		let _ = stop.send(Wake::Stop);
 	});
 
-	let (mut watcher, config_changed, scope) = start_watcher(config, root, events_tx)?;
+	let (mut watcher, heard, scope) = start_watcher(config, root, events_tx, database)?;
 	watch_roots(&mut watcher, &scope)?;
 
 	anstream::println!(
@@ -246,7 +256,25 @@ fn watch(
 		ui::warning(format_args!("could not open the browser: {error:#}"));
 	}
 
-	Ok((watcher, events_rx, config_changed))
+	Ok(Watching {
+		_watcher: watcher,
+		events: events_rx,
+		heard,
+	})
+}
+
+/// The running watcher, and what it has heard since the last rebuild.
+struct Watching {
+	/// Held for the whole loop: dropping it stops the watching.
+	_watcher: notify::RecommendedWatcher,
+	events: mpsc::Receiver<Wake>,
+	heard: Heard,
+}
+
+/// What the watcher notes for the next rebuild, beyond that something changed.
+struct Heard {
+	config_changed: Arc<AtomicBool>,
+	tables_changed: Arc<AtomicBool>,
 }
 
 /// The files the watcher covers.
@@ -261,20 +289,17 @@ fn start_watcher(
 	config: &LeptoskitConfig,
 	root: &Path,
 	events_tx: mpsc::Sender<Wake>,
-) -> Result<(notify::RecommendedWatcher, Arc<AtomicBool>, Watched)> {
+	database: Option<&crate::db::DevDatabase>,
+) -> Result<(notify::RecommendedWatcher, Heard, Watched)> {
 	let metadata = crate::wasm::cargo_metadata(root)?;
 	let out_dir = root.join(DEV_OUT);
-	let mut excluded = vec![
-		metadata.target_directory.clone(),
-		out_dir.clone(),
-		root.join(".leptoskit"),
-	];
-	// Gradle keeps its caches and outputs inside the app-owned Android project.
-	let android = crate::native::host_dir(root, crate::native::Target::Android);
-	excluded.extend([".gradle", "build", "app/build", "app/.cxx"].map(|path| android.join(path)));
+	let excluded = excluded_dirs(root, &metadata, &out_dir);
 	let public = root.join("public");
 	let config_file = root.join(leptoskit_config::CONFIG_FILE);
 	let config_changed = Arc::new(AtomicBool::new(false));
+	// The package that declares the tables: a change there may change them.
+	let tables_dir = database.and_then(|database| database.package_dir(&metadata));
+	let tables_changed = Arc::new(AtomicBool::new(false));
 
 	let filter = WatchFilter {
 		public: public.clone(),
@@ -290,11 +315,21 @@ fn start_watcher(
 	};
 	let watched_config = config_file.clone();
 	let changed = Arc::clone(&config_changed);
+	let tables = Arc::clone(&tables_changed);
 	let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
 		match event {
 			Ok(event) if event.paths.iter().any(|path| filter.is_relevant(path)) => {
 				if event.paths.contains(&watched_config) {
 					changed.store(true, Ordering::Relaxed);
+				}
+
+				if let Some(dir) = &tables_dir
+					&& event
+						.paths
+						.iter()
+						.any(|path| path.starts_with(dir) && filter.is_relevant(path))
+				{
+					tables.store(true, Ordering::Relaxed);
 				}
 
 				let _ = events_tx.send(Wake::Changed);
@@ -308,7 +343,10 @@ fn start_watcher(
 
 	Ok((
 		watcher,
-		config_changed,
+		Heard {
+			config_changed,
+			tables_changed,
+		},
 		Watched {
 			metadata,
 			public,
@@ -355,16 +393,24 @@ fn watch_roots(watcher: &mut notify::RecommendedWatcher, scope: &Watched) -> Res
 /// Rebuilds every platform after a debounced change. A config change warns
 /// that the native apps themselves still need a restart, then reloads the
 /// guests with the new configuration.
-fn rebuild(mut started: Started, events_rx: &mpsc::Receiver<Wake>, config_changed: &AtomicBool) {
-	while let Ok(Wake::Changed) = events_rx.recv() {
+fn rebuild(mut started: Started, watching: &Watching) {
+	let Watching { events, heard, .. } = watching;
+
+	while let Ok(Wake::Changed) = events.recv() {
 		// Debounce: keep absorbing events until none arrives for a whole
 		// window, so an editor's burst of writes triggers one rebuild.
 		loop {
-			match events_rx.recv_timeout(REBUILD_DEBOUNCE) {
+			match events.recv_timeout(REBUILD_DEBOUNCE) {
 				Ok(Wake::Changed) => {}
 				Ok(Wake::Stop) | Err(RecvTimeoutError::Disconnected) => return,
 				Err(RecvTimeoutError::Timeout) => break,
 			}
+		}
+		// Before the rebuild, so the server embeds a migration written now.
+		if let Some(database) = &started.database
+			&& heard.tables_changed.swap(false, Ordering::Relaxed)
+		{
+			database.tables_changed();
 		}
 
 		if let Some(web) = &mut started.web {
@@ -376,7 +422,7 @@ fn rebuild(mut started: Started, events_rx: &mpsc::Receiver<Wake>, config_change
 		}
 
 		if let Some(native) = &started.native {
-			reload_native(native, config_changed);
+			reload_native(native, &heard.config_changed);
 		}
 	}
 }
@@ -416,6 +462,8 @@ struct Web {
 	address: SocketAddr,
 	server_rendered: bool,
 	app_server: Option<Child>,
+	/// Extra variables for the app server, such as the database's URL.
+	env: Vec<(String, String)>,
 }
 
 impl Web {
@@ -425,6 +473,7 @@ impl Web {
 		root: &Path,
 		port: Option<u16>,
 		runtime: &tokio::runtime::Runtime,
+		database: Option<&crate::db::DevDatabase>,
 	) -> Result<Self> {
 		let port = port.unwrap_or(config.serve.port);
 		let ip: IpAddr = config.serve.address.parse().with_context(|| {
@@ -458,6 +507,7 @@ impl Web {
 			address,
 			server_rendered,
 			app_server: None,
+			env: database.map_or_else(Vec::new, crate::db::DevDatabase::env),
 		};
 
 		if let Some(listener) = listener {
@@ -486,7 +536,7 @@ impl Web {
 				),
 			);
 		} else {
-			web.app_server = Some(start_app_server(config, &output, address)?);
+			web.app_server = Some(start_app_server(config, &output, address, &web.env)?);
 			ui::tagged(
 				"web",
 				format_args!("app server at {BOLD}{}{BOLD:#}", web.url()),
@@ -519,7 +569,7 @@ impl Web {
 					),
 				);
 				if self.server_rendered {
-					match start_app_server(&self.config, &output, self.address) {
+					match start_app_server(&self.config, &output, self.address, &self.env) {
 						Ok(child) => self.app_server = Some(child),
 						Err(error) => {
 							ui::tagged_error(
@@ -553,6 +603,7 @@ fn start_app_server(
 	config: &LeptoskitConfig,
 	output: &crate::build::BuildOutput,
 	address: SocketAddr,
+	env: &[(String, String)],
 ) -> Result<Child> {
 	let binary = output.server_binary.as_deref().with_context(|| {
 		format!(
@@ -567,7 +618,7 @@ fn start_app_server(
 		address,
 		env: LeptosEnv::Dev,
 	};
-	crate::server::spawn(binary, &site)
+	crate::server::spawn_with(binary, &site, env)
 }
 
 /// Stops a child process and reaps it. A child that already exited is fine.
@@ -606,6 +657,36 @@ impl WatchFilter {
 				Some("rs" | "toml" | "lock" | "css" | "html" | "js" | "wasm" | "arb")
 			)
 	}
+}
+
+/// The directories the watcher ignores: build output, which changes on every
+/// build, and leptoskit's own state.
+fn excluded_dirs(
+	root: &Path,
+	metadata: &crate::wasm::CargoMetadata,
+	out_dir: &Path,
+) -> Vec<PathBuf> {
+	let mut excluded = vec![
+		metadata.target_directory.clone(),
+		out_dir.to_path_buf(),
+		root.join(".leptoskit"),
+	];
+	// Gradle keeps its caches and outputs inside the app-owned Android project.
+	let android = crate::native::host_dir(root, crate::native::Target::Android);
+	excluded.extend([".gradle", "build", "app/build", "app/.cxx"].map(|path| android.join(path)));
+	excluded
+}
+
+/// Starts the app's development database, if it has one, and checks its
+/// tables against the latest migration once.
+fn start_database(config: &LeptoskitConfig, root: &Path) -> Result<Option<crate::db::DevDatabase>> {
+	let database = crate::db::DevDatabase::start(config, root)?;
+
+	if let Some(database) = &database {
+		database.tables_changed();
+	}
+
+	Ok(database)
 }
 
 /// Watches `dir` recursively, except for the `excluded` directories (cargo's
