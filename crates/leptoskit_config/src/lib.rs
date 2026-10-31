@@ -1442,6 +1442,17 @@ pub struct AuthIdpConfig {
 	pub developer_portal: bool,
 	/// The most apps one person may register in the developer portal.
 	pub apps_per_person: u32,
+	/// Takes DPoP proofs (RFC 9449), so apps can bind their tokens to a key
+	/// they hold, and a stolen token is useless without it.
+	pub dpop: bool,
+	/// Lets apps register themselves at `/oauth/register` (RFC 7591), and
+	/// manage their registration with the token they get (RFC 7592).
+	pub dynamic_registration: bool,
+	/// The environment variable holding the initial access token apps must
+	/// send to register, at least 32 characters. Without it, anyone may
+	/// register, at most 10 apps an hour from one address.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub registration_token_env: Option<String>,
 }
 
 impl Default for AuthIdpConfig {
@@ -1460,6 +1471,9 @@ impl Default for AuthIdpConfig {
 			signing_key_days: 30,
 			developer_portal: false,
 			apps_per_person: 10,
+			dpop: false,
+			dynamic_registration: false,
+			registration_token_env: None,
 		}
 	}
 }
@@ -1481,6 +1495,20 @@ impl AuthIdpConfig {
 
 		if self.rsa_key_env.as_ref().is_some_and(String::is_empty) {
 			return Some("auth.idp.rsa_key_env must name an environment variable".to_owned());
+		}
+
+		match &self.registration_token_env {
+			Some(name) if name.is_empty() => {
+				return Some(
+					"auth.idp.registration_token_env must name an environment variable".to_owned(),
+				);
+			}
+			Some(_) if !self.dynamic_registration => {
+				return Some(
+					"auth.idp.registration_token_env needs dynamic_registration = true".to_owned(),
+				);
+			}
+			_ => {}
 		}
 
 		let bounds = [

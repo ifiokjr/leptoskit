@@ -684,7 +684,7 @@ async fn the_token_endpoints_refuse_what_they_cannot_take() {
 	assert_eq!(preflight.status(), StatusCode::NO_CONTENT);
 	assert_eq!(
 		preflight.headers()[header::ACCESS_CONTROL_ALLOW_HEADERS],
-		"authorization, content-type"
+		"authorization, content-type, dpop"
 	);
 	let missing = app.get("/oauth/userinfo", None).await;
 	assert_eq!(missing.status(), StatusCode::UNAUTHORIZED);
@@ -725,6 +725,7 @@ async fn operators_manage_clients_and_removing_one_ends_its_grants() {
 			id_token_alg: leptoskit_idp::SigningAlgorithm::Es256,
 			first_party: false,
 			introspection: false,
+			dpop_bound: false,
 		}))
 		.await;
 	assert!(
@@ -744,6 +745,7 @@ async fn operators_manage_clients_and_removing_one_ends_its_grants() {
 			id_token_alg: leptoskit_idp::SigningAlgorithm::Es256,
 			first_party: false,
 			introspection: false,
+			dpop_bound: false,
 		}))
 		.await;
 	assert!(
@@ -791,6 +793,7 @@ async fn first_party_apps_see_the_account_id_and_skip_consent() {
 			id_token_alg: leptoskit_idp::SigningAlgorithm::Es256,
 			first_party: true,
 			introspection: false,
+			dpop_bound: false,
 		}))
 		.await;
 	let ClientCommandOutput::Added { client, .. } = output else {
@@ -937,6 +940,7 @@ async fn edges_of_the_token_endpoints_are_refused_or_handled() {
 			id_token_alg: leptoskit_idp::SigningAlgorithm::Es256,
 			first_party: false,
 			introspection: true,
+			dpop_bound: false,
 		}))
 		.await;
 	let ClientCommandOutput::Added {
@@ -1140,6 +1144,7 @@ async fn the_provider_is_configured_carefully() {
 			id_token_alg: leptoskit_idp::SigningAlgorithm::Es256,
 			first_party: true,
 			introspection: false,
+			dpop_bound: false,
 		}))
 		.await;
 	assert!(matches!(output, ClientCommandOutput::Added { .. }));

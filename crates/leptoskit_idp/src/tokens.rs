@@ -88,6 +88,11 @@ pub struct TokenRequest {
 	/// The app's signed assertion, with `private_key_jwt`.
 	#[serde(default)]
 	pub client_assertion: Option<String>,
+	/// The RFC 7638 thumbprint of the key of a DPoP proof the request came
+	/// with, already checked: the new access token is bound to it. The
+	/// token endpoint sets it from the `DPoP` header; a form can't.
+	#[serde(skip)]
+	pub dpop_jkt: Option<String>,
 }
 
 impl fmt::Debug for TokenRequest {
@@ -96,6 +101,7 @@ impl fmt::Debug for TokenRequest {
 			.field("grant_type", &self.grant_type)
 			.field("client_id", &self.client_id)
 			.field("scope", &self.scope)
+			.field("dpop_jkt", &self.dpop_jkt)
 			.finish_non_exhaustive()
 	}
 }
@@ -122,6 +128,9 @@ pub struct AccessToken {
 	pub expires_at: Timestamp,
 	/// The family it belongs to.
 	pub family: Id<Family>,
+	/// The RFC 7638 thumbprint of the DPoP key it's bound to, if it is:
+	/// then it works only with a proof signed by that key.
+	pub jkt: Option<String>,
 }
 
 impl AccessToken {
@@ -168,6 +177,10 @@ pub struct Introspection {
 	/// The audience of an access token.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub aud: Option<String>,
+	/// The DPoP key a bound access token needs, as `{"jkt": …}` (RFC 9449
+	/// §6.2).
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cnf: Option<Value>,
 }
 
 /// The keys a token response is signed with: access tokens are always
@@ -186,6 +199,8 @@ pub(crate) struct Extras<'a> {
 	pub id_token_claims: Map<String, Value>,
 	/// Whether to issue a refresh token.
 	pub refresh: bool,
+	/// The thumbprint of the DPoP key to bind the access token to.
+	pub dpop: Option<&'a str>,
 }
 
 impl Idp {
@@ -212,6 +227,13 @@ impl Idp {
 		info: &RequestInfo,
 	) -> Result<TokenResponse> {
 		let client = self.authenticate(credentials).await?;
+
+		if client.dpop_bound && request.dpop_jkt.is_none() {
+			return Err(crate::dpop::invalid(
+				"this app's tokens must be bound to its key: send a proof in the `DPoP` header",
+			));
+		}
+
 		let allowed = |grant: GrantType| {
 			if client.grant_types.contains(&grant) {
 				Ok(())
@@ -328,6 +350,7 @@ impl Idp {
 					authorization.scopes.0.clone(),
 					authorization.id_token_claims.0.clone(),
 					authorization.auth_time,
+					request.dpop_jkt.as_deref(),
 				)
 				.await?;
 			Authorization::update()
@@ -346,6 +369,7 @@ impl Idp {
 					nonce: authorization.nonce.as_deref(),
 					id_token_claims,
 					refresh: true,
+					dpop: request.dpop_jkt.as_deref(),
 				},
 			)
 			.await
@@ -356,7 +380,10 @@ impl Idp {
 	}
 
 	/// A new refresh-token family for `account`'s sign-in with `client`,
-	/// under their grant.
+	/// under their grant. A public app that sent a DPoP proof, whose key is
+	/// `dpop`, gets refresh tokens bound to that key (RFC 9449 §5): a
+	/// confidential app's are bound by its own authentication instead.
+	#[allow(clippy::too_many_arguments)]
 	pub(crate) async fn start_family(
 		&self,
 		tx: &Tx,
@@ -365,6 +392,7 @@ impl Idp {
 		scopes: Vec<String>,
 		id_token_claims: Vec<String>,
 		auth_time: Timestamp,
+		dpop: Option<&str>,
 	) -> Result<Family> {
 		let grant = Grant::query()
 			.filter(|grant| grant.account_id.eq(account) & grant.client_id.eq(client.id))
@@ -380,6 +408,9 @@ impl Idp {
 			auth_time,
 			expires_at: leptoskit_db::now() + Self::lifetime(self.inner.lifetimes.refresh)?,
 			revoked_at: None,
+			jkt: dpop
+				.filter(|_| client.auth_method == ClientAuth::None)
+				.map(str::to_owned),
 		}
 		.insert(tx)
 		.await?)
@@ -405,6 +436,16 @@ impl Idp {
 		let (Some(account), Some(grant)) = (family.account_id, family.grant_id) else {
 			return Err(invalid());
 		};
+
+		// Checked before anything else: without the key, a stolen refresh
+		// token can't even end the family it belongs to.
+		if let Some(bound) = &family.jkt
+			&& request.dpop_jkt.as_deref() != Some(bound.as_str())
+		{
+			return Err(crate::dpop::invalid(
+				"this refresh token is bound to a key: send a proof signed by it",
+			));
+		}
 
 		if token.used_at.is_some() {
 			// Each refresh token works once. Seen again, someone else holds a
@@ -470,6 +511,7 @@ impl Idp {
 				Extras {
 					id_token_claims,
 					refresh: true,
+					dpop: request.dpop_jkt.as_deref(),
 					..Extras::default()
 				},
 			)
@@ -568,6 +610,7 @@ impl Idp {
 				auth_time: now,
 				expires_at: now + Self::lifetime(self.inner.lifetimes.access)?,
 				revoked_at: None,
+				jkt: None,
 			}
 			.insert(&tx)
 			.await?;
@@ -578,7 +621,10 @@ impl Idp {
 				client,
 				&family,
 				&family.scopes,
-				Extras::default(),
+				Extras {
+					dpop: request.dpop_jkt.as_deref(),
+					..Extras::default()
+				},
 			)
 			.await
 		}
@@ -629,22 +675,22 @@ impl Idp {
 		};
 		let access_lifetime = Self::lifetime(self.inner.lifetimes.access)?;
 		let scope = scopes.join(" ");
-		let access_token = sign(
-			&signers.access,
-			ACCESS_TOKEN_TYPE,
-			&json!({
-				"iss": self.inner.issuer,
-				"sub": subject,
-				"aud": self.inner.audience,
-				"client_id": client.client_id,
-				"iat": now.timestamp(),
-				"exp": (now + access_lifetime).timestamp(),
-				"jti": secrets::identifier()?,
-				"scope": scope,
-				"auth_time": family.auth_time.timestamp(),
-				"sid": family.id.to_string(),
-			}),
-		)?;
+		let mut access_claims = json!({
+			"iss": self.inner.issuer,
+			"sub": subject,
+			"aud": self.inner.audience,
+			"client_id": client.client_id,
+			"iat": now.timestamp(),
+			"exp": (now + access_lifetime).timestamp(),
+			"jti": secrets::identifier()?,
+			"scope": scope,
+			"auth_time": family.auth_time.timestamp(),
+			"sid": family.id.to_string(),
+		});
+		if let Some(jkt) = extras.dpop {
+			access_claims["cnf"] = json!({ "jkt": jkt });
+		}
+		let access_token = sign(&signers.access, ACCESS_TOKEN_TYPE, &access_claims)?;
 		let id_token =
 			if family.account_id.is_some() && scopes.iter().any(|scope| scope == "openid") {
 				let mut claims = Value::Object(extras.id_token_claims);
@@ -670,7 +716,12 @@ impl Idp {
 
 		Ok(TokenResponse {
 			access_token,
-			token_type: "Bearer".into(),
+			token_type: if extras.dpop.is_some() {
+				"DPoP"
+			} else {
+				"Bearer"
+			}
+			.into(),
 			expires_in: u64::try_from(access_lifetime.num_seconds()).unwrap_or_default(),
 			refresh_token,
 			scope,
@@ -737,6 +788,11 @@ impl Idp {
 			issued_at: iat,
 			expires_at: exp,
 			family: family.id,
+			jkt: claims
+				.get("cnf")
+				.and_then(|cnf| cnf.get("jkt"))
+				.and_then(Value::as_str)
+				.map(str::to_owned),
 		}))
 	}
 
@@ -879,11 +935,19 @@ impl Idp {
 				scope: Some(access.scopes.join(" ")),
 				client_id: Some(access.client_id),
 				sub: Some(access.subject),
-				token_type: Some("Bearer".into()),
+				token_type: Some(
+					if access.jkt.is_some() {
+						"DPoP"
+					} else {
+						"Bearer"
+					}
+					.into(),
+				),
 				exp: Some(access.expires_at.timestamp()),
 				iat: Some(access.issued_at.timestamp()),
 				iss: Some(self.inner.issuer.clone()),
 				aud: Some(self.inner.audience.clone()),
+				cnf: access.jkt.map(|jkt| json!({ "jkt": jkt })),
 			});
 		}
 
@@ -923,6 +987,7 @@ impl Idp {
 			iat: Some(refresh.created_at.timestamp()),
 			iss: Some(self.inner.issuer.clone()),
 			aud: None,
+			cnf: None,
 		})
 	}
 

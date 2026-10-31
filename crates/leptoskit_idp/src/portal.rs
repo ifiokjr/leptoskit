@@ -93,8 +93,11 @@ impl Idp {
 				id_token_alg: SigningAlgorithm::Es256,
 				first_party: false,
 				introspection: false,
+				dpop_bound: false,
 			};
-			let (client, secret) = self.insert_client(spec, Some(me.account), &tx).await?;
+			let (client, secret) = self
+				.insert_client(spec, Some(me.account), None, &tx)
+				.await?;
 			self.inner
 				.auth
 				.record(
@@ -317,7 +320,7 @@ impl Idp {
 /// Takes `removed` scopes from everyone who connected `client`: grants keep
 /// what's left of `kept` (or go, with nothing left), and sign-ins carrying a
 /// removed scope end.
-async fn narrow_grants(
+pub(crate) async fn narrow_grants(
 	tx: &impl Connection,
 	client: &Client,
 	kept: &[String],

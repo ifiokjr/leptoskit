@@ -94,9 +94,11 @@ pub struct OAuthError {
 /// The answer to a successful `POST /oauth/token`.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TokenResponse {
-	/// A 10-minute JWT, sent to your API as `Authorization: Bearer`.
+	/// A 10-minute JWT, sent to your API as `Authorization: Bearer`, or as
+	/// `Authorization: DPoP` with a proof when it's bound to a key.
 	pub access_token: String,
-	/// Always `Bearer`.
+	/// `Bearer`, or `DPoP` for a token bound to the key of the DPoP proof
+	/// the request came with.
 	pub token_type: String,
 	/// Seconds until the access token expires.
 	pub expires_in: u64,
@@ -158,6 +160,10 @@ pub struct NewClientSpec {
 	/// does.
 	#[serde(default)]
 	pub introspection: bool,
+	/// Whether every access token it gets must be bound to its key with
+	/// DPoP (RFC 9449). It needs the provider's DPoP on.
+	#[serde(default)]
+	pub dpop_bound: bool,
 }
 
 /// The authorization code flow: what an app gets unless it asks otherwise.
@@ -167,6 +173,10 @@ pub fn default_grant_types() -> Vec<GrantType> {
 
 /// A registered app, as `lk auth idp client list` shows it. No secret.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(
+	clippy::struct_excessive_bools,
+	reason = "independent properties of an app, as its JSON carries them"
+)]
 pub struct ClientInfo {
 	/// Its OAuth client ID.
 	pub client_id: String,
@@ -191,6 +201,12 @@ pub struct ClientInfo {
 	pub first_party: bool,
 	/// Whether it may introspect other apps' tokens.
 	pub introspection: bool,
+	/// Whether its access tokens must be bound to its key with DPoP.
+	#[serde(default)]
+	pub dpop_bound: bool,
+	/// Whether it registered itself, through dynamic registration.
+	#[serde(default)]
+	pub self_registered: bool,
 	/// When it was registered.
 	pub created_at: Timestamp,
 }
@@ -440,6 +456,8 @@ mod tests {
 				scopes: Vec::new(),
 				first_party: false,
 				introspection: false,
+				dpop_bound: false,
+				self_registered: false,
 				created_at: Timestamp::default(),
 			},
 			secret: Some("client-secret".into()),
