@@ -16,6 +16,7 @@ use crate::Schema;
 use crate::SchemaError;
 use crate::Table;
 use crate::TableName;
+use crate::View;
 
 /// The steps that turn one schema into another, in the order they apply.
 #[derive(Clone, Debug, PartialEq)]
@@ -172,6 +173,12 @@ pub enum Step {
 		/// The new comment, or none.
 		comment: Option<String>,
 	},
+	/// Create a view, after every table change.
+	CreateView(View),
+	/// Drop a view, before any table change. A changed view is dropped and
+	/// created again, and so is every view when a table it may read
+	/// changes: a view's SQL isn't parsed, so what it reads isn't known.
+	DropView(View),
 }
 
 /// How safe a step is to run against a database that already holds data.
@@ -206,6 +213,7 @@ impl Step {
 			| Self::DropCheck { table, .. }
 			| Self::SetTableComment { table, .. }
 			| Self::SetColumnComment { table, .. } => table,
+			Self::CreateView(view) | Self::DropView(view) => &view.name,
 		}
 	}
 
@@ -256,26 +264,28 @@ impl Step {
 	/// destruction last.
 	fn phase(&self) -> u8 {
 		match self {
-			Self::DropForeignKey { .. } => 0,
-			Self::DropIndex { .. } => 1,
-			Self::DropCheck { .. } => 2,
-			Self::RenameTable { .. } => 3,
+			Self::DropView(_) => 0,
+			Self::DropForeignKey { .. } => 1,
+			Self::DropIndex { .. } => 2,
+			Self::DropCheck { .. } => 3,
+			Self::RenameTable { .. } => 4,
 			Self::RenameColumn { .. }
 			| Self::RenameIndex { .. }
-			| Self::RenameConstraint { .. } => 4,
-			Self::CreateTable(_) => 5,
+			| Self::RenameConstraint { .. } => 5,
+			Self::CreateTable(_) => 6,
 			// A generated column goes before the columns it reads change type,
 			// which Postgres refuses while something is computed from them.
-			Self::AddColumn { .. } => 6,
-			Self::DropColumn { column, .. } if column.generated.is_some() => 6,
-			Self::AlterColumn { .. } => 7,
-			Self::DropColumn { .. } => 8,
-			Self::SetPrimaryKey { .. } => 9,
-			Self::CreateIndex { .. } => 10,
-			Self::AddCheck { .. } => 11,
-			Self::AddForeignKey { .. } => 12,
-			Self::SetTableComment { .. } | Self::SetColumnComment { .. } => 13,
-			Self::DropTable(_) => 14,
+			Self::AddColumn { .. } => 7,
+			Self::DropColumn { column, .. } if column.generated.is_some() => 7,
+			Self::AlterColumn { .. } => 8,
+			Self::DropColumn { .. } => 9,
+			Self::SetPrimaryKey { .. } => 10,
+			Self::CreateIndex { .. } => 11,
+			Self::AddCheck { .. } => 12,
+			Self::AddForeignKey { .. } => 13,
+			Self::SetTableComment { .. } | Self::SetColumnComment { .. } => 14,
+			Self::DropTable(_) => 15,
+			Self::CreateView(_) => 16,
 		}
 	}
 }
@@ -358,7 +368,17 @@ impl fmt::Display for Step {
 			Self::SetColumnComment { table, column, .. } => {
 				write!(f, "~ comment on {table}.{column}")
 			}
+			Self::CreateView(view) => write!(f, "+ {} {}", view_kind(view), view.name),
+			Self::DropView(view) => write!(f, "- {} {}", view_kind(view), view.name),
 		}
+	}
+}
+
+fn view_kind(view: &View) -> &'static str {
+	if view.materialized {
+		"materialized view"
+	} else {
+		"view"
 	}
 }
 
@@ -611,6 +631,8 @@ pub fn diff(
 		steps.push(Step::DropTable(table.clone()));
 	}
 
+	diff_views(previous, target, &mut steps);
+
 	// A stable sort keeps each phase in table and declaration order.
 	steps.sort_by_key(Step::phase);
 
@@ -618,6 +640,38 @@ pub fn diff(
 		dialect: target.dialect,
 		steps,
 	})
+}
+
+/// Drops the views that changed or disappeared and creates the ones that
+/// changed or appeared. When a table changes in a way a view could notice,
+/// every view is recreated: a view's SQL isn't parsed, so the tables it
+/// reads aren't known, and both databases refuse to drop or retype a column
+/// a view reads, and SQLite can't rebuild a table one reads.
+fn diff_views(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
+	let tables_change = steps.iter().any(|step| {
+		!matches!(
+			step,
+			Step::CreateTable(_)
+				| Step::CreateIndex { .. }
+				| Step::SetTableComment { .. }
+				| Step::SetColumnComment { .. }
+		)
+	});
+	let kept = |view: &View| {
+		!tables_change
+			&& previous
+				.view(&view.name)
+				.zip(target.view(&view.name))
+				.is_some_and(|(old, new)| old.same_on(new, target.dialect))
+	};
+
+	for view in previous.views.iter().filter(|view| !kept(view)) {
+		steps.push(Step::DropView(view.clone()));
+	}
+
+	for view in target.views.iter().filter(|view| !kept(view)) {
+		steps.push(Step::CreateView(view.clone()));
+	}
 }
 
 struct TablePair<'a> {

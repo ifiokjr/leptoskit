@@ -1336,3 +1336,268 @@ fn migration_mistakes_are_explained() {
 	assert!(errors[1].starts_with("migration `stray` isn't listed in registry.txt"));
 	assert!(errors[2].starts_with("registry.txt lists `first`, but "));
 }
+
+#[test]
+fn hooks_audit_and_filled_columns_become_the_tables_writes() {
+	insta::assert_snapshot!(table(
+		quote!(name = "posts", audit, hooks(before_write, after_delete)),
+		quote! {
+			pub struct Post {
+				pub id: Id<Self>,
+				pub title: String,
+				#[db(slug(from = title), unique)]
+				pub slug: Slug,
+				#[db(created_by)]
+				pub author_id: Id<User>,
+				#[db(updated_by)]
+				pub editor: Option<uuid::Uuid>,
+				#[db(secret)]
+				pub token: String,
+			}
+		},
+	));
+}
+
+#[test]
+fn hook_and_filled_column_mistakes_are_explained() {
+	let error = |args: TokenStream, field: TokenStream| {
+		table_error(
+			args,
+			quote! {
+				pub struct Post {
+					pub id: Id<Self>,
+					pub title: String,
+					#[db(deleted_at)]
+					pub deleted_at: Option<Timestamp>,
+					#field
+				}
+			},
+		)
+	};
+	let plain = || quote!(name = "posts");
+	let cases = [
+		(
+			"unknown hook",
+			error(quote!(name = "posts", hooks(before_save)), quote!()),
+		),
+		(
+			"hook twice",
+			error(
+				quote!(name = "posts", hooks(after_insert, after_insert)),
+				quote!(),
+			),
+		),
+		(
+			"two created_by",
+			error(
+				plain(),
+				quote!(#[db(created_by)] pub a: Id<User>, #[db(created_by)] pub b: Id<User>),
+			),
+		),
+		(
+			"actor key",
+			error(plain(), quote!(#[db(key, created_by)] pub a: Id<User>)),
+		),
+		(
+			"actor default",
+			error(
+				plain(),
+				quote!(#[db(updated_by, default = "x")] pub a: String),
+			),
+		),
+		(
+			"actor timestamp",
+			error(
+				plain(),
+				quote!(#[db(updated_by, updated_at)] pub a: Timestamp),
+			),
+		),
+		(
+			"generated actor",
+			error(
+				plain(),
+				quote!(#[db(updated_by, generated = "x")] pub a: Option<Uuid>),
+			),
+		),
+		(
+			"slug without unique",
+			error(plain(), quote!(#[db(slug(from = title))] pub slug: Slug)),
+		),
+		(
+			"slug of nothing",
+			error(
+				plain(),
+				quote!(#[db(slug(from = heading), unique)] pub slug: Slug),
+			),
+		),
+		(
+			"slug of a filled column",
+			error(
+				plain(),
+				quote!(#[db(slug(from = deleted_at), unique)] pub slug: Slug),
+			),
+		),
+		(
+			"slug of itself",
+			error(
+				plain(),
+				quote!(#[db(slug(from = slug), unique)] pub slug: Slug),
+			),
+		),
+		(
+			"slug key",
+			error(
+				plain(),
+				quote!(#[db(key, slug(from = title), unique)] pub slug: Slug),
+			),
+		),
+		(
+			"slug default",
+			error(
+				plain(),
+				quote!(#[db(slug(from = title), unique, default = "x")] pub slug: Slug),
+			),
+		),
+		(
+			"slug option",
+			error(
+				plain(),
+				quote!(#[db(slug(to = title), unique)] pub slug: Slug),
+			),
+		),
+		(
+			"slug without from",
+			error(plain(), quote!(#[db(slug(), unique)] pub slug: Slug)),
+		),
+		(
+			"cascade into an after_delete hook",
+			error(
+				quote!(name = "posts", hooks(after_delete)),
+				quote!(#[db(on_soft_delete = cascade)] pub user_id: Id<User>),
+			),
+		),
+	];
+
+	let report: Vec<String> = cases
+		.iter()
+		.map(|(case, error)| format!("{case}: {error}"))
+		.collect();
+	insta::assert_snapshot!(report.join("\n"));
+}
+
+#[test]
+fn the_database_layers_own_tables_stay_unregistered() {
+	let expanded = table(
+		quote!(name = "_leptoskit_audit", __internal),
+		quote! {
+			pub struct AuditEntry {
+				pub id: Id<Self>,
+				pub note: String,
+			}
+		},
+	);
+	assert!(!expanded.contains("inventory"), "{expanded}");
+	assert!(
+		expanded.contains("pub(crate) async fn insert"),
+		"{expanded}"
+	);
+	assert!(expanded.contains("allow(dead_code"), "{expanded}");
+}
+
+fn expand_view(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+	let marker = syn::Ident::new(crate::attrs::VIEW_MARKER, proc_macro2::Span::call_site());
+	crate::table::expand(&quote!(#marker, #args), &item, &[])
+}
+
+#[test]
+fn a_view_is_read_only_and_registered_as_a_view() {
+	insta::assert_snapshot!(pretty(
+		expand_view(
+			quote!(
+				name = "author_stats",
+				materialized,
+				public,
+				sql = "SELECT author_id, count(*) FROM posts GROUP BY author_id"
+			),
+			quote! {
+				/// Posts per author.
+				#[db::policy(select, |stats, cx| cx.global(|viewer: &Viewer| stats.author_id.eq(viewer.0)))]
+				pub struct AuthorStats {
+					pub author_id: Id<User>,
+					#[db(private)]
+					pub posts: i64,
+				}
+			},
+		)
+		.expect("the view expands")
+	));
+}
+
+#[test]
+fn view_mistakes_are_explained() {
+	let error = |args: TokenStream, item: TokenStream| {
+		expand_view(args, item)
+			.expect_err("the view is rejected")
+			.to_string()
+	};
+	let stats = |field: TokenStream| {
+		quote! {
+			pub struct Stats {
+				pub author_id: Id<User>,
+				#field
+			}
+		}
+	};
+	let cases = [
+		("no query", error(quote!(name = "stats"), stats(quote!()))),
+		(
+			"table option",
+			error(
+				quote!(name = "stats", sql = "x", index(author_id)),
+				stats(quote!()),
+			),
+		),
+		(
+			"audit",
+			error(quote!(name = "stats", sql = "x", audit), stats(quote!())),
+		),
+		(
+			"one dialect",
+			error(quote!(name = "stats", sql(postgres = "x")), stats(quote!())),
+		),
+		(
+			"column option",
+			error(
+				quote!(name = "stats", sql = "x"),
+				stats(quote!(#[db(unique)] pub n: i64)),
+			),
+		),
+		(
+			"key",
+			error(
+				quote!(name = "stats", sql = "x"),
+				stats(quote!(#[db(key)] pub n: i64)),
+			),
+		),
+		(
+			"write policy",
+			error(
+				quote!(name = "stats", sql = "x"),
+				quote! {
+					#[db::policy(insert, |_, _| Expr::always())]
+					pub struct Stats { pub n: i64 }
+				},
+			),
+		),
+		(
+			"sql on a table",
+			table_error(quote!(name = "stats", sql = "x"), stats(quote!())),
+		),
+	];
+
+	let report: Vec<String> = cases
+		.iter()
+		.map(|(case, error)| format!("{case}: {error}"))
+		.collect();
+	insta::assert_snapshot!(report.join("\n"));
+}

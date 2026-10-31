@@ -13,6 +13,9 @@ use crate::Order;
 use crate::Result;
 use crate::Table;
 use crate::Value;
+use crate::audit;
+use crate::audit::AuditOp;
+use crate::audit::Change;
 use crate::connection::atomically;
 use crate::policy;
 use crate::sql::Sql;
@@ -28,6 +31,7 @@ pub struct Query<T> {
 	limit: Option<u64>,
 	offset: Option<u64>,
 	with_deleted: bool,
+	skip_hooks: bool,
 	table: PhantomData<fn() -> T>,
 }
 
@@ -46,6 +50,7 @@ impl<T: Table> Query<T> {
 			limit: None,
 			offset: None,
 			with_deleted: false,
+			skip_hooks: false,
 			table: PhantomData,
 		}
 	}
@@ -57,6 +62,15 @@ impl<T: Table> Query<T> {
 			Some(filter) => filter & condition,
 			None => condition,
 		});
+		self
+	}
+
+	/// Lets [`Query::delete`] and [`Query::destroy`] run on a table with an
+	/// `after_delete` hook, which they skip: they never load the rows they
+	/// delete. Without it, they fail with
+	/// [`DbError::HooksSkipped`](crate::DbError::HooksSkipped).
+	pub fn allow_skipping_hooks(mut self) -> Self {
+		self.skip_hooks = true;
 		self
 	}
 
@@ -153,39 +167,54 @@ impl<T: Table> Query<T> {
 	/// `#[db(deleted_at)]` column, along with the rows their
 	/// `on_soft_delete = cascade` links reach, in one transaction. Returns how
 	/// many rows of this table changed.
+	///
+	/// On an audited table, every deleted row is recorded. An `after_delete`
+	/// hook doesn't run; see [`Query::allow_skipping_hooks`].
 	pub async fn delete(self, connection: &impl Connection) -> Result<u64> {
 		let Some(column) = T::DELETED_AT else {
 			return self.destroy(connection).await;
 		};
 
+		refuse_bulk::<T>(T::HOOKS.after_delete, self.skip_hooks)?;
 		let now = crate::now();
 		let mut update = Update::<T>::new();
 		update.filter = self.filter;
 		update.action = Action::Delete;
 		update.sets.push((column, Ok(Value::Timestamp(now))));
+		let policy = policy::condition::<T>(connection.access(), Action::Delete);
+		let changes = update.changes(connection.access())?;
 
 		#[cfg(any(feature = "postgres", feature = "sqlite"))]
-		if let [key] = T::KEY
-			&& crate::cascade::has_cascades::<T>()
-		{
+		if T::AUDIT || crate::cascade::has_cascades::<T>() {
 			return atomically!(connection, |tx| {
-				soft_delete_cascading(tx, update, key, now).await
+				soft_delete_cascading::<T>(tx, &changes, policy.as_ref(), now).await
 			});
 		}
 
 		#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
 		let _ = now;
 
-		update.run(connection).await
+		let sql = changes.statement(connection.dialect(), None, policy.as_ref())?;
+		connection.execute(sql.finish()).await
 	}
 
 	/// Removes every matching row for good, soft-deleted or not.
+	///
+	/// On an audited table, every removed row is recorded. An `after_delete`
+	/// hook doesn't run; see [`Query::allow_skipping_hooks`].
 	pub async fn destroy(mut self, connection: &impl Connection) -> Result<u64> {
+		refuse_bulk::<T>(T::HOOKS.after_delete, self.skip_hooks)?;
 		self.with_deleted = true;
 		let mut sql = Sql::new(connection.dialect());
 		sql.push("DELETE FROM ").table::<T>();
 		self.write_filter(&mut sql, connection, Action::Delete)?;
-		connection.execute(sql.finish()).await
+
+		if !T::AUDIT {
+			return connection.execute(sql.finish()).await;
+		}
+
+		sql.push(" RETURNING ").columns(T::COLUMNS);
+		atomically!(connection, |tx| audited_destroy::<T>(tx, sql).await)
 	}
 
 	/// Fetches a shape of each matching row, in one statement, rather than
@@ -233,6 +262,7 @@ pub struct Update<T> {
 	/// The policy action it's checked as: `Update`, or `Delete` for a soft
 	/// delete.
 	action: Action,
+	skip_hooks: bool,
 	table: PhantomData<fn() -> T>,
 }
 
@@ -250,6 +280,7 @@ impl<T: Table> Update<T> {
 			sets: Vec::new(),
 			with_deleted: false,
 			action: Action::Update,
+			skip_hooks: false,
 			table: PhantomData,
 		}
 	}
@@ -281,39 +312,44 @@ impl<T: Table> Update<T> {
 		self
 	}
 
+	/// Lets the update run on a table with a `before_write` or
+	/// `after_update` hook, which it skips: it never loads the rows it
+	/// changes. Without it, it fails with
+	/// [`DbError::HooksSkipped`](crate::DbError::HooksSkipped).
+	pub fn allow_skipping_hooks(mut self) -> Self {
+		self.skip_hooks = true;
+		self
+	}
+
 	/// Runs the update and returns how many rows changed.
 	///
 	/// With access policies, only rows the request may change are changed,
 	/// and what they become must be allowed too, or nothing changes and the
-	/// update fails with [`DbError::Forbidden`].
+	/// update fails with [`DbError::Forbidden`]. On an audited table, every
+	/// changed row is recorded.
 	pub async fn run(self, connection: &impl Connection) -> Result<u64> {
+		refuse_bulk::<T>(T::HOOKS.on_update(), self.skip_hooks)?;
 		let policy = policy::condition::<T>(connection.access(), self.action);
+		let changes = self.changes(connection.access())?;
 
-		match (self.action, policy) {
-			(Action::Update, Some(check)) => {
-				atomically!(connection, |tx| checked_update(tx, self, &check).await)
-			}
-			(_, policy) => {
-				let sql = self.statement(connection.dialect(), policy.as_ref())?;
-				connection.execute(sql.finish()).await
-			}
+		if T::AUDIT || policy.is_some() {
+			return atomically!(connection, |tx| {
+				changes.apply(tx, policy.as_ref()).await
+			})
+			.map(|keys| keys.len() as u64);
 		}
+
+		let sql = changes.statement(connection.dialect(), None, None)?;
+		connection.execute(sql.finish()).await
 	}
 
-	fn statement(self, dialect: crate::Dialect, policy: Option<&Expr>) -> Result<Sql> {
-		let mut sql = Sql::new(dialect);
-		sql.push("UPDATE ").table::<T>().push(" SET ");
-		let touch = T::UPDATED_AT.filter(|column| !self.sets.iter().any(|(set, _)| set == column));
-		let sets = self
-			.sets
-			.into_iter()
-			.map(|(column, value)| Ok((column, value?)));
-		let touched = touch.map(|column| Ok((column, Value::Timestamp(crate::now()))));
+	/// The update's columns and values, checked, with the ones the database
+	/// layer sets itself: `updated_at`, and `updated_by` from who is acting.
+	fn changes(self, access: &policy::Access) -> Result<Changes<T>> {
+		let mut sets = Vec::with_capacity(self.sets.len() + 2);
 
-		let mut first = true;
-
-		for set in sets.chain(touched) {
-			let (column, value): (&str, Value) = set.map_err(DbError::Encode)?;
+		for (column, value) in self.sets {
+			let value = value.map_err(DbError::Encode)?;
 
 			if T::GENERATED.contains(&column) {
 				return Err(crate::expr::invalid(&format!(
@@ -321,18 +357,115 @@ impl<T: Table> Update<T> {
 				)));
 			}
 
-			if !first {
+			if Some(column) == T::CREATED_BY || Some(column) == T::UPDATED_BY {
+				return Err(DbError::ReadOnly {
+					table: T::flat_name(),
+					message: format!(
+						"`{column}` records who wrote the `{}` row, so only the database layer \
+						 sets it",
+						T::flat_name()
+					),
+				});
+			}
+
+			sets.push((column, value));
+		}
+
+		if let Some(column) =
+			T::UPDATED_AT.filter(|column| !sets.iter().any(|(set, _)| set == column))
+		{
+			sets.push((column, Value::Timestamp(crate::now())));
+		}
+
+		if let Some(column) = T::UPDATED_BY {
+			sets.push((column, actor_value::<T>(access, column)?));
+		}
+
+		Ok(Changes {
+			filter: self.filter,
+			sets,
+			with_deleted: self.with_deleted,
+			action: self.action,
+			table: PhantomData,
+		})
+	}
+}
+
+/// Fails a bulk write on a view, or one that would skip the table's hooks
+/// without being told it may.
+fn refuse_bulk<T: Table>(skips_hooks: bool, allowed: bool) -> Result<()> {
+	if T::READ_ONLY {
+		return Err(DbError::ReadOnly {
+			table: T::flat_name(),
+			message: format!("`{}` is a view, so it can't be written", T::flat_name()),
+		});
+	}
+
+	if skips_hooks && !allowed {
+		return Err(DbError::HooksSkipped {
+			table: T::flat_name(),
+		});
+	}
+
+	Ok(())
+}
+
+/// The value recording who is acting in `column`: their UUID, or `NULL`
+/// when nobody is and the column allows it.
+pub(crate) fn actor_value<T: Table>(access: &policy::Access, column: &str) -> Result<Value> {
+	if let Some(actor) = access.actor() {
+		return Ok(Value::Uuid(actor.uuid()));
+	}
+
+	if T::definition()
+		.column(column)
+		.is_some_and(|column| column.nullable)
+	{
+		Ok(Value::Null)
+	} else {
+		Err(DbError::NoActor {
+			table: T::flat_name(),
+			column: column.to_string(),
+		})
+	}
+}
+
+/// A bulk write, ready to run: its filter, and every column it sets.
+struct Changes<T> {
+	filter: Option<Expr>,
+	sets: Vec<(&'static str, Value)>,
+	with_deleted: bool,
+	action: Action,
+	table: PhantomData<fn() -> T>,
+}
+
+/// How many rows one audited statement changes at most, keeping the keys
+/// it names well inside both databases' limits on bound values.
+const BATCH: usize = 500;
+
+impl<T: Table> Changes<T> {
+	/// `UPDATE … SET … WHERE …`, narrowed to `rows` when given.
+	fn statement(
+		&self,
+		dialect: crate::Dialect,
+		rows: Option<&Expr>,
+		policy: Option<&Expr>,
+	) -> Result<Sql> {
+		let mut sql = Sql::new(dialect);
+		sql.push("UPDATE ").table::<T>().push(" SET ");
+
+		for (index, (column, value)) in self.sets.iter().enumerate() {
+			if index > 0 {
 				sql.push(", ");
 			}
 
-			first = false;
-			sql.identifier(column).push(" = ").value(value);
+			sql.identifier(column).push(" = ").value(value.clone());
 		}
 
 		// A bulk write changes versioned rows, so a save based on an earlier
 		// read must see a new version.
 		if let Some(version) = T::VERSION {
-			if !first {
+			if !self.sets.is_empty() {
 				sql.push(", ");
 			}
 
@@ -342,22 +475,119 @@ impl<T: Table> Update<T> {
 				.push(" + 1");
 		}
 
-		write_where::<T>(&mut sql, self.filter.as_ref(), policy, self.with_deleted)?;
+		let filter = match (&self.filter, rows) {
+			(Some(filter), Some(rows)) => Some(filter.clone() & rows.clone()),
+			(filter, rows) => filter.clone().or_else(|| rows.cloned()),
+		};
+		write_where::<T>(&mut sql, filter.as_ref(), policy, self.with_deleted)?;
 		Ok(sql)
+	}
+
+	/// Runs the update and returns the keys of the rows it changed, after
+	/// checking what they became against `policy`, for an update, and
+	/// recording them in the audit log, for an audited table.
+	async fn apply(
+		&self,
+		connection: &impl Connection,
+		policy: Option<&Expr>,
+	) -> Result<Vec<Vec<Value>>> {
+		let keys = if T::AUDIT {
+			self.audited(connection, policy).await?
+		} else {
+			let mut sql = self.statement(connection.dialect(), None, policy)?;
+			sql.push(" RETURNING ").columns(T::KEY);
+			connection.fetch(sql.finish()).await?
+		};
+
+		if self.action == Action::Update
+			&& let Some(check) = policy
+		{
+			policy::verify::<T>(connection, &keys, Action::Update, check).await?;
+		}
+
+		Ok(keys)
+	}
+
+	/// Reads and locks the rows the update would change, then changes
+	/// exactly those, and records each one before and after.
+	async fn audited(
+		&self,
+		connection: &impl Connection,
+		policy: Option<&Expr>,
+	) -> Result<Vec<Vec<Value>>> {
+		let mut matching = [self.filter.clone(), policy.cloned()]
+			.into_iter()
+			.flatten()
+			.reduce(|left, right| left & right)
+			.unwrap_or_else(Expr::always);
+
+		if let Some(column) = T::DELETED_AT.filter(|_| !self.with_deleted) {
+			matching = matching
+				& Expr::Null {
+					column,
+					negated: false,
+				};
+		}
+
+		let old: Vec<Vec<Value>> = crate::write::select_for_update::<T>(connection, &matching)
+			.await?
+			.iter()
+			.map(Table::to_values)
+			.collect::<Result<_, _>>()?;
+		let op = if self.action == Action::Delete {
+			AuditOp::Delete
+		} else {
+			AuditOp::Update
+		};
+		let mut keys = Vec::with_capacity(old.len());
+		let mut changes = Vec::with_capacity(old.len());
+
+		for batch in old.chunks(BATCH) {
+			let batch_keys: Vec<Vec<Value>> =
+				batch.iter().map(|row| policy::key_of::<T>(row)).collect();
+			let rows = policy::keys_condition::<T>(&batch_keys);
+			let mut sql = self.statement(connection.dialect(), Some(&rows), policy)?;
+			sql.push(" RETURNING ").columns(T::COLUMNS);
+			// Keyed by their debug text: `Value` floats aren't `Hash`.
+			let mut before: std::collections::HashMap<String, &Vec<Value>> = batch
+				.iter()
+				.map(|row| (format!("{:?}", policy::key_of::<T>(row)), row))
+				.collect();
+
+			for after in connection.fetch(sql.finish()).await? {
+				let after = T::from_values(after)?.to_values()?;
+				let key = policy::key_of::<T>(&after);
+				let old = before.remove(&format!("{key:?}")).cloned();
+				keys.push(key);
+				changes.push(Change {
+					op,
+					before: old,
+					after: Some(after),
+				});
+			}
+		}
+
+		audit::record_changes(connection, audit::Subject::of::<T>(), changes).await?;
+		Ok(keys)
 	}
 }
 
-/// Updates the rows the request may change, then checks what they became.
-async fn checked_update<T: Table>(
-	connection: &impl Connection,
-	update: Update<T>,
-	check: &Expr,
-) -> Result<u64> {
-	let mut sql = update.statement(connection.dialect(), Some(check))?;
-	sql.push(" RETURNING ").columns(T::KEY);
-	let keys = connection.fetch(sql.finish()).await?;
-	policy::verify::<T>(connection, &keys, Action::Update, check).await?;
-	Ok(keys.len() as u64)
+/// Removes rows with `sql`, which returns them, and records each one.
+async fn audited_destroy<T: Table>(connection: &impl Connection, sql: Sql) -> Result<u64> {
+	let removed = connection.fetch(sql.finish()).await?;
+	let count = removed.len() as u64;
+	let changes = removed
+		.into_iter()
+		.map(|before| {
+			Change {
+				op: AuditOp::Delete,
+				before: Some(before),
+				after: None,
+			}
+		})
+		.collect();
+	audit::record_changes(connection, audit::Subject::of::<T>(), changes).await?;
+	Ok(count)
 }
 
 /// Soft-deletes the rows an update matches and the rows their cascading
@@ -365,21 +595,21 @@ async fn checked_update<T: Table>(
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 async fn soft_delete_cascading<T: Table>(
 	connection: &impl Connection,
-	update: Update<T>,
-	key: &str,
+	changes: &Changes<T>,
+	policy: Option<&Expr>,
 	now: crate::Timestamp,
 ) -> Result<u64> {
-	let policy = policy::condition::<T>(connection.access(), Action::Delete);
-	let mut sql = update.statement(connection.dialect(), policy.as_ref())?;
-	sql.push(" RETURNING ").identifier(key);
-	let keys: Vec<Value> = connection
-		.fetch(sql.finish())
-		.await?
-		.into_iter()
-		.filter_map(|row| row.into_iter().next())
-		.collect();
+	let keys = changes.apply(connection, policy).await?;
 	let deleted = keys.len() as u64;
-	crate::cascade::soft_delete_linked(connection, T::table_name(), keys, now).await?;
+
+	if let [_] = T::KEY {
+		let keys = keys
+			.into_iter()
+			.filter_map(|key| key.into_iter().next())
+			.collect();
+		crate::cascade::soft_delete_linked(connection, T::table_name(), keys, now).await?;
+	}
+
 	Ok(deleted)
 }
 

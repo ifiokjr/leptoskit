@@ -93,6 +93,7 @@ impl ::leptoskit_db::Table for User {
     const VERSION: ::core::option::Option<&'static str> = ::core::option::Option::None;
     const PACK: ::core::option::Option<&'static str> = ::core::option::Option::None;
     const GENERATED: &'static [&'static str] = &[];
+    const SECRET: &'static [&'static str] = &["password_hash"];
     type Columns = UserColumns;
     fn columns() -> &'static UserColumns {
         static COLUMNS: UserColumns = UserColumns {

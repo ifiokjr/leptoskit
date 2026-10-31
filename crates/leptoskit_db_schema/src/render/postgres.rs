@@ -22,6 +22,7 @@ use crate::Schema;
 use crate::Step;
 use crate::Table;
 use crate::TableName;
+use crate::View;
 use crate::quote_identifier as ident;
 use crate::quote_literal as literal;
 
@@ -31,16 +32,17 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 		before_renames: names_before_renames(plan),
 	};
 
-	let existing: BTreeSet<&str> = previous
-		.tables
-		.iter()
-		.filter_map(|table| table.name.namespace.as_deref())
-		.collect();
-	let wanted: BTreeSet<&str> = target
-		.tables
-		.iter()
-		.filter_map(|table| table.name.namespace.as_deref())
-		.collect();
+	let namespaces = |schema: &'_ Schema| -> BTreeSet<String> {
+		schema
+			.tables
+			.iter()
+			.map(|table| &table.name)
+			.chain(schema.views.iter().map(|view| &view.name))
+			.filter_map(|name| name.namespace.clone())
+			.collect()
+	};
+	let existing = namespaces(previous);
+	let wanted = namespaces(target);
 
 	for namespace in wanted.difference(&existing) {
 		writer
@@ -50,6 +52,7 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 
 	let mut pending_foreign_keys = Vec::new();
 	let mut dropped_tables = Vec::new();
+	let mut created_views = Vec::new();
 
 	for step in &plan.steps {
 		if matches!(
@@ -71,6 +74,14 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 				}
 			}
 			Step::DropTable(table) => dropped_tables.push(qualified(&table.name)),
+			Step::CreateView(view) => created_views.extend(create_view(view)),
+			Step::DropView(view) => {
+				writer.statements.push(format!(
+					"DROP {} {}",
+					view_keyword(view),
+					qualified(&view.name)
+				));
+			}
 			step => writer.step(step),
 		}
 	}
@@ -83,6 +94,8 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 			.statements
 			.push(format!("DROP TABLE {}", dropped_tables.join(", ")));
 	}
+
+	writer.statements.append(&mut created_views);
 
 	Migration {
 		dialect: Dialect::Postgres,
@@ -158,7 +171,9 @@ impl Writer {
 		let table = self.name_for(step, step.table()).clone();
 
 		match step {
-			Step::CreateTable(_) | Step::DropTable(_) => unreachable!("handled by `render`"),
+			Step::CreateTable(_) | Step::DropTable(_) | Step::CreateView(_) | Step::DropView(_) => {
+				unreachable!("handled by `render`")
+			}
 			Step::RenameTable { from, to } => self.rename_table(from, to),
 			Step::AddColumn { column, .. } => {
 				self.alter(&table, format!("ADD COLUMN {}", column_definition(column)));
@@ -308,6 +323,43 @@ impl Writer {
 			self.alter(table, format!("ALTER COLUMN {column} DROP NOT NULL"));
 		}
 	}
+}
+
+fn view_keyword(view: &View) -> &'static str {
+	if view.materialized {
+		"MATERIALIZED VIEW"
+	} else {
+		"VIEW"
+	}
+}
+
+/// `CREATE [MATERIALIZED] VIEW name (columns) AS query`, which names the
+/// query's columns as declared, then its comment. A materialized view is
+/// filled as it's created.
+fn create_view(view: &View) -> Vec<String> {
+	let names: Vec<String> = view
+		.columns
+		.iter()
+		.map(|column| column.name.clone())
+		.collect();
+	let mut statements = vec![format!(
+		"CREATE {} {} ({}) AS\n{}",
+		view_keyword(view),
+		qualified(&view.name),
+		columns(&names),
+		view.sql.postgres.trim()
+	)];
+
+	if let Some(comment) = &view.comment {
+		statements.push(format!(
+			"COMMENT ON {} {} IS {}",
+			view_keyword(view),
+			qualified(&view.name),
+			literal(comment)
+		));
+	}
+
+	statements
 }
 
 fn qualified(table: &TableName) -> String {

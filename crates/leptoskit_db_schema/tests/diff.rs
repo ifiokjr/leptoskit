@@ -660,3 +660,101 @@ fn generated_columns_round_trip_through_snapshots() {
 	assert!(!older.contains("generated"));
 	assert_eq!(Schema::from_json(&older).unwrap(), blog(Dialect::Sqlite));
 }
+
+#[test]
+fn views_are_validated_with_the_tables() {
+	let view = |name: TableName, columns: Vec<Column>, sql: &str| {
+		View::new(name, columns, Generated::new(sql))
+	};
+	let schema = blog(Dialect::Sqlite).with_views(vec![
+		view(
+			TableName::new("posts"),
+			vec![Column::new("id", ColumnType::Int64)],
+			"SELECT 1",
+		),
+		view(TableName::new("empty"), Vec::new(), "SELECT 1"),
+		view(
+			TableName::new("doubled"),
+			vec![
+				Column::new("id", ColumnType::Int64),
+				Column::new("id", ColumnType::Int64).default(DefaultValue::Integer(1)),
+				Column::new(
+					"tags",
+					ColumnType::Array {
+						element: Box::new(ColumnType::TEXT),
+					},
+				),
+			],
+			"  ",
+		),
+		view(
+			TableName::namespaced("Bad Schema", "x"),
+			vec![Column::new("Bad Name", ColumnType::Int64)],
+			"SELECT 1",
+		),
+	]);
+
+	insta::assert_snapshot!(schema.validate().unwrap_err().to_string());
+}
+
+#[test]
+fn views_round_trip_through_snapshots_and_change_only_when_they_differ() {
+	let view = View::new(
+		TableName::new("titles"),
+		vec![Column::new("title", ColumnType::TEXT)],
+		Generated {
+			postgres: "SELECT title FROM posts".into(),
+			sqlite: "SELECT title FROM posts".into(),
+		},
+	);
+	let schema = blog(Dialect::Postgres).with_views(vec![view.clone()]);
+	let json = schema.to_json();
+	assert!(!json.contains("materialized"), "{json}");
+	assert!(!json.contains("comment\": null"), "{json}");
+	assert_eq!(Schema::from_json(&json).unwrap(), schema);
+	assert_eq!(schema.view(&TableName::new("titles")), Some(&view));
+	assert!(
+		diff(&schema, &schema, &mut RequireHints)
+			.unwrap()
+			.is_empty()
+	);
+
+	// The other dialect's query doesn't matter to this one.
+	let mut sqlite_only = view.clone();
+	sqlite_only.sql.sqlite = "SELECT upper(title) FROM posts".into();
+	assert!(view.same_on(&sqlite_only, Dialect::Postgres));
+	assert!(!view.same_on(&sqlite_only, Dialect::Sqlite));
+	let other = blog(Dialect::Postgres).with_views(vec![sqlite_only]);
+	assert!(diff(&schema, &other, &mut RequireHints).unwrap().is_empty());
+
+	// A new comment, or materializing it, recreates it.
+	for change in [
+		|view: &mut View| view.comment = Some("Titles.".into()),
+		|view: &mut View| view.materialized = true,
+	] {
+		let mut changed = view.clone();
+		change(&mut changed);
+		let target = blog(Dialect::Postgres).with_views(vec![changed.clone()]);
+		let plan = diff(&schema, &target, &mut RequireHints).unwrap();
+		assert_eq!(
+			plan.steps,
+			[Step::DropView(view.clone()), Step::CreateView(changed)]
+		);
+		assert!(plan.steps.iter().all(|step| step.risk() == Risk::Safe));
+		assert_eq!(plan.steps[0].table(), &TableName::new("titles"));
+	}
+
+	// Adding a table or an index leaves views alone.
+	let mut grown = schema.clone();
+	grown.tables.push(Table::new(
+		TableName::new("zines"),
+		vec![Column::new("id", ColumnType::Int64)],
+		vec!["id".into()],
+	));
+	let plan = diff(&schema, &grown, &mut RequireHints).unwrap();
+	assert!(
+		matches!(plan.steps.as_slice(), [Step::CreateTable(_)]),
+		"{:?}",
+		plan.steps
+	);
+}

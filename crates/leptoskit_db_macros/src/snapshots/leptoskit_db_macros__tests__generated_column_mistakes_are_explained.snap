@@ -4,7 +4,7 @@ expression: "report.join(\"\\n\")"
 ---
 default: a generated column can't have a `default`: the database computes its value from the row's other columns
 rule: a generated column can't have rules such as `min_len`; put them on the columns it's computed from: the database computes its value from the row's other columns
-timestamp: a generated column can't be a timestamp or a version: the database computes its value from the row's other columns
+timestamp: a generated column can't be a timestamp, a version, or `created_by`/`updated_by`: the database computes its value from the row's other columns
 link: a generated column can't be a link: the database computes its value from the row's other columns
 key: a generated column can't be the key: the database computes its value from the row's other columns
 one dialect: `generated(...)` needs both `postgres = "…"` and `sqlite = "…"`; for one expression on both, write `generated = "…"`

@@ -566,6 +566,181 @@ A count sees what the request may see, just as `query.count(&db)` would:
 
 When the query's table is the rule's own, as in the cap, its columns on the right of a comparison are the checked row's: `other.team_id.eq(project.team_id)` compares each counted project with the one being inserted.
 
+## Run your own code when rows change
+
+Some rules aren't conditions on a row but work to do whenever it's written: keep an order's total in step with its lines, or record every change of status as an event. Doing that in each server function means one forgotten call leaves the data wrong. Name the hooks on the table and implement them once:
+
+```rust
+#[table(name = "orders", hooks(before_write, after_update))]
+pub struct Order {
+	pub id: Id<Order>,
+	pub status: Status,
+	pub quantity: i64,
+	pub unit_price: i64,
+	pub total: i64,
+}
+
+impl db::BeforeWrite for Order {
+	fn before_write(&mut self, cx: &db::WriteContext<'_, Self>) -> db::Result<()> {
+		if cx.old().is_some_and(|old| old.status == Status::Shipped) && self.status != Status::Shipped {
+			return Err(DbError::Forbidden { table: "orders".into(), message: "Shipped orders stay shipped".into() });
+		}
+
+		self.total = self.quantity * self.unit_price;
+		Ok(())
+	}
+}
+
+impl db::AfterUpdate for Order {
+	async fn after_update(old: &Self, new: &Self, tx: &impl db::Connection) -> db::Result<()> {
+		if old.status != new.status {
+			NewOrderEvent { order_id: new.id, status: new.status }.insert(tx).await?;
+		}
+
+		Ok(())
+	}
+}
+```
+
+There are four hooks:
+
+| Hook           | Runs                                                                                 | Gets                                                       |
+| -------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| `before_write` | before every insert and update: `insert`, `upsert`, `save`, adding a link            | the row to change, whether it's an insert, and the old row |
+| `after_insert` | after an insert                                                                      | the row as stored                                          |
+| `after_update` | after an update                                                                      | the old row and the new one, both as stored                |
+| `after_delete` | after a delete, soft or for good, including `delete`, `destroy`, and removing a link | the row as the delete left it                              |
+
+Every hook runs inside the write's transaction, and its own writes through `tx` join it, so a hook that fails rolls the whole write back. The row is validated after `before_write`, so a hook can fill in values that the rules then check. A hook's writes obey the same policies as the write that ran it.
+
+Bulk writes, `Order::update()…run(&db)` and `Order::query().delete(&db)`, change rows in one statement without loading them, so they can't run hooks. Rather than skip them quietly, they fail with `DbError::HooksSkipped` on a table that has hooks they'd skip. Write the rows one at a time, or say you mean it with `.allow_skipping_hooks()`.
+
+Two kinds of change never run hooks: rows the database removes itself through `on_delete = cascade`, and rows a soft delete reaches through `on_soft_delete = cascade`. A table with an `after_delete` hook can't be the target of a soft-delete cascade; delete the linked rows in the other table's hook instead.
+
+### Record who wrote a row
+
+`#[db(created_by)]` and `#[db(updated_by)]` fill in who inserted a row and who last wrote it, as `created_at` and `updated_at` fill in when:
+
+```rust
+#[table(name = "documents")]
+pub struct Document {
+	pub id: Id<Document>,
+	pub title: String,
+	#[db(created_by)]
+	pub owner_id: Id<User>,
+	#[db(updated_by)]
+	pub editor_id: Option<Id<User>>,
+}
+```
+
+The value is the request's `Actor`. Sign-in adds one to every signed-in request's context; without it, add `Actor::of(user.id)` to the `Context` yourself. A column can be an `Id<T>` or a `Uuid`, optional or not. An optional one is `None` when nobody is acting, such as in a nightly job; a required one refuses the write with `DbError::NoActor`. `db.system("…")` made from a request's handle still records that request's actor.
+
+Neither column is part of `NewDocument`, a `before_write` hook can read them but not change them, and a bulk update can't set them, so they always say who really wrote the row.
+
+### Slugs
+
+`#[db(slug(from = title), unique)]` makes a URL slug from another column when a row is inserted, and keeps it unique by adding `-2`, `-3`, and so on:
+
+```rust
+#[table(name = "articles", public)]
+pub struct Article {
+	pub id: Id<Article>,
+	pub title: String,
+	#[db(slug(from = title), unique(except = deleted_at))]
+	pub slug: Slug,
+	#[db(deleted_at)]
+	pub deleted_at: Option<Timestamp>,
+}
+
+let first = NewArticle { title: "Hello, World!".into() }.insert(&db).await?;  // hello-world
+let second = NewArticle { title: "Hello world".into() }.insert(&db).await?;   // hello-world-2
+```
+
+The slug keeps its ASCII letters and digits, lowercased, with a hyphen for everything else, and is cut to 80 characters; text without either becomes `untitled`. It's set once: saving the row, or upserting over it, keeps it, so links to it keep working. Make a new one in a `before_write` hook with `Slug::from_text` if you need to. `unique(except = deleted_at)` frees a soft-deleted row's slug. Two requests inserting the same title at the same moment can pick the same slug, and the second fails with `DbError::Conflict`.
+
+## Keep an audit log
+
+When something changes that shouldn't have, the first question is who did it, and what was there before. Mark the table `audit`:
+
+```rust
+#[table(name = "invoices", audit)]
+pub struct Invoice {
+	pub id: Id<Invoice>,
+	pub amount: i64,
+	#[db(secret)]
+	pub payment_token: String,
+}
+```
+
+Every insert, update, and delete the database layer makes to the table, one row at a time or in bulk, and every row a soft-delete cascade reaches, adds an `AuditEntry` in the same transaction: so a write that fails or rolls back records nothing. Each entry holds:
+
+- `op`: `Insert`, `Update`, or `Delete`;
+- `table_name` and `row_key`, the row's key as a JSON array;
+- `before` and `after`, the row as JSON, without its `secret` columns: an insert has no `before`, and a delete for good no `after`;
+- `actor`, who was acting, and `reason`, the reason given to `db.system("…")` for a change that bypassed policies;
+- `at`, when.
+
+The first audited table adds a `_leptoskit_audit` table to your next migration.
+
+Reading the log is refused unless the request may: a request reads no entry until its context holds an `AuditReader`, and nothing but a `system` handle can change or remove one.
+
+```rust
+// Administrators read everything.
+let cx = cx.with(AuditReader::everything());
+
+// Everyone else reads what they did themselves.
+let cx = cx.with(AuditReader::matching(|entry, cx| match cx.actor() {
+	Some(actor) => entry.actor.eq(actor.uuid()),
+	None => Expr::never(),
+}));
+
+let history = AuditEntry::for_row(&invoice)?.all(&db).await?;
+let purged = AuditEntry::query().filter(|entry| entry.at.lt(cutoff)).destroy(&db.system("retention")).await?;
+```
+
+The log records what goes through the database layer. Raw SQL, and rows the database removes itself through `on_delete = cascade`, aren't recorded.
+
+## Views
+
+Some reads are the same aggregate everywhere: each author's post count, a leaderboard. Declare it once as a view, which the migrations create, and read it like a table:
+
+```rust
+/// How much each author has written.
+#[db::view(name = "author_stats", public, sql = "
+	SELECT author_id, count(*) AS posts, max(score) AS best
+	FROM posts WHERE deleted_at IS NULL GROUP BY author_id")]
+#[db::policy(select, |stats, cx| cx.global(|viewer: &Viewer| stats.author_id.eq(viewer.0)))]
+pub struct AuthorStats {
+	pub author_id: Id<User>,
+	pub posts: i64,
+	#[db(private)]
+	pub best: i64,
+}
+
+let busy = AuthorStats::query().filter(|stats| stats.posts.gt(10)).all(&db).await?;
+let author = busy[0].author(&db).await?;
+```
+
+The struct's fields are the query's columns, in order; a field takes only `column`, `private`, `secret`, and `in(...)`, and `public` and `projection(...)` give it client types as on a table. When the databases need different SQL, write `sql(postgres = "…", sqlite = "…")`.
+
+A view's query reads every row of its tables, whatever their policies, so give the view its own `#[db::policy(select, …)]` rules: they apply to it as to a table, and a view with none is open to server code, as a table with none is. Nothing writes to a view; a bulk write on one fails with `DbError::ReadOnly`.
+
+`materialized` keeps the rows the query returned until you refresh it, for queries too slow to run on every read:
+
+```rust
+#[db::view(name = "leaderboard", materialized, sql = "SELECT author_id, count(*) FROM posts GROUP BY author_id")]
+pub struct Leaderboard {
+	pub author_id: Id<User>,
+	pub posts: i64,
+}
+
+Leaderboard::refresh(&db).await?;
+```
+
+On Postgres it's a materialized view. SQLite has none, so it's a table that `refresh` empties and fills again in one transaction. Either way, readers see the old rows or the new ones, never a mix.
+
+Migrations create views after every table change and drop them before. A view's SQL isn't parsed, so when a migration changes a table in a way a view could notice, it drops and recreates every view, which refills materialized ones.
+
 ## Tables that come from a library
 
 Some features bring their own tables: sign-in needs accounts and sessions, and an audit log needs its entries. A library ships them as a **schema pack**, and your app adds it in the crate that declares your tables:

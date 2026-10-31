@@ -622,7 +622,9 @@ async fn policies_show_each_person_only_their_own_rows() {
 
 		let cx = leptoskit_auth::context(Some(people[1].clone()));
 		assert_eq!(cx.user_id::<User>(), Some(people[1].user_id()));
+		assert_eq!(cx.actor(), Some(leptoskit_db::Actor::of(people[1].account)));
 		assert_eq!(leptoskit_auth::context(None).user_id::<User>(), None);
+		assert_eq!(leptoskit_auth::context(None).actor(), None);
 	}
 }
 

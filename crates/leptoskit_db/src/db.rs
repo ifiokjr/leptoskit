@@ -64,13 +64,17 @@ impl Db {
 	}
 
 	/// The same pool, bypassing every policy: for migrations, jobs, and
-	/// other work no request asked for. Say why, so the bypass can be
-	/// audited.
+	/// other work no request asked for. Say why: the reason goes into the
+	/// audit log with every change the handle makes, and so does the
+	/// [`Actor`](crate::Actor) of the request this handle acted for, if any.
 	#[must_use]
 	pub fn system(&self, reason: &'static str) -> Self {
 		Self {
 			pool: Arc::clone(&self.pool),
-			access: Access::System { reason },
+			access: Access::System {
+				reason,
+				actor: self.access.actor(),
+			},
 		}
 	}
 
@@ -80,6 +84,11 @@ impl Db {
 			Access::Context(cx) => Some(cx),
 			Access::System { .. } => None,
 		}
+	}
+
+	/// Who this handle's changes are recorded as made by.
+	pub fn actor(&self) -> Option<crate::Actor> {
+		self.access.actor()
 	}
 
 	/// Runs `work` in a transaction: it commits when `work` returns `Ok`, and

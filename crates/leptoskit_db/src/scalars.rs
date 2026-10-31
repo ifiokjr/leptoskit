@@ -32,6 +32,57 @@ pub struct Url(String);
 )]
 pub struct Slug(String);
 
+impl Slug {
+	/// The longest slug [`Slug::from_text`] makes, leaving room for the
+	/// suffix that keeps a `#[db(slug(from = …))]` column unique.
+	pub const MAX_MADE_LEN: usize = 80;
+
+	/// The slug for some text, such as a title: its ASCII letters and digits,
+	/// lowercased, with every run of anything else as one hyphen, cut to
+	/// [`Slug::MAX_MADE_LEN`] characters at a hyphen when it can be. Text
+	/// with no ASCII letter or digit, such as `"日本"`, becomes `untitled`.
+	///
+	/// ```
+	/// # use leptoskit_db::Slug;
+	/// assert_eq!(Slug::from_text("Hello, World!").as_inner(), "hello-world");
+	/// assert_eq!(Slug::from_text("¿?").as_inner(), "untitled");
+	/// ```
+	pub fn from_text(text: &str) -> Self {
+		let mut slug = String::new();
+
+		for word in text
+			.split(|character: char| !character.is_ascii_alphanumeric())
+			.filter(|word| !word.is_empty())
+		{
+			let separator = usize::from(!slug.is_empty());
+
+			if slug.len() + separator + word.len() > Self::MAX_MADE_LEN {
+				// A first word longer than the limit is cut; later ones end
+				// the slug at the hyphen before them.
+				if slug.is_empty() {
+					slug.push_str(&word[..Self::MAX_MADE_LEN]);
+				}
+
+				break;
+			}
+
+			if separator == 1 {
+				slug.push('-');
+			}
+
+			slug.push_str(word);
+		}
+
+		slug.make_ascii_lowercase();
+
+		if slug.is_empty() {
+			slug.push_str("untitled");
+		}
+
+		Self(slug)
+	}
+}
+
 // The checks need `regex`, which `server` turns on.
 #[cfg(all(test, feature = "regex"))]
 mod tests {
@@ -74,6 +125,28 @@ mod tests {
 
 		for invalid in ["", "-a", "a-", "a--b", "a b", "a_b"] {
 			assert!(Slug::parse(invalid).is_err(), "{invalid:?} parsed");
+		}
+	}
+
+	#[test]
+	fn slugs_are_made_from_any_text() {
+		let made = |text: &str| Slug::from_text(text).into_inner();
+
+		assert_eq!(made("  Hello,   World! 2 "), "hello-world-2");
+		assert_eq!(made("already-a-slug"), "already-a-slug");
+		assert_eq!(made("Ünïcode ñ"), "n-code");
+		assert_eq!(made(""), "untitled");
+		assert_eq!(made("日本"), "untitled");
+
+		let long = made(&format!("{} tail", "a".repeat(Slug::MAX_MADE_LEN + 5)));
+		assert_eq!(long, "a".repeat(Slug::MAX_MADE_LEN));
+
+		let words = made(&"word ".repeat(40));
+		assert!(words.len() <= Slug::MAX_MADE_LEN, "{words}");
+		assert!(!words.ends_with('-'), "{words}");
+
+		for text in ["A b", "x--y", "  ", "99 Red Balloons", "ÆØÅ ok"] {
+			assert!(Slug::parse(made(text)).is_ok(), "{text:?}");
 		}
 	}
 

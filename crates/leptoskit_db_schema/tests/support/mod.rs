@@ -520,6 +520,57 @@ pub fn scenarios() -> Vec<Scenario> {
 			seed: SEED,
 			expected_rows: &[("content_tags", 2), ("posts", 3)],
 		},
+		Scenario {
+			name: "create_views",
+			before: blog,
+			after: with_views,
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: VIEW_ROWS,
+		},
+		Scenario {
+			name: "views_follow_table_changes",
+			before: with_views,
+			after: |dialect| {
+				let mut schema = with_views(dialect);
+				let posts = table_mut(&mut schema, "posts");
+				column_mut(posts, "title").ty = ColumnType::Text { max_len: Some(200) };
+				schema
+			},
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: VIEW_ROWS,
+		},
+		Scenario {
+			name: "change_a_view",
+			before: with_views,
+			after: |dialect| {
+				let mut schema = with_views(dialect);
+				let view = schema
+					.views
+					.iter_mut()
+					.find(|view| view.name.name == "published_posts")
+					.unwrap();
+				view.sql = Generated::new("SELECT id, title FROM posts WHERE score >= 50");
+				view.comment = None;
+				schema
+			},
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: VIEW_ROWS,
+		},
+		Scenario {
+			name: "drop_views",
+			before: with_views,
+			after: blog,
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
 	]
 }
 
@@ -633,6 +684,48 @@ pub fn with_generated(dialect: Dialect) -> Schema {
 		.indexes
 		.push(Index::new(&posts_name, &["title_length"]));
 	schema
+}
+
+/// What [`with_views`] reads after [`SEED`]: two authors with posts, two
+/// published posts, and two long titles.
+const VIEW_ROWS: &[(&str, i64)] = &[
+	("posts", 3),
+	("post_counts", 2),
+	("published_posts", 2),
+	("reports_long_titles", 2),
+];
+
+/// [`blog`] with views: a plain one, a materialized one, and one in a
+/// namespace.
+pub fn with_views(dialect: Dialect) -> Schema {
+	let mut counts = View::new(
+		TableName::new("post_counts"),
+		vec![
+			Column::new("author_id", ColumnType::Int64),
+			Column::new("posts", ColumnType::Int64),
+		],
+		Generated::new("SELECT author_id, count(*) FROM posts GROUP BY author_id"),
+	);
+	counts.comment = Some("Posts per author.".into());
+	let mut published = View::new(
+		TableName::new("published_posts"),
+		vec![
+			Column::new("id", ColumnType::Int64),
+			Column::new("title", ColumnType::TEXT),
+		],
+		Generated::new("SELECT id, title FROM posts WHERE status = 'published'"),
+	);
+	published.materialized = true;
+	published.comment = Some("Published posts, as of the last refresh.".into());
+	let long = View::new(
+		TableName::namespaced("reports", "long_titles"),
+		vec![Column::new("id", ColumnType::Int64)],
+		Generated {
+			postgres: "SELECT id FROM posts WHERE char_length(title) > 4".into(),
+			sqlite: "SELECT id FROM posts WHERE length(title) > 4".into(),
+		},
+	);
+	blog(dialect).with_views(vec![published, long, counts])
 }
 
 pub fn table_mut<'a>(schema: &'a mut Schema, name: &str) -> &'a mut Table {
