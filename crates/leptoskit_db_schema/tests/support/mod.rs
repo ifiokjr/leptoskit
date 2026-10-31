@@ -602,6 +602,22 @@ pub fn scenarios() -> Vec<Scenario> {
 			expected_rows: &[("posts", 3)],
 		},
 		Scenario {
+			name: "views_read_as_their_reader",
+			before: with_views,
+			after: with_secured_views,
+			no_renames: false,
+			only: Some(Dialect::Postgres),
+			seed: SEED,
+			// The materialized view was filled before the seed, and only
+			// the plain views are recreated.
+			expected_rows: &[
+				("posts", 3),
+				("post_counts", 2),
+				("published_posts", 0),
+				("reports_long_titles", 2),
+			],
+		},
+		Scenario {
 			name: "add_search",
 			before: blog,
 			after: with_search,
@@ -1077,6 +1093,22 @@ pub fn with_views(dialect: Dialect) -> Schema {
 		},
 	);
 	blog(dialect).with_views(vec![published, long, counts])
+}
+
+/// [`with_views`] under [`with_row_security`]'s policies, with each plain
+/// view reading `posts` as its reader, so the policies filter it too.
+pub fn with_secured_views(dialect: Dialect) -> Schema {
+	let mut schema = with_views(dialect);
+	table_mut(&mut schema, "posts").row_security =
+		table_mut(&mut with_row_security(dialect), "posts")
+			.row_security
+			.take();
+
+	for view in &mut schema.views {
+		view.security_invoker = !view.materialized;
+	}
+
+	schema
 }
 
 /// [`with_views`], with a view over `post_counts` named to sort before it,

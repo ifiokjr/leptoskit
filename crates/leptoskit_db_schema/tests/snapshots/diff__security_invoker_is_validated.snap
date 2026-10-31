@@ -1,0 +1,9 @@
+---
+source: crates/leptoskit_db_schema/tests/diff.rs
+expression: "format!(\"{}\\n{}\", secured.validate().unwrap_err(),\non_sqlite.validate().unwrap_err())"
+---
+the schema has 1 problem(s):
+  - published_posts: a materialized view keeps the rows it read when it was refreshed, so it can't read them with each reader's rights
+
+the schema has 1 problem(s):
+  - post_counts: only Postgres views read their tables with the reader's rights

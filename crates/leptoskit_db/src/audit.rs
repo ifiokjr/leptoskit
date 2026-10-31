@@ -135,6 +135,56 @@ impl std::fmt::Debug for AuditReader {
 	}
 }
 
+/// Under row-level security, Postgres sees whether a request holds a
+/// reader, though not what its rule matches: see [`row_security`].
+impl crate::Setting for AuditReader {
+	type Value = bool;
+
+	const NAME: &'static str = "audit_reader";
+
+	fn value(&self) -> bool {
+		true
+	}
+}
+
+crate::register_setting!(AuditReader);
+
+/// The audit log's row-level security. An [`AuditReader`]'s rule is Rust
+/// code, which the database can't run, so Postgres lets a request read the
+/// log when it holds any reader, and the rule narrows only what the
+/// database layer reads. The database layer records entries as the request
+/// whose change they record, so a request may add one; changing or removing
+/// one bypasses policies, as only `system` handles do.
+pub(crate) fn row_security() -> leptoskit_db_schema::RowSecurity {
+	use leptoskit_db_schema::PolicyCommand;
+	use leptoskit_db_schema::RowPolicy;
+
+	let reader = format!(
+		"NULLIF(current_setting({}, true), '')::boolean",
+		leptoskit_db_schema::quote_literal(&format!(
+			"{}{}",
+			leptoskit_db_schema::SETTING_PREFIX,
+			<AuditReader as crate::Setting>::NAME
+		))
+	);
+	let policy = |command, using: Option<&str>, check: Option<&str>| {
+		RowPolicy {
+			command,
+			using: using.map(str::to_string),
+			check: check.map(str::to_string),
+		}
+	};
+
+	leptoskit_db_schema::RowSecurity {
+		policies: vec![
+			policy(PolicyCommand::Select, Some(&reader), None),
+			policy(PolicyCommand::Insert, None, Some("1 = 1")),
+			policy(PolicyCommand::Update, Some("1 = 0"), Some("1 = 0")),
+			policy(PolicyCommand::Delete, Some("1 = 0"), None),
+		],
+	}
+}
+
 /// Whether changes to `T`'s rows are recorded: in the audit log, or as live
 /// changes for subscribers. Writes to such a table read the rows they
 /// change, and run in a transaction.

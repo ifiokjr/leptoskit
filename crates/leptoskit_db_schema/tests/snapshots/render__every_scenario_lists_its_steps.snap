@@ -119,6 +119,12 @@ drop_views
   - view post_counts
   - materialized view published_posts
   - view reports.long_titles
+views_read_as_their_reader
+  - view post_counts
+  - view reports.long_titles
+  + row-level security on posts (SELECT, INSERT, UPDATE, DELETE)
+  + view post_counts
+  + view reports.long_titles
 add_search
   + search index posts (title A, body B; simple)
 rebuild_a_searched_table

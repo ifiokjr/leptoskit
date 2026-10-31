@@ -1058,6 +1058,28 @@ fn row_security_is_validated_and_kept_in_snapshots() {
 		on_sqlite.validate().unwrap_err()
 	));
 
+	// Only plain Postgres views read as their reader.
+	let mut secured = support::with_secured_views(Dialect::Postgres);
+	assert!(secured.validate().is_ok());
+	let json = secured.to_json();
+	assert!(json.contains("\"security_invoker\": true"), "{json}");
+	assert_eq!(Schema::from_json(&json).unwrap(), secured);
+
+	for view in &mut secured.views {
+		view.security_invoker = true;
+	}
+
+	let mut on_sqlite = support::with_views(Dialect::Sqlite);
+	on_sqlite.views[0].security_invoker = true;
+	insta::assert_snapshot!(
+		"security_invoker_is_validated",
+		format!(
+			"{}\n{}",
+			secured.validate().unwrap_err(),
+			on_sqlite.validate().unwrap_err()
+		)
+	);
+
 	// Changing only the policies recreates them, and no view.
 	let mut changed = support::with_views(Dialect::Postgres);
 	table_mut(&mut changed, "posts").row_security = schema

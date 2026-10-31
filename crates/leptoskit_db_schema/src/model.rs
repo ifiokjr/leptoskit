@@ -797,6 +797,12 @@ pub struct View {
 	/// predicate, lets Postgres refresh it while it's being read.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub indexes: Vec<Index>,
+	/// Whether Postgres reads the view's tables as whoever reads the view,
+	/// rather than as its owner, so their row-level security filters it for
+	/// each request: Postgres's `security_invoker`. Plain Postgres views
+	/// only.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub security_invoker: bool,
 }
 
 impl View {
@@ -809,6 +815,7 @@ impl View {
 			materialized: false,
 			comment: None,
 			indexes: Vec::new(),
+			security_invoker: false,
 		}
 	}
 
@@ -839,6 +846,7 @@ impl View {
 			&& self.materialized == other.materialized
 			&& self.comment == other.comment
 			&& self.indexes == other.indexes
+			&& self.security_invoker == other.security_invoker
 	}
 }
 
