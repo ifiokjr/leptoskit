@@ -893,9 +893,8 @@ mod tests {
 			BranchWatch::new(true, root.path()).head.is_none(),
 			"not a repository"
 		);
-		let status = Command::new("git")
+		let status = crate::git::command(root.path())
 			.args(["init", "--quiet"])
-			.arg(root.path())
 			.status()
 			.unwrap();
 		assert!(status.success());

@@ -295,6 +295,33 @@ pub(crate) trait Api: Send + Sync + 'static {
 	fn revoke(&self, id: Id<Session>) -> Pending<'_, bool>;
 	fn revoke_others(&self) -> Pending<'_, ()>;
 	fn sign_out_everywhere(&self) -> Pending<'_, ()>;
+	fn passkey_sign_in(&self, mode: PasskeyMode) -> Pending<'_, PublicSession>;
+	fn cancel_passkey(&self);
+	fn add_passkey(&self, name: Option<String>) -> Pending<'_, PasskeyAdded>;
+	fn complete_sign_in_with_passkey(&self) -> Pending<'_, PublicSession>;
+	fn step_up_with_passkey(&self) -> Pending<'_, PublicSession>;
+	fn passkeys(&self) -> Pending<'_, Vec<PasskeyInfo>>;
+	fn rename_passkey(&self, input: RenamePasskey) -> Pending<'_, ()>;
+	fn remove_passkey(&self, id: Id<Passkey>) -> Pending<'_, ()>;
+	fn providers(&self) -> Pending<'_, Vec<ProviderInfo>>;
+	fn start_provider(&self, input: StartProvider, link: bool) -> Pending<'_, ()>;
+	fn continue_provider_sign_up(&self) -> Pending<'_, PublicSession>;
+	fn provider_outcome(&self) -> Option<ProviderOutcome>;
+	fn identities(&self) -> Pending<'_, Vec<IdentityInfo>>;
+	fn unlink_identity(&self, id: Id<Identity>) -> Pending<'_, ()>;
+	fn merge_offer(&self) -> Pending<'_, Option<MergeOffer>>;
+	fn merge_accounts(&self, input: MergeInput) -> Pending<'_, ()>;
+	fn cancel_merge(&self) -> Pending<'_, ()>;
+	fn wallet_settings(&self) -> Pending<'_, WalletSettings>;
+	fn wallet_apps(&self) -> Pending<'_, Vec<WalletApp>>;
+	fn wallets(&self) -> Pending<'_, Vec<WalletInfo>>;
+	fn link_wallet(&self, input: LinkWalletInput) -> Pending<'_, WalletLinked>;
+	fn prove_wallet(&self, input: ProveWalletInput) -> Pending<'_, WalletInfo>;
+	fn update_wallet(&self, input: UpdateWallet) -> Pending<'_, WalletInfo>;
+	fn unlink_wallet(&self, id: Id<Wallet>) -> Pending<'_, ()>;
+	fn wallet_sign_in(&self, wallet: String) -> Pending<'_, SignInStep>;
+	fn send(&self, method: Method, path: String, body: Option<String>)
+	-> Pending<'_, HttpResponse>;
 	/// The `Authorization` header this device's next request carries.
 	#[cfg(feature = "rpc")]
 	fn authorization(&self) -> Pending<'_, Option<String>>;

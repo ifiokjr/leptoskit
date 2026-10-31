@@ -490,9 +490,7 @@ fn tool_version(tool: &str) -> String {
 
 /// The project's source files, relative to the root.
 fn source_files(root: &Path) -> Vec<String> {
-	let listed = std::process::Command::new("git")
-		.arg("-C")
-		.arg(root)
+	let listed = crate::git::command(root)
 		.args([
 			"ls-files",
 			"--cached",

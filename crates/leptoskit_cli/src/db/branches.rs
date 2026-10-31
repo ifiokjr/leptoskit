@@ -9,7 +9,6 @@
 //! prune` later finds the ones whose branch is gone.
 
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -86,12 +85,7 @@ pub(crate) fn head_file(root: &Path) -> Option<std::path::PathBuf> {
 
 /// What `git` prints, trimmed, when it succeeds.
 fn git(root: &Path, args: &[&str]) -> Option<String> {
-	let output = Command::new("git")
-		.arg("-C")
-		.arg(root)
-		.args(args)
-		.output()
-		.ok()?;
+	let output = crate::git::command(root).args(args).output().ok()?;
 	output
 		.status
 		.success()
@@ -355,9 +349,7 @@ mod tests {
 	/// Runs git in a throwaway repository, away from the user's own
 	/// configuration.
 	fn run(root: &Path, args: &[&str]) {
-		let status = Command::new("git")
-			.arg("-C")
-			.arg(root)
+		let status = crate::git::command(root)
 			.args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
 			.args(args)
 			.env("GIT_CONFIG_GLOBAL", root.join("no-global-config"))

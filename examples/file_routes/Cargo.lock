@@ -2200,6 +2200,7 @@ dependencies = [
  "leptoskit_plugin_web_auth",
  "leptoskit_query",
  "leptoskit_rpc",
+ "qrcode",
  "send_wrapper",
  "serde",
  "serde_json",
