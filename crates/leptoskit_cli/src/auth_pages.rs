@@ -238,8 +238,8 @@ fn server(
 		report.next.push(
 			"In src/main.rs, build the service once the database is migrated, with your user \
 			 table: `let auth = sign_in::service::<User>(&db)?;`. Then add \
-			 `.merge(auth.router())` to the router, and `.layer(auth.layer())` last, so it wraps \
-			 every route."
+			 `.merge(auth.router())` and `.merge(sign_in::associations()?)` to the router, and \
+			 `.layer(auth.layer())` last, so it wraps every route."
 				.to_owned(),
 		);
 		report.next.push(
@@ -369,6 +369,16 @@ fn native_plugins(root: &Path, report: &mut Report) -> Result<bool> {
 	Ok(true)
 }
 
+/// `a`, `a and b`, or `a, b, and c`.
+fn and_list(items: &[&str]) -> String {
+	match items {
+		[] => String::new(),
+		[only] => (*only).to_owned(),
+		[first, second] => format!("{first} and {second}"),
+		[rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
+	}
+}
+
 /// Adds the sign-in plugins next to a host's `leptoskit_bridge_ffi`, at the
 /// same version, and from the same checkout when it uses a path.
 fn add_plugin_dependencies(root: &Path, manifest: &Path, report: &mut Report) -> Result<()> {
@@ -380,8 +390,9 @@ fn add_plugin_dependencies(root: &Path, manifest: &Path, report: &mut Report) ->
 		.with_context(|| format!("could not parse {shown}"))?;
 	let Some(dependencies) = bridge_dependencies(&mut document) else {
 		report.next.push(format!(
-			"{shown} doesn't depend on leptoskit_bridge_ffi; add leptoskit_plugin_http and \
-			 leptoskit_plugin_secure_store to the dependencies of the crate that does."
+			"{shown} doesn't depend on leptoskit_bridge_ffi; add leptoskit_plugin_http, \
+			 leptoskit_plugin_secure_store, leptoskit_plugin_passkeys, and \
+			 leptoskit_plugin_web_auth to the dependencies of the crate that does."
 		));
 		return Ok(());
 	};
@@ -432,7 +443,7 @@ fn add_plugin_dependencies(root: &Path, manifest: &Path, report: &mut Report) ->
 		.with_context(|| format!("could not write {shown}"))?;
 	report
 		.changed
-		.push(format!("updated {shown}: added {}", added.join(" and ")));
+		.push(format!("updated {shown}: added {}", and_list(&added)));
 	Ok(())
 }
 

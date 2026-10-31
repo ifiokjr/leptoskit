@@ -463,7 +463,7 @@ pub struct ProviderInfo {
 	pub name: String,
 }
 
-/// The body of `POST /auth/oauth/start` and `POST /auth/oauth/link`.
+/// Which provider to sign in with, and where to come back to.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StartProvider {
 	/// The provider's ID, such as `google`.
@@ -474,11 +474,134 @@ pub struct StartProvider {
 	pub redirect_to: Option<String>,
 }
 
-/// Where to send the browser to sign in with a provider.
+/// What the client sends `POST /auth/oauth/start` and `POST /auth/oauth/link`:
+/// the app's [`StartProvider`], and for a native app how it goes through the
+/// provider's sign-in. The client fills that in; app code never does.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StartProviderRequest {
+	/// The provider, and where to come back to.
+	#[serde(flatten)]
+	pub start: StartProvider,
+	/// How a native app signs in, which also says it keeps its session as
+	/// [`Tokens`]. `None` in a browser.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub native: Option<NativeStart>,
+}
+
+/// How a native app goes through a provider's sign-in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeStart {
+	/// In the system browser, never a web view in the app (RFC 8252). The
+	/// provider sends the browser back to this site, which sends it on to
+	/// `return_to`: the app's own address on this site's
+	/// `/auth/native/return`, a loopback address with that path for a
+	/// desktop app, or `<package id>:/auth/native/return`.
+	Browser {
+		/// Where the system browser comes back to the app.
+		return_to: String,
+	},
+	/// With Sign in with Apple on the device itself, which answers with an
+	/// ID token for the app's bundle ID.
+	AppleId,
+}
+
+/// Where to send the browser to sign in with a provider.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderRedirect {
 	/// The provider's authorization page.
 	pub url: String,
+	/// For a native app: what binds the flow to it, sent back to
+	/// `POST /auth/oauth/finish`. A browser keeps it in an `HttpOnly`
+	/// cookie instead, so this is `None` there.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
+	/// For [`NativeStart::AppleId`]: the nonce to give Sign in with Apple,
+	/// which its ID token must carry.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub nonce: Option<String>,
+}
+
+impl std::fmt::Debug for ProviderRedirect {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("ProviderRedirect")
+			.field("url", &self.url)
+			.finish_non_exhaustive()
+	}
+}
+
+/// The body of `POST /auth/oauth/finish`: a native app's provider flow,
+/// back from the system browser or from Sign in with Apple.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinishProvider {
+	/// The provider's ID, such as `google`.
+	pub provider: String,
+	/// [`ProviderRedirect::token`], from starting the flow.
+	pub token: String,
+	/// The `state` the browser came back with.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub state: Option<String>,
+	/// The authorization code it came back with.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub code: Option<String>,
+	/// Why the provider refused, such as `access_denied`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub error: Option<String>,
+	/// Sign in with Apple's name, sent on the first sign-in only: the web
+	/// flow's `user` JSON, or `{"name":{"firstName":…,"lastName":…}}` from
+	/// the device.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub user: Option<String>,
+	/// The ID token Sign in with Apple gave the device.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub id_token: Option<String>,
+	/// What the app calls this device, for the list of signed-in devices.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub device_name: Option<String>,
+}
+
+impl std::fmt::Debug for FinishProvider {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("FinishProvider")
+			.field("provider", &self.provider)
+			.field("error", &self.error)
+			.finish_non_exhaustive()
+	}
+}
+
+/// What `POST /auth/oauth/finish` answers.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ProviderFinished {
+	/// How it ended, as a browser's return page would say.
+	pub outcome: ProviderOutcome,
+	/// The new session and its tokens, when it signed in.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub signed_in: Option<SignedInResponse>,
+	/// The second step, when the account has a second factor.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub second_factor: Option<SecondFactor>,
+}
+
+/// The body a native app sends to `POST /auth/oauth/continue`, after the
+/// outcome [`ProviderOutcome::EmailInUse`]. A browser sends none: its
+/// binding is in a cookie.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContinueProvider {
+	/// [`ProviderRedirect::token`], from starting the flow. Without it, the
+	/// browser's cookie binds the sign-up.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
+	/// What the app calls this device.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub device_name: Option<String>,
+}
+
+impl std::fmt::Debug for ContinueProvider {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("ContinueProvider")
+			.field("device_name", &self.device_name)
+			.finish_non_exhaustive()
+	}
 }
 
 /// One of the signed-in person's connected accounts, as

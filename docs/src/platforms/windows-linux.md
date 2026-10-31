@@ -46,6 +46,7 @@ The `windows/` and `linux/` folders are yours: each holds a small Rust program t
 
 - **Windows:** `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges aren't smoothed, and borders stay rectangular inside them. `ActivityIndicator` is drawn by leptoskit rather than a system control. Accessibility, through UI Automation, has no expanded or collapsed state. A `Vector` with no background takes clicks only where it has ink; clicks on its empty parts reach whatever is underneath.
 - **Linux:** live regions update their text but aren't announced, because announcements need GTK 4.14.
+- On both, the generated runners can't host plugins yet, so [sign-in](../guide/23-sign-in.md#native-apps) answers `config`. A host that registers plugins itself can register `leptoskit_plugin_web_auth::desktop::WebAuth` on a worker thread: it signs in with providers in the default browser, which comes back to the app on a loopback address. There are no native passkeys on Windows or Linux, so passkey calls answer `unsupported` there; people sign in with an emailed code or a provider instead.
 - On both, `Image` loads local files, not URLs, and the generated apps don't check for [code push](../guide/05-code-push.md) updates; ship a new build to update them.
 
 Build and test on the operating system you ship to. A build that compiles on another OS says nothing about how the widgets render or respond.

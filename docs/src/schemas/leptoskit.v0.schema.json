@@ -1366,6 +1366,21 @@
 			"description": "Native app settings.",
 			"type": "object",
 			"properties": {
+				"android_certificates": {
+					"description": "The SHA-256 fingerprints of the certificates that sign the Android\napp, as `keytool -list` prints them (`AB:CD:…`, 32 bytes). With them,\n`leptoskit::server` publishes `/.well-known/assetlinks.json`, and the\napp's passkeys are accepted. List the upload key and the Play app\nsigning key when Google signs the release.",
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				},
+				"apple_team_id": {
+					"description": "The Apple Developer team that signs the iOS and macOS apps, such as\n`ABCDE12345`. With it, `leptoskit::server` publishes\n`/.well-known/apple-app-site-association`, which lets the apps use\nthe site's passkeys and its sign-in return address.",
+					"type": [
+						"string",
+						"null"
+					],
+					"pattern": "^[A-Z0-9]{10}$"
+				},
 				"missing-plugins": {
 					"description": "What a build does when a selected plugin has no implementation the\nplatform's host can run. `warn` (the default) leaves it out with a\nwarning, so its calls fail with `Unavailable`; `error` stops the build.",
 					"$ref": "#/$defs/MissingPlugins"

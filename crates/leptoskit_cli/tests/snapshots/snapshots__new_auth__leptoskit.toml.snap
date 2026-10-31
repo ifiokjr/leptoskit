@@ -41,6 +41,8 @@ update_contract = "mobile-v1"
 plugins = [
     "http",
     "secure-store",
+    "passkeys",
+    "web-auth",
 ]
 package_id = "com.leptoskit.snapshotted"
 viewport_width = 390.0

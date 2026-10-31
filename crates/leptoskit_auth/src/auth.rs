@@ -69,6 +69,13 @@ pub(crate) struct Inner {
 	pub mfa: MfaPolicy,
 	/// The app's roles for an account, for [`MfaPolicy::required_for`].
 	pub roles: Option<RolesHook>,
+	/// The app's native builds, whose passkeys and return addresses count
+	/// as this site's.
+	#[cfg_attr(
+		not(feature = "oauth"),
+		allow(dead_code, reason = "only provider sign-in reads it after building")
+	)]
+	pub native: NativeApps,
 	/// The WebAuthn relying party: the origin's host. `None` without an
 	/// origin, and then passkeys answer a configuration error.
 	#[cfg(feature = "passkey")]
@@ -104,6 +111,7 @@ impl Auth {
 			roles: None,
 			solana: crate::SolanaOptions::default(),
 			on_merge: None,
+			native: NativeApps::default(),
 			#[cfg(feature = "oauth")]
 			providers: Vec::new(),
 			#[cfg(feature = "oauth")]
@@ -146,6 +154,7 @@ pub struct AuthBuilder {
 	roles: Option<RolesHook>,
 	solana: crate::SolanaOptions,
 	on_merge: Option<crate::merge::MergeHooks>,
+	native: NativeApps,
 	#[cfg(feature = "oauth")]
 	providers: Vec<crate::oauth::Provider>,
 	#[cfg(feature = "oauth")]
@@ -266,6 +275,14 @@ impl AuthBuilder {
 		self
 	}
 
+	/// The app's native builds: their passkeys are accepted as this site's,
+	/// and their system-browser sign-ins may return to them. `from_config`
+	/// reads these from `[native]`.
+	pub fn native_apps(mut self, apps: NativeApps) -> Self {
+		self.native = apps;
+		self
+	}
+
 	/// Adds a third-party sign-in provider, such as
 	/// [`Provider::google`](crate::Provider::google).
 	#[cfg(feature = "oauth")]
@@ -314,7 +331,7 @@ impl AuthBuilder {
 		let webauthn = self
 			.origin
 			.as_deref()
-			.map(|origin| crate::passkeys::relying_party(origin, &self.app_name))
+			.map(|origin| crate::passkeys::relying_party(origin, &self.app_name, &self.native))
 			.transpose()?;
 		#[cfg(feature = "oauth")]
 		let providers = crate::oauth::Providers::new(self.providers, self.provider_http);
@@ -341,12 +358,50 @@ impl AuthBuilder {
 				roles: self.roles,
 				solana: self.solana,
 				on_merge: self.on_merge,
+				native: self.native,
 				#[cfg(feature = "passkey")]
 				webauthn,
 				#[cfg(feature = "oauth")]
 				providers,
 			}),
 		})
+	}
+}
+
+/// An app's native builds, as `[native]` in `leptoskit.toml` describes them.
+///
+/// - Their passkeys count as this site's: Apple's carry the relying party's own
+///   `https` origin, and Android's `android:apk-key-hash:` and the signing
+///   certificate's SHA-256.
+/// - Their system-browser sign-ins may return to `<package
+///   id>:/auth/native/return`.
+/// - Sign in with Apple on the device issues ID tokens to the package ID.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NativeApps {
+	/// The bundle ID and Android application ID, such as
+	/// `com.example.myapp`. Empty for none.
+	pub package_id: String,
+	/// The Apple team that signs the iOS and macOS apps.
+	pub apple_team_id: Option<String>,
+	/// SHA-256 digests of the certificates that sign the Android app.
+	pub android_certificates: Vec<[u8; 32]>,
+}
+
+impl NativeApps {
+	/// The origins their passkeys report: `android:apk-key-hash:` and each
+	/// Android certificate's digest, base64url.
+	pub fn android_origins(&self) -> Vec<String> {
+		use base64::Engine;
+
+		self.android_certificates
+			.iter()
+			.map(|digest| {
+				format!(
+					"android:apk-key-hash:{}",
+					base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest)
+				)
+			})
+			.collect()
 	}
 }
 

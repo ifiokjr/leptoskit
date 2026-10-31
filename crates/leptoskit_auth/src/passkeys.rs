@@ -447,7 +447,11 @@ mod ceremonies {
 
 	/// The relying party for `origin`: its host is the RP ID, so passkeys
 	/// work on that host and its subdomains' pages, and nowhere else.
-	pub(crate) fn relying_party(origin: &str, app_name: &str) -> Result<Webauthn> {
+	pub(crate) fn relying_party(
+		origin: &str,
+		app_name: &str,
+		native: &crate::NativeApps,
+	) -> Result<Webauthn> {
 		let refused = || {
 			AuthError::Config(format!(
 				"`[auth] origin` `{origin}` can't be a passkey relying party; use the site's \
@@ -456,9 +460,26 @@ mod ceremonies {
 		};
 		let url = Url::parse(origin).map_err(|_| refused())?;
 		let host = url.host_str().ok_or_else(refused)?.to_owned();
-		WebauthnBuilder::new(&host, &url)
-			.and_then(|builder| builder.rp_name(app_name).build())
-			.map_err(|_| refused())
+		let mut builder = WebauthnBuilder::new(&host, &url)
+			.map_err(|_| refused())?
+			.rp_name(app_name);
+
+		// Apple's apps sign with the relying party's own `https` origin,
+		// which differs from the site's only when it has a port.
+		if native.apple_team_id.is_some() {
+			let apple = Url::parse(&format!("https://{host}")).map_err(|_| refused())?;
+
+			if apple != url {
+				builder = builder.append_allowed_origin(&apple);
+			}
+		}
+
+		for origin in native.android_origins() {
+			let origin = Url::parse(&origin).map_err(|_| refused())?;
+			builder = builder.append_allowed_origin(&origin);
+		}
+
+		builder.build().map_err(|_| refused())
 	}
 
 	impl Auth {

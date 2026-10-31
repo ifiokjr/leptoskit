@@ -43,6 +43,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	// copies when the browser accepts them.
 	let app = __CRATE___backend::router()
 		.merge(auth.router())
+		// The native apps' association files, for their passkeys.
+		.merge(sign_in::associations()?)
 		.nest_service(
 			"/pkg",
 			leptoskit::server::static_files(package_dir.as_ref()),

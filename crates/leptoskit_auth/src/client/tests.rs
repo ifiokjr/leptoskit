@@ -1375,7 +1375,7 @@ async fn a_browser_adds_passkeys_and_signs_in_with_them() {
 }
 
 #[tokio::test]
-async fn a_native_app_says_passkeys_and_providers_are_unsupported_yet() {
+async fn a_native_app_without_its_plugins_says_unsupported() {
 	let server = Server::new().await;
 	let phone = server.native().device();
 	sign_in(&server, &phone).await;
@@ -1385,6 +1385,11 @@ async fn a_native_app_says_passkeys_and_providers_are_unsupported_yet() {
 		phone
 			.api
 			.passkey_sign_in(PasskeyMode::Autofill)
+			.await
+			.map(|_| ()),
+		phone
+			.api
+			.passkey_sign_in(PasskeyMode::Prompt)
 			.await
 			.map(|_| ()),
 		phone.api.add_passkey(None).await.map(|_| ()),
@@ -1400,7 +1405,6 @@ async fn a_native_app_says_passkeys_and_providers_are_unsupported_yet() {
 				false,
 			)
 			.await,
-		phone.api.continue_provider_sign_up().await.map(|_| ()),
 		phone
 			.api
 			.merge_accounts(MergeInput {
@@ -1413,6 +1417,16 @@ async fn a_native_app_says_passkeys_and_providers_are_unsupported_yet() {
 		assert_eq!(refused.unwrap_err().error, "unsupported");
 	}
 
+	// With no provider sign-in waiting, there's nothing to continue.
+	assert_eq!(
+		phone
+			.api
+			.continue_provider_sign_up()
+			.await
+			.unwrap_err()
+			.error,
+		"sign_in_expired"
+	);
 	assert_eq!(phone.http.count(""), 0, "nothing was asked of the server");
 	phone.api.cancel_passkey();
 	assert_eq!(phone.api.provider_outcome(), None);
@@ -1425,18 +1439,6 @@ async fn a_native_app_says_passkeys_and_providers_are_unsupported_yet() {
 	);
 	assert_eq!(phone.api.merge_offer().await.unwrap(), None);
 	phone.api.cancel_merge().await.unwrap();
-	assert_eq!(
-		phone
-			.api
-			.merge_accounts(MergeInput {
-				confirm: true,
-				..MergeInput::default()
-			})
-			.await
-			.unwrap_err()
-			.error,
-		"sign_in_expired"
-	);
 	assert_eq!(
 		phone
 			.api
@@ -1719,6 +1721,23 @@ async fn a_device_without_passkeys_or_pages_says_so() {
 		.sign_with_wallet("Phantom".into(), crate::SiwsInput::default())
 		.await;
 	assert_eq!(signed.unwrap_err().error, "unsupported");
+	assert!(!none.passkeys() && !none.autofill() && !none.has_apple_id());
+	assert_eq!(none.begin_browser().await.unwrap_err().error, "unsupported");
+	let session = protocol::BrowserSession {
+		id: 1,
+		return_to: "com.notes.app:/auth/native/return".into(),
+	};
+	assert_eq!(
+		none.browse(session, "https://sso.example/".into())
+			.await
+			.unwrap_err()
+			.error,
+		"unsupported"
+	);
+	assert_eq!(
+		none.apple_id("nonce".into()).await.unwrap_err().error,
+		"unsupported"
+	);
 	let input = MergeInput {
 		code: Some("123456".into()),
 		..MergeInput::default()
@@ -1964,4 +1983,415 @@ async fn the_wallet_scopes_call_the_configured_client() {
 	assert_eq!(use_wallets().await, Ok(Vec::new()));
 	// The next test may expect no client installed yet.
 	*CLIENT.write().unwrap() = None;
+}
+
+#[cfg(feature = "oauth")]
+#[path = "../../tests/support/oidc.rs"]
+mod fake_idp;
+
+/// The native app's bundle ID, which Sign in with Apple on the device
+/// issues ID tokens to.
+#[cfg(feature = "oauth")]
+const BUNDLE: &str = "com.notes.App";
+
+/// What a native app's device does for sign-in, in memory: the software
+/// passkey of a [`Page`], a system browser that signs in at the fake
+/// provider as `claims` and follows this site's redirect back to the app,
+/// and Sign in with Apple that mints an ID token.
+#[cfg(feature = "oauth")]
+#[derive(Clone)]
+struct Phone {
+	page: Page,
+	router: Router,
+	idp: fake_idp::FakeIdp,
+	claims: Arc<Mutex<serde_json::Value>>,
+	/// Whether it has Sign in with Apple of its own.
+	apple: bool,
+	/// The person closes the browser instead of signing in.
+	closes: Arc<AtomicBool>,
+	/// Something other than the provider comes back to the app.
+	forges: Arc<AtomicBool>,
+	returns: Arc<Mutex<Vec<String>>>,
+}
+
+#[cfg(feature = "oauth")]
+impl protocol::Platform for Phone {
+	fn create(
+		&self,
+		options: crate::CreationChallengeResponse,
+	) -> BoxFuture<'static, Result<crate::RegisterPublicKeyCredential, ErrorResponse>> {
+		self.page.create(options)
+	}
+
+	fn get(
+		&self,
+		options: crate::RequestChallengeResponse,
+		autofill: bool,
+	) -> BoxFuture<'static, Result<crate::PublicKeyCredential, ErrorResponse>> {
+		assert!(!autofill, "a native app never asks for autofill");
+		self.page.get(options, false)
+	}
+
+	fn cancel(&self) {
+		self.page.cancel();
+	}
+
+	fn open(&self, _url: &str) -> Result<(), ErrorResponse> {
+		panic!("a native app never navigates a page");
+	}
+
+	fn query(&self) -> Option<String> {
+		None
+	}
+
+	fn autofill(&self) -> bool {
+		false
+	}
+
+	fn begin_browser(&self) -> BoxFuture<'static, Result<protocol::BrowserSession, ErrorResponse>> {
+		self.returns
+			.lock()
+			.unwrap()
+			.push("http://127.0.0.1:49152/auth/native/return".into());
+		Box::pin(std::future::ready(Ok(protocol::BrowserSession {
+			id: 1,
+			return_to: "http://127.0.0.1:49152/auth/native/return".into(),
+		})))
+	}
+
+	fn browse(
+		&self,
+		session: protocol::BrowserSession,
+		url: String,
+	) -> BoxFuture<'static, Result<String, ErrorResponse>> {
+		let this = self.clone();
+		Box::pin(async move {
+			if this.closes.load(Ordering::SeqCst) {
+				return Err(error("cancelled", "closed"));
+			}
+
+			let claims = this.claims.lock().unwrap().clone();
+			let back = this.idp.authorize(&url, claims);
+			let redirect_uri = url::Url::parse(&url)
+				.unwrap()
+				.query_pairs()
+				.find(|(name, _)| name == "redirect_uri")
+				.unwrap()
+				.1
+				.into_owned();
+			let path = redirect_uri.trim_start_matches(ORIGIN).to_owned();
+			let query = url::form_urlencoded::Serializer::new(String::new())
+				.extend_pairs(&back)
+				.finish();
+			// The system browser has no cookies of this site's.
+			let request = if path.ends_with("/apple") {
+				Request::post(path)
+					.header(header::ORIGIN, "https://appleid.apple.com")
+					.header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+					.body(Body::from(query))
+			} else {
+				Request::get(format!("{path}?{query}")).body(Body::empty())
+			};
+			let response = this.router.oneshot(request.unwrap()).await.unwrap();
+			assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
+			let location = response.headers()[header::LOCATION]
+				.to_str()
+				.unwrap()
+				.to_owned();
+			assert!(location.starts_with(&session.return_to), "{location}");
+
+			if this.forges.load(Ordering::SeqCst) {
+				return Ok(format!("{}?state=forged&code=stolen", session.return_to));
+			}
+
+			Ok(location)
+		})
+	}
+
+	fn has_apple_id(&self) -> bool {
+		self.apple
+	}
+
+	fn apple_id(
+		&self,
+		nonce: String,
+	) -> BoxFuture<'static, Result<protocol::AppleId, ErrorResponse>> {
+		if !self.apple {
+			return Box::pin(std::future::ready(protocol::unsupported()));
+		}
+
+		let claims = self.claims.lock().unwrap().clone();
+		let id_token = self.idp.apple_id_token(BUNDLE, &nonce, claims);
+		Box::pin(std::future::ready(Ok(protocol::AppleId {
+			id_token,
+			user: Some(r#"{"name":{"firstName":"Ada","lastName":"Lovelace"}}"#.into()),
+		})))
+	}
+}
+
+/// A server with providers and the native app's bundle ID, the fake
+/// provider it reaches, and a native app on a [`Phone`].
+#[cfg(feature = "oauth")]
+async fn provider_server() -> (Server, fake_idp::FakeIdp) {
+	let db = leptoskit_db::testing::sqlite().await;
+	let mailbox = Mailbox::new();
+	let idp = fake_idp::FakeIdp::new();
+	let (pem, public) = fake_idp::apple_key();
+	idp.trust_apple_key(public);
+	let auth = Auth::builder(&db, Keys::single("test", [9; 32]))
+		.mailer(mailbox.clone())
+		.origin(ORIGIN)
+		.native_apps(crate::NativeApps {
+			package_id: BUNDLE.into(),
+			apple_team_id: Some("ABCDE12345".into()),
+			android_certificates: Vec::new(),
+		})
+		.provider(
+			crate::Provider::oidc(
+				"company",
+				"Company SSO",
+				fake_idp::ISSUER,
+				"notes-client",
+				Some(fake_idp::SECRET.into()),
+			)
+			.unwrap(),
+		)
+		.provider(crate::Provider::google("google-client", fake_idp::SECRET))
+		.provider(crate::Provider::apple("com.notes.web", "TEAM1", "KEY1", &pem).unwrap())
+		.provider_http(idp.clone())
+		.build()
+		.unwrap();
+	let router = Router::new().merge(auth.router()).layer(auth.layer());
+	(
+		Server {
+			auth,
+			router,
+			mailbox,
+			db,
+		},
+		idp,
+	)
+}
+
+#[cfg(feature = "oauth")]
+impl Server {
+	fn phone(&self, idp: &fake_idp::FakeIdp, apple: bool) -> (Native, Phone) {
+		self.phone_on(idp, apple, Page::default())
+	}
+
+	/// A phone whose passkeys are `page`'s.
+	fn phone_on(&self, idp: &fake_idp::FakeIdp, apple: bool, page: Page) -> (Native, Phone) {
+		let phone = Phone {
+			page,
+			router: self.router.clone(),
+			idp: idp.clone(),
+			claims: Arc::new(Mutex::new(serde_json::json!({
+				"sub": "u-1", "email": ADA, "email_verified": true, "name": "Ada Lovelace",
+			}))),
+			apple,
+			closes: Arc::default(),
+			forges: Arc::default(),
+			returns: Arc::default(),
+		};
+		let http = InMemory::new(self, false);
+		let clock = Clock::default();
+		let now = clock.clone();
+		let config = ClientConfig::new()
+			.origin(ORIGIN)
+			.device_name("Ada's phone");
+		let native = Native {
+			api: Arc::new(
+				Remote::new(
+					config,
+					http.clone(),
+					TokenKeeper::new(Memory::default(), move || now.0.load(Ordering::SeqCst)),
+				)
+				.platform(phone.clone()),
+			),
+			http,
+			clock,
+		};
+		(native, phone)
+	}
+}
+
+#[cfg(feature = "oauth")]
+fn provider(id: &str) -> StartProvider {
+	StartProvider {
+		provider: id.into(),
+		redirect_to: None,
+	}
+}
+
+#[cfg(feature = "oauth")]
+#[tokio::test]
+async fn a_native_app_signs_in_with_providers_in_the_system_browser() {
+	let (server, idp) = provider_server().await;
+	let (native, phone) = server.phone(&idp, false);
+	let api = &native.api;
+
+	Api::start_provider(&**api, provider("company"), false)
+		.await
+		.unwrap();
+	assert_eq!(
+		Api::provider_outcome(&**api),
+		Some(ProviderOutcome::SignedIn)
+	);
+	assert!(native.store().held().is_some(), "the refresh token is kept");
+	let session = Api::session(&**api).await.unwrap().unwrap();
+	let devices = Api::devices(&**api).await.unwrap();
+	assert_eq!(devices[0].session.id, session.id);
+	assert_eq!(devices[0].session.device, "Ada's phone");
+	assert_eq!(phone.returns.lock().unwrap().len(), 1);
+
+	// Connecting another provider, from the signed-in app.
+	*phone.claims.lock().unwrap() = serde_json::json!({
+		"sub": "g-1", "email": "ada@gmail.example", "email_verified": true,
+	});
+	Api::start_provider(&**api, provider("google"), true)
+		.await
+		.unwrap();
+	assert_eq!(Api::provider_outcome(&**api), Some(ProviderOutcome::Linked));
+	assert_eq!(Api::identities(&**api).await.unwrap().len(), 2);
+
+	// Closing the browser, and an answer that isn't the provider's.
+	phone.closes.store(true, Ordering::SeqCst);
+	Api::start_provider(&**api, provider("company"), false)
+		.await
+		.unwrap();
+	assert_eq!(
+		Api::provider_outcome(&**api),
+		Some(ProviderOutcome::Failed("cancelled".into()))
+	);
+	phone.closes.store(false, Ordering::SeqCst);
+	phone.forges.store(true, Ordering::SeqCst);
+	Api::start_provider(&**api, provider("company"), false)
+		.await
+		.unwrap();
+	assert_eq!(
+		Api::provider_outcome(&**api),
+		Some(ProviderOutcome::Failed("sign_in_expired".into()))
+	);
+	phone.forges.store(false, Ordering::SeqCst);
+
+	// A new person whose address is Ada's chooses a separate account.
+	let (other, other_phone) = server.phone(&idp, false);
+	*other_phone.claims.lock().unwrap() = serde_json::json!({
+		"sub": "g-2", "email": ADA, "email_verified": true,
+	});
+	Api::start_provider(&*other.api, provider("google"), false)
+		.await
+		.unwrap();
+	assert_eq!(
+		Api::provider_outcome(&*other.api),
+		Some(ProviderOutcome::EmailInUse)
+	);
+	assert!(other.store().held().is_none());
+	let separate = Api::continue_provider_sign_up(&*other.api).await.unwrap();
+	assert_ne!(separate.account_id, session.account_id);
+	assert!(other.store().held().is_some());
+	assert_eq!(
+		Api::continue_provider_sign_up(&*other.api)
+			.await
+			.unwrap_err()
+			.error,
+		"sign_in_expired",
+		"the choice is made once"
+	);
+
+	// An unknown provider is refused before anything opens.
+	let returns = phone.returns.lock().unwrap().len();
+	let unknown = Api::start_provider(&**api, provider("nope"), false)
+		.await
+		.unwrap_err();
+	assert_eq!(unknown.error, "unknown_provider");
+	assert_eq!(phone.returns.lock().unwrap().len(), returns + 1);
+}
+
+#[cfg(feature = "oauth")]
+#[tokio::test]
+async fn a_native_app_signs_in_with_apple_on_the_device() {
+	let (server, idp) = provider_server().await;
+	let (native, phone) = server.phone(&idp, true);
+
+	Api::start_provider(&*native.api, provider("apple"), false)
+		.await
+		.unwrap();
+	assert_eq!(
+		Api::provider_outcome(&*native.api),
+		Some(ProviderOutcome::SignedIn)
+	);
+	assert!(
+		phone.returns.lock().unwrap().is_empty(),
+		"no browser was needed"
+	);
+	let identities = Api::identities(&*native.api).await.unwrap();
+	assert_eq!(identities[0].provider, "apple");
+	assert_eq!(identities[0].name.as_deref(), Some("Ada Lovelace"));
+
+	// Other providers still go through the browser on the same device.
+	*phone.claims.lock().unwrap() = serde_json::json!({ "sub": "c-1" });
+	Api::start_provider(&*native.api, provider("company"), false)
+		.await
+		.unwrap();
+	assert_eq!(
+		Api::provider_outcome(&*native.api),
+		Some(ProviderOutcome::SignedIn)
+	);
+	assert_eq!(phone.returns.lock().unwrap().len(), 1);
+
+	// A device without Sign in with Apple of its own uses Apple's web
+	// sign-in in the system browser.
+	let (android, android_phone) = server.phone(&idp, false);
+	*android_phone.claims.lock().unwrap() = serde_json::json!({ "sub": "a-9" });
+	Api::start_provider(&*android.api, provider("apple"), false)
+		.await
+		.unwrap();
+	assert_eq!(
+		Api::provider_outcome(&*android.api),
+		Some(ProviderOutcome::SignedIn)
+	);
+	assert_eq!(android_phone.returns.lock().unwrap().len(), 1);
+}
+
+#[cfg(all(feature = "oauth", feature = "passkey"))]
+#[tokio::test]
+async fn a_native_app_makes_and_uses_passkeys_with_the_device() {
+	let (server, idp) = provider_server().await;
+	let (native, phone) = server.phone(&idp, true);
+	let device = native.device();
+	sign_in(&server, &device).await;
+
+	let added = device.api.add_passkey(Some("iPhone".into())).await.unwrap();
+	assert_eq!(added.session.aal, crate::Aal::Two);
+	assert!(native.store().held().is_some(), "rotated tokens are kept");
+
+	// Autofill isn't offered, and asks the server nothing.
+	native.http.count("");
+	assert_eq!(
+		device
+			.api
+			.passkey_sign_in(PasskeyMode::Autofill)
+			.await
+			.unwrap_err()
+			.error,
+		"unsupported"
+	);
+	assert_eq!(native.http.count(""), 0);
+
+	// Another app on a device with the same passkey signs in with it.
+	let (other, _) = server.phone_on(&idp, true, phone.page.clone());
+	let session = other
+		.device()
+		.api
+		.passkey_sign_in(PasskeyMode::Prompt)
+		.await
+		.unwrap();
+	assert_eq!(session.aal, crate::Aal::Two);
+	assert!(other.store().held().is_some());
+
+	let stepped = device.api.step_up_with_passkey().await.unwrap();
+	assert!(stepped.mfa_at.is_some());
+	device.api.cancel_passkey();
+	assert!(phone.page.cancelled.load(Ordering::SeqCst));
 }

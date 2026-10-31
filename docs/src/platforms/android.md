@@ -54,6 +54,7 @@ cd android
 - [Rive](../guide/20-rive.md) uploads native vector frames to a reusable Android bitmap. The generated host schedules through Choreographer, stops when idle or offscreen, and treats disabled system animations as reduced motion. Native playback rejects text, image, layout, script, and audio assets.
 - In the backend crate, a `Custom` widget kind with no registered native implementation stops the app. Other platforms render an empty container instead.
 - TalkBack gets a smaller set of roles than macOS's accessibility API.
+- [Sign-in](../guide/23-sign-in.md#native-apps) uses Credential Manager for passkeys once your site vouches for the app's signing certificate. Other providers open in Chrome's Auth Tab, which needs Chrome 137 or later as the default browser; with another default browser, provider sign-in ends with the outcome `unsupported`. Sign in with Apple uses Apple's web sign-in, in the same Auth Tab.
 - `Image` loads local files and `android.resource://` URIs, not URLs.
 - The generated app keeps your screen clear of the status and navigation bars. The bars take your root view's background, as a browser paints the page's background across the whole window, with light icons on a dark one. A root without an opaque background leaves the theme's white bars.
 - With the backend crate, the host reports the window insets for the system bars and display cutouts, and the [safe-area utilities](../guide/07-shared-components.md#clear-the-status-bar-and-home-indicator) pad by them.
