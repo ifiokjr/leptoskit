@@ -1,0 +1,308 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: pretty(expansion)
+---
+/// Which kind of [`Actor`] a row is, as its supertype row stores it.
+#[derive(
+    ::core::clone::Clone,
+    ::core::marker::Copy,
+    ::core::fmt::Debug,
+    ::core::cmp::PartialEq,
+    ::core::cmp::Eq,
+    ::core::hash::Hash,
+    ::core::cmp::PartialOrd,
+    ::core::cmp::Ord,
+    ::leptoskit_db::Enum,
+)]
+pub enum ActorKind {
+    #[db(rename = "user")]
+    User,
+    #[db(rename = "crew")]
+    Group,
+}
+
+/// What a client may see of a [`Actor`]: its variant's public type, tagged with its kind. Return this from server functions.
+#[derive(
+    ::core::clone::Clone,
+    ::core::fmt::Debug,
+    ::core::cmp::PartialEq,
+    ::leptoskit_db::__private::serde::Serialize,
+    ::leptoskit_db::__private::serde::Deserialize,
+    ::leptoskit_db::__private::schemars::JsonSchema,
+)]
+#[serde(crate = "::leptoskit_db::__private::serde", tag = "kind", content = "row")]
+#[schemars(crate = "::leptoskit_db::__private::schemars")]
+pub enum PublicActor {
+    #[serde(rename = "user")]
+    User(PublicUser),
+    #[serde(rename = "crew")]
+    Group(groups::PublicGroup),
+}
+
+impl PublicActor {
+    /// Which kind of row it is.
+    pub fn kind(&self) -> ActorKind {
+        match self {
+            Self::User(_) => ActorKind::User,
+            Self::Group(_) => ActorKind::Group,
+        }
+    }
+}
+
+// ── __server ──
+/// Anything that can own a budget.
+pub enum Actor {
+    /// Someone.
+    User(User),
+    Group(groups::Group),
+}
+#[::leptoskit_db::table(name = "actors", live)]
+#[db::policy(select, |actor, _|actor.kind.eq(ActorKind::User))]
+/// The `actors` table: one row per `Actor`, of any kind, holding its key and its kind. Each variant's inserts and removals write it; don't write it yourself.
+pub struct ActorRow {
+    /// The key the variant row shares.
+    #[db(key, generate = false, no_foreign_key)]
+    pub id: ::leptoskit_db::Id<Actor>,
+    /// Which variant table holds the row.
+    pub kind: ActorKind,
+}
+impl ::core::fmt::Debug for Actor {
+    fn fmt(&self, formatter: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        match self {
+            Self::User(row) => {
+                formatter.debug_tuple(::core::stringify!(User)).field(row).finish()
+            }
+            Self::Group(row) => {
+                formatter.debug_tuple(::core::stringify!(Group)).field(row).finish()
+            }
+        }
+    }
+}
+impl ::core::convert::From<User> for Actor {
+    fn from(row: User) -> Self {
+        Self::User(row)
+    }
+}
+impl ::leptoskit_db::Variant for User {
+    type Of = Actor;
+    const KIND: ActorKind = ActorKind::User;
+    fn into_supertype(self) -> Actor {
+        Actor::User(self)
+    }
+}
+impl ::core::convert::From<groups::Group> for Actor {
+    fn from(row: groups::Group) -> Self {
+        Self::Group(row)
+    }
+}
+impl ::leptoskit_db::Variant for groups::Group {
+    type Of = Actor;
+    const KIND: ActorKind = ActorKind::Group;
+    fn into_supertype(self) -> Actor {
+        Actor::Group(self)
+    }
+}
+const _: () = ::core::assert!(
+    < User as ::leptoskit_db::Table > ::SUPERTYPE.is_some(),
+    "`User` is a variant of `Actor`, a polymorphic table: declare it with `#[db::table(extends = Actor, …)]`",
+);
+const _: () = ::core::assert!(
+    < groups::Group as ::leptoskit_db::Table > ::SUPERTYPE.is_some(),
+    "`groups::Group` is a variant of `Actor`, a polymorphic table: declare it with `#[db::table(extends = Actor, …)]`",
+);
+impl ::leptoskit_db::Polymorphic for Actor {
+    type Row = ActorRow;
+    type Kind = ActorKind;
+    const KINDS: &'static [ActorKind] = &[ActorKind::User, ActorKind::Group];
+    fn id(&self) -> ::leptoskit_db::Id<Self> {
+        match self {
+            Self::User(row) => {
+                ::leptoskit_db::Id::upcast(<User as ::leptoskit_db::HasId>::id(row))
+            }
+            Self::Group(row) => {
+                ::leptoskit_db::Id::upcast(
+                    <groups::Group as ::leptoskit_db::HasId>::id(row),
+                )
+            }
+        }
+    }
+    fn kind(&self) -> ActorKind {
+        match self {
+            Self::User(_) => ActorKind::User,
+            Self::Group(_) => ActorKind::Group,
+        }
+    }
+    fn table_of(kind: ActorKind) -> ::leptoskit_db::__private::schema::TableName {
+        match kind {
+            ActorKind::User => <User as ::leptoskit_db::Table>::table_name(),
+            ActorKind::Group => <groups::Group as ::leptoskit_db::Table>::table_name(),
+        }
+    }
+    fn row(id: ::leptoskit_db::Id<Self>, kind: ActorKind) -> ActorRow {
+        ActorRow { id, kind }
+    }
+    fn row_kind(row: &ActorRow) -> ActorKind {
+        row.kind
+    }
+    fn fetch(
+        connection: &impl ::leptoskit_db::Connection,
+        kind: ActorKind,
+        page: &::leptoskit_db::__private::polymorphic::Page,
+    ) -> impl ::core::future::Future<
+        Output = ::leptoskit_db::Result<::std::vec::Vec<Self>>,
+    > + ::core::marker::Send {
+        async move {
+            match kind {
+                ActorKind::User => {
+                    ::leptoskit_db::__private::polymorphic::fetch_variant::<
+                        User,
+                    >(connection, page)
+                        .await
+                }
+                ActorKind::Group => {
+                    ::leptoskit_db::__private::polymorphic::fetch_variant::<
+                        groups::Group,
+                    >(connection, page)
+                        .await
+                }
+            }
+        }
+    }
+    fn count(
+        connection: &impl ::leptoskit_db::Connection,
+        kind: ActorKind,
+        page: &::leptoskit_db::__private::polymorphic::Page,
+    ) -> impl ::core::future::Future<
+        Output = ::leptoskit_db::Result<u64>,
+    > + ::core::marker::Send {
+        async move {
+            match kind {
+                ActorKind::User => {
+                    ::leptoskit_db::__private::polymorphic::count_variant::<
+                        User,
+                    >(connection, page)
+                        .await
+                }
+                ActorKind::Group => {
+                    ::leptoskit_db::__private::polymorphic::count_variant::<
+                        groups::Group,
+                    >(connection, page)
+                        .await
+                }
+            }
+        }
+    }
+}
+impl ::leptoskit_db::Linkable for Actor {
+    type Stored = ActorRow;
+    fn link_id(&self) -> ::leptoskit_db::Id<Self> {
+        <Self as ::leptoskit_db::Polymorphic>::id(self)
+    }
+    fn load(
+        connection: &impl ::leptoskit_db::Connection,
+        id: ::leptoskit_db::Id<Self>,
+    ) -> impl ::core::future::Future<
+        Output = ::leptoskit_db::Result<::core::option::Option<Self>>,
+    > + ::core::marker::Send {
+        ::leptoskit_db::__private::polymorphic::load(connection, id)
+    }
+}
+impl ::leptoskit_db::Referenced for Actor {
+    fn referenced_table() -> ::leptoskit_db::__private::schema::TableName {
+        <ActorRow as ::leptoskit_db::Table>::table_name()
+    }
+    fn referenced_key() -> &'static [&'static str] {
+        <ActorRow as ::leptoskit_db::Table>::KEY
+    }
+}
+impl Actor {
+    /// A query on every kind of row, or some kinds.
+    pub fn query() -> ::leptoskit_db::Variants<Self> {
+        ::leptoskit_db::Variants::new()
+    }
+    /// The row with this key, of whichever kind it is, if it exists,
+    /// the request may see it, and it isn't soft-deleted.
+    pub async fn find(
+        connection: &impl ::leptoskit_db::Connection,
+        id: ::leptoskit_db::Id<Self>,
+    ) -> ::leptoskit_db::Result<::core::option::Option<Self>> {
+        ::leptoskit_db::__private::polymorphic::load(connection, id).await
+    }
+    /// The row with this key, or `DbError::NotFound`.
+    pub async fn get(
+        connection: &impl ::leptoskit_db::Connection,
+        id: ::leptoskit_db::Id<Self>,
+    ) -> ::leptoskit_db::Result<Self> {
+        Self::find(connection, id)
+            .await?
+            .ok_or_else(|| ::leptoskit_db::DbError::NotFound {
+                table: <ActorRow as ::leptoskit_db::Table>::flat_name(),
+            })
+    }
+    /// The row's key, which its variant row and supertype row share.
+    pub fn id(&self) -> ::leptoskit_db::Id<Self> {
+        <Self as ::leptoskit_db::Polymorphic>::id(self)
+    }
+    /// Which kind of row it is.
+    pub fn kind(&self) -> ActorKind {
+        <Self as ::leptoskit_db::Polymorphic>::kind(self)
+    }
+    /// Writes every column of the variant row, as its table's `save`.
+    pub async fn save(
+        &mut self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        match self {
+            Self::User(row) => {
+                ::leptoskit_db::__private::write::save(connection, row).await
+            }
+            Self::Group(row) => {
+                ::leptoskit_db::__private::write::save(connection, row).await
+            }
+        }
+    }
+    /// Deletes the variant row, as its table's `delete`: soft-deletes
+    /// it when the table has a `#[db(deleted_at)]` column.
+    pub async fn delete(
+        &mut self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        match self {
+            Self::User(row) => {
+                ::leptoskit_db::__private::write::delete(connection, row).await
+            }
+            Self::Group(row) => {
+                ::leptoskit_db::__private::write::delete(connection, row).await
+            }
+        }
+    }
+    /// Removes the variant row and its supertype row for good.
+    pub async fn destroy(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        match self {
+            Self::User(row) => {
+                ::leptoskit_db::__private::write::destroy(connection, &row).await
+            }
+            Self::Group(row) => {
+                ::leptoskit_db::__private::write::destroy(connection, &row).await
+            }
+        }
+    }
+}
+impl ::core::convert::From<Actor> for PublicActor {
+    fn from(row: Actor) -> Self {
+        match row {
+            Actor::User(row) => Self::User(::core::convert::From::from(row)),
+            Actor::Group(row) => Self::Group(::core::convert::From::from(row)),
+        }
+    }
+}
+
+// ── __client ──
+/// Anything that can own a budget.
+///
+/// On the client this is only a marker: it names the table in
+/// `Id<…>`, and has no rows to construct.
+pub enum Actor {}

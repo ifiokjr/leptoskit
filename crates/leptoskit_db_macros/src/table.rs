@@ -293,6 +293,10 @@ pub(crate) fn expand(
 		resolve_keys(&name, &mut fields)?;
 	}
 
+	if let Some(extends) = &args.extends {
+		check_variant(extends, &fields)?;
+	}
+
 	let table = Table {
 		krate: &krate,
 		args: &args,
@@ -619,6 +623,26 @@ fn resolve_keys(name: &Ident, fields: &mut [Field]) -> syn::Result<()> {
 	}
 
 	Ok(())
+}
+
+/// A variant of a polymorphic table is keyed by `Id<Self>`, which its
+/// supertype row shares.
+fn check_variant(extends: &syn::Path, fields: &[Field]) -> syn::Result<()> {
+	match fields
+		.iter()
+		.filter(|field| field.key)
+		.collect::<Vec<_>>()
+		.as_slice()
+	{
+		[key] if key.points_at_self => Ok(()),
+		_ => {
+			Err(syn::Error::new_spanned(
+				extends,
+				"a variant of a polymorphic table is keyed by a single `id: Id<Self>`, which its \
+				 supertype row shares",
+			))
+		}
+	}
 }
 
 struct Table<'a> {
@@ -1351,6 +1375,7 @@ impl Table<'_> {
 			|access| quote! { self.#access = ::core::option::Option::Some(#krate::now()); },
 		);
 		let policies = self.policies_fn();
+		let supertype = self.supertype_items();
 		let bump_version =
 			self.on_marker(|args| args.version, |access| quote! { self.#access += 1; });
 		let filled = self.filled_consts(&all);
@@ -1409,8 +1434,34 @@ impl Table<'_> {
 				#stamp
 				#hooks
 				#policies
+				#supertype
 			}
 		}
+	}
+
+	/// For a variant of a polymorphic table: its supertype, and how it
+	/// inserts and removes its supertype rows. The helpers require the enum
+	/// to list the table, with the same enum.
+	fn supertype_items(&self) -> Option<TokenStream> {
+		let extends = self.args.extends.as_ref()?;
+		let krate = self.krate;
+		let key = &self.fields.iter().find(|field| field.key)?.ident;
+		let future = quote! {
+			impl ::core::future::Future<Output = #krate::Result<()>> + ::core::marker::Send
+		};
+
+		Some(quote_spanned! { extends.span()=>
+			const SUPERTYPE: ::core::option::Option<#krate::__private::polymorphic::Supertype> =
+				::core::option::Option::Some(#krate::__private::polymorphic::Supertype::of::<<#extends as #krate::Polymorphic>::Row>());
+
+			fn write_supertype(&self, connection: &impl #krate::Connection) -> #future {
+				#krate::__private::polymorphic::write_supertype::<Self, #extends>(connection, self.#key)
+			}
+
+			fn remove_supertypes(keys: ::std::vec::Vec<#krate::Value>, connection: &impl #krate::Connection) -> #future {
+				#krate::__private::polymorphic::remove_supertypes::<Self, #extends>(connection, keys)
+			}
+		})
 	}
 
 	/// The `Table` constants for what writes fill in, record, or run, each
@@ -1680,6 +1731,8 @@ impl Table<'_> {
 			calls.push(quote! { table.sql_check(#name, #sql); });
 		}
 
+		calls.extend(self.supertype_key());
+
 		if self.searched().next().is_some() {
 			let name = self.name;
 			calls.push(quote! {
@@ -1695,6 +1748,22 @@ impl Table<'_> {
 			#(#calls)*
 			table.build()
 		}
+	}
+
+	/// A variant's key is its supertype row's too, so it's a foreign key to
+	/// that row: removing the row removes the variant's.
+	fn supertype_key(&self) -> Option<TokenStream> {
+		let krate = self.krate;
+		let extends = self.args.extends.as_ref()?;
+		let column = &self.fields.iter().find(|field| field.key)?.column;
+
+		Some(quote_spanned! { extends.span()=>
+			table.foreign_key::<#krate::Id<#extends>>(
+				#column,
+				::core::option::Option::Some(#krate::__private::schema::ReferentialAction::Cascade),
+				false,
+			);
+		})
 	}
 
 	/// The builder calls for one column: the column itself, then each rule
@@ -2059,7 +2128,7 @@ impl Table<'_> {
 					impl #target {
 						#[doc = #doc]
 						pub fn #backlink(&self) -> #krate::Query<#name> {
-							#name::#by(<Self as #krate::HasId>::id(self))
+							#name::#by(<Self as #krate::Linkable>::link_id(self))
 						}
 
 						/// The backlink, for shapes to follow.
