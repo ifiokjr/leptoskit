@@ -292,7 +292,7 @@ Each pull request carries a changeset. Dependent layers go in a `gh stack`.
 
 1. `feat(query)`: the queries panel with refetch, invalidate, and edit.
 2. `feat(devtools)`: forms, named state, and editing state.
-3. `feat(bridge)`: the calls timeline, plugin and rpc.
+3. `feat(bridge)`: the calls timeline, plugin and rpc. **Done:** `leptoskit_bridge::devtools` and `leptoskit_rpc::devtools` (`drain`, `dropped`, `now_ms`) behind each crate's `devtools` feature, recording into a shared `leptoskit_devtools_protocol::sink::Sink` of 256 records. `CallRecord` gained optional `running_ms`, `taken_ms`, `completed_late_ms`, `request_bytes`, and `response_bytes`. Still to do: the agents drain these sinks into `Event::Call` and `Event::RpcAttempt`, the facade's `devtools` feature turns both on, and the interface draws the timeline.
 4. `feat(devtools)`: the commits profiler.
 
 **Phase 5: MCP.**

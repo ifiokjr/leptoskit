@@ -29,6 +29,9 @@ pub use reply::ReplyGuard;
 #[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
 pub mod async_host;
 
+#[cfg(feature = "devtools")]
+pub mod devtools;
+
 #[cfg(all(feature = "guest", target_arch = "wasm32"))]
 #[allow(unsafe_code)]
 pub mod guest;
@@ -169,6 +172,9 @@ pub struct Event {
 #[derive(Debug)]
 struct Registration {
 	name: String,
+	/// The name each call's timeline shares, so recording copies no string.
+	#[cfg(feature = "devtools")]
+	traced_name: Arc<str>,
 	methods: BTreeMap<MethodId, bool>,
 	#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
 	permissions: BTreeMap<MethodId, async_host::CancellationToken>,
@@ -204,6 +210,8 @@ struct Slot {
 	call: Option<Call>,
 	#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
 	permission: Option<async_host::CancellationToken>,
+	#[cfg(feature = "devtools")]
+	trace: Option<devtools::Trace>,
 }
 
 /// One application's bounded transport. Drop it when unloading the guest.
@@ -222,6 +230,10 @@ pub struct Bridge {
 	active: usize,
 	events: VecDeque<Event>,
 	buffered_bytes: usize,
+	/// Running calls the guest cancelled and the host has taken, kept so an
+	/// answer that arrives afterwards still shows on the call's timeline.
+	#[cfg(feature = "devtools")]
+	cancelled_traces: VecDeque<devtools::Trace>,
 }
 
 /// Opaque transport identity, stable across moves and distinct from every other
@@ -254,6 +266,8 @@ impl Default for Bridge {
 impl Bridge {
 	/// Creates an empty transport with explicit resource limits.
 	pub fn new(limits: Limits) -> Self {
+		#[cfg(feature = "devtools")]
+		devtools::reserve();
 		Self {
 			identity: BridgeIdentity(Arc::new(())),
 			limits,
@@ -267,6 +281,8 @@ impl Bridge {
 						call: None,
 						#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
 						permission: None,
+						#[cfg(feature = "devtools")]
+						trace: None,
 					}
 				})
 				.collect(),
@@ -274,6 +290,8 @@ impl Bridge {
 			active: 0,
 			events: VecDeque::with_capacity(limits.events),
 			buffered_bytes: 0,
+			#[cfg(feature = "devtools")]
+			cancelled_traces: VecDeque::with_capacity(limits.calls),
 		}
 	}
 
@@ -299,6 +317,8 @@ impl Bridge {
 		let methods: BTreeMap<_, _> = methods.into_iter().map(|method| (method, false)).collect();
 		self.plugins.push(Registration {
 			name: name.to_owned(),
+			#[cfg(feature = "devtools")]
+			traced_name: Arc::from(name),
 			#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
 			permissions: methods
 				.keys()
@@ -363,6 +383,10 @@ impl Bridge {
 						result: Err(Error::PermissionDenied),
 						lease: None,
 					};
+					#[cfg(feature = "devtools")]
+					if let Some(trace) = &mut slot.trace {
+						trace.denied();
+					}
 				}
 			}
 		}
@@ -408,6 +432,15 @@ impl Bridge {
 		{
 			slot.permission = Some(self.plugins[plugin.0 as usize].permissions[&method].clone());
 		}
+		#[cfg(feature = "devtools")]
+		{
+			slot.trace = Some(devtools::Trace::submitted(
+				id,
+				Arc::clone(&self.plugins[plugin.0 as usize].traced_name),
+				method,
+				payload.len(),
+			));
+		}
 		self.active += 1;
 		self.buffered_bytes += payload.len();
 		self.requests.push_back(Request {
@@ -428,6 +461,10 @@ impl Bridge {
 			.slot_mut(request.id)
 			.expect("queued request owns a call slot");
 		slot.call = Some(Call::Running);
+		#[cfg(feature = "devtools")]
+		if let Some(trace) = &mut slot.trace {
+			trace.running();
+		}
 		Some(request)
 	}
 
@@ -447,6 +484,8 @@ impl Bridge {
 		result: Result<Reply, Error>,
 	) -> Result<(), Error> {
 		if !matches!(self.call(id), Some(Call::Running)) {
+			#[cfg(feature = "devtools")]
+			self.trace_late(id);
 			return Err(Error::InvalidCall);
 		}
 
@@ -468,8 +507,12 @@ impl Bridge {
 			}
 			Err(error) => (Err(error), None),
 		};
-		self.slot_mut(id).expect("running call owns a slot").call =
-			Some(Call::Ready(ReadyReply { result, lease }));
+		let slot = self.slot_mut(id).expect("running call owns a slot");
+		#[cfg(feature = "devtools")]
+		if let Some(trace) = &mut slot.trace {
+			trace.answered(result.as_ref().ok().map(Bytes::len));
+		}
+		slot.call = Some(Call::Ready(ReadyReply { result, lease }));
 		Ok(())
 	}
 
@@ -501,6 +544,10 @@ impl Bridge {
 			return Ok(None);
 		}
 
+		#[cfg(feature = "devtools")]
+		if let Some(mut trace) = self.slot_mut(id).and_then(|slot| slot.trace.take()) {
+			trace.taken();
+		}
 		let Call::Ready(mut reply) = self.remove_call(id)? else {
 			unreachable!("result was checked above");
 		};
@@ -522,12 +569,22 @@ impl Bridge {
 	pub fn cancel(&mut self, id: CallId) -> Result<(), Error> {
 		match self.call(id) {
 			Some(Call::Running) => {
-				self.slot_mut(id).expect("running call owns a slot").call = Some(Call::Cancelled);
+				let slot = self.slot_mut(id).expect("running call owns a slot");
+				slot.call = Some(Call::Cancelled);
+				#[cfg(feature = "devtools")]
+				if let Some(trace) = &mut slot.trace {
+					trace.cancelled();
+				}
 				self.cancelled.push_back(id);
 				return Ok(());
 			}
 			Some(Call::Cancelled) | None => return Err(Error::InvalidCall),
 			Some(Call::Queued | Call::Ready(_)) => {}
+		}
+
+		#[cfg(feature = "devtools")]
+		if let Some(mut trace) = self.slot_mut(id).and_then(|slot| slot.trace.take()) {
+			trace.cancelled();
 		}
 
 		match self.remove_call(id)? {
@@ -551,6 +608,8 @@ impl Bridge {
 	/// until its resources are actually released.
 	pub fn next_cancelled(&mut self) -> Option<CallId> {
 		let id = self.cancelled.pop_front()?;
+		#[cfg(feature = "devtools")]
+		self.keep_cancelled_trace(id);
 		let call = self
 			.remove_call(id)
 			.expect("pending cancellation owns a slot");
@@ -645,6 +704,10 @@ impl Bridge {
 		{
 			slot.permission = None;
 		}
+		#[cfg(feature = "devtools")]
+		{
+			slot.trace = None;
+		}
 		// The slot's successive IDs differ by the capacity. This lets lookup
 		// use arithmetic instead of a map, without ever reusing a stale ID.
 		if let Some(next) =
@@ -657,6 +720,41 @@ impl Bridge {
 		}
 		self.active -= 1;
 		Ok(call)
+	}
+
+	/// Moves a cancelled call's timeline aside as the host takes the
+	/// cancellation, keeping the latest [`Limits::calls`] of them.
+	#[cfg(feature = "devtools")]
+	fn keep_cancelled_trace(&mut self, id: CallId) {
+		let Some(trace) = self.slot_mut(id).and_then(|slot| slot.trace.take()) else {
+			return;
+		};
+		if self.cancelled_traces.len() >= self.limits.calls {
+			self.cancelled_traces.pop_front();
+		}
+		if self.limits.calls > 0 {
+			self.cancelled_traces.push_back(trace);
+		}
+	}
+
+	/// Records an answer to a call the guest had cancelled, whether or not
+	/// the host has taken the cancellation yet. Other stale ids record
+	/// nothing.
+	#[cfg(feature = "devtools")]
+	fn trace_late(&mut self, id: CallId) {
+		if matches!(self.call(id), Some(Call::Cancelled)) {
+			if let Some(trace) = self.slot_mut(id).and_then(|slot| slot.trace.as_mut()) {
+				trace.completed_late();
+			}
+			return;
+		}
+		if let Some(trace) = self
+			.cancelled_traces
+			.iter_mut()
+			.find(|trace| trace.call == id)
+		{
+			trace.completed_late();
+		}
 	}
 
 	fn remove_queued_request(&mut self, id: CallId) {
