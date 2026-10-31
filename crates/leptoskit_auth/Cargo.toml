@@ -61,7 +61,7 @@ webauthn-rs-proto = "0.5.4"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 leptoskit_bridge = { workspace = true, optional = true }
-leptoskit_plugin_http = { workspace = true, optional = true, default-features = false, features = ["guest"] }
+leptoskit_plugin_http = { workspace = true, optional = true, features = ["guest"] }
 leptoskit_plugin_passkeys = { workspace = true, optional = true, features = ["guest"] }
 leptoskit_plugin_web_auth = { workspace = true, optional = true, features = ["guest"] }
 leptoskit_plugin_secure_store = { workspace = true, optional = true, features = ["guest"] }
