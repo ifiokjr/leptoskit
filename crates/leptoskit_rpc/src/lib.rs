@@ -105,7 +105,6 @@ pub use scopes::is_scope_name;
 pub use server::Identify;
 #[cfg(feature = "db")]
 pub use server::Identity;
-#[cfg(feature = "live")]
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use server::JobCx;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
