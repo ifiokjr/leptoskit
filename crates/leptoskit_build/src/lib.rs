@@ -7,13 +7,23 @@
 use std::fmt;
 use std::path::PathBuf;
 
-const PLATFORMS: [&str; 7] = ["web", "ios", "android", "macos", "windows", "linux", "tui"];
+const PLATFORMS: [&str; 8] = [
+	"web",
+	"ios",
+	"android",
+	"macos",
+	"windows",
+	"linux",
+	"tui",
+	"extension",
+];
 
 /// Configures platform module selection for the application being built.
 ///
-/// Features named `web`, `ios`, `android`, `macos`, `windows`, `linux`, and
-/// `tui`
-/// select the corresponding `.<platform>.rs` overrides. With no platform
+/// Features named `web`, `ios`, `android`, `macos`, `windows`, `linux`,
+/// `tui`, and `extension` select the corresponding `.<platform>.rs`
+/// overrides. An extension is built from the web client, so `extension`
+/// together with `web` selects `extension`. With no platform
 /// feature enabled, modules use their shared `.rs` source. Multiple platform
 /// features are rejected because native guests all target Wasm, so the Rust
 /// compilation target cannot identify which device the application is for.
@@ -128,6 +138,8 @@ fn select_platform(enabled: &[&'static str]) -> Result<&'static str, Error> {
 	match enabled {
 		[] => Ok("shared"),
 		[platform] => Ok(platform),
+		// The extension feature turns on the web client it is built from.
+		["web", "extension"] => Ok("extension"),
 		platforms => Err(Error::ConflictingPlatforms(platforms.to_vec())),
 	}
 }
@@ -146,6 +158,11 @@ mod tests {
 		for platform in PLATFORMS {
 			assert_eq!(select_platform(&[platform]).unwrap(), platform);
 		}
+	}
+
+	#[test]
+	fn an_extension_is_built_on_the_web_client() {
+		assert_eq!(select_platform(&["web", "extension"]).unwrap(), "extension");
 	}
 
 	#[test]

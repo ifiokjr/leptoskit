@@ -2,16 +2,17 @@
 
 A leptoskit app is one tree of components. The web renders it as HTML through leptos. Every other platform renders it with that platform's own widgets, laid out by leptoskit's layout engine. This page lists the platforms, how to build for each, and what each one doesn't do yet.
 
-| Platform  | Drawn with                          | Build command                        | Components in the app `leptoskit new` generates |
-| --------- | ----------------------------------- | ------------------------------------ | ----------------------------------------------- |
-| Web       | HTML and CSS, through leptos        | `leptoskit build --platform web`     | All                                             |
-| Windows   | Win32 common controls               | `leptoskit build --platform windows` | All                                             |
-| Linux     | GTK 4 widgets                       | `leptoskit build --platform linux`   | All                                             |
-| macOS     | AppKit (`NSView`, `NSButton`, …)    | `leptoskit build --platform macos`   | Nine (see below)                                |
-| iOS       | UIKit (`UIView`, `UIButton`, …)     | `leptoskit build --platform ios`     | Nine (see below)                                |
-| Android   | Android views (`View`, `Button`, …) | `leptoskit build --platform android` | Nine (see below)                                |
-| HarmonyOS | ArkUI components                    | `leptoskit native build harmonyos`   | Eight, experimental                             |
-| Terminal  | Characters in the terminal's cells  | `leptoskit build --platform tui`     | All except `Rive`                               |
+| Platform           | Drawn with                          | Build command                          | Components in the app `leptoskit new` generates |
+| ------------------ | ----------------------------------- | -------------------------------------- | ----------------------------------------------- |
+| Web                | HTML and CSS, through leptos        | `leptoskit build --platform web`       | All                                             |
+| Windows            | Win32 common controls               | `leptoskit build --platform windows`   | All                                             |
+| Linux              | GTK 4 widgets                       | `leptoskit build --platform linux`     | All                                             |
+| macOS              | AppKit (`NSView`, `NSButton`, …)    | `leptoskit build --platform macos`     | Nine (see below)                                |
+| iOS                | UIKit (`UIView`, `UIButton`, …)     | `leptoskit build --platform ios`       | Nine (see below)                                |
+| Android            | Android views (`View`, `Button`, …) | `leptoskit build --platform android`   | Nine (see below)                                |
+| HarmonyOS          | ArkUI components                    | `leptoskit native build harmonyos`     | Eight, experimental                             |
+| Terminal           | Characters in the terminal's cells  | `leptoskit build --platform tui`       | All except `Rive`                               |
+| Browser extensions | HTML and CSS, through leptos        | `leptoskit build --platform extension` | All                                             |
 
 macOS and iOS apps build on a Mac, the Windows app on Windows, and the Linux app on Linux. `leptoskit native build` takes the same platforms plus simulator and architecture variants: `ios-simulator`, `android-x86_64` for x86-64 emulators, and `harmonyos-x86_64`. [Host projects](host-projects.md) lists the tools each platform needs.
 

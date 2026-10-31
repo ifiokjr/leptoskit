@@ -1,0 +1,32 @@
+[package]
+name = "leptoskit_extension"
+version.workspace = true
+authors.workspace = true
+categories = ["web-programming", "wasm", "gui"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "browser-extension", "webextensions", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Browser extensions for leptoskit apps: the surfaces' runtime and typed WebExtensions APIs for Chromium, Firefox, and Safari."
+
+[dependencies]
+futures = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { workspace = true }
+leptos = { workspace = true, features = ["csr"] }
+leptoskit_native = { workspace = true, features = ["web"] }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = { workspace = true }
+
+[lints]
+workspace = true

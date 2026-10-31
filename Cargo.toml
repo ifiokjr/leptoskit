@@ -50,6 +50,7 @@ clap = "4"
 clap_complete = "4"
 console_error_panic_hook = "0.1"
 convert_case = "0.11"
+crc32fast = "1"
 crossterm = "0.29"
 deadpool-postgres = { version = "0.14", default-features = false }
 ed25519-dalek = "3"
@@ -156,6 +157,7 @@ leptoskit_db = { path = "crates/leptoskit_db", version = "0.1.0" }
 leptoskit_db_macros = { path = "crates/leptoskit_db_macros", version = "0.1.0" }
 leptoskit_db_schema = { path = "crates/leptoskit_db_schema", version = "0.1.0" }
 leptoskit_docs = { path = "crates/leptoskit_docs", version = "0.1.0" }
+leptoskit_extension = { path = "crates/leptoskit_extension", version = "0.1.0" }
 leptoskit_fmt = { path = "crates/leptoskit_fmt", version = "0.1.0" }
 leptoskit_form = { path = "crates/leptoskit_form", version = "0.1.0" }
 leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.0" }

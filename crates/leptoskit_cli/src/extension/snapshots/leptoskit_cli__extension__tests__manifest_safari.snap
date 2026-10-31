@@ -1,0 +1,81 @@
+---
+source: crates/leptoskit_cli/src/extension/tests.rs
+expression: manifest
+---
+{
+  "action": {
+    "default_icon": {
+      "128": "assets/icon-128.png",
+      "16": "assets/icon-16.png"
+    },
+    "default_popup": "popup.html",
+    "default_title": "Commonplace"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "commands": {
+    "clip": {
+      "description": "Clip the selection",
+      "suggested_key": {
+        "default": "Alt+Shift+C"
+      }
+    }
+  },
+  "content_scripts": [
+    {
+      "js": [
+        "content-docs.js"
+      ],
+      "matches": [
+        "https://docs.example.com/*"
+      ],
+      "run_at": "document_end"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "description": "Save quotes from the web into your research projects.",
+  "host_permissions": [
+    "https://commonplace.example.com/*",
+    "https://docs.example.com/*"
+  ],
+  "icons": {
+    "128": "assets/icon-128.png",
+    "16": "assets/icon-16.png"
+  },
+  "manifest_version": 3,
+  "name": "Commonplace",
+  "optional_host_permissions": [
+    "https://*/*"
+  ],
+  "options_ui": {
+    "open_in_tab": true,
+    "page": "options.html"
+  },
+  "permissions": [
+    "activeTab",
+    "alarms",
+    "contextMenus",
+    "notifications",
+    "scripting",
+    "storage"
+  ],
+  "version": "1.4.0",
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "<all_urls>",
+        "https://docs.example.com/*"
+      ],
+      "resources": [
+        "overlay.html",
+        "overlay.js",
+        "pkg/*",
+        "assets/*"
+      ]
+    }
+  ]
+}

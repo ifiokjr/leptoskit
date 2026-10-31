@@ -14,9 +14,14 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde::Serialize;
 
+pub mod extension;
 pub mod migration;
 #[cfg(feature = "schema")]
 pub mod schema;
+
+pub use extension::Browser;
+pub use extension::ContentScript;
+pub use extension::ExtensionConfig;
 
 /// The file leptoskit looks for at a project root.
 pub const CONFIG_FILE: &str = "leptoskit.toml";
@@ -75,6 +80,10 @@ pub struct LeptoskitConfig {
 	/// Sign-in. Present when the app uses `leptoskit::auth`.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub auth: Option<AuthConfig>,
+	/// The browser extension. Present when `extension` is one of the app's
+	/// platforms.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub extension: Option<ExtensionConfig>,
 	/// The leptos and leptoskit plugins activated for this project.
 	pub plugins: Vec<PluginSpec>,
 	/// How `leptoskit format` lays out markup. Omitted from serialized
@@ -102,6 +111,7 @@ impl Default for LeptoskitConfig {
 			l10n: None,
 			db: None,
 			auth: None,
+			extension: None,
 			plugins: Vec::new(),
 			format: FormatConfig::default(),
 			lint: LintConfig::default(),
@@ -206,6 +216,9 @@ pub enum Platform {
 	Harmonyos,
 	/// A terminal application: the shared tree in an interactive cell grid.
 	Tui,
+	/// A browser extension for Chromium, Firefox, and Safari, built from the
+	/// web client and configured in `[extension]`.
+	Extension,
 	/// Native apps: wasm UI bundle on platform shells.
 	Native,
 	/// The server binary only.
@@ -235,6 +248,7 @@ impl Platform {
 			Self::Linux => Some("linux"),
 			Self::Harmonyos => Some("harmonyos"),
 			Self::Tui => Some("tui"),
+			Self::Extension => Some("extension"),
 			Self::Native | Self::Server => None,
 		}
 	}
@@ -266,6 +280,7 @@ impl fmt::Display for Platform {
 			Self::Linux => f.write_str("linux"),
 			Self::Harmonyos => f.write_str("harmonyos"),
 			Self::Tui => f.write_str("tui"),
+			Self::Extension => f.write_str("extension"),
 			Self::Native => f.write_str("native"),
 			Self::Server => f.write_str("server"),
 		}
@@ -285,6 +300,7 @@ impl std::str::FromStr for Platform {
 			"linux" => Ok(Self::Linux),
 			"harmonyos" => Ok(Self::Harmonyos),
 			"tui" => Ok(Self::Tui),
+			"extension" => Ok(Self::Extension),
 			"native" => Ok(Self::Native),
 			"server" => Ok(Self::Server),
 			other => Err(ConfigError::UnknownPlatform(other.to_owned())),
@@ -1412,6 +1428,10 @@ impl LeptoskitConfig {
 	///   of order, or both or half of a mailer.
 	/// - [`ConfigError::UnselectedPluginOptions`] when native plugin options
 	///   name a plugin not granted in `native.plugins`.
+	/// - [`ConfigError::InvalidExtension`] when `[extension]` is missing for
+	///   the `extension` platform, has no surface, names a route or match
+	///   pattern that can't work, lacks Firefox's add-on ID or the package ID
+	///   Safari needs, or is combined with code push.
 	pub fn validate(&self) -> Result<(), ConfigError> {
 		if self.schema_version != SCHEMA_VERSION {
 			return Err(ConfigError::SchemaVersion(self.schema_version));
@@ -1521,6 +1541,27 @@ impl LeptoskitConfig {
 		}
 		if let Some(problem) = self.auth.as_ref().and_then(AuthConfig::problem) {
 			return Err(ConfigError::InvalidAuth(problem));
+		}
+		let builds_extension = self.app.platforms.contains(&Platform::Extension);
+		match &self.extension {
+			Some(extension) => {
+				if let Some(problem) = extension.problem(&self.native.package_id) {
+					return Err(ConfigError::InvalidExtension(problem));
+				}
+			}
+			None if builds_extension => {
+				return Err(ConfigError::InvalidExtension(
+					"app.platforms has `extension`, so add an [extension] table".into(),
+				));
+			}
+			None => {}
+		}
+		if builds_extension && self.codepush.enabled {
+			return Err(ConfigError::InvalidExtension(
+				"extension stores forbid code downloaded after review, so code push can't be on \
+				 while app.platforms has `extension`"
+					.into(),
+			));
 		}
 		Ok(())
 	}
@@ -1634,7 +1675,7 @@ pub enum ConfigError {
 	/// An unknown platform was requested.
 	#[error(
 		"unknown platform `{0}`; expected web, ios, android, macos, windows, linux, harmonyos, \
-		 native, or server"
+		 tui, extension, native, or server"
 	)]
 	UnknownPlatform(String),
 	/// An unknown database dialect was requested.
@@ -1730,6 +1771,9 @@ pub enum ConfigError {
 	/// `[auth]` can't work as written.
 	#[error("invalid [auth]: {0}")]
 	InvalidAuth(String),
+	/// `[extension]` can't work as written.
+	#[error("invalid [extension]: {0}")]
+	InvalidExtension(String),
 	/// An IO error.
 	#[error("io error")]
 	Io(#[from] std::io::Error),
