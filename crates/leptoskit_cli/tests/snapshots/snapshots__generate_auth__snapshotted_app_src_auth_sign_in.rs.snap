@@ -5,20 +5,38 @@ expression: contents
 //! The sign-in screen: an email address, then the code emailed to it. The
 //! same two steps sign up an address that has no account yet, so there's no
 //! separate sign-up screen. An account with two-step verification turned on
-//! gets a third step: a code from its authenticator app, or a recovery code.
+//! gets a third step: a passkey, a code from its authenticator app, or a
+//! recovery code.
+//!
+//! A passkey signs in on its own: from the button, or, in a browser that
+//! offers them, from the email field's suggestions as soon as the screen
+//! opens. Each provider the server set up gets a "Continue with …" button.
+//! Native apps answer `unsupported` to both for now, and the screen says so
+//! only when the person asked.
 
 use std::time::Duration;
 
 use leptoskit::auth::ErrorResponse;
 use leptoskit::auth::Factor;
+use leptoskit::auth::ProviderInfo;
+use leptoskit::auth::ProviderOutcome;
 use leptoskit::auth::PublicSession;
+use leptoskit::auth::StartProvider;
 use leptoskit::auth::client::EmailCode;
+use leptoskit::auth::client::PasskeyMode;
 use leptoskit::auth::client::SecondFactorPrompt;
 use leptoskit::auth::client::SignInStep;
+use leptoskit::auth::client::cancel_passkey_sign_in;
 use leptoskit::auth::client::complete_sign_in;
+use leptoskit::auth::client::complete_sign_in_with_passkey;
+use leptoskit::auth::client::continue_provider_sign_up;
+use leptoskit::auth::client::passkey_sign_in;
+use leptoskit::auth::client::provider_outcome;
 use leptoskit::auth::client::send_code;
+use leptoskit::auth::client::sign_in_with_provider;
 use leptoskit::auth::client::sign_out_mutation;
 use leptoskit::auth::client::use_auth;
+use leptoskit::auth::client::use_providers;
 use leptoskit::auth::client::verify_code;
 use leptoskit::leptos::prelude::Effect;
 use leptoskit::leptos::prelude::Get;
@@ -49,6 +67,11 @@ pub struct SignIn {
 	problem: RwSignal<Option<String>>,
 	/// Seconds until the server takes another attempt, after `rate_limited`.
 	wait: RwSignal<u64>,
+	/// How a third-party sign-in that just came back ended.
+	outcome: RwSignal<Option<ProviderOutcome>>,
+	/// Whether the person pressed the passkey button, so its failure is worth
+	/// saying. The autofill request fails quietly.
+	asked_for_passkey: RwSignal<bool>,
 	/// Whether the screen has mounted in the browser or a native app. Until
 	/// then it says it's checking, so a page rendered on the server matches
 	/// the browser's first render, however quickly the session arrives.
@@ -57,6 +80,11 @@ pub struct SignIn {
 	send: MutationHandle<String, (), ErrorResponse>,
 	verify: MutationHandle<EmailCode, SignInStep, ErrorResponse>,
 	finish: MutationHandle<String, PublicSession, ErrorResponse>,
+	passkey: MutationHandle<PasskeyMode, PublicSession, ErrorResponse>,
+	passkey_second: MutationHandle<(), PublicSession, ErrorResponse>,
+	providers: QueryHandle<Vec<ProviderInfo>, ErrorResponse>,
+	provider: MutationHandle<StartProvider, (), ErrorResponse>,
+	separately: MutationHandle<(), PublicSession, ErrorResponse>,
 	sign_out: MutationHandle<(), (), ErrorResponse>,
 }
 
@@ -65,22 +93,47 @@ impl SignIn {
 	/// `QueryClient`.
 	pub fn new() -> Self {
 		let mounted = RwSignal::new(false);
-		// Effects never run while the server renders.
-		Effect::new(move |_| mounted.set(true));
+		let outcome = RwSignal::new(None);
+		let passkey = use_mutation(passkey_sign_in());
+		let second = RwSignal::new(None);
+		// Effects never run while the server renders. On mount, the screen
+		// reads how a provider sign-in ended, and offers saved passkeys in
+		// the email field's suggestions, where the browser can.
+		Effect::new(move |_| {
+			mounted.set(true);
+			let came_back = provider_outcome();
+
+			if let Some(ProviderOutcome::SecondFactor(factors)) = &came_back {
+				second.set(Some(SecondFactorPrompt {
+					factors: factors.clone(),
+					expires_in: 300,
+				}));
+			}
+
+			outcome.set(came_back);
+			passkey.mutate(PasskeyMode::Autofill);
+		});
 
 		Self {
 			email: RwSignal::new(String::new()),
 			code: RwSignal::new(String::new()),
 			sent_to: RwSignal::new(None),
 			factor_code: RwSignal::new(String::new()),
-			second: RwSignal::new(None),
+			second,
 			problem: RwSignal::new(None),
 			wait: RwSignal::new(0),
+			outcome,
+			asked_for_passkey: RwSignal::new(false),
 			mounted,
 			session: use_auth(),
 			send: use_mutation(send_code()),
 			verify: use_mutation(verify_code()),
 			finish: use_mutation(complete_sign_in()),
+			passkey,
+			passkey_second: use_mutation(complete_sign_in_with_passkey()),
+			providers: use_providers(),
+			provider: use_mutation(sign_in_with_provider()),
+			separately: use_mutation(continue_provider_sign_up()),
 			sign_out: use_mutation(sign_out_mutation()),
 		}
 	}
@@ -114,10 +167,11 @@ impl SignIn {
 		let step = match session {
 			Some(Some(_)) => self.signed_in(),
 			Some(None) => {
-				match (self.second.get(), self.sent_to.get()) {
-					(Some(prompt), _) => self.second_step(&prompt),
-					(None, Some(email)) => self.code_step(&email),
-					(None, None) => self.email_step(),
+				match (self.second.get(), self.sent_to.get(), self.outcome.get()) {
+					(Some(prompt), ..) => self.second_step(&prompt),
+					(None, Some(email), _) => self.code_step(&email),
+					(None, None, Some(ProviderOutcome::EmailInUse)) => self.email_in_use(),
+					(None, None, _) => self.email_step(),
 				}
 			}
 			None => {
@@ -164,18 +218,112 @@ impl SignIn {
 					.id("sign-in-email")
 					.aria_label("Email address")
 					.aria_required(true)
+					// Offers saved passkeys in the field's suggestions.
+					.autocomplete("username webauthn")
 					.placeholder("you@example.com")
 					.value(email.get_untracked())
 					.on_change(move |text| email.set(text.to_owned()))
 					.class("h-11 rounded-lg px-3 bg-white text-slate-900"),
 			)
 			.children(self.message(self.send.error()))
+			.children(self.came_back())
 			.child(
 				Button(label)
 					.enabled(!sending && self.wait.get() == 0)
 					.aria_busy(sending)
 					.on_press(move || this.send_code())
 					.class("rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
+			)
+			.child(self.other_ways())
+	}
+
+	/// Signing in without email: a passkey, or a provider's account.
+	fn other_ways(&self) -> Element {
+		let this = *self;
+		let signing_in = self.passkey.is_pending() && self.asked_for_passkey.get();
+		let mut ways = View()
+			.class("gap-2")
+			.child(
+				Button(if signing_in {
+					"Waiting for your passkey…"
+				} else {
+					"Sign in with a passkey"
+				})
+				.enabled(!signing_in)
+				.aria_busy(signing_in)
+				.on_press(move || this.sign_in_with_passkey())
+				.class("rounded-lg bg-slate-700 px-4 py-3 font-semibold"),
+			)
+			.children(
+				self.passkey
+					.error()
+					.filter(|_| self.asked_for_passkey.get())
+					.map(|error| Alert(passkey_problem(&error)).class("text-sm text-rose-300")),
+			);
+
+		for provider in self.providers.data().unwrap_or_default() {
+			let id = provider.id.clone();
+			ways = ways.child(
+				Button(format!("Continue with {}", provider.name))
+					.enabled(!self.provider.is_pending())
+					.on_press(move || this.continue_with(&id))
+					.class("rounded-lg bg-slate-700 px-4 py-3 font-semibold"),
+			);
+		}
+
+		ways.children(
+			self.provider
+				.error()
+				.map(|error| Alert(passkey_problem(&error)).class("text-sm text-rose-300")),
+		)
+	}
+
+	/// What a provider sign-in that came back with a problem says.
+	fn came_back(&self) -> Option<Element> {
+		match self.outcome.get()? {
+			ProviderOutcome::Failed(code) => {
+				Some(Alert(provider_failure(&code)).class("text-sm text-rose-300"))
+			}
+			_ => None,
+		}
+	}
+
+	/// The provider's address is another account's: sign in to that one, or
+	/// make a separate account.
+	fn email_in_use(&self) -> Element {
+		let this = *self;
+		let creating = self.separately.is_pending();
+
+		View()
+			.class("gap-3")
+			.child(
+				Status(
+					"An account with that email address already exists. Sign in to it with your \
+					 email to connect this sign-in from its security settings, or continue with a \
+					 separate account.",
+				)
+				.class("text-sm text-slate-300"),
+			)
+			.children(
+				self.separately
+					.error()
+					.map(|error| Alert(sentence(&error.message)).class("text-sm text-rose-300")),
+			)
+			.child(
+				Button("Sign in with my email")
+					.on_press(move || this.outcome.set(None))
+					.class("rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
+			)
+			.child(
+				Button(if creating {
+					"Creating…"
+				} else {
+					"Continue with a separate account"
+				})
+				.enabled(!creating)
+				.aria_busy(creating)
+				.on_press(move || this.separately.mutate(()))
+				.class("rounded-lg bg-slate-700 px-4 py-3 font-semibold"),
 			)
 	}
 
@@ -245,7 +393,11 @@ impl SignIn {
 			0 => "Continue".to_owned(),
 			seconds => format!("Try again in {seconds} s"),
 		};
-		let hint = if prompt.factors.contains(&Factor::RecoveryCode) {
+		let passkey = prompt.factors.contains(&Factor::Passkey);
+		let using_passkey = self.passkey_second.is_pending();
+		let hint = if !prompt.factors.contains(&Factor::Totp) {
+			"Use your passkey, or enter one of your recovery codes."
+		} else if prompt.factors.contains(&Factor::RecoveryCode) {
 			"Enter the 6-digit code from your authenticator app. Lost your phone? Enter one of \
 			 your recovery codes instead."
 		} else {
@@ -273,6 +425,22 @@ impl SignIn {
 					.aria_busy(finishing)
 					.on_press(move || this.complete())
 					.class("rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
+			)
+			.children(passkey.then(|| {
+				Button(if using_passkey {
+					"Waiting for your passkey…"
+				} else {
+					"Use a passkey"
+				})
+				.enabled(!using_passkey)
+				.aria_busy(using_passkey)
+				.on_press(move || this.complete_with_passkey())
+				.class("rounded-lg bg-slate-700 px-4 py-3 font-semibold")
+			}))
+			.children(
+				self.passkey_second
+					.error()
+					.map(|error| Alert(passkey_problem(&error)).class("text-sm text-rose-300")),
 			)
 			.child(
 				Button("Start again")
@@ -334,7 +502,35 @@ impl SignIn {
 		Some(Alert(text).class("text-sm text-rose-300"))
 	}
 
+	fn sign_in_with_passkey(&self) {
+		self.asked_for_passkey.set(true);
+		self.passkey.mutate(PasskeyMode::Prompt);
+	}
+
+	fn continue_with(&self, provider: &str) {
+		cancel_passkey_sign_in();
+		self.provider.mutate(StartProvider {
+			provider: provider.to_owned(),
+			redirect_to: None,
+		});
+	}
+
+	fn complete_with_passkey(&self) {
+		let this = *self;
+		self.passkey_second.mutate_with(
+			(),
+			MutateCallbacks::new()
+				.on_success(move |_| this.second.set(None))
+				.on_error(move |failed: ErrorArgs<ErrorResponse, (), ()>| {
+					if failed.error.error == "sign_in_expired" {
+						this.start_over();
+					}
+				}),
+		);
+	}
+
 	fn send_code(&self) {
+		cancel_passkey_sign_in();
 		let email = self.email.get_untracked().trim().to_owned();
 
 		if !looks_like_email(&email) {
@@ -425,9 +621,11 @@ impl SignIn {
 		self.sent_to.set(None);
 		self.second.set(None);
 		self.problem.set(None);
+		self.outcome.set(None);
 		self.send.reset();
 		self.verify.reset();
 		self.finish.reset();
+		self.passkey_second.reset();
 	}
 }
 
@@ -467,6 +665,28 @@ pub fn retry_after(error: &ErrorResponse) -> Option<u64> {
 	} else {
 		None
 	}
+}
+
+/// What a passkey or provider failure says to the person.
+pub fn passkey_problem(error: &ErrorResponse) -> String {
+	match error.error.as_str() {
+		"cancelled" => "No passkey was used.".to_owned(),
+		"unsupported" => "This device can't use that yet. Use your email instead.".to_owned(),
+		_ => sentence(&error.message),
+	}
+}
+
+/// What a provider sign-in that came back failed says to the person.
+pub fn provider_failure(code: &str) -> String {
+	match code {
+		"cancelled" => "Signing in was cancelled.",
+		"sign_in_expired" => "That took too long. Try again.",
+		"disabled" => "This account is disabled.",
+		"locked" => "This account is locked for a while after too many attempts.",
+		"unknown_provider" => "That sign-in isn't set up.",
+		_ => "Signing in with that account didn't work. Try again.",
+	}
+	.to_owned()
 }
 
 /// Whether `email` is worth sending to the server, which checks it properly.
@@ -520,6 +740,21 @@ mod tests {
 		assert!(!looks_like_email("@example.com"));
 		assert!(!looks_like_email("ada@localhost"));
 		assert!(!looks_like_email("ada @example.com"));
+	}
+
+	#[test]
+	fn failures_are_explained_in_words() {
+		assert_eq!(
+			passkey_problem(&refusal("cancelled", None)),
+			"No passkey was used."
+		);
+		assert!(passkey_problem(&refusal("unsupported", None)).contains("Use your email"));
+		assert_eq!(
+			passkey_problem(&refusal("passkey_failed", None)),
+			"Too many attempts; try again in 30 seconds."
+		);
+		assert_eq!(provider_failure("cancelled"), "Signing in was cancelled.");
+		assert!(provider_failure("provider").contains("didn't work"));
 	}
 
 	#[test]

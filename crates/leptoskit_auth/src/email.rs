@@ -68,6 +68,7 @@ impl Auth {
 				purpose: Purpose::EmailCode,
 				subject: address.to_string(),
 				secret_hash: hash,
+				state: None,
 				attempts: 0,
 				expires_at,
 				used_at: None,

@@ -65,6 +65,17 @@ pub(crate) struct Inner {
 	pub dev_mailbox: Option<crate::Mailbox>,
 	/// Whether `/auth/dev/sign-in` signs anyone in without a code.
 	pub dev_sign_in: bool,
+	/// Who must have a second factor.
+	pub mfa: MfaPolicy,
+	/// The app's roles for an account, for [`MfaPolicy::required_for`].
+	pub roles: Option<RolesHook>,
+	/// The WebAuthn relying party: the origin's host. `None` without an
+	/// origin, and then passkeys answer a configuration error.
+	#[cfg(feature = "passkey")]
+	pub webauthn: Option<webauthn_rs::Webauthn>,
+	/// The third-party sign-in providers.
+	#[cfg(feature = "oauth")]
+	pub providers: crate::oauth::Providers,
 }
 
 impl Auth {
@@ -84,6 +95,12 @@ impl Auth {
 			client_ip_header: None,
 			dev_mailbox: None,
 			dev_sign_in: false,
+			mfa: MfaPolicy::default(),
+			roles: None,
+			#[cfg(feature = "oauth")]
+			providers: Vec::new(),
+			#[cfg(feature = "oauth")]
+			provider_http: None,
 		}
 	}
 
@@ -118,6 +135,12 @@ pub struct AuthBuilder {
 	client_ip_header: Option<String>,
 	dev_mailbox: Option<crate::Mailbox>,
 	dev_sign_in: bool,
+	mfa: MfaPolicy,
+	roles: Option<RolesHook>,
+	#[cfg(feature = "oauth")]
+	providers: Vec<crate::oauth::Provider>,
+	#[cfg(feature = "oauth")]
+	provider_http: Option<Arc<dyn crate::oauth::ProviderHttp>>,
 }
 
 impl std::fmt::Debug for AuthBuilder {
@@ -204,6 +227,37 @@ impl AuthBuilder {
 		self
 	}
 
+	/// Who must have a second factor: everyone, or people with certain
+	/// roles. Until they have one, their sessions may only set one up.
+	pub fn mfa(mut self, policy: MfaPolicy) -> Self {
+		self.mfa = policy;
+		self
+	}
+
+	/// Reads an account's roles with `R::roles`, for
+	/// [`MfaPolicy::required_for`].
+	pub fn roles<R: Roles + 'static>(mut self) -> Self {
+		self.roles = Some(|db, account| Box::pin(R::roles(db, account)));
+		self
+	}
+
+	/// Adds a third-party sign-in provider, such as
+	/// [`Provider::google`](crate::Provider::google).
+	#[cfg(feature = "oauth")]
+	pub fn provider(mut self, provider: crate::oauth::Provider) -> Self {
+		self.providers.retain(|existing| existing.id != provider.id);
+		self.providers.push(provider);
+		self
+	}
+
+	/// Sends the providers' requests through `http` instead of the network,
+	/// for tests.
+	#[cfg(feature = "oauth")]
+	pub fn provider_http(mut self, http: impl crate::oauth::ProviderHttp) -> Self {
+		self.provider_http = Some(Arc::new(http));
+		self
+	}
+
 	/// Runs `U::on_sign_up` whenever an account is created, so the app's
 	/// user row exists from the first request.
 	pub fn on_sign_up<U: OnSignUp + 'static>(mut self) -> Self {
@@ -215,11 +269,30 @@ impl AuthBuilder {
 	///
 	/// # Errors
 	///
-	/// [`AuthError::Config`] without a mailer.
+	/// [`AuthError::Config`] without a mailer, when roles require a second
+	/// factor but nothing reads them, or when the origin can't be a passkey
+	/// relying party.
 	pub fn build(self) -> Result<Auth> {
 		let mailer = self.mailer.ok_or_else(|| {
 			AuthError::Config("set a mailer, such as `Mailbox::new()` in development".into())
 		})?;
+
+		if !self.mfa.required_for.is_empty() && self.roles.is_none() {
+			return Err(AuthError::Config(
+				"`required_for` names roles; tell sign-in how to read them with \
+				 `AuthBuilder::roles`"
+					.into(),
+			));
+		}
+
+		#[cfg(feature = "passkey")]
+		let webauthn = self
+			.origin
+			.as_deref()
+			.map(|origin| crate::passkeys::relying_party(origin, &self.app_name))
+			.transpose()?;
+		#[cfg(feature = "oauth")]
+		let providers = crate::oauth::Providers::new(self.providers, self.provider_http);
 		let limiter = self
 			.limiter
 			.unwrap_or_else(|| Arc::new(DbRateLimiter::new(&self.db)));
@@ -239,6 +312,12 @@ impl AuthBuilder {
 				client_ip_header: self.client_ip_header,
 				dev_mailbox: self.dev_mailbox,
 				dev_sign_in: self.dev_sign_in,
+				mfa: self.mfa,
+				roles: self.roles,
+				#[cfg(feature = "passkey")]
+				webauthn,
+				#[cfg(feature = "oauth")]
+				providers,
 			}),
 		})
 	}
@@ -407,6 +486,64 @@ pub trait OnSignUp {
 		profile: &Profile,
 	) -> impl Future<Output = Result<()>> + Send;
 }
+
+/// Who must have a second factor. The default asks no one: people turn
+/// it on themselves, and sensitive actions ask for step-up.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MfaPolicy {
+	/// Everyone must.
+	pub required: bool,
+	/// People with any of these roles must, as [`Roles`] reads them.
+	pub required_for: Vec<String>,
+}
+
+impl MfaPolicy {
+	/// Everyone must have a second factor.
+	pub fn required() -> Self {
+		Self {
+			required: true,
+			required_for: Vec::new(),
+		}
+	}
+
+	/// People with any of `roles` must have a second factor.
+	pub fn required_for<R: Into<String>>(roles: impl IntoIterator<Item = R>) -> Self {
+		Self {
+			required: false,
+			required_for: roles.into_iter().map(Into::into).collect(),
+		}
+	}
+
+	/// Whether nobody has to.
+	pub(crate) fn optional(&self) -> bool {
+		!self.required && self.required_for.is_empty()
+	}
+}
+
+/// Reads an account's roles, such as `"Admin"`, for
+/// [`MfaPolicy::required_for`]. Sign-in calls it for sessions that haven't
+/// used a second factor, so it should be one indexed query.
+///
+/// ```ignore
+/// impl auth::Roles for User {
+/// 	async fn roles(db: &Db, account: Id<auth::Account>) -> auth::Result<Vec<String>> {
+/// 		let user = User::get(db, account.into()).await?;
+/// 		Ok(vec![user.role.to_string()])
+/// 	}
+/// }
+/// ```
+///
+/// The `Db` bypasses policies.
+pub trait Roles {
+	/// The roles `account` has.
+	fn roles(db: &Db, account: Id<Account>) -> impl Future<Output = Result<Vec<String>>> + Send;
+}
+
+pub(crate) type RolesHook =
+	for<'a> fn(
+		&'a Db,
+		Id<Account>,
+	) -> Pin<Box<dyn Future<Output = Result<Vec<String>>> + Send + 'a>>;
 
 pub(crate) type SignUpHook = for<'a> fn(
 	&'a Tx,

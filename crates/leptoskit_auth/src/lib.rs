@@ -10,13 +10,30 @@
 //!   creates it, and never says which addresses have accounts.
 //! - **Second factors:** an authenticator app (TOTP) with recovery codes, asked
 //!   for after the email code once an account turns it on, and step-up, which
-//!   sensitive actions ask for again.
+//!   sensitive actions ask for again. Passkeys count as both factors at once,
+//!   and can be required for everyone or for certain roles.
+//! - **Passkeys** (the `passkey` feature): WebAuthn on the web, through
+//!   `webauthn-rs`, with ceremony state sealed on the server.
+//! - **Third-party sign-in** (the `oauth` feature): Google, Apple, Microsoft,
+//!   GitHub, and any OpenID Connect provider, identified by the provider's
+//!   subject, never an email address; with linking, unlinking, and merging
+//!   accounts.
 //! - **[`SignedIn`]:** the signed-in person, as access policies read them:
 //!   `cx.signed_in(|me| post.author_id.eq(me.user_id()))`.
 //!
 //! The tables, [`SignedIn`], and the public row types work everywhere. The
 //! service itself, [`Auth`], needs the `server` feature and a database:
 //! `postgres` or `sqlite`.
+
+// The shared test helpers name this crate as an outside test would.
+#[cfg(all(
+	test,
+	feature = "passkey",
+	feature = "client",
+	feature = "axum",
+	feature = "sqlite"
+))]
+extern crate self as leptoskit_auth;
 
 mod api;
 #[cfg(feature = "client")]
@@ -47,6 +64,26 @@ mod mail;
 mod mailers;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod mfa;
+#[cfg(all(feature = "oauth", any(feature = "postgres", feature = "sqlite")))]
+#[cfg_attr(
+	not(feature = "axum"),
+	allow(dead_code, reason = "the provider routes finish the flows")
+)]
+mod oauth;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+#[cfg_attr(
+	not(all(feature = "axum", feature = "passkey")),
+	allow(dead_code, reason = "the ceremonies and their routes use it")
+)]
+mod passkeys;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+#[cfg_attr(
+	not(all(feature = "axum", feature = "oauth")),
+	allow(dead_code, reason = "the provider routes finish the flows")
+)]
+mod providers;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod rotate;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod secrets;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -62,11 +99,15 @@ pub use auth::AuthBuilder;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use auth::CodeRules;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use auth::MfaPolicy;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use auth::OnSignUp;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use auth::Profile;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use auth::RequestInfo;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use auth::Roles;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use auth::SessionLifetimes;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -115,6 +156,30 @@ pub use mfa::SecondFactorChallenge;
 pub use mfa::SignInStep;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use mfa::TotpConfirmed;
+#[cfg(all(feature = "oauth", any(feature = "postgres", feature = "sqlite")))]
+pub use oauth::Provider;
+#[cfg(all(feature = "oauth", any(feature = "postgres", feature = "sqlite")))]
+pub use oauth::ProviderFuture;
+#[cfg(all(feature = "oauth", any(feature = "postgres", feature = "sqlite")))]
+pub use oauth::ProviderHttp;
+#[cfg(all(feature = "oauth", any(feature = "postgres", feature = "sqlite")))]
+pub use oauth::ProviderRequest;
+#[cfg(all(feature = "oauth", any(feature = "postgres", feature = "sqlite")))]
+pub use oauth::ProviderResponse;
+#[cfg(all(feature = "oauth", any(feature = "postgres", feature = "sqlite")))]
+pub use oauth::ProviderStart;
+#[cfg(all(feature = "oauth", any(feature = "postgres", feature = "sqlite")))]
+pub use oauth::VERIFIED as PROVIDERS_VERIFIED;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use passkeys::PasskeyAdded;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use passkeys::PasskeyChallenge;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use providers::CallbackParams;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use providers::ProviderResult;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use rotate::Rotated;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use secrets::Keys;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]

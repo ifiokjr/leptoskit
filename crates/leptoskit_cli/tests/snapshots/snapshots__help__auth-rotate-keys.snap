@@ -1,0 +1,12 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Re-encrypts stored secrets under the newest key in the keys variable, so older keys can be retired
+
+Usage: leptoskit auth rotate-keys [OPTIONS]
+
+Options:
+      --url <URL>  The database URL; defaults to the variable `db.url_env` names
+  -h, --help       Print help
+  -V, --version    Print version
