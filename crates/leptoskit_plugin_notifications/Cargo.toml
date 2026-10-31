@@ -24,7 +24,7 @@ guest = ["leptoskit_bridge/guest"]
 [dependencies]
 leptoskit_bridge = { workspace = true }
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(all(target_os = "linux", not(target_env = "ohos")))'.dependencies]
 dbus = { version = "0.9.12", features = ["vendored"] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]

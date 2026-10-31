@@ -294,7 +294,7 @@ impl Channel {
 
 #[cfg(all(target_arch = "wasm32", feature = "guest"))]
 pub mod guest;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 pub mod linux;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown", not(feature = "guest")))]
 pub mod web;

@@ -127,7 +127,11 @@ pub fn decode_secret(response: &[u8]) -> Result<Option<&[u8]>, Error> {
 	}
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(
+	target_os = "macos",
+	target_os = "windows",
+	all(target_os = "linux", not(target_env = "ohos"))
+))]
 mod desktop {
 	use std::sync::Mutex;
 
@@ -556,7 +560,11 @@ mod desktop {
 	}
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(
+	target_os = "macos",
+	target_os = "windows",
+	all(target_os = "linux", not(target_env = "ohos"))
+))]
 pub use desktop::SecureStore;
 
 /// Browser environments have no supported OS credential-store backend.
@@ -631,7 +639,11 @@ pub mod guest {
 #[cfg(all(
 	feature = "async-storage",
 	any(
-		any(target_os = "macos", target_os = "windows", target_os = "linux"),
+		any(
+			target_os = "macos",
+			target_os = "windows",
+			all(target_os = "linux", not(target_env = "ohos"))
+		),
 		all(target_arch = "wasm32", feature = "guest")
 	)
 ))]
@@ -639,7 +651,11 @@ mod async_storage;
 #[cfg(all(
 	feature = "async-storage",
 	any(
-		any(target_os = "macos", target_os = "windows", target_os = "linux"),
+		any(
+			target_os = "macos",
+			target_os = "windows",
+			all(target_os = "linux", not(target_env = "ohos"))
+		),
 		all(target_arch = "wasm32", feature = "guest")
 	)
 ))]
@@ -647,7 +663,11 @@ pub use async_storage::Backend;
 #[cfg(all(
 	feature = "async-storage",
 	any(
-		any(target_os = "macos", target_os = "windows", target_os = "linux"),
+		any(
+			target_os = "macos",
+			target_os = "windows",
+			all(target_os = "linux", not(target_env = "ohos"))
+		),
 		all(target_arch = "wasm32", feature = "guest")
 	)
 ))]
@@ -655,7 +675,11 @@ pub use async_storage::SecureStorage;
 #[cfg(all(
 	feature = "async-storage",
 	any(
-		any(target_os = "macos", target_os = "windows", target_os = "linux"),
+		any(
+			target_os = "macos",
+			target_os = "windows",
+			all(target_os = "linux", not(target_env = "ohos"))
+		),
 		all(target_arch = "wasm32", feature = "guest")
 	)
 ))]

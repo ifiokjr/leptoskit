@@ -45,7 +45,11 @@ pub struct Snapshot {
 impl Snapshot {
 	/// Capture once at application startup. Mobile and web return Unavailable.
 	pub fn capture() -> Result<Self, Error> {
-		#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+		#[cfg(any(
+			target_os = "macos",
+			all(target_os = "linux", not(target_env = "ohos")),
+			target_os = "windows"
+		))]
 		{
 			let mut args = std::env::args_os();
 			let program = args.next().ok_or(Error::MissingProgram)?;
@@ -62,7 +66,11 @@ impl Snapshot {
 			}
 			Self::new(program, arguments)
 		}
-		#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+		#[cfg(not(any(
+			target_os = "macos",
+			all(target_os = "linux", not(target_env = "ohos")),
+			target_os = "windows"
+		)))]
 		{
 			Err(Error::Unavailable)
 		}

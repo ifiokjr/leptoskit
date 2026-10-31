@@ -168,7 +168,7 @@ impl GlobalShortcuts {
 		if objc2::MainThreadMarker::new().is_none() {
 			return Err(Error::WrongThread);
 		}
-		#[cfg(target_os = "linux")]
+		#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 		if std::env::var_os("WAYLAND_DISPLAY").is_some()
 			|| std::env::var("XDG_SESSION_TYPE").is_ok_and(|value| value == "wayland")
 		{

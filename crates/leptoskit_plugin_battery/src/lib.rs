@@ -145,7 +145,11 @@ impl Snapshot {
 /// Desktop APIs use the operating system's battery enumeration. Query off the
 /// UI thread if disk/device latency matters; power-save mode is not inferred
 /// from battery percentage.
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(
+	target_os = "macos",
+	target_os = "windows",
+	all(target_os = "linux", not(target_env = "ohos"))
+))]
 pub mod desktop {
 	use std::time::Duration;
 	use std::time::Instant;
@@ -371,7 +375,11 @@ mod tests {
 		assert_eq!(Charge::from_fraction(1.0001), Err(Error::InvalidArgument));
 	}
 
-	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+	#[cfg(any(
+		target_os = "macos",
+		target_os = "windows",
+		all(target_os = "linux", not(target_env = "ohos"))
+	))]
 	#[test]
 	fn desktop_rejects_busy_polling_and_unsupported_rpc_before_os_access() {
 		use std::time::Duration;
@@ -398,7 +406,11 @@ mod tests {
 		);
 	}
 
-	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+	#[cfg(any(
+		target_os = "macos",
+		target_os = "windows",
+		all(target_os = "linux", not(target_env = "ohos"))
+	))]
 	#[test]
 	fn desktop_reads_a_valid_snapshot_and_reports_only_changes_when_due() {
 		use std::time::Duration;

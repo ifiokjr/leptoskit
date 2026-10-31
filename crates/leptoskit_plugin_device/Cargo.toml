@@ -23,7 +23,7 @@ guest = ["leptoskit_bridge/guest"]
 [dependencies]
 leptoskit_bridge = { workspace = true }
 
-[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))'.dependencies]
 sysinfo = { version = "0.35.2", default-features = false, features = ["system", "apple-app-store"] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]

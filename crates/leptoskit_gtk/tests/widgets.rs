@@ -1,14 +1,14 @@
 fn main() {
 	let mut args = libtest_mimic::Arguments::from_args();
 	args.test_threads = Some(1);
-	#[cfg(target_os = "linux")]
+	#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 	let trials = linux::trials();
-	#[cfg(not(target_os = "linux"))]
+	#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 	let trials = Vec::new();
 	libtest_mimic::run(&args, trials).exit();
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 mod linux {
 	use std::cell::RefCell;
 	use std::process::Command;

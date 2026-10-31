@@ -1,0 +1,51 @@
+//! Re-exports every plugin crate so a build for `aarch64-unknown-linux-ohos`
+//! compiles all of them, including their build scripts and C dependencies,
+//! the way a HarmonyOS host does. The `harmonyos` workflow builds it.
+
+pub use leptoskit_plugin_accelerometer;
+pub use leptoskit_plugin_application;
+pub use leptoskit_plugin_arguments;
+pub use leptoskit_plugin_autostart;
+pub use leptoskit_plugin_barometer;
+pub use leptoskit_plugin_battery;
+pub use leptoskit_plugin_brightness;
+pub use leptoskit_plugin_clipboard;
+pub use leptoskit_plugin_crypto;
+pub use leptoskit_plugin_device;
+pub use leptoskit_plugin_dialog;
+pub use leptoskit_plugin_document_picker;
+pub use leptoskit_plugin_filesystem;
+pub use leptoskit_plugin_global_shortcut;
+pub use leptoskit_plugin_gyroscope;
+pub use leptoskit_plugin_haptics;
+pub use leptoskit_plugin_http;
+pub use leptoskit_plugin_image_manipulator;
+pub use leptoskit_plugin_keep_awake;
+pub use leptoskit_plugin_light_sensor;
+pub use leptoskit_plugin_linking;
+pub use leptoskit_plugin_local_authentication;
+pub use leptoskit_plugin_localization;
+pub use leptoskit_plugin_location;
+pub use leptoskit_plugin_logging;
+pub use leptoskit_plugin_magnetometer;
+pub use leptoskit_plugin_menu;
+pub use leptoskit_plugin_network;
+pub use leptoskit_plugin_notifications;
+pub use leptoskit_plugin_os;
+pub use leptoskit_plugin_pedometer;
+pub use leptoskit_plugin_permissions;
+pub use leptoskit_plugin_posture;
+pub use leptoskit_plugin_screen_capture;
+pub use leptoskit_plugin_screen_orientation;
+pub use leptoskit_plugin_secure_store;
+pub use leptoskit_plugin_sharing;
+pub use leptoskit_plugin_shell;
+pub use leptoskit_plugin_single_instance;
+pub use leptoskit_plugin_speech;
+pub use leptoskit_plugin_sqlite;
+pub use leptoskit_plugin_store;
+pub use leptoskit_plugin_store_review;
+pub use leptoskit_plugin_tracking_transparency;
+pub use leptoskit_plugin_tray;
+pub use leptoskit_plugin_websocket;
+pub use leptoskit_plugin_window_state;

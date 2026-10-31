@@ -5,26 +5,26 @@
 //! Every node has a zero-minimum outer frame, so native control minimum sizes
 //! never override the application's Yoga geometry.
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 mod accessibility;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 mod backend;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 mod frame;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 mod measure;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 mod radio;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 mod vector;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 pub use backend::EventListener;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 pub use backend::GtkBackend;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 pub use gtk;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 pub use measure::GtkTextMeasurer;
 
 /// Runs GTK's event loop while a desktop window is visible.
@@ -32,7 +32,7 @@ pub use measure::GtkTextMeasurer;
 /// Applications embedding GTK in an existing event loop may drive the `GLib`
 /// main context themselves instead. Initialize GTK before calling this
 /// function.
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 pub fn run_application() {
 	use gtk::prelude::*;
 	let context = gtk::glib::MainContext::default();

@@ -93,7 +93,7 @@ pub(super) fn launch_agent(app: &Autostart) -> String {
 	)
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(all(target_os = "linux", not(target_env = "ohos")), test))]
 pub(super) fn desktop_entry(app: &Autostart) -> String {
 	fn quoted(value: &str) -> String {
 		let mut argument = String::from("\"");

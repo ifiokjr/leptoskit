@@ -11,6 +11,7 @@ members = [
 	"examples/gallery/verify",
 	"setup/android_apk",
 	"setup/coverage_gate",
+	"setup/harmonyos_plugins",
 ]
 default-members = ["crates/*"]
 resolver = "2"

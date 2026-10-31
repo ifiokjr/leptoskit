@@ -19,7 +19,11 @@ use sha2::Digest;
 
 use crate::Key;
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(
+	target_os = "macos",
+	target_os = "windows",
+	all(target_os = "linux", not(target_env = "ohos"))
+))]
 type DefaultBackend = crate::SecureStore;
 #[cfg(all(target_arch = "wasm32", feature = "guest"))]
 type DefaultBackend = crate::guest::SecureStore;
@@ -58,7 +62,11 @@ pub trait Backend: private::Sealed + Send + Sync + 'static {
 	fn erase<'a>(&'a self, key: Key<'a>) -> BackendFuture<'a, Result<(), Error>>;
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(
+	target_os = "macos",
+	target_os = "windows",
+	all(target_os = "linux", not(target_env = "ohos"))
+))]
 mod desktop_backend {
 	use super::*;
 
@@ -154,7 +162,11 @@ impl<T, S: Backend> std::fmt::Debug for SecureStorage<T, S> {
 
 impl<T> SecureStorage<T> {
 	/// Opens the desktop credential store for one application and service.
-	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+	#[cfg(any(
+		target_os = "macos",
+		target_os = "windows",
+		all(target_os = "linux", not(target_env = "ohos"))
+	))]
 	pub fn new(application: &str, service: &str) -> Result<Self, SecureStorageError> {
 		Ok(Self::with_backend(
 			crate::SecureStore::new(application)?,
@@ -266,7 +278,11 @@ where
 }
 
 #[cfg(all(
-	any(target_os = "macos", target_os = "windows", target_os = "linux"),
+	any(
+		target_os = "macos",
+		target_os = "windows",
+		all(target_os = "linux", not(target_env = "ohos"))
+	),
 	test
 ))]
 mod tests {

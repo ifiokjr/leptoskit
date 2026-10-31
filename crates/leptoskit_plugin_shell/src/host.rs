@@ -1,13 +1,29 @@
 //! Generated native registration for the scoped process service.
 
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "windows"
+))]
 mod desktop;
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "windows"
+))]
 pub use desktop::ShellPlugin;
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "windows"
+))]
 pub use desktop::from_config;
 
-#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+#[cfg(not(any(
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "windows"
+)))]
 mod unavailable {
 	use std::future::Future;
 	use std::pin::Pin;
@@ -50,7 +66,15 @@ mod unavailable {
 		}
 	}
 }
-#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+#[cfg(not(any(
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "windows"
+)))]
 pub use unavailable::ShellPlugin;
-#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+#[cfg(not(any(
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "windows"
+)))]
 pub use unavailable::from_config;

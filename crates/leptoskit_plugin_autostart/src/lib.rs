@@ -77,7 +77,8 @@ impl Autostart {
 			|| arguments
 				.iter()
 				.any(|arg| arg.chars().any(char::is_control))
-			|| (cfg!(target_os = "linux") && executable_text.contains('='))
+			|| (cfg!(all(target_os = "linux", not(target_env = "ohos")))
+				&& executable_text.contains('='))
 		{
 			return Err(Error::InvalidConfiguration);
 		}
@@ -157,9 +158,16 @@ fn bridge_error(error: &Error) -> BridgeError {
 	}
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos", test))]
+#[cfg(any(
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "macos",
+	test
+))]
 mod file_entry;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "macos"
+))]
 mod platform {
 	use super::Autostart;
 	use super::Error;
@@ -171,7 +179,7 @@ mod platform {
 			"plist",
 			file_entry::launch_agent(app),
 		);
-		#[cfg(target_os = "linux")]
+		#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 		let (directory, extension, content) = (
 			dirs::config_dir().map(|config| config.join("autostart")),
 			"desktop",
@@ -200,7 +208,11 @@ mod platform {
 }
 #[cfg(target_os = "windows")]
 mod platform;
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "macos",
+	target_os = "windows"
+)))]
 mod platform {
 	use super::Autostart;
 	use super::Error;

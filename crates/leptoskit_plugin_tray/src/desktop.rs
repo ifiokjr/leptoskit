@@ -3,11 +3,11 @@ use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::rc::Rc;
 use std::sync::Arc;
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 use std::sync::Once;
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 use std::sync::OnceLock;
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
@@ -15,18 +15,18 @@ use std::sync::atomic::Ordering;
 
 use leptoskit_plugin_menu::DesktopMenu;
 use parking_lot::Mutex;
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 use tray_icon::TrayIconEvent;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 #[path = "native.rs"]
 mod backend;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 #[path = "linux.rs"]
 mod backend;
 use backend::NativeTray;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 use crate::Button;
 use crate::EVENT_CAPACITY;
 use crate::Error;
@@ -34,7 +34,7 @@ use crate::Event;
 use crate::EventBatch;
 use crate::EventKind;
 use crate::Options;
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 use crate::Point;
 use crate::Rect;
 use crate::RgbaIcon;
@@ -43,9 +43,9 @@ use crate::TrayId;
 
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 static HANDLER: Once = Once::new();
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 static ROUTER: OnceLock<Mutex<Weak<Events>>> = OnceLock::new();
 
 struct Exclusive;
@@ -137,7 +137,7 @@ struct Events {
 	wake: Box<dyn Fn() + Send + Sync>,
 }
 impl Events {
-	#[cfg(not(target_os = "linux"))]
+	#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 	fn receive(&self, native: &TrayIconEvent) {
 		let mut queue = self.queue.lock();
 		let Some(id) = queue.ids.get(native.id().as_ref()).copied() else {
@@ -153,7 +153,7 @@ impl Events {
 		}
 	}
 
-	#[cfg(target_os = "linux")]
+	#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 	fn push(&self, event: Event) {
 		let mut queue = self.queue.lock();
 		if queue.push(event)
@@ -164,7 +164,7 @@ impl Events {
 	}
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 fn button(value: tray_icon::MouseButton) -> Button {
 	match value {
 		tray_icon::MouseButton::Left => Button::Left,
@@ -172,7 +172,7 @@ fn button(value: tray_icon::MouseButton) -> Button {
 		tray_icon::MouseButton::Middle => Button::Middle,
 	}
 }
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 fn convert(native: &TrayIconEvent, id: TrayId) -> Option<Event> {
 	let (kind, position, rect) = match native {
 		TrayIconEvent::Click {
@@ -265,7 +265,7 @@ impl TrayHost {
 			queue: Mutex::new(Queue::default()),
 			wake: Box::new(wake),
 		});
-		#[cfg(not(target_os = "linux"))]
+		#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 		{
 			let router = ROUTER.get_or_init(|| Mutex::new(Weak::new()));
 			HANDLER.call_once(|| {
@@ -442,7 +442,7 @@ mod tests {
 		assert!(!queue.push(sample(TrayId(2), EventKind::Move, 3.0)));
 	}
 	#[test]
-	#[cfg(not(target_os = "linux"))]
+	#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 	fn native_events_keep_their_button_transition_and_finite_geometry() {
 		use tray_icon::MouseButton;
 		use tray_icon::MouseButtonState;
@@ -513,7 +513,7 @@ mod tests {
 		}
 	}
 	#[test]
-	#[cfg(not(target_os = "linux"))]
+	#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 	fn callback_panics_are_reported_without_unwinding_native_code() {
 		let mut queue = Queue::default();
 		queue.ids.insert("owned".into(), TrayId(1));

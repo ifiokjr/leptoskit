@@ -24,7 +24,7 @@ guest = ["leptoskit_bridge/guest"]
 leptoskit_bridge = { workspace = true }
 url = "2"
 
-[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))'.dependencies]
 open = "5.4.4"
 
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -30,7 +30,7 @@ The guest resolves `guest::ShellClient::new()` once and calls `execute(&Request)
 
 Custom hosts can still use `Shell::dispatch`, forward cancellation, await the returned `RunningChild`, and complete the bridge on its owning thread. There is no synchronous `Plugin` implementation.
 
-The binary request is command name, argument count, and argument strings. A response contains finish reason, success flag, exit-code presence/code bits, stdout, and stderr. Strict decoders reject malformed, oversized, or inconsistent results. Mobile/web have no process backend (`is_available()` is false); guest resolution of an uninstalled shell capability returns `Unavailable`. URL opening belongs to the linking plugin, not child execution.
+The binary request is command name, argument count, and argument strings. A response contains finish reason, success flag, exit-code presence/code bits, stdout, and stderr. Strict decoders reject malformed, oversized, or inconsistent results. Mobile, HarmonyOS, and web have no process backend (`is_available()` is false); guest resolution of an uninstalled shell capability returns `Unavailable`. URL opening belongs to the linking plugin, not child execution.
 
 Tests spawn only the local Rust test executable, never shell utilities or network commands. They cover argument denial, full regex matching, nonzero exits, non-UTF-8 output, environment clearing, capacity, cancellation, dropped owners/futures, deadlines, both output limits, strict factory options, and shutdown. Unix adapter tests additionally use `waitpid` to verify the supervisor already reaped the child before completion.
 
