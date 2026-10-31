@@ -2,6 +2,6 @@
 source: crates/leptoskit_cli/tests/snapshots.rs
 expression: "normalize(&stdout(&output), &scratch.path)"
 ---
-created [ROOT]/snapshotted (all platforms; default: web)
-next: cd [ROOT]/snapshotted && leptoskit build
+✔ created [ROOT]/snapshotted (all platforms; default: web)
+  next: cd [ROOT]/snapshotted && leptoskit build
 build the extension with: leptoskit build --platform extension
