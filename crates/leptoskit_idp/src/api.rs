@@ -5,8 +5,11 @@
 use leptoskit_db::Timestamp;
 use serde::Deserialize;
 use serde::Serialize;
+use serde_json::Value;
 
 use crate::ClientAuth;
+use crate::GrantType;
+use crate::SigningAlgorithm;
 
 /// The app asking for access, as a consent screen names it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,8 +100,10 @@ pub struct TokenResponse {
 	pub token_type: String,
 	/// Seconds until the access token expires.
 	pub expires_in: u64,
-	/// Trades for new tokens at the token endpoint, once.
-	pub refresh_token: String,
+	/// Trades for new tokens at the token endpoint, once. An app acting as
+	/// itself gets none.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub refresh_token: Option<String>,
 	/// The scopes the access token carries, space-separated.
 	pub scope: String,
 	/// The OpenID Connect ID token, when `openid` was granted.
@@ -121,7 +126,9 @@ impl std::fmt::Debug for TokenResponse {
 pub struct NewClientSpec {
 	/// Its name, as the consent screen shows it.
 	pub name: String,
-	/// Where codes may be sent. Each is compared exactly.
+	/// Where codes may be sent. Each is compared exactly. An app that only
+	/// uses the device flow or acts as itself needs none.
+	#[serde(default)]
 	pub redirect_uris: Vec<String>,
 	/// Where people may be sent after signing out.
 	#[serde(default)]
@@ -129,8 +136,20 @@ pub struct NewClientSpec {
 	/// The scopes it may ask for, such as `openid`, `profile` and
 	/// `posts:read`.
 	pub scopes: Vec<String>,
-	/// How it proves who it is: a secret, or nothing for a public app.
+	/// How it proves who it is: a secret, a key, or nothing for a public
+	/// app.
 	pub auth_method: ClientAuth,
+	/// How it gets tokens: the authorization code flow, unless it says
+	/// otherwise.
+	#[serde(default = "default_grant_types")]
+	pub grant_types: Vec<GrantType>,
+	/// The public keys it signs `private_key_jwt` assertions with, as a JWK
+	/// set: `{"keys": [...]}`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub jwks: Option<Value>,
+	/// How its ID tokens are signed: ES256, unless it needs RS256.
+	#[serde(default)]
+	pub id_token_alg: SigningAlgorithm,
 	/// One of your own apps: it sees the account ID as `sub`, and needs no
 	/// consent.
 	#[serde(default)]
@@ -139,6 +158,11 @@ pub struct NewClientSpec {
 	/// does.
 	#[serde(default)]
 	pub introspection: bool,
+}
+
+/// The authorization code flow: what an app gets unless it asks otherwise.
+pub fn default_grant_types() -> Vec<GrantType> {
+	vec![GrantType::AuthorizationCode]
 }
 
 /// A registered app, as `lk auth idp client list` shows it. No secret.
@@ -150,6 +174,13 @@ pub struct ClientInfo {
 	pub name: String,
 	/// How it authenticates.
 	pub auth_method: ClientAuth,
+	/// How it gets tokens.
+	pub grant_types: Vec<GrantType>,
+	/// The public keys it signs assertions with, for `private_key_jwt`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub jwks: Option<Value>,
+	/// How its ID tokens are signed.
+	pub id_token_alg: SigningAlgorithm,
 	/// Where codes may be sent.
 	pub redirect_uris: Vec<String>,
 	/// Where people may be sent after signing out.
@@ -179,6 +210,11 @@ pub enum ClientCommand {
 		/// Its client ID.
 		client_id: String,
 	},
+	/// Replaces an app's secret, ending the tokens it got as itself.
+	RotateSecret {
+		/// Its client ID.
+		client_id: String,
+	},
 }
 
 /// What the server answers a [`ClientCommand`] with, in the file named by
@@ -203,6 +239,11 @@ pub enum ClientCommandOutput {
 		/// `false` when no app had that client ID.
 		removed: bool,
 	},
+	/// The app's new secret, shown this once.
+	Rotated {
+		/// The secret.
+		secret: String,
+	},
 	/// The command failed.
 	Failed {
 		/// Why.
@@ -223,8 +264,145 @@ impl std::fmt::Debug for ClientCommandOutput {
 			Self::Removed { removed } => {
 				f.debug_struct("Removed").field("removed", removed).finish()
 			}
+			Self::Rotated { .. } => f.debug_struct("Rotated").finish_non_exhaustive(),
 			Self::Failed { message } => f.debug_struct("Failed").field("message", message).finish(),
 		}
+	}
+}
+
+/// The answer to `POST /oauth/device_authorization` (RFC 8628 §3.2): what a
+/// CLI or a TV shows, and how it polls. Its `Debug` leaves out the device
+/// code.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceAuthorization {
+	/// The secret the device polls the token endpoint with.
+	pub device_code: String,
+	/// The code to show, such as `WDJB-MJHT`.
+	pub user_code: String,
+	/// Where to enter it.
+	pub verification_uri: String,
+	/// The same page with the code filled in, for a QR code or a link.
+	pub verification_uri_complete: String,
+	/// Seconds until the codes expire.
+	pub expires_in: u64,
+	/// Seconds to wait between polls.
+	pub interval: u64,
+}
+
+impl std::fmt::Debug for DeviceAuthorization {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("DeviceAuthorization")
+			.field("user_code", &self.user_code)
+			.field("verification_uri", &self.verification_uri)
+			.field("expires_in", &self.expires_in)
+			.field("interval", &self.interval)
+			.finish_non_exhaustive()
+	}
+}
+
+/// The answer to `GET /oauth/device?user_code=…`: what the device page
+/// shows before someone approves.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceRequest {
+	/// The app on the device.
+	pub app: AppInfo,
+	/// What it asks to do.
+	pub scopes: Vec<ScopeDescription>,
+	/// The code, as the device shows it, for the person to compare.
+	pub user_code: String,
+}
+
+/// The body of `POST /oauth/device`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceDecision {
+	/// The code the device shows, as typed.
+	pub user_code: String,
+	/// Whether the person allowed it.
+	pub approve: bool,
+}
+
+/// The answer to `POST /oauth/par` (RFC 9126 §2.2): the handle to send the
+/// browser to `/oauth/authorize` with.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PushedAuthorization {
+	/// `urn:ietf:params:oauth:request_uri:…`, which works once.
+	pub request_uri: String,
+	/// Seconds until it expires.
+	pub expires_in: u64,
+}
+
+/// An app someone registers in the developer portal, with `POST
+/// /oauth/apps`. The portal's apps are never first-party, and can't
+/// introspect other apps' tokens.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewApp {
+	/// Its name, as consent screens show it.
+	pub name: String,
+	/// Where codes may be sent.
+	#[serde(default)]
+	pub redirect_uris: Vec<String>,
+	/// Where people may be sent after signing out.
+	#[serde(default)]
+	pub post_logout_redirect_uris: Vec<String>,
+	/// The scopes it may ask for.
+	pub scopes: Vec<String>,
+	/// How it proves who it is.
+	pub auth_method: ClientAuth,
+	/// How it gets tokens.
+	#[serde(default = "default_grant_types")]
+	pub grant_types: Vec<GrantType>,
+	/// Its public keys, for `private_key_jwt`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub jwks: Option<Value>,
+}
+
+/// The body of `POST /oauth/apps/update`: what an app's owner may change.
+/// How it authenticates stays as it was registered.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppChanges {
+	/// The app.
+	pub client_id: String,
+	/// Its name.
+	pub name: String,
+	/// Where codes may be sent.
+	#[serde(default)]
+	pub redirect_uris: Vec<String>,
+	/// Where people may be sent after signing out.
+	#[serde(default)]
+	pub post_logout_redirect_uris: Vec<String>,
+	/// The scopes it may ask for. Grants keep only these.
+	pub scopes: Vec<String>,
+	/// Its public keys, for `private_key_jwt`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub jwks: Option<Value>,
+}
+
+/// The body of `POST /oauth/apps/rotate-secret` and `POST
+/// /oauth/apps/delete`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppRef {
+	/// The app.
+	pub client_id: String,
+}
+
+/// The answer to registering an app in the developer portal, or replacing
+/// its secret: the app, and its secret this once. Its `Debug` leaves out
+/// the secret.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegisteredApp {
+	/// The app.
+	pub app: ClientInfo,
+	/// Its secret, shown this once; `None` for an app with no secret.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub secret: Option<String>,
+}
+
+impl std::fmt::Debug for RegisteredApp {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("RegisteredApp")
+			.field("app", &self.app)
+			.field("secret", &self.secret.as_ref().map(|_| "…"))
+			.finish()
 	}
 }
 
@@ -245,7 +423,7 @@ mod tests {
 			access_token: "access-secret".into(),
 			token_type: "Bearer".into(),
 			expires_in: 600,
-			refresh_token: "refresh-secret".into(),
+			refresh_token: Some("refresh-secret".into()),
 			scope: "openid".into(),
 			id_token: Some("id-secret".into()),
 		};
@@ -254,6 +432,9 @@ mod tests {
 				client_id: "app".into(),
 				name: "App".into(),
 				auth_method: ClientAuth::SecretBasic,
+				grant_types: default_grant_types(),
+				jwks: None,
+				id_token_alg: SigningAlgorithm::Es256,
 				redirect_uris: Vec::new(),
 				post_logout_redirect_uris: Vec::new(),
 				scopes: Vec::new(),
@@ -264,7 +445,32 @@ mod tests {
 			secret: Some("client-secret".into()),
 		};
 
-		for text in [format!("{tokens:?}"), format!("{added:?}")] {
+		let rotated = ClientCommandOutput::Rotated {
+			secret: "rotated-secret".into(),
+		};
+		let device = DeviceAuthorization {
+			device_code: "device-secret".into(),
+			user_code: "WDJB-MJHT".into(),
+			verification_uri: "https://notes.example/device".into(),
+			verification_uri_complete: "https://notes.example/device?user_code=WDJB-MJHT".into(),
+			expires_in: 600,
+			interval: 5,
+		};
+		let registered = RegisteredApp {
+			app: match &added {
+				ClientCommandOutput::Added { client, .. } => client.clone(),
+				_ => unreachable!(),
+			},
+			secret: Some("portal-secret".into()),
+		};
+
+		for text in [
+			format!("{tokens:?}"),
+			format!("{added:?}"),
+			format!("{rotated:?}"),
+			format!("{device:?}"),
+			format!("{registered:?}"),
+		] {
 			assert!(!text.contains("secret\""), "{text}");
 			assert!(!text.contains("-secret"), "{text}");
 		}
@@ -286,6 +492,15 @@ mod tests {
 		)
 		.unwrap();
 		assert_eq!(spec.auth_method, ClientAuth::None);
+		assert_eq!(spec.grant_types, [GrantType::AuthorizationCode]);
+		assert_eq!(spec.id_token_alg, SigningAlgorithm::Es256);
 		assert!(!spec.first_party);
+		let spec: NewClientSpec = serde_json::from_str(
+			r#"{"name":"CLI","scopes":["notes:read"],"auth_method":"none","grant_types":["urn:ietf:params:oauth:grant-type:device_code"],"id_token_alg":"RS256"}"#,
+		)
+		.unwrap();
+		assert_eq!(spec.grant_types, [GrantType::DeviceCode]);
+		assert_eq!(spec.id_token_alg, SigningAlgorithm::Rs256);
+		assert_eq!(spec.redirect_uris, [] as [String; 0]);
 	}
 }

@@ -60,6 +60,60 @@ pub(crate) fn hash(token: &str) -> Vec<u8> {
 	Sha256::digest(token.as_bytes()).to_vec()
 }
 
+/// A SHA-256 over several parts, each prefixed with its length so no two
+/// lists of parts hash alike.
+pub(crate) fn digest(parts: &[&[u8]]) -> Vec<u8> {
+	let mut hasher = Sha256::new();
+	for part in parts {
+		hasher.update((part.len() as u64).to_be_bytes());
+		hasher.update(part);
+	}
+	hasher.finalize().to_vec()
+}
+
+/// The letters a device code is made of: consonants only, so no code spells
+/// a word, and none that look alike (RFC 8628 §6.1).
+const USER_CODE_ALPHABET: &[u8; 20] = b"BCDFGHJKLMNPQRSTVWXZ";
+
+/// How many letters a user code has: 20⁸, about 2³⁴, of which guesses are
+/// rate limited.
+const USER_CODE_LENGTH: usize = 8;
+
+/// A code for someone to type on another device, such as `WDJB-MJHT`.
+pub(crate) fn user_code() -> Result<String> {
+	let mut letters = Vec::with_capacity(USER_CODE_LENGTH);
+
+	while letters.len() < USER_CODE_LENGTH {
+		for byte in random::<16>()? {
+			// 240 is the largest multiple of 20 a byte holds: past it, the
+			// letters wouldn't be equally likely.
+			if byte < 240 && letters.len() < USER_CODE_LENGTH {
+				letters.push(USER_CODE_ALPHABET[usize::from(byte % 20)]);
+			}
+		}
+	}
+
+	let (first, second) = letters.split_at(USER_CODE_LENGTH / 2);
+	Ok(format!(
+		"{}-{}",
+		String::from_utf8_lossy(first),
+		String::from_utf8_lossy(second)
+	))
+}
+
+/// A typed user code as it's stored: upper case, with spaces and dashes
+/// dropped. `None` when it can't be one.
+pub(crate) fn normalize_user_code(typed: &str) -> Option<String> {
+	let code: String = typed
+		.chars()
+		.filter(|c| !matches!(c, '-' | ' ' | '\t'))
+		.map(|c| c.to_ascii_uppercase())
+		.collect();
+
+	(code.len() == USER_CODE_LENGTH && code.bytes().all(|byte| USER_CODE_ALPHABET.contains(&byte)))
+		.then_some(code)
+}
+
 /// Whether `token` hashes to `expected`, compared in constant time.
 pub(crate) fn matches(token: &str, expected: &[u8]) -> bool {
 	bool::from(hash(token).ct_eq(expected))
@@ -122,6 +176,25 @@ mod tests {
 		let secret = ClientSecret::generate().unwrap();
 		assert_eq!(format!("{secret:?}"), "ClientSecret(…)");
 		assert_eq!(secret.expose().len(), 43);
+	}
+
+	#[test]
+	fn user_codes_are_easy_to_type_and_compare() {
+		let code = user_code().unwrap();
+		assert_eq!(code.len(), 9);
+		assert_eq!(&code[4..5], "-");
+		assert_ne!(code, user_code().unwrap());
+		assert_eq!(
+			normalize_user_code(&code.to_lowercase()).unwrap(),
+			code.replace('-', "")
+		);
+		assert_eq!(
+			normalize_user_code("wdjb mjht").as_deref(),
+			Some("WDJBMJHT")
+		);
+		assert_eq!(normalize_user_code("WDJB-MJH"), None);
+		assert_eq!(normalize_user_code("AEIO-UAEI"), None);
+		assert_ne!(digest(&[b"ab", b"c"]), digest(&[b"a", b"bc"]));
 	}
 
 	#[test]

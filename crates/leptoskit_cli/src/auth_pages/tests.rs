@@ -46,7 +46,7 @@ fn workspace(db: bool) -> tempfile::TempDir {
 
 fn run(root: &Path, force: bool) -> Report {
 	let config = LeptoskitConfig::load_from(root).unwrap();
-	generate(root, &config, force).unwrap()
+	generate(root, &config, false, force).unwrap()
 }
 
 fn read(root: &Path, path: &str) -> String {
@@ -71,7 +71,10 @@ fn the_screens_and_config_land_in_the_client_crate() {
 		]
 	);
 	assert_eq!(report.kept, [] as [String; 0]);
-	assert_eq!(read(root.path(), "app_app/src/auth/sign_in.rs"), PAGES[1].1);
+	assert_eq!(
+		read(root.path(), "app_app/src/auth/sign_in.rs"),
+		pages(false)[1].1
+	);
 	assert!(read(root.path(), "app_app/src/lib.rs").ends_with(
 		"pub mod routes;\n\n/// Written by `leptoskit generate auth`.\npub mod auth;\n"
 	));
@@ -164,7 +167,7 @@ fn a_server_with_a_database_gets_its_sign_in_module() {
 	);
 	assert_eq!(
 		read(root.path(), "src/sign_in.rs"),
-		server_module("../leptoskit.toml")
+		server_module("../leptoskit.toml", false)
 	);
 	assert!(read(root.path(), "src/sign_in.rs").contains("include_str!(\"../leptoskit.toml\")"));
 	assert!(read(root.path(), "Cargo.toml").contains("features = [\"server\", \"auth\"]"));
@@ -216,7 +219,7 @@ fn edited_screens_are_kept_unless_forced() {
 
 	let report = run(root.path(), true);
 	assert_eq!(report.changed, ["replaced app_app/src/auth/devices.rs"]);
-	assert_eq!(fs::read_to_string(&page).unwrap(), PAGES[2].1);
+	assert_eq!(fs::read_to_string(&page).unwrap(), pages(false)[2].1);
 }
 
 #[test]
@@ -224,7 +227,7 @@ fn an_auth_module_of_the_apps_own_stops_it() {
 	let root = workspace(false);
 	fs::write(root.path().join("app_app/src/auth.rs"), "").unwrap();
 	let config = LeptoskitConfig::load_from(root.path()).unwrap();
-	let error = generate(root.path(), &config, false).unwrap_err();
+	let error = generate(root.path(), &config, false, false).unwrap_err();
 	assert!(
 		error
 			.to_string()
@@ -238,7 +241,7 @@ fn a_directory_in_the_way_is_refused() {
 	let root = workspace(false);
 	fs::create_dir_all(root.path().join("app_app/src/auth/mod.rs")).unwrap();
 	let config = LeptoskitConfig::load_from(root.path()).unwrap();
-	let error = generate(root.path(), &config, false).unwrap_err();
+	let error = generate(root.path(), &config, false, false).unwrap_err();
 	assert!(
 		error.to_string().contains("isn't an ordinary file"),
 		"{error}"
@@ -278,7 +281,10 @@ fn the_file_router_gets_both_routes() {
 			.changed
 			.contains(&"created app_app/src/routes/security.rs".to_owned())
 	);
-	assert_eq!(read(path, "app_app/src/routes/sign-in.rs"), ROUTES[0].1);
+	assert_eq!(
+		read(path, "app_app/src/routes/sign-in.rs"),
+		routes(false)[0].1
+	);
 	let module = read(path, "app_app/src/routes.rs");
 	assert!(module.contains("SignIn"), "{module}");
 	assert!(module.contains("Devices"), "{module}");
@@ -363,7 +369,7 @@ fn the_client_crate_must_be_found() {
 	config = config.replace("app_app", "missing_app");
 	fs::write(path.join("leptoskit.toml"), config).unwrap();
 	let config = LeptoskitConfig::load_from(path).unwrap();
-	let error = generate(path, &config, false).unwrap_err();
+	let error = generate(path, &config, false, false).unwrap_err();
 	assert!(
 		error
 			.to_string()
@@ -378,7 +384,7 @@ fn the_client_crate_must_be_found() {
 	)
 	.unwrap();
 	let config = LeptoskitConfig::load_from(bare.path()).unwrap();
-	let error = generate(bare.path(), &config, false).unwrap_err();
+	let error = generate(bare.path(), &config, false, false).unwrap_err();
 	assert!(error.to_string().contains("there's no package"), "{error}");
 }
 
@@ -388,7 +394,7 @@ fn the_client_crate_needs_a_root_file_and_leptoskit() {
 	let path = root.path();
 	fs::remove_file(path.join("app_app/src/lib.rs")).unwrap();
 	let config = LeptoskitConfig::load_from(path).unwrap();
-	let error = generate(path, &config, false).unwrap_err();
+	let error = generate(path, &config, false, false).unwrap_err();
 	assert!(
 		error
 			.to_string()
@@ -401,7 +407,7 @@ fn the_client_crate_needs_a_root_file_and_leptoskit() {
 		"[package]\nname = \"app_app\"\n",
 	)
 	.unwrap();
-	let error = generate(path, &config, false).unwrap_err();
+	let error = generate(path, &config, false, false).unwrap_err();
 	assert!(
 		error
 			.to_string()
@@ -419,7 +425,7 @@ fn a_config_the_table_would_break_is_left_alone() {
 	let mut raw = read(path, "leptoskit.toml");
 	raw.push_str("\n[auth]\nkeys_env = \"OTHER\"");
 	fs::write(path.join("leptoskit.toml"), &raw).unwrap();
-	let error = generate(path, &config, false).unwrap_err();
+	let error = generate(path, &config, false, false).unwrap_err();
 	assert!(
 		error.to_string().contains("adding [auth] would break"),
 		"{error}"
@@ -649,7 +655,17 @@ fn a_host_without_the_bridge_gets_a_next_step() {
 fn the_screens_use_only_supported_classes() {
 	let mut checked = 0;
 
-	for (file, source) in PAGES.iter().chain(ROUTES.iter()) {
+	let templates = PAGES
+		.iter()
+		.map(|(file, source, _)| (*file, *source))
+		.chain(ROUTES.iter().flat_map(|(file, base, idp)| {
+			[*base, *idp]
+				.into_iter()
+				.flatten()
+				.map(move |source| (*file, source))
+		}));
+
+	for (file, source) in templates {
 		for literal in source.split(".class(\"").skip(1) {
 			let classes = literal.split('"').next().unwrap();
 
@@ -662,5 +678,221 @@ fn the_screens_use_only_supported_classes() {
 		}
 	}
 
-	assert!(checked > 50, "only {checked} classes found");
+	assert!(checked > 100, "only {checked} classes found");
+}
+
+fn run_idp(root: &Path, force: bool) -> Report {
+	let config = LeptoskitConfig::load_from(root).unwrap();
+	generate(root, &config, true, force).unwrap()
+}
+
+/// A [`workspace`] whose client uses the file router.
+fn with_router(db: bool) -> tempfile::TempDir {
+	let root = workspace(db);
+	let path = root.path();
+	let mut config = read(path, "leptoskit.toml");
+	config.push_str(
+		"\n[[plugins]]\nname = \"router\"\n\n[plugins.options]\ndir = \"app_app/src/routes\"\n",
+	);
+	fs::write(path.join("leptoskit.toml"), config).unwrap();
+	fs::create_dir_all(path.join("app_app/src/routes")).unwrap();
+	fs::write(
+		path.join("app_app/src/routes/index.rs"),
+		"use leptoskit::prelude::*;\n\npub fn page() -> Element {\n\tView()\n}\n",
+	)
+	.unwrap();
+	root
+}
+
+#[test]
+fn templates_keep_their_idp_lines_only_for_idp() {
+	let template = "a\n// leptoskit: idp\nb\n\t// leptoskit: end idp\nc\n";
+
+	assert_eq!(render(template, false), "a\nc\n");
+	assert_eq!(render(template, true), "a\nb\nc\n");
+
+	for (file, contents) in pages(false).into_iter().chain(routes(false)) {
+		assert!(!contents.contains("leptoskit: "), "{file}");
+		assert!(!contents.contains("idp"), "{file} mentions the idp");
+	}
+
+	for (file, contents) in pages(true).into_iter().chain(routes(true)) {
+		assert!(!contents.contains("// leptoskit: "), "{file}");
+	}
+
+	assert!(!server_module("x", false).contains("idp"));
+	assert!(server_module("x", true).contains("pub fn provider("));
+	assert_eq!(pages(false).len(), 4);
+	assert_eq!(pages(true).len(), 8);
+	assert_eq!(routes(false).len(), 3);
+	assert_eq!(routes(true).len(), 7);
+}
+
+#[test]
+fn idp_adds_its_screens_routes_config_and_features() {
+	let root = with_router(true);
+	let path = root.path();
+	let report = run_idp(path, false);
+
+	for file in [
+		"app_app/src/auth/consent.rs",
+		"app_app/src/auth/device_code.rs",
+		"app_app/src/auth/connected_apps.rs",
+		"app_app/src/auth/developer_apps.rs",
+		"app_app/src/routes/consent.rs",
+		"app_app/src/routes/device.rs",
+		"app_app/src/routes/connected-apps.rs",
+		"app_app/src/routes/developer-apps.rs",
+	] {
+		assert!(
+			report.changed.contains(&format!("created {file}")),
+			"{file}: {:?}",
+			report.changed
+		);
+	}
+
+	assert_eq!(read(path, "app_app/src/auth/mod.rs"), pages(true)[0].1);
+	assert_eq!(
+		read(path, "app_app/src/routes/sign-in.rs"),
+		routes(true)[0].1
+	);
+	assert_eq!(
+		read(path, "src/sign_in.rs"),
+		server_module("../leptoskit.toml", true)
+	);
+	assert!(
+		read(path, "app_app/Cargo.toml")
+			.contains("features = [\"auth\", \"leptos\", \"query\", \"idp\"]")
+	);
+	assert!(read(path, "Cargo.toml").contains("features = [\"server\", \"auth\", \"idp\"]"));
+	let module = read(path, "app_app/src/routes.rs");
+	assert!(module.contains("Consent"), "{module}");
+	assert!(module.contains("ConnectedApps"), "{module}");
+
+	let config = LeptoskitConfig::load_from(path).unwrap();
+	let idp = config.auth.unwrap().idp.unwrap();
+	assert_eq!(idp.consent_page, "/consent");
+	assert_eq!(idp.device_page, "/device");
+	assert!(
+		report
+			.changed
+			.contains(&"updated leptoskit.toml: added [auth.idp]".to_owned())
+	);
+
+	for marker in ["navigate_with(", "sign_in::provider(&db, &auth)"] {
+		assert!(
+			report.next.iter().any(|step| step.contains(marker)),
+			"{marker}: {:?}",
+			report.next
+		);
+	}
+
+	// Once the app does both, the steps stop asking.
+	fs::write(
+		path.join("app_app/src/lib.rs"),
+		format!(
+			"{}\nfn start() {{ auth::provide(); auth::screens().navigate_with(|_| ()); }}\n",
+			read(path, "app_app/src/lib.rs")
+		),
+	)
+	.unwrap();
+	fs::write(
+		path.join("src/main.rs"),
+		"mod sign_in;\nfn main() { let _ = (sign_in::service::<()>, sign_in::provider); }\n",
+	)
+	.unwrap();
+	let again = run_idp(path, false);
+	assert!(again.changed.is_empty(), "{:?}", again.changed);
+	assert!(again.next.is_empty(), "{:?}", again.next);
+}
+
+#[test]
+fn idp_brings_untouched_files_up_to_date_and_a_plain_run_keeps_them() {
+	let root = with_router(true);
+	let path = root.path();
+	run(path, false);
+	let edited = path.join("app_app/src/auth/devices.rs");
+	fs::write(&edited, "// mine\n").unwrap();
+
+	let report = run_idp(path, false);
+	for file in [
+		"app_app/src/auth/mod.rs",
+		"app_app/src/routes/sign-in.rs",
+		"src/sign_in.rs",
+	] {
+		assert!(
+			report
+				.changed
+				.contains(&format!("updated {file}: added what --idp needs")),
+			"{file}: {:?}",
+			report.changed
+		);
+	}
+	assert_eq!(read(path, "app_app/src/auth/mod.rs"), pages(true)[0].1);
+	assert_eq!(fs::read_to_string(&edited).unwrap(), "// mine\n");
+	assert_eq!(
+		report.kept,
+		["kept app_app/src/auth/devices.rs: it differs from the template; --force replaces it"]
+	);
+
+	// Without --idp, the --idp versions stay: a run never takes screens away.
+	let plain = run(path, false);
+	assert!(plain.changed.is_empty(), "{:?}", plain.changed);
+	assert_eq!(read(path, "app_app/src/auth/mod.rs"), pages(true)[0].1);
+	assert_eq!(
+		read(path, "app_app/src/routes/sign-in.rs"),
+		routes(true)[0].1
+	);
+
+	// An --idp file someone edited is theirs, either way.
+	let module = path.join("app_app/src/auth/mod.rs");
+	fs::write(&module, "// mine too\n").unwrap();
+	let report = run_idp(path, false);
+	assert!(
+		report
+			.kept
+			.iter()
+			.any(|line| line.starts_with("kept app_app/src/auth/mod.rs")),
+		"{:?}",
+		report.kept
+	);
+	run_idp(path, true);
+	assert_eq!(read(path, "app_app/src/auth/mod.rs"), pages(true)[0].1);
+}
+
+#[test]
+fn an_auth_table_without_the_idp_gains_one() {
+	let root = workspace(false);
+	let path = root.path();
+	run(path, false);
+	assert!(
+		LeptoskitConfig::load_from(path)
+			.unwrap()
+			.auth
+			.unwrap()
+			.idp
+			.is_none()
+	);
+
+	let report = run_idp(path, false);
+	assert!(
+		report
+			.changed
+			.contains(&"updated leptoskit.toml: added [auth.idp]".to_owned())
+	);
+	assert!(
+		LeptoskitConfig::load_from(path)
+			.unwrap()
+			.auth
+			.unwrap()
+			.idp
+			.is_some()
+	);
+	// No server here, so there's no provider step.
+	assert!(
+		!report
+			.next
+			.iter()
+			.any(|step| step.contains("sign_in::provider"))
+	);
 }
