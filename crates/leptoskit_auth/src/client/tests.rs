@@ -70,10 +70,12 @@ impl Server {
 				verify_per_ip: plenty,
 				second_factor_per_account: plenty,
 				ceremony_per_ip: plenty,
+				password_per_address: plenty,
 				..Limits::default()
-			})
-			.build()
-			.unwrap();
+			});
+		#[cfg(feature = "password")]
+		let auth = auth.passwords(crate::PasswordOptions::default());
+		let auth = auth.build().unwrap();
 		let router = Router::new().merge(auth.router()).layer(auth.layer());
 
 		Self {
@@ -583,6 +585,95 @@ async fn a_native_app_forgets_the_second_step_once_it_is_over() {
 			.error,
 		"sign_in_expired"
 	);
+}
+
+#[cfg(feature = "password")]
+const GOOD_PASSWORD: &str = "correct horse battery staple";
+
+/// Setting a password, signing in with it on another device, and resetting
+/// it from a third, which signs the others out: the same on every
+/// platform.
+#[cfg(feature = "password")]
+async fn uses_a_password(server: &Server, device: impl Fn() -> Device) {
+	let laptop = sets_a_password(server, &device).await;
+	let phone = signs_in_with_a_password(&device).await;
+	let tablet = device();
+	tablet.api.send_code(ADA.to_owned()).await.unwrap();
+	let reset = tablet
+		.api
+		.reset_password(PasswordReset {
+			email: ADA.to_owned(),
+			code: server.code(),
+			password: "a brand new and longer phrase".to_owned(),
+		})
+		.await
+		.unwrap();
+	assert!(matches!(reset, SignInStep::SignedIn(_)), "{reset:?}");
+	assert_eq!(session_id(&phone).await, None, "the reset signed it out");
+	assert_eq!(session_id(&laptop).await, None);
+	tablet.api.remove_password().await.unwrap();
+	assert!(!tablet.api.mfa().await.unwrap().password);
+}
+
+#[cfg(feature = "password")]
+async fn sets_a_password(server: &Server, device: &impl Fn() -> Device) -> Device {
+	let laptop = device();
+	sign_in(server, &laptop).await;
+	let settings = laptop.api.password_settings().await.unwrap();
+	assert!(settings.enabled);
+	assert_eq!(settings.min_length, 15);
+	let weak = laptop
+		.api
+		.set_password("short".to_owned())
+		.await
+		.unwrap_err();
+	assert_eq!(weak.error, "weak_password");
+	assert_eq!(weak.message, "use at least 15 characters");
+	laptop
+		.api
+		.set_password(GOOD_PASSWORD.to_owned())
+		.await
+		.unwrap();
+	assert!(laptop.api.mfa().await.unwrap().password);
+	laptop
+}
+
+#[cfg(feature = "password")]
+async fn signs_in_with_a_password(device: &impl Fn() -> Device) -> Device {
+	let phone = device();
+	let wrong = phone
+		.api
+		.sign_in_with_password(PasswordInput {
+			email: ADA.to_owned(),
+			password: "a wrong and long password".to_owned(),
+		})
+		.await
+		.unwrap_err();
+	assert_eq!(wrong.error, "invalid_password");
+	assert!(!(phone.held)());
+	let input = PasswordInput {
+		email: ADA.to_owned(),
+		password: GOOD_PASSWORD.to_owned(),
+	};
+	assert!(!format!("{input:?}").contains(GOOD_PASSWORD));
+	let step = phone.api.sign_in_with_password(input).await.unwrap();
+	assert!(matches!(step, SignInStep::SignedIn(_)), "{step:?}");
+	assert!((phone.held)());
+	phone
+}
+
+#[cfg(feature = "password")]
+#[tokio::test]
+async fn a_browser_uses_a_password_with_its_cookie() {
+	let server = Server::new().await;
+	uses_a_password(&server, || server.browser()).await;
+}
+
+#[cfg(feature = "password")]
+#[tokio::test]
+async fn a_native_app_uses_a_password_with_tokens() {
+	let server = Server::new().await;
+	uses_a_password(&server, || server.native().device()).await;
 }
 
 #[tokio::test]

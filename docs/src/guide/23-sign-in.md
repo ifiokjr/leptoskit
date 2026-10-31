@@ -532,6 +532,32 @@ let step = auth.sign_in_with_password("ada@example.com", "correct horse battery 
 
 `sign_in_with_password` answers like an emailed code: a session, or the second step when the account has two-step verification. A password is one factor, so two-step verification and step-up work as they do after an emailed code. `remove_password(&me, …)` turns it off again; the account keeps its other ways to sign in. The routes are `POST /auth/password/sign-in`, `POST /auth/password` (set or change), `POST /auth/password/remove`, `POST /auth/password/reset`, and `GET /auth/password/config`, which says whether passwords are on and how long they must be.
 
+### From the app
+
+The client has the same functions on every platform:
+
+```rust
+use leptoskit::auth::client::PasswordInput;
+use leptoskit::auth::client::sign_in_with_password;
+use leptoskit::auth::client::use_password_settings;
+
+let settings = use_password_settings();              // PasswordSettings { enabled, min_length, max_length }
+let sign_in = use_mutation(sign_in_with_password());
+sign_in.mutate(PasswordInput { email, password });   // SignInStep, as `verify_code()` answers
+```
+
+`set_password()` and `remove_password()` change the signed-in person's password, answering `step_up_required` or `reauthenticate` when their sign-in isn't fresh, as turning on an authenticator does; `reset_password()` takes a `PasswordReset { email, code, password }`, with the code from `send_code()`. Errors are `invalid_password`, `weak_password` (its message says what's wrong), and `rate_limited`.
+
+| Platform                 | Passwords                                                                                                                                           |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web                      | Everything above, with the session in the `HttpOnly` cookie                                                                                         |
+| iOS, Android, and macOS  | Everything above, with the session's tokens in the secure store                                                                                     |
+| Windows and Linux        | Everything above, for a host that registers the `http` and `secure-store` plugins; the generated runners can't host plugins yet and answer `config` |
+| HarmonyOS (experimental) | Everything above, as for emailed codes                                                                                                              |
+| Server rendering         | `password_settings()` reads in process; the others run in the browser and answer `server`                                                           |
+
+`leptoskit generate auth` turns on `auth-passwords` for your server when `[auth.passwords] enabled` is set, but its screens don't have password fields yet: leptoskit's `TextInput` can't hide what's typed in native apps, and a password field that shows the password isn't one to ship. Build your own field for the web, where an `<input type="password">` does, until it can.
+
 ### The rules
 
 They follow NIST SP 800-63B:

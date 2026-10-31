@@ -75,6 +75,26 @@ impl Api for Server {
 		Box::pin(reads::mfa())
 	}
 
+	fn password_settings(&self) -> Pending<'_, crate::PasswordSettings> {
+		Box::pin(reads::password_settings())
+	}
+
+	fn sign_in_with_password(&self, _input: super::PasswordInput) -> Pending<'_, SignInStep> {
+		in_the_browser()
+	}
+
+	fn set_password(&self, _password: String) -> Pending<'_, ()> {
+		in_the_browser()
+	}
+
+	fn remove_password(&self) -> Pending<'_, ()> {
+		in_the_browser()
+	}
+
+	fn reset_password(&self, _input: super::PasswordReset) -> Pending<'_, SignInStep> {
+		in_the_browser()
+	}
+
 	fn step_up(&self, _code: String) -> Pending<'_, PublicSession> {
 		in_the_browser()
 	}
@@ -302,6 +322,12 @@ mod reads {
 		Ok(auth.wallet_settings())
 	}
 
+	#[allow(clippy::unused_async, reason = "the reads share a shape")]
+	pub(super) async fn password_settings() -> Result<crate::PasswordSettings, ErrorResponse> {
+		let auth: Auth = crate::guards::extension()?;
+		Ok(auth.password_settings())
+	}
+
 	pub(super) async fn wallets() -> Result<Vec<crate::WalletInfo>, ErrorResponse> {
 		let me = crate::require_signed_in()?;
 		let auth: Auth = crate::guards::extension()?;
@@ -368,6 +394,10 @@ mod reads {
 	}
 
 	pub(super) async fn wallet_settings() -> Result<crate::WalletSettings, ErrorResponse> {
+		Err(no_database())
+	}
+
+	pub(super) async fn password_settings() -> Result<crate::PasswordSettings, ErrorResponse> {
 		Err(no_database())
 	}
 
