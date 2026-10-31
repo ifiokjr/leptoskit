@@ -171,6 +171,40 @@ impl DbError {
 	pub fn is_conflict(&self) -> bool {
 		matches!(self, Self::Conflict { .. })
 	}
+
+	/// Whether the database gave up on the transaction because another one
+	/// got in its way: a serialization failure (`40001`) or a deadlock
+	/// (`40P01`) on Postgres, or a busy or locked database on SQLite. Running
+	/// the whole transaction again can succeed.
+	pub fn is_contended(&self) -> bool {
+		let (Self::Query(source) | Self::Connection(source)) = self else {
+			return false;
+		};
+
+		#[cfg(feature = "postgres")]
+		if let Some(code) = source
+			.downcast_ref::<tokio_postgres::Error>()
+			.and_then(tokio_postgres::Error::code)
+		{
+			use tokio_postgres::error::SqlState;
+
+			return *code == SqlState::T_R_SERIALIZATION_FAILURE
+				|| *code == SqlState::T_R_DEADLOCK_DETECTED;
+		}
+
+		#[cfg(feature = "sqlite")]
+		if let Some(rusqlite::Error::SqliteFailure(code, _)) =
+			source.downcast_ref::<rusqlite::Error>()
+		{
+			return matches!(
+				code.code,
+				rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+			);
+		}
+
+		let _ = source;
+		false
+	}
 }
 
 /// The outcome of a database operation.

@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
+assertion_line: 490
 expression: "generate(TargetLanguage::Dart, \"todos\")"
 ---
 ===== pubspec.yaml (Scaffold) =====
@@ -217,14 +218,53 @@ class Client {
 		return (result as Map<String, dynamic>).map((key, value) => MapEntry(key, (value as num).toInt()));
 	}
 
+	/// Finds todos whose title contains the text.
+	///
+	/// Arguments:
+	/// - `text`: What to look for.
+	Future<List<Todo>> searchTodos({
+		required String text
+	}) async {
+		final result = await _invoke('POST', '/api/search_todos', 'json', 
+				<String, Object?>{
+				'text': text,
+				});
+		return (result as List<dynamic>).map((item) => Todo.fromJson(item as Map<String, dynamic>)).toList();
+	}
+
+	/// Marks a todo done.
+	///
+	/// Arguments:
+	/// - `id`: The todo.
+	Future<Todo> completeTodo({
+		required int id,
+		String? idempotencyKey
+	}) async {
+		final result = await _invoke('POST', '/api/complete_todo', 'json', 
+				<String, Object?>{
+				'id': id,
+				}, idempotencyKey: idempotencyKey);
+		return Todo.fromJson(result as Map<String, dynamic>);
+	}
+
+	Future<void> clearDone({
+		String? idempotencyKey
+	}) async {
+		await _invoke('POST', '/api/clear_done', 'json', const <String, Object?>{}, idempotencyKey: idempotencyKey);
+	}
+
 	Future<Object?> _invoke(
 		String method,
 		String path,
 		String encoding,
-		Map<String, Object?> payload,
-	) async {
+		Map<String, Object?> payload, {
+		String? idempotencyKey,
+	}) async {
 		var url = '${serverUrl ?? ''}$path';
 		final headers = <String, String>{'Accept': 'application/json'};
+		// A repeat with the same key and arguments returns the first call's result
+		// instead of running the mutation again.
+		if (idempotencyKey != null) headers['Idempotency-Key'] = idempotencyKey;
 		Uint8List? body;
 		if (encoding == 'query') {
 			final query = toQueryString(payload);

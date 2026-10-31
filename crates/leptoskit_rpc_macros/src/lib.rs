@@ -49,6 +49,85 @@ use syn::parse::ParseStream;
 use syn::parse::Parser;
 use syn::punctuated::Punctuated;
 
+mod operation;
+
+use operation::OperationArgs;
+use operation::OperationKind;
+
+/// Declares a query: an `async fn` that reads, published under its name.
+///
+/// ```ignore
+/// /// The latest messages in a channel, oldest first.
+/// #[rpc::query]
+/// pub async fn messages(cx: &rpc::QueryCx, channel: Id<Channel>, limit: u32) -> rpc::Result<Vec<PublicMessage>> {
+/// 	let rows = Message::query().filter(|m| m.channel_id.eq(channel)).all(cx.db()).await?;
+/// 	Ok(rows.into_iter().map(Into::into).collect())
+/// }
+/// ```
+///
+/// On every target it declares `Messages { channel, limit }`, the arguments
+/// as one value that serializes and has a JSON Schema, and implements
+/// `rpc::Operation` for it, so any client can send it with `rpc::call`. In a
+/// server build (the `server` feature) it also keeps the function, runs it as
+/// `Operation::run`, and registers it for `POST /api/messages`. A client
+/// build has no body at all.
+///
+/// The first argument is the context, `cx: &rpc::QueryCx`; the rest are the
+/// arguments, which must be owned and implement `Serialize`, `Deserialize`,
+/// and `JsonSchema`. Doc comments, `#[serde(...)]`, and `#[schemars(...)]`
+/// on an argument move onto its field.
+///
+/// Options: `name = "..."`, the operation's wire name when the function name
+/// is taken, and `crate = "..."`, the path to `leptoskit_rpc`, such as `crate
+/// = "leptoskit::rpc"`. Put `#[api]` above it to publish it to generated
+/// clients.
+#[proc_macro_attribute]
+pub fn query(
+	args: proc_macro::TokenStream,
+	item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+	operation_macro(OperationKind::Query, args, item)
+}
+
+/// Declares a mutation: an `async fn` that writes in one transaction,
+/// published under its name.
+///
+/// ```ignore
+/// /// Posts a message as the signed-in person.
+/// #[rpc::mutation]
+/// pub async fn send_message(cx: &rpc::MutationCx, channel: Id<Channel>, body: String) -> rpc::Result<Id<Message>> {
+/// 	let message = NewMessage { channel_id: channel, body }.insert(cx.tx()).await?;
+/// 	Ok(message.id)
+/// }
+/// ```
+///
+/// It expands like [`query`](macro@query), with `cx: &rpc::MutationCx` as
+/// the context. The body runs in one transaction, `SERIALIZABLE` on
+/// Postgres, and runs again when another transaction gets in its way: up to
+/// five more times by default, or `retries = N`. So it must not reach the
+/// outside world itself; `cx.after_commit(…)` runs work once the
+/// transaction has committed.
+#[proc_macro_attribute]
+pub fn mutation(
+	args: proc_macro::TokenStream,
+	item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+	operation_macro(OperationKind::Mutation, args, item)
+}
+
+fn operation_macro(
+	kind: OperationKind,
+	args: proc_macro::TokenStream,
+	item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+	let item = TokenStream::from(item);
+	match operation::expand(kind, args.into(), item.clone(), cfg!(feature = "server")) {
+		Ok(tokens) => tokens.into(),
+		// Only the error: the function's body may not compile on a client.
+		Err(error) => error.to_compile_error().into(),
+	}
+}
+
 /// Publishes a server function to generated clients.
 ///
 /// Place it above `#[server]`:
@@ -65,6 +144,9 @@ use syn::punctuated::Punctuated;
 /// 	// ...
 /// }
 /// ```
+///
+/// It publishes `#[rpc::query]` and `#[rpc::mutation]` operations the same
+/// way: place it above them.
 ///
 /// Options:
 ///
@@ -125,8 +207,8 @@ impl ApiArgs {
 						return Err(syn::Error::new_spanned(
 							&name,
 							"`name` becomes the route `/api/<name>` and the generated method \
-							 names, so it must be non-empty and use only ASCII letters, digits, \
-							 `_`, and `-`",
+							 names, so it must be non-empty and use ASCII letters, digits, `_`, \
+							 `-`, and `.`, as in `chat.messages`",
 						));
 					}
 					args.name = Some(name);
@@ -160,12 +242,14 @@ impl ApiArgs {
 	}
 }
 
-/// Whether `name` can stand alone as one path segment of a route.
+/// Whether `name` can stand alone as one path segment of a route: letters,
+/// digits, `_`, `-`, and `.` for a namespaced operation such as
+/// `chat.messages`.
 fn is_route_segment(name: &str) -> bool {
 	!name.is_empty()
-		&& name
-			.chars()
-			.all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+		&& name.chars().all(|character| {
+			character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
+		})
 }
 
 /// One argument of the `#[server(...)]` attribute, kept as written so the
@@ -341,8 +425,21 @@ struct Param {
 /// registered: the `ssr` feature in the real macro, either way in tests.
 fn expand(args: TokenStream, item: TokenStream, register: bool) -> syn::Result<TokenStream> {
 	let args = ApiArgs::parse(args)?;
-	let mut function: ItemFn = syn::parse2(item)?;
+	let function: ItemFn = syn::parse2(item)?;
 
+	match function
+		.attrs
+		.iter()
+		.enumerate()
+		.find_map(|(index, attr)| operation_attribute(attr).map(|kind| (index, kind)))
+	{
+		Some((index, kind)) => expand_operation(&args, function, index, kind, register),
+		None => expand_server(&args, function, register),
+	}
+}
+
+/// Publishes a leptos `#[server]` function.
+fn expand_server(args: &ApiArgs, mut function: ItemFn, register: bool) -> syn::Result<TokenStream> {
 	let server_index = function
 		.attrs
 		.iter()
@@ -350,7 +447,8 @@ fn expand(args: TokenStream, item: TokenStream, register: bool) -> syn::Result<T
 		.ok_or_else(|| {
 			syn::Error::new(
 				function.sig.ident.span(),
-				"#[api] must be placed above #[server]: it publishes a leptos server function",
+				"#[api] must be placed above #[server], #[rpc::query], or #[rpc::mutation]: it \
+				 publishes a leptos server function or an operation",
 			)
 		})?;
 	let server_attr = &function.attrs[server_index];
@@ -465,6 +563,7 @@ fn expand(args: TokenStream, item: TokenStream, register: bool) -> syn::Result<T
 			#krate::__private::inventory::submit! {
 				#krate::spec::ApiFnDescriptor {
 					name: #name,
+					kind: #krate::spec::ApiKind::Call,
 					module_path: ::core::module_path!(),
 					struct_name: #struct_name,
 					docs: #docs,
@@ -493,6 +592,207 @@ fn expand(args: TokenStream, item: TokenStream, register: bool) -> syn::Result<T
 		#function
 		#registration
 	})
+}
+
+/// Publishes an `#[rpc::query]` or `#[rpc::mutation]`: hands `#[api]`'s name
+/// and crate path on to the operation macro, and registers the description
+/// the spec is built from. The operation macro below declares the struct the
+/// description names.
+fn expand_operation(
+	args: &ApiArgs,
+	mut function: ItemFn,
+	index: usize,
+	kind: OperationKind,
+	register: bool,
+) -> syn::Result<TokenStream> {
+	let attr = &function.attrs[index];
+	let tokens = match &attr.meta {
+		Meta::Path(_) => TokenStream::new(),
+		Meta::List(list) => list.tokens.clone(),
+		Meta::NameValue(pair) => {
+			return Err(syn::Error::new_spanned(
+				pair,
+				format!("expected #[rpc::{0}] or #[rpc::{0}(...)]", kind.attribute()),
+			));
+		}
+	};
+	let operation_args = OperationArgs::parse(kind, tokens.clone())?;
+	if let (Some(api_name), Some(_)) = (&args.name, &operation_args.name) {
+		return Err(syn::Error::new_spanned(
+			api_name,
+			format!(
+				"the operation's name is given twice; keep it on #[rpc::{}(name = \"...\")], \
+				 which names it for every client, and drop it from #[api]",
+				kind.attribute()
+			),
+		));
+	}
+	if let (Some(api_crate), Some(_)) = (&args.krate, &operation_args.krate) {
+		return Err(syn::Error::new_spanned(
+			api_crate,
+			format!(
+				"the crate path is given twice; keep it on #[rpc::{}(crate = \"...\")] and drop \
+				 it from #[api]",
+				kind.attribute()
+			),
+		));
+	}
+	let signature = operation::signature(kind, &function)?;
+	let fn_ident = function.sig.ident.clone();
+	let name = args
+		.name
+		.clone()
+		.or_else(|| operation_args.name.clone())
+		.unwrap_or_else(|| LitStr::new(&fn_ident.unraw().to_string(), fn_ident.span()));
+	let krate = args
+		.krate
+		.clone()
+		.or_else(|| operation_args.krate.clone())
+		.unwrap_or_else(|| syn::parse_quote!(::leptoskit_rpc));
+
+	// The operation macro names the operation and finds `leptoskit_rpc`
+	// itself, so what `#[api]` was told goes on to it.
+	let mut forwarded: Punctuated<TokenStream, Token![,]> = Punctuated::new();
+	if !tokens.is_empty() {
+		forwarded.push(tokens);
+	}
+	if let Some(api_name) = &args.name {
+		forwarded.push(quote!(name = #api_name));
+	}
+	if let Some(api_crate) = &args.krate {
+		let text = LitStr::new(&api_crate.to_token_stream().to_string(), Span::call_site());
+		forwarded.push(quote!(crate = #text));
+	}
+	let path = function.attrs[index].path().clone();
+	function.attrs[index] = syn::parse_quote!(#[#path(#forwarded)]);
+
+	let raw_docs = docs_of(&function.attrs);
+	let arguments = argument_docs(&raw_docs);
+	let docs = strip_arguments_section(&raw_docs);
+	let deprecated = function
+		.attrs
+		.iter()
+		.any(|attr| attr.path().is_ident("deprecated"));
+
+	let registration = if register {
+		let struct_ident = operation::struct_ident(&function);
+		let struct_name = LitStr::new(&struct_ident.to_string(), struct_ident.span());
+		let path = LitStr::new(&format!("/api/{}", name.value()), name.span());
+		let docs = LitStr::new(&docs, Span::call_site());
+		let internal = args.internal;
+		let tags = &args.tags;
+		let api_kind = kind.api_variant();
+		let mut param_descriptors = Vec::new();
+		for argument in &signature.arguments {
+			let ident = argument.ident.unraw().to_string();
+			let (wire_name, required) = serde_field(&argument.field_attrs, &ident)?;
+			let own_docs = docs_of(&argument.doc_attrs);
+			let param_docs = if own_docs.is_empty() {
+				arguments.get(&ident).cloned().unwrap_or_default()
+			} else {
+				own_docs
+					.lines()
+					.map(str::trim)
+					.filter(|line| !line.is_empty())
+					.collect::<Vec<_>>()
+					.join(" ")
+			};
+			let wire_name = LitStr::new(&wire_name, Span::call_site());
+			let param_docs = LitStr::new(&param_docs, Span::call_site());
+			let ty = &argument.ty;
+			param_descriptors.push(quote! {
+				#krate::spec::ApiParamDescriptor {
+					name: #wire_name,
+					docs: #param_docs,
+					schema: |generator| generator.subschema_for::<#ty>(),
+					required: #required,
+				}
+			});
+		}
+		quote! {
+			#[allow(deprecated)]
+			const _: () = {
+				#krate::__private::inventory::submit! {
+					#krate::spec::ApiFnDescriptor {
+						name: #name,
+						kind: #krate::spec::ApiKind::#api_kind,
+						module_path: ::core::module_path!(),
+						struct_name: #struct_name,
+						docs: #docs,
+						path: #path,
+						method: #krate::spec::OPERATION_METHOD,
+						input_content_type: "application/json",
+						output_content_type: "application/json",
+						error_content_type: "text/plain",
+						params: &[#(#param_descriptors),*],
+						output_schema: |generator| {
+							generator.subschema_for::<
+								<#struct_ident as #krate::Operation>::Output,
+							>()
+						},
+						internal: #internal,
+						deprecated: #deprecated,
+						tags: &[#(#tags),*],
+					}
+				}
+			};
+		}
+	} else {
+		TokenStream::new()
+	};
+
+	Ok(quote! {
+		#function
+		#registration
+	})
+}
+
+/// An argument's name on the wire, and whether it must be sent, from the
+/// `#[serde(rename = "...")]` and `#[serde(default)]` it carries.
+fn serde_field(attrs: &[Attribute], ident: &str) -> syn::Result<(String, bool)> {
+	let mut wire_name = ident.to_owned();
+	let mut required = true;
+	for attr in attrs {
+		if !attr.path().is_ident("serde") {
+			continue;
+		}
+		let Meta::List(list) = &attr.meta else {
+			continue;
+		};
+		let metas = Punctuated::<Meta, Token![,]>::parse_terminated.parse2(list.tokens.clone())?;
+		for meta in metas {
+			match &meta {
+				Meta::Path(path) if path.is_ident("default") => required = false,
+				Meta::NameValue(pair) if pair.path.is_ident("default") => required = false,
+				Meta::NameValue(pair) if pair.path.is_ident("rename") => {
+					wire_name = string_value(&pair.value, "rename")?.value();
+				}
+				// serde reports anything malformed.
+				_ => {}
+			}
+		}
+	}
+	Ok((wire_name, required))
+}
+
+/// Whether an attribute is `#[rpc::query]` or `#[rpc::mutation]`, and which.
+fn operation_attribute(attr: &Attribute) -> Option<OperationKind> {
+	let segment = attr.path().segments.last()?;
+	if segment.ident == "query" {
+		Some(OperationKind::Query)
+	} else if segment.ident == "mutation" {
+		Some(OperationKind::Mutation)
+	} else {
+		None
+	}
+}
+
+/// Whether an attribute is `#[api]`, however it was imported.
+fn is_api_attribute(attr: &Attribute) -> bool {
+	attr.path()
+		.segments
+		.last()
+		.is_some_and(|segment| segment.ident == "api")
 }
 
 /// Whether an attribute is the `#[server]` macro, however it was imported.

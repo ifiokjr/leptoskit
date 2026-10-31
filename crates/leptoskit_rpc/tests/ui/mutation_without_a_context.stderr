@@ -1,0 +1,5 @@
+error: #[rpc::mutation] takes its context first: `cx: &rpc::MutationCx`, which writes in one transaction as the caller
+ --> tests/ui/mutation_without_a_context.rs:5:19
+  |
+5 | pub async fn reset() -> rpc::Result<()> {
+  |                   ^^

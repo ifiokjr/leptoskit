@@ -12,6 +12,7 @@ pub async fn list_todos(
 }
 static REGISTERED: ::leptoskit_rpc::spec::ApiFnDescriptor = ::leptoskit_rpc::spec::ApiFnDescriptor {
     name: "list_todos",
+    kind: ::leptoskit_rpc::spec::ApiKind::Call,
     module_path: ::core::module_path!(),
     struct_name: "ListTodos",
     docs: "Lists todos.",

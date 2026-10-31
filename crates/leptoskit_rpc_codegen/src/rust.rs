@@ -595,6 +595,17 @@ fn client_file(context: &Context<'_>, types: &mut RustTypes, models_import: bool
 				));
 			}
 		}
+		if function.kind.is_idempotent_with_key() {
+			if !function.docs.is_empty()
+				|| function.params.iter().any(|param| !param.docs.is_empty())
+			{
+				methods.push_str("\t///\n");
+			}
+			methods.push_str(
+				"\t/// Call it on [`Client::with_idempotency_key`] to make a retried call run \
+				 once.\n",
+			);
+		}
 		if function.deprecated {
 			methods.push_str("\t#[deprecated]\n");
 		}
@@ -842,6 +853,17 @@ impl Client {
 	/// The origin this client sends requests to.
 	pub fn server_url(&self) -> &str {
 		&self.server_url
+	}
+
+	/// A copy of this client that sends `key` as the `Idempotency-Key` of
+	/// every call. Calling a mutation again with the same key and arguments
+	/// returns the first call's result instead of running it twice, so a call
+	/// whose answer was lost is safe to retry. Use a fresh key, such as a
+	/// UUID, for each new call.
+	pub fn with_idempotency_key(&self, key: reqwest::header::HeaderValue) -> Self {
+		let mut client = self.clone();
+		client.headers.insert("idempotency-key", key);
+		client
 	}
 
 	async fn exchange(

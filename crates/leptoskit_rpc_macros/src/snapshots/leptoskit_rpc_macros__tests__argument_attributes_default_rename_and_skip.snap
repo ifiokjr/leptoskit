@@ -1,6 +1,5 @@
 ---
 source: crates/leptoskit_rpc_macros/src/tests.rs
-assertion_line: 249
 expression: output
 ---
 #[server(input = Json, endpoint = "create_todo")]
@@ -19,6 +18,7 @@ pub async fn create_todo(
 }
 static REGISTERED: ::leptoskit_rpc::spec::ApiFnDescriptor = ::leptoskit_rpc::spec::ApiFnDescriptor {
     name: "create_todo",
+    kind: ::leptoskit_rpc::spec::ApiKind::Call,
     module_path: ::core::module_path!(),
     struct_name: "CreateTodo",
     docs: "",

@@ -8,6 +8,7 @@ pub async fn get_todo(id: u64) -> Result<Option<Todo>, ServerFnError> {
 }
 static REGISTERED: ::leptoskit_rpc::spec::ApiFnDescriptor = ::leptoskit_rpc::spec::ApiFnDescriptor {
     name: "get_todo",
+    kind: ::leptoskit_rpc::spec::ApiKind::Call,
     module_path: ::core::module_path!(),
     struct_name: "GetTodo",
     docs: "",

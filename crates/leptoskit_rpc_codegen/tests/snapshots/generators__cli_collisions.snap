@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
+assertion_line: 1039
 expression: code
 ---
 ===== src/api/mod.rs =====
@@ -133,6 +134,17 @@ impl Client {
 	/// The origin this client sends requests to.
 	pub fn server_url(&self) -> &str {
 		&self.server_url
+	}
+
+	/// A copy of this client that sends `key` as the `Idempotency-Key` of
+	/// every call. Calling a mutation again with the same key and arguments
+	/// returns the first call's result instead of running it twice, so a call
+	/// whose answer was lost is safe to retry. Use a fresh key, such as a
+	/// UUID, for each new call.
+	pub fn with_idempotency_key(&self, key: reqwest::header::HeaderValue) -> Self {
+		let mut client = self.clone();
+		client.headers.insert("idempotency-key", key);
+		client
 	}
 
 	async fn exchange(
