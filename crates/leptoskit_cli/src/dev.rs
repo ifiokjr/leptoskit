@@ -106,7 +106,7 @@ pub fn run(
 		no_devtools,
 		devtools_port,
 	})?;
-	let (_watcher, events_rx, config_changed, tables_changed) = watch(
+	let watching = watch(
 		&config,
 		&root,
 		&runtime,
@@ -114,7 +114,7 @@ pub fn run(
 		started.web.as_ref(),
 		started.database.as_ref(),
 	)?;
-	rebuild(started, &events_rx, &config_changed, &tables_changed);
+	rebuild(started, &watching);
 	Ok(())
 }
 
@@ -196,12 +196,9 @@ impl Started {
 		};
 
 		let database = start_database(config, root)?;
-		let database_env = database
-			.as_ref()
-			.map_or_else(Vec::new, crate::db::DevDatabase::env);
 		let web = selection
 			.web
-			.then(|| Web::start(config, root, port, runtime, database_env))
+			.then(|| Web::start(config, root, port, runtime, database.as_ref()))
 			.transpose()?;
 		let extension = selection
 			.extension
@@ -236,12 +233,7 @@ fn watch(
 	open: bool,
 	web: Option<&Web>,
 	database: Option<&crate::db::DevDatabase>,
-) -> Result<(
-	notify::RecommendedWatcher,
-	mpsc::Receiver<Wake>,
-	Arc<AtomicBool>,
-	Arc<AtomicBool>,
-)> {
+) -> Result<Watching> {
 	let (events_tx, events_rx) = mpsc::channel::<Wake>();
 	let stop = events_tx.clone();
 	runtime.spawn(async move {
@@ -249,8 +241,7 @@ fn watch(
 		let _ = stop.send(Wake::Stop);
 	});
 
-	let (mut watcher, config_changed, tables_changed, scope) =
-		start_watcher(config, root, events_tx, database)?;
+	let (mut watcher, heard, scope) = start_watcher(config, root, events_tx, database)?;
 	watch_roots(&mut watcher, &scope)?;
 
 	anstream::println!(
@@ -265,19 +256,25 @@ fn watch(
 		ui::warning(format_args!("could not open the browser: {error:#}"));
 	}
 
-	Ok((watcher, events_rx, config_changed, tables_changed))
+	Ok(Watching {
+		_watcher: watcher,
+		events: events_rx,
+		heard,
+	})
 }
 
-/// Starts the app's development database, if it has one, and brings it in
-/// step with the tables once.
-fn start_database(config: &LeptoskitConfig, root: &Path) -> Result<Option<crate::db::DevDatabase>> {
-	let database = crate::db::DevDatabase::start(config, root)?;
+/// The running watcher, and what it has heard since the last rebuild.
+struct Watching {
+	/// Held for the whole loop: dropping it stops the watching.
+	_watcher: notify::RecommendedWatcher,
+	events: mpsc::Receiver<Wake>,
+	heard: Heard,
+}
 
-	if let Some(database) = &database {
-		database.tables_changed();
-	}
-
-	Ok(database)
+/// What the watcher notes for the next rebuild, beyond that something changed.
+struct Heard {
+	config_changed: Arc<AtomicBool>,
+	tables_changed: Arc<AtomicBool>,
 }
 
 /// The files the watcher covers.
@@ -293,15 +290,10 @@ fn start_watcher(
 	root: &Path,
 	events_tx: mpsc::Sender<Wake>,
 	database: Option<&crate::db::DevDatabase>,
-) -> Result<(
-	notify::RecommendedWatcher,
-	Arc<AtomicBool>,
-	Arc<AtomicBool>,
-	Watched,
-)> {
+) -> Result<(notify::RecommendedWatcher, Heard, Watched)> {
 	let metadata = crate::wasm::cargo_metadata(root)?;
 	let out_dir = root.join(DEV_OUT);
-	let excluded = excluded_dirs(&root, &metadata, &out_dir);
+	let excluded = excluded_dirs(root, &metadata, &out_dir);
 	let public = root.join("public");
 	let config_file = root.join(leptoskit_config::CONFIG_FILE);
 	let config_changed = Arc::new(AtomicBool::new(false));
@@ -324,7 +316,7 @@ fn start_watcher(
 	let watched_config = config_file.clone();
 	let changed = Arc::clone(&config_changed);
 	let tables = Arc::clone(&tables_changed);
-	let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+	let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
 		match event {
 			Ok(event) if event.paths.iter().any(|path| filter.is_relevant(path)) => {
 				if event.paths.contains(&watched_config) {
@@ -351,8 +343,10 @@ fn start_watcher(
 
 	Ok((
 		watcher,
-		config_changed,
-		tables_changed,
+		Heard {
+			config_changed,
+			tables_changed,
+		},
 		Watched {
 			metadata,
 			public,
@@ -399,17 +393,14 @@ fn watch_roots(watcher: &mut notify::RecommendedWatcher, scope: &Watched) -> Res
 /// Rebuilds every platform after a debounced change. A config change warns
 /// that the native apps themselves still need a restart, then reloads the
 /// guests with the new configuration.
-fn rebuild(
-	mut started: Started,
-	events_rx: &mpsc::Receiver<Wake>,
-	config_changed: &AtomicBool,
-	tables_changed: &AtomicBool,
-) {
-	while let Ok(Wake::Changed) = events_rx.recv() {
+fn rebuild(mut started: Started, watching: &Watching) {
+	let Watching { events, heard, .. } = watching;
+
+	while let Ok(Wake::Changed) = events.recv() {
 		// Debounce: keep absorbing events until none arrives for a whole
 		// window, so an editor's burst of writes triggers one rebuild.
 		loop {
-			match events_rx.recv_timeout(REBUILD_DEBOUNCE) {
+			match events.recv_timeout(REBUILD_DEBOUNCE) {
 				Ok(Wake::Changed) => {}
 				Ok(Wake::Stop) | Err(RecvTimeoutError::Disconnected) => return,
 				Err(RecvTimeoutError::Timeout) => break,
@@ -417,7 +408,7 @@ fn rebuild(
 		}
 		// Before the rebuild, so the server embeds a migration written now.
 		if let Some(database) = &started.database
-			&& tables_changed.swap(false, Ordering::Relaxed)
+			&& heard.tables_changed.swap(false, Ordering::Relaxed)
 		{
 			database.tables_changed();
 		}
@@ -431,7 +422,7 @@ fn rebuild(
 		}
 
 		if let Some(native) = &started.native {
-			reload_native(native, config_changed);
+			reload_native(native, &heard.config_changed);
 		}
 	}
 }
