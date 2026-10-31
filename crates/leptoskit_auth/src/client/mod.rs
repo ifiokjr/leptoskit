@@ -360,11 +360,14 @@ fn backend(_config: ClientConfig) -> Arc<dyn Api> {
 /// In a native app: the HTTP plugin, and the secure store.
 #[cfg(all(feature = "guest", target_arch = "wasm32"))]
 fn backend(config: ClientConfig) -> Arc<dyn Api> {
-	Arc::new(protocol::Remote::new(
-		config,
-		native::Plugin,
-		native::TokenKeeper::new(native::Keychain, leptoskit_query::now_ms),
-	))
+	Arc::new(
+		protocol::Remote::new(
+			config,
+			native::Plugin,
+			native::TokenKeeper::new(native::Keychain, leptoskit_query::now_ms),
+		)
+		.platform(native::System::default()),
+	)
 }
 
 /// In the browser: `fetch`, and the cookie.
@@ -569,15 +572,16 @@ pub fn sign_out_everywhere_mutation() -> MutationScope<(), (), ErrorResponse> {
 	})
 }
 
-/// Signs in with a passkey: in the browser's dialog, or from the email
-/// field's autofill. A passkey that verifies its user is two factors in one,
-/// so there's no second step. On success, the session query holds the new
-/// session.
+/// Signs in with a passkey: in the browser's dialog or the device's own
+/// passkey sheet, or from the email field's autofill. A passkey that
+/// verifies its user is two factors in one, so there's no second step. On
+/// success, the session query holds the new session.
 ///
 /// Fails with `passkey_failed`, `cancelled` when the person closes the
 /// prompt or [`cancel_passkey_sign_in`] stops it, `disabled`, `locked`,
-/// `rate_limited`, or `unsupported` where the device can't do passkeys yet,
-/// as in native apps today.
+/// `rate_limited`, or `unsupported` where the device has no passkeys, and
+/// for [`PasskeyMode::Autofill`] in native apps, whose text fields offer no
+/// passkey suggestions.
 pub fn passkey_sign_in() -> MutationScope<PasskeyMode, PublicSession, ErrorResponse> {
 	MutationScope::new(|mode: PasskeyMode| async move { api().passkey_sign_in(mode).await })
 		.with_on_success(|args| {
@@ -597,7 +601,7 @@ pub fn cancel_passkey_sign_in() {
 /// had no recovery codes gets them, to show once.
 ///
 /// Fails with `reauthenticate`, `step_up_required`, `passkey_failed`,
-/// `cancelled`, or `unsupported`.
+/// `cancelled`, or `unsupported` where the device has no passkeys.
 pub fn add_passkey() -> MutationScope<Option<String>, PasskeyAdded, ErrorResponse> {
 	MutationScope::new(|name: Option<String>| async move { api().add_passkey(name).await })
 		.with_on_success_async(|args| {
@@ -685,16 +689,24 @@ pub fn use_providers() -> QueryHandle<Vec<ProviderInfo>, ErrorResponse> {
 	use_query(providers(), || ())
 }
 
-/// Signs in with a provider: the page goes to its sign-in page, and comes
-/// back to `redirect_to` with the outcome in its query, which
-/// [`provider_outcome`] reads.
+/// Signs in with a provider. In the browser, the page goes to its sign-in
+/// page, and comes back to `redirect_to` with the outcome in its query. A
+/// native app goes there in the system browser (never a web view), or uses
+/// Sign in with Apple on the device for Apple, and resolves once it's back.
+/// Either way, [`provider_outcome`] then says how it ended, and the session
+/// query refetches.
 ///
 /// Fails with `unknown_provider`, `invalid_redirect`, `rate_limited`, or
-/// `unsupported` in native apps until their system-browser plugin arrives.
+/// in a native app `config` without its `web-auth` plugin.
 pub fn sign_in_with_provider() -> MutationScope<StartProvider, (), ErrorResponse> {
 	MutationScope::new(
 		|input: StartProvider| async move { api().start_provider(input, false).await },
 	)
+	.with_on_success_async(|args| {
+		async move {
+			args.client.invalidate_scope(&session()).await;
+		}
+	})
 }
 
 /// Connects a provider to the signed-in person's account, as
@@ -707,13 +719,19 @@ pub fn link_provider() -> MutationScope<StartProvider, (), ErrorResponse> {
 	MutationScope::new(
 		|input: StartProvider| async move { api().start_provider(input, true).await },
 	)
+	.with_on_success_async(|args| {
+		async move {
+			args.client.invalidate_scope(&identities()).await;
+			args.client.invalidate_scope(&merge_offer()).await;
+		}
+	})
 }
 
 /// After the outcome `email_in_use`: creates a separate account with the
 /// provider, without the address another account already has. On success,
 /// the session query holds the new session.
 ///
-/// Fails with `sign_in_expired`, or `unsupported` in native apps.
+/// Fails with `sign_in_expired`.
 pub fn continue_provider_sign_up() -> MutationScope<(), PublicSession, ErrorResponse> {
 	MutationScope::new(|()| async { api().continue_provider_sign_up().await }).with_on_success(
 		|args| {
@@ -722,9 +740,10 @@ pub fn continue_provider_sign_up() -> MutationScope<(), PublicSession, ErrorResp
 	)
 }
 
-/// How a provider sign-in that just came back ended, from the page's
-/// query, or `None` when the page didn't come from one. After
-/// `signed_in`, refetch the session query.
+/// How the last provider sign-in ended: from the page's query in the
+/// browser, which came back from the provider, or from the system browser
+/// in a native app, once [`sign_in_with_provider`] or [`link_provider`]
+/// resolves. `None` when there wasn't one.
 pub fn provider_outcome() -> Option<ProviderOutcome> {
 	api().provider_outcome()
 }

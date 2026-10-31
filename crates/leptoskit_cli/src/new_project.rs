@@ -208,10 +208,14 @@ pub fn run_with_options(
 }
 
 /// The runtime plugins the sign-in client needs in a native app: `http` to
-/// reach the server, and `secure-store` for the refresh token.
-pub(crate) const AUTH_PLUGINS: [(&str, &str); 2] = [
+/// reach the server, `secure-store` for the refresh token, `passkeys` for
+/// passkeys and Sign in with Apple, and `web-auth` for other providers in
+/// the system browser.
+pub(crate) const AUTH_PLUGINS: [(&str, &str); 4] = [
 	("http", "leptoskit_plugin_http"),
 	("secure-store", "leptoskit_plugin_secure_store"),
+	("passkeys", "leptoskit_plugin_passkeys"),
+	("web-auth", "leptoskit_plugin_web_auth"),
 ];
 
 /// The origins a new app's HTTP plugin may reach: the development server,

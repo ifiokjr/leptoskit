@@ -199,6 +199,7 @@ leptoskit_plugin_menu = { path = "crates/leptoskit_plugin_menu", version = "0.1.
 leptoskit_plugin_network = { path = "crates/leptoskit_plugin_network", version = "0.1.0" }
 leptoskit_plugin_notifications = { path = "crates/leptoskit_plugin_notifications", version = "0.1.0" }
 leptoskit_plugin_os = { path = "crates/leptoskit_plugin_os", version = "0.1.0" }
+leptoskit_plugin_passkeys = { path = "crates/leptoskit_plugin_passkeys", version = "0.1.0" }
 leptoskit_plugin_pedometer = { path = "crates/leptoskit_plugin_pedometer", version = "0.1.0" }
 leptoskit_plugin_permissions = { path = "crates/leptoskit_plugin_permissions", version = "0.1.0" }
 leptoskit_plugin_posture = { path = "crates/leptoskit_plugin_posture", version = "0.1.0" }
@@ -215,6 +216,7 @@ leptoskit_plugin_store = { path = "crates/leptoskit_plugin_store", version = "0.
 leptoskit_plugin_store_review = { path = "crates/leptoskit_plugin_store_review", version = "0.1.0" }
 leptoskit_plugin_tracking_transparency = { path = "crates/leptoskit_plugin_tracking_transparency", version = "0.1.0" }
 leptoskit_plugin_tray = { path = "crates/leptoskit_plugin_tray", version = "0.1.0" }
+leptoskit_plugin_web_auth = { path = "crates/leptoskit_plugin_web_auth", version = "0.1.0" }
 leptoskit_plugin_websocket = { path = "crates/leptoskit_plugin_websocket", version = "0.1.0" }
 leptoskit_plugin_window_state = { path = "crates/leptoskit_plugin_window_state", version = "0.1.0" }
 # Each consumer picks its host: `browser` for web builds, `guest` for native

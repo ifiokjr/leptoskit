@@ -73,6 +73,11 @@ impl Auth {
 				.clone()
 				.unwrap_or_else(|| crate::SolanaOptions::default().chain_id),
 		});
+		builder = builder.native_apps(crate::NativeApps {
+			package_id: config.native.package_id.clone(),
+			apple_team_id: config.native.apple_team_id.clone(),
+			android_certificates: config.native.android_certificate_digests(),
+		});
 		builder = providers(builder, auth)?;
 		mailer(builder, auth)
 	}

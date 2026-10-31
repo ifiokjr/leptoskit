@@ -911,3 +911,42 @@ fn auth_settings_are_checked() {
 		assert!(error.to_string().contains(message), "{settings}: {error}");
 	}
 }
+
+#[test]
+fn native_app_associations_are_checked() {
+	let config = |native: &str| {
+		LeptoskitConfig::from_toml(
+			&format!("[app]\nname = \"counter\"\n\n[native]\n{native}"),
+			std::path::Path::new("counter"),
+		)
+	};
+	let fingerprint = "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:\
+	                   CD:EF:01:23:45:67:89";
+	let loaded = config(&format!(
+		"apple_team_id = \"ABCDE12345\"\nandroid_certificates = [\"{fingerprint}\", \"{}\"]",
+		fingerprint.replace(':', "").to_lowercase()
+	))
+	.expect("a team ID and fingerprints load");
+	assert_eq!(loaded.native.apple_team_id.as_deref(), Some("ABCDE12345"));
+	let digests = loaded.native.android_certificate_digests();
+	assert_eq!(digests.len(), 2);
+	assert_eq!(digests[0], digests[1]);
+	assert_eq!(digests[0][..4], [0xAB, 0xCD, 0xEF, 0x01]);
+
+	for team in ["abcde12345", "ABCDE1234", "ABCDE-2345"] {
+		let error = config(&format!("apple_team_id = \"{team}\"")).unwrap_err();
+		assert!(
+			matches!(error, ConfigError::InvalidAppleTeamId(ref found) if found == team),
+			"{error}"
+		);
+	}
+
+	for certificate in ["AB:CD", "zz", &"A".repeat(66)] {
+		let error = config(&format!("android_certificates = [\"{certificate}\"]")).unwrap_err();
+		assert!(
+			matches!(error, ConfigError::InvalidAndroidCertificate(ref found) if found == certificate),
+			"{error}"
+		);
+		assert!(error.to_string().contains("keytool"));
+	}
+}

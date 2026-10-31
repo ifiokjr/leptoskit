@@ -1,0 +1,33 @@
+[package]
+name = "leptoskit_plugin_passkeys"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Native passkeys and Sign in with Apple for LeptosKit: ASAuthorization on Apple platforms, Credential Manager on Android."
+
+[package.metadata.leptoskit.runtime]
+name = "passkeys"
+apple-module = "LeptosKitPasskeys"
+apple-type = "PasskeysPlugin"
+apple-context = true
+android-type = "dev.leptoskit.plugins.passkeys.PasskeysPlugin"
+android-context = true
+android-dependencies = [
+	"androidx.credentials:credentials:1.5.0",
+	"androidx.credentials:credentials-play-services-auth:1.5.0",
+]
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

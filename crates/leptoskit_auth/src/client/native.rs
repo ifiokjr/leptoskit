@@ -344,3 +344,203 @@ mod keychain {
 		}
 	}
 }
+
+/// What a native app's device does for sign-in: passkeys and Sign in with
+/// Apple through the passkeys plugin, and other providers in the system
+/// browser through the web-auth plugin. Passkey autofill isn't offered: the
+/// native text field has no passkey suggestions.
+#[cfg(all(feature = "guest", target_arch = "wasm32"))]
+#[derive(Default)]
+pub(crate) struct System {
+	/// Stops the passkey request that's waiting.
+	waiting: Arc<Mutex<Option<futures::future::AbortHandle>>>,
+}
+
+#[cfg(all(feature = "guest", target_arch = "wasm32"))]
+mod system {
+	use leptoskit_bridge::Error;
+	use leptoskit_plugin_passkeys::guest::Passkeys;
+	use leptoskit_plugin_web_auth::guest::WebAuth;
+
+	use super::*;
+	use crate::CreationChallengeResponse;
+	use crate::PublicKeyCredential;
+	use crate::RegisterPublicKeyCredential;
+	use crate::RequestChallengeResponse;
+	use crate::client::protocol::AppleId;
+	use crate::client::protocol::BrowserSession;
+	use crate::client::protocol::Platform;
+
+	/// A plugin the build doesn't have.
+	fn missing(plugin: &str) -> ErrorResponse {
+		error(
+			"config",
+			&format!("this needs the {plugin} plugin: grant \"{plugin}\" in `[native] plugins`"),
+		)
+	}
+
+	/// What a plugin's failure means to the person.
+	fn failed(failure: Error, otherwise: &str) -> ErrorResponse {
+		match failure {
+			Error::Cancelled => error("cancelled", "it was closed before it finished"),
+			Error::Busy => error("cancelled", "another sign-in is already open"),
+			Error::Unavailable => {
+				error(
+					"unsupported",
+					"this device can't do that; sign in another way",
+				)
+			}
+			Error::PermissionDenied => {
+				error(
+					"config",
+					"the plugin isn't granted that; check `[native] plugins`",
+				)
+			}
+			_ => error(otherwise, "the device couldn't finish it; try again"),
+		}
+	}
+
+	fn options<T: serde::Serialize>(public_key: &T) -> Result<String, ErrorResponse> {
+		serde_json::to_string(public_key)
+			.map_err(|_| error("passkey_failed", "the passkey options didn't make sense"))
+	}
+
+	fn answer<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, ErrorResponse> {
+		serde_json::from_str(json).map_err(|_| {
+			error(
+				"passkey_failed",
+				"the device's passkey answer didn't make sense",
+			)
+		})
+	}
+
+	impl System {
+		fn abortable<T: Send + 'static>(
+			&self,
+			work: impl Future<Output = Result<T, ErrorResponse>> + Send + 'static,
+		) -> BoxFuture<'static, Result<T, ErrorResponse>> {
+			let (work, handle) = futures::future::abortable(work);
+			*self.waiting.lock().unwrap_or_else(PoisonError::into_inner) = Some(handle);
+			Box::pin(async move {
+				work.await
+					.unwrap_or_else(|_| Err(error("cancelled", "it was stopped")))
+			})
+		}
+	}
+
+	impl Platform for System {
+		fn create(
+			&self,
+			options: CreationChallengeResponse,
+		) -> BoxFuture<'static, Result<RegisterPublicKeyCredential, ErrorResponse>> {
+			self.abortable(async move {
+				let json = self::options(&options.public_key)?;
+				let plugin = Passkeys::new().map_err(|_| missing("passkeys"))?;
+				let made = plugin
+					.create(&json)
+					.await
+					.map_err(|failure| failed(failure, "passkey_failed"))?;
+				answer(&made)
+			})
+		}
+
+		fn get(
+			&self,
+			options: RequestChallengeResponse,
+			autofill: bool,
+		) -> BoxFuture<'static, Result<PublicKeyCredential, ErrorResponse>> {
+			if autofill {
+				return Box::pin(std::future::ready(crate::client::protocol::unsupported()));
+			}
+
+			self.abortable(async move {
+				let json = self::options(&options.public_key)?;
+				let plugin = Passkeys::new().map_err(|_| missing("passkeys"))?;
+				let signed = plugin
+					.get(&json)
+					.await
+					.map_err(|failure| failed(failure, "passkey_failed"))?;
+				answer(&signed)
+			})
+		}
+
+		fn cancel(&self) {
+			if let Some(waiting) = self
+				.waiting
+				.lock()
+				.unwrap_or_else(PoisonError::into_inner)
+				.take()
+			{
+				waiting.abort();
+			}
+		}
+
+		fn open(&self, _url: &str) -> Result<(), ErrorResponse> {
+			crate::client::protocol::unsupported()
+		}
+
+		fn query(&self) -> Option<String> {
+			None
+		}
+
+		/// Without the plugin, as on Windows, Linux, and HarmonyOS, passkey
+		/// calls answer `unsupported` before asking the server anything.
+		fn passkeys(&self) -> bool {
+			Passkeys::new().is_ok()
+		}
+
+		fn autofill(&self) -> bool {
+			false
+		}
+
+		fn begin_browser(&self) -> BoxFuture<'static, Result<BrowserSession, ErrorResponse>> {
+			Box::pin(async {
+				let plugin = WebAuth::new().map_err(|_| missing("web-auth"))?;
+				let session = plugin
+					.begin()
+					.await
+					.map_err(|failure| failed(failure, "provider"))?;
+				Ok(BrowserSession {
+					id: session.id,
+					return_to: session.return_to,
+				})
+			})
+		}
+
+		fn browse(
+			&self,
+			session: BrowserSession,
+			url: String,
+		) -> BoxFuture<'static, Result<String, ErrorResponse>> {
+			Box::pin(async move {
+				let plugin = WebAuth::new().map_err(|_| missing("web-auth"))?;
+				let session = leptoskit_plugin_web_auth::Session {
+					id: session.id,
+					return_to: session.return_to,
+				};
+				plugin
+					.authenticate(&session, &url)
+					.await
+					.map_err(|failure| failed(failure, "provider"))
+			})
+		}
+
+		fn has_apple_id(&self) -> bool {
+			Passkeys::new().is_ok()
+		}
+
+		fn apple_id(&self, nonce: String) -> BoxFuture<'static, Result<AppleId, ErrorResponse>> {
+			Box::pin(async move {
+				let plugin = Passkeys::new().map_err(|_| missing("passkeys"))?;
+				let credential = plugin
+					.apple_id(&nonce)
+					.await
+					.map_err(|failure| failed(failure, "provider"))?;
+				Ok(AppleId {
+					user: credential.user(),
+					id_token: credential.id_token,
+				})
+			})
+		}
+	}
+}

@@ -121,6 +121,7 @@ Most runtime names match the crate's suffix: `leptoskit_plugin_clipboard` is `cl
 | `leptoskit_plugin_secure_store`          | `secure-store`          |
 | `leptoskit_plugin_store_review`          | `store-review`          |
 | `leptoskit_plugin_tracking_transparency` | `tracking-transparency` |
+| `leptoskit_plugin_web_auth`              | `web-auth`              |
 
 `light_sensor` and `image_manipulator` keep their underscores. `dialog`, `menu`, `tray`, `global_shortcut`, `window_state`, `autostart`, `single_instance`, and `arguments` have no runtime name: the desktop host constructs them itself, because each needs something only the host has, such as a running event loop or a window.
 

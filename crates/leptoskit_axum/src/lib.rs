@@ -9,6 +9,9 @@
 //!   [`leptoskit_codepush::codepush_router`];
 //! - a ready-to-run [`serve`] for `leptoskit dev` and production static
 //!   hosting, and [`serve_router`] for an app's own router;
+//! - the native apps' association files, [`app_associations`], which let the
+//!   iOS, macOS, and Android apps use the site's passkeys and sign-in return
+//!   address;
 //! - the crates the server is built from, re-exported as [`axum`], [`tokio`],
 //!   [`tower`], and [`tower_http`], so a deployment depends on this crate alone
 //!   and never has to keep their versions in step by hand.
@@ -147,6 +150,11 @@ pub fn dev_router(options: &ServeOptions) -> Router {
 pub fn static_files(dist_dir: &Path) -> Router {
 	Router::new().fallback_service(static_service(dist_dir))
 }
+
+mod associations;
+pub use associations::app_associations;
+pub use associations::apple_app_site_association;
+pub use associations::asset_links;
 
 async fn health() -> &'static str {
 	"ok"

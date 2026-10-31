@@ -23,13 +23,32 @@ use leptoskit::db::Db;
 ///
 /// When `[auth]` is missing or invalid, or `AUTH_ENCRYPTION_KEYS` isn't set.
 pub fn service<U: OnSignUp + 'static>(db: &Db) -> Result<Auth, AuthError> {
-	let config = LeptoskitConfig::from_toml(
-		include_str!("../leptoskit.toml"),
-		std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
-	)
-	.map_err(|error| AuthError::Config(error.to_string()))?;
-	let builder = Auth::from_config(db, &config)?.on_sign_up::<U>();
+	let builder = Auth::from_config(db, &config()?)?.on_sign_up::<U>();
 	#[cfg(debug_assertions)]
 	let builder = builder.dev_mailbox().dev_sign_in();
 	builder.build()
+}
+
+/// `/.well-known/apple-app-site-association` and
+/// `/.well-known/assetlinks.json`, from `[native]`, so the iOS, macOS, and
+/// Android apps can use this site's passkeys and sign-in return address.
+/// Each is served once `[native]` names the Apple team or the Android
+/// signing certificates.
+///
+/// # Errors
+///
+/// When `leptoskit.toml` is invalid.
+pub fn associations<S>() -> Result<leptoskit::server::axum::Router<S>, AuthError>
+where
+	S: Clone + Send + Sync + 'static,
+{
+	Ok(leptoskit::server::app_associations(&config()?.native))
+}
+
+fn config() -> Result<LeptoskitConfig, AuthError> {
+	LeptoskitConfig::from_toml(
+		include_str!("../leptoskit.toml"),
+		std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
+	)
+	.map_err(|error| AuthError::Config(error.to_string()))
 }
