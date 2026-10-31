@@ -900,6 +900,30 @@ fn the_auth_table_names_secrets_by_variable() {
 	assert_eq!(embedded.app.name, "notes");
 	assert!(embedded.auth.is_some());
 
+	let providers = load(
+		"auth_providers",
+		"[auth]\nmfa = \"required\"\nrequired_for = [\"Admin\"]\n\n[auth.providers.google]\nclient_id_env \
+		 = \"GOOGLE_CLIENT_ID\"\nclient_secret_env = \"GOOGLE_CLIENT_SECRET\"\n\n[auth.providers.\
+		 apple]\nclient_id_env = \"A\"\nteam_id_env = \"T\"\nkey_id_env = \"K\"\nprivate_key_env = \
+		 \"P\"\n\n[auth.providers.company]\nname = \"Company SSO\"\nissuer = \
+		 \"https://sso.example\"\nclient_id_env = \"SSO_ID\"\n\n[auth.providers.microsoft]\
+		 \nclient_id_env = \"M\"\nclient_secret_env = \"S\"\ntenant = \"consumers\"\n",
+	)
+	.expect("providers");
+	let auth = providers.auth.expect("auth");
+	assert_eq!(auth.mfa, leptoskit_config::AuthMfa::Required);
+	assert_eq!(auth.required_for, ["Admin"]);
+	assert_eq!(auth.providers.len(), 4);
+	assert_eq!(auth.providers["company"].kind("company"), "oidc");
+	assert_eq!(auth.providers["google"].kind("google"), "google");
+	assert_eq!(
+		auth.providers["google"].env_names(),
+		[
+			("client_id_env", "GOOGLE_CLIENT_ID"),
+			("client_secret_env", "GOOGLE_CLIENT_SECRET")
+		]
+	);
+
 	let webhook =
 		"[auth.mail]\nwebhook_url_env = \"MAIL_URL\"\nwebhook_secret_env = \"MAIL_SECRET\"\n";
 	load("auth_webhook", webhook).expect("a webhook with its secret");
@@ -937,6 +961,40 @@ fn auth_settings_are_checked() {
 			"must name environment variables",
 		),
 		("smtp_password = \"hunter2\"", "could not parse"),
+		("mfa = \"sometimes\"", "could not parse"),
+		("required_for = [\"\"]", "required_for"),
+		(
+			"[auth.providers.Google]\nclient_id_env = \"A\"",
+			"lowercase letters",
+		),
+		(
+			"[auth.providers.google]\nclient_id_env = \"A\"",
+			"needs `client_secret_env`",
+		),
+		(
+			"[auth.providers.github]\nclient_id_env = \"\"\nclient_secret_env = \"B\"",
+			"must name environment variables",
+		),
+		(
+			"[auth.providers.apple]\nclient_id_env = \"A\"",
+			"needs `team_id_env`",
+		),
+		(
+			"[auth.providers.sso]\nissuer = \"http://sso.example\"\nclient_id_env = \"A\"",
+			"must be an `https://` URL",
+		),
+		(
+			"[auth.providers.sso]\nissuer = \"https://sso.example\"",
+			"needs `client_id_env`",
+		),
+		(
+			"[auth.providers.x]\nkind = \"myspace\"",
+			"isn't one of google",
+		),
+		(
+			"[auth.providers.google]\nclient_id_env = \"A\"\nclient_secret = \"inline\"",
+			"could not parse",
+		),
 	] {
 		let error = load("auth_bad", &format!("[auth]\n{settings}\n")).unwrap_err();
 		assert!(error.to_string().contains(message), "{settings}: {error}");

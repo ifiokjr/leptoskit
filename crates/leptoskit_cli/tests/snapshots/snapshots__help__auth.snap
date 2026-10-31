@@ -1,0 +1,17 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Checks sign-in's configuration, rotates its keys, and adds third-party providers
+
+Usage: leptoskit auth <COMMAND>
+
+Commands:
+  doctor       Checks `[auth]`: that every secret's environment variable is set (never printing it), the origin and passkey relying party, where providers send people back, and how old each provider's definition is. Exits non-zero when something would fail
+  rotate-keys  Re-encrypts stored secrets under the newest key in the keys variable, so older keys can be retired
+  provider     Manages third-party sign-in providers
+  help         Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

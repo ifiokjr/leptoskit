@@ -3,6 +3,9 @@
 
 #![cfg(all(feature = "axum", feature = "sqlite"))]
 
+#[cfg(feature = "passkey")]
+#[path = "support/passkey.rs"]
+mod passkey;
 #[path = "support/totp.rs"]
 mod totp;
 
@@ -888,6 +891,8 @@ async fn a_browser_turns_on_an_authenticator_and_needs_it_to_sign_in() {
 	assert_eq!(
 		status,
 		MfaStatus {
+			passkeys: 0,
+			required: false,
 			totp: true,
 			recovery_codes: 9
 		}
@@ -1166,4 +1171,256 @@ async fn a_native_app_carries_the_second_step_and_steps_up_with_tokens() {
 		))
 		.await;
 	assert_eq!(off.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn a_session_that_must_set_up_two_step_reaches_only_that() {
+	let app = app(|builder| builder.mfa(leptoskit_auth::MfaPolicy::required())).await;
+	let cookie = app.sign_in("ada@example.com").await;
+
+	// The app sees no one, and says why.
+	let me = app.call("GET", "/me", None, Some(&cookie)).await;
+	assert_eq!(me.status(), StatusCode::FORBIDDEN);
+	assert_eq!(body::<ErrorResponse>(me).await.error, "mfa_required");
+	let visible = app
+		.call("GET", "/visible-sessions", None, Some(&cookie))
+		.await;
+	assert_eq!(text(visible).await, "0", "policies see no one");
+	let devices = app.call("GET", "/auth/sessions", None, Some(&cookie)).await;
+	assert_eq!(body::<ErrorResponse>(devices).await.error, "mfa_required");
+
+	// It is still the person's session, and may set a factor up.
+	let session: SessionResponse =
+		body(app.call("GET", "/auth/session", None, Some(&cookie)).await).await;
+	assert!(session.session.is_some());
+	let status: MfaStatus = body(app.call("GET", "/auth/mfa", None, Some(&cookie)).await).await;
+	assert!(status.required);
+	assert!(!status.enrolled());
+	let setup: TotpSetup = body(app.call("POST", "/auth/totp", None, Some(&cookie)).await).await;
+	let confirmed = app
+		.call(
+			"POST",
+			"/auth/totp/confirm",
+			Some(json!({ "code": totp(&setup.secret, 0) })),
+			Some(&cookie),
+		)
+		.await;
+	assert_eq!(confirmed.status(), StatusCode::OK);
+	let cookie = session_cookie(&confirmed);
+	let me = app.call("GET", "/me", None, Some(&cookie)).await;
+	assert_eq!(me.status(), StatusCode::OK);
+}
+
+/// Adds a passkey on `device` for the browser with `cookie`, and returns
+/// the new cookie and the account's passkeys.
+#[cfg(feature = "passkey")]
+async fn register(
+	app: &App,
+	cookie: &str,
+	device: &mut passkey::SoftPasskey,
+) -> (String, Vec<leptoskit_auth::PasskeyInfo>) {
+	let options = app
+		.call("POST", "/auth/passkey/register/options", None, Some(cookie))
+		.await;
+	assert_eq!(options.status(), StatusCode::OK);
+	let options: leptoskit_auth::CreationChallengeResponse = body(options).await;
+	let added = app
+		.call(
+			"POST",
+			"/auth/passkey/register",
+			Some(json!({ "credential": device.register(&options), "name": "Laptop" })),
+			Some(cookie),
+		)
+		.await;
+	assert_eq!(added.status(), StatusCode::OK);
+	let cookie = session_cookie(&added);
+	let added: leptoskit_auth::PasskeyAddedResponse = body(added).await;
+	assert_eq!(added.passkey.name, "Laptop");
+	assert!(
+		added.tokens.is_none(),
+		"a browser's session stays in its cookie"
+	);
+	let listed: Vec<leptoskit_auth::PasskeyInfo> =
+		body(app.call("GET", "/auth/passkeys", None, Some(&cookie)).await).await;
+	assert_eq!(listed.len(), 1);
+	(cookie, listed)
+}
+
+#[cfg(feature = "passkey")]
+#[tokio::test]
+async fn a_browser_signs_in_with_a_passkey_through_its_cookie() {
+	let app = app(|builder| builder).await;
+	let cookie = app.sign_in("ada@example.com").await;
+	let mut device = passkey::SoftPasskey::new(ORIGIN);
+
+	register(&app, &cookie, &mut device).await;
+
+	// Signing in: the ceremony's token goes in an `HttpOnly` cookie, never
+	// the body, and goes once it's used.
+	let started = app
+		.call(
+			"POST",
+			"/auth/passkey/sign-in/options",
+			Some(json!({})),
+			None,
+		)
+		.await;
+	let set = set_cookies(&started);
+	assert!(set[0].starts_with("__Host-passkey="), "{set:?}");
+	assert!(set[0].contains("HttpOnly"));
+	let ceremony = set[0].split(';').next().unwrap().to_owned();
+	let started: leptoskit_auth::PasskeyOptions = body(started).await;
+	assert!(started.token.is_none());
+	let signed_in = app
+		.call(
+			"POST",
+			"/auth/passkey/sign-in",
+			Some(json!({ "credential": device.sign(&started.options) })),
+			Some(&ceremony),
+		)
+		.await;
+	assert_eq!(signed_in.status(), StatusCode::OK);
+	let set = set_cookies(&signed_in);
+	assert!(
+		set.iter()
+			.any(|cookie| cookie.starts_with("__Host-session="))
+	);
+	assert!(
+		set.iter()
+			.any(|cookie| cookie.starts_with("__Host-passkey=;"))
+	);
+
+	// Without the cookie there's nothing to finish.
+	let started: leptoskit_auth::PasskeyOptions = body(
+		app.call(
+			"POST",
+			"/auth/passkey/sign-in/options",
+			Some(json!({})),
+			None,
+		)
+		.await,
+	)
+	.await;
+	let refused = app
+		.call(
+			"POST",
+			"/auth/passkey/sign-in",
+			Some(json!({ "credential": device.sign(&started.options) })),
+			None,
+		)
+		.await;
+	assert_eq!(body::<ErrorResponse>(refused).await.error, "passkey_failed");
+}
+
+#[cfg(feature = "passkey")]
+#[tokio::test]
+async fn passkeys_answer_the_second_step_step_up_and_management_over_http() {
+	let app = app(|builder| builder).await;
+	let cookie = app.sign_in("ada@example.com").await;
+	let mut device = passkey::SoftPasskey::new(ORIGIN);
+	let (_, listed) = register(&app, &cookie, &mut device).await;
+
+	// A native app gets its ceremony token in the body.
+	let native = app
+		.send(with_body(
+			Request::post("/auth/passkey/sign-in/options")
+				.header(header::CONTENT_TYPE, "application/json"),
+			Some(json!({ "transport": "bearer" })),
+		))
+		.await;
+	assert_eq!(set_cookies(&native), [] as [String; 0]);
+	let native: leptoskit_auth::PasskeyOptions = body(native).await;
+	let signed_in = app
+		.send(with_body(
+			Request::post("/auth/passkey/sign-in").header(header::CONTENT_TYPE, "application/json"),
+			Some(json!({
+				"credential": device.sign(&native.options),
+				"token": native.token,
+				"transport": "bearer",
+				"device_name": "Ada's phone",
+			})),
+		))
+		.await;
+	let signed_in: SignedInResponse = body(signed_in).await;
+	assert!(signed_in.tokens.is_some());
+	assert_eq!(signed_in.session.device, "Ada's phone");
+
+	// The second step through the browser's cookie.
+	let emailed = app
+		.call(
+			"POST",
+			"/auth/email/send",
+			Some(json!({ "email": "ada@example.com" })),
+			None,
+		)
+		.await;
+	assert_eq!(emailed.status(), StatusCode::NO_CONTENT);
+	let verified = app
+		.call(
+			"POST",
+			"/auth/email/verify",
+			Some(json!({ "email": "ada@example.com", "code": app.code("ada@example.com") })),
+			None,
+		)
+		.await;
+	let step = set_cookies(&verified)[0]
+		.split(';')
+		.next()
+		.unwrap()
+		.to_owned();
+	let options: leptoskit_auth::PasskeyOptions = body(
+		app.call(
+			"POST",
+			"/auth/passkey/second-factor/options",
+			Some(json!({})),
+			Some(&step),
+		)
+		.await,
+	)
+	.await;
+	let finished = app
+		.call(
+			"POST",
+			"/auth/passkey/second-factor",
+			Some(json!({ "credential": device.sign(&options.options) })),
+			Some(&step),
+		)
+		.await;
+	assert_eq!(finished.status(), StatusCode::OK);
+	let cookie = session_cookie(&finished);
+
+	// Step-up, renaming, and removing.
+	let options: leptoskit_auth::PasskeyOptions = body(
+		app.call("POST", "/auth/passkey/step-up/options", None, Some(&cookie))
+			.await,
+	)
+	.await;
+	let stepped = app
+		.call(
+			"POST",
+			"/auth/passkey/step-up",
+			Some(json!({ "credential": device.sign(&options.options) })),
+			Some(&cookie),
+		)
+		.await;
+	assert_eq!(stepped.status(), StatusCode::OK);
+	let cookie = session_cookie(&stepped);
+	let renamed = app
+		.call(
+			"POST",
+			"/auth/passkeys/rename",
+			Some(json!({ "id": listed[0].id, "name": "Phone" })),
+			Some(&cookie),
+		)
+		.await;
+	assert_eq!(renamed.status(), StatusCode::NO_CONTENT);
+	let removed = app
+		.call(
+			"POST",
+			"/auth/passkeys/remove",
+			Some(json!({ "id": listed[0].id })),
+			Some(&cookie),
+		)
+		.await;
+	assert_eq!(removed.status(), StatusCode::NO_CONTENT);
 }

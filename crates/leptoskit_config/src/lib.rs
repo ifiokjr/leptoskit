@@ -1210,9 +1210,183 @@ pub struct AuthConfig {
 	pub absolute_days: u32,
 	/// Minutes a native app's access token works before it refreshes.
 	pub access_minutes: u32,
+	/// Who must use two-step verification: `optional` lets people choose,
+	/// and `required` asks everyone.
+	#[serde(skip_serializing_if = "AuthMfa::is_optional")]
+	pub mfa: AuthMfa,
+	/// Roles that must use two-step verification even when `mfa` is
+	/// `optional`, such as `["Admin"]`. The app says who has which role.
+	#[serde(skip_serializing_if = "Vec::is_empty")]
+	pub required_for: Vec<String>,
 	/// How email is sent.
 	#[serde(skip_serializing_if = "AuthMailConfig::is_default")]
 	pub mail: AuthMailConfig,
+	/// Third-party sign-in providers, by ID: `google`, `apple`,
+	/// `microsoft`, `github`, or your own name for any OpenID Connect
+	/// issuer.
+	#[serde(skip_serializing_if = "BTreeMap::is_empty")]
+	pub providers: BTreeMap<String, AuthProviderConfig>,
+}
+
+/// Who must use two-step verification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum AuthMfa {
+	/// People choose, and sensitive actions ask for step-up.
+	#[default]
+	Optional,
+	/// Everyone: until they set it up, a session may only do that.
+	Required,
+}
+
+impl AuthMfa {
+	#[allow(
+		clippy::trivially_copy_pass_by_ref,
+		reason = "serde's skip_serializing_if passes a reference"
+	)]
+	fn is_optional(&self) -> bool {
+		*self == Self::Optional
+	}
+}
+
+/// A third-party sign-in provider. Its secrets are named by the
+/// environment variables that hold them.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct AuthProviderConfig {
+	/// What it is: `google`, `apple`, `microsoft`, `github`, or `oidc`.
+	/// Defaults to the provider's ID when that's one of the first four, and
+	/// to `oidc` otherwise.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub kind: Option<String>,
+	/// What people see on its button, such as "Company SSO".
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
+	/// The environment variable holding the OAuth client ID, or Apple's
+	/// Services ID.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub client_id_env: Option<String>,
+	/// The environment variable holding the client secret. An OpenID Connect
+	/// provider without one is a public client.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub client_secret_env: Option<String>,
+	/// For `oidc`: the issuer, whose discovery document names the
+	/// endpoints, such as `https://sso.example.com`.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub issuer: Option<String>,
+	/// For `microsoft`: `common`, `organizations`, `consumers`, or a tenant
+	/// ID. Defaults to `common`.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub tenant: Option<String>,
+	/// For `apple`: the environment variable holding the team ID.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub team_id_env: Option<String>,
+	/// For `apple`: the environment variable holding the Sign in with Apple
+	/// key's ID.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub key_id_env: Option<String>,
+	/// For `apple`: the environment variable holding the key's `.p8`
+	/// contents.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub private_key_env: Option<String>,
+	/// The scopes to ask for, instead of the provider's defaults.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub scopes: Option<Vec<String>>,
+}
+
+impl AuthProviderConfig {
+	/// What the provider `id` is.
+	pub fn kind(&self, id: &str) -> String {
+		self.kind.clone().unwrap_or_else(|| {
+			match id {
+				"google" | "apple" | "microsoft" | "github" => id.to_owned(),
+				_ => "oidc".to_owned(),
+			}
+		})
+	}
+
+	/// The environment variables it reads, by setting name.
+	pub fn env_names(&self) -> Vec<(&'static str, &str)> {
+		[
+			("client_id_env", &self.client_id_env),
+			("client_secret_env", &self.client_secret_env),
+			("team_id_env", &self.team_id_env),
+			("key_id_env", &self.key_id_env),
+			("private_key_env", &self.private_key_env),
+		]
+		.into_iter()
+		.filter_map(|(setting, name)| name.as_deref().map(|name| (setting, name)))
+		.collect()
+	}
+
+	/// Why the provider `id` can't work, if it can't.
+	fn problem(&self, id: &str) -> Option<String> {
+		let valid_id = !id.is_empty()
+			&& id.len() <= 64
+			&& id
+				.bytes()
+				.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
+
+		if !valid_id {
+			return Some(format!(
+				"auth.providers.{id}: provider IDs are lowercase letters, digits, and dashes"
+			));
+		}
+
+		if self.env_names().iter().any(|(_, name)| name.is_empty()) {
+			return Some(format!(
+				"auth.providers.{id}'s `_env` settings must name environment variables"
+			));
+		}
+
+		let kind = self.kind(id);
+		let missing = |settings: &[(&str, &Option<String>)]| {
+			settings
+				.iter()
+				.find(|(_, value)| value.is_none())
+				.map(|(setting, _)| format!("auth.providers.{id} needs `{setting}`"))
+		};
+
+		match kind.as_str() {
+			"google" | "github" | "microsoft" => {
+				missing(&[
+					("client_id_env", &self.client_id_env),
+					("client_secret_env", &self.client_secret_env),
+				])
+			}
+			"apple" => {
+				missing(&[
+					("client_id_env", &self.client_id_env),
+					("team_id_env", &self.team_id_env),
+					("key_id_env", &self.key_id_env),
+					("private_key_env", &self.private_key_env),
+				])
+			}
+			"oidc" => {
+				let issuer = self.issuer.as_deref().unwrap_or_default();
+				let local = ["http://localhost", "http://127.0.0.1"]
+					.iter()
+					.any(|prefix| issuer.starts_with(prefix));
+
+				if !(issuer.starts_with("https://") || local) {
+					return Some(format!(
+						"auth.providers.{id}.issuer must be an `https://` URL, such as \
+						 \"https://sso.example.com\""
+					));
+				}
+
+				missing(&[("client_id_env", &self.client_id_env)])
+			}
+			kind => {
+				Some(format!(
+					"auth.providers.{id}.kind `{kind}` isn't one of google, apple, microsoft, \
+					 github, or oidc"
+				))
+			}
+		}
+	}
 }
 
 impl Default for AuthConfig {
@@ -1225,7 +1399,10 @@ impl Default for AuthConfig {
 			idle_days: 14,
 			absolute_days: 90,
 			access_minutes: 15,
+			mfa: AuthMfa::Optional,
+			required_for: Vec::new(),
 			mail: AuthMailConfig::default(),
+			providers: BTreeMap::new(),
 		}
 	}
 }
@@ -1273,6 +1450,18 @@ impl AuthConfig {
 			return Some(format!(
 				"auth.access_minutes must be between 1 and {MAX_ACCESS_MINUTES}"
 			));
+		}
+
+		if self.required_for.iter().any(String::is_empty) {
+			return Some("auth.required_for names roles, which can't be empty".to_owned());
+		}
+
+		if let Some(problem) = self
+			.providers
+			.iter()
+			.find_map(|(id, provider)| provider.problem(id))
+		{
+			return Some(problem);
 		}
 
 		self.mail.problem()

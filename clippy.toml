@@ -22,6 +22,10 @@ doc-valid-idents = [
 	"SQLite",
 	"UUIDv5",
 	"UUIDv7",
+	"WebAuthn",
+	"OAuth",
+	"GitHub",
+	"OpenID",
 	"..",
 ]
 

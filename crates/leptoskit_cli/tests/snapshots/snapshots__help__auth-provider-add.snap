@@ -1,0 +1,15 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Adds `[auth.providers.<id>]` to leptoskit.toml, naming the environment variables its secrets go in, and prints how to set the provider up
+
+Usage: leptoskit auth provider add [OPTIONS] <ID>
+
+Arguments:
+  <ID>  `google`, `apple`, `microsoft`, `github`, or your own ID for an OpenID Connect issuer, such as `company`
+
+Options:
+      --issuer <ISSUER>  For an OpenID Connect provider: its issuer, such as `https://sso.example.com`
+  -h, --help             Print help
+  -V, --version          Print version

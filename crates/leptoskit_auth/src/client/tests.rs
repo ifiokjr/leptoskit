@@ -65,6 +65,8 @@ impl Server {
 				code_per_ip: plenty,
 				verify_per_ip: plenty,
 				second_factor_per_account: plenty,
+				ceremony_per_ip: plenty,
+				..Limits::default()
 			})
 			.build()
 			.unwrap();
@@ -464,6 +466,8 @@ async fn turns_on(server: &Server, laptop: &Device) -> Vec<String> {
 	assert_eq!(
 		laptop.api.mfa().await.unwrap(),
 		MfaStatus {
+			passkeys: 0,
+			required: false,
 			totp: true,
 			recovery_codes: 10
 		}
@@ -807,8 +811,13 @@ fn requests_say_what_they_carry() {
 
 /// The scopes run on whichever client is configured; this one test owns the
 /// process-wide client.
+/// The scopes share one installed client, so the tests that install one
+/// take turns.
+static INSTALLED: futures::lock::Mutex<()> = futures::lock::Mutex::new(());
+
 #[tokio::test]
 async fn the_scopes_call_the_configured_client() {
+	let _turn = INSTALLED.lock().await;
 	use leptos::prelude::Owner;
 	use leptoskit_query::NetworkMode;
 	use leptoskit_query::QueryClient;
@@ -899,6 +908,21 @@ async fn the_scopes_call_the_configured_client() {
 	assert_eq!(session_id(&browser).await, None);
 }
 
+/// How many devices, plus what the other reads counted, or the first
+/// refusal.
+fn total(
+	devices: Result<Vec<crate::Device>, ErrorResponse>,
+	others: [Result<usize, ErrorResponse>; 5],
+) -> Result<usize, ErrorResponse> {
+	let mut count = devices?.len();
+
+	for other in others {
+		count += other?;
+	}
+
+	Ok(count)
+}
+
 /// While the server renders, the client reads the request's own session.
 #[cfg(feature = "ssr")]
 #[tokio::test]
@@ -921,7 +945,22 @@ async fn server_rendering_reads_the_requests_session() {
 				ScopedFuture::new(async {
 					let session = Rendering.session().await;
 					let devices = Rendering.devices().await;
-					(session, devices.map(|devices| devices.len()))
+					// The other reads answer alike, signed in or not.
+					let others = [
+						Rendering.passkeys().await.map(|list| list.len()),
+						Rendering.providers().await.map(|list| list.len()),
+						Rendering.identities().await.map(|list| list.len()),
+						Rendering
+							.merge_offer()
+							.await
+							.map(|offer| usize::from(offer.is_some())),
+						Rendering
+							.mfa()
+							.await
+							.map(|status| usize::from(status.enrolled())),
+					];
+					let devices = total(devices, others);
+					(session, devices)
 				})
 			});
 			Json(reads.await)
@@ -991,6 +1030,575 @@ async fn server_rendering_reads_the_requests_session() {
 		assert_eq!(refused.unwrap_err().error, "server");
 	}
 
+	for refused in [
+		Rendering
+			.passkey_sign_in(PasskeyMode::Prompt)
+			.await
+			.map(|_| ()),
+		Rendering.add_passkey(None).await.map(|_| ()),
+		Rendering.complete_sign_in_with_passkey().await.map(|_| ()),
+		Rendering.step_up_with_passkey().await.map(|_| ()),
+		Rendering
+			.rename_passkey(RenamePasskey {
+				id: Id::new(),
+				name: "x".into(),
+			})
+			.await,
+		Rendering.remove_passkey(Id::new()).await,
+		Rendering
+			.start_provider(
+				StartProvider {
+					provider: "google".into(),
+					redirect_to: None,
+				},
+				false,
+			)
+			.await,
+		Rendering.continue_provider_sign_up().await.map(|_| ()),
+		Rendering.unlink_identity(Id::new()).await,
+		Rendering.merge_accounts(MergeInput::default()).await,
+		Rendering.cancel_merge().await,
+	] {
+		assert_eq!(refused.unwrap_err().error, "server");
+	}
+
+	Rendering.cancel_passkey();
+	assert_eq!(Rendering.provider_outcome(), None);
+
 	// Outside a request there's no session to read two-step status from.
 	assert_eq!(Rendering.mfa().await.unwrap_err().error, "server");
+	for read in [
+		Rendering.passkeys().await.map(|_| ()),
+		Rendering.providers().await.map(|_| ()),
+		Rendering.identities().await.map(|_| ()),
+		Rendering.merge_offer().await.map(|_| ()),
+	] {
+		assert_eq!(read.unwrap_err().error, "server");
+	}
+}
+
+#[cfg(feature = "passkey")]
+#[path = "../../tests/support/passkey.rs"]
+mod soft_passkey;
+
+/// What a browser does for sign-in, in memory: a software passkey shared by
+/// every device that uses it, and a page that remembers where it was sent.
+#[derive(Clone, Default)]
+struct Page {
+	#[cfg(feature = "passkey")]
+	passkey: Arc<Mutex<Option<soft_passkey::SoftPasskey>>>,
+	opened: Arc<Mutex<Option<String>>>,
+	query: Arc<Mutex<Option<String>>>,
+	cancelled: Arc<AtomicBool>,
+}
+
+impl protocol::Platform for Page {
+	#[cfg(feature = "passkey")]
+	fn create(
+		&self,
+		options: crate::CreationChallengeResponse,
+	) -> BoxFuture<'static, Result<crate::RegisterPublicKeyCredential, ErrorResponse>> {
+		let mut passkey = self.passkey.lock().unwrap();
+		let device = passkey.get_or_insert_with(|| soft_passkey::SoftPasskey::new(ORIGIN));
+		Box::pin(std::future::ready(Ok(device.register(&options))))
+	}
+
+	#[cfg(not(feature = "passkey"))]
+	fn create(
+		&self,
+		_options: crate::CreationChallengeResponse,
+	) -> BoxFuture<'static, Result<crate::RegisterPublicKeyCredential, ErrorResponse>> {
+		Box::pin(std::future::ready(protocol::unsupported()))
+	}
+
+	#[cfg(feature = "passkey")]
+	fn get(
+		&self,
+		options: crate::RequestChallengeResponse,
+		autofill: bool,
+	) -> BoxFuture<'static, Result<crate::PublicKeyCredential, ErrorResponse>> {
+		let conditional = serde_json::to_value(&options).unwrap()["mediation"] == "conditional";
+		assert_eq!(
+			conditional, autofill,
+			"autofill asks for conditional mediation"
+		);
+		let mut passkey = self.passkey.lock().unwrap();
+		let answer = match passkey.as_mut() {
+			Some(device) if device.pick(&options).is_some() => Ok(device.sign(&options)),
+			_ => Err(error("cancelled", "no passkey")),
+		};
+		Box::pin(std::future::ready(answer))
+	}
+
+	#[cfg(not(feature = "passkey"))]
+	fn get(
+		&self,
+		_options: crate::RequestChallengeResponse,
+		_autofill: bool,
+	) -> BoxFuture<'static, Result<crate::PublicKeyCredential, ErrorResponse>> {
+		Box::pin(std::future::ready(protocol::unsupported()))
+	}
+
+	fn cancel(&self) {
+		self.cancelled.store(true, Ordering::SeqCst);
+	}
+
+	fn open(&self, url: &str) -> Result<(), ErrorResponse> {
+		*self.opened.lock().unwrap() = Some(url.to_owned());
+		Ok(())
+	}
+
+	fn query(&self) -> Option<String> {
+		self.query.lock().unwrap().clone()
+	}
+}
+
+impl Server {
+	/// A browser on `page`.
+	fn browser_on(&self, page: &Page) -> Device {
+		let http = InMemory::new(self, true);
+		let jar = Arc::clone(&http.jar);
+		Device {
+			api: Arc::new(
+				Remote::new(ClientConfig::new(), http.clone(), Cookie).platform(page.clone()),
+			),
+			http,
+			held: Box::new(move || jar.lock().unwrap().contains_key("__Host-session")),
+		}
+	}
+}
+
+#[cfg(feature = "passkey")]
+#[tokio::test]
+async fn a_browser_adds_passkeys_and_signs_in_with_them() {
+	let server = Server::new().await;
+	let page = Page::default();
+	let laptop = server.browser_on(&page);
+	sign_in(&server, &laptop).await;
+
+	let added = laptop.api.add_passkey(Some("Laptop".into())).await.unwrap();
+	assert_eq!(added.passkey.name, "Laptop");
+	assert_eq!(added.session.aal, crate::Aal::Two);
+	assert_eq!(added.recovery_codes.unwrap().codes.len(), 10);
+	assert_eq!(session_id(&laptop).await, Some(added.session.id));
+	let listed = laptop.api.passkeys().await.unwrap();
+	assert_eq!(listed.len(), 1);
+	laptop
+		.api
+		.rename_passkey(RenamePasskey {
+			id: listed[0].id,
+			name: "Work laptop".into(),
+		})
+		.await
+		.unwrap();
+	assert_eq!(laptop.api.passkeys().await.unwrap()[0].name, "Work laptop");
+
+	// Another browser on the same device signs in with it, from autofill or
+	// the dialog, without an email.
+	let phone = server.browser_on(&page);
+	let session = phone
+		.api
+		.passkey_sign_in(PasskeyMode::Autofill)
+		.await
+		.unwrap();
+	assert_eq!(session.aal, crate::Aal::Two);
+	assert!(
+		!phone
+			.http
+			.jar
+			.lock()
+			.unwrap()
+			.contains_key("__Host-passkey")
+	);
+	let other = server.browser_on(&page);
+	other
+		.api
+		.passkey_sign_in(PasskeyMode::Prompt)
+		.await
+		.unwrap();
+	other.api.cancel_passkey();
+	assert!(page.cancelled.load(Ordering::SeqCst));
+
+	// An emailed code now asks for the passkey second.
+	let tablet = server.browser_on(&page);
+	tablet.api.send_code(ADA.to_owned()).await.unwrap();
+	let step = tablet
+		.api
+		.verify_code(EmailCode {
+			email: ADA.to_owned(),
+			code: server.code(),
+		})
+		.await
+		.unwrap();
+	let SignInStep::SecondFactor(prompt) = step else {
+		panic!("a second factor");
+	};
+	assert_eq!(prompt.factors[0], Factor::Passkey);
+	let session = tablet.api.complete_sign_in_with_passkey().await.unwrap();
+	assert_eq!(session.aal, crate::Aal::Two);
+
+	// Step-up with the passkey, then removing it.
+	tablet.api.step_up_with_passkey().await.unwrap();
+	tablet.api.remove_passkey(listed[0].id).await.unwrap();
+	assert_eq!(tablet.api.passkeys().await.unwrap(), [] as [PasskeyInfo; 0]);
+	assert_eq!(session_id(&laptop).await, None, "other devices signed out");
+
+	// With no passkey left, the device has nothing to offer.
+	let stranger = server.browser_on(&Page::default());
+	assert_eq!(
+		stranger
+			.api
+			.passkey_sign_in(PasskeyMode::Prompt)
+			.await
+			.unwrap_err()
+			.error,
+		"cancelled"
+	);
+}
+
+#[tokio::test]
+async fn a_native_app_says_passkeys_and_providers_are_unsupported_yet() {
+	let server = Server::new().await;
+	let phone = server.native().device();
+	sign_in(&server, &phone).await;
+	phone.http.count("");
+
+	for refused in [
+		phone
+			.api
+			.passkey_sign_in(PasskeyMode::Autofill)
+			.await
+			.map(|_| ()),
+		phone.api.add_passkey(None).await.map(|_| ()),
+		phone.api.complete_sign_in_with_passkey().await.map(|_| ()),
+		phone.api.step_up_with_passkey().await.map(|_| ()),
+		phone
+			.api
+			.start_provider(
+				StartProvider {
+					provider: "google".into(),
+					redirect_to: None,
+				},
+				false,
+			)
+			.await,
+		phone.api.continue_provider_sign_up().await.map(|_| ()),
+		phone
+			.api
+			.merge_accounts(MergeInput {
+				passkey: true,
+				confirm: true,
+				..MergeInput::default()
+			})
+			.await,
+	] {
+		assert_eq!(refused.unwrap_err().error, "unsupported");
+	}
+
+	assert_eq!(phone.http.count(""), 0, "nothing was asked of the server");
+	phone.api.cancel_passkey();
+	assert_eq!(phone.api.provider_outcome(), None);
+
+	// What only reads the server works the same everywhere.
+	assert_eq!(phone.api.passkeys().await.unwrap(), [] as [PasskeyInfo; 0]);
+	assert_eq!(
+		phone.api.identities().await.unwrap(),
+		[] as [IdentityInfo; 0]
+	);
+	assert_eq!(phone.api.merge_offer().await.unwrap(), None);
+	phone.api.cancel_merge().await.unwrap();
+	assert_eq!(
+		phone
+			.api
+			.merge_accounts(MergeInput {
+				confirm: true,
+				..MergeInput::default()
+			})
+			.await
+			.unwrap_err()
+			.error,
+		"sign_in_expired"
+	);
+	assert_eq!(
+		phone
+			.api
+			.rename_passkey(RenamePasskey {
+				id: Id::new(),
+				name: "x".into()
+			})
+			.await
+			.unwrap_err()
+			.error,
+		"not_found"
+	);
+	assert_eq!(
+		phone.api.remove_passkey(Id::new()).await.unwrap_err().error,
+		"step_up_required"
+	);
+	assert_eq!(
+		phone
+			.api
+			.unlink_identity(Id::new())
+			.await
+			.unwrap_err()
+			.error,
+		"not_found"
+	);
+	assert_eq!(
+		phone.api.providers().await.unwrap(),
+		[] as [ProviderInfo; 0]
+	);
+}
+
+#[tokio::test]
+async fn a_browser_goes_to_providers_and_reads_where_it_came_back() {
+	let server = Server::new().await;
+	let page = Page::default();
+	let browser = server.browser_on(&page);
+
+	// This server has no providers; the request still goes out, and says so.
+	let unknown = browser
+		.api
+		.start_provider(
+			StartProvider {
+				provider: "google".into(),
+				redirect_to: None,
+			},
+			false,
+		)
+		.await
+		.unwrap_err();
+	assert_eq!(unknown.error, "unknown_provider");
+	assert_eq!(page.opened.lock().unwrap().clone(), None);
+	assert_eq!(
+		browser
+			.api
+			.continue_provider_sign_up()
+			.await
+			.unwrap_err()
+			.error,
+		"sign_in_expired"
+	);
+
+	assert_eq!(browser.api.provider_outcome(), None);
+	*page.query.lock().unwrap() = Some("?tab=1&auth=error&auth_error=cancelled".into());
+	assert_eq!(
+		browser.api.provider_outcome(),
+		Some(ProviderOutcome::Failed("cancelled".into()))
+	);
+	*page.query.lock().unwrap() = Some("?auth=merge".into());
+	assert_eq!(browser.api.provider_outcome(), Some(ProviderOutcome::Merge));
+}
+
+#[cfg(feature = "oauth")]
+#[tokio::test]
+async fn a_browser_is_sent_to_the_provider_with_a_binding_cookie() {
+	let server = Server::new().await;
+	let auth = Auth::builder(&server.db, Keys::single("test", [9; 32]))
+		.mailer(server.mailbox.clone())
+		.origin(ORIGIN)
+		.provider(crate::Provider::google("google-client", "secret"))
+		.build()
+		.unwrap();
+	let router = Router::new().merge(auth.router()).layer(auth.layer());
+	let page = Page::default();
+	let http = InMemory {
+		router,
+		..InMemory::new(&server, true)
+	};
+	let api = Remote::new(ClientConfig::new(), http.clone(), Cookie).platform(page.clone());
+
+	assert_eq!(
+		Api::providers(&api).await.unwrap(),
+		[ProviderInfo {
+			id: "google".into(),
+			name: "Google".into()
+		}]
+	);
+	Api::start_provider(
+		&api,
+		StartProvider {
+			provider: "google".into(),
+			redirect_to: Some("/settings".into()),
+		},
+		false,
+	)
+	.await
+	.unwrap();
+	let opened = page.opened.lock().unwrap().clone().unwrap();
+	assert!(opened.starts_with("https://accounts.google.com/o/oauth2/v2/auth?"));
+	assert!(http.jar.lock().unwrap().contains_key("__Host-provider"));
+
+	// Connecting needs someone signed in.
+	let refused = Api::start_provider(
+		&api,
+		StartProvider {
+			provider: "google".into(),
+			redirect_to: None,
+		},
+		true,
+	)
+	.await
+	.unwrap_err();
+	assert_eq!(refused.error, "signed_out");
+}
+
+#[tokio::test]
+async fn the_passkey_and_provider_scopes_call_the_configured_client() {
+	let _turn = INSTALLED.lock().await;
+	use leptos::prelude::Owner;
+	use leptoskit_query::NetworkMode;
+	use leptoskit_query::QueryClient;
+	use leptoskit_query::QueryDefaults;
+	use leptoskit_query::RefetchOn;
+	use leptoskit_query::use_mutation_in;
+
+	let _ = any_spawner::Executor::init_tokio();
+	let owner = Owner::new();
+	owner.set();
+	let server = Server::new().await;
+	let page = Page::default();
+	let browser = server.browser_on(&page);
+	install(Arc::clone(&browser.api));
+	let client = QueryClient::new().with_defaults(
+		QueryDefaults::new()
+			.with_refetch_on_window_focus(RefetchOn::Never)
+			.with_refetch_on_reconnect(RefetchOn::Never)
+			.with_network_mode(NetworkMode::Always),
+	);
+	client.provide();
+	sign_in(&server, &browser).await;
+
+	assert_eq!(use_providers().await, Ok(Vec::new()));
+	assert_eq!(use_identities().await, Ok(Vec::new()));
+	assert_eq!(use_passkeys().await, Ok(Vec::new()));
+	assert_eq!(use_merge_offer().await, Ok(None));
+	assert_eq!(provider_outcome(), None);
+	cancel_passkey_sign_in();
+	assert!(page.cancelled.load(Ordering::SeqCst));
+	use_mutation_in(client.clone(), cancel_merge())
+		.mutate_async(())
+		.await
+		.unwrap();
+
+	for refused in [
+		use_mutation_in(client.clone(), sign_in_with_provider())
+			.mutate_async(StartProvider {
+				provider: "google".into(),
+				redirect_to: None,
+			})
+			.await,
+		use_mutation_in(client.clone(), link_provider())
+			.mutate_async(StartProvider {
+				provider: "google".into(),
+				redirect_to: None,
+			})
+			.await,
+	] {
+		assert_eq!(refused.unwrap_err().error, "unknown_provider");
+	}
+
+	assert_eq!(
+		use_mutation_in(client.clone(), continue_provider_sign_up())
+			.mutate_async(())
+			.await
+			.unwrap_err()
+			.error,
+		"sign_in_expired"
+	);
+	assert_eq!(
+		use_mutation_in(client.clone(), unlink_identity())
+			.mutate_async(Id::new())
+			.await
+			.unwrap_err()
+			.error,
+		"not_found"
+	);
+	assert_eq!(
+		use_mutation_in(client.clone(), merge_accounts())
+			.mutate_async(MergeInput::default())
+			.await
+			.unwrap_err()
+			.error,
+		"unsupported"
+	);
+
+	#[cfg(feature = "passkey")]
+	{
+		let added = use_mutation_in(client.clone(), add_passkey())
+			.mutate_async(None)
+			.await
+			.unwrap();
+		assert_eq!(
+			client.get_query_data(&session(), &()),
+			Some(Some(added.session.clone()))
+		);
+		assert_eq!(use_passkeys().await.unwrap().len(), 1);
+		use_mutation_in(client.clone(), rename_passkey())
+			.mutate_async(RenamePasskey {
+				id: added.passkey.id,
+				name: "Mine".into(),
+			})
+			.await
+			.unwrap();
+		let stepped = use_mutation_in(client.clone(), step_up_with_passkey())
+			.mutate_async(())
+			.await
+			.unwrap();
+		assert_eq!(client.get_query_data(&session(), &()), Some(Some(stepped)));
+		use_mutation_in(client.clone(), remove_passkey())
+			.mutate_async(added.passkey.id)
+			.await
+			.unwrap();
+		let signed_in = use_mutation_in(client.clone(), passkey_sign_in())
+			.mutate_async(PasskeyMode::Prompt)
+			.await;
+		assert_eq!(signed_in.unwrap_err().error, "passkey_failed");
+		assert_eq!(
+			use_mutation_in(client.clone(), complete_sign_in_with_passkey())
+				.mutate_async(())
+				.await
+				.unwrap_err()
+				.error,
+			"sign_in_expired"
+		);
+	}
+	// The next test may expect no client installed yet.
+	*CLIENT.write().unwrap() = None;
+}
+
+#[tokio::test]
+async fn a_device_without_passkeys_or_pages_says_so() {
+	use protocol::Platform as _;
+
+	let none = protocol::NoPlatform;
+	let options: crate::RequestChallengeResponse = serde_json::from_value(serde_json::json!({
+		"publicKey": { "challenge": "AAAA", "rpId": "notes.example", "allowCredentials": [], "userVerification": "required" }
+	}))
+	.unwrap();
+	assert_eq!(
+		none.get(options, false).await.unwrap_err().error,
+		"unsupported"
+	);
+	let created: crate::CreationChallengeResponse = serde_json::from_value(serde_json::json!({
+		"publicKey": {
+			"rp": { "id": "notes.example", "name": "Notes" },
+			"user": { "id": "AAAA", "name": "ada", "displayName": "Ada" },
+			"challenge": "AAAA",
+			"pubKeyCredParams": [],
+		}
+	}))
+	.unwrap();
+	assert_eq!(none.create(created).await.unwrap_err().error, "unsupported");
+	assert_eq!(
+		none.open("https://example.com").unwrap_err().error,
+		"unsupported"
+	);
+	none.cancel();
+	assert_eq!(none.query(), None);
+	let input = MergeInput {
+		code: Some("123456".into()),
+		..MergeInput::default()
+	};
+	assert!(!format!("{input:?}").contains("123456"));
 }
