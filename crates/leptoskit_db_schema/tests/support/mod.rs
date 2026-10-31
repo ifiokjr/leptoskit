@@ -601,6 +601,103 @@ pub fn scenarios() -> Vec<Scenario> {
 			seed: SEED,
 			expected_rows: &[("posts", 3)],
 		},
+		Scenario {
+			name: "add_search",
+			before: blog,
+			after: with_search,
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
+		Scenario {
+			name: "rebuild_a_searched_table",
+			before: with_search,
+			after: |dialect| {
+				let mut schema = with_search(dialect);
+				let posts = table_mut(&mut schema, "posts");
+				posts.checks[0].rule = CheckRule::Range {
+					column: "score".into(),
+					min: Some(0.0),
+					max: Some(200.0),
+				};
+				schema
+			},
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
+		Scenario {
+			name: "change_search",
+			before: with_search,
+			after: |dialect| {
+				let mut schema = with_search(dialect);
+				let posts = table_mut(&mut schema, "posts");
+				let body = column_mut(posts, "body");
+				body.name = "content".into();
+				body.renamed_from = Some("body".into());
+				posts.search = Some(Search::new(
+					Search::ENGLISH,
+					vec![
+						SearchColumn::new("title", SearchWeight::A),
+						SearchColumn::new("content", SearchWeight::C),
+					],
+				));
+				schema
+			},
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
+		Scenario {
+			name: "add_row_security",
+			before: blog,
+			after: with_row_security,
+			no_renames: false,
+			only: Some(Dialect::Postgres),
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
+		Scenario {
+			name: "row_security_follows_table_changes",
+			before: with_row_security,
+			after: |dialect| {
+				let mut schema = with_row_security(dialect);
+				let posts = table_mut(&mut schema, "posts");
+				// A column a policy reads, which Postgres retypes only without
+				// policies.
+				column_mut(posts, "score").ty = ColumnType::Int64;
+				let security = posts.row_security.as_mut().unwrap();
+				security
+					.policies
+					.retain(|policy| policy.command != PolicyCommand::Delete);
+				schema
+			},
+			no_renames: false,
+			only: Some(Dialect::Postgres),
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
+		Scenario {
+			name: "drop_row_security",
+			before: with_row_security,
+			after: blog,
+			no_renames: false,
+			only: Some(Dialect::Postgres),
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
+		Scenario {
+			name: "drop_search",
+			before: with_search,
+			after: blog,
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
 	]
 }
 
@@ -713,6 +810,52 @@ pub fn with_generated(dialect: Dialect) -> Schema {
 	posts
 		.indexes
 		.push(Index::new(&posts_name, &["title_length"]));
+	schema
+}
+
+/// [`blog`] with posts searched by title, above all, and body.
+pub fn with_search(dialect: Dialect) -> Schema {
+	let mut schema = blog(dialect);
+	table_mut(&mut schema, "posts").search = Some(Search::new(
+		Search::SIMPLE,
+		vec![
+			SearchColumn::new("title", SearchWeight::A),
+			SearchColumn::new("body", SearchWeight::B),
+		],
+	));
+	schema
+}
+
+/// [`blog`] with posts under row-level security: anyone reads published
+/// posts and authors read their own; only authors write theirs.
+pub fn with_row_security(dialect: Dialect) -> Schema {
+	let mut schema = blog(dialect);
+	let author = "\"author_id\" = NULLIF(current_setting('leptoskit.viewer', true), '')::bigint";
+	let policy = |command, using: Option<String>, check: Option<String>| {
+		RowPolicy {
+			command,
+			using,
+			check,
+		}
+	};
+	table_mut(&mut schema, "posts").row_security = Some(RowSecurity {
+		policies: vec![
+			policy(
+				PolicyCommand::Select,
+				Some(format!(
+					"(\"status\" = 'published' OR {author}) AND \"score\" >= 0"
+				)),
+				None,
+			),
+			policy(PolicyCommand::Insert, None, Some(author.into())),
+			policy(
+				PolicyCommand::Update,
+				Some(author.into()),
+				Some(author.into()),
+			),
+			policy(PolicyCommand::Delete, Some(author.into()), None),
+		],
+	});
 	schema
 }
 

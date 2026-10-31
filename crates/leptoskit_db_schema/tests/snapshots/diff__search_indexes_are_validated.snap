@@ -1,0 +1,18 @@
+---
+source: crates/leptoskit_db_schema/tests/diff.rs
+expression: schema.validate().unwrap_err().to_string()
+---
+the schema has 13 problem(s):
+  - posts search: SQLite searches in `simple` or `english`, not `german`; other languages need Postgres
+  - posts search: `lk_search` holds a searched table's words, so no column may use it
+  - posts search: `title` is searched twice
+  - posts search: searches `score`, whose type is int32; only text is searched
+  - posts search: searches `missing`, which isn't a column
+  - posts search: searches `title_key`, a generated column; search the columns it's computed from
+  - tags search: on SQLite the search index numbers its rows in `lk_row`, so the key can't use that name
+  - users: the table's search index is `users_lk_search_idx`, which is already another index's name
+  - users search: the search language `Not A Language` must be lowercase snake case (a-z, 0-9, _), starting with a letter or _
+  - users search: SQLite searches in `simple` or `english`, not `Not A Language`; other languages need Postgres
+  - users search: a search index needs at least one column
+  - users: `users_lk_search_idx` names `lk_search`, which isn't a column
+  - tags_lk_search: another table has the name `tags_lk_search` once namespaces are flattened

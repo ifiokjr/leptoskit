@@ -30,7 +30,9 @@ use crate::Dialect;
 use crate::ForeignKey;
 use crate::Index;
 use crate::Plan;
+use crate::SEARCH_ROW;
 use crate::Schema;
+use crate::Search;
 use crate::Step;
 use crate::Table;
 use crate::TableName;
@@ -64,12 +66,27 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 		}
 
 		if rebuilt.contains(table)
-			&& !matches!(step, Step::RenameTable { .. } | Step::RenameColumn { .. })
-		{
+			&& !matches!(
+				step,
+				Step::RenameTable { .. }
+					| Step::RenameColumn { .. }
+					| Step::CreateSearch { .. }
+					| Step::DropSearch { .. }
+			) {
 			continue;
 		}
 
 		match step {
+			Step::DropSearch { .. } => {
+				let table = before_renames.get(table).unwrap_or(table);
+				statements.extend(drop_search(table));
+			}
+			Step::CreateSearch { search, .. } => {
+				let table = target
+					.table(table)
+					.expect("a table gaining a search index is in the target schema");
+				statements.extend(create_search(table, search));
+			}
 			Step::DropView(view) => {
 				let kind = if view.materialized { "TABLE" } else { "VIEW" };
 				statements.push(format!("DROP {kind} {}", ident(&view.name.flat())));
@@ -130,7 +147,10 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 			Step::DropTable(_)
 			| Step::SetTableComment { .. }
 			| Step::SetColumnComment { .. }
-			| Step::RenameConstraint { .. } => {}
+			| Step::RenameConstraint { .. }
+			// Validation refuses row-level security on SQLite.
+			| Step::CreateRowSecurity { .. }
+			| Step::DropRowSecurity { .. } => {}
 			Step::AlterColumn { .. }
 			| Step::SetPrimaryKey { .. }
 			| Step::AddForeignKey { .. }
@@ -169,6 +189,8 @@ fn step_phase_reaches_rebuilds(step: &Step) -> bool {
 	!matches!(
 		step,
 		Step::DropView(_)
+			| Step::DropSearch { .. }
+			| Step::DropRowSecurity { .. }
 			| Step::DropForeignKey { .. }
 			| Step::DropIndex { .. }
 			| Step::DropCheck { .. }
@@ -333,6 +355,213 @@ fn rebuild(table: &Table, plan: &Plan, statements: &mut Vec<String>, notes: &mut
 			.iter()
 			.map(|index| create_index(&table.name, index)),
 	);
+
+	// Dropping the old table dropped its triggers; the search index's
+	// companion tables, keyed by the table's key rather than its row ids,
+	// still hold every row's words. A plan that recreates the index makes
+	// them itself.
+	let recreated = plan.steps.iter().any(
+		|step| matches!(step, Step::CreateSearch { table: searched, .. } if searched == &table.name),
+	);
+
+	if let Some(search) = table.search.as_ref().filter(|_| !recreated) {
+		statements.extend(search_triggers(table, search));
+	}
+}
+
+/// The tokenizer that splits and folds words in `language`, which
+/// validation limits to `simple` and `english`. Neither strips accents,
+/// as Postgres's configurations of the same name don't.
+fn tokenizer(language: &str) -> &'static str {
+	if language == Search::ENGLISH {
+		"porter unicode61 remove_diacritics 0"
+	} else {
+		"unicode61 remove_diacritics 0"
+	}
+}
+
+/// The FTS5 column holding the `index`th searched column. FTS5 reserves
+/// some names, such as `rank`, so the columns are numbered rather than
+/// named after the table's.
+pub(crate) fn search_text_column(index: usize) -> String {
+	format!("c{index}")
+}
+
+/// The text a searched column is indexed as: never `NULL`, and without the
+/// two private-use characters highlights mark matches with.
+fn indexed_text(column: &str) -> String {
+	format!("replace(replace(coalesce({column}, ''), char(57344), ''), char(57345), '')")
+}
+
+/// The search index of `table`: an FTS5 table holding a copy of the
+/// searched text, a table numbering the searched rows by key, the triggers
+/// that keep both in step with every write, raw SQL's included, and the
+/// rows already there.
+fn create_search(table: &Table, search: &Search) -> Vec<String> {
+	let name = ident(&table.name.flat());
+	let text = ident(&Search::text_table(&table.name));
+	let rows = ident(&Search::rows_table(&table.name));
+	let row = ident(SEARCH_ROW);
+	let mut definitions = vec![format!("{row} INTEGER PRIMARY KEY")];
+
+	for key in &table.primary_key {
+		let column = table.column(key).expect("validation checks the key");
+		definitions.push(format!(
+			"{} {} NOT NULL",
+			ident(key),
+			storage_type(&column.ty)
+		));
+	}
+
+	definitions.push(format!(
+		"CONSTRAINT {} UNIQUE ({})",
+		ident(&crate::shorten_identifier(&format!(
+			"{}_key",
+			Search::rows_table(&table.name)
+		))),
+		columns(&table.primary_key)
+	));
+	let text_columns: Vec<String> = (0..search.columns.len())
+		.map(|index| ident(&search_text_column(index)))
+		.collect();
+	let keys = columns(&table.primary_key);
+	let joined: Vec<String> = table
+		.primary_key
+		.iter()
+		.map(|key| format!("\"lk_rows\".{} = {name}.{}", ident(key), ident(key)))
+		.collect();
+	let values: Vec<String> = search
+		.columns
+		.iter()
+		.map(|column| indexed_text(&format!("{name}.{}", ident(&column.name))))
+		.collect();
+
+	let mut statements = vec![
+		format!(
+			"CREATE TABLE {rows} (\n\t{}\n) STRICT",
+			definitions.join(",\n\t")
+		),
+		format!(
+			"CREATE VIRTUAL TABLE {text} USING fts5({}, tokenize = {})",
+			text_columns.join(", "),
+			literal(tokenizer(&search.language))
+		),
+		format!("INSERT INTO {rows} ({keys}) SELECT {keys} FROM {name}"),
+		format!(
+			"INSERT INTO {text} (\"rowid\", {}) SELECT \"lk_rows\".{row}, {} FROM {name} JOIN \
+			 {rows} AS \"lk_rows\" ON {}",
+			text_columns.join(", "),
+			values.join(", "),
+			joined.join(" AND ")
+		),
+	];
+	statements.extend(search_triggers(table, search));
+	statements
+}
+
+/// The triggers that index a searched row when it's inserted, its searched
+/// or key columns change, and it's deleted.
+fn search_triggers(table: &Table, search: &Search) -> Vec<String> {
+	let name = ident(&table.name.flat());
+	let text = ident(&Search::text_table(&table.name));
+	let rows = ident(&Search::rows_table(&table.name));
+	let row = ident(SEARCH_ROW);
+	let keys = columns(&table.primary_key);
+	let text_columns: Vec<String> = (0..search.columns.len())
+		.map(|index| ident(&search_text_column(index)))
+		.collect();
+	let text_columns = text_columns.join(", ");
+	let matching = |image: &str| {
+		table
+			.primary_key
+			.iter()
+			.map(|key| format!("{} = {image}.{}", ident(key), ident(key)))
+			.collect::<Vec<_>>()
+			.join(" AND ")
+	};
+	let row_of = |image: &str| format!("(SELECT {row} FROM {rows} WHERE {})", matching(image));
+	let values = |image: &str| {
+		search
+			.columns
+			.iter()
+			.map(|column| indexed_text(&format!("{image}.{}", ident(&column.name))))
+			.collect::<Vec<_>>()
+			.join(", ")
+	};
+	let insert_text = |image: &str| {
+		format!(
+			"INSERT INTO {text} (\"rowid\", {text_columns}) VALUES ({}, {});",
+			row_of(image),
+			values(image)
+		)
+	};
+	let delete_text =
+		|image: &str| format!("DELETE FROM {text} WHERE \"rowid\" = {};", row_of(image));
+	let new_keys: Vec<String> = table
+		.primary_key
+		.iter()
+		.map(|key| format!("new.{}", ident(key)))
+		.collect();
+	let set_keys: Vec<String> = table
+		.primary_key
+		.iter()
+		.map(|key| format!("{} = new.{}", ident(key), ident(key)))
+		.collect();
+	let watched: Vec<String> = search
+		.columns
+		.iter()
+		.map(|column| column.name.clone())
+		.chain(
+			table
+				.primary_key
+				.iter()
+				.filter(|key| !search.reads(key))
+				.cloned(),
+		)
+		.collect();
+
+	vec![
+		format!(
+			"CREATE TRIGGER {} AFTER INSERT ON {name} BEGIN\n\tINSERT INTO {rows} ({keys}) VALUES \
+			 ({});\n\t{}\nEND",
+			ident(&Search::trigger_name(&table.name, "insert")),
+			new_keys.join(", "),
+			insert_text("new")
+		),
+		format!(
+			"CREATE TRIGGER {} AFTER UPDATE OF {} ON {name} BEGIN\n\t{}\n\tUPDATE {rows} SET {} \
+			 WHERE {};\n\t{}\nEND",
+			ident(&Search::trigger_name(&table.name, "update")),
+			columns(&watched),
+			delete_text("old"),
+			set_keys.join(", "),
+			matching("old"),
+			insert_text("new")
+		),
+		format!(
+			"CREATE TRIGGER {} AFTER DELETE ON {name} BEGIN\n\t{}\n\tDELETE FROM {rows} WHERE \
+			 {};\nEND",
+			ident(&Search::trigger_name(&table.name, "delete")),
+			delete_text("old"),
+			matching("old")
+		),
+	]
+}
+
+/// Drops a search index: its triggers, then its companion tables.
+fn drop_search(table: &TableName) -> Vec<String> {
+	let mut statements: Vec<String> = ["insert", "update", "delete"]
+		.into_iter()
+		.map(|event| {
+			format!(
+				"DROP TRIGGER {}",
+				ident(&Search::trigger_name(table, event))
+			)
+		})
+		.collect();
+	statements.push(format!("DROP TABLE {}", ident(&Search::text_table(table))));
+	statements.push(format!("DROP TABLE {}", ident(&Search::rows_table(table))));
+	statements
 }
 
 /// Drops tables so that referencing tables go before the tables they

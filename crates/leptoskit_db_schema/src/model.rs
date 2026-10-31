@@ -263,6 +263,14 @@ pub struct Table {
 	/// target schema; snapshots never contain it.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub renamed_from: Option<TableName>,
+	/// The table's full-text search index, when some of its text columns
+	/// are searched.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub search: Option<Search>,
+	/// Row-level security: the table's access policy, enforced by Postgres
+	/// itself as well as by the database layer. Postgres only.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub row_security: Option<RowSecurity>,
 }
 
 impl Table {
@@ -277,7 +285,16 @@ impl Table {
 			foreign_keys: Vec::new(),
 			checks: Vec::new(),
 			renamed_from: None,
+			search: None,
+			row_security: None,
 		}
+	}
+
+	/// The same table, with this full-text search index.
+	#[must_use]
+	pub fn with_search(mut self, search: Search) -> Self {
+		self.search = Some(search);
+		self
 	}
 
 	/// The column with this name, if there is one.
@@ -635,6 +652,214 @@ fn sql_names(sql: &str) -> Vec<String> {
 	}
 
 	names
+}
+
+/// A table's full-text search index: the text columns it searches, how
+/// much a match in each counts, and the language their words are in.
+///
+/// Postgres keeps a stored generated `tsvector` column, [`SEARCH_COLUMN`],
+/// with a GIN index. SQLite keeps an FTS5 table holding a copy of the
+/// searched text, and a table mapping each of its rows to the searched
+/// row's key, both kept up to date by triggers, so raw SQL writes are
+/// indexed too.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Search {
+	/// How words are split and folded: `simple` (lowercased, every word
+	/// kept) on both dialects, `english` (stemmed: Postgres's `english`
+	/// configuration, SQLite's `porter` tokenizer), or, on Postgres, any
+	/// other text search configuration it has.
+	pub language: String,
+	/// The searched columns, in declaration order.
+	pub columns: Vec<SearchColumn>,
+}
+
+impl Search {
+	/// Stemmed English on both dialects.
+	pub const ENGLISH: &'static str = "english";
+	/// The language every dialect supports.
+	pub const SIMPLE: &'static str = "simple";
+
+	/// An index over `columns`, in `language`.
+	pub fn new(language: impl Into<String>, columns: Vec<SearchColumn>) -> Self {
+		Self {
+			language: language.into(),
+			columns,
+		}
+	}
+
+	/// Whether the index reads `column`.
+	pub fn reads(&self, column: &str) -> bool {
+		self.columns.iter().any(|searched| searched.name == column)
+	}
+
+	/// The GIN index over [`SEARCH_COLUMN`] on Postgres.
+	pub fn index_name(table: &TableName) -> String {
+		crate::constraint_name(table, &[SEARCH_COLUMN], "idx")
+	}
+
+	/// The FTS5 table holding a copy of the searched text on SQLite.
+	pub fn text_table(table: &TableName) -> String {
+		crate::shorten_identifier(&format!("{}_{SEARCH_COLUMN}", table.flat()))
+	}
+
+	/// The table mapping each FTS5 row to the searched row's key on SQLite.
+	pub fn rows_table(table: &TableName) -> String {
+		crate::shorten_identifier(&format!("{}_{SEARCH_COLUMN}_rows", table.flat()))
+	}
+
+	/// The trigger that indexes a row after `event` (`insert`, `update`, or
+	/// `delete`) on SQLite.
+	pub fn trigger_name(table: &TableName, event: &str) -> String {
+		crate::shorten_identifier(&format!("{}_{SEARCH_COLUMN}_{event}", table.flat()))
+	}
+}
+
+/// The name of the generated `tsvector` column that holds a searched
+/// table's words on Postgres. Queries never select it.
+pub const SEARCH_COLUMN: &str = "lk_search";
+
+/// A table's access policy as Postgres row-level security: one policy per
+/// command the table's rules govern, each a SQL condition over the row and
+/// the request's settings (`current_setting('leptoskit.…')`). A command
+/// without a policy is denied, as the database layer denies it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RowSecurity {
+	/// The policies, at most one per command.
+	pub policies: Vec<RowPolicy>,
+}
+
+/// The setting that lets a connection bypass every policy, as the database
+/// layer's `Db::system` and the migrator do.
+pub const BYPASS_SETTING: &str = "leptoskit.bypass";
+
+/// The prefix of every setting a policy reads: `leptoskit.viewer`.
+pub const SETTING_PREFIX: &str = "leptoskit.";
+
+/// One row-level security policy.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RowPolicy {
+	/// The command it governs.
+	pub command: PolicyCommand,
+	/// Which rows the command may see or change, in Postgres SQL. Every
+	/// command but `insert` has one.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub using: Option<String>,
+	/// What rows the command may leave behind, in Postgres SQL. `insert` and
+	/// `update` have one.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub check: Option<String>,
+}
+
+impl RowPolicy {
+	/// The policy's name on `table`: the table's flat name and the command.
+	pub fn name(&self, table: &TableName) -> String {
+		crate::constraint_name(table, &[], self.command.keyword_lower())
+	}
+}
+
+/// A command a row-level security policy governs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyCommand {
+	/// Reading rows.
+	Select,
+	/// Inserting rows.
+	Insert,
+	/// Changing rows.
+	Update,
+	/// Deleting rows.
+	Delete,
+}
+
+impl PolicyCommand {
+	/// The command's SQL keyword.
+	pub fn keyword(self) -> &'static str {
+		match self {
+			Self::Select => "SELECT",
+			Self::Insert => "INSERT",
+			Self::Update => "UPDATE",
+			Self::Delete => "DELETE",
+		}
+	}
+
+	fn keyword_lower(self) -> &'static str {
+		match self {
+			Self::Select => "select",
+			Self::Insert => "insert",
+			Self::Update => "update",
+			Self::Delete => "delete",
+		}
+	}
+}
+
+/// The integer column that numbers a searched table's rows in its SQLite
+/// companion tables.
+pub const SEARCH_ROW: &str = "lk_row";
+
+/// One searched column.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SearchColumn {
+	/// The column's name.
+	pub name: String,
+	/// How much a match in it counts towards a row's rank.
+	pub weight: SearchWeight,
+}
+
+impl SearchColumn {
+	/// A searched column with this weight.
+	pub fn new(name: impl Into<String>, weight: SearchWeight) -> Self {
+		Self {
+			name: name.into(),
+			weight,
+		}
+	}
+}
+
+/// How much a match in a searched column counts: `A` most, then `B`, `C`,
+/// and `D`, as in Postgres's `setweight`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SearchWeight {
+	/// The most: titles and names.
+	A,
+	/// Summaries and headings.
+	B,
+	/// Body text.
+	C,
+	/// The least, and Postgres's default.
+	D,
+}
+
+impl SearchWeight {
+	/// The letter Postgres's `setweight` takes.
+	pub fn letter(self) -> char {
+		match self {
+			Self::A => 'A',
+			Self::B => 'B',
+			Self::C => 'C',
+			Self::D => 'D',
+		}
+	}
+
+	/// The multiplier a match counts with: Postgres's default `ts_rank`
+	/// weights, which SQLite's `bm25` is given too, so ranks order alike.
+	pub fn factor(self) -> f64 {
+		match self {
+			Self::A => 1.0,
+			Self::B => 0.4,
+			Self::C => 0.2,
+			Self::D => 0.1,
+		}
+	}
+}
+
+impl fmt::Display for SearchWeight {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "{}", self.letter())
+	}
 }
 
 /// The value the database fills in when an insert omits a column.

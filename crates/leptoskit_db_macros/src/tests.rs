@@ -1719,3 +1719,134 @@ fn view_mistakes_are_explained() {
 		.collect();
 	insta::assert_snapshot!(report.join("\n"));
 }
+
+#[test]
+fn searched_columns_make_the_table_searchable() {
+	let expanded = pretty(
+		expand_table(
+			quote!(name = "articles", search(language = "english")),
+			quote! {
+				pub struct Article {
+					pub id: Id<Self>,
+					#[db(search(weight = A))]
+					pub title: String,
+					#[db(search)]
+					pub body: Option<String>,
+					pub views: i64,
+				}
+			},
+		)
+		.expect("the table expands"),
+	);
+	let searchable = expanded
+		.split("impl ::leptoskit_db::Searchable for Article")
+		.nth(1)
+		.expect("the table is searchable");
+	let searchable = &searchable[..searchable.find("fn check()").expect("the text check")];
+	insta::assert_snapshot!(searchable);
+	assert!(
+		expanded.contains("<Article as ::leptoskit_db::Searchable>::SEARCHED"),
+		"{expanded}"
+	);
+
+	let unsearched = pretty(
+		expand_table(
+			quote!(name = "plain"),
+			quote! {
+				pub struct Plain {
+					pub id: Id<Self>,
+				}
+			},
+		)
+		.expect("the table expands"),
+	);
+	assert!(!unsearched.contains("Searchable"));
+	assert!(!unsearched.contains(".search("));
+}
+
+#[test]
+fn search_mistakes_are_explained() {
+	let article = |field: TokenStream| {
+		quote! {
+			pub struct Article {
+				pub id: Id<Self>,
+				#field
+			}
+		}
+	};
+	let cases = [
+		(
+			"language without columns",
+			table_error(
+				quote!(name = "articles", search(language = "english")),
+				article(quote!(pub title: String,)),
+			),
+		),
+		(
+			"no language",
+			table_error(
+				quote!(name = "articles", search),
+				article(quote!(#[db(search)] pub title: String,)),
+			),
+		),
+		(
+			"unknown table option",
+			table_error(
+				quote!(name = "articles", search(stemming = true)),
+				article(quote!(#[db(search)] pub title: String,)),
+			),
+		),
+		(
+			"unknown weight",
+			table_error(
+				quote!(name = "articles"),
+				article(quote!(#[db(search(weight = E))] pub title: String,)),
+			),
+		),
+		(
+			"not a weight",
+			table_error(
+				quote!(name = "articles"),
+				article(quote!(#[db(search(boost = 2))] pub title: String,)),
+			),
+		),
+		(
+			"generated",
+			table_error(
+				quote!(name = "articles"),
+				article(quote!(#[db(search, generated = "lower(title)")] pub key: String,)),
+			),
+		),
+		(
+			"flattened mixin",
+			table_error(
+				quote!(name = "articles"),
+				article(quote!(#[db(search, flatten)] pub times: Timestamps,)),
+			),
+		),
+		(
+			"view",
+			expand_view(
+				quote!(name = "stats", sql = "x"),
+				article(quote!(#[db(search)] pub title: String,)),
+			)
+			.expect_err("the view is rejected")
+			.to_string(),
+		),
+		(
+			"view option",
+			expand_view(
+				quote!(name = "stats", sql = "x", search(language = "english")),
+				article(quote!(pub title: String,)),
+			)
+			.expect_err("the view is rejected")
+			.to_string(),
+		),
+	];
+
+	let report: Vec<String> = cases
+		.iter()
+		.map(|(case, error)| format!("{case}: {error}"))
+		.collect();
+	insta::assert_snapshot!(report.join("\n"));
+}

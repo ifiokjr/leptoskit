@@ -61,6 +61,82 @@ fn sqlite_migrations_match_fresh_schemas_and_keep_rows() {
 				})
 				.unwrap()
 		});
+
+		if let Some(search) = posts_search(&scenario) {
+			for statement in SEARCH_WRITES {
+				migrated.execute_batch(statement).unwrap();
+			}
+
+			assert_search(&scenario, &search, |word| {
+				migrated
+					.query_row(
+						"SELECT count(*) FROM \"posts_lk_search\" WHERE \"posts_lk_search\" MATCH \
+						 ?1",
+						[format!("\"{word}\"")],
+						|row| row.get(0),
+					)
+					.unwrap()
+			});
+			let (rows, posts): (i64, i64) = migrated
+				.query_row(
+					"SELECT (SELECT count(*) FROM \"posts_lk_search_rows\"), (SELECT count(*) \
+					 FROM \"posts\")",
+					[],
+					|row| Ok((row.get(0)?, row.get(1)?)),
+				)
+				.unwrap();
+			assert_eq!(
+				rows, posts,
+				"{}: every post is numbered once",
+				scenario.name
+			);
+		}
+	}
+}
+
+/// Writes after a migration that gives a post a searched index: one new
+/// post, one retitled, and one deleted, so the triggers or generated column
+/// must follow each.
+const SEARCH_WRITES: &[&str] = &[
+	"INSERT INTO posts (id, author_id, title, status) VALUES (13, 2, 'Zebra crossings', 'draft')",
+	"UPDATE posts SET title = 'Goodbye' WHERE id = 10",
+	"DELETE FROM posts WHERE id = 12",
+];
+
+/// The posts table's search index after a scenario, if it has one.
+fn posts_search(scenario: &Scenario) -> Option<leptoskit_db_schema::Search> {
+	(scenario.after)(Dialect::Postgres)
+		.tables
+		.into_iter()
+		.find(|table| table.name.name == "posts")?
+		.search
+}
+
+/// Each word's matches after [`SEARCH_WRITES`].
+fn assert_search(
+	scenario: &Scenario,
+	search: &leptoskit_db_schema::Search,
+	count: impl Fn(&str) -> i64,
+) {
+	// English stems `crossings` to `crossing`; simple keeps every form.
+	// Stopwords such as `again` are left out: Postgres's `english` drops
+	// them and SQLite's `porter` keeps them.
+	let crossing = i64::from(search.language == "english");
+
+	for (word, expected) in [
+		("zebra", 1),
+		("crossing", crossing),
+		("hello", 0),
+		("goodbye", 1),
+		("mine", 0),
+		("first", 1),
+	] {
+		assert_eq!(
+			count(word),
+			expected,
+			"{}: posts matching `{word}` after migrating and writing",
+			scenario.name
+		);
 	}
 }
 
@@ -101,6 +177,27 @@ fn postgres_migrations_match_fresh_schemas_and_keep_rows() {
 			"{}: the migrated Postgres schema differs from a fresh one",
 			scenario.name
 		);
+		if let Some(search) = posts_search(&scenario) {
+			for statement in SEARCH_WRITES {
+				cluster.run(&migrated, statement);
+			}
+
+			assert_search(&scenario, &search, |word| {
+				cluster
+					.query(
+						&migrated,
+						&format!(
+							"SELECT count(*) FROM posts WHERE lk_search @@ plainto_tsquery('{}', \
+							 '{word}')",
+							search.language
+						),
+					)
+					.trim()
+					.parse()
+					.unwrap()
+			});
+		}
+
 		assert_rows(&scenario, |table| {
 			let qualified = match table.split_once('_') {
 				Some((namespace @ ("auth" | "content" | "reports"), name)) => {
@@ -244,6 +341,16 @@ fn describe_sqlite(connection: &Connection) -> Vec<String> {
 			.unwrap();
 		foreign_keys.sort();
 		lines.extend(foreign_keys);
+
+		let mut triggers: Vec<String> = connection
+			.prepare("SELECT sql FROM sqlite_schema WHERE type = 'trigger' AND tbl_name = ?1")
+			.unwrap()
+			.query_map([&table], |row| row.get::<_, String>(0))
+			.unwrap()
+			.map(|sql| format!("{table} trigger {}", sql.unwrap()))
+			.collect();
+		triggers.sort();
+		lines.extend(triggers);
 	}
 
 	lines
@@ -420,6 +527,15 @@ impl PostgresCluster {
 			format!(
 				"SELECT schemaname, tablename, indexname, indexdef FROM pg_indexes WHERE \
 				 schemaname {USER_SCHEMAS} ORDER BY 1, 2, 3"
+			),
+			format!(
+				"SELECT schemaname, tablename, policyname, cmd, qual, with_check FROM pg_policies \
+				 WHERE schemaname {USER_SCHEMAS} ORDER BY 1, 2, 3"
+			),
+			format!(
+				"SELECT n.nspname, c.relname, c.relrowsecurity, c.relforcerowsecurity FROM \
+				 pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind = 'r' \
+				 AND n.nspname {USER_SCHEMAS} ORDER BY 1, 2"
 			),
 			format!(
 				"SELECT n.nspname, c.relname, a.attname, col_description(c.oid, a.attnum), \

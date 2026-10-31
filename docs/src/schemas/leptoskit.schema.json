@@ -626,6 +626,10 @@
 					"type": "string",
 					"default": "migrations"
 				},
+				"policies": {
+					"description": "Who enforces the tables' access policies.",
+					"$ref": "#/$defs/DbPolicies"
+				},
 				"url_env": {
 					"description": "The environment variable holding the database URL for `leptoskit db\nmigrate` and `leptoskit db status`.",
 					"type": "string",
@@ -675,6 +679,21 @@
 					"description": "SQLite.",
 					"type": "string",
 					"const": "sqlite"
+				}
+			]
+		},
+		"DbPolicies": {
+			"description": "Who enforces the tables' access policies.",
+			"oneOf": [
+				{
+					"description": "The database layer adds each policy to every query it writes. Raw\nSQL isn't filtered.",
+					"type": "string",
+					"const": "orm"
+				},
+				{
+					"description": "Postgres enforces them too, as row-level security that migrations\ncreate from the same rules, so raw SQL is filtered as well. Rules read\nthe request through settings (`cx.setting::<G>()`), and the server\nconnects with `Db::with_row_security`. Postgres only.",
+					"type": "string",
+					"const": "rls"
 				}
 			]
 		},
