@@ -820,6 +820,16 @@ impl<B: NativeBackend> WasmHost<B> {
 		self.store.data().commits
 	}
 
+	/// The interpreter instructions the last entry-point call consumed.
+	///
+	/// A device cannot profile a guest, so this is how a render's interpreted
+	/// work is compared across builds: sum it over the entry points a frame
+	/// runs, and a build's total is its cost in interpreter work.
+	pub fn last_fuel_used(&self) -> u64 {
+		self.fuel_budget
+			.saturating_sub(self.store.get_fuel().unwrap_or(0))
+	}
+
 	/// Sets the fuel granted to each later entry-point call, replacing
 	/// [`DEFAULT_FUEL_BUDGET`].
 	pub fn set_fuel_budget(&mut self, fuel: u64) {
@@ -1066,7 +1076,7 @@ impl<B: NativeBackend> WasmHost<B> {
 				return Err(host_trap(self.render_error().expect("rendering was rejected")).into());
 			}
 
-			self.surface.set_root(&pending.tree);
+			self.surface.set_owned_root(pending.tree);
 			self.wire_ids = pending.wire_ids;
 			self.resync_map();
 			self.check_backend()?;

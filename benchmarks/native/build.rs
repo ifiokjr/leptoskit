@@ -19,6 +19,7 @@ fn main() {
 			"COUNTER_WASM",
 			"counter.wasm",
 		),
+		("LEPTOSKIT_BENCH_SCREEN_WASM", "SCREEN_WASM", "screen.wasm"),
 	] {
 		println!("cargo:rerun-if-env-changed={variable}");
 
