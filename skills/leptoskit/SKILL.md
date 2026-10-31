@@ -1,27 +1,32 @@
 ---
 name: leptoskit
-description: Build leptoskit apps (one Rust interface rendered on the web and as native widgets on macOS, iOS, Android, Linux, and Windows). Use when writing or changing components, screens, leptoskit.toml, tests, or lint configuration in a leptoskit project, or when the user mentions leptoskit, `leptoskit lint`, `view!`, or the builder API.
+description: Build, run, test, and release apps made with leptoskit, the Rust toolkit that renders one tree of components on the web, as native widgets on iOS, Android, macOS, Windows, and Linux, in the terminal, and as a browser extension. Use it when writing or changing components, screens, leptoskit.toml, tests, or lint configuration in a leptoskit project, or when asked to release one to an app or extension store.
 ---
 
-# Building with leptoskit
+# leptoskit
 
-leptoskit renders one tree of components (`View`, `Text`, `Button`, …) on the web through leptos and as real native widgets on every desktop and mobile platform. A tree can be written two ways that build exactly the same `Element`:
+A leptoskit app is one tree of components (`View`, `Text`, `Button`, …) styled with built-in Tailwind classes. The same screens render on the web through leptos, as native widgets on iOS, Android, macOS, Windows, and Linux, in the terminal, and as a browser extension. `leptoskit.toml` at the project root says which platforms the app targets.
 
-```rust
-// Builder calls: plain Rust.
-View()
-	.class("gap-2 p-4")
-	.child(Text("Hello").class("text-xl font-bold"))
-	.child(Button("Add one").on_press(move || count.update(|count| *count += 1)))
+The `leptoskit` command (or `lk`) does the work. Run it from the project root. `leptoskit --help` and `leptoskit <command> --help` describe every flag.
 
-// Markup: the `view!` macro expands to the calls above.
-view! {
-	<View class="gap-2 p-4">
-		<Text class="text-xl font-bold">"Hello"</Text>
-		<Button on:press=move || count.update(|count| *count += 1)>"Add one"</Button>
-	</View>
-}
-```
+| Task                        | Command                                                      |
+| --------------------------- | ------------------------------------------------------------ |
+| Start a project             | `leptoskit new my_app` (`--db sqlite`, `--extension`)        |
+| Check the machine           | `leptoskit doctor`                                           |
+| Run every platform, live    | `leptoskit dev` (`--platform web`, `ios`, `extension`, …)    |
+| Build one platform          | `leptoskit build --platform <platform> [--release]`          |
+| Test a browser extension    | `leptoskit test extension`                                   |
+| Database migrations         | `leptoskit db migration create <name>`, `leptoskit db check` |
+| Release to the stores       | `leptoskit publish [stores] [--dry-run] [--submit]`          |
+| Update screens over the air | `leptoskit codepush release --platform ios`                  |
+
+## Working rules
+
+- Read `leptoskit.toml` first: `[app].platforms`, `[extension]`, `[publish]`, and `[db]` decide what the commands do.
+- Screens are file routes under the app crate's `src/routes/`; `leptoskit` regenerates `routes.rs` from them. Don't edit `routes.rs` by hand.
+- Tailwind classes are checked when a screen renders: an unsupported class panics with its name. Use the ones the project already uses, or check the CSS coverage page of the docs.
+- Generated output lives in `.leptoskit/` and `dist/`; never edit it.
+- Secrets never go in `leptoskit.toml`. Credentials come from the environment or a file outside the project.
 
 ## Agents write builder calls
 
@@ -91,6 +96,13 @@ tester.tap(&Finder::text("Add one"))?;
 tester.get_by_text("Count: 1")?;
 assert!(tester.query_by_text("Count: 0")?.is_none());
 ```
+
+## References
+
+Read the one the task needs:
+
+- [Releasing to the stores](references/publishing.md): `leptoskit publish`, the steps it leaves, and how to finish them in each store's dashboard with computer use.
+- [Browser extensions](references/extensions.md): the extension's surfaces, building, developing, and testing it.
 
 ## More
 

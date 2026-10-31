@@ -34,6 +34,7 @@
 - [Foldable phones](guide/21-foldable-phones.md)
 - [The database](guide/22-database.md)
 - [Sign-in](guide/23-sign-in.md)
+- [Publishing to the stores](guide/24-publishing.md)
 
 # Reference
 

@@ -127,3 +127,17 @@ description = "Clip the selected passage"
 [extension.firefox]
 id = "commonplace@leptoskit.dev"
 data_collection = ["websiteContent", "browsingActivity", "personallyIdentifyingInfo"]
+
+# The stores `leptoskit publish` uploads to. Commonplace isn't listed in any
+# store: these IDs are placeholders that let `leptoskit publish --dry-run`
+# build the packages and print every store's remaining steps. A real app
+# copies its own from each store's dashboard. Credentials never go here.
+[publish.chrome]
+publisher_id = "commonplace-example"
+item_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+[publish.edge]
+product_id = "00000000-0000-0000-0000-000000000000"
+
+[publish.firefox]
+channel = "listed"

@@ -151,6 +151,13 @@ pub enum Command {
 		#[command(subcommand)]
 		command: crate::mcp::McpCommand,
 	},
+	/// Uploads the app to the stores `[publish]` in leptoskit.toml names,
+	/// and lists what is left to do in each store's dashboard. Nothing
+	/// reaches users without `--submit`.
+	Publish(crate::publish::PublishArgs),
+	/// Prints the leptoskit skill for coding agents, or installs it with
+	/// `install`. The skill matches this CLI's version.
+	Skill(crate::skill::SkillArgs),
 	/// Describes the published RPC and generates clients for it.
 	Rpc {
 		#[command(subcommand)]
@@ -508,6 +515,8 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		Command::Device { command } => crate::device::run(command),
 		Command::Mcp { command } => crate::mcp::run(command),
 		Command::Rpc { command } => rpc::run(command),
+		Command::Publish(args) => crate::publish::run(&args),
+		Command::Skill(args) => crate::skill::run(&args),
 		Command::Generate { kind } => {
 			match kind {
 				GenerateCommand::App {

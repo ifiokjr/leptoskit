@@ -16,12 +16,14 @@ use serde::Serialize;
 
 pub mod extension;
 pub mod migration;
+pub mod publish;
 #[cfg(feature = "schema")]
 pub mod schema;
 
 pub use extension::Browser;
 pub use extension::ContentScript;
 pub use extension::ExtensionConfig;
+pub use publish::PublishConfig;
 
 /// The file leptoskit looks for at a project root.
 pub const CONFIG_FILE: &str = "leptoskit.toml";
@@ -84,6 +86,10 @@ pub struct LeptoskitConfig {
 	/// platforms.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub extension: Option<ExtensionConfig>,
+	/// The stores `leptoskit publish` uploads to. Credentials never go
+	/// here.
+	#[serde(skip_serializing_if = "PublishConfig::is_empty")]
+	pub publish: PublishConfig,
 	/// The leptos and leptoskit plugins activated for this project.
 	pub plugins: Vec<PluginSpec>,
 	/// How `leptoskit format` lays out markup. Omitted from serialized
@@ -112,6 +118,7 @@ impl Default for LeptoskitConfig {
 			db: None,
 			auth: None,
 			extension: None,
+			publish: PublishConfig::default(),
 			plugins: Vec::new(),
 			format: FormatConfig::default(),
 			lint: LintConfig::default(),
@@ -1556,6 +1563,14 @@ impl LeptoskitConfig {
 			}
 			None => {}
 		}
+		let has_extension = builds_extension && self.extension.is_some();
+		let has_firefox_id = self
+			.extension
+			.as_ref()
+			.is_some_and(|extension| extension.firefox.is_some());
+		if let Some(problem) = self.publish.problem(has_extension, has_firefox_id) {
+			return Err(ConfigError::InvalidPublish(problem));
+		}
 		if builds_extension && self.codepush.enabled {
 			return Err(ConfigError::InvalidExtension(
 				"extension stores forbid code downloaded after review, so code push can't be on \
@@ -1774,6 +1789,9 @@ pub enum ConfigError {
 	/// `[extension]` can't work as written.
 	#[error("invalid [extension]: {0}")]
 	InvalidExtension(String),
+	/// `[publish]` can't work as written.
+	#[error("invalid [publish]: {0}")]
+	InvalidPublish(String),
 	/// An IO error.
 	#[error("io error")]
 	Io(#[from] std::io::Error),
