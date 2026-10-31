@@ -1,0 +1,22 @@
+[package]
+name = "leptoskit_bench_screen"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "The screen guest: the arena's ticker and cards rendered through the real element-tree adapter."
+
+[lib]
+crate-type = ["cdylib"]
+
+# The guest compiles only for wasm32; the host build is an empty crate.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+leptoskit_native = { workspace = true, features = ["guest"] }
+leptoskit_yoga = { workspace = true }
+
+[lints]
+workspace = true
