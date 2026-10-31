@@ -8,6 +8,7 @@
 //! returned. Entries may over-approximate, so that a doubtful row re-runs a
 //! query, but must never miss a read.
 
+use std::future::Future;
 use std::sync::Mutex;
 use std::sync::PoisonError;
 
@@ -288,8 +289,8 @@ impl<C: Read> Read for Tracked<C> {
 		self.connection.access()
 	}
 
-	async fn fetch(&self, _statement: Statement) -> Result<Vec<Vec<Value>>> {
-		Err(DbError::UndeclaredRead { table: None })
+	fn fetch(&self, _statement: Statement) -> impl Future<Output = Result<Vec<Vec<Value>>>> + Send {
+		std::future::ready(Err(DbError::UndeclaredRead { table: None }))
 	}
 
 	async fn read(
