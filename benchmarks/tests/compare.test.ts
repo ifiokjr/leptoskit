@@ -105,7 +105,15 @@ Deno.test("each change cell is marked with its direction", () => {
 			"Runtime (browser)",
 			"base",
 			"head",
-			[classify("table.select-row", "select a row", "ms", "duration", 4, undefined, policy)],
+			[classify(
+				"table.select-row",
+				"select a row",
+				"ms",
+				"duration",
+				4,
+				undefined,
+				policy,
+			)],
 		),
 		"| select a row | 4.0 ms | — | — | — | ⚪ missing |",
 	);

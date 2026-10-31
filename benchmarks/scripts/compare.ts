@@ -27,7 +27,13 @@ import {
 	parseArguments,
 	requireString,
 } from "./common.ts";
-import { classify, type Comparison, directionEmoji, loadPolicy, statusEmoji } from "./policy.ts";
+import {
+	classify,
+	type Comparison,
+	directionEmoji,
+	loadPolicy,
+	statusEmoji,
+} from "./policy.ts";
 
 function readRunSync(path: string): BenchmarkRun {
 	try {
@@ -79,14 +85,20 @@ export function section(
 		"| --- | ---: | ---: | ---: | ---: | --- |",
 	];
 	for (const comparison of comparisons) {
-		const base = comparison.base === null ? "—" : formatMetric(comparison.base, comparison.unit);
-		const head = comparison.head === null ? "—" : formatMetric(comparison.head, comparison.unit);
+		const base = comparison.base === null
+			? "—"
+			: formatMetric(comparison.base, comparison.unit);
+		const head = comparison.head === null
+			? "—"
+			: formatMetric(comparison.head, comparison.unit);
 		const delta = comparison.delta === null
 			? "—"
 			: formatMetric(Math.abs(comparison.delta), comparison.unit);
 		const percent = comparison.percent === null
 			? "—"
-			: `${comparison.percent >= 0 ? "+" : ""}${comparison.percent.toFixed(1)}%`;
+			: `${comparison.percent >= 0 ? "+" : ""}${
+				comparison.percent.toFixed(1)
+			}%`;
 		const change = comparison.direction === null
 			? percent
 			: `${directionEmoji(comparison.direction)} ${percent}`;
@@ -241,7 +253,9 @@ async function main(): Promise<void> {
 		sections.push(
 			`> 🔴 **${fails.length} regression${
 				fails.length === 1 ? "" : "s"
-			} over the fail threshold:** ${fails.map((metric) => `\`${metric.id}\``).join(", ")}`,
+			} over the fail threshold:** ${
+				fails.map((metric) => `\`${metric.id}\``).join(", ")
+			}`,
 			"",
 		);
 	} else if (warns.length > 0) {
@@ -263,7 +277,8 @@ async function main(): Promise<void> {
 		console.log(markdown);
 	}
 
-	const allowRegressions = Deno.env.get("LEPTOSKIT_ALLOW_BENCH_REGRESSIONS") === "true";
+	const allowRegressions =
+		Deno.env.get("LEPTOSKIT_ALLOW_BENCH_REGRESSIONS") === "true";
 	if (missing.length > 0) {
 		Deno.exit(1);
 	}
