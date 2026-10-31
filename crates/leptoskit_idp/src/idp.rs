@@ -62,6 +62,10 @@ pub(crate) struct Inner {
 	pub rsa_key: Option<Arc<ring::signature::RsaKeyPair>>,
 	/// Whether signed-in people may register apps of their own.
 	pub developer_portal: Option<Portal>,
+	/// Whether DPoP proofs bind tokens to apps' keys (RFC 9449).
+	pub dpop: bool,
+	/// Whether apps may register themselves (RFC 7591), and how.
+	pub registration: Option<Registration>,
 	/// Public keys by key ID, with when each leaves the key set: they never
 	/// change, so once read they're kept.
 	pub verifying_keys: Mutex<HashMap<String, (PublicKey, Timestamp)>>,
@@ -85,6 +89,8 @@ impl Idp {
 			lifetimes: Lifetimes::default(),
 			rsa_key: None,
 			developer_portal: None,
+			dpop: false,
+			registration: None,
 		}
 	}
 
@@ -115,7 +121,7 @@ impl Idp {
 			id_token_algorithms.push(SigningAlgorithm::Rs256.as_str());
 		}
 
-		serde_json::json!({
+		let mut document = serde_json::json!({
 			"issuer": issuer,
 			"authorization_endpoint": endpoint("/oauth/authorize"),
 			"token_endpoint": endpoint("/oauth/token"),
@@ -157,7 +163,16 @@ impl Idp {
 			"request_uri_parameter_supported": false,
 			"require_pushed_authorization_requests": false,
 			"authorization_response_iss_parameter_supported": true,
-		})
+		});
+
+		if self.inner.dpop {
+			document["dpop_signing_alg_values_supported"] = crate::dpop::ALGORITHMS.into();
+		}
+		if self.inner.registration.is_some() {
+			document["registration_endpoint"] = endpoint("/oauth/register").into();
+		}
+
+		document
 	}
 
 	/// What `scope` lets an app do, for a consent screen.
@@ -230,6 +245,8 @@ pub struct IdpBuilder {
 	lifetimes: Lifetimes,
 	rsa_key: Option<Vec<u8>>,
 	developer_portal: Option<Portal>,
+	dpop: bool,
+	registration: Option<Registration>,
 }
 
 impl std::fmt::Debug for IdpBuilder {
@@ -331,6 +348,25 @@ impl IdpBuilder {
 		self
 	}
 
+	/// Takes DPoP proofs (RFC 9449), so an app can bind its tokens to a key
+	/// it holds: a stolen access or refresh token is then useless without
+	/// the key. Apps opt in per request with a `DPoP` header, and an app
+	/// registered with `dpop_bound` must always. Off by default, when the
+	/// header is ignored and every token is a bearer token.
+	pub fn dpop(mut self, on: bool) -> Self {
+		self.dpop = on;
+		self
+	}
+
+	/// Lets apps register themselves at `POST /oauth/register` (RFC 7591),
+	/// and manage their registration with the token it returns (RFC 7592).
+	/// Such apps are never first-party and can't introspect other apps'
+	/// tokens. Off by default.
+	pub fn dynamic_registration(mut self, registration: Registration) -> Self {
+		self.registration = Some(registration);
+		self
+	}
+
 	/// The configured provider.
 	///
 	/// # Errors
@@ -407,6 +443,17 @@ impl IdpBuilder {
 			));
 		}
 
+		if self.registration.as_ref().is_some_and(|registration| {
+			registration
+				.initial_access_token
+				.as_ref()
+				.is_some_and(|token| token.len() < 32)
+		}) {
+			return Err(IdpError::Config(
+				"the initial access token for registration must be at least 32 characters".into(),
+			));
+		}
+
 		Ok(Idp {
 			inner: Arc::new(Inner {
 				db: self.db,
@@ -422,6 +469,8 @@ impl IdpBuilder {
 				lifetimes: self.lifetimes,
 				rsa_key,
 				developer_portal: self.developer_portal,
+				dpop: self.dpop,
+				registration: self.registration,
 				verifying_keys: Mutex::new(HashMap::new()),
 			}),
 		})
@@ -528,6 +577,28 @@ impl Default for Portal {
 		Self {
 			apps_per_person: 10,
 		}
+	}
+}
+
+/// How apps register themselves, with
+/// [`IdpBuilder::dynamic_registration`]. Its `Debug` leaves out the token.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct Registration {
+	/// The initial access token an app must send as `Authorization: Bearer`
+	/// to register (RFC 7591 §3), at least 32 characters, from the
+	/// environment. `None` opens registration to anyone, at most 10 apps an
+	/// hour from one address.
+	pub initial_access_token: Option<String>,
+}
+
+impl std::fmt::Debug for Registration {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("Registration")
+			.field(
+				"initial_access_token",
+				&self.initial_access_token.as_ref().map(|_| "…"),
+			)
+			.finish()
 	}
 }
 

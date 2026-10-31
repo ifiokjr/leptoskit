@@ -11,6 +11,7 @@ use crate::IdpBuilder;
 use crate::IdpError;
 use crate::Lifetimes;
 use crate::Portal;
+use crate::Registration;
 use crate::Result;
 
 const MINUTE: u64 = 60;
@@ -31,7 +32,7 @@ impl Idp {
 	/// # Errors
 	///
 	/// [`IdpError::Config`] without `[auth.idp]`, or when the variable
-	/// `rsa_key_env` names isn't set.
+	/// `rsa_key_env` or `registration_token_env` names isn't set.
 	pub fn from_config(db: &Db, auth: &Auth, config: &LeptoskitConfig) -> Result<IdpBuilder> {
 		let idp = config
 			.auth
@@ -70,7 +71,19 @@ impl Idp {
 			});
 		}
 
-		Ok(builder)
+		if idp.dynamic_registration {
+			let initial_access_token = match &idp.registration_token_env {
+				Some(name) => {
+					Some(std::env::var(name).map_err(|_| IdpError::Config(format!("set {name}")))?)
+				}
+				None => None,
+			};
+			builder = builder.dynamic_registration(Registration {
+				initial_access_token,
+			});
+		}
+
+		Ok(builder.dpop(idp.dpop))
 	}
 }
 
@@ -125,6 +138,34 @@ mod tests {
 			.unwrap();
 		assert_eq!(idp.issuer(), "https://id.notes.example");
 		assert!(!idp.has_developer_portal());
+		assert!(!idp.has_dynamic_registration());
+		assert!(!idp.inner.dpop);
+
+		let config = LeptoskitConfig::from_toml(
+			"[auth.idp]\ndpop = true\ndynamic_registration = true\n",
+			Path::new("notes"),
+		)
+		.unwrap();
+		let idp = Idp::from_config(&db, &auth, &config)
+			.unwrap()
+			.build()
+			.unwrap();
+		assert!(idp.inner.dpop);
+		assert_eq!(
+			idp.inner.registration,
+			Some(Registration {
+				initial_access_token: None
+			})
+		);
+		let discovery = idp.discovery();
+		assert_eq!(
+			discovery["registration_endpoint"],
+			"https://notes.example/oauth/register"
+		);
+		assert_eq!(
+			discovery["dpop_signing_alg_values_supported"],
+			serde_json::json!(["ES256", "RS256"])
+		);
 	}
 
 	#[tokio::test]
@@ -143,6 +184,36 @@ mod tests {
 			error
 				.to_string()
 				.contains("LEPTOSKIT_IDP_TEST_MISSING_RSA_KEY")
+		);
+
+		let registration = LeptoskitConfig::from_toml(
+			"[auth.idp]\ndynamic_registration = true\nregistration_token_env = \
+			 \"LEPTOSKIT_IDP_TEST_MISSING_REGISTRATION_TOKEN\"\n",
+			Path::new("notes"),
+		)
+		.unwrap();
+		let error = Idp::from_config(&db, &auth, &registration).unwrap_err();
+		assert!(
+			error
+				.to_string()
+				.contains("LEPTOSKIT_IDP_TEST_MISSING_REGISTRATION_TOKEN")
+		);
+
+		let short = Idp::builder(&db, &auth)
+			.dynamic_registration(Registration {
+				initial_access_token: Some("too short".into()),
+			})
+			.build()
+			.unwrap_err();
+		assert!(short.to_string().contains("at least 32"), "{short}");
+		assert_eq!(
+			format!(
+				"{:?}",
+				Registration {
+					initial_access_token: Some("secret".into())
+				}
+			),
+			"Registration { initial_access_token: Some(\"…\") }"
 		);
 	}
 }

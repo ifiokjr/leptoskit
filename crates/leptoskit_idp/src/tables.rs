@@ -112,6 +112,14 @@ pub struct Client {
 	/// operator registered.
 	#[db(on_delete = cascade)]
 	pub owner_id: Option<Id<Account>>,
+	/// Whether every access token it gets must be bound to a key it holds,
+	/// with DPoP (RFC 9449), so a stolen token is useless without the key.
+	#[db(default = false)]
+	pub dpop_bound: bool,
+	/// The SHA-256 of the token that manages it, for an app that registered
+	/// itself through dynamic registration (RFC 7591 and 7592).
+	#[db(unique, secret)]
+	pub registration_hash: Option<Vec<u8>>,
 	#[db(created_at)]
 	pub created_at: Timestamp,
 }
@@ -164,6 +172,10 @@ pub struct Family {
 	pub expires_at: Timestamp,
 	/// When it was revoked, signed out, or ended by a reused token.
 	pub revoked_at: Option<Timestamp>,
+	/// The RFC 7638 thumbprint of the DPoP key its refresh tokens are bound
+	/// to, for a public app that started it with a DPoP proof.
+	#[db(max_len = 64)]
+	pub jkt: Option<String>,
 	#[db(created_at)]
 	pub created_at: Timestamp,
 }
@@ -324,6 +336,18 @@ pub struct Assertion {
 	#[db(on_delete = cascade)]
 	pub client_id: Id<Client>,
 	/// The assertion's `jti`, hashed with the client's ID.
+	#[db(unique, secret)]
+	pub jti_hash: Vec<u8>,
+	pub expires_at: Timestamp,
+}
+
+/// A DPoP proof (RFC 9449) already presented, kept until it's too old to be
+/// accepted anyway, so none works twice.
+#[table(name = "dpop_proofs", pack = "idp", index(expires_at))]
+#[policy(select, |_, _| leptoskit_db::Expr::never())]
+pub struct DpopProof {
+	pub id: Id<Self>,
+	/// The proof's `jti`, hashed with its key's thumbprint.
 	#[db(unique, secret)]
 	pub jti_hash: Vec<u8>,
 	pub expires_at: Timestamp,

@@ -47,11 +47,13 @@ use serde::Deserialize;
 use serde::Serialize;
 use tower::ServiceExt;
 
+use crate::AccessToken;
 use crate::AppChanges;
 use crate::AppRef;
 use crate::AuthorizeOutcome;
 use crate::AuthorizeRequest;
 use crate::ClientCredentials;
+use crate::ClientMetadata;
 use crate::ConsentDecision;
 use crate::ConsentRedirect;
 use crate::DeviceDecision;
@@ -62,6 +64,7 @@ use crate::IdpError;
 use crate::NewApp;
 use crate::OAuthError;
 use crate::TokenRequest;
+use crate::dpop::Expected;
 
 /// The routes the layer serves itself, outside the session layer: they
 /// read no cookie, so apps on other sites may call them.
@@ -152,6 +155,14 @@ impl Idp {
 	/// | `POST /oauth/par`                       | keeps a pushed request (RFC 9126)     |
 	/// | `POST /oauth/device_authorization`      | starts the device flow (RFC 8628)     |
 	///
+	/// With [dynamic registration](crate::IdpBuilder::dynamic_registration)
+	/// on, it also serves `POST /oauth/register` (RFC 7591), and `GET`, `PUT`
+	/// and `DELETE /oauth/register/{client_id}` (RFC 7592).
+	///
+	/// With [DPoP](crate::IdpBuilder::dpop) on, the token endpoint binds
+	/// tokens to the key of a proof in the `DPoP` header, and a bound token
+	/// works only as `Authorization: DPoP`, with a proof signed by that key.
+	///
 	/// These answer cross-origin requests, since they read no cookies. The
 	/// layer also takes form `POST`s to `/oauth/authorize` and
 	/// `/oauth/end_session`, as OpenID Connect allows, and sends the browser
@@ -179,6 +190,13 @@ impl Idp {
 				.route("/oauth/device_authorization", post(device_authorization))
 				.route("/oauth/authorize", post(form_post::<AuthorizeRequest>))
 				.route("/oauth/end_session", post(form_post::<EndSessionRequest>))
+				.route("/oauth/register", post(register))
+				.route(
+					"/oauth/register/{client_id}",
+					get(read_registration)
+						.put(update_registration)
+						.delete(delete_registration),
+				)
 				.with_state(self.clone()),
 		}
 	}
@@ -227,9 +245,12 @@ impl<S> std::fmt::Debug for IdpService<S> {
 	}
 }
 
-/// Whether the layer answers this request itself.
-fn served_here(method: &Method, path: &str) -> bool {
-	ENDPOINTS.contains(&path) || (method == Method::POST && FORM_POSTS.contains(&path))
+/// Whether the layer answers this request itself. `registration` says
+/// whether apps may register themselves, so the routes exist.
+fn served_here(method: &Method, path: &str, registration: bool) -> bool {
+	ENDPOINTS.contains(&path)
+		|| (method == Method::POST && FORM_POSTS.contains(&path))
+		|| (registration && (path == "/oauth/register" || path.starts_with("/oauth/register/")))
 }
 
 impl<S> tower::Service<Request<Body>> for IdpService<S>
@@ -254,7 +275,11 @@ where
 		let mut inner = std::mem::replace(&mut self.inner, clone);
 
 		Box::pin(async move {
-			if served_here(request.method(), request.uri().path()) {
+			if served_here(
+				request.method(),
+				request.uri().path(),
+				idp.has_dynamic_registration(),
+			) {
 				let preflight = request.method() == Method::OPTIONS;
 				let mut response = if preflight {
 					StatusCode::NO_CONTENT.into_response()
@@ -275,27 +300,27 @@ where
 			// server renders a page.
 			request.extensions_mut().insert(idp.clone());
 
-			let Some(token) = bearer(request.headers()).filter(|token| looks_like_jwt(token))
+			let Some(presented) = presented(request.headers(), idp.takes_dpop())
+				.filter(|token| token.scheme == Scheme::Dpop || looks_like_jwt(&token.token))
 			else {
 				return inner.call(request).await;
 			};
-			let access = match idp.verify_access_token(&token).await {
-				Ok(Some(access)) => access,
-				Ok(None) => {
-					return Ok(bearer_error(
-						StatusCode::UNAUTHORIZED,
-						"invalid_token",
-						None,
-					));
-				}
-				Err(error) => return Ok(json_error(&error)),
-			};
-			let required = leptoskit_rpc::spec::scopes_for(request.method(), request.uri().path())
-				.unwrap_or_default();
+			let scheme = presented.scheme;
+			let path = request.uri().path().to_owned();
+			let access =
+				match check_access(&idp, request.method(), &path, request.headers(), presented)
+					.await
+				{
+					Ok(access) => access,
+					Err(refused) => return Ok(*refused),
+				};
+			let required =
+				leptoskit_rpc::spec::scopes_for(request.method(), &path).unwrap_or_default();
 
 			if required.is_empty() {
 				// Only functions that name a scope take another app's token.
-				return Ok(bearer_error(
+				return Ok(challenge(
+					scheme,
 					StatusCode::FORBIDDEN,
 					"insufficient_scope",
 					None,
@@ -305,7 +330,8 @@ where
 				.iter()
 				.all(|scope| access.scopes.iter().any(|granted| granted == scope))
 			{
-				return Ok(bearer_error(
+				return Ok(challenge(
+					scheme,
 					StatusCode::FORBIDDEN,
 					"insufficient_scope",
 					Some(&required.join(" ")),
@@ -324,11 +350,96 @@ where
 
 /// The token in `Authorization: Bearer`, if there is one.
 fn bearer(headers: &HeaderMap) -> Option<String> {
+	presented(headers, false).map(|presented| presented.token)
+}
+
+/// How a request presents an access token.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Scheme {
+	Bearer,
+	/// `Authorization: DPoP`, with a proof in the `DPoP` header (RFC 9449
+	/// §7.1).
+	Dpop,
+}
+
+/// An access token a request presents.
+struct Presented {
+	scheme: Scheme,
+	token: String,
+}
+
+/// The token in `Authorization`, as `Bearer`, or as `DPoP` when `dpop` is
+/// on.
+fn presented(headers: &HeaderMap, dpop: bool) -> Option<Presented> {
 	let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
 	let (scheme, token) = value.split_once(' ')?;
-	scheme
-		.eq_ignore_ascii_case("bearer")
-		.then(|| token.trim().to_owned())
+	let scheme = if scheme.eq_ignore_ascii_case("bearer") {
+		Scheme::Bearer
+	} else if dpop && scheme.eq_ignore_ascii_case("dpop") {
+		Scheme::Dpop
+	} else {
+		return None;
+	};
+	Some(Presented {
+		scheme,
+		token: token.trim().to_owned(),
+	})
+}
+
+/// The request's one `DPoP` header, if it has one.
+fn dpop_proof(headers: &HeaderMap) -> Result<Option<&str>, IdpError> {
+	let mut proofs = headers.get_all("dpop").iter();
+	let Some(proof) = proofs.next() else {
+		return Ok(None);
+	};
+	if proofs.next().is_some() {
+		return Err(crate::dpop::invalid("send one `DPoP` header"));
+	}
+	proof
+		.to_str()
+		.map(Some)
+		.map_err(|_| crate::dpop::invalid("it must be a compact JWT"))
+}
+
+/// Checks the access token a request to `path` presents: its signature and
+/// family, and for a token bound to a key, that it came as `DPoP` with a
+/// proof that key signed for this request. A bound token sent as `Bearer`,
+/// or a bearer token sent as `DPoP`, is refused.
+async fn check_access(
+	idp: &Idp,
+	method: &Method,
+	path: &str,
+	headers: &HeaderMap,
+	presented: Presented,
+) -> Result<AccessToken, Box<Response>> {
+	let scheme = presented.scheme;
+	let refuse = |code: &str| challenge(scheme, StatusCode::UNAUTHORIZED, code, None);
+	let access = match idp.verify_access_token(&presented.token).await {
+		Ok(Some(access)) => access,
+		Ok(None) => return Err(Box::new(refuse("invalid_token"))),
+		Err(error) => return Err(Box::new(json_error(&error))),
+	};
+
+	match (scheme, &access.jkt) {
+		(Scheme::Bearer, None) => Ok(access),
+		(Scheme::Bearer, Some(_)) | (Scheme::Dpop, None) => Err(Box::new(refuse("invalid_token"))),
+		(Scheme::Dpop, Some(bound)) => {
+			let Ok(Some(proof)) = dpop_proof(headers) else {
+				return Err(Box::new(refuse("invalid_dpop_proof")));
+			};
+			let url = idp.url_of(path);
+			let expected = Expected {
+				method: method.as_str(),
+				url: &url,
+				access_token: Some(&presented.token),
+			};
+			match idp.check_proof(proof, &expected).await {
+				Ok(thumbprint) if thumbprint == *bound => Ok(access),
+				Ok(_) | Err(IdpError::OAuth { .. }) => Err(Box::new(refuse("invalid_dpop_proof"))),
+				Err(error) => Err(Box::new(json_error(&error))),
+			}
+		}
+	}
 }
 
 /// Whether a bearer token is shaped like a JWT, so this provider's, rather
@@ -347,11 +458,11 @@ fn allow_any_origin(headers: &mut HeaderMap, preflight: bool) {
 	if preflight {
 		headers.insert(
 			header::ACCESS_CONTROL_ALLOW_METHODS,
-			HeaderValue::from_static("GET, POST"),
+			HeaderValue::from_static("GET, POST, PUT, DELETE"),
 		);
 		headers.insert(
 			header::ACCESS_CONTROL_ALLOW_HEADERS,
-			HeaderValue::from_static("authorization, content-type"),
+			HeaderValue::from_static("authorization, content-type, dpop"),
 		);
 		headers.insert(
 			header::ACCESS_CONTROL_MAX_AGE,
@@ -362,7 +473,21 @@ fn allow_any_origin(headers: &mut HeaderMap, preflight: bool) {
 
 /// A `WWW-Authenticate: Bearer` challenge (RFC 6750 §3).
 fn bearer_error(status: StatusCode, code: &str, scope: Option<&str>) -> Response {
-	let mut challenge = format!("Bearer error=\"{code}\"");
+	challenge(Scheme::Bearer, status, code, scope)
+}
+
+/// A `WWW-Authenticate` challenge for the scheme the token came with: a
+/// `DPoP` one also lists the algorithms proofs may use (RFC 9449 §7.1).
+fn challenge(scheme: Scheme, status: StatusCode, code: &str, scope: Option<&str>) -> Response {
+	let mut challenge = match scheme {
+		Scheme::Bearer => format!("Bearer error=\"{code}\""),
+		Scheme::Dpop => {
+			format!(
+				"DPoP error=\"{code}\", algs=\"{}\"",
+				crate::dpop::ALGORITHMS.join(" ")
+			)
+		}
+	};
 	if let Some(scope) = scope {
 		let _ = write!(challenge, ", scope=\"{scope}\"");
 	}
@@ -387,6 +512,7 @@ fn json_error(error: &IdpError) -> Response {
 	let status = match error {
 		IdpError::OAuth { code, .. } if *code == "invalid_client" => StatusCode::UNAUTHORIZED,
 		IdpError::OAuth { code, .. } if *code == "insufficient_scope" => StatusCode::FORBIDDEN,
+		IdpError::OAuth { code, .. } if *code == "invalid_token" => StatusCode::UNAUTHORIZED,
 		IdpError::OAuth { .. } => StatusCode::BAD_REQUEST,
 		IdpError::SignedOut => StatusCode::UNAUTHORIZED,
 		IdpError::NotFound => StatusCode::NOT_FOUND,
@@ -801,9 +927,29 @@ async fn token(
 	headers: HeaderMap,
 	form: Result<Form<TokenRequest>, FormRejection>,
 ) -> Response {
-	let Ok(Form(request)) = form else {
+	let Ok(Form(mut request)) = form else {
 		return malformed_form();
 	};
+
+	if idp.takes_dpop() {
+		let proof = match dpop_proof(&headers) {
+			Ok(proof) => proof,
+			Err(error) => return json_error(&error),
+		};
+		if let Some(proof) = proof {
+			let url = idp.url_of("/oauth/token");
+			let expected = Expected {
+				method: "POST",
+				url: &url,
+				access_token: None,
+			};
+			match idp.check_proof(proof, &expected).await {
+				Ok(thumbprint) => request.dpop_jkt = Some(thumbprint),
+				Err(error) => return json_error(&error),
+			}
+		}
+	}
+
 	let client = ClientForm {
 		id: request.client_id.clone(),
 		secret: request.client_secret.clone(),
@@ -820,19 +966,24 @@ async fn token(
 	}
 }
 
-async fn userinfo(State(idp): State<Idp>, headers: HeaderMap) -> Response {
-	let Some(token) = bearer(&headers) else {
+async fn userinfo(State(idp): State<Idp>, method: Method, headers: HeaderMap) -> Response {
+	let Some(presented) = presented(&headers, idp.takes_dpop()) else {
 		return bearer_error(StatusCode::UNAUTHORIZED, "invalid_token", None);
 	};
-	let access = match idp.verify_access_token(&token).await {
-		Ok(Some(access)) => access,
-		Ok(None) => return bearer_error(StatusCode::UNAUTHORIZED, "invalid_token", None),
-		Err(error) => return json_error(&error),
+	let scheme = presented.scheme;
+	let access = match check_access(&idp, &method, "/oauth/userinfo", &headers, presented).await {
+		Ok(access) => access,
+		Err(refused) => return *refused,
 	};
 	match idp.userinfo(&access).await {
 		Ok(claims) => no_store(Json(claims).into_response()),
 		Err(error) if error.code() == "insufficient_scope" => {
-			bearer_error(StatusCode::FORBIDDEN, "insufficient_scope", Some("openid"))
+			challenge(
+				scheme,
+				StatusCode::FORBIDDEN,
+				"insufficient_scope",
+				Some("openid"),
+			)
 		}
 		Err(error) => json_error(&error),
 	}
@@ -961,6 +1112,107 @@ async fn device_authorization(
 	}
 }
 
+/// The registration metadata in a JSON body, or why it can't be read.
+fn client_metadata(
+	body: Result<Json<ClientMetadata>, JsonRejection>,
+) -> Result<ClientMetadata, IdpError> {
+	body.map(|Json(metadata)| metadata).map_err(|_| {
+		IdpError::oauth(
+			"invalid_client_metadata",
+			"send the app's metadata as a JSON object (application/json)",
+		)
+	})
+}
+
+/// A registration answer, or its error with the challenge an
+/// `invalid_token` calls for.
+fn registration_response(
+	result: Result<crate::ClientRegistration, IdpError>,
+	status: StatusCode,
+) -> Response {
+	match result {
+		Ok(registration) => no_store((status, Json(registration)).into_response()),
+		Err(error) => registration_error(&error),
+	}
+}
+
+/// A registration error, with `WWW-Authenticate` for a missing or wrong
+/// token.
+fn registration_error(error: &IdpError) -> Response {
+	let mut response = json_error(error);
+	if error.code() == "invalid_token" {
+		response.headers_mut().insert(
+			header::WWW_AUTHENTICATE,
+			HeaderValue::from_static("Bearer error=\"invalid_token\""),
+		);
+	}
+	response
+}
+
+async fn register(
+	State(idp): State<Idp>,
+	Extension(Source(info)): Extension<Source>,
+	headers: HeaderMap,
+	body: Result<Json<ClientMetadata>, JsonRejection>,
+) -> Response {
+	let metadata = match client_metadata(body) {
+		Ok(metadata) => metadata,
+		Err(error) => return json_error(&error),
+	};
+	let token = bearer(&headers);
+	registration_response(
+		idp.register_dynamically(token.as_deref(), metadata, &info)
+			.await,
+		StatusCode::CREATED,
+	)
+}
+
+async fn read_registration(
+	State(idp): State<Idp>,
+	axum::extract::Path(client_id): axum::extract::Path<String>,
+	headers: HeaderMap,
+) -> Response {
+	let token = bearer(&headers);
+	registration_response(
+		idp.read_registration(&client_id, token.as_deref()).await,
+		StatusCode::OK,
+	)
+}
+
+async fn update_registration(
+	State(idp): State<Idp>,
+	axum::extract::Path(client_id): axum::extract::Path<String>,
+	headers: HeaderMap,
+	body: Result<Json<ClientMetadata>, JsonRejection>,
+) -> Response {
+	let metadata = match client_metadata(body) {
+		Ok(metadata) => metadata,
+		Err(error) => return json_error(&error),
+	};
+	let token = bearer(&headers);
+	registration_response(
+		idp.update_registration(&client_id, token.as_deref(), metadata)
+			.await,
+		StatusCode::OK,
+	)
+}
+
+async fn delete_registration(
+	State(idp): State<Idp>,
+	Extension(Source(info)): Extension<Source>,
+	axum::extract::Path(client_id): axum::extract::Path<String>,
+	headers: HeaderMap,
+) -> Response {
+	let token = bearer(&headers);
+	match idp
+		.delete_registration(&client_id, token.as_deref(), &info)
+		.await
+	{
+		Ok(()) => no_store(StatusCode::NO_CONTENT.into_response()),
+		Err(error) => registration_error(&error),
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -979,6 +1231,25 @@ mod tests {
 		assert_eq!(bearer(&headers).as_deref(), Some("a.b.c"));
 		headers.insert(header::AUTHORIZATION, HeaderValue::from_static("Basic abc"));
 		assert_eq!(bearer(&headers), None);
+
+		headers.insert(
+			header::AUTHORIZATION,
+			HeaderValue::from_static("DPoP a.b.c"),
+		);
+		assert!(presented(&headers, false).is_none());
+		assert_eq!(
+			presented(&headers, true).map(|presented| presented.scheme),
+			Some(Scheme::Dpop)
+		);
+
+		assert_eq!(dpop_proof(&headers).unwrap(), None);
+		headers.append("dpop", HeaderValue::from_static("a.b.c"));
+		assert_eq!(dpop_proof(&headers).unwrap(), Some("a.b.c"));
+		headers.append("dpop", HeaderValue::from_static("d.e.f"));
+		assert_eq!(
+			dpop_proof(&headers).unwrap_err().code(),
+			"invalid_dpop_proof"
+		);
 	}
 
 	#[test]
@@ -1011,10 +1282,13 @@ mod tests {
 
 	#[test]
 	fn the_layer_serves_endpoints_and_form_posts() {
-		assert!(served_here(&Method::POST, "/oauth/token"));
-		assert!(served_here(&Method::GET, "/oauth/jwks"));
-		assert!(served_here(&Method::POST, "/oauth/authorize"));
-		assert!(!served_here(&Method::GET, "/oauth/authorize"));
-		assert!(!served_here(&Method::GET, "/oauth/grants"));
+		assert!(served_here(&Method::POST, "/oauth/token", false));
+		assert!(served_here(&Method::GET, "/oauth/jwks", false));
+		assert!(served_here(&Method::POST, "/oauth/authorize", false));
+		assert!(!served_here(&Method::GET, "/oauth/authorize", false));
+		assert!(!served_here(&Method::GET, "/oauth/grants", false));
+		assert!(!served_here(&Method::POST, "/oauth/register", false));
+		assert!(served_here(&Method::POST, "/oauth/register", true));
+		assert!(served_here(&Method::DELETE, "/oauth/register/app", true));
 	}
 }
