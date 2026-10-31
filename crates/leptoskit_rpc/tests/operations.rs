@@ -520,7 +520,7 @@ async fn server_code_calls_operations(db: &Db) {
 
 	// A query records what it read, for live queries to come.
 	let cx = rpc::QueryCx::new(ada.clone(), Identity::of(&ada));
-	assert!(cx.reads().is_empty());
+	assert_eq!(cx.reads(), Vec::new());
 	Notes { starting: None }.run(&cx).await.unwrap();
 	assert!(cx.get::<Me>().is_some());
 	assert!(cx.require::<String>().is_err());

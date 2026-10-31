@@ -156,10 +156,10 @@ pub(crate) async fn mutate<M: Operation<Context = MutationCx>>(
 		}
 		_ => db.clone(),
 	};
-	if let Some(key) = &receipt {
-		if let Some(stored) = key.find(&db).await? {
-			return decode::<M>(stored);
-		}
+	if let Some(key) = &receipt
+		&& let Some(stored) = key.find(&db).await?
+	{
+		return decode::<M>(stored);
 	}
 
 	let mut attempt = 0;
