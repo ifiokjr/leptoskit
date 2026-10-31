@@ -519,7 +519,7 @@ async fn views_record_the_tables_they_declare() {
 			DbError::UndeclaredRead { table: Some(_) }
 		));
 		assert!(refused.to_string().contains("channel_tallies"));
-		assert!(tracked.reads().is_empty());
+		assert_eq!(tracked.reads(), Vec::<ReadEntry>::new());
 		assert_eq!(ChannelTally::query().count(&world.db).await.unwrap(), 4);
 
 		// A materialized view holds its own rows until refreshed.
