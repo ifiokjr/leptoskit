@@ -28,6 +28,7 @@ leptoskit_config = { workspace = true }
 leptoskit_db = { workspace = true, optional = true }
 leptoskit_extension = { workspace = true, optional = true }
 leptoskit_form = { workspace = true, optional = true }
+leptoskit_idp = { workspace = true, optional = true }
 leptoskit_l10n = { workspace = true, optional = true }
 leptoskit_macros = { workspace = true }
 leptoskit_native = { workspace = true }
@@ -81,7 +82,13 @@ islands = ["leptos", "leptos/islands"]
 ssr = ["leptos", "leptos/ssr", "leptos_meta/ssr", "leptos_router/ssr"]
 # The server toolkit with the crates every deployment links: axum, tokio,
 # tower, tower-http, and leptos_axum. A server renders, so this implies `ssr`.
-server = ["dep:leptoskit_axum", "dep:leptos_axum", "ssr", "leptoskit_auth?/ssr"]
+server = [
+	"dep:leptoskit_axum",
+	"dep:leptos_axum",
+	"ssr",
+	"leptoskit_auth?/ssr",
+	"leptoskit_idp?/axum",
+]
 rpc = ["dep:leptoskit_rpc"]
 # The server side of `#[api]` through `leptoskit::rpc` (with `crate =
 # "leptoskit::rpc"`): registers the function descriptions and adds the `spec`
@@ -108,17 +115,33 @@ l10n = ["dep:leptoskit_l10n"]
 db = ["dep:leptoskit_db"]
 ## The server side of `leptoskit::db`: rows, queries, and schema export,
 ## without a driver.
-db-server = ["db", "leptoskit_db/server", "leptoskit_auth?/server"]
+db-server = ["db", "leptoskit_db/server", "leptoskit_auth?/server", "leptoskit_idp?/server"]
 ## `leptoskit::db` connecting to Postgres.
-db-postgres = ["db-server", "leptoskit_db/postgres", "leptoskit_auth?/postgres"]
+db-postgres = [
+	"db-server",
+	"leptoskit_db/postgres",
+	"leptoskit_auth?/postgres",
+	"leptoskit_idp?/postgres",
+]
 ## `leptoskit::db` connecting to SQLite.
-db-sqlite = ["db-server", "leptoskit_db/sqlite", "leptoskit_auth?/sqlite"]
+db-sqlite = [
+	"db-server",
+	"leptoskit_db/sqlite",
+	"leptoskit_auth?/sqlite",
+	"leptoskit_idp?/sqlite",
+]
 ## Sign-in: `leptoskit::auth`, with the `auth` schema pack and the headless
 ## client. Its server side follows `db-server`, `db-postgres`, and
 ## `db-sqlite`, and `server` adds the `/auth` routes, the session layer, the
 ## server-function guards, and the client's reads during server rendering.
 ## `web` and `guest` pick how the client reaches the server.
 auth = ["db", "dep:leptoskit_auth", "leptoskit_auth/client"]
+## Sign in with your app: `leptoskit::idp`, an OAuth 2.1 and OpenID Connect
+## provider with the `idp` schema pack. Its server side follows `db-server`,
+## `db-postgres`, and `db-sqlite`, like `auth`, and `server` adds the `/oauth`
+## routes and the layer that lets third-party tokens call `#[api(scope = …)]`
+## functions.
+idp = ["auth", "dep:leptoskit_idp"]
 ## Sign-in email over SMTP: `auth::SmtpMailer`, and `smtp_url_env` in `[auth.mail]`.
 auth-smtp = ["auth", "leptoskit_auth/smtp"]
 ## Sign-in email as a signed webhook: `auth::WebhookMailer`, and

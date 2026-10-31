@@ -126,17 +126,43 @@ pub fn schema(dialect: Dialect) -> Result<Schema, SchemaError> {
 	packs.dedup();
 
 	for pack in packs {
-		let tables: Vec<leptoskit_db_schema::Table> = entries
+		let own: Vec<String> = entries
+			.iter()
+			.filter(|entry| entry.pack == Some(pack))
+			.map(|entry| (entry.definition)().name.to_string())
+			.collect();
+		// A pack may link to the packs it builds on, such as `idp` to `auth`,
+		// but never to an app's tables, so it's checked alongside the other
+		// packs. Their own problems are reported under their own names.
+		let mut tables: Vec<leptoskit_db_schema::Table> = entries
 			.iter()
 			.filter(|entry| entry.pack == Some(pack))
 			.map(|entry| (entry.definition)())
 			.collect();
+		tables.extend(
+			entries
+				.iter()
+				.filter(|entry| entry.pack.is_some_and(|other| other != pack))
+				.map(|entry| (entry.definition)()),
+		);
 
 		if let Err(SchemaError::Invalid(found)) = Schema::validate_portable(&tables) {
-			problems.extend(found.into_iter().map(|mut problem| {
-				problem.message = format!("pack `{pack}`: {}", problem.message);
-				problem
-			}));
+			problems.extend(
+				found
+					.into_iter()
+					.filter(|problem| {
+						own.iter().any(|table| {
+							problem
+								.location
+								.strip_prefix(table.as_str())
+								.is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+						})
+					})
+					.map(|mut problem| {
+						problem.message = format!("pack `{pack}`: {}", problem.message);
+						problem
+					}),
+			);
 		}
 	}
 

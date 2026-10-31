@@ -123,6 +123,17 @@ impl Auth {
 	pub fn app_name(&self) -> &str {
 		&self.inner.app_name
 	}
+
+	/// The site's origin, such as `https://myapp.com`, if one was set.
+	pub fn origin(&self) -> Option<&str> {
+		self.inner.origin.as_deref()
+	}
+
+	/// The server's keys, for crates that build on sign-in, such as
+	/// `leptoskit_idp`, to derive their own secrets from.
+	pub fn keys(&self) -> &Keys {
+		&self.inner.keys
+	}
 }
 
 impl std::fmt::Debug for Auth {

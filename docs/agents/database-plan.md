@@ -848,7 +848,7 @@ leptoskit::db::packs! {
 - **Linking packs.** `packs!(crate, …)` expands to `extern crate … as _;`. A dependency nothing references isn't linked, so without it a pack's tables would vanish from the schema, and the next migration would drop them.
 - **Portability.** `schema()` runs `Schema::validate_portable` on each pack's tables as a group, so every pack table must:
   - validate on both dialects;
-  - link only within the pack;
+  - link only within the pack, or to another pack's tables (as `idp` links to `auth.accounts`), never to an app's;
   - avoid raw SQL defaults and checks.
 - **Moved out.**
   - Bulk `Query::delete`/`destroy` on a pack table aren't restricted yet, since they hang off the shared `Query` type. Packs should guard them with policies.
