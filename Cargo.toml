@@ -157,8 +157,8 @@ leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
 leptoskit_db = { path = "crates/leptoskit_db", version = "0.1.0" }
 leptoskit_db_macros = { path = "crates/leptoskit_db_macros", version = "0.1.0" }
 leptoskit_db_schema = { path = "crates/leptoskit_db_schema", version = "0.1.0" }
-leptoskit_devtools_protocol = { path = "crates/leptoskit_devtools_protocol", version = "0.1.0" }
 leptoskit_devtools = { path = "crates/leptoskit_devtools", version = "0.1.0" }
+leptoskit_devtools_protocol = { path = "crates/leptoskit_devtools_protocol", version = "0.1.0" }
 leptoskit_docs = { path = "crates/leptoskit_docs", version = "0.1.0" }
 leptoskit_extension = { path = "crates/leptoskit_extension", version = "0.1.0" }
 leptoskit_fmt = { path = "crates/leptoskit_fmt", version = "0.1.0" }
@@ -186,7 +186,7 @@ leptoskit_plugin_filesystem = { path = "crates/leptoskit_plugin_filesystem", ver
 leptoskit_plugin_global_shortcut = { path = "crates/leptoskit_plugin_global_shortcut", version = "0.1.0" }
 leptoskit_plugin_gyroscope = { path = "crates/leptoskit_plugin_gyroscope", version = "0.1.0" }
 leptoskit_plugin_haptics = { path = "crates/leptoskit_plugin_haptics", version = "0.1.0" }
-leptoskit_plugin_http = { path = "crates/leptoskit_plugin_http", version = "0.1.0" }
+leptoskit_plugin_http = { path = "crates/leptoskit_plugin_http", version = "0.1.0", default-features = false }
 leptoskit_plugin_image_manipulator = { path = "crates/leptoskit_plugin_image_manipulator", version = "0.1.0" }
 leptoskit_plugin_keep_awake = { path = "crates/leptoskit_plugin_keep_awake", version = "0.1.0" }
 leptoskit_plugin_light_sensor = { path = "crates/leptoskit_plugin_light_sensor", version = "0.1.0" }
