@@ -26,11 +26,11 @@ use crate::sql::Sql;
 /// the query asks for them with [`Query::with_deleted`].
 #[must_use = "a query does nothing until it runs"]
 pub struct Query<T> {
-	filter: Option<Expr>,
-	order: Vec<Order>,
-	limit: Option<u64>,
-	offset: Option<u64>,
-	with_deleted: bool,
+	pub(crate) filter: Option<Expr>,
+	pub(crate) order: Vec<Order>,
+	pub(crate) limit: Option<u64>,
+	pub(crate) offset: Option<u64>,
+	pub(crate) with_deleted: bool,
 	skip_hooks: bool,
 	table: PhantomData<fn() -> T>,
 }
@@ -695,7 +695,19 @@ fn write_where<T: Table>(
 	policy: Option<&Expr>,
 	with_deleted: bool,
 ) -> Result<()> {
-	let mut first = true;
+	write_conditions::<T>(sql, filter, policy, with_deleted, false)
+}
+
+/// The conditions [`write_where`] writes, after `WHERE` and conditions of
+/// the caller's own when `started`.
+pub(crate) fn write_conditions<T: Table>(
+	sql: &mut Sql,
+	filter: Option<&Expr>,
+	policy: Option<&Expr>,
+	with_deleted: bool,
+	started: bool,
+) -> Result<()> {
+	let mut first = !started;
 
 	for condition in [filter, policy].into_iter().flatten() {
 		sql.push(if first { " WHERE (" } else { " AND (" });

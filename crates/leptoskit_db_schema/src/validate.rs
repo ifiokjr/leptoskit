@@ -13,10 +13,14 @@ use crate::DefaultValue;
 use crate::Dialect;
 use crate::ForeignKey;
 use crate::MAX_IDENTIFIER_LEN;
+use crate::PolicyCommand;
 use crate::Predicate;
 use crate::ReferentialAction;
+use crate::SEARCH_COLUMN;
+use crate::SEARCH_ROW;
 use crate::Schema;
 use crate::SchemaError;
+use crate::Search;
 use crate::Table;
 
 /// One inconsistency in a schema, located by table and, where it applies, by
@@ -144,6 +148,35 @@ impl Schema {
 					problems.push(
 						&location,
 						format!("another table already has an index named `{}`", index.name),
+					);
+				}
+			}
+
+			if table.search.is_some() {
+				let index = Search::index_name(&table.name);
+
+				for name in [
+					Search::text_table(&table.name),
+					Search::rows_table(&table.name),
+				] {
+					if !flat_names.insert(name.clone()) {
+						problems.push(
+							&location,
+							format!(
+								"the table's search index keeps its words in `{name}`, which is \
+								 already another table's name"
+							),
+						);
+					}
+				}
+
+				if table.indexes.iter().any(|other| other.name == index) {
+					problems.push(
+						&location,
+						format!(
+							"the table's search index is `{index}`, which is already another \
+							 index's name"
+						),
 					);
 				}
 			}
@@ -345,6 +378,55 @@ impl Schema {
 					);
 				}
 				Some(_) => {}
+			}
+		}
+
+		if let Some(search) = &table.search {
+			validate_search(self.dialect, table, search, problems);
+		}
+
+		if let Some(security) = &table.row_security {
+			if self.dialect == Dialect::Sqlite {
+				problems.push(
+					&location,
+					"row-level security is Postgres's; on SQLite the database layer alone \
+					 enforces policies",
+				);
+			}
+
+			let mut commands = HashSet::new();
+
+			for policy in &security.policies {
+				if !commands.insert(policy.command) {
+					problems.push(
+						&location,
+						format!(
+							"two row-level security policies govern {}",
+							policy.command.keyword()
+						),
+					);
+				}
+
+				let wants_using = policy.command != PolicyCommand::Insert;
+				let wants_check = matches!(
+					policy.command,
+					PolicyCommand::Insert | PolicyCommand::Update
+				);
+
+				if policy.using.is_some() != wants_using || policy.check.is_some() != wants_check {
+					problems.push(
+						&location,
+						format!(
+							"the {} policy needs {}",
+							policy.command.keyword(),
+							match (wants_using, wants_check) {
+								(true, true) => "both USING and WITH CHECK",
+								(true, false) => "USING and no WITH CHECK",
+								_ => "WITH CHECK and no USING",
+							}
+						),
+					);
+				}
 			}
 		}
 
@@ -584,6 +666,83 @@ fn validate_column(dialect: Dialect, column: &Column, location: &str, problems: 
 				column.ty
 			),
 		);
+	}
+}
+
+/// A search index reads text columns the app writes, once each, in a
+/// language the dialect has.
+fn validate_search(dialect: Dialect, table: &Table, search: &Search, problems: &mut Problems) {
+	let location = format!("{} search", table.name);
+	problems.identifier(&location, "search language", &search.language);
+
+	if dialect == Dialect::Sqlite
+		&& search.language != Search::SIMPLE
+		&& search.language != Search::ENGLISH
+	{
+		problems.push(
+			&location,
+			format!(
+				"SQLite searches in `simple` or `english`, not `{}`; other languages need Postgres",
+				search.language
+			),
+		);
+	}
+
+	if search.columns.is_empty() {
+		problems.push(&location, "a search index needs at least one column");
+	}
+
+	if table.column(SEARCH_COLUMN).is_some() {
+		problems.push(
+			&location,
+			format!("`{SEARCH_COLUMN}` holds a searched table's words, so no column may use it"),
+		);
+	}
+
+	if table.primary_key.iter().any(|key| key == SEARCH_ROW) {
+		problems.push(
+			&location,
+			format!(
+				"on SQLite the search index numbers its rows in `{SEARCH_ROW}`, so the key can't \
+				 use that name"
+			),
+		);
+	}
+
+	let mut seen = HashSet::new();
+
+	for searched in &search.columns {
+		if !seen.insert(searched.name.as_str()) {
+			problems.push(&location, format!("`{}` is searched twice", searched.name));
+		}
+
+		match table.column(&searched.name) {
+			None => {
+				problems.push(
+					&location,
+					format!("searches `{}`, which isn't a column", searched.name),
+				);
+			}
+			Some(column) if !matches!(column.ty, ColumnType::Text { .. }) => {
+				problems.push(
+					&location,
+					format!(
+						"searches `{}`, whose type is {}; only text is searched",
+						searched.name, column.ty
+					),
+				);
+			}
+			Some(column) if column.generated.is_some() => {
+				problems.push(
+					&location,
+					format!(
+						"searches `{}`, a generated column; search the columns it's computed from",
+						searched.name
+					),
+				);
+			}
+			Some(_) => {}
+		}
 	}
 }
 

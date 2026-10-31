@@ -12,6 +12,7 @@ use syn::Token;
 use syn::meta::ParseNestedMeta;
 use syn::parenthesized;
 use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 
 /// The options on `#[db::table(...)]`.
 pub(crate) struct TableArgs {
@@ -41,6 +42,9 @@ pub(crate) struct TableArgs {
 	pub internal: bool,
 	/// What a `#[db::view]` selects.
 	pub view: Option<ViewArgs>,
+	/// The language searched columns' words are in: `search(language =
+	/// "english")`.
+	pub search_language: Option<LitStr>,
 }
 
 /// The query behind a `#[db::view]`.
@@ -131,6 +135,7 @@ impl TableArgs {
 		let mut is_view = false;
 		let mut sql = None;
 		let mut materialized = false;
+		let mut search_language = None;
 
 		let parser = syn::meta::parser(|meta| {
 			if meta.path.is_ident(VIEW_MARKER) {
@@ -203,16 +208,10 @@ impl TableArgs {
 				pack = Some(string(&meta)?);
 			} else if meta.path.is_ident("crate") {
 				krate = Some(string(&meta)?.parse()?);
+			} else if meta.path.is_ident("search") {
+				search_language = Some(search_language_option(&meta)?);
 			} else {
-				return Err(meta.error(if is_link {
-					"unknown link option; expected `name`, `from`, `to`, `from_column`, \
-					 `to_column`, `exclusive`, `namespace`, `public`, `projection`, `index`, \
-					 `check`, `hooks`, `audit`, `live`, `renamed_from`, `pack`, or `crate`"
-				} else {
-					"unknown table option; expected `name`, `namespace`, `public`, `projection`, \
-					 `index`, `unique`, `check`, `hooks`, `audit`, `live`, `renamed_from`, `pack`, \
-					 or `crate`"
-				}));
+				return Err(meta.error(unknown_table_option(is_link)));
 			}
 
 			Ok(())
@@ -268,6 +267,7 @@ impl TableArgs {
 			live,
 			internal,
 			view,
+			search_language,
 		})
 	}
 
@@ -275,6 +275,65 @@ impl TableArgs {
 	pub fn has_hook(&self, hook: &str) -> bool {
 		self.hooks.iter().any(|declared| declared == hook)
 	}
+}
+
+/// What an unknown option on `#[db::table]` or `#[db::link]` says.
+fn unknown_table_option(is_link: bool) -> &'static str {
+	if is_link {
+		"unknown link option; expected `name`, `from`, `to`, `from_column`, `to_column`, \
+		 `exclusive`, `namespace`, `public`, `projection`, `index`, `check`, `hooks`, `audit`, \
+		 `live`, `search`, `renamed_from`, `pack`, or `crate`"
+	} else {
+		"unknown table option; expected `name`, `namespace`, `public`, `projection`, `index`, \
+		 `unique`, `check`, `hooks`, `audit`, `live`, `search`, `renamed_from`, `pack`, or `crate`"
+	}
+}
+
+/// `search(language = "english")`.
+fn search_language_option(meta: &ParseNestedMeta<'_>) -> syn::Result<LitStr> {
+	const HINT: &str = "`search` takes `language = \"…\"`, such as `search(language = \
+	                    \"english\")`; mark the searched columns with `#[db(search)]`";
+	if !meta.input.peek(syn::token::Paren) {
+		return Err(meta.error(HINT));
+	}
+
+	let mut language = None;
+	meta.parse_nested_meta(|inner| {
+		if inner.path.is_ident("language") {
+			language = Some(string(&inner)?);
+			Ok(())
+		} else {
+			Err(inner.error(HINT))
+		}
+	})?;
+	language.ok_or_else(|| meta.error(HINT))
+}
+
+/// `search` or `search(weight = A)`, the weight one of `A` to `D`.
+fn search_weight(meta: &ParseNestedMeta<'_>) -> syn::Result<Ident> {
+	const HINT: &str = "`search` takes `weight = A`, `B`, `C`, or `D`: how much a match in this \
+	                    column counts, `A` most";
+
+	if !meta.input.peek(syn::token::Paren) {
+		return Ok(Ident::new("D", meta.path.span()));
+	}
+
+	let mut weight = None;
+	meta.parse_nested_meta(|inner| {
+		if !inner.path.is_ident("weight") {
+			return Err(inner.error(HINT));
+		}
+
+		let ident: Ident = inner.value()?.parse()?;
+
+		if !["A", "B", "C", "D"].contains(&ident.to_string().as_str()) {
+			return Err(syn::Error::new(ident.span(), HINT));
+		}
+
+		weight = Some(ident);
+		Ok(())
+	})?;
+	weight.ok_or_else(|| meta.error(HINT))
 }
 
 /// `check(name = "…", sql = "…")`.
@@ -511,6 +570,9 @@ pub(crate) struct FieldArgs {
 	pub actor: Option<ActorMark>,
 	/// The field a slug column is made from: `slug(from = title)`.
 	pub slug: Option<Ident>,
+	/// How much a match in the column counts, when it's searched:
+	/// `search(weight = A)`.
+	pub search: Option<Ident>,
 }
 
 impl FieldArgs {
@@ -543,6 +605,7 @@ impl FieldArgs {
 			generated: None,
 			actor: None,
 			slug: None,
+			search: None,
 		};
 
 		for attr in attrs.iter().filter(|attr| is_db_attr(attr)) {
@@ -650,6 +713,8 @@ impl FieldArgs {
 			if !content.is_empty() {
 				return Err(content.error(HINT));
 			}
+		} else if path.is_ident("search") {
+			self.search = Some(search_weight(meta)?);
 		} else if path.is_ident("on_delete") {
 			self.on_delete = Some(action(
 				meta,
@@ -690,8 +755,9 @@ impl FieldArgs {
 				"unknown column option; expected one of `key`, `generate`, `column`, `unique`, \
 				 `index`, `private`, `secret`, `default`, `min_len`, `max_len`, `min`, `max`, \
 				 `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `created_by`, \
-				 `updated_by`, `version`, `slug`, `on_delete`, `on_soft_delete`, `backlink`, \
-				 `no_foreign_key`, `renamed_from`, `flatten`, `prefix`, `in`, or `generated`",
+				 `updated_by`, `version`, `slug`, `search`, `on_delete`, `on_soft_delete`, \
+				 `backlink`, `no_foreign_key`, `renamed_from`, `flatten`, `prefix`, `in`, or \
+				 `generated`",
 			));
 		}
 

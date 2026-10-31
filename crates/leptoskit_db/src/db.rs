@@ -27,6 +27,9 @@ pub struct Db {
 	pool: Arc<Pool>,
 	pub(crate) live: Arc<Hub>,
 	access: Access,
+	/// Whether every statement runs in a transaction that tells Postgres
+	/// who is asking, for its row-level security policies.
+	row_security: bool,
 }
 
 enum Pool {
@@ -57,7 +60,48 @@ impl Db {
 			pool: Arc::new(pool),
 			live: Arc::new(Hub::new()),
 			access: Access::default(),
+			row_security: false,
 		})
+	}
+
+	/// The same pool, telling Postgres who each statement acts for, so the
+	/// row-level security policies that `[db] policies = "rls"` migrations
+	/// create filter every statement, raw SQL included. Call it once, right
+	/// after connecting, when the migrations were made that way.
+	///
+	/// Each transaction then begins by setting every registered
+	/// [`Setting`](crate::Setting) from the request's context, empty when it
+	/// has none, and whether the handle bypasses policies
+	/// ([`Db::system`]). Statements outside a transaction each get one.
+	///
+	/// # Errors
+	///
+	/// On SQLite, which has no row-level security: there the database layer
+	/// alone enforces policies.
+	pub fn with_row_security(&self) -> Result<Self> {
+		if self.dialect() != Dialect::Postgres {
+			return Err(DbError::connection(NoRowSecurity));
+		}
+
+		Ok(Self {
+			row_security: true,
+			..self.clone()
+		})
+	}
+
+	/// Whether statements tell Postgres who they act for.
+	pub fn has_row_security(&self) -> bool {
+		self.row_security
+	}
+
+	/// The settings each transaction makes, under row-level security.
+	#[cfg(feature = "postgres")]
+	fn row_settings(&self) -> Result<Option<Vec<(String, String)>>> {
+		if !self.row_security {
+			return Ok(None);
+		}
+
+		Ok(Some(crate::settings::for_access(&self.access)?))
 	}
 
 	/// The same pool, acting for a request: policies read `cx`. Build one
@@ -68,6 +112,7 @@ impl Db {
 			pool: Arc::clone(&self.pool),
 			live: Arc::clone(&self.live),
 			access: Access::Context(cx),
+			row_security: self.row_security,
 		}
 	}
 
@@ -84,6 +129,7 @@ impl Db {
 				reason,
 				actor: self.access.actor(),
 			},
+			row_security: self.row_security,
 		}
 	}
 
@@ -137,7 +183,15 @@ impl Db {
 	pub async fn begin(&self) -> Result<Tx> {
 		let inner = match &*self.pool {
 			#[cfg(feature = "postgres")]
-			Pool::Postgres(pool) => TxInner::Postgres(pool.begin().await?),
+			Pool::Postgres(pool) => {
+				let tx = pool.begin().await?;
+
+				if let Some(settings) = self.row_settings()? {
+					tx.apply_settings(&settings).await?;
+				}
+
+				TxInner::Postgres(tx)
+			}
 			#[cfg(feature = "sqlite")]
 			Pool::Sqlite(pool) => TxInner::Sqlite(pool.begin().await?),
 		};
@@ -145,6 +199,7 @@ impl Db {
 		Ok(Tx {
 			inner,
 			access: self.access.clone(),
+			row_security: self.row_security,
 			#[cfg(feature = "sqlite")]
 			live: Arc::clone(&self.live),
 			pending: Mutex::new(Vec::new()),
@@ -351,6 +406,13 @@ impl Pool {
 	}
 }
 
+/// Row-level security asked of a database without it.
+#[derive(Debug, thiserror::Error)]
+#[error(
+	"only Postgres has row-level security; on SQLite the database layer alone enforces policies"
+)]
+struct NoRowSecurity;
+
 /// A URL for a database this build can't reach.
 #[derive(Debug, thiserror::Error)]
 #[error(
@@ -362,6 +424,10 @@ struct UnsupportedUrl(String);
 impl Connection for Db {
 	fn access(&self) -> &Access {
 		&self.access
+	}
+
+	fn row_security(&self) -> bool {
+		self.row_security
 	}
 
 	fn dialect(&self) -> Dialect {
@@ -376,7 +442,12 @@ impl Connection for Db {
 	async fn fetch(&self, statement: Statement) -> Result<Vec<Vec<Value>>> {
 		match &*self.pool {
 			#[cfg(feature = "postgres")]
-			Pool::Postgres(pool) => pool.fetch(statement).await,
+			Pool::Postgres(pool) => {
+				match self.row_settings()? {
+					Some(settings) => pool.fetch_secured(&settings, statement).await,
+					None => pool.fetch(statement).await,
+				}
+			}
 			#[cfg(feature = "sqlite")]
 			Pool::Sqlite(pool) => pool.fetch(statement).await,
 		}
@@ -385,7 +456,12 @@ impl Connection for Db {
 	async fn execute(&self, statement: Statement) -> Result<u64> {
 		match &*self.pool {
 			#[cfg(feature = "postgres")]
-			Pool::Postgres(pool) => pool.execute(statement).await,
+			Pool::Postgres(pool) => {
+				match self.row_settings()? {
+					Some(settings) => pool.execute_secured(&settings, statement).await,
+					None => pool.execute(statement).await,
+				}
+			}
 			#[cfg(feature = "sqlite")]
 			Pool::Sqlite(pool) => pool.execute(statement).await,
 		}
@@ -433,6 +509,7 @@ fn notifications(changes: &[RowChange]) -> Result<Vec<Statement>> {
 pub struct Tx {
 	inner: TxInner,
 	access: Access,
+	row_security: bool,
 	/// Where SQLite's commits tell live subscribers; Postgres tells them
 	/// itself.
 	#[cfg(feature = "sqlite")]
@@ -494,6 +571,10 @@ impl Tx {
 impl Connection for Tx {
 	fn access(&self) -> &Access {
 		&self.access
+	}
+
+	fn row_security(&self) -> bool {
+		self.row_security
 	}
 
 	fn dialect(&self) -> Dialect {

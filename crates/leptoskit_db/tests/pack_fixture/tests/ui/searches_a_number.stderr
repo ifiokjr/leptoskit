@@ -1,0 +1,19 @@
+error[E0277]: `i64` isn't text
+ --> tests/ui/searches_a_number.rs:8:14
+  |
+8 |     pub points: i64,
+  |                 ^^^ text matching and `#[db(search)]` need a text column, such as `String`
+  |
+  = help: the trait `TextColumn` is not implemented for `i64`
+  = help: the following other types implement trait `TextColumn`:
+            Email
+            Option<T>
+            Slug
+            String
+            Url
+note: required by a bound in `searched`
+ --> tests/ui/searches_a_number.rs:4:1
+  |
+4 | #[leptoskit_db::table(name = "scores")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `searched`
+  = note: this error originates in the attribute macro `leptoskit_db::table` (in Nightly builds, run with -Z macro-backtrace for more info)

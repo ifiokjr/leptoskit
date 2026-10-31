@@ -1023,6 +1023,9 @@ pub struct DbConfig {
 	/// shares the app's database.
 	#[serde(skip_serializing_if = "is_true")]
 	pub branch_databases: bool,
+	/// Who enforces the tables' access policies.
+	#[serde(skip_serializing_if = "DbPolicies::is_default")]
+	pub policies: DbPolicies,
 }
 
 #[expect(
@@ -1044,6 +1047,7 @@ impl Default for DbConfig {
 			dev_server: DbDevServer::default(),
 			watch: DbWatch::default(),
 			branch_databases: true,
+			policies: DbPolicies::default(),
 		}
 	}
 }
@@ -1098,6 +1102,40 @@ pub enum DbWatch {
 	Report,
 	/// Ignores the tables.
 	Off,
+}
+
+/// Who enforces the tables' access policies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum DbPolicies {
+	/// The database layer adds each policy to every query it writes. Raw
+	/// SQL isn't filtered.
+	#[default]
+	Orm,
+	/// Postgres enforces them too, as row-level security that migrations
+	/// create from the same rules, so raw SQL is filtered as well. Rules read
+	/// the request through settings (`cx.setting::<G>()`), and the server
+	/// connects with `Db::with_row_security`. Postgres only.
+	Rls,
+}
+
+impl DbPolicies {
+	#[expect(
+		clippy::trivially_copy_pass_by_ref,
+		reason = "serde's `skip_serializing_if` passes a reference"
+	)]
+	fn is_default(&self) -> bool {
+		*self == Self::default()
+	}
+
+	/// The value `export_schema!` reads from `LEPTOSKIT_DB_POLICIES`.
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Orm => "orm",
+			Self::Rls => "rls",
+		}
+	}
 }
 
 impl DbWatch {

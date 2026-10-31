@@ -14,7 +14,7 @@ use leptoskit_db::table;
 /// One per person. Everything else about them, from their emails to their
 /// sessions, points here; the app's own user table shares its key.
 #[table(name = "accounts", pack = "auth", public)]
-#[policy(select, |account, cx| cx.global(|me: &crate::SignedIn| account.id.eq(me.account)))]
+#[policy(select, |account, cx| account.id.eq(cx.setting::<crate::SignedIn>()))]
 pub struct Account {
 	pub id: Id<Self>,
 	#[db(created_at)]
@@ -28,7 +28,7 @@ pub struct Account {
 
 /// An email address an account has proved it receives mail at.
 #[table(name = "emails", pack = "auth")]
-#[policy(select, |email, cx| cx.global(|me: &crate::SignedIn| email.account_id.eq(me.account)))]
+#[policy(select, |email, cx| email.account_id.eq(cx.setting::<crate::SignedIn>()))]
 pub struct EmailAddress {
 	pub id: Id<Self>,
 	#[db(on_delete = cascade, backlink = emails)]
@@ -64,7 +64,7 @@ pub enum Aal {
 /// short-lived access token it sends with each request, and a refresh token
 /// that trades for a new pair and works once.
 #[table(name = "sessions", pack = "auth", public)]
-#[policy(select, |session, cx| cx.global(|me: &crate::SignedIn| session.account_id.eq(me.account)))]
+#[policy(select, |session, cx| session.account_id.eq(cx.setting::<crate::SignedIn>()))]
 pub struct Session {
 	pub id: Id<Self>,
 	#[db(on_delete = cascade, backlink = sessions)]
@@ -158,7 +158,7 @@ pub enum EventKind {
 /// The audit trail: what happened to an account, and from where. Never
 /// credentials.
 #[table(name = "events", pack = "auth", index(created_at))]
-#[policy(select, |event, cx| cx.global(|me: &crate::SignedIn| event.account_id.eq(me.account)))]
+#[policy(select, |event, cx| event.account_id.eq(cx.setting::<crate::SignedIn>()))]
 pub struct Event {
 	pub id: Id<Self>,
 	#[db(on_delete = cascade, backlink = events)]

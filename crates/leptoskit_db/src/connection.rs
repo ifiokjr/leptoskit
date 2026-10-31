@@ -20,6 +20,13 @@ pub trait Connection: Send + Sync {
 	#[doc(hidden)]
 	fn access(&self) -> &crate::policy::Access;
 
+	/// Whether Postgres row-level security filters the connection's
+	/// statements too: [`Db::with_row_security`](crate::Db::with_row_security).
+	#[doc(hidden)]
+	fn row_security(&self) -> bool {
+		false
+	}
+
 	/// Runs a statement and returns its rows, each as values in column order.
 	#[doc(hidden)]
 	fn fetch(&self, statement: Statement) -> impl Future<Output = Result<Vec<Vec<Value>>>> + Send;

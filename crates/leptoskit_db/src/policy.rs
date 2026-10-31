@@ -48,6 +48,18 @@ use crate::sql::Sql;
 #[derive(Clone, Default)]
 pub struct Context {
 	globals: Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
+	/// What the rules read, when they're being rendered as row-level
+	/// security rather than evaluated for a request.
+	symbolic: Option<Arc<std::sync::Mutex<Symbolic>>>,
+}
+
+/// What rules read while being rendered for row-level security.
+#[derive(Default)]
+struct Symbolic {
+	/// Globals read as Rust values, which the database can't see.
+	opaque: Vec<&'static str>,
+	/// Settings read, by type.
+	settings: Vec<(TypeId, &'static str, &'static str)>,
 }
 
 impl Context {
@@ -71,10 +83,57 @@ impl Context {
 	}
 
 	/// The global of type `G`, if the request has one.
+	///
+	/// A rule that reads a global this way, or through [`Context::global`],
+	/// runs Rust code with its value, so it can't become a row-level
+	/// security policy; [`Context::setting`] can.
 	pub fn get<G: 'static>(&self) -> Option<&G> {
+		if let Some(symbolic) = &self.symbolic {
+			lock(symbolic).opaque.push(std::any::type_name::<G>());
+			return None;
+		}
+
 		self.globals
 			.get(&TypeId::of::<G>())
 			.and_then(|global| global.downcast_ref())
+	}
+
+	/// The value of setting `G`, for a rule to compare a column with:
+	/// `post.author_id.eq(cx.setting::<Viewer>())`. Without one, the
+	/// comparison matches no row, even negated, as SQL's `NULL` does.
+	///
+	/// Unlike [`Context::global`], the database can read a setting too, so
+	/// rules written with settings also run as Postgres row-level security
+	/// (`[db] policies = "rls"`). Register each setting with
+	/// [`register_setting!`](crate::register_setting).
+	pub fn setting<G: crate::Setting>(&self) -> crate::SettingValue<G::Value> {
+		if let Some(symbolic) = &self.symbolic {
+			lock(symbolic)
+				.settings
+				.push((TypeId::of::<G>(), G::NAME, std::any::type_name::<G>()));
+		}
+
+		crate::SettingValue::of::<G>(self)
+	}
+
+	/// The global behind setting `G`, if the request has one.
+	pub(crate) fn setting_global<G: 'static>(&self) -> Option<&G> {
+		if self.symbolic.is_some() {
+			return None;
+		}
+
+		self.globals
+			.get(&TypeId::of::<G>())
+			.and_then(|global| global.downcast_ref())
+	}
+
+	/// A context that records what rules read instead of holding values,
+	/// for rendering them as row-level security.
+	fn symbolic() -> Self {
+		Self {
+			globals: Arc::default(),
+			symbolic: Some(Arc::default()),
+		}
 	}
 
 	/// A condition on a global: `condition`'s when the request has a `G`,
@@ -268,6 +327,146 @@ impl Count {
 	}
 }
 
+fn lock(symbolic: &std::sync::Mutex<Symbolic>) -> std::sync::MutexGuard<'_, Symbolic> {
+	symbolic
+		.lock()
+		.unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// A table's access policy as Postgres row-level security: its rules for
+/// each action rendered as SQL over the row and the request's settings, or
+/// `None` for a table without policies, which is open to server code.
+///
+/// # Errors
+///
+/// Why the rules can't be rendered: they read globals as Rust values, read
+/// a setting nobody registered, or count rows of their own table, which
+/// Postgres would check with the same policy forever.
+pub(crate) fn row_security<T: Table>()
+-> std::result::Result<Option<leptoskit_db_schema::RowSecurity>, String> {
+	use leptoskit_db_schema::PolicyCommand;
+	use leptoskit_db_schema::RowPolicy;
+
+	let policies = T::policies();
+
+	if policies.is_empty() {
+		return Ok(None);
+	}
+
+	let cx = Context::symbolic();
+	let mut rendered = Vec::new();
+
+	for (action, command) in [
+		(Action::Select, PolicyCommand::Select),
+		(Action::Insert, PolicyCommand::Insert),
+		(Action::Update, PolicyCommand::Update),
+		(Action::Delete, PolicyCommand::Delete),
+	] {
+		let condition = evaluate(policies, &cx, action);
+		// The database layer soft-deletes with an `UPDATE` it checks against
+		// the delete rules, which Postgres checks against the update
+		// policy: that admits what the delete rules allow too, as long as
+		// the row it leaves is soft-deleted.
+		let soft_delete = T::DELETED_AT
+			.filter(|_| action == Action::Update)
+			.map(|column| (evaluate(policies, &cx, Action::Delete), column));
+		let mut counted = Vec::new();
+		subquery_tables(&condition, &mut counted);
+
+		if counted.contains(&T::table_name()) {
+			return Err(format!(
+				"its {} rules count its own rows, which row-level security can't: Postgres would \
+				 check each counted row against the same policy again",
+				action.verb_noun()
+			));
+		}
+
+		let render = |condition: &Expr| -> std::result::Result<String, String> {
+			let mut sql = Sql::policy(&T::table_name());
+			condition
+				.write(&mut sql)
+				.map_err(|error| error.to_string())?;
+			Ok(sql.finish().sql)
+		};
+		let (using, check) = match (command, soft_delete) {
+			(PolicyCommand::Select | PolicyCommand::Delete, _) => (Some(render(&condition)?), None),
+			(PolicyCommand::Insert, _) => (None, Some(render(&condition)?)),
+			(PolicyCommand::Update, None) => {
+				let sql = render(&condition)?;
+				(Some(sql.clone()), Some(sql))
+			}
+			(PolicyCommand::Update, Some((delete, column))) => {
+				let deleted = Expr::Null {
+					column,
+					negated: true,
+				};
+				(
+					Some(render(&(condition.clone() | delete.clone()))?),
+					Some(render(&(condition | (delete & deleted)))?),
+				)
+			}
+		};
+		rendered.push(RowPolicy {
+			command,
+			using,
+			check,
+		});
+	}
+
+	let symbolic = cx.symbolic.as_ref().map(|symbolic| lock(symbolic));
+
+	if let Some(symbolic) = symbolic {
+		if let Some(global) = symbolic.opaque.first() {
+			return Err(format!(
+				"its rules read `{global}` with `cx.global` or `cx.get`, as a Rust value the \
+				 database can't see; implement `Setting` for it and compare with \
+				 `cx.setting::<…>()` instead"
+			));
+		}
+
+		if let Some((_, name, type_name)) = symbolic
+			.settings
+			.iter()
+			.find(|(id, ..)| !crate::settings::registered(*id))
+		{
+			return Err(format!(
+				"its rules read setting `{name}` (`{type_name}`), which isn't registered, so no \
+				 transaction would set it; add `register_setting!({type_name})`"
+			));
+		}
+	}
+
+	Ok(Some(leptoskit_db_schema::RowSecurity {
+		policies: rendered,
+	}))
+}
+
+/// The tables a condition's counts and lookups read, at any depth.
+fn subquery_tables(condition: &Expr, tables: &mut Vec<TableName>) {
+	let subquery = |rows: &Subquery, tables: &mut Vec<TableName>| {
+		tables.push(rows.table.clone());
+
+		for inner in rows.filter.iter().chain(&rows.policy) {
+			subquery_tables(inner, tables);
+		}
+	};
+
+	match condition {
+		Expr::And(left, right) | Expr::Or(left, right) => {
+			subquery_tables(left, tables);
+			subquery_tables(right, tables);
+		}
+		Expr::Not(inner) => subquery_tables(inner, tables),
+		Expr::Count { count, .. } => subquery(&count.rows, tables),
+		Expr::Within { rows, .. } => subquery(rows, tables),
+		_ => {}
+	}
+}
+
+#[expect(
+	clippy::missing_fields_in_debug,
+	reason = "a symbolic context only exists while rules are rendered, never in a request"
+)]
 impl fmt::Debug for Context {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		f.debug_struct("Context")
@@ -292,6 +491,16 @@ pub enum Action {
 impl Action {
 	/// Every action, for `#[db::policy(all, …)]`.
 	pub const ALL: &'static [Self] = &[Self::Select, Self::Insert, Self::Update, Self::Delete];
+
+	/// The action's name in a sentence about rules: `select`.
+	fn verb_noun(self) -> &'static str {
+		match self {
+			Self::Select => "select",
+			Self::Insert => "insert",
+			Self::Update => "update",
+			Self::Delete => "delete",
+		}
+	}
 
 	fn verb(self) -> &'static str {
 		match self {
@@ -537,6 +746,40 @@ pub(crate) async fn refuse<T: Table>(
 	Ok(forbidden::<T>(message, action))
 }
 
+/// The refusal of writing `image`, a row not stored yet, as `action`, or
+/// `None` when `condition` allows it: what [`verify`] and [`refuse`] would
+/// say once it's stored. Under row-level security Postgres refuses such a
+/// write itself, before the database layer can look, so it asks first.
+#[cfg(feature = "postgres")]
+pub(crate) async fn refuse_image<T: Table>(
+	connection: &impl Connection,
+	image: &[Value],
+	action: Action,
+	condition: &Expr,
+) -> Result<Option<DbError>> {
+	let count = async |condition: &Expr| -> Result<u64> {
+		let statement = crate::live::image_count::<T>(connection.dialect(), image, condition)?;
+		crate::sql::count_of(&connection.fetch(statement).await?)
+	};
+
+	if count(condition).await? > 0 {
+		return Ok(None);
+	}
+
+	let explanations = explanations::<T>(connection.access(), action);
+
+	for (rule, message, deny) in &explanations {
+		if *deny && count(rule).await? > 0 {
+			return Ok(Some(forbidden::<T>(*message, action)));
+		}
+	}
+
+	let message = explanations
+		.iter()
+		.find_map(|(_, message, deny)| message.filter(|_| !deny));
+	Ok(Some(forbidden::<T>(message, action)))
+}
+
 /// Why a write to one row changed nothing: it isn't there for this
 /// request, it was versioned and changed since, or a policy refused it.
 pub(crate) async fn missing<T: Table>(
@@ -631,6 +874,39 @@ mod tests {
 		pub deleted_at: Option<crate::Timestamp>,
 	}
 
+	/// A global read as a Rust value.
+	struct Reader(i32);
+
+	/// Rows a reader sees through a closure, which the database can't run.
+	#[table(name = "opaque_rows")]
+	#[policy(select, |row, cx| cx.global(|reader: &Reader| row.left.eq(reader.0)))]
+	pub struct OpaqueRow {
+		#[db(key)]
+		pub left: i32,
+	}
+
+	/// A setting nobody registered.
+	struct Shelfmark(i32);
+
+	impl crate::Setting for Shelfmark {
+		type Value = i32;
+
+		const NAME: &'static str = "shelfmark";
+
+		fn value(&self) -> i32 {
+			self.0
+		}
+	}
+
+	/// Rows read through that setting.
+	#[table(name = "marked_rows")]
+	#[policy(select, |row, cx| row.left.eq(cx.setting::<Shelfmark>()))]
+	#[policy(insert, |row, cx| !row.left.eq(cx.setting::<Shelfmark>()))]
+	pub struct MarkedRow {
+		#[db(key)]
+		pub left: i32,
+	}
+
 	fn select_sql<T: Table>(dialect: crate::Dialect) -> String {
 		let mut sql = Sql::new(dialect);
 		sql.push("SELECT * FROM ").table::<T>().push(" WHERE ");
@@ -657,6 +933,83 @@ mod tests {
 			 \"lk_count_1\" WHERE (\"shelf_id\" = \"library_books\".\"shelf_id\") AND \
 			 \"deleted_at\" IS NULL) < ?1"
 		);
+	}
+
+	#[test]
+	fn rules_render_as_row_level_security_only_when_the_database_can_run_them() {
+		let pairs = row_security::<Pair>().unwrap().unwrap();
+		let sql = |command| {
+			pairs
+				.policies
+				.iter()
+				.find(|policy| policy.command == command)
+				.unwrap()
+				.clone()
+		};
+		use leptoskit_db_schema::PolicyCommand;
+		assert_eq!(sql(PolicyCommand::Select).using.as_deref(), Some("1 = 0"));
+		assert_eq!(
+			sql(PolicyCommand::Insert).check.as_deref(),
+			Some("\"left\" > 0")
+		);
+		assert_eq!(sql(PolicyCommand::Insert).using, None);
+		let update = sql(PolicyCommand::Update);
+		assert_eq!(
+			(update.using.as_deref(), update.check.as_deref()),
+			(Some("1 = 0"), Some("1 = 0"))
+		);
+
+		let error = row_security::<Book>().unwrap_err();
+		assert!(error.contains("count its own rows"), "{error}");
+		let error = row_security::<OpaqueRow>().unwrap_err();
+		assert!(
+			error.contains("Reader") && error.contains("cx.setting"),
+			"{error}"
+		);
+		let error = row_security::<MarkedRow>().unwrap_err();
+		assert!(
+			error.contains("`shelfmark`") && error.contains("register_setting!"),
+			"{error}"
+		);
+		// A count of another table renders, with that table's own policy.
+		let shelves = row_security::<Shelf>().unwrap().unwrap();
+		assert!(
+			shelves.policies[0]
+				.using
+				.as_ref()
+				.unwrap()
+				.contains("FROM \"library\".\"books\" AS \"lk_count_1\"")
+		);
+		assert!(
+			row_security::<crate::AuditEntry>()
+				.unwrap_err()
+				.contains("AuditReader")
+		);
+	}
+
+	#[test]
+	fn settings_bind_their_value_and_compare_with_null_without_one() {
+		let sql = |cx: Context, action| {
+			let mut sql = Sql::new(crate::Dialect::Postgres);
+			condition::<MarkedRow>(&Access::Context(cx), action)
+				.unwrap()
+				.write(&mut sql)
+				.unwrap();
+			sql.finish()
+		};
+		let marked = sql(Context::new().with(Shelfmark(3)), Action::Select);
+		assert_eq!(marked.sql, "\"left\" = $1");
+		assert_eq!(marked.args, [Value::Int(3)]);
+		// Without the setting, a comparison and its negation both match
+		// nothing, as `NULL` does.
+		assert_eq!(sql(Context::new(), Action::Select).sql, "\"left\" = NULL");
+		assert_eq!(
+			sql(Context::new(), Action::Insert).sql,
+			"NOT (\"left\" = NULL)"
+		);
+		// A setting isn't a value of its own.
+		let setting = Context::new().with(Shelfmark(1)).setting::<Shelfmark>();
+		assert!(crate::Operand::<i32>::into_value(setting).is_err());
 	}
 
 	#[test]
