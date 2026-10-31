@@ -734,10 +734,20 @@ fn bundle(
 /// the Wasm interpreter, layout engine, and renderer among them, compile
 /// optimized. Unoptimized, the interpreter makes every tap take a visible
 /// fraction of a second. The app's own crates stay unoptimized so rebuilding
-/// them stays fast, and debug assertions stay on everywhere, which is what
-/// lets a debug build follow `leptoskit dev`.
-pub(crate) const DEBUG_HOST_ARGUMENTS: &[&str] =
-	&["--config", "profile.dev.package.\"*\".opt-level=3"];
+/// them stays fast, and debug assertions stay on, which is what lets a debug
+/// build follow `leptoskit dev`.
+///
+/// The interpreter is the exception: its debug assertions are off. Optimized,
+/// it dispatches each instruction with a tail call, and the assertions keep
+/// LLVM from turning those calls into jumps. Every instruction would then
+/// stay on the native stack until the guest returns, and a guest loop
+/// overflows it.
+pub(crate) const DEBUG_HOST_ARGUMENTS: &[&str] = &[
+	"--config",
+	"profile.dev.package.\"*\".opt-level=3",
+	"--config",
+	"profile.dev.package.wasmi.debug-assertions=false",
+];
 
 /// The profile arguments a release cargo build takes: `--release`, or
 /// `--profile <name>` with the `--config` entries defining the profile.
@@ -1089,12 +1099,14 @@ mod tests {
 	}
 
 	#[test]
-	fn debug_hosts_optimize_dependencies_and_keep_debug_assertions() {
+	fn debug_hosts_optimize_dependencies_and_keep_debug_assertions_outside_the_interpreter() {
 		let temporary = tempfile::tempdir().unwrap();
 		let root = temporary.path();
 		let dependency = root.join("dependency");
+		let interpreter = root.join("wasmi");
 		let app = root.join("app");
 		std::fs::create_dir_all(dependency.join("src")).unwrap();
+		std::fs::create_dir_all(interpreter.join("src")).unwrap();
 		std::fs::create_dir_all(app.join("src")).unwrap();
 		std::fs::write(
 			dependency.join("Cargo.toml"),
@@ -1114,16 +1126,28 @@ mod tests {
 			 DEBUG_ASSERTIONS: bool = cfg!(debug_assertions);\n",
 		)
 		.unwrap();
+		// A stand-in with the interpreter's package name.
+		std::fs::write(
+			interpreter.join("Cargo.toml"),
+			"[package]\nname = \"wasmi\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+		)
+		.unwrap();
+		std::fs::write(
+			interpreter.join("src/lib.rs"),
+			"pub const DEBUG_ASSERTIONS: bool = cfg!(debug_assertions);\n",
+		)
+		.unwrap();
 		std::fs::write(
 			app.join("Cargo.toml"),
 			"[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \
-			 \"2021\"\n[dependencies]\ndependency = { path = \"../dependency\" }\n[workspace]\n",
+			 \"2021\"\n[dependencies]\ndependency = { path = \"../dependency\" }\nwasmi = { path \
+			 = \"../wasmi\" }\n[workspace]\n",
 		)
 		.unwrap();
 		std::fs::write(
 			app.join("src/main.rs"),
-			"fn main() { println!(\"{} {} {}\", dependency::OPT_LEVEL, \
-			 dependency::DEBUG_ASSERTIONS, cfg!(debug_assertions)); }",
+			"fn main() { println!(\"{} {} {} {}\", dependency::OPT_LEVEL, \
+			 dependency::DEBUG_ASSERTIONS, wasmi::DEBUG_ASSERTIONS, cfg!(debug_assertions)); }",
 		)
 		.unwrap();
 		let output = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
@@ -1141,8 +1165,8 @@ mod tests {
 		);
 		assert_eq!(
 			String::from_utf8(output.stdout).unwrap().trim(),
-			"3 true true",
-			"dependencies optimize; debug assertions stay on everywhere"
+			"3 true false true",
+			"dependencies optimize; debug assertions stay on outside the interpreter"
 		);
 	}
 
