@@ -30,6 +30,11 @@ split = true
 wasm_opt = true
 precompress = true
 
+# The example is written with builder calls, the style the agent skill
+# recommends.
+[lint]
+markup = "builder"
+
 # The file router: `leptoskit dev`, `build`, and `native` regenerate
 # `commonplace_app/src/routes.rs` from `commonplace_app/src/routes/`.
 [[plugins]]
