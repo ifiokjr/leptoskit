@@ -13,9 +13,12 @@ rust-version.workspace = true
 description = "Sign-in for leptoskit apps: the auth schema pack, sessions, email codes, and the signed-in user that access policies read."
 
 [dependencies]
+# Passwords, when an app turns them on: Argon2id with OWASP's parameters
+# (RustCrypto's crate, whose defaults are exactly those).
 # TOTP secrets are encrypted at rest with AES-256-GCM-SIV, which stays safe if
 # a nonce ever repeats.
 aes-gcm-siv = { version = "0.11", optional = true }
+argon2 = { version = "0.5", optional = true }
 axum = { workspace = true, optional = true, features = ["form", "json", "query"] }
 base64 = { workspace = true, optional = true }
 chrono = { workspace = true }
@@ -50,7 +53,12 @@ sha1 = { version = "0.10", optional = true }
 sha2 = { workspace = true, optional = true }
 subtle = { workspace = true, optional = true }
 thiserror = { workspace = true }
+# Hashes passwords off the async threads.
+tokio = { workspace = true, optional = true, features = ["rt"] }
 tower = { workspace = true, optional = true }
+# Passwords are compared as NFKC, so the same password typed on two
+# keyboards matches, as NIST SP 800-63B asks.
+unicode-normalization = { version = "0.1", optional = true }
 url = { workspace = true, optional = true }
 # Passkeys: the kanidm project's WebAuthn relying party. Ceremony state is
 # serialized, sealed, and kept in `auth.challenges`; credential internals are
@@ -73,7 +81,9 @@ web-sys = { workspace = true, optional = true, features = ["AbortController", "A
 js-sys = { workspace = true, optional = true }
 
 [dev-dependencies]
+# The password tests make hashes as an older release would have.
 any_spawner = { workspace = true, features = ["tokio"] }
+argon2 = "0.5"
 axum = { workspace = true, features = ["tokio"] }
 base64 = { workspace = true }
 ed25519-dalek = { workspace = true }
@@ -125,6 +135,10 @@ passkey = ["server", "dep:openssl", "dep:url", "dep:webauthn-rs"]
 ## Third-party sign-in: OpenID Connect and OAuth 2 providers, such as Google,
 ## Apple, Microsoft, GitHub, or any OpenID Connect issuer.
 oauth = ["server", "dep:reqwest", "dep:ring", "dep:url"]
+## Passwords, for apps that turn them on: Argon2id hashes, NIST SP 800-63B
+## rules with a local list of common passwords, an optional Have I Been
+## Pwned check, and resets through emailed codes.
+password = ["server", "dep:argon2", "dep:reqwest", "dep:tokio", "dep:unicode-normalization"]
 ## Solana wallets: linking with Sign-In With Solana proofs, fresh proofs,
 ## and optional sign-in, verified as ed25519. Needs `[auth] origin`, whose
 ## host the messages are bound to.

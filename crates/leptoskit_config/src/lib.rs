@@ -1264,6 +1264,52 @@ pub struct AuthConfig {
 	/// one, with `leptoskit::idp`.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub idp: Option<AuthIdpConfig>,
+	/// Passwords: off unless turned on here. Needs `leptoskit_auth`'s
+	/// `password` feature.
+	#[serde(skip_serializing_if = "AuthPasswordsConfig::is_default")]
+	pub passwords: AuthPasswordsConfig,
+}
+
+/// Passwords, as a way to sign in with the account's email address. Off by
+/// default: passkeys and emailed codes do the same with less to steal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct AuthPasswordsConfig {
+	/// Whether people may set a password and sign in with it.
+	#[serde(skip_serializing_if = "std::ops::Not::not")]
+	pub enabled: bool,
+	/// The fewest characters a password may have: at least 8, at most 64.
+	/// The default, 15, is NIST SP 800-63B's for a password that's the only
+	/// factor; 8 is enough only where everyone has two-step verification.
+	pub min_length: u32,
+	/// Whether new passwords are checked against Have I Been Pwned's list
+	/// of breached passwords. Off by default, since it's a request to
+	/// another service; only the first 5 characters of the password's
+	/// SHA-1 hash are sent, never the password.
+	#[serde(skip_serializing_if = "std::ops::Not::not")]
+	pub breach_check: bool,
+}
+
+impl Default for AuthPasswordsConfig {
+	fn default() -> Self {
+		Self {
+			enabled: false,
+			min_length: 15,
+			breach_check: false,
+		}
+	}
+}
+
+impl AuthPasswordsConfig {
+	fn is_default(&self) -> bool {
+		*self == Self::default()
+	}
+
+	fn problem(&self) -> Option<String> {
+		(!(8..=64).contains(&self.min_length))
+			.then(|| "auth.passwords.min_length must be between 8 and 64".to_owned())
+	}
 }
 
 /// Solana wallets. Linking a wallet is always on with the `solana`
@@ -1554,6 +1600,7 @@ impl Default for AuthConfig {
 			providers: BTreeMap::new(),
 			solana: AuthSolanaConfig::default(),
 			idp: None,
+			passwords: AuthPasswordsConfig::default(),
 		}
 	}
 }
@@ -1616,6 +1663,10 @@ impl AuthConfig {
 		}
 
 		if let Some(problem) = self.solana.problem() {
+			return Some(problem);
+		}
+
+		if let Some(problem) = self.passwords.problem() {
 			return Some(problem);
 		}
 

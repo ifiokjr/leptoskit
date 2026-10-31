@@ -180,6 +180,87 @@ impl std::fmt::Debug for SecondFactorCode {
 	}
 }
 
+/// The body of `POST /auth/password/sign-in`. Its `Debug` leaves the
+/// password out.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PasswordSignIn {
+	/// The account's email address.
+	pub email: String,
+	/// The password, as typed.
+	pub password: String,
+	/// How the device keeps its session.
+	#[serde(default)]
+	pub transport: Transport,
+	/// What a native app calls its device.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub device_name: Option<String>,
+}
+
+impl std::fmt::Debug for PasswordSignIn {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("PasswordSignIn")
+			.field("email", &self.email)
+			.field("transport", &self.transport)
+			.field("device_name", &self.device_name)
+			.finish_non_exhaustive()
+	}
+}
+
+/// The body of `POST /auth/password`: the signed-in person's new
+/// password. Its `Debug` leaves it out.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetPassword {
+	/// The new password, as typed.
+	pub password: String,
+}
+
+impl std::fmt::Debug for SetPassword {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("SetPassword").finish_non_exhaustive()
+	}
+}
+
+/// The body of `POST /auth/password/reset`: a code from
+/// `POST /auth/email/send`, and the new password. Its `Debug` leaves both
+/// out.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResetPassword {
+	/// The address the code was sent to.
+	pub email: String,
+	/// The emailed code, as typed.
+	pub code: String,
+	/// The new password, as typed.
+	pub password: String,
+	/// How the device keeps its session.
+	#[serde(default)]
+	pub transport: Transport,
+	/// What a native app calls its device.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub device_name: Option<String>,
+}
+
+impl std::fmt::Debug for ResetPassword {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("ResetPassword")
+			.field("email", &self.email)
+			.field("transport", &self.transport)
+			.field("device_name", &self.device_name)
+			.finish_non_exhaustive()
+	}
+}
+
+/// Whether this server takes passwords, and the rules for new ones, from
+/// `GET /auth/password/config`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PasswordSettings {
+	/// Whether people may set a password and sign in with it.
+	pub enabled: bool,
+	/// The fewest characters a new password may have.
+	pub min_length: u32,
+	/// The most characters a password may have.
+	pub max_length: u32,
+}
+
 /// The body of `POST /auth/step-up` and `POST /auth/totp/confirm`: a code
 /// from the authenticator app, or for step-up a recovery code.
 #[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -209,6 +290,10 @@ pub struct MfaStatus {
 	/// up.
 	#[serde(default)]
 	pub required: bool,
+	/// Whether the account has a password. It's a first factor, like an
+	/// emailed code, never a second one.
+	#[serde(default)]
+	pub password: bool,
 }
 
 impl MfaStatus {
@@ -302,7 +387,8 @@ pub struct ErrorResponse {
 	/// `last_sign_in_method`, `not_found`, `invalid_name`,
 	/// `unknown_provider`, `provider`, `invalid_redirect`, `cancelled`,
 	/// `wallet_failed`, `wallet_in_use`, `unknown_wallet`, `proof_required`,
-	/// `merge_conflict`, `unsupported`, `forbidden`, `mail`, `sign_up`, or
+	/// `merge_conflict`, `invalid_password`, `weak_password`, `unsupported`,
+	/// `forbidden`, `mail`, `sign_up`, or
 	/// `server`; and from
 	/// the client, `network` when the server can't be reached, `config` when
 	/// the app isn't set up to reach it, `storage` when a native app's secure

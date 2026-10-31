@@ -88,6 +88,11 @@ pub(crate) struct Inner {
 	/// How accounts' data moves when they merge, when the app moves some
 	/// of it itself.
 	pub on_merge: Option<crate::merge::MergeHooks>,
+	/// How passwords work, when they're on.
+	pub passwords: Option<crate::PasswordOptions>,
+	/// Where new passwords are checked for breaches, when that's on.
+	#[cfg(feature = "password")]
+	pub breaches: Option<Arc<dyn crate::BreachedPasswords>>,
 }
 
 impl Auth {
@@ -116,6 +121,9 @@ impl Auth {
 			providers: Vec::new(),
 			#[cfg(feature = "oauth")]
 			provider_http: None,
+			passwords: None,
+			#[cfg(feature = "password")]
+			breaches: None,
 		}
 	}
 
@@ -170,6 +178,9 @@ pub struct AuthBuilder {
 	providers: Vec<crate::oauth::Provider>,
 	#[cfg(feature = "oauth")]
 	provider_http: Option<Arc<dyn crate::oauth::ProviderHttp>>,
+	passwords: Option<crate::PasswordOptions>,
+	#[cfg(feature = "password")]
+	breaches: Option<Arc<dyn crate::BreachedPasswords>>,
 }
 
 impl std::fmt::Debug for AuthBuilder {
@@ -311,6 +322,24 @@ impl AuthBuilder {
 		self
 	}
 
+	/// Lets people set a password and sign in with it, under `options`.
+	/// Needs the `password` feature; `build` refuses without it.
+	pub fn passwords(mut self, options: crate::PasswordOptions) -> Self {
+		self.passwords = Some(options);
+		self
+	}
+
+	/// Checks new passwords for breaches with `breaches` instead of Have I
+	/// Been Pwned, when [`PasswordOptions::breach_check`] is on: for tests,
+	/// or a copy of the list kept nearby.
+	///
+	/// [`PasswordOptions::breach_check`]: crate::PasswordOptions::breach_check
+	#[cfg(feature = "password")]
+	pub fn breached_passwords(mut self, breaches: impl crate::BreachedPasswords) -> Self {
+		self.breaches = Some(Arc::new(breaches));
+		self
+	}
+
 	/// Runs `U::on_sign_up` whenever an account is created, so the app's
 	/// user row exists from the first request.
 	pub fn on_sign_up<U: OnSignUp + 'static>(mut self) -> Self {
@@ -346,6 +375,26 @@ impl AuthBuilder {
 			.transpose()?;
 		#[cfg(feature = "oauth")]
 		let providers = crate::oauth::Providers::new(self.providers, self.provider_http);
+
+		if let Some(options) = &self.passwords {
+			if !cfg!(feature = "password") {
+				return Err(AuthError::Config(
+					"passwords need leptoskit_auth's `password` feature".into(),
+				));
+			}
+
+			if options.min_length < 8 {
+				return Err(AuthError::Config(
+					"passwords must be at least 8 characters".into(),
+				));
+			}
+		}
+
+		#[cfg(feature = "password")]
+		let breaches = self
+			.passwords
+			.as_ref()
+			.and_then(|options| crate::passwords::breaches(options, self.breaches));
 		let limiter = self
 			.limiter
 			.unwrap_or_else(|| Arc::new(DbRateLimiter::new(&self.db)));
@@ -374,6 +423,9 @@ impl AuthBuilder {
 				webauthn,
 				#[cfg(feature = "oauth")]
 				providers,
+				passwords: self.passwords,
+				#[cfg(feature = "password")]
+				breaches,
 			}),
 		})
 	}

@@ -203,6 +203,7 @@ pub(crate) fn doctor(
 	findings.extend(mail(&auth.mail, &env, release));
 	findings.extend(native_origins(config, release));
 	findings.extend(providers(config, &env));
+	findings.extend(passwords(auth));
 
 	if !auth.required_for.is_empty() {
 		findings.push(ok(format!(
@@ -337,6 +338,38 @@ fn providers(config: &LeptoskitConfig, env: &impl Fn(&str) -> Option<String>) ->
 			 privacy-focused option (App Review guideline 4.8); consider `leptoskit auth provider \
 			 add apple`",
 		));
+	}
+
+	findings
+}
+
+/// What `doctor` says about passwords, when they're on.
+fn passwords(auth: &leptoskit_config::AuthConfig) -> Vec<Finding> {
+	let passwords = &auth.passwords;
+
+	if !passwords.enabled {
+		return Vec::new();
+	}
+
+	let mut findings = vec![ok(format!(
+		"passwords are on: at least {} characters, Argon2id; the server needs leptoskit_auth's \
+		 `password` feature (`auth-passwords`)",
+		passwords.min_length
+	))];
+
+	if passwords.min_length < 15 && auth.mfa != leptoskit_config::AuthMfa::Required {
+		findings.push(warning(format!(
+			"passwords of {} characters are only enough when everyone has two-step verification \
+			 (mfa = \"required\"); NIST SP 800-63B asks for 15 when a password is the only factor",
+			passwords.min_length
+		)));
+	}
+
+	if passwords.breach_check {
+		findings.push(ok("new passwords are checked against Have I Been Pwned, \
+		                  which the server must reach at \
+		                  api.pwnedpasswords.com; only 5 characters of each \
+		                  password's SHA-1 hash are sent"));
 	}
 
 	findings
@@ -1117,6 +1150,30 @@ mod tests {
 		);
 		assert!(graph_version("v26.0") > graph_version("v9.9"));
 		assert_eq!(graph_version("nonsense"), (0, 0));
+	}
+
+	#[test]
+	fn doctor_checks_how_long_passwords_must_be() {
+		let short = load(
+			"[auth]\n\n[auth.passwords]\nenabled = true\nmin_length = 8\nbreach_check = true\n",
+		);
+		let report = report(&doctor(&short, env(&[]), false));
+		assert!(
+			report.contains("passwords are on: at least 8 characters"),
+			"{report}"
+		);
+		assert!(
+			report.contains("warning  passwords of 8 characters"),
+			"{report}"
+		);
+		assert!(report.contains("Have I Been Pwned"), "{report}");
+		let required = load(
+			"[auth]\nmfa = \"required\"\n\n[auth.passwords]\nenabled = true\nmin_length = 8\n",
+		);
+		let report = super::report(&doctor(&required, env(&[]), false));
+		assert!(!report.contains("warning  passwords"), "{report}");
+		let off = super::report(&doctor(&load("[auth]\n"), env(&[]), false));
+		assert!(!off.contains("passwords are on"), "{off}");
 	}
 
 	#[tokio::test]

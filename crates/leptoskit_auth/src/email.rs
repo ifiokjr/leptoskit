@@ -116,6 +116,23 @@ impl Auth {
 		request: &RequestInfo,
 	) -> Result<SignInStep> {
 		let address = Email::parse(address).map_err(|_| AuthError::InvalidEmail)?;
+		let challenge = self.check_email_code(&address, code, request).await?;
+		let tx = self.inner.db.begin().await?;
+		let result = self
+			.sign_in_with_email(&tx, &challenge, &address, request)
+			.await;
+		finish(tx, result).await
+	}
+
+	/// Checks a code from [`Auth::send_email_code`] for `address`, counting
+	/// the attempt, and returns its challenge, still to be claimed.
+	pub(crate) async fn check_email_code(
+		&self,
+		address: &Email,
+		code: &str,
+		request: &RequestInfo,
+	) -> Result<Challenge> {
+		let address = address.clone();
 
 		if let Some(ip) = request.ip_text() {
 			self.limit(
@@ -173,11 +190,22 @@ impl Auth {
 			return Err(AuthError::InvalidCode);
 		}
 
-		let tx = db.begin().await?;
-		let result = self
-			.sign_in_with_email(&tx, &challenge, &address, request)
-			.await;
-		finish(tx, result).await
+		Ok(challenge)
+	}
+
+	/// Uses up a checked code's challenge, so it works once.
+	pub(crate) async fn claim_code(&self, tx: &Tx, challenge: &Challenge) -> Result<()> {
+		let claimed = Challenge::update()
+			.filter(|row| row.id.eq(challenge.id) & row.used_at.is_null())
+			.set(|row| row.used_at, Some(leptoskit_db::now()))
+			.run(tx)
+			.await?;
+
+		if claimed == 0 {
+			return Err(AuthError::InvalidCode);
+		}
+
+		Ok(())
 	}
 
 	/// Uses up the challenge and signs in to the address's account, or
@@ -189,17 +217,7 @@ impl Auth {
 		address: &Email,
 		request: &RequestInfo,
 	) -> Result<SignInStep> {
-		let now = leptoskit_db::now();
-		let claimed = Challenge::update()
-			.filter(|row| row.id.eq(challenge.id) & row.used_at.is_null())
-			.set(|row| row.used_at, Some(now))
-			.run(tx)
-			.await?;
-
-		if claimed == 0 {
-			return Err(AuthError::InvalidCode);
-		}
-
+		self.claim_code(tx, challenge).await?;
 		self.sign_in_to_address(tx, address, request, true).await
 	}
 
@@ -213,6 +231,19 @@ impl Auth {
 		request: &RequestInfo,
 		second_factor: bool,
 	) -> Result<SignInStep> {
+		let (account, signed_up) = self.proven_account(tx, address, request).await?;
+		self.after_first_factor(tx, account, signed_up, second_factor, request)
+			.await
+	}
+
+	/// The account of an address that was just proven, made if it has
+	/// none: and whether it was just made.
+	pub(crate) async fn proven_account(
+		&self,
+		tx: &Tx,
+		address: &Email,
+		request: &RequestInfo,
+	) -> Result<(Id<Account>, bool)> {
 		let now = leptoskit_db::now();
 		let existing = EmailAddress::query()
 			.filter(|email| email.address.eq(address))
@@ -231,12 +262,28 @@ impl Auth {
 			}
 			None => (self.sign_up(tx, address, request).await?, true),
 		};
+		Ok((account, signed_up))
+	}
+
+	/// After a first factor for `account`: the second step when it has a
+	/// second factor (and `second_factor` asks), or a new `aal1` session.
+	pub(crate) async fn after_first_factor(
+		&self,
+		tx: &Tx,
+		account: Id<Account>,
+		signed_up: bool,
+		second_factor: bool,
+		request: &RequestInfo,
+	) -> Result<SignInStep> {
+		let now = leptoskit_db::now();
 
 		if second_factor && !signed_up {
 			let factors = self.factors(tx, account).await?;
 
 			if !factors.is_empty() {
-				let challenge = self.second_factor_challenge(tx, account, factors).await?;
+				let challenge = self
+					.second_factor_challenge(tx, account, factors, None)
+					.await?;
 				return Ok(SignInStep::SecondFactor(challenge));
 			}
 		}

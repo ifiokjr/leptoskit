@@ -473,7 +473,8 @@ async fn turns_on(server: &Server, laptop: &Device) -> Vec<String> {
 			passkeys: 0,
 			required: false,
 			totp: true,
-			recovery_codes: 10
+			recovery_codes: 10,
+			password: false,
 		}
 	);
 	confirmed.recovery_codes.unwrap().codes

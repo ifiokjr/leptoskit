@@ -175,9 +175,12 @@ auth-webhook = ["auth", "leptoskit_auth/webhook"]
 ## `unsupported`.
 auth-passkeys = ["auth", "leptoskit_auth/passkey"]
 ## Third-party sign-in on the server: `auth::Provider` and
-## `[auth.providers]`, for Google, Apple, Microsoft, GitHub, and any OpenID
+## `[auth.providers]`, for the twenty built-in providers and any OpenID
 ## Connect issuer. Turn it on in the server's crate only.
 auth-providers = ["auth", "leptoskit_auth/oauth"]
+## Passwords on the server, for apps that turn them on with
+## `[auth.passwords] enabled`. Turn it on in the server's crate only.
+auth-passwords = ["auth", "leptoskit_auth/password"]
 ## Solana wallets on the server: linking with signed Sign-In With Solana
 ## messages, verified as ed25519, and optional wallet sign-in. Turn it on for
 ## the server's crate only.

@@ -78,6 +78,13 @@ impl Auth {
 			apple_team_id: config.native.apple_team_id.clone(),
 			android_certificates: config.native.android_certificate_digests(),
 		});
+		if auth.passwords.enabled {
+			builder = builder.passwords(crate::PasswordOptions {
+				min_length: auth.passwords.min_length,
+				breach_check: auth.passwords.breach_check,
+			});
+		}
+
 		builder = providers(builder, auth)?;
 		mailer(builder, auth)
 	}

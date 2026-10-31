@@ -518,7 +518,7 @@ async fn usable(connection: &impl Connection, account: Id<Account>) -> Result<bo
 
 /// Ends every live session of `account`'s, and records it if there were
 /// any.
-async fn end_all(tx: &Tx, account: Id<Account>, request: &RequestInfo) -> Result<u64> {
+pub(crate) async fn end_all(tx: &Tx, account: Id<Account>, request: &RequestInfo) -> Result<u64> {
 	let ended = Session::update()
 		.filter(|row| row.account_id.eq(account) & row.revoked_at.is_null())
 		.set(|row| row.revoked_at, Some(leptoskit_db::now()))

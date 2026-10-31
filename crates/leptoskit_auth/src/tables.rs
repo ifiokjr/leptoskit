@@ -139,6 +139,10 @@ pub enum Purpose {
 	WalletProof,
 	/// Signing in with a wallet. Its token finds it.
 	WalletSignIn,
+	/// Too many wrong passwords for an address, whether or not it has an
+	/// account: password sign-in for it waits until this expires. Its
+	/// subject is the address.
+	PasswordPause,
 }
 
 /// A short-lived secret a sign-in method sent or expects, such as an email
@@ -250,6 +254,19 @@ pub enum EventKind {
 	/// An account was deleted. Its own history goes with it; this entry
 	/// has no account, and `detail` holds the deleted account's ID.
 	AccountDeleted,
+	/// A password was set where there was none.
+	PasswordSet,
+	/// The password was changed, and the account's other sessions ended.
+	PasswordChanged,
+	/// The password was removed.
+	PasswordRemoved,
+	/// The password was reset with an emailed code, and every session
+	/// ended.
+	PasswordReset,
+	/// Too many wrong passwords for the account's address: signing in with
+	/// a password was paused for a while, and its owner emailed. Other ways
+	/// to sign in still work.
+	PasswordPaused,
 }
 
 /// The audit trail: what happened to an account, and from where. Never
@@ -291,6 +308,24 @@ pub struct TotpSecret {
 	pub confirmed_at: Option<Timestamp>,
 	/// The last 30-second step whose code was used, so no code works twice.
 	pub last_used_step: Option<i64>,
+	#[db(created_at)]
+	pub created_at: Timestamp,
+}
+
+/// An account's password, as an Argon2id hash in the PHC string format,
+/// which names its parameters, so a hash made with older ones is replaced
+/// at the next sign-in. Nobody reads it but this crate.
+#[table(name = "passwords", pack = "auth")]
+#[policy(select, |_, _| leptoskit_db::Expr::never())]
+pub struct Password {
+	pub id: Id<Self>,
+	/// One password per account.
+	#[db(unique, on_delete = cascade)]
+	pub account_id: Id<Account>,
+	#[db(secret, max_len = 512)]
+	pub hash: String,
+	/// When it was last set, changed, or reset.
+	pub changed_at: Timestamp,
 	#[db(created_at)]
 	pub created_at: Timestamp,
 }

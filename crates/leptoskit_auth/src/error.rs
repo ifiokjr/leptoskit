@@ -110,6 +110,14 @@ pub enum AuthError {
 	/// the database's error are for the server's logs.
 	#[error("the other account's data couldn't move here: {0}")]
 	MergeConflict(String),
+	/// The email address and password didn't match an account's. Which of
+	/// the two was wrong, or whether the address has an account at all, is
+	/// never said.
+	#[error("that email and password didn't match")]
+	InvalidPassword,
+	/// A new password breaks a rule.
+	#[error("{0}")]
+	WeakPassword(PasswordProblem),
 	/// This server or this device can't do that yet, such as passkeys
 	/// without the `passkey` feature.
 	#[error("{0}")]
@@ -137,3 +145,44 @@ impl AuthError {
 
 /// The result of a sign-in step.
 pub type Result<T, E = AuthError> = std::result::Result<T, E>;
+
+/// Why a new password was refused. There are no rules about which kinds
+/// of characters it holds, as NIST SP 800-63B advises: only its length,
+/// and whether it's too easy to guess.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PasswordProblem {
+	/// It's shorter than the server's minimum, in characters.
+	TooShort {
+		/// The fewest characters allowed.
+		min: u32,
+	},
+	/// It's longer than the most allowed, in characters.
+	TooLong {
+		/// The most characters allowed.
+		max: u32,
+	},
+	/// It's one of the most common passwords.
+	Common,
+	/// It's the email address, its name, or the app's name, give or take
+	/// some digits.
+	Personal,
+	/// It has appeared in a data breach, as Have I Been Pwned knows.
+	Breached,
+}
+
+impl std::fmt::Display for PasswordProblem {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::TooShort { min } => write!(f, "use at least {min} characters"),
+			Self::TooLong { max } => write!(f, "use at most {max} characters"),
+			Self::Common => f.write_str("that password is too common; choose another"),
+			Self::Personal => {
+				f.write_str("that password is too close to your email address or this app's name")
+			}
+			Self::Breached => {
+				f.write_str("that password has appeared in a data breach; choose another")
+			}
+		}
+	}
+}
