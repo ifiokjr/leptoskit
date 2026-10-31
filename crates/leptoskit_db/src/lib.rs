@@ -281,13 +281,13 @@ pub use links::WritableLink;
 pub use live::Change;
 #[cfg(feature = "server")]
 pub use live::ChangeOp;
-#[cfg(feature = "server")]
+#[cfg(all(feature = "server", any(feature = "postgres", feature = "sqlite")))]
 pub use live::Changes;
 #[cfg(feature = "server")]
 pub use live::Commit;
-#[cfg(feature = "server")]
+#[cfg(all(feature = "server", any(feature = "postgres", feature = "sqlite")))]
 pub use live::latest_version;
-#[cfg(feature = "server")]
+#[cfg(all(feature = "server", any(feature = "postgres", feature = "sqlite")))]
 pub use live::prune as prune_live;
 #[cfg(feature = "server")]
 pub use migrate::MIGRATIONS_TABLE;

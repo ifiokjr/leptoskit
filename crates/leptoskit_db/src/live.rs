@@ -11,22 +11,29 @@
 //! queries subscribed to the table, re-runs the ones it may affect, and sends
 //! the results. Nothing sends rows from this feed to a client.
 
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 use std::time::Duration;
 
 use leptoskit_db_schema::Dialect;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 use leptoskit_db_schema::TableName;
 use leptoskit_db_schema::Trigger;
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 use crate::Connection;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 use crate::Db;
 use crate::Enum;
 use crate::Json;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 use crate::Read;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 use crate::Result;
 use crate::Table;
 use crate::Timestamp;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 use crate::Value;
 use crate::table;
 
@@ -136,12 +143,14 @@ pub(crate) fn capture_triggers(
 /// ```ignore
 /// let changes = db.changes().since(version).all().await?;
 /// ```
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub struct Changes<'a> {
 	db: &'a Db,
 	since: i64,
 	limit: Option<u64>,
 }
 
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 impl Changes<'_> {
 	/// The changes committed after `version`.
 	#[must_use]
@@ -201,6 +210,7 @@ impl Changes<'_> {
 }
 
 /// The version of the newest commit, or 0 when nothing has committed.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub async fn latest_version(db: &Db) -> Result<i64> {
 	let sql = format!(
 		"SELECT coalesce(max(version), 0) FROM {}",
@@ -233,6 +243,7 @@ pub async fn latest_version(db: &Db) -> Result<i64> {
 /// A client that reconnects after the window re-runs its queries from
 /// scratch; resume is an optimisation, so deleting old rows is always safe.
 /// Batched, so a large backlog never holds a long transaction.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub async fn prune(db: &Db, retention: Duration) -> Result<u64> {
 	let cutoff = crate::now()
 		- chrono::Duration::from_std(retention).unwrap_or_else(|_| chrono::Duration::zero());
@@ -310,6 +321,7 @@ pub async fn prune(db: &Db, retention: Duration) -> Result<u64> {
 
 /// A table's name in the database's own SQL: namespaced on Postgres, flat on
 /// SQLite.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 fn table_name(dialect: Dialect, table: &TableName) -> String {
 	match (dialect, table.namespace.as_deref()) {
 		(Dialect::Postgres, Some(namespace)) => {
@@ -366,6 +378,7 @@ fn sql_literal(value: Option<&str>) -> String {
 	)
 }
 
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 impl Db {
 	/// Reads the change log. The live hub uses it to find what a commit
