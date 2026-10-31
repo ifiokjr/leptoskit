@@ -1,0 +1,1047 @@
+{
+  "format": 1,
+  "dialect": "sqlite",
+  "tables": [
+    {
+      "name": {
+        "name": "clips"
+      },
+      "comment": "A quote from a source, with the reader's note and tags.\n\n`prefix` and `suffix` are a little of the text on each side of the quote,\na W3C Web Annotation text-quote selector, so the quote can be found on the\npage again even when it appears there more than once.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "owner_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "project_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "source_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "quote",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "prefix",
+          "type": {
+            "kind": "text",
+            "max_len": 64
+          },
+          "nullable": true
+        },
+        {
+          "name": "suffix",
+          "type": {
+            "kind": "text",
+            "max_len": 64
+          },
+          "nullable": true
+        },
+        {
+          "name": "note",
+          "type": {
+            "kind": "text",
+            "max_len": 5000
+          },
+          "nullable": true
+        },
+        {
+          "name": "tags",
+          "type": {
+            "kind": "text",
+            "max_len": 500
+          },
+          "nullable": false,
+          "default": {
+            "text": ""
+          },
+          "comment": "Comma-separated, lowercase tags, such as `method,cities`."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        },
+        {
+          "name": "updated_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "clips_project_id_idx",
+          "columns": [
+            "project_id"
+          ]
+        },
+        {
+          "name": "clips_source_id_idx",
+          "columns": [
+            "source_id"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "clips_owner_id_fkey",
+          "columns": [
+            "owner_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        },
+        {
+          "name": "clips_project_id_fkey",
+          "columns": [
+            "project_id"
+          ],
+          "references": {
+            "name": "projects"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        },
+        {
+          "name": "clips_source_id_fkey",
+          "columns": [
+            "source_id"
+          ],
+          "references": {
+            "name": "sources"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "clips_quote_length",
+          "rule": {
+            "kind": "length",
+            "column": "quote",
+            "min": 1,
+            "max": 5000
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "name": "notes"
+      },
+      "comment": "A note in a project, written in markdown.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "owner_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "project_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "body",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        },
+        {
+          "name": "updated_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "notes_project_id_idx",
+          "columns": [
+            "project_id"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "notes_owner_id_fkey",
+          "columns": [
+            "owner_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        },
+        {
+          "name": "notes_project_id_fkey",
+          "columns": [
+            "project_id"
+          ],
+          "references": {
+            "name": "projects"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "notes_body_length",
+          "rule": {
+            "kind": "length",
+            "column": "body",
+            "min": 1,
+            "max": 20000
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "name": "projects"
+      },
+      "comment": "A research question, and everything collected for it.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "owner_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "The project's name, such as \"Urban heat islands\"."
+        },
+        {
+          "name": "question",
+          "type": {
+            "kind": "text",
+            "max_len": 500
+          },
+          "nullable": true,
+          "comment": "The question the project tries to answer."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        },
+        {
+          "name": "updated_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "projects_owner_id_idx",
+          "columns": [
+            "owner_id"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "projects_owner_id_fkey",
+          "columns": [
+            "owner_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "projects_title_length",
+          "rule": {
+            "kind": "length",
+            "column": "title",
+            "min": 1,
+            "max": 120
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "name": "sources"
+      },
+      "comment": "A page someone read: everything a citation needs.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "owner_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "project_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "url",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "author",
+          "type": {
+            "kind": "text",
+            "max_len": 200
+          },
+          "nullable": true
+        },
+        {
+          "name": "site",
+          "type": {
+            "kind": "text",
+            "max_len": 200
+          },
+          "nullable": true,
+          "comment": "The site's name, such as \"The Guardian\"."
+        },
+        {
+          "name": "published",
+          "type": {
+            "kind": "text",
+            "max_len": 10
+          },
+          "nullable": true,
+          "comment": "When the page was published, as `YYYY`, `YYYY-MM`, or `YYYY-MM-DD`."
+        },
+        {
+          "name": "accessed_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "When it was first clipped, which citations call the access date."
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "sources_project_id_idx",
+          "columns": [
+            "project_id"
+          ]
+        },
+        {
+          "name": "sources_project_id_url_key",
+          "columns": [
+            "project_id",
+            "url"
+          ],
+          "unique": true
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "sources_owner_id_fkey",
+          "columns": [
+            "owner_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        },
+        {
+          "name": "sources_project_id_fkey",
+          "columns": [
+            "project_id"
+          ],
+          "references": {
+            "name": "projects"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "sources_url_length",
+          "rule": {
+            "kind": "length",
+            "column": "url",
+            "min": 1,
+            "max": 2048
+          }
+        },
+        {
+          "name": "sources_title_length",
+          "rule": {
+            "kind": "length",
+            "column": "title",
+            "min": 1,
+            "max": 300
+          }
+        },
+        {
+          "name": "sources_published_pattern",
+          "rule": {
+            "kind": "regex",
+            "column": "published",
+            "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$"
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "accounts"
+      },
+      "comment": "One per person. Everything else about them, from their emails to their\nsessions, points here; the app's own user table shares its key.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        },
+        {
+          "name": "disabled_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When the account was disabled. A disabled account can't sign in, and\nits sessions stop working."
+        },
+        {
+          "name": "locked_until",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "Until when sign-in is refused, after too many failed attempts."
+        }
+      ],
+      "primary_key": [
+        "id"
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "challenges"
+      },
+      "comment": "A short-lived secret a sign-in method sent or expects, such as an email\ncode. Only its keyed hash is stored, it expires, and it works once.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "purpose",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "subject",
+          "type": {
+            "kind": "text",
+            "max_len": 320
+          },
+          "nullable": false,
+          "comment": "Who it was issued to, such as an email address."
+        },
+        {
+          "name": "secret_hash",
+          "type": {
+            "kind": "bytes"
+          },
+          "nullable": false
+        },
+        {
+          "name": "attempts",
+          "type": {
+            "kind": "int32"
+          },
+          "nullable": false,
+          "comment": "Failed attempts so far."
+        },
+        {
+          "name": "expires_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        },
+        {
+          "name": "used_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_challenges_purpose_subject_idx",
+          "columns": [
+            "purpose",
+            "subject"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "name": "auth_challenges_purpose_values",
+          "rule": {
+            "kind": "one_of",
+            "column": "purpose",
+            "values": [
+              "email_code"
+            ]
+          }
+        },
+        {
+          "name": "auth_challenges_attempts_range",
+          "rule": {
+            "kind": "range",
+            "column": "attempts",
+            "min": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "emails"
+      },
+      "comment": "An email address an account has proved it receives mail at.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "account_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "address",
+          "type": {
+            "kind": "text",
+            "max_len": 254
+          },
+          "nullable": false,
+          "comment": "The address, trimmed and lowercased. Each belongs to one account."
+        },
+        {
+          "name": "verified_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When the account last proved it receives mail here."
+        },
+        {
+          "name": "is_primary",
+          "type": {
+            "kind": "bool"
+          },
+          "nullable": false,
+          "comment": "Whether this is the address the account's mail goes to."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_emails_address_key",
+          "columns": [
+            "address"
+          ],
+          "unique": true
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "auth_emails_account_id_fkey",
+          "columns": [
+            "account_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "auth_emails_address_pattern",
+          "rule": {
+            "kind": "regex",
+            "column": "address",
+            "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "events"
+      },
+      "comment": "The audit trail: what happened to an account, and from where. Never\ncredentials.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "account_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": true
+        },
+        {
+          "name": "kind",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "ip",
+          "type": {
+            "kind": "text",
+            "max_len": 64
+          },
+          "nullable": true
+        },
+        {
+          "name": "user_agent",
+          "type": {
+            "kind": "text",
+            "max_len": 512
+          },
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_events_created_at_idx",
+          "columns": [
+            "created_at"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "auth_events_account_id_fkey",
+          "columns": [
+            "account_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "auth_events_kind_values",
+          "rule": {
+            "kind": "one_of",
+            "column": "kind",
+            "values": [
+              "signed_up",
+              "signed_in",
+              "sign_in_failed",
+              "signed_out",
+              "session_revoked",
+              "code_sent"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "rate_limits"
+      },
+      "comment": "A fixed-window counter for one action from one source, such as code\nrequests for one address. The key is a hash, so the table holds no\naddresses.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "key",
+          "type": {
+            "kind": "bytes"
+          },
+          "nullable": false
+        },
+        {
+          "name": "window_start",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        },
+        {
+          "name": "count",
+          "type": {
+            "kind": "int32"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_rate_limits_key_key",
+          "columns": [
+            "key"
+          ],
+          "unique": true
+        }
+      ],
+      "checks": [
+        {
+          "name": "auth_rate_limits_count_range",
+          "rule": {
+            "kind": "range",
+            "column": "count",
+            "min": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "sessions"
+      },
+      "comment": "A signed-in device. The token that proves it lives only on the device:\nthis row keeps its SHA-256 hash, so a copy of the database signs no one\nin.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "account_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "token_hash",
+          "type": {
+            "kind": "bytes"
+          },
+          "nullable": false
+        },
+        {
+          "name": "aal",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "authenticated_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "When its owner last proved who they are, which carries over when the\nsession's token is replaced."
+        },
+        {
+          "name": "mfa_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When its owner last completed a second factor."
+        },
+        {
+          "name": "last_seen_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "When the session was last used, to the minute."
+        },
+        {
+          "name": "idle_expires_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "When it ends unless it's used before then."
+        },
+        {
+          "name": "expires_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "When it ends however often it's used."
+        },
+        {
+          "name": "device",
+          "type": {
+            "kind": "text",
+            "max_len": 200
+          },
+          "nullable": false,
+          "comment": "What signed in, such as \"Firefox on macOS\", for the list of devices."
+        },
+        {
+          "name": "revoked_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When it was signed out or revoked."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_sessions_token_hash_key",
+          "columns": [
+            "token_hash"
+          ],
+          "unique": true
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "auth_sessions_account_id_fkey",
+          "columns": [
+            "account_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "auth_sessions_aal_values",
+          "rule": {
+            "kind": "one_of",
+            "column": "aal",
+            "values": [
+              "aal1",
+              "aal2"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

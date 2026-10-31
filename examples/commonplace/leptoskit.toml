@@ -1,0 +1,82 @@
+#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
+
+schema_version = 0
+
+# Commonplace is a research notebook: a server with the API and sign-in, a
+# website, native apps for iOS, Android, and macOS, and (as the extension
+# platform lands) a browser extension that clips quotes from the web.
+
+[app]
+name = "commonplace"
+version = "0.1.0"
+default_platform = "web"
+platforms = ["web", "ios", "android", "macos"]
+# The website renders in the browser, like every other client, and reaches
+# the server through the same JSON API.
+render = "csr"
+
+[serve]
+address = "127.0.0.1"
+port = 3000
+
+[build]
+client_package = "commonplace_app"
+features = []
+rustflags = []
+
+[bundle]
+optimize = "fast"
+split = true
+wasm_opt = true
+precompress = true
+
+# The example is written with builder calls, the style the agent skill
+# recommends.
+[lint]
+markup = "builder"
+
+# The file router: `leptoskit dev`, `build`, and `native` regenerate
+# `commonplace_app/src/routes.rs` from `commonplace_app/src/routes/`.
+[[plugins]]
+name = "router"
+options = { dir = "commonplace_app/src/routes" }
+
+[native]
+update_contract = "mobile-v1"
+package_id = "com.leptoskit.commonplace"
+viewport_width = 390.0
+viewport_height = 844.0
+plugins = ["http", "secure-store"]
+
+# The native apps reach the server through the HTTP plugin, which only talks
+# to origins listed here: the server `leptoskit dev` starts on this machine.
+# A build for a hosted server adds its origin, and sets COMMONPLACE_SERVER.
+[native.plugin-options.http]
+origins = ["http://127.0.0.1:3000"]
+
+[codepush]
+enabled = false
+allow_http = false
+server = ""
+channel = "production"
+mandatory = false
+staging_dir = "codepush"
+public_keys = []
+
+[rpc]
+servers = []
+exclude = []
+include_internal = false
+targets = []
+
+[db]
+dialect = "sqlite"
+features = ["server"]
+migrations = "migrations"
+url_env = "DATABASE_URL"
+
+# Sign-in with emailed codes. `AUTH_ENCRYPTION_KEYS` holds the keys; a debug
+# build without it uses a development key and keeps email at
+# /_leptoskit/mail.
+[auth]
+app_name = "Commonplace"

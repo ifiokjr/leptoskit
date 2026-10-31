@@ -1,0 +1,17 @@
+[package]
+name = "commonplace_backend"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+commonplace_db = { path = "../commonplace_db", features = ["server"] }
+commonplace_shared = { path = "../commonplace_shared" }
+leptoskit = { version = "=0.1.0", default-features = false, path = "../../../crates/leptoskit", features = ["server", "db-sqlite", "auth"] }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tower = { version = "0.5", features = ["util"] }
