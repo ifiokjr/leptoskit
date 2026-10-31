@@ -80,7 +80,13 @@ ed25519-dalek = { workspace = true }
 hmac = { workspace = true }
 http-body-util = "0.1"
 leptoskit_config = { workspace = true }
+# The desktop loopback, end to end against the fake identity provider.
+leptoskit_plugin_web_auth = { workspace = true }
 leptoskit_rpc = { workspace = true, features = ["sqlite"] }
+proptest = { workspace = true }
+# The tests' passkey and fake identity provider sign with keys made at test
+# time.
+ring = "0.17"
 schemars = { workspace = true }
 serde_json = { workspace = true }
 sha1 = "0.10"
@@ -137,6 +143,8 @@ client = ["dep:futures", "dep:leptos", "dep:leptoskit_query", "dep:qrcode", "dep
 ## `HttpOnly` cookie.
 web = [
 	"client",
+	"leptoskit_query/browser",
+	"dep:js-sys",
 	"leptoskit_rpc?/web",
 	"dep:send_wrapper",
 	"dep:wasm-bindgen",
@@ -150,6 +158,7 @@ web = [
 ## web-auth plugin.
 guest = [
 	"client",
+	"leptoskit_query/guest",
 	"leptoskit_rpc?/guest",
 	"dep:leptoskit_bridge",
 	"dep:leptoskit_plugin_http",

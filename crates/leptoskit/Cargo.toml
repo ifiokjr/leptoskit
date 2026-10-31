@@ -87,6 +87,8 @@ server = [
 	"dep:leptos_axum",
 	"ssr",
 	"leptoskit_auth?/ssr",
+	"leptoskit_idp?/axum",
+	"leptoskit_idp?/ssr",
 	"leptoskit_rpc?/server",
 ]
 ## Operations: `leptoskit::rpc`, with `#[rpc::query]`, `#[rpc::mutation]`, and
@@ -101,11 +103,15 @@ rpc-ssr = ["rpc", "leptoskit_rpc/ssr"]
 # `rpc-ssr` plus `leptoskit::rpc::spec::openapi_router`.
 rpc-axum = ["rpc-ssr", "leptoskit_rpc/axum"]
 table = ["dep:leptoskit_table"]
+# A native Wasm guest: the host reports the time to the query cache, and
+# nothing browser-only is linked.
 guest = [
 	"leptoskit_native/guest",
 	"dep:leptoskit_bridge",
 	"leptoskit_bridge/guest",
 	"leptoskit_auth?/guest",
+	"leptoskit_query?/guest",
+	"leptoskit_idp?/guest",
 	"leptoskit_rpc?/guest",
 ]
 tui = ["dep:leptoskit_tui"]
@@ -117,12 +123,13 @@ l10n = ["dep:leptoskit_l10n"]
 db = ["dep:leptoskit_db", "leptoskit_query?/db"]
 ## The server side of `leptoskit::db`: rows, queries, and schema export,
 ## without a driver.
-db-server = ["db", "leptoskit_db/server", "leptoskit_auth?/server", "leptoskit_rpc?/db"]
+db-server = ["db", "leptoskit_db/server", "leptoskit_auth?/server", "leptoskit_idp?/server", "leptoskit_rpc?/db"]
 ## `leptoskit::db` connecting to Postgres.
 db-postgres = [
 	"db-server",
 	"leptoskit_db/postgres",
 	"leptoskit_auth?/postgres",
+	"leptoskit_idp?/postgres",
 	"leptoskit_rpc?/postgres",
 ]
 ## `leptoskit::db` connecting to SQLite.
@@ -130,8 +137,17 @@ db-sqlite = [
 	"db-server",
 	"leptoskit_db/sqlite",
 	"leptoskit_auth?/sqlite",
+	"leptoskit_idp?/sqlite",
 	"leptoskit_rpc?/sqlite",
 ]
+## The database studio that `leptoskit db studio` serves, in builds with debug
+## assertions only. The command turns it on; never enable it for a deployed
+## server.
+db-studio = ["db-server", "leptoskit_db/studio"]
+## Geospatial columns, `leptoskit::db::geo`: GeoJSON on the client; PostGIS
+## with `db-postgres`, and a built-in layer of the same operations with
+## `db-sqlite`.
+db-geo = ["db", "leptoskit_db/geo"]
 ## Sign-in: `leptoskit::auth`, with the `auth` schema pack and the headless
 ## client. Its server side follows `db-server`, `db-postgres`, and
 ## `db-sqlite`, and `server` adds the `/auth` routes, the session layer, the
@@ -182,6 +198,9 @@ web = [
 	"leptoskit_l10n?/web",
 	"leptoskit_rive?/web",
 	"leptoskit_auth?/web",
+	"leptoskit_query?/browser",
+	"leptoskit_rpc?/browser",
+	"leptoskit_idp?/web",
 	"leptoskit_rpc?/web",
 ]
 # A browser extension built from the web client: `leptoskit::extension`, with

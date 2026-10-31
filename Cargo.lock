@@ -4586,6 +4586,7 @@ dependencies = [
  "leptoskit_rpc",
  "lettre",
  "openssl",
+ "proptest",
  "qrcode",
  "reqwest 0.12.28",
  "ring",
@@ -4880,6 +4881,13 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "leptoskit_db_studio_fixture"
+version = "0.0.0"
+dependencies = [
+ "leptoskit_db",
 ]
 
 [[package]]

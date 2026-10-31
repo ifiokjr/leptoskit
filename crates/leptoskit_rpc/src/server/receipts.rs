@@ -31,7 +31,7 @@ pub const MAX_REQUEST_ID_LEN: usize = 255;
 	unique(owner, request_id),
 	index(created_at)
 )]
-#[policy(select, insert, |receipt, cx| cx.global(|owner: &ReceiptOwner| receipt.owner.eq(owner.0.clone())))]
+#[policy(select, insert, |receipt, cx| receipt.owner.eq(cx.setting::<ReceiptOwner>()))]
 pub struct Receipt {
 	pub id: Id<Self>,
 	/// Who called: their [`Identity::caller`](super::Identity::caller), such
@@ -58,6 +58,20 @@ pub struct Receipt {
 /// Whose receipts a mutation may read and write: the caller's.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReceiptOwner(pub String);
+
+/// Postgres sees it too, so the receipts' policy also runs as row-level
+/// security, as `leptoskit.receipt_owner`.
+impl leptoskit_db::Setting for ReceiptOwner {
+	type Value = String;
+
+	const NAME: &'static str = "receipt_owner";
+
+	fn value(&self) -> String {
+		self.0.clone()
+	}
+}
+
+leptoskit_db::register_setting!(ReceiptOwner);
 
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) use running::ReceiptKey;
