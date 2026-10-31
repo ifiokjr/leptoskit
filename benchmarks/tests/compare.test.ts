@@ -93,8 +93,20 @@ Deno.test("each change cell is marked with its direction", () => {
 		markdown,
 		"| swap rows | 10.0 ms | 10.0 ms | 0.000 ms | ➡️ +0.0% | ➡️ ok |",
 	);
+	// The base never measured it, so the head is the first run to report it:
+	// new coverage, not a missing number.
 	assertStringIncludes(
 		markdown,
-		"| append 1,000 rows | — | 8.0 ms | — | — | ⚪ missing |",
+		"| append 1,000 rows | — | 8.0 ms | — | — | 🆕 new |",
+	);
+	// A metric only the base measured is coverage the head lost.
+	assertStringIncludes(
+		section(
+			"Runtime (browser)",
+			"base",
+			"head",
+			[classify("table.select-row", "select a row", "ms", "duration", 4, undefined, policy)],
+		),
+		"| select a row | 4.0 ms | — | — | — | ⚪ missing |",
 	);
 });
