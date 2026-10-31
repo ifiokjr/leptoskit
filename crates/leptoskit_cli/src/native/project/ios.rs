@@ -642,3 +642,47 @@ pub(in crate::native) fn apple_plugins(
 		})
 		.collect())
 }
+
+#[cfg(test)]
+mod tests {
+	use std::path::Path;
+
+	use leptoskit_config::LeptoskitConfig;
+
+	use super::safari_target;
+
+	fn config() -> LeptoskitConfig {
+		LeptoskitConfig::from_toml(
+			"[app]\nplatforms = [\"web\", \"ios\", \"extension\"]\nversion = \
+			 \"1.2.3\"\n[native]\npackage_id = \"com.example.notes\"\n[extension]\nname = \
+			 \"Notes\"\nbrowsers = [\"safari\"]\n[extension.popup]\nroute = \"/\"\n",
+			Path::new("notes"),
+		)
+		.unwrap()
+	}
+
+	#[test]
+	fn the_safari_target_embeds_the_extension_s_package() {
+		let base = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+		let temporary = tempfile::Builder::new()
+			.prefix("leptoskit-ios-")
+			.tempdir_in(base)
+			.unwrap();
+		let root = temporary.path();
+		let dir = root.join(".leptoskit/ios");
+		let package = root.join(".leptoskit/extension/safari");
+		std::fs::create_dir_all(package.join("assets")).unwrap();
+		std::fs::write(package.join("manifest.json"), "{}").unwrap();
+		std::fs::write(package.join("assets/icon.png"), "png").unwrap();
+
+		let mut objects = String::new();
+		let extras = safari_target(&mut objects, root, &config(), &dir).unwrap();
+
+		assert!(objects.contains("SafariExtension"));
+		assert!(objects.contains("manifest.json"));
+		assert!(objects.contains("assets"));
+		assert!(objects.contains("lastKnownFileType = folder"));
+		assert_ne!(extras.targets, "");
+		assert!(dir.join("SafariExtension/Info.plist").is_file());
+	}
+}
