@@ -186,11 +186,16 @@ impl Auth {
 			.filter(|passkey| passkey.account_id.eq(account))
 			.count(db)
 			.await?;
+		let password = crate::Password::query()
+			.filter(|password| password.account_id.eq(account))
+			.count(db)
+			.await?;
 		Ok(MfaStatus {
 			totp,
 			recovery_codes: u32::try_from(left).unwrap_or(u32::MAX),
 			passkeys: u32::try_from(passkeys).unwrap_or(u32::MAX),
 			required: self.mfa_required(db, account).await?,
+			password: password > 0,
 		})
 	}
 
@@ -251,12 +256,15 @@ impl Auth {
 	}
 
 	/// Starts the second step of signing in to `account`, retiring any
-	/// earlier one.
+	/// earlier one. `then` is what to do once it succeeds besides signing
+	/// in, such as the new password of a reset that waits for it; it's
+	/// sealed with the step.
 	pub(crate) async fn second_factor_challenge(
 		&self,
 		tx: &Tx,
 		account: Id<Account>,
 		factors: Vec<Factor>,
+		then: Option<&crate::passwords::Then>,
 	) -> Result<SecondFactorChallenge> {
 		let now = leptoskit_db::now();
 		let token = SessionToken::generate()?;
@@ -270,11 +278,20 @@ impl Auth {
 			.set(|row| row.used_at, Some(now))
 			.run(tx)
 			.await?;
+		let subject = account.to_string();
+		let hash = token.hash();
+		let state = then
+			.map(|then| {
+				let context =
+					crate::passkeys::ceremony_context(Purpose::SecondFactor, &subject, &hash);
+				self.inner.keys.seal(&context, &then.seal()?)
+			})
+			.transpose()?;
 		NewChallenge {
 			purpose: Purpose::SecondFactor,
-			subject: account.to_string(),
-			secret_hash: token.hash(),
-			state: None,
+			subject,
+			secret_hash: hash,
+			state,
 			attempts: 0,
 			expires_at,
 			used_at: None,
@@ -400,6 +417,10 @@ impl Auth {
 			.await;
 		let result = finish(tx, result).await;
 
+		if result.is_ok() && challenge.state.is_some() {
+			self.notify_password_reset(account).await;
+		}
+
 		if let Ok((_, Used::RecoveryCode)) = &result {
 			self.notify(
 				account,
@@ -451,6 +472,17 @@ impl Auth {
 			.use_factor(tx, account, proof, ceremony)
 			.await?
 			.ok_or(proof.refused())?;
+
+		if let Some(sealed) = &challenge.state {
+			let context = crate::passkeys::ceremony_context(
+				Purpose::SecondFactor,
+				&challenge.subject,
+				&challenge.secret_hash,
+			);
+			let then = crate::passwords::Then::open(&self.inner.keys.open(&context, sealed)?)?;
+			self.then(tx, account, then, request).await?;
+		}
+
 		let now = leptoskit_db::now();
 		let sign_in = self
 			.start_session(

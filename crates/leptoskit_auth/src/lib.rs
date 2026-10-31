@@ -12,6 +12,8 @@
 //!   for after the email code once an account turns it on, and step-up, which
 //!   sensitive actions ask for again. Passkeys count as both factors at once,
 //!   and can be required for everyone or for certain roles.
+//! - **Passwords** (the `password` feature), off unless the app turns them on:
+//!   Argon2id, NIST SP 800-63B rules, and resets through emailed codes.
 //! - **Passkeys** (the `passkey` feature): WebAuthn on the web, through
 //!   `webauthn-rs`, with ceremony state sealed on the server.
 //! - **Third-party sign-in** (the `oauth` feature): Google, Apple, Microsoft,
@@ -87,6 +89,8 @@ mod oauth;
 )]
 mod passkeys;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod passwords;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 #[cfg_attr(
 	not(all(feature = "axum", feature = "oauth")),
 	allow(dead_code, reason = "the provider routes finish the flows")
@@ -134,6 +138,8 @@ pub use auth::SessionLifetimes;
 pub use auth::context;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use error::AuthError;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use error::PasswordProblem;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use error::Result;
 #[cfg(all(feature = "leptos", any(feature = "postgres", feature = "sqlite")))]
@@ -202,6 +208,12 @@ pub use oauth::VERIFIED as PROVIDERS_VERIFIED;
 pub use passkeys::PasskeyAdded;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use passkeys::PasskeyChallenge;
+#[cfg(all(feature = "password", any(feature = "postgres", feature = "sqlite")))]
+pub use passwords::BreachFuture;
+#[cfg(all(feature = "password", any(feature = "postgres", feature = "sqlite")))]
+pub use passwords::BreachedPasswords;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use passwords::PasswordOptions;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use provider_tokens::ProviderAccess;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]

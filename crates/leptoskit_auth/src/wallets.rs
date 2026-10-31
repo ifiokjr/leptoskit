@@ -602,7 +602,7 @@ impl Auth {
 
 			if !factors.is_empty() {
 				let challenge = self
-					.second_factor_challenge(&tx, account.id, factors)
+					.second_factor_challenge(&tx, account.id, factors, None)
 					.await?;
 				return Ok(SignInStep::SecondFactor(challenge));
 			}

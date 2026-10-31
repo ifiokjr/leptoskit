@@ -221,6 +221,11 @@ impl Auth {
 			.route("/auth/totp/confirm", post(confirm_totp))
 			.route("/auth/totp/disable", post(disable_totp))
 			.route("/auth/recovery-codes", post(recovery_codes))
+			.route("/auth/password/config", get(password_settings))
+			.route("/auth/password/sign-in", post(password_sign_in))
+			.route("/auth/password/reset", post(reset_password))
+			.route("/auth/password", post(set_password))
+			.route("/auth/password/remove", post(remove_password))
 			.route(
 				"/auth/passkey/sign-in/options",
 				post(passkey_sign_in_options),
@@ -483,6 +488,16 @@ impl Auth {
 		HeaderValue::from_str(&cookie).expect("tokens are base64url, which headers allow")
 	}
 
+	/// The answer to a first factor: the session, or the second step.
+	fn step_response(&self, step: SignInStep, transport: Transport) -> Response {
+		match step {
+			SignInStep::SignedIn(sign_in) => self.signed_in_response(*sign_in),
+			SignInStep::SecondFactor(challenge) => {
+				self.second_factor_response(challenge, transport)
+			}
+		}
+	}
+
 	/// The answer to a first factor when a second is needed: what the step
 	/// accepts, and its token, in the body for a native app and in an
 	/// `HttpOnly` cookie for a browser.
@@ -734,6 +749,8 @@ impl AuthError {
 			Self::UnknownWallet => (StatusCode::NOT_FOUND, "unknown_wallet"),
 			Self::ProofRequired => (StatusCode::FORBIDDEN, "proof_required"),
 			Self::MergeConflict(_) => (StatusCode::CONFLICT, "merge_conflict"),
+			Self::InvalidPassword => (StatusCode::BAD_REQUEST, "invalid_password"),
+			Self::WeakPassword(_) => (StatusCode::BAD_REQUEST, "weak_password"),
 			Self::Unsupported(_) => (StatusCode::NOT_IMPLEMENTED, "unsupported"),
 			Self::Mail(_) => (StatusCode::BAD_GATEWAY, "mail"),
 			Self::SignUp(_) => (StatusCode::UNPROCESSABLE_ENTITY, "sign_up"),
@@ -918,12 +935,7 @@ async fn verify_code(
 	let step = auth
 		.verify_email_code(&body.email, &body.code, &request)
 		.await?;
-	Ok(match step {
-		SignInStep::SignedIn(sign_in) => auth.signed_in_response(*sign_in),
-		SignInStep::SecondFactor(challenge) => {
-			auth.second_factor_response(challenge, request.transport)
-		}
-	})
+	Ok(auth.step_response(step, request.transport))
 }
 
 async fn second_factor(
@@ -962,6 +974,77 @@ async fn second_factor(
 	}
 
 	Ok(response)
+}
+
+async fn password_settings(State(auth): State<Auth>) -> Json<crate::PasswordSettings> {
+	Json(auth.password_settings())
+}
+
+async fn password_sign_in(
+	State(auth): State<Auth>,
+	cross_site: Option<Extension<CrossSite>>,
+	request: RequestInfo,
+	Json(body): Json<crate::PasswordSignIn>,
+) -> Result<Response, AuthError> {
+	if cross_site.is_some() && body.transport == Transport::Cookie {
+		return Ok(error_response(
+			StatusCode::FORBIDDEN,
+			"forbidden",
+			"this request came from another site",
+		));
+	}
+	let request = RequestInfo {
+		transport: body.transport,
+		device_name: body.device_name,
+		..request
+	};
+	let step = auth
+		.sign_in_with_password(&body.email, &body.password, &request)
+		.await?;
+	Ok(auth.step_response(step, request.transport))
+}
+
+async fn reset_password(
+	State(auth): State<Auth>,
+	cross_site: Option<Extension<CrossSite>>,
+	request: RequestInfo,
+	Json(body): Json<crate::ResetPassword>,
+) -> Result<Response, AuthError> {
+	if cross_site.is_some() && body.transport == Transport::Cookie {
+		return Ok(error_response(
+			StatusCode::FORBIDDEN,
+			"forbidden",
+			"this request came from another site",
+		));
+	}
+	let request = RequestInfo {
+		transport: body.transport,
+		device_name: body.device_name,
+		..request
+	};
+	let step = auth
+		.reset_password(&body.email, &body.code, &body.password, &request)
+		.await?;
+	Ok(auth.step_response(step, request.transport))
+}
+
+async fn set_password(
+	State(auth): State<Auth>,
+	me: SignedIn,
+	request: RequestInfo,
+	Json(body): Json<crate::SetPassword>,
+) -> Result<StatusCode, AuthError> {
+	auth.set_password(&me, &body.password, &request).await?;
+	Ok(StatusCode::NO_CONTENT)
+}
+
+async fn remove_password(
+	State(auth): State<Auth>,
+	me: SignedIn,
+	request: RequestInfo,
+) -> Result<StatusCode, AuthError> {
+	auth.remove_password(&me, &request).await?;
+	Ok(StatusCode::NO_CONTENT)
 }
 
 async fn mfa(

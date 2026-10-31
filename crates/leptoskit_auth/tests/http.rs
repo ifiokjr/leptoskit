@@ -894,7 +894,8 @@ async fn a_browser_turns_on_an_authenticator_and_needs_it_to_sign_in() {
 			passkeys: 0,
 			required: false,
 			totp: true,
-			recovery_codes: 9
+			recovery_codes: 9,
+			password: false,
 		}
 	);
 	let fresh = app

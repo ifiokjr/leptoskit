@@ -308,6 +308,10 @@
 						"null"
 					]
 				},
+				"passwords": {
+					"description": "Passwords: off unless turned on here. Needs `leptoskit_auth`'s\n`password` feature.",
+					"$ref": "#/$defs/AuthPasswordsConfig"
+				},
 				"providers": {
 					"description": "Third-party sign-in providers, by ID: one of\n[`AUTH_PROVIDER_KINDS`], such as `google` or `github`, or your own\nname for any OpenID Connect issuer.",
 					"type": "object",
@@ -483,6 +487,28 @@
 					"const": "required"
 				}
 			]
+		},
+		"AuthPasswordsConfig": {
+			"description": "Passwords, as a way to sign in with the account's email address. Off by\ndefault: passkeys and emailed codes do the same with less to steal.",
+			"type": "object",
+			"properties": {
+				"breach_check": {
+					"description": "Whether new passwords are checked against Have I Been Pwned's list\nof breached passwords. Off by default, since it's a request to\nanother service; only the first 5 characters of the password's\nSHA-1 hash are sent, never the password.",
+					"type": "boolean"
+				},
+				"enabled": {
+					"description": "Whether people may set a password and sign in with it.",
+					"type": "boolean"
+				},
+				"min_length": {
+					"description": "The fewest characters a password may have: at least 8, at most 64.\nThe default, 15, is NIST SP 800-63B's for a password that's the only\nfactor; 8 is enough only where everyone has two-step verification.",
+					"type": "integer",
+					"format": "uint32",
+					"default": 15,
+					"minimum": 0
+				}
+			},
+			"additionalProperties": false
 		},
 		"AuthProviderConfig": {
 			"description": "A third-party sign-in provider. Its secrets are named by the\nenvironment variables that hold them.",

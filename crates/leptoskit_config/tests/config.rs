@@ -1053,6 +1053,9 @@ fn auth_settings_are_checked() {
 		),
 		("[auth.solana]\nchain_id = \"main net\"", "chain_id"),
 		("[auth.solana]\nchain_id = \"\"", "chain_id"),
+		("[auth.passwords]\nmin_length = 7", "min_length"),
+		("[auth.passwords]\nmin_length = 65", "min_length"),
+		("[auth.passwords]\nhibp = true", "could not parse"),
 		("[auth.solana]\nrpc_url = \"https://x\"", "could not parse"),
 		("[auth.idp]\nconsent_page = \"consent\"", "consent_page"),
 		(
@@ -1138,4 +1141,21 @@ fn built_in_providers_take_their_kind_from_their_id() {
 	)
 	.expect("store_tokens");
 	assert!(config.auth.expect("auth").providers["github"].store_tokens);
+}
+
+#[test]
+fn passwords_are_off_unless_turned_on() {
+	let config = load("auth_no_passwords", "[auth]\n").expect("load");
+	let passwords = config.auth.expect("auth").passwords;
+	assert!(!passwords.enabled);
+	assert!(!passwords.breach_check);
+	assert_eq!(passwords.min_length, 15);
+	let config = load(
+		"auth_passwords",
+		"[auth.passwords]\nenabled = true\nmin_length = 8\nbreach_check = true\n",
+	)
+	.expect("load");
+	let passwords = config.auth.expect("auth").passwords;
+	assert!(passwords.enabled && passwords.breach_check);
+	assert_eq!(passwords.min_length, 8);
 }

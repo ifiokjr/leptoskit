@@ -358,6 +358,7 @@ pub(crate) fn ceremony_context<'a>(
 		Purpose::WalletLink => b"wallet-link",
 		Purpose::WalletProof => b"wallet-proof",
 		Purpose::WalletSignIn => b"wallet-sign-in",
+		Purpose::PasswordPause => b"password-pause",
 		Purpose::EmailCode | Purpose::SecondFactor => b"code",
 	};
 	[b"ceremony", purpose, subject.as_bytes(), hash]
