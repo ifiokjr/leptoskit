@@ -56,4 +56,12 @@ Policies read the signed-in person through `cx.signed_in`, which matches nothing
 
 The pack's own tables show each person only their own rows, and only this crate writes them.
 
+With the `solana` feature, people link Solana wallets with a signed Sign-In With Solana message, re-prove them before sensitive actions, and may sign in with them. Policies name a wallet's owner with `cx.wallets()`:
+
+```rust,ignore
+#[db::policy(update, |vault, cx| vault.treasury.in_list(cx.wallets()))]
+```
+
+Two accounts can be merged, moving only the sign-in methods or bringing the other account's data along, as each table's `on_account_merge` says.
+
 The tables, `SignedIn`, and the `Public*` row types build everywhere, including the browser. `Auth` needs the `server` feature and a database: `postgres` or `sqlite`.

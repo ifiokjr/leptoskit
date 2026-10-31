@@ -76,6 +76,11 @@ pub(crate) struct Inner {
 	/// The third-party sign-in providers.
 	#[cfg(feature = "oauth")]
 	pub providers: crate::oauth::Providers,
+	/// How wallets work here.
+	pub solana: crate::SolanaOptions,
+	/// How accounts' data moves when they merge, when the app moves some
+	/// of it itself.
+	pub on_merge: Option<crate::merge::MergeHooks>,
 }
 
 impl Auth {
@@ -97,6 +102,8 @@ impl Auth {
 			dev_sign_in: false,
 			mfa: MfaPolicy::default(),
 			roles: None,
+			solana: crate::SolanaOptions::default(),
+			on_merge: None,
 			#[cfg(feature = "oauth")]
 			providers: Vec::new(),
 			#[cfg(feature = "oauth")]
@@ -137,6 +144,8 @@ pub struct AuthBuilder {
 	dev_sign_in: bool,
 	mfa: MfaPolicy,
 	roles: Option<RolesHook>,
+	solana: crate::SolanaOptions,
+	on_merge: Option<crate::merge::MergeHooks>,
 	#[cfg(feature = "oauth")]
 	providers: Vec<crate::oauth::Provider>,
 	#[cfg(feature = "oauth")]
@@ -241,6 +250,22 @@ impl AuthBuilder {
 		self
 	}
 
+	/// How Solana wallets work: whether one may sign in once its owner
+	/// turns that on, and the cluster messages name. Linking needs the
+	/// `solana` feature and an [`origin`](Self::origin).
+	pub fn solana(mut self, options: crate::SolanaOptions) -> Self {
+		self.solana = options;
+		self
+	}
+
+	/// Lets a merge bring the other account's data along with `U`'s
+	/// [`OnMerge`](crate::OnMerge): its summary for the preview, and the
+	/// tables marked `on_account_merge = custom`, which it moves itself.
+	pub fn on_merge<U: crate::OnMerge + 'static>(mut self) -> Self {
+		self.on_merge = Some(crate::merge::MergeHooks::of::<U>());
+		self
+	}
+
 	/// Adds a third-party sign-in provider, such as
 	/// [`Provider::google`](crate::Provider::google).
 	#[cfg(feature = "oauth")]
@@ -314,6 +339,8 @@ impl AuthBuilder {
 				dev_sign_in: self.dev_sign_in,
 				mfa: self.mfa,
 				roles: self.roles,
+				solana: self.solana,
+				on_merge: self.on_merge,
 				#[cfg(feature = "passkey")]
 				webauthn,
 				#[cfg(feature = "oauth")]
@@ -554,7 +581,8 @@ pub(crate) type SignUpHook = for<'a> fn(
 /// The context a request's policies read: [`SignedIn`] when it has a live
 /// session, with the account as the [`Actor`](leptoskit_db::Actor) that
 /// `#[db(created_by)]`, `#[db(updated_by)]`, and the audit log record, and
-/// nothing when it doesn't.
+/// nothing when it doesn't. [`Auth::request_context`] adds the person's
+/// wallets too.
 pub fn context(signed_in: Option<SignedIn>) -> Context {
 	match signed_in {
 		Some(signed_in) => {
@@ -563,6 +591,40 @@ pub fn context(signed_in: Option<SignedIn>) -> Context {
 				.with(signed_in)
 		}
 		None => Context::new(),
+	}
+}
+
+impl Auth {
+	/// The context a request's policies read: [`SignedIn`] and the person's
+	/// linked [`Wallets`](crate::Wallets) when it has a live session, and
+	/// nothing when it doesn't. The layer builds one per request. Reading
+	/// the wallets is one indexed query, made only with the `solana` feature.
+	///
+	/// # Errors
+	///
+	/// When the database fails.
+	#[cfg_attr(
+		not(feature = "solana"),
+		allow(
+			clippy::unused_async,
+			reason = "the `solana` feature reads the wallets"
+		)
+	)]
+	pub async fn request_context(&self, signed_in: Option<SignedIn>) -> Result<Context> {
+		let Some(signed_in) = signed_in else {
+			return Ok(Context::new());
+		};
+		#[cfg(feature = "solana")]
+		let wallets = self.wallet_addresses(signed_in.account).await?;
+		#[cfg(not(feature = "solana"))]
+		let wallets: Vec<leptoskit_db::Pubkey> = Vec::new();
+		let context = Context::new().with(signed_in);
+
+		Ok(if wallets.is_empty() {
+			context
+		} else {
+			context.with(crate::Wallets(wallets))
+		})
 	}
 }
 

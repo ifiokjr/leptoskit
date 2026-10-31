@@ -240,6 +240,20 @@ impl super::protocol::Platform for Browser {
 	fn query(&self) -> Option<String> {
 		web_sys::window()?.location().search().ok()
 	}
+
+	fn wallet_apps(&self) -> BoxFuture<'static, Result<Vec<super::WalletApp>, ErrorResponse>> {
+		Box::pin(std::future::ready(super::wallet_standard::apps()))
+	}
+
+	fn sign_with_wallet(
+		&self,
+		wallet: String,
+		input: crate::SiwsInput,
+	) -> BoxFuture<'static, Result<crate::WalletProof, ErrorResponse>> {
+		Box::pin(send_wrapper::SendWrapper::new(async move {
+			super::wallet_standard::sign(&wallet, &input).await
+		}))
+	}
 }
 
 /// Whether the browser offers passkeys in autofill:

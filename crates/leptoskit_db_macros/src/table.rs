@@ -1725,6 +1725,15 @@ impl Table<'_> {
 		})
 	}
 
+	/// The table's `on_account_merge` strategy, when it declares one.
+	fn merge_strategy(&self) -> Option<TokenStream> {
+		let krate = self.krate;
+		let variant = self.args.on_account_merge.as_ref()?;
+		Some(quote! {
+			table.on_account_merge(#krate::__private::schema::MergeStrategy::#variant);
+		})
+	}
+
 	fn definition(&self) -> TokenStream {
 		let krate = self.krate;
 		let table_name = &self.args.name;
@@ -1789,6 +1798,8 @@ impl Table<'_> {
 				);
 			});
 		}
+
+		calls.extend(self.merge_strategy());
 
 		quote! {
 			let mut table = #krate::__private::TableBuilder::new(#namespace, #table_name, #comment, #renamed_from);

@@ -84,6 +84,32 @@ pub enum AuthError {
 	/// Where to go after signing in isn't a path on this site.
 	#[error("that address to return to isn't on this site")]
 	InvalidRedirect,
+	/// A wallet's answer didn't check out: the message isn't the one
+	/// issued, the challenge is unknown, used, or expired, or the signature
+	/// is wrong.
+	#[error("that wallet's signature didn't work; try again")]
+	WalletFailed,
+	/// The wallet is linked to another account, which it can't sign in to,
+	/// so this can't prove that account is yours.
+	#[error(
+		"that wallet is linked to another account; sign in to it and unlink the wallet, or turn \
+		 on signing in with it there to merge the two"
+	)]
+	WalletInUse,
+	/// The wallet isn't linked to an account it may sign in to.
+	#[error(
+		"that wallet can't sign in here; link it from your account's settings and turn on signing \
+		 in with it"
+	)]
+	UnknownWallet,
+	/// The action needs a fresh signature from the wallet.
+	#[error("sign with that wallet again to confirm it's still yours")]
+	ProofRequired,
+	/// Bringing the other account's data along broke one of the app's
+	/// rules, such as a unique constraint; nothing changed. The table and
+	/// the database's error are for the server's logs.
+	#[error("the other account's data couldn't move here: {0}")]
+	MergeConflict(String),
 	/// This server or this device can't do that yet, such as passkeys
 	/// without the `passkey` feature.
 	#[error("{0}")]

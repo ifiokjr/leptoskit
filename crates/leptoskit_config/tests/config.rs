@@ -927,6 +927,15 @@ fn the_auth_table_names_secrets_by_variable() {
 	let webhook =
 		"[auth.mail]\nwebhook_url_env = \"MAIL_URL\"\nwebhook_secret_env = \"MAIL_SECRET\"\n";
 	load("auth_webhook", webhook).expect("a webhook with its secret");
+
+	let solana = load(
+		"auth_solana",
+		"[auth]\n\n[auth.solana]\nsign_in = true\nchain_id = \"devnet\"\n",
+	)
+	.expect("solana");
+	let auth = solana.auth.expect("auth");
+	assert!(auth.solana.sign_in);
+	assert_eq!(auth.solana.chain_id.as_deref(), Some("devnet"));
 }
 
 #[test]
@@ -995,6 +1004,9 @@ fn auth_settings_are_checked() {
 			"[auth.providers.google]\nclient_id_env = \"A\"\nclient_secret = \"inline\"",
 			"could not parse",
 		),
+		("[auth.solana]\nchain_id = \"main net\"", "chain_id"),
+		("[auth.solana]\nchain_id = \"\"", "chain_id"),
+		("[auth.solana]\nrpc_url = \"https://x\"", "could not parse"),
 	] {
 		let error = load("auth_bad", &format!("[auth]\n{settings}\n")).unwrap_err();
 		assert!(error.to_string().contains(message), "{settings}: {error}");

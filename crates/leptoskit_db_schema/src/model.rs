@@ -217,15 +217,18 @@ impl Schema {
 		json
 	}
 
-	/// The same schema without rename hints. Snapshots are written this way:
-	/// a hint describes how to reach this schema from the previous one, and
-	/// means nothing once that migration exists.
+	/// The same schema without rename hints or merge strategies. Snapshots
+	/// are written this way: a rename hint describes how to reach this
+	/// schema from the previous one, and means nothing once that migration
+	/// exists; a merge strategy is behaviour, not a table's shape, so
+	/// changing one needs no migration.
 	#[must_use]
 	pub fn without_rename_hints(&self) -> Self {
 		let mut schema = self.clone();
 
 		for table in &mut schema.tables {
 			table.renamed_from = None;
+			table.on_account_merge = None;
 
 			for column in &mut table.columns {
 				column.renamed_from = None;
@@ -323,6 +326,46 @@ pub struct Table {
 	/// Spatial indexes over geospatial columns, in declaration order.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub geo_indexes: Vec<GeoIndex>,
+	/// What happens to the table's rows when two accounts merge and the
+	/// absorbed account's data comes along: `#[db::table(on_account_merge =
+	/// …)]`. Only meaningful in a target schema; snapshots never contain
+	/// it.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub on_account_merge: Option<MergeStrategy>,
+}
+
+/// How a table's rows move when one account is merged into another, for
+/// the rows that reference the absorbed account.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeStrategy {
+	/// Point them at the surviving account. A row that would break a unique
+	/// constraint stops the whole merge. The default for tables without a
+	/// unique constraint on the reference.
+	Reassign,
+	/// Point them at the surviving account, dropping the ones that would
+	/// break a unique constraint, such as a follow the survivor already has.
+	ReassignSkipConflicts,
+	/// Drop them: the surviving account's rows are the ones that count.
+	KeepSurvivor,
+	/// For a table with one row per account: keep whichever row was
+	/// updated more recently, by its `updated_at` column.
+	KeepNewest,
+	/// The app moves them itself, in the merge's transaction.
+	Custom,
+}
+
+impl MergeStrategy {
+	/// The strategy's name, as `on_account_merge` spells it.
+	pub const fn as_str(self) -> &'static str {
+		match self {
+			Self::Reassign => "reassign",
+			Self::ReassignSkipConflicts => "reassign_skip_conflicts",
+			Self::KeepSurvivor => "keep_survivor",
+			Self::KeepNewest => "keep_newest",
+			Self::Custom => "custom",
+		}
+	}
 }
 
 impl Table {
@@ -340,6 +383,7 @@ impl Table {
 			search: None,
 			row_security: None,
 			geo_indexes: Vec::new(),
+			on_account_merge: None,
 		}
 	}
 

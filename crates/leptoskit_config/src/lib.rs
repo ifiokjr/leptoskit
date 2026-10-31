@@ -1226,6 +1226,47 @@ pub struct AuthConfig {
 	/// issuer.
 	#[serde(skip_serializing_if = "BTreeMap::is_empty")]
 	pub providers: BTreeMap<String, AuthProviderConfig>,
+	/// Solana wallets, which people link to their account with a signed
+	/// message. Needs `leptoskit_auth`'s `solana` feature and an `origin`.
+	#[serde(skip_serializing_if = "AuthSolanaConfig::is_default")]
+	pub solana: AuthSolanaConfig,
+}
+
+/// Solana wallets. Linking a wallet is always on with the `solana`
+/// feature; signing in with one is opt-in, here and for each wallet.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct AuthSolanaConfig {
+	/// Whether a wallet may sign in, once its owner turns that on for it.
+	/// A wallet signature is one factor, so two-step verification still
+	/// applies.
+	#[serde(skip_serializing_if = "std::ops::Not::not")]
+	pub sign_in: bool,
+	/// The cluster messages name, such as `mainnet` (the default),
+	/// `devnet`, or `testnet`.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub chain_id: Option<String>,
+}
+
+impl AuthSolanaConfig {
+	fn is_default(&self) -> bool {
+		*self == Self::default()
+	}
+
+	fn problem(&self) -> Option<String> {
+		let valid = self.chain_id.as_deref().is_none_or(|chain| {
+			!chain.is_empty()
+				&& chain.len() <= 64
+				&& chain
+					.bytes()
+					.all(|byte| byte.is_ascii_alphanumeric() || b":-_".contains(&byte))
+		});
+
+		(!valid).then(|| {
+			"auth.solana.chain_id is a cluster name, such as \"mainnet\" or \"devnet\"".to_owned()
+		})
+	}
 }
 
 /// Who must use two-step verification.
@@ -1403,6 +1444,7 @@ impl Default for AuthConfig {
 			required_for: Vec::new(),
 			mail: AuthMailConfig::default(),
 			providers: BTreeMap::new(),
+			solana: AuthSolanaConfig::default(),
 		}
 	}
 }
@@ -1461,6 +1503,10 @@ impl AuthConfig {
 			.iter()
 			.find_map(|(id, provider)| provider.problem(id))
 		{
+			return Some(problem);
+		}
+
+		if let Some(problem) = self.solana.problem() {
 			return Some(problem);
 		}
 

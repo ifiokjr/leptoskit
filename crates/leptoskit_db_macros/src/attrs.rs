@@ -26,6 +26,9 @@ pub(crate) struct TableArgs {
 	pub renamed_from: Option<LitStr>,
 	/// The schema pack that owns the table: only its crate writes to it.
 	pub pack: Option<LitStr>,
+	/// How its rows move when accounts merge, as the `MergeStrategy` variant
+	/// `on_account_merge = keep_newest` names.
+	pub on_account_merge: Option<Ident>,
 	pub krate: Option<Path>,
 	/// The client types besides `public` that see some `private` columns.
 	pub projections: Vec<Ident>,
@@ -112,6 +115,54 @@ impl LinkEnd {
 /// it back.
 pub(crate) const LINK_MARKER: &str = "__link";
 
+/// The strategies `on_account_merge` takes.
+const MERGE_STRATEGIES: &[(&str, &str)] = &[
+	("reassign", "Reassign"),
+	("reassign_skip_conflicts", "ReassignSkipConflicts"),
+	("keep_survivor", "KeepSurvivor"),
+	("keep_newest", "KeepNewest"),
+	("custom", "Custom"),
+];
+
+/// `on_account_merge = keep_newest`, as the `MergeStrategy` variant it names.
+fn merge_strategy(meta: &ParseNestedMeta<'_>) -> syn::Result<Ident> {
+	let strategy: Ident = meta.value()?.parse()?;
+	let (_, variant) = MERGE_STRATEGIES
+		.iter()
+		.find(|(name, _)| strategy == name)
+		.ok_or_else(|| {
+			syn::Error::new(
+				strategy.span(),
+				"`on_account_merge` is `reassign`, `reassign_skip_conflicts`, `keep_survivor`, \
+				 `keep_newest`, or `custom`",
+			)
+		})?;
+	Ok(Ident::new(variant, strategy.span()))
+}
+
+/// Refuses a link's own options on a plain table, and `unique` on a link,
+/// whose two ends are already its key.
+fn check_link_option(meta: &ParseNestedMeta<'_>, is_link: bool) -> syn::Result<()> {
+	let link_option = ["from", "to", "from_column", "to_column", "exclusive"]
+		.iter()
+		.any(|option| meta.path.is_ident(option));
+
+	if link_option && !is_link {
+		return Err(meta
+			.error("`from`, `to`, and `exclusive` describe a link table: use `#[db::link(...)]`"));
+	}
+
+	if is_link && meta.path.is_ident("unique") && !meta.input.peek(syn::token::Paren) {
+		return Err(meta.error(
+			"a link already holds each pair of rows at most once: its two ends are its key, so \
+			 `unique` isn't needed. `exclusive` lets each `to` row be linked from one `from` row \
+			 only",
+		));
+	}
+
+	Ok(())
+}
+
 impl TableArgs {
 	pub fn parse(tokens: TokenStream) -> syn::Result<Self> {
 		let mut name = None;
@@ -122,6 +173,7 @@ impl TableArgs {
 		let mut checks = Vec::new();
 		let mut renamed_from = None;
 		let mut pack = None;
+		let mut on_account_merge = None;
 		let mut krate = None;
 		let mut projections = Vec::new();
 		let mut is_link = false;
@@ -150,15 +202,7 @@ impl TableArgs {
 				return Ok(());
 			}
 
-			let link_option = ["from", "to", "from_column", "to_column", "exclusive"]
-				.iter()
-				.any(|option| meta.path.is_ident(option));
-
-			if link_option && !is_link {
-				return Err(meta.error(
-					"`from`, `to`, and `exclusive` describe a link table: use `#[db::link(...)]`",
-				));
-			}
+			check_link_option(&meta, is_link)?;
 
 			if meta.path.is_ident(LINK_MARKER) {
 				is_link = true;
@@ -180,13 +224,6 @@ impl TableArgs {
 				to_column = Some(string(&meta)?);
 			} else if meta.path.is_ident("exclusive") {
 				exclusive = true;
-			} else if is_link && meta.path.is_ident("unique") && !meta.input.peek(syn::token::Paren)
-			{
-				return Err(meta.error(
-					"a link already holds each pair of rows at most once: its two ends are its \
-					 key, so `unique` isn't needed. `exclusive` lets each `to` row be linked from \
-					 one `from` row only",
-				));
 			} else if meta.path.is_ident("projection") {
 				projections.extend(idents(&meta)?);
 			} else if meta.path.is_ident("name") {
@@ -209,6 +246,8 @@ impl TableArgs {
 				renamed_from = Some(string(&meta)?);
 			} else if meta.path.is_ident("pack") {
 				pack = Some(string(&meta)?);
+			} else if meta.path.is_ident("on_account_merge") {
+				on_account_merge = Some(merge_strategy(&meta)?);
 			} else if meta.path.is_ident("crate") {
 				krate = Some(string(&meta)?.parse()?);
 			} else if meta.path.is_ident("search") {
@@ -266,6 +305,7 @@ impl TableArgs {
 			checks,
 			renamed_from,
 			pack,
+			on_account_merge,
 			krate,
 			hooks,
 			audit,
@@ -292,7 +332,7 @@ fn unknown_table_option(is_link: bool) -> &'static str {
 	} else {
 		"unknown table option; expected `name`, `namespace`, `public`, `projection`, `index`, \
 		 `unique`, `check`, `hooks`, `audit`, `live`, `search`, `extends`, `renamed_from`, `pack`, \
-		 or `crate`"
+		 `on_account_merge`, or `crate`"
 	}
 }
 
