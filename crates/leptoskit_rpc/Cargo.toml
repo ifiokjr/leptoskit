@@ -13,14 +13,17 @@ rust-version.workspace = true
 description = "The app's operations: leptos server functions with retries and error classification, queries and mutations that run on the database, one client for every platform, and publishing it all to generated clients."
 
 [dependencies]
-axum = { workspace = true, optional = true }
+any_spawner = { workspace = true }
+axum = { workspace = true, optional = true, features = ["ws"] }
 chrono = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 inventory = { workspace = true, optional = true }
 leptos = { workspace = true }
 leptoskit_db = { workspace = true, optional = true }
 # The retry backoff timer, which covers every host leptoskit_query does, and
 # the cache the client's queries and mutations live in.
+leptoskit_plugin_websocket = { workspace = true, optional = true, default-features = false }
 leptoskit_query = { workspace = true }
 leptoskit_rpc_codegen = { workspace = true, optional = true, features = [] }
 leptoskit_rpc_macros = { workspace = true }
@@ -31,7 +34,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true, features = ["rt"] }
+tokio = { workspace = true, optional = true, features = ["rt", "sync", "time"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 leptoskit_bridge = { workspace = true, optional = true }
@@ -40,7 +43,7 @@ leptoskit_plugin_http = { path = "../leptoskit_plugin_http", version = "0.1.0", 
 send_wrapper = { workspace = true, optional = true, features = ["futures"] }
 wasm-bindgen = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true, optional = true }
-web-sys = { workspace = true, optional = true, features = ["Crypto", "Headers", "Request", "RequestCredentials", "RequestInit", "RequestMode", "Response", "Window"] }
+web-sys = { workspace = true, optional = true, features = ["Crypto", "Headers", "Location", "Request", "RequestCredentials", "RequestInit", "RequestMode", "Response", "Window"] }
 
 [dev-dependencies]
 any_spawner = { workspace = true, features = ["tokio"] }
@@ -54,6 +57,7 @@ leptoskit_db = { workspace = true, features = ["postgres", "sqlite"] }
 parking_lot = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect"] }
 tower = { workspace = true, features = ["util"] }
 trybuild = { workspace = true }
 
@@ -78,10 +82,12 @@ axum = ["ssr", "dep:axum"]
 # The client: `client::call`, and the query and mutation scopes an app's
 # screens use, the same on every platform. On its own it has no way to reach
 # the server; `web`, `guest`, or `server` gives it one.
-client = []
+client = ["dep:futures"]
 # The client in the browser: same-origin `fetch`.
 web = [
 	"client",
+	"dep:leptoskit_plugin_websocket",
+	"leptoskit_plugin_websocket/browser",
 	"dep:send_wrapper",
 	"dep:wasm-bindgen",
 	"dep:wasm-bindgen-futures",
@@ -94,6 +100,9 @@ guest = [
 	"dep:leptoskit_bridge",
 	"dep:leptoskit_plugin_crypto",
 	"dep:leptoskit_plugin_http",
+	"dep:leptoskit_plugin_websocket",
+	"leptoskit_plugin_websocket/guest",
+	"dep:send_wrapper",
 ]
 # The server: the bodies of `#[rpc::query]` and `#[rpc::mutation]`, the
 # registry of operations, and the `POST /api/<name>` routes. The client calls
@@ -106,6 +115,9 @@ db = ["server", "dep:chrono", "dep:leptoskit_db", "leptoskit_db/server", "dep:sh
 postgres = ["db", "leptoskit_db/postgres"]
 # Runs operations on SQLite.
 sqlite = ["db", "leptoskit_db/sqlite"]
+# Serves live queries over a WebSocket at `/live`, on top of the database's
+# change feed. Pick a driver with `postgres` or `sqlite`.
+live = ["server", "db", "dep:futures"]
 
 [lints]
 workspace = true

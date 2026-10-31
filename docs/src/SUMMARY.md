@@ -34,6 +34,7 @@
 - [Rive animations](guide/20-rive.md)
 - [Foldable phones](guide/21-foldable-phones.md)
 - [The database](guide/22-database.md)
+- [Real-time screens](guide/24-real-time.md)
 - [Sign-in](guide/23-sign-in.md)
   - [Google](guide/auth/providers/google.md)
   - [Sign in with Apple](guide/auth/providers/apple.md)

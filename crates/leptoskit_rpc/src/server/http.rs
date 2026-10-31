@@ -76,6 +76,14 @@ impl Server {
 		&self.inner.db
 	}
 
+	/// The live server for these operations: the same database and the same
+	/// way of telling callers apart. Configure it, then merge its
+	/// [`router`](super::Live::router).
+	#[cfg(feature = "live")]
+	pub fn live(&self) -> super::Live {
+		super::Live::new(self.inner.db.clone()).identify_arc(Arc::clone(&self.inner.identify))
+	}
+
 	/// Makes this the server that in-process calls use, such as
 	/// `client::call` while a page renders. [`router`](Self::router) does it
 	/// too.
@@ -203,7 +211,7 @@ pub(crate) fn installed() -> Option<Server> {
 }
 
 /// The answer to a failed call: the status, and `Kind|message`.
-fn failure(error: &Error) -> Response {
+pub(crate) fn failure(error: &Error) -> Response {
 	let status = StatusCode::from_u16(error.status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 	let mut response = Response::new(Body::from(error.to_wire()));
 	*response.status_mut() = status;

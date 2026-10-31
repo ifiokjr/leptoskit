@@ -205,7 +205,7 @@ impl Connection {
 		reason = "the browser queues synchronously, but the method stays async to match native \
 		          sends"
 	)]
-	pub async fn send(&mut self, message: Message) -> Result<(), Error> {
+	pub async fn send(&self, message: Message) -> Result<(), Error> {
 		if self.socket.ready_state() != web_sys::WebSocket::OPEN || self.state.borrow().closed {
 			return Err(Error::Closed);
 		}
@@ -230,7 +230,7 @@ impl Connection {
 	/// Returns a queued message or waits. Dropping this receive future keeps
 	/// the connection alive; dropping the connection removes listeners and
 	/// closes it.
-	pub async fn receive(&mut self) -> Result<Option<Message>, Error> {
+	pub async fn receive(&self) -> Result<Option<Message>, Error> {
 		poll_fn(|context| {
 			let mut state = self.state.borrow_mut();
 			if let Some(error) = state.error.take() {

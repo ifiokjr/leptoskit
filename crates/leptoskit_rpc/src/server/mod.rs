@@ -19,6 +19,8 @@ mod cx;
 mod http;
 #[cfg(feature = "db")]
 mod identity;
+#[cfg(feature = "live")]
+mod live;
 #[cfg(feature = "db")]
 pub mod receipts;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -43,6 +45,10 @@ pub use identity::HasContext;
 pub use identity::Identify;
 #[cfg(feature = "db")]
 pub use identity::Identity;
+#[cfg(feature = "live")]
+pub use live::Live;
+#[cfg(feature = "live")]
+pub use live::LiveStats;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use run::Invocation;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]

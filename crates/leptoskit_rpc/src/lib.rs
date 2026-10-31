@@ -71,6 +71,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(feature = "client")]
+pub use client::use_live;
 use leptos::prelude::Action;
 use leptos::prelude::ArcAsyncDerived;
 use leptos::prelude::ServerFnError;
@@ -88,6 +90,10 @@ pub use scopes::is_scope_name;
 pub use server::Identify;
 #[cfg(feature = "db")]
 pub use server::Identity;
+#[cfg(feature = "live")]
+pub use server::Live;
+#[cfg(feature = "live")]
+pub use server::LiveStats;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use server::MutationCx;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -97,6 +103,7 @@ pub use server::call;
 
 #[cfg(feature = "client")]
 pub mod client;
+pub mod live;
 mod operation;
 pub mod scopes;
 #[cfg(feature = "server")]

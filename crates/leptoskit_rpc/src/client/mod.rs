@@ -47,6 +47,7 @@ use crate::Operation;
 )]
 mod browser;
 mod keys;
+pub mod live;
 #[cfg(all(feature = "guest", target_arch = "wasm32"))]
 mod native;
 mod protocol;
@@ -59,6 +60,8 @@ mod server;
 #[cfg(test)]
 mod tests;
 
+pub use live::LiveClient;
+pub use live::use_live;
 pub use protocol::Credentials;
 
 /// Where the client finds the server, and how this device proves who it
@@ -170,6 +173,7 @@ static CLIENT: RwLock<Option<Arc<dyn Api>>> = RwLock::new(None);
 /// browser; a native app answers each call with a configuration error until
 /// it has an origin.
 pub fn configure(config: ClientConfig) {
+	live::install(&config);
 	install(backend(config));
 }
 
