@@ -144,6 +144,7 @@ packages = [
 	"leptoskit_db",
 	"leptoskit_auth",
 	"leptoskit_extension",
+	"leptoskit_devtools_protocol",
 	"leptoskit_l10n",
 	"leptoskit_l10n_codegen",
 	"leptoskit_cli",
@@ -443,6 +444,10 @@ type = "cargo"
 
 [package.leptoskit_extension]
 path = "crates/leptoskit_extension"
+type = "cargo"
+
+[package.leptoskit_devtools_protocol]
+path = "crates/leptoskit_devtools_protocol"
 type = "cargo"
 
 [package.leptoskit_plugin_router]

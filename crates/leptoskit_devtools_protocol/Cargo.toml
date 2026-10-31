@@ -1,0 +1,21 @@
+[package]
+name = "leptoskit_devtools_protocol"
+version.workspace = true
+authors.workspace = true
+categories = ["development-tools::debugging", "web-programming", "wasm"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "devtools", "debugging", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "The wire protocol shared by leptoskit's DevTools agents, hub, interface, and MCP tools."
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
