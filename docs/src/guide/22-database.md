@@ -971,6 +971,20 @@ for segment in hits[0].highlights[0].segments() {
 
 `highlight` returns a column's whole text and `excerpt` about that many words (2 to 64) around the best matches. A highlight is plain text in runs, never HTML, so render each run escaped, with matched runs wrapped in `<mark>` or styled as you like. Matches are marked on their way from the database with two private-use characters, U+E000 and U+E001, so highlighted text leaves those two out.
 
+A results page usually wants more than the row: who wrote it, how many comments it has. End a search with `shape::<S>()` to get each match as a [shape](#fetch-linked-rows-in-one-query) instead, in one query, still ranked, filtered, and highlighted:
+
+```rust
+let hits = Article::query()
+	.search("passkeys")
+	.highlight(|article| article.title)
+	.limit(10)
+	.shape::<ArticleCard>()
+	.hits(&db)
+	.await?;
+```
+
+`all`, `first`, and `hits` work as on the search, and each nested row follows its own table's policy, as in any shape.
+
 **Languages.** `search(language = …)` decides how text is split into words. `simple`, the default, lowercases words and keeps each one as written, so `apple` doesn't find `apples`. `english` reduces words to their stem, so `passkey` finds `passkeys`. On Postgres, any text search configuration the server has works, such as `german`; SQLite has only `simple` and `english`, and the migration is refused for others.
 
 **On each database.** Postgres keeps a generated `tsvector` column, `lk_search`, with a GIN index, and ranks with `ts_rank`. SQLite keeps a copy of the searched text in an FTS5 table, `<table>_lk_search`, numbered by a second table that maps each entry to its row's key, with triggers that update both on every write; it ranks with `bm25`, weighted like Postgres. Both follow every write, including raw SQL. They split words slightly differently: Postgres's `english` leaves out stopwords such as `the` and `again`, which SQLite's keeps, and excerpts may choose different words. Ranks order rows the same way on both, but their values differ.
