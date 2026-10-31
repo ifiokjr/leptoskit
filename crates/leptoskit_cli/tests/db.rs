@@ -148,6 +148,19 @@ fn migrations_follow_the_tables() {
 /// One HTTP/1.1 request to the scaffold's server, returning the status line's
 /// code and the body.
 fn request(address: &str, method: &str, path: &str, body: &str) -> (u16, String) {
+	let (status, _, body) = exchange(address, method, path, "", body);
+	(status, body)
+}
+
+/// One HTTP/1.1 request with extra header lines, each ending in `\r\n`,
+/// returning the status line's code, the response headers, and the body.
+fn exchange(
+	address: &str,
+	method: &str,
+	path: &str,
+	headers: &str,
+	body: &str,
+) -> (u16, String, String) {
 	use std::io::Read;
 	use std::io::Write;
 
@@ -155,18 +168,15 @@ fn request(address: &str, method: &str, path: &str, body: &str) -> (u16, String)
 	write!(
 		stream,
 		"{method} {path} HTTP/1.1\r\nHost: {address}\r\nContent-Type: \
-		 application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+		 application/json\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
 		body.len()
 	)
 	.unwrap();
 	let mut response = String::new();
 	stream.read_to_string(&mut response).unwrap();
 	let status = response[9..12].parse().unwrap();
-	let body = response
-		.split_once("\r\n\r\n")
-		.map(|(_, body)| body.to_owned())
-		.unwrap_or_default();
-	(status, body)
+	let (head, body) = response.split_once("\r\n\r\n").unwrap_or((&response, ""));
+	(status, head.to_owned(), body.to_owned())
 }
 
 /// `leptoskit new --db sqlite`, its first migration, and the server it
@@ -306,6 +316,153 @@ fn the_studio_serves_the_apps_tables() {
 	assert!(tables.1.contains(">users</a>"), "{}", tables.1);
 	assert_eq!(without_token.0, 403);
 	assert!(schema.1.contains("<h2>users</h2>"), "{}", schema.1);
+}
+
+/// `leptoskit new --auth`: its tables migrate, the server and the app build
+/// for the server, the browser, and a native guest, the generated tests pass,
+/// and the server signs someone in with an emailed code from the development
+/// mailbox.
+#[test]
+#[ignore = "compiles a scaffolded server; run with --ignored"]
+fn the_auth_scaffold_signs_people_in() {
+	let scratch = tempfile::tempdir().unwrap();
+	let sdk = repository();
+	succeeds(&leptoskit(
+		scratch.path(),
+		&[
+			"new",
+			"notes",
+			"--auth",
+			"--sdk-path",
+			sdk.to_str().unwrap(),
+		],
+	));
+	let root = scratch.path().join("notes");
+	fs::copy(sdk.join("Cargo.lock"), root.join("Cargo.lock")).unwrap();
+
+	let created = succeeds(&leptoskit(&root, &["db", "migration", "create", "init"]));
+	assert!(created.contains("+ table users (3 columns)"), "{created}");
+	assert!(created.contains("+ table auth.sessions"), "{created}");
+
+	let target = std::env::var_os("LEPTOSKIT_E2E_TARGET_DIR")
+		.map_or_else(|| root.join("target"), PathBuf::from);
+	let cargo = |args: &[&str]| {
+		let status = Command::new(env!("CARGO"))
+			.args(args)
+			.current_dir(&root)
+			.env("CARGO_TARGET_DIR", &target)
+			.status()
+			.unwrap();
+		assert!(status.success(), "cargo {}", args.join(" "));
+	};
+	cargo(&["build", "--locked", "--package", "notes"]);
+	cargo(&["test", "--locked", "--package", "notes_app"]);
+	for feature in ["hydrate", "native"] {
+		cargo(&[
+			"check",
+			"--locked",
+			"--package",
+			"notes_app",
+			"--target",
+			"wasm32-unknown-unknown",
+			"--features",
+			feature,
+		]);
+	}
+
+	let address = std::net::TcpListener::bind("127.0.0.1:0")
+		.unwrap()
+		.local_addr()
+		.unwrap()
+		.to_string();
+	let origin = format!("Origin: http://{address}\r\n");
+	let mut server = Command::new(target.join("debug/notes"))
+		.current_dir(&root)
+		.env("LEPTOS_SITE_ADDR", &address)
+		.env(
+			"AUTH_ENCRYPTION_KEYS",
+			"test:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+		)
+		.env_remove("DATABASE_URL")
+		.stdout(std::process::Stdio::null())
+		.stderr(std::process::Stdio::null())
+		.spawn()
+		.unwrap();
+	let ready = (0..120).any(|_| {
+		std::thread::sleep(std::time::Duration::from_millis(250));
+		std::net::TcpStream::connect(&address).is_ok()
+	});
+	let page = ready.then(|| request(&address, "GET", "/", ""));
+	let sent = ready.then(|| {
+		request(
+			&address,
+			"POST",
+			"/auth/email/send",
+			r#"{"email":"ada@example.com"}"#,
+		)
+	});
+	let mail = ready.then(|| request(&address, "GET", "/_leptoskit/mail", ""));
+	let code = mail.as_ref().and_then(|(_, body)| {
+		let start = body.find("sign-in code: ")? + "sign-in code: ".len();
+		Some(body[start..start + 9].to_owned())
+	});
+	let verified = code.as_ref().map(|code| {
+		exchange(
+			&address,
+			"POST",
+			"/auth/email/verify",
+			&origin,
+			&format!(r#"{{"email":"ada@example.com","code":"{code}"}}"#),
+		)
+	});
+	let cookie = verified.as_ref().and_then(|(_, head, _)| {
+		let line = head
+			.lines()
+			.find(|line| line.to_ascii_lowercase().starts_with("set-cookie:"))?;
+		Some(
+			line["set-cookie:".len()..]
+				.split(';')
+				.next()?
+				.trim()
+				.to_owned(),
+		)
+	});
+	let session = cookie.as_ref().map(|cookie| {
+		exchange(
+			&address,
+			"GET",
+			"/auth/session",
+			&format!("Cookie: {cookie}\r\n"),
+			"",
+		)
+	});
+	let notes = ready.then(|| request(&address, "POST", "/api/notes", r#"{"body":"hello"}"#));
+	server.kill().unwrap();
+	server.wait().unwrap();
+
+	assert!(ready, "the server never listened on {address}");
+	let (status, body) = page.unwrap();
+	assert_eq!(status, 200);
+	assert!(body.contains("Checking whether you"), "{body}");
+	assert_eq!(sent.unwrap().0, 204);
+	let code = code.unwrap_or_else(|| panic!("no code in the mailbox: {mail:?}"));
+	let (status, _, body) = verified.unwrap();
+	assert_eq!(status, 200, "{body}");
+	assert!(body.contains(r#""signed_up":true"#), "{body}");
+	assert!(cookie.is_some(), "no session cookie for {code}");
+	let (status, _, body) = session.unwrap();
+	assert_eq!(status, 200);
+	assert!(body.contains(r#""account_id""#), "{body}");
+	assert_eq!(
+		notes.unwrap().0,
+		200,
+		"the notes still work under the auth layer"
+	);
+
+	assert_eq!(
+		succeeds(&leptoskit(&root, &["generate", "auth"])),
+		"nothing changed: the sign-in screens are already in place\n"
+	);
 }
 
 #[test]

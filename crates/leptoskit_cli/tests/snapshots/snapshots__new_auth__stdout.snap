@@ -1,0 +1,9 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+✔ created [ROOT]/snapshotted (all platforms; default: web)
+  next: cd [ROOT]/snapshotted && leptoskit build
+  then: leptoskit db migration create init
+working with a coding agent? give it leptoskit's skill: leptoskit skill install
+before starting the server, set AUTH_ENCRYPTION_KEYS: export AUTH_ENCRYPTION_KEYS="$(date +%Y-%m):$(openssl rand 32 | basenc --base64url | tr -d =)"

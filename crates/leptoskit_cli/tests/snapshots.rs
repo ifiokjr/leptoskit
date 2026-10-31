@@ -123,6 +123,7 @@ fn help_text_is_pinned() {
 		&["--help"][..],
 		&["generate", "--help"][..],
 		&["generate", "app", "--help"][..],
+		&["generate", "auth", "--help"][..],
 		&["generate", "plugin", "--help"][..],
 		&["native", "--help"][..],
 		&["native", "prepare", "--help"][..],
@@ -319,13 +320,136 @@ fn database_scaffold_is_pinned() {
 			"sqlite",
 		],
 	);
-	assert!(stderr(&output).contains("--db needs the standard project"));
+	assert!(stderr(&output).contains("--db and --auth need the standard project"));
 	let output = leptoskit(&scratch.path, &["new", "mysql", "--db", "mysql"]);
 	assert!(!output.status.success());
 	assert!(
 		stderr(&output).contains("expected postgres or sqlite"),
 		"{}",
 		stderr(&output)
+	);
+}
+
+/// The files `--auth` adds or changes on top of a SQLite scaffold. The
+/// screens themselves are pinned once, by `generate_auth_is_pinned`.
+#[test]
+fn auth_scaffold_is_pinned() {
+	let _version = with_cli_version_masked().bind_to_scope();
+	let scratch = Scratch::new("snap-auth");
+	let output = leptoskit(&scratch.path, &["new", "snapshotted", "--auth"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	insta::assert_snapshot!(
+		"new_auth__stdout",
+		normalize(&stdout(&output), &scratch.path)
+	);
+	let project = scratch.path.join("snapshotted");
+	for file in [
+		leptoskit_config::CONFIG_FILE,
+		"Cargo.toml",
+		"README.md",
+		"src/main.rs",
+		"src/sign_in.rs",
+		"snapshotted_app/Cargo.toml",
+		"snapshotted_app/src/lib.rs",
+		"snapshotted_db/Cargo.toml",
+		"snapshotted_db/src/lib.rs",
+		"snapshotted_backend/src/lib.rs",
+	] {
+		let contents = std::fs::read_to_string(project.join(file))
+			.unwrap_or_else(|error| panic!("read {file}: {error}"));
+		insta::assert_snapshot!(
+			format!("new_auth__{}", file.replace(['/', '\\'], "_")),
+			contents
+		);
+	}
+	for page in ["mod.rs", "sign_in.rs", "devices.rs"] {
+		assert!(
+			project
+				.join("snapshotted_app/src/auth")
+				.join(page)
+				.is_file()
+		);
+	}
+
+	// The scaffold is already wired, so the generator finds nothing to do.
+	let output = leptoskit(&project, &["generate", "auth"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	assert_eq!(
+		stdout(&output),
+		"nothing changed: the sign-in screens are already in place\n"
+	);
+
+	let output = leptoskit(
+		&scratch.path,
+		&["new", "postgres", "--auth", "--db", "postgres"],
+	);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let read =
+		|file: &str| std::fs::read_to_string(scratch.path.join("postgres").join(file)).unwrap();
+	assert!(read("Cargo.toml").contains("features = [\"server\", \"db-postgres\", \"auth\"]"));
+	assert!(
+		read("postgres_db/Cargo.toml")
+			.contains("server = [\"leptoskit_db/postgres\", \"leptoskit_auth/postgres\"]")
+	);
+
+	let output = leptoskit(
+		&scratch.path,
+		&["new", "harmony", "--platform", "harmonyos", "--auth"],
+	);
+	assert!(stderr(&output).contains("the HarmonyOS starter has no server"));
+	let output = leptoskit(
+		&scratch.path,
+		&[
+			"new",
+			"native",
+			"--platform",
+			"native",
+			"--native-target",
+			"harmonyos",
+			"--auth",
+		],
+	);
+	assert!(stderr(&output).contains("--db and --auth need the standard project"));
+}
+
+/// `generate auth` on a new web scaffold: what it writes and prints, and that
+/// a second run changes nothing.
+#[test]
+fn generate_auth_is_pinned() {
+	let _version = with_cli_version_masked().bind_to_scope();
+	let scratch = Scratch::new("snap-generate-auth");
+	let output = leptoskit(&scratch.path, &["new", "snapshotted", "--db", "sqlite"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let project = scratch.path.join("snapshotted");
+
+	let output = leptoskit(&project, &["generate", "auth"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	insta::assert_snapshot!(
+		"generate_auth__stdout",
+		normalize(&stdout(&output), &project)
+	);
+	for file in [
+		"snapshotted_app/src/auth/mod.rs",
+		"snapshotted_app/src/auth/sign_in.rs",
+		"snapshotted_app/src/auth/devices.rs",
+		"snapshotted_app/src/lib.rs",
+		"snapshotted_app/Cargo.toml",
+		"src/sign_in.rs",
+		leptoskit_config::CONFIG_FILE,
+	] {
+		let contents = std::fs::read_to_string(project.join(file))
+			.unwrap_or_else(|error| panic!("read {file}: {error}"));
+		insta::assert_snapshot!(
+			format!("generate_auth__{}", file.replace(['/', '\\'], "_")),
+			contents
+		);
+	}
+
+	let output = leptoskit(&project, &["generate", "auth"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	insta::assert_snapshot!(
+		"generate_auth__again_stdout",
+		normalize(&stdout(&output), &project)
 	);
 }
 

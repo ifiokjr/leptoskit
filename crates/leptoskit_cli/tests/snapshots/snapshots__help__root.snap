@@ -15,7 +15,7 @@ Commands:
   publish      Uploads the app to the stores `[publish]` in leptoskit.toml names, and lists what is left to do in each store's dashboard. Nothing reaches users without `--submit`
   skill        Prints the leptoskit skill for coding agents, or installs it with `install`. The skill matches this CLI's version
   rpc          Describes the published RPC and generates clients for it
-  generate     Generates an application, a runtime plugin crate, or a tooling plugin program
+  generate     Generates an application, sign-in screens, a runtime plugin crate, or a tooling plugin program
   new          Scaffolds a new project
   dev          Runs every platform you have set up, and rebuilds them on change
   build        Builds the project for a platform
