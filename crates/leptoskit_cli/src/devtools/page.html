@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>leptoskit devtools</title>
+<style>
+	:root { color-scheme: light dark; font: 14px/1.5 ui-sans-serif, system-ui, sans-serif; }
+	body { margin: 0; display: grid; grid-template-rows: auto 1fr; height: 100vh; }
+	header { display: flex; align-items: baseline; gap: 12px; padding: 10px 16px; border-bottom: 1px solid #8884; }
+	h1 { font-size: 16px; margin: 0; }
+	#status { color: #888; font-size: 12px; }
+	main { display: grid; grid-template-columns: 240px 1fr 280px; min-height: 0; }
+	aside, section { overflow: auto; padding: 12px; border-right: 1px solid #8884; }
+	section:last-child { border-right: 0; }
+	h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #888; margin: 0 0 8px; }
+	ul { list-style: none; padding: 0; margin: 0; }
+	button { font: inherit; color: inherit; background: #8881; border: 1px solid #8884; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+	button:hover { background: #8883; }
+	#sessions button { width: 100%; text-align: left; margin-bottom: 6px; }
+	#tree { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+	#tree button { border: 0; background: none; padding: 2px 4px; white-space: nowrap; }
+	#tree button:hover { background: #8882; }
+	dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0 0 12px; }
+	dt { color: #888; }
+	dd { margin: 0; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<header>
+	<h1>leptoskit devtools</h1>
+	<span id="status">connecting…</span>
+</header>
+<main>
+	<aside>
+		<h2>Sessions</h2>
+		<ul id="sessions"></ul>
+	</aside>
+	<section>
+		<h2>Tree</h2>
+		<div id="tree">Choose a session.</div>
+	</section>
+	<section>
+		<h2>Node</h2>
+		<dl id="node"></dl>
+		<button id="snapshot" type="button">Request snapshot</button>
+		<button id="select" type="button" disabled>Select</button>
+		<button id="highlight" type="button" disabled>Highlight</button>
+	</section>
+</main>
+<script>
+	const state = { session: null, node: null };
+	const setStatus = (text) => { document.getElementById('status').textContent = text; };
+
+	async function json(url, options) {
+		const response = await fetch(url, options);
+		if (!response.ok) throw new Error(await response.text());
+		return response.status === 204 ? null : response.json();
+	}
+
+	async function sessions() {
+		const list = await json('/api/sessions');
+		const ul = document.getElementById('sessions');
+		ul.textContent = '';
+		for (const session of list) {
+			const li = document.createElement('li');
+			const button = document.createElement('button');
+			const hello = session.hello;
+			button.textContent = `${hello.app} · ${hello.platform}${hello.device ? ' · ' + hello.device : ''}`;
+			button.onclick = () => select(session.id);
+			li.append(button);
+			ul.append(li);
+		}
+	}
+
+	async function select(id) {
+		state.session = id;
+		const view = await json(`/api/sessions/${id}`);
+		render(view);
+	}
+
+	function render(view) {
+		const tree = view.tree;
+		const root = document.getElementById('tree');
+		root.textContent = '';
+		if (!tree || tree.nodes.length === 0) {
+			root.textContent = 'No tree yet.';
+			return;
+		}
+		const byId = new Map(tree.nodes.map((node) => [node.id, node]));
+		const walk = (id, depth) => {
+			const node = byId.get(id);
+			if (!node) return;
+			const row = document.createElement('button');
+			row.type = 'button';
+			row.style.paddingLeft = `${depth * 14}px`;
+			row.textContent = `${node.kind}${node.text ? ' · ' + node.text : ''}`;
+			row.onclick = () => showNode(node);
+			root.append(row);
+			for (const child of node.children) walk(child, depth + 1);
+		};
+		walk(tree.root, 0);
+	}
+
+	function showNode(node) {
+		state.node = node;
+		const dl = document.getElementById('node');
+		dl.textContent = '';
+		const add = (key, value) => {
+			const dt = document.createElement('dt');
+			dt.textContent = key;
+			const dd = document.createElement('dd');
+			dd.textContent = value;
+			dl.append(dt, dd);
+		};
+		add('kind', node.kind);
+		add('key', node.key);
+		if (node.source) add('source', `${node.source.file}:${node.source.line}:${node.source.column}`);
+		if (node.frame) add('frame', `${node.frame.x},${node.frame.y} ${node.frame.width}×${node.frame.height}`);
+		if (node.classes && node.classes.length) add('classes', node.classes.join(' '));
+		if (node.text) add('text', node.text);
+		document.getElementById('select').disabled = false;
+		document.getElementById('highlight').disabled = false;
+	}
+
+	async function command(body) {
+		if (!state.session) return;
+		await json(`/api/sessions/${state.session}/commands`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(body),
+		});
+	}
+
+	document.getElementById('snapshot').onclick = () => command({ type: 'request_snapshot' });
+	document.getElementById('select').onclick = () => state.node && command({ type: 'select', node: state.node.id, key: state.node.key });
+	document.getElementById('highlight').onclick = () => state.node && command({ type: 'highlight', key: state.node.key });
+
+	const stream = new EventSource('/api/stream');
+	stream.onopen = () => setStatus('live');
+	stream.onerror = () => setStatus('reconnecting…');
+	stream.onmessage = () => { if (state.session) select(state.session).catch((error) => setStatus(error.message)); };
+
+	setInterval(() => sessions().catch((error) => setStatus(error.message)), 5000);
+	sessions().catch((error) => setStatus(error.message));
+</script>
+</body>
+</html>
