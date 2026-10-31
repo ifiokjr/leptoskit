@@ -472,8 +472,8 @@ impl LiveHub {
 		let mut notified = 0;
 
 		for (connection, updates) in updates {
-			if let Some(connection) = state.connections.get(&connection) {
-				if connection
+			if let Some(connection) = state.connections.get(&connection)
+				&& connection
 					.sender
 					.send(ServerFrame::Transition {
 						from,
@@ -481,9 +481,8 @@ impl LiveHub {
 						updates,
 					})
 					.is_ok()
-				{
-					notified += 1;
-				}
+			{
+				notified += 1;
 			}
 		}
 
@@ -550,10 +549,10 @@ fn update_for(old: &Value, new: &Value) -> Option<UpdateOutcome> {
 		return None;
 	}
 
-	if let (Some(old), Some(new)) = (old.as_array(), new.as_array()) {
-		if let Some(patch) = keyed_patch(old, new) {
-			return Some(UpdateOutcome::Patch { patch });
-		}
+	if let (Some(old), Some(new)) = (old.as_array(), new.as_array())
+		&& let Some(patch) = keyed_patch(old, new)
+	{
+		return Some(UpdateOutcome::Patch { patch });
 	}
 
 	Some(UpdateOutcome::Value { value: new.clone() })
