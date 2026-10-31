@@ -14,15 +14,24 @@ description = "The DevTools agents that report a running leptoskit app to the lo
 
 [features]
 default = ["host"]
-host = ["dep:leptoskit_native", "dep:ureq"]
+host = ["dep:anyhow", "dep:leptoskit_native", "dep:ureq"]
+web = ["dep:gloo-net", "dep:gloo-timers", "dep:js-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:web-sys"]
 
 [dependencies]
-anyhow = { workspace = true }
+anyhow = { workspace = true, optional = true }
 leptoskit_devtools_protocol = { workspace = true }
 leptoskit_native = { workspace = true, optional = true, features = ["devtools"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 ureq = { workspace = true, optional = true, features = ["rustls"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+gloo-net = { version = "0.7", optional = true, features = ["http", "json"] }
+gloo-timers = { version = "0.3", optional = true, features = ["futures"] }
+js-sys = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+wasm-bindgen-futures = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true, features = ["Document", "DomRect", "Element", "Node", "NodeList", "Window", "console"] }
 
 [lints]
 workspace = true

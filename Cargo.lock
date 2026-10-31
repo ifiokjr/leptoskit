@@ -4893,11 +4893,17 @@ name = "leptoskit_devtools"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "gloo-net",
+ "gloo-timers",
+ "js-sys",
  "leptoskit_devtools_protocol",
  "leptoskit_native",
  "serde",
  "serde_json",
  "ureq",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
