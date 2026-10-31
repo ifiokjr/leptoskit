@@ -1597,11 +1597,13 @@ async fn scroll_offsets_apply_when_they_change() {
 	);
 	assert_eq!(scroll.scroll_top(), 50, "an unchanged target stays put");
 
+	// Past the end stops at the end, which classic scrollbars move: the
+	// visible height is what the scrollbars leave.
 	target.set(9_000.0);
 	tick().await;
 	assert_eq!(
 		scroll.scroll_top(),
-		900,
+		scroll.scroll_height() - scroll.client_height(),
 		"a new target applies, kept in range"
 	);
 
