@@ -110,6 +110,10 @@ pub(crate) struct Flow {
 	pub nonce: String,
 	pub redirect_to: String,
 	pub intent: Intent,
+	/// How a native app goes through it; `None` for a browser. Flows sealed
+	/// before native apps could sign in have none.
+	#[serde(default)]
+	pub native: Option<crate::NativeStart>,
 }
 
 impl Flow {

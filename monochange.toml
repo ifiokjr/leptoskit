@@ -82,6 +82,8 @@ packages = [
 	"leptoskit_plugin_device",
 	"leptoskit_plugin_secure_store",
 	"leptoskit_plugin_linking",
+	"leptoskit_plugin_passkeys",
+	"leptoskit_plugin_web_auth",
 	"leptoskit_plugin_filesystem",
 	"leptoskit_plugin_network",
 	"leptoskit_plugin_posture",
@@ -260,6 +262,12 @@ path = "crates/leptoskit_plugin_secure_store"
 
 [package.leptoskit_plugin_linking]
 path = "crates/leptoskit_plugin_linking"
+
+[package.leptoskit_plugin_passkeys]
+path = "crates/leptoskit_plugin_passkeys"
+
+[package.leptoskit_plugin_web_auth]
+path = "crates/leptoskit_plugin_web_auth"
 
 [package.leptoskit_plugin_filesystem]
 path = "crates/leptoskit_plugin_filesystem"

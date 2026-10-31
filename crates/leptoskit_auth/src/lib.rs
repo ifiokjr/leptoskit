@@ -29,7 +29,7 @@
 //!   wallets, as `cx.wallets()`.
 //!
 //! The tables, [`SignedIn`], and the public row types work everywhere. The
-//! service itself, [`Auth`], needs the `server` feature and a database:
+//! service itself, `Auth`, needs the `server` feature and a database:
 //! `postgres` or `sqlite`.
 
 // The shared test helpers name this crate as an outside test would.
@@ -112,6 +112,8 @@ pub use auth::AuthBuilder;
 pub use auth::CodeRules;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use auth::MfaPolicy;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use auth::NativeApps;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use auth::OnSignUp;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]

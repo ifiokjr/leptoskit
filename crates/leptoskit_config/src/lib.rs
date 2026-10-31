@@ -721,6 +721,20 @@ pub struct NativeConfig {
 		schemars(regex(pattern = r"^(?:$|[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+)$"))
 	)]
 	pub package_id: String,
+	/// The Apple Developer team that signs the iOS and macOS apps, such as
+	/// `ABCDE12345`. With it, `leptoskit::server` publishes
+	/// `/.well-known/apple-app-site-association`, which lets the apps use
+	/// the site's passkeys and its sign-in return address.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	#[cfg_attr(feature = "schema", schemars(regex(pattern = r"^[A-Z0-9]{10}$")))]
+	pub apple_team_id: Option<String>,
+	/// The SHA-256 fingerprints of the certificates that sign the Android
+	/// app, as `keytool -list` prints them (`AB:CD:…`, 32 bytes). With them,
+	/// `leptoskit::server` publishes `/.well-known/assetlinks.json`, and the
+	/// app's passkeys are accepted. List the upload key and the Play app
+	/// signing key when Google signs the release.
+	#[serde(skip_serializing_if = "Vec::is_empty")]
+	pub android_certificates: Vec<String>,
 	/// Legacy native target selection. New projects use `app.platforms`.
 	#[serde(skip_serializing_if = "NativeConfig::legacy_default_targets")]
 	pub targets: Vec<NativeTarget>,
@@ -738,6 +752,8 @@ impl Default for NativeConfig {
 			plugin_options: BTreeMap::new(),
 			missing_plugins: MissingPlugins::default(),
 			package_id: String::new(),
+			apple_team_id: None,
+			android_certificates: Vec::new(),
 			targets: vec![
 				NativeTarget::Macos,
 				NativeTarget::Ios,
@@ -749,7 +765,21 @@ impl Default for NativeConfig {
 	}
 }
 
+/// The path on the server a native app's system-browser sign-in returns to.
+/// The well-known association files claim it for the apps, and the sign-in
+/// server accepts it as a native app's return address.
+pub const NATIVE_AUTH_RETURN_PATH: &str = "/auth/native/return";
+
 impl NativeConfig {
+	/// The Android signing certificates' SHA-256 digests, skipping any that
+	/// aren't valid; [`LeptoskitConfig::validate`] refuses those.
+	pub fn android_certificate_digests(&self) -> Vec<[u8; 32]> {
+		self.android_certificates
+			.iter()
+			.filter_map(|fingerprint| certificate_digest(fingerprint))
+			.collect()
+	}
+
 	fn legacy_default_targets(targets: &[NativeTarget]) -> bool {
 		targets
 			== [
@@ -1561,6 +1591,25 @@ pub fn default_package_id(app_name: &str) -> String {
 	format!("com.leptoskit.{segment}")
 }
 
+/// A `AB:CD:…` SHA-256 fingerprint's bytes. Colons are optional; case is
+/// not significant.
+fn certificate_digest(fingerprint: &str) -> Option<[u8; 32]> {
+	let hex: Vec<u8> = fingerprint.bytes().filter(|byte| *byte != b':').collect();
+
+	if hex.len() != 64 || !hex.iter().all(u8::is_ascii_hexdigit) {
+		return None;
+	}
+
+	let mut digest = [0; 32];
+
+	for (byte, pair) in digest.iter_mut().zip(hex.chunks(2)) {
+		let pair = std::str::from_utf8(pair).ok()?;
+		*byte = u8::from_str_radix(pair, 16).ok()?;
+	}
+
+	Some(digest)
+}
+
 /// Why `package_id` is not a valid reverse-domain id, if it is not.
 fn package_id_problem(package_id: &str) -> Option<&'static str> {
 	let segments: Vec<&str> = package_id.split('.').collect();
@@ -1718,6 +1767,22 @@ impl LeptoskitConfig {
 				package_id: package_id.clone(),
 				reason,
 			});
+		}
+		if let Some(team) = &self.native.apple_team_id
+			&& (team.len() != 10
+				|| !team
+					.bytes()
+					.all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit()))
+		{
+			return Err(ConfigError::InvalidAppleTeamId(team.clone()));
+		}
+		if let Some(fingerprint) = self
+			.native
+			.android_certificates
+			.iter()
+			.find(|fingerprint| certificate_digest(fingerprint).is_none())
+		{
+			return Err(ConfigError::InvalidAndroidCertificate(fingerprint.clone()));
 		}
 		for target in &self.rpc.targets {
 			if !RPC_TARGETS.contains(&target.language.as_str()) {
@@ -1964,6 +2029,15 @@ pub enum ConfigError {
 		/// What is wrong with it.
 		reason: &'static str,
 	},
+	/// `native.apple_team_id` is not a ten-character Apple team ID.
+	#[error("invalid native.apple_team_id `{0}`: expected 10 uppercase letters or digits")]
+	InvalidAppleTeamId(String),
+	/// A `native.android_certificates` entry is not a SHA-256 fingerprint.
+	#[error(
+		"invalid native.android_certificates entry `{0}`: expected a SHA-256 fingerprint such as \
+		 `AB:CD:…` (32 bytes), as `keytool -list` prints it"
+	)]
+	InvalidAndroidCertificate(String),
 	/// A `rpc.targets` entry names an unknown target.
 	#[error(
 		"unknown fns target `{0}`; expected one of typescript, python, go, rust, dart, cli, \

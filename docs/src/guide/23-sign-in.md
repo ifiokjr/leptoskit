@@ -37,12 +37,12 @@ Then it lists the few lines it can't add for you, such as putting the sign-in sc
 
 The screens are built from leptoskit's own components and Tailwind classes, on the [sign-in client](#build-the-sign-in-screen), so the same files build and render in the browser and in native apps on every platform. They show a message while they load, show the server's error messages, and after too many attempts disable the button until the server will take another. They're yours to restyle.
 
-In a native app the screens reach the server through the `http` plugin and keep the session with `secure-store`. A project made with `--auth` grants both, lets the HTTP plugin reach the development server, and looks for its server at the `SERVER` address in `my_app_app/src/lib.rs`, `http://localhost:3000` until you change it. Before you ship, set `SERVER` to your site and list it in the HTTP plugin's `origins`, as [Build the sign-in screen](#build-the-sign-in-screen) shows.
+In a native app the screens reach the server through the `http` plugin, keep the session with `secure-store`, and sign in with passkeys and other sites through `passkeys` and `web-auth` (see [native apps](#native-apps)). A project made with `--auth` grants all four, lets the HTTP plugin reach the development server, and looks for its server at the `SERVER` address in `my_app_app/src/lib.rs`, `http://localhost:3000` until you change it. Before you ship, set `SERVER` to your site and list it in the HTTP plugin's `origins`, as [Build the sign-in screen](#build-the-sign-in-screen) shows.
 
 What happens on each platform:
 
 - **Web:** signing in works as soon as the server runs.
-- **iOS, Android, and macOS:** the generated apps register both plugins, so signing in works once the app can reach `SERVER`.
+- **iOS, Android, and macOS:** the generated apps register the plugins, so signing in works once the app can reach `SERVER`.
 - **Windows, Linux, and the terminal:** these runners can't host plugins yet. They build without them, `leptoskit build` says so, and the screens show that sign-in isn't set up: every client call answers the error code `config`.
 
 ## Add the auth tables
@@ -267,17 +267,17 @@ configure(
 ```
 
 - **On the web**, the origin can be left out: the client talks to the page's own origin. If you set it, it must be that origin, because the session cookie belongs to it. Browsers are named in the device list from their user agent, so the device name is ignored.
-- **In a native app**, the origin is required. Without it, every call fails with the error code `config`. The app also needs the `http` and `secure-store` [plugins](../platforms/plugins.md), with the same origin in the HTTP plugin's `origins`. `leptoskit new --auth` and `leptoskit generate auth` grant both; add your site's origin before you ship:
+- **In a native app**, the origin is required. Without it, every call fails with the error code `config`. The app also needs the `http`, `secure-store`, `passkeys`, and `web-auth` [plugins](../platforms/plugins.md), with the same origin in the HTTP plugin's `origins`. `leptoskit new --auth` and `leptoskit generate auth` grant them; add your site's origin before you ship:
 
   ```toml
   [native]
-  plugins = ["http", "secure-store"]
+  plugins = ["http", "secure-store", "passkeys", "web-auth"]
 
   [native.plugin-options.http]
   origins = ["https://myapp.com", "http://localhost:3000"]
   ```
 
-  The generated iOS, Android, and macOS hosts register both plugins. The Linux, Windows, and terminal runners can't host plugins yet: they build without them, with a warning, and the client answers `config` there. An app with its own Windows or Linux host can register them by hand; see the [plugin support matrix](../platforms/plugin-inventory.md#storage-and-networking).
+  The generated iOS, Android, and macOS hosts register the plugins. The Linux, Windows, and terminal runners can't host plugins yet: they build without them, with a warning, and the client answers `config` there. An app with its own Windows or Linux host can register them by hand; see the [plugin support matrix](../platforms/plugin-inventory.md#storage-and-networking).
 
 Then build the screen:
 
@@ -491,12 +491,15 @@ Once an account has a passkey, signing in with an emailed code asks for it as th
 
 ### On every platform
 
-| Platform                                                               | Passkeys                                                                            |
-| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| Web                                                                    | Everything above; `Autofill` where the browser offers passkeys in suggestions       |
-| iOS, Android, macOS, Windows, Linux, and HarmonyOS (experimental) apps | The same functions answer `unsupported`; listing, renaming, and removing still work |
+| Platform                 | Passkeys                                                                                                               |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| Web                      | Everything above; `Autofill` where the browser offers passkeys in suggestions                                          |
+| iOS and macOS apps       | Everything above with the system's passkey sheet, once your site vouches for the app; `Autofill` answers `unsupported` |
+| Android apps             | Everything above with Credential Manager, once your site vouches for the app; `Autofill` answers `unsupported`         |
+| Windows and Linux apps   | The same functions answer `unsupported`; listing, renaming, and removing still work                                    |
+| HarmonyOS (experimental) | As Windows and Linux                                                                                                   |
 
-Native passkeys need the platforms' own passkey APIs, which arrive with a plugin; until then, native apps sign in with an emailed code and an authenticator app. Your code doesn't change when they arrive.
+The same passkey works on your site and in your apps, because they share the relying party: your site's host. A native app's text fields offer no passkey suggestions, so start `Autofill` anyway and let it fail quietly, as the generated screen does; the "Sign in with a passkey" button uses the sheet. [Native apps](#native-apps) says how your site vouches for its apps.
 
 ### How it's kept safe
 
@@ -543,7 +546,7 @@ let start = use_mutation(sign_in_with_provider());
 start.mutate(StartProvider { provider: "google".into(), redirect_to: Some("/notes".into()) });
 ```
 
-The page goes to the provider's sign-in page, and comes back to `redirect_to` (a path on your site; anything else is refused) with the outcome in its query, which `provider_outcome()` reads:
+The page goes to the provider's sign-in page, and comes back to `redirect_to` (a path on your site; anything else is refused) with the outcome in its query, which `provider_outcome()` reads. A native app opens the provider's page in the system browser instead, or Sign in with Apple's own sheet for Apple on an Apple device; the mutation resolves once it's back, and then `provider_outcome()` says the same:
 
 | Outcome            | Meaning                                                                                   |
 | ------------------ | ----------------------------------------------------------------------------------------- |
@@ -576,12 +579,15 @@ Merging moves the other account's email addresses, connected accounts, passkeys,
 
 ### On every platform
 
-| Platform                                                               | Third-party sign-in                                                                                                                  |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Web                                                                    | Everything above                                                                                                                     |
-| iOS, Android, macOS, Windows, Linux, and HarmonyOS (experimental) apps | `sign_in_with_provider()`, `link_provider()`, and `continue_provider_sign_up()` answer `unsupported`; listing and disconnecting work |
+| Platform                 | Third-party sign-in                                                                                                                                    |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Web                      | Everything above                                                                                                                                       |
+| iOS and macOS apps       | Everything above, in an `ASWebAuthenticationSession`; Apple through Sign in with Apple's own sheet                                                     |
+| Android apps             | Everything above, in Chrome's Auth Tab (Chrome 137 or later as the default browser); with another browser the outcome is `Failed("unsupported")`       |
+| Windows and Linux apps   | Everything above in the default browser, for a host that registers `web-auth` itself; the generated runners can't host plugins yet and answer `config` |
+| HarmonyOS (experimental) | `sign_in_with_provider()` and `link_provider()` answer `config`; listing and disconnecting work                                                        |
 
-Native apps need the system browser to sign in with another site safely, which arrives with a plugin; your code doesn't change when it does.
+Your providers need no extra setup for apps: the provider sends the browser back to your site's `/auth/callback/…` address, as for the web, and your site sends it on to the app.
 
 ### How it's kept safe
 
@@ -589,6 +595,43 @@ Native apps need the system browser to sign in with another site safely, which a
 - ID tokens must be signed by a key the provider publishes (RS256, PS256, ES256, ES384, or EdDSA; never `none` or a shared secret), for your client, from the right issuer (for Microsoft, the person's own tenant), unexpired, and with the flow's nonce.
 - Apple posts its answer from its own site, which `SameSite` cookies don't follow, so that post only gets a page that posts it again from your site; it never signs anyone in by itself.
 - Provider secrets come from environment variables; Apple's client secret is signed for each request from your `.p8` key, so there's nothing to rotate.
+- A native app signs in in the system browser, never a web view inside the app, so the app never sees the person's password at the provider. Your site sends the browser back to the app with the provider's answer, and the app finishes with a token that never left it: an answer intercepted on the way, or a sign-in link someone else started, signs no one in. The app's return address must be one of its own: `<package id>:/auth/native/return`, your site's `/auth/native/return`, or a loopback address on the device.
+- Sign in with Apple on the device must return an ID token signed by Apple, for your app's bundle ID, with the nonce your server issued for that sign-in.
+
+## Native apps
+
+The apps sign in through two [plugins](../platforms/plugins.md), and your site vouches for them, so that their passkeys are your site's.
+
+| Plugin     | What it does                                                      | iOS and macOS                | Android                       | Windows and Linux                |
+| ---------- | ----------------------------------------------------------------- | ---------------------------- | ----------------------------- | -------------------------------- |
+| `passkeys` | Makes and uses passkeys; Sign in with Apple                       | `ASAuthorization`            | Credential Manager; no Apple  | Unavailable                      |
+| `web-auth` | Signs in with other sites in the system browser, never a web view | `ASWebAuthenticationSession` | Auth Tab, Chrome 137 or later | The default browser, on loopback |
+
+`leptoskit new --auth` and `leptoskit generate auth` grant both. To make passkeys work in the apps, tell `[native]` who signs them, and serve what that generates from your site:
+
+```toml
+[native]
+package_id = "com.example.notes" # the bundle ID and Android application ID
+apple_team_id = "ABCDE12345" # the team that signs the iOS and macOS apps
+android_certificates = [ # keytool -list -v prints these as SHA-256
+	"AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89",
+]
+```
+
+```rust
+let app = backend::router()
+	.merge(auth.router())
+	.merge(sign_in::associations()?)          // the generated sign-in module's
+	.layer(auth.layer());
+```
+
+With these, your site serves `/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json`, made from the IDs above, so they can't fall out of step with the apps. `leptoskit::server::app_associations(&config.native)` does the same for a server written by hand. The sign-in service reads the same `[native]` table: it accepts passkeys from the Android app signed with those certificates, and Sign in with Apple ID tokens for that bundle ID.
+
+On each platform:
+
+- **iOS and macOS:** add the associated domain `webcredentials:myapp.com` (your site's host) to the app in Xcode, and the Sign in with Apple capability if you offer Apple. The generated Xcode projects don't add entitlements yet. Without the domain, passkey calls fail with `passkey_failed`; providers still work.
+- **Android:** list the certificate of every key that signs the app: your upload key, and Google Play's app signing key if Play signs your releases. Provider sign-in needs Chrome 137 or later as the default browser; on another browser it ends with `Failed("unsupported")`, and people can still sign in with an emailed code or a passkey.
+- **Windows and Linux:** the generated runners can't host plugins yet, so sign-in answers `config`. A host that registers plugins itself can register `leptoskit_plugin_web_auth::desktop::WebAuth` on a worker thread, for providers in the default browser. There are no native passkeys there: passkey calls answer `unsupported`.
 
 ## Solana wallets
 

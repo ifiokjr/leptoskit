@@ -41,9 +41,11 @@ use axum::routing::post;
 use crate::AddPasskey;
 use crate::Auth;
 use crate::AuthError;
+use crate::ContinueProvider;
 use crate::Device;
 use crate::ErrorResponse;
 use crate::FactorCode;
+use crate::FinishProvider;
 use crate::IdentityInfo;
 use crate::LinkWallet;
 use crate::MergeAccounts;
@@ -55,6 +57,7 @@ use crate::PasskeyInfo;
 use crate::PasskeyOptions;
 use crate::PasskeyStep;
 use crate::ProveWallet;
+use crate::ProviderFinished;
 use crate::ProviderInfo;
 use crate::ProviderOutcome;
 use crate::PublicSession;
@@ -76,7 +79,7 @@ use crate::SignIn;
 use crate::SignInStep;
 use crate::SignedIn;
 use crate::SignedInResponse;
-use crate::StartProvider;
+use crate::StartProviderRequest;
 use crate::Tokens;
 use crate::TotpConfirmed;
 use crate::TotpConfirmedResponse;
@@ -149,9 +152,10 @@ impl Auth {
 	/// | `POST /auth/passkeys/rename`         | renames one ([`RenamePasskey`])                     |
 	/// | `POST /auth/passkeys/remove`         | removes one, after step-up ([`RemovePasskey`])      |
 	/// | `GET /auth/providers`                | third-party providers ([`ProviderInfo`])            |
-	/// | `POST /auth/oauth/start`             | signs in with one ([`StartProvider`])               |
-	/// | `POST /auth/oauth/link`              | connects one to the account ([`StartProvider`])     |
+	/// | `POST /auth/oauth/start`             | signs in with one ([`StartProviderRequest`])        |
+	/// | `POST /auth/oauth/link`              | connects one to the account, likewise              |
 	/// | `GET`/`POST /auth/callback/{id}`     | where the provider sends people back               |
+	/// | `POST /auth/oauth/finish`            | a native app finishes ([`FinishProvider`])          |
 	/// | `POST /auth/oauth/continue`          | a separate account, when the address is taken      |
 	/// | `GET /auth/identities`               | connected accounts ([`IdentityInfo`])               |
 	/// | `POST /auth/identities/unlink`       | disconnects one ([`UnlinkIdentity`])                |
@@ -219,6 +223,7 @@ impl Auth {
 			.route("/auth/oauth/start", post(start_provider))
 			.route("/auth/oauth/link", post(link_provider))
 			.route("/auth/oauth/continue", post(continue_provider))
+			.route("/auth/oauth/finish", post(finish_provider))
 			.route(
 				"/auth/callback/{provider}",
 				get(provider_callback_get).post(provider_callback_post),
@@ -1302,7 +1307,7 @@ async fn providers(State(auth): State<Auth>) -> Json<Vec<ProviderInfo>> {
 async fn start_provider(
 	State(auth): State<Auth>,
 	request: RequestInfo,
-	Json(body): Json<StartProvider>,
+	Json(body): Json<StartProviderRequest>,
 ) -> Result<Response, AuthError> {
 	auth.provider_redirect(&body, None, &request).await
 }
@@ -1311,25 +1316,45 @@ async fn link_provider(
 	State(auth): State<Auth>,
 	me: SignedIn,
 	request: RequestInfo,
-	Json(body): Json<StartProvider>,
+	Json(body): Json<StartProviderRequest>,
 ) -> Result<Response, AuthError> {
 	auth.provider_redirect(&body, Some(&me), &request).await
 }
 
 impl Auth {
 	/// The provider's authorization URL, and the cookie that binds the flow
-	/// to this browser.
+	/// to this browser, or for a native app the binding in the body.
 	#[cfg(feature = "oauth")]
 	async fn provider_redirect(
 		&self,
-		body: &StartProvider,
+		body: &StartProviderRequest,
 		me: Option<&SignedIn>,
 		request: &RequestInfo,
 	) -> Result<Response, AuthError> {
+		let provider = &body.start.provider;
+		let redirect_to = body.start.redirect_to.as_deref();
+
+		if let Some(native) = &body.native {
+			let start = self
+				.start_native_provider(provider, me, redirect_to, native, request)
+				.await?;
+			return Ok(Json(crate::ProviderRedirect {
+				url: start.url,
+				token: Some(start.binding.expose().to_owned()),
+				nonce: start.nonce,
+			})
+			.into_response());
+		}
+
 		let start = self
-			.start_provider(&body.provider, me, body.redirect_to.as_deref(), request)
+			.start_provider(provider, me, redirect_to, request)
 			.await?;
-		let mut response = Json(crate::ProviderRedirect { url: start.url }).into_response();
+		let mut response = Json(crate::ProviderRedirect {
+			url: start.url,
+			token: None,
+			nonce: None,
+		})
+		.into_response();
 		response.headers_mut().insert(
 			header::SET_COOKIE,
 			self.named_cookie(self.provider_cookie_name(), start.binding.expose(), 600),
@@ -1341,11 +1366,41 @@ impl Auth {
 	#[allow(clippy::unused_async, reason = "it stands in for the provider flow")]
 	async fn provider_redirect(
 		&self,
-		_body: &StartProvider,
+		_body: &StartProviderRequest,
 		_me: Option<&SignedIn>,
 		_request: &RequestInfo,
 	) -> Result<Response, AuthError> {
 		Err(AuthError::UnknownProvider)
+	}
+
+	/// Sends a native app's system browser on to the app, with the
+	/// provider's answer, when `params` belong to a native app's flow.
+	#[cfg(feature = "oauth")]
+	async fn relay_to_app(
+		&self,
+		provider: &str,
+		params: &crate::CallbackParams,
+	) -> Option<Response> {
+		let location = self.native_relay(provider, params).await.ok()??;
+		let mut response = StatusCode::SEE_OTHER.into_response();
+		let headers = response.headers_mut();
+		headers.insert(header::LOCATION, HeaderValue::from_str(&location).ok()?);
+		headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+		headers.insert(
+			header::REFERRER_POLICY,
+			HeaderValue::from_static("no-referrer"),
+		);
+		Some(response)
+	}
+
+	#[cfg(not(feature = "oauth"))]
+	#[allow(clippy::unused_async, reason = "it stands in for the provider flow")]
+	async fn relay_to_app(
+		&self,
+		_provider: &str,
+		_params: &crate::CallbackParams,
+	) -> Option<Response> {
+		None
 	}
 
 	/// Sends the browser back to `path` on this site, with how the sign-in
@@ -1379,6 +1434,10 @@ impl Auth {
 		params: crate::CallbackParams,
 		request: RequestInfo,
 	) -> Response {
+		if let Some(relay) = self.relay_to_app(provider, &params).await {
+			return relay;
+		}
+
 		let request = RequestInfo {
 			transport: Transport::Cookie,
 			..request
@@ -1454,7 +1513,7 @@ impl Auth {
 		request: &RequestInfo,
 	) -> Result<(String, crate::ProviderResult), (String, AuthError)> {
 		let (flow, profile) = self
-			.provider_profile(provider, binding, params)
+			.provider_profile(provider, binding, params, crate::oauth::Mode::Browser)
 			.await
 			.map_err(|error| ("/".to_owned(), error))?;
 		let result = self
@@ -1499,6 +1558,12 @@ async fn provider_callback_post(
 	headers: HeaderMap,
 	axum::Form(params): axum::Form<crate::CallbackParams>,
 ) -> Response {
+	// A native app's flow changes nothing here, so it goes straight on to
+	// the app, from any site.
+	if let Some(relay) = auth.relay_to_app(&provider, &params).await {
+		return relay;
+	}
+
 	if auth.same_site(&Method::POST, &headers) && headers.contains_key(header::ORIGIN) {
 		return auth
 			.provider_callback(&provider, &headers, params, request)
@@ -1564,7 +1629,23 @@ async fn continue_provider(
 	State(auth): State<Auth>,
 	request: RequestInfo,
 	headers: HeaderMap,
+	body: Option<Json<ContinueProvider>>,
 ) -> Result<Response, AuthError> {
+	if let Some(Json(ContinueProvider {
+		token: Some(token),
+		device_name,
+	})) = body
+	{
+		let request = RequestInfo {
+			transport: Transport::Bearer,
+			device_name,
+			..request
+		};
+		let binding = SessionToken::new(token);
+		let sign_in = auth.continue_provider_sign_up(&binding, &request).await?;
+		return Ok(auth.signed_in_response(sign_in));
+	}
+
 	let binding = cookie(&headers, auth.provider_cookie_name()).ok_or(AuthError::SignInExpired)?;
 	let request = RequestInfo {
 		transport: Transport::Cookie,
@@ -1574,6 +1655,73 @@ async fn continue_provider(
 	let mut response = auth.signed_in_response(sign_in);
 	auth.clear_provider_cookie(&mut response);
 	Ok(response)
+}
+
+/// Finishes a native app's provider flow: what its system browser came
+/// back with, or Sign in with Apple's ID token from the device.
+async fn finish_provider(
+	State(auth): State<Auth>,
+	request: RequestInfo,
+	Json(body): Json<FinishProvider>,
+) -> Result<Json<ProviderFinished>, AuthError> {
+	auth.native_provider_finished(&body, &request).await
+}
+
+impl Auth {
+	#[cfg(feature = "oauth")]
+	async fn native_provider_finished(
+		&self,
+		body: &FinishProvider,
+		request: &RequestInfo,
+	) -> Result<Json<ProviderFinished>, AuthError> {
+		let finished = match self.finish_native_provider(body, request).await? {
+			crate::ProviderResult::SignedIn(sign_in) => {
+				let sign_in = *sign_in;
+				ProviderFinished {
+					outcome: ProviderOutcome::SignedIn,
+					signed_in: Some(SignedInResponse {
+						tokens: sign_in.tokens(),
+						signed_up: sign_in.signed_up,
+						session: PublicSession::from(sign_in.session),
+					}),
+					second_factor: None,
+				}
+			}
+			crate::ProviderResult::SecondFactor(challenge) => {
+				let expires_in = (challenge.expires_at - leptoskit_db::now())
+					.num_seconds()
+					.max(0)
+					.unsigned_abs();
+				ProviderFinished {
+					outcome: ProviderOutcome::SecondFactor(challenge.factors.clone()),
+					signed_in: None,
+					second_factor: Some(SecondFactor {
+						factors: challenge.factors,
+						expires_in,
+						token: Some(challenge.token.expose().to_owned()),
+					}),
+				}
+			}
+			crate::ProviderResult::Outcome(outcome) => {
+				ProviderFinished {
+					outcome,
+					signed_in: None,
+					second_factor: None,
+				}
+			}
+		};
+		Ok(Json(finished))
+	}
+
+	#[cfg(not(feature = "oauth"))]
+	#[allow(clippy::unused_async, reason = "it stands in for the provider flow")]
+	async fn native_provider_finished(
+		&self,
+		_body: &FinishProvider,
+		_request: &RequestInfo,
+	) -> Result<Json<ProviderFinished>, AuthError> {
+		Err(AuthError::UnknownProvider)
+	}
 }
 
 async fn identities(

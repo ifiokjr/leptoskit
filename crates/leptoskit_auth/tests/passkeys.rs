@@ -657,3 +657,72 @@ async fn rotating_keys_re_encrypts_ceremonies_in_flight() {
 		.await
 		.unwrap();
 }
+
+#[tokio::test]
+async fn the_native_apps_passkeys_count_as_the_sites() {
+	let db = Db::connect("sqlite::memory:").await.unwrap();
+	leptoskit_db::testing::create_tables(&db).await.unwrap();
+	let mailbox = Mailbox::new();
+	let signing = [5; 32];
+	let android = format!(
+		"android:apk-key-hash:{}",
+		base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, signing)
+	);
+	let auth = builder(&db, &mailbox)
+		.native_apps(leptoskit_auth::NativeApps {
+			package_id: "com.notes.app".into(),
+			apple_team_id: Some("ABCDE12345".into()),
+			android_certificates: vec![signing],
+		})
+		.build()
+		.unwrap();
+	assert_eq!(
+		leptoskit_auth::NativeApps {
+			android_certificates: vec![signing],
+			..leptoskit_auth::NativeApps::default()
+		}
+		.android_origins(),
+		std::slice::from_ref(&android)
+	);
+
+	// Made in the Android app, which reports its signing certificate as the
+	// origin, then used there and on the web.
+	let mut device = SoftPasskey::new(&android);
+	with_passkey(&auth, &mailbox, "ada@example.com", &mut device).await;
+	let challenge = auth.begin_passkey_sign_in(&request()).await.unwrap();
+	let assertion = device.sign(&challenge.options);
+	auth.finish_passkey_sign_in(&challenge.token, &assertion, &request())
+		.await
+		.unwrap();
+	let mut device = device.on(ORIGIN);
+	let challenge = auth.begin_passkey_sign_in(&request()).await.unwrap();
+	let assertion = device.sign(&challenge.options);
+	auth.finish_passkey_sign_in(&challenge.token, &assertion, &request())
+		.await
+		.unwrap();
+
+	// An app signed with another certificate is someone else's.
+	let mut impostor = device.on(&format!(
+		"android:apk-key-hash:{}",
+		base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, [6; 32])
+	));
+	let challenge = auth.begin_passkey_sign_in(&request()).await.unwrap();
+	let assertion = impostor.sign(&challenge.options);
+	assert!(matches!(
+		auth.finish_passkey_sign_in(&challenge.token, &assertion, &request())
+			.await,
+		Err(AuthError::PasskeyFailed)
+	));
+
+	// Without the app configured, its certificate's origin is refused too.
+	let plain = builder(&db, &mailbox).build().unwrap();
+	let mut device = impostor.on(&android);
+	let challenge = plain.begin_passkey_sign_in(&request()).await.unwrap();
+	let assertion = device.sign(&challenge.options);
+	assert!(matches!(
+		plain
+			.finish_passkey_sign_in(&challenge.token, &assertion, &request())
+			.await,
+		Err(AuthError::PasskeyFailed)
+	));
+}

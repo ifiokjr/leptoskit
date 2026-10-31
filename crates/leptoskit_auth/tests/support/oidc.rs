@@ -180,6 +180,19 @@ impl FakeIdp {
 		]
 	}
 
+	/// Sign in with Apple on a device: an ID token issued to the app's
+	/// `bundle_id`, carrying `nonce`, for someone with `claims`.
+	pub fn apple_id_token(&self, bundle_id: &str, nonce: &str, claims: Value) -> String {
+		self.id_token(&Grant {
+			client_id: bundle_id.to_owned(),
+			redirect_uri: String::new(),
+			challenge: String::new(),
+			nonce: Some(nonce.to_owned()),
+			issuer: "https://appleid.apple.com".to_owned(),
+			claims,
+		})
+	}
+
 	fn id_token(&self, grant: &Grant) -> String {
 		let tamper = self.state.lock().unwrap().tamper;
 		let now = chrono::Utc::now().timestamp();

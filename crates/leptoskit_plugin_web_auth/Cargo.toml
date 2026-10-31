@@ -1,0 +1,34 @@
+[package]
+name = "leptoskit_plugin_web_auth"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "System-browser sign-in sessions for LeptosKit: ASWebAuthenticationSession, Android Auth Tab, and a desktop loopback redirect."
+
+[package.metadata.leptoskit.runtime]
+name = "web-auth"
+apple-module = "LeptosKitWebAuth"
+apple-type = "WebAuthPlugin"
+apple-context = true
+android-type = "dev.leptoskit.plugins.webauth.WebAuthPlugin"
+android-context = true
+# Android 11 and later hide the browser's Custom Tabs service without this.
+android-query-actions = ["android.support.customtabs.action.CustomTabsService"]
+android-dependencies = ["androidx.browser:browser:1.9.0"]
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+url = { workspace = true }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+open = "5.4.4"
+
+[lints]
+workspace = true
