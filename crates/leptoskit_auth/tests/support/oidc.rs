@@ -59,6 +59,10 @@ pub enum Tamper {
 
 /// What the fake checks and answers for one provider.
 #[derive(Clone, Copy, Debug)]
+#[allow(
+	clippy::struct_excessive_bools,
+	reason = "each flag is one thing a provider does differently"
+)]
 pub struct Spec {
 	/// Its authorization endpoint's host.
 	pub authorize_host: &'static str,
@@ -72,6 +76,12 @@ pub struct Spec {
 	pub basic: bool,
 	/// Whether its ID tokens carry the nonce.
 	pub echoes_nonce: bool,
+	/// Whether it takes PKCE; without, it refuses a challenge or verifier.
+	pub pkce: bool,
+	/// What it calls the client ID.
+	pub client_param: &'static str,
+	/// Whether its token endpoint takes JSON rather than a form.
+	pub json: bool,
 }
 
 const fn id_tokens(
@@ -85,6 +95,9 @@ const fn id_tokens(
 		issuer: Some(issuer),
 		basic: false,
 		echoes_nonce: true,
+		pkce: true,
+		client_param: "client_id",
+		json: false,
 	}
 }
 
@@ -95,6 +108,9 @@ const fn api(authorize_host: &'static str, token_host: &'static str, basic: bool
 		issuer: None,
 		basic,
 		echoes_nonce: false,
+		pkce: true,
+		client_param: "client_id",
+		json: false,
 	}
 }
 
@@ -145,6 +161,23 @@ pub const SPECS: &[Spec] = &[
 		"api.dropboxapi.com",
 		"https://www.dropbox.com",
 	),
+	api("bitbucket.org", "bitbucket.org", true),
+	Spec {
+		pkce: false,
+		json: true,
+		..api("api.notion.com", "api.notion.com", true)
+	},
+	api("zoom.us", "zoom.us", true),
+	Spec {
+		pkce: false,
+		client_param: "client_key",
+		..api("www.tiktok.com", "open.tiktokapis.com", false)
+	},
+	id_tokens(
+		"api.login.yahoo.com",
+		"api.login.yahoo.com",
+		"https://api.login.yahoo.com",
+	),
 ];
 
 /// The key sets the fake publishes, at each provider's own address.
@@ -158,6 +191,7 @@ const KEY_SETS: &[&str] = &[
 	"https://slack.com/openid/connect/keys",
 	"https://id.twitch.tv/oauth2/keys",
 	"https://www.dropbox.com/.well-known/jwks",
+	"https://api.login.yahoo.com/openid/v1/certs",
 ];
 
 /// The hosts whose `GET`s, with an access token the fake issued, answer
@@ -170,6 +204,9 @@ const API_HOSTS: &[&str] = &[
 	"api.spotify.com",
 	"oauth.reddit.com",
 	"api.amazon.com",
+	"api.bitbucket.org",
+	"api.zoom.us",
+	"open.tiktokapis.com",
 ];
 
 /// The hosts that refuse requests that don't name the app in `User-Agent`,
@@ -266,7 +303,6 @@ impl FakeIdp {
 		let url = url::Url::parse(url).unwrap();
 		let query: HashMap<String, String> = url.query_pairs().into_owned().collect();
 		assert_eq!(query["response_type"], "code");
-		assert_eq!(query["code_challenge_method"], "S256");
 		let host = url.host_str().unwrap();
 		let spec = *SPECS
 			.iter()
@@ -297,17 +333,22 @@ impl FakeIdp {
 		}
 
 		// An OpenID Connect sign-in carries a nonce; an API's has no use for
-		// one.
+		// one. A provider without PKCE would refuse a challenge.
 		assert_eq!(query.contains_key("nonce"), spec.issuer.is_some(), "{host}");
+		assert_eq!(query.contains_key("code_challenge"), spec.pkce, "{host}");
+
+		if spec.pkce {
+			assert_eq!(query["code_challenge_method"], "S256");
+		}
 
 		let code = URL_SAFE_NO_PAD.encode(digest(&SHA256, url.as_str().as_bytes()));
 		self.state.lock().unwrap().grants.insert(
 			code.clone(),
 			Grant {
 				spec,
-				client_id: query["client_id"].clone(),
+				client_id: query[spec.client_param].clone(),
 				redirect_uri: query["redirect_uri"].clone(),
-				challenge: query["code_challenge"].clone(),
+				challenge: query.get("code_challenge").cloned().unwrap_or_default(),
 				nonce: query.get("nonce").cloned().filter(|_| spec.echoes_nonce),
 				issuer,
 				claims,
@@ -404,10 +445,18 @@ impl FakeIdp {
 	/// PKCE, then answers with tokens.
 	fn token(&self, request: &ProviderRequest) -> (u16, Value) {
 		let body = request.body.as_deref().unwrap_or_default();
-		let form: HashMap<String, String> = url::form_urlencoded::parse(body.as_bytes())
-			.into_owned()
-			.collect();
-		let Some(grant) = self.state.lock().unwrap().grants.remove(&form["code"]) else {
+		let json_body = header(request, "content-type") == Some("application/json");
+		let form: HashMap<String, String> = if json_body {
+			serde_json::from_str(body).unwrap()
+		} else {
+			url::form_urlencoded::parse(body.as_bytes())
+				.into_owned()
+				.collect()
+		};
+		let Some(code) = form.get("code") else {
+			return (400, json!({ "error": "invalid_request" }));
+		};
+		let Some(grant) = self.state.lock().unwrap().grants.remove(code) else {
 			return (400, json!({ "error": "invalid_grant" }));
 		};
 		let host = url::Url::parse(&request.url)
@@ -426,7 +475,7 @@ impl FakeIdp {
 			Some((id, secret)) => (Some(id.clone()), Some(secret.clone())),
 			None => {
 				(
-					form.get("client_id").cloned(),
+					form.get(grant.spec.client_param).cloned(),
 					form.get("client_secret").cloned(),
 				)
 			}
@@ -436,7 +485,14 @@ impl FakeIdp {
 		} else {
 			basic.is_none()
 		};
-		let verifier = URL_SAFE_NO_PAD.encode(digest(&SHA256, form["code_verifier"].as_bytes()));
+		let pkce_ok = match form.get("code_verifier") {
+			Some(verifier) => {
+				grant.spec.pkce
+					&& URL_SAFE_NO_PAD.encode(digest(&SHA256, verifier.as_bytes()))
+						== grant.challenge
+			}
+			None => !grant.spec.pkce,
+		};
 		let client_ok = match grant.issuer.as_str() {
 			"https://appleid.apple.com" => {
 				self.apple_secret_ok(secret.as_deref().unwrap_or_default(), &grant)
@@ -448,7 +504,8 @@ impl FakeIdp {
 			|| form["grant_type"] != "authorization_code"
 			|| client_id.as_deref() != Some(grant.client_id.as_str())
 			|| form["redirect_uri"] != grant.redirect_uri
-			|| verifier != grant.challenge
+			|| !pkce_ok
+			|| json_body != grant.spec.json
 			|| !authenticated_as_asked
 			|| !client_ok
 		{
@@ -456,16 +513,21 @@ impl FakeIdp {
 		}
 
 		if grant.spec.issuer.is_none() {
-			let access = URL_SAFE_NO_PAD.encode(digest(&SHA256, form["code"].as_bytes()));
+			let access = URL_SAFE_NO_PAD.encode(digest(&SHA256, code.as_bytes()));
+			// Some providers, such as Notion, say who signed in right here.
+			let mut answer = grant
+				.claims
+				.get("token")
+				.cloned()
+				.unwrap_or_else(|| json!({}));
+			answer["access_token"] = access.as_str().into();
+			answer["token_type"] = "bearer".into();
 			self.state
 				.lock()
 				.unwrap()
 				.tokens
-				.insert(access.clone(), grant.claims);
-			return (
-				200,
-				json!({ "access_token": access, "token_type": "bearer" }),
-			);
+				.insert(access, grant.claims);
+			return (200, answer);
 		}
 
 		(

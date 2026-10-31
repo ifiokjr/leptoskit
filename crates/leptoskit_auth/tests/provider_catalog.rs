@@ -76,6 +76,11 @@ fn app(db: &Db) -> App {
 		.provider(Provider::reddit("reddit-client", SECRET))
 		.provider(Provider::amazon("amazon-client", SECRET))
 		.provider(Provider::dropbox("dropbox-client", SECRET))
+		.provider(Provider::bitbucket("bitbucket-client", SECRET))
+		.provider(Provider::notion("notion-client", SECRET))
+		.provider(Provider::zoom("zoom-client", SECRET))
+		.provider(Provider::tiktok("tiktok-key", SECRET))
+		.provider(Provider::yahoo("yahoo-client", SECRET))
 		.provider_http(idp.clone())
 		.build()
 		.unwrap();
@@ -203,6 +208,14 @@ struct Fixture {
 }
 
 fn fixtures() -> Vec<Fixture> {
+	[first_fixtures(), second_fixtures(), third_fixtures()]
+		.into_iter()
+		.flatten()
+		.collect()
+}
+
+/// Facebook, X, Discord, LinkedIn, GitLab, and Slack.
+fn first_fixtures() -> Vec<Fixture> {
 	vec![
 		Fixture {
 			provider: "facebook",
@@ -263,6 +276,12 @@ fn fixtures() -> Vec<Fixture> {
 			name: "Katherine",
 			trusted: Some("katherine@slack.example"),
 		},
+	]
+}
+
+/// Twitch, Spotify, Reddit, Amazon, and Dropbox.
+fn second_fixtures() -> Vec<Fixture> {
+	vec![
 		Fixture {
 			provider: "twitch",
 			claims: json!({
@@ -308,6 +327,68 @@ fn fixtures() -> Vec<Fixture> {
 			subject: "dbid:AAH4f",
 			name: "Drew Houston",
 			trusted: Some("drew@dropbox.example"),
+		},
+	]
+}
+
+/// Bitbucket, Notion, Zoom, TikTok, and Yahoo.
+fn third_fixtures() -> Vec<Fixture> {
+	vec![
+		Fixture {
+			provider: "bitbucket",
+			claims: json!({
+				"user": { "uuid": "{a1b2c3}", "display_name": "Ada", "nickname": "ada" },
+				"emails": { "values": [
+					{ "email": "old@bitbucket.example", "is_primary": false, "is_confirmed": true },
+					{ "email": "ada@bitbucket.example", "is_primary": true, "is_confirmed": true },
+				]},
+			}),
+			subject: "{a1b2c3}",
+			name: "Ada",
+			trusted: Some("ada@bitbucket.example"),
+		},
+		Fixture {
+			provider: "notion",
+			claims: json!({ "token": {
+				"workspace_id": "w-1",
+				"owner": { "type": "user", "user": {
+					"object": "user", "id": "e79a0b74", "name": "Avocado Lovelace", "type": "person",
+					"person": { "email": "avo@notion.example" },
+				}},
+			}}),
+			subject: "e79a0b74",
+			name: "Avocado Lovelace",
+			trusted: None,
+		},
+		Fixture {
+			provider: "zoom",
+			claims: json!({ "user": {
+				"id": "KDcuGIm1QgePTO8WbOqwIQ", "display_name": "Jill Chill",
+				"email": "jill@zoom.example", "verified": 1,
+			}}),
+			subject: "KDcuGIm1QgePTO8WbOqwIQ",
+			name: "Jill Chill",
+			trusted: Some("jill@zoom.example"),
+		},
+		Fixture {
+			provider: "tiktok",
+			claims: json!({ "user": {
+				"data": { "user": { "open_id": "723f24d7", "display_name": "Tik Toker" } },
+				"error": { "code": "ok" },
+			}}),
+			subject: "723f24d7",
+			name: "Tik Toker",
+			trusted: None,
+		},
+		Fixture {
+			provider: "yahoo",
+			claims: json!({
+				"sub": "FSVIDUW3D7FSVIDUW3D72F2F", "name": "Yahoo User",
+				"email": "yahoo@yahoo.example", "email_verified": true,
+			}),
+			subject: "FSVIDUW3D7FSVIDUW3D72F2F",
+			name: "Yahoo User",
+			trusted: Some("yahoo@yahoo.example"),
 		},
 	]
 }
@@ -431,6 +512,23 @@ async fn each_provider_is_asked_the_way_it_expects() {
 			"https://www.dropbox.com/oauth2/authorize",
 			"openid profile email",
 		),
+		(
+			"bitbucket",
+			"https://bitbucket.org/site/oauth2/authorize",
+			"account email",
+		),
+		("notion", "https://api.notion.com/v1/oauth/authorize", ""),
+		("zoom", "https://zoom.us/oauth/authorize", "user:read:user"),
+		(
+			"tiktok",
+			"https://www.tiktok.com/v2/auth/authorize/",
+			"user.info.basic",
+		),
+		(
+			"yahoo",
+			"https://api.login.yahoo.com/oauth2/request_auth",
+			"openid email profile",
+		),
 	];
 
 	for (fixture, (provider, authorize, scope)) in fixtures().into_iter().zip(expectations) {
@@ -439,13 +537,34 @@ async fn each_provider_is_asked_the_way_it_expects() {
 			.await;
 		assert!(url.starts_with(&format!("{authorize}?")), "{url}");
 		let query = query(&url);
-		assert_eq!(query["scope"], scope, "{provider}");
-		assert_eq!(query["code_challenge_method"], "S256", "{provider}");
+		// Notion has no scopes, and Notion and TikTok take no PKCE on the
+		// web.
+		let pkce = !["notion", "tiktok"].contains(&provider);
+		assert_eq!(
+			query.get("scope").map_or("", String::as_str),
+			scope,
+			"{provider}"
+		);
+		assert_eq!(
+			query.get("code_challenge_method").map(String::as_str),
+			pkce.then_some("S256"),
+			"{provider}"
+		);
 		assert!(!query.contains_key("prompt"), "{provider}");
 
 		// Reddit gives a short-lived grant unless asked for a lasting one.
 		if provider == "reddit" {
 			assert_eq!(query["duration"], "temporary");
+		}
+
+		// TikTok calls the client ID its client key.
+		if provider == "tiktok" {
+			assert_eq!(query["client_key"], "tiktok-key");
+			assert!(!query.contains_key("client_id"));
+		}
+
+		if provider == "notion" {
+			assert_eq!(query["owner"], "user");
 		}
 	}
 
@@ -559,4 +678,27 @@ async fn a_profile_without_a_usable_id_signs_no_one_in() {
 	assert_eq!(identity.subject, "7", "numeric IDs become text");
 	assert_eq!(identity.email.as_deref(), Some("eve@example.com"));
 	assert!(!identity.email_verified);
+}
+
+#[tokio::test]
+async fn a_notion_grant_signs_in_only_the_person_who_owns_it() {
+	let db = leptoskit_db::testing::sqlite().await;
+	let app = app(&db);
+	let bot = json!({ "token": { "owner": { "type": "workspace", "workspace": true } } });
+	let (outcome, _) = Browser::default().sign_in(&app, "notion", bot).await;
+	assert_eq!(outcome, ProviderOutcome::Failed("provider".into()));
+	let not_a_person = json!({ "token": { "owner": { "type": "user", "user": {
+		"id": "b0t", "type": "bot",
+	}}}});
+	let (outcome, _) = Browser::default()
+		.sign_in(&app, "notion", not_a_person)
+		.await;
+	assert_eq!(outcome, ProviderOutcome::Failed("provider".into()));
+	let requests = app.idp.requests();
+	assert!(
+		requests
+			.iter()
+			.all(|request| !request.contains("api.notion.com/v1/users")),
+		"the token's answer is enough"
+	);
 }

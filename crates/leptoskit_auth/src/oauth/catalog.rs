@@ -11,6 +11,8 @@ use super::Identify;
 use super::Provider;
 use super::Quirks;
 use super::Secret;
+use super::TokenBody;
+use super::profiles::EmailList;
 use super::secure_url;
 use crate::AuthError;
 use crate::Result;
@@ -39,6 +41,11 @@ pub(crate) fn built_in(kind: &str, client_id: String, client_secret: String) -> 
 		"reddit" => Provider::reddit(client_id, client_secret),
 		"amazon" => Provider::amazon(client_id, client_secret),
 		"dropbox" => Provider::dropbox(client_id, client_secret),
+		"bitbucket" => Provider::bitbucket(client_id, client_secret),
+		"notion" => Provider::notion(client_id, client_secret),
+		"zoom" => Provider::zoom(client_id, client_secret),
+		"tiktok" => Provider::tiktok(client_id, client_secret),
+		"yahoo" => Provider::yahoo(client_id, client_secret),
 		_ => return None,
 	})
 }
@@ -68,7 +75,7 @@ fn fixed(
 /// A provider whose API says who signed in.
 fn api(profile: ApiProfile) -> Quirks {
 	Quirks {
-		identify: Identify::Api(profile),
+		identify: Identify::Api(Box::new(profile)),
 		..Quirks::default()
 	}
 }
@@ -365,6 +372,154 @@ impl Provider {
 				"https://api.dropboxapi.com/oauth2/token",
 				Some("https://www.dropbox.com/.well-known/jwks"),
 				Some("https://www.dropbox.com"),
+			),
+			Quirks::default(),
+		)
+	}
+
+	/// Bitbucket Cloud, with an OAuth consumer. Its addresses come from
+	/// `/user/emails`, whose primary entry counts when Bitbucket confirmed
+	/// it.
+	pub fn bitbucket(client_id: impl Into<String>, client_secret: impl Into<String>) -> Self {
+		fixed(
+			"bitbucket",
+			"Bitbucket",
+			client_id.into(),
+			client_secret.into(),
+			&["account", "email"],
+			Endpoints::fixed(
+				"https://bitbucket.org/site/oauth2/authorize",
+				"https://bitbucket.org/site/oauth2/access_token",
+				None,
+				None,
+			),
+			Quirks {
+				client_auth: ClientAuth::Basic,
+				..api(ApiProfile {
+					name: Some("/display_name"),
+					username: Some("/nickname"),
+					picture: Some("/links/avatar/href"),
+					emails: Some(EmailList {
+						url: "https://api.bitbucket.org/2.0/user/emails",
+						list: "/values",
+						email: "/email",
+						primary: "/is_primary",
+						verified: "/is_confirmed",
+					}),
+					..ApiProfile::at("https://api.bitbucket.org/2.0/user", "/uuid")
+				})
+			},
+		)
+	}
+
+	/// Notion, with a public integration. A grant is for one workspace, and
+	/// its owner is the person who signed in: the token endpoint's answer
+	/// names them, and a grant owned by anything but a person signs no one
+	/// in. Notion doesn't say whether it checked their address, so none is
+	/// trusted, and its web sign-in takes no PKCE.
+	pub fn notion(client_id: impl Into<String>, client_secret: impl Into<String>) -> Self {
+		fixed(
+			"notion",
+			"Notion",
+			client_id.into(),
+			client_secret.into(),
+			&[],
+			Endpoints::fixed(
+				"https://api.notion.com/v1/oauth/authorize",
+				"https://api.notion.com/v1/oauth/token",
+				None,
+				None,
+			),
+			Quirks {
+				client_auth: ClientAuth::Basic,
+				authorize: vec![("owner", "user".to_owned())],
+				pkce: false,
+				token_body: TokenBody::Json,
+				..api(ApiProfile {
+					url: None,
+					name: Some("/owner/user/name"),
+					picture: Some("/owner/user/avatar_url"),
+					email: Some("/owner/user/person/email"),
+					person: Some(("/owner/user/type", "person")),
+					..ApiProfile::at("", "/owner/user/id")
+				})
+			},
+		)
+	}
+
+	/// Zoom, with a general app's user-managed OAuth. Its `verified` flag
+	/// (`1`) says whether it checked the address.
+	pub fn zoom(client_id: impl Into<String>, client_secret: impl Into<String>) -> Self {
+		fixed(
+			"zoom",
+			"Zoom",
+			client_id.into(),
+			client_secret.into(),
+			&["user:read:user"],
+			Endpoints::fixed(
+				"https://zoom.us/oauth/authorize",
+				"https://zoom.us/oauth/token",
+				None,
+				None,
+			),
+			Quirks {
+				client_auth: ClientAuth::Basic,
+				..api(ApiProfile {
+					name: Some("/display_name"),
+					picture: Some("/pic_url"),
+					email: Some("/email"),
+					verified: Some("/verified"),
+					..ApiProfile::at("https://api.zoom.us/v2/users/me", "/id")
+				})
+			},
+		)
+	}
+
+	/// TikTok, through Login Kit for the web, with an app's client key and
+	/// secret. TikTok calls the client ID `client_key`, separates scopes
+	/// with commas, takes no PKCE on the web, and shares no address.
+	pub fn tiktok(client_key: impl Into<String>, client_secret: impl Into<String>) -> Self {
+		fixed(
+			"tiktok",
+			"TikTok",
+			client_key.into(),
+			client_secret.into(),
+			&["user.info.basic"],
+			Endpoints::fixed(
+				"https://www.tiktok.com/v2/auth/authorize/",
+				"https://open.tiktokapis.com/v2/oauth/token/",
+				None,
+				None,
+			),
+			Quirks {
+				client_id_param: "client_key",
+				scope_separator: ",",
+				pkce: false,
+				..api(ApiProfile {
+					name: Some("/data/user/display_name"),
+					picture: Some("/data/user/avatar_url"),
+					..ApiProfile::at(
+						"https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name",
+						"/data/user/open_id",
+					)
+				})
+			},
+		)
+	}
+
+	/// Yahoo, through its OpenID Connect sign-in, with `email_verified`.
+	pub fn yahoo(client_id: impl Into<String>, client_secret: impl Into<String>) -> Self {
+		fixed(
+			"yahoo",
+			"Yahoo",
+			client_id.into(),
+			client_secret.into(),
+			&["openid", "email", "profile"],
+			Endpoints::fixed(
+				"https://api.login.yahoo.com/oauth2/request_auth",
+				"https://api.login.yahoo.com/oauth2/get_token",
+				Some("https://api.login.yahoo.com/openid/v1/certs"),
+				Some("https://api.login.yahoo.com"),
 			),
 			Quirks::default(),
 		)

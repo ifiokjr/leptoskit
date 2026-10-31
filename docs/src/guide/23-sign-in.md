@@ -510,7 +510,7 @@ The same passkey works on your site and in your apps, because they share the rel
 
 ## Sign in with other sites
 
-Many people would rather "Continue with Google" than wait for an email. leptoskit has built-in definitions for Google, Apple, Microsoft, GitHub, Facebook, X, Discord, LinkedIn, GitLab, Slack, Twitch, Spotify, Reddit, Amazon, and Dropbox, and signs in with any OpenID Connect provider, such as Okta, Auth0, Keycloak, or your company's Entra tenant. Each has a [setup page](auth/providers/google.md).
+Many people would rather "Continue with Google" than wait for an email. leptoskit has built-in definitions for Google, Apple, Microsoft, GitHub, Facebook, X, Discord, LinkedIn, GitLab, Slack, Twitch, Spotify, Reddit, Amazon, Dropbox, Bitbucket, Notion, Zoom, TikTok, and Yahoo, and signs in with any OpenID Connect provider, such as Okta, Auth0, Keycloak, or your company's Entra tenant. Each has a [setup page](auth/providers/google.md).
 
 Add one from the command line, which writes its `[auth.providers.<id>]` table and prints its setup steps:
 
@@ -558,7 +558,7 @@ The page goes to the provider's sign-in page, and comes back to `redirect_to` (a
 | `Merge`            | It belongs to another account here, which can be merged into this one                     |
 | `Failed(code)`     | It didn't work: `cancelled`, `sign_in_expired`, `provider`, `locked`, …                   |
 
-Who someone is at a provider is the provider's own ID for them, never their email address: some providers let people set any address, and trusting it is how accounts get taken over. So a provider sign-in never signs in to an account just because the email matches. When it does match, the outcome is `EmailInUse`: the person can sign in to that account with their email and connect the provider from its security screen, or `continue_provider_sign_up()` for a separate account without that address. An address is only stored as verified when the provider vouches for it. Microsoft, Facebook, X, Spotify, Reddit, and Amazon never do, so accounts made with them start without an address.
+Who someone is at a provider is the provider's own ID for them, never their email address: some providers let people set any address, and trusting it is how accounts get taken over. So a provider sign-in never signs in to an account just because the email matches. When it does match, the outcome is `EmailInUse`: the person can sign in to that account with their email and connect the provider from its security screen, or `continue_provider_sign_up()` for a separate account without that address. An address is only stored as verified when the provider vouches for it. Microsoft, Facebook, X, Spotify, Reddit, Amazon, Notion, and TikTok never do, so accounts made with them start without an address.
 
 ### Connecting, disconnecting, and merging
 
@@ -591,7 +591,7 @@ Your providers need no extra setup for apps: the provider sends the browser back
 
 ### How it's kept safe
 
-- Every flow uses PKCE (`S256`), a random `state`, and, for OpenID Connect, a `nonce`. They're kept on the server, encrypted, for ten minutes, and the browser keeps only a random token in an `HttpOnly` cookie, so a sign-in only finishes in the browser that started it.
+- Every flow uses PKCE (`S256`), except with Notion and TikTok, whose web sign-ins don't take it, a random `state`, and, for OpenID Connect, a `nonce`. They're kept on the server, encrypted, for ten minutes, and the browser keeps only a random token in an `HttpOnly` cookie, so a sign-in only finishes in the browser that started it.
 - ID tokens must be signed by a key the provider publishes (RS256, PS256, ES256, ES384, or EdDSA; never `none` or a shared secret), for your client, from the right issuer (for Microsoft, the person's own tenant), unexpired, and with the flow's nonce.
 - Apple posts its answer from its own site, which `SameSite` cookies don't follow, so that post only gets a page that posts it again from your site; it never signs anyone in by itself.
 - Provider secrets come from environment variables; Apple's client secret is signed for each request from your `.p8` key, so there's nothing to rotate.

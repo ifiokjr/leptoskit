@@ -16,8 +16,9 @@ use crate::providers::ProviderProfile;
 /// Where a provider's API says who signed in, and how to read it.
 #[derive(Clone, Debug)]
 pub(crate) struct ApiProfile {
-	/// The URL to `GET` with the access token.
-	pub url: String,
+	/// The URL to `GET` with the access token; `None` when the token
+	/// endpoint's answer says who signed in, as Notion's does.
+	pub url: Option<String>,
 	/// Headers it needs besides the access token, such as an API version.
 	pub headers: &'static [(&'static str, &'static str)],
 	/// The person's stable ID: a string or a number.
@@ -37,6 +38,10 @@ pub(crate) struct ApiProfile {
 	/// A separate list of addresses, for providers that keep them apart,
 	/// such as GitHub.
 	pub emails: Option<EmailList>,
+	/// A value the answer must hold for it to be a person, such as Notion's
+	/// `/owner/user/type` of `person`: a grant owned by a bot or a whole
+	/// workspace signs no one in.
+	pub person: Option<(&'static str, &'static str)>,
 }
 
 /// A list of someone's addresses, of which the primary one is theirs.
@@ -59,7 +64,7 @@ impl ApiProfile {
 	/// yet.
 	pub(crate) fn at(url: impl Into<String>, subject: &'static str) -> Self {
 		Self {
-			url: url.into(),
+			url: Some(url.into()),
 			headers: &[],
 			subject,
 			name: None,
@@ -68,6 +73,7 @@ impl ApiProfile {
 			email: None,
 			verified: None,
 			emails: None,
+			person: None,
 		}
 	}
 
@@ -90,11 +96,13 @@ impl ApiProfile {
 		}
 	}
 
-	/// Reads who `access` belongs to.
+	/// Reads who `access` belongs to: from the profile API, or from the
+	/// token endpoint's answer, `tokens`.
 	pub(crate) async fn read(
 		&self,
 		providers: &Providers,
 		access: &str,
+		tokens: &Value,
 		user_agent: Option<(String, String)>,
 	) -> Result<ProviderProfile> {
 		let request = |url: &str| {
@@ -102,7 +110,19 @@ impl ApiProfile {
 			request.headers.extend(user_agent.clone());
 			request
 		};
-		let profile: Value = providers.json(request(&self.url)).await?;
+		let profile: Value = match &self.url {
+			Some(url) => providers.json(request(url)).await?,
+			None => tokens.clone(),
+		};
+
+		if let Some((pointer, expected)) = self.person
+			&& profile.pointer(pointer).and_then(Value::as_str) != Some(expected)
+		{
+			return Err(AuthError::Provider(
+				"the provider's grant doesn't belong to a person".into(),
+			));
+		}
+
 		let subject = match profile.pointer(self.subject) {
 			Some(Value::String(subject)) => subject.clone(),
 			Some(Value::Number(subject)) => subject.to_string(),
