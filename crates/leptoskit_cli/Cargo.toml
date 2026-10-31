@@ -73,6 +73,7 @@ leptoskit_testing = { workspace = true, features = ["native-ui", "schema"] }
 leptoskit_wasm = { workspace = true }
 notify = { workspace = true }
 plist = "1.10"
+postgresql_embedded = { workspace = true }
 rayon = { workspace = true }
 ring = { workspace = true }
 roxmltree = "0.21"

@@ -691,6 +691,8 @@ fn the_database_table_turns_on_migrations() {
 	assert_eq!(db.migrations, PathBuf::from("migrations"));
 	assert_eq!(db.url_env, "DATABASE_URL");
 	assert_eq!(db.features, ["server"]);
+	assert_eq!(db.dev_server, leptoskit_config::DbDevServer::Auto);
+	assert_eq!(db.watch, leptoskit_config::DbWatch::Migrate);
 	assert_eq!(
 		db.package(&config.app),
 		format!("{}_db", config.app.name.replace('-', "_"))
@@ -729,6 +731,37 @@ fn the_database_table_turns_on_migrations() {
 	assert_eq!(db.features, ["server", "sqlite"]);
 	assert_eq!(db.migrations, PathBuf::from("db/migrations"));
 	assert_eq!(db.url_env, "STORE_URL");
+
+	// The development database and the watch, which a new project leaves out
+	// while they're the defaults.
+	let config = load(
+		"db_dev",
+		"[db]
+dev_server = \"embedded\"
+watch = \"report\"
+",
+	)
+	.expect("load");
+	let db = config.db.as_ref().expect("db");
+	assert_eq!(db.dev_server, leptoskit_config::DbDevServer::Embedded);
+	assert_eq!(db.watch, leptoskit_config::DbWatch::Report);
+	let written = config.to_toml_string().unwrap();
+	assert!(written.contains("dev_server = \"embedded\""), "{written}");
+	assert!(written.contains("watch = \"report\""), "{written}");
+	let defaults = load(
+		"db_dev_defaults",
+		"[db]
+",
+	)
+	.unwrap()
+	.to_toml_string()
+	.unwrap();
+	assert!(!defaults.contains("dev_server") && !defaults.contains("watch"));
+
+	for (setting, value) in [("dev_server", "docker"), ("watch", "push")] {
+		let error = load("db_bad_dev", &format!("[db]\n{setting} = \"{value}\"\n")).unwrap_err();
+		assert!(format!("{error:?}").contains(value), "{error:?}");
+	}
 }
 
 #[test]

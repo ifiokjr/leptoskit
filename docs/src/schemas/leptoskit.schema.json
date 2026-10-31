@@ -598,6 +598,10 @@
 						"null"
 					]
 				},
+				"dev_server": {
+					"description": "Where `leptoskit dev` and `leptoskit db` find a Postgres database\nwhen `url_env` isn't set.",
+					"$ref": "#/$defs/DbDevServer"
+				},
 				"dialect": {
 					"description": "The SQL dialect every migration is written for.",
 					"$ref": "#/$defs/DbDialect",
@@ -622,9 +626,38 @@
 					"description": "The environment variable holding the database URL for `leptoskit db\nmigrate` and `leptoskit db status`.",
 					"type": "string",
 					"default": "DATABASE_URL"
+				},
+				"watch": {
+					"description": "What `leptoskit dev` does when the tables change.",
+					"$ref": "#/$defs/DbWatch"
 				}
 			},
 			"additionalProperties": false
+		},
+		"DbDevServer": {
+			"description": "The Postgres database development uses when `db.url_env` isn't set.",
+			"oneOf": [
+				{
+					"description": "devenv's `services.postgres` when `devenv.nix` enables it, and the\nembedded server otherwise.",
+					"type": "string",
+					"const": "auto"
+				},
+				{
+					"description": "devenv's `services.postgres`: run `leptoskit dev` inside `devenv\nshell` while `devenv up` runs.",
+					"type": "string",
+					"const": "devenv"
+				},
+				{
+					"description": "A Postgres that `leptoskit dev` runs itself, with its data in\n`.leptoskit/db/postgres`. The first run downloads it once into\n`~/.cache/leptoskit/postgresql`.",
+					"type": "string",
+					"const": "embedded"
+				},
+				{
+					"description": "None: set `db.url_env` yourself.",
+					"type": "string",
+					"const": "off"
+				}
+			]
 		},
 		"DbDialect": {
 			"description": "The SQL dialect a project's migrations are written for.",
@@ -638,6 +671,26 @@
 					"description": "SQLite.",
 					"type": "string",
 					"const": "sqlite"
+				}
+			]
+		},
+		"DbWatch": {
+			"description": "What `leptoskit dev` does when the tables change.",
+			"oneOf": [
+				{
+					"description": "Writes a migration for changes that keep every row and applies it to\nthe development database. Changes that would delete data write\nnothing and say which command to run.",
+					"type": "string",
+					"const": "migrate"
+				},
+				{
+					"description": "Only prints what changed since the latest migration.",
+					"type": "string",
+					"const": "report"
+				},
+				{
+					"description": "Ignores the tables.",
+					"type": "string",
+					"const": "off"
 				}
 			]
 		},
