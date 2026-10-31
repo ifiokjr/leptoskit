@@ -636,10 +636,13 @@ fn published_operations_join_the_spec_with_their_kind() {
 			.all(|function| function.name != "bump")
 	);
 
+	// The crate's own operations, such as `rpc.job_status` with a driver,
+	// register beside the app's.
 	let names: Vec<&str> = rpc::server::registrations()
 		.unwrap()
 		.iter()
 		.map(|registration| registration.name)
+		.filter(|name| !name.starts_with("rpc."))
 		.collect();
 	assert_eq!(
 		names,
