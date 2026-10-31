@@ -15,6 +15,9 @@ description = "Axum server toolkit for leptoskit apps: static assets, code push 
 [dependencies]
 axum = { workspace = true }
 leptoskit_codepush = { workspace = true, features = ["server"] }
+# `[native]` describes the apps whose associations the site publishes.
+leptoskit_config = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 # Re-exported for server binaries, so `#[tokio::main]` and a multi-threaded
 # runtime work through this crate alone.
@@ -27,7 +30,6 @@ tower-http = { workspace = true, features = ["fs", "limit", "set-header", "timeo
 [dev-dependencies]
 http-body-util = "0.1"
 semver = { workspace = true }
-serde_json = { workspace = true }
 
 [lints]
 workspace = true

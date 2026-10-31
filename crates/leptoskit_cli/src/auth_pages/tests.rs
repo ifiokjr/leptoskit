@@ -506,8 +506,8 @@ fn plugin_hosts_get_the_sign_in_plugins_and_the_config_grants_them() {
 
 	assert!(
 		report.changed.contains(
-			&"updated ios/Cargo.toml: added leptoskit_plugin_http and \
-			  leptoskit_plugin_secure_store"
+			&"updated ios/Cargo.toml: added leptoskit_plugin_http, leptoskit_plugin_secure_store, \
+			  leptoskit_plugin_passkeys, and leptoskit_plugin_web_auth"
 				.to_owned()
 		),
 		"{:?}",
@@ -515,8 +515,8 @@ fn plugin_hosts_get_the_sign_in_plugins_and_the_config_grants_them() {
 	);
 	assert!(
 		report.changed.contains(
-			&"updated leptoskit.toml: granted http, granted secure-store, let the HTTP plugin \
-			  reach the development server"
+			&"updated leptoskit.toml: granted http, granted secure-store, granted passkeys, \
+			  granted web-auth, let the HTTP plugin reach the development server"
 				.to_owned()
 		),
 		"{:?}",
@@ -551,8 +551,18 @@ fn plugin_hosts_get_the_sign_in_plugins_and_the_config_grants_them() {
 		"[package]\nname = \"app_linux\"\n\n[dependencies]\nleptoskit = \"0.1\"\n"
 	);
 
+	assert!(
+		android.contains(
+			"leptoskit_plugin_web_auth = { version = \"0.1\", default-features = false }"
+		),
+		"{android}"
+	);
+
 	let config = LeptoskitConfig::load_from(root.path()).unwrap();
-	assert_eq!(config.native.plugins, ["http", "secure-store"]);
+	assert_eq!(
+		config.native.plugins,
+		["http", "secure-store", "passkeys", "web-auth"]
+	);
 	assert_eq!(
 		config.native.plugin_options["http"]["origins"],
 		toml::Value::Array(vec![
@@ -595,14 +605,18 @@ fn the_apps_own_plugin_choices_are_kept() {
 	let report = run(root.path(), false);
 
 	assert!(
-		report
-			.changed
-			.contains(&"updated leptoskit.toml: granted secure-store".to_owned()),
+		report.changed.contains(
+			&"updated leptoskit.toml: granted secure-store, granted passkeys, granted web-auth"
+				.to_owned()
+		),
 		"{:?}",
 		report.changed
 	);
 	let config = LeptoskitConfig::load_from(root.path()).unwrap();
-	assert_eq!(config.native.plugins, ["http", "secure-store"]);
+	assert_eq!(
+		config.native.plugins,
+		["http", "secure-store", "passkeys", "web-auth"]
+	);
 	assert_eq!(
 		config.native.plugin_options["http"]["origins"],
 		toml::Value::Array(vec!["https://notes.example".into()])

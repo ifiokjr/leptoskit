@@ -170,16 +170,7 @@ impl Security {
 	pub fn new(enabled: impl Fn() -> bool + Clone + Send + Sync + 'static) -> Self {
 		let notice = RwSignal::new(None);
 		// Coming back from connecting a provider, say how it went.
-		Effect::new(move |_| {
-			notice.set(match provider_outcome() {
-				Some(ProviderOutcome::Linked) => Some("It's connected.".to_owned()),
-				Some(ProviderOutcome::AlreadyLinked) => {
-					Some("That account was already connected.".to_owned())
-				}
-				Some(ProviderOutcome::Failed(code)) => Some(provider_failure(&code)),
-				_ => None,
-			});
-		});
+		Effect::new(move |_| notice.set(connected()));
 
 		Self {
 			status: use_query_with(
@@ -950,12 +941,17 @@ impl Security {
 				);
 			}
 			Change::Link(provider) => {
+				// A native app comes back from the system browser here; a
+				// browser comes back to the page, which reads it on mount.
+				let notice = self.notice;
 				self.link.mutate_with(
 					StartProvider {
 						provider,
 						redirect_to: None,
 					},
-					MutateCallbacks::new().on_error(move |args| failed(&args.error)),
+					MutateCallbacks::new()
+						.on_success(move |_| notice.set(connected()))
+						.on_error(move |args| failed(&args.error)),
 				);
 			}
 			Change::Unlink(id) => {
@@ -1205,6 +1201,18 @@ pub fn data_preview(data: &[MergeData]) -> String {
 		})
 		.collect::<Vec<_>>()
 		.join(" ")
+}
+
+/// What connecting a provider ended with, to say so.
+fn connected() -> Option<String> {
+	match provider_outcome() {
+		Some(ProviderOutcome::Linked) => Some("It's connected.".to_owned()),
+		Some(ProviderOutcome::AlreadyLinked) => {
+			Some("That account was already connected.".to_owned())
+		}
+		Some(ProviderOutcome::Failed(code)) => Some(provider_failure(&code)),
+		_ => None,
+	}
 }
 
 /// The setup link as a QR code, black on white, which every platform
