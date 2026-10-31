@@ -13,6 +13,8 @@
 //! Queries and mutations run on a database, so everything past the registry
 //! needs a driver: the `postgres` or `sqlite` feature.
 
+#[cfg(feature = "live")]
+pub mod channel;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod cx;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -26,6 +28,8 @@ pub mod receipts;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod run;
 
+#[cfg(feature = "live")]
+pub use channel::ChannelRegistration;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use cx::MutationCx;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]

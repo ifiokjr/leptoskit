@@ -35,6 +35,7 @@ use futures::channel::mpsc::UnboundedSender;
 use futures::channel::oneshot;
 use futures::future::Either;
 use futures::future::FutureExt;
+use leptos::prelude::Update as _;
 use leptos::prelude::*;
 use leptoskit_query::BoxFuture;
 use leptoskit_query::QueryClient;
@@ -48,8 +49,10 @@ use super::Credentials;
 use super::FnError;
 use super::query_scope;
 use super::use_rpc_query;
+use crate::Channel;
 use crate::Operation;
 use crate::live::ClientFrame;
+use crate::live::PresenceMember;
 use crate::live::Resume;
 #[allow(unused_imports, reason = "only a socket build speaks the subprotocol")]
 use crate::live::SUBPROTOCOL;
@@ -86,6 +89,7 @@ struct Inner {
 	credentials: Option<Arc<dyn Credentials>>,
 	commands: UnboundedSender<Command>,
 	subscribers: Mutex<HashMap<u32, Subscriber>>,
+	channels: Mutex<HashMap<String, JoinedChannel>>,
 	pending: Mutex<HashMap<u32, oneshot::Sender<Result<Value, WireError>>>>,
 	mutations: Mutex<HashMap<u32, PendingMutation>>,
 	next_id: AtomicU32,
@@ -104,10 +108,36 @@ struct PendingMutation {
 	key: Option<String>,
 }
 
+struct JoinedChannel {
+	name: String,
+	args: Value,
+	state: Value,
+	sender: UnboundedSender<ChannelEvent>,
+}
+
+/// What happened in a channel.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ChannelEvent {
+	/// Someone else sent a message.
+	Signal {
+		/// Who sent it, when the server can say.
+		from: Option<String>,
+		/// The message.
+		message: Value,
+	},
+	/// Who is in the channel now.
+	Presence(Vec<PresenceMember>),
+	/// The server refused the join, or the identity lost access.
+	Error(WireError),
+}
+
 enum Command {
 	Subscribe(u32),
 	Unsubscribe(u32),
 	Mutate(u32),
+	Join(String),
+	Leave(String),
+	Signal(String, Value),
 	Reconnect,
 }
 
@@ -120,6 +150,7 @@ impl LiveClient {
 			credentials: config.credentials.clone(),
 			commands,
 			subscribers: Mutex::new(HashMap::new()),
+			channels: Mutex::new(HashMap::new()),
 			pending: Mutex::new(HashMap::new()),
 			mutations: Mutex::new(HashMap::new()),
 			next_id: AtomicU32::new(1),
@@ -156,6 +187,58 @@ impl LiveClient {
 	pub fn unsubscribe(&self, id: u32) {
 		self.inner.subscribers().remove(&id);
 		let _ = self.inner.commands.unbounded_send(Command::Unsubscribe(id));
+	}
+
+	/// Joins a channel, with the presence this connection shows.
+	///
+	/// The returned key names the join instance; the receiver yields who is
+	/// there and what they send. Call [`leave`](Self::leave) to stop.
+	#[expect(
+		clippy::needless_pass_by_value,
+		reason = "a join reads `join(Chat { channel }, …)`: the arguments are built for it"
+	)]
+	pub fn join<C: Channel>(
+		&self,
+		args: C,
+		state: Option<C::Presence>,
+	) -> (String, UnboundedReceiver<ChannelEvent>) {
+		let key = serde_json::to_string(&args).expect("a channel's arguments serialize");
+		let (sender, receiver) = mpsc::unbounded();
+		let state = serde_json::to_value(state.unwrap_or_default()).unwrap_or(Value::Null);
+		self.inner.channels().insert(
+			key.clone(),
+			JoinedChannel {
+				name: C::NAME.to_owned(),
+				args: serde_json::to_value(&args).unwrap_or(Value::Null),
+				state,
+				sender,
+			},
+		);
+		let _ = self
+			.inner
+			.commands
+			.unbounded_send(Command::Join(key.clone()));
+		(key, receiver)
+	}
+
+	/// Leaves the channel instance `key`.
+	pub fn leave(&self, key: &str) {
+		self.inner.channels().remove(key);
+		let _ = self
+			.inner
+			.commands
+			.unbounded_send(Command::Leave(key.to_owned()));
+	}
+
+	/// Sends `message` to everyone else in the channel instance `key`.
+	pub fn signal<C: Channel>(&self, key: &str, message: &C::Message) {
+		let Ok(message) = serde_json::to_value(message) else {
+			return;
+		};
+		let _ = self
+			.inner
+			.commands
+			.unbounded_send(Command::Signal(key.to_owned(), message));
 	}
 
 	/// Runs a mutation over the socket, with its idempotency key.
@@ -213,6 +296,10 @@ impl Inner {
 			.lock()
 			.unwrap_or_else(PoisonError::into_inner)
 	}
+
+	fn channels(&self) -> MutexGuard<'_, HashMap<String, JoinedChannel>> {
+		self.channels.lock().unwrap_or_else(PoisonError::into_inner)
+	}
 }
 
 async fn send(connection: &dyn Connection, frame: &ClientFrame) -> bool {
@@ -222,6 +309,10 @@ async fn send(connection: &dyn Connection, frame: &ClientFrame) -> bool {
 	connection.send(text).await.is_ok()
 }
 
+#[expect(
+	clippy::cognitive_complexity,
+	reason = "one connection's state machine reads best in one place"
+)]
 async fn run(inner: Arc<Inner>, mut commands: UnboundedReceiver<Command>) {
 	let mut backoff = BACKOFF_START;
 
@@ -246,6 +337,7 @@ async fn run(inner: Arc<Inner>, mut commands: UnboundedReceiver<Command>) {
 		}
 		resubscribe(inner.as_ref(), connection.as_ref()).await;
 		resend_mutations(inner.as_ref(), connection.as_ref()).await;
+		rejoin(inner.as_ref(), connection.as_ref()).await;
 
 		loop {
 			let command = commands.next().fuse();
@@ -283,6 +375,35 @@ async fn run(inner: Arc<Inner>, mut commands: UnboundedReceiver<Command>) {
 					if let Some(frame) = frame
 						&& !send(connection.as_ref(), &frame).await
 					{
+						break;
+					}
+				}
+				Either::Left((Some(Command::Join(key)), _)) => {
+					let frame = inner.channels().get(&key).map(|channel| {
+						ClientFrame::Join {
+							channel: key.clone(),
+							name: channel.name.clone(),
+							args: channel.args.clone(),
+							state: channel.state.clone(),
+						}
+					});
+					if let Some(frame) = frame
+						&& !send(connection.as_ref(), &frame).await
+					{
+						break;
+					}
+				}
+				Either::Left((Some(Command::Leave(key)), _)) => {
+					if !send(connection.as_ref(), &ClientFrame::Leave { channel: key }).await {
+						break;
+					}
+				}
+				Either::Left((Some(Command::Signal(key, message)), _)) => {
+					let frame = ClientFrame::Signal {
+						channel: key,
+						message,
+					};
+					if !send(connection.as_ref(), &frame).await {
 						break;
 					}
 				}
@@ -350,9 +471,30 @@ fn dispatch(inner: &Inner, text: &str) {
 		ServerFrame::Reconnect { .. } => {
 			let _ = inner.commands.unbounded_send(Command::Reconnect);
 		}
-		ServerFrame::Signal { .. }
-		| ServerFrame::Presence { .. }
-		| ServerFrame::Item { .. }
+		ServerFrame::Signal {
+			channel,
+			from,
+			message,
+		} => {
+			if let Some(joined) = inner.channels().get(&channel) {
+				let _ = joined
+					.sender
+					.unbounded_send(ChannelEvent::Signal { from, message });
+			}
+		}
+		ServerFrame::Presence { channel, members } => {
+			if let Some(joined) = inner.channels().get(&channel) {
+				let _ = joined
+					.sender
+					.unbounded_send(ChannelEvent::Presence(members));
+			}
+		}
+		ServerFrame::ChannelError { channel, err } => {
+			if let Some(joined) = inner.channels().get(&channel) {
+				let _ = joined.sender.unbounded_send(ChannelEvent::Error(err));
+			}
+		}
+		ServerFrame::Item { .. }
 		| ServerFrame::End { .. }
 		| ServerFrame::Pong
 		| ServerFrame::Unknown => {}
@@ -388,6 +530,26 @@ async fn resend_mutations(inner: &Inner, connection: &dyn Connection) {
 				name: mutation.name.clone(),
 				args: mutation.args.clone(),
 				key: mutation.key.clone(),
+			}
+		})
+		.collect();
+	for frame in frames {
+		if !send(connection, &frame).await {
+			return;
+		}
+	}
+}
+
+async fn rejoin(inner: &Inner, connection: &dyn Connection) {
+	let frames: Vec<ClientFrame> = inner
+		.channels()
+		.iter()
+		.map(|(key, channel)| {
+			ClientFrame::Join {
+				channel: key.clone(),
+				name: channel.name.clone(),
+				args: channel.args.clone(),
+				state: channel.state.clone(),
 			}
 		})
 		.collect();
@@ -676,6 +838,112 @@ fn live_here() -> bool {
 	))
 }
 
+/// What a channel's screen sees: who is in it, what they sent, and a way
+/// to send.
+pub struct ChannelHandle<C: Channel> {
+	key: StoredValue<Option<String>>,
+	members: RwSignal<Vec<PresenceMember>>,
+	signals: RwSignal<Vec<C::Message>>,
+}
+
+impl<C: Channel> ChannelHandle<C> {
+	/// Who is in the channel now, newest presence first.
+	pub fn members(&self) -> ReadSignal<Vec<PresenceMember>> {
+		self.members.read_only()
+	}
+
+	/// The last 100 messages the others sent, oldest first.
+	pub fn signals(&self) -> ReadSignal<Vec<C::Message>> {
+		self.signals.read_only()
+	}
+
+	/// Sends a message to everyone else in the channel.
+	#[expect(
+		clippy::needless_pass_by_value,
+		reason = "a signal reads `chat.signal(Typing { … })`: the message is built for it"
+	)]
+	pub fn signal(&self, message: C::Message) {
+		let Some(key) = self.key.get_value() else {
+			return;
+		};
+		if let Some(live) = CLIENT.get() {
+			live.signal::<C>(&key, &message);
+		}
+	}
+
+	/// Forgets the messages received so far.
+	pub fn clear_signals(&self) {
+		self.signals.set(Vec::new());
+	}
+}
+
+/// Joins a channel while the component is mounted, and leaves when the
+/// join arguments change or it unmounts.
+///
+/// ```ignore
+/// let chat = rpc::use_channel::<Chat>(move || Chat { channel });
+/// let typing = move || chat.signals().get();
+/// chat.signal(Typing { who: me, at: now() });
+/// ```
+///
+/// The `authorize` function runs as the caller on the server; a refusal
+/// arrives as an empty presence and no messages. Signals are at most once:
+/// anything that must survive belongs in a live table and a live query.
+#[track_caller]
+pub fn use_channel<C>(args: impl Fn() -> C + Send + Sync + 'static) -> ChannelHandle<C>
+where
+	C: Channel,
+{
+	let members = RwSignal::new(Vec::new());
+	let signals = RwSignal::new(Vec::new());
+	let key = StoredValue::new(None::<String>);
+
+	if live_here() {
+		let args = Arc::new(args);
+		Effect::new_isomorphic(move |_| {
+			let args = args();
+			let Some(live) = CLIENT.get() else {
+				return;
+			};
+			if let Some(previous) = key.get_value() {
+				live.leave(&previous);
+			}
+			let (joined, mut events) = live.join(args, None);
+			key.set_value(Some(joined));
+			Executor::spawn_local(async move {
+				while let Some(event) = events.next().await {
+					match event {
+						ChannelEvent::Presence(next) => members.set(next),
+						ChannelEvent::Signal { message, .. } => {
+							push_signal::<C>(signals, message);
+						}
+						ChannelEvent::Error(_) => {}
+					}
+				}
+			});
+		});
+	}
+
+	ChannelHandle {
+		key,
+		members,
+		signals,
+	}
+}
+
+/// Keeps the newest 100 signals, oldest first.
+fn push_signal<C: Channel>(signals: RwSignal<Vec<C::Message>>, message: Value) {
+	let Ok(message) = serde_json::from_value::<C::Message>(message) else {
+		return;
+	};
+	signals.update(|list| {
+		if list.len() >= 100 {
+			list.remove(0);
+		}
+		list.push(message);
+	});
+}
+
 /// A live query: the same cached query [`use_rpc_query`] returns, kept
 /// current from the socket.
 ///
@@ -896,6 +1164,99 @@ mod tests {
 					})
 				);
 				assert_eq!(client.version(), 1);
+			})
+			.await;
+	}
+
+	#[derive(Clone, serde::Deserialize, serde::Serialize)]
+	struct Room {
+		id: u32,
+	}
+
+	impl Channel for Room {
+		type Message = String;
+		type Presence = ();
+
+		const NAME: &'static str = "room";
+	}
+
+	#[tokio::test]
+	async fn a_channel_joins_sends_and_reads_presence() {
+		start();
+		let local = tokio::task::LocalSet::new();
+		local
+			.run_until(async {
+				let socket = Memory::default();
+				let client = LiveClient::new(&ClientConfig::new(), Arc::new(socket.clone()));
+				assert!(matches!(
+					socket.next_sent().await,
+					ClientFrame::Hello { .. }
+				));
+
+				let (key, mut events) = client.join(Room { id: 7 }, None);
+				let ClientFrame::Join {
+					channel,
+					name,
+					args,
+					state,
+				} = socket.next_sent().await
+				else {
+					panic!("the join is sent");
+				};
+				assert_eq!(channel, key);
+				assert_eq!(name, "room");
+				assert_eq!(args, json!({ "id": 7 }));
+				assert_eq!(state, json!(null));
+
+				socket.server_says(&ServerFrame::Presence {
+					channel: key.clone(),
+					members: vec![PresenceMember {
+						id: "ada".into(),
+						state: json!({ "name": "Ada" }),
+					}],
+				});
+				assert_eq!(
+					tokio::time::timeout(Duration::from_secs(2), events.next())
+						.await
+						.unwrap()
+						.unwrap(),
+					ChannelEvent::Presence(vec![PresenceMember {
+						id: "ada".into(),
+						state: json!({ "name": "Ada" }),
+					}])
+				);
+
+				client.signal::<Room>(&key, &"typing".to_owned());
+				let ClientFrame::Signal {
+					channel, message, ..
+				} = socket.next_sent().await
+				else {
+					panic!("the signal is sent");
+				};
+				assert_eq!(channel, key);
+				assert_eq!(message, json!("typing"));
+
+				socket.server_says(&ServerFrame::Signal {
+					channel: key.clone(),
+					from: Some("grace".into()),
+					message: json!("hi"),
+				});
+				assert_eq!(
+					tokio::time::timeout(Duration::from_secs(2), events.next())
+						.await
+						.unwrap()
+						.unwrap(),
+					ChannelEvent::Signal {
+						from: Some("grace".into()),
+						message: json!("hi"),
+					}
+				);
+
+				client.leave(&key);
+				assert!(matches!(
+					socket.next_sent().await,
+					ClientFrame::Leave { .. }
+				));
 			})
 			.await;
 	}

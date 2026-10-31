@@ -71,12 +71,19 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+pub use channel::Channel;
+pub use channel::assert_channel_argument;
+pub use channel::assert_channel_message;
+pub use channel::assert_channel_presence;
+#[cfg(feature = "client")]
+pub use client::use_channel;
 #[cfg(feature = "client")]
 pub use client::use_live;
 use leptos::prelude::Action;
 use leptos::prelude::ArcAsyncDerived;
 use leptos::prelude::ServerFnError;
 pub use leptoskit_rpc_macros::api;
+pub use leptoskit_rpc_macros::channel;
 pub use leptoskit_rpc_macros::mutation;
 pub use leptoskit_rpc_macros::query;
 pub use operation::Error;
@@ -101,6 +108,7 @@ pub use server::QueryCx;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use server::call;
 
+mod channel;
 #[cfg(feature = "client")]
 pub mod client;
 pub mod live;
@@ -115,12 +123,19 @@ pub mod spec;
 /// the public API.
 #[doc(hidden)]
 pub mod __private {
+	pub use std::boxed::Box;
+
 	#[cfg(feature = "ssr")]
 	pub use inventory;
 	pub use leptos::server_fn::ServerFn;
+	pub use leptoskit_query::BoxFuture;
 	pub use schemars;
 	pub use serde;
+	pub use serde_json;
 
+	pub use crate::channel::assert_channel_argument;
+	pub use crate::channel::assert_channel_message;
+	pub use crate::channel::assert_channel_presence;
 	pub use crate::operation::assert_argument;
 	pub use crate::operation::assert_output;
 	#[cfg(any(feature = "postgres", feature = "sqlite"))]

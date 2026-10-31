@@ -124,3 +124,44 @@ The database capture, the invalidation feed, and the policy check are described 
 - `leptoskit_query`'s cache, unchanged, so every screen and devtools see the updates.
 
 A complete app — channels, presence, typing indicators, background jobs, and the same guest on the web and native — is built up in the next chapters as those primitives land.
+
+## Channels and presence
+
+Some things are worth showing while they happen and not worth keeping: who is typing, who is looking at a board, a cursor moving. A channel carries those messages between the connections watching the same thing, with presence.
+
+Declare the join arguments, the message type, the presence each member shows, and the check that decides who may join:
+
+```rust
+#[rpc::channel(message = Typing, presence = Present, authorize = may_join)]
+pub struct Chat {
+	pub channel: Id<Channel>,
+}
+
+async fn may_join(cx: &rpc::QueryCx, chat: &Chat) -> rpc::Result<()> {
+	let me = cx.require_user::<User>()?;
+	Member::query()
+		.filter(|member| member.channel.eq(chat.channel) & member.user.eq(me))
+		.one(cx.db())
+		.await?;
+	Ok(())
+}
+```
+
+`authorize` runs as the caller when the connection joins, and again whenever the connection's identity changes, so signing out or losing a membership takes effect on an open socket.
+
+Join from a screen:
+
+```rust
+let chat = use_channel::<Chat>(move || Chat { channel });
+
+// Who is here, with the presence each joined with.
+let members = chat.members();
+
+// "Ada is typing…", kept newest first (the last 100).
+let typing = chat.signals();
+chat.signal(Typing { who: me.clone() });
+```
+
+Signals go to every other member of the same join instance, at most once, and are never stored. A reconnect rejoins every channel automatically. Presence is a full list on each join or leave, so a missed frame is corrected by the next one.
+
+Channels are not a replacement for live queries: a message that must survive a restart belongs in a table, and a live query shows it.
