@@ -7,6 +7,9 @@
 //! [`api::Api`] reaches the server over each host's [`transport`].
 
 pub mod api;
+pub mod browser;
+#[cfg(feature = "extension")]
+pub mod extension;
 pub mod routes;
 pub mod session;
 mod sign_in;
@@ -26,7 +29,7 @@ pub const SERVER: &str = match option_env!("COMMONPLACE_SERVER") {
 
 /// The website: the address bar picks the first screen, and links and the
 /// back button move through history.
-#[cfg(all(feature = "web", target_arch = "wasm32"))]
+#[cfg(all(feature = "web", not(feature = "extension"), target_arch = "wasm32"))]
 #[leptos::component]
 pub fn App() -> impl leptos::prelude::IntoView {
 	store::install(api::Api::new(transport::Fetch));
@@ -37,11 +40,15 @@ pub fn App() -> impl leptos::prelude::IntoView {
 }
 
 /// Mounts the website when the page loads its Wasm module.
-#[cfg(all(target_arch = "wasm32", feature = "web"))]
+#[cfg(all(target_arch = "wasm32", feature = "web", not(feature = "extension")))]
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn start() {
 	leptos::mount::mount_to_body(App);
 }
+
+// The extension's surfaces and worker; see `extension`.
+#[cfg(feature = "extension")]
+leptoskit::extension::entry!(main: extension::main, background: extension::background);
 
 /// Mounts the same screens in the native Wasm runtime, signed in with the
 /// token the secure store kept from last time.

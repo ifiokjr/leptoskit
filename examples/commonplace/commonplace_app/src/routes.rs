@@ -2,12 +2,23 @@
 // file. Do not edit it: change the route files, then run `leptoskit routes`
 // again.
 
+#[path = "routes/clip.rs"]
+pub mod clip;
 #[path = "routes/index.rs"]
 pub mod index;
 #[path = "routes/_layout.rs"]
 pub mod layout;
 #[path = "routes/+not-found.rs"]
 pub mod not_found;
+#[path = "routes/overlay"]
+pub mod overlay {
+	#[path = "clipper.rs"]
+	pub mod clipper;
+	#[path = "highlights.rs"]
+	pub mod highlights;
+}
+#[path = "routes/panel.rs"]
+pub mod panel;
 #[path = "routes/projects"]
 pub mod projects {
 	#[path = "[project]"]
@@ -23,6 +34,10 @@ pub mod projects {
 		pub mod index;
 	}
 }
+#[path = "routes/reading.rs"]
+pub mod reading;
+#[path = "routes/settings.rs"]
+pub mod settings;
 pub use index::Library;
 pub use projects::project::clips::clip::ClipPage;
 pub use projects::project::export::Export;
@@ -34,6 +49,18 @@ pub use projects::project::index::Project;
 pub enum Route {
 	/// `/`
 	Library,
+	/// `/clip`
+	Clip,
+	/// `/panel`
+	Panel,
+	/// `/reading`
+	Reading,
+	/// `/settings`
+	Settings,
+	/// `/overlay/clipper`
+	OverlayClipper,
+	/// `/overlay/highlights`
+	OverlayHighlights,
 	/// `/projects/:project`
 	Project(Project),
 	/// `/projects/:project/export`
@@ -85,8 +112,20 @@ const _: () = ::leptoskit_router::__private::require_field(
 );
 /// Each route's pattern, in the order of the variants: what its href
 /// writes.
-const PATTERNS: [::leptoskit_router::Pattern; 5] = [
+const PATTERNS: [::leptoskit_router::Pattern; 11] = [
 	::leptoskit_router::Pattern::new(&[]),
+	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("clip")]),
+	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("panel")]),
+	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("reading")]),
+	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("settings")]),
+	::leptoskit_router::Pattern::new(&[
+		::leptoskit_router::Segment::Static("overlay"),
+		::leptoskit_router::Segment::Static("clipper"),
+	]),
+	::leptoskit_router::Pattern::new(&[
+		::leptoskit_router::Segment::Static("overlay"),
+		::leptoskit_router::Segment::Static("highlights"),
+	]),
 	::leptoskit_router::Pattern::new(&[
 		::leptoskit_router::Segment::Static("projects"),
 		::leptoskit_router::Segment::Param("project"),
@@ -110,10 +149,58 @@ const PATTERNS: [::leptoskit_router::Pattern; 5] = [
 const ROUTES: [(
 	::leptoskit_router::__private::Shape,
 	::leptoskit_router::__private::ReadRoute<Route>,
-); 5] = [
+); 11] = [
 	(
 		::leptoskit_router::__private::Shape::new(&[], &[]),
 		|_, _| ::core::option::Option::Some(Route::Library),
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[::leptoskit_router::Segment::Static("clip")],
+			&[],
+		),
+		|_, _| ::core::option::Option::Some(Route::Clip),
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[::leptoskit_router::Segment::Static("panel")],
+			&[],
+		),
+		|_, _| ::core::option::Option::Some(Route::Panel),
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[::leptoskit_router::Segment::Static("reading")],
+			&[],
+		),
+		|_, _| ::core::option::Option::Some(Route::Reading),
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[::leptoskit_router::Segment::Static("settings")],
+			&[],
+		),
+		|_, _| ::core::option::Option::Some(Route::Settings),
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[
+				::leptoskit_router::Segment::Static("overlay"),
+				::leptoskit_router::Segment::Static("clipper"),
+			],
+			&[],
+		),
+		|_, _| ::core::option::Option::Some(Route::OverlayClipper),
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[
+				::leptoskit_router::Segment::Static("overlay"),
+				::leptoskit_router::Segment::Static("highlights"),
+			],
+			&[],
+		),
+		|_, _| ::core::option::Option::Some(Route::OverlayHighlights),
 	),
 	(
 		::leptoskit_router::__private::Shape::new(
@@ -185,10 +272,16 @@ impl ::leptoskit_router::Routable for Route {
 	fn href(&self) -> ::leptoskit_router::Href {
 		match self {
 			Self::Library => PATTERNS[0].static_href(),
-			Self::Project(route) => PATTERNS[1].href(route),
-			Self::Export(route) => PATTERNS[2].href(route),
-			Self::ClipPage(route) => PATTERNS[3].href(route),
-			Self::NotFound(route) => PATTERNS[4].href(route),
+			Self::Clip => PATTERNS[1].static_href(),
+			Self::Panel => PATTERNS[2].static_href(),
+			Self::Reading => PATTERNS[3].static_href(),
+			Self::Settings => PATTERNS[4].static_href(),
+			Self::OverlayClipper => PATTERNS[5].static_href(),
+			Self::OverlayHighlights => PATTERNS[6].static_href(),
+			Self::Project(route) => PATTERNS[7].href(route),
+			Self::Export(route) => PATTERNS[8].href(route),
+			Self::ClipPage(route) => PATTERNS[9].href(route),
+			Self::NotFound(route) => PATTERNS[10].href(route),
 		}
 	}
 }
@@ -201,6 +294,56 @@ impl ::leptoskit_router::Render for Route {
 			Self::Library => {
 				let view =
 					::leptoskit_router::__private::IntoView::into_view(index::page(navigation));
+				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+					::leptoskit_router::__private::Fragment::new().with(view),
+					navigation,
+				))
+			}
+			Self::Clip => {
+				let view =
+					::leptoskit_router::__private::IntoView::into_view(clip::page(navigation));
+				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+					::leptoskit_router::__private::Fragment::new().with(view),
+					navigation,
+				))
+			}
+			Self::Panel => {
+				let view =
+					::leptoskit_router::__private::IntoView::into_view(panel::page(navigation));
+				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+					::leptoskit_router::__private::Fragment::new().with(view),
+					navigation,
+				))
+			}
+			Self::Reading => {
+				let view =
+					::leptoskit_router::__private::IntoView::into_view(reading::page(navigation));
+				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+					::leptoskit_router::__private::Fragment::new().with(view),
+					navigation,
+				))
+			}
+			Self::Settings => {
+				let view =
+					::leptoskit_router::__private::IntoView::into_view(settings::page(navigation));
+				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+					::leptoskit_router::__private::Fragment::new().with(view),
+					navigation,
+				))
+			}
+			Self::OverlayClipper => {
+				let view = ::leptoskit_router::__private::IntoView::into_view(
+					overlay::clipper::page(navigation),
+				);
+				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+					::leptoskit_router::__private::Fragment::new().with(view),
+					navigation,
+				))
+			}
+			Self::OverlayHighlights => {
+				let view = ::leptoskit_router::__private::IntoView::into_view(
+					overlay::highlights::page(navigation),
+				);
 				::leptoskit_router::__private::IntoView::into_view(layout::layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 					navigation,

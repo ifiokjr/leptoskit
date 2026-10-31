@@ -99,6 +99,29 @@ pub struct State {
 	pub notice: Option<String>,
 	/// An action is waiting for the server.
 	pub busy: bool,
+	/// The extension's own state.
+	pub extension: ExtensionState,
+}
+
+/// What the extension's surfaces add.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ExtensionState {
+	/// The page the popup, or a content script's frame, clips from.
+	pub page: Option<PageInput>,
+	/// The selection a content script's frame clips.
+	pub quote: Option<TextQuote>,
+	/// The project clips go to.
+	pub project: Option<ProjectId>,
+	/// What happened to the last clip, in words.
+	pub status: Option<String>,
+	/// The sites that show highlights, as match patterns.
+	pub sites: Vec<String>,
+	/// The site being added in the settings.
+	pub site: String,
+	/// The clip whose highlight was pressed.
+	pub pressed: Option<commonplace_shared::ClipOnPage>,
+	/// The clips taken from the page, by their highlight's ID.
+	pub on_page: Vec<commonplace_shared::ClipOnPage>,
 }
 
 thread_local! {

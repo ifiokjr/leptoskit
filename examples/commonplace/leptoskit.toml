@@ -10,7 +10,7 @@ schema_version = 0
 name = "commonplace"
 version = "0.1.0"
 default_platform = "web"
-platforms = ["web", "ios", "android", "macos"]
+platforms = ["web", "ios", "android", "macos", "extension"]
 # The website renders in the browser, like every other client, and reaches
 # the server through the same JSON API.
 render = "csr"
@@ -80,3 +80,50 @@ url_env = "DATABASE_URL"
 # /_leptoskit/mail.
 [auth]
 app_name = "Commonplace"
+
+# The browser extension: clip from any page, beside the website and the apps.
+# It asks for no host permission at install: the clipper reaches a page only
+# when you invoke it there (`activeTab`), and highlights only on the sites you
+# allow in its settings.
+[extension]
+name = "Commonplace"
+description = "Clip quotes from anything you read into your Commonplace research projects."
+browsers = ["chromium", "firefox", "safari"]
+# The server `leptoskit dev` runs; a build for a hosted server names it here.
+server = "http://127.0.0.1:3000"
+permissions = ["activeTab"]
+optional_host_permissions = ["https://*/*", "http://*/*"]
+
+[extension.popup]
+route = "/clip"
+
+[extension.side_panel]
+route = "/panel"
+
+[extension.options]
+route = "/settings"
+
+[extension.new_tab]
+route = "/reading"
+browsers = ["chromium", "firefox"]
+
+[[extension.content_scripts]]
+name = "clipper"
+route = "/overlay/clipper"
+inject = "on_request"
+
+[[extension.content_scripts]]
+name = "highlights"
+route = "/overlay/highlights"
+inject = "registered"
+
+[extension.background]
+events = ["runtime.message", "runtime.installed", "alarms", "context_menus", "commands", "tabs.updated"]
+
+[extension.commands.clip]
+suggested_key = "Alt+Shift+C"
+description = "Clip the selected passage"
+
+[extension.firefox]
+id = "commonplace@leptoskit.dev"
+data_collection = ["websiteContent", "browsingActivity", "personallyIdentifyingInfo"]

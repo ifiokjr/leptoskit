@@ -10,8 +10,21 @@ const SERVICE: &str = "commonplace";
 #[cfg(all(target_arch = "wasm32", feature = "native", not(feature = "web")))]
 const KEY: &str = "session";
 
+/// Where the extension keeps the token: extension storage, which its pages
+/// and its worker share, and sites can't read.
+#[cfg(all(target_arch = "wasm32", feature = "extension"))]
+const EXTENSION_KEY: &str = "commonplace.session";
+
 /// The token kept from the last sign-in.
 pub async fn kept() -> Option<String> {
+	#[cfg(all(target_arch = "wasm32", feature = "extension"))]
+	{
+		return leptoskit::extension::storage::LOCAL
+			.get::<String>(EXTENSION_KEY)
+			.await
+			.ok()
+			.flatten();
+	}
 	#[cfg(all(target_arch = "wasm32", feature = "native", not(feature = "web")))]
 	{
 		use leptoskit_plugin_secure_store::Key;
@@ -27,6 +40,26 @@ pub async fn kept() -> Option<String> {
 
 /// Keeps `token` for the next launch, or forgets the kept one.
 pub async fn keep(token: Option<String>) {
+	#[cfg(all(target_arch = "wasm32", feature = "extension"))]
+	{
+		let _ = match &token {
+			Some(token) => {
+				leptoskit::extension::storage::LOCAL
+					.set(EXTENSION_KEY, token)
+					.await
+			}
+			None => {
+				leptoskit::extension::storage::LOCAL
+					.remove(EXTENSION_KEY)
+					.await
+			}
+		};
+		// The other surfaces and the worker hold their own copy.
+		let _ = leptoskit::extension::runtime::send::<_, commonplace_shared::ExtensionReply>(
+			&commonplace_shared::ExtensionMessage::SessionChanged,
+		)
+		.await;
+	}
 	#[cfg(all(target_arch = "wasm32", feature = "native", not(feature = "web")))]
 	{
 		use leptoskit_plugin_secure_store::Key;
@@ -40,6 +73,9 @@ pub async fn keep(token: Option<String>) {
 			None => store.delete(key).await,
 		};
 	}
-	#[cfg(not(all(target_arch = "wasm32", feature = "native", not(feature = "web"))))]
+	#[cfg(not(any(
+		all(target_arch = "wasm32", feature = "native", not(feature = "web")),
+		all(target_arch = "wasm32", feature = "extension")
+	)))]
 	let _ = token;
 }

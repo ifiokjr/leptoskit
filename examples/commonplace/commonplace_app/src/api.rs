@@ -31,6 +31,8 @@ pub struct Problem {
 	pub message: String,
 	/// The server no longer knows this session.
 	pub signed_out: bool,
+	/// The request never reached the server, so it can be tried again.
+	pub unreachable: bool,
 }
 
 impl Problem {
@@ -38,6 +40,7 @@ impl Problem {
 		Self {
 			message: message.into(),
 			signed_out: false,
+			unreachable: false,
 		}
 	}
 }
@@ -123,7 +126,12 @@ impl Api {
 				bearer: self.token(),
 			})
 			.await
-			.map_err(Problem::new)?;
+			.map_err(|message| {
+				Problem {
+					unreachable: true,
+					..Problem::new(message)
+				}
+			})?;
 		if (200..300).contains(&response.status) {
 			return Ok(response.body);
 		}
@@ -133,6 +141,7 @@ impl Api {
 		Err(Problem {
 			message,
 			signed_out: response.status == 401,
+			unreachable: false,
 		})
 	}
 
