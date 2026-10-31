@@ -416,8 +416,20 @@ impl<B: NativeBackend> NativeSurface<B> {
 	/// Validates a complete tree before changing source, layout, or backend
 	/// state. Invalid trees leave the previously committed interface intact.
 	pub fn try_set_root(&mut self, element: &Element) -> Result<(), crate::ControlTreeError> {
+		self.try_set_owned_root(element.clone())
+	}
+
+	/// Commits a tree the caller hands over, so a host that builds one fresh
+	/// per render does not clone it to keep the source.
+	pub fn set_owned_root(&mut self, element: Element) {
+		self.try_set_owned_root(element)
+			.unwrap_or_else(|error| panic!("invalid leptoskit tree: {error}"));
+	}
+
+	/// [`try_set_root`](Self::try_set_root) without the clone.
+	pub fn try_set_owned_root(&mut self, element: Element) -> Result<(), crate::ControlTreeError> {
 		element.validate()?;
-		self.source = Some(element.clone());
+		self.source = Some(element);
 		self.commit_source();
 		Ok(())
 	}

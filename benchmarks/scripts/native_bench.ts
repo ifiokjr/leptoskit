@@ -175,8 +175,10 @@ function build(repo: string, target: Target, targetDir: string): string {
 	// A base checkout older than the counter guest still builds and measures;
 	// its tap scenarios record that the guest is missing.
 	const hasCounter = existsSync(`${repo}/benchmarks/native/counter/Cargo.toml`);
+	const hasScreen = existsSync(`${repo}/benchmarks/native/screen/Cargo.toml`);
 	const guests = ["--package", "leptoskit_bench_guest"];
 	if (hasCounter) guests.push("--package", "leptoskit_bench_counter");
+	if (hasScreen) guests.push("--package", "leptoskit_bench_screen");
 	run(
 		[
 			"cargo",
@@ -196,6 +198,10 @@ function build(repo: string, target: Target, targetDir: string): string {
 	if (hasCounter) {
 		embedded.LEPTOSKIT_BENCH_COUNTER_WASM =
 			`${wasmDir}/leptoskit_bench_counter.wasm`;
+	}
+	if (hasScreen) {
+		embedded.LEPTOSKIT_BENCH_SCREEN_WASM =
+			`${wasmDir}/leptoskit_bench_screen.wasm`;
 	}
 	const command = [
 		"cargo",

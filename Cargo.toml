@@ -3,6 +3,7 @@ members = [
 	"benchmarks/native",
 	"benchmarks/native/counter",
 	"benchmarks/native/guest",
+	"benchmarks/native/screen",
 	"crates/*",
 	"crates/leptoskit_db/tests/client_fixture",
 	"crates/leptoskit_db/tests/pack_fixture",

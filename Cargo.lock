@@ -4052,6 +4052,14 @@ name = "leptoskit_bench_guest"
 version = "0.1.0"
 
 [[package]]
+name = "leptoskit_bench_screen"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_native",
+ "leptoskit_yoga",
+]
+
+[[package]]
 name = "leptoskit_bridge"
 version = "0.1.0"
 dependencies = [

@@ -102,10 +102,13 @@ export function section(
 		const change = comparison.direction === null
 			? percent
 			: `${directionEmoji(comparison.direction)} ${percent}`;
+		// A metric the base never measured is new, not missing: the head is the
+		// first run to report it, and there is nothing to compare against.
+		const status = comparison.status === "missing" && comparison.base === null
+			? "🆕 new"
+			: `${statusEmoji(comparison.status)} ${comparison.status}`;
 		lines.push(
-			`| ${comparison.label} | ${base} | ${head} | ${delta} | ${change} | ${
-				statusEmoji(comparison.status)
-			} ${comparison.status} |`,
+			`| ${comparison.label} | ${base} | ${head} | ${delta} | ${change} | ${status} |`,
 		);
 	}
 	return lines.join("\n");
@@ -221,14 +224,27 @@ async function main(): Promise<void> {
 	const all = [...runtimeComparisons, ...buildComparisons, ...pairComparisons];
 	const fails = all.filter((comparison) => comparison.status === "fail");
 	const warns = all.filter((comparison) => comparison.status === "warn");
-	const missingMetrics = all.filter((comparison) =>
-		comparison.status === "missing"
+	// A metric only the head measured is new coverage; one only the base
+	// measured is coverage the head lost, and that is worth warning about.
+	const newMetrics = all.filter((comparison) =>
+		comparison.status === "missing" && comparison.base === null
+	);
+	const lostMetrics = all.filter((comparison) =>
+		comparison.status === "missing" && comparison.head === null
 	);
 
-	if (missing.length > 0 || missingMetrics.length > 0) {
+	if (missing.length > 0 || lostMetrics.length > 0) {
 		sections.push(
 			`> ⚠️ incomplete comparison: ${
-				[...missing, ...missingMetrics.map((metric) => metric.id)].join(", ")
+				[...missing, ...lostMetrics.map((metric) => metric.id)].join(", ")
+			}`,
+			"",
+		);
+	}
+	if (newMetrics.length > 0) {
+		sections.push(
+			`> 🆕 measured for the first time: ${
+				newMetrics.map((metric) => `\`${metric.id}\``).join(", ")
 			}`,
 			"",
 		);
