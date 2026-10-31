@@ -477,7 +477,7 @@ impl Auth {
 		lifetime(self.inner.sessions.absolute)
 	}
 
-	fn access(&self) -> Result<TimeDelta> {
+	pub(crate) fn access(&self) -> Result<TimeDelta> {
 		lifetime(self.inner.sessions.access)
 	}
 }

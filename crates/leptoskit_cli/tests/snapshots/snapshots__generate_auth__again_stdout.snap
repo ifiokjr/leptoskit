@@ -6,7 +6,7 @@ nothing changed: the sign-in screens are already in place
 
 next:
   1. In snapshotted_app/src/lib.rs, call `leptoskit::query::QueryClient::new().provide()` and then `auth::provide()` where the app starts, in its reactive owner, and show `auth::screens().gate(|| home)` in front of the screens that need someone signed in.
-  2. A native app also calls `leptoskit::auth::client::configure(ClientConfig::new().origin("https://your.site"))` when it starts, and needs the `http` and `secure-store` plugins; the sign-in guide shows how.
+  2. A native app also calls `leptoskit::auth::client::configure(ClientConfig::new().origin("https://your.site"))` when it starts, with an origin listed in `[native.plugin-options.http] origins`; the sign-in guide shows how.
   3. In src/main.rs, build the service once the database is migrated, with your user table: `let auth = sign_in::service::<User>(&db)?;`. Then add `.merge(auth.router())` to the router, and `.layer(auth.layer())` last, so it wraps every route.
   4. In the crate that declares your tables, add `leptoskit::db::packs!(leptoskit_auth);`, key your user table by `Id<auth::Account>`, implement `auth::OnSignUp` for it, and run `leptoskit db migration create auth`.
   5. Set AUTH_ENCRYPTION_KEYS before starting the server: `export AUTH_ENCRYPTION_KEYS="$(date +%Y-%m):$(openssl rand 32 | basenc --base64url | tr -d =)"`.

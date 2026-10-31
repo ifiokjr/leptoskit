@@ -16,10 +16,11 @@ expression: contents
 //! ```
 //!
 //! Then put [`Screens::gate`] in front of everything that needs someone
-//! signed in, or show [`SignIn::screen`] and [`Devices::screen`] where you
-//! like.
+//! signed in, or show [`SignIn::screen`], [`Devices::screen`], and
+//! [`Security::screen`] where you like.
 
 mod devices;
+mod security;
 mod sign_in;
 
 pub use devices::Devices;
@@ -30,6 +31,7 @@ use leptoskit::leptos::prelude::Set;
 use leptoskit::leptos::prelude::provide_context;
 use leptoskit::leptos::prelude::use_context;
 use leptoskit::prelude::*;
+pub use security::Security;
 pub use sign_in::SignIn;
 
 /// The sign-in screens, shared through context by [`provide`].
@@ -39,8 +41,17 @@ pub struct Screens {
 	pub sign_in: SignIn,
 	/// The "where you're signed in" screen.
 	pub devices: Devices,
-	/// Whether the signed-in person asked for the devices screen.
-	showing_devices: RwSignal<bool>,
+	/// The two-step verification screen.
+	pub security: Security,
+	/// Which account screen the signed-in person asked for, if any.
+	showing: RwSignal<Option<Account>>,
+}
+
+/// The account screens the bar opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Account {
+	Devices,
+	Security,
 }
 
 /// Creates the sign-in screens in the current reactive owner, which needs a
@@ -50,7 +61,8 @@ pub fn provide() -> Screens {
 	let screens = Screens {
 		sign_in,
 		devices: Devices::new(move || sign_in.is_signed_in()),
-		showing_devices: RwSignal::new(false),
+		security: Security::new(move || sign_in.is_signed_in()),
+		showing: RwSignal::new(None),
 	};
 	provide_context(screens);
 	screens
@@ -73,10 +85,10 @@ impl Screens {
 			return self.sign_in.screen();
 		}
 
-		let body = if self.showing_devices.get() {
-			self.devices.screen()
-		} else {
-			home()
+		let body = match self.showing.get() {
+			Some(Account::Devices) => self.devices.screen(),
+			Some(Account::Security) => self.security.screen(),
+			None => home(),
 		};
 
 		View()
@@ -85,25 +97,31 @@ impl Screens {
 			.child(View().class("flex-1 items-center").child(body))
 	}
 
-	/// Who's signed in, and the way to their devices and out.
+	/// Who's signed in, and the way to their devices, their security
+	/// settings, and out.
 	fn account_bar(&self) -> Element {
-		let showing = self.showing_devices;
+		let showing = self.showing;
 		let sign_in = self.sign_in;
 		let signing_out = sign_in.is_signing_out();
+		let tab = move |label: &'static str, screen: Account| {
+			let open = showing.get() == Some(screen);
+			Button(label)
+				.aria_pressed(open)
+				.on_press(move || {
+					showing.set(if showing.get_untracked() == Some(screen) {
+						None
+					} else {
+						Some(screen)
+					});
+				})
+				.class("rounded-lg px-3 py-2 text-sm font-semibold")
+		};
 
 		View()
 			.class("flex-row items-center gap-3 px-6 py-3 bg-slate-900")
 			.child(Text("Signed in").class("flex-1 text-sm text-slate-300"))
-			.child(
-				Button(if showing.get() {
-					"Back"
-				} else {
-					"Where you're signed in"
-				})
-				.aria_pressed(showing.get())
-				.on_press(move || showing.set(!showing.get_untracked()))
-				.class("rounded-lg px-3 py-2 text-sm font-semibold"),
-			)
+			.child(tab("Where you're signed in", Account::Devices))
+			.child(tab("Two-step verification", Account::Security))
 			.child(
 				Button(if signing_out {
 					"Signing out…"
@@ -113,7 +131,7 @@ impl Screens {
 				.enabled(!signing_out)
 				.aria_busy(signing_out)
 				.on_press(move || {
-					showing.set(false);
+					showing.set(None);
 					sign_in.sign_out();
 				})
 				.class("rounded-lg bg-slate-700 px-3 py-2 text-sm font-semibold"),

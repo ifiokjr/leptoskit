@@ -64,6 +64,7 @@ fn the_screens_and_config_land_in_the_client_crate() {
 			"created app_app/src/auth/mod.rs",
 			"created app_app/src/auth/sign_in.rs",
 			"created app_app/src/auth/devices.rs",
+			"created app_app/src/auth/security.rs",
 			"updated app_app/src/lib.rs: declared `pub mod auth;`",
 			"updated app_app/Cargo.toml: added the leptoskit features auth, leptos, query",
 			"updated leptoskit.toml: added [auth]",
@@ -272,6 +273,11 @@ fn the_file_router_gets_both_routes() {
 			.changed
 			.contains(&"created app_app/src/routes/devices.rs".to_owned())
 	);
+	assert!(
+		report
+			.changed
+			.contains(&"created app_app/src/routes/security.rs".to_owned())
+	);
 	assert_eq!(read(path, "app_app/src/routes/sign-in.rs"), ROUTES[0].1);
 	let module = read(path, "app_app/src/routes.rs");
 	assert!(module.contains("SignIn"), "{module}");
@@ -299,6 +305,7 @@ fn routes_the_app_already_has_are_left_alone() {
 	);
 	assert!(!path.join("app_app/src/routes/sign-in.rs").exists());
 	assert!(path.join("app_app/src/routes/devices.rs").exists());
+	assert!(path.join("app_app/src/routes/security.rs").exists());
 	assert!(
 		report
 			.next
@@ -339,6 +346,7 @@ fn a_single_crate_app_is_its_own_client() {
 			"created src/auth/mod.rs",
 			"created src/auth/sign_in.rs",
 			"created src/auth/devices.rs",
+			"created src/auth/security.rs",
 			"updated Cargo.toml: added the leptoskit features auth, leptos",
 		]
 	);
@@ -462,4 +470,183 @@ fn paths_print_from_the_root() {
 		relative(Path::new("/project"), Path::new("/elsewhere/lib.rs")),
 		"/elsewhere/lib.rs"
 	);
+}
+
+/// Adds the hosts a scaffold has: iOS with its bridge under a target table
+/// from a checkout, Android with a plain version, and Linux, which can't
+/// host plugins.
+fn hosts(root: &Path) {
+	for (platform, manifest) in [
+		(
+			"ios",
+			"[package]\nname = \"app_ios\"\n\n[target.'cfg(target_os = \
+			 \"ios\")'.dependencies]\nleptoskit_bridge_ffi = { version = \"=0.1.0\", \
+			 default-features = false, path = \"/sdk/crates/leptoskit_bridge_ffi\", features = \
+			 [\"app\"] }\n",
+		),
+		(
+			"android",
+			"[package]\nname = \"app_android\"\n\n[dependencies]\nleptoskit_bridge_ffi = \"0.1\"\n",
+		),
+		(
+			"linux",
+			"[package]\nname = \"app_linux\"\n\n[dependencies]\nleptoskit = \"0.1\"\n",
+		),
+	] {
+		fs::create_dir_all(root.join(platform)).unwrap();
+		fs::write(root.join(platform).join("Cargo.toml"), manifest).unwrap();
+	}
+}
+
+#[test]
+fn plugin_hosts_get_the_sign_in_plugins_and_the_config_grants_them() {
+	let root = workspace(false);
+	hosts(root.path());
+	let report = run(root.path(), false);
+
+	assert!(
+		report.changed.contains(
+			&"updated ios/Cargo.toml: added leptoskit_plugin_http and \
+			  leptoskit_plugin_secure_store"
+				.to_owned()
+		),
+		"{:?}",
+		report.changed
+	);
+	assert!(
+		report.changed.contains(
+			&"updated leptoskit.toml: granted http, granted secure-store, let the HTTP plugin \
+			  reach the development server"
+				.to_owned()
+		),
+		"{:?}",
+		report.changed
+	);
+	assert!(
+		report
+			.next
+			.iter()
+			.any(|step| step.contains("plugin-options.http")),
+		"{:?}",
+		report.next
+	);
+
+	let ios = read(root.path(), "ios/Cargo.toml");
+	assert!(
+		ios.contains(
+			"leptoskit_plugin_http = { version = \"=0.1.0\", default-features = false, path = \
+			 \"/sdk/crates/leptoskit_plugin_http\" }"
+		),
+		"{ios}"
+	);
+	let android = read(root.path(), "android/Cargo.toml");
+	assert!(
+		android.contains(
+			"leptoskit_plugin_secure_store = { version = \"0.1\", default-features = false }"
+		),
+		"{android}"
+	);
+	assert_eq!(
+		read(root.path(), "linux/Cargo.toml"),
+		"[package]\nname = \"app_linux\"\n\n[dependencies]\nleptoskit = \"0.1\"\n"
+	);
+
+	let config = LeptoskitConfig::load_from(root.path()).unwrap();
+	assert_eq!(config.native.plugins, ["http", "secure-store"]);
+	assert_eq!(
+		config.native.plugin_options["http"]["origins"],
+		toml::Value::Array(vec![
+			"http://localhost:3000".into(),
+			"http://10.0.2.2:3000".into()
+		])
+	);
+
+	// A second run finds everything in place.
+	let again = run(root.path(), false);
+	assert!(again.changed.is_empty(), "{:?}", again.changed);
+}
+
+#[test]
+fn plugin_paths_keep_the_separators_the_manifest_uses() {
+	assert_eq!(
+		sibling("/sdk/crates/leptoskit_bridge_ffi", "p"),
+		"/sdk/crates/p"
+	);
+	assert_eq!(
+		sibling(r"C:\sdk\crates\leptoskit_bridge_ffi", "p"),
+		r"C:\sdk\crates\p"
+	);
+	assert_eq!(sibling("leptoskit_bridge_ffi", "p"), "p");
+}
+
+#[test]
+fn the_apps_own_plugin_choices_are_kept() {
+	let root = workspace(false);
+	hosts(root.path());
+	let config = read(root.path(), "leptoskit.toml");
+	fs::write(
+		root.path().join("leptoskit.toml"),
+		format!(
+			"{config}\n[native]\nplugins = [\"http\"]\n\n[native.plugin-options.http]\norigins = \
+			 [\"https://notes.example\"]\n"
+		),
+	)
+	.unwrap();
+	let report = run(root.path(), false);
+
+	assert!(
+		report
+			.changed
+			.contains(&"updated leptoskit.toml: granted secure-store".to_owned()),
+		"{:?}",
+		report.changed
+	);
+	let config = LeptoskitConfig::load_from(root.path()).unwrap();
+	assert_eq!(config.native.plugins, ["http", "secure-store"]);
+	assert_eq!(
+		config.native.plugin_options["http"]["origins"],
+		toml::Value::Array(vec!["https://notes.example".into()])
+	);
+}
+
+#[test]
+fn a_host_without_the_bridge_gets_a_next_step() {
+	let root = workspace(false);
+	fs::create_dir_all(root.path().join("macos")).unwrap();
+	fs::write(
+		root.path().join("macos/Cargo.toml"),
+		"[package]\nname = \"app_macos\"\n",
+	)
+	.unwrap();
+	let report = run(root.path(), false);
+
+	assert!(
+		report.next.iter().any(|step| {
+			step.starts_with("macos/Cargo.toml doesn't depend on leptoskit_bridge_ffi")
+		}),
+		"{:?}",
+		report.next
+	);
+}
+
+/// Every class the screens use is one the native renderer knows: an unknown
+/// utility only fails once a device renders it.
+#[test]
+fn the_screens_use_only_supported_classes() {
+	let mut checked = 0;
+
+	for (file, source) in PAGES.iter().chain(ROUTES.iter()) {
+		for literal in source.split(".class(\"").skip(1) {
+			let classes = literal.split('"').next().unwrap();
+
+			for class in classes.split_whitespace() {
+				leptoskit_native::Element::new(leptoskit_native::NativeKind::View)
+					.try_class(class)
+					.unwrap_or_else(|error| panic!("{file}: {error}"));
+				checked += 1;
+			}
+		}
+	}
+
+	assert!(checked > 50, "only {checked} classes found");
 }

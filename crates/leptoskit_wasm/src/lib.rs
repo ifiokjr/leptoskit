@@ -41,7 +41,12 @@
 //! - `leptoskit_abi_version() -> i32` — *optional*. When present, the host
 //!   calls it on load and refuses a module whose answer differs from
 //!   [`ABI_VERSION`]. Modules that omit it are assumed to speak the current
-//!   version.
+//!   version;
+//! - `leptoskit_clock(unix_ms: i64)` — *optional*. The module has no clock of
+//!   its own, so when this is present the host calls it with the wall clock, in
+//!   milliseconds since the Unix epoch, before every other entry point.
+//!   `leptoskit_query`'s `guest` feature exports it. Hosts and modules that
+//!   predate it skip it.
 //!
 //! Each entry point is fuel-metered, so a bad bundle cannot hang the device;
 //! running out surfaces as [`WasmError::OutOfFuel`].
@@ -441,6 +446,7 @@ pub struct WasmHost<B: NativeBackend> {
 	plugins_ready: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
 	plugins_poll: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
 	viewport_fn: Option<TypedFunc<(f32, f32), ()>>,
+	clock_fn: Option<TypedFunc<i64, ()>>,
 	/// A failure from reporting the viewport, which cannot fail its caller;
 	/// the next [`Self::start`] or [`Self::dispatch`] returns it.
 	deferred: Option<WasmError>,
@@ -490,6 +496,7 @@ struct Guest {
 	plugins_ready: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
 	plugins_poll: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
 	viewport_fn: Option<TypedFunc<(f32, f32), ()>>,
+	clock_fn: Option<TypedFunc<i64, ()>>,
 }
 
 impl Guest {
@@ -546,6 +553,14 @@ impl Guest {
 					"leptoskit_viewport must take (f32, f32) and return nothing".to_owned(),
 				)
 			})?;
+		let clock_fn = instance
+			.get_export(&store, "leptoskit_clock")
+			.and_then(Extern::into_func)
+			.map(|function| function.typed(&store))
+			.transpose()
+			.map_err(|_| {
+				WasmError::Compile("leptoskit_clock must take an i64 and return nothing".to_owned())
+			})?;
 		store.data_mut().memory = instance
 			.get_export(&store, "memory")
 			.and_then(Extern::into_memory);
@@ -560,6 +575,7 @@ impl Guest {
 			plugins_ready,
 			plugins_poll,
 			viewport_fn,
+			clock_fn,
 		})
 	}
 }
@@ -587,6 +603,7 @@ impl<B: NativeBackend> WasmHost<B> {
 			plugins_ready: guest.plugins_ready,
 			plugins_poll: guest.plugins_poll,
 			viewport_fn: guest.viewport_fn,
+			clock_fn: guest.clock_fn,
 			deferred: None,
 			fuel_budget: DEFAULT_FUEL_BUDGET,
 		})
@@ -615,6 +632,7 @@ impl<B: NativeBackend> WasmHost<B> {
 		self.plugins_ready = guest.plugins_ready;
 		self.plugins_poll = guest.plugins_poll;
 		self.viewport_fn = guest.viewport_fn;
+		self.clock_fn = guest.clock_fn;
 		self.deferred = None;
 		Ok(())
 	}
@@ -982,12 +1000,20 @@ impl<B: NativeBackend> WasmHost<B> {
 		Some(format!(r#"{{"value":{value}}}"#))
 	}
 
+	/// Grants a fresh fuel budget before an entry point, and tells a module
+	/// that exports `leptoskit_clock` what time it is.
 	fn refuel(&mut self) -> Result<(), WasmError> {
 		self.check_backend()?;
 		self.store.data_mut().budget.refuel()?;
 		self.store
 			.set_fuel(self.fuel_budget)
-			.map_err(WasmError::from)
+			.map_err(WasmError::from)?;
+
+		if let Some(clock) = self.clock_fn {
+			clock.call(&mut self.store, unix_ms())?;
+		}
+
+		Ok(())
 	}
 
 	/// Writes bytes into the module's memory through its allocator, returning
@@ -1119,6 +1145,16 @@ fn caller_memory(caller: &mut Caller<'_, HostState>) -> Option<Memory> {
 	let memory = caller.get_export("memory").and_then(Extern::into_memory)?;
 	caller.data_mut().memory = Some(memory);
 	Some(memory)
+}
+
+/// The wall clock, in milliseconds since the Unix epoch, or zero when the
+/// system clock is before it.
+fn unix_ms() -> i64 {
+	std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.map_or(0, |elapsed| {
+			i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX)
+		})
 }
 
 fn serialize_value(value: &str) -> String {

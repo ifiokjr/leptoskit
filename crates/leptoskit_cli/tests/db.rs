@@ -252,7 +252,8 @@ fn the_database_scaffold_migrates_and_serves() {
 }
 
 /// `leptoskit new --auth`: its tables migrate, the server and the app build
-/// for the server, the browser, and a native guest, the generated tests pass,
+/// for the server, the browser, and a native guest that loads in the native
+/// runtime, the generated tests pass,
 /// and the server signs someone in with an emailed code from the development
 /// mailbox.
 #[test]
@@ -290,18 +291,29 @@ fn the_auth_scaffold_signs_people_in() {
 	};
 	cargo(&["build", "--locked", "--package", "notes"]);
 	cargo(&["test", "--locked", "--package", "notes_app"]);
-	for feature in ["hydrate", "native"] {
-		cargo(&[
-			"check",
-			"--locked",
-			"--package",
-			"notes_app",
-			"--target",
-			"wasm32-unknown-unknown",
-			"--features",
-			feature,
-		]);
-	}
+	cargo(&[
+		"check",
+		"--locked",
+		"--package",
+		"notes_app",
+		"--target",
+		"wasm32-unknown-unknown",
+		"--features",
+		"hydrate",
+	]);
+	// The native guest is optimized, as `leptoskit build` makes it.
+	cargo(&[
+		"build",
+		"--locked",
+		"--release",
+		"--package",
+		"notes_app",
+		"--target",
+		"wasm32-unknown-unknown",
+		"--features",
+		"native",
+	]);
+	native_guest_runs(&target.join("wasm32-unknown-unknown/release/notes_app.wasm"));
 
 	let address = std::net::TcpListener::bind("127.0.0.1:0")
 		.unwrap()
@@ -395,6 +407,70 @@ fn the_auth_scaffold_signs_people_in() {
 	assert_eq!(
 		succeeds(&leptoskit(&root, &["generate", "auth"])),
 		"nothing changed: the sign-in screens are already in place\n"
+	);
+}
+
+/// The `--auth` scaffold's native guest imports none of the browser APIs the
+/// query cache and sign-in client use there (timers, the clock, `navigator`,
+/// the window, `fetch`, event listeners), takes the host's clock, and starts
+/// in the interpreter every native host runs, showing the sign-in screen.
+///
+/// `leptos` itself still links js-sys's futures and stream glue; the
+/// interpreter links those to traps, since nothing a host calls reaches them.
+fn native_guest_runs(path: &Path) {
+	let wasm = fs::read(path).unwrap();
+	let engine = wasmi::Engine::default();
+	let module = wasmi::Module::new(&engine, &wasm).unwrap();
+	let browser: Vec<String> = module
+		.imports()
+		.map(|import| format!("{}::{}", import.module(), import.name()))
+		.filter(|import| {
+			[
+				"setTimeout",
+				"clearTimeout",
+				"Date",
+				"navigator",
+				"Window",
+				"fetch",
+				"addEventListener",
+				"visibilityState",
+				"BroadcastChannel",
+			]
+			.iter()
+			.any(|api| import.contains(api))
+		})
+		.collect();
+	assert!(browser.is_empty(), "browser imports: {browser:?}");
+	let modules: std::collections::BTreeSet<String> = module
+		.imports()
+		.map(|import| import.module().to_owned())
+		.collect();
+	assert!(
+		modules.iter().all(|module| {
+			["leptoskit", "leptoskit_plugins_v1"].contains(&module.as_str())
+				|| module.starts_with("__wbindgen")
+		}),
+		"imports from {modules:?}"
+	);
+	assert!(
+		module
+			.exports()
+			.any(|export| export.name() == "leptoskit_clock"),
+		"the guest takes the host's clock"
+	);
+
+	let mut host = leptoskit_wasm::WasmHost::headless(&wasm).expect("the guest loads");
+	host.start(390.0, 844.0).expect("the guest starts");
+	let surface = host.surface();
+	let mut texts = Vec::new();
+	let mut nodes: Vec<_> = surface.root().into_iter().collect();
+	while let Some(node) = nodes.pop() {
+		texts.extend(surface.props(node).text.clone());
+		nodes.extend(surface.children(node).iter().copied());
+	}
+	assert!(
+		texts.iter().any(|text| text.contains("Checking")),
+		"the sign-in screen: {texts:?}"
 	);
 }
 

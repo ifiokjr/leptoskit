@@ -431,6 +431,7 @@ fn generate_auth_is_pinned() {
 		"snapshotted_app/src/auth/mod.rs",
 		"snapshotted_app/src/auth/sign_in.rs",
 		"snapshotted_app/src/auth/devices.rs",
+		"snapshotted_app/src/auth/security.rs",
 		"snapshotted_app/src/lib.rs",
 		"snapshotted_app/Cargo.toml",
 		"src/sign_in.rs",

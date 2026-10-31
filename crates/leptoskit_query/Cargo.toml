@@ -19,6 +19,10 @@ default = ["browser"]
 # cross-tab sync. Disable for wasm hosted outside a browser and install a
 # clock, a timer, and (optionally) a broadcast transport instead.
 browser = ["dep:send_wrapper", "dep:wasm-bindgen", "dep:web-sys"]
+# The clock in leptoskit's native Wasm runtime: the host reports the time
+# before each entry point through the `leptoskit_clock` export this feature
+# defines. Turn it on for native guests instead of `browser`.
+guest = []
 # leptos's `nightly` feature, for its macro and renderer. Requires a nightly
 # compiler; a no-op on stable.
 nightly = ["leptos/nightly"]

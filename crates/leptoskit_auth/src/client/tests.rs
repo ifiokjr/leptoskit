@@ -64,6 +64,7 @@ impl Server {
 				code_per_address: plenty,
 				code_per_ip: plenty,
 				verify_per_ip: plenty,
+				second_factor_per_account: plenty,
 			})
 			.build()
 			.unwrap();
@@ -102,7 +103,7 @@ impl Server {
 		Device {
 			api: Arc::new(Remote::new(ClientConfig::new(), http.clone(), Cookie)),
 			http,
-			held: Box::new(move || jar.lock().unwrap().is_some()),
+			held: Box::new(move || jar.lock().unwrap().contains_key("__Host-session")),
 		}
 	}
 
@@ -128,14 +129,14 @@ impl Server {
 	}
 }
 
-/// The routes, reached in memory. As a browser, it keeps the session cookie
-/// in a jar, sends it back, and says which site the request is from; as a
+/// The routes, reached in memory. As a browser, it keeps cookies in a jar
+/// by name, sends them back, and says which site the request is from; as a
 /// native app, it does neither.
 #[derive(Clone)]
 struct InMemory {
 	router: Router,
 	browser: bool,
-	jar: Arc<Mutex<Option<String>>>,
+	jar: Arc<Mutex<std::collections::BTreeMap<String, String>>>,
 	sent: Arc<Mutex<Vec<String>>>,
 	offline: Arc<AtomicBool>,
 }
@@ -189,8 +190,17 @@ impl Http for InMemory {
 				assert!(request.url.starts_with("/auth/"), "{}", request.url);
 				builder = builder.header(header::ORIGIN, ORIGIN);
 
-				if let Some(cookie) = this.jar.lock().unwrap().clone() {
-					builder = builder.header(header::COOKIE, cookie);
+				let cookies = this
+					.jar
+					.lock()
+					.unwrap()
+					.iter()
+					.map(|(name, value)| format!("{name}={value}"))
+					.collect::<Vec<_>>()
+					.join("; ");
+
+				if !cookies.is_empty() {
+					builder = builder.header(header::COOKIE, cookies);
 				}
 			} else {
 				assert!(request.url.starts_with(ORIGIN), "{}", request.url);
@@ -203,12 +213,24 @@ impl Http for InMemory {
 				.await
 				.unwrap();
 
-			if this.browser
-				&& let Some(set_cookie) = response.headers().get(header::SET_COOKIE)
-			{
-				let set_cookie = set_cookie.to_str().unwrap();
-				*this.jar.lock().unwrap() = (!set_cookie.contains("Max-Age=0"))
-					.then(|| set_cookie.split(';').next().unwrap().to_owned());
+			if this.browser {
+				let mut jar = this.jar.lock().unwrap();
+
+				for set_cookie in response.headers().get_all(header::SET_COOKIE) {
+					let set_cookie = set_cookie.to_str().unwrap();
+					let (name, value) = set_cookie
+						.split(';')
+						.next()
+						.unwrap()
+						.split_once('=')
+						.unwrap();
+
+					if set_cookie.contains("Max-Age=0") {
+						jar.remove(name);
+					} else {
+						jar.insert(name.to_owned(), value.to_owned());
+					}
+				}
 			}
 
 			let status = response.status().as_u16();
@@ -296,14 +318,18 @@ impl Native {
 
 async fn sign_in(server: &Server, device: &Device) -> PublicSession {
 	device.api.send_code(ADA.to_owned()).await.unwrap();
-	device
+	let step = device
 		.api
 		.verify_code(EmailCode {
 			email: ADA.to_owned(),
 			code: server.code(),
 		})
 		.await
-		.unwrap()
+		.unwrap();
+	let SignInStep::SignedIn(session) = step else {
+		panic!("no second factor yet: {step:?}");
+	};
+	session
 }
 
 async fn session_id(device: &Device) -> Option<Id<Session>> {
@@ -402,6 +428,152 @@ async fn signs_out_everywhere_and_here(
 	assert_eq!(session_id(laptop).await, None);
 	// Signing out again is harmless.
 	laptop.api.sign_out().await.unwrap();
+}
+
+/// What an authenticator app computes.
+#[path = "../../tests/support/totp.rs"]
+mod authenticator;
+
+/// Turns on two-step verification from one device, finishes signing in on
+/// another with a recovery code, steps up, and turns it off again.
+async fn uses_two_steps(server: &Server, device: impl Fn() -> Device) {
+	let laptop = device();
+	let codes = turns_on(server, &laptop).await;
+	let phone = device();
+	signs_in_with_a_recovery_code(server, &phone, &laptop, &codes).await;
+	steps_up_and_turns_off(&phone, &codes).await;
+}
+
+/// Signs in on `laptop` and turns an authenticator on, returning the
+/// recovery codes.
+async fn turns_on(server: &Server, laptop: &Device) -> Vec<String> {
+	sign_in(server, laptop).await;
+	assert_eq!(laptop.api.mfa().await.unwrap(), MfaStatus::default());
+
+	let setup = laptop.api.begin_totp().await.unwrap();
+	let wrong = laptop.api.confirm_totp("000000".into()).await.unwrap_err();
+	assert_eq!(wrong.error, "invalid_code");
+	let confirmed = laptop
+		.api
+		.confirm_totp(authenticator::totp(&setup.secret, 0))
+		.await
+		.unwrap();
+	assert_eq!(confirmed.session.aal, crate::Aal::Two);
+	// The session's token was replaced, and the device kept the new one.
+	assert_eq!(session_id(laptop).await, Some(confirmed.session.id));
+	assert_eq!(
+		laptop.api.mfa().await.unwrap(),
+		MfaStatus {
+			totp: true,
+			recovery_codes: 10
+		}
+	);
+	confirmed.recovery_codes.unwrap().codes
+}
+
+/// The emailed code on `phone` asks for the second step, which a recovery
+/// code finishes, signing `laptop` out.
+async fn signs_in_with_a_recovery_code(
+	server: &Server,
+	phone: &Device,
+	laptop: &Device,
+	codes: &[String],
+) {
+	phone.api.send_code(ADA.to_owned()).await.unwrap();
+	let step = phone
+		.api
+		.verify_code(EmailCode {
+			email: ADA.to_owned(),
+			code: server.code(),
+		})
+		.await
+		.unwrap();
+	let SignInStep::SecondFactor(prompt) = step else {
+		panic!("the account has a second factor: {step:?}");
+	};
+	assert_eq!(prompt.factors, [Factor::Totp, Factor::RecoveryCode]);
+	assert!(prompt.expires_in > 240);
+	assert!(!(phone.held)(), "nothing is signed in yet");
+	let wrong = phone
+		.api
+		.complete_sign_in("000000".into())
+		.await
+		.unwrap_err();
+	assert_eq!(wrong.error, "invalid_code");
+	let signed_in = phone.api.complete_sign_in(codes[0].clone()).await.unwrap();
+	assert!((phone.held)());
+	assert_eq!(session_id(phone).await, Some(signed_in.id));
+	// A recovery code signs every other device out.
+	assert_eq!(session_id(laptop).await, None);
+	let again = phone
+		.api
+		.complete_sign_in(codes[1].clone())
+		.await
+		.unwrap_err();
+	assert_eq!(again.error, "sign_in_expired");
+}
+
+async fn steps_up_and_turns_off(phone: &Device, codes: &[String]) {
+	let stepped_up = phone.api.step_up(codes[1].clone()).await.unwrap();
+	assert!(stepped_up.mfa_at.is_some());
+	assert_eq!(session_id(phone).await, Some(stepped_up.id));
+	let fresh = phone.api.regenerate_recovery_codes().await.unwrap();
+	assert_eq!(fresh.codes.len(), 10);
+	phone.api.disable_totp().await.unwrap();
+	assert_eq!(phone.api.mfa().await.unwrap(), MfaStatus::default());
+	assert_eq!(
+		phone.api.disable_totp().await.unwrap_err().error,
+		"not_enrolled"
+	);
+}
+
+#[tokio::test]
+async fn a_browser_uses_two_step_verification_with_its_cookies() {
+	let server = Server::new().await;
+	uses_two_steps(&server, || server.browser()).await;
+}
+
+#[tokio::test]
+async fn a_native_app_uses_two_step_verification_with_tokens() {
+	let server = Server::new().await;
+	uses_two_steps(&server, || server.native().device()).await;
+}
+
+#[tokio::test]
+async fn a_native_app_forgets_the_second_step_once_it_is_over() {
+	let server = Server::new().await;
+	let laptop = server.native();
+	sign_in(&server, &laptop.device()).await;
+	let setup = laptop.api.begin_totp().await.unwrap();
+	laptop
+		.api
+		.confirm_totp(authenticator::totp(&setup.secret, 0))
+		.await
+		.unwrap();
+
+	let phone = server.native();
+	phone.api.send_code(ADA.to_owned()).await.unwrap();
+	phone
+		.api
+		.verify_code(EmailCode {
+			email: ADA.to_owned(),
+			code: server.code(),
+		})
+		.await
+		.unwrap();
+	assert!(phone.api.credentials().second_factor().is_some());
+	// Signing out abandons it.
+	phone.api.sign_out().await.unwrap();
+	assert_eq!(phone.api.credentials().second_factor(), None);
+	assert_eq!(
+		phone
+			.api
+			.complete_sign_in("000000".into())
+			.await
+			.unwrap_err()
+			.error,
+		"sign_in_expired"
+	);
 }
 
 #[tokio::test]
@@ -685,6 +857,9 @@ async fn the_scopes_call_the_configured_client() {
 		})
 		.await
 		.unwrap();
+	let SignInStep::SignedIn(signed_in) = signed_in else {
+		panic!("no second factor yet");
+	};
 	assert_eq!(
 		client.get_query_data(&session(), &()),
 		Some(Some(signed_in.clone()))
@@ -803,7 +978,19 @@ async fn server_rendering_reads_the_requests_session() {
 			.verify_code(EmailCode::default())
 			.await
 			.map(|_| ()),
+		Rendering
+			.complete_sign_in("123456".into())
+			.await
+			.map(|_| ()),
+		Rendering.step_up("123456".into()).await.map(|_| ()),
+		Rendering.begin_totp().await.map(|_| ()),
+		Rendering.confirm_totp("123456".into()).await.map(|_| ()),
+		Rendering.disable_totp().await,
+		Rendering.regenerate_recovery_codes().await.map(|_| ()),
 	] {
 		assert_eq!(refused.unwrap_err().error, "server");
 	}
+
+	// Outside a request there's no session to read two-step status from.
+	assert_eq!(Rendering.mfa().await.unwrap_err().error, "server");
 }

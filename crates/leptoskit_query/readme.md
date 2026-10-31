@@ -82,7 +82,7 @@ Give those scopes a stale time. Data is stale the moment it is fetched by defaul
 
 ## Running anywhere
 
-Nothing here assumes a browser. The library asks its host for an async executor, a clock and a timer, focus and network status, and — optionally — a way to reach other windows. In the browser the default `browser` feature wires all of them to the DOM; on the server and native targets tokio and `SystemTime` cover time and the host reports focus and connectivity through `FocusManager::set_focused` and `OnlineManager::set_online`. A native shell hosting the wasm bundle outside a browser builds with `--no-default-features`, installs a clock and a timer with `install_clock` and `install_sleep`, and runs the very same code.
+Nothing here assumes a browser. The library asks its host for an async executor, a clock and a timer, focus and network status, and — optionally — a way to reach other windows. In the browser the default `browser` feature wires all of them to the DOM; on the server and native targets tokio and `SystemTime` cover time and the host reports focus and connectivity through `FocusManager::set_focused` and `OnlineManager::set_online`. A native shell hosting the wasm bundle outside a browser builds with `--no-default-features`, installs a clock and a timer with `install_clock` and `install_sleep`, and runs the very same code. A guest of leptoskit's own native runtime turns on the `guest` feature instead of installing a clock: the runtime reports the time before every call into the guest through the `leptoskit_clock` export that feature defines. That runtime has no timer yet, so sleeps there resolve at once.
 
 ## Where it differs from TanStack
 

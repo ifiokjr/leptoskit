@@ -5,11 +5,19 @@
 //! which the file router brings into guests, keeps an `#[allow(unused)]`
 //! console-warn helper behind an unconditional `wasm32-unknown-unknown`
 //! dependency on web-sys, and rustc emits an import for every linked extern.
-//! The interpreter resolves this closed set of shims so instantiation
-//! succeeds; shims that would only run while doing real browser work either
-//! report through the host or trap loudly, because the native runtime has no
-//! JavaScript to call into. Any import outside the set still fails
-//! instantiation with wasmi's own unresolved-import error.
+//! `leptos` itself turns on `any_spawner`'s wasm-bindgen executor and
+//! `server_fn`'s browser client unconditionally, so a guest that uses its
+//! signals links js-sys futures and stream glue too. Those imports are
+//! reachable only through function tables and wasm-bindgen's own exports,
+//! which JavaScript calls; nothing a native host calls reaches them.
+//!
+//! The interpreter resolves a small set of shims that do something harmless
+//! (discard, report through the host, or grow the notional externref
+//! table). Every other function import from wasm-bindgen's own modules links
+//! to a trap that names it, because reaching one means the guest tried to do
+//! browser work and the native runtime has no JavaScript to call into.
+//! Imports from any other module still fail instantiation with wasmi's own
+//! unresolved-import error.
 
 use wasmi::Caller;
 use wasmi::Linker;
@@ -33,14 +41,19 @@ enum Behavior {
 	Trap(&'static str),
 }
 
-/// Maps one wasm-bindgen import to its host behavior, if it is tolerated.
+/// What reaching any other wasm-bindgen import means.
+const BROWSER_WORK: &str = "the guest called browser-only wasm-bindgen glue, which the native \
+                            runtime has no JavaScript for";
+
+/// Maps one wasm-bindgen import to its host behavior. `None` for imports
+/// from other modules, which stay unresolved.
 fn behavior(module: &str, name: &str) -> Option<Behavior> {
 	if module == "__wbindgen_externref_xform__" {
-		return match name {
-			"__wbindgen_externref_table_grow" => Some(Behavior::Grow),
-			"__wbindgen_externref_table_set_null" => Some(Behavior::Discard),
-			_ => None,
-		};
+		return Some(match name {
+			"__wbindgen_externref_table_grow" => Behavior::Grow,
+			"__wbindgen_externref_table_set_null" => Behavior::Discard,
+			_ => Behavior::Trap(BROWSER_WORK),
+		});
 	}
 	if module != "__wbindgen_placeholder__" {
 		return None;
@@ -61,12 +74,12 @@ fn behavior(module: &str, name: &str) -> Option<Behavior> {
 				"wasm-bindgen JSPI futures are unavailable in the native runtime",
 			))
 		}
-		_ => None,
+		_ => Some(Behavior::Trap(BROWSER_WORK)),
 	}
 }
 
 /// Registers host implementations for the wasm-bindgen imports `module`
-/// declares that [`behavior`] tolerates, keeping each import's own signature.
+/// declares, keeping each import's own signature.
 pub(super) fn link(
 	linker: &mut Linker<HostState>,
 	module: &Module,
@@ -108,7 +121,7 @@ fn shim(
 				*slot = Val::I32(previous);
 			}
 		}
-		Behavior::Trap(message) => return Err(host_trap(message)),
+		Behavior::Trap(message) => return Err(host_trap(format!("{message}: {name}"))),
 	}
 	for (index, slot) in results.iter_mut().enumerate() {
 		if index == 0 && matches!(behavior, Behavior::Grow) {
@@ -134,7 +147,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn only_the_closed_shim_set_is_tolerated() {
+	fn wasm_bindgen_imports_are_shimmed_or_trap() {
 		assert_eq!(
 			behavior("__wbindgen_placeholder__", "__wbg_warn_13abc63e0d4b3527"),
 			Some(Behavior::Report)
@@ -175,19 +188,22 @@ mod tests {
 			Some(Behavior::Discard)
 		);
 
-		// Everything outside the closed set stays unresolved.
+		// Every other wasm-bindgen import is browser work, and traps.
 		assert_eq!(
 			behavior("__wbindgen_placeholder__", "__wbg_performance_now_1"),
-			None
+			Some(Behavior::Trap(BROWSER_WORK))
 		);
 		assert_eq!(
 			behavior(
 				"__wbindgen_externref_xform__",
 				"__wbindgen_externref_shrink"
 			),
-			None
+			Some(Behavior::Trap(BROWSER_WORK))
 		);
+
+		// Other modules stay unresolved.
 		assert_eq!(behavior("leptoskit", "commit"), None);
+		assert_eq!(behavior("env", "performance_now"), None);
 		assert_eq!(
 			behavior("__wbindgen_describe__", "__wbindgen_describe"),
 			None

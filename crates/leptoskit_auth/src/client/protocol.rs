@@ -15,18 +15,28 @@ use super::Api;
 use super::ClientConfig;
 use super::EmailCode;
 use super::Pending;
+use super::SecondFactorPrompt;
+use super::SignInStep;
+use super::TotpConfirmation;
 use crate::Device;
 use crate::ErrorResponse;
+use crate::FactorCode;
+use crate::MfaStatus;
 use crate::PublicSession;
+use crate::RecoveryCodes;
 use crate::RefreshTokens;
 use crate::RevokeSession;
+use crate::SecondFactorCode;
 use crate::SendCode;
 use crate::Session;
 use crate::SessionResponse;
 use crate::SignedInResponse;
 use crate::Tokens;
+use crate::TotpConfirmedResponse;
+use crate::TotpSetup;
 use crate::Transport;
 use crate::VerifyCode;
+use crate::VerifyResponse;
 
 /// `GET` or `POST`, the only methods the routes use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,6 +122,13 @@ pub(crate) trait Credentials: Send + Sync + 'static {
 
 	/// Forgets everything, on signing out.
 	fn forget(&self) -> BoxFuture<'_, ()>;
+
+	/// Keeps the second step of signing in's token, or forgets it with
+	/// `None`. A browser's is in a cookie, so it holds nothing.
+	fn hold_second_factor(&self, token: Option<String>);
+
+	/// The second step's token, to send back with the code.
+	fn second_factor(&self) -> Option<String>;
 }
 
 /// The server: its origin, and how to reach it.
@@ -210,6 +227,25 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 	}
 }
 
+impl<H: Http, C: Credentials> Remote<H, C> {
+	/// What a native app calls its device, for sign-ins. Browsers are named
+	/// from their user agent.
+	fn device_name(&self) -> Option<String> {
+		self.device_name
+			.clone()
+			.filter(|_| C::TRANSPORT == Transport::Bearer)
+	}
+
+	/// Keeps the tokens a privilege change replaced the session's with. A
+	/// browser's new token came as a cookie, so there's nothing to keep.
+	async fn rotated(&self, tokens: Option<Tokens>) -> Result<(), ErrorResponse> {
+		match (C::TRANSPORT, tokens) {
+			(Transport::Cookie, _) => Ok(()),
+			(Transport::Bearer, tokens) => self.credentials.keep(tokens).await,
+		}
+	}
+}
+
 fn unauthorized(response: &HttpResponse) -> bool {
 	response.status == 401
 }
@@ -242,25 +278,121 @@ impl<H: Http, C: Credentials> Api for Remote<H, C> {
 		})
 	}
 
-	fn verify_code(&self, input: EmailCode) -> Pending<'_, PublicSession> {
+	fn verify_code(&self, input: EmailCode) -> Pending<'_, SignInStep> {
 		Box::pin(async move {
 			let body = json(&VerifyCode {
 				email: input.email,
 				code: input.code,
 				transport: C::TRANSPORT,
-				// Browsers are named from their user agent.
-				device_name: self
-					.device_name
-					.clone()
-					.filter(|_| C::TRANSPORT == Transport::Bearer),
+				device_name: self.device_name(),
 			});
 			let response = self
 				.server
 				.send(Method::Post, "/auth/email/verify", None, Some(body))
 				.await?;
-			let signed_in: SignedInResponse = decode(&response)?;
+
+			match decode(&response)? {
+				VerifyResponse::SignedIn(signed_in) => {
+					self.credentials.hold_second_factor(None);
+					self.credentials.keep(signed_in.tokens).await?;
+					Ok(SignInStep::SignedIn(signed_in.session))
+				}
+				VerifyResponse::SecondFactor(step) => {
+					let step = step.second_factor;
+					self.credentials.hold_second_factor(step.token);
+					Ok(SignInStep::SecondFactor(SecondFactorPrompt {
+						factors: step.factors,
+						expires_in: step.expires_in,
+					}))
+				}
+			}
+		})
+	}
+
+	fn complete_sign_in(&self, code: String) -> Pending<'_, PublicSession> {
+		Box::pin(async move {
+			let body = json(&SecondFactorCode {
+				code,
+				token: self.credentials.second_factor(),
+				transport: C::TRANSPORT,
+				device_name: self.device_name(),
+			});
+			let response = self
+				.server
+				.send(Method::Post, "/auth/second-factor", None, Some(body))
+				.await?;
+			let signed_in = decode::<SignedInResponse>(&response).inspect_err(|refused| {
+				// The step is over; only a wrong code leaves it to try again.
+				if refused.error == "sign_in_expired" {
+					self.credentials.hold_second_factor(None);
+				}
+			})?;
+			self.credentials.hold_second_factor(None);
 			self.credentials.keep(signed_in.tokens).await?;
 			Ok(signed_in.session)
+		})
+	}
+
+	fn mfa(&self) -> Pending<'_, MfaStatus> {
+		Box::pin(async move {
+			let response = self
+				.call(Method::Get, "/auth/mfa", None, unauthorized)
+				.await?;
+			decode(&response)
+		})
+	}
+
+	fn step_up(&self, code: String) -> Pending<'_, PublicSession> {
+		Box::pin(async move {
+			let body = json(&FactorCode { code });
+			let response = self
+				.call(Method::Post, "/auth/step-up", Some(body), unauthorized)
+				.await?;
+			let signed_in: SignedInResponse = decode(&response)?;
+			self.rotated(signed_in.tokens).await?;
+			Ok(signed_in.session)
+		})
+	}
+
+	fn begin_totp(&self) -> Pending<'_, TotpSetup> {
+		Box::pin(async move {
+			let response = self
+				.call(Method::Post, "/auth/totp", None, unauthorized)
+				.await?;
+			decode(&response)
+		})
+	}
+
+	fn confirm_totp(&self, code: String) -> Pending<'_, TotpConfirmation> {
+		Box::pin(async move {
+			let body = json(&FactorCode { code });
+			let response = self
+				.call(Method::Post, "/auth/totp/confirm", Some(body), unauthorized)
+				.await?;
+			let confirmed: TotpConfirmedResponse = decode(&response)?;
+			self.rotated(confirmed.tokens).await?;
+			Ok(TotpConfirmation {
+				session: confirmed.session,
+				recovery_codes: confirmed.recovery_codes,
+			})
+		})
+	}
+
+	fn disable_totp(&self) -> Pending<'_, ()> {
+		Box::pin(async move {
+			let response = self
+				.call(Method::Post, "/auth/totp/disable", None, unauthorized)
+				.await?;
+			succeeded(&response)
+		})
+	}
+
+	fn regenerate_recovery_codes(&self) -> Pending<'_, RecoveryCodes> {
+		Box::pin(async move {
+			let response = self
+				.call(Method::Post, "/auth/recovery-codes", None, unauthorized)
+				.await?;
+			decode(&response)
 		})
 	}
 
