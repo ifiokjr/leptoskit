@@ -78,6 +78,27 @@ async fn providers_and_the_mfa_policy_come_from_leptoskit_toml() {
 			("private_key_env", "PROVIDER_TEST_P8"),
 		]),
 	);
+	providers.insert(
+		"facebook".to_owned(),
+		AuthProviderConfig {
+			api_version: Some("v25.0".into()),
+			..provider(&shared)
+		},
+	);
+	providers.insert(
+		"gitlab".to_owned(),
+		provider(&[
+			("client_id_env", "PROVIDER_TEST_ID"),
+			("issuer", "https://gitlab.example"),
+		]),
+	);
+	providers.insert(
+		"chat".to_owned(),
+		AuthProviderConfig {
+			kind: Some("discord".into()),
+			..provider(&shared)
+		},
+	);
 	let mut company = provider(&[
 		("client_id_env", "PROVIDER_TEST_ID"),
 		("issuer", oidc::ISSUER),
@@ -96,15 +117,25 @@ async fn providers_and_the_mfa_policy_come_from_leptoskit_toml() {
 	});
 
 	let auth = Auth::from_config(&db, &config).unwrap().build().unwrap();
-	let mut names: Vec<String> = auth
+	let mut names: Vec<(String, String)> = auth
 		.providers()
 		.into_iter()
-		.map(|provider| provider.name)
+		.map(|provider| (provider.id, provider.name))
 		.collect();
 	names.sort();
+	let expected = [
+		("apple", "Apple"),
+		("chat", "Discord"),
+		("company", "Company SSO"),
+		("facebook", "Facebook"),
+		("github", "GitHub"),
+		("gitlab", "GitLab"),
+		("google", "Google"),
+		("microsoft", "Microsoft"),
+	];
 	assert_eq!(
 		names,
-		["Apple", "Company SSO", "GitHub", "Google", "Microsoft"]
+		expected.map(|(id, name)| (id.to_owned(), name.to_owned()))
 	);
 
 	// A missing variable is named, never its value.

@@ -309,7 +309,7 @@
 					]
 				},
 				"providers": {
-					"description": "Third-party sign-in providers, by ID: `google`, `apple`,\n`microsoft`, `github`, or your own name for any OpenID Connect\nissuer.",
+					"description": "Third-party sign-in providers, by ID: one of\n[`AUTH_PROVIDER_KINDS`], such as `google` or `github`, or your own\nname for any OpenID Connect issuer.",
 					"type": "object",
 					"additionalProperties": {
 						"$ref": "#/$defs/AuthProviderConfig"
@@ -488,6 +488,13 @@
 			"description": "A third-party sign-in provider. Its secrets are named by the\nenvironment variables that hold them.",
 			"type": "object",
 			"properties": {
+				"api_version": {
+					"description": "For `facebook`: the Graph API version, such as `v26.0`. Defaults to\nthe version leptoskit's definition was last checked against.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
 				"client_id_env": {
 					"description": "The environment variable holding the OAuth client ID, or Apple's\nServices ID.",
 					"type": [
@@ -503,7 +510,7 @@
 					]
 				},
 				"issuer": {
-					"description": "For `oidc`: the issuer, whose discovery document names the\nendpoints, such as `https://sso.example.com`.",
+					"description": "For `oidc`: the issuer, whose discovery document names the\nendpoints, such as `https://sso.example.com`. For `gitlab`: a\nself-managed GitLab's address; defaults to `https://gitlab.com`.",
 					"type": [
 						"string",
 						"null"
@@ -517,7 +524,7 @@
 					]
 				},
 				"kind": {
-					"description": "What it is: `google`, `apple`, `microsoft`, `github`, or `oidc`.\nDefaults to the provider's ID when that's one of the first four, and\nto `oidc` otherwise.",
+					"description": "What it is: one of [`AUTH_PROVIDER_KINDS`], such as `google`, or\n`oidc`. Defaults to the provider's ID when that's a built-in one, and\nto `oidc` otherwise.",
 					"type": [
 						"string",
 						"null"

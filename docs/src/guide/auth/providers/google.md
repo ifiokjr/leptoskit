@@ -23,4 +23,4 @@ Google's OpenID Connect ID token: a stable ID for the person, their name and pic
 
 ## Platforms
 
-Signing in with Google works on the web. Native apps answer `unsupported` until the system-browser plugin arrives; see [Sign-in](../../23-sign-in.md#sign-in-with-other-sites).
+It works on the web, and in iOS, macOS, and Android apps through the system browser, with the same redirect URIs: the browser comes back to your site, which sends it on to the app. See [Sign-in](../../23-sign-in.md#sign-in-with-other-sites) for each platform.

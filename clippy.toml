@@ -27,6 +27,9 @@ doc-valid-idents = [
 	"OAuth",
 	"GitHub",
 	"OpenID",
+	"LinkedIn",
+	"GitLab",
+	"TikTok",
 	"..",
 ]
 

@@ -27,4 +27,4 @@ Microsoft's email claim is never trusted: an organization's administrator can se
 
 ## Platforms
 
-Signing in with Microsoft works on the web. Native apps answer `unsupported` until the system-browser plugin arrives.
+It works on the web, and in iOS, macOS, and Android apps through the system browser, with the same redirect URIs: the browser comes back to your site, which sends it on to the app. See [Sign-in](../../23-sign-in.md#sign-in-with-other-sites) for each platform.

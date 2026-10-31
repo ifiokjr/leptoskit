@@ -27,4 +27,4 @@ Apple doesn't take a fixed client secret: leptoskit signs a short one for each s
 
 ## Platforms
 
-Sign in with Apple works on the web. Native apps, including iOS, answer `unsupported` until native Sign in with Apple and the system-browser plugin arrive.
+It works on the web, and in iOS, macOS, and Android apps through the system browser, with the same Return URLs: the browser comes back to your site, which sends it on to the app. On iPhone, iPad, and Mac, apps use Sign in with Apple's own sheet instead, which needs `[native] package_id` and the Sign in with Apple capability. See [Sign-in](../../23-sign-in.md#sign-in-with-other-sites) for each platform.

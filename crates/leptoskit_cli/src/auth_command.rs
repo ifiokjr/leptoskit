@@ -53,11 +53,13 @@ pub enum ProviderCommand {
 	/// environment variables its secrets go in, and prints how to set the
 	/// provider up.
 	Add {
-		/// `google`, `apple`, `microsoft`, `github`, or your own ID for an
-		/// OpenID Connect issuer, such as `company`.
+		/// A built-in provider, such as `google`, `github`, `discord`, or
+		/// `slack`, or your own ID for an OpenID Connect issuer, such as
+		/// `company`.
 		id: String,
 		/// For an OpenID Connect provider: its issuer, such as
-		/// `https://sso.example.com`.
+		/// `https://sso.example.com`. For `gitlab`: a self-managed GitLab's
+		/// address.
 		#[arg(long)]
 		issuer: Option<String>,
 	},
@@ -299,6 +301,7 @@ fn providers(config: &LeptoskitConfig, env: &impl Fn(&str) -> Option<String>) ->
 			}
 		}
 
+		findings.extend(provider_notes(id, provider, &kind));
 		let verified = leptoskit_auth::PROVIDERS_VERIFIED
 			.iter()
 			.find(|(provider, _)| *provider == kind)
@@ -333,6 +336,50 @@ fn providers(config: &LeptoskitConfig, env: &impl Fn(&str) -> Option<String>) ->
 	}
 
 	findings
+}
+
+/// The providers that never vouch for an email address: what they give is
+/// kept on the connected account, never as the account's own.
+const UNVOUCHED_EMAIL: &[&str] = &["microsoft", "facebook", "x"];
+
+/// What `doctor` says about one provider beyond its variables and age.
+fn provider_notes(
+	id: &str,
+	provider: &leptoskit_config::AuthProviderConfig,
+	kind: &str,
+) -> Vec<Finding> {
+	let mut findings = Vec::new();
+
+	if UNVOUCHED_EMAIL.contains(&kind) {
+		findings.push(ok(format!(
+			"{id}: {kind} never vouches for email addresses, so accounts made with it start \
+			 without one, and its address never matches another account"
+		)));
+	}
+
+	if kind == "facebook" {
+		let pinned = leptoskit_auth::FACEBOOK_GRAPH_VERSION;
+		let configured = provider.api_version.as_deref().unwrap_or(pinned);
+
+		if graph_version(configured) < graph_version(pinned) {
+			findings.push(warning(format!(
+				"{id}: Graph API {configured} is older than {pinned}, which the facebook \
+				 definition was checked against; Facebook retires each version about two years \
+				 after the next ships"
+			)));
+		}
+	}
+
+	findings
+}
+
+/// A Graph API version, such as `v26.0`, as numbers to compare.
+fn graph_version(version: &str) -> (u32, u32) {
+	let (major, minor) = version
+		.trim_start_matches('v')
+		.split_once('.')
+		.unwrap_or_default();
+	(major.parse().unwrap_or(0), minor.parse().unwrap_or(0))
 }
 
 /// The findings, one per line.
@@ -495,7 +542,46 @@ fn recipe(id: &str, issuer: Option<&str>, redirects: &str) -> Result<Recipe> {
 				settings,
 			}
 		}
+		"gitlab" => {
+			let base = issuer
+				.unwrap_or(leptoskit_auth::GITLAB_COM)
+				.trim_end_matches('/');
+			let mut settings = pair();
+
+			if issuer.is_some() {
+				settings.insert(0, ("issuer", base.to_owned()));
+			}
+
+			Recipe {
+				steps: vec![
+					format!(
+						"Open {base}/-/user_settings/applications (or a group's Applications \
+						 page) and add a confidential application with the scopes `openid`, \
+						 `profile`, and `email`."
+					),
+					format!("Set its Redirect URIs to:\n{redirects}"),
+					set(&settings),
+				],
+				settings,
+			}
+		}
 		_ => {
+			if let Some((register, redirect, note)) = setup(id) {
+				let mut settings = pair();
+
+				if id == "facebook" {
+					settings.push((
+						"api_version",
+						leptoskit_auth::FACEBOOK_GRAPH_VERSION.to_owned(),
+					));
+				}
+
+				let mut steps = vec![register.to_owned(), format!("{redirect}\n{redirects}")];
+				steps.extend(note.map(str::to_owned));
+				steps.push(set(&settings));
+				return Ok(Recipe { settings, steps });
+			}
+
 			let Some(issuer) = issuer else {
 				bail!(
 					"`{id}` isn't a built-in provider; pass --issuer with its OpenID Connect \
@@ -513,6 +599,64 @@ fn recipe(id: &str, issuer: Option<&str>, redirects: &str) -> Result<Recipe> {
 				settings,
 			}
 		}
+	})
+}
+
+/// Where to register an app with a built-in provider, how it names the
+/// redirect URIs, and anything else its setup needs.
+fn setup(kind: &str) -> Option<(&'static str, &'static str, Option<&'static str>)> {
+	Some(match kind {
+		"facebook" => {
+			(
+				"Open https://developers.facebook.com/apps and create an app with the \
+				 \"Authenticate and request data from users with Facebook Login\" use case.",
+				"Under Facebook Login's settings, add these Valid OAuth Redirect URIs:",
+				Some(
+					"`api_version` pins the Graph API version the app was set up with; Facebook \
+					 retires each version about two years after the next ships.",
+				),
+			)
+		}
+		"x" => {
+			(
+				"Open https://developer.x.com/en/portal/dashboard, and in the app's User \
+				 authentication settings choose OAuth 2.0 with the type \"Web App, Automated App \
+				 or Bot\".",
+				"Add these Callback URIs:",
+				Some(
+					"Use the OAuth 2.0 Client ID and Client Secret, not the API key. X never \
+					 shares a verified email address, so accounts made with it start without one.",
+				),
+			)
+		}
+		"discord" => {
+			(
+				"Open https://discord.com/developers/applications, create an application, and \
+				 open its OAuth2 page.",
+				"Add these Redirects:",
+				None,
+			)
+		}
+		"linkedin" => {
+			(
+				"Open https://www.linkedin.com/developers/apps, create an app, and add the \"Sign \
+				 In with LinkedIn using OpenID Connect\" product.",
+				"On its Auth tab, add these Authorized redirect URLs:",
+				None,
+			)
+		}
+		"slack" => {
+			(
+				"Open https://api.slack.com/apps, create an app, and under OAuth & Permissions \
+				 add the user scopes `openid`, `email`, and `profile`.",
+				"Add these Redirect URLs:",
+				Some(
+					"A Slack user belongs to one workspace: the same person in two workspaces \
+					 signs in as two connected accounts.",
+				),
+			)
+		}
+		_ => return None,
 	})
 }
 
@@ -754,6 +898,33 @@ mod tests {
 		for id in ["github", "microsoft", "apple"] {
 			add_provider(root.path(), &config, id, None).unwrap();
 		}
+
+		let facebook = add_provider(root.path(), &config, "facebook", None).unwrap();
+		assert!(facebook.contains("Valid OAuth Redirect URIs"), "{facebook}");
+		assert!(
+			facebook.contains("5. Run `leptoskit auth doctor`"),
+			"{facebook}"
+		);
+
+		for id in ["x", "discord", "linkedin", "slack"] {
+			let output = add_provider(root.path(), &config, id, None).unwrap();
+			assert!(
+				output.contains(&format!("https://notes.example/auth/callback/{id}")),
+				"{output}"
+			);
+		}
+
+		let gitlab = add_provider(
+			root.path(),
+			&config,
+			"gitlab",
+			Some("https://gitlab.example/"),
+		)
+		.unwrap();
+		assert!(
+			gitlab.contains("https://gitlab.example/-/user_settings/applications"),
+			"{gitlab}"
+		);
 		let company = add_provider(
 			root.path(),
 			&config,
@@ -765,7 +936,16 @@ mod tests {
 		let written = std::fs::read_to_string(root.path().join("leptoskit.toml")).unwrap();
 		let reloaded = LeptoskitConfig::from_toml(&written, root.path()).unwrap();
 		let providers = reloaded.auth.unwrap().providers;
-		assert_eq!(providers.len(), 5);
+		assert_eq!(providers.len(), 11);
+		assert_eq!(
+			providers["facebook"].api_version.as_deref(),
+			Some(leptoskit_auth::FACEBOOK_GRAPH_VERSION)
+		);
+		assert_eq!(
+			providers["gitlab"].issuer.as_deref(),
+			Some("https://gitlab.example")
+		);
+		assert_eq!(providers["x"].kind("x"), "x");
 		assert_eq!(
 			providers["company-sso"].issuer.as_deref(),
 			Some("https://sso.example")
@@ -776,6 +956,27 @@ mod tests {
 		assert!(add_provider(root.path(), &config, "Bad ID", None).is_err());
 		let no_auth = LeptoskitConfig::from_toml("", root.path()).unwrap();
 		assert!(add_provider(root.path(), &no_auth, "google", None).is_err());
+	}
+
+	#[test]
+	fn doctor_says_what_each_provider_does_differently() {
+		let config = load(
+			"[auth]\norigin = \"https://notes.example\"\n\n[auth.providers.facebook]\nclient_id_env \
+			 = \"F_ID\"\nclient_secret_env = \"F_SECRET\"\napi_version = \"v19.0\"\n\n[auth.\
+			 providers.slack]\nclient_id_env = \"S_ID\"\nclient_secret_env = \"S_SECRET\"\n",
+		);
+		let report = report(&doctor(&config, env(&[]), false));
+		assert!(
+			report.contains("warning  facebook: Graph API v19.0 is older than"),
+			"{report}"
+		);
+		assert!(
+			report.contains("facebook: facebook never vouches for email addresses"),
+			"{report}"
+		);
+		assert!(!report.contains("slack: slack never vouches"), "{report}");
+		assert!(graph_version("v26.0") > graph_version("v9.9"));
+		assert_eq!(graph_version("nonsense"), (0, 0));
 	}
 
 	#[tokio::test]
