@@ -254,8 +254,8 @@ impl crate::Operation for Search {
 	const NAME: &'static str = "search";
 
 	#[cfg(feature = "server")]
-	async fn run(self, _cx: &crate::QueryCx) -> crate::Result<Vec<String>> {
-		Ok(vec![self.text])
+	fn run(self, _cx: &crate::QueryCx) -> impl Future<Output = crate::Result<Vec<String>>> + Send {
+		std::future::ready(Ok(vec![self.text]))
 	}
 }
 
