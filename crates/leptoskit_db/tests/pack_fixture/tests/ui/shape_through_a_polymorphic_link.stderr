@@ -33,23 +33,21 @@ help: the following other types implement trait `Table`
 note: required by a bound in `leptoskit_db::Shape::From`
   --> $WORKSPACE/crates/leptoskit_db/src/shape.rs
    |
+   | pub trait Shape: Sized + 'static {
+   |     /// The table each shaped row comes from.
    |     type From: Table;
    |                ^^^^^ required by this bound in `Shape::From`
    = note: this error originates in the attribute macro `leptoskit_db::polymorphic` which comes from the expansion of the attribute macro `table` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0599]: the method `one` exists for struct `leptoskit_db::shape::Relation<Budget, Owner, leptoskit_db::shape::One>`, but its trait bounds were not satisfied
+error[E0599]: the method `one` exists for struct `leptoskit_db::__private::shape::Relation<Budget, Owner, leptoskit_db::__private::shape::One>`, but its trait bounds were not satisfied
   --> tests/ui/shape_through_a_polymorphic_link.rs:25:10
    |
- 4 |   #[leptoskit_db::polymorphic(name = "owners")]
-   |   --------------------------------------------- doesn't satisfy `Owner: Table`
+ 4 | #[leptoskit_db::polymorphic(name = "owners")]
+   | --------------------------------------------- doesn't satisfy `Owner: Table`
 ...
-25 |   #[derive(leptoskit_db::Shape)]
-   |            -^^^^^^^^^^^^^^^^^^
-   |            |
-   |  __________method cannot be called due to unsatisfied trait bounds
-   | |
-26 | | #[db(from = Budget)]
-   | |____________-
+25 | #[derive(leptoskit_db::Shape)]
+   |          ^^^^^^^^^^^^^^^^^^^ method cannot be called due to unsatisfied trait bounds
+26 | #[db(from = Budget)]
    |
    = note: the following trait bounds were not satisfied:
            `Owner: Table`
@@ -92,9 +90,11 @@ help: the following other types implement trait `Table`
    | |     index(at)
    | | )]
    | |__^ `AuditEntry`
-note: required by a bound in `leptoskit_db::shape::Selected::column`
+note: required by a bound in `leptoskit_db::__private::shape::Selected::column`
   --> $WORKSPACE/crates/leptoskit_db/src/shape.rs
    |
+   | impl Selected {
+   |     /// A column of the shape's table.
    |     pub fn column<T: Table, V: Column>(column: Col<T, V>) -> Self {
    |                      ^^^^^ required by this bound in `Selected::column`
    = note: this error originates in the attribute macro `leptoskit_db::polymorphic` which comes from the expansion of the attribute macro `table` (in Nightly builds, run with -Z macro-backtrace for more info)
