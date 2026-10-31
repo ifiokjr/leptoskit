@@ -42,6 +42,13 @@ impl Credentials for Cookie {
 	fn forget(&self) -> BoxFuture<'_, ()> {
 		Box::pin(std::future::ready(()))
 	}
+
+	// The second step's token is in an `HttpOnly` cookie, too.
+	fn hold_second_factor(&self, _token: Option<String>) {}
+
+	fn second_factor(&self) -> Option<String> {
+		None
+	}
 }
 
 /// Sends requests with the browser's `fetch`.

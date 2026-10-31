@@ -1,12 +1,17 @@
 //! The sign-in screen: an email address, then the code emailed to it. The
 //! same two steps sign up an address that has no account yet, so there's no
-//! separate sign-up screen.
+//! separate sign-up screen. An account with two-step verification turned on
+//! gets a third step: a code from its authenticator app, or a recovery code.
 
 use std::time::Duration;
 
 use leptoskit::auth::ErrorResponse;
+use leptoskit::auth::Factor;
 use leptoskit::auth::PublicSession;
 use leptoskit::auth::client::EmailCode;
+use leptoskit::auth::client::SecondFactorPrompt;
+use leptoskit::auth::client::SignInStep;
+use leptoskit::auth::client::complete_sign_in;
 use leptoskit::auth::client::send_code;
 use leptoskit::auth::client::sign_out_mutation;
 use leptoskit::auth::client::use_auth;
@@ -18,6 +23,7 @@ use leptoskit::leptos::prelude::RwSignal;
 use leptoskit::leptos::prelude::Set;
 use leptoskit::leptos::prelude::Update;
 use leptoskit::prelude::*;
+use leptoskit::query::ErrorArgs;
 use leptoskit::query::MutateCallbacks;
 use leptoskit::query::MutationHandle;
 use leptoskit::query::QueryHandle;
@@ -31,6 +37,10 @@ pub struct SignIn {
 	/// The address the last code went to. The screen asks for the code once
 	/// it's set.
 	sent_to: RwSignal<Option<String>>,
+	/// The code from the authenticator app, or a recovery code.
+	factor_code: RwSignal<String>,
+	/// The second step, once the emailed code asked for one.
+	second: RwSignal<Option<SecondFactorPrompt>>,
 	/// What's wrong with what was typed, found before anything is sent.
 	problem: RwSignal<Option<String>>,
 	/// Seconds until the server takes another attempt, after `rate_limited`.
@@ -41,7 +51,8 @@ pub struct SignIn {
 	mounted: RwSignal<bool>,
 	session: QueryHandle<Option<PublicSession>, ErrorResponse>,
 	send: MutationHandle<String, (), ErrorResponse>,
-	verify: MutationHandle<EmailCode, PublicSession, ErrorResponse>,
+	verify: MutationHandle<EmailCode, SignInStep, ErrorResponse>,
+	finish: MutationHandle<String, PublicSession, ErrorResponse>,
 	sign_out: MutationHandle<(), (), ErrorResponse>,
 }
 
@@ -57,12 +68,15 @@ impl SignIn {
 			email: RwSignal::new(String::new()),
 			code: RwSignal::new(String::new()),
 			sent_to: RwSignal::new(None),
+			factor_code: RwSignal::new(String::new()),
+			second: RwSignal::new(None),
 			problem: RwSignal::new(None),
 			wait: RwSignal::new(0),
 			mounted,
 			session: use_auth(),
 			send: use_mutation(send_code()),
 			verify: use_mutation(verify_code()),
+			finish: use_mutation(complete_sign_in()),
 			sign_out: use_mutation(sign_out_mutation()),
 		}
 	}
@@ -96,9 +110,10 @@ impl SignIn {
 		let step = match session {
 			Some(Some(_)) => self.signed_in(),
 			Some(None) => {
-				match self.sent_to.get() {
-					Some(email) => self.code_step(&email),
-					None => self.email_step(),
+				match (self.second.get(), self.sent_to.get()) {
+					(Some(prompt), _) => self.second_step(&prompt),
+					(None, Some(email)) => self.code_step(&email),
+					(None, None) => self.email_step(),
 				}
 			}
 			None => {
@@ -215,6 +230,53 @@ impl SignIn {
 			)
 	}
 
+	/// Step three, for an account with two-step verification: a code from
+	/// the authenticator app, or a recovery code.
+	fn second_step(&self, prompt: &SecondFactorPrompt) -> Element {
+		let this = *self;
+		let code = self.factor_code;
+		let finishing = self.finish.is_pending();
+		let label = match self.wait.get() {
+			0 if finishing => "Checking…".to_owned(),
+			0 => "Continue".to_owned(),
+			seconds => format!("Try again in {seconds} s"),
+		};
+		let hint = if prompt.factors.contains(&Factor::RecoveryCode) {
+			"Enter the 6-digit code from your authenticator app. Lost your phone? Enter one of \
+			 your recovery codes instead."
+		} else {
+			"Enter the 6-digit code from your authenticator app."
+		};
+
+		View()
+			.class("gap-3")
+			.child(Status(hint).class("text-sm text-slate-300"))
+			.child(Text("Code").class("text-sm font-semibold"))
+			.child(
+				TextInput()
+					.id("sign-in-second-factor")
+					.aria_label("Authenticator or recovery code")
+					.aria_required(true)
+					.placeholder("123456")
+					.value(code.get_untracked())
+					.on_change(move |text| code.set(text.to_owned()))
+					.class("h-11 rounded-lg px-3 bg-white text-slate-900"),
+			)
+			.children(self.message(self.finish.error()))
+			.child(
+				Button(label)
+					.enabled(!finishing && self.wait.get() == 0)
+					.aria_busy(finishing)
+					.on_press(move || this.complete())
+					.class("rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
+			)
+			.child(
+				Button("Start again")
+					.on_press(move || this.start_over())
+					.class("rounded-lg px-4 py-2 text-sm text-indigo-300"),
+			)
+	}
+
 	/// What a signed-in person sees here.
 	fn signed_in(&self) -> Element {
 		let this = *self;
@@ -307,22 +369,61 @@ impl SignIn {
 		self.verify.mutate_with(
 			EmailCode { email, code },
 			MutateCallbacks::new()
-				// The session query now holds the new session, so the screen
-				// moves on by itself; this only clears the form for next time.
-				.on_success(move |_| {
+				// Signed in, the session query holds the new session, so the
+				// screen moves on by itself; otherwise it asks for the second
+				// factor.
+				.on_success(move |success| {
 					this.code.set(String::new());
 					this.sent_to.set(None);
+
+					if let SignInStep::SecondFactor(prompt) = &success.data {
+						this.second.set(Some(prompt.clone()));
+					}
 				})
 				.on_error(move |failed| hold_off(this.wait, &failed.error)),
 		);
 	}
 
+	fn complete(&self) {
+		let code = self.factor_code.get_untracked().trim().to_owned();
+
+		if code.is_empty() {
+			self.problem
+				.set(Some("Enter the code from your authenticator app.".into()));
+			return;
+		}
+
+		self.problem.set(None);
+		let this = *self;
+		self.finish.mutate_with(
+			code,
+			MutateCallbacks::new()
+				.on_success(move |_| {
+					this.factor_code.set(String::new());
+					this.second.set(None);
+				})
+				.on_error(move |failed: ErrorArgs<ErrorResponse, String, ()>| {
+					if failed.error.error == "sign_in_expired" {
+						this.start_over();
+						this.problem.set(Some(
+							"That took too long. Enter your email address to start again.".into(),
+						));
+					} else {
+						hold_off(this.wait, &failed.error);
+					}
+				}),
+		);
+	}
+
 	fn start_over(&self) {
 		self.code.set(String::new());
+		self.factor_code.set(String::new());
 		self.sent_to.set(None);
+		self.second.set(None);
 		self.problem.set(None);
 		self.send.reset();
 		self.verify.reset();
+		self.finish.reset();
 	}
 }
 

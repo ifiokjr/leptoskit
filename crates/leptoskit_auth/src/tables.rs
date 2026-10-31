@@ -112,10 +112,14 @@ pub struct Session {
 pub enum Purpose {
 	/// A code sent to an email address, to sign in or sign up with.
 	EmailCode,
+	/// The second step of signing in, after the first factor, to an account
+	/// with a second factor. Its subject is the account.
+	SecondFactor,
 }
 
 /// A short-lived secret a sign-in method sent or expects, such as an email
-/// code. Only its keyed hash is stored, it expires, and it works once.
+/// code or the second step of signing in. Only its hash is stored, it
+/// expires, and it works once.
 #[table(name = "challenges", pack = "auth", index(purpose, subject))]
 #[policy(select, |_, _| leptoskit_db::Expr::never())]
 pub struct Challenge {
@@ -153,6 +157,19 @@ pub enum EventKind {
 	RefreshReused,
 	/// A sign-in code was emailed.
 	CodeSent,
+	/// An authenticator app was turned on.
+	TotpEnabled,
+	/// The authenticator app was turned off, and the recovery codes deleted.
+	TotpDisabled,
+	/// A code from an authenticator app or a recovery code was wrong.
+	SecondFactorFailed,
+	/// A signed-in session confirmed it's still its owner with a second
+	/// factor.
+	SteppedUp,
+	/// A recovery code was used, and the account's other sessions ended.
+	RecoveryCodeUsed,
+	/// New recovery codes replaced the old ones.
+	RecoveryCodesRegenerated,
 }
 
 /// The audit trail: what happened to an account, and from where. Never
@@ -168,6 +185,43 @@ pub struct Event {
 	pub ip: Option<String>,
 	#[db(max_len = 512, private)]
 	pub user_agent: Option<String>,
+	#[db(created_at)]
+	pub created_at: Timestamp,
+}
+
+/// An account's authenticator app: the TOTP secret it shares with the
+/// server. The secret is encrypted with the server's keys, so a copy of the
+/// database can't produce codes, and bound to its account.
+#[table(name = "totp", pack = "auth")]
+#[policy(select, |_, _| leptoskit_db::Expr::never())]
+pub struct TotpSecret {
+	pub id: Id<Self>,
+	/// One authenticator per account.
+	#[db(unique, on_delete = cascade)]
+	pub account_id: Id<Account>,
+	/// AES-256-GCM-SIV under the newest key, with the key's ID.
+	#[db(secret)]
+	pub secret: Vec<u8>,
+	/// When a code from the app first matched. Until then the app isn't
+	/// trusted to sign in with.
+	pub confirmed_at: Option<Timestamp>,
+	/// The last 30-second step whose code was used, so no code works twice.
+	pub last_used_step: Option<i64>,
+	#[db(created_at)]
+	pub created_at: Timestamp,
+}
+
+/// One of an account's recovery codes, for when its authenticator is lost.
+/// Each works once; only its keyed hash is stored.
+#[table(name = "recovery_codes", pack = "auth", index(account_id))]
+#[policy(select, |_, _| leptoskit_db::Expr::never())]
+pub struct RecoveryCode {
+	pub id: Id<Self>,
+	#[db(on_delete = cascade)]
+	pub account_id: Id<Account>,
+	#[db(secret)]
+	pub code_hash: Vec<u8>,
+	pub used_at: Option<Timestamp>,
 	#[db(created_at)]
 	pub created_at: Timestamp,
 }

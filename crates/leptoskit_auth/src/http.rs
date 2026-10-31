@@ -40,18 +40,29 @@ use crate::Auth;
 use crate::AuthError;
 use crate::Device;
 use crate::ErrorResponse;
+use crate::FactorCode;
+use crate::MfaStatus;
 use crate::PublicSession;
+use crate::RecoveryCodes;
 use crate::RefreshTokens;
 use crate::RequestInfo;
 use crate::RevokeSession;
+use crate::SecondFactor;
+use crate::SecondFactorChallenge;
+use crate::SecondFactorCode;
+use crate::SecondFactorResponse;
 use crate::SendCode;
 use crate::Session;
 use crate::SessionResponse;
 use crate::SessionToken;
 use crate::SignIn;
+use crate::SignInStep;
 use crate::SignedIn;
 use crate::SignedInResponse;
 use crate::Tokens;
+use crate::TotpConfirmed;
+use crate::TotpConfirmedResponse;
+use crate::TotpSetup;
 use crate::Transport;
 use crate::VerifyCode;
 
@@ -90,6 +101,13 @@ impl Auth {
 	/// | `POST /auth/sessions/revoke`         | ends one of them ([`RevokeSession`])                |
 	/// | `POST /auth/sessions/revoke-others`  | ends all but the current one                       |
 	/// | `POST /auth/sessions/revoke-all`     | ends every one, the current one included           |
+	/// | `POST /auth/second-factor`           | finishes signing in ([`SecondFactorCode`])          |
+	/// | `GET /auth/mfa`                      | the account's second factors ([`MfaStatus`])        |
+	/// | `POST /auth/step-up`                 | confirms it's still them ([`FactorCode`])           |
+	/// | `POST /auth/totp`                    | starts an authenticator app ([`TotpSetup`])         |
+	/// | `POST /auth/totp/confirm`            | turns it on ([`FactorCode`])                        |
+	/// | `POST /auth/totp/disable`            | turns it off, after step-up                        |
+	/// | `POST /auth/recovery-codes`          | new recovery codes, after step-up                  |
 	///
 	/// In development,
 	/// [`AuthBuilder::dev_mailbox`](crate::AuthBuilder::dev_mailbox)
@@ -109,7 +127,14 @@ impl Auth {
 			.route("/auth/sessions", get(sessions))
 			.route("/auth/sessions/revoke", post(revoke))
 			.route("/auth/sessions/revoke-others", post(revoke_others))
-			.route("/auth/sessions/revoke-all", post(revoke_all));
+			.route("/auth/sessions/revoke-all", post(revoke_all))
+			.route("/auth/second-factor", post(second_factor))
+			.route("/auth/mfa", get(mfa))
+			.route("/auth/step-up", post(step_up))
+			.route("/auth/totp", post(begin_totp))
+			.route("/auth/totp/confirm", post(confirm_totp))
+			.route("/auth/totp/disable", post(disable_totp))
+			.route("/auth/recovery-codes", post(recovery_codes));
 
 		if cfg!(debug_assertions) {
 			if self.inner.dev_mailbox.is_some() {
@@ -208,9 +233,10 @@ impl Auth {
 			return site == "same-origin" || site == "none";
 		}
 
-		// Neither header: not a browser, unless it sends the cookie a browser
+		// Neither header: not a browser, unless it sends a cookie a browser
 		// would attach on its own.
 		cookie(headers, self.cookie_name()).is_none()
+			&& cookie(headers, self.second_factor_cookie_name()).is_none()
 	}
 
 	/// Whether the session cookie needs `Secure`: always, unless the site
@@ -232,6 +258,16 @@ impl Auth {
 		}
 	}
 
+	/// The cookie that carries the second step of signing in, for five
+	/// minutes: `__Host-second-factor` when secure.
+	fn second_factor_cookie_name(&self) -> &'static str {
+		if self.secure() {
+			"__Host-second-factor"
+		} else {
+			"second-factor"
+		}
+	}
+
 	pub(crate) fn session_cookie(&self, token: &SessionToken) -> HeaderValue {
 		let max_age = self.inner.sessions.absolute.as_secs();
 		self.cookie(token.expose(), max_age)
@@ -242,12 +278,50 @@ impl Auth {
 	}
 
 	fn cookie(&self, value: &str, max_age: u64) -> HeaderValue {
+		self.named_cookie(self.cookie_name(), value, max_age)
+	}
+
+	fn named_cookie(&self, name: &str, value: &str, max_age: u64) -> HeaderValue {
 		let secure = if self.secure() { "; Secure" } else { "" };
-		let cookie = format!(
-			"{}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}{secure}",
-			self.cookie_name()
-		);
+		let cookie =
+			format!("{name}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}{secure}");
 		HeaderValue::from_str(&cookie).expect("tokens are base64url, which headers allow")
+	}
+
+	/// The answer to a first factor when a second is needed: what the step
+	/// accepts, and its token, in the body for a native app and in an
+	/// `HttpOnly` cookie for a browser.
+	fn second_factor_response(
+		&self,
+		challenge: SecondFactorChallenge,
+		transport: Transport,
+	) -> Response {
+		let expires_in = (challenge.expires_at - leptoskit_db::now())
+			.num_seconds()
+			.max(0);
+		let expires_in = u64::try_from(expires_in).unwrap_or_default();
+		let body = SecondFactorResponse {
+			second_factor: SecondFactor {
+				factors: challenge.factors,
+				expires_in,
+				token: (transport == Transport::Bearer)
+					.then(|| challenge.token.expose().to_owned()),
+			},
+		};
+		let mut response = Json(body).into_response();
+
+		if transport == Transport::Cookie {
+			response.headers_mut().insert(
+				header::SET_COOKIE,
+				self.named_cookie(
+					self.second_factor_cookie_name(),
+					challenge.token.expose(),
+					expires_in,
+				),
+			);
+		}
+
+		response
 	}
 
 	/// The answer to a sign-in: a native app's tokens in the body, or else
@@ -388,6 +462,11 @@ impl AuthError {
 			Self::Disabled => (StatusCode::FORBIDDEN, "disabled"),
 			Self::Locked { .. } => (StatusCode::FORBIDDEN, "locked"),
 			Self::SignedOut => (StatusCode::UNAUTHORIZED, "signed_out"),
+			Self::SignInExpired => (StatusCode::BAD_REQUEST, "sign_in_expired"),
+			Self::StepUpRequired => (StatusCode::FORBIDDEN, "step_up_required"),
+			Self::Reauthenticate => (StatusCode::FORBIDDEN, "reauthenticate"),
+			Self::AlreadyEnrolled => (StatusCode::CONFLICT, "already_enrolled"),
+			Self::NotEnrolled => (StatusCode::CONFLICT, "not_enrolled"),
 			Self::Mail(_) => (StatusCode::BAD_GATEWAY, "mail"),
 			Self::SignUp(_) => (StatusCode::UNPROCESSABLE_ENTITY, "sign_up"),
 			Self::Config(_) | Self::Db(_) => (StatusCode::INTERNAL_SERVER_ERROR, "server"),
@@ -531,10 +610,116 @@ async fn verify_code(
 		device_name: body.device_name,
 		..request
 	};
-	let sign_in = auth
+	let step = auth
 		.verify_email_code(&body.email, &body.code, &request)
 		.await?;
+	Ok(match step {
+		SignInStep::SignedIn(sign_in) => auth.signed_in_response(*sign_in),
+		SignInStep::SecondFactor(challenge) => {
+			auth.second_factor_response(challenge, request.transport)
+		}
+	})
+}
+
+async fn second_factor(
+	State(auth): State<Auth>,
+	request: RequestInfo,
+	headers: HeaderMap,
+	Json(body): Json<SecondFactorCode>,
+) -> Result<Response, AuthError> {
+	let token = match body.transport {
+		Transport::Bearer => body.token.map(SessionToken::new),
+		Transport::Cookie => cookie(&headers, auth.second_factor_cookie_name()),
+	}
+	.ok_or(AuthError::SignInExpired)?;
+	let request = RequestInfo {
+		transport: body.transport,
+		device_name: body.device_name,
+		..request
+	};
+	let result = auth.complete_sign_in(&token, &body.code, &request).await;
+	// A finished or abandoned step's cookie goes; a wrong code keeps it for
+	// the next attempt.
+	let clear = !matches!(
+		result,
+		Err(AuthError::InvalidCode | AuthError::RateLimited { .. })
+	) && body.transport == Transport::Cookie;
+	let mut response = match result {
+		Ok(sign_in) => auth.signed_in_response(sign_in),
+		Err(error) => error.into_response(),
+	};
+
+	if clear {
+		response.headers_mut().append(
+			header::SET_COOKIE,
+			auth.named_cookie(auth.second_factor_cookie_name(), "", 0),
+		);
+	}
+
+	Ok(response)
+}
+
+async fn mfa(State(auth): State<Auth>, me: SignedIn) -> Result<Json<MfaStatus>, AuthError> {
+	Ok(Json(auth.mfa_status(me.account).await?))
+}
+
+async fn step_up(
+	State(auth): State<Auth>,
+	me: SignedIn,
+	request: RequestInfo,
+	Json(body): Json<FactorCode>,
+) -> Result<Response, AuthError> {
+	let sign_in = auth.step_up(&me, &body.code, &request).await?;
 	Ok(auth.signed_in_response(sign_in))
+}
+
+async fn begin_totp(State(auth): State<Auth>, me: SignedIn) -> Result<Json<TotpSetup>, AuthError> {
+	Ok(Json(auth.begin_totp(&me).await?))
+}
+
+async fn confirm_totp(
+	State(auth): State<Auth>,
+	me: SignedIn,
+	request: RequestInfo,
+	Json(body): Json<FactorCode>,
+) -> Result<Response, AuthError> {
+	let TotpConfirmed {
+		sign_in,
+		recovery_codes,
+	} = auth.confirm_totp(&me, &body.code, &request).await?;
+	let tokens = sign_in.tokens();
+	let cookie = tokens
+		.is_none()
+		.then(|| auth.session_cookie(&sign_in.token));
+	let mut response = Json(TotpConfirmedResponse {
+		session: PublicSession::from(sign_in.session),
+		tokens,
+		recovery_codes,
+	})
+	.into_response();
+
+	if let Some(cookie) = cookie {
+		response.headers_mut().insert(header::SET_COOKIE, cookie);
+	}
+
+	Ok(response)
+}
+
+async fn disable_totp(
+	State(auth): State<Auth>,
+	me: SignedIn,
+	request: RequestInfo,
+) -> Result<StatusCode, AuthError> {
+	auth.disable_totp(&me, &request).await?;
+	Ok(StatusCode::NO_CONTENT)
+}
+
+async fn recovery_codes(
+	State(auth): State<Auth>,
+	me: SignedIn,
+	request: RequestInfo,
+) -> Result<Json<RecoveryCodes>, AuthError> {
+	Ok(Json(auth.regenerate_recovery_codes(&me, &request).await?))
 }
 
 async fn session(

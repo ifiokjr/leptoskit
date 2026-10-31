@@ -8,6 +8,9 @@
 //!   hash, with idle and absolute lifetimes and immediate revocation.
 //! - **Email codes:** one flow that signs in to an address's account, or
 //!   creates it, and never says which addresses have accounts.
+//! - **Second factors:** an authenticator app (TOTP) with recovery codes, asked
+//!   for after the email code once an account turns it on, and step-up, which
+//!   sensitive actions ask for again.
 //! - **[`SignedIn`]:** the signed-in person, as access policies read them:
 //!   `cx.signed_in(|me| post.author_id.eq(me.user_id()))`.
 //!
@@ -43,9 +46,13 @@ mod mail;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod mailers;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod mfa;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod secrets;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod sessions;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod totp;
 
 pub use api::*;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -100,6 +107,14 @@ pub use mail::Mailer;
 pub use mailers::SmtpMailer;
 #[cfg(all(feature = "webhook", any(feature = "postgres", feature = "sqlite")))]
 pub use mailers::WebhookMailer;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use mfa::STEP_UP_WINDOW;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use mfa::SecondFactorChallenge;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use mfa::SignInStep;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use mfa::TotpConfirmed;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use secrets::Keys;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
