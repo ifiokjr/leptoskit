@@ -4,10 +4,15 @@
 //! snapshots, and long-polls for commands. The same protocol serves the web
 //! agent and the native guests, which are added in later layers.
 
-#[cfg(feature = "host")]
+#[cfg(all(feature = "host", not(target_arch = "wasm32")))]
 mod host;
 
-#[cfg(feature = "host")]
+#[cfg(all(feature = "host", not(target_arch = "wasm32")))]
 pub use host::HostAgent;
-#[cfg(feature = "host")]
+#[cfg(all(feature = "host", not(target_arch = "wasm32")))]
 pub use host::snapshot;
+
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+mod web;
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+pub use web::install;
