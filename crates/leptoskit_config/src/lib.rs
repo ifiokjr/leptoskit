@@ -1344,6 +1344,11 @@ pub const AUTH_PROVIDER_KINDS: &[&str] = &[
 	"reddit",
 	"amazon",
 	"dropbox",
+	"bitbucket",
+	"notion",
+	"zoom",
+	"tiktok",
+	"yahoo",
 ];
 
 /// A third-party sign-in provider. Its secrets are named by the

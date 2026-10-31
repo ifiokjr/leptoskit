@@ -139,6 +139,17 @@ pub(crate) struct Quirks {
 	/// asks: `web:<app name>:leptoskit-auth`, the app's name only, never
 	/// anything about the person.
 	user_agent: bool,
+	/// What it calls the client ID: `client_id`, or TikTok's `client_key`.
+	client_id_param: &'static str,
+	/// What separates scopes: a space, or TikTok's comma.
+	scope_separator: &'static str,
+	/// Whether it takes PKCE. Every provider does except Notion's and
+	/// TikTok's web sign-in, which don't accept it; there the code is bound
+	/// to the browser by `state` and the binding cookie alone, and only the
+	/// server can trade it, with the client secret.
+	pkce: bool,
+	/// How the token endpoint takes its fields.
+	token_body: TokenBody,
 }
 
 impl Default for Quirks {
@@ -149,6 +160,10 @@ impl Default for Quirks {
 			select_account: false,
 			authorize: Vec::new(),
 			user_agent: false,
+			client_id_param: "client_id",
+			scope_separator: " ",
+			pkce: true,
+			token_body: TokenBody::Form,
 		}
 	}
 }
@@ -159,7 +174,7 @@ pub(crate) enum Identify {
 	/// An OpenID Connect ID token from the token endpoint.
 	IdToken(IdTokenRules),
 	/// Its own API, read with the access token.
-	Api(ApiProfile),
+	Api(Box<ApiProfile>),
 }
 
 /// What an ID token needs beyond the standard checks.
@@ -185,6 +200,15 @@ impl Default for IdTokenRules {
 			scope_claim: None,
 		}
 	}
+}
+
+/// How a token endpoint takes its fields.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TokenBody {
+	/// A form, as OAuth 2 says.
+	Form,
+	/// JSON, as Notion's takes.
+	Json,
 }
 
 /// How the app authenticates at the token endpoint, with a shared secret.
@@ -255,6 +279,11 @@ pub const VERIFIED: &[(&str, &str)] = &[
 	("reddit", "2026-10-31"),
 	("amazon", "2026-10-31"),
 	("dropbox", "2026-10-31"),
+	("bitbucket", "2026-10-31"),
+	("notion", "2026-10-31"),
+	("zoom", "2026-10-31"),
+	("tiktok", "2026-10-31"),
+	("yahoo", "2026-10-31"),
 ];
 
 /// Microsoft's tenant for personal accounts.
@@ -373,7 +402,7 @@ impl Provider {
 				None,
 			)),
 			quirks: Quirks {
-				identify: Identify::Api(ApiProfile::github()),
+				identify: Identify::Api(Box::new(ApiProfile::github())),
 				select_account: true,
 				..Quirks::default()
 			},
@@ -1302,14 +1331,22 @@ impl Auth {
 		})?;
 		{
 			let mut query = url.query_pairs_mut();
+			let quirks = &provider.quirks;
 			query
 				.append_pair("response_type", "code")
-				.append_pair("client_id", &provider.client_id)
+				.append_pair(quirks.client_id_param, &provider.client_id)
 				.append_pair("redirect_uri", &redirect_uri)
-				.append_pair("scope", &provider.scopes.join(" "))
-				.append_pair("state", state.expose())
-				.append_pair("code_challenge", &challenge)
-				.append_pair("code_challenge_method", "S256");
+				.append_pair("state", state.expose());
+
+			if !provider.scopes.is_empty() {
+				query.append_pair("scope", &provider.scopes.join(quirks.scope_separator));
+			}
+
+			if quirks.pkce {
+				query
+					.append_pair("code_challenge", &challenge)
+					.append_pair("code_challenge_method", "S256");
+			}
 
 			if provider.id_token_rules().is_some() {
 				query.append_pair("nonce", &nonce);
@@ -1556,7 +1593,7 @@ impl Auth {
 			Identify::Api(api) => {
 				let access = text("access_token")
 					.ok_or_else(|| AuthError::Provider("no access token".into()))?;
-				api.read(providers, &access, user_agent).await?
+				api.read(providers, &access, &tokens, user_agent).await?
 			}
 			Identify::IdToken(rules) => {
 				let id_token =
@@ -1634,41 +1671,52 @@ fn token_request(
 			)?)
 		}
 	};
-	let basic = provider.quirks.client_auth == ClientAuth::Basic;
-	let mut headers = vec![
-		("accept".to_owned(), "application/json".to_owned()),
-		(
-			"content-type".to_owned(),
-			"application/x-www-form-urlencoded".to_owned(),
-		),
+	let quirks = &provider.quirks;
+	let mut headers = vec![("accept".to_owned(), "application/json".to_owned())];
+	let mut fields = vec![
+		("grant_type", "authorization_code".to_owned()),
+		("code", code.to_owned()),
+		("redirect_uri", redirect_uri.to_owned()),
 	];
-	let mut form = url::form_urlencoded::Serializer::new(String::new());
-	form.append_pair("grant_type", "authorization_code")
-		.append_pair("code", code)
-		.append_pair("redirect_uri", redirect_uri)
-		.append_pair("code_verifier", verifier);
+
+	if quirks.pkce {
+		fields.push(("code_verifier", verifier.to_owned()));
+	}
 
 	match client_secret {
-		Some(secret) if basic => {
+		Some(secret) if quirks.client_auth == ClientAuth::Basic => {
 			headers.push((
 				"authorization".to_owned(),
 				basic_credentials(&provider.client_id, &secret),
 			));
 		}
 		secret => {
-			form.append_pair("client_id", &provider.client_id);
-
-			if let Some(secret) = &secret {
-				form.append_pair("client_secret", secret);
-			}
+			fields.push((quirks.client_id_param, provider.client_id.clone()));
+			fields.extend(secret.map(|secret| ("client_secret", secret)));
 		}
 	}
+
+	let (content_type, body) = if quirks.token_body == TokenBody::Json {
+		let body: serde_json::Map<String, serde_json::Value> = fields
+			.into_iter()
+			.map(|(name, value)| (name.to_owned(), value.into()))
+			.collect();
+		(
+			"application/json",
+			serde_json::Value::Object(body).to_string(),
+		)
+	} else {
+		let mut form = url::form_urlencoded::Serializer::new(String::new());
+		form.extend_pairs(fields);
+		("application/x-www-form-urlencoded", form.finish())
+	};
+	headers.push(("content-type".to_owned(), content_type.to_owned()));
 
 	Ok(ProviderRequest {
 		method: "POST",
 		url: endpoints.token_endpoint.clone(),
 		headers,
-		body: Some(form.finish()),
+		body: Some(body),
 	})
 }
 

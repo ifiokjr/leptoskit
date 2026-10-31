@@ -344,7 +344,16 @@ fn providers(config: &LeptoskitConfig, env: &impl Fn(&str) -> Option<String>) ->
 
 /// The providers that never vouch for an email address: what they give is
 /// kept on the connected account, never as the account's own.
-const UNVOUCHED_EMAIL: &[&str] = &["microsoft", "facebook", "x", "spotify", "reddit", "amazon"];
+const UNVOUCHED_EMAIL: &[&str] = &[
+	"microsoft",
+	"facebook",
+	"x",
+	"spotify",
+	"reddit",
+	"amazon",
+	"notion",
+	"tiktok",
+];
 
 /// What `doctor` says about one provider beyond its variables and age.
 fn provider_notes(
@@ -714,6 +723,55 @@ fn setup(kind: &str) -> Option<(&'static str, &'static str, Option<&'static str>
 				None,
 			)
 		}
+		"bitbucket" => {
+			(
+				"Open your Bitbucket workspace's settings, then OAuth consumers, and add a \
+				 consumer with the Account: Email and Account: Read permissions.",
+				"Set its Callback URL to one of these (Bitbucket takes one per consumer, so add a \
+				 second consumer for development):",
+				None,
+			)
+		}
+		"notion" => {
+			(
+				"Open https://www.notion.so/profile/integrations, create a public integration, \
+				 and fill in its OAuth domain and URIs.",
+				"Add these Redirect URIs:",
+				Some(
+					"Notion's grants are per workspace; the person who connects one is the one \
+					 who signs in. Notion doesn't vouch for addresses, so accounts made with it \
+					 start without one.",
+				),
+			)
+		}
+		"zoom" => {
+			(
+				"Open https://marketplace.zoom.us/develop/create, create a General App with \
+				 user-managed OAuth, and add the scope `user:read:user`.",
+				"Add these OAuth Redirect URLs, and the same addresses to the OAuth Allow List:",
+				None,
+			)
+		}
+		"tiktok" => {
+			(
+				"Open https://developers.tiktok.com/apps, create an app, and add Login Kit for \
+				 the web with the `user.info.basic` scope.",
+				"Add these Redirect URIs (TikTok accepts only https, so test with a tunnel or \
+				 your deployed site):",
+				Some(
+					"TIKTOK_CLIENT_ID holds the app's client key. TikTok shares no email address, \
+					 so accounts made with it start without one.",
+				),
+			)
+		}
+		"yahoo" => {
+			(
+				"Open https://developer.yahoo.com/apps/create, create an app with OpenID Connect \
+				 permissions for Email and Profile.",
+				"Set its Redirect URI(s) to:",
+				None,
+			)
+		}
 		_ => return None,
 	})
 }
@@ -965,7 +1023,20 @@ mod tests {
 		);
 
 		for id in [
-			"x", "discord", "linkedin", "slack", "twitch", "spotify", "reddit", "amazon", "dropbox",
+			"x",
+			"discord",
+			"linkedin",
+			"slack",
+			"twitch",
+			"spotify",
+			"reddit",
+			"amazon",
+			"dropbox",
+			"bitbucket",
+			"notion",
+			"zoom",
+			"tiktok",
+			"yahoo",
 		] {
 			let output = add_provider(root.path(), &config, id, None).unwrap();
 			assert!(
@@ -996,7 +1067,7 @@ mod tests {
 		let written = std::fs::read_to_string(root.path().join("leptoskit.toml")).unwrap();
 		let reloaded = LeptoskitConfig::from_toml(&written, root.path()).unwrap();
 		let providers = reloaded.auth.unwrap().providers;
-		assert_eq!(providers.len(), 16);
+		assert_eq!(providers.len(), 21);
 		assert_eq!(
 			providers["facebook"].api_version.as_deref(),
 			Some(leptoskit_auth::FACEBOOK_GRAPH_VERSION)
