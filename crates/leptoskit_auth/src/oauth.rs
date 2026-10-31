@@ -858,8 +858,7 @@ async fn verify_id_token(
 	provider: &Provider,
 	endpoints: &Endpoints,
 	token: &str,
-	nonce: &str,
-	now: i64,
+	expected: Expected<'_>,
 ) -> Result<IdClaims> {
 	let jws = parse_jws(token)?;
 	let uri = endpoints
@@ -870,17 +869,32 @@ async fn verify_id_token(
 	verify_signature(&jws, &key)?;
 	let claims: IdClaims = serde_json::from_slice(&jws.payload)
 		.map_err(|_| AuthError::Provider("the ID token's claims are malformed".into()))?;
-	check_claims(provider, endpoints, &claims, nonce, now)?;
+	check_claims(provider, endpoints, &claims, expected)?;
 	Ok(claims)
+}
+
+/// What an ID token must say besides its issuer: who it's for, the flow's
+/// nonce, and the time now, in seconds since the epoch.
+#[derive(Clone, Copy, Debug)]
+struct Expected<'a> {
+	/// The client it was issued to: the provider's client ID for the web,
+	/// or the app's bundle ID for Sign in with Apple on the device.
+	audience: &'a str,
+	nonce: &'a str,
+	now: i64,
 }
 
 fn check_claims(
 	provider: &Provider,
 	endpoints: &Endpoints,
 	claims: &IdClaims,
-	nonce: &str,
-	now: i64,
+	expected: Expected<'_>,
 ) -> Result<()> {
+	let Expected {
+		audience,
+		nonce,
+		now,
+	} = expected;
 	let refuse = |what: &str| {
 		Err(AuthError::Provider(format!(
 			"the ID token's {what} is wrong"
@@ -894,13 +908,11 @@ fn check_claims(
 		return refuse("issuer");
 	}
 
-	if !claims.aud.contains(&provider.client_id) {
+	if !claims.aud.contains(audience) {
 		return refuse("audience");
 	}
 
-	if (claims.aud.several() || claims.azp.is_some())
-		&& claims.azp.as_deref() != Some(provider.client_id.as_str())
-	{
+	if (claims.aud.several() || claims.azp.is_some()) && claims.azp.as_deref() != Some(audience) {
 		return refuse("authorized party");
 	}
 
@@ -945,8 +957,12 @@ struct TokenResponse {
 pub struct ProviderStart {
 	/// The provider's authorization page.
 	pub url: String,
-	/// Binds the callback to this browser.
+	/// Binds the callback to this browser, or to the native app that
+	/// started it.
 	pub binding: SessionToken,
+	/// For Sign in with Apple on the device: the nonce its ID token must
+	/// carry.
+	pub nonce: Option<String>,
 }
 
 impl Auth {
@@ -996,15 +1012,114 @@ impl Auth {
 		redirect_to: Option<&str>,
 		request: &RequestInfo,
 	) -> Result<ProviderStart> {
-		let provider = self.provider(provider)?;
-		let redirect_to = crate::providers::return_path(redirect_to)?;
-
 		if request.transport == Transport::Bearer {
 			return Err(AuthError::Unsupported(
-				"native apps sign in with providers through the system browser, which isn't \
-				 available yet",
+				"a native app signs in with a provider through the system browser: start it with \
+				 `Auth::start_native_provider`",
 			));
 		}
+
+		self.begin_provider(provider, me, redirect_to, None, request)
+			.await
+	}
+
+	/// [`Auth::start_provider`] for a native app, which keeps the binding
+	/// in memory and sends it to [`Auth::finish_native_provider`]. In the
+	/// system browser, the provider comes back to this site, which sends the
+	/// browser on to `return_to` without finishing anything: the code only
+	/// works with the binding, which never leaves the app. With
+	/// [`NativeStart::AppleId`](crate::NativeStart::AppleId), the device
+	/// asks Apple itself, with the [`ProviderStart`]'s nonce.
+	///
+	/// # Errors
+	///
+	/// As [`Auth::start_provider`], and [`AuthError::InvalidRedirect`] for a
+	/// `return_to` that isn't one of the app's (see
+	/// [`AuthBuilder::native_apps`](crate::AuthBuilder::native_apps)), or
+	/// [`AuthError::Unsupported`] for Sign in with Apple on the device with
+	/// any other provider, or without a bundle ID.
+	pub async fn start_native_provider(
+		&self,
+		provider: &str,
+		me: Option<&SignedIn>,
+		redirect_to: Option<&str>,
+		native: &crate::NativeStart,
+		request: &RequestInfo,
+	) -> Result<ProviderStart> {
+		match native {
+			crate::NativeStart::Browser { return_to } => {
+				self.native_return(return_to)?;
+			}
+			crate::NativeStart::AppleId => {
+				let apple = matches!(self.provider(provider)?.flavor, Flavor::Apple);
+
+				if !apple || self.inner.native.package_id.is_empty() {
+					return Err(AuthError::Unsupported(
+						"Sign in with Apple on the device needs the `apple` provider and the \
+						 app's bundle ID, `[native] package_id`",
+					));
+				}
+			}
+		}
+
+		let request = RequestInfo {
+			transport: Transport::Bearer,
+			..request.clone()
+		};
+		self.begin_provider(provider, me, redirect_to, Some(native), &request)
+			.await
+	}
+
+	/// Checks that `return_to` is one of this app's return addresses: this
+	/// site's own `/auth/native/return`, a loopback address with that path
+	/// (any port, as RFC 8252 asks for desktop apps), or the private-use
+	/// scheme named after the app's package ID.
+	pub(crate) fn native_return(&self, return_to: &str) -> Result<()> {
+		let path = leptoskit_config::NATIVE_AUTH_RETURN_PATH;
+		let url = url::Url::parse(return_to).map_err(|_| AuthError::InvalidRedirect)?;
+		let clean = url.query().is_none()
+			&& url.fragment().is_none()
+			&& url.username().is_empty()
+			&& url.password().is_none()
+			&& url.path() == path;
+
+		if !clean {
+			return Err(AuthError::InvalidRedirect);
+		}
+
+		let own_site = self.inner.origin.as_deref().is_some_and(|origin| {
+			url::Url::parse(origin).is_ok_and(|origin| origin.origin() == url.origin())
+		});
+		let loopback = url.scheme() == "http"
+			&& url.port().is_some()
+			&& match url.host() {
+				Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+				Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+				_ => false,
+			};
+		let package = &self.inner.native.package_id;
+		let scheme = !package.is_empty()
+			&& url.scheme() == package.to_ascii_lowercase()
+			&& url.host().is_none()
+			&& return_to == format!("{}:{path}", url.scheme());
+
+		if own_site || loopback || scheme {
+			Ok(())
+		} else {
+			Err(AuthError::InvalidRedirect)
+		}
+	}
+
+	async fn begin_provider(
+		&self,
+		provider: &str,
+		me: Option<&SignedIn>,
+		redirect_to: Option<&str>,
+		native: Option<&crate::NativeStart>,
+		request: &RequestInfo,
+	) -> Result<ProviderStart> {
+		let provider = self.provider(provider)?;
+		let redirect_to = crate::providers::return_path(redirect_to)?;
 
 		if let Some(ip) = request.ip_text() {
 			self.limit(
@@ -1036,6 +1151,7 @@ impl Auth {
 			nonce: nonce.clone(),
 			redirect_to,
 			intent,
+			native: native.cloned(),
 		};
 		let state = self
 			.store_ceremony_for(
@@ -1078,7 +1194,161 @@ impl Auth {
 		Ok(ProviderStart {
 			url: url.into(),
 			binding,
+			nonce: matches!(native, Some(crate::NativeStart::AppleId)).then_some(nonce),
 		})
+	}
+
+	/// Where a native app's system browser goes once the provider sends it
+	/// back here, with the provider's answer for the app to finish with.
+	/// `None` when `params` isn't a native app's flow, which the browser
+	/// finishes as usual. Nothing is used up: without the binding, which
+	/// only the app holds, the answer is worthless.
+	pub(crate) async fn native_relay(
+		&self,
+		provider: &str,
+		params: &CallbackParams,
+	) -> Result<Option<String>> {
+		let Some(state) = params.state.as_deref() else {
+			return Ok(None);
+		};
+		let hash = SessionToken::new(state).hash();
+		let now = leptoskit_db::now();
+		let row = crate::Challenge::query()
+			.filter(|row| {
+				row.purpose.eq(Purpose::Provider)
+					& row.secret_hash.eq(hash.clone())
+					& row.used_at.is_null()
+					& row.expires_at.gt(now)
+			})
+			.first(&self.inner.db)
+			.await?;
+		let Some(row) = row else {
+			return Ok(None);
+		};
+		let Some(sealed) = &row.state else {
+			return Ok(None);
+		};
+		let context =
+			crate::passkeys::ceremony_context(Purpose::Provider, &row.subject, &row.secret_hash);
+		let flow = Flow::open(&self.inner.keys.open(&context, sealed)?)?;
+		let Some(crate::NativeStart::Browser { return_to }) = flow.native else {
+			return Ok(None);
+		};
+
+		if flow.provider != provider {
+			return Ok(None);
+		}
+
+		let mut location = url::Url::parse(&return_to).map_err(|_| AuthError::InvalidRedirect)?;
+		{
+			let mut query = location.query_pairs_mut();
+
+			for (name, value) in [
+				("state", &params.state),
+				("code", &params.code),
+				("error", &params.error),
+				("user", &params.user),
+			] {
+				if let Some(value) = value {
+					query.append_pair(name, value);
+				}
+			}
+		}
+
+		Ok(Some(location.into()))
+	}
+
+	/// Finishes a native app's provider flow with what the system browser
+	/// came back with, or with Sign in with Apple's ID token from the
+	/// device. The flow is found by the binding only the app holds.
+	///
+	/// # Errors
+	///
+	/// [`AuthError::SignInExpired`] when there's no such flow, or as the
+	/// browser's callback fails: [`AuthError::Cancelled`] when the person
+	/// said no, and [`AuthError::Provider`] when the provider's answer
+	/// doesn't check out.
+	pub async fn finish_native_provider(
+		&self,
+		finish: &crate::FinishProvider,
+		request: &RequestInfo,
+	) -> Result<crate::ProviderResult> {
+		let binding = SessionToken::new(finish.token.as_str());
+		let request = RequestInfo {
+			transport: Transport::Bearer,
+			device_name: finish.device_name.clone(),
+			..request.clone()
+		};
+		let params = CallbackParams {
+			code: finish.code.clone(),
+			state: finish.state.clone(),
+			error: finish.error.clone(),
+			user: finish.user.clone(),
+		};
+		let (flow, profile) = match &finish.id_token {
+			Some(id_token) => {
+				self.apple_id_profile(&finish.provider, &binding, id_token, &params)
+					.await?
+			}
+			None => {
+				self.provider_profile(&finish.provider, &binding, &params, Mode::NativeBrowser)
+					.await?
+			}
+		};
+		self.finish_flow(&flow, &profile, &binding, &request).await
+	}
+
+	/// Who Sign in with Apple on the device says signed in: its ID token,
+	/// issued to the app's bundle ID with the flow's nonce.
+	async fn apple_id_profile(
+		&self,
+		provider_id: &str,
+		binding: &SessionToken,
+		id_token: &str,
+		params: &CallbackParams,
+	) -> Result<(Flow, ProviderProfile)> {
+		let provider = self.provider(provider_id)?;
+
+		if let Some(error) = &params.error {
+			return Err(refusal(error));
+		}
+
+		let sealed = self
+			.take_ceremony(
+				Purpose::Provider,
+				&crate::providers::binding_subject(binding),
+				None,
+			)
+			.await?
+			.ok_or(AuthError::SignInExpired)?;
+		let flow = Flow::open(&sealed)?;
+
+		if flow.provider != provider.id
+			|| flow.native != Some(crate::NativeStart::AppleId)
+			|| !matches!(provider.flavor, Flavor::Apple)
+		{
+			return Err(AuthError::SignInExpired);
+		}
+
+		let providers = &self.inner.providers;
+		let endpoints = providers.endpoints(provider).await?;
+		let expected = Expected {
+			audience: &self.inner.native.package_id,
+			nonce: &flow.nonce,
+			now: leptoskit_db::now().timestamp(),
+		};
+		let claims = verify_id_token(providers, provider, &endpoints, id_token, expected).await?;
+		let profile = ProviderProfile {
+			subject: claims.sub,
+			email: claims.email,
+			email_verified: claims.email_verified.is_some_and(|flag| flag.is_true()),
+			name: claims
+				.name
+				.or_else(|| params.user.as_deref().and_then(apple_name)),
+			preferred_username: claims.preferred_username,
+			picture: claims.picture,
+		};
+		Ok((flow, profile))
 	}
 
 	/// Exchanges the code a provider sent back for who the person is there,
@@ -1088,15 +1358,12 @@ impl Auth {
 		provider_id: &str,
 		binding: &SessionToken,
 		params: &CallbackParams,
+		mode: Mode,
 	) -> Result<(Flow, ProviderProfile)> {
 		let provider = self.provider(provider_id)?;
 
 		if let Some(error) = &params.error {
-			return Err(if error == "access_denied" {
-				AuthError::Cancelled
-			} else {
-				AuthError::Provider(format!("the provider refused: {error}"))
-			});
+			return Err(refusal(error));
 		}
 
 		let state = params.state.as_deref().ok_or(AuthError::SignInExpired)?;
@@ -1109,8 +1376,11 @@ impl Auth {
 			.await?
 			.ok_or(AuthError::SignInExpired)?;
 		let flow = Flow::open(&sealed)?;
+		let native = matches!(flow.native, Some(crate::NativeStart::Browser { .. }));
 
-		if flow.provider != provider.id {
+		// A browser's flow finishes only in the browser, and a native app's
+		// only in the app.
+		if flow.provider != provider.id || native != (mode == Mode::NativeBrowser) {
 			return Err(AuthError::SignInExpired);
 		}
 
@@ -1186,9 +1456,13 @@ impl Auth {
 				let id_token = tokens
 					.id_token
 					.ok_or_else(|| AuthError::Provider("no ID token".into()))?;
+				let expected = Expected {
+					audience: &provider.client_id,
+					nonce: &flow.nonce,
+					now,
+				};
 				let claims =
-					verify_id_token(providers, provider, &endpoints, &id_token, &flow.nonce, now)
-						.await?;
+					verify_id_token(providers, provider, &endpoints, &id_token, expected).await?;
 				let mut profile = ProviderProfile {
 					subject: claims.sub,
 					email: claims.email,
@@ -1210,6 +1484,24 @@ impl Auth {
 		};
 
 		Ok((flow, profile))
+	}
+}
+
+/// Where a provider flow is being finished.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Mode {
+	/// At the callback, in the browser that started it.
+	Browser,
+	/// At `POST /auth/oauth/finish`, by the native app that started it.
+	NativeBrowser,
+}
+
+/// The error for a provider's `error` answer.
+fn refusal(error: &str) -> AuthError {
+	if error == "access_denied" || error == "user_cancelled_authorize" {
+		AuthError::Cancelled
+	} else {
+		AuthError::Provider(format!("the provider refused: {error}"))
 	}
 }
 
@@ -1432,7 +1724,12 @@ mod tests {
 			"nonce": "n-0S6_WzA2Mj",
 		});
 		let check = |json: serde_json::Value| {
-			check_claims(&provider, &endpoints, &claims(json), "n-0S6_WzA2Mj", now)
+			let expected = Expected {
+				audience: "client",
+				nonce: "n-0S6_WzA2Mj",
+				now,
+			};
+			check_claims(&provider, &endpoints, &claims(json), expected)
 		};
 		check(good.clone()).unwrap();
 

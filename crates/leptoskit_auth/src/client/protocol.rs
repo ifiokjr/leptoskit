@@ -25,10 +25,12 @@ use super::SignInStep;
 use super::TotpConfirmation;
 use super::WalletApp;
 use crate::AddPasskey;
+use crate::ContinueProvider;
 use crate::CreationChallengeResponse;
 use crate::Device;
 use crate::ErrorResponse;
 use crate::FactorCode;
+use crate::FinishProvider;
 use crate::Identity;
 use crate::IdentityInfo;
 use crate::LinkWallet;
@@ -36,6 +38,7 @@ use crate::MergeAccounts;
 use crate::MergeMode;
 use crate::MergeOffer;
 use crate::MfaStatus;
+use crate::NativeStart;
 use crate::Passkey;
 use crate::PasskeyAddedResponse;
 use crate::PasskeyAssertion;
@@ -43,6 +46,7 @@ use crate::PasskeyInfo;
 use crate::PasskeyOptions;
 use crate::PasskeyStep;
 use crate::ProveWallet;
+use crate::ProviderFinished;
 use crate::ProviderInfo;
 use crate::ProviderOutcome;
 use crate::ProviderRedirect;
@@ -62,6 +66,7 @@ use crate::SessionResponse;
 use crate::SignedInResponse;
 use crate::SiwsInput;
 use crate::StartProvider;
+use crate::StartProviderRequest;
 use crate::Tokens;
 use crate::TotpConfirmedResponse;
 use crate::TotpSetup;
@@ -173,10 +178,34 @@ pub(crate) trait Credentials: Send + Sync + 'static {
 	fn second_factor(&self) -> Option<String>;
 }
 
-/// What the device itself does for sign-in: passkeys, sending the browser
-/// to a provider, and asking a wallet to sign. A browser does all three; a
-/// native app does none until its system plugins and a native wallet
-/// adapter arrive, and says `unsupported`.
+/// A native app's system-browser session that has begun: its ID, and where
+/// the browser will come back to the app.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BrowserSession {
+	pub id: u32,
+	pub return_to: String,
+}
+
+/// What Sign in with Apple on the device answered.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct AppleId {
+	/// The ID token Apple signed for the app.
+	pub id_token: String,
+	/// The name, as the web flow's `user` JSON, on the first sign-in.
+	pub user: Option<String>,
+}
+
+impl std::fmt::Debug for AppleId {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("AppleId").finish_non_exhaustive()
+	}
+}
+
+/// What the device itself does for sign-in: passkeys, going through a
+/// provider's page, and asking a wallet to sign. A browser does all three
+/// itself; a native app does passkeys and provider pages with its passkeys
+/// and web-auth plugins, and says `unsupported` for wallets until a native
+/// wallet adapter arrives.
 pub(crate) trait Platform: Send + Sync + 'static {
 	/// Makes a passkey, as `navigator.credentials.create`.
 	fn create(
@@ -201,28 +230,69 @@ pub(crate) trait Platform: Send + Sync + 'static {
 	/// The page's query string, where a provider's outcome arrives.
 	fn query(&self) -> Option<String>;
 
-	/// The Solana wallet apps this device offers.
-	fn wallet_apps(&self) -> BoxFuture<'static, Result<Vec<WalletApp>, ErrorResponse>>;
+	/// The Solana wallet apps this device offers. Only a browser has any
+	/// yet; elsewhere this answers `unsupported`.
+	fn wallet_apps(&self) -> BoxFuture<'static, Result<Vec<WalletApp>, ErrorResponse>> {
+		Box::pin(std::future::ready(no_wallets()))
+	}
 
 	/// Asks the wallet app named `wallet` to sign the Sign-In With Solana
 	/// message `input` describes, with `input.address` when it names one.
 	fn sign_with_wallet(
 		&self,
-		wallet: String,
-		input: SiwsInput,
-	) -> BoxFuture<'static, Result<WalletProof, ErrorResponse>>;
+		_wallet: String,
+		_input: SiwsInput,
+	) -> BoxFuture<'static, Result<WalletProof, ErrorResponse>> {
+		Box::pin(std::future::ready(no_wallets()))
+	}
+
+	/// Whether the device has passkeys at all. Without them, passkey calls
+	/// answer `unsupported` before asking the server anything.
+	fn passkeys(&self) -> bool {
+		true
+	}
+
+	/// Whether it offers passkeys in the email field's autofill.
+	fn autofill(&self) -> bool {
+		true
+	}
+
+	/// For a native app: begins a system-browser session.
+	fn begin_browser(&self) -> BoxFuture<'static, Result<BrowserSession, ErrorResponse>> {
+		Box::pin(std::future::ready(unsupported()))
+	}
+
+	/// Opens `url` in the session's browser, and waits for it to come back
+	/// to the app: the address it came back to.
+	fn browse(
+		&self,
+		_session: BrowserSession,
+		_url: String,
+	) -> BoxFuture<'static, Result<String, ErrorResponse>> {
+		Box::pin(std::future::ready(unsupported()))
+	}
+
+	/// Whether the device may have Sign in with Apple of its own.
+	fn has_apple_id(&self) -> bool {
+		false
+	}
+
+	/// Signs in with Apple on the device, with the server's nonce. Answers
+	/// `unsupported` where the device has none after all.
+	fn apple_id(&self, _nonce: String) -> BoxFuture<'static, Result<AppleId, ErrorResponse>> {
+		Box::pin(std::future::ready(unsupported()))
+	}
 }
 
 /// A device without passkeys or a page to send anywhere.
 pub(crate) struct NoPlatform;
 
-/// What a native app answers until its passkey and system-browser plugins
-/// arrive.
+/// What a device without passkeys or a system browser answers.
 pub(crate) fn unsupported<T>() -> Result<T, ErrorResponse> {
 	Err(error(
 		"unsupported",
-		"this device can't do that yet: passkeys and sign-in with other sites work in the \
-		 browser, and arrive in native apps with their system plugins",
+		"this device can't do that: a native app needs the `passkeys` and `web-auth` plugins, \
+		 granted in `[native] plugins`",
 	))
 }
 
@@ -262,16 +332,12 @@ impl Platform for NoPlatform {
 		None
 	}
 
-	fn wallet_apps(&self) -> BoxFuture<'static, Result<Vec<WalletApp>, ErrorResponse>> {
-		Box::pin(std::future::ready(no_wallets()))
+	fn passkeys(&self) -> bool {
+		false
 	}
 
-	fn sign_with_wallet(
-		&self,
-		_wallet: String,
-		_input: SiwsInput,
-	) -> BoxFuture<'static, Result<WalletProof, ErrorResponse>> {
-		Box::pin(std::future::ready(no_wallets()))
+	fn autofill(&self) -> bool {
+		false
 	}
 }
 
@@ -326,6 +392,17 @@ pub(crate) struct Remote<H, C> {
 	credentials: C,
 	device_name: Option<String>,
 	platform: Box<dyn Platform>,
+	/// A native app's last provider sign-in: how it ended, and its binding
+	/// while a sign-up waits for the person's choice. In memory only.
+	provider: std::sync::Mutex<NativeProvider>,
+}
+
+/// Where a native app's provider sign-in got to. A browser's arrives in
+/// the page's query instead.
+#[derive(Default)]
+struct NativeProvider {
+	outcome: Option<ProviderOutcome>,
+	binding: Option<String>,
 }
 
 impl<H: Http, C: Credentials> Remote<H, C> {
@@ -335,6 +412,7 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 			credentials,
 			device_name: config.device_name,
 			platform: Box::new(NoPlatform),
+			provider: std::sync::Mutex::new(NativeProvider::default()),
 		}
 	}
 
@@ -704,12 +782,13 @@ impl<H: Http, C: Credentials> Api for Remote<H, C> {
 }
 
 impl<H: Http, C: Credentials> Remote<H, C> {
-	/// A browser does passkeys and provider pages; a native app answers
-	/// `unsupported` before asking the server anything.
-	fn browser_only() -> Result<(), ErrorResponse> {
-		match C::TRANSPORT {
-			Transport::Cookie => Ok(()),
-			Transport::Bearer => unsupported(),
+	/// Answers `unsupported` before asking the server anything when the
+	/// device has no passkeys.
+	fn passkeys_here(&self) -> Result<(), ErrorResponse> {
+		if self.platform.passkeys() {
+			Ok(())
+		} else {
+			unsupported()
 		}
 	}
 
@@ -744,7 +823,12 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 		&self,
 		mode: PasskeyMode,
 	) -> Result<PublicSession, ErrorResponse> {
-		Self::browser_only()?;
+		self.passkeys_here()?;
+
+		if mode == PasskeyMode::Autofill && !self.platform.autofill() {
+			return unsupported();
+		}
+
 		let body = json(&PasskeyStep {
 			token: None,
 			transport: C::TRANSPORT,
@@ -783,7 +867,7 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 		&self,
 		name: Option<String>,
 	) -> Result<PasskeyAdded, ErrorResponse> {
-		Self::browser_only()?;
+		self.passkeys_here()?;
 		let response = self
 			.call(
 				Method::Post,
@@ -815,7 +899,7 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 	pub(crate) async fn complete_sign_in_with_passkey(
 		&self,
 	) -> Result<PublicSession, ErrorResponse> {
-		Self::browser_only()?;
+		self.passkeys_here()?;
 		let token = self.credentials.second_factor();
 		let body = json(&PasskeyStep {
 			token: token.clone(),
@@ -857,7 +941,7 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 	}
 
 	pub(crate) async fn step_up_with_passkey(&self) -> Result<PublicSession, ErrorResponse> {
-		Self::browser_only()?;
+		self.passkeys_here()?;
 		let response = self
 			.call(
 				Method::Post,
@@ -931,29 +1015,203 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 		input: StartProvider,
 		link: bool,
 	) -> Result<(), ErrorResponse> {
-		Self::browser_only()?;
+		if C::TRANSPORT == Transport::Bearer {
+			return self.native_provider(input, link).await;
+		}
+
 		let path = if link {
 			"/auth/oauth/link"
 		} else {
 			"/auth/oauth/start"
 		};
+		let body = StartProviderRequest {
+			start: input,
+			native: None,
+		};
 		let response = self
-			.call(Method::Post, path, Some(json(&input)), unauthorized)
+			.call(Method::Post, path, Some(json(&body)), unauthorized)
 			.await?;
 		let redirect: ProviderRedirect = decode(&response)?;
 		self.platform.open(&redirect.url)
 	}
 
-	pub(crate) async fn continue_provider_sign_up(&self) -> Result<PublicSession, ErrorResponse> {
-		Self::browser_only()?;
+	/// A native app's provider sign-in: with Sign in with Apple on the
+	/// device when it's Apple and the device has it, and otherwise in the
+	/// system browser. Once the provider has answered, how it ended is
+	/// [`Remote::provider_outcome`], as a browser's return page would say.
+	async fn native_provider(&self, input: StartProvider, link: bool) -> Result<(), ErrorResponse> {
+		*self.native_state() = NativeProvider::default();
+		let path = if link {
+			"/auth/oauth/link"
+		} else {
+			"/auth/oauth/start"
+		};
+
+		if self.platform.has_apple_id() {
+			let body = StartProviderRequest {
+				start: input.clone(),
+				native: Some(NativeStart::AppleId),
+			};
+			let response = self
+				.call(Method::Post, path, Some(json(&body)), unauthorized)
+				.await?;
+
+			match decode::<ProviderRedirect>(&response) {
+				Ok(started) => {
+					if let Some(done) = self.apple_id(&input.provider, started).await? {
+						return Ok(done);
+					}
+				}
+				// Not Apple's provider: the system browser instead.
+				Err(refused) if refused.error == "unsupported" => {}
+				Err(refused) => return Err(refused),
+			}
+		}
+
+		let session = self.platform.begin_browser().await?;
+		let body = StartProviderRequest {
+			start: input.clone(),
+			native: Some(NativeStart::Browser {
+				return_to: session.return_to.clone(),
+			}),
+		};
+		let response = self
+			.call(Method::Post, path, Some(json(&body)), unauthorized)
+			.await?;
+		let started: ProviderRedirect = decode(&response)?;
+		let token = started.token.ok_or_else(|| {
+			error(
+				"server",
+				"the server didn't bind the sign-in to this app; is it up to date?",
+			)
+		})?;
+		let sent_state = query_value(&started.url, "state");
+		let returned = match self.platform.browse(session, started.url).await {
+			Ok(returned) => returned,
+			Err(failed) => {
+				self.native_state().outcome = Some(ProviderOutcome::Failed(failed.error));
+				return Ok(());
+			}
+		};
+
+		if sent_state.is_none() || query_value(&returned, "state") != sent_state {
+			self.native_state().outcome = Some(ProviderOutcome::Failed("sign_in_expired".into()));
+			return Ok(());
+		}
+
+		let finish = FinishProvider {
+			provider: input.provider,
+			token,
+			state: sent_state,
+			code: query_value(&returned, "code"),
+			error: query_value(&returned, "error"),
+			user: query_value(&returned, "user"),
+			id_token: None,
+			device_name: self.device_name(),
+		};
+		self.finish_native(finish).await
+	}
+
+	/// Signs in with Apple on the device. `None` when the device turns out
+	/// to have no Sign in with Apple, for the system browser to try.
+	async fn apple_id(
+		&self,
+		provider: &str,
+		started: ProviderRedirect,
+	) -> Result<Option<()>, ErrorResponse> {
+		let (Some(token), Some(nonce)) = (started.token, started.nonce) else {
+			return Err(error(
+				"server",
+				"the server didn't send a nonce for Sign in with Apple; is it up to date?",
+			));
+		};
+		let credential = match self.platform.apple_id(nonce).await {
+			Ok(credential) => credential,
+			Err(failed) if failed.error == "unsupported" => return Ok(None),
+			Err(failed) => {
+				self.native_state().outcome = Some(ProviderOutcome::Failed(failed.error));
+				return Ok(Some(()));
+			}
+		};
+		let finish = FinishProvider {
+			provider: provider.to_owned(),
+			token,
+			user: credential.user,
+			id_token: Some(credential.id_token),
+			device_name: self.device_name(),
+			..FinishProvider::default()
+		};
+		self.finish_native(finish).await.map(Some)
+	}
+
+	/// Finishes a native app's provider flow, and keeps what it ended with.
+	async fn finish_native(&self, finish: FinishProvider) -> Result<(), ErrorResponse> {
+		let token = finish.token.clone();
 		let response = self
 			.server
-			.send(Method::Post, "/auth/oauth/continue", None, None)
+			.send(
+				Method::Post,
+				"/auth/oauth/finish",
+				None,
+				Some(json(&finish)),
+			)
+			.await;
+		let finished = match response.and_then(|response| decode::<ProviderFinished>(&response)) {
+			Ok(finished) => finished,
+			Err(refused) => {
+				self.native_state().outcome = Some(ProviderOutcome::Failed(refused.error));
+				return Ok(());
+			}
+		};
+
+		if let Some(signed_in) = finished.signed_in {
+			self.credentials.hold_second_factor(None);
+			self.credentials.keep(signed_in.tokens).await?;
+		}
+
+		if let Some(step) = finished.second_factor {
+			self.credentials.hold_second_factor(step.token);
+		}
+
+		let mut state = self.native_state();
+		state.binding = (finished.outcome == ProviderOutcome::EmailInUse).then_some(token);
+		state.outcome = Some(finished.outcome);
+		Ok(())
+	}
+
+	fn native_state(&self) -> std::sync::MutexGuard<'_, NativeProvider> {
+		self.provider
+			.lock()
+			.unwrap_or_else(std::sync::PoisonError::into_inner)
+	}
+
+	pub(crate) async fn continue_provider_sign_up(&self) -> Result<PublicSession, ErrorResponse> {
+		let body = match C::TRANSPORT {
+			Transport::Cookie => None,
+			Transport::Bearer => {
+				let token = self.native_state().binding.clone().ok_or_else(|| {
+					error("sign_in_expired", "signing in took too long; start again")
+				})?;
+				Some(json(&ContinueProvider {
+					token: Some(token),
+					device_name: self.device_name(),
+				}))
+			}
+		};
+		let response = self
+			.server
+			.send(Method::Post, "/auth/oauth/continue", None, body)
 			.await?;
-		self.signed_in(&response).await
+		let session = self.signed_in(&response).await?;
+		self.native_state().binding = None;
+		Ok(session)
 	}
 
 	pub(crate) fn provider_outcome(&self) -> Option<ProviderOutcome> {
+		if let Some(outcome) = self.native_state().outcome.clone() {
+			return Some(outcome);
+		}
+
 		ProviderOutcome::from_query(&self.platform.query()?)
 	}
 
@@ -985,7 +1243,7 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 
 	pub(crate) async fn merge_accounts(&self, input: MergeInput) -> Result<(), ErrorResponse> {
 		let credential = if input.passkey {
-			Self::browser_only()?;
+			self.passkeys_here()?;
 			let response = self
 				.call(
 					Method::Post,
@@ -1169,6 +1427,59 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 			.await?;
 		self.first_step(&response).await
 	}
+}
+
+/// The value of `name` in `url`'s query, decoded.
+fn query_value(url: &str, name: &str) -> Option<String> {
+	let (_, query) = url.split_once('?')?;
+	let query = query.split('#').next().unwrap_or_default();
+	form_pairs(query)
+		.into_iter()
+		.find(|(key, _)| key == name)
+		.map(|(_, value)| value)
+}
+
+/// `application/x-www-form-urlencoded` pairs: `+` is a space and `%XX` a
+/// byte. A malformed escape is kept as it is.
+fn form_pairs(query: &str) -> Vec<(String, String)> {
+	let decode = |text: &str| {
+		let bytes = text.as_bytes();
+		let mut out = Vec::with_capacity(bytes.len());
+		let mut index = 0;
+
+		while index < bytes.len() {
+			match bytes[index] {
+				b'+' => out.push(b' '),
+				b'%' => {
+					let hex = bytes
+						.get(index + 1..index + 3)
+						.and_then(|pair| std::str::from_utf8(pair).ok())
+						.and_then(|pair| u8::from_str_radix(pair, 16).ok());
+
+					if let Some(byte) = hex {
+						out.push(byte);
+						index += 2;
+					} else {
+						out.push(b'%');
+					}
+				}
+				byte => out.push(byte),
+			}
+
+			index += 1;
+		}
+
+		String::from_utf8_lossy(&out).into_owned()
+	};
+
+	query
+		.split('&')
+		.filter(|pair| !pair.is_empty())
+		.map(|pair| {
+			let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+			(decode(key), decode(value))
+		})
+		.collect()
 }
 
 /// Where there's no way to reach the server.

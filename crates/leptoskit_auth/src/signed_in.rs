@@ -13,7 +13,7 @@ use crate::Account;
 use crate::Session;
 
 /// The signed-in person behind a request, from a session that is live right
-/// now. The auth layer adds it to the request's [`Context`], so policies
+/// now. The auth layer adds it to the request's `Context`, so policies
 /// can read it:
 ///
 /// ```ignore

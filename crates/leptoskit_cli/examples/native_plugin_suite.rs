@@ -62,6 +62,8 @@ const OPTIONAL_PLUGINS: &[(&str, &str)] = &[
 		"tracking-transparency",
 		"leptoskit_plugin_tracking_transparency",
 	),
+	("passkeys", "leptoskit_plugin_passkeys"),
+	("web-auth", "leptoskit_plugin_web_auth"),
 ];
 
 const ANDROID_TESTS: &[&str] = &[
@@ -87,6 +89,8 @@ const ANDROID_TESTS: &[&str] = &[
 	"leptoskit_plugin_document_picker/tests/android/DocumentEncodingTest.kt",
 	"leptoskit_plugin_store_review/tests/android/StoreReviewPluginTest.kt",
 	"leptoskit_plugin_sharing/tests/android/SharingTest.kt",
+	"leptoskit_plugin_passkeys/tests/android/PasskeysPluginTest.kt",
+	"leptoskit_plugin_web_auth/tests/android/WebAuthPluginTest.kt",
 ];
 
 const DOCUMENT_ENCODING_TEST: &str = r"package dev.leptoskit.plugins.documentpicker

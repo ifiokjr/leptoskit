@@ -110,16 +110,7 @@ impl SignIn {
 		// the email field's suggestions, where the browser can.
 		Effect::new(move |_| {
 			mounted.set(true);
-			let came_back = provider_outcome();
-
-			if let Some(ProviderOutcome::SecondFactor(factors)) = &came_back {
-				second.set(Some(SecondFactorPrompt {
-					factors: factors.clone(),
-					expires_in: 300,
-				}));
-			}
-
-			outcome.set(came_back);
+			show_outcome(outcome, second);
 			passkey.mutate(PasskeyMode::Autofill);
 		});
 
@@ -572,12 +563,19 @@ impl SignIn {
 		self.passkey.mutate(PasskeyMode::Prompt);
 	}
 
+	/// Signs in with a provider. A browser leaves for its page and reads
+	/// the outcome when it comes back; a native app gets it once the system
+	/// browser closes.
 	fn continue_with(&self, provider: &str) {
 		cancel_passkey_sign_in();
-		self.provider.mutate(StartProvider {
-			provider: provider.to_owned(),
-			redirect_to: None,
-		});
+		let this = *self;
+		self.provider.mutate_with(
+			StartProvider {
+				provider: provider.to_owned(),
+				redirect_to: None,
+			},
+			MutateCallbacks::new().on_success(move |_| show_outcome(this.outcome, this.second)),
+		);
 	}
 
 	fn complete_with_passkey(&self) {
@@ -775,6 +773,24 @@ pub fn looks_like_email(email: &str) -> bool {
 		.split_once('@')
 		.is_some_and(|(name, domain)| !name.is_empty() && domain.contains('.'))
 		&& !email.contains(char::is_whitespace)
+}
+
+/// Shows how the last provider sign-in ended, with its second step when it
+/// asked for one.
+fn show_outcome(
+	outcome: RwSignal<Option<ProviderOutcome>>,
+	second: RwSignal<Option<SecondFactorPrompt>>,
+) {
+	let ended = provider_outcome();
+
+	if let Some(ProviderOutcome::SecondFactor(factors)) = &ended {
+		second.set(Some(SecondFactorPrompt {
+			factors: factors.clone(),
+			expires_in: 300,
+		}));
+	}
+
+	outcome.set(ended);
 }
 
 /// A message as a sentence: a capital letter first and a full stop last.

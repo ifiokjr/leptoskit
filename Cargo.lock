@@ -4469,7 +4469,9 @@ dependencies = [
  "leptoskit_config",
  "leptoskit_db",
  "leptoskit_plugin_http",
+ "leptoskit_plugin_passkeys",
  "leptoskit_plugin_secure_store",
+ "leptoskit_plugin_web_auth",
  "leptoskit_query",
  "lettre",
  "openssl",
@@ -4502,6 +4504,7 @@ dependencies = [
  "axum",
  "http-body-util",
  "leptoskit_codepush",
+ "leptoskit_config",
  "semver",
  "serde_json",
  "thiserror 2.0.21",
@@ -5323,6 +5326,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_plugin_passkeys"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_bridge",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "leptoskit_plugin_pedometer"
 version = "0.1.0"
 dependencies = [
@@ -5522,6 +5534,15 @@ dependencies = [
  "parking_lot",
  "thiserror 2.0.21",
  "tray-icon",
+]
+
+[[package]]
+name = "leptoskit_plugin_web_auth"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_bridge",
+ "open",
+ "url",
 ]
 
 [[package]]
