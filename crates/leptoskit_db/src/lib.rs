@@ -383,6 +383,8 @@ pub use search::Searchable;
 #[cfg(feature = "server")]
 pub use search::Segment;
 #[cfg(feature = "server")]
+pub use search::ShapedSearch;
+#[cfg(feature = "server")]
 pub use settings::Setting;
 #[cfg(feature = "server")]
 pub use settings::SettingValue;

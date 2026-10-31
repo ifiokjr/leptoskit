@@ -25,10 +25,12 @@ use crate::Expr;
 use crate::Order;
 use crate::Query;
 use crate::Result;
+use crate::Shape;
 use crate::Table;
 use crate::TextColumn;
 use crate::Value;
 use crate::policy;
+use crate::shape::Selected;
 use crate::sql::Sql;
 
 /// A table with a full-text search index: `#[db(search)]` on some of its
@@ -200,20 +202,53 @@ impl<T: Searchable> Search<T> {
 	/// The matching rows, best first, each with its rank and the
 	/// highlights asked for.
 	pub async fn hits(self, connection: &impl Connection) -> Result<Vec<Hit<T>>> {
+		self.found(connection, &Output::Rows, T::from_values).await
+	}
+
+	/// Each match as shape `S`, best first, with the search's filters,
+	/// orderings, limit, and highlights:
+	///
+	/// ```ignore
+	/// let cards: Vec<ArticleCard> = Article::query()
+	/// 	.search("passkeys rust")
+	/// 	.limit(10)
+	/// 	.shape::<ArticleCard>()
+	/// 	.all(&db)
+	/// 	.await?;
+	/// ```
+	///
+	/// A shape's nested rows follow their own tables' policies, as they do
+	/// in [`Query::shape`].
+	pub fn shape<S: Shape<From = T>>(self) -> ShapedSearch<S> {
+		ShapedSearch { search: self }
+	}
+
+	/// The matching rows, each read by `read` from what `output` selects,
+	/// with its rank and highlights.
+	async fn found<R, E>(
+		&self,
+		connection: &impl Connection,
+		output: &Output,
+		read: impl Fn(Vec<Value>) -> std::result::Result<R, E>,
+	) -> Result<Vec<Hit<R>>>
+	where
+		DbError: From<E>,
+	{
 		let Some(terms) = self.prepared()? else {
 			return Ok(Vec::new());
 		};
 		let mut sql = Sql::new(connection.dialect());
-		self.write(&mut sql, connection, terms, false)?;
+		self.write(&mut sql, connection, terms, output)?;
 		let marks = self.marks.len();
+		let width = output.width::<T>();
 
 		connection
 			.fetch(sql.finish())
 			.await?
 			.into_iter()
 			.map(|mut values| {
-				let extra = values.split_off(T::COLUMNS.len());
-				let row = T::from_values(values)?;
+				let extra = values.split_off(width);
+				let row = read(values)?;
 				let mut extra = extra.into_iter();
 				let rank = match extra.next() {
 					Some(Value::Float(rank)) => rank,
@@ -247,7 +282,7 @@ impl<T: Searchable> Search<T> {
 			return Ok(0);
 		};
 		let mut sql = Sql::new(connection.dialect());
-		self.write(&mut sql, connection, terms, true)?;
+		self.write(&mut sql, connection, terms, &Output::Count)?;
 		crate::sql::count_of(&connection.fetch(sql.finish()).await?)
 	}
 
@@ -270,13 +305,22 @@ impl<T: Searchable> Search<T> {
 		sql: &mut Sql,
 		connection: &impl Connection,
 		terms: &Terms,
-		count: bool,
+		output: &Output,
 	) -> Result<()> {
-		let policy = policy::condition::<T>(connection.access(), Action::Select);
+		let access = connection.access();
+		let policy = policy::condition::<T>(access, Action::Select);
+		// A shape's nested rows name the searched row by an alias.
+		let row = match output {
+			Output::Shape(_) => {
+				let (table, alias) = sql.open(&T::table_name(), "shape");
+				Row::Aliased { table, alias }
+			}
+			Output::Count | Output::Rows => Row::Named,
+		};
 
 		match sql.dialect() {
-			Dialect::Postgres => self.write_postgres(sql, terms, count),
-			Dialect::Sqlite => self.write_sqlite(sql, terms, count),
+			Dialect::Postgres => self.write_postgres(sql, access, terms, output, &row)?,
+			Dialect::Sqlite => self.write_sqlite(sql, access, terms, output, &row)?,
 		}
 
 		crate::query::write_conditions::<T>(
@@ -287,9 +331,9 @@ impl<T: Searchable> Search<T> {
 			sql.dialect() == Dialect::Postgres,
 		)?;
 
-		if !count {
-			// The rank follows the row's own columns.
-			sql.push(&format!(" ORDER BY {} DESC", T::COLUMNS.len() + 1));
+		if !matches!(output, Output::Count) {
+			// The rank follows the row's own columns, or the shape's fields.
+			sql.push(&format!(" ORDER BY {} DESC", output.width::<T>() + 1));
 
 			for order in &self.query.order {
 				sql.push(", ");
@@ -297,10 +341,46 @@ impl<T: Searchable> Search<T> {
 			}
 
 			for key in T::KEY {
-				sql.push(", ").identifier(key).push(" ASC");
+				sql.push(", ");
+
+				// A shape's fields may share the key's name, and an `ORDER
+				// BY` name means the output column first.
+				if let Row::Aliased { alias, .. } = &row {
+					sql.push(alias).push(".");
+				}
+
+				sql.identifier(key).push(" ASC");
 			}
 
 			crate::query::write_order(sql, &[], self.query.limit, self.query.offset);
+		}
+
+		if matches!(row, Row::Aliased { .. }) {
+			sql.leave();
+		}
+
+		Ok(())
+	}
+
+	/// `SELECT count(*)`, the row's columns, or the shape's fields.
+	fn write_select(
+		sql: &mut Sql,
+		access: &policy::Access,
+		output: &Output,
+		row: &Row,
+	) -> Result<()> {
+		sql.push("SELECT ");
+
+		match (output, row) {
+			(Output::Count, _) => {
+				sql.push("count(*)");
+			}
+			(Output::Shape(fields), Row::Aliased { alias, .. }) => {
+				crate::shape::write_fields(sql, access, fields, alias, false)?;
+			}
+			(Output::Rows | Output::Shape(_), _) => {
+				sql.columns(T::COLUMNS);
+			}
 		}
 
 		Ok(())
@@ -308,16 +388,20 @@ impl<T: Searchable> Search<T> {
 
 	/// `SELECT …, ts_rank(…), ts_headline(…) FROM table WHERE lk_search @@
 	/// query`, and the caller's conditions after it.
-	fn write_postgres(&self, sql: &mut Sql, terms: &Terms, count: bool) {
+	fn write_postgres(
+		&self,
+		sql: &mut Sql,
+		access: &policy::Access,
+		terms: &Terms,
+		output: &Output,
+		row: &Row,
+	) -> Result<()> {
 		let language = quote_literal(T::LANGUAGE);
 		let vector = quote_identifier(SEARCH_COLUMN);
+		Self::write_select(sql, access, output, row)?;
 
-		if count {
-			sql.push("SELECT count(*)");
-		} else {
-			sql.push("SELECT ")
-				.columns(T::COLUMNS)
-				.push(&format!(", ts_rank({vector}, "));
+		if !matches!(output, Output::Count) {
+			sql.push(&format!(", ts_rank({vector}, "));
 			terms.write_tsquery(sql, &language);
 			sql.push(")");
 
@@ -343,17 +427,28 @@ impl<T: Searchable> Search<T> {
 			}
 		}
 
-		sql.push(" FROM ")
-			.table::<T>()
-			.push(&format!(" WHERE {vector} @@ "));
+		sql.push(" FROM ");
+		row.write_from::<T>(sql);
+		sql.push(&format!(" WHERE {vector} @@ "));
 		terms.write_tsquery(sql, &language);
+		Ok(())
 	}
 
 	/// `SELECT …, rank, highlights FROM table JOIN (the FTS5 matches) ON
 	/// key`, numbering each match's row through the companion table.
-	fn write_sqlite(&self, sql: &mut Sql, terms: &Terms, count: bool) {
+	fn write_sqlite(
+		&self,
+		sql: &mut Sql,
+		access: &policy::Access,
+		terms: &Terms,
+		output: &Output,
+		row: &Row,
+	) -> Result<()> {
 		let name = T::table_name();
-		let table = quote_identifier(&name.flat());
+		let table = match row {
+			Row::Named => quote_identifier(&name.flat()),
+			Row::Aliased { alias, .. } => alias.clone(),
+		};
 		let text = quote_identifier(&SearchIndex::text_table(&name));
 		let rows = quote_identifier(&SearchIndex::rows_table(&name));
 		let hits = quote_identifier("lk_hits");
@@ -367,20 +462,20 @@ impl<T: Searchable> Search<T> {
 				)
 			})
 			.collect();
+		let count = matches!(output, Output::Count);
+		Self::write_select(sql, access, output, row)?;
 
-		if count {
-			sql.push("SELECT count(*)");
-		} else {
-			sql.push("SELECT ")
-				.columns(T::COLUMNS)
-				.push(&format!(", {hits}.\"lk_rank\""));
+		if !count {
+			sql.push(&format!(", {hits}.\"lk_rank\""));
 
 			for index in 0..self.marks.len() {
 				sql.push(&format!(", {hits}.\"lk_mark_{index}\""));
 			}
 		}
 
-		sql.push(" FROM ").table::<T>().push(" JOIN (SELECT ");
+		sql.push(" FROM ");
+		row.write_from::<T>(sql);
+		sql.push(" JOIN (SELECT ");
 		let mut selected: Vec<String> = keys
 			.iter()
 			.map(|(key, alias)| format!("\"lk_rows\".{key} AS {alias}"))
@@ -428,6 +523,86 @@ impl<T: Searchable> Search<T> {
 			))
 			.value(Value::Text(terms.fts5()))
 			.push(&format!(") AS {hits} ON {}", joined.join(" AND ")));
+		Ok(())
+	}
+}
+
+/// What a search returns for each match.
+enum Output {
+	/// How many rows match.
+	Count,
+	/// Each row's own columns.
+	Rows,
+	/// A shape's fields.
+	Shape(Vec<Selected>),
+}
+
+impl Output {
+	/// How many values each match has before its rank.
+	fn width<T: Table>(&self) -> usize {
+		match self {
+			Self::Count => 1,
+			Self::Rows => T::COLUMNS.len(),
+			Self::Shape(fields) => fields.len(),
+		}
+	}
+}
+
+/// How a search's statement names the searched row: by its table's name, or,
+/// for a shape whose nested rows refer to it, by an alias.
+enum Row {
+	Named,
+	Aliased { table: String, alias: String },
+}
+
+impl Row {
+	fn write_from<T: Table>(&self, sql: &mut Sql) {
+		match self {
+			Self::Named => {
+				sql.table::<T>();
+			}
+			Self::Aliased { table, alias } => {
+				sql.push(table).push(" AS ").push(alias);
+			}
+		}
+	}
+}
+
+/// A search that returns each match as shape `S`: [`Search::shape`] starts
+/// one.
+#[must_use = "a search does nothing until it runs"]
+pub struct ShapedSearch<S: Shape> {
+	search: Search<S::From>,
+}
+
+impl<S: Shape> ShapedSearch<S>
+where
+	S::From: Searchable,
+{
+	/// The matching rows' shapes, best first.
+	pub async fn all(self, connection: &impl Connection) -> Result<Vec<S>> {
+		Ok(self
+			.hits(connection)
+			.await?
+			.into_iter()
+			.map(|hit| hit.row)
+			.collect())
+	}
+
+	/// The best matching row's shape, if any.
+	pub async fn first(self, connection: &impl Connection) -> Result<Option<S>> {
+		let first = ShapedSearch {
+			search: self.search.limit(1),
+		};
+		Ok(first.all(connection).await?.into_iter().next())
+	}
+
+	/// The matching rows' shapes, best first, each with its rank and the
+	/// highlights asked for.
+	pub async fn hits(self, connection: &impl Connection) -> Result<Vec<Hit<S>>> {
+		self.search
+			.found(connection, &Output::Shape(S::selection()), S::from_values)
+			.await
 	}
 }
 

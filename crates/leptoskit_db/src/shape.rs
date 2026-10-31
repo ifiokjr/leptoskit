@@ -444,7 +444,7 @@ enum Kind {
 
 /// Writes the select list of a shape whose row is `alias`. Inside a nested
 /// row (`in_json`), every value must be one JSON can hold.
-fn write_fields(
+pub(crate) fn write_fields(
 	sql: &mut Sql,
 	access: &Access,
 	fields: &[Selected],

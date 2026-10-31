@@ -15,6 +15,7 @@ use leptoskit_db::Id;
 use leptoskit_db::SearchWeight;
 use leptoskit_db::Searchable;
 use leptoskit_db::Segment;
+use leptoskit_db::Shape;
 use leptoskit_db::Timestamp;
 use leptoskit_db::policy;
 use leptoskit_db::table;
@@ -50,6 +51,22 @@ pub struct Article {
 	pub published: bool,
 	#[db(deleted_at)]
 	pub deleted_at: Option<Timestamp>,
+}
+
+/// An article as a list of results shows it: its title and its writer.
+#[derive(Shape, Debug, PartialEq)]
+#[db(from = Article)]
+pub struct ArticleCard {
+	pub id: Id<Article>,
+	pub title: String,
+	#[db(via = writer)]
+	pub writer: WriterName,
+}
+
+#[derive(Shape, Debug, PartialEq)]
+#[db(from = Writer)]
+pub struct WriterName {
+	pub name: String,
 }
 
 /// A note in a namespace, keyed by its place, searched in the default
@@ -572,6 +589,73 @@ async fn searches_find_only_what_the_request_may_read() {
 				.await
 				.unwrap()
 				.is_empty()
+		);
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn searches_return_shapes_ranked_and_highlighted() {
+	on_both(async |db| {
+		let ada = writer(&db, "Ada").await;
+		let grace = writer(&db, "Grace").await;
+		let system = db.system("writing the fixtures");
+		article(&system, ada, "Passkeys in rust", Some("A guide.")).await;
+		article(&system, grace, "Notes", Some("Mostly about rust.")).await;
+		let mut draft = article(&system, grace, "Draft rust", None).await;
+		draft.published = false;
+		draft.save(&system).await.unwrap();
+		let as_ada = db.with_context(Context::new().with(Viewer(ada)));
+
+		// Title matches rank above body matches, nested rows come along, and
+		// Grace's draft stays hers.
+		let hits = Article::query()
+			.search("rust")
+			.highlight(|article| article.title)
+			.shape::<ArticleCard>()
+			.hits(&as_ada)
+			.await
+			.unwrap();
+		let cards: Vec<(&str, &str)> = hits
+			.iter()
+			.map(|hit| (hit.row.title.as_str(), hit.row.writer.name.as_str()))
+			.collect();
+		assert_eq!(cards, [("Passkeys in rust", "Ada"), ("Notes", "Grace")]);
+		assert!(hits[0].rank > hits[1].rank);
+		assert_eq!(
+			hits[0].highlights[0].matches().collect::<Vec<_>>(),
+			["rust"]
+		);
+		assert!(hits[1].highlights[0].matches().next().is_none());
+
+		// The search's filter, limit, and orderings carry over.
+		let notes = Article::query()
+			.search("rust")
+			.filter(|article| article.writer_id.eq(grace))
+			.shape::<ArticleCard>()
+			.first(&as_ada)
+			.await
+			.unwrap();
+		assert_eq!(notes.map(|card| card.title), Some("Notes".to_owned()));
+		assert_eq!(
+			Article::query()
+				.search("rust")
+				.limit(1)
+				.shape::<ArticleCard>()
+				.all(&system)
+				.await
+				.unwrap()
+				.len(),
+			1
+		);
+		assert_eq!(
+			Article::query()
+				.search("nothing")
+				.shape::<ArticleCard>()
+				.all(&as_ada)
+				.await
+				.unwrap(),
+			Vec::<ArticleCard>::new()
 		);
 	})
 	.await;
