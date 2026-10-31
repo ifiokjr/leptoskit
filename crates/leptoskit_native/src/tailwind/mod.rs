@@ -466,3 +466,91 @@ fn escape_identifier(class: &str, output: &mut String) {
 		}
 	}
 }
+
+/// One class in a [`Tailwind`] set, with the declarations it contributes and
+/// the variant that makes it active.
+#[cfg(feature = "devtools")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassExplanation {
+	/// The class token.
+	pub class: String,
+	/// The declarations, in CSS syntax.
+	pub declarations: String,
+	/// The variant that makes the class active, such as `dark` or `active`.
+	pub variant: Option<String>,
+}
+
+#[cfg(feature = "devtools")]
+impl Tailwind {
+	/// Every class active in `context`, with its declarations and variant.
+	#[must_use]
+	pub fn explain(&self, context: &StyleContext) -> Vec<ClassExplanation> {
+		self.rules
+			.iter()
+			.filter(|rule| rule.conditions.active(context))
+			.map(|rule| {
+				let mut declarations = String::new();
+				for declaration in &rule.declarations {
+					declaration.css(&mut declarations, rule.important);
+				}
+				ClassExplanation {
+					class: rule.class.clone(),
+					declarations,
+					variant: variant(&rule.conditions),
+				}
+			})
+			.collect()
+	}
+}
+
+#[cfg(feature = "devtools")]
+fn variant(conditions: &Conditions) -> Option<String> {
+	let mut parts = Vec::new();
+	if conditions.dark {
+		parts.push("dark".to_owned());
+	}
+	if let Some(min) = conditions.min_width {
+		parts.push(format!("min-width: {min}px"));
+	}
+	if let Some(max) = conditions.max_width {
+		parts.push(format!("max-width: {max}px"));
+	}
+	if conditions.active {
+		parts.push("active".to_owned());
+	}
+	(!parts.is_empty()).then(|| parts.join(", "))
+}
+
+#[cfg(all(test, feature = "devtools"))]
+mod tests {
+	use super::StyleContext;
+	use super::Tailwind;
+
+	fn context(dark: bool, active: bool) -> StyleContext {
+		StyleContext {
+			dark,
+			active,
+			..StyleContext::default()
+		}
+	}
+
+	#[test]
+	fn explain_lists_active_classes_and_their_variants() {
+		let tailwind = Tailwind::parse("p-4 dark:bg-black active:opacity-50").unwrap();
+		let explained = tailwind.explain(&context(false, false));
+		assert!(explained.iter().any(|item| {
+			item.class == "p-4" && !item.declarations.is_empty() && item.variant.is_none()
+		}));
+		assert!(!explained.iter().any(|item| item.class == "dark:bg-black"));
+
+		let explained = tailwind.explain(&context(true, true));
+		assert!(
+			explained.iter().any(|item| {
+				item.class == "dark:bg-black" && item.variant.as_deref() == Some("dark")
+			})
+		);
+		assert!(explained.iter().any(|item| {
+			item.class == "active:opacity-50" && item.variant.as_deref() == Some("active")
+		}));
+	}
+}
