@@ -1441,7 +1441,7 @@ async fn a_delegated_request_is_the_granting_persons_from_any_site() {
 		mfa_at: None,
 	};
 	let delegation = leptoskit_auth::Delegation {
-		signed_in: me.clone(),
+		signed_in: Some(me.clone()),
 		client_id: "partner".into(),
 		scopes: vec!["posts:read".into()],
 	};
@@ -1484,4 +1484,50 @@ async fn a_delegated_request_is_the_granting_persons_from_any_site() {
 
 	assert_eq!(response.status(), StatusCode::OK);
 	assert_eq!(text(response).await, format!("{} partner", me.account));
+
+	// An app acting as itself signs no one in: the route that needs a
+	// person refuses it, and one that doesn't sees the app.
+	let machine = leptoskit_auth::Delegation {
+		signed_in: None,
+		client_id: "worker".into(),
+		scopes: vec!["posts:read".into()],
+	};
+	let router = Router::new()
+		.route(
+			"/me",
+			post(|me: SignedIn| async move { me.account.to_string() }),
+		)
+		.route(
+			"/app",
+			post(
+				|me: Option<SignedIn>,
+				 Extension(current): Extension<leptoskit_auth::CurrentSession>| {
+					async move {
+						assert!(me.is_none());
+						current.delegation.unwrap().client_id
+					}
+				},
+			),
+		)
+		.layer(auth.layer())
+		.layer(axum::middleware::map_request(
+			move |mut request: Request<Body>| {
+				let machine = machine.clone();
+				async move {
+					request.extensions_mut().insert(machine);
+					request
+				}
+			},
+		));
+	let post_to = |path: &'static str| {
+		Request::post(path)
+			.header(header::ORIGIN, "https://partner.example")
+			.body(Body::empty())
+			.unwrap()
+	};
+	let refused = router.clone().oneshot(post_to("/me")).await.unwrap();
+	assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+	let app = router.oneshot(post_to("/app")).await.unwrap();
+	assert_eq!(app.status(), StatusCode::OK);
+	assert_eq!(text(app).await, "worker");
 }

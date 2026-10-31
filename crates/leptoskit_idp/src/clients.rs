@@ -5,18 +5,25 @@ use std::fmt;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use leptoskit_auth::Account;
+use leptoskit_db::Connection;
+use leptoskit_db::Id;
 use leptoskit_db::Json;
+use leptoskit_db::Tx;
 use url::Url;
 
 use crate::Client;
 use crate::ClientAuth;
 use crate::ClientInfo;
 use crate::ClientSecret;
+use crate::GrantType;
 use crate::Idp;
 use crate::IdpError;
 use crate::NewClient;
 use crate::NewClientSpec;
 use crate::Result;
+use crate::SigningAlgorithm;
+use crate::assertions::JWT_BEARER;
 use crate::secrets;
 
 impl Idp {
@@ -32,37 +39,40 @@ impl Idp {
 		&self,
 		spec: NewClientSpec,
 	) -> Result<(ClientInfo, Option<ClientSecret>)> {
-		let name = spec.name.trim().to_owned();
+		self.insert_client(spec, None, &self.inner.db).await
+	}
 
-		if name.is_empty() || name.chars().count() > 100 {
-			return Err(metadata("give the app a name of at most 100 characters"));
-		}
-		if spec.redirect_uris.is_empty() {
-			return Err(metadata("give the app at least one redirect URI"));
-		}
-		for uri in spec
-			.redirect_uris
-			.iter()
-			.chain(&spec.post_logout_redirect_uris)
-		{
-			check_redirect_uri(uri)?;
-		}
-		if spec.scopes.is_empty() {
-			return Err(metadata("give the app at least one scope"));
-		}
-		for scope in &spec.scopes {
-			if !self.knows_scope(scope) {
-				return Err(metadata(format!("`{scope}` isn't a scope this app offers")));
-			}
-		}
+	/// Checks a new app and adds it, owned by `owner` when someone registered
+	/// it in the developer portal.
+	pub(crate) async fn insert_client(
+		&self,
+		spec: NewClientSpec,
+		owner: Option<Id<Account>>,
+		connection: &impl Connection,
+	) -> Result<(ClientInfo, Option<ClientSecret>)> {
+		let name = self.check_metadata(
+			&spec.name,
+			&spec.redirect_uris,
+			&spec.post_logout_redirect_uris,
+			&spec.scopes,
+			&spec.grant_types,
+		)?;
+		check_authentication(spec.auth_method, &spec.grant_types, spec.jwks.as_ref())?;
+
 		if spec.introspection && spec.auth_method == ClientAuth::None {
 			return Err(metadata(
 				"a public app can't introspect tokens; give it a secret",
 			));
 		}
+		if spec.id_token_alg == SigningAlgorithm::Rs256 && self.inner.rsa_key.is_none() {
+			return Err(metadata(
+				"RS256 ID tokens need an RSA key on the server; give the provider one, or use \
+				 ES256",
+			));
+		}
 
 		let secret = match spec.auth_method {
-			ClientAuth::None => None,
+			ClientAuth::None | ClientAuth::PrivateKeyJwt => None,
 			ClientAuth::SecretBasic | ClientAuth::SecretPost => Some(ClientSecret::generate()?),
 		};
 		let client = NewClient {
@@ -70,26 +80,109 @@ impl Idp {
 			name,
 			auth_method: spec.auth_method,
 			secret_hash: secret.as_ref().map(|secret| secrets::hash(secret.expose())),
+			jwks: spec.jwks.map(Json),
+			grant_types: Json(dedupe(spec.grant_types)),
+			id_token_alg: spec.id_token_alg,
 			redirect_uris: Json(dedupe(spec.redirect_uris)),
 			post_logout_redirect_uris: Json(dedupe(spec.post_logout_redirect_uris)),
 			scopes: Json(dedupe(spec.scopes)),
 			first_party: spec.first_party,
 			introspection: spec.introspection,
 			subject_salt: secrets::random::<32>()?.to_vec(),
+			owner_id: owner,
 		}
-		.insert(&self.inner.db)
+		.insert(connection)
 		.await?;
 
 		Ok((ClientInfo::from(client), secret))
 	}
 
-	/// Every registered app, oldest first.
+	/// Checks what an app says about itself, and returns its trimmed name.
+	pub(crate) fn check_metadata(
+		&self,
+		name: &str,
+		redirect_uris: &[String],
+		post_logout_redirect_uris: &[String],
+		scopes: &[String],
+		grant_types: &[GrantType],
+	) -> Result<String> {
+		let name = name.trim().to_owned();
+
+		if name.is_empty() || name.chars().count() > 100 {
+			return Err(metadata("give the app a name of at most 100 characters"));
+		}
+		if grant_types.is_empty() {
+			return Err(metadata("give the app at least one grant type"));
+		}
+		if grant_types.contains(&GrantType::AuthorizationCode) && redirect_uris.is_empty() {
+			return Err(metadata("give the app at least one redirect URI"));
+		}
+		if redirect_uris.len() + post_logout_redirect_uris.len() > 20 {
+			return Err(metadata("give the app at most 20 redirect URIs"));
+		}
+		for uri in redirect_uris.iter().chain(post_logout_redirect_uris) {
+			check_redirect_uri(uri)?;
+		}
+		if scopes.is_empty() {
+			return Err(metadata("give the app at least one scope"));
+		}
+		for scope in scopes {
+			if !self.knows_scope(scope) {
+				return Err(metadata(format!("`{scope}` isn't a scope this app offers")));
+			}
+		}
+
+		Ok(name)
+	}
+
+	/// Replaces an app's secret, and returns the new one, shown this once.
+	/// The tokens the app got as itself end, since the old secret may have
+	/// leaked; people's sign-ins with it carry on. `None` when no app has
+	/// that client ID, or it has no secret to replace.
+	///
+	/// # Errors
+	///
+	/// When the database fails.
+	pub async fn rotate_secret(&self, client_id: &str) -> Result<Option<ClientSecret>> {
+		let Some(client) = self.client(client_id).await? else {
+			return Ok(None);
+		};
+		let tx = self.inner.db.begin().await?;
+		let result = self.replace_secret(&tx, &client).await;
+		crate::tokens::finish(tx, result).await
+	}
+
+	pub(crate) async fn replace_secret(
+		&self,
+		tx: &Tx,
+		client: &Client,
+	) -> Result<Option<ClientSecret>> {
+		if !matches!(
+			client.auth_method,
+			ClientAuth::SecretBasic | ClientAuth::SecretPost
+		) {
+			return Ok(None);
+		}
+
+		let secret = ClientSecret::generate()?;
+		Client::update()
+			.filter(|row| row.id.eq(client.id))
+			.set(|row| row.secret_hash, Some(secrets::hash(secret.expose())))
+			.run(tx)
+			.await?;
+		crate::tokens::revoke_machine_tokens(tx, client.id).await?;
+		Ok(Some(secret))
+	}
+
+	/// Every app the operator registered, oldest first; people's own apps
+	/// from the developer portal aren't listed.
 	///
 	/// # Errors
 	///
 	/// When the database fails.
 	pub async fn clients(&self) -> Result<Vec<ClientInfo>> {
 		let clients = Client::query()
+			.filter(|client| client.owner_id.is_null())
 			.order_by(|client| client.created_at.asc())
 			.all(&self.inner.db)
 			.await?;
@@ -97,17 +190,22 @@ impl Idp {
 	}
 
 	/// Removes an app, and with it every grant, code and token it holds.
+	/// Everyone who had connected it finds that in their audit trail.
 	/// Returns whether there was one.
 	///
 	/// # Errors
 	///
 	/// When the database fails.
 	pub async fn remove_client(&self, client_id: &str) -> Result<bool> {
-		let removed = Client::query()
-			.filter(|client| client.client_id.eq(client_id.to_owned()))
-			.delete(&self.inner.db)
-			.await?;
-		Ok(removed > 0)
+		let Some(client) = self.client(client_id).await? else {
+			return Ok(false);
+		};
+		let tx = self.inner.db.begin().await?;
+		let result = self
+			.delete_client(&tx, &client, &leptoskit_auth::RequestInfo::default())
+			.await
+			.map(|()| true);
+		crate::tokens::finish(tx, result).await
 	}
 
 	/// The app with this client ID.
@@ -119,9 +217,23 @@ impl Idp {
 	}
 
 	/// The app a request authenticates as, checked against how it
-	/// registered: its secret over Basic or in the body, or nothing for a
-	/// public app.
+	/// registered: its secret over Basic or in the body, an assertion signed
+	/// with its key, or nothing for a public app.
 	pub(crate) async fn authenticate(&self, credentials: &ClientCredentials) -> Result<Client> {
+		if let Some(assertion) = &credentials.assertion {
+			if credentials.basic.is_some() || credentials.client_secret.is_some() {
+				return Err(IdpError::invalid_request(
+					"authenticate one way: an assertion, or a secret, not both",
+				));
+			}
+			if credentials.assertion_type.as_deref() != Some(JWT_BEARER) {
+				return Err(IdpError::invalid_client());
+			}
+			return self
+				.authenticate_assertion(assertion, credentials.client_id.as_deref())
+				.await;
+		}
+
 		let (client_id, secret, basic) = match (&credentials.basic, &credentials.client_id) {
 			(Some(_), Some(_)) if credentials.client_secret.is_some() => {
 				return Err(IdpError::invalid_request(
@@ -151,6 +263,7 @@ impl Idp {
 			ClientAuth::None => secret.is_none() && !basic,
 			ClientAuth::SecretBasic => basic && secret_matches(secret),
 			ClientAuth::SecretPost => !basic && secret_matches(secret),
+			ClientAuth::PrivateKeyJwt => false,
 		};
 
 		if authenticated {
@@ -168,6 +281,8 @@ pub struct ClientCredentials {
 	basic: Option<(String, String)>,
 	client_id: Option<String>,
 	client_secret: Option<String>,
+	assertion_type: Option<String>,
+	assertion: Option<String>,
 }
 
 impl ClientCredentials {
@@ -187,7 +302,22 @@ impl ClientCredentials {
 			basic,
 			client_id: client_id.filter(|id| !id.is_empty()),
 			client_secret: client_secret.filter(|secret| !secret.is_empty()),
+			assertion_type: None,
+			assertion: None,
 		})
+	}
+
+	/// Adds a `private_key_jwt` assertion: the `client_assertion_type` and
+	/// `client_assertion` form fields.
+	#[must_use]
+	pub fn with_assertion(
+		mut self,
+		assertion_type: Option<String>,
+		assertion: Option<String>,
+	) -> Self {
+		self.assertion_type = assertion_type.filter(|value| !value.is_empty());
+		self.assertion = assertion.filter(|value| !value.is_empty());
+		self
 	}
 
 	/// Whether the app authenticated with HTTP Basic, which an
@@ -207,6 +337,7 @@ impl fmt::Debug for ClientCredentials {
 		f.debug_struct("ClientCredentials")
 			.field("client_id", &client_id)
 			.field("basic", &self.basic.is_some())
+			.field("assertion", &self.assertion.is_some())
 			.finish_non_exhaustive()
 	}
 }
@@ -294,12 +425,39 @@ pub(crate) fn redirect_matches(registered: &[String], presented: &str) -> bool {
 		})
 }
 
-fn metadata(description: impl Into<String>) -> IdpError {
+/// Checks that how an app authenticates fits how it gets tokens, and that a
+/// `private_key_jwt` app registered keys.
+pub(crate) fn check_authentication(
+	method: ClientAuth,
+	grant_types: &[GrantType],
+	jwks: Option<&serde_json::Value>,
+) -> Result<()> {
+	if method == ClientAuth::None && grant_types.contains(&GrantType::ClientCredentials) {
+		return Err(metadata(
+			"an app acting as itself must authenticate: give it a secret or a key",
+		));
+	}
+
+	match (method, jwks) {
+		(ClientAuth::PrivateKeyJwt, Some(jwks)) => {
+			crate::assertions::check_jwks(jwks).map_err(metadata)
+		}
+		(ClientAuth::PrivateKeyJwt, None) => {
+			Err(metadata(
+				"a private_key_jwt app must register its public keys",
+			))
+		}
+		(_, Some(_)) => Err(metadata("only a private_key_jwt app registers keys")),
+		(_, None) => Ok(()),
+	}
+}
+
+pub(crate) fn metadata(description: impl Into<String>) -> IdpError {
 	IdpError::oauth("invalid_client_metadata", description)
 }
 
-fn dedupe(values: Vec<String>) -> Vec<String> {
-	let mut unique: Vec<String> = Vec::with_capacity(values.len());
+pub(crate) fn dedupe<T: PartialEq>(values: Vec<T>) -> Vec<T> {
+	let mut unique: Vec<T> = Vec::with_capacity(values.len());
 	for value in values {
 		if !unique.contains(&value) {
 			unique.push(value);
@@ -314,6 +472,9 @@ impl From<Client> for ClientInfo {
 			client_id: client.client_id,
 			name: client.name,
 			auth_method: client.auth_method,
+			grant_types: client.grant_types.0,
+			jwks: client.jwks.map(|jwks| jwks.0),
+			id_token_alg: client.id_token_alg,
 			redirect_uris: client.redirect_uris.0,
 			post_logout_redirect_uris: client.post_logout_redirect_uris.0,
 			scopes: client.scopes.0,

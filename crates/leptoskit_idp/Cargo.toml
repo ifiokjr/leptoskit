@@ -17,12 +17,17 @@ axum = { workspace = true, optional = true, features = ["form", "json", "query"]
 base64 = { workspace = true, optional = true }
 chrono = { workspace = true }
 getrandom = { workspace = true, optional = true }
+leptos = { workspace = true, optional = true }
 leptoskit_auth = { workspace = true }
+leptoskit_config = { workspace = true, optional = true }
 leptoskit_db = { workspace = true }
+leptoskit_query = { workspace = true, optional = true }
 leptoskit_rpc = { workspace = true, optional = true }
 p256 = { version = "0.14", optional = true, default-features = false, features = ["ecdsa"] }
+ring = { version = "0.17", optional = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+serde_urlencoded = { version = "0.7", optional = true }
 sha2 = { workspace = true, optional = true }
 subtle = { workspace = true, optional = true }
 thiserror = { workspace = true }
@@ -31,12 +36,14 @@ url = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 
 [dev-dependencies]
+any_spawner = { workspace = true, features = ["tokio"] }
 axum = { workspace = true, features = ["tokio"] }
 base64 = { workspace = true }
 http-body-util = "0.1"
 leptos = { workspace = true, features = ["ssr"] }
 leptoskit_rpc = { workspace = true, features = ["ssr"] }
 p256 = { version = "0.14", default-features = false, features = ["ecdsa"] }
+ring = "0.17"
 sha2 = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
@@ -50,8 +57,10 @@ default = []
 server = [
 	"dep:base64",
 	"dep:getrandom",
+	"dep:leptoskit_config",
 	"dep:leptoskit_rpc",
 	"dep:p256",
+	"dep:ring",
 	"dep:sha2",
 	"dep:subtle",
 	"dep:url",
@@ -66,7 +75,26 @@ sqlite = ["server", "leptoskit_auth/sqlite"]
 ## The `/oauth` routes and the layer that serves the token endpoints and
 ## lets third-party tokens reach `#[api(scope = …)]` functions, for axum
 ## servers.
-axum = ["server", "dep:axum", "dep:tower", "leptoskit_auth/axum", "leptoskit_rpc/ssr"]
+axum = [
+	"server",
+	"dep:axum",
+	"dep:serde_urlencoded",
+	"dep:tower",
+	"leptoskit_auth/axum",
+	"leptoskit_rpc/ssr",
+]
+## The headless client: the query and mutation scopes a consent page, a
+## device page, a "Connected apps" screen and a developer portal are built
+## from, the same on every platform. It sends through `leptoskit_auth`'s
+## client, so `web`, `guest`, or `ssr` gives it a way to reach the server.
+client = ["dep:leptoskit_query", "leptoskit_auth/client"]
+## The client in the browser, with the session in the `HttpOnly` cookie.
+web = ["client", "leptoskit_auth/web"]
+## The client in a native app's Wasm guest, with the auth client's tokens.
+guest = ["client", "leptoskit_auth/guest"]
+## The client during server rendering: it reads the request's session and
+## provider in process.
+ssr = ["client", "dep:leptos", "leptos/ssr", "leptoskit_auth/ssr"]
 
 [lints]
 workspace = true

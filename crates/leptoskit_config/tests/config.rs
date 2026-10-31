@@ -835,6 +835,32 @@ fn the_auth_table_names_secrets_by_variable() {
 	let auth = solana.auth.expect("auth");
 	assert!(auth.solana.sign_in);
 	assert_eq!(auth.solana.chain_id.as_deref(), Some("devnet"));
+
+	let config = load("auth_idp_on", "[auth.idp]\n").expect("load");
+	let idp = config
+		.auth
+		.expect("auth")
+		.idp
+		.expect("an empty table turns it on");
+	assert_eq!(idp, leptoskit_config::AuthIdpConfig::default());
+	assert_eq!(
+		(
+			idp.consent_page.as_str(),
+			idp.device_page.as_str(),
+			idp.access_minutes
+		),
+		("/consent", "/device", 10)
+	);
+	let config = load(
+		"auth_idp_custom",
+		"[auth.idp]\nissuer = \"https://notes.example\"\nconsent_page = \"/connect\"\nrsa_key_env \
+		 = \"IDP_RSA_KEY\"\ndeveloper_portal = true\napps_per_person = 3\n",
+	)
+	.expect("load");
+	let idp = config.auth.expect("auth").idp.expect("idp");
+	assert_eq!(idp.rsa_key_env.as_deref(), Some("IDP_RSA_KEY"));
+	assert!(idp.developer_portal);
+	assert_eq!(idp.apps_per_person, 3);
 }
 
 #[test]
@@ -906,6 +932,19 @@ fn auth_settings_are_checked() {
 		("[auth.solana]\nchain_id = \"main net\"", "chain_id"),
 		("[auth.solana]\nchain_id = \"\"", "chain_id"),
 		("[auth.solana]\nrpc_url = \"https://x\"", "could not parse"),
+		("[auth.idp]\nconsent_page = \"consent\"", "consent_page"),
+		(
+			"[auth.idp]\nsign_in_page = \"//evil.example\"",
+			"sign_in_page",
+		),
+		("[auth.idp]\nrsa_key_env = \"\"", "rsa_key_env"),
+		("[auth.idp]\naccess_minutes = 61", "access_minutes"),
+		("[auth.idp]\nrefresh_days = 0", "refresh_days"),
+		(
+			"[auth.idp]\ndeveloper_portal = true\napps_per_person = 0",
+			"apps_per_person",
+		),
+		("[auth.idp]\nrsa_key = \"-----BEGIN\"", "could not parse"),
 	] {
 		let error = load("auth_bad", &format!("[auth]\n{settings}\n")).unwrap_err();
 		assert!(error.to_string().contains(message), "{settings}: {error}");

@@ -702,13 +702,13 @@ fn auth_files(files: &mut Vec<(String, String)>, name: &str) {
 		None => files.push((lib, source)),
 	}
 
-	for (path, contents) in crate::auth_pages::PAGES {
-		files.push((format!("{app}/src/{path}"), contents.to_owned()));
+	for (path, contents) in crate::auth_pages::pages(false) {
+		files.push((format!("{app}/src/{path}"), contents));
 	}
 
 	files.push((
 		"src/sign_in.rs".into(),
-		crate::auth_pages::server_module("../leptoskit.toml"),
+		crate::auth_pages::server_module("../leptoskit.toml", false),
 	));
 
 	if let Some(readme) = files.iter_mut().find(|(path, _)| path == "README.md") {

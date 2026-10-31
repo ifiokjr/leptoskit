@@ -1109,6 +1109,10 @@ pub struct AuthConfig {
 	/// message. Needs `leptoskit_auth`'s `solana` feature and an `origin`.
 	#[serde(skip_serializing_if = "AuthSolanaConfig::is_default")]
 	pub solana: AuthSolanaConfig,
+	/// "Sign in with your app": other apps signing people in through this
+	/// one, with `leptoskit::idp`.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub idp: Option<AuthIdpConfig>,
 }
 
 /// Solana wallets. Linking a wallet is always on with the `solana`
@@ -1324,6 +1328,7 @@ impl Default for AuthConfig {
 			mail: AuthMailConfig::default(),
 			providers: BTreeMap::new(),
 			solana: AuthSolanaConfig::default(),
+			idp: None,
 		}
 	}
 }
@@ -1389,7 +1394,115 @@ impl AuthConfig {
 			return Some(problem);
 		}
 
-		self.mail.problem()
+		self.mail
+			.problem()
+			.or_else(|| self.idp.as_ref().and_then(AuthIdpConfig::problem))
+	}
+}
+
+/// "Sign in with your app", through `leptoskit::idp`: an OAuth 2.1 and
+/// OpenID Connect provider, so other apps sign people in with yours. The
+/// scopes and claims it offers come from the app's code; this table holds
+/// where its pages are and how long its tokens last.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct AuthIdpConfig {
+	/// The issuer other apps discover the provider at, such as
+	/// `https://myapp.com`. Defaults to `auth.origin`.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub issuer: Option<String>,
+	/// What access tokens name as their audience: your API. Defaults to the
+	/// issuer.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub audience: Option<String>,
+	/// The page signed-out people sign in on before an app may sign them in.
+	pub sign_in_page: String,
+	/// The page that asks people whether an app may sign them in.
+	pub consent_page: String,
+	/// Where people go after an app signs them out, when it names nowhere.
+	pub signed_out_page: String,
+	/// The page where people enter the code a CLI or a TV shows them.
+	pub device_page: String,
+	/// The environment variable holding an RSA private key, as PEM, for apps
+	/// that need RS256 ID tokens. Without it every token is ES256.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub rsa_key_env: Option<String>,
+	/// Minutes an access token lasts: revoking one reaches servers that only
+	/// check its signature after this long.
+	pub access_minutes: u32,
+	/// Minutes an ID token lasts.
+	pub id_token_minutes: u32,
+	/// Days an app stays signed in, however often it refreshes.
+	pub refresh_days: u32,
+	/// Days a signing key signs before the next one takes over.
+	pub signing_key_days: u32,
+	/// Lets signed-in people register apps of their own, for third-party
+	/// developers.
+	pub developer_portal: bool,
+	/// The most apps one person may register in the developer portal.
+	pub apps_per_person: u32,
+}
+
+impl Default for AuthIdpConfig {
+	fn default() -> Self {
+		Self {
+			issuer: None,
+			audience: None,
+			sign_in_page: "/sign-in".to_owned(),
+			consent_page: "/consent".to_owned(),
+			signed_out_page: "/".to_owned(),
+			device_page: "/device".to_owned(),
+			rsa_key_env: None,
+			access_minutes: 10,
+			id_token_minutes: 10,
+			refresh_days: 90,
+			signing_key_days: 30,
+			developer_portal: false,
+			apps_per_person: 10,
+		}
+	}
+}
+
+impl AuthIdpConfig {
+	fn problem(&self) -> Option<String> {
+		for (name, page) in [
+			("sign_in_page", &self.sign_in_page),
+			("consent_page", &self.consent_page),
+			("signed_out_page", &self.signed_out_page),
+			("device_page", &self.device_page),
+		] {
+			if !page.starts_with('/') || page.starts_with("//") || page.contains('\\') {
+				return Some(format!(
+					"auth.idp.{name} `{page}` must be a path on this site, such as \"/consent\""
+				));
+			}
+		}
+
+		if self.rsa_key_env.as_ref().is_some_and(String::is_empty) {
+			return Some("auth.idp.rsa_key_env must name an environment variable".to_owned());
+		}
+
+		let bounds = [
+			("access_minutes", self.access_minutes, 60),
+			("id_token_minutes", self.id_token_minutes, 24 * 60),
+			("refresh_days", self.refresh_days, 400),
+			("signing_key_days", self.signing_key_days, 400),
+		];
+		for (name, value, max) in bounds {
+			if !(1..=max).contains(&value) {
+				return Some(format!("auth.idp.{name} must be between 1 and {max}"));
+			}
+		}
+
+		if self.developer_portal && self.apps_per_person == 0 {
+			return Some(
+				"auth.idp.apps_per_person must be at least 1 with the developer portal on"
+					.to_owned(),
+			);
+		}
+
+		None
 	}
 }
 

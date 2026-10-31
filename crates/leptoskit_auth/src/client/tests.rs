@@ -649,6 +649,16 @@ async fn a_native_app_renews_after_the_server_refuses_its_access_token() {
 	assert_eq!(app.api.devices().await.unwrap().len(), 1);
 	assert_eq!(app.http.count("/auth/refresh"), 1);
 
+	// So do other crates' requests.
+	server.expire_access_tokens().await;
+	let sent = app
+		.api
+		.send(Method::Post, "/auth/sessions/revoke-others".into(), None)
+		.await
+		.unwrap();
+	assert_eq!(sent.status, 204);
+	assert_eq!(app.http.count("/auth/refresh"), 1);
+
 	// The session route answers a stale token with no session, not `401`.
 	server.expire_access_tokens().await;
 	assert!(session_id(&app.device()).await.is_some());
@@ -846,6 +856,13 @@ async fn the_scopes_call_the_configured_client() {
 	);
 	configure(ClientConfig::new());
 	assert_eq!(api().sign_out().await.unwrap_err().error, unconfigured);
+	assert_eq!(
+		send(Method::Get, "/auth/sessions", None)
+			.await
+			.unwrap_err()
+			.error,
+		unconfigured
+	);
 
 	let server = Server::new().await;
 	let browser = server.browser();
@@ -876,6 +893,16 @@ async fn the_scopes_call_the_configured_client() {
 	assert_eq!(
 		client.get_query_data(&session(), &()),
 		Some(Some(signed_in.clone()))
+	);
+
+	// Other crates' routes go out the same way, with the session.
+	let sessions = send(Method::Get, "/auth/sessions", None).await.unwrap();
+	assert_eq!(sessions.status, 200);
+	assert_eq!(
+		serde_json::from_slice::<Vec<crate::Device>>(&sessions.body)
+			.unwrap()
+			.len(),
+		1
 	);
 
 	let phone = server.browser();

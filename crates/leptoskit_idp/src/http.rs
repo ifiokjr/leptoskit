@@ -6,7 +6,7 @@
 //! let app = Router::new()
 //! 	.merge(my_app_backend::router())
 //! 	.merge(auth.router())     // /auth/*
-//! 	.merge(idp.router())      // /oauth/authorize, consent, connected apps, sign-out
+//! 	.merge(idp.router())      // /oauth/authorize, consent, devices, connected apps, sign-out
 //! 	.layer(auth.layer())      // resolves the session
 //! 	.layer(idp.layer());      // token endpoints, and third-party tokens: outermost
 //! ```
@@ -26,6 +26,8 @@ use axum::body::Body;
 use axum::extract::Query;
 use axum::extract::State;
 use axum::extract::rejection::FormRejection;
+use axum::extract::rejection::JsonRejection;
+use axum::extract::rejection::QueryRejection;
 use axum::http::HeaderMap;
 use axum::http::HeaderValue;
 use axum::http::Method;
@@ -42,30 +44,50 @@ use leptoskit_auth::Delegation;
 use leptoskit_auth::RequestInfo;
 use leptoskit_auth::SignedIn;
 use serde::Deserialize;
+use serde::Serialize;
 use tower::ServiceExt;
 
+use crate::AppChanges;
+use crate::AppRef;
 use crate::AuthorizeOutcome;
 use crate::AuthorizeRequest;
 use crate::ClientCredentials;
 use crate::ConsentDecision;
 use crate::ConsentRedirect;
+use crate::DeviceDecision;
 use crate::DisconnectApp;
 use crate::EndSessionRequest;
 use crate::Idp;
 use crate::IdpError;
+use crate::NewApp;
 use crate::OAuthError;
 use crate::TokenRequest;
 
 /// The routes the layer serves itself, outside the session layer: they
 /// read no cookie, so apps on other sites may call them.
-const ENDPOINTS: [&str; 6] = [
+const ENDPOINTS: [&str; 8] = [
 	"/.well-known/openid-configuration",
 	"/oauth/jwks",
 	"/oauth/token",
 	"/oauth/userinfo",
 	"/oauth/revoke",
 	"/oauth/introspect",
+	"/oauth/par",
+	"/oauth/device_authorization",
 ];
+
+/// The browser routes an app's page may also `POST` a form to. The layer
+/// answers those posts by sending the browser to the same route with a
+/// `GET`, which carries the session cookie and passes the same-site check.
+const FORM_POSTS: [&str; 2] = ["/oauth/authorize", "/oauth/end_session"];
+
+/// The largest form body the layer reads from a cross-site post.
+const MAX_FORM: usize = 64 * 1024;
+
+/// Where an endpoint's request came from, which the layer works out before
+/// the session layer would.
+#[derive(Clone, Debug)]
+struct Source(RequestInfo);
 
 impl Idp {
 	/// The routes people's browsers visit, which need their session:
@@ -75,9 +97,21 @@ impl Idp {
 	/// | `GET /oauth/authorize`        | starts a sign-in ([`AuthorizeRequest`])                  |
 	/// | `GET /oauth/consent`          | what the consent page shows ([`ConsentRequest`](crate::ConsentRequest)) |
 	/// | `POST /oauth/consent`         | answers it ([`ConsentDecision`])                         |
+	/// | `GET /oauth/device`           | what the device page shows ([`DeviceRequest`](crate::DeviceRequest)) |
+	/// | `POST /oauth/device`          | answers it ([`DeviceDecision`])                          |
 	/// | `GET /oauth/end_session`      | an app signing someone out ([`EndSessionRequest`])       |
 	/// | `GET /oauth/grants`           | the person's connected apps ([`ConnectedApp`](crate::ConnectedApp)) |
 	/// | `POST /oauth/grants/revoke`   | disconnects one ([`DisconnectApp`])                      |
+	///
+	/// With the [developer portal](crate::IdpBuilder::developer_portal) on:
+	///
+	/// | Route                              | Does                                         |
+	/// | ---------------------------------- | -------------------------------------------- |
+	/// | `GET /oauth/apps`                  | the person's own apps ([`ClientInfo`](crate::ClientInfo)) |
+	/// | `POST /oauth/apps`                 | registers one ([`NewApp`])                   |
+	/// | `POST /oauth/apps/update`          | changes one ([`AppChanges`])                 |
+	/// | `POST /oauth/apps/rotate-secret`   | replaces its secret ([`AppRef`])             |
+	/// | `POST /oauth/apps/delete`          | deletes it ([`AppRef`])                      |
 	///
 	/// Merge them inside [`Auth::layer`](leptoskit_auth::Auth::layer), like
 	/// `auth.router()`. The token endpoints come from [`Idp::layer`].
@@ -85,13 +119,23 @@ impl Idp {
 	where
 		S: Clone + Send + Sync + 'static,
 	{
-		Router::new()
+		let mut router = Router::new()
 			.route("/oauth/authorize", get(authorize))
 			.route("/oauth/consent", get(consent).post(decide))
+			.route("/oauth/device", get(device).post(decide_device))
 			.route("/oauth/end_session", get(end_session))
 			.route("/oauth/grants", get(grants))
-			.route("/oauth/grants/revoke", post(disconnect))
-			.with_state(self.clone())
+			.route("/oauth/grants/revoke", post(disconnect));
+
+		if self.has_developer_portal() {
+			router = router
+				.route("/oauth/apps", get(my_apps).post(register_app))
+				.route("/oauth/apps/update", post(update_app))
+				.route("/oauth/apps/rotate-secret", post(rotate_app_secret))
+				.route("/oauth/apps/delete", post(delete_app));
+		}
+
+		router.with_state(self.clone())
 	}
 
 	/// The layer that serves what other apps' servers and browsers call,
@@ -105,12 +149,18 @@ impl Idp {
 	/// | `GET`/`POST /oauth/userinfo`            | claims about the signed-in person     |
 	/// | `POST /oauth/revoke`                    | revokes a token (RFC 7009)            |
 	/// | `POST /oauth/introspect`                | describes a token (RFC 7662)          |
+	/// | `POST /oauth/par`                       | keeps a pushed request (RFC 9126)     |
+	/// | `POST /oauth/device_authorization`      | starts the device flow (RFC 8628)     |
 	///
-	/// These answer cross-origin requests, since they read no cookies.
+	/// These answer cross-origin requests, since they read no cookies. The
+	/// layer also takes form `POST`s to `/oauth/authorize` and
+	/// `/oauth/end_session`, as OpenID Connect allows, and sends the browser
+	/// on to the `GET` route with the same parameters.
 	///
 	/// A request carrying one of this provider's access tokens reaches only
 	/// an `#[api(scope = …)]` function whose every scope the token carries.
-	/// It then runs as the person who consented: the layer hands
+	/// It then runs as the person who consented, or as no one for an app
+	/// acting as itself: the layer hands
 	/// [`Auth::layer`](leptoskit_auth::Auth::layer) a [`Delegation`], so
 	/// policies apply unchanged. Every other route refuses the token.
 	///
@@ -125,6 +175,10 @@ impl Idp {
 				.route("/oauth/userinfo", get(userinfo).post(userinfo))
 				.route("/oauth/revoke", post(revoke))
 				.route("/oauth/introspect", post(introspect))
+				.route("/oauth/par", post(par))
+				.route("/oauth/device_authorization", post(device_authorization))
+				.route("/oauth/authorize", post(form_post::<AuthorizeRequest>))
+				.route("/oauth/end_session", post(form_post::<EndSessionRequest>))
 				.with_state(self.clone()),
 		}
 	}
@@ -173,6 +227,11 @@ impl<S> std::fmt::Debug for IdpService<S> {
 	}
 }
 
+/// Whether the layer answers this request itself.
+fn served_here(method: &Method, path: &str) -> bool {
+	ENDPOINTS.contains(&path) || (method == Method::POST && FORM_POSTS.contains(&path))
+}
+
 impl<S> tower::Service<Request<Body>> for IdpService<S>
 where
 	S: tower::Service<Request<Body>, Response = Response> + Clone + Send + 'static,
@@ -195,11 +254,13 @@ where
 		let mut inner = std::mem::replace(&mut self.inner, clone);
 
 		Box::pin(async move {
-			if ENDPOINTS.contains(&request.uri().path()) {
+			if served_here(request.method(), request.uri().path()) {
 				let preflight = request.method() == Method::OPTIONS;
 				let mut response = if preflight {
 					StatusCode::NO_CONTENT.into_response()
 				} else {
+					let source = Source(idp.inner.auth.request_info(&request));
+					request.extensions_mut().insert(source);
 					let Ok(response) = endpoints
 						.oneshot(request)
 						.await
@@ -209,6 +270,10 @@ where
 				allow_any_origin(response.headers_mut(), preflight);
 				return Ok(response);
 			}
+
+			// The headless client reads the provider in process while the
+			// server renders a page.
+			request.extensions_mut().insert(idp.clone());
 
 			let Some(token) = bearer(request.headers()).filter(|token| looks_like_jwt(token))
 			else {
@@ -325,9 +390,10 @@ fn json_error(error: &IdpError) -> Response {
 		IdpError::OAuth { .. } => StatusCode::BAD_REQUEST,
 		IdpError::SignedOut => StatusCode::UNAUTHORIZED,
 		IdpError::NotFound => StatusCode::NOT_FOUND,
+		_ if error.retry_after().is_some() => StatusCode::TOO_MANY_REQUESTS,
 		_ => StatusCode::INTERNAL_SERVER_ERROR,
 	};
-	no_store(
+	let mut response = no_store(
 		(
 			status,
 			Json(OAuthError {
@@ -336,7 +402,14 @@ fn json_error(error: &IdpError) -> Response {
 			}),
 		)
 			.into_response(),
-	)
+	);
+	if let Some(retry_after) = error.retry_after() {
+		response.headers_mut().insert(
+			header::RETRY_AFTER,
+			HeaderValue::from(retry_after.as_secs().max(1)),
+		);
+	}
+	response
 }
 
 /// Tokens and the pages that lead to them are never cached.
@@ -391,17 +464,43 @@ fn person(current: Option<&CurrentSession>) -> Option<&SignedIn> {
 	current.signed_in.as_ref()
 }
 
+/// Answers a form `POST` to a browser route by sending the browser to the
+/// `GET` route with the same parameters. A cross-site post carries no
+/// `SameSite=Lax` cookie; the `GET` it's sent on to does.
+async fn form_post<T>(request: Request<Body>) -> Response
+where
+	T: Serialize + serde::de::DeserializeOwned + Send,
+{
+	let path = request.uri().path().to_owned();
+	let Ok(body) = axum::body::to_bytes(request.into_body(), MAX_FORM).await else {
+		return error_page(&IdpError::invalid_request("the form is too large"));
+	};
+	let Ok(form) = serde_urlencoded::from_bytes::<T>(&body) else {
+		return error_page(&IdpError::invalid_request(
+			"the form's parameters are malformed or repeated",
+		));
+	};
+	let Ok(query) = serde_urlencoded::to_string(&form) else {
+		return error_page(&IdpError::invalid_request("the form can't be read"));
+	};
+	redirect(&format!("{path}?{query}"))
+}
+
 async fn authorize(
 	State(idp): State<Idp>,
 	current: Option<Extension<CurrentSession>>,
-	query: Result<Query<AuthorizeRequest>, axum::extract::rejection::QueryRejection>,
+	info: RequestInfo,
+	query: Result<Query<AuthorizeRequest>, QueryRejection>,
 ) -> Response {
 	let Ok(Query(request)) = query else {
 		return error_page(&IdpError::invalid_request(
 			"the sign-in link's parameters are malformed or repeated",
 		));
 	};
-	match idp.authorize(&request, person(current.as_deref())).await {
+	match idp
+		.authorize(&request, person(current.as_deref()), &info)
+		.await
+	{
 		Ok(AuthorizeOutcome::Redirect(to)) => redirect(&to),
 		Ok(AuthorizeOutcome::Invalid(error)) => error_page(&error),
 		Err(error) => json_error(&error),
@@ -416,10 +515,13 @@ struct ConsentQuery {
 async fn consent(
 	State(idp): State<Idp>,
 	current: Option<Extension<CurrentSession>>,
-	Query(query): Query<ConsentQuery>,
+	query: Result<Query<ConsentQuery>, QueryRejection>,
 ) -> Response {
 	let Some(me) = person(current.as_deref()) else {
 		return json_error(&IdpError::SignedOut);
+	};
+	let Ok(Query(query)) = query else {
+		return json_error(&IdpError::invalid_request("request is missing"));
 	};
 	match idp.consent_request(me, &query.request).await {
 		Ok(request) => no_store(Json(request).into_response()),
@@ -430,13 +532,63 @@ async fn consent(
 async fn decide(
 	State(idp): State<Idp>,
 	current: Option<Extension<CurrentSession>>,
-	Json(decision): Json<ConsentDecision>,
+	info: RequestInfo,
+	decision: Result<Json<ConsentDecision>, JsonRejection>,
 ) -> Response {
 	let Some(me) = person(current.as_deref()) else {
 		return json_error(&IdpError::SignedOut);
 	};
-	match idp.decide(me, &decision.request, decision.approve).await {
+	let Ok(Json(decision)) = decision else {
+		return malformed_json();
+	};
+	match idp
+		.decide(me, &decision.request, decision.approve, &info)
+		.await
+	{
 		Ok(redirect_to) => no_store(Json(ConsentRedirect { redirect_to }).into_response()),
+		Err(error) => json_error(&error),
+	}
+}
+
+#[derive(Deserialize)]
+struct DeviceQuery {
+	user_code: String,
+}
+
+async fn device(
+	State(idp): State<Idp>,
+	current: Option<Extension<CurrentSession>>,
+	query: Result<Query<DeviceQuery>, QueryRejection>,
+) -> Response {
+	let Some(me) = person(current.as_deref()) else {
+		return json_error(&IdpError::SignedOut);
+	};
+	let Ok(Query(query)) = query else {
+		return json_error(&IdpError::invalid_request("user_code is missing"));
+	};
+	match idp.device_request(me, &query.user_code).await {
+		Ok(request) => no_store(Json(request).into_response()),
+		Err(error) => json_error(&error),
+	}
+}
+
+async fn decide_device(
+	State(idp): State<Idp>,
+	current: Option<Extension<CurrentSession>>,
+	info: RequestInfo,
+	decision: Result<Json<DeviceDecision>, JsonRejection>,
+) -> Response {
+	let Some(me) = person(current.as_deref()) else {
+		return json_error(&IdpError::SignedOut);
+	};
+	let Ok(Json(decision)) = decision else {
+		return malformed_json();
+	};
+	match idp
+		.decide_device(me, &decision.user_code, decision.approve, &info)
+		.await
+	{
+		Ok(()) => StatusCode::NO_CONTENT.into_response(),
 		Err(error) => json_error(&error),
 	}
 }
@@ -445,7 +597,7 @@ async fn end_session(
 	State(idp): State<Idp>,
 	current: Option<Extension<CurrentSession>>,
 	request_info: RequestInfo,
-	query: Result<Query<EndSessionRequest>, axum::extract::rejection::QueryRejection>,
+	query: Result<Query<EndSessionRequest>, QueryRejection>,
 ) -> Response {
 	let Ok(Query(request)) = query else {
 		return error_page(&IdpError::invalid_request("the sign-out link is malformed"));
@@ -473,7 +625,7 @@ async fn grants(State(idp): State<Idp>, current: Option<Extension<CurrentSession
 		return json_error(&IdpError::SignedOut);
 	};
 	match idp.connected_apps(me).await {
-		Ok(apps) => Json(apps).into_response(),
+		Ok(apps) => no_store(Json(apps).into_response()),
 		Err(error) => json_error(&error),
 	}
 }
@@ -481,12 +633,99 @@ async fn grants(State(idp): State<Idp>, current: Option<Extension<CurrentSession
 async fn disconnect(
 	State(idp): State<Idp>,
 	current: Option<Extension<CurrentSession>>,
-	Json(body): Json<DisconnectApp>,
+	info: RequestInfo,
+	body: Result<Json<DisconnectApp>, JsonRejection>,
 ) -> Response {
 	let Some(me) = person(current.as_deref()) else {
 		return json_error(&IdpError::SignedOut);
 	};
-	match idp.disconnect(me, &body.client_id).await {
+	let Ok(Json(body)) = body else {
+		return malformed_json();
+	};
+	match idp.disconnect(me, &body.client_id, &info).await {
+		Ok(true) => StatusCode::NO_CONTENT.into_response(),
+		Ok(false) => StatusCode::NOT_FOUND.into_response(),
+		Err(error) => json_error(&error),
+	}
+}
+
+async fn my_apps(State(idp): State<Idp>, current: Option<Extension<CurrentSession>>) -> Response {
+	let Some(me) = person(current.as_deref()) else {
+		return json_error(&IdpError::SignedOut);
+	};
+	match idp.my_apps(me).await {
+		Ok(apps) => no_store(Json(apps).into_response()),
+		Err(error) => json_error(&error),
+	}
+}
+
+async fn register_app(
+	State(idp): State<Idp>,
+	current: Option<Extension<CurrentSession>>,
+	info: RequestInfo,
+	body: Result<Json<NewApp>, JsonRejection>,
+) -> Response {
+	let Some(me) = person(current.as_deref()) else {
+		return json_error(&IdpError::SignedOut);
+	};
+	let Ok(Json(app)) = body else {
+		return malformed_json();
+	};
+	match idp.register_app(me, app, &info).await {
+		Ok(registered) => no_store((StatusCode::CREATED, Json(registered)).into_response()),
+		Err(error) => json_error(&error),
+	}
+}
+
+async fn update_app(
+	State(idp): State<Idp>,
+	current: Option<Extension<CurrentSession>>,
+	info: RequestInfo,
+	body: Result<Json<AppChanges>, JsonRejection>,
+) -> Response {
+	let Some(me) = person(current.as_deref()) else {
+		return json_error(&IdpError::SignedOut);
+	};
+	let Ok(Json(changes)) = body else {
+		return malformed_json();
+	};
+	match idp.update_app(me, changes, &info).await {
+		Ok(app) => no_store(Json(app).into_response()),
+		Err(error) => json_error(&error),
+	}
+}
+
+async fn rotate_app_secret(
+	State(idp): State<Idp>,
+	current: Option<Extension<CurrentSession>>,
+	info: RequestInfo,
+	body: Result<Json<AppRef>, JsonRejection>,
+) -> Response {
+	let Some(me) = person(current.as_deref()) else {
+		return json_error(&IdpError::SignedOut);
+	};
+	let Ok(Json(app)) = body else {
+		return malformed_json();
+	};
+	match idp.rotate_app_secret(me, &app.client_id, &info).await {
+		Ok(registered) => no_store(Json(registered).into_response()),
+		Err(error) => json_error(&error),
+	}
+}
+
+async fn delete_app(
+	State(idp): State<Idp>,
+	current: Option<Extension<CurrentSession>>,
+	info: RequestInfo,
+	body: Result<Json<AppRef>, JsonRejection>,
+) -> Response {
+	let Some(me) = person(current.as_deref()) else {
+		return json_error(&IdpError::SignedOut);
+	};
+	let Ok(Json(app)) = body else {
+		return malformed_json();
+	};
+	match idp.delete_app(me, &app.client_id, &info).await {
 		Ok(true) => StatusCode::NO_CONTENT.into_response(),
 		Ok(false) => StatusCode::NOT_FOUND.into_response(),
 		Err(error) => json_error(&error),
@@ -504,16 +743,26 @@ async fn jwks(State(idp): State<Idp>) -> Response {
 	}
 }
 
+/// How a form says which app it comes from, besides `Authorization`.
+#[derive(Default, Deserialize)]
+struct ClientForm {
+	#[serde(default, rename = "client_id")]
+	id: Option<String>,
+	#[serde(default, rename = "client_secret")]
+	secret: Option<String>,
+	#[serde(default, rename = "client_assertion_type")]
+	assertion_type: Option<String>,
+	#[serde(default, rename = "client_assertion")]
+	assertion: Option<String>,
+}
+
 /// Client credentials from the header and the form.
-fn credentials(
-	headers: &HeaderMap,
-	client_id: Option<String>,
-	client_secret: Option<String>,
-) -> Result<ClientCredentials, IdpError> {
+fn credentials(headers: &HeaderMap, form: ClientForm) -> Result<ClientCredentials, IdpError> {
 	let authorization = headers
 		.get(header::AUTHORIZATION)
 		.and_then(|value| value.to_str().ok());
-	ClientCredentials::new(authorization, client_id, client_secret)
+	Ok(ClientCredentials::new(authorization, form.id, form.secret)?
+		.with_assertion(form.assertion_type, form.assertion))
 }
 
 /// An error from an endpoint apps authenticate to: `invalid_client` after
@@ -535,23 +784,37 @@ fn malformed_form() -> Response {
 	))
 }
 
+fn malformed_json() -> Response {
+	json_error(&IdpError::invalid_request(
+		"send a JSON body (application/json) of the expected shape",
+	))
+}
+
+/// Why the client's credentials can't be read, as an answer.
+fn unreadable(headers: &HeaderMap, error: &IdpError) -> Response {
+	client_error(error, headers.contains_key(header::AUTHORIZATION))
+}
+
 async fn token(
 	State(idp): State<Idp>,
+	Extension(Source(info)): Extension<Source>,
 	headers: HeaderMap,
 	form: Result<Form<TokenRequest>, FormRejection>,
 ) -> Response {
 	let Ok(Form(request)) = form else {
 		return malformed_form();
 	};
-	let credentials = match credentials(
-		&headers,
-		request.client_id.clone(),
-		request.client_secret.clone(),
-	) {
-		Ok(credentials) => credentials,
-		Err(error) => return client_error(&error, headers.contains_key(header::AUTHORIZATION)),
+	let client = ClientForm {
+		id: request.client_id.clone(),
+		secret: request.client_secret.clone(),
+		assertion_type: request.client_assertion_type.clone(),
+		assertion: request.client_assertion.clone(),
 	};
-	match idp.token(&request, &credentials).await {
+	let credentials = match credentials(&headers, client) {
+		Ok(credentials) => credentials,
+		Err(error) => return unreadable(&headers, &error),
+	};
+	match idp.token(&request, &credentials, &info).await {
 		Ok(tokens) => no_store(Json(tokens).into_response()),
 		Err(error) => client_error(&error, credentials.used_basic()),
 	}
@@ -584,10 +847,8 @@ struct TokenForm {
 	#[serde(default)]
 	#[allow(dead_code)]
 	token_type_hint: Option<String>,
-	#[serde(default)]
-	client_id: Option<String>,
-	#[serde(default)]
-	client_secret: Option<String>,
+	#[serde(flatten)]
+	client: ClientForm,
 }
 
 async fn revoke(
@@ -598,9 +859,9 @@ async fn revoke(
 	let Ok(Form(form)) = form else {
 		return malformed_form();
 	};
-	let credentials = match credentials(&headers, form.client_id, form.client_secret) {
+	let credentials = match credentials(&headers, form.client) {
 		Ok(credentials) => credentials,
-		Err(error) => return client_error(&error, headers.contains_key(header::AUTHORIZATION)),
+		Err(error) => return unreadable(&headers, &error),
 	};
 	let Some(token) = form.token.filter(|token| !token.is_empty()) else {
 		return json_error(&IdpError::invalid_request("token is missing"));
@@ -619,15 +880,83 @@ async fn introspect(
 	let Ok(Form(form)) = form else {
 		return malformed_form();
 	};
-	let credentials = match credentials(&headers, form.client_id, form.client_secret) {
+	let credentials = match credentials(&headers, form.client) {
 		Ok(credentials) => credentials,
-		Err(error) => return client_error(&error, headers.contains_key(header::AUTHORIZATION)),
+		Err(error) => return unreadable(&headers, &error),
 	};
 	let Some(token) = form.token.filter(|token| !token.is_empty()) else {
 		return json_error(&IdpError::invalid_request("token is missing"));
 	};
 	match idp.introspect(&credentials, &token).await {
 		Ok(introspection) => no_store(Json(introspection).into_response()),
+		Err(error) => client_error(&error, credentials.used_basic()),
+	}
+}
+
+/// The form of `POST /oauth/par`: an authorization request, and how the
+/// app authenticates.
+#[derive(Deserialize)]
+struct PushForm {
+	#[serde(flatten)]
+	request: AuthorizeRequest,
+	#[serde(default)]
+	client_secret: Option<String>,
+	#[serde(default)]
+	client_assertion_type: Option<String>,
+	#[serde(default)]
+	client_assertion: Option<String>,
+}
+
+async fn par(
+	State(idp): State<Idp>,
+	headers: HeaderMap,
+	form: Result<Form<PushForm>, FormRejection>,
+) -> Response {
+	let Ok(Form(form)) = form else {
+		return malformed_form();
+	};
+	let client = ClientForm {
+		id: form.request.client_id.clone(),
+		secret: form.client_secret,
+		assertion_type: form.client_assertion_type,
+		assertion: form.client_assertion,
+	};
+	let credentials = match credentials(&headers, client) {
+		Ok(credentials) => credentials,
+		Err(error) => return unreadable(&headers, &error),
+	};
+	match idp.push_request(&credentials, &form.request).await {
+		Ok(pushed) => no_store((StatusCode::CREATED, Json(pushed)).into_response()),
+		Err(error) => client_error(&error, credentials.used_basic()),
+	}
+}
+
+/// The form of `POST /oauth/device_authorization`.
+#[derive(Deserialize)]
+struct DeviceForm {
+	#[serde(default)]
+	scope: Option<String>,
+	#[serde(flatten)]
+	client: ClientForm,
+}
+
+async fn device_authorization(
+	State(idp): State<Idp>,
+	headers: HeaderMap,
+	form: Result<Form<DeviceForm>, FormRejection>,
+) -> Response {
+	let Ok(Form(form)) = form else {
+		return malformed_form();
+	};
+	let credentials = match credentials(&headers, form.client) {
+		Ok(credentials) => credentials,
+		Err(error) => return unreadable(&headers, &error),
+	};
+	match idp
+		.authorize_device(&credentials, form.scope.as_deref())
+		.await
+	{
+		Ok(device) => no_store(Json(device).into_response()),
 		Err(error) => client_error(&error, credentials.used_basic()),
 	}
 }
@@ -665,6 +994,11 @@ mod tests {
 			status(IdpError::Config("x".into())),
 			StatusCode::INTERNAL_SERVER_ERROR
 		);
+		let limited = json_error(&IdpError::Auth(leptoskit_auth::AuthError::RateLimited {
+			retry_after: std::time::Duration::from_secs(9),
+		}));
+		assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+		assert_eq!(limited.headers()[header::RETRY_AFTER], "9");
 		assert_eq!(
 			client_error(&IdpError::invalid_client(), true).headers()[header::WWW_AUTHENTICATE],
 			"Basic realm=\"oauth\""
@@ -673,5 +1007,14 @@ mod tests {
 			error_page(&IdpError::invalid_request("<b>")).status(),
 			StatusCode::BAD_REQUEST
 		);
+	}
+
+	#[test]
+	fn the_layer_serves_endpoints_and_form_posts() {
+		assert!(served_here(&Method::POST, "/oauth/token"));
+		assert!(served_here(&Method::GET, "/oauth/jwks"));
+		assert!(served_here(&Method::POST, "/oauth/authorize"));
+		assert!(!served_here(&Method::GET, "/oauth/authorize"));
+		assert!(!served_here(&Method::GET, "/oauth/grants"));
 	}
 }

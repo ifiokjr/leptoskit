@@ -9,6 +9,9 @@ Also adds `[auth]` to leptoskit.toml, the leptoskit features the screens use, th
 Usage: leptoskit generate auth [OPTIONS]
 
 Options:
+      --idp
+          Also the "Sign in with your app" screens: consent, entering a device's code, connected apps, and the developer portal, with `[auth.idp]` and the provider's builder on the server
+
       --force
           Replace files that differ from the templates
 
