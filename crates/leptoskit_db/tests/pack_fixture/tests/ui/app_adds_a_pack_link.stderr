@@ -1,0 +1,39 @@
+error[E0599]: the method `add` exists for struct `Links<RelatedNote, Note, Note>`, but its trait bounds were not satisfied
+ --> tests/ui/app_adds_a_pack_link.rs:4:25
+  |
+4 |       let _ = note.related().add(db, other.id, ()).await;
+  |                              ^^^ method cannot be called on `Links<RelatedNote, Note, Note>` due to unsatisfied trait bounds
+  |
+ ::: src/lib.rs
+  |
+  | / #[leptoskit_db::link(
+  | |     name = "related_notes",
+  | |     pack = "sample",
+  | |     from = Note as related,
+... |
+  | |     to_column = "related_id"
+  | | )]
+  | |__- doesn't satisfy `RelatedNote: WritableLink`
+  |
+  = note: the following trait bounds were not satisfied:
+          `RelatedNote: WritableLink`
+
+error[E0599]: the method `remove` exists for struct `Links<RelatedNote, Note, Note>`, but its trait bounds were not satisfied
+ --> tests/ui/app_adds_a_pack_link.rs:5:25
+  |
+5 |       let _ = note.related().remove(db, other.id).await;
+  |                              ^^^^^^ method cannot be called on `Links<RelatedNote, Note, Note>` due to unsatisfied trait bounds
+  |
+ ::: src/lib.rs
+  |
+  | / #[leptoskit_db::link(
+  | |     name = "related_notes",
+  | |     pack = "sample",
+  | |     from = Note as related,
+... |
+  | |     to_column = "related_id"
+  | | )]
+  | |__- doesn't satisfy `RelatedNote: WritableLink`
+  |
+  = note: the following trait bounds were not satisfied:
+          `RelatedNote: WritableLink`

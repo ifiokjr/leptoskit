@@ -56,6 +56,24 @@ db.transaction(async |tx| {
 
 Writes validate first, `save` bumps `updated_at`, and `delete` soft-deletes tables with a `#[db(deleted_at)]` column, which queries then leave out unless they ask `with_deleted()`. Upserts conflict on any unique index, partial ones included. `DbError` tells a missing row, a taken unique value, a broken foreign key, and a failed check apart, and never puts SQL or values in its message.
 
+Many-to-many links are tables too: `#[db::link(name = "post_tags", from = Post as tags, to = Tag as posts)]` on a struct of the link's own columns gives `post.tags().add(&db, tag.id, …)`, `.all(&db)` for each tag with its link, and `tag.posts().count(&db)`. A shape fetches a row and the rows linked to it in one statement, with every table's policies applied at every level:
+
+```rust,ignore
+#[derive(db::Shape, Serialize)]
+#[db(from = User, public)]
+struct ProfileCard {
+	handle: String,
+	#[db(count(posts))]
+	post_count: i64,
+	#[db(via = posts, order_by = |post| post.created_at.desc(), limit = 3)]
+	latest: Vec<PostTitle>,
+}
+
+let card: ProfileCard = User::query().filter(|u| u.handle.eq(handle)).shape().one(&db).await?;
+```
+
+`projection(SelfUser)` on a table, with `#[db(private, in(SelfUser))]` on a column, declares a second client type that shows that private column, for an audience such as the signed-in user.
+
 Postgres runs through `tokio-postgres`, with rustls TLS unless the URL says `sslmode=disable`; values bind to whatever type each placeholder has. SQLite runs through `rusqlite`, the same bundled SQLite as the on-device plugin, on tokio's blocking pool.
 
 ## Migrations

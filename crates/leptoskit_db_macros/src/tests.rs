@@ -454,7 +454,8 @@ fn a_misplaced_policy_says_where_it_goes() {
 	))
 	.to_string();
 	assert!(
-		expansion.contains("put `#[db::policy]` below `#[db::table]`, which reads it"),
+		expansion
+			.contains("put `#[db::policy]` below `#[db::table]` or `#[db::link]`, which reads it"),
 		"{expansion}"
 	);
 	assert!(expansion.ends_with("pub struct Post ;"), "{expansion}");
@@ -480,6 +481,530 @@ fn policy_mistakes_are_explained() {
 			error(quote!(select, |p, cx| x, reason = "no")),
 		),
 		("missing comma", error(quote!(select | p, cx | x))),
+	];
+
+	let report: Vec<String> = cases
+		.iter()
+		.map(|(case, error)| format!("{case}: {error}"))
+		.collect();
+	insta::assert_snapshot!(report.join("\n"));
+}
+
+fn expand_link(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+	let marker = quote::format_ident!("{}", crate::attrs::LINK_MARKER);
+	crate::table::expand(&quote!(#marker, #args), &item, &[])
+}
+
+#[test]
+fn a_link_is_a_table_with_two_ends_and_methods_on_both() {
+	insta::assert_snapshot!(pretty(
+		expand_link(
+			quote!(
+				name = "post_tags",
+				from = Post as tags,
+				to = crate::Tag as posts
+			),
+			quote! {
+				/// A tag on a post.
+				pub struct PostTag {
+					pub position: i16,
+					#[db(created_at)]
+					pub added_at: Timestamp,
+				}
+			},
+		)
+		.expect("the link expands")
+	));
+}
+
+#[test]
+fn a_link_without_properties_takes_nothing_but_its_ends() {
+	let expanded = pretty(
+		expand_link(
+			quote!(
+				name = "follows",
+				from = User as following,
+				to = User,
+				from_column = "follower_id",
+				to_column = "followed_id",
+				exclusive,
+				pack = "social"
+			),
+			quote! {
+				pub struct Follow {}
+			},
+		)
+		.expect("the link expands"),
+	);
+
+	assert!(expanded.contains("type Properties = ();"), "{expanded}");
+	assert!(expanded.contains("pub fn following(&self)"), "{expanded}");
+	// No `as` on the far end: no method there.
+	assert!(!expanded.contains("pub fn followed"), "{expanded}");
+	// A pack's links are written by the pack alone.
+	assert!(!expanded.contains("WritableLink"), "{expanded}");
+	assert!(
+		expanded.contains("table.unique(&[\"followed_id\"]"),
+		"{expanded}"
+	);
+}
+
+#[test]
+#[expect(
+	clippy::too_many_lines,
+	reason = "one case per mistake reads best as a single table"
+)]
+fn link_ends_and_projection_mistakes_are_explained() {
+	let link = |args: TokenStream, item: TokenStream| {
+		expand_link(args, item)
+			.expect_err("the link is rejected")
+			.to_string()
+	};
+	let projected = |args: TokenStream, field: TokenStream| {
+		table_error(
+			args,
+			quote! {
+				pub struct User {
+					pub id: Id<Self>,
+					#field
+				}
+			},
+		)
+	};
+	let cases = [
+		(
+			"no ends",
+			link(
+				quote!(name = "links"),
+				quote!(
+					pub struct Links {}
+				),
+			),
+		),
+		(
+			"one end",
+			link(
+				quote!(name = "links", from = Post),
+				quote!(
+					pub struct Links {}
+				),
+			),
+		),
+		(
+			"same columns",
+			link(
+				quote!(name = "follows", from = User, to = User),
+				quote!(
+					pub struct Follow {}
+				),
+			),
+		),
+		(
+			"declared end",
+			link(
+				quote!(name = "post_tags", from = Post, to = Tag),
+				quote!(
+					pub struct PostTag {
+						pub tag_id: Id<Tag>,
+					}
+				),
+			),
+		),
+		(
+			"own key",
+			link(
+				quote!(name = "post_tags", from = Post, to = Tag),
+				quote!(
+					pub struct PostTag {
+						#[db(key)]
+						pub position: i16,
+					}
+				),
+			),
+		),
+		(
+			"unique",
+			link(
+				quote!(name = "post_tags", from = Post, to = Tag, unique),
+				quote!(
+					pub struct PostTag {}
+				),
+			),
+		),
+		(
+			"unknown link option",
+			link(
+				quote!(name = "post_tags", from = Post, to = Tag, ordered),
+				quote!(
+					pub struct PostTag {}
+				),
+			),
+		),
+		(
+			"ends on a table",
+			table_error(
+				quote!(name = "posts", from = User),
+				quote!(
+					pub struct Post {
+						pub id: Id<Self>,
+					}
+				),
+			),
+		),
+		(
+			"undeclared projection",
+			projected(
+				quote!(name = "users"),
+				quote!(#[db(private, in(SelfUser))] pub email: String),
+			),
+		),
+		(
+			"secret in a projection",
+			projected(
+				quote!(name = "users", projection(SelfUser)),
+				quote!(#[db(secret, in(SelfUser))] pub hash: String),
+			),
+		),
+		(
+			"public in a projection",
+			projected(
+				quote!(name = "users", projection(SelfUser)),
+				quote!(#[db(in(SelfUser))] pub name: String),
+			),
+		),
+		(
+			"projection twice",
+			projected(
+				quote!(name = "users", projection(SelfUser, SelfUser)),
+				quote!(pub name: String),
+			),
+		),
+		(
+			"projection named like the public type",
+			projected(
+				quote!(name = "users", public, projection(PublicUser)),
+				quote!(pub name: String),
+			),
+		),
+		(
+			"mixin field in a projection",
+			mixin(
+				quote!(),
+				quote! {
+					pub struct Contact {
+						#[db(private, in(SelfUser))]
+						pub email: String,
+					}
+				},
+			)
+			.expect_err("the mixin is rejected")
+			.to_string(),
+		),
+	];
+
+	let report: Vec<String> = cases
+		.iter()
+		.map(|(case, error)| format!("{case}: {error}"))
+		.collect();
+	insta::assert_snapshot!(report.join("\n"));
+}
+
+#[test]
+fn a_projection_shows_the_private_columns_marked_for_it() {
+	let expanded = table(
+		quote!(name = "users", public, projection(SelfUser)),
+		quote! {
+			pub struct User {
+				pub id: Id<Self>,
+				#[db(private, in(SelfUser), max_len = 64)]
+				pub email: String,
+				#[db(private)]
+				pub notes: String,
+			}
+		},
+	);
+	let projection = expanded
+		.split("pub struct SelfUser")
+		.nth(1)
+		.expect("the projection is declared");
+	let fields = projection.split('}').next().unwrap_or_default();
+	assert!(fields.contains("pub email: String"), "{fields}");
+	assert!(!fields.contains("notes"), "{fields}");
+	assert!(
+		expanded.contains("impl ::core::convert::From<User> for SelfUser"),
+		"{expanded}"
+	);
+	// The rules of a column it shows are checked in it too.
+	let validate = projection
+		.split("fn validate")
+		.nth(1)
+		.expect("the projection validates");
+	assert!(validate.contains("\"email\""), "{validate}");
+}
+
+#[test]
+fn a_generated_column_is_read_only() {
+	let expanded = table(
+		quote!(name = "members"),
+		quote! {
+			pub struct Member {
+				pub id: Id<Self>,
+				pub handle: String,
+				#[db(generated = "lower(handle)", unique)]
+				pub handle_key: String,
+				#[db(generated(postgres = "char_length(handle)", sqlite = "length(handle)"))]
+				pub length: i32,
+			}
+		},
+	);
+
+	assert!(
+		expanded
+			.contains("const GENERATED: &'static [&'static str] = &[\"handle_key\", \"length\"];"),
+		"{expanded}"
+	);
+	assert!(
+		expanded
+			.contains("table.generated(\"length\", \"char_length(handle)\", \"length(handle)\");"),
+		"{expanded}"
+	);
+	// The insert type leaves them out, and the row holds a placeholder until
+	// the database returns it.
+	let insert = expanded
+		.split("pub struct NewMember")
+		.nth(1)
+		.and_then(|rest| rest.split('}').next())
+		.expect("the insert type is declared");
+	assert!(
+		!insert.contains("handle_key") && !insert.contains("length"),
+		"{insert}"
+	);
+	assert!(
+		expanded.contains("handle_key: ::core::default::Default::default()"),
+		"{expanded}"
+	);
+}
+
+#[test]
+fn generated_column_mistakes_are_explained() {
+	let error = |field: TokenStream| {
+		table_error(
+			quote!(name = "members"),
+			quote! {
+				pub struct Member {
+					pub id: Id<Self>,
+					#field
+				}
+			},
+		)
+	};
+	let cases = [
+		(
+			"default",
+			error(quote!(#[db(generated = "1", default = 1)] pub n: i32)),
+		),
+		(
+			"rule",
+			error(quote!(#[db(generated = "1", min = 0)] pub n: i32)),
+		),
+		(
+			"timestamp",
+			error(quote!(#[db(generated = "now()", created_at)] pub at: Timestamp)),
+		),
+		(
+			"link",
+			error(quote!(#[db(generated = "x")] pub owner_id: Id<User>)),
+		),
+		(
+			"key",
+			error(quote!(#[db(key, generated = "x")] pub code: String)),
+		),
+		(
+			"one dialect",
+			error(quote!(#[db(generated(postgres = "x"))] pub n: i32)),
+		),
+		(
+			"unknown dialect",
+			error(quote!(#[db(generated(mysql = "x"))] pub n: i32)),
+		),
+	];
+
+	let report: Vec<String> = cases
+		.iter()
+		.map(|(case, error)| format!("{case}: {error}"))
+		.collect();
+	insta::assert_snapshot!(report.join("\n"));
+}
+
+fn shape(input: TokenStream) -> syn::Result<TokenStream> {
+	crate::shape::expand(&syn::parse2(input).expect("the shape parses"))
+}
+
+#[test]
+fn a_shape_names_the_tables_columns_and_relations() {
+	insta::assert_snapshot!(pretty(
+		shape(quote! {
+			#[db(from = User, public)]
+			pub struct ProfileCard {
+				pub handle: String,
+				#[db(column = name)]
+				pub display_name: String,
+				#[db(count(posts), filter = |post| post.published.eq(true))]
+				pub post_count: i64,
+				#[db(via = posts, order_by = |post| post.created_at.desc(), limit = 3, offset = 1)]
+				pub latest: Vec<PostTitle>,
+				#[db(via = posts, order_by = |post| post.created_at.asc())]
+				pub first: Option<PostTitle>,
+				#[db(via = invited_by)]
+				pub inviter: Inviter,
+			}
+		})
+		.expect("the shape expands")
+	));
+}
+
+#[test]
+fn shape_mistakes_are_explained() {
+	let error = |input: TokenStream| shape(input).expect_err("the shape is rejected").to_string();
+	let too_many: Vec<TokenStream> = (0..=100)
+		.map(|index| {
+			let field = quote::format_ident!("field_{index}");
+			quote!(pub #field: i32)
+		})
+		.collect();
+	let cases = [
+		(
+			"no table",
+			error(quote!(
+				pub struct Card {
+					pub name: String,
+				}
+			)),
+		),
+		(
+			"unknown shape option",
+			error(quote!(
+				#[db(from = User, cached)]
+				pub struct Card {
+					pub name: String,
+				}
+			)),
+		),
+		(
+			"generic",
+			error(quote!(
+				#[db(from = User)]
+				pub struct Card<T> {
+					pub name: T,
+				}
+			)),
+		),
+		(
+			"enum",
+			error(quote!(
+				#[db(from = User)]
+				pub enum Card {
+					Name,
+				}
+			)),
+		),
+		(
+			"tuple",
+			error(quote!(
+				#[db(from = User)]
+				pub struct Card(String);
+			)),
+		),
+		(
+			"empty",
+			error(quote!(
+				#[db(from = User)]
+				pub struct Card {}
+			)),
+		),
+		(
+			"too many fields",
+			error(quote!(#[db(from = User)] pub struct Card { #(#too_many),* })),
+		),
+		(
+			"unknown field option",
+			error(quote!(
+				#[db(from = User)]
+				pub struct Card {
+					#[db(join = posts)]
+					pub posts: i64,
+				}
+			)),
+		),
+		(
+			"two sources",
+			error(quote!(
+				#[db(from = User)]
+				pub struct Card {
+					#[db(count(posts), via = posts)]
+					pub posts: i64,
+				}
+			)),
+		),
+		(
+			"filter on a column",
+			error(quote!(
+				#[db(from = User)]
+				pub struct Card {
+					#[db(filter = |u| u.a.eq(1))]
+					pub name: String,
+				}
+			)),
+		),
+		(
+			"order on a count",
+			error(quote!(
+				#[db(from = User)]
+				pub struct Card {
+					#[db(count(posts), order_by = |p| p.id.asc())]
+					pub posts: i64,
+				}
+			)),
+		),
+		(
+			"narrowing a required row",
+			error(quote!(
+				#[db(from = Post)]
+				pub struct Card {
+					#[db(via = author, filter = |a| a.ok.eq(true))]
+					pub author: Name,
+				}
+			)),
+		),
+		(
+			"two tables",
+			error(quote!(
+				#[db(from = User, from = Post)]
+				pub struct Card {
+					pub name: String,
+				}
+			)),
+		),
+		(
+			"two limits",
+			error(quote!(
+				#[db(from = User)]
+				pub struct Card {
+					#[db(via = posts, limit = 1, limit = 2)]
+					pub posts: Vec<Title>,
+				}
+			)),
+		),
+		(
+			"limit on an option",
+			error(quote!(
+				#[db(from = User)]
+				pub struct Card {
+					#[db(via = posts, limit = 2)]
+					pub post: Option<Title>,
+				}
+			)),
+		),
 	];
 
 	let report: Vec<String> = cases

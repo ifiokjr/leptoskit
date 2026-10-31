@@ -4349,6 +4349,7 @@ name = "leptoskit_db_client_fixture"
 version = "0.0.0"
 dependencies = [
  "leptoskit_db",
+ "serde",
 ]
 
 [[package]]

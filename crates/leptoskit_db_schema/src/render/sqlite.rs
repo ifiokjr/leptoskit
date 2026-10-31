@@ -151,7 +151,13 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 }
 
 /// Whether the step comes after `AddColumn` in plan order, where rebuilds go.
+/// Dropping a generated column shares `AddColumn`'s place, and always
+/// rebuilds its table, so it waits there too.
 fn step_phase_reaches_rebuilds(step: &Step) -> bool {
+	if matches!(step, Step::DropColumn { column, .. } if column.generated.is_some()) {
+		return false;
+	}
+
 	!matches!(
 		step,
 		Step::DropForeignKey { .. }
@@ -181,12 +187,14 @@ fn tables_to_rebuild(
 			| Step::DropForeignKey { .. }
 			| Step::AddCheck { .. }
 			| Step::DropCheck { .. } => true,
-			// `ADD COLUMN` takes only constant defaults.
+			// `ADD COLUMN` takes only constant defaults, and no stored
+			// generated column.
 			Step::AddColumn { column, .. } => {
-				matches!(
-					column.default,
-					Some(DefaultValue::Now | DefaultValue::Sql(_))
-				)
+				column.generated.is_some()
+					|| matches!(
+						column.default,
+						Some(DefaultValue::Now | DefaultValue::Sql(_))
+					)
 			}
 			// `DROP COLUMN` refuses columns in a key, foreign key, or
 			// table-level check.
@@ -207,8 +215,13 @@ fn tables_to_rebuild(
 	rebuilt
 }
 
+/// Whether `DROP COLUMN` would refuse `column`: SQLite won't drop a column
+/// in a key, foreign key, or table-level check, nor one a generated column
+/// reads, which isn't known without parsing its SQL, so any table with a
+/// generated column is rebuilt instead.
 fn is_constrained(table: &Table, column: &str) -> bool {
-	table.primary_key.iter().any(|key| key == column)
+	table.columns.iter().any(|other| other.generated.is_some())
+		|| table.primary_key.iter().any(|key| key == column)
 		|| table
 			.foreign_keys
 			.iter()
@@ -256,13 +269,14 @@ fn rebuild(table: &Table, plan: &Plan, statements: &mut Vec<String>, notes: &mut
 	let temporary = format!("{REBUILD_PREFIX}{name}");
 	statements.push(create_table_named(&temporary, table, notes));
 
-	let columns: Vec<String> = table
+	// The database computes generated columns as it copies the rows.
+	let copied: Vec<&Column> = table
 		.columns
 		.iter()
-		.map(|column| ident(&column.name))
+		.filter(|column| column.generated.is_none())
 		.collect();
-	let values: Vec<String> = table
-		.columns
+	let columns: Vec<String> = copied.iter().map(|column| ident(&column.name)).collect();
+	let values: Vec<String> = copied
 		.iter()
 		.map(|column| {
 			if added.contains(column.name.as_str()) {
@@ -446,6 +460,12 @@ fn column_definition(column: &Column) -> String {
 	if let Some(default) = &column.default {
 		definition.push_str(" DEFAULT ");
 		definition.push_str(&default_expression(default));
+	}
+
+	if let Some(sql) = column.generated_sql(Dialect::Sqlite) {
+		definition.push_str(" GENERATED ALWAYS AS (");
+		definition.push_str(sql);
+		definition.push_str(") STORED");
 	}
 
 	if let Some(check) = type_check(column) {

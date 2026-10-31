@@ -51,7 +51,7 @@ mod expr;
 mod id;
 mod json;
 #[cfg(feature = "server")]
-mod link;
+mod links;
 #[cfg(feature = "server")]
 mod migrate;
 mod mixins;
@@ -62,6 +62,8 @@ mod postgres;
 #[cfg(feature = "server")]
 mod query;
 mod scalars;
+#[cfg(feature = "server")]
+mod shape;
 #[cfg(feature = "server")]
 mod sql;
 #[cfg(feature = "sqlite")]
@@ -121,6 +123,35 @@ pub use leptoskit_db_macros::Enum;
 /// let handle = Handle::parse(" Ifiok_Jr ")?; // "ifiok_jr"
 /// ```
 pub use leptoskit_db_macros::Scalar;
+/// Says what to fetch about a row and the rows linked to it, fetched in one
+/// statement with every table's policies applied. See [`Shape`] and the
+/// guide's "Fetch linked rows in one query".
+pub use leptoskit_db_macros::Shape;
+/// Declares a table that links two others many to many. The struct holds
+/// the link's own properties; the macro adds the two ends, which together
+/// are the key, and deletes a link when either end is deleted. Write it as
+/// `db::link`: a bare `#[link]` is Rust's own attribute for native
+/// libraries.
+///
+/// ```ignore
+/// /// A tag on a post.
+/// #[db::link(name = "post_tags", from = Post as tags, to = Tag as posts)]
+/// pub struct PostTag {
+/// 	pub position: i16,
+/// 	#[db(created_at)]
+/// 	pub added_at: Timestamp,
+/// }
+///
+/// post.tags().add(&db, tag.id, PostTagProperties { position: 0 }).await?;
+/// let tags: Vec<(Tag, PostTag)> = post.tags().order_by(|link| link.position.asc()).all(&db).await?;
+/// let posts: u64 = tag.posts().count(&db).await?;
+/// ```
+///
+/// A link is a table like any other: it takes the same options as
+/// `#[db::table]` and its policies, and `exclusive` lets each `to` row be
+/// linked from one `from` row only. A table linking to itself names its
+/// columns: `from_column = "follower_id", to_column = "followed_id"`.
+pub use leptoskit_db_macros::link;
 /// Embeds the migrations in a directory, in `registry.txt` order:
 /// `static MIGRATIONS: &[Migration] = migrations!("../migrations");`. The path
 /// is relative to the crate's `Cargo.toml`, and the build fails if a
@@ -171,7 +202,13 @@ pub use leptoskit_db_macros::table;
 #[cfg(feature = "server")]
 pub use leptoskit_db_schema::Dialect;
 #[cfg(feature = "server")]
-pub use link::HasId;
+pub use links::HasId;
+#[cfg(feature = "server")]
+pub use links::Link;
+#[cfg(feature = "server")]
+pub use links::Links;
+#[cfg(feature = "server")]
+pub use links::WritableLink;
 #[cfg(feature = "server")]
 pub use migrate::MIGRATIONS_TABLE;
 #[cfg(feature = "server")]
@@ -206,6 +243,12 @@ pub use query::Update;
 pub use scalars::Email;
 pub use scalars::Slug;
 pub use scalars::Url;
+#[cfg(feature = "server")]
+pub use shape::PublicShape;
+#[cfg(feature = "server")]
+pub use shape::Shape;
+#[cfg(feature = "server")]
+pub use shape::Shaped;
 #[cfg(feature = "server")]
 pub use sql::Statement;
 #[cfg(feature = "server")]
@@ -338,8 +381,22 @@ pub mod __private {
 	/// The link lookups generated accessors call.
 	#[cfg(feature = "server")]
 	pub mod link {
-		pub use crate::link::one;
-		pub use crate::link::optional;
+		pub use crate::links::one;
+		pub use crate::links::optional;
+	}
+	/// What `#[derive(Shape)]` and the relations it follows expand to.
+	#[cfg(feature = "server")]
+	pub mod shape {
+		pub use crate::shape::Many;
+		pub use crate::shape::MaybeOne;
+		pub use crate::shape::One;
+		pub use crate::shape::Related;
+		pub use crate::shape::Relation;
+		pub use crate::shape::Selected;
+		pub use crate::shape::decode_column;
+		pub use crate::shape::decode_many;
+		pub use crate::shape::decode_one;
+		pub use crate::shape::decode_optional;
 	}
 	#[cfg(feature = "server")]
 	pub use crate::table::export_schema_if_requested;

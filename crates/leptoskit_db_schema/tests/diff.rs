@@ -548,3 +548,115 @@ fn every_scenario_schema_round_trips_through_json() {
 		}
 	}
 }
+
+#[test]
+fn a_generated_column_is_added_for_existing_rows_and_dropped_safely() {
+	let before = blog(Dialect::Postgres);
+	let after = support::with_generated(Dialect::Postgres);
+
+	// NOT NULL without a default is fine: the database computes it.
+	let added = diff(&before, &after, &mut RequireHints).unwrap();
+	assert!(added.steps.iter().any(|step| {
+		matches!(step, Step::AddColumn { column, .. } if column.name == "handle_key")
+	}));
+
+	// Dropping it loses nothing the database couldn't recompute.
+	let dropped = diff(&after, &before, &mut RequireHints).unwrap();
+	assert_eq!(dropped.destructive_steps().count(), 0);
+	assert!(dropped.steps.iter().all(|step| step.risk() == Risk::Safe));
+}
+
+#[test]
+fn changing_how_a_column_is_generated_is_refused() {
+	let before = support::with_generated(Dialect::Sqlite);
+	let message = |after: &Schema| {
+		diff(&before, after, &mut RequireHints)
+			.unwrap_err()
+			.to_string()
+	};
+
+	let mut changed = before.clone();
+	let users = table_mut(&mut changed, "users");
+	column_mut(users, "handle_key").generated = Some(Generated::new("upper(\"handle\")"));
+	assert_eq!(
+		message(&changed),
+		"users.handle_key changes how it's generated, or whether it is; add a new column under \
+		 another name and drop this one, so the migration rebuilds its indexes too"
+	);
+
+	let mut written = before.clone();
+	column_mut(table_mut(&mut written, "users"), "handle_key").generated = None;
+	assert!(message(&written).starts_with("users.handle_key changes how it's generated"));
+
+	let mut generated = before.clone();
+	column_mut(table_mut(&mut generated, "users"), "display_name").generated =
+		Some(Generated::new("\"handle\""));
+	assert!(message(&generated).starts_with("users.display_name changes"));
+
+	// Only the project's own dialect counts: a Postgres expression changing
+	// in a SQLite project changes nothing.
+	let mut other_dialect = before.clone();
+	column_mut(table_mut(&mut other_dialect, "posts"), "title_length")
+		.generated
+		.as_mut()
+		.unwrap()
+		.postgres = "length(\"title\")".into();
+	assert!(
+		diff(&before, &other_dialect, &mut RequireHints)
+			.unwrap()
+			.is_empty()
+	);
+}
+
+#[test]
+fn a_generated_column_is_never_a_key_a_link_or_a_default() {
+	let mut schema = support::with_generated(Dialect::Postgres);
+	let users_name = TableName::new("users");
+	let users = table_mut(&mut schema, "users");
+	column_mut(users, "handle_key").default = Some(DefaultValue::Text("x".into()));
+	users.primary_key = vec!["handle_key".into()];
+	users.foreign_keys.push(ForeignKey::new(
+		&users_name,
+		&["handle_key"],
+		users_name.clone(),
+		&["handle_key"],
+	));
+	column_mut(users, "display_name").generated = Some(Generated {
+		postgres: " ".into(),
+		sqlite: "x".into(),
+	});
+
+	let SchemaError::Invalid(problems) = schema.validate().unwrap_err() else {
+		panic!("the schema should be invalid");
+	};
+	let messages: Vec<String> = problems.iter().map(ToString::to_string).collect();
+	for expected in [
+		"users.handle_key: a generated column can't have a default: the database computes every \
+		 value",
+		"users: the primary key column `handle_key` can't be generated",
+		"users: foreign key `users_handle_key_fkey` is on `handle_key`, a generated column; link \
+		 from a column the app writes",
+		"users.display_name: the generated column has no expression on postgres",
+	] {
+		assert!(
+			messages.iter().any(|message| message == expected),
+			"{expected}\n{messages:#?}"
+		);
+	}
+}
+
+#[test]
+fn generated_columns_round_trip_through_snapshots() {
+	let schema = support::with_generated(Dialect::Sqlite);
+	let json = schema.to_json();
+	assert!(
+		json.contains("\"sqlite\": \"length(\\\"title\\\")\""),
+		"{json}"
+	);
+	assert_eq!(Schema::from_json(&json).unwrap(), schema);
+
+	// Snapshots written before generated columns existed still read.
+	let older = blog(Dialect::Sqlite).to_json();
+	assert!(!older.contains("generated"));
+	assert_eq!(Schema::from_json(&older).unwrap(), blog(Dialect::Sqlite));
+}

@@ -380,6 +380,64 @@ pub fn scenarios() -> Vec<Scenario> {
 			expected_rows: &[("users", 2)],
 		},
 		Scenario {
+			name: "add_generated_columns",
+			before: blog,
+			after: with_generated,
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("users", 2), ("posts", 3)],
+		},
+		Scenario {
+			name: "drop_a_column_beside_a_generated_one",
+			before: with_generated,
+			after: |dialect| {
+				let mut schema = with_generated(dialect);
+				let users = table_mut(&mut schema, "users");
+				users.columns.retain(|column| column.name != "display_name");
+				schema
+			},
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("users", 2), ("posts", 3)],
+		},
+		Scenario {
+			name: "drop_a_generated_column_and_its_input",
+			before: with_generated,
+			after: |dialect| {
+				let mut schema = with_generated(dialect);
+				let posts_name = TableName::new("posts");
+				let posts = table_mut(&mut schema, "posts");
+				posts
+					.columns
+					.retain(|column| column.name != "title" && column.name != "title_length");
+				posts.indexes = vec![Index::new(&posts_name, &["author_id"])];
+				schema
+			},
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("users", 2), ("posts", 3)],
+		},
+		Scenario {
+			name: "retype_a_column_once_nothing_is_computed_from_it",
+			before: with_generated,
+			after: |dialect| {
+				let mut schema = with_generated(dialect);
+				let users_name = TableName::new("users");
+				let users = table_mut(&mut schema, "users");
+				users.columns.retain(|column| column.name != "handle_key");
+				users.indexes = vec![Index::unique(&users_name, &["handle"])];
+				column_mut(users, "handle").ty = ColumnType::Text { max_len: Some(64) };
+				schema
+			},
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("users", 2), ("posts", 3)],
+		},
+		Scenario {
 			name: "postgres_types_namespaces_and_constraints",
 			before: |dialect| {
 				let mut schema = blog(dialect);
@@ -547,6 +605,34 @@ pub fn blog(dialect: Dialect) -> Schema {
 	);
 
 	Schema::new(dialect, vec![users, posts, tags])
+}
+
+/// [`blog`] with columns the database computes: a lowercase handle, unique,
+/// and each title's length, indexed. The same SQL works on both dialects
+/// except the length, to show the per-dialect form.
+pub fn with_generated(dialect: Dialect) -> Schema {
+	let mut schema = blog(dialect);
+	let users_name = TableName::new("users");
+	let users = table_mut(&mut schema, "users");
+	users.columns.push(
+		Column::new("handle_key", ColumnType::TEXT).generated(Generated::new("lower(\"handle\")")),
+	);
+	users
+		.indexes
+		.push(Index::unique(&users_name, &["handle_key"]));
+
+	let posts_name = TableName::new("posts");
+	let posts = table_mut(&mut schema, "posts");
+	posts.columns.push(
+		Column::new("title_length", ColumnType::Int32).generated(Generated {
+			postgres: "char_length(\"title\")".into(),
+			sqlite: "length(\"title\")".into(),
+		}),
+	);
+	posts
+		.indexes
+		.push(Index::new(&posts_name, &["title_length"]));
+	schema
 }
 
 pub fn table_mut<'a>(schema: &'a mut Schema, name: &str) -> &'a mut Table {

@@ -99,8 +99,8 @@ impl Schema {
 	///
 	/// - **Both dialects.** They validate for Postgres and SQLite alike.
 	/// - **Self-contained.** They link only to each other.
-	/// - **No raw SQL.** Raw SQL defaults and checks are written for one
-	///   dialect, so they're refused.
+	/// - **No raw SQL.** Raw SQL defaults, checks, and generated columns are
+	///   written for one dialect, so they're refused.
 	///
 	/// # Errors
 	///
@@ -116,6 +116,13 @@ impl Schema {
 						&format!("{}.{}", table.name, column.name),
 						"a pack's column can't default to raw SQL, which is written for one \
 						 dialect",
+					);
+				}
+
+				if column.generated.is_some() {
+					problems.push(
+						&format!("{}.{}", table.name, column.name),
+						"a pack's column can't be generated: its expression is raw SQL",
 					);
 				}
 			}
@@ -198,6 +205,12 @@ impl Schema {
 						format!("the primary key column `{key}` can't be nullable"),
 					);
 				}
+				Some(column) if column.generated.is_some() => {
+					problems.push(
+						&location,
+						format!("the primary key column `{key}` can't be generated"),
+					);
+				}
 				Some(_) => {}
 			}
 		}
@@ -264,6 +277,19 @@ impl Schema {
 
 		for column in &foreign_key.columns {
 			problems.column_exists(table, &location, name, column);
+
+			if table
+				.column(column)
+				.is_some_and(|column| column.generated.is_some())
+			{
+				problems.push(
+					&location,
+					format!(
+						"foreign key `{name}` is on `{column}`, a generated column; link from a \
+						 column the app writes"
+					),
+				);
+			}
 		}
 
 		if foreign_key.columns.len() != foreign_key.referenced_columns.len() {
@@ -363,6 +389,22 @@ fn validate_column(dialect: Dialect, column: &Column, location: &str, problems: 
 		&& matches!(**element, ColumnType::Array { .. })
 	{
 		problems.push(location, "arrays of arrays aren't supported");
+	}
+
+	if let Some(generated) = &column.generated {
+		if column.default.is_some() {
+			problems.push(
+				location,
+				"a generated column can't have a default: the database computes every value",
+			);
+		}
+
+		if generated.sql(dialect).trim().is_empty() {
+			problems.push(
+				location,
+				format!("the generated column has no expression on {dialect}"),
+			);
+		}
 	}
 
 	let Some(default) = &column.default else {

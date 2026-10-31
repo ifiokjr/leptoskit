@@ -1,0 +1,6 @@
+---
+source: crates/leptoskit_db/tests/shapes.rs
+assertion_line: 320
+expression: statement.sql
+---
+SELECT "lk_shape_0"."body", (SELECT json_group_array(json("lk_value") ORDER BY "lk_rank") FROM (SELECT json_array("lk_shape_1"."body", json((SELECT json_group_array(json("lk_value") ORDER BY "lk_rank") FROM (SELECT json_array("lk_shape_2"."body") AS "lk_value", row_number() OVER (ORDER BY "body" ASC, "id" ASC) AS "lk_rank" FROM "comments" AS "lk_shape_2" WHERE "lk_shape_2"."parent_id" = "lk_shape_1"."id" ORDER BY "body" ASC, "id" ASC) AS "lk_rows_3")), json((SELECT json_array("lk_shape_2"."body") FROM "comments" AS "lk_shape_2" WHERE "lk_shape_2"."id" = "lk_shape_1"."parent_id" ORDER BY "id" ASC LIMIT 1))) AS "lk_value", row_number() OVER (ORDER BY "body" ASC, "id" ASC) AS "lk_rank" FROM "comments" AS "lk_shape_1" WHERE "lk_shape_1"."parent_id" = "lk_shape_0"."id" ORDER BY "body" ASC, "id" ASC) AS "lk_rows_2") FROM "comments" AS "lk_shape_0" WHERE ("parent_id" IS NULL)

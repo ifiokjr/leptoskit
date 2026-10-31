@@ -100,14 +100,28 @@ impl Sql {
 		}
 	}
 
-	/// Opens a subquery's scope: writes `table AS alias`, so its columns
-	/// can't be mistaken for those of the same table outside it.
-	pub(crate) fn enter(&mut self, table: &TableName) -> &mut Self {
-		let alias = quote_identifier(&format!("lk_count_{}", self.scopes.len()));
-		let name = self.render_table(table);
+	/// Opens a subquery's scope: writes `table AS lk_<kind>_<depth>`, so its
+	/// columns can't be mistaken for those of the same table outside it.
+	/// Returns the alias, quoted.
+	pub(crate) fn enter(&mut self, table: &TableName, kind: &str) -> String {
+		let (name, alias) = self.open(table, kind);
 		let _ = write!(self.text, "{name} AS {alias}");
-		self.scopes.push((table.clone(), alias));
-		self
+		alias
+	}
+
+	/// Opens a scope for `table` without writing anything, for a statement
+	/// that names the scope's alias before its `FROM`. Returns the table's
+	/// rendered name and the alias, both quoted.
+	pub(crate) fn open(&mut self, table: &TableName, kind: &str) -> (String, String) {
+		let alias = quote_identifier(&format!("lk_{kind}_{}", self.scopes.len()));
+		let name = self.render_table(table);
+		self.scopes.push((table.clone(), alias.clone()));
+		(name, alias)
+	}
+
+	/// How many scopes are open: the depth the next one opens at.
+	pub(crate) fn depth(&self) -> usize {
+		self.scopes.len()
 	}
 
 	/// Closes the scope [`Sql::enter`] opened.
