@@ -310,6 +310,10 @@
 					"items": {
 						"type": "string"
 					}
+				},
+				"solana": {
+					"description": "Solana wallets, which people link to their account with a signed\nmessage. Needs `leptoskit_auth`'s `solana` feature and an `origin`.",
+					"$ref": "#/$defs/AuthSolanaConfig"
 				}
 			},
 			"additionalProperties": false
@@ -440,6 +444,24 @@
 						"string",
 						"null"
 					]
+				}
+			},
+			"additionalProperties": false
+		},
+		"AuthSolanaConfig": {
+			"description": "Solana wallets. Linking a wallet is always on with the `solana`\nfeature; signing in with one is opt-in, here and for each wallet.",
+			"type": "object",
+			"properties": {
+				"chain_id": {
+					"description": "The cluster messages name, such as `mainnet` (the default),\n`devnet`, or `testnet`.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"sign_in": {
+					"description": "Whether a wallet may sign in, once its owner turns that on for it.\nA wallet signature is one factor, so two-step verification still\napplies.",
+					"type": "boolean"
 				}
 			},
 			"additionalProperties": false

@@ -4,8 +4,9 @@ expression: contents
 ---
 //! "Security": the ways to sign in and to prove it's you. Passkeys, an
 //! authenticator app with the recovery codes that stand in for it when the
-//! phone is lost, and connected accounts such as Google, which can also
-//! bring another account's sign-in methods into this one.
+//! phone is lost, connected accounts such as Google, and Solana wallets.
+//! Connecting an account or a wallet that belongs to another account offers
+//! to merge the two, with a preview of what moves.
 //!
 //! Changing these asks the person to prove it's them again. With a passkey
 //! or an authenticator on, the screen asks for one and then tries the change
@@ -15,6 +16,9 @@ use leptoskit::auth::ErrorResponse;
 use leptoskit::auth::Factor;
 use leptoskit::auth::Identity;
 use leptoskit::auth::IdentityInfo;
+use leptoskit::auth::MergeData;
+use leptoskit::auth::MergeFate;
+use leptoskit::auth::MergeMode;
 use leptoskit::auth::MergeOffer;
 use leptoskit::auth::MfaStatus;
 use leptoskit::auth::Passkey;
@@ -25,9 +29,16 @@ use leptoskit::auth::PublicSession;
 use leptoskit::auth::RecoveryCodes;
 use leptoskit::auth::StartProvider;
 use leptoskit::auth::TotpSetup;
+use leptoskit::auth::UpdateWallet;
+use leptoskit::auth::Wallet;
+use leptoskit::auth::WalletInfo;
+use leptoskit::auth::WalletLinked;
+use leptoskit::auth::WalletSettings;
+use leptoskit::auth::client::LinkWalletInput;
 use leptoskit::auth::client::MergeInput;
 use leptoskit::auth::client::PasskeyAdded;
 use leptoskit::auth::client::TotpConfirmation;
+use leptoskit::auth::client::WalletApp;
 use leptoskit::auth::client::add_passkey;
 use leptoskit::auth::client::cancel_merge;
 use leptoskit::auth::client::confirm_totp;
@@ -35,6 +46,7 @@ use leptoskit::auth::client::disable_totp;
 use leptoskit::auth::client::enroll_totp;
 use leptoskit::auth::client::identities;
 use leptoskit::auth::client::link_provider;
+use leptoskit::auth::client::link_wallet;
 use leptoskit::auth::client::merge_accounts;
 use leptoskit::auth::client::merge_offer;
 use leptoskit::auth::client::mfa;
@@ -47,7 +59,12 @@ use leptoskit::auth::client::sign_out_mutation;
 use leptoskit::auth::client::step_up;
 use leptoskit::auth::client::step_up_with_passkey;
 use leptoskit::auth::client::unlink_identity;
+use leptoskit::auth::client::unlink_wallet;
+use leptoskit::auth::client::update_wallet;
 use leptoskit::auth::client::use_providers;
+use leptoskit::auth::client::use_wallet_settings;
+use leptoskit::auth::client::wallet_apps;
+use leptoskit::auth::client::wallets;
 use leptoskit::db::Id;
 use leptoskit::leptos::prelude::Effect;
 use leptoskit::leptos::prelude::Get;
@@ -92,6 +109,12 @@ pub enum Change {
 	Unlink(Id<Identity>),
 	/// Merging the other account in.
 	Merge,
+	/// Linking a wallet, with the wallet app named.
+	LinkWallet(String),
+	/// Letting a wallet sign in, or not.
+	WalletSignIn(Id<Wallet>, bool),
+	/// Unlinking a wallet.
+	UnlinkWallet(Id<Wallet>),
 }
 
 /// The security screen's state. It's `Copy`, so handlers capture it freely.
@@ -102,6 +125,15 @@ pub struct Security {
 	identities: QueryHandle<Vec<IdentityInfo>, ErrorResponse>,
 	providers: QueryHandle<Vec<ProviderInfo>, ErrorResponse>,
 	offer: QueryHandle<Option<MergeOffer>, ErrorResponse>,
+	wallets: QueryHandle<Vec<WalletInfo>, ErrorResponse>,
+	wallet_settings: QueryHandle<WalletSettings, ErrorResponse>,
+	wallet_apps: QueryHandle<Vec<WalletApp>, ErrorResponse>,
+	link_wallet: MutationHandle<LinkWalletInput, WalletLinked, ErrorResponse>,
+	update_wallet: MutationHandle<UpdateWallet, WalletInfo, ErrorResponse>,
+	unlink_wallet: MutationHandle<Id<Wallet>, (), ErrorResponse>,
+	/// What a merge does with the other account's data: the person's
+	/// choice, or the offer's first mode.
+	mode: RwSignal<Option<MergeMode>>,
 	enroll: MutationHandle<(), TotpSetup, ErrorResponse>,
 	confirm: MutationHandle<String, TotpConfirmation, ErrorResponse>,
 	disable: MutationHandle<(), (), ErrorResponse>,
@@ -171,6 +203,21 @@ impl Security {
 				|| (),
 				QueryObserverOptions::default().with_enabled(enabled.clone()),
 			),
+			wallets: use_query_with(
+				wallets(),
+				|| (),
+				QueryObserverOptions::default().with_enabled(enabled.clone()),
+			),
+			wallet_settings: use_wallet_settings(),
+			wallet_apps: use_query_with(
+				wallet_apps(),
+				|| (),
+				QueryObserverOptions::default().with_enabled(enabled.clone()),
+			),
+			link_wallet: use_mutation(link_wallet()),
+			update_wallet: use_mutation(update_wallet()),
+			unlink_wallet: use_mutation(unlink_wallet()),
+			mode: RwSignal::new(None),
 			enroll: use_mutation(enroll_totp()),
 			confirm: use_mutation(confirm_totp()),
 			disable: use_mutation(disable_totp()),
@@ -252,6 +299,7 @@ impl Security {
 			.child(Heading(2, "Authenticator app").class("text-lg font-semibold"))
 			.child(authenticator)
 			.child(self.connected_accounts())
+			.child(self.wallets())
 			.children(
 				self.problem
 					.get()
@@ -480,7 +528,9 @@ impl Security {
 		section
 	}
 
-	/// Connecting a provider found another account: merge it in?
+	/// Connecting a provider or a wallet found another account: merge it
+	/// in? The preview says what moves, and, when the app allows it, the
+	/// person chooses whether its data comes too.
 	fn merge_offer(&self, offer: &MergeOffer) -> Element {
 		let this = *self;
 		let code = self.code;
@@ -488,31 +538,71 @@ impl Security {
 		let needs_code = offer.second_factor.contains(&Factor::Totp)
 			|| offer.second_factor.contains(&Factor::RecoveryCode);
 		let needs_passkey = offer.second_factor.contains(&Factor::Passkey);
+		let mode = self.merge_mode(offer);
 		let mut moves = offer.emails.clone();
 		moves.extend(offer.identities.iter().cloned());
+		moves.extend(offer.wallets.iter().map(|wallet| short(wallet.as_str())));
 
 		if offer.passkeys > 0 {
-			moves.push(format!(
-				"{} passkey{}",
-				offer.passkeys,
-				if offer.passkeys == 1 { "" } else { "s" }
-			));
+			moves.push(count(u64::from(offer.passkeys), "passkey"));
+		}
+
+		let title = if offer.provider == "solana" {
+			"That wallet already has its own account"
+		} else {
+			"That login already has its own account"
+		};
+		let mut choices = View().class("gap-2");
+
+		for choice in offer.modes.iter().copied() {
+			let (label, detail) = match choice {
+				MergeMode::BringData => {
+					(
+						"Bring its data here, then delete it",
+						data_preview(&offer.data),
+					)
+				}
+				MergeMode::MoveLogin => {
+					(
+						"Move only the sign-in methods, and delete its data",
+						"Its data is deleted with it.".to_owned(),
+					)
+				}
+			};
+			let chosen = choice == mode;
+			choices = choices.child(
+				Button(if chosen {
+					format!("● {label}")
+				} else {
+					format!("○ {label}")
+				})
+				.aria_description(detail.clone())
+				.on_press(move || this.mode.set(Some(choice)))
+				.class(if chosen {
+					"rounded-lg bg-indigo-500 px-4 py-3 font-semibold"
+				} else {
+					"rounded-lg bg-slate-700 px-4 py-3 font-semibold"
+				}),
+			);
+
+			if chosen {
+				choices = choices.child(Text(detail).class("text-sm text-slate-300"));
+			}
 		}
 
 		View()
 			.class("gap-3 rounded-lg bg-slate-800 p-4")
-			.child(
-				Heading(2, "That login already has its own account").class("text-lg font-semibold"),
-			)
+			.child(Heading(2, title).class("text-lg font-semibold"))
 			.child(
 				Text(format!(
-					"It was created on {}. Merging moves its sign-in methods here ({}) and \
-					 deletes its data. This can't be undone.",
+					"It was created on {}. Merging moves its sign-in methods here ({}). This \
+					 can't be undone.",
 					day(offer.created_at),
 					moves.join(", ")
 				))
 				.class("text-sm text-slate-300"),
 			)
+			.child(choices)
 			.children(needs_code.then(|| {
 				TextInput()
 					.id("security-merge-code")
@@ -556,6 +646,150 @@ impl Security {
 						.class("flex-1 rounded-lg bg-rose-600 px-4 py-3 font-semibold"),
 					),
 			)
+	}
+
+	/// The mode the person chose, or the offer's first, which brings the
+	/// data along when the app allows it.
+	fn merge_mode(&self, offer: &MergeOffer) -> MergeMode {
+		self.mode
+			.get()
+			.filter(|mode| offer.modes.contains(mode))
+			.or_else(|| offer.modes.first().copied())
+			.unwrap_or(MergeMode::MoveLogin)
+	}
+
+	/// Linked wallets, and linking one.
+	fn wallets(&self) -> Element {
+		let this = *self;
+		let Some(settings) = self
+			.wallet_settings
+			.data()
+			.filter(|settings| settings.enabled)
+		else {
+			return View();
+		};
+		let linked = self.wallets.data().unwrap_or_default();
+		let busy = self.link_wallet.is_pending()
+			|| self.update_wallet.is_pending()
+			|| self.unlink_wallet.is_pending();
+		let mut section = View()
+			.class("gap-3")
+			.child(Heading(2, "Wallets").class("text-lg font-semibold"))
+			.child(
+				Text(
+					"Link a Solana wallet to show it's yours. Your wallet asks you to sign a \
+					 message for this site; nothing is sent on-chain. Linked wallets are private \
+					 unless you show them.",
+				)
+				.class("text-sm text-slate-300"),
+			);
+
+		for wallet in &linked {
+			let id = wallet.id;
+			let name = wallet
+				.label
+				.clone()
+				.unwrap_or_else(|| short(wallet.address.as_str()));
+			let shown = wallet.is_public;
+			let mut details = vec![short(wallet.address.as_str())];
+			details.push(if shown { "Public" } else { "Private" }.to_owned());
+
+			if wallet.can_sign_in {
+				details.push("Can sign in".to_owned());
+			}
+
+			let mut row = View()
+				.class("flex-row items-center gap-3 rounded-lg bg-slate-800 p-3")
+				.child(
+					View()
+						.class("flex-1 gap-1")
+						.child(Text(name.clone()).class("font-semibold"))
+						.child(Text(details.join(" · ")).class("text-xs text-slate-400")),
+				)
+				.child(
+					Button(if shown { "Hide" } else { "Show" })
+						.enabled(!busy)
+						.aria_label(format!(
+							"{} {name} on your profile",
+							if shown { "Hide" } else { "Show" }
+						))
+						.on_press(move || {
+							this.update_wallet.mutate(UpdateWallet {
+								id,
+								label: None,
+								can_sign_in: None,
+								is_public: Some(!shown),
+							});
+						})
+						.class("rounded-lg bg-slate-700 px-3 py-2 text-sm font-semibold"),
+				);
+
+			if settings.sign_in {
+				let signs_in = wallet.can_sign_in;
+				row = row.child(
+					Button(if signs_in {
+						"Stop signing in"
+					} else {
+						"Sign in with it"
+					})
+					.enabled(!busy)
+					.aria_label(format!(
+						"{} with {name}",
+						if signs_in {
+							"Stop signing in"
+						} else {
+							"Allow signing in"
+						}
+					))
+					.on_press(move || this.run(Change::WalletSignIn(id, !signs_in)))
+					.class("rounded-lg bg-slate-700 px-3 py-2 text-sm font-semibold"),
+				);
+			}
+
+			section = section.child(
+				row.child(
+					Button("Unlink")
+						.enabled(!busy)
+						.aria_label(format!("Unlink {name}"))
+						.on_press(move || this.run(Change::UnlinkWallet(id)))
+						.class("rounded-lg bg-slate-700 px-3 py-2 text-sm font-semibold"),
+				),
+			);
+		}
+
+		match (self.wallet_apps.data(), self.wallet_apps.error()) {
+			(Some(apps), _) if apps.is_empty() => {
+				section.child(
+					Text("Install a Solana wallet, such as Phantom or Solflare, to link one here.")
+						.class("text-sm text-slate-400"),
+				)
+			}
+			(Some(apps), _) => {
+				for app in apps {
+					let name = app.name.clone();
+					section = section.child(
+						Button(if self.link_wallet.is_pending() {
+							"Waiting for your wallet…".to_owned()
+						} else {
+							format!("Link a wallet with {}", app.name)
+						})
+						.enabled(!busy)
+						.aria_busy(self.link_wallet.is_pending())
+						.on_press(move || this.run(Change::LinkWallet(name.clone())))
+						.class("rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
+					);
+				}
+
+				section
+			}
+			(None, Some(_)) => {
+				section.child(
+					Text("Linking a wallet works in the browser for now.")
+						.class("text-sm text-slate-400"),
+				)
+			}
+			(None, None) => section,
+		}
 	}
 
 	/// New recovery codes, shown once.
@@ -731,6 +965,44 @@ impl Security {
 				);
 			}
 			Change::Merge => self.merge_with(false),
+			Change::LinkWallet(wallet) => {
+				self.link_wallet.mutate_with(
+					LinkWalletInput {
+						wallet,
+						label: None,
+					},
+					MutateCallbacks::new()
+						.on_success(
+							move |args: SuccessArgs<WalletLinked, LinkWalletInput, ()>| {
+								this.notice.set(match args.data {
+									WalletLinked::Linked(_) => Some("It's linked.".to_owned()),
+									WalletLinked::AlreadyLinked(_) => {
+										Some("That wallet was already linked.".to_owned())
+									}
+									WalletLinked::Merge => None,
+								});
+							},
+						)
+						.on_error(move |args| failed(&args.error)),
+				);
+			}
+			Change::WalletSignIn(id, on) => {
+				self.update_wallet.mutate_with(
+					UpdateWallet {
+						id,
+						label: None,
+						can_sign_in: Some(on),
+						is_public: None,
+					},
+					MutateCallbacks::new().on_error(move |args| failed(&args.error)),
+				);
+			}
+			Change::UnlinkWallet(id) => {
+				self.unlink_wallet.mutate_with(
+					id,
+					MutateCallbacks::new().on_error(move |args| failed(&args.error)),
+				);
+			}
 		}
 	}
 
@@ -740,9 +1012,14 @@ impl Security {
 		let this = *self;
 		let code = self.code.get_untracked().trim().to_owned();
 		self.problem.set(None);
+		let mode = self
+			.offer
+			.data()
+			.flatten()
+			.map(|offer| self.merge_mode(&offer));
 		self.merge.mutate_with(
 			MergeInput {
-				mode: None,
+				mode,
 				confirm: true,
 				code: (!code.is_empty()).then_some(code),
 				passkey,
@@ -861,9 +1138,73 @@ impl Security {
 						.into(),
 				));
 			}
+			"cancelled" => {
+				self.problem.set(Some("Nothing was signed or used.".into()));
+			}
+			"wallet_in_use" => {
+				self.problem.set(Some(
+					"That wallet is linked to another account. Sign in to it and unlink the \
+					 wallet, or let it sign in there to merge the two."
+						.into(),
+				));
+			}
+			"merge_conflict" => {
+				self.problem.set(Some(
+					"The other account's data couldn't move here, so nothing changed. Try moving \
+					 only its sign-in methods."
+						.into(),
+				));
+			}
 			_ => self.problem.set(Some(passkey_problem(error))),
 		}
 	}
+}
+
+/// An address shortened for people, such as `9WzD…AWWM`.
+pub fn short(address: &str) -> String {
+	let characters: Vec<char> = address.chars().collect();
+
+	if characters.len() <= 10 {
+		return address.to_owned();
+	}
+
+	let start: String = characters[..4].iter().collect();
+	let end: String = characters[characters.len() - 4..].iter().collect();
+	format!("{start}…{end}")
+}
+
+/// "12 posts", or "1 post".
+pub fn count(count: u64, thing: &str) -> String {
+	if count == 1 {
+		format!("1 {thing}")
+	} else {
+		format!("{count} {thing}s")
+	}
+}
+
+/// What "bring its data" does, in words: "Moves 12 posts. Keeps the newer
+/// of the two prefs. Drops 1 draft, since you have your own."
+pub fn data_preview(data: &[MergeData]) -> String {
+	if data.is_empty() {
+		return "It has no data here to bring.".to_owned();
+	}
+
+	data.iter()
+		.map(|item| {
+			let what = format!("{} {}", item.count, item.label);
+
+			match item.fate {
+				MergeFate::Moves => format!("Moves {what}."),
+				MergeFate::MovesUnlessDuplicate => {
+					format!("Moves {what}, except what you already have.")
+				}
+				MergeFate::NewestStays => format!("Keeps the newer of the two {}.", item.label),
+				MergeFate::Dropped => format!("Drops {what}, since yours stay."),
+				MergeFate::AppDecides => format!("Combines {what} with yours."),
+			}
+		})
+		.collect::<Vec<_>>()
+		.join(" ")
 }
 
 /// The setup link as a QR code, black on white, which every platform
@@ -894,6 +1235,36 @@ pub fn group(key: &str) -> String {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn wallets_and_merges_read_as_words() {
+		assert_eq!(
+			short("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"),
+			"9WzD…AWWM"
+		);
+		assert_eq!(short("short"), "short");
+		assert_eq!(count(1, "passkey"), "1 passkey");
+		assert_eq!(count(3, "passkey"), "3 passkeys");
+		assert_eq!(data_preview(&[]), "It has no data here to bring.");
+		let item = |label: &str, count: u64, fate: MergeFate| {
+			MergeData {
+				label: label.into(),
+				count,
+				fate,
+			}
+		};
+		assert_eq!(
+			data_preview(&[
+				item("posts", 12, MergeFate::Moves),
+				item("follows", 2, MergeFate::MovesUnlessDuplicate),
+				item("prefs", 1, MergeFate::NewestStays),
+				item("drafts", 1, MergeFate::Dropped),
+				item("balances", 1, MergeFate::AppDecides),
+			]),
+			"Moves 12 posts. Moves 2 follows, except what you already have. Keeps the newer of \
+			 the two prefs. Drops 1 drafts, since yours stay. Combines 1 balances with yours."
+		);
+	}
 
 	#[test]
 	fn keys_are_grouped_in_fours() {

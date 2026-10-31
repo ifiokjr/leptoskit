@@ -45,6 +45,7 @@
 )]
 
 mod diff;
+mod merge;
 mod model;
 mod render;
 mod validate;
@@ -53,6 +54,7 @@ use sha2::Digest;
 use sha2::Sha256;
 
 pub use crate::diff::*;
+pub use crate::merge::*;
 pub use crate::model::*;
 pub use crate::render::*;
 pub use crate::validate::Problem;

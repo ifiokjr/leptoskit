@@ -72,6 +72,7 @@ impl fmt::Display for FieldError {
 					"`{field}` must be a valid shape: rings closed and not crossing themselves"
 				)
 			}
+			Rule::Format(expected) => write!(f, "`{field}` must be {expected}"),
 		}
 	}
 }
@@ -106,6 +107,9 @@ pub enum Rule {
 	Coordinates(String),
 	/// A valid shape, as OGC defines it.
 	ValidGeometry,
+	/// Being what this describes, such as "a Solana address: 32 bytes in
+	/// base58", which a scalar's own check decided.
+	Format(String),
 }
 
 /// The checks generated `validate()` methods call. Optional values are only
@@ -228,6 +232,14 @@ pub mod rules {
 				field,
 				Rule::OneOf(allowed.iter().map(ToString::to_string).collect()),
 			);
+		}
+	}
+
+	/// Records what a scalar's own check (`validate_with`) said the value
+	/// must be.
+	pub fn format(errors: &mut ValidationErrors, field: &str, result: Result<(), &'static str>) {
+		if let Err(expected) = result {
+			errors.push(field, Rule::Format(expected.to_string()));
 		}
 	}
 

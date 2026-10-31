@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_db_macros/src/tests.rs
+assertion_line: 737
 expression: "report.join(\"\\n\")"
 ---
 unit: a scalar wraps one value: `struct Handle(String);`
@@ -15,4 +16,4 @@ bad regex: `regex` isn't a valid regular expression: regex parse error:
     (
     ^
 error: unclosed group
-unknown option: unknown scalar option; expected `min_len`, `max_len`, `min`, `max`, `regex`, `normalize`, or `crate`
+unknown option: unknown scalar option; expected `min_len`, `max_len`, `min`, `max`, `regex`, `normalize`, `validate_with`, or `crate`

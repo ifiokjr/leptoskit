@@ -52,8 +52,10 @@ pub enum DbCommand {
 		#[command(subcommand)]
 		command: MigrationCommand,
 	},
-	/// Fails when the tables changed without a migration, or the migrations
-	/// directory is inconsistent. For CI.
+	/// Fails when the tables changed without a migration, the migrations
+	/// directory is inconsistent, or, with sign-in, a table that holds an
+	/// account's data doesn't say how its rows move when accounts merge.
+	/// For CI.
 	Check,
 	/// Shows the migrations, whether the tables changed since the latest, and,
 	/// when the database URL is set, which ones the database still needs.
@@ -209,6 +211,11 @@ pub fn run(command: DbCommand) -> Result<()> {
 				"the tables match {}",
 				history.latest_name().unwrap_or("an empty database")
 			);
+
+			if let Some(summary) = check_account_merges(&target)? {
+				println!("{summary}");
+			}
+
 			Ok(())
 		}
 		DbCommand::Status { url } => status(&project, url),
@@ -789,6 +796,45 @@ pub(crate) fn check(history: &History, target: &Schema) -> Result<()> {
 		history.latest_name().unwrap_or("the start"),
 		invoked_name()
 	)
+}
+
+/// The table sign-in keeps accounts in.
+fn accounts_table() -> TableName {
+	TableName::namespaced("auth", "accounts")
+}
+
+/// With sign-in's tables, fails when a table that holds an account's data
+/// can't take part in merging two accounts as declared, such as a unique
+/// reference without `on_account_merge`. Otherwise says how many tables
+/// follow the account, or `None` without sign-in.
+pub(crate) fn check_account_merges(target: &Schema) -> Result<Option<String>> {
+	let accounts = accounts_table();
+
+	if target.table(&accounts).is_none() {
+		return Ok(None);
+	}
+
+	let data = leptoskit_db_schema::account_data(target, &accounts);
+
+	if !data.is_covered() {
+		let problems: Vec<String> = data
+			.problems
+			.iter()
+			.map(|problem| format!("  {problem}"))
+			.collect();
+		bail!(
+			"merging accounts can't bring their data along until every table says how:
+{}",
+			problems.join("\n")
+		);
+	}
+
+	Ok(Some(format!(
+		"merging accounts brings their data along: {} table(s) keyed by the account, {} \
+		 reference(s) to it",
+		data.keyed.len(),
+		data.references.len()
+	)))
 }
 
 fn status(project: &Project, url: Option<String>) -> Result<()> {

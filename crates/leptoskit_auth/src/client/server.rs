@@ -11,12 +11,15 @@ use leptoskit_db::Id;
 
 use super::Api;
 use super::EmailCode;
+use super::LinkWalletInput;
 use super::MergeInput;
 use super::PasskeyAdded;
 use super::PasskeyMode;
 use super::Pending;
+use super::ProveWalletInput;
 use super::SignInStep;
 use super::TotpConfirmation;
+use super::WalletApp;
 use super::protocol::error;
 use crate::Device;
 use crate::Identity;
@@ -33,6 +36,11 @@ use crate::RenamePasskey;
 use crate::Session;
 use crate::StartProvider;
 use crate::TotpSetup;
+use crate::UpdateWallet;
+use crate::Wallet;
+use crate::WalletInfo;
+use crate::WalletLinked;
+use crate::WalletSettings;
 
 /// The request's own session, in process.
 pub(crate) struct Server;
@@ -170,6 +178,38 @@ impl Api for Server {
 	fn cancel_merge(&self) -> Pending<'_, ()> {
 		in_the_browser()
 	}
+
+	fn wallet_settings(&self) -> Pending<'_, WalletSettings> {
+		Box::pin(reads::wallet_settings())
+	}
+
+	fn wallet_apps(&self) -> Pending<'_, Vec<WalletApp>> {
+		in_the_browser()
+	}
+
+	fn wallets(&self) -> Pending<'_, Vec<WalletInfo>> {
+		Box::pin(reads::wallets())
+	}
+
+	fn link_wallet(&self, _input: LinkWalletInput) -> Pending<'_, WalletLinked> {
+		in_the_browser()
+	}
+
+	fn prove_wallet(&self, _input: ProveWalletInput) -> Pending<'_, WalletInfo> {
+		in_the_browser()
+	}
+
+	fn update_wallet(&self, _input: UpdateWallet) -> Pending<'_, WalletInfo> {
+		in_the_browser()
+	}
+
+	fn unlink_wallet(&self, _id: Id<Wallet>) -> Pending<'_, ()> {
+		in_the_browser()
+	}
+
+	fn wallet_sign_in(&self, _wallet: String) -> Pending<'_, SignInStep> {
+		in_the_browser()
+	}
 }
 
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -231,6 +271,18 @@ mod reads {
 		Ok(auth.merge_offer(&me).await?)
 	}
 
+	#[allow(clippy::unused_async, reason = "the reads share a shape")]
+	pub(super) async fn wallet_settings() -> Result<crate::WalletSettings, ErrorResponse> {
+		let auth: Auth = crate::guards::extension()?;
+		Ok(auth.wallet_settings())
+	}
+
+	pub(super) async fn wallets() -> Result<Vec<crate::WalletInfo>, ErrorResponse> {
+		let me = crate::require_signed_in()?;
+		let auth: Auth = crate::guards::extension()?;
+		Ok(auth.wallets(me.account).await?)
+	}
+
 	/// The signed-in person, including a session that may only set up a
 	/// second factor, as the routes that do that accept it.
 	fn enrolling() -> Result<crate::SignedIn, ErrorResponse> {
@@ -287,6 +339,14 @@ mod reads {
 	}
 
 	pub(super) async fn merge_offer() -> Result<Option<crate::MergeOffer>, ErrorResponse> {
+		Err(no_database())
+	}
+
+	pub(super) async fn wallet_settings() -> Result<crate::WalletSettings, ErrorResponse> {
+		Err(no_database())
+	}
+
+	pub(super) async fn wallets() -> Result<Vec<crate::WalletInfo>, ErrorResponse> {
 		Err(no_database())
 	}
 }
