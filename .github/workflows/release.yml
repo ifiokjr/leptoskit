@@ -262,8 +262,11 @@ jobs:
             cargo metadata --locked --no-deps --format-version 1 --manifest-path "$manifest" >/dev/null
           done
 
-          # The release step formats what it writes; prove the whole prepared tree is still clean.
-          dprint check
+          # The release step formats what it writes; prove those files stayed clean. `--dirty`
+          # limits the check to release output: this job installs dprint and its JSON, Markdown,
+          # and TOML plugins, but not the shell, nix, and SQL formatters that a whole-tree check
+          # would also invoke.
+          dprint check --dirty
 
           # Catch whitespace errors in the generated manifests and changelogs.
           git diff --check
