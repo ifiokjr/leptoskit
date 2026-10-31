@@ -256,6 +256,7 @@ jobs:
           for manifest in \
             Cargo.toml \
             examples/file_routes/Cargo.toml \
+            examples/commonplace/Cargo.toml \
             benchmarks/arena/apps/leptoskit/Cargo.toml \
             crates/leptoskit_cli/tests/fixtures/app-service/Cargo.toml
           do
