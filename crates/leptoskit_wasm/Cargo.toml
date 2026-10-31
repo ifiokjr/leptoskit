@@ -20,7 +20,7 @@ leptoskit_yoga = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-wasmi = { workspace = true, features = ["portable-dispatch"] }
+wasmi = { workspace = true }
 wasmi_core = { workspace = true }
 
 [dev-dependencies]

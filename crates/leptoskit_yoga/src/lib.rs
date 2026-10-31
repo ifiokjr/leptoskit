@@ -130,6 +130,39 @@ fn default_style() -> Arc<Style> {
 	Arc::clone(&DEFAULT)
 }
 
+/// A node's recent measurements, by the space each was offered.
+///
+/// One layout pass asks a label for its size under several constraints, its
+/// max-content width for a flex basis and then its final width, so a cache
+/// of the last answer alone missed on every call: creating 1,000 cards
+/// measured each of their 2,000 labels four times.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct MeasureCache {
+	entries: [Option<(Size<AvailableSpace>, Size<f32>)>; Self::ENTRIES],
+	next: usize,
+}
+
+impl MeasureCache {
+	const ENTRIES: usize = 4;
+
+	fn get(&self, available: Size<AvailableSpace>) -> Option<Size<f32>> {
+		self.entries
+			.iter()
+			.flatten()
+			.find(|(input, _)| *input == available)
+			.map(|(_, output)| *output)
+	}
+
+	fn insert(&mut self, available: Size<AvailableSpace>, output: Size<f32>) {
+		self.entries[self.next] = Some((available, output));
+		self.next = (self.next + 1) % Self::ENTRIES;
+	}
+
+	fn clear(&mut self) {
+		*self = Self::default();
+	}
+}
+
 pub(crate) struct Node {
 	/// Shared so a layout pass can hold a node's style while it mutates the
 	/// tree, without copying it: layout reads every style on every pass.
@@ -138,7 +171,7 @@ pub(crate) struct Node {
 	pub(crate) parent: Option<NodeId>,
 	pub(crate) children: Vec<NodeId>,
 	pub(crate) measure: Option<MeasureFunc>,
-	pub(crate) measure_cache: Option<(Size<AvailableSpace>, Size<f32>)>,
+	pub(crate) measure_cache: MeasureCache,
 	pub(crate) layout_cache: LayoutCache,
 	pub(crate) dirty: bool,
 }
@@ -151,7 +184,7 @@ impl Node {
 			parent: None,
 			children: Vec::new(),
 			measure: None,
-			measure_cache: None,
+			measure_cache: MeasureCache::default(),
 			layout_cache: LayoutCache::default(),
 			dirty: true,
 		}
@@ -366,7 +399,7 @@ impl Yoga {
 	/// Attaches an intrinsic-content measurement function.
 	pub fn set_measure_func(&mut self, node: NodeId, measure: Option<MeasureFunc>) {
 		self.nodes[node.0].measure = measure;
-		self.nodes[node.0].measure_cache = None;
+		self.nodes[node.0].measure_cache.clear();
 		self.mark_dirty(node);
 	}
 
@@ -455,7 +488,7 @@ impl Yoga {
 			let boundary = (id != node).then(|| self.relayout_boundary(id)).flatten();
 			let entry = &mut self.nodes[id.0];
 			entry.dirty = true;
-			entry.measure_cache = None;
+			entry.measure_cache.clear();
 			entry.layout_cache.clear();
 			if let Some(ctx) = boundary {
 				self.pending.push((id, ctx));
@@ -565,11 +598,7 @@ impl Yoga {
 
 	/// Runs the node's measurement function through the cache.
 	pub(crate) fn measure(&mut self, node: NodeId, available: Size<AvailableSpace>) -> Size<f32> {
-		let cached = self.nodes[node.0]
-			.measure_cache
-			.filter(|(input, _)| *input == available)
-			.map(|(_, output)| output);
-		if let Some(size) = cached {
+		if let Some(size) = self.nodes[node.0].measure_cache.get(available) {
 			return size;
 		}
 		let measure = self.nodes[node.0]
@@ -578,7 +607,7 @@ impl Yoga {
 			.expect("measure called on a node without a measure function");
 		let output = measure(available);
 		let output = Size::new(output.width.max(0.0), output.height.max(0.0));
-		self.nodes[node.0].measure_cache = Some((available, output));
+		self.nodes[node.0].measure_cache.insert(available, output);
 		output
 	}
 

@@ -31,6 +31,15 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
     private var widgets: [Int: UIView] = [:]
     /// Requested corner radii, fitted to each frame as layout changes it.
     private var radii: [Int: CGFloat] = [:]
+    /// How many children the renderer has inserted into each widget. Reading
+    /// `UIView.subviews` copies the whole array, so counting through it made
+    /// inserting n children cost n copies of a growing list: over 200 ms for
+    /// 1,000 cards.
+    private var childCounts: [Int: Int] = [:]
+    /// Deleted containers and labels, kept for the next screen to reuse, as
+    /// React Native's Fabric does: creating a `UILabel` costs far more than
+    /// restyling one, and `WidgetStyle.apply` sets every property it owns.
+    private var recycled = RecycledViews()
     private var applying = false
     private var readinessScheduled = false
     private var readinessDelivered = false
@@ -52,6 +61,8 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         for widget in widgets.values { (widget as? UIImageView)?.image = nil }
         widgets.removeAll()
         radii.removeAll()
+        childCounts.removeAll()
+        recycled = RecycledViews()
     }
 
     func riveVisible(_ node: Int) -> Bool {
@@ -134,11 +145,8 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
     private func create(_ item: Change.Widget) throws {
         let widget: UIView
         switch item.kind {
-        case "view", "View": widget = UIView()
-        case "text", "text_run", "Text", "TextRun":
-            let label = UILabel()
-            label.numberOfLines = 0
-            widget = label
+        case "view", "View": widget = recycled.views.popLast() ?? UIView()
+        case "text", "text_run", "Text", "TextRun": widget = makeLabel()
         case "button", "Button": widget = makeButton(item.id)
         case "pressable", "Pressable": widget = makePressable(item.id)
         case "text_input", "TextInput": widget = makeTextField(item.id)
@@ -157,6 +165,15 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         widgets[item.id] = widget
         radii[item.id] = item.props.cornerRadius
         try WidgetStyle.apply(item.props, to: widget)
+    }
+
+    private func makeLabel() -> UILabel {
+        if let label = recycled.labels.popLast() { return label }
+
+        let label = UILabel()
+        label.numberOfLines = 0
+
+        return label
     }
 
     /// Press in and out follow the events on which UIKit sets and clears the
@@ -214,17 +231,35 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
     private func applyTree(_ change: Change) {
         if let edge = change.insertChild, let parent = widgets[edge.parent],
            let child = widgets[edge.child] {
-            child.removeFromSuperview()
-            parent.insertSubview(
-                child, at: min(edge.index ?? parent.subviews.count, parent.subviews.count))
+            detach(child)
+            let count = childCounts[edge.parent, default: 0]
+            parent.insertSubview(child, at: min(edge.index ?? count, count))
+            childCounts[edge.parent] = count + 1
         }
 
-        if let edge = change.removeChild { widgets[edge.child]?.removeFromSuperview() }
+        if let edge = change.removeChild, let child = widgets[edge.child] { detach(child) }
 
         if let item = change.delete {
             radii[item.id] = nil
-            widgets.removeValue(forKey: item.id)?.removeFromSuperview()
+            // A view still holding children cannot be handed out again.
+            let empty = childCounts.removeValue(forKey: item.id) ?? 0 == 0
+
+            if let widget = widgets.removeValue(forKey: item.id) {
+                detach(widget)
+                if empty { recycled.keep(widget) }
+            }
         }
+    }
+
+    /// Removes a widget from its parent, keeping the parent's child count.
+    private func detach(_ child: UIView) {
+        guard let parent = child.superview else { return }
+
+        if widgets[parent.tag] === parent, let count = childCounts[parent.tag] {
+            childCounts[parent.tag] = count - 1
+        }
+
+        child.removeFromSuperview()
     }
 
     private func event(_ node: Int, _ kind: UInt32, _ text: String = "") {
@@ -270,5 +305,25 @@ final class VectorView: UIView {
 
     private func paint() {
         shapes.paint(drawing, in: layer)
+    }
+}
+
+/// Plain containers and labels waiting to be reused, by exact class so a
+/// subclass with its own behaviour is never handed out as a plain view.
+struct RecycledViews {
+    /// Enough for a screen of a few thousand views; beyond it, views go.
+    private static let limit = 4096
+    var views: [UIView] = []
+    var labels: [UILabel] = []
+
+    @MainActor
+    mutating func keep(_ widget: UIView) {
+        if type(of: widget) == UILabel.self, labels.count < Self.limit, let label = widget as? UILabel {
+            label.frame = .zero
+            labels.append(label)
+        } else if type(of: widget) == UIView.self, views.count < Self.limit {
+            widget.frame = .zero
+            views.append(widget)
+        }
     }
 }

@@ -30,6 +30,7 @@ use leptoskit_yoga::NodeId;
 use crate::Buffer;
 use crate::NativeRequest;
 
+mod binary;
 mod render;
 #[cfg(not(target_arch = "wasm32"))]
 mod rive;
@@ -166,6 +167,9 @@ pub struct App {
 	error: String,
 	started: bool,
 	render_failed: bool,
+	/// The root the last transaction named, so an unchanged one needs no
+	/// transaction of its own.
+	rendered_root: Option<usize>,
 	#[cfg(feature = "async-host")]
 	async_host: AsyncHost,
 }
@@ -199,6 +203,7 @@ impl App {
 			error: String::new(),
 			started: false,
 			render_failed: false,
+			rendered_root: None,
 			#[cfg(feature = "async-host")]
 			async_host: AsyncHost::default(),
 		})
@@ -917,6 +922,34 @@ pub unsafe extern "C" fn lk_app_frame(app: *mut App, timestamp_ns: u64, period_n
 }
 
 /// Drains render transactions. Release the returned buffer once.
+/// Whether [`lk_app_render`] has anything to send: committed changes, a new
+/// root, or a render failure to report. 1 yes, 0 no, negative on failure.
+///
+/// A host pumps after every plugin reply and display frame, and most pumps
+/// change nothing on screen; checking first spares encoding, decoding and
+/// applying an empty transaction each time, which in the arena's echo was
+/// eleven thousand of them.
+///
+/// # Safety
+/// `app` is exclusively borrowed on its owning thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_app_render_pending(app: *mut App) -> i32 {
+	// SAFETY: The embedding host owns the app.
+	let Some(app) = (unsafe { app.as_mut() }) else {
+		return -1;
+	};
+
+	if app.render_failed || app.host_mut().render_error().is_some() {
+		return 1;
+	}
+
+	let rendered_root = app.rendered_root;
+	let surface = app.host_mut().surface();
+	i32::from(
+		!surface.backend().log().is_empty() || surface.root().map(NodeId::index) != rendered_root,
+	)
+}
+
 /// The v1 JSON rendering protocol is separate from binary plugin payloads.
 /// Drain regularly: undrained mutation batches are limited to 32 MiB.
 /// Serialization is limited to 64 MiB; exceeding either limit returns `null`,
@@ -931,43 +964,79 @@ pub unsafe extern "C" fn lk_app_render(app: *mut App) -> Buffer {
 		return Buffer::new("null".into());
 	};
 
-	if app.render_failed {
-		return Buffer::new("null".into());
-	}
+	app.render(|root, mutations| {
+		render::serialize(root, mutations).map_err(|error| error.to_string())
+	})
+	.unwrap_or_else(|| Buffer::new("null".into()))
+}
 
-	if let Some(error) = app.host_mut().render_error() {
-		app.error = error.into();
-		app.render_failed = true;
-		return Buffer::new("null".into());
-	}
-	let root = app.host_mut().surface().root().map(NodeId::index);
-	// The platform draws a flattened tree: layout-only containers get no
-	// view, which saves creating, laying out, and compositing them.
-	let mutations = app.host_mut().take_mutations();
-	let mutations = app.flattener.translate(mutations);
-
-	let bytes = match render::serialize(root, &mutations) {
-		Ok(bytes) => bytes,
-		Err(error) => {
-			app.render_failed = true;
-			app.error = error.to_string();
-			return Buffer::new("null".into());
-		}
+/// The same transaction as [`lk_app_render`], in the binary form the
+/// generated iOS and Android apps read (see the `binary` module for the
+/// layout). An empty buffer means the render failed: read [`lk_app_error`].
+///
+/// # Safety
+/// `app` is exclusively borrowed on its owning thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_app_render_binary(app: *mut App) -> Buffer {
+	// SAFETY: The embedding host owns the app.
+	let Some(app) = (unsafe { app.as_mut() }) else {
+		return Buffer::new(Vec::new().into());
 	};
 
-	for mutation in &mutations {
-		match mutation {
-			Mutation::Create { id, .. } => {
-				app.nodes.insert(id.index(), *id);
-			}
-			Mutation::Delete { id } => {
-				app.nodes.remove(&id.index());
-			}
-			_ => {}
-		}
-	}
+	app.render(|root, mutations| {
+		binary::encode(root, mutations, render::MAX_TRANSACTION_BYTES)
+			.map_err(|error| error.to_string())
+	})
+	.unwrap_or_else(|| Buffer::new(Vec::new().into()))
+}
 
-	Buffer::new(bytes.into())
+impl App {
+	/// Drains the committed mutations into one encoded transaction, or
+	/// `None` after recording why it cannot.
+	fn render(
+		&mut self,
+		encode: impl FnOnce(Option<usize>, &[Mutation]) -> Result<Vec<u8>, String>,
+	) -> Option<Buffer> {
+		if self.render_failed {
+			return None;
+		}
+
+		if let Some(error) = self.host_mut().render_error() {
+			self.error = error.into();
+			self.render_failed = true;
+			return None;
+		}
+		let root = self.host_mut().surface().root().map(NodeId::index);
+		// The platform draws a flattened tree: layout-only containers get no
+		// view, which saves creating, laying out, and compositing them.
+		let mutations = self.host_mut().take_mutations();
+		let mutations = self.flattener.translate(mutations);
+
+		let bytes = match encode(root, &mutations) {
+			Ok(bytes) => bytes,
+			Err(error) => {
+				self.render_failed = true;
+				self.error = error;
+				return None;
+			}
+		};
+
+		self.rendered_root = root;
+
+		for mutation in &mutations {
+			match mutation {
+				Mutation::Create { id, .. } => {
+					self.nodes.insert(id.index(), *id);
+				}
+				Mutation::Delete { id } => {
+					self.nodes.remove(&id.index());
+				}
+				_ => {}
+			}
+		}
+
+		Some(Buffer::new(bytes.into()))
+	}
 }
 
 /// Copies the last runtime diagnostic into an owned buffer.

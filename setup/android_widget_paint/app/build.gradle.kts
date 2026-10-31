@@ -22,7 +22,7 @@ android {
 
 val nativeWidgetSources by tasks.registering(Sync::class) {
     from("../../../crates/leptoskit_bridge_ffi/mobile") {
-        include("NativeWidgetRenderer.kt", "NativeWidgetProps.kt")
+        include("NativeWidgetRenderer.kt", "NativeWidgetProps.kt", "RenderBatch.kt")
     }
     into(layout.buildDirectory.dir("widget-sources"))
 }

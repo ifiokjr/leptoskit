@@ -381,6 +381,16 @@ Java_dev_leptoskit_mobile_NativeApp_render(JNIEnv* env, jclass, jlong handle) {
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL
+Java_dev_leptoskit_mobile_NativeApp_renderBinary(JNIEnv* env, jclass, jlong handle) {
+    return array(env, lk_app_render_binary(app(handle)));
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeApp_renderPending(JNIEnv*, jclass, jlong handle) {
+    return lk_app_render_pending(app(handle));
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
 Java_dev_leptoskit_mobile_NativeApp_error(JNIEnv* env, jclass, jlong handle) {
     return array(env, lk_app_error(app(handle)));
 }

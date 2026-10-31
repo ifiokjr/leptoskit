@@ -123,6 +123,8 @@ int32_t lk_app_next_request(lk_app *app, lk_request *request) {
 
 lk_rust_worker *lk_app_worker(lk_app *app, const lk_request *request) { return NULL; }
 
+/* Every pump renders, as before the check existed. */
+int32_t lk_app_render_pending(lk_app *app) { return 1; }
 lk_buffer lk_app_render(lk_app *app) {
     if (app->rendered++) return bytes("{\"version\":1,\"mutations\":[]}");
     char json[512];
@@ -132,6 +134,69 @@ lk_buffer lk_app_render(lk_app *app) {
     snprintf(json, sizeof(json), "{\"version\":1,\"root\":1,\"mutations\":[{\"Create\":{\"id\":1,\"kind\":\"text\",\"props\":{\"text\":\"Guest %d\",\"accessibility_label\":\"guest-%d\"%s}}},{\"UpdateLayout\":{\"id\":1,\"x\":0,\"y\":0,\"width\":200,\"height\":80}}]}", app->identifier, app->identifier, background);
 
     return bytes(json);
+}
+
+/* lk_app_render's transactions in lk_app_render_binary's layout. */
+typedef struct {
+    uint8_t data[256];
+    size_t len;
+} transaction;
+
+static void put(transaction *out, const void *data, size_t len) {
+    memcpy(out->data + out->len, data, len);
+    out->len += len;
+}
+
+static void put_u32(transaction *out, uint32_t value) { put(out, &value, sizeof(value)); }
+
+static void put_text(transaction *out, const char *text) {
+    put_u32(out, (uint32_t)strlen(text));
+    put(out, text, strlen(text));
+}
+
+lk_buffer lk_app_render_binary(lk_app *app) {
+    transaction out = {.len = 0};
+    put(&out, "LKB1", 4);
+
+    if (app->rendered++) {
+        int64_t none = -1;
+        put(&out, &none, sizeof(none));
+        put_u32(&out, 0);
+    } else {
+        int64_t root = 1;
+        put(&out, &root, sizeof(root));
+        put_u32(&out, 2);
+        // Create: text 0, accessibility label 4; guest 2 adds background 6
+        // and corner radius 11.
+        put(&out, (const uint8_t[]){1}, 1);
+        put_u32(&out, 1);
+        put(&out, (const uint8_t[]){4}, 1);
+        put(&out, "text", 4);
+        int painted = app->identifier == 2;
+        put_u32(&out, (1u << 0) | (1u << 4) | (painted ? (1u << 6) | (1u << 11) : 0));
+        char text[32], label[32];
+        snprintf(text, sizeof(text), "Guest %d", app->identifier);
+        snprintf(label, sizeof(label), "guest-%d", app->identifier);
+        put_text(&out, text);
+        put_text(&out, label);
+
+        if (painted) {
+            put_u32(&out, 33953791u);
+            float radius = 9999;
+            put(&out, &radius, sizeof(radius));
+        }
+
+        // UpdateLayout 1: 0, 0, 200, 80.
+        put(&out, (const uint8_t[]){3}, 1);
+        put_u32(&out, 1);
+        float frame[4] = {0, 0, 200, 80};
+        put(&out, frame, sizeof(frame));
+    }
+
+    uint8_t *copy = malloc(out.len);
+    memcpy(copy, out.data, out.len);
+
+    return (lk_buffer){copy, out.len, copy};
 }
 
 lk_updates *lk_updates_open(const uint8_t *config, size_t config_len,

@@ -10,12 +10,16 @@ enum WidgetTextStyle {
         let alignment = alignment(props)
 
         if let label = widget as? UILabel {
-            label.text = props.text
-            label.accessibilityLabel = props.accessibilityLabel ?? props.text
-            label.accessibilityValue = props.accessibilityLabel == nil ? nil : props.text
-            label.font = font
-            label.textColor = textColor(props)
-            label.textAlignment = alignment
+            // Each setter re-lays out the label's text, so only changes are set.
+            if label.text != props.text { label.text = props.text }
+            let accessibilityLabel = props.accessibilityLabel ?? props.text
+            if label.accessibilityLabel != accessibilityLabel { label.accessibilityLabel = accessibilityLabel }
+            let accessibilityValue = props.accessibilityLabel == nil ? nil : props.text
+            if label.accessibilityValue != accessibilityValue { label.accessibilityValue = accessibilityValue }
+            if label.font !== font { label.font = font }
+            let color = textColor(props)
+            if label.textColor != color { label.textColor = color }
+            if label.textAlignment != alignment { label.textAlignment = alignment }
         }
 
         if let button = widget as? UIButton {
@@ -59,6 +63,15 @@ enum WidgetTextStyle {
         }
     }
 
+    /// System fonts by size and weight: every label asks for one, and a
+    /// screen uses only a few.
+    private static var fonts: [FontKey: UIFont] = [:]
+
+    private struct FontKey: Hashable {
+        let size: CGFloat
+        let weight: CGFloat
+    }
+
     private static func font(_ props: WidgetProps) -> UIFont {
         let weight: UIFont.Weight =
             switch props.fontWeight {
@@ -67,7 +80,14 @@ enum WidgetTextStyle {
             case "medium": .medium
             default: .regular
             }
+        let size = props.fontSize ?? defaultSize
+        let key = FontKey(size: size, weight: weight.rawValue)
 
-        return UIFont.systemFont(ofSize: props.fontSize ?? defaultSize, weight: weight)
+        if let cached = fonts[key] { return cached }
+
+        let font = UIFont.systemFont(ofSize: size, weight: weight)
+        fonts[key] = font
+
+        return font
     }
 }

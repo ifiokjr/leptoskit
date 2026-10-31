@@ -10,6 +10,7 @@ use leptoskit_yoga::NodeId;
 use super::MeasuredText;
 use super::NativeSurface;
 use super::TEXT_FIELD_CHROME_HEIGHT;
+use super::TextCell;
 use super::has_native_chrome;
 use super::measured_content;
 use crate::backend::NativeBackend;
@@ -31,7 +32,11 @@ impl<B: NativeBackend> NativeSurface<B> {
 			let Some(cell) = self.shadows[id.index()].text_cell.clone() else {
 				continue;
 			};
-			let measured = cell.read().unwrap_or_else(PoisonError::into_inner).clone();
+			let measured = cell
+				.read()
+				.unwrap_or_else(PoisonError::into_inner)
+				.text
+				.clone();
 			self.attach_text_measure(id, measured);
 		}
 
@@ -45,32 +50,39 @@ impl<B: NativeBackend> NativeSurface<B> {
 			self.shadows[id.index()].kind,
 			NativeKind::TextInput | NativeKind::PasswordInput
 		);
-		let cell = Arc::new(RwLock::new(text));
+		let cell = Arc::new(RwLock::new(TextCell::new(text)));
 		let closure_cell = Arc::clone(&cell);
 		self.yoga.set_measure_func(
 			id,
 			Some(Arc::new(move |mut available| {
 				// Writers only ever replace whole values, so a poisoned lock
 				// still holds a valid text and style.
-				let current = closure_cell.read().unwrap_or_else(PoisonError::into_inner);
+				let mut cell = closure_cell.write().unwrap_or_else(PoisonError::into_inner);
 
-				if kind == NativeKind::Button {
-					return measurer.measure_button(
+				if single_line && kind != NativeKind::Button {
+					available.width = AvailableSpace::MaxContent;
+				}
+
+				if let Some(size) = cell.size(available.width) {
+					return size;
+				}
+
+				let current = &cell.text;
+				let size = if kind == NativeKind::Button {
+					measurer.measure_button(
 						&current.content,
 						current.style,
 						available,
 						current.native_chrome,
-					);
-				}
-
-				if single_line {
-					available.width = AvailableSpace::MaxContent;
-				}
-
-				let mut size = measurer.measure(&current.content, current.style, available);
-				if current.native_chrome {
-					size.height += TEXT_FIELD_CHROME_HEIGHT;
-				}
+					)
+				} else {
+					let mut size = measurer.measure(&current.content, current.style, available);
+					if current.native_chrome {
+						size.height += TEXT_FIELD_CHROME_HEIGHT;
+					}
+					size
+				};
+				cell.remember(available.width, size);
 
 				size
 			})),
@@ -115,9 +127,10 @@ impl<B: NativeBackend> NativeSurface<B> {
 		text: &str,
 		style: crate::props::TextStyle,
 		native_chrome: bool,
-		cell: &Arc<RwLock<MeasuredText>>,
+		cell: &Arc<RwLock<TextCell>>,
 	) {
-		let mut measured = cell.write().unwrap_or_else(PoisonError::into_inner);
+		let mut cell = cell.write().unwrap_or_else(PoisonError::into_inner);
+		let measured = &mut cell.text;
 		// Colors and the like do not change the text's size, so
 		// only a new string, font, or native chrome invalidates
 		// layout.
@@ -128,7 +141,8 @@ impl<B: NativeBackend> NativeSurface<B> {
 			text.clone_into(&mut measured.content);
 			measured.style = style;
 			measured.native_chrome = native_chrome;
-			drop(measured);
+			cell.sizes = [None; 2];
+			drop(cell);
 
 			// The measure function reads the cell lazily, so the
 			// node and its cached measurement must be invalidated

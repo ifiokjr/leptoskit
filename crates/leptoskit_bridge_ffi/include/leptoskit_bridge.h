@@ -120,7 +120,13 @@ int32_t lk_app_wake(lk_app *app);
 int32_t lk_app_enable_frames(lk_app *app); /* before lk_app_start */
 int32_t lk_app_frame_requested(lk_app *app);
 int32_t lk_app_frame(lk_app *app, uint64_t timestamp_ns, uint64_t period_ns);
+/* 1 when lk_app_render has changes, a new root or a failure to send, else 0:
+ * call it first and skip rendering when nothing changed. */
+int32_t lk_app_render_pending(lk_app *app);
 lk_buffer lk_app_render(lk_app *app);
+/* The same transaction in the binary form the generated iOS and Android apps
+ * read; an empty buffer is a failure (read lk_app_error). */
+lk_buffer lk_app_render_binary(lk_app *app);
 /* UI-thread native frames. Callbacks synchronously upload and never retain
  * pixel pointers or reenter app functions. visible: 0/1; present: 1 success.
  * Flags: 1 active/visible window, 2 reduced motion. Tick: 1 pending, 0 idle,

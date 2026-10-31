@@ -7,6 +7,8 @@
 //! bundles.
 
 #[cfg(any(target_arch = "wasm32", test))]
+mod compare;
+#[cfg(any(target_arch = "wasm32", test))]
 mod tree;
 
 #[cfg(target_arch = "wasm32")]

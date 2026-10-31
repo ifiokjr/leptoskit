@@ -1,7 +1,6 @@
 package dev.leptoskit.mobile
 
 import dev.leptoskit.bridge.NativeRequest
-import org.json.JSONObject
 
 /** App/bridge access belongs to the UI thread; retained jobs are independent. */
 object NativeApp {
@@ -73,6 +72,12 @@ object NativeApp {
 
     @JvmStatic external fun render(app: Long): ByteArray
 
+    /** The same transaction as [render], in the binary form [RenderBatch] reads. */
+    @JvmStatic external fun renderBinary(app: Long): ByteArray
+
+    /** 1 when [render] has changes to send; 0 when this pump changed nothing. */
+    @JvmStatic external fun renderPending(app: Long): Int
+
     @JvmStatic external fun hasRive(app: Long): Boolean
 
     /** [renderer] implements synchronous riveVisible/presentRive image callbacks. */
@@ -83,14 +88,6 @@ object NativeApp {
         flags: Int,
         renderer: Any,
     ): Int
-
-    /** Decode and validate the native renderer protocol at its JNI boundary. */
-    internal fun renderBatch(app: Long): JSONObject {
-        val batch = JSONObject(render(app).toString(Charsets.UTF_8))
-        check(batch.getInt("version") == 1)
-
-        return batch
-    }
 
     @JvmStatic external fun error(app: Long): ByteArray
 

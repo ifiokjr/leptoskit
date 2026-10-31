@@ -67,6 +67,8 @@ const OPTIONAL_PLUGINS: &[(&str, &str)] = &[
 const ANDROID_TESTS: &[&str] = &[
 	"leptoskit_bridge_ffi/android-tests/ActivityResultBrokerTest.kt",
 	"leptoskit_bridge_ffi/android-tests/NativeVectorViewTest.kt",
+	"leptoskit_bridge_ffi/android-tests/RenderBatchTest.kt",
+	"leptoskit_bridge_ffi/android-tests/RenderBatchFixture.kt",
 	"leptoskit_plugin_secure_store/tests/android/SecureStorePluginTest.kt",
 	"leptoskit_plugin_permissions/tests/android/PermissionsPluginTest.kt",
 	"leptoskit_plugin_network/tests/android/NetworkPluginTest.kt",

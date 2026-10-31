@@ -10,3 +10,10 @@ crates/leptoskit_fmt/benches/fixtures/** text eol=lf
 # The harbor example's committed RPC client is compared byte for byte with
 # what the generator writes, so it stays LF as well.
 examples/harbor/clients/** text eol=lf
+
+# The bridge's tests compare the shared render transaction fixtures with what
+# the encoder writes, byte for byte: the binary form stays as written and the
+# Kotlin and JSON forms stay LF.
+crates/leptoskit_bridge_ffi/tests/fixtures/*.bin binary
+crates/leptoskit_bridge_ffi/tests/fixtures/*.json text eol=lf
+crates/leptoskit_bridge_ffi/android-tests/RenderBatchFixture.kt text eol=lf
