@@ -1,9 +1,8 @@
 ---
 source: crates/leptoskit_cli/tests/snapshots.rs
-assertion_line: 161
 expression: "normalize(&stdout(&output), &scratch.path)"
 ---
-Generates an application, a runtime plugin crate, or a tooling plugin program
+Generates an application, a runtime plugin crate, a tooling plugin program, or deployment files
 
 Usage: leptoskit generate <COMMAND>
 
@@ -11,6 +10,7 @@ Commands:
   app          Generates an application (also available as `leptoskit new`)
   plugin       Generates an independently publishable runtime plugin with an echo method
   tool-plugin  Generates a tooling plugin: a program leptoskit runs once per hook
+  deploy       Writes the files that deploy the app's server: a Dockerfile, and the target platform's own file
   help         Print this message or the help of the given subcommand(s)
 
 Options:

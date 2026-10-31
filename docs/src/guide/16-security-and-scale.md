@@ -1,6 +1,6 @@
 # Security and scale
 
-This chapter is about the moment a leptoskit server stops being `leptoskit dev` on your laptop and starts answering strangers. It covers what the toolkit already does for you, what you have to add before you expose a server, and how to serve a lot of traffic without a lot of servers. If you are preparing a deployment, you can work straight through the [pre-launch checklist](#pre-launch-checklist) at the end; the rest of the chapter explains each item.
+This chapter is about the moment a leptoskit server stops being `leptoskit dev` on your laptop and starts answering strangers. It covers what the toolkit already does for you, what you have to add before you expose a server, and how to serve a lot of traffic without a lot of servers. If you are preparing a deployment, you can work straight through the [pre-launch checklist](#pre-launch-checklist) at the end; the rest of the chapter explains each item. To package the server for Docker, Docker Compose, or Fly.io, see [deploying a server](24-deploying.md).
 
 ## What faces the internet
 
@@ -159,6 +159,8 @@ async fn main() {
 
 The health route from [step 2](#2-bound-every-request-your-own-server-accepts) completes the picture: the load balancer stops sending traffic to an instance that fails its probe, and the instance finishes what it has before it exits.
 
+Behind a load balancer, do it in order: fail the readiness probe first, keep serving for a few seconds while the load balancer notices, then stop accepting and finish. `serve_listener_with`, with a `Readiness` that serves `/healthz` and `/readyz`, does exactly that, and gives up on requests still running after a grace period, so the instance exits before the platform kills it. [Deploying a server](24-deploying.md#stopping-without-dropping-requests) shows it, and new projects start with it.
+
 ### 4. Keep the registry read-only and keyless
 
 Run `leptoskit codepush serve` as a user that can read `releases/` and write nothing. The server never writes the store; `leptoskit codepush release` does, from your release machine or CI. The signing key does not belong on the serving host, and `LEPTOSKIT_CODEPUSH_SIGNING_KEY` should not be set in its environment. Better still, do not run a registry server: devices only ever `GET` static files, so a bucket behind a CDN is the whole registry (see [code push with no server](05-code-push.md#code-push-with-no-server)).
@@ -179,7 +181,7 @@ One rule drives everything below: **keep the origin boring.** A leptoskit server
 
 An `ssr` or `islands` server keeps nothing between requests; leptoskit adds no sessions or server-side state of its own. Run as many replicas as you need behind the load balancer and scale on CPU, because rendering is CPU-bound. Build with `--release`, serve `dist/` from the CDN so replicas spend their CPU on pages, and add the layers from [step 2](#2-bound-every-request-your-own-server-accepts) so a slow dependency degrades one request rather than the whole instance.
 
-`leptoskit serve` sets the `LEPTOS_*` environment for the binary from `leptoskit.toml`. A container entry point does the same itself: `LEPTOS_SITE_ADDR=0.0.0.0:3000`, `LEPTOS_SITE_ROOT=dist`, `LEPTOS_OUTPUT_NAME=<client library name>`, and `LEPTOS_ENV=PROD`.
+`leptoskit serve` sets the `LEPTOS_*` environment for the binary from `leptoskit.toml`. A container entry point does the same itself: `LEPTOS_SITE_ADDR=0.0.0.0:3000`, `LEPTOS_SITE_ROOT=dist`, `LEPTOS_OUTPUT_NAME=<client library name>`, and `LEPTOS_ENV=PROD`. The `Dockerfile` that [`leptoskit generate deploy`](24-deploying.md) writes sets them for you.
 
 ### The code push registry: publish to a bucket
 
@@ -210,7 +212,7 @@ Point a load generator at the staging deployment, not at `leptoskit dev`: `GET /
 - `serve.address` is `127.0.0.1`, or a private or container address behind TLS termination. The server's port is not reachable from the internet.
 - A proxy or CDN terminates TLS, closes idle and slow connections, and limits connections and request rate per client address.
 - `ssr` and `islands` only: the router has a `TimeoutLayer`, a `RequestBodyLimitLayer`, and `load_shed` with a `GlobalConcurrencyLimitLayer`, with numbers from a load test.
-- `ssr` and `islands` only: the binary has a health route and stops on `SIGTERM` by finishing requests in flight.
+- `ssr` and `islands` only: the binary answers `/healthz` and `/readyz`, and on `SIGTERM` fails readiness, then finishes requests in flight within the platform's timeout (see [deploying a server](24-deploying.md#stopping-without-dropping-requests)).
 - Static assets and release files are cached at the edge; `index.html` and `index.json` revalidate.
 - The code push registry is a bucket, or a server that runs read-only with no signing key in its environment.
 - The registry's dynamic routes are rate-limited, or blocked when no older client needs them.
