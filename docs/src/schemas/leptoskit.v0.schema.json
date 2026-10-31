@@ -554,6 +554,10 @@
 						"type": "string"
 					}
 				},
+				"store_tokens": {
+					"description": "Keeps the provider's access and refresh tokens, encrypted with the\nserver's keys, so the app can call its API on the person's behalf.\nOff by default: signing in doesn't need them.",
+					"type": "boolean"
+				},
 				"team_id_env": {
 					"description": "For `apple`: the environment variable holding the team ID.",
 					"type": [

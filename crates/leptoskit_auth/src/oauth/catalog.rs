@@ -8,6 +8,7 @@ use super::Endpoints;
 use super::Flavor;
 use super::IdTokenRules;
 use super::Identify;
+use super::Offline;
 use super::Provider;
 use super::Quirks;
 use super::Secret;
@@ -68,6 +69,7 @@ fn fixed(
 		secret: Secret::Shared(client_secret),
 		scopes: scopes.iter().map(|scope| (*scope).to_owned()).collect(),
 		endpoints: Some(endpoints),
+		store_tokens: false,
 		quirks,
 	}
 }
@@ -125,9 +127,11 @@ impl Provider {
 				"https://api.x.com/2/oauth2/token",
 				None,
 				None,
-			),
+			)
+			.revoked_at("https://api.x.com/2/oauth2/revoke"),
 			Quirks {
 				client_auth: ClientAuth::Basic,
+				offline: Offline::Scope("offline.access"),
 				..api(ApiProfile {
 					name: Some("/data/name"),
 					username: Some("/data/username"),
@@ -155,7 +159,8 @@ impl Provider {
 				"https://discord.com/api/oauth2/token",
 				None,
 				None,
-			),
+			)
+			.revoked_at("https://discord.com/api/oauth2/token/revoke"),
 			api(ApiProfile {
 				name: Some("/global_name"),
 				username: Some("/username"),
@@ -180,7 +185,8 @@ impl Provider {
 				"https://www.linkedin.com/oauth/v2/accessToken",
 				Some("https://www.linkedin.com/oauth/openid/jwks"),
 				Some("https://www.linkedin.com/oauth"),
-			),
+			)
+			.revoked_at("https://www.linkedin.com/oauth/v2/revoke"),
 			Quirks {
 				identify: Identify::IdToken(IdTokenRules {
 					nonce_optional: true,
@@ -223,7 +229,8 @@ impl Provider {
 				&format!("{base}/oauth/token"),
 				Some(&format!("{base}/oauth/discovery/keys")),
 				Some(base),
-			),
+			)
+			.revoked_at(&format!("{base}/oauth/revoke")),
 			Quirks::default(),
 		);
 		provider.secret = client_secret.map_or(Secret::None, Secret::Shared);
@@ -272,7 +279,8 @@ impl Provider {
 				"https://id.twitch.tv/oauth2/token",
 				Some("https://id.twitch.tv/oauth2/keys"),
 				Some("https://id.twitch.tv/oauth2"),
-			),
+			)
+			.revoked_at("https://id.twitch.tv/oauth2/revoke"),
 			Quirks {
 				authorize: vec![("claims", claims.to_owned())],
 				..Quirks::default()
@@ -322,11 +330,13 @@ impl Provider {
 				"https://www.reddit.com/api/v1/access_token",
 				None,
 				None,
-			),
+			)
+			.revoked_at("https://www.reddit.com/api/v1/revoke_token"),
 			Quirks {
 				client_auth: ClientAuth::Basic,
 				authorize: vec![("duration", "temporary".to_owned())],
 				user_agent: true,
+				offline: Offline::Param("duration", "permanent"),
 				..api(ApiProfile {
 					username: Some("/name"),
 					picture: Some("/icon_img"),
@@ -373,7 +383,10 @@ impl Provider {
 				Some("https://www.dropbox.com/.well-known/jwks"),
 				Some("https://www.dropbox.com"),
 			),
-			Quirks::default(),
+			Quirks {
+				offline: Offline::Param("token_access_type", "offline"),
+				..Quirks::default()
+			},
 		)
 	}
 
@@ -461,7 +474,8 @@ impl Provider {
 				"https://zoom.us/oauth/token",
 				None,
 				None,
-			),
+			)
+			.revoked_at("https://zoom.us/oauth/revoke"),
 			Quirks {
 				client_auth: ClientAuth::Basic,
 				..api(ApiProfile {
@@ -490,7 +504,8 @@ impl Provider {
 				"https://open.tiktokapis.com/v2/oauth/token/",
 				None,
 				None,
-			),
+			)
+			.revoked_at("https://open.tiktokapis.com/v2/oauth/revoke/"),
 			Quirks {
 				client_id_param: "client_key",
 				scope_separator: ",",
@@ -520,7 +535,8 @@ impl Provider {
 				"https://api.login.yahoo.com/oauth2/get_token",
 				Some("https://api.login.yahoo.com/openid/v1/certs"),
 				Some("https://api.login.yahoo.com"),
-			),
+			)
+			.revoked_at("https://api.login.yahoo.com/oauth2/revoke"),
 			Quirks::default(),
 		)
 	}

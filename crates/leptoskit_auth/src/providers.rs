@@ -64,6 +64,30 @@ pub(crate) struct ProviderProfile {
 	pub preferred_username: Option<String>,
 	/// A picture of them.
 	pub picture: Option<String>,
+	/// The provider's tokens, when the app keeps them (`store_tokens`).
+	#[serde(default)]
+	pub grant: Option<ProviderGrant>,
+}
+
+/// The tokens a provider handed over at sign-in, for a provider whose
+/// tokens the app keeps. Its `Debug` leaves the tokens out.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ProviderGrant {
+	pub access_token: String,
+	pub refresh_token: Option<String>,
+	/// Seconds the access token works for, if the provider said.
+	pub expires_in: Option<i64>,
+	/// The scopes granted, as the provider listed them.
+	pub scope: Option<String>,
+}
+
+impl fmt::Debug for ProviderGrant {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct("ProviderGrant")
+			.field("expires_in", &self.expires_in)
+			.field("scope", &self.scope)
+			.finish_non_exhaustive()
+	}
 }
 
 impl ProviderProfile {
@@ -344,6 +368,7 @@ impl Auth {
 			let account = Account::get(&tx, identity.account_id).await?;
 			refuse_unusable(&account)?;
 			refresh_identity(&tx, identity.id, profile).await?;
+			self.keep_grant(&tx, identity, profile).await?;
 			let factors = self.factors(&tx, account.id).await?;
 
 			if !factors.is_empty() {
@@ -452,7 +477,8 @@ impl Auth {
 		}
 		.insert(tx)
 		.await?;
-		insert_identity(tx, account.id, provider, profile).await?;
+		let identity = insert_identity(tx, account.id, provider, profile).await?;
+		self.keep_grant(tx, &identity, profile).await?;
 
 		if let Some(address) = profile.verified_email() {
 			NewEmailAddress {
@@ -487,7 +513,8 @@ impl Auth {
 	) -> Result<()> {
 		let tx = self.inner.db.begin().await?;
 		let result = async {
-			insert_identity(&tx, account, provider, profile).await?;
+			let identity = insert_identity(&tx, account, provider, profile).await?;
+			self.keep_grant(&tx, &identity, profile).await?;
 
 			if let Some(address) = profile.verified_email() {
 				let taken = EmailAddress::query()
@@ -572,6 +599,9 @@ impl Auth {
 				.first(&tx)
 				.await?
 				.ok_or(AuthError::NotFound)?;
+			let ended = self
+				.take_provider_tokens(&tx, me.account, Some(identity.id))
+				.await?;
 			Identity::query()
 				.filter(|row| row.id.eq(identity.id))
 				.delete(&tx)
@@ -582,10 +612,11 @@ impl Auth {
 			}
 
 			record(&tx, Some(me.account), EventKind::IdentityUnlinked, request).await?;
-			Ok(identity.provider)
+			Ok((identity.provider, ended))
 		}
 		.await;
-		let provider = finish(tx, result).await?;
+		let (provider, ended) = finish(tx, result).await?;
+		self.revoke_provider_tokens(ended).await;
 		let name = self.provider_display_name(&provider);
 		self.notify(
 			me.account,
@@ -792,7 +823,8 @@ impl Auth {
 				.await
 		}
 		.await;
-		finish(tx, result).await?;
+		let ended = finish(tx, result).await?;
+		self.revoke_provider_tokens(ended).await;
 		let text = if data.is_some() {
 			"Another account's sign-in methods and data were moved into this one, and the other \
 			 account was deleted. If you didn't do this, sign in and sign out everywhere, then \
@@ -827,14 +859,18 @@ impl Auth {
 		finish(tx, result).await
 	}
 
-	/// The merge itself, in its transaction.
+	/// The merge itself, in its transaction. Returns the provider tokens
+	/// the absorbed account kept, to revoke once it commits: they were
+	/// granted to that account, and its identities sign in again here to
+	/// keep new ones.
 	async fn move_login(
 		&self,
 		tx: &Tx,
 		survivor: Id<Account>,
 		absorbed: Id<Account>,
 		request: &RequestInfo,
-	) -> Result<()> {
+	) -> Result<Vec<crate::provider_tokens::Ended>> {
+		let ended = self.take_provider_tokens(tx, absorbed, None).await?;
 		Identity::update()
 			.filter(|row| row.account_id.eq(absorbed))
 			.set(|row| row.account_id, survivor)
@@ -887,7 +923,8 @@ impl Auth {
 		}
 		.insert(tx)
 		.await?;
-		record(tx, Some(survivor), EventKind::AccountMerged, request).await
+		record(tx, Some(survivor), EventKind::AccountMerged, request).await?;
+		Ok(ended)
 	}
 
 	/// The account `account` is now: itself, or the one it was merged into.
@@ -947,8 +984,8 @@ async fn insert_identity(
 	account: Id<Account>,
 	provider: &str,
 	profile: &ProviderProfile,
-) -> Result<()> {
-	NewIdentity {
+) -> Result<Identity> {
+	let identity = NewIdentity {
 		account_id: account,
 		provider: provider.to_owned(),
 		subject: profile.subject.clone(),
@@ -963,7 +1000,7 @@ async fn insert_identity(
 	}
 	.insert(connection)
 	.await?;
-	Ok(())
+	Ok(identity)
 }
 
 /// Keeps what the provider says now, and when it was used.

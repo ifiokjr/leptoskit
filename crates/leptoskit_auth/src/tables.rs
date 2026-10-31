@@ -247,6 +247,9 @@ pub enum EventKind {
 	/// They deleted an app of their own, ending every grant and token it
 	/// held. `detail` names the app.
 	AppDeleted,
+	/// An account was deleted. Its own history goes with it; this entry
+	/// has no account, and `detail` holds the deleted account's ID.
+	AccountDeleted,
 }
 
 /// The audit trail: what happened to an account, and from where. Never
@@ -368,6 +371,43 @@ pub struct Identity {
 	pub name: Option<String>,
 	/// When it last signed in.
 	pub last_used_at: Option<Timestamp>,
+	#[db(created_at)]
+	pub created_at: Timestamp,
+}
+
+/// A provider's access and refresh tokens for one connected account, kept
+/// only for providers the app configured with `store_tokens`, so the app
+/// can call that provider's API for the person. Both are encrypted with the
+/// server's keys and bound to the identity, so a copy of the database calls
+/// no one's API. Nobody reads them directly, not even their owner: the app
+/// asks [`Auth::provider_access_token`](crate::Auth), which refreshes them.
+/// Disconnecting the account, merging it away, or deleting the account
+/// deletes them, and revokes them where the provider allows.
+#[table(name = "provider_tokens", pack = "auth", index(account_id))]
+#[policy(select, |_, _| leptoskit_db::Expr::never())]
+pub struct ProviderToken {
+	pub id: Id<Self>,
+	/// The connected account they belong to: one set each.
+	#[db(unique, on_delete = cascade)]
+	pub identity_id: Id<Identity>,
+	#[db(on_delete = cascade)]
+	pub account_id: Id<Account>,
+	/// The provider's ID in `[auth.providers]`, such as `github`.
+	#[db(max_len = 64)]
+	pub provider: String,
+	/// The access token, AES-256-GCM-SIV under the newest key.
+	#[db(secret)]
+	pub access_token: Vec<u8>,
+	/// The refresh token, sealed the same way, when the provider gave one.
+	#[db(secret)]
+	pub refresh_token: Option<Vec<u8>>,
+	/// When the access token stops working, if the provider said.
+	pub expires_at: Option<Timestamp>,
+	/// The scopes the provider granted, as it listed them.
+	#[db(max_len = 2048)]
+	pub scope: Option<String>,
+	/// When they were last replaced, at sign-in or by a refresh.
+	pub updated_at: Timestamp,
 	#[db(created_at)]
 	pub created_at: Timestamp,
 }

@@ -463,11 +463,11 @@ async fn rotate_in(
 
 pub(crate) fn rotation_report(newest: &str, rotated: leptoskit_auth::Rotated) -> String {
 	format!(
-		"Re-encrypted under `{newest}`: {} authenticator secret(s) and {} sign-in(s) in progress; \
-		 {} already were.\n\nRecovery codes and emailed codes are hashes, which can't be \
-		 re-keyed: keep the older keys listed until people with recovery codes have made new \
-		 ones, or accept that their old codes stop working.\n",
-		rotated.totp, rotated.ceremonies, rotated.current
+		"Re-encrypted under `{newest}`: {} authenticator secret(s), {} sign-in(s) in progress, \
+		 and {} provider token(s); {} already were.\n\nRecovery codes and emailed codes are \
+		 hashes, which can't be re-keyed: keep the older keys listed until people with recovery \
+		 codes have made new ones, or accept that their old codes stop working.\n",
+		rotated.totp, rotated.ceremonies, rotated.provider_tokens, rotated.current
 	)
 }
 
@@ -1136,10 +1136,12 @@ mod tests {
 			leptoskit_auth::Rotated {
 				totp: 3,
 				ceremonies: 1,
+				provider_tokens: 4,
 				current: 2,
 			},
 		);
 		assert!(report.starts_with("Re-encrypted under `2027-04`: 3 authenticator secret(s)"));
+		assert!(report.contains("and 4 provider token(s); 2 already were"));
 		assert!(report.contains("can't be re-keyed"));
 	}
 }

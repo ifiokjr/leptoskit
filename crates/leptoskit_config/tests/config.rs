@@ -916,11 +916,6 @@ fn the_auth_table_names_secrets_by_variable() {
 	assert_eq!(auth.providers.len(), 4);
 	assert_eq!(auth.providers["company"].kind("company"), "oidc");
 	assert_eq!(auth.providers["google"].kind("google"), "google");
-	assert_eq!(auth.providers["company"].kind("x"), "x");
-	assert_eq!(
-		leptoskit_config::AuthProviderConfig::default().kind("myspace"),
-		"oidc"
-	);
 	assert_eq!(
 		auth.providers["google"].env_names(),
 		[
@@ -1127,4 +1122,20 @@ fn native_app_associations_are_checked() {
 		);
 		assert!(error.to_string().contains("keytool"));
 	}
+}
+
+#[test]
+fn built_in_providers_take_their_kind_from_their_id() {
+	let provider = leptoskit_config::AuthProviderConfig::default();
+	assert_eq!(provider.kind("x"), "x");
+	assert_eq!(provider.kind("tiktok"), "tiktok");
+	assert_eq!(provider.kind("myspace"), "oidc");
+	assert!(!provider.store_tokens, "off unless asked for");
+	let config = load(
+		"auth_store_tokens",
+		"[auth.providers.github]\nclient_id_env = \"A\"\nclient_secret_env = \"B\"\nstore_tokens \
+		 = true\n",
+	)
+	.expect("store_tokens");
+	assert!(config.auth.expect("auth").providers["github"].store_tokens);
 }

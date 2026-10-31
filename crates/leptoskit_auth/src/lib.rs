@@ -91,6 +91,12 @@ mod passkeys;
 	not(all(feature = "axum", feature = "oauth")),
 	allow(dead_code, reason = "the provider routes finish the flows")
 )]
+mod provider_tokens;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+#[cfg_attr(
+	not(all(feature = "axum", feature = "oauth")),
+	allow(dead_code, reason = "the provider routes finish the flows")
+)]
 mod providers;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod rotate;
@@ -196,6 +202,8 @@ pub use oauth::VERIFIED as PROVIDERS_VERIFIED;
 pub use passkeys::PasskeyAdded;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use passkeys::PasskeyChallenge;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use provider_tokens::ProviderAccess;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use providers::CallbackParams;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]

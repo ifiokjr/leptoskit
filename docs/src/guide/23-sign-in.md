@@ -577,6 +577,37 @@ merge.mutate(MergeInput { mode: Some(MergeMode::BringData), confirm: true, code:
 
 Merging moves the other account's email addresses, connected accounts, passkeys, and wallets here, and either brings its data along, as your tables' `on_account_merge` strategies say, or deletes it. It can't be undone, and needs a recent sign-in or step-up on this account and the other account's second factor when it has one. [Merging accounts](auth/merging.md) covers both modes, the preview, and your own merge code.
 
+### Call a provider's API
+
+Signing in only needs to know who someone is, so leptoskit forgets a provider's tokens once sign-in is done. When your app also calls the provider's API for the person, such as listing their GitHub repositories, keep the tokens with `store_tokens`:
+
+```toml
+[auth.providers.github]
+client_id_env = "GITHUB_CLIENT_ID"
+client_secret_env = "GITHUB_CLIENT_SECRET"
+scopes = ["read:user", "user:email", "repo"]
+store_tokens = true
+```
+
+Then, on your server, ask for an access token whenever you need one:
+
+```rust
+let Some(github) = auth.provider_access_token(me.account, "github").await? else {
+	// Not connected, or the grant ended: ask them to connect GitHub again with `link_provider()`.
+	return Err(MyError::ConnectGitHub);
+};
+let repositories = client
+	.get("https://api.github.com/user/repos")
+	.bearer_auth(&github.access_token)
+	.send()
+	.await?;
+```
+
+- The tokens are encrypted with `AUTH_ENCRYPTION_KEYS` and tied to the connected account they came with, so a copy of the database calls no one's API. Nothing reads them directly, not even their owner; `leptoskit auth rotate-keys` re-encrypts them with the rest.
+- An access token about to expire is refreshed first. Where a provider needs asking for a refresh token (Google's `access_type=offline`, the `offline_access` scope for Microsoft and OpenID Connect providers, X's `offline.access`, Dropbox's offline access, Reddit's permanent grant), sign-in asks for it when `store_tokens` is on. When the provider has ended the grant, the tokens are deleted and the answer is `None`.
+- Disconnecting the provider, merging its account into another, or `auth.delete_account(account, &request)` deletes the tokens, and revokes them at providers that let apps do that: Google, Apple, X, Discord, LinkedIn, GitLab, Twitch, Reddit, Zoom, TikTok, Yahoo, and any OpenID Connect provider whose discovery document names a `revocation_endpoint`. Apple asks apps to revoke its tokens when someone deletes their account.
+- It runs on the server only; the client functions never see the tokens, on any platform.
+
 ### On every platform
 
 | Platform                 | Third-party sign-in                                                                                                                                    |

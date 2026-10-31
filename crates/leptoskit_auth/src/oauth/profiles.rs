@@ -152,6 +152,7 @@ impl ApiProfile {
 			name: text(&profile, self.name),
 			preferred_username: text(&profile, self.username),
 			picture: text(&profile, self.picture),
+			grant: None,
 		})
 	}
 
