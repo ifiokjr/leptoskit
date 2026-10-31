@@ -60,6 +60,10 @@ impl Server {
 		let auth = Auth::builder(&db, Keys::single("test", [9; 32]))
 			.mailer(mailbox.clone())
 			.origin(ORIGIN)
+			.solana(crate::SolanaOptions {
+				sign_in: true,
+				..crate::SolanaOptions::default()
+			})
 			.limits(Limits {
 				code_per_address: plenty,
 				code_per_ip: plenty,
@@ -912,7 +916,7 @@ async fn the_scopes_call_the_configured_client() {
 /// refusal.
 fn total(
 	devices: Result<Vec<crate::Device>, ErrorResponse>,
-	others: [Result<usize, ErrorResponse>; 5],
+	others: [Result<usize, ErrorResponse>; 7],
 ) -> Result<usize, ErrorResponse> {
 	let mut count = devices?.len();
 
@@ -958,6 +962,11 @@ async fn server_rendering_reads_the_requests_session() {
 							.mfa()
 							.await
 							.map(|status| usize::from(status.enrolled())),
+						Rendering.wallets().await.map(|list| list.len()),
+						Rendering
+							.wallet_settings()
+							.await
+							.map(|settings| usize::from(!settings.enabled)),
 					];
 					let devices = total(devices, others);
 					(session, devices)
@@ -1072,8 +1081,48 @@ async fn server_rendering_reads_the_requests_session() {
 		Rendering.providers().await.map(|_| ()),
 		Rendering.identities().await.map(|_| ()),
 		Rendering.merge_offer().await.map(|_| ()),
+		Rendering.wallet_settings().await.map(|_| ()),
+		Rendering.wallets().await.map(|_| ()),
 	] {
 		assert_eq!(read.unwrap_err().error, "server");
+	}
+}
+
+/// Wallets are asked to sign in the browser, not while the server renders.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn server_rendering_leaves_wallets_to_the_browser() {
+	use super::server::Server as Rendering;
+
+	for refused in [
+		Rendering.wallet_apps().await.map(|_| ()),
+		Rendering
+			.link_wallet(LinkWalletInput::default())
+			.await
+			.map(|_| ()),
+		Rendering
+			.prove_wallet(ProveWalletInput {
+				wallet: "Test Wallet".into(),
+				address: leptoskit_db::Pubkey::from_bytes([1; 32]),
+			})
+			.await
+			.map(|_| ()),
+		Rendering
+			.update_wallet(UpdateWallet {
+				id: Id::new(),
+				label: None,
+				can_sign_in: None,
+				is_public: None,
+			})
+			.await
+			.map(|_| ()),
+		Rendering.unlink_wallet(Id::new()).await,
+		Rendering
+			.wallet_sign_in("Test Wallet".into())
+			.await
+			.map(|_| ()),
+	] {
+		assert_eq!(refused.unwrap_err().error, "server");
 	}
 }
 
@@ -1090,6 +1139,24 @@ struct Page {
 	opened: Arc<Mutex<Option<String>>>,
 	query: Arc<Mutex<Option<String>>>,
 	cancelled: Arc<AtomicBool>,
+	/// The wallet app "Test Wallet": a key made at test time, or none.
+	wallet: Arc<Mutex<Option<ed25519_dalek::SigningKey>>>,
+	/// Whether the wallet app declines to sign.
+	declines: Arc<AtomicBool>,
+}
+
+impl Page {
+	fn with_wallet() -> Self {
+		let page = Self::default();
+		let seed = crate::secrets::random::<32>().unwrap();
+		*page.wallet.lock().unwrap() = Some(ed25519_dalek::SigningKey::from_bytes(&seed));
+		page
+	}
+
+	fn address(&self) -> leptoskit_db::Pubkey {
+		let key = self.wallet.lock().unwrap();
+		leptoskit_db::Pubkey::from_bytes(key.as_ref().unwrap().verifying_key().to_bytes())
+	}
 }
 
 impl protocol::Platform for Page {
@@ -1150,6 +1217,57 @@ impl protocol::Platform for Page {
 
 	fn query(&self) -> Option<String> {
 		self.query.lock().unwrap().clone()
+	}
+
+	fn wallet_apps(&self) -> BoxFuture<'static, Result<Vec<WalletApp>, ErrorResponse>> {
+		let apps = self
+			.wallet
+			.lock()
+			.unwrap()
+			.iter()
+			.map(|_| {
+				WalletApp {
+					name: "Test Wallet".into(),
+					icon: "data:image/svg+xml,<svg/>".into(),
+					sign_in: true,
+				}
+			})
+			.collect();
+		Box::pin(std::future::ready(Ok(apps)))
+	}
+
+	fn sign_with_wallet(
+		&self,
+		wallet: String,
+		input: crate::SiwsInput,
+	) -> BoxFuture<'static, Result<crate::WalletProof, ErrorResponse>> {
+		use ed25519_dalek::Signer;
+
+		let key = self.wallet.lock().unwrap();
+		let answer = match key.as_ref() {
+			_ if self.declines.load(Ordering::SeqCst) => Err(error("cancelled", "declined")),
+			Some(key) if wallet == "Test Wallet" => {
+				let address = leptoskit_db::Pubkey::from_bytes(key.verifying_key().to_bytes());
+
+				match &input.address {
+					Some(wanted) if *wanted != address.to_string() => {
+						Err(error("wallet_failed", "another account"))
+					}
+					_ => {
+						let message = input.message(&address);
+						Ok(crate::WalletProof {
+							address,
+							signature: leptoskit_db::Signature::from_bytes(
+								key.sign(message.as_bytes()).to_bytes(),
+							),
+							message,
+						})
+					}
+				}
+			}
+			_ => Err(error("no_wallet", "no wallet by that name")),
+		};
+		Box::pin(std::future::ready(answer))
 	}
 }
 
@@ -1596,9 +1714,254 @@ async fn a_device_without_passkeys_or_pages_says_so() {
 	);
 	none.cancel();
 	assert_eq!(none.query(), None);
+	assert_eq!(none.wallet_apps().await.unwrap_err().error, "unsupported");
+	let signed = none
+		.sign_with_wallet("Phantom".into(), crate::SiwsInput::default())
+		.await;
+	assert_eq!(signed.unwrap_err().error, "unsupported");
 	let input = MergeInput {
 		code: Some("123456".into()),
 		..MergeInput::default()
 	};
 	assert!(!format!("{input:?}").contains("123456"));
+}
+
+#[cfg(feature = "solana")]
+#[tokio::test]
+async fn a_browser_links_a_wallet_and_signs_in_with_it() {
+	let server = Server::new().await;
+	let page = Page::with_wallet();
+	let laptop = server.browser_on(&page);
+	let settings = laptop.api.wallet_settings().await.unwrap();
+	assert!(settings.enabled && settings.sign_in);
+	assert_eq!(settings.chain_id, "mainnet");
+	assert_eq!(
+		laptop.api.wallet_apps().await.unwrap()[0].name,
+		"Test Wallet"
+	);
+	sign_in(&server, &laptop).await;
+
+	let linked = laptop
+		.api
+		.link_wallet(LinkWalletInput {
+			wallet: "Test Wallet".into(),
+			label: Some("Treasury".into()),
+		})
+		.await
+		.unwrap();
+	let WalletLinked::Linked(wallet) = linked else {
+		panic!("linked: {linked:?}");
+	};
+	assert_eq!(wallet.address, page.address());
+	assert_eq!(wallet.label.as_deref(), Some("Treasury"));
+	assert_eq!(laptop.api.wallets().await.unwrap().len(), 1);
+
+	// A wallet app that isn't there, or a person who declines.
+	let missing = laptop
+		.api
+		.link_wallet(LinkWalletInput {
+			wallet: "Elsewhere".into(),
+			label: None,
+		})
+		.await
+		.unwrap_err();
+	assert_eq!(missing.error, "no_wallet");
+	page.declines.store(true, Ordering::SeqCst);
+	let declined = laptop
+		.api
+		.prove_wallet(ProveWalletInput {
+			wallet: "Test Wallet".into(),
+			address: page.address(),
+		})
+		.await
+		.unwrap_err();
+	assert_eq!(declined.error, "cancelled");
+	page.declines.store(false, Ordering::SeqCst);
+	let proved = laptop
+		.api
+		.prove_wallet(ProveWalletInput {
+			wallet: "Test Wallet".into(),
+			address: page.address(),
+		})
+		.await
+		.unwrap();
+	assert!(proved.last_proved_at >= wallet.last_proved_at);
+
+	let updated = laptop
+		.api
+		.update_wallet(UpdateWallet {
+			id: wallet.id,
+			label: None,
+			can_sign_in: Some(true),
+			is_public: None,
+		})
+		.await
+		.unwrap();
+	assert!(updated.can_sign_in);
+
+	// Another browser signs in with it, as one factor.
+	let phone = server.browser_on(&page);
+	let step = phone
+		.api
+		.wallet_sign_in("Test Wallet".into())
+		.await
+		.unwrap();
+	let SignInStep::SignedIn(session) = step else {
+		panic!("signed in");
+	};
+	assert_eq!(session.aal, crate::Aal::One);
+	assert!(!phone.http.jar.lock().unwrap().contains_key("__Host-wallet"));
+	assert!((phone.held)());
+
+	laptop.api.unlink_wallet(wallet.id).await.unwrap();
+	assert_eq!(laptop.api.wallets().await.unwrap(), [] as [WalletInfo; 0]);
+	let refused = server
+		.browser_on(&page)
+		.api
+		.wallet_sign_in("Test Wallet".into())
+		.await
+		.unwrap_err();
+	assert_eq!(refused.error, "unknown_wallet");
+}
+
+#[tokio::test]
+async fn a_native_app_manages_wallets_but_cannot_ask_one_to_sign_yet() {
+	let server = Server::new().await;
+	let page = Page::with_wallet();
+	let browser = server.browser_on(&page);
+	sign_in(&server, &browser).await;
+	browser
+		.api
+		.link_wallet(LinkWalletInput {
+			wallet: "Test Wallet".into(),
+			label: None,
+		})
+		.await
+		.unwrap();
+
+	let phone = server.native().device();
+	sign_in(&server, &phone).await;
+	phone.http.count("");
+
+	for refused in [
+		phone.api.wallet_apps().await.map(|_| ()),
+		phone
+			.api
+			.link_wallet(LinkWalletInput::default())
+			.await
+			.map(|_| ()),
+		phone
+			.api
+			.prove_wallet(ProveWalletInput {
+				wallet: "Test Wallet".into(),
+				address: page.address(),
+			})
+			.await
+			.map(|_| ()),
+		phone
+			.api
+			.wallet_sign_in("Test Wallet".into())
+			.await
+			.map(|_| ()),
+	] {
+		assert_eq!(refused.unwrap_err().error, "unsupported");
+	}
+
+	assert_eq!(phone.http.count(""), 0, "nothing was asked of the server");
+	// The same functions that only talk to the server work.
+	assert!(phone.api.wallet_settings().await.unwrap().enabled);
+	let wallets = phone.api.wallets().await.unwrap();
+	assert_eq!(wallets.len(), 1);
+	phone
+		.api
+		.update_wallet(UpdateWallet {
+			id: wallets[0].id,
+			label: Some("Phone label".into()),
+			can_sign_in: None,
+			is_public: None,
+		})
+		.await
+		.unwrap();
+	phone.api.unlink_wallet(wallets[0].id).await.unwrap();
+	assert_eq!(phone.api.wallets().await.unwrap(), [] as [WalletInfo; 0]);
+}
+
+#[cfg(feature = "solana")]
+#[tokio::test]
+async fn the_wallet_scopes_call_the_configured_client() {
+	let _turn = INSTALLED.lock().await;
+	use leptos::prelude::Owner;
+	use leptoskit_query::NetworkMode;
+	use leptoskit_query::QueryClient;
+	use leptoskit_query::QueryDefaults;
+	use leptoskit_query::RefetchOn;
+	use leptoskit_query::use_mutation_in;
+
+	let _ = any_spawner::Executor::init_tokio();
+	let owner = Owner::new();
+	owner.set();
+	let server = Server::new().await;
+	let page = Page::with_wallet();
+	let browser = server.browser_on(&page);
+	install(Arc::clone(&browser.api));
+	let client = QueryClient::new().with_defaults(
+		QueryDefaults::new()
+			.with_refetch_on_window_focus(RefetchOn::Never)
+			.with_refetch_on_reconnect(RefetchOn::Never)
+			.with_network_mode(NetworkMode::Always),
+	);
+	client.provide();
+	sign_in(&server, &browser).await;
+
+	assert!(use_wallet_settings().await.unwrap().sign_in);
+	assert_eq!(use_wallet_apps().await.unwrap().len(), 1);
+	assert_eq!(use_wallets().await, Ok(Vec::new()));
+
+	let linked = use_mutation_in(client.clone(), link_wallet())
+		.mutate_async(LinkWalletInput {
+			wallet: "Test Wallet".into(),
+			label: None,
+		})
+		.await
+		.unwrap();
+	let WalletLinked::Linked(wallet) = linked else {
+		panic!("linked: {linked:?}");
+	};
+	use_mutation_in(client.clone(), prove_wallet())
+		.mutate_async(ProveWalletInput {
+			wallet: "Test Wallet".into(),
+			address: page.address(),
+		})
+		.await
+		.unwrap();
+	let updated = use_mutation_in(client.clone(), update_wallet())
+		.mutate_async(UpdateWallet {
+			id: wallet.id,
+			label: None,
+			can_sign_in: Some(true),
+			is_public: None,
+		})
+		.await
+		.unwrap();
+	assert!(updated.can_sign_in);
+
+	let step = use_mutation_in(client.clone(), wallet_sign_in())
+		.mutate_async("Test Wallet".into())
+		.await
+		.unwrap();
+	let SignInStep::SignedIn(signed_in) = step else {
+		panic!("signed in");
+	};
+	assert_eq!(
+		client.get_query_data(&session(), &()),
+		Some(Some(signed_in))
+	);
+
+	use_mutation_in(client.clone(), unlink_wallet())
+		.mutate_async(wallet.id)
+		.await
+		.unwrap();
+	assert_eq!(use_wallets().await, Ok(Vec::new()));
+	// The next test may expect no client installed yet.
+	*CLIENT.write().unwrap() = None;
 }

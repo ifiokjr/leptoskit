@@ -28,6 +28,10 @@ struct ScalarArgs {
 	max: Option<Expr>,
 	regex: Option<LitStr>,
 	normalize: Vec<(Normalize, Ident)>,
+	/// A function that checks what the rules can't express, such as a
+	/// decoded length: `fn(&Inner) -> Result<(), &'static str>`, whose error
+	/// says what the value must be.
+	validate_with: Option<syn::Path>,
 	/// The runtime's path, where the default can't find it.
 	krate: Option<syn::Path>,
 }
@@ -67,6 +71,8 @@ impl ScalarArgs {
 			self.regex = Some(pattern);
 		} else if path.is_ident("crate") {
 			self.krate = Some(meta.value()?.parse::<LitStr>()?.parse()?);
+		} else if path.is_ident("validate_with") {
+			self.validate_with = Some(meta.value()?.parse()?);
 		} else if path.is_ident("normalize") {
 			if meta.input.peek(syn::token::Paren) {
 				meta.parse_nested_meta(|inner| {
@@ -81,7 +87,7 @@ impl ScalarArgs {
 		} else {
 			return Err(meta.error(
 				"unknown scalar option; expected `min_len`, `max_len`, `min`, `max`, `regex`, \
-				 `normalize`, or `crate`",
+				 `normalize`, `validate_with`, or `crate`",
 			));
 		}
 
@@ -362,6 +368,16 @@ fn checks(krate: &TokenStream, label: &str, args: &ScalarArgs) -> TokenStream {
 		checks.push(
 			quote! { #krate::__private::rules::pattern(&mut errors, #label, &value, #pattern); },
 		);
+	}
+
+	if let Some(validate) = &args.validate_with {
+		// The rules above come first: a value they refuse isn't checked
+		// further, so the function only sees values of the right shape.
+		checks.push(quote! {
+			if errors.is_empty() {
+				#krate::__private::rules::format(&mut errors, #label, #validate(&value));
+			}
+		});
 	}
 
 	if checks.is_empty() {

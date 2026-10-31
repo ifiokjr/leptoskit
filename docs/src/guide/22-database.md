@@ -154,6 +154,21 @@ Three come built in:
 - `Url`, for `http` and `https` addresses.
 - `Slug`, such as `hello-world-2`.
 
+Two more come with the `solana` feature of `leptoskit_db`, which sign-in turns on: `Pubkey`, a Solana address such as `9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM`, and `Signature`. Both are base58 text and parse strictly: the text must decode to exactly 32 bytes for an address, or 64 for a signature, so an address that parses is one a wallet could hold. `to_bytes()` and `from_bytes()` convert to and from the raw bytes.
+
+```rust
+use leptoskit::db::Pubkey;
+
+#[table(name = "vaults")]
+pub struct Vault {
+	pub id: Id<Vault>,
+	/// Who may change the vault: whoever holds this wallet.
+	pub treasury: Pubkey,
+}
+```
+
+A rule can then say "the owner of this wallet", with the signed-in person's linked wallets; see [wallets in rules](23-sign-in.md#rules-about-the-signed-in-person).
+
 Postgres checks a `regex` in the database. SQLite leaves it to the app, and a row whose value breaks the pattern can't be read back as the scalar.
 
 ## Columns many tables share
@@ -380,6 +395,48 @@ pub struct Session { … }
 
 A pack serves apps on either database, so its tables must work on both. Exporting the schema refuses pack tables with a type only one database has, a raw SQL default or check, or a link to a table outside the pack.
 
+## When two accounts merge
+
+With [sign-in](23-sign-in.md), people can merge a second account into their main one and bring its data along, as described in [merging accounts](auth/merging.md). Your tables say how their rows move, so most apps write no merge code.
+
+The schema already knows which tables hold an account's data: every foreign key to `auth.accounts`, or to a table that shares the account's key, such as your `users`. Each table's rows move by its `on_account_merge` strategy:
+
+```rust
+#[table(name = "posts")]                                                   // reassign, the default
+pub struct Post { /* author_id: Id<Account> */ }
+
+#[table(name = "follows", unique(follower_id, topic), on_account_merge = reassign_skip_conflicts)]
+pub struct Follow { /* follower_id: Id<Account>, topic: String */ }
+
+#[table(name = "prefs", on_account_merge = keep_newest)]                   // one row each, with updated_at
+pub struct Pref { /* #[db(unique)] user_id: Id<Account>, … */ }
+
+#[table(name = "drafts", on_account_merge = keep_survivor)]
+pub struct Draft { /* user_id: Id<Account> */ }
+
+#[table(name = "balances", on_account_merge = custom)]                     // your OnMerge moves them
+pub struct Balance { /* #[db(unique)] user_id: Id<Account>, cents: i64 */ }
+```
+
+| Strategy                  | What happens to the other account's rows                                                  |
+| ------------------------- | ----------------------------------------------------------------------------------------- |
+| `reassign` (the default)  | They move. One that breaks a unique constraint stops the whole merge, and nothing changes |
+| `reassign_skip_conflicts` | They move, except those that would duplicate one of the survivor's, which are dropped     |
+| `keep_newest`             | For one row per account: whichever of the two rows was updated more recently stays        |
+| `keep_survivor`           | They're dropped; the survivor's rows are the ones that count                              |
+| `custom`                  | Your `auth::OnMerge::merge_custom` moves them, in the merge's transaction                 |
+
+A table keyed by the account, such as `users`, keeps the survivor's row; `OnMerge::merge_profile` can copy anything worth keeping from the other one before it's deleted. Its strategy may only be `keep_survivor` (the default) or `custom`.
+
+A reference inside a unique constraint, like `follows` above, would collide if moved blindly, so `leptoskit db check` fails until its table says what to do:
+
+```text
+merging accounts can't bring their data along until every table says how:
+  follows.follower_id is in a unique constraint, so merging accounts could collide: add `on_account_merge = reassign_skip_conflicts`, `keep_survivor`, `keep_newest`, or `custom` to #[db::table]
+```
+
+Until every table is covered, and while any table is `custom` without your `OnMerge`, people can still merge accounts, but only by moving the sign-in methods and deleting the other account's data. A strategy changes no tables, so it never needs a migration. Foreign keys only count when they're declared: a column marked `no_foreign_key` isn't found.
+
 ## Migrations
 
 Each migration is a directory under `migrations/`. It holds `migration.sql` and `schema.json`, a snapshot of the tables after it runs. `registry.txt` lists the migrations in order. `leptoskit db migration create <name>` compares your tables with the latest snapshot and writes the SQL for the difference:
@@ -399,7 +456,7 @@ It needs no database, so it gives the same result on every machine.
 - **Data changes.** `--empty` writes a migration with no schema changes, for SQL you write yourself.
 - **SQLite rebuilds.** Changes that SQLite can't make in place, such as adding a check, rebuild the table and copy its rows across.
 
-Run `leptoskit db check` in CI. It fails when the tables changed without a migration.
+Run `leptoskit db check` in CI. It fails when the tables changed without a migration. With sign-in's tables, it also fails when a table that holds an account's data can't follow a merge of two accounts; see [when two accounts merge](#when-two-accounts-merge).
 
 The server applies migrations as it starts:
 

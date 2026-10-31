@@ -65,6 +65,7 @@ impl fmt::Display for FieldError {
 			Rule::Max(max) => write!(f, "`{field}` can't be more than {max}"),
 			Rule::OneOf(values) => write!(f, "`{field}` must be one of {}", values.join(", ")),
 			Rule::Pattern(pattern) => write!(f, "`{field}` must match `{pattern}`"),
+			Rule::Format(expected) => write!(f, "`{field}` must be {expected}"),
 		}
 	}
 }
@@ -93,6 +94,9 @@ pub enum Rule {
 	OneOf(Vec<String>),
 	/// Matching this regular expression.
 	Pattern(String),
+	/// Being what this describes, such as "a Solana address: 32 bytes in
+	/// base58", which a scalar's own check decided.
+	Format(String),
 }
 
 /// The checks generated `validate()` methods call. Optional values are only
@@ -215,6 +219,14 @@ pub mod rules {
 				field,
 				Rule::OneOf(allowed.iter().map(ToString::to_string).collect()),
 			);
+		}
+	}
+
+	/// Records what a scalar's own check (`validate_with`) said the value
+	/// must be.
+	pub fn format(errors: &mut ValidationErrors, field: &str, result: Result<(), &'static str>) {
+		if let Err(expected) = result {
+			errors.push(field, Rule::Format(expected.to_string()));
 		}
 	}
 

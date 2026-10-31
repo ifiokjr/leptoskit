@@ -25,7 +25,29 @@ pub(crate) struct TableArgs {
 	pub renamed_from: Option<LitStr>,
 	/// The schema pack that owns the table: only its crate writes to it.
 	pub pack: Option<LitStr>,
+	/// How its rows move when accounts merge: `reassign`,
+	/// `reassign_skip_conflicts`, `keep_survivor`, `keep_newest`, or
+	/// `custom`.
+	pub on_account_merge: Option<Ident>,
 	pub krate: Option<Path>,
+}
+
+/// The strategies `on_account_merge` takes.
+const MERGE_STRATEGIES: &[(&str, &str)] = &[
+	("reassign", "Reassign"),
+	("reassign_skip_conflicts", "ReassignSkipConflicts"),
+	("keep_survivor", "KeepSurvivor"),
+	("keep_newest", "KeepNewest"),
+	("custom", "Custom"),
+];
+
+/// The `MergeStrategy` variant `on_account_merge = strategy` names.
+pub(crate) fn merge_strategy(strategy: &Ident) -> Ident {
+	let (_, variant) = MERGE_STRATEGIES
+		.iter()
+		.find(|(name, _)| strategy == name)
+		.expect("parsing checked the strategy");
+	Ident::new(variant, strategy.span())
 }
 
 impl TableArgs {
@@ -38,6 +60,7 @@ impl TableArgs {
 		let mut checks = Vec::new();
 		let mut renamed_from = None;
 		let mut pack = None;
+		let mut on_account_merge = None;
 		let mut krate = None;
 
 		let parser = syn::meta::parser(|meta| {
@@ -80,12 +103,24 @@ impl TableArgs {
 				renamed_from = Some(string(&meta)?);
 			} else if meta.path.is_ident("pack") {
 				pack = Some(string(&meta)?);
+			} else if meta.path.is_ident("on_account_merge") {
+				let strategy: Ident = meta.value()?.parse()?;
+
+				if !MERGE_STRATEGIES.iter().any(|(name, _)| strategy == name) {
+					return Err(syn::Error::new(
+						strategy.span(),
+						"`on_account_merge` is `reassign`, `reassign_skip_conflicts`, \
+						 `keep_survivor`, `keep_newest`, or `custom`",
+					));
+				}
+
+				on_account_merge = Some(strategy);
 			} else if meta.path.is_ident("crate") {
 				krate = Some(string(&meta)?.parse()?);
 			} else {
 				return Err(meta.error(
 					"unknown table option; expected `name`, `namespace`, `public`, `index`, \
-					 `unique`, `check`, `renamed_from`, `pack`, or `crate`",
+					 `unique`, `check`, `renamed_from`, `pack`, `on_account_merge`, or `crate`",
 				));
 			}
 
@@ -111,6 +146,7 @@ impl TableArgs {
 			checks,
 			renamed_from,
 			pack,
+			on_account_merge,
 			krate,
 		})
 	}

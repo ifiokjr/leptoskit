@@ -39,6 +39,8 @@
   - [Microsoft](guide/auth/providers/microsoft.md)
   - [GitHub](guide/auth/providers/github.md)
   - [Any OpenID Connect provider](guide/auth/providers/oidc.md)
+  - [Solana wallets](guide/auth/wallets.md)
+  - [Merging accounts](guide/auth/merging.md)
 - [Publishing to the stores](guide/24-publishing.md)
 
 # Reference

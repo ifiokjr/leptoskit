@@ -27,6 +27,14 @@
 //! [`regenerate_recovery_codes`] change it; and [`step_up`] answers the
 //! `step_up_required` that sensitive actions return.
 //!
+//! Solana wallets are the same everywhere too: [`use_wallet_apps`] lists
+//! the wallets this device offers, [`link_wallet`] and [`wallet_sign_in`]
+//! ask one to sign, and [`use_wallets`], [`update_wallet`], and
+//! [`unlink_wallet`] manage the linked ones. A browser reaches wallets
+//! through the Wallet Standard; a native app answers `unsupported` for the
+//! calls that need a wallet to sign until a native wallet adapter exists,
+//! and manages linked wallets like any other device.
+//!
 //! Every target speaks the `/auth` routes. What differs is where the
 //! session lives, and the client picks that itself:
 //!
@@ -70,6 +78,11 @@ use crate::RenamePasskey;
 use crate::Session;
 use crate::StartProvider;
 use crate::TotpSetup;
+use crate::UpdateWallet;
+use crate::Wallet;
+use crate::WalletInfo;
+use crate::WalletLinked;
+use crate::WalletSettings;
 
 #[cfg_attr(
 	all(feature = "guest", target_arch = "wasm32"),
@@ -87,6 +100,8 @@ mod qr;
 mod server;
 #[cfg(all(test, feature = "axum", feature = "sqlite"))]
 mod tests;
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+mod wallet_standard;
 
 /// Where the client finds the server, and what a native app calls its
 /// device. Pass it to [`configure`] once, when the app starts; the same call
@@ -226,6 +241,41 @@ impl std::fmt::Debug for MergeInput {
 	}
 }
 
+/// A wallet app this device offers, such as Phantom or Solflare: in the
+/// browser, each one that registered through the Wallet Standard and
+/// supports Solana.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct WalletApp {
+	/// Its name, which [`link_wallet`] and [`wallet_sign_in`] take.
+	pub name: String,
+	/// Its icon, as a `data:` URI.
+	pub icon: String,
+	/// Whether it signs Sign-In With Solana messages itself
+	/// (`solana:signIn`), showing the person the site and the statement.
+	/// Otherwise it signs the message's text (`solana:signMessage`).
+	pub sign_in: bool,
+}
+
+/// What [`link_wallet`] needs: which wallet app, and what to call the
+/// wallet.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinkWalletInput {
+	/// The wallet app's [`WalletApp::name`].
+	pub wallet: String,
+	/// A name for the wallet, such as "Treasury".
+	pub label: Option<String>,
+}
+
+/// What [`prove_wallet`] needs: which wallet app, and which linked
+/// address must sign.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProveWalletInput {
+	/// The wallet app's [`WalletApp::name`].
+	pub wallet: String,
+	/// The linked wallet's address.
+	pub address: leptoskit_db::Pubkey,
+}
+
 /// What every target's client can do. The scopes call it.
 pub(crate) trait Api: Send + Sync + 'static {
 	fn session(&self) -> Pending<'_, Option<PublicSession>>;
@@ -260,6 +310,14 @@ pub(crate) trait Api: Send + Sync + 'static {
 	fn merge_offer(&self) -> Pending<'_, Option<MergeOffer>>;
 	fn merge_accounts(&self, input: MergeInput) -> Pending<'_, ()>;
 	fn cancel_merge(&self) -> Pending<'_, ()>;
+	fn wallet_settings(&self) -> Pending<'_, WalletSettings>;
+	fn wallet_apps(&self) -> Pending<'_, Vec<WalletApp>>;
+	fn wallets(&self) -> Pending<'_, Vec<WalletInfo>>;
+	fn link_wallet(&self, input: LinkWalletInput) -> Pending<'_, WalletLinked>;
+	fn prove_wallet(&self, input: ProveWalletInput) -> Pending<'_, WalletInfo>;
+	fn update_wallet(&self, input: UpdateWallet) -> Pending<'_, WalletInfo>;
+	fn unlink_wallet(&self, id: Id<Wallet>) -> Pending<'_, ()>;
+	fn wallet_sign_in(&self, wallet: String) -> Pending<'_, SignInStep>;
 }
 
 /// A call to the server, in flight.
@@ -736,4 +794,130 @@ pub fn cancel_merge() -> MutationScope<(), (), ErrorResponse> {
 			args.client.invalidate_scope(&merge_offer()).await;
 		}
 	})
+}
+
+/// The wallet settings query: whether wallets work on this server, whether
+/// they may sign in, and the Solana cluster.
+pub fn wallet_settings() -> QueryScope<(), WalletSettings, ErrorResponse> {
+	QueryScope::new(|()| async { api().wallet_settings().await })
+}
+
+/// The server's wallet settings, as a query handle.
+#[track_caller]
+pub fn use_wallet_settings() -> QueryHandle<WalletSettings, ErrorResponse> {
+	use_query(wallet_settings(), || ())
+}
+
+/// The wallet apps query: the Solana wallets this device offers.
+///
+/// Fails with `unsupported` in a native app, until a native wallet adapter
+/// exists.
+pub fn wallet_apps() -> QueryScope<(), Vec<WalletApp>, ErrorResponse> {
+	QueryScope::new(|()| async { api().wallet_apps().await })
+}
+
+/// The wallet apps this device offers, as a query handle, for a row of
+/// "Phantom", "Solflare", … buttons.
+#[track_caller]
+pub fn use_wallet_apps() -> QueryHandle<Vec<WalletApp>, ErrorResponse> {
+	use_query(wallet_apps(), || ())
+}
+
+/// The linked wallets query: the signed-in person's wallets, newest first.
+pub fn wallets() -> QueryScope<(), Vec<WalletInfo>, ErrorResponse> {
+	QueryScope::new(|()| async { api().wallets().await })
+}
+
+/// The signed-in person's linked wallets, as a query handle.
+#[track_caller]
+pub fn use_wallets() -> QueryHandle<Vec<WalletInfo>, ErrorResponse> {
+	use_query(wallets(), || ())
+}
+
+/// Links a wallet to the signed-in person's account: the wallet app asks
+/// them to sign a message bound to this site, and the server checks it. It
+/// can't sign in until they turn that on with [`update_wallet`]. On
+/// success, the linked wallets query refetches, and after
+/// [`WalletLinked::Merge`] the merge offer query too.
+///
+/// Fails with `reauthenticate` or `step_up_required` (sign in again, or step
+/// up, first), `cancelled` when the person declines in the wallet,
+/// `no_wallet` when the device has no wallet app by that name,
+/// `wallet_failed`, `wallet_in_use` when another account has it and it
+/// can't sign in there, `rate_limited`, or `unsupported` in a native app.
+pub fn link_wallet() -> MutationScope<LinkWalletInput, WalletLinked, ErrorResponse> {
+	MutationScope::new(|input: LinkWalletInput| async move { api().link_wallet(input).await })
+		.with_on_success_async(|args| {
+			async move {
+				args.client.invalidate_scope(&wallets()).await;
+
+				if args.data == WalletLinked::Merge {
+					args.client.invalidate_scope(&merge_offer()).await;
+				}
+			}
+		})
+}
+
+/// Asks a linked wallet to sign again, so actions that need a fresh proof,
+/// such as a payout, accept it for a while. Answer `proof_required` with
+/// this. On success, the linked wallets query refetches.
+///
+/// Fails with `cancelled`, `no_wallet`, `wallet_failed` when the wallet app
+/// signed with another address, `not_found`, or `unsupported` in a native
+/// app.
+pub fn prove_wallet() -> MutationScope<ProveWalletInput, WalletInfo, ErrorResponse> {
+	MutationScope::new(|input: ProveWalletInput| async move { api().prove_wallet(input).await })
+		.with_on_success_async(|args| {
+			async move {
+				args.client.invalidate_scope(&wallets()).await;
+			}
+		})
+}
+
+/// Renames a linked wallet, shows or hides it on the person's profile, or
+/// turns signing in with it on or off. On success, the linked wallets query
+/// refetches.
+///
+/// Fails with `not_found`, `reauthenticate` or `step_up_required` when
+/// changing whether it signs in, `last_sign_in_method`, or `unsupported`
+/// when the server doesn't let wallets sign in.
+pub fn update_wallet() -> MutationScope<UpdateWallet, WalletInfo, ErrorResponse> {
+	MutationScope::new(|input: UpdateWallet| async move { api().update_wallet(input).await })
+		.with_on_success_async(|args| {
+			async move {
+				args.client.invalidate_scope(&wallets()).await;
+			}
+		})
+}
+
+/// Unlinks a wallet, after a fresh sign-in or step-up. On success, the
+/// linked wallets query refetches.
+///
+/// Fails with `reauthenticate`, `step_up_required`, `not_found`, or
+/// `last_sign_in_method`.
+pub fn unlink_wallet() -> MutationScope<Id<Wallet>, (), ErrorResponse> {
+	MutationScope::new(|id: Id<Wallet>| async move { api().unlink_wallet(id).await })
+		.with_on_success_async(|args| {
+			async move {
+				args.client.invalidate_scope(&wallets()).await;
+			}
+		})
+}
+
+/// Signs in with the wallet app it's given, when its owner let that wallet
+/// sign in. A wallet is one factor: an account with two-step verification
+/// answers [`SignInStep::SecondFactor`], and [`complete_sign_in`] finishes.
+/// On success, the session query holds the new session.
+///
+/// Fails with `cancelled`, `no_wallet`, `wallet_failed`, `unknown_wallet`
+/// when no account lets this wallet sign in, `disabled`, `locked`,
+/// `rate_limited`, or `unsupported` when the server doesn't let wallets
+/// sign in, or in a native app.
+pub fn wallet_sign_in() -> MutationScope<String, SignInStep, ErrorResponse> {
+	MutationScope::new(|wallet: String| async move { api().wallet_sign_in(wallet).await })
+		.with_on_success(|args| {
+			if let SignInStep::SignedIn(signed_in) = args.data {
+				args.client.set_query_data(&session(), (), Some(signed_in));
+			}
+		})
 }

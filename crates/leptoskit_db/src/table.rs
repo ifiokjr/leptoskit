@@ -352,6 +352,10 @@ impl TableBuilder {
 		self.table.foreign_keys.push(foreign_key);
 	}
 
+	pub fn on_account_merge(&mut self, strategy: leptoskit_db_schema::MergeStrategy) {
+		self.table.on_account_merge = Some(strategy);
+	}
+
 	pub fn build(self) -> leptoskit_db_schema::Table {
 		self.table
 	}

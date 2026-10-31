@@ -1052,6 +1052,13 @@ impl Table<'_> {
 			calls.push(quote! { table.sql_check(#name, #sql); });
 		}
 
+		if let Some(strategy) = &self.args.on_account_merge {
+			let variant = crate::attrs::merge_strategy(strategy);
+			calls.push(quote! {
+				table.on_account_merge(#krate::__private::schema::MergeStrategy::#variant);
+			});
+		}
+
 		quote! {
 			let mut table = #krate::__private::TableBuilder::new(#namespace, #table_name, #comment, #renamed_from);
 			#(#calls)*

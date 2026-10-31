@@ -133,6 +133,10 @@ auth-passkeys = ["auth", "leptoskit_auth/passkey"]
 ## `[auth.providers]`, for Google, Apple, Microsoft, GitHub, and any OpenID
 ## Connect issuer. Turn it on in the server's crate only.
 auth-providers = ["auth", "leptoskit_auth/oauth"]
+## Solana wallets on the server: linking with signed Sign-In With Solana
+## messages, verified as ed25519, and optional wallet sign-in. Turn it on for
+## the server's crate only.
+auth-solana = ["auth", "leptoskit_auth/solana"]
 linux = ["gtk"]
 macos = ["appkit"]
 # leptos's `nightly` feature, for its macro and renderer. Requires a nightly

@@ -53,6 +53,8 @@ mod json;
 #[cfg(feature = "server")]
 mod link;
 #[cfg(feature = "server")]
+pub mod merge;
+#[cfg(feature = "server")]
 mod migrate;
 mod mixins;
 #[cfg(feature = "server")]
@@ -62,6 +64,8 @@ mod postgres;
 #[cfg(feature = "server")]
 mod query;
 mod scalars;
+#[cfg(feature = "solana")]
+mod solana;
 #[cfg(feature = "server")]
 mod sql;
 #[cfg(feature = "sqlite")]
@@ -204,6 +208,12 @@ pub use query::Update;
 pub use scalars::Email;
 pub use scalars::Slug;
 pub use scalars::Url;
+#[cfg(feature = "solana")]
+pub use solana::Pubkey;
+#[cfg(feature = "solana")]
+pub use solana::Signature;
+#[cfg(feature = "solana")]
+pub use solana::base58;
 #[cfg(feature = "server")]
 pub use sql::Statement;
 #[cfg(feature = "server")]
