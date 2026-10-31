@@ -8,12 +8,13 @@
 //! `LEPTOSKIT_BENCH_JSON_END` lines for the harness to harvest.
 //!
 //! ```text
-//! leptoskit_bench [--out run.json] [--runs 15] [--warmup 2] [--subject native-host] [--only native|yoga|wasm|tap|js]
+//! leptoskit_bench [--out run.json] [--runs 15] [--warmup 2] [--subject native-host] [--only native|yoga|wasm|screen|tap|js]
 //! ```
 
 #[cfg(feature = "js")]
 mod js_layer;
 mod report;
+mod screen;
 mod tap;
 mod view;
 mod wasm_layer;
@@ -83,6 +84,10 @@ fn run() -> Result<(), String> {
 	if wants(only, "wasm") {
 		eprintln!("[bench] wasm layer");
 		wasm_layer::run(&mut report, config, GUEST_WASM)?;
+	}
+	if wants(only, "screen") {
+		eprintln!("[bench] screen layer");
+		screen::run(&mut report, config, SCREEN_WASM);
 	}
 	if wants(only, "tap") {
 		eprintln!("[bench] tap");

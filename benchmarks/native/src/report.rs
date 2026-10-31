@@ -60,6 +60,20 @@ impl Report {
 		);
 	}
 
+	/// Records a counted quantity per sample, such as interpreter
+	/// instructions or bytes.
+	pub fn count(&mut self, id: &str, values: Vec<f64>, label: &str) {
+		self.metrics.insert(
+			id.to_owned(),
+			Metric {
+				unit: "count",
+				class: "count",
+				label: label.to_owned(),
+				values,
+			},
+		);
+	}
+
 	/// Records why a layer was skipped, so a missing section is explained.
 	pub fn note(&mut self, note: impl Into<String>) {
 		self.notes.push(note.into());
