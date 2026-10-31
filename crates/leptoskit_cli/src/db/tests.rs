@@ -627,9 +627,7 @@ fn the_push_and_branch_commands_say_what_they_did() {
 		return;
 	};
 	let git = |args: &[&str]| {
-		let status = std::process::Command::new("git")
-			.arg("-C")
-			.arg(root.path())
+		let status = crate::git::command(root.path())
 			.args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
 			.args(args)
 			.env("GIT_CONFIG_GLOBAL", root.path().join("no-global-config"))

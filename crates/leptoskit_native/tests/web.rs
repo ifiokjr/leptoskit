@@ -146,9 +146,38 @@ fn rejects_children_of_void_controls() {
 	let _ = render(Element::image("/image.png").child(Element::text("Invalid child")));
 }
 
+/// The server's markup as an app without devtools gets it, which is what
+/// the fixtures hold: with the `devtools` feature, each node also carries a
+/// `data-lk-node` path for picking, which this checks and removes.
+fn as_without_devtools(html: String) -> String {
+	const MARK: &str = " data-lk-node=\"";
+
+	if !cfg!(feature = "devtools") {
+		assert!(!html.contains(MARK), "only devtools builds mark nodes");
+		return html;
+	}
+
+	assert!(
+		html.contains(MARK),
+		"devtools builds mark nodes for picking"
+	);
+	let mut rest = html.as_str();
+	let mut plain = String::with_capacity(html.len());
+
+	while let Some(start) = rest.find(MARK) {
+		plain.push_str(&rest[..start]);
+		let value = &rest[start + MARK.len()..];
+		let end = value.find('"').expect("the mark's value is quoted");
+		rest = &value[end + 1..];
+	}
+
+	plain.push_str(rest);
+	plain
+}
+
 #[test]
 fn hydration_fixture_matches_server_rendering() {
-	let html = render(hydration_fixture()).to_html();
+	let html = as_without_devtools(render(hydration_fixture()).to_html());
 
 	if std::env::var_os("UPDATE_LEPTOSKIT_WEB_FIXTURE").is_some() {
 		std::fs::write(
@@ -197,7 +226,7 @@ fn new_controls_render_semantic_state_without_browser_only_radio_names() {
 
 #[test]
 fn controls_hydration_fixture_matches_server_rendering() {
-	let html = render(control_fixture()).to_html();
+	let html = as_without_devtools(render(control_fixture()).to_html());
 
 	if std::env::var_os("UPDATE_LEPTOSKIT_WEB_FIXTURE").is_some() {
 		std::fs::write(
@@ -287,11 +316,13 @@ fn radio_group_names_are_valid_before_server_rendering_and_hydration() {
 		assert!(RadioGroup::new(invalid).is_err());
 	}
 
-	let html = render(View().children([
-		Radio(RadioGroup::new("a�b").unwrap(), true).accessibility_label("Replacement"),
-		Radio(RadioGroup::new("aéb").unwrap(), true).accessibility_label("Unicode"),
-	]))
-	.to_html();
+	let html = as_without_devtools(
+		render(View().children([
+			Radio(RadioGroup::new("a�b").unwrap(), true).accessibility_label("Replacement"),
+			Radio(RadioGroup::new("aéb").unwrap(), true).accessibility_label("Unicode"),
+		]))
+		.to_html(),
+	);
 	assert!(html.contains("data-lk-radio-group=\"a�b\""));
 	assert!(html.contains("data-lk-radio-group=\"aéb\""));
 

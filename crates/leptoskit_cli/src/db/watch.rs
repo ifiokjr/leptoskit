@@ -676,9 +676,7 @@ mod push_tests {
 	#[test]
 	fn the_dev_loop_moves_to_each_branch_s_database() {
 		let git = |root: &Path, args: &[&str]| {
-			let status = std::process::Command::new("git")
-				.arg("-C")
-				.arg(root)
+			let status = crate::git::command(root)
 				.args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
 				.args(args)
 				.env("GIT_CONFIG_GLOBAL", root.join("no-global-config"))

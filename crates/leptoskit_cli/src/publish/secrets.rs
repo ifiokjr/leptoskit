@@ -69,9 +69,7 @@ impl Credentials {
 			.with_context(|| format!("could not read {}", file.display()))?;
 		let root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
 		if absolute.starts_with(&root) {
-			let ignored = std::process::Command::new("git")
-				.arg("-C")
-				.arg(&root)
+			let ignored = crate::git::command(&root)
 				.args(["check-ignore", "-q"])
 				.arg(&absolute)
 				.stderr(std::process::Stdio::null())

@@ -24,6 +24,7 @@ pub mod devtools;
 pub mod doctor;
 pub mod extension;
 pub mod generate;
+mod git;
 pub mod l10n;
 pub mod lint;
 pub mod mcp;
