@@ -96,6 +96,7 @@ async fn providers_and_the_mfa_policy_come_from_leptoskit_toml() {
 		"chat".to_owned(),
 		AuthProviderConfig {
 			kind: Some("discord".into()),
+			store_tokens: true,
 			..provider(&shared)
 		},
 	);

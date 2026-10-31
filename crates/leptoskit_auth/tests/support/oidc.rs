@@ -227,6 +227,12 @@ struct Grant {
 struct State {
 	grants: HashMap<String, Grant>,
 	tokens: HashMap<String, Value>,
+	/// Live refresh tokens, each for one client of one provider.
+	refresh: HashMap<String, (Spec, String)>,
+	/// Tokens revoked at a revocation endpoint.
+	revoked: Vec<String>,
+	/// Tokens issued so far, to keep each one different.
+	issued: u64,
 	tamper: Tamper,
 	apple_key: Option<Vec<u8>>,
 	requests: Vec<String>,
@@ -272,6 +278,9 @@ impl FakeIdp {
 			state: Arc::new(Mutex::new(State {
 				grants: HashMap::new(),
 				tokens: HashMap::new(),
+				refresh: HashMap::new(),
+				revoked: Vec::new(),
+				issued: 0,
 				tamper: Tamper::Nothing,
 				apple_key: None,
 				requests: Vec::new(),
@@ -289,6 +298,16 @@ impl FakeIdp {
 	/// Checks Apple client secrets against this public key.
 	pub fn trust_apple_key(&self, public: Vec<u8>) {
 		self.state.lock().unwrap().apple_key = Some(public);
+	}
+
+	/// Ends every grant: refresh tokens stop working.
+	pub fn end_grants(&self) {
+		self.state.lock().unwrap().refresh.clear();
+	}
+
+	/// The tokens apps revoked so far.
+	pub fn revoked(&self) -> Vec<String> {
+		self.state.lock().unwrap().revoked.clone()
 	}
 
 	/// The URLs requested so far.
@@ -453,6 +472,10 @@ impl FakeIdp {
 				.into_owned()
 				.collect()
 		};
+		if form.get("grant_type").map(String::as_str) == Some("refresh_token") {
+			return self.refreshed(request, &form);
+		}
+
 		let Some(code) = form.get("code") else {
 			return (400, json!({ "error": "invalid_request" }));
 		};
@@ -522,6 +545,8 @@ impl FakeIdp {
 				.unwrap_or_else(|| json!({}));
 			answer["access_token"] = access.as_str().into();
 			answer["token_type"] = "bearer".into();
+			answer["refresh_token"] = self.issue_refresh(grant.spec, &grant.client_id).into();
+			answer["expires_in"] = 3600.into();
 			self.state
 				.lock()
 				.unwrap()
@@ -532,8 +557,68 @@ impl FakeIdp {
 
 		(
 			200,
-			json!({ "access_token": "opaque", "id_token": self.id_token(&grant) }),
+			json!({
+				"access_token": format!("access-{}", self.next()),
+				"refresh_token": self.issue_refresh(grant.spec, &grant.client_id),
+				"expires_in": 3600,
+				"scope": "granted",
+				"id_token": self.id_token(&grant),
+			}),
 		)
+	}
+
+	fn next(&self) -> u64 {
+		let mut state = self.state.lock().unwrap();
+		state.issued += 1;
+		state.issued
+	}
+
+	fn issue_refresh(&self, spec: Spec, client_id: &str) -> String {
+		let refresh = format!("refresh-{}", self.next());
+		self.state
+			.lock()
+			.unwrap()
+			.refresh
+			.insert(refresh.clone(), (spec, client_id.to_owned()));
+		refresh
+	}
+
+	/// The refresh grant: each refresh token works once, for the client it
+	/// was issued to, authenticated as its provider wants.
+	fn refreshed(&self, request: &ProviderRequest, form: &HashMap<String, String>) -> (u16, Value) {
+		let presented = form.get("refresh_token").cloned().unwrap_or_default();
+		let Some((spec, client_id)) = self.state.lock().unwrap().refresh.remove(&presented) else {
+			return (400, json!({ "error": "invalid_grant" }));
+		};
+		let basic =
+			header(request, "authorization").is_some_and(|value| value.starts_with("Basic "));
+		let named = basic || form.get(spec.client_param) == Some(&client_id);
+
+		if basic != spec.basic || !named {
+			return (400, json!({ "error": "invalid_client" }));
+		}
+
+		(
+			200,
+			json!({
+				"access_token": format!("access-{}", self.next()),
+				"refresh_token": self.issue_refresh(spec, &client_id),
+				"expires_in": 3600,
+			}),
+		)
+	}
+
+	/// A revocation endpoint (RFC 7009): the token stops working.
+	fn revoke(&self, request: &ProviderRequest) -> (u16, Value) {
+		let form: HashMap<String, String> =
+			url::form_urlencoded::parse(request.body.as_deref().unwrap_or_default().as_bytes())
+				.into_owned()
+				.collect();
+		let token = form.get("token").cloned().unwrap_or_default();
+		let mut state = self.state.lock().unwrap();
+		state.refresh.remove(&token);
+		state.revoked.push(token);
+		(200, json!({}))
 	}
 
 	/// Whether an Apple client secret is an ES256 JWT for the grant's
@@ -592,6 +677,7 @@ impl FakeIdp {
 						"authorization_endpoint": "https://sso.example/authorize",
 						"token_endpoint": "https://sso.example/token",
 						"jwks_uri": "https://sso.example/jwks",
+						"revocation_endpoint": "https://sso.example/revoke",
 					}),
 				)
 			}
@@ -600,6 +686,7 @@ impl FakeIdp {
 			"GET" if API_HOSTS.contains(&host) => {
 				self.profile(&url, header(request, "authorization"))
 			}
+			"POST" if url.path().contains("revoke") => self.revoke(request),
 			"POST" if SPECS.iter().any(|spec| spec.token_host == host) => self.token(request),
 			_ => (404, json!({ "error": "not_found" })),
 		}

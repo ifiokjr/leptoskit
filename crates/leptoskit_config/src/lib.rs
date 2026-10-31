@@ -1400,6 +1400,11 @@ pub struct AuthProviderConfig {
 	/// The scopes to ask for, instead of the provider's defaults.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub scopes: Option<Vec<String>>,
+	/// Keeps the provider's access and refresh tokens, encrypted with the
+	/// server's keys, so the app can call its API on the person's behalf.
+	/// Off by default: signing in doesn't need them.
+	#[serde(skip_serializing_if = "std::ops::Not::not")]
+	pub store_tokens: bool,
 }
 
 impl AuthProviderConfig {

@@ -90,6 +90,8 @@ pub struct Provider {
 	secret: Secret,
 	pub(crate) scopes: Vec<String>,
 	endpoints: Option<Endpoints>,
+	/// Whether its tokens are kept, for the app to call its API.
+	pub(crate) store_tokens: bool,
 	quirks: Quirks,
 }
 
@@ -150,6 +152,9 @@ pub(crate) struct Quirks {
 	pkce: bool,
 	/// How the token endpoint takes its fields.
 	token_body: TokenBody,
+	/// What a sign-in asks for to get a refresh token, when the app keeps
+	/// tokens.
+	offline: Offline,
 }
 
 impl Default for Quirks {
@@ -164,6 +169,7 @@ impl Default for Quirks {
 			scope_separator: " ",
 			pkce: true,
 			token_body: TokenBody::Form,
+			offline: Offline::Given,
 		}
 	}
 }
@@ -200,6 +206,20 @@ impl Default for IdTokenRules {
 			scope_claim: None,
 		}
 	}
+}
+
+/// What a sign-in asks for to get a refresh token, for a provider whose
+/// tokens the app keeps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Offline {
+	/// Nothing: it gives one when it gives any.
+	Given,
+	/// A parameter on the authorization page, such as Google's
+	/// `access_type=offline`. It replaces a quirk's own parameter of the
+	/// same name, such as Reddit's `duration`.
+	Param(&'static str, &'static str),
+	/// A scope, such as OpenID Connect's `offline_access`.
+	Scope(&'static str),
 }
 
 /// How a token endpoint takes its fields.
@@ -247,6 +267,10 @@ pub(crate) struct Endpoints {
 	jwks_uri: Option<String>,
 	#[serde(default)]
 	userinfo_endpoint: Option<String>,
+	/// Where tokens are revoked (RFC 7009), when the provider has such a
+	/// place.
+	#[serde(default)]
+	revocation_endpoint: Option<String>,
 }
 
 impl Endpoints {
@@ -257,7 +281,14 @@ impl Endpoints {
 			token_endpoint: token.to_owned(),
 			jwks_uri: jwks.map(str::to_owned),
 			userinfo_endpoint: None,
+			revocation_endpoint: None,
 		}
+	}
+
+	/// Revokes tokens at `url`.
+	fn revoked_at(mut self, url: &str) -> Self {
+		self.revocation_endpoint = Some(url.to_owned());
+		self
 	}
 }
 
@@ -299,14 +330,19 @@ impl Provider {
 			client_id: client_id.into(),
 			secret: Secret::Shared(client_secret.into()),
 			scopes: vec!["openid".into(), "email".into(), "profile".into()],
-			endpoints: Some(Endpoints::fixed(
-				"https://accounts.google.com/o/oauth2/v2/auth",
-				"https://oauth2.googleapis.com/token",
-				Some("https://www.googleapis.com/oauth2/v3/certs"),
-				Some("https://accounts.google.com"),
-			)),
+			endpoints: Some(
+				Endpoints::fixed(
+					"https://accounts.google.com/o/oauth2/v2/auth",
+					"https://oauth2.googleapis.com/token",
+					Some("https://www.googleapis.com/oauth2/v3/certs"),
+					Some("https://accounts.google.com"),
+				)
+				.revoked_at("https://oauth2.googleapis.com/revoke"),
+			),
+			store_tokens: false,
 			quirks: Quirks {
 				select_account: true,
+				offline: Offline::Param("access_type", "offline"),
 				..Quirks::default()
 			},
 		}
@@ -343,12 +379,16 @@ impl Provider {
 				key: Box::new(key),
 			},
 			scopes: vec!["name".into(), "email".into()],
-			endpoints: Some(Endpoints::fixed(
-				"https://appleid.apple.com/auth/authorize",
-				"https://appleid.apple.com/auth/token",
-				Some("https://appleid.apple.com/auth/keys"),
-				Some("https://appleid.apple.com"),
-			)),
+			endpoints: Some(
+				Endpoints::fixed(
+					"https://appleid.apple.com/auth/authorize",
+					"https://appleid.apple.com/auth/token",
+					Some("https://appleid.apple.com/auth/keys"),
+					Some("https://appleid.apple.com"),
+				)
+				.revoked_at("https://appleid.apple.com/auth/revoke"),
+			),
+			store_tokens: false,
 			quirks: Quirks::default(),
 		})
 	}
@@ -375,12 +415,14 @@ impl Provider {
 				Some(&format!("{base}/discovery/v2.0/keys")),
 				None,
 			)),
+			store_tokens: false,
 			quirks: Quirks {
 				identify: Identify::IdToken(IdTokenRules {
 					trust_email: false,
 					..IdTokenRules::default()
 				}),
 				select_account: true,
+				offline: Offline::Scope("offline_access"),
 				..Quirks::default()
 			},
 		}
@@ -401,6 +443,7 @@ impl Provider {
 				None,
 				None,
 			)),
+			store_tokens: false,
 			quirks: Quirks {
 				identify: Identify::Api(Box::new(ApiProfile::github())),
 				select_account: true,
@@ -449,8 +492,10 @@ impl Provider {
 			secret: client_secret.map_or(Secret::None, Secret::Shared),
 			scopes: vec!["openid".into(), "email".into(), "profile".into()],
 			endpoints: None,
+			store_tokens: false,
 			quirks: Quirks {
 				select_account: true,
+				offline: Offline::Scope("offline_access"),
 				..Quirks::default()
 			},
 		})
@@ -466,6 +511,18 @@ impl Provider {
 			self.scopes.insert(0, "openid".into());
 		}
 
+		self
+	}
+
+	/// Keeps its access and refresh tokens, sealed, so the app can call its
+	/// API on the person's behalf with
+	/// [`Auth::provider_access_token`](crate::Auth::provider_access_token).
+	/// Off by default: an app that only signs people in has no use for
+	/// them. Where the provider needs asking for a refresh token, such as
+	/// Google's `access_type=offline`, sign-in asks.
+	#[must_use]
+	pub fn store_tokens(mut self, store: bool) -> Self {
+		self.store_tokens = store;
 		self
 	}
 
@@ -733,6 +790,7 @@ impl Providers {
 			Some(&endpoints.authorization_endpoint),
 			Some(&endpoints.token_endpoint),
 			endpoints.jwks_uri.as_ref(),
+			endpoints.revocation_endpoint.as_ref(),
 		];
 
 		if urls.into_iter().flatten().any(|url| !secure_url(url)) || endpoints.jwks_uri.is_none() {
@@ -769,6 +827,85 @@ impl Providers {
 		let key = keys.find(kid).cloned();
 		lock(&self.keys).insert(uri.to_owned(), (Instant::now(), keys));
 		key.ok_or_else(|| AuthError::Provider("the ID token's key isn't published".into()))
+	}
+}
+
+impl Providers {
+	/// Trades `refresh` for new tokens at `provider`. `None` when the
+	/// provider ended the grant (`invalid_grant`), so asking again won't
+	/// help.
+	pub(crate) async fn refresh(
+		&self,
+		provider: &Provider,
+		refresh: &str,
+		user_agent: Option<(String, String)>,
+	) -> Result<Option<crate::providers::ProviderGrant>> {
+		let endpoints = self.endpoints(provider).await?;
+		let fields = vec![
+			("grant_type", "refresh_token".to_owned()),
+			("refresh_token", refresh.to_owned()),
+		];
+		let mut request = token_request(provider, &endpoints.token_endpoint, fields)?;
+		request.headers.extend(user_agent);
+		let url = request.url.clone();
+		let response = self.send(request).await?;
+		let answer: serde_json::Value = serde_json::from_slice(&response.body).unwrap_or_default();
+		let error = answer.get("error").filter(|error| !error.is_null());
+
+		if error.and_then(serde_json::Value::as_str) == Some("invalid_grant") {
+			return Ok(None);
+		}
+
+		if let Some(error) = error {
+			return Err(AuthError::Provider(format!(
+				"{url} refused to refresh: {}",
+				describe(error)
+			)));
+		}
+
+		if !(200..300).contains(&response.status) {
+			return Err(AuthError::Provider(format!(
+				"{url} answered {}",
+				response.status
+			)));
+		}
+
+		grant(&answer)
+			.map(Some)
+			.ok_or_else(|| AuthError::Provider(format!("{url} answered without an access token")))
+	}
+
+	/// Revokes `token` (RFC 7009) at `provider`, when it has somewhere to
+	/// do that.
+	pub(crate) async fn revoke(
+		&self,
+		provider: &Provider,
+		token: &str,
+		refresh: bool,
+	) -> Result<()> {
+		let endpoints = self.endpoints(provider).await?;
+		let Some(url) = &endpoints.revocation_endpoint else {
+			return Ok(());
+		};
+		let hint = if refresh {
+			"refresh_token"
+		} else {
+			"access_token"
+		};
+		let fields = vec![
+			("token", token.to_owned()),
+			("token_type_hint", hint.to_owned()),
+		];
+		let response = self.send(token_request(provider, url, fields)?).await?;
+
+		if (200..300).contains(&response.status) {
+			Ok(())
+		} else {
+			Err(AuthError::Provider(format!(
+				"{url} answered {}",
+				response.status
+			)))
+		}
 	}
 }
 
@@ -1142,6 +1279,14 @@ impl Auth {
 		self.inner.providers.info()
 	}
 
+	/// The `User-Agent` `provider` wants, if it wants one.
+	pub(crate) fn provider_user_agent(&self, provider: &Provider) -> Option<(String, String)> {
+		provider
+			.quirks
+			.user_agent
+			.then(|| app_user_agent(&self.inner.app_name))
+	}
+
 	/// The name of the provider `id`, for lists of connected accounts.
 	pub(crate) fn provider_name(&self, id: &str) -> String {
 		self.inner
@@ -1338,8 +1483,17 @@ impl Auth {
 				.append_pair("redirect_uri", &redirect_uri)
 				.append_pair("state", state.expose());
 
-			if !provider.scopes.is_empty() {
-				query.append_pair("scope", &provider.scopes.join(quirks.scope_separator));
+			let offline = provider.store_tokens.then_some(quirks.offline);
+			let mut scopes = provider.scopes.clone();
+
+			if let Some(Offline::Scope(scope)) = offline
+				&& !scopes.iter().any(|existing| existing == scope)
+			{
+				scopes.push(scope.to_owned());
+			}
+
+			if !scopes.is_empty() {
+				query.append_pair("scope", &scopes.join(quirks.scope_separator));
 			}
 
 			if quirks.pkce {
@@ -1356,7 +1510,18 @@ impl Auth {
 				query.append_pair("response_mode", "form_post");
 			}
 
-			for (name, value) in &provider.quirks.authorize {
+			let offline_param = match offline {
+				Some(Offline::Param(name, value)) => Some((name, value)),
+				_ => None,
+			};
+
+			for (name, value) in &quirks.authorize {
+				if offline_param.is_none_or(|(offline, _)| offline != *name) {
+					query.append_pair(name, value);
+				}
+			}
+
+			if let Some((name, value)) = offline_param {
 				query.append_pair(name, value);
 			}
 
@@ -1524,6 +1689,7 @@ impl Auth {
 				.or_else(|| params.user.as_deref().and_then(apple_name)),
 			preferred_username: claims.preferred_username,
 			picture: claims.picture,
+			grant: None,
 		};
 		Ok((flow, profile))
 	}
@@ -1568,11 +1734,18 @@ impl Auth {
 		let providers = &self.inner.providers;
 		let endpoints = providers.endpoints(provider).await?;
 		let redirect_uri = self.redirect_uri(provider)?;
-		let user_agent = provider
-			.quirks
-			.user_agent
-			.then(|| app_user_agent(&self.inner.app_name));
-		let mut request = token_request(provider, &endpoints, code, &redirect_uri, &flow.verifier)?;
+		let user_agent = self.provider_user_agent(provider);
+		let mut fields = vec![
+			("grant_type", "authorization_code".to_owned()),
+			("code", code.to_owned()),
+			("redirect_uri", redirect_uri),
+		];
+
+		if provider.quirks.pkce {
+			fields.push(("code_verifier", flow.verifier.clone()));
+		}
+
+		let mut request = token_request(provider, &endpoints.token_endpoint, fields)?;
 		request.headers.extend(user_agent.clone());
 		let tokens: serde_json::Value = providers.json(request).await?;
 
@@ -1589,7 +1762,7 @@ impl Auth {
 				.and_then(serde_json::Value::as_str)
 				.map(str::to_owned)
 		};
-		let profile = match &provider.quirks.identify {
+		let mut profile = match &provider.quirks.identify {
 			Identify::Api(api) => {
 				let access = text("access_token")
 					.ok_or_else(|| AuthError::Provider("no access token".into()))?;
@@ -1614,6 +1787,7 @@ impl Auth {
 					name: claims.name.or_else(|| given_and_family_name(&claims.other)),
 					preferred_username: claims.preferred_username,
 					picture: claims.picture,
+					grant: None,
 				};
 
 				if matches!(provider.flavor, Flavor::Apple) && profile.name.is_none() {
@@ -1623,6 +1797,7 @@ impl Auth {
 				profile
 			}
 		};
+		profile.grant = provider.store_tokens.then(|| grant(&tokens)).flatten();
 
 		Ok((flow, profile))
 	}
@@ -1646,14 +1821,13 @@ fn refusal(error: &str) -> AuthError {
 	}
 }
 
-/// The request that trades `code` for tokens, authenticated as the
-/// provider asks.
+/// A request to the token endpoint at `url`, or another endpoint that
+/// authenticates the app the same way, such as revocation: `fields`, with
+/// the app's credentials as the provider asks, as a form or JSON.
 fn token_request(
 	provider: &Provider,
-	endpoints: &Endpoints,
-	code: &str,
-	redirect_uri: &str,
-	verifier: &str,
+	url: &str,
+	mut fields: Vec<(&'static str, String)>,
 ) -> Result<ProviderRequest> {
 	let client_secret = match &provider.secret {
 		Secret::None => None,
@@ -1673,15 +1847,6 @@ fn token_request(
 	};
 	let quirks = &provider.quirks;
 	let mut headers = vec![("accept".to_owned(), "application/json".to_owned())];
-	let mut fields = vec![
-		("grant_type", "authorization_code".to_owned()),
-		("code", code.to_owned()),
-		("redirect_uri", redirect_uri.to_owned()),
-	];
-
-	if quirks.pkce {
-		fields.push(("code_verifier", verifier.to_owned()));
-	}
 
 	match client_secret {
 		Some(secret) if quirks.client_auth == ClientAuth::Basic => {
@@ -1714,9 +1879,28 @@ fn token_request(
 
 	Ok(ProviderRequest {
 		method: "POST",
-		url: endpoints.token_endpoint.clone(),
+		url: url.to_owned(),
 		headers,
 		body: Some(body),
+	})
+}
+
+/// The tokens a token endpoint's answer holds, to keep.
+fn grant(tokens: &serde_json::Value) -> Option<crate::providers::ProviderGrant> {
+	let text = |name: &str| {
+		tokens
+			.get(name)
+			.and_then(serde_json::Value::as_str)
+			.filter(|text| !text.is_empty())
+			.map(str::to_owned)
+	};
+	Some(crate::providers::ProviderGrant {
+		access_token: text("access_token")?,
+		refresh_token: text("refresh_token"),
+		expires_in: tokens
+			.get("expires_in")
+			.and_then(|seconds| seconds.as_i64().or_else(|| seconds.as_str()?.parse().ok())),
+		scope: text("scope"),
 	})
 }
 

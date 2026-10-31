@@ -157,6 +157,10 @@ fn providers(mut builder: AuthBuilder, auth: &AuthConfig) -> Result<AuthBuilder>
 			provider = provider.scopes(scopes.iter().cloned());
 		}
 
+		if config.store_tokens {
+			provider = provider.store_tokens(true);
+		}
+
 		builder = builder.provider(provider);
 	}
 
