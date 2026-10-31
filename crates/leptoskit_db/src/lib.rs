@@ -148,6 +148,8 @@ pub use expr::Order;
 #[cfg(feature = "server")]
 pub use expr::TextColumn;
 #[cfg(feature = "server")]
+pub use expr::Values;
+#[cfg(feature = "server")]
 pub use hooks::Actor;
 #[cfg(feature = "server")]
 pub use hooks::ActorColumn;
@@ -385,7 +387,11 @@ pub use search::Segment;
 #[cfg(feature = "server")]
 pub use search::ShapedSearch;
 #[cfg(feature = "server")]
+pub use settings::ListSetting;
+#[cfg(feature = "server")]
 pub use settings::Setting;
+#[cfg(feature = "server")]
+pub use settings::SettingList;
 #[cfg(feature = "server")]
 pub use settings::SettingValue;
 #[cfg(feature = "server")]

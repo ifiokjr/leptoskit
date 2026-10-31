@@ -741,7 +741,7 @@ impl Auth {
 		Ok(if wallets.is_empty() {
 			context
 		} else {
-			context.with(crate::Wallets(wallets))
+			context.with(crate::Wallets::new(wallets))
 		})
 	}
 }

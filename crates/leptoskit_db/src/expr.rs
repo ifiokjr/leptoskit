@@ -82,21 +82,11 @@ impl<T: Table, V: Column> Col<T, V> {
 		self.compare(Comparison::LessOrEqual, value)
 	}
 
-	/// The column is one of `values`. An empty list matches nothing.
-	pub fn in_list<O: Operand<V>>(&self, values: impl IntoIterator<Item = O>) -> Expr {
-		match values
-			.into_iter()
-			.map(Operand::into_value)
-			.collect::<Result<Vec<_>, _>>()
-		{
-			Ok(values) => {
-				Expr::In {
-					column: self.name,
-					values,
-				}
-			}
-			Err(error) => Expr::Invalid(error.to_string()),
-		}
+	/// The column is one of `values`: a list, or a list setting of the
+	/// request, `cx.setting_list::<Teams>()`. An empty list matches
+	/// nothing.
+	pub fn in_list(&self, values: impl Values<V>) -> Expr {
+		values.condition(self.name)
 	}
 
 	/// The column is `NULL`.
@@ -244,6 +234,46 @@ pub trait Operand<V> {
 	}
 }
 
+/// What [`Col::in_list`] looks a column up in: values a column of type `V`
+/// can be compared with, or a [`SettingList`](crate::SettingList) of them.
+#[diagnostic::on_unimplemented(
+	message = "a `{V}` column can't be looked up in `{Self}`",
+	label = "`in_list` takes a list of values the column can be compared with, or \
+	         `cx.setting_list::<…>()`"
+)]
+pub trait Values<V> {
+	#[doc(hidden)]
+	fn condition(self, column: &'static str) -> Expr;
+}
+
+impl<V, O: Operand<V>, I: IntoIterator<Item = O>> Values<V> for I {
+	fn condition(self, column: &'static str) -> Expr {
+		match self
+			.into_iter()
+			.map(Operand::into_value)
+			.collect::<Result<Vec<_>, _>>()
+		{
+			Ok(values) => Expr::In { column, values },
+			Err(error) => Expr::Invalid(error.to_string()),
+		}
+	}
+}
+
+impl<V: Column> Values<V> for crate::SettingList<V> {
+	fn condition(self, column: &'static str) -> Expr {
+		match self.reference() {
+			Ok(setting) => Expr::InSetting { column, setting },
+			Err(error) => Expr::Invalid(error),
+		}
+	}
+}
+
+impl<V: Column> Values<Option<V>> for crate::SettingList<V> {
+	fn condition(self, column: &'static str) -> Expr {
+		Values::<V>::condition(self, column)
+	}
+}
+
 /// A column compared with another column, which only a filter can do: a
 /// column has no value of its own to write or list.
 fn column_operand<U: Table>(name: &'static str) -> (TableName, &'static str) {
@@ -377,6 +407,14 @@ pub enum Expr {
 	In {
 		column: &'static str,
 		values: Vec<Value>,
+	},
+	/// A column looked up in a list setting of the request: its bound
+	/// items, or `current_setting(…)` as an array in a row-level security
+	/// policy.
+	#[doc(hidden)]
+	InSetting {
+		column: &'static str,
+		setting: crate::settings::ListSettingRef,
 	},
 	#[doc(hidden)]
 	Null { column: &'static str, negated: bool },
@@ -521,6 +559,7 @@ impl Expr {
 					}
 				}
 			}
+			Self::InSetting { column, setting } => write_in_setting(sql, column, setting)?,
 			Self::In { values, .. } if values.is_empty() => {
 				sql.push("1 = 0");
 			}
@@ -661,3 +700,36 @@ macro_rules! conflict_tuples {
 }
 
 conflict_tuples!((a: A, b: B), (a: A, b: B, c: C), (a: A, b: B, c: C, d: D));
+
+/// A column looked up in a list setting: `= ANY` of the setting as an
+/// array in a policy, the request's items otherwise.
+fn write_in_setting(
+	sql: &mut Sql,
+	column: &'static str,
+	setting: &crate::settings::ListSettingRef,
+) -> Result<(), DbError> {
+	if sql.renders_policy() {
+		sql.identifier(column).push(&format!(
+			" = ANY(NULLIF(current_setting({}, true), '')::{}[])",
+			leptoskit_db_schema::quote_literal(&format!(
+				"{}{}",
+				leptoskit_db_schema::SETTING_PREFIX,
+				setting.name
+			)),
+			leptoskit_db_schema::postgres_type(&setting.ty)
+		));
+		return Ok(());
+	}
+
+	let Some(values) = &setting.values else {
+		// As `column = ANY(NULL)` is: neither true nor false.
+		sql.push("NULL");
+		return Ok(());
+	};
+
+	Expr::In {
+		column,
+		values: values.clone(),
+	}
+	.write(sql)
+}

@@ -415,6 +415,23 @@ async fn a_repeated_call_runs_once(db: &Db) {
 	assert_eq!(status, StatusCode::OK);
 	assert_ne!(body, first.1);
 
+	// Anonymous callers' repeats run once too.
+	NewCounter {
+		name: "anonymous".to_owned(),
+		value: 0,
+	}
+	.insert(db)
+	.await
+	.unwrap();
+	let bump = || {
+		Call::new("bump", &json!({ "name": "anonymous" }))
+			.key("k-anonymous")
+			.send(&router)
+	};
+	let first = bump().await;
+	assert_eq!(first, (StatusCode::OK, "1".to_owned()));
+	assert_eq!(bump().await, first);
+
 	// Queries ignore keys, and a key that is too long is refused.
 	let (status, _) = Call::new("notes", &json!({}))
 		.user("ada")
@@ -445,6 +462,15 @@ async fn receipts_stay_private_and_expire(db: &Db) {
 		.await
 		.unwrap();
 	assert_eq!(theirs, 0);
+	let anonymous = rpc::server::receipts::Receipt::query()
+		.count(
+			&db.with_context(Context::new().with(rpc::server::receipts::ReceiptOwner(
+				rpc::server::receipts::ANONYMOUS.to_owned(),
+			))),
+		)
+		.await
+		.unwrap();
+	assert_eq!(anonymous, 1);
 
 	// Pruning drops old receipts, so the call would run again.
 	let system = db.system("test");
@@ -459,7 +485,7 @@ async fn receipts_stay_private_and_expire(db: &Db) {
 		rpc::server::receipts::prune(&system, Duration::ZERO)
 			.await
 			.unwrap(),
-		2
+		3
 	);
 }
 

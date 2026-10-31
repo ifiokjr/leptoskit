@@ -6,6 +6,8 @@ use leptoskit_db::Context;
 use leptoskit_db::Expr;
 use leptoskit_db::Id;
 use leptoskit_db::Pubkey;
+#[cfg(feature = "server")]
+use leptoskit_db::SettingList;
 use leptoskit_db::Timestamp;
 
 use crate::Aal;
@@ -67,8 +69,39 @@ leptoskit_db::register_setting!(SignedIn);
 /// ```ignore
 /// #[db::policy(update, |vault, cx| vault.treasury.in_list(cx.wallets()))]
 /// ```
+///
+/// It's a list setting, so the rule also runs as row-level security, as
+/// `leptoskit.wallets`. Only the auth layer makes one, and only beside a
+/// signed-in person, so a context can't hold someone's wallets without
+/// them.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Wallets(pub Vec<Pubkey>);
+pub struct Wallets(Vec<Pubkey>);
+
+impl Wallets {
+	#[cfg(feature = "server")]
+	pub(crate) fn new(addresses: Vec<Pubkey>) -> Self {
+		Self(addresses)
+	}
+
+	/// The wallets' addresses.
+	pub fn addresses(&self) -> &[Pubkey] {
+		&self.0
+	}
+}
+
+#[cfg(feature = "server")]
+impl leptoskit_db::ListSetting for Wallets {
+	type Item = Pubkey;
+
+	const NAME: &'static str = "wallets";
+
+	fn values(&self) -> Vec<Pubkey> {
+		self.0.clone()
+	}
+}
+
+#[cfg(feature = "server")]
+leptoskit_db::register_list_setting!(Wallets);
 
 #[cfg(feature = "server")]
 /// Conditions on the signed-in person, for policies.
@@ -81,10 +114,11 @@ pub trait AuthContext {
 	/// The signed-in person's ID in the app's user table, if there is one.
 	fn user_id<U>(&self) -> Option<Id<U>>;
 
-	/// The addresses of the signed-in person's linked wallets: empty for a
-	/// request without one, so `column.in_list(cx.wallets())` matches
-	/// nothing for everyone else.
-	fn wallets(&self) -> &[Pubkey];
+	/// The addresses of the signed-in person's linked wallets, for
+	/// `column.in_list(cx.wallets())`, which matches nothing for a request
+	/// without a signed-in person, even negated. It runs as row-level
+	/// security too.
+	fn wallets(&self) -> SettingList<Pubkey>;
 }
 
 #[cfg(feature = "server")]
@@ -97,13 +131,8 @@ impl AuthContext for Context {
 		self.get::<SignedIn>().map(SignedIn::user_id)
 	}
 
-	fn wallets(&self) -> &[Pubkey] {
-		// Only with a signed-in person: a context can't hold someone's
-		// wallets without them.
-		match (self.get::<SignedIn>(), self.get::<Wallets>()) {
-			(Some(_), Some(wallets)) => &wallets.0,
-			_ => &[],
-		}
+	fn wallets(&self) -> SettingList<Pubkey> {
+		self.setting_list::<Wallets>()
 	}
 }
 

@@ -706,7 +706,29 @@ leptoskit::db::register_setting!(Viewer);
 pub struct Post { … }
 ```
 
-`cx.setting::<Viewer>()` works whether or not row-level security is on: put `Viewer` in the request's context with `Context::new().with(Viewer(id))`, as any global. A request without it compares with `NULL`, so the rule matches no row, even negated. `leptoskit_auth`'s `SignedIn` is a setting too, named `account`, holding the account's ID.
+`cx.setting::<Viewer>()` works whether or not row-level security is on: put `Viewer` in the request's context with `Context::new().with(Viewer(id))`, as any global. A request without it compares with `NULL`, so the rule matches no row, even negated. Empty text counts as no value, because Postgres can't tell the two apart. `leptoskit_auth`'s `SignedIn` is a setting too, named `account`, holding the account's ID.
+
+When a request holds several values, such as the teams someone belongs to, make it a list setting and look the column up in it:
+
+```rust
+pub struct Teams(pub Vec<Id<Team>>);
+
+impl ListSetting for Teams {
+	const NAME: &'static str = "teams";
+	type Item = Id<Team>;
+
+	fn values(&self) -> Vec<Id<Team>> {
+		self.0.clone()
+	}
+}
+
+leptoskit::db::register_list_setting!(Teams);
+
+#[db::policy(select, |project, cx| project.team_id.in_list(cx.setting_list::<Teams>()))]
+pub struct Project { … }
+```
+
+An empty list holds nothing, so the rule matches no row, and its negation matches every row. A request without the setting matches no row, even negated. `leptoskit_auth`'s `cx.wallets()` is a list setting named `wallets`.
 
 Then turn row-level security on, and connect with it:
 

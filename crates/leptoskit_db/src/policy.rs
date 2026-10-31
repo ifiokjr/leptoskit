@@ -116,6 +116,21 @@ impl Context {
 		crate::SettingValue::of::<G>(self)
 	}
 
+	/// The items of list setting `G`, for a rule to look a column up in:
+	/// `project.team_id.in_list(cx.setting_list::<Teams>())`. Without one,
+	/// the rule matches no row, even negated, as [`Context::setting`]
+	/// does. It runs as row-level security too; register each list setting
+	/// with [`register_list_setting!`](crate::register_list_setting).
+	pub fn setting_list<G: crate::ListSetting>(&self) -> crate::SettingList<G::Item> {
+		if let Some(symbolic) = &self.symbolic {
+			lock(symbolic)
+				.settings
+				.push((TypeId::of::<G>(), G::NAME, std::any::type_name::<G>()));
+		}
+
+		crate::SettingList::of::<G>(self)
+	}
+
 	/// The global behind setting `G`, if the request has one.
 	pub(crate) fn setting_global<G: 'static>(&self) -> Option<&G> {
 		if self.symbolic.is_some() {

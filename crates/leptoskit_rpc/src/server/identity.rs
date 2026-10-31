@@ -17,7 +17,9 @@ pub struct Identity {
 	/// Who the call's receipts belong to: a session ID when there is one.
 	/// Two calls with the same idempotency key are the same call only if
 	/// they come from the same caller. `None` for anonymous callers, who
-	/// share one space of keys.
+	/// share one space of keys, owned by
+	/// [`receipts::ANONYMOUS`](super::receipts::ANONYMOUS), so don't use
+	/// that as a caller.
 	pub caller: Option<String>,
 }
 
