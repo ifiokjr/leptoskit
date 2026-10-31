@@ -62,6 +62,10 @@ With the `solana` feature, people link Solana wallets with a signed Sign-In With
 #[db::policy(update, |vault, cx| vault.treasury.in_list(cx.wallets()))]
 ```
 
+With the `oauth` feature, people sign in with any of twenty built-in providers, such as Google, GitHub, Discord, or Slack, or any OpenID Connect issuer; identity is the provider's subject, never an email address. A provider configured with `store_tokens` keeps its tokens, sealed, for the app to call its API, and `Auth::provider_access_token` refreshes them.
+
+With the `password` feature and `[auth.passwords] enabled`, people may also sign in with a password: Argon2id, NIST SP 800-63B rules, and resets through emailed codes.
+
 Two accounts can be merged, moving only the sign-in methods or bringing the other account's data along, as each table's `on_account_merge` says.
 
 The tables, `SignedIn`, and the `Public*` row types build everywhere, including the browser. `Auth` needs the `server` feature and a database: `postgres` or `sqlite`.

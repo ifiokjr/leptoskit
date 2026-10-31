@@ -365,9 +365,26 @@ fn server(
 	write_template(root, &module, &file, force, report)?;
 	declare_module(root, &main, "sign_in", report)?;
 
+	// Passwords hash on the server, so only the server's build gets them.
+	let passwords = config
+		.auth
+		.as_ref()
+		.is_some_and(|auth| auth.passwords.enabled);
+
 	if client != root {
-		let features: &[&str] = if idp { &["auth", "idp"] } else { &["auth"] };
-		add_features(root, &manifest, features, report)?;
+		let features: Vec<&str> = ["auth"]
+			.into_iter()
+			.chain(idp.then_some("idp"))
+			.chain(passwords.then_some("auth-passwords"))
+			.collect();
+		add_features(root, &manifest, &features, report)?;
+	} else if passwords && !has_feature(&manifest, "leptoskit", "auth-passwords")? {
+		report.next.push(
+			"Passwords are on in [auth.passwords]: turn on leptoskit's `auth-passwords` feature \
+			 for the server's build only (it hashes with Argon2id, which the browser bundle \
+			 doesn't need), such as through the feature your server build turns on."
+				.to_owned(),
+		);
 	}
 
 	let main_source = std::fs::read_to_string(&main)?;

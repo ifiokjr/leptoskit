@@ -204,6 +204,29 @@ fn a_server_with_a_database_gets_its_sign_in_module() {
 }
 
 #[test]
+fn a_server_with_passwords_on_hashes_them() {
+	let root = workspace(true);
+	let config = root.path().join("leptoskit.toml");
+	let text = read(root.path(), "leptoskit.toml");
+	fs::write(
+		&config,
+		format!("{text}\n[auth]\n\n[auth.passwords]\nenabled = true\n"),
+	)
+	.unwrap();
+	let report = run(root.path(), false);
+	assert!(
+		report.changed.contains(
+			&"updated Cargo.toml: added the leptoskit features auth, auth-passwords".to_owned()
+		),
+		"{report}"
+	);
+	assert!(
+		!read(root.path(), "app_app/Cargo.toml").contains("auth-passwords"),
+		"never in the browser's build"
+	);
+}
+
+#[test]
 fn edited_screens_are_kept_unless_forced() {
 	let root = workspace(false);
 	run(root.path(), false);

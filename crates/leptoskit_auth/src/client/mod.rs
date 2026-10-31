@@ -72,6 +72,7 @@ use crate::MergeOffer;
 use crate::MfaStatus;
 use crate::Passkey;
 use crate::PasskeyInfo;
+use crate::PasswordSettings;
 use crate::ProviderInfo;
 use crate::ProviderOutcome;
 use crate::PublicSession;
@@ -153,6 +154,45 @@ pub struct EmailCode {
 impl std::fmt::Debug for EmailCode {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		f.debug_struct("EmailCode")
+			.field("email", &self.email)
+			.finish_non_exhaustive()
+	}
+}
+
+/// What a person types to sign in with a password. Its `Debug` leaves the
+/// password out.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PasswordInput {
+	/// The account's email address.
+	pub email: String,
+	/// The password, as typed.
+	pub password: String,
+}
+
+impl std::fmt::Debug for PasswordInput {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("PasswordInput")
+			.field("email", &self.email)
+			.finish_non_exhaustive()
+	}
+}
+
+/// What a person types to reset their password: their address, the code
+/// [`send_code`] emailed to it, and the new password. Its `Debug` leaves
+/// the code and the password out.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PasswordReset {
+	/// The address the code was sent to.
+	pub email: String,
+	/// The code, as typed.
+	pub code: String,
+	/// The new password, as typed.
+	pub password: String,
+}
+
+impl std::fmt::Debug for PasswordReset {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("PasswordReset")
 			.field("email", &self.email)
 			.finish_non_exhaustive()
 	}
@@ -290,6 +330,11 @@ pub(crate) trait Api: Send + Sync + 'static {
 	fn confirm_totp(&self, code: String) -> Pending<'_, TotpConfirmation>;
 	fn disable_totp(&self) -> Pending<'_, ()>;
 	fn regenerate_recovery_codes(&self) -> Pending<'_, RecoveryCodes>;
+	fn password_settings(&self) -> Pending<'_, PasswordSettings>;
+	fn sign_in_with_password(&self, input: PasswordInput) -> Pending<'_, SignInStep>;
+	fn set_password(&self, password: String) -> Pending<'_, ()>;
+	fn remove_password(&self) -> Pending<'_, ()>;
+	fn reset_password(&self, input: PasswordReset) -> Pending<'_, SignInStep>;
 	fn sign_out(&self) -> Pending<'_, ()>;
 	fn devices(&self) -> Pending<'_, Vec<Device>>;
 	fn revoke(&self, id: Id<Session>) -> Pending<'_, bool>;
@@ -573,6 +618,82 @@ pub fn regenerate_recovery_codes() -> MutationScope<(), RecoveryCodes, ErrorResp
 		.with_on_success_async(|args| {
 			async move {
 				args.client.invalidate_scope(&mfa()).await;
+			}
+		})
+}
+
+/// The password settings query: whether this server takes passwords, and
+/// how long a new one must be.
+pub fn password_settings() -> QueryScope<(), PasswordSettings, ErrorResponse> {
+	QueryScope::new(|()| async { api().password_settings().await })
+}
+
+/// The server's password settings, as a query handle.
+#[track_caller]
+pub fn use_password_settings() -> QueryHandle<PasswordSettings, ErrorResponse> {
+	use_query(password_settings(), || ())
+}
+
+/// Signs in with an email address and password. As with an emailed code,
+/// an account with a second factor answers [`SignInStep::SecondFactor`],
+/// which [`complete_sign_in`] finishes; otherwise the session query holds
+/// the new session.
+///
+/// Fails with `invalid_password` (the address and password don't match,
+/// without saying which), `rate_limited` (too many tries, or password
+/// sign-in for the address is paused for a while; an emailed code still
+/// works), `disabled`, `locked`, or `unsupported` when passwords are off.
+pub fn sign_in_with_password() -> MutationScope<PasswordInput, SignInStep, ErrorResponse> {
+	MutationScope::new(
+		|input: PasswordInput| async move { api().sign_in_with_password(input).await },
+	)
+	.with_on_success(|args| {
+		if let SignInStep::SignedIn(signed_in) = args.data {
+			args.client.set_query_data(&session(), (), Some(signed_in));
+		}
+	})
+}
+
+/// Sets the signed-in person's password, or changes it, which signs out
+/// their other devices. On success, the two-step and devices queries
+/// refetch.
+///
+/// Fails with `weak_password` (the message says why), `reauthenticate` or
+/// `step_up_required` when the sign-in isn't fresh, or `unsupported`.
+pub fn set_password() -> MutationScope<String, (), ErrorResponse> {
+	MutationScope::new(|password: String| async move { api().set_password(password).await })
+		.with_on_success_async(|args| {
+			async move {
+				args.client.invalidate_scope(&mfa()).await;
+				args.client.invalidate_scope(&devices()).await;
+			}
+		})
+}
+
+/// Removes the signed-in person's password; they keep their other ways to
+/// sign in. On success, the two-step query refetches.
+///
+/// Fails with `not_found`, `reauthenticate`, or `step_up_required`.
+pub fn remove_password() -> MutationScope<(), (), ErrorResponse> {
+	MutationScope::new(|()| async { api().remove_password().await }).with_on_success_async(|args| {
+		async move {
+			args.client.invalidate_scope(&mfa()).await;
+		}
+	})
+}
+
+/// Resets a forgotten password with a code from [`send_code`], signing
+/// out every device and signing this one in. An account with a second
+/// factor answers [`SignInStep::SecondFactor`] first, and nothing changes
+/// until [`complete_sign_in`] (or the passkey) succeeds.
+///
+/// Fails with `weak_password` (the code still works), `invalid_code`, or as
+/// [`verify_code`].
+pub fn reset_password() -> MutationScope<PasswordReset, SignInStep, ErrorResponse> {
+	MutationScope::new(|input: PasswordReset| async move { api().reset_password(input).await })
+		.with_on_success(|args| {
+			if let SignInStep::SignedIn(signed_in) = args.data {
+				args.client.set_query_data(&session(), (), Some(signed_in));
 			}
 		})
 }

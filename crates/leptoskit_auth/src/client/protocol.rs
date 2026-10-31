@@ -626,6 +626,68 @@ impl<H: Http, C: Credentials> Api for Remote<H, C> {
 		})
 	}
 
+	fn password_settings(&self) -> Pending<'_, crate::PasswordSettings> {
+		Box::pin(async move {
+			let response = self
+				.server
+				.send(Method::Get, "/auth/password/config", None, None)
+				.await?;
+			decode(&response)
+		})
+	}
+
+	fn sign_in_with_password(&self, input: super::PasswordInput) -> Pending<'_, SignInStep> {
+		Box::pin(async move {
+			let body = json(&crate::PasswordSignIn {
+				email: input.email,
+				password: input.password,
+				transport: C::TRANSPORT,
+				device_name: self.device_name(),
+			});
+			let response = self
+				.server
+				.send(Method::Post, "/auth/password/sign-in", None, Some(body))
+				.await?;
+			self.first_step(&response).await
+		})
+	}
+
+	fn set_password(&self, password: String) -> Pending<'_, ()> {
+		Box::pin(async move {
+			let body = json(&crate::SetPassword { password });
+			let response = self
+				.call(Method::Post, "/auth/password", Some(body), unauthorized)
+				.await?;
+			succeeded(&response)
+		})
+	}
+
+	fn remove_password(&self) -> Pending<'_, ()> {
+		Box::pin(async move {
+			let response = self
+				.call(Method::Post, "/auth/password/remove", None, unauthorized)
+				.await?;
+			succeeded(&response)
+		})
+	}
+
+	fn reset_password(&self, input: super::PasswordReset) -> Pending<'_, SignInStep> {
+		Box::pin(async move {
+			let body = json(&crate::ResetPassword {
+				email: input.email,
+				code: input.code,
+				password: input.password,
+				transport: C::TRANSPORT,
+				device_name: self.device_name(),
+			});
+			let response = self
+				.server
+				.send(Method::Post, "/auth/password/reset", None, Some(body))
+				.await?;
+			self.first_step(&response).await
+		})
+	}
+
 	fn sign_out(&self) -> Pending<'_, ()> {
 		Box::pin(async move {
 			let response = self
