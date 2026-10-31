@@ -1,6 +1,5 @@
 ---
 source: crates/leptoskit_rpc_macros/src/tests.rs
-assertion_line: 249
 expression: output
 ---
 #[server(input = Json, endpoint = "create_todo")]
@@ -62,4 +61,5 @@ static REGISTERED: ::leptoskit_rpc::spec::ApiFnDescriptor = ::leptoskit_rpc::spe
     internal: false,
     deprecated: false,
     tags: &[],
+    scopes: &[],
 };

@@ -74,6 +74,11 @@ use syn::punctuated::Punctuated;
 ///   also becomes the route, `/api/<name>`, unless `#[server]` sets an
 ///   `endpoint`;
 /// - `tag = "..."` — a grouping tag (repeatable);
+/// - `scope = Scope::PostsRead` — an OAuth scope a third-party app's access
+///   token must carry to call the function (repeatable: every one is required).
+///   The value is a variant of an enum declared with `leptoskit_rpc::scopes!`,
+///   or a string literal. Without one, only the app's own sessions may call the
+///   function;
 /// - `crate = "..."` — the path to `leptoskit_rpc` when it is not a direct
 ///   dependency, such as `crate = "leptoskit::rpc"`.
 ///
@@ -106,6 +111,7 @@ struct ApiArgs {
 	internal: bool,
 	name: Option<LitStr>,
 	tags: Vec<LitStr>,
+	scopes: Vec<Expr>,
 	krate: Option<Path>,
 }
 
@@ -134,6 +140,21 @@ impl ApiArgs {
 				Meta::NameValue(pair) if pair.path.is_ident("tag") => {
 					args.tags.push(string_value(&pair.value, "tag")?);
 				}
+				Meta::NameValue(pair) if pair.path.is_ident("scope") => {
+					if let Expr::Lit(ExprLit {
+						lit: Lit::Str(name),
+						..
+					}) = &pair.value
+						&& !is_scope_name(&name.value())
+					{
+						return Err(syn::Error::new_spanned(
+							name,
+							"a scope is one or more printable ASCII characters other than space, \
+							 `\"`, and `\\`, such as \"posts:read\"",
+						));
+					}
+					args.scopes.push(pair.value.clone());
+				}
 				Meta::NameValue(pair) if pair.path.is_ident("crate") => {
 					if args.krate.is_some() {
 						return Err(syn::Error::new_spanned(pair, "`crate` is given twice"));
@@ -151,13 +172,22 @@ impl ApiArgs {
 					return Err(syn::Error::new_spanned(
 						other,
 						"unknown #[api] option; expected `internal`, `name = \"...\"`, `tag = \
-						 \"...\"`, or `crate = \"...\"`",
+						 \"...\"`, `scope = ...`, or `crate = \"...\"`",
 					));
 				}
 			}
 		}
 		Ok(args)
 	}
+}
+
+/// Whether `name` can be an OAuth scope (RFC 6749 §3.3), as
+/// `leptoskit_rpc::is_scope_name` checks it.
+fn is_scope_name(name: &str) -> bool {
+	!name.is_empty()
+		&& name
+			.bytes()
+			.all(|byte| matches!(byte, 0x21 | 0x23..=0x5b | 0x5d..=0x7e))
 }
 
 /// Whether `name` can stand alone as one path segment of a route.
@@ -447,6 +477,15 @@ fn expand(args: TokenStream, item: TokenStream, register: bool) -> syn::Result<T
 		let docs = LitStr::new(&docs, Span::call_site());
 		let internal = args.internal;
 		let tags = &args.tags;
+		// A literal is the scope itself; anything else is a variant of a
+		// `scopes!` enum, whose `as_str` is a `const fn`.
+		let scopes = args.scopes.iter().map(|scope| {
+			if let Expr::Lit(_) = scope {
+				scope.to_token_stream()
+			} else {
+				quote!((#scope).as_str())
+			}
+		});
 		let param_descriptors = params.iter().map(|param| {
 			let wire_name = LitStr::new(&param.wire_name, Span::call_site());
 			let docs = LitStr::new(&param.docs, Span::call_site());
@@ -482,6 +521,7 @@ fn expand(args: TokenStream, item: TokenStream, register: bool) -> syn::Result<T
 					internal: #internal,
 					deprecated: #deprecated,
 					tags: &[#(#tags),*],
+					scopes: &[#(#scopes),*],
 				}
 			}
 		}

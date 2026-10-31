@@ -70,6 +70,11 @@ pub struct ApiFunction {
 	/// Grouping tags, from `#[api(tag = "...")]`.
 	#[serde(default)]
 	pub tags: Vec<String>,
+	/// The OAuth scopes a third-party app's access token must carry to call
+	/// the function, from `#[api(scope = ...)]`. Empty for a function only
+	/// the app's own sessions may call.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub scopes: Vec<String>,
 }
 
 /// One argument of an [`ApiFunction`].
@@ -493,6 +498,7 @@ mod tests {
 			internal,
 			deprecated: false,
 			tags: Vec::new(),
+			scopes: Vec::new(),
 		}
 	}
 

@@ -109,7 +109,30 @@ pub struct CurrentSession {
 	pub enrolling: Option<SignedIn>,
 	/// Where the request came from.
 	pub request: RequestInfo,
+	/// When another app made the request for [`signed_in`](Self::signed_in),
+	/// with their consent, what it may do.
+	pub delegation: Option<Delegation>,
 	pub(crate) token: Option<SessionToken>,
+}
+
+/// A request another app makes on someone's behalf, with their consent,
+/// such as a third-party access token that `leptoskit_idp` checked.
+///
+/// Only a layer outside [`Auth::layer`] inserts it, as a request extension,
+/// once it has verified the token and decided the route may take it. The
+/// session layer then treats the request as [`signed_in`](Self::signed_in)'s,
+/// so policies apply unchanged, and puts the delegation on
+/// [`CurrentSession`]. A delegated request carries no cookie the app reads,
+/// so it skips the same-site check.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Delegation {
+	/// The person who granted access. A delegated request has no session of
+	/// its own, so `signed_in.session` is the nil ID.
+	pub signed_in: SignedIn,
+	/// The app acting for them: its OAuth client ID.
+	pub client_id: String,
+	/// What they let it do.
+	pub scopes: Vec<String>,
 }
 
 impl Auth {
@@ -296,6 +319,7 @@ impl Auth {
 			signed_in,
 			enrolling,
 			request,
+			delegation: None,
 			token,
 		})
 	}
@@ -427,7 +451,9 @@ impl Auth {
 		self.cookie(token.expose(), max_age)
 	}
 
-	pub(crate) fn cleared_cookie(&self) -> HeaderValue {
+	/// A `Set-Cookie` value that removes the session cookie, for a route
+	/// that signs the browser out.
+	pub fn cleared_cookie(&self) -> HeaderValue {
 		self.cookie("", 0)
 	}
 
@@ -540,6 +566,15 @@ fn cookie(headers: &HeaderMap, name: &str) -> Option<SessionToken> {
 		.map(|(_, value)| SessionToken::new(value))
 }
 
+/// The peer address axum's `ConnectInfo` recorded, if the server serves
+/// with it.
+fn peer(request: &Request<Body>) -> Option<SocketAddr> {
+	request
+		.extensions()
+		.get::<ConnectInfo<SocketAddr>>()
+		.map(|ConnectInfo(peer)| *peer)
+}
+
 /// The layer [`Auth::layer`] returns.
 #[derive(Clone, Debug)]
 pub struct SessionLayer {
@@ -585,6 +620,36 @@ where
 		let mut inner = std::mem::replace(&mut self.inner, clone);
 
 		Box::pin(async move {
+			let delegation = request.extensions_mut().remove::<Delegation>();
+
+			if let Some(delegation) = delegation {
+				let current = CurrentSession {
+					signed_in: Some(delegation.signed_in.clone()),
+					enrolling: None,
+					request: RequestInfo {
+						ip: auth.client_ip(request.headers(), peer(&request)),
+						user_agent: request
+							.headers()
+							.get(header::USER_AGENT)
+							.and_then(|agent| agent.to_str().ok())
+							.map(str::to_owned),
+						transport: Transport::Bearer,
+						device_name: None,
+					},
+					delegation: Some(delegation),
+					token: None,
+				};
+				let context = match auth.request_context(current.signed_in.clone()).await {
+					Ok(context) => context,
+					Err(error) => return Ok(error.into_response()),
+				};
+				let db = auth.inner.db.with_context(context);
+				request.extensions_mut().insert(db);
+				request.extensions_mut().insert(auth.clone());
+				request.extensions_mut().insert(current);
+				return inner.call(request).await;
+			}
+
 			// A provider posts its answer from its own site; the callback
 			// checks for itself, and only acts on a same-site request.
 			let callback = request.uri().path().starts_with("/auth/callback/");
@@ -610,11 +675,10 @@ where
 				request.extensions_mut().insert(CrossSite);
 			}
 
-			let peer = request
-				.extensions()
-				.get::<ConnectInfo<SocketAddr>>()
-				.map(|ConnectInfo(peer)| *peer);
-			let current = match auth.current_session(request.headers(), peer).await {
+			let current = match auth
+				.current_session(request.headers(), peer(&request))
+				.await
+			{
 				Ok(current) => current,
 				Err(error) => return Ok(error.into_response()),
 			};

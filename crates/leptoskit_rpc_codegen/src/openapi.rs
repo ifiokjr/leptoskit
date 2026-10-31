@@ -14,6 +14,9 @@ use crate::spec::ApiFunction;
 use crate::spec::ApiSpec;
 use crate::spec::HttpInput;
 
+/// The name of the security scheme scoped functions require.
+const OAUTH2_SCHEME: &str = "oauth2";
+
 /// The OpenAPI version this module writes.
 pub fn openapi_version() -> &'static str {
 	"3.1.0"
@@ -64,16 +67,51 @@ impl ApiSpec {
 			document.insert("tags".to_owned(), Value::Array(tags));
 		}
 		document.insert("paths".to_owned(), Value::Object(paths));
+		let mut components = Map::new();
 		if !self.schemas.is_empty() {
-			let mut components = Map::new();
 			let mut schemas = Map::new();
 			for (name, schema) in &self.schemas {
 				schemas.insert(name.clone(), schema.clone());
 			}
 			components.insert("schemas".to_owned(), Value::Object(schemas));
+		}
+		if let Some(scheme) = self.oauth2_scheme() {
+			components.insert(
+				"securitySchemes".to_owned(),
+				json!({ OAUTH2_SCHEME: scheme }),
+			);
+		}
+		if !components.is_empty() {
 			document.insert("components".to_owned(), Value::Object(components));
 		}
 		Value::Object(document)
+	}
+
+	/// The `oauth2` security scheme, listing every scope a function asks
+	/// for, when any does: third-party apps get tokens for them through the
+	/// app's sign-in-with flow (`leptoskit_idp`), at the app's own
+	/// `/oauth/authorize` and `/oauth/token`.
+	fn oauth2_scheme(&self) -> Option<Value> {
+		let mut scopes = Map::new();
+		for function in &self.functions {
+			for scope in &function.scopes {
+				scopes.insert(scope.clone(), json!(""));
+			}
+		}
+		if scopes.is_empty() {
+			return None;
+		}
+		Some(json!({
+			"type": "oauth2",
+			"flows": {
+				"authorizationCode": {
+					"authorizationUrl": "/oauth/authorize",
+					"tokenUrl": "/oauth/token",
+					"refreshUrl": "/oauth/token",
+					"scopes": scopes,
+				}
+			}
+		}))
 	}
 
 	/// Renders the spec as an OpenAPI 3.1 document in YAML.
@@ -106,6 +144,12 @@ fn operation(function: &ApiFunction) -> Value {
 	}
 	if function.deprecated {
 		operation.insert("deprecated".to_owned(), json!(true));
+	}
+	if !function.scopes.is_empty() {
+		operation.insert(
+			"security".to_owned(),
+			json!([{ OAUTH2_SCHEME: function.scopes }]),
+		);
 	}
 	if function.internal {
 		operation.insert("x-leptoskit-internal".to_owned(), json!(true));
@@ -262,6 +306,7 @@ mod tests {
 			internal,
 			deprecated: false,
 			tags: Vec::new(),
+			scopes: Vec::new(),
 		}
 	}
 
@@ -328,6 +373,35 @@ mod tests {
 	}
 
 	#[test]
+	fn scoped_functions_require_the_oauth2_scheme() {
+		let mut spec = ApiSpec::empty("demo", "0.1.0");
+		let mut scoped = function("list_posts", "", HttpInput::Json, Vec::new(), false);
+		scoped.scopes = vec!["posts:read".to_owned()];
+		spec.functions = vec![
+			scoped,
+			function("ping", "", HttpInput::Json, Vec::new(), false),
+		];
+		let document = spec.to_openapi();
+
+		assert_eq!(
+			document["paths"]["/api/list_posts"]["get"]["security"],
+			json!([{ "oauth2": ["posts:read"] }])
+		);
+		assert!(
+			document["paths"]["/api/ping"]["get"]
+				.get("security")
+				.is_none()
+		);
+		let flow =
+			&document["components"]["securitySchemes"]["oauth2"]["flows"]["authorizationCode"];
+		assert_eq!(flow["tokenUrl"], "/oauth/token");
+		assert_eq!(flow["scopes"], json!({ "posts:read": "" }));
+
+		let unscoped = ApiSpec::empty("demo", "0.1.0").to_openapi();
+		assert!(unscoped.get("components").is_none());
+	}
+
+	#[test]
 	fn unsupported_encodings_are_documented_not_dropped() {
 		let mut spec = ApiSpec::empty("demo", "0.1.0");
 		spec.description = Some("The demo.".to_owned());
@@ -356,6 +430,7 @@ mod tests {
 			internal: false,
 			deprecated: false,
 			tags: vec!["a".to_owned(), "a".to_owned()],
+			scopes: Vec::new(),
 		}];
 		let document = spec.to_openapi();
 		assert_eq!(document["info"]["description"], "The demo.");
