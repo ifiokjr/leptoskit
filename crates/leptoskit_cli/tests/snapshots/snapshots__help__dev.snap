@@ -23,6 +23,12 @@ Options:
       --device <DEVICE>
           Run iOS and Android only on this device: a simulator's name or UDID, or an adb serial. Repeat it for several. A named simulator that is shut down boots
 
+      --no-devtools
+          Don't start the `DevTools` hub
+
+      --devtools-port <PORT>
+          The port the `DevTools` hub binds; defaults to 7340
+
   -h, --help
           Print help (see a summary with '-h')
 
