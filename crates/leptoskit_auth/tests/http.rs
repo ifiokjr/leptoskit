@@ -1424,3 +1424,64 @@ async fn passkeys_answer_the_second_step_step_up_and_management_over_http() {
 		.await;
 	assert_eq!(removed.status(), StatusCode::NO_CONTENT);
 }
+
+#[tokio::test]
+async fn a_delegated_request_is_the_granting_persons_from_any_site() {
+	let db = leptoskit_db::testing::sqlite().await;
+	let auth = Auth::builder(&db, Keys::single("test", [3; 32]))
+		.mailer(Mailbox::new())
+		.origin(ORIGIN)
+		.build()
+		.unwrap();
+	let me = SignedIn {
+		account: leptoskit_db::Id::new(),
+		session: leptoskit_db::Id::new(),
+		aal: leptoskit_auth::Aal::One,
+		authenticated_at: leptoskit_db::now(),
+		mfa_at: None,
+	};
+	let delegation = leptoskit_auth::Delegation {
+		signed_in: me.clone(),
+		client_id: "partner".into(),
+		scopes: vec!["posts:read".into()],
+	};
+	let router = Router::new()
+		.route(
+			"/me",
+			post(
+				|me: SignedIn,
+				 request: RequestInfo,
+				 Extension(current): Extension<leptoskit_auth::CurrentSession>,
+				 Extension(db): Extension<Db>| {
+					async move {
+						let delegation = current.delegation.unwrap();
+						assert!(db.context().is_some());
+						assert_eq!(request.transport, leptoskit_auth::Transport::Bearer);
+						format!("{} {}", me.account, delegation.client_id)
+					}
+				},
+			),
+		)
+		.layer(auth.layer())
+		.layer(axum::middleware::map_request(
+			move |mut request: Request<Body>| {
+				let delegation = delegation.clone();
+				async move {
+					request.extensions_mut().insert(delegation);
+					request
+				}
+			},
+		));
+	let response = router
+		.oneshot(
+			Request::post("/me")
+				.header(header::ORIGIN, "https://partner.example")
+				.body(Body::empty())
+				.unwrap(),
+		)
+		.await
+		.unwrap();
+
+	assert_eq!(response.status(), StatusCode::OK);
+	assert_eq!(text(response).await, format!("{} partner", me.account));
+}

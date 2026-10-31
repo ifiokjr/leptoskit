@@ -42,6 +42,7 @@
   - [Solana wallets](guide/auth/wallets.md)
   - [Merging accounts](guide/auth/merging.md)
 - [Publishing to the stores](guide/24-publishing.md)
+- [Sign in with your app](guide/25-sign-in-with-your-app.md)
 
 # Reference
 

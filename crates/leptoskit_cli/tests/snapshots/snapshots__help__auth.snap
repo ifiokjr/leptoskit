@@ -2,7 +2,9 @@
 source: crates/leptoskit_cli/tests/snapshots.rs
 expression: "normalize(&stdout(&output), &scratch.path)"
 ---
-Checks sign-in's configuration, rotates its keys, and adds third-party providers
+Checks sign-in's configuration, rotates its keys, adds third-party providers, and registers the apps that may sign people in with yours.
+
+`auth idp client add`, `list`, and `remove` register and remove those apps, through the app's own server.
 
 Usage: leptoskit auth <COMMAND>
 
@@ -10,8 +12,12 @@ Commands:
   doctor       Checks `[auth]`: that every secret's environment variable is set (never printing it), the origin and passkey relying party, where providers send people back, and how old each provider's definition is. Exits non-zero when something would fail
   rotate-keys  Re-encrypts stored secrets under the newest key in the keys variable, so older keys can be retired
   provider     Manages third-party sign-in providers
+  idp          Manages "Sign in with your app": the apps that may sign people in with yours (`leptoskit_idp`)
   help         Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help     Print help
-  -V, --version  Print version
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

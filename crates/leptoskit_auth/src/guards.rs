@@ -126,6 +126,7 @@ mod tests {
 				signed_in,
 				enrolling: None,
 				request: RequestInfo::default(),
+				delegation: None,
 				token: None,
 			}
 		};
