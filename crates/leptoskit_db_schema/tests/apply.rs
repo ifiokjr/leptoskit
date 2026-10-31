@@ -603,6 +603,11 @@ impl PostgresCluster {
 				 AND n.nspname {USER_SCHEMAS} ORDER BY 1, 2"
 			),
 			format!(
+				"SELECT n.nspname, c.relname, c.relkind, c.reloptions FROM pg_class c JOIN \
+				 pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind IN ('v', 'm') AND \
+				 n.nspname {USER_SCHEMAS} ORDER BY 1, 2"
+			),
+			format!(
 				"SELECT n.nspname, c.relname, a.attname, col_description(c.oid, a.attnum), \
 				 obj_description(c.oid, 'pg_class') FROM pg_class c JOIN pg_namespace n ON n.oid \
 				 = c.relnamespace JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND \

@@ -255,6 +255,8 @@ impl Schema {
 			for index in &view.indexes {
 				validate_view_index(view, index, &location, &mut index_names, &mut problems);
 			}
+
+			self.validate_view_security(view, &location, &mut problems);
 		}
 
 		if let Err(cycle) = self.views_in_order() {
@@ -267,6 +269,30 @@ impl Schema {
 		}
 
 		problems.0
+	}
+
+	/// A view reads its tables with its reader's rights only on Postgres, and
+	/// only when it's plain: a materialized view keeps the rows it read when
+	/// it was last refreshed.
+	fn validate_view_security(&self, view: &crate::View, location: &str, problems: &mut Problems) {
+		if !view.security_invoker {
+			return;
+		}
+
+		if self.dialect != Dialect::Postgres {
+			problems.push(
+				location,
+				"only Postgres views read their tables with the reader's rights",
+			);
+		}
+
+		if view.materialized {
+			problems.push(
+				location,
+				"a materialized view keeps the rows it read when it was refreshed, so it can't \
+				 read them with each reader's rights",
+			);
+		}
 	}
 
 	/// The names a table's spatial indexes give their companion tables and

@@ -9,6 +9,9 @@ mod support;
 
 use std::borrow::Cow;
 
+use leptoskit_db::AuditEntry;
+use leptoskit_db::AuditOp;
+use leptoskit_db::AuditReader;
 use leptoskit_db::Connection;
 use leptoskit_db::Context;
 use leptoskit_db::Db;
@@ -23,6 +26,7 @@ use leptoskit_db::Timestamp;
 use leptoskit_db::Value;
 use leptoskit_db::policy;
 use leptoskit_db::table;
+use leptoskit_db::view;
 use leptoskit_db_schema::RequireHints;
 use leptoskit_db_schema::Schema;
 use proptest::prelude::*;
@@ -46,8 +50,9 @@ impl Setting for Viewer {
 
 leptoskit_db::register_setting!(Viewer);
 
-/// Someone who writes. Anyone reads writers; each changes only their own.
-#[table(name = "writers")]
+/// Someone who writes. Anyone reads writers; each changes only their own,
+/// and the audit log records it.
+#[table(name = "writers", audit)]
 #[policy(select, |_, _| Expr::always())]
 #[policy(insert, update, delete, |writer, cx| writer.id.eq(cx.setting::<Viewer>()))]
 pub struct Writer {
@@ -83,6 +88,21 @@ pub struct Share {
 	#[db(on_delete = cascade)]
 	pub post_id: Id<Post>,
 	pub writer_id: Id<Writer>,
+}
+
+/// Every post's title, which the posts' policies filter too: Postgres reads
+/// `posts` as whoever reads the view.
+#[view(name = "titles", sql = "SELECT id, title FROM posts")]
+pub struct Title {
+	pub id: Id<Post>,
+	pub title: String,
+}
+
+/// How many posts there were at the last refresh: all of them, whoever
+/// refreshed it.
+#[view(name = "post_totals", materialized, sql = "SELECT count(*) FROM posts")]
+pub struct PostTotal {
+	pub posts: i64,
 }
 
 /// A role that owns the database but isn't a superuser: Postgres exempts
@@ -473,6 +493,118 @@ async fn migrations_change_every_row_whatever_the_policies() {
 		.await,
 		["4"]
 	);
+}
+
+#[tokio::test]
+async fn views_read_their_tables_as_their_reader() {
+	let Some(cluster) = PostgresCluster::start() else {
+		return;
+	};
+	let db = secured(&cluster).await;
+	let (ada, grace) = seed(&db).await;
+	// A superuser owning the view would read every post, were it read as
+	// its owner.
+	let owner = db_url(&db, &cluster)
+		.await
+		.replacen(&format!("{ROLE}@"), "postgres@", 1);
+	Db::connect(&owner)
+		.await
+		.unwrap()
+		.run_script(&format!(
+			"ALTER VIEW titles OWNER TO postgres; GRANT SELECT ON titles TO {ROLE}"
+		))
+		.await
+		.unwrap();
+
+	let titles = "SELECT title FROM titles ORDER BY title";
+	assert_eq!(
+		raw(&as_writer(&db, ada), titles).await,
+		["ada-draft", "ada-published", "grace-shared"]
+	);
+	assert_eq!(
+		raw(&db.with_context(Context::new()), titles).await,
+		["ada-published"]
+	);
+	assert_eq!(
+		Title::query()
+			.all(&as_writer(&db, grace))
+			.await
+			.unwrap()
+			.len(),
+		3
+	);
+
+	// A materialized view keeps every row, whoever refreshes it, and the
+	// refresher's own reads stay filtered afterwards.
+	let tx = as_writer(&db, ada).begin().await.unwrap();
+	PostTotal::refresh(&tx).await.unwrap();
+	assert_eq!(raw(&tx, "SELECT posts FROM post_totals").await, ["4"]);
+	assert_eq!(raw(&tx, "SELECT count(*) FROM posts").await, ["3"]);
+	tx.commit().await.unwrap();
+	PostTotal::refresh(&db.with_context(Context::new()))
+		.await
+		.unwrap();
+	assert_eq!(
+		PostTotal::query()
+			.all(&db.system("checking"))
+			.await
+			.unwrap()[0]
+			.posts,
+		4
+	);
+}
+
+#[tokio::test]
+async fn the_audit_log_opens_only_to_readers() {
+	let Some(cluster) = PostgresCluster::start() else {
+		return;
+	};
+	let db = secured(&cluster).await;
+	let (ada, _) = seed(&db).await;
+	let as_ada = as_writer(&db, ada);
+
+	// A request's change is recorded as that request.
+	let mut writer = Writer::query()
+		.filter(|writer| writer.id.eq(ada))
+		.one(&as_ada)
+		.await
+		.unwrap();
+	writer.name = "Ada L.".into();
+	writer.save(&as_ada).await.unwrap();
+
+	let log = "SELECT count(*) FROM _leptoskit_audit";
+	assert_eq!(raw(&as_ada, log).await, ["0"]);
+	assert!(AuditEntry::query().all(&as_ada).await.unwrap().is_empty());
+
+	// Postgres sees that a request holds a reader, not what its rule
+	// matches: raw SQL reads every entry, the database layer what the rule
+	// allows.
+	let reading = |reader| db.with_context(Context::new().with(Viewer(ada)).with(reader));
+	let updates = reading(AuditReader::matching(|entry, _| {
+		entry.op.eq(AuditOp::Update)
+	}));
+	assert_eq!(raw(&updates, log).await, ["3"]);
+	assert_eq!(AuditEntry::query().all(&updates).await.unwrap().len(), 1);
+
+	// Nobody but `system` changes or removes an entry.
+	let everything = reading(AuditReader::everything());
+	assert_eq!(
+		raw_execute(&everything, "UPDATE _leptoskit_audit SET reason = 'forged'")
+			.await
+			.unwrap(),
+		0
+	);
+	assert_eq!(
+		raw_execute(&everything, "DELETE FROM _leptoskit_audit")
+			.await
+			.unwrap(),
+		0
+	);
+	AuditEntry::query()
+		.destroy(&db.system("retention"))
+		.await
+		.unwrap();
+	assert_eq!(raw(&everything, log).await, ["0"]);
 }
 
 /// What a property does: writers, their posts, and which are shared.

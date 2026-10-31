@@ -485,8 +485,13 @@ fn create_view(view: &View) -> Vec<String> {
 		.iter()
 		.map(|column| column.name.clone())
 		.collect();
+	let options = if view.security_invoker {
+		" WITH (security_invoker = true)"
+	} else {
+		""
+	};
 	let mut statements = vec![format!(
-		"CREATE {} {} ({}) AS\n{}",
+		"CREATE {} {} ({}){options} AS\n{}",
 		view_keyword(view),
 		qualified(&view.name),
 		columns(&names),

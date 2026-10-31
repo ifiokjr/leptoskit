@@ -364,7 +364,10 @@ pub fn schema(dialect: Dialect) -> Result<Schema, SchemaError> {
 /// the request through settings (`cx.setting::<G>()`) rather than as Rust
 /// values (`cx.global`), so the database can evaluate it.
 ///
-/// Views and the audit log are left to the database layer alone.
+/// Plain views read their tables as their reader (`security_invoker`), so
+/// the tables' policies filter them too, whoever owns them. The audit log
+/// gets the policy [`AuditReader`](crate::AuditReader) can express to
+/// Postgres: a request holding any reader reads it.
 ///
 /// # Errors
 ///
@@ -390,6 +393,18 @@ pub fn schema_with_row_security(dialect: Dialect) -> Result<Schema, SchemaError>
 					message: format!("row-level security: {message}"),
 				});
 			}
+		}
+	}
+
+	let audit = crate::AuditEntry::table_name();
+
+	if let Some(table) = schema.tables.iter_mut().find(|table| table.name == audit) {
+		table.row_security = Some(crate::audit::row_security());
+	}
+
+	if dialect == Dialect::Postgres {
+		for view in schema.views.iter_mut().filter(|view| !view.materialized) {
+			view.security_invoker = true;
 		}
 	}
 

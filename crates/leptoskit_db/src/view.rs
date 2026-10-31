@@ -9,6 +9,7 @@ use crate::Result;
 use crate::Table;
 use crate::connection::atomically;
 use crate::sql::Sql;
+use crate::sql::Statement;
 
 /// A view declared with `#[db::view]`. The attribute implements it; you
 /// don't. Read one with its `query()`, like a table; nothing writes to it.
@@ -92,8 +93,37 @@ pub async fn refresh<V: View>(connection: &impl Connection, concurrently: bool) 
 			"REFRESH MATERIALIZED VIEW "
 		})
 		.table::<V>();
-		connection.execute(sql.finish()).await?;
-		return Ok(());
+
+		if !connection.row_security() {
+			connection.execute(sql.finish()).await?;
+			return Ok(());
+		}
+
+		// Under row-level security the view would keep only the rows its
+		// refresher may read; it keeps every row, as it does without.
+		let bypass = |value: &str| {
+			Statement {
+				sql: "SELECT set_config($1, $2, true)".to_string(),
+				args: vec![
+					crate::Value::Text(leptoskit_db_schema::BYPASS_SETTING.to_string()),
+					crate::Value::Text(value.to_string()),
+				],
+			}
+		};
+		let restore = match connection.access() {
+			crate::policy::Access::System { .. } => "on",
+			crate::policy::Access::Context(_) => "",
+		};
+
+		return atomically!(connection, |tx| {
+			async {
+				tx.execute(bypass("on")).await?;
+				tx.execute(sql.finish()).await?;
+				tx.execute(bypass(restore)).await?;
+				Ok(())
+			}
+			.await
+		});
 	}
 
 	let view = V::view();

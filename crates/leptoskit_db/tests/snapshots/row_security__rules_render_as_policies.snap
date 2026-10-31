@@ -2,6 +2,18 @@
 source: crates/leptoskit_db/tests/row_security.rs
 expression: "rendered.join(\"\\n\")"
 ---
+_leptoskit_audit SELECT
+  using: NULLIF(current_setting('leptoskit.audit_reader', true), '')::boolean
+  check: -
+_leptoskit_audit INSERT
+  using: -
+  check: 1 = 1
+_leptoskit_audit UPDATE
+  using: 1 = 0
+  check: 1 = 0
+_leptoskit_audit DELETE
+  using: 1 = 0
+  check: -
 posts SELECT
   using: (("published" = TRUE OR "writer_id" = NULLIF(current_setting('leptoskit.viewer', true), '')::uuid) OR (SELECT count(*) FROM "shares" AS "lk_count_1" WHERE (("post_id" = "posts"."id" AND "writer_id" = NULLIF(current_setting('leptoskit.viewer', true), '')::uuid)) AND ("writer_id" = NULLIF(current_setting('leptoskit.viewer', true), '')::uuid)) > 0)
   check: -
