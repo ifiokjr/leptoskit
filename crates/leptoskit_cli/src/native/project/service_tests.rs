@@ -71,6 +71,7 @@ pub(super) fn service_registry(root: &Path) -> Registry {
 		bridge,
 		target: root.join("target"),
 		host_features: vec![],
+		devtools_feature: None,
 		missing: Vec::new(),
 	}
 }

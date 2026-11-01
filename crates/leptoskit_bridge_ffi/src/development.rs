@@ -23,7 +23,11 @@ pub struct Development {
 }
 
 /// Borrows bounded foreign input without accepting null nonempty slices.
-unsafe fn input<'a>(data: *const u8, len: usize, maximum: usize) -> Result<&'a [u8], String> {
+pub(crate) unsafe fn input<'a>(
+	data: *const u8,
+	len: usize,
+	maximum: usize,
+) -> Result<&'a [u8], String> {
 	if len > maximum {
 		return Err(format!("input exceeds {maximum} bytes"));
 	}

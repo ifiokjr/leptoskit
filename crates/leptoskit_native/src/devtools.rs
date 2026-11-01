@@ -6,6 +6,10 @@
 //! tree, so a node picked in the browser finds its twin in the simulator.
 //! Keys are FNV-1a hashes, written as 16 hex digits: the inputs are fixed by
 //! the protocol, never by a platform's hasher.
+//!
+//! A native host that learns each node's source from its guest, as text,
+//! computes the same keys with [`Origin::Source`], [`ordinals`], and
+//! [`child`].
 
 use std::collections::HashMap;
 use std::panic::Location;
@@ -28,13 +32,15 @@ fn mix(mut hash: u64, bytes: &[u8]) -> u64 {
 
 /// What identifies a node among its siblings: where it was created, or its
 /// kind when there is no location.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum Origin {
-	Source(&'static str, u32, u32),
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Origin<'a> {
+	/// The file, line, and column that created the node.
+	Source(&'a str, u32, u32),
+	/// The node's kind, for a node without a source location.
 	Kind(NativeKind),
 }
 
-impl Origin {
+impl Origin<'static> {
 	pub(crate) fn of(source: Option<&'static Location<'static>>, kind: NativeKind) -> Self {
 		match source {
 			Some(location) => Self::Source(location.file(), location.line(), location.column()),
@@ -45,7 +51,8 @@ impl Origin {
 
 /// The key of a child: its parent's key, its origin, and its index among
 /// the siblings that share that origin.
-pub(crate) fn child(parent: u64, origin: Origin, ordinal: usize) -> u64 {
+#[must_use]
+pub fn child(parent: u64, origin: Origin<'_>, ordinal: usize) -> u64 {
 	let mut hash = mix(parent, b"/");
 	match origin {
 		Origin::Source(file, line, column) => {
@@ -58,7 +65,7 @@ pub(crate) fn child(parent: u64, origin: Origin, ordinal: usize) -> u64 {
 }
 
 /// Each sibling's index among the siblings that share its origin, in order.
-pub(crate) fn ordinals(origins: impl IntoIterator<Item = Origin>) -> Vec<usize> {
+pub fn ordinals<'a>(origins: impl IntoIterator<Item = Origin<'a>>) -> Vec<usize> {
 	let mut seen: HashMap<Origin, usize> = HashMap::new();
 	origins
 		.into_iter()

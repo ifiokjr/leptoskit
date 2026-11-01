@@ -122,6 +122,15 @@ impl Target {
 		matches!(self, Self::Tui)
 	}
 
+	/// Whether a debug app for this target reports to the `DevTools` hub
+	/// under `leptoskit dev`: the hosts that run the shared app runtime.
+	pub(crate) fn reports_to_devtools(self) -> bool {
+		matches!(
+			self,
+			Self::Macos | Self::Ios | Self::IosSimulator | Self::Android | Self::AndroidX86_64
+		)
+	}
+
 	pub(crate) fn from_platform(platform: Platform) -> Result<Self> {
 		match platform {
 			Platform::Ios => Ok(Self::Ios),
@@ -323,8 +332,14 @@ fn host_library_command(
 	if let Some(ndk) = ohos_ndk {
 		harmonyos::configure_cargo(&mut host, ndk, target);
 	}
-	if !registry.host_features.is_empty() {
-		host.args(["--features", &registry.host_features.join(",")]);
+	let features = host_features(
+		registry,
+		target,
+		release,
+		crate::build::devtools::hub().is_some(),
+	);
+	if !features.is_empty() {
+		host.args(["--features", &features.join(",")]);
 	}
 	if matches!(target, Target::Android | Target::AndroidX86_64) {
 		configure_android_toolchain(&mut host, root, target, &android_ndk()?)?;
@@ -334,6 +349,28 @@ fn host_library_command(
 		}
 	}
 	Ok(host)
+}
+
+/// The features a host build turns on: the plugins', and the `DevTools`
+/// agent's in a debug build that `leptoskit dev` runs with a hub. Release
+/// builds never get the agent (plan D4).
+fn host_features(
+	registry: &registry::Registry,
+	target: Target,
+	release: bool,
+	devtools: bool,
+) -> Vec<String> {
+	let mut features = registry.host_features.clone();
+
+	if devtools
+		&& !release
+		&& target.reports_to_devtools()
+		&& let Some(feature) = &registry.devtools_feature
+	{
+		features.push(feature.clone());
+	}
+
+	features
 }
 
 /// The NDK's prebuilt toolchain directory for the machine running the build.
@@ -692,6 +729,11 @@ fn bundle(
 		options.target_directory = Some(generated_dir(root, target).join("target"));
 	} else if let Some(target_dir) = target_dir {
 		options.target_directory = Some(target_dir.to_path_buf());
+	}
+
+	if target.reports_to_devtools() {
+		options =
+			crate::build::devtools::guest_options(options, metadata.package(&package), release);
 	}
 
 	let options = guest_profile::select(config, options);
@@ -1495,6 +1537,56 @@ mod tests {
 
 		let debug = gradle_build(root, Target::AndroidX86_64, false);
 		assert_eq!(arguments(&debug), ["--no-daemon", "assembleDebug"]);
+	}
+
+	#[test]
+	fn only_development_hosts_with_an_agent_compile_devtools_in() {
+		let registry = registry::Registry {
+			package: "app_macos".into(),
+			plugins: Vec::new(),
+			support: Vec::new(),
+			bridge: PathBuf::from("bridge"),
+			target: PathBuf::from("target"),
+			host_features: vec!["leptoskit_bridge_ffi/async-host".into()],
+			devtools_feature: Some("leptoskit_bridge_ffi/devtools".into()),
+			missing: Vec::new(),
+		};
+		let features =
+			|target, release, devtools| host_features(&registry, target, release, devtools);
+		assert_eq!(
+			features(Target::Macos, false, true),
+			[
+				"leptoskit_bridge_ffi/async-host",
+				"leptoskit_bridge_ffi/devtools"
+			]
+		);
+
+		for target in [
+			Target::IosSimulator,
+			Target::Ios,
+			Target::Android,
+			Target::AndroidX86_64,
+		] {
+			assert!(
+				features(target, false, true).contains(&"leptoskit_bridge_ffi/devtools".into())
+			);
+		}
+
+		assert_eq!(
+			features(Target::Macos, true, true),
+			["leptoskit_bridge_ffi/async-host"],
+			"release builds never report"
+		);
+		assert_eq!(
+			features(Target::Macos, false, false),
+			["leptoskit_bridge_ffi/async-host"],
+			"only `leptoskit dev` runs a hub"
+		);
+		assert_eq!(
+			features(Target::Harmonyos, false, true),
+			["leptoskit_bridge_ffi/async-host"],
+			"the ArkUI host has no agent yet"
+		);
 	}
 
 	#[test]

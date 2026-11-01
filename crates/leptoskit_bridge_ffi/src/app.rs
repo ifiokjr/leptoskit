@@ -31,6 +31,8 @@ use crate::Buffer;
 use crate::NativeRequest;
 
 mod binary;
+#[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
+mod devtools;
 #[cfg(not(target_arch = "wasm32"))]
 mod guest;
 mod render;
@@ -176,6 +178,9 @@ pub struct App {
 	rendered_root: Option<usize>,
 	#[cfg(feature = "async-host")]
 	async_host: AsyncHost,
+	/// The report to the `DevTools` hub, when this process sends one.
+	#[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
+	devtools: Option<devtools::Devtools>,
 }
 
 impl App {
@@ -190,9 +195,16 @@ impl App {
 		#[cfg(target_os = "ios")]
 		let backend =
 			backend.with_text_measurer(Arc::new(leptoskit_uikit::UIKitTextMeasurer::new()));
+		#[cfg_attr(
+			not(all(feature = "devtools", not(target_arch = "wasm32"))),
+			expect(unused_mut, reason = "only DevTools observes the host's commits")
+		)]
+		let mut host = WasmHost::new(backend, wasm)?;
+		#[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
+		let devtools = devtools::Devtools::attach(&mut host);
 
 		Ok(Self {
-			host: Some(WasmHost::new(backend, wasm)?),
+			host: Some(host),
 			service: None,
 			close_scheduler: None,
 			close_wake: None,
@@ -210,6 +222,8 @@ impl App {
 			rendered_root: None,
 			#[cfg(feature = "async-host")]
 			async_host: AsyncHost::default(),
+			#[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
+			devtools,
 		})
 	}
 
@@ -508,10 +522,23 @@ impl App {
 	}
 
 	/// Sends an event to the rendered node it names, if it still exists.
+	/// While the `DevTools` hub waits to pick a node, the next press picks
+	/// the node instead of reaching the guest.
 	fn dispatch_event(&mut self, node: usize, event: &NativeEvent) -> i32 {
 		let Some(node) = self.nodes.get(&node).copied() else {
 			return 0;
 		};
+
+		#[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
+		if matches!(event, NativeEvent::Press)
+			&& self
+				.devtools
+				.as_ref()
+				.is_some_and(|devtools| devtools.pick(node))
+		{
+			return 0;
+		}
+
 		let result = self.host_mut().dispatch(node, event).map(|_| ());
 		self.record(result)
 	}
@@ -538,7 +565,17 @@ impl App {
 
 		let rendered_root = self.rendered_root;
 		let surface = self.host_mut().surface();
-		!surface.backend().log().is_empty() || surface.root().map(NodeId::index) != rendered_root
+		let pending = !surface.backend().log().is_empty()
+			|| surface.root().map(NodeId::index) != rendered_root;
+
+		#[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
+		if !pending
+			&& let (Some(devtools), Some(host)) = (self.devtools.as_ref(), self.host.as_ref())
+		{
+			devtools.idle(host);
+		}
+
+		pending
 	}
 
 	/// Answers up to 64 Rust plugin calls inline, then returns the next call
@@ -1093,9 +1130,15 @@ impl App {
 			return None;
 		}
 		let root = self.host_mut().surface().root().map(NodeId::index);
+		let mutations = self.host_mut().take_mutations();
+
+		#[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
+		if let (Some(devtools), Some(host)) = (self.devtools.as_mut(), self.host.as_mut()) {
+			devtools.render(host, &mutations);
+		}
+
 		// The platform draws a flattened tree: layout-only containers get no
 		// view, which saves creating, laying out, and compositing them.
-		let mutations = self.host_mut().take_mutations();
 		let mutations = self.flattener.translate(mutations);
 
 		let bytes = match encode(root, &mutations) {

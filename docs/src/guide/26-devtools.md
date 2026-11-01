@@ -121,9 +121,9 @@ It is kept in your cache folder: `~/.cache/leptoskit/devtools/<version>/`, or un
 
 ## Where it stands
 
-The hub, the page, and `leptoskit devtools fetch` work today. The panel for Chrome, Edge, and Firefox is built, and isn't in their extension stores yet. Apps report to the hub once `leptoskit dev` builds them with DevTools turned on, which is still being connected: until then the hub lists no sessions. Release builds never include DevTools. Once connected, each platform reports:
+The hub, the page, and `leptoskit devtools fetch` work today. The panel for Chrome, Edge, and Firefox is built, and isn't in their extension stores yet. `leptoskit dev` builds your web page and your macOS, iOS, and Android apps with DevTools turned on, so each one it runs reports itself to the hub. Release builds never include DevTools. Each platform reports:
 
 - **Web:** the element tree, frames, classes, picking, and highlighting, and the route, queries, mutations, forms, and state your app hands over.
-- **macOS, iOS, and Android:** the element tree, frames, source locations, and each class's CSS. Picking and highlighting inside the native apps come later, and so do the route, queries, forms, and state.
+- **macOS, iOS, and Android:** the element tree, with each element's kind, classes, text, frame, and the line that built it, and every render in the Commits panel, timed while you profile. **Pick** takes your next tap on a button or another control, and the app never receives that tap; elements that don't respond to taps can't be picked yet. Selecting an element doesn't draw a highlight inside the app yet, and the Styles panel lists a native element's classes without the CSS they resolved to. The route, queries, forms, and state come later. On Android, `leptoskit dev` forwards the hub's port to the emulator or USB device, so it reaches the hub on your machine.
 - **Windows, Linux, the terminal, and HarmonyOS (experimental):** not yet.
 - **Calls** appear as each part of leptoskit starts reporting them; until then the Calls panel says the app doesn't report them.

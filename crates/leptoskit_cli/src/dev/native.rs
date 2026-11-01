@@ -22,6 +22,10 @@ use leptoskit_codepush::dev::GUEST_EXTRA;
 use leptoskit_codepush::dev::guest_path;
 use leptoskit_config::LeptoskitConfig;
 use leptoskit_config::Platform;
+use leptoskit_devtools_protocol::APP_ENV;
+use leptoskit_devtools_protocol::APP_EXTRA;
+use leptoskit_devtools_protocol::HUB_ENV;
+use leptoskit_devtools_protocol::HUB_EXTRA;
 use serde::Deserialize;
 
 use super::guests::Guests;
@@ -302,6 +306,35 @@ pub struct Tools {
 	build_app: fn(&Path, Target) -> Result<Vec<u8>>,
 	/// Rebuilds only the guest a platform's debug app embeds.
 	rebuild_guest: fn(&Path, &LeptoskitConfig, Target) -> Result<Vec<u8>>,
+	/// The `DevTools` hub the launched apps report to, when `dev` runs one.
+	devtools: Option<DevtoolsLaunch>,
+}
+
+/// What a launched app needs to report to `leptoskit dev`'s `DevTools` hub.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DevtoolsLaunch {
+	/// The hub's loopback URL.
+	hub: String,
+	/// The hub's port, which an Android device reaches through `adb reverse`.
+	port: u16,
+	/// The name the app's native sessions report: its client crate's, which
+	/// its web session reports too.
+	app: String,
+}
+
+impl DevtoolsLaunch {
+	fn new(hub: &str, config: &LeptoskitConfig) -> Option<Self> {
+		let port = hub.rsplit_once(':')?.1.parse().ok()?;
+		Some(Self {
+			hub: hub.to_owned(),
+			port,
+			app: config
+				.build
+				.client_package
+				.clone()
+				.unwrap_or_else(|| config.app.name.clone()),
+		})
+	}
 }
 
 impl Tools {
@@ -315,6 +348,17 @@ impl Tools {
 			open: PathBuf::from("open"),
 			build_app: build_debug_app,
 			rebuild_guest: crate::native::rebuild_guest,
+			devtools: None,
+		}
+	}
+
+	/// Points an app at the `DevTools` hub through its environment, each
+	/// name after `prefix`: `SIMCTL_CHILD_` passes it into the iOS Simulator.
+	fn devtools_environment(&self, command: &mut Command, prefix: &str) {
+		if let Some(devtools) = &self.devtools {
+			command
+				.env(format!("{prefix}{HUB_ENV}"), &devtools.hub)
+				.env(format!("{prefix}{APP_ENV}"), &devtools.app);
 		}
 	}
 
@@ -603,6 +647,7 @@ impl Tools {
 				let mut command =
 					Command::new(root.join(".leptoskit/macos/App.app/Contents/MacOS/App"));
 				command.env(GUEST_ENV, &url);
+				self.devtools_environment(&mut command, "");
 				Ok(vec![spawn_logged(command, platform)?])
 			}
 			Device::Local(target) => {
@@ -634,13 +679,27 @@ impl Tools {
 						&config.native.package_id,
 					])
 					.env(format!("SIMCTL_CHILD_{GUEST_ENV}"), &url);
+				self.devtools_environment(&mut command, "SIMCTL_CHILD_");
 				Ok(vec![spawn_logged(command, platform)?])
 			}
 			Device::Android { serial, target } => {
 				let package = &config.native.package_id;
-				// The app reaches the server at its own loopback address.
-				let forward = format!("tcp:{port}");
-				self.adb_run(serial, &["reverse", &forward, &forward], ADB_TIMEOUT)?;
+				// The app reaches the server, and the DevTools hub, at its own
+				// loopback address.
+				let devtools = self.devtools.as_ref();
+
+				for forward in std::iter::once(port).chain(devtools.map(|devtools| devtools.port)) {
+					let forward = format!("tcp:{forward}");
+					self.adb_run(serial, &["reverse", &forward, &forward], ADB_TIMEOUT)?;
+				}
+
+				let extras = devtools.map_or_else(String::new, |devtools| {
+					format!(
+						" --es {HUB_EXTRA} {} --es {APP_EXTRA} {}",
+						shell_quote(&devtools.hub),
+						shell_quote(&devtools.app)
+					)
+				});
 				let apk = newest_apk(
 					&crate::native::host_dir(root, *target).join("app/build/outputs/apk/debug"),
 				)?;
@@ -661,7 +720,7 @@ impl Tools {
 				self.adb_shell(
 					serial,
 					&format!(
-						"am start -W -S -n {} --es {GUEST_EXTRA} {}",
+						"am start -W -S -n {} --es {GUEST_EXTRA} {}{extras}",
 						shell_quote(activity),
 						shell_quote(&url)
 					),
@@ -708,9 +767,11 @@ impl NativeDev {
 		config: &LeptoskitConfig,
 		platforms: &[Platform],
 		wanted: &[String],
-		tools: Tools,
+		mut tools: Tools,
 		runtime: &tokio::runtime::Runtime,
 	) -> Result<Self> {
+		tools.devtools =
+			crate::build::devtools::hub().and_then(|hub| DevtoolsLaunch::new(hub, config));
 		let guests = Guests::new(platforms.iter().map(ToString::to_string));
 		let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
 			.context("could not bind the development guest server")?;
@@ -1115,6 +1176,7 @@ mod tests {
 			open: missing,
 			build_app: built,
 			rebuild_guest: rebuilt,
+			devtools: None,
 		}
 	}
 
@@ -1765,6 +1827,116 @@ esac"#,
 		assert_eq!(
 			error(&tools),
 			"com.example.counter has no launcher activity"
+		);
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn apps_launched_with_a_hub_are_told_where_it_is() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path();
+		let mut config = app_config();
+		config.build.client_package = Some("counter_app".to_owned());
+		let mut tools = tools(root);
+		tools.devtools = DevtoolsLaunch::new("http://127.0.0.1:7340", &config);
+		assert_eq!(
+			tools.devtools.as_ref().map(|devtools| devtools.port),
+			Some(7340)
+		);
+
+		// macOS reads the hub from its environment.
+		let macos = root.join("macos.devtools");
+		let executable = root.join(".leptoskit/macos/App.app/Contents/MacOS/App");
+		fake(
+			executable.parent().unwrap(),
+			"App",
+			&format!(
+				"printf '%s %s' \"${HUB_ENV}\" \"${APP_ENV}\" > '{}'",
+				macos.display()
+			),
+		);
+		finish(
+			tools
+				.launch(
+					root,
+					&config,
+					&Device::Local(Target::Macos),
+					Platform::Macos,
+					4321,
+				)
+				.unwrap(),
+		);
+		assert_eq!(
+			std::fs::read_to_string(&macos).unwrap(),
+			"http://127.0.0.1:7340 counter_app"
+		);
+
+		// The iOS Simulator passes on what `SIMCTL_CHILD_` names.
+		let ios = root.join("ios.devtools");
+		tools.xcrun = fake(
+			root,
+			"xcrun",
+			&format!(
+				r#"case "$1 $2" in
+  "simctl launch") printf '%s %s' "$SIMCTL_CHILD_{HUB_ENV}" "$SIMCTL_CHILD_{APP_ENV}" > '{}' ;;
+esac"#,
+				ios.display()
+			),
+		);
+		let simulator = Device::Simulator {
+			udid: "NEW".to_owned(),
+			name: "iPhone 17 Pro".to_owned(),
+		};
+		finish(
+			tools
+				.launch(root, &config, &simulator, Platform::Ios, 4321)
+				.unwrap(),
+		);
+		assert_eq!(
+			std::fs::read_to_string(&ios).unwrap(),
+			"http://127.0.0.1:7340 counter_app"
+		);
+
+		// Android reaches the hub through `adb reverse` and reads intent
+		// extras.
+		let apks =
+			crate::native::host_dir(root, Target::Android).join("app/build/outputs/apk/debug");
+		std::fs::create_dir_all(&apks).unwrap();
+		std::fs::write(apks.join("app-debug.apk"), "new").unwrap();
+		tools.adb = fake(
+			root,
+			"adb",
+			r#"case "$*" in
+  *"resolve-activity --brief 'com.example.counter'") printf 'com.example.counter/.MainActivity\n' ;;
+  *"pidof 'com.example.counter'") echo 4242 ;;
+esac"#,
+		);
+		let android = Device::Android {
+			serial: "R58M".to_owned(),
+			target: Target::Android,
+		};
+		finish(
+			tools
+				.launch(root, &config, &android, Platform::Android, 4321)
+				.unwrap(),
+		);
+		let adb = calls(root, "adb");
+		assert_eq!(
+			adb[..2],
+			[
+				"-s R58M reverse tcp:4321 tcp:4321".to_owned(),
+				"-s R58M reverse tcp:7340 tcp:7340".to_owned(),
+			]
+		);
+		assert!(
+			adb.contains(
+				&"-s R58M shell am start -W -S -n 'com.example.counter/.MainActivity' --es \
+				  leptoskit.dev_guest 'http://127.0.0.1:4321/_leptoskit/dev/android/guest' --es \
+				  leptoskit.devtools 'http://127.0.0.1:7340' --es leptoskit.devtools_app \
+				  'counter_app'"
+					.to_owned()
+			),
+			"{adb:?}"
 		);
 	}
 

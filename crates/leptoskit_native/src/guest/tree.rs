@@ -58,6 +58,26 @@ struct WireNode<'a> {
 	class: &'a str,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	rive_inputs: Option<&'a BTreeMap<leptoskit_rive::Name, leptoskit_rive::Update>>,
+	/// Where the element was created, as `file:line:column`, so the host's
+	/// `DevTools` agent can name it and compute its match key.
+	#[cfg(feature = "devtools")]
+	#[serde(skip_serializing_if = "Option::is_none")]
+	source: Option<String>,
+}
+
+/// Whether a node kept in place is now built somewhere else in the source,
+/// which the host's `DevTools` agent shows. Always false without the
+/// feature.
+fn moved(previous: &Element, element: &Element) -> bool {
+	#[cfg(feature = "devtools")]
+	{
+		previous.source_location() != element.source_location()
+	}
+	#[cfg(not(feature = "devtools"))]
+	{
+		let _ = (previous, element);
+		false
+	}
 }
 
 /// The style to send: none at all when it is the default.
@@ -160,6 +180,7 @@ impl Tree {
 			node.element.props != element.props
 				|| node.element.style != element.style
 				|| node.element.classes().classes() != element.classes().classes()
+				|| moved(&node.element, &element)
 		});
 		let wire = changed.then(|| {
 			let mut props = element.props.clone();
@@ -179,6 +200,15 @@ impl Tree {
 				style: sent_style(&element.style),
 				class: element.classes().classes(),
 				rive_inputs: retained.map(|content| content.inputs()),
+				#[cfg(feature = "devtools")]
+				source: element.source_location().map(|location| {
+					format!(
+						"{}:{}:{}",
+						location.file(),
+						location.line(),
+						location.column()
+					)
+				}),
 			})
 			.expect("native element properties serialize")
 		});

@@ -428,6 +428,7 @@ mod tests {
 			bridge: root.join("bridge with spaces"),
 			target: root.join("target"),
 			host_features: vec![],
+			devtools_feature: None,
 			missing: Vec::new(),
 		};
 		project::generate(&root, &config, &registry, Target::Harmonyos, false).unwrap();
@@ -543,6 +544,7 @@ mod tests {
 			bridge: root.join("bridge"),
 			target: root.join("target"),
 			host_features: vec![],
+			devtools_feature: None,
 			missing: Vec::new(),
 		};
 		let host = root.join("hosts/harmonyos");

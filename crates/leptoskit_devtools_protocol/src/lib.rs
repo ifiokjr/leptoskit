@@ -34,6 +34,23 @@ pub const PROTOCOL_VERSION: u32 = 1;
 /// The largest value an event or command carries before it is truncated.
 pub const MAX_VALUE_BYTES: usize = 64 * 1024;
 
+/// The environment variable that gives a native app `leptoskit dev`
+/// launched the hub's URL: directly on a desktop, and through
+/// `SIMCTL_CHILD_` in the iOS Simulator. Only debug hosts built with the
+/// `devtools` feature read it.
+pub const HUB_ENV: &str = "LEPTOSKIT_DEVTOOLS";
+
+/// The app name a native session reports, beside [`HUB_ENV`]. It is the
+/// client crate's name, which the app's web session reports too, so the hub
+/// shows both under one app.
+pub const APP_ENV: &str = "LEPTOSKIT_DEVTOOLS_APP";
+
+/// The Android intent extra that carries [`HUB_ENV`]'s value.
+pub const HUB_EXTRA: &str = "leptoskit.devtools";
+
+/// The Android intent extra that carries [`APP_ENV`]'s value.
+pub const APP_EXTRA: &str = "leptoskit.devtools_app";
+
 pub mod sink;
 
 /// One live agent session.

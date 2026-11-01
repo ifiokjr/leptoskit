@@ -71,23 +71,34 @@ pub(super) fn host_features(
 		.collect::<Result<_>>()?;
 
 	if !features.is_empty() {
-		let bridge_alias = node
-			.deps
-			.iter()
-			.filter(|dependency| normal_dependency(dependency))
-			.find(|dependency| {
-				packages
-					.get(&dependency.pkg)
-					.is_some_and(|package| package.name == "leptoskit_bridge_ffi")
-			})
-			.context("bridge alias missing")?;
-		features.push(format!(
-			"{}/async-host",
-			cargo_dependency_key(app, "leptoskit_bridge_ffi", &bridge_alias.name)?
-		));
+		features.push(bridge_feature(app, node, packages, "async-host")?);
 	}
 
 	Ok(features)
+}
+
+/// The app's direct `leptoskit_bridge_ffi` dependency's `feature`, named
+/// under the key the app's manifest gives the dependency.
+pub(super) fn bridge_feature(
+	app: &Package,
+	node: &Node,
+	packages: &BTreeMap<&String, &Package>,
+	feature: &str,
+) -> Result<String> {
+	let bridge_alias = node
+		.deps
+		.iter()
+		.filter(|dependency| normal_dependency(dependency))
+		.find(|dependency| {
+			packages
+				.get(&dependency.pkg)
+				.is_some_and(|package| package.name == "leptoskit_bridge_ffi")
+		})
+		.context("bridge alias missing")?;
+	Ok(format!(
+		"{}/{feature}",
+		cargo_dependency_key(app, "leptoskit_bridge_ffi", &bridge_alias.name)?
+	))
 }
 
 fn cargo_dependency_key<'a>(

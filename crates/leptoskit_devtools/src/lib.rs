@@ -10,9 +10,10 @@
 //! `leptoskit dev` compiles the hub's address in, so a build without one
 //! (such as `leptoskit build`) starts nothing.
 //!
-//! The `host` agent reports a native surface: it opens a session, sends
-//! snapshots, and long-polls for commands. The `web` agent reports a browser
-//! page.
+//! The `host` agent reports a native host: a `Reporter` opens a session,
+//! keeps a `Mirror` of each guest's tree from the mutations its renderer
+//! applies, sends snapshots, patches, and commits from a thread of its own,
+//! and long-polls for commands. The `web` agent reports a browser page.
 //!
 //! The element tree needs nothing more. What only the app knows, it hands
 //! over with a hook, each of which does nothing outside a `leptoskit dev`
@@ -50,7 +51,25 @@ mod value;
 #[cfg(feature = "form")]
 pub use form::track_form;
 #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
+pub use host::Batch;
+#[cfg(all(feature = "host", not(target_arch = "wasm32")))]
+pub use host::Change;
+#[cfg(all(feature = "host", not(target_arch = "wasm32")))]
+pub use host::CommitRecord;
+#[cfg(all(feature = "host", not(target_arch = "wasm32")))]
+pub use host::Highlight;
+#[cfg(all(feature = "host", not(target_arch = "wasm32")))]
 pub use host::HostAgent;
+#[cfg(all(feature = "host", not(target_arch = "wasm32")))]
+pub use host::Mirror;
+#[cfg(all(feature = "host", not(target_arch = "wasm32")))]
+pub use host::Reporter;
+#[cfg(all(feature = "host", not(target_arch = "wasm32")))]
+pub use host::SessionGone;
+#[cfg(all(feature = "host", not(target_arch = "wasm32")))]
+pub use host::Source;
+#[cfg(all(feature = "host", not(target_arch = "wasm32")))]
+pub use host::loopback_hub;
 #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
 pub use host::snapshot;
 #[cfg(feature = "query")]

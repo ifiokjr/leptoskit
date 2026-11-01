@@ -336,6 +336,32 @@ pub(crate) mod devtools {
 			.insert("LEPTOSKIT_DEVTOOLS_HUB".to_owned(), hub.to_owned());
 		options
 	}
+
+	/// A development native guest's options with the app's `devtools`
+	/// feature, so it tells its host where each element was created. The
+	/// host reports to the hub, so the guest needs no address.
+	pub(crate) fn guest_options(
+		options: CargoOptions,
+		package: Option<&wasm::MetadataPackage>,
+		release: bool,
+	) -> CargoOptions {
+		guest_with_hub(options, package, release, hub())
+	}
+
+	pub(super) fn guest_with_hub(
+		options: CargoOptions,
+		package: Option<&wasm::MetadataPackage>,
+		release: bool,
+		hub: Option<&str>,
+	) -> CargoOptions {
+		if release
+			|| hub.is_none()
+			|| !package.is_some_and(|package| package.declares_feature("devtools"))
+		{
+			return options;
+		}
+		options.with_features(&["devtools".to_owned()])
+	}
 }
 
 /// Settings a platform overrides: an extension never splits its client,
@@ -836,5 +862,28 @@ mod tests {
 
 		let no_hub = devtools::with_hub(options, Some(&app), false, None);
 		assert!(no_hub.features.is_empty() && no_hub.env.is_empty());
+	}
+
+	#[test]
+	fn only_development_native_guests_get_the_feature_and_never_the_hub() {
+		let hub = Some("http://127.0.0.1:7340");
+		let options = CargoOptions::default();
+		let app = package(&["devtools"]);
+
+		let dev = devtools::guest_with_hub(options.clone(), Some(&app), false, hub);
+		assert_eq!(dev.features, ["devtools"]);
+		assert!(
+			dev.env.is_empty(),
+			"the host reports, so the guest needs no address"
+		);
+
+		let release = devtools::guest_with_hub(options.clone(), Some(&app), true, hub);
+		assert_eq!(release.features, [] as [String; 0]);
+
+		let without = devtools::guest_with_hub(options.clone(), Some(&package(&[])), false, hub);
+		assert_eq!(without.features, [] as [String; 0]);
+
+		let no_hub = devtools::guest_with_hub(options, Some(&app), false, None);
+		assert_eq!(no_hub.features, [] as [String; 0]);
 	}
 }

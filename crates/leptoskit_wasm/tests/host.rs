@@ -475,6 +475,24 @@ fn wire_classes_drive_native_layout_and_paint() {
 }
 
 #[test]
+fn a_committed_node_names_the_wire_node_it_was_built_from() {
+	let guest = props_guest(&serde_json::json!({
+		"class": "p-2 gap-1",
+		"source": "src/screens/home.rs:12:5",
+	}));
+	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile guest");
+	host.start(VIEWPORT_WIDTH, COMPACT_VIEWPORT_HEIGHT)
+		.expect("start");
+	let root = host.surface().root().expect("root");
+	let wire = host.wire_node(root).expect("the root's wire node");
+	assert_eq!(wire.class, "p-2 gap-1");
+	assert_eq!(wire.source.as_deref(), Some("src/screens/home.rs:12:5"));
+	let child = host.surface().children(root)[0];
+	let wire = host.wire_node(child).expect("the child's wire node");
+	assert_eq!((wire.class.as_str(), wire.source.as_deref()), ("", None));
+}
+
+#[test]
 fn invalid_wire_classes_trap_before_committing_native_widgets() {
 	let guest = class_guest("md:unsupported-utility");
 	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile guest");

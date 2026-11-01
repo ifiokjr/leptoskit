@@ -10,6 +10,7 @@ use serde::Deserialize;
 
 use super::Target;
 mod async_plugins;
+use async_plugins::bridge_feature;
 use async_plugins::configure_plugin;
 use async_plugins::host_features;
 use async_plugins::validate_async;
@@ -167,6 +168,10 @@ pub struct Registry {
 	pub bridge: PathBuf,
 	pub target: PathBuf,
 	pub host_features: Vec<String>,
+	/// The host feature that compiles the `DevTools` agent in, which only
+	/// `leptoskit dev` turns on: the app's `leptoskit_bridge_ffi`
+	/// dependency's `devtools`, under the key its manifest gives it.
+	pub devtools_feature: Option<String>,
 	/// Selected plugins this destination leaves out, and why.
 	pub missing: Vec<MissingPlugin>,
 }
@@ -354,6 +359,7 @@ fn resolve_for_target(
 	let bridge = bridge.context("native apps need a direct leptoskit_bridge_ffi dependency")?;
 	let support = resolve_support(&metadata, &plugins, &bridge)?;
 	let host_features = host_features(app, node, &packages, &plugins, target)?;
+	let devtools_feature = bridge_feature(app, node, &packages, "devtools").ok();
 	Ok(Registry {
 		package: app.name.clone(),
 		plugins,
@@ -361,6 +367,7 @@ fn resolve_for_target(
 		bridge,
 		target: metadata.target_directory,
 		host_features,
+		devtools_feature,
 		missing,
 	})
 }

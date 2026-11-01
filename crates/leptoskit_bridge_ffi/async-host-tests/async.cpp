@@ -134,3 +134,6 @@ extern "C" lk_dev* lk_dev_open(const uint8_t*, size_t, const uint8_t*, size_t, l
 extern "C" int32_t lk_dev_next(lk_dev*, lk_buffer*) { std::abort(); }
 extern "C" lk_buffer lk_dev_error(lk_dev*) { std::abort(); }
 extern "C" void lk_dev_destroy(lk_dev*) { std::abort(); }
+extern "C" int32_t lk_devtools_hub(const uint8_t*, size_t, const uint8_t*, size_t) {
+    std::abort();
+}
