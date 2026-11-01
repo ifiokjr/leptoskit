@@ -570,14 +570,17 @@ enum Wake {
 
 /// The web half of `leptoskit dev`: the build in `dist/` and its server.
 ///
-/// Which server depends on `app.render`. Client-rendered apps get
-/// leptoskit's static server over `dist/`. Server-rendered apps (`ssr`,
-/// `islands`) run their own server binary with the `LEPTOS_*` environment
-/// pointing at `dist/`, restarted after every successful rebuild.
+/// An app with a server package runs its own server binary, with the
+/// `LEPTOS_*` environment pointing at `dist/`, restarted after every
+/// successful rebuild: server-rendered apps (`ssr`, `islands`) need it to
+/// render, and client-rendered ones to answer their API. A client-rendered
+/// app without a server gets leptoskit's static server over `dist/`.
 struct Web {
 	config: LeptoskitConfig,
 	address: SocketAddr,
-	server_rendered: bool,
+	/// Whether the app's own server serves the site, so it restarts after
+	/// each rebuild.
+	runs_app_server: bool,
 	app_server: Option<Child>,
 	/// Extra variables for the app server, such as the database's URL.
 	env: Vec<(String, String)>,
@@ -606,8 +609,14 @@ impl Web {
 			.with_context(|| format!("could not bind {address}"))?;
 		let server_rendered =
 			config.app.render.renders_on_server() && config.app.default_platform == Platform::Web;
-		// The app's own server binds the port itself.
-		let listener = if server_rendered {
+
+		let output = crate::build::run(false, None, None, DEV_OUT)?;
+		crate::build::serve_plugins(config)?;
+		// An app with a server package runs it, whatever its render mode: a
+		// client-rendered app's server is where its API and sign-in live, and
+		// it serves the built site itself. The app's server binds the port.
+		let runs_app_server = server_rendered || output.server_binary.is_some();
+		let listener = if runs_app_server {
 			drop(listener);
 			None
 		} else {
@@ -616,13 +625,10 @@ impl Web {
 				.context("could not configure the listener")?;
 			Some(listener)
 		};
-
-		let output = crate::build::run(false, None, None, DEV_OUT)?;
-		crate::build::serve_plugins(config)?;
 		let mut web = Self {
 			config: config.clone(),
 			address,
-			server_rendered,
+			runs_app_server,
 			app_server: None,
 			env: database.map_or_else(Vec::new, crate::db::DevDatabase::env),
 		};
@@ -689,7 +695,7 @@ impl Web {
 						ui::seconds(started.elapsed())
 					),
 				);
-				if self.server_rendered {
+				if self.runs_app_server {
 					match start_app_server(&self.config, &output, self.address, &self.env) {
 						Ok(child) => self.app_server = Some(child),
 						Err(error) => {

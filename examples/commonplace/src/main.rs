@@ -16,7 +16,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let config =
 		LeptoskitConfig::from_toml(include_str!("../leptoskit.toml"), Path::new("commonplace"))?;
 	let site = std::env::var("LEPTOS_SITE_ROOT").unwrap_or_else(|_| "dist".to_owned());
+	// `leptoskit dev` names the address in `LEPTOS_SITE_ADDR`.
 	let address = std::env::var("COMMONPLACE_ADDRESS")
+		.or_else(|_| std::env::var("LEPTOS_SITE_ADDR"))
 		.unwrap_or_else(|_| format!("{}:{}", config.serve.address, config.serve.port));
 
 	// The database, migrated before the first request.

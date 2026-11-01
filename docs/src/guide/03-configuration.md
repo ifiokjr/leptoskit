@@ -72,11 +72,13 @@ Listing a platform doesn't compile anything for it. Each build turns on one plat
 
 `render` decides the cargo features each side of a web build gets, following the leptos convention that every leptos app already uses:
 
-| `render`    | Server package          | Client package              | Who serves the app                      |
-| ----------- | ----------------------- | --------------------------- | --------------------------------------- |
-| `"csr"`     | no mode feature         | no mode feature             | leptoskit's static server over `dist/`  |
-| `"ssr"`     | `ssr`                   | `hydrate`                   | your server binary, rendering each page |
-| `"islands"` | `ssr`, `leptos/islands` | `hydrate`, `leptos/islands` | your server binary, rendering each page |
+| `render`    | Server package          | Client package              | Who serves the app                                                        |
+| ----------- | ----------------------- | --------------------------- | ------------------------------------------------------------------------- |
+| `"csr"`     | no mode feature         | no mode feature             | your server binary, or leptoskit's static server over `dist/` without one |
+| `"ssr"`     | `ssr`                   | `hydrate`                   | your server binary, rendering each page                                   |
+| `"islands"` | `ssr`, `leptos/islands` | `hydrate`, `leptos/islands` | your server binary, rendering each page                                   |
+
+A client-rendered app with a server package, such as one with an API or sign-in, runs that server under `leptoskit dev` and `leptoskit serve`, and the server serves `dist/` itself. Without a server package, leptoskit's static server serves `dist/`.
 
 The server-rendering modes need the server package to declare an `ssr` feature and the client to declare a `hydrate` feature, and `islands` needs both to depend on `leptos` directly. When one is missing, the build stops and tells you which package needs what. The [small bundles guide](09-small-bundles.md) walks through each mode.
 
