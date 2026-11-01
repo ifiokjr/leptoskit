@@ -361,6 +361,47 @@ fn write_rebuilds(
 /// Rebuilds `table` from its new definition. Renames have already run, so
 /// every surviving column has its new name in the old table.
 fn rebuild(table: &Table, plan: &Plan, statements: &mut Vec<String>, notes: &mut Vec<String>) {
+	let (added, altered) = rebuilt_columns(plan, table);
+	let name = table.name.flat();
+	let temporary = format!("{REBUILD_PREFIX}{name}");
+	statements.push(create_table_named(&temporary, table, notes));
+
+	let copied: Vec<&Column> = table
+		.columns
+		.iter()
+		.filter(|column| column.generated.is_none())
+		.collect();
+	let columns: Vec<String> = copied.iter().map(|column| ident(&column.name)).collect();
+	let values = copied_values(&copied, &added, &altered);
+
+	statements.push(format!(
+		"INSERT INTO {} ({}) SELECT {} FROM {}",
+		ident(&temporary),
+		columns.join(", "),
+		values.join(", "),
+		ident(&name)
+	));
+	statements.push(format!("DROP TABLE {}", ident(&name)));
+	statements.push(format!(
+		"ALTER TABLE {} RENAME TO {}",
+		ident(&temporary),
+		ident(&name)
+	));
+	statements.extend(
+		table
+			.indexes
+			.iter()
+			.map(|index| create_index(&table.name, index)),
+	);
+
+	recreate_triggers(table, plan, statements);
+}
+
+/// The columns `plan` adds and alters on `table`.
+fn rebuilt_columns<'a>(
+	plan: &'a Plan,
+	table: &Table,
+) -> (HashSet<&'a str>, HashMap<&'a str, (&'a Column, &'a Column)>) {
 	let mut added = HashSet::new();
 	let mut altered = HashMap::new();
 
@@ -376,18 +417,16 @@ fn rebuild(table: &Table, plan: &Plan, statements: &mut Vec<String>, notes: &mut
 		}
 	}
 
-	let name = table.name.flat();
-	let temporary = format!("{REBUILD_PREFIX}{name}");
-	statements.push(create_table_named(&temporary, table, notes));
+	(added, altered)
+}
 
-	// The database computes generated columns as it copies the rows.
-	let copied: Vec<&Column> = table
-		.columns
-		.iter()
-		.filter(|column| column.generated.is_none())
-		.collect();
-	let columns: Vec<String> = copied.iter().map(|column| ident(&column.name)).collect();
-	let values: Vec<String> = copied
+/// The value each copied column takes from the old table's row.
+fn copied_values(
+	copied: &[&Column],
+	added: &HashSet<&str>,
+	altered: &HashMap<&str, (&Column, &Column)>,
+) -> Vec<String> {
+	copied
 		.iter()
 		.map(|column| {
 			if added.contains(column.name.as_str()) {
@@ -414,28 +453,19 @@ fn rebuild(table: &Table, plan: &Plan, statements: &mut Vec<String>, notes: &mut
 
 			value
 		})
-		.collect();
+		.collect()
+}
 
-	statements.push(format!(
-		"INSERT INTO {} ({}) SELECT {} FROM {}",
-		ident(&temporary),
-		columns.join(", "),
-		values.join(", "),
-		ident(&name)
-	));
-	statements.push(format!("DROP TABLE {}", ident(&name)));
-	statements.push(format!(
-		"ALTER TABLE {} RENAME TO {}",
-		ident(&temporary),
-		ident(&name)
-	));
-	statements.extend(
-		table
-			.indexes
-			.iter()
-			.map(|index| create_index(&table.name, index)),
-	);
+/// Gives the rebuilt table back the triggers its old one had, except those
+/// the plan creates again.
+fn recreate_triggers(table: &Table, plan: &Plan, statements: &mut Vec<String>) {
+	recreate_search(table, plan, statements);
+	recreate_geo_indexes(table, plan, statements);
+	recreate_vector_triggers(table, plan, statements);
+}
 
+/// Recreates a search index's triggers unless the plan makes them itself.
+fn recreate_search(table: &Table, plan: &Plan, statements: &mut Vec<String>) {
 	// Dropping the old table dropped its triggers; the search index's
 	// companion tables, keyed by the table's key rather than its row ids,
 	// still hold every row's words. A plan that recreates the index makes
@@ -447,7 +477,11 @@ fn rebuild(table: &Table, plan: &Plan, statements: &mut Vec<String>, notes: &mut
 	if let Some(search) = table.search.as_ref().filter(|_| !recreated) {
 		statements.extend(search_triggers(table, search));
 	}
+}
 
+/// Recreates each spatial index's triggers unless the plan makes them
+/// itself.
+fn recreate_geo_indexes(table: &Table, plan: &Plan, statements: &mut Vec<String>) {
 	// Spatial indexes keep their boxes the same way.
 	for index in &table.geo_indexes {
 		let recreated = plan.steps.iter().any(|step| {
@@ -462,7 +496,11 @@ fn rebuild(table: &Table, plan: &Plan, statements: &mut Vec<String>, notes: &mut
 			statements.extend(geo_index_triggers(table, index));
 		}
 	}
+}
 
+/// Recreates vector indexes' and sources' triggers unless the plan makes
+/// them itself.
+fn recreate_vector_triggers(table: &Table, plan: &Plan, statements: &mut Vec<String>) {
 	// So do vector indexes, and the fingerprints of vectors' sources live
 	// in the table itself.
 	for vector in &table.vectors {

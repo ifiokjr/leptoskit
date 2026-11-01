@@ -514,6 +514,7 @@ fn validation_checks_keys_indexes_and_references() {
 	posts
 		.columns
 		.push(Column::new("ratio", ColumnType::Float64).default(DefaultValue::Float(f64::NAN)));
+
 	posts
 		.columns
 		.push(Column::new("label", ColumnType::Int64).default(DefaultValue::Text("x".into())));
