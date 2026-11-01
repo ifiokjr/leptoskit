@@ -759,6 +759,46 @@ impl TableBuilder {
 		);
 	}
 
+	/// A vector column's options: how it's measured, the index Postgres
+	/// keeps, the text columns its vectors are made from, and whether
+	/// clients see it. With sources, the table gains the column keeping
+	/// their fingerprint, renamed with the vector column.
+	pub fn vector(
+		&mut self,
+		column: &str,
+		distance: Option<leptoskit_db_schema::VectorDistance>,
+		index: Option<leptoskit_db_schema::VectorIndexKind>,
+		sources: &[&str],
+		public: bool,
+	) {
+		let mut options =
+			leptoskit_db_schema::VectorOptions::new(column, distance).from_sources(sources);
+		options.index = index;
+		options.public = public;
+
+		if !sources.is_empty() {
+			let renamed_from = self
+				.table
+				.column(column)
+				.and_then(|vector| vector.renamed_from.as_deref())
+				.map(leptoskit_db_schema::source_column);
+			self.table.columns.push(leptoskit_db_schema::Column {
+				name: options.source_column(),
+				ty: leptoskit_db_schema::ColumnType::TEXT,
+				nullable: true,
+				default: None,
+				comment: Some(format!(
+					"The fingerprint of the sources `{column}` was made from, which the database \
+					 sets."
+				)),
+				renamed_from,
+				generated: None,
+			});
+		}
+
+		self.table.vectors.push(options);
+	}
+
 	pub fn on_account_merge(&mut self, strategy: leptoskit_db_schema::MergeStrategy) {
 		self.table.on_account_merge = Some(strategy);
 	}

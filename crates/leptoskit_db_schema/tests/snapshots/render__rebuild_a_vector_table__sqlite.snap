@@ -32,15 +32,24 @@ ALTER TABLE "_leptoskit_rebuild_posts" RENAME TO "posts";
 
 CREATE INDEX "posts_author_id_idx" ON "posts" ("author_id");
 
-CREATE TRIGGER "posts_lk_vec_embedding_insert" AFTER INSERT ON "posts" BEGIN
+CREATE TRIGGER "posts_lk_vec_embedding_insert_null" AFTER INSERT ON "posts" WHEN new."embedding" IS NULL BEGIN
 	INSERT INTO "posts_lk_vec_embedding_rows" ("id") VALUES (new."id");
-	INSERT INTO "posts_lk_vec_embedding" (rowid, lk_vector) SELECT "lk_row", new."embedding" FROM "posts_lk_vec_embedding_rows" WHERE "id" = new."id" AND new."embedding" IS NOT NULL;
 END;
 
-CREATE TRIGGER "posts_lk_vec_embedding_update" AFTER UPDATE OF "embedding", "id" ON "posts" BEGIN
+CREATE TRIGGER "posts_lk_vec_embedding_insert" AFTER INSERT ON "posts" WHEN new."embedding" IS NOT NULL BEGIN
+	INSERT INTO "posts_lk_vec_embedding_rows" ("id") VALUES (new."id");
+	INSERT INTO "posts_lk_vec_embedding" (rowid, lk_vector) VALUES ((SELECT "lk_row" FROM "posts_lk_vec_embedding_rows" WHERE "id" = new."id"), new."embedding");
+END;
+
+CREATE TRIGGER "posts_lk_vec_embedding_update_null" AFTER UPDATE OF "embedding", "id" ON "posts" WHEN new."embedding" IS NULL BEGIN
 	DELETE FROM "posts_lk_vec_embedding" WHERE rowid = (SELECT "lk_row" FROM "posts_lk_vec_embedding_rows" WHERE "id" = old."id");
 	UPDATE "posts_lk_vec_embedding_rows" SET "id" = new."id" WHERE "id" = old."id";
-	INSERT INTO "posts_lk_vec_embedding" (rowid, lk_vector) SELECT "lk_row", new."embedding" FROM "posts_lk_vec_embedding_rows" WHERE "id" = new."id" AND new."embedding" IS NOT NULL;
+END;
+
+CREATE TRIGGER "posts_lk_vec_embedding_update" AFTER UPDATE OF "embedding", "id" ON "posts" WHEN new."embedding" IS NOT NULL BEGIN
+	DELETE FROM "posts_lk_vec_embedding" WHERE rowid = (SELECT "lk_row" FROM "posts_lk_vec_embedding_rows" WHERE "id" = old."id");
+	UPDATE "posts_lk_vec_embedding_rows" SET "id" = new."id" WHERE "id" = old."id";
+	INSERT INTO "posts_lk_vec_embedding" (rowid, lk_vector) VALUES ((SELECT "lk_row" FROM "posts_lk_vec_embedding_rows" WHERE "id" = new."id"), new."embedding");
 END;
 
 CREATE TRIGGER "posts_lk_vec_embedding_delete" AFTER DELETE ON "posts" BEGIN
@@ -56,15 +65,24 @@ CREATE TRIGGER "posts_lk_embedding_source_update" AFTER UPDATE OF "embedding" ON
 	UPDATE "posts" SET "lk_embedding_source" = CASE WHEN new."embedding" IS NULL THEN NULL ELSE lk_sha256(coalesce(octet_length(new."title") || ':' || new."title", '-') || ';' || coalesce(octet_length(new."body") || ':' || new."body", '-') || ';') END WHERE "id" = new."id";
 END;
 
-CREATE TRIGGER "posts_lk_vec_code_insert" AFTER INSERT ON "posts" BEGIN
+CREATE TRIGGER "posts_lk_vec_code_insert_null" AFTER INSERT ON "posts" WHEN new."code" IS NULL BEGIN
 	INSERT INTO "posts_lk_vec_code_rows" ("id") VALUES (new."id");
-	INSERT INTO "posts_lk_vec_code" (rowid, lk_vector) SELECT "lk_row", vec_bit(new."code") FROM "posts_lk_vec_code_rows" WHERE "id" = new."id" AND new."code" IS NOT NULL;
 END;
 
-CREATE TRIGGER "posts_lk_vec_code_update" AFTER UPDATE OF "code", "id" ON "posts" BEGIN
+CREATE TRIGGER "posts_lk_vec_code_insert" AFTER INSERT ON "posts" WHEN new."code" IS NOT NULL BEGIN
+	INSERT INTO "posts_lk_vec_code_rows" ("id") VALUES (new."id");
+	INSERT INTO "posts_lk_vec_code" (rowid, lk_vector) VALUES ((SELECT "lk_row" FROM "posts_lk_vec_code_rows" WHERE "id" = new."id"), vec_bit(new."code"));
+END;
+
+CREATE TRIGGER "posts_lk_vec_code_update_null" AFTER UPDATE OF "code", "id" ON "posts" WHEN new."code" IS NULL BEGIN
 	DELETE FROM "posts_lk_vec_code" WHERE rowid = (SELECT "lk_row" FROM "posts_lk_vec_code_rows" WHERE "id" = old."id");
 	UPDATE "posts_lk_vec_code_rows" SET "id" = new."id" WHERE "id" = old."id";
-	INSERT INTO "posts_lk_vec_code" (rowid, lk_vector) SELECT "lk_row", vec_bit(new."code") FROM "posts_lk_vec_code_rows" WHERE "id" = new."id" AND new."code" IS NOT NULL;
+END;
+
+CREATE TRIGGER "posts_lk_vec_code_update" AFTER UPDATE OF "code", "id" ON "posts" WHEN new."code" IS NOT NULL BEGIN
+	DELETE FROM "posts_lk_vec_code" WHERE rowid = (SELECT "lk_row" FROM "posts_lk_vec_code_rows" WHERE "id" = old."id");
+	UPDATE "posts_lk_vec_code_rows" SET "id" = new."id" WHERE "id" = old."id";
+	INSERT INTO "posts_lk_vec_code" (rowid, lk_vector) VALUES ((SELECT "lk_row" FROM "posts_lk_vec_code_rows" WHERE "id" = new."id"), vec_bit(new."code"));
 END;
 
 CREATE TRIGGER "posts_lk_vec_code_delete" AFTER DELETE ON "posts" BEGIN

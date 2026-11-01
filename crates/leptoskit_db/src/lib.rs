@@ -68,6 +68,8 @@ pub mod merge;
 #[cfg(feature = "server")]
 mod migrate;
 mod mixins;
+#[cfg(all(feature = "server", any(feature = "geo", feature = "vector")))]
+mod nearest;
 #[cfg(feature = "server")]
 mod persona;
 #[cfg(feature = "server")]
@@ -365,6 +367,8 @@ pub use mixins::MixinField;
 pub use mixins::SoftDelete;
 pub use mixins::Timestamps;
 pub use mixins::Versioned;
+#[cfg(all(feature = "server", any(feature = "geo", feature = "vector")))]
+pub use nearest::NearestTo;
 #[cfg(feature = "server")]
 pub use persona::Persona;
 #[cfg(feature = "server")]

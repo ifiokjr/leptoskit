@@ -18,6 +18,7 @@ use crate::Action;
 use crate::Col;
 use crate::DbError;
 use crate::Expr;
+use crate::NearestTo;
 use crate::Order;
 use crate::Query;
 use crate::Read;
@@ -29,42 +30,18 @@ use crate::sql::Sql;
 use crate::tracked::ReadKind;
 use crate::tracked::Reads;
 
-impl<T: Table> Query<T> {
-	/// The matching rows nearest `target`, nearest first, by the shapes in
-	/// `column`; rows without a shape are left out. Give it a
-	/// [`limit`](Nearest::limit):
-	///
-	/// ```ignore
-	/// let nearby: Vec<(Place, Meters)> = Place::query()
-	/// 	.filter(|p| p.open.eq(true))
-	/// 	.nearest(|p| p.location, &here)
-	/// 	.with_distance()
-	/// 	.limit(20)
-	/// 	.all(&db)
-	/// 	.await?;
-	/// ```
-	///
-	/// Distances are measured as [`Col::distance_to`] measures them, and ties
-	/// are broken by the query's orderings, then the key. Postgres orders
-	/// planar shapes with its index (`<->`); on the globe it orders by the
-	/// exact spheroid distance, which its index can't, so a `within_distance`
-	/// filter beside it keeps large tables fast. SQLite grows a search box in
-	/// the column's R*Tree until it holds enough rows.
-	pub fn nearest<V, G>(
-		self,
-		column: impl FnOnce(&T::Columns) -> Col<T, V>,
-		target: &G,
-	) -> Nearest<T, <V::Value as GeoValue>::Space>
-	where
-		V: GeoColumn,
-		G: GeoValue<Space = <V::Value as GeoValue>::Space>,
-		<V::Value as GeoValue>::Space:
-			MeasuresDistance<<V::Value as GeoValue>::Shape, <G as GeoValue>::Shape>,
-	{
-		let column = column(T::columns());
+impl<V, G> NearestTo<G> for V
+where
+	V: GeoColumn,
+	G: GeoValue<Space = <V::Value as GeoValue>::Space>,
+	<V::Value as GeoValue>::Space:
+		MeasuresDistance<<V::Value as GeoValue>::Shape, <G as GeoValue>::Shape>,
+{
+	type Search<T: Table> = Nearest<T, <V::Value as GeoValue>::Space>;
 
+	fn nearest<T: Table>(query: Query<T>, column: Col<T, V>, target: &G) -> Self::Search<T> {
 		Nearest {
-			query: self,
+			query,
 			source: column.source(),
 			target: Argument::of(target),
 			space: PhantomData,
@@ -73,7 +50,24 @@ impl<T: Table> Query<T> {
 }
 
 /// The rows nearest a shape, nearest first. Start one with
-/// [`Query::nearest`].
+/// [`Query::nearest`] on a geospatial column:
+///
+/// ```ignore
+/// let nearby: Vec<(Place, Meters)> = Place::query()
+/// 	.filter(|p| p.open.eq(true))
+/// 	.nearest(|p| p.location, &here)
+/// 	.with_distance()
+/// 	.limit(20)
+/// 	.all(&db)
+/// 	.await?;
+/// ```
+///
+/// Distances are measured as [`Col::distance_to`] measures them, and ties
+/// are broken by the query's orderings, then the key. Postgres orders
+/// planar shapes with its index (`<->`); on the globe it orders by the
+/// exact spheroid distance, which its index can't, so a `within_distance`
+/// filter beside it keeps large tables fast. SQLite grows a search box in
+/// the column's R*Tree until it holds enough rows.
 #[must_use = "a search does nothing until it runs"]
 pub struct Nearest<T, P> {
 	query: Query<T>,

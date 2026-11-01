@@ -1,0 +1,21 @@
+error[E0277]: `nearest` can't measure a `Option<leptoskit_db::vector::Vector<3>>` column against a `leptoskit_db::vector::Vector<4>`
+  --> tests/ui/searches_vectors_of_other_dimensions.rs:14:27
+   |
+14 |     let _ = Passage::query().nearest(|passage| passage.embedding, &Vector::new([0.0; 4]));
+   |                              ^^^^^^^ a geospatial column measures shapes in its coordinate system; a vector column measures vectors of its own type and dimensions
+   |
+   = help: the trait `NearestTo<leptoskit_db::vector::Vector<4>>` is not implemented for `Option<leptoskit_db::vector::Vector<3>>`
+help: the following other types implement trait `NearestTo<Target>`
+  --> $WORKSPACE/crates/leptoskit_db/src/vector/nearest.rs
+   |
+   |         impl<const N: usize> NearestTo<$ty<N>> for Option<$ty<N>> {
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |         |
+   |         `Option<BitVector<N>>` implements `NearestTo<BitVector<N>>`
+   |         `Option<HalfVector<N>>` implements `NearestTo<HalfVector<N>>`
+   |         `Option<SparseVector<N>>` implements `NearestTo<SparseVector<N>>`
+   |         `Option<leptoskit_db::vector::Vector<N>>` implements `NearestTo<leptoskit_db::vector::Vector<N>>`
+...
+   | nearest_vectors!(Vector, HalfVector, BitVector, SparseVector);
+   | ------------------------------------------------------------- in this macro invocation
+   = note: this error originates in the macro `nearest_vectors` (in Nightly builds, run with -Z macro-backtrace for more info)

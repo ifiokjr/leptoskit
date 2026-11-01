@@ -12,7 +12,7 @@ derived Debug: don't derive `Debug` on a table: leptoskit generates `Debug` so t
 generic: a table can't be generic
 tuple: a table needs named fields: one per column
 no key: a table needs a primary key: add `pub id: Id<Self>`, or mark the key fields with #[db(key)]
-unknown column option: unknown column option; expected one of `key`, `generate`, `column`, `unique`, `index`, `private`, `secret`, `default`, `min_len`, `max_len`, `min`, `max`, `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `created_by`, `updated_by`, `version`, `slug`, `search`, `geo`, `on_delete`, `on_soft_delete`, `backlink`, `no_foreign_key`, `renamed_from`, `flatten`, `prefix`, `in`, or `generated`
+unknown column option: unknown column option; expected one of `key`, `generate`, `column`, `unique`, `index`, `private`, `secret`, `default`, `min_len`, `max_len`, `min`, `max`, `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `created_by`, `updated_by`, `version`, `slug`, `search`, `geo`, `vector`, `public`, `on_delete`, `on_soft_delete`, `backlink`, `no_foreign_key`, `live`, `renamed_from`, `flatten`, `prefix`, `in`, or `generated`
 bad regex: `regex` isn't a valid regular expression: regex parse error:
     (
     ^

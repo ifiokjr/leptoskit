@@ -43,6 +43,10 @@ uuid = { workspace = true, features = ["serde", "v5"] }
 webpki-roots = { workspace = true, optional = true }
 wkb = { workspace = true, optional = true }
 
+# sqlite-vec is C, compiled with the build; wasm clients only use the types.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+sqlite-vec = { workspace = true, optional = true }
+
 [dev-dependencies]
 insta = { workspace = true, features = ["json"] }
 proptest = { workspace = true }
@@ -97,8 +101,9 @@ geo = [
 ## Solana's `Pubkey` and `Signature` scalars, in strict base58.
 solana = []
 ## Vector columns: `Vector<N>`, `HalfVector<N>`, `BitVector<N>`, and
-## `SparseVector<N>`, sent as JSON. Client-safe on its own.
-vector = ["dep:half"]
+## `SparseVector<N>`, sent as JSON. Client-safe on its own; with `postgres`
+## it uses pgvector, and with `sqlite` sqlite-vec, compiled into the build.
+vector = ["dep:half", "dep:sqlite-vec", "rusqlite?/functions"]
 ## Checks `regex` rules in `validate()`. Always on with `server`; opt in on the
 ## client.
 regex = ["dep:regex"]

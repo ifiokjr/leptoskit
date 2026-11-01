@@ -1098,7 +1098,8 @@ impl VectorOptions {
 	}
 
 	/// The trigger that indexes a row after `event` (`insert`, `update`, or
-	/// `delete`) on SQLite.
+	/// `delete`, or `insert_null` and `update_null` for a row without a
+	/// vector) on SQLite.
 	pub fn trigger_name(&self, table: &TableName, event: &str) -> String {
 		crate::shorten_identifier(&format!("{}_lk_vec_{}_{event}", table.flat(), self.column))
 	}

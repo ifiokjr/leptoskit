@@ -1,0 +1,19 @@
+error[E0277]: `String` isn't a vector column
+ --> tests/ui/indexes_text_as_vectors.rs:8:12
+  |
+8 |     pub body: String,
+  |               ^^^^^^ `#[db(vector(…))]` needs `Vector<N>`, `HalfVector<N>`, `BitVector<N>`, or `SparseVector<N>`
+  |
+  = help: the trait `VectorColumn` is not implemented for `String`
+  = help: the following other types implement trait `VectorColumn`:
+            BitVector<N>
+            HalfVector<N>
+            Option<V>
+            SparseVector<N>
+            leptoskit_db::vector::Vector<N>
+note: required by a bound in `vector`
+ --> tests/ui/indexes_text_as_vectors.rs:4:1
+  |
+4 | #[leptoskit_db::table(name = "notes")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `vector`
+  = note: this error originates in the attribute macro `leptoskit_db::table` (in Nightly builds, run with -Z macro-backtrace for more info)

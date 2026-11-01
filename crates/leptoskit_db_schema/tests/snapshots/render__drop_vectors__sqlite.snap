@@ -10,7 +10,11 @@ expression: migration.sql()
 -- loses data: every value in `posts.lk_embedding_source` is deleted
 -- loses data: every row in `items` is deleted
 
+DROP TRIGGER "posts_lk_vec_embedding_insert_null";
+
 DROP TRIGGER "posts_lk_vec_embedding_insert";
+
+DROP TRIGGER "posts_lk_vec_embedding_update_null";
 
 DROP TRIGGER "posts_lk_vec_embedding_update";
 
@@ -24,7 +28,11 @@ DROP TRIGGER "posts_lk_embedding_source_insert";
 
 DROP TRIGGER "posts_lk_embedding_source_update";
 
+DROP TRIGGER "posts_lk_vec_code_insert_null";
+
 DROP TRIGGER "posts_lk_vec_code_insert";
+
+DROP TRIGGER "posts_lk_vec_code_update_null";
 
 DROP TRIGGER "posts_lk_vec_code_update";
 

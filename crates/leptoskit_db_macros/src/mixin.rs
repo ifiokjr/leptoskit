@@ -20,6 +20,7 @@ use crate::attrs::FieldArgs;
 use crate::attrs::MixinArgs;
 use crate::attrs::Visibility;
 use crate::attrs::is_db_attr;
+use crate::attrs::is_vector_type;
 use crate::table::check_derives;
 use crate::table::is_provided_args;
 use crate::table::json_schema_rules;
@@ -64,6 +65,13 @@ pub(crate) fn expand(raw_args: &TokenStream, mut item: ItemStruct) -> syn::Resul
 					),
 				));
 			}
+		}
+
+		if args.vector.is_some() || args.public.is_some() || is_vector_type(&field.ty) {
+			return Err(syn::Error::new_spanned(
+				&field.ident,
+				"a mixin can't hold a vector: declare vector columns on the table itself",
+			));
 		}
 
 		if let Some(projection) = args.projections.first() {

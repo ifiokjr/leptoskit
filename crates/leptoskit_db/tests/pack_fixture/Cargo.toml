@@ -7,7 +7,7 @@ publish = false
 description = "A schema pack, as a library ships one: tables only its own API writes."
 
 [dependencies]
-leptoskit_db = { workspace = true, features = ["geo", "sqlite"] }
+leptoskit_db = { workspace = true, features = ["geo", "sqlite", "vector"] }
 
 [dev-dependencies]
 leptoskit_db_schema = { workspace = true }

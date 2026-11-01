@@ -5,6 +5,7 @@ use leptoskit_db_schema::ColumnType;
 use super::ops::Cell;
 use super::ops::Op;
 use super::ops::display;
+use super::ops::display_as;
 use super::ops::parse_value;
 use crate::Value;
 
@@ -112,4 +113,49 @@ fn tokens_are_compared_whole() {
 	let token = super::token().unwrap();
 	assert_eq!(token.len(), 64);
 	assert_ne!(token, super::token().unwrap());
+}
+
+#[test]
+fn vectors_show_as_their_type_and_first_values() {
+	use leptoskit_db_schema::VectorElement;
+
+	let vector = |element, dimensions| {
+		ColumnType::Vector {
+			element,
+			dimensions,
+		}
+	};
+	// Four floats are 16 bytes, which aren't a UUID here.
+	let floats: Vec<u8> = [0.5_f32, -1.0, 2.0, 3.0]
+		.iter()
+		.flat_map(|value| value.to_le_bytes())
+		.collect();
+	assert_eq!(
+		display_as(
+			Some(&vector(VectorElement::Float32, 4)),
+			&Value::Bytes(floats)
+		)
+		.text(),
+		"vector(4) [0.5, -1, 2, …]"
+	);
+	assert_eq!(
+		display_as(
+			Some(&vector(VectorElement::Bit, 16)),
+			&Value::Bytes(vec![0b11, 0])
+		)
+		.text(),
+		"bit(16) [11000000, 00000000, …]"
+	);
+	assert_eq!(
+		display_as(
+			Some(&vector(VectorElement::Sparse, 9)),
+			&Value::Bytes(vec![0; 12])
+		)
+		.text(),
+		"sparsevec(9) […]"
+	);
+	assert_eq!(
+		display_as(Some(&ColumnType::Bytes), &Value::Bytes(vec![1, 2, 3])).text(),
+		"3 bytes"
+	);
 }

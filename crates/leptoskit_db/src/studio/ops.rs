@@ -252,6 +252,48 @@ pub(crate) fn parse_value(ty: &ColumnType, text: &str) -> std::result::Result<Va
 	}
 }
 
+/// How the studio shows a value of a column of type `ty`: a vector by its
+/// type and first few values, which its bytes would otherwise hide.
+pub(crate) fn display_as(ty: Option<&ColumnType>, value: &Value) -> Cell {
+	let (
+		Some(ColumnType::Vector {
+			element,
+			dimensions,
+		}),
+		Value::Bytes(bytes),
+	) = (ty, value)
+	else {
+		return display(value);
+	};
+	let first: Vec<String> = match element {
+		leptoskit_db_schema::VectorElement::Float32
+		| leptoskit_db_schema::VectorElement::Float16 => {
+			bytes
+				.as_chunks::<4>()
+				.0
+				.iter()
+				.take(3)
+				.map(|chunk| f32::from_le_bytes(*chunk).to_string())
+				.collect()
+		}
+		leptoskit_db_schema::VectorElement::Bit => {
+			bytes
+				.iter()
+				.take(2)
+				.map(|byte| format!("{:08b}", byte.reverse_bits()))
+				.collect()
+		}
+		leptoskit_db_schema::VectorElement::Sparse => Vec::new(),
+	};
+	let more = if first.is_empty() { "…" } else { ", …" };
+
+	Cell::Text(format!(
+		"{}({dimensions}) [{}{more}]",
+		element.postgres_name(),
+		first.join(", ")
+	))
+}
+
 /// How the studio shows a value.
 pub(crate) fn display(value: &Value) -> Cell {
 	match value {
@@ -336,6 +378,7 @@ fn read<'a, T: Table>(db: &'a Db, browse: &'a Browse) -> Boxed<'a, Rows> {
 			.limit(browse.limit)
 			.offset(browse.offset);
 
+		let definition = T::definition();
 		let cells = query
 			.all(db)
 			.await?
@@ -348,7 +391,7 @@ fn read<'a, T: Table>(db: &'a Db, browse: &'a Browse) -> Boxed<'a, Rows> {
 						if T::SECRET.contains(column) {
 							Cell::Secret
 						} else {
-							display(&value)
+							display_as(definition.column(column).map(|column| &column.ty), &value)
 						}
 					})
 					.collect())

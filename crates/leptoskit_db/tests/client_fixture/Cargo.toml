@@ -7,7 +7,7 @@ publish = false
 description = "Builds the client side of `#[db::table]` for wasm, without the `server` feature."
 
 [dependencies]
-leptoskit_db = { workspace = true }
+leptoskit_db = { workspace = true, features = ["vector"] }
 serde = { workspace = true, features = ["derive"] }
 
 [lints]

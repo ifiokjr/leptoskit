@@ -736,41 +736,55 @@ fn rows_table(table: &Table, rows: &str) -> String {
 	)
 }
 
+/// The events a vector column's index has a trigger for: a row inserted or
+/// updated without a vector, with one, and deleted.
+const VECTOR_EVENTS: [&str; 5] = ["insert_null", "insert", "update_null", "update", "delete"];
+
 /// The triggers that keep a vector column's index current when a row is
-/// inserted, its vector or key changes, and it's deleted.
+/// inserted, its vector or key changes, and it's deleted. A row with a
+/// vector and one without take different triggers, whose conditions never
+/// both hold, so their order doesn't matter: each inserts its vector with
+/// `VALUES`, since sqlite-vec reads bits by the subtype `vec_bit` gives
+/// them, which SQLite drops from a trigger's `INSERT … SELECT … WHERE`.
 fn vector_index_triggers(table: &Table, vector: &VectorOptions) -> Vec<String> {
 	let name = ident(&table.name.flat());
 	let vectors = ident(&vector.vec_table(&table.name));
 	let rows = ident(&vector.rows_table(&table.name));
 	let row = ident(SEARCH_ROW);
+	let column = ident(&vector.column);
 	let keys = columns(&table.primary_key);
 	let (element, _) = vector_type(table, vector);
-	let matching = |image: &str| key_matches(table, image);
-	let insert_vector = |image: &str| {
-		let value = format!("{image}.{}", ident(&vector.column));
+	let insert_row = {
+		let new_keys: Vec<String> = table
+			.primary_key
+			.iter()
+			.map(|key| format!("new.{}", ident(key)))
+			.collect();
 		format!(
-			"INSERT INTO {vectors} (rowid, {VEC_COLUMN}) SELECT {row}, {} FROM {rows} WHERE {} \
-			 AND {value} IS NOT NULL;",
-			vec_value(element, &value),
-			matching(image)
+			"INSERT INTO {rows} ({keys}) VALUES ({});",
+			new_keys.join(", ")
 		)
 	};
-	let delete_vector = |image: &str| {
+	let move_row = {
+		let set_keys: Vec<String> = table
+			.primary_key
+			.iter()
+			.map(|key| format!("{} = new.{}", ident(key), ident(key)))
+			.collect();
 		format!(
-			"DELETE FROM {vectors} WHERE rowid = (SELECT {row} FROM {rows} WHERE {});",
-			matching(image)
+			"DELETE FROM {vectors} WHERE rowid = (SELECT {row} FROM {rows} WHERE {});\n\tUPDATE \
+			 {rows} SET {} WHERE {};",
+			key_matches(table, "old"),
+			set_keys.join(", "),
+			key_matches(table, "old")
 		)
 	};
-	let new_keys: Vec<String> = table
-		.primary_key
-		.iter()
-		.map(|key| format!("new.{}", ident(key)))
-		.collect();
-	let set_keys: Vec<String> = table
-		.primary_key
-		.iter()
-		.map(|key| format!("{} = new.{}", ident(key), ident(key)))
-		.collect();
+	let insert_vector = format!(
+		"INSERT INTO {vectors} (rowid, {VEC_COLUMN}) VALUES ((SELECT {row} FROM {rows} WHERE {}), \
+		 {});",
+		key_matches(table, "new"),
+		vec_value(element, &format!("new.{column}"))
+	);
 	let watched: Vec<String> = std::iter::once(vector.column.clone())
 		.chain(
 			table
@@ -780,31 +794,49 @@ fn vector_index_triggers(table: &Table, vector: &VectorOptions) -> Vec<String> {
 				.cloned(),
 		)
 		.collect();
+	let watched = columns(&watched);
+	let trigger = |event: &str, timing: &str, when: &str, body: &str| {
+		format!(
+			"CREATE TRIGGER {} AFTER {timing} ON {name} {when}BEGIN\n\t{body}\nEND",
+			ident(&vector.trigger_name(&table.name, event))
+		)
+	};
 
 	vec![
-		format!(
-			"CREATE TRIGGER {} AFTER INSERT ON {name} BEGIN\n\tINSERT INTO {rows} ({keys}) VALUES \
-			 ({});\n\t{}\nEND",
-			ident(&vector.trigger_name(&table.name, "insert")),
-			new_keys.join(", "),
-			insert_vector("new")
+		trigger(
+			"insert_null",
+			"INSERT",
+			&format!("WHEN new.{column} IS NULL "),
+			&insert_row,
 		),
-		format!(
-			"CREATE TRIGGER {} AFTER UPDATE OF {} ON {name} BEGIN\n\t{}\n\tUPDATE {rows} SET {} \
-			 WHERE {};\n\t{}\nEND",
-			ident(&vector.trigger_name(&table.name, "update")),
-			columns(&watched),
-			delete_vector("old"),
-			set_keys.join(", "),
-			matching("old"),
-			insert_vector("new")
+		trigger(
+			"insert",
+			"INSERT",
+			&format!("WHEN new.{column} IS NOT NULL "),
+			&format!("{insert_row}\n\t{insert_vector}"),
 		),
-		format!(
-			"CREATE TRIGGER {} AFTER DELETE ON {name} BEGIN\n\t{}\n\tDELETE FROM {rows} WHERE \
-			 {};\nEND",
-			ident(&vector.trigger_name(&table.name, "delete")),
-			delete_vector("old"),
-			matching("old")
+		trigger(
+			"update_null",
+			&format!("UPDATE OF {watched}"),
+			&format!("WHEN new.{column} IS NULL "),
+			&move_row,
+		),
+		trigger(
+			"update",
+			&format!("UPDATE OF {watched}"),
+			&format!("WHEN new.{column} IS NOT NULL "),
+			&format!("{move_row}\n\t{insert_vector}"),
+		),
+		trigger(
+			"delete",
+			"DELETE",
+			"",
+			&format!(
+				"DELETE FROM {vectors} WHERE rowid = (SELECT {row} FROM {rows} WHERE \
+				 {});\n\tDELETE FROM {rows} WHERE {};",
+				key_matches(table, "old"),
+				key_matches(table, "old")
+			),
 		),
 	]
 }
@@ -845,7 +877,7 @@ fn vector_step(
 
 /// Drops a vector column's index: its triggers, then its companion tables.
 fn drop_vector_index(table: &TableName, vector: &VectorOptions) -> Vec<String> {
-	let mut statements: Vec<String> = ["insert", "update", "delete"]
+	let mut statements: Vec<String> = VECTOR_EVENTS
 		.into_iter()
 		.map(|event| format!("DROP TRIGGER {}", ident(&vector.trigger_name(table, event))))
 		.collect();

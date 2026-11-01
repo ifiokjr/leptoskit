@@ -669,6 +669,27 @@ pub(crate) struct FieldArgs {
 	pub search: Option<Ident>,
 	/// A geospatial column's options: `geo(index, valid)`.
 	pub geo: Option<GeoArgs>,
+	/// A vector column's options: `vector(distance = …, index = …,
+	/// source(…))`.
+	pub vector: Option<VectorArgs>,
+	/// `public`: a vector column clients may see, as vector columns aren't
+	/// by default.
+	pub public: Option<Span>,
+}
+
+/// `vector(distance = cosine, index = hnsw, source(title, body))` on a
+/// vector column.
+#[derive(Clone)]
+pub struct VectorArgs {
+	/// How it's measured: `l2`, `cosine`, `inner_product`, `l1`, `hamming`,
+	/// or `jaccard`.
+	pub distance: Option<Ident>,
+	/// pgvector's index: `hnsw` or `ivfflat`.
+	pub index: Option<Ident>,
+	/// The text fields its vectors are made from.
+	pub sources: Vec<Ident>,
+	/// Where the option was written.
+	pub span: Span,
 }
 
 /// `geo(index, valid)` on a geospatial column.
@@ -715,6 +736,8 @@ impl FieldArgs {
 			slug: None,
 			search: None,
 			geo: None,
+			vector: None,
+			public: None,
 		};
 
 		for attr in attrs.iter().filter(|attr| is_db_attr(attr)) {
@@ -770,6 +793,8 @@ impl FieldArgs {
 			self.search = Some(search_weight(meta)?);
 		} else if meta.path.is_ident("geo") {
 			self.geo = Some(geo_args(meta)?);
+		} else if meta.path.is_ident("vector") {
+			self.vector = Some(vector_args(meta)?);
 		} else {
 			return Ok(false);
 		}
@@ -777,10 +802,22 @@ impl FieldArgs {
 		Ok(true)
 	}
 
-	#[expect(
-		clippy::cognitive_complexity,
-		reason = "one match over every option keeps the accepted list in one place"
-	)]
+	/// The options that say who sees a column: `public`, `private`, and
+	/// `secret`. Whether `meta` was one.
+	fn visibility_option(&mut self, meta: &ParseNestedMeta<'_>) -> bool {
+		if meta.path.is_ident("public") {
+			self.public = Some(meta.path.span());
+		} else if meta.path.is_ident("private") {
+			self.visibility = Visibility::Private;
+		} else if meta.path.is_ident("secret") {
+			self.visibility = Visibility::Secret;
+		} else {
+			return false;
+		}
+
+		true
+	}
+
 	fn option(&mut self, meta: &ParseNestedMeta<'_>) -> syn::Result<()> {
 		if self.rule(meta)? {
 			return Ok(());
@@ -809,10 +846,7 @@ impl FieldArgs {
 			}
 		} else if path.is_ident("index") {
 			self.index = true;
-		} else if path.is_ident("private") {
-			self.visibility = Visibility::Private;
-		} else if path.is_ident("secret") {
-			self.visibility = Visibility::Secret;
+		} else if self.visibility_option(meta) {
 		} else if path.is_ident("created_at") {
 			self.timestamp = Some(Timestamp::Created);
 		} else if path.is_ident("updated_at") {
@@ -890,9 +924,9 @@ impl FieldArgs {
 				"unknown column option; expected one of `key`, `generate`, `column`, `unique`, \
 				 `index`, `private`, `secret`, `default`, `min_len`, `max_len`, `min`, `max`, \
 				 `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `created_by`, \
-				 `updated_by`, `version`, `slug`, `search`, `geo`, `on_delete`, `on_soft_delete`, \
-				 `backlink`, `no_foreign_key`, `live`, `renamed_from`, `flatten`, `prefix`, `in`, \
-				 or `generated`",
+				 `updated_by`, `version`, `slug`, `search`, `geo`, `vector`, `public`, \
+				 `on_delete`, `on_soft_delete`, `backlink`, `no_foreign_key`, `live`, \
+				 `renamed_from`, `flatten`, `prefix`, `in`, or `generated`",
 			));
 		}
 
@@ -932,6 +966,116 @@ fn geo_args(meta: &ParseNestedMeta<'_>) -> syn::Result<GeoArgs> {
 	}
 
 	Ok(args)
+}
+
+/// `vector(distance = …, index = …, source(…))`, with at least one.
+fn vector_args(meta: &ParseNestedMeta<'_>) -> syn::Result<VectorArgs> {
+	const HINT: &str = "`vector` takes `distance = l2`, `cosine`, `inner_product`, `l1`, \
+	                    `hamming`, or `jaccard`; `index = hnsw` or `ivfflat`; and `source(field, \
+	                    …)`, the text its vectors are made from";
+	const DISTANCES: [&str; 6] = ["l2", "cosine", "inner_product", "l1", "hamming", "jaccard"];
+	let mut args = VectorArgs {
+		distance: None,
+		index: None,
+		sources: Vec::new(),
+		span: meta.path.span(),
+	};
+
+	let fork = meta.input.fork();
+	let content;
+
+	if !meta.input.peek(syn::token::Paren) || {
+		parenthesized!(content in fork);
+		content.is_empty()
+	} {
+		return Err(meta.error(HINT));
+	}
+
+	meta.parse_nested_meta(|inner| {
+		if inner.path.is_ident("distance") {
+			let distance: Ident = inner.value()?.parse()?;
+
+			if !DISTANCES.contains(&distance.to_string().as_str()) {
+				return Err(syn::Error::new(distance.span(), HINT));
+			}
+
+			args.distance = Some(distance);
+		} else if inner.path.is_ident("index") {
+			let index: Ident = inner.value()?.parse()?;
+
+			if index != "hnsw" && index != "ivfflat" {
+				return Err(syn::Error::new(
+					index.span(),
+					"`index` is `hnsw` or `ivfflat`, pgvector's indexes; SQLite searches exactly",
+				));
+			}
+
+			args.index = Some(index);
+		} else if inner.path.is_ident("source") {
+			args.sources = idents(&inner)?;
+		} else {
+			return Err(inner.error(HINT));
+		}
+
+		Ok(())
+	})?;
+
+	if args.distance.is_none() && args.index.is_none() && args.sources.is_empty() {
+		return Err(meta.error(HINT));
+	}
+
+	Ok(args)
+}
+
+/// Whether a field's type is a vector, `Option` or not: `Vector<N>`,
+/// `HalfVector<N>`, `BitVector<N>`, or `SparseVector<N>`.
+pub(crate) fn is_vector_type(ty: &syn::Type) -> bool {
+	let syn::Type::Path(path) = ty else {
+		return false;
+	};
+	let Some(last) = path.path.segments.last() else {
+		return false;
+	};
+
+	if last.ident == "Option"
+		&& let syn::PathArguments::AngleBracketed(arguments) = &last.arguments
+		&& let Some(syn::GenericArgument::Type(inner)) = arguments.args.first()
+	{
+		return is_vector_type(inner);
+	}
+
+	["Vector", "HalfVector", "BitVector", "SparseVector"]
+		.iter()
+		.any(|name| last.ident == name)
+}
+
+impl FieldArgs {
+	/// Makes a vector column private unless it says `public`, and refuses
+	/// `public` anywhere else, or beside `private` or `secret`.
+	pub(crate) fn default_visibility(&mut self, ty: &syn::Type) -> syn::Result<()> {
+		let vector = self.vector.is_some() || is_vector_type(ty);
+
+		match (self.public, vector) {
+			(Some(span), false) => {
+				Err(syn::Error::new(
+					span,
+					"`public` is for vector columns, which are private by default; other columns \
+					 are public unless they're `private` or `secret`",
+				))
+			}
+			(Some(span), true) if self.visibility != Visibility::Public => {
+				Err(syn::Error::new(
+					span,
+					"a column is `public`, `private`, or `secret`, not more than one",
+				))
+			}
+			(None, true) if self.visibility == Visibility::Public => {
+				self.visibility = Visibility::Private;
+				Ok(())
+			}
+			_ => Ok(()),
+		}
+	}
 }
 
 /// Whether an attribute is a `#[db(...)]` column option.
