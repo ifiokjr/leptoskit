@@ -145,7 +145,7 @@ pub fn background(worker: &Background) {
 /// time, since a surface may have signed in or out since.
 async fn signed_in_api() -> Api {
 	let api = store::api();
-	api.set_token(session::kept().await);
+	api.set_session(session::kept().await);
 	api
 }
 

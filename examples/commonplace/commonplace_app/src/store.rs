@@ -203,7 +203,7 @@ impl Store {
 				store.update(|state| state.session = Session::SignedOut);
 				return;
 			}
-			api.set_token(token);
+			api.set_session(token);
 			match api.signed_in().await {
 				Ok(true) => {
 					store.update(|state| state.session = Session::SignedIn);

@@ -112,7 +112,10 @@ impl Server {
 			.await;
 		assert_eq!(status, StatusCode::OK);
 		let answer: Value = serde_json::from_slice(&bytes).unwrap();
-		answer["token"].as_str().unwrap().to_owned()
+		answer["tokens"]["access_token"]
+			.as_str()
+			.unwrap()
+			.to_owned()
 	}
 }
 
