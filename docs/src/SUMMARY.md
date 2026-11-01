@@ -11,6 +11,7 @@
 - [Configuration](guide/03-configuration.md)
 - [Configuration schema and migrations](reference/schemas.md)
 - [Building and serving](guide/04-building.md)
+- [Debugging with DevTools](guide/26-devtools.md)
 - [Code push](guide/05-code-push.md)
 - [Server functions](guide/06-server-functions.md)
 - [Shared components and Tailwind](guide/07-shared-components.md)
