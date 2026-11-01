@@ -61,11 +61,18 @@ pub(crate) enum OperationKind {
 	Mutation,
 	Action,
 	Job,
+	Stream,
 }
 
 impl OperationKind {
 	/// Every kind.
-	const ALL: [Self; 4] = [Self::Query, Self::Mutation, Self::Action, Self::Job];
+	const ALL: [Self; 5] = [
+		Self::Query,
+		Self::Mutation,
+		Self::Action,
+		Self::Job,
+		Self::Stream,
+	];
 
 	/// The attribute's name, as written: `query` or `mutation`.
 	pub(crate) fn attribute(self) -> &'static str {
@@ -74,13 +81,14 @@ impl OperationKind {
 			Self::Mutation => "mutation",
 			Self::Action => "action",
 			Self::Job => "job",
+			Self::Stream => "stream",
 		}
 	}
 
 	/// The context type its first argument takes.
 	fn context(self) -> &'static str {
 		match self {
-			Self::Query => "QueryCx",
+			Self::Query | Self::Stream => "QueryCx",
 			Self::Mutation => "MutationCx",
 			Self::Action => "ActionCx",
 			Self::Job => "JobCx",
@@ -94,6 +102,7 @@ impl OperationKind {
 			Self::Mutation => "writes in one transaction as the caller",
 			Self::Action => "calls queries and mutations as the caller, and anything else",
 			Self::Job => "has its own database handle and runs later",
+			Self::Stream => "reads the database as the caller while the stream runs",
 		}
 	}
 
@@ -104,6 +113,7 @@ impl OperationKind {
 			Self::Mutation => format_ident!("Mutation"),
 			Self::Action => format_ident!("Action"),
 			Self::Job => format_ident!("Job"),
+			Self::Stream => format_ident!("Stream"),
 		}
 	}
 
@@ -120,6 +130,8 @@ pub(crate) struct OperationArgs {
 	pub(crate) name: Option<LitStr>,
 	pub(crate) krate: Option<Path>,
 	retries: Option<LitInt>,
+	/// `#[rpc::stream(resumable)]`.
+	resumable: bool,
 	job: JobArgs,
 }
 
@@ -139,6 +151,7 @@ struct JobArgs {
 fn expected_options(kind: OperationKind) -> &'static str {
 	match kind {
 		OperationKind::Query | OperationKind::Action => "`name = \"...\"` or `crate = \"...\"`",
+		OperationKind::Stream => "`name = \"...\"`, `resumable`, or `crate = \"...\"`",
 		OperationKind::Mutation => "`name = \"...\"`, `retries = N`, or `crate = \"...\"`",
 		OperationKind::Job => {
 			"`name`, `crate`, `queue`, `retries`, `backoff`, `deadline`, `timeout`, \
@@ -207,6 +220,12 @@ impl OperationArgs {
 		let mut args = Self::default();
 
 		for meta in metas {
+			if let Meta::Path(path) = &meta
+				&& args.stream_option(kind, path)?
+			{
+				continue;
+			}
+
 			let Meta::NameValue(pair) = &meta else {
 				return Err(Self::unknown(kind, &meta));
 			};
@@ -219,6 +238,31 @@ impl OperationArgs {
 		}
 
 		Ok(args)
+	}
+
+	/// `resumable`, the one flag a stream takes. Says whether `path` was it.
+	fn stream_option(&mut self, kind: OperationKind, path: &Path) -> syn::Result<bool> {
+		if !path.is_ident("resumable") {
+			return Ok(false);
+		}
+
+		if kind != OperationKind::Stream {
+			return Err(syn::Error::new_spanned(
+				path,
+				format!(
+					"`resumable` only applies to #[rpc::stream]; for #[rpc::{}], expected {}",
+					kind.attribute(),
+					expected_options(kind)
+				),
+			));
+		}
+
+		if self.resumable {
+			return Err(syn::Error::new_spanned(path, "`resumable` is given twice"));
+		}
+
+		self.resumable = true;
+		Ok(true)
 	}
 
 	/// The error for an option this kind doesn't know.
@@ -286,6 +330,13 @@ impl OperationArgs {
 							pair,
 							"an action never runs again by itself, since it may have reached the \
 							 outside world; enqueue a #[rpc::job] for work that retries",
+						));
+					}
+					OperationKind::Stream => {
+						return Err(syn::Error::new_spanned(
+							pair,
+							"a stream never runs again by itself; mark it `resumable` to have a \
+							 reconnecting client open it again from its last item",
 						));
 					}
 					OperationKind::Mutation | OperationKind::Job => {}
@@ -912,9 +963,19 @@ pub(crate) fn expand(
 			#krate::__private::assert_argument::<#ty>();
 		}
 	});
-	let output = &signature.output;
-	let output_check = quote_spanned! {signature.output_span=>
-		#krate::__private::assert_output::<#output>();
+	let stream = if kind == OperationKind::Stream {
+		Some(stream_shape(&signature, args.resumable)?)
+	} else {
+		None
+	};
+	let output = stream
+		.as_ref()
+		.map_or(&signature.output, |stream| &stream.item);
+	let output_check = output_checks(&signature, stream.as_ref(), &krate);
+	let paginated = if kind == OperationKind::Query {
+		paginated(&signature, &krate, &struct_ident)
+	} else {
+		TokenStream::new()
 	};
 	let variant = kind.variant();
 	let options = if kind == OperationKind::Job {
@@ -923,21 +984,7 @@ pub(crate) fn expand(
 		TokenStream::new()
 	};
 
-	let from_failed = match signature.arguments.as_slice() {
-		[argument] if kind == OperationKind::Mutation && is_failed(&argument.ty) => {
-			let ident = &argument.ident;
-			let ty = &argument.ty;
-			quote! {
-				impl ::core::convert::From<#ty> for #struct_ident {
-					fn from(#ident: #ty) -> Self {
-						Self { #ident }
-					}
-				}
-			}
-		}
-
-		_ => TokenStream::new(),
-	};
+	let from_failed = from_failed(kind, &signature, &struct_ident);
 
 	let mut out = quote! {
 		#(#docs)*
@@ -963,7 +1010,22 @@ pub(crate) fn expand(
 		};
 
 		#from_failed
+		#paginated
 	};
+
+	if let Some(stream) = &stream {
+		out.extend(stream_items(
+			&args,
+			function,
+			&signature,
+			stream,
+			&krate,
+			&struct_ident,
+			&name,
+			server,
+		));
+		return Ok(out);
+	}
 
 	if server {
 		out.extend(server_items(
@@ -999,6 +1061,292 @@ pub(crate) fn expand(
 	}
 
 	Ok(out)
+}
+
+/// `From<rpc::Failed<J>>` for a mutation that takes only that: a job's
+/// `on_failure`.
+fn from_failed(kind: OperationKind, signature: &Signature, struct_ident: &Ident) -> TokenStream {
+	match signature.arguments.as_slice() {
+		[argument] if kind == OperationKind::Mutation && is_failed(&argument.ty) => {
+			let ident = &argument.ident;
+			let ty = &argument.ty;
+			quote! {
+				impl ::core::convert::From<#ty> for #struct_ident {
+					fn from(#ident: #ty) -> Self {
+						Self { #ident }
+					}
+				}
+			}
+		}
+
+		_ => TokenStream::new(),
+	}
+}
+
+/// The check that the result crosses the wire: the output, or a stream's
+/// item and, when it resumes, that its `cursor` argument takes the item's
+/// cursor.
+fn output_checks(signature: &Signature, stream: Option<&StreamShape>, krate: &Path) -> TokenStream {
+	let Some(stream) = stream else {
+		let output = &signature.output;
+		return quote_spanned! {signature.output_span=>
+			#krate::__private::assert_output::<#output>();
+		};
+	};
+	let item = &stream.item;
+	let mut checks = quote_spanned! {signature.output_span=>
+		#krate::__private::assert_stream_item::<#item>();
+	};
+
+	if let Some(cursor) = &stream.cursor {
+		checks.extend(quote_spanned! {cursor.span()=>
+			#krate::__private::assert_cursor::<#item, #cursor>();
+		});
+	}
+
+	checks
+}
+
+/// What a stream's items are, as its return type says.
+pub(crate) struct StreamShape {
+	/// Each item, with any `Result` taken off.
+	pub(crate) item: Type,
+	/// Whether each item is an `rpc::Result`, whose error ends the stream.
+	fallible: bool,
+	/// A resumable stream's `cursor` argument's type.
+	cursor: Option<Type>,
+}
+
+/// Reads `rpc::Result<impl Stream<Item = T>>`, or `Item = rpc::Result<T>`,
+/// and checks a resumable stream takes a `cursor`.
+pub(crate) fn stream_shape(signature: &Signature, resumable: bool) -> syn::Result<StreamShape> {
+	let error = || {
+		syn::Error::new(
+			signature.output_span,
+			"#[rpc::stream] returns `rpc::Result<impl Stream<Item = T>>`: the items, or the \
+			 `rpc::Error` the stream fails to open with",
+		)
+	};
+	let Type::ImplTrait(implementation) = &signature.output else {
+		return Err(error());
+	};
+	let item = implementation
+		.bounds
+		.iter()
+		.find_map(|bound| {
+			let syn::TypeParamBound::Trait(bound) = bound else {
+				return None;
+			};
+			let segment = bound.path.segments.last()?;
+
+			if segment.ident != "Stream" {
+				return None;
+			}
+
+			let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+				return None;
+			};
+			arguments.args.iter().find_map(|argument| {
+				match argument {
+					GenericArgument::AssocType(assoc) if assoc.ident == "Item" => {
+						Some(assoc.ty.clone())
+					}
+					_ => None,
+				}
+			})
+		})
+		.ok_or_else(error)?;
+
+	let (item, fallible) = match result_value(&item) {
+		Some(value) => (value, true),
+		None => (item, false),
+	};
+
+	let cursor = if resumable {
+		let argument = signature
+			.arguments
+			.iter()
+			.find(|argument| argument.ident.unraw() == "cursor")
+			.ok_or_else(|| {
+				syn::Error::new(
+					signature.output_span,
+					"a resumable stream takes a `cursor: Option<…>` argument, which a \
+					 reconnecting client sets to its last item's `Resumable::cursor`",
+				)
+			})?;
+		Some(argument.ty.clone())
+	} else {
+		None
+	};
+
+	Ok(StreamShape {
+		item,
+		fallible,
+		cursor,
+	})
+}
+
+/// `T` in `Result<T>` or `Result<T, E>`, when `ty` is one.
+fn result_value(ty: &Type) -> Option<Type> {
+	let Type::Path(path) = ty else {
+		return None;
+	};
+	let last = path.path.segments.last()?;
+
+	if last.ident != "Result" {
+		return None;
+	}
+
+	let PathArguments::AngleBracketed(arguments) = &last.arguments else {
+		return None;
+	};
+
+	match arguments.args.first() {
+		Some(GenericArgument::Type(value)) => Some(value.clone()),
+		_ => None,
+	}
+}
+
+/// `T` in `Page<T>`, when `ty` is one.
+fn page_item(ty: &Type) -> Option<Type> {
+	let Type::Path(path) = ty else {
+		return None;
+	};
+	let last = path.path.segments.last()?;
+
+	if last.ident != "Page" {
+		return None;
+	}
+
+	let PathArguments::AngleBracketed(arguments) = &last.arguments else {
+		return None;
+	};
+
+	match arguments.args.first() {
+		Some(GenericArgument::Type(value)) => Some(value.clone()),
+		_ => None,
+	}
+}
+
+/// `impl rpc::Paginated` for a query that takes one `PageArgs` and
+/// returns a `Page<T>`.
+fn paginated(signature: &Signature, krate: &Path, struct_ident: &Ident) -> TokenStream {
+	let Some(item) = page_item(&signature.output) else {
+		return TokenStream::new();
+	};
+	let mut pages = signature.arguments.iter().filter(|argument| {
+		matches!(&argument.ty, Type::Path(path) if path.path.segments.last().is_some_and(|segment| segment.ident == "PageArgs"))
+	});
+	let (Some(page), None) = (pages.next(), pages.next()) else {
+		return TokenStream::new();
+	};
+	let field = &page.ident;
+
+	quote! {
+		#[allow(deprecated)]
+		impl #krate::Paginated for #struct_ident {
+			type Item = #item;
+
+			fn with_page(mut self, page: #krate::PageArgs) -> Self {
+				self.#field = page;
+				self
+			}
+		}
+	}
+}
+
+/// A stream's impls: on every target, `StreamOperation` with its name and
+/// item; in a server build, the body, `pump`, and its registration.
+#[expect(
+	clippy::too_many_arguments,
+	reason = "what `expand` already worked out, handed on rather than worked out again"
+)]
+fn stream_items(
+	args: &OperationArgs,
+	mut function: ItemFn,
+	signature: &Signature,
+	stream: &StreamShape,
+	krate: &Path,
+	struct_ident: &Ident,
+	name: &LitStr,
+	server: bool,
+) -> TokenStream {
+	let item = &stream.item;
+	let resumable = args.resumable;
+
+	if !server {
+		return quote! {
+			#[allow(deprecated)]
+			impl #krate::StreamOperation for #struct_ident {
+				const NAME: &'static str = #name;
+				const RESUMABLE: bool = #resumable;
+				type Item = #item;
+			}
+		};
+	}
+
+	let bindings: Vec<&Ident> = signature
+		.arguments
+		.iter()
+		.map(|argument| &argument.ident)
+		.collect();
+	let fn_ident = &function.sig.ident;
+	let encode = match (resumable, stream.fallible) {
+		(false, false) => quote!(#krate::__private::stream_plain::<#item>),
+		(false, true) => quote!(#krate::__private::stream_fallible::<#item>),
+		(true, false) => quote!(#krate::__private::stream_resumable::<#item>),
+		(true, true) => quote!(#krate::__private::stream_resumable_fallible::<#item>),
+	};
+	let call = quote_spanned! {signature.output_span=>
+		#fn_ident(&cx, #(#bindings),*)
+	};
+	function
+		.attrs
+		.push(syn::parse_quote!(#[allow(clippy::unused_async)]));
+
+	for input in &mut function.sig.inputs {
+		if let FnArg::Typed(typed) = input {
+			typed.attrs.retain(|attr| attr.path().is_ident("doc"));
+		}
+	}
+
+	quote! {
+		#function
+
+		#[allow(deprecated)]
+		impl #krate::StreamOperation for #struct_ident {
+			const NAME: &'static str = #name;
+			const RESUMABLE: bool = #resumable;
+			type Item = #item;
+
+			fn pump(
+				self,
+				cx: #krate::QueryCx,
+				sink: #krate::server::StreamSink,
+			) -> impl ::core::future::Future<Output = ()> + ::core::marker::Send {
+				async move {
+					let Self { #(#bindings),* } = self;
+					match #call.await {
+						::core::result::Result::Ok(items) => sink.drive(items, #encode).await,
+						::core::result::Result::Err(error) => sink.fail(&error),
+					}
+				}
+			}
+		}
+
+		#krate::__require_db!();
+
+		#[allow(deprecated)]
+		const _: () = {
+			#krate::__private::inventory::submit! {
+				#krate::server::StreamRegistration {
+					name: <#struct_ident as #krate::StreamOperation>::NAME,
+					resumable: <#struct_ident as #krate::StreamOperation>::RESUMABLE,
+					open: #krate::__private::open_stream::<#struct_ident>,
+				}
+			}
+		};
+	}
 }
 
 /// What only a server build keeps: the function, `Operation::run`, and the

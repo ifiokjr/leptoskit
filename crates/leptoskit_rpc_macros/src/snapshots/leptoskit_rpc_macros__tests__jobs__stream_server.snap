@@ -1,0 +1,66 @@
+---
+source: crates/leptoskit_rpc_macros/src/tests.rs
+expression: server
+---
+/// A model's tokens.
+#[derive(
+    ::core::clone::Clone,
+    ::leptoskit_rpc::__private::serde::Serialize,
+    ::leptoskit_rpc::__private::serde::Deserialize,
+    ::leptoskit_rpc::__private::schemars::JsonSchema,
+)]
+#[serde(crate = ":: leptoskit_rpc :: __private :: serde")]
+#[schemars(crate = ":: leptoskit_rpc :: __private :: schemars")]
+pub struct Answer {
+    pub prompt: String,
+}
+const _: () = {
+    #[allow(dead_code)]
+    fn __check() {
+        ::leptoskit_rpc::__private::assert_argument::<String>();
+        ::leptoskit_rpc::__private::assert_stream_item::<String>();
+    }
+};
+/// A model's tokens.
+#[allow(clippy::unused_async)]
+pub async fn answer(
+    cx: &rpc::QueryCx,
+    prompt: String,
+) -> rpc::Result<impl Stream<Item = rpc::Result<String>>> {
+    Ok(tokens(prompt))
+}
+#[allow(deprecated)]
+impl ::leptoskit_rpc::StreamOperation for Answer {
+    const NAME: &'static str = "answer";
+    const RESUMABLE: bool = false;
+    type Item = String;
+    fn pump(
+        self,
+        cx: ::leptoskit_rpc::QueryCx,
+        sink: ::leptoskit_rpc::server::StreamSink,
+    ) -> impl ::core::future::Future<Output = ()> + ::core::marker::Send {
+        async move {
+            let Self { prompt } = self;
+            match answer(&cx, prompt).await {
+                ::core::result::Result::Ok(items) => {
+                    sink.drive(
+                            items,
+                            ::leptoskit_rpc::__private::stream_fallible::<String>,
+                        )
+                        .await
+                }
+                ::core::result::Result::Err(error) => sink.fail(&error),
+            }
+        }
+    }
+}
+::leptoskit_rpc::__require_db!();
+#[allow(deprecated)]
+const _: () = {
+    ::leptoskit_rpc::__private::inventory::submit! {
+        ::leptoskit_rpc::server::StreamRegistration { name : < Answer as
+        ::leptoskit_rpc::StreamOperation > ::NAME, resumable : < Answer as
+        ::leptoskit_rpc::StreamOperation > ::RESUMABLE, open :
+        ::leptoskit_rpc::__private::open_stream:: < Answer >, }
+    }
+};

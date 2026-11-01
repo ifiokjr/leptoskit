@@ -94,7 +94,11 @@ impl<S: SecretStore> TokenKeeper<S> {
 			token: tokens.access_token,
 			renew_at: (self.clock)().saturating_add(lifetime - early),
 		});
-		self.store.set(tokens.refresh_token).await
+		let kept = self.store.set(tokens.refresh_token).await;
+		// A new token, from signing in or renewing: the live connection
+		// takes it in place.
+		super::session_changed();
+		kept
 	}
 
 	async fn clear(&self) {
@@ -102,6 +106,7 @@ impl<S: SecretStore> TokenKeeper<S> {
 		// Nothing more can be done if the store won't forget, and the server
 		// has ended the session either way.
 		let _ = self.store.delete().await;
+		super::session_changed();
 	}
 
 	/// Trades the stored refresh token for a new pair; call it holding

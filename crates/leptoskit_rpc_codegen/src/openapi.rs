@@ -130,11 +130,16 @@ impl ApiSpec {
 
 /// The document's paths.
 impl ApiSpec {
-	/// The document's `paths`, merging every method on the same path.
+	/// The document's `paths`, merging every method on the same path. A
+	/// stream has no one-shot form, so it is only in the `AsyncAPI` one.
 	fn paths(&self) -> Map<String, Value> {
 		let mut paths = Map::new();
 
 		for function in &self.functions {
+			if !function.kind.is_callable_over_http() {
+				continue;
+			}
+
 			let operation = operation(function);
 			let existing = paths
 				.entry(function.path.clone())
@@ -604,5 +609,16 @@ mod tests {
 		let action = &document["paths"]["/api/summarize"]["post"];
 		assert_eq!(action["x-leptoskit-kind"], json!("action"));
 		assert!(action.get("parameters").is_none());
+	}
+
+	#[test]
+	fn a_stream_has_no_one_shot_path() {
+		let mut spec = ApiSpec::empty("demo", "0.1.0");
+		let mut stream = function("tokens", "", HttpInput::Json, Vec::new(), false);
+		stream.kind = ApiKind::Stream;
+		stream.method = "POST".to_owned();
+		spec.functions = vec![stream];
+		let document = spec.to_openapi();
+		assert!(document["paths"].get("/api/tokens").is_none());
 	}
 }

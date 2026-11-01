@@ -16,8 +16,9 @@ use crate::ApiSpec;
 impl ApiSpec {
 	/// Renders the live operations as an `AsyncAPI` 3.0 document.
 	///
-	/// A query is a `receive` operation (subscribe); a mutation or action is
-	/// a `send` one. A channel is `join` and `signal` (sent), and `signal`
+	/// A query is a `receive` operation (subscribe), and so is a stream
+	/// (open), whose result message is one item; a mutation or action is a
+	/// `send` one. A channel is `join` and `signal` (sent), and `signal`
 	/// and `presence` (received). Calls have no live form and are left out,
 	/// as are internal functions and channels.
 	#[must_use]
@@ -65,6 +66,7 @@ impl ApiSpec {
 
 			let (operation, action, message) = match function.kind {
 				ApiKind::Query => ("subscribe", "receive", "result"),
+				ApiKind::Stream => ("open", "receive", "result"),
 				ApiKind::Mutation | ApiKind::Action => ("call", "send", "args"),
 				ApiKind::Call => continue,
 			};

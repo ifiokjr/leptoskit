@@ -26,7 +26,6 @@ leptoskit = { workspace = true, features = ["auth", "db", "leptos", "query", "rp
 leptoskit_rpc = { workspace = true, features = ["client"] }
 serde_json = { workspace = true }
 wasm-bindgen = { workspace = true, optional = true }
-web-sys = { workspace = true, optional = true, features = ["Location", "Window"] }
 
 [dev-dependencies]
 leptoskit_testing = { workspace = true }
@@ -34,7 +33,7 @@ leptoskit_testing = { workspace = true }
 [features]
 default = []
 # The browser: the leptos web renderer, `fetch`, and the browser WebSocket.
-web = ["dep:leptos", "dep:wasm-bindgen", "dep:web-sys", "leptoskit/web", "huddle_api/web"]
+web = ["dep:leptos", "dep:wasm-bindgen", "leptoskit/web", "huddle_api/web"]
 csr = ["web", "leptos/csr"]
 # A native app's Wasm guest: the HTTP and WebSocket plugins, and an executor
 # the app keeps itself.

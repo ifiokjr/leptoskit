@@ -183,6 +183,35 @@ pub fn action(
 	operation_macro(OperationKind::Action, args, item)
 }
 
+/// Declares a stream: an `async fn` returning items over time, sent over
+/// the live connection only as fast as the client takes them.
+///
+/// ```ignore
+/// /// A model's answer, a token at a time.
+/// #[rpc::stream]
+/// pub async fn answer(cx: &rpc::QueryCx, prompt: String) -> rpc::Result<impl Stream<Item = String>> {
+/// 	Ok(my_llm::tokens(prompt))
+/// }
+/// ```
+///
+/// It declares `Answer { prompt }` on every target and implements
+/// `rpc::StreamOperation` for it, so `rpc::use_stream(move || Answer { … })`
+/// opens it from any client. In a server build it keeps the body, which
+/// runs as the caller, and registers it with the live server. An item type
+/// of `rpc::Result<T>` ends the stream as failed at its first error.
+///
+/// Options: `name = "..."`, `crate = "..."`, and `resumable`, which takes a
+/// `cursor: Option<C>` argument and items implementing `rpc::Resumable`
+/// with `Cursor = C`, so a reconnecting client opens the stream again from
+/// its last item.
+#[proc_macro_attribute]
+pub fn stream(
+	args: proc_macro::TokenStream,
+	item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+	operation_macro(OperationKind::Stream, args, item)
+}
+
 /// Declares a job: work that runs later, in the background.
 ///
 /// ```ignore
@@ -675,8 +704,9 @@ fn expand_server(args: &ApiArgs, mut function: ItemFn, register: bool) -> syn::R
 		.ok_or_else(|| {
 			syn::Error::new(
 				function.sig.ident.span(),
-				"#[api] must be placed above #[server], #[rpc::query], #[rpc::mutation], or \
-				 #[rpc::action]: it publishes a leptos server function or an operation",
+				"#[api] must be placed above #[server], #[rpc::query], #[rpc::mutation], \
+				 #[rpc::action], or #[rpc::stream]: it publishes a leptos server function or an \
+				 operation",
 			)
 		})?;
 	let server_attr = &function.attrs[server_index];
@@ -974,6 +1004,12 @@ fn registration(
 	let tags = &args.tags;
 	let api_kind = kind.api_variant();
 	let params = param_descriptors(signature, function, krate)?;
+	// A stream's result is one item.
+	let output_type = if kind == OperationKind::Stream {
+		quote!(<#struct_ident as #krate::StreamOperation>::Item)
+	} else {
+		quote!(<#struct_ident as #krate::Operation>::Output)
+	};
 
 	Ok(quote! {
 		#[allow(deprecated)]
@@ -992,9 +1028,7 @@ fn registration(
 					error_content_type: "text/plain",
 					params: &[#(#params),*],
 					output_schema: |generator| {
-						generator.subschema_for::<
-							<#struct_ident as #krate::Operation>::Output,
-						>()
+						generator.subschema_for::<#output_type>()
 					},
 					internal: #internal,
 					deprecated: #deprecated,
@@ -1259,6 +1293,8 @@ fn operation_attribute(attr: &Attribute) -> Option<OperationKind> {
 		Some(OperationKind::Mutation)
 	} else if segment.ident == "action" {
 		Some(OperationKind::Action)
+	} else if segment.ident == "stream" {
+		Some(OperationKind::Stream)
 	} else {
 		None
 	}

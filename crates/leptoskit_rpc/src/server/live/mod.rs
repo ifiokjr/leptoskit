@@ -46,6 +46,7 @@
 //! later commit they already include re-runs them again, harmlessly.
 
 mod hub;
+pub(crate) mod memory;
 mod session;
 mod socket;
 mod sse;

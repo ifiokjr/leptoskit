@@ -29,7 +29,7 @@ const _: () = {
         u32 > (), required : true, }, leptoskit::rpc::spec::ApiParamDescriptor { name :
         "from", docs : "", schema : | generator | generator.subschema_for:: < u32 > (),
         required : true, }], output_schema : | generator | { generator.subschema_for:: <
-        < Messages as leptoskit::rpc::Operation > ::Output, > () }, internal : true,
+        < Messages as leptoskit::rpc::Operation > ::Output > () }, internal : true,
         deprecated : false, tags : & ["chat"], scopes : & [], }
     }
 };

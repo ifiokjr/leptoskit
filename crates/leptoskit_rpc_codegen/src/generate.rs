@@ -349,7 +349,14 @@ impl<'a> Context<'a> {
 		let mut skipped = Vec::new();
 
 		for function in &spec.functions {
-			if !function.input.is_supported() {
+			if !function.kind.is_callable_over_http() {
+				skipped.push((
+					function.name.as_str(),
+					"a stream is read over the live connection, which generated clients don't \
+					 speak yet"
+						.to_owned(),
+				));
+			} else if !function.input.is_supported() {
 				skipped.push((
 					function.name.as_str(),
 					format!(

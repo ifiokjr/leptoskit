@@ -126,7 +126,7 @@ cargo test -p huddle_api  # the summarizer
 ## Gaps
 
 - **No drag gesture.** leptoskit has none yet, so cards move with buttons that call the same `move_task` a drop would.
-- **The live socket keeps the identity it connected with.** There's no way yet to re-authenticate an open socket, so the browser reloads after signing in or out, and a native app that signs in while open goes live the next time it starts. For the same reason, signing out everywhere doesn't close the person's sockets: Huddle records it on their own `users` row, which their `my_session` query watches, and the app signs out when it changes. Their HTTP calls are refused at once either way.
+- **Signing out everywhere doesn't close the person's sockets.** The live connection follows sign-in and sign-out on its own device (the auth client re-authenticates it, so nothing reloads), but the server doesn't yet end other devices' sockets when their session is revoked. Huddle records it on the person's own `users` row, which their `my_session` query watches, and the app signs out when it changes. Their HTTP calls are refused at once either way.
 - **Presence through `LiveClient::join`.** `use_channel` joins with the default presence, so Huddle joins through the live client itself to give each avatar a name.
 - **Mutations go over HTTP.** The client's hooks call mutations with `POST /api/<name>`, so read-your-writes is the app's own: each pending message carries a key the sender made, and the screen keeps its grey copy until the live list has that key.
 - **One feed per connection.** See the load numbers above.

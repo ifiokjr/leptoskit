@@ -95,6 +95,12 @@ pub use client::use_live;
 pub use client::use_live_action;
 #[cfg(feature = "client")]
 pub use client::use_live_mutation;
+#[cfg(feature = "client")]
+pub use client::use_live_paginated;
+#[cfg(feature = "client")]
+pub use client::use_live_status;
+#[cfg(feature = "client")]
+pub use client::use_stream;
 pub use inbox::Inbox;
 pub use inbox::InboxArgs;
 pub use inbox::InboxNotice;
@@ -121,10 +127,16 @@ pub use leptoskit_rpc_macros::cron;
 pub use leptoskit_rpc_macros::job;
 pub use leptoskit_rpc_macros::mutation;
 pub use leptoskit_rpc_macros::query;
+pub use leptoskit_rpc_macros::stream;
 pub use operation::Error;
 pub use operation::Kind;
 pub use operation::Operation;
 pub use operation::Result;
+pub use page::Page;
+pub use page::PageArgs;
+pub use page::Paginated;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use page::paginate;
 pub use scopes::ScopeInfo;
 pub use scopes::Scopes;
 pub use scopes::is_scope_name;
@@ -160,6 +172,8 @@ pub use server::jobs::Enqueue;
 pub use server::jobs::enqueue;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use server::jobs::job_registration;
+pub use stream::Resumable;
+pub use stream::StreamOperation;
 
 mod channel;
 #[cfg(feature = "client")]
@@ -171,11 +185,13 @@ mod jobs;
 pub mod live;
 
 mod operation;
+mod page;
 pub mod scopes;
 #[cfg(feature = "server")]
 pub mod server;
 #[cfg(feature = "ssr")]
 pub mod spec;
+mod stream;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub mod testing;
 
@@ -208,6 +224,18 @@ pub mod __private {
 	pub use crate::server::jobs::fail_job;
 	#[cfg(any(feature = "postgres", feature = "sqlite"))]
 	pub use crate::server::jobs::run_job;
+	#[cfg(any(feature = "postgres", feature = "sqlite"))]
+	pub use crate::server::stream::fallible as stream_fallible;
+	#[cfg(any(feature = "postgres", feature = "sqlite"))]
+	pub use crate::server::stream::open as open_stream;
+	#[cfg(any(feature = "postgres", feature = "sqlite"))]
+	pub use crate::server::stream::plain as stream_plain;
+	#[cfg(any(feature = "postgres", feature = "sqlite"))]
+	pub use crate::server::stream::resumable as stream_resumable;
+	#[cfg(any(feature = "postgres", feature = "sqlite"))]
+	pub use crate::server::stream::resumable_fallible as stream_resumable_fallible;
+	pub use crate::stream::assert_cursor;
+	pub use crate::stream::assert_stream_item;
 }
 
 /// Refuses a server build that declares queries or mutations without a

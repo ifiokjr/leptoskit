@@ -129,8 +129,8 @@ async fn credentials_sign_requests_and_renew_after_a_refusal() {
 	let client = remote(
 		&script,
 		ClientConfig {
-			origin: None,
 			credentials: Some(token.clone()),
+			..ClientConfig::default()
 		},
 	);
 

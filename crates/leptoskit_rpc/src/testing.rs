@@ -1,4 +1,5 @@
-//! Running background jobs in tests, on a clock the test moves.
+//! Running background jobs in tests, on a clock the test moves, and live
+//! clients connected to a real server in the same process.
 //!
 //! ```ignore
 //! let db = leptoskit::db::testing::sqlite().await;
@@ -172,5 +173,65 @@ impl TestJobs {
 			.all(&self.db.system("read jobs in a test"))
 			.await
 			.expect("jobs read")
+	}
+}
+
+/// Live clients of a real [`Live`](crate::server::Live) in this process,
+/// over in-memory connections, so a test drives the app's own client
+/// against the server it serves.
+///
+/// ```ignore
+/// let live = rpc::server::Live::new(db.clone()).identify(auth);
+/// let clients = rpc::testing::LiveClients::new(&live);
+/// clients.header("cookie", Some("session=…"));     // who every new connection is
+/// let client = clients.client(&ClientConfig::new());
+/// let (id, mut updates) = client.subscribe("messages", json!({ "limit": 50 }));
+/// clients.outage(true);                             // the network goes away…
+/// clients.outage(false);                            // …and comes back
+/// ```
+///
+/// The client runs its tasks with `any_spawner`, so a test initializes it
+/// for tokio and runs inside a `LocalSet`.
+#[cfg(feature = "live")]
+#[derive(Clone)]
+pub struct LiveClients {
+	pipe: crate::server::live::memory::Pipe,
+}
+
+#[cfg(feature = "live")]
+impl LiveClients {
+	/// Clients of `live`.
+	#[must_use]
+	pub fn new(live: &crate::server::Live) -> Self {
+		Self {
+			pipe: crate::server::live::memory::Pipe::new(live),
+		}
+	}
+
+	/// Sets `name` to `value` on every new connection's request, or
+	/// removes it with `None`: a cookie, or whatever the server's
+	/// `Identify` reads.
+	pub fn header(&self, name: &str, value: Option<&str>) {
+		self.pipe.header(name, value);
+	}
+
+	/// A new client, configured by `config`: its credentials and its
+	/// offline queue.
+	#[must_use]
+	pub fn client(&self, config: &crate::client::ClientConfig) -> crate::client::LiveClient {
+		crate::client::LiveClient::new(config, Arc::new(self.pipe.clone()))
+	}
+
+	/// Makes a new client the app's own, which the hooks use, as
+	/// `configure` does on a platform with a socket. Returns `false` when
+	/// one is already installed: a process holds one.
+	pub fn install(&self, config: &crate::client::ClientConfig) -> bool {
+		crate::client::live::install_client(self.client(config))
+	}
+
+	/// Drops every open connection, as a lost network would, and with
+	/// `offline`, refuses new ones until it is called again without.
+	pub fn outage(&self, offline: bool) {
+		self.pipe.outage(offline);
 	}
 }
