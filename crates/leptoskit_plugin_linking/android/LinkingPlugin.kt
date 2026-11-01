@@ -45,7 +45,6 @@ class LinkingPlugin(
             context.startActivity(intent)
         } catch (_: ActivityNotFoundException) {
             throw PluginException(PluginException.UNAVAILABLE)
-
         } catch (_: SecurityException) {
             throw PluginException(PluginException.PERMISSION_DENIED)
         }
@@ -82,7 +81,6 @@ class LinkingPlugin(
 
         val parsed =
             try {
-
                 URI(value)
             } catch (_: URISyntaxException) {
                 throw PluginException(PluginException.INVALID_ARGUMENT)

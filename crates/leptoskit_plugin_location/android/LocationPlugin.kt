@@ -77,8 +77,7 @@ class LocationPlugin(
     }
 
     /** Whether the OS already granted one scope. */
-    private fun granted(permission: String): Boolean =
-        appContext.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+    private fun granted(permission: String): Boolean = appContext.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
 
     /** The granted scope and how precise it is, without prompting. */
     private fun permission(): ByteArray {
@@ -99,25 +98,23 @@ class LocationPlugin(
         fine: Boolean,
         coarse: Boolean,
         denied: Boolean,
-    ): Int {
-        return when {
+    ): Int =
+        when {
             fine || coarse -> STATUS_GRANTED
             denied -> STATUS_DENIED
             else -> STATUS_UNKNOWN
         }
-    }
 
     /** How precise the granted access is: both scopes, coarse only, or neither. */
     private fun scopePrecision(
         fine: Boolean,
         coarse: Boolean,
-    ): Int {
-        return when {
+    ): Int =
+        when {
             fine -> PRECISION_FINE
             coarse -> PRECISION_COARSE
             else -> PRECISION_NONE
         }
-    }
 
     /** Asks the host to prompt for the scopes the caller needs. */
     private suspend fun requestPermission(precise: Boolean): ByteArray {
@@ -265,18 +262,16 @@ class LocationPlugin(
     }
 
     /** Enabled providers; the OS reports a missing permission as a security failure. */
-    private fun enabledProviders(manager: LocationManager): List<String> {
-        return try {
+    private fun enabledProviders(manager: LocationManager): List<String> =
+        try {
             manager.getProviders(true)
         } catch (error: SecurityException) {
             throw PluginException(PluginException.PERMISSION_DENIED, error)
         }
-    }
 
     /** GPS fixes need fine access and an enabled GPS provider. */
-    private fun canUseGps(enabled: List<String>): Boolean {
-        return granted(Manifest.permission.ACCESS_FINE_LOCATION) && LocationManager.GPS_PROVIDER in enabled
-    }
+    private fun canUseGps(enabled: List<String>): Boolean =
+        granted(Manifest.permission.ACCESS_FINE_LOCATION) && LocationManager.GPS_PROVIDER in enabled
 
     /** Ends the acquisition when the activity that started it stops. */
     private fun observeBackground(continuation: CancellableContinuation<ByteArray>) {
@@ -321,7 +316,7 @@ class LocationPlugin(
             providers.mapNotNull(manager::getLastKnownLocation).maxByOrNull { it.time }?.let(::onLocationChanged)
         }
 
-        /// Delivers the first fix that passes the permission and freshness checks.
+        // / Delivers the first fix that passes the permission and freshness checks.
         override fun onLocationChanged(location: Location) {
             if (pending !== continuation || !continuation.isActive) return
 
@@ -354,9 +349,7 @@ class LocationPlugin(
         ) {}
 
         /** Whether one of the requested providers can still answer. */
-        private fun enabled(provider: String): Boolean {
-            return manager?.isProviderEnabled(provider) == true
-        }
+        private fun enabled(provider: String): Boolean = manager?.isProviderEnabled(provider) == true
     }
 
     /** Ends the acquisition when the activity that started it stops. */
@@ -452,7 +445,6 @@ class LocationPlugin(
         const val PRECISION_NONE = 0
         const val PRECISION_COARSE = 1
         const val PRECISION_FINE = 2
-
     }
 }
 
@@ -461,9 +453,7 @@ internal fun permitsLocationDelivery(
     startedPrecise: Boolean,
     authorized: Boolean,
     precise: Boolean,
-): Boolean {
-    return authorized && (!startedPrecise || precise)
-}
+): Boolean = authorized && (!startedPrecise || precise)
 
 internal data class LocationOptions(
     val highAccuracy: Boolean,
@@ -561,14 +551,13 @@ internal fun encodeLocation(location: Location): ByteArray {
 }
 
 /** The optional fields in wire order: altitude, vertical accuracy, bearing, speed. */
-private fun optionalValues(location: Location): Array<Double?> {
-    return arrayOf(
+private fun optionalValues(location: Location): Array<Double?> =
+    arrayOf(
         if (location.hasAltitude()) location.altitude else null,
         verticalAccuracy(location),
         if (location.hasBearing()) location.bearing.toDouble() else null,
         if (location.hasSpeed()) location.speed.toDouble() else null,
     )
-}
 
 /** Vertical accuracy is only reported on API 26 and later. */
 private fun verticalAccuracy(location: Location): Double? {
@@ -580,7 +569,10 @@ private fun verticalAccuracy(location: Location): Double? {
 }
 
 /** Rejects a fix the wire cannot carry, so the Rust side never sees a broken one. */
-private fun requireDeliverable(location: Location, values: DoubleArray) {
+private fun requireDeliverable(
+    location: Location,
+    values: DoubleArray,
+) {
     if (!location.hasAccuracy()) throw PluginException(PluginException.NATIVE)
 
     if (values.any { !it.isFinite() }) throw PluginException(PluginException.NATIVE)
@@ -593,14 +585,21 @@ private fun requireDeliverable(location: Location, values: DoubleArray) {
 }
 
 /** Coordinates must be real degrees on the sphere. */
-private fun requireAngles(latitude: Double, longitude: Double) {
+private fun requireAngles(
+    latitude: Double,
+    longitude: Double,
+) {
     if (latitude !in -90.0..90.0) throw PluginException(PluginException.NATIVE)
 
     if (longitude !in -180.0..180.0) throw PluginException(PluginException.NATIVE)
 }
 
 /** Distances cannot be negative. */
-private fun requireMagnitudes(accuracy: Double, vertical: Double, speed: Double) {
+private fun requireMagnitudes(
+    accuracy: Double,
+    vertical: Double,
+    speed: Double,
+) {
     if (accuracy < 0) throw PluginException(PluginException.NATIVE)
 
     if (vertical < 0) throw PluginException(PluginException.NATIVE)
@@ -624,20 +623,17 @@ private fun maskOf(optional: Array<Double?>): Int {
     return mask
 }
 
-private fun providerCode(provider: String?): Int {
-    return when (provider) {
+private fun providerCode(provider: String?): Int =
+    when (provider) {
         LocationManager.GPS_PROVIDER -> PROVIDER_GPS
         LocationManager.NETWORK_PROVIDER -> PROVIDER_NETWORK
         LocationManager.PASSIVE_PROVIDER -> PROVIDER_PASSIVE
         FUSED -> PROVIDER_FUSED
         else -> PROVIDER_UNKNOWN
     }
-}
 
 @Suppress("DEPRECATION")
-private fun isMock(location: Location): Boolean {
-    return if (Build.VERSION.SDK_INT >= MOCK_API) location.isMock else location.isFromMockProvider
-}
+private fun isMock(location: Location): Boolean = if (Build.VERSION.SDK_INT >= MOCK_API) location.isMock else location.isFromMockProvider
 
 /** Wire fields, in the order the eight doubles are written. */
 private const val TIME = 0

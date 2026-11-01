@@ -102,24 +102,20 @@ class ScreenCapturePlugin(
         method: Int,
         activity: Activity,
         watch: CaptureWatch?,
-    ): ByteArray {
-        return when (method) {
+    ): ByteArray =
+        when (method) {
             STATUS -> statusAnswer()
             PROTECTION -> protectionAnswer(activity)
             SCREENSHOT -> watchScreenshot(activity, checkNotNull(watch))
             else -> prevent(activity)
         }
-    }
 
     /** Reports the wire version and whether the OS can report a capture. */
-    private fun statusAnswer(): ByteArray {
-        return fields(WIRE_VERSION, SUPPORTED, 0, if (supportsCaptureDetection()) 1 else 0)
-    }
+    private fun statusAnswer(): ByteArray = fields(WIRE_VERSION, SUPPORTED, 0, if (supportsCaptureDetection()) 1 else 0)
 
     /** Reports whether the window already carries the secure flag. */
-    private fun protectionAnswer(activity: Activity): ByteArray {
-        return fields(WIRE_VERSION, 0, if (isProtected(activity)) SECURE_ON else SECURE_OFF)
-    }
+    private fun protectionAnswer(activity: Activity): ByteArray =
+        fields(WIRE_VERSION, 0, if (isProtected(activity)) SECURE_ON else SECURE_OFF)
 
     /** Reads the watch a screenshot request carries; other methods carry nothing. */
     private fun readWatch(
@@ -145,14 +141,10 @@ class ScreenCapturePlugin(
     }
 
     /** Screen-capture detection arrived in API 34. */
-    private fun supportsCaptureDetection(): Boolean {
-        return Build.VERSION.SDK_INT >= DETECT_CAPTURE_API
-    }
+    private fun supportsCaptureDetection(): Boolean = Build.VERSION.SDK_INT >= DETECT_CAPTURE_API
 
     /** Whether the window already carries the secure flag. */
-    private fun isProtected(activity: Activity): Boolean {
-        return activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0
-    }
+    private fun isProtected(activity: Activity): Boolean = activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0
 
     private suspend fun prevent(activity: Activity): ByteArray =
         suspendCancellableCoroutine { completion ->
@@ -261,7 +253,9 @@ class ScreenCapturePlugin(
 
         if (!pending.completion.isActive) return
 
-        if (error == null) pending.completion.resume(fields(WIRE_VERSION, SUPPORTED, 0)) else {
+        if (error == null) {
+            pending.completion.resume(fields(WIRE_VERSION, SUPPORTED, 0))
+        } else {
             pending.completion.resumeWithException(error)
         }
     }

@@ -52,7 +52,6 @@ class NotificationsPluginTest {
                     try {
                         plugin.invoke(2, fields(listOf(id, "Missing channel", "", "$channel-missing")))
                         fail("Posting without an existing channel was accepted")
-
                     } catch (error: PluginException) {
                         assertEquals(PluginException.INVALID_ARGUMENT, error.code)
                     }
@@ -94,7 +93,6 @@ class NotificationsPluginTest {
                     }
                 }
                 awaitNotification(manager, tag, "Persists after close")
-
             } finally {
                 withContext(Dispatchers.Main) { plugin.close() }
                 manager.cancel(tag, 0)

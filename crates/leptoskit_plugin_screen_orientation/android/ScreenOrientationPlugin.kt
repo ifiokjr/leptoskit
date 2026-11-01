@@ -89,7 +89,6 @@ class ScreenOrientationPlugin(
                     Surface.ROTATION_90 -> 90
                     Surface.ROTATION_180 -> 180
                     Surface.ROTATION_270 -> 270
-
                     else -> -1
                 }
 

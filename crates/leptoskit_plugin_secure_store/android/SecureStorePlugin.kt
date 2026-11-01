@@ -67,7 +67,6 @@ class SecureStorePlugin(
                     } catch (error: GeneralSecurityException) {
                         throw PluginException(PluginException.NATIVE, error)
                     } catch (error: IOException) {
-
                         throw PluginException(PluginException.NATIVE, error)
                     }
                 }

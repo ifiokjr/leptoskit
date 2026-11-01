@@ -153,7 +153,12 @@ internal class SpeechEncoder {
     private val output = ByteArrayOutputStream(ENCODER_CAPACITY)
 
     fun integer(value: Int) {
-        val bytes = ByteBuffer.allocate(FIELD_BYTES).order(ByteOrder.LITTLE_ENDIAN).putInt(value).array()
+        val bytes =
+            ByteBuffer
+                .allocate(FIELD_BYTES)
+                .order(ByteOrder.LITTLE_ENDIAN)
+                .putInt(value)
+                .array()
 
         output.write(bytes)
     }

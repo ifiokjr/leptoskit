@@ -57,13 +57,12 @@ class SpeechPlugin(
     }
 
     /** Answers one of the methods that carry no payload. */
-    private suspend fun answer(method: Int): ByteArray {
-        return when (method) {
+    private suspend fun answer(method: Int): ByteArray =
+        when (method) {
             VOICES -> voices(ready())
             STOP -> stop()
             else -> speaking()
         }
-    }
 
     /** Dismisses the current utterance, or reports that the engine refused. */
     private fun stop(): ByteArray {
@@ -73,9 +72,7 @@ class SpeechPlugin(
     }
 
     /** Whether an utterance is in flight. */
-    private fun speaking(): ByteArray {
-        return byteArrayOf(if (active == null) 0 else 1, 0, 0, 0)
-    }
+    private fun speaking(): ByteArray = byteArrayOf(if (active == null) 0 else 1, 0, 0, 0)
 
     /** The engine, once the one-time initialization it may still need has run. */
     private suspend fun ready(): TextToSpeech {
@@ -184,7 +181,10 @@ class SpeechPlugin(
     }
 
     /** Applies the voice or language, rate, and pitch the request asked for. */
-    private fun configure(speech: TextToSpeech, request: SpeechRequest) {
+    private fun configure(
+        speech: TextToSpeech,
+        request: SpeechRequest,
+    ) {
         if (request.voice != null) selectVoice(speech, request.voice) else selectLanguage(speech, request.language)
 
         if (speech.setSpeechRate(request.rate) == TextToSpeech.ERROR) throw PluginException(PluginException.NATIVE)
@@ -193,14 +193,20 @@ class SpeechPlugin(
     }
 
     /** Selects one installed voice by name. */
-    private fun selectVoice(speech: TextToSpeech, name: String) {
+    private fun selectVoice(
+        speech: TextToSpeech,
+        name: String,
+    ) {
         val voice = speech.voices?.firstOrNull { it.name == name } ?: throw PluginException(PluginException.UNAVAILABLE)
 
         if (speech.setVoice(voice) == TextToSpeech.ERROR) throw PluginException(PluginException.NATIVE)
     }
 
     /** Selects a language, falling back to the device default. */
-    private fun selectLanguage(speech: TextToSpeech, language: String?) {
+    private fun selectLanguage(
+        speech: TextToSpeech,
+        language: String?,
+    ) {
         val locale = language?.let { Locale.forLanguageTag(it) } ?: Locale.getDefault()
 
         if (speech.setLanguage(locale) < 0) throw PluginException(PluginException.UNAVAILABLE)

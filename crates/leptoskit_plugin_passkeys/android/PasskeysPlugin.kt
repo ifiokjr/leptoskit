@@ -82,7 +82,6 @@ class PasskeysPlugin(
             } catch (error: CreateCredentialUnsupportedException) {
                 throw PluginException(PluginException.UNAVAILABLE, error)
             } catch (error: CreateCredentialException) {
-
                 throw PluginException(PluginException.NATIVE, error)
             }
         val created = response as? CreatePublicKeyCredentialResponse ?: throw PluginException(PluginException.NATIVE)
@@ -106,7 +105,6 @@ class PasskeysPlugin(
             } catch (error: GetCredentialProviderConfigurationException) {
                 throw PluginException(PluginException.UNAVAILABLE, error)
             } catch (error: GetCredentialUnsupportedException) {
-
                 throw PluginException(PluginException.UNAVAILABLE, error)
             } catch (error: GetCredentialException) {
                 throw PluginException(PluginException.NATIVE, error)

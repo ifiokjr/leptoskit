@@ -162,20 +162,31 @@ class LocalAuthenticationPlugin(
         secure: Int,
     ): Int =
         when (manager.canAuthenticate(authenticators(policy))) {
-            BiometricManager.BIOMETRIC_SUCCESS -> READINESS_READY
-            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED ->
+            BiometricManager.BIOMETRIC_SUCCESS -> {
+                READINESS_READY
+            }
 
+            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> {
                 if (policy == CREDENTIAL_POLICY && secure == SECURE_NO) {
                     READINESS_CREDENTIAL_NOT_SET
                 } else {
                     READINESS_NOT_ENROLLED
                 }
+            }
 
             BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE,
-            BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> READINESS_UNAVAILABLE
-            BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED -> READINESS_SECURITY_UPDATE
+            BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE,
+            -> {
+                READINESS_UNAVAILABLE
+            }
 
-            else -> READINESS_UNKNOWN
+            BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED -> {
+                READINESS_SECURITY_UPDATE
+            }
+
+            else -> {
+                READINESS_UNKNOWN
+            }
         }
 
     /** Class 3 biometrics, plus the device credential when the policy allows it. */
@@ -314,11 +325,17 @@ class LocalAuthenticationPlugin(
         method: Int,
     ): Int? =
         when (method) {
-            BiometricPrompt.AUTHENTICATION_RESULT_TYPE_BIOMETRIC -> METHOD_BIOMETRIC
-            BiometricPrompt.AUTHENTICATION_RESULT_TYPE_DEVICE_CREDENTIAL ->
+            BiometricPrompt.AUTHENTICATION_RESULT_TYPE_BIOMETRIC -> {
+                METHOD_BIOMETRIC
+            }
 
+            BiometricPrompt.AUTHENTICATION_RESULT_TYPE_DEVICE_CREDENTIAL -> {
                 if (policy == CREDENTIAL_POLICY) METHOD_CREDENTIAL else null
-            else -> null
+            }
+
+            else -> {
+                null
+            }
         }
 
     /** Maps an OS prompt error onto the wire outcome. */
@@ -335,16 +352,25 @@ class LocalAuthenticationPlugin(
     private fun outcomeOf(errorCode: Int): Int? =
         when (errorCode) {
             BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED -> OUTCOME_USER_CANCELLED
+
             BiometricPrompt.BIOMETRIC_ERROR_CANCELED -> OUTCOME_SYSTEM_CANCELLED
+
             BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT,
-            BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT_PERMANENT -> OUTCOME_LOCKED_OUT
+            BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT_PERMANENT,
+            -> OUTCOME_LOCKED_OUT
+
             BiometricPrompt.BIOMETRIC_ERROR_NO_BIOMETRICS -> OUTCOME_NOT_ENROLLED
+
             BiometricPrompt.BIOMETRIC_ERROR_HW_NOT_PRESENT,
-            BiometricPrompt.BIOMETRIC_ERROR_HW_UNAVAILABLE -> OUTCOME_UNAVAILABLE
+            BiometricPrompt.BIOMETRIC_ERROR_HW_UNAVAILABLE,
+            -> OUTCOME_UNAVAILABLE
+
             BiometricPrompt.BIOMETRIC_ERROR_NO_DEVICE_CREDENTIAL -> OUTCOME_CREDENTIAL_NOT_SET
+
             BiometricPrompt.BIOMETRIC_ERROR_TIMEOUT -> OUTCOME_TIMED_OUT
 
             BiometricPrompt.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED -> OUTCOME_SECURITY_UPDATE
+
             else -> null
         }
 

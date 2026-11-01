@@ -165,7 +165,6 @@ class NotificationsPlugin(
                 1 -> NotificationManager.IMPORTANCE_LOW
                 2 -> NotificationManager.IMPORTANCE_DEFAULT
                 3 -> NotificationManager.IMPORTANCE_HIGH
-
                 else -> throw PluginException(PluginException.INVALID_ARGUMENT)
             }
         val sound =

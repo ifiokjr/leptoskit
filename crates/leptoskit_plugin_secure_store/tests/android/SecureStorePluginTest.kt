@@ -54,7 +54,6 @@ class SecureStorePluginTest {
                 } catch (error: PluginException) {
                     assertEquals(PluginException.NATIVE, error.code)
                 }
-
             } finally {
                 file.writeBytes(original)
                 plugin.invoke(2, request("tamper"))
@@ -74,7 +73,6 @@ class SecureStorePluginTest {
                     assertEquals(PluginException.NATIVE, error.code)
                 }
             } finally {
-
                 plugin.invoke(2, request("swap-a"))
                 plugin.invoke(2, request("swap-b"))
             }
@@ -94,7 +92,6 @@ class SecureStorePluginTest {
                         limited.invoke(1, payload)
                         fail("Aggregate quota must reject the write")
                     } catch (error: PluginException) {
-
                         assertEquals(PluginException.TOO_LARGE, error.code)
                     }
                     assertArrayEquals(saved, archiveFile().readBytes())
