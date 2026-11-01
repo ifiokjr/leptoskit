@@ -421,40 +421,46 @@ impl Writer {
 				self.statements.push(format!("DROP INDEX {name}"));
 			}
 			Step::CreateVectorSource { vector, .. } => self.create_vector_source(&table, vector),
-			Step::DropVectorSource { vector, .. } => {
-				let name = vector.source_trigger_name(&table, None);
-				self.statements.push(format!(
-					"DROP TRIGGER {} ON {}",
-					ident(&name),
-					qualified(&table)
-				));
-				self.statements.push(format!(
-					"DROP FUNCTION {}()",
-					qualified(&TableName {
-						namespace: table.namespace.clone(),
-						name,
-					})
-				));
-			}
+			Step::DropVectorSource { vector, .. } => self.drop_vector_source(&table, vector),
 			// Validation keeps GeoPackage metadata to SQLite.
 			Step::RegisterGeoPackage { .. } | Step::UnregisterGeoPackage { .. } => {}
-			Step::CreateSearch { search, .. } => {
-				self.alter(
-					&table,
-					format!(
-						"ADD COLUMN {} tsvector GENERATED ALWAYS AS ({}) STORED",
-						ident(SEARCH_COLUMN),
-						search_vector(search)
-					),
-				);
-				self.statements.push(format!(
-					"CREATE INDEX {} ON {} USING gin ({})",
-					ident(&Search::index_name(&table)),
-					qualified(&table),
-					ident(SEARCH_COLUMN)
-				));
-			}
+			Step::CreateSearch { search, .. } => self.create_search(&table, search),
 		}
+	}
+
+	/// Drops the trigger and the function that kept a column's vector fresh.
+	fn drop_vector_source(&mut self, table: &TableName, vector: &VectorOptions) {
+		let name = vector.source_trigger_name(table, None);
+		self.statements.push(format!(
+			"DROP TRIGGER {} ON {}",
+			ident(&name),
+			qualified(table)
+		));
+		self.statements.push(format!(
+			"DROP FUNCTION {}()",
+			qualified(&TableName {
+				namespace: table.namespace.clone(),
+				name,
+			})
+		));
+	}
+
+	/// The generated `tsvector` column and the index over it.
+	fn create_search(&mut self, table: &TableName, search: &Search) {
+		self.alter(
+			table,
+			format!(
+				"ADD COLUMN {} tsvector GENERATED ALWAYS AS ({}) STORED",
+				ident(SEARCH_COLUMN),
+				search_vector(search)
+			),
+		);
+		self.statements.push(format!(
+			"CREATE INDEX {} ON {} USING gin ({})",
+			ident(&Search::index_name(table)),
+			qualified(table),
+			ident(SEARCH_COLUMN)
+		));
 	}
 
 	/// pgvector's index over a vector column, with the operator class for

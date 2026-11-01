@@ -457,6 +457,38 @@ impl Step {
 	}
 }
 
+/// The column, and what about it changed, one clause per change.
+fn altered_column(
+	f: &mut fmt::Formatter<'_>,
+	table: &TableName,
+	from: &Column,
+	to: &Column,
+) -> fmt::Result {
+	write!(f, "~ column {table}.{}: ", to.name)?;
+	let mut changes = Vec::new();
+
+	if from.ty != to.ty {
+		changes.push(format!("{} → {}", from.ty, to.ty));
+	}
+
+	if from.nullable != to.nullable {
+		changes.push(
+			if to.nullable {
+				"now nullable"
+			} else {
+				"now NOT NULL"
+			}
+			.to_string(),
+		);
+	}
+
+	if from.default != to.default {
+		changes.push("new default".to_string());
+	}
+
+	f.write_str(&changes.join(", "))
+}
+
 impl fmt::Display for Step {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
@@ -474,31 +506,7 @@ impl fmt::Display for Step {
 			Self::RenameColumn { table, from, to } => {
 				write!(f, "~ column {table}.{from} renamed to {to}")
 			}
-			Self::AlterColumn { table, from, to } => {
-				write!(f, "~ column {table}.{}: ", to.name)?;
-				let mut changes = Vec::new();
-
-				if from.ty != to.ty {
-					changes.push(format!("{} → {}", from.ty, to.ty));
-				}
-
-				if from.nullable != to.nullable {
-					changes.push(
-						if to.nullable {
-							"now nullable"
-						} else {
-							"now NOT NULL"
-						}
-						.to_string(),
-					);
-				}
-
-				if from.default != to.default {
-					changes.push("new default".to_string());
-				}
-
-				f.write_str(&changes.join(", "))
-			}
+			Self::AlterColumn { table, from, to } => altered_column(f, table, from, to),
 			Self::SetPrimaryKey { table, to, .. } => {
 				write!(f, "~ primary key {table}({})", to.join(", "))
 			}

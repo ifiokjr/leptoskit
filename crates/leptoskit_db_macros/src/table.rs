@@ -166,6 +166,17 @@ fn refuse_misplaced_geo(fields: &[Field]) -> syn::Result<()> {
 	Ok(())
 }
 
+fn ensure_no_generics(item: &ItemStruct) -> syn::Result<()> {
+	if item.generics.params.is_empty() {
+		return Ok(());
+	}
+
+	Err(syn::Error::new_spanned(
+		&item.generics,
+		"a table can't be generic",
+	))
+}
+
 pub(crate) fn expand(
 	raw_args: &TokenStream,
 	raw_item: &TokenStream,
@@ -175,12 +186,7 @@ pub(crate) fn expand(
 	let mut item: ItemStruct = syn::parse2(raw_item.clone())?;
 	let krate = crate::runtime(args.krate.as_ref());
 
-	if !item.generics.params.is_empty() {
-		return Err(syn::Error::new_spanned(
-			&item.generics,
-			"a table can't be generic",
-		));
-	}
+	ensure_no_generics(&item)?;
 
 	check_derives(&item.attrs, "table")?;
 
