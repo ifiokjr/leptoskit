@@ -857,6 +857,7 @@ in
 
         run_step "lint:clippy" lint:clippy
         run_step "lint:clippy:wasm" lint:clippy:wasm
+        run_step "lint:monostyle" lint:monostyle
         run_step "lint:leptoskit" lint:leptoskit
         run_step "lint:format" lint:format
         run_step "lint:kotlin" lint:kotlin
@@ -882,6 +883,7 @@ in
         # outside `devenv shell`, where the profile bin dir is not on PATH.
         run_step "gitleaks detect" ${pkgs.gitleaks}/bin/gitleaks detect --verbose --redact
         run_step "lint:clippy" ${currentDir}/.devenv/profile/bin/lint:clippy
+        run_step "lint:monostyle" ${currentDir}/.devenv/profile/bin/lint:monostyle
         run_step "lint:leptoskit" ${currentDir}/.devenv/profile/bin/lint:leptoskit
         run_step "lint:format" ${currentDir}/.devenv/profile/bin/lint:format
         run_step "lint:kotlin" ${currentDir}/.devenv/profile/bin/lint:kotlin
@@ -913,6 +915,17 @@ in
         bash "$(git rev-parse --show-toplevel)/setup/scripts/clippy.sh" wasm32-unknown-unknown
       '';
       description = "Lint the browser and guest code, with warnings denied.";
+      binary = "bash";
+    };
+    # monostyle scores this file 100 for readability and complexity, and the
+    # lint keeps it there. The rest of the tree still has findings to clear
+    # before it can be measured against the same bar.
+    "lint:monostyle" = {
+      exec = ''
+        set -euo pipefail
+        ${xpkgs.monostyle}/bin/monostyle check devenv.nix --fail-under 100
+      '';
+      description = "Hold devenv.nix to monostyle's 100 readability and complexity.";
       binary = "bash";
     };
     # The examples show apps how to write leptoskit, so they pass its own
