@@ -59,15 +59,20 @@ use syn::spanned::Spanned;
 pub(crate) enum OperationKind {
 	Query,
 	Mutation,
+	Action,
 	Job,
 }
 
 impl OperationKind {
+	/// Every kind.
+	const ALL: [Self; 4] = [Self::Query, Self::Mutation, Self::Action, Self::Job];
+
 	/// The attribute's name, as written: `query` or `mutation`.
 	pub(crate) fn attribute(self) -> &'static str {
 		match self {
 			Self::Query => "query",
 			Self::Mutation => "mutation",
+			Self::Action => "action",
 			Self::Job => "job",
 		}
 	}
@@ -77,15 +82,18 @@ impl OperationKind {
 		match self {
 			Self::Query => "QueryCx",
 			Self::Mutation => "MutationCx",
+			Self::Action => "ActionCx",
 			Self::Job => "JobCx",
 		}
 	}
 
-	/// The other kind, whose context is a mistake here.
-	fn other(self) -> Self {
+	/// What its context does, for errors about a missing or wrong one.
+	fn context_does(self) -> &'static str {
 		match self {
-			Self::Query => Self::Mutation,
-			Self::Mutation | Self::Job => Self::Query,
+			Self::Query => "reads the database as the caller",
+			Self::Mutation => "writes in one transaction as the caller",
+			Self::Action => "calls queries and mutations as the caller, and anything else",
+			Self::Job => "has its own database handle and runs later",
 		}
 	}
 
@@ -94,6 +102,7 @@ impl OperationKind {
 		match self {
 			Self::Query => format_ident!("Query"),
 			Self::Mutation => format_ident!("Mutation"),
+			Self::Action => format_ident!("Action"),
 			Self::Job => format_ident!("Job"),
 		}
 	}
@@ -104,24 +113,127 @@ impl OperationKind {
 	}
 }
 
-/// The options `#[rpc::query(...)]` and `#[rpc::mutation(...)]` accept.
+/// The options `#[rpc::query(...)]`, `#[rpc::mutation(...)]`,
+/// `#[rpc::action(...)]`, and `#[rpc::job(...)]` accept.
 #[derive(Default)]
 pub(crate) struct OperationArgs {
 	pub(crate) name: Option<LitStr>,
 	pub(crate) krate: Option<Path>,
 	retries: Option<LitInt>,
+	job: JobArgs,
+}
+
+/// The options only `#[rpc::job(...)]` accepts.
+#[derive(Default)]
+struct JobArgs {
+	queue: Option<LitStr>,
+	backoff: Option<(TokenStream, TokenStream)>,
+	deadline: Option<TokenStream>,
+	timeout: Option<TokenStream>,
+	serialize_by: Option<Ident>,
+	visible_to: Option<Ident>,
+	on_failure: Option<Path>,
+}
+
+/// The options each kind takes, for the error about one it doesn't.
+fn expected_options(kind: OperationKind) -> &'static str {
+	match kind {
+		OperationKind::Query | OperationKind::Action => "`name = \"...\"` or `crate = \"...\"`",
+		OperationKind::Mutation => "`name = \"...\"`, `retries = N`, or `crate = \"...\"`",
+		OperationKind::Job => {
+			"`name`, `crate`, `queue`, `retries`, `backoff`, `deadline`, `timeout`, \
+			 `serialize_by`, `visible_to`, or `on_failure`"
+		}
+	}
+}
+
+/// A duration written as a number with a unit, `500ms`, `30s`, `15m`, `2h`,
+/// or `7d`, as tokens that build a `Duration`.
+fn duration_value(value: &syn::Expr, option: &str, example: &str) -> syn::Result<TokenStream> {
+	let error = || {
+		syn::Error::new_spanned(
+			value,
+			format!(
+				"`{option}` expects a duration: a whole number and a unit, `ms`, `s`, `m`, `h`, \
+				 or `d`, such as `{example}`"
+			),
+		)
+	};
+	let syn::Expr::Lit(syn::ExprLit {
+		lit: syn::Lit::Int(literal),
+		..
+	}) = value
+	else {
+		return Err(error());
+	};
+	let amount: u64 = literal.base10_parse().map_err(|_| error())?;
+	let millis = match literal.suffix() {
+		"ms" => Some(amount),
+		"s" => amount.checked_mul(1_000),
+		"m" => amount.checked_mul(60_000),
+		"h" => amount.checked_mul(3_600_000),
+		"d" => amount.checked_mul(86_400_000),
+		_ => return Err(error()),
+	}
+	.ok_or_else(error)?;
+	Ok(quote!(::core::time::Duration::from_millis(#millis)))
+}
+
+/// A plain name, such as an argument's.
+fn ident_value(value: &syn::Expr, option: &str, example: &str) -> syn::Result<Ident> {
+	match value {
+		syn::Expr::Path(path) if path.qself.is_none() => {
+			path.path.get_ident().cloned().ok_or_else(|| {
+				syn::Error::new_spanned(
+					value,
+					format!("`{option}` expects a name, such as {example}"),
+				)
+			})
+		}
+		_ => {
+			Err(syn::Error::new_spanned(
+				value,
+				format!("`{option}` expects a name, such as {example}"),
+			))
+		}
+	}
 }
 
 impl OperationArgs {
+	#[expect(
+		clippy::too_many_lines,
+		reason = "one arm per option, each with its own error, reads best in one place"
+	)]
 	pub(crate) fn parse(kind: OperationKind, tokens: TokenStream) -> syn::Result<Self> {
 		let metas = Punctuated::<Meta, Token![,]>::parse_terminated.parse2(tokens)?;
 		let mut args = Self::default();
 		for meta in metas {
+			let job_only = |pair: &syn::MetaNameValue| {
+				if kind == OperationKind::Job {
+					return Ok(());
+				}
+				Err(syn::Error::new_spanned(
+					pair,
+					format!(
+						"`{}` only applies to #[rpc::job]; for #[rpc::{}], expected {}",
+						pair.path.to_token_stream(),
+						kind.attribute(),
+						expected_options(kind)
+					),
+				))
+			};
+			let once = |given: bool, pair: &syn::MetaNameValue| {
+				if given {
+					return Err(syn::Error::new_spanned(
+						pair,
+						format!("`{}` is given twice", pair.path.to_token_stream()),
+					));
+				}
+				Ok(())
+			};
 			match &meta {
 				Meta::NameValue(pair) if pair.path.is_ident("name") => {
-					if args.name.is_some() {
-						return Err(syn::Error::new_spanned(pair, "`name` is given twice"));
-					}
+					once(args.name.is_some(), pair)?;
 					let name = crate::string_value(&pair.value, "name")?;
 					if !crate::is_route_segment(&name.value()) {
 						return Err(syn::Error::new_spanned(
@@ -134,9 +246,7 @@ impl OperationArgs {
 					args.name = Some(name);
 				}
 				Meta::NameValue(pair) if pair.path.is_ident("crate") => {
-					if args.krate.is_some() {
-						return Err(syn::Error::new_spanned(pair, "`crate` is given twice"));
-					}
+					once(args.krate.is_some(), pair)?;
 					let path = crate::string_value(&pair.value, "crate")?;
 					args.krate = Some(path.parse::<Path>().map_err(|_| {
 						syn::Error::new_spanned(
@@ -147,13 +257,25 @@ impl OperationArgs {
 					})?);
 				}
 				Meta::NameValue(pair) if pair.path.is_ident("retries") => {
-					if kind == OperationKind::Query {
-						return Err(syn::Error::new_spanned(
-							pair,
-							"`retries` only applies to #[rpc::mutation]: a query reads, outside \
-							 any transaction, so there is nothing to retry",
-						));
+					match kind {
+						OperationKind::Query => {
+							return Err(syn::Error::new_spanned(
+								pair,
+								"`retries` only applies to #[rpc::mutation] and #[rpc::job]: a \
+								 query reads, outside any transaction, so there is nothing to \
+								 retry",
+							));
+						}
+						OperationKind::Action => {
+							return Err(syn::Error::new_spanned(
+								pair,
+								"an action never runs again by itself, since it may have reached \
+								 the outside world; enqueue a #[rpc::job] for work that retries",
+							));
+						}
+						OperationKind::Mutation | OperationKind::Job => {}
 					}
+					once(args.retries.is_some(), pair)?;
 					let syn::Expr::Lit(syn::ExprLit {
 						lit: syn::Lit::Int(count),
 						..
@@ -167,20 +289,86 @@ impl OperationArgs {
 					count.base10_parse::<u32>()?;
 					args.retries = Some(count.clone());
 				}
-				other => {
-					let expected = match kind {
-						OperationKind::Query | OperationKind::Job => {
-							"`name = \"...\"` or `crate = \"...\"`"
-						}
-						OperationKind::Mutation => {
-							"`name = \"...\"`, `retries = N`, or `crate = \"...\"`"
-						}
+				Meta::NameValue(pair) if pair.path.is_ident("queue") => {
+					job_only(pair)?;
+					once(args.job.queue.is_some(), pair)?;
+					let queue = crate::string_value(&pair.value, "queue")?;
+					if queue.value().is_empty() {
+						return Err(syn::Error::new_spanned(&queue, "a queue needs a name"));
+					}
+					args.job.queue = Some(queue);
+				}
+				Meta::NameValue(pair) if pair.path.is_ident("backoff") => {
+					job_only(pair)?;
+					once(args.job.backoff.is_some(), pair)?;
+					let error = || {
+						syn::Error::new_spanned(
+							&pair.value,
+							"`backoff` expects `exponential(min, max)`, such as `backoff = \
+							 exponential(2s, 5m)`",
+						)
 					};
+					let syn::Expr::Call(call) = &pair.value else {
+						return Err(error());
+					};
+					let is_exponential = matches!(&*call.func, syn::Expr::Path(path) if path.path.is_ident("exponential"));
+					if !is_exponential || call.args.len() != 2 {
+						return Err(error());
+					}
+					args.job.backoff = Some((
+						duration_value(&call.args[0], "backoff", "exponential(2s, 5m)")?,
+						duration_value(&call.args[1], "backoff", "exponential(2s, 5m)")?,
+					));
+				}
+				Meta::NameValue(pair) if pair.path.is_ident("deadline") => {
+					job_only(pair)?;
+					once(args.job.deadline.is_some(), pair)?;
+					args.job.deadline =
+						Some(duration_value(&pair.value, "deadline", "deadline = 15m")?);
+				}
+				Meta::NameValue(pair) if pair.path.is_ident("timeout") => {
+					job_only(pair)?;
+					once(args.job.timeout.is_some(), pair)?;
+					args.job.timeout =
+						Some(duration_value(&pair.value, "timeout", "timeout = 30s")?);
+				}
+				Meta::NameValue(pair) if pair.path.is_ident("serialize_by") => {
+					job_only(pair)?;
+					once(args.job.serialize_by.is_some(), pair)?;
+					args.job.serialize_by = Some(ident_value(
+						&pair.value,
+						"serialize_by",
+						"`serialize_by = wallet`, one of the job's arguments",
+					)?);
+				}
+				Meta::NameValue(pair) if pair.path.is_ident("visible_to") => {
+					job_only(pair)?;
+					once(args.job.visible_to.is_some(), pair)?;
+					args.job.visible_to = Some(ident_value(
+						&pair.value,
+						"visible_to",
+						"`visible_to = signed_in`, `everyone`, or an argument naming an account",
+					)?);
+				}
+				Meta::NameValue(pair) if pair.path.is_ident("on_failure") => {
+					job_only(pair)?;
+					once(args.job.on_failure.is_some(), pair)?;
+					let syn::Expr::Path(path) = &pair.value else {
+						return Err(syn::Error::new_spanned(
+							&pair.value,
+							"`on_failure` names a #[rpc::mutation], such as `on_failure = \
+							 payment_gave_up`",
+						));
+					};
+					args.job.on_failure = Some(path.path.clone());
+				}
+				other => {
 					return Err(syn::Error::new_spanned(
 						other,
 						format!(
-							"unknown #[rpc::{}] option; expected {expected}",
-							kind.attribute()
+							"unknown #[rpc::{}] option; expected {}",
+							kind.attribute(),
+							expected_options(kind)
 						),
 					));
 				}
@@ -246,11 +434,7 @@ pub(crate) fn signature(kind: OperationKind, function: &ItemFn) -> syn::Result<S
 			function.sig.paren_token.span.join(),
 			format!(
 				"#[rpc::{attribute}] takes its context first: `cx: &rpc::{context}`, which {}",
-				match kind {
-					OperationKind::Query => "reads the database as the caller",
-					OperationKind::Mutation => "writes in one transaction as the caller",
-					OperationKind::Job => "has its own database handle and runs later",
-				}
+				kind.context_does()
 			),
 		));
 	};
@@ -357,22 +541,20 @@ fn check_context(kind: OperationKind, first: &FnArg) -> syn::Result<()> {
 	if last.as_deref() == Some(context) {
 		return Ok(());
 	}
-	if last.as_deref() == Some(kind.other().context()) {
-		let message = match kind {
-			OperationKind::Query => {
-				"a query's context is `&rpc::QueryCx`, which only reads; `&rpc::MutationCx` \
-				 writes, and belongs to #[rpc::mutation]"
-			}
-			OperationKind::Mutation => {
-				"a mutation's context is `&rpc::MutationCx`, which writes in one transaction; \
-				 `&rpc::QueryCx` only reads, and belongs to #[rpc::query]"
-			}
-			OperationKind::Job => {
-				"a job's context is `&rpc::JobCx`, which runs in the background with its own \
-				 database handle"
-			}
-		};
-		return Err(syn::Error::new_spanned(&reference.elem, message));
+	if let Some(other) = OperationKind::ALL
+		.into_iter()
+		.find(|other| last.as_deref() == Some(other.context()))
+	{
+		return Err(syn::Error::new_spanned(
+			&reference.elem,
+			format!(
+				"#[rpc::{attribute}]'s context is `&rpc::{context}`, which {}; `&rpc::{}` belongs \
+				 to #[rpc::{}]",
+				kind.context_does(),
+				other.context(),
+				other.attribute()
+			),
+		));
 	}
 	Err(wrong(&reference.elem, ""))
 }
@@ -421,9 +603,109 @@ pub(crate) fn struct_ident(function: &ItemFn) -> Ident {
 	Ident::new(&struct_name, function.sig.ident.span())
 }
 
+/// `const OPTIONS` for a job's `Job` impl, from its options, after checking
+/// the arguments they name exist.
+fn job_options(
+	args: &OperationArgs,
+	signature: &Signature,
+	krate: &Path,
+) -> syn::Result<TokenStream> {
+	let job = &args.job;
+	let argument = |ident: &Ident, option: &str| -> syn::Result<LitStr> {
+		let found = signature
+			.arguments
+			.iter()
+			.any(|argument| argument.ident.unraw() == ident.unraw());
+		if !found {
+			return Err(syn::Error::new_spanned(
+				ident,
+				format!("`{option}` names one of the job's arguments, and `{ident}` isn't one"),
+			));
+		}
+		Ok(LitStr::new(&ident.unraw().to_string(), ident.span()))
+	};
+	let queue = job
+		.queue
+		.clone()
+		.unwrap_or_else(|| LitStr::new("default", Span::call_site()));
+	let retries = if let Some(count) = &args.retries {
+		quote!(#count)
+	} else {
+		quote!(#krate::JobOptions::DEFAULT.retries)
+	};
+	let backoff = if let Some((min, max)) = &job.backoff {
+		quote!(#krate::Backoff::exponential(#min, #max))
+	} else {
+		quote!(#krate::Backoff::DEFAULT)
+	};
+	let some = |value: &Option<TokenStream>| {
+		if let Some(value) = value {
+			quote!(::core::option::Option::Some(#value))
+		} else {
+			quote!(::core::option::Option::None)
+		}
+	};
+	let deadline = some(&job.deadline);
+	let timeout = some(&job.timeout);
+	let serialize_by = if let Some(ident) = &job.serialize_by {
+		let name = argument(ident, "serialize_by")?;
+		quote!(::core::option::Option::Some(#name))
+	} else {
+		quote!(::core::option::Option::None)
+	};
+	let visible_to = match &job.visible_to {
+		None => quote!(#krate::Visibility::Owner),
+		Some(ident) if ident == "owner" => quote!(#krate::Visibility::Owner),
+		Some(ident) if ident == "signed_in" => quote!(#krate::Visibility::SignedIn),
+		Some(ident) if ident == "everyone" => quote!(#krate::Visibility::Everyone),
+		Some(ident) => {
+			let name = argument(ident, "visible_to")?;
+			quote!(#krate::Visibility::Argument(#name))
+		}
+	};
+	let on_failure = job.on_failure.is_some();
+	Ok(quote! {
+		const OPTIONS: #krate::JobOptions = #krate::JobOptions {
+			queue: #queue,
+			retries: #retries,
+			backoff: #backoff,
+			deadline: #deadline,
+			timeout: #timeout,
+			serialize_by: #serialize_by,
+			visible_to: #visible_to,
+			on_failure: #on_failure,
+		};
+	})
+}
+
+/// The struct a function path's operation travels in: `payment_gave_up` is
+/// `PaymentGaveUp`, `crate::pay::gave_up` is `crate::pay::GaveUp`.
+fn struct_path(path: &Path) -> Path {
+	let mut path = path.clone();
+	if let Some(last) = path.segments.last_mut() {
+		let name = Converter::new()
+			.from_case(Case::Snake)
+			.to_case(Case::UpperCamel)
+			.convert(last.ident.unraw().to_string());
+		last.ident = Ident::new(&name, last.ident.span());
+	}
+	path
+}
+
+/// Whether `ty` is `rpc::Failed<…>`: a mutation taking only one is a job's
+/// `on_failure`, and converts from it.
+fn is_failed(ty: &Type) -> bool {
+	matches!(ty, Type::Path(path) if path.qself.is_none()
+		&& path.path.segments.last().is_some_and(|segment| segment.ident == "Failed"))
+}
+
 /// Expands `#[rpc::query]` or `#[rpc::mutation]`. `server` decides whether the
 /// body and its registration are kept: the `server` feature in the real
 /// macro, either way in tests.
+#[expect(
+	clippy::too_many_lines,
+	reason = "the struct, its checks, and each kind's impls are one expansion"
+)]
 pub(crate) fn expand(
 	kind: OperationKind,
 	args: TokenStream,
@@ -520,6 +802,25 @@ pub(crate) fn expand(
 		#krate::__private::assert_output::<#output>();
 	};
 	let variant = kind.variant();
+	let options = if kind == OperationKind::Job {
+		job_options(&args, &signature, &krate)?
+	} else {
+		TokenStream::new()
+	};
+	let from_failed = match signature.arguments.as_slice() {
+		[argument] if kind == OperationKind::Mutation && is_failed(&argument.ty) => {
+			let ident = &argument.ident;
+			let ty = &argument.ty;
+			quote! {
+				impl ::core::convert::From<#ty> for #struct_ident {
+					fn from(#ident: #ty) -> Self {
+						Self { #ident }
+					}
+				}
+			}
+		}
+		_ => TokenStream::new(),
+	};
 
 	let mut out = quote! {
 		#(#docs)*
@@ -543,6 +844,8 @@ pub(crate) fn expand(
 				#output_check
 			}
 		};
+
+		#from_failed
 	};
 
 	if server {
@@ -554,6 +857,7 @@ pub(crate) fn expand(
 			&krate,
 			&struct_ident,
 			&name,
+			&options,
 		));
 	} else {
 		out.extend(quote! {
@@ -569,6 +873,7 @@ pub(crate) fn expand(
 				#[allow(deprecated)]
 				impl #krate::Job for #struct_ident {
 					const NAME: &'static str = #name;
+					#options
 					type Output = #output;
 				}
 			});
@@ -580,6 +885,10 @@ pub(crate) fn expand(
 
 /// What only a server build keeps: the function, `Operation::run`, and the
 /// operation's entry in the registry.
+#[expect(
+	clippy::too_many_arguments,
+	reason = "what `expand` already worked out, handed on rather than worked out again"
+)]
 fn server_items(
 	kind: OperationKind,
 	args: &OperationArgs,
@@ -588,6 +897,7 @@ fn server_items(
 	krate: &Path,
 	struct_ident: &Ident,
 	name: &LitStr,
+	options: &TokenStream,
 ) -> TokenStream {
 	let variant = kind.variant();
 	let output = &signature.output;
@@ -598,9 +908,10 @@ fn server_items(
 		.map(|argument| &argument.ident)
 		.collect();
 	let fn_ident = &function.sig.ident;
+	// A job's retries are its attempts, not a transaction's.
 	let retries = match &args.retries {
-		Some(count) => quote!(const RETRIES: u32 = #count;),
-		None => quote!(),
+		Some(count) if kind == OperationKind::Mutation => quote!(const RETRIES: u32 = #count;),
+		_ => quote!(),
 	};
 	let handler = quote!(#krate::__private::handle::<#struct_ident>);
 	let call = quote_spanned! {signature.output_span=>
@@ -630,6 +941,7 @@ fn server_items(
 			#[allow(deprecated)]
 			impl #krate::Job for #struct_ident {
 				const NAME: &'static str = #name;
+				#options
 				type Output = #output;
 
 				fn run(
@@ -646,24 +958,23 @@ fn server_items(
 		quote!()
 	};
 	let registry = if kind == OperationKind::Job {
+		let on_failure = if let Some(path) = &args.job.on_failure {
+			let handler = struct_path(path);
+			quote_spanned! {path.span()=>
+				::core::option::Option::Some(
+					#krate::__private::fail_job::<#struct_ident, #handler>
+				)
+			}
+		} else {
+			quote!(::core::option::Option::None)
+		};
 		quote! {
 			#krate::__private::inventory::submit! {
 				#krate::server::jobs::JobRegistration {
-					name: <#struct_ident as #krate::Operation>::NAME,
-					handler: |run: #krate::server::jobs::JobRun|
-					 -> #krate::__private::BoxFuture<'static, #krate::Result<#krate::__private::serde_json::Value>> {
-						#krate::__private::Box::pin(async move {
-							let op: #struct_ident = #krate::__private::serde_json::from_value(run.arguments)
-								.map_err(|error| #krate::Error::invalid(format!(
-									"the arguments of `{}` don't fit: {error}",
-									<#struct_ident as #krate::Operation>::NAME
-								)))?;
-							let cx = #krate::JobCx::new(run.db, run.identity, run.id, run.attempt);
-							let output = <#struct_ident as #krate::Operation>::run(op, &cx).await?;
-							#krate::__private::serde_json::to_value(output)
-								.map_err(|_| #krate::Error::server("a job's result isn't JSON"))
-						})
-					},
+					name: <#struct_ident as #krate::Job>::NAME,
+					options: <#struct_ident as #krate::Job>::OPTIONS,
+					handler: #krate::__private::run_job::<#struct_ident>,
+					on_failure: #on_failure,
 				}
 			}
 		}

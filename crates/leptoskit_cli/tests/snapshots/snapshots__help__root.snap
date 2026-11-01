@@ -24,6 +24,7 @@ Commands:
   routes       Writes the typed `Route` module from the routes directory
   l10n         Writes the typed translations module from the ARB files in the locales directory
   db           Writes and applies database migrations from the app's `#[db::table]` structs
+  jobs         Lists, retries, and cancels background jobs in a database: `jobs list`, `jobs retry <id>`, and `jobs cancel <id>`
   auth         Checks sign-in's configuration, rotates its keys, adds third-party providers, and registers the apps that may sign people in with yours
   codepush     Manages code push releases
   doctor       Checks the local environment for missing tooling; exits non-zero when a required check fails

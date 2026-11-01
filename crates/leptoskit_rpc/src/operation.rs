@@ -16,10 +16,11 @@ use crate::FnError;
 /// | [`Call`](Self::Call)    | `#[server]`        | as a leptos server function, with its own encoding                   |
 /// | [`Query`](Self::Query)  | `#[rpc::query]`    | reading the database as the caller, read-only by type                |
 /// | [`Mutation`](Self::Mutation) | `#[rpc::mutation]` | in one serializable transaction, retried when another gets in its way |
+/// | [`Action`](Self::Action) | `#[rpc::action]` | as the caller, outside any transaction, once: it may call anything |
 /// | [`Job`](Self::Job)         | `#[rpc::job]`      | later, in the background, when something enqueues it |
 ///
-/// More kinds will join these, such as actions, streams, channels, and jobs,
-/// so matching on a `Kind` needs a wildcard arm.
+/// More kinds will join these, such as streams, so matching on a `Kind`
+/// needs a wildcard arm.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Kind {
@@ -29,19 +30,25 @@ pub enum Kind {
 	Query,
 	/// An `#[rpc::mutation]`.
 	Mutation,
+	/// An `#[rpc::action]`: not transactional and never retried, so it may
+	/// call the outside world; it reaches the database through queries and
+	/// mutations.
+	Action,
 	/// An `#[rpc::job]`: work that runs later, in the background, not a
 	/// route a client calls.
 	Job,
 }
 
 impl Kind {
-	/// The kind's name in the spec: `call`, `query`, or `mutation`.
+	/// The kind's name in the spec: `call`, `query`, `mutation`, `action`,
+	/// or `job`.
 	#[must_use]
 	pub const fn as_str(self) -> &'static str {
 		match self {
 			Self::Call => "call",
 			Self::Query => "query",
 			Self::Mutation => "mutation",
+			Self::Action => "action",
 			Self::Job => "job",
 		}
 	}
@@ -129,6 +136,14 @@ pub enum Error {
 	Contended,
 	/// The server failed: `500`.
 	Server(String),
+	/// Something outside the server failed for now, such as a network call:
+	/// `503`. A job that fails with it runs again after its backoff, as it
+	/// does for any error but [`Permanent`](Self::Permanent).
+	Retry(String),
+	/// Trying again won't help, such as a payment the provider declined:
+	/// `500`. A job that fails with it stops at once, without its remaining
+	/// retries, and its `on_failure` mutation runs.
+	Permanent(String),
 }
 
 impl Error {
@@ -162,6 +177,22 @@ impl Error {
 		Self::Server(message.into())
 	}
 
+	/// Something outside failed for now: a job runs again after its backoff.
+	pub fn retry(message: impl Into<String>) -> Self {
+		Self::Retry(message.into())
+	}
+
+	/// Trying again won't help: a job stops without its remaining retries.
+	pub fn permanent(message: impl Into<String>) -> Self {
+		Self::Permanent(message.into())
+	}
+
+	/// Whether a job that failed with this should stop at once.
+	#[must_use]
+	pub fn is_permanent(&self) -> bool {
+		matches!(self, Self::Permanent(_))
+	}
+
 	/// The HTTP status a caller receives.
 	#[must_use]
 	pub fn status(&self) -> u16 {
@@ -171,7 +202,8 @@ impl Error {
 			Self::Forbidden(_) => 403,
 			Self::NotFound(_) => 404,
 			Self::Conflict(_) | Self::Contended => 409,
-			Self::Server(_) => 500,
+			Self::Server(_) | Self::Permanent(_) => 500,
+			Self::Retry(_) => 503,
 		}
 	}
 
@@ -184,7 +216,9 @@ impl Error {
 			| Self::Forbidden(message)
 			| Self::NotFound(message)
 			| Self::Conflict(message)
-			| Self::Server(message) => message,
+			| Self::Server(message)
+			| Self::Retry(message)
+			| Self::Permanent(message) => message,
 			Self::Contended => "the server was too busy to finish this; try again",
 		}
 	}
@@ -321,6 +355,21 @@ mod tests {
 		assert_eq!(Kind::Call.to_string(), "call");
 		assert_eq!(Kind::Query.as_str(), "query");
 		assert_eq!(Kind::Mutation.as_str(), "mutation");
+		assert_eq!(Kind::Action.as_str(), "action");
+		assert_eq!(Kind::Job.as_str(), "job");
+	}
+
+	#[test]
+	fn jobs_tell_retrying_from_giving_up() {
+		let retry = Error::retry("the mail server is down");
+		assert_eq!(retry.status(), 503);
+		assert_eq!(retry.message(), "the mail server is down");
+		assert!(!retry.is_permanent());
+		let permanent = Error::permanent("declined");
+		assert_eq!(permanent.status(), 500);
+		assert_eq!(permanent.to_wire(), "ServerError|declined");
+		assert!(permanent.is_permanent());
+		assert!(!Error::server("down").is_permanent());
 	}
 
 	#[cfg(feature = "db")]

@@ -50,6 +50,7 @@ use syn::parse::Parser;
 use syn::punctuated::Punctuated;
 
 mod channel;
+mod cron;
 mod operation;
 
 use operation::OperationArgs;
@@ -153,28 +154,93 @@ pub fn mutation(
 	operation_macro(OperationKind::Mutation, args, item)
 }
 
+/// Declares an action: an `async fn` that may call anything, published
+/// under its name.
+///
+/// ```ignore
+/// #[rpc::action]
+/// pub async fn summarize_channel(cx: &rpc::ActionCx, channel: Id<Channel>) -> rpc::Result<String> {
+/// 	let messages = cx.query(Messages { channel, limit: 200 }).await?;
+/// 	let summary = my_llm::summarize(&messages).await?;
+/// 	cx.mutate(PinSummary { channel, summary: summary.clone() }).await?;
+/// 	Ok(summary)
+/// }
+/// ```
+///
+/// It expands like [`query`](macro@query), with `cx: &rpc::ActionCx` as the
+/// context. An action isn't a transaction and never runs again by itself,
+/// so it may reach the outside world; it reaches the database through
+/// `cx.query(…)` and `cx.mutate(…)`, which run as the caller.
+///
+/// Options: `name = "..."` and `crate = "..."`.
+#[proc_macro_attribute]
+pub fn action(
+	args: proc_macro::TokenStream,
+	item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+	operation_macro(OperationKind::Action, args, item)
+}
+
 /// Declares a job: work that runs later, in the background.
 ///
 /// ```ignore
-/// #[rpc::job]
-/// pub async fn send_invite(cx: &rpc::JobCx, invite: Id<Invite>) -> rpc::Result<()> {
+/// #[rpc::job(queue = "chain", serialize_by = payment, retries = 20,
+///            backoff = exponential(2s, 5m), deadline = 15m, on_failure = payment_gave_up)]
+/// pub async fn settle_payment(cx: &rpc::JobCx, payment: Id<Payment>) -> rpc::Result<()> {
 /// 	// ...
 /// 	Ok(())
 /// }
 /// ```
 ///
 /// On every target it declares the argument struct, so a mutation enqueues it
-/// with `cx.enqueue(SendInvite { invite })`. In a server build it keeps the
-/// body, registers it with the job runner, and runs it with `rpc::JobCx`,
-/// which gives the job its own database handle and id.
+/// with `cx.enqueue(SettlePayment { payment })`. In a server build it keeps
+/// the body, registers it with the job runner, and runs it with
+/// `rpc::JobCx`.
 ///
-/// Options: `name = "..."` and `crate = "..."`, as `#[rpc::query]`.
+/// Options, besides `name = "..."` and `crate = "..."`:
+///
+/// - `queue = "mail"`: its queue, whose concurrency the server sets;
+/// - `retries = N`: how many more attempts after a failure, four by default;
+/// - `backoff = exponential(min, max)`: the wait between attempts;
+/// - `deadline = 15m`: how long after enqueueing an attempt may still start;
+/// - `timeout = 30s`: how long one attempt may run;
+/// - `serialize_by = argument`: at most one running job per value of it;
+/// - `visible_to = signed_in`, `everyone`, or an argument naming an account:
+///   who may read it besides whoever enqueued it;
+/// - `on_failure = mutation`: a `#[rpc::mutation]` taking `job:
+///   rpc::Failed<ThisJob>`, run once when the job gives up.
+///
+/// Durations are a whole number and a unit: `ms`, `s`, `m`, `h`, or `d`.
 #[proc_macro_attribute]
 pub fn job(
 	args: proc_macro::TokenStream,
 	item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
 	operation_macro(OperationKind::Job, args, item)
+}
+
+/// Enqueues an argument-less job on a schedule: a five-field cron
+/// expression in UTC, or `@hourly`, `@daily`, `@weekly`, `@monthly`, or
+/// `@yearly`.
+///
+/// ```ignore
+/// #[rpc::cron("*/5 * * * *")]
+/// #[rpc::job]
+/// pub async fn expire_trials(cx: &rpc::JobCx) -> rpc::Result<()> { … }
+/// ```
+///
+/// Each instance running workers enqueues each tick, keyed by the tick, so
+/// the job is enqueued once per tick however many instances there are.
+/// Put it above `#[rpc::job]`. The expression is checked when it compiles.
+#[proc_macro_attribute]
+pub fn cron(
+	args: proc_macro::TokenStream,
+	item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+	match cron::expand(args.into(), item.into(), cfg!(feature = "server")) {
+		Ok(tokens) => tokens.into(),
+		Err(error) => error.to_compile_error().into(),
+	}
 }
 
 fn operation_macro(
@@ -539,8 +605,8 @@ fn expand_server(args: &ApiArgs, mut function: ItemFn, register: bool) -> syn::R
 		.ok_or_else(|| {
 			syn::Error::new(
 				function.sig.ident.span(),
-				"#[api] must be placed above #[server], #[rpc::query], or #[rpc::mutation]: it \
-				 publishes a leptos server function or an operation",
+				"#[api] must be placed above #[server], #[rpc::query], #[rpc::mutation], or \
+				 #[rpc::action]: it publishes a leptos server function or an operation",
 			)
 		})?;
 	let server_attr = &function.attrs[server_index];
@@ -885,6 +951,8 @@ fn operation_attribute(attr: &Attribute) -> Option<OperationKind> {
 		Some(OperationKind::Query)
 	} else if segment.ident == "mutation" {
 		Some(OperationKind::Mutation)
+	} else if segment.ident == "action" {
+		Some(OperationKind::Action)
 	} else {
 		None
 	}

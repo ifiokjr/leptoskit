@@ -1,0 +1,5 @@
+error: `queue` only applies to #[rpc::job]; for #[rpc::mutation], expected `name = "..."`, `retries = N`, or `crate = "..."`
+ --> tests/ui/job_option_on_a_mutation.rs:4:17
+  |
+4 | #[rpc::mutation(queue = "mail")]
+  |                 ^^^^^^^^^^^^^^

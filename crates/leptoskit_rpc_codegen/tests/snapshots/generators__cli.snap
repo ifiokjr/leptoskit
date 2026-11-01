@@ -76,6 +76,12 @@ struct CompleteTodoInput {
 	id: u64,
 }
 
+#[derive(Serialize)]
+struct SummarizeTodosInput {
+	/// How to write it.
+	style: String,
+}
+
 /// How a failed call is classified, mirroring `leptoskit_rpc::FnError`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FnErrorKind {
@@ -348,6 +354,15 @@ impl Client {
 		self.call_void("POST", "/api/clear_done", Encoding::Json, &serde_json::json!({})).await
 	}
 
+	/// Summarizes the open todos with an outside service.
+	///
+	/// # Arguments
+	///
+	/// * `style` — How to write it.
+	pub async fn summarize_todos(&self, style: String) -> Result<String, Error> {
+		self.call("POST", "/api/summarize_todos", Encoding::Json, &SummarizeTodosInput { style }).await
+	}
+
 }
 
 ===== src/api/models.rs (Code) =====
@@ -478,6 +493,15 @@ enum Command {
 	#[command(name = "clear-done")]
 	ClearDone {
 	},
+	/// Summarizes the open todos with an outside service.
+	/// 
+	/// [style] How to write it.
+	#[command(name = "summarize-todos")]
+	SummarizeTodos {
+		/// How to write it.
+		#[arg(long)]
+		style: Json<String>,
+	},
 }
 
 fn main() {
@@ -499,6 +523,7 @@ fn main() {
 		Command::SearchTodos { text } => run(api.search_todos(text.0).await).await,
 		Command::CompleteTodo { id } => run(api.complete_todo(id.0).await).await,
 		Command::ClearDone {  } => run(api.clear_done().await).await,
+		Command::SummarizeTodos { style } => run(api.summarize_todos(style.0).await).await,
 		};
 		match outcome {
 			Ok(output) => println!("{output}"),
@@ -559,4 +584,5 @@ Pass `--server-url https://api.example.com` to point it at a server.
 - `counts` — 
 - `search-todos` — Finds todos whose title contains the text.
 - `complete-todo` — Marks a todo done.
-- `clear-done` —
+- `clear-done` — 
+- `summarize-todos` — Summarizes the open todos with an outside service.

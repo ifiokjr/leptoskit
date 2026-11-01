@@ -872,3 +872,272 @@ mod operations {
 		assert_eq!(OperationKind::Query.attribute(), "query");
 	}
 }
+
+mod jobs {
+	use proc_macro2::TokenStream;
+	use quote::quote;
+
+	use super::pretty;
+	use crate::expand as api;
+	use crate::operation::OperationKind;
+	use crate::operation::expand;
+
+	fn expanded(kind: OperationKind, args: TokenStream, item: TokenStream, server: bool) -> String {
+		pretty(expand(kind, args, item, server).expect("expands"))
+	}
+
+	fn error(kind: OperationKind, args: &str, item: &str) -> (String, String) {
+		let args: TokenStream = args.parse().expect("argument tokens");
+		let item: TokenStream = item.parse().expect("item tokens");
+		let error = expand(kind, args, item, true).expect_err("an error");
+		let underlined = error.span().source_text().unwrap_or_default();
+		(error.to_string(), underlined)
+	}
+
+	fn cron_error(args: &str, item: &str) -> String {
+		let args: TokenStream = args.parse().expect("argument tokens");
+		let item: TokenStream = item.parse().expect("item tokens");
+		crate::cron::expand(args, item, true)
+			.expect_err("an error")
+			.to_string()
+	}
+
+	fn settle() -> TokenStream {
+		quote! {
+			/// Settles a payment.
+			pub async fn settle_payment(
+				cx: &rpc::JobCx,
+				payment: Id<Payment>,
+				recipient: Id<User>,
+			) -> rpc::Result<()> {
+				Ok(())
+			}
+		}
+	}
+
+	#[test]
+	fn a_job_carries_its_options_everywhere() {
+		let args = quote!(
+			queue = "chain",
+			serialize_by = payment,
+			retries = 20,
+			backoff = exponential(2s, 5m),
+			deadline = 15m,
+			timeout = 500ms,
+			visible_to = recipient,
+			on_failure = crate::pay::payment_gave_up
+		);
+		let client = expanded(OperationKind::Job, args.clone(), settle(), false);
+		assert!(client.contains("const OPTIONS"), "{client}");
+		assert!(!client.contains("inventory"), "{client}");
+		insta::assert_snapshot!("job_client", client);
+
+		let server = expanded(OperationKind::Job, args, settle(), true);
+		assert!(server.contains("pay::PaymentGaveUp"), "{server}");
+		assert!(server.contains("from_millis(900000u64)"), "{server}");
+		assert!(!server.contains("const RETRIES"), "{server}");
+		insta::assert_snapshot!("job_server", server);
+
+		for (visible_to, variant) in [
+			("owner", "Visibility::Owner"),
+			("signed_in", "Visibility::SignedIn"),
+			("everyone", "Visibility::Everyone"),
+		] {
+			let args: TokenStream = format!("visible_to = {visible_to}").parse().unwrap();
+			let output = expanded(OperationKind::Job, args, settle(), false);
+			assert!(output.contains(variant), "{output}");
+		}
+		for unit in ["1d", "2h", "3s"] {
+			let args: TokenStream = format!("timeout = {unit}").parse().unwrap();
+			expanded(OperationKind::Job, args, settle(), false);
+		}
+	}
+
+	#[test]
+	fn an_on_failure_mutation_converts_from_the_failure() {
+		let output = expanded(
+			OperationKind::Mutation,
+			TokenStream::new(),
+			quote! {
+				async fn gave_up(cx: &rpc::MutationCx, job: rpc::Failed<SettlePayment>) -> rpc::Result<()> {
+					Ok(())
+				}
+			},
+			false,
+		);
+		assert!(
+			output.contains("From<rpc::Failed<SettlePayment>> for GaveUp"),
+			"{output}"
+		);
+	}
+
+	#[test]
+	fn an_action_registers_like_a_query() {
+		let item = quote! {
+			/// Summarizes a channel.
+			pub async fn summarize(cx: &rpc::ActionCx, channel: String) -> rpc::Result<String> {
+				Ok(channel)
+			}
+		};
+		let server = expanded(
+			OperationKind::Action,
+			TokenStream::new(),
+			item.clone(),
+			true,
+		);
+		assert!(server.contains("Kind::Action"), "{server}");
+		assert!(server.contains("::leptoskit_rpc::ActionCx"), "{server}");
+		insta::assert_snapshot!("action_server", server);
+
+		let published = pretty(
+			api(
+				quote!(tag = "chat"),
+				quote! {
+					#[rpc::action]
+					#item
+				},
+				true,
+			)
+			.expect("expands"),
+		);
+		assert!(published.contains("ApiKind::Action"), "{published}");
+	}
+
+	#[test]
+	fn a_cron_registers_its_schedule_on_the_server() {
+		let item = quote! {
+			#[rpc::job]
+			pub async fn tidy(cx: &rpc::JobCx) -> rpc::Result<()> {
+				Ok(())
+			}
+		};
+		let server =
+			pretty(crate::cron::expand(quote!("*/15 * * * *"), item.clone(), true).unwrap());
+		assert!(server.contains("CronRegistration"), "{server}");
+		assert!(server.contains("Tidy {}"), "{server}");
+		insta::assert_snapshot!("cron_server", server);
+
+		let client = pretty(crate::cron::expand(quote!("@daily"), item.clone(), false).unwrap());
+		assert!(!client.contains("CronRegistration"), "{client}");
+		let named = pretty(
+			crate::cron::expand(quote!("@daily", crate = "leptoskit::rpc"), item, true).unwrap(),
+		);
+		assert!(
+			named.contains("leptoskit::rpc::server::jobs::cron"),
+			"{named}"
+		);
+	}
+
+	#[test]
+	fn misused_job_options_say_how_to_fix_them() {
+		use OperationKind::Action;
+		use OperationKind::Job;
+		use OperationKind::Mutation;
+
+		let job = "async fn f(cx: &JobCx, wallet: u64) -> rpc::Result<()> {}";
+		let cases: &[(OperationKind, &str, &str, &str)] = &[
+			(Job, "queue = 1", job, "string"),
+			(Job, "queue = \"\"", job, "needs a name"),
+			(Job, "queue = \"a\", queue = \"b\"", job, "given twice"),
+			(
+				Job,
+				"backoff = linear(1s, 2s)",
+				job,
+				"exponential(min, max)",
+			),
+			(
+				Job,
+				"backoff = exponential(1s)",
+				job,
+				"exponential(min, max)",
+			),
+			(Job, "backoff = 3s", job, "exponential(min, max)"),
+			(Job, "deadline = 15", job, "a whole number and a unit"),
+			(Job, "deadline = 15y", job, "a whole number and a unit"),
+			(Job, "timeout = \"1s\"", job, "a whole number and a unit"),
+			(
+				Job,
+				"timeout = 99999999999999999999d",
+				job,
+				"a whole number and a unit",
+			),
+			(Job, "serialize_by = \"wallet\"", job, "expects a name"),
+			(Job, "serialize_by = a::b", job, "expects a name"),
+			(Job, "visible_to = someone", job, "`someone` isn't one"),
+			(Job, "on_failure = \"x\"", job, "names a #[rpc::mutation]"),
+			(Job, "retries = x", job, "whole number"),
+			(Job, "priority = 1", job, "`serialize_by`"),
+			(
+				Mutation,
+				"deadline = 1s",
+				"async fn f(cx: &MutationCx) -> rpc::Result<()> {}",
+				"only applies to #[rpc::job]",
+			),
+			(
+				Action,
+				"retries = 1",
+				"async fn f(cx: &ActionCx) -> rpc::Result<()> {}",
+				"never runs again",
+			),
+			(
+				Action,
+				"queue = \"x\"",
+				"async fn f(cx: &ActionCx) -> rpc::Result<()> {}",
+				"only applies",
+			),
+			(
+				Action,
+				"",
+				"async fn f(cx: &QueryCx) -> rpc::Result<()> {}",
+				"belongs to #[rpc::query]",
+			),
+			(
+				Action,
+				"",
+				"async fn f() -> rpc::Result<()> {}",
+				"calls queries and mutations",
+			),
+			(
+				Job,
+				"",
+				"async fn f(cx: &ActionCx) -> rpc::Result<()> {}",
+				"belongs to #[rpc::action]",
+			),
+		];
+		for (kind, args, item, message) in cases {
+			let (found, _) = error(*kind, args, item);
+			assert!(found.contains(message), "{args} {item}: {found}");
+		}
+
+		for (args, item, message) in [
+			(
+				"",
+				"#[rpc::job] async fn f(cx: &JobCx) {}",
+				"takes a cron expression",
+			),
+			(
+				"1",
+				"#[rpc::job] async fn f(cx: &JobCx) {}",
+				"takes a cron expression",
+			),
+			(
+				"\"@daily\", name = \"x\"",
+				"#[rpc::job] async fn f(cx: &JobCx) {}",
+				"unknown #[rpc::cron] option",
+			),
+			(
+				"\"@daily\", crate = \"a b\"",
+				"#[rpc::job] async fn f(cx: &JobCx) {}",
+				"path to `leptoskit_rpc`",
+			),
+			(
+				"\"* * *\"",
+				"#[rpc::job] async fn f(cx: &JobCx) {}",
+				"five fields",
+			),
+		] {
+			let found = cron_error(args, item);
+			assert!(found.contains(message), "{args} {item}: {found}");
+		}
+	}
+}

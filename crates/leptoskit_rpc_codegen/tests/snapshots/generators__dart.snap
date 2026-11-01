@@ -1,6 +1,5 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
-assertion_line: 490
 expression: "generate(TargetLanguage::Dart, \"todos\")"
 ---
 ===== pubspec.yaml (Scaffold) =====
@@ -251,6 +250,20 @@ class Client {
 		String? idempotencyKey
 	}) async {
 		await _invoke('POST', '/api/clear_done', 'json', const <String, Object?>{}, idempotencyKey: idempotencyKey);
+	}
+
+	/// Summarizes the open todos with an outside service.
+	///
+	/// Arguments:
+	/// - `style`: How to write it.
+	Future<String> summarizeTodos({
+		required String style
+	}) async {
+		final result = await _invoke('POST', '/api/summarize_todos', 'json', 
+				<String, Object?>{
+				'style': style,
+				});
+		return result as String;
 	}
 
 	Future<Object?> _invoke(

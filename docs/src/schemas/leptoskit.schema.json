@@ -149,6 +149,12 @@
 				"description": null,
 				"exclude": [],
 				"include_internal": false,
+				"jobs": {
+					"poll_seconds": 5,
+					"queues": {},
+					"retention_days": 7,
+					"workers": 4
+				},
 				"servers": [],
 				"targets": [],
 				"title": null
@@ -1831,6 +1837,16 @@
 					"type": "boolean",
 					"default": false
 				},
+				"jobs": {
+					"description": "The background job workers.",
+					"$ref": "#/$defs/RpcJobsConfig",
+					"default": {
+						"poll_seconds": 5,
+						"queues": {},
+						"retention_days": 7,
+						"workers": 4
+					}
+				},
 				"servers": {
 					"description": "The origins the RPC is served from. The first one is the default the\ngenerated clients point at; none means the page's own origin.",
 					"type": "array",
@@ -1854,6 +1870,56 @@
 						"null"
 					],
 					"default": null
+				}
+			},
+			"additionalProperties": false
+		},
+		"RpcJobsConfig": {
+			"description": "The background job workers: `[rpc.jobs]`.",
+			"type": "object",
+			"properties": {
+				"poll_seconds": {
+					"description": "How often idle workers look for jobs that are due, in seconds, besides\nbeing woken whenever a job is enqueued.",
+					"type": "integer",
+					"format": "uint32",
+					"default": 5,
+					"minimum": 0
+				},
+				"queues": {
+					"description": "Queues with their own concurrency, by name, such as\n`[rpc.jobs.queues.mail]`.",
+					"type": "object",
+					"additionalProperties": {
+						"$ref": "#/$defs/RpcQueueConfig"
+					},
+					"default": {}
+				},
+				"retention_days": {
+					"description": "How many days finished and cancelled jobs are kept; 0 keeps them.\nFailed jobs stay until someone retries them.",
+					"type": "integer",
+					"format": "uint32",
+					"default": 7,
+					"minimum": 0
+				},
+				"workers": {
+					"description": "How many jobs each instance runs at once.",
+					"type": "integer",
+					"format": "uint32",
+					"default": 4,
+					"minimum": 0
+				}
+			},
+			"additionalProperties": false
+		},
+		"RpcQueueConfig": {
+			"description": "One job queue: `[rpc.jobs.queues.<name>]`.",
+			"type": "object",
+			"properties": {
+				"concurrency": {
+					"description": "How many of its jobs run at once, across every instance, so a\nrate-limited service never sees more.",
+					"type": "integer",
+					"format": "uint32",
+					"default": 1,
+					"minimum": 0
 				}
 			},
 			"additionalProperties": false

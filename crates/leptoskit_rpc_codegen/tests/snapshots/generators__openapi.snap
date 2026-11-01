@@ -1,6 +1,5 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
-assertion_line: 459
 expression: "generate(TargetLanguage::OpenApi, \"todos-openapi\")"
 ---
 ===== openapi.json (Code) =====
@@ -431,6 +430,55 @@ expression: "generate(TargetLanguage::OpenApi, \"todos-openapi\")"
         "summary": "Finds todos whose title contains the text.",
         "x-leptoskit-kind": "query"
       }
+    },
+    "/api/summarize_todos": {
+      "post": {
+        "operationId": "summarize_todos",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "style": {
+                    "description": "How to write it.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "style"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The function's return value."
+          },
+          "default": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                },
+                "x-leptoskit-error-encoding": "kind-pipe-message"
+              }
+            },
+            "description": "An error; see the leptoskit error encoding"
+          }
+        },
+        "summary": "Summarizes the open todos with an outside service.",
+        "x-leptoskit-kind": "action"
+      }
     }
   },
   "servers": [
@@ -717,5 +765,36 @@ expression: "generate(TargetLanguage::OpenApi, \"todos-openapi\")"
           "description": "An error; see the leptoskit error encoding"
       "summary": "Finds todos whose title contains the text."
       "x-leptoskit-kind": "query"
+  "/api/summarize_todos":
+    "post":
+      "operationId": "summarize_todos"
+      "requestBody":
+        "content":
+          "application/json":
+            "schema":
+              "properties":
+                "style":
+                  "description": "How to write it."
+                  "type": "string"
+              "required":
+                - "style"
+              "type": "object"
+        "required": true
+      "responses":
+        "200":
+          "content":
+            "application/json":
+              "schema":
+                "type": "string"
+          "description": "The function's return value."
+        "default":
+          "content":
+            "text/plain":
+              "schema":
+                "type": "string"
+              "x-leptoskit-error-encoding": "kind-pipe-message"
+          "description": "An error; see the leptoskit error encoding"
+      "summary": "Summarizes the open todos with an outside service."
+      "x-leptoskit-kind": "action"
 "servers":
   - "url": "https://todos.example"

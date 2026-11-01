@@ -1,0 +1,34 @@
+---
+source: crates/leptoskit_rpc/tests/actions.rs
+expression: summarize
+---
+{
+  "name": "summarize",
+  "kind": "action",
+  "module_path": "actions",
+  "struct_name": "Summarize",
+  "docs": "Summarizes a channel with an outside service, then pins the summary.",
+  "path": "/api/summarize",
+  "method": "POST",
+  "input": "Json",
+  "output": "Json",
+  "error_content_type": "text/plain",
+  "params": [
+    {
+      "name": "channel",
+      "docs": "Which channel.",
+      "schema": {
+        "type": "string"
+      },
+      "required": true
+    }
+  ],
+  "output_schema": {
+    "type": "string"
+  },
+  "internal": false,
+  "deprecated": false,
+  "tags": [
+    "chat"
+  ]
+}

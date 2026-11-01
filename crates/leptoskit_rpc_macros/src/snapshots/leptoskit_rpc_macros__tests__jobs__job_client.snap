@@ -1,0 +1,53 @@
+---
+source: crates/leptoskit_rpc_macros/src/tests.rs
+expression: client
+---
+/// Settles a payment.
+#[derive(
+    ::core::clone::Clone,
+    ::leptoskit_rpc::__private::serde::Serialize,
+    ::leptoskit_rpc::__private::serde::Deserialize,
+    ::leptoskit_rpc::__private::schemars::JsonSchema,
+)]
+#[serde(crate = ":: leptoskit_rpc :: __private :: serde")]
+#[schemars(crate = ":: leptoskit_rpc :: __private :: schemars")]
+pub struct SettlePayment {
+    pub payment: Id<Payment>,
+    pub recipient: Id<User>,
+}
+const _: () = {
+    #[allow(dead_code)]
+    fn __check() {
+        ::leptoskit_rpc::__private::assert_argument::<Id<Payment>>();
+        ::leptoskit_rpc::__private::assert_argument::<Id<User>>();
+        ::leptoskit_rpc::__private::assert_output::<()>();
+    }
+};
+#[allow(deprecated)]
+impl ::leptoskit_rpc::Operation for SettlePayment {
+    const NAME: &'static str = "settle_payment";
+    const KIND: ::leptoskit_rpc::Kind = ::leptoskit_rpc::Kind::Job;
+    type Output = ();
+}
+#[allow(deprecated)]
+impl ::leptoskit_rpc::Job for SettlePayment {
+    const NAME: &'static str = "settle_payment";
+    const OPTIONS: ::leptoskit_rpc::JobOptions = ::leptoskit_rpc::JobOptions {
+        queue: "chain",
+        retries: 20,
+        backoff: ::leptoskit_rpc::Backoff::exponential(
+            ::core::time::Duration::from_millis(2000u64),
+            ::core::time::Duration::from_millis(300000u64),
+        ),
+        deadline: ::core::option::Option::Some(
+            ::core::time::Duration::from_millis(900000u64),
+        ),
+        timeout: ::core::option::Option::Some(
+            ::core::time::Duration::from_millis(500u64),
+        ),
+        serialize_by: ::core::option::Option::Some("payment"),
+        visible_to: ::leptoskit_rpc::Visibility::Argument("recipient"),
+        on_failure: true,
+    };
+    type Output = ();
+}

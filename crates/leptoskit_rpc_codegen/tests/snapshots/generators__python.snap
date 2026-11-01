@@ -1,6 +1,5 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
-assertion_line: 475
 expression: "generate(TargetLanguage::Python, \"todos-api\")"
 ---
 ===== pyproject.toml (Scaffold) =====
@@ -271,6 +270,14 @@ class Client(_BaseClient):
 	def clear_done(self, *, idempotency_key: Optional[str] = None) -> None:
 		return self._call("POST", "/api/clear_done", "json", {}, idempotency_key)
 
+	def summarize_todos(self, *, style: str) -> str:
+		"""Summarizes the open todos with an outside service.
+
+		Arguments:
+			style: How to write it.
+		"""
+		return self._call("POST", "/api/summarize_todos", "json", {"style": style})
+
 
 class AsyncClient(_BaseClient):
 	"""An asynchronous client over ``httpx`` (install the ``async`` extra).
@@ -365,6 +372,14 @@ class AsyncClient(_BaseClient):
 
 	async def clear_done(self, *, idempotency_key: Optional[str] = None) -> None:
 		return await self._call("POST", "/api/clear_done", "json", {}, idempotency_key)
+
+	async def summarize_todos(self, *, style: str) -> str:
+		"""Summarizes the open todos with an outside service.
+
+		Arguments:
+			style: How to write it.
+		"""
+		return await self._call("POST", "/api/summarize_todos", "json", {"style": style})
 
 ===== README.md (Scaffold) =====
 # todos-api

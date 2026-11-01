@@ -1,4 +1,4 @@
-error: a query's context is `&rpc::QueryCx`, which only reads; `&rpc::MutationCx` writes, and belongs to #[rpc::mutation]
+error: #[rpc::query]'s context is `&rpc::QueryCx`, which reads the database as the caller; `&rpc::MutationCx` belongs to #[rpc::mutation]
  --> tests/ui/query_with_a_mutation_context.rs:5:26
   |
 5 | pub async fn latest(cx: &rpc::MutationCx, limit: u32) -> rpc::Result<Vec<String>> {

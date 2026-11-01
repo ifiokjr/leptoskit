@@ -1,0 +1,5 @@
+error: an action never runs again by itself, since it may have reached the outside world; enqueue a #[rpc::job] for work that retries
+ --> tests/ui/action_with_retries.rs:5:15
+  |
+5 | #[rpc::action(retries = 3)]
+  |               ^^^^^^^^^^^

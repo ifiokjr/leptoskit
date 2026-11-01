@@ -106,6 +106,8 @@ futures = { workspace = true }
 insta = { workspace = true, features = ["filters", "json", "redactions"] }
 leptoskit_codepush = { workspace = true, features = ["http"] }
 leptoskit_native = { workspace = true }
+# The jobs table the `jobs` commands read, and jobs to put in it.
+leptoskit_rpc = { workspace = true, features = ["live", "postgres", "sqlite"] }
 png = { workspace = true }
 tempfile = "3"
 tower = { workspace = true, features = ["util"] }

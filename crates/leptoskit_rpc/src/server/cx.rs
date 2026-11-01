@@ -200,29 +200,15 @@ impl MutationCx {
 	}
 
 	/// Enqueues `job` in this mutation's transaction: it exists exactly when
-	/// the mutation commits, and never when it rolls back.
+	/// the mutation commits, and never when it rolls back. The caller owns
+	/// it, so they can watch it with `use_job`.
 	///
-	/// For a job that should wait, enqueue it in
-	/// [`after_commit`](Self::after_commit) with [`crate::enqueue`].
-	///
-	/// # Errors
-	///
-	/// When the job can't be written, such as a taken key.
-	pub async fn enqueue<J: crate::Job>(
-		&self,
-		job: J,
-	) -> crate::Result<Id<crate::server::jobs::JobRow>> {
-		crate::server::jobs::insert(
-			&self.tx,
-			&job,
-			self.identity.caller.as_deref().unwrap_or_default(),
-			None,
-			None,
-			None,
-			0,
-			None,
-		)
-		.await
+	/// ```ignore
+	/// cx.enqueue(SettlePayment { payment, signed }).key(payment).await?;
+	/// cx.enqueue(Remind { message }).after(Duration::from_secs(600)).await?;
+	/// ```
+	pub fn enqueue<J: crate::Job>(&self, job: J) -> crate::server::jobs::Enqueue<'_, J> {
+		crate::server::jobs::Enqueue::in_tx(&self.tx, job, self.identity.context.actor())
 	}
 
 	/// The caller's global of type `G`, such as the signed-in person.

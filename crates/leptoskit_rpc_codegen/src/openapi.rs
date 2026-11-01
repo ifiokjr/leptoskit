@@ -493,7 +493,10 @@ mod tests {
 		let mut mutation = function("send", "", HttpInput::Json, Vec::new(), false);
 		mutation.kind = ApiKind::Mutation;
 		mutation.method = "POST".to_owned();
-		spec.functions = vec![query, mutation];
+		let mut action = function("summarize", "", HttpInput::Json, Vec::new(), false);
+		action.kind = ApiKind::Action;
+		action.method = "POST".to_owned();
+		spec.functions = vec![query, mutation, action];
 		let document = spec.to_openapi();
 
 		let query = &document["paths"]["/api/messages"]["post"];
@@ -506,5 +509,9 @@ mod tests {
 		assert_eq!(mutation["parameters"][0]["name"], json!("Idempotency-Key"));
 		assert_eq!(mutation["parameters"][0]["in"], json!("header"));
 		assert_eq!(mutation["parameters"][0]["required"], json!(false));
+
+		let action = &document["paths"]["/api/summarize"]["post"];
+		assert_eq!(action["x-leptoskit-kind"], json!("action"));
+		assert!(action.get("parameters").is_none());
 	}
 }
