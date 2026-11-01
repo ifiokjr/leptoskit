@@ -234,4 +234,4 @@ A runtime plugin whose browser side needs an extension permission declares it, a
 ## What doesn't work yet
 
 - **Firefox in development:** `leptoskit dev` and `leptoskit test extension` use Chrome for Testing. Load the Firefox package from `about:debugging` to try it.
-- **Icons:** the build uses `assets/icon-16.png`, `icon-32.png`, `icon-48.png`, and `icon-128.png` when they exist, and doesn't make them for you.
+- **Icons:** with `app.icon` set, the build makes the 16, 32, 48, and 128 pixel icons from it. Without it, the build uses `assets/icon-16.png`, `icon-32.png`, `icon-48.png`, and `icon-128.png` when they exist.

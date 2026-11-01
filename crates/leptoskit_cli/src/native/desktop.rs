@@ -1,4 +1,5 @@
-//! Local macOS development bundles. Distribution signing remains app-owned.
+//! Local macOS development bundles; `leptoskit publish macos` signs them
+//! for distribution.
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -163,6 +164,21 @@ fn assemble(root: &Path, config: &LeptoskitConfig, binary: &Path) -> Result<std:
 			}
 			Err(error) => return Err(error).context("read hosts/macos/Info.plist"),
 		};
+	// `app.icon` becomes the bundle's `.icns`, which Info.plist names.
+	let resources = bundle.join("Resources");
+	let info = if crate::icons::write(root, config, crate::icons::Platform::Macos, &resources)? {
+		let mut plist = plist::Value::from_reader_xml(info.as_bytes())
+			.context("hosts/macos/Info.plist isn't a property list")?;
+		plist
+			.as_dictionary_mut()
+			.context("hosts/macos/Info.plist must contain a dictionary")?
+			.insert("CFBundleIconFile".into(), "AppIcon".into());
+		let mut xml = Vec::new();
+		plist.to_writer_xml(&mut xml)?;
+		String::from_utf8(xml)?
+	} else {
+		info
+	};
 	write(&bundle.join("Info.plist"), &info)?;
 	Ok(application)
 }

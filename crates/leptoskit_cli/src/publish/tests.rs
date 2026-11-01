@@ -767,16 +767,7 @@ fn commonplace_dry_run() {
 	};
 	let mut report = super::Report::default();
 	for name in config.publish.stores() {
-		let (summary, steps) = match name {
-			"chrome" => session.chrome(),
-			"edge" => session.edge(),
-			"firefox" => session.firefox(),
-			"app_store" => session.app_store(),
-			"macos" => session.macos(),
-			"play" => session.play(),
-			other => panic!("{other} has no dry run here"),
-		}
-		.unwrap();
+		let (summary, steps) = session.publish(name).unwrap();
 		report.steps.extend(steps);
 		report.stores.push(super::Status {
 			store: name.to_owned(),
@@ -1026,4 +1017,25 @@ fn firefox_sets_the_listing_text_it_has() {
 			"description": { "en-US": "Keep notes, everywhere." },
 		})
 	);
+}
+
+#[test]
+fn a_store_without_its_icon_gets_a_step() {
+	let root = tempfile::tempdir().unwrap();
+	let config = |icon: &str| {
+		leptoskit_config::LeptoskitConfig::from_toml(
+			&format!("[app]\nplatforms = [\"web\", \"ios\"]\n{icon}"),
+			root.path(),
+		)
+		.unwrap()
+	};
+	let without = config("");
+	let step = super::icon_step(root.path(), &without, "app_store").unwrap();
+	assert!(step.what.contains("set app.icon"));
+	assert!(super::icon_step(root.path(), &config("icon = \"icon.png\"\n"), "play").is_none());
+	// An extension may bring its own sizes instead.
+	assert!(super::icon_step(root.path(), &without, "chrome").is_some());
+	std::fs::create_dir_all(root.path().join("assets")).unwrap();
+	std::fs::write(root.path().join("assets/icon-128.png"), "png").unwrap();
+	assert!(super::icon_step(root.path(), &without, "chrome").is_none());
 }

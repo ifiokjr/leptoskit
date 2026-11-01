@@ -140,10 +140,15 @@ fn an_app_with_a_safari_extension_embeds_it_as_an_app_extension_target() {
 	let root = directory.path().canonicalize().unwrap();
 	let registry = metadata_registry(&root, &[]);
 	let config = leptoskit_config::LeptoskitConfig::from_toml(
-		"[app]\nplatforms = [\"web\", \"ios\", \"extension\"]\n[native]\npackage_id = \
-		 \"com.example.notes\"\n[extension]\nbrowsers = [\"safari\"]\n[extension.popup]\nroute = \
-		 \"/\"\n",
+		"[app]\nplatforms = [\"web\", \"ios\", \"extension\"]\nicon = \
+		 \"icon.svg\"\n[native]\npackage_id = \"com.example.notes\"\n[extension]\nbrowsers = \
+		 [\"safari\"]\n[extension.popup]\nroute = \"/\"\n",
 		&root,
+	)
+	.unwrap();
+	write(
+		&root.join("icon.svg"),
+		r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8"/></svg>"#,
 	)
 	.unwrap();
 	write(&registry.bridge.join("Package.swift"), "// bridge package").unwrap();
@@ -171,6 +176,18 @@ fn an_app_with_a_safari_extension_embeds_it_as_an_app_extension_target() {
 	// The package's files and folders go to the extension's top level.
 	assert_eq!(project.matches("lastKnownFileType = folder;").count(), 1);
 	assert!(project.contains("manifest.json"));
+	// app.icon is the app's asset catalog, and its icon.
+	assert!(project.contains("lastKnownFileType = folder.assetcatalog;"));
+	assert_eq!(
+		project
+			.matches("ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;")
+			.count(),
+		2
+	);
+	assert!(
+		root.join(".leptoskit/ios/Assets.xcassets/AppIcon.appiconset/icon-1024.png")
+			.is_file()
+	);
 	let extension = root.join(".leptoskit/ios/SafariExtension");
 	assert!(
 		std::fs::read_to_string(extension.join("Info.plist"))

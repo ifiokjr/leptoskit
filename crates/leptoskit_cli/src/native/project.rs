@@ -126,6 +126,21 @@ fn android_keep_rules_warning(root: &Path) -> Option<String> {
 	})
 }
 
+/// Apps scaffolded before `app.icon` don't add the generated resources to
+/// their Gradle script, so the launcher icons wouldn't reach the app.
+fn android_icon_warning(root: &Path) -> Option<String> {
+	let path = super::host_dir(root, Target::Android).join("app/build.gradle.kts");
+	let script = std::fs::read_to_string(&path).ok()?;
+	(!script.contains(".leptoskit/android/res")).then(|| {
+		format!(
+			"warning: {} doesn't add .leptoskit/android/res to the main source set's res \
+			 directories, so app.icon's launcher icons won't reach the app. Add it next to the \
+			 assets line, as `leptoskit new` writes it.",
+			path.display()
+		)
+	})
+}
+
 /// The version the app's Gradle script reads: `versionName` is
 /// `app.version`, and `versionCode` is 1 until `leptoskit publish play`
 /// passes the upload's own.
@@ -221,7 +236,20 @@ fn android(
 		);
 	}
 
-	let manifest = super::manifest::merge(&manifest, &permissions, &query_actions, &query_intents)?;
+	let mut manifest =
+		super::manifest::merge(&manifest, &permissions, &query_actions, &query_intents)?;
+	// `app.icon` becomes the launcher icons, in resources only leptoskit
+	// writes.
+	let res = dir.join("res");
+	if res.is_dir() {
+		std::fs::remove_dir_all(&res)?;
+	}
+	if crate::icons::write(root, config, crate::icons::Platform::Android, &res)? {
+		manifest = super::manifest::with_icon(&manifest)?;
+		if let Some(warning) = android_icon_warning(root) {
+			crate::ui::warning(warning);
+		}
+	}
 	write(&dir.join("AndroidManifest.xml"), &manifest)?;
 	let cmake = format!(
 		"cmake_minimum_required(VERSION 3.22)\nproject(leptoskit_app LANGUAGES \

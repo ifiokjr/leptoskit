@@ -54,13 +54,14 @@ leptos = true
 
 ## `[app]`
 
-| Key                | Default                                                  | Meaning                                                                                |
-| ------------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `name`             | the directory name                                       | The root server package name, also used for the package id and release names.          |
-| `version`          | `"0.1.0"`                                                | The app's semantic version.                                                            |
-| `default_platform` | `"web"`                                                  | The destination for `build`. `dev` runs every platform in `platforms` it can.          |
-| `platforms`        | `["web", "ios", "android", "macos", "windows", "linux"]` | Enabled application destinations. Each build selects one destination.                  |
-| `render`           | `"csr"`                                                  | How the web build renders: `"csr"`, `"ssr"`, or `"islands"`. New projects set `"ssr"`. |
+| Key                | Default                                                  | Meaning                                                                                                                                                |
+| ------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `name`             | the directory name                                       | The root server package name, also used for the package id and release names.                                                                          |
+| `version`          | `"0.1.0"`                                                | The app's semantic version.                                                                                                                            |
+| `default_platform` | `"web"`                                                  | The destination for `build`. `dev` runs every platform in `platforms` it can.                                                                          |
+| `platforms`        | `["web", "ios", "android", "macos", "windows", "linux"]` | Enabled application destinations. Each build selects one destination.                                                                                  |
+| `render`           | `"csr"`                                                  | How the web build renders: `"csr"`, `"ssr"`, or `"islands"`. New projects set `"ssr"`.                                                                 |
+| `icon`             | none                                                     | One square PNG or SVG, 1024×1024 or larger, that every platform's icons are made from. See [Publishing](24-publishing.md#one-icon-for-every-platform). |
 
 `platforms` lists the platforms you can build: `leptoskit build --platform <platform>` refuses one that isn't listed, before compiling anything. `default_platform` is the one `leptoskit build` uses without `--platform`, and it must be in `platforms`. The list can't be empty or repeat an entry.
 

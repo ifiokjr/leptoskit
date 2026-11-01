@@ -36,10 +36,27 @@ pub(super) fn generate(
 		)?;
 	}
 
-	let extras = if super::super::safari::configured(config) {
+	let mut extras = if super::super::safari::configured(config) {
 		safari_target(&mut objects, root, config, &dir)?
 	} else {
 		Extras::default()
+	};
+	// `app.icon` becomes the app's asset catalog, with its AppIcon set.
+	let icon = crate::icons::write(root, config, crate::icons::Platform::Ios, &dir)?;
+	let resources = if icon {
+		writeln!(
+			objects,
+			"{} = {{isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = {}; \
+			 sourceTree = \"<absolute>\"; }};\n{} = {{isa = PBXBuildFile; fileRef = {}; }};",
+			id(ICON_FILE),
+			quote(&dir.join("Assets.xcassets"))?,
+			id(ICON_BUILD),
+			id(ICON_FILE)
+		)?;
+		write!(extras.group, "{},", id(ICON_FILE))?;
+		format!(",{}", id(ICON_BUILD))
+	} else {
+		String::new()
 	};
 	build_phases(
 		&mut objects,
@@ -48,8 +65,9 @@ pub(super) fn generate(
 		&format!("{source_refs}{}", extras.group),
 		&source_files,
 		&frameworks,
+		&resources,
 	)?;
-	ios_configurations(&mut objects, root, config, &package_root)?;
+	ios_configurations(&mut objects, root, config, &package_root, icon)?;
 	targets(&mut objects, &products, &package_refs, &extras)?;
 	write(
 		&dir.join("Host.xcodeproj/project.pbxproj"),
@@ -247,9 +265,15 @@ fn ios_configurations(
 	root: &Path,
 	config: &leptoskit_config::LeptoskitConfig,
 	package_root: &Path,
+	icon: bool,
 ) -> Result<()> {
 	let info = versioned_info_plist(root)?;
 	let version = marketing_version(config);
+	let icon = if icon {
+		" ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;"
+	} else {
+		""
+	};
 	for (offset, name) in [(0, "Debug"), (1, "Release")] {
 		writeln!(
 			objects,
@@ -274,7 +298,7 @@ fn ios_configurations(
 			 (\"$(inherited)\",{}); SWIFT_INCLUDE_PATHS = {}; OTHER_SWIFT_FLAGS = \
 			 (\"$(inherited)\",\"-I\",{}); LD_RUNPATH_SEARCH_PATHS = \
 			 (\"$(inherited)\",\"@executable_path/Frameworks\"); MARKETING_VERSION = {version}; \
-			 CURRENT_PROJECT_VERSION = 1;{release_strip} }}; }};",
+			 CURRENT_PROJECT_VERSION = 1;{icon}{release_strip} }}; }};",
 			id(APP_DEBUG + offset),
 			config.native.package_id,
 			quote(&info)?,
@@ -336,6 +360,8 @@ const BUNDLE_BUILD: usize = 31;
 const APP_PRODUCT: usize = 32;
 const UPDATE_FILE: usize = 34;
 const UPDATE_BUILD: usize = 35;
+const ICON_FILE: usize = 36;
+const ICON_BUILD: usize = 37;
 
 const PROJECT_DEBUG: usize = 40;
 const PROJECT_RELEASE: usize = 41;
@@ -400,6 +426,7 @@ fn build_phases(
 	source_refs: &str,
 	source_files: &str,
 	frameworks: &str,
+	resources: &str,
 ) -> Result<()> {
 	writeln!(
 		objects,
@@ -427,8 +454,8 @@ fn build_phases(
 	)?;
 	writeln!(
 		objects,
-		"{} = {{isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ({},{}); \
-		 runOnlyForDeploymentPostprocessing = 0; }};",
+		"{} = {{isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = \
+		 ({},{}{resources}); runOnlyForDeploymentPostprocessing = 0; }};",
 		id(RESOURCE_PHASE),
 		id(BUNDLE_BUILD),
 		id(UPDATE_BUILD)

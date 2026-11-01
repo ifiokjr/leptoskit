@@ -35,6 +35,8 @@ android {
     sourceSets["main"].apply {
         kotlin.directories += "../../../.leptoskit/android/sources"
         assets.directories += "../../../.leptoskit/mobile"
+        // The launcher icons leptoskit makes from app.icon.
+        res.directories += "../../../.leptoskit/android/res"
         manifest.srcFile("../../../.leptoskit/android/AndroidManifest.xml")
     }
     externalNativeBuild { cmake { path = file("../../../.leptoskit/android/CMakeLists.txt") } }

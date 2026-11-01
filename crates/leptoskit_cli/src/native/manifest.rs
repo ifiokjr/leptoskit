@@ -13,6 +13,31 @@ use anyhow::Result;
 const ANDROID: &str = "http://schemas.android.com/apk/res/android";
 type Edit = (Range<usize>, String);
 
+/// Points the application's icon at the launcher icons leptoskit makes
+/// from `app.icon`, unless the app-owned manifest names its own.
+///
+/// # Errors
+///
+/// When the manifest isn't valid XML.
+pub fn with_icon(source: &str) -> Result<String> {
+	let document = roxmltree::Document::parse(source).context("invalid AndroidManifest.xml")?;
+	let root = document.root_element();
+	let prefix = root
+		.lookup_prefix(ANDROID)
+		.context("Android manifest must declare the Android attribute namespace")?;
+	let application = root
+		.children()
+		.find(|node| node.has_tag_name("application"))
+		.context("Android manifest has no application element")?;
+	if application.has_attribute((ANDROID, "icon")) {
+		return Ok(source.to_owned());
+	}
+	let at = application.range().start + "<application".len();
+	let mut output = source.to_owned();
+	output.insert_str(at, &format!(" {prefix}:icon=\"@mipmap/ic_launcher\""));
+	Ok(output)
+}
+
 pub fn merge(
 	source: &str,
 	permissions: &BTreeSet<&str>,

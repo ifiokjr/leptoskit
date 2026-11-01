@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Commonplace's icon: an opening quotation mark on ink blue. leptoskit
+       makes every platform's icon sizes from it (app.icon). -->
+  <rect width="1024" height="1024" fill="#1F3A5F"/>
+  <g fill="#F4E9D8">
+    <circle cx="372" cy="584" r="122"/>
+    <path d="M252 584 C 252 424 332 316 452 268 L 476 322 C 396 362 352 432 350 500 Z"/>
+    <circle cx="652" cy="584" r="122"/>
+    <path d="M532 584 C 532 424 612 316 732 268 L 756 322 C 676 362 632 432 630 500 Z"/>
+  </g>
+</svg>

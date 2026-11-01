@@ -209,6 +209,30 @@ storage = "Keeps your sign-in and your chosen project on this device."
 
 A permission without a sentence shows up in the steps as one to write. Store reviewers reject permissions they can't see a reason for more often than anything else.
 
+## One icon for every platform
+
+A missing icon size is the most common reason a store turns an app away, and every platform wants different ones. Point `app.icon` at one square image, and every build makes the rest:
+
+```toml
+[app]
+icon = "assets/icon.svg" # or a PNG, 1024×1024 or larger
+```
+
+| Platform  | What the build makes                                                                                                                           |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| iOS       | The app's asset catalog with a 1024×1024 icon, laid over white, since the App Store refuses transparency; Xcode makes the device sizes from it |
+| Android   | Launcher icons for every screen density, and an adaptive icon: your image inside the mask's safe zone, on its corner color                     |
+| macOS     | `AppIcon.icns`, from 16 to 1024 pixels, inside the app                                                                                         |
+| Extension | The 16, 32, 48, and 128 pixel icons, in the manifest                                                                                           |
+
+An SVG is drawn at 1024 pixels; its text isn't, so turn text into shapes first. Design the image to work as a square: iOS rounds its corners, and Android crops it to a circle or another shape. Without `app.icon`, the steps after `leptoskit publish` ask for one.
+
+Projects made before `app.icon` add one line to `android/app/build.gradle.kts`, in the main source set, so the launcher icons reach the app; the Android build warns until it's there:
+
+```kotlin
+res.directories += "../../.leptoskit/android/res"
+```
+
 ## Screenshots from the app
 
 Every store wants screenshots at its own sizes, and they go stale with every design change. `leptoskit publish screenshots` captures them from the app, into `store/screenshots/<size>/`, replacing the ones it made before. Name the sizes and the screens in `store/screenshots/screenshots.toml`:

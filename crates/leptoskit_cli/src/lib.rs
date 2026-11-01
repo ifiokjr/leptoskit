@@ -25,6 +25,7 @@ pub mod doctor;
 pub mod extension;
 pub mod generate;
 mod git;
+pub mod icons;
 pub mod jobs;
 pub mod l10n;
 pub mod lint;

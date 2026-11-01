@@ -186,6 +186,13 @@
 					"$ref": "#/$defs/Platform",
 					"default": "web"
 				},
+				"icon": {
+					"description": "The app's icon: one square PNG or SVG, 1024×1024 or larger, relative\nto this file. Every platform's icon sizes are made from it: the iOS\napp icon, Android's launcher icons, the macOS `.icns`, and the\nextension's 16 to 128 pixel icons.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
 				"name": {
 					"description": "The package name; defaults to the directory name.",
 					"type": "string",
