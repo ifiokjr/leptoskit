@@ -34,6 +34,7 @@ pub(crate) fn expand(
 ) -> syn::Result<TokenStream> {
 	let args = parse(args)?;
 	let mut item: ItemStruct = syn::parse2(item)?;
+
 	if !item.generics.params.is_empty() {
 		return Err(syn::Error::new_spanned(
 			&item.generics,
@@ -133,19 +134,24 @@ fn parse(args: TokenStream) -> syn::Result<ChannelArgs> {
 			Meta::NameValue(entry) if entry.path.is_ident("message") => {
 				message = Some(syn::parse2(entry.value.to_token_stream())?);
 			}
+
 			Meta::NameValue(entry) if entry.path.is_ident("presence") => {
 				presence = Some(syn::parse2(entry.value.to_token_stream())?);
 			}
+
 			Meta::NameValue(entry) if entry.path.is_ident("authorize") => {
 				authorize = Some(syn::parse2(entry.value.to_token_stream())?);
 			}
+
 			Meta::NameValue(entry) if entry.path.is_ident("name") => {
 				name = Some(syn::parse2(entry.value.to_token_stream())?);
 			}
+
 			Meta::NameValue(entry) if entry.path.is_ident("crate") => {
 				let value: LitStr = syn::parse2(entry.value.to_token_stream())?;
 				krate = Some(value.parse()?);
 			}
+
 			other => {
 				return Err(syn::Error::new_spanned(
 					other,

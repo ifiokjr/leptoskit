@@ -167,6 +167,7 @@ fn duration_value(value: &syn::Expr, option: &str, example: &str) -> syn::Result
 		return Err(error());
 	};
 	let amount: u64 = literal.base10_parse().map_err(|_| error())?;
+
 	let millis = match literal.suffix() {
 		"ms" => Some(amount),
 		"s" => amount.checked_mul(1_000),
@@ -190,6 +191,7 @@ fn ident_value(value: &syn::Expr, option: &str, example: &str) -> syn::Result<Id
 				)
 			})
 		}
+
 		_ => {
 			Err(syn::Error::new_spanned(
 				value,
@@ -207,11 +209,13 @@ impl OperationArgs {
 	pub(crate) fn parse(kind: OperationKind, tokens: TokenStream) -> syn::Result<Self> {
 		let metas = Punctuated::<Meta, Token![,]>::parse_terminated.parse2(tokens)?;
 		let mut args = Self::default();
+
 		for meta in metas {
 			let job_only = |pair: &syn::MetaNameValue| {
 				if kind == OperationKind::Job {
 					return Ok(());
 				}
+
 				Err(syn::Error::new_spanned(
 					pair,
 					format!(
@@ -229,8 +233,10 @@ impl OperationArgs {
 						format!("`{}` is given twice", pair.path.to_token_stream()),
 					));
 				}
+
 				Ok(())
 			};
+
 			match &meta {
 				Meta::NameValue(pair) if pair.path.is_ident("name") => {
 					once(args.name.is_some(), pair)?;
@@ -243,8 +249,10 @@ impl OperationArgs {
 							 `-`, and `.`, as in `chat.messages`",
 						));
 					}
+
 					args.name = Some(name);
 				}
+
 				Meta::NameValue(pair) if pair.path.is_ident("crate") => {
 					once(args.krate.is_some(), pair)?;
 					let path = crate::string_value(&pair.value, "crate")?;
@@ -256,6 +264,7 @@ impl OperationArgs {
 						)
 					})?);
 				}
+
 				Meta::NameValue(pair) if pair.path.is_ident("retries") => {
 					match kind {
 						OperationKind::Query => {
@@ -275,6 +284,7 @@ impl OperationArgs {
 						}
 						OperationKind::Mutation | OperationKind::Job => {}
 					}
+
 					once(args.retries.is_some(), pair)?;
 					let syn::Expr::Lit(syn::ExprLit {
 						lit: syn::Lit::Int(count),
@@ -289,6 +299,7 @@ impl OperationArgs {
 					count.base10_parse::<u32>()?;
 					args.retries = Some(count.clone());
 				}
+
 				Meta::NameValue(pair) if pair.path.is_ident("queue") => {
 					job_only(pair)?;
 					once(args.job.queue.is_some(), pair)?;
@@ -296,8 +307,10 @@ impl OperationArgs {
 					if queue.value().is_empty() {
 						return Err(syn::Error::new_spanned(&queue, "a queue needs a name"));
 					}
+
 					args.job.queue = Some(queue);
 				}
+
 				Meta::NameValue(pair) if pair.path.is_ident("backoff") => {
 					job_only(pair)?;
 					once(args.job.backoff.is_some(), pair)?;
@@ -315,23 +328,27 @@ impl OperationArgs {
 					if !is_exponential || call.args.len() != 2 {
 						return Err(error());
 					}
+
 					args.job.backoff = Some((
 						duration_value(&call.args[0], "backoff", "exponential(2s, 5m)")?,
 						duration_value(&call.args[1], "backoff", "exponential(2s, 5m)")?,
 					));
 				}
+
 				Meta::NameValue(pair) if pair.path.is_ident("deadline") => {
 					job_only(pair)?;
 					once(args.job.deadline.is_some(), pair)?;
 					args.job.deadline =
 						Some(duration_value(&pair.value, "deadline", "deadline = 15m")?);
 				}
+
 				Meta::NameValue(pair) if pair.path.is_ident("timeout") => {
 					job_only(pair)?;
 					once(args.job.timeout.is_some(), pair)?;
 					args.job.timeout =
 						Some(duration_value(&pair.value, "timeout", "timeout = 30s")?);
 				}
+
 				Meta::NameValue(pair) if pair.path.is_ident("serialize_by") => {
 					job_only(pair)?;
 					once(args.job.serialize_by.is_some(), pair)?;
@@ -341,6 +358,7 @@ impl OperationArgs {
 						"`serialize_by = wallet`, one of the job's arguments",
 					)?);
 				}
+
 				Meta::NameValue(pair) if pair.path.is_ident("visible_to") => {
 					job_only(pair)?;
 					once(args.job.visible_to.is_some(), pair)?;
@@ -350,6 +368,7 @@ impl OperationArgs {
 						"`visible_to = signed_in`, `everyone`, or an argument naming an account",
 					)?);
 				}
+
 				Meta::NameValue(pair) if pair.path.is_ident("on_failure") => {
 					job_only(pair)?;
 					once(args.job.on_failure.is_some(), pair)?;
@@ -362,6 +381,7 @@ impl OperationArgs {
 					};
 					args.job.on_failure = Some(path.path.clone());
 				}
+
 				other => {
 					return Err(syn::Error::new_spanned(
 						other,
@@ -374,6 +394,7 @@ impl OperationArgs {
 				}
 			}
 		}
+
 		Ok(args)
 	}
 }
@@ -403,6 +424,7 @@ pub(crate) struct Signature {
 pub(crate) fn signature(kind: OperationKind, function: &ItemFn) -> syn::Result<Signature> {
 	let attribute = kind.attribute();
 	let context = kind.context();
+
 	if function.sig.asyncness.is_none() {
 		return Err(syn::Error::new_spanned(
 			function.sig.fn_token,
@@ -412,6 +434,7 @@ pub(crate) fn signature(kind: OperationKind, function: &ItemFn) -> syn::Result<S
 			),
 		));
 	}
+
 	if !function.sig.generics.params.is_empty() || function.sig.generics.where_clause.is_some() {
 		return Err(syn::Error::new_spanned(
 			&function.sig.generics,
@@ -421,6 +444,7 @@ pub(crate) fn signature(kind: OperationKind, function: &ItemFn) -> syn::Result<S
 			),
 		));
 	}
+
 	if let Some(variadic) = &function.sig.variadic {
 		return Err(syn::Error::new_spanned(
 			variadic,
@@ -441,6 +465,7 @@ pub(crate) fn signature(kind: OperationKind, function: &ItemFn) -> syn::Result<S
 	check_context(kind, first)?;
 
 	let mut arguments = Vec::new();
+
 	for input in inputs {
 		let typed = match input {
 			FnArg::Receiver(receiver) => {
@@ -451,10 +476,12 @@ pub(crate) fn signature(kind: OperationKind, function: &ItemFn) -> syn::Result<S
 			}
 			FnArg::Typed(typed) => typed,
 		};
+
 		let ident = match &*typed.pat {
 			Pat::Ident(pattern) if pattern.by_ref.is_none() && pattern.subpat.is_none() => {
 				pattern.ident.clone()
 			}
+
 			other => {
 				return Err(syn::Error::new_spanned(
 					other,
@@ -463,6 +490,7 @@ pub(crate) fn signature(kind: OperationKind, function: &ItemFn) -> syn::Result<S
 				));
 			}
 		};
+
 		if let Type::Reference(reference) = &*typed.ty {
 			return Err(syn::Error::new_spanned(
 				reference,
@@ -470,14 +498,17 @@ pub(crate) fn signature(kind: OperationKind, function: &ItemFn) -> syn::Result<S
 				 `String` rather than `&str`, or `Vec<T>` rather than `&[T]`",
 			));
 		}
+
 		if let Type::ImplTrait(implementation) = &*typed.ty {
 			return Err(syn::Error::new_spanned(
 				implementation,
 				"an operation's arguments need a concrete type to be read from JSON",
 			));
 		}
+
 		let mut field_attrs = Vec::new();
 		let mut doc_attrs = Vec::new();
+
 		for attr in &typed.attrs {
 			if attr.path().is_ident("doc") {
 				doc_attrs.push(attr.clone());
@@ -491,6 +522,7 @@ pub(crate) fn signature(kind: OperationKind, function: &ItemFn) -> syn::Result<S
 				));
 			}
 		}
+
 		arguments.push(Argument {
 			ident,
 			ty: (*typed.ty).clone(),
@@ -527,9 +559,11 @@ fn check_context(kind: OperationKind, first: &FnArg) -> syn::Result<()> {
 	let Type::Reference(reference) = &*typed.ty else {
 		return Err(wrong(&typed.ty, ", by reference"));
 	};
+
 	if reference.mutability.is_some() {
 		return Err(wrong(&typed.ty, ", by shared reference"));
 	}
+
 	let Type::Path(path) = &*reference.elem else {
 		return Err(wrong(&typed.ty, ""));
 	};
@@ -538,9 +572,11 @@ fn check_context(kind: OperationKind, first: &FnArg) -> syn::Result<()> {
 		.segments
 		.last()
 		.map(|segment| segment.ident.to_string());
+
 	if last.as_deref() == Some(context) {
 		return Ok(());
 	}
+
 	if let Some(other) = OperationKind::ALL
 		.into_iter()
 		.find(|other| last.as_deref() == Some(other.context()))
@@ -580,12 +616,15 @@ fn output_of(kind: OperationKind, output: &ReturnType) -> syn::Result<(Type, Spa
 	let Some(last) = path.path.segments.last() else {
 		return Err(error(ty.span()));
 	};
+
 	if last.ident != "Result" {
 		return Err(error(ty.span()));
 	}
+
 	let PathArguments::AngleBracketed(arguments) = &last.arguments else {
 		return Err(error(ty.span()));
 	};
+
 	match arguments.args.first() {
 		Some(GenericArgument::Type(value)) => Ok((value.clone(), ty.span())),
 		_ => Err(error(ty.span())),
@@ -616,12 +655,14 @@ fn job_options(
 			.arguments
 			.iter()
 			.any(|argument| argument.ident.unraw() == ident.unraw());
+
 		if !found {
 			return Err(syn::Error::new_spanned(
 				ident,
 				format!("`{option}` names one of the job's arguments, and `{ident}` isn't one"),
 			));
 		}
+
 		Ok(LitStr::new(&ident.unraw().to_string(), ident.span()))
 	};
 	let queue = job
@@ -638,6 +679,7 @@ fn job_options(
 	} else {
 		quote!(#krate::Backoff::DEFAULT)
 	};
+
 	let some = |value: &Option<TokenStream>| {
 		if let Some(value) = value {
 			quote!(::core::option::Option::Some(#value))
@@ -653,16 +695,21 @@ fn job_options(
 	} else {
 		quote!(::core::option::Option::None)
 	};
+
 	let visible_to = match &job.visible_to {
 		None => quote!(#krate::Visibility::Owner),
+
 		Some(ident) if ident == "owner" => quote!(#krate::Visibility::Owner),
+
 		Some(ident) if ident == "signed_in" => quote!(#krate::Visibility::SignedIn),
+
 		Some(ident) if ident == "everyone" => quote!(#krate::Visibility::Everyone),
 		Some(ident) => {
 			let name = argument(ident, "visible_to")?;
 			quote!(#krate::Visibility::Argument(#name))
 		}
 	};
+
 	let on_failure = job.on_failure.is_some();
 	Ok(quote! {
 		const OPTIONS: #krate::JobOptions = #krate::JobOptions {
@@ -682,6 +729,7 @@ fn job_options(
 /// `PaymentGaveUp`, `crate::pay::gave_up` is `crate::pay::GaveUp`.
 fn struct_path(path: &Path) -> Path {
 	let mut path = path.clone();
+
 	if let Some(last) = path.segments.last_mut() {
 		let name = Converter::new()
 			.from_case(Case::Snake)
@@ -689,6 +737,7 @@ fn struct_path(path: &Path) -> Path {
 			.convert(last.ident.unraw().to_string());
 		last.ident = Ident::new(&name, last.ident.span());
 	}
+
 	path
 }
 
@@ -726,6 +775,7 @@ pub(crate) fn expand(
 			format!("put #[api] above #[rpc::{attribute}], so it sees the operation it publishes"),
 		));
 	}
+
 	if let Some(server_attr) = function
 		.attrs
 		.iter()
@@ -740,6 +790,7 @@ pub(crate) fn expand(
 		));
 	}
 	let fn_name = function.sig.ident.to_string();
+
 	if fn_name.starts_with("r#") {
 		return Err(syn::Error::new_spanned(
 			&function.sig.ident,
@@ -807,6 +858,7 @@ pub(crate) fn expand(
 	} else {
 		TokenStream::new()
 	};
+
 	let from_failed = match signature.arguments.as_slice() {
 		[argument] if kind == OperationKind::Mutation && is_failed(&argument.ty) => {
 			let ident = &argument.ident;
@@ -819,6 +871,7 @@ pub(crate) fn expand(
 				}
 			}
 		}
+
 		_ => TokenStream::new(),
 	};
 
@@ -868,6 +921,7 @@ pub(crate) fn expand(
 				type Output = #output;
 			}
 		});
+
 		if kind == OperationKind::Job {
 			out.extend(quote! {
 				#[allow(deprecated)]
@@ -913,6 +967,7 @@ fn server_items(
 		Some(count) if kind == OperationKind::Mutation => quote!(const RETRIES: u32 = #count;),
 		_ => quote!(),
 	};
+
 	let handler = quote!(#krate::__private::handle::<#struct_ident>);
 	let call = quote_spanned! {signature.output_span=>
 		#fn_ident(cx, #(#bindings),*)
@@ -928,6 +983,7 @@ fn server_items(
 			typed.attrs.retain(|attr| attr.path().is_ident("doc"));
 		}
 	}
+
 	let dos = quote! { #krate::__private::inventory::submit! {
 		#krate::server::Registration {
 			name: <#struct_ident as #krate::Operation>::NAME,
@@ -968,6 +1024,7 @@ fn server_items(
 		} else {
 			quote!(::core::option::Option::None)
 		};
+
 		quote! {
 			#krate::__private::inventory::submit! {
 				#krate::server::jobs::JobRegistration {

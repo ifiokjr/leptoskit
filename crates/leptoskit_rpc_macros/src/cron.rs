@@ -42,15 +42,19 @@ pub(crate) fn parse(expression: &str) -> Result<Schedule, String> {
 		"@weekly" => "0 0 * * 0",
 		"@monthly" => "0 0 1 * *",
 		"@yearly" | "@annually" => "0 0 1 1 *",
+
 		other if other.starts_with('@') => {
 			return Err(format!(
 				"`{other}` isn't a shortcut; use `@hourly`, `@daily`, `@weekly`, `@monthly`, or \
 				 `@yearly`"
 			));
 		}
+
 		other => other,
 	};
+
 	let fields: Vec<&str> = expanded.split_whitespace().collect();
+
 	if fields.len() != 5 {
 		return Err(format!(
 			"a cron expression has five fields, minute hour day-of-month month day-of-week, such \
@@ -58,14 +62,18 @@ pub(crate) fn parse(expression: &str) -> Result<Schedule, String> {
 			fields.len()
 		));
 	}
+
 	let mut masks = [0_u64; 5];
+
 	for (index, ((name, min, max), text)) in FIELDS.iter().zip(&fields).enumerate() {
 		masks[index] = field(text, name, *min, *max)?;
 	}
+
 	// Sunday is 0 or 7.
 	if masks[4] & (1 << 7) != 0 {
 		masks[4] = (masks[4] | 1) & !(1 << 7);
 	}
+
 	Ok(Schedule {
 		minutes: masks[0],
 		hours: masks[1],
@@ -83,14 +91,17 @@ fn field(text: &str, name: &str, min: u32, max: u32) -> Result<u64, String> {
 		let value: u32 = value.parse().map_err(|_| {
 			format!("the {name} field has `{value}`; write numbers from {min} to {max}")
 		})?;
+
 		if !(min..=max).contains(&value) {
 			return Err(format!(
 				"the {name} field has {value}, outside {min} to {max}"
 			));
 		}
+
 		Ok(value)
 	};
 	let mut mask = 0;
+
 	for part in text.split(',') {
 		let (range, step) = match part.split_once('/') {
 			Some((range, step)) => {
@@ -101,6 +112,7 @@ fn field(text: &str, name: &str, min: u32, max: u32) -> Result<u64, String> {
 			}
 			None => (part, None),
 		};
+
 		let (from, to) = match range {
 			"*" => (min, max),
 			range => {
@@ -108,20 +120,25 @@ fn field(text: &str, name: &str, min: u32, max: u32) -> Result<u64, String> {
 					(number(from)?, number(to)?)
 				} else {
 					let from = number(range)?;
+
 					(from, if step.is_some() { max } else { from })
 				}
 			}
 		};
+
 		if from > to {
 			return Err(format!(
 				"the {name} field's range {from}-{to} runs backwards"
 			));
 		}
+
 		let step = usize::try_from(step.unwrap_or(1)).unwrap_or(usize::MAX);
+
 		for value in (from..=to).step_by(step) {
 			mask |= 1 << value;
 		}
 	}
+
 	Ok(mask)
 }
 
@@ -146,8 +163,10 @@ pub(crate) fn expand(
 		));
 	};
 	let mut krate: Path = syn::parse_quote!(::leptoskit_rpc);
+
 	for part in parts {
 		let meta: Meta = syn::parse2(quote!(#part))?;
+
 		match &meta {
 			Meta::NameValue(pair) if pair.path.is_ident("crate") => {
 				let path = crate::string_value(&pair.value, "crate")?;
@@ -159,6 +178,7 @@ pub(crate) fn expand(
 					)
 				})?;
 			}
+
 			other => {
 				return Err(syn::Error::new_spanned(
 					other,
@@ -167,6 +187,7 @@ pub(crate) fn expand(
 			}
 		}
 	}
+
 	let schedule = parse(&expression.value())
 		.map_err(|message| syn::Error::new_spanned(&expression, message))?;
 
@@ -177,12 +198,14 @@ pub(crate) fn expand(
 			.last()
 			.is_some_and(|segment| segment.ident == "job")
 	});
+
 	if !is_job {
 		return Err(syn::Error::new_spanned(
 			&function.sig.ident,
 			"#[rpc::cron] schedules a job: put it above #[rpc::job]",
 		));
 	}
+
 	if function.sig.inputs.len() != 1 {
 		return Err(syn::Error::new_spanned(
 			&function.sig.inputs,
@@ -190,6 +213,7 @@ pub(crate) fn expand(
 			 arguments",
 		));
 	}
+
 	if !server {
 		return Ok(quote!(#function));
 	}
