@@ -850,56 +850,77 @@ impl Worker {
 		}
 
 		let mut events = Vec::new();
-
-		if let Some(tree) = self.current_tree() {
-			self.refresh_highlight(&tree);
-
-			let patch = match &self.sent {
-				Some(sent) if !self.snapshot && self.changed => diff(sent, &tree),
-
-				Some(_) if !self.snapshot => Some(Vec::new()),
-				_ => None,
-			};
-
-			match patch {
-				Some(ops) if ops.is_empty() => {}
-				Some(ops) => {
-					events.push(Event::TreePatch {
-						patch: TreePatch { ops },
-					});
-				}
-				None => {
-					let mut snapshot = snapshot_of(tree.clone());
-					if let Some(guest) = self.current.and_then(|id| self.guests.get(&id)) {
-						registry::fill(&mut snapshot, &guest.values);
-					}
-
-					self.dirty.clear();
-					events.push(Event::Snapshot { snapshot });
-				}
-			}
-
-			self.sent = Some(tree);
-			self.snapshot = false;
-		}
-
+		self.tree_events(&mut events);
 		self.changed = false;
 
 		if !self.snapshot {
-			let values = self
-				.current
-				.and_then(|id| self.guests.get(&id))
-				.map(|guest| &guest.values);
+			self.value_events(&mut events);
+		}
 
-			for slot in std::mem::take(&mut self.dirty) {
-				let value = values.and_then(|values| values.get(&slot));
+		self.commit_events(&mut events);
+		self.call_events(&mut events);
 
-				if let Some(event) = value.and_then(|value| registry::event(&slot, value)) {
-					events.push(event);
+		if events.is_empty() {
+			return;
+		}
+
+		self.send(&events, now);
+	}
+
+	/// Sends the shown tree as a snapshot, or as a patch of the last one.
+	fn tree_events(&mut self, events: &mut Vec<Event>) {
+		let Some(tree) = self.current_tree() else {
+			return;
+		};
+		self.refresh_highlight(&tree);
+
+		let patch = match &self.sent {
+			Some(sent) if !self.snapshot && self.changed => diff(sent, &tree),
+
+			Some(_) if !self.snapshot => Some(Vec::new()),
+			_ => None,
+		};
+
+		match patch {
+			Some(ops) if ops.is_empty() => {}
+			Some(ops) => {
+				events.push(Event::TreePatch {
+					patch: TreePatch { ops },
+				});
+			}
+			None => {
+				let mut snapshot = snapshot_of(tree.clone());
+				if let Some(guest) = self.current.and_then(|id| self.guests.get(&id)) {
+					registry::fill(&mut snapshot, &guest.values);
 				}
+
+				self.dirty.clear();
+				events.push(Event::Snapshot { snapshot });
 			}
 		}
 
+		self.sent = Some(tree);
+		self.snapshot = false;
+	}
+
+	/// Sends the registry values that changed since the last report.
+	fn value_events(&mut self, events: &mut Vec<Event>) {
+		let values = self
+			.current
+			.and_then(|id| self.guests.get(&id))
+			.map(|guest| &guest.values);
+
+		for slot in std::mem::take(&mut self.dirty) {
+			let value = values.and_then(|values| values.get(&slot));
+
+			if let Some(event) = value.and_then(|value| registry::event(&slot, value)) {
+				events.push(event);
+			}
+		}
+	}
+
+	/// Sends the commits that landed since the last report.
+	fn commit_events(&mut self, events: &mut Vec<Event>) {
 		for record in self.commits.drain(..) {
 			events.push(Event::Commit {
 				commit: Commit {
@@ -915,7 +936,10 @@ impl Worker {
 			});
 			self.seq += 1;
 		}
+	}
 
+	/// Sends the calls, RPC attempts, and picks that are waiting.
+	fn call_events(&mut self, events: &mut Vec<Event>) {
 		for mut call in self.calls.drain(..) {
 			call.started_ms = call.started_ms.saturating_sub(self.calls_epoch);
 			call.finished_ms = call
@@ -931,17 +955,15 @@ impl Worker {
 				.drain(..)
 				.map(|attempt| Event::RpcAttempt { attempt }),
 		);
-
 		events.append(&mut self.picked);
+	}
 
-		if events.is_empty() {
-			return;
-		}
-
+	/// Hands the events to the hub, and decides when to try again.
+	fn send(&mut self, events: &[Event], now: Instant) {
 		let result = self
 			.agent
 			.as_ref()
-			.map_or(Ok(()), |agent| agent.report(&events));
+			.map_or(Ok(()), |agent| agent.report(events));
 
 		match result {
 			Ok(()) => self.next_report = now + INTERVAL,
