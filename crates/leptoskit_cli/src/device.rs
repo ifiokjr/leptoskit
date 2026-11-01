@@ -286,7 +286,18 @@ impl TargetArgs {
 	/// only a device id is given, so `--device` alone never picks the wrong
 	/// kind of device.
 	pub fn resolve(&self) -> Result<Target> {
-		self.resolve_with(&inventory::list())
+		if self.needs_inventory() {
+			self.resolve_with(&inventory::list())
+		} else {
+			self.resolve_with(&inventory::Inventory::empty())
+		}
+	}
+
+	/// Whether resolving needs the device listing: only a bare `--device`
+	/// does, since a URL or a kind already says what the target is. Listing
+	/// asks every simulator and Android tool, which can take a minute.
+	fn needs_inventory(&self) -> bool {
+		self.url.is_none() && self.kind.is_none() && self.device.is_some()
 	}
 
 	/// [`Self::resolve`] against a given inventory, for callers that already
@@ -359,7 +370,30 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 /// The document one action command stands for, built without running it, so
 /// the command surface itself stays testable without devices attached.
 pub fn document(command: DeviceCommand) -> Result<Document> {
-	document_with(command, &inventory::list())
+	let inventory = if needs_inventory(&command) {
+		inventory::list()
+	} else {
+		inventory::Inventory::empty()
+	};
+	document_with(command, &inventory)
+}
+
+/// Whether building `command`'s document needs the device listing.
+fn needs_inventory(command: &DeviceCommand) -> bool {
+	match command {
+		DeviceCommand::List { .. } | DeviceCommand::Run { .. } => false,
+		DeviceCommand::Boot { .. } | DeviceCommand::Shutdown { .. } => true,
+		DeviceCommand::Screenshot { target, .. }
+		| DeviceCommand::Tap { target, .. }
+		| DeviceCommand::EnterText { target, .. }
+		| DeviceCommand::TypeText { target, .. }
+		| DeviceCommand::ExpectVisible { target, .. }
+		| DeviceCommand::ExpectText { target, .. }
+		| DeviceCommand::Source { target, .. }
+		| DeviceCommand::StartApp { target, .. }
+		| DeviceCommand::StopApp { target, .. }
+		| DeviceCommand::Logs { target, .. } => target.needs_inventory(),
+	}
 }
 
 /// [`document`] against a given inventory, so tests can shape the devices.
@@ -403,7 +437,7 @@ pub fn document_with(command: DeviceCommand, inventory: &inventory::Inventory) -
 		}
 		DeviceCommand::Run { from } => read_document(&from),
 		DeviceCommand::Screenshot { target, label } => {
-			let resolved = target.resolve()?;
+			let resolved = target.resolve_with(inventory)?;
 			let step = if resolved.application.is_none()
 				&& resolved.kind != TargetKind::Web
 				&& matches!(
@@ -423,7 +457,7 @@ pub fn document_with(command: DeviceCommand, inventory: &inventory::Inventory) -
 		DeviceCommand::Tap { target, locator } => {
 			Ok(Document {
 				schema_version: SCHEMA_VERSION,
-				target: target.resolve()?,
+				target: target.resolve_with(inventory)?,
 				steps: vec![Step::Tap {
 					locator: locator.locator(),
 				}],
@@ -436,7 +470,7 @@ pub fn document_with(command: DeviceCommand, inventory: &inventory::Inventory) -
 		} => {
 			Ok(Document {
 				schema_version: SCHEMA_VERSION,
-				target: target.resolve()?,
+				target: target.resolve_with(inventory)?,
 				steps: vec![Step::EnterText {
 					locator: locator.locator(),
 					text,
@@ -446,14 +480,14 @@ pub fn document_with(command: DeviceCommand, inventory: &inventory::Inventory) -
 		DeviceCommand::TypeText { target, text } => {
 			Ok(Document {
 				schema_version: SCHEMA_VERSION,
-				target: target.resolve()?,
+				target: target.resolve_with(inventory)?,
 				steps: vec![Step::TypeText { text }],
 			})
 		}
 		DeviceCommand::ExpectVisible { target, locator } => {
 			Ok(Document {
 				schema_version: SCHEMA_VERSION,
-				target: target.resolve()?,
+				target: target.resolve_with(inventory)?,
 				steps: vec![Step::ExpectVisible {
 					locator: locator.locator(),
 				}],
@@ -466,7 +500,7 @@ pub fn document_with(command: DeviceCommand, inventory: &inventory::Inventory) -
 		} => {
 			Ok(Document {
 				schema_version: SCHEMA_VERSION,
-				target: target.resolve()?,
+				target: target.resolve_with(inventory)?,
 				steps: vec![Step::ExpectText {
 					locator: locator.locator(),
 					text,
@@ -476,14 +510,14 @@ pub fn document_with(command: DeviceCommand, inventory: &inventory::Inventory) -
 		DeviceCommand::Source { target } => {
 			Ok(Document {
 				schema_version: SCHEMA_VERSION,
-				target: target.resolve()?,
+				target: target.resolve_with(inventory)?,
 				steps: vec![Step::Source],
 			})
 		}
 		DeviceCommand::StartApp { target, identifier } => {
 			Ok(Document {
 				schema_version: SCHEMA_VERSION,
-				target: target.resolve()?,
+				target: target.resolve_with(inventory)?,
 				steps: vec![Step::StartApp {
 					identifier,
 					arguments: Vec::new(),
@@ -494,14 +528,14 @@ pub fn document_with(command: DeviceCommand, inventory: &inventory::Inventory) -
 		DeviceCommand::StopApp { target, identifier } => {
 			Ok(Document {
 				schema_version: SCHEMA_VERSION,
-				target: target.resolve()?,
+				target: target.resolve_with(inventory)?,
 				steps: vec![Step::StopApp { identifier }],
 			})
 		}
 		DeviceCommand::Logs { target, tail } => {
 			Ok(Document {
 				schema_version: SCHEMA_VERSION,
-				target: target.resolve()?,
+				target: target.resolve_with(inventory)?,
 				steps: vec![Step::Logs {
 					tail,
 					minutes: None,
@@ -645,6 +679,26 @@ mod tests {
 			endpoint: None,
 			headful: false,
 		}
+	}
+
+	#[test]
+	fn only_a_bare_device_id_lists_devices() {
+		// A URL or a kind says what the target is; listing would ask every
+		// simulator and Android tool for nothing.
+		assert!(!target_args(None, Some("https://example.com")).needs_inventory());
+		assert!(!target_args(Some(DeviceKindArg::IosDevice), None).needs_inventory());
+		let mut bare = target_args(None, None);
+		bare.device = Some("278DD3BE".to_owned());
+		assert!(bare.needs_inventory());
+		assert!(needs_inventory(&DeviceCommand::Boot {
+			id: "278DD3BE".to_owned()
+		}));
+		assert!(!needs_inventory(&DeviceCommand::List { json: true }));
+		assert!(!needs_inventory(&DeviceCommand::Screenshot {
+			target: target_args(None, Some("https://example.com")),
+			label: "page".to_owned(),
+		}));
+		assert_eq!(inventory::Inventory::empty().devices, Vec::new());
 	}
 
 	#[test]

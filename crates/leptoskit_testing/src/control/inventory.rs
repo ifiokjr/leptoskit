@@ -101,29 +101,54 @@ pub struct Inventory {
 	pub devices: Vec<Device>,
 }
 
+impl Inventory {
+	/// An inventory with no devices, for callers whose target names its kind
+	/// and so never needs to look one up.
+	#[must_use]
+	pub fn empty() -> Self {
+		Self {
+			schema_version: SCHEMA_VERSION,
+			devices: Vec::new(),
+		}
+	}
+}
+
 /// Lists everything attached right now. Missing tooling contributes nothing
 /// rather than failing; the run that needs it reports the gap.
+///
+/// The four listings run at once, so a tool that stalls until
+/// [`LIST_TIMEOUT`] costs that long once rather than once per tool.
 pub fn list() -> Inventory {
-	let mut devices = Vec::new();
-
-	if cfg!(target_os = "macos") {
-		if let Some(output) = tools::simulator_list(LIST_TIMEOUT) {
-			devices.extend(parse_simulators(&output));
-		}
-
-		if let Some(output) = tools::iphone_list(LIST_TIMEOUT) {
-			devices.extend(parse_iphones(&output));
-		}
-	}
-
-	if let Some(output) = tools::android_list(LIST_TIMEOUT) {
-		devices.extend(parse_android(&output));
-	}
-
-	if let Some(output) = tools::avd_list(LIST_TIMEOUT) {
-		devices.extend(parse_avds(&output));
-	}
-
+	let macos = cfg!(target_os = "macos");
+	let (simulators, iphones, android, avds) = std::thread::scope(|scope| {
+		let simulators = scope.spawn(|| {
+			macos
+				.then(|| tools::simulator_list(LIST_TIMEOUT))
+				.flatten()
+				.map(|output| parse_simulators(&output))
+		});
+		let iphones = scope.spawn(|| {
+			macos
+				.then(|| tools::iphone_list(LIST_TIMEOUT))
+				.flatten()
+				.map(|output| parse_iphones(&output))
+		});
+		let android =
+			scope.spawn(|| tools::android_list(LIST_TIMEOUT).map(|output| parse_android(&output)));
+		let avds = scope.spawn(|| tools::avd_list(LIST_TIMEOUT).map(|output| parse_avds(&output)));
+		(
+			simulators.join().ok().flatten(),
+			iphones.join().ok().flatten(),
+			android.join().ok().flatten(),
+			avds.join().ok().flatten(),
+		)
+	});
+	// Keep the documented order: Apple, Android, the desktop, then browsers.
+	let mut devices: Vec<Device> = [simulators, iphones, android, avds]
+		.into_iter()
+		.flatten()
+		.flatten()
+		.collect();
 	if DeviceKind::Host.target().is_some() {
 		devices.push(Device {
 			id: "host".to_owned(),
