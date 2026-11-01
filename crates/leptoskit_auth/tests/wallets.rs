@@ -522,11 +522,7 @@ async fn policies_name_the_owner_of_a_wallet() {
 			serde_json::from_value(json_body(grace.get(&app, "/vaults").await).await).unwrap();
 		assert_eq!(names, [] as [String; 0]);
 
-		// A context without a signed-in person has no wallets, even if one
-		// was added by hand.
-		let context =
-			leptoskit_db::Context::new().with(leptoskit_auth::Wallets(vec![wallet.address()]));
-		assert_eq!(context.wallets(), []);
+		// The auth layer adds wallets only beside a signed-in person.
 		let account = account_of(&mut ada, &app).await;
 		let me = leptoskit_auth::SignedIn {
 			account,
@@ -536,7 +532,12 @@ async fn policies_name_the_owner_of_a_wallet() {
 			mfa_at: None,
 		};
 		let context = app.auth.request_context(Some(me)).await.unwrap();
-		assert_eq!(context.wallets(), [wallet.address()]);
+		assert_eq!(
+			context
+				.get::<leptoskit_auth::Wallets>()
+				.map(leptoskit_auth::Wallets::addresses),
+			Some(&[wallet.address()][..])
+		);
 		let visible = Vault::query()
 			.count(&db.with_context(context))
 			.await
@@ -1091,4 +1092,19 @@ async fn a_wallet_on_another_account_merges_only_when_it_signs_in_there() {
 				.is_none()
 		);
 	}
+}
+
+#[test]
+fn wallet_rules_export_as_row_level_security() {
+	let schema = leptoskit_db::schema_with_row_security(Dialect::Postgres).unwrap();
+	let vaults = schema
+		.tables
+		.iter()
+		.find(|table| table.name.name == "vaults")
+		.and_then(|table| table.row_security.as_ref())
+		.unwrap();
+	assert_eq!(
+		vaults.policies[0].using.as_deref(),
+		Some("\"treasury\" = ANY(NULLIF(current_setting('leptoskit.wallets', true), '')::text[])")
+	);
 }

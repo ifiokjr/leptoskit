@@ -35,7 +35,7 @@ pub const MAX_REQUEST_ID_LEN: usize = 255;
 pub struct Receipt {
 	pub id: Id<Self>,
 	/// Who called: their [`Identity::caller`](super::Identity::caller), such
-	/// as a session ID, or empty for anonymous callers.
+	/// as a session ID, or [`ANONYMOUS`] for anonymous callers.
 	#[db(max_len = 255)]
 	pub owner: String,
 	/// The ID the call came with.
@@ -54,6 +54,11 @@ pub struct Receipt {
 	#[db(created_at)]
 	pub created_at: Timestamp,
 }
+
+/// The owner of anonymous callers' receipts. It isn't empty, because
+/// Postgres reads an empty setting as no setting, and a receipt owned by
+/// nobody could never be read back.
+pub const ANONYMOUS: &str = "anonymous";
 
 /// Whose receipts a mutation may read and write: the caller's.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,7 +135,7 @@ mod running {
 						hex
 					});
 			Ok(Self {
-				owner: owner.unwrap_or_default().to_owned(),
+				owner: owner.unwrap_or(super::ANONYMOUS).to_owned(),
 				request_id: request_id.to_owned(),
 				operation,
 				arguments,

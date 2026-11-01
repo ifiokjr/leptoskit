@@ -19,6 +19,7 @@ use leptoskit_db::DbError;
 use leptoskit_db::Dialect;
 use leptoskit_db::Expr;
 use leptoskit_db::Id;
+use leptoskit_db::ListSetting;
 use leptoskit_db::Migration;
 use leptoskit_db::Setting;
 use leptoskit_db::Statement;
@@ -88,6 +89,34 @@ pub struct Share {
 	#[db(on_delete = cascade)]
 	pub post_id: Id<Post>,
 	pub writer_id: Id<Writer>,
+}
+
+/// The writers whose notes a request reads: a list setting.
+pub struct Desk(pub Vec<Id<Writer>>);
+
+impl ListSetting for Desk {
+	type Item = Id<Writer>;
+
+	const NAME: &'static str = "desk";
+
+	fn values(&self) -> Vec<Id<Writer>> {
+		self.0.clone()
+	}
+}
+
+leptoskit_db::register_list_setting!(Desk);
+
+/// A note about a writer: a request reads the notes of the writers on its
+/// desk, and, with a desk, open notes about anyone else. Without a desk,
+/// even the negated half matches nothing.
+#[table(name = "notes")]
+#[policy(select, |note, cx| note.writer_id.in_list(cx.setting_list::<Desk>())
+	| (!note.writer_id.in_list(cx.setting_list::<Desk>()) & note.open.eq(true)))]
+pub struct Note {
+	pub id: Id<Self>,
+	pub writer_id: Id<Writer>,
+	pub text: String,
+	pub open: bool,
 }
 
 /// Every post's title, which the posts' policies filter too: Postgres reads
@@ -552,6 +581,72 @@ async fn views_read_their_tables_as_their_reader() {
 			.posts,
 		4
 	);
+}
+
+#[tokio::test]
+async fn list_settings_read_the_same_with_and_without_row_security() {
+	let Some(cluster) = PostgresCluster::start() else {
+		return;
+	};
+	let secured = secured(&cluster).await;
+	let plain = plain(&cluster).await;
+
+	for (db, rls) in [(&secured, true), (&plain, false)] {
+		let (ada, grace) = seed(db).await;
+		for (writer, text, open) in [
+			(ada, "ada-closed", false),
+			(ada, "ada-open", true),
+			(grace, "grace-closed", false),
+			(grace, "grace-open", true),
+		] {
+			NewNote {
+				writer_id: writer,
+				text: text.into(),
+				open,
+			}
+			.insert(&db.system("seeding"))
+			.await
+			.unwrap();
+		}
+
+		let texts = async |context: Context| {
+			let mut texts: Vec<String> = Note::query()
+				.all(&db.with_context(context))
+				.await
+				.unwrap()
+				.into_iter()
+				.map(|note| note.text)
+				.collect();
+			texts.sort();
+			texts
+		};
+		let desk = |writers: Vec<Id<Writer>>| Context::new().with(Desk(writers));
+
+		assert_eq!(
+			texts(desk(vec![ada])).await,
+			["ada-closed", "ada-open", "grace-open"]
+		);
+		assert_eq!(
+			texts(desk(vec![ada, grace])).await,
+			["ada-closed", "ada-open", "grace-closed", "grace-open"]
+		);
+		// An empty desk holds nobody, so the negated half opens the open
+		// notes; no desk at all matches nothing.
+		assert_eq!(texts(desk(Vec::new())).await, ["ada-open", "grace-open"]);
+		assert_eq!(texts(Context::new()).await, Vec::<String>::new());
+
+		if rls {
+			let sql = "SELECT text FROM notes ORDER BY text";
+			assert_eq!(
+				raw(&secured.with_context(desk(vec![grace])), sql).await,
+				["ada-open", "grace-closed", "grace-open"]
+			);
+			assert_eq!(
+				raw(&secured.with_context(Context::new()), sql).await,
+				Vec::<String>::new()
+			);
+		}
+	}
 }
 
 #[tokio::test]

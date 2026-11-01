@@ -127,7 +127,7 @@ pub struct Vault {
 }
 ```
 
-The layer reads the wallets with the session, so every request's rules see them.
+The layer reads the wallets with the session, so every request's rules see them. The rule runs as Postgres row-level security too, when `[db] policies = "rls"`.
 
 ## On every platform
 

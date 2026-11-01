@@ -52,7 +52,8 @@ pub trait Setting: Send + Sync + 'static {
 	const NAME: &'static str;
 	/// What it holds.
 	type Value: Column;
-	/// Its value for this request.
+	/// Its value for this request. Empty text is no value at all: Postgres
+	/// reads an empty setting as `NULL`, so the database layer does too.
 	fn value(&self) -> Self::Value;
 }
 
@@ -83,11 +84,13 @@ pub struct SettingRef {
 impl<V: Column> SettingValue<V> {
 	pub(crate) fn of<G: Setting<Value = V>>(cx: &Context) -> Self {
 		let value = match cx.setting_global::<G>() {
+			// Postgres can't tell an empty setting from a missing one, so
+			// neither can the database layer.
 			Some(global) => {
 				global
 					.value()
 					.to_value()
-					.map(Some)
+					.map(|value| (value != Value::Text(String::new())).then_some(value))
 					.map_err(|error| error.to_string())
 			}
 			None => Ok(None),
@@ -136,6 +139,98 @@ impl<V: Column> Operand<Option<V>> for SettingValue<V> {
 	}
 }
 
+/// A setting that holds a list, such as the signed-in person's wallets or
+/// teams. Policies ask whether a column is one of its items with
+/// `column.in_list(cx.setting_list::<G>())`, which, like
+/// [`Context::setting`], also runs as row-level security. Register each
+/// one with [`register_list_setting!`](crate::register_list_setting).
+///
+/// ```ignore
+/// /// The teams the signed-in user belongs to.
+/// pub struct Teams(pub Vec<Id<Team>>);
+///
+/// impl db::ListSetting for Teams {
+/// 	const NAME: &'static str = "teams";
+/// 	type Item = Id<Team>;
+///
+/// 	fn values(&self) -> Vec<Id<Team>> {
+/// 		self.0.clone()
+/// 	}
+/// }
+///
+/// db::register_list_setting!(Teams);
+///
+/// #[db::table(name = "projects")]
+/// #[db::policy(select, |project, cx| project.team_id.in_list(cx.setting_list::<Teams>()))]
+/// pub struct Project { … }
+/// ```
+pub trait ListSetting: Send + Sync + 'static {
+	/// Its name, lowercase snake case. Postgres sees it as
+	/// `leptoskit.<NAME>`, an array literal.
+	const NAME: &'static str;
+	/// What each item is.
+	type Item: Column;
+	/// Its items for this request.
+	fn values(&self) -> Vec<Self::Item>;
+}
+
+/// The items of list setting `V` for a request, inside a policy's rule.
+/// [`Context::setting_list`] makes one, and a column's `in_list` takes it.
+/// A request without the setting matches no row, even negated, as
+/// [`SettingValue`] does; one with an empty list is in no list, so a
+/// negated rule matches every row.
+pub struct SettingList<V> {
+	name: &'static str,
+	ty: ColumnType,
+	values: Result<Option<Vec<Value>>, String>,
+	column: PhantomData<fn() -> V>,
+}
+
+/// A list setting a condition looks a column up in.
+#[doc(hidden)]
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListSettingRef {
+	/// Its name, without the `leptoskit.` prefix.
+	pub(crate) name: &'static str,
+	/// The type Postgres reads each item as.
+	pub(crate) ty: ColumnType,
+	/// The request's items, or `None` when it has none or when a policy is
+	/// being rendered for row-level security.
+	pub(crate) values: Option<Vec<Value>>,
+}
+
+impl<V: Column> SettingList<V> {
+	pub(crate) fn of<G: ListSetting<Item = V>>(cx: &Context) -> Self {
+		let values = match cx.setting_global::<G>() {
+			Some(global) => {
+				global
+					.values()
+					.iter()
+					.map(Column::to_value)
+					.collect::<Result<Vec<_>, _>>()
+					.map(Some)
+					.map_err(|error| error.to_string())
+			}
+			None => Ok(None),
+		};
+
+		Self {
+			name: G::NAME,
+			ty: V::column_type(),
+			values,
+			column: PhantomData,
+		}
+	}
+
+	pub(crate) fn reference(self) -> Result<ListSettingRef, String> {
+		Ok(ListSettingRef {
+			name: self.name,
+			ty: self.ty,
+			values: self.values?,
+		})
+	}
+}
+
 /// One registered setting: how to read it from a request.
 #[doc(hidden)]
 pub struct SettingEntry {
@@ -146,7 +241,7 @@ pub struct SettingEntry {
 		not(feature = "postgres"),
 		expect(dead_code, reason = "only Postgres has settings to make")
 	)]
-	read: fn(&Context) -> Option<Result<Value, EncodeError>>,
+	read: fn(&Context) -> Option<Result<String, EncodeError>>,
 }
 
 impl SettingEntry {
@@ -157,7 +252,25 @@ impl SettingEntry {
 			type_name: std::any::type_name::<G>,
 			read: |cx| {
 				cx.setting_global::<G>()
-					.map(|global| global.value().to_value())
+					.map(|global| global.value().to_value().map(|value| text(&value)))
+			},
+		}
+	}
+
+	pub const fn list<G: ListSetting>() -> Self {
+		Self {
+			name: G::NAME,
+			type_id: TypeId::of::<G>,
+			type_name: std::any::type_name::<G>,
+			read: |cx| {
+				cx.setting_global::<G>().map(|global| {
+					global
+						.values()
+						.iter()
+						.map(|item| item.to_value().map(|value| array_item(&value)))
+						.collect::<Result<Vec<_>, _>>()
+						.map(|items| format!("{{{}}}", items.join(",")))
+				})
 			},
 		}
 	}
@@ -197,7 +310,7 @@ pub(crate) fn for_access(
 		};
 		settings.push((
 			format!("{SETTING_PREFIX}{}", entry.name),
-			value.map_or_else(String::new, |value| text(&value)),
+			value.unwrap_or_default(),
 		));
 	}
 
@@ -205,7 +318,6 @@ pub(crate) fn for_access(
 }
 
 /// A value as the text `current_setting` returns and a cast reads back.
-#[cfg(feature = "postgres")]
 fn text(value: &Value) -> String {
 	match value {
 		Value::Null => String::new(),
@@ -219,6 +331,17 @@ fn text(value: &Value) -> String {
 		Value::Date(value) => value.to_string(),
 		Value::Json(value) => value.to_string(),
 	}
+}
+
+/// One item of a Postgres array literal: quoted, so commas, braces, spaces
+/// and the word `NULL` are text like any other, unless it is `NULL`.
+fn array_item(value: &Value) -> String {
+	if *value == Value::Null {
+		return "NULL".into();
+	}
+
+	let text = text(value);
+	format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 fn float_text(value: f64) -> String {
@@ -278,6 +401,24 @@ macro_rules! register_setting {
 		$crate::__server! {
 			$($crate::__private::inventory::submit! {
 				$crate::__private::SettingEntry::of::<$setting>()
+			})+
+		}
+	};
+}
+
+/// Registers list settings, as [`register_setting!`](crate::register_setting)
+/// does settings. Write it beside each type that implements
+/// [`ListSetting`]:
+///
+/// ```ignore
+/// leptoskit::db::register_list_setting!(Teams);
+/// ```
+#[macro_export]
+macro_rules! register_list_setting {
+	($($setting:ty),+ $(,)?) => {
+		$crate::__server! {
+			$($crate::__private::inventory::submit! {
+				$crate::__private::SettingEntry::list::<$setting>()
 			})+
 		}
 	};
@@ -345,5 +486,43 @@ mod tests {
 			)),
 			"2026-01-02T00:00:00+00:00"
 		);
+	}
+
+	/// A text setting.
+	struct Label(&'static str);
+
+	impl Setting for Label {
+		type Value = String;
+
+		const NAME: &'static str = "label";
+
+		fn value(&self) -> String {
+			self.0.to_string()
+		}
+	}
+
+	#[test]
+	fn empty_text_is_no_setting_as_postgres_reads_it() {
+		let value = |label| {
+			SettingValue::<String>::of::<Label>(&Context::new().with(Label(label)))
+				.reference()
+				.unwrap()
+				.value
+		};
+
+		assert_eq!(value("a"), Some(Value::Text("a".into())));
+		assert_eq!(value(""), None);
+	}
+
+	#[test]
+	fn list_items_are_quoted_for_an_array_literal() {
+		assert_eq!(array_item(&Value::Text("a".into())), r#""a""#);
+		assert_eq!(
+			array_item(&Value::Text(r#"{x, "y"} \ NULL"#.into())),
+			r#""{x, \"y\"} \\ NULL""#
+		);
+		assert_eq!(array_item(&Value::Text(String::new())), r#""""#);
+		assert_eq!(array_item(&Value::Null), "NULL");
+		assert_eq!(array_item(&Value::Bytes(vec![1])), r#""\\x01""#);
 	}
 }
