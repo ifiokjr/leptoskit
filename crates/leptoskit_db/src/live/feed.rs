@@ -461,6 +461,14 @@ impl Db {
 	/// server or several; Postgres lets one prune at a time. Returns how many
 	/// commits it removed.
 	pub async fn prune_changes(&self, retention: std::time::Duration) -> Result<u64> {
+		#[cfg(feature = "postgres")]
+		if self.dialect() == leptoskit_db_schema::Dialect::Postgres
+			&& super::log::has_log(self).await?
+			&& super::partitions::partitioned(self).await?
+		{
+			return super::partitions::prune(self, retention).await;
+		}
+
 		super::log::prune(self, retention).await
 	}
 

@@ -20,7 +20,10 @@ use leptoskit_db::Db;
 use leptoskit_db::DbError;
 use leptoskit_db::Expr;
 use leptoskit_db::Id;
+use leptoskit_db::LiveCapture;
 use leptoskit_db::Timestamp;
+use leptoskit_db::live::Capture;
+use leptoskit_db::live::CaptureSettings;
 use leptoskit_db::live::ChangedRows;
 use leptoskit_db::live::Feed;
 use leptoskit_db::live::Invalidation;
@@ -88,8 +91,14 @@ pub struct Quiet {
 }
 
 async fn create_schema(db: &Db) {
+	create_schema_capturing(db, LiveCapture::Triggers).await;
+}
+
+/// The tables, with writes to live ones captured by `capture`.
+async fn create_schema_capturing(db: &Db, capture: LiveCapture) {
 	let dialect = db.dialect();
-	let schema = leptoskit_db::schema(dialect).unwrap();
+	let schema =
+		leptoskit_db::with_live_capture(leptoskit_db::schema(dialect).unwrap(), capture).unwrap();
 	let empty = Schema::empty(dialect);
 	let plan = leptoskit_db_schema::diff(&empty, &schema, &mut RequireHints).unwrap();
 	let migration = leptoskit_db_schema::render(&plan, &empty, &schema);
@@ -98,6 +107,9 @@ async fn create_schema(db: &Db) {
 		.unwrap();
 }
 
+/// Runs `check` on SQLite, then on Postgres capturing with triggers, then on
+/// Postgres capturing by logical replication, which must behave the same to
+/// every reader.
 async fn on_both<F, Fut>(check: F)
 where
 	F: Fn(Db, Option<String>) -> Fut,
@@ -112,7 +124,38 @@ where
 		let db = Db::connect(&url).await.unwrap();
 		create_schema(&db).await;
 		check(db, Some(url)).await;
+
+		let url = cluster.database();
+		let db = Db::connect(&url).await.unwrap();
+		create_schema_capturing(&db, LiveCapture::Replication).await;
+		let capture = start_capture(&db).await;
+		check(db, Some(url)).await;
+		capture.shutdown().await;
 	}
+}
+
+/// Replication capture, once it's capturing: its slot exists, and the
+/// marker that says whatever came before it may have been missed is behind
+/// every feed a test makes from here.
+async fn start_capture(db: &Db) -> Capture {
+	let capture = db.capture_changes_with(fast_capture());
+
+	tokio::time::timeout(Duration::from_secs(20), async {
+		while !capture.stats().capturing {
+			tokio::time::sleep(Duration::from_millis(10)).await;
+		}
+	})
+	.await
+	.expect("capture starts");
+
+	capture
+}
+
+/// Replication capture that reads the slot often, so tests wait little.
+fn fast_capture() -> CaptureSettings {
+	CaptureSettings::default()
+		.poll(Duration::from_millis(10))
+		.standby(Duration::from_millis(50))
 }
 
 fn as_viewer(db: &Db, viewer: i64) -> Db {
@@ -382,6 +425,9 @@ async fn the_database_s_own_cascades_are_published_and_audited() {
 		.insert(&system)
 		.await
 		.unwrap();
+		// Replication capture records the writes above a moment after they
+		// commit; the feed starts after them.
+		system.live_caught_up().await.unwrap();
 		let mut feed = system.changes().await.unwrap();
 
 		let parent_id = parent.id;
@@ -482,9 +528,20 @@ async fn a_lost_listening_connection_reconnects_and_catches_up() {
 	let Some(cluster) = support::postgres::PostgresCluster::start() else {
 		return;
 	};
-	let url = cluster.database();
+
+	for capture in [LiveCapture::Triggers, LiveCapture::Replication] {
+		reconnects_and_catches_up(&cluster.database(), capture).await;
+	}
+}
+
+async fn reconnects_and_catches_up(url: &str, capture: LiveCapture) {
+	let url = url.to_string();
 	let db = Db::connect(&url).await.unwrap();
-	create_schema(&db).await;
+	create_schema_capturing(&db, capture).await;
+	let _capture = match capture {
+		LiveCapture::Triggers => None,
+		LiveCapture::Replication => Some(start_capture(&db).await),
+	};
 	let system = db.system("a live test");
 	let mut feed = system.changes().await.unwrap();
 
@@ -831,4 +888,20 @@ fn what_each_viewer_hears_agrees_with_the_model_on_postgres() {
 		db
 	});
 	run_property(&db, &runtime, 48);
+}
+
+#[test]
+fn what_each_viewer_hears_agrees_with_the_model_with_replication_capture() {
+	let Some(cluster) = support::postgres::PostgresCluster::start() else {
+		return;
+	};
+	let runtime = tokio::runtime::Runtime::new().unwrap();
+	let (db, capture) = runtime.block_on(async {
+		let db = Db::connect(&cluster.database()).await.unwrap();
+		create_schema_capturing(&db, LiveCapture::Replication).await;
+		let capture = start_capture(&db).await;
+		(db, capture)
+	});
+	run_property(&db, &runtime, 24);
+	runtime.block_on(capture.shutdown());
 }

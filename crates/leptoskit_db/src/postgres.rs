@@ -268,6 +268,33 @@ async fn execute(client: &Object, statement: Statement) -> Result<u64> {
 	client.execute(&prepared, &refs).await.map_err(error)
 }
 
+/// A connection of its own, outside the pool, for work that holds a
+/// session, such as replication capture's advisory lock. It closes when the
+/// client is dropped. Keepalives notice a dead peer within a minute or so,
+/// rather than the operating system's two hours.
+pub(crate) async fn session_client(url: &str) -> Result<tokio_postgres::Client> {
+	let mut config: tokio_postgres::Config = url.parse().map_err(DbError::connection)?;
+	config
+		.keepalives_idle(std::time::Duration::from_secs(30))
+		.keepalives_interval(std::time::Duration::from_secs(10))
+		.keepalives_retries(3);
+
+	if config.get_ssl_mode() == SslMode::Disable {
+		let (client, connection) = config.connect(tokio_postgres::NoTls).await.map_err(error)?;
+		tokio::spawn(connection);
+		Ok(client)
+	} else {
+		let (client, connection) = config.connect(tls()?).await.map_err(error)?;
+		tokio::spawn(connection);
+		Ok(client)
+	}
+}
+
+/// A driver error as the database layer reports it.
+pub(crate) fn driver_error(failure: tokio_postgres::Error) -> DbError {
+	error(failure)
+}
+
 /// TLS with the webpki roots, for hosted databases.
 fn tls() -> Result<tokio_postgres_rustls::MakeRustlsConnect> {
 	let mut roots = rustls::RootCertStore::empty();

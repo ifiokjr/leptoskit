@@ -846,6 +846,50 @@ pub fn with_geopackage(schema: Schema, geopackage: bool) -> Result<Schema, Schem
 	Ok(schema)
 }
 
+/// `schema`, captured by `capture`: by `[db] live_capture = "replication"`,
+/// its live tables are published for logical replication rather than given
+/// capture triggers. A schema without live tables is unchanged.
+///
+/// # Errors
+///
+/// Replication on SQLite, which has none.
+pub fn with_live_capture(schema: Schema, capture: LiveCapture) -> Result<Schema, SchemaError> {
+	if capture == LiveCapture::Replication
+		&& schema.dialect == Dialect::Sqlite
+		&& schema
+			.triggers
+			.iter()
+			.any(leptoskit_db_schema::live::is_capture)
+	{
+		return Err(SchemaError::Invalid(vec![leptoskit_db_schema::Problem {
+			location: "[db] live_capture".to_string(),
+			message: "replication capture needs Postgres; SQLite captures with triggers"
+				.to_string(),
+		}]));
+	}
+
+	let has_live = schema
+		.triggers
+		.iter()
+		.any(leptoskit_db_schema::live::is_capture);
+
+	if !has_live {
+		return Ok(schema);
+	}
+
+	let schema = leptoskit_db_schema::live::with_capture(schema, capture);
+	schema.validate()?;
+	Ok(schema)
+}
+
+/// How writes to live tables reach the change log: `[db] live_capture`.
+pub use leptoskit_db_schema::live::Capture as LiveCapture;
+
+/// The environment variable saying how `export_schema!` captures writes to
+/// live tables: `triggers` (the default) or `replication`, from `[db]
+/// live_capture`.
+pub const LIVE_CAPTURE_ENV: &str = "LEPTOSKIT_DB_LIVE_CAPTURE";
+
 /// The environment variable naming the file `export_schema!` writes to.
 pub const SCHEMA_OUT_ENV: &str = "LEPTOSKIT_DB_SCHEMA_OUT";
 
@@ -902,7 +946,18 @@ pub fn export_schema_if_requested() {
 		Ok(other) => panic!("{GEOPACKAGE_ENV} is `{other}`; expected `0` or `1`"),
 	};
 
-	let exported = exported.and_then(|schema| with_geopackage(schema, geopackage));
+	let capture = match std::env::var(LIVE_CAPTURE_ENV) {
+		Err(_) => LiveCapture::Triggers,
+		Ok(name) => {
+			LiveCapture::from_name(&name).unwrap_or_else(|| {
+				panic!("{LIVE_CAPTURE_ENV} is `{name}`; expected `triggers` or `replication`")
+			})
+		}
+	};
+
+	let exported = exported
+		.and_then(|schema| with_geopackage(schema, geopackage))
+		.and_then(|schema| with_live_capture(schema, capture));
 
 	match exported {
 		Ok(schema) => {
