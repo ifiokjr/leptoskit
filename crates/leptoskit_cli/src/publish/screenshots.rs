@@ -277,6 +277,26 @@ fn png_size(bytes: &[u8]) -> Option<(u32, u32)> {
 /// When the plan can't be read, or any screenshot fails.
 pub fn run(root: &Path, package_id: &str, dry_run: bool) -> Result<()> {
 	let plan = Plan::load(root)?;
+	let unknown: Vec<&String> = plan
+		.devices
+		.keys()
+		.filter(|folder| {
+			!super::images::TARGETS
+				.iter()
+				.any(|target| &target.folder == folder)
+		})
+		.collect();
+	anyhow::ensure!(
+		unknown.is_empty(),
+		"`leptoskit publish` uploads only the store sizes it knows, so it would refuse {}; name \
+		 each size one of the folders in the publishing guide, such as iphone-6.3, ipad-13, \
+		 android-phone, or chrome-1280x800",
+		unknown
+			.iter()
+			.map(|folder| format!("devices.{folder}"))
+			.collect::<Vec<_>>()
+			.join(", ")
+	);
 	let artifacts = root.join(".leptoskit/publish/screenshots");
 	let devices = if dry_run {
 		// A dry run lists the files, so it needs no simulator booted.

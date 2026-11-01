@@ -18,6 +18,7 @@ use super::http::Body;
 use super::http::Http;
 use super::http::Reply;
 use super::http::poll;
+use super::images::Image;
 use super::secrets::Secret;
 use super::secrets::es256;
 use super::secrets::issued_at;
@@ -578,12 +579,12 @@ impl<'a> AppStore<'a> {
 
 	/// Sets text on a version's `locale` localization, creating it when
 	/// it's missing: `attributes` such as `whatsNew`, `description`, and
-	/// `keywords`.
+	/// `keywords`. Returns the localization's ID.
 	///
 	/// # Errors
 	///
 	/// When App Store Connect refuses the text.
-	pub fn localize(&self, version: &str, locale: &str, attributes: &Value) -> Result<()> {
+	pub fn localize(&self, version: &str, locale: &str, attributes: &Value) -> Result<String> {
 		let localizations = self.json(
 			"GET",
 			&format!("/v1/appStoreVersions/{version}/appStoreVersionLocalizations?limit=200"),
@@ -597,6 +598,13 @@ impl<'a> AppStore<'a> {
 			.find(|found| found["attributes"]["locale"] == locale)
 			.and_then(|found| found["id"].as_str());
 		if let Some(id) = existing {
+			// Nothing to set: the localization is wanted for its screenshots.
+			if attributes
+				.as_object()
+				.is_some_and(serde_json::Map::is_empty)
+			{
+				return Ok(id.to_owned());
+			}
 			self.send(
 				"PATCH",
 				&format!("/v1/appStoreVersionLocalizations/{id}"),
@@ -605,23 +613,222 @@ impl<'a> AppStore<'a> {
 				}})),
 			)?
 			.ok("setting the version's text")?;
+			Ok(id.to_owned())
 		} else {
 			let mut attributes = attributes.clone();
 			attributes["locale"] = json!(locale);
-			self.send(
+			let created = self
+				.send(
+					"POST",
+					"/v1/appStoreVersionLocalizations",
+					Some(&json!({ "data": {
+						"type": "appStoreVersionLocalizations",
+						"attributes": attributes,
+						"relationships": { "appStoreVersion": {
+							"data": { "type": "appStoreVersions", "id": version },
+						}},
+					}})),
+				)?
+				.ok("adding the version's text")?
+				.json()?;
+			Ok(created["data"]["id"]
+				.as_str()
+				.context("App Store Connect created a localization without an ID")?
+				.to_owned())
+		}
+	}
+
+	/// Replaces the screenshots of one display type, such as
+	/// `APP_IPHONE_67`, on a version's localization with `images`, in their
+	/// order: the set is found or made, its screenshots deleted, and each
+	/// image reserved, uploaded in the parts App Store Connect asks for, and
+	/// committed with its MD5 checksum. Returns once Apple has processed
+	/// every image.
+	///
+	/// # Errors
+	///
+	/// When App Store Connect refuses a request, or can't process an image,
+	/// with its reasons.
+	pub fn replace_screenshots(
+		&self,
+		localization: &str,
+		display_type: &str,
+		images: &[Image],
+	) -> Result<()> {
+		let sets = self.json(
+			"GET",
+			&format!(
+				"/v1/appStoreVersionLocalizations/{localization}/appScreenshotSets?\
+				 {}={display_type}",
+				filter("filter[screenshotDisplayType]")
+			),
+			None,
+			"reading the version's screenshot sets",
+		)?;
+		let set = match sets["data"]
+			.as_array()
+			.into_iter()
+			.flatten()
+			.find(|set| set["attributes"]["screenshotDisplayType"] == display_type)
+			.and_then(|set| set["id"].as_str())
+		{
+			Some(id) => id.to_owned(),
+			None => {
+				self.json(
+					"POST",
+					"/v1/appScreenshotSets",
+					Some(&json!({ "data": {
+						"type": "appScreenshotSets",
+						"attributes": { "screenshotDisplayType": display_type },
+						"relationships": { "appStoreVersionLocalization": {
+							"data": { "type": "appStoreVersionLocalizations", "id": localization },
+						}},
+					}})),
+					"adding a screenshot set",
+				)?["data"]["id"]
+					.as_str()
+					.context("App Store Connect made a screenshot set without an ID")?
+					.to_owned()
+			}
+		};
+		let old = self.json(
+			"GET",
+			&format!("/v1/appScreenshotSets/{set}/appScreenshots?limit=50"),
+			None,
+			"reading the set's screenshots",
+		)?;
+		for id in old["data"]
+			.as_array()
+			.into_iter()
+			.flatten()
+			.filter_map(|screenshot| screenshot["id"].as_str())
+		{
+			self.send("DELETE", &format!("/v1/appScreenshots/{id}"), None)?
+				.ok("deleting an earlier screenshot")?;
+		}
+		let mut uploaded = Vec::new();
+		for image in images {
+			let reserved = self.json(
 				"POST",
-				"/v1/appStoreVersionLocalizations",
+				"/v1/appScreenshots",
 				Some(&json!({ "data": {
-					"type": "appStoreVersionLocalizations",
-					"attributes": attributes,
-					"relationships": { "appStoreVersion": {
-						"data": { "type": "appStoreVersions", "id": version },
+					"type": "appScreenshots",
+					"attributes": { "fileName": image.name, "fileSize": image.bytes.len() },
+					"relationships": { "appScreenshotSet": {
+						"data": { "type": "appScreenshotSets", "id": set },
 					}},
 				}})),
+				&format!("reserving {}", image.name),
+			)?;
+			let id = reserved["data"]["id"]
+				.as_str()
+				.context("App Store Connect reserved a screenshot without an ID")?
+				.to_owned();
+			for operation in reserved["data"]["attributes"]["uploadOperations"]
+				.as_array()
+				.into_iter()
+				.flatten()
+			{
+				self.upload_part(operation, image)?;
+			}
+			let checksum = {
+				use md5::Digest as _;
+				hex::encode(md5::Md5::digest(&image.bytes))
+			};
+			self.send(
+				"PATCH",
+				&format!("/v1/appScreenshots/{id}"),
+				Some(&json!({ "data": {
+					"type": "appScreenshots", "id": id,
+					"attributes": { "uploaded": true, "sourceFileChecksum": checksum },
+				}})),
 			)?
-			.ok("adding the version's text")?;
+			.ok(&format!("committing {}", image.name))?;
+			uploaded.push((id, &image.name));
+		}
+		for (id, name) in uploaded {
+			poll(
+				&format!("App Store Connect's processing of {name}"),
+				60,
+				Duration::from_secs(5),
+				|| {
+					let screenshot = self.json(
+						"GET",
+						&format!(
+							"/v1/appScreenshots/{id}?{}=assetDeliveryState",
+							filter("fields[appScreenshots]")
+						),
+						None,
+						"reading a screenshot's state",
+					)?;
+					let state = &screenshot["data"]["attributes"]["assetDeliveryState"];
+					match state["state"].as_str() {
+						Some("COMPLETE") => Ok(Some(())),
+						Some("FAILED") => {
+							let errors: Vec<String> = state["errors"]
+								.as_array()
+								.into_iter()
+								.flatten()
+								.map(|error| {
+									format!(
+										"{} ({})",
+										error["description"].as_str().unwrap_or("no reason given"),
+										error["code"].as_str().unwrap_or("no code")
+									)
+								})
+								.collect();
+							anyhow::bail!(
+								"App Store Connect couldn't process the screenshot {name}: {}",
+								errors.join("; ")
+							)
+						}
+						_ => Ok(None),
+					}
+				},
+			)?;
 		}
 		Ok(())
+	}
+
+	/// Sends one part of an image where App Store Connect's upload operation
+	/// says, with the headers it gives: not to the API, so without the key.
+	fn upload_part(&self, operation: &Value, image: &Image) -> Result<()> {
+		let url = operation["url"]
+			.as_str()
+			.context("App Store Connect gave an upload operation without an address")?;
+		let offset = usize::try_from(operation["offset"].as_u64().unwrap_or(0))?;
+		let length = operation["length"].as_u64().map_or(
+			Ok(image.bytes.len() - offset.min(image.bytes.len())),
+			usize::try_from,
+		)?;
+		let part = image.bytes.get(offset..offset + length).with_context(|| {
+			format!(
+				"App Store Connect asked for bytes past the end of {}",
+				image.name
+			)
+		})?;
+		let mut content_type = "application/octet-stream".to_owned();
+		let mut headers = Vec::new();
+		for header in operation["requestHeaders"].as_array().into_iter().flatten() {
+			let (Some(name), Some(value)) = (header["name"].as_str(), header["value"].as_str())
+			else {
+				continue;
+			};
+			if name.eq_ignore_ascii_case("content-type") {
+				value.clone_into(&mut content_type);
+			} else {
+				headers.push((name, value));
+			}
+		}
+		self.http
+			.send(
+				operation["method"].as_str().unwrap_or("PUT"),
+				url,
+				&headers,
+				Some(Body::typed(&content_type, part.to_vec())),
+			)?
+			.ok(&format!("uploading {}", image.name))
+			.map(drop)
 	}
 
 	/// Sets the privacy policy's address in App Information's `en-US`

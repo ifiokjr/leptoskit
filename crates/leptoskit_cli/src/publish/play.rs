@@ -13,6 +13,7 @@ use serde_json::json;
 use super::http::Body;
 use super::http::Http;
 use super::http::Reply;
+use super::images::Image;
 use super::secrets::Secret;
 use super::tools::Tool;
 
@@ -341,6 +342,38 @@ impl Edit<'_, '_> {
 			)?
 			.ok("setting the store listing")
 			.map(drop)
+	}
+
+	/// Replaces the listing's images of `image_type` in `language`, such as
+	/// `phoneScreenshots` or `featureGraphic`: deletes them all, then
+	/// uploads `images` in their order.
+	///
+	/// # Errors
+	///
+	/// When Google Play refuses an image.
+	pub fn replace_images(&self, language: &str, image_type: &str, images: &[Image]) -> Result<()> {
+		self.play
+			.send(
+				"DELETE",
+				&self.url(&format!("/listings/{language}/{image_type}")),
+				None,
+			)?
+			.ok(&format!("deleting the listing's {image_type}"))?;
+		for image in images {
+			let url = format!(
+				"{}/upload/androidpublisher/v3/applications/{}/edits/{}/listings/{language}/\
+				 {image_type}?uploadType=media",
+				self.play.api, self.play.package, self.id
+			);
+			self.play
+				.send(
+					"POST",
+					&url,
+					Some(Body::typed(image.content_type, image.bytes.clone())),
+				)?
+				.ok(&format!("uploading {} to Google Play", image.name))?;
+		}
+		Ok(())
 	}
 
 	/// Commits the edit's changes.

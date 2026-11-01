@@ -84,6 +84,15 @@ impl Body {
 		}
 	}
 
+	/// A file of `content_type`, such as `image/png`.
+	#[must_use]
+	pub fn typed(content_type: &str, bytes: Vec<u8>) -> Self {
+		Self {
+			content_type: content_type.to_owned(),
+			bytes,
+		}
+	}
+
 	/// A zip file.
 	#[must_use]
 	pub fn zip(bytes: Vec<u8>) -> Self {
@@ -138,12 +147,13 @@ impl Body {
 				}
 				Part::File {
 					filename,
+					content_type,
 					bytes: content,
 				} => {
 					bytes.extend_from_slice(
 						format!(
 							"Content-Disposition: form-data; name=\"{name}\"; \
-							 filename=\"{filename}\"\r\nContent-Type: application/zip\r\n\r\n"
+							 filename=\"{filename}\"\r\nContent-Type: {content_type}\r\n\r\n"
 						)
 						.as_bytes(),
 					);
@@ -163,7 +173,11 @@ impl Body {
 /// One part of a multipart form.
 pub enum Part<'a> {
 	Text(&'a str),
-	File { filename: &'a str, bytes: &'a [u8] },
+	File {
+		filename: &'a str,
+		content_type: &'a str,
+		bytes: &'a [u8],
+	},
 }
 
 fn fastrand_seed() -> u64 {
@@ -299,6 +313,7 @@ mod tests {
 				"upload",
 				Part::File {
 					filename: "firefox.zip",
+					content_type: "application/zip",
 					bytes: b"PK",
 				},
 			),
@@ -312,7 +327,7 @@ mod tests {
 		let text = String::from_utf8(multipart.bytes).unwrap();
 		assert!(text.starts_with(&format!("--{boundary}\r\n")));
 		assert!(text.contains("name=\"channel\"\r\n\r\nlisted\r\n"));
-		assert!(text.contains("filename=\"firefox.zip\""));
+		assert!(text.contains("filename=\"firefox.zip\"\r\nContent-Type: application/zip\r\n"));
 		assert!(text.ends_with(&format!("--{boundary}--\r\n")));
 	}
 }
