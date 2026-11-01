@@ -190,9 +190,13 @@ pub mod web {
 		let query = permissions
 			.query(&descriptor(permission)?)
 			.map_err(|_| Error::Unavailable)?;
-		let result = JsFuture::from(query)
-			.await
-			.map_err(|error| failure(&error))?;
+		let result = JsFuture::from(query).await.map_err(|error| {
+			if error.is_instance_of::<js_sys::TypeError>() {
+				Error::Unavailable
+			} else {
+				failure(&error)
+			}
+		})?;
 		let status = result
 			.dyn_into::<web_sys::PermissionStatus>()
 			.map_err(|_| Error::Native)?;
