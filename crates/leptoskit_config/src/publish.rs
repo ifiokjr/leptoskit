@@ -462,6 +462,60 @@ mod tests {
 		assert!(error.contains("between 0 and 1"), "{error}");
 	}
 
+	/// A config that builds an extension, so the extension stores apply.
+	const EXTENSION: &str = r#"
+[app]
+name = "notes"
+platforms = ["extension"]
+default_platform = "extension"
+
+[native]
+package_id = "com.example.notes"
+
+[extension]
+browsers = ["chromium"]
+
+[extension.devtools_page]
+route = "/devtools"
+panel = "/devtools/panel"
+"#;
+
+	#[test]
+	fn the_extension_stores_check_their_ids() {
+		let config = |extra: &str| {
+			LeptoskitConfig::from_toml(&format!("{EXTENSION}{extra}"), Path::new("notes"))
+				.map_err(|error| error.to_string())
+		};
+
+		// Chrome's item is 32 letters, `a` to `p`.
+		let error = config("[publish.chrome]\nitem_id = \"short\"\npublisher_id = \"publisher\"\n")
+			.unwrap_err();
+		assert!(error.contains("32-letter ID"), "{error}");
+
+		let error = config(
+			"[publish.chrome]\nitem_id = \"abcdefghijklmnopabcdefghijklmnop\"\npublisher_id = \" \
+			 \"\n",
+		)
+		.unwrap_err();
+		assert!(error.contains("publisher_id"), "{error}");
+
+		// Edge's product ID, and Firefox's add-on ID from
+		// `[extension.firefox]`.
+		let error = config("[publish.edge]\nproduct_id = \" \"\n").unwrap_err();
+		assert!(error.contains("product_id"), "{error}");
+
+		let error = config("[publish.firefox]\n").unwrap_err();
+		assert!(error.contains("add-on's id"), "{error}");
+
+		// A complete Chrome listing is accepted.
+		let config = config(
+			"[publish.chrome]\nitem_id = \"abcdefghijklmnopabcdefghijklmnop\"\npublisher_id = \
+			 \"publisher\"\n",
+		)
+		.unwrap();
+		assert_eq!(config.publish.stores(), ["chrome"]);
+	}
+
 	#[test]
 	fn the_app_store_needs_an_ios_app() {
 		let error = LeptoskitConfig::from_toml(
