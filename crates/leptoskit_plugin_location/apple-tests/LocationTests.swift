@@ -4,6 +4,33 @@ import LeptosKitBridge
 @testable import LeptosKitLocation
 import Testing
 
+/// A record is five u32 fields followed by eight doubles.
+private enum Record {
+    /// Where the latitude double starts.
+    static let latitude = 28
+    /// The full record size.
+    static let bytes = 84
+}
+
+/// A sampled coordinate the conversion tests measure.
+private enum Sample {
+    static let latitude = 37.0
+    static let longitude = -122.0
+    /// Horizontal accuracy in metres.
+    static let accuracy = 5.0
+    /// Unix seconds the sample was measured at.
+    static let timestamp = 1_800_000_000.0
+}
+
+/// Request bounds the decoder enforces.
+private enum Bound {
+    /// Only the first timeout is valid, so the next millisecond is refused.
+    static let maxTimeout: UInt32 = 120_000
+    /// One degree past the northern limit.
+    static let beyondLatitude = maxLatitude + 1
+    private static let maxLatitude = 90.0
+}
+
 @Test
 func queuedLocationsCannotCrossPermissionOrPrecisionRevocation() {
     #expect(permitsLocationDelivery(startedPrecise: true, authorized: true, precise: true))
@@ -17,26 +44,26 @@ func queuedLocationsCannotCrossPermissionOrPrecisionRevocation() {
 @Test
 func syntheticCoordinatesPreserveUnknownFieldsWithoutAccessingLocation() throws {
     let location = CLLocation(
-        coordinate: CLLocationCoordinate2D(latitude: 37, longitude: -122),
+        coordinate: CLLocationCoordinate2D(latitude: Sample.latitude, longitude: Sample.longitude),
         altitude: 0,
-        horizontalAccuracy: 5,
+        horizontalAccuracy: Sample.accuracy,
         verticalAccuracy: -1,
         course: -1,
         speed: -1,
-        timestamp: Date(timeIntervalSince1970: 1_800_000_000)
+        timestamp: Date(timeIntervalSince1970: Sample.timestamp)
     )
     let result = try encodeLocation(location)
-    #expect(result.count == 84)
+    #expect(result.count == Record.bytes)
     result.withUnsafeBytes { bytes in
         #expect(UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: 4, as: UInt32.self)) == 0)
         #expect(UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: 8, as: UInt32.self)) == 0)
-        let bits = UInt64(littleEndian: bytes.loadUnaligned(fromByteOffset: 28, as: UInt64.self))
+        let bits = UInt64(littleEndian: bytes.loadUnaligned(fromByteOffset: Record.latitude, as: UInt64.self))
         let latitude = Double(bitPattern: bits)
-        #expect(latitude == 37)
+        #expect(latitude == Sample.latitude)
     }
     let invalid = CLLocation(
-        coordinate: CLLocationCoordinate2D(latitude: 91, longitude: -122),
-        altitude: 0, horizontalAccuracy: 5, verticalAccuracy: -1, timestamp: Date()
+        coordinate: CLLocationCoordinate2D(latitude: Bound.beyondLatitude, longitude: Sample.longitude),
+        altitude: 0, horizontalAccuracy: Sample.accuracy, verticalAccuracy: -1, timestamp: Date()
     )
     #expect(throws: PluginError.native) { try encodeLocation(invalid) }
 }
@@ -60,7 +87,7 @@ func locationRequestBoundsRejectUnboundedAndNonfiniteRequests() throws {
     let valid = try request(timeout: 1000).withUnsafeBytes { try LocationOptions(bytes: $0, hasPrevious: false) }
     #expect(valid.highAccuracy && valid.timeout == 1000 && valid.maximumAge == 0)
 
-    for timeout in [UInt32(0), 120_001] {
+    for timeout in [UInt32(0), Bound.maxTimeout + 1] {
         #expect(throws: PluginError.invalidArgument) {
             try request(timeout: timeout).withUnsafeBytes { try LocationOptions(bytes: $0, hasPrevious: false) }
         }
