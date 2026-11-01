@@ -56,7 +56,9 @@ enum FieldKind {
 	Many,
 }
 
-fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
+/// Checks the derive sits on a plain struct, without a `#[route]` of its
+/// own, and returns its data.
+fn struct_data(input: &DeriveInput) -> syn::Result<&syn::DataStruct> {
 	if !input.generics.params.is_empty() {
 		return Err(syn::Error::new_spanned(
 			&input.generics,
@@ -79,55 +81,77 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
 			"`#[derive(Route)]` needs a struct with named fields, or a unit struct",
 		));
 	};
-	let name = &input.ident;
 
-	let fields = match &data.fields {
-		Fields::Named(fields) => fields.named.iter().collect::<Vec<_>>(),
-		Fields::Unit => Vec::new(),
+	Ok(data)
+}
+
+/// The struct's named fields, in the order it writes them.
+fn named_fields(data: &syn::DataStruct) -> syn::Result<Vec<&syn::Field>> {
+	match &data.fields {
+		Fields::Named(fields) => Ok(fields.named.iter().collect()),
+		Fields::Unit => Ok(Vec::new()),
+
 		Fields::Unnamed(fields) => {
-			return Err(syn::Error::new_spanned(
+			Err(syn::Error::new_spanned(
 				fields,
 				"`#[derive(Route)]` needs named fields: each field is read from the URL by its \
 				 name",
-			));
+			))
+		}
+	}
+}
+
+/// One field's name on the wire, and the code that reads it from the URL and
+/// writes it back.
+fn field_codes(
+	field: &syn::Field,
+) -> syn::Result<(&syn::Ident, String, TokenStream2, TokenStream2)> {
+	let ident = field.ident.as_ref().expect("named fields have names");
+	let key = ident.unraw().to_string();
+
+	let (decode, encode) = match field_kind(field)? {
+		FieldKind::One => {
+			(
+				quote!(params.one(#key)?),
+				quote!(sink.one(#key, &self.#ident);),
+			)
+		}
+
+		FieldKind::OneOrDefault => {
+			(
+				quote!(params.one_or_default(#key)?),
+				quote!(sink.unless_default(#key, &self.#ident);),
+			)
+		}
+
+		FieldKind::Optional => {
+			(
+				quote!(params.optional(#key)?),
+				quote!(sink.optional(#key, ::core::option::Option::as_ref(&self.#ident));),
+			)
+		}
+
+		FieldKind::Many => {
+			(
+				quote!(params.many(#key)?),
+				quote!(sink.many(#key, &self.#ident);),
+			)
 		}
 	};
 
+	Ok((ident, key, decode, encode))
+}
+
+fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
+	let data = struct_data(input)?;
+	let name = &input.ident;
+	let fields = named_fields(data)?;
 	let mut names = Vec::new();
 	let mut decodes = Vec::new();
 	let mut encodes = Vec::new();
 
 	for field in &fields {
-		let ident = field.ident.as_ref().expect("named fields have names");
-		let key = ident.unraw().to_string();
-		let kind = field_kind(field)?;
-
-		let (decode, encode) = match kind {
-			FieldKind::One => {
-				(
-					quote!(params.one(#key)?),
-					quote!(sink.one(#key, &self.#ident);),
-				)
-			}
-			FieldKind::OneOrDefault => {
-				(
-					quote!(params.one_or_default(#key)?),
-					quote!(sink.unless_default(#key, &self.#ident);),
-				)
-			}
-			FieldKind::Optional => {
-				(
-					quote!(params.optional(#key)?),
-					quote!(sink.optional(#key, ::core::option::Option::as_ref(&self.#ident));),
-				)
-			}
-			FieldKind::Many => {
-				(
-					quote!(params.many(#key)?),
-					quote!(sink.many(#key, &self.#ident);),
-				)
-			}
-		};
+		let (ident, key, decode, encode) = field_codes(field)?;
 
 		names.push(key);
 		decodes.push(quote!(#ident: #decode));
