@@ -290,6 +290,7 @@ fn tables_to_rebuild(
 
 	for step in &plan.steps {
 		let table = step.table();
+
 		let needs_rebuild = match step {
 			Step::AlterColumn { .. }
 			| Step::SetPrimaryKey { .. }
@@ -588,6 +589,7 @@ fn geo_index_triggers(table: &Table, index: &GeoIndex) -> Vec<String> {
 			matching(image)
 		)
 	};
+
 	let new_keys: Vec<String> = table
 		.primary_key
 		.iter()
@@ -685,6 +687,7 @@ fn create_vector_index(table: &Table, vector: &VectorOptions) -> Vec<String> {
 		vector.distance.and_then(VectorDistance::sqlite_metric),
 	) {
 		(VectorElement::Bit, _) => format!("{VEC_COLUMN} bit[{dimensions}]"),
+
 		(_, Some(metric)) => format!("{VEC_COLUMN} float[{dimensions}] distance_metric={metric}"),
 		(_, None) => format!("{VEC_COLUMN} float[{dimensions}]"),
 	};
@@ -765,6 +768,7 @@ fn vector_index_triggers(table: &Table, vector: &VectorOptions) -> Vec<String> {
 			new_keys.join(", ")
 		)
 	};
+
 	let move_row = {
 		let set_keys: Vec<String> = table
 			.primary_key
@@ -1169,6 +1173,7 @@ fn search_triggers(table: &Table, search: &Search) -> Vec<String> {
 			.collect::<Vec<_>>()
 			.join(" AND ")
 	};
+
 	let row_of = |image: &str| format!("(SELECT {row} FROM {rows} WHERE {})", matching(image));
 	let values = |image: &str| {
 		search

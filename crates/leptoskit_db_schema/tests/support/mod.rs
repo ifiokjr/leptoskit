@@ -1493,6 +1493,7 @@ pub fn with_layered_views(dialect: Dialect) -> Schema {
 		Generated::new("SELECT author_id FROM post_counts WHERE posts > 1"),
 	);
 	let mut views = schema.views.clone();
+
 	views.push(busy);
 	schema.with_views(views)
 }

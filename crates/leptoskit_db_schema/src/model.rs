@@ -1112,6 +1112,7 @@ impl VectorOptions {
 			Some(event) => format!("{}_lk_{}_source_{event}", table.flat(), self.column),
 			None => format!("{}_lk_{}_source", table.name, self.column),
 		};
+
 		crate::shorten_identifier(&name)
 	}
 }
@@ -1242,50 +1243,31 @@ fn sql_names(sql: &str) -> Vec<String> {
 	while let Some(next) = chars.next() {
 		let name = match next {
 			'\'' => {
-				while let Some(inner) = chars.next() {
-					if inner == '\'' && chars.next_if_eq(&'\'').is_none() {
-						break;
-					}
-				}
+				skip_string(&mut chars);
 				dotted = false;
 				continue;
 			}
+
 			'-' if chars.peek() == Some(&'-') => {
-				for inner in chars.by_ref() {
-					if inner == '\n' {
-						break;
-					}
-				}
+				skip_comment(&mut chars);
 				dotted = false;
 				continue;
 			}
-			'"' => {
-				let mut name = String::new();
-				while let Some(inner) = chars.next() {
-					if inner == '"' && chars.next_if_eq(&'"').is_none() {
-						break;
-					}
-					name.push(inner);
-				}
-				name
-			}
+			'"' => quoted_name(&mut chars),
 			'.' => {
 				dotted = !names.is_empty();
 				continue;
 			}
+
 			character if character.is_alphanumeric() || character == '_' => {
-				let mut name = String::from(character);
-				while let Some(inner) =
-					chars.next_if(|inner| inner.is_alphanumeric() || *inner == '_')
-				{
-					name.push(inner);
-				}
-				name.to_lowercase()
+				bare_name(&mut chars, character)
 			}
+
 			_ => {
 				if !next.is_whitespace() {
 					dotted = false;
 				}
+
 				continue;
 			}
 		};
@@ -1301,6 +1283,50 @@ fn sql_names(sql: &str) -> Vec<String> {
 	}
 
 	names
+}
+
+/// Consumes a `'…'` string, with `''` as an escaped quote.
+fn skip_string(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+	while let Some(inner) = chars.next() {
+		if inner == '\'' && chars.next_if_eq(&'\'').is_none() {
+			break;
+		}
+	}
+}
+
+/// Consumes a `-- …` comment.
+fn skip_comment(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+	for inner in chars.by_ref() {
+		if inner == '\n' {
+			break;
+		}
+	}
+}
+
+/// A `"…"` identifier, with `""` as an escaped quote.
+fn quoted_name(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
+	let mut name = String::new();
+
+	while let Some(inner) = chars.next() {
+		if inner == '"' && chars.next_if_eq(&'"').is_none() {
+			break;
+		}
+
+		name.push(inner);
+	}
+
+	name
+}
+
+/// A bare identifier, lowercased.
+fn bare_name(chars: &mut std::iter::Peekable<std::str::Chars<'_>>, first: char) -> String {
+	let mut name = String::from(first);
+
+	while let Some(inner) = chars.next_if(|inner| inner.is_alphanumeric() || *inner == '_') {
+		name.push(inner);
+	}
+
+	name.to_lowercase()
 }
 
 /// A table's full-text search index: the text columns it searches, how

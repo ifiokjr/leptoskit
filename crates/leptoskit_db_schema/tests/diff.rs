@@ -482,6 +482,7 @@ fn validation_checks_keys_indexes_and_references() {
 		&["display_name"],
 	)
 	.on_delete(ReferentialAction::SetNull);
+
 	not_a_key.name = "posts_title_display_fkey".into();
 	posts.foreign_keys.push(not_a_key);
 	posts.checks.push(Check {
@@ -782,6 +783,7 @@ fn views_know_which_views_their_queries_name() {
 	assert!(!reads("SELECT 'totals' AS id FROM posts", &totals));
 	assert!(!reads("SELECT id FROM posts -- not totals\n", &totals));
 	assert!(!reads("SELECT id FROM subtotals", &totals));
+
 	assert!(!reads("SELECT 'it''s totals' FROM posts", &totals));
 
 	// Ordered by what they read, then by name; a cycle has no order.
@@ -837,6 +839,7 @@ fn view_indexes_are_checked_and_recreate_the_view() {
 	let json: serde_json::Value = serde_json::from_str(&schema.to_json()).unwrap();
 	assert!(json["views"][0].get("indexes").is_none(), "{json}");
 	let plan = diff(&schema, &target, &mut RequireHints).unwrap();
+
 	assert_eq!(
 		plan.steps,
 		[
@@ -897,6 +900,7 @@ fn search_indexes_are_validated() {
 	users
 		.indexes
 		.push(Index::new(&TableName::new("users"), &["lk_search"]));
+
 	users.indexes[1].name = Search::index_name(&TableName::new("users"));
 	let tags = table_mut(&mut schema, "tags");
 	tags.primary_key = vec!["lk_row".into()];
@@ -1019,6 +1023,7 @@ fn search_indexes_are_recreated_when_the_table_changes_under_them() {
 		schema.tables.retain(|table| table.name.name == "users");
 		schema
 	};
+
 	let plan = diff(&before, &without_posts, &mut RequireHints).unwrap();
 	let rendered = render(&plan, &before, &without_posts);
 	// On Postgres the column goes with its table.
@@ -1049,6 +1054,7 @@ fn row_security_is_validated_and_kept_in_snapshots() {
 	security.policies.push(duplicate);
 	let mut on_sqlite = support::with_row_security(Dialect::Sqlite);
 	on_sqlite.tables.retain(|table| table.name.name != "users");
+
 	on_sqlite.tables.retain(|table| table.name.name != "tags");
 	table_mut(&mut on_sqlite, "posts").foreign_keys.clear();
 
@@ -1116,6 +1122,7 @@ fn row_security_is_validated_and_kept_in_snapshots() {
 	posts.foreign_keys[0].name = constraint_name(&posts.name, &["author_id"], "fkey");
 	table_mut(&mut renamed, "tags").foreign_keys[0].references = TableName::new("articles");
 	let plan = diff(&schema, &renamed, &mut RequireHints).unwrap();
+
 	let sql = render(&plan, &schema, &renamed).sql();
 	assert!(
 		sql.contains("DROP POLICY \"posts_select\" ON \"posts\""),
@@ -1169,6 +1176,7 @@ fn geospatial_columns_and_indexes_are_validated() {
 		},
 	});
 	let places = table_mut(&mut schema, "places");
+
 	places.primary_key = vec!["lk_row".into()];
 	places
 		.columns
@@ -1266,6 +1274,7 @@ fn shapes_widen_to_any_shape_in_the_same_system() {
 	assert_eq!(GeoShape::from_name("Rect"), None);
 	assert_eq!(point(27700).to_string(), "geometry(Point, 27700)");
 	assert_eq!(point(27700).geo(), Some((GeoShape::Point, 27700)));
+
 	assert_eq!(ColumnType::TEXT.geo(), None);
 }
 
@@ -1388,6 +1397,7 @@ fn routines_are_validated_with_the_tables() {
 	early.timing = TriggerTiming::Before;
 	early.deferred = true;
 	let mut copies = trigger("copies", "posts", calls("capture"));
+
 	copies.columns = vec!["title".into(), "missing".into()];
 	let mut idle = trigger("idle", "posts", calls("capture"));
 	idle.events.clear();

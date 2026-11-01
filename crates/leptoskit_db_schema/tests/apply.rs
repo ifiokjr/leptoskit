@@ -225,6 +225,7 @@ fn postgres_migrations_match_fresh_schemas_and_keep_rows() {
 			"{}: the migrated Postgres schema differs from a fresh one",
 			scenario.name
 		);
+
 		if let Some(vector) = posts_vector(&scenario) {
 			assert_vectors(
 				&scenario,
@@ -263,6 +264,7 @@ fn postgres_migrations_match_fresh_schemas_and_keep_rows() {
 				}
 				_ => format!("\"{table}\""),
 			};
+
 			cluster
 				.query(&migrated, &format!("SELECT count(*) FROM {qualified}"))
 				.trim()
@@ -297,10 +299,12 @@ fn assert_vectors(
 ) {
 	let column = &vector.column;
 	let source = vector.source_column();
+
 	let value = match dialect {
 		Dialect::Postgres => "'[1,0,0]'".to_string(),
 		Dialect::Sqlite => "X'0000803F0000000000000000'".to_string(),
 	};
+
 	let sources: Vec<Option<&str>> = vector
 		.sources
 		.iter()
@@ -595,6 +599,7 @@ impl PostgresCluster {
 				"LEPTOSKIT_REQUIRE_POSTGRES is set, but no Postgres binaries were found"
 			);
 			eprintln!("skipping: no Postgres binaries (initdb, pg_ctl, psql) found");
+
 			return None;
 		};
 
@@ -626,6 +631,7 @@ impl PostgresCluster {
 		} else {
 			" -c unix_socket_directories=''"
 		};
+
 		// No pipes: on Windows the server inherits pg_ctl's output handles, so
 		// waiting for them to close would wait for the server to exit. Its
 		// output goes to the log instead.
@@ -699,6 +705,7 @@ impl PostgresCluster {
 		} else {
 			"postgres"
 		});
+
 		Some((resolve_symlinks(&initdb)?, server))
 	}
 

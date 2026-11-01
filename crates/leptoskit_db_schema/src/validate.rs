@@ -134,6 +134,37 @@ impl Schema {
 		let mut flat_names = HashSet::new();
 		let mut index_names = HashSet::new();
 
+		self.table_problems(&mut flat_names, &mut index_names, &mut problems);
+
+		if self.geopackage && self.dialect != Dialect::Sqlite {
+			problems.push(
+				"schema",
+				"GeoPackage metadata is for SQLite files; Postgres keeps PostGIS's own",
+			);
+		}
+
+		self.view_problems(&mut flat_names, &mut index_names, &mut problems);
+
+		if let Err(cycle) = self.views_in_order() {
+			let names: Vec<String> = cycle.iter().map(ToString::to_string).collect();
+			problems.push(
+				&names.join(", "),
+				"these views read each other, so none can be created first; a view is taken to \
+				 read every view its query names",
+			);
+		}
+
+		self.validate_routines(&mut problems);
+		problems.0
+	}
+
+	/// Every table's names, indexes, and own rules.
+	fn table_problems<'a>(
+		&'a self,
+		flat_names: &mut HashSet<String>,
+		index_names: &mut HashSet<&'a str>,
+		problems: &mut Problems,
+	) {
 		for table in &self.tables {
 			let location = table.name.to_string();
 
@@ -191,18 +222,19 @@ impl Schema {
 				}
 			}
 
-			self.validate_geo_names(table, &mut flat_names, &mut problems);
-			validate_vector_names(table, &mut flat_names, &mut problems);
-			self.validate_table(table, &mut problems);
+			self.validate_geo_names(table, flat_names, problems);
+			validate_vector_names(table, flat_names, problems);
+			self.validate_table(table, problems);
 		}
+	}
 
-		if self.geopackage && self.dialect != Dialect::Sqlite {
-			problems.push(
-				"schema",
-				"GeoPackage metadata is for SQLite files; Postgres keeps PostGIS's own",
-			);
-		}
-
+	/// Every view's names, columns, query, indexes, and security.
+	fn view_problems<'a>(
+		&'a self,
+		flat_names: &mut HashSet<String>,
+		index_names: &mut HashSet<&'a str>,
+		problems: &mut Problems,
+	) {
 		for view in &self.views {
 			let location = view.name.to_string();
 
@@ -263,23 +295,98 @@ impl Schema {
 			}
 
 			for index in &view.indexes {
-				validate_view_index(view, index, &location, &mut index_names, &mut problems);
+				validate_view_index(view, index, &location, index_names, problems);
 			}
 
-			self.validate_view_security(view, &location, &mut problems);
+			self.validate_view_security(view, &location, problems);
+		}
+	}
+
+	/// The key exists and is made of plain, non-null columns.
+	fn validate_primary_key(table: &Table, problems: &mut Problems) {
+		let location = table.name.to_string();
+
+		if table.primary_key.is_empty() {
+			problems.push(&location, "a table needs a primary key");
 		}
 
-		if let Err(cycle) = self.views_in_order() {
-			let names: Vec<String> = cycle.iter().map(ToString::to_string).collect();
-			problems.push(
-				&names.join(", "),
-				"these views read each other, so none can be created first; a view is taken to \
-				 read every view its query names",
-			);
-		}
+		for key in &table.primary_key {
+			match table.column(key) {
+				None => {
+					problems.push(
+						&location,
+						format!("the primary key names `{key}`, which isn't a column"),
+					);
+				}
 
-		self.validate_routines(&mut problems);
-		problems.0
+				Some(column) if column.nullable => {
+					problems.push(
+						&location,
+						format!("the primary key column `{key}` can't be nullable"),
+					);
+				}
+
+				Some(column) if column.generated.is_some() => {
+					problems.push(
+						&location,
+						format!("the primary key column `{key}` can't be generated"),
+					);
+				}
+
+				Some(_) => {}
+			}
+		}
+	}
+
+	/// Row-level security: Postgres only, one policy per command, with the
+	/// clauses that command needs.
+	fn validate_row_security(&self, table: &Table, problems: &mut Problems) {
+		let location = table.name.to_string();
+
+		if let Some(security) = &table.row_security {
+			if self.dialect == Dialect::Sqlite {
+				problems.push(
+					&location,
+					"row-level security is Postgres's; on SQLite the database layer alone \
+					 enforces policies",
+				);
+			}
+
+			let mut commands = HashSet::new();
+
+			for policy in &security.policies {
+				if !commands.insert(policy.command) {
+					problems.push(
+						&location,
+						format!(
+							"two row-level security policies govern {}",
+							policy.command.keyword()
+						),
+					);
+				}
+
+				let wants_using = policy.command != PolicyCommand::Insert;
+				let wants_check = matches!(
+					policy.command,
+					PolicyCommand::Insert | PolicyCommand::Update
+				);
+
+				if policy.using.is_some() != wants_using || policy.check.is_some() != wants_check {
+					problems.push(
+						&location,
+						format!(
+							"the {} policy needs {}",
+							policy.command.keyword(),
+							match (wants_using, wants_check) {
+								(true, true) => "both USING and WITH CHECK",
+								(true, false) => "USING and no WITH CHECK",
+								_ => "WITH CHECK and no USING",
+							}
+						),
+					);
+				}
+			}
+		}
 	}
 
 	/// Sequences and functions exist only on Postgres; every trigger is on a
@@ -592,33 +699,7 @@ impl Schema {
 			validate_column(self.dialect, column, &column_location, problems);
 		}
 
-		if table.primary_key.is_empty() {
-			problems.push(&location, "a table needs a primary key");
-		}
-
-		for key in &table.primary_key {
-			match table.column(key) {
-				None => {
-					problems.push(
-						&location,
-						format!("the primary key names `{key}`, which isn't a column"),
-					);
-				}
-				Some(column) if column.nullable => {
-					problems.push(
-						&location,
-						format!("the primary key column `{key}` can't be nullable"),
-					);
-				}
-				Some(column) if column.generated.is_some() => {
-					problems.push(
-						&location,
-						format!("the primary key column `{key}` can't be generated"),
-					);
-				}
-				Some(_) => {}
-			}
-		}
+		Self::validate_primary_key(table, problems);
 
 		if let Some(search) = &table.search {
 			validate_search(self.dialect, table, search, problems);
@@ -627,50 +708,7 @@ impl Schema {
 		validate_geo_indexes(table, problems);
 		validate_vectors(self.dialect, table, problems);
 
-		if let Some(security) = &table.row_security {
-			if self.dialect == Dialect::Sqlite {
-				problems.push(
-					&location,
-					"row-level security is Postgres's; on SQLite the database layer alone \
-					 enforces policies",
-				);
-			}
-
-			let mut commands = HashSet::new();
-
-			for policy in &security.policies {
-				if !commands.insert(policy.command) {
-					problems.push(
-						&location,
-						format!(
-							"two row-level security policies govern {}",
-							policy.command.keyword()
-						),
-					);
-				}
-
-				let wants_using = policy.command != PolicyCommand::Insert;
-				let wants_check = matches!(
-					policy.command,
-					PolicyCommand::Insert | PolicyCommand::Update
-				);
-
-				if policy.using.is_some() != wants_using || policy.check.is_some() != wants_check {
-					problems.push(
-						&location,
-						format!(
-							"the {} policy needs {}",
-							policy.command.keyword(),
-							match (wants_using, wants_check) {
-								(true, true) => "both USING and WITH CHECK",
-								(true, false) => "USING and no WITH CHECK",
-								_ => "WITH CHECK and no USING",
-							}
-						),
-					);
-				}
-			}
-		}
+		self.validate_row_security(table, problems);
 
 		let mut constraint_names = HashSet::new();
 
@@ -754,6 +792,7 @@ impl Schema {
 				&location,
 				format!("foreign key `{name}` has a different number of columns on each side"),
 			);
+
 			return;
 		}
 
@@ -765,6 +804,7 @@ impl Schema {
 					foreign_key.references
 				),
 			);
+
 			return;
 		};
 
@@ -985,6 +1025,7 @@ fn validate_search(dialect: Dialect, table: &Table, search: &Search, problems: &
 					format!("searches `{}`, which isn't a column", searched.name),
 				);
 			}
+
 			Some(column) if !matches!(column.ty, ColumnType::Text { .. }) => {
 				problems.push(
 					&location,
@@ -994,6 +1035,7 @@ fn validate_search(dialect: Dialect, table: &Table, search: &Search, problems: &
 					),
 				);
 			}
+
 			Some(column) if column.generated.is_some() => {
 				problems.push(
 					&location,
@@ -1003,6 +1045,7 @@ fn validate_search(dialect: Dialect, table: &Table, search: &Search, problems: &
 					),
 				);
 			}
+
 			Some(_) => {}
 		}
 	}
@@ -1187,6 +1230,7 @@ fn validate_vector_index(
 				index.name()
 			),
 		);
+
 		return;
 	};
 
@@ -1247,6 +1291,7 @@ fn validate_vector_sources(
 					format!("the vector is made from `{source}`, which isn't a column"),
 				);
 			}
+
 			Some(column) if !matches!(column.ty, ColumnType::Text { .. }) => {
 				problems.push(
 					location,
@@ -1256,6 +1301,7 @@ fn validate_vector_sources(
 					),
 				);
 			}
+
 			Some(_) => {}
 		}
 	}
@@ -1362,6 +1408,7 @@ fn validate_geo_indexes(table: &Table, problems: &mut Problems) {
 					),
 				);
 			}
+
 			Some(column) if column.ty.geo().is_none() => {
 				problems.push(
 					&location,
@@ -1372,6 +1419,7 @@ fn validate_geo_indexes(table: &Table, problems: &mut Problems) {
 					),
 				);
 			}
+
 			Some(column) if column.generated.is_some() => {
 				problems.push(
 					&location,
@@ -1382,6 +1430,7 @@ fn validate_geo_indexes(table: &Table, problems: &mut Problems) {
 					),
 				);
 			}
+
 			Some(_) => {}
 		}
 	}
@@ -1400,6 +1449,7 @@ fn validate_check(table: &Table, check: &Check, problems: &mut Problems) {
 				check.name
 			),
 		);
+
 		return;
 	};
 

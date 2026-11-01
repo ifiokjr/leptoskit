@@ -332,6 +332,7 @@ mod tests {
 		let mut profile = table(profiles, &["id"], &["id"]);
 		link(&mut profile, "id", &users);
 		let mut post = table(posts, &["id", "author_id"], &["id"]);
+
 		link(&mut post, "author_id", &users);
 		let mut follow = table(
 			follows.clone(),
@@ -395,6 +396,7 @@ mod tests {
 			[vec!["followee_id".to_owned()]]
 		);
 		assert!(data.references[3].one_per_account());
+
 		assert!(!data.references[0].one_per_account());
 	}
 

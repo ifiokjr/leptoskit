@@ -177,6 +177,7 @@ pub fn source_fingerprint_sql(dialect: Dialect, row: Option<&str>, sources: &[St
 				Dialect::Postgres => format!("octet_length({source})::text"),
 				Dialect::Sqlite => format!("octet_length({source})"),
 			};
+
 			format!("coalesce({length} || ':' || {source}, '-') || ';'")
 		})
 		.collect();
