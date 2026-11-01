@@ -114,6 +114,19 @@ pub enum SpecFormat {
 	OpenapiYaml,
 }
 
+/// `leptoskit devtools` subcommands.
+#[derive(Debug, Subcommand)]
+pub enum DevtoolsCommand {
+	/// Downloads the `DevTools` interface for exactly this leptoskit version,
+	/// checked against the hash built into it. `leptoskit dev` does this on
+	/// first use; run it ahead of time for CI or to work offline.
+	Fetch {
+		/// Download it again even when it is already there.
+		#[arg(long)]
+		force: bool,
+	},
+}
+
 /// The subcommands.
 #[derive(Debug, Subcommand)]
 pub enum Command {
@@ -144,6 +157,11 @@ pub enum Command {
 	Device {
 		#[command(subcommand)]
 		command: crate::device::DeviceCommand,
+	},
+	/// Manages the `DevTools` interface that `leptoskit dev`'s hub serves.
+	Devtools {
+		#[command(subcommand)]
+		command: DevtoolsCommand,
 	},
 	/// Serves the device control API over the Model Context Protocol, on
 	/// standard input and output or over HTTP.
@@ -588,6 +606,9 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		Command::Native { command } => crate::native::run(command),
 		Command::Test { command } => crate::testing::run(command),
 		Command::Device { command } => crate::device::run(command),
+		Command::Devtools {
+			command: DevtoolsCommand::Fetch { force },
+		} => crate::devtools::fetch::run(force),
 		Command::Mcp { command } => crate::mcp::run(command),
 		Command::Rpc { command } => rpc::run(command),
 		Command::Publish(args) => crate::publish::run(&args),

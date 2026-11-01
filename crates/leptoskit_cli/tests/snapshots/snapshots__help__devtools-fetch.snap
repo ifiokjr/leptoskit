@@ -1,0 +1,12 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Downloads the `DevTools` interface for exactly this leptoskit version, checked against the hash built into it. `leptoskit dev` does this on first use; run it ahead of time for CI or to work offline
+
+Usage: leptoskit devtools fetch [OPTIONS]
+
+Options:
+      --force    Download it again even when it is already there
+  -h, --help     Print help
+  -V, --version  Print version
