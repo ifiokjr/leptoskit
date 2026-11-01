@@ -80,6 +80,46 @@ pub struct ReadEntry {
 }
 
 impl ReadEntry {
+	/// Whether a write to one row could change what this read returned.
+	///
+	/// It says `false` only when the row certainly wasn't in the result,
+	/// before or after the write: it belongs to another table, or neither
+	/// image meets the read's condition. A condition
+	/// [`Expr::eval`](crate::Expr::eval) can't decide — a dialect
+	/// difference, a subquery, a setting — counts as a change, so the worst
+	/// case is a re-run. A row that matches may still fall outside a
+	/// limited window; that re-runs too.
+	#[must_use]
+	pub fn could_change(&self, change: &crate::live::Change, dialect: Dialect) -> bool {
+		if self.table != change.table {
+			return false;
+		}
+		if self.kind == ReadKind::Table {
+			return true;
+		}
+		let Some(entry) = crate::table::entries().get(&change.table).copied() else {
+			return true;
+		};
+		let definition = (entry.definition)();
+		let decode = |image: &serde_json::Map<String, serde_json::Value>| {
+			let names: Vec<&str> = image.keys().map(String::as_str).collect();
+			let values = crate::live::logged_values(&definition, &names, image, dialect).ok()?;
+			Some(
+				names
+					.into_iter()
+					.zip(values)
+					.map(|(name, value)| (name.to_owned(), value))
+					.collect::<std::collections::HashMap<_, _>>(),
+			)
+		};
+		let old = change.old.as_ref().and_then(decode);
+		let new = change.new.as_ref().and_then(decode);
+		let may =
+			|row: &std::collections::HashMap<String, Value>| self.condition.eval(row).may_match();
+
+		old.as_ref().is_some_and(may) || new.as_ref().is_some_and(may)
+	}
+
 	/// An entry for rows of `table` meeting `condition`, in no order.
 	pub(crate) fn new(table: TableName, kind: ReadKind, condition: Expr) -> Self {
 		Self {
@@ -462,5 +502,49 @@ mod tests {
 		assert!(entries.iter().all(|entry| {
 			entry.table == rooms() && entry.kind == ReadKind::Count && entry.keys.is_none()
 		}));
+	}
+	#[test]
+	fn a_write_changes_a_read_only_when_its_row_could_match() {
+		use crate::live::Change;
+		use crate::live::ChangeOp;
+
+		let entry = ReadEntry {
+			table: rooms(),
+			kind: ReadKind::Rows,
+			condition: Room::columns().floor.gt(1),
+			order: Vec::new(),
+			limit: None,
+			offset: None,
+			keys: None,
+		};
+		let image = |floor: i64| {
+			serde_json::Map::from_iter([("floor".to_owned(), serde_json::json!(floor))])
+		};
+		let change = |op, old: Option<i64>, new: Option<i64>| {
+			Change {
+				table: rooms(),
+				op,
+				key: vec!["1".to_owned()],
+				old: old.map(image),
+				new: new.map(image),
+				changed: Vec::new(),
+			}
+		};
+
+		assert!(entry.could_change(&change(ChangeOp::Insert, None, Some(3)), Dialect::Sqlite));
+		assert!(!entry.could_change(&change(ChangeOp::Insert, None, Some(0)), Dialect::Sqlite));
+		assert!(entry.could_change(&change(ChangeOp::Update, Some(0), Some(2)), Dialect::Sqlite));
+		assert!(!entry.could_change(&change(ChangeOp::Delete, Some(1), None), Dialect::Sqlite));
+
+		// An image without the column can't be judged, so the read re-runs.
+		let missing = Change {
+			table: rooms(),
+			op: ChangeOp::Insert,
+			key: vec!["1".to_owned()],
+			old: None,
+			new: Some(serde_json::Map::new()),
+			changed: Vec::new(),
+		};
+		assert!(entry.could_change(&missing, Dialect::Sqlite));
 	}
 }

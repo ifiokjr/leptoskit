@@ -90,7 +90,7 @@ On a platform with no socket — a server render, or a build without the `web` o
 
 ## What arrives
 
-A change makes the server re-run the connection's queries. Only results that changed are sent. Two shapes:
+Each query records the tables, rows, and conditions it read. When a commit arrives, the server checks those read sets against the changed rows and re-runs only the queries the write could change; a condition the matcher can't decide re-runs rather than risks a stale screen. Only results that changed are sent. Two shapes:
 
 - **A list of rows with an `id`** travels as a patch: the ids removed, and the rows inserted or replaced, with their positions. A 2,000-message channel's update stays about one message's size.
 - **Everything else** travels whole.
