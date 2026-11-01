@@ -301,6 +301,7 @@ impl SliderState {
 		} else {
 			steps.round() - 1.0
 		};
+
 		let index = ((value.clamp(self.min, self.max) - self.min) / step)
 			.round()
 			.clamp(0.0, last);

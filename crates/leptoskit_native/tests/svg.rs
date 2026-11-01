@@ -93,6 +93,7 @@ fn groups_inherit_styles_and_compose_transforms() {
 	// User-space lengths grow with the 2× scale.
 	assert_eq!(stroke.width(), 6.0);
 	assert_eq!(stroke.dash_lengths(), &[4.0, 2.0, 4.0, 4.0, 2.0, 4.0]);
+
 	assert_eq!(stroke.miter(), 8.0);
 
 	let line = &drawing.paths()[1];

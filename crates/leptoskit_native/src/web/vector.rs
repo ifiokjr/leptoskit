@@ -23,6 +23,7 @@ pub(super) fn svg(drawing: Option<&Drawing>) -> AnyView {
 	let default = Drawing::default();
 	let drawing = drawing.unwrap_or(&default);
 	let alignment = drawing.alignment().svg_keyword();
+
 	let aspect = match drawing.vector_scaling() {
 		VectorScaling::Fit => format!("{alignment} meet"),
 		VectorScaling::Fill => format!("{alignment} slice"),

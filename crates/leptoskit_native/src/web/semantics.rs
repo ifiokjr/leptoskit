@@ -112,9 +112,11 @@ pub(super) fn tag(kind: NativeKind, aria: &Aria, named: bool, leaf: bool) -> Tag
 		(true, Some(Role::ContentInfo)) => Tag::Footer,
 		(true, Some(Role::Complementary)) => Tag::Aside,
 		(true, Some(Role::Article)) => Tag::Article,
+
 		(true, Some(Role::Region)) if named => Tag::Section,
 		(true, Some(Role::Search)) => Tag::Search,
 		(true, Some(Role::Paragraph)) => Tag::Paragraph,
+
 		(true, Some(Role::Separator)) if leaf => Tag::Rule,
 		(true, _) => Tag::Div,
 		(false, Some(Role::Heading)) => {
@@ -160,6 +162,7 @@ pub(super) fn attributes(
 	custom_control: bool,
 ) -> Vec<AnyAttribute> {
 	let mut attrs = Vec::new();
+
 	let flag = |value: bool| Some(if value { "true" } else { "false" }.to_owned());
 	let number = |value: f64| Some(value.to_string());
 	let ids = |ids: &[String]| (!ids.is_empty()).then(|| ids.join(" "));

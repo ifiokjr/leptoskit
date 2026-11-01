@@ -47,6 +47,7 @@ fn heading_status_alert_and_divider_helpers_render_semantics() {
 	assert!(page.contains("role=\"alert\""));
 	assert!(page.contains("Connection lost"));
 	assert_eq!(page.matches("<hr").count(), 2);
+
 	assert!(page.contains("aria-orientation=\"vertical\""));
 }
 
@@ -85,6 +86,7 @@ fn structural_roles_render_their_html_elements_without_redundant_roles() {
 	assert!(!page.contains("aria-level=\"2\""));
 	assert!(page.contains("<ul"));
 	assert_eq!(page.matches("<li").count(), 2);
+
 	assert!(page.contains("list-style:none;"));
 	assert!(page.contains("<nav"));
 	assert!(page.contains("<header"));
@@ -132,6 +134,7 @@ fn control_roles_on_containers_join_the_tab_order_and_native_controls_do_not_rep
 	assert!(page.contains("role=\"switch\""));
 	assert!(page.contains("aria-checked=\"mixed\""));
 	assert!(page.contains("role=\"group\""));
+
 	assert!(!page.contains("role=\"group\" tabindex"));
 }
 

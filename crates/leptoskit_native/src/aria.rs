@@ -792,7 +792,6 @@ pub fn accepts_attribute(name: &str) -> bool {
 /// accessibility API. [`Element::resolved`](crate::Element::resolved) folds
 /// relationship targets and radio set positions into concrete fields for
 /// backends.
-
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(
 	feature = "serde",

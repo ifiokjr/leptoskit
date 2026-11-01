@@ -173,6 +173,7 @@ impl<'de> serde::Deserialize<'de> for Paint {
 
 		match Wire::deserialize(deserializer)? {
 			Wire::Color(packed) => Ok(Self::Color(Color(packed))),
+
 			Wire::Keyword(keyword) if keyword == "current_color" => Ok(Self::CurrentColor),
 			Wire::Keyword(other) => {
 				Err(serde::de::Error::custom(format!(
@@ -1012,6 +1013,7 @@ impl Drawing {
 				} else {
 					scale_x.max(scale_y)
 				};
+
 				(
 					scale,
 					scale,

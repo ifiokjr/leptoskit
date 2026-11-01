@@ -157,6 +157,7 @@ fn scroll_after_render() {
 			} else {
 				web_sys::ScrollBehavior::Instant
 			});
+
 			element.scroll_to_with_scroll_to_options(&options);
 			let _ = element.set_attribute(APPLIED, &target);
 		}
@@ -265,6 +266,7 @@ fn render_node(
 		Some(spans) => spans_view(spans),
 		None => text.clone().into_any(),
 	};
+
 	let custom_control = semantics::custom_control(kind, props.aria());
 
 	let child_paths = path.children(&element.children);
@@ -404,60 +406,14 @@ fn listeners(
 			}
 		}),
 		on(ev::keydown, move |event| {
-			if !controls::interactive(event.as_ref()) {
-				return;
-			}
-
-			// Key handlers hear every key inside them, typing included, before
-			// the focused control acts on it. A handled key loses its browser
-			// meaning, so ctrl+p does not print. Command-key shortcuts
-			// stay the browser's.
-			if listens_for_keys && !event.is_composing() && !event.meta_key() {
-				let native = NativeEvent::Key(crate::KeyPress {
-					key: event.key(),
-					ctrl: event.ctrl_key(),
-					alt: event.alt_key(),
-					shift: event.shift_key(),
-				});
-
-				if dispatch(&keys, &native, event.as_ref()) == EventOutcome::Handled {
-					event.prevent_default();
-					return;
-				}
-			}
-
-			if controls::typed_target(event.as_ref()) {
-				return;
-			}
-
-			let input = event
-				.target()
-				.and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok());
-
-			if let Some(input) = input.filter(|_| event.key() == "Enter" && !event.is_composing()) {
-				let native = NativeEvent::Submit {
-					value: input.value(),
-				};
-
-				if dispatch(&submit, &native, event.as_ref()) == EventOutcome::Handled {
-					event.prevent_default();
-				}
-
-				return;
-			}
-
-			// A container with a control role has no native activation, so
-			// Enter and Space press it, as they do a `<button>`. Only the
-			// focused element itself activates, not an ancestor control.
-			if custom_control
-				&& matches!(event.key().as_str(), "Enter" | " ")
-				&& !event.is_composing()
-				&& event.target() == event.current_target()
-				&& dispatch(&key_press, &NativeEvent::Press, event.as_ref())
-					== EventOutcome::Handled
-			{
-				event.prevent_default();
-			}
+			on_keydown(
+				keys.as_ref(),
+				submit.as_ref(),
+				key_press.as_ref(),
+				listens_for_keys,
+				custom_control,
+				&event,
+			);
 		}),
 		on(ev::focusin, move |event| {
 			if !controls::interactive(event.as_ref()) {
@@ -473,30 +429,7 @@ fn listeners(
 
 			dispatch(&blur, &NativeEvent::Blur, event.as_ref());
 		}),
-		on(ev::scroll, move |event| {
-			if !controls::interactive(&event) {
-				return;
-			}
-
-			let target = event
-				.target()
-				.and_then(|target| target.dyn_into::<web_sys::Element>().ok())
-				.expect("scroll events from leptoskit controls target DOM elements");
-			let native = NativeEvent::Scroll {
-				offset_x: target.scroll_left() as f32,
-				offset_y: target.scroll_top() as f32,
-			};
-
-			// Browser scroll does not bubble, so walk the native ancestor
-			// chain.
-			for handlers in scroll_chain.iter().rev() {
-				if dispatch(handlers, &native, &event) == EventOutcome::Handled {
-					break;
-				}
-			}
-
-			event.stop_propagation();
-		}),
+		on(ev::scroll, move |event| on_scroll(&scroll_chain, &event)),
 	)
 }
 
@@ -733,6 +666,7 @@ fn typed_element(parts: NodeParts, attrs: impl Attribute + 'static) -> AnyView {
 			.add_any_attr(attrs)
 			.into_any()
 		}
+
 		NativeKind::Slider => {
 			controls::slider(props.slider.unwrap_or_default(), enabled, chain)
 				.add_any_attr(attrs)
@@ -743,6 +677,7 @@ fn typed_element(parts: NodeParts, attrs: impl Attribute + 'static) -> AnyView {
 				Progress::Indeterminate => None,
 				Progress::Determinate(value) => Some(value.get().to_string()),
 			};
+
 			html::progress()
 				.max("1")
 				.value(value)
@@ -811,6 +746,97 @@ fn activity_indicator(running: bool, attrs: impl Attribute + 'static) -> AnyView
 }
 
 /// Mirrors `NativeSurface`: invoke every matching handler on the current node.
+/// Browser scroll does not bubble, so walk the native ancestor chain.
+fn on_scroll(scroll_chain: &[Handlers], event: &web_sys::Event) {
+	if !controls::interactive(event) {
+		return;
+	}
+
+	let target = event
+		.target()
+		.and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+		.expect("scroll events from leptoskit controls target DOM elements");
+	let native = NativeEvent::Scroll {
+		offset_x: target.scroll_left() as f32,
+		offset_y: target.scroll_top() as f32,
+	};
+
+	// Browser scroll does not bubble, so walk the native ancestor
+	// chain.
+	for handlers in scroll_chain.iter().rev() {
+		if dispatch(handlers, &native, event) == EventOutcome::Handled {
+			break;
+		}
+	}
+
+	event.stop_propagation();
+}
+
+/// Key handlers hear every key inside them, typing included, before the
+/// focused control acts on it.
+fn on_keydown(
+	handlers: &[HandlerEntry],
+	submit: &[HandlerEntry],
+	key_press: &[HandlerEntry],
+	listens_for_keys: bool,
+	custom_control: bool,
+	event: &web_sys::KeyboardEvent,
+) {
+	if !controls::interactive(event.as_ref()) {
+		return;
+	}
+
+	// Key handlers hear every key inside them, typing included, before
+	// the focused control acts on it. A handled key loses its browser
+	// meaning, so ctrl+p does not print. Command-key shortcuts
+	// stay the browser's.
+	if listens_for_keys && !event.is_composing() && !event.meta_key() {
+		let native = NativeEvent::Key(crate::KeyPress {
+			key: event.key(),
+			ctrl: event.ctrl_key(),
+			alt: event.alt_key(),
+			shift: event.shift_key(),
+		});
+
+		if dispatch(handlers, &native, event.as_ref()) == EventOutcome::Handled {
+			event.prevent_default();
+			return;
+		}
+	}
+
+	if controls::typed_target(event.as_ref()) {
+		return;
+	}
+
+	let input = event
+		.target()
+		.and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok());
+
+	if let Some(input) = input.filter(|_| event.key() == "Enter" && !event.is_composing()) {
+		let native = NativeEvent::Submit {
+			value: input.value(),
+		};
+
+		if dispatch(submit, &native, event.as_ref()) == EventOutcome::Handled {
+			event.prevent_default();
+		}
+
+		return;
+	}
+
+	// A container with a control role has no native activation, so
+	// Enter and Space press it, as they do a `<button>`. Only the
+	// focused element itself activates, not an ancestor control.
+	if custom_control
+		&& matches!(event.key().as_str(), "Enter" | " ")
+		&& !event.is_composing()
+		&& event.target() == event.current_target()
+		&& dispatch(key_press, &NativeEvent::Press, event.as_ref()) == EventOutcome::Handled
+	{
+		event.prevent_default();
+	}
+}
+
 fn dispatch(
 	handlers: &[HandlerEntry],
 	native: &NativeEvent,
@@ -873,6 +899,7 @@ mod devtools_tests {
 			);
 			assert_eq!(attributes.key.map(|key| key.len()), Some(16));
 		}
+
 		#[cfg(not(feature = "devtools"))]
 		assert!(attributes.node.is_none() && attributes.key.is_none());
 		let paths = NodePath::root().children(&element.children);
@@ -892,6 +919,7 @@ mod devtools_tests {
 	fn web_keys_match_native_keys() {
 		fn web_keys(element: &Element, path: &NodePath, keys: &mut Vec<String>) {
 			keys.push(crate::devtools::format(path.key));
+
 			for (child, path) in element
 				.children
 				.iter()

@@ -53,6 +53,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 		self.backend.apply(&mutations);
 		#[cfg(feature = "devtools")]
 		self.devtools.source(mutations.len(), source_start);
+
 		self.commit_layout();
 
 		// A held control that was replaced, removed, disabled, or hidden by

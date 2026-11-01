@@ -81,6 +81,23 @@ pub(super) struct Players {
 	error: Option<Error>,
 }
 
+/// Validates and sets the inputs that changed between two playbacks.
+fn apply_inputs(player: &mut Player, content: &Playback, previous: &Playback) -> Result<(), Error> {
+	for (name, update) in content.inputs() {
+		if previous.inputs().get(name) != Some(update) {
+			player.validate_input(name, update.value)?;
+		}
+	}
+
+	for (name, update) in content.inputs() {
+		if previous.inputs().get(name) != Some(update) {
+			player.set_input(name, update.value)?;
+		}
+	}
+
+	Ok(())
+}
+
 impl Players {
 	fn update(&mut self, id: NodeId, props: &NativeProps) {
 		let Some(content) = props.rive.as_deref() else {
@@ -88,29 +105,36 @@ impl Players {
 		};
 		let running = props.running == Some(true);
 
+		if self.reuse(id, content, running) {
+			return;
+		}
+
+		if !self.entries.contains_key(&id.index()) && self.entries.len() >= 16 {
+			self.error = Some(Error::Runtime(
+				"a native surface supports at most 16 Rive players".into(),
+			));
+
+			return;
+		}
+
+		self.create(id, content, running);
+	}
+
+	/// Updates the player already playing this node, when its scene didn't
+	/// change. Says whether it did.
+	fn reuse(&mut self, id: NodeId, content: &Playback, running: bool) -> bool {
 		if let Some((_, previous)) = self.entries.get_mut(&id.index()) {
 			if previous.content == *content && previous.running == running {
-				return;
+				return true;
 			}
 
 			if previous.content.same_scene(content)
 				&& let Ok(player) = &mut previous.player
 			{
-				for (name, update) in content.inputs() {
-					if previous.content.inputs().get(name) != Some(update)
-						&& let Err(error) = player.validate_input(name, update.value)
-					{
-						self.error = Some(error);
-						return;
-					}
-				}
-				for (name, update) in content.inputs() {
-					if previous.content.inputs().get(name) != Some(update)
-						&& let Err(error) = player.set_input(name, update.value)
-					{
-						self.error = Some(error);
-						return;
-					}
+				if let Err(error) = apply_inputs(player, content, &previous.content) {
+					self.error = Some(error);
+
+					return true;
 				}
 
 				if previous.running != running {
@@ -120,18 +144,18 @@ impl Players {
 						player.pause();
 					}
 				}
+
 				previous.content = content.clone();
 				previous.running = running;
-				return;
+
+				return true;
 			}
 		}
+		false
+	}
 
-		if !self.entries.contains_key(&id.index()) && self.entries.len() >= 16 {
-			self.error = Some(Error::Runtime(
-				"a native surface supports at most 16 Rive players".into(),
-			));
-			return;
-		}
+	/// Starts a player for the node.
+	fn create(&mut self, id: NodeId, content: &Playback, running: bool) {
 		let player = Player::new(
 			content.asset(),
 			&Options {
@@ -144,12 +168,14 @@ impl Players {
 			for (name, update) in content.inputs() {
 				player.set_input(name, update.value)?;
 			}
+
 			Ok(player)
 		});
 
 		if let Err(error) = &player {
 			self.error = Some(error.clone());
 		}
+
 		self.entries.insert(
 			id.index(),
 			(
@@ -174,9 +200,11 @@ impl Players {
 		if let Some(error) = self.error.take() {
 			return Err(error);
 		}
+
 		if !environment.scale.is_finite() || environment.scale <= 0.0 {
 			return Err(Error::InvalidFrame);
 		}
+
 		let budget = MAX_FRAME_PIXELS.min(8_388_608 / self.entries.len().max(1) as u64);
 		let mut needs_frame = false;
 
@@ -194,6 +222,7 @@ impl Players {
 				visible &= shadow.props.hidden != Some(true) && shadow.props.opacity != Some(0.0);
 				ancestor = shadow.parent;
 			}
+
 			visible &= presenter.visible(*id);
 			player.set_visible(visible);
 			player.set_reduced_motion(environment.reduced_motion);
@@ -201,6 +230,7 @@ impl Players {
 			if !visible {
 				continue;
 			}
+
 			let layout = layout.ok_or(Error::InvalidFrame)?;
 			let (width, height) =
 				backing_size(layout.width, layout.height, environment.scale, budget)?;
@@ -208,15 +238,19 @@ impl Players {
 				if let Some(frame) = frame {
 					presenter.present(*id, &frame)?;
 				}
+
 				Ok(())
 			});
 
 			if let Err(error) = result {
 				entry.player = Err(error.clone());
+
 				return Err(error);
 			}
+
 			needs_frame |= player.needs_frame();
 		}
+
 		Ok(needs_frame)
 	}
 }
@@ -225,6 +259,7 @@ fn backing_size(width: f32, height: f32, scale: f32, budget: u64) -> Result<(u32
 	if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
 		return Err(Error::InvalidFrame);
 	}
+
 	let (width, height) = (f64::from(width), f64::from(height));
 	let scale = f64::from(scale.min(2.0))
 		.min(4096.0 / width)
@@ -262,6 +297,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 					// into native UI JSON.
 					props.rive = None;
 				}
+
 				Mutation::UpdateProps { id, props }
 					if self.shadows[id.index()].kind == NativeKind::Rive =>
 				{
@@ -273,8 +309,10 @@ impl<B: NativeBackend> NativeSurface<B> {
 				}
 				_ => {}
 			}
+
 			output.push(mutation);
 		}
+
 		output
 	}
 

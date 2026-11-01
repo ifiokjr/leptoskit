@@ -25,6 +25,7 @@ fn decorative_content_determines_layout_and_hits_target_the_pressable() {
 	assert!((frame.width - 240.0).abs() < 0.01);
 	assert!((frame.height - 80.0).abs() < 0.01);
 	assert!(surface.frame(content).unwrap().height > 0.0);
+
 	assert_eq!(surface.props(root).text, None);
 	assert_eq!(surface.hit_test(120.0, 40.0), Some(root));
 	assert_eq!(surface.hit_test(1.0, 1.0), None);

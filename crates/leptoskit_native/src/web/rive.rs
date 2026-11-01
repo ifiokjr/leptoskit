@@ -72,6 +72,7 @@ mod client {
 			self.phase = Phase::Failed;
 			let message = error.to_string();
 			web_sys::console::error_1(&message.clone().into());
+
 			if let Err(error) = self.canvas.set_attribute("data-lk-rive-error", &message) {
 				web_sys::console::error_1(&error);
 			}
@@ -87,17 +88,21 @@ mod client {
 					.and_then(|old| old.inputs().get(*name))
 					!= Some(*update)
 			});
+
 			for (name, update) in changed.clone() {
 				player.validate_input(name, update.value)?;
 			}
+
 			for (name, update) in changed {
 				player.set_input(name, update.value)?;
 			}
+
 			if self.running {
 				player.play()?;
 			} else {
 				player.pause()?;
 			}
+
 			self.applied = Some(self.content.clone());
 			Ok(())
 		}
@@ -128,6 +133,7 @@ mod client {
 			let reload = !live.content.same_scene(&binding.content);
 			live.content = binding.content;
 			live.running = binding.running;
+
 			if reload {
 				drop(live);
 				self.reload();
@@ -141,13 +147,16 @@ mod client {
 			live.player.take();
 			live.applied = None;
 			live.phase = Phase::Loading;
+
 			if let Err(error) = live.canvas.remove_attribute("data-lk-rive-error") {
 				web_sys::console::error_1(&error);
 				live.fail(&Error::Runtime(
 					"could not clear the previous Rive canvas diagnostic".into(),
 				));
+
 				return;
 			}
+
 			live.generation += 1;
 			let generation = live.generation;
 			let weak = Rc::downgrade(&self.0);
@@ -162,9 +171,11 @@ mod client {
 				return;
 			};
 			let mut live = shared.borrow_mut();
+
 			if live.phase != Phase::Loading || live.generation != generation {
 				return;
 			}
+
 			let result = live
 				.runtime
 				.as_ref()
@@ -187,6 +198,7 @@ mod client {
 						},
 					)
 				});
+
 			let player = match result {
 				Ok(player) => player,
 				Err(error) => {
@@ -194,7 +206,9 @@ mod client {
 					return;
 				}
 			};
+
 			let ready = player.ready();
+
 			live.player = Some(player);
 			drop(live);
 			leptos::task::spawn_local(async move {
@@ -206,6 +220,7 @@ mod client {
 				if live.phase != Phase::Loading || live.generation != generation {
 					return;
 				}
+
 				live.phase = Phase::Ready;
 				if let Err(error) = result.and_then(|()| live.apply()) {
 					live.fail(&error);

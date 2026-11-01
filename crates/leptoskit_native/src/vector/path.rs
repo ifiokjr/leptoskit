@@ -117,6 +117,7 @@ impl PathCommand {
 			} => [Some(control1), Some(control2), Some(to)],
 			Self::Close => [None, None, None],
 		};
+
 		points.into_iter().flatten()
 	}
 }
@@ -220,6 +221,7 @@ impl PathData {
 			let radii = Point::new(rx, ry);
 			builder.move_to(Point::new(x + rx, y));
 			builder.line_to(Point::new(right - rx, y));
+
 			builder.arc(radii, 0.0, false, true, Point::new(right, y + ry));
 			builder.line_to(Point::new(right, bottom - ry));
 			builder.arc(radii, 0.0, false, true, Point::new(right - rx, bottom));
@@ -358,6 +360,7 @@ fn format_canonical(commands: &[PathCommand]) -> String {
 		if index > 0 {
 			text.push(' ');
 		}
+
 		text.push(letter);
 
 		for point in command.points() {
@@ -427,6 +430,7 @@ impl Builder {
 			PathCommand::MoveTo(point) => {
 				self.start = point;
 			}
+
 			_ if self.commands.is_empty() => return Err(VectorError::MissingMoveTo),
 			// A closed subpath that keeps drawing restarts at its start point;
 			// spelling the move out spares every backend that rule.
@@ -435,11 +439,13 @@ impl Builder {
 		}
 
 		self.closed = command == PathCommand::Close;
+
 		self.current = match command {
 			PathCommand::MoveTo(point) | PathCommand::LineTo(point) => point,
 			PathCommand::QuadTo { to, .. } | PathCommand::CubicTo { to, .. } => to,
 			PathCommand::Close => self.start,
 		};
+
 		self.commands.push(command);
 		Ok(())
 	}
@@ -517,6 +523,7 @@ fn arc_to_cubics(
 	// Radii too small to span the end points scale up uniformly until they
 	// just do.
 	let lambda = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry);
+
 	if lambda > 1.0 {
 		rx *= lambda.sqrt();
 		ry *= lambda.sqrt();
@@ -637,6 +644,7 @@ impl<'a> Parser<'a> {
 		} else {
 			Point::default()
 		};
+
 		let mut control = None;
 
 		let commands = match letter.to_ascii_uppercase() {
@@ -735,11 +743,13 @@ impl<'a> Parser<'a> {
 	fn flag(&mut self) -> Result<bool, VectorError> {
 		self.skip_separators();
 		let offset = self.position;
+
 		let flag = match self.peek() {
 			Some(b'0') => false,
 			Some(b'1') => true,
 			_ => return Err(VectorError::PathData { offset }),
 		};
+
 		self.position += 1;
 		Ok(flag)
 	}
@@ -958,6 +968,7 @@ impl Affine {
 				})
 				.collect::<Option<Vec<_>>>()
 				.ok_or_else(error)?;
+
 			let next = match (name, arguments.as_slice()) {
 				("matrix", &[a, b, c, d, e, f]) => Self { a, b, c, d, e, f },
 				("translate", &[x]) => Self::translate(x, 0.0),
@@ -974,6 +985,7 @@ impl Affine {
 				("skewY", &[angle]) => Self::skew_y(angle),
 				_ => return Err(error()),
 			};
+
 			result = result.then(next);
 			rest =
 				rest[close + 1..].trim_start_matches(|c: char| c.is_ascii_whitespace() || c == ',');

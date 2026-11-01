@@ -27,9 +27,11 @@ fn ticker(frame: u64) -> Element {
 
 fn per_frame(label: &str, frames: u64, mut run: impl FnMut(u64)) {
 	let start = Instant::now();
+
 	for frame in 1..=frames {
 		run(frame);
 	}
+
 	println!(
 		"{label:>36}: {:>8.3} ms per frame",
 		start.elapsed().as_secs_f64() * 1000.0 / frames as f64

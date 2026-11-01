@@ -173,6 +173,7 @@ impl Tailwind {
 			if cache.len() >= PARSED_LIMIT {
 				cache.clear();
 			}
+
 			cache.insert(classes.into(), parsed.clone());
 		});
 		Ok(parsed)
@@ -493,6 +494,7 @@ impl Tailwind {
 				for declaration in &rule.declarations {
 					declaration.css(&mut declarations, rule.important);
 				}
+
 				ClassExplanation {
 					class: rule.class.clone(),
 					declarations,
@@ -506,18 +508,23 @@ impl Tailwind {
 #[cfg(feature = "devtools")]
 fn variant(conditions: &Conditions) -> Option<String> {
 	let mut parts = Vec::new();
+
 	if conditions.dark {
 		parts.push("dark".to_owned());
 	}
+
 	if let Some(min) = conditions.min_width {
 		parts.push(format!("min-width: {min}px"));
 	}
+
 	if let Some(max) = conditions.max_width {
 		parts.push(format!("max-width: {max}px"));
 	}
+
 	if conditions.active {
 		parts.push("active".to_owned());
 	}
+
 	(!parts.is_empty()).then(|| parts.join(", "))
 }
 

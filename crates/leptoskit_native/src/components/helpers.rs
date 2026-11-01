@@ -179,11 +179,13 @@ impl Alignment {
 			Self::CenterStart | Self::Center | Self::CenterEnd => JustifyContent::Center,
 			Self::BottomStart | Self::BottomCenter | Self::BottomEnd => JustifyContent::FlexEnd,
 		};
+
 		let horizontal = match self {
 			Self::TopStart | Self::CenterStart | Self::BottomStart => BoxAlign::FlexStart,
 			Self::TopCenter | Self::Center | Self::BottomCenter => BoxAlign::Center,
 			Self::TopEnd | Self::CenterEnd | Self::BottomEnd => BoxAlign::FlexEnd,
 		};
+
 		(vertical, horizontal)
 	}
 }
@@ -642,5 +644,6 @@ tag!(Spacer => Spacer());
 tag!(ClipRect => ClipRect());
 tag!(Divider => Divider());
 tag!(VerticalDivider => VerticalDivider());
+
 tag!(Card => Card());
 tag!(ListView => ListView());

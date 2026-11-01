@@ -50,6 +50,7 @@ impl RivePresenter for Presenter {
 		if self.fail {
 			return Err(RiveError::Runtime("upload failed".into()));
 		}
+
 		self.uploads.push((id, frame.bytes().to_vec()));
 		Ok(())
 	}
@@ -71,6 +72,7 @@ fn reconciliation_retains_the_pose_and_never_sends_assets_to_widgets() {
 	surface
 		.tick_rive_with(Duration::from_millis(100), environment, &mut presenter)
 		.unwrap();
+
 	assert_ne!(initial, presenter.uploads[1].1);
 	surface.set_root(&widget(false).aria_label("Paused triangle"));
 	assert!(
@@ -83,6 +85,7 @@ fn reconciliation_retains_the_pose_and_never_sends_assets_to_widgets() {
 		2,
 		"a label change must not reload the scene or rewind it"
 	);
+
 	for mutation in surface.backend().log() {
 		if let Mutation::Create { props, .. } | Mutation::UpdateProps { props, .. } = mutation {
 			assert!(
@@ -91,6 +94,7 @@ fn reconciliation_retains_the_pose_and_never_sends_assets_to_widgets() {
 			);
 		}
 	}
+
 	surface.set_root(&Element::view());
 	assert!(!surface.has_rive_players());
 	assert!(
@@ -117,6 +121,7 @@ fn visibility_activity_and_motion_leave_no_pending_frames() {
 	);
 	assert_eq!(presenter.uploads, [] as [(NodeId, Vec<u8>); 0]);
 	presenter.hidden = false;
+
 	assert!(
 		!surface
 			.tick_rive_with(
@@ -168,6 +173,7 @@ fn parent_visibility_and_paused_resizing_are_observed_on_activation() {
 			.tick_rive_with(Duration::ZERO, environment, &mut presenter)
 			.unwrap()
 	);
+
 	assert_eq!(presenter.uploads, [] as [(NodeId, Vec<u8>); 0]);
 	parent.props.hidden = Some(false);
 	surface.set_root(&parent);
@@ -245,6 +251,7 @@ fn surfaces_bound_player_count_and_total_backing_pixels() {
 	};
 	let mut surface = NativeSurface::new(HeadlessBackend::new());
 	surface.set_viewport(5000.0, 5000.0);
+
 	surface.set_root(&tree(16));
 	let mut budget = Budget::default();
 	let environment = RiveEnvironment {
@@ -327,6 +334,7 @@ fn removing_a_rive_widget_releases_its_encoded_asset_even_though_node_ids_stay_a
 	);
 	assert!(weak.upgrade().is_some());
 	surface.set_root(&Element::view());
+
 	assert!(
 		weak.upgrade().is_none(),
 		"deleted shadow slots, backend logs, and player caches must release the asset"
@@ -355,6 +363,7 @@ fn controlled_inputs_update_a_retained_player_and_invalid_updates_can_be_correct
 	surface.set_root(&widget(content.clone()));
 	let mut presenter = Presenter::default();
 	let environment = RiveEnvironment::default();
+
 	surface
 		.tick_rive_with(Duration::ZERO, environment, &mut presenter)
 		.unwrap();
@@ -407,6 +416,7 @@ fn unsupported_backends_stop_after_one_upload_failure_and_bad_scale_does_no_work
 	let mut surface = NativeSurface::new(HeadlessBackend::new());
 	surface.set_viewport(128.0, 128.0);
 	surface.set_root(&widget(true));
+
 	for scale in [f32::NAN, 0.0, -1.0] {
 		assert_eq!(
 			surface.tick_rive(
@@ -419,11 +429,13 @@ fn unsupported_backends_stop_after_one_upload_failure_and_bad_scale_does_no_work
 			Err(RiveError::InvalidFrame)
 		);
 	}
+
 	let error = surface
 		.tick_rive(Duration::ZERO, RiveEnvironment::default())
 		.unwrap_err();
 	assert!(error.to_string().contains("backend rejected Rive bitmap"));
 	assert!(!surface.rive_needs_frame());
+
 	assert!(
 		!surface
 			.tick_rive(Duration::ZERO, RiveEnvironment::default())

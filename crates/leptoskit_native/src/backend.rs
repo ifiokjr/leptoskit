@@ -263,6 +263,7 @@ impl HeadlessBackend {
 	/// Clears the log.
 	pub fn clear(&mut self) {
 		self.log.clear();
+
 		#[cfg(feature = "serde")]
 		if let Some(budget) = &mut self.log_budget {
 			budget.drain();

@@ -60,6 +60,7 @@ fn progress_and_group_values_are_validated() {
 	for invalid in [-0.1, 1.01, f64::NAN, f64::INFINITY] {
 		assert!(ProgressValue::new(invalid).is_err());
 	}
+
 	assert_eq!(ProgressValue::new(0.0).unwrap().get(), 0.0);
 	assert_eq!(ProgressValue::new(1.0).unwrap().get(), 1.0);
 	assert!(RadioGroup::new("").is_err());
@@ -114,6 +115,7 @@ fn invalid_leaf_commit_is_atomic() {
 		NativeKind::ActivityIndicator,
 	] {
 		let mut invalid = Element::new(kind).child(Text("invalid"));
+
 		if kind == NativeKind::Rive {
 			invalid = invalid
 				.rive_playback(leptoskit_rive::Playback::new(
@@ -121,6 +123,7 @@ fn invalid_leaf_commit_is_atomic() {
 				))
 				.aria_label("Illustration");
 		}
+
 		assert_eq!(
 			surface.try_set_root(&invalid),
 			Err(ControlTreeError::Children { kind })
@@ -221,6 +224,7 @@ fn typed_events_bubble_once_and_keep_application_state_authoritative() {
 		surface.dispatch_event(checkbox, &NativeEvent::Toggle { checked: true }),
 		EventOutcome::Handled
 	);
+
 	assert_eq!(
 		*proposals.lock().unwrap(),
 		[NativeEvent::Toggle { checked: true }]
@@ -253,6 +257,7 @@ fn slider_proposals_are_normalized_and_invalid_events_are_ignored() {
 		surface.dispatch_event(root, &NativeEvent::ValueChange { value: 99.0 }),
 		EventOutcome::Handled
 	);
+
 	assert_eq!(
 		surface.dispatch_event(root, &NativeEvent::ValueChange { value: f64::NAN }),
 		EventOutcome::Unhandled
@@ -321,6 +326,7 @@ fn secure_fields_measure_single_line_values_and_update_without_replacement() {
 			.value("abcdefgh"),
 	);
 	assert_eq!(surface.root(), Some(root));
+
 	assert_eq!(surface.layout(root).width, 64.0);
 }
 
@@ -398,6 +404,7 @@ fn stopped_activity_hides_but_retains_layout_space_and_ignores_input() {
 	let next = surface.children(root)[1];
 	assert_eq!(surface.layout(indicator).height, 20.0);
 	assert_eq!(surface.layout(next).y, 20.0);
+
 	assert_ne!(surface.hit_test(10.0, 10.0), Some(indicator));
 	assert_eq!(
 		surface.dispatch_event(indicator, &NativeEvent::Press),
@@ -437,6 +444,7 @@ fn slider_proposals_reconstruct_and_quantize_idempotently_across_float_scales() 
 					accepted
 				);
 			}
+
 			assert_eq!(
 				accepted.proposed_value(value).unwrap().to_bits(),
 				value.to_bits()
@@ -512,6 +520,7 @@ fn accepted_slider_grids_preserve_value_index_mapping_distribution() {
 			updated.value().to_bits() == value.to_bits()
 				&& updated.proposed_value(value).unwrap().to_bits() == value.to_bits()
 		});
+
 		if !stable {
 			failures[bucket] += 1;
 		}
@@ -601,6 +610,7 @@ fn slider_precision_boundary_round_trips_across_binary_exponents() {
 				} else {
 					endpoint - endpoint.next_down()
 				};
+
 				let step = 16.0 * resolution;
 				let Ok(state) = SliderState::new(min, max, min, Some(step)) else {
 					continue;

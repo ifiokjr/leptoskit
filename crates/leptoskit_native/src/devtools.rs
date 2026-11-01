@@ -27,6 +27,7 @@ fn mix(mut hash: u64, bytes: &[u8]) -> u64 {
 		hash ^= u64::from(*byte);
 		hash = hash.wrapping_mul(PRIME);
 	}
+
 	hash
 }
 
@@ -54,6 +55,7 @@ impl Origin<'static> {
 #[must_use]
 pub fn child(parent: u64, origin: Origin<'_>, ordinal: usize) -> u64 {
 	let mut hash = mix(parent, b"/");
+
 	match origin {
 		Origin::Source(file, line, column) => {
 			hash = mix(hash, file.as_bytes());
@@ -61,6 +63,7 @@ pub fn child(parent: u64, origin: Origin<'_>, ordinal: usize) -> u64 {
 		}
 		Origin::Kind(kind) => hash = mix(hash, format!("{kind:?}").as_bytes()),
 	}
+
 	mix(hash, format!("#{ordinal}").as_bytes())
 }
 

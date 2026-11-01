@@ -171,6 +171,7 @@ mod tests {
 			.collect();
 		assert_eq!(frames, [(0.0, 0.0), (16.0, 16.0), (24.0, 24.0)]);
 		let text = tree.nodes[2].frame.unwrap();
+
 		assert_eq!((text.width, text.height), (40.0, 20.0));
 		let inner = surface.children(surface.root().unwrap())[0];
 		let parent_relative = surface.layout(surface.children(inner)[0]);
@@ -191,6 +192,7 @@ mod tests {
 		let root = &tree.nodes[0];
 		assert_eq!(root.classes, ["dark:bg-black", "md:p-8", "p-4"]);
 		let classes: Vec<&str> = root.styles.iter().map(|rule| rule.class.as_str()).collect();
+
 		assert_eq!(classes, ["p-4"]);
 		assert!(root.styles[0].declarations.contains("padding"));
 

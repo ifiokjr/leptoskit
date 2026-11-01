@@ -135,6 +135,7 @@ fn malformed_path_data_reports_where() {
 		PathData::from_commands([PathCommand::MoveTo(Point::new(f32::NAN, 0.0))]),
 		Err(VectorError::NonFiniteCoordinate)
 	);
+
 	assert_eq!(
 		PathData::from_commands([PathCommand::Close]),
 		Err(VectorError::MissingMoveTo)
@@ -579,6 +580,7 @@ fn errors_explain_themselves() {
 	assert!(messages[5].contains("miter limit"));
 	assert!(messages[6].contains("dash"));
 	assert!(messages[7].contains("shapes"));
+
 	assert!(messages[8].contains("transform list"));
 }
 
