@@ -9,9 +9,9 @@ use tokio::sync::broadcast::error::RecvError;
 use super::ChangedRows;
 use super::Invalidation;
 use super::RowChange;
-use crate::Connection;
 use crate::Db;
 use crate::DbError;
+use crate::Read;
 use crate::Result;
 use crate::Value;
 use crate::policy::Access;
@@ -217,6 +217,7 @@ fn key_text(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::Connection;
 
 	#[cfg(feature = "sqlite")]
 	#[test]

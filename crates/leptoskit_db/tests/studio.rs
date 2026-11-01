@@ -92,7 +92,7 @@ where
 }
 
 async fn fixture(db: Db) -> Fixture {
-	let dialect = leptoskit_db::Connection::dialect(&db);
+	let dialect = db.dialect();
 	let schema = leptoskit_db::schema(dialect).unwrap();
 	let empty = Schema::empty(dialect);
 	let plan = leptoskit_db_schema::diff(&empty, &schema, &mut RequireHints).unwrap();
@@ -398,7 +398,7 @@ async fn each_viewer_reads_what_its_policies_allow() {
 			.get("/policies", &[("as", "writer"), ("who", &ada)])
 			.await;
 		assert!(policies.body.contains("<h2>notes</h2>"));
-		let (first, second) = match leptoskit_db::Connection::dialect(&studio.db) {
+		let (first, second) = match studio.db.dialect() {
 			leptoskit_db::Dialect::Postgres => ("$1", "$2"),
 			leptoskit_db::Dialect::Sqlite => ("?1", "?2"),
 		};

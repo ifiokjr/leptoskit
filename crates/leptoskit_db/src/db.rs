@@ -11,6 +11,7 @@ use crate::DbError;
 use crate::Migration;
 use crate::MigrationError;
 use crate::PoolOptions;
+use crate::Read;
 use crate::Result;
 use crate::Value;
 #[cfg(feature = "sqlite")]
@@ -144,6 +145,11 @@ impl Db {
 	/// Who this handle's changes are recorded as made by.
 	pub fn actor(&self) -> Option<crate::Actor> {
 		self.access.actor()
+	}
+
+	/// The connected database's dialect.
+	pub fn dialect(&self) -> Dialect {
+		Read::dialect(self)
 	}
 
 	/// Runs `work` in a transaction: it commits when `work` returns `Ok`, and
@@ -464,7 +470,7 @@ struct NoRowSecurity;
 )]
 struct UnsupportedUrl(String);
 
-impl Connection for Db {
+impl Read for Db {
 	fn access(&self) -> &Access {
 		&self.access
 	}
@@ -495,7 +501,9 @@ impl Connection for Db {
 			Pool::Sqlite(pool) => pool.fetch(statement).await,
 		}
 	}
+}
 
+impl Connection for Db {
 	async fn execute(&self, statement: Statement) -> Result<u64> {
 		match &*self.pool {
 			#[cfg(feature = "postgres")]
@@ -611,7 +619,14 @@ impl Tx {
 	}
 }
 
-impl Connection for Tx {
+impl Tx {
+	/// The connected database's dialect.
+	pub fn dialect(&self) -> Dialect {
+		Read::dialect(self)
+	}
+}
+
+impl Read for Tx {
 	fn access(&self) -> &Access {
 		&self.access
 	}
@@ -637,7 +652,9 @@ impl Connection for Tx {
 			TxInner::Sqlite(tx) => tx.fetch(statement).await,
 		}
 	}
+}
 
+impl Connection for Tx {
 	async fn execute(&self, statement: Statement) -> Result<u64> {
 		match &self.inner {
 			#[cfg(feature = "postgres")]

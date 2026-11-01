@@ -145,7 +145,7 @@ impl ::leptoskit_db::Polymorphic for Actor {
         row.kind
     }
     fn fetch(
-        connection: &impl ::leptoskit_db::Connection,
+        connection: &impl ::leptoskit_db::Read,
         kind: ActorKind,
         page: &::leptoskit_db::__private::polymorphic::Page,
     ) -> impl ::core::future::Future<
@@ -169,7 +169,7 @@ impl ::leptoskit_db::Polymorphic for Actor {
         }
     }
     fn count(
-        connection: &impl ::leptoskit_db::Connection,
+        connection: &impl ::leptoskit_db::Read,
         kind: ActorKind,
         page: &::leptoskit_db::__private::polymorphic::Page,
     ) -> impl ::core::future::Future<
@@ -199,7 +199,7 @@ impl ::leptoskit_db::Linkable for Actor {
         <Self as ::leptoskit_db::Polymorphic>::id(self)
     }
     fn load(
-        connection: &impl ::leptoskit_db::Connection,
+        connection: &impl ::leptoskit_db::Read,
         id: ::leptoskit_db::Id<Self>,
     ) -> impl ::core::future::Future<
         Output = ::leptoskit_db::Result<::core::option::Option<Self>>,
@@ -223,14 +223,14 @@ impl Actor {
     /// The row with this key, of whichever kind it is, if it exists,
     /// the request may see it, and it isn't soft-deleted.
     pub async fn find(
-        connection: &impl ::leptoskit_db::Connection,
+        connection: &impl ::leptoskit_db::Read,
         id: ::leptoskit_db::Id<Self>,
     ) -> ::leptoskit_db::Result<::core::option::Option<Self>> {
         ::leptoskit_db::__private::polymorphic::load(connection, id).await
     }
     /// The row with this key, or `DbError::NotFound`.
     pub async fn get(
-        connection: &impl ::leptoskit_db::Connection,
+        connection: &impl ::leptoskit_db::Read,
         id: ::leptoskit_db::Id<Self>,
     ) -> ::leptoskit_db::Result<Self> {
         Self::find(connection, id)

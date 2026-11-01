@@ -428,7 +428,7 @@ fn pushes_follow_the_tables_and_squash_into_one_migration() {
 			.unwrap()
 			.block_on(async {
 				let db = leptoskit_db::Db::connect(&url).await?;
-				use leptoskit_db::Connection;
+				use leptoskit_db::Read;
 				db.fetch(leptoskit_db::Statement {
 					sql: "SELECT count(*) FROM \"users\" WHERE \"bio\" = 'kept'".into(),
 					args: Vec::new(),

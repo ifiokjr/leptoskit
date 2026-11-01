@@ -13,7 +13,7 @@ use std::path::Path;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
-use leptoskit_db::Connection;
+use leptoskit_db::Read;
 use leptoskit_db::Db;
 use leptoskit_db::Statement;
 use leptoskit_db::Value;

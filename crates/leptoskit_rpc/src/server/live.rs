@@ -550,6 +550,7 @@ impl Session {
 			identity: self.identity.clone(),
 			request_id: key,
 			arguments: args,
+			reads: None,
 		})
 		.await
 		.map_err(|error| WireError::new(&error));
@@ -950,6 +951,7 @@ impl Session {
 			identity: self.identity.clone(),
 			request_id: None,
 			arguments: args,
+			reads: None,
 		})
 		.await
 		.map_err(|error| WireError::new(&error))?;

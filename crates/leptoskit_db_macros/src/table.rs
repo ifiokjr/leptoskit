@@ -1416,6 +1416,7 @@ impl Table<'_> {
 		let filled = self.filled_consts(&all);
 		let stamp = self.stamp_fn(&all);
 		let hooks = self.hook_fns();
+		let reads_through = self.reads_through_fn();
 
 		quote! {
 			impl #krate::Table for #name {
@@ -1470,8 +1471,36 @@ impl Table<'_> {
 				#hooks
 				#policies
 				#supertype
+				#reads_through
 			}
 		}
+	}
+
+	/// `Table::reads_through` for a view: the tables `reads(...)` names, or
+	/// none for a materialized view, which keeps its own rows. A view that
+	/// reads its tables live and doesn't say which can't be tracked.
+	fn reads_through_fn(&self) -> Option<TokenStream> {
+		let krate = self.krate;
+		let view = self.args.view.as_ref()?;
+		let body = match &view.reads {
+			Some(tables) => {
+				quote! {
+					::core::option::Option::Some(::std::vec![
+						#(<#tables as #krate::Table>::table_name()),*
+					])
+				}
+			}
+			None if view.materialized => {
+				quote! { ::core::option::Option::Some(::std::vec::Vec::new()) }
+			}
+			None => quote! { ::core::option::Option::None },
+		};
+
+		Some(quote! {
+			fn reads_through() -> ::core::option::Option<::std::vec::Vec<#krate::__private::schema::TableName>> {
+				#body
+			}
+		})
 	}
 
 	/// For a variant of a polymorphic table: its supertype, and how it
@@ -2065,15 +2094,15 @@ impl Table<'_> {
 				quote! {
 					/// The row with this key, if it exists and isn't soft-deleted.
 					pub async fn find(
-						connection: &impl #krate::Connection,
+						connection: &impl #krate::Read,
 						key: #ty,
 					) -> #krate::Result<::core::option::Option<Self>> {
-						Self::query().filter(|columns| columns.#ident.eq(key)).first(connection).await
+						Self::query().filter(|columns| columns.#ident.eq(key)).point().first(connection).await
 					}
 
 					/// The row with this key, or [`DbError::NotFound`](#krate::DbError::NotFound).
-					pub async fn get(connection: &impl #krate::Connection, key: #ty) -> #krate::Result<Self> {
-						Self::query().filter(|columns| columns.#ident.eq(key)).one(connection).await
+					pub async fn get(connection: &impl #krate::Read, key: #ty) -> #krate::Result<Self> {
+						Self::query().filter(|columns| columns.#ident.eq(key)).point().one(connection).await
 					}
 				}
 			}
@@ -2162,7 +2191,7 @@ impl Table<'_> {
 				);
 				quote! {
 					#[doc = #doc]
-					pub async fn #link(&self, connection: &impl #krate::Connection) -> #krate::Result<::core::option::Option<#target>> {
+					pub async fn #link(&self, connection: &impl #krate::Read) -> #krate::Result<::core::option::Option<#target>> {
 						#krate::__private::link::optional(connection, self.#ident).await
 					}
 				}
@@ -2172,7 +2201,7 @@ impl Table<'_> {
 				);
 				quote! {
 					#[doc = #doc]
-					pub async fn #link(&self, connection: &impl #krate::Connection) -> #krate::Result<#target> {
+					pub async fn #link(&self, connection: &impl #krate::Read) -> #krate::Result<#target> {
 						#krate::__private::link::one(connection, self.#ident).await
 					}
 				}
@@ -2702,6 +2731,31 @@ impl Table<'_> {
 					&& (column.inner.is_none() || column.args.visibility == Visibility::Public)
 			}),
 		);
+		// A client type that shows a row's single `Id<Self>` key carries it,
+		// so a list of them can be told apart by key.
+		let has_id = match self
+			.fields
+			.iter()
+			.filter(|field| field.key)
+			.collect::<Vec<_>>()
+			.as_slice()
+		{
+			[key]
+				if key.points_at_self
+					&& key.mixin.is_none()
+					&& visible.iter().any(|field| field.ident == key.ident) =>
+			{
+				let ident = &key.ident;
+				Some(quote! {
+					impl #krate::HasId<#name> for #type_name {
+						fn id(&self) -> #krate::Id<#name> {
+							self.#ident
+						}
+					}
+				})
+			}
+			_ => None,
+		};
 
 		quote! {
 			#[doc = #doc]
@@ -2726,6 +2780,8 @@ impl Table<'_> {
 					#validate
 				}
 			}
+
+			#has_id
 
 			#krate::__server! {
 				impl ::core::convert::From<#name> for #type_name {

@@ -570,7 +570,7 @@ mod tests {
 					sql: "SELECT count(*) FROM kept".to_owned(),
 					args: Vec::new(),
 				};
-				anyhow::Ok(leptoskit_db::Connection::fetch(&db, statement).await?)
+				anyhow::Ok(leptoskit_db::Read::fetch(&db, statement).await?)
 			})
 			.unwrap();
 		assert_eq!(tables, [vec![leptoskit_db::Value::Int(0)]]);

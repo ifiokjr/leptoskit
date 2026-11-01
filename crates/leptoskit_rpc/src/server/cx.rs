@@ -2,6 +2,7 @@
 //! the caller is.
 
 use std::future::Future;
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
 
@@ -23,8 +24,9 @@ use crate::Operation;
 ///
 /// [`db`](Self::db) reads as the caller: their policies apply to every row.
 /// It only reads, so a query that tries to write fails to compile, and it
-/// records what it reads, the read set a live query will use to tell which
-/// writes could change its result.
+/// records what it reads: the read set a live query uses to tell which
+/// writes could change its result. [`reads`](Self::reads) returns it, and a
+/// [`ReadSink`] collects it from a query run by name.
 pub struct QueryCx {
 	db: Tracked<Db>,
 	identity: Identity,
@@ -101,7 +103,9 @@ impl QueryCx {
 		self.db.connection().system(reason)
 	}
 
-	/// Every read the body has made so far.
+	/// Every read the body has made so far, one entry per read: the table,
+	/// the condition its rows met, its order and limit, and the keys it
+	/// returned.
 	pub fn reads(&self) -> Vec<ReadEntry> {
 		self.db.reads()
 	}
@@ -109,6 +113,39 @@ impl QueryCx {
 	/// The read set, once the body has finished.
 	pub fn into_reads(self) -> Vec<ReadEntry> {
 		self.db.into_reads()
+	}
+}
+
+/// Where a query's read set goes once its body has run, when it runs by
+/// name through an [`Invocation`](super::Invocation), as the live hub runs
+/// its subscriptions:
+///
+/// ```ignore
+/// let reads = ReadSink::new();
+/// let value = (registration.handler)(Invocation { reads: Some(reads.clone()), .. }).await?;
+/// let read_set = reads.take();
+/// ```
+///
+/// Only queries record reads; a mutation leaves it empty.
+#[derive(Clone, Debug, Default)]
+pub struct ReadSink(Arc<Mutex<Vec<ReadEntry>>>);
+
+impl ReadSink {
+	/// An empty sink.
+	pub fn new() -> Self {
+		Self::default()
+	}
+
+	/// Everything recorded so far, emptying the sink.
+	pub fn take(&self) -> Vec<ReadEntry> {
+		std::mem::take(&mut *self.0.lock().unwrap_or_else(PoisonError::into_inner))
+	}
+
+	fn extend(&self, reads: Vec<ReadEntry>) {
+		self.0
+			.lock()
+			.unwrap_or_else(PoisonError::into_inner)
+			.extend(reads);
 	}
 }
 
@@ -291,14 +328,30 @@ impl OperationContext for crate::JobCx {
 }
 
 impl OperationContext for QueryCx {
-	async fn dispatch<O: Operation<Context = Self>>(
+	fn dispatch<O: Operation<Context = Self>>(
+		db: &Db,
+		identity: Identity,
+		request_id: Option<&str>,
+		op: O,
+	) -> impl Future<Output = crate::Result<O::Output>> + Send {
+		Self::dispatch_recording(db, identity, request_id, None, op)
+	}
+
+	async fn dispatch_recording<O: Operation<Context = Self>>(
 		db: &Db,
 		identity: Identity,
 		_request_id: Option<&str>,
+		reads: Option<ReadSink>,
 		op: O,
 	) -> crate::Result<O::Output> {
 		let cx = Self::new(db.clone(), identity);
-		op.run(&cx).await
+		let output = op.run(&cx).await;
+
+		if let Some(reads) = reads {
+			reads.extend(cx.into_reads());
+		}
+
+		output
 	}
 }
 

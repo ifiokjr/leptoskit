@@ -33,6 +33,9 @@ use crate::Table;
 use crate::Value;
 use crate::expr::Comparison;
 use crate::sql::Sql;
+use crate::tracked;
+use crate::tracked::ReadEntry;
+use crate::tracked::ReadKind;
 
 /// What a request knows about itself: who is signed in, which tenant it
 /// works in, and anything else policies need. Build one per request:
@@ -258,6 +261,22 @@ impl Subquery {
 		}
 	}
 
+	/// Appends the entry for the rows the subquery reads, then those of the
+	/// subqueries inside it. Its filter can name the rows around it, which
+	/// the entry can't see; its policy names only its own rows.
+	pub(crate) fn record(&self, kind: ReadKind, entries: &mut Vec<ReadEntry>) {
+		let condition = tracked::conjunction([
+			self.filter.as_deref().map(tracked::decorrelate),
+			self.policy.as_deref().cloned(),
+			tracked::not_deleted(self.deleted_at, false),
+		]);
+		entries.push(ReadEntry::new(self.table.clone(), kind, condition));
+
+		for inner in [&self.filter, &self.policy].into_iter().flatten() {
+			tracked::subqueries(inner, entries);
+		}
+	}
+
 	/// Whether every row of the table qualifies, so the subquery can be left
 	/// out.
 	pub(crate) fn is_everything(&self) -> bool {
@@ -307,7 +326,26 @@ impl Subquery {
 	}
 }
 
+impl Expr {
+	/// `column` is one of the values `query`'s rows hold in `selected`, as
+	/// a link's visibility rule reads them, without a policy. For tests.
+	#[doc(hidden)]
+	pub fn within<U: Table>(column: &'static str, selected: &'static str, query: Query<U>) -> Self {
+		let (filter, with_deleted) = query.into_condition();
+		Self::Within {
+			column,
+			selected,
+			rows: Box::new(Subquery::new::<U>(filter, None, with_deleted)),
+		}
+	}
+}
+
 impl Count {
+	/// The rows counted.
+	pub(crate) fn rows(&self) -> &Subquery {
+		&self.rows
+	}
+
 	/// Exactly `value` rows.
 	pub fn eq(self, value: i64) -> Expr {
 		self.compare(Comparison::Equal, value)

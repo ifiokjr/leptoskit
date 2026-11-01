@@ -489,6 +489,10 @@ async fn receipts_stay_private_and_expire(db: &Db) {
 	);
 }
 
+#[expect(
+	clippy::cognitive_complexity,
+	reason = "one end-to-end script reads best top to bottom"
+)]
 async fn server_code_calls_operations(db: &Db) {
 	let ada = as_user(db, "ada");
 	let id = rpc::call(
@@ -544,15 +548,49 @@ async fn server_code_calls_operations(db: &Db) {
 	assert_eq!(first, again);
 	assert_ne!(first, id);
 
-	// A query runs as the caller. Read sets return with the server-side
-	// matcher; the invalidation feed drives live updates for now.
+	// A query runs as the caller and records what it reads: here, the
+	// notes, under their policy for Ada.
 	let cx = rpc::QueryCx::new(ada.clone(), Identity::of(&ada));
 	assert_eq!(cx.reads(), Vec::new());
 	Notes { starting: None }.run(&cx).await.unwrap();
 	assert!(cx.get::<Me>().is_some());
 	assert!(cx.require::<String>().is_err());
 	assert!(format!("{cx:?}").contains("QueryCx"));
-	assert_eq!(cx.into_reads(), Vec::new());
+	let reads = cx.into_reads();
+	assert_eq!(reads.len(), 1);
+	assert_eq!(reads[0].table, <Note as leptoskit_db::Table>::table_name());
+	assert_eq!(reads[0].kind, leptoskit_db::ReadKind::Rows);
+	assert!(reads[0].keys.as_ref().is_some_and(|keys| !keys.is_empty()));
+
+	// Run by name, a query hands its read set to a sink; a query inside
+	// it reads into the same set. A mutation adds nothing.
+	let registration = rpc::server::registration("note_count").unwrap();
+	let sink = rpc::server::ReadSink::new();
+	let count = (registration.handler)(rpc::server::Invocation {
+		db: ada.clone(),
+		identity: Identity::of(&ada),
+		request_id: None,
+		arguments: json!({}),
+		reads: Some(sink.clone()),
+	})
+	.await
+	.unwrap();
+	assert!(count.as_u64().is_some_and(|count| count > 0));
+	let reads = sink.take();
+	assert_eq!(reads.len(), 1);
+	assert_eq!(reads[0].table, <Note as leptoskit_db::Table>::table_name());
+	assert_eq!(sink.take(), Vec::<leptoskit_db::ReadEntry>::new());
+	let registration = rpc::server::registration("add_note").unwrap();
+	(registration.handler)(rpc::server::Invocation {
+		db: ada.clone(),
+		identity: Identity::of(&ada),
+		request_id: None,
+		arguments: json!({ "title": "sunk" }),
+		reads: Some(sink.clone()),
+	})
+	.await
+	.unwrap();
+	assert_eq!(sink.take(), Vec::<leptoskit_db::ReadEntry>::new());
 }
 
 #[tokio::test]

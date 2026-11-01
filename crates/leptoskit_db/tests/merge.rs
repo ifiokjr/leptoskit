@@ -7,7 +7,6 @@ mod support;
 
 use std::future::Future;
 
-use leptoskit_db::Connection;
 use leptoskit_db::Db;
 use leptoskit_db::DbError;
 use leptoskit_db::Id;

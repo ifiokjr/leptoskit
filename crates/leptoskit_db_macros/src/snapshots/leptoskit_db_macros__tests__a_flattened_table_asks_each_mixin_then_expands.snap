@@ -282,17 +282,21 @@ impl Order {
     }
     /// The row with this key, if it exists and isn't soft-deleted.
     pub async fn find(
-        connection: &impl ::leptoskit_db::Connection,
+        connection: &impl ::leptoskit_db::Read,
         key: Id<Order>,
     ) -> ::leptoskit_db::Result<::core::option::Option<Self>> {
-        Self::query().filter(|columns| columns.id.eq(key)).first(connection).await
+        Self::query()
+            .filter(|columns| columns.id.eq(key))
+            .point()
+            .first(connection)
+            .await
     }
     /// The row with this key, or [`DbError::NotFound`](#krate::DbError::NotFound).
     pub async fn get(
-        connection: &impl ::leptoskit_db::Connection,
+        connection: &impl ::leptoskit_db::Read,
         key: Id<Order>,
     ) -> ::leptoskit_db::Result<Self> {
-        Self::query().filter(|columns| columns.id.eq(key)).one(connection).await
+        Self::query().filter(|columns| columns.id.eq(key)).point().one(connection).await
     }
     /// Writes every column, matched by the key, and bumps `updated_at`.
     pub async fn save(
@@ -429,6 +433,12 @@ impl PublicOrder {
             ::core::option::Option::Some((100) as u32),
         );
         errors.into_result()
+    }
+}
+
+impl ::leptoskit_db::HasId<Order> for PublicOrder {
+    fn id(&self) -> ::leptoskit_db::Id<Order> {
+        self.id
     }
 }
 
