@@ -128,9 +128,11 @@ impl RustTypes {
 	/// anonymous shapes, named after `hint`.
 	fn render(&mut self, schema: &Value, hint: &str, spec: &ApiSpec) -> String {
 		let key = (hint.to_owned(), schema.to_string());
+
 		if let Some(cached) = self.cache.get(&key) {
 			return cached.clone();
 		}
+
 		let rendered = self.render_uncached(schema, hint, spec);
 		self.cache.insert(key, rendered.clone());
 		rendered
@@ -138,6 +140,7 @@ impl RustTypes {
 
 	fn render_uncached(&mut self, schema: &Value, hint: &str, spec: &ApiSpec) -> String {
 		let analyzed = analyze(schema);
+
 		let base = match analyzed.shape {
 			Shape::Ref(name) => {
 				self.components
@@ -220,6 +223,7 @@ impl RustTypes {
 			}
 			Shape::Any => "serde_json::Value".to_owned(),
 		};
+
 		if analyzed.nullable && !base.starts_with("Option<") && base != "()" {
 			format!("Option<{base}>")
 		} else {
@@ -264,13 +268,16 @@ fn wrap_option(type_name: &str, optional: bool) -> String {
 fn field_attributes(field: &Field) -> String {
 	let mut attributes = Vec::new();
 	let rust_name = field.ident.trim_start_matches("r#");
+
 	if rust_name != field.wire {
 		attributes.push(format!("rename = {}", rust_string(&field.wire)));
 	}
+
 	if field.optional {
 		attributes.push("default".to_owned());
 		attributes.push("skip_serializing_if = \"Option::is_none\"".to_owned());
 	}
+
 	if attributes.is_empty() {
 		String::new()
 	} else {
@@ -288,6 +295,7 @@ fn struct_declaration(
 ) -> String {
 	let mut fields = Vec::new();
 	let mut field_names = Scope::new(&[]);
+
 	for (wire, schema) in &object.properties {
 		let field_type = types.render(schema, &format!("{hint}{}", type_name(wire)), spec);
 		let optional = !object.is_required(wire) || has_default(schema);
@@ -303,18 +311,23 @@ fn struct_declaration(
 	}
 
 	let mut out = String::new();
+
 	for line in docs.unwrap_or_default().lines() {
 		out.push_str(&format!("/// {line}\n"));
 	}
+
 	out.push_str("#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n");
 	out.push_str(&format!("pub struct {name} {{\n"));
+
 	for field in &fields {
 		for line in &field.docs {
 			out.push_str(&format!("\t/// {line}\n"));
 		}
+
 		out.push_str(&field_attributes(field));
 		out.push_str(&format!("\tpub {}: {},\n", field.ident, field.type_name));
 	}
+
 	out.push_str("}\n\n");
 	out
 }
@@ -328,30 +341,38 @@ fn enum_declaration(schema: &Value, name: &str) -> String {
 		} => values,
 		_ => Vec::new(),
 	};
+
 	let mut out = String::new();
+
 	if let Some(docs) = description(schema) {
 		for line in docs.lines() {
 			out.push_str(&format!("/// {line}\n"));
 		}
 	}
+
 	out.push_str(
 		"#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]\n",
 	);
 	out.push_str(&format!("pub enum {name} {{\n"));
 	let mut seen: HashSet<String> = HashSet::new();
+
 	for value in &values {
 		let variant = type_name(value);
 		let mut variant = variant;
 		let mut counter = 2;
+
 		while !seen.insert(variant.clone()) {
 			variant = format!("{}{counter}", type_name(value));
 			counter += 1;
 		}
+
 		if variant.trim_start_matches("r#") != *value {
 			out.push_str(&format!("\t#[serde(rename = {})]\n", rust_string(value)));
 		}
+
 		out.push_str(&format!("\t{variant},\n"));
 	}
+
 	out.push_str("}\n\n");
 	out
 }
@@ -365,12 +386,15 @@ fn serde_enum_declaration(
 	spec: &ApiSpec,
 ) -> String {
 	let mut out = String::new();
+
 	if let Some(docs) = docs {
 		for line in docs.lines() {
 			out.push_str(&format!("/// {line}\n"));
 		}
 	}
+
 	out.push_str("#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n");
+
 	match serde_enum {
 		SerdeEnum::Internal { tag, .. } => {
 			out.push_str(&format!("#[serde(tag = {})]\n", rust_string(tag)));
@@ -384,24 +408,29 @@ fn serde_enum_declaration(
 		}
 		SerdeEnum::External { .. } => {}
 	}
+
 	out.push_str(&format!("pub enum {name} {{\n"));
+
 	let variants: &[EnumVariant<'_>] = match serde_enum {
 		SerdeEnum::Internal { variants, .. }
 		| SerdeEnum::Adjacent { variants, .. }
 		| SerdeEnum::External { variants } => variants,
 	};
+
 	for variant in variants {
 		match variant {
 			EnumVariant::Unit { name } => {
 				if type_name(name).trim_start_matches("r#") != *name {
 					out.push_str(&format!("\t#[serde(rename = {})]\n", rust_string(name)));
 				}
+
 				out.push_str(&format!("\t{},\n", type_name(name)));
 			}
 			EnumVariant::Newtype { name, inner } => {
 				if type_name(name).trim_start_matches("r#") != *name {
 					out.push_str(&format!("\t#[serde(rename = {})]\n", rust_string(name)));
 				}
+
 				let inner_type = types.render(inner, &format!("{name}{}", type_name(name)), spec);
 				out.push_str(&format!("\t{}({inner_type}),\n", type_name(name)));
 			}
@@ -409,6 +438,7 @@ fn serde_enum_declaration(
 				if type_name(name).trim_start_matches("r#") != *name {
 					out.push_str(&format!("\t#[serde(rename = {})]\n", rust_string(name)));
 				}
+
 				out.push_str(&format!("\t{} {{\n", type_name(name)));
 				for (wire, schema) in &fields.properties {
 					let field_type =
@@ -425,10 +455,12 @@ fn serde_enum_declaration(
 					out.push_str(&field_attributes(&field));
 					out.push_str(&format!("\t\t{ident}: {field_type},\n"));
 				}
+
 				out.push_str("\t},\n");
 			}
 		}
 	}
+
 	out.push_str("}\n\n");
 	out
 }
@@ -436,9 +468,11 @@ fn serde_enum_declaration(
 pub(crate) fn models_file(context: &Context<'_>, types: &mut RustTypes) -> String {
 	let mut declarations = String::new();
 	let mut aliases = String::new();
+
 	for (schema_name, schema) in &context.spec.schemas {
 		let name = types.components[schema_name].clone();
 		let analyzed = analyze(schema);
+
 		match (&analyzed.shape, analyzed.nullable) {
 			(Shape::Object(object), false) if !object.properties.is_empty() => {
 				declarations.push_str(&struct_declaration(
@@ -450,6 +484,7 @@ pub(crate) fn models_file(context: &Context<'_>, types: &mut RustTypes) -> Strin
 					&name,
 				));
 			}
+
 			(
 				Shape::String {
 					values: Some(_), ..
@@ -458,6 +493,7 @@ pub(crate) fn models_file(context: &Context<'_>, types: &mut RustTypes) -> Strin
 			) => {
 				declarations.push_str(&enum_declaration(schema, &name));
 			}
+
 			(Shape::Union(variants), _) if recognize_enum(variants).is_some() => {
 				let references: Vec<&Value> = variants.clone();
 				if let Some(serde_enum) = recognize_enum(&references) {
@@ -470,6 +506,7 @@ pub(crate) fn models_file(context: &Context<'_>, types: &mut RustTypes) -> Strin
 					));
 				}
 			}
+
 			_ => {
 				let rendered = types.render(schema, &name, context.spec);
 				if let Some(docs) = description(schema) {
@@ -477,10 +514,12 @@ pub(crate) fn models_file(context: &Context<'_>, types: &mut RustTypes) -> Strin
 						aliases.push_str(&format!("/// {line}\n"));
 					}
 				}
+
 				aliases.push_str(&format!("pub type {name} = {rendered};\n\n"));
 			}
 		}
 	}
+
 	let mut out = context.banner("//");
 	out.push_str(&format!(
 		"//! Types for the {} {} RPC.\n\n#![allow(clippy::all)]\n\n",
@@ -491,6 +530,7 @@ pub(crate) fn models_file(context: &Context<'_>, types: &mut RustTypes) -> Strin
 	for synthesized in &types.synthesized {
 		out.push_str(synthesized);
 	}
+
 	out.push_str(&declarations);
 	out.push_str(&aliases);
 	out
@@ -527,10 +567,12 @@ fn client_file(context: &Context<'_>, types: &mut RustTypes, models_import: bool
 	// level so the methods stay one-liners.
 	let mut input_structs = String::new();
 	let mut methods = String::new();
+
 	for (function, method) in context.functions().zip(method_names(context)) {
 		let hint = type_name(&function.name);
 		let mut fields: Vec<Field> = Vec::new();
 		let mut arguments = Vec::new();
+
 		for (param, identifier) in function.params.iter().zip(parameter_names(function)) {
 			let param_type = types.render(
 				&param.schema,
@@ -547,6 +589,7 @@ fn client_file(context: &Context<'_>, types: &mut RustTypes, models_import: bool
 				optional: !param.is_required(),
 			});
 		}
+
 		let output = types.render(
 			&function.output_schema,
 			&format!("{hint}Result"),
@@ -563,30 +606,37 @@ fn client_file(context: &Context<'_>, types: &mut RustTypes, models_import: bool
 		if !fields.is_empty() {
 			input_structs.push_str("#[derive(Serialize)]\n");
 			input_structs.push_str(&format!("struct {input_struct} {{\n"));
+
 			for field in &fields {
 				for line in &field.docs {
 					input_structs.push_str(&format!("\t/// {line}\n"));
 				}
+
 				input_structs.push_str(&field_attributes(field));
 				input_structs.push_str(&format!("\t{}: {},\n", field.ident, field.type_name));
 			}
+
 			input_structs.push_str("}\n\n");
 		}
 
 		for line in function.docs.lines() {
 			methods.push_str(&format!("\t/// {line}\n"));
 		}
+
 		let documented: Vec<(&crate::spec::ApiParam, &Field)> = function
 			.params
 			.iter()
 			.zip(&fields)
 			.filter(|(param, _)| !param.docs.is_empty())
 			.collect();
+
 		if !documented.is_empty() {
 			if !function.docs.is_empty() {
 				methods.push_str("\t///\n");
 			}
+
 			methods.push_str("\t/// # Arguments\n\t///\n");
+
 			for (param, field) in documented {
 				methods.push_str(&format!(
 					"\t/// * `{}` — {}\n",
@@ -595,6 +645,7 @@ fn client_file(context: &Context<'_>, types: &mut RustTypes, models_import: bool
 				));
 			}
 		}
+
 		if function.kind.is_idempotent_with_key() {
 			if !function.docs.is_empty()
 				|| function.params.iter().any(|param| !param.docs.is_empty())
@@ -606,6 +657,7 @@ fn client_file(context: &Context<'_>, types: &mut RustTypes, models_import: bool
 				 once.\n",
 			);
 		}
+
 		if function.deprecated {
 			methods.push_str("\t#[deprecated]\n");
 		}
@@ -621,6 +673,7 @@ fn client_file(context: &Context<'_>, types: &mut RustTypes, models_import: bool
 					.join(", ")
 			)
 		};
+
 		let encoding = match function.input {
 			crate::spec::HttpInput::Query => "Encoding::Query",
 			crate::spec::HttpInput::Form => "Encoding::Form",
@@ -638,6 +691,7 @@ fn client_file(context: &Context<'_>, types: &mut RustTypes, models_import: bool
 					.join(", ")
 			)
 		};
+
 		let call = format!(
 			"self.{}({}, {}, {}, {payload})",
 			if void { "call_void" } else { "call" },
@@ -645,6 +699,7 @@ fn client_file(context: &Context<'_>, types: &mut RustTypes, models_import: bool
 			rust_string(&function.path),
 			encoding
 		);
+
 		if void {
 			methods.push_str(&format!(
 				"{signature} -> Result<(), Error> {{\n\t\t{call}.await\n\t}}\n\n"
@@ -718,12 +773,15 @@ fn readme(context: &Context<'_>) -> String {
 			format!("let result = api.{method}({}).await?;\n", args.join(", "))
 		});
 	let mut skipped = String::new();
+
 	if !context.skipped.is_empty() {
 		skipped.push_str("\n## Not generated\n\n");
+
 		for (name, reason) in &context.skipped {
 			skipped.push_str(&format!("- `{name}`: {reason}\n"));
 		}
 	}
+
 	format!(
 		"# {name}
 

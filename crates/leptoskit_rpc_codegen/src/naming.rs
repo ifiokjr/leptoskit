@@ -45,10 +45,12 @@ impl Scope {
 	pub(crate) fn bind(&mut self, wanted: &str) -> String {
 		let mut name = wanted.to_owned();
 		let mut counter = 2;
+
 		while self.reserved.contains(&name.as_str()) || !self.taken.insert(name.clone()) {
 			name = format!("{wanted}{counter}");
 			counter += 1;
 		}
+
 		name
 	}
 }
@@ -96,12 +98,15 @@ pub(crate) fn sanitize_identifier(name: &str) -> String {
 			}
 		})
 		.collect();
+
 	if out.is_empty() {
 		out.push('_');
 	}
+
 	if out.starts_with(|character: char| character.is_ascii_digit()) {
 		out.insert(0, '_');
 	}
+
 	out
 }
 
@@ -109,6 +114,7 @@ pub(crate) fn sanitize_identifier(name: &str) -> String {
 pub(crate) fn type_name(schema_name: &str) -> String {
 	let sanitized = sanitize_identifier(schema_name);
 	let camel = sanitized.to_upper_camel_case();
+
 	if camel.is_empty() {
 		"Unnamed".to_owned()
 	} else {
@@ -120,6 +126,7 @@ pub(crate) fn type_name(schema_name: &str) -> String {
 pub(crate) fn kebab(name: &str) -> String {
 	let snake = sanitize_identifier(name).to_snake_case();
 	let kebab = snake.replace('_', "-");
+
 	if kebab.is_empty() {
 		"command".to_owned()
 	} else {
@@ -128,7 +135,6 @@ pub(crate) fn kebab(name: &str) -> String {
 }
 
 // --- TypeScript ---------------------------------------------------------
-
 /// Type names the TypeScript module declares or calls, which no component
 /// schema may take: the runtime's own types, and the globals its code uses
 /// (a model named `Record` would redefine `Record<string, string>`).
@@ -170,6 +176,7 @@ pub(crate) const TS_RESERVED_METHODS: &[&str] = &[
 /// A function name as a TypeScript method: `lowerCamelCase`.
 pub(crate) fn ts_method(name: &str) -> String {
 	let camel = sanitize_identifier(name).to_lower_camel_case();
+
 	if camel.is_empty() {
 		"call".to_owned()
 	} else {
@@ -192,7 +199,6 @@ pub(crate) fn ts_string(text: &str) -> String {
 }
 
 // --- Python -------------------------------------------------------------
-
 /// Names the Python modules define or import next to the models: the
 /// runtime's classes, the `typing` names, and the built-ins the transport
 /// raises or tests (`client.py` imports every model by name).
@@ -241,6 +247,7 @@ pub(crate) fn py_identifier(name: &str) -> String {
 	} else {
 		snake
 	};
+
 	if PYTHON_KEYWORDS.contains(&snake.as_str()) {
 		format!("{snake}_")
 	} else {
@@ -251,6 +258,7 @@ pub(crate) fn py_identifier(name: &str) -> String {
 /// A Python package name: lowercase letters, digits, and underscores.
 pub(crate) fn py_package_name(name: &str) -> String {
 	let snake = sanitize_identifier(name).to_snake_case();
+
 	if snake.is_empty() {
 		"rpc".to_owned()
 	} else {
@@ -264,7 +272,6 @@ pub(crate) fn py_string(text: &str) -> String {
 }
 
 // --- Go -----------------------------------------------------------------
-
 /// Package-level names the Go runtime declares, which models and enum
 /// constants share a namespace with.
 pub(crate) const GO_RESERVED: &[&str] = &[
@@ -328,6 +335,7 @@ pub(crate) fn go_identifier(name: &str) -> String {
 	} else {
 		camel
 	};
+
 	if GO_KEYWORDS.contains(&camel.as_str()) {
 		format!("{camel}_")
 	} else {
@@ -344,6 +352,7 @@ pub(crate) fn go_package_name(name: &str) -> String {
 		.chars()
 		.filter(|character| character.is_ascii_lowercase() || character.is_ascii_digit())
 		.collect();
+
 	if lower.is_empty() {
 		"rpc".to_owned()
 	} else {
@@ -357,7 +366,6 @@ pub(crate) fn go_string(text: &str) -> String {
 }
 
 // --- Rust ----------------------------------------------------------------
-
 /// Type names `client.rs` declares or imports next to its glob import of the
 /// models, plus the prelude types every generated file spells: a model named
 /// `Error` would otherwise lose to the client's own, and one named `Option`
@@ -437,8 +445,10 @@ pub(crate) fn rust_identifier(name: &str) -> String {
 	} else {
 		snake
 	};
+
 	match snake.as_str() {
 		"self" | "Self" | "crate" | "super" => format!("{snake}_"),
+
 		keyword if RUST_KEYWORDS.contains(&keyword) => format!("r#{snake}"),
 		_ => snake,
 	}
@@ -450,7 +460,6 @@ pub(crate) fn rust_string(text: &str) -> String {
 }
 
 // --- Dart ----------------------------------------------------------------
-
 /// Library-level names the Dart runtime declares, plus the `dart:core` and
 /// `dart:typed_data` types its code spells.
 pub(crate) const DART_RESERVED_TYPES: &[&str] = &[
@@ -572,6 +581,7 @@ pub(crate) fn dart_identifier(name: &str) -> String {
 	} else {
 		camel
 	};
+
 	if DART_KEYWORDS.contains(&camel.as_str()) {
 		format!("{camel}_")
 	} else {
@@ -582,6 +592,7 @@ pub(crate) fn dart_identifier(name: &str) -> String {
 /// A Dart package name: lowercase letters, digits, and underscores.
 pub(crate) fn dart_package_name(name: &str) -> String {
 	let snake = sanitize_identifier(name).to_snake_case();
+
 	if snake.is_empty() {
 		"rpc".to_owned()
 	} else {
@@ -594,6 +605,7 @@ pub(crate) fn dart_package_name(name: &str) -> String {
 pub(crate) fn dart_string(text: &str) -> String {
 	let mut out = String::with_capacity(text.len() + 2);
 	out.push('\'');
+
 	for character in text.chars() {
 		match character {
 			'\\' => out.push_str("\\\\"),
@@ -602,12 +614,15 @@ pub(crate) fn dart_string(text: &str) -> String {
 			'\n' => out.push_str("\\n"),
 			'\r' => out.push_str("\\r"),
 			'\t' => out.push_str("\\t"),
+
 			other if other.is_control() => {
 				let _ = write!(out, "\\u{{{:x}}}", other as u32);
 			}
+
 			other => out.push(other),
 		}
 	}
+
 	out.push('\'');
 	out
 }
@@ -636,6 +651,7 @@ mod tests {
 		assert_eq!(ts_property_key("created-at"), "\"created-at\"");
 		assert_eq!(py_identifier("class"), "class_");
 		assert_eq!(py_identifier("listTodos"), "list_todos");
+
 		assert_eq!(py_package_name("@acme/todos-api"), "acme_todos_api");
 		assert_eq!(go_identifier("chan"), "chan_");
 		assert_eq!(go_identifier("created-at"), "createdAt");
@@ -664,10 +680,12 @@ mod tests {
 		assert_eq!(scope.bind("Todo2"), "Todo22");
 
 		let mut spec = ApiSpec::empty("demo", "0.1.0");
+
 		for name in ["Client", "todo_item", "TodoItem"] {
 			spec.schemas
 				.insert(name.to_owned(), serde_json::json!({ "type": "string" }));
 		}
+
 		let names = component_names(&spec, &mut Scope::new(&["Client"]));
 		assert_eq!(names["Client"], "Client2");
 		assert_eq!(names["todo_item"], "TodoItem");
@@ -691,6 +709,7 @@ mod tests {
 		assert_eq!(dart_identifier("--"), "value");
 		assert_eq!(py_identifier("--"), "value");
 		assert_eq!(go_identifier("--"), "value");
+
 		assert_eq!(kebab("--"), "command");
 		assert_eq!(dart_package_name("--"), "rpc");
 		assert_eq!(go_package_name("--"), "rpc");

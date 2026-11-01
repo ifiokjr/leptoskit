@@ -221,23 +221,29 @@ impl Generated {
 	/// Returns the first IO error.
 	pub fn write_to(&self, dir: &Path, scaffold: Scaffold) -> std::io::Result<Written> {
 		let mut report = Written::default();
+
 		for file in &self.files {
 			let path = dir.join(&file.path);
+
 			let write = match (file.kind, scaffold) {
 				(FileKind::Code, _) | (FileKind::Scaffold, Scaffold::Full) => true,
 				(FileKind::Scaffold, Scaffold::Create) => !path.exists(),
 				(FileKind::Scaffold, Scaffold::Files) => false,
 			};
+
 			if !write {
 				report.kept.push(path);
 				continue;
 			}
+
 			if let Some(parent) = path.parent() {
 				std::fs::create_dir_all(parent)?;
 			}
+
 			std::fs::write(&path, &file.contents)?;
 			report.written.push(path);
 		}
+
 		Ok(report)
 	}
 }
@@ -296,6 +302,7 @@ impl ApiSpec {
 					.any(|glob| crate::spec::glob_matches(glob, &function.name))
 		});
 		let context = Context::new(&spec, options);
+
 		match options.language {
 			TargetLanguage::TypeScript => crate::typescript::generate(&context),
 			TargetLanguage::Python => crate::python::generate(&context),
@@ -345,6 +352,7 @@ impl<'a> Context<'a> {
 			.filter(|url| !url.is_empty());
 		let mut functions = Vec::new();
 		let mut skipped = Vec::new();
+
 		for function in &spec.functions {
 			if !function.input.is_supported() {
 				skipped.push((
@@ -366,6 +374,7 @@ impl<'a> Context<'a> {
 				functions.push(function);
 			}
 		}
+
 		Self {
 			spec,
 			options,
@@ -429,6 +438,7 @@ mod tests {
 			"cobol".parse::<TargetLanguage>(),
 			Err(CodegenError::UnknownTarget(_))
 		));
+
 		for target in TargetLanguage::ALL {
 			assert_eq!(
 				target.as_str().parse::<TargetLanguage>().ok(),
@@ -443,6 +453,7 @@ mod tests {
 			assert_eq!(mode.as_str().parse::<Scaffold>().ok(), Some(*mode));
 			assert_eq!(mode.to_string(), mode.as_str());
 		}
+
 		assert_eq!("code".parse::<Scaffold>().ok(), Some(Scaffold::Files));
 		assert!(matches!(
 			"sometimes".parse::<Scaffold>(),
@@ -512,9 +523,11 @@ mod tests {
 	#[test]
 	fn empty_specs_generate_valid_packages() {
 		let spec = ApiSpec::empty("Nothing", "0.0.0");
+
 		for language in TargetLanguage::ALL {
 			let generated = spec.generate(&GenerateOptions::new(*language, "nothing"));
 			assert!(!generated.files.is_empty(), "{language}");
+
 			for file in &generated.files {
 				assert!(
 					!file.contents.is_empty(),

@@ -105,12 +105,14 @@ fn credentials_path() -> Result<PathBuf, String> {
 
 fn load() -> Result<Option<Credentials>, String> {
 	let path = credentials_path()?;
+
 	match std::fs::read(&path) {
 		Ok(bytes) => {
 			serde_json::from_slice(&bytes)
 				.map(Some)
 				.map_err(|_| format!("{} is damaged; run `{APP} logout`", path.display()))
 		}
+
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
 		Err(error) => Err(format!("couldn't read {}: {error}", path.display())),
 	}
@@ -144,8 +146,10 @@ fn save(credentials: &Credentials) -> Result<(), String> {
 
 fn forget() -> Result<(), String> {
 	let path = credentials_path()?;
+
 	match std::fs::remove_file(&path) {
 		Ok(()) => Ok(()),
+
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
 		Err(error) => Err(format!("couldn't remove {}: {error}", path.display())),
 	}
@@ -161,6 +165,7 @@ impl Lock {
 		std::fs::create_dir_all(&directory)
 			.map_err(|error| format!("couldn't create {}: {error}", directory.display()))?;
 		let path = directory.join("credentials.lock");
+
 		for _ in 0..100 {
 			match std::fs::OpenOptions::new()
 				.write(true)
@@ -168,6 +173,7 @@ impl Lock {
 				.open(&path)
 			{
 				Ok(_) => return Ok(Self(path)),
+
 				Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
 					// A lock left by a command that crashed is stale after 30
 					// s.
@@ -182,9 +188,11 @@ impl Lock {
 						tokio::time::sleep(Duration::from_millis(100)).await;
 					}
 				}
+
 				Err(error) => return Err(format!("couldn't lock {}: {error}", path.display())),
 			}
 		}
+
 		Err(format!(
 			"another `{APP}` command is renewing the sign-in; try again"
 		))
@@ -204,12 +212,14 @@ async fn discover(http: &reqwest::Client, server_url: &str) -> Result<Discovery,
 		.send()
 		.await
 		.map_err(|error| format!("couldn't reach {url}: {error}"))?;
+
 	if !response.status().is_success() {
 		return Err(format!(
 			"{server_url} doesn't offer sign-in ({})",
 			response.status()
 		));
 	}
+
 	response
 		.json()
 		.await
@@ -244,6 +254,7 @@ async fn token(http: &reqwest::Client, url: &str, form: &[(&str, &str)]) -> Resu
 	let response = post(http, url, form).await?;
 	let success = response.status().is_success();
 	let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+
 	if success {
 		serde_json::from_slice(&bytes)
 			.map(Answer::Tokens)
@@ -287,13 +298,16 @@ pub async fn login(server_url: &str, client_id: Option<String>) -> Result<String
 		&[("client_id", &client_id), ("scope", SCOPES)],
 	)
 	.await?;
+
 	if !response.status().is_success() {
 		let error: OAuthError = response
 			.json()
 			.await
 			.map_err(|_| "the server refused to start signing in".to_owned())?;
+
 		return Err(describe(&error));
 	}
+
 	let device: DeviceAuthorization = response
 		.json()
 		.await
@@ -303,12 +317,14 @@ pub async fn login(server_url: &str, client_id: Option<String>) -> Result<String
 		"To sign in, open {} and enter the code {}",
 		device.verification_uri, device.user_code
 	);
+
 	if let Some(complete) = &device.verification_uri_complete {
 		eprintln!("(or open {complete})");
 	}
 
 	let mut interval = device.interval.unwrap_or(5).max(1);
 	let deadline = now() + device.expires_in;
+
 	while now() < deadline {
 		tokio::time::sleep(Duration::from_secs(interval)).await;
 		let answer = token(
@@ -321,6 +337,7 @@ pub async fn login(server_url: &str, client_id: Option<String>) -> Result<String
 			],
 		)
 		.await?;
+
 		match answer {
 			Answer::Tokens(tokens) => {
 				save(&Credentials {
@@ -334,8 +351,11 @@ pub async fn login(server_url: &str, client_id: Option<String>) -> Result<String
 				})?;
 				return Ok(format!("Signed in to {server_url}."));
 			}
+
 			Answer::Refused(error) if error.error == "authorization_pending" => {}
+
 			Answer::Refused(error) if error.error == "slow_down" => interval += 5,
+
 			Answer::Refused(error) if error.error == "access_denied" => {
 				return Err("the sign-in was refused".to_owned());
 			}
@@ -351,6 +371,7 @@ pub async fn logout(server_url: &str) -> Result<String, String> {
 	let Some(credentials) = load()? else {
 		return Ok("You weren't signed in.".to_owned());
 	};
+
 	if let (Some(revocation), Some(refresh)) =
 		(&credentials.revocation_endpoint, &credentials.refresh_token)
 	{
@@ -381,9 +402,11 @@ pub async fn authorization(server_url: &str) -> Result<Option<String>, String> {
 	let Some(credentials) = load()? else {
 		return Ok(None);
 	};
+
 	if credentials.server_url != server_url {
 		return Ok(None);
 	}
+
 	if now() + EARLY < credentials.expires_at {
 		return Ok(Some(format!("Bearer {}", credentials.access_token)));
 	}
@@ -393,13 +416,17 @@ pub async fn authorization(server_url: &str) -> Result<Option<String>, String> {
 	let Some(credentials) = load()? else {
 		return Ok(None);
 	};
+
 	if now() + EARLY < credentials.expires_at {
 		return Ok(Some(format!("Bearer {}", credentials.access_token)));
 	}
+
 	let Some(refresh) = credentials.refresh_token.clone() else {
 		forget()?;
+
 		return Err(format!("the sign-in expired; run `{APP} login`"));
 	};
+
 	let answer = token(
 		&reqwest::Client::new(),
 		&credentials.token_endpoint,
@@ -410,6 +437,7 @@ pub async fn authorization(server_url: &str) -> Result<Option<String>, String> {
 		],
 	)
 	.await?;
+
 	match answer {
 		Answer::Tokens(tokens) => {
 			let header = format!("Bearer {}", tokens.access_token);

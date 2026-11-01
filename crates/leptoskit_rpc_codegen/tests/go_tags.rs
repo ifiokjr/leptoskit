@@ -37,6 +37,7 @@ fn go_wire_names_cannot_escape_struct_tags() {
 		"Nested".to_owned(),
 		json!({ "type": "array", "items": object }),
 	);
+
 	for required in [true, false] {
 		spec.functions.push(ApiFunction {
 			kind: leptoskit_rpc_codegen::ApiKind::Call,
@@ -72,6 +73,7 @@ fn go_wire_names_cannot_escape_struct_tags() {
 			scopes: Vec::new(),
 		});
 	}
+
 	// Exercise the same JSON parsing boundary as a consumed RPC specification.
 	let spec = ApiSpec::from_json(&serde_json::to_string(&spec).expect("serialize spec"))
 		.expect("read spec");

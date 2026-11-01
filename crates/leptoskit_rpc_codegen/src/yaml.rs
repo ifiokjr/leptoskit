@@ -13,14 +13,17 @@ use serde_json::Value;
 #[must_use]
 pub fn to_yaml(value: &Value) -> String {
 	let mut out = String::new();
+
 	match value {
 		Value::Object(map) if !map.is_empty() => write_object(map, "", "", &mut out),
+
 		Value::Array(items) if !items.is_empty() => write_array(items, "", &mut out),
 		scalar => {
 			out.push_str(&scalar_text(scalar));
 			out.push('\n');
 		}
 	}
+
 	out
 }
 
@@ -39,15 +42,18 @@ fn write_object(map: &Map<String, Value>, first: &str, rest: &str, out: &mut Str
 /// Writes a value that follows a `key:` or a `- ` on the current line.
 fn write_nested(value: &Value, indent: &str, out: &mut String) {
 	let child = format!("{indent}  ");
+
 	match value {
 		Value::Object(map) if !map.is_empty() => {
 			out.push('\n');
 			write_object(map, &child, &child, out);
 		}
+
 		Value::Array(items) if !items.is_empty() => {
 			out.push('\n');
 			write_array(items, &child, out);
 		}
+
 		scalar => {
 			out.push(' ');
 			out.push_str(&scalar_text(scalar));
@@ -59,16 +65,19 @@ fn write_nested(value: &Value, indent: &str, out: &mut String) {
 fn write_array(items: &[Value], indent: &str, out: &mut String) {
 	let dash = format!("{indent}- ");
 	let continuation = format!("{indent}  ");
+
 	for item in items {
 		match item {
 			Value::Object(map) if !map.is_empty() => {
 				write_object(map, &dash, &continuation, out);
 			}
+
 			Value::Array(nested) if !nested.is_empty() => {
 				out.push_str(indent);
 				out.push_str("-\n");
 				write_array(nested, &continuation, out);
 			}
+
 			scalar => {
 				out.push_str(&dash);
 				out.push_str(&scalar_text(scalar));

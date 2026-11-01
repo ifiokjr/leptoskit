@@ -81,6 +81,7 @@ pub(crate) fn analyze(schema: &Value) -> Analyzed<'_> {
 			nullable: false,
 		};
 	};
+
 	if let Some(Value::String(reference)) = object.get("$ref")
 		&& let Some(name) = ref_name(reference)
 	{
@@ -91,11 +92,13 @@ pub(crate) fn analyze(schema: &Value) -> Analyzed<'_> {
 	}
 
 	let mut nullable = false;
+
 	let kinds: Vec<&str> = match object.get("type") {
 		Some(Value::String(kind)) => vec![kind.as_str()],
 		Some(Value::Array(kinds)) => kinds.iter().filter_map(Value::as_str).collect(),
 		_ => Vec::new(),
 	};
+
 	let kinds: Vec<&str> = kinds
 		.into_iter()
 		.filter(|kind| {
@@ -121,6 +124,7 @@ pub(crate) fn analyze(schema: &Value) -> Analyzed<'_> {
 					}
 				})
 				.collect();
+
 			return match rest.as_slice() {
 				[] => {
 					Analyzed {
@@ -144,10 +148,12 @@ pub(crate) fn analyze(schema: &Value) -> Analyzed<'_> {
 			};
 		}
 	}
+
 	if let Some(Value::Array(parts)) = object.get("allOf")
 		&& let [single] = parts.as_slice()
 	{
 		let inner = analyze(single);
+
 		return Analyzed {
 			shape: inner.shape,
 			nullable: nullable || inner.nullable,
@@ -155,6 +161,7 @@ pub(crate) fn analyze(schema: &Value) -> Analyzed<'_> {
 	}
 
 	let format = object.get("format").and_then(Value::as_str);
+
 	let shape = match kinds.as_slice() {
 		[] if object.get("type").is_some() => Shape::Null,
 		["boolean"] => Shape::Boolean,
@@ -195,6 +202,7 @@ pub(crate) fn analyze(schema: &Value) -> Analyzed<'_> {
 		}
 		_ => Shape::Any,
 	};
+
 	Analyzed { shape, nullable }
 }
 
@@ -222,10 +230,12 @@ fn object_shape(object: &Map<String, Value>) -> Shape<'_> {
 				.collect()
 		})
 		.unwrap_or_default();
+
 	let additional = match object.get("additionalProperties") {
 		None | Some(Value::Bool(false)) => None,
 		Some(schema) => Some(schema),
 	};
+
 	if properties.is_empty()
 		&& !object.contains_key("properties")
 		&& let Some(values) = additional
@@ -315,9 +325,11 @@ pub(crate) fn recognize_enum<'a>(variants: &[&'a Value]) -> Option<SerdeEnum<'a>
 	if variants.is_empty() {
 		return None;
 	}
+
 	if let Some(tagged) = recognize_tagged(variants) {
 		return Some(tagged);
 	}
+
 	recognize_external(variants)
 }
 
@@ -351,15 +363,18 @@ fn recognize_tagged<'a>(variants: &[&'a Value]) -> Option<SerdeEnum<'a>> {
 		.map(|(name, _)| *name)?;
 	// Distinct tag values, or the discriminator is not one.
 	let mut seen = Vec::new();
+
 	for object in &objects {
 		let value = object
 			.properties
 			.iter()
 			.find(|(name, _)| *name == tag)
 			.and_then(|(_, schema)| const_string(schema))?;
+
 		if seen.contains(&value) {
 			return None;
 		}
+
 		seen.push(value);
 	}
 
@@ -379,6 +394,7 @@ fn recognize_tagged<'a>(variants: &[&'a Value]) -> Option<SerdeEnum<'a>> {
 	distinct.dedup();
 	let payload_is_uniform =
 		distinct.len() == 1 && objects.iter().all(|object| object.properties.len() <= 2);
+
 	if payload_is_uniform && objects.iter().any(|object| object.properties.len() == 2) {
 		let content = distinct[0];
 		let variants = objects
@@ -415,6 +431,7 @@ fn recognize_tagged<'a>(variants: &[&'a Value]) -> Option<SerdeEnum<'a>> {
 					.collect(),
 				additional: object.additional,
 			};
+
 			if fields.properties.is_empty() {
 				EnumVariant::Unit { name }
 			} else {
@@ -429,6 +446,7 @@ fn recognize_tagged<'a>(variants: &[&'a Value]) -> Option<SerdeEnum<'a>> {
 /// closed objects carry a payload under the variant name.
 fn recognize_external<'a>(variants: &[&'a Value]) -> Option<SerdeEnum<'a>> {
 	let mut out = Vec::new();
+
 	for variant in variants {
 		match analyze(variant).shape {
 			Shape::String {
@@ -449,25 +467,30 @@ fn recognize_external<'a>(variants: &[&'a Value]) -> Option<SerdeEnum<'a>> {
 						.is_some_and(|extra| extra == &Value::Bool(false)) =>
 			{
 				let (name, inner) = object.properties[0];
+
 				match analyze(inner).shape {
 					Shape::Object(fields) if !fields.properties.is_empty() => {
 						out.push(EnumVariant::Struct { name, fields });
 					}
+
 					_ => out.push(EnumVariant::Newtype { name, inner }),
 				}
 			}
 			_ => return None,
 		}
 	}
+
 	Some(SerdeEnum::External { variants: out })
 }
 
 /// The `const` string of a schema, or the single value of a one-string enum.
 fn const_string(schema: &Value) -> Option<&str> {
 	let object = schema.as_object()?;
+
 	if let Some(constant) = object.get("const").and_then(Value::as_str) {
 		return Some(constant);
 	}
+
 	match object.get("enum")?.as_array()?.as_slice() {
 		[Value::String(single)] => Some(single),
 		_ => None,
@@ -546,6 +569,7 @@ mod tests {
 			analyze(&json!({ "additionalProperties": {} })).shape,
 			Shape::Map { values: None }
 		));
+
 		assert_eq!(
 			analyze(&json!({ "minimum": 1 })).shape,
 			Shape::Any,
@@ -564,11 +588,13 @@ mod tests {
 			}
 		);
 		let one_of = json!({ "oneOf": [{ "type": "string" }, { "type": "integer" }] });
+
 		assert!(matches!(analyze(&one_of).shape, Shape::Union(variants) if variants.len() == 2));
 		let all_of = json!({ "allOf": [{ "type": "boolean" }] });
 		assert_eq!(analyze(&all_of).shape, Shape::Boolean);
 		let many = json!({ "type": ["string", "integer"] });
 		assert_eq!(analyze(&many).shape, Shape::Any);
+
 		let foreign_ref = json!({ "$ref": "https://elsewhere/schema.json" });
 		assert_eq!(analyze(&foreign_ref).shape, Shape::Any);
 		let defs_ref = json!({ "$ref": "#/$defs/Thing" });
@@ -576,6 +602,7 @@ mod tests {
 		let closed = json!({ "type": "object", "additionalProperties": false });
 		assert!(matches!(
 			analyze(&closed).shape,
+
 			Shape::Object(ObjectShape { properties, additional: None, .. }) if properties.is_empty()
 		));
 		let array_with_items = json!({ "type": "array", "prefixItems": [{ "type": "string" }], "items": { "type": "string" } });
@@ -593,10 +620,12 @@ mod tests {
 			Shape::Map { values: Some(_) }
 		));
 		let tuple = json!({ "type": "array", "prefixItems": [{ "type": "string" }, { "type": "integer" }], "items": false });
+
 		assert!(matches!(analyze(&tuple).shape, Shape::Tuple(items) if items.len() == 2));
 		let values = json!({ "type": "string", "enum": ["all", "done"] });
 		assert!(matches!(
 			analyze(&values).shape,
+
 			Shape::String { values: Some(values), .. } if values == ["all", "done"]
 		));
 	}
@@ -667,6 +696,7 @@ mod tests {
 		};
 		let names: Vec<&str> = variants.iter().map(EnumVariant::name).collect();
 		assert_eq!(names, ["All", "None", "Limit", "Range"]);
+
 		assert!(matches!(variants[2], EnumVariant::Newtype { .. }));
 		assert!(matches!(variants[3], EnumVariant::Struct { .. }));
 	}

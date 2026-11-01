@@ -163,6 +163,7 @@ impl DartTypes {
 	fn convert(&mut self, schema: &Value, hint: &str, spec: &ApiSpec) -> DartType {
 		let analyzed = analyze(schema);
 		let nullable = analyzed.nullable;
+
 		let base = match analyzed.shape {
 			Shape::Ref(name) => {
 				match (self.components.get(name), spec.schema(name)) {
@@ -218,6 +219,7 @@ impl DartTypes {
 			}
 			Shape::Union(_) | Shape::Any => DartType::Dynamic,
 		};
+
 		// `null` alone is `void`, not an optional nothing.
 		if nullable && base != DartType::Void {
 			DartType::Nullable(Box::new(base))
@@ -246,6 +248,7 @@ fn class_declaration(
 ) -> String {
 	let mut fields = Vec::new();
 	let mut field_names = Scope::new(DART_RESERVED_FIELDS);
+
 	for (wire, property) in &object.properties {
 		let ty = types.convert(property, &format!("{name}{}", type_name(wire)), spec);
 		let nullable = !object.is_required(wire)
@@ -279,17 +282,21 @@ fn class_declaration(
 			.collect::<Vec<_>>()
 			.join("\n")
 	));
+
 	for field in &fields {
 		let ty = if field.nullable {
 			DartType::Nullable(Box::new(field.ty.clone()))
 		} else {
 			field.ty.clone()
 		};
+
 		for line in &field.docs {
 			out.push_str(&format!("\t/// {line}\n"));
 		}
+
 		out.push_str(&format!("\tfinal {} {};\n", ty.render(), field.dart));
 	}
+
 	out.push_str(&format!(
 		"\n\tfactory {name}.fromJson(Map<String, dynamic> json) => {name}(\n{}\n\t);\n",
 		fields
@@ -300,6 +307,7 @@ fn class_declaration(
 				} else {
 					field.ty.clone()
 				};
+
 				format!(
 					"\t\t{}: {},",
 					field.dart,
@@ -346,10 +354,12 @@ fn enum_declaration(schema: &Value, name: &str) -> String {
 		} => values,
 		_ => Vec::new(),
 	};
+
 	let mut out = String::new();
 	push_docs(&mut out, description(schema), "");
 	out.push_str(&format!("enum {name} {{\n"));
 	let mut variants = Vec::new();
+
 	for (index, value) in values.iter().enumerate() {
 		let variant = dart_identifier(value);
 		// Enum members Dart defines, which a value may not shadow.
@@ -372,6 +382,7 @@ fn enum_declaration(schema: &Value, name: &str) -> String {
 		};
 		variants.push(format!("\t{}({})", variant, dart_string(value)));
 	}
+
 	out.push_str(&variants.join(",\n"));
 	out.push_str(";\n");
 	out.push_str(&format!(
@@ -388,10 +399,13 @@ fn push_docs(out: &mut String, docs: Option<&str>, indent: &str) {
 		return;
 	};
 	let docs = docs.trim();
+
 	if docs.is_empty() {
 		return;
 	}
+
 	let safe = docs.replace("*/", "*\\/");
+
 	for line in safe.lines() {
 		if line.is_empty() {
 			out.push_str(&format!("{indent}///\n"));
@@ -414,6 +428,7 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 				Shape::Object(ref object) if !object.properties.is_empty() => {
 					Some(NamedKind::Class)
 				}
+
 				Shape::String {
 					values: Some(_), ..
 				} => Some(NamedKind::Enum),
@@ -422,11 +437,13 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 			if let Some(kind) = kind {
 				types.kinds.insert(dart_name.clone(), kind);
 			}
+
 			(dart_name, schema)
 		})
 		.collect();
 
 	let mut models = String::new();
+
 	for (dart_name, schema) in &components {
 		match analyze(schema).shape {
 			Shape::Object(ref object) if !object.properties.is_empty() => {
@@ -438,6 +455,7 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 					context.spec,
 				));
 			}
+
 			Shape::String {
 				values: Some(_), ..
 			} => {
@@ -456,9 +474,11 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 	library.push_str("library;\n\nimport 'dart:convert';\nimport 'dart:typed_data';\n\n");
 	library.push_str("import 'package:http/http.dart' as http;\n\n");
 	library.push_str(&models);
+
 	for synthesized in &types.models {
 		library.push_str(synthesized);
 	}
+
 	library.push_str(RUNTIME);
 	library.push_str(&client);
 
@@ -513,6 +533,7 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 		 http.Client();\n\n\t/// The origin the client sends requests to, without a trailing \
 		 slash.\n\tfinal String? serverUrl;\n\n\tfinal http.Client _http;\n",
 	);
+
 	for (function, name) in context.functions().zip(names) {
 		out.push('\n');
 		let identifiers = parameter_names(function);
@@ -523,16 +544,21 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 			.zip(&identifiers)
 			.filter(|(param, _)| !param.docs.is_empty())
 			.collect();
+
 		if !documented.is_empty() {
 			if !docs.is_empty() {
 				docs.push_str("\n\n");
 			}
+
 			docs.push_str("Arguments:\n");
+
 			for (param, identifier) in documented {
 				docs.push_str(&format!("- `{identifier}`: {}\n", param.docs.trim()));
 			}
+
 			docs.pop();
 		}
+
 		if function.deprecated {
 			if docs.is_empty() {
 				docs.push_str("Deprecated.");
@@ -540,6 +566,7 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 				docs.push_str("\n\nDeprecated.");
 			}
 		}
+
 		push_docs(&mut out, (!docs.is_empty()).then_some(docs.as_str()), "\t");
 
 		let output = types.convert(
@@ -550,6 +577,7 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 
 		let mut parameters = Vec::new();
 		let mut payload = Vec::new();
+
 		for (param, identifier) in function.params.iter().zip(&identifiers) {
 			let ty = types.convert(
 				&param.schema,
@@ -559,6 +587,7 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 			// The parameter type is what the wire accepts; an optional
 			// non-nullable argument becomes nullable once, not twice.
 			let optional = !param.is_required() || matches!(ty, DartType::Nullable(_));
+
 			let parameter_type = match (&ty, optional) {
 				(DartType::Nullable(_), _) | (_, false) => ty.clone(),
 				(_, true) => DartType::Nullable(Box::new(ty.clone())),
@@ -568,6 +597,7 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 			} else {
 				format!("required {} {}", parameter_type.render(), identifier)
 			});
+
 			if optional {
 				payload.push(format!(
 					"\t\t\t\tif ({identifier} != null) {}: {},",
@@ -590,6 +620,7 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 		} else {
 			""
 		};
+
 		let returns = matches!(output, DartType::Void);
 		let return_type = if returns {
 			"Future<void>".to_owned()
@@ -615,6 +646,7 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 				payload.join("\n")
 			)
 		};
+
 		out.push_str(&format!(
 			"\t{return_type} {name}({parameter_list}) async {{\n\t\t{binding}await _invoke({}, \
 			 {}, {}, {payload_map}{key});{decode}\n\t}}\n",
@@ -627,6 +659,7 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 			}),
 		));
 	}
+
 	out.push_str(INVOKE);
 	out
 }
@@ -665,12 +698,15 @@ fn readme(context: &Context<'_>, methods: &[String]) -> String {
 				)
 			});
 	let mut skipped = String::new();
+
 	if !context.skipped.is_empty() {
 		skipped.push_str("\n## Not generated\n\n");
+
 		for (name, reason) in &context.skipped {
 			skipped.push_str(&format!("- `{name}`: {reason}\n"));
 		}
 	}
+
 	format!(
 		"# {name}
 

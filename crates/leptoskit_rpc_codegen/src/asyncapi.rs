@@ -28,6 +28,7 @@ impl ApiSpec {
 			if function.internal || function.kind == ApiKind::Call {
 				continue;
 			}
+
 			let id = &function.name;
 			let args = format!("{id}.args");
 			let result = format!("{id}.result");
@@ -47,6 +48,7 @@ impl ApiSpec {
 					"payload": function.output_schema,
 				}),
 			);
+
 			channels.insert(
 				id.clone(),
 				json!({
@@ -64,6 +66,7 @@ impl ApiSpec {
 				ApiKind::Mutation | ApiKind::Action => ("call", "send", "args"),
 				ApiKind::Call => continue,
 			};
+
 			operations.insert(
 				format!("{id}.{operation}"),
 				json!({
@@ -79,10 +82,13 @@ impl ApiSpec {
 		let mut info = Map::new();
 		info.insert("title".to_owned(), json!(self.title));
 		info.insert("version".to_owned(), json!(self.version));
+
 		if let Some(description) = &self.description {
 			info.insert("description".to_owned(), json!(description));
 		}
+
 		document.insert("info".to_owned(), Value::Object(info));
+
 		if let Some(server) = self.servers.first() {
 			document.insert(
 				"servers".to_owned(),
@@ -95,6 +101,7 @@ impl ApiSpec {
 				}),
 			);
 		}
+
 		document.insert("channels".to_owned(), Value::Object(channels));
 		document.insert("operations".to_owned(), Value::Object(operations));
 		document.insert(
@@ -112,18 +119,24 @@ impl ApiSpec {
 fn object_schema(params: &[ApiParam]) -> Value {
 	let mut properties = Map::new();
 	let mut required = Vec::new();
+
 	for param in params {
 		properties.insert(param.name.clone(), param.schema.clone());
+
 		if param.is_required() {
 			required.push(Value::String(param.name.clone()));
 		}
 	}
+
 	let mut schema = Map::new();
 	schema.insert("type".to_owned(), json!("object"));
+
 	schema.insert("properties".to_owned(), Value::Object(properties));
+
 	if !required.is_empty() {
 		schema.insert("required".to_owned(), Value::Array(required));
 	}
+
 	Value::Object(schema)
 }
 

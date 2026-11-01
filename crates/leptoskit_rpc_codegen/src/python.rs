@@ -96,6 +96,7 @@ impl PyTypes {
 	/// after `hint` when it is an anonymous object.
 	fn render(&mut self, schema: &Value, hint: &str, spec: &ApiSpec) -> String {
 		let analyzed = analyze(schema);
+
 		let base = match analyzed.shape {
 			Shape::Ref(name) => {
 				self.components
@@ -185,6 +186,7 @@ impl PyTypes {
 			}
 			Shape::Any => "Any".to_owned(),
 		};
+
 		if analyzed.nullable && base != "None" {
 			format!("Optional[{base}]")
 		} else {
@@ -215,7 +217,29 @@ fn typed_dict(
 	spec: &ApiSpec,
 	hint: &str,
 ) -> String {
-	let mut fields: Vec<(String, String, bool, Option<String>)> = Vec::new();
+	let fields = typed_fields(object, types, spec, hint);
+	let mut out = if fields.iter().all(|(key, ..)| py_is_plain_key(key)) {
+		class_typed_dict(name, docs, &fields)
+	} else {
+		functional_typed_dict(name, docs, &fields)
+	};
+
+	out.push('\n');
+	out
+}
+
+/// A field's key, type, whether it's required, and its docs.
+type Field = (String, String, bool, Option<String>);
+
+/// Each property's field, in the order the object lists them.
+fn typed_fields(
+	object: &ObjectShape<'_>,
+	types: &mut PyTypes,
+	spec: &ApiSpec,
+	hint: &str,
+) -> Vec<Field> {
+	let mut fields = Vec::new();
+
 	for (property, schema) in &object.properties {
 		let required = object.is_required(property) && !has_default(schema);
 		let rendered = types.render(schema, &format!("{hint}{}", type_name(property)), spec);
@@ -226,54 +250,69 @@ fn typed_dict(
 			description(schema).map(ToOwned::to_owned),
 		));
 	}
-	let class_syntax = fields.iter().all(|(key, ..)| py_is_plain_key(key));
-	let mut out = String::new();
-	if class_syntax {
-		out.push_str(&format!("class {name}(TypedDict, total=False):\n"));
-		if let Some(docs) = docs {
-			out.push_str(&docstring(docs, "\t"));
-		}
-		if fields.is_empty() {
-			out.push_str("\tpass\n");
-		}
-		for (key, rendered, required, field_docs) in &fields {
-			if let Some(field_docs) = field_docs {
-				for line in field_docs.lines() {
-					out.push_str(&format!("\t# {line}\n"));
-				}
-			}
-			let annotation = if *required {
-				format!("Required[{rendered}]")
-			} else {
-				format!("NotRequired[{rendered}]")
-			};
-			out.push_str(&format!("\t{key}: {annotation}\n"));
-		}
-	} else {
-		out.push_str(&format!(
-			"{name} = TypedDict(\n\t{},\n\t{{\n",
-			py_string(name)
-		));
-		for (key, rendered, required, field_docs) in &fields {
-			if let Some(field_docs) = field_docs {
-				for line in field_docs.lines() {
-					out.push_str(&format!("\t\t# {line}\n"));
-				}
-			}
-			let annotation = if *required {
-				format!("Required[{}]", py_string(rendered))
-			} else {
-				format!("NotRequired[{}]", py_string(rendered))
-			};
-			out.push_str(&format!("\t\t{}: {annotation},\n", py_string(key)));
-		}
-		out.push_str("\t},\n\ttotal=False,\n)\n");
-		if let Some(docs) = docs {
-			out.push_str(&format!("{name}.__doc__ = {}\n", py_string(docs)));
-		}
+
+	fields
+}
+
+/// `class Name(TypedDict, total=False)`, for keys that are identifiers.
+fn class_typed_dict(name: &str, docs: Option<&str>, fields: &[Field]) -> String {
+	let mut out = format!("class {name}(TypedDict, total=False):\n");
+
+	if let Some(docs) = docs {
+		out.push_str(&docstring(docs, "\t"));
 	}
-	out.push('\n');
+
+	if fields.is_empty() {
+		out.push_str("\tpass\n");
+	}
+
+	for (key, rendered, required, field_docs) in fields {
+		write_field_docs(&mut out, field_docs.as_deref(), "\t");
+		let annotation = if *required {
+			format!("Required[{rendered}]")
+		} else {
+			format!("NotRequired[{rendered}]")
+		};
+
+		out.push_str(&format!("\t{key}: {annotation}\n"));
+	}
+
 	out
+}
+
+/// `Name = TypedDict(...)`, for keys that aren't identifiers.
+fn functional_typed_dict(name: &str, docs: Option<&str>, fields: &[Field]) -> String {
+	let mut out = format!("{name} = TypedDict(\n\t{},\n\t{{\n", py_string(name));
+
+	for (key, rendered, required, field_docs) in fields {
+		write_field_docs(&mut out, field_docs.as_deref(), "\t\t");
+		let annotation = if *required {
+			format!("Required[{}]", py_string(rendered))
+		} else {
+			format!("NotRequired[{}]", py_string(rendered))
+		};
+
+		out.push_str(&format!("\t\t{}: {annotation},\n", py_string(key)));
+	}
+
+	out.push_str("\t},\n\ttotal=False,\n)\n");
+
+	if let Some(docs) = docs {
+		out.push_str(&format!("{name}.__doc__ = {}\n", py_string(docs)));
+	}
+
+	out
+}
+
+/// A field's docs, one comment line each.
+fn write_field_docs(out: &mut String, docs: Option<&str>, indent: &str) {
+	let Some(docs) = docs else {
+		return;
+	};
+
+	for line in docs.lines() {
+		out.push_str(&format!("{indent}# {line}\n"));
+	}
 }
 
 /// Whether a wire name can be a `class`-syntax `TypedDict` key.
@@ -290,10 +329,13 @@ fn docstring(docs: &str, indent: &str) -> String {
 	let mut lines = safe.lines();
 	let first = lines.next().unwrap_or_default();
 	let rest: Vec<&str> = lines.collect();
+
 	if rest.is_empty() {
 		return format!("{indent}\"\"\"{first}\"\"\"\n");
 	}
+
 	let mut out = format!("{indent}\"\"\"{first}\n");
+
 	for line in rest {
 		if line.is_empty() {
 			out.push('\n');
@@ -301,6 +343,7 @@ fn docstring(docs: &str, indent: &str) -> String {
 			out.push_str(&format!("{indent}{line}\n"));
 		}
 	}
+
 	out.push_str(&format!("{indent}\"\"\"\n"));
 	out
 }
@@ -308,9 +351,11 @@ fn docstring(docs: &str, indent: &str) -> String {
 fn models_module(context: &Context<'_>, types: &mut PyTypes) -> String {
 	let mut definitions = String::new();
 	let mut aliases = String::new();
+
 	for (schema_name, schema) in &context.spec.schemas {
 		let name = types.components[schema_name].clone();
 		let analyzed = analyze(schema);
+
 		match (&analyzed.shape, analyzed.nullable) {
 			(Shape::Object(object), false) if !object.properties.is_empty() => {
 				definitions.push_str(&typed_dict(
@@ -322,6 +367,7 @@ fn models_module(context: &Context<'_>, types: &mut PyTypes) -> String {
 					&name,
 				));
 			}
+
 			_ => {
 				let rendered = types.render(schema, &name, context.spec);
 				if let Some(docs) = description(schema) {
@@ -329,10 +375,12 @@ fn models_module(context: &Context<'_>, types: &mut PyTypes) -> String {
 						aliases.push_str(&format!("# {line}\n"));
 					}
 				}
+
 				aliases.push_str(&format!("{name}: TypeAlias = {}\n\n", py_string(&rendered)));
 			}
 		}
 	}
+
 	let mut out = format!(
 		"{}{docs}\n\nfrom __future__ import annotations\n\nfrom typing import Any, Literal, \
 		 NotRequired, Optional, Required, TypeAlias, TypedDict, Union\n\n",
@@ -347,6 +395,7 @@ fn models_module(context: &Context<'_>, types: &mut PyTypes) -> String {
 	for synthesized in &types.synthesized {
 		out.push_str(synthesized);
 	}
+
 	out.push_str(&definitions);
 	out.push_str(&aliases);
 	out
@@ -365,15 +414,18 @@ fn signature(function: &ApiFunction, types: &mut PyTypes, spec: &ApiSpec) -> Sig
 			payload: "{}".to_owned(),
 		};
 	}
+
 	let mut parameters = vec!["*".to_owned()];
 	let mut payload = Vec::new();
 	let hint = type_name(&function.name);
+
 	for (param, identifier) in function.params.iter().zip(parameter_names(function)) {
 		let rendered = types.render(
 			&param.schema,
 			&format!("{hint}{}", type_name(&param.name)),
 			spec,
 		);
+
 		if param.is_required() {
 			parameters.push(format!("{identifier}: {rendered}"));
 		} else {
@@ -382,10 +434,13 @@ fn signature(function: &ApiFunction, types: &mut PyTypes, spec: &ApiSpec) -> Sig
 			} else {
 				format!("Optional[{rendered}]")
 			};
+
 			parameters.push(format!("{identifier}: {rendered} = None"));
 		}
+
 		payload.push(format!("{}: {identifier}", py_string(&param.name)));
 	}
+
 	Signature {
 		parameters: parameters.join(", "),
 		payload: format!("{{{}}}", payload.join(", ")),
@@ -415,6 +470,7 @@ fn parameter_names(function: &ApiFunction) -> Vec<String> {
 fn client_module(context: &Context<'_>, types: &mut PyTypes, names: &[String]) -> String {
 	let mut methods = String::new();
 	let mut async_methods = String::new();
+
 	for (function, name) in context.functions().zip(names) {
 		let Signature {
 			parameters,
@@ -425,11 +481,13 @@ fn client_module(context: &Context<'_>, types: &mut PyTypes, names: &[String]) -
 			&format!("{}Output", type_name(&function.name)),
 			context.spec,
 		);
+
 		let encoding = match function.input {
 			HttpInput::Query => "query",
 			HttpInput::Form => "form",
 			HttpInput::Json | HttpInput::Other { .. } => "json",
 		};
+
 		let mut docs = function.docs.clone();
 		let documented: Vec<(&crate::spec::ApiParam, String)> = function
 			.params
@@ -437,12 +495,15 @@ fn client_module(context: &Context<'_>, types: &mut PyTypes, names: &[String]) -
 			.zip(parameter_names(function))
 			.filter(|(param, _)| !param.docs.is_empty())
 			.collect();
+
 		if !documented.is_empty() {
 			docs.push_str("\n\nArguments:");
+
 			for (param, identifier) in documented {
 				docs.push_str(&format!("\n\t{identifier}: {}", param.docs.trim()));
 			}
 		}
+
 		if function.deprecated {
 			docs.push_str("\n\nDeprecated.");
 		}
@@ -451,6 +512,7 @@ fn client_module(context: &Context<'_>, types: &mut PyTypes, names: &[String]) -
 		} else {
 			docstring(&docs, "\t\t")
 		};
+
 		// A mutation takes an idempotency key, so a retried call runs once.
 		let (parameters, key) = if function.kind.is_idempotent_with_key() {
 			let keyword = "idempotency_key: Optional[str] = None";
@@ -459,10 +521,12 @@ fn client_module(context: &Context<'_>, types: &mut PyTypes, names: &[String]) -
 			} else {
 				format!("{parameters}, {keyword}")
 			};
+
 			(parameters, ", idempotency_key")
 		} else {
 			(parameters, "")
 		};
+
 		let separator = if parameters.is_empty() { "" } else { ", " };
 		methods.push_str(&format!(
 			"\n\tdef {name}(self{separator}{parameters}) -> {output}:\n{docs}\t\treturn \
@@ -484,6 +548,7 @@ fn client_module(context: &Context<'_>, types: &mut PyTypes, names: &[String]) -
 	} else {
 		format!("from .models import {}\n", types.names.join(", "))
 	};
+
 	format!(
 		"{banner}{docs}\n\nfrom __future__ import annotations\n\nimport json\nimport \
 		 urllib.error\nimport urllib.parse\nimport urllib.request\nfrom typing import Any, \
@@ -549,6 +614,7 @@ fn init_module(context: &Context<'_>, types: &PyTypes) -> String {
 	} else {
 		format!("from .models import {}\n", types.names.join(", "))
 	};
+
 	format!(
 		"{}{docs}\n\nfrom .client import AsyncClient, Client, DEFAULT_SERVER_URL, FnError, \
 		 to_query_string\n{model_imports}\n__all__ = [{}]\n",
@@ -596,12 +662,15 @@ fn readme(context: &Context<'_>, module: &str, methods: &[String]) -> String {
 				format!("result = api.{method}({})\n", args.join(", "))
 			});
 	let mut skipped = String::new();
+
 	if !context.skipped.is_empty() {
 		skipped.push_str("\n## Not generated\n\n");
+
 		for (name, reason) in &context.skipped {
 			skipped.push_str(&format!("- `{name}`: {reason}\n"));
 		}
 	}
+
 	format!(
 		"# {name}
 
