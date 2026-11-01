@@ -16,6 +16,8 @@ use crate::NativeEvent;
 use crate::NativeEventSlot;
 use crate::NativeKind;
 use crate::SliderState;
+use crate::reactive::Get;
+use crate::reactive::Set;
 
 #[derive(Default)]
 struct RecordedNode {
@@ -638,4 +640,116 @@ fn mutations_follow_the_build_order() {
 		15 * 3,
 		"shrinking deletes each removed row and its labels"
 	);
+}
+
+fn texts(host: &RecordedHost) -> Vec<String> {
+	host.nodes
+		.values()
+		.filter_map(|node| node.props.get("text").and_then(Value::as_str))
+		.map(str::to_owned)
+		.collect()
+}
+
+#[test]
+fn a_binding_settles_without_recreating_its_siblings() {
+	let owner = reactive_graph::owner::Owner::new();
+	owner.set();
+	let count = crate::reactive::RwSignal::new(0);
+	let mut tree = Tree::default();
+	let mut host = RecordedHost::default();
+	tree.update(
+		Element::view().children([
+			Element::text_from(move || format!("Count: {}", count.get())),
+			Element::text("static"),
+		]),
+		&mut host,
+	);
+	let static_id = *host
+		.nodes
+		.iter()
+		.find(|(_, node)| node.props["text"] == "static")
+		.map(|(id, _)| id)
+		.unwrap();
+	host.created.clear();
+	host.updated.clear();
+	host.deleted.clear();
+	count.set(1);
+	tree.settle(&mut host);
+
+	assert_eq!(host.created, Vec::<i64>::new());
+	assert_eq!(host.deleted, Vec::<i64>::new());
+	assert!(!host.updated.contains(&static_id));
+	assert!(texts(&host).iter().any(|text| text == "Count: 1"));
+}
+
+#[test]
+fn a_list_region_replaces_its_rows_and_leaves_the_rest_of_the_screen() {
+	let owner = reactive_graph::owner::Owner::new();
+	owner.set();
+	let items = crate::reactive::RwSignal::new(vec!["a".to_owned(), "b".to_owned()]);
+	let mut tree = Tree::default();
+	let mut host = RecordedHost::default();
+	tree.update(
+		Element::view().children([
+			Element::text("static"),
+			crate::reactive::For(
+				move || items.get(),
+				Clone::clone,
+				|item| Element::text(item),
+			),
+		]),
+		&mut host,
+	);
+	let static_id = *host
+		.nodes
+		.iter()
+		.find(|(_, node)| node.props["text"] == "static")
+		.map(|(id, _)| id)
+		.unwrap();
+	host.created.clear();
+	host.updated.clear();
+	host.deleted.clear();
+	items.set(vec!["a".to_owned(), "c".to_owned()]);
+	tree.settle(&mut host);
+
+	assert!(!host.created.contains(&static_id));
+	assert!(!host.deleted.contains(&static_id));
+	assert!(!host.updated.contains(&static_id));
+	let rendered = texts(&host);
+	assert!(rendered.iter().any(|text| text == "a"));
+	assert!(rendered.iter().any(|text| text == "c"));
+	assert!(!rendered.iter().any(|text| text == "b"));
+}
+
+#[test]
+fn show_drops_its_child_without_touching_the_sibling() {
+	let owner = reactive_graph::owner::Owner::new();
+	owner.set();
+	let open = crate::reactive::RwSignal::new(true);
+	let mut tree = Tree::default();
+	let mut host = RecordedHost::default();
+	tree.update(
+		Element::view().children([
+			Element::text("static"),
+			crate::reactive::Show(move || open.get(), || Element::text("open")),
+		]),
+		&mut host,
+	);
+	assert!(texts(&host).iter().any(|text| text == "open"));
+	let static_id = *host
+		.nodes
+		.iter()
+		.find(|(_, node)| node.props["text"] == "static")
+		.map(|(id, _)| id)
+		.unwrap();
+	host.created.clear();
+	host.deleted.clear();
+	host.updated.clear();
+	open.set(false);
+	tree.settle(&mut host);
+
+	assert!(!host.deleted.contains(&static_id));
+	assert!(!host.updated.contains(&static_id));
+	assert!(!texts(&host).iter().any(|text| text == "open"));
+	assert!(texts(&host).iter().any(|text| text == "static"));
 }

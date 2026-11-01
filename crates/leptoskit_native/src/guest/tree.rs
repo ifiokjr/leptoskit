@@ -1,9 +1,12 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use serde::Deserialize;
 use serde::Serialize;
 
+use super::region::RegionSlot;
+use super::region::drain_dirty;
 use crate::Element;
 use crate::EventOutcome;
 use crate::NativeEvent;
@@ -23,11 +26,16 @@ pub(super) trait Host {
 }
 
 /// A committed element without duplicate copies of its descendants.
+#[derive(Clone)]
 struct Node {
 	element: Element,
 	parent: Option<i64>,
 	children: Vec<i64>,
 	wire: Option<Vec<u8>>,
+	/// The key a [`For`](crate::reactive::For) or
+	/// [`Show`](crate::reactive::Show) reuses this node by. `None` for a
+	/// node that was not built as one of their children.
+	key: Option<u64>,
 }
 
 /// The guest retains handlers and the host retains the corresponding wire tree.
@@ -42,6 +50,8 @@ pub(super) struct Tree {
 	bound: Vec<i64>,
 	root: Option<i64>,
 	next_id: i64,
+	/// Regions subscribed on this tree, keyed by the node that owns them.
+	regions: HashMap<i64, std::sync::Arc<RegionSlot>, FastHash>,
 }
 
 /// A node's properties as the host decodes them. Unset properties, a default
@@ -98,6 +108,16 @@ fn sent_style(style: &leptoskit_yoga::Style) -> Option<&leptoskit_yoga::Style> {
 }
 
 impl Tree {
+	/// Whether a refresh or a region can update this tree without rebuilding
+	/// it.
+	///
+	/// The wasm runtime is the caller. Host tests build the tree without it,
+	/// so the method looks unused there.
+	#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+	pub(super) fn has_dynamic(&self) -> bool {
+		!self.bound.is_empty() || !self.regions.is_empty()
+	}
+
 	/// Validates and prepares the complete tree before mutating the host.
 	pub(super) fn update(&mut self, element: Element, host: &mut impl Host) {
 		element
@@ -111,17 +131,124 @@ impl Tree {
 			bound: Vec::new(),
 			root: None,
 			next_id: self.next_id,
+			regions: HashMap::with_capacity_and_hasher(self.regions.len(), FastHash::default()),
 		};
 		next.root = Some(next.build(element, None, self.root, self, 1));
+		Self::publish(self, &mut next, host);
+		*self = next;
+	}
 
-		for id in self.order.iter().filter(|id| !next.nodes.contains_key(id)) {
+	/// Applies regions a signal write queued, then the bindings.
+	///
+	/// A list or a condition rebuilds only its own children. Bindings then
+	/// rewrite the nodes whose value differs, in the same turn, so a handler
+	/// that changes both pays for both and for nothing around them.
+	pub(super) fn settle(&mut self, host: &mut impl Host) {
+		// A region that runs while settling can queue another. A handful of
+		// passes covers a list whose items are themselves lists; past that the
+		// closure is writing a signal it reads, and stopping beats looping.
+		for _ in 0..16 {
+			let dirty = drain_dirty();
+
+			if dirty.is_empty() {
+				break;
+			}
+
+			for id in dirty {
+				let Some(slot) = self.regions.get(&id).cloned() else {
+					continue;
+				};
+				let children = slot.evaluate();
+				self.splice(id, children, host);
+			}
+		}
+
+		self.refresh_reactive(host);
+	}
+
+	/// Replaces the children of `parent` with `children`, reusing a child that
+	/// keeps its key and its kind.
+	fn splice(&mut self, parent: i64, children: Vec<(u64, Element)>, host: &mut impl Host) {
+		if !self.nodes.contains_key(&parent) {
+			return;
+		}
+
+		let replaced: HashSet<i64, FastHash> = descendants(self, parent).into_iter().collect();
+		let old_keys: HashMap<u64, i64, FastHash> = self.nodes[&parent]
+			.children
+			.iter()
+			.filter_map(|id| {
+				self.nodes
+					.get(id)
+					.and_then(|node| node.key.map(|key| (key, *id)))
+			})
+			.collect();
+		let child_depth = depth_of(self, parent) + 1;
+		let kept = std::mem::take(&mut self.regions);
+		let mut next = Self {
+			nodes: HashMap::with_capacity_and_hasher(self.nodes.len(), FastHash::default()),
+			order: Vec::with_capacity(self.order.len()),
+			bound: Vec::new(),
+			root: self.root,
+			next_id: self.next_id,
+			regions: HashMap::with_capacity_and_hasher(kept.len(), FastHash::default()),
+		};
+
+		for &id in &self.order {
+			if replaced.contains(&id) {
+				continue;
+			}
+
+			let node = self.nodes[&id].clone();
+
+			if !node.element.bindings().is_empty() {
+				next.bound.push(id);
+			}
+
+			next.order.push(id);
+			next.nodes.insert(id, node);
+		}
+
+		let mut child_ids = Vec::with_capacity(children.len());
+
+		for (key, child) in children {
+			let previous = old_keys.get(&key).copied().filter(|id| {
+				self.nodes
+					.get(id)
+					.is_some_and(|node| node.element.kind == child.kind)
+			});
+			let id = next.build(child, Some(parent), previous, self, child_depth);
+
+			if let Some(node) = next.nodes.get_mut(&id) {
+				node.key = Some(key);
+			}
+
+			child_ids.push(id);
+		}
+
+		if let Some(node) = next.nodes.get_mut(&parent) {
+			node.children = child_ids;
+		}
+
+		let fresh = std::mem::take(&mut next.regions);
+		let mut kept = kept;
+		kept.retain(|id, _| next.nodes.contains_key(id) && !fresh.contains_key(id));
+		next.regions = fresh;
+		next.regions.extend(kept);
+		Self::publish(self, &mut next, host);
+		*self = next;
+	}
+
+	/// Sends the difference between `old` and `next`, then commits.
+	fn publish(old: &Self, next: &mut Self, host: &mut impl Host) {
+		for id in old.order.iter().filter(|id| !next.nodes.contains_key(id)) {
 			host.delete(*id);
 		}
 
 		for &id in &next.order {
 			let node = next.nodes.get_mut(&id).expect("every built id has a node");
 
-			if !self.nodes.contains_key(&id) {
+			if !old.nodes.contains_key(&id) {
 				host.create(id, kind_code(node.element.kind));
 			}
 
@@ -133,10 +260,10 @@ impl Tree {
 		for &id in &next.order {
 			let node = &next.nodes[&id];
 
-			if self
+			if old
 				.nodes
 				.get(&id)
-				.is_some_and(|old| old.children == node.children)
+				.is_some_and(|previous| previous.children == node.children)
 			{
 				continue;
 			}
@@ -147,7 +274,6 @@ impl Tree {
 		}
 
 		host.commit();
-		*self = next;
 	}
 
 	/// Sends the nodes whose bound value changed, without rebuilding the tree.
@@ -246,7 +372,20 @@ impl Tree {
 			self.bound.push(id);
 		}
 
-		let children = std::mem::take(&mut element.children)
+		// A region subscribes here, so a later write queues this node. The
+		// read is its own observer: it must not subscribe the screen that is
+		// being built around it.
+		let mut child_keys = Vec::new();
+
+		if let Some(region) = element.region.clone() {
+			let slot = RegionSlot::new(id, region);
+			let produced = slot.evaluate();
+			child_keys = produced.iter().map(|(key, _)| *key).collect();
+			element.children = produced.into_iter().map(|(_, child)| child).collect();
+			self.regions.insert(id, slot);
+		}
+
+		let children: Vec<i64> = std::mem::take(&mut element.children)
 			.into_iter()
 			.enumerate()
 			.map(|(index, child)| {
@@ -254,6 +393,13 @@ impl Tree {
 				self.build(child, Some(id), previous_child.copied(), old, depth + 1)
 			})
 			.collect();
+
+		for (child, key) in children.iter().zip(child_keys) {
+			if let Some(node) = self.nodes.get_mut(child) {
+				node.key = Some(key);
+			}
+		}
+
 		// Comparing shared drawings avoids serializing unchanged paths.
 		let changed = previous.is_none_or(|(_, node)| {
 			node.element.props != element.props
@@ -301,6 +447,7 @@ impl Tree {
 				parent,
 				children,
 				wire,
+				key: None,
 			},
 		);
 		id
@@ -438,6 +585,40 @@ fn normalize_event(element: &Element, event: NativeEvent) -> Option<NativeEvent>
 		}
 		_ => Some(event),
 	}
+}
+
+/// Every node under `parent`, not including it. The list is the subtree a
+/// region replaces.
+fn descendants(tree: &Tree, parent: i64) -> Vec<i64> {
+	let mut out = Vec::new();
+	let mut stack = tree
+		.nodes
+		.get(&parent)
+		.map(|node| node.children.clone())
+		.unwrap_or_default();
+
+	while let Some(id) = stack.pop() {
+		if let Some(node) = tree.nodes.get(&id) {
+			stack.extend(node.children.iter().copied());
+		}
+
+		out.push(id);
+	}
+
+	out
+}
+
+/// How deep `id` sits, the root being one. The guest refuses a tree past 256.
+fn depth_of(tree: &Tree, id: i64) -> usize {
+	let mut depth = 1;
+	let mut current = tree.nodes.get(&id).and_then(|node| node.parent);
+
+	while let Some(id) = current {
+		depth += 1;
+		current = tree.nodes.get(&id).and_then(|node| node.parent);
+	}
+
+	depth
 }
 
 /// The codes of the native UI ABI, independent of enum declaration order.

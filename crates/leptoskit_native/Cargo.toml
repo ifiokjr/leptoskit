@@ -13,6 +13,7 @@ rust-version.workspace = true
 description = "The leptoskit native renderer: shadow tree, diffing, and platform backend contracts."
 
 [dependencies]
+futures = { workspace = true, optional = true, features = ["executor"] }
 leptos = { workspace = true, optional = true }
 leptoskit_devtools_protocol = { workspace = true, optional = true }
 leptoskit_rive = { workspace = true }
@@ -51,7 +52,7 @@ harness = false
 default = []
 devtools = ["dep:leptoskit_devtools_protocol"]
 rive = ["leptoskit_rive/native", "leptoskit_rive/web"]
-guest = ["serde", "dep:serde_json"]
+guest = ["serde", "dep:serde_json", "dep:futures"]
 serde = ["dep:serde", "dep:serde_json", "leptoskit_yoga/serde", "leptoskit_rive/serde"]
 svg = ["dep:roxmltree"]
 web = ["dep:leptos", "dep:sha2", "dep:wasm-bindgen", "dep:web-sys"]

@@ -211,7 +211,7 @@ struct NodeParts {
 
 /// Builds each typed DOM control before adding attributes common to all kinds.
 fn render_node(
-	element: Element,
+	mut element: Element,
 	root: bool,
 	parent_enabled: bool,
 	parent_hidden: bool,
@@ -219,6 +219,17 @@ fn render_node(
 	sheets: &mut BTreeMap<String, String>,
 	path: &NodePath,
 ) -> AnyView {
+	// A `For` or `Show` keeps its children in the region. Reading it here is
+	// what subscribes the leptos view that called `render`, so the web rebuilds
+	// this container when the list or the condition changes.
+	if let Some(region) = element.region.take() {
+		element.children = region
+			.render()
+			.into_iter()
+			.map(|(_, child)| child)
+			.collect();
+	}
+
 	let devtools = path.attributes(&element);
 	let base = styles::base(&element, root);
 	let styles_active = element.classes().active_class().is_some();

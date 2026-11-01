@@ -1,7 +1,12 @@
 #![allow(unsafe_code)]
 
 use std::cell::RefCell;
+use std::future::Future;
 use std::rc::Rc;
+
+use futures::executor::LocalPool;
+use futures::executor::LocalSpawner;
+use futures::task::LocalSpawnExt;
 
 use super::tree::Host;
 use super::tree::Tree;
@@ -22,10 +27,19 @@ unsafe extern "C" {
 struct Application {
 	view: Rc<dyn Fn() -> Element>,
 	tree: Tree,
+	/// The view read a signal while it was built, outside a binding. The next
+	/// write of that signal rebuilds the view; a write it did not read does
+	/// not.
+	root_tracked: bool,
 }
 
 thread_local! {
 	static APPLICATION: RefCell<Option<Application>> = const { RefCell::new(None) };
+	/// Tasks the guest runs for the application. The spawner is kept apart from
+	/// the pool, so a task that spawns another while the pool runs it does not
+	/// borrow the pool again.
+	static POOL: RefCell<LocalPool> = RefCell::new(LocalPool::new());
+	static SPAWNER: LocalSpawner = POOL.with(|pool| pool.borrow().spawner());
 	/// The reactive owner every application signal belongs to.
 	static OWNER: RefCell<Option<reactive_graph::owner::Owner>> = const { RefCell::new(None) };
 	static PAYLOAD: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
@@ -57,9 +71,11 @@ pub fn set_viewport(width: f32, height: f32) {
 
 /// Mounts a portable application tree in the native Wasm host.
 ///
-/// Create application state before this call and capture it in `view`; the
-/// closure is called again after every dispatched event. The application must
-/// export the ABI entry points that forward to this module's functions.
+/// Create application state before this call and capture it in `view`. The
+/// closure runs again when it read a signal that has since changed; a write
+/// that only reaches a binding, [`For`](crate::reactive::For), or
+/// [`Show`](crate::reactive::Show) updates those and does not run it. The
+/// application must export the ABI entry points that forward to this module.
 ///
 /// # Panics
 /// Panics for an invalid control tree, unsupported custom widget, or a tree
@@ -73,6 +89,7 @@ pub fn mount(view: impl Fn() -> Element + 'static) {
 		*application = Some(Application {
 			view: Rc::new(view),
 			tree,
+			root_tracked: false,
 		});
 	});
 	render();
@@ -94,28 +111,16 @@ fn ensure_owner() {
 	});
 }
 
-/// Sends the nodes whose bound value changed, without rebuilding the tree.
+/// Settles whatever a turn wrote, without the application asking.
 ///
 /// The native host calls this after every turn it gives the guest — the
 /// plugin poll that runs application tasks, and the module's own start —
-/// through the `leptoskit_flush` export, so an application never calls it
-/// itself: writing a signal is enough.
-///
-/// Only the bound nodes are visited, and only the ones whose value differs
-/// are encoded and sent, so a screen that changes a hundred rows out of a
-/// thousand pays for a hundred. Events do not need it: [`dispatch`] renders
-/// the view again after every handler, and that render reads the same
-/// signals.
-///
-/// Call it before [`render`] when a change is both structural and bound:
-/// a rebuild re-reads every element it builds, and sends the bindings it
-/// finds changed as part of the same commit.
+/// through the `leptoskit_flush` export. [`For`](crate::reactive::For) and
+/// [`Show`](crate::reactive::Show) rebuild their own children, and bindings
+/// rewrite the nodes whose value differs. The view is built again only when
+/// it read the signal that changed.
 pub fn flush() {
-	APPLICATION.with_borrow_mut(|application| {
-		if let Some(application) = application.as_mut() {
-			application.tree.refresh_reactive(&mut Imports);
-		}
-	});
+	sync(false);
 }
 
 /// Commits the mounted application after state changes outside a UI event.
@@ -133,14 +138,73 @@ pub fn render() {
 	let Some(view) = view else {
 		return;
 	};
-	let element = view();
+	let (element, tracked) = super::track::render_tracking(move || view());
 
 	APPLICATION.with_borrow_mut(|application| {
-		application
+		let application = application
 			.as_mut()
-			.expect("the application remains mounted while rendering")
-			.tree
-			.update(element, &mut Imports);
+			.expect("the application remains mounted while rendering");
+		application.root_tracked = tracked;
+		application.tree.update(element, &mut Imports);
+	});
+}
+
+/// Runs queued tasks, then settles what they wrote.
+///
+/// The generated guest exports `leptoskit_poll` as a call to this. The host
+/// calls that export after a plugin reply, so an application does not keep an
+/// executor of its own. A task spawned from inside a poll is queued for the
+/// poll already running; this returns without settling twice.
+pub fn poll() {
+	let ran = POOL.try_with(|pool| {
+		if let Ok(mut pool) = pool.try_borrow_mut() {
+			pool.run_until_stalled();
+			true
+		} else {
+			false
+		}
+	});
+
+	if ran == Ok(true) {
+		sync(false);
+	}
+}
+
+/// Queues `task` on the guest executor and runs it until it waits.
+pub fn spawn(task: impl Future<Output = ()> + 'static) {
+	SPAWNER
+		.with(|spawner| spawner.spawn_local(task))
+		.expect("the guest executor lives as long as the guest");
+	poll();
+}
+
+/// Settles the turn. `on_event` rebuilds a view that has no bindings and no
+/// regions, which is how a press that stores its state in a plain value still
+/// reaches the screen. A flush never does that: nothing reactive asked.
+fn sync(on_event: bool) {
+	let dirty = super::track::take_root_dirty();
+	let (tracked, dynamic) = APPLICATION.with_borrow(|application| {
+		application.as_ref().map_or((false, false), |application| {
+			(application.root_tracked, application.tree.has_dynamic())
+		})
+	});
+
+	let kind = if tracked {
+		super::track::ViewKind::Tracked { dirty }
+	} else if dynamic {
+		super::track::ViewKind::Dynamic
+	} else {
+		super::track::ViewKind::Plain
+	};
+
+	if super::track::needs_render(kind, on_event) {
+		render();
+	}
+
+	APPLICATION.with_borrow_mut(|application| {
+		if let Some(application) = application.as_mut() {
+			application.tree.settle(&mut Imports);
+		}
 	});
 }
 
@@ -164,7 +228,7 @@ pub fn alloc(length: i32) -> i32 {
 	})
 }
 
-/// Dispatches one native ABI event, then renders the application again.
+/// Dispatches one native ABI event, then settles what the handler wrote.
 ///
 /// Forward `leptoskit_event` here. Payload pointers must identify the complete
 /// buffer returned by [`alloc`]; arbitrary guest pointers are rejected without
@@ -192,8 +256,10 @@ pub fn dispatch(node: i64, kind: i32, pointer: i32, length: i32) -> i32 {
 	let Some((event, handlers)) = handlers else {
 		return 0;
 	};
-	let outcome = invoke(&event, &handlers);
-	render();
+	// Effects the handler started run before the settle, so a list it changed
+	// is patched once rather than once per write.
+	let outcome = reactive_graph::effect::batch(|| invoke(&event, &handlers));
+	sync(true);
 	i32::from(outcome == EventOutcome::Handled)
 }
 

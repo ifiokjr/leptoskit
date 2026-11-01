@@ -61,7 +61,7 @@ where
 {
 	fn into_background(self, mut element: Element) -> Element {
 		let binding = Binding::new(self);
-		element.props.background = Some(binding.read());
+		element.props.background = Some(crate::reactive::read_binding(&binding));
 		element.bindings.background = Some(binding);
 		element
 	}
@@ -100,6 +100,10 @@ pub struct Element {
 	/// Values that follow application state instead of being rebuilt with the
 	/// tree: see [`Element::text_from`] and [`Element::background_from`].
 	bindings: Bindings,
+	/// Children rebuilt on their own when the signals they read change.
+	/// [`For`](crate::reactive::For) and [`Show`](crate::reactive::Show) set
+	/// it.
+	pub(crate) region: Option<crate::reactive::Region>,
 }
 
 /// Describes what the element renders, leaving out where it was created: the
@@ -115,15 +119,21 @@ pub struct Element {
 )]
 impl std::fmt::Debug for Element {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("Element")
+		let mut debug = f.debug_struct("Element");
+		debug
 			.field("kind", &self.kind)
 			.field("style", &self.style)
 			.field("props", &self.props)
 			.field("children", &self.children)
 			.field("classes", &self.classes)
 			.field("handlers", &self.handlers)
-			.field("bindings", &self.bindings)
-			.finish()
+			.field("bindings", &self.bindings);
+		// A region is absent on almost every node. Leaving it out of the
+		// debug output keeps the digest of an unchanged node stable.
+		if self.region.is_some() {
+			debug.field("region", &true);
+		}
+		debug.finish()
 	}
 }
 
@@ -404,6 +414,7 @@ impl Element {
 			classes: Tailwind::default(),
 			handlers: Vec::new(),
 			bindings: Bindings::default(),
+			region: None,
 		}
 	}
 
@@ -445,15 +456,15 @@ impl Element {
 	/// rather than a rebuilt tree. A renderer that does not support bindings
 	/// still shows the text read when the element was built.
 	///
-	/// The saving applies to changes outside an event: after an event the
-	/// native guest renders the view again, bound or not. See
-	/// [`guest::flush`](crate::guest::flush).
+	/// Writing the signal — from an event, a timer, or a plugin reply —
+	/// rewrites this node. The guest does not rebuild the screen to do it.
+	/// See [`guest::flush`](crate::guest::flush).
 	#[track_caller]
 	#[must_use]
 	pub fn text_from(read: impl Fn() -> String + Send + Sync + 'static) -> Self {
 		let reactive = Binding::new(read);
 		let mut element = Self::new(NativeKind::Text);
-		element.props.text = Some(reactive.read());
+		element.props.text = Some(crate::reactive::read_binding(&reactive));
 		element.bindings.text = Some(reactive);
 		element
 	}
@@ -468,7 +479,7 @@ impl Element {
 	pub fn background_from(read: impl Fn() -> Color + Send + Sync + 'static) -> Self {
 		let reactive = Binding::new(read);
 		let mut element = Self::new(NativeKind::View);
-		element.props.background = Some(reactive.read());
+		element.props.background = Some(crate::reactive::read_binding(&reactive));
 		element.bindings.background = Some(reactive);
 		element
 	}
@@ -655,6 +666,7 @@ impl Element {
 			classes: Tailwind::default(),
 			handlers: self.handlers.clone(),
 			bindings: self.bindings.clone(),
+			region: self.region.clone(),
 		};
 		element.props.color = element.props.color.or(parent.color);
 		element.props.font_size = element.props.font_size.or(parent.font_size);

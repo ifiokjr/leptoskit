@@ -94,6 +94,14 @@ pub extern "C" fn leptoskit_flush() {
 	leptoskit::guest::flush();
 }
 
+/// Runs tasks the runtime queued, then settles what they wrote. The host calls
+/// this after a plugin reply.
+#[cfg(all(target_arch = "wasm32", feature = "native"))]
+#[unsafe(no_mangle)]
+pub extern "C" fn leptoskit_poll() {
+	leptoskit::guest::poll();
+}
+
 /// Allocates the native runtime's event payload buffer.
 #[cfg(all(target_arch = "wasm32", feature = "native"))]
 #[unsafe(no_mangle)]

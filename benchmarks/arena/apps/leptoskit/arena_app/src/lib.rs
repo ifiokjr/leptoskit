@@ -102,43 +102,23 @@ pub fn start_web() {
 /// Spawns the scenario drivers on each destination's executor.
 #[cfg(target_arch = "wasm32")]
 mod runtime {
-	use std::future::Future;
-
 	/// The browser's microtask executor.
 	#[cfg(feature = "web")]
-	pub fn spawn(task: impl Future<Output = ()> + 'static) {
+	pub fn spawn(task: impl std::future::Future<Output = ()> + 'static) {
 		wasm_bindgen_futures::spawn_local(task);
 	}
 
 	#[cfg(feature = "native")]
-	pub use native::poll;
-	#[cfg(feature = "native")]
 	pub use native::spawn;
 
-	/// A single-threaded pool the host drives through `leptoskit_poll` after
-	/// every plugin reply. leptoskit has no guest executor of its own.
+	/// The runtime's executor. The host drives it through `leptoskit_poll`.
 	#[cfg(feature = "native")]
 	mod native {
-		use std::cell::RefCell;
 		use std::future::Future;
-
-		use futures::executor::LocalPool;
-		use futures::task::LocalSpawnExt;
-
-		thread_local! {
-			static POOL: RefCell<LocalPool> = RefCell::new(LocalPool::new());
-		}
 
 		/// Queues a task and runs it until it waits on the host.
 		pub fn spawn(task: impl Future<Output = ()> + 'static) {
-			POOL.with_borrow(|pool| pool.spawner().spawn_local(task))
-				.expect("the guest executor lives as long as the guest");
-			poll();
-		}
-
-		/// Runs every task that can make progress.
-		pub fn poll() {
-			POOL.with_borrow_mut(LocalPool::run_until_stalled);
+			leptoskit::guest::spawn(task);
 		}
 	}
 }
@@ -164,7 +144,7 @@ pub extern "C" fn leptoskit_event(node: i64, kind: i32, ptr: i32, len: i32) -> i
 #[cfg(all(target_arch = "wasm32", feature = "native"))]
 #[unsafe(no_mangle)]
 pub extern "C" fn leptoskit_poll() {
-	runtime::poll();
+	leptoskit::guest::poll();
 }
 
 /// Settles the values application state bound, after a turn.

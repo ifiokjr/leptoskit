@@ -1,7 +1,9 @@
 //! The `mount` cards.
 
 use leptoskit::prelude::Element;
+use leptoskit::prelude::For;
 use leptoskit::prelude::Get;
+use leptoskit::prelude::RwSignal;
 use leptoskit::prelude::Text;
 use leptoskit::prelude::View;
 use leptoskit::prelude::component;
@@ -19,23 +21,29 @@ pub fn title(card: &Card) -> String {
 
 /// Every card, unvirtualised, in one column.
 ///
-/// A card's title is bound to its `marked` signal, so marking every tenth card
-/// rewrites a hundred labels instead of rebuilding three thousand elements.
+/// The list is a `For`, so creating or clearing the cards rebuilds this column
+/// and not the header. A card's title is bound to its `marked` signal, so
+/// marking every tenth card rewrites a hundred labels and does not rebuild
+/// the column either.
 #[component]
-pub fn CardList(cards: &[Card]) -> Element {
-	View().children(cards.iter().map(|card| {
-		let number = card.number;
-		let marked = card.marked;
+pub fn CardList(cards: RwSignal<Vec<Card>>) -> Element {
+	For(
+		move || cards.get(),
+		|card| card.number,
+		|card| {
+			let number = card.number;
+			let marked = card.marked;
 
-		View().class("px-4 py-2").children([
-			Text(move || {
-				if marked.get() {
-					format!("Card {number} !")
-				} else {
-					format!("Card {number}")
-				}
-			}),
-			Text(format!("Subtitle {number}")).class("text-sm"),
-		])
-	}))
+			View().class("px-4 py-2").children([
+				Text(move || {
+					if marked.get() {
+						format!("Card {number} !")
+					} else {
+						format!("Card {number}")
+					}
+				}),
+				Text(format!("Subtitle {number}")).class("text-sm"),
+			])
+		},
+	)
 }

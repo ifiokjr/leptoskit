@@ -55,6 +55,8 @@ pub mod helpers;
 
 pub use controls::*;
 
+pub use crate::reactive::For;
+pub use crate::reactive::Show;
 pub use crate::vector::Affine;
 pub use crate::vector::Drawing;
 pub use crate::vector::FillRule;
