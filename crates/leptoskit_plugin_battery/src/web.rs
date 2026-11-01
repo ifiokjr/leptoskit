@@ -17,6 +17,9 @@ use crate::Error;
 use crate::Snapshot;
 use crate::State;
 
+/// A full battery in thousandths.
+const FULL_CHARGE: u16 = 1000;
+
 fn js_error(value: &JsValue) -> Error {
 	match value
 		.dyn_ref::<web_sys::DomException>()
@@ -46,21 +49,25 @@ async fn manager() -> Result<BatteryManager, Error> {
 		.map_err(|_| Error::Native)
 }
 
+/// A battery that is plugged in reports full only at full charge.
+fn state(charging: bool, charge: Charge) -> State {
+	if !charging {
+		return State::Discharging;
+	}
+
+	if charge.thousandths() == FULL_CHARGE {
+		return State::Full;
+	}
+
+	State::Charging
+}
+
 fn reading(battery: &BatteryManager) -> Result<Snapshot, Error> {
 	let charge = Charge::from_fraction(battery.level())?;
 	Ok(Snapshot {
 		present: None,
 		charge: Some(charge),
-		state: if battery.charging() {
-			if charge.thousandths() == 1000 {
-				State::Full
-			} else {
-				State::Charging
-			}
-		} else {
-			State::Discharging
-		},
-
+		state: state(battery.charging(), charge),
 		power_save: None,
 	})
 }

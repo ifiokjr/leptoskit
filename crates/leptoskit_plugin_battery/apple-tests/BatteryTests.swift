@@ -35,7 +35,7 @@ func batteryValidatesPayloadsAndCloseIsTerminal() async throws {
     let snapshot = try await plugin.invoke(method: 0, payload: payload())
     #expect(snapshot.count == 16)
     await #expect(throws: PluginError.invalidArgument) {
-        try await plugin.invoke(method: 1, payload: payload(Data(repeating: 0, count: 15)))
+        try await plugin.invoke(method: 1, payload: payload(Data(repeating: 0, count: snapshot.count - 1)))
     }
     var invalid = snapshot
     invalid[0] = 3

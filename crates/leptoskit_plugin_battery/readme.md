@@ -9,6 +9,7 @@ Guest applications enable the `guest` feature:
 ```rust,ignore
 let battery = leptoskit_plugin_battery::guest::Battery::new()?;
 let mut current = battery.snapshot().await?;
+
 loop {
     update_display(current);
     current = battery.wait_for_change(current).await?;
