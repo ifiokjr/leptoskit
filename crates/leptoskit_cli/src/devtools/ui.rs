@@ -202,12 +202,23 @@ fn content_type(file: &Path) -> &'static str {
 
 /// Why the full interface is missing when nothing names a local build.
 fn missing_notice() -> String {
-	format!(
-		"This is the hub's plain page. The full interface is downloaded for each leptoskit \
-		 release: run <code>leptoskit devtools fetch</code>, then reload. In a checkout of \
-		 leptoskit, build it with <code>devenv shell devtools:build</code> and set {UI_ENV} to \
-		 the output."
-	)
+	let version = env!("CARGO_PKG_VERSION");
+
+	if super::fetch::expected_hash().is_some() {
+		format!(
+			"This is the hub's plain page: the full interface for leptoskit {version} isn't \
+			 downloaded yet. <code>leptoskit dev</code> downloads it the first time it runs; if \
+			 that failed, for example offline, run <code>leptoskit devtools fetch</code>, then \
+			 reload."
+		)
+	} else {
+		format!(
+			"This is the hub's plain page. This leptoskit {version} was built from source, so it \
+			 can't download the full interface. In a checkout of leptoskit, build it with \
+			 <code>devenv shell devtools:build</code> and set {UI_ENV} to the output; a released \
+			 leptoskit downloads it."
+		)
+	}
 }
 
 /// Escapes text for HTML.

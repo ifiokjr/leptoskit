@@ -136,6 +136,8 @@ fn help_text_is_pinned() {
 		&["test", "run", "--help"][..],
 		&["test", "native", "--help"][..],
 		&["test", "web", "--help"][..],
+		&["devtools", "--help"][..],
+		&["devtools", "fetch", "--help"][..],
 		&["device", "--help"][..],
 		&["device", "list", "--help"][..],
 		&["device", "run", "--help"][..],

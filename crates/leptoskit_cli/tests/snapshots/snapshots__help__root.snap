@@ -11,6 +11,7 @@ Commands:
   native       Builds native application hosts and generates plugin registration
   test         Runs component and device tests with retained failure artifacts
   device       Controls attached devices, apps, and websites: list, boot, drive, and inspect them, one command or one JSON document at a time
+  devtools     Manages the `DevTools` interface that `leptoskit dev`'s hub serves
   mcp          Serves the device control API over the Model Context Protocol, on standard input and output or over HTTP
   publish      Uploads the app to the stores `[publish]` in leptoskit.toml names, and lists what is left to do in each store's dashboard. Nothing reaches users without `--submit`
   skill        Prints the leptoskit skill for coding agents, or installs it with `install`. The skill matches this CLI's version

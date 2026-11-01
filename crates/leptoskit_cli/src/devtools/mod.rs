@@ -8,8 +8,10 @@
 //! content type on every request.
 //!
 //! The hub serves the interface at `/` (see [`ui`]): a local build, the
-//! archive downloaded for this CLI's version, or a plain page.
+//! archive downloaded for this CLI's version (see [`fetch`]), or a plain
+//! page.
 
+pub mod fetch;
 pub mod ui;
 
 use std::collections::BTreeMap;
@@ -114,6 +116,7 @@ pub fn start(
 	let mut state = HubState::new(address.port(), web_port, POLL, EXPIRY);
 	root.clone_into(&mut state.root);
 	state.interface = ui::Sources::from_env();
+	fetch::on_first_use(&state.interface);
 	let state = Arc::new(state);
 	let router = router(state.clone());
 	let listener = {

@@ -244,6 +244,14 @@ The CLI cannot build the interface from source on every machine, because that ne
 
 Trust follows the CLI binary itself: the hash comes from the same release the binary was installed from, so the download cannot be swapped for another one.
 
+Implemented:
+
+- `crates/leptoskit_cli/build.rs` embeds `LEPTOSKIT_DEVTOOLS_UI_SHA256`, or the first word of `crates/leptoskit_cli/devtools-ui.sha256`, as `LEPTOSKIT_DEVTOOLS_UI_HASH`, and refuses anything that isn't a hex SHA-256.
+- `crates/leptoskit_cli/src/devtools/fetch.rs` downloads `leptoskit-devtools-<version>.tar.gz` (gzip: zstd isn't a dependency) from `v<version>`, checks the hash, unpacks only plain files and directories that stay inside the archive, into a temporary directory beside `<user cache>/leptoskit/devtools/<version>/`, and renames it into place. `LEPTOSKIT_DEVTOOLS_RELEASES` replaces the GitHub base for a mirror; the hash still applies.
+- `leptoskit devtools fetch [--force]`; `leptoskit dev` downloads on a background thread when a hash is compiled in and the cache is empty, and the hub picks the build up on the next page load.
+- Tests against a local fake release server: success and replacement, a wrong hash, a missing release, another version's archive, an archive that isn't the interface.
+- `devenv shell devtools:build [out]` builds `devtools/` into `<out>/ui` and writes the archive and its `.sha256`. The publish workflow job that runs it is pending as a patch (the token can't push workflow changes).
+
 The DevTools panel extension is published to the stores (D6, and phase 2 below).
 
 ## Tests
@@ -276,7 +284,7 @@ Each pull request carries a changeset. Dependent layers go in a `gh stack`.
 3. `feat(devtools)`: the host agent in `leptoskit_devtools` for `NativeSurface`, and the in-process headless test.
 4. `feat(dev)`: the hub in `leptoskit dev`, with its `Host`, `Origin`, and `Sec-Fetch-Site` checks, `.leptoskit/devtools.json`, `--no-devtools`, and the release gate in CI.
 5. `feat(devtools)`: the `devtools/` interface with the tree, node details, and styles panels, served by the hub, plus the macOS host agent in `leptoskit_bridge_ffi`. **Interface and serving done**; native snapshots carry classes and their declarations (`Node.styles`).
-6. `ci`: the interface archive in the publish workflow, the hash compiled into the CLI, and `leptoskit devtools fetch`.
+6. `ci`: the interface archive in the publish workflow, the hash compiled into the CLI, and `leptoskit devtools fetch`. **The hash and `leptoskit devtools fetch` are done; the publish workflow job is written and waiting for a token with the `workflow` scope.**
 
 **Phase 1: the web.**
 
