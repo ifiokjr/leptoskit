@@ -145,13 +145,62 @@ jobs:
             || cargo install --locked --version 0.21.0 monochange
           monochange step validate
 
+  # The DevTools interface is built once, for the version being released, and the hash of its
+  # archive goes into every binary below. `leptoskit dev` downloads exactly that archive and checks
+  # the hash before serving it, so the interface and the CLI that fetches it always match.
+  devtools-ui:
+    name: build the DevTools interface
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      # The archive is attached to the draft release, like the binaries.
+      contents: write
+    outputs:
+      sha256: ${{ steps.build.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/devenv
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          nix-cache: /tmp/nixcache
+
+      - name: build the interface and its archive
+        id: build
+        shell: bash
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          devtools:build "$RUNNER_TEMP/devtools"
+          archive="$RUNNER_TEMP/devtools/leptoskit-devtools-$VERSION.tar.gz"
+          test -s "$archive"
+          echo "sha256=$(cat "$archive.sha256")" >> "$GITHUB_OUTPUT"
+
+      - name: upload the interface to the draft release
+        if: inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" \
+            "$RUNNER_TEMP/devtools/leptoskit-devtools-$VERSION.tar.gz" \
+            "$RUNNER_TEMP/devtools/leptoskit-devtools-$VERSION.tar.gz.sha256" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
   # The binaries users install are built here, one runner per target, and uploaded straight onto
   # the draft release that the release workflow created for the tag. A release that reached the
   # public flip without them would advertise a version with nothing to install, which is why every
   # later job waits on this one.
   upload-assets:
     name: build ${{ matrix.target }}
-    needs: validate
+    needs: [validate, devtools-ui]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     permissions:
@@ -265,6 +314,10 @@ jobs:
         run: echo "RUSTFLAGS=${RUSTFLAGS:-} -C target-feature=+crt-static" >> "$GITHUB_ENV"
 
       - name: upload binaries
+        # The binary embeds the hash of the interface built for this release, so
+        # `leptoskit devtools fetch` can verify what it downloads.
+        env:
+          LEPTOSKIT_DEVTOOLS_UI_SHA256: ${{ needs.devtools-ui.outputs.sha256 }}
         uses: taiki-e/upload-rust-binary-action@f0d45ae91ee7b8ee928de7a9d04d893a08bcbec6 # v1.30.2
         with:
           # Both binaries of the CLI crate, the canonical name and its `lk` alias, go into the one
@@ -366,7 +419,7 @@ jobs:
   # publishes.
   publish-crates:
     name: publish crates
-    needs: [validate, attest-assets]
+    needs: [validate, attest-assets, devtools-ui]
     if: inputs.dry_run != true
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -388,6 +441,19 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           lookup-only: true
+
+      - name: embed the interface hash for `cargo install`
+        # The published CLI's build script reads this file, so a binary built
+        # from crates.io downloads the same interface as the release archives.
+        # The file is generated here rather than committed, which makes the
+        # checkout dirty: every crate published from it is the tagged tree plus
+        # this one hash.
+        env:
+          SHA256: ${{ needs.devtools-ui.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          test -n "$SHA256"
+          echo "$SHA256" > crates/leptoskit_cli/devtools-ui.sha256
 
       - name: request a crates.io credential via OIDC
         id: oidc
@@ -456,7 +522,7 @@ jobs:
 
             # A retry after a partial publish finds some crates already present, which is not an
             # error: it means an earlier attempt got that far.
-            if cargo publish --locked --package "$package" 2>&1 | tee publish.log; then
+            if cargo publish --locked --allow-dirty --package "$package" 2>&1 | tee publish.log; then
               echo "$package published"
             elif grep -q "already exists\|is already uploaded" publish.log; then
               echo "$package is already published; continuing"

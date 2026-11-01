@@ -452,6 +452,32 @@ jobs:
           tar -xzf "$archive" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/binaryen-version_132/bin" >> "$GITHUB_PATH"
 
+      # DevTools are a development feature, and the cargo feature is the gate:
+      # `leptoskit dev` adds it, `leptoskit build` never does. A release build
+      # that carried the agents would let a production app report itself to a
+      # local hub, so the generated app's web and native release builds are
+      # checked for any trace of them. The string check catches both the agents
+      # and the hub address, whether or not symbols survive optimization.
+      - name: refuse DevTools in release builds
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cli="$PWD/target/debug/leptoskit"
+          cd "$RUNNER_TEMP/macos-app"
+          "$cli" build --release
+
+          status=0
+          for file in dist/pkg/*.js dist/pkg/*.wasm \
+            .leptoskit/macos/App.app/Contents/Resources/app.wasm
+          do
+            if grep -aqE 'LEPTOSKIT_DEVTOOLS_HUB|__LEPTOSKIT_DEVTOOLS_SESSION__|leptoskit-devtools-overlay|leptoskit_devtools' "$file"; then
+              echo "::error file=$file::$file carries DevTools code in a release build"
+              status=1
+            fi
+          done
+          exit $status
+
       # Every store's checks and remaining steps, on a real extension, with no
       # credentials and no store contacted.
       - name: dry-run publishing commonplace
