@@ -32,6 +32,7 @@ pub mod element;
 pub mod flatten;
 mod hash;
 pub mod props;
+pub mod reactive;
 pub mod surface;
 pub mod tailwind;
 pub mod vector;

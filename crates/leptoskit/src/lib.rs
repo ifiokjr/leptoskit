@@ -346,6 +346,9 @@ pub mod prelude {
 	pub use leptoskit_native::NativeProps;
 	pub use leptoskit_native::NativeSurface;
 	pub use leptoskit_native::components::*;
+	pub use leptoskit_native::reactive::Get;
+	pub use leptoskit_native::reactive::RwSignal;
+	pub use leptoskit_native::reactive::Set;
 	pub use leptoskit_native::tailwind::ClassError;
 	pub use leptoskit_native::tailwind::StyleContext;
 	pub use leptoskit_native::tailwind::Tailwind;

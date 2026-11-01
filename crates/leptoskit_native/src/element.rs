@@ -26,6 +26,8 @@ use crate::props::NativeProps;
 use crate::props::PropValue;
 use crate::props::ScrollOffset;
 use crate::props::TextAlign;
+use crate::reactive::Binding;
+use crate::reactive::Bindings;
 use crate::tailwind::ClassError;
 use crate::tailwind::StyleContext;
 use crate::tailwind::Tailwind;
@@ -61,6 +63,9 @@ pub struct Element {
 	applied: Tailwind,
 	classes: Tailwind,
 	handlers: Vec<HandlerEntry>,
+	/// Values that follow application state instead of being rebuilt with the
+	/// tree: see [`Element::text_from`] and [`Element::background_from`].
+	bindings: Bindings,
 }
 
 /// Describes what the element renders, leaving out where it was created: the
@@ -83,6 +88,7 @@ impl std::fmt::Debug for Element {
 			.field("children", &self.children)
 			.field("classes", &self.classes)
 			.field("handlers", &self.handlers)
+			.field("bindings", &self.bindings)
 			.finish()
 	}
 }
@@ -360,6 +366,7 @@ impl Element {
 			applied: Tailwind::default(),
 			classes: Tailwind::default(),
 			handlers: Vec::new(),
+			bindings: Bindings::default(),
 		}
 	}
 
@@ -383,6 +390,43 @@ impl Element {
 	#[track_caller]
 	pub fn view() -> Self {
 		Self::new(NativeKind::View)
+	}
+
+	/// A `Text` element whose content follows application state.
+	///
+	/// The closure reads a [signal](crate::reactive::RwSignal), so a renderer
+	/// that supports bindings keeps this node and rewrites only its text when
+	/// the signal changes: a hundred changed labels cost a hundred nodes
+	/// rather than a rebuilt tree. A renderer that does not support bindings
+	/// still shows the text read when the element was built.
+	#[track_caller]
+	#[must_use]
+	pub fn text_from(read: impl Fn() -> String + Send + Sync + 'static) -> Self {
+		let reactive = Binding::new(read);
+		let mut element = Self::new(NativeKind::Text);
+		element.props.text = Some(reactive.read());
+		element.bindings.text = Some(reactive);
+		element
+	}
+
+	/// A background colour that follows application state.
+	///
+	/// The same rule as [`text_from`](Self::text_from): the renderer keeps the
+	/// node and rewrites its colour when the bound signal changes, instead of
+	/// rebuilding the tree around it.
+	#[track_caller]
+	#[must_use]
+	pub fn background_from(read: impl Fn() -> Color + Send + Sync + 'static) -> Self {
+		let reactive = Binding::new(read);
+		let mut element = Self::new(NativeKind::View);
+		element.props.background = Some(reactive.read());
+		element.bindings.background = Some(reactive);
+		element
+	}
+
+	/// The values this node reads from application state.
+	pub fn bindings(&self) -> &Bindings {
+		&self.bindings
 	}
 
 	/// A `Text` element with the given content.
@@ -559,6 +603,7 @@ impl Element {
 			applied: self.classes.clone(),
 			classes: Tailwind::default(),
 			handlers: self.handlers.clone(),
+			bindings: self.bindings.clone(),
 		};
 		element.props.color = element.props.color.or(parent.color);
 		element.props.font_size = element.props.font_size.or(parent.font_size);

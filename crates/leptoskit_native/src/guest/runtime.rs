@@ -26,6 +26,8 @@ struct Application {
 
 thread_local! {
 	static APPLICATION: RefCell<Option<Application>> = const { RefCell::new(None) };
+	/// The reactive owner every application signal belongs to.
+	static OWNER: RefCell<Option<reactive_graph::owner::Owner>> = const { RefCell::new(None) };
 	static PAYLOAD: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 	static VIEWPORT: std::cell::Cell<Option<(f32, f32)>> = const { std::cell::Cell::new(None) };
 }
@@ -63,6 +65,7 @@ pub fn set_viewport(width: f32, height: f32) {
 /// Panics for an invalid control tree, unsupported custom widget, or a tree
 /// deeper than the native ABI's 256-level limit.
 pub fn mount(view: impl Fn() -> Element + 'static) {
+	ensure_owner();
 	APPLICATION.with_borrow_mut(|application| {
 		let tree = application
 			.take()
@@ -73,6 +76,40 @@ pub fn mount(view: impl Fn() -> Element + 'static) {
 		});
 	});
 	render();
+}
+
+/// Binds application signals to the renderer for this thread.
+///
+/// Signals need an owner to belong to and to be disposed with. The application
+/// lives as long as the guest does, so one owner is created on first mount and
+/// left current: a signal created in an event handler, a scenario, or a render
+/// then lives for the application's lifetime.
+fn ensure_owner() {
+	OWNER.with_borrow_mut(|owner| {
+		if owner.is_none() {
+			let created = reactive_graph::owner::Owner::new();
+			created.set();
+			*owner = Some(created);
+		}
+	});
+}
+
+/// Sends the nodes whose bound value changed, without rebuilding the tree.
+///
+/// Call this after writing the signals an [`Element::text_from`] or
+/// [`Element::background_from`] binding reads. Reading the bindings is cheap,
+/// and only the nodes whose value differs are encoded and sent, so a screen
+/// that changes a hundred rows out of a thousand pays for a hundred.
+///
+/// Call it before [`render`] when a change is both structural and bound:
+/// a rebuild re-reads every element it builds, and sends the bindings it
+/// finds changed as part of the same commit.
+pub fn refresh() {
+	APPLICATION.with_borrow_mut(|application| {
+		if let Some(application) = application.as_mut() {
+			application.tree.refresh_reactive(&mut Imports);
+		}
+	});
 }
 
 /// Commits the mounted application after state changes outside a UI event.

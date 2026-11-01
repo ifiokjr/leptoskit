@@ -21,6 +21,8 @@ pub use runtime::dispatch;
 #[cfg(target_arch = "wasm32")]
 pub use runtime::mount;
 #[cfg(target_arch = "wasm32")]
+pub use runtime::refresh;
+#[cfg(target_arch = "wasm32")]
 pub use runtime::render;
 #[cfg(target_arch = "wasm32")]
 pub use runtime::set_viewport;

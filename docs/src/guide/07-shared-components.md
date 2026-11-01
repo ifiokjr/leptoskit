@@ -113,6 +113,33 @@ leptoskit::guest::mount(move || {
 });
 ```
 
+## Update a value without rebuilding the screen
+
+Re-rendering costs every element on the screen. A list of 1,000 cards is about 3,000 elements, so changing 100 labels that way rebuilds 3,000 to change 100. For a value that changes in place, bind the element to a signal:
+
+```rust
+use leptoskit::prelude::*;
+
+let marked = RwSignal::new(false);
+
+View()
+	.class("flex-col gap-2 p-4")
+	.child(Element::text_from(move || {
+		if marked.get() {
+			"Marked".to_owned()
+		} else {
+			"Not marked".to_owned()
+		}
+	}))
+	.child(Button("Mark").on_press(move || marked.set(true)));
+```
+
+`Element::text_from` reads the signal once while it builds the element, so the first frame is right with no extra step, and `Element::background_from` does the same for a background colour.
+
+The renderer then keeps the node. After writing a signal outside an event handler — in a plugin reply, a frame callback, or a scenario step — call `leptoskit::guest::refresh()` once. It reads each binding, sends only the elements whose value differs, and commits them together, so the cost follows the values that changed rather than the size of the screen.
+
+On the web the same tree shows the value read at build time, and leptos re-runs the screen when the signal changes, so nothing else is needed there. `leptoskit::prelude` exports leptos's own `RwSignal`, so a screen shared with the browser keeps one signal type.
+
 ## Animate from app code
 
 Some screens change on every frame: a counter that ticks, a progress value, or a list your code scrolls. A timer drifts against the display, so updates land between frames and the motion stutters. Wait for the display instead. `leptoskit::guest::next_frame` resolves once per display frame, like `requestAnimationFrame` in a browser, and whatever you render before awaiting it again reaches the screen on the next frame:

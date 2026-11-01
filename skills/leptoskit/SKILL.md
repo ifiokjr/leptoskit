@@ -74,6 +74,7 @@ let row = SettingRow("Wi-Fi".into(), Fragment::new().with(Switch(true)));
 - `View`, `ScrollView`, `Row`, `Column`, `Card`, … take no arguments; `Text(content)`, `Button(label)`, `Image(source)`, `Switch(checked)`, `Status(text)`, and `Alert(text)` take their content.
 - Style with Tailwind through `.class("…")`; it compiles to native layout and styles on every platform.
 - Handlers: `.on_press(|| …)`, `.on_change(|text: &str| …)`, `.on_toggle(|checked| …)`, `.on_value_change(|value| …)`.
+- State that changes in place: hold it in a `RwSignal` and bind the value with `Element::text_from(|| …)` or `Element::background_from(|| …)`, so a change rewrites that node instead of rebuilding the screen. After writing a signal outside an event handler, call `leptoskit::guest::refresh()`.
 - Accessibility: `.accessibility_label("…")`, `.role(Role::…)`. Give anything a test needs to find a stable `.test_id("…")`.
 
 ## Check your work

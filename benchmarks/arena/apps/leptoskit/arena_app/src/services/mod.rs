@@ -5,6 +5,10 @@ use std::sync::Mutex;
 use std::sync::MutexGuard;
 
 use leptoskit::native::ScrollOffset;
+use leptoskit::prelude::Color;
+use leptoskit::prelude::Get;
+use leptoskit::prelude::RwSignal;
+use leptoskit::prelude::Set;
 
 /// The scenarios the arena contract defines, in its order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,13 +61,13 @@ pub enum Phase {
 }
 
 impl Phase {
-	/// The Tailwind background utility for the beacon in this phase.
-	pub fn beacon_class(self) -> &'static str {
+	/// The beacon's colour in this phase.
+	pub fn colour(self) -> Color {
 		match self {
-			Self::Idle => "bg-[#000000]",
-			Self::Running => "bg-[#ff0000]",
-			Self::Done => "bg-[#00ff00]",
-			Self::Failed => "bg-[#0000ff]",
+			Self::Idle => Color::rgba(0, 0, 0, 255),
+			Self::Running => Color::rgba(255, 0, 0, 255),
+			Self::Done => Color::rgba(0, 255, 0, 255),
+			Self::Failed => Color::rgba(0, 0, 255, 255),
 		}
 	}
 
@@ -79,7 +83,7 @@ impl Phase {
 }
 
 /// Which body the screen shows under the header.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum Screen {
 	/// The scenario is not known yet.
 	#[default]
@@ -101,12 +105,30 @@ pub enum Screen {
 }
 
 /// One `mount` card.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Card {
 	/// The card's 1-based number.
 	pub number: usize,
 	/// Whether the update step marked its title.
-	pub marked: bool,
+	///
+	/// A signal rather than a field: the title text reads it, so marking a
+	/// card rewrites that label and leaves the other 999 alone.
+	pub marked: RwSignal<bool>,
+}
+
+impl Card {
+	/// A card whose title is not marked yet.
+	pub fn new(number: usize) -> Self {
+		Self {
+			number,
+			marked: RwSignal::new(false),
+		}
+	}
+
+	/// Whether this card's title is marked.
+	pub fn is_marked(&self) -> bool {
+		self.marked.get()
+	}
 }
 
 /// Where the feed is scrolled.
@@ -121,18 +143,39 @@ pub struct Feed {
 }
 
 /// Everything the screen renders from.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Model {
 	pub scenario: Option<Scenario>,
-	pub phase: Phase,
+	/// The beacon's phase; a signal, so the header follows it without a
+	/// rebuild.
+	pub phase: RwSignal<Phase>,
 	pub screen: Screen,
 }
 
+impl Default for Model {
+	fn default() -> Self {
+		Self {
+			scenario: None,
+			phase: RwSignal::new(Phase::Idle),
+			screen: Screen::default(),
+		}
+	}
+}
+
 /// Shared state; each destination decides how a change reaches the screen.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Arena {
 	model: Arc<Mutex<Model>>,
 	on_change: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+impl Default for Arena {
+	fn default() -> Self {
+		Self {
+			model: Arc::new(Mutex::new(Model::default())),
+			on_change: None,
+		}
+	}
 }
 
 impl Arena {
@@ -154,7 +197,36 @@ impl Arena {
 	/// render reads the model again.
 	pub fn update(&self, change: impl FnOnce(&mut Model)) {
 		change(&mut self.read());
+		self.render();
+	}
 
+	/// Renders the model again.
+	///
+	/// For a change the tree holds structurally — a row added, a screen
+	/// replaced — which no binding can express.
+	pub fn render(&self) {
+		if let Some(notify) = &self.on_change {
+			notify();
+		}
+	}
+
+	/// Changes the beacon's phase, then applies it.
+	///
+	/// A phase is a value the header follows, not a screen: the native shell
+	/// rewrites the beacon's colour and its label in place, and the browser
+	/// renders again.
+	pub fn set_phase(&self, phase: Phase) {
+		self.read().phase.set(phase);
+		self.settle();
+	}
+
+	/// Applies the values that signals changed, without rebuilding the tree on
+	/// a renderer that supports bindings.
+	pub fn settle(&self) {
+		#[cfg(feature = "native")]
+		leptoskit::guest::refresh();
+
+		#[cfg(not(feature = "native"))]
 		if let Some(notify) = &self.on_change {
 			notify();
 		}

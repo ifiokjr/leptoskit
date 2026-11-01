@@ -21,6 +21,7 @@ mod native {
 	use std::future::Future;
 
 	use arena_bridge::guest::Arena as Echo;
+	use leptoskit::prelude::Set;
 	use serde_json::Map;
 	use serde_json::Value;
 
@@ -50,7 +51,7 @@ mod native {
 		let object_json = object.to_string();
 
 		arena.update(|model| {
-			model.phase = Phase::Running;
+			model.phase.set(Phase::Running);
 			model.screen = Screen::Echo("timing the async tier".to_owned());
 		});
 
@@ -92,7 +93,7 @@ mod native {
 		.await?;
 
 		arena.update(|model| {
-			model.phase = Phase::Done;
+			model.phase.set(Phase::Done);
 			model.screen = Screen::Echo("done".to_owned());
 		});
 		host.next_frame().await?;

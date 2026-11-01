@@ -17,6 +17,7 @@ leptos = { workspace = true, optional = true }
 leptoskit_devtools_protocol = { workspace = true, optional = true }
 leptoskit_rive = { workspace = true }
 leptoskit_yoga = { workspace = true }
+reactive_graph = { workspace = true }
 roxmltree = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }

@@ -324,15 +324,26 @@ async function measure(
 				const ready = launchToReady(frames, capture.stillLeadIn);
 				if (ready !== null) metrics.launch_to_ready_ms = ready;
 			} else if (scenario === "mount") {
-				// Five rounds of create, update, clear, in order.
+				// Five rounds of create, update, clear, in order. The beacon
+				// cannot say which step a window belongs to, so a recorder
+				// that dropped one leaves the rest unmappable: report the
+				// windows only when they divide evenly into rounds.
 				const steps = ["create", "update", "clear"];
-				const values: Record<string, number[]> = {};
-				for (const [position, window] of windows.entries()) {
-					const step = steps[position % steps.length];
-					(values[step] ??= []).push((window.end - window.start) * 1000);
-				}
-				for (const [step, durations] of Object.entries(values)) {
-					metrics[`${step}_to_pixel_ms`] = summarise(durations).median;
+				if (windows.length > 0 && windows.length % steps.length === 0) {
+					const values: Record<string, number[]> = {};
+					for (const [position, window] of windows.entries()) {
+						const step = steps[position % steps.length];
+						(values[step] ??= []).push((window.end - window.start) * 1000);
+					}
+					for (const [step, durations] of Object.entries(values)) {
+						metrics[`${step}_to_pixel_ms`] = summarise(durations).median;
+					}
+				} else {
+					log(
+						`${scenario}: ${windows.length} beacon windows in ${
+							capture.video ?? "the recording"
+						}; the steps cannot be told apart`,
+					);
 				}
 			} else if (windows[index]) {
 				const rate = effectiveRefreshHz(frames, windows[index], refreshRatesHz);

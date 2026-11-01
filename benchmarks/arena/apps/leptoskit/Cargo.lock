@@ -2867,6 +2867,7 @@ dependencies = [
  "leptos",
  "leptoskit_rive",
  "leptoskit_yoga",
+ "reactive_graph",
  "serde",
  "serde_json",
  "sha2 0.10.9",
