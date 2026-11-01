@@ -352,6 +352,7 @@ mod tests {
 		let last = bytes.len() - 4;
 		bytes[last] = 2;
 		assert!(Channel::decode(&bytes).is_err());
+
 		assert_eq!(
 			Permission::decode(&[4, 0, 0, 0]),
 			Ok(Permission::Provisional)
@@ -384,6 +385,7 @@ mod tests {
 		expected.bytes(b"backup.done_2").unwrap();
 		assert_eq!(id.encode().unwrap(), expected.finish());
 		let channel = Identifier::new("general").unwrap();
+
 		let note = Notification::new(id.clone(), "Backup", "Done\tok", channel.clone()).unwrap();
 		assert_eq!(note.id(), &id);
 		assert_eq!(note.title(), "Backup");

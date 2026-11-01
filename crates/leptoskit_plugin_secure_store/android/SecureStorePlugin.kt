@@ -53,113 +53,105 @@ class SecureStorePlugin(
 
         return try {
             withContext(Dispatchers.IO) {
-                lock.withLock {
-                    ensureActive()
-
-                    if (closed.get()) throw PluginException(PluginException.CANCELLED)
-                    try {
-                        if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Cannot create secure-store directory")
-                        RandomAccessFile(File(directory, ".lock"), "rw").use { lockFile ->
-                            lockFile.channel.lock().use { execute(request) }
-                        }
-                    } catch (error: SecurityException) {
-                        throw PluginException(PluginException.PERMISSION_DENIED, error)
-                    } catch (error: GeneralSecurityException) {
-                        throw PluginException(PluginException.NATIVE, error)
-                    } catch (error: IOException) {
-                        throw PluginException(PluginException.NATIVE, error)
-                    }
-                }
+                ensureActive()
+                lock.withLock { run(request) }
             }
         } finally {
             request.secret?.fill(0)
         }
     }
 
+    /** Runs one request under the directory lock, translating platform refusals. */
+    private fun run(request: Request): ByteArray {
+        if (closed.get()) throw PluginException(PluginException.CANCELLED)
+
+        return try {
+            if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Cannot create secure-store directory")
+
+            RandomAccessFile(File(directory, LOCK_FILE), "rw").use { lockFile ->
+                lockFile.channel.lock().use { execute(request) }
+            }
+        } catch (error: SecurityException) {
+            throw PluginException(PluginException.PERMISSION_DENIED, error)
+        } catch (error: GeneralSecurityException) {
+            throw PluginException(PluginException.NATIVE, error)
+        } catch (error: IOException) {
+            throw PluginException(PluginException.NATIVE, error)
+        }
+    }
+
     private fun execute(request: Request): ByteArray {
-        if (maxBytes !in 4..2560 || maxEntries !in 0..64) throw PluginException(PluginException.INVALID_ARGUMENT)
-        val file = AtomicFile(File(directory, "entries-v2"))
+        if (maxBytes !in MIN_BYTES..MAX_BYTES || maxEntries !in 0..MAX_ENTRIES) {
+            throw PluginException(PluginException.INVALID_ARGUMENT)
+        }
+        val file = AtomicFile(File(directory, STORE_FILE))
         val identity = "leptoskit.secure-store-v2:$application".toByteArray(Charsets.UTF_8)
         val archive =
-            if (file.baseFile.exists() || File(directory, "entries-v2.bak").exists()) {
-                val stored = readCiphertext(file, 2560)
-                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-                cipher.init(Cipher.DECRYPT_MODE, encryptionKey(create = false), GCMParameterSpec(128, stored, 1, 12))
-
-                cipher.updateAAD(identity)
-                val plaintext = cipher.doFinal(stored, 13, stored.size - 13)
-                try {
-                    SecureArchive.decode(plaintext)
-                } finally {
-                    plaintext.fill(0)
-                }
+            if (file.baseFile.exists() || File(directory, "$STORE_FILE.bak").exists()) {
+                load(file, identity)
             } else {
                 SecureArchive()
             }
+
         try {
-            if (request.method == 0) {
-                val value = archive.get(request.service, request.key) ?: return executeLegacy(request)
-                return byteArrayOf(1, 0, 0, 0) + value
-            }
-
-            if (request.method == 1) {
-                archive.set(request.service, request.key, request.secret ?: throw PluginException(PluginException.INVALID_ARGUMENT))
-            } else {
-                // Remove the old representation before the new one to prevent resurrection.
-                executeLegacy(request)
-                archive.remove(request.service, request.key)
-            }
-            val plaintext = archive.encode(if (request.method == 1) maxBytes else 2560, if (request.method == 1) maxEntries else 64)
-            try {
-                writeCiphertext(file, identity, plaintext)
-            } finally {
-                plaintext.fill(0)
-            }
-
-            if (request.method == 1) executeLegacy(Request(2, request.service, request.key, null))
-
-            return byteArrayOf()
+            return apply(request, archive, file, identity)
         } finally {
             archive.clear()
         }
     }
 
-    private fun writeCiphertext(
+    /** Decrypts and decodes the stored archive. */
+    private fun load(
         file: AtomicFile,
         identity: ByteArray,
-        value: ByteArray,
-    ) {
-        if (value.size == 4) {
-            file.delete()
-            if (file.baseFile.exists() || File(directory, "entries-v2.bak").exists() ||
-                File(directory, "entries-v2.new").exists()
-            ) {
-                throw IOException("Cannot delete secure-store archive")
-            }
-
-            return
-        }
-
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, encryptionKey(create = true))
-
-        if (cipher.iv.size != 12) throw GeneralSecurityException("Unexpected GCM IV size")
+    ): SecureArchive {
+        val stored = readCiphertext(file, MAX_BYTES)
+        val cipher = Cipher.getInstance(CIPHER)
+        cipher.init(Cipher.DECRYPT_MODE, encryptionKey(create = false), GCMParameterSpec(TAG_BITS, stored, 1, NONCE_BYTES))
 
         cipher.updateAAD(identity)
-        val ciphertext = byteArrayOf(1) + cipher.iv + cipher.doFinal(value)
-        val stream = file.startWrite()
-        try {
-            stream.write(ciphertext)
-            stream.fd.sync()
-            file.finishWrite(stream)
-        } catch (error: Exception) {
-            file.failWrite(stream)
-            throw error
+        val plaintext = cipher.doFinal(stored, 13, stored.size - 13)
+
+        return try {
+            SecureArchive.decode(plaintext)
+        } finally {
+            plaintext.fill(0)
+        }
+    }
+
+    /** Applies one request to the archive, and stores it again. */
+    private fun apply(
+        request: Request,
+        archive: SecureArchive,
+        file: AtomicFile,
+        identity: ByteArray,
+    ): ByteArray {
+        if (request.method == READ) {
+            val value = archive.get(request.service, request.key) ?: return executeLegacy(request)
+
+            return byteArrayOf(1, 0, 0, 0) + value
         }
 
-        if (!MessageDigest.isEqual(ciphertext, readCiphertext(file, 2560))) {
-            throw IOException("Secure-store write did not commit")
+        val writing = request.method == WRITE
+
+        if (writing) {
+            archive.set(request.service, request.key, request.secret ?: throw PluginException(PluginException.INVALID_ARGUMENT))
+        } else {
+            // Remove the old representation before the new one to prevent resurrection.
+            executeLegacy(request)
+            archive.remove(request.service, request.key)
         }
+        val plaintext = archive.encode(if (writing) maxBytes else MAX_BYTES, if (writing) maxEntries else MAX_ENTRIES)
+
+        try {
+            writeCiphertext(file, identity, plaintext)
+        } finally {
+            plaintext.fill(0)
+        }
+
+        if (writing) executeLegacy(Request(REMOVE, request.service, request.key, null))
+
+        return byteArrayOf()
     }
 
     private fun executeLegacy(request: Request): ByteArray {
@@ -269,38 +261,9 @@ class SecureStorePlugin(
                 source: ByteBuffer,
             ): Request {
                 val input = source.duplicate().order(ByteOrder.LITTLE_ENDIAN)
-
-                fun field(limit: Int): ByteArray {
-                    if (input.remaining() < 4) throw PluginException(PluginException.INVALID_ARGUMENT)
-                    val size = input.int
-
-                    if (limit == MAX_SECRET && (size < 0 || size > limit)) {
-                        throw PluginException(PluginException.TOO_LARGE)
-                    }
-
-                    if (size < 0 || size > limit || size > input.remaining()) {
-                        throw PluginException(PluginException.INVALID_ARGUMENT)
-                    }
-
-                    return ByteArray(size).also(input::get)
-                }
-
-                fun name(): String {
-                    val value = field(128)
-                    if (value.isEmpty() ||
-                        value.any { byte ->
-                            val code = byte.toInt()
-                            code !in 65..90 && code !in 97..122 && code !in 48..57 && code != 45 && code != 46 && code != 95
-                        }
-                    ) {
-                        throw PluginException(PluginException.INVALID_ARGUMENT)
-                    }
-
-                    return value.toString(Charsets.US_ASCII)
-                }
-                val service = name()
-                val key = name()
-                val secret = if (method == 1) field(MAX_SECRET) else null
+                val service = name(input)
+                val key = name(input)
+                val secret = if (method == WRITE) field(input, MAX_SECRET) else null
 
                 if (input.hasRemaining()) {
                     secret?.fill(0)
@@ -309,11 +272,82 @@ class SecureStorePlugin(
 
                 return Request(method, service, key, secret)
             }
+
+            /** One length-prefixed field, refusing one past `limit`. */
+            private fun field(
+                input: ByteBuffer,
+                limit: Int,
+            ): ByteArray {
+                if (input.remaining() < 4) throw PluginException(PluginException.INVALID_ARGUMENT)
+                val size = input.int
+
+                if (limit == MAX_SECRET && (size < 0 || size > limit)) {
+                    throw PluginException(PluginException.TOO_LARGE)
+                }
+
+                if (size < 0 || size > limit || size > input.remaining()) {
+                    throw PluginException(PluginException.INVALID_ARGUMENT)
+                }
+
+                return ByteArray(size).also(input::get)
+            }
+
+            /** One service or key name. */
+            private fun name(input: ByteBuffer): String {
+                val value = field(input, MAX_NAME)
+
+                if (value.isEmpty() || value.any { !isNameByte(it) }) {
+                    throw PluginException(PluginException.INVALID_ARGUMENT)
+                }
+
+                return value.toString(Charsets.US_ASCII)
+            }
+
+            /** Whether one byte may appear in a name: ASCII letters, digits, `-`, `.`, `_`. */
+            private fun isNameByte(byte: Byte): Boolean {
+                val code = byte.toInt()
+
+                return code in 65..90 || code in 97..122 || code in 48..57 || code == 45 || code == 46 || code == 95
+            }
         }
     }
 
     private companion object {
+        /** Reads one entry. */
+        const val READ = 0
+
+        /** Writes one entry. */
+        const val WRITE = 1
+
+        /** Removes one entry. */
+        const val REMOVE = 2
+
+        /** The largest secret, in bytes. */
         const val MAX_SECRET = 2048
+
+        /** The largest service or key name, in bytes. */
+        const val MAX_NAME = 128
+
+        /** The largest archive this store will hold, in bytes. */
+        const val MAX_BYTES = 2560
+
+        /** The smallest archive worth storing. */
+        const val MIN_BYTES = 4
+
+        /** How many entries one archive may hold. */
+        const val MAX_ENTRIES = 64
+
+        /** The cipher every archive is written with. */
+        const val CIPHER = "AES/GCM/NoPadding"
+
+        /** The GCM authentication tag, in bits, and the nonce, in bytes. */
+        const val TAG_BITS = 128
+        const val NONCE_BYTES = 12
+
+        /** The directory's lock file and the archive itself. */
+        const val LOCK_FILE = ".lock"
+        const val STORE_FILE = "entries-v2"
+
         val lock = Mutex()
     }
 }

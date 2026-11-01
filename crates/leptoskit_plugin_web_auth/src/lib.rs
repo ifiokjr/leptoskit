@@ -17,6 +17,8 @@
 //! Nothing that comes back is a credential on its own: the server finishes
 //! the sign-in only together with a binding the app kept in memory.
 
+use std::time::Duration;
+
 use leptoskit_bridge::Error;
 use leptoskit_bridge::MethodId;
 
@@ -116,6 +118,15 @@ pub fn authorization_url(value: &str) -> Result<url::Url, Error> {
 
 	Ok(url)
 }
+
+/// How long a waiting listener sleeps between polls.
+const POLL_INTERVAL: Duration = Duration::from_millis(25);
+
+/// How long one return request may take to arrive.
+const READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How much of a return request is read at a time.
+const CHUNK_BYTES: usize = 1024;
 
 /// Checks a return address: `<scheme>:/auth/native/return` for a
 /// reverse-DNS private-use scheme, `http://127.0.0.1:<port>` or
@@ -266,8 +277,9 @@ pub mod desktop {
 							return Err(Error::Cancelled);
 						}
 
-						std::thread::sleep(Duration::from_millis(25));
+						std::thread::sleep(POLL_INTERVAL);
 					}
+
 					Err(_) => return Err(Error::Native),
 				}
 			}
@@ -277,9 +289,9 @@ pub mod desktop {
 		/// return path.
 		fn answer(&self, mut stream: TcpStream) -> Option<String> {
 			let _ = stream.set_nonblocking(false);
-			let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+			let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
 			let mut request = Vec::new();
-			let mut chunk = [0; 1024];
+			let mut chunk = [0; CHUNK_BYTES];
 
 			while !request.windows(2).any(|pair| pair == b"\r\n") && request.len() < MAX_REQUEST {
 				match stream.read(&mut chunk) {

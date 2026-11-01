@@ -113,6 +113,7 @@ async fn explicit_permission_delivery_and_cancellation() {
 		"dropping a handle must preserve delivery"
 	);
 	deny();
+
 	assert_eq!(web::permission(), Ok(Permission::Denied));
 	assert!(matches!(
 		web::show(&notification),

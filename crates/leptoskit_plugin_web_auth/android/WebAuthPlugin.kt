@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Looper
 import androidx.browser.auth.AuthTabIntent
 import androidx.browser.customtabs.CustomTabsClient
+import dev.leptoskit.bridge.NativeActivityResult
 import dev.leptoskit.bridge.NativeActivityResultHost
 import dev.leptoskit.bridge.NativePlugin
 import dev.leptoskit.bridge.PluginException
@@ -71,34 +72,55 @@ class WebAuthPlugin(
 
         if (!CustomTabsClient.isAuthTabSupported(context, browser)) throw PluginException(PluginException.UNAVAILABLE)
         currentCoroutineContext().ensureActive()
-
         busy = true
-        try {
-            val intent = AuthTabIntent.Builder().build().intent
-            intent.setPackage(browser)
-            intent.data = Uri.parse(request.url.toString())
-            intent.putExtra(AuthTabIntent.EXTRA_REDIRECT_SCHEME, Uri.parse(returnTo).scheme)
-            val result = host.launchPluginActivity(intent)
+
+        return try {
+            val result = launch(host, browser, request.url, returnTo)
+
             currentCoroutineContext().ensureActive()
 
             if (closed) throw PluginException(PluginException.CANCELLED)
-            val address = result.data?.data?.toString()
 
-            return when {
-                result.resultCode == Activity.RESULT_OK && address != null && cameBack(address, returnTo) -> {
-                    address.toByteArray(Charsets.UTF_8)
-                }
-
-                result.resultCode == Activity.RESULT_CANCELED -> {
-                    throw PluginException(PluginException.CANCELLED)
-                }
-
-                else -> {
-                    throw PluginException(PluginException.NATIVE)
-                }
-            }
+            respond(result, returnTo)
         } finally {
             busy = false
+        }
+    }
+
+    /** Opens the auth tab for the provider's page, and waits for the browser. */
+    private suspend fun launch(
+        host: NativeActivityResultHost,
+        browser: String,
+        url: URI,
+        returnTo: String,
+    ): NativeActivityResult {
+        val intent = AuthTabIntent.Builder().build().intent
+        intent.setPackage(browser)
+        intent.data = Uri.parse(url.toString())
+        intent.putExtra(AuthTabIntent.EXTRA_REDIRECT_SCHEME, Uri.parse(returnTo).scheme)
+
+        return host.launchPluginActivity(intent)
+    }
+
+    /** The address the browser came back to, or the error its result carries. */
+    private fun respond(
+        result: NativeActivityResult,
+        returnTo: String,
+    ): ByteArray {
+        val address = result.data?.data?.toString()
+
+        return when {
+            result.resultCode == Activity.RESULT_OK && address != null && cameBack(address, returnTo) -> {
+                address.toByteArray(Charsets.UTF_8)
+            }
+
+            result.resultCode == Activity.RESULT_CANCELED -> {
+                throw PluginException(PluginException.CANCELLED)
+            }
+
+            else -> {
+                throw PluginException(PluginException.NATIVE)
+            }
         }
     }
 }

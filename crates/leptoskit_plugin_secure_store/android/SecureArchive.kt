@@ -68,33 +68,61 @@ internal class SecureArchive {
 
     companion object {
         fun decode(data: ByteArray): SecureArchive {
-            if (data.size > 2560 || data.size < 4) throw PluginException(PluginException.NATIVE)
+            if (data.size !in MIN_BYTES..MAX_BYTES) throw PluginException(PluginException.NATIVE)
             val input = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
             val count = input.int
 
-            if (count !in 0..64) throw PluginException(PluginException.NATIVE)
+            if (count !in 0..MAX_ENTRIES) throw PluginException(PluginException.NATIVE)
             val archive = SecureArchive()
-            repeat(count) {
-                val start = input.position()
-                repeat(3) {
-                    if (input.remaining() < 4) throw PluginException(PluginException.NATIVE)
-                    val length = input.int
 
-                    if (length < 0 || length > input.remaining()) throw PluginException(PluginException.NATIVE)
-                    input.position(input.position() + length)
-                }
-                val entry = ByteBuffer.wrap(data, start, input.position() - start)
-                val request = SecureStorePlugin.Request.decode(1, entry)
-                val value = request.secret ?: throw PluginException(PluginException.NATIVE)
-
-                if (archive.get(request.service, request.key) != null) throw PluginException(PluginException.NATIVE)
-
-                archive.set(request.service, request.key, value)
-            }
+            repeat(count) { archive.add(entry(data, input)) }
 
             if (input.hasRemaining()) throw PluginException(PluginException.NATIVE)
 
             return archive
         }
+
+        /** Reads one entry at the cursor, leaving it past the entry. */
+        private fun entry(
+            data: ByteArray,
+            input: ByteBuffer,
+        ): SecureStorePlugin.Request {
+            val start = input.position()
+            repeat(FIELDS_PER_ENTRY) { skipField(input) }
+            val entry = ByteBuffer.wrap(data, start, input.position() - start)
+
+            return SecureStorePlugin.Request.decode(SECRET_METHOD, entry)
+        }
+
+        /** Moves the cursor past one length-prefixed field. */
+        private fun skipField(input: ByteBuffer) {
+            if (input.remaining() < 4) throw PluginException(PluginException.NATIVE)
+            val length = input.int
+
+            if (length < 0 || length > input.remaining()) throw PluginException(PluginException.NATIVE)
+            input.position(input.position() + length)
+        }
+
+        /** Adds one entry, refusing a name pair the archive already holds. */
+        private fun SecureArchive.add(request: SecureStorePlugin.Request) {
+            val value = request.secret ?: throw PluginException(PluginException.NATIVE)
+
+            if (get(request.service, request.key) != null) throw PluginException(PluginException.NATIVE)
+
+            set(request.service, request.key, value)
+        }
+
+        /** Every entry carries a service, a key, and a value. */
+        private const val FIELDS_PER_ENTRY = 3
+
+        /** The method id whose request shape carries a secret. */
+        private const val SECRET_METHOD = 1
+
+        /** The largest archive this store will hold, and the smallest. */
+        private const val MAX_BYTES = 2560
+        private const val MIN_BYTES = 4
+
+        /** How many entries one archive may hold. */
+        private const val MAX_ENTRIES = 64
     }
 }

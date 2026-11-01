@@ -27,7 +27,44 @@ class NotificationsPlugin(
     private val smallIcon: Int = android.R.drawable.ic_dialog_info,
 ) : NativePlugin {
     override val name = "notifications"
-    override val methods = intArrayOf(0, 1, 2, 3, 4, 5, 6)
+    override val methods = intArrayOf(STATE, REQUEST, SHOW, CANCEL, CHANNEL, DELETE, ACTIVE)
+
+    private companion object {
+        /** Reports the current permission, without asking for it. */
+        const val STATE = 0
+
+        /** Reports the permission, asking for it when it can. */
+        const val REQUEST = 1
+
+        /** Posts a notification to a configured channel. */
+        const val SHOW = 2
+
+        /** Cancels one posted notification. */
+        const val CANCEL = 3
+
+        /** Creates or replaces a channel. */
+        const val CHANNEL = 4
+
+        /** Deletes one channel. */
+        const val DELETE = 5
+
+        /** Lists the plugin's posted notifications. */
+        const val ACTIVE = 6
+
+        /** The largest show request: an id, title, body, and channel. */
+        const val SHOW_BYTES = 4496
+
+        /** The largest cancel or delete request: one identifier. */
+        const val ID_BYTES = 68
+
+        /** The largest channel request. */
+        const val CHANNEL_BYTES = 1236
+
+        /** Longest title and body the wire format carries. */
+        const val MAX_TITLE = 256
+        const val MAX_BODY = 4096
+    }
+
     private val manager = context.getSystemService(NotificationManager::class.java)
     private var closed = false
 
@@ -40,78 +77,106 @@ class NotificationsPlugin(
         if (closed) throw PluginException(PluginException.CANCELLED)
         currentCoroutineContext().ensureActive()
         val manager = manager ?: throw PluginException(PluginException.UNAVAILABLE)
+
+        return dispatch(manager, method, payload)
+    }
+
+    /** Runs one method, and answers with the bytes it returns. */
+    private suspend fun dispatch(
+        manager: NotificationManager,
+        method: Int,
+        payload: ByteBuffer,
+    ): ByteArray {
         when (method) {
-            0, 1 -> {
-                empty(payload)
-
-                if (method == 1) requestPermission()
-
-                return ByteBuffer
-                    .allocate(4)
-                    .order(ByteOrder.LITTLE_ENDIAN)
-                    .putInt(permission())
-                    .array()
-            }
-
-            2 -> {
-                val input = Reader(payload, 4496)
-                val id = input.identifier()
-                val title = input.text(256, false, true)
-                val body = input.text(4096, true, false)
-                val channel = input.identifier()
-                input.finish()
-
-                if (permission() != 3) throw PluginException(PluginException.PERMISSION_DENIED)
-                val configured =
-                    manager.getNotificationChannel(PREFIX + channel)
-                        ?: throw PluginException(PluginException.INVALID_ARGUMENT)
-
-                if (configured.importance == NotificationManager.IMPORTANCE_NONE) {
-                    throw PluginException(PluginException.PERMISSION_DENIED)
-                }
-
-                val notification =
-                    Notification
-                        .Builder(context, configured.id)
-                        .setSmallIcon(smallIcon)
-                        .setContentTitle(title)
-                        .setContentText(body)
-                        .setStyle(Notification.BigTextStyle().bigText(body))
-                        .setAutoCancel(true)
-                        .build()
-                try {
-                    manager.notify(PREFIX + id, 0, notification)
-                } catch (_: SecurityException) {
-                    throw PluginException(PluginException.PERMISSION_DENIED)
-                }
-            }
-
-            3, 5 -> {
-                val input = Reader(payload, 68)
-                val id = input.identifier()
-                input.finish()
-
-                if (method == 3) manager.cancel(PREFIX + id, 0) else manager.deleteNotificationChannel(PREFIX + id)
-            }
-
-            4 -> {
-                configure(Reader(payload, 1236), manager)
-            }
-
-            6 -> {
-                empty(payload)
-
-                for (notification in manager.activeNotifications) {
-                    if (notification.tag?.startsWith(PREFIX) == true) manager.cancel(notification.tag, notification.id)
-                }
-            }
-
-            else -> {
-                throw PluginException(PluginException.UNAVAILABLE)
-            }
+            STATE, REQUEST -> return permissionReply(manager, method, payload)
+            SHOW -> show(manager, payload)
+            CANCEL, DELETE -> cancelOrDelete(manager, method, payload)
+            CHANNEL -> configure(Reader(payload, CHANNEL_BYTES), manager)
+            ACTIVE -> active(manager, payload)
+            else -> throw PluginException(PluginException.UNAVAILABLE)
         }
 
         return byteArrayOf()
+    }
+
+    /** Reports the permission, asking for it when the caller asked to. */
+    private suspend fun permissionReply(
+        manager: NotificationManager,
+        method: Int,
+        payload: ByteBuffer,
+    ): ByteArray {
+        empty(payload)
+
+        if (method == REQUEST) requestPermission()
+
+        return ByteBuffer
+            .allocate(4)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(permission())
+            .array()
+    }
+
+    /** Posts one notification to a channel the app configured. */
+    private fun show(
+        manager: NotificationManager,
+        payload: ByteBuffer,
+    ) {
+        val input = Reader(payload, SHOW_BYTES)
+        val id = input.identifier()
+        val title = input.text(MAX_TITLE, false, true)
+        val body = input.text(MAX_BODY, true, false)
+        val channel = input.identifier()
+        input.finish()
+
+        if (permission() != GRANTED) throw PluginException(PluginException.PERMISSION_DENIED)
+        val configured =
+            manager.getNotificationChannel(PREFIX + channel)
+                ?: throw PluginException(PluginException.INVALID_ARGUMENT)
+
+        if (configured.importance == NotificationManager.IMPORTANCE_NONE) {
+            throw PluginException(PluginException.PERMISSION_DENIED)
+        }
+
+        val notification =
+            Notification
+                .Builder(context, configured.id)
+                .setSmallIcon(smallIcon)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(Notification.BigTextStyle().bigText(body))
+                .setAutoCancel(true)
+                .build()
+
+        try {
+            manager.notify(PREFIX + id, 0, notification)
+        } catch (_: SecurityException) {
+            throw PluginException(PluginException.PERMISSION_DENIED)
+        }
+    }
+
+    /** Cancels one posted notification, or deletes one channel. */
+    private fun cancelOrDelete(
+        manager: NotificationManager,
+        method: Int,
+        payload: ByteBuffer,
+    ) {
+        val input = Reader(payload, ID_BYTES)
+        val id = input.identifier()
+        input.finish()
+
+        if (method == CANCEL) manager.cancel(PREFIX + id, 0) else manager.deleteNotificationChannel(PREFIX + id)
+    }
+
+    /** Cancels every notification this plugin posted. */
+    private fun active(
+        manager: NotificationManager,
+        payload: ByteBuffer,
+    ) {
+        empty(payload)
+
+        for (notification in manager.activeNotifications) {
+            if (notification.tag?.startsWith(PREFIX) == true) manager.cancel(notification.tag, notification.id)
+        }
     }
 
     override fun close() {
@@ -189,6 +254,9 @@ class NotificationsPlugin(
 
     companion object {
         internal const val PREFIX = "leptoskit.notifications."
+
+        /** The permission value that means notifications may be posted. */
+        internal const val GRANTED = 3
     }
 }
 
