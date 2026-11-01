@@ -41,7 +41,7 @@ use crate::inbox::NoticeKind;
 /// only server code writes them, through `cx.notify(...)`.
 #[table(name = "inbox", pack = "rpc", live, index(account, created_at))]
 #[policy(insert, |_, _| Expr::always())]
-#[policy(select, update, |notice, cx| cx.global(|actor: &Actor| notice.account.eq(actor.uuid().to_string())))]
+#[policy(select, update, |notice, cx| notice.account.eq(cx.setting::<Actor>()))]
 pub struct InboxRow {
 	pub id: Id<Self>,
 	/// Whose notice it is: their account's UUID.

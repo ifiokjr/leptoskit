@@ -49,6 +49,21 @@ use crate::policy::Access;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Actor(Uuid);
 
+/// Under row-level security, Postgres sees the actor's key as
+/// `leptoskit.actor`, so a rule that compares a column with it runs there
+/// too.
+impl crate::Setting for Actor {
+	type Value = String;
+
+	const NAME: &'static str = "actor";
+
+	fn value(&self) -> String {
+		self.0.to_string()
+	}
+}
+
+crate::register_setting!(Actor);
+
 impl Actor {
 	/// The actor whose user row has this key.
 	pub const fn of<T: ?Sized>(id: Id<T>) -> Self {
