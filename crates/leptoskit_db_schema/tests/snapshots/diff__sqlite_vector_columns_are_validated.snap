@@ -1,0 +1,8 @@
+---
+source: crates/leptoskit_db_schema/tests/diff.rs
+expression: sqlite.validate().unwrap_err().to_string()
+---
+the schema has 3 problem(s):
+  - items: on SQLite a vector column's index numbers its rows in `lk_row`, so the key can't use that name
+  - posts.terms: sparse vectors need Postgres: sqlite-vec has no sparse type; use `Vector<N>` on SQLite
+  - posts.wide: a vector on sqlite has 1 to 8192 dimensions, not 9000

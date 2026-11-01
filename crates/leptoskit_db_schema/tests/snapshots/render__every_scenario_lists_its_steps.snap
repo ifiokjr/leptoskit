@@ -218,3 +218,39 @@ remove_the_live_pack
   - function live.seal
   - sequence live.change_seq
   - sequence live.version_seq
+add_vectors
+  + table items (2 columns)
+  + column posts.embedding (vector(3))
+  + column posts.code (bit(16))
+  + column posts.lk_embedding_source (text)
+  + vector index posts(embedding) by cosine
+  + vector sources posts.embedding (title, body)
+  + vector index posts(code) by hamming
+  + vector index items(v) by inner_product
+rebuild_a_vector_table
+  - check posts_score_check
+  + check posts: posts_score_check
+change_vectors
+  - vector index entries(v)
+  - vector index posts(embedding)
+  - vector sources posts.embedding
+  - vector index posts(code)
+  ~ table items renamed to entries
+  ~ column posts.embedding renamed to meaning
+  ~ column posts.lk_embedding_source renamed to lk_meaning_source
+  + vector index entries(v) by inner_product
+  + vector index posts(meaning) by cosine
+  + vector sources posts.meaning (title)
+  + vector index posts(code) by jaccard
+drop_vectors
+  - vector index posts(embedding)
+  - vector sources posts.embedding
+  - vector index posts(code)
+  - vector index items(v)
+  - column posts.embedding
+  - column posts.code
+  - column posts.lk_embedding_source
+  - table items
+add_sparse_vectors
+  + column posts.terms (sparsevec(30000))
+  + vector index posts(terms) by inner_product

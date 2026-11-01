@@ -930,6 +930,96 @@ pub fn scenarios() -> Vec<Scenario> {
 			seed: SEED,
 			expected_rows: &[("posts", 3)],
 		},
+		Scenario {
+			name: "add_vectors",
+			before: blog,
+			after: with_vectors,
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
+		Scenario {
+			name: "rebuild_a_vector_table",
+			before: with_vectors,
+			after: |dialect| {
+				let mut schema = with_vectors(dialect);
+				let posts = table_mut(&mut schema, "posts");
+				posts.checks[0].rule = CheckRule::Range {
+					column: "score".into(),
+					min: Some(0.0),
+					max: Some(200.0),
+				};
+				schema
+			},
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
+		Scenario {
+			name: "change_vectors",
+			before: with_vectors,
+			after: |dialect| {
+				let mut schema = with_vectors(dialect);
+				let posts = table_mut(&mut schema, "posts");
+				let embedding = column_mut(posts, "embedding");
+				embedding.name = "meaning".into();
+				embedding.renamed_from = Some("embedding".into());
+				let source = column_mut(posts, "lk_embedding_source");
+				source.name = "lk_meaning_source".into();
+				source.renamed_from = Some("lk_embedding_source".into());
+				posts.vectors[0].column = "meaning".into();
+				posts.vectors[0].sources = vec!["title".into()];
+				posts.vectors[1].distance = Some(VectorDistance::Jaccard);
+				posts.vectors[1].index = Some(VectorIndexKind::Hnsw);
+				let items = table_mut(&mut schema, "items");
+				items.name = TableName::new("entries");
+				items.renamed_from = Some(TableName::new("items"));
+				items.vectors[0].public = true;
+				schema
+			},
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
+		Scenario {
+			name: "drop_vectors",
+			before: with_vectors,
+			after: blog,
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
+		Scenario {
+			name: "add_sparse_vectors",
+			before: blog,
+			after: |dialect| {
+				let mut schema = blog(dialect);
+				let posts = table_mut(&mut schema, "posts");
+				posts.columns.push(
+					Column::new(
+						"terms",
+						ColumnType::Vector {
+							element: VectorElement::Sparse,
+							dimensions: 30_000,
+						},
+					)
+					.nullable(),
+				);
+				posts.vectors.push(
+					VectorOptions::new("terms", Some(VectorDistance::InnerProduct))
+						.indexed(VectorIndexKind::Hnsw),
+				);
+				schema
+			},
+			no_renames: false,
+			only: Some(Dialect::Postgres),
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
 	]
 }
 
@@ -1021,6 +1111,70 @@ pub fn live_tables() -> Vec<Table> {
 	);
 
 	vec![commits, changes, pending]
+}
+
+/// [`blog`] with vectors: each post's embedding, made from its title and
+/// body and measured by cosine distance, and a binary code measured by
+/// Hamming distance; and a table of items, each with a half-precision
+/// vector measured by inner product, which sqlite-vec doesn't rank by.
+pub fn with_vectors(dialect: Dialect) -> Schema {
+	let mut schema = blog(dialect);
+	let posts = table_mut(&mut schema, "posts");
+	posts.columns.push(
+		Column::new(
+			"embedding",
+			ColumnType::Vector {
+				element: VectorElement::Float32,
+				dimensions: 3,
+			},
+		)
+		.nullable(),
+	);
+	posts.columns.push(
+		Column::new(
+			"code",
+			ColumnType::Vector {
+				element: VectorElement::Bit,
+				dimensions: 16,
+			},
+		)
+		.nullable(),
+	);
+	posts
+		.columns
+		.push(Column::new("lk_embedding_source", ColumnType::TEXT).nullable());
+	posts.vectors.push(
+		VectorOptions::new("embedding", Some(VectorDistance::Cosine))
+			.indexed(VectorIndexKind::Hnsw)
+			.from_sources(&["title", "body"]),
+	);
+	posts.vectors.push(
+		VectorOptions::new("code", Some(VectorDistance::Hamming)).indexed(VectorIndexKind::IvfFlat),
+	);
+
+	let mut items = Table::new(
+		TableName::new("items"),
+		vec![
+			Column::new("id", ColumnType::Int64),
+			Column::new(
+				"v",
+				ColumnType::Vector {
+					element: VectorElement::Float16,
+					dimensions: 4,
+				},
+			),
+		],
+		vec!["id".into()],
+	);
+	items.vectors.push(
+		VectorOptions::new("v", Some(VectorDistance::InnerProduct))
+			.indexed(VectorIndexKind::IvfFlat),
+	);
+	schema.tables.push(items);
+	schema
+		.tables
+		.sort_by(|left, right| left.name.cmp(&right.name));
+	schema
 }
 
 /// [`blog`] with shapes: each post's location on the globe, spatially

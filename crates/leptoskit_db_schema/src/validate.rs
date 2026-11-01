@@ -28,6 +28,10 @@ use crate::Table;
 use crate::TableName;
 use crate::TriggerAction;
 use crate::TriggerTiming;
+use crate::VectorDistance;
+use crate::VectorElement;
+use crate::VectorIndexKind;
+use crate::VectorOptions;
 
 /// One inconsistency in a schema, located by table and, where it applies, by
 /// column or constraint.
@@ -188,6 +192,7 @@ impl Schema {
 			}
 
 			self.validate_geo_names(table, &mut flat_names, &mut problems);
+			validate_vector_names(table, &mut flat_names, &mut problems);
 			self.validate_table(table, &mut problems);
 		}
 
@@ -620,6 +625,7 @@ impl Schema {
 		}
 
 		validate_geo_indexes(table, problems);
+		validate_vectors(self.dialect, table, problems);
 
 		if let Some(security) = &table.row_security {
 			if self.dialect == Dialect::Sqlite {
@@ -860,6 +866,8 @@ fn validate_column(dialect: Dialect, column: &Column, location: &str, problems: 
 		);
 	}
 
+	validate_vector_column(dialect, column, location, problems);
+
 	if let Some(generated) = &column.generated {
 		if column.default.is_some() {
 			problems.push(
@@ -996,6 +1004,327 @@ fn validate_search(dialect: Dialect, table: &Table, search: &Search, problems: &
 				);
 			}
 			Some(_) => {}
+		}
+	}
+}
+
+/// The most dimensions pgvector's `vector` and `halfvec` hold.
+pub const MAX_VECTOR_DIMENSIONS: u32 = 16_000;
+
+/// The most dimensions a sqlite-vec `vec0` table holds.
+pub const MAX_SQLITE_VECTOR_DIMENSIONS: u32 = 8_192;
+
+/// The most dimensions pgvector's `sparsevec` holds.
+pub const MAX_SPARSE_DIMENSIONS: u32 = 1_000_000_000;
+
+/// A vector column's type fits the dialect: dimensions in range, bits a
+/// multiple of 8, and no sparse vectors on SQLite.
+fn validate_vector_column(
+	dialect: Dialect,
+	column: &Column,
+	location: &str,
+	problems: &mut Problems,
+) {
+	if let ColumnType::Array { element } = &column.ty
+		&& element.vector().is_some()
+	{
+		problems.push(location, "arrays of vectors aren't supported");
+	}
+
+	let Some((kind, dimensions)) = column.ty.vector() else {
+		return;
+	};
+
+	let most = match (dialect, kind) {
+		(Dialect::Sqlite, VectorElement::Sparse) => {
+			problems.push(
+				location,
+				"sparse vectors need Postgres: sqlite-vec has no sparse type; use `Vector<N>` on \
+				 SQLite",
+			);
+			return;
+		}
+		(Dialect::Sqlite, VectorElement::Bit) => MAX_SQLITE_VECTOR_DIMENSIONS * 8,
+		(Dialect::Sqlite, _) => MAX_SQLITE_VECTOR_DIMENSIONS,
+		(Dialect::Postgres, VectorElement::Sparse) => MAX_SPARSE_DIMENSIONS,
+		(Dialect::Postgres, VectorElement::Bit) => u32::MAX,
+		(Dialect::Postgres, _) => MAX_VECTOR_DIMENSIONS,
+	};
+
+	if !(1..=most).contains(&dimensions) {
+		problems.push(
+			location,
+			format!(
+				"a {} on {dialect} has 1 to {most} dimensions, not {dimensions}",
+				kind.postgres_name()
+			),
+		);
+	}
+
+	if kind == VectorElement::Bit && dimensions % 8 != 0 {
+		problems.push(
+			location,
+			format!("a bit vector's dimensions are a multiple of 8, not {dimensions}"),
+		);
+	}
+
+	if column.generated.is_some() {
+		problems.push(
+			location,
+			"a vector column can't be generated; store the vectors the app makes",
+		);
+	}
+}
+
+/// The most dimensions pgvector indexes for a kind of vector.
+fn most_indexed(kind: VectorElement) -> u32 {
+	match kind {
+		VectorElement::Float32 => 2_000,
+		VectorElement::Float16 => 4_000,
+		VectorElement::Bit => 64_000,
+		VectorElement::Sparse => MAX_SPARSE_DIMENSIONS,
+	}
+}
+
+/// Each vector column's options name a vector column once, with a distance
+/// that measures its kind, an index pgvector can build, and text sources
+/// with the column that keeps their fingerprint.
+fn validate_vectors(dialect: Dialect, table: &Table, problems: &mut Problems) {
+	let mut seen = HashSet::new();
+
+	for vector in &table.vectors {
+		let location = format!("{}.{}", table.name, vector.column);
+
+		if !seen.insert(vector.column.as_str()) {
+			problems.push(&location, "the column's vector options are declared twice");
+		}
+
+		let Some(column) = table.column(&vector.column) else {
+			problems.push(
+				&table.name.to_string(),
+				format!(
+					"vector options name `{}`, which isn't a column",
+					vector.column
+				),
+			);
+			continue;
+		};
+		let Some((kind, dimensions)) = column.ty.vector() else {
+			problems.push(
+				&location,
+				format!(
+					"`vector` options are for vector columns, and this one's type is {}",
+					column.ty
+				),
+			);
+			continue;
+		};
+
+		if let Some(distance) = vector.distance
+			&& !kind.measures(distance)
+		{
+			problems.push(
+				&location,
+				format!(
+					"{} distance doesn't measure a {}; {}",
+					distance,
+					kind.postgres_name(),
+					if kind == VectorElement::Bit {
+						"bits are measured by `hamming` or `jaccard`"
+					} else {
+						"floats are measured by `l2`, `cosine`, `inner_product`, or `l1`"
+					}
+				),
+			);
+		}
+
+		if let Some(index) = vector.index {
+			validate_vector_index(
+				dialect, vector, index, kind, dimensions, &location, problems,
+			);
+		}
+
+		if !vector.sources.is_empty() {
+			validate_vector_sources(table, vector, &location, problems);
+		}
+	}
+
+	let indexed_on_sqlite = table
+		.vectors
+		.iter()
+		.any(|vector| vector.is_indexed(Dialect::Sqlite));
+
+	if dialect == Dialect::Sqlite
+		&& indexed_on_sqlite
+		&& table.primary_key.iter().any(|key| key == SEARCH_ROW)
+	{
+		problems.push(
+			&table.name.to_string(),
+			format!(
+				"on SQLite a vector column's index numbers its rows in `{SEARCH_ROW}`, so the key \
+				 can't use that name"
+			),
+		);
+	}
+}
+
+/// An index pgvector can build: a distance to order it by, the operator
+/// class IVFFlat has for it, and few enough dimensions.
+fn validate_vector_index(
+	dialect: Dialect,
+	vector: &VectorOptions,
+	index: VectorIndexKind,
+	kind: VectorElement,
+	dimensions: u32,
+	location: &str,
+	problems: &mut Problems,
+) {
+	let Some(distance) = vector.distance else {
+		problems.push(
+			location,
+			format!(
+				"an `{}` index orders rows by a distance; add `distance = …`",
+				index.name()
+			),
+		);
+		return;
+	};
+
+	// SQLite searches exactly, so an index there is only kept for Postgres.
+	if dialect == Dialect::Sqlite {
+		return;
+	}
+
+	if index == VectorIndexKind::IvfFlat {
+		let refused = match (kind, distance) {
+			(VectorElement::Sparse, _) => Some("sparse vectors"),
+			(_, VectorDistance::L1) => Some("`l1` distance"),
+			(VectorElement::Bit, VectorDistance::Jaccard) => Some("`jaccard` distance"),
+			_ => None,
+		};
+
+		if let Some(refused) = refused {
+			problems.push(
+				location,
+				format!("pgvector's `ivfflat` has no index for {refused}; use `index = hnsw`"),
+			);
+		}
+	}
+
+	let most = most_indexed(kind);
+
+	if kind != VectorElement::Sparse && dimensions > most {
+		problems.push(
+			location,
+			format!(
+				"pgvector indexes a {} of at most {most} dimensions, and this one has \
+				 {dimensions}; store a `HalfVector` or `BitVector`, or search it without an index",
+				kind.postgres_name()
+			),
+		);
+	}
+}
+
+/// Sources are text columns, each once and none the vector itself, and the
+/// table has the nullable text column that keeps their fingerprint.
+fn validate_vector_sources(
+	table: &Table,
+	vector: &VectorOptions,
+	location: &str,
+	problems: &mut Problems,
+) {
+	let mut seen = HashSet::new();
+
+	for source in &vector.sources {
+		if !seen.insert(source.as_str()) {
+			problems.push(location, format!("`{source}` is a source twice"));
+		}
+
+		match table.column(source) {
+			None => {
+				problems.push(
+					location,
+					format!("the vector is made from `{source}`, which isn't a column"),
+				);
+			}
+			Some(column) if !matches!(column.ty, ColumnType::Text { .. }) => {
+				problems.push(
+					location,
+					format!(
+						"the vector is made from `{source}`, whose type is {}; sources are text",
+						column.ty
+					),
+				);
+			}
+			Some(_) => {}
+		}
+	}
+
+	let name = vector.source_column();
+
+	if name.len() > MAX_IDENTIFIER_LEN {
+		problems.push(
+			location,
+			format!(
+				"the column keeping the sources' fingerprint, `{name}`, is longer than the \
+				 {MAX_IDENTIFIER_LEN}-byte limit; shorten the vector column's name"
+			),
+		);
+	}
+
+	let fits = table.column(&name).is_some_and(|column| {
+		column.nullable
+			&& column.generated.is_none()
+			&& matches!(column.ty, ColumnType::Text { max_len: None })
+	});
+
+	if !fits {
+		problems.push(
+			location,
+			format!(
+				"a vector made from sources keeps their fingerprint in a nullable text column, \
+				 `{name}`"
+			),
+		);
+	}
+}
+
+/// The names a table's vector indexes give their companion tables, and
+/// pgvector's index, are free.
+fn validate_vector_names(table: &Table, flat_names: &mut HashSet<String>, problems: &mut Problems) {
+	let location = table.name.to_string();
+
+	for vector in &table.vectors {
+		if vector.is_indexed(Dialect::Sqlite) {
+			for name in [
+				vector.vec_table(&table.name),
+				vector.rows_table(&table.name),
+			] {
+				if !flat_names.insert(name.clone()) {
+					problems.push(
+						&location,
+						format!(
+							"the index on `{}` keeps its vectors in `{name}`, which is already \
+							 another table's name",
+							vector.column
+						),
+					);
+				}
+			}
+		}
+
+		if vector.index.is_some() {
+			let name = vector.index_name(&table.name);
+
+			if table.indexes.iter().any(|other| other.name == name) {
+				problems.push(
+					&location,
+					format!(
+						"the index on `{}` is `{name}`, which is already another index's name",
+						vector.column
+					),
+				);
+			}
 		}
 	}
 }

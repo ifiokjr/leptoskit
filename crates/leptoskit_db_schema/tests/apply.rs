@@ -62,6 +62,27 @@ fn sqlite_migrations_match_fresh_schemas_and_keep_rows() {
 				.unwrap()
 		});
 
+		if let Some(vector) = posts_vector(&scenario) {
+			assert_vectors(
+				&scenario,
+				&vector,
+				Dialect::Sqlite,
+				|statement| migrated.execute_batch(statement).unwrap(),
+				|query| {
+					migrated
+						.query_row(query, [], |row| row.get::<_, rusqlite::types::Value>(0))
+						.map(|value| {
+							match value {
+								rusqlite::types::Value::Integer(number) => number.to_string(),
+								rusqlite::types::Value::Text(text) => text,
+								other => format!("{other:?}"),
+							}
+						})
+						.unwrap()
+				},
+			);
+		}
+
 		if let Some(search) = posts_search(&scenario) {
 			for statement in SEARCH_WRITES {
 				migrated.execute_batch(statement).unwrap();
@@ -204,6 +225,16 @@ fn postgres_migrations_match_fresh_schemas_and_keep_rows() {
 			"{}: the migrated Postgres schema differs from a fresh one",
 			scenario.name
 		);
+		if let Some(vector) = posts_vector(&scenario) {
+			assert_vectors(
+				&scenario,
+				&vector,
+				Dialect::Postgres,
+				|statement| cluster.run(&migrated, statement),
+				|query| cluster.query(&migrated, query).trim().to_string(),
+			);
+		}
+
 		if let Some(search) = posts_search(&scenario) {
 			for statement in SEARCH_WRITES {
 				cluster.run(&migrated, statement);
@@ -241,6 +272,82 @@ fn postgres_migrations_match_fresh_schemas_and_keep_rows() {
 	}
 }
 
+/// The posts table's vector made from sources after a scenario, if it has
+/// one.
+fn posts_vector(scenario: &Scenario) -> Option<leptoskit_db_schema::VectorOptions> {
+	(scenario.after)(Dialect::Postgres)
+		.tables
+		.into_iter()
+		.find(|table| table.name.name == "posts")?
+		.vectors
+		.into_iter()
+		.find(|vector| !vector.sources.is_empty())
+}
+
+/// Inserts a post with a vector, retitles it, then deletes it, checking that
+/// the triggers record the fingerprint of the sources the vector was made
+/// from, leave it when only a source changes, and, on SQLite, keep the
+/// `vec0` table in step.
+fn assert_vectors(
+	scenario: &Scenario,
+	vector: &leptoskit_db_schema::VectorOptions,
+	dialect: Dialect,
+	run: impl Fn(&str),
+	query: impl Fn(&str) -> String,
+) {
+	let column = &vector.column;
+	let source = vector.source_column();
+	let value = match dialect {
+		Dialect::Postgres => "'[1,0,0]'".to_string(),
+		Dialect::Sqlite => "X'0000803F0000000000000000'".to_string(),
+	};
+	let sources: Vec<Option<&str>> = vector
+		.sources
+		.iter()
+		.map(|name| {
+			match name.as_str() {
+				"title" => Some("Hello"),
+				_ => Some("First"),
+			}
+		})
+		.collect();
+	let fingerprint = || query(&format!("SELECT \"{source}\" FROM posts WHERE id = 20"));
+	let indexed = || {
+		query(&format!(
+			"SELECT count(*) FROM \"{}\"",
+			vector.vec_table(&leptoskit_db_schema::TableName::new("posts"))
+		))
+	};
+
+	run(&format!(
+		"INSERT INTO posts (id, author_id, title, body, status, \"{column}\") VALUES (20, 1, \
+		 'Hello', 'First', 'draft', {value})"
+	));
+	assert_eq!(
+		fingerprint(),
+		leptoskit_db_schema::source_fingerprint(&sources),
+		"{}: a new vector records its sources",
+		scenario.name
+	);
+
+	if dialect == Dialect::Sqlite {
+		assert_eq!(indexed(), "1", "{}: the vector is indexed", scenario.name);
+	}
+
+	run("UPDATE posts SET title = 'Changed' WHERE id = 20");
+	assert_eq!(
+		fingerprint(),
+		leptoskit_db_schema::source_fingerprint(&sources),
+		"{}: changing a source leaves the vector's fingerprint, so it's stale",
+		scenario.name
+	);
+	run("DELETE FROM posts WHERE id = 20");
+
+	if dialect == Dialect::Sqlite {
+		assert_eq!(indexed(), "0", "{}: the vector is unindexed", scenario.name);
+	}
+}
+
 fn assert_rows(scenario: &Scenario, count: impl Fn(&str) -> i64) {
 	for (table, expected) in scenario.expected_rows {
 		assert_eq!(
@@ -253,8 +360,10 @@ fn assert_rows(scenario: &Scenario, count: impl Fn(&str) -> i64) {
 }
 
 fn sqlite_database(create: &Migration) -> Connection {
+	load_sqlite_vec();
 	let connection = Connection::open_in_memory().unwrap();
 	stand_in_for_geo_functions(&connection);
+	register_fingerprints(&connection);
 	connection
 		.pragma_update(None, "foreign_keys", true)
 		.unwrap();
@@ -285,6 +394,50 @@ fn stand_in_for_geo_functions(connection: &Connection) {
 		.unwrap();
 	connection
 		.create_scalar_function("lk_st_isvalid", 1, flags, |_| Ok(1))
+		.unwrap();
+}
+
+/// Links sqlite-vec into every connection, as the database layer does.
+#[allow(unsafe_code)]
+fn load_sqlite_vec() {
+	static LOADED: std::sync::Once = std::sync::Once::new();
+
+	LOADED.call_once(|| {
+		// SAFETY: `sqlite3_vec_init` is sqlite-vec's entry point, with the
+		// signature SQLite's extension loader expects, compiled into this
+		// binary against the same SQLite.
+		let status = unsafe {
+			rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute::<
+				*const (),
+				unsafe extern "C" fn(
+					*mut rusqlite::ffi::sqlite3,
+					*mut *mut std::ffi::c_char,
+					*const rusqlite::ffi::sqlite3_api_routines,
+				) -> std::ffi::c_int,
+			>(
+				sqlite_vec::sqlite3_vec_init as *const ()
+			)))
+		};
+		assert_eq!(status, rusqlite::ffi::SQLITE_OK);
+	});
+}
+
+/// `lk_sha256`, which vector columns' source triggers call, as the database
+/// layer registers it.
+fn register_fingerprints(connection: &Connection) {
+	use rusqlite::functions::FunctionFlags;
+	use sha2::Digest;
+
+	connection
+		.create_scalar_function(
+			"lk_sha256",
+			1,
+			FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+			|context| {
+				let text: Option<String> = context.get(0)?;
+				Ok(text.map(|text| format!("{:x}", sha2::Sha256::digest(text.as_bytes()))))
+			},
+		)
 		.unwrap();
 }
 

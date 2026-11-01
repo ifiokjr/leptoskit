@@ -21,6 +21,7 @@ doc-valid-idents = [
 	"GeoPackage",
 	"GeoJSON",
 	"GiST",
+	"IVFFlat",
 	"SQLite",
 	"UUIDv5",
 	"UUIDv7",

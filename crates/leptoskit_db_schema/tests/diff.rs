@@ -1448,3 +1448,183 @@ fn an_unchanged_trigger_is_left_alone_unless_sqlite_rebuilds_its_table() {
 		assert_eq!(plan.steps.len(), 1, "{dialect}: {:?}", plan.steps);
 	}
 }
+
+#[test]
+fn vector_columns_and_their_options_are_validated() {
+	let vector = |element, dimensions| {
+		ColumnType::Vector {
+			element,
+			dimensions,
+		}
+	};
+	let mut schema = support::with_vectors(Dialect::Postgres);
+	let posts = table_mut(&mut schema, "posts");
+	posts.columns.extend([
+		Column::new("empty", vector(VectorElement::Float32, 0)).nullable(),
+		Column::new("huge", vector(VectorElement::Float32, 3_072)).nullable(),
+		Column::new("odd_bits", vector(VectorElement::Bit, 12)).nullable(),
+		Column::new(
+			"many",
+			ColumnType::Array {
+				element: Box::new(vector(VectorElement::Float32, 3)),
+			},
+		),
+		Column::new("derived", vector(VectorElement::Float32, 3))
+			.nullable()
+			.generated(Generated::new("embedding")),
+		Column::new("sparse", vector(VectorElement::Sparse, 100)).nullable(),
+	]);
+	posts.vectors.extend([
+		VectorOptions::new("title", Some(VectorDistance::L2)),
+		VectorOptions::new("missing", Some(VectorDistance::L2)),
+		VectorOptions::new("code", Some(VectorDistance::Cosine)),
+		VectorOptions::new("huge", Some(VectorDistance::L2)).indexed(VectorIndexKind::Hnsw),
+		VectorOptions::new("empty", None).indexed(VectorIndexKind::Hnsw),
+		VectorOptions::new("sparse", Some(VectorDistance::L2)).indexed(VectorIndexKind::IvfFlat),
+		VectorOptions::new("odd_bits", Some(VectorDistance::Jaccard))
+			.indexed(VectorIndexKind::IvfFlat)
+			.from_sources(&["title", "title", "score", "nowhere"]),
+	]);
+	posts.vectors[1].index = Some(VectorIndexKind::IvfFlat);
+	posts.vectors[1].distance = Some(VectorDistance::Jaccard);
+	posts.vectors.push(posts.vectors[0].clone());
+
+	insta::assert_snapshot!(schema.validate().unwrap_err().to_string());
+
+	// SQLite has no sparse vectors, and keys a `vec0` table's rows by
+	// `lk_row`.
+	let mut sqlite = support::with_vectors(Dialect::Sqlite);
+	let posts = table_mut(&mut sqlite, "posts");
+	posts
+		.columns
+		.push(Column::new("terms", vector(VectorElement::Sparse, 100)).nullable());
+	posts
+		.columns
+		.push(Column::new("wide", vector(VectorElement::Float32, 9_000)).nullable());
+	let items = table_mut(&mut sqlite, "items");
+	items.vectors[0].distance = Some(VectorDistance::L2);
+	items.columns[0].name = "lk_row".into();
+	items.primary_key = vec!["lk_row".into()];
+
+	insta::assert_snapshot!(
+		"sqlite_vector_columns_are_validated",
+		sqlite.validate().unwrap_err().to_string()
+	);
+}
+
+#[test]
+fn vector_columns_round_trip_through_snapshots() {
+	let schema = support::with_vectors(Dialect::Postgres);
+	let json = schema.to_json();
+	assert!(json.contains("\"kind\": \"vector\""), "{json}");
+	assert!(json.contains("\"element\": \"bit\""), "{json}");
+	assert!(json.contains("\"index\": \"ivfflat\""), "{json}");
+	assert!(json.contains("\"distance\": \"inner_product\""), "{json}");
+	assert_eq!(Schema::from_json(&json).unwrap(), schema);
+	assert_eq!(schema.extensions(), vec![PGVECTOR]);
+
+	// Visibility is a hint for `lk db check`: snapshots leave it out, and
+	// changing it alone changes nothing.
+	let mut public = schema.clone();
+	table_mut(&mut public, "items").vectors[0].public = true;
+	assert!(public.to_json().contains("\"public\": true"));
+	assert_eq!(public.without_rename_hints(), schema);
+	assert_eq!(
+		diff(&schema, &public, &mut RequireHints).unwrap().steps,
+		Vec::new()
+	);
+
+	let older = blog(Dialect::Postgres).to_json();
+	assert!(!older.contains("vector"));
+}
+
+#[test]
+fn source_fingerprints_frame_each_source() {
+	// Moving text between sources, or emptying one, changes the fingerprint,
+	// and the fingerprint is the SHA-256 of `5:Hello;-;`.
+	let fingerprint = source_fingerprint;
+	assert_ne!(
+		fingerprint(&[Some("a;b"), Some("c")]),
+		fingerprint(&[Some("a"), Some("b;c")])
+	);
+	assert_ne!(
+		fingerprint(&[Some(""), None]),
+		fingerprint(&[None, Some("")])
+	);
+	assert_eq!(
+		fingerprint(&[Some("Hello"), None]),
+		"bc1833f99a5e888bac1572639859a30b1bdb82623757811c5aaf9e24fb486a88"
+	);
+}
+
+#[test]
+fn vector_indexes_and_sources_are_recreated_only_when_what_they_read_changes() {
+	let before = support::with_vectors(Dialect::Sqlite);
+	let steps = |after: &Schema| -> Vec<String> {
+		diff(&before, after, &mut RequireHints)
+			.unwrap()
+			.steps
+			.iter()
+			.filter(|step| {
+				matches!(
+					step,
+					Step::CreateVectorIndex { .. }
+						| Step::DropVectorIndex { .. }
+						| Step::CreateVectorSource { .. }
+						| Step::DropVectorSource { .. }
+				)
+			})
+			.map(ToString::to_string)
+			.collect()
+	};
+
+	// A change elsewhere leaves them alone.
+	let mut commented = before.clone();
+	table_mut(&mut commented, "posts").comment = Some("Posts".into());
+	assert_eq!(steps(&commented), Vec::<String>::new());
+
+	// Retyping a source recreates the sources' triggers only.
+	let mut retyped = before.clone();
+	column_mut(table_mut(&mut retyped, "posts"), "body").ty =
+		ColumnType::Text { max_len: Some(500) };
+	assert_eq!(
+		steps(&retyped),
+		[
+			"- vector sources posts.embedding",
+			"+ vector sources posts.embedding (title, body)"
+		]
+	);
+
+	// A new distance recreates the index only.
+	let mut measured = before.clone();
+	table_mut(&mut measured, "posts").vectors[0].distance = Some(VectorDistance::L2);
+	assert_eq!(
+		steps(&measured),
+		[
+			"- vector index posts(embedding)",
+			"+ vector index posts(embedding) by l2"
+		]
+	);
+
+	// On SQLite, an inner product has no `vec0` table, so measuring by
+	// another distance gains one; Postgres's index stays as it is.
+	let mut ranked = before.clone();
+	table_mut(&mut ranked, "items").vectors[0].distance = Some(VectorDistance::L1);
+	assert_eq!(steps(&ranked), ["+ vector index items(v) by l1"]);
+
+	// Changing the key recreates both.
+	let mut rekeyed = before.clone();
+	table_mut(&mut rekeyed, "posts").primary_key = vec!["id".into(), "author_id".into()];
+	table_mut(&mut rekeyed, "tags").foreign_keys.clear();
+	assert_eq!(
+		steps(&rekeyed),
+		[
+			"- vector index posts(embedding)",
+			"- vector sources posts.embedding",
+			"- vector index posts(code)",
+			"+ vector index posts(embedding) by cosine",
+			"+ vector sources posts.embedding (title, body)",
+			"+ vector index posts(code) by hamming"
+		]
+	);
+}

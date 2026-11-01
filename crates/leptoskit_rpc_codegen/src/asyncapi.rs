@@ -132,7 +132,6 @@ mod tests {
 	use serde_json::json;
 
 	use crate::ApiFunction;
-
 	use crate::ApiKind;
 	use crate::ApiParam;
 	use crate::ApiSpec;
