@@ -38,6 +38,19 @@ app = [
 	"leptoskit_wasm/rive",
 ]
 async-host = ["app", "leptoskit_bridge/async-host", "dep:tokio", "dep:futures"]
+# Reports the running app to the DevTools hub. `leptoskit dev` turns this on
+# for debug hosts; `leptoskit build` never does, and release builds refuse to
+# report even with it.
+devtools = [
+	"app",
+	"dep:leptoskit_devtools",
+	"dep:leptoskit_devtools_protocol",
+	"leptoskit_native/devtools",
+]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+leptoskit_devtools = { workspace = true, optional = true, default-features = false, features = ["host"] }
+leptoskit_devtools_protocol = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 leptoskit_appkit = { workspace = true, optional = true }

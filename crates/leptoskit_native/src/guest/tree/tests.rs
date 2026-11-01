@@ -364,6 +364,42 @@ fn unsupported_custom_widgets_are_rejected_instead_of_becoming_containers() {
 	assert_eq!(host.commits, 1);
 }
 
+#[cfg(feature = "devtools")]
+#[test]
+fn the_wire_names_where_each_node_was_built() {
+	let mut tree = Tree::default();
+	let mut host = RecordedHost::default();
+	let line = line!() + 1;
+	tree.update(Element::view().child(Element::text("hello")), &mut host);
+	let root = tree.root.unwrap();
+	let source = host.nodes[&root].props["source"].as_str().unwrap();
+	assert!(
+		source.starts_with(&format!("{}:{line}:", file!())),
+		"{source}"
+	);
+	let text = host.nodes[&root].children[0];
+	assert!(host.nodes[&text].props["source"].is_string());
+}
+
+#[cfg(feature = "devtools")]
+#[test]
+fn a_node_built_somewhere_else_is_sent_again() {
+	let first = || Element::view().child(Element::text("same"));
+	let second = || Element::view().child(Element::text("same"));
+	let mut tree = Tree::default();
+	let mut host = RecordedHost::default();
+	tree.update(first(), &mut host);
+	host.updated.clear();
+	tree.update(first(), &mut host);
+	assert!(host.updated.is_empty(), "the same source sends nothing");
+	tree.update(second(), &mut host);
+	assert_eq!(
+		host.updated.len(),
+		2,
+		"both nodes now come from other lines"
+	);
+}
+
 #[test]
 fn a_rerender_sends_properties_only_for_the_nodes_that_changed() {
 	let list = |marked: usize| {

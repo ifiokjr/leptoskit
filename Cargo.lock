@@ -4699,6 +4699,8 @@ dependencies = [
  "leptoskit_appkit",
  "leptoskit_bridge",
  "leptoskit_codepush",
+ "leptoskit_devtools",
+ "leptoskit_devtools_protocol",
  "leptoskit_native",
  "leptoskit_rive",
  "leptoskit_uikit",

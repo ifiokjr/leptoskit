@@ -22,6 +22,8 @@ pub mod app;
 #[cfg(feature = "app")]
 pub mod development;
 #[cfg(feature = "app")]
+pub mod devtools;
+#[cfg(feature = "app")]
 pub mod updates;
 
 /// A Rust-owned byte buffer, released exactly once with [`lk_buffer_release`].

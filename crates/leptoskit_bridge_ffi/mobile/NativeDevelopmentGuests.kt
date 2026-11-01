@@ -21,6 +21,34 @@ internal object NativeDevelopment {
 }
 
 /**
+ * Points the runtime at the DevTools hub `leptoskit dev` launched the Activity
+ * with. Only debug builds with the `devtools` feature report to it.
+ */
+internal object NativeDevtools {
+    /** The intent extras `leptoskit dev` passes the hub's URL and the app's name in. */
+    private const val HUB_EXTRA = "leptoskit.devtools"
+    private const val APP_EXTRA = "leptoskit.devtools_app"
+    private const val TAG = "LeptosKit"
+
+    /** 0 once apps created afterwards report to [url]; -1 when this build can't. */
+    @JvmStatic private external fun hub(
+        url: ByteArray,
+        app: ByteArray,
+    ): Int
+
+    /** Call before the first app is created; later apps report through the same session. */
+    fun configure(context: Context) {
+        val intent = (context as? Activity)?.intent ?: return
+        val url = intent.getStringExtra(HUB_EXTRA) ?: return
+        val app = intent.getStringExtra(APP_EXTRA) ?: "app"
+
+        if (hub(url.toByteArray(Charsets.UTF_8), app.toByteArray(Charsets.UTF_8)) != 0) {
+            Log.i(TAG, "leptoskit dev: this build does not report to DevTools")
+        }
+    }
+}
+
+/**
  * Follows the guest `leptoskit dev` serves to the Activity it launched, on a
  * dedicated thread, and delivers each new guest on the main thread. Only debug
  * builds accept development guests: Rust refuses to open one in a release build.

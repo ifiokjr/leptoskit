@@ -179,6 +179,7 @@ mod tests {
 			bridge: root.join("bridge"),
 			target: root.join("target"),
 			host_features: vec![],
+			devtools_feature: None,
 			missing: Vec::new(),
 		};
 		let mut config = LeptoskitConfig::default();

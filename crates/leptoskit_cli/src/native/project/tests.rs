@@ -26,6 +26,7 @@ fn metadata_registry(root: &Path, metadata: &[serde_json::Value]) -> Registry {
 		bridge: root.join("bridge"),
 		target: root.join("target"),
 		host_features: vec![],
+		devtools_feature: None,
 		missing: Vec::new(),
 	}
 }
@@ -183,6 +184,7 @@ fn ios_passes_presentation_context_only_to_plugins_that_request_it() {
 		bridge,
 		target: root.join("target"),
 		host_features: vec![],
+		devtools_feature: None,
 		missing: Vec::new(),
 	};
 	ios::generate(
@@ -432,6 +434,7 @@ fn host_registry(root: &Path) -> Registry {
 		bridge,
 		target: root.join("target"),
 		host_features: vec![],
+		devtools_feature: None,
 		missing: Vec::new(),
 	}
 }

@@ -156,6 +156,10 @@ pub struct WireNode {
 	/// content.
 	#[serde(default)]
 	pub rive_inputs: Option<BTreeMap<leptoskit_rive::Name, leptoskit_rive::Update>>,
+	/// Where the guest created the node, as `file:line:column`. Only a guest
+	/// built with `DevTools` sends it, for the host's agent to report.
+	#[serde(default)]
+	pub source: Option<String>,
 }
 
 /// The payload delivered with a text-change or submit event.
@@ -818,6 +822,16 @@ impl<B: NativeBackend> WasmHost<B> {
 	/// The number of commits the module has made.
 	pub fn commits(&self) -> u32 {
 		self.store.data().commits
+	}
+
+	/// What the guest last sent for a committed node: its classes and, from
+	/// a guest built with `DevTools`, where it was created. `None` for a node
+	/// the guest did not build, such as one inherited from a replaced guest
+	/// that has not committed yet.
+	pub fn wire_node(&self, node: NodeId) -> Option<&WireNode> {
+		let state = self.store.data();
+		let wire = state.wire_by_node.get(&node.index())?;
+		state.nodes.get(wire).map(|node| &node.wire)
 	}
 
 	/// The interpreter instructions the last entry-point call consumed.

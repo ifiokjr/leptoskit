@@ -218,6 +218,27 @@ int32_t lk_dev_next(lk_dev *development, lk_buffer *wasm);
 lk_buffer lk_dev_error(lk_dev *development);
 void lk_dev_destroy(lk_dev *development);
 
+/* DevTools ABI for apps `leptoskit dev` launched, available with the Rust
+ * `app` feature. Only debug hosts built with the `devtools` feature report to
+ * the hub; elsewhere hub returns -1 and the others report nothing. Desktops and
+ * the iOS Simulator read the hub from LEPTOSKIT_DEVTOOLS; Android passes its
+ * intent extras to lk_devtools_hub before creating its first app (UTF-8, at
+ * most 4 KiB each; 0 on success). Any thread. Highlight writes the node the
+ * hub asked to highlight, with its frame in layout units from the root's
+ * origin, and returns 1, 0 with nothing to show, or -1 for a null output.
+ * Picking is 1 while the hub waits for a tap: the next press picks a node
+ * instead of reaching the app. */
+typedef struct lk_devtools_frame {
+    size_t node;
+    float x;
+    float y;
+    float width;
+    float height;
+} lk_devtools_frame;
+int32_t lk_devtools_hub(const uint8_t *url, size_t url_len, const uint8_t *app, size_t app_len);
+int32_t lk_devtools_highlight(lk_devtools_frame *out);
+int32_t lk_devtools_picking(void);
+
 /* Optional native async dispatch; these symbols exist without async-host too.
  * Retain both job and cancellation token before starting. A non-null job owns
  * its request Bytes independently of the app; release the original request.

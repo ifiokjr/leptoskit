@@ -592,6 +592,19 @@ Java_dev_leptoskit_mobile_NativeDevelopment_destroy(JNIEnv*, jclass, jlong handl
     lk_dev_destroy(development(handle));
 }
 
+// 0 once apps created afterwards report to the hub, -1 when this build has no
+// DevTools or the hub is not on loopback.
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeDevtools_hub(JNIEnv* env, jclass, jbyteArray url,
+    jbyteArray app) {
+    BorrowedArray address(env, url);
+    BorrowedArray name(env, app);
+
+    if (!address.valid() || !name.valid()) return -1;
+
+    return lk_devtools_hub(address.data(), address.size(), name.data(), name.size());
+}
+
 namespace {
 struct AsyncCompletion {
     JavaVM* vm;

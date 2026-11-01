@@ -1,5 +1,7 @@
 //! The native host agent.
 
+use std::time::Duration;
+
 use leptoskit_devtools_protocol::Command;
 use leptoskit_devtools_protocol::Event;
 use leptoskit_devtools_protocol::Hello;
@@ -10,13 +12,52 @@ use leptoskit_native::NativeSurface;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+mod mirror;
+mod patch;
+mod reporter;
+
+pub use mirror::Change;
+pub use mirror::Mirror;
+pub use reporter::Batch;
+pub use reporter::CommitRecord;
+pub use reporter::Highlight;
+pub use reporter::Reporter;
+pub use reporter::Source;
+
+/// How long a request other than the command long-poll may take.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How long the command long-poll may take: the hub holds it for 25
+/// seconds when it has nothing to send, and the answer needs time to arrive.
+const POLL_TIMEOUT: Duration = Duration::from_secs(35);
+
 /// A session with the local hub.
+///
+/// Clones share the session, so one thread can long-poll for commands while
+/// another reports events.
+#[derive(Clone)]
 pub struct HostAgent {
 	hub: String,
 	session: SessionId,
 	after: usize,
 	agent: ureq::Agent,
 }
+
+/// The hub no longer knows a session: it restarted, or the session expired
+/// while the app was paused. Open a new one.
+///
+/// [`HostAgent::report`] and [`HostAgent::commands`] fail with it, which
+/// callers find with `error.is::<SessionGone>()`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SessionGone;
+
+impl std::fmt::Display for SessionGone {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str("the devtools hub no longer knows this session")
+	}
+}
+
+impl std::error::Error for SessionGone {}
 
 impl HostAgent {
 	/// Open a session with the hub at `hub`.
@@ -27,7 +68,7 @@ impl HostAgent {
 	pub fn connect(hub: &str, hello: &Hello) -> anyhow::Result<Self> {
 		let agent: ureq::Agent = ureq::Agent::config_builder()
 			.http_status_as_error(false)
-			.timeout_global(Some(std::time::Duration::from_secs(5)))
+			.timeout_global(Some(REQUEST_TIMEOUT))
 			.build()
 			.into();
 		let session = post_json(&agent, &format!("{hub}/agent/sessions"), hello)?;
@@ -49,21 +90,35 @@ impl HostAgent {
 	///
 	/// # Errors
 	///
-	/// When the hub is unreachable or refuses the events.
+	/// When the hub is unreachable or refuses the events, and with
+	/// [`SessionGone`] when it no longer knows the session.
 	pub fn report(&self, events: &[Event]) -> anyhow::Result<()> {
 		post(&self.agent, &self.events_url(), events)
 	}
 
-	/// Long-poll for the commands after the last one received.
+	/// Long-poll for the commands after the last one received. The hub
+	/// answers as soon as it has one, and with none after holding the request
+	/// for 25 seconds.
 	///
 	/// # Errors
 	///
 	/// When the hub is unreachable or answers with something other than
-	/// commands.
+	/// commands, and with [`SessionGone`] when it no longer knows the session.
 	pub fn commands(&mut self) -> anyhow::Result<Vec<Command>> {
 		let url = format!("{}?after={}", self.commands_url(), self.after);
-		let mut response = self.agent.get(&url).call()?;
+		let mut response = self
+			.agent
+			.get(&url)
+			.config()
+			.timeout_global(Some(POLL_TIMEOUT))
+			.build()
+			.call()?;
 		let status = response.status();
+
+		if status.as_u16() == 404 {
+			return Err(SessionGone.into());
+		}
+
 		let text = response.body_mut().read_to_string()?;
 		anyhow::ensure!(
 			status.as_u16() == 200,
@@ -86,8 +141,14 @@ impl HostAgent {
 /// The snapshot a native surface reports.
 #[must_use]
 pub fn snapshot<B: NativeBackend>(surface: &NativeSurface<B>) -> Snapshot {
+	snapshot_of(surface.devtools_tree())
+}
+
+/// A snapshot of a native tree. The guest reports the rest of the app's
+/// state itself.
+fn snapshot_of(tree: leptoskit_devtools_protocol::Tree) -> Snapshot {
 	Snapshot {
-		tree: surface.devtools_tree(),
+		tree,
 		route: None,
 		queries: Vec::new(),
 		mutations: Vec::new(),
@@ -123,12 +184,34 @@ fn post<T: Serialize + ?Sized>(agent: &ureq::Agent, url: &str, body: &T) -> anyh
 		.send(serde_json::to_vec(body)?)?;
 	let status = response.status();
 
-	if status.as_u16() != 204 {
-		let text = response.body_mut().read_to_string()?;
-		anyhow::bail!("the devtools hub answered {status}: {text}");
+	match status.as_u16() {
+		204 => Ok(()),
+		404 => Err(SessionGone.into()),
+		_ => {
+			let text = response.body_mut().read_to_string()?;
+			anyhow::bail!("the devtools hub answered {status}: {text}");
+		}
+	}
+}
+
+/// The hub at `url` without a trailing slash, when it is a plain `http` URL
+/// on a loopback host: `127.0.0.1`, `[::1]`, or `localhost`, with an
+/// optional port and nothing after it. The hub listens only on loopback, so
+/// an app never reports itself anywhere else.
+#[must_use]
+pub fn loopback_hub(url: &str) -> Option<&str> {
+	let hub = url.trim().trim_end_matches('/');
+	let authority = hub.strip_prefix("http://")?;
+	let (host, port) = match authority.rsplit_once(':') {
+		Some((host, port)) if !host.is_empty() && !port.contains(']') => (host, Some(port)),
+		_ => (authority, None),
+	};
+
+	if port.is_some_and(|port| port.parse::<u16>().is_err()) {
+		return None;
 	}
 
-	Ok(())
+	matches!(host, "127.0.0.1" | "[::1]" | "localhost").then_some(hub)
 }
 
 #[cfg(test)]
@@ -197,6 +280,28 @@ mod tests {
 			body.len()
 		);
 		stream.write_all(response.as_bytes()).unwrap();
+	}
+
+	#[test]
+	fn only_loopback_hubs_are_reported_to() {
+		for (url, hub) in [
+			("http://127.0.0.1:7340", Some("http://127.0.0.1:7340")),
+			("http://127.0.0.1:7340/", Some("http://127.0.0.1:7340")),
+			("http://localhost:7340", Some("http://localhost:7340")),
+			("http://[::1]:7340", Some("http://[::1]:7340")),
+			("http://[::1]", Some("http://[::1]")),
+			("http://127.0.0.1", Some("http://127.0.0.1")),
+			("https://127.0.0.1:7340", None),
+			("http://192.168.1.4:7340", None),
+			("http://127.0.0.1.example.com:7340", None),
+			("http://user@127.0.0.1:7340", None),
+			("http://127.0.0.1:7340/agent", None),
+			("http://127.0.0.1:port", None),
+			("127.0.0.1:7340", None),
+			("", None),
+		] {
+			assert_eq!(loopback_hub(url), hub, "{url}");
+		}
 	}
 
 	#[test]

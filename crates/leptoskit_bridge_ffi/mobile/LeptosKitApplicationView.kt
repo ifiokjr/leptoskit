@@ -113,6 +113,8 @@ class LeptosKitApplicationView(
             }
         } else {
             NativeBridge.load()
+            // Before the first app, so every guest `leptoskit dev` sends reports to its hub.
+            NativeDevtools.configure(context)
             val wasm = NativeUpdates.entry(embedded)
             current = adopt(LeptosKitView(context, wasm, register = register))
             guests.addView(current, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
