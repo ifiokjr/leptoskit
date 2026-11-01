@@ -453,6 +453,9 @@ pub struct WasmHost<B: NativeBackend> {
 	// callbacks, and optional poll errors must follow the readiness callback.
 	plugins_ready: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
 	plugins_poll: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
+	/// Settles bound values after a turn. Optional, so guests built before it
+	/// keep working.
+	flush: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
 	viewport_fn: Option<TypedFunc<(f32, f32), ()>>,
 	clock_fn: Option<TypedFunc<i64, ()>>,
 	/// A failure from reporting the viewport, which cannot fail its caller;
@@ -503,6 +506,9 @@ struct Guest {
 	alloc_fn: Option<wasmi::Func>,
 	plugins_ready: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
 	plugins_poll: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
+	/// Settles bound values after a turn. Optional, so guests built before it
+	/// keep working.
+	flush: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
 	viewport_fn: Option<TypedFunc<(f32, f32), ()>>,
 	clock_fn: Option<TypedFunc<i64, ()>>,
 }
@@ -551,6 +557,10 @@ impl Guest {
 			.get_export(&store, "leptoskit_poll")
 			.and_then(Extern::into_func)
 			.map(|function| function.typed(&store));
+		let flush = instance
+			.get_export(&store, "leptoskit_flush")
+			.and_then(Extern::into_func)
+			.map(|function| function.typed(&store));
 		let viewport_fn = instance
 			.get_export(&store, "leptoskit_viewport")
 			.and_then(Extern::into_func)
@@ -582,6 +592,7 @@ impl Guest {
 			alloc_fn,
 			plugins_ready,
 			plugins_poll,
+			flush,
 			viewport_fn,
 			clock_fn,
 		})
@@ -610,6 +621,7 @@ impl<B: NativeBackend> WasmHost<B> {
 			alloc_fn: guest.alloc_fn,
 			plugins_ready: guest.plugins_ready,
 			plugins_poll: guest.plugins_poll,
+			flush: guest.flush,
 			viewport_fn: guest.viewport_fn,
 			clock_fn: guest.clock_fn,
 			deferred: None,
@@ -639,6 +651,7 @@ impl<B: NativeBackend> WasmHost<B> {
 		self.alloc_fn = guest.alloc_fn;
 		self.plugins_ready = guest.plugins_ready;
 		self.plugins_poll = guest.plugins_poll;
+		self.flush = guest.flush;
 		self.viewport_fn = guest.viewport_fn;
 		self.clock_fn = guest.clock_fn;
 		self.deferred = None;
@@ -815,6 +828,16 @@ impl<B: NativeBackend> WasmHost<B> {
 
 		if let Some(poll) = &self.plugins_poll {
 			poll.as_ref()
+				.map_err(|error| WasmError::Trap(error.to_string()))?
+				.call(&mut self.store, ())?;
+		}
+
+		// The guest's tasks may have written signals without rendering. Settle
+		// the values they bound before the commit is drained, so an application
+		// never has to flush them itself.
+		if let Some(flush) = &self.flush {
+			flush
+				.as_ref()
 				.map_err(|error| WasmError::Trap(error.to_string()))?
 				.call(&mut self.store, ())?;
 		}

@@ -3,6 +3,7 @@
 use leptoskit::prelude::Element;
 use leptoskit::prelude::Get;
 use leptoskit::prelude::RwSignal;
+use leptoskit::prelude::Text;
 use leptoskit::prelude::View;
 use leptoskit::prelude::component;
 
@@ -21,7 +22,9 @@ pub fn Header(scenario: Option<Scenario>, phase: RwSignal<Phase>) -> Element {
 	View()
 		.class("h-12 shrink-0 flex-row items-center")
 		.children([
-			Element::background_from(move || phase.get().colour()).class("w-8 h-8 m-2 shrink-0"),
-			Element::text_from(move || format!("{name} {}", phase.get().label())),
+			View()
+				.class("w-8 h-8 m-2 shrink-0")
+				.background(move || phase.get().colour()),
+			Text(move || format!("{name} {}", phase.get().label())),
 		])
 }

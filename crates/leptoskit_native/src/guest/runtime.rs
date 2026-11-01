@@ -96,21 +96,21 @@ fn ensure_owner() {
 
 /// Sends the nodes whose bound value changed, without rebuilding the tree.
 ///
-/// Call this after writing the signals an [`Element::text_from`] or
-/// [`Element::background_from`] binding reads, when the change did not come
-/// from an event: a timer, a frame callback, a plugin reply, a scenario step.
+/// The native host calls this after every turn it gives the guest — the
+/// plugin poll that runs application tasks, and the module's own start —
+/// through the `leptoskit_flush` export, so an application never calls it
+/// itself: writing a signal is enough.
+///
 /// Only the bound nodes are visited, and only the ones whose value differs
 /// are encoded and sent, so a screen that changes a hundred rows out of a
-/// thousand pays for a hundred.
-///
-/// Events do not need it: [`dispatch`] renders the view again after every
-/// handler, and that render reads the same signals. A signal written in a
-/// handler is therefore reflected either way, at the cost of the rebuild.
+/// thousand pays for a hundred. Events do not need it: [`dispatch`] renders
+/// the view again after every handler, and that render reads the same
+/// signals.
 ///
 /// Call it before [`render`] when a change is both structural and bound:
 /// a rebuild re-reads every element it builds, and sends the bindings it
 /// finds changed as part of the same commit.
-pub fn refresh() {
+pub fn flush() {
 	APPLICATION.with_borrow_mut(|application| {
 		if let Some(application) = application.as_mut() {
 			application.tree.refresh_reactive(&mut Imports);
