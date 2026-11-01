@@ -22,6 +22,7 @@ use crate::Function;
 use crate::Index;
 use crate::Plan;
 use crate::Predicate;
+use crate::Publication;
 use crate::RowSecurity;
 use crate::SEARCH_COLUMN;
 use crate::Schema;
@@ -92,6 +93,7 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 		})
 		.collect();
 	let mut created_triggers = Vec::new();
+	let mut created_publications = Vec::new();
 
 	for step in &plan.steps {
 		if matches!(
@@ -147,6 +149,22 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 				dropped_routines.push(format!("DROP SEQUENCE {}", qualified(&sequence.name)));
 			}
 			Step::CreateTrigger(trigger) => created_triggers.push(create_trigger(trigger)),
+			Step::Repartition { from, to, columns } => {
+				writer.repartition(from, to, columns);
+
+				for foreign_key in &to.foreign_keys {
+					pending_foreign_keys.push(add_foreign_key(&to.name, foreign_key));
+				}
+			}
+			Step::CreatePublication { publication, .. } => {
+				created_publications.extend(create_publication(publication));
+			}
+			Step::AlterPublication { from, to, .. } => {
+				created_publications.extend(alter_publication(from, to, target));
+			}
+			Step::DropPublication { publication, .. } => {
+				writer.drop_publication(publication);
+			}
 			step => writer.step(step),
 		}
 	}
@@ -163,6 +181,7 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 	writer.statements.append(&mut dropped_routines);
 	writer.statements.append(&mut created_views);
 	writer.statements.append(&mut created_triggers);
+	writer.statements.append(&mut created_publications);
 
 	Migration {
 		dialect: Dialect::Postgres,
@@ -258,11 +277,25 @@ impl Writer {
 			lines.push(check_constraint(check));
 		}
 
+		let partitioning = table
+			.partition
+			.as_ref()
+			.map(|partition| format!(" PARTITION BY RANGE ({})", ident(&partition.column)))
+			.unwrap_or_default();
 		self.statements.push(format!(
-			"CREATE TABLE {} (\n\t{}\n)",
+			"CREATE TABLE {} (\n\t{}\n){partitioning}",
 			qualified(&table.name),
 			lines.join(",\n\t")
 		));
+
+		// Rows no range covers, so writes never fail for want of one.
+		if table.partition.is_some() {
+			self.statements.push(format!(
+				"CREATE TABLE {} PARTITION OF {} DEFAULT",
+				qualified(&table.default_partition()),
+				qualified(&table.name)
+			));
+		}
 
 		for index in &table.indexes {
 			self.statements.push(create_index(&table.name, index));
@@ -284,12 +317,81 @@ impl Writer {
 		}
 	}
 
+	/// Rebuilds `to` as its partitioning says: the old table steps aside
+	/// with its key and indexes dropped, so their names are free, the new
+	/// one is created, the kept columns are copied across, and the old one
+	/// is dropped.
+	fn repartition(&mut self, from: &Table, to: &Table, columns: &[(String, String)]) {
+		let aside = TableName {
+			namespace: to.name.namespace.clone(),
+			name: crate::shorten_identifier(&format!("{}_repartitioned", to.name.name)),
+		};
+		let index = |name: &str| {
+			match &aside.namespace {
+				Some(namespace) => format!("{}.{}", ident(namespace), ident(name)),
+				None => ident(name),
+			}
+		};
+
+		if from.partition.is_some() {
+			let default = from.default_partition();
+			self.alter(
+				&default,
+				format!(
+					"RENAME TO {}",
+					ident(&crate::shorten_identifier(&format!(
+						"{}_repartitioned",
+						default.name
+					)))
+				),
+			);
+		}
+
+		self.alter(&to.name, format!("RENAME TO {}", ident(&aside.name)));
+		self.alter(
+			&aside,
+			format!("DROP CONSTRAINT {}", ident(&from.primary_key_name())),
+		);
+
+		for old in &from.indexes {
+			self.statements
+				.push(format!("DROP INDEX {}", index(&old.name)));
+		}
+
+		self.create_table(to);
+		let (sources, targets): (Vec<String>, Vec<String>) = columns.iter().cloned().unzip();
+		self.statements.push(format!(
+			"INSERT INTO {} ({}) SELECT {} FROM {}",
+			qualified(&to.name),
+			self::columns(&targets),
+			self::columns(&sources),
+			qualified(&aside)
+		));
+		self.statements
+			.push(format!("DROP TABLE {}", qualified(&aside)));
+	}
+
+	/// Drops a publication and gives its tables their default replica
+	/// identity back. It runs before renames, so the names are the old ones.
+	fn drop_publication(&mut self, publication: &Publication) {
+		self.statements
+			.push(format!("DROP PUBLICATION {}", ident(&publication.name)));
+
+		for table in &publication.tables {
+			self.alter(&table.table, "REPLICA IDENTITY DEFAULT");
+		}
+	}
+
 	fn step(&mut self, step: &Step) {
 		let table = self.name_for(step, step.table()).clone();
 
 		match step {
 			Step::CreateTable(_)
 			| Step::DropTable(_)
+			| Step::Repartition { .. }
+			| Step::CreatePublication { .. }
+			| Step::AlterPublication { .. }
+			| Step::DropPublication { .. }
 			| Step::CreateView(_)
 			| Step::DropView(_)
 			| Step::DropFunction(_)
@@ -730,6 +832,83 @@ fn create_view(view: &View) -> Vec<String> {
 			.map(|index| create_index(&view.name, index)),
 	);
 	statements
+}
+
+/// Creates a publication over whole tables, gives each a `FULL` replica
+/// identity so an update or delete carries the row as it was, and records
+/// what may be copied from each in its comment.
+fn create_publication(publication: &Publication) -> Vec<String> {
+	let tables: Vec<String> = publication
+		.tables
+		.iter()
+		.map(|table| qualified(&table.table))
+		.collect();
+	let mut statements: Vec<String> = publication
+		.tables
+		.iter()
+		.map(|table| {
+			format!(
+				"ALTER TABLE {} REPLICA IDENTITY FULL",
+				qualified(&table.table)
+			)
+		})
+		.collect();
+	let scope = if tables.is_empty() {
+		String::new()
+	} else {
+		format!(" FOR TABLE {}", tables.join(", "))
+	};
+	statements.push(format!(
+		"CREATE PUBLICATION {}{scope}",
+		ident(&publication.name)
+	));
+	statements.push(publication_comment(publication));
+	statements
+}
+
+/// Adds the tables a publication gained, drops the ones it lost that still
+/// exist, and rewrites its comment. It runs after renames and drops, so
+/// the names are the new ones, and a dropped table has already left.
+fn alter_publication(from: &Publication, to: &Publication, target: &Schema) -> Vec<String> {
+	let mut statements = Vec::new();
+	let name = ident(&to.name);
+
+	for table in &to.tables {
+		if from.table(&table.table).is_none() {
+			statements.push(format!(
+				"ALTER TABLE {} REPLICA IDENTITY FULL",
+				qualified(&table.table)
+			));
+			statements.push(format!(
+				"ALTER PUBLICATION {name} ADD TABLE {}",
+				qualified(&table.table)
+			));
+		}
+	}
+
+	for table in &from.tables {
+		if to.table(&table.table).is_none() && target.table(&table.table).is_some() {
+			statements.push(format!(
+				"ALTER PUBLICATION {name} DROP TABLE {}",
+				qualified(&table.table)
+			));
+			statements.push(format!(
+				"ALTER TABLE {} REPLICA IDENTITY DEFAULT",
+				qualified(&table.table)
+			));
+		}
+	}
+
+	statements.push(publication_comment(to));
+	statements
+}
+
+fn publication_comment(publication: &Publication) -> String {
+	format!(
+		"COMMENT ON PUBLICATION {} IS {}",
+		ident(&publication.name),
+		literal(&publication.comment())
+	)
 }
 
 fn qualified(table: &TableName) -> String {

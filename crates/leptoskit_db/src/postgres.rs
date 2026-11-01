@@ -180,25 +180,44 @@ impl Transaction {
 		client.batch_execute(command).await.map_err(error)
 	}
 
-	/// Commits, and reads back the version `live.seal()` gave the commit:
-	/// the capture trigger's transaction-local setting says whether this
-	/// transaction wrote a live table, and its ID finds the commit's row.
-	pub(crate) async fn commit_version(mut self) -> Result<Option<i64>> {
+	/// Commits, and reads back the version the change log gave the commit.
+	///
+	/// With capture triggers, the capture trigger's transaction-local
+	/// setting says whether this transaction wrote a live table, and
+	/// `live.seal()` recorded the version as it committed. With replication
+	/// capture, a transaction that wrote anything waits, for up to
+	/// [`COMMIT_VERSION_WAIT`], until the capturing server has read past
+	/// its commit, then finds the version capture gave its transaction ID;
+	/// none means it wrote no live table, or nothing captured in time.
+	/// `described` adds the message replication capture reads the actor
+	/// and origin from.
+	pub(crate) async fn commit_version(mut self, described: bool) -> Result<Option<i64>> {
 		let rows = self
 			.fetch(Statement {
 				sql: format!(
-					"SELECT CASE WHEN current_setting('{}', true) = 'on' THEN \
-					 pg_current_xact_id()::text::bigint END",
-					leptoskit_db_schema::live::REGISTERED_SETTING
+					"SELECT CASE WHEN current_setting('{registered}', true) = 'on' OR \
+					 (replicating AND pg_current_xact_id_if_assigned() IS NOT NULL) THEN \
+					 pg_current_xact_id()::text::bigint END, replicating, current_database() FROM \
+					 (SELECT EXISTS (SELECT FROM pg_catalog.pg_publication WHERE pubname = \
+					 '{publication}') AS replicating) AS mode",
+					registered = leptoskit_db_schema::live::REGISTERED_SETTING,
+					publication = leptoskit_db_schema::live::PUBLICATION,
 				),
 				args: Vec::new(),
 			})
 			.await;
-		let txid = match rows {
+		let (txid, replicating, database) = match rows {
 			Ok(rows) => {
-				match rows.first().and_then(|row| row.first()) {
-					Some(Value::Int(txid)) => Some(*txid),
-					_ => None,
+				let mut row = rows.into_iter().next().unwrap_or_default().into_iter();
+				match (row.next(), row.next(), row.next()) {
+					(Some(txid), Some(Value::Bool(replicating)), Some(Value::Text(database))) => {
+						let txid = match txid {
+							Value::Int(txid) => Some(txid),
+							_ => None,
+						};
+						(txid, replicating, database)
+					}
+					_ => (None, false, String::new()),
 				}
 			}
 			Err(error) => {
@@ -207,12 +226,23 @@ impl Transaction {
 			}
 		};
 		let client = self.client.take().expect("a transaction finishes once");
-		client.batch_execute("COMMIT").await.map_err(error)?;
+		let commit = if described {
+			format!("{}; COMMIT", crate::live::describe_commit())
+		} else {
+			"COMMIT".to_string()
+		};
+		client.batch_execute(&commit).await.map_err(error)?;
 		let Some(txid) = txid else {
 			return Ok(None);
 		};
+
 		// The commit has happened: failing to read its version back must not
 		// look like a failed commit, which a caller might run again.
+		if replicating && !captured(&client, &leptoskit_db_schema::live::slot_name(&database)).await
+		{
+			return Ok(None);
+		}
+
 		let Ok(rows) = fetch(
 			&client,
 			Statement {
@@ -234,6 +264,57 @@ impl Transaction {
 			_ => None,
 		})
 	}
+}
+
+/// How long [`Transaction::commit_version`] waits for replication capture
+/// to record a commit before giving up on its version.
+pub(crate) const COMMIT_VERSION_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Whether replication capture has read past everything this connection
+/// has committed, so the change log holds it: waits until the slot's
+/// confirmed position passes where the write-ahead log is now, for up to
+/// [`COMMIT_VERSION_WAIT`].
+async fn captured(client: &Object, slot: &str) -> bool {
+	let Ok(rows) = fetch(
+		client,
+		Statement {
+			sql: "SELECT (pg_current_wal_insert_lsn() - '0/0'::pg_lsn)::bigint".into(),
+			args: Vec::new(),
+		},
+	)
+	.await
+	else {
+		return false;
+	};
+	let Some(Value::Int(target)) = rows.first().and_then(|row| row.first()).cloned() else {
+		return false;
+	};
+	let deadline = tokio::time::Instant::now() + COMMIT_VERSION_WAIT;
+
+	while tokio::time::Instant::now() < deadline {
+		let rows = fetch(
+			client,
+			Statement {
+				sql: "SELECT (confirmed_flush_lsn - '0/0'::pg_lsn)::bigint >= $1 FROM \
+				      pg_catalog.pg_replication_slots WHERE slot_name = $2"
+					.into(),
+				args: vec![Value::Int(target), Value::Text(slot.to_string())],
+			},
+		)
+		.await;
+
+		if let Ok(rows) = rows
+			&& matches!(
+				rows.first().and_then(|row| row.first()),
+				Some(Value::Bool(true))
+			) {
+			return true;
+		}
+
+		tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+	}
+
+	false
 }
 
 impl Drop for Transaction {
@@ -266,6 +347,33 @@ async fn execute(client: &Object, statement: Statement) -> Result<u64> {
 		.map(|param| param as &(dyn ToSql + Sync))
 		.collect();
 	client.execute(&prepared, &refs).await.map_err(error)
+}
+
+/// A connection of its own, outside the pool, for work that holds a
+/// session, such as replication capture's advisory lock. It closes when the
+/// client is dropped. Keepalives notice a dead peer within a minute or so,
+/// rather than the operating system's two hours.
+pub(crate) async fn session_client(url: &str) -> Result<tokio_postgres::Client> {
+	let mut config: tokio_postgres::Config = url.parse().map_err(DbError::connection)?;
+	config
+		.keepalives_idle(std::time::Duration::from_secs(30))
+		.keepalives_interval(std::time::Duration::from_secs(10))
+		.keepalives_retries(3);
+
+	if config.get_ssl_mode() == SslMode::Disable {
+		let (client, connection) = config.connect(tokio_postgres::NoTls).await.map_err(error)?;
+		tokio::spawn(connection);
+		Ok(client)
+	} else {
+		let (client, connection) = config.connect(tls()?).await.map_err(error)?;
+		tokio::spawn(connection);
+		Ok(client)
+	}
+}
+
+/// A driver error as the database layer reports it.
+pub(crate) fn driver_error(failure: tokio_postgres::Error) -> DbError {
+	error(failure)
 }
 
 /// TLS with the webpki roots, for hosted databases.

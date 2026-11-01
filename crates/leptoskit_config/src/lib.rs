@@ -1110,6 +1110,16 @@ pub struct DbConfig {
 	/// Who enforces the tables' access policies.
 	#[serde(skip_serializing_if = "DbPolicies::is_default")]
 	pub policies: DbPolicies,
+	/// How writes to live tables reach the change log that live queries
+	/// follow.
+	#[serde(skip_serializing_if = "DbLiveCapture::is_default")]
+	pub live_capture: DbLiveCapture,
+	/// How many minutes of the change log the servers keep, so a client that
+	/// reconnects within them catches up rather than refetching everything;
+	/// 0 keeps all of it. Pruning runs with the job workers, or wherever the
+	/// server starts `Db::live_maintenance`.
+	#[serde(skip_serializing_if = "is_default_live_retention")]
+	pub live_retention_minutes: u32,
 	/// Geospatial columns' options.
 	#[serde(skip_serializing_if = "DbGeoConfig::is_default")]
 	pub geo: DbGeoConfig,
@@ -1191,6 +1201,8 @@ impl Default for DbConfig {
 			watch: DbWatch::default(),
 			branch_databases: true,
 			policies: DbPolicies::default(),
+			live_capture: DbLiveCapture::default(),
+			live_retention_minutes: DEFAULT_LIVE_RETENTION_MINUTES,
 			geo: DbGeoConfig::default(),
 			vector: DbVectorConfig::default(),
 		}
@@ -1247,6 +1259,61 @@ pub enum DbWatch {
 	Report,
 	/// Ignores the tables.
 	Off,
+}
+
+/// How long the change log is kept unless `[db] live_retention_minutes`
+/// says otherwise.
+pub const DEFAULT_LIVE_RETENTION_MINUTES: u32 = 15;
+
+#[expect(
+	clippy::trivially_copy_pass_by_ref,
+	reason = "serde's `skip_serializing_if` passes a reference"
+)]
+fn is_default_live_retention(minutes: &u32) -> bool {
+	*minutes == DEFAULT_LIVE_RETENTION_MINUTES
+}
+
+/// How writes to live tables reach the change log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum DbLiveCapture {
+	/// Triggers that migrations add to every live table record each write
+	/// in the writing transaction. Works on both databases, and suits most
+	/// apps.
+	#[default]
+	Triggers,
+	/// Postgres's logical replication: migrations publish the live tables
+	/// instead, and one server reads each commit from the write-ahead log
+	/// after it commits, so writers pay nothing extra. Needs `wal_level =
+	/// logical` and a role allowed to replicate. Postgres only.
+	Replication,
+}
+
+impl DbLiveCapture {
+	#[expect(
+		clippy::trivially_copy_pass_by_ref,
+		reason = "serde's `skip_serializing_if` passes a reference"
+	)]
+	fn is_default(&self) -> bool {
+		*self == Self::default()
+	}
+
+	/// The value `export_schema!` reads from `LEPTOSKIT_DB_LIVE_CAPTURE`.
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Triggers => "triggers",
+			Self::Replication => "replication",
+		}
+	}
+}
+
+impl DbConfig {
+	/// How long the servers keep the change log: `None` keeps all of it.
+	pub fn live_retention(&self) -> Option<std::time::Duration> {
+		(self.live_retention_minutes > 0)
+			.then(|| std::time::Duration::from_secs(u64::from(self.live_retention_minutes) * 60))
+	}
 }
 
 /// Who enforces the tables' access policies.

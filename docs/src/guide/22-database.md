@@ -1313,9 +1313,57 @@ pub struct Photo {
 
 A skipped column is still named when an update changes it, but its value never enters the log, so, as with a secret column, a policy that reads it never matches a change.
 
-Delete old entries now and then, such as from a scheduled job, with `db.prune_changes(Duration::from_secs(15 * 60))`. A feed that was further behind than that hears `Invalidation::Everything` once and carries on, and `apply_invalidation` refetches every query with a database tag. `Everything` also arrives for a change to a table this build doesn't know, as during a rolling deploy.
+Old entries are pruned on a schedule. The background job workers (`rpc::server::Jobs`, see [Background work](24-background-work.md)) do it for you, keeping the last 15 minutes unless `[db] live_retention_minutes` says otherwise. An app without job workers starts the same upkeep when its server starts:
+
+```rust
+let upkeep = db.live_maintenance(Duration::from_secs(15 * 60), Duration::from_secs(60));
+// …and at shutdown:
+upkeep.shutdown().await;
+```
+
+Run it on every server: they take turns, so only one prunes at a time. On Postgres the log is split into partitions, and pruning drops whole partitions rather than deleting rows, so it stays cheap however busy the app is; dropping one locks the log for a moment, and a server that can't get the lock within a second tries again next round. A feed that was further behind than the retention hears `Invalidation::Everything` once and carries on, and `apply_invalidation` refetches every query with a database tag. `Everything` also arrives for a change to a table this build doesn't know, as during a rolling deploy. To prune once, from a script, call `db.prune_changes(Duration::from_secs(15 * 60))`.
 
 `leptoskit db check --live` checks that a database's triggers are the ones the schema expects, which catches a database edited by hand, and warns about wide columns copied into the log.
+
+### Capture changes from the write-ahead log
+
+Capture triggers cost something on every write to a live table: the transaction writes a second row for each row it changes, and each commit takes its version one at a time, at the very end. Most apps never notice. An app committing thousands of transactions a second to live tables does: the version line becomes the limit, and the log doubles the write traffic to those tables.
+
+On Postgres, logical replication lifts both limits. Postgres already writes every change to its write-ahead log, in commit order; replication capture reads it from there instead:
+
+```toml
+[db]
+live_capture = "replication"
+```
+
+The next migration drops the capture triggers and publishes the live tables instead. One of your servers then reads each committed transaction from the write-ahead log and records it in the same change log, with versions in the order Postgres committed them. Writers pay nothing extra, and nothing about feeds, invalidations, policies, or clients changes. The job workers start capture on every server where `leptoskit_rpc` has its `postgres` feature (the `leptoskit` crate's `db-postgres` turns it on); without job workers, start it yourself:
+
+```rust
+let capture = db.capture_changes();
+// …and at shutdown:
+capture.shutdown().await;
+```
+
+Every server may run it. One captures at a time, and when that server stops or its connection dies, another takes over within a second.
+
+What's different from triggers:
+
+- **A change reaches the log a moment after it commits**, a tenth of a second by default, rather than with the commit. Feeds already wait for changes, so screens don't notice. Code that must know the log has a write, such as a test that starts a feed right after writing, can wait with `db.live_caught_up().await`.
+- **Emptying a table is noticed.** Triggers don't see `TRUNCATE`; replication does, and everyone hears `Everything`.
+- **Switching modes costs one refetch.** Writes in the moment between the migration and capture starting can't be read back, so clients hear `Everything` once. Switching back to triggers does the same.
+- **Columns Postgres computes itself** (`#[db(generated = …)]`) aren't part of what logical replication sends, so they aren't in the log's copy of the row, and a policy that reads one fails closed, as with a secret column.
+- **Actors and origins** are recorded as with triggers, through a small message each transaction that names them writes at commit. Raw SQL that sets `leptoskit.user_id` or `leptoskit.origin` itself is recorded without them.
+
+What it needs:
+
+- **`wal_level = logical`** on the Postgres server, which takes a restart.
+- **A role allowed to replicate.** The servers connect as a role with the `REPLICATION` attribute (or a superuser), because capture holds a replication slot. The role that runs migrations must own the live tables to publish them.
+- **A direct connection**, as `LISTEN` already needs: capture holds one session for as long as it runs, which PgBouncer in transaction mode can't give it.
+- **A managed Postgres that allows logical replication.** Amazon RDS and Aurora turn it on with `rds.logical_replication = 1` in the parameter group, Google Cloud SQL with the `cloudsql.logical_decoding` flag, and Azure Database for PostgreSQL flexible server with `wal_level = logical`; Supabase, Neon (in the project's settings), and Crunchy Bridge allow it too. A service that won't let you create replication slots can't use it: stay with triggers.
+
+Postgres keeps the write-ahead log that capture hasn't read yet. While some server captures, that's a fraction of a second's worth; if none does for a long time, it grows until the disk fills. A server whose capture stops says so on standard error, `db.live_stats().await?.live_capture_lag` reports how many bytes it's behind, and `leptoskit db check --live` warns when nothing is capturing. To stop for good, set `live_capture = "triggers"` and migrate: the next capture check drops the slot.
+
+This is a server setting for Postgres only. SQLite always captures with triggers, and the web and native apps are the same in both modes.
 
 ## Tables that come from a library
 
@@ -1470,6 +1518,8 @@ dev_server = "auto" # "devenv", "embedded", or "off"; Postgres only
 watch = "migrate" # or "push", "report", or "off"
 branch_databases = true # a database per git branch on the development Postgres
 policies = "orm" # or "rls": Postgres enforces policies too
+live_capture = "triggers" # or "replication": read live changes from Postgres's write-ahead log
+live_retention_minutes = 15 # how long the change log is kept; 0 keeps all of it
 
 [db.geo]
 geopackage = false # SQLite: keep GeoPackage metadata for GIS tools

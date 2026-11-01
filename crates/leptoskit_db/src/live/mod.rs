@@ -29,14 +29,37 @@
 //! catches up rather than missing anything; a commit that rolls back never
 //! reaches the log. On Postgres a `NOTIFY` at commit wakes every server
 //! sharing the database; on SQLite, commits through this process wake it.
+//!
+//! On Postgres, `[db] live_capture = "replication"` fills the same log from
+//! the write-ahead log instead, a moment after each commit, so writers pay
+//! nothing for it: see `Db::capture_changes`. `Db::live_maintenance` prunes
+//! the log on a schedule, dropping whole partitions on Postgres.
 
+#[cfg(feature = "postgres")]
+mod capture;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod feed;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod images;
 #[cfg(feature = "server")]
 mod log;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod maintenance;
+#[cfg(feature = "postgres")]
+mod partitions;
+#[cfg(feature = "postgres")]
+mod pgoutput;
 
+#[cfg(feature = "postgres")]
+pub use capture::Capture;
+#[cfg(feature = "postgres")]
+pub use capture::CaptureSettings;
+#[cfg(feature = "postgres")]
+pub use capture::CaptureStats;
+#[cfg(feature = "postgres")]
+pub use capture::LiveStats;
+#[cfg(feature = "postgres")]
+pub(crate) use capture::describe_commit;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use feed::ChangeLog;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -61,6 +84,8 @@ pub use log::LogEntry;
 pub(crate) use log::seal_sqlite;
 #[cfg(feature = "server")]
 pub(crate) use log::tables;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use maintenance::Maintenance;
 use serde::Deserialize;
 use serde::Serialize;
 

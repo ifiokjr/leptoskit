@@ -213,6 +213,8 @@ impl Db {
 			row_security: self.row_security,
 			#[cfg(feature = "sqlite")]
 			origin: Mutex::new(None),
+			#[cfg(feature = "postgres")]
+			described: std::sync::atomic::AtomicBool::new(false),
 		};
 
 		#[cfg(feature = "postgres")]
@@ -227,6 +229,8 @@ impl Db {
 				args: vec![Value::Text(actor.uuid().to_string())],
 			})
 			.await?;
+			tx.described
+				.store(true, std::sync::atomic::Ordering::Relaxed);
 		}
 
 		Ok(tx)
@@ -509,6 +513,10 @@ pub struct Tx {
 	/// Postgres keeps as a setting.
 	#[cfg(feature = "sqlite")]
 	origin: Mutex<Option<String>>,
+	/// Postgres: whether the transaction said who acts in it or what made
+	/// it, which replication capture learns from a message at commit.
+	#[cfg(feature = "postgres")]
+	described: std::sync::atomic::AtomicBool,
 }
 
 enum TxInner {
@@ -524,6 +532,13 @@ impl Tx {
 	/// of it.
 	pub async fn commit(self) -> Result<()> {
 		match self.inner {
+			#[cfg(feature = "postgres")]
+			// Replication capture can't read the transaction's settings, so
+			// a transaction that made them says them again in the log.
+			TxInner::Postgres(tx) if self.described.load(std::sync::atomic::Ordering::Relaxed) => {
+				tx.finish(&format!("{}; COMMIT", crate::live::describe_commit()))
+					.await
+			}
 			#[cfg(feature = "postgres")]
 			TxInner::Postgres(tx) => tx.finish("COMMIT").await,
 			#[cfg(feature = "sqlite")]
@@ -543,6 +558,11 @@ impl Tx {
 	/// the version a live subscriber has to reach to see this
 	/// transaction's writes. `None` when it wrote no live table.
 	///
+	/// With replication capture (`[db] live_capture = "replication"`), a
+	/// commit gets its version a moment after it happens, so this waits for
+	/// the capturing server to record it, for up to five seconds; `None`
+	/// then also means nothing captured it in time.
+	///
 	/// ```ignore
 	/// let tx = db.begin().await?;
 	/// NewMessage { body }.insert(&tx).await?;
@@ -551,7 +571,10 @@ impl Tx {
 	pub async fn commit_version(self) -> Result<Option<i64>> {
 		match self.inner {
 			#[cfg(feature = "postgres")]
-			TxInner::Postgres(tx) => tx.commit_version().await,
+			TxInner::Postgres(tx) => {
+				tx.commit_version(self.described.load(std::sync::atomic::Ordering::Relaxed))
+					.await
+			}
 			#[cfg(feature = "sqlite")]
 			TxInner::Sqlite(tx) => {
 				let origin = self
@@ -578,8 +601,10 @@ impl Tx {
 					),
 					args: vec![Value::Text(origin.to_string())],
 				})
-				.await
-				.map(drop)
+				.await?;
+				self.described
+					.store(true, std::sync::atomic::Ordering::Relaxed);
+				Ok(())
 			}
 			#[cfg(feature = "sqlite")]
 			TxInner::Sqlite(_) => {

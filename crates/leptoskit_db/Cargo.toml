@@ -83,7 +83,7 @@ postgres = [
 ]
 ## Connect to SQLite, bundled, through `rusqlite`: the same SQLite the
 ## on-device plugin uses, run on tokio's blocking pool.
-sqlite = ["server", "dep:rusqlite", "tokio/rt"]
+sqlite = ["server", "dep:rusqlite", "tokio/rt", "tokio/time"]
 
 ## Geospatial columns: `Geography<T>` and `Geo<T, Srid<N>>`, sent as GeoJSON,
 ## with the `geo` crate's algorithms. Client-safe on its own; with `postgres`

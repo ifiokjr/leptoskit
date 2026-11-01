@@ -37,7 +37,7 @@ pub enum ChangeOp {
 
 /// `live.commits`: one row per committed transaction that wrote a live
 /// table.
-#[table(name = "commits", namespace = "live", __internal, unique(txid))]
+#[table(name = "commits", namespace = "live", __internal, index(txid))]
 pub struct LogCommit {
 	/// The transaction's place in the version line. Gaps are transactions
 	/// that rolled back after taking a version, which never become visible.
@@ -53,6 +53,10 @@ pub struct LogCommit {
 	/// What made it: what the transaction said, such as an operation's
 	/// name, or `sql`.
 	pub origin: String,
+	/// Replication capture: where the commit's record starts in Postgres's
+	/// write-ahead log, which orders commits as the database committed them.
+	/// `None` for commits captured by triggers.
+	pub lsn: Option<i64>,
 }
 
 /// `live.changes`: one row per written row of a live table.
@@ -97,14 +101,21 @@ pub struct LogPending {
 
 /// The pack's tables for `dialect`: commits and changes on both, and the
 /// pending transactions that get a version at commit on Postgres.
+///
+/// On Postgres the commits are partitioned by version and the changes by
+/// their order, both of which a row has when it's written, whichever way
+/// it's captured: a trigger writes a change before its commit has a
+/// version. Pruning then drops whole partitions rather than deleting rows.
 pub(crate) fn tables(dialect: Dialect) -> Vec<leptoskit_db_schema::Table> {
-	let mut tables = vec![LogCommit::definition(), LogChange::definition()];
-
 	if dialect == Dialect::Postgres {
-		tables.push(LogPending::definition());
+		return vec![
+			LogCommit::definition().partitioned_by("version"),
+			LogChange::definition().partitioned_by("seq"),
+			LogPending::definition(),
+		];
 	}
 
-	tables
+	vec![LogCommit::definition(), LogChange::definition()]
 }
 
 /// One committed transaction's writes to live tables, read from the change
@@ -209,7 +220,7 @@ mod reading {
 	/// The origin a pruned commit is left with: it marks how far back the
 	/// log was emptied, so a reader that was further behind knows it missed
 	/// changes. No operation is named this.
-	const PRUNED: &str = "leptoskit.pruned";
+	pub(crate) const PRUNED: &str = "leptoskit.pruned";
 
 	/// The most commits one read of the log returns.
 	const COMMITS_PER_READ: usize = 256;
@@ -775,8 +786,12 @@ mod reading {
 	}
 }
 
+#[cfg(feature = "postgres")]
+pub(crate) use reading::PRUNED;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) use reading::Reader;
+#[cfg(feature = "postgres")]
+pub(crate) use reading::has_log;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) use reading::latest_version;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]

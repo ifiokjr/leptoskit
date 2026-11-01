@@ -59,6 +59,8 @@ concurrency = 2 # across every server, so the mail provider never sees more
 
 Workers start a job within milliseconds of the transaction that enqueued it committing, on any server sharing the database, and look every `poll_seconds` for jobs scheduled to run later. Jobs live in the `rpc` schema pack's `jobs` table, so there's no queue service to run.
 
+The workers also look after the change log that live screens follow: they prune it to `[db] live_retention_minutes` and, on Postgres, take part in [replication capture](22-database.md#capture-changes-from-the-write-ahead-log) when the app uses it. `Jobs::from_configs(db.clone(), &config.rpc.jobs, &config.db)` reads both sections; `.live_retention(None)` keeps the whole log, and `.capture(false)` keeps a server out of capture.
+
 ## A payment, shown at once and settled later
 
 A blockchain payment takes seconds to minutes to confirm, and can fail. The job submits it, waits for confirmation, and updates the payment row as it goes:

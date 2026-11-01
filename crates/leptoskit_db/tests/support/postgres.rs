@@ -78,8 +78,10 @@ impl PostgresCluster {
 			.arg("-l")
 			.arg(&log)
 			.arg("-o")
+			// Logical replication, for replication capture's tests.
 			.arg(format!(
-				"-p {port} -c listen_addresses=127.0.0.1 -F{socket_option}"
+				"-p {port} -c listen_addresses=127.0.0.1 -c wal_level=logical -c \
+				 max_replication_slots=64 -c max_wal_senders=64 -F{socket_option}"
 			))
 			.args(["-w", "start"])
 			.stdin(Stdio::null())

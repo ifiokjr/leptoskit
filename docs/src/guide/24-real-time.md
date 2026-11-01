@@ -164,6 +164,7 @@ The database capture, the invalidation feed, and the policy check are described 
 - `rpc::use_live::<Query>(args)`, `rpc::use_live_mutation::<Mutation>()` and `rpc::use_live_action::<Action>()`, available with the `web` or `guest` feature.
 - `Live::stats()`, for metrics: connections, subscriptions, re-runs, commits read, transitions sent and resumes.
 - `leptoskit_query`'s cache, unchanged, so every screen and devtools see the updates.
+- For apps that outgrow capture triggers, capture by Postgres's logical replication, `[db] live_capture = "replication"`, which [The database](22-database.md#capture-changes-from-the-write-ahead-log) describes. Nothing on this page changes with it.
 
 ## The live spec
 

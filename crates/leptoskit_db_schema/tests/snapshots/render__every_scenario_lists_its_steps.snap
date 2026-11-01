@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_db_schema/tests/render.rs
+assertion_line: 40
 expression: summary
 ---
 create_tables
@@ -184,7 +185,7 @@ drop_geopackage
   - GeoPackage layer places(at)
 capture_writes_to_live_tables
   + table live.changes (9 columns)
-  + table live.commits (5 columns)
+  + table live.commits (6 columns)
   + table live.pending (1 column)
   + sequence live.change_seq
   + sequence live.version_seq
@@ -207,6 +208,31 @@ rebuild_a_live_table
   ~ column posts.title: text → text(200)
 replace_a_capture_function
   ~ function live.capture: body 4097acf3 → c5457bc7
+capture_by_replication
+  + table live.changes (9 columns)
+  + table live.commits (6 columns)
+  + table live.pending (1 column)
+  + sequence live.change_seq
+  + sequence live.version_seq
+  + function live.capture
+  + function live.seal
+  + publication leptoskit_live (posts, users)
+switch_capture_to_replication
+  - trigger live_capture on posts
+  - trigger live_capture on users
+  - constraint trigger seal on live.pending
+  + publication leptoskit_live (posts, users)
+switch_capture_to_triggers
+  - publication leptoskit_live
+  + trigger live_capture on posts
+  + trigger live_capture on users
+  + constraint trigger seal on live.pending
+change_what_replication_publishes
+  ~ table posts renamed to articles
+  ~ publication leptoskit_live: ~articles -users
+partition_the_change_log
+  ~ table live.changes: partitioned by ranges of seq
+  ~ table live.commits: partitioned by ranges of version
 remove_the_live_pack
   - trigger live_capture on posts
   - trigger live_capture on users

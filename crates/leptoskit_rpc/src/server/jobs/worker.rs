@@ -122,7 +122,8 @@ impl Settings {
 /// How long writes of a job's progress are spread apart.
 const PROGRESS_EVERY: Duration = Duration::from_millis(250);
 
-/// The workers that run a database's jobs.
+/// The workers that run a database's jobs, and the change log's background
+/// work beside them.
 ///
 /// ```ignore
 /// let jobs = rpc::server::Jobs::new(db.clone())
@@ -133,12 +134,20 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(250);
 /// // …and at shutdown, after the server stops taking requests:
 /// jobs.shutdown().await;
 /// ```
+///
+/// Starting them also starts the change log's upkeep, which prunes it to
+/// [`live_retention`](Self::live_retention) and keeps its Postgres
+/// partitions ahead, and, with the `postgres` feature, replication capture,
+/// which records changes when the migrations capture them by logical
+/// replication and otherwise only waits.
 pub struct Jobs {
 	db: Db,
 	workers: usize,
 	poll: Duration,
 	retention: Option<Duration>,
 	cron: bool,
+	live_retention: Option<Duration>,
+	capture: bool,
 	settings: Settings,
 }
 
@@ -153,8 +162,24 @@ impl Jobs {
 			poll: Duration::from_secs(5),
 			retention: Some(Duration::from_hours(168)),
 			cron: true,
+			live_retention: Some(Duration::from_mins(15)),
+			capture: true,
 			settings: Settings::new(Clock::default()),
 		}
+	}
+
+	/// Workers configured from `[rpc.jobs]`, keeping the change log for
+	/// `[db] live_retention_minutes`.
+	///
+	/// ```ignore
+	/// let jobs = rpc::server::Jobs::from_configs(db.clone(), &config.rpc.jobs, &config.db).start();
+	/// ```
+	pub fn from_configs(
+		db: Db,
+		jobs: &leptoskit_config::RpcJobsConfig,
+		database: &leptoskit_config::DbConfig,
+	) -> Self {
+		Self::from_config(db, jobs).live_retention(database.live_retention())
 	}
 
 	/// Workers configured from `[rpc.jobs]` in `leptoskit.toml`.
@@ -237,11 +262,36 @@ impl Jobs {
 		self
 	}
 
+	/// How long the change log is kept, so a client that reconnects within
+	/// it catches up rather than refetching everything; `None` keeps it all.
+	/// Every instance may prune: they take turns. Fifteen minutes unless set.
+	#[must_use]
+	pub fn live_retention(mut self, retention: Option<Duration>) -> Self {
+		self.live_retention = retention;
+		self
+	}
+
+	/// Whether this instance takes part in replication capture: on by
+	/// default, and idle unless the migrations capture by replication. Turn
+	/// it off on instances that shouldn't hold a replication connection.
+	#[must_use]
+	pub fn capture(mut self, capture: bool) -> Self {
+		self.capture = capture;
+		self
+	}
+
 	/// Starts the workers, which run until the returned handle stops them.
 	pub fn start(self) -> JobsHandle {
 		let shutdown = Arc::new(AtomicBool::new(false));
 		let wake = Arc::new(Notify::new());
 		let mut tasks = Vec::with_capacity(self.workers + 2);
+		let maintenance = self
+			.live_retention
+			.map(|retention| self.db.live_maintenance(retention, Duration::from_mins(1)));
+		#[cfg(feature = "postgres")]
+		let capture = self.capture.then(|| self.db.capture_changes());
+		#[cfg(not(feature = "postgres"))]
+		let _ = self.capture;
 
 		tasks.push(tokio::spawn(waker(
 			self.db.clone(),
@@ -275,6 +325,9 @@ impl Jobs {
 			shutdown,
 			wake,
 			tasks,
+			maintenance,
+			#[cfg(feature = "postgres")]
+			capture,
 		}
 	}
 }
@@ -284,14 +337,35 @@ pub struct JobsHandle {
 	shutdown: Arc<AtomicBool>,
 	wake: Arc<Notify>,
 	tasks: Vec<tokio::task::JoinHandle<()>>,
+	maintenance: Option<leptoskit_db::live::Maintenance>,
+	#[cfg(feature = "postgres")]
+	capture: Option<leptoskit_db::live::Capture>,
 }
 
 impl JobsHandle {
 	/// Asks the workers to stop: they take no more jobs, and finish the
-	/// ones they hold.
+	/// ones they hold. The change log's upkeep and capture stop too.
 	pub fn stop(&self) {
 		self.shutdown.store(true, Ordering::SeqCst);
 		self.wake.notify_waiters();
+
+		if let Some(maintenance) = &self.maintenance {
+			maintenance.stop();
+		}
+
+		#[cfg(feature = "postgres")]
+		if let Some(capture) = &self.capture {
+			capture.stop();
+		}
+	}
+
+	/// What this instance's replication capture has done, with the
+	/// `postgres` feature.
+	#[cfg(feature = "postgres")]
+	pub fn capture_stats(&self) -> Option<leptoskit_db::live::CaptureStats> {
+		self.capture
+			.as_ref()
+			.map(leptoskit_db::live::Capture::stats)
 	}
 
 	/// Stops the workers and waits for the jobs they hold to finish.
@@ -300,6 +374,15 @@ impl JobsHandle {
 
 		for task in self.tasks {
 			let _ = task.await;
+		}
+
+		if let Some(maintenance) = self.maintenance {
+			maintenance.shutdown().await;
+		}
+
+		#[cfg(feature = "postgres")]
+		if let Some(capture) = self.capture {
+			capture.shutdown().await;
 		}
 	}
 }

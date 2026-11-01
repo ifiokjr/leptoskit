@@ -412,7 +412,8 @@ impl Db {
 	/// ```
 	///
 	/// Changes come from the change log that migrations' capture triggers
-	/// fill, so raw SQL and other services' writes arrive too. On Postgres
+	/// fill, or replication capture does, so raw SQL and other services'
+	/// writes arrive too. On Postgres
 	/// the first call opens a connection that listens for every server's
 	/// commits, and returns once it's listening.
 	pub async fn changes(&self) -> Result<Feed> {
@@ -461,6 +462,14 @@ impl Db {
 	/// server or several; Postgres lets one prune at a time. Returns how many
 	/// commits it removed.
 	pub async fn prune_changes(&self, retention: std::time::Duration) -> Result<u64> {
+		#[cfg(feature = "postgres")]
+		if self.dialect() == leptoskit_db_schema::Dialect::Postgres
+			&& super::log::has_log(self).await?
+			&& super::partitions::partitioned(self).await?
+		{
+			return super::partitions::prune(self, retention).await;
+		}
+
 		super::log::prune(self, retention).await
 	}
 

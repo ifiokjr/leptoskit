@@ -434,6 +434,10 @@ pub use table::DIALECT_ENV;
 #[cfg(feature = "server")]
 pub use table::GEOPACKAGE_ENV;
 #[cfg(feature = "server")]
+pub use table::LIVE_CAPTURE_ENV;
+#[cfg(feature = "server")]
+pub use table::LiveCapture;
+#[cfg(feature = "server")]
 pub use table::POLICIES_ENV;
 #[cfg(feature = "server")]
 pub use table::SCHEMA_OUT_ENV;
@@ -451,6 +455,8 @@ pub use table::schema;
 pub use table::schema_with_row_security;
 #[cfg(feature = "server")]
 pub use table::with_geopackage;
+#[cfg(feature = "server")]
+pub use table::with_live_capture;
 pub use time::Timestamp;
 #[cfg(feature = "server")]
 pub use time::now;

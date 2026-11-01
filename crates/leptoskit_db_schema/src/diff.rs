@@ -15,6 +15,7 @@ use crate::GeoIndex;
 use crate::GeoPackageLayer;
 use crate::Index;
 use crate::Predicate;
+use crate::Publication;
 use crate::RowSecurity;
 use crate::Schema;
 use crate::SchemaError;
@@ -311,6 +312,44 @@ pub enum Step {
 	/// and created again; so is every trigger on a SQLite table the
 	/// migration alters, since rebuilding a table drops its triggers.
 	DropTrigger(Trigger),
+	/// Postgres only: rebuild a table that becomes partitioned, or stops
+	/// being, copying its rows across. The table's other changes happen in
+	/// the rebuild: it's created as `to` says.
+	Repartition {
+		/// The table as it was, by its name when the step runs.
+		from: Box<Table>,
+		/// The table as it should be.
+		to: Box<Table>,
+		/// The columns whose values are copied: each column's previous name
+		/// and its new one.
+		columns: Vec<(String, String)>,
+	},
+	/// Postgres only: create a publication, after every table change, and
+	/// give each of its tables `REPLICA IDENTITY FULL`.
+	CreatePublication {
+		/// The publication's name, as a step names what it changes.
+		name: TableName,
+		/// The publication.
+		publication: Publication,
+	},
+	/// Postgres only: change which tables a publication covers, or what it
+	/// says about them, after every table change.
+	AlterPublication {
+		/// The publication's name.
+		name: TableName,
+		/// The publication as it was, with its tables' new names.
+		from: Publication,
+		/// The publication as it should be.
+		to: Publication,
+	},
+	/// Postgres only: drop a publication, before any table change, and give
+	/// its tables their default replica identity back.
+	DropPublication {
+		/// The publication's name.
+		name: TableName,
+		/// The publication.
+		publication: Publication,
+	},
 }
 
 /// How safe a step is to run against a database that already holds data.
@@ -363,6 +402,10 @@ impl Step {
 			| Self::DropFunction(function)
 			| Self::ReplaceFunction { to: function, .. } => &function.name,
 			Self::CreateTrigger(trigger) | Self::DropTrigger(trigger) => &trigger.table,
+			Self::Repartition { to, .. } => &to.name,
+			Self::CreatePublication { name, .. }
+			| Self::AlterPublication { name, .. }
+			| Self::DropPublication { name, .. } => name,
 		}
 	}
 
@@ -407,6 +450,13 @@ impl Step {
 					check.name
 				))
 			}
+			Self::Repartition { to, .. } => {
+				Risk::MayFail(format!(
+					"copies every row of `{}` into a new table, holding the old one locked \
+					 meanwhile",
+					to.name
+				))
+			}
 			_ => Risk::Safe,
 		}
 	}
@@ -415,7 +465,7 @@ impl Step {
 	/// destruction last.
 	fn phase(&self) -> u8 {
 		match self {
-			Self::DropTrigger(_) => 0,
+			Self::DropTrigger(_) | Self::DropPublication { .. } => 0,
 			Self::DropView(_)
 			| Self::DropSearch { .. }
 			| Self::DropRowSecurity { .. }
@@ -430,7 +480,7 @@ impl Step {
 			Self::RenameColumn { .. }
 			| Self::RenameIndex { .. }
 			| Self::RenameConstraint { .. } => 6,
-			Self::CreateTable(_) => 7,
+			Self::CreateTable(_) | Self::Repartition { .. } => 7,
 			Self::CreateSequence(_) => 8,
 			Self::CreateFunction(_) | Self::ReplaceFunction { .. } => 9,
 			// A generated column goes before the columns it reads change type,
@@ -456,6 +506,7 @@ impl Step {
 			Self::DropSequence(_) => 21,
 			Self::CreateView(_) => 22,
 			Self::CreateTrigger(_) => 23,
+			Self::CreatePublication { .. } | Self::AlterPublication { .. } => 24,
 		}
 	}
 }
@@ -628,8 +679,50 @@ impl fmt::Display for Step {
 			Self::DropFunction(function) => write!(f, "- function {}", function.name),
 			Self::CreateTrigger(trigger) => write!(f, "+ {trigger}"),
 			Self::DropTrigger(trigger) => write!(f, "- {trigger}"),
+			Self::Repartition { to, .. } => {
+				match &to.partition {
+					Some(partition) => {
+						write!(
+							f,
+							"~ table {}: partitioned by ranges of {}",
+							to.name, partition.column
+						)
+					}
+					None => write!(f, "~ table {}: no longer partitioned", to.name),
+				}
+			}
+			Self::CreatePublication { publication, .. } => write!(f, "+ {publication}"),
+			Self::AlterPublication { from, to, .. } => altered_publication(f, from, to),
+			Self::DropPublication { publication, .. } => {
+				write!(f, "- publication {}", publication.name)
+			}
 		}
 	}
+}
+
+/// The publication, and the tables it gained, lost, or describes anew.
+fn altered_publication(
+	f: &mut fmt::Formatter<'_>,
+	from: &Publication,
+	to: &Publication,
+) -> fmt::Result {
+	write!(f, "~ publication {}:", to.name)?;
+
+	for table in &to.tables {
+		match from.table(&table.table) {
+			None => write!(f, " +{}", table.table)?,
+			Some(old) if old != table => write!(f, " ~{}", table.table)?,
+			Some(_) => {}
+		}
+	}
+
+	for table in &from.tables {
+		if to.table(&table.table).is_none() {
+			write!(f, " -{}", table.table)?;
+		}
+	}
+
+	Ok(())
 }
 
 /// A checksum's first eight digits, enough to tell two apart in a summary.
@@ -874,6 +967,16 @@ pub fn diff(
 		.map(|(pair, _)| pair.target.name.clone())
 		.collect();
 
+	// A table that becomes partitioned, or stops being, is rebuilt as the
+	// target says, so it has no other steps.
+	let (repartitioned, matched_tables): (Vec<_>, Vec<_>) = matched_tables
+		.iter()
+		.partition(|(pair, _)| pair.previous.partition != pair.target.partition);
+
+	for (pair, columns) in &repartitioned {
+		steps.push(repartition(pair, columns));
+	}
+
 	for (pair, columns) in &matched_tables {
 		diff_table(
 			target.dialect,
@@ -904,6 +1007,7 @@ pub fn diff(
 	diff_row_security(previous, target, &table_renames, &mut steps);
 	diff_views(previous, target, &mut steps);
 	diff_routines(previous, target, &mut steps);
+	diff_publications(previous, target, &table_renames, &mut steps);
 
 	// A stable sort keeps each phase in table and declaration order.
 	steps.sort_by_key(Step::phase);
@@ -912,6 +1016,78 @@ pub fn diff(
 		dialect: target.dialect,
 		steps,
 	})
+}
+
+/// The step that rebuilds a table whose partitioning changes, copying the
+/// columns it keeps.
+fn repartition(pair: &TablePair<'_>, columns: &ColumnMatches<'_>) -> Step {
+	let mut from = pair.previous.clone();
+	from.name = pair.target.name.clone();
+
+	Step::Repartition {
+		from: Box::new(from),
+		to: Box::new(pair.target.clone()),
+		columns: columns
+			.matched
+			.iter()
+			.filter(|(_, to)| to.generated.is_none())
+			.map(|(from, to)| (from.name.clone(), to.name.clone()))
+			.collect(),
+	}
+}
+
+/// Creates, changes, and drops publications. A table renamed in the same
+/// plan stays in its publication, which follows the table rather than its
+/// name.
+fn diff_publications(
+	previous: &Schema,
+	target: &Schema,
+	table_renames: &HashMap<&TableName, &TableName>,
+	steps: &mut Vec<Step>,
+) {
+	for publication in &previous.publications {
+		if target.publication(&publication.name).is_none() {
+			steps.push(Step::DropPublication {
+				name: TableName::new(&publication.name),
+				publication: publication.clone(),
+			});
+		}
+	}
+
+	for publication in &target.publications {
+		let Some(old) = previous.publication(&publication.name) else {
+			steps.push(Step::CreatePublication {
+				name: TableName::new(&publication.name),
+				publication: publication.clone(),
+			});
+
+			continue;
+		};
+
+		let renamed = Publication::new(
+			old.name.clone(),
+			old.tables
+				.iter()
+				.map(|table| {
+					let mut table = table.clone();
+
+					if let Some(name) = table_renames.get(&table.table) {
+						table.table = (*name).clone();
+					}
+
+					table
+				})
+				.collect(),
+		);
+
+		if renamed != *publication {
+			steps.push(Step::AlterPublication {
+				name: TableName::new(&publication.name),
+				from: renamed,
+				to: publication.clone(),
+			});
+		}
+	}
 }
 
 /// The steps that create `table`: its search, spatial, and vector indexes,
@@ -1522,7 +1698,12 @@ fn diff_triggers(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
 			.map(|step| step.table().clone())
 			.collect()
 	} else {
-		HashSet::new()
+		// A rebuilt table loses its triggers with the old one.
+		steps
+			.iter()
+			.filter(|step| matches!(step, Step::Repartition { .. }))
+			.map(|step| step.table().clone())
+			.collect()
 	};
 
 	let kept = |trigger: &Trigger| {

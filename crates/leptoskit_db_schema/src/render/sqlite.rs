@@ -89,6 +89,12 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 			| Step::DropFunction(_) => {
 				unreachable!("validation keeps sequences and functions out of SQLite schemas")
 			}
+			Step::Repartition { .. }
+			| Step::CreatePublication { .. }
+			| Step::AlterPublication { .. }
+			| Step::DropPublication { .. } => {
+				unreachable!("validation keeps partitions and publications out of SQLite schemas")
+			}
 			_ => {}
 		}
 
@@ -230,7 +236,11 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 			| Step::DropSequence(_)
 			| Step::CreateFunction(_)
 			| Step::ReplaceFunction { .. }
-			| Step::DropFunction(_) => unreachable!("handled before the table's steps"),
+			| Step::DropFunction(_)
+			| Step::Repartition { .. }
+			| Step::CreatePublication { .. }
+			| Step::AlterPublication { .. }
+			| Step::DropPublication { .. } => unreachable!("handled before the table's steps"),
 		}
 	}
 

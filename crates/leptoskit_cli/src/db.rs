@@ -471,6 +471,10 @@ impl Project {
 			.env(leptoskit_db::DIALECT_ENV, self.config.dialect.as_str())
 			.env(leptoskit_db::POLICIES_ENV, self.config.policies.as_str())
 			.env(
+				leptoskit_db::LIVE_CAPTURE_ENV,
+				self.config.live_capture.as_str(),
+			)
+			.env(
 				leptoskit_db::GEOPACKAGE_ENV,
 				if self.config.geo.geopackage { "1" } else { "0" },
 			);
@@ -524,6 +528,10 @@ impl Project {
 			.env(leptoskit_db::STUDIO_MIGRATIONS_ENV, self.migrations_dir())
 			.env(leptoskit_db::DIALECT_ENV, self.config.dialect.as_str())
 			.env(leptoskit_db::POLICIES_ENV, self.config.policies.as_str())
+			.env(
+				leptoskit_db::LIVE_CAPTURE_ENV,
+				self.config.live_capture.as_str(),
+			)
 			.args(["--", "__leptoskit_db_export_schema", "--nocapture"]);
 		Ok(command)
 	}
@@ -1123,7 +1131,7 @@ pub(crate) fn check_live(project: &Project, target: &Schema, url: Option<String>
 			""
 		}
 	);
-	Ok(())
+	check_replication(&url, target)
 }
 
 /// The live catalog's rows: triggers always, functions and sequences on
@@ -1207,6 +1215,71 @@ fn wide_column_warnings(target: &Schema) -> HashSet<String> {
 
 	warnings
 }
+
+/// With replication capture: the database publishes the live tables, runs
+/// with `wal_level = logical`, and how far capture lags behind it.
+fn check_replication(url: &str, target: &Schema) -> Result<()> {
+	if target
+		.publication(leptoskit_db_schema::live::PUBLICATION)
+		.is_none()
+	{
+		return Ok(());
+	}
+
+	let (published, logical, stats) = runtime()?.block_on(async {
+		let db = Db::connect(url).await?;
+		let rows = db
+			.fetch(Statement {
+				sql: "SELECT EXISTS (SELECT FROM pg_publication WHERE pubname = $1), \
+				      current_setting('wal_level') = 'logical'"
+					.into(),
+				args: vec![leptoskit_db::Value::Text(
+					leptoskit_db_schema::live::PUBLICATION.into(),
+				)],
+			})
+			.await?;
+		let flag = |index: usize| {
+			matches!(
+				rows.first().and_then(|row| row.get(index)),
+				Some(leptoskit_db::Value::Bool(true))
+			)
+		};
+		let stats = db.system("lk db check").live_stats().await?;
+		anyhow::Ok((flag(0), flag(1), stats))
+	})?;
+
+	ensure!(
+		published,
+		"the database doesn't publish the live tables for replication capture: run `{} db migrate`",
+		invoked_name()
+	);
+	ensure!(
+		logical,
+		"replication capture needs Postgres to run with `wal_level = logical`; set it and restart \
+		 the database"
+	);
+
+	match stats.live_capture_lag {
+		None => {
+			println!(
+				"no server has captured changes yet: start capture on the servers with \
+				 `Db::capture_changes`"
+			);
+		}
+		Some(lag) if stats.slot_active => {
+			println!("replication capture is running, {lag} bytes behind the write-ahead log");
+		}
+		Some(lag) => {
+			println!(
+				"warning: no server is capturing changes, and Postgres is keeping {lag} bytes of \
+				 write-ahead log for when one does"
+			);
+		}
+	}
+
+	Ok(())
+}
+
 fn status(project: &Project, url: Option<String>) -> Result<()> {
 	let history = History::read(&project.migrations_dir(), project.dialect())?;
 	println!(
