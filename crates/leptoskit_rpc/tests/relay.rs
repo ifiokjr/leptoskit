@@ -260,7 +260,7 @@ async fn a_mutation_on_one_server_reaches_the_other(first: Db, second: Db, nats:
 	let b = relayed(&second, &other_relay).await;
 
 	let mut watcher = connect(&b).await;
-	assert!(subscribe(&mut watcher).await.is_empty());
+	assert_eq!(subscribe(&mut watcher).await, Vec::<String>::new());
 	let mut writer = connect(&a).await;
 	send(
 		&mut writer,

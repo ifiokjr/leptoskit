@@ -930,7 +930,7 @@ pub struct RpcConfig {
 pub struct RpcLiveConfig {
 	/// The environment variable holding the NATS URL of the live relay,
 	/// such as `NATS_URL`. When it's set, one server publishes the change
-	/// log to NATS JetStream and every server reads it from there, rather
+	/// log to NATS `JetStream` and every server reads it from there, rather
 	/// than each reading the database, and channel signals and presence
 	/// cross between servers. Unset, or empty, every server reads the
 	/// database itself.

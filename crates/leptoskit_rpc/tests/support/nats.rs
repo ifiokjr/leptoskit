@@ -1,4 +1,4 @@
-//! A throwaway NATS server with JetStream, for the live relay's tests:
+//! A throwaway NATS server with `JetStream`, for the live relay's tests:
 //! `LEPTOSKIT_NATS_SERVER`, or `nats-server` on the path (devenv has it).
 //! Without one the tests that need it are skipped, unless
 //! `LEPTOSKIT_REQUIRE_NATS` is set.
@@ -23,7 +23,7 @@ pub struct NatsServer {
 }
 
 impl NatsServer {
-	/// Starts one on a free port, with JetStream storing into a temporary
+	/// Starts one on a free port, with `JetStream` storing into a temporary
 	/// directory.
 	pub fn start() -> Option<Self> {
 		let Some(binary) = find() else {
@@ -59,7 +59,7 @@ impl NatsServer {
 		format!("nats://127.0.0.1:{}", self.port)
 	}
 
-	/// Stops the server, as a crash would, keeping what JetStream stored.
+	/// Stops the server, as a crash would, keeping what `JetStream` stored.
 	pub fn stop(&mut self) {
 		if let Some(mut child) = self.child.take() {
 			let _ = child.kill();

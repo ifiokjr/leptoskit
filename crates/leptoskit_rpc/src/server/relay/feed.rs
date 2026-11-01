@@ -106,14 +106,13 @@ impl Feed {
 			}
 
 			if self.messages.is_none() {
-				match subscribe(&self.relay, &self.names, self.sequence).await {
-					Ok(messages) => self.messages = Some(messages),
-					Err(_) => {
-						// No relay: the database still has every commit.
-						self.check_database().await?;
-						tokio::time::sleep(self.relay.settings().stall.min(RESUBSCRIBE)).await;
-						continue;
-					}
+				if let Ok(messages) = subscribe(&self.relay, &self.names, self.sequence).await {
+					self.messages = Some(messages);
+				} else {
+					// No relay: the database still has every commit.
+					self.check_database().await?;
+					tokio::time::sleep(self.relay.settings().stall.min(RESUBSCRIBE)).await;
+					continue;
 				}
 			}
 
@@ -130,11 +129,11 @@ impl Feed {
 						self.sequence = info.stream_sequence;
 					}
 
-					match serde_json::from_slice::<Batch>(&message.payload) {
-						Ok(batch) => self.take(batch).await?,
-						// Not ours to read: anything it held comes from the
-						// database once the next message, or a stall, says so.
-						Err(_) => {}
+					// A message that isn't ours to read is skipped: anything it
+					// held comes from the database once the next message, or a
+					// stall, says so.
+					if let Ok(batch) = serde_json::from_slice::<Batch>(&message.payload) {
+						self.take(batch).await?;
 					}
 				}
 				// The subscription ended or failed: start a new one after
@@ -204,7 +203,7 @@ impl Feed {
 							through: through.min(to),
 						}
 					}
-					commit => commit,
+					commit @ LogEntry::Commit(_) => commit,
 				});
 			}
 		}

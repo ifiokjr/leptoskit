@@ -9,6 +9,7 @@ use leptoskit_config::LeptoskitConfig;
 use super::Project;
 use super::Target;
 use super::generate;
+use super::generate_with;
 
 const SERVER: &str = r"
 use leptoskit::server::Readiness;
@@ -123,6 +124,46 @@ fn every_target_and_database_is_pinned() {
 			insta::assert_snapshot!(format!("{target}_{}", db.name()), pinned);
 		}
 	}
+}
+
+/// Kubernetes with each role its own Deployment, on Postgres with a relay
+/// and a replica: the output, then the manifest.
+#[test]
+fn split_roles_are_pinned() {
+	let _version = with_version_masked().bind_to_scope();
+	let root = tempfile::tempdir().unwrap();
+	project(root.path(), Db::Postgres);
+	let toml = std::fs::read_to_string(root.path().join("leptoskit.toml"))
+		.unwrap()
+		.replace(
+			"dialect = \"postgres\"\n",
+			"dialect = \"postgres\"\nreplica_url_envs = [\"DATABASE_REPLICA_URL\"]\n",
+		)
+		+ "\n[rpc.live]\nrelay_url_env = \"NATS_URL\"\n";
+	write(root.path(), "leptoskit.toml", &toml);
+	let config = LeptoskitConfig::from_toml(&toml, root.path()).unwrap();
+	let report = generate_with(root.path(), &config, Target::Kubernetes, false, true).unwrap();
+	let manifest = std::fs::read_to_string(root.path().join("kubernetes.yaml")).unwrap();
+	insta::assert_snapshot!(
+		"kubernetes_split_roles",
+		format!(
+			"$ leptoskit generate deploy --target kubernetes --split-roles\n{report}\n===== \
+			 kubernetes.yaml =====\n{manifest}"
+		)
+	);
+}
+
+#[test]
+fn split_roles_need_kubernetes_and_postgres() {
+	let root = tempfile::tempdir().unwrap();
+	let config = project(root.path(), Db::Postgres);
+	let error = generate_with(root.path(), &config, Target::Fly, false, true).unwrap_err();
+	assert!(error.to_string().contains("--target kubernetes"), "{error}");
+
+	let root = tempfile::tempdir().unwrap();
+	let config = project(root.path(), Db::Sqlite);
+	let error = generate_with(root.path(), &config, Target::Kubernetes, false, true).unwrap_err();
+	assert!(error.to_string().contains("needs Postgres"), "{error}");
 }
 
 #[test]

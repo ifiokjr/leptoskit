@@ -277,6 +277,10 @@ In the browser, if the WebSocket fails to connect twice in a row, the client swi
 
 A deployment can drain its connections: call `live.drain()` on `SIGTERM` and every connection receives `reconnect { after_ms }` with jitter, so the new instances don't all get the same reconnect storm. Because clients resume, a deploy costs each one only what changed during the restart.
 
+## Several servers
+
+On Postgres, run as many copies of the server as you like behind a load balancer that passes WebSockets through: any of them can resume any client, and each reads every commit from the database. To share channels between them, take commits from NATS rather than each reading the database, run sockets apart from pages and jobs, or re-run queries on read replicas, see [live apps from one server to many](16-security-and-scale.md#live-apps-from-one-server-to-many).
+
 ## Limits
 
 | Limit                  | Default | What happens                                                 |

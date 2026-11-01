@@ -12,6 +12,7 @@ use async_nats::jetstream;
 use async_nats::jetstream::context::PublishErrorKind;
 use async_nats::jetstream::kv;
 use leptoskit_db::Db;
+use leptoskit_db::live::ChangeLog;
 use leptoskit_db::live::LogEntry;
 use tokio::sync::watch;
 
@@ -20,6 +21,7 @@ use super::Names;
 use super::Relay;
 use super::RelayError;
 use super::entry_version;
+use super::instance_id;
 
 /// The key the lease is held under.
 const LEASE_KEY: &str = "publisher";
@@ -131,12 +133,9 @@ async fn run(relay: Relay, db: Db, stats: Arc<Stats>, mut stopped: watch::Receiv
 		}
 		.await;
 
-		let (names, stream, bucket) = match outcome {
-			Ok(parts) => parts,
-			Err(_) => {
-				pause(&mut stopped, RETRY).await;
-				continue;
-			}
+		let Ok((names, stream, bucket)) = outcome else {
+			pause(&mut stopped, RETRY).await;
+			continue;
 		};
 
 		match bucket.create(LEASE_KEY, instance.clone().into()).await {
@@ -193,6 +192,29 @@ impl Lease<'_> {
 	}
 }
 
+/// How a stretch of publishing ended.
+enum Ended {
+	/// Asked to stop: give the lease up.
+	Stopped,
+	/// The lease was lost: another server publishes now.
+	Lost,
+	/// The relay or the database failed, or another server published:
+	/// start again from what the stream holds.
+	Resync,
+}
+
+/// A server holding the lease, and what it publishes with.
+struct Leading<'a> {
+	relay: &'a Relay,
+	db: &'a Db,
+	names: &'a Names,
+	stream: &'a jetstream::stream::Stream,
+	stats: &'a Stats,
+	lease: Lease<'a>,
+	renew: tokio::time::Interval,
+	stopped: &'a mut watch::Receiver<bool>,
+}
+
 /// Publishes while the lease holds: from the stream's newest message on,
 /// each batch the log read fetched together.
 async fn lead(
@@ -200,103 +222,106 @@ async fn lead(
 	db: &Db,
 	names: &Names,
 	stream: &jetstream::stream::Stream,
-	mut lease: Lease<'_>,
+	lease: Lease<'_>,
 	stats: &Stats,
 	stopped: &mut watch::Receiver<bool>,
 ) {
 	let mut renew = tokio::time::interval(relay.settings().lease / 3);
 	renew.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 	renew.tick().await;
+	let mut leading = Leading {
+		relay,
+		db,
+		names,
+		stream,
+		stats,
+		lease,
+		renew,
+		stopped,
+	};
 
-	'resync: loop {
-		// Where the stream is: its last message's sequence and version.
-		let (mut sequence, mut version) = match last_published(stream, names).await {
-			Ok(Some(last)) => last,
-			Ok(None) => {
-				match (stream.clone().info().await, db.live_version().await) {
-					(Ok(info), Ok(version)) => (info.state.last_sequence, version),
-					_ => {
-						if !wait_holding(&mut lease, &mut renew, stopped, RETRY).await {
-							break 'resync;
-						}
-						continue 'resync;
-					}
-				}
-			}
-			Err(_) => {
-				if !wait_holding(&mut lease, &mut renew, stopped, RETRY).await {
-					break 'resync;
-				}
-				continue 'resync;
-			}
-		};
-
-		let mut log = match db.change_log(Some(version)).await {
-			Ok(log) => {
-				stats.version.store(version, Ordering::Relaxed);
-				stats.following.store(true, Ordering::Relaxed);
-				log
-			}
-			Err(_) => {
-				if !wait_holding(&mut lease, &mut renew, stopped, RETRY).await {
-					break 'resync;
-				}
-				continue 'resync;
-			}
-		};
-
-		loop {
-			let next = tokio::select! {
-				biased;
-				_ = stopped.changed() => break 'resync,
-				_ = renew.tick() => {
-					if lease.renew().await {
-						continue;
-					}
-					// Lost: another server publishes now.
-					return;
-				}
-				next = log.next() => next,
-			};
-
-			let mut entries = match next {
-				Ok(entry) => vec![entry],
-				Err(_) => {
-					if !wait_holding(&mut lease, &mut renew, stopped, RETRY).await {
-						break 'resync;
-					}
-					continue 'resync;
-				}
-			};
-
-			while let Some(Ok(entry)) = log.next_ready() {
-				entries.push(entry);
-			}
-
-			for batch in batches(version, entries, relay.settings().max_message_bytes) {
-				match publish(relay, names, &batch, sequence).await {
-					Ok(published) => {
-						sequence = published;
-						version = batch.to;
-						let count = batch.entries.as_ref().map_or(1, Vec::len);
-						stats.commits.fetch_add(count as u64, Ordering::Relaxed);
-						stats.messages.fetch_add(1, Ordering::Relaxed);
-						stats.version.store(version, Ordering::Relaxed);
-					}
-					// Someone else published, or the relay failed: start
-					// again from what the stream holds.
-					Err(_) => {
-						if !wait_holding(&mut lease, &mut renew, stopped, RETRY).await {
-							break 'resync;
-						}
-						continue 'resync;
-					}
+	loop {
+		match leading.follow().await {
+			Ended::Stopped => break,
+			Ended::Lost => return,
+			Ended::Resync => {
+				if !leading.wait(RETRY).await {
+					break;
 				}
 			}
 		}
 	}
 
-	lease.release().await;
+	leading.lease.release().await;
+}
+
+impl Leading<'_> {
+	/// Where the stream ends, as its last message's sequence and version,
+	/// and the change log from there.
+	async fn start(&self) -> Option<(u64, i64, ChangeLog)> {
+		let last = last_published(self.stream, self.names).await.ok()?;
+		let (sequence, version) = if let Some(last) = last {
+			last
+		} else {
+			let mut stream = self.stream.clone();
+			let sequence = stream.info().await.ok()?.state.last_sequence;
+			(sequence, self.db.live_version().await.ok()?)
+		};
+		let log = self.db.change_log(Some(version)).await.ok()?;
+		self.stats.version.store(version, Ordering::Relaxed);
+		self.stats.following.store(true, Ordering::Relaxed);
+		Some((sequence, version, log))
+	}
+
+	/// Publishes from where the stream ends until something stops it.
+	async fn follow(&mut self) -> Ended {
+		let Some((mut sequence, mut version, mut log)) = self.start().await else {
+			return Ended::Resync;
+		};
+
+		loop {
+			let next = tokio::select! {
+				biased;
+				_ = self.stopped.changed() => return Ended::Stopped,
+				_ = self.renew.tick() => {
+					if self.lease.renew().await {
+						continue;
+					}
+					return Ended::Lost;
+				}
+				next = log.next() => next,
+			};
+
+			let Ok(entry) = next else {
+				return Ended::Resync;
+			};
+			let mut entries = vec![entry];
+
+			while let Some(Ok(entry)) = log.next_ready() {
+				entries.push(entry);
+			}
+
+			for batch in batches(version, entries, self.relay.settings().max_message_bytes) {
+				let Ok(published) = publish(self.relay, self.names, &batch, sequence).await else {
+					return Ended::Resync;
+				};
+				sequence = published;
+				version = batch.to;
+				let count = batch.entries.as_ref().map_or(1, Vec::len);
+				self.stats
+					.commits
+					.fetch_add(count as u64, Ordering::Relaxed);
+				self.stats.messages.fetch_add(1, Ordering::Relaxed);
+				self.stats.version.store(version, Ordering::Relaxed);
+			}
+		}
+	}
+
+	/// Waits `delay`, renewing the lease; `false` when stopped or the lease
+	/// is lost.
+	async fn wait(&mut self, delay: Duration) -> bool {
+		wait_holding(&mut self.lease, &mut self.renew, self.stopped, delay).await
+	}
 }
 
 /// Waits `delay`, renewing the lease; `false` when stopped or the lease is
@@ -453,14 +478,6 @@ async fn pause(stopped: &mut watch::Receiver<bool>, delay: Duration) {
 		() = tokio::time::sleep(delay) => {}
 		_ = stopped.changed() => {}
 	}
-}
-
-/// A name for this server in the lease: random, so two servers never
-/// share it.
-fn instance_id() -> String {
-	let mut bytes = [0_u8; 8];
-	let _ = getrandom::fill(&mut bytes);
-	bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]

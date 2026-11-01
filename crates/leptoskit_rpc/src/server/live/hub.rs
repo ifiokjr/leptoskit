@@ -702,14 +702,11 @@ impl Core {
 		// Something read the primary since the floor was measured: what the
 		// primary has now is at least what that read saw.
 		if self.floor_stale.swap(false, Ordering::Relaxed) {
-			match self.db.wal_position().await {
-				Ok(Some(position)) => {
-					self.floor.fetch_max(position, Ordering::Relaxed);
-				}
-				_ => {
-					self.floor_stale.store(true, Ordering::Relaxed);
-					return None;
-				}
+			if let Ok(Some(position)) = self.db.wal_position().await {
+				self.floor.fetch_max(position, Ordering::Relaxed);
+			} else {
+				self.floor_stale.store(true, Ordering::Relaxed);
+				return None;
 			}
 		}
 

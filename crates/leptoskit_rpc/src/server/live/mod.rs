@@ -49,7 +49,7 @@
 //!
 //! Every server's hub reads each commit from the database, which suits a
 //! few dozen servers. With a [`Relay`](crate::server::Relay), one server
-//! publishes the change log to NATS JetStream and the others read it from
+//! publishes the change log to NATS `JetStream` and the others read it from
 //! there, and channel signals and presence cross between servers too. When
 //! the database has read replicas, re-runs read from one that has replayed
 //! past the commits that caused them, and from the primary otherwise.

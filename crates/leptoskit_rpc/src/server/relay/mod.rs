@@ -1,5 +1,5 @@
 //! The live relay: one server reads the database's change log and publishes
-//! it to a NATS JetStream stream, and every [`Live`](super::Live) takes its
+//! it to a NATS `JetStream` stream, and every [`Live`](super::Live) takes its
 //! commits from there instead of each reading the database.
 //!
 //! ```ignore
@@ -23,8 +23,8 @@
 //! # What it guarantees
 //!
 //! - **One publisher.** Every server that runs [`Relay::publish`] competes for
-//!   a lease in a JetStream key-value bucket; the holder publishes, and when it
-//!   stops renewing, another takes over within the lease.
+//!   a lease in a `JetStream` key-value bucket; the holder publishes, and when
+//!   it stops renewing, another takes over within the lease.
 //! - **In order, once.** Each message holds the commits after one version up to
 //!   another, and names both. It is published only if the stream's last message
 //!   is still the one the publisher saw, so two publishers can never
@@ -305,6 +305,19 @@ async fn database_name(db: &Db) -> Result<String, RelayError> {
 		Some(Value::Text(name)) => Ok(name.clone()),
 		_ => Err(RelayError::new("the database didn't say its name")),
 	}
+}
+
+/// A name for this server among the others on the relay: random, so two
+/// never share it.
+pub(crate) fn instance_id() -> String {
+	use std::fmt::Write as _;
+
+	let mut bytes = [0_u8; 8];
+	let _ = getrandom::fill(&mut bytes);
+	bytes.iter().fold(String::new(), |mut id, byte| {
+		let _ = write!(id, "{byte:02x}");
+		id
+	})
 }
 
 /// The version a log entry brings a reader to.

@@ -81,7 +81,7 @@ impl Cluster {
 		let client = relay.client().clone();
 		let messages = client.subscribe(subject.clone()).await.ok()?;
 		let cluster = Arc::new(Self {
-			instance: instance_id(),
+			instance: crate::server::relay::instance_id(),
 			client,
 			subject,
 			state: Mutex::new(Remote::default()),
@@ -363,13 +363,6 @@ fn send_presence(shared: &Shared, cluster: &Cluster, channel: &str) {
 	for sender in senders {
 		let _ = sender.try_send(outbound.clone());
 	}
-}
-
-/// A name for this server among the others: random, so two never share it.
-fn instance_id() -> String {
-	let mut bytes = [0_u8; 8];
-	let _ = getrandom::fill(&mut bytes);
-	bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]

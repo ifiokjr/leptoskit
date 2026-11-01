@@ -123,6 +123,11 @@ pub struct Project {
 	pub secrets: Vec<String>,
 	/// Whether the server's source serves `/readyz`.
 	pub has_probes: bool,
+	/// The environment variables holding other URLs with credentials: the
+	/// live relay's, and the read replicas'.
+	pub urls: Vec<String>,
+	/// Whether to run each role as its own Deployment (`--split-roles`).
+	pub split_roles: bool,
 }
 
 /// The database a project uses.
@@ -211,6 +216,14 @@ impl Project {
 		let has_probes = main
 			.and_then(|main| std::fs::read_to_string(main).ok())
 			.is_some_and(|source| source.contains("readyz") || source.contains("Readiness"));
+		let urls = config
+			.rpc
+			.live
+			.relay_url_env
+			.iter()
+			.chain(config.db.iter().flat_map(|db| &db.replica_url_envs))
+			.cloned()
+			.collect();
 		Ok(Self {
 			app,
 			binary,
@@ -222,6 +235,8 @@ impl Project {
 			database,
 			secrets,
 			has_probes,
+			urls,
+			split_roles: false,
 		})
 	}
 
@@ -240,6 +255,7 @@ impl Project {
 		{
 			secrets.push(database.url_env.clone());
 		}
+		secrets.extend(self.urls.iter().cloned());
 		secrets.extend(self.secrets.iter().cloned());
 		secrets
 	}
@@ -269,9 +285,9 @@ impl Project {
 ///
 /// Returns an error when there's no project, it has no server to deploy,
 /// or a file can't be read or written.
-pub fn run(target: Target, force: bool) -> Result<()> {
+pub fn run(args: &crate::cli::DeployArgs) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
-	let report = generate(&root, &config, target, force)?;
+	let report = generate_with(&root, &config, args.target, args.force, args.split_roles)?;
 	print!("{report}");
 	Ok(())
 }
@@ -327,7 +343,39 @@ pub fn generate(
 	target: Target,
 	force: bool,
 ) -> Result<Report> {
-	let project = Project::read(root, config)?;
+	generate_with(root, config, target, force, false)
+}
+
+/// [`generate`], with each role as its own Deployment when `split_roles`.
+///
+/// # Errors
+///
+/// As [`run`], and when `split_roles` is asked of a target other than
+/// Kubernetes, or of an app without Postgres, whose roles can't share one
+/// database across machines.
+pub fn generate_with(
+	root: &Path,
+	config: &LeptoskitConfig,
+	target: Target,
+	force: bool,
+	split_roles: bool,
+) -> Result<Report> {
+	let mut project = Project::read(root, config)?;
+
+	if split_roles {
+		anyhow::ensure!(
+			target == Target::Kubernetes,
+			"--split-roles runs each role as its own Kubernetes Deployment, so it goes with \
+			 --target kubernetes; on {target}, start the same binary with --role instead"
+		);
+		anyhow::ensure!(
+			project.postgres().is_some(),
+			"--split-roles needs Postgres: the roles run on separate machines that share one \
+			 database, which a SQLite file can't be; set [db] dialect = \"postgres\""
+		);
+		project.split_roles = true;
+	}
+
 	let mut report = Report {
 		target: Some(target),
 		..Report::default()
@@ -1020,6 +1068,10 @@ fn fly_next(project: &Project) -> Vec<String> {
 	reason = "one manifest per resource reads best beside the others"
 )]
 fn kubernetes(project: &Project) -> String {
+	if project.split_roles {
+		return kubernetes_split(project);
+	}
+
 	let image = project.image();
 	let port = project.port;
 	let replicas = if project.sqlite().is_some() { 1 } else { 2 };
@@ -1173,7 +1225,7 @@ spec:
       targetPort: {port}
 ---
 apiVersion: policy/v1
-kind: `PodDisruptionBudget`
+kind: PodDisruptionBudget
 metadata:
   name: {image}
 spec:
@@ -1183,6 +1235,186 @@ spec:
       app: {image}
 "
 	);
+	out
+}
+
+/// The roles `--split-roles` runs, each as its own Deployment: its name,
+/// replicas, and what it does.
+const SPLIT_ROLES: [(&str, u32, &str); 4] = [
+	(
+		"web",
+		2,
+		"pages, server rendering, the API and sign-in, behind the Service",
+	),
+	("live", 2, "the live sockets, behind the Service"),
+	(
+		"worker",
+		1,
+		"background jobs, cron, and the change log's upkeep",
+	),
+	(
+		"capture",
+		2,
+		"replication capture and the relay's publisher: one works at a time, the other takes over",
+	),
+];
+
+/// One Deployment per role, the same image in each with `LEPTOSKIT_ROLE`
+/// set, with Services and disruption budgets for the two that serve
+/// traffic.
+fn kubernetes_split(project: &Project) -> String {
+	let image = project.image();
+	let port = project.port;
+	let mut out = format!(
+		"# {app} on Kubernetes, one Deployment per role, written by `leptoskit generate
+# deploy --split-roles`. It's yours to edit: running the generator again keeps
+# your changes unless you pass --force.
+#
+#   kubectl apply -f kubernetes.yaml
+#
+# Every Deployment runs the same image, and LEPTOSKIT_ROLE says which part of
+# the app it is:
+",
+		app = project.app,
+	);
+
+	for (role, replicas, what) in SPLIT_ROLES {
+		let service = match role {
+			"web" => format!(" `{image}`"),
+			"live" => format!(" `{image}-live`"),
+			_ => String::new(),
+		};
+		let _ = writeln!(
+			out,
+			"#   {image}-{role}: {replicas} replica{plural}, {what}{service}",
+			plural = if replicas == 1 { "" } else { "s" },
+		);
+	}
+
+	let _ = write!(
+		out,
+		"#
+# Send /live, /live/events and /live/frames to the Service `{image}-live` in
+# your ingress, and everything else to `{image}`. With more than one live
+# replica, give them the live relay ([rpc.live] relay_url_env, such as
+# NATS_URL, naming a NATS server with JetStream), so they take each commit
+# from it rather than each reading the database; the capture role publishes
+# to it. On SIGTERM a server fails /readyz, waits 5 seconds for traffic to
+# move, and drains; the pods' grace period is {STOP_TIMEOUT_SECONDS} seconds.
+"
+	);
+
+	if !project.runtime_secrets().is_empty() {
+		let _ = write!(
+			out,
+			"#
+# The containers read these from the Secret `{image}`, which you create
+# with `kubectl create secret generic {image} --from-literal=...`:
+",
+		);
+
+		for secret in project.runtime_secrets() {
+			let _ = writeln!(out, "#   {secret}");
+		}
+	}
+
+	for (role, replicas, _) in SPLIT_ROLES {
+		let name = format!("{image}-{role}");
+		let _ = write!(
+			out,
+			"---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {name}
+spec:
+  replicas: {replicas}
+  selector:
+    matchLabels:
+      app: {name}
+  template:
+    metadata:
+      labels:
+        app: {name}
+    spec:
+      terminationGracePeriodSeconds: {STOP_TIMEOUT_SECONDS}
+      containers:
+        - name: {image}
+          image: {image}
+          ports:
+            - containerPort: {port}
+          env:
+            - name: LEPTOS_SITE_ADDR
+              value: \"0.0.0.0:{port}\"
+            - name: LEPTOSKIT_ROLE
+              value: {role}
+"
+		);
+
+		if !project.runtime_secrets().is_empty() {
+			let _ = write!(
+				out,
+				"          envFrom:
+            - secretRef:
+                name: {image}
+"
+			);
+		}
+
+		let _ = write!(
+			out,
+			"          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {port}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {port}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          lifecycle:
+            preStop:
+              exec:
+                command: [\"sh\", \"-c\", \"sleep 5\"]
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+"
+		);
+	}
+
+	for (service, role) in [(image.clone(), "web"), (format!("{image}-live"), "live")] {
+		let _ = write!(
+			out,
+			"---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {service}
+spec:
+  selector:
+    app: {image}-{role}
+  ports:
+    - port: 80
+      targetPort: {port}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {image}-{role}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: {image}-{role}
+"
+		);
+	}
+
 	out
 }
 
@@ -1283,6 +1515,13 @@ fn kubernetes_next(project: &Project) -> Vec<String> {
 	if !project.runtime_secrets().is_empty() {
 		steps.push(format!(
 			"Create the Secret: `kubectl create secret generic {image} --from-literal=NAME=...`."
+		));
+	}
+
+	if project.split_roles {
+		steps.push(format!(
+			"Route /live, /live/events and /live/frames to the Service `{image}-live` in your \
+			 ingress, and everything else to `{image}`."
 		));
 	}
 

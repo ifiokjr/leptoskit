@@ -167,6 +167,23 @@ With Postgres the Deployment runs two replicas and reads its secrets from a Secr
 
 Build and push the image, set `image` in `kubernetes.yaml` to the pushed reference, create the Secret if the app has one, then `kubectl apply -f kubernetes.yaml`.
 
+### One Deployment per role
+
+An app with real-time screens can scale its parts separately: more socket servers at peak hours without more page renderers, and background jobs that never slow a page down. `--split-roles` (Postgres only) writes one Deployment per [role](16-security-and-scale.md#live-apps-from-one-server-to-many), all running the same image with `LEPTOSKIT_ROLE` set:
+
+```bash
+leptoskit generate deploy --target kubernetes --split-roles
+```
+
+| Deployment      | Replicas | `LEPTOSKIT_ROLE` | Service      |
+| --------------- | -------- | ---------------- | ------------ |
+| `<app>-web`     | 2        | `web`            | `<app>`      |
+| `<app>-live`    | 2        | `live`           | `<app>-live` |
+| `<app>-worker`  | 1        | `worker`         | none         |
+| `<app>-capture` | 2        | `capture`        | none         |
+
+Route `/live`, `/live/events` and `/live/frames` to the `<app>-live` Service in your ingress, and everything else to `<app>`. Each process checks only its own role at `/readyz`, so a socket server is ready once it follows the change log, and a worker once its workers have started. With more than one live replica, set `[rpc.live] relay_url_env` and a NATS server, so the socket servers share commits and channels through the relay; its URL, and any `[db] replica_url_envs`, are read from the same Secret as the database's. The server's `main` has to start each part only for its role, as the scaffold's does; one that ignores `LEPTOSKIT_ROLE` runs everything in every Deployment.
+
 ## systemd
 
 `leptoskit generate deploy --target systemd` writes `<app>.service`. It runs the server from `/usr/local/bin/<app>` with the site at `/srv/<app>/dist`, reads the environment from `/etc/<app>/<app>.env`, and restarts on failure. The unit is sandboxed with a read-only filesystem, no home or devices, and only the service's `StateDirectory` writable; with SQLite, the database is `/var/lib/<app>/<app>.sqlite3`.
