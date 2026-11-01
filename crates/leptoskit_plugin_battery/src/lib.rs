@@ -202,6 +202,18 @@ pub mod desktop {
 			Ok(Some(current))
 		}
 	}
+	/// A platform charge reading as a [`Charge`], or `None` when it can't be
+	/// one. Some power sources, such as a desktop's UPS or a battery whose
+	/// gauge hasn't calibrated, report a non-finite fraction or one slightly
+	/// past full; one bad reading shouldn't fail the whole snapshot.
+	pub(crate) fn reading(fraction: f32) -> Option<Charge> {
+		let fraction = f64::from(fraction);
+		if !fraction.is_finite() || !(0.0..=1.05).contains(&fraction) {
+			return None;
+		}
+		Charge::from_fraction(fraction.min(1.0)).ok()
+	}
+
 	/// Returns every enumerated battery. An empty list means no battery exists.
 	pub fn batteries() -> Result<Vec<Snapshot>, Error> {
 		let manager = starship_battery::Manager::new().map_err(|_| Error::Native)?;
@@ -220,9 +232,7 @@ pub mod desktop {
 				};
 				Ok(Snapshot {
 					present: Some(true),
-					charge: Some(Charge::from_fraction(f64::from(
-						battery.state_of_charge().value,
-					))?),
+					charge: reading(battery.state_of_charge().value),
 					state,
 					power_save: None,
 				})
@@ -412,6 +422,23 @@ mod tests {
 		all(target_os = "linux", not(target_env = "ohos"))
 	))]
 	#[test]
+	fn desktop_readings_that_are_not_a_charge_become_unknown() {
+		assert_eq!(desktop::reading(0.5), Some(Charge::new(500).unwrap()));
+		assert_eq!(desktop::reading(1.0), Some(Charge::new(1000).unwrap()));
+		// A gauge a little past full reads as full.
+		assert_eq!(desktop::reading(1.02), Some(Charge::new(1000).unwrap()));
+		assert_eq!(desktop::reading(f32::NAN), None);
+		assert_eq!(desktop::reading(f32::INFINITY), None);
+		assert_eq!(desktop::reading(1.5), None);
+		assert_eq!(desktop::reading(-0.1), None);
+	}
+
+	#[cfg(any(
+		target_os = "macos",
+		target_os = "windows",
+		all(target_os = "linux", not(target_env = "ohos"))
+	))]
+	#[test]
 	fn desktop_reads_a_valid_snapshot_and_reports_only_changes_when_due() {
 		use std::time::Duration;
 
@@ -428,11 +455,8 @@ mod tests {
 		assert_eq!(snapshot.present, Some(!batteries.is_empty()));
 		for battery in &batteries {
 			assert_eq!(battery.present, Some(true));
-			assert!(
-				battery
-					.charge
-					.is_some_and(|charge| charge.fraction() <= 1.0)
-			);
+			// A reading that isn't a charge is unknown, never out of range.
+			assert!(battery.charge.is_none_or(|charge| charge.fraction() <= 1.0));
 		}
 
 		let mut watcher = desktop::Watcher::new(Duration::from_secs(3600)).unwrap();
