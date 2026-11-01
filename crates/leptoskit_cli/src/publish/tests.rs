@@ -615,8 +615,11 @@ fn no_credential_value_reaches_any_output() {
 	let file = dir.path().join("credentials.toml");
 	let value = |name: &str| format!("value-of-{name}");
 	let mut text = String::new();
-	for needed in &super::NEEDED {
-		let _ = writeln!(text, "{} = \"{}\"", needed.name, value(needed.name));
+	let mut names: Vec<&str> = super::NEEDED.iter().map(|needed| needed.name).collect();
+	names.sort_unstable();
+	names.dedup();
+	for name in names {
+		let _ = writeln!(text, "{name} = \"{}\"", value(name));
 	}
 	std::fs::write(&file, text).unwrap();
 	let credentials = super::Credentials::load(Some(&file), project.path()).unwrap();
@@ -761,6 +764,7 @@ fn commonplace_dry_run() {
 			"edge" => session.edge(),
 			"firefox" => session.firefox(),
 			"app_store" => session.app_store(),
+			"macos" => session.macos(),
 			other => panic!("{other} has no dry run here"),
 		}
 		.unwrap();

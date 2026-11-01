@@ -116,3 +116,11 @@ app_store: Commonplace 0.1.0 is checked; an upload archives it for team ABCDE123
   7. Decide to release it, then run `leptoskit publish app_store --submit`. (you, the account holder)
      Why by hand: submitting sends it to App Review and then to users
      Done when: App Store Connect shows the version waiting for review
+
+macos: Commonplace 0.1.0 is checked; an upload signs it with your Developer ID, notarizes it, and writes .leptoskit/publish/macos/Commonplace.dmg and .leptoskit/publish/macos/Commonplace.zip. Nothing was built or notarized.
+
+  1. Put the disk image on the page people download the app from.
+     Disk image: .leptoskit/publish/macos/Commonplace.dmg
+     For updaters and scripts: .leptoskit/publish/macos/Commonplace.zip
+     Why by hand: leptoskit doesn't host downloads; set [publish.macos].github_release to attach them to a GitHub release
+     Done when: the page offers the new version

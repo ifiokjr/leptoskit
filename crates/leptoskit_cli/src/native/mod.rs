@@ -23,7 +23,7 @@ mod manifest;
 mod project;
 mod registry;
 mod rust_desktop;
-mod safari;
+pub(crate) mod safari;
 
 pub(crate) use rust_desktop::application;
 pub mod scaffold;

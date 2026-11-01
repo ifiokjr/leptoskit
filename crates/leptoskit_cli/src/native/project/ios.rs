@@ -485,7 +485,7 @@ fn safari_target(
 	)?;
 	write(
 		&extension_dir.join("Info.plist"),
-		&safari::info_plist(config, false, 1),
+		&safari::info_plist(config, false),
 	)?;
 	let package = root.join(crate::extension::OUTPUT).join("safari");
 	anyhow::ensure!(

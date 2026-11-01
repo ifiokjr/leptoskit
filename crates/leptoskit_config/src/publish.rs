@@ -24,6 +24,34 @@ pub struct PublishConfig {
 	/// it: TestFlight, then App Store review.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub app_store: Option<AppStore>,
+	/// The macOS app, signed with a Developer ID and notarized, for download
+	/// outside the Mac App Store.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub macos: Option<MacosStore>,
+}
+
+/// How the macOS app is distributed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum MacosDistribution {
+	/// Signed with a Developer ID certificate and notarized by Apple, so
+	/// Gatekeeper opens it on any Mac.
+	#[default]
+	DeveloperId,
+}
+
+/// The notarized macOS download.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct MacosStore {
+	/// `developer_id`.
+	pub distribution: MacosDistribution,
+	/// A GitHub repository, `owner/name`, whose release `v<app.version>`
+	/// gets the `.dmg` and `.zip` with `--submit`.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub github_release: Option<String>,
 }
 
 /// An app in App Store Connect, created once there.
@@ -100,7 +128,7 @@ pub struct FirefoxStore {
 }
 
 /// The stores `leptoskit publish` knows, as the command line names them.
-pub const STORES: [&str; 4] = ["chrome", "edge", "firefox", "app_store"];
+pub const STORES: [&str; 5] = ["chrome", "edge", "firefox", "app_store", "macos"];
 
 impl PublishConfig {
 	/// Whether no store is configured.
@@ -124,6 +152,9 @@ impl PublishConfig {
 		}
 		if self.app_store.is_some() {
 			stores.push("app_store");
+		}
+		if self.macos.is_some() {
+			stores.push("macos");
 		}
 		stores
 	}
@@ -171,6 +202,20 @@ impl PublishConfig {
 		}
 		if let Some(problem) = self.app_store.as_ref().and_then(|store| store.problem(app)) {
 			return Some(problem);
+		}
+		if let Some(macos) = &self.macos {
+			if !app.platforms.contains(&crate::Platform::Macos) {
+				return Some("publish.macos needs `macos` in app.platforms".into());
+			}
+			if let Some(repository) = &macos.github_release {
+				let parts: Vec<&str> = repository.split('/').collect();
+				if parts.len() != 2 || parts.iter().any(|part| part.trim().is_empty()) {
+					return Some(format!(
+						"publish.macos.github_release `{repository}` must be a repository, \
+						 `owner/name`"
+					));
+				}
+			}
 		}
 		None
 	}
@@ -276,6 +321,31 @@ mod tests {
 		assert!(error.contains("Apple ID"), "{error}");
 		let error = load("[publish.app_store]\napp_id = \"1\"\nteam_id = \"abc\"\n").unwrap_err();
 		assert!(error.contains("10 capital letters"), "{error}");
+	}
+
+	#[test]
+	fn the_macos_download_needs_a_macos_app() {
+		let toml = |platforms: &str, table: &str| {
+			LeptoskitConfig::from_toml(
+				&format!("[app]\nplatforms = {platforms}\n[publish.macos]\n{table}"),
+				Path::new("notes"),
+			)
+			.map_err(|error| error.to_string())
+		};
+		let config = toml(
+			"[\"web\", \"macos\"]",
+			"github_release = \"example/notes\"\n",
+		)
+		.unwrap();
+		assert_eq!(config.publish.stores(), ["macos"]);
+		assert_eq!(
+			config.publish.macos.unwrap().distribution,
+			super::MacosDistribution::DeveloperId
+		);
+		let error = toml("[\"web\"]", "").unwrap_err();
+		assert!(error.contains("`macos` in app.platforms"), "{error}");
+		let error = toml("[\"web\", \"macos\"]", "github_release = \"notes\"\n").unwrap_err();
+		assert!(error.contains("owner/name"), "{error}");
 	}
 
 	#[test]

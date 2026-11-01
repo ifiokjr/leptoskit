@@ -13,6 +13,7 @@ pub mod edge;
 pub mod firefox;
 pub mod http;
 pub mod listing;
+pub mod macos;
 pub mod secrets;
 pub mod steps;
 pub mod tools;
@@ -37,9 +38,9 @@ use self::steps::Who;
 #[derive(Debug, Clone, clap::Args)]
 #[allow(clippy::struct_excessive_bools, reason = "each is a command-line flag")]
 pub struct PublishArgs {
-	/// The stores: `chrome`, `edge`, `firefox`, and `app_store`; every store
-	/// `[publish]` configures when omitted. `credentials` lists the credentials
-	/// each configured store needs instead.
+	/// The stores: `chrome`, `edge`, `firefox`, `app_store`, and `macos`;
+	/// every store `[publish]` configures when omitted. `credentials` lists the
+	/// credentials each configured store needs instead.
 	pub stores: Vec<String>,
 	/// Build and check everything, and contact no store.
 	#[arg(long)]
@@ -58,7 +59,8 @@ pub struct PublishArgs {
 	#[arg(long)]
 	pub json: bool,
 	/// The app stores' build number (`CFBundleVersion`): `auto`, one more
-	/// than the store's highest, or a number.
+	/// than the store's highest, or a number. The macOS download keeps the
+	/// app's own unless a number is given.
 	#[arg(long, default_value = "auto")]
 	pub build_number: BuildNumber,
 	/// A TOML file of credentials, by their environment variables' names,
@@ -102,7 +104,7 @@ struct Needed {
 	how: &'static str,
 }
 
-const NEEDED: [Needed; 8] = [
+const NEEDED: [Needed; 12] = [
 	Needed {
 		store: "chrome",
 		name: chrome::CREDENTIAL,
@@ -143,6 +145,26 @@ const NEEDED: [Needed; 8] = [
 		name: app_store::KEY,
 		how: app_store::HOW,
 	},
+	Needed {
+		store: "macos",
+		name: macos::IDENTITY,
+		how: macos::HOW,
+	},
+	Needed {
+		store: "macos",
+		name: app_store::ISSUER,
+		how: app_store::HOW,
+	},
+	Needed {
+		store: "macos",
+		name: app_store::KEY_ID,
+		how: app_store::HOW,
+	},
+	Needed {
+		store: "macos",
+		name: app_store::KEY,
+		how: app_store::HOW,
+	},
 ];
 
 /// An API's address: the store's own, or an override for a proxy or a
@@ -162,8 +184,8 @@ pub fn run(args: &PublishArgs) -> Result<()> {
 	let configured = config.publish.stores();
 	anyhow::ensure!(
 		!configured.is_empty(),
-		"no store is configured: add [publish.chrome], [publish.edge], [publish.firefox], or \
-		 [publish.app_store] to leptoskit.toml"
+		"no store is configured: add [publish.chrome], [publish.edge], [publish.firefox], \
+		 [publish.app_store], or [publish.macos] to leptoskit.toml"
 	);
 	if args.stores.iter().any(|store| store == "credentials") {
 		print!("{}", list_credentials(&configured, &credentials));
@@ -236,6 +258,7 @@ pub fn run(args: &PublishArgs) -> Result<()> {
 			"edge" => session.edge()?,
 			"firefox" => session.firefox()?,
 			"app_store" => session.app_store()?,
+			"macos" => session.macos()?,
 			other => anyhow::bail!("`{other}` isn't a store leptoskit publish publishes to"),
 		};
 		report.steps.extend(steps);
@@ -601,6 +624,134 @@ impl Session<'_> {
 				store: self.store,
 			}),
 		))
+	}
+}
+
+impl Session<'_> {
+	/// The relative path of a file under the project, for messages.
+	fn relative(&self, path: &Path) -> String {
+		path.strip_prefix(self.root)
+			.unwrap_or(path)
+			.display()
+			.to_string()
+	}
+
+	fn macos(&self) -> Result<(String, Vec<Step>)> {
+		let settings = self.config.publish.macos.clone().unwrap_or_default();
+		let out = self.root.join(OUTPUT).join("macos");
+		let version = apple_version(self.config);
+		let entitlements = out.join("SafariExtension.entitlements");
+		let plan = macos::Plan {
+			built: &self.root.join(".leptoskit/macos/App.app"),
+			out: &out,
+			name: &self.name,
+			version: &version,
+			build: match self.args.build_number {
+				BuildNumber::Auto => None,
+				BuildNumber::Number(number) => Some(number),
+			},
+			identity: "",
+			safari_entitlements: crate::native::safari::configured(self.config)
+				.then_some(entitlements.as_path()),
+		};
+		let artifacts = plan.artifacts();
+		let (dmg, zip) = (self.relative(&artifacts.dmg), self.relative(&artifacts.zip));
+		let tag = format!("v{}", self.config.app.version);
+		let mut released = false;
+		let summary = if self.args.dry_run {
+			format!(
+				"{} {version} is checked; an upload signs it with your Developer ID, notarizes \
+				 it, and writes {dmg} and {zip}. Nothing was built or notarized.",
+				self.name
+			)
+		} else {
+			let identity = self.credentials.require(macos::IDENTITY, macos::HOW)?;
+			let key = app_store::Key::new(
+				self.credentials
+					.require(app_store::ISSUER, app_store::HOW)?,
+				self.credentials
+					.require(app_store::KEY_ID, app_store::HOW)?,
+				&self.credentials.require(app_store::KEY, app_store::HOW)?,
+			)?;
+			crate::native::run(crate::native::NativeCommand::Build {
+				target: crate::native::Target::Macos,
+				release: true,
+			})?;
+			std::fs::create_dir_all(&out)?;
+			std::fs::write(&entitlements, crate::native::safari::ENTITLEMENTS)?;
+			let file = key.file(&out)?;
+			let artifacts = macos::distribute(
+				self.runner,
+				&macos::Plan {
+					identity: identity.expose(),
+					..plan
+				},
+				&file,
+			)?;
+			drop(file);
+			match &settings.github_release {
+				Some(repository) if self.submit => {
+					let notes = self
+						.store
+						.release_notes
+						.clone()
+						.unwrap_or_else(|| format!("{} {version}.", self.name));
+					macos::release(
+						self.runner,
+						repository,
+						&tag,
+						&format!("{} {version}", self.name),
+						&notes,
+						&[&artifacts.dmg, &artifacts.zip],
+					)?;
+					released = true;
+					format!(
+						"{} {version} is notarized, and attached to the release {tag} of \
+						 {repository}.",
+						self.name
+					)
+				}
+				_ => {
+					format!(
+						"{} {version} is signed, notarized, and stapled: {dmg} and {zip}.",
+						self.name
+					)
+				}
+			}
+		};
+		let steps = match &settings.github_release {
+			_ if released => Vec::new(),
+			Some(repository) => {
+				vec![step(
+					"macos",
+					Who::Person,
+					&format!(
+						"Decide to release it, then run `leptoskit publish macos --submit`, which \
+						 attaches {dmg} and {zip} to the release {tag} of {repository}."
+					),
+					None,
+					Vec::new(),
+					"a release on GitHub reaches everyone who downloads from it",
+					"the release lists both files",
+				)]
+			}
+			None => {
+				vec![step(
+					"macos",
+					Who::Agent,
+					"Put the disk image on the page people download the app from.",
+					None,
+					vec![
+						field("Disk image", dmg),
+						field("For updaters and scripts", zip),
+					],
+					"leptoskit doesn't host downloads; set [publish.macos].github_release to \
+					 attach them to a GitHub release",
+					"the page offers the new version",
+				)]
+			}
+		};
+		Ok((summary, steps))
 	}
 }
 
