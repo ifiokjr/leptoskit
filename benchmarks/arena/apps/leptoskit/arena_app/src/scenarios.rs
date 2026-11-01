@@ -5,6 +5,7 @@ mod echo;
 mod scroll;
 
 use leptoskit::prelude::Element;
+use leptoskit::prelude::Set;
 
 use crate::host::Frame;
 use crate::host::Host;
@@ -21,6 +22,8 @@ use crate::services::Screen;
 const MOUNT_ROUNDS: usize = 5;
 /// Cards created per `mount` round.
 const MOUNT_CARDS: usize = 1_000;
+/// Frames the done beacon stays up after a step, so a recording can see it.
+const DONE_FRAMES: usize = 3;
 /// How long `ticker` runs.
 const TICKER_MS: f64 = 5_000.0;
 
@@ -47,7 +50,7 @@ pub async fn launch(arena: Arena) {
 pub async fn run(host: Host, arena: Arena, scenario: Scenario) {
 	arena.update(|model| {
 		model.scenario = Some(scenario);
-		model.phase = Phase::Idle;
+		model.phase.set(Phase::Idle);
 		model.screen = Screen::Starting;
 	});
 
@@ -62,7 +65,7 @@ pub async fn run(host: Host, arena: Arena, scenario: Scenario) {
 	let report = report.unwrap_or_else(|error| {
 		let reason = error.clone();
 		arena.update(move |model| {
-			model.phase = Phase::Failed;
+			model.phase.set(Phase::Failed);
 			model.screen = Screen::Unsupported(reason);
 		});
 		Report::new(scenario).fail(error)
@@ -76,7 +79,7 @@ pub async fn run(host: Host, arena: Arena, scenario: Scenario) {
 }
 
 fn fail(model: &mut crate::services::Model, error: String) {
-	model.phase = Phase::Failed;
+	model.phase.set(Phase::Failed);
 	model.screen = Screen::Unsupported(error);
 }
 
@@ -84,7 +87,7 @@ fn fail(model: &mut crate::services::Model, error: String) {
 async fn cold(host: Host, arena: &Arena) -> Result<Report, String> {
 	arena.update(|model| {
 		model.screen = Screen::Ready;
-		model.phase = Phase::Done;
+		model.phase.set(Phase::Done);
 	});
 	host.next_frame().await?;
 
@@ -115,27 +118,20 @@ async fn mount(host: Host, arena: &Arena) -> Result<Report, String> {
 
 	for _ in 0..MOUNT_ROUNDS {
 		create.push(
-			step(host, arena, |cards| {
-				*cards = (1..=MOUNT_CARDS)
-					.map(|number| {
-						Card {
-							number,
-							marked: false,
-						}
-					})
-					.collect();
+			step(host, arena, Change::Tree, |cards| {
+				*cards = (1..=MOUNT_CARDS).map(Card::new).collect();
 			})
 			.await?,
 		);
 		update.push(
-			step(host, arena, |cards| {
-				for card in cards.iter_mut().filter(|card| card.number % 10 == 0) {
-					card.marked = true;
+			step(host, arena, Change::Labels, |cards| {
+				for card in cards.iter().filter(|card| card.number % 10 == 0) {
+					card.marked.set(true);
 				}
 			})
 			.await?,
 		);
-		clear.push(step(host, arena, Vec::clear).await?);
+		clear.push(step(host, arena, Change::Tree, Vec::clear).await?);
 	}
 
 	let mut report = Report::new(Scenario::Mount);
@@ -160,30 +156,59 @@ async fn mount(host: Host, arena: &Arena) -> Result<Report, String> {
 	Ok(report)
 }
 
+/// What a `mount` step changed.
+#[derive(Clone, Copy)]
+enum Change {
+	/// The set of cards: the tree is rebuilt and diffed against the host.
+	Tree,
+	/// Values a card's title is bound to: only the labels that differ are
+	/// rewritten.
+	Labels,
+}
+
 /// One `mount` step: a frame of the running beacon alone, then the change and
 /// the done beacon in one commit, so the recording's running-to-done window
 /// is the change's time to the screen. The tree is checked after the frame
 /// that shows it; a mismatch fails the report.
+///
+/// The beacon is a binding too, so a step that only marks cards still turns it
+/// green without rebuilding the screen.
 async fn step(
 	host: Host,
 	arena: &Arena,
-	change: impl FnOnce(&mut Vec<Card>),
+	change: Change,
+	update: impl FnOnce(&mut Vec<Card>),
 ) -> Result<f64, String> {
-	arena.update(|model| model.phase = Phase::Running);
+	arena.set_phase(Phase::Running);
 	host.next_frame().await?;
 
 	let start = host.now_ms().await?;
-	arena.update(|model| {
-		model.phase = Phase::Done;
-		if let Screen::Cards(cards) = &mut model.screen {
-			change(cards);
-		}
-	});
+	{
+		let mut model = arena.read();
+		model.phase.set(Phase::Done);
+
+		let Screen::Cards(cards) = &mut model.screen else {
+			return Err("mount lost its cards".to_owned());
+		};
+		update(cards);
+	}
+	match change {
+		Change::Tree => arena.render(),
+		Change::Labels => arena.settle(),
+	}
 	host.next_frame().await?;
 	let elapsed = host.now_ms().await? - start;
 
 	check_cards(arena)?;
-	arena.update(|model| model.phase = Phase::Idle);
+	// The recording samples the display, and a step that lands in one frame
+	// gives it a single green frame to find: a step measured at 17 ms on a
+	// 120 Hz screen was often missed, which cost the harness the window it
+	// times. Holding the done beacon only lengthens the window the recorder
+	// can see after the fact, never the window it measures.
+	for _ in 0..DONE_FRAMES {
+		host.next_frame().await?;
+	}
+	arena.set_phase(Phase::Idle);
 	host.next_frame().await?;
 
 	Ok(elapsed)
@@ -248,10 +273,16 @@ async fn ticker(host: Host, arena: &Arena) -> Result<Report, String> {
 		let last = elapsed_ms(first, previous) >= TICKER_MS;
 		arena.update(|model| {
 			model.screen = Screen::Ticker(frames);
-			model.phase = if last { Phase::Done } else { Phase::Running };
+			model
+				.phase
+				.set(if last { Phase::Done } else { Phase::Running });
 		});
 
 		if last {
+			// The done beacon is committed with the last frame; hold it for a
+			// frame before reporting, so the recording has a frame with the
+			// final phase before the harness stops it.
+			host.next_frame().await?;
 			break;
 		}
 

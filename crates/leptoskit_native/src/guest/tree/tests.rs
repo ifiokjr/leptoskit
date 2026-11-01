@@ -168,6 +168,46 @@ fn shared_counter_preserves_wire_ids_after_its_handler_changes_state() {
 }
 
 #[test]
+fn refreshing_bindings_sends_only_the_labels_that_changed() {
+	use crate::reactive::Get as _;
+	use crate::reactive::RwSignal;
+	use crate::reactive::Set as _;
+
+	let marked = RwSignal::new(false);
+	let rows = |marked: RwSignal<bool>| {
+		Element::view()
+			.child(Element::text("fixed"))
+			.child(Element::text_from(move || {
+				if marked.get() {
+					"Row !".to_owned()
+				} else {
+					"Row".to_owned()
+				}
+			}))
+	};
+	let mut tree = Tree::default();
+	let mut host = RecordedHost::default();
+	tree.update(rows(marked), &mut host);
+	let root = tree.root.unwrap();
+	let children = host.nodes[&root].children.clone();
+	assert_eq!(host.commits, 1);
+	host.updated.clear();
+
+	marked.set(true);
+	assert!(tree.refresh_reactive(&mut host));
+	assert_eq!(host.updated, vec![children[1]]);
+	assert_eq!(host.commits, 2);
+	assert_eq!(host.nodes[&children[1]].props["text"], "Row !");
+	assert_eq!(host.nodes[&children[0]].props["text"], "fixed");
+
+	// A refresh with nothing to send costs no commit, so a frame that changes
+	// no bound value does not reach the host at all.
+	assert!(!tree.refresh_reactive(&mut host));
+	assert_eq!(host.commits, 2);
+	assert_eq!(host.created.len(), 3);
+}
+
+#[test]
 fn removing_and_replacing_subtrees_removes_stale_host_nodes() {
 	let mut tree = Tree::default();
 	let mut host = RecordedHost::default();

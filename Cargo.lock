@@ -5189,6 +5189,7 @@ dependencies = [
  "leptoskit_devtools_protocol",
  "leptoskit_rive",
  "leptoskit_yoga",
+ "reactive_graph",
  "roxmltree",
  "serde",
  "serde_json",

@@ -51,19 +51,19 @@ const ROWS: Row[] = [
 	{
 		label: "Big bang: 1,000 cards to the screen",
 		scenario: "mount",
-		metric: "create_to_pixel_ms",
+		metric: "create_ms",
 		unit: "ms",
 	},
 	{
 		label: "Big bang: update every tenth card",
 		scenario: "mount",
-		metric: "update_to_pixel_ms",
+		metric: "update_ms",
 		unit: "ms",
 	},
 	{
 		label: "Big bang: clear 1,000 cards",
 		scenario: "mount",
-		metric: "clear_to_pixel_ms",
+		metric: "clear_ms",
 		unit: "ms",
 	},
 	{

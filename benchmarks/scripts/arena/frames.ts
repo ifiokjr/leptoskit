@@ -417,17 +417,28 @@ export async function presentedFrames(
 	}));
 }
 
-/** Every running→done (or running→failed) window, in order. */
+/**
+ * Every running→done (or running→failed) window, in order.
+ *
+ * A scenario that runs several steps in a row — `mount` creates, updates, and
+ * clears five times — ends each step on the idle beacon before the next one
+ * turns it red. An idle frame therefore closes any run in progress: without
+ * that, a step whose done frame the recorder dropped would be paired with the
+ * red of the step before it, and report a window that spans two steps.
+ */
 export function phaseWindows(frames: PresentedFrame[]): PhaseWindow[] {
 	const windows: PhaseWindow[] = [];
 	let start: number | null = null;
 	for (const frame of frames) {
-		if (frame.phase === "running" && start === null) start = frame.pts;
-		if (
-			(frame.phase === "done" || frame.phase === "failed") && start !== null
-		) {
-			windows.push({ start, end: frame.pts, outcome: frame.phase });
+		if (frame.phase === "idle") {
 			start = null;
+		} else if (frame.phase === "running") {
+			start ??= frame.pts;
+		} else if (frame.phase === "done" || frame.phase === "failed") {
+			if (start !== null) {
+				windows.push({ start, end: frame.pts, outcome: frame.phase });
+				start = null;
+			}
 		}
 	}
 	return windows;

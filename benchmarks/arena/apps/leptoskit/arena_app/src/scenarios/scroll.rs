@@ -2,6 +2,7 @@
 //! the platform while app logic blocks.
 
 use leptoskit::native::ScrollOffset;
+use leptoskit::prelude::Set;
 
 use super::elapsed_ms;
 use crate::host::Host;
@@ -46,7 +47,9 @@ pub async fn autoscroll(host: Host, arena: &Arena) -> Result<Report, String> {
 		frames += 1;
 		let done = elapsed_ms(start, frame) >= AUTOSCROLL_MS;
 		arena.update(|model| {
-			model.phase = if done { Phase::Done } else { Phase::Running };
+			model
+				.phase
+				.set(if done { Phase::Done } else { Phase::Running });
 			if let Screen::Feed(feed) = &mut model.screen {
 				// The window moves with the target in the same commit.
 				feed.offset = offset;
@@ -85,7 +88,7 @@ pub async fn busy(host: Host, arena: &Arena) -> Result<Report, String> {
 	let mut blocks = 0_u64;
 	let mut blocked_ms = 0.0;
 	arena.update(|model| {
-		model.phase = Phase::Running;
+		model.phase.set(Phase::Running);
 		if let Screen::Feed(feed) = &mut model.screen {
 			feed.target = Some(ScrollOffset::new(0.0, target as f32).animated());
 		}
@@ -110,7 +113,7 @@ pub async fn busy(host: Host, arena: &Arena) -> Result<Report, String> {
 		}
 	}
 
-	arena.update(|model| model.phase = Phase::Done);
+	arena.update(|model| model.phase.set(Phase::Done));
 	host.next_frame().await?;
 	let mut report = Report::new(Scenario::Busy);
 	report.metric("blocks_count", blocks as f64);

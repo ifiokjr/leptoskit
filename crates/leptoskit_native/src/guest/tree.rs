@@ -140,6 +140,66 @@ impl Tree {
 		*self = next;
 	}
 
+	/// Sends the nodes whose bound value changed, without rebuilding the tree.
+	///
+	/// This is the update path for [`Element::text_from`](crate::Element::text_from)
+	/// and [`Element::background_from`](crate::Element::background_from):
+	/// reading each binding is a signal read, and a node is encoded only when
+	/// its value actually differs, so a frame costs the nodes that changed
+	/// rather than every element in the tree.
+	pub(super) fn refresh_reactive(&mut self, host: &mut impl Host) -> bool {
+		let mut changed = false;
+
+		for index in 0..self.order.len() {
+			let id = self.order[index];
+			let node = self.nodes.get_mut(&id).expect("every listed id has a node");
+			if node.element.bindings().is_empty() {
+				continue;
+			}
+
+			let bindings = node.element.bindings().clone();
+			let mut node_changed = false;
+
+			if let Some(read) = &bindings.text {
+				let text = read.read();
+
+				if node.element.props.text.as_deref() != Some(text.as_str()) {
+					node.element.props.text = Some(text);
+					node_changed = true;
+				}
+			}
+
+			if let Some(read) = &bindings.background {
+				let color = read.read();
+
+				if node.element.props.background != Some(color) {
+					node.element.props.background = Some(color);
+					node_changed = true;
+				}
+			}
+
+			if !node_changed {
+				continue;
+			}
+
+			let wire = serde_json::to_vec(&WireNode {
+				props: &node.element.props,
+				style: sent_style(&node.element.style),
+				class: node.element.classes().classes(),
+				rive_inputs: None,
+			})
+			.expect("native element properties serialize");
+			host.props(id, &wire);
+			changed = true;
+		}
+
+		if changed {
+			host.commit();
+		}
+
+		changed
+	}
+
 	/// Reuses the host renderer's positional, same-kind identity convention.
 	fn build(
 		&mut self,

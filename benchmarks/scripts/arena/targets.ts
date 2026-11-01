@@ -63,9 +63,6 @@ export interface Target {
 	run(launch: Launch): Promise<Capture>;
 }
 
-// How long to keep recording after the report arrives: the done frame is set
-// before the report is written, but a loaded compositor or a throttled
-// screencast can deliver it later.
 // How long the screen stays still between the recording starting and the
 // launch: longer than any cold open, so the stillness before the launch is
 // the longest in the recording (see launchToReady).
@@ -80,7 +77,13 @@ function argv(launch: Launch): string[] {
 	];
 }
 
-const SETTLE_MS = 1000;
+// How long to keep recording after the report arrives: the done frame is set
+// before the report is written, but a loaded compositor or a throttled
+// screencast can deliver it later. Android's recorder finalises its file a
+// second or so behind the screen, and a scenario whose last frame is the done
+// beacon — `ticker` rewrites tiles until it reports — lost that frame at one
+// second.
+const SETTLE_MS = 3000;
 
 function sleep(milliseconds: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, milliseconds));

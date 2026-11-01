@@ -64,6 +64,23 @@ Deno.test("phase windows pair each running run with the next done or failed fram
 	assertEquals(launchToReady(fromNavigation, false), 1200);
 });
 
+Deno.test("an idle frame closes a run the recorder never saw finish", () => {
+	// A fast app marks a step running, then done for a frame or two; a
+	// recorder that dropped that done frame must not pair the next step's
+	// done with the previous step's running frame.
+	const frames = [
+		{ pts: 0, phase: "running" as const },
+		{ pts: 0.2, phase: "idle" as const },
+		{ pts: 0.21, phase: "running" as const },
+		{ pts: 0.23, phase: "done" as const },
+	];
+	assertEquals(phaseWindows(frames), [{
+		start: 0.21,
+		end: 0.23,
+		outcome: "done",
+	}]);
+});
+
 const WIDTH = 120;
 const HEIGHT = 200;
 const PERIOD = 1 / 60;

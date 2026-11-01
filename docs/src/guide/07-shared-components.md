@@ -94,13 +94,12 @@ pub fn browser_root() -> impl IntoView {
 
 `counter` is the same function used by the native surface. The web renderer creates semantic DOM controls and attaches the existing event handlers. Leptos owns DOM updates, server rendering, and hydration.
 
-Signals and the hooks in `leptoskit::hooks` (the `use` feature) also work in native apps on iOS, Android, macOS, Windows, and Linux. There is no reactive closure there: the app's Wasm runtime calls the view you pass to `leptoskit::guest::mount` again after every event, and the view reads each signal's current value. When state changes outside an event, such as in a plugin reply, call `leptoskit::guest::render()` afterwards. Add `reactive_graph = "0.2"` to the app's dependencies for the owner and the `Get` trait:
+Signals and the hooks in `leptoskit::hooks` (the `use` feature) also work in native apps on iOS, Android, macOS, Windows, and Linux. There is no reactive closure there: the app's Wasm runtime calls the view you pass to `leptoskit::guest::mount` again after every event, and the view reads each signal's current value. When state changes outside an event, such as in a plugin reply, call `leptoskit::guest::render()` afterwards. `leptoskit::prelude` carries the signal type and the `Get` and `Set` traits. A hook you scope yourself also needs an owner: add `reactive_graph = "0.3.0-rc0"` for `reactive_graph::owner::Owner`:
 
 ```rust
 use leptoskit::hooks::use_toggle;
 use leptoskit::prelude::*;
 use reactive_graph::owner::Owner;
-use reactive_graph::prelude::*;
 
 let owner = Owner::new();
 let switch = owner.with(|| use_toggle(false));
@@ -112,6 +111,33 @@ leptoskit::guest::mount(move || {
 	Button(label).on_press(move || toggle())
 });
 ```
+
+## Update a value without rebuilding the screen
+
+Re-rendering costs every element on the screen. A list of 1,000 cards is about 3,000 elements, so changing 100 labels that way rebuilds 3,000 to change 100. For a value that changes in place, bind the element to a signal:
+
+```rust
+use leptoskit::prelude::*;
+
+let marked = RwSignal::new(false);
+
+View()
+	.class("flex-col gap-2 p-4")
+	.child(Element::text_from(move || {
+		if marked.get() {
+			"Marked".to_owned()
+		} else {
+			"Not marked".to_owned()
+		}
+	}))
+	.child(Button("Mark").on_press(move || marked.set(true)));
+```
+
+`Element::text_from` reads the signal once while it builds the element, so the first frame is right with no extra step, and `Element::background_from` does the same for a background colour.
+
+The renderer then keeps the node. After writing a signal outside an event handler — in a plugin reply, a frame callback, or a scenario step — call `leptoskit::guest::refresh()` once. It reads each binding, sends only the elements whose value differs, and commits them together, so the cost follows the values that changed rather than the size of the screen.
+
+On the web the same tree shows the value read at build time, and leptos re-runs the screen when the signal changes, so nothing else is needed there. `leptoskit::prelude` exports leptos's own `RwSignal`, so a screen shared with the browser keeps one signal type.
 
 ## Animate from app code
 

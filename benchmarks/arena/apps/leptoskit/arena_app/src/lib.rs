@@ -14,6 +14,8 @@ mod host;
 #[cfg(target_arch = "wasm32")]
 mod scenarios;
 
+#[cfg(target_arch = "wasm32")]
+use leptoskit::prelude::Set;
 pub use services::Arena;
 use services::Scenario;
 
@@ -29,7 +31,7 @@ pub fn start(arena: &Arena, scenario: Scenario) {
 		Ok(host) => runtime::spawn(scenarios::run(host, arena.clone(), scenario)),
 		Err(error) => {
 			arena.update(|model| {
-				model.phase = services::Phase::Failed;
+				model.phase.set(services::Phase::Failed);
 				model.screen = services::Screen::Unsupported(error);
 			});
 		}
