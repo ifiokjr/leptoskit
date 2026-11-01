@@ -2128,7 +2128,7 @@
 			"type": "object",
 			"properties": {
 				"relay_url_env": {
-					"description": "The environment variable holding the NATS URL of the live relay,\nsuch as `NATS_URL`. When it's set, one server publishes the change\nlog to NATS JetStream and every server reads it from there, rather\nthan each reading the database, and channel signals and presence\ncross between servers. Unset, or empty, every server reads the\ndatabase itself.",
+					"description": "The environment variable holding the NATS URL of the live relay,\nsuch as `NATS_URL`. When it's set, one server publishes the change\nlog to NATS `JetStream` and every server reads it from there, rather\nthan each reading the database, and channel signals and presence\ncross between servers. Unset, or empty, every server reads the\ndatabase itself.",
 					"type": [
 						"string",
 						"null"

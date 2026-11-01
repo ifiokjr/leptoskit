@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_cli/src/deploy/tests.rs
+assertion_line: 147
 expression: "format!(\"$ leptoskit generate deploy --target kubernetes --split-roles\\n{report}\\n===== \\\n\t\t\t kubernetes.yaml =====\\n{manifest}\")"
 ---
 $ leptoskit generate deploy --target kubernetes --split-roles
@@ -37,7 +38,7 @@ next:
 # move, and drains; the pods' grace period is 30 seconds.
 #
 # The containers read these from the Secret `notes`, which you create
-# with 			 `kubectl create secret generic notes --from-literal=...`:
+# with `kubectl create secret generic notes --from-literal=...`:
 #   DATABASE_URL
 #   NATS_URL
 #   DATABASE_REPLICA_URL
