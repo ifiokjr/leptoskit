@@ -311,24 +311,29 @@ impl ChangeLog {
 	}
 
 	fn entry(&self, entry: RawEntry) -> Result<LogEntry> {
-		match entry {
-			RawEntry::Pruned { through } => Ok(LogEntry::Pruned { through }),
-			RawEntry::Commit(commit) => {
-				let dialect = self.reader.db().dialect();
-				let changes = commit
-					.changes
-					.into_iter()
-					.map(|change| normalize(change, dialect))
-					.collect::<Result<_>>()?;
+		log_entry(entry, self.reader.db().dialect())
+	}
+}
 
-				Ok(LogEntry::Commit(Commit {
-					version: commit.version,
-					committed_at: commit.committed_at,
-					actor: commit.actor,
-					origin: commit.origin,
-					changes,
-				}))
-			}
+/// A logged entry, with its changes written the same way on both databases.
+fn log_entry(entry: RawEntry, dialect: leptoskit_db_schema::Dialect) -> Result<LogEntry> {
+	match entry {
+		RawEntry::Pruned { through } => Ok(LogEntry::Pruned { through }),
+		RawEntry::Commit(commit) => {
+			let changes = commit
+				.changes
+				.into_iter()
+				.map(|change| normalize(change, dialect))
+				.collect::<Result<_>>()?;
+
+			Ok(LogEntry::Commit(Commit {
+				version: commit.version,
+				committed_at: commit.committed_at,
+				actor: commit.actor,
+				origin: commit.origin,
+				changes,
+				lsn: commit.lsn,
+			}))
 		}
 	}
 }
@@ -447,6 +452,35 @@ impl Db {
 		}
 
 		Ok(ChangeLog::new(Reader::start(self.clone(), version).await?))
+	}
+
+	/// One read of the change log: the commits after `version`, oldest
+	/// first, as many as one statement fetches (a few hundred), and none
+	/// when nothing newer has committed. It neither waits nor listens for
+	/// commits, so a server that learns of them some other way, such as
+	/// from the live relay, can fill a gap without holding a connection
+	/// open. Read again after the last entry's version for more.
+	///
+	/// # Errors
+	///
+	/// [`DbError::Forbidden`] unless this handle is a [`Db::system`] one, as
+	/// for [`Db::change_log`]; or when the log can't be read.
+	pub async fn change_log_after(&self, version: i64) -> Result<Vec<LogEntry>> {
+		if self.context().is_some() {
+			return Err(DbError::Forbidden {
+				table: "live.changes".to_string(),
+				message: "the change log holds rows whoever may read them, so only a `system` \
+				          handle reads it"
+					.to_string(),
+			});
+		}
+
+		let dialect = self.dialect();
+		super::log::read(self, version)
+			.await?
+			.into_iter()
+			.map(|entry| log_entry(entry, dialect))
+			.collect()
 	}
 
 	/// The newest committed version of the change log, or 0 before the

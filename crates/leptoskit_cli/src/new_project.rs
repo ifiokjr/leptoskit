@@ -801,7 +801,8 @@ fn server_manifest(
 	let mut features = vec!["server"];
 
 	if let Some(db) = db {
-		features.push(database_feature(db));
+		// The server reads `--role` through `leptoskit::rpc::server::Roles`.
+		features.extend([database_feature(db), "rpc"]);
 	}
 
 	if auth {

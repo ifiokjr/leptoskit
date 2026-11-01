@@ -301,7 +301,7 @@ fn database_scaffold_is_pinned() {
 	let project = scratch.path.join("postgres");
 	let read = |file: &str| std::fs::read_to_string(project.join(file)).unwrap();
 	assert!(read(leptoskit_config::CONFIG_FILE).contains("[db]\ndialect = \"postgres\""));
-	assert!(read("Cargo.toml").contains("features = [\"server\", \"db-postgres\"]"));
+	assert!(read("Cargo.toml").contains("features = [\"server\", \"db-postgres\", \"rpc\"]"));
 	assert!(read("postgres_db/Cargo.toml").contains("server = [\"leptoskit_db/postgres\"]"));
 	assert!(read("src/main.rs").contains("such as postgres://localhost/postgres\")?;"));
 
@@ -401,7 +401,9 @@ fn auth_scaffold_is_pinned() {
 	assert!(output.status.success(), "{}", stderr(&output));
 	let read =
 		|file: &str| std::fs::read_to_string(scratch.path.join("postgres").join(file)).unwrap();
-	assert!(read("Cargo.toml").contains("features = [\"server\", \"db-postgres\", \"auth\"]"));
+	assert!(
+		read("Cargo.toml").contains("features = [\"server\", \"db-postgres\", \"rpc\", \"auth\"]")
+	);
 	assert!(
 		read("postgres_db/Cargo.toml")
 			.contains("server = [\"leptoskit_db/postgres\", \"leptoskit_auth/postgres\"]")

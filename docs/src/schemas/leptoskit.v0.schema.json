@@ -975,6 +975,13 @@
 					"description": "Who enforces the tables' access policies.",
 					"$ref": "#/$defs/DbPolicies"
 				},
+				"replica_url_envs": {
+					"description": "Environment variables holding the URLs of Postgres read replicas,\nsuch as `[\"DATABASE_REPLICA_URL\"]`. Live queries re-run on a replica\nonce it has replayed the commit that caused the re-run, and on the\nprimary until then; other reads stay on the primary unless the app\nasks. A variable that isn't set is skipped.",
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				},
 				"url_env": {
 					"description": "The environment variable holding the database URL for `leptoskit db\nmigrate` and `leptoskit db status`.",
 					"type": "string",
@@ -2049,6 +2056,10 @@
 						"workers": 4
 					}
 				},
+				"live": {
+					"description": "Live queries across several servers.",
+					"$ref": "#/$defs/RpcLiveConfig"
+				},
 				"servers": {
 					"description": "The origins the RPC is served from. The first one is the default the\ngenerated clients point at; none means the page's own origin.",
 					"type": "array",
@@ -2108,6 +2119,20 @@
 					"format": "uint32",
 					"default": 4,
 					"minimum": 0
+				}
+			},
+			"additionalProperties": false
+		},
+		"RpcLiveConfig": {
+			"description": "Live queries across several servers: `[rpc.live]`.",
+			"type": "object",
+			"properties": {
+				"relay_url_env": {
+					"description": "The environment variable holding the NATS URL of the live relay,\nsuch as `NATS_URL`. When it's set, one server publishes the change\nlog to NATS `JetStream` and every server reads it from there, rather\nthan each reading the database, and channel signals and presence\ncross between servers. Unset, or empty, every server reads the\ndatabase itself.",
+					"type": [
+						"string",
+						"null"
+					]
 				}
 			},
 			"additionalProperties": false

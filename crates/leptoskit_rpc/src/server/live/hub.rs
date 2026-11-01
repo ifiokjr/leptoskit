@@ -15,6 +15,12 @@
 //! version after every batch is queued. A group that joins while a round
 //! runs is checked against the round's commits before it applies, so no
 //! commit slips between a subscription's first run and its registration.
+//!
+//! Commits come from the database's change log, or, when the server has a
+//! [`Relay`](crate::server::Relay), from the relay's stream (see
+//! [`Source`]). When the database has read replicas, a round's re-runs read
+//! from one that has replayed past every commit in the round, and from the
+//! primary when none has within [`Hub::replica_wait`].
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -162,6 +168,9 @@ pub(super) struct Registration {
 
 pub(super) struct Hub {
 	core: Arc<Core>,
+	/// Where commits come from instead of the database's log.
+	#[cfg(feature = "relay")]
+	relay: std::sync::OnceLock<crate::server::Relay>,
 	started: tokio::sync::OnceCell<()>,
 	stop: Arc<Notify>,
 	/// Wakes the reader to run a round without a commit, for groups that
@@ -175,7 +184,26 @@ struct Core {
 	applied: watch::Sender<u64>,
 	reruns: AtomicU64,
 	commits: AtomicU64,
+	/// Re-runs that read from a replica.
+	replica_reruns: AtomicU64,
+	/// Log entries the relay couldn't bring, read from the database.
+	relay_fills: Arc<AtomicU64>,
+	/// Whether re-runs may read from replicas.
+	use_replicas: std::sync::atomic::AtomicBool,
+	/// How long a round waits for a replica to catch up, in microseconds.
+	replica_wait: AtomicU64,
+	/// A write-ahead log position every result the hub has sent may
+	/// reflect: a replica behind it could show a client an older state than
+	/// it already has, so re-runs read only from replicas past it.
+	floor: std::sync::atomic::AtomicI64,
+	/// Whether something has read the primary since `floor` was measured,
+	/// so it has to be measured again.
+	floor_stale: std::sync::atomic::AtomicBool,
 }
+
+/// How long a round waits for a replica to replay its commits before it
+/// reads from the primary.
+pub(super) const REPLICA_WAIT: Duration = Duration::from_millis(20);
 
 #[derive(Default)]
 struct State {
@@ -234,30 +262,63 @@ impl Hub {
 				applied: watch::channel(0).0,
 				reruns: AtomicU64::new(0),
 				commits: AtomicU64::new(0),
+				replica_reruns: AtomicU64::new(0),
+				relay_fills: Arc::new(AtomicU64::new(0)),
+				use_replicas: std::sync::atomic::AtomicBool::new(true),
+				replica_wait: AtomicU64::new(
+					u64::try_from(REPLICA_WAIT.as_micros()).unwrap_or(u64::MAX),
+				),
+				floor: std::sync::atomic::AtomicI64::new(i64::MIN),
+				floor_stale: std::sync::atomic::AtomicBool::new(true),
 			}),
+			#[cfg(feature = "relay")]
+			relay: std::sync::OnceLock::new(),
 			started: tokio::sync::OnceCell::new(),
 			stop: Arc::new(Notify::new()),
 			kick: Arc::new(Notify::new()),
 		}
 	}
 
-	/// Starts reading the change log from its newest version, once.
+	/// Takes commits from `relay` instead of the database's log, when it
+	/// starts.
+	#[cfg(feature = "relay")]
+	pub(super) fn use_relay(&self, relay: crate::server::Relay) {
+		let _ = self.relay.set(relay);
+	}
+
+	/// Whether re-runs may read from the database's replicas, and how long a
+	/// round waits for one to catch up.
+	pub(super) fn use_replicas(&self, enabled: bool, wait: Duration) {
+		self.core.use_replicas.store(enabled, Ordering::Relaxed);
+		self.core.replica_wait.store(
+			u64::try_from(wait.as_micros()).unwrap_or(u64::MAX),
+			Ordering::Relaxed,
+		);
+	}
+
+	/// Whether the hub has started reading commits.
+	pub(super) fn is_started(&self) -> bool {
+		self.started.initialized()
+	}
+
+	/// Starts reading commits from the newest version, once.
 	pub(super) async fn start(&self) -> Result<(), WireError> {
 		self.started
 			.get_or_try_init(|| {
 				async {
-					let log = self.core.db.change_log(None).await.map_err(|error| {
+					let unreadable = |error: &dyn std::fmt::Display| {
 						WireError {
 							status: 503,
 							message: format!("the change log can't be read: {error}"),
 						}
-					})?;
-					let version = u64::try_from(log.version()).unwrap_or(0);
+					};
+					let source = self.source().await.map_err(|error| unreadable(&error))?;
+					let version = u64::try_from(source.version()).unwrap_or(0);
 					self.core.state().applied = version;
 					self.core.applied.send_replace(version);
 					tokio::spawn(read(
 						Arc::downgrade(&self.core),
-						log,
+						source,
 						Arc::clone(&self.stop),
 						Arc::clone(&self.kick),
 					));
@@ -266,6 +327,24 @@ impl Hub {
 			})
 			.await
 			.map(drop)
+	}
+
+	/// Where commits come from: the relay, or the database's log.
+	async fn source(&self) -> Result<Source, Box<dyn std::error::Error + Send + Sync>> {
+		#[cfg(feature = "relay")]
+		if let Some(relay) = self.relay.get() {
+			let version = self.core.db.live_version().await?;
+			let feed = crate::server::relay::Feed::start(
+				relay.clone(),
+				self.core.db.clone(),
+				version,
+				Arc::clone(&self.core.relay_fills),
+			)
+			.await?;
+			return Ok(Source::Relay(Box::new(feed)));
+		}
+
+		Ok(Source::Log(self.core.db.change_log(None).await?))
 	}
 
 	/// The version every result the hub holds is valid through, which it
@@ -279,11 +358,14 @@ impl Hub {
 		self.core.applied.subscribe()
 	}
 
-	/// Groups re-run, and commits read.
-	pub(super) fn counts(&self) -> (u64, u64) {
+	/// Groups re-run, commits read, re-runs that read from a replica, and
+	/// log entries the relay couldn't bring.
+	pub(super) fn counts(&self) -> (u64, u64, u64, u64) {
 		(
 			self.core.reruns.load(Ordering::Relaxed),
 			self.core.commits.load(Ordering::Relaxed),
+			self.core.replica_reruns.load(Ordering::Relaxed),
+			self.core.relay_fills.load(Ordering::Relaxed),
 		)
 	}
 
@@ -356,6 +438,10 @@ impl Hub {
 		if since.is_some_and(|since| state.applied != since) {
 			return false;
 		}
+
+		// Its first run read the primary, at a position the hub hasn't
+		// measured.
+		self.core.floor_stale.store(true, Ordering::Relaxed);
 
 		state.leave(connection, id);
 		let base = known.then(|| Arc::clone(&registration.result));
@@ -437,31 +523,39 @@ impl Hub {
 			return None;
 		}
 
-		let mut log = self
-			.core
-			.db
-			.change_log(Some(i64::try_from(from).ok()?))
-			.await
-			.ok()?;
+		let deadline = tokio::time::Instant::now() + RESUME_READ;
+		let mut after = i64::try_from(from).ok()?;
+		let to = i64::try_from(to).ok()?;
 		let mut changes = Vec::new();
 		let mut commits = 0;
 
-		while u64::try_from(log.version()).unwrap_or(0) < to {
-			match tokio::time::timeout(RESUME_READ, log.next())
+		// Page by page, without listening, so a server reading commits from
+		// a relay holds no connection open for it.
+		while after < to {
+			let page = tokio::time::timeout_at(deadline, self.core.db.change_log_after(after))
 				.await
 				.ok()?
-				.ok()?
-			{
-				LogEntry::Commit(commit) => {
-					commits += 1;
+				.ok()?;
 
-					if commits > MAX_RESUME_COMMITS {
-						return None;
+			if page.is_empty() {
+				return None;
+			}
+
+			for entry in page {
+				match entry {
+					LogEntry::Commit(commit) if commit.version <= to => {
+						commits += 1;
+
+						if commits > MAX_RESUME_COMMITS {
+							return None;
+						}
+
+						after = commit.version;
+						changes.extend(commit.changes);
 					}
-
-					changes.extend(commit.changes);
+					LogEntry::Commit(_) => return Some(changes),
+					LogEntry::Pruned { .. } => return None,
 				}
-				LogEntry::Pruned { .. } => return None,
 			}
 		}
 
@@ -492,20 +586,29 @@ impl Core {
 		let mut to = self.state().applied;
 		let mut full = false;
 		let mut changes: Vec<Change> = Vec::new();
+		// Where a replica must have replayed to for every commit here: the
+		// furthest of their positions, or none when one has none.
+		let mut fence = Some(i64::MIN);
 
 		for entry in entries {
 			match entry {
 				LogEntry::Commit(commit) => {
 					to = to.max(u64::try_from(commit.version).unwrap_or(0));
+					fence = fence.zip(commit.lsn).map(|(a, b)| a.max(b));
 					changes.extend(commit.changes);
 				}
 				LogEntry::Pruned { through } => {
 					to = to.max(u64::try_from(through).unwrap_or(0));
 					full = true;
+					fence = None;
 				}
 			}
 		}
 
+		// A round with no commits, run for groups that must run again, has
+		// nothing to wait for but reads the primary, as their first runs did.
+		let fence = fence.filter(|fence| *fence != i64::MIN);
+		let mut replica: Option<Option<Db>> = None;
 		let mut first = true;
 		let mut results: HashMap<u64, Outcome> = HashMap::new();
 
@@ -525,6 +628,41 @@ impl Core {
 			};
 
 			self.reruns.fetch_add(jobs.len() as u64, Ordering::Relaxed);
+
+			// Groups that joined while the round ran read the primary when
+			// they first ran, at a position the replica was never checked
+			// against, so only the round's first pass reads a replica.
+			let first_pass = replica.is_none();
+
+			if first_pass {
+				replica = Some(self.replica(fence).await);
+			}
+
+			let pass = if first_pass {
+				replica.as_ref().and_then(Option::as_ref)
+			} else {
+				None
+			};
+
+			if pass.is_none() {
+				self.floor_stale.store(true, Ordering::Relaxed);
+			}
+
+			let jobs: Vec<Job> = match pass {
+				Some(replica) => {
+					self.replica_reruns
+						.fetch_add(jobs.len() as u64, Ordering::Relaxed);
+					jobs.into_iter()
+						.map(|job| {
+							Job {
+								db: job.db.reading_like(replica),
+								..job
+							}
+						})
+						.collect()
+				}
+				None => jobs,
+			};
 			let ran: Vec<(u64, Outcome)> = futures::stream::iter(jobs)
 				.map(|job| {
 					async move {
@@ -538,7 +676,43 @@ impl Core {
 				.collect()
 				.await;
 			results.extend(ran);
+
+			// With several replicas, the next round may pick another, which
+			// must not be behind what this one showed.
+			if let Some(replica) = pass
+				&& self.db.replica_count() > 1
+				&& let Some(position) = replica.replica_position().await
+			{
+				self.floor.fetch_max(position, Ordering::Relaxed);
+			}
 		}
+	}
+}
+
+impl Core {
+	/// A replica that has replayed past `fence` and the hub's floor, if
+	/// re-runs may use one and one gets there in time.
+	async fn replica(&self, fence: Option<i64>) -> Option<Db> {
+		let fence = fence?;
+
+		if self.db.replica_count() == 0 || !self.use_replicas.load(Ordering::Relaxed) {
+			return None;
+		}
+
+		// Something read the primary since the floor was measured: what the
+		// primary has now is at least what that read saw.
+		if self.floor_stale.swap(false, Ordering::Relaxed) {
+			if let Ok(Some(position)) = self.db.wal_position().await {
+				self.floor.fetch_max(position, Ordering::Relaxed);
+			} else {
+				self.floor_stale.store(true, Ordering::Relaxed);
+				return None;
+			}
+		}
+
+		let wait = Duration::from_micros(self.replica_wait.load(Ordering::Relaxed));
+		let needed = fence.max(self.floor.load(Ordering::Relaxed));
+		self.db.on_replica_at(needed, wait).await
 	}
 }
 
@@ -749,9 +923,44 @@ fn shared_change(old: &Value, new: &Arc<Value>) -> Changed {
 	}
 }
 
-/// Reads the change log until the hub is gone, handing each batch of
-/// commits to a round.
-async fn read(core: Weak<Core>, mut log: ChangeLog, stop: Arc<Notify>, kick: Arc<Notify>) {
+/// Where the hub's commits come from.
+enum Source {
+	/// The database's change log.
+	Log(ChangeLog),
+	/// The relay's stream, and the database's log for its gaps.
+	#[cfg(feature = "relay")]
+	Relay(Box<crate::server::relay::Feed>),
+}
+
+impl Source {
+	fn version(&self) -> i64 {
+		match self {
+			Self::Log(log) => log.version(),
+			#[cfg(feature = "relay")]
+			Self::Relay(feed) => feed.version(),
+		}
+	}
+
+	async fn next(&mut self) -> leptoskit_db::Result<LogEntry> {
+		match self {
+			Self::Log(log) => log.next().await,
+			#[cfg(feature = "relay")]
+			Self::Relay(feed) => feed.next().await,
+		}
+	}
+
+	fn next_ready(&mut self) -> Option<leptoskit_db::Result<LogEntry>> {
+		match self {
+			Self::Log(log) => log.next_ready(),
+			#[cfg(feature = "relay")]
+			Self::Relay(feed) => feed.next_ready().map(Ok),
+		}
+	}
+}
+
+/// Reads commits until the hub is gone, handing each batch of them to a
+/// round.
+async fn read(core: Weak<Core>, mut log: Source, stop: Arc<Notify>, kick: Arc<Notify>) {
 	loop {
 		let next = tokio::select! {
 			next = log.next() => Some(next),

@@ -11,6 +11,10 @@
 //! commits it, to the moment the connection reads the frame that carries
 //! it. Both clocks are this machine's, so run it next to the server.
 //!
+//! With several `--url`s, one per server, the connections and the messages
+//! take turns between them: a message sent to one server reaches the
+//! connections on the others through the live relay.
+//!
 //! ```sh
 //! # The server, optimized, with dev sign-in compiled in:
 //! CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true cargo run --release -p huddle
@@ -43,9 +47,10 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 #[derive(Debug, Parser)]
 #[command(version, about)]
 struct Options {
-	/// The server.
+	/// The server, or each server: repeat it to spread connections and
+	/// messages across several.
 	#[arg(long, default_value = "http://127.0.0.1:3000")]
-	url: String,
+	url: Vec<String>,
 	/// Live connections to open.
 	#[arg(long, default_value_t = 5_000)]
 	clients: usize,
@@ -94,15 +99,25 @@ struct Account {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let options = Options::parse();
-	let base = options.url.trim_end_matches('/').to_owned();
+	let bases: Vec<String> = options
+		.url
+		.iter()
+		.map(|url| url.trim_end_matches('/').to_owned())
+		.collect();
+	let base = bases[0].clone();
 	let http = reqwest::Client::builder()
 		.pool_max_idle_per_host(64)
 		.build()?;
 	let run = chrono::Utc::now().format("%H%M%S").to_string();
 
 	println!(
-		"huddle-load: {} clients, {} channels, {} accounts, {} messages/s for {}s against {base}",
-		options.clients, options.channels, options.accounts, options.rate, options.seconds
+		"huddle-load: {} clients, {} channels, {} accounts, {} messages/s for {}s against {}",
+		options.clients,
+		options.channels,
+		options.accounts,
+		options.rate,
+		options.seconds,
+		bases.join(", ")
 	);
 
 	let started = Instant::now();
@@ -125,7 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	for index in 0..options.clients {
 		let account = accounts[index % accounts.len()].clone();
 		let channel = channels[index % channels.len()].clone();
-		let base = base.clone();
+		let base = bases[index % bases.len()].clone();
 		let shared = Arc::clone(&totals);
 		let permit = Arc::clone(&ready).acquire_owned().await?;
 		let (subscribed, done) = tokio::sync::oneshot::channel();
@@ -149,7 +164,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	);
 
 	let per_channel = per_channel(options.clients, channels.len());
-	let sent = send_messages(&http, &base, &accounts, &channels, &options, &totals).await;
+	let sent = send_messages(&http, &bases, &accounts, &channels, &options, &totals).await;
 	// Let the last messages arrive.
 	tokio::time::sleep(Duration::from_secs(5)).await;
 	let _ = stop.send(());
@@ -433,7 +448,7 @@ fn per_channel(clients: usize, channels: usize) -> Vec<u64> {
 /// and returns how many went to each.
 async fn send_messages(
 	http: &reqwest::Client,
-	base: &str,
+	bases: &[String],
 	accounts: &[Account],
 	channels: &[Value],
 	options: &Options,
@@ -453,7 +468,8 @@ async fn send_messages(
 		let account = accounts[sequence % accounts.len()].clone();
 		let channel = channels[channel_index].clone();
 		let http = http.clone();
-		let base = base.to_owned();
+		// The next server along, so messages come in through every one.
+		let base = bases[(sequence / channels.len()) % bases.len()].clone();
 		let totals = Arc::clone(totals);
 		let sent = Arc::clone(&sent);
 		let key = format!("load-{sequence}");

@@ -183,6 +183,60 @@ An `ssr` or `islands` server keeps nothing between requests; leptoskit adds no s
 
 `leptoskit serve` sets the `LEPTOS_*` environment for the binary from `leptoskit.toml`. A container entry point does the same itself: `LEPTOS_SITE_ADDR=0.0.0.0:3000`, `LEPTOS_SITE_ROOT=dist`, `LEPTOS_OUTPUT_NAME=<client library name>`, and `LEPTOS_ENV=PROD`. The `Dockerfile` that [`leptoskit generate deploy`](24-deploying.md) writes sets them for you.
 
+### Live apps: from one server to many
+
+[Real-time screens](24-real-time.md) keep a socket open per client, and when a write commits, the server re-runs the queries it could have changed and sends the difference. That work grows with writes and with the queries they touch, not with how many people are connected: subscribers to the same query, with the same arguments, as the same person, share one re-run. Clients on the web, iOS, Android, macOS, Windows, Linux, the terminal and HarmonyOS are the same in every arrangement below; only the server side changes.
+
+Grow through these in order, and stop at the first that's enough.
+
+**One server.** SQLite or Postgres, the whole app in one process. The Huddle example's load test (`examples/huddle`) measures how far that goes on one machine.
+
+**Several servers on Postgres.** Run more copies of the same binary behind a load balancer that passes WebSockets through and keeps idle connections for more than 30 seconds, the heartbeat. Nothing else changes: no sticky sessions, since any server can resume any client from its version, and each server reads every commit from the database itself. That suits a few dozen servers. Channel signals and presence reach only the people on the same server, though, so two people in one chat room on different servers don't see each other typing until you add the relay.
+
+**The relay, for many servers or shared channels.** One server reads the database's change log and publishes it to [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream); every other server takes commits from there. The database is then read once per commit however many servers there are, and channel signals and presence cross between servers. It needs a NATS server with JetStream on (`nats-server -js`, or a managed one), the `rpc-relay` feature, and a variable naming it:
+
+```toml
+[rpc.live]
+relay_url_env = "NATS_URL"
+```
+
+```rust
+// On every server that holds sockets:
+let relay = leptoskit::rpc::server::Relay::connect(&nats_url).await?;
+let live = rpc.live().relay(&relay);
+live.start().await?;
+
+// On one or more servers: one publishes at a time, and if it stops,
+// another takes over within five seconds.
+let publisher = relay.publish(&db);
+```
+
+Nothing is lost if NATS goes away or no server is publishing: a server that hears nothing while the database moves on reads the database itself until messages come back, and one that missed messages reads what it missed from the database.
+
+**Roles, to scale the parts separately.** The same binary can run as any part of the app, chosen with `--role` or `LEPTOSKIT_ROLE`, every part unless you say:
+
+| Role      | What it runs                                                                        | How many                                            |
+| --------- | ----------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `web`     | Pages, server rendering, the API, sign-in                                           | As many as rendering needs; scale on CPU            |
+| `live`    | The live sockets                                                                    | As many as connections need; scale on connections   |
+| `worker`  | Background jobs, cron, and pruning the change log                                   | As many as the job queues need                      |
+| `capture` | Replication capture (`[db] live_capture = "replication"`) and the relay's publisher | Two, so one can take over; only one works at a time |
+
+`leptoskit::rpc::server::Roles::from_env_and_args()` reads them, and the server starts only those parts; the scaffold's server shows where each goes. Every process answers `/healthz` and `/readyz`, and `/readyz` checks only what that process runs. [`leptoskit generate deploy --target kubernetes --split-roles`](24-deploying.md#kubernetes) writes one Deployment per role.
+
+**Read replicas, when re-runs load the primary.** Each re-run is a read, and with many subscribers to different queries they add up. Give the database Postgres read replicas, and re-runs read from one once it has replayed the commit that caused them, falling back to the primary when no replica has caught up within 20 milliseconds. A screen therefore never shows a state older than the change that updated it. Name the replicas' URLs:
+
+```toml
+[db]
+replica_url_envs = ["DATABASE_REPLICA_URL"]
+```
+
+```rust
+let db = leptoskit::db::Db::connect(&url).await?.with_replicas_from_env(&["DATABASE_REPLICA_URL"])?;
+```
+
+Every other read stays on the primary, where it sees the request's own writes. For reads that can be a moment stale, such as reports or search pages, opt in with `db.on_replica()`; its `SELECT`s go to a replica, and its writes still go to the primary. SQLite has no replicas.
+
 ### The code push registry: publish to a bucket
 
 The static layout is designed so that a bucket behind a CDN serves it with nothing running: release files are immutable and cached for a year, and `index.json` for sixty seconds (see [hosting](05-code-push.md#hosting)). Ten thousand devices checking at once is ten thousand cache hits.

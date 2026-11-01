@@ -1,0 +1,284 @@
+---
+source: crates/leptoskit_cli/src/deploy/tests.rs
+assertion_line: 147
+expression: "format!(\"$ leptoskit generate deploy --target kubernetes --split-roles\\n{report}\\n===== \\\n\t\t\t kubernetes.yaml =====\\n{manifest}\")"
+---
+$ leptoskit generate deploy --target kubernetes --split-roles
+created Dockerfile
+created .dockerignore
+created kubernetes.yaml
+
+next:
+  1. Build and push the image: `docker build -t notes .` then push it to your registry.
+  2. Set image to the pushed reference in kubernetes.yaml.
+  3. Create the Secret: `kubectl create secret generic notes --from-literal=NAME=...`.
+  4. Route /live, /live/events and /live/frames to the Service `notes-live` in your ingress, and everything else to `notes`.
+  5. Apply it: `kubectl apply -f kubernetes.yaml`
+
+===== kubernetes.yaml =====
+# notes on Kubernetes, one Deployment per role, written by `leptoskit generate
+# deploy --split-roles`. It's yours to edit: running the generator again keeps
+# your changes unless you pass --force.
+#
+#   kubectl apply -f kubernetes.yaml
+#
+# Every Deployment runs the same image, and LEPTOSKIT_ROLE says which part of
+# the app it is:
+#   notes-web: 2 replicas, pages, server rendering, the API and sign-in, behind the Service `notes`
+#   notes-live: 2 replicas, the live sockets, behind the Service `notes-live`
+#   notes-worker: 1 replica, background jobs, cron, and the change log's upkeep
+#   notes-capture: 2 replicas, replication capture and the relay's publisher: one works at a time, the other takes over
+#
+# Send /live, /live/events and /live/frames to the Service `notes-live` in
+# your ingress, and everything else to `notes`. With more than one live
+# replica, give them the live relay ([rpc.live] relay_url_env, such as
+# NATS_URL, naming a NATS server with JetStream), so they take each commit
+# from it rather than each reading the database; the capture role publishes
+# to it. On SIGTERM a server fails /readyz, waits 5 seconds for traffic to
+# move, and drains; the pods' grace period is 30 seconds.
+#
+# The containers read these from the Secret `notes`, which you create
+# with `kubectl create secret generic notes --from-literal=...`:
+#   DATABASE_URL
+#   NATS_URL
+#   DATABASE_REPLICA_URL
+#   AUTH_ENCRYPTION_KEYS
+#   SMTP_URL
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notes-web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notes-web
+  template:
+    metadata:
+      labels:
+        app: notes-web
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: notes
+          image: notes
+          ports:
+            - containerPort: 3000
+          env:
+            - name: LEPTOS_SITE_ADDR
+              value: "0.0.0.0:3000"
+            - name: LEPTOSKIT_ROLE
+              value: web
+          envFrom:
+            - secretRef:
+                name: notes
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notes-live
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notes-live
+  template:
+    metadata:
+      labels:
+        app: notes-live
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: notes
+          image: notes
+          ports:
+            - containerPort: 3000
+          env:
+            - name: LEPTOS_SITE_ADDR
+              value: "0.0.0.0:3000"
+            - name: LEPTOSKIT_ROLE
+              value: live
+          envFrom:
+            - secretRef:
+                name: notes
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notes-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notes-worker
+  template:
+    metadata:
+      labels:
+        app: notes-worker
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: notes
+          image: notes
+          ports:
+            - containerPort: 3000
+          env:
+            - name: LEPTOS_SITE_ADDR
+              value: "0.0.0.0:3000"
+            - name: LEPTOSKIT_ROLE
+              value: worker
+          envFrom:
+            - secretRef:
+                name: notes
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notes-capture
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notes-capture
+  template:
+    metadata:
+      labels:
+        app: notes-capture
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: notes
+          image: notes
+          ports:
+            - containerPort: 3000
+          env:
+            - name: LEPTOS_SITE_ADDR
+              value: "0.0.0.0:3000"
+            - name: LEPTOSKIT_ROLE
+              value: capture
+          envFrom:
+            - secretRef:
+                name: notes
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notes
+spec:
+  selector:
+    app: notes-web
+  ports:
+    - port: 80
+      targetPort: 3000
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notes-web
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: notes-web
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notes-live
+spec:
+  selector:
+    app: notes-live
+  ports:
+    - port: 80
+      targetPort: 3000
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notes-live
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: notes-live

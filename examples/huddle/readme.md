@@ -104,14 +104,28 @@ ulimit -n 20000
 ./target/release/huddle-load    # the defaults: 5,000 clients across 50 channels
 ```
 
-Measured on 1 November 2026 on an Apple M4 Mac mini (10 cores, 16 GB, macOS 27.0.1), with the server and the load generator on the same machine, SQLite on the local SSD, and both built as above. Each message is one `POST /api/send_message`; every connection in its channel should receive it.
+On Postgres, set `DATABASE_URL=postgres://…`; the server applies `migrations-postgres/` there. For two servers behind the live relay, start a NATS server with JetStream and give both its URL, one with every role and one with the web and live roles, each on its own port, then point the load generator at both: half the connections go to each, and the messages take turns between them, so most updates cross from one server to the other through the relay.
 
-| Clients | Channels | Messages   | Updates received | Errors | p50     | p95     | p99     |
-| ------- | -------- | ---------- | ---------------- | ------ | ------- | ------- | ------- |
-| 500     | 10       | 601 (20/s) | 30,050 of 30,050 | 0      | 13.5 ms | 30.4 ms | 53.0 ms |
-| 5,000   | 50       | 601 (20/s) | 60,100 of 60,100 | 0      | 1.16 s  | 2.00 s  | 2.32 s  |
+```bash
+nats-server -js &
+export HUDDLE_DEMO_MAIL=1 NATS_URL=nats://127.0.0.1:4222 DATABASE_URL=postgres://localhost/huddle
+LEPTOS_SITE_ADDR=127.0.0.1:3101 ../../target/release/huddle --role all &
+LEPTOS_SITE_ADDR=127.0.0.1:3102 ../../target/release/huddle --role web,live &
+./target/release/huddle-load --url http://127.0.0.1:3101 --url http://127.0.0.1:3102
+```
 
-At 5,000 connections every update still arrives, but each one takes about a second. Today every live connection reads the change log after each commit on its own, so the work per commit grows with connections rather than with the subscriptions a write touches. The single hub of the real-time plan (§5.2), which reads each commit once and matches it against every subscription, is what these numbers wait on.
+Measured on 1 November 2026 on an Apple M4 Mac mini (10 cores, 16 GB, macOS 27.0.1), with the servers, Postgres 17 (default settings, `fsync` on), NATS 2.14 and the load generator all on the same machine, built as above. Each message is one `POST /api/send_message`; every connection in its channel should receive it. One hub per server reads each commit once and re-runs the queries it could change, shared between the connections that watch the same channel as the same person.
+
+| Setup                               | Clients | Channels | Messages   | Updates received | Errors | p50    | p95     | p99      |
+| ----------------------------------- | ------- | -------- | ---------- | ---------------- | ------ | ------ | ------- | -------- |
+| One server, SQLite                  | 500     | 10       | 589 (20/s) | 29,450 of 29,450 | 0      | 4.8 ms | 24.8 ms | 40.8 ms  |
+| One server, SQLite                  | 5,000   | 50       | 598 (20/s) | 59,800 of 59,800 | 0      | 3.1 ms | 20.4 ms | 110.8 ms |
+| One server, Postgres                | 500     | 10       | 599 (20/s) | 29,950 of 29,950 | 0      | 7.2 ms | 16.4 ms | 23.3 ms  |
+| One server, Postgres                | 5,000   | 50       | 601 (20/s) | 60,100 of 60,100 | 0      | 5.9 ms | 11.9 ms | 95.8 ms  |
+| Two servers, Postgres, through NATS | 500     | 10       | 601 (20/s) | 30,050 of 30,050 | 0      | 5.9 ms | 8.9 ms  | 13.8 ms  |
+| Two servers, Postgres, through NATS | 5,000   | 50       | 599 (20/s) | 59,900 of 59,900 | 0      | 5.7 ms | 23.1 ms | 41.4 ms  |
+
+The slowest updates at 5,000 connections on one server ran from 0.25 s (Postgres) to 1.25 s (SQLite), and a second SQLite run's p99 was 220 ms, so the tail moves between runs; the medians don't. Before the single hub, each connection read the change log after every commit on its own, and the same 5,000 connections on SQLite took p50 1.16 s and p99 2.32 s. With two servers, the second takes every commit from the relay's stream and holds no connection to the database for it.
 
 ## Tests
 
@@ -129,7 +143,6 @@ cargo test -p huddle_api  # the summarizer
 - **Signing out everywhere doesn't close the person's sockets.** The live connection follows sign-in and sign-out on its own device (the auth client re-authenticates it, so nothing reloads), but the server doesn't yet end other devices' sockets when their session is revoked. Huddle records it on the person's own `users` row, which their `my_session` query watches, and the app signs out when it changes. Their HTTP calls are refused at once either way.
 - **Presence through `LiveClient::join`.** `use_channel` joins with the default presence, so Huddle joins through the live client itself to give each avatar a name.
 - **Mutations go over HTTP.** The client's hooks call mutations with `POST /api/<name>`, so read-your-writes is the app's own: each pending message carries a key the sender made, and the screen keeps its grey copy until the live list has that key.
-- **One feed per connection.** See the load numbers above.
 - **History is a page.** `messages` takes `before` for older pages, but the screen shows the latest fifty; `use_live_paginated` isn't built yet.
 - **`leptoskit generate deploy` refuses client-rendered apps,** even with a server of their own, so `deploy/` was generated with `render` set to `ssr`, which writes the same files, and adapted for this repository.
 - **Only web, macOS, and iOS.** The same guest would run on Android, Windows, and Linux, but their hosts aren't set up here. The browser client and the guest are linted for wasm in CI. The macOS app has been built with `leptoskit build --platform macos` and opened against a local server, where it connected over HTTP and the live socket; signing in on it, and the iOS build, haven't been driven yet.

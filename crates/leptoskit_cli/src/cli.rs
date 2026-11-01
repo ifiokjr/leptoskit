@@ -459,14 +459,23 @@ pub enum GenerateCommand {
 	/// Everything they need comes from leptoskit.toml and Cargo.toml, and
 	/// they're yours to edit. Running it again changes nothing, and keeps a
 	/// file you've edited unless you pass --force.
-	Deploy {
-		/// Where the server runs.
-		#[arg(long, value_enum)]
-		target: crate::deploy::Target,
-		/// Replace files that differ from the templates.
-		#[arg(long)]
-		force: bool,
-	},
+	Deploy(DeployArgs),
+}
+
+/// What `leptoskit generate deploy` writes.
+#[derive(Debug, clap::Args)]
+pub struct DeployArgs {
+	/// Where the server runs.
+	#[arg(long, value_enum)]
+	pub target: crate::deploy::Target,
+	/// Replace files that differ from the templates.
+	#[arg(long)]
+	pub force: bool,
+	/// Kubernetes, on Postgres: run each role (web, live, worker, capture)
+	/// as its own Deployment of the same image, rather than one Deployment
+	/// running them all.
+	#[arg(long)]
+	pub split_roles: bool,
 }
 
 /// Code push subcommands.
@@ -685,7 +694,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 				GenerateCommand::ToolPlugin { path, name } => {
 					generate::tool_plugin(&path, name.as_deref())
 				}
-				GenerateCommand::Deploy { target, force } => crate::deploy::run(target, force),
+				GenerateCommand::Deploy(args) => crate::deploy::run(&args),
 			}
 		}
 		Command::New {

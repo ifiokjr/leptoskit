@@ -112,6 +112,8 @@ mod time;
 #[cfg(feature = "server")]
 mod tracked;
 
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod replicas;
 pub mod validate;
 #[cfg(feature = "server")]
 mod value;
@@ -392,6 +394,8 @@ pub use polymorphic::Variants;
 pub use query::Query;
 #[cfg(feature = "server")]
 pub use query::Update;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use replicas::ReplicaStats;
 pub use scalars::Email;
 pub use scalars::Slug;
 pub use scalars::Url;

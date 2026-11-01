@@ -106,6 +106,9 @@ rpc-axum = ["rpc-ssr", "leptoskit_rpc/axum"]
 ## Live queries over a WebSocket: `leptoskit::rpc::Live` on the server and
 ## `leptoskit::rpc::use_live` in the app. Needs a database driver too.
 rpc-live = ["rpc", "leptoskit_rpc/live"]
+## The live relay over NATS JetStream, for live queries and channels across
+## several servers: `leptoskit::rpc::server::Relay`.
+rpc-relay = ["rpc-live", "leptoskit_rpc/relay"]
 table = ["dep:leptoskit_table"]
 # A native Wasm guest: the host reports the time to the query cache, and
 # nothing browser-only is linked.

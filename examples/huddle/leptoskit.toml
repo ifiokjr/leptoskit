@@ -55,6 +55,9 @@ crate = "huddle_db"
 features = ["server"]
 migrations = "migrations"
 url_env = "DATABASE_URL"
+# On Postgres, live queries re-run on a read replica once it has replayed
+# the commit that changed them, when DATABASE_REPLICA_URL names one.
+replica_url_envs = ["DATABASE_REPLICA_URL"]
 
 # Sign-in with emailed codes, and `POST /auth/dev/sign-in` in debug builds.
 # `AUTH_ENCRYPTION_KEYS` holds the keys; a debug build without it uses a
@@ -62,6 +65,11 @@ url_env = "DATABASE_URL"
 [auth]
 app_name = "Huddle"
 keys_env = "AUTH_ENCRYPTION_KEYS"
+
+# With NATS_URL set, the servers take commits from the live relay rather
+# than each reading the database, and share channels through it.
+[rpc.live]
+relay_url_env = "NATS_URL"
 
 [rpc.jobs]
 workers = 4

@@ -172,7 +172,7 @@ spec:
       targetPort: 3000
 ---
 apiVersion: policy/v1
-kind: `PodDisruptionBudget`
+kind: PodDisruptionBudget
 metadata:
   name: notes
 spec:

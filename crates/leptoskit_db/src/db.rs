@@ -29,6 +29,13 @@ pub struct Db {
 	/// Whether every statement runs in a transaction that tells Postgres
 	/// who is asking, for its row-level security policies.
 	row_security: bool,
+	/// How big each pool is, which read replicas' pools copy.
+	#[cfg(feature = "postgres")]
+	options: PoolOptions,
+	/// The read replicas, shared by every handle.
+	pub(crate) replicas: Arc<crate::replicas::Replicas>,
+	/// The replica this handle reads from, if it reads from one.
+	pub(crate) replica: Option<Arc<crate::replicas::Replica>>,
 }
 
 enum Pool {
@@ -61,6 +68,10 @@ impl Db {
 			live,
 			access: Access::default(),
 			row_security: false,
+			#[cfg(feature = "postgres")]
+			options,
+			replicas: Arc::default(),
+			replica: None,
 		})
 	}
 
@@ -109,10 +120,8 @@ impl Db {
 	#[must_use]
 	pub fn with_context(&self, cx: Context) -> Self {
 		Self {
-			pool: Arc::clone(&self.pool),
-			live: Arc::clone(&self.live),
 			access: Access::Context(cx),
-			row_security: self.row_security,
+			..self.clone()
 		}
 	}
 
@@ -123,13 +132,11 @@ impl Db {
 	#[must_use]
 	pub fn system(&self, reason: &'static str) -> Self {
 		Self {
-			pool: Arc::clone(&self.pool),
-			live: Arc::clone(&self.live),
 			access: Access::System {
 				reason,
 				actor: self.access.actor(),
 			},
-			row_security: self.row_security,
+			..self.clone()
 		}
 	}
 
@@ -390,6 +397,22 @@ impl Db {
 			.collect())
 	}
 
+	/// How big the pool is.
+	#[cfg(feature = "postgres")]
+	pub(crate) fn pool_options(&self) -> PoolOptions {
+		self.options
+	}
+
+	/// The primary's Postgres pool.
+	#[cfg(feature = "postgres")]
+	pub(crate) fn postgres_pool(&self) -> Option<&crate::postgres::Pool> {
+		match &*self.pool {
+			Pool::Postgres(pool) => Some(pool),
+			#[cfg(feature = "sqlite")]
+			Pool::Sqlite(_) => None,
+		}
+	}
+
 	/// The Postgres URL the pool connects to, which the connection that
 	/// listens for live changes uses too.
 	#[cfg(feature = "postgres")]
@@ -469,6 +492,18 @@ impl Read for Db {
 	}
 
 	async fn fetch(&self, statement: Statement) -> Result<Vec<Vec<Value>>> {
+		// Only a `SELECT` goes to a replica: an insert that returns its row
+		// reads too, and a standby refuses it.
+		if let Some(replica) = &self.replica
+			&& crate::replicas::reads_only(&statement.sql)
+		{
+			#[cfg(feature = "postgres")]
+			let settings = self.row_settings()?;
+			#[cfg(not(feature = "postgres"))]
+			let settings = None;
+			return replica.fetch(settings, statement).await;
+		}
+
 		match &*self.pool {
 			#[cfg(feature = "postgres")]
 			Pool::Postgres(pool) => {

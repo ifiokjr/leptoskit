@@ -21,7 +21,7 @@ ssr = ["snapshotted_app/web", "snapshotted_app/ssr", "leptoskit/ssr"]
 snapshotted_app = { path = "snapshotted_app", default-features = false }
 snapshotted_backend = { path = "snapshotted_backend" }
 snapshotted_db = { path = "snapshotted_db", features = ["server"] }
-leptoskit = { version = "=[version]", default-features = false, features = ["server", "db-sqlite"] }
+leptoskit = { version = "=[version]", default-features = false, features = ["server", "db-sqlite", "rpc"] }
 
 [profile.release]
 lto = "thin"

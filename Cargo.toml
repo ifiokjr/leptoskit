@@ -64,6 +64,7 @@ anstyle = "1"
 any_spawner = "0.3"
 anyhow = "1"
 arborium = { version = "2.18", default-features = false }
+async-nats = { version = "0.51", default-features = false, features = ["jetstream", "kv", "ring", "server_2_10"] }
 axum = "0.8"
 base64 = "0.22"
 blocking = "1.6"
