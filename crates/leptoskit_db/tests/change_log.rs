@@ -249,6 +249,26 @@ async fn one_version_per_commit_and_a_rollback_leaves_none() {
 }
 
 #[tokio::test]
+async fn a_commit_reports_the_version_it_took() {
+	on_both(async |db| {
+		note("first").insert(&db).await.unwrap();
+
+		let tx = db.begin().await.unwrap();
+		note("second").insert(&tx).await.unwrap();
+		let version = tx.commit_version().await.unwrap();
+		assert_eq!(version, Some(db.live_version().await.unwrap()));
+		assert_eq!(version, Some(2));
+
+		// A transaction that writes no live table takes no version.
+		let tx = db.begin().await.unwrap();
+		let version = tx.commit_version().await.unwrap();
+		assert_eq!(version, None);
+		assert_eq!(db.live_version().await.unwrap(), 2);
+	})
+	.await;
+}
+
+#[tokio::test]
 async fn a_transaction_records_its_actor_and_origin() {
 	on_both(async |db| {
 		let actor = uuid::Uuid::now_v7();

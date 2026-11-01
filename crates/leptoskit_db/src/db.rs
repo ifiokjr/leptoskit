@@ -534,6 +534,32 @@ impl Tx {
 					.unwrap_or_else(std::sync::PoisonError::into_inner);
 				tx.commit(self.access.actor().map(|actor| actor.uuid()), origin)
 					.await
+					.map(drop)
+			}
+		}
+	}
+
+	/// [`Tx::commit`], returning the change log version the commit took:
+	/// the version a live subscriber has to reach to see this
+	/// transaction's writes. `None` when it wrote no live table.
+	///
+	/// ```ignore
+	/// let tx = db.begin().await?;
+	/// NewMessage { body }.insert(&tx).await?;
+	/// let version = tx.commit_version().await?; // Some(42)
+	/// ```
+	pub async fn commit_version(self) -> Result<Option<i64>> {
+		match self.inner {
+			#[cfg(feature = "postgres")]
+			TxInner::Postgres(tx) => tx.commit_version().await,
+			#[cfg(feature = "sqlite")]
+			TxInner::Sqlite(tx) => {
+				let origin = self
+					.origin
+					.into_inner()
+					.unwrap_or_else(std::sync::PoisonError::into_inner);
+				tx.commit(self.access.actor().map(|actor| actor.uuid()), origin)
+					.await
 			}
 		}
 	}

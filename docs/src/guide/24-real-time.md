@@ -63,6 +63,13 @@ let app = Router::new()
 
 `GET /live` is a WebSocket, speaking the `leptoskit.live.v1.json` subprotocol. Browsers authenticate with the session cookie that rides the upgrade request; the `Origin` check refuses a page from another site. Native apps, which can't set headers on a socket, send `auth { token }` as their first frame and are identified by the same `Identify` implementation the HTTP routes use.
 
+The same router also serves the connection over plain HTTP, for networks that won't pass a WebSocket, such as some corporate proxies:
+
+- `GET /live/events` streams the server's messages as server-sent events.
+- `POST /live/frames?connection=…` takes the client's messages, a JSON array at a time.
+
+Both are checked like the socket: the session cookie and the `Origin` check, or a bearer token in an `auth` message. A post must come from the same caller as the stream it names. You don't call these yourself: the browser client switches to them on its own (see [Reconnecting](#reconnecting)), and the server runs the same session behind either, so every query, mutation, action and channel works the same way.
+
 ## Watch from a screen
 
 Call `use_live` where you would call `use_rpc_query`:
@@ -90,7 +97,14 @@ On a platform with no socket — a server render, or a build without the `web` o
 
 ## What arrives
 
-Each query records the tables, rows, and conditions it read. When a commit arrives, the server checks those read sets against the changed rows and re-runs only the queries the write could change; a condition the matcher can't decide re-runs rather than risks a stale screen. Only results that changed are sent. Two shapes:
+Each query records the tables, rows, and conditions it read. When a commit arrives, the server checks those read sets against the changed rows and re-runs only the queries the write could change; a condition the matcher can't decide re-runs rather than risks a stale screen. Only results that changed are sent.
+
+The server does that work once, not once per screen:
+
+- **One reader per server.** Each server reads every commit from the database once, however many people are connected, and hands it to every connection that cares.
+- **Shared re-runs.** When many connections watch the same query with the same arguments as the same caller, such as a dashboard open in several tabs, the server re-runs it once per commit and sends each of them the same change. Anonymous visitors with no session share too. Different people never share, because their policies may let them see different rows.
+
+Two shapes of change:
 
 - **A list of rows with an `id`** travels as a patch: the ids removed, and the rows inserted or replaced, with their positions. A 2,000-message channel's update stays about one message's size.
 - **Everything else** travels whole.
@@ -99,11 +113,38 @@ Each transition carries the version it reaches. The client applies a whole trans
 
 If a connection falls behind, the server drops intermediate transitions and sends the current state as whole values. The client is never left applying a patch to a result it didn't have; it either has the row or receives the whole list again.
 
+## Your own writes
+
+When someone sends a message, the message should be on their screen the moment the send button stops spinning, not a beat later. Run the mutation with `use_live_mutation` instead of `use_mutation`:
+
+```rust
+use leptoskit::rpc::use_live_mutation;
+
+let send = use_live_mutation::<SendMessage>();
+send.mutate(SendMessage { channel, body });
+```
+
+It goes over the same connection as the live queries, and it resolves only once that connection has received the update that includes the new message. By the time `is_pending()` turns false or `on_success` runs, `use_live(move || Messages { … })` already shows it. Here is how:
+
+- Every commit to a live table gets the next number in the database's change log, its _version_.
+- The mutation's answer carries the version its own commit got.
+- Every update the server sends says which version it brings the screen to, and the client holds the answer until it has applied one at or past it.
+
+A mutation that changes nothing the screen is watching still resolves promptly: the server tells the connection it has reached that version with an empty update. A mutation that fails resolves at once, with its error.
+
+Actions work the same way with `use_live_action`: an action that runs mutations resolves once their writes are on screen. An action is never sent twice, so if the connection drops before it answers, it fails with a network error rather than risking running again.
+
+Without a live connection, such as while the server renders, both are the ordinary call over HTTP.
+
 ## Reconnecting
 
-The socket reconnects with exponential backoff and full jitter, from 250 ms to 30 seconds. On reconnect it sends every subscription again and re-sends pending mutations with the same request id — the receipts behind `#[rpc::mutation]` make a re-send run once.
+The connection reconnects with exponential backoff and full jitter, from 250 ms to 30 seconds. It **resumes** rather than starting over: it tells the server the version it had reached and the queries it holds, and the server sends one update with only the results that changed while it was away. A phone that drops off the network for a few seconds gets back a few rows, not every list on every screen.
 
-A deployment can drain its sockets: call `live.drain()` on `SIGTERM` and every connection receives `reconnect { after_ms }` with jitter, so the new instances don't all get the same reconnect storm.
+The server keeps the change log for a while, then prunes it (`Db::prune_changes`). A client that was away longer than that gets every result again, which is always correct, just bigger. Pending mutations are re-sent with the same request id — the receipts behind `#[rpc::mutation]` make a re-send run once.
+
+In the browser, if the WebSocket fails to connect twice in a row, the client switches to server-sent events and HTTP posts for the rest of the page's life. Nothing in the app changes: the same hooks, the same updates, the same resume. Native apps always use the WebSocket, through the WebSocket plugin, because their HTTP plugin can't stream a response.
+
+A deployment can drain its connections: call `live.drain()` on `SIGTERM` and every connection receives `reconnect { after_ms }` with jitter, so the new instances don't all get the same reconnect storm. Because clients resume, a deploy costs each one only what changed during the restart.
 
 ## Limits
 
@@ -119,8 +160,9 @@ A slow connection doesn't cost the server memory without bound: `OUTGOING` trans
 
 The database capture, the invalidation feed, and the policy check are described in [The database](22-database.md). The socket adds:
 
-- `Live::new(db).identify(auth).origin(…)`, serving `GET /live` (`leptoskit_rpc`, feature `live`; `rpc-live` through the `leptoskit` crate).
-- `rpc::use_live::<Query>(args)`, available with the `web` or `guest` feature.
+- `Live::new(db).identify(auth).origin(…)`, serving `GET /live`, `GET /live/events` and `POST /live/frames` (`leptoskit_rpc`, feature `live`; `rpc-live` through the `leptoskit` crate).
+- `rpc::use_live::<Query>(args)`, `rpc::use_live_mutation::<Mutation>()` and `rpc::use_live_action::<Action>()`, available with the `web` or `guest` feature.
+- `Live::stats()`, for metrics: connections, subscriptions, re-runs, commits read, transitions sent and resumes.
 - `leptoskit_query`'s cache, unchanged, so every screen and devtools see the updates.
 
 ## The live spec

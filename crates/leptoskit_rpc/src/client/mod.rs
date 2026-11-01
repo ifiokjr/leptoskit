@@ -65,8 +65,11 @@ mod tests;
 pub use live::ChannelEvent;
 pub use live::ChannelHandle;
 pub use live::LiveClient;
+pub use live::live_mutation_scope;
 pub use live::use_channel;
 pub use live::use_live;
+pub use live::use_live_action;
+pub use live::use_live_mutation;
 pub use protocol::Credentials;
 
 /// Where the client finds the server, and how this device proves who it
