@@ -105,7 +105,6 @@ dependencies = [
  "arena_bridge",
  "arena_clock",
  "arena_shared",
- "futures",
  "js-sys",
  "leptos",
  "leptoskit",
@@ -2867,6 +2866,7 @@ dependencies = [
 name = "leptoskit_native"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "leptos",
  "leptoskit_devtools_protocol",
  "leptoskit_rive",

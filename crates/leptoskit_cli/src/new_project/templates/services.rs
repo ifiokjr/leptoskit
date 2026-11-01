@@ -1,14 +1,26 @@
 //! Application state and services shared by all destinations.
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicI32;
-use std::sync::atomic::Ordering;
 
-/// Shared counter state; each host decides how to schedule its next render.
-#[derive(Clone, Default)]
+use leptoskit::prelude::Get;
+use leptoskit::prelude::RwSignal;
+use leptoskit::prelude::Set;
+
+/// Shared counter state. The count is a signal, so the label that reads it
+/// updates in place; `on_change` is how the browser asks leptos to render.
+#[derive(Clone)]
 pub struct Counter {
-	value: Arc<AtomicI32>,
+	value: RwSignal<i32>,
 	on_change: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+impl Default for Counter {
+	fn default() -> Self {
+		Self {
+			value: RwSignal::new(0),
+			on_change: None,
+		}
+	}
 }
 
 impl Counter {
@@ -20,18 +32,19 @@ impl Counter {
 		self
 	}
 
+	/// The signal the label binds to. Cloning it does not copy the count.
+	pub fn signal(&self) -> RwSignal<i32> {
+		self.value
+	}
+
 	/// Reads the current value for a render.
 	pub fn value(&self) -> i32 {
-		self.value.load(Ordering::Relaxed)
+		self.value.get()
 	}
 
 	/// Applies the same counter behavior on every platform.
 	pub fn increment(&self) {
-		let _ = self
-			.value
-			.try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-				Some(value.saturating_add(1))
-			});
+		self.value.set(self.value.get().saturating_add(1));
 
 		if let Some(notify) = &self.on_change {
 			notify();

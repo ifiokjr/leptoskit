@@ -93,8 +93,9 @@ pub fn start() {
 	leptos::mount::mount_to_body(App);
 }
 
-/// The native runtime has no async executor of its own, so the app keeps
-/// one: tasks such as sign-in requests run each time the host polls.
+/// Sign-in requests run on an executor the query client can spawn onto. The
+/// runtime keeps its own executor for application tasks; this one exists so
+/// requests the client starts itself have somewhere to run.
 #[cfg(all(target_arch = "wasm32", feature = "native"))]
 mod tasks {
 	use std::cell::RefCell;
@@ -131,10 +132,13 @@ mod tasks {
 		let _ = any_spawner::Executor::init_local_custom_executor(Pool);
 	}
 
-	/// Runs every task that can make progress, then renders what changed.
+	/// Runs every task that can make progress, then settles what it wrote.
+	///
+	/// The sign-in screen reads the session, so a session that changed
+	/// rebuilds the view. A bound value, such as the counter, does not.
 	pub fn poll() {
 		POOL.with_borrow_mut(LocalPool::run_until_stalled);
-		leptoskit::guest::render();
+		leptoskit::guest::flush();
 	}
 }
 

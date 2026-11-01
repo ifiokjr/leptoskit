@@ -22,9 +22,11 @@
 //! assert_eq!(row.children.len(), 3);
 //! ```
 //!
-//! Screens are rebuilt whenever their state changes, so a closure child is
-//! called once per build. Reading a leptos signal inside it is tracked by the
-//! reactive closure that rebuilds the screen.
+//! A closure child is called when the view is built. On the web, a leptos
+//! signal it reads is tracked by the closure that renders the screen. On the
+//! native guest, a list or a condition belongs in `For` or `Show`, which
+//! rebuild their own children, and a value belongs in a binding such as
+//! `Text(move || …)`.
 
 use std::borrow::Cow;
 

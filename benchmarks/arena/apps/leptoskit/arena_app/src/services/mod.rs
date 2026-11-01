@@ -93,7 +93,10 @@ pub enum Screen {
 	/// `cold`: twenty text rows.
 	Ready,
 	/// `mount`: the cards in a non-virtualised scroll view.
-	Cards(Vec<Card>),
+	///
+	/// A signal, so creating or clearing the list updates the `For` that
+	/// renders it and leaves the rest of the screen alone.
+	Cards(RwSignal<Vec<Card>>),
 	/// `echo`: a status line, untouched while calls are timed.
 	Echo(String),
 	/// `ticker`: the 300 tiles, showing `frame + i`.

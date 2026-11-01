@@ -5188,6 +5188,7 @@ version = "0.1.0"
 dependencies = [
  "divan",
  "flate2",
+ "futures",
  "insta",
  "js-sys",
  "leptos",

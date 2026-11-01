@@ -5,6 +5,8 @@ mod echo;
 mod scroll;
 
 use leptoskit::prelude::Element;
+use leptoskit::prelude::Get;
+use leptoskit::prelude::RwSignal;
 use leptoskit::prelude::Set;
 
 use crate::host::Frame;
@@ -113,7 +115,7 @@ async fn mount(host: Host, arena: &Arena) -> Result<Report, String> {
 	let mut update = Vec::new();
 	let mut clear = Vec::new();
 
-	arena.update(|model| model.screen = Screen::Cards(Vec::new()));
+	arena.update(|model| model.screen = Screen::Cards(RwSignal::new(Vec::new())));
 	host.next_frame().await?;
 
 	for _ in 0..MOUNT_ROUNDS {
@@ -184,16 +186,20 @@ async fn step(
 
 	let start = host.now_ms().await?;
 	{
-		let mut model = arena.read();
-		model.phase.set(Phase::Done);
-
-		let Screen::Cards(cards) = &mut model.screen else {
-			return Err("mount lost its cards".to_owned());
+		let cards = match &arena.read().screen {
+			Screen::Cards(cards) => *cards,
+			_ => return Err("mount lost its cards".to_owned()),
 		};
-		update(cards);
-	}
-	if matches!(change, Change::Tree) {
-		arena.render();
+		arena.read().phase.set(Phase::Done);
+		// Marking writes each card's own signal, so the bound titles follow
+		// and the list is not replaced. Creating or clearing replaces the
+		// list, which is the signal `For` reads.
+		let mut current = cards.get();
+		update(&mut current);
+
+		if matches!(change, Change::Tree) {
+			cards.set(current);
+		}
 	}
 	host.next_frame().await?;
 	let elapsed = host.now_ms().await? - start;
@@ -217,7 +223,13 @@ async fn step(
 /// titles.
 fn check_cards(arena: &Arena) -> Result<(), String> {
 	let expected = match &arena.read().screen {
-		Screen::Cards(cards) => cards.iter().map(routes::cards::title).collect::<Vec<_>>(),
+		Screen::Cards(cards) => {
+			cards
+				.get()
+				.iter()
+				.map(routes::cards::title)
+				.collect::<Vec<_>>()
+		}
 		_ => return Err("mount lost its cards".to_owned()),
 	};
 	let titles: Vec<String> = texts(&routes::screen(arena))

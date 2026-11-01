@@ -28,7 +28,7 @@ pub fn screen(arena: &Arena) -> Element {
 				.class("px-4")
 				.children((1..=READY_ROWS).map(|row| Text(format!("Row {row}"))))
 		}
-		Screen::Cards(cards) => ScrollView().class("flex-1").child(cards::CardList(cards)),
+		Screen::Cards(cards) => ScrollView().class("flex-1").child(cards::CardList(*cards)),
 		Screen::Echo(status) => View().class("px-4").child(Text(status.clone())),
 		Screen::Ticker(frame) => ticker::TickerGrid(*frame),
 		Screen::Feed(state) => feed::FeedList(arena, state),

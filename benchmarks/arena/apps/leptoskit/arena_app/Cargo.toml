@@ -22,7 +22,6 @@ native = [
 	"dep:leptoskit_bridge",
 	"arena_bridge/guest",
 	"arena_clock/guest",
-	"dep:futures",
 ]
 ios = ["native", "leptoskit/ios"]
 android = ["native", "leptoskit/android"]
@@ -37,7 +36,6 @@ ssr = ["web", "leptos/ssr"]
 arena_bridge = { path = "../plugins/arena_bridge" }
 arena_clock = { path = "../plugins/arena_clock" }
 arena_shared = { path = "../arena_shared" }
-futures = { version = "0.3", default-features = false, features = ["executor"], optional = true }
 js-sys = { version = "0.3", optional = true }
 leptos = { version = "0.9.0-rc0", default-features = false, optional = true }
 leptoskit = { version = "=0.1.0", default-features = false, path = "../../../../../crates/leptoskit", features = ["virtual"] }

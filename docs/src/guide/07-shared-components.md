@@ -94,7 +94,7 @@ pub fn browser_root() -> impl IntoView {
 
 `counter` is the same function used by the native surface. The web renderer creates semantic DOM controls and attaches the existing event handlers. Leptos owns DOM updates, server rendering, and hydration.
 
-Signals and the hooks in `leptoskit::hooks` (the `use` feature) also work in native apps on iOS, Android, macOS, Windows, and Linux. There is no reactive closure there: the app's Wasm runtime calls the view you pass to `leptoskit::guest::mount` again after every event, and the view reads each signal's current value. When state changes outside an event, such as in a plugin reply, call `leptoskit::guest::render()` afterwards. `leptoskit::prelude` carries the signal type and the `Get` and `Set` traits. A hook you scope yourself also needs an owner: add `reactive_graph = "0.3.0-rc0"` for `reactive_graph::owner::Owner`:
+Signals and the hooks in `leptoskit::hooks` (the `use` feature) also work in native apps on iOS, Android, macOS, Windows, and Linux. The view you pass to `leptoskit::guest::mount` runs again when it reads a signal that later changes. A value you bind, and a list or a condition you put in `For` or `Show`, updates on its own: writing the signal is enough, including from an event handler, and you do not call `leptoskit::guest::render()` afterwards. `leptoskit::prelude` carries the signal type, `For`, `Show`, and the `Get` and `Set` traits. A hook you scope yourself also needs an owner: add `reactive_graph = "0.3.0-rc0"` for `reactive_graph::owner::Owner`:
 
 ```rust
 use leptoskit::hooks::use_toggle;
@@ -127,11 +127,31 @@ View()
 	.child(Text("A row that does not change"));
 ```
 
-`Text` takes a string or a closure. A closure is a binding: `Text` reads it while it builds the element, so the first frame is right, and the native host then reads it again after every turn — the poll that runs your tasks, and the render after an event. Writing `count.set(…)` is the whole change; nothing else to call, and the same code works on every platform. `background`, and the other value props that take a closure, do the same.
+`Text` takes a string or a closure. A closure is a binding: `Text` reads it while it builds the element, so the first frame is right, and the native host then reads it again after every turn — a press, the poll that runs your tasks, a plugin reply. Writing `count.set(…)` is the whole change; nothing else to call, and the same code works on every platform. `background`, and the other value props that take a closure, do the same.
 
-Only the nodes that read application state are visited, and only the ones whose value differs are sent, so a screen that changes a hundred rows out of a thousand pays for a hundred.
+Only the nodes that read application state are visited, and only the ones whose value differs are sent, so a screen that changes a hundred rows out of a thousand pays for a hundred. A press that writes one of those signals does not rebuild the screen around them.
 
-Events are the exception to the saving: after every event the guest renders the view again, so a press that writes a signal rebuilds the screen even when the value is bound. Bindings pay off for changes that arrive outside an event.
+A list or a condition is the same idea for structure. `For` rebuilds its own rows when the collection changes, and `Show` swaps its child when the condition changes. The header above either one stays where it was:
+
+```rust
+use leptoskit::prelude::*;
+
+let items = RwSignal::new(vec!["Ada".to_owned(), "Grace".to_owned()]);
+let show_count = RwSignal::new(true);
+
+View().children([
+    Show(move || show_count.get(), || Text("People")),
+    For(
+        move || items.get(),
+        |name| name.clone(),
+        |name| Text(name),
+    ),
+])
+```
+
+`items.set(…)` replaces the rows. `show_count.set(false)` removes the heading. A press handler can do either, and the view function does not run again to make it so.
+
+The view function runs again when it reads a signal. `let n = count.get();` in the body rebuilds the screen, which is how a value chooses the shape of the tree, and it is the slow way to change a label. A read inside `Text`, `For`, or `Show` stays with that piece. A screen that stores its state in a plain value still rebuilds after a press, because that is how the new value reaches the screen.
 
 Keep a signal in application state rather than creating one inside a view function: a signal lives as long as the guest, so one created on every render is never freed.
 
@@ -139,7 +159,7 @@ On the web the same tree shows the value read at build time, and leptos re-runs 
 
 ## Animate from app code
 
-Some screens change on every frame: a counter that ticks, a progress value, or a list your code scrolls. A timer drifts against the display, so updates land between frames and the motion stutters. Wait for the display instead. `leptoskit::guest::next_frame` resolves once per display frame, like `requestAnimationFrame` in a browser, and whatever you render before awaiting it again reaches the screen on the next frame:
+Some screens change on every frame: a counter that ticks, a progress value, or a list your code scrolls. A timer drifts against the display, so updates land between frames and the motion stutters. Wait for the display instead. `leptoskit::guest::next_frame` resolves once per display frame, like `requestAnimationFrame` in a browser, and a signal you write before awaiting it again reaches the screen on the next frame. The counter's label is a binding, so the write is the whole update:
 
 ```rust
 use leptoskit::guest::next_frame;
@@ -151,7 +171,6 @@ async fn count_frames(counter: Counter, frames: u32) -> Result<(), leptoskit::gu
 	for _ in 0..frames {
 		next_frame().await?;
 		counter.increment();
-		leptoskit::guest::render();
 	}
 
 	Ok(())
