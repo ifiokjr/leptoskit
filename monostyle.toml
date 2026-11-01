@@ -1,0 +1,18 @@
+# The repository's monostyle bar.
+#
+# A score is only meaningful against a stated threshold. These limits sit a
+# little above monostyle's defaults because native platform hosts and
+# proc-macro parsers are branch-heavy by nature, and every one still rejects
+# units that are genuinely hard to follow. The tree is held to 80 readability
+# and complexity, and `devenv.nix` separately to 100.
+#
+# `lint:monostyle` runs the whole tree with `--fail-under 80`. Raise these
+# values as the worst units are split rather than letting a change lower the
+# floor.
+
+[rules]
+max-cognitive-per-unit = 20
+max-cyclomatic-per-unit = 12
+max-npath-per-unit = 2048
+max-unit-lines = 100
+min-maintainability = 35.0

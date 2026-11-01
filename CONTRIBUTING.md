@@ -17,7 +17,7 @@ devenv shell fix:all       # autofix everything fixable
 | ---------------------- | ------------------------------------------------------------------------------ |
 | `lint:clippy`          | clippy on this machine's target, failing on any warning, cargo's own included. |
 | `lint:clippy:wasm`     | clippy for the browser and guest code, which only compiles for wasm.           |
-| `lint:monostyle`       | Holds `devenv.nix` to monostyle's 100 readability and complexity scores.       |
+| `lint:monostyle`       | Holds the tree to monostyle's 80 floor and `devenv.nix` to 100.                |
 | `test:browser`         | Runs the `leptoskit_testing_library` suite in Chrome.                          |
 | `coverage:all`         | Workspace coverage, held to the coverage gate (below).                         |
 | `docs:build`           | Builds the docs site into `docs/dist`.                                         |

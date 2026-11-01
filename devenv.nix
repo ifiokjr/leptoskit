@@ -917,15 +917,17 @@ in
       description = "Lint the browser and guest code, with warnings denied.";
       binary = "bash";
     };
-    # monostyle scores this file 100 for readability and complexity, and the
-    # lint keeps it there. The rest of the tree still has findings to clear
-    # before it can be measured against the same bar.
+    # The tree is held to the thresholds in monostyle.toml, and devenv.nix to
+    # 100, so a change cannot lower either bar unnoticed.
     "lint:monostyle" = {
       exec = ''
         set -euo pipefail
-        ${xpkgs.monostyle}/bin/monostyle check devenv.nix --fail-under 100
+        root="$(git rev-parse --show-toplevel)"
+        cd "$root"
+        ${xpkgs.monostyle}/bin/monostyle check . --config monostyle.toml --fail-under 80
+        ${xpkgs.monostyle}/bin/monostyle check devenv.nix --config monostyle.toml --fail-under 100
       '';
-      description = "Hold devenv.nix to monostyle's 100 readability and complexity.";
+      description = "Hold the tree to monostyle's 80 floor and devenv.nix to 100.";
       binary = "bash";
     };
     # The examples show apps how to write leptoskit, so they pass its own
