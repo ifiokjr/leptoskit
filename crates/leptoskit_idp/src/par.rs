@@ -48,11 +48,13 @@ impl Idp {
 				"this app isn't registered for the authorization code flow",
 			));
 		}
+
 		if request.request_uri.is_some() {
 			return Err(IdpError::invalid_request(
 				"a pushed request can't name another request_uri",
 			));
 		}
+
 		if request
 			.client_id
 			.as_deref()
@@ -150,6 +152,7 @@ impl Idp {
 				.run(&self.inner.db)
 				.await?;
 		}
+
 		Ok(())
 	}
 }

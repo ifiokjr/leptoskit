@@ -123,6 +123,7 @@ mod tests {
 		assert_eq!(limited.code(), "rate_limited");
 		assert!(limited.description().contains("30 seconds"));
 		assert_eq!(limited.retry_after().unwrap().as_secs(), 30);
+
 		assert_eq!(IdpError::NotFound.retry_after(), None);
 		assert_eq!(IdpError::NotFound.description(), "that no longer exists");
 	}

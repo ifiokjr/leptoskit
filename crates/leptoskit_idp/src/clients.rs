@@ -66,11 +66,13 @@ impl Idp {
 				"a public app can't introspect tokens; give it a secret",
 			));
 		}
+
 		if spec.dpop_bound && !self.inner.dpop {
 			return Err(metadata(
 				"DPoP-bound tokens need DPoP on the server: turn on `dpop` in [auth.idp]",
 			));
 		}
+
 		if spec.id_token_alg == SigningAlgorithm::Rs256 && self.inner.rsa_key.is_none() {
 			return Err(metadata(
 				"RS256 ID tokens need an RSA key on the server; give the provider one, or use \
@@ -82,6 +84,7 @@ impl Idp {
 			ClientAuth::None | ClientAuth::PrivateKeyJwt => None,
 			ClientAuth::SecretBasic | ClientAuth::SecretPost => Some(ClientSecret::generate()?),
 		};
+
 		let client = NewClient {
 			client_id: secrets::identifier()?,
 			name,
@@ -120,21 +123,27 @@ impl Idp {
 		if name.is_empty() || name.chars().count() > 100 {
 			return Err(metadata("give the app a name of at most 100 characters"));
 		}
+
 		if grant_types.is_empty() {
 			return Err(metadata("give the app at least one grant type"));
 		}
+
 		if grant_types.contains(&GrantType::AuthorizationCode) && redirect_uris.is_empty() {
 			return Err(metadata("give the app at least one redirect URI"));
 		}
+
 		if redirect_uris.len() + post_logout_redirect_uris.len() > 20 {
 			return Err(metadata("give the app at most 20 redirect URIs"));
 		}
+
 		for uri in redirect_uris.iter().chain(post_logout_redirect_uris) {
 			check_redirect_uri(uri)?;
 		}
+
 		if scopes.is_empty() {
 			return Err(metadata("give the app at least one scope"));
 		}
+
 		for scope in scopes {
 			if !self.knows_scope(scope) {
 				return Err(metadata(format!("`{scope}` isn't a scope this app offers")));
@@ -235,9 +244,11 @@ impl Idp {
 					"authenticate one way: an assertion, or a secret, not both",
 				));
 			}
+
 			if credentials.assertion_type.as_deref() != Some(JWT_BEARER) {
 				return Err(IdpError::invalid_client());
 			}
+
 			return self
 				.authenticate_assertion(assertion, credentials.client_id.as_deref())
 				.await;
@@ -249,15 +260,18 @@ impl Idp {
 					"authenticate one way: Basic, or the body, not both",
 				));
 			}
+
 			(Some((id, secret)), body_id) => {
 				if body_id.as_ref().is_some_and(|body_id| body_id != id) {
 					return Err(IdpError::invalid_client());
 				}
+
 				(id, Some(secret), true)
 			}
 			(None, Some(id)) => (id, credentials.client_secret.as_ref(), false),
 			(None, None) => return Err(IdpError::invalid_client()),
 		};
+
 		let client = self
 			.client(client_id)
 			.await?
@@ -268,6 +282,7 @@ impl Idp {
 				_ => false,
 			}
 		};
+
 		let authenticated = match client.auth_method {
 			ClientAuth::None => secret.is_none() && !basic,
 			ClientAuth::SecretBasic => basic && secret_matches(secret),
@@ -386,6 +401,7 @@ fn parse_basic(header: &str) -> Result<(String, String)> {
 pub(crate) fn check_redirect_uri(uri: &str) -> Result<()> {
 	let url = Url::parse(uri).map_err(|_| metadata(format!("`{uri}` isn't an absolute URL")))?;
 	let loopback = matches!(url.host_str(), Some("127.0.0.1" | "[::1]" | "localhost"));
+
 	let allowed = match url.scheme() {
 		"https" => url.host_str().is_some(),
 		"http" => loopback,
@@ -396,6 +412,7 @@ pub(crate) fn check_redirect_uri(uri: &str) -> Result<()> {
 	if url.fragment().is_some() {
 		return Err(metadata(format!("`{uri}` can't have a fragment")));
 	}
+
 	if !allowed {
 		return Err(metadata(format!(
 			"`{uri}` must be https, http to this device, or a reverse-domain app scheme such as \
@@ -467,11 +484,13 @@ pub(crate) fn metadata(description: impl Into<String>) -> IdpError {
 
 pub(crate) fn dedupe<T: PartialEq>(values: Vec<T>) -> Vec<T> {
 	let mut unique: Vec<T> = Vec::with_capacity(values.len());
+
 	for value in values {
 		if !unique.contains(&value) {
 			unique.push(value);
 		}
 	}
+
 	unique
 }
 

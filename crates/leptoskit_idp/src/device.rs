@@ -67,9 +67,11 @@ impl Idp {
 		}
 
 		let scopes = split_scopes(scope.unwrap_or_default());
+
 		if scopes.is_empty() {
 			return Err(IdpError::invalid_scope("ask for at least one scope"));
 		}
+
 		if let Some(scope) = scopes
 			.iter()
 			.find(|scope| !client.scopes.contains(*scope) || !self.knows_scope(scope))
@@ -185,9 +187,11 @@ impl Idp {
 			if answered == 0 {
 				return Err(IdpError::NotFound);
 			}
+
 			if approve {
 				self.grant(&tx, me, &client, &device.scopes, info).await?;
 			}
+
 			Ok(())
 		}
 		.await;
@@ -243,8 +247,10 @@ impl Idp {
 				self.end_reused(&self.inner.db, family, device.account_id, client, info)
 					.await?;
 			}
+
 			return Err(IdpError::invalid_grant("that device code was already used"));
 		}
+
 		if device.expires_at <= now {
 			return Err(IdpError::oauth(
 				"expired_token",
@@ -256,14 +262,18 @@ impl Idp {
 			.polled_at
 			.is_some_and(|polled| (now - polled).num_seconds() < i64::from(device.interval));
 		let mut poll = DeviceCode::update().filter(|row| row.id.eq(device.id));
+
 		poll = match device.polled_at {
 			Some(polled) => poll.filter(|row| row.polled_at.eq(Some(polled))),
 			None => poll.filter(|row| row.polled_at.is_null()),
 		};
+
 		poll = poll.set(|row| row.polled_at, Some(now));
+
 		if too_soon {
 			poll = poll.set(|row| row.interval, device.interval + SLOW_DOWN);
 		}
+
 		// Two polls at once: the one that lost is too soon.
 		if poll.run(&self.inner.db).await? == 0 || too_soon {
 			return Err(IdpError::oauth(
@@ -280,6 +290,7 @@ impl Idp {
 				"nobody has entered the code yet",
 			));
 		};
+
 		if !approved {
 			return Err(IdpError::oauth("access_denied", "the person said no"));
 		}
@@ -296,6 +307,7 @@ impl Idp {
 			if used == 0 {
 				return Err(IdpError::invalid_grant("that device code was already used"));
 			}
+
 			if !usable(&tx, account).await? {
 				return Err(IdpError::invalid_grant("that account can't sign in"));
 			}

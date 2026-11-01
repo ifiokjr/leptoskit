@@ -78,6 +78,7 @@ impl Idp {
 				}
 				None => None,
 			};
+
 			builder = builder.dynamic_registration(Registration {
 				initial_access_token,
 			});

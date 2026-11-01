@@ -292,6 +292,7 @@ where
 						.map_err(|never: Infallible| never);
 					response
 				};
+
 				allow_any_origin(response.headers_mut(), preflight);
 				return Ok(response);
 			}
@@ -380,6 +381,7 @@ fn presented(headers: &HeaderMap, dpop: bool) -> Option<Presented> {
 	} else {
 		return None;
 	};
+
 	Some(Presented {
 		scheme,
 		token: token.trim().to_owned(),
@@ -392,9 +394,11 @@ fn dpop_proof(headers: &HeaderMap) -> Result<Option<&str>, IdpError> {
 	let Some(proof) = proofs.next() else {
 		return Ok(None);
 	};
+
 	if proofs.next().is_some() {
 		return Err(crate::dpop::invalid("send one `DPoP` header"));
 	}
+
 	proof
 		.to_str()
 		.map(Some)
@@ -414,6 +418,7 @@ async fn check_access(
 ) -> Result<AccessToken, Box<Response>> {
 	let scheme = presented.scheme;
 	let refuse = |code: &str| challenge(scheme, StatusCode::UNAUTHORIZED, code, None);
+
 	let access = match idp.verify_access_token(&presented.token).await {
 		Ok(Some(access)) => access,
 		Ok(None) => return Err(Box::new(refuse("invalid_token"))),
@@ -455,6 +460,7 @@ fn allow_any_origin(headers: &mut HeaderMap, preflight: bool) {
 		header::ACCESS_CONTROL_ALLOW_ORIGIN,
 		HeaderValue::from_static("*"),
 	);
+
 	if preflight {
 		headers.insert(
 			header::ACCESS_CONTROL_ALLOW_METHODS,
@@ -488,9 +494,11 @@ fn challenge(scheme: Scheme, status: StatusCode, code: &str, scope: Option<&str>
 			)
 		}
 	};
+
 	if let Some(scope) = scope {
 		let _ = write!(challenge, ", scope=\"{scope}\"");
 	}
+
 	let mut response = (
 		status,
 		Json(OAuthError {
@@ -499,11 +507,13 @@ fn challenge(scheme: Scheme, status: StatusCode, code: &str, scope: Option<&str>
 		}),
 	)
 		.into_response();
+
 	if let Ok(challenge) = HeaderValue::from_str(&challenge) {
 		response
 			.headers_mut()
 			.insert(header::WWW_AUTHENTICATE, challenge);
 	}
+
 	response
 }
 
@@ -511,14 +521,18 @@ fn challenge(scheme: Scheme, status: StatusCode, code: &str, scope: Option<&str>
 fn json_error(error: &IdpError) -> Response {
 	let status = match error {
 		IdpError::OAuth { code, .. } if *code == "invalid_client" => StatusCode::UNAUTHORIZED,
+
 		IdpError::OAuth { code, .. } if *code == "insufficient_scope" => StatusCode::FORBIDDEN,
+
 		IdpError::OAuth { code, .. } if *code == "invalid_token" => StatusCode::UNAUTHORIZED,
 		IdpError::OAuth { .. } => StatusCode::BAD_REQUEST,
 		IdpError::SignedOut => StatusCode::UNAUTHORIZED,
 		IdpError::NotFound => StatusCode::NOT_FOUND,
+
 		_ if error.retry_after().is_some() => StatusCode::TOO_MANY_REQUESTS,
 		_ => StatusCode::INTERNAL_SERVER_ERROR,
 	};
+
 	let mut response = no_store(
 		(
 			status,
@@ -529,12 +543,14 @@ fn json_error(error: &IdpError) -> Response {
 		)
 			.into_response(),
 	);
+
 	if let Some(retry_after) = error.retry_after() {
 		response.headers_mut().insert(
 			header::RETRY_AFTER,
 			HeaderValue::from(retry_after.as_secs().max(1)),
 		);
 	}
+
 	response
 }
 
@@ -584,9 +600,11 @@ fn redirect(to: &str) -> Response {
 /// this makes sure of it.
 fn person(current: Option<&CurrentSession>) -> Option<&SignedIn> {
 	let current = current?;
+
 	if current.delegation.is_some() {
 		return None;
 	}
+
 	current.signed_in.as_ref()
 }
 
@@ -606,6 +624,7 @@ where
 			"the form's parameters are malformed or repeated",
 		));
 	};
+
 	let Ok(query) = serde_urlencoded::to_string(&form) else {
 		return error_page(&IdpError::invalid_request("the form can't be read"));
 	};
@@ -623,6 +642,7 @@ async fn authorize(
 			"the sign-in link's parameters are malformed or repeated",
 		));
 	};
+
 	match idp
 		.authorize(&request, person(current.as_deref()), &info)
 		.await
@@ -649,6 +669,7 @@ async fn consent(
 	let Ok(Query(query)) = query else {
 		return json_error(&IdpError::invalid_request("request is missing"));
 	};
+
 	match idp.consent_request(me, &query.request).await {
 		Ok(request) => no_store(Json(request).into_response()),
 		Err(error) => json_error(&error),
@@ -667,6 +688,7 @@ async fn decide(
 	let Ok(Json(decision)) = decision else {
 		return malformed_json();
 	};
+
 	match idp
 		.decide(me, &decision.request, decision.approve, &info)
 		.await
@@ -692,6 +714,7 @@ async fn device(
 	let Ok(Query(query)) = query else {
 		return json_error(&IdpError::invalid_request("user_code is missing"));
 	};
+
 	match idp.device_request(me, &query.user_code).await {
 		Ok(request) => no_store(Json(request).into_response()),
 		Err(error) => json_error(&error),
@@ -710,6 +733,7 @@ async fn decide_device(
 	let Ok(Json(decision)) = decision else {
 		return malformed_json();
 	};
+
 	match idp
 		.decide_device(me, &decision.user_code, decision.approve, &info)
 		.await
@@ -728,6 +752,7 @@ async fn end_session(
 	let Ok(Query(request)) = query else {
 		return error_page(&IdpError::invalid_request("the sign-out link is malformed"));
 	};
+
 	match idp
 		.end_session(&request, person(current.as_deref()), &request_info)
 		.await
@@ -739,6 +764,7 @@ async fn end_session(
 					.headers_mut()
 					.insert(header::SET_COOKIE, idp.inner.auth.cleared_cookie());
 			}
+
 			response
 		}
 		Err(error @ IdpError::OAuth { .. }) => error_page(&error),
@@ -750,6 +776,7 @@ async fn grants(State(idp): State<Idp>, current: Option<Extension<CurrentSession
 	let Some(me) = person(current.as_deref()) else {
 		return json_error(&IdpError::SignedOut);
 	};
+
 	match idp.connected_apps(me).await {
 		Ok(apps) => no_store(Json(apps).into_response()),
 		Err(error) => json_error(&error),
@@ -768,6 +795,7 @@ async fn disconnect(
 	let Ok(Json(body)) = body else {
 		return malformed_json();
 	};
+
 	match idp.disconnect(me, &body.client_id, &info).await {
 		Ok(true) => StatusCode::NO_CONTENT.into_response(),
 		Ok(false) => StatusCode::NOT_FOUND.into_response(),
@@ -779,6 +807,7 @@ async fn my_apps(State(idp): State<Idp>, current: Option<Extension<CurrentSessio
 	let Some(me) = person(current.as_deref()) else {
 		return json_error(&IdpError::SignedOut);
 	};
+
 	match idp.my_apps(me).await {
 		Ok(apps) => no_store(Json(apps).into_response()),
 		Err(error) => json_error(&error),
@@ -797,6 +826,7 @@ async fn register_app(
 	let Ok(Json(app)) = body else {
 		return malformed_json();
 	};
+
 	match idp.register_app(me, app, &info).await {
 		Ok(registered) => no_store((StatusCode::CREATED, Json(registered)).into_response()),
 		Err(error) => json_error(&error),
@@ -815,6 +845,7 @@ async fn update_app(
 	let Ok(Json(changes)) = body else {
 		return malformed_json();
 	};
+
 	match idp.update_app(me, changes, &info).await {
 		Ok(app) => no_store(Json(app).into_response()),
 		Err(error) => json_error(&error),
@@ -833,6 +864,7 @@ async fn rotate_app_secret(
 	let Ok(Json(app)) = body else {
 		return malformed_json();
 	};
+
 	match idp.rotate_app_secret(me, &app.client_id, &info).await {
 		Ok(registered) => no_store(Json(registered).into_response()),
 		Err(error) => json_error(&error),
@@ -851,6 +883,7 @@ async fn delete_app(
 	let Ok(Json(app)) = body else {
 		return malformed_json();
 	};
+
 	match idp.delete_app(me, &app.client_id, &info).await {
 		Ok(true) => StatusCode::NO_CONTENT.into_response(),
 		Ok(false) => StatusCode::NOT_FOUND.into_response(),
@@ -895,12 +928,14 @@ fn credentials(headers: &HeaderMap, form: ClientForm) -> Result<ClientCredential
 /// Basic authentication challenges it (RFC 6749 §5.2).
 fn client_error(error: &IdpError, basic: bool) -> Response {
 	let mut response = json_error(error);
+
 	if basic && error.code() == "invalid_client" {
 		response.headers_mut().insert(
 			header::WWW_AUTHENTICATE,
 			HeaderValue::from_static("Basic realm=\"oauth\""),
 		);
 	}
+
 	response
 }
 
@@ -936,6 +971,7 @@ async fn token(
 			Ok(proof) => proof,
 			Err(error) => return json_error(&error),
 		};
+
 		if let Some(proof) = proof {
 			let url = idp.url_of("/oauth/token");
 			let expected = Expected {
@@ -943,6 +979,7 @@ async fn token(
 				url: &url,
 				access_token: None,
 			};
+
 			match idp.check_proof(proof, &expected).await {
 				Ok(thumbprint) => request.dpop_jkt = Some(thumbprint),
 				Err(error) => return json_error(&error),
@@ -956,10 +993,12 @@ async fn token(
 		assertion_type: request.client_assertion_type.clone(),
 		assertion: request.client_assertion.clone(),
 	};
+
 	let credentials = match credentials(&headers, client) {
 		Ok(credentials) => credentials,
 		Err(error) => return unreadable(&headers, &error),
 	};
+
 	match idp.token(&request, &credentials, &info).await {
 		Ok(tokens) => no_store(Json(tokens).into_response()),
 		Err(error) => client_error(&error, credentials.used_basic()),
@@ -971,12 +1010,15 @@ async fn userinfo(State(idp): State<Idp>, method: Method, headers: HeaderMap) ->
 		return bearer_error(StatusCode::UNAUTHORIZED, "invalid_token", None);
 	};
 	let scheme = presented.scheme;
+
 	let access = match check_access(&idp, &method, "/oauth/userinfo", &headers, presented).await {
 		Ok(access) => access,
 		Err(refused) => return *refused,
 	};
+
 	match idp.userinfo(&access).await {
 		Ok(claims) => no_store(Json(claims).into_response()),
+
 		Err(error) if error.code() == "insufficient_scope" => {
 			challenge(
 				scheme,
@@ -985,6 +1027,7 @@ async fn userinfo(State(idp): State<Idp>, method: Method, headers: HeaderMap) ->
 				Some("openid"),
 			)
 		}
+
 		Err(error) => json_error(&error),
 	}
 }
@@ -1010,13 +1053,16 @@ async fn revoke(
 	let Ok(Form(form)) = form else {
 		return malformed_form();
 	};
+
 	let credentials = match credentials(&headers, form.client) {
 		Ok(credentials) => credentials,
 		Err(error) => return unreadable(&headers, &error),
 	};
+
 	let Some(token) = form.token.filter(|token| !token.is_empty()) else {
 		return json_error(&IdpError::invalid_request("token is missing"));
 	};
+
 	match idp.revoke_token(&credentials, &token).await {
 		Ok(()) => no_store(StatusCode::OK.into_response()),
 		Err(error) => client_error(&error, credentials.used_basic()),
@@ -1031,13 +1077,16 @@ async fn introspect(
 	let Ok(Form(form)) = form else {
 		return malformed_form();
 	};
+
 	let credentials = match credentials(&headers, form.client) {
 		Ok(credentials) => credentials,
 		Err(error) => return unreadable(&headers, &error),
 	};
+
 	let Some(token) = form.token.filter(|token| !token.is_empty()) else {
 		return json_error(&IdpError::invalid_request("token is missing"));
 	};
+
 	match idp.introspect(&credentials, &token).await {
 		Ok(introspection) => no_store(Json(introspection).into_response()),
 		Err(error) => client_error(&error, credentials.used_basic()),
@@ -1072,10 +1121,12 @@ async fn par(
 		assertion_type: form.client_assertion_type,
 		assertion: form.client_assertion,
 	};
+
 	let credentials = match credentials(&headers, client) {
 		Ok(credentials) => credentials,
 		Err(error) => return unreadable(&headers, &error),
 	};
+
 	match idp.push_request(&credentials, &form.request).await {
 		Ok(pushed) => no_store((StatusCode::CREATED, Json(pushed)).into_response()),
 		Err(error) => client_error(&error, credentials.used_basic()),
@@ -1099,10 +1150,12 @@ async fn device_authorization(
 	let Ok(Form(form)) = form else {
 		return malformed_form();
 	};
+
 	let credentials = match credentials(&headers, form.client) {
 		Ok(credentials) => credentials,
 		Err(error) => return unreadable(&headers, &error),
 	};
+
 	match idp
 		.authorize_device(&credentials, form.scope.as_deref())
 		.await
@@ -1140,12 +1193,14 @@ fn registration_response(
 /// token.
 fn registration_error(error: &IdpError) -> Response {
 	let mut response = json_error(error);
+
 	if error.code() == "invalid_token" {
 		response.headers_mut().insert(
 			header::WWW_AUTHENTICATE,
 			HeaderValue::from_static("Bearer error=\"invalid_token\""),
 		);
 	}
+
 	response
 }
 
@@ -1159,6 +1214,7 @@ async fn register(
 		Ok(metadata) => metadata,
 		Err(error) => return json_error(&error),
 	};
+
 	let token = bearer(&headers);
 	registration_response(
 		idp.register_dynamically(token.as_deref(), metadata, &info)
@@ -1189,6 +1245,7 @@ async fn update_registration(
 		Ok(metadata) => metadata,
 		Err(error) => return json_error(&error),
 	};
+
 	let token = bearer(&headers);
 	registration_response(
 		idp.update_registration(&client_id, token.as_deref(), metadata)
@@ -1204,6 +1261,7 @@ async fn delete_registration(
 	headers: HeaderMap,
 ) -> Response {
 	let token = bearer(&headers);
+
 	match idp
 		.delete_registration(&client_id, token.as_deref(), &info)
 		.await
@@ -1270,6 +1328,7 @@ mod tests {
 		}));
 		assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
 		assert_eq!(limited.headers()[header::RETRY_AFTER], "9");
+
 		assert_eq!(
 			client_error(&IdpError::invalid_client(), true).headers()[header::WWW_AUTHENTICATE],
 			"Basic realm=\"oauth\""

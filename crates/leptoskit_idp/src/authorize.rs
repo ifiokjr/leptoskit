@@ -169,8 +169,10 @@ impl Idp {
 					}
 				}
 			}
+
 			_ => None,
 		};
+
 		let request = match &pushed {
 			Some((_, pushed)) => pushed,
 			None => request,
@@ -189,6 +191,7 @@ impl Idp {
 
 		// From here on, errors go back to the app.
 		let pushed_id = pushed.as_ref().map(|(id, _)| *id);
+
 		let checked = match self.check(request, client, redirect_uri.clone(), pushed_id) {
 			Ok(checked) => checked,
 			Err(error) => {
@@ -199,6 +202,7 @@ impl Idp {
 				)));
 			}
 		};
+
 		let error = |code: &'static str, description: &str| {
 			Ok(AuthorizeOutcome::Redirect(self.error_redirect(
 				&checked.redirect_uri,
@@ -211,6 +215,7 @@ impl Idp {
 			if checked.prompt == Prompt::None {
 				return error("login_required", "the person isn't signed in");
 			}
+
 			return self.sign_in_redirect(original, &checked).await;
 		};
 
@@ -222,6 +227,7 @@ impl Idp {
 			if checked.prompt == Prompt::None {
 				return error("login_required", "the person must sign in again");
 			}
+
 			return self.sign_in_redirect(original, &checked).await;
 		}
 
@@ -310,6 +316,7 @@ impl Idp {
 			}
 			.insert(tx)
 			.await?;
+
 			return Ok(self.code_redirect(&checked.redirect_uri, &code, request.state.as_deref()));
 		}
 
@@ -468,6 +475,7 @@ impl Idp {
 				if all == grant.scopes.0 {
 					return Ok(());
 				}
+
 				Grant::update()
 					.filter(|row| row.id.eq(grant.id))
 					.set(|row| row.scopes, Json(all))
@@ -530,105 +538,11 @@ impl Idp {
 		redirect_uri: String,
 		pushed: Option<Id<PushedRequest>>,
 	) -> Result<Checked> {
-		if request.request.is_some() {
-			return Err(IdpError::oauth(
-				"request_not_supported",
-				"request objects aren't supported; push the request to /oauth/par",
-			));
-		}
-		if pushed.is_none() && request.request_uri.is_some() {
-			return Err(IdpError::oauth(
-				"request_uri_not_supported",
-				"only request_uri values from /oauth/par are supported",
-			));
-		}
-		if request.response_type.as_deref() != Some("code") {
-			return Err(IdpError::oauth(
-				"unsupported_response_type",
-				"only the authorization code flow is supported: response_type=code",
-			));
-		}
-		if request
-			.response_mode
-			.as_deref()
-			.is_some_and(|mode| mode != "query")
-		{
-			return Err(IdpError::invalid_request(
-				"only response_mode=query is supported",
-			));
-		}
-
-		let code_challenge = request
-			.code_challenge
-			.clone()
-			.filter(|challenge| secrets::is_pkce_value(challenge))
-			.ok_or_else(|| IdpError::invalid_request("PKCE is required: send a code_challenge"))?;
-		if request.code_challenge_method.as_deref() != Some("S256") {
-			return Err(IdpError::invalid_request(
-				"code_challenge_method must be S256",
-			));
-		}
-
-		if [&request.state, &request.nonce]
-			.into_iter()
-			.flatten()
-			.any(|value| value.len() > MAX_ECHOED)
-		{
-			return Err(IdpError::invalid_request("state and nonce are too long"));
-		}
-
-		let mut scopes: Vec<String> = Vec::new();
-		for scope in request.scope.as_deref().unwrap_or_default().split(' ') {
-			if !scope.is_empty() && !scopes.iter().any(|known| known == scope) {
-				scopes.push(scope.to_owned());
-			}
-		}
-		if scopes.is_empty() {
-			return Err(IdpError::invalid_scope("ask for at least one scope"));
-		}
-		if let Some(scope) = scopes
-			.iter()
-			.find(|scope| !client.scopes.contains(*scope) || !self.knows_scope(scope))
-		{
-			return Err(IdpError::invalid_scope(format!(
-				"this app may not ask for `{scope}`"
-			)));
-		}
-
-		let prompts: Vec<&str> = request
-			.prompt
-			.as_deref()
-			.unwrap_or_default()
-			.split(' ')
-			.filter(|prompt| !prompt.is_empty())
-			.collect();
-		let prompt = match prompts.as_slice() {
-			[] => Prompt::Default,
-			["none"] => Prompt::None,
-			prompts if prompts.contains(&"none") => {
-				return Err(IdpError::invalid_request(
-					"prompt=none can't be combined with another prompt",
-				));
-			}
-			prompts if prompts.contains(&"login") => Prompt::Login,
-			prompts if prompts.contains(&"consent") => Prompt::Consent,
-			_ => Prompt::Default,
-		};
-		let max_age = match request.max_age.as_deref() {
-			None => None,
-			Some(value) => {
-				Some(
-					value
-						.parse::<i64>()
-						.ok()
-						.filter(|seconds| *seconds >= 0)
-						.ok_or_else(|| {
-							IdpError::invalid_request("max_age must be a number of seconds")
-						})?,
-				)
-			}
-		};
-
+		check_request_shape(request, pushed)?;
+		let code_challenge = pkce(request)?;
+		let scopes = self.checked_scopes(request, &client)?;
+		let prompt = checked_prompt(request)?;
+		let max_age = checked_max_age(request)?;
 		let claims = requested_claims(request.claims.as_deref())?;
 
 		Ok(Checked {
@@ -641,6 +555,33 @@ impl Idp {
 			claims,
 			pushed,
 		})
+	}
+
+	/// The scopes asked for, each one the app registered and this server
+	/// knows.
+	fn checked_scopes(&self, request: &AuthorizeRequest, client: &Client) -> Result<Vec<String>> {
+		let mut scopes: Vec<String> = Vec::new();
+
+		for scope in request.scope.as_deref().unwrap_or_default().split(' ') {
+			if !scope.is_empty() && !scopes.iter().any(|known| known == scope) {
+				scopes.push(scope.to_owned());
+			}
+		}
+
+		if scopes.is_empty() {
+			return Err(IdpError::invalid_scope("ask for at least one scope"));
+		}
+
+		if let Some(scope) = scopes
+			.iter()
+			.find(|scope| !client.scopes.contains(*scope) || !self.knows_scope(scope))
+		{
+			return Err(IdpError::invalid_scope(format!(
+				"this app may not ask for `{scope}`"
+			)));
+		}
+
+		Ok(scopes)
 	}
 
 	/// Your sign-in page, returning to this same request once signed in.
@@ -659,6 +600,7 @@ impl Idp {
 			if login {
 				self.settle_pushed_prompt(pushed).await?;
 			}
+
 			retry = AuthorizeRequest {
 				client_id: request.client_id.clone(),
 				request_uri: request.request_uri.clone(),
@@ -696,9 +638,11 @@ impl Idp {
 	/// The app's redirect URI with a code, `state`, and `iss` (RFC 9207).
 	fn code_redirect(&self, redirect_uri: &str, code: &str, state: Option<&str>) -> String {
 		let mut pairs = vec![("code", code)];
+
 		if let Some(state) = state {
 			pairs.push(("state", state));
 		}
+
 		pairs.push(("iss", self.inner.issuer.as_str()));
 		with_query(redirect_uri, &pairs)
 	}
@@ -715,9 +659,11 @@ impl Idp {
 			("error", error.code()),
 			("error_description", description.as_str()),
 		];
+
 		if let Some(state) = state {
 			pairs.push(("state", state));
 		}
+
 		pairs.push(("iss", self.inner.issuer.as_str()));
 		with_query(redirect_uri, &pairs)
 	}
@@ -745,6 +691,7 @@ pub(crate) fn requested_claims(claims: Option<&str>) -> Result<RequestedClaims> 
 
 	for (target, members) in object {
 		let members = members.as_object().ok_or_else(malformed)?;
+
 		for (name, request) in members {
 			let valid = match request {
 				Value::Null => true,
@@ -754,9 +701,11 @@ pub(crate) fn requested_claims(claims: Option<&str>) -> Result<RequestedClaims> 
 				}
 				_ => false,
 			};
+
 			if !valid {
 				return Err(malformed());
 			}
+
 			if target == "id_token" {
 				if name == "sub" {
 					requested.subject = request
@@ -764,6 +713,7 @@ pub(crate) fn requested_claims(claims: Option<&str>) -> Result<RequestedClaims> 
 						.and_then(Value::as_str)
 						.map(str::to_owned);
 				}
+
 				if !requested.id_token.contains(name) {
 					requested.id_token.push(name.clone());
 				}
@@ -781,6 +731,111 @@ pub(crate) fn with_query(base: &str, pairs: &[(&str, &str)]) -> String {
 		.finish();
 	let separator = if base.contains('?') { '&' } else { '?' };
 	format!("{base}{separator}{query}")
+}
+
+/// Rejects request objects, and response types other than the code flow.
+fn check_request_shape(
+	request: &AuthorizeRequest,
+	pushed: Option<Id<PushedRequest>>,
+) -> Result<()> {
+	if request.request.is_some() {
+		return Err(IdpError::oauth(
+			"request_not_supported",
+			"request objects aren't supported; push the request to /oauth/par",
+		));
+	}
+
+	if pushed.is_none() && request.request_uri.is_some() {
+		return Err(IdpError::oauth(
+			"request_uri_not_supported",
+			"only request_uri values from /oauth/par are supported",
+		));
+	}
+
+	if request.response_type.as_deref() != Some("code") {
+		return Err(IdpError::oauth(
+			"unsupported_response_type",
+			"only the authorization code flow is supported: response_type=code",
+		));
+	}
+
+	if request
+		.response_mode
+		.as_deref()
+		.is_some_and(|mode| mode != "query")
+	{
+		return Err(IdpError::invalid_request(
+			"only response_mode=query is supported",
+		));
+	}
+
+	if [&request.state, &request.nonce]
+		.into_iter()
+		.flatten()
+		.any(|value| value.len() > MAX_ECHOED)
+	{
+		return Err(IdpError::invalid_request("state and nonce are too long"));
+	}
+
+	Ok(())
+}
+
+/// The PKCE challenge, which every authorization request must carry.
+fn pkce(request: &AuthorizeRequest) -> Result<String> {
+	let code_challenge = request
+		.code_challenge
+		.clone()
+		.filter(|challenge| secrets::is_pkce_value(challenge))
+		.ok_or_else(|| IdpError::invalid_request("PKCE is required: send a code_challenge"))?;
+
+	if request.code_challenge_method.as_deref() != Some("S256") {
+		return Err(IdpError::invalid_request(
+			"code_challenge_method must be S256",
+		));
+	}
+
+	Ok(code_challenge)
+}
+
+/// The prompt the request asks for.
+fn checked_prompt(request: &AuthorizeRequest) -> Result<Prompt> {
+	let prompts: Vec<&str> = request
+		.prompt
+		.as_deref()
+		.unwrap_or_default()
+		.split(' ')
+		.filter(|prompt| !prompt.is_empty())
+		.collect();
+
+	match prompts.as_slice() {
+		[] => Ok(Prompt::Default),
+		["none"] => Ok(Prompt::None),
+
+		prompts if prompts.contains(&"none") => {
+			Err(IdpError::invalid_request(
+				"prompt=none can't be combined with another prompt",
+			))
+		}
+
+		prompts if prompts.contains(&"login") => Ok(Prompt::Login),
+
+		prompts if prompts.contains(&"consent") => Ok(Prompt::Consent),
+		_ => Ok(Prompt::Default),
+	}
+}
+
+/// `max_age`, in seconds, when the request asks for one.
+fn checked_max_age(request: &AuthorizeRequest) -> Result<Option<i64>> {
+	let Some(value) = request.max_age.as_deref() else {
+		return Ok(None);
+	};
+
+	let seconds = value
+		.parse::<i64>()
+		.ok()
+		.filter(|seconds| *seconds >= 0)
+		.ok_or_else(|| IdpError::invalid_request("max_age must be a number of seconds"))?;
+	Ok(Some(seconds))
 }
 
 #[cfg(test)]

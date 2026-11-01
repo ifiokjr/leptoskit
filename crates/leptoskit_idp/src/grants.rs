@@ -140,6 +140,7 @@ impl Idp {
 					)
 					.await?;
 			}
+
 			Ok(removed > 0)
 		}
 		.await;
@@ -175,19 +176,23 @@ impl Idp {
 			}
 			None => None,
 		};
+
 		let client_id = match (&hint, request.client_id.as_deref()) {
 			(Some(hint), Some(client_id)) if hint.client_id != client_id => {
 				return Err(IdpError::invalid_request(
 					"client_id doesn't match the ID token",
 				));
 			}
+
 			(Some(hint), _) => Some(hint.client_id.clone()),
 			(None, client_id) => client_id.map(str::to_owned),
 		};
+
 		let client = match &client_id {
 			Some(client_id) => self.client(client_id).await?,
 			None => None,
 		};
+
 		let redirect_to = match (&request.post_logout_redirect_uri, &client) {
 			(Some(uri), Some(client)) if client.post_logout_redirect_uris.contains(uri) => {
 				match &request.state {
@@ -195,6 +200,7 @@ impl Idp {
 					None => uri.clone(),
 				}
 			}
+
 			(Some(_), _) => {
 				return Err(IdpError::invalid_request(
 					"post_logout_redirect_uri isn't registered for this app",

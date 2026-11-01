@@ -69,6 +69,7 @@ fn sender(
 		if let Some(cookie) = cookie {
 			builder = builder.header(header::COOKIE, cookie);
 		}
+
 		let response = router
 			.oneshot(
 				builder
@@ -273,6 +274,7 @@ async fn the_scopes_drive_every_screen_over_the_routes() {
 		.await
 		.unwrap();
 	assert!(redirect.redirect_to.starts_with(CALLBACK), "{redirect:?}");
+
 	assert_eq!(
 		client
 			.fetch_query(&connected_apps(), ())
@@ -316,6 +318,7 @@ async fn the_scopes_drive_every_screen_over_the_routes() {
 		})
 		.await
 		.unwrap();
+
 	assert_eq!(
 		client
 			.fetch_query(&connected_apps(), ())
@@ -358,6 +361,7 @@ async fn the_scopes_drive_every_screen_over_the_routes() {
 		.await
 		.unwrap();
 	assert_ne!(rotated.secret, registered.secret);
+
 	let refused = use_mutation_in(client.clone(), register_app())
 		.mutate_async(NewApp {
 			name: String::new(),
@@ -419,9 +423,11 @@ async fn server_rendering_reads_the_requests_session() {
 		.layer(server.idp.layer());
 	let page = |cookie: Option<&str>| {
 		let mut request = Request::get("/render");
+
 		if let Some(cookie) = cookie {
 			request = request.header(header::COOKIE, cookie);
 		}
+
 		let request = request.body(Body::empty()).unwrap();
 		let rendering = rendering.clone();
 		async move {

@@ -83,9 +83,11 @@ impl App {
 		scope: Option<&str>,
 	) -> axum::response::Response {
 		let mut pairs = vec![("grant_type", "client_credentials")];
+
 		if let Some(scope) = scope {
 			pairs.push(("scope", scope));
 		}
+
 		self.post_form("/oauth/token", &pairs, Some(&basic(client_id, secret)))
 			.await
 	}
@@ -276,6 +278,7 @@ async fn a_cli_signs_in_with_a_code_entered_on_another_device() {
 				"{code}"
 			);
 		}
+
 		assert_eq!(
 			app.get("/oauth/device", Some(&cookie)).await.status(),
 			StatusCode::BAD_REQUEST
@@ -330,6 +333,7 @@ async fn the_device_flow_is_only_for_apps_registered_for_it() {
 				..spec(ClientAuth::None, &["notes:read"])
 			})
 			.await;
+
 		for scope in ["", "notes:write", "nonsense"] {
 			let response = app
 				.post_form(
@@ -344,6 +348,7 @@ async fn the_device_flow_is_only_for_apps_registered_for_it() {
 				"{scope}"
 			);
 		}
+
 		// A device app has no redirect URI, so it can't start the code flow.
 		let url = App::authorize_url(&cli, "notes:read", &[]);
 		assert_eq!(app.get(&url, None).await.status(), StatusCode::BAD_REQUEST);
@@ -359,6 +364,7 @@ async fn the_device_flow_is_only_for_apps_registered_for_it() {
 			App::error(malformed, StatusCode::BAD_REQUEST).await,
 			"invalid_request"
 		);
+
 		let unauthenticated = app
 			.post_form("/oauth/device_authorization", &[("scope", "openid")], None)
 			.await;
@@ -421,6 +427,7 @@ async fn a_server_acts_as_itself_with_client_credentials() {
 				"{scope}"
 			);
 		}
+
 		let narrowed: TokenResponse = body(
 			app.machine_token(&worker, &secret, Some("notes:read"))
 				.await,
@@ -461,6 +468,7 @@ async fn a_server_acts_as_itself_with_client_credentials() {
 			"invalid_client"
 		);
 		let fresh = app.machine_token(&worker, &new_secret, None).await;
+
 		assert_eq!(fresh.status(), StatusCode::OK);
 
 		// A public app can't act as itself, and an app not registered for it
@@ -491,6 +499,7 @@ async fn a_server_acts_as_itself_with_client_credentials() {
 			.idp
 			.run_command(&ClientCommand::RotateSecret { client_id: public })
 			.await;
+
 		assert!(matches!(output, ClientCommandOutput::Failed { .. }));
 		let output = app
 			.idp
@@ -592,6 +601,7 @@ async fn an_app_pushes_its_request_before_sending_the_browser() {
 		let exchanged = app
 			.exchange(&client_id, Some(&secret), &code, VERIFIER)
 			.await;
+
 		assert_eq!(exchanged.status(), StatusCode::OK);
 
 		// The handle worked once.
@@ -1066,6 +1076,7 @@ async fn the_claims_parameter_puts_released_claims_in_the_id_token() {
 			let cookie = cookie.clone();
 			async move {
 				let mut to = location(&app.get(&url, Some(&cookie)).await);
+
 				if to.starts_with("/consent?") {
 					let decided = app
 						.post_json(
@@ -1074,10 +1085,12 @@ async fn the_claims_parameter_puts_released_claims_in_the_id_token() {
 							Some(&cookie),
 						)
 						.await;
+
 					to = body::<leptoskit_idp::ConsentRedirect>(decided)
 						.await
 						.redirect_to;
 				}
+
 				to
 			}
 		};
@@ -1372,6 +1385,7 @@ async fn developers_register_and_manage_their_own_apps() {
 		let ended = app
 			.with_bearer("POST", "/api/list_notes", &tokens.access_token)
 			.await;
+
 		assert_eq!(ended.status(), StatusCode::UNAUTHORIZED);
 
 		// Someone else can't change, rotate or delete it.
@@ -1381,6 +1395,7 @@ async fn developers_register_and_manage_their_own_apps() {
 				.await;
 			assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
 		}
+
 		let hijack = app
 			.post_json(
 				"/oauth/apps/update",
@@ -1437,6 +1452,7 @@ async fn developers_register_and_manage_their_own_apps() {
 				Some(&developer),
 			)
 			.await;
+
 		assert_eq!(
 			App::error(no_secret, StatusCode::BAD_REQUEST).await,
 			"invalid_client_metadata"

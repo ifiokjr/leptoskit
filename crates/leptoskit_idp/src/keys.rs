@@ -55,10 +55,12 @@ impl Idp {
 			let Some(derived_from) = &key.derived_from else {
 				continue;
 			};
+
 			if let Some(private) = self.private_key(derived_from, &key.kid) {
 				// A server key replaced under the same ID would derive another
 				// key; skip it rather than sign what JWKS can't verify.
 				let (x, y) = jwt::coordinates(private.verifying_key());
+
 				if key.x.as_deref() == Some(x.as_str()) && key.y.as_deref() == Some(y.as_str()) {
 					return Ok(Signer {
 						kid: key.kid,
@@ -154,6 +156,7 @@ impl Idp {
 					.await?;
 				self.forget_cached_key(&kid);
 			}
+
 			Some(_) => {}
 			None => {
 				let inserted = NewSigningKey {

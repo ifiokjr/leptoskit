@@ -83,9 +83,11 @@ fn proof_claims(method: &str, path: &str, token: Option<&str>) -> Value {
 		"htu": format!("{ORIGIN}{path}"),
 		"iat": leptoskit_db::now().timestamp(),
 	});
+
 	if let Some(token) = token {
 		claims["ath"] = json!(URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(token.as_bytes())));
 	}
+
 	claims
 }
 
@@ -114,12 +116,15 @@ impl App {
 		let mut builder = Request::post("/oauth/token")
 			.header(header::ORIGIN, "https://partner.example")
 			.header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
+
 		if let Some(authorization) = call.authorization {
 			builder = builder.header(header::AUTHORIZATION, authorization);
 		}
+
 		for proof in call.proofs {
 			builder = builder.header("dpop", *proof);
 		}
+
 		self.send(builder.body(Body::from(form)).unwrap()).await
 	}
 
@@ -138,9 +143,11 @@ impl App {
 			.uri(path)
 			.header(header::ORIGIN, "https://partner.example")
 			.header(header::AUTHORIZATION, format!("{scheme} {token}"));
+
 		for proof in proofs {
 			builder = builder.header("dpop", *proof);
 		}
+
 		self.send(builder.body(Body::empty()).unwrap()).await
 	}
 
@@ -234,6 +241,7 @@ async fn a_public_app_binds_its_tokens_to_its_key() {
 			.call("POST", "/api/list_notes", "DPoP", access, &[])
 			.await;
 		assert_eq!(unproved.status(), StatusCode::UNAUTHORIZED);
+
 		let theirs = proof(&key(8), "POST", "/api/list_notes", Some(access));
 		let wrong_key = app
 			.call("POST", "/api/list_notes", "DPoP", access, &[&theirs])
@@ -293,6 +301,7 @@ async fn a_public_app_binds_its_tokens_to_its_key() {
 		);
 		let renewal = proof(&mine, "POST", "/oauth/token", None);
 		let renewed = app.refresh_with(&client_id, &refresh, &[&renewal]).await;
+
 		assert_eq!(renewed.status(), StatusCode::OK);
 		let renewed: TokenResponse = body(renewed).await;
 		assert_eq!(renewed.token_type, "DPoP");
@@ -348,6 +357,7 @@ async fn confidential_and_dpop_bound_apps() {
 			})
 			.await;
 		assert_eq!(response.status(), StatusCode::OK);
+
 		let tokens: TokenResponse = body(response).await;
 		assert_eq!(tokens.token_type, "DPoP");
 		let renewed = app
@@ -385,6 +395,7 @@ async fn confidential_and_dpop_bound_apps() {
 			"invalid_dpop_proof"
 		);
 		let machine_proof = proof(&mine, "POST", "/oauth/token", None);
+
 		let response = app
 			.token_with(TokenCall {
 				pairs: &[("grant_type", "client_credentials")],
@@ -452,6 +463,7 @@ async fn malformed_proofs_are_refused_at_the_token_endpoint() {
 			claims.as_object_mut().unwrap().remove(name);
 			claims
 		};
+
 		let mut private = jwk(&mine);
 		private["d"] = json!("secret");
 		let mut old = token_claims();

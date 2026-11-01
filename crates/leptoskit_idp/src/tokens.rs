@@ -251,10 +251,12 @@ impl Idp {
 				self.exchange_code(request, &client, info).await
 			}
 			Some("refresh_token") => self.exchange_refresh(request, &client, info).await,
+
 			Some(grant) if grant == GrantType::DeviceCode.as_str() => {
 				allowed(GrantType::DeviceCode)?;
 				self.exchange_device_code(request, &client, info).await
 			}
+
 			Some("client_credentials") => {
 				allowed(GrantType::ClientCredentials)?;
 				self.exchange_client_credentials(request, &client).await
@@ -269,7 +271,10 @@ impl Idp {
 			None => Err(IdpError::invalid_request("grant_type is missing")),
 		}
 	}
+}
 
+/// The authorization code grant.
+impl Idp {
 	async fn exchange_code(
 		&self,
 		request: &TokenRequest,
@@ -299,16 +304,20 @@ impl Idp {
 				)
 				.await?;
 			}
+
 			return Err(IdpError::invalid_grant("that code was already used"));
 		}
+
 		if authorization.expires_at <= leptoskit_db::now() {
 			return Err(IdpError::invalid_grant("that code has expired"));
 		}
+
 		if authorization.redirect_uri != redirect_uri {
 			return Err(IdpError::invalid_grant(
 				"redirect_uri must be the one the code was sent to",
 			));
 		}
+
 		if !secrets::pkce_matches(verifier, &authorization.code_challenge) {
 			return Err(IdpError::invalid_grant(
 				"code_verifier doesn't match the challenge",
@@ -338,6 +347,7 @@ impl Idp {
 			if used == 0 {
 				return Err(IdpError::invalid_grant("that code was already used"));
 			}
+
 			if !usable(&tx, authorization.account_id).await? {
 				return Err(IdpError::invalid_grant("that account can't sign in"));
 			}
@@ -378,7 +388,10 @@ impl Idp {
 
 		finish(tx, result).await
 	}
+}
 
+/// The refresh grant.
+impl Idp {
 	/// A new refresh-token family for `account`'s sign-in with `client`,
 	/// under their grant. A public app that sent a DPoP proof, whose key is
 	/// `dpop`, gets refresh tokens bound to that key (RFC 9449 §5): a
@@ -458,6 +471,7 @@ impl Idp {
 		}
 
 		let now = leptoskit_db::now();
+
 		if family.revoked_at.is_some() || family.expires_at <= now {
 			return Err(invalid());
 		}
@@ -471,6 +485,7 @@ impl Idp {
 						"a refresh can only ask for scopes already granted",
 					));
 				}
+
 				asked
 			}
 		};
@@ -491,8 +506,10 @@ impl Idp {
 				// Another request traded it first: one of the two is a copy.
 				self.end_reused(&tx, family.id, Some(account), client, info)
 					.await?;
+
 				return Ok(None);
 			}
+
 			if !usable(&tx, account).await? {
 				return Err(IdpError::invalid_grant("that account can't sign in"));
 			}
@@ -548,9 +565,13 @@ impl Idp {
 				)
 				.await?;
 		}
+
 		Ok(())
 	}
+}
 
+/// The tokens a grant hands out.
+impl Idp {
 	/// An access token for an app acting as itself (RFC 6749 §4.4): no
 	/// person, no refresh token, and only the app's own API scopes.
 	async fn exchange_client_credentials(
@@ -570,6 +591,7 @@ impl Idp {
 				.cloned()
 				.collect::<Vec<_>>()
 		};
+
 		let scopes = match request.scope.as_deref() {
 			None => machine_scopes(),
 			Some(asked) => split_scopes(asked),
@@ -636,10 +658,12 @@ impl Idp {
 	/// The keys `client`'s tokens are signed with.
 	pub(crate) async fn signers(&self, client: &Client) -> Result<Signers> {
 		let access = self.signer(SigningAlgorithm::Es256).await?;
+
 		let id_token = match client.id_token_alg {
 			SigningAlgorithm::Es256 => access.clone(),
 			SigningAlgorithm::Rs256 => self.signer(SigningAlgorithm::Rs256).await?,
 		};
+
 		Ok(Signers { access, id_token })
 	}
 
@@ -673,6 +697,7 @@ impl Idp {
 			Some(account) => subject(client, account),
 			None => client.client_id.clone(),
 		};
+
 		let access_lifetime = Self::lifetime(self.inner.lifetimes.access)?;
 		let scope = scopes.join(" ");
 		let mut access_claims = json!({
@@ -687,9 +712,11 @@ impl Idp {
 			"auth_time": family.auth_time.timestamp(),
 			"sid": family.id.to_string(),
 		});
+
 		if let Some(jkt) = extras.dpop {
 			access_claims["cnf"] = json!({ "jkt": jkt });
 		}
+
 		let access_token = sign(&signers.access, ACCESS_TOKEN_TYPE, &access_claims)?;
 		let id_token =
 			if family.account_id.is_some() && scopes.iter().any(|scope| scope == "openid") {
@@ -703,12 +730,15 @@ impl Idp {
 					"auth_time": family.auth_time.timestamp(),
 					"sid": family.id.to_string(),
 				});
+
 				for (name, value) in standard.as_object().into_iter().flatten() {
 					claims[name] = value.clone();
 				}
+
 				if let Some(nonce) = extras.nonce {
 					claims["nonce"] = Value::from(nonce);
 				}
+
 				Some(sign(&signers.id_token, ID_TOKEN_TYPE, &claims)?)
 			} else {
 				None
@@ -728,7 +758,10 @@ impl Idp {
 			id_token,
 		})
 	}
+}
 
+/// Reading a token back.
+impl Idp {
 	/// Checks an access token this provider issued: its signature, type,
 	/// issuer, audience and expiry, and that its family is live and its
 	/// person can still sign in. `None` for any token that fails.
@@ -773,6 +806,7 @@ impl Idp {
 		if family.revoked_at.is_some() || text("client_id") != Some(client.client_id.as_str()) {
 			return Ok(None);
 		}
+
 		if let Some(account) = family.account_id
 			&& !usable(&self.inner.db, account).await?
 		{
@@ -854,6 +888,7 @@ impl Idp {
 				})
 				.first(&self.inner.db)
 				.await?;
+
 			if let Some(email) = email {
 				out.insert("email".into(), Value::from(email.address.to_string()));
 				out.insert("email_verified".into(), Value::from(true));
@@ -881,7 +916,10 @@ impl Idp {
 		released.retain(|name, _| wanted(name) || (name == "email_verified" && wanted("email")));
 		Ok(released)
 	}
+}
 
+/// Taking a token back, and answering what one holds.
+impl Idp {
 	/// Answers `POST /oauth/revoke` (RFC 7009): ends the family `token`
 	/// belongs to, if it's the calling app's. Unknown tokens are already
 	/// revoked, so they succeed too.
@@ -901,7 +939,10 @@ impl Idp {
 
 		Ok(())
 	}
+}
 
+/// What a token holds, for an app that was given the right to ask.
+impl Idp {
 	/// Answers `POST /oauth/introspect` (RFC 7662) for a confidential app:
 	/// what `token` is, if it's live and the app's own, or the app may
 	/// introspect any token.
@@ -927,6 +968,7 @@ impl Idp {
 			let Some(client) = self.client(&access.client_id).await? else {
 				return Ok(Introspection::default());
 			};
+
 			if !may_see(&client) {
 				return Ok(Introspection::default());
 			}
@@ -1032,11 +1074,13 @@ fn sign(signer: &Signer, typ: &str, claims: &Value) -> Result<String> {
 /// Space-separated scopes, without empties.
 pub(crate) fn split_scopes(scopes: &str) -> Vec<String> {
 	let mut unique: Vec<String> = Vec::new();
+
 	for scope in scopes.split(' ').filter(|scope| !scope.is_empty()) {
 		if !unique.iter().any(|known| known == scope) {
 			unique.push(scope.to_owned());
 		}
 	}
+
 	unique
 }
 
