@@ -367,10 +367,14 @@ impl AuthBuilder {
 			));
 		}
 
+		// A passkey belongs to a host name, never an IP address, so a site
+		// served on one, such as `leptoskit dev`'s `http://127.0.0.1:3000`,
+		// starts without passkeys; every other way to sign in still works.
 		#[cfg(feature = "passkey")]
 		let webauthn = self
 			.origin
 			.as_deref()
+			.filter(|origin| !crate::passkeys::is_ip_origin(origin))
 			.map(|origin| crate::passkeys::relying_party(origin, &self.app_name, &self.native))
 			.transpose()?;
 		#[cfg(feature = "oauth")]
