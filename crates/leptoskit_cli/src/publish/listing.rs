@@ -63,10 +63,12 @@ impl Store {
 	pub fn load(root: &Path) -> Result<Self> {
 		let dir = root.join("store");
 		let read = |name: &str| std::fs::read_to_string(dir.join(name)).ok();
+
 		let listing = match read("listing.toml") {
 			Some(text) => toml::from_str(&text).context("could not parse store/listing.toml")?,
 			None => Listing::default(),
 		};
+
 		let permissions = match read("permissions.toml") {
 			Some(text) => {
 				toml::from_str(&text).context(
@@ -76,6 +78,7 @@ impl Store {
 			}
 			None => BTreeMap::new(),
 		};
+
 		let trimmed = |text: Option<String>| {
 			text.map(|text| text.trim().to_owned())
 				.filter(|text| !text.is_empty())
@@ -134,6 +137,7 @@ impl Store {
 				} else {
 					text.chars().count()
 				};
+
 				if length > limit {
 					problems.push(format!(
 						"{what} has {length} {}; {} takes at most {limit}",
@@ -143,8 +147,10 @@ impl Store {
 				}
 			}
 		};
+
 		let description = self.description.as_deref();
 		let summary = self.summary.as_deref();
+
 		match store {
 			"app_store" => {
 				check(
@@ -179,6 +185,7 @@ impl Store {
 			"firefox" => check("store/en-US/summary.md", summary, AMO_SUMMARY, false),
 			_ => {}
 		}
+
 		problems
 	}
 }

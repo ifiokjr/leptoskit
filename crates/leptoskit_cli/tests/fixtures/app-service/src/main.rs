@@ -117,6 +117,7 @@ fn main() {
 	assert_eq!(service::COMPLETED.load(Ordering::SeqCst), 0);
 	app.poll_service().unwrap();
 	receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+
 	app.poll_service().unwrap();
 	assert_eq!(service::COMPLETED.load(Ordering::SeqCst), 1);
 

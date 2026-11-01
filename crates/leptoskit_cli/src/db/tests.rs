@@ -395,6 +395,7 @@ fn pushes_follow_the_tables_and_squash_into_one_migration() {
 			Dialect::Postgres => "'00000000-0000-0000-0000-000000000001'",
 			Dialect::Sqlite => "x'00000000000000000000000000000001'",
 		};
+
 		super::runtime()
 			.unwrap()
 			.block_on(async {
@@ -436,6 +437,7 @@ fn pushes_follow_the_tables_and_squash_into_one_migration() {
 				.await
 			})
 			.unwrap();
+
 		assert_eq!(rows, [[leptoskit_db::Value::Int(1)]]);
 
 		// Without pushes, a migration leaves the database alone.

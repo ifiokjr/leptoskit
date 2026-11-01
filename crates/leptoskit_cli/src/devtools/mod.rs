@@ -193,6 +193,7 @@ impl HubState {
 					if !alive {
 						ended.push(id.clone());
 					}
+
 					alive
 				});
 
@@ -684,6 +685,7 @@ mod tests {
 		let page = String::from_utf8(bytes.to_vec()).unwrap();
 		assert!(page.contains("id=\"sessions\""));
 		assert!(page.contains("/api/stream"));
+
 		assert!(page.contains("request_snapshot"));
 		assert!(page.contains("id=\"notice\""));
 	}
@@ -709,6 +711,7 @@ mod tests {
 			.oneshot(request("GET", "/api/hub", None))
 			.await
 			.unwrap();
+
 		let info: serde_json::Value = body(response).await;
 		assert_eq!(info["interface"], "local");
 		assert_eq!(info["version"], env!("CARGO_PKG_VERSION"));
@@ -968,6 +971,7 @@ mod tests {
 		let policy = response.headers()[header::CONTENT_SECURITY_POLICY]
 			.to_str()
 			.unwrap();
+
 		for ancestor in ["chrome-extension:", "moz-extension:", "devtools:"] {
 			assert!(
 				policy.split(' ').any(|source| source == ancestor),

@@ -126,6 +126,7 @@ fn android_emits_selected_maven_dependencies_once_and_removes_stale_entries() {
 		std::fs::read_to_string(&path).unwrap(),
 		"com.google.android.play:review:2.0.2\norg.example:shared:1.0\n"
 	);
+
 	registry.plugins.remove(0);
 
 	android(
@@ -537,6 +538,7 @@ fn an_android_build_skips_an_apple_only_plugin_with_a_warning() {
 	assert!(!kotlin.contains("dispatcher.register("));
 	let registrant = std::fs::read_to_string(root.join(".leptoskit/registrant.rs")).unwrap();
 	assert!(registrant.contains("store_crate::Store::default()"));
+
 	assert!(!registrant.contains("haptics"));
 
 	let mut strict = host_registry(&root);

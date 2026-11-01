@@ -39,6 +39,7 @@ pub fn chrome() -> Option<PathBuf> {
 	if let Some(path) = std::env::var_os(CHROME_ENV) {
 		return Some(PathBuf::from(path)).filter(|path| path.is_file());
 	}
+
 	let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
 	let cache = PathBuf::from(home).join(".cache/puppeteer/chrome");
 	let mut installs: Vec<PathBuf> = std::fs::read_dir(cache)
@@ -87,6 +88,7 @@ pub fn unpacked_id(dir: &Path) -> String {
 	} else {
 		path.as_bytes().to_vec()
 	};
+
 	let digest = sha2::Sha256::digest(bytes);
 	digest[..16]
 		.iter()
@@ -109,9 +111,11 @@ async fn build(
 ) -> String {
 	let mut builds = builds.clone();
 	let current = builds.borrow_and_update().clone();
+
 	if current != query.after {
 		return current;
 	}
+
 	match tokio::time::timeout(POLL, builds.changed()).await {
 		Ok(Ok(())) => builds.borrow().clone(),
 		_ => current,

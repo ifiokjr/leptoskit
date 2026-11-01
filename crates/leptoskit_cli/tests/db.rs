@@ -248,6 +248,7 @@ fn the_database_scaffold_migrates_and_serves() {
 		body.starts_with('[') && body.contains(r#""body":"hello""#),
 		"{body}"
 	);
+
 	assert!(root.join("notes.sqlite3").is_file());
 }
 
@@ -418,6 +419,7 @@ fn the_auth_scaffold_signs_people_in() {
 		let start = body.find("sign-in code: ")? + "sign-in code: ".len();
 		Some(body[start..start + 9].to_owned())
 	});
+
 	let verified = code.as_ref().map(|code| {
 		exchange(
 			&address,
@@ -460,6 +462,7 @@ fn the_auth_scaffold_signs_people_in() {
 	let code = code.unwrap_or_else(|| panic!("no code in the mailbox: {mail:?}"));
 	let (status, _, body) = verified.unwrap();
 	assert_eq!(status, 200, "{body}");
+
 	assert!(body.contains(r#""signed_up":true"#), "{body}");
 	assert!(cookie.is_some(), "no session cookie for {code}");
 	let (status, _, body) = session.unwrap();
@@ -531,10 +534,12 @@ fn native_guest_runs(path: &Path) {
 	let surface = host.surface();
 	let mut texts = Vec::new();
 	let mut nodes: Vec<_> = surface.root().into_iter().collect();
+
 	while let Some(node) = nodes.pop() {
 		texts.extend(surface.props(node).text.clone());
 		nodes.extend(surface.children(node).iter().copied());
 	}
+
 	assert!(
 		texts.iter().any(|text| text.contains("Checking")),
 		"the sign-in screen: {texts:?}"
@@ -613,6 +618,7 @@ fn postgres_commands_use_the_development_database() {
 	.unwrap();
 	let snapshot = leptoskit_db_schema::Schema::empty(leptoskit_db_schema::Dialect::Postgres);
 	fs::write(migration.join("schema.json"), snapshot.to_json()).unwrap();
+
 	fs::write(
 		root.path().join("migrations/registry.txt"),
 		"20261030T000000_init\n",

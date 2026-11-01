@@ -172,10 +172,12 @@ impl PrecompressCache {
 		let Some(path) = &self.file else {
 			return Ok(());
 		};
+
 		if let Some(parent) = path.parent() {
 			std::fs::create_dir_all(parent)
 				.with_context(|| format!("could not create {}", parent.display()))?;
 		}
+
 		let json = serde_json::to_vec_pretty(self).context("could not encode the cache")?;
 		std::fs::write(path, json).with_context(|| format!("could not write {}", path.display()))
 	}
@@ -219,6 +221,7 @@ pub fn precompress(dir: &Path, cache: &mut PrecompressCache) -> Result<BTreeMap<
 			if let Some(sizes) = cache.current(&path, &hash) {
 				return Ok((path, Compressed { hash, sizes }));
 			}
+
 			let (brotli, gzip) = (brotli(&bytes)?, gzip(&bytes)?);
 			let sizes = Sizes::served(&bytes, &brotli, &gzip);
 			for (suffix, compressed) in SUFFIXES.into_iter().zip([brotli, gzip]) {
@@ -230,15 +233,18 @@ pub fn precompress(dir: &Path, cache: &mut PrecompressCache) -> Result<BTreeMap<
 					remove_if_present(&variant)?;
 				}
 			}
+
 			Ok((path, Compressed { hash, sizes }))
 		})
 		.collect::<Result<_>>()?;
 	cache.entries.clear();
 	let mut sizes = BTreeMap::new();
+
 	for (path, entry) in compressed {
 		sizes.insert(path.clone(), entry.sizes);
 		cache.entries.insert(path, entry);
 	}
+
 	Ok(sizes)
 }
 
@@ -256,13 +262,16 @@ fn remove_stale(files: &[PathBuf], keep_current: bool) -> Result<()> {
 		let Some(source) = variant_source(path) else {
 			continue;
 		};
+
 		if !is_compressible(&source) {
 			continue;
 		}
+
 		if !keep_current || !source.is_file() {
 			remove_if_present(path)?;
 		}
 	}
+
 	Ok(())
 }
 
@@ -285,6 +294,7 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
 fn remove_if_present(path: &Path) -> Result<()> {
 	match std::fs::remove_file(path) {
 		Ok(()) => Ok(()),
+
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
 		Err(error) => Err(error).with_context(|| format!("could not remove {}", path.display())),
 	}

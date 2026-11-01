@@ -53,6 +53,7 @@ impl Target {
 			("Dockerfile".to_owned(), dockerfile(project)),
 			(".dockerignore".to_owned(), DOCKERIGNORE.to_owned()),
 		];
+
 		match self {
 			Self::Docker => {}
 			Self::Compose => files.push(("compose.yaml".to_owned(), compose(project))),
@@ -60,6 +61,7 @@ impl Target {
 			Self::Kubernetes => files.push(("kubernetes.yaml".to_owned(), kubernetes(project))),
 			Self::Systemd => files.push((format!("{}.service", project.app), systemd(project))),
 		}
+
 		files
 	}
 
@@ -157,6 +159,7 @@ impl Project {
 			)
 		})?;
 		let (binary, main) = binary(&server, &app)?;
+
 		let output_name = match &config.build.client_package {
 			Some(client) => {
 				let dir = package_dir(root, client)?.with_context(|| {
@@ -174,6 +177,7 @@ impl Project {
 		} else {
 			Platform::Server
 		};
+
 		let toolchain_file = ["rust-toolchain.toml", "rust-toolchain"]
 			.into_iter()
 			.find(|file| root.join(file).is_file())
@@ -189,6 +193,7 @@ impl Project {
 			}
 		});
 		let mut secrets = Vec::new();
+
 		if let Some(auth) = &config.auth {
 			secrets.push(auth.keys_env.clone());
 			secrets.extend(
@@ -202,6 +207,7 @@ impl Project {
 				.cloned(),
 			);
 		}
+
 		let has_probes = main
 			.and_then(|main| std::fs::read_to_string(main).ok())
 			.is_some_and(|source| source.contains("readyz") || source.contains("Readiness"));
@@ -228,6 +234,7 @@ impl Project {
 	/// Postgres, which holds a password, then `[auth]`'s.
 	fn runtime_secrets(&self) -> Vec<String> {
 		let mut secrets = Vec::new();
+
 		if let Some(database) = &self.database
 			&& database.dialect == DbDialect::Postgres
 		{
@@ -287,6 +294,7 @@ impl fmt::Display for Report {
 		for line in self.changed.iter().chain(&self.kept) {
 			writeln!(f, "{line}")?;
 		}
+
 		if self.changed.is_empty() {
 			let target = self.target.map_or("deployment", Target::as_str);
 			writeln!(
@@ -294,12 +302,15 @@ impl fmt::Display for Report {
 				"nothing changed: the {target} files are already in place"
 			)?;
 		}
+
 		if !self.next.is_empty() {
 			writeln!(f, "\nnext:")?;
+
 			for (number, step) in self.next.iter().enumerate() {
 				writeln!(f, "  {}. {step}", number + 1)?;
 			}
 		}
+
 		Ok(())
 	}
 }
@@ -321,9 +332,11 @@ pub fn generate(
 		target: Some(target),
 		..Report::default()
 	};
+
 	for (file, contents) in target.files(&project) {
 		write_owned(root, &file, &contents, force, &mut report)?;
 	}
+
 	if !project.has_probes {
 		report.next.push(
 			"The server doesn't answer /healthz and /readyz yet, and the health checks call them. \
@@ -334,6 +347,7 @@ pub fn generate(
 				.to_owned(),
 		);
 	}
+
 	report.next.extend(target.next(&project));
 	Ok(report)
 }
@@ -348,6 +362,7 @@ fn write_owned(
 	report: &mut Report,
 ) -> Result<()> {
 	let path = root.join(file);
+
 	match std::fs::symlink_metadata(&path) {
 		Ok(metadata) => {
 			anyhow::ensure!(metadata.is_file(), "{file} isn't an ordinary file");
@@ -362,15 +377,18 @@ fn write_owned(
 				));
 				return Ok(());
 			}
+
 			std::fs::write(&path, contents).with_context(|| format!("could not write {file}"))?;
 			report.changed.push(format!("replaced {file}"));
 		}
+
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
 			std::fs::write(&path, contents).with_context(|| format!("could not write {file}"))?;
 			report.changed.push(format!("created {file}"));
 		}
 		Err(error) => return Err(error).with_context(|| format!("could not inspect {file}")),
 	}
+
 	Ok(())
 }
 
@@ -380,9 +398,11 @@ fn package_dir(root: &Path, name: &str) -> Result<Option<PathBuf>> {
 	let manifest = root.join("Cargo.toml");
 	let document = read_manifest(&manifest)?
 		.with_context(|| format!("there's no Cargo.toml at {}", root.display()))?;
+
 	if package_name(&document) == Some(name) {
 		return Ok(Some(root.to_path_buf()));
 	}
+
 	let members = document
 		.get("workspace")
 		.and_then(|workspace| workspace.get("members"))
@@ -390,14 +410,17 @@ fn package_dir(root: &Path, name: &str) -> Result<Option<PathBuf>> {
 		.into_iter()
 		.flatten()
 		.filter_map(toml::Value::as_str);
+
 	for member in members {
 		let dir = root.join(member);
+
 		if let Some(member) = read_manifest(&dir.join("Cargo.toml"))?
 			&& package_name(&member) == Some(name)
 		{
 			return Ok(Some(dir));
 		}
 	}
+
 	Ok(None)
 }
 
@@ -421,13 +444,17 @@ fn binary(dir: &Path, package: &str) -> Result<(String, Option<PathBuf>)> {
 		})
 		.collect();
 	let main = dir.join("src/main.rs");
+
 	if main.is_file() && !binaries.iter().any(|(_, path)| *path == main) {
 		binaries.push((package.to_owned(), main));
 	}
+
 	if let Some(index) = binaries.iter().position(|(name, _)| name == package) {
 		let (name, path) = binaries.swap_remove(index);
+
 		return Ok((name, Some(path).filter(|path| path.is_file())));
 	}
+
 	match binaries.as_slice() {
 		[(name, path)] => {
 			Ok((
@@ -470,11 +497,13 @@ fn lib_name(manifest: &Path) -> Result<Option<String>> {
 /// or `1.96.0` that the `rust` image has a tag for.
 fn toolchain_channel(file: &Path) -> Option<String> {
 	let contents = std::fs::read_to_string(file).ok()?;
+
 	let channel = match contents.parse::<toml::Table>() {
 		Ok(table) => table.get("toolchain")?.get("channel")?.as_str()?.to_owned(),
 		// The legacy `rust-toolchain` file is the bare channel.
 		Err(_) => contents.trim().to_owned(),
 	};
+
 	let release = !channel.is_empty()
 		&& channel
 			.split('.')
@@ -544,12 +573,14 @@ fn dockerfile(project: &Project) -> String {
 # filesystem.
 "
 	);
+
 	if project.sqlite().is_some() {
 		let _ = writeln!(
 			out,
 			"#\n# The SQLite database is the one thing it writes, on a volume at {DATA_DIR}."
 		);
 	}
+
 	let _ = write!(
 		out,
 		"
@@ -561,6 +592,7 @@ ARG RUST_VERSION={rust_version}
 ARG LEPTOSKIT_VERSION={version}
 "
 	);
+
 	if web {
 		let _ = writeln!(
 			out,
@@ -568,12 +600,14 @@ ARG LEPTOSKIT_VERSION={version}
 			 BINARYEN_VERSION={BINARYEN_VERSION}"
 		);
 	}
+
 	out.push_str(
 		"
 FROM rust:${RUST_VERSION}-bookworm AS build
 ARG LEPTOSKIT_VERSION
 ",
 	);
+
 	if web {
 		out.push_str(
 			"ARG BINARYEN_VERSION
@@ -584,20 +618,24 @@ RUN curl --fail --silent --show-error --location \\
 ",
 		);
 	}
+
 	out.push_str(
 		"RUN cargo install leptoskit_cli --version \"${LEPTOSKIT_VERSION}\" --locked
 WORKDIR /src
 ",
 	);
+
 	if let Some(file) = &project.toolchain_file {
 		let _ = writeln!(
 			out,
 			"# The toolchain file picks the toolchain everything below uses.\nCOPY {file} ./"
 		);
 	}
+
 	if web {
 		out.push_str("RUN rustup target add wasm32-unknown-unknown\n");
 	}
+
 	let _ = write!(
 		out,
 		"COPY . .
@@ -617,12 +655,14 @@ RUN apt-get update \\
  && rm -rf /var/lib/apt/lists/* \\
  && useradd --system --user-group --uid 10001 --no-create-home app",
 	);
+
 	if project.sqlite().is_some() {
 		let _ = write!(
 			out,
 			" \\\n && mkdir {DATA_DIR} \\\n && chown app:app {DATA_DIR}"
 		);
 	}
+
 	let _ = write!(
 		out,
 		"
@@ -638,6 +678,7 @@ ENV LEPTOS_ENV=PROD \\
     LEPTOS_SITE_ADDR=0.0.0.0:{port}
 "
 	);
+
 	if let Some(database) = project.sqlite() {
 		let _ = write!(
 			out,
@@ -649,16 +690,20 @@ VOLUME {DATA_DIR}
 			project.sqlite_url()
 		);
 	}
+
 	let secrets = project.runtime_secrets();
+
 	if !secrets.is_empty() {
 		out.push_str(
 			"# These secrets come from the environment when the container starts, never\n# from \
 			 this file:\n",
 		);
+
 		for secret in secrets {
 			let _ = writeln!(out, "#   {secret}");
 		}
 	}
+
 	let _ = write!(
 		out,
 		"USER app
@@ -668,6 +713,7 @@ HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \\
 CMD [\"/app/server\"]
 "
 	);
+
 	out
 }
 
@@ -677,9 +723,11 @@ fn compose(project: &Project) -> String {
 	let port = project.port;
 	let user = project.app.replace('-', "_");
 	let mut required = Vec::new();
+
 	if project.postgres().is_some() {
 		required.push("POSTGRES_PASSWORD".to_owned());
 	}
+
 	required.extend(project.secrets.iter().cloned());
 	let mut out = format!(
 		"# {app} with Docker Compose, written by `leptoskit generate deploy`. It's
@@ -691,6 +739,7 @@ fn compose(project: &Project) -> String {
 ",
 		app = project.app
 	);
+
 	if required.is_empty() {
 		out.push_str(
 			"# Secrets, once the app has some, come from the environment or an `.env`\n# file \
@@ -702,10 +751,12 @@ fn compose(project: &Project) -> String {
 			"# It reads these secrets from the environment, or from an `.env` file\n# beside this \
 			 one, which .dockerignore keeps out of the image. They never go\n# in this file.\n#\n",
 		);
+
 		for secret in &required {
 			let _ = writeln!(out, "#   {secret}");
 		}
 	}
+
 	let _ = write!(
 		out,
 		"
@@ -722,21 +773,26 @@ services:
 "
 	);
 	let mut environment = Vec::new();
+
 	if let Some(database) = project.postgres() {
 		environment.push(format!(
 			"{}: postgres://{user}:${{POSTGRES_PASSWORD}}@db:5432/{user}?sslmode=disable",
 			database.url_env
 		));
 	}
+
 	for secret in &project.secrets {
 		environment.push(format!("{secret}: ${{{secret}:?set {secret}}}"));
 	}
+
 	if !environment.is_empty() {
 		out.push_str("    environment:\n");
+
 		for line in environment {
 			let _ = writeln!(out, "      {line}");
 		}
 	}
+
 	let _ = write!(
 		out,
 		"    # Nothing in the image changes while it runs{}.
@@ -750,9 +806,11 @@ services:
 			""
 		}
 	);
+
 	if project.sqlite().is_some() {
 		let _ = write!(out, "    volumes:\n      - data:{DATA_DIR}\n");
 	}
+
 	if project.postgres().is_some() {
 		out.push_str(
 			"    depends_on:
@@ -761,6 +819,7 @@ services:
 ",
 		);
 	}
+
 	let _ = write!(
 		out,
 		"    # On `docker compose down` the server fails /readyz, waits 5 seconds, and
@@ -769,6 +828,7 @@ services:
     restart: unless-stopped
 "
 	);
+
 	if project.postgres().is_some() {
 		let _ = write!(
 			out,
@@ -795,6 +855,7 @@ volumes:
 	} else if project.sqlite().is_some() {
 		out.push_str("\nvolumes:\n  data:\n");
 	}
+
 	out
 }
 
@@ -840,6 +901,7 @@ kill_timeout = \"{STOP_TIMEOUT_SECONDS}s\"
 		fly_app = project.app.to_ascii_lowercase().replace('_', "-"),
 		port = project.port,
 	);
+
 	if project.sqlite().is_some() {
 		let _ = write!(
 			out,
@@ -852,6 +914,7 @@ kill_timeout = \"{STOP_TIMEOUT_SECONDS}s\"
 "
 		);
 	}
+
 	if let Some(database) = project.postgres() {
 		let _ = write!(
 			out,
@@ -861,6 +924,7 @@ kill_timeout = \"{STOP_TIMEOUT_SECONDS}s\"
 			database.url_env
 		);
 	}
+
 	out
 }
 
@@ -868,27 +932,34 @@ fn docker_next(project: &Project) -> Vec<String> {
 	let image = project.image();
 	let port = project.port;
 	let mut run = format!("docker run --rm --read-only --tmpfs /tmp -p 127.0.0.1:{port}:{port}");
+
 	if project.sqlite().is_some() {
 		let _ = write!(run, " -v {image}-data:{DATA_DIR}");
 	}
+
 	for secret in project.runtime_secrets() {
 		let _ = write!(run, " -e {secret}");
 	}
+
 	let _ = write!(run, " {image}");
+
 	let mut steps = vec![format!("Build the image: `docker build -t {image} .`")];
 	let secrets = project.runtime_secrets();
+
 	if !secrets.is_empty() {
 		steps.push(format!(
 			"Set {} in your shell; `-e NAME` passes each one into the container.",
 			secrets.join(", ")
 		));
 	}
+
 	steps.push(format!("Run it: `{run}`"));
 	steps
 }
 
 fn compose_next(project: &Project) -> Vec<String> {
 	let mut steps = Vec::new();
+
 	if project.postgres().is_some() {
 		steps.push(
 			"Choose the database password: `export POSTGRES_PASSWORD=\"$(openssl rand -hex \
@@ -896,9 +967,11 @@ fn compose_next(project: &Project) -> Vec<String> {
 				.to_owned(),
 		);
 	}
+
 	for secret in &project.secrets {
 		steps.push(format!("Set {secret}, in your shell or in .env."));
 	}
+
 	steps.push("Start it: `docker compose up --build`".to_owned());
 	steps
 }
@@ -906,21 +979,25 @@ fn compose_next(project: &Project) -> Vec<String> {
 fn fly_next(project: &Project) -> Vec<String> {
 	let mut steps =
 		vec!["Create the app from fly.toml: `fly launch --copy-config --no-deploy`".to_owned()];
+
 	if project.sqlite().is_some() {
 		steps.push("Create the database's volume: `fly volumes create data --size 1`".to_owned());
 	}
+
 	if let Some(database) = project.postgres() {
 		let variable = if database.url_env == "DATABASE_URL" {
 			String::new()
 		} else {
 			format!(" --variable-name {}", database.url_env)
 		};
+
 		steps.push(format!(
 			"Give it a database: `fly postgres create`, then `fly postgres attach \
 			 <name>{variable}` sets {}.",
 			database.url_env
 		));
 	}
+
 	if !project.secrets.is_empty() {
 		let pairs: Vec<String> = project
 			.secrets
@@ -932,6 +1009,7 @@ fn fly_next(project: &Project) -> Vec<String> {
 			pairs.join(" ")
 		));
 	}
+
 	steps.push("Deploy: `fly deploy`".to_owned());
 	steps
 }
@@ -959,22 +1037,26 @@ fn kubernetes(project: &Project) -> String {
 		app = project.app,
 		plural = if replicas == 1 { "" } else { "s" },
 	);
+
 	if project.sqlite().is_some() {
 		out.push_str(
 			"#\n# The SQLite database lives on a PersistentVolumeClaim, so the\n# Deployment runs \
 			 one replica and replaces it on deploy.\n",
 		);
 	}
+
 	if !project.runtime_secrets().is_empty() {
 		let _ = write!(
 			out,
 			"#\n# The container reads these from the Secret `{image}`, which you create\n# with \
 			 `kubectl create secret generic {image} --from-literal=...`:\n",
 		);
+
 		for secret in project.runtime_secrets() {
 			let _ = writeln!(out, "#   {secret}");
 		}
 	}
+
 	let _ = write!(
 		out,
 		"
@@ -986,6 +1068,7 @@ spec:
   replicas: {replicas}
 "
 	);
+
 	if project.sqlite().is_some() {
 		out.push_str(
 			"  strategy:
@@ -993,6 +1076,7 @@ spec:
 ",
 		);
 	}
+
 	let _ = write!(
 		out,
 		"  selector:
@@ -1014,6 +1098,7 @@ spec:
               value: \"0.0.0.0:{port}\"
 "
 	);
+
 	if !project.runtime_secrets().is_empty() {
 		let _ = write!(
 			out,
@@ -1023,6 +1108,7 @@ spec:
 "
 		);
 	}
+
 	let _ = write!(
 		out,
 		"          readinessProbe:
@@ -1047,6 +1133,7 @@ spec:
             allowPrivilegeEscalation: false
 "
 	);
+
 	if project.sqlite().is_some() {
 		let _ = write!(
 			out,
@@ -1070,6 +1157,7 @@ spec:
 "
 		);
 	}
+
 	let _ = write!(
 		out,
 		"---
@@ -1135,6 +1223,7 @@ Environment=LEPTOS_SITE_ROOT=/srv/{app}/{DIST_DIR}
 		app = project.app,
 		port = project.port,
 	);
+
 	if project.sqlite().is_some() {
 		let _ = writeln!(
 			out,
@@ -1146,6 +1235,7 @@ Environment=LEPTOS_SITE_ROOT=/srv/{app}/{DIST_DIR}
 		out.push_str(&project.app);
 		out.push('\n');
 	}
+
 	let _ = write!(
 		out,
 		"ExecStart=/usr/local/bin/{binary}
@@ -1167,9 +1257,11 @@ RestrictSUIDSGID=true
 ",
 		binary = project.binary,
 	);
+
 	if project.sqlite().is_some() {
 		let _ = writeln!(out, "ReadWritePaths=/var/lib/{}", project.app);
 	}
+
 	out.push_str(
 		"
 [Install]
@@ -1187,11 +1279,13 @@ fn kubernetes_next(project: &Project) -> Vec<String> {
 		),
 		"Set image to the pushed reference in kubernetes.yaml.".to_owned(),
 	];
+
 	if !project.runtime_secrets().is_empty() {
 		steps.push(format!(
 			"Create the Secret: `kubectl create secret generic {image} --from-literal=NAME=...`."
 		));
 	}
+
 	steps.push("Apply it: `kubectl apply -f kubernetes.yaml`".to_owned());
 	steps
 }

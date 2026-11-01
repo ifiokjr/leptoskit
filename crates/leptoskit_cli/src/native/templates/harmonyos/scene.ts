@@ -19,6 +19,7 @@ export class Widget {
 		this.children.forEach((child: Widget) => {
 			width = Math.max(width, child.frame.x + child.frame.width);
 		});
+
 		return width;
 	}
 
@@ -27,6 +28,7 @@ export class Widget {
 		this.children.forEach((child: Widget) => {
 			height = Math.max(height, child.frame.y + child.frame.height);
 		});
+
 		return height;
 	}
 }
@@ -37,9 +39,11 @@ export class Scene {
 
 	node(id: number): Widget {
 		const node = this.nodes.get(id);
+
 		if (node === undefined) {
 			throw new Error(`Unknown render node ${id}`);
 		}
+
 		return node;
 	}
 
@@ -47,6 +51,7 @@ export class Scene {
 		const copy = new Widget(node.id, node.kind, node.props);
 		copy.frame = node.frame;
 		copy.children = node.children.map((child: Widget) => this.snapshot(child));
+
 		return copy;
 	}
 
@@ -54,6 +59,7 @@ export class Scene {
 		if (transaction.version !== 1) {
 			throw new Error("Unsupported native render protocol");
 		}
+
 		transaction.mutations.forEach((change) => {
 			if (change.Create !== undefined) {
 				const created = change.Create;
@@ -74,6 +80,7 @@ export class Scene {
 				if (this.nodes.has(created.id)) {
 					throw new Error(`Duplicate render node ${created.id}`);
 				}
+
 				this.nodes.set(
 					created.id,
 					new Widget(created.id, created.kind, created.props),
@@ -109,6 +116,7 @@ export class Scene {
 				);
 			}
 		});
+
 		return transaction.root === null
 			? undefined
 			: this.snapshot(this.node(transaction.root));

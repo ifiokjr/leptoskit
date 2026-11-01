@@ -113,6 +113,7 @@ pub fn build(root: &Path, config: &LeptoskitConfig, release: bool) -> Result<()>
 	}
 
 	let bundle = assemble(root, config, &binary)?;
+
 	if super::safari::configured(config) {
 		super::safari::assemble_macos(
 			root,
@@ -179,6 +180,7 @@ fn assemble(root: &Path, config: &LeptoskitConfig, binary: &Path) -> Result<std:
 	} else {
 		info
 	};
+
 	write(&bundle.join("Info.plist"), &info)?;
 	Ok(application)
 }

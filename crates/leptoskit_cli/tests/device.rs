@@ -137,6 +137,7 @@ fn every_action_command_builds_its_document() {
 			TargetKind::Android,
 		),
 	];
+
 	for (command, action, kind) in cases {
 		let built = document(command).unwrap_or_else(|error| panic!("{action}: {error}"));
 		assert_eq!(built.target.kind, kind, "{action}");
@@ -200,6 +201,7 @@ fn fake_driver(replies: Vec<(&'static str, serde_json::Value)>) -> String {
 					Err(error) => panic!("expected {expected}: {error}"),
 				}
 			};
+
 			stream.set_nonblocking(false).unwrap();
 			let mut reader = BufReader::new(&stream);
 			let mut first = String::new();
@@ -219,10 +221,12 @@ fn fake_driver(replies: Vec<(&'static str, serde_json::Value)>) -> String {
 					length = value.trim().parse().unwrap();
 				}
 			}
+
 			let mut bytes = vec![0; length];
 			if length > 0 {
 				reader.read_exact(&mut bytes).unwrap();
 			}
+
 			let body = serde_json::json!({"value": value}).to_string();
 			write!(
 				stream,
@@ -380,6 +384,7 @@ fn commands_resolve_against_a_given_inventory() {
 		&devices(inventory::DeviceKind::AndroidEmulator),
 	)
 	.unwrap();
+
 	assert!(matches!(shutdown.steps[0], Step::Shutdown));
 	// An already-running emulator refuses to boot; its shutdown still builds.
 	let error = document_with(

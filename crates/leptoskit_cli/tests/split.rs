@@ -55,15 +55,19 @@ fn name(text: &str) -> Vec<u8> {
 fn module_importing(modules: &[&str]) -> Vec<u8> {
 	let mut wasm = b"\0asm\x01\0\0\0".to_vec();
 	wasm.extend(section(1, &[1, 0x60, 0, 0]));
+
 	if !modules.is_empty() {
 		let mut imports = vec![u8::try_from(modules.len()).expect("few imports")];
+
 		for module in modules {
 			imports.extend(name(module));
 			imports.extend(name("f"));
 			imports.extend([0x00, 0x00]);
 		}
+
 		wasm.extend(section(2, &imports));
 	}
+
 	wasm
 }
 
@@ -443,6 +447,7 @@ fn split_builds_chunks_and_unsplit_lazy_code_is_refused() {
 	let lazy = split::lazy_files(&pkg).expect("manifest");
 	assert_eq!(lazy.len(), 1, "one chunk for one split point: {lazy:?}");
 	let chunk = lazy.iter().next().expect("chunk");
+
 	assert!(chunk.is_file(), "{chunk:?} is written");
 	let chunk_name = chunk.file_name().expect("name").to_string_lossy();
 	assert!(out.contains(&format!("pkg/{chunk_name} (lazy)")), "{out}");
@@ -469,6 +474,7 @@ fn split_builds_chunks_and_unsplit_lazy_code_is_refused() {
 		let message = String::from_utf8_lossy(&refused.stderr);
 		assert!(message.contains(&format!("unset {variable}")), "{message}");
 	}
+
 	let server = flagged(project, "RUSTFLAGS", &["build", "--platform", "server"]);
 	assert!(
 		server.status.success(),
@@ -515,6 +521,7 @@ fn split_builds_chunks_and_unsplit_lazy_code_is_refused() {
 		"{}",
 		String::from_utf8_lossy(&eager.stderr)
 	);
+
 	let eager_size = std::fs::metadata(pkg.join("lazy_bg.wasm"))
 		.expect("eager output")
 		.len();

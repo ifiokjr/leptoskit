@@ -32,6 +32,7 @@ class LoggingFileTest {
                 .map(::JSONObject)
                 .filter { it.getString("target") == "integration.worker" }
         assertTrue("Guest logging reached the application's actual log file", records.isNotEmpty())
+
         for (record in records) {
             assertEquals("info", record.getString("level"))
             assertEquals("Nonsecret Android plugin fixture", record.getString("message"))

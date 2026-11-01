@@ -76,10 +76,12 @@ async fn main() -> Result<()> {
 	let args = Args::parse();
 	let sdk = args.sdk_path.canonicalize().context("resolve SDK")?;
 	let cli = args.cli.canonicalize().context("resolve CLI binary")?;
+
 	let platform = match args.platform {
 		Platform::Ios => "ios",
 		Platform::Android => "android",
 	};
+
 	let channel = format!("{CHANNEL}-{platform}");
 	let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
 	let output = args
@@ -87,6 +89,7 @@ async fn main() -> Result<()> {
 		.clone()
 		.unwrap_or_else(|| sdk.join(format!("target/mobile-codepush-{platform}/{stamp}")));
 	anyhow::ensure!(!output.exists(), "{} already exists", output.display());
+
 	fs::create_dir_all(&output)?;
 	let output = output.canonicalize()?;
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -133,6 +136,7 @@ async fn main() -> Result<()> {
 		.with_state(releases)
 		.merge(codepush_router(store).layer(middleware::from_fn_with_state(online, gate)));
 	let server = tokio::spawn(async move { axum::serve(listener, router).await });
+
 	let build_result = match args.platform {
 		Platform::Ios => ios(&cli, &app, &output, &args.device, package),
 		Platform::Android => {
@@ -147,6 +151,7 @@ async fn main() -> Result<()> {
 			)
 		}
 	};
+
 	server.abort();
 	build_result?;
 	println!(
@@ -285,6 +290,7 @@ async fn gate(
 	if !online.load(Ordering::SeqCst) {
 		return axum::response::IntoResponse::into_response(StatusCode::SERVICE_UNAVAILABLE);
 	}
+
 	next.run(request).await
 }
 
@@ -337,11 +343,13 @@ fn ios(cli: &Path, app: &Path, output: &Path, device: &str, package: &str) -> Re
 		.args(["simctl", "get_app_container", device, package])
 		.output()
 		.context("inspect prior simulator installation")?;
+
 	if installed.status.success() {
 		let mut uninstall = Command::new("xcrun");
 		uninstall.args(["simctl", "uninstall", device, package]);
 		run(&mut uninstall, &output.join("03-uninstall-previous.log"))?;
 	}
+
 	let mut tests = Command::new("xcodebuild");
 	tests.current_dir(app).args([
 		"-project",
@@ -398,6 +406,7 @@ fn android(
 		} else {
 			"apk/androidTest/debug"
 		};
+
 		adb(
 			device,
 			&[

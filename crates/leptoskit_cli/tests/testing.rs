@@ -62,6 +62,7 @@ fn successful_and_failed_executables_produce_accurate_reports() {
 		assert_eq!(report["passed"], passes);
 		assert_eq!(report["steps"][0]["timed_out"], false);
 		assert_eq!(report["steps"][0]["exit_code"] == 0, passes);
+
 		let run = std::fs::read_dir(&directory.0)
 			.unwrap()
 			.next()
@@ -90,6 +91,7 @@ fn timeout_fails_and_retains_partial_output() {
 		.unwrap()
 		.unwrap()
 		.path();
+
 	let output =
 		std::fs::read_to_string(run.join(report["steps"][0]["stdout"].as_str().unwrap())).unwrap();
 	assert!(output.contains("fixture output before timeout"));
@@ -100,12 +102,15 @@ fn invalid_binary_and_mobile_options_fail_with_a_report() {
 	for missing in [false, true] {
 		let directory = Scratch::new();
 		let mut options = options(&directory, "fixture_success");
+
 		if missing {
 			options.binary = directory.0.join("missing");
 		} else {
 			options.device = Some("phone".to_owned());
 		}
+
 		assert!(leptoskit_cli::testing::run(TestCommand::Run(options)).is_err());
+
 		assert_eq!(directory.report()["passed"], false);
 		assert!(directory.report()["error"].is_string());
 	}
@@ -125,6 +130,7 @@ fn native_suites_report_unreadable_invalid_and_empty_scenarios() {
 	let invalid = directory.0.join("invalid.json");
 	std::fs::write(&invalid, r#"{"session": {}, "steps": [], "extra": true}"#).unwrap();
 	assert_ne!(native(invalid), "");
+
 	// A scenario without steps fails before contacting any driver.
 	let empty = directory.0.join("empty.json");
 	std::fs::write(

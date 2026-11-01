@@ -42,6 +42,7 @@ pub extern "C" fn leptoskit_main() {
 	if TRAP {
 		panic!("intentional startup trap");
 	}
+
 	unsafe {
 		node_create(1, 0);
 		node_create(2, 1);
@@ -75,6 +76,7 @@ pub extern "C" fn leptoskit_event(node: i64, kind: i32, _ptr: i32, _len: i32) ->
 	if node != 4 || kind != 0 {
 		return 0;
 	}
+
 	COUNT.with(|count| {
 		count.set(count.get() + STEP);
 		counter(count.get());

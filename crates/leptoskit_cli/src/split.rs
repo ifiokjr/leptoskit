@@ -55,9 +55,11 @@ pub fn ensure_relocs_reach_cargo(variable: &dyn Fn(&str) -> Option<OsString>) ->
 				"bundle.split links the client with `{EMIT_RELOCS}`, but cargo ignores \
 				 leptoskit's flags while {name} is set; unset {name} or add the flag to it",
 			);
+
 			return Ok(());
 		}
 	}
+
 	Ok(())
 }
 
@@ -85,6 +87,7 @@ pub fn split(input: &[u8], compiled: &Path, pkg_dir: &Path, lib_name: &str) -> R
 	options.main_out_path = &main;
 	options.main_module = &main_module;
 	options.link_name = &link_name;
+
 	let split = wasm_split_cli_support::transform(options).map_err(|error| {
 		anyhow::anyhow!(
 			"wasm-split could not split {}: {error:?}\nbundle.split needs the client linked with \
@@ -115,13 +118,16 @@ pub fn uses_lazy_loading(wasm: &[u8]) -> Result<bool> {
 		{
 			for import in imports.into_imports() {
 				let import = import.context("could not parse a wasm import")?;
+
 				if import.module == PLACEHOLDER_MODULE {
 					return Ok(true);
 				}
 			}
+
 			return Ok(false);
 		}
 	}
+
 	Ok(false)
 }
 
@@ -129,15 +135,19 @@ pub fn uses_lazy_loading(wasm: &[u8]) -> Result<bool> {
 /// rather than with the page. Empty when the build was not split.
 pub fn lazy_files(pkg_dir: &Path) -> Result<BTreeSet<PathBuf>> {
 	let path = pkg_dir.join(MANIFEST);
+
 	let json = match std::fs::read(&path) {
 		Ok(json) => json,
+
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
 			return Ok(BTreeSet::new());
 		}
+
 		Err(error) => {
 			return Err(error).with_context(|| format!("could not read {}", path.display()));
 		}
 	};
+
 	let manifest: BTreeMap<String, Vec<String>> = serde_json::from_slice(&json)
 		.with_context(|| format!("could not parse {}", path.display()))?;
 	Ok(manifest

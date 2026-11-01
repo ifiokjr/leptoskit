@@ -68,6 +68,7 @@ async fn echo(upgrade: WebSocketUpgrade) -> impl IntoResponse {
 						if let Err(error) = socket.flush().await {
 							eprintln!("fixture WebSocket close failed: {error}");
 						}
+
 						break;
 					}
 					Err(_) => break,

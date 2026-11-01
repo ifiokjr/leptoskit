@@ -241,15 +241,19 @@ fn android(
 	// `app.icon` becomes the launcher icons, in resources only leptoskit
 	// writes.
 	let res = dir.join("res");
+
 	if res.is_dir() {
 		std::fs::remove_dir_all(&res)?;
 	}
+
 	if crate::icons::write(root, config, crate::icons::Platform::Android, &res)? {
 		manifest = super::manifest::with_icon(&manifest)?;
+
 		if let Some(warning) = android_icon_warning(root) {
 			crate::ui::warning(warning);
 		}
 	}
+
 	write(&dir.join("AndroidManifest.xml"), &manifest)?;
 	let cmake = format!(
 		"cmake_minimum_required(VERSION 3.22)\nproject(leptoskit_app LANGUAGES \
@@ -413,6 +417,7 @@ fn register_rust_plugin(
 			 &_context.data_dir,\n                    &_context.cache_dir,\n                )?)?;",
 			plugin.crate_name
 		)?;
+
 		return Ok(());
 	}
 
@@ -437,6 +442,7 @@ fn register_rust_plugin(
 				plugin.crate_name
 			)?;
 		}
+
 		Constructor::Factory(factory) if flavour == Flavour::Async => {
 			let options = plugin
 				.options_json
@@ -449,6 +455,7 @@ fn register_rust_plugin(
 				plugin.crate_name
 			)?;
 		}
+
 		Constructor::Factory(factory) => {
 			writeln!(
 				rust,

@@ -20,6 +20,7 @@ pub(super) fn validate(config: &LeptoskitConfig) -> Result<()> {
 	} else {
 		config.native.package_id.clone()
 	};
+
 	anyhow::ensure!(
 		(7..=128).contains(&package.len()),
 		"HarmonyOS native.package_id must contain 7 to 128 ASCII bytes"
@@ -36,6 +37,7 @@ pub(super) fn validate(config: &LeptoskitConfig) -> Result<()> {
 /// selection order. Removed plugins leave nothing behind.
 fn generate_plugins(host: &Path, registry: &Registry) -> Result<()> {
 	let generated = host.join("entry/src/main/ets/leptoskit");
+
 	if let Ok(metadata) = std::fs::symlink_metadata(&generated) {
 		anyhow::ensure!(
 			metadata.is_dir() && !metadata.file_type().is_symlink(),
@@ -44,6 +46,7 @@ fn generate_plugins(host: &Path, registry: &Registry) -> Result<()> {
 		);
 		std::fs::remove_dir_all(&generated)?;
 	}
+
 	project::write(
 		&generated.join("plugins.ts"),
 		include_str!("templates/harmonyos/plugins.ts"),
@@ -58,22 +61,27 @@ fn generate_plugins(host: &Path, registry: &Registry) -> Result<()> {
 			}
 		})
 		.collect();
+
 	for &(index, plugin, kind) in &selected {
 		let sources = plugin.directory.join("harmonyos");
+
 		anyhow::ensure!(
 			!sources.is_symlink() && sources.join(format!("{kind}.ts")).is_file(),
 			"plugin `{}` declares harmonyos-type `{kind}` but has no harmonyos/{kind}.ts",
 			plugin.name
 		);
+
 		for entry in std::fs::read_dir(&sources)? {
 			let entry = entry?;
 			let path = entry.path();
 			let test = path
 				.file_stem()
 				.is_some_and(|stem| stem.to_string_lossy().ends_with("_test"));
+
 			if test || path.extension().is_none_or(|extension| extension != "ts") {
 				continue;
 			}
+
 			anyhow::ensure!(
 				path.is_file() && !path.is_symlink(),
 				"ArkTS plugin source must be a regular file: {}",
@@ -87,6 +95,7 @@ fn generate_plugins(host: &Path, registry: &Registry) -> Result<()> {
 			)?;
 		}
 	}
+
 	let imports = selected
 		.iter()
 		.map(|(index, _, kind)| {
@@ -102,6 +111,7 @@ fn generate_plugins(host: &Path, registry: &Registry) -> Result<()> {
 			} else {
 				""
 			};
+
 			format!("    new Plugin{index}({context}),\n")
 		})
 		.collect::<Vec<_>>()
@@ -139,6 +149,7 @@ fn validate_ndk(path: &Path) -> Result<()> {
 			path.display()
 		);
 	}
+
 	anyhow::ensure!(
 		path.join("sysroot/usr/include").is_dir(),
 		"OHOS_NDK_HOME lacks sysroot/usr/include: {}",
@@ -156,11 +167,13 @@ pub(super) fn configure_cargo(command: &mut Command, ndk: &Path, target: Target)
 	} else {
 		"aarch64-linux-ohos"
 	};
+
 	let tools = ndk.join("llvm/bin");
 	let sysroot = ndk.join("sysroot");
 	let escaped_sysroot = sysroot.to_string_lossy().replace('\'', "'\\''");
 	let key = triple.replace('-', "_");
 	let compiler = |name: &str| tools.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+
 	let mut flags = std::env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_else(|_| {
 		std::env::var("RUSTFLAGS")
 			.unwrap_or_default()
@@ -175,6 +188,7 @@ pub(super) fn configure_cargo(command: &mut Command, ndk: &Path, target: Target)
 		if !flags.is_empty() {
 			flags.push('\x1f');
 		}
+
 		flags.push_str("-C\x1f");
 		flags.push_str(&flag);
 	}
@@ -212,6 +226,7 @@ pub(super) fn generate(
 	} else {
 		"arm64-v8a"
 	};
+
 	let profile =
 		include_str!("templates/harmonyos/entry-build-profile.json5").replace("__ABI__", abi);
 	project::write(
@@ -247,6 +262,7 @@ pub(super) fn scaffold(root: &Path, config: &LeptoskitConfig) -> Result<()> {
 	} else {
 		config.native.package_id.clone()
 	};
+
 	let app = serde_json::json!({"app": {
 		"bundleName": package, "vendor": "leptoskit", "versionCode": 1,
 		"versionName": config.app.version.to_string(), "icon": "$media:app_icon", "label": "$string:app_name"
@@ -362,14 +378,17 @@ pub(super) fn scaffold(root: &Path, config: &LeptoskitConfig) -> Result<()> {
 				.into(),
 		),
 	];
+
 	for (name, content) in files {
 		let path = host.join(name);
+
 		if !path.try_exists()? {
 			let path = camino::Utf8Path::from_path(&path)
 				.context("HarmonyOS project path is not UTF-8")?;
 			crate::new_project::write_new(path, &content)?;
 		}
 	}
+
 	Ok(())
 }
 
@@ -434,6 +453,7 @@ mod tests {
 		project::generate(&root, &config, &registry, Target::Harmonyos, false).unwrap();
 		let source = root.join("hosts/harmonyos/entry/src/main/ets/pages/Index.ets");
 		std::fs::write(&source, "// application-owned edit").unwrap();
+
 		let signing = root.join("hosts/harmonyos/build-profile.json5");
 		std::fs::write(&signing, "// application signing configuration").unwrap();
 		let tests = root.join("hosts/harmonyos/entry/src/ohosTest/ets/test/Counter.test.ets");
@@ -537,6 +557,7 @@ mod tests {
 		let rust: super::super::registry::Plugin =
 			serde_json::from_value(serde_json::json!({"name": "counter", "rust-type": "Counter"}))
 				.unwrap();
+
 		let mut registry = Registry {
 			package: "demo".into(),
 			plugins: vec![rust, posture(true)],
@@ -565,9 +586,11 @@ mod tests {
 			include_str!("templates/harmonyos/plugins.ts")
 		);
 		assert!(generated.join("plugin_1/PosturePlugin.ts").is_file());
+
 		for test_only in ["posture_test.ts", "deno.json", "testing"] {
 			assert!(!generated.join("plugin_1").join(test_only).exists());
 		}
+
 		let registrant = std::fs::read_to_string(generated.join("registrant.ts")).unwrap();
 		assert!(
 			registrant
@@ -616,6 +639,7 @@ mod tests {
 			);
 			std::fs::remove_file(linked).unwrap();
 			std::fs::remove_dir_all(&generated).unwrap();
+
 			std::os::unix::fs::symlink(&package, &generated).unwrap();
 			assert!(
 				generate_plugins(&host, &registry)

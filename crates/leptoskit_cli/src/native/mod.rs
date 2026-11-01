@@ -22,6 +22,7 @@ mod lock;
 mod manifest;
 mod project;
 mod registry;
+
 mod rust_desktop;
 pub(crate) mod safari;
 
@@ -89,6 +90,7 @@ impl Target {
 		match self {
 			Self::Macos if cfg!(target_arch = "x86_64") => "x86_64-apple-darwin",
 			Self::Macos => "aarch64-apple-darwin",
+
 			Self::IosSimulator if cfg!(target_arch = "x86_64") => "x86_64-apple-ios",
 			Self::IosSimulator => "aarch64-apple-ios-sim",
 			Self::Ios => "aarch64-apple-ios",
@@ -96,8 +98,10 @@ impl Target {
 			Self::AndroidX86_64 => "x86_64-linux-android",
 			Self::Harmonyos => "aarch64-unknown-linux-ohos",
 			Self::HarmonyosX86_64 => "x86_64-unknown-linux-ohos",
+
 			Self::Windows if cfg!(target_arch = "aarch64") => "aarch64-pc-windows-msvc",
 			Self::Windows => "x86_64-pc-windows-msvc",
+
 			Self::Linux if cfg!(target_arch = "aarch64") => "aarch64-unknown-linux-gnu",
 			Self::Linux => "x86_64-unknown-linux-gnu",
 			// The terminal runner compiles for whichever machine runs it.
@@ -192,6 +196,7 @@ pub fn run(command: NativeCommand) -> Result<()> {
 		NativeCommand::Prepare { target, release } => (target, release, false),
 		NativeCommand::Build { target, release } => (target, release, true),
 	};
+
 	let (config, root) = LeptoskitConfig::load()?;
 	let ohos_ndk = check_host(&config, target, release)?;
 	let _guard = lock::acquire(&root)?;
@@ -199,11 +204,13 @@ pub fn run(command: NativeCommand) -> Result<()> {
 	plugins.generate(&root, target.platform(), release)?;
 	crate::l10n::sync(&root, &config)?;
 	let registry = registry::resolve(&root, &config, target)?;
+
 	let build_dir = native_build_directory(&root, &registry.target, target.rust())?;
 	// The Apple apps carry the Safari extension, so its package comes first.
 	if matches!(target, Target::Ios | Target::IosSimulator | Target::Macos) {
 		safari::prepare(&config, release)?;
 	}
+
 	project::generate(&root, &config, &registry, target, release)?;
 	let generated = generated_dir(&root, target);
 	let bundle_dir = generated.join("bundle");
@@ -215,12 +222,14 @@ pub fn run(command: NativeCommand) -> Result<()> {
 		Some(&build_dir),
 		&bundle_dir,
 	)?;
+
 	if matches!(target, Target::Linux | Target::Windows | Target::Tui) {
 		write_assets(&root, &config, target, &bundle_dir, release)?;
 		rust_desktop::build(&root, &config, target, release)?;
 
 		return Ok(());
 	}
+
 	let mut host = host_library_command(
 		&root,
 		&config,
@@ -240,10 +249,13 @@ pub fn run(command: NativeCommand) -> Result<()> {
 		&generated.join("lib").join("libleptoskit_bridge_ffi.a"),
 	)?;
 	write_assets(&root, &config, target, &bundle_dir, release)?;
+
 	if build {
 		build_application(&root, &config, target, release)?;
+
 		report_application_size(&root, target, release);
 	}
+
 	Ok(())
 }
 
@@ -289,6 +301,7 @@ fn check_host(config: &LeptoskitConfig, target: Target, release: bool) -> Result
 	} else {
 		None
 	};
+
 	if config.codepush.enabled {
 		let server = &config.codepush.server;
 		anyhow::ensure!(
@@ -297,6 +310,7 @@ fn check_host(config: &LeptoskitConfig, target: Target, release: bool) -> Result
 			"native code push requires HTTPS; debug builds may opt into codepush.allow_http"
 		);
 	}
+
 	Ok(ohos_ndk)
 }
 
@@ -322,6 +336,7 @@ fn host_library_command(
 		target.rust(),
 	]);
 	host.arg("--target-dir").arg(build_dir);
+
 	if release {
 		// Only release builds pick up `bundle.optimize`'s profile.
 		let (_, host_arguments) = release_arguments(config, true);
@@ -329,18 +344,22 @@ fn host_library_command(
 	} else {
 		host.args(DEBUG_HOST_ARGUMENTS);
 	}
+
 	if let Some(ndk) = ohos_ndk {
 		harmonyos::configure_cargo(&mut host, ndk, target);
 	}
+
 	let features = host_features(
 		registry,
 		target,
 		release,
 		crate::build::devtools::hub().is_some(),
 	);
+
 	if !features.is_empty() {
 		host.args(["--features", &features.join(",")]);
 	}
+
 	if matches!(target, Target::Android | Target::AndroidX86_64) {
 		configure_android_toolchain(&mut host, root, target, &android_ndk()?)?;
 	} else if matches!(target, Target::Ios | Target::IosSimulator | Target::Macos) {
@@ -348,6 +367,7 @@ fn host_library_command(
 			host.env(key, value);
 		}
 	}
+
 	Ok(host)
 }
 
@@ -402,6 +422,7 @@ fn configure_android_toolchain(
 	} else {
 		"x86_64"
 	};
+
 	let tools = ndk.join(format!("toolchains/llvm/prebuilt/{NDK_HOST}/bin"));
 	let compiler = tools.join(format!(
 		"{architecture}-linux-android26-clang{NDK_LAUNCHER_SUFFIX}"
@@ -472,13 +493,16 @@ fn gradle_build(root: &Path, target: Target, release: bool) -> Command {
 	} else {
 		"gradlew"
 	}));
+
 	command.current_dir(&android).arg("--no-daemon");
+
 	if release {
 		// The APK installs directly; Google Play takes the App Bundle.
 		command.args(["assembleRelease", "bundleRelease"]);
 	} else {
 		command.arg("assembleDebug");
 	}
+
 	command
 }
 
@@ -494,6 +518,7 @@ fn ios_build(root: &Path, target: Target, release: bool) -> Command {
 	} else {
 		"ARCHS=arm64"
 	};
+
 	let mut command = Command::new("xcodebuild");
 	// Xcode reads `LD` and `LDPLUSPLUS` from the environment as its linker
 	// drivers. A nix or devenv shell sets `LD=ld`, which rejects the
@@ -513,6 +538,7 @@ fn ios_build(root: &Path, target: Target, release: bool) -> Command {
 		architecture,
 		"build",
 	]);
+
 	if matches!(target, Target::IosSimulator) {
 		// Simulator Keychain access needs an ad-hoc signed app.
 		// Disabling signing produces a launchable app without this
@@ -521,6 +547,7 @@ fn ios_build(root: &Path, target: Target, release: bool) -> Command {
 	} else {
 		command.arg("CODE_SIGNING_ALLOWED=NO");
 	}
+
 	command
 }
 
@@ -560,7 +587,9 @@ pub(crate) fn legacy_target(root: &Path, config: &LeptoskitConfig) -> Target {
 		[NativeTarget::Android] => Target::Android,
 		[NativeTarget::Windows] => Target::Windows,
 		[NativeTarget::Linux] => Target::Linux,
+
 		_ if cfg!(target_os = "macos") && host_dir(root, Target::Macos).is_dir() => Target::Macos,
+
 		_ if cfg!(target_os = "macos") => Target::IosSimulator,
 		_ => Target::Android,
 	}
@@ -583,6 +612,7 @@ fn report_application_size(root: &Path, target: Target, release: bool) {
 		| Target::HarmonyosX86_64
 		| Target::Tui => Ok(None),
 	};
+
 	match report {
 		Ok(Some(report)) => {
 			println!("application size ({}):\n{}", report.label, report.render());
@@ -603,14 +633,18 @@ fn apple_cc_environment(target: Target) -> Vec<(String, String)> {
 		Target::IosSimulator => "iphonesimulator",
 		_ => "macosx",
 	};
+
 	let target_key = target.rust().replace('-', "_");
 	let mut environment = Vec::new();
+
 	if let Some(compiler) = xcrun_find(sdk, "clang") {
 		environment.push((format!("CC_{target_key}"), compiler.display().to_string()));
+
 		if let Some(plusplus) = xcrun_find(sdk, "clang++") {
 			environment.push((format!("CXX_{target_key}"), plusplus.display().to_string()));
 		}
 	}
+
 	environment
 }
 
@@ -635,12 +669,14 @@ fn write_assets(
 			&generated.join("assets/app.wasm"),
 		);
 	}
+
 	if matches!(target, Target::Harmonyos | Target::HarmonyosX86_64) {
 		return project::copy(
 			&bundle_dir.join("app.wasm"),
 			&root.join("hosts/harmonyos/entry/src/main/resources/rawfile/app.wasm"),
 		);
 	}
+
 	let assets = generated.join("mobile");
 	std::fs::create_dir_all(&assets)?;
 	let channel = config::channel(root, &config.codepush.channel, target.platform());
@@ -699,6 +735,7 @@ fn bundle(
 	} else {
 		format!("{}_guest", config.app.name)
 	};
+
 	let client = crate::wasm::detect_client_with(Some(&package), None, &metadata)?
 		.context("native application has no cdylib")?;
 	let (plugins, context) = crate::build::plugin_context(config, target.platform(), release)?;
@@ -742,6 +779,7 @@ fn bundle(
 	std::fs::create_dir_all(out)?;
 	let module = out.join("app.wasm");
 	project::copy(&wasm, &module)?;
+
 	if release && config.bundle.wasm_opt {
 		// Native builds cannot require binaryen the way the web client does:
 		// `native prepare` and `native bundle` also run on machines that only
@@ -757,6 +795,7 @@ fn bundle(
 			}
 		}
 	}
+
 	std::fs::write(
 		out.join("runtime.json"),
 		serde_json::to_vec_pretty(&runtime_descriptor(root, config, target))?,
@@ -798,18 +837,21 @@ pub(crate) const DEBUG_HOST_ARGUMENTS: &[&str] = &[
 fn release_arguments(config: &LeptoskitConfig, host: bool) -> (String, Vec<String>) {
 	match &config.bundle.cargo_profile {
 		Some(profile) => (profile.clone(), vec!["--profile".into(), profile.clone()]),
+
 		None if config.bundle.optimize == Optimize::Smallest && host => {
 			(
 				crate::wasm::HOST_SMALLEST_PROFILE.into(),
 				profile_arguments(crate::wasm::HOST_SMALLEST_PROFILE),
 			)
 		}
+
 		None if config.bundle.optimize == Optimize::Smallest => {
 			(
 				crate::wasm::SMALLEST_PROFILE.into(),
 				profile_arguments(crate::wasm::SMALLEST_PROFILE),
 			)
 		}
+
 		_ => ("release".into(), vec!["--release".into()]),
 	}
 }
@@ -822,11 +864,14 @@ fn profile_arguments(profile: &str) -> Vec<String> {
 	} else {
 		crate::wasm::smallest_profile_config()
 	};
+
 	let mut arguments = vec!["--profile".to_owned(), profile.to_owned()];
+
 	for entry in config {
 		arguments.push("--config".into());
 		arguments.push(entry);
 	}
+
 	arguments
 }
 
@@ -836,7 +881,9 @@ fn profile_directory(config: &LeptoskitConfig, host: bool, release: bool) -> Str
 	if !release {
 		return "debug".into();
 	}
+
 	let (profile, _) = release_arguments(config, host);
+
 	match profile.as_str() {
 		"release" => "release".into(),
 		name => name.to_owned(),
@@ -903,20 +950,25 @@ fn xcrun_find(sdk: &str, tool: &str) -> Option<PathBuf> {
 /// mutating the environment.
 fn xcrun_find_in(search: &std::ffi::OsStr, sdk: &str, tool: &str) -> Option<PathBuf> {
 	let mut xcrun = None;
+
 	for directory in std::env::split_paths(&search) {
 		let candidate = directory.join("xcrun");
+
 		if candidate.is_file() {
 			xcrun = Some(candidate);
 			break;
 		}
 	}
+
 	let output = Command::new(xcrun?)
 		.args(["--sdk", sdk, "--find", tool])
 		.output()
 		.ok()?;
+
 	if !output.status.success() {
 		return None;
 	}
+
 	let path = String::from_utf8(output.stdout).ok()?;
 	let path = PathBuf::from(path.trim());
 	path.is_file().then_some(path)
@@ -926,6 +978,7 @@ fn android_ndk() -> Result<PathBuf> {
 	if let Some(path) = std::env::var_os("ANDROID_NDK_HOME") {
 		return checked_ndk(Path::new(&path));
 	}
+
 	let sdk = std::env::var_os("ANDROID_HOME")
 		.or_else(|| std::env::var_os("ANDROID_SDK_ROOT"))
 		.context("set ANDROID_HOME and install an NDK, or set ANDROID_NDK_HOME")?;
@@ -993,6 +1046,7 @@ mod tests {
 		let android: leptoskit_codepush::installed::RuntimeContract =
 			serde_json::from_value(runtime_descriptor(&root, &config, Target::Android)).unwrap();
 		assert_ne!(ios.shell, android.shell);
+
 		let bundle = root.join("bundle");
 		std::fs::create_dir_all(&bundle).unwrap();
 		std::fs::write(bundle.join("app.wasm"), b"\0asm\x01\0\0\0").unwrap();
@@ -1013,6 +1067,7 @@ mod tests {
 			let updates: serde_json::Value =
 				serde_json::from_slice(&std::fs::read(mobile.join("codepush.json")).unwrap())
 					.unwrap();
+
 			assert_eq!(
 				manifest.channel,
 				format!("production-{}", target.platform())
@@ -1041,6 +1096,7 @@ mod tests {
 		// products directory surfaces as a warning, not a
 		// failure.
 		let app = root.join(".leptoskit/ios/build/Build/Products/Release-iphonesimulator/App.app");
+
 		std::fs::create_dir_all(&app).unwrap();
 		std::fs::write(app.join("App"), vec![0_u8; 512]).unwrap();
 		report_application_size(&root, Target::IosSimulator, true);
@@ -1061,6 +1117,7 @@ mod tests {
 		assert!(ensure_target_enabled(&config, Target::Harmonyos).is_err());
 		config.app.platforms = Platform::APPLICATION.to_vec();
 		ensure_target_enabled(&config, Target::Harmonyos).unwrap();
+
 		config.app.default_platform = Platform::Web;
 		assert!(ensure_target_enabled(&config, Target::Harmonyos).is_err());
 	}
@@ -1071,6 +1128,7 @@ mod tests {
 			// On macOS the SDK compilers resolve; elsewhere the build cannot
 			// depend on Xcode, so the environment is simply empty.
 			let environment = apple_cc_environment(target);
+
 			if cfg!(target_os = "macos") {
 				assert!(
 					environment.iter().any(|(key, _)| {
@@ -1116,6 +1174,7 @@ mod tests {
 		);
 
 		config.bundle.cargo_profile = Some("wasm-release".into());
+
 		for host in [true, false] {
 			let (profile, arguments) = release_arguments(&config, host);
 			assert_eq!(profile, "wasm-release");
@@ -1150,6 +1209,7 @@ mod tests {
 		std::fs::create_dir_all(dependency.join("src")).unwrap();
 		std::fs::create_dir_all(interpreter.join("src")).unwrap();
 		std::fs::create_dir_all(app.join("src")).unwrap();
+
 		std::fs::write(
 			dependency.join("Cargo.toml"),
 			"[package]\nname = \"dependency\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
@@ -1218,6 +1278,7 @@ mod tests {
 		let root = temporary.path();
 		let shared = root.join("shared-target");
 		let mut executables = Vec::new();
+
 		for name in ["first", "second"] {
 			let app = root.join(name);
 			std::fs::create_dir_all(app.join("src")).unwrap();
@@ -1227,6 +1288,7 @@ mod tests {
 				 \"2021\"\n[workspace]\n",
 			)
 			.unwrap();
+
 			std::fs::write(
 				app.join("src/main.rs"),
 				format!("fn main() {{ println!({name:?}); }}"),
@@ -1260,6 +1322,7 @@ mod tests {
 				destination
 			);
 		}
+
 		// The first artifact is consumed only after the second same-named app
 		// has built, reproducing the native host build/copy interleaving.
 		for (executable, expected) in executables.iter().zip(["first", "second"]) {
@@ -1293,6 +1356,7 @@ mod tests {
 			xcrun_find_in(std::ffi::OsStr::new("/nonexistent"), "macosx", "clang").is_none(),
 			"no xcrun on the search path finds nothing"
 		);
+
 		std::fs::remove_dir_all(root).unwrap();
 	}
 
@@ -1324,6 +1388,7 @@ mod tests {
 		std::fs::create_dir_all(&second).unwrap();
 		let alias = root.join("alias");
 		directory_alias(&first, &alias);
+
 		let first_cache = native_build_directory(&first, root, "host").unwrap();
 		assert_eq!(
 			native_build_directory(&alias, root, "host").unwrap(),
@@ -1360,6 +1425,7 @@ mod tests {
 		};
 		std::fs::create_dir_all(&first).unwrap();
 		std::fs::create_dir_all(&second).unwrap();
+
 		assert_ne!(
 			native_build_directory(&first, root, "host").unwrap(),
 			native_build_directory(&second, root, "host").unwrap()
@@ -1394,6 +1460,7 @@ mod tests {
 		std::fs::write(bundle.join("runtime.json"), b"{}").unwrap();
 		let mut config = LeptoskitConfig::default();
 		config.app.name = "demo".into();
+
 		config.codepush.enabled = true;
 		config.codepush.allow_http = true;
 
@@ -1408,6 +1475,7 @@ mod tests {
 			serde_json::from_slice(&std::fs::read(mobile.join("codepush.json")).unwrap()).unwrap();
 		assert_eq!(updates["enabled"], true);
 		assert_eq!(updates["app"], "demo");
+
 		assert_eq!(updates["channel"], "production");
 		assert_eq!(
 			updates["allow_http"], false,
@@ -1500,6 +1568,7 @@ mod tests {
 			value("AR_aarch64_linux_android").is_some_and(|archiver| archiver.starts_with(&tools)),
 			"the NDK's llvm-ar archives: {environment:?}"
 		);
+
 		assert_eq!(
 			std::fs::read_to_string(root.join(".leptoskit/android/ndk-path.txt")).unwrap(),
 			gradle_ndk_path(&ndk).unwrap(),

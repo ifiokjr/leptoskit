@@ -15,11 +15,13 @@ pub fn run(file: Option<&Path>, dry_run: bool, check: bool) -> anyhow::Result<()
 		Some(path) => path.to_owned(),
 		None => LeptoskitConfig::find_root()?.join(CONFIG_FILE),
 	};
+
 	let raw = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
 	let output = migration::migrate(&raw).with_context(|| format!("migrate {}", path.display()))?;
 
 	if dry_run {
 		print!("{output}");
+
 		return Ok(());
 	}
 
@@ -28,6 +30,7 @@ pub fn run(file: Option<&Path>, dry_run: bool, check: bool) -> anyhow::Result<()
 			"{} is current (schema_version {SCHEMA_VERSION})",
 			path.display()
 		));
+
 		return Ok(());
 	}
 
@@ -52,6 +55,7 @@ pub fn run(file: Option<&Path>, dry_run: bool, check: bool) -> anyhow::Result<()
 		.as_file()
 		.set_permissions(metadata.permissions())?;
 	temporary.as_file().sync_all()?;
+
 	anyhow::ensure!(
 		std::fs::read_to_string(&path)? == raw,
 		"{} changed during migration; run the command again",

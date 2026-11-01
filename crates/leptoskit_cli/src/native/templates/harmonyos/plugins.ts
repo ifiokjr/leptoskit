@@ -56,6 +56,7 @@ export class NativeCall {
 		if (this.isCancelled) {
 			return;
 		}
+
 		this.isCancelled = true;
 		const handlers = this.handlers;
 		this.handlers = [];
@@ -101,12 +102,14 @@ export class NativePlugins {
 		if (this.plugins.has(id)) {
 			throw new Error(`Duplicate native plugin ${plugin.name}`);
 		}
+
 		this.plugins.set(id, plugin);
 	}
 
 	/** Cancels a call the guest no longer awaits; its result is discarded. */
 	cancel(id: number): void {
 		const call = this.calls.get(id);
+
 		if (call !== undefined) {
 			this.calls.delete(id);
 			call.cancel();
@@ -118,6 +121,7 @@ export class NativePlugins {
 		if (this.closed) {
 			return;
 		}
+
 		this.closed = true;
 		const calls = Array.from(this.calls.values());
 		this.calls.clear();
@@ -125,6 +129,7 @@ export class NativePlugins {
 		const plugins = Array.from(this.plugins.values());
 		this.plugins.clear();
 		let failure: Error | undefined = undefined;
+
 		for (const plugin of plugins) {
 			try {
 				plugin.close();
@@ -132,6 +137,7 @@ export class NativePlugins {
 				failure = failure ?? (error as Error);
 			}
 		}
+
 		if (failure !== undefined) {
 			throw failure;
 		}
@@ -147,6 +153,7 @@ export class NativePlugins {
 		if (this.closed) {
 			return;
 		}
+
 		const call = new NativeCall(method, payload);
 		this.calls.set(id, call);
 		const handler = this.plugins.get(plugin);
@@ -164,6 +171,7 @@ export class NativePlugins {
 				if (!(error instanceof PluginError)) {
 					console.error(`LeptosKit native plugin call failed: ${error}`);
 				}
+
 				const code = error instanceof PluginError ? error.code : NATIVE;
 				this.settle(id, call, code, new ArrayBuffer(0));
 			},
@@ -179,6 +187,7 @@ export class NativePlugins {
 		if (this.calls.get(id) !== call) {
 			return;
 		}
+
 		this.calls.delete(id);
 		this.complete(id, code, payload);
 	}

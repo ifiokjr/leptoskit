@@ -40,12 +40,14 @@ android {
         manifest.srcFile("../../../.leptoskit/android/AndroidManifest.xml")
     }
     externalNativeBuild { cmake { path = file("../../../.leptoskit/android/CMakeLists.txt") } }
+
     signingConfigs {
         // The upload key, from the environment, so the keystore's path and
         // passwords stay out of the project. Without them, the release is
         // unsigned. Google Play re-signs what it installs with the app
         // signing key it holds.
         val keystore = providers.environmentVariable("LEPTOSKIT_ANDROID_KEYSTORE").orNull
+
         if (keystore != null) {
             create("release") {
                 storeFile = file(keystore)

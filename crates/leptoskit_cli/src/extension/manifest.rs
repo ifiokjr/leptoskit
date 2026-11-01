@@ -73,11 +73,13 @@ pub fn manifest(input: &ManifestInput<'_>) -> Value {
 	manifest.insert("manifest_version".into(), json!(3));
 	manifest.insert("name".into(), json!(name));
 	manifest.insert("version".into(), json!(version));
+
 	if browser == Browser::Chromium
 		&& let Some(version_name) = version_name
 	{
 		manifest.insert("version_name".into(), json!(version_name));
 	}
+
 	if let Some(description) = &extension.description {
 		manifest.insert("description".into(), json!(description));
 	}
@@ -109,15 +111,18 @@ fn insert_surfaces(manifest: &mut Map<String, Value>, input: &ManifestInput<'_>,
 	let browser = input.browser;
 	let mut action = Map::new();
 	action.insert("default_title".into(), json!(name));
+
 	if let Some(popup) = &extension.popup
 		&& extension.includes(popup.browsers.as_deref(), browser)
 	{
 		action.insert("default_popup".into(), json!("popup.html"));
 	}
+
 	if !input.icons.is_empty() {
 		action.insert("default_icon".into(), icons(input.icons));
 		manifest.insert("icons".into(), icons(input.icons));
 	}
+
 	manifest.insert("action".into(), Value::Object(action));
 
 	if let Some(options) = &extension.options
@@ -128,6 +133,7 @@ fn insert_surfaces(manifest: &mut Map<String, Value>, input: &ManifestInput<'_>,
 			json!({ "page": "options.html", "open_in_tab": true }),
 		);
 	}
+
 	if let Some(new_tab) = &extension.new_tab
 		&& extension.includes(new_tab.browsers.as_deref(), browser)
 	{
@@ -142,6 +148,7 @@ fn insert_surfaces(manifest: &mut Map<String, Value>, input: &ManifestInput<'_>,
 	if extension.has_devtools_page(browser) {
 		manifest.insert("devtools_page".into(), json!("devtools.html"));
 	}
+
 	if extension.has_side_panel(browser) {
 		match browser {
 			Browser::Chromium => {
@@ -170,6 +177,7 @@ fn insert_scripts(
 ) {
 	let extension = input.extension;
 	let browser = input.browser;
+
 	if extension.background.is_some() || input.dev.is_some() {
 		manifest.insert(
 			"background".into(),
@@ -195,13 +203,16 @@ fn insert_scripts(
 			})
 		})
 		.collect();
+
 	if !declared.is_empty() {
 		manifest.insert("content_scripts".into(), Value::Array(declared));
 	}
+
 	if !scripts.is_empty() {
 		// The overlay frame each script shows, and the app it runs. A script
 		// injected on request or registered later can reach any page.
 		let mut matches: BTreeSet<String> = BTreeSet::new();
+
 		for script in scripts {
 			if script.inject == Inject::Manifest {
 				matches.extend(script.matches.iter().cloned());
@@ -209,6 +220,7 @@ fn insert_scripts(
 				matches.insert("<all_urls>".into());
 			}
 		}
+
 		let mut resources = json!({
 			"resources": ["overlay.html", "overlay.js", "pkg/*", "assets/*"],
 			"matches": matches.into_iter().collect::<Vec<_>>(),
@@ -218,6 +230,7 @@ fn insert_scripts(
 		if browser == Browser::Chromium {
 			resources["use_dynamic_url"] = json!(true);
 		}
+
 		manifest.insert("web_accessible_resources".into(), json!([resources]));
 	}
 }
@@ -232,26 +245,33 @@ fn insert_access(
 	let extension = input.extension;
 	let browser = input.browser;
 	let permissions = permissions(input, scripts);
+
 	if !permissions.is_empty() {
 		manifest.insert("permissions".into(), json!(permissions));
 	}
+
 	let mut hosts: BTreeSet<String> = extension.host_permissions.iter().cloned().collect();
+
 	if let Some(origin) = extension.server.as_deref().and_then(server_origin) {
 		hosts.insert(origin_pattern(&origin));
 	}
+
 	for script in scripts {
 		if script.inject == Inject::Manifest {
 			hosts.extend(script.matches.iter().cloned());
 		}
 	}
+
 	if let Some(dev) = input.dev
 		&& let Some(origin) = server_origin(&dev.server)
 	{
 		hosts.insert(origin_pattern(&origin));
 	}
+
 	if !hosts.is_empty() {
 		manifest.insert("host_permissions".into(), json!(hosts));
 	}
+
 	if !extension.optional_host_permissions.is_empty() {
 		let optional: BTreeSet<&String> = extension.optional_host_permissions.iter().collect();
 		manifest.insert("optional_host_permissions".into(), json!(optional));
@@ -263,9 +283,11 @@ fn insert_access(
 			.iter()
 			.map(|(name, command)| {
 				let mut value = json!({ "description": command.description });
+
 				if let Some(key) = &command.suggested_key {
 					value["suggested_key"] = json!({ "default": key });
 				}
+
 				(name.clone(), value)
 			})
 			.collect();
@@ -276,6 +298,7 @@ fn insert_access(
 		"content_security_policy".into(),
 		json!({ "extension_pages": PAGE_POLICY }),
 	);
+
 	if browser == Browser::Firefox
 		&& let Some(firefox) = &extension.firefox
 	{
@@ -293,6 +316,7 @@ fn insert_access(
 			}),
 		);
 	}
+
 	if let Some(key) = input.dev.and_then(|dev| dev.key.as_ref())
 		&& browser == Browser::Chromium
 	{
@@ -304,10 +328,12 @@ fn insert_access(
 /// a port, so a pattern covers every port on the host.
 fn origin_pattern(origin: &str) -> String {
 	let (scheme, host) = origin.split_once("://").unwrap_or(("https", origin));
+
 	let host = match host.rsplit_once(':') {
 		Some((name, port)) if port.bytes().all(|byte| byte.is_ascii_digit()) => name,
 		_ => host,
 	};
+
 	format!("{scheme}://{host}/*")
 }
 
@@ -329,9 +355,11 @@ fn permissions(
 	let extension = input.extension;
 	let mut permissions: BTreeSet<String> = extension.permissions.iter().cloned().collect();
 	permissions.extend(input.plugin_permissions.iter().cloned());
+
 	if extension.has_side_panel(input.browser) && input.browser == Browser::Chromium {
 		permissions.insert("sidePanel".into());
 	}
+
 	if scripts
 		.iter()
 		.any(|script| script.inject != Inject::Manifest)
@@ -341,6 +369,7 @@ fn permissions(
 	// The runtime keeps the session token and its own state in extension
 	// storage, shared by every surface and the worker.
 	permissions.insert("storage".into());
+
 	if let Some(background) = &extension.background {
 		for event in &background.events {
 			match event.as_str() {
@@ -350,5 +379,6 @@ fn permissions(
 			};
 		}
 	}
+
 	permissions.into_iter().collect()
 }

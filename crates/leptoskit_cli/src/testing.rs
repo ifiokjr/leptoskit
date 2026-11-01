@@ -188,6 +188,7 @@ impl Run {
 			.spawn()
 			.with_context(|| format!("starting {name}; check that its tool is installed"))?;
 		let mut companion_failure = None;
+
 		let (status, timed_out) = loop {
 			if let Some(companion) = companion.as_mut()
 				&& let Some(status) = companion.try_wait()?
@@ -198,15 +199,19 @@ impl Run {
 				terminate(&mut child)?;
 				break (child.wait()?, false);
 			}
+
 			if let Some(status) = child.try_wait()? {
 				break (status, false);
 			}
+
 			if started.elapsed() >= self.timeout {
 				terminate(&mut child).with_context(|| format!("terminating timed-out {name}"))?;
 				break (child.wait()?, true);
 			}
+
 			std::thread::sleep(Duration::from_millis(20));
 		};
+
 		self.report.steps.push(Step {
 			name: name.to_owned(),
 			exit_code: status.code(),
@@ -215,9 +220,11 @@ impl Run {
 			stdout,
 			stderr,
 		});
+
 		if let Some(error) = companion_failure {
 			bail!("{error}");
 		}
+
 		if timed_out {
 			bail!(
 				"{name} exceeded {} seconds; logs: {}",
@@ -225,12 +232,14 @@ impl Run {
 				self.directory.display()
 			);
 		}
+
 		if !status.success() {
 			bail!(
 				"{name} failed ({status}); logs: {}",
 				self.directory.display()
 			);
 		}
+
 		Ok(output)
 	}
 
@@ -261,6 +270,7 @@ fn terminate(child: &mut std::process::Child) -> anyhow::Result<()> {
 		use rustix::process::Signal;
 		use rustix::process::kill_process_group;
 		let pid = Pid::from_raw(i32::try_from(child.id())?).context("invalid process ID")?;
+
 		match kill_process_group(pid, Signal::KILL) {
 			Ok(()) | Err(rustix::io::Errno::SRCH) => Ok(()),
 			Err(error) => Err(error.into()),
@@ -273,9 +283,11 @@ fn terminate(child: &mut std::process::Child) -> anyhow::Result<()> {
 			.stdout(Stdio::null())
 			.stderr(Stdio::null())
 			.status()?;
+
 		if !status.success() && child.try_wait()?.is_none() {
 			bail!("taskkill could not terminate the test process tree");
 		}
+
 		Ok(())
 	}
 	#[cfg(not(any(unix, windows)))]
@@ -323,6 +335,7 @@ pub fn run(command: TestCommand) -> anyhow::Result<()> {
 				.env_remove("CHROMEDRIVER")
 				.env_remove("GECKODRIVER")
 				.env_remove("SAFARIDRIVER");
+
 			match browser {
 				Browser::Chrome => {
 					command.env(
@@ -337,6 +350,7 @@ pub fn run(command: TestCommand) -> anyhow::Result<()> {
 					)
 				}
 			};
+
 			let result = run.command("browser", &mut command).map(|_| ());
 			run.finish(result)
 		}
@@ -360,6 +374,7 @@ fn run_binary(args: &RunArgs) -> anyhow::Result<()> {
 				if args.device.is_some() || args.avd.is_some() {
 					bail!("--device and --avd require a mobile platform");
 				}
+
 				run.command("test", Command::new(binary).args(&args.args))?;
 				Ok(())
 			}
@@ -388,9 +403,11 @@ fn device(args: &RunArgs) -> anyhow::Result<&str> {
 		.device
 		.as_deref()
 		.context("--device is required for mobile tests")?;
+
 	if id.is_empty() || id.starts_with('-') || id.chars().any(char::is_whitespace) {
 		bail!("invalid device identifier");
 	}
+
 	Ok(id)
 }
 
@@ -398,9 +415,11 @@ fn ios(run: &mut Run, args: &RunArgs, binary: &Path) -> anyhow::Result<()> {
 	if !cfg!(target_os = "macos") {
 		bail!("iOS simulators require a macOS host with Xcode");
 	}
+
 	if args.avd.is_some() {
 		bail!("--avd is only supported for Android");
 	}
+
 	let id = device(args)?;
 	let path = run.command(
 		"devices",
@@ -414,14 +433,17 @@ fn ios(run: &mut Run, args: &RunArgs, binary: &Path) -> anyhow::Result<()> {
 		.flat_map(|(_, devices)| devices)
 		.find(|sim| sim.udid == id && sim.available)
 		.context("selected simulator is not installed or available")?;
+
 	let owned = match simulator.state.as_str() {
 		"Booted" => false,
 		"Shutdown" => true,
 		state => bail!("simulator is {state}; wait for it to finish transitioning"),
 	};
+
 	if owned {
 		run.command("boot", Command::new("xcrun").args(["simctl", "boot", id]))?;
 	}
+
 	let result = (|| {
 		run.command(
 			"boot-ready",
@@ -445,6 +467,7 @@ fn ios(run: &mut Run, args: &RunArgs, binary: &Path) -> anyhow::Result<()> {
 	} else {
 		Ok(())
 	};
+
 	combine(result, cleanup)
 }
 
@@ -454,6 +477,7 @@ pub(crate) fn android_tool(name: &str) -> PathBuf {
 	} else {
 		name.to_owned()
 	};
+
 	std::env::var_os("ANDROID_HOME")
 		.or_else(|| std::env::var_os("ANDROID_SDK_ROOT"))
 		.map_or_else(
@@ -485,15 +509,19 @@ pub(crate) fn shell_quote(value: &str) -> String {
 fn android(run: &mut Run, args: &RunArgs, binary: &Path) -> anyhow::Result<()> {
 	let id = device(args)?;
 	let mut emulator = None;
+
 	if let Some(avd) = &args.avd {
 		let port: u16 = id
 			.strip_prefix("emulator-")
 			.context("--avd requires --device emulator-PORT")?
 			.parse()?;
+
 		if !(5554..=5682).contains(&port) || !port.is_multiple_of(2) {
 			bail!("emulator port must be even and between 5554 and 5682");
 		}
+
 		let devices = run.command("devices", Command::new(android_tool("adb")).arg("devices"))?;
+
 		if fs::read_to_string(devices)?
 			.lines()
 			.any(|line| line.split_whitespace().next() == Some(id))
@@ -520,6 +548,7 @@ fn android(run: &mut Run, args: &RunArgs, binary: &Path) -> anyhow::Result<()> {
 				.context("starting Android emulator")?,
 		);
 	}
+
 	let remote = format!(
 		"/data/local/tmp/leptoskit-{}",
 		run.directory
@@ -571,9 +600,11 @@ fn android(run: &mut Run, args: &RunArgs, binary: &Path) -> anyhow::Result<()> {
 			if argument.contains('\0') {
 				bail!("test arguments cannot contain NUL");
 			}
+
 			command.push(' ');
 			command.push_str(&shell_quote(argument));
 		}
+
 		run.command("test", adb(id).args(["shell", &command]))?;
 		Ok(())
 	})();
@@ -586,7 +617,9 @@ fn android(run: &mut Run, args: &RunArgs, binary: &Path) -> anyhow::Result<()> {
 	} else {
 		Ok(())
 	};
+
 	let result = combine(result, cleanup);
+
 	if let Some(mut child) = emulator {
 		// Terminate only the process tree we own. A serial can be reused by a
 		// concurrent runner after an emulator exits, so adb emu kill is unsafe.
@@ -594,11 +627,14 @@ fn android(run: &mut Run, args: &RunArgs, binary: &Path) -> anyhow::Result<()> {
 			if child.try_wait()?.is_none() {
 				terminate(&mut child)?;
 			}
+
 			child.wait()?;
 			Ok(())
 		})();
+
 		return combine(result, reaped);
 	}
+
 	result
 }
 
@@ -642,6 +678,7 @@ mod tests {
 			Some(&mut companion),
 		);
 		assert!(result.unwrap_err().to_string().contains("emulator exited"));
+
 		assert!(!run.report.steps[0].timed_out);
 		assert_ne!(run.report.steps[0].exit_code, Some(0));
 		fs::remove_dir_all(parent).unwrap();

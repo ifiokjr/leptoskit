@@ -125,6 +125,7 @@ fn disabled_legacy_native_platforms_fail_before_invoking_cargo() {
 	)
 	.unwrap();
 	std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).unwrap();
+
 	let path = std::env::join_paths(
 		std::iter::once(tools).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
 	)
@@ -193,6 +194,7 @@ fn generated_plugin_is_a_standalone_compilable_crate_and_never_overwrites() {
 		.output()
 		.unwrap();
 	assert!(output.status.success(), "{}", stderr(&output));
+
 	let source = project.join("src/lib.rs");
 	let original = std::fs::read(&source).unwrap();
 	let output = leptoskit(&scratch.path, &["generate", "plugin", "echo"]);
@@ -211,6 +213,7 @@ fn plugin_generation_refuses_symlinked_source_directories() {
 	std::os::unix::fs::symlink(&outside, project.join("src")).unwrap();
 	let output = leptoskit(&scratch.path, &["generate", "plugin", "plugin"]);
 	assert!(!output.status.success());
+
 	assert!(!project.join("Cargo.toml").exists());
 	assert!(!outside.join("lib.rs").exists());
 }
@@ -323,6 +326,7 @@ fn web_default_scaffold_includes_every_app_owned_platform_runner() {
 		None,
 	)
 	.expect("scaffold");
+
 	for platform in ["ios", "android", "macos", "windows", "linux"] {
 		let manifest: toml::Table =
 			std::fs::read_to_string(project.join(platform).join("Cargo.toml"))
@@ -334,7 +338,9 @@ fn web_default_scaffold_includes_every_app_owned_platform_runner() {
 			Some(format!("counter_web_{platform}").as_str())
 		);
 	}
+
 	assert!(!project.join("guest").exists());
+
 	assert!(!project.join("client").exists());
 }
 
@@ -455,6 +461,7 @@ fn new_in_the_current_directory_uses_its_name() {
 	let config = leptoskit_config::LeptoskitConfig::load_from(&project).expect("load");
 	assert_eq!(config.app.name, "dotted_app");
 	let manifest = std::fs::read_to_string(project.join("Cargo.toml")).expect("manifest");
+
 	assert!(manifest.contains("name = \"dotted_app\""));
 }
 
@@ -662,6 +669,7 @@ fn build_cache_round_trips_and_skips_unchanged_phases() {
 		.expect("cache dir")
 		.map(|entry| entry.expect("entry").file_name())
 		.collect();
+
 	assert_eq!(
 		entries.len(),
 		1,
@@ -837,6 +845,7 @@ fn dev_serves_the_web_app_rebuilds_it_on_change_and_stops_on_sigterm() {
 		"the restarted server renders the page"
 	);
 	dev.stop();
+
 	assert!(
 		std::net::TcpStream::connect(format!("127.0.0.1:{port}")).is_err(),
 		"the app server stops with `leptoskit dev`"
@@ -859,6 +868,7 @@ fn dev_serves_the_web_app_rebuilds_it_on_change_and_stops_on_sigterm() {
 	std::fs::write(&config, text).expect("write leptoskit.toml");
 	let mut dev = DevSession::start(&project, &["dev", "--port", &port]);
 	dev.expect("[windows] skipped", Duration::from_mins(1));
+
 	dev.expect("[web] serving", Duration::from_mins(15));
 	dev.expect("watching", Duration::from_mins(1));
 	assert!(page(&port).contains("<html"), "dev serves web/index.html");
@@ -971,6 +981,7 @@ fn page(port: &str) -> String {
 
 		match response {
 			Ok(response) if response.starts_with("HTTP/1.1 200") => return response,
+
 			_ if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(200)),
 			other => panic!("the dev server never served the page: {other:?}"),
 		}
@@ -1507,6 +1518,7 @@ fn assert_platform_channels_round_trip_through_a_bucket(project: &Path) {
 				stderr(&result)
 			);
 		}
+
 		let index = format!("/registry/pushed/production-{platform}/index.json");
 		assert!(objects.lock().unwrap().objects.contains_key(&index));
 		assert!(
@@ -1608,10 +1620,13 @@ async fn mock_s3_request(
 	let query = parts.uri.query().unwrap_or_default();
 	let signed = query.contains("X-Amz-Signature=")
 		&& query.contains(&format!("X-Amz-Credential={MOCK_ACCESS_KEY}"));
+
 	if !signed {
 		return StatusCode::FORBIDDEN.into_response();
 	}
+
 	let path = percent_decode(parts.uri.path());
+
 	match parts.method.as_str() {
 		"GET" => {
 			match state.objects.get(&path) {
@@ -1636,6 +1651,7 @@ async fn mock_s3_request(
 fn percent_decode(path: &str) -> String {
 	let mut decoded = Vec::new();
 	let mut bytes = path.bytes();
+
 	while let Some(byte) = bytes.next() {
 		if byte == b'%' {
 			let hex: String = bytes.by_ref().take(2).map(char::from).collect();
@@ -1644,6 +1660,7 @@ fn percent_decode(path: &str) -> String {
 			decoded.push(byte);
 		}
 	}
+
 	String::from_utf8(decoded).expect("utf-8 path")
 }
 
@@ -1705,6 +1722,7 @@ fn assert_bucket_mirrors_store(state: &MockS3, store: &Path, secret: &str) {
 		6,
 		"two releases, two signatures, a delta, the index"
 	);
+
 	for path in &local {
 		let file = store.join(path.trim_start_matches("/registry/updates/"));
 		let (bytes, content_type, cache_control) = &state.objects[path];
@@ -1713,6 +1731,7 @@ fn assert_bucket_mirrors_store(state: &MockS3, store: &Path, secret: &str) {
 		assert_eq!(content_type, expected_type, "{path}");
 		assert_eq!(cache_control, expected_cache, "{path}");
 	}
+
 	for request in &state.raw_requests {
 		assert!(!request.contains(secret), "a request leaks the secret");
 	}
@@ -1728,9 +1747,11 @@ fn codepush_publish_uploads_the_static_layout_with_the_index_last() {
 	assert!(keygen.status.success(), "{}", stderr(&keygen));
 	codepush_project(&scratch.path, "0.2.0");
 	let release = ["codepush", "release", "--signing-key", "publisher.key"];
+
 	for marker in ["one", "two"] {
 		std::fs::write(scratch.path.join("dist/index.html"), marker).expect("index");
 		let output = leptoskit(&scratch.path, &release);
+
 		assert!(output.status.success(), "{}", stderr(&output));
 	}
 
@@ -1770,6 +1791,7 @@ fn codepush_publish_uploads_the_static_layout_with_the_index_last() {
 
 	let store = scratch.path.join("releases");
 	assert_bucket_mirrors_store(&state.lock().expect("lock"), &store, secret);
+
 	for output in [&missing, &first] {
 		assert!(!stdout(output).contains(secret) && !stderr(output).contains(secret));
 	}
@@ -2147,6 +2169,7 @@ fn l10n_writes_checks_and_reports_problems_by_file_and_line() {
 		"{listed}"
 	);
 	let module = std::fs::read_to_string(dir.join("src/l10n.rs")).expect("generated");
+
 	assert!(module.contains("impl Messages for PtBr"), "{module}");
 
 	let output = leptoskit(dir, &["l10n", "--check"]);
@@ -2344,6 +2367,7 @@ fn native_harmonyos_build_reports_missing_sdk_before_running_cargo() {
 		Some(NativeTarget::Harmonyos),
 	)
 	.unwrap();
+
 	for target in ["harmonyos", "harmonyos-x86_64"] {
 		let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
 			.current_dir(&destination)
@@ -2355,6 +2379,7 @@ fn native_harmonyos_build_reports_missing_sdk_before_running_cargo() {
 		assert!(String::from_utf8_lossy(&output.stderr).contains("OHOS_NDK_HOME"));
 		assert!(!destination.join(".leptoskit").exists());
 	}
+
 	let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
 		.current_dir(&destination)
 		.env_remove("OHOS_NDK_HOME")
@@ -2387,9 +2412,11 @@ fn harmonyos_packaging_selects_the_abi_and_propagates_tool_failures() {
 	std::fs::create_dir_all(&tools).unwrap();
 	std::fs::create_dir_all(sdk.join("llvm/bin")).unwrap();
 	std::fs::create_dir_all(sdk.join("sysroot/usr/include")).unwrap();
+
 	for tool in ["clang", "clang++", "llvm-ar"] {
 		std::fs::write(sdk.join("llvm/bin").join(tool), "SDK tool fixture").unwrap();
 	}
+
 	let bridge = Path::new(env!("CARGO_MANIFEST_DIR"))
 		.parent()
 		.unwrap()
@@ -2460,9 +2487,11 @@ if [ "${FAIL_HVIGOR:-}" = 1 ]; then exit 17; fi
 mkdir -p entry/build/default/outputs/default
 cp ../../.leptoskit/lib/libleptoskit_bridge_ffi.a entry/build/default/outputs/default/tool-contract.txt
 "#).unwrap();
+
 	for tool in [&cargo, &hvigor] {
 		std::fs::set_permissions(tool, std::fs::Permissions::from_mode(0o755)).unwrap();
 	}
+
 	let path = std::env::join_paths(
 		std::iter::once(tools).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
 	)
@@ -2488,9 +2517,11 @@ cp ../../.leptoskit/lib/libleptoskit_bridge_ffi.a entry/build/default/outputs/de
 	] {
 		let mut invocation = command();
 		invocation.args(["native", "build", target]);
+
 		if release {
 			invocation.arg("--release");
 		}
+
 		let output = invocation.output().unwrap();
 		assert!(output.status.success(), "{}", stderr(&output));
 		assert_eq!(
@@ -2532,6 +2563,7 @@ fn generates_a_tooling_plugin_program() {
 	assert!(manifest.contains("leptoskit-plugin-demo"), "{manifest}");
 	let program = std::fs::read_to_string(dir.join("plugin-dir/src/main.rs")).expect("program");
 	assert!(program.contains("describe"), "{program}");
+
 	assert!(program.contains("cli_namespace"), "{program}");
 }
 
@@ -2579,6 +2611,7 @@ fn a_web_build_without_a_client_and_with_rustflags_set_explains_both() {
 		warnings.contains("RUSTFLAGS is set, so cargo ignores build.rustflags"),
 		"{warnings}"
 	);
+
 	assert!(
 		warnings.contains("no cdylib client crate found; built the server only"),
 		"{warnings}"
@@ -2618,6 +2651,7 @@ fn serve_serves_the_build_until_sigterm() {
 
 	// The line prints just before the server binds.
 	let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+
 	let mut stream = loop {
 		match std::net::TcpStream::connect(("127.0.0.1", port)) {
 			Ok(stream) => break stream,
@@ -2627,6 +2661,7 @@ fn serve_serves_the_build_until_sigterm() {
 			}
 		}
 	};
+
 	let mut page = String::new();
 	stream
 		.write_all(b"GET / HTTP/1.0\r\nHost: localhost\r\n\r\n")
@@ -2662,6 +2697,7 @@ fn native_bundle_without_wasm_opt_ships_the_guest_unoptimized() {
 	if !dirs.iter().any(|dir| has(dir, "cargo")) {
 		return;
 	}
+
 	let scratch = fixture_project("native_guest");
 	let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
 		.args(["native", "bundle", "--target", "android", "--out", "bundle"])
@@ -2670,6 +2706,7 @@ fn native_bundle_without_wasm_opt_ships_the_guest_unoptimized() {
 		.output()
 		.expect("run leptoskit native bundle");
 	assert!(output.status.success(), "{}", stderr(&output));
+
 	assert!(
 		stderr(&output).contains("wasm-opt is not installed, so the guest wasm ships unoptimized"),
 		"{}",

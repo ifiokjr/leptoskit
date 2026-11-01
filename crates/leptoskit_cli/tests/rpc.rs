@@ -738,6 +738,7 @@ fn build_runs_cargo_check_on_generated_crates() {
 	std::fs::write(scratch.path.join("spec.json"), spec.to_string()).expect("hostile spec");
 	let stub_dir = scratch.path.join("bin");
 	std::fs::create_dir_all(&stub_dir).expect("bin");
+
 	cargo_stub(&stub_dir, true);
 	let path = std::env::join_paths([
 		stub_dir.as_os_str(),
@@ -794,6 +795,7 @@ fn build_runs_cargo_check_on_generated_crates() {
 				"tokio",
 			]
 		};
+
 		assert_eq!(
 			dependencies, expected,
 			"only generator-owned dependencies reach cargo check"

@@ -102,6 +102,7 @@ class NativeAppTest {
         context.startActivity(launch)
         val hash = device.wait(Until.findObject(By.desc("Hash with Rust")), 15000)
         assertNotNull("Generated app shows its native button", hash)
+
         hash.click()
         assertNotNull(device.wait(Until.findObject(By.text("SHA-256: 32 bytes")), 10000))
         device.findObject(By.desc("Check clipboard")).click()

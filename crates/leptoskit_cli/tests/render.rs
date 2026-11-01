@@ -365,15 +365,18 @@ fn each_project_keeps_its_own_server_record_in_a_shared_target_dir() {
 	let scratch = Scratch::new("records");
 	let target = scratch.path.join("target");
 	let (first, second) = (scratch.path.join("first"), scratch.path.join("second"));
+
 	for (root, name) in [(&first, "first"), (&second, "second")] {
 		let binary = scratch.path.join(name);
 		std::fs::write(&binary, "").expect("binary");
 		BuiltServer { binary }.save(&target, root).expect("save");
 	}
+
 	assert_eq!(
 		BuiltServer::load(&target, &first).expect("first").binary,
 		scratch.path.join("first")
 	);
+
 	assert_eq!(
 		BuiltServer::load(&target, &second).expect("second").binary,
 		scratch.path.join("second")

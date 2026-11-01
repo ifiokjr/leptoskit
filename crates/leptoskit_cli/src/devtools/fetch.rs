@@ -190,13 +190,16 @@ fn unpack_into(archive: &[u8], dir: &Path) -> Result<()> {
 
 	if let Err(error) = fs::rename(&staged, dir) {
 		let _ = fs::remove_dir_all(&staged);
+
 		if had_old {
 			let _ = fs::rename(&old, dir);
 		}
+
 		// Another process may have finished the same download first.
 		if ui::has_build(dir) {
 			return Ok(());
 		}
+
 		return Err(error)
 			.with_context(|| format!("could not move the interface into {}", dir.display()));
 	}
@@ -300,6 +303,7 @@ pub fn run(force: bool) -> Result<()> {
 			 download it again",
 			dir.display()
 		));
+
 		return Ok(());
 	}
 
@@ -407,6 +411,7 @@ mod tests {
 					Some((_, body)) => ("200 OK", body.clone()),
 					None => ("404 Not Found", b"Not Found".to_vec()),
 				};
+
 				let head = format!(
 					"HTTP/1.1 {status}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
 					body.len()
@@ -445,6 +450,7 @@ mod tests {
 			*seen.lock().unwrap(),
 			["/releases/download/v0.4.0/leptoskit-devtools-0.4.0.tar.gz"]
 		);
+
 		// Only the build is left behind.
 		assert_eq!(fs::read_dir(dir.parent().unwrap()).unwrap().count(), 1);
 
@@ -478,6 +484,7 @@ mod tests {
 		assert!(error.contains("SHA-256"), "{error}");
 		assert!(error.contains(&"0".repeat(64)), "{error}");
 		assert!(!dir.exists());
+
 		// The mismatch is reported, not retried.
 		assert_eq!(seen.lock().unwrap().len(), 1);
 	}
@@ -522,6 +529,7 @@ mod tests {
 			.to_string();
 		assert!(error.contains("SHA-256"), "{error}");
 		assert!(!dir.exists());
+
 		// Only this version's address was asked for: no fallback.
 		assert_eq!(
 			*seen.lock().unwrap(),

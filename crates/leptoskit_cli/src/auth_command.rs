@@ -241,6 +241,7 @@ fn mail(
 	if mail.smtp_url_env.is_none() && mail.webhook_url_env.is_none() {
 		let message = "email goes to the development mailbox; a release build refuses to start \
 		               without smtp_url_env or webhook_url_env in [auth.mail]";
+
 		findings.push(if release { error(message) } else { ok(message) });
 	}
 
@@ -446,6 +447,7 @@ pub(crate) fn report(findings: &[Finding]) -> String {
 			Level::Warning => "warning",
 			Level::Error => "error",
 		};
+
 		let _ = writeln!(out, "{mark:>7}  {}", finding.message);
 	}
 
@@ -462,6 +464,7 @@ fn rotate_keys(config: &LeptoskitConfig, url: Option<String>) -> Result<()> {
 		.db
 		.as_ref()
 		.context("sign-in keeps its secrets in the database; add a [db] table")?;
+
 	let url = match url {
 		Some(url) => url,
 		None => {
@@ -469,6 +472,7 @@ fn rotate_keys(config: &LeptoskitConfig, url: Option<String>) -> Result<()> {
 				.with_context(|| format!("set {} to the database URL, or pass --url", db.url_env))?
 		}
 	};
+
 	let keys = leptoskit_auth::Keys::from_env(&auth.keys_env)?;
 	let newest = keys.newest().to_owned();
 	let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -480,6 +484,7 @@ fn rotate_keys(config: &LeptoskitConfig, url: Option<String>) -> Result<()> {
 		rotate_in(&db, keys).await
 	})?;
 	print!("{}", rotation_report(&newest, rotated));
+
 	Ok(())
 }
 
@@ -943,6 +948,7 @@ mod tests {
 			report.contains("error  google: G_SECRET (client_secret_env) isn't set"),
 			"{report}"
 		);
+
 		assert!(
 			report.contains("https://notes.example/auth/callback/google"),
 			"{report}"
@@ -974,6 +980,7 @@ mod tests {
 			.collect();
 		assert_eq!(errors.len(), 3, "{errors:?}");
 		assert!(errors[0].contains("plain http"));
+
 		assert!(errors[1].contains("development mailbox"));
 		assert!(errors[2].contains("http://10.0.2.2:3000"));
 		assert!(!errors[2].contains("https://notes.example"));
@@ -999,6 +1006,7 @@ mod tests {
 			invalid.contains("AUTH_ENCRYPTION_KEYS is invalid"),
 			"{invalid}"
 		);
+
 		let rotated = report(&doctor(
 			&config,
 			env(&[(
@@ -1101,6 +1109,7 @@ mod tests {
 		let reloaded = LeptoskitConfig::from_toml(&written, root.path()).unwrap();
 		let providers = reloaded.auth.unwrap().providers;
 		assert_eq!(providers.len(), 21);
+
 		assert_eq!(
 			providers["facebook"].api_version.as_deref(),
 			Some(leptoskit_auth::FACEBOOK_GRAPH_VERSION)
@@ -1148,6 +1157,7 @@ mod tests {
 			notes.contains("reddit: requests to Reddit name the app, \"notes\""),
 			"{notes}"
 		);
+
 		assert!(graph_version("v26.0") > graph_version("v9.9"));
 		assert_eq!(graph_version("nonsense"), (0, 0));
 	}
@@ -1172,6 +1182,7 @@ mod tests {
 		);
 		let report = super::report(&doctor(&required, env(&[]), false));
 		assert!(!report.contains("warning  passwords"), "{report}");
+
 		let off = super::report(&doctor(&load("[auth]\n"), env(&[]), false));
 		assert!(!off.contains("passwords are on"), "{off}");
 	}

@@ -29,11 +29,14 @@ pub fn with_icon(source: &str) -> Result<String> {
 		.children()
 		.find(|node| node.has_tag_name("application"))
 		.context("Android manifest has no application element")?;
+
 	if application.has_attribute((ANDROID, "icon")) {
 		return Ok(source.to_owned());
 	}
+
 	let at = application.range().start + "<application".len();
 	let mut output = source.to_owned();
+
 	output.insert_str(at, &format!(" {prefix}:icon=\"@mipmap/ic_launcher\""));
 	Ok(output)
 }
@@ -133,6 +136,7 @@ mod tests {
 		assert!(output.contains("<!-- keep my comment -->"));
 		assert!(output.contains("<package a:name=\"custom.app\"/>"));
 		assert!(output.contains("a:maxSdkVersion=\"30\""));
+
 		assert_eq!(output.matches("<queries>").count(), 1);
 		assert_eq!(output.matches("android.permission.CAMERA").count(), 1);
 		assert_eq!(output.matches("custom.action").count(), 1);

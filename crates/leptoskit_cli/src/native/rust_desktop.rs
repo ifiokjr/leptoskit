@@ -51,6 +51,7 @@ pub fn generate(
 					directory.display()
 				);
 			}
+
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
 			Err(error) => return Err(error).context("inspect generated desktop directory"),
 		}
@@ -107,6 +108,7 @@ pub fn build(root: &Path, config: &LeptoskitConfig, target: Target, release: boo
 	let executable = executable?.context("Cargo produced no desktop executable")?;
 	let bundle = assemble(root, config, target, &executable)?;
 	println!("built application at {}", bundle.display());
+
 	Ok(())
 }
 
@@ -118,6 +120,7 @@ pub(crate) fn application(root: &Path, config: &LeptoskitConfig, target: Target)
 	} else {
 		config.app.name.clone()
 	};
+
 	generated_dir(root, target).join("app").join(name)
 }
 
@@ -187,6 +190,7 @@ mod tests {
 		let path = root.join(".leptoskit/linux/registrant.rs");
 		let original = std::fs::read(&path).unwrap();
 		config.codepush.enabled = true;
+
 		let error = generate(&root, &config, &registry, Target::Linux).unwrap_err();
 		assert!(error.to_string().contains("codepush.enabled = false"));
 		config.codepush.enabled = false;
@@ -239,6 +243,7 @@ mod tests {
 			]
 		);
 		generate(&root, &config, &registry, Target::Linux).unwrap();
+
 		assert_eq!(std::fs::read(path).unwrap(), original);
 		std::fs::remove_dir_all(root).unwrap();
 	}
@@ -273,6 +278,7 @@ mod tests {
 			let generated = generated_dir(&root, target);
 			write(&generated.join("assets/app.wasm"), "platform guest").unwrap();
 			write(&root.join("runner"), "executable").unwrap();
+
 			let mut config = LeptoskitConfig::default();
 			config.app.name = "desktop_test".into();
 			let bundle = assemble(&root, &config, target, &root.join("runner")).unwrap();
@@ -281,6 +287,7 @@ mod tests {
 			} else {
 				config.app.name.clone()
 			};
+
 			assert_eq!(std::fs::read(bundle.join(name)).unwrap(), b"executable");
 			assert_eq!(
 				std::fs::read(bundle.join("assets/app.wasm")).unwrap(),

@@ -218,7 +218,6 @@ impl Screens {
 	}
 }
 // leptoskit: idp
-
 impl Screens {
 	/// Says how the screens leave this app, such as back to the app that
 	/// asked for consent: in the browser, `window.location.assign`.
@@ -262,6 +261,7 @@ impl Screens {
 					screens.continue_on();
 					false
 				}
+
 				_ => seen_signed_out.unwrap_or(false),
 			}
 		});

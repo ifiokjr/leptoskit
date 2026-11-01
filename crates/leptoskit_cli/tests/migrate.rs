@@ -33,6 +33,7 @@ fn previews_checks_and_migrates_from_a_nested_directory() {
 	));
 	assert!(!config.bundle.wasm_opt);
 	assert!(proposed.contains("# keep"));
+
 	assert_eq!(std::fs::read_to_string(&path).expect("unchanged"), raw);
 	assert!(!run(&nested, &["migrate", "--check"]).status.success());
 	assert_eq!(std::fs::read_to_string(&path).expect("unchanged"), raw);
@@ -114,6 +115,7 @@ fn refuses_to_replace_symlinks() {
 		std::fs::read_to_string(&target).expect("unchanged target"),
 		""
 	);
+
 	assert!(
 		run(dir.path(), &["migrate", "--file", "shared.toml"])
 			.status

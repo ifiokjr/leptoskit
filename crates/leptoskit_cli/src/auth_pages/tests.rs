@@ -17,6 +17,7 @@ fn workspace(db: bool) -> tempfile::TempDir {
 	} else {
 		""
 	};
+
 	fs::write(
 		path.join("leptoskit.toml"),
 		format!(
@@ -34,6 +35,7 @@ fn workspace(db: bool) -> tempfile::TempDir {
 	.unwrap();
 	fs::create_dir_all(path.join("src")).unwrap();
 	fs::write(path.join("src/main.rs"), "fn main() {}\n").unwrap();
+
 	fs::create_dir_all(path.join("app_app/src")).unwrap();
 	fs::write(
 		path.join("app_app/Cargo.toml"),
@@ -453,6 +455,7 @@ fn a_config_the_table_would_break_is_left_alone() {
 		error.to_string().contains("adding [auth] would break"),
 		"{error}"
 	);
+
 	assert_eq!(read(path, "leptoskit.toml"), raw);
 }
 

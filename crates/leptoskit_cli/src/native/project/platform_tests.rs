@@ -153,9 +153,11 @@ fn an_app_with_a_safari_extension_embeds_it_as_an_app_extension_target() {
 	)
 	.unwrap();
 	write(&registry.bridge.join("Package.swift"), "// bridge package").unwrap();
+
 	for source in platform_sources::IOS {
 		write(&registry.bridge.join(source), source).unwrap();
 	}
+
 	let package = root.join(".leptoskit/extension/safari");
 	write(&package.join("manifest.json"), "{}").unwrap();
 	write(&package.join("pkg/app_bg.wasm"), "").unwrap();
@@ -165,12 +167,15 @@ fn an_app_with_a_safari_extension_embeds_it_as_an_app_extension_target() {
 		std::fs::read_to_string(root.join(".leptoskit/ios/Host.xcodeproj/project.pbxproj"))
 			.unwrap();
 	let mut ids = BTreeSet::new();
+
 	for line in project.lines() {
 		if let Some((key, _)) = line.trim().split_once(" = {isa = ") {
 			assert!(ids.insert(key), "duplicate Xcode object {key}");
 		}
 	}
+
 	assert!(project.contains("productType = \"com.apple.product-type.app-extension\""));
+
 	assert!(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.example.notes.SafariExtension;"));
 	assert!(project.contains("name = \"Embed Foundation Extensions\""));
 	assert!(project.contains("dstSubfolderSpec = 13;"));

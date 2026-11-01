@@ -43,9 +43,11 @@ impl Report {
 			.unwrap_or_default()
 			.max(6);
 		let mut out = String::new();
+
 		for (path, bytes) in &self.entries {
 			let _ = writeln!(out, "  {path:width$}  {:>10}", kib(*bytes));
 		}
+
 		let _ = write!(out, "  {:width$}  {:>10}", "total", kib(self.total()));
 		out
 	}
@@ -53,11 +55,14 @@ impl Report {
 	/// Measures every file under `directory`, named relative to it.
 	pub fn directory(label: &str, directory: &Path) -> Result<Self> {
 		let mut entries = Vec::new();
+
 		for entry in walkdir::WalkDir::new(directory) {
 			let entry = entry.with_context(|| format!("walking {}", directory.display()))?;
+
 			if !entry.file_type().is_file() {
 				continue;
 			}
+
 			let relative = entry
 				.path()
 				.strip_prefix(directory)
@@ -70,6 +75,7 @@ impl Report {
 				.len();
 			entries.push((relative, bytes));
 		}
+
 		Ok(Self::sorted(label, entries))
 	}
 
@@ -105,14 +111,18 @@ pub fn ios(root: &Path, release: bool) -> Result<Option<Report>> {
 	let products = root.join(".leptoskit/ios/build/Build/Products");
 	let configuration = if release { "Release" } else { "Debug" };
 	let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
+
 	let directories = match std::fs::read_dir(&products) {
 		Ok(entries) => entries,
+
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
 		Err(error) => return Err(error).context("reading the xcodebuild products"),
 	};
+
 	for entry in directories {
 		let entry = entry?;
 		let path = entry.path().join("App.app");
+
 		if !entry
 			.file_name()
 			.to_string_lossy()
@@ -125,10 +135,12 @@ pub fn ios(root: &Path, release: bool) -> Result<Option<Report>> {
 			.metadata()?
 			.modified()
 			.with_context(|| format!("reading {}", entry.path().display()))?;
+
 		if newest.as_ref().is_none_or(|(time, _)| modified > *time) {
 			newest = Some((modified, path));
 		}
 	}
+
 	let Some((_, app)) = newest else {
 		return Ok(None);
 	};
@@ -148,13 +160,17 @@ pub fn android(root: &Path, release: bool) -> Result<Option<Report>> {
 		.join("hosts/android/app/build/outputs/apk")
 		.join(variant);
 	let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
+
 	let directories = match std::fs::read_dir(&outputs) {
 		Ok(entries) => entries,
+
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
 		Err(error) => return Err(error).context("reading the Gradle APK outputs"),
 	};
+
 	for entry in directories {
 		let entry = entry?;
+
 		if entry
 			.path()
 			.extension()
@@ -166,10 +182,12 @@ pub fn android(root: &Path, release: bool) -> Result<Option<Report>> {
 			.metadata()?
 			.modified()
 			.with_context(|| format!("reading {}", entry.path().display()))?;
+
 		if newest.as_ref().is_none_or(|(time, _)| modified > *time) {
 			newest = Some((modified, entry.path()));
 		}
 	}
+
 	let Some((_, apk)) = newest else {
 		return Ok(None);
 	};
@@ -184,9 +202,11 @@ pub fn android(root: &Path, release: bool) -> Result<Option<Report>> {
 			let Some(path) = entry.as_ref().map(walkdir::DirEntry::path) else {
 				continue;
 			};
+
 			if !path.is_file() {
 				continue;
 			}
+
 			let name = path
 				.strip_prefix(&assets)
 				.unwrap_or(path)
@@ -229,6 +249,7 @@ mod tests {
 		);
 		assert_eq!(report.total(), 2560);
 		let rendered = report.render();
+
 		assert!(rendered.contains("large"));
 		assert!(rendered.contains("total"));
 		assert!(rendered.contains("2.5 KiB"));
@@ -254,6 +275,7 @@ mod tests {
 				.err()
 				.is_some_and(|error| error.to_string().contains("reading"))
 		);
+
 		assert!(
 			Report::directory("app", &root.join("missing"))
 				.err()
@@ -272,6 +294,7 @@ mod tests {
 		std::fs::write(contents.join("Resources/app.wasm"), vec![0_u8; 256]).unwrap();
 		std::fs::write(contents.join("Info.plist"), b"plist").unwrap();
 		let report = macos(&root).unwrap();
+
 		assert_eq!(report.total(), 4357);
 		assert!(
 			report
@@ -305,6 +328,7 @@ mod tests {
 		// A debug build asks for the debug products.
 		let debug = ios(&root, false).unwrap().expect("a debug app");
 		assert_eq!(debug.label, "Debug-iphonesimulator/App.app");
+
 		std::fs::remove_dir_all(root).unwrap();
 
 		let empty = scratch("ios-empty");
@@ -320,6 +344,7 @@ mod tests {
 		std::fs::create_dir_all(blocked.join(".leptoskit/ios/build/Build")).unwrap();
 		std::fs::write(blocked.join(".leptoskit/ios/build/Build/Products"), b"file").unwrap();
 		assert!(ios(&blocked, true).is_err());
+
 		std::fs::remove_dir_all(empty).unwrap();
 		std::fs::remove_dir_all(blocked).unwrap();
 	}
@@ -335,6 +360,7 @@ mod tests {
 		let older = outputs.join("app-release-older.apk");
 		std::fs::write(&older, vec![0_u8; 16]).unwrap();
 		std::fs::write(outputs.join("output-metadata.json"), b"{}").unwrap();
+
 		let now = std::time::SystemTime::now();
 		set_modified(&apk, now);
 		set_modified(&older, now - std::time::Duration::from_hours(1));
@@ -372,6 +398,7 @@ mod tests {
 			b"file",
 		)
 		.unwrap();
+
 		assert!(android(&blocked, true).is_err());
 		std::fs::remove_dir_all(root).unwrap();
 		std::fs::remove_dir_all(empty).unwrap();

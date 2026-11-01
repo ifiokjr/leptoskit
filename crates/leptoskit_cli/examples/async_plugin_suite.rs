@@ -43,6 +43,7 @@ fn main() -> Result<()> {
 		.arg(&sdk))?;
 	let http = format!("http://{}:{}", args.host, args.port);
 	let websocket = format!("ws://{}:{}", args.host, args.port);
+
 	for (path, guest) in [("Cargo.toml", false), ("guest/Cargo.toml", true)] {
 		edit(&destination.join(path), |manifest| {
 			let dependencies = manifest
@@ -63,11 +64,14 @@ fn main() -> Result<()> {
 				if guest {
 					dependency.insert("features".into(), vec!["guest"].into());
 				}
+
 				dependencies.insert(package.into(), dependency.into());
 			}
+
 			Ok(())
 		})?;
 	}
+
 	edit(&destination.join("leptoskit.toml"), |manifest| {
 		let native = manifest
 			.get_mut("native")
@@ -85,8 +89,10 @@ fn main() -> Result<()> {
 			if name == "http" {
 				scope.insert("max_body_bytes".into(), 8192.into());
 			}
+
 			options.insert(name.into(), scope.into());
 		}
+
 		native.insert("plugin-options".into(), options.into());
 		Ok(())
 	})?;

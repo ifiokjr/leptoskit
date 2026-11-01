@@ -150,11 +150,13 @@ impl CargoOptions {
 	#[must_use]
 	pub fn with_features(&self, features: &[String]) -> Self {
 		let mut options = self.clone();
+
 		for feature in features {
 			if !options.features.contains(feature) {
 				options.features.push(feature.clone());
 			}
 		}
+
 		options
 	}
 }
@@ -322,8 +324,10 @@ pub fn detect_client_with(
 				 [\"cdylib\"]` to its [lib] section"
 			)
 		})?;
+
 		return Ok(Some(client));
 	}
+
 	if let Some(client) = app
 		.and_then(|app| metadata.package(app))
 		.and_then(ClientInfo::from_package)
@@ -380,29 +384,36 @@ pub fn cargo_build_command(root: &Path, package: &str, options: &CargoOptions) -
 		.arg(package)
 		.current_dir(root)
 		.envs(&options.env);
+
 	if options.no_default_features {
 		command.arg("--no-default-features");
 	}
+
 	if let Some(directory) = &options.target_directory {
 		command.arg("--target-dir").arg(directory);
 	}
+
 	if options.release {
 		match &options.profile {
 			Some(profile) => command.arg("--profile").arg(profile),
 			None => command.arg("--release"),
 		};
 	}
+
 	for config in &options.config {
 		command.arg("--config").arg(config);
 	}
+
 	if !options.features.is_empty() {
 		command.arg("--features").arg(options.features.join(","));
 	}
+
 	if !options.rustflags.is_empty() {
 		command
 			.arg("--config")
 			.arg(rustflags_config_arg(&options.rustflags));
 	}
+
 	command
 }
 
@@ -433,6 +444,7 @@ struct ArtifactTarget {
 /// compiled client, wherever the profile and target directory put it.
 pub fn wasm_in_messages(messages: impl BufRead) -> Result<Option<PathBuf>> {
 	let mut wasm = None;
+
 	for line in messages.lines() {
 		let line = line.context("could not read cargo's output")?;
 		let Ok(message) = serde_json::from_str::<ArtifactMessage>(&line) else {
@@ -441,6 +453,7 @@ pub fn wasm_in_messages(messages: impl BufRead) -> Result<Option<PathBuf>> {
 		let is_cdylib = message
 			.target
 			.is_some_and(|target| target.kind.iter().any(|kind| kind == "cdylib"));
+
 		if message.reason == "compiler-artifact" && is_cdylib {
 			let file = message.filenames.into_iter().find(|file| {
 				file.extension()
@@ -449,6 +462,7 @@ pub fn wasm_in_messages(messages: impl BufRead) -> Result<Option<PathBuf>> {
 			wasm = file.or(wasm);
 		}
 	}
+
 	Ok(wasm)
 }
 
@@ -683,13 +697,16 @@ pub fn wasm_bindgen_compatibility(lockfile: &str) -> Result<BindgenCompatibility
 		.filter(|package| package.name == "wasm-bindgen")
 		.map(|package| package.version)
 		.collect();
+
 	if versions.is_empty() {
 		return Ok(BindgenCompatibility::NotLocked);
 	}
+
 	let locked: Vec<String> = versions
 		.into_iter()
 		.filter(|version| !binds_with_embedded(version))
 		.collect();
+
 	if locked.is_empty() {
 		Ok(BindgenCompatibility::Compatible)
 	} else {
@@ -716,11 +733,13 @@ pub fn mismatch_message(locked: &[String]) -> String {
 pub fn ensure_wasm_bindgen_compatible(lockfile: &Path) -> Result<()> {
 	let contents = match std::fs::read_to_string(lockfile) {
 		Ok(contents) => contents,
+
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
 		Err(error) => {
 			return Err(error).with_context(|| format!("could not read {}", lockfile.display()));
 		}
 	};
+
 	match wasm_bindgen_compatibility(&contents)
 		.with_context(|| format!("could not check {}", lockfile.display()))?
 	{
@@ -784,12 +803,14 @@ mod tests {
 			entries[0],
 			format!("profile.{HOST_SMALLEST_PROFILE}.inherits = \"release\"")
 		);
+
 		for setting in ["opt-level = \"z\"", "lto = true", "codegen-units = 1"] {
 			assert!(
 				entries.iter().any(|entry| entry.ends_with(setting)),
 				"{setting} missing from {entries:?}"
 			);
 		}
+
 		assert!(
 			!entries.iter().any(|entry| entry.contains("panic")),
 			"the host profile must keep unwinding: {entries:?}"
@@ -812,6 +833,7 @@ mod tests {
 		if wasm_opt_version().is_err() {
 			return;
 		}
+
 		let root = std::env::temp_dir()
 			.canonicalize()
 			.unwrap()
@@ -821,6 +843,7 @@ mod tests {
 		std::fs::write(&module, b"\0asm\x01\0\0\0").unwrap();
 		optimize_guest(&module).expect("wasm-opt");
 		let optimized = std::fs::read(&module).unwrap();
+
 		assert_eq!(&optimized[..4], b"\0asm", "still a wasm module");
 		std::fs::remove_dir_all(root).unwrap();
 	}

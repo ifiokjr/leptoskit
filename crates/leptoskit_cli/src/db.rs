@@ -734,6 +734,7 @@ pub(crate) fn create(
 	} else {
 		migration.sql()
 	};
+
 	let name = format!("{}_{slug}", chrono::Utc::now().format("%Y%m%dT%H%M%S"));
 	let migration_dir = directory.join(&name);
 	ensure!(
@@ -754,9 +755,11 @@ pub(crate) fn create(
 		"# The migrations, in the order they apply. `leptoskit db migration create` adds to it.\n"
 			.to_owned()
 	});
+
 	if !text.ends_with('\n') {
 		text.push('\n');
 	}
+
 	text.push_str(&name);
 	text.push('\n');
 	fs::write(&registry, text)?;
@@ -786,6 +789,7 @@ pub(crate) fn create_squashing(
 		Some(url) => push::prepare_squash(project, url, target, options.allow_destructive)?,
 		None => None,
 	};
+
 	let created = create(project, name, target, options, renames)?;
 
 	if let Some(squash) = squash {
@@ -827,6 +831,7 @@ pub(crate) fn check(history: &History, target: &Schema) -> Result<()> {
 		}
 		Err(error) => format!("  {error}"),
 	};
+
 	bail!(
 		"the tables changed since {}:\n{changes}\nrun `{} db migration create <name>` and commit \
 		 the result",
@@ -877,10 +882,12 @@ async fn count_searched_rows(url: &str, target: &Schema) -> Result<Vec<(TableNam
 				args: Vec::new(),
 			})
 			.await?;
+
 		let count = match rows.first().and_then(|row| row.first()) {
 			Some(leptoskit_db::Value::Int(count)) => u64::try_from(*count).unwrap_or_default(),
 			_ => 0,
 		};
+
 		counts.push((table.name.clone(), count));
 	}
 
@@ -952,53 +959,13 @@ pub(crate) fn check_account_merges(target: &Schema) -> Result<Option<String>> {
 pub(crate) fn check_live(project: &Project, target: &Schema, url: Option<String>) -> Result<()> {
 	if target.triggers.is_empty() && target.functions.is_empty() && target.sequences.is_empty() {
 		println!("no live tables to check");
+
 		return Ok(());
 	}
 
 	let (url, _server) = project.database(url)?;
 	let dialect = project.dialect();
-	let rows = runtime()?.block_on(async {
-		let db = Db::connect(&url).await?;
-		let statements: Vec<Statement> = match dialect {
-			Dialect::Postgres => {
-				vec![
-					Statement {
-						sql: "SELECT n.nspname, c.relname, t.tgname FROM pg_trigger t JOIN \
-						      pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = \
-						      c.relnamespace WHERE NOT t.tgisinternal"
-							.into(),
-						args: Vec::new(),
-					},
-					Statement {
-						sql: "SELECT n.nspname, p.proname, pg_get_functiondef(p.oid) FROM pg_proc \
-						      p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = \
-						      'live'"
-							.into(),
-						args: Vec::new(),
-					},
-					Statement {
-						sql: "SELECT n.nspname, c.relname FROM pg_class c JOIN pg_namespace n ON \
-						      n.oid = c.relnamespace WHERE c.relkind = 'S' AND n.nspname = 'live'"
-							.into(),
-						args: Vec::new(),
-					},
-				]
-			}
-			Dialect::Sqlite => {
-				vec![Statement {
-					sql: "SELECT tbl_name, name FROM sqlite_schema WHERE type = 'trigger'".into(),
-					args: Vec::new(),
-				}]
-			}
-		};
-		let mut rows = Vec::new();
-
-		for statement in statements {
-			rows.push(db.fetch(statement).await?);
-		}
-
-		anyhow::Ok(rows)
-	})?;
+	let rows = live_catalog(&url, dialect)?;
 
 	let mut found_triggers = BTreeSet::new();
 	let mut found_functions = BTreeSet::new();
@@ -1020,6 +987,7 @@ pub(crate) fn check_live(project: &Project, target: &Schema, url: Option<String>
 				} else {
 					format!("{namespace}.{table}")
 				};
+
 				found_triggers.insert((table, trigger.clone()));
 			}
 
@@ -1143,6 +1111,71 @@ pub(crate) fn check_live(project: &Project, target: &Schema, url: Option<String>
 		);
 	}
 
+	for warning in wide_column_warnings(target) {
+		println!("warning: {warning}");
+	}
+
+	println!(
+		"the database has every live trigger{}",
+		if dialect == Dialect::Postgres {
+			", function, and sequence"
+		} else {
+			""
+		}
+	);
+	Ok(())
+}
+
+/// The live catalog's rows: triggers always, functions and sequences on
+/// Postgres.
+fn live_catalog(url: &str, dialect: Dialect) -> Result<Vec<Vec<Vec<leptoskit_db::Value>>>> {
+	runtime()?.block_on(async {
+		let db = Db::connect(url).await?;
+		let statements: Vec<Statement> = match dialect {
+			Dialect::Postgres => {
+				vec![
+					Statement {
+						sql: "SELECT n.nspname, c.relname, t.tgname FROM pg_trigger t JOIN \
+						      pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = \
+						      c.relnamespace WHERE NOT t.tgisinternal"
+							.into(),
+						args: Vec::new(),
+					},
+					Statement {
+						sql: "SELECT n.nspname, p.proname, pg_get_functiondef(p.oid) FROM pg_proc \
+						      p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = \
+						      'live'"
+							.into(),
+						args: Vec::new(),
+					},
+					Statement {
+						sql: "SELECT n.nspname, c.relname FROM pg_class c JOIN pg_namespace n ON \
+						      n.oid = c.relnamespace WHERE c.relkind = 'S' AND n.nspname = 'live'"
+							.into(),
+						args: Vec::new(),
+					},
+				]
+			}
+			Dialect::Sqlite => {
+				vec![Statement {
+					sql: "SELECT tbl_name, name FROM sqlite_schema WHERE type = 'trigger'".into(),
+					args: Vec::new(),
+				}]
+			}
+		};
+
+		let mut rows = Vec::new();
+
+		for statement in statements {
+			rows.push(db.fetch(statement).await?);
+		}
+
+		anyhow::Ok(rows)
+	})
+}
+
+/// Columns copied into the change log that should be skipped.
+fn wide_column_warnings(target: &Schema) -> HashSet<String> {
 	let mut warnings = HashSet::new();
 
 	for trigger in &target.triggers {
@@ -1172,21 +1205,8 @@ pub(crate) fn check_live(project: &Project, target: &Schema, url: Option<String>
 		}
 	}
 
-	for warning in warnings {
-		println!("warning: {warning}");
-	}
-
-	println!(
-		"the database has every live trigger{}",
-		if dialect == Dialect::Postgres {
-			", function, and sequence"
-		} else {
-			""
-		}
-	);
-	Ok(())
+	warnings
 }
-
 fn status(project: &Project, url: Option<String>) -> Result<()> {
 	let history = History::read(&project.migrations_dir(), project.dialect())?;
 	println!(
@@ -1207,6 +1227,7 @@ fn status(project: &Project, url: Option<String>) -> Result<()> {
 			return Ok(());
 		}
 	};
+
 	let (applied, pushed) = runtime()?.block_on(async {
 		let db = Db::connect(&url).await?;
 		anyhow::Ok((db.applied_migrations().await?, db.pushed_schema().await?))

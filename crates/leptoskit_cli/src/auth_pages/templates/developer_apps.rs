@@ -236,6 +236,7 @@ impl DeveloperApps {
 		if name.is_empty() || redirect_uri.is_empty() {
 			self.problem
 				.set(Some("Give the app a name and a redirect URI.".into()));
+
 			return;
 		}
 

@@ -74,11 +74,13 @@ impl DevDatabase {
 			});
 		};
 		let server = dev_server::start(&project, source, binaries)?;
+
 		let how = match (source, server.started_here()) {
 			(dev_server::Source::Devenv, _) => "devenv's Postgres",
 			(dev_server::Source::Embedded, true) => "started Postgres",
 			(dev_server::Source::Embedded, false) => "Postgres, already running",
 		};
+
 		println!("[db] {how} at {}", server.display_url());
 
 		Ok(Self {
@@ -295,6 +297,7 @@ pub(crate) fn classify(history: &History, target: &Schema) -> Change {
 		Ok(plan) => plan,
 		Err(error) => return Change::Unresolved(error.to_string()),
 	};
+
 	let deletes = plan.destructive_steps().next().is_some();
 	let steps = plan
 		.steps
@@ -511,6 +514,7 @@ mod tests {
 		assert!(apply(&project, &url).is_err());
 		discard(&project, &created).unwrap();
 		assert!(!created.directory.exists());
+
 		assert_eq!(history(&project).names.len(), 1);
 
 		// Without the bad SQL it applies.
@@ -564,6 +568,7 @@ mod tests {
 		let started = DevDatabase::open(embedded, None, Some(&binaries)).unwrap();
 		let env = started.env();
 		assert_eq!(env.len(), 1);
+
 		assert_eq!(env[0].0, "DATABASE_URL");
 		assert!(env[0].1.contains("/app?"), "{}", env[0].1);
 	}

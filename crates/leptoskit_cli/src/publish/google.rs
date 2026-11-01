@@ -38,6 +38,7 @@ pub fn access_token(
 		std::fs::read_to_string(text)
 			.with_context(|| format!("{name} names a file that can't be read"))?
 	};
+
 	let account: Value = serde_json::from_str(&text)
 		.with_context(|| format!("{name} isn't a service account's JSON key"))?;
 	let email = account["client_email"]

@@ -41,6 +41,7 @@ pub(super) fn generate(
 	} else {
 		Extras::default()
 	};
+
 	// `app.icon` becomes the app's asset catalog, with its AppIcon set.
 	let icon = crate::icons::write(root, config, crate::icons::Platform::Ios, &dir)?;
 	let resources = if icon {
@@ -58,6 +59,7 @@ pub(super) fn generate(
 	} else {
 		String::new()
 	};
+
 	build_phases(
 		&mut objects,
 		root,
@@ -274,6 +276,7 @@ fn ios_configurations(
 	} else {
 		""
 	};
+
 	for (offset, name) in [(0, "Debug"), (1, "Release")] {
 		writeln!(
 			objects,
@@ -339,6 +342,7 @@ fn versioned_info_plist(root: &Path) -> Result<std::path::PathBuf> {
 	);
 	let mut xml = Vec::new();
 	plist.to_writer_xml(&mut xml)?;
+
 	let generated = root.join(".leptoskit/ios/Info.plist");
 	write(&generated, &String::from_utf8(xml)?)?;
 	Ok(generated)
@@ -488,6 +492,7 @@ const SAFARI_RESOURCE_PHASE: usize = 64;
 const SAFARI_TARGET: usize = 65;
 const SAFARI_CONFIGURATIONS: usize = 66;
 const SAFARI_DEBUG: usize = 67;
+
 const SAFARI_RELEASE: usize = 68;
 const SAFARI_EMBED_PHASE: usize = 69;
 const SAFARI_EMBED_BUILD: usize = 70;
@@ -543,6 +548,7 @@ fn safari_target(
 	entries.sort_by_key(std::fs::DirEntry::file_name);
 	let mut group = format!("{},{},", id(SAFARI_SOURCE), id(SAFARI_PRODUCT));
 	let mut resources = String::new();
+
 	for (index, entry) in entries.iter().enumerate() {
 		let reference = SAFARI_RESOURCE_START + index * 2;
 		let kind = if entry.file_type()?.is_dir() {
@@ -550,6 +556,7 @@ fn safari_target(
 		} else {
 			"file"
 		};
+
 		writeln!(
 			objects,
 			"{} = {{isa = PBXFileReference; lastKnownFileType = {kind}; path = {}; sourceTree = \
@@ -562,6 +569,7 @@ fn safari_target(
 		write!(group, "{},", id(reference))?;
 		write!(resources, "{},", id(reference + 1))?;
 	}
+
 	writeln!(
 		objects,
 		"{} = {{isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ({}); \
@@ -572,6 +580,7 @@ fn safari_target(
 		id(SAFARI_SOURCE_BUILD),
 		id(SAFARI_RESOURCE_PHASE)
 	)?;
+
 	for (offset, name) in [(0, "Debug"), (1, "Release")] {
 		writeln!(
 			objects,
@@ -589,6 +598,7 @@ fn safari_target(
 			marketing_version(config)
 		)?;
 	}
+
 	writeln!(
 		objects,
 		"{} = {{isa = XCConfigurationList; buildConfigurations = ({},{}); \
@@ -744,6 +754,7 @@ mod tests {
 		let generated = super::versioned_info_plist(root).unwrap();
 		assert_eq!(generated, root.join(".leptoskit/ios/Info.plist"));
 		let plist = plist::Value::from_file(&generated).unwrap();
+
 		let plist = plist.as_dictionary().unwrap();
 		let get = |key: &str| plist.get(key).and_then(plist::Value::as_string).unwrap();
 		assert_eq!(get("CFBundleShortVersionString"), "$(MARKETING_VERSION)");

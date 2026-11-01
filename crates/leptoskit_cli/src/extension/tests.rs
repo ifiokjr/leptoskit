@@ -109,6 +109,7 @@ fn config(toml: &str) -> LeptoskitConfig {
 fn every_browser_gets_its_own_manifest() {
 	let config = config(COMMONPLACE);
 	let extension = config.extension.as_ref().unwrap();
+
 	for browser in Browser::ALL {
 		let manifest = manifest(&ManifestInput {
 			browser,
@@ -126,6 +127,7 @@ fn every_browser_gets_its_own_manifest() {
 fn the_developer_tools_page_is_declared_for_chromium_and_firefox() {
 	let config = config(DEVTOOLS);
 	let extension = config.extension.as_ref().unwrap();
+
 	for browser in Browser::ALL {
 		let manifest = manifest(&ManifestInput {
 			browser,
@@ -138,6 +140,7 @@ fn the_developer_tools_page_is_declared_for_chromium_and_firefox() {
 		// Safari has no developer tools API.
 		let page = (browser != Browser::Safari).then_some("devtools.html");
 		assert_eq!(manifest["devtools_page"].as_str(), page, "{browser}");
+
 		if browser != Browser::Safari {
 			insta::assert_json_snapshot!(format!("manifest_devtools_{browser}"), manifest);
 		}
@@ -154,12 +157,14 @@ fn packages_carry_the_developer_tools_pages_except_safari_s() {
 	std::fs::write(pkg.join("inspector_bg.wasm"), b"\0asm").unwrap();
 	std::fs::write(pkg.join("inspector.js"), "export default () => {};").unwrap();
 	let module = Module { stem: "inspector" };
+
 	let pages = [
 		"devtools.html",
 		"devtools.js",
 		"devtools_panel.html",
 		"devtools_panel.js",
 	];
+
 	for browser in Browser::ALL {
 		let dir = build.path().join(browser.name());
 		let input = ManifestInput {
@@ -181,6 +186,7 @@ fn packages_carry_the_developer_tools_pages_except_safari_s() {
 		.unwrap();
 		let files = zip::files_under(&dir).unwrap();
 		let archive = zip::archive(&files).unwrap();
+
 		for page in pages {
 			let packaged = files.iter().any(|(name, _)| name == page);
 			let zipped = archive
@@ -349,6 +355,7 @@ fn invalid_extensions_are_refused_with_the_reason() {
 			"code push",
 		),
 	];
+
 	for (toml, reason) in cases {
 		let error = LeptoskitConfig::from_toml(toml, std::path::Path::new("app"))
 			.and_then(|config| config.validate())

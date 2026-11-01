@@ -46,6 +46,7 @@ fn chromedriver() -> PathBuf {
 	if let Some(path) = std::env::var_os(CHROMEDRIVER_ENV) {
 		return PathBuf::from(path);
 	}
+
 	let cached = std::env::var_os("HOME")
 		.or_else(|| std::env::var_os("USERPROFILE"))
 		.map(|home| PathBuf::from(home).join(".cache/puppeteer/chromedriver"))
@@ -118,13 +119,16 @@ impl Driver {
 			agent,
 		};
 		let deadline = Instant::now() + Duration::from_secs(20);
+
 		loop {
 			if driver.call("GET", "/status", None).is_ok() {
 				break;
 			}
+
 			anyhow::ensure!(Instant::now() < deadline, "chromedriver didn't start");
 			std::thread::sleep(Duration::from_millis(200));
 		}
+
 		let session = driver.call(
 			"POST",
 			"/session",
@@ -151,6 +155,7 @@ impl Driver {
 
 	fn call(&self, method: &str, path: &str, body: Option<Value>) -> Result<Value> {
 		let url = format!("{}{path}", self.base);
+
 		let mut response = match (method, body) {
 			("GET", _) => self.agent.get(&url).call()?,
 			("DELETE", _) => self.agent.delete(&url).call()?,
@@ -161,13 +166,16 @@ impl Driver {
 					.send(serde_json::to_vec(&body.unwrap_or_else(|| json!({})))?)?
 			}
 		};
+
 		let value: Value = serde_json::from_str(&response.body_mut().read_to_string()?)?;
+
 		if let Some(error) = value["value"]["error"].as_str() {
 			anyhow::bail!(
 				"{error}: {}",
 				value["value"]["message"].as_str().unwrap_or_default()
 			);
 		}
+
 		Ok(value["value"].clone())
 	}
 
@@ -195,10 +203,12 @@ impl Driver {
 			"const done = arguments[arguments.length - 1]; Promise.resolve().then(() => \
 			 ({condition})).then((value) => done(Boolean(value)), () => done(false));"
 		);
+
 		loop {
 			if self.script(&script).ok().and_then(|value| value.as_bool()) == Some(true) {
 				return Ok(());
 			}
+
 			anyhow::ensure!(
 				Instant::now() < deadline,
 				"timed out waiting for {condition}"
@@ -213,6 +223,7 @@ impl Drop for Driver {
 		if !self.session.is_empty() {
 			let _ = self.call("DELETE", &format!("/session/{}", self.session), None);
 		}
+
 		let _ = self.process.kill();
 		let _ = self.process.wait();
 	}
@@ -277,6 +288,7 @@ pub fn run() -> Result<()> {
 		})
 		.context("the build made no package")?;
 	let profile = tempfile::tempdir()?;
+
 	let driver = Driver::start(&chrome, &dir, profile.path())?;
 	let id = unpacked_id(&dir);
 	let base = format!("chrome-extension://{id}");
@@ -295,6 +307,7 @@ pub fn run() -> Result<()> {
 		if !extension.has_page(&page, Browser::Chromium) {
 			continue;
 		}
+
 		// The developer tools open `devtools.html` out of sight to add the
 		// panel, so it shows nothing: it only has to start the app.
 		let (name, shown) = if page.name == "devtools" {
@@ -308,6 +321,7 @@ pub fn run() -> Result<()> {
 				"document.body.children.length > 0 && document.body.innerText.trim().length > 0",
 			)
 		};
+
 		check(
 			name,
 			driver
@@ -334,6 +348,7 @@ pub fn run() -> Result<()> {
 		if !extension.includes(script.browsers.as_deref(), Browser::Chromium) {
 			continue;
 		}
+
 		let file = format!("content-{}.js", script.name);
 		let result = driver
 			.open(&fixture)

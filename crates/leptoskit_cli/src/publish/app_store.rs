@@ -63,6 +63,7 @@ impl Key {
 				.with_context(|| format!("{KEY} names a file that can't be read"))?;
 			(Secret::new(pem), Some(path))
 		};
+
 		Ok(Self {
 			issuer,
 			id,
@@ -108,6 +109,7 @@ impl Key {
 				issuer: self.issuer.clone(),
 			});
 		}
+
 		std::fs::create_dir_all(dir)?;
 		let temporary = tempfile::Builder::new()
 			.prefix("leptoskit-key-")
@@ -320,12 +322,14 @@ impl<'a> AppStore<'a> {
 			&[("authorization", &authorization)],
 			body.map(Body::json),
 		)?;
+
 		if reply.status == 401 {
 			anyhow::bail!(
 				"App Store Connect refused the API key: check {KEY_ID} and {ISSUER}, and that the \
 				 key wasn't revoked under Users and Access, Integrations"
 			);
 		}
+
 		Ok(reply)
 	}
 
@@ -443,8 +447,10 @@ impl<'a> AppStore<'a> {
 		if names.is_empty() {
 			return Ok(Vec::new());
 		}
+
 		let groups = self.groups(app)?;
 		let mut chosen = Vec::new();
+
 		for name in names {
 			let group = groups
 				.iter()
@@ -461,11 +467,13 @@ impl<'a> AppStore<'a> {
 				})?;
 			chosen.push(group.clone());
 		}
+
 		let data: Vec<Value> = chosen
 			.iter()
 			.filter(|group| !(group.internal && group.every_build))
 			.map(|group| json!({ "type": "betaGroups", "id": group.id }))
 			.collect();
+
 		if !data.is_empty() {
 			self.send(
 				"POST",
@@ -474,6 +482,7 @@ impl<'a> AppStore<'a> {
 			)?
 			.ok("adding the build to TestFlight groups")?;
 		}
+
 		Ok(chosen)
 	}
 
@@ -533,14 +542,17 @@ impl<'a> AppStore<'a> {
 			.collect();
 		// Only an app's first version has no "What's New".
 		let first = |chosen: &str| versions.iter().all(|(id, ..)| id == chosen);
+
 		if let Some((id, _, state)) = versions.iter().find(|(_, number, _)| number == version) {
 			anyhow::ensure!(
 				EDITABLE.contains(&state.as_str()),
 				"App Store version {version} is already {}; raise app.version for a new one",
 				state.to_lowercase().replace('_', " ")
 			);
+
 			return Ok((id.clone(), first(id)));
 		}
+
 		// Only one version can be in preparation, so an unsubmitted one takes
 		// the new number.
 		if let Some((id, ..)) = versions
@@ -556,6 +568,7 @@ impl<'a> AppStore<'a> {
 				}})),
 			)?
 			.ok("renaming the App Store version in preparation")?;
+
 			return Ok((id.clone(), first(id)));
 		}
 		let created = self.json(
@@ -597,6 +610,7 @@ impl<'a> AppStore<'a> {
 			.flatten()
 			.find(|found| found["attributes"]["locale"] == locale)
 			.and_then(|found| found["id"].as_str());
+
 		if let Some(id) = existing {
 			// Nothing to set: the localization is wanted for its screenshots.
 			if attributes
@@ -665,6 +679,7 @@ impl<'a> AppStore<'a> {
 			None,
 			"reading the version's screenshot sets",
 		)?;
+
 		let set = match sets["data"]
 			.as_array()
 			.into_iter()
@@ -697,6 +712,7 @@ impl<'a> AppStore<'a> {
 			None,
 			"reading the set's screenshots",
 		)?;
+
 		for id in old["data"]
 			.as_array()
 			.into_iter()
@@ -707,6 +723,7 @@ impl<'a> AppStore<'a> {
 				.ok("deleting an earlier screenshot")?;
 		}
 		let mut uploaded = Vec::new();
+
 		for image in images {
 			let reserved = self.json(
 				"POST",
@@ -724,6 +741,7 @@ impl<'a> AppStore<'a> {
 				.as_str()
 				.context("App Store Connect reserved a screenshot without an ID")?
 				.to_owned();
+
 			for operation in reserved["data"]["attributes"]["uploadOperations"]
 				.as_array()
 				.into_iter()
@@ -731,6 +749,7 @@ impl<'a> AppStore<'a> {
 			{
 				self.upload_part(operation, image)?;
 			}
+
 			let checksum = {
 				use md5::Digest as _;
 				hex::encode(md5::Md5::digest(&image.bytes))
@@ -746,6 +765,7 @@ impl<'a> AppStore<'a> {
 			.ok(&format!("committing {}", image.name))?;
 			uploaded.push((id, &image.name));
 		}
+
 		for (id, name) in uploaded {
 			poll(
 				&format!("App Store Connect's processing of {name}"),
@@ -787,6 +807,7 @@ impl<'a> AppStore<'a> {
 				},
 			)?;
 		}
+
 		Ok(())
 	}
 
@@ -809,17 +830,20 @@ impl<'a> AppStore<'a> {
 		})?;
 		let mut content_type = "application/octet-stream".to_owned();
 		let mut headers = Vec::new();
+
 		for header in operation["requestHeaders"].as_array().into_iter().flatten() {
 			let (Some(name), Some(value)) = (header["name"].as_str(), header["value"].as_str())
 			else {
 				continue;
 			};
+
 			if name.eq_ignore_ascii_case("content-type") {
 				value.clone_into(&mut content_type);
 			} else {
 				headers.push((name, value));
 			}
 		}
+
 		self.http
 			.send(
 				operation["method"].as_str().unwrap_or("PUT"),
@@ -921,6 +945,7 @@ impl<'a> AppStore<'a> {
 			None,
 			"reading the app's review submissions",
 		)?;
+
 		let submission = match open["data"].get(0).and_then(|found| found["id"].as_str()) {
 			Some(id) => id.to_owned(),
 			None => {
@@ -939,6 +964,7 @@ impl<'a> AppStore<'a> {
 					.to_owned()
 			}
 		};
+
 		let item = self.send(
 			"POST",
 			"/v1/reviewSubmissionItems",
@@ -954,6 +980,7 @@ impl<'a> AppStore<'a> {
 		if item.status != 409 {
 			item.ok("adding the version to the review submission")?;
 		}
+
 		let submitted = self.json(
 			"PATCH",
 			&format!("/v1/reviewSubmissions/{submission}"),
@@ -1047,6 +1074,7 @@ mod tests {
 		#[cfg(unix)]
 		{
 			use std::os::unix::fs::PermissionsExt as _;
+
 			assert_eq!(
 				std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
 				0o600

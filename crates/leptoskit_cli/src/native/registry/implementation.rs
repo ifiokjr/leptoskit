@@ -42,6 +42,7 @@ impl PlatformRegistration {
 				!rust && !self.rust_worker && !self.rust_async,
 				"runtime.{platform}: unavailable = true cannot be combined with Rust registration"
 			);
+
 			return Ok(());
 		}
 
@@ -113,6 +114,7 @@ fn rust_registration<'a>(
 	} else {
 		Flavour::Sync
 	};
+
 	Some(RustRegistration {
 		constructor,
 		flavour,
@@ -303,6 +305,7 @@ impl Plugin {
 				Flavour::Worker => Capability::Worker,
 				Flavour::Async => Capability::Async,
 			};
+
 			return if host.runs(capability) {
 				Ok(Implementation::Rust(rust))
 			} else {
@@ -407,6 +410,7 @@ impl MissingPlugin {
 	/// implementation".
 	pub fn describe(&self) -> String {
 		let name = &self.name;
+
 		let (platform, adjective) = match self.target {
 			Target::Ios | Target::IosSimulator => ("iOS", "iOS"),
 			Target::Macos => ("macOS", "macOS"),
@@ -416,6 +420,7 @@ impl MissingPlugin {
 			Target::Linux => ("Linux", "Linux"),
 			Target::Tui => ("the terminal", "terminal"),
 		};
+
 		let host = match self.target {
 			Target::Windows | Target::Linux | Target::Tui => format!("the {adjective} runner"),
 			_ => format!("the {adjective} host"),
@@ -424,9 +429,11 @@ impl MissingPlugin {
 		match self.reason {
 			Missing::NoImplementation => format!("{name} has no {adjective} implementation"),
 			Missing::Unavailable => format!("{name} is unavailable on {platform}"),
+
 			Missing::HostCannotRun(_) if HostCapabilities::of(self.target).runs_nothing() => {
 				format!("{name} can't run on {platform}: {host} doesn't run plugins yet")
 			}
+
 			Missing::HostCannotRun(capability) => {
 				let what = match capability {
 					Capability::Sync => "Rust plugins",
@@ -434,6 +441,7 @@ impl MissingPlugin {
 					Capability::Async => "async plugins",
 					Capability::Service => "plugin services",
 				};
+
 				format!("{name} can't run on {platform}: {host} doesn't run {what} yet")
 			}
 		}

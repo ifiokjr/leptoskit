@@ -129,6 +129,7 @@ pub(crate) fn render(template: &str, idp: bool) -> String {
 		match line.trim() {
 			"// leptoskit: idp" => in_idp = true,
 			"// leptoskit: end idp" => in_idp = false,
+
 			_ if in_idp && !idp => {}
 			_ => out.push_str(line),
 		}
@@ -349,6 +350,7 @@ fn server(
 			 a `[db]` table to leptoskit.toml, then run `leptoskit generate auth` again."
 				.to_owned(),
 		);
+
 		return Ok(());
 	}
 
@@ -569,11 +571,13 @@ fn add_plugin_dependencies(root: &Path, manifest: &Path, report: &mut Report) ->
 			 leptoskit_plugin_secure_store, leptoskit_plugin_passkeys, and \
 			 leptoskit_plugin_web_auth to the dependencies of the crate that does."
 		));
+
 		return Ok(());
 	};
 	let bridge = dependencies
 		.get("leptoskit_bridge_ffi")
 		.and_then(toml_edit::Item::as_table_like);
+
 	let version = bridge
 		.and_then(|bridge| bridge.get("version"))
 		.and_then(toml_edit::Item::as_str)
@@ -821,6 +825,7 @@ fn write_owned(
 			std::fs::write(path, contents).with_context(|| format!("could not write {shown}"))?;
 			report.changed.push(format!("replaced {shown}"));
 		}
+
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
 			if let Some(parent) = path.parent() {
 				std::fs::create_dir_all(parent)

@@ -70,6 +70,7 @@ impl DevServer {
 				let _ = url.set_password(Some("***"));
 				url.to_string()
 			}
+
 			_ => self.url.clone(),
 		}
 	}
@@ -85,6 +86,7 @@ pub(crate) fn source(project: &Project) -> Option<Source> {
 	match project.config.dev_server {
 		DbDevServer::Off => None,
 		DbDevServer::Devenv => Some(Source::Devenv),
+
 		DbDevServer::Auto if uses_devenv_postgres(&project.root) => Some(Source::Devenv),
 		DbDevServer::Auto | DbDevServer::Embedded => Some(Source::Embedded),
 	}
@@ -128,6 +130,7 @@ pub(crate) fn start(
 			)?
 		}
 	};
+
 	// The app's database, or the branch's own.
 	let database = super::branches::ensure(project, &server.url)?;
 	server.url = with_database(&server.url, &database)?;
@@ -195,6 +198,7 @@ fn devenv_url(host: &str, port: &str, user: &str, database: &str) -> Result<Stri
 			.append_pair("user", user)
 			.append_pair("sslmode", "disable")
 			.finish();
+
 		return Ok(format!("postgres:///{database}?{query}"));
 	}
 
@@ -359,6 +363,7 @@ fn installation_of(binaries: &Path) -> Result<PathBuf> {
 	} else {
 		fs::canonicalize(&initdb).unwrap_or(initdb)
 	};
+
 	resolved
 		.parent()
 		.and_then(Path::parent)

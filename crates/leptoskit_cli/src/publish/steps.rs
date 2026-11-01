@@ -68,9 +68,11 @@ impl Report {
 	#[must_use]
 	pub fn text(&self) -> String {
 		let mut out = String::from("What to do next\n");
+
 		if self.steps.is_empty() {
 			out.push_str("\nNothing is left: every store is up to date.\n");
 		}
+
 		for status in &self.stores {
 			let steps: Vec<&Step> = self
 				.steps
@@ -78,24 +80,30 @@ impl Report {
 				.filter(|step| step.store == status.store)
 				.collect();
 			let _ = writeln!(out, "\n{}: {}", status.store, status.summary);
+
 			for (index, step) in steps.iter().enumerate() {
 				let by = match step.by {
 					Who::Agent => "",
 					Who::Person => " (you, the account holder)",
 				};
+
 				let _ = writeln!(out, "\n  {}. {}{by}", index + 1, step.what);
+
 				if let Some(url) = &step.url {
 					let _ = writeln!(out, "     Open   {url}");
 				}
+
 				for field in &step.enter {
 					// Continuation lines sit under the value, not the label.
 					let value = field.value.replace('\n', "\n         ");
 					let _ = writeln!(out, "     {}: {value}", field.label);
 				}
+
 				let _ = writeln!(out, "     Why by hand: {}", step.why);
 				let _ = writeln!(out, "     Done when: {}", step.done_when);
 			}
 		}
+
 		out
 	}
 
@@ -103,25 +111,32 @@ impl Report {
 	#[must_use]
 	pub fn markdown(&self) -> String {
 		let mut out = String::from("# What to do next\n");
+
 		for status in &self.stores {
 			let _ = writeln!(out, "\n## {}\n\n{}\n", status.store, status.summary);
+
 			for step in self.steps.iter().filter(|step| step.store == status.store) {
 				let by = match step.by {
 					Who::Agent => "",
 					Who::Person => " _(the account holder)_",
 				};
+
 				let _ = writeln!(out, "- **{}**{by}", step.what);
+
 				if let Some(url) = &step.url {
 					let _ = writeln!(out, "  - Open <{url}>");
 				}
+
 				for field in &step.enter {
 					let value = field.value.replace('\n', "\n    ");
 					let _ = writeln!(out, "  - {}: {value}", field.label);
 				}
+
 				let _ = writeln!(out, "  - Why by hand: {}", step.why);
 				let _ = writeln!(out, "  - Done when: {}", step.done_when);
 			}
 		}
+
 		out
 	}
 

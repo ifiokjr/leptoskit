@@ -143,11 +143,13 @@ impl Plan {
 		artifacts: &Path,
 	) -> Result<Vec<Capture>> {
 		let mut captures = Vec::new();
+
 		for (folder, device) in &self.devices {
 			let shots = self
 				.screenshots
 				.iter()
 				.filter(|shot| shot.devices.is_empty() || shot.devices.contains(folder));
+
 			for (index, shot) in shots.enumerate() {
 				let (target, mut steps, size) = match device {
 					Device {
@@ -219,11 +221,13 @@ impl Plan {
 						)
 					}
 				};
+
 				if let Some(locator) = &shot.wait_for {
 					steps.push(Step::ExpectVisible {
 						locator: locator.clone(),
 					});
 				}
+
 				steps.push(Step::Screenshot {
 					label: shot.name.clone(),
 				});
@@ -239,6 +243,7 @@ impl Plan {
 				});
 			}
 		}
+
 		Ok(captures)
 	}
 }
@@ -328,26 +333,33 @@ pub fn run(root: &Path, package_id: &str, dry_run: bool) -> Result<()> {
 			devices: Vec::new(),
 		}
 	};
+
 	let captures = plan.captures(package_id, &devices, &artifacts)?;
+
 	if dry_run {
 		for capture in &captures {
 			println!("{DIR}/{}/{}", capture.device, capture.file);
 		}
+
 		println!(
 			"\n{} screenshots on {} sizes; nothing was captured.",
 			captures.len(),
 			plan.devices.len()
 		);
+
 		return Ok(());
 	}
+
 	// What an earlier run saved goes, so a removed screen doesn't linger.
 	for folder in plan.devices.keys() {
 		let dir = root.join(DIR).join(folder);
+
 		for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
 			let name = entry.file_name().to_string_lossy().into_owned();
 			let numbered = name.len() > 3
 				&& name.as_bytes()[..2].iter().all(u8::is_ascii_digit)
 				&& name.as_bytes()[2] == b'-';
+
 			if numbered
 				&& Path::new(&name)
 					.extension()
@@ -357,7 +369,9 @@ pub fn run(root: &Path, package_id: &str, dry_run: bool) -> Result<()> {
 			}
 		}
 	}
+
 	let mut failed = Vec::new();
+
 	for capture in &captures {
 		let destination = root.join(DIR).join(&capture.device).join(&capture.file);
 		let outcome = leptoskit_testing::control::run(&capture.document);
@@ -366,10 +380,12 @@ pub fn run(root: &Path, package_id: &str, dry_run: bool) -> Result<()> {
 			.last()
 			.and_then(|step| step.artifact.clone())
 			.filter(|_| outcome.passed);
+
 		if let Some(saved) = saved {
 			std::fs::create_dir_all(destination.parent().expect("in a folder"))?;
 			std::fs::copy(&saved, &destination)?;
 			let size = png_size(&std::fs::read(&destination)?);
+
 			match (capture.size, size) {
 				(Some(expected), Some(actual)) if expected != actual => {
 					crate::ui::warning(format_args!(
@@ -381,6 +397,7 @@ pub fn run(root: &Path, package_id: &str, dry_run: bool) -> Result<()> {
 						expected.1
 					));
 				}
+
 				_ => println!("saved {DIR}/{}/{}", capture.device, capture.file),
 			}
 		} else {
@@ -391,6 +408,7 @@ pub fn run(root: &Path, package_id: &str, dry_run: bool) -> Result<()> {
 			failed.push(format!("{}/{}: {why}", capture.device, capture.file));
 		}
 	}
+
 	anyhow::ensure!(
 		failed.is_empty(),
 		"{} of {} screenshots failed:\n- {}",

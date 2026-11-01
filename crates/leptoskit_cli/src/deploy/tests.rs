@@ -49,6 +49,7 @@ fn project(root: &Path, db: Db) -> LeptoskitConfig {
 		 \"ssr\"\n\n[serve]\naddress = \"127.0.0.1\"\nport = 3000\n\n[build]\nclient_package = \
 		 \"notes_app\"\n",
 	);
+
 	match db {
 		Db::None => {}
 		Db::Sqlite => config.push_str("\n[db]\ndialect = \"sqlite\"\n"),
@@ -60,6 +61,7 @@ fn project(root: &Path, db: Db) -> LeptoskitConfig {
 			);
 		}
 	}
+
 	write(root, "leptoskit.toml", &config);
 	write(
 		root,
@@ -111,10 +113,13 @@ fn every_target_and_database_is_pinned() {
 			let config = project(root.path(), db);
 			let report = generate(root.path(), &config, target, false).expect("generate");
 			let mut pinned = format!("$ leptoskit generate deploy --target {target}\n{report}");
+
 			for (file, _) in target.files(&Project::read(root.path(), &config).unwrap()) {
 				let contents = std::fs::read_to_string(root.path().join(&file)).unwrap();
+
 				write!(pinned, "\n===== {file} =====\n{contents}").unwrap();
 			}
+
 			insta::assert_snapshot!(format!("{target}_{}", db.name()), pinned);
 		}
 	}
@@ -213,6 +218,7 @@ fn the_project_is_read_from_its_manifests() {
 	config.serve.port = 8080;
 	let project = Project::read(root.path(), &config).unwrap();
 	assert_eq!(project.binary, "notes");
+
 	assert_eq!(project.output_name, "notes_client");
 	assert_eq!(project.port, 8080);
 	assert_eq!(project.platform, leptoskit_config::Platform::Server);

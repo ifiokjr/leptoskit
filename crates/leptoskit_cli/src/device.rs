@@ -314,6 +314,7 @@ impl TargetArgs {
 				crate::cli::invoked_name()
 			);
 		};
+
 		Ok(Target {
 			kind,
 			device: self.device.clone(),
@@ -340,6 +341,7 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 				println!("{}", serde_json::to_string_pretty(&inventory)?);
 			} else {
 				println!("{:<38} {:<16} {:<10} NAME", "ID", "KIND", "STATE");
+
 				for device in &inventory.devices {
 					println!(
 						"{:<38} {:<16} {:<10} {}",
@@ -347,6 +349,7 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 					);
 				}
 			}
+
 			Ok(())
 		}
 		other => execute(&document(other)?),
@@ -383,6 +386,7 @@ pub fn document_with(command: DeviceCommand, inventory: &inventory::Inventory) -
 					None,
 				)
 			};
+
 			Ok(Document {
 				schema_version: SCHEMA_VERSION,
 				target: device_only_target(kind, device),
@@ -577,9 +581,11 @@ pub fn parse_document(bytes: &[u8], source: &str) -> Result<Document> {
 pub fn execute(document: &Document) -> Result<()> {
 	let outcome = leptoskit_testing::control::run(document);
 	println!("{}", serde_json::to_string_pretty(&outcome)?);
+
 	if !outcome.passed {
 		std::process::exit(1);
 	}
+
 	Ok(())
 }
 

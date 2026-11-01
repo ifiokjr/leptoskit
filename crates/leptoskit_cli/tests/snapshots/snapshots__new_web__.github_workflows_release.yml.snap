@@ -27,6 +27,7 @@ on:
       submit:
         description: Submit for review or release, which reaches users
         type: boolean
+
         default: false
 
 permissions:
@@ -56,6 +57,7 @@ jobs:
           for store in chrome edge firefox app_store macos play; do
             if grep -q "^\[publish\.$store\]" leptoskit.toml; then
               echo "$store=true" >> "$GITHUB_OUTPUT"
+
               any=true
             fi
           done
@@ -72,6 +74,7 @@ jobs:
           if [ "v$version" != "$GITHUB_REF_NAME" ]; then
             echo "::error::the tag $GITHUB_REF_NAME isn't v$version, app.version in leptoskit.toml"
             exit 1
+
           fi
 
       # A release builds from scratch: no cache another branch could have
@@ -115,6 +118,7 @@ jobs:
         run: |
           keychain="$RUNNER_TEMP/signing.keychain-db"
           keychain_password=$(openssl rand -hex 16)
+
           echo "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
           security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
@@ -133,6 +137,7 @@ jobs:
           LEPTOSKIT_PUBLISH_EDGE_API_KEY: ${{ secrets.LEPTOSKIT_PUBLISH_EDGE_API_KEY }}
           LEPTOSKIT_PUBLISH_FIREFOX_JWT_ISSUER: ${{ secrets.LEPTOSKIT_PUBLISH_FIREFOX_JWT_ISSUER }}
           LEPTOSKIT_PUBLISH_FIREFOX_JWT_SECRET: ${{ secrets.LEPTOSKIT_PUBLISH_FIREFOX_JWT_SECRET }}
+
           LEPTOSKIT_PUBLISH_APPLE_ISSUER_ID: ${{ secrets.LEPTOSKIT_PUBLISH_APPLE_ISSUER_ID }}
           LEPTOSKIT_PUBLISH_APPLE_KEY_ID: ${{ secrets.LEPTOSKIT_PUBLISH_APPLE_KEY_ID }}
           LEPTOSKIT_PUBLISH_APPLE_KEY: ${{ secrets.LEPTOSKIT_PUBLISH_APPLE_KEY }}

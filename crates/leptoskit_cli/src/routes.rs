@@ -27,10 +27,13 @@ pub fn command(check: bool) -> Result<()> {
 	);
 	let registry = crate::build::resolve_plugins(&config)?;
 	let mut arguments = Vec::new();
+
 	if check {
 		arguments.push("--check".to_owned());
 	}
+
 	registry.run_command(&root, &config, "router", "routes", &arguments)?;
+
 	Ok(())
 }
 

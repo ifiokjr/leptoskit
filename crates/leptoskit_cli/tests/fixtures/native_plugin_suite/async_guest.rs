@@ -9,16 +9,20 @@ async fn async_plugins() -> Result<(), leptoskit_bridge::Error> {
 
 	let http = HttpClient::connect()?;
 	let mut pending = Box::pin(http.execute(Request::get(format!("{HTTP_ORIGIN}/slow"))));
+
 	if !futures::poll!(&mut pending).is_pending() {
 		return Err(Error::Native);
 	}
+
 	let bytes = http
 		.execute(Request::get(format!("{HTTP_ORIGIN}/bytes")))
 		.await?;
 	drop(pending);
+
 	if bytes.status != 200 || bytes.body != [0, 127, 255] {
 		return Err(Error::Native);
 	}
+
 	if http
 		.execute(Request::get("http://denied.invalid/bytes"))
 		.await
@@ -29,9 +33,11 @@ async fn async_plugins() -> Result<(), leptoskit_bridge::Error> {
 	let redirect = http
 		.execute(Request::get(format!("{HTTP_ORIGIN}/redirect")))
 		.await?;
+
 	if redirect.status != 302 {
 		return Err(Error::Native);
 	}
+
 	if http
 		.execute(Request::get(format!("{HTTP_ORIGIN}/large")))
 		.await
@@ -52,6 +58,7 @@ async fn async_plugins() -> Result<(), leptoskit_bridge::Error> {
 		Message::Binary(vec![0, 127, 255]),
 	] {
 		socket.send(message.clone()).await?;
+
 		if socket.receive().await? != Some(message) {
 			return Err(Error::Native);
 		}

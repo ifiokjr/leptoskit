@@ -42,6 +42,7 @@ struct Harness {
 impl Harness {
 	fn new(sessions: Vec<Value>) -> Self {
 		let fake = Fake::default();
+
 		for session in &sessions {
 			let id = session["id"].as_str().unwrap().to_owned();
 			let mut view = session.clone();
@@ -55,6 +56,7 @@ impl Harness {
 			view["state"] = json!({
 				"cart.count": {"type_name": "usize", "json": 2, "truncated": false},
 			});
+
 			fake.views.lock().unwrap().insert(id, view);
 		}
 		*fake.sessions.lock().unwrap() = sessions;
@@ -184,12 +186,14 @@ fn tree() -> Value {
 		node(3, Some(1), "ScrollView", vec![4, 6, 8]),
 	];
 	nodes[1]["text"] = json!("Clips");
+
 	for row in [4, 6, 8] {
 		nodes.push(node(row, Some(3), "View", vec![row + 1]));
 		let mut label = node(row + 1, Some(row), "Text", vec![]);
 		label["text"] = json!(format!("Clip number {row}"));
 		nodes.push(label);
 	}
+
 	nodes[3]["declarations"] = json!({"flex-row": "flex-direction: row;", "gap-2": "gap: 8px;"});
 	json!({"root": 1, "nodes": nodes})
 }
@@ -264,6 +268,7 @@ fn inspect_node_returns_the_node_and_its_children() {
 	assert_eq!(node["source"]["line"], 13);
 	assert_eq!(node["frame"]["width"], 390.0);
 	assert_eq!(node["classes"], json!(["flex-row", "gap-2"]));
+
 	assert_eq!(
 		node["children"],
 		json!([
@@ -332,6 +337,7 @@ fn navigate_sends_a_json_command_without_an_origin() {
 		Some("application/json")
 	);
 	assert_eq!(received[0].origin, None);
+
 	assert_eq!(
 		received[0].command,
 		json!({"type": "navigate", "href": "/settings"})
@@ -356,6 +362,7 @@ fn highlight_reaches_every_session_of_the_app_by_match_key() {
 		.map(|received| received.session.as_str())
 		.collect();
 	assert_eq!(sessions, ["aaaaaaaa-1111", "bbbbbbbb-2222"]);
+
 	for received in &received {
 		assert_eq!(
 			received.command,
@@ -426,6 +433,7 @@ fn a_hub_with_no_sessions_says_how_to_start_one() {
 #[test]
 fn without_a_hub_every_tool_says_to_start_leptoskit_dev() {
 	let empty = tempfile::tempdir().unwrap();
+
 	for name in NAMES {
 		let result = call_at(empty.path(), name, &json!({"node": 1, "href": "/"}));
 		assert!(is_error(&result), "{name}");

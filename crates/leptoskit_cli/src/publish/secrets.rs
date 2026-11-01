@@ -68,6 +68,7 @@ impl Credentials {
 		let absolute = std::fs::canonicalize(file)
 			.with_context(|| format!("could not read {}", file.display()))?;
 		let root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+
 		if absolute.starts_with(&root) {
 			let ignored = crate::git::command(&root)
 				.args(["check-ignore", "-q"])
@@ -82,8 +83,10 @@ impl Credentials {
 				file.display()
 			);
 		}
+
 		let text = std::fs::read_to_string(&absolute)
 			.with_context(|| format!("could not read {}", file.display()))?;
+
 		let table: BTreeMap<String, toml::Value> =
 			toml::from_str(&text).with_context(|| format!("could not parse {}", file.display()))?;
 		let file = table
@@ -93,6 +96,7 @@ impl Credentials {
 					toml::Value::String(value) => value,
 					other => other.to_string(),
 				};
+
 				(name, Secret(value))
 			})
 			.collect();
@@ -268,6 +272,7 @@ pub(crate) mod tests {
 		let claims = message.split('.').nth(1).unwrap();
 		let claims: serde_json::Value =
 			serde_json::from_slice(&URL_SAFE_NO_PAD.decode(claims).unwrap()).unwrap();
+
 		assert_eq!(claims["iss"], "user:1");
 		assert_eq!(
 			claims["exp"].as_u64().unwrap() - claims["iat"].as_u64().unwrap(),
@@ -287,6 +292,7 @@ pub(crate) mod tests {
 			serde_json::from_slice(&URL_SAFE_NO_PAD.decode(header).unwrap()).unwrap();
 		assert_eq!(header["alg"], "ES256");
 		assert_eq!(header["kid"], "KEY123");
+
 		let key = signature::EcdsaKeyPair::from_pkcs8(
 			&signature::ECDSA_P256_SHA256_FIXED_SIGNING,
 			&pem_der(&pem).unwrap(),

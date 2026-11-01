@@ -24,6 +24,7 @@ final class AppUITests: XCTestCase {
             NSPredicate(format: "label MATCHES %@", "Device: iOS; memory: [1-9][0-9]* MiB")
         ).firstMatch
         XCTAssertTrue(device.waitForExistence(timeout: 10))
+
         verifySecureStorage(app)
         app.buttons["Check app files"].tap()
         XCTAssertTrue(app.staticTexts["File roundtrip passed"].waitForExistence(timeout: 10))

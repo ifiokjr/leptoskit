@@ -204,6 +204,7 @@ pub(super) fn call(name: &str, arguments: &Value) -> Value {
 /// `start` or its nearest ancestor that has one.
 pub(super) fn call_at(start: &Path, name: &str, arguments: &Value) -> Value {
 	let result = Hub::find(start).and_then(|hub| run(&hub, name, arguments));
+
 	match result {
 		Ok(text) => json!({"content": [{"type": "text", "text": text}]}),
 		Err(error) => {
@@ -219,7 +220,9 @@ fn run(hub: &Hub, name: &str, arguments: &Value) -> Result<String, String> {
 	if name == "devtools_sessions" {
 		return sessions(hub);
 	}
+
 	let session = hub.session(string(arguments, "session"))?;
+
 	match name {
 		"inspect_tree" => inspect_tree(hub, &session, arguments),
 		"inspect_node" => inspect_node(hub, &session, arguments),
@@ -251,6 +254,7 @@ impl Hub {
 		let text = std::fs::read_to_string(&file).map_err(|_| NO_HUB.to_owned())?;
 		let config: HubConfig = serde_json::from_str(&text)
 			.map_err(|error| format!("{} is not a hub address: {error}", file.display()))?;
+
 		if !process_alive(config.pid) {
 			return Err(format!(
 				"{NO_HUB} (the hub in {} was process {}, which has exited)",
@@ -258,6 +262,7 @@ impl Hub {
 				config.pid
 			));
 		}
+
 		let agent = ureq::Agent::config_builder()
 			.http_status_as_error(false)
 			.timeout_global(Some(Duration::from_secs(5)))
@@ -281,9 +286,11 @@ impl Hub {
 			.body_mut()
 			.read_to_string()
 			.map_err(|error| error.to_string())?;
+
 		if !status.is_success() {
 			return Err(format!("the hub answered {status} for {path}: {body}"));
 		}
+
 		serde_json::from_str(&body).map_err(|error| format!("the hub sent bad JSON: {error}"))
 	}
 
@@ -296,10 +303,13 @@ impl Hub {
 			.send(serde_json::to_vec(command).map_err(|error| error.to_string())?)
 			.map_err(|error| self.unreachable(&error))?;
 		let status = response.status();
+
 		if !status.is_success() {
 			let body = response.body_mut().read_to_string().unwrap_or_default();
+
 			return Err(format!("the hub answered {status} for {path}: {body}"));
 		}
+
 		Ok(())
 	}
 
@@ -315,6 +325,7 @@ impl Hub {
 	/// The session `selector` names, or the default one.
 	fn session(&self, selector: Option<&str>) -> Result<SessionInfo, String> {
 		let sessions = self.sessions()?;
+
 		if sessions.is_empty() {
 			return Err(
 				"the hub is running but no app is reporting to it: run the app under `leptoskit \
@@ -322,6 +333,7 @@ impl Hub {
 					.to_owned(),
 			);
 		}
+
 		let matches: Vec<&SessionInfo> = match selector {
 			None => sessions.iter().collect(),
 			Some(selector) => {
@@ -339,6 +351,7 @@ impl Hub {
 				}
 			}
 		};
+
 		let Some(newest) = matches.iter().max_by_key(|session| session.connected_at_ms) else {
 			return Err(format!(
 				"no session matches {:?}; the sessions are:\n{}",
@@ -351,12 +364,14 @@ impl Hub {
 		let one_app = matches.iter().all(|session| {
 			session.hello.app == newest.hello.app && session.hello.platform == newest.hello.platform
 		});
+
 		if !one_app {
 			return Err(format!(
 				"more than one app is reporting; pass session as one of:\n{}",
 				list(&matches.into_iter().cloned().collect::<Vec<_>>())
 			));
 		}
+
 		Ok((*newest).clone())
 	}
 
@@ -454,9 +469,11 @@ fn describe(session: &SessionInfo) -> String {
 		session.hello.app,
 		platform(session)
 	);
+
 	if let Some(device) = &session.hello.device {
 		let _ = write!(line, " ({device})");
 	}
+
 	line
 }
 
@@ -470,6 +487,7 @@ fn now_ms() -> u64 {
 
 fn sessions(hub: &Hub) -> Result<String, String> {
 	let sessions = hub.sessions()?;
+
 	if sessions.is_empty() {
 		return Ok(
 			"No app is reporting to the hub. Run the app under `leptoskit dev` with its \
@@ -477,6 +495,7 @@ fn sessions(hub: &Hub) -> Result<String, String> {
 				.to_owned(),
 		);
 	}
+
 	let now = now_ms();
 	let sessions: Vec<Value> = sessions
 		.iter()
@@ -521,6 +540,7 @@ impl<'a> Index<'a> {
 	fn new(tree: &'a Tree) -> Self {
 		let nodes: BTreeMap<_, _> = tree.nodes.iter().map(|node| (&node.id, node)).collect();
 		let mut children: BTreeMap<_, Vec<_>> = BTreeMap::new();
+
 		for node in &tree.nodes {
 			if node.children.is_empty() {
 				// A tree that only links children to parents still prints.
@@ -541,6 +561,7 @@ impl<'a> Index<'a> {
 				);
 			}
 		}
+
 		Self { nodes, children }
 	}
 
@@ -563,6 +584,7 @@ impl<'a> Index<'a> {
 			Value::String(text) => text.clone(),
 			_ => return None,
 		};
+
 		self.nodes
 			.values()
 			.find(|node| node_id(&node.id) == wanted)
@@ -583,6 +605,7 @@ fn node_argument<'a>(index: &Index<'a>, arguments: &Value) -> Result<&'a Node, S
 fn inspect_tree(hub: &Hub, session: &SessionInfo, arguments: &Value) -> Result<String, String> {
 	let (_, tree) = hub.tree(session)?;
 	let index = Index::new(&tree);
+
 	let root = match arguments.get("root") {
 		Some(argument) => {
 			index
@@ -597,6 +620,7 @@ fn inspect_tree(hub: &Hub, session: &SessionInfo, arguments: &Value) -> Result<S
 				.ok_or("the tree has no root node")?
 		}
 	};
+
 	let depth = arguments
 		.get("depth")
 		.and_then(Value::as_u64)
@@ -607,12 +631,14 @@ fn inspect_tree(hub: &Hub, session: &SessionInfo, arguments: &Value) -> Result<S
 	let mut output = format!("{} — {} nodes\n", describe(session), index.nodes.len());
 	let mut printed = 0;
 	print_node(&index, root, 0, depth, &mut printed, &mut output);
+
 	if printed >= MAX_NODES {
 		let _ = writeln!(
 			output,
 			"… stopped after {MAX_NODES} nodes; pass root or a smaller depth"
 		);
 	}
+
 	Ok(output)
 }
 
@@ -631,17 +657,21 @@ fn print_node(
 	let indent = "  ".repeat(level);
 	let _ = writeln!(output, "{indent}{}", line(node));
 	let children = index.children(&node.id);
+
 	if children.is_empty() {
 		return;
 	}
+
 	if level >= depth {
 		let _ = writeln!(
 			output,
 			"{indent}  … {} more below",
 			index.descendants(&node.id)
 		);
+
 		return;
 	}
+
 	for child in children {
 		if let Some(child) = index.nodes.get(child) {
 			print_node(index, child, level + 1, depth, printed, output);
@@ -653,6 +683,7 @@ fn print_node(
 /// src/app.rs:14`.
 fn line(node: &Node) -> String {
 	let mut line = format!("{} {}", node_id(&node.id), node.kind);
+
 	if let Some(text) = &node.text {
 		let quoted: String = text.chars().take(MAX_TEXT).collect();
 		let ellipsis = if text.chars().count() > MAX_TEXT {
@@ -660,11 +691,14 @@ fn line(node: &Node) -> String {
 		} else {
 			""
 		};
+
 		let _ = write!(line, " {:?}", format!("{quoted}{ellipsis}"));
 	}
+
 	for class in &node.classes {
 		let _ = write!(line, " .{class}");
 	}
+
 	if let Some(frame) = &node.frame {
 		let _ = write!(
 			line,
@@ -675,9 +709,11 @@ fn line(node: &Node) -> String {
 			frame.height.round()
 		);
 	}
+
 	if let Some(source) = &node.source {
 		let _ = write!(line, " {}:{}", source.file, source.line);
 	}
+
 	line
 }
 
@@ -719,20 +755,24 @@ fn explain_styles(hub: &Hub, session: &SessionInfo, arguments: &Value) -> Result
 		"source": node.source,
 	});
 	let mut declared = false;
+
 	for field in ["declarations", "styles", "explanation"] {
 		if let Some(value) = raw.get(field).filter(|value| !value.is_null()) {
 			explanation[field] = value.clone();
 			declared = true;
 		}
 	}
+
 	if !declared {
 		explanation["note"] = json!(
 			"this session sends the active classes only, not the declarations they resolved to"
 		);
 	}
+
 	if node.classes.is_empty() {
 		explanation["note"] = json!("this node has no Tailwind classes");
 	}
+
 	Ok(pretty(&explanation))
 }
 
@@ -746,6 +786,7 @@ fn query_cache(hub: &Hub, session: &SessionInfo, arguments: &Value) -> Result<St
 	};
 	let queries = entries("queries");
 	let mutations = entries("mutations");
+
 	if let Some(key) = string(arguments, "key") {
 		let (kind, value) = queries
 			.get(key)
@@ -755,14 +796,17 @@ fn query_cache(hub: &Hub, session: &SessionInfo, arguments: &Value) -> Result<St
 				let keys: Vec<&String> = queries.keys().chain(mutations.keys()).collect();
 				format!("no query or mutation {key:?}; the keys are {keys:?}")
 			})?;
+
 		return Ok(pretty(&json!({"key": key, "kind": kind, "value": value})));
 	}
+
 	if queries.is_empty() && mutations.is_empty() {
 		return Ok(format!(
 			"session {} has no queries or mutations yet",
 			short(session.id.as_str())
 		));
 	}
+
 	Ok(pretty(&json!({"queries": queries, "mutations": mutations})))
 }
 
@@ -774,6 +818,7 @@ fn capability_warning(session: &SessionInfo, capability: &str) -> String {
 		.unwrap_or_default()
 		.iter()
 		.any(|value| value.as_str() == Some(capability));
+
 	if declared {
 		String::new()
 	} else {
@@ -813,12 +858,15 @@ fn highlight(hub: &Hub, session: &SessionInfo, arguments: &Value) -> Result<Stri
 	} else {
 		vec![session.clone()]
 	};
+
 	let command = Command::Highlight { key: key.clone() };
 	let mut sent = Vec::new();
+
 	for target in &targets {
 		hub.command(target, &command)?;
 		sent.push(format!("- {}", describe(target)));
 	}
+
 	Ok(format!(
 		"Highlighted {} in:\n{}",
 		key.as_str(),
@@ -856,6 +904,7 @@ fn set_state(hub: &Hub, session: &SessionInfo, arguments: &Value) -> Result<Stri
 			value: DevtoolsValue::from_json(current.type_name.clone(), value),
 		},
 	)?;
+
 	Ok(format!(
 		"Set {name} ({}) in {}.{}",
 		current.type_name,

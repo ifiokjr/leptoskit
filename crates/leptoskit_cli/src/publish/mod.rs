@@ -15,6 +15,7 @@ pub mod google;
 pub mod http;
 pub mod images;
 pub mod listing;
+
 pub mod macos;
 pub mod play;
 pub mod screenshots;
@@ -96,6 +97,7 @@ impl std::str::FromStr for BuildNumber {
 		if text == "auto" {
 			return Ok(Self::Auto);
 		}
+
 		match text.parse() {
 			Ok(number) if number > 0 => Ok(Self::Number(number)),
 			_ => Err("a build number is `auto` or a whole number above 0".to_owned()),
@@ -212,20 +214,25 @@ fn api(variable: &str, default: &str) -> String {
 pub fn run(args: &PublishArgs) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
 	let credentials = Credentials::load(args.credentials.as_deref(), &root)?;
+
 	if args.stores.iter().any(|store| store == "screenshots") {
 		return screenshots::run(&root, &config.native.package_id, args.dry_run);
 	}
+
 	if args.stores.iter().any(|store| store == "workflow") {
 		return write_workflow(&root, &config);
 	}
+
 	let configured = config.publish.stores();
 	anyhow::ensure!(
 		!configured.is_empty(),
 		"no store is configured: add a [publish] table for a store, such as [publish.chrome] or \
 		 [publish.play], to leptoskit.toml"
 	);
+
 	if args.stores.iter().any(|store| store == "credentials") {
 		print!("{}", list_credentials(&configured, &credentials));
+
 		return Ok(());
 	}
 	let stores: Vec<&str> = if args.stores.is_empty() {
@@ -237,12 +244,14 @@ pub fn run(args: &PublishArgs) -> Result<()> {
 				"`{store}` isn't configured: add [publish.{store}] to leptoskit.toml"
 			);
 		}
+
 		configured
 			.iter()
 			.copied()
 			.filter(|store| args.stores.iter().any(|named| named == store))
 			.collect()
 	};
+
 	if !args.dry_run {
 		for needed in NEEDED
 			.iter()
@@ -258,6 +267,7 @@ pub fn run(args: &PublishArgs) -> Result<()> {
 	} else {
 		None
 	};
+
 	let (name, version) = match &extension {
 		Some(extension) => {
 			(
@@ -273,6 +283,7 @@ pub fn run(args: &PublishArgs) -> Result<()> {
 		}
 		None => (display_name(&config), apple_version(&config)),
 	};
+
 	let submit = args.submit && !args.dry_run && confirm(args, &name, &version, &stores)?;
 	let http = http::Http::default();
 	let session = Session {
@@ -289,6 +300,7 @@ pub fn run(args: &PublishArgs) -> Result<()> {
 		submit,
 	};
 	let mut report = Report::default();
+
 	for store_name in &stores {
 		let (summary, steps) = session.publish(store_name)?;
 		report.steps.extend(steps);
@@ -299,6 +311,7 @@ pub fn run(args: &PublishArgs) -> Result<()> {
 	}
 
 	let written = report.write(&root.join(OUTPUT))?;
+
 	if args.json {
 		println!("{}", serde_json::to_string_pretty(&report)?);
 	} else {
@@ -308,6 +321,7 @@ pub fn run(args: &PublishArgs) -> Result<()> {
 			written.display()
 		);
 	}
+
 	Ok(())
 }
 
@@ -408,6 +422,7 @@ impl Session<'_> {
 				&settings.item_id,
 			)?;
 			client.upload(std::fs::read(&zip)?)?;
+
 			if self.submit {
 				let state = client.submit(self.args.staged)?;
 				format!(
@@ -418,6 +433,7 @@ impl Session<'_> {
 				format!("{} {} is uploaded as a draft.", self.name, self.version)
 			}
 		};
+
 		Ok((
 			summary,
 			chrome_steps(
@@ -444,6 +460,7 @@ impl Session<'_> {
 				self.credentials.require(edge::API_KEY, edge::HOW)?,
 			);
 			client.upload(std::fs::read(&zip)?)?;
+
 			if self.submit {
 				let notes = self
 					.store
@@ -459,6 +476,7 @@ impl Session<'_> {
 				format!("{} {} is uploaded as a draft.", self.name, self.version)
 			}
 		};
+
 		Ok((
 			summary,
 			edge_steps(self.root, self.config, self.store, self.submit),
@@ -486,6 +504,7 @@ impl Session<'_> {
 		} else {
 			Vec::new()
 		};
+
 		let zip = self.package(leptoskit_config::Browser::Firefox)?;
 		let source = self
 			.extension()
@@ -505,6 +524,7 @@ impl Session<'_> {
 				self.credentials.require(firefox::SECRET, firefox::HOW)?,
 			);
 			let upload = client.upload(&std::fs::read(&zip)?, settings.channel.name())?;
+
 			let summary = if self.submit {
 				match client.submit(&upload, &std::fs::read(&source)?) {
 					Ok(_) => {
@@ -515,6 +535,7 @@ impl Session<'_> {
 							settings.channel.name()
 						)
 					}
+
 					Err(error) if error.to_string().contains("has no add-on") => {
 						exists = false;
 						format!(
@@ -531,6 +552,7 @@ impl Session<'_> {
 					self.name, self.version
 				)
 			};
+
 			// A listed add-on's text comes from `store/`; an unlisted one has
 			// no listing.
 			if exists && listed {
@@ -540,14 +562,17 @@ impl Session<'_> {
 					self.store.description.as_deref(),
 				)?;
 			}
+
 			match screenshots.first() {
 				Some(set) if exists => {
 					exists = client.replace_previews(&set.images)?;
 					summary + &uploaded_images(&screenshots)
 				}
+
 				_ => summary,
 			}
 		};
+
 		Ok((
 			summary,
 			firefox_steps(&FirefoxRun {
@@ -577,6 +602,7 @@ impl Session<'_> {
 		let version = apple_version(self.config);
 		let out = self.root.join(OUTPUT).join("ios");
 		std::fs::create_dir_all(&out)?;
+
 		std::fs::write(
 			out.join("ExportOptions.plist"),
 			app_store::export_options(team),
@@ -590,6 +616,7 @@ impl Session<'_> {
 				BuildNumber::Auto => "one more than App Store Connect's highest".to_owned(),
 				BuildNumber::Number(number) => number.to_string(),
 			};
+
 			format!(
 				"{} {version} is checked; an upload archives it for team {team}, and its build \
 				 number will be {build}.{} Nothing was built or uploaded.",
@@ -609,20 +636,25 @@ impl Session<'_> {
 				&api("LEPTOSKIT_PUBLISH_APPLE_API", app_store::API),
 				&key,
 			);
+
 			let build = match self.args.build_number {
 				BuildNumber::Auto => client.highest_build(app)?.map_or(1, |highest| highest + 1),
 				BuildNumber::Number(number) => number,
 			};
+
 			crate::native::run(crate::native::NativeCommand::Prepare {
 				target: crate::native::Target::Ios,
 				release: true,
 			})?;
+
 			for stale in ["App.xcarchive", "export"] {
 				let stale = out.join(stale);
+
 				if stale.exists() {
 					std::fs::remove_dir_all(&stale)?;
 				}
 			}
+
 			let file = key.file(&out)?;
 			self.runner.run(&app_store::archive(
 				self.root, &out, team, &version, build, &file,
@@ -632,6 +664,7 @@ impl Session<'_> {
 			let id = client.wait_for_build(app, &version, build)?;
 			uploaded = Some(build);
 			let groups = client.add_to_groups(app, &id, &settings.testflight_groups)?;
+
 			if groups.iter().any(|group| !group.internal)
 				&& let Err(error) = client.submit_for_beta_review(&id)
 			{
@@ -649,20 +682,25 @@ impl Session<'_> {
 						.join(", ")
 				)
 			};
+
 			// The listing's text goes up with every upload, on the version in
 			// preparation, which nobody sees until it is submitted.
 			let (version_id, first) = client.version(app, &version)?;
 			let text = app_store_text(self.store);
+
 			if !text.is_empty() || !screenshots.is_empty() {
 				let localization =
 					client.localize(&version_id, "en-US", &serde_json::Value::Object(text))?;
+
 				for set in &screenshots {
 					client.replace_screenshots(&localization, set.target.kind, &set.images)?;
 				}
 			}
+
 			if let Some(url) = &self.store.listing.privacy_policy {
 				client.privacy_policy(app, url)?;
 			}
+
 			if self.submit {
 				if !first {
 					let notes = self
@@ -676,6 +714,7 @@ impl Session<'_> {
 						&serde_json::json!({ "whatsNew": notes }),
 					)?;
 				}
+
 				client.attach(&version_id, &id)?;
 				let state = client.submit_for_review(app, &version_id)?;
 				format!(
@@ -692,6 +731,7 @@ impl Session<'_> {
 				)
 			}
 		};
+
 		Ok((
 			summary,
 			app_store_steps(&AppStoreRun {
@@ -726,6 +766,7 @@ fn capture(root: &Path, sizes: &[&str], add: &str) -> String {
 				.collect()
 		})
 		.unwrap_or_default();
+
 	if planned.is_empty() {
 		format!(
 			"add {add} to store/screenshots/screenshots.toml, and run `leptoskit publish \
@@ -776,10 +817,12 @@ impl Session<'_> {
 			out: &out,
 			name: &self.name,
 			version: &version,
+
 			build: match self.args.build_number {
 				BuildNumber::Auto => None,
 				BuildNumber::Number(number) => Some(number),
 			},
+
 			identity: "",
 			safari_entitlements: crate::native::safari::configured(self.config)
 				.then_some(entitlements.as_path()),
@@ -787,6 +830,7 @@ impl Session<'_> {
 		let artifacts = plan.artifacts();
 		let (dmg, zip) = (self.relative(&artifacts.dmg), self.relative(&artifacts.zip));
 		let tag = format!("v{}", self.config.app.version);
+
 		let mut released = false;
 		let summary = if self.args.dry_run {
 			format!(
@@ -808,6 +852,7 @@ impl Session<'_> {
 				release: true,
 			})?;
 			std::fs::create_dir_all(&out)?;
+
 			std::fs::write(&entitlements, crate::native::safari::ENTITLEMENTS)?;
 			let file = key.file(&out)?;
 			let artifacts = macos::distribute(
@@ -819,6 +864,7 @@ impl Session<'_> {
 				&file,
 			)?;
 			drop(file);
+
 			match &settings.github_release {
 				Some(repository) if self.submit => {
 					let notes = self
@@ -841,6 +887,7 @@ impl Session<'_> {
 						self.name
 					)
 				}
+
 				_ => {
 					format!(
 						"{} {version} is signed, notarized, and stapled: {dmg} and {zip}.",
@@ -849,6 +896,7 @@ impl Session<'_> {
 				}
 			}
 		};
+
 		let steps = match &settings.github_release {
 			_ if released => Vec::new(),
 			Some(repository) => {
@@ -881,6 +929,7 @@ impl Session<'_> {
 				)]
 			}
 		};
+
 		Ok((summary, steps))
 	}
 }
@@ -894,11 +943,13 @@ impl Session<'_> {
 			Some(path) => Some(crate::icons::Icon::load(&self.root.join(path))?),
 			None => None,
 		};
+
 		let settings = self.config.publish.play.clone().unwrap_or_default();
 		let track = settings.track.as_str();
 		let package = &self.config.native.package_id;
 		let android = crate::native::host_dir(self.root, crate::native::Target::Android);
 		let script = android.join("app/build.gradle.kts");
+
 		let text = std::fs::read_to_string(&script)
 			.with_context(|| format!("could not read {}", script.display()))?;
 		let problems = play::problems(&text, &script);
@@ -908,6 +959,7 @@ impl Session<'_> {
 			problems.join("\n- ")
 		);
 		let notes = self.store.release_notes.as_deref();
+
 		if let Some(notes) = notes {
 			anyhow::ensure!(
 				notes.chars().count() <= play::NOTES_LIMIT,
@@ -916,6 +968,7 @@ impl Session<'_> {
 				play::NOTES_LIMIT
 			);
 		}
+
 		let version = self.config.app.version.to_string();
 		let aab = play::bundle_path(&android);
 		let mut exists = true;
@@ -925,6 +978,7 @@ impl Session<'_> {
 				BuildNumber::Auto => "one more than the highest on Google Play".to_owned(),
 				BuildNumber::Number(number) => number.to_string(),
 			};
+
 			format!(
 				"{} {version} is checked; an upload builds an App Bundle signed with your upload \
 				 key, numbered {code}, and puts it on the {track} track as a draft.{} Nothing was \
@@ -958,23 +1012,29 @@ impl Session<'_> {
 			let highest = if let Some(edit) = client.edit()? {
 				let highest = edit.highest_version_code();
 				edit.discard();
+
 				highest?
 			} else {
 				exists = false;
 				None
 			};
+
 			let code = match self.args.build_number {
 				BuildNumber::Auto => highest.map_or(1, |highest| highest + 1),
 				BuildNumber::Number(number) => number,
 			};
+
 			crate::native::run(crate::native::NativeCommand::Prepare {
 				target: crate::native::Target::Android,
 				release: true,
 			})?;
+
 			if aab.exists() {
 				std::fs::remove_file(&aab)?;
 			}
+
 			self.runner.run(&play::bundle(&android, code, &signing))?;
+
 			match client.edit()? {
 				Some(edit) if exists => {
 					let uploaded = edit.upload(
@@ -992,15 +1052,18 @@ impl Session<'_> {
 							Some(fraction) if track == "production" => {
 								play::Rollout::Staged(fraction)
 							}
+
 							_ => play::Rollout::Everyone,
 						};
 					}
+
 					self.play_listing(&edit, &screenshots, icon.as_ref())?;
 					edit.release(track, &play::release(&version, code, rollout, notes))?;
 					edit.commit()?;
 					play_summary(&self.name, &version, code, track, rollout)
 						+ &uploaded_images(&screenshots)
 				}
+
 				_ => {
 					exists = false;
 					format!(
@@ -1011,6 +1074,7 @@ impl Session<'_> {
 				}
 			}
 		};
+
 		Ok((
 			summary,
 			play_steps(&PlayRun {
@@ -1041,9 +1105,11 @@ impl Session<'_> {
 			let title = self.store.listing.name.as_deref().unwrap_or(&self.name);
 			edit.listing("en-US", title, short, full)?;
 		}
+
 		for set in screenshots {
 			edit.replace_images("en-US", set.target.kind, &set.images)?;
 		}
+
 		if let Some(icon) = icon {
 			edit.replace_images(
 				"en-US",
@@ -1057,6 +1123,7 @@ impl Session<'_> {
 				}],
 			)?;
 		}
+
 		Ok(())
 	}
 }
@@ -1108,6 +1175,7 @@ struct PlayRun<'a> {
 fn play_steps(run: &PlayRun<'_>) -> Vec<Step> {
 	let console = "https://play.google.com/console".to_owned();
 	let mut steps = Vec::new();
+
 	if !run.exists {
 		steps.push(step(
 			"play",
@@ -1123,6 +1191,7 @@ fn play_steps(run: &PlayRun<'_>) -> Vec<Step> {
 			"`leptoskit publish play` uploads instead",
 		));
 	}
+
 	if run.submitted {
 		if let play::Rollout::Staged(fraction) = run.rollout {
 			steps.push(step(
@@ -1139,8 +1208,10 @@ fn play_steps(run: &PlayRun<'_>) -> Vec<Step> {
 				"the release reaches 100%",
 			));
 		}
+
 		return steps;
 	}
+
 	let has = |folder: &str| {
 		run.screenshots
 			.iter()
@@ -1176,6 +1247,7 @@ fn play_steps(run: &PlayRun<'_>) -> Vec<Step> {
 			"write it in store/en-US/description.md",
 		),
 	]);
+
 	if !listing.is_empty() {
 		steps.push(step(
 			"play",
@@ -1188,6 +1260,7 @@ fn play_steps(run: &PlayRun<'_>) -> Vec<Step> {
 			"Play Console's dashboard no longer lists the store listing as a task",
 		));
 	}
+
 	steps.extend([
 		step(
 			"play",
@@ -1346,6 +1419,7 @@ fn app_store_steps(run: &AppStoreRun<'_>) -> Vec<Step> {
 		.display()
 		.to_string();
 	let mut steps = Vec::new();
+
 	if let Some(problem) = run.beta_review {
 		steps.push(step(
 			"app_store",
@@ -1358,6 +1432,7 @@ fn app_store_steps(run: &AppStoreRun<'_>) -> Vec<Step> {
 			"the build shows as waiting for beta review",
 		));
 	}
+
 	if !run.encryption_answered {
 		steps.push(step(
 			"app_store",
@@ -1375,12 +1450,15 @@ fn app_store_steps(run: &AppStoreRun<'_>) -> Vec<Step> {
 			"the build no longer shows Missing Compliance",
 		));
 	}
+
 	if run.submitted {
 		// App Review takes a version only once everything below is done.
 		return steps;
 	}
+
 	let listing = &run.store.listing;
 	let page = app_store_page(run);
+
 	if !page.is_empty() {
 		steps.push(step(
 			"app_store",
@@ -1397,6 +1475,7 @@ fn app_store_steps(run: &AppStoreRun<'_>) -> Vec<Step> {
 			 screenshots",
 		));
 	}
+
 	steps.extend([
 		step(
 			"app_store",
@@ -1472,9 +1551,11 @@ impl Session<'_> {
 			"play" => self.play()?,
 			other => anyhow::bail!("`{other}` isn't a store leptoskit publish publishes to"),
 		};
+
 		if let Some(step) = icon_step(self.root, self.config, store) {
 			steps.insert(0, step);
 		}
+
 		Ok((summary, steps))
 	}
 }
@@ -1484,9 +1565,11 @@ fn icon_step(root: &Path, config: &LeptoskitConfig, store: &str) -> Option<Step>
 	let extension = EXTENSION_STORES.contains(&store);
 	let has_icon =
 		config.app.icon.is_some() || (extension && root.join("assets/icon-128.png").is_file());
+
 	if has_icon {
 		return None;
 	}
+
 	Some(step(
 		store,
 		Who::Agent,
@@ -1528,6 +1611,7 @@ fn confirm(args: &PublishArgs, name: &str, version: &str, stores: &[&str]) -> Re
 	if args.yes || std::env::var_os("CI").is_some() || !std::io::stdin().is_terminal() {
 		return Ok(true);
 	}
+
 	eprint!(
 		"Submit {name} {version} to {} for review? Reviewed versions reach users. [y/N] ",
 		stores.join(", ")
@@ -1545,6 +1629,7 @@ fn list_credentials(stores: &[&str], credentials: &Credentials) -> String {
 	use std::fmt::Write as _;
 
 	let mut out = format!("Credentials for {}:\n\n", stores.join(", "));
+
 	for needed in NEEDED
 		.iter()
 		.filter(|needed| stores.contains(&needed.store))
@@ -1554,11 +1639,14 @@ fn list_credentials(stores: &[&str], credentials: &Credentials) -> String {
 		} else {
 			"missing"
 		};
+
 		let _ = writeln!(out, "  {:<10} {:<42} {state}", needed.store, needed.name);
+
 		if state == "missing" {
 			let _ = writeln!(out, "             To make it: {}.", needed.how);
 		}
 	}
+
 	out.push_str(
 		"\nSet each as an environment variable, or put them in a TOML file outside the project \
 		 and pass --credentials <file>. Values are never printed.\n",
@@ -1661,6 +1749,7 @@ fn chrome_steps(
 			.and_then(|extension| extension.description.clone())
 			.unwrap_or_else(|| "(one sentence: what the extension is for)".to_owned()),
 	)];
+
 	for permission in manifest["permissions"]
 		.as_array()
 		.into_iter()
@@ -1669,6 +1758,7 @@ fn chrome_steps(
 	{
 		justifications.push(field(permission, store.justification(permission)));
 	}
+
 	if manifest.get("host_permissions").is_some()
 		|| manifest.get("optional_host_permissions").is_some()
 	{
@@ -1726,6 +1816,7 @@ fn chrome_steps(
 			"a submit succeeds",
 		),
 	];
+
 	if !submitted {
 		steps.push(step(
 			"chrome",
@@ -1738,6 +1829,7 @@ fn chrome_steps(
 			"the store shows the version as pending review",
 		));
 	}
+
 	steps
 }
 
@@ -1772,6 +1864,7 @@ fn edge_steps(root: &Path, config: &LeptoskitConfig, store: &Store, submitted: b
 		 or upload its images",
 		"a submit succeeds",
 	)];
+
 	if !submitted {
 		steps.push(step(
 			"edge",
@@ -1783,6 +1876,7 @@ fn edge_steps(root: &Path, config: &LeptoskitConfig, store: &Store, submitted: b
 			"Partner Center shows the submission in certification",
 		));
 	}
+
 	steps
 }
 
@@ -1814,6 +1908,7 @@ fn firefox_steps(run: &FirefoxRun<'_>) -> Vec<Step> {
 		screenshots,
 	} = *run;
 	let mut steps = Vec::new();
+
 	if !exists {
 		steps.push(step(
 			"firefox",
@@ -1839,6 +1934,7 @@ fn firefox_steps(run: &FirefoxRun<'_>) -> Vec<Step> {
 			"the first submission is done",
 		));
 	}
+
 	if settings.channel == leptoskit_config::publish::FirefoxChannel::Listed {
 		steps.push(step(
 			"firefox",
@@ -1874,6 +1970,7 @@ fn firefox_steps(run: &FirefoxRun<'_>) -> Vec<Step> {
 			"the listing page shows it",
 		));
 	}
+
 	if !submitted {
 		steps.push(step(
 			"firefox",
@@ -1885,6 +1982,7 @@ fn firefox_steps(run: &FirefoxRun<'_>) -> Vec<Step> {
 			"addons.mozilla.org shows the version awaiting review",
 		));
 	}
+
 	steps
 }
 

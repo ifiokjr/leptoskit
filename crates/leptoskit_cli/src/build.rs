@@ -76,14 +76,17 @@ pub fn command(
 	let (config, root) = LeptoskitConfig::load()?;
 	let platform = platform.unwrap_or(config.app.default_platform);
 	config.ensure_platform_enabled(platform)?;
+
 	if platform == Platform::Extension {
 		anyhow::ensure!(
 			out == "dist",
 			"extension packages are written to {}; --out is only supported for web builds",
 			crate::extension::OUTPUT
 		);
+
 		return crate::extension::command(release);
 	}
+
 	if platform.is_native() {
 		anyhow::ensure!(
 			out == "dist",
@@ -95,6 +98,7 @@ pub fn command(
 			release,
 		});
 	}
+
 	if platform == Platform::Native
 		&& (root.join("hosts/android").is_dir()
 			|| config.native.targets == [leptoskit_config::NativeTarget::Harmonyos])
@@ -105,6 +109,7 @@ pub fn command(
 			 web builds"
 		);
 		let target = crate::native::legacy_target(&root, &config);
+
 		return crate::native::run(crate::native::NativeCommand::Build { target, release });
 	}
 	run(release, Some(platform), optimize, out).map(drop)
@@ -119,9 +124,11 @@ pub fn run(
 	out: &str,
 ) -> Result<BuildOutput> {
 	let (mut config, root) = LeptoskitConfig::load()?;
+
 	if let Some(optimize) = optimize {
 		config.bundle.optimize = optimize;
 	}
+
 	let platform = platform.unwrap_or(config.app.default_platform);
 	adjust_for_platform(&mut config, platform);
 	config.ensure_platform_enabled(platform)?;
@@ -140,11 +147,13 @@ pub fn run(
 	let (registry, context) = plugin_context(&config, platform, release)?;
 	let mut rustflags = config.build.rustflags.clone();
 	rustflags.extend(context.rustflags.iter().cloned());
+
 	if !rustflags.is_empty() && std::env::var_os("RUSTFLAGS").is_some() {
 		crate::ui::warning(
 			"RUSTFLAGS is set, so cargo ignores build.rustflags and plugin rustflags",
 		);
 	}
+
 	let options = CargoOptions {
 		release,
 		no_default_features: false,
@@ -188,10 +197,12 @@ pub fn run(
 		.as_ref()
 		.filter(|_| builds_client && platform == Platform::Web)
 		.and_then(|client| metadata.package(&client.name));
+
 	let mode = match server_package {
 		Some(server) => render::mode_features(config.app.render, server, client_package)?,
 		None => render::ModeFeatures::default(),
 	};
+
 	let server_options = options.with_features(&mode.server);
 	// An extension renders in the browser whatever the website does, so it
 	// takes no render mode, only its own platform feature.
@@ -214,8 +225,10 @@ pub fn run(
 		Some(_) if platform != Platform::Extension => {
 			compile_server(&root, &config.app.name, &server_options)?
 		}
+
 		_ => None,
 	};
+
 	if let Some(binary) = &server_binary {
 		BuiltServer {
 			binary: binary.clone(),
@@ -225,6 +238,7 @@ pub fn run(
 
 	let mut wasm_bound = false;
 	let mut wasm_bundle = None;
+
 	if let (true, Some(client)) = (builds_client, &client) {
 		let wasm_path = wasm::compile_wasm(root.as_std_path(), client, &client_options)?;
 		wasm::ensure_wasm_bindgen_compatible(&metadata.workspace_root.join("Cargo.lock"))?;
@@ -241,6 +255,7 @@ pub fn run(
 		wasm_bound = bound;
 		wasm_bundle = Some(module);
 	}
+
 	if platform == Platform::Web {
 		collect_assets(&root, &out_dir)?;
 	}
@@ -254,6 +269,7 @@ pub fn run(
 	};
 	registry.after_build(&mut post)?;
 	let mut sizes = BTreeMap::new();
+
 	if platform == Platform::Web {
 		if release && config.bundle.precompress {
 			let mut cache =
@@ -264,6 +280,7 @@ pub fn run(
 			compress::remove_precompressed(out_dir.as_std_path())?;
 		}
 	}
+
 	if platform != Platform::Server && client.is_none() {
 		crate::ui::warning("no cdylib client crate found; built the server only");
 	} else if wasm_bound {
@@ -271,13 +288,16 @@ pub fn run(
 	} else if platform != Platform::Server {
 		crate::ui::skipped("wasm client unchanged; skipped wasm-bindgen");
 	}
+
 	crate::ui::success(format_args!(
 		"built {platform} ({} render) into {out_dir}",
 		config.app.render
 	));
+
 	if release && builds_client {
 		report_client_bundle(&config.bundle, &out_dir, &sizes)?;
 	}
+
 	Ok(BuildOutput {
 		out_dir,
 		client,
@@ -327,9 +347,11 @@ pub(crate) mod devtools {
 		let Some(hub) = hub.filter(|_| !release) else {
 			return options;
 		};
+
 		if !package.is_some_and(|package| package.declares_feature("devtools")) {
 			return options;
 		}
+
 		let mut options = options.with_features(&["devtools".to_owned()]);
 		options
 			.env
@@ -406,6 +428,7 @@ fn client_cargo_options(
 	client_features: CargoOptions,
 ) -> Result<CargoOptions> {
 	let mut client_options = client_features;
+
 	if platform == Platform::Extension {
 		let package = client_package.context(
 			"an extension build needs the client package that `build.client_package` names",
@@ -417,9 +440,11 @@ fn client_cargo_options(
 			package.name
 		);
 		client_options = client_options.with_platform(platform)?;
+
 		if package.declares_feature("csr") {
 			client_options = client_options.with_features(&["csr".to_owned()]);
 		}
+
 		// The extension's client shares the website's build directory: they
 		// differ only in features.
 		client_options.target_directory =
@@ -436,6 +461,7 @@ fn client_cargo_options(
 		client_options.target_directory =
 			Some(root.join(".leptoskit/web/target").into_std_path_buf());
 	}
+
 	let mut client_options = match (&config.bundle.cargo_profile, config.bundle.optimize) {
 		(Some(profile), _) => client_options.with_profile(profile, Vec::new()),
 		(None, Optimize::Smallest) => {
@@ -443,9 +469,11 @@ fn client_cargo_options(
 		}
 		(None, Optimize::Fast) => client_options,
 	};
+
 	if config.bundle.split {
 		client_options.rustflags.push(split::EMIT_RELOCS.to_owned());
 	}
+
 	let release = client_options.release;
 	Ok(devtools::client_options(
 		client_options,
@@ -470,10 +498,12 @@ fn report_client_bundle(
 		sizes,
 	)?;
 	let budget = bundle.budget_kib;
+
 	let profile = match &bundle.cargo_profile {
 		Some(profile) => format!("cargo_profile = \"{profile}\""),
 		None => format!("optimize = \"{}\"", bundle.optimize),
 	};
+
 	anstream::println!(
 		"\n{BOLD}client bundle{BOLD:#} {DIM}({profile}){DIM:#}\n{}",
 		report.render(budget)
@@ -514,6 +544,7 @@ pub fn bind_client(
 	if splits {
 		split::ensure_relocs_reach_cargo(&|variable| std::env::var_os(variable))?;
 	}
+
 	// wasm-opt never runs in dev: it is the slowest phase and the size win
 	// is irrelevant while iterating.
 	let optimizes = release && bundle.wasm_opt;
@@ -533,6 +564,7 @@ pub fn bind_client(
 	};
 	let outputs_present = glue.is_file() && module.is_file() && (!splits || chunks_present());
 	let mut cache = BuildCache::load(target_dir);
+
 	if outputs_present && cache.is_current(&fingerprint) {
 		return Ok((false, module));
 	}
@@ -543,6 +575,7 @@ pub fn bind_client(
 		std::fs::remove_dir_all(pkg_dir)
 			.with_context(|| format!("could not clear {}", pkg_dir.display()))?;
 	}
+
 	std::fs::create_dir_all(pkg_dir)
 		.with_context(|| format!("could not create {}", pkg_dir.display()))?;
 	let (bindgen_input, chunks) = if splits {
@@ -551,8 +584,10 @@ pub fn bind_client(
 	} else {
 		(wasm_path.to_path_buf(), Vec::new())
 	};
+
 	drop(wasm);
 	wasm::bindgen(&bindgen_input, pkg_dir, &client.lib_name, release, splits)?;
+
 	if optimizes {
 		use rayon::prelude::*;
 
@@ -562,6 +597,7 @@ pub fn bind_client(
 			.into_par_iter()
 			.try_for_each(|path| wasm::optimize(path))?;
 	}
+
 	cache.record(&fingerprint);
 	cache.save().context("could not save the build cache")?;
 	Ok((true, module))
@@ -601,12 +637,14 @@ pub(crate) fn router_spec(config: &LeptoskitConfig) -> Option<leptoskit_config::
 		name: "router".to_owned(),
 		..Default::default()
 	};
+
 	if router.dir != leptoskit_config::RouterConfig::default().dir {
 		spec.options.insert(
 			"dir".to_owned(),
 			toml::Value::String(router.dir.display().to_string()),
 		);
 	}
+
 	Some(spec)
 }
 
@@ -628,10 +666,12 @@ pub(crate) fn resolve_plugins(
 ) -> Result<leptoskit_plugin::PluginRegistry> {
 	let (mut registry, unresolved) = leptoskit_plugin::PluginRegistry::resolve(config)?;
 	let mut unknown = Vec::new();
+
 	for plugin in &unresolved {
 		if plugin.spec.name == "router" {
 			continue;
 		}
+
 		// A `command` (or a `leptoskit-plugin-<name>` on PATH) makes the
 		// plugin a separate program speaking the process protocol.
 		let command = plugin
@@ -639,6 +679,7 @@ pub(crate) fn resolve_plugins(
 			.command
 			.clone()
 			.unwrap_or_else(|| leptoskit_plugin::default_command(&plugin.spec.name));
+
 		if leptoskit_plugin::command_exists(&command) {
 			let process = leptoskit_plugin::ProcessPlugin::probe(
 				&plugin.spec.name,
@@ -651,7 +692,9 @@ pub(crate) fn resolve_plugins(
 			unknown.push(plugin);
 		}
 	}
+
 	let unknown = unknown;
+
 	if !unknown.is_empty() {
 		let names: Vec<&str> = unknown
 			.iter()
@@ -664,6 +707,7 @@ pub(crate) fn resolve_plugins(
 			leptoskit_plugin::Builtins::NAMES.join(", ")
 		);
 	}
+
 	if let Some(spec) = router_spec(config) {
 		let plugin = leptoskit_plugin_router::RouterPlugin::default();
 		plugin
@@ -671,6 +715,7 @@ pub(crate) fn resolve_plugins(
 			.map_err(|error| anyhow::anyhow!(error))?;
 		registry.register(plugin);
 	}
+
 	Ok(registry)
 }
 
@@ -706,15 +751,18 @@ pub(crate) fn plugin_context(
 	let registry = resolve_plugins(config)?;
 	registry.ensure_supported(platform)?;
 	let mut context = leptoskit_plugin::PluginBuildContext::new(config.clone(), platform, release);
+
 	for feature in &config.build.features {
 		context.add_feature(feature.clone());
 	}
+
 	// Leptos plugins are forwarded as cargo features.
 	for spec in &config.plugins {
 		if spec.leptos {
 			context.add_feature(spec.name.clone());
 		}
 	}
+
 	registry.before_build(&mut context)?;
 	anyhow::ensure!(
 		!(release
@@ -761,6 +809,7 @@ fn collect_assets(root: &Utf8PathBuf, out_dir: &Utf8PathBuf) -> Result<()> {
 		} else {
 			out_dir.clone()
 		};
+
 		copy_assets(&root.join(directory), &destination)?;
 	}
 
@@ -773,6 +822,7 @@ fn copy_assets(public: &Utf8PathBuf, out_dir: &Utf8PathBuf) -> Result<()> {
 	if !public.is_dir() {
 		return Ok(());
 	}
+
 	let files: Vec<PathBuf> = walkdir::WalkDir::new(public.as_std_path())
 		.into_iter()
 		.filter_map(Result::ok)
@@ -787,21 +837,26 @@ fn copy_assets(public: &Utf8PathBuf, out_dir: &Utf8PathBuf) -> Result<()> {
 			Ok((path, hash_bytes(&content)))
 		})
 		.collect::<Result<_>>()?;
+
 	for (path, hash) in fingerprints {
 		let relative = path
 			.strip_prefix(public.as_std_path())
 			.context("asset outside the public tree")?;
 		let target = out_dir.as_std_path().join(relative);
+
 		if let Some(parent) = target.parent() {
 			std::fs::create_dir_all(parent)?;
 		}
+
 		let current = std::fs::read(&target)
 			.ok()
 			.map(|content| hash_bytes(&content));
+
 		if current.as_deref() != Some(hash.as_str()) {
 			std::fs::copy(&path, &target).with_context(|| format!("copying {}", path.display()))?;
 		}
 	}
+
 	Ok(())
 }
 

@@ -120,6 +120,7 @@ fn output_directories_sharing_a_target_dir_keep_their_own_cache_entries() {
 	cache.record(&second);
 	cache.save().expect("save");
 	let reloaded = BuildCache::load(&scratch.path);
+
 	assert!(
 		reloaded.is_current(&first),
 		"the second build must not evict the first"
@@ -257,6 +258,7 @@ fn full_pipeline_compiles_binds_and_caches() {
 	assert!(!cache.is_current(&bindgen_fp));
 	std::fs::create_dir_all(&pkg).expect("pkg dir");
 	wasm::bindgen(&wasm_path, &pkg, &client.lib_name, false, false).expect("bindgen");
+
 	cache.record(&bindgen_fp);
 	cache.save().expect("save cache");
 
@@ -321,16 +323,19 @@ fn harmonyos_counter_compiles_and_handles_native_presses() {
 	);
 	let bytes =
 		std::fs::read(app.join("target/wasm32-unknown-unknown/debug/counter_guest.wasm")).unwrap();
+
 	let mut host = leptoskit_wasm::WasmHost::headless(&bytes).unwrap();
 	host.start(390.0, 844.0).unwrap();
 	let first = serde_json::to_value(host.take_mutations()).unwrap();
 	assert!(first.to_string().contains("Count: 0"));
+
 	for count in 1..=3 {
 		host.dispatch_wire(3, leptoskit_wasm::EventKind::Press, None)
 			.unwrap();
 		let mutations = serde_json::to_value(host.take_mutations()).unwrap();
 		assert!(mutations.to_string().contains(&format!("Count: {count}")));
 	}
+
 	host.set_viewport(844.0, 390.0);
 	host.dispatch_wire(3, leptoskit_wasm::EventKind::Press, None)
 		.unwrap();

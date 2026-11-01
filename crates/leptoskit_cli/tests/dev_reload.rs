@@ -90,6 +90,7 @@ fn reloads(platform: &str, verify: impl Fn(&Session, &[String])) {
 	let reloaded = |line: &str| {
 		line.starts_with(&format!("[{platform}]")) && line.contains("leptoskit dev: reloaded")
 	};
+
 	while session.lines.iter().filter(|line| reloaded(line)).count() < devices.len() {
 		session.wait_for(RELOAD, reloaded);
 	}
@@ -187,6 +188,7 @@ impl Session {
 
 		loop {
 			let remaining = deadline.saturating_duration_since(Instant::now());
+
 			match self.receiver.recv_timeout(remaining) {
 				Ok(line) => {
 					let _ = writeln!(self.log, "{line}");

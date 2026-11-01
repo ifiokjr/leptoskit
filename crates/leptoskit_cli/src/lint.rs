@@ -71,6 +71,7 @@ pub fn run(args: &LintArgs) -> anyhow::Result<()> {
 	} else {
 		args.paths.clone()
 	};
+
 	let name = root.file_name().map_or_else(
 		|| root.display().to_string(),
 		|name| name.to_string_lossy().into_owned(),
@@ -99,9 +100,11 @@ pub fn run(args: &LintArgs) -> anyhow::Result<()> {
 		}
 		None => None,
 	};
+
 	// Everything prints once clippy is done, so the progress line it shows
 	// while it builds never splits a diagnostic.
 	let mut out = anstream::stdout().lock();
+
 	for diagnostic in &report.diagnostics {
 		let _ = writeln!(
 			out,
@@ -109,14 +112,17 @@ pub fn run(args: &LintArgs) -> anyhow::Result<()> {
 			leptoskit_lint::render_diagnostic(diagnostic, &cwd)
 		);
 	}
+
 	if let Some(clippy) = &clippy {
 		for rendered in &clippy.rendered {
 			let _ = writeln!(out, "{rendered}\n");
 		}
+
 		if let Some(failure) = &clippy.failure {
 			let _ = writeln!(out, "{failure}\n");
 		}
 	}
+
 	drop(out);
 
 	let mut summary = ui::Summary::default();
@@ -124,18 +130,21 @@ pub fn run(args: &LintArgs) -> anyhow::Result<()> {
 	rules_detail.push(
 		problems(report.errors(), report.warnings()).unwrap_or_else(|| "no problems".to_owned()),
 	);
+
 	if !report.unparsed.is_empty() {
 		rules_detail.push(format!(
 			"{} not parsed",
 			ui::count(report.unparsed.len(), "file")
 		));
 	}
+
 	summary.row(
 		outcome(report.errors(), report.warnings(), args.deny_warnings),
 		"leptoskit",
 		rules_detail.join(" · "),
 		Some(rules_elapsed),
 	);
+
 	match &clippy {
 		Some(clippy) if clippy.failure.is_some() => {
 			summary.row(
@@ -145,6 +154,7 @@ pub fn run(args: &LintArgs) -> anyhow::Result<()> {
 				Some(clippy.elapsed),
 			);
 		}
+
 		Some(clippy) => {
 			summary.row(
 				outcome(clippy.errors, clippy.warnings, args.deny_warnings),
@@ -154,9 +164,11 @@ pub fn run(args: &LintArgs) -> anyhow::Result<()> {
 				Some(clippy.elapsed),
 			);
 		}
+
 		None if args.no_clippy => {
 			summary.row(Outcome::Skipped, "clippy", "skipped with --no-clippy", None);
 		}
+
 		None => {
 			summary.row(
 				Outcome::Skipped,
@@ -166,6 +178,7 @@ pub fn run(args: &LintArgs) -> anyhow::Result<()> {
 			);
 		}
 	}
+
 	summary.print();
 
 	anyhow::ensure!(!summary.failed(), "lint found problems to fix");
@@ -239,11 +252,13 @@ fn run_clippy(root: &Path, deny_warnings: bool, extra: &[String]) -> anyhow::Res
 	let mut report = ClippyReport::default();
 	let mut seen = std::collections::HashSet::new();
 	let stdout = child.stdout.take().context("clippy's stdout")?;
+
 	for line in BufReader::new(stdout).lines() {
 		let line = line.context("read clippy's output")?;
 		let Ok(message) = serde_json::from_str::<serde_json::Value>(&line) else {
 			continue;
 		};
+
 		match message["reason"].as_str() {
 			Some("compiler-artifact") => {
 				if let Some(name) = message["target"]["name"].as_str() {
@@ -257,6 +272,7 @@ fn run_clippy(root: &Path, deny_warnings: bool, extra: &[String]) -> anyhow::Res
 					Some("error") => &mut report.errors,
 					_ => continue,
 				};
+
 				// A diagnostic in code shared by several targets, such as a
 				// library and its tests, arrives once per target.
 				let rendered = diagnostic["rendered"]
@@ -271,6 +287,7 @@ fn run_clippy(root: &Path, deny_warnings: bool, extra: &[String]) -> anyhow::Res
 			_ => {}
 		}
 	}
+
 	progress.finish();
 
 	let status = child.wait().context("wait for clippy")?;
@@ -280,6 +297,7 @@ fn run_clippy(root: &Path, deny_warnings: bool, extra: &[String]) -> anyhow::Res
 	if !status.success() && report.errors == 0 && report.warnings == 0 {
 		report.failure = Some(stderr.trim_end().to_owned());
 	}
+
 	report.elapsed = started.elapsed();
 	Ok(report)
 }

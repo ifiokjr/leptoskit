@@ -49,6 +49,7 @@ fn rust_chunks_share_memory_and_load_on_demand_without_javascript() {
 	let bytes = std::fs::read(&compiled).expect("guest");
 	assert!(split::uses_lazy_loading(&bytes).expect("imports"));
 	let pkg = scratch.join("pkg");
+
 	std::fs::create_dir_all(&pkg).expect("pkg");
 	let split = split::split(&bytes, &compiled, &pkg, "split_guest").expect("split Rust guest");
 	let manifest: BTreeMap<String, Vec<String>> =
@@ -81,6 +82,7 @@ fn rust_chunks_share_memory_and_load_on_demand_without_javascript() {
 	let poll = instance
 		.get_typed_func::<(), i32>(&store, "poll")
 		.expect("poll");
+
 	assert_eq!(store.data().loads, 0, "startup loads no chunks");
 	begin.call(&mut store, ()).expect("start lazy call");
 	assert_eq!(poll.call(&mut store, ()).expect("first poll"), 0);

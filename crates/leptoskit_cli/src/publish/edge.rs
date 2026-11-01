@@ -60,12 +60,14 @@ impl<'a> Edge<'a> {
 			],
 			body,
 		)?;
+
 		if reply.status == 401 {
 			anyhow::bail!(
 				"Edge Add-ons refused the API key; keys expire after 72 days, so make a new one \
 				 on Partner Center's Publish API page"
 			);
 		}
+
 		Ok(reply)
 	}
 

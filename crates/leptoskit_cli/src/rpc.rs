@@ -150,13 +150,17 @@ fn check(
 		include_internal,
 	);
 	let breaks = breaking_changes(&previous, &current);
+
 	if breaks.is_empty() {
 		println!("no breaking changes");
+
 		return Ok(());
 	}
+
 	for line in &breaks {
 		println!("breaking: {line}");
 	}
+
 	anyhow::bail!(
 		"{} breaking change(s) against {against}; bump the RPC's version or keep the old shape",
 		breaks.len()
@@ -167,6 +171,7 @@ fn check(
 /// on.
 fn breaking_changes(previous: &ApiSpec, current: &ApiSpec) -> Vec<String> {
 	let mut breaks = Vec::new();
+
 	for old in &previous.functions {
 		let Some(new) = current
 			.functions
@@ -176,6 +181,7 @@ fn breaking_changes(previous: &ApiSpec, current: &ApiSpec) -> Vec<String> {
 			breaks.push(format!("removed `{}`", old.name));
 			continue;
 		};
+
 		if old.kind != new.kind {
 			breaks.push(format!(
 				"`{}` changed from a {} to a {}",
@@ -184,18 +190,22 @@ fn breaking_changes(previous: &ApiSpec, current: &ApiSpec) -> Vec<String> {
 				new.kind.as_str()
 			));
 		}
+
 		if old.path != new.path || old.method != new.method {
 			breaks.push(format!(
 				"`{}` moved from {} {} to {} {}",
 				old.name, old.method, old.path, new.method, new.path
 			));
 		}
+
 		if old.input != new.input || old.output != new.output {
 			breaks.push(format!("`{}` changed its encoding", old.name));
 		}
+
 		if old.output_schema != new.output_schema {
 			breaks.push(format!("`{}` changed its result schema", old.name));
 		}
+
 		for param in &old.params {
 			if !new
 				.params
@@ -208,11 +218,13 @@ fn breaking_changes(previous: &ApiSpec, current: &ApiSpec) -> Vec<String> {
 				));
 			}
 		}
+
 		for param in &new.params {
 			let was = old
 				.params
 				.iter()
 				.find(|candidate| candidate.name == param.name);
+
 			if was.is_none() && param.is_required() {
 				breaks.push(format!(
 					"`{}` added the required `{}` argument",
@@ -220,12 +232,14 @@ fn breaking_changes(previous: &ApiSpec, current: &ApiSpec) -> Vec<String> {
 				));
 			}
 		}
+
 		for scope in &new.scopes {
 			if !old.scopes.contains(scope) {
 				breaks.push(format!("`{}` now requires the `{scope}` scope", old.name));
 			}
 		}
 	}
+
 	breaks
 }
 

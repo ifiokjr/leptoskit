@@ -80,6 +80,7 @@ impl Consent {
 		} else {
 			match (self.details.data(), self.details.error()) {
 				(Some(request), _) => self.ask(&request),
+
 				(None, Some(error)) if error.error == "not_found" => {
 					Alert(
 						"This request has expired or was already answered. Go back to the app and \
@@ -87,6 +88,7 @@ impl Consent {
 					)
 					.class("text-sm text-rose-300")
 				}
+
 				(None, Some(error)) => self.unreachable(&error),
 				(None, None) => Status("Loading…").class("text-slate-300"),
 			}
@@ -113,6 +115,7 @@ impl Consent {
 			} else {
 				scope.description.clone()
 			};
+
 			scopes = scopes.child(Text(format!("• {text}")).class("text-sm text-slate-300"));
 		}
 

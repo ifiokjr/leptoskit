@@ -428,6 +428,7 @@ fn release_builds_precompress_report_and_hold_the_budget() {
 	assert!(out.contains("client bundle (optimize = \"fast\")"), "{out}");
 	assert!(out.contains("pkg/slim_bg.wasm"), "{out}");
 	assert!(out.contains("OVER the 1 KiB budget"), "{out}");
+
 	let wasm = project.join("dist/pkg/slim_bg.wasm");
 	let brotli = std::fs::read(project.join("dist/pkg/slim_bg.wasm.br")).expect("br");
 	assert_eq!(unbrotli(&brotli), std::fs::read(&wasm).expect("wasm"));

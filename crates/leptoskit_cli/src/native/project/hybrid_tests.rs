@@ -160,9 +160,11 @@ fn assert_apple_output(root: &Path, path: &str) {
 	} else {
 		include_str!("../../../tests/fixtures/app-service/generated/IosGeneratedPlugins.swift")
 	};
+
 	assert_eq!(swift, expected);
 	assert!(swift.contains("import ServicePlatform"));
 	assert_eq!(swift.matches("dispatcher.register(").count(), 1);
+
 	assert!(swift.contains("PlatformPlugin(context: context)"));
 }
 
