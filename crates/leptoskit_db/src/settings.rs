@@ -104,6 +104,18 @@ impl<V: Column> SettingValue<V> {
 		}
 	}
 
+	/// Whether the request holds this setting at all, as a condition: a
+	/// policy uses it to ask for a signed-in person.
+	pub fn is_present(&self) -> crate::Expr {
+		crate::Expr::SettingPresent {
+			setting: SettingRef {
+				name: self.name,
+				ty: self.ty.clone(),
+				value: self.value.as_ref().ok().cloned().flatten(),
+			},
+		}
+	}
+
 	fn reference(&self) -> Result<SettingRef, String> {
 		Ok(SettingRef {
 			name: self.name,

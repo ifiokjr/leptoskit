@@ -120,9 +120,9 @@ pub enum JobVisibility {
 )]
 #[policy(insert, |_, _| Expr::always())]
 #[policy(select, |job, cx| job.visibility.eq(JobVisibility::Everyone) | job.owner
-	.eq(cx.setting::<Actor>()) | job.viewer.eq(cx.setting::<Actor>()) | job
+	.eq(cx.setting::<Actor>()) | job.viewer.eq(cx.setting::<Actor>()) | (job
 	.visibility
-	.eq(JobVisibility::SignedIn))]
+	.eq(JobVisibility::SignedIn) & cx.setting::<Actor>().is_present()))]
 #[policy(update, |job, cx| job.owner.eq(cx.setting::<Actor>()))]
 pub struct JobRow {
 	pub id: Id<Self>,
