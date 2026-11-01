@@ -264,7 +264,9 @@ pub(crate) async fn make_ahead(
 /// `retention` as a marker, then drops and deletes what's below it, as the
 /// module explains. Returns how many commits it removed.
 pub(crate) async fn prune(db: &Db, retention: Duration) -> Result<u64> {
-	let cutoff = crate::now()
+	// Not `crate::now()`, which rounds down to the millisecond and would
+	// leave out a commit made in the same one.
+	let cutoff = chrono::Utc::now()
 		- chrono::Duration::from_std(retention).unwrap_or_else(|_| chrono::Duration::zero());
 	let Some(through) = mark(db, cutoff).await? else {
 		return Ok(0);
