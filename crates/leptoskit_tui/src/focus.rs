@@ -4,6 +4,7 @@ use leptoskit_native::NativeKind;
 use leptoskit_native::NativeProps;
 use leptoskit_yoga::NodeId;
 
+use crate::backend::Node;
 use crate::backend::TuiBackend;
 
 /// Whether a widget kind takes keyboard focus.
@@ -21,6 +22,25 @@ pub const fn focusable_kind(kind: NativeKind) -> bool {
 			| NativeKind::Slider
 			| NativeKind::ScrollView
 	)
+}
+
+/// Whether the walk skips this node, and so its subtree.
+fn skips(node: &Node, inert: bool) -> bool {
+	inert
+		|| node.props.hidden == Some(true)
+		|| node.props.enabled == Some(false)
+		|| node.props.opacity.unwrap_or(1.0) <= 0.0
+}
+
+/// Files a focusable widget by its `tab_index`: a positive one comes first,
+/// and a negative one takes the widget out of the order.
+fn file(node: &Node, id: NodeId, positive: &mut Vec<(i32, NodeId)>, rest: &mut Vec<NodeId>) {
+	match node.props.aria().tab_index {
+		Some(index) if index > 0 => positive.push((index, id)),
+
+		Some(index) if index < 0 => {}
+		_ => rest.push(id),
+	}
 }
 
 /// The focus order of the committed tree, in tab-navigation order.
@@ -44,24 +64,13 @@ pub(crate) fn focusables(backend: &TuiBackend) -> Vec<NodeId> {
 			continue;
 		};
 
-		if inert
-			|| node.props.hidden == Some(true)
-			|| node.props.enabled == Some(false)
-			|| node.props.opacity.unwrap_or(1.0) <= 0.0
-		{
-			continue;
-		}
-
-		if focusable_kind(node.kind) {
-			match node.props.aria().tab_index {
-				Some(index) if index > 0 => positive.push((index, id)),
-
-				Some(index) if index < 0 => {}
-				_ => rest.push(id),
+		if !skips(node, inert) {
+			if focusable_kind(node.kind) {
+				file(node, id, &mut positive, &mut rest);
 			}
-		}
 
-		pending.extend(node.children.iter().rev().map(|&child| (child, false)));
+			pending.extend(node.children.iter().rev().map(|&child| (child, false)));
+		}
 	}
 
 	positive.sort_by_key(|(index, _)| *index);
