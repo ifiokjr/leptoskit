@@ -117,6 +117,7 @@ guest = [
 	"leptoskit_query?/guest",
 	"leptoskit_idp?/guest",
 	"leptoskit_rpc?/guest",
+	"leptoskit_devtools?/guest",
 ]
 tui = ["dep:leptoskit_tui"]
 gtk = ["dep:leptoskit_gtk"]

@@ -3442,6 +3442,7 @@ name = "hooks_guest_probe"
 version = "0.1.0"
 dependencies = [
  "leptoskit",
+ "leptoskit_router",
  "reactive_graph",
 ]
 
@@ -4741,6 +4742,7 @@ dependencies = [
  "leptoskit_devtools",
  "leptoskit_devtools_protocol",
  "leptoskit_native",
+ "leptoskit_plugin_devtools",
  "leptoskit_rive",
  "leptoskit_uikit",
  "leptoskit_wasm",
@@ -4970,9 +4972,11 @@ dependencies = [
  "gloo-net",
  "gloo-timers",
  "js-sys",
+ "leptoskit_bridge",
  "leptoskit_devtools_protocol",
  "leptoskit_form",
  "leptoskit_native",
+ "leptoskit_plugin_devtools",
  "leptoskit_query",
  "leptoskit_router",
  "reactive_graph",
@@ -5308,6 +5312,17 @@ dependencies = [
  "sysinfo",
  "wasm-bindgen",
  "web-sys",
+]
+
+[[package]]
+name = "leptoskit_plugin_devtools"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_bridge",
+ "leptoskit_devtools_protocol",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

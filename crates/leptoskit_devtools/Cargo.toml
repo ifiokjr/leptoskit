@@ -22,6 +22,16 @@ form = ["dep:leptoskit_form", "leptoskit_form/devtools"]
 # `track_queries`, which reports a `leptoskit_query` cache. The facade turns
 # it on when an app has both `query` and `devtools`.
 query = ["dep:leptoskit_query", "leptoskit_query/devtools"]
+# The agent in a native Wasm guest, which reports through the host's
+# `DevTools` plugin. The facade turns it on with `guest` and `devtools`.
+guest = [
+	"dep:leptoskit_bridge",
+	"leptoskit_bridge/guest",
+	"dep:leptoskit_native",
+	"leptoskit_native/guest",
+	"dep:leptoskit_plugin_devtools",
+	"leptoskit_plugin_devtools/guest",
+]
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
@@ -36,12 +46,18 @@ serde_json = { workspace = true }
 ureq = { workspace = true, optional = true, features = ["rustls"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+leptoskit_bridge = { workspace = true, optional = true }
+leptoskit_plugin_devtools = { workspace = true, optional = true }
 gloo-net = { version = "0.7", optional = true, features = ["http", "json"] }
 gloo-timers = { version = "0.3", optional = true, features = ["futures"] }
 js-sys = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true, optional = true }
 web-sys = { workspace = true, optional = true, features = ["Document", "DomRect", "Element", "EventTarget", "Location", "MouseEvent", "MutationObserver", "MutationObserverInit", "Node", "NodeList", "Window", "console"] }
+
+[dev-dependencies]
+leptoskit_bridge = { workspace = true }
+leptoskit_plugin_devtools = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 any_spawner = { workspace = true, features = ["tokio"] }

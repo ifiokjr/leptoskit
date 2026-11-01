@@ -1,8 +1,15 @@
 //! Reports a native host to the hub from two threads of its own: one keeps
 //! each guest's tree and sends what changed, the other waits for commands.
 //! The host hands its changes over a channel and never waits for either.
+//!
+//! A guest reports what only it knows (its route, queries, forms, and named
+//! state) through the `DevTools` bridge plugin, which hands it to the
+//! guest's [`Guest`]. The reporter keeps each guest's values beside its
+//! tree, puts the shown guest's in every snapshot and sends their changes
+//! between, and hands the hub's commands for them to the guest.
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Condvar;
@@ -16,6 +23,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 use std::time::Instant;
 
+use leptoskit_devtools_protocol::Capability;
 use leptoskit_devtools_protocol::Command;
 use leptoskit_devtools_protocol::Commit;
 use leptoskit_devtools_protocol::Event;
@@ -34,6 +42,9 @@ use super::mirror::Change;
 use super::mirror::Mirror;
 use super::patch::diff;
 use super::snapshot_of;
+use crate::registry;
+use crate::registry::Reported;
+use crate::registry::Slot;
 
 /// How often the reporter sends while the tree keeps changing, so a burst of
 /// commits, such as an animation's, goes out as one request.
@@ -44,6 +55,18 @@ const RETRY: Duration = Duration::from_secs(2);
 
 /// How long the reporter sleeps with nothing to send or wait for.
 const IDLE: Duration = Duration::from_secs(60);
+
+/// How long after the first render a reporter started with
+/// [`Reporter::with_guests`] waits for a guest to say what it feeds before
+/// opening the session without it. A guest says so before it first renders,
+/// so this only passes for a guest built without `DevTools`.
+const GUEST_GRACE: Duration = Duration::from_millis(500);
+
+/// How long such a reporter waits at most, for a guest that never renders.
+const GUEST_WAIT: Duration = Duration::from_secs(3);
+
+/// The most values the reporter keeps for one guest.
+const MAX_GUEST_VALUES: usize = 1024;
 
 /// One render's changes to a guest's tree, handed over by the host's render
 /// path.
@@ -100,9 +123,28 @@ impl Reporter {
 	///
 	/// When a thread cannot start.
 	pub fn start(hub: &str, hello: Hello) -> std::io::Result<Self> {
+		Self::launch(hub, hello, false)
+	}
+
+	/// Starts reporting a host whose guests report their own values through
+	/// [`Guest`]. The session opens once the first guest has said what it
+	/// feeds, which `hello`'s capabilities then include, or shortly after
+	/// it first renders without saying.
+	///
+	/// # Errors
+	///
+	/// When a thread cannot start.
+	pub fn with_guests(hub: &str, hello: Hello) -> std::io::Result<Self> {
+		Self::launch(hub, hello, true)
+	}
+
+	fn launch(hub: &str, hello: Hello, await_guest: bool) -> std::io::Result<Self> {
 		let shared = Arc::new(Shared::default());
 		let (sender, receiver) = mpsc::channel();
-		let worker = Worker::new(hub.to_owned(), hello, Arc::clone(&shared));
+		let mut worker = Worker::new(hub.to_owned(), hello, Arc::clone(&shared));
+		if await_guest {
+			worker.fed = Fed::Awaited;
+		}
 		std::thread::Builder::new()
 			.name("leptoskit-devtools".to_owned())
 			.spawn(move || worker.run(&receiver))?;
@@ -194,6 +236,49 @@ impl Source {
 	pub fn profiling(&self) -> bool {
 		self.shared.profiling.load(Ordering::Acquire)
 	}
+
+	/// The guest's half, for the `DevTools` bridge plugin.
+	#[must_use]
+	pub fn guest(&self) -> Guest {
+		Guest {
+			id: self.id,
+			sender: self.sender.clone(),
+		}
+	}
+}
+
+/// What a guest reports through the `DevTools` bridge plugin, and where the
+/// hub's commands for it go. Clones share it, and any thread may use it; it
+/// ends with its [`Source`].
+#[derive(Clone)]
+pub struct Guest {
+	id: u64,
+	sender: mpsc::Sender<Message>,
+}
+
+impl Guest {
+	/// The guest said what it can feed: navigation, state, and the rest.
+	pub fn hello(&self, capabilities: BTreeSet<Capability>) {
+		let _ = self.sender.send(Message::GuestHello(capabilities));
+	}
+
+	/// The guest reported values: with `reset`, every value it holds, which
+	/// replace the ones it reported before; otherwise only those that
+	/// changed. Events other than values are ignored.
+	pub fn report(&self, reset: bool, events: Vec<Event>) {
+		let _ = self
+			.sender
+			.send(Message::GuestReport(self.id, reset, events));
+	}
+
+	/// Hands the hub's commands for this guest to `deliver`: navigating,
+	/// setting state, refetching, invalidating, and editing queries, and a
+	/// snapshot request, which the guest answers with every value.
+	pub fn on_command(&self, deliver: impl Fn(Command) + Send + 'static) {
+		let _ = self
+			.sender
+			.send(Message::GuestCommands(self.id, Box::new(deliver)));
+	}
 }
 
 impl Drop for Source {
@@ -244,7 +329,30 @@ enum Message {
 	Command(Command),
 	/// The hub forgot this session.
 	Gone(SessionId),
+	/// A guest said what it feeds.
+	GuestHello(BTreeSet<Capability>),
+	/// A guest reported values.
+	GuestReport(u64, bool, Vec<Event>),
+	/// Where a guest's commands go.
+	GuestCommands(u64, Box<dyn Fn(Command) + Send>),
 	Stop,
+}
+
+/// What the guests feed, as far as the reporter knows.
+enum Fed {
+	/// Nothing yet, and the session doesn't wait for it.
+	Unawaited,
+	/// Nothing yet; the session waits for a guest to say.
+	Awaited,
+	/// What the guests said, which the session's hello lists.
+	Heard(BTreeSet<Capability>),
+}
+
+/// What a guest reported, and where its commands go.
+#[derive(Default)]
+struct GuestState {
+	values: BTreeMap<Slot, Reported>,
+	deliver: Option<Box<dyn Fn(Command) + Send>>,
 }
 
 /// The reporting thread's state.
@@ -276,6 +384,15 @@ struct Worker {
 	/// Whether the last attempt to reach the hub failed, so a hub that stays
 	/// away is reported once.
 	unreachable: bool,
+	/// Each guest's values, by source.
+	guests: BTreeMap<u64, GuestState>,
+	/// The shown guest's values the hub hasn't been sent.
+	dirty: BTreeSet<Slot>,
+	/// What the guests said they feed, and whether the session waits to
+	/// hear it.
+	fed: Fed,
+	started: Instant,
+	first_render: Option<Instant>,
 }
 
 impl Worker {
@@ -298,6 +415,11 @@ impl Worker {
 			next_report: now,
 			next_connect: now,
 			unreachable: false,
+			guests: BTreeMap::new(),
+			dirty: BTreeSet::new(),
+			fed: Fed::Unawaited,
+			started: now,
+			first_render: None,
 		}
 	}
 
@@ -324,7 +446,8 @@ impl Worker {
 
 	fn next_wake(&self) -> Instant {
 		if self.agent.is_none() {
-			self.next_connect
+			self.held()
+				.map_or(self.next_connect, |until| until.max(self.next_connect))
 		} else if self.pending() {
 			self.next_report
 		} else {
@@ -338,6 +461,21 @@ impl Worker {
 			|| self.changed
 			|| !self.commits.is_empty()
 			|| !self.picked.is_empty()
+			|| (self.current.is_some() && !self.dirty.is_empty())
+	}
+
+	/// Until when the session waits for a guest to say what it feeds, if it
+	/// still does.
+	fn held(&self) -> Option<Instant> {
+		if !matches!(self.fed, Fed::Awaited) {
+			return None;
+		}
+		let until = self
+			.first_render
+			.map_or(self.started + GUEST_WAIT, |rendered| {
+				(rendered + GUEST_GRACE).min(self.started + GUEST_WAIT)
+			});
+		(Instant::now() < until).then_some(until)
 	}
 
 	/// Applies one message; false when the reporter stops.
@@ -356,10 +494,63 @@ impl Worker {
 					self.disconnect();
 				}
 			}
+			Message::GuestHello(capabilities) => {
+				match &mut self.fed {
+					Fed::Heard(fed) => fed.extend(capabilities),
+					fed => *fed = Fed::Heard(capabilities),
+				}
+			}
+			Message::GuestReport(id, reset, events) => self.guest_report(id, reset, events),
+			Message::GuestCommands(id, deliver) => {
+				self.guests.entry(id).or_default().deliver = Some(deliver);
+			}
 			Message::Stop => return false,
 		}
 
 		true
+	}
+
+	/// Keeps a guest's values. The shown guest's changes are sent with the
+	/// next report; a reset that leaves a value out needs a snapshot, since
+	/// the protocol has no removal.
+	fn guest_report(&mut self, id: u64, reset: bool, events: Vec<Event>) {
+		let shown = self.current == Some(id);
+		let guest = self.guests.entry(id).or_default();
+		let previous = reset.then(|| std::mem::take(&mut guest.values));
+
+		for event in events {
+			let Some((slot, value)) = registry::slot_of(event) else {
+				continue;
+			};
+			if !guest.values.contains_key(&slot) && guest.values.len() >= MAX_GUEST_VALUES {
+				continue;
+			}
+			let before = previous.as_ref().unwrap_or(&guest.values).get(&slot);
+			if shown && before != Some(&value) {
+				self.dirty.insert(slot.clone());
+			}
+			guest.values.insert(slot, value);
+		}
+
+		if shown
+			&& let Some(previous) = previous
+			&& previous.keys().any(|slot| !guest.values.contains_key(slot))
+		{
+			self.snapshot = true;
+		}
+	}
+
+	/// The hub's command for the guest, to the one shown, or before any has
+	/// rendered, the newest.
+	fn to_guest(&self, command: Command) {
+		let deliver = self
+			.current
+			.or_else(|| self.guests.keys().next_back().copied())
+			.and_then(|id| self.guests.get(&id))
+			.and_then(|guest| guest.deliver.as_ref());
+		if let Some(deliver) = deliver {
+			deliver(command);
+		}
 	}
 
 	fn apply(&mut self, id: u64, batch: Batch) {
@@ -374,6 +565,10 @@ impl Worker {
 		mirror.set_root(batch.root);
 		let rendered = mirror.root().is_some();
 		let moved = mirror.root() != root;
+
+		if rendered && self.first_render.is_none() {
+			self.first_render = Some(Instant::now());
+		}
 
 		// A newer guest's first render replaces the tree the session shows.
 		if self.current != Some(id) && rendered && self.current.is_none_or(|current| id > current) {
@@ -399,6 +594,7 @@ impl Worker {
 	/// tree until the next guest renders.
 	fn close(&mut self, id: u64) {
 		self.sources.remove(&id);
+		self.guests.remove(&id);
 
 		if self.current == Some(id) {
 			self.current = self
@@ -434,14 +630,24 @@ impl Worker {
 
 	fn command(&mut self, command: Command) {
 		match command {
-			Command::RequestSnapshot => self.snapshot = true,
+			Command::RequestSnapshot => {
+				self.snapshot = true;
+				// The guest resends its values too, in case the reporter
+				// missed some.
+				self.to_guest(Command::RequestSnapshot);
+			}
 			Command::Highlight { key } | Command::Select { key, .. } => self.highlight(key),
 			Command::Pick { on } => self.shared.picking.store(on, Ordering::Release),
 			Command::StartProfiling => self.shared.profiling.store(true, Ordering::Release),
 			Command::StopProfiling => self.shared.profiling.store(false, Ordering::Release),
-			// Classes, routes, queries, forms, and state are the guest's,
-			// which reports them through its own agent.
-			_ => {}
+			// Routes, queries, forms, and state are the guest's, which
+			// applies these through its own agent.
+			command @ (Command::Navigate { .. }
+			| Command::InvalidateQuery { .. }
+			| Command::RefetchQuery { .. }
+			| Command::SetQueryData { .. }
+			| Command::SetState { .. }) => self.to_guest(command),
+			Command::SetClasses { .. } => {}
 		}
 	}
 
@@ -463,11 +669,16 @@ impl Worker {
 	}
 
 	fn connect(&mut self) {
-		if self.agent.is_some() || Instant::now() < self.next_connect {
+		if self.agent.is_some() || Instant::now() < self.next_connect || self.held().is_some() {
 			return;
 		}
 
-		match HostAgent::connect(&self.hub, &self.hello) {
+		let mut hello = self.hello.clone();
+		if let Fed::Heard(fed) = &self.fed {
+			hello.capabilities.extend(fed.iter().copied());
+		}
+
+		match HostAgent::connect(&self.hub, &hello) {
 			Ok(agent) => {
 				self.unreachable = false;
 				self.opened = Instant::now();
@@ -525,9 +736,12 @@ impl Worker {
 					});
 				}
 				None => {
-					events.push(Event::Snapshot {
-						snapshot: snapshot_of(tree.clone()),
-					});
+					let mut snapshot = snapshot_of(tree.clone());
+					if let Some(guest) = self.current.and_then(|id| self.guests.get(&id)) {
+						registry::fill(&mut snapshot, &guest.values);
+					}
+					self.dirty.clear();
+					events.push(Event::Snapshot { snapshot });
 				}
 			}
 
@@ -536,6 +750,19 @@ impl Worker {
 		}
 
 		self.changed = false;
+
+		if !self.snapshot {
+			let values = self
+				.current
+				.and_then(|id| self.guests.get(&id))
+				.map(|guest| &guest.values);
+			for slot in std::mem::take(&mut self.dirty) {
+				let value = values.and_then(|values| values.get(&slot));
+				if let Some(event) = value.and_then(|value| registry::event(&slot, value)) {
+					events.push(event);
+				}
+			}
+		}
 
 		for record in self.commits.drain(..) {
 			events.push(Event::Commit {

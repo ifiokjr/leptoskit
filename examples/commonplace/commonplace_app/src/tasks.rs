@@ -25,14 +25,19 @@ mod imp {
 	use std::cell::RefCell;
 
 	use futures_executor::LocalPool;
+	use futures_executor::LocalSpawner;
 	use futures_util::task::LocalSpawnExt;
 
 	thread_local! {
 		static POOL: RefCell<LocalPool> = RefCell::new(LocalPool::new());
+		/// Kept apart from the pool, so a task that spawns another while the
+		/// pool runs it doesn't borrow the pool again.
+		static SPAWNER: LocalSpawner = POOL.with_borrow(LocalPool::spawner);
 	}
 
 	pub fn spawn(task: impl std::future::Future<Output = ()> + 'static) {
-		POOL.with_borrow(|pool| pool.spawner().spawn_local(task))
+		SPAWNER
+			.with(|spawner| spawner.spawn_local(task))
 			.expect("the guest's pool is alive");
 		poll();
 	}

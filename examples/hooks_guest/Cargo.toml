@@ -8,9 +8,16 @@ publish = false
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+# Reports the change count and a route to the DevTools hub through the
+# host's `DevTools` plugin, for `leptoskit_bridge_ffi`'s headless end-to-end
+# test.
+devtools = ["leptoskit/devtools", "dep:leptoskit_router"]
+
 # The guest compiles only for wasm32; the host build is an empty crate.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 leptoskit = { workspace = true, features = ["guest", "use"] }
+leptoskit_router = { workspace = true, optional = true }
 reactive_graph = { workspace = true }
 
 [lints]

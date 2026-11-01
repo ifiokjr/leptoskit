@@ -37,6 +37,13 @@ pub extern "C" fn leptoskit_main() {
 			move |_, _| changes.update(|count| *count += 1),
 			false,
 		);
+		// With DevTools, the change count can be read and set, and the
+		// route followed and navigated, from the hub.
+		#[cfg(feature = "devtools")]
+		{
+			leptoskit::devtools::expose("changes", changes);
+			leptoskit::devtools::track_router(&devtools::router());
+		}
 		(switch, label, changes)
 	});
 	leptoskit::guest::mount(move || {
@@ -67,4 +74,43 @@ pub extern "C" fn leptoskit_alloc(len: i32) -> i32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn leptoskit_abi_version() -> i32 {
 	leptoskit::guest::ABI_VERSION as i32
+}
+
+/// A router with two screens, which the `DevTools` navigate between.
+#[cfg(feature = "devtools")]
+mod devtools {
+	use leptoskit_router::Href;
+	use leptoskit_router::NoMatch;
+	use leptoskit_router::Pattern;
+	use leptoskit_router::Routable;
+	use leptoskit_router::RouteUrl;
+	use leptoskit_router::Router;
+	use leptoskit_router::Segment;
+
+	#[derive(Clone, Debug, PartialEq)]
+	pub enum Screen {
+		Home,
+		Settings,
+	}
+
+	impl Routable for Screen {
+		fn from_url(url: &RouteUrl) -> Result<Self, NoMatch> {
+			match url.segments() {
+				[] => Ok(Self::Home),
+				[settings] if settings == "settings" => Ok(Self::Settings),
+				_ => Err(NoMatch),
+			}
+		}
+
+		fn href(&self) -> Href {
+			match self {
+				Self::Home => Pattern::new(&[]).static_href(),
+				Self::Settings => Pattern::new(&[Segment::Static("settings")]).static_href(),
+			}
+		}
+	}
+
+	pub fn router() -> Router<Screen> {
+		Router::new(Screen::Home)
+	}
 }

@@ -20,6 +20,7 @@ pub use mirror::Change;
 pub use mirror::Mirror;
 pub use reporter::Batch;
 pub use reporter::CommitRecord;
+pub use reporter::Guest;
 pub use reporter::Highlight;
 pub use reporter::Reporter;
 pub use reporter::Source;

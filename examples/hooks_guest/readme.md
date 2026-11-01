@@ -11,3 +11,5 @@ devenv shell test:plugins:guest
 ```
 
 That task builds this crate for `wasm32-unknown-unknown` (a debug build, so every import the dependencies link is kept), then runs the test with `LEPTOSKIT_HOOKS_GUEST` pointing at the result. CI runs the same task in its `test compiled plugin guest` step.
+
+With its `devtools` feature it also exposes the change count as `changes` and tracks a two-screen router, and the ignored test in `crates/leptoskit_bridge_ffi/tests/devtools_guest.rs` runs it in a real app reporting to a fake hub: the tree, a commit, the guest's state and route, and `SetState` and `Navigate` from the hub. `devenv shell test:plugins:guest` builds it that way too.

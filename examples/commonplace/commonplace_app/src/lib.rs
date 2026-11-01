@@ -64,10 +64,18 @@ leptoskit::extension::entry!(main: extension::main, background: extension::backg
 #[cfg(all(target_arch = "wasm32", feature = "native", not(feature = "web")))]
 #[unsafe(no_mangle)]
 pub extern "C" fn leptoskit_main() {
+	#[cfg(feature = "devtools")]
+	leptoskit::devtools::install(env!("CARGO_PKG_NAME"));
 	store::install(api::Api::new(transport::Plugin {
 		server: SERVER.to_owned(),
 	}));
 	let navigation = routes::Navigation::new(routes::Route::Library);
+	// The same panels as on the website: the route and the store.
+	#[cfg(feature = "devtools")]
+	{
+		leptoskit::devtools::track_router(&navigation);
+		store::Store::current().expose();
+	}
 	leptoskit::guest::mount(move || navigation.render());
 	// After mounting: a finished task renders again.
 	tasks::spawn(async {

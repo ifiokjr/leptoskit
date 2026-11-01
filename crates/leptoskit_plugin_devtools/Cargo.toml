@@ -1,0 +1,39 @@
+[package]
+name = "leptoskit_plugin_devtools"
+version.workspace = true
+authors.workspace = true
+categories = ["development-tools::debugging", "gui"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "devtools", "debugging", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "The bridge plugin that carries a native guest's DevTools data to its host."
+
+# No runtime metadata: apps never select this plugin. The shared app runtime
+# installs it itself when `leptoskit dev` builds the host with
+# `leptoskit_bridge_ffi/devtools`.
+
+[features]
+# The guest's client, for wasm bundles that `leptoskit_wasm` loads.
+guest = ["leptoskit_bridge/guest"]
+# The host's half: an async bridge plugin that hands reports to the host's
+# DevTools reporter and holds a call open until the hub sends a command.
+async-host = ["leptoskit_bridge/async-host", "dep:tokio"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+leptoskit_devtools_protocol = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, optional = true, features = ["time"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "time"] }
+
+[lints]
+workspace = true

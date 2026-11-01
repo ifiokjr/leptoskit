@@ -203,7 +203,11 @@ impl App {
 		#[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
 		let devtools = devtools::Devtools::attach(&mut host);
 
-		Ok(Self {
+		#[cfg_attr(
+			not(all(feature = "devtools", not(target_arch = "wasm32"))),
+			expect(unused_mut, reason = "only DevTools installs a plugin of its own")
+		)]
+		let mut app = Self {
 			host: Some(host),
 			service: None,
 			close_scheduler: None,
@@ -224,7 +228,19 @@ impl App {
 			async_host: AsyncHost::default(),
 			#[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
 			devtools,
-		})
+		};
+
+		// The guest reports its own values through the `DevTools` plugin. A
+		// guest finds it only in an app that reports to a hub; one that
+		// can't be installed leaves the tree reported without them.
+		#[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
+		if let Some(plugin) = app.devtools.as_ref().map(devtools::Devtools::plugin)
+			&& let Err(error) = app.install_async(plugin)
+		{
+			eprintln!("leptoskit devtools: the guest's values can't be reported: {error:?}");
+		}
+
+		Ok(app)
 	}
 
 	/// Borrows the application's actual interpreter for one synchronous

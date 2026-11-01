@@ -60,7 +60,7 @@ fn agent() -> (Rc<FakeAgent>, Owner) {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-enum Page {
+pub(crate) enum Page {
 	Home,
 	Settings,
 }

@@ -41,16 +41,23 @@ async-host = ["app", "leptoskit_bridge/async-host", "dep:tokio", "dep:futures"]
 # Reports the running app to the DevTools hub. `leptoskit dev` turns this on
 # for debug hosts; `leptoskit build` never does, and release builds refuse to
 # report even with it.
+# The guest's own values (its route, queries, forms, and named state) arrive
+# through the `leptoskit_plugin_devtools` async plugin, which the runtime
+# installs in every app it reports.
 devtools = [
 	"app",
+	"async-host",
 	"dep:leptoskit_devtools",
 	"dep:leptoskit_devtools_protocol",
+	"dep:leptoskit_plugin_devtools",
 	"leptoskit_native/devtools",
+	"leptoskit_plugin_devtools/async-host",
 ]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 leptoskit_devtools = { workspace = true, optional = true, default-features = false, features = ["host"] }
 leptoskit_devtools_protocol = { workspace = true, optional = true }
+leptoskit_plugin_devtools = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 leptoskit_appkit = { workspace = true, optional = true }
