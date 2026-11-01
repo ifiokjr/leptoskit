@@ -15,7 +15,18 @@ class ClipboardPlugin(
     private val context: Context,
 ) : NativePlugin {
     override val name = "clipboard"
-    override val methods = intArrayOf(0, 1, 2)
+    override val methods = intArrayOf(READ, WRITE, CLEAR)
+
+    private companion object {
+        /** Returns the clipboard's text. */
+        const val READ = 0
+
+        /** Replaces the clipboard's text. */
+        const val WRITE = 1
+
+        /** Empties the clipboard. */
+        const val CLEAR = 2
+    }
 
     override suspend fun invoke(
         method: Int,
@@ -26,46 +37,62 @@ class ClipboardPlugin(
             context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                 ?: throw PluginException(PluginException.UNAVAILABLE)
         try {
-            return when (method) {
-                0 -> {
-                    requireEmpty(payload)
-                    val clip = clipboard.primaryClip
-                    val text =
-                        if (clip != null && clip.itemCount > 0) {
-                            clip
-                                .getItemAt(0)
-                                .coerceToText(context)
-                                ?.toString()
-                                .orEmpty()
-                        } else {
-                            ""
-                        }
-                    text.toByteArray(Charsets.UTF_8)
-                }
-
-                1 -> {
-                    clipboard.setPrimaryClip(ClipData.newPlainText("", payload.utf8()))
-                    byteArrayOf()
-                }
-
-                2 -> {
-                    requireEmpty(payload)
-
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                        clipboard.clearPrimaryClip()
-                    } else {
-                        clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
-                    }
-
-                    byteArrayOf()
-                }
-
-                else -> {
-                    throw PluginException(PluginException.UNAVAILABLE)
-                }
-            }
+            return dispatch(clipboard, method, payload)
         } catch (error: SecurityException) {
             throw PluginException(PluginException.PERMISSION_DENIED, error)
+        }
+    }
+
+    /** Runs one clipboard call, which the platform may refuse. */
+    private fun dispatch(
+        clipboard: ClipboardManager,
+        method: Int,
+        payload: ByteBuffer,
+    ): ByteArray =
+        when (method) {
+            READ -> {
+                requireEmpty(payload)
+
+                readText(clipboard).toByteArray(Charsets.UTF_8)
+            }
+
+            WRITE -> {
+                clipboard.setPrimaryClip(ClipData.newPlainText("", payload.utf8()))
+
+                byteArrayOf()
+            }
+
+            CLEAR -> {
+                requireEmpty(payload)
+                clear(clipboard)
+
+                byteArrayOf()
+            }
+
+            else -> {
+                throw PluginException(PluginException.UNAVAILABLE)
+            }
+        }
+
+    /** The first item's text, or empty when the clipboard holds nothing. */
+    private fun readText(clipboard: ClipboardManager): String {
+        val clip = clipboard.primaryClip ?: return ""
+
+        if (clip.itemCount == 0) return ""
+
+        return clip
+            .getItemAt(0)
+            .coerceToText(context)
+            ?.toString()
+            .orEmpty()
+    }
+
+    /** Empties the clipboard, the way its API level allows. */
+    private fun clear(clipboard: ClipboardManager) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            clipboard.clearPrimaryClip()
+        } else {
+            clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
         }
     }
 
