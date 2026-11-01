@@ -20,9 +20,7 @@
 
 ---
 
-leptoskit is one toolkit for every place a leptos app runs. Write leptos components and ship them to the browser with SSR and hydration. Ship the same interface as **real native widgets** on iOS, Android, and the desktop, with no web view, and push interface updates over the air the way React Native does.
-
-The logo is the architecture: the ember boxes are layout, elements placed by the layout engine and committed as native widgets. The mint piece is the next version of your interface, arriving over the air.
+leptoskit brings write once deploy everywhere to the leptos ecosystem. Write leptos components and ship them to the browser with SSR and hydration. Ship the same interface as **real native widgets** on iOS, Android, browser extensions, and desktop apps, with no web view, and over the air updates which can bypass the app stores for non-native changes.
 
 ## Examples
 
