@@ -16,6 +16,8 @@ use leptoskit_bridge::codec::Encoder;
 
 /// Registered plugin name.
 pub const NAME: &str = "network";
+/// Eight little-endian u32 fields.
+const SNAPSHOT_BYTES: usize = 32;
 /// Empty payload -> current [`Snapshot`].
 pub const SNAPSHOT: MethodId = MethodId(0);
 /// Previous encoded snapshot -> next differing snapshot. Mobile/Apple only.
@@ -43,6 +45,27 @@ pub enum Connection {
 	Vpn = 6,
 	/// A known connection with another transport.
 	Other = 7,
+}
+
+impl Connection {
+	/// Every transport the wire snapshot defines, in code order.
+	const ALL: [Self; 8] = [
+		Self::Unknown,
+		Self::None,
+		Self::Wifi,
+		Self::Cellular,
+		Self::Ethernet,
+		Self::Bluetooth,
+		Self::Vpn,
+		Self::Other,
+	];
+
+	/// Resolves a wire code, refusing codes the snapshot does not define.
+	fn from_code(code: u32) -> Option<Self> {
+		Self::ALL
+			.into_iter()
+			.find(|connection| *connection as u32 == code)
+	}
 }
 
 /// Browser's estimated performance class, not the physical cellular generation.
@@ -122,7 +145,7 @@ impl Snapshot {
 			return Err(Error::InvalidArgument);
 		}
 
-		let mut output = Encoder::with_capacity(32);
+		let mut output = Encoder::with_capacity(SNAPSHOT_BYTES);
 		for field in [
 			self.connection as u32,
 			flag(self.connected),
@@ -142,17 +165,7 @@ impl Snapshot {
 	pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
 		let mut input = Decoder::new(bytes);
 
-		let connection = match input.u32()? {
-			0 => Connection::Unknown,
-			1 => Connection::None,
-			2 => Connection::Wifi,
-			3 => Connection::Cellular,
-			4 => Connection::Ethernet,
-			5 => Connection::Bluetooth,
-			6 => Connection::Vpn,
-			7 => Connection::Other,
-			_ => return Err(Error::InvalidArgument),
-		};
+		let connection = Connection::from_code(input.u32()?).ok_or(Error::InvalidArgument)?;
 
 		let connected = read_flag(input.u32()?)?;
 		let internet_validated = read_flag(input.u32()?)?;
@@ -264,6 +277,12 @@ pub mod desktop {
 
 		use super::*;
 
+		/// A private LAN address, reachable only if a local interface carries
+		/// it.
+		const LAN: Ipv4Addr = Ipv4Addr::new(192, 168, 1, 2);
+		/// The address a failed DHCP lease leaves behind.
+		const APIPA: Ipv4Addr = Ipv4Addr::new(169, 254, 10, 2);
+
 		fn interface(ip: Ipv4Addr, oper_status: if_addrs::IfOperStatus) -> if_addrs::Interface {
 			if_addrs::Interface {
 				name: "test".into(),
@@ -285,18 +304,15 @@ pub mod desktop {
 		fn local_interfaces_do_not_become_internet_or_invented_transport() {
 			let loopback = interface(Ipv4Addr::LOCALHOST, if_addrs::IfOperStatus::Up);
 			assert_eq!(from_interfaces(&[loopback]).connected, Some(false));
-			let link = interface(Ipv4Addr::new(192, 168, 1, 2), if_addrs::IfOperStatus::Up);
+			let link = interface(LAN, if_addrs::IfOperStatus::Up);
 			let reading = from_interfaces(&[link]);
 			assert_eq!(reading.connected, Some(true));
 			assert_eq!(reading.connection, Connection::Unknown);
 			assert_eq!(reading.internet_validated, None);
-			let unknown = interface(
-				Ipv4Addr::new(192, 168, 1, 2),
-				if_addrs::IfOperStatus::Unknown,
-			);
+			let unknown = interface(LAN, if_addrs::IfOperStatus::Unknown);
 
 			assert_eq!(from_interfaces(&[unknown]).connected, None);
-			let apipa = interface(Ipv4Addr::new(169, 254, 10, 2), if_addrs::IfOperStatus::Up);
+			let apipa = interface(APIPA, if_addrs::IfOperStatus::Up);
 			assert_eq!(from_interfaces(&[apipa]).connected, Some(false));
 			let mut link_local = interface(Ipv4Addr::LOCALHOST, if_addrs::IfOperStatus::Up);
 			link_local.addr = if_addrs::IfAddr::V6(if_addrs::Ifv6Addr {
@@ -392,6 +408,24 @@ pub mod web {
 		Ok(result)
 	}
 
+	/// Answers the first differing reading; later events find the slot empty.
+	fn notify(
+		sender: &RefCell<Option<oneshot::Sender<Result<Snapshot, Error>>>>,
+		previous: Snapshot,
+	) {
+		let current = snapshot();
+
+		if current == Ok(previous) {
+			return;
+		}
+
+		// Cancellation can drop the receiver before an already dispatched
+		// browser callback finishes.
+		if let Some(sender) = sender.borrow_mut().take() {
+			let _ = sender.send(current);
+		}
+	}
+
 	/// Waits for a differing reading, listening to online/offline and optional
 	/// connection changes. Dropping this future unregisters all listeners.
 	/// Events are coalesced into one result; no unbounded event queue is used.
@@ -401,17 +435,7 @@ pub mod web {
 		let sender = Rc::new(RefCell::new(Some(sender)));
 		let changed = {
 			let sender = Rc::clone(&sender);
-			move || {
-				let current = snapshot();
-
-				if current != Ok(previous) {
-					if let Some(sender) = sender.borrow_mut().take() {
-						// Cancellation can drop the receiver before an already
-						// dispatched browser callback finishes.
-						let _ = sender.send(current);
-					}
-				}
-			}
+			move || notify(&sender, previous)
 		};
 		let mut listeners = Vec::with_capacity(3);
 
@@ -476,10 +500,13 @@ mod tests {
 	use super::*;
 	#[test]
 	fn binary_snapshot_preserves_unknowns_and_rejects_invalid_fields() {
+		// Wifi, connected, and an unknown validation flag, little endian.
+		const WIFI_PREFIX: [u8; 12] = [2, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0];
+
 		let reading = Snapshot::connection(Connection::Wifi, Some(true));
 		let bytes = reading.encode().unwrap();
-		assert_eq!(bytes.len(), 32);
-		assert_eq!(&bytes[..12], &[2, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0]);
+		assert_eq!(bytes.len(), SNAPSHOT_BYTES);
+		assert_eq!(bytes[..WIFI_PREFIX.len()], WIFI_PREFIX);
 		assert_eq!(Snapshot::decode(&bytes), Ok(reading));
 
 		for field in [0, 4, 8, 12, 16, 28] {
@@ -499,6 +526,7 @@ mod tests {
 	#[test]
 	fn connected_does_not_imply_internet_validated() {
 		let reading = Snapshot::connection(Connection::Ethernet, Some(true));
+
 		assert_eq!(reading.internet_validated, None);
 	}
 
@@ -521,6 +549,10 @@ mod tests {
 			EffectiveType::ThreeG,
 			EffectiveType::FourG,
 		];
+		/// An estimate the browser can report, in kilobits per second.
+		const DOWNLINK_KBPS: u32 = 10_000;
+		/// An estimate the browser can report, in milliseconds.
+		const ROUND_TRIP_MS: u32 = 40;
 
 		for (index, connection) in connections.into_iter().enumerate() {
 			let reading = Snapshot {
@@ -529,8 +561,8 @@ mod tests {
 				internet_validated: [Some(true), None, Some(false)][index % 3],
 				expensive: [Some(false), Some(true), None][index % 3],
 				data_saver: Some(index % 2 == 0),
-				downlink_kbps: (index % 2 == 0).then_some(10_000),
-				round_trip_ms: (index % 2 == 1).then_some(40),
+				downlink_kbps: (index % 2 == 0).then_some(DOWNLINK_KBPS),
+				round_trip_ms: (index % 2 == 1).then_some(ROUND_TRIP_MS),
 				effective_type: estimates[index % estimates.len()],
 			};
 			assert_eq!(Snapshot::decode(&reading.encode().unwrap()), Ok(reading));
@@ -545,6 +577,7 @@ mod tests {
 	#[test]
 	fn desktop_adapter_reports_a_valid_snapshot_and_rejects_bad_calls() {
 		use leptoskit_bridge::Plugin;
+		const UNKNOWN_METHOD: MethodId = MethodId(9);
 		let mut network = desktop::Network;
 		assert_eq!(network.name(), NAME);
 		assert_eq!(network.methods(), &[SNAPSHOT]);
@@ -558,8 +591,9 @@ mod tests {
 			network.invoke(SNAPSHOT, Bytes::from_static(&[0])),
 			Err(Error::InvalidArgument)
 		);
+
 		assert_eq!(
-			network.invoke(MethodId(9), Bytes::new()),
+			network.invoke(UNKNOWN_METHOD, Bytes::new()),
 			Err(Error::Unavailable)
 		);
 	}

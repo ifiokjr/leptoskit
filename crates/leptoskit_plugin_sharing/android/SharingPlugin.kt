@@ -17,7 +17,7 @@ class SharingPlugin(
     context: Context,
 ) : NativePlugin {
     override val name = "sharing"
-    override val methods = intArrayOf(0)
+    override val methods = intArrayOf(SHARE)
     private val host = context as? NativeActivityResultHost
     private var job: Job? = null
     private var busy = false
@@ -36,34 +36,52 @@ class SharingPlugin(
 
         if (closed) throw PluginException(PluginException.CANCELLED)
 
-        if (method != 0) throw PluginException(PluginException.UNAVAILABLE)
+        if (method != SHARE) throw PluginException(PluginException.UNAVAILABLE)
 
         if (busy) throw PluginException(PluginException.BUSY)
+
         val content = ShareContent.decode(payload)
         val host = host ?: throw PluginException(PluginException.UNAVAILABLE)
+
         currentCoroutineContext().ensureActive()
         busy = true
         job = currentCoroutineContext()[Job]
+
         try {
-            val intent =
-                Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, content.value)
-                }
-            val result = host.launchPluginActivity(Intent.createChooser(intent, null))
-            currentCoroutineContext().ensureActive()
-
-            if (closed) throw PluginException(PluginException.CANCELLED)
-            // Android chooser result codes do not prove target selection or
-            // delivery. RESULT_CANCELED also occurs after a valid handoff.
-            if (result.resultCode != Activity.RESULT_OK && result.resultCode != Activity.RESULT_CANCELED) {
-                throw PluginException(PluginException.NATIVE)
-            }
-
-            return byteArrayOf()
+            share(host, content)
         } finally {
             busy = false
             job = null
         }
+
+        return byteArrayOf()
+    }
+
+    /** Hands the text to the chooser and refuses only an unknown result code. */
+    private suspend fun share(
+        host: NativeActivityResultHost,
+        content: ShareContent,
+    ) {
+        val intent =
+            Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, content.value)
+            }
+        val result = host.launchPluginActivity(Intent.createChooser(intent, null))
+
+        currentCoroutineContext().ensureActive()
+
+        if (closed) throw PluginException(PluginException.CANCELLED)
+
+        // Android chooser result codes do not prove target selection or delivery.
+        // RESULT_CANCELED also occurs after a valid handoff.
+        if (result.resultCode != Activity.RESULT_OK && result.resultCode != Activity.RESULT_CANCELED) {
+            throw PluginException(PluginException.NATIVE)
+        }
+    }
+
+    private companion object {
+        /** The only method: present the system share sheet. */
+        const val SHARE = 0
     }
 }

@@ -86,6 +86,7 @@ pub async fn pick(options: Options) -> Result<Document, Error> {
 		.input
 		.add_event_listener_with_callback("cancel", guard.cancel.as_ref().unchecked_ref())
 		.map_err(|_| Error::Native)?;
+
 	document
 		.body()
 		.ok_or(Error::Unavailable)?

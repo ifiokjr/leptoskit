@@ -81,6 +81,11 @@ async fn import(path: PathBuf, options: Options) -> Result<Document, Error> {
 	receiver.await.map_err(|_| Error::Native)?
 }
 
+/// Copies a regular file within `options.max_bytes`.
+///
+/// The open refuses links and blocks, and the descriptor is validated after
+/// opening, so a path swapped between the dialog and the read cannot point the
+/// copy at another file. Cancellation is checked between chunks.
 fn read_file(path: &Path, options: Options, cancelled: &AtomicBool) -> Result<Document, Error> {
 	if cancelled.load(Ordering::Acquire) {
 		return Err(Error::Cancelled);
@@ -108,6 +113,7 @@ fn read_file(path: &Path, options: Options, cancelled: &AtomicBool) -> Result<Do
 		// Open a link itself rather than following a swapped reparse target.
 		open.custom_flags(0x0020_0000);
 	}
+
 	let mut file = open.open(path).map_err(|error| io_error(&error))?;
 	let metadata = file.metadata().map_err(|error| io_error(&error))?;
 
@@ -189,6 +195,7 @@ mod tests {
 			std::os::unix::fs::symlink(&path, &link).unwrap();
 			assert!(read_file(&link, Options::default(), &cancelled).is_err());
 		}
+
 		std::fs::remove_dir_all(&directory).unwrap();
 		cancelled.store(true, Ordering::Release);
 		assert_eq!(
@@ -246,12 +253,15 @@ mod tests {
 	/// `import` resolves when its worker sends the result, but the worker drops
 	/// its reader permit only when its closure ends, just after that send.
 	fn wait_for_reader_admission_to_settle() {
-		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+		/// How long a worker may take to drop its permit after answering.
+		const SETTLE_SECONDS: u64 = 5;
+
+		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(SETTLE_SECONDS);
 
 		while READERS.load(Ordering::Acquire) > 0 {
 			assert!(
 				std::time::Instant::now() < deadline,
-				"a document-import worker still held its reader permit after 5s"
+				"a document-import worker still held its reader permit"
 			);
 			std::thread::sleep(std::time::Duration::from_millis(1));
 		}

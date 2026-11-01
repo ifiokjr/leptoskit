@@ -68,6 +68,7 @@ fn guest_header_validation_needs_no_pixel_decoder() {
 	);
 	let mut oversized = input;
 	oversized[16..20].copy_from_slice(&u32::MAX.to_be_bytes());
+
 	assert_eq!(inspect(&oversized), Err(Error::TooLarge));
 	assert_eq!(
 		EncodedImage::decode_reply(vec![0; MAX_OUTPUT_BYTES + 21].into()),

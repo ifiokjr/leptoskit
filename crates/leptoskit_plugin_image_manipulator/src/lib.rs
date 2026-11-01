@@ -48,6 +48,22 @@ pub const MAX_CODEC_BYTES: u64 = 8 * 1024 * 1024;
 pub const MAX_OPERATIONS: usize = 16;
 /// Maximum sum of source/output pixels visited by the transformation plan.
 pub const MAX_WORK_PIXELS: u64 = 64 * 1024 * 1024;
+/// Three u32 fields: the format tag, the width, and the height.
+const IMAGE_INFO_BYTES: usize = 12;
+/// Two length prefixes and the fixed-width image header.
+const REPLY_HEADER_BYTES: usize = 20;
+/// The widest operation a request can carry: a kind and four arguments.
+const OPERATION_BYTES: usize = 20;
+/// The output kind, its settings, and the operation count.
+const REQUEST_OVERHEAD: usize = 28;
+/// Output kind codes.
+const PNG_OUTPUT: u32 = 0;
+const JPEG_OUTPUT: u32 = 1;
+/// Operation kind codes.
+const RESIZE: u32 = 0;
+const CROP: u32 = 1;
+const ROTATE: u32 = 2;
+const FLIP: u32 = 3;
 
 /// Supported encoded image formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,7 +105,7 @@ impl ImageInfo {
 	/// Fixed-width response for INSPECT.
 	pub fn encode(self) -> Result<Bytes, Error> {
 		pixels(self.width, self.height)?;
-		let mut output = Encoder::with_capacity(12);
+		let mut output = Encoder::with_capacity(IMAGE_INFO_BYTES);
 		output.u32(self.format.tag());
 		output.u32(self.width);
 		output.u32(self.height);
@@ -127,6 +143,17 @@ pub enum Rotation {
 	HalfTurn,
 	/// 90 degrees counterclockwise.
 	Counterclockwise90,
+}
+impl Rotation {
+	/// Where the source pixel (`x`, `y`) lands after this rotation.
+	#[cfg(feature = "engine")]
+	fn destination(self, x: u32, y: u32, width: u32, height: u32) -> (u32, u32) {
+		match self {
+			Self::Clockwise90 => (height - 1 - y, x),
+			Self::HalfTurn => (width - 1 - x, height - 1 - y),
+			Self::Counterclockwise90 => (y, width - 1 - x),
+		}
+	}
 }
 /// Flip direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -222,7 +249,7 @@ impl EncodedImage {
 		}
 
 		let info = self.info.encode()?;
-		let mut encoder = Encoder::with_capacity(20 + self.bytes.len());
+		let mut encoder = Encoder::with_capacity(REPLY_HEADER_BYTES + self.bytes.len());
 		encoder.bytes(&info)?;
 		encoder.bytes(&self.bytes)?;
 		Ok(encoder.finish())
@@ -231,7 +258,7 @@ impl EncodedImage {
 	/// Verifies dimensions and format against the returned encoded header.
 	/// Retains a slice of the owned reply without copying the image bytes.
 	pub fn decode_reply(mut bytes: Bytes) -> Result<Self, Error> {
-		if bytes.len() > MAX_OUTPUT_BYTES + 20 {
+		if bytes.len() > MAX_OUTPUT_BYTES + REPLY_HEADER_BYTES {
 			return Err(Error::TooLarge);
 		}
 
@@ -264,15 +291,28 @@ pub fn encode_request(
 	}
 
 	output.validate()?;
-	let mut encoder = Encoder::with_capacity(input.len() + operations.len() * 20 + 28);
+	let mut encoder =
+		Encoder::with_capacity(input.len() + operations.len() * OPERATION_BYTES + REQUEST_OVERHEAD);
+	encode_output(&mut encoder, output);
+	encoder.u32(operations.len() as u32);
 
+	for operation in operations {
+		encode_operation(&mut encoder, *operation)?;
+	}
+
+	encoder.bytes(input)?;
+	Ok(encoder.finish())
+}
+
+/// Names the output kind and its settings.
+fn encode_output(encoder: &mut Encoder, output: Output) {
 	match output {
-		Output::Png => encoder.u32(0),
+		Output::Png => encoder.u32(PNG_OUTPUT),
 		Output::Jpeg {
 			quality,
 			background,
 		} => {
-			encoder.u32(1);
+			encoder.u32(JPEG_OUTPUT);
 			encoder.u32(u32::from(quality));
 
 			for byte in background {
@@ -280,85 +320,81 @@ pub fn encode_request(
 			}
 		}
 	}
+}
 
-	encoder.u32(operations.len() as u32);
+/// Encodes one operation as its kind and arguments.
+fn encode_operation(encoder: &mut Encoder, operation: Operation) -> Result<(), Error> {
+	match operation {
+		Operation::Resize {
+			width,
+			height,
+			filter,
+		} => {
+			if width == Some(0) || height == Some(0) || (width.is_none() && height.is_none()) {
+				return Err(Error::InvalidArgument);
+			}
 
-	for operation in operations {
-		match *operation {
-			Operation::Resize {
-				width,
-				height,
-				filter,
-			} => {
-				if width == Some(0) || height == Some(0) || (width.is_none() && height.is_none()) {
-					return Err(Error::InvalidArgument);
-				}
+			encoder.u32(RESIZE);
+			encoder.u32(width.unwrap_or(0));
+			encoder.u32(height.unwrap_or(0));
+			encoder.u32(filter_code(filter));
+		}
+		Operation::Crop {
+			x,
+			y,
+			width,
+			height,
+		} => {
+			encoder.u32(CROP);
 
-				encoder.u32(0);
-				encoder.u32(width.unwrap_or(0));
-				encoder.u32(height.unwrap_or(0));
-				encoder.u32(match filter {
-					Filter::Nearest => 0,
-					Filter::Bilinear => 1,
-				});
+			for value in [x, y, width, height] {
+				encoder.u32(value);
 			}
-			Operation::Crop {
-				x,
-				y,
-				width,
-				height,
-			} => {
-				encoder.u32(1);
-
-				for value in [x, y, width, height] {
-					encoder.u32(value);
-				}
-			}
-			Operation::Rotate(rotation) => {
-				encoder.u32(2);
-				encoder.u32(match rotation {
-					Rotation::Clockwise90 => 0,
-					Rotation::HalfTurn => 1,
-					Rotation::Counterclockwise90 => 2,
-				});
-			}
-			Operation::Flip(axis) => {
-				encoder.u32(3);
-				encoder.u32(match axis {
-					Axis::Horizontal => 0,
-					Axis::Vertical => 1,
-				});
-			}
+		}
+		Operation::Rotate(rotation) => {
+			encoder.u32(ROTATE);
+			encoder.u32(rotation_code(rotation));
+		}
+		Operation::Flip(axis) => {
+			encoder.u32(FLIP);
+			encoder.u32(axis_code(axis));
 		}
 	}
 
-	encoder.bytes(input)?;
-	Ok(encoder.finish())
+	Ok(())
 }
 
+fn filter_code(filter: Filter) -> u32 {
+	match filter {
+		Filter::Nearest => 0,
+		Filter::Bilinear => 1,
+	}
+}
+
+fn rotation_code(rotation: Rotation) -> u32 {
+	match rotation {
+		Rotation::Clockwise90 => 0,
+		Rotation::HalfTurn => 1,
+		Rotation::Counterclockwise90 => 2,
+	}
+}
+
+fn axis_code(axis: Axis) -> u32 {
+	match axis {
+		Axis::Horizontal => 0,
+		Axis::Vertical => 1,
+	}
+}
+
+/// Reads one request's output kind, operations, and image bytes.
 #[cfg(feature = "engine")]
 fn decode_request(bytes: &[u8]) -> Result<(&[u8], Vec<Operation>, Output), Error> {
-	if bytes.len() > MAX_INPUT_BYTES + MAX_OPERATIONS * 20 + 28 {
+	if bytes.len() > MAX_INPUT_BYTES + MAX_OPERATIONS * OPERATION_BYTES + REQUEST_OVERHEAD {
 		return Err(Error::TooLarge);
 	}
 
 	let mut decoder = Decoder::new(bytes);
-
-	let output = match decoder.u32()? {
-		0 => Output::Png,
-		1 => {
-			Output::Jpeg {
-				quality: u8::try_from(decoder.u32()?).map_err(|_| Error::InvalidArgument)?,
-				background: [
-					read_byte(&mut decoder)?,
-					read_byte(&mut decoder)?,
-					read_byte(&mut decoder)?,
-				],
-			}
-		}
-		_ => return Err(Error::InvalidArgument),
-	};
-
+	let output = decode_output(&mut decoder)?;
 	output.validate()?;
 	let count = decoder.u32()? as usize;
 
@@ -369,47 +405,7 @@ fn decode_request(bytes: &[u8]) -> Result<(&[u8], Vec<Operation>, Output), Error
 	let mut operations = Vec::with_capacity(count);
 
 	for _ in 0..count {
-		operations.push(match decoder.u32()? {
-			0 => {
-				let width = decoder.u32()?;
-				let height = decoder.u32()?;
-				let filter = match decoder.u32()? {
-					0 => Filter::Nearest,
-					1 => Filter::Bilinear,
-					_ => return Err(Error::InvalidArgument),
-				};
-
-				Operation::Resize {
-					width: (width != 0).then_some(width),
-					height: (height != 0).then_some(height),
-					filter,
-				}
-			}
-			1 => {
-				Operation::Crop {
-					x: decoder.u32()?,
-					y: decoder.u32()?,
-					width: decoder.u32()?,
-					height: decoder.u32()?,
-				}
-			}
-			2 => {
-				Operation::Rotate(match decoder.u32()? {
-					0 => Rotation::Clockwise90,
-					1 => Rotation::HalfTurn,
-					2 => Rotation::Counterclockwise90,
-					_ => return Err(Error::InvalidArgument),
-				})
-			}
-			3 => {
-				Operation::Flip(match decoder.u32()? {
-					0 => Axis::Horizontal,
-					1 => Axis::Vertical,
-					_ => return Err(Error::InvalidArgument),
-				})
-			}
-			_ => return Err(Error::InvalidArgument),
-		});
+		operations.push(decode_operation(&mut decoder)?);
 	}
 
 	let input = decoder.bytes()?;
@@ -421,6 +417,83 @@ fn decode_request(bytes: &[u8]) -> Result<(&[u8], Vec<Operation>, Output), Error
 
 	Ok((input, operations, output))
 }
+
+/// Reads the output kind and its settings.
+#[cfg(feature = "engine")]
+fn decode_output(decoder: &mut Decoder<'_>) -> Result<Output, Error> {
+	match decoder.u32()? {
+		PNG_OUTPUT => Ok(Output::Png),
+		JPEG_OUTPUT => {
+			Ok(Output::Jpeg {
+				quality: u8::try_from(decoder.u32()?).map_err(|_| Error::InvalidArgument)?,
+				background: [
+					read_byte(decoder)?,
+					read_byte(decoder)?,
+					read_byte(decoder)?,
+				],
+			})
+		}
+		_ => Err(Error::InvalidArgument),
+	}
+}
+
+/// Reads one operation and its arguments.
+#[cfg(feature = "engine")]
+fn decode_operation(decoder: &mut Decoder<'_>) -> Result<Operation, Error> {
+	match decoder.u32()? {
+		RESIZE => {
+			let width = decoder.u32()?;
+			let height = decoder.u32()?;
+			let filter = filter_from(decoder.u32()?)?;
+
+			Ok(Operation::Resize {
+				width: (width != 0).then_some(width),
+				height: (height != 0).then_some(height),
+				filter,
+			})
+		}
+		CROP => {
+			Ok(Operation::Crop {
+				x: decoder.u32()?,
+				y: decoder.u32()?,
+				width: decoder.u32()?,
+				height: decoder.u32()?,
+			})
+		}
+		ROTATE => Ok(Operation::Rotate(rotation_from(decoder.u32()?)?)),
+		FLIP => Ok(Operation::Flip(axis_from(decoder.u32()?)?)),
+		_ => Err(Error::InvalidArgument),
+	}
+}
+
+#[cfg(feature = "engine")]
+fn filter_from(code: u32) -> Result<Filter, Error> {
+	match code {
+		0 => Ok(Filter::Nearest),
+		1 => Ok(Filter::Bilinear),
+		_ => Err(Error::InvalidArgument),
+	}
+}
+
+#[cfg(feature = "engine")]
+fn rotation_from(code: u32) -> Result<Rotation, Error> {
+	match code {
+		0 => Ok(Rotation::Clockwise90),
+		1 => Ok(Rotation::HalfTurn),
+		2 => Ok(Rotation::Counterclockwise90),
+		_ => Err(Error::InvalidArgument),
+	}
+}
+
+#[cfg(feature = "engine")]
+fn axis_from(code: u32) -> Result<Axis, Error> {
+	match code {
+		0 => Ok(Axis::Horizontal),
+		1 => Ok(Axis::Vertical),
+		_ => Err(Error::InvalidArgument),
+	}
+}
+
 #[cfg(feature = "engine")]
 fn read_byte(decoder: &mut Decoder<'_>) -> Result<u8, Error> {
 	u8::try_from(decoder.u32()?).map_err(|_| Error::InvalidArgument)

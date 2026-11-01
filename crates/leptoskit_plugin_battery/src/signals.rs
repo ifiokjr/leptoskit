@@ -206,16 +206,24 @@ mod tests {
 		}
 	}
 
+	/// Sample charges a fake source reports, in thousandths.
+	const PARTIAL: u16 = 370;
+	const CHARGED: u16 = 900;
+
 	#[test]
 	fn publishes_snapshots_until_the_source_fails() {
 		let owner = Owner::new();
-		let source = Fake::new(vec![Ok(reading(370)), Ok(reading(900)), Err(Error::Busy)]);
+		let source = Fake::new(vec![
+			Ok(reading(PARTIAL)),
+			Ok(reading(CHARGED)),
+			Err(Error::Busy),
+		]);
 		let hook = owner.with(|| use_battery(source));
 		assert_eq!(hook.value.get(), None);
 		assert_eq!(block_on(hook.task), Err(Error::Busy));
 		assert_eq!(
 			hook.value.get().map(|snapshot| snapshot.charge),
-			Some(Some(Charge::new(900).unwrap()))
+			Some(Some(Charge::new(CHARGED).unwrap()))
 		);
 		owner.cleanup();
 	}

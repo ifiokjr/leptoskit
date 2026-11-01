@@ -75,6 +75,10 @@ extern "C" {
 	fn remove_api();
 }
 
+/// Battery levels the fake Browser Status API reports between waits.
+const JUST_UNDER_HALF: f64 = 0.42;
+const JUST_OVER_HALF: f64 = 0.51;
+
 struct Fixture;
 
 impl Fixture {
@@ -126,7 +130,7 @@ async fn browser_waiters_detach_on_drop_and_completion_and_preserve_errors() {
 		0,
 		"dropping the waiter removes both DOM listeners"
 	);
-	change_level(0.42);
+	change_level(JUST_UNDER_HALF);
 	let between_waits = web::wait_for_change(initial).await.unwrap();
 	assert_eq!(between_waits.charge.unwrap().thousandths(), 420);
 	assert_eq!(
@@ -137,7 +141,7 @@ async fn browser_waiters_detach_on_drop_and_completion_and_preserve_errors() {
 
 	let mut changed = Box::pin(web::wait_for_change(between_waits));
 	installed(changed.as_mut()).await;
-	change_level(0.51);
+	change_level(JUST_OVER_HALF);
 	let Poll::Ready(Ok(current)) = changed
 		.as_mut()
 		.poll(&mut Context::from_waker(Waker::noop()))

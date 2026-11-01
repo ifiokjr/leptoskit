@@ -17,6 +17,8 @@ pub const SHARE: MethodId = MethodId(0);
 pub const MAX_TEXT_BYTES: usize = 64 * 1024;
 /// Maximum ASCII encoded URL length.
 pub const MAX_URL_BYTES: usize = 8192;
+/// Two u32 fields frame the value.
+const FRAMING_BYTES: usize = 8;
 
 /// Validated content with private representation, shared across native and web.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,34 +53,9 @@ impl Content {
 			return Err(Error::TooLarge);
 		}
 
-		let authority = value
-			.strip_prefix("https://")
-			.or_else(|| value.strip_prefix("http://"))
-			.ok_or(Error::InvalidArgument)?
-			.split(['/', '?', '#'])
-			.next()
-			.ok_or(Error::InvalidArgument)?;
-
-		if authority.is_empty()
-			|| authority.contains('@')
-			|| value
-				.bytes()
-				.any(|byte| !byte.is_ascii_graphic() || byte == b'\\')
-		{
-			return Err(Error::InvalidArgument);
-		}
-
-		for (index, byte) in value.bytes().enumerate() {
-			if byte == b'%'
-				&& !value
-					.as_bytes()
-					.get(index + 1..index + 3)
-					.is_some_and(|pair| pair.iter().all(u8::is_ascii_hexdigit))
-			{
-				return Err(Error::InvalidArgument);
-			}
-		}
-
+		require_authority(&value)?;
+		require_graphic(&value)?;
+		require_escapes(&value)?;
 		let parsed = url::Url::parse(&value).map_err(|_| Error::InvalidArgument)?;
 
 		if parsed.host_str().is_none()
@@ -102,7 +79,7 @@ impl Content {
 
 	/// Wire: little-endian kind (0 text, 1 URL), then length-prefixed UTF-8.
 	pub fn encode(&self) -> Result<Bytes, Error> {
-		let mut encoder = Encoder::with_capacity(self.value.len() + 8);
+		let mut encoder = Encoder::with_capacity(self.value.len() + FRAMING_BYTES);
 		encoder.u32(self.kind);
 		encoder.bytes(self.value.as_bytes())?;
 		Ok(encoder.finish())
@@ -110,7 +87,7 @@ impl Content {
 
 	/// Validates untrusted guest payloads; rejects unknown kinds/trailing data.
 	pub fn decode(payload: &[u8]) -> Result<Self, Error> {
-		if payload.len() > MAX_TEXT_BYTES + 8 {
+		if payload.len() > MAX_TEXT_BYTES + FRAMING_BYTES {
 			return Err(Error::TooLarge);
 		}
 
@@ -125,6 +102,53 @@ impl Content {
 			_ => Err(Error::InvalidArgument),
 		}
 	}
+}
+
+/// The authority is everything between the scheme and the first path, query, or
+/// fragment. An empty or credentialed one is not a shareable destination.
+fn require_authority(value: &str) -> Result<(), Error> {
+	let authority = value
+		.strip_prefix("https://")
+		.or_else(|| value.strip_prefix("http://"))
+		.ok_or(Error::InvalidArgument)?
+		.split(['/', '?', '#'])
+		.next()
+		.ok_or(Error::InvalidArgument)?;
+
+	if authority.is_empty() || authority.contains('@') {
+		return Err(Error::InvalidArgument);
+	}
+
+	Ok(())
+}
+
+/// Whitespace, controls, and backslashes never belong in a shared URL.
+fn require_graphic(value: &str) -> Result<(), Error> {
+	if value
+		.bytes()
+		.any(|byte| !byte.is_ascii_graphic() || byte == b'\\')
+	{
+		return Err(Error::InvalidArgument);
+	}
+
+	Ok(())
+}
+
+/// A percent sign must introduce two hexadecimal digits.
+fn require_escapes(value: &str) -> Result<(), Error> {
+	for (index, byte) in value.bytes().enumerate() {
+		if byte != b'%' {
+			continue;
+		}
+
+		let pair = value.as_bytes().get(index + 1..index + 3);
+
+		if !pair.is_some_and(|pair| pair.iter().all(u8::is_ascii_hexdigit)) {
+			return Err(Error::InvalidArgument);
+		}
+	}
+
+	Ok(())
 }
 
 /// Opens the installed native share UI; never confirms message delivery.
@@ -194,6 +218,7 @@ mod tests {
 		let url = Content::url("http://example.test:8080/path").unwrap();
 		assert!(url.is_url());
 		assert_eq!(url.as_str(), "http://example.test:8080/path");
+
 		let text = Content::text("https://not-validated-as-a-url").unwrap();
 		assert!(!text.is_url());
 		assert_eq!(text.as_str(), "https://not-validated-as-a-url");

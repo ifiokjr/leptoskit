@@ -367,6 +367,7 @@ fn compressed_metadata_is_not_propagated_and_animation_is_rejected() {
 	{
 		let mut encoder = png::Encoder::new(&mut animated, 1, 1);
 		encoder.set_color(png::ColorType::Rgba);
+
 		encoder.set_depth(png::BitDepth::Eight);
 		encoder.set_animated(2, 0).unwrap();
 		let mut writer = encoder.write_header().unwrap();

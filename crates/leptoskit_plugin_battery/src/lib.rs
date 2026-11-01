@@ -15,6 +15,8 @@ use leptoskit_bridge::codec::Encoder;
 
 /// Runtime plugin name.
 pub const NAME: &str = "battery";
+/// Four little-endian u32 fields.
+const SNAPSHOT_BYTES: usize = 16;
 /// Empty input -> a 16-byte [`Snapshot`].
 pub const SNAPSHOT: MethodId = MethodId(0);
 /// Previous snapshot -> latest changed snapshot. Mobile only; one waiter per
@@ -105,7 +107,7 @@ fn read_flag(value: u32) -> Result<Option<bool>, Error> {
 impl Snapshot {
 	/// Encodes a fixed-size binary reply.
 	pub fn encode(self) -> Bytes {
-		let mut output = Encoder::with_capacity(16);
+		let mut output = Encoder::with_capacity(SNAPSHOT_BYTES);
 		output.u32(flag(self.present));
 		output.u32(self.charge.map_or(u32::MAX, |charge| u32::from(charge.0)));
 		output.u32(self.state as u32);
@@ -212,6 +214,9 @@ pub mod desktop {
 			Ok(Some(current))
 		}
 	}
+	/// A gauge that reads slightly past full is still a full battery.
+	const GAUGE_SLACK: f64 = 1.05;
+
 	/// A platform charge reading as a [`Charge`], or `None` when it can't be
 	/// one. Some power sources, such as a desktop's UPS or a battery whose
 	/// gauge hasn't calibrated, report a non-finite fraction or one slightly
@@ -219,7 +224,7 @@ pub mod desktop {
 	pub(crate) fn reading(fraction: f32) -> Option<Charge> {
 		let fraction = f64::from(fraction);
 
-		if !fraction.is_finite() || !(0.0..=1.05).contains(&fraction) {
+		if !fraction.is_finite() || !(0.0..=GAUGE_SLACK).contains(&fraction) {
 			return None;
 		}
 
@@ -344,11 +349,21 @@ pub mod guest {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// A charge inside the valid range, in thousandths.
+	const PARTIAL_CHARGE: u16 = 370;
+	/// One thousandth past a full battery.
+	const ABOVE_FULL: u32 = 1001;
+	/// A charge that does not even fit the truncated field.
+	const BEYOND_U16: u32 = 65_536;
+	/// One millisecond short of the minimum poll interval.
+	const TOO_QUICK: u64 = 999;
+
 	#[test]
 	fn snapshots_preserve_unknowns_and_validate_wire_values() {
 		let reading = Snapshot {
 			present: Some(true),
-			charge: Some(Charge::new(370).unwrap()),
+			charge: Some(Charge::new(PARTIAL_CHARGE).unwrap()),
 			state: State::Discharging,
 			power_save: Some(false),
 		};
@@ -365,7 +380,7 @@ mod tests {
 		};
 		assert_eq!(Snapshot::decode(&unknown.encode()), Ok(unknown));
 		assert_eq!(
-			Snapshot::decode(&reading.encode()[..15]),
+			Snapshot::decode(&reading.encode()[..SNAPSHOT_BYTES - 1]),
 			Err(Error::InvalidArgument)
 		);
 
@@ -387,7 +402,7 @@ mod tests {
 		}
 		.encode();
 
-		for (field, value) in [(0, 3_u32), (1, 1001), (1, 65536), (2, 4), (3, 3)] {
+		for (field, value) in [(0, 3_u32), (1, ABOVE_FULL), (1, BEYOND_U16), (2, 4), (3, 3)] {
 			let mut bytes = snapshot.to_vec();
 			bytes[field * 4..field * 4 + 4].copy_from_slice(&value.to_le_bytes());
 			assert_eq!(Snapshot::decode(&bytes), Err(Error::InvalidArgument));
@@ -418,7 +433,7 @@ mod tests {
 		use leptoskit_bridge::Plugin;
 
 		assert!(matches!(
-			desktop::Watcher::new(Duration::from_millis(999)),
+			desktop::Watcher::new(Duration::from_millis(TOO_QUICK)),
 			Err(Error::InvalidArgument)
 		));
 		assert!(matches!(
