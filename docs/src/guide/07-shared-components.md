@@ -94,13 +94,12 @@ pub fn browser_root() -> impl IntoView {
 
 `counter` is the same function used by the native surface. The web renderer creates semantic DOM controls and attaches the existing event handlers. Leptos owns DOM updates, server rendering, and hydration.
 
-Signals and the hooks in `leptoskit::hooks` (the `use` feature) also work in native apps on iOS, Android, macOS, Windows, and Linux. There is no reactive closure there: the app's Wasm runtime calls the view you pass to `leptoskit::guest::mount` again after every event, and the view reads each signal's current value. When state changes outside an event, such as in a plugin reply, call `leptoskit::guest::render()` afterwards. Add `reactive_graph = "0.2"` to the app's dependencies for the owner and the `Get` trait:
+Signals and the hooks in `leptoskit::hooks` (the `use` feature) also work in native apps on iOS, Android, macOS, Windows, and Linux. There is no reactive closure there: the app's Wasm runtime calls the view you pass to `leptoskit::guest::mount` again after every event, and the view reads each signal's current value. When state changes outside an event, such as in a plugin reply, call `leptoskit::guest::render()` afterwards. `leptoskit::prelude` carries the signal type and the `Get` and `Set` traits. A hook you scope yourself also needs an owner: add `reactive_graph = "0.3.0-rc0"` for `reactive_graph::owner::Owner`:
 
 ```rust
 use leptoskit::hooks::use_toggle;
 use leptoskit::prelude::*;
 use reactive_graph::owner::Owner;
-use reactive_graph::prelude::*;
 
 let owner = Owner::new();
 let switch = owner.with(|| use_toggle(false));

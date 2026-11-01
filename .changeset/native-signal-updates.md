@@ -11,4 +11,4 @@ A native guest re-ran the whole screen function after every state change and dif
 - **`leptoskit::prelude`** now exports `RwSignal`, `Get`, and `Set` from `reactive_graph`, so app code writes state the way it does on the web instead of depending on the reactive crate directly.
 - **`leptoskit::guest::mount`** gives the application a reactive owner, so a signal created in a scenario, an event handler, or a render lives as long as the guest.
 
-The arena's `mount` scenario now holds its cards in signals. On the Seeker, creating 1,000 cards takes 103 ms instead of 1,438 ms, updating every tenth takes 17 ms instead of 398 ms, and clearing them takes 18 ms instead of 54 ms: faster than Flutter (254 ms, 50 ms, and 28 ms) on all three.
+The arena's `mount` scenario now holds its cards in signals. On the Seeker, creating 1,000 cards takes 103 ms instead of 1,438 ms, updating every tenth takes 17 ms instead of 398 ms, and clearing them takes 17 ms instead of 54 ms: faster than Flutter (250 ms, 48 ms, and 28 ms) on all three.
