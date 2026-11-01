@@ -188,6 +188,9 @@ impl Tree {
 				style: sent_style(&node.element.style),
 				class: node.element.classes().classes(),
 				rive_inputs: None,
+				// The host kept the source from the node's first render.
+				#[cfg(feature = "devtools")]
+				source: None,
 			})
 			.expect("native element properties serialize");
 			host.props(id, &wire);
