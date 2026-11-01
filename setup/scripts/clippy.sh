@@ -45,7 +45,8 @@ host() {
 #
 # Every feature, every target.
 wasm_full=(
-	gallery leptoskit_bench_counter leptoskit_bench_guest leptoskit_bridge leptoskit_l10n
+	gallery leptoskit_bench_counter leptoskit_bench_guest leptoskit_bridge leptoskit_extension
+	leptoskit_l10n
 	leptoskit_plugin_accelerometer leptoskit_plugin_application leptoskit_plugin_autostart
 	leptoskit_plugin_barometer leptoskit_plugin_battery leptoskit_plugin_brightness
 	leptoskit_plugin_crypto leptoskit_plugin_dialog leptoskit_plugin_document_picker
@@ -84,8 +85,10 @@ wasm() {
 	wasm_group "every feature, library" "${wasm_library[@]/#/--package=}" --all-features --lib
 	wasm_group "default features, library" "${wasm_default_library[@]/#/--package=}" --lib
 	wasm_group "default features, every target" "${wasm_default[@]/#/--package=}" --all-targets
-	# The DevTools interface is its own workspace, and a browser client only.
+	# The DevTools interface is its own workspace, and a browser client only;
+	# its `extension` feature builds the browser DevTools panel instead.
 	wasm_group "the DevTools interface" --manifest-path devtools/Cargo.toml --lib
+	wasm_group "the DevTools panel" --manifest-path devtools/Cargo.toml --lib --features extension
 	# The RPC client, once per way it reaches the server: its server features
 	# can't build for wasm, and `web` and `guest` pick different sockets.
 	wasm_group "leptoskit_rpc in the browser" --package=leptoskit_rpc --no-default-features --features web --lib

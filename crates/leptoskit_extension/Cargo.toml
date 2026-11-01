@@ -24,6 +24,8 @@ leptos = { workspace = true, features = ["csr"] }
 leptoskit_native = { workspace = true, features = ["web"] }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
+# The developer tools panel frames leptoskit's DevTools hub.
+web-sys = { workspace = true, features = ["CssStyleDeclaration", "Document", "Element", "EventTarget", "HtmlElement", "HtmlIFrameElement", "MessageEvent", "Node", "Window"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = { workspace = true }

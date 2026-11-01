@@ -1,0 +1,22 @@
+---
+source: crates/leptoskit_cli/src/extension/tests.rs
+expression: manifest
+---
+{
+  "action": {
+    "default_title": "Inspector"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "devtools_page": "devtools.html",
+  "host_permissions": [
+    "http://127.0.0.1/*"
+  ],
+  "manifest_version": 3,
+  "name": "Inspector",
+  "permissions": [
+    "storage"
+  ],
+  "version": "0.3.0"
+}

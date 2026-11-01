@@ -159,7 +159,7 @@ A loopback port is not private from the web. Any page open in the developer's br
 
 - **`Host`** must be `127.0.0.1:<port>`, `[::1]:<port>`, or `localhost:<port>`. A rebinding attack arrives with the attacker's host name, so it is refused with `403`.
 - **`Origin`**, when a request has one, must be the hub's own origin, the app's dev server origin, the published panel's extension IDs, or the dev panel's fixed ID. Firefox gives each install a random `moz-extension://` ID, so any `moz-extension:` origin is allowed. Native agents and MCP send no `Origin`, because they are not browsers.
-- **`Sec-Fetch-Site: cross-site`** is refused unless the `Origin` is allowed. That catches requests a page makes without CORS, such as an image or a form.
+- **`Sec-Fetch-Site: cross-site`** is refused unless the `Origin` is allowed. That catches requests a page makes without CORS, such as an image or a form. The exception is a navigation (`Sec-Fetch-Mode: navigate`, `GET`) to one of the interface's pages, outside `/api/` and `/agent/`: that is how the DevTools panel's frame loads, with no `Origin`, and `frame-ancestors` decides where a browser may show it. The pages are the interface's own files; the data stays behind the API's checks.
 - **Every `POST` requires `Content-Type: application/json`.** A page therefore cannot send a "simple" cross-origin request that skips the CORS preflight, and the hub answers preflights only for allowed origins. It never sends `Access-Control-Allow-Origin: *`.
 
 **What a per-run token would add.** A per-run token is a random secret that `leptoskit dev` creates each time it starts. Every app and front end would have to present it, so only programs started by this run could talk to the hub. The checks above already stop web pages. The token would also stop other programs and other user accounts on the same machine. That is a smaller risk on a development machine, and the token would have to reach the web agent without a rebuild on every run. So the hub has no token while it listens only on loopback. If it ever listens on a network address, for example so a physical phone on Wi-Fi can reach it, the token becomes mandatory and travels the same way as the hub URL.
@@ -185,7 +185,7 @@ A loopback port is not private from the web. Any page open in the developer's br
 
 - **The hub page.** `leptoskit dev` prints its address next to the app's. It needs no installation, which makes it the way to debug a phone.
   - Implemented: the interface in `devtools/` (a leptoskit app built with `devenv shell devtools:build`) shows sessions grouped by app, the element tree with search and picking, node details with "open in editor" (`vscode://file/…`, resolved against the project root from `GET /api/hub`), class editing, the styles, route, queries, mutations, forms, state, calls, and commits panels, guest reloads on the timelines, and the selected node's frame on every other platform with "Highlight everywhere". Panels a session's `Hello.capabilities` don't cover say so.
-  - The hub serves it at `/` with `Content-Security-Policy: frame-ancestors 'self' chrome-extension: moz-extension:` (`FRAME_ANCESTORS` in `crates/leptoskit_cli/src/devtools/ui.rs`), from `LEPTOSKIT_DEVTOOLS_UI`, else the downloaded build in `<user cache>/leptoskit/devtools/<version>/`, else the plain `page.html` with a note on how to get the interface.
+  - The hub serves it at `/` with `Content-Security-Policy: frame-ancestors 'self' chrome-extension: moz-extension: devtools:` (`FRAME_ANCESTORS` in `crates/leptoskit_cli/src/devtools/ui.rs`), from `LEPTOSKIT_DEVTOOLS_UI`, else the downloaded build in `<user cache>/leptoskit/devtools/<version>/`, else the plain `page.html` with a note on how to get the interface. `devtools:` is there because Chromium draws extension panels inside its own DevTools page, `devtools://devtools`, which `frame-ancestors` checks as an ancestor too: without it Chromium refuses the panel's frame.
   - The stream also carries `{kind: "opened", info}` and `{kind: "closed", session}`, so front ends see sessions start and end without polling. `SessionView`, `SessionState`, and the stream's `Change` live in the protocol crate, so the hub and the interface apply events the same way.
 - **The DevTools panel.**
   - A small shell built with leptoskit's extension platform, using a `devtools_page` surface that calls `devtools.panels.create("leptoskit", …)`.
@@ -197,10 +197,15 @@ A loopback port is not private from the web. Any page open in the developer's br
     2. The shell answers with `{type: "leptoskit-devtools-session", session: "<id>"}`, and may send it again whenever the inspected tab's session changes.
     3. The page accepts that message only when `event.source === window.parent`, and shows that session, waiting for it if the hub hasn't reported it yet.
     4. If no session is named within 1.5 seconds, the page shows the newest web session, and still switches to the named one when it appears.
-  - The hub allows the frame with `Content-Security-Policy: frame-ancestors` listing the panel origins from D7.
+  - The hub allows the frame with `Content-Security-Policy: frame-ancestors` listing the panel origins from D7, and Chromium's DevTools page, which contains the panel.
   - When no hub is running, the shell shows how to start one, and a port field for a hub on another port.
   - The interface's tab list also shows the native sessions, so a web developer can jump to a simulator from the same panel.
   - The panel is published to the Chrome Web Store, Microsoft Edge Add-ons, and addons.mozilla.org with `leptoskit publish` ([publishing plan](publishing-plan.md)), and asks only for `devtools` and the loopback host permissions.
+  - Implemented:
+    - `[extension.devtools_page]` (`DevtoolsPage` in `crates/leptoskit_config/src/extension.rs`) names two routes: `route`, the page the developer tools open out of sight, and `panel`. `ExtensionConfig::pages()` yields both as `devtools` and `devtools_panel`, so the build writes their pages and `leptoskit test extension` opens them; Safari's package leaves them out. The manifest gains `"devtools_page": "devtools.html"` for Chromium and Firefox.
+    - `leptoskit_extension::devtools`: `create_panel`, `inspected_tab`, `eval` (with a callback, the only way Chromium answers; Firefox calls it too), `on_navigated`, and for the hub `watch_session` (looks at once, every 250 ms to 2 s until the page opens its session, every 2 s after, and again on each navigation) and `HubFrame` (a fixed frame below the panel's bar that answers the interface's ready message, addressed to the hub's origin).
+    - The shell is `devtools/src/panel.rs`, the `extension` feature of the interface's own crate. The release wasm carries none of the interface's screens. It asks `GET /api/hub` every 2 s, so it connects when `leptoskit dev` starts, and remembers the port in extension storage, which is also what the package's `storage` permission is for. `devtools/leptoskit.toml` asks for `http://127.0.0.1/*` only, and its `[publish]` IDs are placeholders until the listings exist.
+    - Checked by hand in Chrome for Testing 156, through CDP, against `leptoskit dev`'s hub serving a local build of the interface: the panel frames it, the interface shows the inspected tab's session rather than a newer one, and follows it across a reload. Firefox is built and packaged, but not yet tried in a real Firefox.
 - **MCP.** `leptoskit mcp` gains these tools in `tools()` and `call_tool` (`crates/leptoskit_cli/src/mcp.rs:202,242`):
   - `devtools_sessions`
   - `inspect_tree` (with depth and a subtree root)
@@ -293,9 +298,9 @@ Each pull request carries a changeset. Dependent layers go in a `gh stack`.
 
 **Phase 2: the DevTools panel.** Depends on phases 1 and 2 of the [extension plan](extension-plan.md).
 
-1. `feat(extension)`: the `devtools_page` surface and `leptoskit_extension::devtools`.
-2. `feat(devtools)`: the panel shell, framing the hub page, and inspected-tab session matching.
-3. `ci`: publish the panel with `leptoskit publish` from the release workflow when the shell changes. This depends on phase 1 of the [publishing plan](publishing-plan.md).
+1. `feat(extension)`: the `devtools_page` surface and `leptoskit_extension::devtools`. **Done.**
+2. `feat(devtools)`: the panel shell, framing the hub page, and inspected-tab session matching. **Done**, in one pull request with the first. The CI step that runs `leptoskit test extension` on the panel and `leptoskit publish --dry-run` in `devtools/`, in the macOS applications job, is written and waiting for a token with the `workflow` scope.
+3. `ci`: publish the panel with `leptoskit publish` from the release workflow when the shell changes. This depends on phase 1 of the [publishing plan](publishing-plan.md). Still to do: the store listings, which replace the placeholder IDs in `devtools/leptoskit.toml`, the panel's icons, and trying it in Firefox.
 
 **Phase 3: iOS and Android, and the twist.**
 

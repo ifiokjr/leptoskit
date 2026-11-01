@@ -1,8 +1,9 @@
 //! `[extension]`: the app as a browser extension.
 //!
 //! Each surface (the popup, the side panel, the options page, the new tab
-//! page, and content scripts) opens one of the app's routes. The background
-//! worker is the only surface without a screen.
+//! page, a panel in the browser's developer tools, and content scripts) opens
+//! one of the app's routes. The background worker is the only surface without
+//! a screen.
 
 use std::collections::BTreeMap;
 
@@ -84,6 +85,10 @@ pub struct ExtensionConfig {
 	/// A page that replaces the browser's new tab.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub new_tab: Option<ExtensionPage>,
+	/// A panel in the browser's developer tools. Safari has no developer
+	/// tools API, so its package leaves it out.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub devtools_page: Option<DevtoolsPage>,
 	/// Interfaces shown on other sites' pages.
 	#[serde(skip_serializing_if = "Vec::is_empty")]
 	pub content_scripts: Vec<ContentScript>,
@@ -115,6 +120,7 @@ impl Default for ExtensionConfig {
 			side_panel: None,
 			options: None,
 			new_tab: None,
+			devtools_page: None,
 			content_scripts: Vec::new(),
 			background: None,
 			commands: BTreeMap::new(),
@@ -135,6 +141,60 @@ pub struct ExtensionPage {
 	/// omitted.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub browsers: Option<Vec<Browser>>,
+}
+
+impl ExtensionPage {
+	fn surface(&self, name: &'static str, setting: &'static str) -> PageSurface<'_> {
+		PageSurface {
+			name,
+			setting,
+			route: &self.route,
+			browsers: self.browsers.as_deref(),
+		}
+	}
+}
+
+/// A panel in the browser's developer tools. The developer tools open
+/// `route` out of sight each time they open for a tab, and that page adds the
+/// panel, which shows `panel`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct DevtoolsPage {
+	/// The app route the developer tools open out of sight, such as
+	/// `/devtools`. It adds the panel with
+	/// `leptoskit::extension::devtools::create_panel` and shows nothing.
+	pub route: String,
+	/// The app route the panel shows, such as `/devtools/panel`.
+	pub panel: String,
+	/// The families that get the panel; every configured family but Safari,
+	/// which has no developer tools API, when omitted.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub browsers: Option<Vec<Browser>>,
+}
+
+/// A page the package declares, from whichever surface configures it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageSurface<'a> {
+	/// The surface's name in the package, which is also its files': `popup`
+	/// is `popup.html` and `popup.js`.
+	pub name: &'static str,
+	/// The setting that names its route, such as `extension.popup.route`.
+	pub setting: &'static str,
+	/// The app route it opens.
+	pub route: &'a str,
+	/// The families it's limited to, if any.
+	pub browsers: Option<&'a [Browser]>,
+}
+
+impl PageSurface<'_> {
+	/// The table that configures the page, such as `extension.popup`.
+	#[must_use]
+	pub fn table(&self) -> &'static str {
+		self.setting
+			.rsplit_once('.')
+			.map_or(self.setting, |(table, _)| table)
+	}
 }
 
 /// When a content script reaches a page.
@@ -302,22 +362,59 @@ impl Default for SafariSettings {
 }
 
 impl ExtensionConfig {
-	/// The page surfaces that are configured, with their manifest names.
-	pub fn pages(&self) -> impl Iterator<Item = (&'static str, &ExtensionPage)> {
+	/// The pages the configured surfaces declare. The developer tools panel
+	/// is two pages: `devtools`, which the developer tools open, and
+	/// `devtools_panel`, the panel it adds.
+	pub fn pages(&self) -> impl Iterator<Item = PageSurface<'_>> {
+		let devtools = self.devtools_page.as_ref();
 		[
-			("popup", self.popup.as_ref()),
-			("side_panel", self.side_panel.as_ref()),
-			("options", self.options.as_ref()),
-			("new_tab", self.new_tab.as_ref()),
+			self.popup
+				.as_ref()
+				.map(|page| page.surface("popup", "extension.popup.route")),
+			self.side_panel
+				.as_ref()
+				.map(|page| page.surface("side_panel", "extension.side_panel.route")),
+			self.options
+				.as_ref()
+				.map(|page| page.surface("options", "extension.options.route")),
+			self.new_tab
+				.as_ref()
+				.map(|page| page.surface("new_tab", "extension.new_tab.route")),
+			devtools.map(|devtools| {
+				PageSurface {
+					name: "devtools",
+					setting: "extension.devtools_page.route",
+					route: devtools.route.as_str(),
+					browsers: devtools.browsers.as_deref(),
+				}
+			}),
+			devtools.map(|devtools| {
+				PageSurface {
+					name: "devtools_panel",
+					setting: "extension.devtools_page.panel",
+					route: devtools.panel.as_str(),
+					browsers: devtools.browsers.as_deref(),
+				}
+			}),
 		]
 		.into_iter()
-		.filter_map(|(name, page)| page.map(|page| (name, page)))
+		.flatten()
 	}
 
 	/// Whether a surface limited to `only` is packaged for `browser`.
 	#[must_use]
 	pub fn includes(&self, only: Option<&[Browser]>, browser: Browser) -> bool {
 		self.browsers.contains(&browser) && only.is_none_or(|only| only.contains(&browser))
+	}
+
+	/// Whether `page` is packaged for `browser`.
+	#[must_use]
+	pub fn has_page(&self, page: &PageSurface<'_>, browser: Browser) -> bool {
+		match page.name {
+			"side_panel" => self.has_side_panel(browser),
+			"devtools" | "devtools_panel" => self.has_devtools_page(browser),
+			_ => self.includes(page.browsers, browser),
+		}
 	}
 
 	/// Whether the side panel is packaged for `browser`. Safari has no side
@@ -327,6 +424,18 @@ impl ExtensionConfig {
 		browser != Browser::Safari
 			&& self
 				.side_panel
+				.as_ref()
+				.is_some_and(|page| self.includes(page.browsers.as_deref(), browser))
+	}
+
+	/// Whether the developer tools panel is packaged for `browser`. Safari has
+	/// no developer tools API, so its package leaves it out without being
+	/// told.
+	#[must_use]
+	pub fn has_devtools_page(&self, browser: Browser) -> bool {
+		browser != Browser::Safari
+			&& self
+				.devtools_page
 				.as_ref()
 				.is_some_and(|page| self.includes(page.browsers.as_deref(), browser))
 	}
@@ -356,7 +465,7 @@ impl ExtensionConfig {
 		{
 			return Some(
 				"[extension] needs at least one surface: popup, side_panel, options, new_tab, \
-				 content_scripts, or background"
+				 devtools_page, content_scripts, or background"
 					.into(),
 			);
 		}
@@ -365,13 +474,11 @@ impl ExtensionConfig {
 		{
 			return Some("extension.description must be at most 132 characters".into());
 		}
-		for (name, page) in self.pages() {
-			if let Some(problem) = route_problem(&format!("extension.{name}.route"), &page.route) {
+		for page in self.pages() {
+			if let Some(problem) = route_problem(page.setting, page.route) {
 				return Some(problem);
 			}
-			if let Some(problem) =
-				self.narrowing_problem(&format!("extension.{name}"), page.browsers.as_deref())
-			{
+			if let Some(problem) = self.narrowing_problem(page.table(), page.browsers) {
 				return Some(problem);
 			}
 		}
@@ -651,5 +758,142 @@ mod tests {
 		);
 		assert_eq!(server_origin("ftp://example.com"), None);
 		assert_eq!(server_origin("https://"), None);
+	}
+
+	/// An extension whose only surface is a developer tools panel, packaged
+	/// for every browser family.
+	const DEVTOOLS: &str = r#"
+[app]
+platforms = ["extension"]
+default_platform = "extension"
+
+[native]
+package_id = "com.example.inspector"
+
+[extension]
+browsers = ["chromium", "firefox", "safari"]
+
+[extension.devtools_page]
+route = "/devtools"
+panel = "/devtools/panel"
+
+[extension.firefox]
+id = "inspector@example.com"
+"#;
+
+	/// The validated `[extension]`, or the error and every cause under it.
+	fn extension(toml: &str) -> Result<ExtensionConfig, String> {
+		fn text(error: &dyn std::error::Error) -> String {
+			match error.source() {
+				Some(source) => format!("{error}: {}", text(source)),
+				None => error.to_string(),
+			}
+		}
+		let config = crate::LeptoskitConfig::from_toml(toml, std::path::Path::new("inspector"))
+			.map_err(|error| text(&error))?;
+		config.validate().map_err(|error| text(&error))?;
+		Ok(config.extension.expect("an [extension] table"))
+	}
+
+	#[test]
+	fn a_devtools_page_is_two_pages_that_safari_leaves_out() {
+		let extension = extension(DEVTOOLS).unwrap();
+		let pages: Vec<(&str, &str, &str)> = extension
+			.pages()
+			.map(|page| (page.name, page.setting, page.route))
+			.collect();
+		assert_eq!(
+			pages,
+			[
+				("devtools", "extension.devtools_page.route", "/devtools"),
+				(
+					"devtools_panel",
+					"extension.devtools_page.panel",
+					"/devtools/panel"
+				),
+			]
+		);
+		for page in extension.pages() {
+			assert_eq!(page.table(), "extension.devtools_page");
+			assert!(extension.has_page(&page, Browser::Chromium));
+			assert!(extension.has_page(&page, Browser::Firefox));
+			assert!(
+				!extension.has_page(&page, Browser::Safari),
+				"Safari has no developer tools API"
+			);
+		}
+	}
+
+	#[test]
+	fn a_devtools_page_narrows_to_its_own_browsers() {
+		let extension = extension(&DEVTOOLS.replace(
+			"panel = \"/devtools/panel\"",
+			"panel = \"/devtools/panel\"\nbrowsers = [\"firefox\"]",
+		))
+		.unwrap();
+		assert!(!extension.has_devtools_page(Browser::Chromium));
+		assert!(extension.has_devtools_page(Browser::Firefox));
+	}
+
+	#[test]
+	fn configurations_without_a_devtools_page_parse_as_before() {
+		let extension = extension(
+			"[app]\nplatforms = [\"extension\"]\ndefault_platform = \
+			 \"extension\"\n[extension]\nbrowsers = [\"chromium\"]\n[extension.popup]\nroute = \
+			 \"/clip\"",
+		)
+		.unwrap();
+		assert_eq!(extension.devtools_page, None);
+		assert!(!extension.has_devtools_page(Browser::Chromium));
+		let pages: Vec<&str> = extension.pages().map(|page| page.name).collect();
+		assert_eq!(pages, ["popup"]);
+	}
+
+	#[test]
+	fn devtools_page_problems_name_the_setting() {
+		let panel = "panel = \"/devtools/panel\"";
+		for (from, to, reason) in [
+			(
+				panel,
+				"panel = \"devtools/panel\"",
+				"extension.devtools_page.panel `devtools/panel` must be an app route starting \
+				 with /",
+			),
+			(
+				"route = \"/devtools\"",
+				"route = \"devtools\"",
+				"extension.devtools_page.route `devtools` must be an app route starting with /",
+			),
+			(
+				panel,
+				"panel = \"/devtools/panel\"\nbrowsers = []",
+				"extension.devtools_page.browsers can't be empty",
+			),
+			(
+				panel,
+				"panel = \"/devtools/panel\"\ntitle = \"Inspector\"",
+				"unknown field `title`",
+			),
+			("route = \"/devtools\"\n", "", "missing field `route`"),
+		] {
+			let toml = DEVTOOLS.replace(from, to);
+			let error = extension(&toml).unwrap_err();
+			assert!(error.contains(reason), "{toml}\n→ {error}");
+		}
+		let error = extension(
+			&DEVTOOLS
+				.replace("\"firefox\", \"safari\"", "\"safari\"")
+				.replace(
+					panel,
+					"panel = \"/devtools/panel\"\nbrowsers = [\"firefox\"]",
+				),
+		)
+		.unwrap_err();
+		assert!(
+			error.contains(
+				"extension.devtools_page.browsers has firefox, which extension.browsers doesn't"
+			),
+			"{error}"
+		);
 	}
 }

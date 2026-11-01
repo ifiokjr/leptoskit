@@ -8,8 +8,11 @@ use super::manifest::DevManifest;
 use super::manifest::ManifestInput;
 use super::manifest::manifest;
 use super::manifest::store_version;
+use super::pages::Module;
 use super::plugin_permissions;
 use super::route_matches;
+use super::write_package;
+use super::zip;
 
 /// Commonplace's configuration: every surface, each injection mode, a
 /// command, and all three browsers.
@@ -71,6 +74,31 @@ id = "commonplace@leptoskit.dev"
 data_collection = ["websiteContent", "personallyIdentifyingInfo"]
 "#;
 
+/// A developer tools panel, shaped like leptoskit's own: its only surface,
+/// for every family, reaching a server on loopback.
+const DEVTOOLS: &str = r#"
+[app]
+name = "inspector"
+version = "0.3.0"
+platforms = ["extension"]
+default_platform = "extension"
+
+[native]
+package_id = "com.example.inspector"
+
+[extension]
+name = "Inspector"
+browsers = ["chromium", "firefox", "safari"]
+host_permissions = ["http://127.0.0.1/*"]
+
+[extension.devtools_page]
+route = "/devtools"
+panel = "/devtools/panel"
+
+[extension.firefox]
+id = "inspector@example.com"
+"#;
+
 fn config(toml: &str) -> LeptoskitConfig {
 	let config = LeptoskitConfig::from_toml(toml, std::path::Path::new("commonplace")).unwrap();
 	config.validate().unwrap();
@@ -91,6 +119,92 @@ fn every_browser_gets_its_own_manifest() {
 			dev: None,
 		});
 		insta::assert_json_snapshot!(format!("manifest_{browser}"), manifest);
+	}
+}
+
+#[test]
+fn the_developer_tools_page_is_declared_for_chromium_and_firefox() {
+	let config = config(DEVTOOLS);
+	let extension = config.extension.as_ref().unwrap();
+	for browser in Browser::ALL {
+		let manifest = manifest(&ManifestInput {
+			browser,
+			config: &config,
+			extension,
+			plugin_permissions: &[],
+			icons: &[],
+			dev: None,
+		});
+		// Safari has no developer tools API.
+		let page = (browser != Browser::Safari).then_some("devtools.html");
+		assert_eq!(manifest["devtools_page"].as_str(), page, "{browser}");
+		if browser != Browser::Safari {
+			insta::assert_json_snapshot!(format!("manifest_devtools_{browser}"), manifest);
+		}
+	}
+}
+
+#[test]
+fn packages_carry_the_developer_tools_pages_except_safari_s() {
+	let config = config(DEVTOOLS);
+	let extension = config.extension.as_ref().unwrap();
+	let build = tempfile::tempdir().unwrap();
+	let pkg = build.path().join("pkg");
+	std::fs::create_dir_all(&pkg).unwrap();
+	std::fs::write(pkg.join("inspector_bg.wasm"), b"\0asm").unwrap();
+	std::fs::write(pkg.join("inspector.js"), "export default () => {};").unwrap();
+	let module = Module { stem: "inspector" };
+	let pages = [
+		"devtools.html",
+		"devtools.js",
+		"devtools_panel.html",
+		"devtools_panel.js",
+	];
+	for browser in Browser::ALL {
+		let dir = build.path().join(browser.name());
+		let input = ManifestInput {
+			browser,
+			config: &config,
+			extension,
+			plugin_permissions: &[],
+			icons: &[],
+			dev: None,
+		};
+		write_package(&dir, &input, &module, &pkg, &build.path().join("assets")).unwrap();
+		let files = zip::files_under(&dir).unwrap();
+		let archive = zip::archive(&files).unwrap();
+		for page in pages {
+			let packaged = files.iter().any(|(name, _)| name == page);
+			let zipped = archive
+				.windows(page.len())
+				.any(|window| window == page.as_bytes());
+			let expected = browser != Browser::Safari;
+			assert_eq!(packaged, expected, "{browser}: {page}");
+			assert_eq!(zipped, expected, "{browser}'s zip: {page}");
+		}
+	}
+
+	let chromium = build.path().join("chromium");
+	let read = |name: &str| std::fs::read_to_string(chromium.join(name)).unwrap();
+	assert!(
+		read("devtools.js").contains("leptoskit_extension_start(\"devtools\", \"/devtools\");"),
+		"{}",
+		read("devtools.js")
+	);
+	assert!(
+		read("devtools_panel.js")
+			.contains("leptoskit_extension_start(\"devtools_panel\", \"/devtools/panel\");")
+	);
+	for (page, script) in [
+		("devtools.html", "devtools.js"),
+		("devtools_panel.html", "devtools_panel.js"),
+	] {
+		assert!(
+			read(page).contains(&format!(
+				"<script type=\"module\" src=\"{script}\"></script>"
+			)),
+			"{page}"
+		);
 	}
 }
 

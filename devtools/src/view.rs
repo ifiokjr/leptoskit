@@ -21,20 +21,22 @@ use crate::model::node_ref_text;
 use crate::store;
 
 /// The page.
-const PAGE: &str = "h-screen bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100";
+pub(crate) const PAGE: &str =
+	"h-screen bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100";
 /// Quieter text: hints, types, and timings.
-const QUIET: &str = "text-xs text-slate-500 dark:text-slate-400";
+pub(crate) const QUIET: &str = "text-xs text-slate-500 dark:text-slate-400";
 /// A section's heading.
 const LABEL: &str = "text-xs font-semibold text-slate-500 dark:text-slate-400";
 /// A divider between columns and rows.
-const LINE: &str = "border-slate-200 dark:border-slate-800";
+pub(crate) const LINE: &str = "border-slate-200 dark:border-slate-800";
 /// A small control.
-const CONTROL: &str = "rounded border border-slate-300 px-2 py-1 text-xs dark:border-slate-700";
+pub(crate) const CONTROL: &str =
+	"rounded border border-slate-300 px-2 py-1 text-xs dark:border-slate-700";
 /// A small control that is on.
 const CONTROL_ON: &str = "rounded border border-sky-600 bg-sky-600 px-2 py-1 text-xs text-white";
 /// A text field.
-const FIELD: &str = "rounded border border-slate-300 bg-white px-2 py-1 text-xs \
-                     dark:border-slate-700 dark:bg-slate-900";
+pub(crate) const FIELD: &str = "rounded border border-slate-300 bg-white px-2 py-1 text-xs \
+                                dark:border-slate-700 dark:bg-slate-900";
 /// A raised box grouping one item's details.
 const CARD: &str = "gap-1 rounded border border-slate-200 p-2 dark:border-slate-800";
 

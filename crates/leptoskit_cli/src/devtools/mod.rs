@@ -294,7 +294,7 @@ async fn interface(State(state): State<Arc<HubState>>, method: Method, uri: Uri)
 		return StatusCode::METHOD_NOT_ALLOWED.into_response();
 	}
 
-	if uri.path().starts_with("/api/") || uri.path().starts_with("/agent/") {
+	if is_api(uri.path()) {
 		return ApiError::new(StatusCode::NOT_FOUND, "no such route").into_response();
 	}
 
@@ -481,6 +481,7 @@ async fn secure(State(state): State<Arc<HubState>>, request: Request, next: Next
 		.and_then(|value| value.to_str().ok())
 		== Some("cross-site")
 		&& origin.is_none()
+		&& !opens_interface(&request)
 	{
 		return forbidden("cross-site requests need an allowed Origin");
 	}
@@ -507,6 +508,26 @@ async fn secure(State(state): State<Arc<HubState>>, request: Request, next: Next
 	let mut response = next.run(request).await;
 	cors(&mut response, origin.as_deref());
 	response
+}
+
+/// Whether `path` is the API's, which only agents and front ends call.
+fn is_api(path: &str) -> bool {
+	path.starts_with("/api/") || path.starts_with("/agent/")
+}
+
+/// Whether `request` loads one of the interface's pages into a window or a
+/// frame, as the browser `DevTools` panel does from its extension page. A
+/// browser sends that navigation cross-site with no `Origin`, and shows the
+/// page only where `frame-ancestors` allows. The pages are the interface's
+/// own files: the data stays behind the API's checks.
+fn opens_interface(request: &Request) -> bool {
+	matches!(request.method(), &Method::GET | &Method::HEAD)
+		&& request
+			.headers()
+			.get("sec-fetch-mode")
+			.and_then(|value| value.to_str().ok())
+			== Some("navigate")
+		&& !is_api(request.uri().path())
 }
 
 fn json_content(headers: &axum::http::HeaderMap) -> bool {
@@ -917,6 +938,70 @@ mod tests {
 			.unwrap();
 		let response = app(&state).oneshot(request).await.unwrap();
 		assert_eq!(response.status(), StatusCode::FORBIDDEN);
+	}
+
+	/// A request as a browser sends it for a page on another site, with the
+	/// fetch metadata headers it sets.
+	fn cross_site(uri: &str, mode: &str, dest: &str) -> HttpRequest<Body> {
+		HttpRequest::builder()
+			.method("GET")
+			.uri(uri)
+			.header(header::HOST, format!("127.0.0.1:{PORT}"))
+			.header("sec-fetch-site", "cross-site")
+			.header("sec-fetch-mode", mode)
+			.header("sec-fetch-dest", dest)
+			.body(Body::empty())
+			.unwrap()
+	}
+
+	#[tokio::test]
+	async fn the_devtools_panel_frames_the_interface() {
+		let state = state();
+		// What Chromium sends when the panel's extension page frames the
+		// interface: a cross-site navigation with no Origin.
+		let response = app(&state)
+			.oneshot(cross_site("/?embed=panel", "navigate", "iframe"))
+			.await
+			.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+		let policy = response.headers()[header::CONTENT_SECURITY_POLICY]
+			.to_str()
+			.unwrap();
+		for ancestor in ["chrome-extension:", "moz-extension:", "devtools:"] {
+			assert!(
+				policy.split(' ').any(|source| source == ancestor),
+				"{policy}"
+			);
+		}
+
+		// The panel's own look for the hub carries no Origin either.
+		let request = HttpRequest::builder()
+			.method("GET")
+			.uri("/api/hub")
+			.header(header::HOST, format!("127.0.0.1:{PORT}"))
+			.header("sec-fetch-site", "none")
+			.header("sec-fetch-mode", "cors")
+			.body(Body::empty())
+			.unwrap();
+		let response = app(&state).oneshot(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+	}
+
+	#[tokio::test]
+	async fn other_sites_reach_neither_the_api_nor_the_files_without_navigating() {
+		let state = state();
+		for request in [
+			// A form or a link that opens the API.
+			cross_site("/api/sessions", "navigate", "document"),
+			cross_site("/agent/sessions/x/commands", "navigate", "iframe"),
+			// An image or a script tag pointing at the interface.
+			cross_site("/", "no-cors", "image"),
+			cross_site("/pkg/app.js", "no-cors", "script"),
+		] {
+			let uri = request.uri().clone();
+			let response = app(&state).oneshot(request).await.unwrap();
+			assert_eq!(response.status(), StatusCode::FORBIDDEN, "{uri}");
+		}
 	}
 
 	#[tokio::test]

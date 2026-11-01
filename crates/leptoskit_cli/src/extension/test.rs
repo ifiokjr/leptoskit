@@ -3,7 +3,8 @@
 //! Builds the development package, loads it into Chrome for Testing through
 //! chromedriver, and checks what every extension needs to work:
 //!
-//! - each page surface mounts the app and shows something;
+//! - each page surface mounts the app and shows something, except the page the
+//!   developer tools open out of sight, which only has to start it;
 //! - the background worker is running;
 //! - each content script puts its frame on a page whose content security policy
 //!   forbids scripts and WebAssembly, as most large sites' do, and the frame
@@ -290,26 +291,28 @@ pub fn run() -> Result<()> {
 		}
 	};
 
-	for (surface, page) in extension.pages() {
-		let included = if surface == "side_panel" {
-			extension.has_side_panel(Browser::Chromium)
-		} else {
-			extension.includes(page.browsers.as_deref(), Browser::Chromium)
-		};
-		if !included {
+	for page in extension.pages() {
+		if !extension.has_page(&page, Browser::Chromium) {
 			continue;
 		}
+		// The developer tools open `devtools.html` out of sight to add the
+		// panel, so it shows nothing: it only has to start the app.
+		let (name, shown) = if page.name == "devtools" {
+			(
+				format!("the {} page starts at {}", page.name, page.route),
+				"document.body.children.length > 0",
+			)
+		} else {
+			(
+				format!("the {} shows {}", page.name, page.route),
+				"document.body.children.length > 0 && document.body.innerText.trim().length > 0",
+			)
+		};
 		check(
-			format!("the {surface} shows {}", page.route),
+			name,
 			driver
-				.open(&format!("{base}/{surface}.html"))
-				.and_then(|()| {
-					driver.wait(
-						"document.body.children.length > 0 && \
-						 document.body.innerText.trim().length > 0",
-						Duration::from_secs(30),
-					)
-				}),
+				.open(&format!("{base}/{}.html", page.name))
+				.and_then(|()| driver.wait(shown, Duration::from_secs(30))),
 		);
 	}
 

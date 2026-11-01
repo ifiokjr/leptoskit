@@ -5,13 +5,13 @@ schema_version = 0
 # The DevTools interface: the page `leptoskit dev`'s hub serves, and the
 # browser DevTools panel frames. It is built once per release, archived, and
 # downloaded by the CLI of the same version; `devenv shell devtools:build`
-# builds it from this checkout.
+# builds it from this checkout. Built as an extension, it is the panel.
 
 [app]
 name = "leptoskit-devtools"
 version = "0.1.0"
 default_platform = "web"
-platforms = ["web"]
+platforms = ["web", "extension"]
 # Rendered in the browser; the hub serves the files and the API.
 render = "csr"
 
@@ -29,3 +29,36 @@ precompress = false
 
 [lint]
 markup = "builder"
+
+# The browser DevTools panel (`src/panel.rs`): a shell that frames the hub's
+# interface, `http://127.0.0.1:<port>/?embed=panel`, instead of bundling it,
+# so a panel installed from a store always shows the interface of the
+# `leptoskit dev` that runs. Safari has no developer tools API.
+[extension]
+name = "leptoskit DevTools"
+description = "Inspect the apps leptoskit dev runs, on every platform: their element tree, styles, routes, and data."
+browsers = ["chromium", "firefox"]
+# The panel asks the hub on this machine whether it runs. A match pattern
+# can't name a port, so this covers whichever port the panel is given.
+host_permissions = ["http://127.0.0.1/*"]
+
+[extension.devtools_page]
+route = "/devtools"
+panel = "/devtools/panel"
+
+[extension.firefox]
+id = "devtools@leptoskit.dev"
+
+# The stores `leptoskit publish` uploads the panel to. It isn't listed in any
+# store yet: these IDs are placeholders that let `leptoskit publish --dry-run`
+# build and check the packages in CI. The listings' own IDs replace them
+# before the first upload. Credentials never go here.
+[publish.chrome]
+publisher_id = "leptoskit"
+item_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+[publish.edge]
+product_id = "00000000-0000-0000-0000-000000000000"
+
+[publish.firefox]
+channel = "listed"

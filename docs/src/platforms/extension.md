@@ -62,7 +62,7 @@ data_collection = ["websiteContent", "personallyIdentifyingInfo"]
 
 - **`server`** is where your app's API is. Its origin becomes a host permission, and `leptoskit::extension::runtime::server()` returns it.
 - **`permissions`** are added to the ones the extension needs for itself, such as `storage`, `scripting` for content scripts injected at run time, and `sidePanel`.
-- **A surface's own `browsers`** leaves it out of the other packages. The side panel is left out of Safari's on its own, because Safari has none.
+- **A surface's own `browsers`** leaves it out of the other packages. The side panel and the developer tools panel are left out of Safari's on their own, because Safari has neither.
 - **Firefox** needs an add-on ID, which addons.mozilla.org keeps for good, and a declaration of the data the extension sends anywhere. Use `["none"]` when it sends nothing.
 
 Code push can't be on while `extension` is a platform: extension stores forbid code downloaded after their review.
@@ -102,7 +102,7 @@ Any surface sends the worker a message with `runtime::send`, and the worker's `o
 let reply: Reply = leptoskit::extension::runtime::send(&Message::Clip(input)).await?;
 ```
 
-`leptoskit::extension` also has `storage`, `tabs`, `action` (the toolbar button's badge), `scripting`, `permissions`, `alarms`, `context_menus`, `commands`, `notifications`, and `side_panel`. Each works the same in every browser, returns `Error::Unavailable` where a browser lacks it, and stops listening when its handle is dropped.
+`leptoskit::extension` also has `storage`, `tabs`, `action` (the toolbar button's badge), `scripting`, `permissions`, `alarms`, `context_menus`, `commands`, `notifications`, `side_panel`, and `devtools`. Each works the same in every browser, returns `Error::Unavailable` where a browser lacks it, and stops listening when its handle is dropped.
 
 ## Content scripts
 
@@ -125,6 +125,30 @@ A content script reaches pages in one of three ways, set with `inject`:
 | `registered`         | The sites you pass to `scripting::register`, after the user allows them                   | Each site, asked for with `permissions::request` |
 
 Asking for no host permission at install, as Commonplace does, is what gets an extension through store review fastest.
+
+## A panel in the developer tools
+
+An extension for developers often belongs beside Elements and Console, inspecting the page someone is working on. `[extension.devtools_page]` adds a panel to the developer tools of Chromium browsers and Firefox. It needs no permission:
+
+```toml
+[extension.devtools_page]
+route = "/devtools"
+panel = "/devtools/panel"
+```
+
+The developer tools open `route` out of sight each time they open for a tab. That page shows nothing: it adds the panel, which opens `panel` when someone chooses its tab:
+
+```rust,ignore
+/// The `/devtools` route: adds the panel, and shows nothing.
+fn add_panel() -> Element {
+	wasm_bindgen_futures::spawn_local(async {
+		let _ = leptoskit::extension::devtools::create_panel("Inspector", "assets/icon-32.png").await;
+	});
+	View()
+}
+```
+
+The panel reads the page being inspected with `devtools::eval`, which runs an expression there and returns its value, and follows the page when it reloads or moves on with `devtools::on_navigated`. Safari has no developer tools API, so its package leaves the panel out. [leptoskit DevTools](../guide/26-devtools.md) has a panel built this way.
 
 ## Signing in
 
@@ -165,7 +189,7 @@ The extension's bundle identifier is your `native.package_id` plus `.SafariExten
 
 People turn the extension on themselves, after installing the app: on a Mac in Safari's settings, under **Extensions**, and on an iPhone or iPad in **Settings**, then **Apps**, **Safari**, **Extensions**. Tell them how from your app's first screen. A development build on a Mac is signed only for this computer, so Safari shows it after you turn on **Allow unsigned extensions** in Safari's **Develop** menu.
 
-Safari has no side panel and can't replace the new tab page, so those surfaces aren't in its package.
+Safari has no side panel or developer tools panel, and can't replace the new tab page, so those surfaces aren't in its package.
 
 ## Publish
 
@@ -193,7 +217,7 @@ leptoskit test extension
 
 That builds the extension and checks it in Chrome for Testing, through chromedriver:
 
-- every page surface shows something;
+- every page surface shows something, and the developer tools' hidden page starts;
 - the background worker is running;
 - each content script puts its frame on a page whose content security policy forbids scripts and WebAssembly, as most large sites' do.
 

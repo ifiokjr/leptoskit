@@ -28,8 +28,12 @@ use axum::response::Response;
 pub const UI_ENV: &str = "LEPTOSKIT_DEVTOOLS_UI";
 
 /// Who may frame the hub's pages: the hub itself and the browser `DevTools`
-/// panel. Firefox gives every install a random `moz-extension:` ID.
-pub const FRAME_ANCESTORS: &str = "frame-ancestors 'self' chrome-extension: moz-extension:";
+/// panel. Firefox gives every install a random `moz-extension:` ID. Chromium
+/// shows extension panels inside its own `DevTools` page,
+/// `devtools://devtools`, which is an ancestor of the frame too, so it has to
+/// be allowed; no web page can have that origin.
+pub const FRAME_ANCESTORS: &str =
+	"frame-ancestors 'self' chrome-extension: moz-extension: devtools:";
 
 /// The plain page served when no interface build is available.
 const FALLBACK: &str = include_str!("page.html");

@@ -9,23 +9,32 @@
 //!
 //! [`model`] holds the rules, [`view`] draws them, [`store`] runs the
 //! controls' actions, and [`hub`] talks to the hub.
+//!
+//! [`panel`] is the browser `DevTools` panel: the extension build of this app,
+//! a small shell that frames the hub's interface rather than bundling it.
 
 pub mod hub;
 pub mod model;
+pub mod panel;
 pub mod store;
 pub mod view;
 
 /// The interface, drawn again whenever the model changes.
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", not(feature = "extension")))]
 #[leptos::component]
 pub fn App() -> impl leptos::prelude::IntoView {
 	move || leptoskit::web::render(view::page())
 }
 
-/// Mounts the interface when the page loads its Wasm module.
-#[cfg(target_arch = "wasm32")]
+/// Mounts the interface when the page loads its Wasm module. The extension's
+/// pages start the panel instead, through `entry!`.
+#[cfg(all(target_arch = "wasm32", not(feature = "extension")))]
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn start() {
 	leptos::mount::mount_to_body(App);
 	hub::start();
 }
+
+// The panel's two pages; see `panel`.
+#[cfg(feature = "extension")]
+leptoskit_extension::entry!(main: panel::main);
