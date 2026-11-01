@@ -58,6 +58,14 @@ enum DartType {
 }
 
 impl DartType {
+	/// Make a type nullable without wrapping an already nullable type again.
+	fn optional(self) -> Self {
+		match self {
+			Self::Void | Self::Dynamic | Self::Nullable(_) => self,
+			_ => Self::Nullable(Box::new(self)),
+		}
+	}
+
 	fn render(&self) -> String {
 		match self {
 			Self::Void => "void".to_owned(),
@@ -224,7 +232,7 @@ impl DartTypes {
 
 		// `null` alone is `void`, not an optional nothing.
 		if nullable && base != DartType::Void {
-			DartType::Nullable(Box::new(base))
+			base.optional()
 		} else {
 			base
 		}
@@ -313,7 +321,7 @@ fn field_lines(fields: &[Field]) -> String {
 
 	for field in fields {
 		let ty = if field.nullable {
-			DartType::Nullable(Box::new(field.ty.clone()))
+			field.ty.clone().optional()
 		} else {
 			field.ty.clone()
 		};
@@ -336,7 +344,7 @@ fn from_json(name: &str, fields: &[Field]) -> String {
 			.iter()
 			.map(|field| {
 				let ty = if field.nullable {
-					DartType::Nullable(Box::new(field.ty.clone()))
+					field.ty.clone().optional()
 				} else {
 					field.ty.clone()
 				};
@@ -360,7 +368,7 @@ fn to_json(fields: &[Field]) -> String {
 			.iter()
 			.map(|field| {
 				let entry = if field.nullable {
-					DartType::Nullable(Box::new(field.ty.clone())).encode(&field.dart)
+					field.ty.clone().optional().encode(&field.dart)
 				} else {
 					field.ty.encode(&field.dart)
 				};
@@ -593,9 +601,10 @@ impl Signature {
 			// non-nullable argument becomes nullable once, not twice.
 			let optional = !param.is_required() || matches!(ty, DartType::Nullable(_));
 
-			let parameter_type = match (&ty, optional) {
-				(DartType::Nullable(_), _) | (_, false) => ty.clone(),
-				(_, true) => DartType::Nullable(Box::new(ty.clone())),
+			let parameter_type = if optional {
+				ty.clone().optional()
+			} else {
+				ty.clone()
 			};
 			parameters.push(if optional {
 				format!("{} {}", parameter_type.render(), identifier)

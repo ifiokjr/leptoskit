@@ -428,6 +428,15 @@ impl leptoskit_rpc::client::Credentials for RpcCredentials {
 	}
 }
 
+/// The device's sign-in changed: signing in or out, or a renewed token.
+/// With the `rpc` feature, `leptoskit_rpc`'s live connection reads as the
+/// new identity, so every live query, channel and stream on screen follows
+/// without a reload.
+pub(crate) fn session_changed() {
+	#[cfg(feature = "rpc")]
+	leptoskit_rpc::client::reauthenticate();
+}
+
 #[cfg(feature = "rpc")]
 fn rpc_error(error: ErrorResponse) -> leptoskit_rpc::FnError {
 	if error.error == "network" {

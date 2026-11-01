@@ -35,11 +35,15 @@ impl Credentials for Cookie {
 		Box::pin(std::future::ready(Ok(false)))
 	}
 
+	// The cookie changed with the answer that signed in or out; the live
+	// connection reconnects to carry the new one.
 	fn keep(&self, _tokens: Option<Tokens>) -> BoxFuture<'_, Result<(), ErrorResponse>> {
+		super::session_changed();
 		Box::pin(std::future::ready(Ok(())))
 	}
 
 	fn forget(&self) -> BoxFuture<'_, ()> {
+		super::session_changed();
 		Box::pin(std::future::ready(()))
 	}
 

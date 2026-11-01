@@ -72,9 +72,13 @@ def synchronous() -> None:
     ada.live.on_status(lambda status: statuses.append(status.state))
     ada_notes = ada.sdk_notes.watch(prefix=prefix)
     bob_notes = bob.sdk_notes.watch(prefix=prefix)
+    ada_page = ada.sdk_page_rows.watch(prefix=prefix)
+    bob_page = bob.sdk_page_rows.watch(prefix=prefix)
 
     first = ada_notes.wait_for(timeout=WAIT)
     bob_notes.wait_for(timeout=WAIT)
+    ada_page.wait_for(timeout=WAIT)
+    bob_page.wait_for(timeout=WAIT)
     check(first == [], f"a fresh database has no notes: {first}")
     say("initial")
 
@@ -82,11 +86,23 @@ def synchronous() -> None:
     note_id = bob.add_sdk_note.live(body=f"{prefix}one")
     check(isinstance(note_id, str), "the mutation returns the id")
     check(count(bob_notes.value, f"{prefix}one") == 1, f"Bob sees his own write: {bob_notes.value}")
+    page = bob_page.value
+    check(page is not None and len(page["items"]) == 1 and page["end"] == note_id and page["has_more"],
+          f"Bob's page rows and metadata reflect his write: {page}")
     say("read-your-writes")
 
     # Ada's watch receives it as a patch.
     ada_notes.wait_for(lambda notes: count(notes, f"{prefix}one") == 1, WAIT)
     say("patch")
+
+    bob.add_sdk_note.live(body=f"{prefix}alpha")
+    ada_notes.wait_for(lambda notes: len(notes) == 2, WAIT)
+    page = ada_page.wait_for(lambda page: len(page["items"]) == 2, WAIT)
+    check(count(ada_notes.value, f"{prefix}one") == 1 and ada_notes.value[0]["body"] == f"{prefix}alpha",
+          "inserting preserves the existing row")
+    check(page["items"][0]["body"] == f"{prefix}alpha" and page["end"] == note_id and not page["has_more"],
+          "page patches update rows and metadata together")
+    say("insertion and page")
 
     # The proxy lets this through, then cuts the connection before the answer.
     dropped = ada.add_sdk_note.live(body=f"{prefix}drop-me")
@@ -96,8 +112,11 @@ def synchronous() -> None:
     check(count(ada_notes.value, f"{prefix}drop-me") == 1, "the re-sent mutation ran once")
     say("reconnect")
 
-    bob.add_sdk_note.live(body=f"{prefix}two")
+    last = bob.add_sdk_note.live(body=f"{prefix}two")
     ada_notes.wait_for(lambda notes: count(notes, f"{prefix}two") == 1, WAIT)
+    page = ada_page.wait_for(lambda page: len(page["items"]) == 4, WAIT)
+    check(len(ada_notes.value) == 4 and page["end"] == last and not page["has_more"],
+          "resumed list and page preserve every row and update the end cursor")
     say("resumed")
 
     # Channels: presence from both, and Bob's signal reaches Ada.
@@ -138,6 +157,8 @@ def synchronous() -> None:
 
     ada_notes.close()
     bob_notes.close()
+    ada_page.close()
+    bob_page.close()
     ada.live.close()
     bob.live.close()
     check(ada.live.status.state == "offline", f"closed: {ada.live.status}")
@@ -151,6 +172,7 @@ async def asynchronous() -> None:
             # Read-your-writes on the caller's event loop.
             await ada.add_sdk_note.live(body=f"{prefix}three")
             check(count(notes.value, f"{prefix}three") == 1, f"the async write: {notes.value}")
+            check(count(notes.value, f"{prefix}two") == 1, "an async insertion preserves the next row")
             async for value in notes:
                 if count(value, f"{prefix}three") == 1:
                     break

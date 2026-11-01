@@ -25,7 +25,9 @@
 //!
 //! A mutation is sent with an idempotency key, the same one for every
 //! attempt, so when its answer is lost and the client sends it again, it
-//! still runs once.
+//! still runs once. While the app holds a live connection, the same
+//! mutation goes over it instead, and resolves only once the screen's live
+//! queries show its writes.
 
 use std::sync::Arc;
 use std::sync::PoisonError;
@@ -52,6 +54,8 @@ mod keys;
 pub mod live;
 #[cfg(all(feature = "guest", target_arch = "wasm32"))]
 mod native;
+mod offline;
+mod paginated;
 mod protocol;
 #[cfg(all(
 	feature = "server",
@@ -59,18 +63,34 @@ mod protocol;
 	not(target_arch = "wasm32")
 ))]
 mod server;
+mod stream;
 #[cfg(test)]
 mod tests;
 
 pub use live::ChannelEvent;
 pub use live::ChannelHandle;
 pub use live::LiveClient;
+pub use live::LiveState;
+pub use live::LiveStatus;
+pub use live::LiveStream;
+pub use live::StreamEvent;
 pub use live::live_mutation_scope;
+pub use live::reauthenticate;
 pub use live::use_channel;
 pub use live::use_live;
 pub use live::use_live_action;
 pub use live::use_live_mutation;
+pub use live::use_live_status;
+pub use offline::MemoryQueue;
+pub use offline::QueueStore;
+pub use offline::QueuedCall;
+pub use offline::QueuedKind;
+pub use paginated::PaginatedHandle;
+pub use paginated::use_live_paginated;
 pub use protocol::Credentials;
+pub use stream::StreamHandle;
+pub use stream::StreamState;
+pub use stream::use_stream;
 
 /// Where the client finds the server, and how this device proves who it
 /// is. Pass it to [`configure`] once, when the app starts; the same call
@@ -84,6 +104,13 @@ pub struct ClientConfig {
 	/// What signs each request, such as a native app's bearer token. In the
 	/// browser the session cookie needs none.
 	pub credentials: Option<Arc<dyn Credentials>>,
+	/// Whether mutations and actions dispatched while the live connection
+	/// is down wait for it, kept on the device so they still go out after
+	/// a restart. Off by default: without it, a mutation sent while the
+	/// connection is down goes over HTTP.
+	pub offline_queue: bool,
+	/// Where the offline queue is kept, in place of the platform's own.
+	pub offline_store: Option<Arc<dyn QueueStore>>,
 }
 
 impl ClientConfig {
@@ -106,6 +133,27 @@ impl ClientConfig {
 		self.credentials = Some(Arc::new(credentials));
 		self
 	}
+
+	/// Keeps mutations and actions dispatched while the live connection is
+	/// down, in order, until it comes back: in `localStorage` in the
+	/// browser and in the store plugin in a native app, so they go out
+	/// even after the app restarts. A mutation replays with the idempotency
+	/// key it was dispatched with, so it runs once; an action is never sent
+	/// twice.
+	#[must_use]
+	pub fn offline_queue(mut self, enabled: bool) -> Self {
+		self.offline_queue = enabled;
+		self
+	}
+
+	/// Keeps the offline queue in `store`, such as a [`MemoryQueue`] in a
+	/// test, and turns it on.
+	#[must_use]
+	pub fn offline_store(mut self, store: impl QueueStore) -> Self {
+		self.offline_queue = true;
+		self.offline_store = Some(Arc::new(store));
+		self
+	}
 }
 
 impl std::fmt::Debug for ClientConfig {
@@ -113,7 +161,8 @@ impl std::fmt::Debug for ClientConfig {
 		f.debug_struct("ClientConfig")
 			.field("origin", &self.origin)
 			.field("credentials", &self.credentials.is_some())
-			.finish()
+			.field("offline_queue", &self.offline_queue)
+			.finish_non_exhaustive()
 	}
 }
 
@@ -491,12 +540,18 @@ where
 /// Each run sends a fresh idempotency key, and the client resends it with
 /// the same key when the network drops the answer, so the mutation runs
 /// once.
+///
+/// While the app holds an open live connection (or keeps an offline queue),
+/// the mutation goes over it, as [`use_live_mutation`] sends it: it resolves
+/// once the connection has applied the transition that includes its
+/// writes, so `on_success` sees them in every live query on screen.
+/// Otherwise, as while the server renders, it goes over HTTP.
 pub fn mutation_scope<M>() -> MutationScope<M, M::Output, FnError>
 where
 	M: Operation,
 	M::Output: Clone,
 {
-	MutationScope::new(|op: M| call(op)).with_name(&format!("rpc:{}", M::NAME))
+	MutationScope::new(|op: M| live::send_or_call(op)).with_name(&format!("rpc:{}", M::NAME))
 }
 
 /// The `leptoskit_query` scope of an action, named `rpc:<name>`: run it with

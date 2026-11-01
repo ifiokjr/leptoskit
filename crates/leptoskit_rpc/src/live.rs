@@ -16,6 +16,9 @@
 //! unsub   { id }                                    auth_status { refused | expiring }
 //! mutate  { request, name, args, key? }             reconnect   { after_ms }
 //! act     { request, name, args }                   pong
+//! stream  { stream, name, args, credits }           item        { stream, value, cursor? }
+//! credit  { stream, n }                             end         { stream, reason, err? }
+//! cancel  { stream }
 //! ping
 //! ```
 //!
@@ -47,6 +50,16 @@
 //! time, with the `connection` from `welcome`. A reconnecting event source
 //! sends `Last-Event-ID`, which stands in for the hello's resume version.
 //!
+//! # Streams
+//!
+//! A stream is server output over time that isn't a query over rows: a
+//! job's progress, a model's tokens, a log tail. [`ClientFrame::Stream`]
+//! opens one with a number of credits, and the server sends at most that
+//! many [`ServerFrame::Item`]s until [`ClientFrame::Credit`] grants more: it
+//! never reads ahead of what the client has room for. A stream ends with
+//! [`ServerFrame::End`], whose `reason` is one of [`EndReason`]'s names,
+//! or when the client sends [`ClientFrame::Cancel`].
+//!
 //! [`patch`] turns two results into an [`Update::Patch`] when both are lists
 //! of rows with an `id`, and into [`Update::Ok`] with the whole value
 //! otherwise. Diffs keep steady-state frames small, and never lose data:
@@ -71,6 +84,9 @@ pub const MAX_RESULT_BYTES: usize = 512 * 1024;
 
 /// The largest frame a connection may send, in bytes.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
+
+/// How many streams one connection may hold open at once.
+pub const MAX_STREAMS: usize = 64;
 
 /// Where a server-sent events connection reads server frames, next to the
 /// WebSocket's `/live`.
@@ -162,6 +178,32 @@ pub enum ClientFrame {
 		/// Its arguments, as one JSON object.
 		#[serde(default)]
 		args: Value,
+	},
+	/// Open a stream with room for `credits` items.
+	Stream {
+		/// The client's name for the stream, echoed in its items and its
+		/// end.
+		stream: u32,
+		/// The stream operation's name.
+		name: String,
+		/// Its arguments, as one JSON object.
+		#[serde(default)]
+		args: Value,
+		/// How many items the server may send before it hears of more room.
+		#[serde(default)]
+		credits: u32,
+	},
+	/// Room for `n` more items on a stream.
+	Credit {
+		/// The stream's id.
+		stream: u32,
+		/// How many more items the client has room for.
+		n: u32,
+	},
+	/// Stop a stream. The server sends nothing more for it.
+	Cancel {
+		/// The stream's id.
+		stream: u32,
 	},
 	/// Check the connection is alive.
 	Ping,
@@ -278,19 +320,83 @@ pub enum ServerFrame {
 		stream: u32,
 		/// The item.
 		value: Value,
+		/// Where a resumable stream reached with this item: the client
+		/// re-opens it from here after a reconnect.
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		cursor: Option<Value>,
 	},
 	/// A stream ended.
 	End {
 		/// The stream's subscription id.
 		stream: u32,
-		/// Why it ended.
+		/// Why it ended: one of [`EndReason`]'s names.
 		reason: String,
+		/// Why it failed, when `reason` is `failed`.
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		err: Option<WireError>,
 	},
 	/// The answer to [`ClientFrame::Ping`].
 	Pong,
 	/// A frame this version doesn't know.
 	#[serde(other)]
 	Unknown,
+}
+
+/// Why a stream ended, as [`ServerFrame::End`] names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EndReason {
+	/// It ran out of items.
+	Done,
+	/// It failed, or never opened.
+	Failed(WireError),
+	/// The connection or the server went away first, or the connection
+	/// changed who it is. A resumable stream opens again from its last
+	/// cursor.
+	Interrupted,
+}
+
+impl EndReason {
+	/// The `reason` a frame carries: `done`, `failed`, or `interrupted`.
+	#[must_use]
+	pub fn as_str(&self) -> &'static str {
+		match self {
+			Self::Done => "done",
+			Self::Failed(_) => "failed",
+			Self::Interrupted => "interrupted",
+		}
+	}
+
+	/// The frame that ends `stream` for this reason.
+	#[must_use]
+	pub fn frame(self, stream: u32) -> ServerFrame {
+		let reason = self.as_str().to_owned();
+		let err = match self {
+			Self::Failed(error) => Some(error),
+			Self::Done | Self::Interrupted => None,
+		};
+		ServerFrame::End {
+			stream,
+			reason,
+			err,
+		}
+	}
+
+	/// The reason an [`End`](ServerFrame::End) frame gives. A reason this
+	/// version doesn't know is a failure.
+	#[must_use]
+	pub fn from_frame(reason: &str, err: Option<WireError>) -> Self {
+		match (reason, err) {
+			("done", None) => Self::Done,
+			("interrupted", None) => Self::Interrupted,
+			(_, Some(error)) => Self::Failed(error),
+			(other, None) => {
+				Self::Failed(WireError {
+					status: 500,
+					message: format!("the stream ended: {other}"),
+				})
+			}
+		}
+	}
 }
 
 /// Every result that changed in one database state.
@@ -334,8 +440,13 @@ pub enum Update {
 
 /// The changes to a keyed list: rows to drop, and rows to put in order.
 ///
-/// Apply the removals first, then each upsert at its index. An upsert at an
-/// index past the end appends.
+/// Apply the removals first, then each upsert at its index, in order: it
+/// replaces the row with its id there, or goes in there as a new row. An
+/// upsert at an index past the end appends.
+///
+/// A [`Page`](crate::Page)'s result is an object whose `items` are the
+/// keyed list: its patch names that `field`, and carries the object's other
+/// fields that changed in `set`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Patch {
 	/// The ids of the rows to remove.
@@ -344,6 +455,13 @@ pub struct Patch {
 	/// The rows to insert or replace, in the order they belong.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub upsert: Vec<Upsert>,
+	/// The field of an object result that holds the keyed list, when the
+	/// result is a page rather than a list.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub field: Option<String>,
+	/// The object's other fields that changed, whole.
+	#[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+	pub set: serde_json::Map<String, Value>,
 }
 
 /// One row of a [`Patch`].
@@ -414,22 +532,51 @@ const fn is_false(value: &bool) -> bool {
 }
 
 /// The update that turns `old` into `new`: a [`Patch`] when both are lists
-/// of rows with string `id`s whose existing rows keep their order, and the
-/// whole value otherwise.
+/// of rows with string `id`s whose existing rows keep their order, or both
+/// are pages of such rows, and the whole value otherwise.
 #[must_use]
 pub fn patch(old: &Value, new: &Value) -> Update {
 	if old == new {
 		return Update::Ok(new.clone());
 	}
 
-	match (rows(old), rows(new)) {
-		(Some(before), Some(after)) => {
-			match diff(&before, &after) {
-				Some(patch) => Update::Patch(patch),
-				None => Update::Ok(new.clone()),
+	if let (Some(before), Some(after)) = (page_fields(old), page_fields(new)) {
+		return match diff_rows(&before["items"], &after["items"]) {
+			Some(mut patch) => {
+				patch.field = Some("items".to_owned());
+				patch.set = after
+					.iter()
+					.filter(|(name, value)| *name != "items" && before.get(*name) != Some(value))
+					.map(|(name, value)| (name.clone(), value.clone()))
+					.collect();
+				Update::Patch(patch)
 			}
-		}
-		_ => Update::Ok(new.clone()),
+			None => Update::Ok(new.clone()),
+		};
+	}
+
+	match diff_rows(old, new) {
+		Some(patch) => Update::Patch(patch),
+		None => Update::Ok(new.clone()),
+	}
+}
+
+/// A page's fields, when `value` is shaped exactly like one: `items`,
+/// `end` and `has_more`.
+fn page_fields(value: &Value) -> Option<&serde_json::Map<String, Value>> {
+	let fields = value.as_object()?;
+	let shaped = fields.len() == 3
+		&& fields.get("items").is_some_and(Value::is_array)
+		&& fields.contains_key("end")
+		&& fields.get("has_more").is_some_and(Value::is_boolean);
+	shaped.then_some(fields)
+}
+
+/// The patch between two lists of rows with ids, when one can say it.
+fn diff_rows(old: &Value, new: &Value) -> Option<Patch> {
+	match (rows(old), rows(new)) {
+		(Some(before), Some(after)) => diff(&before, &after),
+		_ => None,
 	}
 }
 
@@ -500,7 +647,11 @@ fn diff(before: &[(String, Value)], after: &[(String, Value)]) -> Option<Patch> 
 		})
 		.collect();
 
-	Some(Patch { remove, upsert })
+	Some(Patch {
+		remove,
+		upsert,
+		..Patch::default()
+	})
 }
 
 /// Applies an [`Update`] to a value. A patch on something that isn't a
@@ -511,7 +662,21 @@ pub fn apply(value: &mut Value, update: &Update) {
 		Update::Ok(next) => *value = next.clone(),
 		Update::Err(_) => {}
 		Update::Patch(patch) => {
-			let Some(items) = value.as_array_mut() else {
+			let list = match &patch.field {
+				Some(field) => {
+					let Some(fields) = value.as_object_mut() else {
+						return;
+					};
+
+					for (name, changed) in &patch.set {
+						fields.insert(name.clone(), changed.clone());
+					}
+
+					fields.get_mut(field)
+				}
+				None => Some(value),
+			};
+			let Some(items) = list.and_then(Value::as_array_mut) else {
 				return;
 			};
 			items.retain(|item| {
@@ -519,10 +684,18 @@ pub fn apply(value: &mut Value, update: &Update) {
 					.and_then(Value::as_str)
 					.is_none_or(|id| !patch.remove.iter().any(|removed| removed == id))
 			});
+			// Upserts come in order of where they land: the row already at
+			// that place is the one being replaced, or else the upsert is a
+			// new row that goes in there.
 			for upsert in &patch.upsert {
-				match items.get_mut(upsert.at) {
-					Some(slot) => *slot = upsert.value.clone(),
-					None => items.push(upsert.value.clone()),
+				let id = upsert.value.get("id").and_then(Value::as_str);
+				let at = upsert.at.min(items.len());
+
+				match items.get_mut(at) {
+					Some(slot) if id.is_some() && slot.get("id").and_then(Value::as_str) == id => {
+						*slot = upsert.value.clone();
+					}
+					_ => items.insert(at, upsert.value.clone()),
 				}
 			}
 		}
@@ -568,6 +741,14 @@ mod tests {
 				args: json!({}),
 				key: Some("k".into()),
 			},
+			ClientFrame::Stream {
+				stream: 5,
+				name: "tokens".into(),
+				args: json!({ "prompt": "hi" }),
+				credits: 8,
+			},
+			ClientFrame::Credit { stream: 5, n: 4 },
+			ClientFrame::Cancel { stream: 5 },
 			ClientFrame::Ping,
 		];
 
@@ -604,6 +785,17 @@ mod tests {
 				expiring: true,
 			},
 			ServerFrame::Reconnect { after_ms: 250 },
+			ServerFrame::Item {
+				stream: 5,
+				value: json!("tok"),
+				cursor: Some(json!(3)),
+			},
+			EndReason::Failed(WireError {
+				status: 500,
+				message: "gone".into(),
+			})
+			.frame(5),
+			EndReason::Done.frame(5),
 			ServerFrame::Pong,
 		];
 
@@ -612,6 +804,32 @@ mod tests {
 			let back: ServerFrame = serde_json::from_str(&json).unwrap();
 			assert_eq!(back, frame);
 		}
+	}
+
+	#[test]
+	fn an_older_stream_frame_still_parses() {
+		assert_eq!(
+			serde_json::from_str::<ServerFrame>(r#"{"type":"end","stream":2,"reason":"done"}"#)
+				.unwrap(),
+			EndReason::Done.frame(2)
+		);
+		assert_eq!(
+			serde_json::from_str::<ServerFrame>(r#"{"type":"item","stream":2,"value":1}"#).unwrap(),
+			ServerFrame::Item {
+				stream: 2,
+				value: json!(1),
+				cursor: None,
+			}
+		);
+		assert_eq!(EndReason::from_frame("done", None), EndReason::Done);
+		assert_eq!(
+			EndReason::from_frame("interrupted", None),
+			EndReason::Interrupted
+		);
+		assert!(matches!(
+			EndReason::from_frame("later", None),
+			EndReason::Failed(_)
+		));
 	}
 
 	#[test]
@@ -674,6 +892,51 @@ mod tests {
 		let mut applied = before.clone();
 		apply(&mut applied, &Update::Patch(patch));
 		assert_eq!(applied, after);
+	}
+
+	#[test]
+	fn a_row_inserted_before_others_goes_in_rather_than_over() {
+		let before = json!([{ "id": "b" }, { "id": "d" }]);
+		let after = json!([{ "id": "a" }, { "id": "b" }, { "id": "c" }, { "id": "d", "n": 1 }]);
+		let update = patch(&before, &after);
+		assert!(matches!(update, Update::Patch(_)));
+		let mut applied = before.clone();
+		apply(&mut applied, &update);
+		assert_eq!(applied, after);
+	}
+
+	#[test]
+	fn a_page_changes_by_a_patch_of_its_items() {
+		let before = json!({
+			"items": [{ "id": "a", "n": 1 }, { "id": "b", "n": 2 }],
+			"end": "\"b\"",
+			"has_more": false
+		});
+		let after = json!({
+			"items": [{ "id": "a", "n": 1 }, { "id": "b", "n": 3 }, { "id": "c", "n": 4 }],
+			"end": "\"c\"",
+			"has_more": true
+		});
+
+		let Update::Patch(patch) = patch(&before, &after) else {
+			panic!("a page patches");
+		};
+		assert_eq!(patch.field.as_deref(), Some("items"));
+		assert_eq!(patch.upsert.len(), 2);
+		assert_eq!(patch.set.len(), 2, "end and has_more changed");
+
+		let mut applied = before.clone();
+		apply(&mut applied, &Update::Patch(patch));
+		assert_eq!(applied, after);
+
+		// Something only page-like is sent whole.
+		let other = json!({ "items": [{ "id": "a" }], "total": 1 });
+		let grown = json!({ "items": [{ "id": "a" }, { "id": "b" }], "total": 2 });
+		assert_eq!(patch_of(&other, &grown), Update::Ok(grown.clone()));
+	}
+
+	fn patch_of(old: &Value, new: &Value) -> Update {
+		patch(old, new)
 	}
 
 	#[test]

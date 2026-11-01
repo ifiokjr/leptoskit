@@ -53,6 +53,10 @@ class Person {
       },
       onError: (Object error) => stderr.writeln('$token: $error'),
     );
+    pageSubscription = api.sdkPageRows.watch(prefix: prefix).listen((value) {
+      page = value;
+      _changes.add(null);
+    });
   }
 
   final String token;
@@ -60,7 +64,9 @@ class Person {
   final List<LiveState> statuses = <LiveState>[];
   final StreamController<void> _changes = StreamController<void>.broadcast();
   late final StreamSubscription<List<SdkNote>> subscription;
+  late final StreamSubscription<SdkPage> pageSubscription;
   List<SdkNote>? notes;
+  SdkPage? page;
 
   int has(String body) => notes?.where((note) => note.body == body).length ?? 0;
 
@@ -72,8 +78,8 @@ Future<void> scenario() async {
   final ada = Person('ada');
   final bob = Person('bob');
 
-  await ada.until(() => ada.notes != null, 'the first value');
-  await bob.until(() => bob.notes != null, 'the first value');
+  await ada.until(() => ada.notes != null && ada.page != null, 'the first values');
+  await bob.until(() => bob.notes != null && bob.page != null, 'the first values');
   check(ada.notes!.isEmpty, 'a fresh database has no notes');
   print('ok initial');
 
@@ -81,11 +87,22 @@ Future<void> scenario() async {
   final first = await bob.api.addSdkNote.live(body: '${prefix}one');
   check(first.isNotEmpty, 'the mutation returns the id');
   check(bob.has('${prefix}one') == 1, "Bob sees his own write: ${bob.notes}");
+  check(bob.page!.items.length == 1 && bob.page!.end == first && bob.page!.hasMore,
+      "Bob's page rows and metadata reflect his write");
   print('ok read-your-writes');
 
   // Ada's subscription receives it as a patch.
   await ada.until(() => ada.has('${prefix}one') == 1, "Bob's note");
   print('ok patch');
+
+  await bob.api.addSdkNote.live(body: '${prefix}alpha');
+  await ada.until(() => ada.notes!.length == 2 && ada.page!.items.length == 2,
+      'an insertion before the existing row');
+  check(ada.has('${prefix}one') == 1 && ada.notes![0].body == '${prefix}alpha',
+      'inserting preserves the existing row');
+  check(ada.page!.items[0].body == '${prefix}alpha' && ada.page!.end == first && !ada.page!.hasMore,
+      'page patches update rows and metadata together');
+  print('ok insertion and page');
 
   // The proxy lets this through, then cuts the connection before the answer.
   final dropped = await ada.api.addSdkNote.live(body: '${prefix}drop-me');
@@ -98,9 +115,12 @@ Future<void> scenario() async {
   check(ada.has('${prefix}drop-me') == 1, 'the re-sent mutation ran once');
   print('ok reconnect');
 
-  await bob.api.addSdkNote.live(body: '${prefix}two');
+  final last = await bob.api.addSdkNote.live(body: '${prefix}two');
   await ada.until(
       () => ada.has('${prefix}two') == 1, 'a note after the reconnect');
+  await ada.until(() => ada.page!.items.length == 4, 'the resumed page');
+  check(ada.notes!.length == 4 && ada.page!.end == last && !ada.page!.hasMore,
+      'resumed list and page preserve every row and update the end cursor');
   print('ok resumed');
 
   // Channels: presence from both, and Bob's signal reaches Ada.
@@ -148,6 +168,8 @@ Future<void> scenario() async {
 
   await ada.subscription.cancel();
   await bob.subscription.cancel();
+  await ada.pageSubscription.cancel();
+  await bob.pageSubscription.cancel();
   ada.api.live.close();
   bob.api.live.close();
 }

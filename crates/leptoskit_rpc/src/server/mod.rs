@@ -29,12 +29,14 @@ pub mod inbox;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub mod jobs;
 #[cfg(feature = "live")]
-mod live;
+pub(crate) mod live;
 
 #[cfg(feature = "db")]
 pub mod receipts;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod run;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub mod stream;
 
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use action::ActionCx;
@@ -88,6 +90,10 @@ pub use run::call_as;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 #[doc(hidden)]
 pub use run::handle;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use stream::StreamRegistration;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use stream::StreamSink;
 
 /// What an operation's body receives: [`QueryCx`], [`MutationCx`],
 /// [`ActionCx`], or [`JobCx`]. Sealed:

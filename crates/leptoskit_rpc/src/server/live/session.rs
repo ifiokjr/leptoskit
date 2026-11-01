@@ -37,8 +37,10 @@ use super::hub::ShareKey;
 use super::run_query;
 use crate::Kind;
 use crate::live::ClientFrame;
+use crate::live::EndReason;
 use crate::live::HEARTBEAT_SECONDS;
 use crate::live::MAX_FRAME_BYTES;
+use crate::live::MAX_STREAMS;
 use crate::live::MAX_SUBSCRIPTIONS;
 use crate::live::PresenceMember;
 use crate::live::Resume;
@@ -51,10 +53,16 @@ use crate::server::QueryCx;
 use crate::server::channel;
 use crate::server::registration;
 use crate::server::run::recording_commits;
+use crate::server::stream;
+use crate::server::stream::StreamSink;
 
 /// How often a subscription's first run may find a round applied under it
 /// before it registers anyway and has the hub run it again.
 const REGISTER_ATTEMPTS: usize = 3;
+
+/// The most credits a stream may hold at once, however many the client
+/// grants.
+const MAX_CREDITS: usize = 1 << 20;
 
 /// Who may post frames to a connection: the caller its identity names,
 /// which changes when the connection authenticates.
@@ -93,6 +101,10 @@ struct Session {
 	applied: watch::Receiver<u64>,
 	subscriptions: HashMap<u32, Subscription>,
 	joined: HashMap<String, Joined>,
+	streams: HashMap<u32, Running>,
+	/// What running streams send, forwarded in order.
+	stream_frames: mpsc::UnboundedReceiver<String>,
+	stream_out: mpsc::UnboundedSender<String>,
 	/// The version of the last transition sent.
 	last_sent: u64,
 	/// Whether a transition was dropped for a slow connection, so the next
@@ -114,6 +126,12 @@ struct Joined {
 	name: String,
 	args: Value,
 	state: Value,
+}
+
+/// A stream the connection opened, and the room its client has left.
+struct Running {
+	task: tokio::task::JoinHandle<()>,
+	credits: Arc<tokio::sync::Semaphore>,
 }
 
 /// A mutation or action that finished, and the commit it reached.
@@ -171,6 +189,7 @@ impl Live {
 
 		let (events, batches) = mpsc::unbounded_channel();
 		let (acts, finished) = mpsc::unbounded_channel();
+		let (stream_out, stream_frames) = mpsc::unbounded_channel();
 		self.hub().connect(number, events);
 		self.connections().insert(number, out.clone());
 		let version = self.hub().applied();
@@ -192,6 +211,9 @@ impl Live {
 			applied: self.hub().watch(),
 			subscriptions: HashMap::new(),
 			joined: HashMap::new(),
+			streams: HashMap::new(),
+			stream_frames,
+			stream_out,
 			last_sent: version,
 			full_next: false,
 			awaiting: None,
@@ -211,8 +233,13 @@ impl Live {
 		let mut drained = self.inner.shared.drain.subscribe();
 
 		if session.run(&mut frames, &mut drained).await {
+			session.interrupt_streams().await;
 			let after_ms = 250 + u64::from(number).wrapping_mul(7919) % 2_000;
 			session.send(ServerFrame::Reconnect { after_ms }).await;
+		}
+
+		for running in session.streams.values() {
+			running.task.abort();
 		}
 
 		session.leave_all();
@@ -244,6 +271,11 @@ impl Session {
 				Some(batch) = self.batches.recv() => self.apply(batch),
 				Some(finished) = self.finished.recv() => {
 					if !self.answer(finished).await {
+						return false;
+					}
+				}
+				Some(text) = self.stream_frames.recv() => {
+					if self.out.send(Outbound::Frame { text, version: None }).await.is_err() {
 						return false;
 					}
 				}
@@ -357,6 +389,98 @@ impl Session {
 				args,
 			} => self.act(request, &name, args).await,
 			ClientFrame::Auth { token } => self.authenticate(token).await,
+			ClientFrame::Stream {
+				stream,
+				name,
+				args,
+				credits,
+			} => self.open_stream(stream, &name, args, credits).await,
+			ClientFrame::Credit { stream, n } => {
+				self.credit(stream, n);
+				true
+			}
+			ClientFrame::Cancel { stream } => {
+				if let Some(running) = self.streams.remove(&stream) {
+					running.task.abort();
+				}
+
+				true
+			}
+		}
+	}
+
+	/// Opens a stream as the connection's identity, with room for
+	/// `credits` items.
+	async fn open_stream(&mut self, stream: u32, name: &str, args: Value, credits: u32) -> bool {
+		self.streams
+			.retain(|_, running| !running.task.is_finished());
+
+		if let Some(previous) = self.streams.remove(&stream) {
+			previous.task.abort();
+		}
+
+		let Some(registration) = stream::registration(name) else {
+			let error = WireError::invalid(format!("no stream is named `{name}`"));
+			return self.send(EndReason::Failed(error).frame(stream)).await;
+		};
+
+		if self.streams.len() >= MAX_STREAMS {
+			let error =
+				WireError::invalid(format!("a connection may hold {MAX_STREAMS} streams open"));
+			return self.send(EndReason::Failed(error).frame(stream)).await;
+		}
+
+		let credits = Arc::new(tokio::sync::Semaphore::new(
+			usize::try_from(credits)
+				.unwrap_or(MAX_CREDITS)
+				.min(MAX_CREDITS),
+		));
+		let sink = StreamSink::new(stream, self.stream_out.clone(), Arc::clone(&credits));
+		let cx = QueryCx::new(self.db.clone(), self.identity.clone());
+		let task = tokio::spawn((registration.open)(args, cx, sink));
+		self.streams.insert(stream, Running { task, credits });
+		true
+	}
+
+	/// Gives a stream room for `n` more items.
+	fn credit(&self, stream: u32, n: u32) {
+		let Some(running) = self.streams.get(&stream) else {
+			return;
+		};
+		let room = MAX_CREDITS.saturating_sub(running.credits.available_permits());
+		let n = usize::try_from(n).unwrap_or(room).min(room);
+
+		if n > 0 {
+			running.credits.add_permits(n);
+		}
+	}
+
+	/// Stops every stream still running, after sending what they already
+	/// produced, and tells the client each was interrupted: the connection
+	/// is going, or is about to read as somebody else.
+	async fn interrupt_streams(&mut self) {
+		let interrupted: Vec<u32> = self
+			.streams
+			.drain()
+			.filter(|(_, running)| {
+				running.task.abort();
+				!running.task.is_finished()
+			})
+			.map(|(stream, _)| stream)
+			.collect();
+
+		while let Ok(text) = self.stream_frames.try_recv() {
+			let _ = self
+				.out
+				.send(Outbound::Frame {
+					text,
+					version: None,
+				})
+				.await;
+		}
+
+		for stream in interrupted {
+			self.send(EndReason::Interrupted.frame(stream)).await;
 		}
 	}
 
@@ -667,6 +791,8 @@ impl Session {
 			.db
 			.with_context(self.identity.context.clone());
 		self.note_caller();
+		// A stream reads as whoever opened it, so none outlives the change.
+		self.interrupt_streams().await;
 
 		// Every result is now read as somebody else: subscribe them all
 		// again, under the new identity's own groups.

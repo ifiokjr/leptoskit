@@ -1,6 +1,6 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
-assertion_line: 535
+assertion_line: 537
 expression: "generate(TargetLanguage::Go, \"example.com/todos\")"
 ---
 ===== go.mod (Scaffold) =====
@@ -1496,24 +1496,50 @@ func (l *LiveConnection) lost(session *liveSession) {
 	})
 }
 
-// liveApplyPatch applies a keyed patch: removals first, then each upsert at
-// its index.
+// livePatch describes changes to a list or to the rows and metadata of a page.
+type livePatch struct {
+	Remove []string `json:"remove"`
+	Upsert []struct {
+		At    *int            `json:"at"`
+		Value json.RawMessage `json:"value"`
+	} `json:"upsert"`
+	Field *string                    `json:"field"`
+	Set   map[string]json.RawMessage `json:"set"`
+}
+
+// liveApplyPatch applies a list patch or a page's row and metadata changes together.
 func liveApplyPatch(value json.RawMessage, patch json.RawMessage) json.RawMessage {
+	var changes livePatch
+	if err := json.Unmarshal(patch, &changes); err != nil {
+		return value
+	}
+	if changes.Field != nil {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(value, &fields); err != nil || fields == nil {
+			return value
+		}
+		for name, changed := range changes.Set {
+			fields[name] = changed
+		}
+		if items, ok := fields[*changes.Field]; ok {
+			fields[*changes.Field] = liveApplyRows(items, changes)
+		}
+		out, err := json.Marshal(fields)
+		if err != nil {
+			return value
+		}
+		return out
+	}
+	return liveApplyRows(value, changes)
+}
+
+// liveApplyRows removes rows first, then replaces matching ids or inserts new rows.
+func liveApplyRows(value json.RawMessage, changes livePatch) json.RawMessage {
 	if !bytes.HasPrefix(bytes.TrimSpace(value), []byte("[")) {
 		return value
 	}
 	var items []json.RawMessage
 	if err := json.Unmarshal(value, &items); err != nil {
-		return value
-	}
-	var changes struct {
-		Remove []string `json:"remove"`
-		Upsert []struct {
-			At    *int            `json:"at"`
-			Value json.RawMessage `json:"value"`
-		} `json:"upsert"`
-	}
-	if err := json.Unmarshal(patch, &changes); err != nil {
 		return value
 	}
 	remove := map[string]bool{}
@@ -1522,13 +1548,8 @@ func liveApplyPatch(value json.RawMessage, patch json.RawMessage) json.RawMessag
 	}
 	kept := items[:0]
 	for _, item := range items {
-		var row struct {
-			ID any `json:"id"`
-		}
-		if json.Unmarshal(item, &row) == nil {
-			if id, ok := row.ID.(string); ok && remove[id] {
-				continue
-			}
+		if id, ok := liveRowID(item); ok && remove[id] {
+			continue
 		}
 		kept = append(kept, item)
 	}
@@ -1537,11 +1558,25 @@ func liveApplyPatch(value json.RawMessage, patch json.RawMessage) json.RawMessag
 		if upsert.At != nil {
 			at = *upsert.At
 		}
+		if at < 0 {
+			at = 0
+		}
+		if at > len(kept) {
+			at = len(kept)
+		}
 		row := liveValue(upsert.Value)
-		if at >= 0 && at < len(kept) {
+		id, hasID := liveRowID(row)
+		var previous string
+		var hasPrevious bool
+		if at < len(kept) {
+			previous, hasPrevious = liveRowID(kept[at])
+		}
+		if hasID && hasPrevious && previous == id {
 			kept[at] = row
 		} else {
-			kept = append(kept, row)
+			kept = append(kept, nil)
+			copy(kept[at+1:], kept[at:])
+			kept[at] = row
 		}
 	}
 	var out bytes.Buffer
@@ -1554,6 +1589,17 @@ func liveApplyPatch(value json.RawMessage, patch json.RawMessage) json.RawMessag
 	}
 	out.WriteByte(']')
 	return out.Bytes()
+}
+
+func liveRowID(value json.RawMessage) (string, bool) {
+	var row struct {
+		ID any `json:"id"`
+	}
+	if json.Unmarshal(value, &row) != nil {
+		return "", false
+	}
+	id, ok := row.ID.(string)
+	return id, ok
 }
 
 // liveQueue hands values to a channel without ever blocking the connection:

@@ -39,9 +39,12 @@ pub fn screen(sign_in: SignIn) -> Element {
 	reason = "the same signature as the build without the buttons"
 )]
 fn dev_sign_in() -> Option<Element> {
-	let as_teammate = |email: &'static str| {
+	let client = leptoskit::query::use_query_client();
+	let as_teammate = move |email: &'static str| {
+		let client = client.clone();
 		move || {
 			let body = serde_json::json!({ "email": email }).to_string();
+			let client = client.clone();
 			any_spawner::Executor::spawn_local(async move {
 				let signed_in = leptoskit::auth::client::send(
 					leptoskit::auth::client::Method::Post,
@@ -51,7 +54,12 @@ fn dev_sign_in() -> Option<Element> {
 				.await;
 
 				if signed_in.is_ok() {
-					crate::reload();
+					// The route set a new session cookie: the live connection
+					// reconnects with it, and the session query reads it.
+					leptoskit_rpc::client::reauthenticate();
+					client
+						.invalidate_scope(&leptoskit::auth::client::session())
+						.await;
 				}
 			});
 		}

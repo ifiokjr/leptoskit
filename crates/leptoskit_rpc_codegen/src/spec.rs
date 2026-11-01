@@ -61,11 +61,14 @@ pub enum ApiKind {
 	/// An `#[rpc::action]`: may call anything, outside any transaction, so
 	/// a client never sends it twice by itself.
 	Action,
+	/// An `#[rpc::stream]`: items over time on the live connection, opened
+	/// with credits. It has no one-shot HTTP form.
+	Stream,
 }
 
 impl ApiKind {
-	/// The kind's name in the spec: `call`, `query`, `mutation`, or
-	/// `action`.
+	/// The kind's name in the spec: `call`, `query`, `mutation`, `action`,
+	/// or `stream`.
 	#[must_use]
 	pub fn as_str(self) -> &'static str {
 		match self {
@@ -73,7 +76,15 @@ impl ApiKind {
 			Self::Query => "query",
 			Self::Mutation => "mutation",
 			Self::Action => "action",
+			Self::Stream => "stream",
 		}
+	}
+
+	/// Whether a one-shot `POST` can call it: every kind but a stream,
+	/// which only the live connection opens.
+	#[must_use]
+	pub fn is_callable_over_http(self) -> bool {
+		!matches!(self, Self::Stream)
 	}
 
 	/// Whether a call can carry an idempotency key.
@@ -762,6 +773,9 @@ mod tests {
 		assert_eq!(ApiKind::Mutation.as_str(), "mutation");
 		assert_eq!(ApiKind::Action.as_str(), "action");
 		assert!(!ApiKind::Action.is_idempotent_with_key());
+		assert_eq!(ApiKind::Stream.as_str(), "stream");
+		assert!(!ApiKind::Stream.is_callable_over_http());
+		assert!(ApiKind::Query.is_callable_over_http());
 		assert!(ApiKind::Mutation.is_idempotent_with_key());
 		assert!(!ApiKind::Query.is_idempotent_with_key());
 	}

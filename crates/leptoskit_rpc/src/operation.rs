@@ -18,9 +18,9 @@ use crate::FnError;
 /// | [`Mutation`](Self::Mutation) | `#[rpc::mutation]` | in one serializable transaction, retried when another gets in its way |
 /// | [`Action`](Self::Action) | `#[rpc::action]` | as the caller, outside any transaction, once: it may call anything |
 /// | [`Job`](Self::Job)         | `#[rpc::job]`      | later, in the background, when something enqueues it |
+/// | [`Stream`](Self::Stream)   | `#[rpc::stream]`   | as the caller, sending items over the live connection as the client has room |
 ///
-/// More kinds will join these, such as streams, so matching on a `Kind`
-/// needs a wildcard arm.
+/// More kinds may join these, so matching on a `Kind` needs a wildcard arm.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Kind {
@@ -37,11 +37,15 @@ pub enum Kind {
 	/// An `#[rpc::job]`: work that runs later, in the background, not a
 	/// route a client calls.
 	Job,
+	/// An `#[rpc::stream]`: items over time on the live connection, such as
+	/// a model's tokens or a log tail, sent only as fast as the client
+	/// takes them.
+	Stream,
 }
 
 impl Kind {
 	/// The kind's name in the spec: `call`, `query`, `mutation`, `action`,
-	/// or `job`.
+	/// `job`, or `stream`.
 	#[must_use]
 	pub const fn as_str(self) -> &'static str {
 		match self {
@@ -50,6 +54,7 @@ impl Kind {
 			Self::Mutation => "mutation",
 			Self::Action => "action",
 			Self::Job => "job",
+			Self::Stream => "stream",
 		}
 	}
 }
@@ -361,6 +366,7 @@ mod tests {
 		assert_eq!(Kind::Mutation.as_str(), "mutation");
 		assert_eq!(Kind::Action.as_str(), "action");
 		assert_eq!(Kind::Job.as_str(), "job");
+		assert_eq!(Kind::Stream.as_str(), "stream");
 	}
 
 	#[test]

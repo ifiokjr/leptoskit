@@ -4,11 +4,12 @@
 //!
 //! Every client program in `tests/sdk_live/` runs the same scenario:
 //!
-//! 1. Ada and Bob connect with bearer tokens and subscribe to `sdk_notes`, and
-//!    each receives the first value.
+//! 1. Ada and Bob connect with bearer tokens and subscribe to a list and a
+//!    page; each receives the first values.
 //! 2. Bob adds a note over the socket; when the call resolves, his own
 //!    subscription already shows it (read-your-writes), and Ada's receives it
-//!    as a patch.
+//!    as a patch. Inserting a row before it preserves the existing row, and
+//!    page patches update the rows, end cursor and has-more flag together.
 //! 3. Ada adds a note marked `drop-me`. The proxy lets it reach the server,
 //!    holds back the answer, and cuts the connection. Ada's client reconnects,
 //!    subscribes again, and sends the mutation again with the same request ID
@@ -77,6 +78,17 @@ pub struct SdkNote {
 	pub body: String,
 }
 
+/// A page-shaped result, including metadata that changes with its rows.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, JsonSchema)]
+pub struct SdkPage {
+	/// The page's ordered rows.
+	pub items: Vec<SdkNote>,
+	/// The last row's cursor.
+	pub end: Option<String>,
+	/// Changes with the row count so patches must update page metadata.
+	pub has_more: bool,
+}
+
 /// Every note that starts with `prefix`, in alphabetical order.
 #[api]
 #[rpc::query]
@@ -95,6 +107,18 @@ pub async fn sdk_notes(cx: &rpc::QueryCx, prefix: String) -> rpc::Result<Vec<Sdk
 			}
 		})
 		.collect())
+}
+
+/// The same live rows as a page, exercising both row and metadata patches.
+#[api]
+#[rpc::query]
+pub async fn sdk_page_rows(cx: &rpc::QueryCx, prefix: String) -> rpc::Result<SdkPage> {
+	let items = sdk_notes(cx, prefix).await?;
+	Ok(SdkPage {
+		end: items.last().map(|note| note.id.clone()),
+		has_more: items.len() % 2 == 1,
+		items,
+	})
 }
 
 /// Adds a note, and returns its id.

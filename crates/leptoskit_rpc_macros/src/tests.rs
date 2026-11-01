@@ -1010,6 +1010,162 @@ mod jobs {
 	}
 
 	#[test]
+	fn a_stream_names_its_item_and_registers_its_pump() {
+		let item = quote! {
+			/// A model's tokens.
+			pub async fn answer(cx: &rpc::QueryCx, prompt: String) -> rpc::Result<impl Stream<Item = rpc::Result<String>>> {
+				Ok(tokens(prompt))
+			}
+		};
+		let client = expanded(
+			OperationKind::Stream,
+			TokenStream::new(),
+			item.clone(),
+			false,
+		);
+		assert!(client.contains("StreamOperation for Answer"), "{client}");
+		assert!(client.contains("type Item = String"), "{client}");
+		assert!(!client.contains("fn pump"), "{client}");
+		assert!(
+			!client.contains("impl ::leptoskit_rpc::Operation"),
+			"{client}"
+		);
+
+		let server = expanded(
+			OperationKind::Stream,
+			TokenStream::new(),
+			item.clone(),
+			true,
+		);
+		assert!(server.contains("stream_fallible"), "{server}");
+		assert!(server.contains("StreamRegistration"), "{server}");
+		insta::assert_snapshot!("stream_server", server);
+
+		let resumable = expanded(
+			OperationKind::Stream,
+			quote!(resumable),
+			quote! {
+				pub async fn tail(cx: &rpc::QueryCx, file: String, cursor: Option<u64>) -> rpc::Result<impl Stream<Item = Line>> {
+					Ok(lines(file, cursor))
+				}
+			},
+			true,
+		);
+		assert!(
+			resumable.contains("stream_resumable::<Line>"),
+			"{resumable}"
+		);
+		assert!(
+			resumable.contains("assert_cursor::<Line, Option<u64>>"),
+			"{resumable}"
+		);
+		assert!(resumable.contains("RESUMABLE: bool = true"), "{resumable}");
+
+		let published = pretty(
+			api(
+				quote!(tag = "ai"),
+				quote! {
+					#[rpc::stream]
+					#item
+				},
+				true,
+			)
+			.expect("expands"),
+		);
+		assert!(published.contains("ApiKind::Stream"), "{published}");
+		assert!(
+			published.contains("StreamOperation > ::Item"),
+			"{published}"
+		);
+	}
+
+	#[test]
+	fn a_query_over_pages_is_paginated() {
+		let output = expanded(
+			OperationKind::Query,
+			TokenStream::new(),
+			quote! {
+				pub async fn history(cx: &rpc::QueryCx, channel: String, page: rpc::PageArgs) -> rpc::Result<rpc::Page<Message>> {
+					todo!()
+				}
+			},
+			false,
+		);
+		assert!(output.contains("Paginated for History"), "{output}");
+		assert!(output.contains("type Item = Message"), "{output}");
+		assert!(output.contains("self.page = page"), "{output}");
+
+		let plain = expanded(
+			OperationKind::Query,
+			TokenStream::new(),
+			quote! {
+				pub async fn latest(cx: &rpc::QueryCx) -> rpc::Result<Vec<Message>> {
+					todo!()
+				}
+			},
+			false,
+		);
+		assert!(!plain.contains("Paginated"), "{plain}");
+	}
+
+	#[test]
+	fn misused_stream_options_say_how_to_fix_them() {
+		use OperationKind::Query;
+		use OperationKind::Stream;
+
+		let cases: &[(OperationKind, &str, &str, &str)] = &[
+			(
+				Stream,
+				"",
+				"async fn f(cx: &QueryCx) -> rpc::Result<Vec<u8>> {}",
+				"impl Stream<Item = T>",
+			),
+			(
+				Stream,
+				"",
+				"async fn f(cx: &QueryCx) -> rpc::Result<impl Iterator<Item = u8>> {}",
+				"impl Stream<Item = T>",
+			),
+			(
+				Stream,
+				"resumable",
+				"async fn f(cx: &QueryCx) -> rpc::Result<impl Stream<Item = u8>> {}",
+				"takes a `cursor: Option<…>` argument",
+			),
+			(
+				Stream,
+				"resumable, resumable",
+				"async fn f(cx: &QueryCx, cursor: Option<u8>) -> rpc::Result<impl Stream<Item = \
+				 u8>> {}",
+				"given twice",
+			),
+			(
+				Stream,
+				"retries = 1",
+				"async fn f(cx: &QueryCx) -> rpc::Result<impl Stream<Item = u8>> {}",
+				"mark it `resumable`",
+			),
+			(
+				Query,
+				"resumable",
+				"async fn f(cx: &QueryCx) -> rpc::Result<u8> {}",
+				"only applies to #[rpc::stream]",
+			),
+			(
+				Stream,
+				"",
+				"async fn f(cx: &MutationCx) -> rpc::Result<impl Stream<Item = u8>> {}",
+				"belongs to #[rpc::mutation]",
+			),
+		];
+
+		for (kind, args, item, message) in cases {
+			let (found, _) = error(*kind, args, item);
+			assert!(found.contains(message), "{args} {item}: {found}");
+		}
+	}
+
+	#[test]
 	fn a_cron_registers_its_schedule_on_the_server() {
 		let item = quote! {
 			#[rpc::job]

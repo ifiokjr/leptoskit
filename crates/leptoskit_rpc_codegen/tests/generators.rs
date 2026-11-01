@@ -543,6 +543,38 @@ fn rust_snapshots() {
 }
 
 #[test]
+fn dart_nullable_model_fields_are_wrapped_once() {
+	let mut spec = spec();
+	spec.schemas.insert(
+		"NullablePage".to_owned(),
+		json!({
+			"type": "object",
+			"properties": {"end": {"type": ["string", "null"]}},
+		}),
+	);
+	spec.functions[0].output_schema = json!({"$ref": "#/components/schemas/NullablePage"});
+	let generated = spec.generate(&GenerateOptions::new(TargetLanguage::Dart, "pages"));
+	let models = generated
+		.files
+		.iter()
+		.find(|file| file.path == std::path::Path::new("lib/pages.dart"))
+		.expect("models");
+	assert!(
+		models.contents.contains("final String? end;"),
+		"{}",
+		models.contents
+	);
+	assert!(!models.contents.contains("String??"), "{}", models.contents);
+	assert!(
+		models
+			.contents
+			.contains("end: json['end'] == null ? null : json['end'] as String"),
+		"{}",
+		models.contents
+	);
+}
+
+#[test]
 fn dart_snapshots() {
 	insta::assert_snapshot!("dart", generate(TargetLanguage::Dart, "todos"));
 }

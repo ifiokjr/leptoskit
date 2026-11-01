@@ -451,7 +451,8 @@ fn member_names(context: &Context<'_>) -> Names {
 			match function.kind {
 				ApiKind::Query => Some(scope.bind(&format!("Subscribe{name}"))),
 				ApiKind::Mutation => Some(scope.bind(&format!("{name}Live"))),
-				ApiKind::Call | ApiKind::Action => None,
+				// Streams never reach a generator: `Context` skips them.
+				ApiKind::Call | ApiKind::Action | ApiKind::Stream => None,
 			}
 		})
 		.collect();

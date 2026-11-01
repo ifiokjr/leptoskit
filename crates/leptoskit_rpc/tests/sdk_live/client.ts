@@ -6,6 +6,7 @@ import {
 	type LiveStatus,
 	type PresenceMember,
 	type SdkNote,
+	type SdkPage,
 	type SdkPresence,
 } from "./index.ts";
 
@@ -75,6 +76,7 @@ function person(token: string) {
 		live: { token: () => token, minBackoffMs: 50, maxBackoffMs: 200 },
 	});
 	let notes: SdkNote[] | undefined;
+	let page: SdkPage | undefined;
 	const listeners = new Set<() => void>();
 	const statuses: LiveStatus["state"][] = [];
 	api.live.onStatus((status) => statuses.push(status.state));
@@ -84,11 +86,21 @@ function person(token: string) {
 			listener();
 		}
 	}, (error) => console.error(`${token}: ${error.message}`));
+	const stopPage = api.sdkPageRows.subscribe({ prefix }, (value) => {
+		page = value;
+		for (const listener of listeners) {
+			listener();
+		}
+	});
 	return {
 		api,
 		statuses,
-		stop,
+		stop: () => {
+			stop();
+			stopPage();
+		},
 		notes: () => notes,
+		page: () => page,
 		has: (body: string) =>
 			notes?.filter((note) => note.body === body).length ?? 0,
 		until: <T>(test: () => T | undefined, what: string) =>
@@ -100,8 +112,8 @@ const ada = person("ada");
 const bob = person("bob");
 
 try {
-	await ada.until(() => ada.notes(), "the first value");
-	await bob.until(() => bob.notes(), "the first value");
+	await ada.until(() => ada.notes() && ada.page(), "the first values");
+	await bob.until(() => bob.notes() && bob.page(), "the first values");
 	check(ada.notes()!.length === 0, "a fresh database has no notes");
 	console.log("ok initial");
 
@@ -112,6 +124,11 @@ try {
 		bob.has(`${prefix}one`) === 1,
 		`Bob sees his own write: ${JSON.stringify(bob.notes())}`,
 	);
+	check(
+		bob.page()!.items.length === 1 && bob.page()!.end === first &&
+			bob.page()!.has_more,
+		"Bob's page rows and metadata reflect his write",
+	);
 	console.log("ok read-your-writes");
 
 	// Ada's subscription receives it as a patch.
@@ -120,6 +137,25 @@ try {
 		"Bob's note",
 	);
 	console.log("ok patch");
+
+	await bob.api.addSdkNote.live({ body: `${prefix}alpha` });
+	await ada.until(
+		() =>
+			ada.notes()!.length === 2 && ada.page()!.items.length === 2
+				? true
+				: undefined,
+		"an insertion before the existing row",
+	);
+	check(
+		ada.has(`${prefix}one`) === 1 && ada.notes()![0].body === `${prefix}alpha`,
+		"inserting preserves the existing row",
+	);
+	check(
+		ada.page()!.items[0].body === `${prefix}alpha` &&
+			ada.page()!.end === first && !ada.page()!.has_more,
+		"page patches update rows and metadata together",
+	);
+	console.log("ok insertion and page");
 
 	// The proxy lets this through, then cuts the connection before the answer.
 	const dropped = await ada.api.addSdkNote.live({ body: `${prefix}drop-me` });
@@ -135,10 +171,19 @@ try {
 	check(ada.has(`${prefix}drop-me`) === 1, "the re-sent mutation ran once");
 	console.log("ok reconnect");
 
-	await bob.api.addSdkNote.live({ body: `${prefix}two` });
+	const last = await bob.api.addSdkNote.live({ body: `${prefix}two` });
 	await ada.until(
 		() => ada.has(`${prefix}two`) === 1 ? true : undefined,
 		"a note after the reconnect",
+	);
+	await ada.until(
+		() => ada.page()!.items.length === 4 ? true : undefined,
+		"the resumed page",
+	);
+	check(
+		ada.notes()!.length === 4 && ada.page()!.end === last &&
+			!ada.page()!.has_more,
+		"resumed list and page preserve every row and update the end cursor",
 	);
 	console.log("ok resumed");
 

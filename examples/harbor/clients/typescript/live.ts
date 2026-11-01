@@ -693,8 +693,29 @@ export class LiveConnection {
 	}
 }
 
-/** Applies a keyed patch: removals first, then each upsert at its index. */
+/** Applies a list patch or a page's row and metadata changes together. */
 function applyPatch(value: unknown, patch: Frame): unknown {
+	if (typeof patch.field === "string") {
+		if (value === null || typeof value !== "object" || Array.isArray(value)) {
+			return value;
+		}
+		const fields: Frame = { ...value as Frame };
+		if (
+			patch.set !== null && typeof patch.set === "object" &&
+			!Array.isArray(patch.set)
+		) {
+			Object.assign(fields, patch.set);
+		}
+		if (Object.prototype.hasOwnProperty.call(fields, patch.field)) {
+			fields[patch.field] = applyRows(fields[patch.field], patch);
+		}
+		return fields;
+	}
+	return applyRows(value, patch);
+}
+
+/** Removes rows first, then replaces matching ids or inserts new rows. */
+function applyRows(value: unknown, patch: Frame): unknown {
 	if (!Array.isArray(value)) {
 		return value;
 	}
@@ -708,11 +729,16 @@ function applyPatch(value: unknown, patch: Frame): unknown {
 	for (
 		const upsert of Array.isArray(patch.upsert) ? patch.upsert as Frame[] : []
 	) {
-		const at = number(upsert.at, items.length);
-		if (at < items.length) {
+		const at = Math.max(
+			0,
+			Math.min(Math.trunc(number(upsert.at, items.length)), items.length),
+		);
+		const id = (upsert.value as { id?: unknown } | null)?.id;
+		const previous = (items[at] as { id?: unknown } | null)?.id;
+		if (typeof id === "string" && previous === id) {
 			items[at] = upsert.value;
 		} else {
-			items.push(upsert.value);
+			items.splice(at, 0, upsert.value);
 		}
 	}
 	return items;
