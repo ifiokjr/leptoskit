@@ -41,11 +41,13 @@ struct SignIn {
 impl SignIn {
 	fn for_context(context: &Context<'_>) -> Option<Self> {
 		let mut scopes: Vec<String> = Vec::new();
+
 		for scope in context.functions().flat_map(|function| &function.scopes) {
 			if !scopes.contains(scope) {
 				scopes.push(scope.clone());
 			}
 		}
+
 		if scopes.is_empty() {
 			return None;
 		}
@@ -127,32 +129,39 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 				.map(str::to_owned)
 				.collect()
 		};
+
 		let documented: Vec<(&ApiParam, &String)> = function
 			.params
 			.iter()
 			.zip(&arguments)
 			.filter(|(param, _)| !param.docs.is_empty())
 			.collect();
+
 		for (param, argument) in documented {
 			docs.push(String::new());
 			docs.push(format!("[{argument}] {}", param.docs.trim()));
 		}
+
 		if function.deprecated {
 			docs.push(String::new());
 			docs.push("Deprecated.".to_owned());
 		}
+
 		for line in docs.iter().flat_map(|text| text.split('\n')) {
 			out.push_str(&format!("\t/// {}\n", comment_text(line)));
 		}
+
 		out.push_str(&format!(
 			"\t#[command(name = {})]\n",
 			rust_string(&kebab(&function.name))
 		));
 		out.push_str(&format!("\t{variant} {{\n"));
+
 		for (param, ident) in function.params.iter().zip(&arguments) {
 			for line in param.docs.lines() {
 				out.push_str(&format!("\t\t/// {line}\n"));
 			}
+
 			let raw_type = crate::rust::param_type(context, function, param, &mut types);
 			// A `Json<T>` newtype keeps clap from applying its own `Vec` and
 			// `Option` magic: every `--flag` takes one JSON value, parsed into
@@ -168,10 +177,13 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 					.unwrap_or(&raw_type);
 				format!("Option<Json<{inner}>>")
 			};
+
 			out.push_str(&format!("\t\t#[arg(long)]\n\t\t{ident}: {field_type},\n"));
 		}
+
 		out.push_str("\t},\n");
 	}
+
 	if let Some(sign_in) = &sign_in {
 		out.push_str(&format!(
 			"\t/// Signs in with the app's own sign-in: shows a code to enter in a browser, then \
@@ -183,6 +195,7 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 			logout = rust_string(&sign_in.logout),
 		));
 	}
+
 	out.push_str("}\n\n");
 
 	out.push_str(&main_source(context, sign_in.is_some()));
@@ -195,9 +208,11 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 		GeneratedFile::code("src/main.rs", out),
 		GeneratedFile::scaffold("README.md", readme(context, sign_in.as_ref())),
 	];
+
 	if let Some(sign_in) = &sign_in {
 		files.push(GeneratedFile::code("src/login.rs", sign_in.module(context)));
 	}
+
 	Generated { files }
 }
 
@@ -235,9 +250,11 @@ fn main_source(context: &Context<'_>, sign_in: bool) -> String {
 		.functions()
 		.zip(variant_names(context))
 		.zip(crate::rust::method_names(context));
+
 	for ((function, variant), method) in calls {
 		let arguments = argument_names(function);
 		let mut fields = Vec::new();
+
 		for (param, ident) in function.params.iter().zip(&arguments) {
 			if param.is_required() {
 				fields.push(format!("{ident}.0"));
@@ -245,15 +262,18 @@ fn main_source(context: &Context<'_>, sign_in: bool) -> String {
 				fields.push(format!("{ident}.map(|json| json.0)"));
 			}
 		}
+
 		let argument_list = fields.join(", ");
 		arms.push_str(&format!(
 			"\t\tCommand::{variant} {{ {} }} => run(api.{method}({argument_list}).await).await,\n",
 			arguments.join(", "),
 		));
 	}
+
 	if sign_in {
 		return signed_main(&arms);
 	}
+
 	format!(
 		"fn main() {{\n\tlet cli = Cli::parse();\n\tlet runtime = \
 		 tokio::runtime::Builder::new_current_thread()\n\t\t.enable_all()\n\t\t.build()\n\t\t.\

@@ -62,10 +62,12 @@ fn method_names(context: &Context<'_>) -> Vec<String> {
 /// names in `names`.
 fn types_section(context: &Context<'_>, names: &HashMap<String, String>) -> String {
 	let mut out = String::new();
+
 	for (name, schema) in &context.spec.schemas {
 		let ts_name = &names[name];
 		push_jsdoc(&mut out, description(schema), "");
 		let analyzed = analyze(schema);
+
 		match (&analyzed.shape, analyzed.nullable) {
 			(Shape::Object(object), false) if !object.properties.is_empty() => {
 				out.push_str(&format!("export interface {ts_name} {{\n"));
@@ -79,8 +81,10 @@ fn types_section(context: &Context<'_>, names: &HashMap<String, String>) -> Stri
 						render(property_schema, names)
 					));
 				}
+
 				out.push_str("}\n\n");
 			}
+
 			_ => {
 				out.push_str(&format!(
 					"export type {ts_name} = {};\n\n",
@@ -89,6 +93,7 @@ fn types_section(context: &Context<'_>, names: &HashMap<String, String>) -> Stri
 			}
 		}
 	}
+
 	out
 }
 
@@ -97,6 +102,7 @@ fn types_section(context: &Context<'_>, names: &HashMap<String, String>) -> Stri
 /// rather than as a name nothing defines.
 fn render(schema: &Value, names: &HashMap<String, String>) -> String {
 	let analyzed = analyze(schema);
+
 	let base = match analyzed.shape {
 		Shape::Ref(name) => {
 			names
@@ -179,6 +185,7 @@ fn render(schema: &Value, names: &HashMap<String, String>) -> String {
 				.join(" | ")
 		}
 	};
+
 	if analyzed.nullable && base != "null" {
 		format!("{base} | null")
 	} else {
@@ -191,6 +198,7 @@ fn input_type(function: &ApiFunction, names: &HashMap<String, String>) -> Option
 	if function.params.is_empty() {
 		return None;
 	}
+
 	let fields: Vec<String> = function
 		.params
 		.iter()
@@ -234,10 +242,12 @@ fn client_section(
 		"",
 	);
 	out.push_str("export class Client extends BaseClient {\n");
+
 	for (function, method) in context.functions().zip(methods) {
 		out.push('\n');
 		let mut docs = function.docs.clone();
 		push_arguments(&mut docs, function);
+
 		if function.deprecated {
 			docs.push_str(if docs.is_empty() {
 				"@deprecated"
@@ -245,6 +255,7 @@ fn client_section(
 				"\n\n@deprecated"
 			});
 		}
+
 		push_jsdoc(&mut out, (!docs.is_empty()).then_some(docs.as_str()), "\t");
 		let output = render(&function.output_schema, names);
 		let encoding = encoding(function);
@@ -254,6 +265,7 @@ fn client_section(
 		} else {
 			("", "")
 		};
+
 		match input_type(function, names) {
 			Some(input) => {
 				let separator = if options.is_empty() { "" } else { ", " };
@@ -277,6 +289,7 @@ fn client_section(
 			}
 		}
 	}
+
 	out.push_str("}\n\n");
 	out.push_str(
 		"/** A client with the default options; construct `new Client(...)` for anything else. \
@@ -292,13 +305,17 @@ pub(crate) fn push_arguments(docs: &mut String, function: &ApiFunction) {
 		.iter()
 		.filter(|param| !param.docs.is_empty())
 		.collect();
+
 	if documented.is_empty() {
 		return;
 	}
+
 	docs.push_str("\n\n");
+
 	for param in documented {
 		docs.push_str(&format!("- `{}` — {}\n", param.name, param.docs.trim()));
 	}
+
 	docs.pop();
 }
 
@@ -316,15 +333,19 @@ pub(crate) fn push_jsdoc(out: &mut String, docs: Option<&str>, indent: &str) {
 		return;
 	};
 	let docs = docs.trim();
+
 	if docs.is_empty() {
 		return;
 	}
+
 	let safe = docs.replace("*/", "*\\/");
 	let lines: Vec<&str> = safe.lines().collect();
+
 	if lines.len() == 1 && !lines[0].starts_with("- ") {
 		out.push_str(&format!("{indent}/** {} */\n", lines[0]));
 	} else {
 		out.push_str(&format!("{indent}/**\n"));
+
 		for line in lines {
 			if line.is_empty() {
 				out.push_str(&format!("{indent} *\n"));
@@ -332,6 +353,7 @@ pub(crate) fn push_jsdoc(out: &mut String, docs: Option<&str>, indent: &str) {
 				out.push_str(&format!("{indent} * {line}\n"));
 			}
 		}
+
 		out.push_str(&format!("{indent} */\n"));
 	}
 }
@@ -368,15 +390,19 @@ fn readme(context: &Context<'_>, methods: &[String]) -> String {
 						.collect();
 					format!("{{ {} }}", fields.join(", "))
 				};
+
 				format!("const result = await api.{method}({args});\n")
 			});
 	let mut skipped = String::new();
+
 	if !context.skipped.is_empty() {
 		skipped.push_str("\n## Not generated\n\n");
+
 		for (name, reason) in &context.skipped {
 			skipped.push_str(&format!("- `{name}`: {reason}\n"));
 		}
 	}
+
 	format!(
 		"# {name}
 

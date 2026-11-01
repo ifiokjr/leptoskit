@@ -41,6 +41,7 @@ mod dart;
 mod generate;
 #[cfg(feature = "generators")]
 mod go;
+
 #[cfg(feature = "generators")]
 mod naming;
 #[cfg(feature = "generators")]

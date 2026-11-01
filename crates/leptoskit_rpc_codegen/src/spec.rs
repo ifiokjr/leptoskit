@@ -289,12 +289,14 @@ impl ApiSpec {
 			.get(SPEC_MARKER)
 			.and_then(Value::as_u64)
 			.ok_or(CodegenError::NotASpec)?;
+
 		if !(u64::from(OLDEST_SPEC_VERSION)..=u64::from(SPEC_VERSION)).contains(&found) {
 			return Err(CodegenError::Version {
 				found,
 				expected: SPEC_VERSION,
 			});
 		}
+
 		let mut spec: Self = serde_json::from_value(value).map_err(CodegenError::Deserialize)?;
 		spec.leptoskit_rpc_spec = SPEC_VERSION;
 		Ok(spec)
@@ -327,24 +329,30 @@ impl ApiSpec {
 		spec.functions.retain(keep);
 		let mut reachable = BTreeSet::new();
 		let mut stack: Vec<String> = Vec::new();
+
 		for function in &spec.functions {
 			let mut roots = BTreeSet::new();
 			collect_refs(&function.output_schema, &mut roots);
+
 			for param in &function.params {
 				collect_refs(&param.schema, &mut roots);
 			}
+
 			stack.extend(roots);
 		}
+
 		while let Some(name) = stack.pop() {
 			if !reachable.insert(name.clone()) {
 				continue;
 			}
+
 			if let Some(schema) = self.schemas.get(&name) {
 				let mut nested = BTreeSet::new();
 				collect_refs(schema, &mut nested);
 				stack.extend(nested);
 			}
 		}
+
 		spec.schemas.retain(|name, _| reachable.contains(name));
 		spec
 	}
@@ -381,9 +389,11 @@ impl ApiSpec {
 		let mut object = Map::new();
 		object.insert("type".to_owned(), Value::String("object".to_owned()));
 		object.insert("properties".to_owned(), Value::Object(properties));
+
 		if !required.is_empty() {
 			object.insert("required".to_owned(), Value::Array(required));
 		}
+
 		Value::Object(object)
 	}
 }
@@ -394,20 +404,25 @@ pub fn schema_is_nullable(schema: &Value) -> bool {
 	let Some(object) = schema.as_object() else {
 		return false;
 	};
+
 	let typed_null = match object.get("type") {
 		Some(Value::String(kind)) => kind == "null",
 		Some(Value::Array(kinds)) => kinds.iter().any(|kind| kind == "null"),
 		_ => false,
 	};
+
 	if typed_null {
 		return true;
 	}
+
 	if let Some(Value::Array(variants)) = object.get("anyOf") {
 		return variants.iter().any(is_null_schema);
 	}
+
 	if let Some(Value::Array(variants)) = object.get("oneOf") {
 		return variants.iter().any(is_null_schema);
 	}
+
 	false
 }
 
@@ -421,16 +436,19 @@ fn collect_refs(schema: &Value, refs: &mut BTreeSet<String>) {
 	let Some(object) = schema.as_object() else {
 		return;
 	};
+
 	if let Some(Value::String(reference)) = object.get("$ref")
 		&& let Some(name) = ref_name(reference)
 	{
 		refs.insert(name.to_owned());
 	}
+
 	for key in ["items", "additionalProperties", "contains", "propertyNames"] {
 		if let Some(nested) = object.get(key) {
 			collect_refs(nested, refs);
 		}
 	}
+
 	for key in ["allOf", "anyOf", "oneOf", "prefixItems"] {
 		if let Some(Value::Array(variants)) = object.get(key) {
 			for variant in variants {
@@ -438,6 +456,7 @@ fn collect_refs(schema: &Value, refs: &mut BTreeSet<String>) {
 			}
 		}
 	}
+
 	if let Some(Value::Object(properties)) = object.get("properties") {
 		for property in properties.values() {
 			collect_refs(property, refs);
@@ -452,6 +471,7 @@ pub(crate) fn ref_name(reference: &str) -> Option<&str> {
 			return Some(name);
 		}
 	}
+
 	None
 }
 
@@ -625,9 +645,11 @@ mod tests {
 			serde_json::from_str(&spec.to_json().expect("serialize")).expect("json");
 		assert_eq!(json["functions"][1]["kind"], "query");
 		json[SPEC_MARKER] = Value::from(1);
+
 		for function in json["functions"].as_array_mut().expect("functions") {
 			function.as_object_mut().expect("function").remove("kind");
 		}
+
 		let back = ApiSpec::from_json(&json.to_string()).expect("version 1 still reads");
 		assert_eq!(back.leptoskit_rpc_spec, SPEC_VERSION);
 		assert!(
@@ -674,6 +696,7 @@ mod tests {
 		let other = HttpOutput::Other {
 			content_type: "application/msgpack".to_owned(),
 		};
+
 		assert_eq!(other.content_type(), "application/msgpack");
 		assert!(!other.is_supported() && HttpOutput::Json.is_supported());
 	}
@@ -757,6 +780,7 @@ mod tests {
 			"ViaDefs".to_owned(),
 			serde_json::json!({ "type": "string" }),
 		);
+
 		spec.schemas
 			.insert("Orphan".to_owned(), serde_json::json!({ "type": "string" }));
 		let public = spec.public();

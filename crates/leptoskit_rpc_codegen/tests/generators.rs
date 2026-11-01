@@ -114,6 +114,7 @@ fn assert_metadata_outputs(
 			} else {
 				"A typed client"
 			};
+
 			assert_eq!(
 				actual[package]["description"].as_str(),
 				Some(format!("{prefix} for the {} RPC.", hostile.title).as_str())
@@ -122,6 +123,7 @@ fn assert_metadata_outputs(
 				actual[package]["version"].as_str(),
 				Some(hostile.version.as_str())
 			);
+
 			for key in ["description", "version"] {
 				actual[package].as_table_mut().expect("package").remove(key);
 				expected[package]
@@ -129,6 +131,7 @@ fn assert_metadata_outputs(
 					.expect("package")
 					.remove(key);
 			}
+
 			assert_eq!(
 				actual, expected,
 				"{language}: metadata must not change dependency or build configuration"
@@ -451,8 +454,10 @@ fn generate(language: TargetLanguage, package: &str) -> String {
 			function.deprecated = true;
 		}
 	}
+
 	let generated = spec.generate(&GenerateOptions::new(language, package));
 	let mut out = String::new();
+
 	for file in &generated.files {
 		let _ = writeln!(
 			out,
@@ -462,6 +467,7 @@ fn generate(language: TargetLanguage, package: &str) -> String {
 			file.contents
 		);
 	}
+
 	out
 }
 
@@ -608,6 +614,7 @@ fn unsupported_encodings_are_skipped_with_the_reason() {
 		.expect("README")
 		.contents;
 	assert!(readme.contains("`blob`"), "{readme}");
+
 	assert!(readme.contains("application/cbor"), "{readme}");
 	let index = &generated
 		.files
@@ -621,9 +628,11 @@ fn unsupported_encodings_are_skipped_with_the_reason() {
 #[test]
 fn empty_specs_generate_valid_packages() {
 	let spec = ApiSpec::empty("Nothing", "0.0.0");
+
 	for language in TargetLanguage::ALL {
 		let generated = spec.generate(&GenerateOptions::new(*language, "nothing"));
 		assert!(!generated.files.is_empty(), "{language}");
+
 		for file in &generated.files {
 			assert!(
 				!file.contents.is_empty(),
@@ -806,6 +815,7 @@ fn edge_shapes_render_in_every_target() {
 				"{language} records why `blob` is missing: {all}"
 			);
 		}
+
 		if *language == TargetLanguage::Cli {
 			assert!(
 				!all.contains("Command::Blob"),
@@ -884,6 +894,7 @@ fn colliding_spec() -> ApiSpec {
 		"Option".to_owned(),
 		json!({ "type": "object", "properties": { "on": { "type": "boolean" } }, "required": ["on"] }),
 	);
+
 	schemas.insert(
 		"ListTodosInput".to_owned(),
 		json!({ "type": "object", "properties": { "x": { "type": "boolean" } }, "required": ["x"] }),
@@ -961,6 +972,7 @@ fn colliding_spec() -> ApiSpec {
 fn generate_colliding(language: TargetLanguage, package: &str) -> String {
 	let generated = colliding_spec().generate(&GenerateOptions::new(language, package));
 	let mut out = String::new();
+
 	for file in generated
 		.files
 		.iter()
@@ -995,6 +1007,7 @@ fn typescript_names_clear_the_runtime() {
 		!index.contains("comment */ early"),
 		"no argument doc closes its comment: {index}"
 	);
+
 	insta::assert_snapshot!("typescript_collisions", index);
 }
 
@@ -1032,6 +1045,7 @@ fn rust_names_clear_the_runtime() {
 	);
 	assert!(code.contains("pub async fn new2(&self"), "{code}");
 	assert!(code.contains("self_: bool"), "{code}");
+
 	insta::assert_snapshot!("rust_collisions", code);
 }
 
@@ -1068,6 +1082,7 @@ fn go_clients_keep_numbers_exact() {
 			.map(|elapsed| elapsed.as_nanos())
 			.unwrap_or_default()
 	));
+
 	for (name, spec) in [("todos", spec()), ("clash", colliding_spec())] {
 		let package = dir.join(name);
 		spec.generate(&GenerateOptions::new(
@@ -1088,12 +1103,14 @@ fn go_clients_keep_numbers_exact() {
 			String::from_utf8_lossy(&vet.stderr)
 		);
 	}
+
 	std::fs::write(dir.join("todos/numbers_test.go"), GO_NUMBERS_TEST).expect("the test");
 	let test = std::process::Command::new("go")
 		.args(["test", "./..."])
 		.current_dir(dir.join("todos"))
 		.output()
 		.expect("run go test");
+
 	assert!(
 		test.status.success(),
 		"{}{}",
@@ -1202,6 +1219,7 @@ fn clis_whose_functions_need_scopes_can_sign_in() {
 		login.contains("const CLIENT_ID_ENV: &str = \"TODOS_CLI_CLIENT_ID\";"),
 		"{login}"
 	);
+
 	assert!(
 		login.contains("urn:ietf:params:oauth:grant-type:device_code"),
 		"{login}"
@@ -1239,11 +1257,13 @@ fn a_signing_in_cli_compiles() {
 	scoped.functions[0].scopes = vec!["todos:read".to_owned()];
 	let generated = scoped.generate(&GenerateOptions::new(TargetLanguage::Cli, "todos-cli"));
 	let directory = tempfile::tempdir().unwrap();
+
 	for file in &generated.files {
 		let path = directory.path().join(&file.path);
 		std::fs::create_dir_all(path.parent().unwrap()).unwrap();
 		std::fs::write(path, &file.contents).unwrap();
 	}
+
 	let output = std::process::Command::new(env!("CARGO"))
 		.args(["check", "--quiet"])
 		.current_dir(directory.path())

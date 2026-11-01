@@ -27,32 +27,58 @@ impl ApiSpec {
 	/// Renders the spec as an OpenAPI 3.1 document.
 	#[must_use]
 	pub fn to_openapi(&self) -> Value {
-		let mut paths = Map::new();
-		for function in &self.functions {
-			let operation = operation(function);
-			let existing = paths
-				.entry(function.path.clone())
-				.or_insert_with(|| Value::Object(Map::new()));
-			merge_operation(existing, &function.method, operation);
-		}
 		let mut document = Map::new();
 		document.insert("openapi".to_owned(), json!(openapi_version()));
+		document.insert("info".to_owned(), Value::Object(self.info()));
+		document.insert("paths".to_owned(), Value::Object(self.paths()));
+
+		if let Some(servers) = self.servers_value() {
+			document.insert("servers".to_owned(), servers);
+		}
+
+		if let Some(tags) = self.tags_value() {
+			document.insert("tags".to_owned(), tags);
+		}
+
+		let components = self.components();
+		if !components.is_empty() {
+			document.insert("components".to_owned(), Value::Object(components));
+		}
+
+		Value::Object(document)
+	}
+
+	/// The document's `info`.
+	fn info(&self) -> Map<String, Value> {
 		let mut info = Map::new();
 		info.insert("title".to_owned(), json!(self.title));
 		info.insert("version".to_owned(), json!(self.version));
+
 		if let Some(description) = &self.description {
 			info.insert("description".to_owned(), json!(description));
 		}
-		document.insert("info".to_owned(), Value::Object(info));
-		if !self.servers.is_empty() {
-			let servers: Vec<Value> = self
-				.servers
-				.iter()
-				.map(|url| json!({ "url": url }))
-				.collect();
-			document.insert("servers".to_owned(), Value::Array(servers));
+
+		info
+	}
+
+	/// The document's `servers`, when it names any.
+	fn servers_value(&self) -> Option<Value> {
+		if self.servers.is_empty() {
+			return None;
 		}
+
+		let servers: Vec<Value> = self
+			.servers
+			.iter()
+			.map(|url| json!({ "url": url }))
+			.collect();
+		Some(Value::Array(servers))
+	}
+
+	/// The document's `tags`, in the order the functions first name them.
+	fn tags_value(&self) -> Option<Value> {
 		let mut tags: Vec<String> = Vec::new();
+
 		for function in &self.functions {
 			for tag in &function.tags {
 				if !tags.contains(tag) {
@@ -60,32 +86,56 @@ impl ApiSpec {
 				}
 			}
 		}
-		if !tags.is_empty() {
-			let tags: Vec<Value> = tags
-				.into_iter()
-				.map(|name| json!({ "name": name }))
-				.collect();
-			document.insert("tags".to_owned(), Value::Array(tags));
+
+		if tags.is_empty() {
+			return None;
 		}
-		document.insert("paths".to_owned(), Value::Object(paths));
+
+		let tags: Vec<Value> = tags
+			.into_iter()
+			.map(|name| json!({ "name": name }))
+			.collect();
+		Some(Value::Array(tags))
+	}
+
+	/// The document's `components`: every schema, and the security scheme
+	/// when a function scopes its calls.
+	fn components(&self) -> Map<String, Value> {
 		let mut components = Map::new();
+
 		if !self.schemas.is_empty() {
 			let mut schemas = Map::new();
+
 			for (name, schema) in &self.schemas {
 				schemas.insert(name.clone(), schema.clone());
 			}
+
 			components.insert("schemas".to_owned(), Value::Object(schemas));
 		}
+
 		if let Some(scheme) = self.oauth2_scheme() {
 			components.insert(
 				"securitySchemes".to_owned(),
 				json!({ OAUTH2_SCHEME: scheme }),
 			);
 		}
-		if !components.is_empty() {
-			document.insert("components".to_owned(), Value::Object(components));
+
+		components
+	}
+
+	/// The document's `paths`, merging every method on the same path.
+	fn paths(&self) -> Map<String, Value> {
+		let mut paths = Map::new();
+
+		for function in &self.functions {
+			let operation = operation(function);
+			let existing = paths
+				.entry(function.path.clone())
+				.or_insert_with(|| Value::Object(Map::new()));
+			merge_operation(existing, &function.method, operation);
 		}
-		Value::Object(document)
+
+		paths
 	}
 
 	/// The `oauth2` security scheme, listing every scope a function asks
@@ -94,14 +144,17 @@ impl ApiSpec {
 	/// `/oauth/authorize` and `/oauth/token`.
 	fn oauth2_scheme(&self) -> Option<Value> {
 		let mut scopes = Map::new();
+
 		for function in &self.functions {
 			for scope in &function.scopes {
 				scopes.insert(scope.clone(), json!(""));
 			}
 		}
+
 		if scopes.is_empty() {
 			return None;
 		}
+
 		Some(json!({
 			"type": "oauth2",
 			"flows": {
@@ -133,37 +186,46 @@ fn merge_operation(path_item: &mut Value, method: &str, operation: Value) {
 fn operation(function: &ApiFunction) -> Value {
 	let mut operation = Map::new();
 	operation.insert("operationId".to_owned(), json!(function.name));
+
 	if !function.docs.is_empty() {
 		let (summary, description) = split_docs(&function.docs);
 		operation.insert("summary".to_owned(), json!(summary));
+
 		if let Some(description) = description {
 			operation.insert("description".to_owned(), json!(description));
 		}
 	}
+
 	if !function.tags.is_empty() {
 		operation.insert("tags".to_owned(), json!(function.tags));
 	}
+
 	if function.deprecated {
 		operation.insert("deprecated".to_owned(), json!(true));
 	}
+
 	if !function.scopes.is_empty() {
 		operation.insert(
 			"security".to_owned(),
 			json!([{ OAUTH2_SCHEME: function.scopes }]),
 		);
 	}
+
 	if function.internal {
 		operation.insert("x-leptoskit-internal".to_owned(), json!(true));
 	}
+
 	if function.kind != ApiKind::Call {
 		operation.insert("x-leptoskit-kind".to_owned(), json!(function.kind.as_str()));
 	}
+
 	if !function.input.is_supported() {
 		operation.insert(
 			"x-leptoskit-unsupported-input".to_owned(),
 			json!(function.input.content_type()),
 		);
 	}
+
 	if !function.output.is_supported() {
 		operation.insert(
 			"x-leptoskit-unsupported-output".to_owned(),
@@ -172,6 +234,7 @@ fn operation(function: &ApiFunction) -> Value {
 	}
 
 	let params_schema = ApiSpec::params_object_schema(function);
+
 	match function.input {
 		HttpInput::Query => {
 			let parameters = query_parameters(function);
@@ -192,6 +255,7 @@ fn operation(function: &ApiFunction) -> Value {
 					}]),
 				);
 			}
+
 			let mut request = Map::new();
 			request.insert("required".to_owned(), json!(true));
 			let mut content = Map::new();
@@ -222,6 +286,7 @@ fn operation(function: &ApiFunction) -> Value {
 	} else {
 		json!({ "description": "The function's own error type; its shape is not published." })
 	};
+
 	error_content.insert(
 		function.error_content_type.clone(),
 		json!({
@@ -238,6 +303,7 @@ fn operation(function: &ApiFunction) -> Value {
 			"content": Value::Object(error_content),
 		}),
 	);
+
 	operation.insert("responses".to_owned(), Value::Object(responses));
 	Value::Object(operation)
 }
@@ -275,6 +341,7 @@ fn query_parameters(function: &ApiFunction) -> Vec<Value> {
 			if !param.docs.is_empty() {
 				parameter.insert("description".to_owned(), json!(param.docs.trim()));
 			}
+
 			parameter.insert("required".to_owned(), json!(param.is_required()));
 			parameter.insert("schema".to_owned(), param.schema.clone());
 			Value::Object(parameter)
@@ -355,6 +422,7 @@ mod tests {
 			json!("How many to return.")
 		);
 		assert_eq!(operation["parameters"][0]["in"], json!("query"));
+
 		assert_eq!(operation["parameters"][0]["required"], json!(true));
 		assert_eq!(
 			operation["responses"]["200"]["content"]["application/json"]["schema"],
@@ -460,6 +528,7 @@ mod tests {
 			Some(1),
 			"tags dedupe"
 		);
+
 		let operation = &document["paths"]["/api/blob"]["post"];
 		assert_eq!(
 			operation["x-leptoskit-unsupported-input"],
