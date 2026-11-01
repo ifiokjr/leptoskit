@@ -33,6 +33,9 @@ pub(crate) mod live;
 
 #[cfg(feature = "db")]
 pub mod receipts;
+#[cfg(feature = "relay")]
+pub mod relay;
+mod roles;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod run;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -79,6 +82,20 @@ pub use jobs::cancel;
 pub use live::Live;
 #[cfg(feature = "live")]
 pub use live::LiveStats;
+#[cfg(feature = "relay")]
+pub use relay::PublisherStats;
+#[cfg(feature = "relay")]
+pub use relay::Relay;
+#[cfg(feature = "relay")]
+pub use relay::RelayError;
+#[cfg(feature = "relay")]
+pub use relay::RelayPublisher;
+#[cfg(feature = "relay")]
+pub use relay::RelaySettings;
+pub use roles::ROLE_ENV;
+pub use roles::Role;
+pub use roles::Roles;
+pub use roles::RolesError;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use run::Invocation;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]

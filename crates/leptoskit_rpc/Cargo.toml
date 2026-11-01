@@ -14,6 +14,8 @@ description = "The app's operations: leptos server functions with retries and er
 
 [dependencies]
 any_spawner = { workspace = true }
+# The live relay's NATS JetStream client.
+async-nats = { workspace = true, optional = true }
 axum = { workspace = true, optional = true, features = ["ws"] }
 chrono = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
@@ -132,6 +134,11 @@ devtools = ["dep:leptoskit_devtools_protocol"]
 # at `/live/events` where a socket can't get through, on top of the database's
 # change feed. Pick a driver with `postgres` or `sqlite`.
 live = ["server", "db", "dep:futures", "dep:getrandom"]
+# The live relay over NATS JetStream, for several servers: one publishes the
+# change log to a stream, and every `Live` takes commits from it instead of
+# reading the database, with channel signals and presence crossing between
+# servers too.
+relay = ["live", "dep:async-nats", "tokio/macros"]
 
 [lints]
 workspace = true

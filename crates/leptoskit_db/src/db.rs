@@ -30,6 +30,7 @@ pub struct Db {
 	/// who is asking, for its row-level security policies.
 	row_security: bool,
 	/// How big each pool is, which read replicas' pools copy.
+	#[cfg(feature = "postgres")]
 	options: PoolOptions,
 	/// The read replicas, shared by every handle.
 	pub(crate) replicas: Arc<crate::replicas::Replicas>,
@@ -67,6 +68,7 @@ impl Db {
 			live,
 			access: Access::default(),
 			row_security: false,
+			#[cfg(feature = "postgres")]
 			options,
 			replicas: Arc::default(),
 			replica: None,
@@ -396,8 +398,19 @@ impl Db {
 	}
 
 	/// How big the pool is.
+	#[cfg(feature = "postgres")]
 	pub(crate) fn pool_options(&self) -> PoolOptions {
 		self.options
+	}
+
+	/// The primary's Postgres pool.
+	#[cfg(feature = "postgres")]
+	pub(crate) fn postgres_pool(&self) -> Option<&crate::postgres::Pool> {
+		match &*self.pool {
+			Pool::Postgres(pool) => Some(pool),
+			#[cfg(feature = "sqlite")]
+			Pool::Sqlite(_) => None,
+		}
 	}
 
 	/// The Postgres URL the pool connects to, which the connection that

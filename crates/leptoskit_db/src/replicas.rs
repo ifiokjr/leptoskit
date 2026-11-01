@@ -45,6 +45,7 @@ pub(crate) struct Replicas {
 
 impl Replicas {
 	/// These replicas and `replica`.
+	#[cfg(feature = "postgres")]
 	pub(crate) fn with(&self, replica: Replica) -> Self {
 		let mut list = self.list.clone();
 		list.push(Arc::new(replica));
@@ -314,6 +315,50 @@ impl crate::Db {
 		let mut db = self.clone();
 		db.replica = None;
 		db
+	}
+
+	/// The same handle, reading from wherever `other` reads: the same
+	/// replica, or the primary. For moving a request's handle onto a
+	/// replica that [`Db::on_replica_at`] found.
+	#[must_use]
+	pub fn reading_like(&self, other: &Self) -> Self {
+		let mut db = self.clone();
+		db.replica.clone_from(&other.replica);
+		db
+	}
+
+	/// Postgres: where the primary's write-ahead log ends now, as bytes from
+	/// its start. Everything committed so far is before it, so a replica
+	/// that has replayed up to it shows all of that. `None` on SQLite.
+	///
+	/// # Errors
+	///
+	/// When the primary can't be reached.
+	pub async fn wal_position(&self) -> Result<Option<i64>> {
+		#[cfg(feature = "postgres")]
+		if let Some(pool) = self.postgres_pool() {
+			let rows = pool
+				.fetch(Statement {
+					sql: "SELECT (pg_current_wal_insert_lsn() - '0/0'::pg_lsn)::bigint".into(),
+					args: Vec::new(),
+				})
+				.await?;
+			return Ok(match rows.first().and_then(|row| row.first()) {
+				Some(Value::Int(position)) => Some(*position),
+				_ => None,
+			});
+		}
+
+		Ok(None)
+	}
+
+	/// How far the replica this handle reads from has replayed, asking it
+	/// now; `None` for a handle on the primary, or a replica that doesn't
+	/// answer.
+	pub async fn replica_position(&self) -> Option<i64> {
+		let replica = self.replica.as_ref()?;
+		let position = replica.refresh().await;
+		(position != i64::MIN).then_some(position)
 	}
 
 	/// Whether this handle reads from a replica.

@@ -151,7 +151,7 @@ struct Started {
 }
 
 impl Outbound {
-	fn frame(frame: &ServerFrame, version: Option<u64>) -> Option<Self> {
+	pub(super) fn frame(frame: &ServerFrame, version: Option<u64>) -> Option<Self> {
 		let text = serde_json::to_string(frame).ok()?;
 		Some(Self::Frame { text, version })
 	}
@@ -171,7 +171,7 @@ impl Live {
 			caller,
 		} = opened;
 
-		if let Err(error) = self.hub().start().await {
+		if let Err(error) = self.start().await {
 			if let Some(frame) = Outbound::frame(
 				&ServerFrame::Done {
 					request: 0,
@@ -1068,9 +1068,9 @@ impl Session {
 
 		if empty {
 			self.live.rooms().remove(channel);
-		} else {
-			self.broadcast_presence(channel);
 		}
+
+		self.broadcast_presence(channel);
 	}
 
 	fn leave_all(&mut self) {
@@ -1104,6 +1104,7 @@ impl Session {
 				.map(|member| member.id.clone());
 			(senders, from)
 		};
+		self.live.signal_elsewhere(channel, from.clone(), &message);
 		let frame = ServerFrame::Signal {
 			channel: channel.to_owned(),
 			from,
@@ -1119,31 +1120,7 @@ impl Session {
 	}
 
 	fn broadcast_presence(&self, channel: &str) {
-		let (members, senders) = {
-			let rooms = self.live.rooms();
-			let Some(room) = rooms.get(channel) else {
-				return;
-			};
-			let members: Vec<PresenceMember> = room.members.values().cloned().collect();
-			let connections = self.live.connections();
-			let senders: Vec<mpsc::Sender<Outbound>> = room
-				.members
-				.keys()
-				.filter_map(|id| connections.get(id).cloned())
-				.collect();
-			(members, senders)
-		};
-		let frame = ServerFrame::Presence {
-			channel: channel.to_owned(),
-			members,
-		};
-		let Some(outbound) = Outbound::frame(&frame, None) else {
-			return;
-		};
-
-		for sender in senders {
-			let _ = sender.try_send(outbound.clone());
-		}
+		self.live.presence_changed(channel);
 	}
 
 	async fn channel_error(&self, channel: &str, err: WireError) -> bool {

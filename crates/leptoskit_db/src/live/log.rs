@@ -417,7 +417,7 @@ mod reading {
 	/// [`COMMITS_PER_READ`] at a time. One statement reads both, so a
 	/// commit is never seen without the changes a concurrent prune removes
 	/// with it.
-	async fn read(db: &Db, after: i64) -> Result<Vec<RawEntry>> {
+	pub(crate) async fn read(db: &Db, after: i64) -> Result<Vec<RawEntry>> {
 		if !has_log(db).await? {
 			return Ok(Vec::new());
 		}
@@ -829,6 +829,8 @@ pub(crate) use reading::has_log;
 pub(crate) use reading::latest_version;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) use reading::prune;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub(crate) use reading::read;
 
 /// RFC 3339, as Postgres and SQLite both write timestamps into JSON, with or
 /// without an offset (read as UTC).

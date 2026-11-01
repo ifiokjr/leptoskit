@@ -44,7 +44,18 @@
 //! Re-runs read the database as it is when they run, not at one snapshot
 //! per batch: a transition's results reflect at least its version, and a
 //! later commit they already include re-runs them again, harmlessly.
+//!
+//! # Several servers
+//!
+//! Every server's hub reads each commit from the database, which suits a
+//! few dozen servers. With a [`Relay`](crate::server::Relay), one server
+//! publishes the change log to NATS JetStream and the others read it from
+//! there, and channel signals and presence cross between servers too. When
+//! the database has read replicas, re-runs read from one that has replayed
+//! past the commits that caused them, and from the primary otherwise.
 
+#[cfg(feature = "relay")]
+mod cluster;
 mod hub;
 pub(crate) mod memory;
 mod session;
@@ -113,6 +124,12 @@ struct Shared {
 	connections: Mutex<HashMap<u32, mpsc::Sender<Outbound>>>,
 	rooms: Mutex<HashMap<String, Room>>,
 	events: Mutex<HashMap<String, sse::Handle>>,
+	/// The relay commits and channels go through, when there is one.
+	#[cfg(feature = "relay")]
+	relay: std::sync::OnceLock<crate::server::Relay>,
+	/// The other servers' channel members, once the relay is joined.
+	#[cfg(feature = "relay")]
+	cluster: tokio::sync::OnceCell<Option<Arc<cluster::Cluster>>>,
 }
 
 /// Who is in one channel instance.
@@ -147,6 +164,13 @@ pub struct LiveStats {
 	/// Connections that resumed from a version the change log still
 	/// reached, sending only what changed.
 	pub resumes: u64,
+	/// Re-runs that read from a read replica rather than the primary,
+	/// counted in [`reruns`](Self::reruns) too.
+	pub replica_reruns: u64,
+	/// With a relay: log entries read from the database because the relay
+	/// couldn't bring them, after a gap in its stream or while no server
+	/// published.
+	pub relay_fills: u64,
 }
 
 /// What a session writes for its transport to send.
@@ -185,6 +209,10 @@ impl Live {
 					connections: Mutex::new(HashMap::new()),
 					rooms: Mutex::new(HashMap::new()),
 					events: Mutex::new(HashMap::new()),
+					#[cfg(feature = "relay")]
+					relay: std::sync::OnceLock::new(),
+					#[cfg(feature = "relay")]
+					cluster: tokio::sync::OnceCell::new(),
 				}),
 			}),
 		}
@@ -217,6 +245,135 @@ impl Live {
 		self.with(|inner| {
 			inner.origin = Some(origin.trim_end_matches('/').to_owned());
 		})
+	}
+
+	/// Takes commits from `relay`'s stream instead of reading the database's
+	/// change log, and sends channel signals and presence to the other
+	/// servers on it. One server, any server, publishes the log with
+	/// [`Relay::publish`](crate::server::Relay::publish).
+	///
+	/// Call it before the first connection: the server joins the relay when
+	/// it starts, at [`start`](Self::start) or its first connection.
+	#[cfg(feature = "relay")]
+	#[must_use]
+	pub fn relay(self, relay: &crate::server::Relay) -> Self {
+		let _ = self.inner.shared.relay.set(relay.clone());
+		self.hub().use_relay(relay.clone());
+		self
+	}
+
+	/// Whether re-runs may read from the database's read replicas, which
+	/// they do by default when it has any (see
+	/// [`Db::with_replica`](leptoskit_db::Db::with_replica)): a round of
+	/// re-runs reads from a replica that has replayed past every commit in
+	/// it, and from the primary when none gets there within `wait`, 20
+	/// milliseconds unless [`replica_wait`](Self::replica_wait) says
+	/// otherwise.
+	#[must_use]
+	pub fn rerun_on_replicas(self, enabled: bool) -> Self {
+		self.hub().use_replicas(enabled, hub::REPLICA_WAIT);
+		self
+	}
+
+	/// How long a round of re-runs waits for a replica to catch up before it
+	/// reads from the primary instead.
+	#[must_use]
+	pub fn replica_wait(self, wait: std::time::Duration) -> Self {
+		self.hub().use_replicas(true, wait);
+		self
+	}
+
+	/// Starts following commits, and joins the relay if there is one,
+	/// without waiting for the first connection: call it at startup, and
+	/// pass the readiness check once it returns.
+	///
+	/// # Errors
+	///
+	/// When the change log can't be read, or the relay can't be reached.
+	pub async fn start(&self) -> Result<(), WireError> {
+		self.hub().start().await?;
+
+		#[cfg(feature = "relay")]
+		if let Some(relay) = self.inner.shared.relay.get() {
+			self.inner
+				.shared
+				.cluster
+				.get_or_init(|| cluster::Cluster::start(self, relay))
+				.await;
+		}
+
+		Ok(())
+	}
+
+	/// Whether [`start`](Self::start) has finished, or a connection started
+	/// the server.
+	pub fn is_started(&self) -> bool {
+		self.hub().is_started()
+	}
+
+	/// This server's members of `channel`, and the other servers'.
+	fn presence_members(&self, channel: &str) -> Vec<PresenceMember> {
+		let here: Vec<PresenceMember> = self
+			.rooms()
+			.get(channel)
+			.map(|room| room.members.values().cloned().collect())
+			.unwrap_or_default();
+
+		#[cfg(feature = "relay")]
+		if let Some(Some(cluster)) = self.inner.shared.cluster.get() {
+			return here.into_iter().chain(cluster.members(channel)).collect();
+		}
+
+		here
+	}
+
+	/// This server's members of `channel` changed: tells the other servers,
+	/// and every member here.
+	fn presence_changed(&self, channel: &str) {
+		#[cfg(feature = "relay")]
+		if let Some(Some(cluster)) = self.inner.shared.cluster.get() {
+			let members = self
+				.rooms()
+				.get(channel)
+				.map(|room| room.members.values().cloned().collect())
+				.unwrap_or_default();
+			cluster.presence(channel, members);
+		}
+
+		let senders: Vec<mpsc::Sender<Outbound>> = {
+			let rooms = self.rooms();
+			let Some(room) = rooms.get(channel) else {
+				return;
+			};
+			let connections = self.connections();
+			room.members
+				.keys()
+				.filter_map(|id| connections.get(id).cloned())
+				.collect()
+		};
+		let frame = crate::live::ServerFrame::Presence {
+			channel: channel.to_owned(),
+			members: self.presence_members(channel),
+		};
+		let Some(outbound) = Outbound::frame(&frame, None) else {
+			return;
+		};
+
+		for sender in senders {
+			let _ = sender.try_send(outbound.clone());
+		}
+	}
+
+	/// Sends a signal from a member here to the other servers' members.
+	#[cfg_attr(
+		not(feature = "relay"),
+		expect(unused_variables, reason = "only a relay reaches other servers")
+	)]
+	fn signal_elsewhere(&self, channel: &str, from: Option<String>, message: &Value) {
+		#[cfg(feature = "relay")]
+		if let Some(Some(cluster)) = self.inner.shared.cluster.get() {
+			cluster.signal(channel, from, message);
+		}
 	}
 
 	fn with(self, change: impl FnOnce(&mut Inner)) -> Self {
@@ -260,7 +417,7 @@ impl Live {
 	#[must_use]
 	pub fn stats(&self) -> LiveStats {
 		let stats = &self.inner.shared.stats;
-		let (reruns, commits) = self.hub().counts();
+		let (reruns, commits, replica_reruns, relay_fills) = self.hub().counts();
 		LiveStats {
 			connections: stats.connections.load(Ordering::Relaxed),
 			subscriptions: stats.subscriptions.load(Ordering::Relaxed),
@@ -268,6 +425,8 @@ impl Live {
 			transitions: stats.transitions.load(Ordering::Relaxed),
 			commits,
 			resumes: stats.resumes.load(Ordering::Relaxed),
+			replica_reruns,
+			relay_fills,
 		}
 	}
 
