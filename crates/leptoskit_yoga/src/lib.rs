@@ -1160,23 +1160,17 @@ mod boundary_tests {
 	/// columns, sometimes fixed, wrapping, centring, or with margins, around
 	/// labels of the given widths.
 	fn random_tree(yoga: &mut Yoga, seed: u64, widths: &[u32]) -> (NodeId, Vec<Label>) {
-		fn container(
-			yoga: &mut Yoga,
-			random: &mut Random,
-			depth: u32,
-			widths: &[u32],
-			labels: &mut Vec<Label>,
-		) -> NodeId {
-			let node = yoga.create_node();
-			// Fixed sizes and stretched children are common in real screens,
-			// and they are what make relayout boundaries; weight toward them.
+		/// A style with the fixed sizes and stretched children real screens
+		/// use, which are what make relayout boundaries.
+		fn random_style(random: &mut Random) -> Style {
 			let dimension = |random: &mut Random| {
 				match random.below(2) {
 					0 => Dimension::Points(20.0 + random.below(60) as f32),
 					_ => Dimension::Auto,
 				}
 			};
-			let style = Style {
+
+			Style {
 				flex_direction: if random.below(2) == 0 {
 					FlexDirection::Row
 				} else {
@@ -1215,8 +1209,18 @@ mod boundary_tests {
 					left: Dimension::Points(random.below(3) as f32),
 				},
 				..Style::default()
-			};
-			yoga.set_style(node, style);
+			}
+		}
+
+		fn container(
+			yoga: &mut Yoga,
+			random: &mut Random,
+			depth: u32,
+			widths: &[u32],
+			labels: &mut Vec<Label>,
+		) -> NodeId {
+			let node = yoga.create_node();
+			yoga.set_style(node, random_style(random));
 			let mut children = Vec::new();
 
 			for _ in 0..=random.below(3) {
