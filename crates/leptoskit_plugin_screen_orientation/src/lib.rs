@@ -16,6 +16,13 @@ pub const HOLD: MethodId = MethodId(1);
 /// Exported operations.
 pub const METHODS: &[MethodId] = &[SNAPSHOT, HOLD];
 
+/// A quarter turn, in degrees. Display rotations are always a multiple of it.
+const QUARTER_TURN: u16 = 90;
+/// A full turn, in degrees: the first angle that is not a rotation.
+const FULL_TURN: u16 = QUARTER_TURN * 4;
+/// Bytes in a snapshot response: two little-endian u32 words.
+const SNAPSHOT_BYTES: usize = 8;
+
 /// Requested orientation policy. Primary/secondary follow platform conventions;
 /// they are not portable physical left/right directions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +44,17 @@ pub enum Policy {
 	Any = 6,
 }
 impl Policy {
+	/// Every policy in wire order: the discriminants are the wire ids.
+	const ALL: [Self; 7] = [
+		Self::Portrait,
+		Self::Landscape,
+		Self::PortraitPrimary,
+		Self::PortraitSecondary,
+		Self::LandscapePrimary,
+		Self::LandscapeSecondary,
+		Self::Any,
+	];
+
 	/// Encodes a validated policy.
 	#[must_use]
 	pub fn encode(self) -> Bytes {
@@ -46,20 +64,11 @@ impl Policy {
 	/// Decodes a policy, rejecting unknown values and trailing bytes.
 	pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
 		let mut decoder = Decoder::new(bytes);
-
-		let value = match decoder.u32()? {
-			0 => Self::Portrait,
-			1 => Self::Landscape,
-			2 => Self::PortraitPrimary,
-			3 => Self::PortraitSecondary,
-			4 => Self::LandscapePrimary,
-			5 => Self::LandscapeSecondary,
-			6 => Self::Any,
-			_ => return Err(Error::InvalidArgument),
-		};
+		let word = usize::try_from(decoder.u32()?).map_err(|_| Error::InvalidArgument)?;
+		let policy = Self::ALL.get(word).copied().ok_or(Error::InvalidArgument)?;
 
 		decoder.finish()?;
-		Ok(value)
+		Ok(policy)
 	}
 }
 /// Orientation of the presented interface, rather than a motion sensor reading.
@@ -73,6 +82,26 @@ pub enum Orientation {
 	/// Wide interface.
 	Landscape = 2,
 }
+/// A display rotation is a whole quarter turn below a full turn.
+fn is_quarter_turn(degrees: u16) -> bool {
+	degrees < FULL_TURN && degrees.is_multiple_of(QUARTER_TURN)
+}
+
+/// Decodes the rotation word, where `u32::MAX` means the platform has none.
+fn decode_angle(word: u32) -> Result<Option<u16>, Error> {
+	if word == u32::MAX {
+		return Ok(None);
+	}
+
+	let degrees = u16::try_from(word).map_err(|_| Error::InvalidArgument)?;
+
+	if !is_quarter_turn(degrees) {
+		return Err(Error::InvalidArgument);
+	}
+
+	Ok(Some(degrees))
+}
+
 /// Current interface orientation and optional platform display rotation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Snapshot {
@@ -85,13 +114,11 @@ pub struct Snapshot {
 impl Snapshot {
 	/// Encodes the snapshot; angles must be quarter turns below 360 degrees.
 	pub fn encode(self) -> Result<Bytes, Error> {
-		if self
-			.angle
-			.is_some_and(|angle| angle >= 360 || angle % 90 != 0)
-		{
+		if self.angle.is_some_and(|angle| !is_quarter_turn(angle)) {
 			return Err(Error::InvalidArgument);
 		}
-		let mut encoder = Encoder::with_capacity(8);
+
+		let mut encoder = Encoder::with_capacity(SNAPSHOT_BYTES);
 		encoder.u32(self.orientation as u32);
 		encoder.u32(self.angle.map_or(u32::MAX, u32::from));
 		Ok(encoder.finish())
@@ -108,13 +135,7 @@ impl Snapshot {
 			_ => return Err(Error::InvalidArgument),
 		};
 
-		let angle = match decoder.u32()? {
-			u32::MAX => None,
-			value @ (0 | 90 | 180 | 270) => {
-				Some(u16::try_from(value).map_err(|_| Error::InvalidArgument)?)
-			}
-			_ => return Err(Error::InvalidArgument),
-		};
+		let angle = decode_angle(decoder.u32()?)?;
 
 		decoder.finish()?;
 		Ok(Self { orientation, angle })
@@ -174,6 +195,12 @@ pub mod web;
 mod tests {
 	use super::*;
 	#[test]
+	fn wire_ids_are_the_declaration_order() {
+		for (word, policy) in Policy::ALL.into_iter().enumerate() {
+			assert_eq!(policy as u32, word as u32);
+		}
+	}
+	#[test]
 	fn codec_rejects_unknown_policy_and_malformed_snapshots() {
 		for policy in [
 			Policy::Portrait,
@@ -191,7 +218,13 @@ mod tests {
 			assert_eq!(Policy::decode(&bytes), Err(Error::InvalidArgument));
 		}
 
-		for angle in [None, Some(0), Some(90), Some(180), Some(270)] {
+		for angle in [
+			None,
+			Some(0),
+			Some(QUARTER_TURN),
+			Some(QUARTER_TURN * 2),
+			Some(QUARTER_TURN * 3),
+		] {
 			let value = Snapshot {
 				orientation: Orientation::Portrait,
 				angle,
@@ -202,7 +235,7 @@ mod tests {
 		assert_eq!(
 			Snapshot {
 				orientation: Orientation::Unknown,
-				angle: Some(360)
+				angle: Some(FULL_TURN)
 			}
 			.encode(),
 			Err(Error::InvalidArgument)

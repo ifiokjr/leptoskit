@@ -43,6 +43,9 @@ impl Kind {
 	}
 }
 thread_local! { static ACTIVE: Cell<u8> = const { Cell::new(0) }; }
+
+/// Reservation bit for the ambient light sensor, which is not an axis kind.
+const LIGHT_RESERVATION: u8 = 8;
 struct Reservation(u8);
 impl Reservation {
 	fn acquire(kind: Kind) -> Result<Self, Error> {
@@ -156,6 +159,47 @@ struct Sensor {
 	value: JsValue,
 	stop: Function,
 }
+impl Sensor {
+	/// Constructs the platform sensor with the requested rate.
+	fn construct(constructor: &Function, interval: Interval) -> Result<Self, Error> {
+		let options = js_sys::Object::new();
+		Reflect::set(
+			&options,
+			&JsValue::from_str("frequency"),
+			&JsValue::from_f64(1000.0 / f64::from(interval.milliseconds())),
+		)
+		.map_err(js_error)?;
+		let arguments = js_sys::Array::new();
+		arguments.push(&options);
+		let value = Reflect::construct(constructor, &arguments).map_err(js_error)?;
+
+		Ok(Self {
+			stop: property(&value, "stop")?
+				.dyn_into::<Function>()
+				.map_err(|_| Error::Native)?,
+			value,
+		})
+	}
+
+	/// The event target that reports readings and errors.
+	fn target(&self) -> Result<web_sys::EventTarget, Error> {
+		self.value
+			.clone()
+			.dyn_into::<web_sys::EventTarget>()
+			.map_err(|_| Error::Native)
+	}
+
+	/// Starts delivery at the requested rate.
+	fn start(&self) -> Result<(), Error> {
+		property(&self.value, "start")?
+			.dyn_into::<Function>()
+			.map_err(|_| Error::Native)?
+			.call0(&self.value)
+			.map_err(js_error)?;
+
+		Ok(())
+	}
+}
 impl Drop for Sensor {
 	fn drop(&mut self) {
 		// Stop is synchronous and cannot report failures from Drop. Event
@@ -179,15 +223,7 @@ pub async fn next(kind: Kind, interval: Interval) -> Result<VectorReading, Error
 	let _reservation = Reservation::acquire(kind)?;
 
 	if let Some(constructor) = generic_constructor(kind)? {
-		return generic_next(constructor, interval, |source| {
-			validate(VectorReading {
-				timestamp: number(source, "timestamp")? / 1000.0,
-				x: number(source, "x")?,
-				y: number(source, "y")?,
-				z: number(source, "z")?,
-			})
-		})
-		.await;
+		return generic_next(constructor, interval, parse_generic).await;
 	}
 
 	if kind == Kind::Magnetometer {
@@ -198,6 +234,21 @@ pub async fn next(kind: Kind, interval: Interval) -> Result<VectorReading, Error
 		return Err(Error::Unavailable);
 	}
 
+	next_device_motion(kind).await
+}
+
+/// Reads the generic sensor's millisecond timestamp and three axes.
+fn parse_generic(source: &JsValue) -> Result<VectorReading, Error> {
+	validate(VectorReading {
+		timestamp: number(source, "timestamp")? / 1000.0,
+		x: number(source, "x")?,
+		y: number(source, "y")?,
+		z: number(source, "z")?,
+	})
+}
+
+/// Waits for one `devicemotion` event; the browser owns the sample rate.
+async fn next_device_motion(kind: Kind) -> Result<VectorReading, Error> {
 	request_permission(kind).await?;
 	let (sender, receiver) = oneshot::channel();
 	let sender = Rc::new(RefCell::new(Some(sender)));
@@ -205,44 +256,52 @@ pub async fn next(kind: Kind, interval: Interval) -> Result<VectorReading, Error
 
 	let listener = EventListener::new(&window, "devicemotion", move |event| {
 		if let Some(sender) = sender.borrow_mut().take() {
-			let result = (|| {
-				let values = property(
-					event.as_ref(),
-					if kind == Kind::Accelerometer {
-						"accelerationIncludingGravity"
-					} else {
-						"rotationRate"
-					},
-				)?;
-				let (x, y, z) = if kind == Kind::Accelerometer {
-					(
-						number(&values, "x")?,
-						number(&values, "y")?,
-						number(&values, "z")?,
-					)
-				} else {
-					// DeviceMotion beta/gamma/alpha are rotations around x/y/z
-					// in degrees/s.
-					(
-						number(&values, "beta")?.to_radians(),
-						number(&values, "gamma")?.to_radians(),
-						number(&values, "alpha")?.to_radians(),
-					)
-				};
-
-				validate(VectorReading {
-					timestamp: event.time_stamp() / 1000.0,
-					x,
-					y,
-					z,
-				})
-			})();
-			let _ = sender.send(result);
+			let _ = sender.send(parse_device_motion(kind, event));
 		}
 	});
 	let result = receiver.await.map_err(|_| Error::Cancelled)?;
+
 	drop(listener);
 	result
+}
+
+/// DeviceMotion reports m/s² for acceleration and degrees per second for
+/// rotation, both against a millisecond clock.
+fn parse_device_motion(kind: Kind, event: &web_sys::Event) -> Result<VectorReading, Error> {
+	let (x, y, z) = if kind == Kind::Accelerometer {
+		acceleration(event)?
+	} else {
+		rotation(event)?
+	};
+
+	validate(VectorReading {
+		timestamp: event.time_stamp() / 1000.0,
+		x,
+		y,
+		z,
+	})
+}
+
+/// `accelerationIncludingGravity` reports m/s² on each axis.
+fn acceleration(event: &web_sys::Event) -> Result<(f64, f64, f64), Error> {
+	let values = property(event.as_ref(), "accelerationIncludingGravity")?;
+
+	Ok((
+		number(&values, "x")?,
+		number(&values, "y")?,
+		number(&values, "z")?,
+	))
+}
+
+/// `rotationRate` beta/gamma/alpha are degrees per second around x/y/z.
+fn rotation(event: &web_sys::Event) -> Result<(f64, f64, f64), Error> {
+	let values = property(event.as_ref(), "rotationRate")?;
+
+	Ok((
+		number(&values, "beta")?.to_radians(),
+		number(&values, "gamma")?.to_radians(),
+		number(&values, "alpha")?.to_radians(),
+	))
 }
 fn validate(reading: VectorReading) -> Result<VectorReading, Error> {
 	reading.encode()?;
@@ -304,11 +363,14 @@ export function emitDenied() {
 		}
 	}
 
+	/// A sampling rate the emulated browser sensor accepts.
+	const SAMPLE_INTERVAL_MS: u32 = 16;
+
 	#[wasm_bindgen_test]
 	async fn browser_sampling_releases_hardware_on_success_denial_and_cancellation() {
 		install_sensor();
 		let _installed = InstalledSensor;
-		let interval = Interval::new(16).unwrap();
+		let interval = Interval::new(SAMPLE_INTERVAL_MS).unwrap();
 		let mut sample = Box::pin(next(Kind::Accelerometer, interval));
 		assert!(futures::poll!(&mut sample).is_pending());
 		assert_eq!(next(Kind::Accelerometer, interval).await, Err(Error::Busy));
@@ -355,52 +417,48 @@ async fn generic_next<T: 'static>(
 	interval: Interval,
 	parse: fn(&JsValue) -> Result<T, Error>,
 ) -> Result<T, Error> {
-	let options = js_sys::Object::new();
-	Reflect::set(
-		&options,
-		&JsValue::from_str("frequency"),
-		&JsValue::from_f64(1000.0 / f64::from(interval.milliseconds())),
-	)
-	.map_err(js_error)?;
-	let arguments = js_sys::Array::new();
-	arguments.push(&options);
-	let value = Reflect::construct(&constructor, &arguments).map_err(js_error)?;
-	let sensor = Sensor {
-		stop: property(&value, "stop")?
-			.dyn_into::<Function>()
-			.map_err(|_| Error::Native)?,
-		value,
-	};
-	let target = sensor
-		.value
-		.clone()
-		.dyn_into::<web_sys::EventTarget>()
-		.map_err(|_| Error::Native)?;
+	let sensor = Sensor::construct(&constructor, interval)?;
+	let target = sensor.target()?;
 	let (sender, receiver) = oneshot::channel();
 	let sender = Rc::new(RefCell::new(Some(sender)));
-	let source = sensor.value.clone();
-	let reading_sender = Rc::clone(&sender);
-	let reading = EventListener::new(&target, "reading", move |_| {
-		if let Some(sender) = reading_sender.borrow_mut().take() {
-			let sample = parse(&source);
-			let _ = sender.send(sample);
-		}
-	});
-	let error = EventListener::new(&target, "error", move |event| {
-		if let Some(sender) = sender.borrow_mut().take() {
-			let error = property(event.as_ref(), "error").map_or_else(|e| e, js_error);
-			let _ = sender.send(Err(error));
-		}
-	});
-	property(&sensor.value, "start")?
-		.dyn_into::<Function>()
-		.map_err(|_| Error::Native)?
-		.call0(&sensor.value)
-		.map_err(js_error)?;
+	let reading = reading_listener(&target, &sensor.value, Rc::clone(&sender), parse);
+	let error = error_listener(&target, sender);
+
+	sensor.start()?;
 	let result = receiver.await.map_err(|_| Error::Cancelled)?;
+
 	drop((reading, error));
 	drop(sensor);
 	result
+}
+
+/// Resolves the wait with the first sample the platform reports.
+fn reading_listener<T: 'static>(
+	target: &web_sys::EventTarget,
+	value: &JsValue,
+	sender: Rc<RefCell<Option<oneshot::Sender<Result<T, Error>>>>>,
+	parse: fn(&JsValue) -> Result<T, Error>,
+) -> EventListener {
+	let source = value.clone();
+
+	EventListener::new(target, "reading", move |_| {
+		if let Some(sender) = sender.borrow_mut().take() {
+			let _ = sender.send(parse(&source));
+		}
+	})
+}
+
+/// Resolves the wait with the error the platform reports, when it does.
+fn error_listener<T: 'static>(
+	target: &web_sys::EventTarget,
+	sender: Rc<RefCell<Option<oneshot::Sender<Result<T, Error>>>>>,
+) -> EventListener {
+	EventListener::new(target, "error", move |event| {
+		if let Some(sender) = sender.borrow_mut().take() {
+			let error = property(event.as_ref(), "error").map_or_else(|error| error, js_error);
+			let _ = sender.send(Err(error));
+		}
+	})
 }
 
 /// Detects the experimental `AmbientLightSensor` API in a secure context.
@@ -413,7 +471,7 @@ pub async fn next_light(
 	interval: Interval,
 	timeout: crate::Timeout,
 ) -> Result<crate::LightReading, crate::SensorError> {
-	let _reservation = Reservation::acquire_bit(8)?;
+	let _reservation = Reservation::acquire_bit(LIGHT_RESERVATION)?;
 	let constructor = property(window()?.as_ref(), "AmbientLightSensor")?
 		.dyn_into::<Function>()
 		.map_err(|_| Error::Unavailable)?;
@@ -473,12 +531,17 @@ export function lightStops(){return stoppedLight;}
 			restore_light();
 		}
 	}
+
+	/// A sampling rate and deadline the emulated light sensor accepts.
+	const LIGHT_INTERVAL_MS: u32 = 20;
+	const LIGHT_TIMEOUT_MS: u32 = 20;
+
 	#[wasm_bindgen_test]
 	async fn light_zero_is_real_and_timeout_cancel_release_the_sensor() {
 		install_light();
 		let _fixture = Fixture;
-		let interval = Interval::new(20).unwrap();
-		let timeout = crate::Timeout::new(20).unwrap();
+		let interval = Interval::new(LIGHT_INTERVAL_MS).unwrap();
+		let timeout = crate::Timeout::new(LIGHT_TIMEOUT_MS).unwrap();
 		assert_eq!(light_available(), Ok(true));
 		let mut pending = Box::pin(next_light(interval, timeout));
 		assert!(futures::poll!(&mut pending).is_pending());
@@ -500,6 +563,7 @@ export function lightStops(){return stoppedLight;}
 		assert_eq!(light_stops(), 2);
 		let mut cancelled = Box::pin(next_light(interval, timeout));
 		assert!(futures::poll!(&mut cancelled).is_pending());
+
 		drop(cancelled);
 		assert_eq!(light_stops(), 3);
 		let mut invalid = Box::pin(next_light(interval, timeout));

@@ -16,6 +16,18 @@ pub const NEXT: MethodId = MethodId(1);
 /// Sensor operations available to the native bridge.
 pub const METHODS: &[MethodId] = &[AVAILABLE, NEXT];
 
+/// The sampling interval range every platform accepts, in milliseconds. The
+/// fast end avoids Android's high-rate permission.
+const MIN_INTERVAL_MILLISECONDS: u32 = 5;
+const MAX_INTERVAL_MILLISECONDS: u32 = 60_000;
+
+/// The acquisition deadline range every platform accepts, in milliseconds.
+const MIN_TIMEOUT_MILLISECONDS: u32 = 1;
+const MAX_TIMEOUT_MILLISECONDS: u32 = 120_000;
+
+/// Bytes in one little-endian f64 on the wire.
+const DOUBLE_BYTES: usize = 8;
+
 /// Minimum requested sampling interval. At most 200 Hz avoids Android's
 /// high-rate permission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,7 +36,7 @@ impl Interval {
 	/// Accepts 5..=60,000 milliseconds. OS scheduling may produce a slower
 	/// sample.
 	pub fn new(milliseconds: u32) -> Result<Self, Error> {
-		if (5..=60_000).contains(&milliseconds) {
+		if (MIN_INTERVAL_MILLISECONDS..=MAX_INTERVAL_MILLISECONDS).contains(&milliseconds) {
 			Ok(Self(milliseconds))
 		} else {
 			Err(Error::InvalidArgument)
@@ -137,7 +149,7 @@ impl PressureReading {
 }
 
 fn decode_values<const N: usize>(payload: &[u8]) -> Result<[f64; N], Error> {
-	if payload.len() != N * 8 {
+	if payload.len() != N * DOUBLE_BYTES {
 		return Err(Error::InvalidArgument);
 	}
 
@@ -172,6 +184,12 @@ pub mod web;
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// Sea-level pressure, in hectopascals, and the pressure the reading
+	/// refuses.
+	const STANDARD_PRESSURE: f64 = 1013.25;
+	const NONPOSITIVE_PRESSURE: f64 = 5.0;
+
 	#[test]
 	fn readings_reject_negative_clocks_and_nonpositive_pressure() {
 		let vector = |timestamp: f64| {
@@ -191,9 +209,14 @@ mod tests {
 				.flat_map(|value| value.to_le_bytes())
 				.collect::<Vec<_>>()
 		};
-		assert!(PressureReading::decode(&pressure(0.0, 1013.25)).is_ok());
+		assert!(PressureReading::decode(&pressure(0.0, STANDARD_PRESSURE)).is_ok());
+		let below_zero = -1.0;
 
-		for (timestamp, hectopascals) in [(-1.0, 1013.25), (0.0, 0.0), (0.0, -5.0)] {
+		for (timestamp, hectopascals) in [
+			(below_zero, STANDARD_PRESSURE),
+			(0.0, 0.0),
+			(0.0, -NONPOSITIVE_PRESSURE),
+		] {
 			assert_eq!(
 				PressureReading::decode(&pressure(timestamp, hectopascals)),
 				Err(Error::InvalidArgument)
@@ -209,7 +232,9 @@ mod tests {
 			assert_eq!(Interval::decode(&interval.encode()), Ok(interval));
 		}
 
-		for value in [0, 4, 60_001, u32::MAX] {
+		let past_maximum = MAX_INTERVAL_MILLISECONDS + 1;
+
+		for value in [0, 4, past_maximum, u32::MAX] {
 			assert_eq!(Interval::new(value), Err(Error::InvalidArgument));
 		}
 
@@ -230,7 +255,7 @@ mod tests {
 		assert_eq!(&bytes[..8], &1.25_f64.to_le_bytes());
 		assert_eq!(VectorReading::decode(&bytes), Ok(sample));
 		assert_eq!(
-			VectorReading::decode(&bytes[..31]),
+			VectorReading::decode(&bytes[..bytes.len() - 1]),
 			Err(Error::InvalidArgument)
 		);
 
@@ -293,7 +318,7 @@ pub struct Timeout(u32);
 impl Timeout {
 	/// Accepts 1..=120,000 milliseconds.
 	pub fn new(milliseconds: u32) -> Result<Self, Error> {
-		if (1..=120_000).contains(&milliseconds) {
+		if (MIN_TIMEOUT_MILLISECONDS..=MAX_TIMEOUT_MILLISECONDS).contains(&milliseconds) {
 			Ok(Self(milliseconds))
 		} else {
 			Err(Error::InvalidArgument)
@@ -380,7 +405,9 @@ mod bounded_tests {
 
 		assert!(LightReading::decode(&bad).is_err());
 
-		for invalid in [0, 120_001, u32::MAX] {
+		let past_maximum = MAX_TIMEOUT_MILLISECONDS + 1;
+
+		for invalid in [0, past_maximum, u32::MAX] {
 			assert!(Timeout::new(invalid).is_err());
 		}
 	}

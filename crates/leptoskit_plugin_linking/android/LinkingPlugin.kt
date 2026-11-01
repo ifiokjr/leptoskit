@@ -20,27 +20,50 @@ class LinkingPlugin(
     private val context: Context,
 ) : NativePlugin {
     override val name = "linking"
-    override val methods = intArrayOf(0, 1, 2)
+    override val methods = intArrayOf(OPEN, CAN_OPEN, OPEN_SETTINGS)
 
     override suspend fun invoke(
         method: Int,
         payload: ByteBuffer,
-    ): ByteArray {
-        if (method !in 0..2) throw PluginException(PluginException.UNAVAILABLE)
-        val intent =
-            if (method == 2) {
-                if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
-                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null))
-            } else {
-                Intent(Intent.ACTION_VIEW, validatedUri(decode(payload))).addCategory(Intent.CATEGORY_BROWSABLE)
-            }
-
-        if (method == 1) {
-            // Android package visibility can hide handlers without matching <queries> declarations.
-            return byteArrayOf(if (intent.resolveActivity(context.packageManager) != null) 1 else 0, 0, 0, 0)
+    ): ByteArray =
+        when (method) {
+            OPEN_SETTINGS -> openSettings(payload)
+            OPEN, CAN_OPEN -> openOrQuery(method, payload)
+            else -> throw PluginException(PluginException.UNAVAILABLE)
         }
 
+    /** Opens this application's system settings page, which takes no arguments. */
+    private fun openSettings(payload: ByteBuffer): ByteArray {
+        if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
+        val application = Uri.fromParts("package", context.packageName, null)
+
+        launch(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, application))
+
+        return byteArrayOf()
+    }
+
+    /** Answers whether a handler exists, or hands the link to the system. */
+    private fun openOrQuery(
+        method: Int,
+        payload: ByteBuffer,
+    ): ByteArray {
+        val link = validatedUri(decode(payload))
+        val intent = Intent(Intent.ACTION_VIEW, link).addCategory(Intent.CATEGORY_BROWSABLE)
+
+        if (method == CAN_OPEN) {
+            // Android package visibility can hide handlers without matching <queries> declarations.
+            return booleanReply(intent.resolveActivity(context.packageManager) != null)
+        }
+
+        launch(intent)
+
+        return byteArrayOf()
+    }
+
+    /** Starts the intent, translating the launcher's two refusal modes. */
+    private fun launch(intent: Intent) {
         if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
         try {
             context.startActivity(intent)
         } catch (_: ActivityNotFoundException) {
@@ -48,12 +71,14 @@ class LinkingPlugin(
         } catch (_: SecurityException) {
             throw PluginException(PluginException.PERMISSION_DENIED)
         }
-
-        return byteArrayOf()
     }
 
+    /** A one-byte truth padded to the four bytes every boolean reply carries. */
+    private fun booleanReply(value: Boolean): ByteArray = byteArrayOf(if (value) 1 else 0, 0, 0, 0)
+
+    /** Decodes strict UTF-8, refusing payloads that cannot hold a URL. */
     private fun decode(payload: ByteBuffer): String {
-        if (payload.remaining() !in 1..8192) throw PluginException(PluginException.INVALID_ARGUMENT)
+        if (payload.remaining() !in 1..MAX_URL_BYTES) throw PluginException(PluginException.INVALID_ARGUMENT)
 
         return try {
             Charsets.UTF_8
@@ -67,44 +92,101 @@ class LinkingPlugin(
         }
     }
 
+    /**
+     * Accepts an absolute http(s), mailto, tel or sms link. Whitespace,
+     * backslashes, escaped controls and credentials are refused before the
+     * launcher sees them.
+     */
     internal fun validatedUri(value: String): Uri {
-        if (value.isEmpty() || value.length > 8192 || value.any { it.code !in 33..126 || it == '\\' }) {
-            throw PluginException(PluginException.INVALID_ARGUMENT)
-        }
+        requireEncoded(value)
+        requireVisibleEscapes(value)
+        val parsed = parseUri(value)
 
-        for (index in value.indices) {
-            if (value[index] != '%') continue
-            val decoded = if (index + 2 < value.length) value.substring(index + 1, index + 3).toIntOrNull(16) else null
-
-            if (decoded == null || decoded < 32 || decoded == 127) throw PluginException(PluginException.INVALID_ARGUMENT)
-        }
-
-        val parsed =
-            try {
-                URI(value)
-            } catch (_: URISyntaxException) {
-                throw PluginException(PluginException.INVALID_ARGUMENT)
-            }
         when (parsed.scheme?.lowercase(Locale.ROOT)) {
-            "http", "https" -> {
-                if (parsed.host.isNullOrEmpty() || parsed.rawUserInfo != null) {
-                    throw PluginException(PluginException.INVALID_ARGUMENT)
-                }
-            }
-
-            "mailto", "tel", "sms" -> {
-                if (parsed.rawSchemeSpecificPart.isNullOrEmpty() || parsed.rawSchemeSpecificPart.startsWith("/") ||
-                    parsed.rawSchemeSpecificPart.startsWith("?")
-                ) {
-                    throw PluginException(PluginException.INVALID_ARGUMENT)
-                }
-            }
-
-            else -> {
-                throw PluginException(PluginException.INVALID_ARGUMENT)
-            }
+            "http", "https" -> requireWebDestination(parsed)
+            "mailto", "tel", "sms" -> requireContactDestination(parsed)
+            else -> throw PluginException(PluginException.INVALID_ARGUMENT)
         }
 
         return Uri.parse(value)
+    }
+
+    /** Limits the payload to printable ASCII, the only text a URL carries raw. */
+    private fun requireEncoded(value: String) {
+        if (value.isEmpty() || value.length > MAX_URL_BYTES) throw PluginException(PluginException.INVALID_ARGUMENT)
+
+        val printable = value.all { it.code in FIRST_PRINTABLE..LAST_PRINTABLE && it != '\\' }
+
+        if (!printable) throw PluginException(PluginException.INVALID_ARGUMENT)
+    }
+
+    /** Rejects escapes that would decode to a control character downstream. */
+    private fun requireVisibleEscapes(value: String) {
+        for (index in value.indices) {
+            if (value[index] == '%' && !isVisibleEscape(value, index)) {
+                throw PluginException(PluginException.INVALID_ARGUMENT)
+            }
+        }
+    }
+
+    private fun isVisibleEscape(
+        value: String,
+        index: Int,
+    ): Boolean {
+        if (index + 2 >= value.length) return false
+
+        val decoded = value.substring(index + 1, index + 3).toIntOrNull(HEX_RADIX) ?: return false
+
+        return decoded >= FIRST_VISIBLE && decoded != DELETE
+    }
+
+    private fun parseUri(value: String): URI =
+        try {
+            URI(value)
+        } catch (_: URISyntaxException) {
+            throw PluginException(PluginException.INVALID_ARGUMENT)
+        }
+
+    /** A web link needs a host, and must not smuggle credentials past it. */
+    private fun requireWebDestination(parsed: URI) {
+        if (parsed.host.isNullOrEmpty() || parsed.rawUserInfo != null) {
+            throw PluginException(PluginException.INVALID_ARGUMENT)
+        }
+    }
+
+    /** Contact links carry their target after the colon, never as a host or path. */
+    private fun requireContactDestination(parsed: URI) {
+        val target = parsed.rawSchemeSpecificPart
+
+        if (target.isNullOrEmpty() || target.startsWith("/") || target.startsWith("?")) {
+            throw PluginException(PluginException.INVALID_ARGUMENT)
+        }
+    }
+
+    private companion object {
+        /** Hands a URL to the handler the system picks. */
+        const val OPEN = 0
+
+        /** Answers whether an installed handler claims the URL. */
+        const val CAN_OPEN = 1
+
+        /** Opens this application's page in the system settings. */
+        const val OPEN_SETTINGS = 2
+
+        /** The longest payload that can still be a usable URL. */
+        const val MAX_URL_BYTES = 8192
+
+        /** The printable ASCII range a URL may carry literally. */
+        const val FIRST_PRINTABLE = 33
+        const val LAST_PRINTABLE = 126
+
+        /** Escapes at or below this code hide a control character. */
+        const val FIRST_VISIBLE = 32
+
+        /** The delete code never belongs in a link. */
+        const val DELETE = 127
+
+        /** Two hexadecimal digits decode one byte. */
+        const val HEX_RADIX = 16
     }
 }

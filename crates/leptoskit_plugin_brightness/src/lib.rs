@@ -114,32 +114,45 @@ pub mod guest {
 		/// Applies an override, preserving the previous setting for
 		/// restoration.
 		pub async fn set(self, level: Level) -> Result<(), Error> {
-			if self.0.call(SET, &level.encode())?.await?.is_empty() {
-				Ok(())
-			} else {
-				Err(Error::InvalidArgument)
-			}
+			expect_empty(&self.0.call(SET, &level.encode())?.await?)
 		}
 
 		/// Restores the setting captured before the first override. Idempotent.
 		pub async fn restore(self) -> Result<(), Error> {
-			if self.0.call(RESTORE, &[])?.await?.is_empty() {
-				Ok(())
-			} else {
-				Err(Error::InvalidArgument)
-			}
+			expect_empty(&self.0.call(RESTORE, &[])?.await?)
 		}
+	}
+
+	/// An empty reply is the only success; anything else is a refusal the guest
+	/// can only report as an invalid argument.
+	fn expect_empty(response: &[u8]) -> Result<(), Error> {
+		if response.is_empty() {
+			return Ok(());
+		}
+
+		Err(Error::InvalidArgument)
 	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// A fraction just outside the accepted range on each side.
+	const BELOW_ZERO: f64 = -0.01;
+	const ABOVE_ONE: f64 = 1.01;
+
 	#[test]
 	fn fractions_reject_nonfinite_and_out_of_range_values() {
 		assert_eq!(Level::from_fraction(0.375).unwrap().thousandths(), 375);
 
-		for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.01, 1.01] {
+		for value in [
+			f64::NAN,
+			f64::INFINITY,
+			f64::NEG_INFINITY,
+			BELOW_ZERO,
+			ABOVE_ONE,
+		] {
 			assert_eq!(Level::from_fraction(value), Err(Error::InvalidArgument));
 		}
 	}

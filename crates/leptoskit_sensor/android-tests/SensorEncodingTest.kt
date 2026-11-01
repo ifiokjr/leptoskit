@@ -39,7 +39,9 @@ class SensorEncodingTest {
     @Test
     fun invalidValuesAreErrorsAndLegacyWireStaysUnchanged() {
         for (value in floatArrayOf(-1f, Float.NaN, Float.POSITIVE_INFINITY, 1.5f)) {
-            assertThrows(PluginException::class.java) { encodeSensorEvent(Sensor.TYPE_STEP_COUNTER, 1, floatArrayOf(value), true) }
+            assertThrows(PluginException::class.java) {
+                encodeSensorEvent(Sensor.TYPE_STEP_COUNTER, 1, floatArrayOf(value), true)
+            }
         }
 
         assertThrows(PluginException::class.java) { encodeSensorEvent(Sensor.TYPE_LIGHT, 1, floatArrayOf(-1f), true) }

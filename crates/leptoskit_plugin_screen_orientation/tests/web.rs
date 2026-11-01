@@ -105,6 +105,7 @@ async fn browser_policy_lifetime_cancellation_and_errors() {
 	let mut second = Box::pin(web::hold(Policy::LandscapeSecondary));
 	assert!(matches!(poll!(second.as_mut()), Poll::Pending));
 	fixture.0.accept();
+
 	tick().await;
 	assert!(matches!(poll!(second.as_mut()), Poll::Pending));
 	fixture.0.hide();
