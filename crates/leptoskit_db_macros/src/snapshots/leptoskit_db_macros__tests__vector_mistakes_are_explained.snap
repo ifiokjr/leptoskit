@@ -1,0 +1,18 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "report.join(\"\\n\")"
+---
+bare: `vector` takes `distance = l2`, `cosine`, `inner_product`, `l1`, `hamming`, or `jaccard`; `index = hnsw` or `ivfflat`; and `source(field, …)`, the text its vectors are made from
+empty: `vector` takes `distance = l2`, `cosine`, `inner_product`, `l1`, `hamming`, or `jaccard`; `index = hnsw` or `ivfflat`; and `source(field, …)`, the text its vectors are made from
+unknown distance: `vector` takes `distance = l2`, `cosine`, `inner_product`, `l1`, `hamming`, or `jaccard`; `index = hnsw` or `ivfflat`; and `source(field, …)`, the text its vectors are made from
+unknown index: `index` is `hnsw` or `ivfflat`, pgvector's indexes; SQLite searches exactly
+unknown option: `vector` takes `distance = l2`, `cosine`, `inner_product`, `l1`, `hamming`, or `jaccard`; `index = hnsw` or `ivfflat`; and `source(field, …)`, the text its vectors are made from
+source missing: `summary` isn't a field of this table; sources are its text fields
+source itself: a vector is made from other fields, not itself
+generated: a generated column can't take `vector`; store the vectors the app makes: the database computes its value from the row's other columns
+flattened mixin: `vector` marks one vector column, and a mixin can't hold vectors; declare it on the table
+key: a vector can't be the key; key the table by an `Id`
+public text: `public` is for vector columns, which are private by default; other columns are public unless they're `private` or `secret`
+public and private: a column is `public`, `private`, or `secret`, not more than one
+view: a view's columns are what its query returns, so they take only `column`, `private`, `secret`, and `in(...)`
+mixin: a mixin can't hold a vector: declare vector columns on the table itself

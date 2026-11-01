@@ -256,14 +256,7 @@ impl ToSql for Param {
 			Value::Float(value) if *ty == Type::FLOAT4 => (*value as f32).to_sql_checked(ty, out),
 			Value::Float(value) => value.to_sql_checked(ty, out),
 			Value::Text(value) => value.as_str().to_sql_checked(ty, out),
-			// A shape, held as GeoPackage's encoding, goes to PostGIS as the
-			// EWKB its binary input reads.
-			#[cfg(feature = "geo")]
-			Value::Bytes(value) if is_geospatial(ty) => {
-				out.extend_from_slice(&crate::geo::codec::to_ewkb(value)?);
-				Ok(IsNull::No)
-			}
-			Value::Bytes(value) => value.as_slice().to_sql_checked(ty, out),
+			Value::Bytes(value) => bytes_to_sql(value, ty, out),
 			Value::Uuid(value) => value.to_sql_checked(ty, out),
 			Value::Timestamp(value) if *ty == Type::TIMESTAMP => {
 				value.naive_utc().to_sql_checked(ty, out)
@@ -308,6 +301,19 @@ fn decode_column(row: &Row, index: usize) -> Result<Value> {
 		}
 		Type::DATE => get::<chrono::NaiveDate>(row, index)?.map(Value::Date),
 		Type::JSON | Type::JSONB => get::<serde_json::Value>(row, index)?.map(Value::Json),
+		#[cfg(feature = "vector")]
+		ref other if is_vector(other) => {
+			get::<Raw>(row, index)?
+				.map(|raw| crate::vector::from_postgres(other.name(), &raw.0).unwrap_or(Ok(raw.0)))
+				.transpose()
+				.map_err(|error| {
+					DbError::Decode(DecodeError::custom(format!(
+						"column `{}`: {error}",
+						row.columns()[index].name()
+					)))
+				})?
+				.map(Value::Bytes)
+		}
 		#[cfg(feature = "geo")]
 		ref other if is_geospatial(other) => {
 			get::<Raw>(row, index)?
@@ -332,18 +338,51 @@ fn decode_column(row: &Row, index: usize) -> Result<Value> {
 	Ok(value.unwrap_or(Value::Null))
 }
 
+/// Bytes as a parameter of type `ty`: a shape, held as GeoPackage's
+/// encoding, goes to PostGIS as the EWKB its binary input reads, and a
+/// vector, held in sqlite-vec's layout, goes to pgvector in its binary
+/// form.
+fn bytes_to_sql(
+	value: &[u8],
+	ty: &Type,
+	out: &mut BytesMut,
+) -> std::result::Result<IsNull, Box<dyn Error + Sync + Send>> {
+	#[cfg(feature = "geo")]
+	if is_geospatial(ty) {
+		out.extend_from_slice(&crate::geo::codec::to_ewkb(value)?);
+		return Ok(IsNull::No);
+	}
+
+	#[cfg(feature = "vector")]
+	if let Some(converted) = crate::vector::to_postgres(ty.name(), value) {
+		out.extend_from_slice(&converted?);
+		return Ok(IsNull::No);
+	}
+
+	value.to_sql_checked(ty, out)
+}
+
 /// Whether a type is PostGIS's: its binary form is EWKB.
 #[cfg(feature = "geo")]
 fn is_geospatial(ty: &Type) -> bool {
 	matches!(ty.name(), "geometry" | "geography")
 }
 
+/// Whether a type is one a vector column is stored as: pgvector's, or
+/// Postgres's own bit strings.
+#[cfg(feature = "vector")]
+fn is_vector(ty: &Type) -> bool {
+	matches!(ty.name(), "vector" | "halfvec" | "sparsevec")
+		|| *ty == Type::BIT
+		|| *ty == Type::VARBIT
+}
+
 /// A value's binary form, whatever its type, for the extensions' types
 /// whose formats the database layer reads itself.
-#[cfg(feature = "geo")]
+#[cfg(any(feature = "geo", feature = "vector"))]
 struct Raw(Vec<u8>);
 
-#[cfg(feature = "geo")]
+#[cfg(any(feature = "geo", feature = "vector"))]
 impl<'a> tokio_postgres::types::FromSql<'a> for Raw {
 	fn from_sql(
 		_: &Type,
@@ -353,7 +392,18 @@ impl<'a> tokio_postgres::types::FromSql<'a> for Raw {
 	}
 
 	fn accepts(ty: &Type) -> bool {
-		is_geospatial(ty)
+		#[cfg(feature = "geo")]
+		if is_geospatial(ty) {
+			return true;
+		}
+
+		#[cfg(feature = "vector")]
+		if is_vector(ty) {
+			return true;
+		}
+
+		let _ = ty;
+		false
 	}
 }
 

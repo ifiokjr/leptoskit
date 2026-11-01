@@ -82,7 +82,7 @@ jobs:
           set -euo pipefail
           cargo check --locked --package leptoskit_db_client_fixture --target wasm32-unknown-unknown
           if cargo tree --locked --package leptoskit_db_client_fixture --target wasm32-unknown-unknown \
-            --edges normal,no-proc-macro --prefix none | grep -E '^(sqlx|inventory|leptoskit_db_schema|regex) '; then
+            --edges normal,no-proc-macro --prefix none | grep -E '^(sqlx|inventory|leptoskit_db_schema|regex|sqlite-vec) '; then
             echo "server-only crates reached the client build" >&2
             exit 1
           fi
@@ -577,16 +577,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev pkg-config xvfb dbus-x11 at-spi2-core fonts-dejavu-core xdotool
 
-      # The geospatial database tests apply PostGIS migrations to the
-      # runner's preinstalled Postgres, so it gets the matching PostGIS
-      # package; the test step requires it rather than skipping.
-      - name: install PostGIS for the runner's Postgres
+      # The geospatial and vector database tests apply PostGIS and pgvector
+      # migrations to the runner's preinstalled Postgres, so it gets the
+      # matching packages; the test step requires both rather than skipping.
+      # The runner image removes the PostgreSQL apt repository after
+      # installing Postgres, and Ubuntu's own pgvector is too old (0.6; the
+      # vector columns need 0.8), so the repository is added back first.
+      - name: install PostGIS and pgvector for the runner's Postgres
         if: matrix.suite == 'workspace'
         shell: bash
         run: |
           set -euo pipefail
           major="$(find /usr/lib/postgresql -mindepth 1 -maxdepth 1 -printf '%f\n' | sort -n | tail -n 1)"
-          sudo apt-get install -y "postgresql-${major}-postgis-3"
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y "postgresql-${major}-postgis-3" "postgresql-${major}-pgvector"
 
       # Release builds optimize with `wasm-opt`; this is the binaryen release
       # devenv provides.
@@ -628,8 +632,9 @@ jobs:
           # The database migration tests apply real migrations to a
           # throwaway cluster from the runner's preinstalled Postgres.
           LEPTOSKIT_REQUIRE_POSTGRES: "1"
-          # The geospatial tests need PostGIS, installed above.
-          LEPTOSKIT_REQUIRE_POSTGRES_EXTENSIONS: postgis
+          # The geospatial and vector tests need PostGIS and pgvector,
+          # installed above.
+          LEPTOSKIT_REQUIRE_POSTGRES_EXTENSIONS: postgis,vector
         run: |
           set -euo pipefail
           # shellcheck source=/dev/null

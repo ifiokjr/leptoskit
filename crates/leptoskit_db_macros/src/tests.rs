@@ -2191,3 +2191,142 @@ fn geo_mistakes_are_explained() {
 		.collect();
 	insta::assert_snapshot!(report.join("\n"));
 }
+
+#[test]
+fn vector_mistakes_are_explained() {
+	let article = |field: TokenStream| {
+		quote! {
+			pub struct Article {
+				pub id: Id<Self>,
+				pub title: String,
+				#field
+			}
+		}
+	};
+	let table = |field: TokenStream| table_error(quote!(name = "articles"), article(field));
+	let cases = [
+		(
+			"bare",
+			table(quote!(#[db(vector)] pub embedding: Vector<3>,)),
+		),
+		(
+			"empty",
+			table(quote!(#[db(vector())] pub embedding: Vector<3>,)),
+		),
+		(
+			"unknown distance",
+			table(quote!(#[db(vector(distance = dot))] pub embedding: Vector<3>,)),
+		),
+		(
+			"unknown index",
+			table(quote!(#[db(vector(index = flat))] pub embedding: Vector<3>,)),
+		),
+		(
+			"unknown option",
+			table(quote!(#[db(vector(lists = 10))] pub embedding: Vector<3>,)),
+		),
+		(
+			"source missing",
+			table(quote!(#[db(vector(source(summary)))] pub embedding: Vector<3>,)),
+		),
+		(
+			"source itself",
+			table(quote!(#[db(vector(source(embedding)))] pub embedding: Vector<3>,)),
+		),
+		(
+			"generated",
+			table(quote!(#[db(vector(distance = l2), generated = "x")] pub embedding: Vector<3>,)),
+		),
+		(
+			"flattened mixin",
+			table(quote!(#[db(vector(distance = l2), flatten)] pub times: Timestamps,)),
+		),
+		(
+			"key",
+			table_error(
+				quote!(name = "articles"),
+				quote! {
+					pub struct Article {
+						#[db(key, vector(distance = l2))]
+						pub embedding: Vector<3>,
+					}
+				},
+			),
+		),
+		(
+			"public text",
+			table(quote!(#[db(public)] pub summary: String,)),
+		),
+		(
+			"public and private",
+			table(quote!(#[db(public, private)] pub embedding: Vector<3>,)),
+		),
+		(
+			"view",
+			expand_view(
+				quote!(name = "stats", sql = "x"),
+				article(quote!(#[db(vector(distance = l2))] pub embedding: Vector<3>,)),
+			)
+			.expect_err("the view is rejected")
+			.to_string(),
+		),
+		(
+			"mixin",
+			crate::mixin::expand(
+				&quote!(),
+				syn::parse2(quote! {
+					pub struct Embedded {
+						pub embedding: Option<Vector<3>>,
+					}
+				})
+				.unwrap(),
+			)
+			.expect_err("the mixin is rejected")
+			.to_string(),
+		),
+	];
+
+	let report: Vec<String> = cases
+		.iter()
+		.map(|(case, error)| format!("{case}: {error}"))
+		.collect();
+	insta::assert_snapshot!(report.join("\n"));
+}
+
+#[test]
+fn vector_columns_are_private_unless_public() {
+	let expanded = expand_table(
+		quote!(name = "articles", public),
+		quote! {
+			pub struct Article {
+				pub id: Id<Self>,
+				pub title: String,
+				#[db(vector(distance = cosine, index = hnsw, source(title)))]
+				pub embedding: Option<Vector<3>>,
+				pub plain: Option<HalfVector<2>>,
+				#[db(public)]
+				pub code: BitVector<8>,
+			}
+		},
+	)
+	.unwrap()
+	.to_string();
+	let public = expanded
+		.split("pub struct PublicArticle")
+		.nth(1)
+		.and_then(|rest| rest.split('}').next())
+		.unwrap();
+
+	assert!(!public.contains("embedding"), "{public}");
+	assert!(!public.contains("plain"), "{public}");
+	assert!(public.contains("code"), "{public}");
+	assert!(
+		expanded.contains(
+			"table . vector (\"embedding\" , :: core :: option :: Option :: Some (:: leptoskit_db \
+			 :: __private :: schema :: VectorDistance :: Cosine)"
+		),
+		"{expanded}"
+	);
+	assert!(expanded.contains("& [\"title\"] , false"), "{expanded}");
+	assert!(expanded.contains("table . vector (\"code\""), "{expanded}");
+}

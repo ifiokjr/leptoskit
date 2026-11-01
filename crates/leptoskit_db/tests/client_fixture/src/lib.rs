@@ -154,3 +154,26 @@ pub fn is_valid(user: &PublicUser) -> bool {
 pub fn same_user(left: Id<User>, right: Id<User>) -> bool {
 	left == right
 }
+
+/// An article with an embedding, which clients never receive, and a binary
+/// code they do.
+#[table(name = "articles", public)]
+pub struct Article {
+	pub id: Id<Self>,
+	pub title: String,
+	#[db(vector(distance = cosine, index = hnsw, source(title)))]
+	pub embedding: Option<leptoskit_db::vector::Vector<3>>,
+	#[db(public, vector(distance = hamming))]
+	pub code: leptoskit_db::vector::BitVector<8>,
+}
+
+/// What a client does with a public article's code: compares it locally.
+pub fn shared_bits(article: &PublicArticle, other: &leptoskit_db::vector::BitVector<8>) -> u32 {
+	article
+		.code
+		.as_bytes()
+		.iter()
+		.zip(other.as_bytes())
+		.map(|(left, right)| (left & right).count_ones())
+		.sum()
+}

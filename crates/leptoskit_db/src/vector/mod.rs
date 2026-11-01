@@ -33,11 +33,30 @@
 //! Every one travels as JSON: floats as an array of numbers, bits as a
 //! string of `0` and `1`, sparse vectors as their indices and values.
 
+#[cfg(feature = "server")]
+mod column;
+#[cfg(feature = "server")]
+mod nearest;
+#[cfg(feature = "sqlite")]
+pub(crate) mod sqlite;
+
 use std::borrow::Cow;
 use std::fmt;
 
+#[cfg(feature = "server")]
+pub use column::VectorColumn;
+#[cfg(feature = "server")]
+pub use column::VectorValue;
+#[cfg(feature = "postgres")]
+pub(crate) use column::from_postgres;
+#[cfg(feature = "postgres")]
+pub(crate) use column::to_postgres;
 /// The 16-bit float [`HalfVector`] holds.
 pub use half::f16;
+#[cfg(feature = "server")]
+pub use nearest::Nearest;
+#[cfg(feature = "server")]
+pub use nearest::NearestWithDistance;
 use schemars::JsonSchema;
 use schemars::SchemaGenerator;
 use serde::Deserialize;
