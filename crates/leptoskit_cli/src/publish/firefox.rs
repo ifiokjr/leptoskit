@@ -127,6 +127,43 @@ impl<'a> Firefox<'a> {
 		Ok(uuid)
 	}
 
+	/// Sets the listing's `en-US` name, summary, and description, those
+	/// given. Returns `false` when the add-on doesn't exist yet.
+	///
+	/// # Errors
+	///
+	/// When addons.mozilla.org refuses the text.
+	pub fn listing(
+		&self,
+		name: Option<&str>,
+		summary: Option<&str>,
+		description: Option<&str>,
+	) -> Result<bool> {
+		let mut fields = serde_json::Map::new();
+		for (field, text) in [
+			("name", name),
+			("summary", summary),
+			("description", description),
+		] {
+			if let Some(text) = text {
+				fields.insert(field.to_owned(), serde_json::json!({ "en-US": text }));
+			}
+		}
+		if fields.is_empty() {
+			return Ok(true);
+		}
+		let reply = self.send(
+			"PATCH",
+			&format!("/addons/addon/{}/", segment(&self.guid)),
+			Some(Body::json(&Value::Object(fields))),
+		)?;
+		if reply.status == 404 {
+			return Ok(false);
+		}
+		reply.ok("setting the listing on addons.mozilla.org")?;
+		Ok(true)
+	}
+
 	/// Creates a version of the add-on from an upload, with the source it was
 	/// built from. A listed version goes into review.
 	///

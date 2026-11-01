@@ -60,13 +60,10 @@ edge: Commonplace 0.1.0 is built and checked; nothing was uploaded.
 
 firefox: Commonplace 0.1.0 is built and checked; nothing was uploaded.
 
-  1. Fill in the listing: the description, screenshots, and privacy policy.
+  1. Add the listing's screenshots and the privacy policy.
      Open   https://addons.mozilla.org/developers/addon/commonplace@leptoskit.dev/edit
-     Description: Commonplace keeps the passages worth remembering from everything you read.
-         
-         Select a passage on any page and clip it into a research project, with a note and tags. Commonplace keeps the page's title, author, site, and date, so every clip can be cited, and highlights your clips when you come back to a page. Your library is the same on the web, on your phone, and in the extension.
      Privacy policy: https://commonplace.example.com/privacy
-     Why by hand: leptoskit doesn't upload listing text and images yet
+     Why by hand: leptoskit uploads the name, summary, and description with each upload, but not screenshots or the privacy policy
      Done when: the listing page shows them
 
   2. Decide to release it, then run `leptoskit publish firefox --submit`. (you, the account holder)
@@ -81,21 +78,16 @@ app_store: Commonplace 0.1.0 is checked; an upload archives it for team ABCDE123
      Why by hand: it is a legal declaration about the app's encryption
      Done when: the build no longer shows Missing Compliance
 
-  2. Fill in version 0.1.0's App Store page: the description, keywords, support address, and screenshots for iPhone and iPad.
+  2. Add version 0.1.0's screenshots for iPhone and iPad, on its App Store page.
      Open   https://appstoreconnect.apple.com/apps/1234567890/distribution/ios/version/inflight
-     Description: Commonplace keeps the passages worth remembering from everything you read.
-         
-         Select a passage on any page and clip it into a research project, with a note and tags. Commonplace keeps the page's title, author, site, and date, so every clip can be cited, and highlights your clips when you come back to a page. Your library is the same on the web, on your phone, and in the extension.
-     Support URL: https://commonplace.example.com/help
-     Marketing URL: https://commonplace.example.com
-     Why by hand: leptoskit doesn't upload App Store listing text and screenshots yet
-     Done when: `leptoskit publish app_store --submit` succeeds; App Review refuses an incomplete page
+     Screenshots: store/screenshots/iphone-6.9/*.png and store/screenshots/ipad-13/*.png, made by `leptoskit publish screenshots`
+     Why by hand: leptoskit uploads the version's description, keywords, promotional text, and addresses with each upload, but not screenshots yet
+     Done when: `leptoskit publish app_store --submit` succeeds; App Review refuses a page without screenshots
 
-  3. Fill in App Information: the category, and the privacy policy's address.
+  3. Choose the category, in App Information.
      Open   https://appstoreconnect.apple.com/apps/1234567890/distribution/info
      Category: Productivity
-     Privacy Policy URL: https://commonplace.example.com/privacy
-     Why by hand: leptoskit doesn't upload App Information yet
+     Why by hand: the category is chosen from App Store Connect's list; leptoskit uploads the privacy policy's address
      Done when: a submit succeeds
 
   4. Answer the App Privacy questions: which data the app collects, and what for. (you, the account holder)
@@ -127,13 +119,10 @@ macos: Commonplace 0.1.0 is checked; an upload signs it with your Developer ID, 
 
 play: Commonplace 0.1.0 is checked; an upload builds an App Bundle signed with your upload key, numbered one more than the highest on Google Play, and puts it on the internal track as a draft. Nothing was built or uploaded.
 
-  1. Fill in the main store listing: the app's name, short and full description, icon, feature graphic, and phone screenshots.
+  1. Add the main store listing's images: the icon, the feature graphic, and phone screenshots.
      Open   https://play.google.com/console
-     Full description: Commonplace keeps the passages worth remembering from everything you read.
-         
-         Select a passage on any page and clip it into a research project, with a note and tags. Commonplace keeps the page's title, author, site, and date, so every clip can be cited, and highlights your clips when you come back to a page. Your library is the same on the web, on your phone, and in the extension.
-     Website: https://commonplace.example.com
-     Why by hand: leptoskit doesn't upload Google Play listings yet
+     Screenshots: store/screenshots/android-phone/*.png, made by `leptoskit publish screenshots`
+     Why by hand: leptoskit uploads the listing's title and descriptions with each upload, but not images yet
      Done when: Play Console's dashboard no longer lists the store listing as a task
 
   2. Set the privacy policy, under App content.

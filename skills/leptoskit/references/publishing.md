@@ -25,6 +25,11 @@ Publishing has two halves on every store:
 5. **Run it again.** `leptoskit publish <stores>` again uploads the same version (or tells you it must be newer) and prints what is still left.
 6. **Submit, when told to.** Ask the person whether to release. Only with their yes, run `leptoskit publish <stores> --submit`. In a terminal it asks once more; `--yes` skips that for scripts.
 
+## Listings and screenshots
+
+- Listing text lives in `store/`: `listing.toml` (name, keywords, addresses, category), `en-US/summary.md`, `en-US/description.md`, and `en-US/release_notes.md`. Each upload sends what the store's API takes; a step asks for the rest. When a step's value says `(write it in …)`, ask the person for the text and add it to that file rather than typing it into the dashboard, so the next upload carries it.
+- `leptoskit publish screenshots` captures every store's screenshots into `store/screenshots/<size>/`, from `store/screenshots/screenshots.toml`. Browser sizes need `leptoskit dev` running; simulator and Android sizes need the app installed and Appium. Run `--dry-run` first to see the files. When a step asks for screenshots, upload the files from the folder it names.
+
 ## Computer use in a store's dashboard
 
 When you have computer use (screenshots, clicks, and typing) or a browser automation tool:

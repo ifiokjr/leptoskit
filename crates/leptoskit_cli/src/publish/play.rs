@@ -321,6 +321,28 @@ impl Edit<'_, '_> {
 			.map(drop)
 	}
 
+	/// Sets the store listing in `language`: the title and the short and
+	/// full descriptions.
+	///
+	/// # Errors
+	///
+	/// When Google Play refuses the text.
+	pub fn listing(&self, language: &str, title: &str, short: &str, full: &str) -> Result<()> {
+		self.play
+			.send(
+				"PUT",
+				&self.url(&format!("/listings/{language}")),
+				Some(Body::json(&json!({
+					"language": language,
+					"title": title,
+					"shortDescription": short,
+					"fullDescription": full,
+				}))),
+			)?
+			.ok("setting the store listing")
+			.map(drop)
+	}
+
 	/// Commits the edit's changes.
 	///
 	/// # Errors

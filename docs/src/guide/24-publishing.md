@@ -168,16 +168,38 @@ Each step says what to do, where, what to enter, why the API can't do it, and ho
 
 ## Keep the listing with the code
 
-The text the steps paste comes from a `store/` folder in your project, so it's reviewed like code:
+A store's listing text lives in a `store/` folder in your project, so it's reviewed like code. Each upload sends what the store's API takes, and the steps paste the rest:
 
 ```text
 store/
-├── listing.toml          privacy_policy, homepage, support, category
+├── listing.toml          name, keywords, privacy_policy, homepage, support, category
 ├── permissions.toml      one sentence per permission, for reviewers
-└── en-US/
-    ├── description.md
-    └── release_notes.md  Edge's submission notes
+├── en-US/
+│   ├── summary.md        a sentence or two
+│   ├── description.md
+│   └── release_notes.md
+└── screenshots/
+    └── screenshots.toml  the screens `leptoskit publish screenshots` captures
 ```
+
+```toml
+# store/listing.toml
+privacy_policy = "https://notes.example.com/privacy"
+support = "https://notes.example.com/help"
+category = "Productivity"
+keywords = ["notes", "research", "quotes"]
+```
+
+What goes up with each upload:
+
+| Store                  | Uploaded from `store/`                                                                                           | Left for the steps                          |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| App Store              | description, keywords, summary (as promotional text), support and homepage addresses, privacy policy, What's New | screenshots, category                       |
+| Google Play            | name, summary (as the short description), description, release notes                                             | icon, feature graphic, screenshots          |
+| addons.mozilla.org     | name, summary, description                                                                                       | screenshots, privacy policy                 |
+| Chrome Web Store, Edge | release notes, on Edge                                                                                           | the whole listing: their APIs don't edit it |
+
+Text a store would refuse as too long fails before anything is built: Google Play takes an 80-character summary and a 30-character name, the App Store 100 bytes of keywords and a 170-character summary, and addons.mozilla.org a 250-character summary.
 
 ```toml
 # store/permissions.toml
@@ -186,6 +208,42 @@ storage = "Keeps your sign-in and your chosen project on this device."
 ```
 
 A permission without a sentence shows up in the steps as one to write. Store reviewers reject permissions they can't see a reason for more often than anything else.
+
+## Screenshots from the app
+
+Every store wants screenshots at its own sizes, and they go stale with every design change. `leptoskit publish screenshots` captures them from the app, into `store/screenshots/<size>/`, replacing the ones it made before. Name the sizes and the screens in `store/screenshots/screenshots.toml`:
+
+```toml
+url = "http://127.0.0.1:3000" # the app, as `leptoskit dev` serves it
+
+[devices.chrome-1280x800] # the Chrome Web Store and Edge
+viewport = [1280, 800]
+
+[devices."iphone-6.9"] # the App Store's largest iPhone size
+simulator = "iPhone 17 Pro Max"
+
+[devices.android-phone] # Google Play
+android = "emulator-5554"
+
+[[screenshot]]
+name = "library"
+route = "/library"
+# On the phones, the app starts at its first screen; these reach this one.
+steps = [{ action = "tap", locator = { by = "text", value = "Library" } }]
+wait_for = { by = "text", value = "Your library" }
+```
+
+```bash
+leptoskit dev                           # in another terminal, for the browser sizes
+leptoskit publish screenshots --dry-run # list the files it would make
+leptoskit publish screenshots
+```
+
+- **A browser size** (`viewport`, and `scale` for a high-density screen) opens each screen's `route` in headless Chrome at exactly that size. It needs Chrome and chromedriver.
+- **A simulator or Android size** launches your installed app, takes the screen's `steps`, and captures the app. The steps are the same ones [`leptoskit device`](../platforms/readme.md) and control documents use, so they need Appium with the platform's driver, a booted simulator or running emulator, and the app installed on it.
+- A screen's `devices` list limits it to some sizes. Files are numbered in the order the screens are listed: `01-library.png`, `02-…`.
+
+The steps after each run say which folder each store's screenshots come from. The stores' APIs take images, but leptoskit doesn't upload them yet.
 
 ## Let an agent finish the release
 
@@ -199,6 +257,7 @@ leptoskit skill                  # print it, to paste into any agent
 
 ## What doesn't work yet
 
+- **Screenshots and images** aren't uploaded yet: the steps name the folders to upload them from.
 - **The Mac App Store** isn't supported. Safari's extension ships inside your iOS app, so it goes through the App Store with the app.
 - **Listing text and screenshots** aren't uploaded; they appear in the steps instead.
 - **A brand new Firefox add-on** needs its first version submitted on the site. After that, `leptoskit publish firefox --submit` adds versions.

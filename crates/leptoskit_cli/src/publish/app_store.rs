@@ -624,6 +624,63 @@ impl<'a> AppStore<'a> {
 		Ok(())
 	}
 
+	/// Sets the privacy policy's address in App Information's `en-US`
+	/// localization, on the app information being prepared. Returns whether
+	/// there was one to set it on.
+	///
+	/// # Errors
+	///
+	/// When App Store Connect refuses.
+	pub fn privacy_policy(&self, app: &str, url: &str) -> Result<bool> {
+		let infos = self.json(
+			"GET",
+			&format!("/v1/apps/{app}/appInfos"),
+			None,
+			"reading the app's information",
+		)?;
+		let infos = infos["data"].as_array().cloned().unwrap_or_default();
+		// The one in preparation, when a version is; the live one otherwise.
+		let info = infos
+			.iter()
+			.find(|info| {
+				let state = info["attributes"]["appStoreState"]
+					.as_str()
+					.or_else(|| info["attributes"]["state"].as_str())
+					.unwrap_or_default();
+				EDITABLE.contains(&state) || state == "PREPARE_FOR_SUBMISSION"
+			})
+			.or_else(|| infos.first())
+			.and_then(|info| info["id"].as_str());
+		let Some(info) = info else {
+			return Ok(false);
+		};
+		let localizations = self.json(
+			"GET",
+			&format!("/v1/appInfos/{info}/appInfoLocalizations"),
+			None,
+			"reading App Information's localizations",
+		)?;
+		let Some(id) = localizations["data"]
+			.as_array()
+			.into_iter()
+			.flatten()
+			.find(|found| found["attributes"]["locale"] == "en-US")
+			.and_then(|found| found["id"].as_str())
+		else {
+			return Ok(false);
+		};
+		self.send(
+			"PATCH",
+			&format!("/v1/appInfoLocalizations/{id}"),
+			Some(&json!({ "data": {
+				"type": "appInfoLocalizations", "id": id,
+				"attributes": { "privacyPolicyUrl": url },
+			}})),
+		)?
+		.ok("setting the privacy policy's address")?;
+		Ok(true)
+	}
+
 	/// Attaches the build to the version.
 	///
 	/// # Errors

@@ -4,3 +4,5 @@ privacy_policy = "https://commonplace.example.com/privacy"
 homepage = "https://commonplace.example.com"
 support = "https://commonplace.example.com/help"
 category = "Productivity"
+# The App Store's search keywords: 100 bytes at most, together.
+keywords = ["quotes", "research", "notes", "citations", "highlights", "reading"]
