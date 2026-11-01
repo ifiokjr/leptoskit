@@ -1,0 +1,196 @@
+---
+source: crates/leptoskit_cli/src/deploy/tests.rs
+expression: pinned
+---
+$ leptoskit generate deploy --target kubernetes
+created Dockerfile
+created .dockerignore
+created kubernetes.yaml
+
+next:
+  1. Build and push the image: `docker build -t notes .` then push it to your registry.
+  2. Set image to the pushed reference in kubernetes.yaml.
+  3. Apply it: `kubectl apply -f kubernetes.yaml`
+
+===== Dockerfile =====
+# syntax=docker/dockerfile:1
+#
+# The container for notes, written by `leptoskit generate deploy`. It's yours
+# to edit: running the generator again keeps your changes unless you pass
+# --force. Build it from the project root:
+#
+#   docker build -t notes .
+#
+# The first stage runs `leptoskit build --release`, as you would on your
+# machine. The second runs the server as an unprivileged user that writes
+# nothing to the image's filesystem, so it works with a read-only root
+# filesystem.
+#
+# The SQLite database is the one thing it writes, on a volume at /data.
+
+# The Rust release that builds the app. `1` is the latest stable; pin one,
+# such as 1.96, to build the same way every time.
+ARG RUST_VERSION=1
+# The leptoskit CLI that builds the app. Keep it in step with the `leptoskit`
+# version in Cargo.toml.
+ARG LEPTOSKIT_VERSION=[version]
+# binaryen's wasm-opt shrinks the release client.
+ARG BINARYEN_VERSION=132
+
+FROM rust:${RUST_VERSION}-bookworm AS build
+ARG LEPTOSKIT_VERSION
+ARG BINARYEN_VERSION
+RUN curl --fail --silent --show-error --location \
+      "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-$(uname -m)-linux.tar.gz" \
+    | tar -xz -C /opt \
+ && ln -s "/opt/binaryen-version_${BINARYEN_VERSION}/bin/wasm-opt" /usr/local/bin/wasm-opt
+RUN cargo install leptoskit_cli --version "${LEPTOSKIT_VERSION}" --locked
+WORKDIR /src
+RUN rustup target add wasm32-unknown-unknown
+COPY . .
+# The cache mounts keep downloaded crates and compiled dependencies between
+# builds. The server is copied out, since the target directory is a cache.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    --mount=type=cache,target=/src/.leptoskit \
+    leptoskit build --release --platform web \
+ && cp target/release/notes /usr/local/bin/notes
+
+FROM debian:bookworm-slim
+# curl answers the health check, and `app` is the unprivileged user the
+# server runs as.
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --user-group --uid 10001 --no-create-home app \
+ && mkdir /data \
+ && chown app:app /data
+WORKDIR /app
+COPY --from=build /usr/local/bin/notes /app/server
+COPY --from=build /src/dist /app/dist
+# What `leptoskit serve` sets from leptoskit.toml, for a container: listen on
+# every interface, and serve the site from /app/dist.
+ENV LEPTOS_ENV=PROD \
+    LEPTOS_OUTPUT_NAME=notes_app \
+    LEPTOS_SITE_ROOT=/app/dist \
+    LEPTOS_SITE_PKG_DIR=pkg \
+    LEPTOS_SITE_ADDR=0.0.0.0:3000
+# The SQLite database lives on a volume, the one place the server writes.
+ENV DATABASE_URL=sqlite:///data/notes.sqlite3
+VOLUME /data
+USER app
+EXPOSE 3000
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
+  CMD ["curl", "--fail", "--silent", "--output", "/dev/null", "http://127.0.0.1:3000/healthz"]
+CMD ["/app/server"]
+
+===== .dockerignore =====
+# Written by `leptoskit generate deploy`. Keeps the build context small, and
+# local builds, databases, and secrets out of the image.
+.git
+**/target
+/dist
+/.leptoskit
+/android/.gradle
+/android/**/build
+*.sqlite3*
+.env
+.env.*
+
+===== kubernetes.yaml =====
+# notes on Kubernetes, written by `leptoskit generate deploy`. It's
+# yours to edit: running the generator again keeps your changes unless you
+# pass --force.
+#
+#   kubectl apply -f kubernetes.yaml
+#
+# The Deployment runs 1 replica. On SIGTERM the server fails
+# /readyz, waits 5 seconds for the load balancer to stop sending it traffic,
+# and gives requests in flight 20 more; the pod's grace period is 30 seconds.
+#
+# The SQLite database lives on a PersistentVolumeClaim, so the
+# Deployment runs one replica and replaces it on deploy.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notes
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: notes
+  template:
+    metadata:
+      labels:
+        app: notes
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: notes
+          image: notes
+          ports:
+            - containerPort: 3000
+          env:
+            - name: LEPTOS_SITE_ADDR
+              value: "0.0.0.0:3000"
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: notes-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: notes-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notes
+spec:
+  selector:
+    app: notes
+  ports:
+    - port: 80
+      targetPort: 3000
+---
+apiVersion: policy/v1
+kind: `PodDisruptionBudget`
+metadata:
+  name: notes
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: notes

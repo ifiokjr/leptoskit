@@ -99,14 +99,20 @@ fn regex_escape(text: &str) -> String {
 #[test]
 fn every_target_and_database_is_pinned() {
 	let _version = with_version_masked().bind_to_scope();
-	for target in [Target::Docker, Target::Compose, Target::Fly] {
+	for target in [
+		Target::Docker,
+		Target::Compose,
+		Target::Fly,
+		Target::Kubernetes,
+		Target::Systemd,
+	] {
 		for db in [Db::None, Db::Sqlite, Db::Postgres] {
 			let root = tempfile::tempdir().unwrap();
 			let config = project(root.path(), db);
 			let report = generate(root.path(), &config, target, false).expect("generate");
 			let mut pinned = format!("$ leptoskit generate deploy --target {target}\n{report}");
 			for (file, _) in target.files(&Project::read(root.path(), &config).unwrap()) {
-				let contents = std::fs::read_to_string(root.path().join(file)).unwrap();
+				let contents = std::fs::read_to_string(root.path().join(&file)).unwrap();
 				write!(pinned, "\n===== {file} =====\n{contents}").unwrap();
 			}
 			insta::assert_snapshot!(format!("{target}_{}", db.name()), pinned);
