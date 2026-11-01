@@ -316,10 +316,10 @@ pub enum Step {
 	/// being, copying its rows across. The table's other changes happen in
 	/// the rebuild: it's created as `to` says.
 	Repartition {
-		/// The table as it was, by its name before the step.
-		from: Table,
+		/// The table as it was, by its name when the step runs.
+		from: Box<Table>,
 		/// The table as it should be.
-		to: Table,
+		to: Box<Table>,
 		/// The columns whose values are copied: each column's previous name
 		/// and its new one.
 		columns: Vec<(String, String)>,
@@ -1025,8 +1025,8 @@ fn repartition(pair: &TablePair<'_>, columns: &ColumnMatches<'_>) -> Step {
 	from.name = pair.target.name.clone();
 
 	Step::Repartition {
-		from,
-		to: pair.target.clone(),
+		from: Box::new(from),
+		to: Box::new(pair.target.clone()),
 		columns: columns
 			.matched
 			.iter()

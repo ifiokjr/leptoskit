@@ -378,7 +378,7 @@ impl Writer {
 			.push(format!("DROP PUBLICATION {}", ident(&publication.name)));
 
 		for table in &publication.tables {
-			self.alter(&table.table, "REPLICA IDENTITY DEFAULT".to_string());
+			self.alter(&table.table, "REPLICA IDENTITY DEFAULT");
 		}
 	}
 

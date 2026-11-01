@@ -412,7 +412,8 @@ impl Db {
 	/// ```
 	///
 	/// Changes come from the change log that migrations' capture triggers
-	/// fill, so raw SQL and other services' writes arrive too. On Postgres
+	/// fill, or replication capture does, so raw SQL and other services'
+	/// writes arrive too. On Postgres
 	/// the first call opens a connection that listens for every server's
 	/// commits, and returns once it's listening.
 	pub async fn changes(&self) -> Result<Feed> {

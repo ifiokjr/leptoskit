@@ -630,21 +630,20 @@ impl<'a> Leader<'a> {
 		settings: &'a CaptureSettings,
 		shared: &'a Shared,
 	) -> Result<Self> {
-		let confirmed = match slot(client, &slot_name).await? {
-			Some(slot) => slot.confirmed,
-			None => {
-				let lsn: i64 = client
-					.query_one(
-						"SELECT (lsn - '0/0'::pg_lsn)::bigint FROM \
-						 pg_create_logical_replication_slot($1, 'pgoutput')",
-						&[&slot_name],
-					)
-					.await
-					.map_err(driver_error)?
-					.get(0);
-				mark_gap(client).await?;
-				u64::try_from(lsn).unwrap_or(0)
-			}
+		let confirmed = if let Some(slot) = slot(client, &slot_name).await? {
+			slot.confirmed
+		} else {
+			let lsn: i64 = client
+				.query_one(
+					"SELECT (lsn - '0/0'::pg_lsn)::bigint FROM \
+					 pg_create_logical_replication_slot($1, 'pgoutput')",
+					&[&slot_name],
+				)
+				.await
+				.map_err(driver_error)?
+				.get(0);
+			mark_gap(client).await?;
+			u64::try_from(lsn).unwrap_or(0)
 		};
 		let recorded: Option<i64> = client
 			.query_opt(
@@ -1150,10 +1149,10 @@ mod tests {
 	fn positions_and_transaction_ids_read_as_postgres_writes_them() {
 		assert_eq!(lsn_text(0x16_B374_D848), "16/B374D848");
 		assert_eq!(lsn_text(0), "0/0");
-		assert_eq!(full_xid((3 << 32) | 100, 90), (3 << 32) | 90);
+		assert_eq!(full_xid((3 << 32) + 100, 90), (3 << 32) + 90);
 		assert_eq!(
-			full_xid((3 << 32) | 100, 4_000_000_000),
-			(2 << 32) | 4_000_000_000
+			full_xid((3 << 32) + 100, 4_000_000_000),
+			(2 << 32) + 4_000_000_000
 		);
 	}
 
@@ -1183,7 +1182,7 @@ mod tests {
 				"changed": ["token"],
 			})
 		);
-		assert!(described(&[table.clone()], "public", "notes").is_some());
+		assert!(described(std::slice::from_ref(&table), "public", "notes").is_some());
 		assert!(described(&[table], "other", "posts").is_none());
 	}
 }

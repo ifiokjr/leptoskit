@@ -200,10 +200,6 @@ async fn write_everything(db: &Db) {
 /// the order they appear in, and the commit's time and version left out.
 fn comparable(commits: &[Commit]) -> Vec<serde_json::Value> {
 	let mut ids: HashMap<String, String> = HashMap::new();
-	let mut name = |id: &str| -> String {
-		let next = format!("id{}", ids.len());
-		ids.entry(id.to_string()).or_insert(next).clone()
-	};
 	let mut out = Vec::new();
 
 	for commit in commits {
@@ -211,25 +207,12 @@ fn comparable(commits: &[Commit]) -> Vec<serde_json::Value> {
 			.changes
 			.iter()
 			.map(|change| {
-				let mut image = |image: &Option<serde_json::Map<String, serde_json::Value>>| {
-					image.clone().map(|mut image| {
-						for column in ["id", "note_id"] {
-							if let Some(serde_json::Value::String(id)) = image.get(column) {
-								let named = name(id);
-								image.insert(column.into(), named.into());
-							}
-						}
-
-						image.remove("created_at");
-						image
-					})
-				};
-				let old = image(&change.old);
-				let new = image(&change.new);
+				let old = change.old.clone().map(|image| renamed(image, &mut ids));
+				let new = change.new.clone().map(|image| renamed(image, &mut ids));
 				serde_json::json!({
 					"table": change.table.to_string(),
 					"op": format!("{:?}", change.op),
-					"key": change.key.iter().map(|key| name(key)).collect::<Vec<_>>(),
+					"key": change.key.iter().map(|key| id_name(&mut ids, key)).collect::<Vec<_>>(),
 					"old": old,
 					"new": new,
 					"changed": change.changed,
@@ -244,6 +227,28 @@ fn comparable(commits: &[Commit]) -> Vec<serde_json::Value> {
 	}
 
 	out
+}
+
+/// The name an ID gets: `id0` for the first seen, and so on.
+fn id_name(ids: &mut HashMap<String, String>, id: &str) -> String {
+	let next = format!("id{}", ids.len());
+	ids.entry(id.to_string()).or_insert(next).clone()
+}
+
+/// An image with its IDs named and its creation time left out.
+fn renamed(
+	mut image: serde_json::Map<String, serde_json::Value>,
+	ids: &mut HashMap<String, String>,
+) -> serde_json::Map<String, serde_json::Value> {
+	for column in ["id", "note_id"] {
+		let Some(serde_json::Value::String(id)) = image.get(column).cloned() else {
+			continue;
+		};
+		image.insert(column.into(), id_name(ids, &id).into());
+	}
+
+	image.remove("created_at");
+	image
 }
 
 /// Each commit's version and write-ahead log position, oldest first.
@@ -603,40 +608,12 @@ async fn prunes_by_dropping_partitions(db: &Db, mode: LiveCapture) {
 	// Written before maintenance first runs, so into the default partition.
 	note("early").insert(&system).await.unwrap();
 	commits_since(db, 0).await;
-
-	// Maintenance makes ranges ahead of both tables.
-	assert_eq!(
-		db.maintain_changes(Duration::from_secs(3600))
-			.await
-			.unwrap(),
-		0
-	);
-	let made = partitions(db, "commits").await;
-	assert!(made.len() >= 3, "{made:?}");
-	assert!(made.contains(&"commits_default".to_string()));
-	assert!(partitions(db, "changes").await.len() >= 3);
-
-	let start = db.live_version().await.unwrap();
-
-	for index in 0..12 {
-		note(&format!("note {index}"))
-			.insert(&system)
-			.await
-			.unwrap();
-	}
-
-	assert_eq!(commits_since(db, start).await.len(), 12);
-	let in_default = count(
-		db,
-		&format!("SELECT count(*) FROM live.commits_default WHERE version > {start}"),
-	)
-	.await;
-	assert_eq!(in_default, 0, "{mode:?}: writes land in the ranges");
+	makes_ranges_ahead(db, mode).await;
 
 	// A reader that falls behind, and one that keeps up.
-	let mut behind = db.system("behind").changes_since(0).await.unwrap();
+	let behind = db.system("behind").changes_since(0).await.unwrap();
 	let newest = db.live_version().await.unwrap();
-	let mut current = db.system("current").changes_since(newest).await.unwrap();
+	let current = db.system("current").changes_since(newest).await.unwrap();
 
 	// Pruning everything: the newest commit stays as the marker, and the
 	// default partition's older rows go.
@@ -657,28 +634,69 @@ async fn prunes_by_dropping_partitions(db: &Db, mode: LiveCapture) {
 		"{mode:?}: nor its changes"
 	);
 
-	// The reader behind hears whatever whole commits are left below the
-	// marker, then that it may have missed some, then what comes next.
-	let after_prune = note("after").insert(&system).await.unwrap();
+	readers_hear_the_marker(db, behind, current, mode).await;
+
+	if let Some(capture) = capture {
+		capture.shutdown().await;
+	}
+}
+
+/// One round of maintenance makes ranges ahead of both tables, and the
+/// writes after it land in them.
+async fn makes_ranges_ahead(db: &Db, mode: LiveCapture) {
+	assert_eq!(
+		db.maintain_changes(Duration::from_secs(3600))
+			.await
+			.unwrap(),
+		0
+	);
+	let ranges = partitions(db, "commits").await;
+	assert!(ranges.len() >= 3, "{ranges:?}");
+	assert!(ranges.contains(&"commits_default".to_string()));
+	assert!(partitions(db, "changes").await.len() >= 3);
+
+	let start = db.live_version().await.unwrap();
+	let system = db.system("writing");
+
+	for index in 0..12 {
+		note(&format!("note {index}"))
+			.insert(&system)
+			.await
+			.unwrap();
+	}
+
+	assert_eq!(commits_since(db, start).await.len(), 12);
+	let in_default = count(
+		db,
+		&format!("SELECT count(*) FROM live.commits_default WHERE version > {start}"),
+	)
+	.await;
+	assert_eq!(in_default, 0, "{mode:?}: writes land in the ranges");
+}
+
+/// The reader behind hears whatever whole commits are left below the
+/// marker, then that it may have missed some, then what comes next; the
+/// reader that kept up hears only what comes next.
+async fn readers_hear_the_marker(
+	db: &Db,
+	mut behind: leptoskit_db::live::Feed,
+	mut current: leptoskit_db::live::Feed,
+	mode: LiveCapture,
+) {
+	let after_prune = note("after").insert(&db.system("writing")).await.unwrap();
+	let expected = rows_of(&[after_prune.id.to_string()]);
 	let mut heard_everything = false;
 
 	loop {
 		match next(&mut behind).await {
 			Invalidation::Everything => heard_everything = true,
-			rows if rows == rows_of(&[after_prune.id.to_string()]) => break,
+			rows if rows == expected => break,
 			Invalidation::Rows(_) => assert!(!heard_everything, "nothing older after the marker"),
 		}
 	}
 
 	assert!(heard_everything, "{mode:?}");
-	assert_eq!(
-		next(&mut current).await,
-		rows_of(&[after_prune.id.to_string()])
-	);
-
-	if let Some(capture) = capture {
-		capture.shutdown().await;
-	}
+	assert_eq!(next(&mut current).await, expected);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
