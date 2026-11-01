@@ -649,7 +649,10 @@ fn queries_panel(model: &Model, live: &Live) -> Vec<Element> {
 						.on_press(move || store::invalidate(&invalidate)),
 				);
 			let draft = model.drafts.queries.get(key);
-			let actions = if draft.is_none() && editable && !value.truncated {
+			// A query whose scope has no codec says so in its value; its data
+			// can't be decoded, so it isn't offered for editing.
+			let read_only = value.json.get("read_only").is_some();
+			let actions = if draft.is_none() && editable && !value.truncated && !read_only {
 				let json = value.json.to_string();
 				actions.child(
 					Button("Edit data")

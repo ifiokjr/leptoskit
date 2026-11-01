@@ -127,6 +127,9 @@ pub(crate) trait AnyMutation: Any + Send + Sync {
 	fn run(&self) -> Option<RunFuture>;
 	fn info(&self) -> MutationInfo;
 	fn as_any(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
+	/// The Rust types of the variables and the data.
+	#[cfg(feature = "devtools")]
+	fn types(&self) -> (&'static str, &'static str);
 }
 
 impl<V, T, E, C> AnyMutation for Mutation<V, T, E, C>
@@ -170,6 +173,11 @@ where
 
 	fn as_any(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
 		self
+	}
+
+	#[cfg(feature = "devtools")]
+	fn types(&self) -> (&'static str, &'static str) {
+		(std::any::type_name::<V>(), std::any::type_name::<T>())
 	}
 }
 

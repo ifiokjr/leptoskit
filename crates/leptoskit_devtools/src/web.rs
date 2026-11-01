@@ -4,8 +4,10 @@
 //! `data-lk-key` (its cross-platform match key), `data-lk-kind`, and
 //! `data-lk-source`. The agent reads those, so it never touches the render
 //! path: a `MutationObserver` marks the page dirty, and a debounced flush
-//! sends a snapshot only when the tree it reads has changed. Commands arrive
-//! on a long-poll that runs beside it.
+//! sends a snapshot only when the tree it reads has changed. The hooks
+//! (`track_router`, `expose`, `track_form`, `track_queries`) wake the same
+//! flush, which sends the values that changed in between snapshots; see
+//! [`Outbox`]. Commands arrive on a long-poll that runs beside it.
 
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -23,7 +25,6 @@ use leptoskit_devtools_protocol::Node;
 use leptoskit_devtools_protocol::NodeRef;
 use leptoskit_devtools_protocol::Platform;
 use leptoskit_devtools_protocol::SessionId;
-use leptoskit_devtools_protocol::Snapshot;
 use leptoskit_devtools_protocol::SourceLocation;
 use leptoskit_devtools_protocol::Tree;
 use serde::Serialize;
@@ -31,6 +32,10 @@ use serde::de::DeserializeOwned;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen_futures::spawn_local;
+
+use crate::registry;
+use crate::registry::Sink;
+use crate::report::Outbox;
 
 /// How long the page must be quiet before a snapshot is sent.
 const DEBOUNCE_MS: u32 = 150;
@@ -51,9 +56,13 @@ pub(crate) fn install(hub: &str, app: &str) {
 		app: app.to_owned(),
 		session: RefCell::new(None),
 		after: Cell::new(0),
-		last_sent: RefCell::new(None),
+		outbox: RefCell::new(Outbox::default()),
+		dom_changed: Cell::new(true),
 		flush_pending: Cell::new(false),
+		flushing: Cell::new(false),
+		flush_again: Cell::new(false),
 	});
+	registry::install(Rc::new(Wake(Rc::clone(&agent))));
 	spawn_local(async move {
 		agent.connect().await;
 		agent.observe();
@@ -67,21 +76,32 @@ struct Agent {
 	app: String,
 	session: RefCell<Option<SessionId>>,
 	after: Cell<usize>,
-	/// The JSON of the last snapshot sent, so an unchanged tree is not sent
-	/// again.
-	last_sent: RefCell<Option<String>>,
+	/// What the hub has, so a flush sends only what changed.
+	outbox: RefCell<Outbox>,
+	/// Whether the DOM changed since the last flush read the tree.
+	dom_changed: Cell<bool>,
 	flush_pending: Cell<bool>,
+	/// Whether a flush is posting, so the next waits its turn and the hub
+	/// receives batches in order.
+	flushing: Cell<bool>,
+	flush_again: Cell<bool>,
+}
+
+/// The agent as the hooks' [`Sink`]: a change schedules a flush.
+struct Wake(Rc<Agent>);
+
+impl Sink for Wake {
+	fn wake(&self) {
+		self.0.schedule_flush();
+	}
 }
 
 impl Agent {
 	/// Open a session, retrying until the hub answers.
 	async fn connect(&self) {
-		let hello = Hello::new(
-			self.app.clone(),
-			Platform::Web,
-			None,
-			[Capability::Tree, Capability::Picking],
-		);
+		let mut capabilities = vec![Capability::Tree, Capability::Picking];
+		capabilities.extend(registry::capabilities());
+		let hello = Hello::new(self.app.clone(), Platform::Web, None, capabilities);
 		loop {
 			match post_json::<_, SessionId>(&format!("{}/agent/sessions", self.hub), &hello).await {
 				Ok(session) => {
@@ -92,7 +112,7 @@ impl Agent {
 					);
 					*self.session.borrow_mut() = Some(session);
 					self.after.set(0);
-					*self.last_sent.borrow_mut() = None;
+					self.outbox.borrow_mut().reset();
 					return;
 				}
 				Err(error) => {
@@ -113,7 +133,10 @@ impl Agent {
 	/// Mark the page dirty whenever the DOM changes.
 	fn observe(self: &Rc<Self>) {
 		let agent = Rc::clone(self);
-		let callback = Closure::<dyn FnMut()>::new(move || agent.schedule_flush());
+		let callback = Closure::<dyn FnMut()>::new(move || {
+			agent.dom_changed.set(true);
+			agent.schedule_flush();
+		});
 		let Ok(observer) = web_sys::MutationObserver::new(callback.as_ref().unchecked_ref()) else {
 			return;
 		};
@@ -137,25 +160,45 @@ impl Agent {
 		spawn_local(async move {
 			gloo_timers::future::TimeoutFuture::new(DEBOUNCE_MS).await;
 			agent.flush_pending.set(false);
-			agent.flush().await;
+			if agent.flushing.replace(true) {
+				// The flush in progress runs again once its post is done.
+				agent.flush_again.set(true);
+				return;
+			}
+			loop {
+				agent.flush().await;
+				if !agent.flush_again.replace(false) {
+					break;
+				}
+			}
+			agent.flushing.set(false);
 		});
 	}
 
-	/// Send a snapshot when the tree differs from the last one sent.
+	/// Send what changed: a snapshot when the hub needs one or the tree
+	/// changed, and the changed values otherwise.
 	async fn flush(&self) {
 		let Some(session) = self.session() else {
 			return;
 		};
-		let snapshot = snapshot();
-		let Ok(json) = serde_json::to_string(&snapshot) else {
+		let dom_changed = self.dom_changed.replace(false);
+		let batch = self.outbox.borrow().batch(dom_changed, tree);
+		let Some(mut batch) = batch else {
 			return;
 		};
-		if self.last_sent.borrow().as_deref() == Some(json.as_str()) {
-			return;
+		// Without a tracked router, a snapshot still shows the page's path.
+		if let Some(Event::Snapshot { snapshot }) = batch.events.first_mut()
+			&& snapshot.route.is_none()
+		{
+			snapshot.route = web_sys::window().and_then(|window| window.location().pathname().ok());
 		}
-		let events = [Event::Snapshot { snapshot }];
-		if post(&self.events_url(&session), &events).await.is_ok() {
-			*self.last_sent.borrow_mut() = Some(json);
+		if post(&self.events_url(&session), &batch.events)
+			.await
+			.is_ok()
+		{
+			self.outbox.borrow_mut().sent(batch);
+		} else {
+			self.outbox.borrow_mut().reset();
 		}
 	}
 
@@ -170,6 +213,8 @@ impl Agent {
 		loop {
 			let Some(session) = self.session() else {
 				self.connect().await;
+				// The new session starts with a fresh snapshot.
+				self.schedule_flush();
 				continue;
 			};
 			let url = format!(
@@ -201,10 +246,19 @@ impl Agent {
 			Command::Pick { on } if on => self.start_picking(),
 			Command::Pick { .. } => stop_picking(),
 			Command::RequestSnapshot => {
-				*self.last_sent.borrow_mut() = None;
+				self.outbox.borrow_mut().reset();
 				self.schedule_flush();
 			}
-			_ => {}
+			Command::Navigate { .. }
+			| Command::InvalidateQuery { .. }
+			| Command::RefetchQuery { .. }
+			| Command::SetQueryData { .. }
+			| Command::SetState { .. } => {
+				if let Err(message) = registry::apply(&command) {
+					web_sys::console::warn_1(&format!("[devtools] {message}").into());
+				}
+			}
+			Command::SetClasses { .. } | Command::StartProfiling | Command::StopProfiling => {}
 		}
 	}
 
@@ -322,7 +376,8 @@ fn highlight(key: &str) {
 	let _ = overlay.set_attribute("style", &style);
 }
 
-fn snapshot() -> Snapshot {
+/// The tree the renderer marked up.
+fn tree() -> Tree {
 	let mut nodes = Vec::new();
 	let mut root = None;
 	let mut children: BTreeMap<String, Vec<NodeRef>> = BTreeMap::new();
@@ -346,18 +401,9 @@ fn snapshot() -> Snapshot {
 		}
 	}
 
-	Snapshot {
-		tree: Tree {
-			root: root.unwrap_or_else(|| NodeRef::Web(String::new())),
-			nodes,
-		},
-		route: web_sys::window().and_then(|window| window.location().pathname().ok()),
-		queries: Vec::new(),
-		mutations: Vec::new(),
-		forms: Vec::new(),
-		state: Vec::new(),
-		calls: Vec::new(),
-		rpc: Vec::new(),
+	Tree {
+		root: root.unwrap_or_else(|| NodeRef::Web(String::new())),
+		nodes,
 	}
 }
 

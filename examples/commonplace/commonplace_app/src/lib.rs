@@ -36,6 +36,13 @@ pub fn App() -> impl leptos::prelude::IntoView {
 	store::Store::current().start(None);
 	let navigation = routes::Navigation::from_browser()
 		.unwrap_or_else(|_| routes::Navigation::new(routes::Route::Library));
+	// The route panel follows the router, and the state panel shows the
+	// store, editable.
+	#[cfg(feature = "devtools")]
+	{
+		leptoskit::devtools::track_router(&navigation);
+		store::Store::current().expose();
+	}
 	move || leptoskit::web::render(navigation.render())
 }
 

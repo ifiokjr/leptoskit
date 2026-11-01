@@ -2322,6 +2322,8 @@ dependencies = [
  "gloo-timers",
  "js-sys",
  "leptoskit_devtools_protocol",
+ "leptoskit_router",
+ "reactive_graph",
  "serde",
  "serde_json",
  "wasm-bindgen",

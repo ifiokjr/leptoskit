@@ -136,6 +136,10 @@ pub mod devtools {
 	//! The `DevTools` agents. `leptoskit dev` compiles them into development
 	//! builds of apps that declare `devtools = ["leptoskit/devtools"]`;
 	//! `leptoskit build` never does.
+	//!
+	//! The hooks hand the `DevTools` what only the app knows: `track_router`
+	//! for the route, `expose` for named state, and, with the `form` and
+	//! `query` features, `track_form` and `track_queries`.
 	pub use leptoskit_devtools::*;
 }
 

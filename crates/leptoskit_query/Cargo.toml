@@ -30,6 +30,10 @@ nightly = ["leptos/nightly"]
 # `leptoskit_db` live change touches, and the tags that tie queries to
 # tables. Pulls in only `leptoskit_db`'s client-safe types.
 db = ["dep:leptoskit_db"]
+# What leptoskit's DevTools read and edit: `QueryClient::inspect_queries`
+# and `inspect_mutations`, type-erased access to every cached query and
+# mutation. `leptoskit dev` turns it on through `leptoskit/devtools`.
+devtools = []
 
 [dependencies]
 any_spawner = { workspace = true }

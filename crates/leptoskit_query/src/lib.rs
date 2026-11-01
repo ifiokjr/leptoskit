@@ -137,6 +137,8 @@ mod broadcast;
 mod cache;
 mod cancel;
 mod client;
+#[cfg(feature = "devtools")]
+pub mod devtools;
 mod filters;
 mod handle;
 mod hydration;

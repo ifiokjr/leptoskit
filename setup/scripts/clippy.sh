@@ -89,6 +89,8 @@ wasm() {
 	# its `extension` feature builds the browser DevTools panel instead.
 	wasm_group "the DevTools interface" --manifest-path devtools/Cargo.toml --lib
 	wasm_group "the DevTools panel" --manifest-path devtools/Cargo.toml --lib --features extension
+	# The DevTools web agent and its hooks; the `host` agent is native only.
+	wasm_group "the DevTools web agent" --package=leptoskit_devtools --no-default-features --features web,query,form --lib
 	# The RPC client, once per way it reaches the server: its server features
 	# can't build for wasm, and `web` and `guest` pick different sockets.
 	wasm_group "leptoskit_rpc in the browser" --package=leptoskit_rpc --no-default-features --features web --lib

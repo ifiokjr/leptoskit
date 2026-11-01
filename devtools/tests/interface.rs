@@ -82,13 +82,26 @@ fn snapshot() -> Snapshot {
 	Snapshot {
 		tree: tree(),
 		route: Some("/projects".into()),
-		queries: vec![NamedValue {
-			name: "projects".into(),
-			value: value(
-				"QueryState<Vec<Project>>",
-				serde_json::json!({"status": "success", "data": [{"id": 1, "title": "Field notes"}]}),
-			),
-		}],
+		queries: vec![
+			NamedValue {
+				name: "projects".into(),
+				value: value(
+					"QueryState<Vec<Project>>",
+					serde_json::json!({"status": "success", "data": [{"id": 1, "title": "Field notes"}]}),
+				),
+			},
+			NamedValue {
+				name: "tags".into(),
+				value: value(
+					"QueryState<Vec<Tag>>",
+					serde_json::json!({
+						"status": "pending",
+						"data": null,
+						"read_only": "This query's scope has no codec, so its data can't be shown or edited here.",
+					}),
+				),
+			},
+		],
 		mutations: vec![NamedValue {
 			name: "create_project".into(),
 			value: value("MutationState", serde_json::json!({"status": "idle"})),
@@ -434,6 +447,20 @@ fn queries_refetch_invalidate_and_take_new_data() {
 	assert_eq!(value.json["data"], serde_json::json!([]));
 	tester.tap(&Finder::text("Dismiss")).unwrap();
 	assert!(store::peek(|model| model.notice.clone()).is_none());
+}
+
+#[test]
+fn a_query_without_a_codec_is_refetched_but_not_edited() {
+	load(false);
+	store::show(&ios());
+	store::panel(Panel::Queries);
+	let mut tester = tester();
+	assert!(tester.find(&Finder::label("Edit tags")).is_err());
+	tester.tap(&Finder::label("Refetch tags")).unwrap();
+	assert_eq!(
+		hub::take_sent(),
+		[(ios(), Command::RefetchQuery { key: "tags".into() })]
+	);
 }
 
 #[test]

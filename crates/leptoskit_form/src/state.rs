@@ -24,6 +24,7 @@ pub type Values = BTreeMap<String, String>;
 /// into a fresh field never raises one mid-word. From then on every edit
 /// re-resolves the field's error live, so a fix clears it at once.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "devtools", derive(serde::Serialize))]
 pub struct FormState {
 	/// Every field's current value.
 	pub values: Values,
