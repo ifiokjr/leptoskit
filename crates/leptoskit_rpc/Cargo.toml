@@ -24,7 +24,6 @@ leptoskit_db = { workspace = true, optional = true }
 leptoskit_devtools_protocol = { workspace = true, optional = true }
 # The retry backoff timer, which covers every host leptoskit_query does, and
 # the cache the client's queries and mutations live in.
-leptoskit_plugin_websocket = { workspace = true, optional = true, default-features = false }
 leptoskit_query = { workspace = true }
 leptoskit_rpc_codegen = { workspace = true, optional = true, features = [] }
 leptoskit_rpc_macros = { workspace = true }
@@ -38,6 +37,8 @@ thiserror = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = ["rt", "sync", "time"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+# Only the browser and guest clients open sockets, and both are wasm-only.
+leptoskit_plugin_websocket = { workspace = true, optional = true, default-features = false }
 leptoskit_bridge = { workspace = true, optional = true }
 leptoskit_plugin_crypto = { path = "../leptoskit_plugin_crypto", version = "0.1.0", optional = true, features = ["guest"] }
 leptoskit_plugin_http = { path = "../leptoskit_plugin_http", version = "0.1.0", optional = true, default-features = false, features = ["guest"] }

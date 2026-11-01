@@ -86,6 +86,10 @@ wasm() {
 	wasm_group "default features, every target" "${wasm_default[@]/#/--package=}" --all-targets
 	# The DevTools interface is its own workspace, and a browser client only.
 	wasm_group "the DevTools interface" --manifest-path devtools/Cargo.toml --lib
+	# The RPC client, once per way it reaches the server: its server features
+	# can't build for wasm, and `web` and `guest` pick different sockets.
+	wasm_group "leptoskit_rpc in the browser" --package=leptoskit_rpc --no-default-features --features web --lib
+	wasm_group "leptoskit_rpc in a guest" --package=leptoskit_rpc --no-default-features --features guest --lib
 }
 
 wasm_group() {
