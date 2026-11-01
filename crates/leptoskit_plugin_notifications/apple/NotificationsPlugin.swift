@@ -111,30 +111,9 @@ public final class NotificationsPlugin: NativePlugin {
         let ticket = UUID()
         pending[id] = Pending(ticket: ticket)
         defer { pending.removeValue(forKey: id) }
+
         try await withTaskCancellationHandler {
-            let status = await service.authorization()
-            try checkPending(id)
-
-            guard (3...5).contains(authorizationValue(status)) else {
-                throw PluginError.permissionDenied
-            }
-
-            let native = UNMutableNotificationContent()
-            native.title = content.title
-            native.body = content.body
-            // Sound is deliberately absent. Android sound is an explicit channel setting.
-            do {
-                try await service.add(UNNotificationRequest(identifier: id, content: native, trigger: nil))
-            } catch {
-                service.remove([id])
-                throw mapped(error)
-            }
-
-            do { try checkPending(id) } catch {
-                service.remove([id])
-
-                throw error
-            }
+            try await deliver(id, content)
         } onCancel: { [weak self] in
             Task { @MainActor in
 
@@ -142,6 +121,34 @@ public final class NotificationsPlugin: NativePlugin {
                 self.pending[id]?.cancelled = true
                 self.service.remove([id])
             }
+        }
+    }
+
+    /// Posts one notification, once the system allows it.
+    private func deliver(_ id: String, _ content: Content) async throws {
+        let status = await service.authorization()
+        try checkPending(id)
+
+        guard (3...5).contains(authorizationValue(status)) else {
+            throw PluginError.permissionDenied
+        }
+
+        let native = UNMutableNotificationContent()
+        native.title = content.title
+        native.body = content.body
+        // Sound is deliberately absent. Android sound is an explicit channel setting.
+        do {
+            try await service.add(UNNotificationRequest(identifier: id, content: native, trigger: nil))
+        } catch {
+            service.remove([id])
+            throw mapped(error)
+        }
+
+        do {
+            try checkPending(id)
+        } catch {
+            service.remove([id])
+            throw error
         }
     }
 

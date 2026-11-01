@@ -278,23 +278,24 @@ impl Database {
 			return Ok(());
 		}
 
+		let data_dir = self.private_directory()?;
+		let connection = connect(&data_dir)?;
+
+		self.fits_page_budget(&connection)?;
+		apply_limits(&connection)?;
+		self.guard_sql(&connection)?;
+		self.guard_steps(&connection)?;
+		self.connection = Some(connection);
+
+		Ok(())
+	}
+
+	/// The app-private directory the database lives in, created and checked
+	/// before `SQLite` may open anything inside it.
+	fn private_directory(&self) -> Result<PathBuf, DatabaseError> {
 		let data_dir = std::fs::canonicalize(&self.data_dir)?;
 		let root = Dir::open_ambient_dir(&data_dir, ambient_authority())?;
-		let builder = DirBuilder::new();
-		#[cfg(unix)]
-		let builder = {
-			use cap_std::fs::DirBuilderExt as _;
-			let mut builder = builder;
-			builder.mode(0o700);
-			builder
-		};
-
-		match root.create_dir_with("sqlite", &builder) {
-			Ok(()) => (),
-
-			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
-			Err(error) => return Err(error.into()),
-		}
+		create_directory(&root)?;
 
 		let metadata = root.symlink_metadata("sqlite")?;
 
@@ -312,64 +313,16 @@ impl Database {
 				return Err(Error::PermissionDenied.into());
 			}
 		}
+
 		let directory = root.open_dir("sqlite")?;
-		// A fixed database name prevents URI options, traversal and
-		// cross-plugin paths. Refuse sidecar symlinks as well as the
-		// main database. Privileged native code must not mutate this
-		// app-private directory concurrently with the plugin.
-		for name in [
-			"app.sqlite3",
-			"app.sqlite3-journal",
-			"app.sqlite3-wal",
-			"app.sqlite3-shm",
-		] {
-			match directory.symlink_metadata(name) {
-				Ok(metadata) if !metadata.is_file() || metadata.file_type().is_symlink() => {
-					return Err(Error::PermissionDenied.into());
-				}
+		check_database_files(&directory, &data_dir)?;
 
-				Ok(metadata) => {
-					// A second hard link lets another path read the database or
-					// redirects writes into a file the app does not own.
-					#[cfg(unix)]
-					let links = {
-						use cap_std::fs::MetadataExt as _;
-						metadata.nlink()
-					};
-					#[cfg(windows)]
-					let links = {
-						let _ = metadata;
-						u64::from(windows_link_count(&data_dir.join("sqlite").join(name))?)
-					};
-					#[cfg(not(any(unix, windows)))]
-					let links = {
-						let _ = metadata;
-						1
-					};
-					if links != 1 {
-						return Err(Error::PermissionDenied.into());
-					}
-				}
+		Ok(data_dir)
+	}
 
-				Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-				Err(error) => return Err(error.into()),
-			}
-		}
-		let connection = Connection::open_with_flags(
-			data_dir.join("sqlite/app.sqlite3"),
-			OpenFlags::SQLITE_OPEN_READ_WRITE
-				| OpenFlags::SQLITE_OPEN_CREATE
-				| OpenFlags::SQLITE_OPEN_NO_MUTEX
-				| OpenFlags::SQLITE_OPEN_NOFOLLOW,
-		)?;
-		connection.busy_timeout(Duration::from_millis(250))?;
-		connection.set_prepared_statement_cache_capacity(32);
-		connection.set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)?;
-		connection.set_db_config(DbConfig::SQLITE_DBCONFIG_TRUSTED_SCHEMA, false)?;
-		connection.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY, true)?;
-		// Keep temporary tables and sorting data out of ambient temporary
-		// files.
-		connection.execute_batch("PRAGMA temp_store=MEMORY; PRAGMA journal_mode=DELETE;")?;
+	/// Refuses a database that is already larger than the plugin's budget, and
+	/// holds `SQLite` to it from here on.
+	fn fits_page_budget(&self, connection: &Connection) -> Result<(), DatabaseError> {
 		let page_size: u32 = connection.query_row("PRAGMA page_size", [], |row| row.get(0))?;
 		let pages = self.max_bytes / u64::from(page_size);
 		let count: u32 = connection.query_row("PRAGMA page_count", [], |row| row.get(0))?;
@@ -389,18 +342,13 @@ impl Database {
 		if u64::from(actual) != pages {
 			return Err(Error::TooLarge.into());
 		}
-		for (limit, value) in [
-			(Limit::SQLITE_LIMIT_LENGTH, MAX_BYTES),
-			(Limit::SQLITE_LIMIT_SQL_LENGTH, MAX_SQL_BYTES),
-			(Limit::SQLITE_LIMIT_COLUMN, MAX_COLUMNS),
-			(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, MAX_PARAMETERS),
-			(Limit::SQLITE_LIMIT_ATTACHED, 0),
-			(Limit::SQLITE_LIMIT_EXPR_DEPTH, 64),
-			(Limit::SQLITE_LIMIT_TRIGGER_DEPTH, 16),
-			(Limit::SQLITE_LIMIT_VDBE_OP, 100_000),
-		] {
-			connection.set_limit(limit, value as i32)?;
-		}
+
+		Ok(())
+	}
+
+	/// Installs the authorizer that keeps guests out of the filesystem and out
+	/// of transactions the host did not open.
+	fn guard_sql(&self, connection: &Connection) -> Result<(), DatabaseError> {
 		let allowed = Arc::clone(&self.allow_transaction);
 		connection.authorizer(Some(move |context: AuthContext<'_>| {
 			match context.action {
@@ -425,6 +373,12 @@ impl Database {
 				_ => Authorization::Allow,
 			}
 		}))?;
+
+		Ok(())
+	}
+
+	/// Stops a call that runs for too many steps.
+	fn guard_steps(&self, connection: &Connection) -> Result<(), DatabaseError> {
 		let steps = Arc::clone(&self.remaining_steps);
 		connection.progress_handler(
 			1000,
@@ -436,7 +390,6 @@ impl Database {
 					.is_err()
 			}),
 		)?;
-		self.connection = Some(connection);
 
 		Ok(())
 	}
@@ -452,6 +405,118 @@ impl ToSql for Value {
 			Self::Blob(value) => ValueRef::Blob(value),
 		}))
 	}
+}
+
+/// Opens the connection with the options that do not depend on its page
+/// budget.
+fn connect(data_dir: &Path) -> Result<Connection, DatabaseError> {
+	let connection = Connection::open_with_flags(
+		data_dir.join("sqlite/app.sqlite3"),
+		OpenFlags::SQLITE_OPEN_READ_WRITE
+			| OpenFlags::SQLITE_OPEN_CREATE
+			| OpenFlags::SQLITE_OPEN_NO_MUTEX
+			| OpenFlags::SQLITE_OPEN_NOFOLLOW,
+	)?;
+	connection.busy_timeout(Duration::from_millis(250))?;
+	connection.set_prepared_statement_cache_capacity(32);
+	connection.set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)?;
+	connection.set_db_config(DbConfig::SQLITE_DBCONFIG_TRUSTED_SCHEMA, false)?;
+	connection.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY, true)?;
+	// Keep temporary tables and sorting data out of ambient temporary
+	// files.
+	connection.execute_batch("PRAGMA temp_store=MEMORY; PRAGMA journal_mode=DELETE;")?;
+
+	Ok(connection)
+}
+
+/// Creates the `sqlite` directory, tolerating one that is already there.
+fn create_directory(root: &Dir) -> Result<(), DatabaseError> {
+	let builder = DirBuilder::new();
+	#[cfg(unix)]
+	let builder = {
+		use cap_std::fs::DirBuilderExt as _;
+		let mut builder = builder;
+		builder.mode(0o700);
+		builder
+	};
+
+	match root.create_dir_with("sqlite", &builder) {
+		Ok(()) => Ok(()),
+
+		Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+		Err(error) => Err(error.into()),
+	}
+}
+
+/// Refuses sidecar symlinks and extra hard links in the database directory.
+///
+/// A fixed database name prevents URI options, traversal and cross-plugin
+/// paths. Privileged native code must not mutate this app-private directory
+/// concurrently with the plugin.
+fn check_database_files(directory: &Dir, data_dir: &Path) -> Result<(), DatabaseError> {
+	// Only the Windows branch needs the path, to count links through it.
+	#[cfg(not(windows))]
+	let _ = data_dir;
+
+	for name in [
+		"app.sqlite3",
+		"app.sqlite3-journal",
+		"app.sqlite3-wal",
+		"app.sqlite3-shm",
+	] {
+		match directory.symlink_metadata(name) {
+			Ok(metadata) if !metadata.is_file() || metadata.file_type().is_symlink() => {
+				return Err(Error::PermissionDenied.into());
+			}
+
+			Ok(metadata) => {
+				// A second hard link lets another path read the database or
+				// redirects writes into a file the app does not own.
+				#[cfg(unix)]
+				let links = {
+					use cap_std::fs::MetadataExt as _;
+					metadata.nlink()
+				};
+				#[cfg(windows)]
+				let links = {
+					let _ = metadata;
+					u64::from(windows_link_count(&data_dir.join("sqlite").join(name))?)
+				};
+				#[cfg(not(any(unix, windows)))]
+				let links = {
+					let _ = metadata;
+					1
+				};
+
+				if links != 1 {
+					return Err(Error::PermissionDenied.into());
+				}
+			}
+
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+			Err(error) => return Err(error.into()),
+		}
+	}
+
+	Ok(())
+}
+
+/// Holds `SQLite`'s own limits to what the wire format allows.
+fn apply_limits(connection: &Connection) -> Result<(), DatabaseError> {
+	for (limit, value) in [
+		(Limit::SQLITE_LIMIT_LENGTH, MAX_BYTES),
+		(Limit::SQLITE_LIMIT_SQL_LENGTH, MAX_SQL_BYTES),
+		(Limit::SQLITE_LIMIT_COLUMN, MAX_COLUMNS),
+		(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, MAX_PARAMETERS),
+		(Limit::SQLITE_LIMIT_ATTACHED, 0),
+		(Limit::SQLITE_LIMIT_EXPR_DEPTH, 64),
+		(Limit::SQLITE_LIMIT_TRIGGER_DEPTH, 16),
+		(Limit::SQLITE_LIMIT_VDBE_OP, 100_000),
+	] {
+		connection.set_limit(limit, value as i32)?;
+	}
+
+	Ok(())
 }
 
 impl Plugin for Database {

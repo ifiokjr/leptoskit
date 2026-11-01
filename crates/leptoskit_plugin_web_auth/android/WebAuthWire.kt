@@ -49,32 +49,31 @@ internal class WebAuthRequest(
         fun decode(payload: ByteBuffer): WebAuthRequest {
             val bytes = payload.duplicate().order(ByteOrder.LITTLE_ENDIAN)
 
-            if (bytes.remaining() !in 5..(4 + 8192)) throw PluginException(PluginException.INVALID_ARGUMENT)
+            if (bytes.remaining() !in MIN_REQUEST_BYTES..MAX_REQUEST_BYTES) {
+                throw PluginException(PluginException.INVALID_ARGUMENT)
+            }
             val session = bytes.int
-            val text =
-                try {
-                    Charsets.UTF_8
-                        .newDecoder()
-                        .onMalformedInput(CodingErrorAction.REPORT)
-                        .onUnmappableCharacter(CodingErrorAction.REPORT)
-                        .decode(bytes)
-                        .toString()
-                } catch (_: CharacterCodingException) {
-                    throw PluginException(PluginException.INVALID_ARGUMENT)
-                }
 
-            return WebAuthRequest(session, providerPage(text))
+            return WebAuthRequest(session, providerPage(utf8(bytes)))
         }
+
+        /** The payload's strict UTF-8 text, with no replacement characters. */
+        private fun utf8(bytes: ByteBuffer): String =
+            try {
+                Charsets.UTF_8
+                    .newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(bytes)
+                    .toString()
+            } catch (_: CharacterCodingException) {
+                throw PluginException(PluginException.INVALID_ARGUMENT)
+            }
 
         /** `https`, or `http` on this device for development; no credentials. */
         fun providerPage(text: String): URI {
-            if (text.any { it.code !in 33..126 }) throw PluginException(PluginException.INVALID_ARGUMENT)
-            val url =
-                try {
-                    URI(text)
-                } catch (_: URISyntaxException) {
-                    throw PluginException(PluginException.INVALID_ARGUMENT)
-                }
+            requirePrintable(text)
+            val url = parse(text)
             val host = url.host ?: throw PluginException(PluginException.INVALID_ARGUMENT)
             val local = host == "localhost" || host == "127.0.0.1" || host == "[::1]"
             val scheme = url.scheme?.lowercase(Locale.ROOT)
@@ -85,6 +84,32 @@ internal class WebAuthRequest(
 
             return url
         }
+
+        /** Rejects a URL holding anything but printable ASCII. */
+        private fun requirePrintable(text: String) {
+            if (text.any { it.code !in PRINTABLE_MIN..PRINTABLE_MAX }) {
+                throw PluginException(PluginException.INVALID_ARGUMENT)
+            }
+        }
+
+        /** Parses the URL, rejecting a malformed one. */
+        private fun parse(text: String): URI =
+            try {
+                URI(text)
+            } catch (_: URISyntaxException) {
+                throw PluginException(PluginException.INVALID_ARGUMENT)
+            }
+
+        /** The smallest request: the session word and one character. */
+        private const val MIN_REQUEST_BYTES = 5
+
+        /** The largest request: the session word and a URL of the wire limit. */
+        private const val MAX_URL_BYTES = 8192
+        private const val MAX_REQUEST_BYTES = 4 + MAX_URL_BYTES
+
+        /** Printable ASCII, which a URL may carry without escaping. */
+        private const val PRINTABLE_MIN = 33
+        private const val PRINTABLE_MAX = 126
     }
 }
 
