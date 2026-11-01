@@ -885,3 +885,56 @@ async fn concurrent_writers_are_read_once_each_in_commit_order() {
 	);
 	capture.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_commit_waits_for_the_version_capture_gives_it() {
+	let Some(cluster) = PostgresCluster::start() else {
+		return;
+	};
+	let db = database(&cluster, LiveCapture::Replication).await;
+	db.run_script("CREATE TABLE not_live (id int PRIMARY KEY)")
+		.await
+		.unwrap();
+	let capture = capturing(&db, settings()).await;
+
+	// A write to a live table: the version capture recorded for it, with
+	// the actor and origin the transaction named.
+	let actor = uuid::Uuid::from_u128(7);
+	let tx = db
+		.with_context(Context::new().with(Actor::from_uuid(actor)))
+		.begin()
+		.await
+		.unwrap();
+	tx.set_origin("notes.create").await.unwrap();
+	let written = note("versioned").insert(&tx).await.unwrap();
+	let version = tx.commit_version().await.unwrap().expect("a version");
+	assert_eq!(version, db.live_version().await.unwrap());
+	let commits = commits_since(&db, version - 1).await;
+	assert_eq!(commits[0].version, version);
+	assert_eq!(commits[0].changes[0].key, [written.id.to_string()]);
+	assert_eq!(
+		(commits[0].actor, commits[0].origin.as_str()),
+		(Some(actor), "notes.create")
+	);
+
+	// A transaction that wrote only other tables, or nothing, has none.
+	let tx = db.begin().await.unwrap();
+	tx.execute(Statement {
+		sql: "INSERT INTO not_live (id) VALUES (1)".into(),
+		args: Vec::new(),
+	})
+	.await
+	.unwrap();
+	assert_eq!(tx.commit_version().await.unwrap(), None);
+	let tx = db.begin().await.unwrap();
+	assert_eq!(tx.commit_version().await.unwrap(), None);
+	assert_eq!(db.live_version().await.unwrap(), version);
+
+	// With nothing capturing, the commit still happens; its version is
+	// unknown once the wait runs out.
+	capture.shutdown().await;
+	let tx = db.begin().await.unwrap();
+	let late = note("uncaptured").insert(&tx).await.unwrap();
+	assert_eq!(tx.commit_version().await.unwrap(), None);
+	assert!(Note::get(&db, late.id).await.is_ok());
+}

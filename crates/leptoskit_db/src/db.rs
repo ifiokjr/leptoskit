@@ -558,6 +558,11 @@ impl Tx {
 	/// the version a live subscriber has to reach to see this
 	/// transaction's writes. `None` when it wrote no live table.
 	///
+	/// With replication capture (`[db] live_capture = "replication"`), a
+	/// commit gets its version a moment after it happens, so this waits for
+	/// the capturing server to record it, for up to five seconds; `None`
+	/// then also means nothing captured it in time.
+	///
 	/// ```ignore
 	/// let tx = db.begin().await?;
 	/// NewMessage { body }.insert(&tx).await?;
@@ -566,7 +571,10 @@ impl Tx {
 	pub async fn commit_version(self) -> Result<Option<i64>> {
 		match self.inner {
 			#[cfg(feature = "postgres")]
-			TxInner::Postgres(tx) => tx.commit_version().await,
+			TxInner::Postgres(tx) => {
+				tx.commit_version(self.described.load(std::sync::atomic::Ordering::Relaxed))
+					.await
+			}
 			#[cfg(feature = "sqlite")]
 			TxInner::Sqlite(tx) => {
 				let origin = self
