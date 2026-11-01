@@ -82,7 +82,13 @@ impl Replicas {
 			}
 
 			for replica in &self.list {
-				if replica.refresh().await >= lsn {
+				// Opening a connection or asking a stalled standby must use
+				// the same budget as waiting for replay to catch up.
+				let replayed = tokio::time::timeout_at(deadline, replica.refresh())
+					.await
+					.ok()?;
+
+				if replayed >= lsn {
 					return Some(Arc::clone(replica));
 				}
 			}
@@ -387,6 +393,31 @@ impl crate::Db {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[cfg(feature = "postgres")]
+	#[tokio::test]
+	async fn a_stalled_replica_connection_obeys_the_replay_wait() {
+		// The socket accepts TCP connections but never answers Postgres's
+		// startup exchange, so the driver's own connection timeout is far
+		// longer than the live query's replica wait.
+		let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+		let url = format!(
+			"postgres://reader@{}/app?sslmode=disable",
+			listener.local_addr().unwrap()
+		);
+		let replica = Replica::connect(&url, crate::PoolOptions::default()).unwrap();
+		let replicas = Replicas {
+			list: vec![Arc::new(replica)],
+			next: AtomicUsize::new(0),
+		};
+		let selected = tokio::time::timeout(
+			Duration::from_secs(1),
+			replicas.at(1, Duration::from_millis(25)),
+		)
+		.await
+		.expect("the replica wait also bounds a stalled connection attempt");
+		assert!(selected.is_none());
+	}
 
 	#[test]
 	fn only_selects_go_to_a_replica() {
