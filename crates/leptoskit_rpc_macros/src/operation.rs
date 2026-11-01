@@ -207,165 +207,201 @@ impl OperationArgs {
 		let mut args = Self::default();
 
 		for meta in metas {
-			match &meta {
-				Meta::NameValue(pair) if pair.path.is_ident("name") => {
-					Self::once(args.name.is_some(), pair)?;
-					let name = crate::string_value(&pair.value, "name")?;
-					if !crate::is_route_segment(&name.value()) {
-						return Err(syn::Error::new_spanned(
-							&name,
-							"`name` becomes the route `/api/<name>` and the generated method \
-							 names, so it must be non-empty and use ASCII letters, digits, `_`, \
-							 `-`, and `.`, as in `chat.messages`",
-						));
-					}
+			let Meta::NameValue(pair) = &meta else {
+				return Err(Self::unknown(kind, &meta));
+			};
 
-					args.name = Some(name);
-				}
-
-				Meta::NameValue(pair) if pair.path.is_ident("crate") => {
-					Self::once(args.krate.is_some(), pair)?;
-					let path = crate::string_value(&pair.value, "crate")?;
-					args.krate = Some(path.parse::<Path>().map_err(|_| {
-						syn::Error::new_spanned(
-							&path,
-							"`crate` expects the path to `leptoskit_rpc`, such as `crate = \
-							 \"leptoskit::rpc\"`",
-						)
-					})?);
-				}
-
-				Meta::NameValue(pair) if pair.path.is_ident("retries") => {
-					match kind {
-						OperationKind::Query => {
-							return Err(syn::Error::new_spanned(
-								pair,
-								"`retries` only applies to #[rpc::mutation] and #[rpc::job]: a \
-								 query reads, outside any transaction, so there is nothing to \
-								 retry",
-							));
-						}
-						OperationKind::Action => {
-							return Err(syn::Error::new_spanned(
-								pair,
-								"an action never runs again by itself, since it may have reached \
-								 the outside world; enqueue a #[rpc::job] for work that retries",
-							));
-						}
-						OperationKind::Mutation | OperationKind::Job => {}
-					}
-
-					Self::once(args.retries.is_some(), pair)?;
-					let syn::Expr::Lit(syn::ExprLit {
-						lit: syn::Lit::Int(count),
-						..
-					}) = &pair.value
-					else {
-						return Err(syn::Error::new_spanned(
-							&pair.value,
-							"`retries` expects a whole number, such as `retries = 0`",
-						));
-					};
-					count.base10_parse::<u32>()?;
-					args.retries = Some(count.clone());
-				}
-
-				Meta::NameValue(pair) if pair.path.is_ident("queue") => {
-					Self::job_only(kind, pair)?;
-					Self::once(args.job.queue.is_some(), pair)?;
-					let queue = crate::string_value(&pair.value, "queue")?;
-					if queue.value().is_empty() {
-						return Err(syn::Error::new_spanned(&queue, "a queue needs a name"));
-					}
-
-					args.job.queue = Some(queue);
-				}
-
-				Meta::NameValue(pair) if pair.path.is_ident("backoff") => {
-					Self::job_only(kind, pair)?;
-					Self::once(args.job.backoff.is_some(), pair)?;
-					let error = || {
-						syn::Error::new_spanned(
-							&pair.value,
-							"`backoff` expects `exponential(min, max)`, such as `backoff = \
-							 exponential(2s, 5m)`",
-						)
-					};
-					let syn::Expr::Call(call) = &pair.value else {
-						return Err(error());
-					};
-					let is_exponential = matches!(&*call.func, syn::Expr::Path(path) if path.path.is_ident("exponential"));
-					if !is_exponential || call.args.len() != 2 {
-						return Err(error());
-					}
-
-					args.job.backoff = Some((
-						duration_value(&call.args[0], "backoff", "exponential(2s, 5m)")?,
-						duration_value(&call.args[1], "backoff", "exponential(2s, 5m)")?,
-					));
-				}
-
-				Meta::NameValue(pair) if pair.path.is_ident("deadline") => {
-					Self::job_only(kind, pair)?;
-					Self::once(args.job.deadline.is_some(), pair)?;
-					args.job.deadline =
-						Some(duration_value(&pair.value, "deadline", "deadline = 15m")?);
-				}
-
-				Meta::NameValue(pair) if pair.path.is_ident("timeout") => {
-					Self::job_only(kind, pair)?;
-					Self::once(args.job.timeout.is_some(), pair)?;
-					args.job.timeout =
-						Some(duration_value(&pair.value, "timeout", "timeout = 30s")?);
-				}
-
-				Meta::NameValue(pair) if pair.path.is_ident("serialize_by") => {
-					Self::job_only(kind, pair)?;
-					Self::once(args.job.serialize_by.is_some(), pair)?;
-					args.job.serialize_by = Some(ident_value(
-						&pair.value,
-						"serialize_by",
-						"`serialize_by = wallet`, one of the job's arguments",
-					)?);
-				}
-
-				Meta::NameValue(pair) if pair.path.is_ident("visible_to") => {
-					Self::job_only(kind, pair)?;
-					Self::once(args.job.visible_to.is_some(), pair)?;
-					args.job.visible_to = Some(ident_value(
-						&pair.value,
-						"visible_to",
-						"`visible_to = signed_in`, `everyone`, or an argument naming an account",
-					)?);
-				}
-
-				Meta::NameValue(pair) if pair.path.is_ident("on_failure") => {
-					Self::job_only(kind, pair)?;
-					Self::once(args.job.on_failure.is_some(), pair)?;
-					let syn::Expr::Path(path) = &pair.value else {
-						return Err(syn::Error::new_spanned(
-							&pair.value,
-							"`on_failure` names a #[rpc::mutation], such as `on_failure = \
-							 payment_gave_up`",
-						));
-					};
-					args.job.on_failure = Some(path.path.clone());
-				}
-
-				other => {
-					return Err(syn::Error::new_spanned(
-						other,
-						format!(
-							"unknown #[rpc::{}] option; expected {}",
-							kind.attribute(),
-							expected_options(kind)
-						),
-					));
-				}
+			if args.common_option(kind, pair)? || args.job_option(kind, pair)? {
+				continue;
 			}
+
+			return Err(Self::unknown(kind, pair));
 		}
 
 		Ok(args)
+	}
+
+	/// The error for an option this kind doesn't know.
+	fn unknown(kind: OperationKind, spanned: impl ToTokens) -> syn::Error {
+		syn::Error::new_spanned(
+			spanned,
+			format!(
+				"unknown #[rpc::{}] option; expected {}",
+				kind.attribute(),
+				expected_options(kind)
+			),
+		)
+	}
+
+	/// `name`, `crate`, and `retries`, which every operation takes. Says
+	/// whether `pair` was one.
+	fn common_option(
+		&mut self,
+		kind: OperationKind,
+		pair: &syn::MetaNameValue,
+	) -> syn::Result<bool> {
+		let Some(name) = pair.path.get_ident().map(ToString::to_string) else {
+			return Ok(false);
+		};
+
+		match name.as_str() {
+			"name" => {
+				Self::once(self.name.is_some(), pair)?;
+				let name = crate::string_value(&pair.value, "name")?;
+				if !crate::is_route_segment(&name.value()) {
+					return Err(syn::Error::new_spanned(
+						&name,
+						"`name` becomes the route `/api/<name>` and the generated method names, \
+						 so it must be non-empty and use ASCII letters, digits, `_`, `-`, and \
+						 `.`, as in `chat.messages`",
+					));
+				}
+
+				self.name = Some(name);
+			}
+
+			"crate" => {
+				Self::once(self.krate.is_some(), pair)?;
+				let path = crate::string_value(&pair.value, "crate")?;
+				self.krate = Some(path.parse::<Path>().map_err(|_| {
+					syn::Error::new_spanned(
+						&path,
+						"`crate` expects the path to `leptoskit_rpc`, such as `crate = \
+						 \"leptoskit::rpc\"`",
+					)
+				})?);
+			}
+
+			"retries" => {
+				match kind {
+					OperationKind::Query => {
+						return Err(syn::Error::new_spanned(
+							pair,
+							"`retries` only applies to #[rpc::mutation] and #[rpc::job]: a query \
+							 reads, outside any transaction, so there is nothing to retry",
+						));
+					}
+					OperationKind::Action => {
+						return Err(syn::Error::new_spanned(
+							pair,
+							"an action never runs again by itself, since it may have reached the \
+							 outside world; enqueue a #[rpc::job] for work that retries",
+						));
+					}
+					OperationKind::Mutation | OperationKind::Job => {}
+				}
+
+				Self::once(self.retries.is_some(), pair)?;
+				let syn::Expr::Lit(syn::ExprLit {
+					lit: syn::Lit::Int(count),
+					..
+				}) = &pair.value
+				else {
+					return Err(syn::Error::new_spanned(
+						&pair.value,
+						"`retries` expects a whole number, such as `retries = 0`",
+					));
+				};
+				count.base10_parse::<u32>()?;
+				self.retries = Some(count.clone());
+			}
+			_ => return Ok(false),
+		}
+
+		Ok(true)
+	}
+
+	/// The job-only options. Says whether `pair` was one.
+	fn job_option(&mut self, kind: OperationKind, pair: &syn::MetaNameValue) -> syn::Result<bool> {
+		let Some(name) = pair.path.get_ident().map(ToString::to_string) else {
+			return Ok(false);
+		};
+
+		match name.as_str() {
+			"queue" => {
+				Self::job_only(kind, pair)?;
+				Self::once(self.job.queue.is_some(), pair)?;
+				let queue = crate::string_value(&pair.value, "queue")?;
+				if queue.value().is_empty() {
+					return Err(syn::Error::new_spanned(&queue, "a queue needs a name"));
+				}
+
+				self.job.queue = Some(queue);
+			}
+
+			"backoff" => {
+				Self::job_only(kind, pair)?;
+				Self::once(self.job.backoff.is_some(), pair)?;
+				let error = || {
+					syn::Error::new_spanned(
+						&pair.value,
+						"`backoff` expects `exponential(min, max)`, such as `backoff = \
+						 exponential(2s, 5m)`",
+					)
+				};
+				let syn::Expr::Call(call) = &pair.value else {
+					return Err(error());
+				};
+				let is_exponential = matches!(&*call.func, syn::Expr::Path(path) if path.path.is_ident("exponential"));
+				if !is_exponential || call.args.len() != 2 {
+					return Err(error());
+				}
+
+				self.job.backoff = Some((
+					duration_value(&call.args[0], "backoff", "exponential(2s, 5m)")?,
+					duration_value(&call.args[1], "backoff", "exponential(2s, 5m)")?,
+				));
+			}
+
+			"deadline" => {
+				Self::job_only(kind, pair)?;
+				Self::once(self.job.deadline.is_some(), pair)?;
+				self.job.deadline =
+					Some(duration_value(&pair.value, "deadline", "deadline = 15m")?);
+			}
+
+			"timeout" => {
+				Self::job_only(kind, pair)?;
+				Self::once(self.job.timeout.is_some(), pair)?;
+				self.job.timeout = Some(duration_value(&pair.value, "timeout", "timeout = 30s")?);
+			}
+
+			"serialize_by" => {
+				Self::job_only(kind, pair)?;
+				Self::once(self.job.serialize_by.is_some(), pair)?;
+				self.job.serialize_by = Some(ident_value(
+					&pair.value,
+					"serialize_by",
+					"`serialize_by = wallet`, one of the job's arguments",
+				)?);
+			}
+
+			"visible_to" => {
+				Self::job_only(kind, pair)?;
+				Self::once(self.job.visible_to.is_some(), pair)?;
+				self.job.visible_to = Some(ident_value(
+					&pair.value,
+					"visible_to",
+					"`visible_to = signed_in`, `everyone`, or an argument naming an account",
+				)?);
+			}
+
+			"on_failure" => {
+				Self::job_only(kind, pair)?;
+				Self::once(self.job.on_failure.is_some(), pair)?;
+				let syn::Expr::Path(path) = &pair.value else {
+					return Err(syn::Error::new_spanned(
+						&pair.value,
+						"`on_failure` names a #[rpc::mutation], such as `on_failure = \
+						 payment_gave_up`",
+					));
+				};
+				self.job.on_failure = Some(path.path.clone());
+			}
+			_ => return Ok(false),
+		}
+
+		Ok(true)
 	}
 
 	/// Rejects an option only a job takes.
@@ -421,8 +457,31 @@ pub(crate) struct Signature {
 /// Checks a function is shaped like an operation of `kind`, and reads its
 /// arguments and result.
 pub(crate) fn signature(kind: OperationKind, function: &ItemFn) -> syn::Result<Signature> {
+	check_signature(kind, function)?;
+
+	let mut inputs = function.sig.inputs.iter();
+	let Some(first) = inputs.next() else {
+		return Err(missing_context(kind, function));
+	};
+	check_context(kind, first)?;
+
+	let mut arguments = Vec::new();
+
+	for input in inputs {
+		arguments.push(argument(input)?);
+	}
+
+	let (output, output_span) = output_of(kind, &function.sig.output)?;
+	Ok(Signature {
+		arguments,
+		output,
+		output_span,
+	})
+}
+
+/// The checks that don't look at individual arguments.
+fn check_signature(kind: OperationKind, function: &ItemFn) -> syn::Result<()> {
 	let attribute = kind.attribute();
-	let context = kind.context();
 
 	if function.sig.asyncness.is_none() {
 		return Err(syn::Error::new_spanned(
@@ -451,93 +510,87 @@ pub(crate) fn signature(kind: OperationKind, function: &ItemFn) -> syn::Result<S
 		));
 	}
 
-	let mut inputs = function.sig.inputs.iter();
-	let Some(first) = inputs.next() else {
-		return Err(syn::Error::new(
-			function.sig.paren_token.span.join(),
-			format!(
-				"#[rpc::{attribute}] takes its context first: `cx: &rpc::{context}`, which {}",
-				kind.context_does()
-			),
-		));
-	};
-	check_context(kind, first)?;
-
-	let mut arguments = Vec::new();
-
-	for input in inputs {
-		let typed = match input {
-			FnArg::Receiver(receiver) => {
-				return Err(syn::Error::new_spanned(
-					receiver,
-					"an operation can't take `self`",
-				));
-			}
-			FnArg::Typed(typed) => typed,
-		};
-
-		let ident = match &*typed.pat {
-			Pat::Ident(pattern) if pattern.by_ref.is_none() && pattern.subpat.is_none() => {
-				pattern.ident.clone()
-			}
-
-			other => {
-				return Err(syn::Error::new_spanned(
-					other,
-					"an operation needs a plain name for every argument: it is the argument's key \
-					 on the wire",
-				));
-			}
-		};
-
-		if let Type::Reference(reference) = &*typed.ty {
-			return Err(syn::Error::new_spanned(
-				reference,
-				"an operation's arguments arrive over the network, so they are owned: take \
-				 `String` rather than `&str`, or `Vec<T>` rather than `&[T]`",
-			));
-		}
-
-		if let Type::ImplTrait(implementation) = &*typed.ty {
-			return Err(syn::Error::new_spanned(
-				implementation,
-				"an operation's arguments need a concrete type to be read from JSON",
-			));
-		}
-
-		let mut field_attrs = Vec::new();
-		let mut doc_attrs = Vec::new();
-
-		for attr in &typed.attrs {
-			if attr.path().is_ident("doc") {
-				doc_attrs.push(attr.clone());
-			} else if attr.path().is_ident("serde") || attr.path().is_ident("schemars") {
-				field_attrs.push(attr.clone());
-			} else {
-				return Err(syn::Error::new_spanned(
-					attr,
-					"an operation's arguments take doc comments, `#[serde(...)]`, and \
-					 `#[schemars(...)]`; this attribute has nowhere to go",
-				));
-			}
-		}
-
-		arguments.push(Argument {
-			ident,
-			ty: (*typed.ty).clone(),
-			field_attrs,
-			doc_attrs,
-		});
-	}
-
-	let (output, output_span) = output_of(kind, &function.sig.output)?;
-	Ok(Signature {
-		arguments,
-		output,
-		output_span,
-	})
+	Ok(())
 }
 
+/// The error for an operation with no context argument.
+fn missing_context(kind: OperationKind, function: &ItemFn) -> syn::Error {
+	syn::Error::new(
+		function.sig.paren_token.span.join(),
+		format!(
+			"#[rpc::{}] takes its context first: `cx: &rpc::{}`, which {}",
+			kind.attribute(),
+			kind.context(),
+			kind.context_does()
+		),
+	)
+}
+
+/// One argument, checked and turned into a field.
+fn argument(input: &FnArg) -> syn::Result<Argument> {
+	let typed = match input {
+		FnArg::Receiver(receiver) => {
+			return Err(syn::Error::new_spanned(
+				receiver,
+				"an operation can't take `self`",
+			));
+		}
+		FnArg::Typed(typed) => typed,
+	};
+
+	let ident = match &*typed.pat {
+		Pat::Ident(pattern) if pattern.by_ref.is_none() && pattern.subpat.is_none() => {
+			pattern.ident.clone()
+		}
+
+		other => {
+			return Err(syn::Error::new_spanned(
+				other,
+				"an operation needs a plain name for every argument: it is the argument's key on \
+				 the wire",
+			));
+		}
+	};
+
+	if let Type::Reference(reference) = &*typed.ty {
+		return Err(syn::Error::new_spanned(
+			reference,
+			"an operation's arguments arrive over the network, so they are owned: take `String` \
+			 rather than `&str`, or `Vec<T>` rather than `&[T]`",
+		));
+	}
+
+	if let Type::ImplTrait(implementation) = &*typed.ty {
+		return Err(syn::Error::new_spanned(
+			implementation,
+			"an operation's arguments need a concrete type to be read from JSON",
+		));
+	}
+
+	let mut field_attrs = Vec::new();
+	let mut doc_attrs = Vec::new();
+
+	for attr in &typed.attrs {
+		if attr.path().is_ident("doc") {
+			doc_attrs.push(attr.clone());
+		} else if attr.path().is_ident("serde") || attr.path().is_ident("schemars") {
+			field_attrs.push(attr.clone());
+		} else {
+			return Err(syn::Error::new_spanned(
+				attr,
+				"an operation's arguments take doc comments, `#[serde(...)]`, and \
+				 `#[schemars(...)]`; this attribute has nowhere to go",
+			));
+		}
+	}
+
+	Ok(Argument {
+		ident,
+		ty: (*typed.ty).clone(),
+		field_attrs,
+		doc_attrs,
+	})
+}
 /// Checks the first argument is `cx: &rpc::QueryCx` or `&rpc::MutationCx`,
 /// whichever `kind` needs.
 fn check_context(kind: OperationKind, first: &FnArg) -> syn::Result<()> {
@@ -649,21 +702,6 @@ fn job_options(
 	krate: &Path,
 ) -> syn::Result<TokenStream> {
 	let job = &args.job;
-	let argument = |ident: &Ident, option: &str| -> syn::Result<LitStr> {
-		let found = signature
-			.arguments
-			.iter()
-			.any(|argument| argument.ident.unraw() == ident.unraw());
-
-		if !found {
-			return Err(syn::Error::new_spanned(
-				ident,
-				format!("`{option}` names one of the job's arguments, and `{ident}` isn't one"),
-			));
-		}
-
-		Ok(LitStr::new(&ident.unraw().to_string(), ident.span()))
-	};
 	let queue = job
 		.queue
 		.clone()
@@ -679,37 +717,18 @@ fn job_options(
 		quote!(#krate::Backoff::DEFAULT)
 	};
 
-	let some = |value: &Option<TokenStream>| {
-		if let Some(value) = value {
-			quote!(::core::option::Option::Some(#value))
-		} else {
-			quote!(::core::option::Option::None)
-		}
-	};
-	let deadline = some(&job.deadline);
-	let timeout = some(&job.timeout);
+	let deadline = optional(job.deadline.as_ref());
+	let timeout = optional(job.timeout.as_ref());
 	let serialize_by = if let Some(ident) = &job.serialize_by {
-		let name = argument(ident, "serialize_by")?;
+		let name = argument_name(signature, ident, "serialize_by")?;
 		quote!(::core::option::Option::Some(#name))
 	} else {
 		quote!(::core::option::Option::None)
 	};
 
-	let visible_to = match &job.visible_to {
-		None => quote!(#krate::Visibility::Owner),
-
-		Some(ident) if ident == "owner" => quote!(#krate::Visibility::Owner),
-
-		Some(ident) if ident == "signed_in" => quote!(#krate::Visibility::SignedIn),
-
-		Some(ident) if ident == "everyone" => quote!(#krate::Visibility::Everyone),
-		Some(ident) => {
-			let name = argument(ident, "visible_to")?;
-			quote!(#krate::Visibility::Argument(#name))
-		}
-	};
-
+	let visible_to = visibility(job, signature, krate)?;
 	let on_failure = job.on_failure.is_some();
+
 	Ok(quote! {
 		const OPTIONS: #krate::JobOptions = #krate::JobOptions {
 			queue: #queue,
@@ -724,6 +743,48 @@ fn job_options(
 	})
 }
 
+/// An optional option, as a `Some` or `None` token.
+fn optional(value: Option<&TokenStream>) -> TokenStream {
+	if let Some(value) = value {
+		quote!(::core::option::Option::Some(#value))
+	} else {
+		quote!(::core::option::Option::None)
+	}
+}
+
+/// The wire name of an argument an option names.
+fn argument_name(signature: &Signature, ident: &Ident, option: &str) -> syn::Result<LitStr> {
+	let found = signature
+		.arguments
+		.iter()
+		.any(|argument| argument.ident.unraw() == ident.unraw());
+
+	if !found {
+		return Err(syn::Error::new_spanned(
+			ident,
+			format!("`{option}` names one of the job's arguments, and `{ident}` isn't one"),
+		));
+	}
+
+	Ok(LitStr::new(&ident.unraw().to_string(), ident.span()))
+}
+
+/// The `visible_to` value for a job.
+fn visibility(job: &JobArgs, signature: &Signature, krate: &Path) -> syn::Result<TokenStream> {
+	match &job.visible_to {
+		None => Ok(quote!(#krate::Visibility::Owner)),
+
+		Some(ident) if ident == "owner" => Ok(quote!(#krate::Visibility::Owner)),
+
+		Some(ident) if ident == "signed_in" => Ok(quote!(#krate::Visibility::SignedIn)),
+
+		Some(ident) if ident == "everyone" => Ok(quote!(#krate::Visibility::Everyone)),
+		Some(ident) => {
+			let name = argument_name(signature, ident, "visible_to")?;
+			Ok(quote!(#krate::Visibility::Argument(#name)))
+		}
+	}
+}
 /// The struct a function path's operation travels in: `payment_gave_up` is
 /// `PaymentGaveUp`, `crate::pay::gave_up` is `crate::pay::GaveUp`.
 fn struct_path(path: &Path) -> Path {
@@ -740,28 +801,8 @@ fn struct_path(path: &Path) -> Path {
 	path
 }
 
-/// Whether `ty` is `rpc::Failed<…>`: a mutation taking only one is a job's
-/// `on_failure`, and converts from it.
-fn is_failed(ty: &Type) -> bool {
-	matches!(ty, Type::Path(path) if path.qself.is_none()
-		&& path.path.segments.last().is_some_and(|segment| segment.ident == "Failed"))
-}
-
-/// Expands `#[rpc::query]` or `#[rpc::mutation]`. `server` decides whether the
-/// body and its registration are kept: the `server` feature in the real
-/// macro, either way in tests.
-#[expect(
-	clippy::too_many_lines,
-	reason = "the struct, its checks, and each kind's impls are one expansion"
-)]
-pub(crate) fn expand(
-	kind: OperationKind,
-	args: TokenStream,
-	item: TokenStream,
-	server: bool,
-) -> syn::Result<TokenStream> {
-	let args = OperationArgs::parse(kind, args)?;
-	let function: ItemFn = syn::parse2(item)?;
+/// Rejects an `#[api]` below the operation, and a `#[server]` on it.
+fn check_attributes(kind: OperationKind, function: &ItemFn) -> syn::Result<()> {
 	let attribute = kind.attribute();
 
 	if let Some(api) = function
@@ -788,6 +829,30 @@ pub(crate) fn expand(
 			),
 		));
 	}
+
+	Ok(())
+}
+
+/// Whether `ty` is `rpc::Failed<…>`: a mutation taking only one is a job's
+/// `on_failure`, and converts from it.
+fn is_failed(ty: &Type) -> bool {
+	matches!(ty, Type::Path(path) if path.qself.is_none()
+		&& path.path.segments.last().is_some_and(|segment| segment.ident == "Failed"))
+}
+
+/// Expands `#[rpc::query]` or `#[rpc::mutation]`. `server` decides whether the
+/// body and its registration are kept: the `server` feature in the real
+/// macro, either way in tests.
+pub(crate) fn expand(
+	kind: OperationKind,
+	args: TokenStream,
+	item: TokenStream,
+	server: bool,
+) -> syn::Result<TokenStream> {
+	let args = OperationArgs::parse(kind, args)?;
+	let function: ItemFn = syn::parse2(item)?;
+
+	check_attributes(kind, &function)?;
 	let fn_name = function.sig.ident.to_string();
 
 	if fn_name.starts_with("r#") {

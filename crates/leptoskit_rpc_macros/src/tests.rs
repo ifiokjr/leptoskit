@@ -1148,3 +1148,111 @@ mod jobs {
 		}
 	}
 }
+
+mod channels {
+	use proc_macro2::TokenStream;
+	use quote::quote;
+
+	use super::pretty;
+	use crate::channel::expand;
+
+	/// The server build's expansion, after checking the client build leaves
+	/// the registration out.
+	fn expansion(args: TokenStream, item: TokenStream) -> String {
+		let server = pretty(expand(args.clone(), item.clone(), true).expect("the server build"));
+		let client = pretty(expand(args, item, false).expect("the client build"));
+		assert!(
+			server.contains("ChannelRegistration"),
+			"the server build registers"
+		);
+		assert!(
+			!client.contains("ChannelRegistration"),
+			"the client build registers nothing"
+		);
+
+		server
+	}
+
+	/// A channel's join arguments, as written on a struct.
+	fn chat() -> TokenStream {
+		quote! {
+			/// Who is typing.
+			#[rpc::channel(message = Typing, presence = Present, authorize = may_join)]
+			pub struct Chat {
+				/// Which room.
+				pub channel: String,
+			}
+		}
+	}
+
+	/// The error the channel macro gives, both parsed from source so the
+	/// span points at real text.
+	fn error(args: &str, item: &str) -> String {
+		let args: TokenStream = args.parse().expect("argument tokens");
+		let item: TokenStream = item.parse().expect("item tokens");
+		expand(args, item, true).expect_err("an error").to_string()
+	}
+
+	#[test]
+	fn a_channel_names_itself_after_its_struct_and_defaults_its_presence() {
+		let expanded = expansion(quote!(message = Typing, authorize = may_join), chat());
+
+		assert!(
+			expanded.contains("const NAME: &'static str = \"chat\";"),
+			"{expanded}"
+		);
+		assert!(expanded.contains("type Presence = ();"), "{expanded}");
+		assert!(expanded.contains("serde_json"), "{expanded}");
+	}
+
+	#[test]
+	fn options_replace_the_defaults() {
+		let expanded = expansion(
+			quote!(
+				message = Typing,
+				presence = Present,
+				authorize = may_join,
+				name = "rooms.typing",
+				crate = "crate::rpc"
+			),
+			chat(),
+		);
+
+		assert!(
+			expanded.contains("const NAME: &'static str = \"rooms.typing\";"),
+			"{expanded}"
+		);
+		assert!(expanded.contains("type Presence = Present;"), "{expanded}");
+		assert!(expanded.contains("crate::rpc"), "{expanded}");
+	}
+
+	#[test]
+	fn the_message_and_the_authorize_path_are_required() {
+		let missing_message = error("authorize = may_join", "pub struct Chat;");
+		assert!(
+			missing_message.contains("needs its message type"),
+			"{missing_message}"
+		);
+
+		let missing_authorize = error("message = Typing", "pub struct Chat;");
+		assert!(
+			missing_authorize.contains("needs `authorize = path`"),
+			"{missing_authorize}"
+		);
+	}
+
+	#[test]
+	fn unknown_options_are_rejected() {
+		let message = error("presense = Present", "pub struct Chat;");
+		assert!(message.contains("a channel takes"), "{message}");
+	}
+
+	#[test]
+	fn a_generic_channel_is_rejected() {
+		let message = error(
+			"message = Typing, authorize = may_join",
+			"pub struct Chat<T> { pub channel: T }",
+		);
+		assert!(message.contains("can't be generic"), "{message}");
+	}
+}

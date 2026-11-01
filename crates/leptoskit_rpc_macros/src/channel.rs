@@ -123,53 +123,20 @@ pub(crate) fn expand(
 fn parse(args: TokenStream) -> syn::Result<ChannelArgs> {
 	let parser = Punctuated::<Meta, Token![,]>::parse_terminated;
 	let pairs = parser.parse2(args)?;
-	let mut message = None;
-	let mut presence = None;
-	let mut authorize = None;
-	let mut name = None;
-	let mut krate = None;
+	let mut options = ChannelOptions::default();
 
 	for pair in pairs {
-		match pair {
-			Meta::NameValue(entry) if entry.path.is_ident("message") => {
-				message = Some(syn::parse2(entry.value.to_token_stream())?);
-			}
-
-			Meta::NameValue(entry) if entry.path.is_ident("presence") => {
-				presence = Some(syn::parse2(entry.value.to_token_stream())?);
-			}
-
-			Meta::NameValue(entry) if entry.path.is_ident("authorize") => {
-				authorize = Some(syn::parse2(entry.value.to_token_stream())?);
-			}
-
-			Meta::NameValue(entry) if entry.path.is_ident("name") => {
-				name = Some(syn::parse2(entry.value.to_token_stream())?);
-			}
-
-			Meta::NameValue(entry) if entry.path.is_ident("crate") => {
-				let value: LitStr = syn::parse2(entry.value.to_token_stream())?;
-				krate = Some(value.parse()?);
-			}
-
-			other => {
-				return Err(syn::Error::new_spanned(
-					other,
-					"a channel takes `message = Type`, `presence = Type`, `authorize = path`, \
-					 `name = \"...\"`, and `crate = \"...\"`",
-				));
-			}
-		}
+		channel_option(&mut options, pair)?;
 	}
 
-	let Some(message) = message else {
+	let Some(message) = options.message else {
 		return Err(syn::Error::new(
 			proc_macro2::Span::call_site(),
 			"a channel needs its message type: `#[rpc::channel(message = Typing, authorize = \
 			 may_join)]`",
 		));
 	};
-	let Some(authorize) = authorize else {
+	let Some(authorize) = options.authorize else {
 		return Err(syn::Error::new(
 			proc_macro2::Span::call_site(),
 			"a channel needs `authorize = path`, the function that decides who may join",
@@ -178,9 +145,55 @@ fn parse(args: TokenStream) -> syn::Result<ChannelArgs> {
 
 	Ok(ChannelArgs {
 		message,
-		presence,
+		presence: options.presence,
 		authorize,
-		name,
-		krate,
+		name: options.name,
+		krate: options.krate,
 	})
+}
+
+/// The options a channel may name, before the required ones are checked.
+#[derive(Default)]
+struct ChannelOptions {
+	message: Option<Type>,
+	presence: Option<Type>,
+	authorize: Option<Path>,
+	name: Option<LitStr>,
+	krate: Option<Path>,
+}
+
+/// One `#[rpc::channel(...)]` option.
+fn channel_option(options: &mut ChannelOptions, pair: Meta) -> syn::Result<()> {
+	match pair {
+		Meta::NameValue(entry) if entry.path.is_ident("message") => {
+			options.message = Some(syn::parse2(entry.value.to_token_stream())?);
+		}
+
+		Meta::NameValue(entry) if entry.path.is_ident("presence") => {
+			options.presence = Some(syn::parse2(entry.value.to_token_stream())?);
+		}
+
+		Meta::NameValue(entry) if entry.path.is_ident("authorize") => {
+			options.authorize = Some(syn::parse2(entry.value.to_token_stream())?);
+		}
+
+		Meta::NameValue(entry) if entry.path.is_ident("name") => {
+			options.name = Some(syn::parse2(entry.value.to_token_stream())?);
+		}
+
+		Meta::NameValue(entry) if entry.path.is_ident("crate") => {
+			let value: LitStr = syn::parse2(entry.value.to_token_stream())?;
+			options.krate = Some(value.parse()?);
+		}
+
+		other => {
+			return Err(syn::Error::new_spanned(
+				other,
+				"a channel takes `message = Type`, `presence = Type`, `authorize = path`, `name = \
+				 \"...\"`, and `crate = \"...\"`",
+			));
+		}
+	}
+
+	Ok(())
 }
