@@ -94,6 +94,13 @@ pub extern "C" fn leptoskit_event(node: i64, kind: i32, ptr: i32, len: i32) -> i
 	leptoskit::guest::dispatch(node, kind, ptr, len)
 }
 
+/// Settles the values application state bound, after a turn.
+#[cfg(all(target_arch = "wasm32", feature = "native"))]
+#[unsafe(no_mangle)]
+pub extern "C" fn leptoskit_flush() {
+	leptoskit::guest::flush();
+}
+
 /// Allocates the native runtime's event payload buffer.
 #[cfg(all(target_arch = "wasm32", feature = "native"))]
 #[unsafe(no_mangle)]
