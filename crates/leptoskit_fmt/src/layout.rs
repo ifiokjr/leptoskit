@@ -332,42 +332,62 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 				])
 			}
 
-			_ => {
-				let inner = indent + self.unit;
-				let mut parts = Vec::new();
-				let mut previous_line_comment = false;
-				for (index, item) in items.iter().enumerate() {
-					let before_block = matches!(items.get(index + 1), Some(next) if matches!(next.value, Attribute::Block(_)));
-					parts.push(line(if previous_line_comment {
-						Line::Hard
-					} else {
-						Line::Space
-					}));
-
-					let attribute = self.attribute(&item.value, inner, 0, before_block);
-					parts.push(self.with_comments(item, attribute, index == 0, false));
-					previous_line_comment = ends_with_line_comment(item);
-				}
-				if items.is_empty() {
-					parts.push(line(Line::Hard));
-				}
-
-				parts.push(self.dangling(attributes, false));
-				let closing = if self_closing {
-					vec![line(Line::Space), self.text("/>")]
-				} else {
-					vec![line(Line::Soft), self.text(">")]
-				};
-
-				let mut doc = vec![self.text(name.to_owned()), indented(Doc::Concat(parts))];
-				doc.extend(closing);
-				if commented {
-					broken_group(Doc::Concat(doc))
-				} else {
-					group(Doc::Concat(doc))
-				}
-			}
+			_ => self.open_tag_items(name, attributes, self_closing, indent, commented),
 		}
+	}
+
+	/// An opening tag with several attributes, one line each when it breaks.
+	fn open_tag_items(
+		&mut self,
+		name: &str,
+		attributes: &List<Attribute>,
+		self_closing: bool,
+		indent: usize,
+		commented: bool,
+	) -> Doc {
+		let inner = indent + self.unit;
+		let mut parts = self.attribute_parts(&attributes.items, inner);
+
+		if attributes.items.is_empty() {
+			parts.push(line(Line::Hard));
+		}
+
+		parts.push(self.dangling(attributes, false));
+		let closing = if self_closing {
+			vec![line(Line::Space), self.text("/>")]
+		} else {
+			vec![line(Line::Soft), self.text(">")]
+		};
+
+		let mut doc = vec![self.text(name.to_owned()), indented(Doc::Concat(parts))];
+		doc.extend(closing);
+
+		if commented {
+			broken_group(Doc::Concat(doc))
+		} else {
+			group(Doc::Concat(doc))
+		}
+	}
+
+	/// One line per attribute, after the separator the one before it needs.
+	fn attribute_parts(&mut self, items: &[Item<Attribute>], inner: usize) -> Vec<Doc> {
+		let mut parts = Vec::new();
+		let mut previous_line_comment = false;
+
+		for (index, item) in items.iter().enumerate() {
+			let before_block = matches!(items.get(index + 1), Some(next) if matches!(next.value, Attribute::Block(_)));
+			parts.push(line(if previous_line_comment {
+				Line::Hard
+			} else {
+				Line::Space
+			}));
+
+			let attribute = self.attribute(&item.value, inner, 0, before_block);
+			parts.push(self.with_comments(item, attribute, index == 0, false));
+			previous_line_comment = ends_with_line_comment(item);
+		}
+
+		parts
 	}
 
 	/// The children of an element or fragment, after its opening tag.

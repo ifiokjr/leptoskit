@@ -173,12 +173,7 @@ fn run_stdin(args: &FormatArgs) -> Result<Outcome, FormatError> {
 
 fn run_files(args: &FormatArgs) -> Result<Outcome, FormatError> {
 	let started = Instant::now();
-	let paths = if args.paths.is_empty() {
-		vec![PathBuf::from(".")]
-	} else {
-		args.paths.clone()
-	};
-
+	let paths = file_paths(args);
 	let files = workspace::collect_files(&paths, &args.exclude)?;
 	let cache = if args.no_cache {
 		None
@@ -197,38 +192,66 @@ fn run_files(args: &FormatArgs) -> Result<Outcome, FormatError> {
 	let report = workspace::format_files(&files, &options);
 
 	for file in &report.files {
-		for diagnostic in &file.diagnostics {
-			eprintln!("warning: {}:{diagnostic}", file.path.display());
-		}
-
-		match &file.status {
-			Status::Failed(error) => eprintln!("error: {}: {error}", file.path.display()),
-			Status::Changed {
-				original,
-				formatted,
-			} if args.check => print_diff(&file.path, original, formatted),
-			_ => {}
-		}
-
-		if args.verbose {
-			let status = match file.status {
-				Status::Unchanged => "unchanged",
-				Status::Cached => "cached",
-
-				Status::Changed { .. } if args.check => "would format",
-				Status::Changed { .. } => "formatted",
-				Status::Failed(_) => "failed",
-			};
-
-			eprintln!(
-				"{:>9.2?} {:>9.2?} rustfmt  {status:<12} {}",
-				file.elapsed,
-				file.stats.rustfmt,
-				file.path.display()
-			);
-		}
+		report_file(file, args);
 	}
 
+	summary(&report, started, args)
+}
+
+/// The paths to format: the ones given, or the working directory.
+fn file_paths(args: &FormatArgs) -> Vec<PathBuf> {
+	if args.paths.is_empty() {
+		return vec![PathBuf::from(".")];
+	}
+
+	args.paths.clone()
+}
+
+/// One file's warnings, its error or diff, and its timing when asked.
+fn report_file(file: &workspace::FileReport, args: &FormatArgs) {
+	for diagnostic in &file.diagnostics {
+		eprintln!("warning: {}:{diagnostic}", file.path.display());
+	}
+
+	match &file.status {
+		Status::Failed(error) => eprintln!("error: {}: {error}", file.path.display()),
+
+		Status::Changed {
+			original,
+			formatted,
+		} if args.check => print_diff(&file.path, original, formatted),
+		_ => {}
+	}
+
+	if args.verbose {
+		eprintln!(
+			"{:>9.2?} {:>9.2?} rustfmt  {:<12} {}",
+			file.elapsed,
+			file.stats.rustfmt,
+			status_name(&file.status, args.check),
+			file.path.display()
+		);
+	}
+}
+
+/// The word the verbose line uses for what happened.
+fn status_name(status: &Status, check: bool) -> &'static str {
+	match status {
+		Status::Unchanged => "unchanged",
+		Status::Cached => "cached",
+
+		Status::Changed { .. } if check => "would format",
+		Status::Changed { .. } => "formatted",
+		Status::Failed(_) => "failed",
+	}
+}
+
+/// The closing count, and the exit the run earns.
+fn summary(
+	report: &workspace::Report,
+	started: Instant,
+	args: &FormatArgs,
+) -> Result<Outcome, FormatError> {
 	let changed = report.changed().count();
 	let failed = report.failed().count();
 	let verb = if args.check {
@@ -247,6 +270,7 @@ fn run_files(args: &FormatArgs) -> Result<Outcome, FormatError> {
 		report.files.len(),
 		started.elapsed(),
 	);
+
 	Ok(if failed > 0 {
 		Outcome::Failed
 	} else if args.check && changed > 0 {
