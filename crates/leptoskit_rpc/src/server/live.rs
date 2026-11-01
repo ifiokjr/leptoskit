@@ -52,8 +52,9 @@ use axum::routing::get;
 use futures::SinkExt;
 use futures::StreamExt;
 use leptoskit_db::Db;
-use leptoskit_db::live::Feed;
-use leptoskit_db::live::Invalidation;
+use leptoskit_db::ReadEntry;
+use leptoskit_db::live::ChangeLog;
+use leptoskit_db::live::LogEntry;
 use serde_json::Value;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc;
@@ -62,6 +63,7 @@ use super::Identify;
 use super::Identity;
 use super::Invocation;
 use super::QueryCx;
+use super::ReadSink;
 use super::registration;
 use crate::Kind;
 use crate::live::ClientFrame;
@@ -285,7 +287,7 @@ struct Session {
 	live: Live,
 	identity: Identity,
 	db: Db,
-	feed: Feed,
+	log: ChangeLog,
 	subscriptions: HashMap<u32, Subscription>,
 	joined: HashMap<String, Joined>,
 	number: u32,
@@ -300,6 +302,7 @@ struct Subscription {
 	query: String,
 	args: Value,
 	result: Value,
+	reads: Vec<ReadEntry>,
 }
 
 struct Joined {
@@ -312,7 +315,7 @@ impl Live {
 	async fn run(self, socket: WebSocket, identity: Identity) {
 		let number = self.inner.stats.connections.fetch_add(1, Ordering::Relaxed) as u32 + 1;
 		let db = self.inner.db.with_context(identity.context.clone());
-		let Ok(feed) = db.changes().await else {
+		let Ok(log) = self.inner.db.system("live hub").change_log(None).await else {
 			return;
 		};
 
@@ -327,7 +330,8 @@ impl Live {
 			let _ = sink.close().await;
 		});
 
-		let version = self.version();
+		let version = u64::try_from(log.version()).unwrap_or(0);
+		self.inner.version.store(version, Ordering::Relaxed);
 		let member = identity
 			.caller
 			.clone()
@@ -336,7 +340,7 @@ impl Live {
 			live: self.clone(),
 			identity,
 			db,
-			feed,
+			log,
 			subscriptions: HashMap::new(),
 			joined: HashMap::new(),
 			number,
@@ -369,9 +373,9 @@ impl Live {
 						break;
 					}
 				}
-				invalidation = session.feed.next() => {
-					let Ok(invalidation) = invalidation else { break };
-					session.changed(invalidation).await;
+				entry = session.log.next() => {
+					let Ok(entry) = entry else { break };
+					session.changed(entry).await;
 				}
 				_ = heartbeat.tick() => {
 					if session.out.send(Message::Ping(Vec::new().into())).await.is_err() {
@@ -502,7 +506,7 @@ impl Session {
 		}
 
 		match self.query(&query, args.clone()).await {
-			Ok(result) => {
+			Ok((result, reads)) => {
 				self.live
 					.inner
 					.stats
@@ -514,6 +518,7 @@ impl Session {
 						query,
 						args,
 						result: result.clone(),
+						reads,
 					},
 				);
 				self.done(id, Ok(result)).await
@@ -587,11 +592,6 @@ impl Session {
 			.inner
 			.db
 			.with_context(self.identity.context.clone());
-		let Ok(feed) = self.db.changes().await else {
-			return false;
-		};
-		self.feed = feed;
-
 		// Every result is now read as somebody else: re-run them all.
 		let mut updates = Vec::new();
 		let ids: Vec<u32> = self.subscriptions.keys().copied().collect();
@@ -604,13 +604,14 @@ impl Session {
 				continue;
 			};
 			match self.query(&query, args).await {
-				Ok(result) => {
+				Ok((result, reads)) => {
 					updates.push(SubscriptionUpdate {
 						id,
 						update: Update::Ok(result.clone()),
 					});
 					if let Some(subscription) = self.subscriptions.get_mut(&id) {
 						subscription.result = result;
+						subscription.reads = reads;
 					}
 				}
 				Err(error) => {
@@ -623,7 +624,7 @@ impl Session {
 		}
 
 		if !updates.is_empty() {
-			let to = self.live.next_version();
+			let to = self.live.inner.version.load(Ordering::Relaxed) + 1;
 			self.send_transition(updates, to, true);
 		}
 
@@ -676,39 +677,65 @@ impl Session {
 		.await
 	}
 
-	async fn changed(&mut self, invalidation: Invalidation) {
+	async fn changed(&mut self, entry: LogEntry) {
+		let (changes, version, full) = match entry {
+			LogEntry::Commit(commit) => {
+				let version = u64::try_from(commit.version).unwrap_or(self.last_sent + 1);
+				self.live.inner.version.store(version, Ordering::Relaxed);
+				(Some(commit.changes), version, false)
+			}
+			LogEntry::Pruned { through } => {
+				let version = u64::try_from(through).unwrap_or(self.last_sent) + 1;
+				self.live.inner.version.store(version, Ordering::Relaxed);
+				(None, version, true)
+			}
+		};
+		let dialect = self.db.dialect();
 		let mut updates = Vec::new();
 
 		let ids: Vec<u32> = self.subscriptions.keys().copied().collect();
 		for id in ids {
-			let Some((query, args, previous)) = self
-				.subscriptions
-				.get(&id)
-				.map(|sub| (sub.query.clone(), sub.args.clone(), sub.result.clone()))
-			else {
+			let Some((query, args, previous, reads)) = self.subscriptions.get(&id).map(|sub| {
+				(
+					sub.query.clone(),
+					sub.args.clone(),
+					sub.result.clone(),
+					sub.reads.clone(),
+				)
+			}) else {
 				continue;
 			};
+			// Only a read whose rows could have changed is run again. An
+			// unknown table, a pruned log, and a condition the matcher can't
+			// decide all count as a change.
+			let dirty = full
+				|| reads.is_empty()
+				|| reads.iter().any(|read| {
+					changes.as_ref().is_some_and(|changes| {
+						changes
+							.iter()
+							.any(|change| read.could_change(change, dialect))
+					})
+				});
+			if !dirty {
+				continue;
+			}
+
 			self.live.inner.stats.reruns.fetch_add(1, Ordering::Relaxed);
 			match self.query(&query, args).await {
-				Ok(result) => {
-					match invalidation {
-						Invalidation::Everything => {
-							updates.push(SubscriptionUpdate {
-								id,
-								update: Update::Ok(result.clone()),
-							});
-							if let Some(subscription) = self.subscriptions.get_mut(&id) {
-								subscription.result = result;
-							}
-						}
-						Invalidation::Rows(_) if result != previous => {
-							let update = patch(&previous, &result);
-							if let Some(subscription) = self.subscriptions.get_mut(&id) {
-								subscription.result = result;
-							}
-							updates.push(SubscriptionUpdate { id, update });
-						}
-						Invalidation::Rows(_) => {}
+				Ok((result, new_reads)) => {
+					if full {
+						updates.push(SubscriptionUpdate {
+							id,
+							update: Update::Ok(result.clone()),
+						});
+					} else if result != previous {
+						let update = patch(&previous, &result);
+						updates.push(SubscriptionUpdate { id, update });
+					}
+					if let Some(subscription) = self.subscriptions.get_mut(&id) {
+						subscription.result = result;
+						subscription.reads = new_reads;
 					}
 				}
 				Err(error) => {
@@ -723,8 +750,8 @@ impl Session {
 		if updates.is_empty() {
 			return;
 		}
-		let to = self.live.next_version();
-		self.send_transition(updates, to, false);
+		let to = version.max(self.last_sent + 1);
+		self.send_transition(updates, to, full);
 	}
 
 	fn send_transition(&mut self, mut updates: Vec<SubscriptionUpdate>, to: u64, full: bool) {
@@ -934,7 +961,7 @@ impl Session {
 		.await
 	}
 
-	async fn query(&self, name: &str, args: Value) -> Result<Value, WireError> {
+	async fn query(&self, name: &str, args: Value) -> Result<(Value, Vec<ReadEntry>), WireError> {
 		let Some(registration) = registration(name) else {
 			return Err(WireError::invalid(format!(
 				"no operation is named `{name}`"
@@ -946,12 +973,13 @@ impl Session {
 				registration.kind
 			)));
 		}
+		let sink = ReadSink::new();
 		let value = (registration.handler)(Invocation {
 			db: self.db.clone(),
 			identity: self.identity.clone(),
 			request_id: None,
 			arguments: args,
-			reads: None,
+			reads: Some(sink.clone()),
 		})
 		.await
 		.map_err(|error| WireError::new(&error))?;
@@ -965,7 +993,7 @@ impl Session {
 				),
 			});
 		}
-		Ok(value)
+		Ok((value, sink.take()))
 	}
 }
 

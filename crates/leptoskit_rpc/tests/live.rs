@@ -58,6 +58,20 @@ pub async fn live_titles(cx: &rpc::QueryCx) -> rpc::Result<Vec<Title>> {
 		.collect())
 }
 
+/// A tag, in its own live table.
+#[table(name = "live_tags", live)]
+pub struct Tag {
+	pub id: Id<Self>,
+	pub name: String,
+}
+
+/// Every tag.
+#[rpc::query]
+pub async fn live_tags(cx: &rpc::QueryCx) -> rpc::Result<Vec<String>> {
+	let tags = Tag::query().all(cx.db()).await?;
+	Ok(tags.into_iter().map(|tag| tag.name).collect())
+}
+
 /// Adds a note.
 #[rpc::mutation]
 pub async fn add_live_note(cx: &rpc::MutationCx, body: String) -> rpc::Result<String> {
@@ -67,15 +81,16 @@ pub async fn add_live_note(cx: &rpc::MutationCx, body: String) -> rpc::Result<St
 
 type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
-async fn start() -> (Db, String, JoinHandle<()>) {
+async fn start() -> (Db, String, Live, JoinHandle<()>) {
 	let db = leptoskit_db::testing::sqlite().await;
-	let app = Live::new(db.clone()).router::<()>();
+	let live = Live::new(db.clone());
+	let app = live.clone().router::<()>();
 	let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 	let address = listener.local_addr().unwrap();
 	let server = tokio::spawn(async move {
 		axum::serve(listener, app).await.unwrap();
 	});
-	(db, format!("ws://{address}/live"), server)
+	(db, format!("ws://{address}/live"), live, server)
 }
 
 async fn send(socket: &mut Socket, frame: ClientFrame) {
@@ -100,7 +115,7 @@ async fn next(socket: &mut Socket) -> ServerFrame {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_subscribed_query_receives_each_write_as_a_patch() {
-	let (db, url, server) = start().await;
+	let (db, url, _live, server) = start().await;
 	let (mut socket, _) = connect_async(&url).await.unwrap();
 
 	let ServerFrame::Welcome {
@@ -191,8 +206,47 @@ async fn a_subscribed_query_receives_each_write_as_a_patch() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_write_re_runs_only_the_queries_it_could_change() {
+	let (db, url, live, server) = start().await;
+	let (mut socket, _) = connect_async(&url).await.unwrap();
+	let _ = next(&mut socket).await;
+
+	for (id, query) in [(1, "live_titles"), (2, "live_tags")] {
+		send(
+			&mut socket,
+			ClientFrame::Sub {
+				id,
+				query: query.into(),
+				args: json!({}),
+			},
+		)
+		.await;
+		let ServerFrame::Done { request, .. } = next(&mut socket).await else {
+			panic!("a subscription");
+		};
+		assert_eq!(request, id);
+	}
+
+	let before = live.stats().reruns;
+	NewTag {
+		name: "rust".into(),
+	}
+	.insert(&db)
+	.await
+	.unwrap();
+	let ServerFrame::Transition(transition) = next(&mut socket).await else {
+		panic!("the tag write arrives");
+	};
+	assert_eq!(transition.updates.len(), 1);
+	assert_eq!(transition.updates[0].id, 2);
+	assert_eq!(live.stats().reruns - before, 1);
+
+	server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_bad_subscription_is_refused_and_the_socket_stays_open() {
-	let (_db, url, server) = start().await;
+	let (_db, url, _live, server) = start().await;
 	let (mut socket, _) = connect_async(&url).await.unwrap();
 	let _ = next(&mut socket).await;
 
@@ -270,7 +324,7 @@ async fn presence(socket: &mut Socket) -> Vec<String> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn channels_carry_signals_and_presence() {
-	let (_db, url, server) = start().await;
+	let (_db, url, _live, server) = start().await;
 	let (mut ada, _) = connect_async(&url).await.unwrap();
 	let (mut grace, _) = connect_async(&url).await.unwrap();
 	let _ = next(&mut ada).await;
@@ -312,7 +366,7 @@ async fn channels_carry_signals_and_presence() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_refused_channel_says_why() {
-	let (_db, url, server) = start().await;
+	let (_db, url, _live, server) = start().await;
 	let (mut socket, _) = connect_async(&url).await.unwrap();
 	let _ = next(&mut socket).await;
 
