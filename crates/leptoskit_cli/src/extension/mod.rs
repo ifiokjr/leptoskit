@@ -144,13 +144,23 @@ pub fn build_for(release: bool, dev: Option<&DevManifest>, browsers: &[Browser])
 		stem: &client.lib_name,
 	};
 	let assets = root.join("assets");
+	let output_dir = root.join(OUTPUT);
+	// `app.icon` makes every size; without it, the app's own
+	// `assets/icon-<size>.png` files are used.
+	let generated_icons = output_dir.join("icons");
+	let generated = crate::icons::write(
+		&root,
+		&config,
+		crate::icons::Platform::Extension,
+		&generated_icons,
+	)?;
 	let icons: Vec<u32> = ICON_SIZES
 		.into_iter()
-		.filter(|size| assets.join(format!("icon-{size}.png")).is_file())
+		.filter(|size| generated || assets.join(format!("icon-{size}.png")).is_file())
 		.collect();
+	let generated_icons = generated.then_some(generated_icons.as_path());
 
 	let plugin_permissions = plugin_permissions(&root, &client.name)?;
-	let output_dir = root.join(OUTPUT);
 	let browsers: Vec<Browser> = if dev.is_some() {
 		vec![Browser::Chromium]
 	} else if browsers.is_empty() {
@@ -173,7 +183,7 @@ pub fn build_for(release: bool, dev: Option<&DevManifest>, browsers: &[Browser])
 			icons: &icons,
 			dev,
 		};
-		write_package(&dir, &input, &module, &pkg, &assets)?;
+		write_package(&dir, &input, &module, &pkg, &assets, generated_icons)?;
 		let zip = if dev.is_none() && browser != Browser::Safari {
 			let zip = output_dir.join(format!("{}.zip", browser.name()));
 			std::fs::write(&zip, zip::archive(&zip::files_under(&dir)?)?)
@@ -204,6 +214,7 @@ fn write_package(
 	module: &Module<'_>,
 	pkg: &Path,
 	assets: &Path,
+	icons: Option<&Path>,
 ) -> Result<()> {
 	if dir.exists() {
 		std::fs::remove_dir_all(dir)
@@ -268,6 +279,9 @@ fn write_package(
 	copy_dir(pkg, &dir.join("pkg"))?;
 	if assets.is_dir() {
 		copy_dir(assets, &dir.join("assets"))?;
+	}
+	if let Some(icons) = icons {
+		copy_dir(icons, &dir.join("assets"))?;
 	}
 	Ok(())
 }

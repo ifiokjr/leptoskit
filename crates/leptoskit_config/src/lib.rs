@@ -144,6 +144,12 @@ pub struct AppConfig {
 	/// How the web build renders: in the browser only, on the server with
 	/// full hydration, or on the server with interactive islands.
 	pub render: RenderMode,
+	/// The app's icon: one square PNG or SVG, 1024×1024 or larger, relative
+	/// to this file. Every platform's icon sizes are made from it: the iOS
+	/// app icon, Android's launcher icons, the macOS `.icns`, and the
+	/// extension's 16 to 128 pixel icons.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub icon: Option<PathBuf>,
 }
 
 impl Default for AppConfig {
@@ -154,6 +160,7 @@ impl Default for AppConfig {
 			default_platform: Platform::Web,
 			platforms: Platform::APPLICATION.to_vec(),
 			render: RenderMode::Csr,
+			icon: None,
 		}
 	}
 }

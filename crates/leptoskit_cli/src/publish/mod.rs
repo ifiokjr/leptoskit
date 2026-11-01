@@ -285,15 +285,7 @@ pub fn run(args: &PublishArgs) -> Result<()> {
 	};
 	let mut report = Report::default();
 	for store_name in &stores {
-		let (summary, steps) = match *store_name {
-			"chrome" => session.chrome()?,
-			"edge" => session.edge()?,
-			"firefox" => session.firefox()?,
-			"app_store" => session.app_store()?,
-			"macos" => session.macos()?,
-			"play" => session.play()?,
-			other => anyhow::bail!("`{other}` isn't a store leptoskit publish publishes to"),
-		};
+		let (summary, steps) = session.publish(store_name)?;
 		report.steps.extend(steps);
 		report.stores.push(Status {
 			store: (*store_name).to_owned(),
@@ -1292,6 +1284,49 @@ fn app_store_steps(run: &AppStoreRun<'_>) -> Vec<Step> {
 		),
 	]);
 	steps
+}
+
+impl Session<'_> {
+	/// One store's upload, and the steps left in it.
+	fn publish(&self, store: &str) -> Result<(String, Vec<Step>)> {
+		let (summary, mut steps) = match store {
+			"chrome" => self.chrome()?,
+			"edge" => self.edge()?,
+			"firefox" => self.firefox()?,
+			"app_store" => self.app_store()?,
+			"macos" => self.macos()?,
+			"play" => self.play()?,
+			other => anyhow::bail!("`{other}` isn't a store leptoskit publish publishes to"),
+		};
+		if let Some(step) = icon_step(self.root, self.config, store) {
+			steps.insert(0, step);
+		}
+		Ok((summary, steps))
+	}
+}
+
+/// A step to give the app an icon, when `store` needs one it doesn't have.
+fn icon_step(root: &Path, config: &LeptoskitConfig, store: &str) -> Option<Step> {
+	let extension = EXTENSION_STORES.contains(&store);
+	let has_icon =
+		config.app.icon.is_some() || (extension && root.join("assets/icon-128.png").is_file());
+	if has_icon {
+		return None;
+	}
+	Some(step(
+		store,
+		Who::Agent,
+		"Give the app an icon: set app.icon in leptoskit.toml to a square PNG or SVG, 1024×1024 \
+		 or larger, and run this again.",
+		None,
+		vec![field(
+			"What it makes",
+			"the iOS app icon, Android's launcher icons, the macOS .icns, and the extension's 16 \
+			 to 128 pixel icons",
+		)],
+		"stores refuse an app without its icon sizes, and leptoskit makes them all from one image",
+		"app.icon is set",
+	))
 }
 
 /// Asks before submitting, in a terminal; `--yes` and CI skip the question.

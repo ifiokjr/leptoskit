@@ -74,3 +74,20 @@ fn host_constraints_categories_and_other_schemes_do_not_cover_the_requested_quer
 		assert!(output.contains(&existing));
 	}
 }
+
+#[test]
+fn app_icon_names_the_launcher_icon_unless_the_app_does() {
+	let manifest =
+		"<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application \
+		 android:label=\"Notes\"/></manifest>";
+	assert_eq!(
+		with_icon(manifest).unwrap(),
+		"<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application \
+		 android:icon=\"@mipmap/ic_launcher\" android:label=\"Notes\"/></manifest>"
+	);
+	let own = manifest.replace(
+		"android:label",
+		"android:icon=\"@drawable/mine\" android:label",
+	);
+	assert_eq!(with_icon(&own).unwrap(), own);
+}

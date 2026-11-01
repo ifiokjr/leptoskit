@@ -14,6 +14,9 @@ platforms = ["web", "ios", "android", "macos", "extension"]
 # The website renders in the browser, like every other client, and reaches
 # the server through the same JSON API.
 render = "csr"
+# One image for every platform's icons: the iOS app icon, Android's launcher
+# icons, the macOS .icns, and the extension's toolbar icons.
+icon = "assets/icon.svg"
 
 [serve]
 address = "127.0.0.1"

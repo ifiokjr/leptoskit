@@ -170,7 +170,15 @@ fn packages_carry_the_developer_tools_pages_except_safari_s() {
 			icons: &[],
 			dev: None,
 		};
-		write_package(&dir, &input, &module, &pkg, &build.path().join("assets")).unwrap();
+		write_package(
+			&dir,
+			&input,
+			&module,
+			&pkg,
+			&build.path().join("assets"),
+			None,
+		)
+		.unwrap();
 		let files = zip::files_under(&dir).unwrap();
 		let archive = zip::archive(&files).unwrap();
 		for page in pages {
