@@ -54,6 +54,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ambient-authority"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9d4ee0d472d1cd2e28c97dfa124b3d8d992e10eb0a035f33f5d12e3a177ba3b"
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -562,6 +568,36 @@ name = "camino"
 version = "1.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbbad30e4b4c14a39e3cc8aed085a12a327257c316619c93581e017bc52be591"
+
+[[package]]
+name = "cap-primitives"
+version = "4.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b5f74729fd2f44701d1a8eb47e906cdb3ccd9ec0f02baad85a744b791940b18"
+dependencies = [
+ "ambient-authority",
+ "fs-set-times",
+ "io-extras",
+ "io-lifetimes 3.0.1",
+ "ipnet",
+ "maybe-owned",
+ "rustix",
+ "rustix-linux-procfs",
+ "windows-sys 0.60.2",
+ "winx",
+]
+
+[[package]]
+name = "cap-std"
+version = "4.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1ec78e242cfa2cfe276807ac2ecc00315a6c97786977414bcd1c3963b6c91b8"
+dependencies = [
+ "cap-primitives",
+ "io-extras",
+ "io-lifetimes 3.0.1",
+ "rustix",
+]
 
 [[package]]
 name = "cbc"
@@ -1311,6 +1347,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "fs-set-times"
+version = "0.20.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94e7099f6313ecacbe1256e8ff9d617b75d1bcb16a6fddef94866d225a01a14a"
+dependencies = [
+ "io-lifetimes 2.0.4",
+ "rustix",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2200,6 +2247,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "io-extras"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20fd6de4ccfcc187e38bc21cfa543cb5a302cb86a8b114eb7f0bf0dc9f8ac00f"
+dependencies = [
+ "io-lifetimes 3.0.1",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "io-lifetimes"
+version = "2.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06432fb54d3be7964ecd3649233cddf80db2832f47fec34c01f65b3d9d774983"
+
+[[package]]
+name = "io-lifetimes"
+version = "3.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f0fb0570afe1fed943c5c3d4102d5358592d8625fda6a0007fdbe65a92fba96"
+
+[[package]]
 name = "ipnet"
 version = "2.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2565,7 +2634,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptos",
  "leptos_axum",
@@ -2596,7 +2665,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_android"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "jni",
  "leptoskit_native",
@@ -2607,7 +2676,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_appkit"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_native",
  "leptoskit_yoga",
@@ -2622,7 +2691,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_auth"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes-gcm-siv",
  "axum",
@@ -2659,7 +2728,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_axum"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "leptoskit_codepush",
@@ -2673,7 +2742,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_bridge"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytes",
  "thiserror 2.0.21",
@@ -2681,7 +2750,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_bridge_ffi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_appkit",
  "leptoskit_bridge",
@@ -2696,11 +2765,11 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_build"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "leptoskit_codepush"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -2723,7 +2792,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_config"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "semver",
  "serde",
@@ -2734,7 +2803,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_db"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "inventory",
@@ -2752,7 +2821,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_db_macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "convert_case 0.11.0",
  "proc-macro-crate",
@@ -2765,7 +2834,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_db_schema"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2775,7 +2844,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_devtools"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "gloo-net",
  "gloo-timers",
@@ -2795,7 +2864,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_devtools_protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2804,7 +2873,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_gtk"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "gtk4",
  "leptoskit_native",
@@ -2814,7 +2883,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_idp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -2841,7 +2910,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_l10n"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "intl_pluralrules",
  "js-sys",
@@ -2853,7 +2922,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proc-macro2",
  "proc-macro2-diagnostics",
@@ -2864,7 +2933,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_native"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "leptos",
@@ -2881,7 +2950,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_config",
  "serde",
@@ -2892,7 +2961,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_crypto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "getrandom 0.4.3",
  "leptoskit_bridge",
@@ -2901,7 +2970,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_devtools"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_devtools_protocol",
@@ -2910,8 +2979,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_plugin_filesystem"
+version = "0.1.1"
+dependencies = [
+ "cap-std",
+ "fs4",
+ "getrandom 0.4.3",
+ "js-sys",
+ "leptoskit_bridge",
+ "libc",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "leptoskit_plugin_http"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
  "reqwest",
@@ -2922,7 +3006,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_passkeys"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
  "serde",
@@ -2931,7 +3015,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_secure_store"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dirs",
  "fs4",
@@ -2941,8 +3025,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_plugin_store"
+version = "0.1.1"
+dependencies = [
+ "cap-std",
+ "leptoskit_bridge",
+ "leptoskit_plugin_filesystem",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "leptoskit_plugin_web_auth"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
  "open",
@@ -2951,7 +3048,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_websocket"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "gloo-timers",
@@ -2967,7 +3064,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_query"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "any_spawner",
  "futures",
@@ -2984,7 +3081,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rive"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "cc",
@@ -3000,7 +3097,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rive_runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cc",
  "flate2",
@@ -3010,7 +3107,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_router"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_native",
  "leptoskit_router_macros",
@@ -3020,7 +3117,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_router_macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3029,7 +3126,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rpc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "any_spawner",
  "axum",
@@ -3043,6 +3140,7 @@ dependencies = [
  "leptoskit_db",
  "leptoskit_plugin_crypto",
  "leptoskit_plugin_http",
+ "leptoskit_plugin_store",
  "leptoskit_plugin_websocket",
  "leptoskit_query",
  "leptoskit_rpc_codegen",
@@ -3061,7 +3159,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rpc_codegen"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "indexmap",
  "serde",
@@ -3071,7 +3169,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rpc_macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "convert_case 0.11.0",
  "proc-macro2",
@@ -3081,7 +3179,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_uikit"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_native",
  "leptoskit_yoga",
@@ -3096,7 +3194,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_virtual"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_native",
  "leptoskit_yoga",
@@ -3105,7 +3203,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_wasm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_native",
@@ -3120,7 +3218,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_windows"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "image",
  "leptoskit_native",
@@ -3131,7 +3229,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_yoga"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
 ]
@@ -3234,6 +3332,12 @@ name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
+
+[[package]]
+name = "maybe-owned"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4"
 
 [[package]]
 name = "memchr"
@@ -4370,6 +4474,16 @@ dependencies = [
  "libc",
  "linux-raw-sys",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "rustix-linux-procfs"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fc84bf7e9aa16c4f2c758f27412dc9841341e16aa682d9c7ac308fe3ee12056"
+dependencies = [
+ "once_cell",
+ "rustix",
 ]
 
 [[package]]
@@ -6261,6 +6375,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "winx"
+version = "0.36.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f3fd376f71958b862e7afb20cfe5a22830e1963462f3a17f49d82a6c1d1f42d"
+dependencies = [
+ "bitflags 2.13.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

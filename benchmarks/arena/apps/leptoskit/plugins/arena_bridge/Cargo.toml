@@ -17,4 +17,4 @@ android-context = true
 guest = ["leptoskit_bridge/guest"]
 
 [dependencies]
-leptoskit_bridge = { version = "=0.1.0", path = "../../../../../../crates/leptoskit_bridge" }
+leptoskit_bridge = { version = "=0.1.1", path = "../../../../../../crates/leptoskit_bridge" }

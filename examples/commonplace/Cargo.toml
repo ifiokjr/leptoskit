@@ -12,7 +12,7 @@ default-members = ["."]
 [dependencies]
 commonplace_backend = { path = "commonplace_backend" }
 commonplace_db = { path = "commonplace_db", features = ["server"] }
-leptoskit = { version = "=0.1.0", default-features = false, path = "../../crates/leptoskit", features = ["server", "db-sqlite", "auth"] }
+leptoskit = { version = "=0.1.1", default-features = false, path = "../../crates/leptoskit", features = ["server", "db-sqlite", "auth"] }
 
 [profile.release]
 lto = "thin"

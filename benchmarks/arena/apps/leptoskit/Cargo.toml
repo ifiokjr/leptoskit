@@ -16,7 +16,7 @@ ssr = ["arena_app/web", "arena_app/ssr", "leptoskit/ssr"]
 [dependencies]
 arena_app = { path = "arena_app", default-features = false }
 arena_backend = { path = "arena_backend" }
-leptoskit = { version = "=0.1.0", default-features = false, path = "../../../../crates/leptoskit", features = ["server"] }
+leptoskit = { version = "=0.1.1", default-features = false, path = "../../../../crates/leptoskit", features = ["server"] }
 
 [profile.release]
 lto = "thin"

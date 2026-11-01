@@ -6,4 +6,4 @@ publish = false
 
 [dependencies]
 arena_shared = { path = "../arena_shared" }
-leptoskit = { version = "=0.1.0", default-features = false, path = "../../../../../crates/leptoskit", features = ["server"] }
+leptoskit = { version = "=0.1.1", default-features = false, path = "../../../../../crates/leptoskit", features = ["server"] }

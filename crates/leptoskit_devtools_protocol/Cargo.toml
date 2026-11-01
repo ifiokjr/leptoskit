@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_devtools_protocol"
-version.workspace = true
+version = "0.1.1"
 authors.workspace = true
 categories = ["development-tools::debugging", "web-programming", "wasm"]
 edition.workspace = true

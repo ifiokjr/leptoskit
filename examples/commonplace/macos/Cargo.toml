@@ -9,10 +9,10 @@ name = "leptoskit_app"
 crate-type = ["staticlib"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
-leptoskit_bridge_ffi = { version = "=0.1.0", default-features = false, path = "../../../crates/leptoskit_bridge_ffi", features = ["app"] }
+leptoskit_bridge_ffi = { version = "=0.1.1", default-features = false, path = "../../../crates/leptoskit_bridge_ffi", features = ["app"] }
 
 # The runtime plugins the app uses: HTTP to reach the server, and the secure
 # store to keep the session token between launches.
 [dependencies]
-leptoskit_plugin_http = { version = "=0.1.0", default-features = false, path = "../../../crates/leptoskit_plugin_http" }
-leptoskit_plugin_secure_store = { version = "=0.1.0", default-features = false, path = "../../../crates/leptoskit_plugin_secure_store" }
+leptoskit_plugin_http = { version = "=0.1.1", default-features = false, path = "../../../crates/leptoskit_plugin_http" }
+leptoskit_plugin_secure_store = { version = "=0.1.1", default-features = false, path = "../../../crates/leptoskit_plugin_secure_store" }

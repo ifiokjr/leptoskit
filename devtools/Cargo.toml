@@ -24,11 +24,11 @@ csr = []
 extension = ["csr", "leptoskit/extension"]
 
 [dependencies]
-leptoskit = { version = "=0.1.0", default-features = false, path = "../crates/leptoskit" }
-leptoskit_devtools_protocol = { version = "=0.1.0", path = "../crates/leptoskit_devtools_protocol" }
+leptoskit = { version = "=0.1.1", default-features = false, path = "../crates/leptoskit" }
+leptoskit_devtools_protocol = { version = "=0.1.1", path = "../crates/leptoskit_devtools_protocol" }
 # The panel's browser APIs, which do nothing on the host, so its screens are
 # tested there like the interface's.
-leptoskit_extension = { version = "=0.1.0", path = "../crates/leptoskit_extension" }
+leptoskit_extension = { version = "=0.1.1", path = "../crates/leptoskit_extension" }
 reactive_graph = "0.3.0-rc0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -38,14 +38,14 @@ serde_json = "1"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3"
 leptos = { version = "0.9.0-rc0", default-features = false, features = ["csr"] }
-leptoskit = { version = "=0.1.0", default-features = false, path = "../crates/leptoskit", features = ["web"] }
+leptoskit = { version = "=0.1.1", default-features = false, path = "../crates/leptoskit", features = ["web"] }
 # The embedded wasm-bindgen CLI accepts exactly its matching library version.
 wasm-bindgen = "=0.2.129"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["AbortSignal", "EventSource", "EventTarget", "Headers", "Location", "MessageEvent", "Request", "RequestCache", "RequestInit", "Response", "UrlSearchParams", "Window"] }
 
 [dev-dependencies]
-leptoskit_testing = { version = "=0.1.0", path = "../crates/leptoskit_testing" }
+leptoskit_testing = { version = "=0.1.1", path = "../crates/leptoskit_testing" }
 
 [profile.release]
 lto = "thin"
