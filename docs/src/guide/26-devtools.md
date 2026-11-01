@@ -1,0 +1,81 @@
+# Debugging with DevTools
+
+A button that looks right in the browser is two pixels taller on iOS, and the Android emulator shows an old list. On the web you would open the browser's developer tools, but most of a leptoskit app doesn't run in a browser: on iOS, Android, and the desktop, your interface runs inside the app and draws real native widgets, so there is no page to inspect.
+
+leptoskit DevTools fills that gap. Every app that `leptoskit dev` runs reports to one local hub, and one page shows them all: the element tree on each platform, where each element was built in your code, its frame and its Tailwind classes, and your app's route, data, and timings. Select an element on the web and see the same element's frame on iOS beside it.
+
+## Opening it
+
+`leptoskit dev` starts the DevTools hub next to your app and prints its address:
+
+```text
+[devtools] hub at http://127.0.0.1:7340
+[web] serving dist at http://127.0.0.1:3000
+```
+
+Open the hub's address in any browser. It needs no extension and no account, which also makes it the way to inspect an app running in the iOS Simulator or on an Android emulator.
+
+| Flag                     | What it does                            |
+| ------------------------ | --------------------------------------- |
+| `--devtools-port <port>` | Runs the hub on another port than 7340. |
+| `--no-devtools`          | Doesn't start the hub.                  |
+
+The hub listens only on this machine, and refuses requests from other websites open in your browser, so a page you visit can't read your app's state or send it commands.
+
+## What it shows
+
+The left column lists every running app, grouped by name, with its platform and device: `web`, `iOS · iPhone 17`, `Android · Pixel 9`, `macOS`. When you reload a web page, it becomes a new session, and DevTools switches to it on its own. An older page that hasn't closed yet is marked "earlier".
+
+The middle column is the **element tree**: every `View`, `Text`, `Button`, and the rest, with their first classes and text. Collapse and expand branches, or search by kind, class, or text, such as `Button`, `gap-4`, or `Sign in`. Selecting an element highlights it in the app. **Pick** does the reverse: choose an element in the running app, and the tree selects it.
+
+The right column shows one panel at a time:
+
+| Panel     | What you see and do                                                                                                                                                        |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node      | The element's kind, its frame, its text, and the file, line, and column that built it, with **Open in editor** (Visual Studio Code). Edit its classes and apply them live. |
+| Styles    | Each active class and the CSS it resolved to, such as `p-4` → `padding:1rem;`, and the classes that don't apply at this size or appearance, such as `md:` or `dark:` ones. |
+| Route     | The current route, and a field that navigates the app anywhere.                                                                                                            |
+| Queries   | The query cache: each key, its status and data. Refetch it, invalidate it, or replace its data to see how the screen handles it.                                           |
+| Mutations | Each mutation and its state.                                                                                                                                               |
+| Forms     | Each tracked form's values. Read only.                                                                                                                                     |
+| State     | The values your app names for DevTools. Edit them as JSON. Values over 64 KiB are shown truncated and can't be edited.                                                     |
+| Calls     | Calls to native plugins and to your server, newest first, with their status, duration, and size.                                                                           |
+| Commits   | Each render: how many changes it made and, while you profile, how long layout and drawing took.                                                                            |
+
+A panel that a platform can't feed says so. A web page has no native plugin calls, for example, so its Calls panel reads "This session doesn't report plugin or server calls."
+
+When the code of a native app changes, `leptoskit dev` replaces the interface inside the running app. Its state starts over, including values you edited in DevTools. The Calls and Commits timelines mark the moment with "Guest reloaded", and the selected element stays selected when it still exists.
+
+## The same element on every platform
+
+When your app runs on several platforms under one `leptoskit dev`, select an element and the Node panel lists its frame on each of them:
+
+```text
+Other platforms
+web (here)            0, 120 · 390 × 44
+iOS · iPhone 17       0, 120 · 390 × 46
+Android · Pixel 9     0, 124 · 392 × 44
+```
+
+Elements match across platforms by where your code built them, so a button from the same line matches everywhere. **Highlight everywhere** highlights it in every app at once. Browsers and native platforms measure fonts slightly differently, and this is the quickest way to find where that moves your layout.
+
+## Working offline and in CI
+
+The DevTools page is downloaded once per leptoskit version, the first time `leptoskit dev` runs, from the GitHub release of exactly that version. leptoskit checks the download against a fingerprint built into the CLI and refuses anything else, and it never uses another version's page, because the page and the CLI change together.
+
+To download it ahead of time, for example in CI or before going offline:
+
+```bash
+leptoskit devtools fetch
+```
+
+It is kept in your cache folder: `~/.cache/leptoskit/devtools/<version>/`, or under `$XDG_CACHE_HOME` when that is set. Without it, the hub still runs and shows a plain page with the sessions and their trees, and explains how to download the full one. `leptoskit devtools fetch --force` downloads it again.
+
+## Where it stands
+
+The hub, the page, and `leptoskit devtools fetch` work today. Apps report to the hub once `leptoskit dev` builds them with DevTools turned on, which is still being connected: until then the hub lists no sessions. Release builds never include DevTools. Once connected, each platform reports:
+
+- **Web:** the element tree, frames, classes, picking, and highlighting.
+- **macOS, iOS, and Android:** the element tree, frames, source locations, and each class's CSS. Picking and highlighting inside the native apps come later.
+- **Windows, Linux, the terminal, and HarmonyOS (experimental):** not yet.
+- **Queries, forms, state, and calls** appear as each part of leptoskit starts reporting them; until then their panels say the app doesn't report them.

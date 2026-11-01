@@ -27,6 +27,8 @@ Each native app is built and installed once, when `dev` starts. After that, only
 
 The apps' logs appear in the same terminal, each line marked with its platform, such as `[ios]` or `[android]`. Changes to `leptoskit.toml` reach the interface, but plugins and other app settings need the apps rebuilt, so restart `dev` after changing them. iOS runs in the simulator only; to run on an iPhone, build it with `leptoskit build --platform ios` and install it from Xcode.
 
+`dev` also starts the DevTools hub, which shows the element tree, styles, and data of every app it runs, on every platform at once: see [Debugging with DevTools](26-devtools.md).
+
 Ctrl-C stops `dev` along with your app's server and the desktop apps it opened. Simulators and emulators keep running, so the next `dev` finds them already booted.
 
 The [terminal app](../platforms/tui.md) needs the terminal you run `dev` in, so it never runs beside the other platforms. A plain `dev` skips it unless `app.default_platform` is `tui`, and `--platform tui` must be the only platform you name. `dev` builds it once and runs it until you quit.
