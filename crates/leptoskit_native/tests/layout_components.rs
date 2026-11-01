@@ -105,6 +105,7 @@ fn validated_constraints_clamp_the_wrapper_without_rewriting_children() {
 	assert_eq!(bounds.min_width(), 40.0);
 	assert_eq!(bounds.max_width(), Some(100.0));
 	assert_eq!(bounds.min_height(), 60.0);
+
 	assert_eq!(bounds.max_height(), None);
 
 	let tight = mount(&ConstrainedBox(
@@ -194,6 +195,7 @@ fn expanded_edits_parent_data_directly_and_shares_space_with_spacer() {
 	let children = surface.children(root(&surface));
 	assert_eq!(surface.layout(children[1]).width, 125.0);
 	assert_eq!(surface.layout(children[2]).width, 125.0);
+
 	assert_eq!(surface.layout(children[2]).x, 175.0);
 }
 
@@ -406,6 +408,7 @@ fn visibility_collapses_layout_and_blocks_input_without_replacing_nodes() {
 		EventOutcome::Handled
 	);
 	surface.set_root(&tree(false));
+
 	assert_eq!(surface.layout(sibling).y, 0.0);
 	assert_eq!(
 		surface.dispatch_event(button, &NativeEvent::Press),
@@ -489,6 +492,7 @@ fn list_tile_allocates_leading_content_and_trailing_slots() {
 	assert_eq!(surface.layout(children[1]).x, 48.0);
 	assert_eq!(surface.layout(children[1]).width, 208.0);
 	assert_eq!(surface.layout(children[2]).x, 268.0);
+
 	assert_eq!(surface.layout(root(&surface)).height, 48.0);
 }
 
@@ -509,6 +513,7 @@ fn scaffold_reserves_header_and_footer_and_grows_the_body() {
 	assert_eq!(surface.layout(children[2]).y, 200.0);
 	let header = surface.children(children[0]);
 	assert_eq!(surface.kind(header[0]), NativeKind::Text);
+
 	assert_eq!(surface.layout(header[1]).x, 224.0);
 }
 
@@ -579,6 +584,7 @@ fn numeric_boundaries_reject_invalid_values_without_constructing_bad_elements() 
 	assert!(Opacity(1.01).is_err());
 	assert!(ClipRRect(0.0).is_ok());
 	assert!(Opacity(1.0).is_ok());
+
 	assert_eq!(BoxConstraints::default().max_width(), None);
 }
 

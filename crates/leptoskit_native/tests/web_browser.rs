@@ -52,6 +52,7 @@ fn overflowing_decoration_does_not_extend_browser_pointer_hit_bounds() {
 	});
 	let button: web_sys::HtmlElement = find(&parent, "button");
 	let frame = button.get_bounding_client_rect();
+
 	let inside = document()
 		.element_from_point((frame.x() + 20.0) as f32, (frame.y() + 20.0) as f32)
 		.unwrap();
@@ -112,6 +113,7 @@ async fn rerenders_refresh_callbacks_and_slider_configuration_without_replacing_
 	});
 	tick().await;
 	let button: web_sys::HtmlElement = find(&parent, "button");
+
 	let checkbox: web_sys::HtmlInputElement = find(&parent, "input[type=checkbox]");
 	let slider: web_sys::HtmlInputElement = find(&parent, "input[type=range]");
 	assert!(button.has_attribute("disabled"));
@@ -183,6 +185,7 @@ async fn rich_pressables_keep_native_button_semantics_and_focus_during_updates()
 			)
 		}
 	});
+
 	tick().await;
 	let button: web_sys::HtmlElement = find(&parent, "button");
 	assert_eq!(button.get_attribute("type").as_deref(), Some("button"));
@@ -252,6 +255,7 @@ async fn links_handle_plain_clicks_in_place_and_leave_the_rest_to_the_browser() 
 		record.lock().unwrap().push(event.default_prevented());
 		event.prevent_default();
 	});
+
 	parent
 		.add_event_listener_with_callback("click", listener.as_ref().unchecked_ref())
 		.expect("listen");
@@ -355,6 +359,7 @@ async fn pressable_href_policy_preserves_links_and_applies_on_rerender() {
 	target.set("#details".to_owned());
 	tick().await;
 	let link: web_sys::HtmlElement = find(&parent, "a");
+
 	assert_eq!(link.get_attribute("href").as_deref(), Some("#details"));
 	drop(mount);
 	parent.remove();
@@ -440,6 +445,7 @@ async fn reactive_controls_preserve_focus_and_deliver_native_events() {
 	input.set_selection_range(2, 2).expect("set selection");
 	let options = web_sys::EventInit::new();
 	options.set_bubbles(true);
+
 	input
 		.dispatch_event(
 			&web_sys::Event::new_with_event_init_dict("input", &options).expect("input event"),
@@ -514,6 +520,7 @@ async fn handled_events_stop_bubbling_and_disabled_buttons_do_not_press() {
 		)
 	});
 	let handled: web_sys::HtmlElement = find(&parent, "button");
+
 	let disabled: web_sys::HtmlElement = find(&parent, "button[disabled]");
 	handled.click();
 	disabled.click();
@@ -564,6 +571,7 @@ async fn responsive_styles_update_and_independent_trees_remain_isolated() {
 		)
 	});
 	tick().await;
+
 	// query_selector already returns an Element. A second instanceof cast uses
 	// the parent JavaScript realm and fails for Firefox's adopted iframe nodes.
 	let first = parent
@@ -755,6 +763,7 @@ fn native_and_browser_share_box_flex_and_grid_geometry() {
 			.class("grid grid-cols-3 grid-rows-2 w-[400px] h-[200px] p-4 gap-4")
 			.children((0..6).map(|_| Element::view())),
 	];
+
 	for wrap in [FlexWrap::Wrap, FlexWrap::WrapReverse] {
 		for direction in [Direction::Ltr, Direction::Rtl] {
 			fixtures.push(
@@ -768,6 +777,7 @@ fn native_and_browser_share_box_flex_and_grid_geometry() {
 			);
 		}
 	}
+
 	fixtures.push(
 		Element::view()
 			.class("w-[100px] h-[100px] gap-[10px] content-start items-start")
@@ -938,6 +948,7 @@ async fn mounted_roots_listen_for_touches_so_webkit_shows_pressed_styles() {
 	tick().await;
 	revision.set(1);
 	tick().await;
+
 	// Every rebuild reuses one passive listener, which the DOM adds once.
 	assert_eq!(stop_touch_spy(), "roots:true passive:true listeners:1");
 	drop(mount);
@@ -956,6 +967,7 @@ async fn controlled_toggles_propose_once_bubble_typed_events_and_restore_rejecti
 	let parent_count = Arc::clone(&bubbled);
 	let change_count = Arc::clone(&wrong_events);
 	let press_count = Arc::clone(&wrong_events);
+
 	let checked = ArcRwSignal::new(false);
 	let app_checked = checked.clone();
 	let mount = mount_to(parent.clone(), move || {
@@ -1056,6 +1068,7 @@ async fn sliders_and_passwords_keep_owner_state_and_dom_identity() {
 	let slider: web_sys::HtmlInputElement = find(&parent, "input[type=range]");
 	let password: web_sys::HtmlInputElement = find(&parent, "input[type=password]");
 	slider.set_value("6");
+
 	input_event(&slider);
 	tick().await;
 	assert!((value.get_untracked() - 6.0).abs() < f64::EPSILON);
@@ -1122,6 +1135,7 @@ async fn radio_groups_restore_rejection_support_arrows_and_isolate_render_roots(
 	});
 	tick().await;
 	let first: web_sys::HtmlInputElement = find(&parent, "[aria-label=First]");
+
 	let second: web_sys::HtmlInputElement = find(&parent, "[aria-label=Second]");
 	let rejected: web_sys::HtmlInputElement = find(&parent, "[aria-label=Rejected]");
 	let other: web_sys::HtmlInputElement = find(&independent, "input");
@@ -1207,6 +1221,7 @@ async fn disabled_hidden_controls_reject_synthetic_input_and_spinners_stop() {
 			}
 		});
 	tick().await;
+
 	let hidden: web_sys::HtmlInputElement = find(&parent, "[aria-label=Hidden]");
 	hidden.set_checked(true);
 	input_event(&hidden);
@@ -1310,6 +1325,7 @@ fn new_controls_hydrate_without_replacing_server_nodes() {
 		slider,
 		find::<web_sys::HtmlInputElement>(&parent, "input[type=range]")
 	);
+
 	assert_ne!(radio.name(), "");
 	assert!(radio.checked());
 	drop(mount);
@@ -1432,6 +1448,7 @@ async fn responsive_visibility_uses_css_without_disabling_the_control() {
 		viewport: Size::new(600.0, 400.0),
 		..StyleContext::default()
 	};
+
 	let wide = StyleContext {
 		viewport: Size::new(900.0, 400.0),
 		..StyleContext::default()
@@ -1498,6 +1515,7 @@ fn radio_group_unicode_names_survive_hydration_without_merging_selection() {
 		second,
 		find::<web_sys::HtmlInputElement>(&parent, "[aria-label=Unicode]")
 	);
+
 	assert_ne!(first.name(), second.name());
 	assert!(first.checked() && second.checked());
 	drop(mount);
@@ -1736,6 +1754,7 @@ fn vector_paths_map_their_view_box_onto_the_frame() {
 		"{}",
 		stretched.y()
 	);
+
 	assert!(
 		(stretched.width() - 120.0).abs() < 0.5,
 		"{}",

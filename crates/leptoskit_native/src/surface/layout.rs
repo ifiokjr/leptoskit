@@ -32,12 +32,14 @@ impl<B: NativeBackend> NativeSurface<B> {
 		} else {
 			self.yoga.calculate_layout(root, available);
 		}
+
 		let mut frames = MutationList::new();
 		self.collect_frames(root, 0.0, 0.0, &mut frames);
 		self.backend.apply(&frames);
 		#[cfg(feature = "devtools")]
 		{
 			let commit = self.devtools.finish(frames.len(), layout_start);
+
 			if let Some(observer) = &mut self.devtools.observer {
 				observer(&commit);
 			}

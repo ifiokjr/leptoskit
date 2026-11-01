@@ -170,10 +170,12 @@ pub(super) fn parse(document: &str) -> Result<Drawing, SvgError> {
 		width: view_box.width(),
 		height: view_box.height(),
 	};
+
 	let (scaling, alignment) = match root.attribute("preserveAspectRatio") {
 		Some(value) => aspect_ratio(value)?,
 		None => (VectorScaling::Fit, VectorAlignment::CENTER),
 	};
+
 	let mut drawing = Drawing::new(view_box).scaling(scaling).align(alignment);
 	let style = element_style(root, &Style::default(), viewport)?;
 	children(root, &style, viewport, &mut drawing)?;
@@ -186,6 +188,7 @@ fn view_box(root: roxmltree::Node<'_, '_>) -> Result<ViewBox, SvgError> {
 		let &[min_x, min_y, width, height] = numbers.as_slice() else {
 			return Err(invalid("viewBox", value));
 		};
+
 		return Ok(ViewBox::new(min_x, min_y, width, height)?);
 	}
 
@@ -221,6 +224,7 @@ fn aspect_ratio(value: &str) -> Result<(VectorScaling, VectorAlignment), SvgErro
 		.filter(|rest| rest.len() == 7 && rest.as_bytes()[3] == b'Y')
 		.and_then(|rest| Some(VectorAlignment::new(axis(&rest[..3])?, axis(&rest[4..])?)))
 		.ok_or_else(|| invalid("preserveAspectRatio", value))?;
+
 	let scaling = match words.next() {
 		None | Some("meet") => VectorScaling::Fit,
 		Some("slice") => VectorScaling::Fill,
@@ -299,6 +303,15 @@ fn element_style(
 	let mut style = parent.clone();
 	let read = |name: &str| property(node, name).filter(|value| value != "inherit");
 
+	check_unsupported(&read)?;
+	apply_fill(&mut style, &read)?;
+	apply_stroke(&mut style, &read, viewport)?;
+	apply_visibility(&mut style, node, parent, &read)?;
+	Ok(style)
+}
+
+/// Rejects the effects the renderer doesn't implement.
+fn check_unsupported(read: &impl Fn(&str) -> Option<String>) -> Result<(), SvgError> {
 	for name in ["clip-path", "mask", "filter"] {
 		if let Some(value) = read(name).filter(|value| value != "none") {
 			return Err(SvgError::Unsupported {
@@ -325,7 +338,11 @@ fn element_style(
 			});
 		}
 	}
+	Ok(())
+}
 
+/// The element's paints and opacities.
+fn apply_fill(style: &mut Style, read: &impl Fn(&str) -> Option<String>) -> Result<(), SvgError> {
 	if let Some(value) = read("color") {
 		style.color = Some(color("color", &value)?);
 	}
@@ -349,7 +366,15 @@ fn element_style(
 	if let Some(value) = read("opacity") {
 		style.opacity *= opacity("opacity", &value)?;
 	}
+	Ok(())
+}
 
+/// The element's stroke, in its viewport's units.
+fn apply_stroke(
+	style: &mut Style,
+	read: &impl Fn(&str) -> Option<String>,
+	viewport: Viewport,
+) -> Result<(), SvgError> {
 	if let Some(value) = read("fill-rule") {
 		style.fill_rule = match value.as_str() {
 			"nonzero" => FillRule::Nonzero,
@@ -399,7 +424,16 @@ fn element_style(
 	if let Some(value) = read("stroke-dashoffset") {
 		style.dash_offset = length("stroke-dashoffset", &value, viewport.diagonal())?;
 	}
+	Ok(())
+}
 
+/// Whether the element draws, and where.
+fn apply_visibility(
+	style: &mut Style,
+	node: roxmltree::Node<'_, '_>,
+	parent: &Style,
+	read: &impl Fn(&str) -> Option<String>,
+) -> Result<(), SvgError> {
 	if let Some(value) = read("visibility") {
 		style.visible = match value.as_str() {
 			"visible" => true,
@@ -411,10 +445,8 @@ fn element_style(
 	if let Some(value) = node.attribute("transform") {
 		style.transform = parent.transform.then(Affine::parse(value)?);
 	}
-
-	Ok(style)
+	Ok(())
 }
-
 /// One shape element as a painted path, or `None` when it draws nothing.
 fn shape(
 	node: roxmltree::Node<'_, '_>,
@@ -501,6 +533,7 @@ fn shape(
 	} else {
 		data.transform(style.transform)
 	};
+
 	let mut path = VectorPath::new(data).fill_rule(style.fill_rule);
 
 	if let Some(fill) = style.fill {
@@ -516,6 +549,7 @@ fn shape(
 		} else {
 			style.transform.length_scale()
 		};
+
 		let dashes = style
 			.dashes
 			.iter()
@@ -549,6 +583,7 @@ fn faded(paint: Paint, opacity: f32) -> Paint {
 			let alpha = (f32::from(color.alpha()) * opacity).round() as u8;
 			Paint::Color(Color::rgba(color.red(), color.green(), color.blue(), alpha))
 		}
+
 		other => other,
 	}
 }
@@ -559,12 +594,14 @@ fn paint(name: &str, value: &str, color: Option<Color>) -> Result<Option<Paint>,
 		"currentColor" | "currentcolor" => {
 			Ok(Some(color.map_or(Paint::CurrentColor, Paint::Color)))
 		}
+
 		_ if value.starts_with("url(") => {
 			Err(SvgError::Unsupported {
 				name: name.to_owned(),
 				value: value.to_owned(),
 			})
 		}
+
 		_ => Ok(Some(Paint::Color(self::color(name, value)?))),
 	}
 }
@@ -598,6 +635,7 @@ fn opacity(name: &str, value: &str) -> Result<f32, SvgError> {
 		Some(percent) => number(name, percent)? / 100.0,
 		None => number(name, value)?,
 	};
+
 	Ok(opacity.clamp(0.0, 1.0))
 }
 
@@ -620,6 +658,7 @@ fn absolute_length(value: &str) -> Option<f32> {
 		.unwrap_or(value.len());
 	let (number, unit) = value.split_at(split);
 	let number = number.trim().parse::<f32>().ok()?;
+
 	let scale = match unit {
 		"" | "px" => 1.0,
 		"pt" => 96.0 / 72.0,
@@ -630,6 +669,7 @@ fn absolute_length(value: &str) -> Option<f32> {
 		"q" | "Q" => 96.0 / 101.6,
 		_ => return None,
 	};
+
 	Some(number * scale).filter(|length| length.is_finite())
 }
 
@@ -643,6 +683,7 @@ fn parse_color(value: &str) -> Option<Color> {
 	if let Some(hex) = value.strip_prefix('#') {
 		let digit = |index: usize| u8::from_str_radix(hex.get(index..=index)?, 16).ok();
 		let pair = |index: usize| u8::from_str_radix(hex.get(index..index + 2)?, 16).ok();
+
 		return match hex.len() {
 			3 | 4 => {
 				let channel = |index| digit(index).map(|value| value * 17);
@@ -682,11 +723,13 @@ fn function_color(function: &str, arguments: &str) -> Option<Color> {
 		.split(|c: char| c == ',' || c == '/' || c.is_ascii_whitespace())
 		.filter(|part| !part.is_empty())
 		.collect::<Vec<_>>();
+
 	let (channels, alpha) = match parts.as_slice() {
 		[a, b, c] => ([*a, *b, *c], None),
 		[a, b, c, alpha] => ([*a, *b, *c], Some(*alpha)),
 		_ => return None,
 	};
+
 	let fraction = |part: &str| -> Option<f32> {
 		match part.strip_suffix('%') {
 			Some(percent) => percent.parse::<f32>().ok().map(|value| value / 100.0),

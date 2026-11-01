@@ -27,6 +27,7 @@ impl LogBudget {
 
 		if self.exceeded || serde_json::to_writer(&mut *self, mutations).is_err() {
 			self.exceeded = true;
+
 			return false;
 		}
 
@@ -87,6 +88,7 @@ mod tests {
 		backend.apply(&batch);
 		assert_eq!(backend.take_log().len(), 1);
 		backend.apply(&batch);
+
 		assert!(backend.render_error().is_none());
 		backend.limit_mutation_log(size * 2);
 		backend.apply(&batch);

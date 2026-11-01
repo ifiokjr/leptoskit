@@ -28,6 +28,7 @@ mod measurement;
 mod reconcile;
 #[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
 mod rive;
+
 #[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
 pub use rive::RiveEnvironment;
 #[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
@@ -264,6 +265,7 @@ impl Default for Devtools {
 impl Devtools {
 	fn source(&mut self, mutations: usize, start: Instant) {
 		self.mutations += mutations;
+
 		if self.profiling {
 			self.apply_us += micros(start);
 		}
@@ -592,6 +594,7 @@ mod devtools_tests {
 		surface.set_root(&element);
 		let commits = seen.lock().unwrap();
 		assert!(!commits.is_empty());
+
 		assert!(commits.last().unwrap().mutations > 0);
 	}
 
@@ -622,6 +625,7 @@ mod devtools_tests {
 		let element = Element::view();
 		surface.set_root(&element);
 		let commits = seen.lock().unwrap();
+
 		assert!(commits.last().unwrap().layout_us.is_some());
 	}
 }

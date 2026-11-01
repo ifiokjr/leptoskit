@@ -148,8 +148,32 @@ pub(super) enum Declaration {
 	Opacity(f32),
 }
 
+/// Writes one declaration, marked important when the utility is.
+fn write(output: &mut String, important: bool, name: &str, value: &str) {
+	let _ = write!(
+		output,
+		"{name}:{value}{};",
+		if important { "!important" } else { "" }
+	);
+}
+
 impl Declaration {
 	pub(super) fn apply(&self, style: &mut Style, props: &mut NativeProps, context: &StyleContext) {
+		if self.apply_box(style, props, context) {
+			return;
+		}
+
+		self.apply_paint(style, props, context);
+	}
+
+	/// The size, spacing, and layout declarations. Says whether this was
+	/// one.
+	fn apply_box(
+		&self,
+		style: &mut Style,
+		props: &mut NativeProps,
+		context: &StyleContext,
+	) -> bool {
 		match *self {
 			Self::Size(field, length) => {
 				let value = match field {
@@ -163,6 +187,7 @@ impl Declaration {
 				};
 				*value = length.dimension(context);
 			}
+
 			Self::Edge(field, edge, length) => {
 				let rect = match field {
 					EdgeField::Padding => &mut style.padding,
@@ -171,6 +196,7 @@ impl Declaration {
 				};
 				*edge.of_mut(rect) = length.dimension(context);
 			}
+
 			Self::SafePadding(edge, offset) => {
 				let points = safe_inset(edge.of(context.safe_area), offset, context);
 				*edge.of_mut(&mut style.padding) = Dimension::Points(points);
@@ -263,6 +289,15 @@ impl Declaration {
 				}
 			}
 			Self::Aspect(value) => style.aspect_ratio = value,
+			_ => return false,
+		}
+
+		true
+	}
+
+	/// The color, text, border, and radius declarations.
+	fn apply_paint(&self, style: &mut Style, props: &mut NativeProps, context: &StyleContext) {
+		match *self {
 			Self::Color(field, value) => {
 				match field {
 					ColorField::Text => props.color = Some(value),
@@ -300,48 +335,35 @@ impl Declaration {
 			}
 			Self::Radius(value) => props.corner_radius = Some(value.points(context)),
 			Self::Opacity(value) => props.opacity = Some(value),
+			_ => {}
 		}
 	}
 
 	pub(super) fn css(&self, output: &mut String, important: bool) {
-		let mut write = |name: &str, value: &str| {
-			let _ = write!(
-				output,
-				"{name}:{value}{};",
-				if important { "!important" } else { "" }
-			);
-		};
+		if self.css_box(output, important) {
+			return;
+		}
+
+		self.css_paint(output, important);
+	}
+
+	/// The size, spacing, and layout declarations. Says whether this was
+	/// one.
+	fn css_box(&self, output: &mut String, important: bool) -> bool {
+		if self.css_spacing(output, important) {
+			return true;
+		}
 
 		match *self {
-			Self::Size(field, Length::Auto)
-				if matches!(field, SizeField::MaxWidth | SizeField::MaxHeight) =>
-			{
-				write(field.css(), "none");
+			Self::Display(value) => write(output, important, "display", keyword::display(value)),
+			Self::Position(value) => write(output, important, "position", keyword::position(value)),
+			Self::BoxSizing(value) => {
+				write(output, important, "box-sizing", keyword::box_sizing(value));
 			}
-			Self::Size(field, length) => write(field.css(), &length.css()),
-			Self::Edge(field, edge, length) => {
-				let prefix = match field {
-					EdgeField::Padding => "padding-",
-					EdgeField::Margin => "margin-",
-					EdgeField::Inset => "",
-				};
-				write(&format!("{prefix}{}", edge.css()), &length.css());
-			}
-			Self::SafePadding(edge, offset) => {
-				let inset = format!("env(safe-area-inset-{})", edge.css());
-				let value = if offset.is_zero() {
-					inset
-				} else {
-					format!("calc({inset} + {})", offset.css())
-				};
-				write(&format!("padding-{}", edge.css()), &value);
-			}
-			Self::Gap(axis, length) => write(axis.property("column-gap", "row-gap"), &length.css()),
-			Self::Display(value) => write("display", keyword::display(value)),
-			Self::Position(value) => write("position", keyword::position(value)),
-			Self::BoxSizing(value) => write("box-sizing", keyword::box_sizing(value)),
 			Self::Overflow(value) => {
 				write(
+					output,
+					important,
 					"overflow",
 					match value {
 						Overflow::Visible => "visible",
@@ -350,19 +372,40 @@ impl Declaration {
 					},
 				);
 			}
-			Self::FlexDirection(value) => write("flex-direction", keyword::flex_direction(value)),
-			Self::FlexWrap(value) => write("flex-wrap", keyword::flex_wrap(value)),
-			Self::Flex(grow, shrink, basis) => {
-				write("flex-grow", &grow.to_string());
-				write("flex-shrink", &shrink.to_string());
-				write("flex-basis", &basis.css());
+
+			Self::FlexDirection(value) => {
+				write(
+					output,
+					important,
+					"flex-direction",
+					keyword::flex_direction(value),
+				);
 			}
-			Self::Grow(value) => write("flex-grow", &value.to_string()),
-			Self::Shrink(value) => write("flex-shrink", &value.to_string()),
-			Self::Justify(value) => write("justify-content", keyword::justify_content(value)),
-			Self::Align(field, value) => write(field.css(), align_css(value, field)),
+			Self::FlexWrap(value) => {
+				write(output, important, "flex-wrap", keyword::flex_wrap(value));
+			}
+			Self::Flex(grow, shrink, basis) => {
+				write(output, important, "flex-grow", &grow.to_string());
+				write(output, important, "flex-shrink", &shrink.to_string());
+				write(output, important, "flex-basis", &basis.css());
+			}
+			Self::Grow(value) => write(output, important, "flex-grow", &value.to_string()),
+			Self::Shrink(value) => write(output, important, "flex-shrink", &value.to_string()),
+			Self::Justify(value) => {
+				write(
+					output,
+					important,
+					"justify-content",
+					keyword::justify_content(value),
+				);
+			}
+			Self::Align(field, value) => {
+				write(output, important, field.css(), align_css(value, field));
+			}
 			Self::GridTracks(axis, ref tracks) => {
 				write(
+					output,
+					important,
 					axis.property("grid-template-columns", "grid-template-rows"),
 					&if tracks.is_empty() {
 						"none".to_owned()
@@ -371,15 +414,27 @@ impl Declaration {
 					},
 				);
 			}
+
 			Self::GridAutoTrack(axis, ref track) => {
 				write(
+					output,
+					important,
 					axis.property("grid-auto-columns", "grid-auto-rows"),
 					&track.css(),
 				);
 			}
-			Self::GridAutoFlow(value) => write("grid-auto-flow", keyword::grid_auto_flow(value)),
+			Self::GridAutoFlow(value) => {
+				write(
+					output,
+					important,
+					"grid-auto-flow",
+					keyword::grid_auto_flow(value),
+				);
+			}
 			Self::GridLine(axis, start, line) => {
 				write(
+					output,
+					important,
 					match (axis, start) {
 						(Axis::X, true) => "grid-column-start",
 						(Axis::X, false) => "grid-column-end",
@@ -389,8 +444,11 @@ impl Declaration {
 					&keyword::grid_line(line),
 				);
 			}
+
 			Self::GridPlacement(axis, placement) => {
 				write(
+					output,
+					important,
 					axis.property("grid-column", "grid-row"),
 					&format!(
 						"{}/{}",
@@ -401,12 +459,77 @@ impl Declaration {
 			}
 			Self::Aspect(value) => {
 				write(
+					output,
+					important,
 					"aspect-ratio",
 					&value.map_or_else(|| "auto".to_owned(), |value| value.to_string()),
 				);
 			}
+			_ => return false,
+		}
+
+		true
+	}
+
+	/// The size and spacing declarations. Says whether this was one.
+	fn css_spacing(&self, output: &mut String, important: bool) -> bool {
+		match *self {
+			Self::Size(field, Length::Auto)
+				if matches!(field, SizeField::MaxWidth | SizeField::MaxHeight) =>
+			{
+				write(output, important, field.css(), "none");
+			}
+			Self::Size(field, length) => write(output, important, field.css(), &length.css()),
+			Self::Edge(field, edge, length) => {
+				let prefix = match field {
+					EdgeField::Padding => "padding-",
+					EdgeField::Margin => "margin-",
+					EdgeField::Inset => "",
+				};
+
+				write(
+					output,
+					important,
+					&format!("{prefix}{}", edge.css()),
+					&length.css(),
+				);
+			}
+			Self::SafePadding(edge, offset) => {
+				let inset = format!("env(safe-area-inset-{})", edge.css());
+				let value = if offset.is_zero() {
+					inset
+				} else {
+					format!("calc({inset} + {})", offset.css())
+				};
+
+				write(
+					output,
+					important,
+					&format!("padding-{}", edge.css()),
+					&value,
+				);
+			}
+			Self::Gap(axis, length) => {
+				write(
+					output,
+					important,
+					axis.property("column-gap", "row-gap"),
+					&length.css(),
+				);
+			}
+			_ => return false,
+		}
+
+		true
+	}
+
+	/// The color, text, border, and radius declarations.
+	fn css_paint(&self, output: &mut String, important: bool) {
+		match *self {
 			Self::Color(field, value) => {
 				write(
+					output,
+					important,
 					match field {
 						ColorField::Text => "color",
 						ColorField::Background => "background-color",
@@ -416,42 +539,74 @@ impl Declaration {
 				);
 
 				if field == ColorField::Border {
-					write("--lk-border-color", &format!("#{:08x}", value.0));
+					write(
+						output,
+						important,
+						"--lk-border-color",
+						&format!("#{:08x}", value.0),
+					);
 				}
 			}
-			Self::FontSize(value) => write("font-size", &value.css()),
-			Self::FontWeight(value) => write("font-weight", keyword::font_weight(value)),
-			Self::Italic(value) => write("font-style", keyword::font_style(value)),
+			Self::FontSize(value) => write(output, important, "font-size", &value.css()),
+			Self::FontWeight(value) => {
+				write(
+					output,
+					important,
+					"font-weight",
+					keyword::font_weight(value),
+				);
+			}
+			Self::Italic(value) => {
+				write(output, important, "font-style", keyword::font_style(value));
+			}
 			Self::TextAlign(value) => {
 				let value = keyword::text_align(value);
-				write("text-align", value);
-				write("--lk-text-align", value);
+				write(output, important, "text-align", value);
+				write(output, important, "--lk-text-align", value);
 			}
 			Self::BorderWidth(value) => {
-				write("border-width", &value.css());
-				write("border-style", "solid");
-				write("border-color", "var(--lk-border-color,currentColor)");
-				write("box-shadow", "none");
+				write(output, important, "border-width", &value.css());
+				write(output, important, "border-style", "solid");
+				write(
+					output,
+					important,
+					"border-color",
+					"var(--lk-border-color,currentColor)",
+				);
+				write(output, important, "box-shadow", "none");
 			}
 			Self::EdgeBorderWidth(edges, value) => {
 				for edge in edges {
-					write(&format!("border-{}-width", edge.css()), &value.css());
+					write(
+						output,
+						important,
+						&format!("border-{}-width", edge.css()),
+						&value.css(),
+					);
 				}
-				write("border-style", "solid");
-				write("border-color", "var(--lk-border-color,currentColor)");
-				write("box-shadow", "none");
+
+				write(output, important, "border-style", "solid");
+				write(
+					output,
+					important,
+					"border-color",
+					"var(--lk-border-color,currentColor)",
+				);
+				write(output, important, "box-shadow", "none");
 			}
 			Self::Radius(value) => {
 				let radius = value.css();
-				write("border-radius", &radius);
+				write(output, important, "border-radius", &radius);
 				let clip = if value.is_zero() {
 					"none".to_owned()
 				} else {
 					format!("inset(0 round {radius})")
 				};
-				write("clip-path", &clip);
+
+				write(output, important, "clip-path", &clip);
 			}
-			Self::Opacity(value) => write("opacity", &value.to_string()),
+			Self::Opacity(value) => write(output, important, "opacity", &value.to_string()),
+			_ => {}
 		}
 	}
 }
@@ -525,6 +680,7 @@ fn align_css(align: Align, field: AlignField) -> &'static str {
 
 	match align {
 		Align::FlexStart if justify => "start",
+
 		Align::FlexEnd if justify => "end",
 		_ => keyword::align(align),
 	}

@@ -372,6 +372,7 @@ fn kind_change_replaces_the_node_once_in_its_slot() {
 	);
 	// Layout order matches the shadow order: the image sits between a and c.
 	let ys: Vec<f32> = after.iter().map(|&id| surface.layout(id).y).collect();
+
 	assert!(ys[0] < ys[1] && ys[1] < ys[2], "layout order {ys:?}");
 
 	surface.backend_mut().clear();
@@ -535,6 +536,7 @@ fn color_change_does_not_remeasure_text() {
 	surface.set_root(&tree(Color::rgba(0, 0, 0, 255)));
 	let measured = measurements.load(Ordering::SeqCst);
 	assert!(measured > 0);
+
 	surface.backend_mut().clear();
 
 	surface.set_root(&tree(Color::rgba(255, 0, 0, 255)));
@@ -565,6 +567,7 @@ fn refreshing_font_metrics_reflows_without_replacing_widgets_or_handlers() {
 	);
 	let root = surface.root().unwrap();
 	let text = surface.children(root)[0];
+
 	assert_eq!(surface.frame(text).unwrap().width, 40.0);
 	surface.backend_mut().clear();
 	let backend = std::mem::take(surface.backend_mut());
@@ -608,6 +611,7 @@ fn native_text_receives_the_nodes_layout_direction() {
 		leptoskit_yoga::Direction::Rtl
 	);
 	surface.set_root(&Element::text("LTR"));
+
 	assert_eq!(
 		surface.props(root).text_style().direction,
 		leptoskit_yoga::Direction::Ltr

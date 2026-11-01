@@ -274,6 +274,7 @@ impl Tree {
 			if retained.is_some() {
 				props.rive = None;
 			}
+
 			serde_json::to_vec(&WireNode {
 				props: &props,
 				style: sent_style(&element.style),

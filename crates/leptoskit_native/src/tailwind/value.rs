@@ -168,6 +168,7 @@ pub(super) fn safe_inset(inset: f32, offset: Length, context: &StyleContext) -> 
 	} else {
 		0.0
 	};
+
 	(inset + f64::from(offset.points(context))).min(MAX_RESOLVED_POINTS) as f32
 }
 
@@ -197,6 +198,7 @@ fn viewport_points(viewport: f32, value: f32) -> f64 {
 	} else {
 		0.0
 	};
+
 	viewport * (f64::from(value) / 100.0)
 }
 
@@ -206,10 +208,12 @@ pub(super) fn color(value: &str) -> Result<Color, String> {
 		.map_or((value, None), |(color, alpha)| (color, Some(alpha)));
 	let value = arbitrary(value).unwrap_or(value);
 	let value = value.strip_prefix("color:").unwrap_or(value);
+
 	let mut color = match value {
 		"transparent" => Color::rgba(0, 0, 0, 0),
 		"black" => Color::rgba(0, 0, 0, 255),
 		"white" => Color::rgba(255, 255, 255, 255),
+
 		value if value.starts_with('#') => hex_color(value)?,
 		value => {
 			super::palette::lookup(value).ok_or_else(|| format!("unsupported color `{value}`"))?

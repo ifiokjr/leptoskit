@@ -13,6 +13,7 @@ use leptoskit_yoga::TrackSizing;
 use crate::Color;
 use crate::Element;
 use crate::NativeKind;
+use crate::NativeProps;
 use crate::TextStyle;
 use crate::tailwind::keyword;
 
@@ -90,6 +91,7 @@ fn widget_defaults(css: &mut String, element: &Element) {
 /// display becomes a block.
 fn box_layout(css: &mut String, element: &Element) {
 	let style = &element.style;
+
 	let display = match style.display {
 		Display::Flex if element.props.spans.is_some() => "block",
 		display => keyword::display(display),
@@ -188,8 +190,14 @@ fn grid_layout(css: &mut String, grid: &GridStyle) {
 /// borders, corners, opacity, text, image fit, and the clip and hidden
 /// overrides, which come last so they win over the layout properties.
 fn presentation(css: &mut String, element: &Element) {
-	let props = &element.props;
+	paints(css, &element.props);
+	corners(css, &element.props);
+	text(css, element);
+	overrides(css, element);
+}
 
+/// The colors and borders that paint inside the box.
+fn paints(css: &mut String, props: &NativeProps) {
 	for (name, color) in [
 		("color", props.color),
 		("background-color", props.background),
@@ -199,7 +207,6 @@ fn presentation(css: &mut String, element: &Element) {
 			property(css, name, &color_css(color));
 		}
 	}
-
 	if let Some(widths) = props.border_widths {
 		// Per-edge border props paint inside the box too, one inset shadow
 		// per drawn edge.
@@ -231,11 +238,10 @@ fn presentation(css: &mut String, element: &Element) {
 		)
 		.expect("write to String");
 	}
+}
 
-	if let Some(italic) = props.italic {
-		property(css, "font-style", keyword::font_style(italic));
-	}
-
+/// The corners and opacity.
+fn corners(css: &mut String, props: &NativeProps) {
 	if let Some(radius) = props.corner_radius {
 		write!(css, "border-radius:{radius}px;").expect("write to String");
 
@@ -252,6 +258,15 @@ fn presentation(css: &mut String, element: &Element) {
 
 	if let Some(opacity) = props.opacity {
 		write!(css, "opacity:{};", opacity.clamp(0.0, 1.0)).expect("write to String");
+	}
+}
+
+/// Text and image fit.
+fn text(css: &mut String, element: &Element) {
+	let props = &element.props;
+
+	if let Some(italic) = props.italic {
+		property(css, "font-style", keyword::font_style(italic));
 	}
 
 	if let Some(size) = props.font_size {
@@ -273,6 +288,11 @@ fn presentation(css: &mut String, element: &Element) {
 	if element.kind == NativeKind::Image {
 		property(css, "object-fit", "contain");
 	}
+}
+
+/// The clip and hidden overrides, which win over layout.
+fn overrides(css: &mut String, element: &Element) {
+	let props = &element.props;
 
 	if props.clip == Some(true) && element.kind != NativeKind::ScrollView {
 		property(css, "overflow", "hidden");
@@ -282,7 +302,6 @@ fn presentation(css: &mut String, element: &Element) {
 		property(css, "display", "none");
 	}
 }
-
 /// Control decoration stays separate from utility declarations, so shared
 /// geometry and colors can still be styled through the usual base props.
 ///

@@ -95,6 +95,7 @@ fn repeated_and_mismatched_phases_change_nothing() {
 	surface.press_in(button);
 	surface.press_out(child(&surface, 0));
 	assert_eq!(surface.backend().log(), []);
+
 	assert_eq!(surface.pressed(), Some(button));
 }
 
@@ -237,6 +238,7 @@ fn press_phases_reach_no_event_handler() {
 			EventOutcome::Unhandled
 		);
 	}
+
 	assert_eq!(presses.load(Ordering::SeqCst), 0);
 	assert_eq!(
 		surface.dispatch_event(button, &NativeEvent::Press),

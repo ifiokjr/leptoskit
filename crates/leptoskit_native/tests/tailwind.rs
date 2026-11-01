@@ -72,6 +72,7 @@ fn shorthand_axis_and_edge_precedence_is_independent_of_class_order() {
 	assert_eq!(style.padding.left, Dimension::Points(16.0));
 	assert_eq!(style.padding.bottom, Dimension::Points(32.0));
 	assert_eq!(style.margin.left, Dimension::Auto);
+
 	assert_eq!(style.margin.top, Dimension::Points(-8.0));
 	assert_eq!(style.margin.bottom, Dimension::Points(24.0));
 	assert_eq!(style.gap.left, Dimension::Points(8.0));
@@ -113,6 +114,7 @@ fn flex_and_position_utilities_match_their_typed_contract() {
 	close(style.flex_shrink, 0.0);
 	assert_eq!(style.flex_basis, Dimension::Percent(0.0));
 	assert_eq!(style.justify_content, JustifyContent::SpaceBetween);
+
 	assert_eq!(style.align_items, Align::FlexEnd);
 	assert_eq!(style.align_self, Align::Center);
 	assert_eq!(style.align_content, Align::SpaceAround);
@@ -224,6 +226,7 @@ fn viewport_and_appearance_changes_reuse_the_parsed_rules() {
 	assert_eq!(props.background, None);
 	let mut style = Style::default();
 	let mut props = NativeProps::default();
+
 	classes.apply(
 		&mut style,
 		&mut props,
@@ -259,6 +262,7 @@ fn grid_declarations_preserve_unrelated_base_fields_and_use_minmax_zero_fr() {
 	assert_eq!(grid.auto_flow, GridAutoFlow::ColumnDense);
 	assert_eq!(grid.justify_items, Align::Center);
 	assert_eq!(grid.justify_self, Align::FlexEnd);
+
 	assert_eq!(grid.column.end, GridLine::Span(2));
 	assert_eq!(grid.row.end, GridLine::Span(2));
 	assert_eq!(grid.template_columns.len(), 3);
@@ -270,6 +274,7 @@ fn grid_declarations_preserve_unrelated_base_fields_and_use_minmax_zero_fr() {
 		assert_eq!(bounds.min, TrackSizing::Points(0.0));
 		assert_eq!(bounds.max, TrackSizing::Fraction(1.0));
 	}
+
 	assert_eq!(grid.template_rows.len(), 2);
 }
 
@@ -289,6 +294,7 @@ fn arbitrary_grid_tracks_repeat_and_signed_lines_are_typed() {
 	);
 	assert_eq!(grid.column.start, GridLine::Line(2));
 	assert_eq!(grid.column.end, GridLine::Line(-1));
+
 	assert_eq!(grid.row.start, GridLine::Line(-2));
 }
 
@@ -302,6 +308,7 @@ fn compiled_utilities_drive_real_layout() {
 	yoga.set_style(first, resolve("flex-1").0);
 	yoga.set_style(second, resolve("w-8").0);
 	yoga.insert_child(root, first, 0);
+
 	yoga.insert_child(root, second, 1);
 	yoga.calculate_layout(
 		root,
@@ -329,6 +336,7 @@ fn typography_colors_borders_and_opacity_resolve_for_native_and_web() {
 	assert_eq!(props.background.unwrap().alpha(), 128);
 	assert_eq!(props.border_width, Some(2.0));
 	assert_eq!(props.border_color, Some(Color::rgba(0xaa, 0xbb, 0xcc, 255)));
+
 	assert_eq!(props.corner_radius, Some(12.0));
 	assert_eq!(props.opacity, Some(0.9));
 	close(style.border.top, 2.0);
@@ -565,6 +573,7 @@ fn maximum_none_clears_typed_constraints_and_emits_valid_css() {
 	assert_eq!(style.width, Dimension::Auto);
 	assert_eq!(style.height, Dimension::Auto);
 	assert_eq!(style.flex_basis, Dimension::Auto);
+
 	let css = classes.css();
 	assert!(css.contains("max-width:none;"));
 	assert!(css.contains("max-height:none;"));
@@ -720,6 +729,7 @@ fn edge_borders_and_italics_resolve_for_native() {
 	close(style.border.right, 0.0);
 	assert_eq!(props.italic, Some(true));
 	assert_eq!(props.border_edges(), edges);
+
 	assert!(props.is_custom_drawn());
 
 	let (style, props) = resolve("border-x-[3px] border-y-4");

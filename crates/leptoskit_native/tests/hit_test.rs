@@ -27,6 +27,7 @@ fn exhaustive_hit_test(surface: &NativeSurface<HeadlessBackend>, x: f32, y: f32)
 		let (x, y) = point;
 		let props = surface.props(id);
 		let kind = surface.kind(id);
+
 		if props.hidden == Some(true)
 			|| (kind == NativeKind::ActivityIndicator && props.running == Some(false))
 		{
@@ -34,9 +35,11 @@ fn exhaustive_hit_test(surface: &NativeSurface<HeadlessBackend>, x: f32, y: f32)
 		}
 		let layout = surface.layout(id);
 		let left = origin.0 + layout.x;
+
 		let top = origin.1 + layout.y;
 		let mut contains =
 			x >= left && x <= left + layout.width && y >= top && y <= top + layout.height;
+
 		if contains && props.clip == Some(true) {
 			let radius = props
 				.corner_radius
@@ -47,12 +50,15 @@ fn exhaustive_hit_test(surface: &NativeSurface<HeadlessBackend>, x: f32, y: f32)
 			let dy = y - y.clamp(top + radius, top + layout.height - radius);
 			contains = dx * dx + dy * dy <= radius * radius;
 		}
+
 		if contains {
 			*best = Some(id);
 		}
+
 		if kind == NativeKind::Pressable {
 			return;
 		}
+
 		if contains || props.clip != Some(true) {
 			for &child in surface.children(id) {
 				walk(surface, child, (left, top), point, best);
@@ -71,12 +77,15 @@ fn exhaustive_hit_test(surface: &NativeSurface<HeadlessBackend>, x: f32, y: f32)
 fn probe_points(surface: &NativeSurface<HeadlessBackend>) -> Vec<(f32, f32)> {
 	let mut points = Vec::new();
 	let mut y = -20.0;
+
 	while y <= VIEWPORT.1 + 20.0 {
 		let mut x = -20.0;
+
 		while x <= VIEWPORT.0 + 20.0 {
 			points.push((x, y));
 			x += 3.5;
 		}
+
 		y += 3.5;
 	}
 
@@ -85,12 +94,14 @@ fn probe_points(surface: &NativeSurface<HeadlessBackend>) -> Vec<(f32, f32)> {
 		.into_iter()
 		.map(|root| (root, 0.0_f32, 0.0_f32))
 		.collect();
+
 	while let Some((id, origin_x, origin_y)) = pending.pop() {
 		let layout = surface.layout(id);
 		let left = origin_x + layout.x;
 		let top = origin_y + layout.y;
 		let right = left + layout.width;
 		let bottom = top + layout.height;
+
 		for x in [left, left.midpoint(right), right] {
 			for y in [top, top.midpoint(bottom), bottom] {
 				points.push((x, y));
@@ -98,8 +109,10 @@ fn probe_points(surface: &NativeSurface<HeadlessBackend>) -> Vec<(f32, f32)> {
 				points.push((x.next_up(), y.next_up()));
 			}
 		}
+
 		pending.extend(surface.children(id).iter().map(|&child| (child, left, top)));
 	}
+
 	points
 }
 

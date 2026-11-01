@@ -74,6 +74,7 @@ fn only_buttons_use_button_metrics_and_chrome_updates_remeasure_the_same_node() 
 	let root = surface.root().unwrap();
 	let ids = surface.children(root).to_vec();
 	assert_size(&surface, ids[0], BUTTON_WIDTH, BUTTON_HEIGHT);
+
 	assert_size(&surface, ids[1], LABEL_WIDTH, LABEL_HEIGHT);
 	assert_size(&surface, ids[2], LABEL_WIDTH, FIELD_HEIGHT);
 
@@ -91,6 +92,7 @@ fn only_buttons_use_button_metrics_and_chrome_updates_remeasure_the_same_node() 
 		} else {
 			(LABEL_WIDTH, LABEL_HEIGHT)
 		};
+
 		assert_size(&surface, ids[0], expected.0, expected.1);
 	}
 }

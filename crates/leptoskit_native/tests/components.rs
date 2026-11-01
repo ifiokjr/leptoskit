@@ -70,6 +70,7 @@ fn viewport_changes_reapply_classes_and_preserve_committed_nodes() {
 	let root = surface.root().expect("root");
 	let first = surface.children(root)[0];
 	let second = surface.children(root)[1];
+
 	assert_eq!(
 		(surface.layout(first).x, surface.layout(first).y),
 		(16.0, 16.0)
@@ -123,6 +124,7 @@ fn dark_classes_update_inherited_text_without_a_new_screen() {
 	let child = surface.children(root)[0];
 	let explicit = surface.children(root)[1];
 	assert_eq!(surface.props(child).color, Some(Color::rgba(0, 0, 0, 255)));
+
 	assert_eq!(surface.props(child).font_size, Some(20.0));
 	assert_eq!(surface.props(child).font_weight, Some(FontWeight::Bold));
 	surface.set_dark_mode(true);
@@ -167,6 +169,7 @@ fn hidden_toggles_remove_hit_targets_and_restore_the_same_node() {
 	assert_eq!(surface.hit_test(5.0, 5.0), Some(button));
 	surface.set_viewport(900.0, 200.0);
 	assert_eq!(surface.props(root).hidden, Some(true));
+
 	assert_eq!(surface.hit_test(5.0, 5.0), None);
 	assert_eq!(
 		surface.dispatch_event(button, &NativeEvent::Press),
@@ -312,6 +315,7 @@ fn disabled_ancestors_suppress_descendant_events() {
 		surface.dispatch_event(child, &NativeEvent::Press),
 		EventOutcome::Unhandled
 	);
+
 	assert_eq!(presses.load(Ordering::SeqCst), 0);
 }
 
@@ -333,9 +337,11 @@ fn rounded_containers_clip_hit_targets_like_the_platform_paints_them() {
 	);
 	let root = surface.root().expect("root");
 	let child = surface.children(root)[0];
+
 	for (x, y) in [(1.0, 1.0), (79.0, 1.0), (1.0, 79.0), (79.0, 79.0)] {
 		assert_eq!(surface.hit_test(x, y), None);
 	}
+
 	assert_eq!(surface.hit_test(40.0, 40.0), Some(child));
 	assert_eq!(surface.hit_test(40.0, 0.0), Some(child));
 }

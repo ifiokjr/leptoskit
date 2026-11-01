@@ -21,6 +21,7 @@ fn props_written_before_the_visual_fields_still_decode() {
 	assert_eq!(props.border_color, None);
 	assert_eq!(props.opacity, None);
 	assert_eq!(props.font_size, None);
+
 	assert_eq!(props.font_weight, None);
 	assert_eq!(props.text_align, None);
 }

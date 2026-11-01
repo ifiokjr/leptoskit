@@ -53,6 +53,7 @@ fn every_role_round_trips_through_its_aria_name() {
 	assert!(Role::Main.is_landmark());
 	assert_eq!(Role::Alert.implicit_live(), Some(Live::Assertive));
 	assert_eq!(Role::Status.implicit_live(), Some(Live::Polite));
+
 	assert_eq!(Role::Marquee.implicit_live(), None);
 	assert!(Role::Alert.implicit_atomic());
 }
@@ -70,6 +71,7 @@ fn widget_kinds_imply_their_roles_and_explicit_roles_override_them() {
 		Role::implicit(NativeKind::PasswordInput),
 		Some(Role::TextBox)
 	);
+
 	assert_eq!(Role::implicit(NativeKind::Image), Some(Role::Img));
 	assert_eq!(
 		Role::implicit(NativeKind::LinearProgressIndicator),
@@ -167,6 +169,7 @@ fn builders_set_naming_and_relationship_properties() {
 	assert_eq!(aria.described_by, ["help", "error"]);
 	assert_eq!(aria.role_description.as_deref(), Some("panel"));
 	assert_eq!(aria.controls, ["panel-body"]);
+
 	assert_eq!(aria.tab_index, Some(-1));
 	assert_eq!(
 		aria.extra.get("aria-rowindex").map(String::as_str),
@@ -187,6 +190,7 @@ fn builders_set_structure_and_state_properties() {
 	assert_eq!(aria.busy, Some(true));
 	assert_eq!(aria.checked, Some(Tristate::Mixed));
 	assert_eq!(aria.pressed, Some(Tristate::True));
+
 	assert_eq!(aria.selected, Some(true));
 	assert_eq!(aria.expanded, Some(false));
 	assert_eq!(aria.current, Some(Current::Page));
@@ -539,6 +543,7 @@ fn resolver_fills_live_text_and_inherits_hidden_semantics() {
 	);
 	assert_eq!(resolved.children[3].props.aria().live_text, None);
 	assert_eq!(resolved.children[4].props.aria().live_text, None);
+
 	assert_eq!(tree.children[1].props.aria().live_text, None);
 	assert_eq!(tree.children[0].children[0].props.aria().hidden, None);
 }
@@ -662,6 +667,7 @@ fn aria_props_round_trip_through_their_wire_names() {
 	assert_eq!(json["aria"]["aria_live"], "polite");
 	assert_eq!(json["aria"]["aria_checked"], "mixed");
 	assert_eq!(json["aria"]["aria_current"], "page");
+
 	assert_eq!(json["aria"]["aria_has_popup"], "listbox");
 	assert_eq!(json["aria"]["aria_invalid"], "grammar");
 	assert_eq!(json["aria"]["aria_orientation"], "vertical");

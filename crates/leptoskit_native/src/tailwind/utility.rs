@@ -35,6 +35,7 @@ pub(super) fn parse(utility: &str) -> Parsed {
 			Declaration::Grow(_) | Declaration::Shrink(_) => 121,
 			_ => 100,
 		};
+
 		return Ok((rank, vec![declaration]));
 	}
 
@@ -83,6 +84,7 @@ pub(super) fn parse(utility: &str) -> Parsed {
 			if width <= 0.0 || height <= 0.0 {
 				return Err("aspect ratio dimensions must be positive".to_owned());
 			}
+
 			bounded(width / height)?
 		} else {
 			finite(value)?
@@ -142,6 +144,7 @@ fn spacing(utility: &str) -> Option<Parsed> {
 	let negative = utility.starts_with('-');
 	let utility = utility.strip_prefix('-').unwrap_or(utility);
 	let (prefix, value) = utility.split_once('-')?;
+
 	let (field, edges, rank) = match prefix {
 		"p" => {
 			(
@@ -288,6 +291,7 @@ fn gap(value: &str, negative: bool) -> Parsed {
 	} else {
 		(&[Axis::X, Axis::Y][..], value, 200)
 	};
+
 	let length = Length::spacing(value, false, false, false)?;
 	Ok((
 		rank,
@@ -311,6 +315,7 @@ fn sizing(utility: &str) -> Option<Parsed> {
 	for (prefix, field) in prefixes {
 		if let Some(value) = utility.strip_prefix(prefix) {
 			let length = size_value(value, field);
+
 			return Some(length.map(|length| (121, vec![Declaration::Size(field, length)])));
 		}
 	}
@@ -392,6 +397,7 @@ fn alignment(utility: &str) -> Option<Parsed> {
 			"evenly" => JustifyContent::SpaceEvenly,
 			_ => return Some(Err(format!("unsupported justification `{value}`"))),
 		};
+
 		return Some(Ok((100, vec![Declaration::Justify(justify)])));
 	}
 
@@ -449,6 +455,7 @@ fn align_value(value: &str, field: AlignField) -> Result<Align, String> {
 		"evenly" if field == AlignField::Content => Align::SpaceEvenly,
 		_ => return Err(format!("unsupported alignment `{value}`")),
 	};
+
 	Ok(align)
 }
 
@@ -459,44 +466,8 @@ fn paint(utility: &str) -> Option<Parsed> {
 				.map(|color| (300, vec![Declaration::Color(ColorField::Background, color)])),
 		);
 	}
-
 	if let Some(value) = utility.strip_prefix("text-") {
-		let rem = match value {
-			"xs" => Some(0.75),
-			"sm" => Some(0.875),
-			"base" => Some(1.0),
-			"lg" => Some(1.125),
-			"xl" => Some(1.25),
-			"2xl" => Some(1.5),
-			"3xl" => Some(1.875),
-			"4xl" => Some(2.25),
-			"5xl" => Some(3.0),
-			"6xl" => Some(3.75),
-			"7xl" => Some(4.5),
-			"8xl" => Some(6.0),
-			"9xl" => Some(8.0),
-			_ => None,
-		};
-
-		if let Some(rem) = rem {
-			return Some(Ok((300, vec![Declaration::FontSize(Length::Rem(rem))])));
-		}
-
-		if let Some(inner) = arbitrary(value) {
-			let inner = inner.strip_prefix("length:").unwrap_or(inner);
-
-			if !inner.starts_with('#') && !inner.starts_with("color:") {
-				return Some(
-					Length::parse(inner, false, false)
-						.and_then(Length::absolute)
-						.map(|size| (300, vec![Declaration::FontSize(size)])),
-				);
-			}
-		}
-
-		return Some(
-			color(value).map(|color| (300, vec![Declaration::Color(ColorField::Text, color)])),
-		);
+		return text_paint(value);
 	}
 
 	if utility == "border" {
@@ -508,49 +479,11 @@ fn paint(utility: &str) -> Option<Parsed> {
 	}
 
 	if let Some(value) = utility.strip_prefix("border-") {
-		if value
-			.chars()
-			.next()
-			.is_some_and(|character| character.is_ascii_digit())
-		{
-			return Some(
-				non_negative(value)
-					.map(|width| (300, vec![Declaration::BorderWidth(Length::Px(width))])),
-			);
-		}
-
-		if let Some(inner) = arbitrary(value)
-			&& !inner.starts_with('#')
-			&& !inner.starts_with("color:")
-		{
-			return Some(
-				Length::parse(inner.strip_prefix("length:").unwrap_or(inner), false, false)
-					.and_then(Length::absolute)
-					.map(|width| (300, vec![Declaration::BorderWidth(width)])),
-			);
-		}
-
-		return Some(
-			color(value).map(|color| (301, vec![Declaration::Color(ColorField::Border, color)])),
-		);
+		return border_paint(value);
 	}
 
 	if utility == "rounded" || utility.starts_with("rounded-") {
-		let value = utility.strip_prefix("rounded-").unwrap_or("sm");
-		let length = match value {
-			"none" => Ok(Length::Px(0.0)),
-			"xs" => Ok(Length::Rem(0.125)),
-			"sm" => Ok(Length::Rem(0.25)),
-			"md" => Ok(Length::Rem(0.375)),
-			"lg" => Ok(Length::Rem(0.5)),
-			"xl" => Ok(Length::Rem(0.75)),
-			"2xl" => Ok(Length::Rem(1.0)),
-			"3xl" => Ok(Length::Rem(1.5)),
-			"4xl" => Ok(Length::Rem(2.0)),
-			"full" => Ok(Length::Px(9999.0)),
-			_ => Length::parse(value, false, false).and_then(Length::absolute),
-		};
-		return Some(length.map(|length| (300, vec![Declaration::Radius(length)])));
+		return rounded_paint(utility.strip_prefix("rounded-").unwrap_or("sm"));
 	}
 
 	if let Some(value) = utility.strip_prefix("opacity-") {
@@ -566,6 +499,7 @@ fn paint(utility: &str) -> Option<Parsed> {
 			if !(0.0..=1.0).contains(&value) {
 				return Err("opacity must be between 0 and 100%".to_owned());
 			}
+
 			Ok((300, vec![Declaration::Opacity(value)]))
 		}));
 	}
@@ -573,11 +507,108 @@ fn paint(utility: &str) -> Option<Parsed> {
 	None
 }
 
+/// `text-sm`, `text-[14px]`, or a text color.
+#[expect(
+	clippy::unnecessary_wraps,
+	reason = "the caller reads it as an optional match"
+)]
+fn text_paint(value: &str) -> Option<Parsed> {
+	let rem = match value {
+		"xs" => Some(0.75),
+		"sm" => Some(0.875),
+		"base" => Some(1.0),
+		"lg" => Some(1.125),
+		"xl" => Some(1.25),
+		"2xl" => Some(1.5),
+		"3xl" => Some(1.875),
+		"4xl" => Some(2.25),
+		"5xl" => Some(3.0),
+		"6xl" => Some(3.75),
+		"7xl" => Some(4.5),
+		"8xl" => Some(6.0),
+		"9xl" => Some(8.0),
+		_ => None,
+	};
+
+	if let Some(rem) = rem {
+		return Some(Ok((300, vec![Declaration::FontSize(Length::Rem(rem))])));
+	}
+
+	if let Some(inner) = arbitrary(value) {
+		let inner = inner.strip_prefix("length:").unwrap_or(inner);
+
+		if !inner.starts_with('#') && !inner.starts_with("color:") {
+			return Some(
+				Length::parse(inner, false, false)
+					.and_then(Length::absolute)
+					.map(|size| (300, vec![Declaration::FontSize(size)])),
+			);
+		}
+	}
+
+	Some(color(value).map(|color| (300, vec![Declaration::Color(ColorField::Text, color)])))
+}
+
+/// A border width or color, from `border-2` or `border-slate-700`.
+#[expect(
+	clippy::unnecessary_wraps,
+	reason = "the caller reads it as an optional match"
+)]
+fn border_paint(value: &str) -> Option<Parsed> {
+	if value
+		.chars()
+		.next()
+		.is_some_and(|character| character.is_ascii_digit())
+	{
+		return Some(
+			non_negative(value)
+				.map(|width| (300, vec![Declaration::BorderWidth(Length::Px(width))])),
+		);
+	}
+
+	if let Some(inner) = arbitrary(value)
+		&& !inner.starts_with('#')
+		&& !inner.starts_with("color:")
+	{
+		return Some(
+			Length::parse(inner.strip_prefix("length:").unwrap_or(inner), false, false)
+				.and_then(Length::absolute)
+				.map(|width| (300, vec![Declaration::BorderWidth(width)])),
+		);
+	}
+
+	Some(color(value).map(|color| (301, vec![Declaration::Color(ColorField::Border, color)])))
+}
+
+/// A corner radius, from `rounded-lg`.
+#[expect(
+	clippy::unnecessary_wraps,
+	reason = "the caller reads it as an optional match"
+)]
+fn rounded_paint(value: &str) -> Option<Parsed> {
+	let length = match value {
+		"none" => Ok(Length::Px(0.0)),
+		"xs" => Ok(Length::Rem(0.125)),
+		"sm" => Ok(Length::Rem(0.25)),
+		"md" => Ok(Length::Rem(0.375)),
+		"lg" => Ok(Length::Rem(0.5)),
+		"xl" => Ok(Length::Rem(0.75)),
+		"2xl" => Ok(Length::Rem(1.0)),
+		"3xl" => Ok(Length::Rem(1.5)),
+		"4xl" => Ok(Length::Rem(2.0)),
+		"full" => Ok(Length::Px(9999.0)),
+		_ => Length::parse(value, false, false).and_then(Length::absolute),
+	};
+
+	Some(length.map(|length| (300, vec![Declaration::Radius(length)])))
+}
+
 /// `border-t`, `border-l-2`, `border-x-[3px]`: a border on some edges only,
 /// one pixel wide unless a width follows.
 fn edge_border(utility: &str) -> Option<Parsed> {
 	let rest = utility.strip_prefix("border-")?;
 	let (side, width) = rest.split_once('-').unwrap_or((rest, ""));
+
 	let edges: &'static [Edge] = match side {
 		"t" => &[Edge::Top],
 		"r" => &[Edge::Right],
@@ -618,6 +649,7 @@ fn grid(utility: &str) -> Option<Parsed> {
 			} else {
 				parse_track(arbitrary(value).unwrap_or(value))
 			};
+
 			return Some(track.map(|track| (100, vec![Declaration::GridAutoTrack(axis, track)])));
 		}
 	}
@@ -630,6 +662,7 @@ fn grid(utility: &str) -> Option<Parsed> {
 			"col-dense" => GridAutoFlow::ColumnDense,
 			_ => return Some(Err(format!("unsupported grid auto-flow `{flow}`"))),
 		};
+
 		return Some(Ok((100, vec![Declaration::GridAutoFlow(flow)])));
 	}
 
@@ -675,6 +708,19 @@ fn placement(value: &str, axis: Axis, negative: bool) -> Parsed {
 		));
 	}
 
+	if let Some(parsed) = line_placement(value, axis, negative)? {
+		return Ok(parsed);
+	}
+
+	Err(format!("unsupported grid placement `{value}`"))
+}
+
+/// `start-2` or `end-3`: a line on one side of the grid.
+fn line_placement(
+	value: &str,
+	axis: Axis,
+	negative: bool,
+) -> Result<Option<(u16, Vec<Declaration>)>, String> {
 	for (prefix, start) in [("start-", true), ("end-", false)] {
 		if let Some(value) = value.strip_prefix(prefix) {
 			let line = if value == "auto" && !negative {
@@ -688,13 +734,15 @@ fn placement(value: &str, axis: Axis, negative: bool) -> Parsed {
 				if line == 0 || !(-10_000..=10_000).contains(&line) {
 					return Err("grid line must be nonzero and between -10000 and 10000".to_owned());
 				}
+
 				GridLine::Line(if negative { -line } else { line })
 			};
-			return Ok((101, vec![Declaration::GridLine(axis, start, line)]));
+
+			return Ok(Some((101, vec![Declaration::GridLine(axis, start, line)])));
 		}
 	}
 
-	Err(format!("unsupported grid placement `{value}`"))
+	Ok(None)
 }
 
 fn tracks(value: &str) -> Result<Vec<Track>, String> {
@@ -742,6 +790,7 @@ fn tracks(value: &str) -> Result<Vec<Track>, String> {
 		if tracks.is_empty() {
 			return Err("grid template cannot be empty".to_owned());
 		}
+
 		return Ok(tracks);
 	}
 
@@ -752,6 +801,7 @@ fn tracks(value: &str) -> Result<Vec<Track>, String> {
 	if !(1..=256).contains(&count) {
 		return Err("grid templates support 1 to 256 tracks".to_owned());
 	}
+
 	Ok(vec![fraction_track(); count])
 }
 
@@ -782,6 +832,7 @@ fn parse_track(value: &str) -> Result<Track, String> {
 		if values.len() != 2 {
 			return Err("minmax requires two track sizes".to_owned());
 		}
+
 		let min = parse_track(values[0])?;
 		let max = parse_track(values[1])?;
 
@@ -812,14 +863,17 @@ fn split_top_level(value: &str, separator: char) -> Result<Vec<&str>, String> {
 					.ok_or("grid functions are nested too deeply")?;
 			}
 			')' => depth = depth.checked_sub(1).ok_or("unbalanced grid parentheses")?,
+
 			character if character == separator && depth == 0 => {
 				if index > start {
 					parts.push(value[start..index].trim());
 				} else if separator == ',' {
 					return Err("grid function has an empty argument".to_owned());
 				}
+
 				start = index + character.len_utf8();
 			}
+
 			_ => {}
 		}
 	}
@@ -833,6 +887,7 @@ fn split_top_level(value: &str, separator: char) -> Result<Vec<&str>, String> {
 	} else if separator == ',' {
 		return Err("grid function has an empty argument".to_owned());
 	}
+
 	Ok(parts)
 }
 
@@ -842,5 +897,6 @@ fn non_negative(value: &str) -> Result<f32, String> {
 	if value < 0.0 {
 		return Err("value must be non-negative".to_owned());
 	}
+
 	Ok(value)
 }

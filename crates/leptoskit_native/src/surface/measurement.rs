@@ -80,8 +80,10 @@ impl<B: NativeBackend> NativeSurface<B> {
 					if current.native_chrome {
 						size.height += TEXT_FIELD_CHROME_HEIGHT;
 					}
+
 					size
 				};
+
 				cell.remember(available.width, size);
 
 				size
@@ -142,6 +144,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 			measured.style = style;
 			measured.native_chrome = native_chrome;
 			cell.sizes = [None; 2];
+
 			drop(cell);
 
 			// The measure function reads the cell lazily, so the

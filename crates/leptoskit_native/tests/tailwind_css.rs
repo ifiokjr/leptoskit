@@ -24,6 +24,7 @@ fn assert_css(class: &str, expected: &[&str]) {
 		} else {
 			css.contains(&format!("{{{declaration}")) || css.contains(&format!(";{declaration}"))
 		};
+
 		assert!(found, "`{class}` emits `{declaration}`; actual CSS: {css}");
 	}
 }
@@ -50,6 +51,7 @@ fn display_position_and_box_model() {
 	assert_css("box-border", &["box-sizing:border-box;"]);
 	assert_css("box-content", &["box-sizing:content-box;"]);
 	assert_css("overflow-visible", &["overflow:visible;"]);
+
 	assert_css("overflow-hidden", &["overflow:hidden;"]);
 	assert_css("overflow-scroll", &["overflow:scroll;"]);
 }
@@ -67,6 +69,7 @@ fn flexbox() {
 		"flex-1",
 		&["flex-grow:1;", "flex-shrink:1;", "flex-basis:0%;"],
 	);
+
 	assert_css("grow", &["flex-grow:1;"]);
 	assert_css("shrink-0", &["flex-shrink:0;"]);
 }
@@ -81,6 +84,7 @@ fn alignment() {
 	assert_css("justify-evenly", &["justify-content:space-evenly;"]);
 	assert_css("items-center", &["align-items:center;"]);
 	assert_css("self-end", &["align-self:flex-end;"]);
+
 	assert_css("self-auto", &["align-self:auto;"]);
 	assert_css("content-between", &["align-content:space-between;"]);
 	assert_css("justify-items-start", &["justify-items:start;"]);
@@ -104,6 +108,7 @@ fn grid() {
 	assert_css("grid-flow-row", &["grid-auto-flow:row;"]);
 	assert_css("grid-flow-col", &["grid-auto-flow:column;"]);
 	assert_css("grid-flow-row-dense", &["grid-auto-flow:row dense;"]);
+
 	assert_css("grid-flow-col-dense", &["grid-auto-flow:column dense;"]);
 	assert_css("col-start-2", &["grid-column-start:2;"]);
 	assert_css("col-end-3", &["grid-column-end:3;"]);
@@ -123,6 +128,7 @@ fn aspect_typography_and_borders() {
 	assert_css("text-start", &["text-align:start;"]);
 	assert_css("text-end", &["text-align:end;"]);
 	assert_css("border-2", &["border-width:2px;"]);
+
 	assert_css("border-l-2", &["border-left-width:2px;border-style:solid;"]);
 	assert_css(
 		"border-y",

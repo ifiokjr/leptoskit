@@ -294,6 +294,7 @@ fn radio_key(event: &web_sys::KeyboardEvent) {
 		.target()
 		.and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok())
 		.expect("radio keyboard event targets an input");
+
 	let backwards = match event.key().as_str() {
 		"ArrowLeft" | "ArrowUp" => true,
 		"ArrowRight" | "ArrowDown" => false,
@@ -330,6 +331,7 @@ fn radio_key(event: &web_sys::KeyboardEvent) {
 	} else {
 		(index + 1) % options.len()
 	};
+
 	let next = &options[index];
 
 	next.focus().expect("focus next radio");

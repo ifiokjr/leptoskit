@@ -174,14 +174,6 @@ impl NativeEventSlot {
 	}
 }
 
-impl std::fmt::Debug for HandlerEntry {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("HandlerEntry")
-			.field("event", &self.event)
-			.finish_non_exhaustive()
-	}
-}
-
 /// The share of its opacity a held control without `active:` utilities
 /// keeps. Strong enough to read through a quick tap, light enough not to
 /// flash; the web adapter emits the same factor as an `opacity()` filter.
@@ -201,116 +193,12 @@ impl Element {
 	/// unique within the tree, ARIA relationships reference ids that exist,
 	/// and pressables and text inputs carry an accessible name.
 	pub fn validate(&self) -> Result<(), crate::controls::ControlTreeError> {
-		use crate::controls::ControlTreeError;
-
 		let ids = self.collect_ids()?;
 		let mut pending = vec![(self, None)];
 		let mut selected_groups = BTreeSet::new();
 
 		while let Some((element, button_ancestor)) = pending.pop() {
-			#[cfg(not(feature = "rive"))]
-			if element.kind == NativeKind::Rive {
-				return Err(ControlTreeError::RiveNotEnabled);
-			}
-			if let Some(container) = button_ancestor
-				&& (matches!(
-					element.kind,
-					NativeKind::Button
-						| NativeKind::Pressable
-						| NativeKind::ScrollView
-						| NativeKind::TextInput
-						| NativeKind::PasswordInput
-						| NativeKind::Switch
-						| NativeKind::Checkbox
-						| NativeKind::Radio
-						| NativeKind::Slider
-				) || element.style.overflow == leptoskit_yoga::Overflow::Scroll
-					|| element.classes.may_scroll()
-					|| (container == NativeKind::Pressable
-						&& (!element.handlers.is_empty()
-							|| matches!(element.kind, NativeKind::Custom(_)))))
-			{
-				return Err(ControlTreeError::InteractiveDescendant {
-					container,
-					descendant: element.kind,
-				});
-			}
-
-			if element.kind == NativeKind::Pressable && !element.props.names_itself() {
-				return Err(ControlTreeError::MissingPressableLabel);
-			}
-
-			if element.kind != NativeKind::Rive && element.props.rive.is_some() {
-				return Err(ControlTreeError::InvalidRive);
-			}
-
-			if element.kind == NativeKind::Rive
-				&& (element.props.rive.is_none()
-					|| element.props.source.is_some()
-					|| (element
-						.props
-						.accessibility_label
-						.as_deref()
-						.is_none_or(|label| label.trim().is_empty())
-						&& element.props.aria().hidden != Some(true)))
-			{
-				return Err(ControlTreeError::InvalidRive);
-			}
-
-			if matches!(
-				element.kind,
-				NativeKind::Image
-					| NativeKind::Rive
-					| NativeKind::TextInput
-					| NativeKind::PasswordInput
-					| NativeKind::Switch
-					| NativeKind::Checkbox
-					| NativeKind::Radio
-					| NativeKind::Slider
-					| NativeKind::LinearProgressIndicator
-					| NativeKind::ActivityIndicator
-					| NativeKind::Vector
-			) && !element.children.is_empty()
-			{
-				return Err(ControlTreeError::Children { kind: element.kind });
-			}
-
-			if matches!(
-				element.kind,
-				NativeKind::TextInput | NativeKind::PasswordInput
-			) && !element.props.names_itself()
-				&& element
-					.props
-					.placeholder
-					.as_deref()
-					.is_none_or(|placeholder| placeholder.trim().is_empty())
-			{
-				return Err(ControlTreeError::MissingInputLabel { kind: element.kind });
-			}
-
-			if element
-				.props
-				.scroll_offset
-				.is_some_and(|offset| !offset.is_finite())
-			{
-				return Err(ControlTreeError::InvalidScrollOffset);
-			}
-
-			element.validate_aria(&ids)?;
-
-			if element.kind == NativeKind::Radio {
-				let group = element
-					.props
-					.radio_group
-					.as_ref()
-					.ok_or(ControlTreeError::MissingRadioGroup)?;
-
-				if element.props.checked == Some(true) && !selected_groups.insert(group.name()) {
-					return Err(ControlTreeError::MultipleSelectedRadio {
-						group: group.name().to_owned(),
-					});
-				}
-			}
+			element.check(button_ancestor, &ids, &mut selected_groups)?;
 
 			let button_ancestor =
 				if matches!(element.kind, NativeKind::Button | NativeKind::Pressable) {
@@ -324,6 +212,119 @@ impl Element {
 					.iter()
 					.map(|child| (child, button_ancestor)),
 			);
+		}
+
+		Ok(())
+	}
+
+	/// The control and accessibility checks for one element.
+	fn check<'a>(
+		&'a self,
+		button_ancestor: Option<NativeKind>,
+		ids: &BTreeSet<&str>,
+		selected_groups: &mut BTreeSet<&'a str>,
+	) -> Result<(), crate::controls::ControlTreeError> {
+		use crate::controls::ControlTreeError;
+
+		#[cfg(not(feature = "rive"))]
+		if self.kind == NativeKind::Rive {
+			return Err(ControlTreeError::RiveNotEnabled);
+		}
+		if let Some(container) = button_ancestor
+			&& (matches!(
+				self.kind,
+				NativeKind::Button
+					| NativeKind::Pressable
+					| NativeKind::ScrollView
+					| NativeKind::TextInput
+					| NativeKind::PasswordInput
+					| NativeKind::Switch
+					| NativeKind::Checkbox
+					| NativeKind::Radio
+					| NativeKind::Slider
+			) || self.style.overflow == leptoskit_yoga::Overflow::Scroll
+				|| self.classes.may_scroll()
+				|| (container == NativeKind::Pressable
+					&& (!self.handlers.is_empty() || matches!(self.kind, NativeKind::Custom(_)))))
+		{
+			return Err(ControlTreeError::InteractiveDescendant {
+				container,
+				descendant: self.kind,
+			});
+		}
+
+		if self.kind == NativeKind::Pressable && !self.props.names_itself() {
+			return Err(ControlTreeError::MissingPressableLabel);
+		}
+
+		if self.kind != NativeKind::Rive && self.props.rive.is_some() {
+			return Err(ControlTreeError::InvalidRive);
+		}
+
+		if self.kind == NativeKind::Rive
+			&& (self.props.rive.is_none()
+				|| self.props.source.is_some()
+				|| (self
+					.props
+					.accessibility_label
+					.as_deref()
+					.is_none_or(|label| label.trim().is_empty())
+					&& self.props.aria().hidden != Some(true)))
+		{
+			return Err(ControlTreeError::InvalidRive);
+		}
+
+		if matches!(
+			self.kind,
+			NativeKind::Image
+				| NativeKind::Rive
+				| NativeKind::TextInput
+				| NativeKind::PasswordInput
+				| NativeKind::Switch
+				| NativeKind::Checkbox
+				| NativeKind::Radio
+				| NativeKind::Slider
+				| NativeKind::LinearProgressIndicator
+				| NativeKind::ActivityIndicator
+				| NativeKind::Vector
+		) && !self.children.is_empty()
+		{
+			return Err(ControlTreeError::Children { kind: self.kind });
+		}
+
+		if matches!(self.kind, NativeKind::TextInput | NativeKind::PasswordInput)
+			&& !self.props.names_itself()
+			&& self
+				.props
+				.placeholder
+				.as_deref()
+				.is_none_or(|placeholder| placeholder.trim().is_empty())
+		{
+			return Err(ControlTreeError::MissingInputLabel { kind: self.kind });
+		}
+
+		if self
+			.props
+			.scroll_offset
+			.is_some_and(|offset| !offset.is_finite())
+		{
+			return Err(ControlTreeError::InvalidScrollOffset);
+		}
+
+		self.validate_aria(ids)?;
+
+		if self.kind == NativeKind::Radio {
+			let group = self
+				.props
+				.radio_group
+				.as_ref()
+				.ok_or(ControlTreeError::MissingRadioGroup)?;
+
+			if self.props.checked == Some(true) && !selected_groups.insert(group.name()) {
+				return Err(ControlTreeError::MultipleSelectedRadio {
+					group: group.name().to_owned(),
+				});
+			}
 		}
 
 		Ok(())
@@ -691,6 +692,38 @@ impl Element {
 			drawing.resolve_current_color(element.props.color.unwrap_or(Color::rgba(0, 0, 0, 255)));
 		}
 
+		let mut element = Self::settle(element, self, parent, pressed);
+
+		let uses_aria = element.props.id.is_some()
+			|| !element.props.aria().labelled_by.is_empty()
+			|| !element.props.aria().described_by.is_empty()
+			|| element.kind == NativeKind::Radio
+			|| element.props.aria().live.is_some()
+			|| element
+				.props
+				.aria()
+				.role
+				.is_some_and(|role| role.implicit_live().is_some());
+		let mut children_uses_aria = false;
+		element.children = self
+			.children
+			.iter()
+			.enumerate()
+			.map(|(index, child)| {
+				let held = match held {
+					Some([first, rest @ ..]) if *first == index => Some(rest),
+					_ => None,
+				};
+				let (child, uses) = child.resolve_inherited(context, &element.props, held);
+				children_uses_aria |= uses;
+				child
+			})
+			.collect();
+		(element, uses_aria || children_uses_aria)
+	}
+
+	/// The kind, hidden, clip, and pressed opacity the element resolves to.
+	fn settle(mut element: Self, source: &Self, parent: &NativeProps, pressed: bool) -> Self {
 		if element.style.overflow == leptoskit_yoga::Overflow::Scroll
 			&& element.kind == NativeKind::View
 		{
@@ -722,39 +755,13 @@ impl Element {
 		.or(element.props.clip);
 
 		if pressed
-			&& self.classes.active_class().is_none()
-			&& (self.kind == NativeKind::Pressable || element.props.is_custom_drawn())
+			&& source.classes.active_class().is_none()
+			&& (source.kind == NativeKind::Pressable || element.props.is_custom_drawn())
 		{
 			element.props.opacity =
 				Some(element.props.opacity.unwrap_or(1.0) * DEFAULT_PRESSED_OPACITY);
 		}
-
-		let uses_aria = element.props.id.is_some()
-			|| !element.props.aria().labelled_by.is_empty()
-			|| !element.props.aria().described_by.is_empty()
-			|| element.kind == NativeKind::Radio
-			|| element.props.aria().live.is_some()
-			|| element
-				.props
-				.aria()
-				.role
-				.is_some_and(|role| role.implicit_live().is_some());
-		let mut children_uses_aria = false;
-		element.children = self
-			.children
-			.iter()
-			.enumerate()
-			.map(|(index, child)| {
-				let held = match held {
-					Some([first, rest @ ..]) if *first == index => Some(rest),
-					_ => None,
-				};
-				let (child, uses) = child.resolve_inherited(context, &element.props, held);
-				children_uses_aria |= uses;
-				child
-			})
-			.collect();
-		(element, uses_aria || children_uses_aria)
+		element
 	}
 
 	/// Folds relationships, radio set positions, and live-region text into
@@ -1631,5 +1638,13 @@ mod devtools_tests {
 		let source = view.source_location();
 		let resolved = view.resolved(&StyleContext::default());
 		assert_eq!(resolved.source_location(), source);
+	}
+}
+
+impl std::fmt::Debug for HandlerEntry {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("HandlerEntry")
+			.field("event", &self.event)
+			.finish_non_exhaustive()
 	}
 }

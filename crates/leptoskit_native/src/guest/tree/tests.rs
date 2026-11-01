@@ -115,6 +115,7 @@ fn rive_input_updates_reuse_only_the_asset_already_installed_on_the_same_node() 
 	tree.update(Element::rive(playback.clone()).aria_hidden(true), &mut host);
 	let root = tree.root.unwrap();
 	assert_eq!(host.nodes[&root].kind, 16);
+
 	assert!(
 		host.nodes[&root].props["rive"]["asset"]
 			.as_str()
@@ -152,6 +153,7 @@ fn shared_counter_preserves_wire_ids_after_its_handler_changes_state() {
 	let children = host.nodes[&root].children.clone();
 	let button = children[1];
 	let (event, handlers) = tree.handlers(button, NativeEvent::Press).unwrap();
+
 	assert_eq!(invoke(&event, &handlers), EventOutcome::Handled);
 	tree.update(counter(&count), &mut host);
 
@@ -191,6 +193,7 @@ fn refreshing_bindings_sends_only_the_labels_that_changed() {
 	let root = tree.root.unwrap();
 	let children = host.nodes[&root].children.clone();
 	assert_eq!(host.commits, 1);
+
 	host.updated.clear();
 
 	marked.set(true);
@@ -325,6 +328,7 @@ fn controlled_values_accept_only_valid_widget_proposals() {
 	let (normalized, _) = tree
 		.handlers(nodes[1], NativeEvent::ValueChange { value: 5.0 })
 		.unwrap();
+
 	assert_eq!(normalized, NativeEvent::ValueChange { value: 6.0 });
 }
 
@@ -418,6 +422,7 @@ fn the_wire_names_where_each_node_was_built() {
 		"{source}"
 	);
 	let text = host.nodes[&root].children[0];
+
 	assert!(host.nodes[&text].props["source"].is_string());
 }
 
@@ -432,6 +437,7 @@ fn a_node_built_somewhere_else_is_sent_again() {
 	host.updated.clear();
 	tree.update(first(), &mut host);
 	assert!(host.updated.is_empty(), "the same source sends nothing");
+
 	tree.update(second(), &mut host);
 	assert_eq!(
 		host.updated.len(),
@@ -486,6 +492,7 @@ fn render_phases() {
 			} else {
 				format!("Card {number}")
 			};
+
 			Element::new(NativeKind::View).class("px-4 py-2").children([
 				Element::text(title),
 				Element::text(format!("Subtitle {number}")).class("text-sm"),
@@ -494,9 +501,11 @@ fn render_phases() {
 	};
 	let time = |label: &str, run: &mut dyn FnMut()| {
 		let start = Instant::now();
+
 		for _ in 0..20 {
 			run();
 		}
+
 		println!(
 			"{label:>28}: {:>8.3} ms",
 			start.elapsed().as_secs_f64() * 1000.0 / 20.0

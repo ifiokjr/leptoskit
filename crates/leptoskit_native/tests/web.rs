@@ -25,6 +25,7 @@ impl Markup {
 	)]
 	fn to_html(self) -> String {
 		let html = self.0.to_html();
+
 		if cfg!(feature = "devtools") {
 			without_devtools_attributes(&html)
 		} else {
@@ -40,6 +41,7 @@ fn render(element: Element) -> Markup {
 fn without_devtools_attributes(html: &str) -> String {
 	let mut out = String::with_capacity(html.len());
 	let mut rest = html;
+
 	while let Some(start) = rest.find(" data-lk-") {
 		let name_end = rest[start + 1..]
 			.find('=')
@@ -55,6 +57,7 @@ fn without_devtools_attributes(html: &str) -> String {
 		) {
 			out.push_str(&rest[..name_end]);
 			rest = &rest[name_end..];
+
 			continue;
 		}
 		out.push_str(&rest[..start]);
@@ -64,6 +67,7 @@ fn without_devtools_attributes(html: &str) -> String {
 			.map_or(rest.len(), |at| name_end + 2 + at + 1);
 		rest = &rest[value_end..];
 	}
+
 	out.push_str(rest);
 	out
 }
@@ -154,6 +158,7 @@ fn renders_semantic_controls_and_escapes_user_content() {
 	assert!(html.contains("<input"));
 	assert!(html.contains("placeholder=\"Your name\""));
 	assert!(html.contains("aria-label=\"Name\""));
+
 	assert!(html.contains("src=\"/photo.png\""));
 	assert!(html.contains("alt=\"A &quot;safe&quot; photo\""));
 	assert!(html.contains("&lt;script&gt;"));
@@ -179,6 +184,7 @@ fn emits_deterministic_scoped_styles_below_class_specificity() {
 	assert!(first.contains("flex-shrink:0;"));
 	assert!(first.contains("box-sizing:border-box;"));
 	assert!(first.contains("@media"));
+
 	assert!(first.contains("font-weight:600"));
 }
 
@@ -239,6 +245,7 @@ fn hydration_fixture_matches_server_rendering() {
 			&html,
 		)
 		.expect("write explicit fixture update");
+
 		return;
 	}
 
@@ -265,6 +272,7 @@ fn new_controls_render_semantic_state_without_browser_only_radio_names() {
 	assert!(html.contains("<progress max=\"1\" value=\"0.4\""));
 	assert!(html.contains("role=\"progressbar\" aria-busy=\"true\""));
 	assert!(html.contains("type=\"password\""));
+
 	assert!(html.contains("appearance:auto;"));
 	assert!(html.contains("@keyframes lk-spinner"));
 	assert_eq!(html, render(control_fixture()).to_html());
@@ -288,6 +296,7 @@ fn controls_hydration_fixture_matches_server_rendering() {
 			&html,
 		)
 		.expect("write explicit controls fixture update");
+
 		return;
 	}
 
@@ -386,6 +395,7 @@ fn radio_group_names_are_valid_before_server_rendering_and_hydration() {
 			&html,
 		)
 		.unwrap();
+
 		return;
 	}
 
@@ -504,6 +514,7 @@ fn vectors_render_inline_svg_with_non_scaling_strokes() {
 	assert!(html.contains("fill=\"none\""));
 	assert!(html.contains("stroke=\"#112233ff\""));
 	assert!(html.contains("stroke-width=\"2\""));
+
 	assert!(html.contains("stroke-linecap=\"round\""));
 	assert!(html.contains("stroke-linejoin=\"round\""));
 	assert!(html.contains("stroke-miterlimit=\"4\""));

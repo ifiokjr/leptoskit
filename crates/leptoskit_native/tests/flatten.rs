@@ -102,10 +102,12 @@ impl Model {
 
 	fn absolute(&self, mut id: NodeId) -> (f32, f32) {
 		let mut position = (0.0, 0.0);
+
 		loop {
 			let node = &self.nodes[&id];
 			position.0 += node.frame[0];
 			position.1 += node.frame[1];
+
 			match node.parent {
 				Some(parent) => id = parent,
 				None => return position,
@@ -189,12 +191,14 @@ fn element(random: &mut Random, depth: u32) -> Element {
 fn flattening_keeps_every_drawn_element_in_place() {
 	let mut promotions = 0;
 	let mut flattened_checked = 0;
+
 	for seed in 0..300 {
 		let mut surface = NativeSurface::new(HeadlessBackend::new());
 		surface.set_viewport(390.0, 844.0);
 		let mut flattener = Flattener::default();
 		let mut logical = Model::default();
 		let mut native = Model::default();
+
 		let mut random = Random(seed);
 
 		for step in 0..6 {
@@ -215,6 +219,7 @@ fn flattening_keeps_every_drawn_element_in_place() {
 
 			let context = format!("seed {seed}, step {step}");
 			assert_eq!(native.root(), logical.root(), "{context}: the root");
+
 			for (id, node) in &logical.nodes {
 				let is_native = flattener.is_native(*id);
 				assert_eq!(
@@ -222,6 +227,7 @@ fn flattening_keeps_every_drawn_element_in_place() {
 					is_native,
 					"{context}: {id:?}"
 				);
+
 				if !is_native {
 					assert!(
 						is_layout_only(node.kind, &node.props),
@@ -233,9 +239,11 @@ fn flattening_keeps_every_drawn_element_in_place() {
 						}),
 						"{context}: {id:?} is a scroll view's content, which sizes its scrolling"
 					);
+
 					flattened_checked += 1;
 					continue;
 				}
+
 				let view = &native.nodes[id];
 				assert_eq!(view.kind, node.kind, "{context}: {id:?}");
 				assert_eq!(view.props, node.props, "{context}: {id:?}");
@@ -251,6 +259,7 @@ fn flattening_keeps_every_drawn_element_in_place() {
 			}
 		}
 	}
+
 	// Both paths must have run for the comparison to mean anything.
 	assert!(
 		flattened_checked > 1000,

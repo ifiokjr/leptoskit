@@ -54,6 +54,7 @@ fn runtime() -> (Runtime, String) {
 	let options = BlobPropertyBag::new();
 	options.set_type("application/wasm");
 	let blob = Blob::new_with_u8_array_sequence_and_options(&Array::of1(&bytes), &options).unwrap();
+
 	let url = web_sys::Url::create_object_url_with_blob(&blob).unwrap();
 	(Runtime::new(module, &url).unwrap(), url)
 }
@@ -79,15 +80,18 @@ fn pixels(canvas: &HtmlCanvasElement) -> Vec<u8> {
 
 async fn wait_for_pixels(canvas: &HtmlCanvasElement, different_from: Option<&[u8]>) -> Vec<u8> {
 	let deadline = js_sys::Date::now() + 15_000.0;
+
 	loop {
 		JsFuture::from(nextFrame()).await.unwrap();
 		assert_eq!(canvas.get_attribute("data-lk-rive-error"), None);
 		let current = pixels(canvas);
+
 		if current.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0)
 			&& different_from.is_none_or(|previous| previous != current)
 		{
 			return current;
 		}
+
 		assert!(
 			js_sys::Date::now() < deadline,
 			"real browser Rive pixels did not reach the expected pose"
@@ -114,6 +118,7 @@ async fn shared_canvas_retains_its_pose_through_updates_and_disposes_on_removal(
 	let revision = ArcRwSignal::new(0);
 	let running = ArcRwSignal::new(false);
 	let show = ArcRwSignal::new(true);
+
 	let state = (revision.clone(), running.clone(), show.clone());
 	let playback = Playback::new(
 		Asset::new(include_bytes!(
@@ -178,12 +183,16 @@ async fn shared_canvas_retains_its_pose_through_updates_and_disposes_on_removal(
 
 async fn wait_for_diagnostic(canvas: &HtmlCanvasElement, expected: &str) {
 	let deadline = js_sys::Date::now() + 15_000.0;
+
 	loop {
 		JsFuture::from(nextFrame()).await.unwrap();
+
 		if let Some(message) = canvas.get_attribute("data-lk-rive-error") {
 			assert!(message.contains(expected), "{message}");
+
 			return;
 		}
+
 		assert!(
 			js_sys::Date::now() < deadline,
 			"Rive failure did not reach the canvas diagnostic"
@@ -213,6 +222,7 @@ async fn controlled_inputs_and_scene_replacement_recover_from_browser_failures()
 	.unwrap();
 	let mut initial =
 		Playback::new(asset.clone()).scene(Scene::StateMachine(Name::new("Machine").unwrap()));
+
 	initial
 		.set_input(Name::new("amount").unwrap(), Input::Number(0.0), 0)
 		.unwrap();
@@ -299,6 +309,7 @@ async fn missing_runtime_reports_a_diagnostic_and_removal_cancels_pending_mounts
 		.unwrap();
 	wait_for_diagnostic(&canvas, "provide_rive_runtime").await;
 	drop(mounted);
+
 	let (runtime, wasm_url) = runtime();
 	let mounted = mount_to(parent.clone(), move || {
 		web::provide_rive_runtime(runtime);

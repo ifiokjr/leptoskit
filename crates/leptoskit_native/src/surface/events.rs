@@ -46,12 +46,14 @@ impl<B: NativeBackend> NativeSurface<B> {
 			NativeEvent::Toggle { checked } => {
 				Self::accepts_toggle(node.kind, *checked).then_some(Cow::Borrowed(event))
 			}
+
 			NativeEvent::ValueChange { value } if node.kind == NativeKind::Slider => {
 				let state = node.props.slider.unwrap_or_default();
 				let value = state.proposed_value(*value)?;
 
 				Some(Cow::Owned(NativeEvent::ValueChange { value }))
 			}
+
 			NativeEvent::ValueChange { .. } => None,
 			_ => Some(Cow::Borrowed(event)),
 		}
