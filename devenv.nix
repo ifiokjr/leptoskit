@@ -466,6 +466,37 @@ in
       binary = "bash";
     };
 
+    # The DevTools interface in devtools/, built for the web with this
+    # checkout's CLI. The build lands in <out>/ui, where the hub serves it
+    # with LEPTOSKIT_DEVTOOLS_UI=<out>/ui, beside the release archive
+    # leptoskit-devtools-<version>.tar.gz and its SHA-256, which the release
+    # workflow uploads and compiles into the CLI. <out> defaults to
+    # target/devtools.
+    "devtools:build" = {
+      exec = ''
+        set -euo pipefail
+        root="$(git rev-parse --show-toplevel)"
+        out="$(realpath -m "''${1:-$root/target/devtools}")"
+        metadata="$(cargo metadata --no-deps --format-version 1 --manifest-path "$root/Cargo.toml")"
+        version="$(jq -r '.packages[] | select(.name == "leptoskit_cli") | .version' <<<"$metadata")"
+        target="$(jq -r .target_directory <<<"$metadata")"
+        cargo build --quiet --locked --manifest-path "$root/Cargo.toml" --package leptoskit_cli --bin leptoskit
+        rm -rf "$root/devtools/dist" "$out/ui"
+        (cd "$root/devtools" && "$target/debug/leptoskit" build --platform web --release)
+        mkdir -p "$out"
+        cp -R "$root/devtools/dist" "$out/ui"
+        archive="$out/leptoskit-devtools-$version.tar.gz"
+        # The same files always make the same archive, so its hash is stable.
+        tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -C "$out/ui" -cf - . | gzip -n -9 >"$archive"
+        sha256sum "$archive" | cut -d' ' -f1 >"$archive.sha256"
+        echo "built the DevTools interface into $out/ui"
+        echo "serve it with: LEPTOSKIT_DEVTOOLS_UI=$out/ui leptoskit dev"
+        echo "archive: $archive (sha256 $(cat "$archive.sha256"))"
+      '';
+      description = "Build the DevTools interface and its release archive.";
+      binary = "bash";
+    };
+
     "test:all" = {
       exec = ''
         set -euo pipefail
@@ -480,16 +511,19 @@ in
     "test:cargo" = {
       exec = ''
         set -euo pipefail
-        # file_routes is its own workspace (the scaffold's shape), so its
-        # suites run through the manifest path next to the repository's.
+        # file_routes and the DevTools interface are their own workspaces (the
+        # scaffold's shape), so their suites run through their manifest paths
+        # next to the repository's.
         if [ "$(uname -s)" = Linux ] && [ -z "''${DISPLAY:-}" ]; then
           dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
             cargo nextest run --workspace --all-features
-          exec dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
+          dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
             cargo nextest run --manifest-path examples/file_routes/Cargo.toml
+          exec cargo nextest run --manifest-path devtools/Cargo.toml
         fi
         cargo nextest run --workspace --all-features
         cargo nextest run --manifest-path examples/file_routes/Cargo.toml
+        cargo nextest run --manifest-path devtools/Cargo.toml
       '';
       description = "Run cargo tests with nextest.";
       binary = "bash";

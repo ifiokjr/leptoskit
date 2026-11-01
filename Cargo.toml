@@ -21,8 +21,9 @@ resolver = "2"
 # file_routes and commonplace are standalone workspaces in the scaffold's
 # shape, and opencode's terminal runner is a generated runner: all compile
 # only after `leptoskit build` generates `.leptoskit/`, so none can join this
-# repository's workspace.
-exclude = ["examples/commonplace", "examples/file_routes", "examples/opencode/tui"]
+# repository's workspace. The DevTools interface in devtools/ is the same kind
+# of standalone project, built with `devenv shell devtools:build`.
+exclude = ["devtools", "examples/commonplace", "examples/file_routes", "examples/opencode/tui"]
 
 [workspace.package]
 version = "0.1.0"

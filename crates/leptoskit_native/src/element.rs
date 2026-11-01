@@ -55,6 +55,10 @@ pub struct Element {
 	/// Where the element was created, when the `devtools` feature is on.
 	#[cfg(feature = "devtools")]
 	source: Option<&'static std::panic::Location<'static>>,
+	/// The classes a resolved element was built from, which `DevTools`
+	/// reports; empty on an element that is not resolved.
+	#[cfg(feature = "devtools")]
+	applied: Tailwind,
 	classes: Tailwind,
 	handlers: Vec<HandlerEntry>,
 }
@@ -352,6 +356,8 @@ impl Element {
 			children: Vec::new(),
 			#[cfg(feature = "devtools")]
 			source: Some(std::panic::Location::caller()),
+			#[cfg(feature = "devtools")]
+			applied: Tailwind::default(),
 			classes: Tailwind::default(),
 			handlers: Vec::new(),
 		}
@@ -362,6 +368,15 @@ impl Element {
 	#[must_use]
 	pub fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
 		self.source
+	}
+
+	/// The classes a resolved element was built from, when the `devtools`
+	/// feature is on. Resolving applies an element's classes and clears them;
+	/// these keep what was applied.
+	#[cfg(feature = "devtools")]
+	#[must_use]
+	pub fn applied_classes(&self) -> &Tailwind {
+		&self.applied
 	}
 
 	/// A `View` element.
@@ -540,6 +555,8 @@ impl Element {
 			children: Vec::new(),
 			#[cfg(feature = "devtools")]
 			source: self.source,
+			#[cfg(feature = "devtools")]
+			applied: self.classes.clone(),
 			classes: Tailwind::default(),
 			handlers: self.handlers.clone(),
 		};

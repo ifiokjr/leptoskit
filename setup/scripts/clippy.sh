@@ -34,6 +34,8 @@ host() {
 	cargo clippy "${deny[@]}" --workspace --all-features --all-targets
 	echo "clippy: examples/file_routes"
 	cargo clippy "${deny[@]}" --manifest-path examples/file_routes/Cargo.toml --all-targets
+	echo "clippy: devtools"
+	cargo clippy "${deny[@]}" --manifest-path devtools/Cargo.toml --all-targets
 }
 
 # The workspace with every feature on cannot build for wasm: features unify
@@ -82,6 +84,8 @@ wasm() {
 	wasm_group "every feature, library" "${wasm_library[@]/#/--package=}" --all-features --lib
 	wasm_group "default features, library" "${wasm_default_library[@]/#/--package=}" --lib
 	wasm_group "default features, every target" "${wasm_default[@]/#/--package=}" --all-targets
+	# The DevTools interface is its own workspace, and a browser client only.
+	wasm_group "the DevTools interface" --manifest-path devtools/Cargo.toml --lib
 }
 
 wasm_group() {

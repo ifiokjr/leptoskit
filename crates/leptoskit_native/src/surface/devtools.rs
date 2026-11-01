@@ -5,11 +5,14 @@ use leptoskit_devtools_protocol::MatchKey;
 use leptoskit_devtools_protocol::Node;
 use leptoskit_devtools_protocol::NodeRef;
 use leptoskit_devtools_protocol::SourceLocation;
+use leptoskit_devtools_protocol::StyleRule;
 use leptoskit_devtools_protocol::Tree;
 use leptoskit_yoga::NodeId;
 
 use super::NativeSurface;
 use crate::backend::NativeBackend;
+use crate::tailwind::StyleContext;
+use crate::tailwind::Tailwind;
 
 impl<B: NativeBackend> NativeSurface<B> {
 	/// The committed tree in the `DevTools` protocol's shape.
@@ -70,11 +73,45 @@ impl<B: NativeBackend> NativeSurface<B> {
 			classes: shadow.classes.clone(),
 			text: shadow.props.text.clone(),
 			children,
+			styles: self.explain(id, &shadow.classes),
 		});
 
 		for child in &shadow.children {
 			self.collect_devtools(*child, nodes);
 		}
+	}
+}
+
+impl<B: NativeBackend> NativeSurface<B> {
+	/// The node's active classes, resolved against the surface's viewport,
+	/// appearance, and pressed control.
+	fn explain(&self, id: NodeId, classes: &[String]) -> Vec<StyleRule> {
+		if classes.is_empty() {
+			return Vec::new();
+		}
+
+		// The shadow keeps the classes that already parsed, so this parse
+		// fails only if the compiler changed underneath a running surface.
+		let Ok(tailwind) = Tailwind::parse(&classes.join(" ")) else {
+			return Vec::new();
+		};
+		let context = StyleContext {
+			viewport: self.viewport,
+			dark: self.dark,
+			safe_area: self.safe_area,
+			active: self.pressed == Some(id),
+		};
+		tailwind
+			.explain(&context)
+			.into_iter()
+			.map(|explained| {
+				StyleRule {
+					class: explained.class,
+					declarations: explained.declarations,
+					variant: explained.variant,
+				}
+			})
+			.collect()
 	}
 }
 
@@ -102,5 +139,30 @@ mod tests {
 				.len(),
 			1
 		);
+	}
+
+	#[test]
+	fn the_tree_explains_the_active_classes() {
+		let mut surface = NativeSurface::new(HeadlessBackend::new());
+		surface.set_viewport(400.0, 100.0);
+		let element = Element::view().class("p-4 md:p-8 dark:bg-black");
+		surface.set_root(&element);
+		let tree = surface.devtools_tree();
+		let root = &tree.nodes[0];
+		assert_eq!(root.classes, ["dark:bg-black", "md:p-8", "p-4"]);
+		let classes: Vec<&str> = root.styles.iter().map(|rule| rule.class.as_str()).collect();
+		assert_eq!(classes, ["p-4"]);
+		assert!(root.styles[0].declarations.contains("padding"));
+
+		surface.set_viewport(800.0, 100.0);
+		surface.set_dark_mode(true);
+		let tree = surface.devtools_tree();
+		let root = &tree.nodes[0];
+		assert!(root.styles.iter().any(|rule| {
+			rule.class == "md:p-8" && rule.variant.as_deref() == Some("min-width: 768px")
+		}));
+		assert!(root.styles.iter().any(|rule| {
+			rule.class == "dark:bg-black" && rule.variant.as_deref() == Some("dark")
+		}));
 	}
 }
