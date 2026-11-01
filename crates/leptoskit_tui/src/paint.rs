@@ -287,27 +287,52 @@ impl Painter<'_> {
 		rounded: bool,
 	) {
 		let right = rect.right() - 1;
-		let top = rows.top;
 		let Some(bottom) = rows.last().filter(|_| right >= rect.left) else {
 			return;
 		};
 
-		let mut draw = |col: i16, row: i16, symbol: char| {
-			if self.clip.contains(col, row) {
-				self.buffer
-					.set_glyph(col, row, symbol, color, TuiColor::Default, dim);
-			}
-		};
+		self.horizontal_edges(rect, rows, edges, color, dim);
+		self.vertical_edges(rect, rows, edges, color, dim);
+		self.corners(rect, bottom, edges, rounded, color, dim);
+	}
 
-		for (width, row) in [(edges.top, top), (edges.bottom, bottom)] {
+	/// The top and bottom edges, where the border has a width.
+	fn horizontal_edges(
+		&mut self,
+		rect: Rect,
+		rows: Rows,
+		edges: BorderWidths,
+		color: TuiColor,
+		dim: Attributes,
+	) {
+		let right = rect.right() - 1;
+		let top = rows.top;
+
+		for (width, row) in [(edges.top, top), (edges.bottom, rows.last().unwrap_or(top))] {
 			if width > 0.0 {
 				let line = if width >= HEAVY_BORDER { '━' } else { '─' };
 
 				for col in rect.left..=right {
-					draw(col, row, line);
+					self.border_glyph(col, row, line, color, dim);
 				}
 			}
 		}
+	}
+
+	/// The left and right edges, where the border has a width.
+	fn vertical_edges(
+		&mut self,
+		rect: Rect,
+		rows: Rows,
+		edges: BorderWidths,
+		color: TuiColor,
+		dim: Attributes,
+	) {
+		let right = rect.right() - 1;
+		let top = rows.top;
+		let Some(bottom) = rows.last() else {
+			return;
+		};
 
 		for (width, col) in [(edges.left, rect.left), (edges.right, right)] {
 			if width <= 0.0 {
@@ -325,10 +350,23 @@ impl Painter<'_> {
 					'│'
 				};
 
-				draw(col, row, symbol);
+				self.border_glyph(col, row, symbol, color, dim);
 			}
 		}
+	}
 
+	/// The corners, where two drawn edges meet.
+	fn corners(
+		&mut self,
+		rect: Rect,
+		bottom: i16,
+		edges: BorderWidths,
+		rounded: bool,
+		color: TuiColor,
+		dim: Attributes,
+	) {
+		let right = rect.right() - 1;
+		let top = rect.top;
 		let heavy = edges.top.max(edges.bottom).max(edges.left).max(edges.right) >= HEAVY_BORDER;
 
 		let corners = match (heavy, rounded) {
@@ -344,8 +382,16 @@ impl Painter<'_> {
 			(edges.right, edges.bottom, right, bottom, corners[3]),
 		] {
 			if vertical > 0.0 && horizontal > 0.0 && right > rect.left && bottom > top {
-				draw(col, row, symbol);
+				self.border_glyph(col, row, symbol, color, dim);
 			}
+		}
+	}
+
+	/// Draws a border glyph, when the clip keeps it.
+	fn border_glyph(&mut self, col: i16, row: i16, symbol: char, color: TuiColor, dim: Attributes) {
+		if self.clip.contains(col, row) {
+			self.buffer
+				.set_glyph(col, row, symbol, color, TuiColor::Default, dim);
 		}
 	}
 
@@ -643,37 +689,56 @@ impl Painter<'_> {
 	/// A progress bar: filled to its fraction, or sweeping when
 	/// indeterminate.
 	fn progress(&mut self, id: NodeId, rect: Rect, fg: TuiColor, bg: TuiColor, attrs: Attributes) {
-		if let Some(Progress::Determinate(value)) = self
+		let value = self
 			.backend
 			.props(id)
-			.map(|props| props.progress.unwrap_or_default())
-		{
-			let filled = (value.get() * f64::from(rect.width)).round() as i16;
+			.map(|props| props.progress.unwrap_or_default());
 
-			for col in rect.left..rect.right() {
-				let symbol = if col - rect.left < filled {
-					'█'
-				} else {
-					'░'
-				};
+		let Some(Progress::Determinate(value)) = value else {
+			self.sweeping(rect, fg, bg, attrs);
 
-				if self.clip.contains(col, rect.top) {
-					self.buffer.set_glyph(col, rect.top, symbol, fg, bg, attrs);
-				}
-			}
-		} else {
-			let width = rect.width as i16;
-			let head = (self.backend.tick() as i16) % (width + SWEEP as i16);
+			return;
+		};
+		let filled = (value.get() * f64::from(rect.width)).round() as i16;
 
-			for col in rect.left..rect.right() {
-				let offset = col - rect.left;
-				let in_sweep = ((head - offset).rem_euclid(width + SWEEP as i16)) < SWEEP as i16;
-				let symbol = if in_sweep { '█' } else { '░' };
+		for col in rect.left..rect.right() {
+			let symbol = if col - rect.left < filled {
+				'█'
+			} else {
+				'░'
+			};
 
-				if self.clip.contains(col, rect.top) {
-					self.buffer.set_glyph(col, rect.top, symbol, fg, bg, attrs);
-				}
-			}
+			self.progress_cell(col, rect.top, symbol, fg, bg, attrs);
+		}
+	}
+
+	/// A bar with no value: a head sweeping across the track.
+	fn sweeping(&mut self, rect: Rect, fg: TuiColor, bg: TuiColor, attrs: Attributes) {
+		let width = rect.width as i16;
+		let span = width + SWEEP as i16;
+		let head = (self.backend.tick() as i16) % span;
+
+		for col in rect.left..rect.right() {
+			let offset = col - rect.left;
+			let in_sweep = (head - offset).rem_euclid(span) < SWEEP as i16;
+			let symbol = if in_sweep { '█' } else { '░' };
+
+			self.progress_cell(col, rect.top, symbol, fg, bg, attrs);
+		}
+	}
+
+	/// Draws one progress cell, when the clip keeps it.
+	fn progress_cell(
+		&mut self,
+		col: i16,
+		row: i16,
+		symbol: char,
+		fg: TuiColor,
+		bg: TuiColor,
+		attrs: Attributes,
+	) {
+		if self.clip.contains(col, row) {
+			self.buffer.set_glyph(col, row, symbol, fg, bg, attrs);
 		}
 	}
 

@@ -103,17 +103,47 @@ pub fn diff(
 	depth: ColorDepth,
 	out: &mut impl Write,
 ) -> io::Result<bool> {
-	let mut written = false;
-	let mut cursor: Option<(u16, u16)> = None;
-	let mut style: Option<Style> = None;
+	let mut painter = Painter {
+		out,
+		depth,
+		cursor: None,
+		style: None,
+		written: false,
+	};
 
 	if previous.width() != next.width() || previous.height() != next.height() {
-		out.write_all(b"\x1b[2J\x1b[H")?;
-		written = true;
-		cursor = Some((0, 0));
+		painter.clear()?;
 	}
 
 	for row in 0..next.height() {
+		painter.row(previous, next, row)?;
+	}
+
+	painter.finish()
+}
+
+/// Writes the cells that differ, remembering where the cursor and the style
+/// were left so a run of cells costs one move.
+struct Painter<'a, W: Write> {
+	out: &'a mut W,
+	depth: ColorDepth,
+	cursor: Option<(u16, u16)>,
+	style: Option<Style>,
+	written: bool,
+}
+
+impl<W: Write> Painter<'_, W> {
+	/// Clears the screen, after a resize.
+	fn clear(&mut self) -> io::Result<()> {
+		self.out.write_all(b"\x1b[2J\x1b[H")?;
+		self.written = true;
+		self.cursor = Some((0, 0));
+
+		Ok(())
+	}
+
+	/// Writes the runs of changed cells on one row.
+	fn row(&mut self, previous: &Buffer, next: &Buffer, row: u16) -> io::Result<()> {
 		let mut col = 0;
 
 		while col < next.width() {
@@ -126,62 +156,90 @@ pub fn diff(
 				continue;
 			}
 
-			let run_style = Style::of(cell, depth);
-			let start = col;
-
-			while col < next.width()
-				&& !same_cell(previous, next, col, row)
-				&& next
-					.cell(col, row)
-					.is_some_and(|cell| Style::of(cell, depth) == run_style)
-			{
-				col += 1;
-			}
-
-			if cursor != Some((start, row)) {
-				write!(out, "\x1b[{};{}H", row + 1, start + 1)?;
-				cursor = Some((start, row));
-			}
-
-			if style != Some(run_style) {
-				out.write_all(run_style.sgr().as_bytes())?;
-				style = Some(run_style);
-			}
-
-			for column in start..col {
-				let Some(cell) = next.cell(column, row) else {
-					break;
-				};
-
-				if cell.wide {
-					// The wide glyph before this cell already advanced the
-					// cursor over it.
-					if let Some(position) = cursor.as_mut() {
-						position.0 += 1;
-					}
-
-					continue;
-				}
-
-				let mut symbol = [0u8; 4];
-				out.write_all(cell.symbol.encode_utf8(&mut symbol).as_bytes())?;
-				written = true;
-
-				let width = width_of(cell.symbol);
-
-				if let Some(position) = cursor.as_mut() {
-					position.0 += width;
-				}
-			}
+			col = self.run(previous, next, row, col, cell)?;
 		}
+
+		Ok(())
 	}
 
-	if written {
-		out.write_all(b"\x1b[0m")?;
-		out.flush()?;
+	/// Writes one run of changed cells, from `start`, in one style. Returns
+	/// the column after it.
+	fn run(
+		&mut self,
+		previous: &Buffer,
+		next: &Buffer,
+		row: u16,
+		start: u16,
+		cell: &Cell,
+	) -> io::Result<u16> {
+		let run_style = Style::of(cell, self.depth);
+		let mut col = start;
+
+		while col < next.width()
+			&& !same_cell(previous, next, col, row)
+			&& next
+				.cell(col, row)
+				.is_some_and(|cell| Style::of(cell, self.depth) == run_style)
+		{
+			col += 1;
+		}
+
+		if self.cursor != Some((start, row)) {
+			write!(self.out, "\x1b[{};{}H", row + 1, start + 1)?;
+			self.cursor = Some((start, row));
+		}
+
+		if self.style != Some(run_style) {
+			self.out.write_all(run_style.sgr().as_bytes())?;
+			self.style = Some(run_style);
+		}
+
+		for column in start..col {
+			self.cell(next, column, row)?;
+		}
+
+		Ok(col)
 	}
 
-	Ok(written)
+	/// Writes one cell, moving the cursor over the glyph's width.
+	fn cell(&mut self, next: &Buffer, column: u16, row: u16) -> io::Result<()> {
+		let Some(cell) = next.cell(column, row) else {
+			return Ok(());
+		};
+
+		if cell.wide {
+			// The wide glyph before this cell already advanced the cursor
+			// over it.
+			if let Some(position) = self.cursor.as_mut() {
+				position.0 += 1;
+			}
+
+			return Ok(());
+		}
+
+		let mut symbol = [0u8; 4];
+		self.out
+			.write_all(cell.symbol.encode_utf8(&mut symbol).as_bytes())?;
+		self.written = true;
+
+		let width = width_of(cell.symbol);
+
+		if let Some(position) = self.cursor.as_mut() {
+			position.0 += width;
+		}
+
+		Ok(())
+	}
+
+	/// Resets the style, and says whether anything was written.
+	fn finish(&mut self) -> io::Result<bool> {
+		if self.written {
+			self.out.write_all(b"\x1b[0m")?;
+			self.out.flush()?;
+		}
+
+		Ok(self.written)
+	}
 }
 
 /// Whether both buffers show the same cell at a position; a missing previous
