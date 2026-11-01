@@ -108,6 +108,13 @@ impl AuditEntry {
 /// 	None => Expr::never(),
 /// }));
 /// ```
+///
+/// The rule narrows what the *database layer* reads. Under row-level
+/// security Postgres cannot run the rule — it is Rust — so any request
+/// holding a reader may read the audit table through a path the layer
+/// does not narrow, such as raw [`Statement`](crate::Statement) SQL:
+/// for this one table, row-level security does not narrow anything.
+/// Give raw SQL its own `system` handle, or none at all.
 #[derive(Clone, Copy)]
 pub struct AuditReader {
 	rule: fn(&AuditEntryColumns, &Context) -> Expr,

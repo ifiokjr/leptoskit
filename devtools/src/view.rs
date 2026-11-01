@@ -402,18 +402,23 @@ fn node_panel(model: &Model, live: &Live) -> Vec<Element> {
 
 	sections.push(match &node.source {
 		Some(source) => {
-			let url = model.editor_url(source);
-			section(
-				"Source",
-				vec![
-					Text(format!("{}:{}:{}", source.file, source.line, source.column))
-						.class("text-xs"),
-					Button("Open in editor")
-						.class(CONTROL)
-						.class("self-start")
-						.on_press(move || store::open_in_editor(&url)),
-				],
-			)
+			let location =
+				Text(format!("{}:{}:{}", source.file, source.line, source.column)).class("text-xs");
+			match model.editor_url(source) {
+				Some(url) => {
+					section(
+						"Source",
+						vec![
+							location,
+							Button("Open in editor")
+								.class(CONTROL)
+								.class("self-start")
+								.on_press(move || store::open_in_editor(&url)),
+						],
+					)
+				}
+				None => section("Source", vec![location]),
+			}
 		}
 		None => {
 			section(

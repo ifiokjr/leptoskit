@@ -98,6 +98,17 @@ use crate::live::WireError;
 /// transitions are dropped in favour of a full one.
 const OUTGOING: usize = 32;
 
+/// How many frames one connection may send before the server serves it no
+/// further. Every frame runs against the database — a query, a mutation, a
+/// session lookup — so a client that cycles subscriptions at line rate is
+/// closed instead of fed.
+///
+/// The budget is a token bucket: [`FRAMES_PER_SECOND`] tokens return every
+/// second, and a connection starts with a burst of [`FRAME_BURST`] so a
+/// reconnecting client can re-subscribe to everything it had in one go.
+const FRAME_BURST: u64 = 512;
+const FRAMES_PER_SECOND: u64 = 256;
+
 /// How many client frames may wait for a busy session before the transport
 /// stops reading.
 const INCOMING: usize = 64;
@@ -367,7 +378,12 @@ impl Live {
 	/// Sends a signal from a member here to the other servers' members.
 	#[cfg_attr(
 		not(feature = "relay"),
-		expect(unused_variables, reason = "only a relay reaches other servers")
+		expect(
+			unused_variables,
+			unused_self,
+			needless_pass_by_value,
+			reason = "only a relay reaches other servers"
+		)
 	)]
 	fn signal_elsewhere(&self, channel: &str, from: Option<String>, message: &Value) {
 		#[cfg(feature = "relay")]

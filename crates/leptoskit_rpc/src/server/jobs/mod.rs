@@ -505,12 +505,22 @@ async fn insert<J: Job>(
 			}
 
 			let key = settings.key.unwrap_or_default();
-			JobRow::query()
+			match JobRow::query()
 				.filter(|row| row.key.eq(key))
 				.one(connection)
 				.await
-				.map(|row| row.id)
-				.map_err(Into::into)
+			{
+				Ok(row) => Ok(row.id),
+				// The insert hit the key's unique constraint, so the job
+				// exists; this caller just can't see it, because a key is
+				// unique across every owner. Say the name is taken rather
+				// than that nothing was found.
+				Err(_) => {
+					Err(Error::conflict(
+						"that key is already in use by a job you can't see",
+					))
+				}
+			}
 		}
 
 		Err(error) => Err(error.into()),

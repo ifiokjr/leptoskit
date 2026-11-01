@@ -105,22 +105,34 @@ impl ReadEntry {
 		let definition = (entry.definition)();
 		let decode = |image: &serde_json::Map<String, serde_json::Value>| {
 			let names: Vec<&str> = image.keys().map(String::as_str).collect();
-			let values = crate::live::logged_values(&definition, &names, image, dialect).ok()?;
-			Some(
+			crate::live::logged_values(&definition, &names, image, dialect).map(|values| {
 				names
 					.into_iter()
 					.zip(values)
 					.map(|(name, value)| (name.to_owned(), value))
-					.collect::<std::collections::HashMap<_, _>>(),
-			)
+					.collect::<std::collections::HashMap<_, _>>()
+			})
 		};
-
-		let old = change.old.as_ref().and_then(decode);
-		let new = change.new.as_ref().and_then(decode);
+		let old = change.old.as_ref().map(decode);
+		let new = change.new.as_ref().map(decode);
+		// An image this build can't decode — a value another writer put in
+		// a shape the build doesn't expect, raw SQL on SQLite, an
+		// `infinity` timestamp on Postgres, schema drift during a rolling
+		// deploy — can't be judged, so the read re-runs. The one rule here
+		// is never to miss a write.
+		if old.as_ref().is_some_and(Result::is_err) || new.as_ref().is_some_and(Result::is_err) {
+			return true;
+		}
 		let may =
 			|row: &std::collections::HashMap<String, Value>| self.condition.eval(row).may_match();
 
-		old.as_ref().is_some_and(may) || new.as_ref().is_some_and(may)
+		old.as_ref()
+			.and_then(|image| image.as_ref().ok())
+			.is_some_and(may)
+			|| new
+				.as_ref()
+				.and_then(|image| image.as_ref().ok())
+				.is_some_and(may)
 	}
 
 	/// An entry for rows of `table` meeting `condition`, in no order.
@@ -550,5 +562,21 @@ mod tests {
 			changed: Vec::new(),
 		};
 		assert!(entry.could_change(&missing, Dialect::Sqlite));
+
+		// A value this build can't decode — raw SQL put a shape in the
+		// column the build doesn't expect — can't be judged either, so the
+		// read re-runs rather than miss the write.
+		let undecodable = Change {
+			table: rooms(),
+			op: ChangeOp::Insert,
+			key: vec!["1".to_owned()],
+			old: None,
+			new: Some(serde_json::Map::from_iter([(
+				"floor".to_owned(),
+				serde_json::json!("not a floor"),
+			)])),
+			changed: Vec::new(),
+		};
+		assert!(entry.could_change(&undecodable, Dialect::Sqlite));
 	}
 }
