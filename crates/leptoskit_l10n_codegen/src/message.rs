@@ -394,49 +394,19 @@ impl Parser {
 
 		while !self.forms_end(&arg, "plural")? {
 			let (selector, start) = self.selector()?;
-			let twice = || format!("`{selector}` is written twice; keep one form");
 
 			if let Some(digits) = selector.strip_prefix('=') {
-				let number: u64 = digits.parse().map_err(|_| {
-					error_at(
-						start,
-						format!(
-							"`{selector}` is too large a number; use a plural category instead"
-						),
-					)
-				})?;
-
+				let number: u64 = digits.parse().map_err(|_| too_large(&selector, start))?;
 				let body = self.form(&selector, true)?;
-
-				if exact.iter().any(|(seen, _)| *seen == number) {
-					return Err(error_at(start, twice()));
-				}
-
-				exact.push((number, body));
+				push_exact(&mut exact, number, body, &selector, start)?;
 			} else if selector == "other" {
 				let body = self.form(&selector, true)?;
-
-				if other.is_some() {
-					return Err(error_at(start, twice()));
-				}
-
-				other = Some(body);
+				push_other(&mut other, body, &selector, start)?;
 			} else if let Some(category) = Category::parse(&selector) {
 				let body = self.form(&selector, true)?;
-
-				if categories.iter().any(|(seen, _)| *seen == category) {
-					return Err(error_at(start, twice()));
-				}
-
-				categories.push((category, body));
+				push_category(&mut categories, category, body, &selector, start)?;
 			} else {
-				return Err(error_at(
-					start,
-					format!(
-						"`{selector}` is not a plural form: use zero, one, two, few, many, other, \
-						 or `=N`"
-					),
-				));
+				return Err(unknown_form(&selector, start));
 			}
 		}
 
@@ -515,6 +485,80 @@ fn placeholder_in(text: &str) -> Option<&str> {
 }
 
 /// An error at a character other than the parser's current one.
+/// Adds an `=N` form, or the error that it is written twice.
+fn push_exact(
+	exact: &mut Vec<(u64, Vec<Part>)>,
+	number: u64,
+	body: Vec<Part>,
+	selector: &str,
+	start: usize,
+) -> Result<(), SyntaxError> {
+	if exact.iter().any(|(seen, _)| *seen == number) {
+		return Err(written_twice(selector, start));
+	}
+
+	exact.push((number, body));
+
+	Ok(())
+}
+
+/// Sets the `other` form, or the error that it is written twice.
+fn push_other(
+	other: &mut Option<Vec<Part>>,
+	body: Vec<Part>,
+	selector: &str,
+	start: usize,
+) -> Result<(), SyntaxError> {
+	if other.is_some() {
+		return Err(written_twice(selector, start));
+	}
+
+	*other = Some(body);
+
+	Ok(())
+}
+
+/// Adds a category form, or the error that it is written twice.
+fn push_category(
+	categories: &mut Vec<(Category, Vec<Part>)>,
+	category: Category,
+	body: Vec<Part>,
+	selector: &str,
+	start: usize,
+) -> Result<(), SyntaxError> {
+	if categories.iter().any(|(seen, _)| *seen == category) {
+		return Err(written_twice(selector, start));
+	}
+
+	categories.push((category, body));
+
+	Ok(())
+}
+
+/// The error for an `=N` too large to be one.
+fn too_large(selector: &str, start: usize) -> SyntaxError {
+	error_at(
+		start,
+		format!("`{selector}` is too large a number; use a plural category instead"),
+	)
+}
+
+/// The error for a selector that names no plural form.
+fn unknown_form(selector: &str, start: usize) -> SyntaxError {
+	error_at(
+		start,
+		format!("`{selector}` is not a plural form: use zero, one, two, few, many, other, or `=N`"),
+	)
+}
+
+/// The error for a form written twice.
+fn written_twice(selector: &str, start: usize) -> SyntaxError {
+	error_at(
+		start,
+		format!("`{selector}` is written twice; keep one form"),
+	)
+}
+
 fn error_at(offset: usize, message: impl Into<String>) -> SyntaxError {
 	SyntaxError {
 		offset,

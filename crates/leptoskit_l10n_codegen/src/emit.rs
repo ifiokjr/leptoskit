@@ -222,6 +222,48 @@ fn locale_items(
 	let tag = &locale.tag;
 	// In capitals, which no parameter is, so a placeholder never shadows it.
 	let plural_rules = format_ident!("{}_PLURALS", tag.to_shouty_snake_case());
+	let documentation = locale_docs(catalog, locale, locales_dir);
+	let mut asks_rules = false;
+	let methods: Vec<TokenStream> = catalog
+		.messages
+		.iter()
+		.map(|message| {
+			message_method(
+				message,
+				locale,
+				template,
+				runtime,
+				&plural_rules,
+				&mut asks_rules,
+			)
+		})
+		.collect();
+	let rules = asks_rules.then(|| {
+		let rules_doc = doc(format!("The plural rules of `{tag}`."));
+		quote! {
+			#rules_doc
+			static #plural_rules: ::std::sync::LazyLock<#runtime::PluralRules> =
+				::std::sync::LazyLock::new(|| #runtime::PluralRules::for_locale(&#runtime::__private::locale(#tag)));
+		}
+	});
+
+	quote! {
+		#documentation
+		pub struct #ident;
+
+		#rules
+
+		impl Messages for #ident {
+			#(#methods)*
+		}
+	}
+}
+
+/// The doc comment on a locale's struct: where it comes from, whether it is
+/// the template, and what it leaves to the fallback.
+fn locale_docs(catalog: &Catalog, locale: &Locale, locales_dir: &str) -> TokenStream {
+	let template = catalog.template();
+	let tag = &locale.tag;
 	let mut documentation = format!(
 		"The `{tag}` messages, from `{locales_dir}/{}`.",
 		locale.file
@@ -243,97 +285,85 @@ fn locale_items(
 		);
 	}
 
-	let documentation = doc(documentation);
-	let mut asks_rules = false;
-	let methods: Vec<TokenStream> = catalog
-		.messages
-		.iter()
-		.map(|message| {
-			let method = &message.method;
-			let Some(parts) = locale.translated.get(&message.key) else {
-				let signature = signature(message, &BTreeSet::new());
-				let template_ident = &template.ident;
-				let arguments = message
-					.placeholders
-					.iter()
-					.map(|placeholder| &placeholder.ident);
-				return quote! {
-					#signature {
-						#template_ident.#method(#(#arguments),*)
-					}
-				};
-			};
-			let emitter = Emitter {
-				runtime,
-				placeholders: &message.placeholders,
-				plural_rules: &plural_rules,
-				read: RefCell::default(),
-				asks_rules: Cell::new(false),
-				compares_floats: Cell::new(false),
-			};
-			let body = if message.is_literal() {
-				let text: String = parts
-					.iter()
-					.filter_map(|part| {
-						match part {
-							Part::Text(text) => Some(text.as_str()),
-							_ => None,
-						}
-					})
-					.collect();
-				quote!(#text)
-			} else {
-				emitter.string(parts, None)
-			};
+	doc(documentation)
+}
 
-			asks_rules |= emitter.asks_rules.get();
-			// A body that is already a block becomes the method's block, rather
-			// than a block inside it.
-			let statements = match syn::parse2::<syn::Expr>(body.clone()) {
-				Ok(syn::Expr::Block(block)) if block.label.is_none() => {
-					let statements = block.block.stmts;
-					quote!(#(#statements)*)
-				}
+/// One message's method: its own text where the locale writes one, and the
+/// template's where it leaves the message out.
+fn message_method(
+	message: &Message,
+	locale: &Locale,
+	template: &Locale,
+	runtime: &TokenStream,
+	plural_rules: &syn::Ident,
+	asks_rules: &mut bool,
+) -> TokenStream {
+	let method = &message.method;
+	let Some(parts) = locale.translated.get(&message.key) else {
+		let signature = signature(message, &BTreeSet::new());
+		let template_ident = &template.ident;
+		let arguments = message
+			.placeholders
+			.iter()
+			.map(|placeholder| &placeholder.ident);
 
-				_ => body,
-			};
-
-			let read = emitter.read.borrow();
-			let unread = message
-				.placeholders
-				.iter()
-				.map(|placeholder| placeholder.name.as_str())
-				.filter(|name| !read.contains(*name))
-				.collect();
-			let signature = signature(message, &unread);
-			let allow = emitter
-				.compares_floats
-				.get()
-				.then(|| quote!(#[allow(clippy::float_cmp)]));
-			quote! {
-				#allow
-				#signature {
-					#statements
-				}
+		return quote! {
+			#signature {
+				#template_ident.#method(#(#arguments),*)
 			}
-		})
-		.collect();
-	let rules = asks_rules.then(|| {
-		let rules_doc = doc(format!("The plural rules of `{tag}`."));
-		quote! {
-			#rules_doc
-			static #plural_rules: ::std::sync::LazyLock<#runtime::PluralRules> =
-				::std::sync::LazyLock::new(|| #runtime::PluralRules::for_locale(&#runtime::__private::locale(#tag)));
+		};
+	};
+	let emitter = Emitter {
+		runtime,
+		placeholders: &message.placeholders,
+		plural_rules,
+		read: RefCell::default(),
+		asks_rules: Cell::new(false),
+		compares_floats: Cell::new(false),
+	};
+	let body = if message.is_literal() {
+		let text: String = parts
+			.iter()
+			.filter_map(|part| {
+				match part {
+					Part::Text(text) => Some(text.as_str()),
+					_ => None,
+				}
+			})
+			.collect();
+		quote!(#text)
+	} else {
+		emitter.string(parts, None)
+	};
+
+	*asks_rules |= emitter.asks_rules.get();
+	// A body that is already a block becomes the method's block, rather than a
+	// block inside it.
+	let statements = match syn::parse2::<syn::Expr>(body.clone()) {
+		Ok(syn::Expr::Block(block)) if block.label.is_none() => {
+			let statements = block.block.stmts;
+			quote!(#(#statements)*)
 		}
-	});
+
+		_ => body,
+	};
+	let read = emitter.read.borrow();
+	let unread = message
+		.placeholders
+		.iter()
+		.map(|placeholder| placeholder.name.as_str())
+		.filter(|name| !read.contains(*name))
+		.collect();
+	let signature = signature(message, &unread);
+	let allow = emitter
+		.compares_floats
+		.get()
+		.then(|| quote!(#[allow(clippy::float_cmp)]));
+
 	quote! {
-		#documentation
-		pub struct #ident;
-
-		#rules
-
-		impl Messages for #ident {
-			#(#methods)*
+		#allow
+		#signature {
+			#statements
 		}
 	}
 }
@@ -423,58 +453,82 @@ impl Emitter<'_> {
 			}
 			[Part::Plural(plural)] => self.plural(plural),
 			[Part::Select(select)] => self.select(select, number),
-			_ => {
-				let mut template = String::new();
-				let mut bindings: Vec<(syn::Ident, TokenStream)> = Vec::new();
-				let mut bind = |arg: &str, form: TokenStream, template: &mut String| {
-					let mut ident = format_ident!("{}_form", arg.to_snake_case());
-					let mut attempt = 1;
+			_ => self.concatenated(parts, number),
+		}
+	}
 
-					while bindings.iter().any(|(bound, _)| *bound == ident)
-						|| self
-							.placeholders
-							.iter()
-							.any(|placeholder| placeholder.ident == ident)
-					{
-						attempt += 1;
-						ident = format_ident!("{}_form_{attempt}", arg.to_snake_case());
-					}
-					let _ = write!(template, "{{{ident}}}");
-					bindings.push((ident, form));
-				};
-				for part in parts {
-					match part {
-						Part::Text(text) => {
-							template.push_str(&text.replace('{', "{{").replace('}', "}}"));
-						}
-						Part::Placeholder(name) => {
-							let ident = self.read(self.placeholder(name));
-							let _ = write!(template, "{{{ident}}}");
-						}
-						Part::Number => {
-							let _ = write!(template, "{{{}}}", shown_number());
-						}
-						Part::Plural(plural) => {
-							bind(&plural.arg, self.plural(plural), &mut template);
-						}
-						Part::Select(select) => {
-							bind(&select.arg, self.select(select, number), &mut template);
-						}
-					}
+	/// Parts that need a `format!`, with every plural and select bound to a
+	/// local first so the template reads like the message.
+	fn concatenated(&self, parts: &[Part], number: Option<&Placeholder>) -> TokenStream {
+		let mut template = String::new();
+		let mut bindings: Vec<(syn::Ident, TokenStream)> = Vec::new();
+
+		for part in parts {
+			match part {
+				Part::Text(text) => {
+					template.push_str(&text.replace('{', "{{").replace('}', "}}"));
 				}
-				if bindings.is_empty() {
-					quote!(format!(#template))
-				} else {
-					let lets = bindings
-						.iter()
-						.map(|(ident, form)| quote!(let #ident = #form;));
-					quote! {{
-						#(#lets)*
-						format!(#template)
-					}}
+
+				Part::Placeholder(name) => {
+					let ident = self.read(self.placeholder(name));
+					let _ = write!(template, "{{{ident}}}");
+				}
+
+				Part::Number => {
+					let ident = self.read(number.expect("`#` only appears inside a plural"));
+					let _ = write!(template, "{{{ident}}}");
+				}
+
+				Part::Plural(plural) => {
+					let form = self.plural(plural);
+					self.bind(&plural.arg, form, &mut template, &mut bindings);
+				}
+
+				Part::Select(select) => {
+					let form = self.select(select, number);
+					self.bind(&select.arg, form, &mut template, &mut bindings);
 				}
 			}
 		}
+
+		if bindings.is_empty() {
+			return quote!(format!(#template));
+		}
+
+		let lets = bindings
+			.iter()
+			.map(|(ident, form)| quote!(let #ident = #form;));
+		quote! {{
+			#(#lets)*
+			format!(#template)
+		}}
+	}
+
+	/// Binds `form` to a local named after `arg`, and shows that local in
+	/// `template`. A name a placeholder already uses gains a number.
+	fn bind(
+		&self,
+		arg: &str,
+		form: TokenStream,
+		template: &mut String,
+		bindings: &mut Vec<(syn::Ident, TokenStream)>,
+	) {
+		let snake = arg.to_snake_case();
+		let mut ident = format_ident!("{snake}_form");
+		let mut attempt = 1;
+
+		while bindings.iter().any(|(bound, _)| *bound == ident)
+			|| self
+				.placeholders
+				.iter()
+				.any(|placeholder| placeholder.ident == ident)
+		{
+			attempt += 1;
+			ident = format_ident!("{snake}_form_{attempt}");
+		}
+
+		let _ = write!(template, "{{{ident}}}");
+		bindings.push((ident, form));
 	}
 
 	/// A plural: its `=N` forms and the category of a single form as a chain

@@ -17,6 +17,8 @@ use crate::arb;
 use crate::arb::ArbFile;
 use crate::message;
 use crate::message::Part;
+use crate::message::Plural;
+use crate::message::Select;
 
 /// What a placeholder holds, and the Rust type the method takes it as.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -247,6 +249,54 @@ pub(crate) fn build(
 	template: &str,
 	diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<Catalog> {
+	let template = template_file(&mut files, dir, template, diagnostics)?;
+	// By tag rather than by file name, which can write a tag several ways.
+	files.sort_by(|left, right| left.tag.cmp(&right.tag));
+	let mut messages = template_messages(&template, diagnostics);
+	messages.sort_by_cached_key(|message| message.method.to_string());
+
+	let mut locales = Vec::new();
+	let template_ident = struct_ident(&template, &[], diagnostics);
+	let translated = messages
+		.iter()
+		.map(|message| (message.key.clone(), message.parts.clone()))
+		.collect();
+	locales.push(Locale {
+		tag: template.tag.clone(),
+		ident: template_ident,
+		file: template.name.clone(),
+		translated,
+		untranslated: Vec::new(),
+	});
+
+	for file in files {
+		let ident = struct_ident(&file, &locales, diagnostics);
+		let translated = translate(&file, &messages, &template, diagnostics);
+		let untranslated = messages
+			.iter()
+			.filter(|message| !file.messages.contains_key(&message.key))
+			.map(|message| message.key.clone())
+			.collect();
+		locales.push(Locale {
+			tag: file.tag,
+			ident,
+			file: file.name,
+			translated,
+			untranslated,
+		});
+	}
+
+	Some(Catalog { messages, locales })
+}
+
+/// Removes the template locale's file from `files`, or reports why it is
+/// missing.
+fn template_file(
+	files: &mut Vec<ArbFile>,
+	dir: &Path,
+	template: &str,
+	diagnostics: &mut Vec<Diagnostic>,
+) -> Option<ArbFile> {
 	let Ok(template_locale) = template.parse::<LanguageIdentifier>() else {
 		diagnostics.push(Diagnostic::new(
 			dir,
@@ -276,72 +326,47 @@ pub(crate) fn build(
 
 		return None;
 	};
-	let template = files.remove(position);
-	// By tag rather than by file name, which can write a tag several ways.
-	files.sort_by(|left, right| left.tag.cmp(&right.tag));
-	let mut messages = template_messages(&template, diagnostics);
-	messages.sort_by_cached_key(|message| message.method.to_string());
 
-	let mut locales = Vec::new();
-	let template_ident = struct_ident(&template, &[], diagnostics);
-	let translated = messages
-		.iter()
-		.map(|message| (message.key.clone(), message.parts.clone()))
-		.collect();
-	locales.push(Locale {
-		tag: template.tag.clone(),
-		ident: template_ident,
-		file: template.name.clone(),
-		translated,
-		untranslated: Vec::new(),
-	});
+	Some(files.remove(position))
+}
 
-	for file in files {
-		let ident = struct_ident(&file, &locales, diagnostics);
-		let mut translated = BTreeMap::new();
+/// One locale's translations, reporting what it gets wrong.
+fn translate(
+	file: &ArbFile,
+	messages: &[Message],
+	template: &ArbFile,
+	diagnostics: &mut Vec<Diagnostic>,
+) -> BTreeMap<String, Vec<Part>> {
+	let mut translated = BTreeMap::new();
 
-		for (key, written) in &file.messages {
-			let Some(message) = messages.iter().find(|message| message.key == *key) else {
-				// A template message that failed its own checks was reported
-				// there; only a key the template never had is news.
-				if !template.messages.contains_key(key) {
-					diagnostics.push(Diagnostic::new(
-						&file.path,
-						Some(written.line),
-						format!(
-							"`{key}` is not in the template `{}`; add it there first, or remove \
-							 it here",
-							template.name
-						),
-					));
-				}
-
-				continue;
-			};
-			let Some(parts) = parse_parts(&file.path, key, written, diagnostics) else {
-				continue;
-			};
-
-			if check_translation(&file.path, written.line, &parts, message, diagnostics) {
-				translated.insert(key.clone(), parts);
+	for (key, written) in &file.messages {
+		let Some(message) = messages.iter().find(|message| message.key == *key) else {
+			// A template message that failed its own checks was reported
+			// there; only a key the template never had is news.
+			if !template.messages.contains_key(key) {
+				diagnostics.push(Diagnostic::new(
+					&file.path,
+					Some(written.line),
+					format!(
+						"`{key}` is not in the template `{}`; add it there first, or remove it \
+						 here",
+						template.name
+					),
+				));
 			}
-		}
 
-		let untranslated = messages
-			.iter()
-			.filter(|message| !file.messages.contains_key(&message.key))
-			.map(|message| message.key.clone())
-			.collect();
-		locales.push(Locale {
-			tag: file.tag,
-			ident,
-			file: file.name,
-			translated,
-			untranslated,
-		});
+			continue;
+		};
+		let Some(parts) = parse_parts(&file.path, key, written, diagnostics) else {
+			continue;
+		};
+
+		if check_translation(&file.path, written.line, &parts, message, diagnostics) {
+			translated.insert(key.clone(), parts);
+		}
 	}
 
-	Some(Catalog { messages, locales })
+	translated
 }
 
 /// Types every message in the template.
@@ -546,14 +571,7 @@ fn type_placeholders(
 ) -> Option<Vec<Placeholder>> {
 	let mut used = Vec::new();
 	usages(parts, &mut used);
-	let mut names: Vec<&str> = Vec::new();
-
-	for (name, _) in &used {
-		if !names.contains(&name.as_str()) {
-			names.push(name);
-		}
-	}
-
+	let names = unique_names(&used);
 	let mut placeholders: Vec<Placeholder> = Vec::new();
 	let mut complete = true;
 	let mut report = |message: String| {
@@ -561,75 +579,35 @@ fn type_placeholders(
 	};
 
 	for name in &names {
-		let used_as = |usage| used.iter().any(|(used, how)| used == name && *how == usage);
-		let counted = used_as(Usage::Counted);
-		let matched = used_as(Usage::Matched);
-
-		if counted && matched {
-			report(format!(
-				"`{name}` is counted by a plural and matched by a select in `{key}`; use two \
-				 placeholders"
-			));
+		let Some(typed) = type_of(name, key, written, &used, &mut report) else {
 			complete = false;
 
 			continue;
-		}
+		};
+		complete &= typed.valid;
 
-		let declared = written.declared.get(*name).copied().flatten();
-		let ty = declared.unwrap_or(if counted {
-			PlaceholderType::Int
-		} else {
-			PlaceholderType::Str
-		});
-
-		if counted && !ty.is_number() {
-			report(format!(
-				"`{name}` is counted by a plural in `{key}`, so its type must be int or num, not \
-				 {}",
-				ty.arb_name()
-			));
+		let Some(found) = placeholder(name, key, typed.ty, &mut report) else {
 			complete = false;
-		}
 
-		if matched && ty != PlaceholderType::Str {
-			report(format!(
-				"`{name}` is matched by a select in `{key}`, so its type must be String, not {}",
-				ty.arb_name()
-			));
-			complete = false;
-		}
-
-		let snake = name.to_snake_case();
-
-		let ident = match identifier(&snake) {
-			Ok(ident) => ident,
-			Err(not) => {
-				report(format!(
-					"the placeholder `{name}` of `{key}` cannot become a parameter: {}; rename it",
-					not.describe(&snake)
-				));
-				complete = false;
-				continue;
-			}
+			continue;
 		};
 
 		if let Some(other) = placeholders
 			.iter()
-			.find(|placeholder| placeholder.ident == ident)
+			.find(|placeholder| placeholder.ident == found.ident)
 		{
 			report(format!(
 				"the placeholders `{name}` and `{}` of `{key}` would both be the parameter \
 				 `{ident}`; rename one",
-				other.name
+				other.name,
+				ident = found.ident
 			));
 			complete = false;
+
 			continue;
 		}
-		placeholders.push(Placeholder {
-			name: (*name).to_owned(),
-			ident,
-			ty,
-		});
+
+		placeholders.push(found);
 	}
 
 	for declared in written.declared.keys() {
@@ -642,6 +620,103 @@ fn type_placeholders(
 	}
 
 	complete.then_some(placeholders)
+}
+
+/// The names `used` mentions, in first-use order.
+fn unique_names(used: &[(String, Usage)]) -> Vec<&str> {
+	let mut names: Vec<&str> = Vec::new();
+
+	for (name, _) in used {
+		if !names.contains(&name.as_str()) {
+			names.push(name);
+		}
+	}
+
+	names
+}
+
+/// A placeholder's type, and whether its uses agree with each other.
+struct Typed {
+	ty: PlaceholderType,
+	/// False when a use contradicts the declared or inferred type.
+	valid: bool,
+}
+
+/// What a placeholder's uses say its type is. `None` when it is both counted
+/// and matched, which no single parameter can be.
+fn type_of(
+	name: &str,
+	key: &str,
+	written: &arb::Message,
+	used: &[(String, Usage)],
+	report: &mut impl FnMut(String),
+) -> Option<Typed> {
+	let used_as = |usage| used.iter().any(|(used, how)| used == name && *how == usage);
+	let counted = used_as(Usage::Counted);
+	let matched = used_as(Usage::Matched);
+
+	if counted && matched {
+		report(format!(
+			"`{name}` is counted by a plural and matched by a select in `{key}`; use two \
+			 placeholders"
+		));
+
+		return None;
+	}
+
+	let declared = written.declared.get(name).copied().flatten();
+	let ty = declared.unwrap_or(if counted {
+		PlaceholderType::Int
+	} else {
+		PlaceholderType::Str
+	});
+	let mut valid = true;
+
+	if counted && !ty.is_number() {
+		report(format!(
+			"`{name}` is counted by a plural in `{key}`, so its type must be int or num, not {}",
+			ty.arb_name()
+		));
+		valid = false;
+	}
+
+	if matched && ty != PlaceholderType::Str {
+		report(format!(
+			"`{name}` is matched by a select in `{key}`, so its type must be String, not {}",
+			ty.arb_name()
+		));
+		valid = false;
+	}
+
+	Some(Typed { ty, valid })
+}
+
+/// One placeholder, named as a Rust field. `None` when `name` cannot become
+/// one.
+fn placeholder(
+	name: &str,
+	key: &str,
+	ty: PlaceholderType,
+	report: &mut impl FnMut(String),
+) -> Option<Placeholder> {
+	let snake = name.to_snake_case();
+	let ident = match identifier(&snake) {
+		Ok(ident) => ident,
+		Err(not) => {
+			report(format!(
+				"the placeholder `{name}` of `{key}` cannot become a parameter: {}; rename it",
+				not.describe(&snake)
+			));
+
+			return None;
+		}
+	};
+
+	Some(Placeholder {
+		name: name.to_owned(),
+		ident,
+		ty,
+	})
 }
 
 /// Whether a translation uses the template's placeholders, each in a way
@@ -662,71 +737,100 @@ fn check_translation(
 		.map(|placeholder| placeholder.name.as_str())
 		.collect();
 	let key = &template.key;
-	let mut complete = true;
-	let missing: Vec<String> = expected
-		.difference(&names)
-		.map(|name| format!("`{{{name}}}`"))
-		.collect();
-	let extra: Vec<String> = names
-		.difference(&expected)
-		.map(|name| format!("`{{{name}}}`"))
-		.collect();
-
-	if !missing.is_empty() || !extra.is_empty() {
-		let mut problems = Vec::new();
-
-		if !missing.is_empty() {
-			problems.push(format!("leaves out {}", missing.join(", ")));
-		}
-
-		if !extra.is_empty() {
-			problems.push(format!(
-				"adds {}, which the template does not have",
-				extra.join(", ")
-			));
-		}
-
-		diagnostics.push(Diagnostic::new(
-			path,
-			Some(line),
-			format!(
-				"`{key}` {}; a translation uses the template's placeholders",
-				problems.join(" and ")
-			),
-		));
-		complete = false;
-	}
+	let mut complete = check_names(path, line, key, &names, &expected, diagnostics);
 
 	for (name, usage) in &used {
-		let Some(placeholder) = template
-			.placeholders
-			.iter()
-			.find(|placeholder| placeholder.name == *name)
-		else {
-			continue;
-		};
-
-		let allowed = match usage {
-			Usage::Shown => true,
-			Usage::Counted => placeholder.ty.is_number(),
-			Usage::Matched => placeholder.ty == PlaceholderType::Str,
-		};
-
-		if !allowed {
-			diagnostics.push(Diagnostic::new(
-				path,
-				Some(line),
-				format!(
-					"`{name}` is {} in `{key}`, but the template types it as {}",
-					usage.describe(),
-					placeholder.ty.arb_name()
-				),
-			));
-			complete = false;
-		}
+		complete &= check_usage(path, line, key, name, *usage, template, diagnostics);
 	}
 
 	complete && exact_numbers_fit(path, line, key, parts, &template.placeholders, diagnostics)
+}
+
+/// Whether a translation names exactly the template's placeholders.
+fn check_names(
+	path: &Path,
+	line: usize,
+	key: &str,
+	names: &BTreeSet<&str>,
+	expected: &BTreeSet<&str>,
+	diagnostics: &mut Vec<Diagnostic>,
+) -> bool {
+	let missing: Vec<String> = expected
+		.difference(names)
+		.map(|name| format!("`{{{name}}}`"))
+		.collect();
+	let extra: Vec<String> = names
+		.difference(expected)
+		.map(|name| format!("`{{{name}}}`"))
+		.collect();
+
+	if missing.is_empty() && extra.is_empty() {
+		return true;
+	}
+
+	let mut problems = Vec::new();
+
+	if !missing.is_empty() {
+		problems.push(format!("leaves out {}", missing.join(", ")));
+	}
+
+	if !extra.is_empty() {
+		problems.push(format!(
+			"adds {}, which the template does not have",
+			extra.join(", ")
+		));
+	}
+
+	diagnostics.push(Diagnostic::new(
+		path,
+		Some(line),
+		format!(
+			"`{key}` {}; a translation uses the template's placeholders",
+			problems.join(" and ")
+		),
+	));
+
+	false
+}
+
+/// Whether one placeholder is used the way its type allows.
+fn check_usage(
+	path: &Path,
+	line: usize,
+	key: &str,
+	name: &str,
+	usage: Usage,
+	template: &Message,
+	diagnostics: &mut Vec<Diagnostic>,
+) -> bool {
+	let Some(placeholder) = template
+		.placeholders
+		.iter()
+		.find(|placeholder| placeholder.name == name)
+	else {
+		return true;
+	};
+	let allowed = match usage {
+		Usage::Shown => true,
+		Usage::Counted => placeholder.ty.is_number(),
+		Usage::Matched => placeholder.ty == PlaceholderType::Str,
+	};
+
+	if allowed {
+		return true;
+	}
+
+	diagnostics.push(Diagnostic::new(
+		path,
+		Some(line),
+		format!(
+			"`{name}` is {} in `{key}`, but the template types it as {}",
+			usage.describe(),
+			placeholder.ty.arb_name()
+		),
+	));
+
+	false
 }
 
 /// Whether every `=N` form compares a number its placeholder's type can
@@ -744,48 +848,13 @@ fn exact_numbers_fit(
 	let mut fit = true;
 
 	for part in parts {
-		let inside: Vec<&[Part]> = match part {
+		let inside = match part {
 			Part::Text(_) | Part::Placeholder(_) | Part::Number => continue,
 			Part::Plural(plural) => {
-				if let Some(placeholder) = placeholders
-					.iter()
-					.find(|placeholder| placeholder.name == plural.arg)
-				{
-					let largest = placeholder.ty.largest_exact();
-
-					for (number, _) in plural.exact.iter().filter(|(number, _)| *number > largest) {
-						diagnostics.push(Diagnostic::new(
-							path,
-							Some(line),
-							format!(
-								"`={number}` in `{key}` is out of range for `{}`, {}: its `=N` \
-								 forms can be at most {largest}",
-								plural.arg,
-								match placeholder.ty {
-									PlaceholderType::Int => "an int",
-									PlaceholderType::Num | PlaceholderType::Str => "a num",
-								}
-							),
-						));
-						fit = false;
-					}
-				}
-				plural
-					.exact
-					.iter()
-					.map(|(_, body)| body.as_slice())
-					.chain(plural.categories.iter().map(|(_, body)| body.as_slice()))
-					.chain([plural.other.as_slice()])
-					.collect()
+				fit &= exact_forms_fit(path, line, key, plural, placeholders, diagnostics);
+				plural_bodies(plural)
 			}
-			Part::Select(select) => {
-				select
-					.cases
-					.iter()
-					.map(|(_, body)| body.as_slice())
-					.chain([select.other.as_slice()])
-					.collect()
-			}
+			Part::Select(select) => select_bodies(select),
 		};
 
 		for body in inside {
@@ -794,6 +863,66 @@ fn exact_numbers_fit(
 	}
 
 	fit
+}
+
+/// Whether every `=N` in `plural` fits the type of the placeholder it
+/// counts.
+fn exact_forms_fit(
+	path: &Path,
+	line: usize,
+	key: &str,
+	plural: &Plural,
+	placeholders: &[Placeholder],
+	diagnostics: &mut Vec<Diagnostic>,
+) -> bool {
+	let Some(placeholder) = placeholders
+		.iter()
+		.find(|placeholder| placeholder.name == plural.arg)
+	else {
+		return true;
+	};
+	let largest = placeholder.ty.largest_exact();
+	let mut fit = true;
+
+	for (number, _) in plural.exact.iter().filter(|(number, _)| *number > largest) {
+		diagnostics.push(Diagnostic::new(
+			path,
+			Some(line),
+			format!(
+				"`={number}` in `{key}` is out of range for `{}`, {}: its `=N` forms can be at \
+				 most {largest}",
+				plural.arg,
+				match placeholder.ty {
+					PlaceholderType::Int => "an int",
+					PlaceholderType::Num | PlaceholderType::Str => "a num",
+				}
+			),
+		));
+		fit = false;
+	}
+
+	fit
+}
+
+/// Every body a plural holds, its `=N` forms first.
+fn plural_bodies(plural: &Plural) -> Vec<&[Part]> {
+	plural
+		.exact
+		.iter()
+		.map(|(_, body)| body.as_slice())
+		.chain(plural.categories.iter().map(|(_, body)| body.as_slice()))
+		.chain([plural.other.as_slice()])
+		.collect()
+}
+
+/// Every body a select holds.
+fn select_bodies(select: &Select) -> Vec<&[Part]> {
+	select
+		.cases
+		.iter()
+		.map(|(_, body)| body.as_slice())
+		.chain([select.other.as_slice()])
+		.collect()
 }
 
 #[cfg(test)]

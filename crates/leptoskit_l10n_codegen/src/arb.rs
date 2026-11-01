@@ -106,19 +106,95 @@ fn read_file(
 	locale: LanguageIdentifier,
 	diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<ArbFile> {
-	let raw = match std::fs::read_to_string(path) {
-		Ok(raw) => raw,
+	let raw = read_source(path, diagnostics)?;
+	let object = parse_json(path, &raw, diagnostics)?;
+	let tag = locale.to_string();
+	let lines = line_map(path, &raw, diagnostics);
+	let line_of = |key: &str| lines.get(key).copied();
+	let mut messages = BTreeMap::new();
+	let mut metadata = Vec::new();
+
+	for (key, value) in object {
+		let line = line_of(&key);
+
+		match classify(&key, &value, &locale) {
+			EntryKind::Global => {}
+			EntryKind::WrongLocale => {
+				diagnostics.push(Diagnostic::new(
+					path,
+					line,
+					format!("`@@locale` must be `{tag}`, the locale the file is named after"),
+				));
+			}
+
+			EntryKind::Metadata(base) => metadata.push((base, key, value, line)),
+			EntryKind::Text(text) => {
+				messages.insert(
+					key,
+					Message {
+						text,
+						line: line.unwrap_or(1),
+						description: None,
+						declared: BTreeMap::new(),
+					},
+				);
+			}
+
+			EntryKind::NotText => {
+				diagnostics.push(Diagnostic::new(
+					path,
+					line,
+					format!("`{key}` must be a string: the message's text"),
+				));
+			}
+		}
+	}
+
+	for (base, key, value, line) in metadata {
+		let Some(message) = messages.get_mut(&base) else {
+			diagnostics.push(Diagnostic::new(
+				path,
+				line,
+				format!("`{key}` describes `{base}`, which is not a message in this file"),
+			));
+
+			continue;
+		};
+		read_metadata(path, &key, &value, line, message, diagnostics);
+	}
+
+	Some(ArbFile {
+		locale,
+		tag,
+		path: path.to_path_buf(),
+		name,
+		messages,
+	})
+}
+
+/// The file's text. `None` when it cannot be read.
+fn read_source(path: &Path, diagnostics: &mut Vec<Diagnostic>) -> Option<String> {
+	match std::fs::read_to_string(path) {
+		Ok(raw) => Some(raw),
 		Err(error) => {
 			diagnostics.push(Diagnostic::new(
 				path,
 				None,
 				format!("the file could not be read: {error}"),
 			));
-			return None;
-		}
-	};
 
-	let value: Value = match serde_json::from_str(&raw) {
+			None
+		}
+	}
+}
+
+/// The file's one JSON object. `None` when it is not JSON, or not an object.
+fn parse_json(
+	path: &Path,
+	raw: &str,
+	diagnostics: &mut Vec<Diagnostic>,
+) -> Option<serde_json::Map<String, Value>> {
+	let value: Value = match serde_json::from_str(raw) {
 		Ok(value) => value,
 		Err(error) => {
 			let line = (error.line() > 0).then_some(error.line());
@@ -131,6 +207,7 @@ fn read_file(
 				line,
 				format!("the file is not JSON: {message}"),
 			));
+
 			return None;
 		}
 	};
@@ -144,10 +221,15 @@ fn read_file(
 
 		return None;
 	};
-	let tag = locale.to_string();
+
+	Some(object)
+}
+
+/// The line each key is written on, reporting a key written twice.
+fn line_map(path: &Path, raw: &str, diagnostics: &mut Vec<Diagnostic>) -> BTreeMap<String, usize> {
 	let mut lines = BTreeMap::new();
 
-	for (key, line) in key_lines(&raw) {
+	for (key, line) in key_lines(raw) {
 		match lines.entry(key) {
 			Entry::Occupied(first) => {
 				diagnostics.push(Diagnostic::new(
@@ -162,69 +244,49 @@ fn read_file(
 		}
 	}
 
-	let line_of = |key: &str| lines.get(key).copied();
+	lines
+}
 
-	let mut messages = BTreeMap::new();
-	let mut metadata = Vec::new();
+/// What one key of an ARB file is.
+enum EntryKind {
+	/// `@@locale` as named, or another global the translation tool owns.
+	Global,
+	/// `@@locale`, naming another locale than the file.
+	WrongLocale,
+	/// `@key`, with the message it describes.
+	Metadata(String),
+	/// A message's text.
+	Text(String),
+	/// A key whose value is not a string.
+	NotText,
+}
 
-	for (key, value) in object {
-		let line = line_of(&key);
+/// Reads what a key of an ARB file is.
+fn classify(key: &str, value: &Value, locale: &LanguageIdentifier) -> EntryKind {
+	if key == "@@locale" {
+		let written = value
+			.as_str()
+			.and_then(|tag| tag.parse::<LanguageIdentifier>().ok());
 
-		if key == "@@locale" {
-			let written = value
-				.as_str()
-				.and_then(|tag| tag.parse::<LanguageIdentifier>().ok());
-
-			if written.as_ref() != Some(&locale) {
-				diagnostics.push(Diagnostic::new(
-					path,
-					line,
-					format!("`@@locale` must be `{tag}`, the locale the file is named after"),
-				));
-			}
-		} else if key.starts_with("@@") {
-			// Other globals, such as `@@last_modified`, are the translation
-			// tool's business.
-		} else if let Some(base) = key.strip_prefix('@') {
-			metadata.push((base.to_owned(), key.clone(), value, line));
-		} else if let Some(text) = value.as_str() {
-			messages.insert(
-				key,
-				Message {
-					text: text.to_owned(),
-					line: line.unwrap_or(1),
-					description: None,
-					declared: BTreeMap::new(),
-				},
-			);
+		return if written.as_ref() == Some(locale) {
+			EntryKind::Global
 		} else {
-			diagnostics.push(Diagnostic::new(
-				path,
-				line,
-				format!("`{key}` must be a string: the message's text"),
-			));
-		}
-	}
-
-	for (base, key, value, line) in metadata {
-		let Some(message) = messages.get_mut(&base) else {
-			diagnostics.push(Diagnostic::new(
-				path,
-				line,
-				format!("`{key}` describes `{base}`, which is not a message in this file"),
-			));
-			continue;
+			EntryKind::WrongLocale
 		};
-		read_metadata(path, &key, &value, line, message, diagnostics);
 	}
 
-	Some(ArbFile {
-		locale,
-		tag,
-		path: path.to_path_buf(),
-		name,
-		messages,
-	})
+	if key.starts_with("@@") {
+		return EntryKind::Global;
+	}
+
+	if let Some(base) = key.strip_prefix('@') {
+		return EntryKind::Metadata(base.to_owned());
+	}
+
+	match value.as_str() {
+		Some(text) => EntryKind::Text(text.to_owned()),
+		None => EntryKind::NotText,
+	}
 }
 
 /// Reads an `@key` object: its `description` and its `placeholders`.
@@ -339,35 +401,12 @@ fn key_lines(raw: &str) -> Vec<(String, usize)> {
 			b'"' => {
 				let start = index;
 				let start_line = line;
-				index += 1;
-				while index < bytes.len() && bytes[index] != b'"' {
-					if bytes[index] == b'\\' {
-						index += 1;
-					}
+				let end = string_end(bytes, &mut index, &mut line);
 
-					if bytes.get(index) == Some(&b'\n') {
-						line += 1;
-					}
-
-					index += 1;
-				}
-
-				let end = index;
-				index += 1;
-				if depth == 1 {
-					let mut after = index;
-
-					while bytes.get(after).is_some_and(u8::is_ascii_whitespace) {
-						after += 1;
-					}
-
-					if bytes.get(after) == Some(&b':')
-						&& let Some(key) = raw
-							.get(start..=end)
-							.and_then(|quoted| serde_json::from_str::<String>(quoted).ok())
-					{
-						keys.push((key, start_line));
-					}
+				if depth == 1
+					&& let Some(key) = key_at(raw, bytes, start..=end, index)
+				{
+					keys.push((key, start_line));
 				}
 			}
 			_ => index += 1,
@@ -377,6 +416,49 @@ fn key_lines(raw: &str) -> Vec<(String, usize)> {
 	keys
 }
 
+/// Scans the string that opens at `index`, and returns the closing quote's
+/// byte. `index` moves past it, and `line` counts the newlines inside.
+fn string_end(bytes: &[u8], index: &mut usize, line: &mut usize) -> usize {
+	*index += 1;
+
+	while *index < bytes.len() && bytes[*index] != b'"' {
+		if bytes[*index] == b'\\' {
+			*index += 1;
+		}
+
+		if bytes.get(*index) == Some(&b'\n') {
+			*line += 1;
+		}
+
+		*index += 1;
+	}
+
+	let end = *index;
+	*index += 1;
+
+	end
+}
+
+/// The key a top-level string names, when a `:` follows it.
+fn key_at(
+	raw: &str,
+	bytes: &[u8],
+	range: std::ops::RangeInclusive<usize>,
+	index: usize,
+) -> Option<String> {
+	let mut after = index;
+
+	while bytes.get(after).is_some_and(u8::is_ascii_whitespace) {
+		after += 1;
+	}
+
+	if bytes.get(after) != Some(&b':') {
+		return None;
+	}
+
+	raw.get(range)
+		.and_then(|quoted| serde_json::from_str::<String>(quoted).ok())
+}
 #[cfg(test)]
 mod tests {
 	use super::*;
