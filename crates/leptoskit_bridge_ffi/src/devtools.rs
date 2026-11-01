@@ -239,6 +239,7 @@ mod agent {
 			[
 				Capability::Tree,
 				Capability::Commits,
+				Capability::Calls,
 				Capability::Picking,
 				Capability::Profiling,
 			],

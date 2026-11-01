@@ -8,12 +8,14 @@
 #![cfg(target_arch = "wasm32")]
 #![allow(unsafe_code)] // Exported C names form the interpreter's entry points.
 
+use leptoskit::component;
 use leptoskit::components::Button;
 use leptoskit::components::Text;
 use leptoskit::components::View;
 use leptoskit::hooks::use_not;
 use leptoskit::hooks::use_toggle;
 use leptoskit::hooks::watch_with_options;
+use leptoskit::native::Element;
 use leptoskit::view;
 use reactive_graph::computed::Memo;
 use reactive_graph::owner::Owner;
@@ -52,10 +54,16 @@ pub extern "C" fn leptoskit_main() {
 		view! {
 			<View>
 				<Button on:press=move || toggle()>{label.get()}</Button>
-				<Text>"Changes: " {changes.get()}</Text>
+				<ChangeCount count=changes.get() />
 			</View>
 		}
 	});
+}
+
+/// The change count, as a component, so DevTools names it on every platform.
+#[component]
+fn ChangeCount(count: u32) -> Element {
+	view! { <Text>"Changes: " {count}</Text> }
 }
 
 /// Forwards platform-neutral events to the shared tree's handlers.

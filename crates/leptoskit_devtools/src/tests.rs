@@ -747,3 +747,47 @@ mod queries {
 		assert_eq!(value.json["invalidated"], true);
 	}
 }
+
+/// Server calls reach the Calls panel: an attempt wakes the agent, and the
+/// next flush carries it after whatever else changed.
+#[cfg(all(feature = "rpc", not(target_arch = "wasm32")))]
+#[tokio::test(flavor = "current_thread")]
+async fn server_calls_wake_the_agent_and_ride_each_flush() {
+	use leptoskit_rpc::FnError;
+	use leptoskit_rpc::RetryPolicy;
+
+	crate::report::DRAINS_CALLS.set(true);
+	let (agent, _owner) = agent();
+	let mut outbox = Outbox::default();
+	outbox.sent(outbox.batch(false, || tree("View")).unwrap());
+	let woken = agent.wakes.get();
+
+	let failed = leptoskit_rpc::call_with_retry(RetryPolicy::none(), || {
+		Box::pin(async { Err::<(), _>(FnError::Server("not found".into())) })
+	})
+	.await;
+	assert!(failed.is_err());
+	assert!(agent.wakes.get() > woken, "the attempt woke the agent");
+
+	let batch = outbox
+		.batch(false, || panic!("a call alone doesn't read the tree"))
+		.unwrap();
+	let attempts: Vec<_> = batch
+		.events
+		.iter()
+		.filter_map(|event| {
+			match event {
+				Event::RpcAttempt { attempt } => Some(attempt),
+				_ => None,
+			}
+		})
+		.collect();
+	let last = attempts.last().expect("the attempt is in the batch");
+	assert_eq!(last.attempt, 1);
+	assert_eq!(last.error.as_deref(), Some("server"));
+	assert!(
+		registry::capabilities().contains(&Capability::Rpc),
+		"sessions say they report server calls"
+	);
+	crate::report::DRAINS_CALLS.set(false);
+}

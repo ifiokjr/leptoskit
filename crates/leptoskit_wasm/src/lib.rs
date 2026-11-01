@@ -160,6 +160,10 @@ pub struct WireNode {
 	/// built with `DevTools` sends it, for the host's agent to report.
 	#[serde(default)]
 	pub source: Option<String>,
+	/// The `#[component]` whose body created the node. Only a guest built
+	/// with `DevTools` sends it.
+	#[serde(default)]
+	pub component: Option<String>,
 }
 
 /// The payload delivered with a text-change or submit event.

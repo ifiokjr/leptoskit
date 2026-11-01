@@ -396,6 +396,21 @@ fn a_guest_reports_its_state_and_route_and_takes_the_hubs_commands() {
 		assert!(hello.capabilities.contains(&capability), "{hello:?}");
 	}
 
+	// Each node names the component that built it, across the wire: the
+	// count is a `#[component]`, its container is built outside any.
+	{
+		let state = hub.state.lock().unwrap();
+		let nodes = &state.tree.as_ref().unwrap().nodes;
+		let count = nodes
+			.iter()
+			.find(|node| node.text.as_deref() == Some("Changes: 0"))
+			.expect("the count");
+		assert_eq!(count.component.as_deref(), Some("ChangeCount"));
+		assert!(count.source.is_some(), "and the line that built it");
+		let root = nodes.iter().find(|node| node.parent.is_none()).unwrap();
+		assert_eq!(root.component, None);
+	}
+
 	// A press commits, and the guest reports the state it changed.
 	let button = hub
 		.state

@@ -45,6 +45,12 @@ pub fn drain() -> Vec<RpcAttempt> {
 	ATTEMPTS.drain()
 }
 
+/// Calls `wake` after each recorded attempt change, so an agent can report
+/// it soon after; `None` stops.
+pub fn set_waker(wake: Option<fn()>) {
+	ATTEMPTS.set_waker(wake);
+}
+
 /// How many attempt changes were dropped because nothing drained them in
 /// time, since the process started.
 pub fn dropped() -> u64 {

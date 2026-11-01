@@ -63,6 +63,10 @@ struct WireNode<'a> {
 	#[cfg(feature = "devtools")]
 	#[serde(skip_serializing_if = "Option::is_none")]
 	source: Option<String>,
+	/// The `#[component]` whose body created the element.
+	#[cfg(feature = "devtools")]
+	#[serde(skip_serializing_if = "Option::is_none")]
+	component: Option<&'static str>,
 }
 
 /// Whether a node kept in place is now built somewhere else in the source,
@@ -72,6 +76,7 @@ fn moved(previous: &Element, element: &Element) -> bool {
 	#[cfg(feature = "devtools")]
 	{
 		previous.source_location() != element.source_location()
+			|| previous.component_name() != element.component_name()
 	}
 	#[cfg(not(feature = "devtools"))]
 	{
@@ -191,6 +196,8 @@ impl Tree {
 				// The host kept the source from the node's first render.
 				#[cfg(feature = "devtools")]
 				source: None,
+				#[cfg(feature = "devtools")]
+				component: None,
 			})
 			.expect("native element properties serialize");
 			host.props(id, &wire);
@@ -273,6 +280,8 @@ impl Tree {
 						location.column()
 					)
 				}),
+				#[cfg(feature = "devtools")]
+				component: element.component_name(),
 			})
 			.expect("native element properties serialize")
 		});

@@ -4982,6 +4982,7 @@ dependencies = [
  "leptoskit_plugin_devtools",
  "leptoskit_query",
  "leptoskit_router",
+ "leptoskit_rpc",
  "reactive_graph",
  "serde",
  "serde_json",

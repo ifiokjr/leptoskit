@@ -142,6 +142,15 @@ fn node_set_props(
 		wire.props.rive = Some(content);
 	}
 	let state = caller.data_mut();
+	// A `DevTools` guest names where a node was created only when it renders
+	// the node in full; a bound value changing in place sends no source, so
+	// the node keeps the one it had.
+	if wire.source.is_none()
+		&& let Some(previous) = state.nodes.get(&id)
+	{
+		wire.source.clone_from(&previous.wire.source);
+		wire.component.clone_from(&previous.wire.component);
+	}
 	state.nodes.insert(
 		id,
 		HostNode {
