@@ -49,69 +49,16 @@ fn server(replies: Vec<Reply>) -> (Options, std::thread::JoinHandle<Vec<Value>>)
 	let endpoint = format!("http://{}/wd", listener.local_addr().unwrap());
 	let handle = std::thread::spawn(move || {
 		let mut bodies = Vec::new();
+
 		for expected in replies {
-			let deadline = Instant::now() + Duration::from_secs(10);
-			let mut stream = loop {
-				match listener.accept() {
-					Ok((stream, _)) => break stream,
-					Err(error)
-						if error.kind() == ErrorKind::WouldBlock && Instant::now() < deadline =>
-					{
-						std::thread::sleep(Duration::from_millis(5));
-					}
-					Err(error) => panic!("expected {}: {error}", expected.path),
-				}
-			};
-
-			stream.set_nonblocking(false).unwrap();
-			stream
-				.set_read_timeout(Some(Duration::from_secs(5)))
-				.unwrap();
-			let mut reader = BufReader::new(&stream);
-			let mut first = String::new();
-			reader.read_line(&mut first).unwrap();
-			assert!(
-				first.contains(expected.path),
-				"{first} should contain {}",
-				expected.path
-			);
-			let mut length = 0;
-			loop {
-				let mut line = String::new();
-				reader.read_line(&mut line).unwrap();
-				if line == "\r\n" {
-					break;
-				}
-				if let Some(value) = line.to_lowercase().strip_prefix("content-length:") {
-					length = value.trim().parse().unwrap();
-				}
-			}
-
-			let mut bytes = vec![0; length];
-			reader.read_exact(&mut bytes).unwrap();
-			bodies.push(if bytes.is_empty() {
+			let stream = accept(&listener, &expected.path);
+			let body = read_body(&stream, &expected.path);
+			bodies.push(if body.is_empty() {
 				Value::Null
 			} else {
-				serde_json::from_slice(&bytes).unwrap()
+				serde_json::from_slice(&body).unwrap()
 			});
-			let (status, content_type, body) = match expected.raw {
-				Some((status, body)) => (status, "text/html", body.to_owned()),
-				None => {
-					(
-						"200 OK",
-						"application/json",
-						json!({"value": expected.value}).to_string(),
-					)
-				}
-			};
-
-			write!(
-				stream,
-				"HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: \
-				 {}\r\nConnection: close\r\n\r\n{body}",
-				body.len()
-			)
-			.unwrap();
+			respond(&stream, &expected);
 		}
 
 		bodies
@@ -119,7 +66,81 @@ fn server(replies: Vec<Reply>) -> (Options, std::thread::JoinHandle<Vec<Value>>)
 	let mut options = Options::new(endpoint, Platform::Windows, Application::Desktop);
 	options.artifacts = std::env::temp_dir().join("leptoskit-native-protocol-tests");
 	options.wait_seconds = 1;
+
 	(options, handle)
+}
+
+/// Waits for the driver's connection, giving up after ten seconds.
+fn accept(listener: &TcpListener, path: &str) -> TcpStream {
+	let deadline = Instant::now() + Duration::from_secs(10);
+
+	loop {
+		match listener.accept() {
+			Ok((stream, _)) => {
+				stream.set_nonblocking(false).unwrap();
+				stream
+					.set_read_timeout(Some(Duration::from_secs(5)))
+					.unwrap();
+
+				return stream;
+			}
+
+			Err(error) if error.kind() == ErrorKind::WouldBlock && Instant::now() < deadline => {
+				std::thread::sleep(Duration::from_millis(5));
+			}
+
+			Err(error) => panic!("expected {path}: {error}"),
+		}
+	}
+}
+
+/// Reads one request's head and body, checking that it names `path`.
+fn read_body(stream: &TcpStream, path: &str) -> Vec<u8> {
+	let mut reader = BufReader::new(stream);
+	let mut first = String::new();
+	reader.read_line(&mut first).unwrap();
+	assert!(first.contains(path), "{first} should contain {path}");
+	let mut length = 0;
+
+	loop {
+		let mut line = String::new();
+		reader.read_line(&mut line).unwrap();
+
+		if line == "\r\n" {
+			break;
+		}
+
+		if let Some(value) = line.to_lowercase().strip_prefix("content-length:") {
+			length = value.trim().parse().unwrap();
+		}
+	}
+
+	let mut bytes = vec![0; length];
+	reader.read_exact(&mut bytes).unwrap();
+
+	bytes
+}
+
+/// Writes the reply the test expects.
+fn respond(mut stream: &TcpStream, expected: &Reply) {
+	let (status, content_type, body) = match &expected.raw {
+		Some((status, body)) => (*status, "text/html", body.to_owned()),
+		None => {
+			(
+				"200 OK",
+				"application/json",
+				json!({"value": expected.value}).to_string(),
+			)
+		}
+	};
+
+	write!(
+		stream,
+		"HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: \
+		 close\r\n\r\n{body}",
+		body.len()
+	)
+	.unwrap();
 }
 
 fn setup() -> Vec<Reply> {

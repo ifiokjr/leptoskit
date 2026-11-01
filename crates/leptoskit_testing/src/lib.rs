@@ -147,6 +147,117 @@ pub struct WidgetTester<B: NativeBackend = HeadlessBackend> {
 	viewport: (f32, f32),
 }
 
+/// The facts one accessibility line is built from.
+struct Line<'a> {
+	id: NodeId,
+	depth: usize,
+	kind: NativeKind,
+	aria: &'a leptoskit_native::Aria,
+	name: Option<&'a str>,
+	checked: Option<leptoskit_native::Tristate>,
+	value: Option<f64>,
+	live: leptoskit_native::Live,
+}
+
+/// Whether a node reports any of its states.
+fn has_states(aria: &leptoskit_native::Aria, checked: Option<leptoskit_native::Tristate>) -> bool {
+	checked.is_some()
+		|| aria.pressed.is_some()
+		|| aria.selected.is_some()
+		|| aria.expanded.is_some()
+		|| aria.busy.is_some()
+		|| aria.required.is_some()
+		|| aria
+			.invalid
+			.is_some_and(|invalid| invalid != leptoskit_native::Invalid::False)
+		|| aria.current.is_some()
+		|| aria.modal.is_some()
+		|| aria.read_only.is_some()
+}
+
+/// Writes the states a node sets, in a stable order, as ` [state=value]`.
+fn write_states(
+	entry: &mut String,
+	aria: &leptoskit_native::Aria,
+	checked: Option<leptoskit_native::Tristate>,
+) {
+	let flag = |value: Option<bool>| value.filter(|value| *value).map(|_| "true".to_owned());
+	let text =
+		|value: Option<leptoskit_native::Tristate>| value.map(|value| value.as_str().to_owned());
+
+	for (state, value) in [
+		("checked", text(checked)),
+		("pressed", text(aria.pressed)),
+		("selected", flag(aria.selected)),
+		("expanded", flag(aria.expanded)),
+		("busy", flag(aria.busy)),
+		("modal", flag(aria.modal)),
+		("required", flag(aria.required)),
+		("read-only", flag(aria.read_only)),
+		(
+			"invalid",
+			aria.invalid
+				.filter(|invalid| *invalid != leptoskit_native::Invalid::False)
+				.map(|invalid| invalid.as_str().to_owned()),
+		),
+		(
+			"current",
+			aria.current
+				.filter(|current| *current != leptoskit_native::Current::False)
+				.map(|current| current.as_str().to_owned()),
+		),
+	] {
+		if let Some(value) = value {
+			write!(entry, " [{state}={value}]").expect("writing to a string");
+		}
+	}
+}
+
+/// Whether a frame is finite and overlaps the viewport at all.
+fn within_viewport(frame: Frame, viewport: (f32, f32)) -> bool {
+	let finite = [frame.x, frame.y, frame.width, frame.height]
+		.into_iter()
+		.all(f32::is_finite);
+
+	finite
+		&& frame.width > 0.0
+		&& frame.height > 0.0
+		&& frame.x < viewport.0
+		&& frame.y < viewport.1
+		&& frame.x + frame.width > 0.0
+		&& frame.y + frame.height > 0.0
+}
+
+/// Whether a node hides itself and its subtree: a hidden node, a stopped
+/// activity indicator, or a transparent one.
+fn hides(props: &NativeProps, kind: NativeKind) -> bool {
+	props.hidden == Some(true)
+		|| (kind == NativeKind::ActivityIndicator && props.running == Some(false))
+		|| props
+			.opacity
+			.is_some_and(|opacity| !opacity.is_finite() || opacity <= 0.0)
+}
+
+/// Whether a node clips its subtree to its own frame.
+fn clips(props: &NativeProps, kind: NativeKind) -> bool {
+	props.clip == Some(true) || kind == NativeKind::ScrollView
+}
+
+/// The overlap of two frames.
+fn intersect(frame: Frame, clip: Frame) -> Frame {
+	let right = (frame.x + frame.width).min(clip.x + clip.width);
+	let bottom = (frame.y + frame.height).min(clip.y + clip.height);
+	let x = frame.x.max(clip.x);
+	let y = frame.y.max(clip.y);
+
+	Frame {
+		x,
+		y,
+		width: right - x,
+		height: bottom - y,
+	}
+}
+
 impl WidgetTester<HeadlessBackend> {
 	/// Mounts a widget with deterministic approximate text metrics.
 	pub fn new(
@@ -503,114 +614,36 @@ impl<B: NativeBackend> WidgetTester<B> {
 		// The resolver filled `live_text` with what the region announces, so
 		// an unnamed live region still shows its read-aloud content.
 		let name = props.accessible_name().or(aria.live_text.as_deref());
-		let tristate = |value: Option<bool>| value.map(leptoskit_native::Tristate::from);
 		let checked = aria.checked.or(match kind {
 			NativeKind::Switch | NativeKind::Checkbox | NativeKind::Radio => {
-				tristate(props.checked)
+				props.checked.map(leptoskit_native::Tristate::from)
 			}
 			_ => None,
 		});
-
-		let has_states = checked.is_some()
-			|| aria.pressed.is_some()
-			|| aria.selected.is_some()
-			|| aria.expanded.is_some()
-			|| aria.busy.is_some()
-			|| aria.required.is_some()
-			|| aria
-				.invalid
-				.is_some_and(|invalid| invalid != leptoskit_native::Invalid::False)
-			|| aria.current.is_some()
-			|| aria.modal.is_some()
-			|| aria.read_only.is_some();
 		let value = aria.value_now.or_else(|| {
 			(kind == NativeKind::Slider).then(|| props.slider.unwrap_or_default().value())
 		});
-
 		let included = role.is_some()
 			|| name.is_some()
 			|| aria.description.is_some()
 			|| aria.level.is_some()
-			|| has_states
+			|| has_states(aria, checked)
 			|| value.is_some()
 			|| aria.value_text.is_some()
 			|| live != leptoskit_native::Live::Off;
 
 		if included {
-			let mut entry = format!(
-				"{}{}",
-				"  ".repeat(depth),
-				role.map_or(kind.wire_name(), Role::wire_name)
-			);
-
-			if let Some(level) = aria.level {
-				write!(entry, "({level})").expect("writing to a string");
-			}
-
-			if let Some(name) = name {
-				write!(entry, " {name:?}").expect("writing to a string");
-			}
-
-			if !self.enabled(id) {
-				entry.push_str(" [disabled]");
-			}
-
-			let flag =
-				|value: Option<bool>| value.filter(|value| *value).map(|_| "true".to_owned());
-			for (state, value) in [
-				("checked", checked.map(|value| value.as_str().to_owned())),
-				(
-					"pressed",
-					aria.pressed.map(|value| value.as_str().to_owned()),
-				),
-				("selected", flag(aria.selected)),
-				("expanded", flag(aria.expanded)),
-				("busy", flag(aria.busy)),
-				("modal", flag(aria.modal)),
-				("required", flag(aria.required)),
-				("read-only", flag(aria.read_only)),
-				(
-					"invalid",
-					aria.invalid
-						.filter(|invalid| *invalid != leptoskit_native::Invalid::False)
-						.map(|invalid| invalid.as_str().to_owned()),
-				),
-				(
-					"current",
-					aria.current
-						.filter(|current| *current != leptoskit_native::Current::False)
-						.map(|current| current.as_str().to_owned()),
-				),
-			] {
-				if let Some(value) = value {
-					write!(entry, " [{state}={value}]").expect("writing to a string");
-				}
-			}
-
-			if let Some(value) = value {
-				write!(entry, " value={value}").expect("writing to a string");
-			}
-
-			if let Some(text) = &aria.value_text {
-				write!(entry, " {text:?}").expect("writing to a string");
-			}
-
-			if let Some(description) = &aria.description {
-				write!(entry, " description={description:?}").expect("writing to a string");
-			}
-
-			if live != leptoskit_native::Live::Off {
-				write!(entry, " live={}", live.as_str()).expect("writing to a string");
-				let atomic = aria
-					.atomic
-					.unwrap_or_else(|| role.is_some_and(Role::implicit_atomic));
-
-				if atomic {
-					entry.push_str(" atomic");
-				}
-			}
-
-			lines.push(entry);
+			let facts = Line {
+				id,
+				depth,
+				kind,
+				aria,
+				name,
+				checked,
+				value,
+				live,
+			};
+			lines.push(self.describe(&facts));
 		}
 
 		// A control is one accessibility element with its content merged, and
@@ -633,6 +666,65 @@ impl<B: NativeBackend> WidgetTester<B> {
 				self.semantics_walk(child, depth + usize::from(included), lines);
 			}
 		}
+	}
+
+	/// One node's line: its role, name, states, and value.
+	fn describe(&self, line: &Line<'_>) -> String {
+		let Line {
+			id,
+			depth,
+			kind,
+			aria,
+			name,
+			checked,
+			value,
+			live,
+		} = *line;
+		let mut entry = format!(
+			"{}{}",
+			"  ".repeat(depth),
+			aria.effective_role(kind)
+				.map_or(kind.wire_name(), Role::wire_name)
+		);
+
+		if let Some(level) = aria.level {
+			write!(entry, "({level})").expect("writing to a string");
+		}
+
+		if let Some(name) = name {
+			write!(entry, " {name:?}").expect("writing to a string");
+		}
+
+		if !self.enabled(id) {
+			entry.push_str(" [disabled]");
+		}
+
+		write_states(&mut entry, aria, checked);
+
+		if let Some(value) = value {
+			write!(entry, " value={value}").expect("writing to a string");
+		}
+
+		if let Some(text) = &aria.value_text {
+			write!(entry, " {text:?}").expect("writing to a string");
+		}
+
+		if let Some(description) = &aria.description {
+			write!(entry, " description={description:?}").expect("writing to a string");
+		}
+
+		if live != leptoskit_native::Live::Off {
+			write!(entry, " live={}", live.as_str()).expect("writing to a string");
+			let atomic = aria
+				.atomic
+				.unwrap_or_else(|| aria.effective_role(kind).is_some_and(Role::implicit_atomic));
+
+			if atomic {
+				entry.push_str(" atomic");
+			}
+		}
+
+		entry
 	}
 
 	fn error(&self, reason: impl Into<String>) -> TestError {
@@ -738,54 +830,41 @@ impl<B: NativeBackend> WidgetTester<B> {
 	fn visible_frame(&self, id: NodeId) -> Option<Frame> {
 		let frame = self.absolute_frame(id);
 
-		if ![frame.x, frame.y, frame.width, frame.height]
-			.into_iter()
-			.all(f32::is_finite)
-			|| frame.width <= 0.0
-			|| frame.height <= 0.0
-			|| frame.x >= self.viewport.0
-			|| frame.y >= self.viewport.1
-			|| frame.x + frame.width <= 0.0
-			|| frame.y + frame.height <= 0.0
-		{
+		if !within_viewport(frame, self.viewport) {
 			return None;
 		}
-		let mut current = Some(id);
+
+		self.clip_through_ancestors(id, frame)
+	}
+
+	/// Clips a frame by every ancestor that clips, and rejects one that is
+	/// hidden, collapsed, or clipped away entirely.
+	fn clip_through_ancestors(&self, id: NodeId, frame: Frame) -> Option<Frame> {
 		let mut visible = frame;
+		let mut current = Some(id);
 
 		while let Some(node) = current {
 			let props = self.surface.props(node);
+			let kind = self.surface.kind(node);
 
-			if props.hidden == Some(true)
-				|| (self.surface.kind(node) == NativeKind::ActivityIndicator
-					&& props.running == Some(false))
-				|| props
-					.opacity
-					.is_some_and(|opacity| !opacity.is_finite() || opacity <= 0.0)
-			{
+			if hides(props, kind) {
 				return None;
 			}
+
 			let layout = self.surface.layout(node);
 
 			if layout.width <= 0.0 || layout.height <= 0.0 {
 				return None;
 			}
 
-			if node != id
-				&& (props.clip == Some(true) || self.surface.kind(node) == NativeKind::ScrollView)
-			{
-				let clip = self.absolute_frame(node);
-				let right = (visible.x + visible.width).min(clip.x + clip.width);
-				let bottom = (visible.y + visible.height).min(clip.y + clip.height);
-				visible.x = visible.x.max(clip.x);
-				visible.y = visible.y.max(clip.y);
-				visible.width = right - visible.x;
-				visible.height = bottom - visible.y;
+			if node != id && clips(props, kind) {
+				visible = intersect(visible, self.absolute_frame(node));
 
 				if visible.width <= 0.0 || visible.height <= 0.0 {
 					return None;
 				}
 			}
+
 			current = self.surface.parent(node);
 		}
 
