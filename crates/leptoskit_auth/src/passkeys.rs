@@ -396,6 +396,8 @@ pub(crate) enum Checked {
 }
 
 #[cfg(feature = "passkey")]
+pub(crate) use ceremonies::is_ip_origin;
+#[cfg(feature = "passkey")]
 pub(crate) use ceremonies::relying_party;
 
 /// The WebAuthn ceremonies, with `webauthn-rs`.
@@ -447,6 +449,22 @@ mod ceremonies {
 	use crate::email::refuse_unusable;
 	use crate::events::record;
 
+	/// Whether `origin`'s host is an IP address, which WebAuthn never accepts
+	/// as a relying party.
+	pub(crate) fn is_ip_origin(origin: &str) -> bool {
+		Url::parse(origin)
+			.ok()
+			.and_then(|url| {
+				url.host_str().map(|host| {
+					host.trim_start_matches('[')
+						.trim_end_matches(']')
+						.parse::<std::net::IpAddr>()
+						.is_ok()
+				})
+			})
+			.unwrap_or(false)
+	}
+
 	/// The relying party for `origin`: its host is the RP ID, so passkeys
 	/// work on that host and its subdomains' pages, and nowhere else.
 	pub(crate) fn relying_party(
@@ -488,7 +506,10 @@ mod ceremonies {
 		fn webauthn(&self) -> Result<&Webauthn> {
 			self.inner.webauthn.as_ref().ok_or_else(|| {
 				AuthError::Config(
-					"passkeys need `[auth] origin`, whose host is the relying party".into(),
+					"passkeys need `[auth] origin` with a host name, which is the relying \
+					 party; an IP address such as 127.0.0.1 can't be one, so use \
+					 http://localhost:3000 while developing"
+						.into(),
 				)
 			})
 		}

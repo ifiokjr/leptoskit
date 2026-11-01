@@ -622,6 +622,21 @@ async fn passkeys_need_an_origin_and_a_fresh_session() {
 		Err(AuthError::Config(message)) if message.contains("relying party")
 	));
 
+	// An IP address can't be a relying party: the app starts without
+	// passkeys, and says why when one is asked for.
+	let on_an_ip = Auth::builder(&db, Keys::single("test", [7; 32]))
+		.origin("http://127.0.0.1:3000")
+		.mailer(mailbox.clone())
+		.build()
+		.unwrap();
+	let grace = sign_in(&on_an_ip, &mailbox, "grace@example.com")
+		.await
+		.signed_in();
+	assert!(matches!(
+		on_an_ip.begin_passkey_registration(&grace).await,
+		Err(AuthError::Config(message)) if message.contains("IP address")
+	));
+
 	let auth = auth(&db, &mailbox);
 	let me = stale(&db, &me).await;
 	assert!(matches!(
