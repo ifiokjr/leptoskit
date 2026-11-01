@@ -335,75 +335,96 @@ impl ApiArgs {
 		let mut args = Self::default();
 
 		for meta in metas {
-			match &meta {
-				Meta::Path(path) if path.is_ident("internal") => args.internal = true,
-
-				Meta::NameValue(pair) if pair.path.is_ident("name") => {
-					if args.name.is_some() {
-						return Err(syn::Error::new_spanned(pair, "`name` is given twice"));
-					}
-
-					let name = string_value(&pair.value, "name")?;
-					if !is_route_segment(&name.value()) {
-						return Err(syn::Error::new_spanned(
-							&name,
-							"`name` becomes the route `/api/<name>` and the generated method \
-							 names, so it must be non-empty and use ASCII letters, digits, `_`, \
-							 `-`, and `.`, as in `chat.messages`",
-						));
-					}
-
-					args.name = Some(name);
-				}
-
-				Meta::NameValue(pair) if pair.path.is_ident("tag") => {
-					args.tags.push(string_value(&pair.value, "tag")?);
-				}
-
-				Meta::NameValue(pair) if pair.path.is_ident("scope") => {
-					if let Expr::Lit(ExprLit {
-						lit: Lit::Str(name),
-						..
-					}) = &pair.value
-						&& !is_scope_name(&name.value())
-					{
-						return Err(syn::Error::new_spanned(
-							name,
-							"a scope is one or more printable ASCII characters other than space, \
-							 `\"`, and `\\`, such as \"posts:read\"",
-						));
-					}
-
-					args.scopes.push(pair.value.clone());
-				}
-
-				Meta::NameValue(pair) if pair.path.is_ident("crate") => {
-					if args.krate.is_some() {
-						return Err(syn::Error::new_spanned(pair, "`crate` is given twice"));
-					}
-
-					let path = string_value(&pair.value, "crate")?;
-					args.krate = Some(path.parse::<Path>().map_err(|_| {
-						syn::Error::new_spanned(
-							&path,
-							"`crate` expects the path to `leptoskit_rpc`, such as `crate = \
-							 \"leptoskit::rpc\"`",
-						)
-					})?);
-				}
-
-				other => {
-					return Err(syn::Error::new_spanned(
-						other,
-						"unknown #[api] option; expected `internal`, `name = \"...\"`, `tag = \
-						 \"...\"`, `scope = ...`, or `crate = \"...\"`",
-					));
-				}
-			}
+			api_option(&mut args, &meta)?;
 		}
 
 		Ok(args)
 	}
+}
+
+/// One `#[api(...)]` option.
+fn api_option(args: &mut ApiArgs, meta: &Meta) -> syn::Result<()> {
+	match meta {
+		Meta::Path(path) if path.is_ident("internal") => args.internal = true,
+
+		Meta::NameValue(pair) if pair.path.is_ident("name") => {
+			if args.name.is_some() {
+				return Err(syn::Error::new_spanned(pair, "`name` is given twice"));
+			}
+
+			args.name = Some(operation_name(pair)?);
+		}
+
+		Meta::NameValue(pair) if pair.path.is_ident("tag") => {
+			args.tags.push(string_value(&pair.value, "tag")?);
+		}
+
+		Meta::NameValue(pair) if pair.path.is_ident("scope") => {
+			args.scopes.push(scope_value(pair)?);
+		}
+
+		Meta::NameValue(pair) if pair.path.is_ident("crate") => {
+			if args.krate.is_some() {
+				return Err(syn::Error::new_spanned(pair, "`crate` is given twice"));
+			}
+
+			args.krate = Some(crate_path(pair)?);
+		}
+
+		other => {
+			return Err(syn::Error::new_spanned(
+				other,
+				"unknown #[api] option; expected `internal`, `name = \"...\"`, `tag = \"...\"`, \
+				 `scope = ...`, or `crate = \"...\"`",
+			));
+		}
+	}
+
+	Ok(())
+}
+
+/// The `name` option: the route segment and generated method names.
+fn operation_name(pair: &syn::MetaNameValue) -> syn::Result<LitStr> {
+	let name = string_value(&pair.value, "name")?;
+
+	if !is_route_segment(&name.value()) {
+		return Err(syn::Error::new_spanned(
+			&name,
+			"`name` becomes the route `/api/<name>` and the generated method names, so it must be \
+			 non-empty and use ASCII letters, digits, `_`, `-`, and `.`, as in `chat.messages`",
+		));
+	}
+
+	Ok(name)
+}
+
+/// The `scope` option, checked as an OAuth scope.
+fn scope_value(pair: &syn::MetaNameValue) -> syn::Result<Expr> {
+	if let Expr::Lit(ExprLit {
+		lit: Lit::Str(name),
+		..
+	}) = &pair.value
+		&& !is_scope_name(&name.value())
+	{
+		return Err(syn::Error::new_spanned(
+			name,
+			"a scope is one or more printable ASCII characters other than space, `\"`, and `\\`, \
+			 such as \"posts:read\"",
+		));
+	}
+
+	Ok(pair.value.clone())
+}
+
+/// The `crate` option: the path to `leptoskit_rpc`.
+fn crate_path(pair: &syn::MetaNameValue) -> syn::Result<Path> {
+	let path = string_value(&pair.value, "crate")?;
+	path.parse::<Path>().map_err(|_| {
+		syn::Error::new_spanned(
+			&path,
+			"`crate` expects the path to `leptoskit_rpc`, such as `crate = \"leptoskit::rpc\"`",
+		)
+	})
 }
 
 /// Whether `name` can be an OAuth scope (RFC 6749 §3.3), as
@@ -472,62 +493,10 @@ impl ServerArgs {
 				let arg = if input.peek(Ident) && input.peek2(Token![=]) {
 					let key: Ident = input.parse()?;
 					input.parse::<Token![=]>()?;
-
-					let value = match key.to_string().as_str() {
-						"name" => {
-							let name: Ident = input.parse()?;
-							args.struct_name = Some(name.clone());
-							name.into_token_stream()
-						}
-						"endpoint" => {
-							args.has_endpoint = true;
-							input.parse::<LitStr>()?.into_token_stream()
-						}
-						"input" | "output" | "protocol" => {
-							let codec: Type = input.parse()?;
-							let slot = match key.to_string().as_str() {
-								"input" => &mut args.input,
-								"output" => &mut args.output,
-								_ => &mut args.protocol,
-							};
-							*slot = Some(codec.clone());
-							codec.into_token_stream()
-						}
-						"server" | "client" => input.parse::<Type>()?.into_token_stream(),
-						"custom" => {
-							let wrapper: Path = input.parse()?;
-							args.custom = Some(wrapper.clone());
-							wrapper.into_token_stream()
-						}
-						"prefix" | "encoding" => input.parse::<LitStr>()?.into_token_stream(),
-						"impl_from" | "impl_deref" => {
-							input.parse::<syn::LitBool>()?.into_token_stream()
-						}
-						"input_derive" => input.parse::<syn::ExprTuple>()?.into_token_stream(),
-						_ => input.parse::<Expr>()?.into_token_stream(),
-					};
-
+					let value = args.named_arg(&key, input)?;
 					ServerArg::Named { key, value }
-				} else if input.peek(Ident) {
-					let ident: Ident = input.parse()?;
-					args.positional = true;
-
-					if position == 1 {
-						args.struct_name = Some(ident.clone());
-					}
-
-					ServerArg::Positional(ident.into_token_stream())
-				} else if input.peek(LitStr) {
-					let text: LitStr = input.parse()?;
-					args.positional = true;
-
-					if position == 4 {
-						args.has_endpoint = true;
-					}
-
-					ServerArg::Positional(text.into_token_stream())
 				} else {
-					return Err(input.error("unexpected token in #[server] arguments"));
+					args.positional_arg(input, position)?
 				};
 
 				args.args.push_value(arg);
@@ -542,6 +511,72 @@ impl ServerArgs {
 			Ok(args)
 		};
 		parser.parse2(tokens)
+	}
+
+	/// One `key = value` argument, recording what it says about the struct.
+	fn named_arg(&mut self, key: &Ident, input: ParseStream<'_>) -> syn::Result<TokenStream> {
+		let value = match key.to_string().as_str() {
+			"name" => {
+				let name: Ident = input.parse()?;
+				self.struct_name = Some(name.clone());
+				name.into_token_stream()
+			}
+			"endpoint" => {
+				self.has_endpoint = true;
+				input.parse::<LitStr>()?.into_token_stream()
+			}
+			"input" | "output" | "protocol" => {
+				let codec: Type = input.parse()?;
+				let slot = match key.to_string().as_str() {
+					"input" => &mut self.input,
+					"output" => &mut self.output,
+					_ => &mut self.protocol,
+				};
+				*slot = Some(codec.clone());
+				codec.into_token_stream()
+			}
+			"server" | "client" => input.parse::<Type>()?.into_token_stream(),
+			"custom" => {
+				let wrapper: Path = input.parse()?;
+				self.custom = Some(wrapper.clone());
+				wrapper.into_token_stream()
+			}
+			"prefix" | "encoding" => input.parse::<LitStr>()?.into_token_stream(),
+			"impl_from" | "impl_deref" => input.parse::<syn::LitBool>()?.into_token_stream(),
+			"input_derive" => input.parse::<syn::ExprTuple>()?.into_token_stream(),
+			_ => input.parse::<Expr>()?.into_token_stream(),
+		};
+
+		Ok(value)
+	}
+
+	/// One positional argument, which the legacy form uses.
+	fn positional_arg(
+		&mut self,
+		input: ParseStream<'_>,
+		position: usize,
+	) -> syn::Result<ServerArg> {
+		if input.peek(Ident) {
+			let ident: Ident = input.parse()?;
+			self.positional = true;
+
+			if position == 1 {
+				self.struct_name = Some(ident.clone());
+			}
+
+			Ok(ServerArg::Positional(ident.into_token_stream()))
+		} else if input.peek(LitStr) {
+			let text: LitStr = input.parse()?;
+			self.positional = true;
+
+			if position == 4 {
+				self.has_endpoint = true;
+			}
+
+			Ok(ServerArg::Positional(text.into_token_stream()))
+		} else {
+			Err(input.error("unexpected token in #[server] arguments"))
+		}
 	}
 
 	/// The first codec no generated client can speak, with the reason.
@@ -808,21 +843,59 @@ fn expand_operation(
 	kind: OperationKind,
 	register: bool,
 ) -> syn::Result<TokenStream> {
-	let attr = &function.attrs[index];
+	let tokens = operation_tokens(&function.attrs[index], kind)?;
+	let operation_args = OperationArgs::parse(kind, tokens.clone())?;
+	check_duplicates(args, &operation_args, kind)?;
 
-	let tokens = match &attr.meta {
-		Meta::Path(_) => TokenStream::new(),
-		Meta::List(list) => list.tokens.clone(),
-		Meta::NameValue(pair) => {
-			return Err(syn::Error::new_spanned(
-				pair,
-				format!("expected #[rpc::{0}] or #[rpc::{0}(...)]", kind.attribute()),
-			));
-		}
+	let signature = operation::signature(kind, &function)?;
+	let fn_ident = function.sig.ident.clone();
+	let name = args
+		.name
+		.clone()
+		.or_else(|| operation_args.name.clone())
+		.unwrap_or_else(|| LitStr::new(&fn_ident.unraw().to_string(), fn_ident.span()));
+	let krate = args
+		.krate
+		.clone()
+		.or_else(|| operation_args.krate.clone())
+		.unwrap_or_else(|| syn::parse_quote!(::leptoskit_rpc));
+
+	let forwarded = forward_options(args, tokens);
+	let path = function.attrs[index].path().clone();
+	function.attrs[index] = syn::parse_quote!(#[#path(#forwarded)]);
+
+	let registration = if register {
+		registration(args, &function, &signature, kind, &name, &krate)?
+	} else {
+		TokenStream::new()
 	};
 
-	let operation_args = OperationArgs::parse(kind, tokens.clone())?;
+	Ok(quote! {
+		#function
+		#registration
+	})
+}
 
+/// The arguments written on the operation attribute itself.
+fn operation_tokens(attr: &Attribute, kind: OperationKind) -> syn::Result<TokenStream> {
+	match &attr.meta {
+		Meta::Path(_) => Ok(TokenStream::new()),
+		Meta::List(list) => Ok(list.tokens.clone()),
+		Meta::NameValue(pair) => {
+			Err(syn::Error::new_spanned(
+				pair,
+				format!("expected #[rpc::{0}] or #[rpc::{0}(...)]", kind.attribute()),
+			))
+		}
+	}
+}
+
+/// Rejects a name or crate path given on both `#[api]` and the operation.
+fn check_duplicates(
+	args: &ApiArgs,
+	operation_args: &OperationArgs,
+	kind: OperationKind,
+) -> syn::Result<()> {
 	if let (Some(api_name), Some(_)) = (&args.name, &operation_args.name) {
 		return Err(syn::Error::new_spanned(
 			api_name,
@@ -845,21 +918,12 @@ fn expand_operation(
 		));
 	}
 
-	let signature = operation::signature(kind, &function)?;
-	let fn_ident = function.sig.ident.clone();
-	let name = args
-		.name
-		.clone()
-		.or_else(|| operation_args.name.clone())
-		.unwrap_or_else(|| LitStr::new(&fn_ident.unraw().to_string(), fn_ident.span()));
-	let krate = args
-		.krate
-		.clone()
-		.or_else(|| operation_args.krate.clone())
-		.unwrap_or_else(|| syn::parse_quote!(::leptoskit_rpc));
+	Ok(())
+}
 
-	// The operation macro names the operation and finds `leptoskit_rpc`
-	// itself, so what `#[api]` was told goes on to it.
+/// The operation macro names the operation and finds `leptoskit_rpc` itself,
+/// so what `#[api]` was told goes on to it.
+fn forward_options(args: &ApiArgs, tokens: TokenStream) -> Punctuated<TokenStream, Token![,]> {
 	let mut forwarded: Punctuated<TokenStream, Token![,]> = Punctuated::new();
 
 	if !tokens.is_empty() {
@@ -875,92 +939,104 @@ fn expand_operation(
 		forwarded.push(quote!(crate = #text));
 	}
 
-	let path = function.attrs[index].path().clone();
-	function.attrs[index] = syn::parse_quote!(#[#path(#forwarded)]);
+	forwarded
+}
 
-	let raw_docs = docs_of(&function.attrs);
-	let arguments = argument_docs(&raw_docs);
-	let docs = strip_arguments_section(&raw_docs);
+/// The `ApiFnDescriptor` a registered operation submits.
+fn registration(
+	args: &ApiArgs,
+	function: &ItemFn,
+	signature: &operation::Signature,
+	kind: OperationKind,
+	name: &LitStr,
+	krate: &Path,
+) -> syn::Result<TokenStream> {
+	let struct_ident = operation::struct_ident(function);
+	let struct_name = LitStr::new(&struct_ident.to_string(), struct_ident.span());
+	let path = LitStr::new(&format!("/api/{}", name.value()), name.span());
+	let docs = LitStr::new(
+		&strip_arguments_section(&docs_of(&function.attrs)),
+		Span::call_site(),
+	);
 	let deprecated = function
 		.attrs
 		.iter()
 		.any(|attr| attr.path().is_ident("deprecated"));
-
-	let registration = if register {
-		let struct_ident = operation::struct_ident(&function);
-		let struct_name = LitStr::new(&struct_ident.to_string(), struct_ident.span());
-		let path = LitStr::new(&format!("/api/{}", name.value()), name.span());
-		let docs = LitStr::new(&docs, Span::call_site());
-		let internal = args.internal;
-		let tags = &args.tags;
-		let api_kind = kind.api_variant();
-		let mut param_descriptors = Vec::new();
-
-		for argument in &signature.arguments {
-			let ident = argument.ident.unraw().to_string();
-			let (wire_name, required) = serde_field(&argument.field_attrs, &ident)?;
-			let own_docs = docs_of(&argument.doc_attrs);
-			let param_docs = if own_docs.is_empty() {
-				arguments.get(&ident).cloned().unwrap_or_default()
-			} else {
-				own_docs
-					.lines()
-					.map(str::trim)
-					.filter(|line| !line.is_empty())
-					.collect::<Vec<_>>()
-					.join(" ")
-			};
-
-			let wire_name = LitStr::new(&wire_name, Span::call_site());
-			let param_docs = LitStr::new(&param_docs, Span::call_site());
-			let ty = &argument.ty;
-			param_descriptors.push(quote! {
-				#krate::spec::ApiParamDescriptor {
-					name: #wire_name,
-					docs: #param_docs,
-					schema: |generator| generator.subschema_for::<#ty>(),
-					required: #required,
-				}
-			});
-		}
-
-		quote! {
-			#[allow(deprecated)]
-			const _: () = {
-				#krate::__private::inventory::submit! {
-					#krate::spec::ApiFnDescriptor {
-						name: #name,
-						kind: #krate::spec::ApiKind::#api_kind,
-						module_path: ::core::module_path!(),
-						struct_name: #struct_name,
-						docs: #docs,
-						path: #path,
-						method: #krate::spec::OPERATION_METHOD,
-						input_content_type: "application/json",
-						output_content_type: "application/json",
-						error_content_type: "text/plain",
-						params: &[#(#param_descriptors),*],
-						output_schema: |generator| {
-							generator.subschema_for::<
-								<#struct_ident as #krate::Operation>::Output,
-							>()
-						},
-						internal: #internal,
-						deprecated: #deprecated,
-						tags: &[#(#tags),*],
-						scopes: &[],
-					}
-				}
-			};
-		}
-	} else {
-		TokenStream::new()
-	};
+	let internal = args.internal;
+	let tags = &args.tags;
+	let api_kind = kind.api_variant();
+	let params = param_descriptors(signature, function, krate)?;
 
 	Ok(quote! {
-		#function
-		#registration
+		#[allow(deprecated)]
+		const _: () = {
+			#krate::__private::inventory::submit! {
+				#krate::spec::ApiFnDescriptor {
+					name: #name,
+					kind: #krate::spec::ApiKind::#api_kind,
+					module_path: ::core::module_path!(),
+					struct_name: #struct_name,
+					docs: #docs,
+					path: #path,
+					method: #krate::spec::OPERATION_METHOD,
+					input_content_type: "application/json",
+					output_content_type: "application/json",
+					error_content_type: "text/plain",
+					params: &[#(#params),*],
+					output_schema: |generator| {
+						generator.subschema_for::<
+							<#struct_ident as #krate::Operation>::Output,
+						>()
+					},
+					internal: #internal,
+					deprecated: #deprecated,
+					tags: &[#(#tags),*],
+					scopes: &[],
+				}
+			}
+		};
 	})
+}
+
+/// One `ApiParamDescriptor` per argument, with the docs from the function.
+fn param_descriptors(
+	signature: &operation::Signature,
+	function: &ItemFn,
+	krate: &Path,
+) -> syn::Result<Vec<TokenStream>> {
+	let raw_docs = docs_of(&function.attrs);
+	let arguments = argument_docs(&raw_docs);
+	let mut params = Vec::new();
+
+	for argument in &signature.arguments {
+		let ident = argument.ident.unraw().to_string();
+		let (wire_name, required) = serde_field(&argument.field_attrs, &ident)?;
+		let own_docs = docs_of(&argument.doc_attrs);
+		let param_docs = if own_docs.is_empty() {
+			arguments.get(&ident).cloned().unwrap_or_default()
+		} else {
+			own_docs
+				.lines()
+				.map(str::trim)
+				.filter(|line| !line.is_empty())
+				.collect::<Vec<_>>()
+				.join(" ")
+		};
+
+		let wire_name = LitStr::new(&wire_name, Span::call_site());
+		let param_docs = LitStr::new(&param_docs, Span::call_site());
+		let ty = &argument.ty;
+		params.push(quote! {
+			#krate::spec::ApiParamDescriptor {
+				name: #wire_name,
+				docs: #param_docs,
+				schema: |generator| generator.subschema_for::<#ty>(),
+				required: #required,
+			}
+		});
+	}
+
+	Ok(params)
 }
 
 /// An argument's name on the wire, and whether it must be sent, from the
@@ -980,24 +1056,30 @@ fn serde_field(attrs: &[Attribute], ident: &str) -> syn::Result<(String, bool)> 
 		let metas = Punctuated::<Meta, Token![,]>::parse_terminated.parse2(list.tokens.clone())?;
 
 		for meta in metas {
-			match &meta {
-				Meta::Path(path) if path.is_ident("default") => required = false,
-
-				Meta::NameValue(pair) if pair.path.is_ident("default") => required = false,
-
-				Meta::NameValue(pair) if pair.path.is_ident("rename") => {
-					wire_name = string_value(&pair.value, "rename")?.value();
-				}
-
-				// serde reports anything malformed.
-				_ => {}
-			}
+			serde_option(&meta, &mut wire_name, &mut required)?;
 		}
 	}
 
 	Ok((wire_name, required))
 }
 
+/// One `#[serde(...)]` option on a field.
+fn serde_option(meta: &Meta, wire_name: &mut String, required: &mut bool) -> syn::Result<()> {
+	match meta {
+		Meta::Path(path) if path.is_ident("default") => *required = false,
+
+		Meta::NameValue(pair) if pair.path.is_ident("default") => *required = false,
+
+		Meta::NameValue(pair) if pair.path.is_ident("rename") => {
+			*wire_name = string_value(&pair.value, "rename")?.value();
+		}
+
+		// serde reports anything malformed.
+		_ => {}
+	}
+
+	Ok(())
+}
 /// Whether an attribute is `#[rpc::query]` or `#[rpc::mutation]`, and which.
 fn operation_attribute(attr: &Attribute) -> Option<OperationKind> {
 	let segment = attr.path().segments.last()?;
@@ -1115,38 +1197,49 @@ fn server_param(typed: &PatType, ident: &Ident) -> syn::Result<(String, bool, bo
 		let metas = Punctuated::<Meta, Token![,]>::parse_terminated.parse2(list.tokens.clone())?;
 
 		for meta in metas {
-			match &meta {
-				Meta::Path(path) if path.is_ident("default") => required = false,
-
-				Meta::NameValue(pair) if pair.path.is_ident("default") => {
-					required = false;
-				}
-
-				Meta::NameValue(pair) if pair.path.is_ident("rename") => {
-					wire_name = string_value(&pair.value, "rename")?.value();
-				}
-
-				Meta::Path(path) if path.is_ident("skip") => skipped = true,
-
-				Meta::Path(path) if path.is_ident("flatten") => {
-					return Err(syn::Error::new_spanned(
-						path,
-						"#[api] cannot describe `#[server(flatten)]` arguments: their fields \
-						 travel at the top level of the request, which generated clients would \
-						 nest under the argument's name. Pass the fields as separate arguments, \
-						 or the struct as one named argument.",
-					));
-				}
-
-				// The server macro reports anything else.
-				_ => {}
-			}
+			server_option(&meta, &mut wire_name, &mut required, &mut skipped)?;
 		}
 	}
 
 	Ok((wire_name, required, skipped))
 }
 
+/// One `#[server(...)]` option on an argument.
+fn server_option(
+	meta: &Meta,
+	wire_name: &mut String,
+	required: &mut bool,
+	skipped: &mut bool,
+) -> syn::Result<()> {
+	match meta {
+		Meta::Path(path) if path.is_ident("default") => *required = false,
+
+		Meta::NameValue(pair) if pair.path.is_ident("default") => {
+			*required = false;
+		}
+
+		Meta::NameValue(pair) if pair.path.is_ident("rename") => {
+			*wire_name = string_value(&pair.value, "rename")?.value();
+		}
+
+		Meta::Path(path) if path.is_ident("skip") => *skipped = true,
+
+		Meta::Path(path) if path.is_ident("flatten") => {
+			return Err(syn::Error::new_spanned(
+				path,
+				"#[api] cannot describe `#[server(flatten)]` arguments: their fields travel at \
+				 the top level of the request, which generated clients would nest under the \
+				 argument's name. Pass the fields as separate arguments, or the struct as one \
+				 named argument.",
+			));
+		}
+
+		// The server macro reports anything else.
+		_ => {}
+	}
+
+	Ok(())
+}
 /// Removes the `# Arguments` section from a doc comment, leaving the rest.
 fn strip_arguments_section(docs: &str) -> String {
 	let mut out = String::new();

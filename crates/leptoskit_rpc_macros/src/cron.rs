@@ -87,44 +87,11 @@ pub(crate) fn parse(expression: &str) -> Result<Schedule, String> {
 
 /// One field's values as a bit set.
 fn field(text: &str, name: &str, min: u32, max: u32) -> Result<u64, String> {
-	let number = |value: &str| -> Result<u32, String> {
-		let value: u32 = value.parse().map_err(|_| {
-			format!("the {name} field has `{value}`; write numbers from {min} to {max}")
-		})?;
-
-		if !(min..=max).contains(&value) {
-			return Err(format!(
-				"the {name} field has {value}, outside {min} to {max}"
-			));
-		}
-
-		Ok(value)
-	};
 	let mut mask = 0;
 
 	for part in text.split(',') {
-		let (range, step) = match part.split_once('/') {
-			Some((range, step)) => {
-				let step: u32 = step.parse().ok().filter(|step| *step > 0).ok_or_else(|| {
-					format!("the {name} field's step `{step}` isn't a whole number above 0")
-				})?;
-				(range, Some(step))
-			}
-			None => (part, None),
-		};
-
-		let (from, to) = match range {
-			"*" => (min, max),
-			range => {
-				if let Some((from, to)) = range.split_once('-') {
-					(number(from)?, number(to)?)
-				} else {
-					let from = number(range)?;
-
-					(from, if step.is_some() { max } else { from })
-				}
-			}
-		};
+		let (range, step) = field_step(part, name)?;
+		let (from, to) = field_bounds(range, name, min, max, step.is_some())?;
 
 		if from > to {
 			return Err(format!(
@@ -142,6 +109,58 @@ fn field(text: &str, name: &str, min: u32, max: u32) -> Result<u64, String> {
 	Ok(mask)
 }
 
+/// A part's range and the step it takes through it.
+fn field_step<'a>(part: &'a str, name: &str) -> Result<(&'a str, Option<u32>), String> {
+	let Some((range, step)) = part.split_once('/') else {
+		return Ok((part, None));
+	};
+
+	let step: u32 =
+		step.parse().ok().filter(|step| *step > 0).ok_or_else(|| {
+			format!("the {name} field's step `{step}` isn't a whole number above 0")
+		})?;
+	Ok((range, Some(step)))
+}
+
+/// A range's first and last value, where `*` spans the field.
+fn field_bounds(
+	range: &str,
+	name: &str,
+	min: u32,
+	max: u32,
+	stepped: bool,
+) -> Result<(u32, u32), String> {
+	match range {
+		"*" => Ok((min, max)),
+		range => {
+			if let Some((from, to)) = range.split_once('-') {
+				Ok((
+					field_number(from, name, min, max)?,
+					field_number(to, name, min, max)?,
+				))
+			} else {
+				let from = field_number(range, name, min, max)?;
+
+				Ok((from, if stepped { max } else { from }))
+			}
+		}
+	}
+}
+
+/// A number in the field's range.
+fn field_number(value: &str, name: &str, min: u32, max: u32) -> Result<u32, String> {
+	let value: u32 = value.parse().map_err(|_| {
+		format!("the {name} field has `{value}`; write numbers from {min} to {max}")
+	})?;
+
+	if !(min..=max).contains(&value) {
+		return Err(format!(
+			"the {name} field has {value}, outside {min} to {max}"
+		));
+	}
+
+	Ok(value)
+}
 /// Expands `#[rpc::cron("…")]`. `server` decides whether the schedule is
 /// registered.
 pub(crate) fn expand(
