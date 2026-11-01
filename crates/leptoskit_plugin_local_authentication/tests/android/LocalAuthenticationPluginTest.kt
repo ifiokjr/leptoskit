@@ -10,6 +10,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.leptoskit.bridge.PluginException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -19,6 +20,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import java.nio.ByteBuffer
@@ -27,6 +29,7 @@ import java.nio.ByteOrder
 /** No test invokes a system authentication prompt. */
 class LocalAuthenticationPluginTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
+    private val evaluatesPolicy = Build.VERSION.SDK_INT >= BIOMETRIC_API
 
     private class NoBiometricPermission(
         context: Context,
@@ -49,91 +52,38 @@ class LocalAuthenticationPluginTest {
             }
     }
 
-    private fun request(): ByteBuffer {
-        val reason = "Unlock notes".toByteArray()
-        val cancel = "Cancel".toByteArray()
-
-        return ByteBuffer
-            .allocate(16 + reason.size + cancel.size)
-            .order(ByteOrder.LITTLE_ENDIAN)
-            .putInt(1)
-            .putInt(0)
-            .putInt(reason.size)
-            .put(reason)
-            .putInt(cancel.size)
-            .put(cancel)
-            .apply { flip() }
-    }
-
     @Test
     fun missingPermissionAndCancellationNeverPrompt() =
-        runBlocking {
-            withContext(Dispatchers.Main) {
-                val plugin = LocalAuthenticationPlugin(NoBiometricPermission(context))
-                try {
-                    val bytes = plugin.invoke(0, ByteBuffer.wrap(authenticationFields(0)))
-                    val status = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).getInt(8)
+        withPlugin(NoBiometricPermission(context)) { plugin ->
+            val report = ByteBuffer.wrap(plugin.invoke(CAPABILITIES, policy())).order(ByteOrder.LITTLE_ENDIAN)
+            val readiness = if (evaluatesPolicy) READINESS_PERMISSION_DENIED else READINESS_UNAVAILABLE
 
-                    assertEquals(if (Build.VERSION.SDK_INT >= 30) 5 else 1, status)
-                    try {
-                        plugin.invoke(1, request())
-                        fail("Missing manifest permission cannot authenticate")
+            assertEquals(readiness, report.getInt(READINESS_OFFSET))
+            assertRejects(
+                if (evaluatesPolicy) PluginException.PERMISSION_DENIED else PluginException.UNAVAILABLE,
+                "Missing manifest permission cannot authenticate",
+            ) {
+                plugin.invoke(AUTHENTICATE, request())
+            }
+            assertCancelledBeforePrompt(plugin)
+            assertArrayEquals(ByteArray(0), plugin.invoke(CANCEL, ByteBuffer.allocate(0)))
+        }
 
-                    } catch (error: PluginException) {
-                        assertEquals(
-                            if (Build.VERSION.SDK_INT >=
-                                30
-                            ) {
-                                PluginException.PERMISSION_DENIED
-                            } else {
-                                PluginException.UNAVAILABLE
-                            },
-                            error.code,
-                        )
-                    }
-                    val cancelled =
-                        async(start = CoroutineStart.UNDISPATCHED) {
-                            currentCoroutineContext().cancel()
-                            plugin.invoke(1, request())
-                        }
-                    try {
-                        cancelled.await()
-                        fail("Cancelled request completed")
-                    } catch (
-                        _: CancellationException,
-                    ) {
-                        // Expected before native UI construction.
-                    }
-                    assertArrayEquals(ByteArray(0), plugin.invoke(2, ByteBuffer.allocate(0)))
-                } finally {
+    @Test
+    fun closedPluginRejectsNewWork() =
+        withPlugin(NoBiometricPermission(context)) { plugin ->
+            plugin.close()
 
-                    plugin.close()
-                }
-                try {
-                    plugin.invoke(0, ByteBuffer.wrap(authenticationFields(0)))
-                    fail("Closed plugin accepted work")
-                } catch (error: PluginException) {
-                    assertEquals(PluginException.CANCELLED, error.code)
-                }
+            assertRejects(PluginException.CANCELLED, "Closed plugin accepted work") {
+                plugin.invoke(CAPABILITIES, policy())
             }
         }
 
     @Test
     fun invisibleActivityCannotStartAuthentication() =
-        runBlocking {
-            withContext(Dispatchers.Main) {
-                val plugin = LocalAuthenticationPlugin(InvisibleActivity())
-                try {
-                    try {
-                        plugin.invoke(1, request())
-                        fail("Invisible activity accepted authentication")
-                    } catch (error: PluginException) {
-                        assertEquals(PluginException.UNAVAILABLE, error.code)
-                    }
-                } finally {
-
-                    plugin.close()
-                }
+        withPlugin(InvisibleActivity()) { plugin ->
+            assertRejects(PluginException.UNAVAILABLE, "Invisible activity accepted authentication") {
+                plugin.invoke(AUTHENTICATE, request())
             }
         }
 
@@ -142,16 +92,18 @@ class LocalAuthenticationPluginTest {
         runBlocking {
             val intent = requireNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName))
             lateinit var plugin: LocalAuthenticationPlugin
+
             ActivityScenario.launch<Activity>(intent).use { scenario ->
                 scenario.onActivity { activity -> plugin = LocalAuthenticationPlugin(activity) }
             }
+
             withContext(Dispatchers.Main) {
                 try {
-                    try {
-                        plugin.invoke(0, ByteBuffer.wrap(authenticationFields(0)))
-                        fail("Destroyed activity's authentication plugin accepted work")
-                    } catch (error: PluginException) {
-                        assertEquals(PluginException.CANCELLED, error.code)
+                    assertRejects(
+                        PluginException.CANCELLED,
+                        "Destroyed activity's authentication plugin accepted work",
+                    ) {
+                        plugin.invoke(CAPABILITIES, policy())
                     }
                 } finally {
                     plugin.close()
@@ -160,28 +112,104 @@ class LocalAuthenticationPluginTest {
         }
 
     @Test
-    fun invalidPoliciesAndTextAreRejectedByDecoder() {
-        val input = request()
-        assertEquals("Unlock notes", AuthenticationRequest.decode(input).reason)
-        input.putInt(4, 2)
-        try {
-            AuthenticationRequest.decode(input)
-            fail("Unknown policy accepted")
-        } catch (
-            error: PluginException,
-        ) {
-            assertEquals(PluginException.INVALID_ARGUMENT, error.code)
+    fun invalidPoliciesAndTextAreRejectedByDecoder() =
+        runBlocking {
+            val input = request()
+            assertEquals("Unlock notes", AuthenticationRequest.decode(input).reason)
+
+            input.putInt(POLICY_OFFSET, UNKNOWN_POLICY)
+            assertRejects(PluginException.INVALID_ARGUMENT, "Unknown policy accepted") {
+                AuthenticationRequest.decode(input)
+            }
+
+            input.putInt(POLICY_OFFSET, BIOMETRIC_POLICY)
+            input.put(REASON_OFFSET, INVALID_UTF8)
+            assertRejects(PluginException.INVALID_ARGUMENT, "Invalid UTF-8 accepted") {
+                AuthenticationRequest.decode(input)
+            }
         }
 
-        input.putInt(4, 0)
-        input.put(12, 255.toByte())
-        try {
-            AuthenticationRequest.decode(input)
-            fail("Invalid UTF-8 accepted")
-        } catch (
-            error: PluginException,
-        ) {
-            assertEquals(PluginException.INVALID_ARGUMENT, error.code)
+    /** Runs the body on the UI thread against a plugin over the given context, then closes it. */
+    private fun withPlugin(
+        base: Context,
+        body: suspend CoroutineScope.(LocalAuthenticationPlugin) -> Unit,
+    ) = runBlocking {
+        withContext(Dispatchers.Main) {
+            val plugin = LocalAuthenticationPlugin(base)
+
+            try {
+                body(plugin)
+            } finally {
+                plugin.close()
+            }
         }
+    }
+
+    /** Expects the call to fail with the given plugin code. */
+    private suspend fun assertRejects(
+        code: Int,
+        message: String,
+        call: suspend () -> Unit,
+    ) {
+        try {
+            call()
+            fail(message)
+        } catch (error: PluginException) {
+            assertEquals(code, error.code)
+        }
+    }
+
+    /** Starts a request that is cancelled before the OS prompt could be built. */
+    private suspend fun CoroutineScope.assertCancelledBeforePrompt(plugin: LocalAuthenticationPlugin) {
+        val cancelled =
+            async(start = CoroutineStart.UNDISPATCHED) {
+                currentCoroutineContext().cancel()
+                plugin.invoke(AUTHENTICATE, request())
+            }
+        val failure = runCatching { cancelled.await() }.exceptionOrNull()
+
+        assertTrue("Expected cancellation before native UI, got $failure", failure is CancellationException)
+    }
+
+    private fun policy(): ByteBuffer = ByteBuffer.wrap(authenticationFields(BIOMETRIC_POLICY))
+
+    /** A minimal request for the biometric policy. */
+    private fun request(): ByteBuffer {
+        val reason = "Unlock notes".toByteArray()
+        val cancel = "Cancel".toByteArray()
+
+        return ByteBuffer
+            .allocate(REQUEST_HEADER_BYTES + reason.size + cancel.size)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(WIRE_VERSION)
+            .putInt(BIOMETRIC_POLICY)
+            .putInt(reason.size)
+            .put(reason)
+            .putInt(cancel.size)
+            .put(cancel)
+            .apply { flip() }
+    }
+
+    private companion object {
+        /** The first API level that answers readiness for a policy at all. */
+        const val BIOMETRIC_API = 30
+
+        /** Where the readiness field starts in a capabilities reply. */
+        const val READINESS_OFFSET = 8
+
+        /** Where the policy and the reason's first byte sit in an encoded request. */
+        const val POLICY_OFFSET = 4
+        const val REASON_OFFSET = 12
+
+        /** Version, policy, and the two length prefixes. */
+        const val REQUEST_HEADER_BYTES = 16
+
+        /** Values the decoder must reject. */
+        const val UNKNOWN_POLICY = 2
+        val INVALID_UTF8 = 255.toByte()
+
+        /** Readiness codes for an unaskable permission and an unsupported API level. */
+        const val READINESS_UNAVAILABLE = 1
+        const val READINESS_PERMISSION_DENIED = 5
     }
 }

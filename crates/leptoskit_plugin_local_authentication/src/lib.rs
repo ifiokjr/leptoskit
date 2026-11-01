@@ -58,11 +58,17 @@ pub struct Request {
 	reason: String,
 	cancel_label: String,
 }
+/// Longest accepted reason, in UTF-8 bytes.
+const MAX_REASON_BYTES: usize = 256;
+/// Longest accepted cancel label, in UTF-8 bytes.
+const MAX_CANCEL_BYTES: usize = 64;
+/// A request's version, policy, and two length prefixes, in bytes.
+const REQUEST_OVERHEAD_BYTES: usize = 16;
 impl Request {
 	/// Requires a non-blank reason of at most 256 UTF-8 bytes.
 	pub fn new(policy: Policy, reason: impl Into<String>) -> Result<Self, Error> {
 		let reason = reason.into();
-		validate_text(&reason, 256)?;
+		validate_text(&reason, MAX_REASON_BYTES)?;
 		Ok(Self {
 			policy,
 			reason,
@@ -75,7 +81,7 @@ impl Request {
 	/// custom negative button.
 	pub fn with_cancel_label(mut self, label: impl Into<String>) -> Result<Self, Error> {
 		let label = label.into();
-		validate_text(&label, 64)?;
+		validate_text(&label, MAX_CANCEL_BYTES)?;
 		self.cancel_label = label;
 		Ok(self)
 	}
@@ -97,7 +103,10 @@ impl Request {
 
 	/// Encodes validated prompt options.
 	pub fn encode(&self) -> Result<Bytes, Error> {
-		let mut output = Encoder::with_capacity(self.reason.len() + self.cancel_label.len() + 16);
+		let mut output = Encoder::with_capacity(
+			self.reason.len() + self.cancel_label.len() + REQUEST_OVERHEAD_BYTES,
+		);
+
 		output.u32(1);
 		output.u32(self.policy as u32);
 		output.bytes(self.reason.as_bytes())?;
@@ -115,9 +124,9 @@ impl Request {
 
 		let policy = read_policy(input.u32()?)?;
 		let reason = input.string()?;
-		validate_text(reason, 256)?;
+		validate_text(reason, MAX_REASON_BYTES)?;
 		let cancel = input.string()?;
-		validate_text(cancel, 64)?;
+		validate_text(cancel, MAX_CANCEL_BYTES)?;
 
 		input.finish()?;
 		Self::new(policy, reason)?.with_cancel_label(cancel)
@@ -156,29 +165,59 @@ pub enum Readiness {
 	/// The OS cannot establish readiness.
 	Unknown = 7,
 }
+impl Readiness {
+	/// Finds the state whose declared discriminant is the wire code, so the
+	/// reply carries exactly the numbers the enum declares.
+	fn from_wire(code: u32) -> Result<Self, Error> {
+		[
+			Self::Ready,
+			Self::Unavailable,
+			Self::NotEnrolled,
+			Self::LockedOut,
+			Self::CredentialNotSet,
+			Self::PermissionDenied,
+			Self::SecurityUpdateRequired,
+			Self::Unknown,
+		]
+		.into_iter()
+		.find(|state| *state as u32 == code)
+		.ok_or(Error::InvalidArgument)
+	}
+}
 /// Non-identifying hardware modalities; these do not assert enrollment or
 /// strength.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Modalities(u32);
 impl Modalities {
+	/// Bit for face hardware.
+	const FACE: u32 = 2;
+	/// Bit for fingerprint hardware.
+	const FINGERPRINT: u32 = 1;
+	/// Bit for iris hardware.
+	const IRIS: u32 = 4;
+	/// Every sensor bit the wire format defines.
+	const KNOWN: u32 = Self::FINGERPRINT | Self::FACE | Self::IRIS | Self::OPTIC;
+	/// Bit for Apple Optic ID hardware.
+	const OPTIC: u32 = 8;
+
 	/// Whether fingerprint hardware is reported.
 	pub fn fingerprint(self) -> bool {
-		self.0 & 1 != 0
+		self.0 & Self::FINGERPRINT != 0
 	}
 
 	/// Whether face hardware is reported.
 	pub fn face(self) -> bool {
-		self.0 & 2 != 0
+		self.0 & Self::FACE != 0
 	}
 
 	/// Whether iris hardware is reported.
 	pub fn iris(self) -> bool {
-		self.0 & 4 != 0
+		self.0 & Self::IRIS != 0
 	}
 
 	/// Whether Apple Optic ID hardware is reported.
 	pub fn optic(self) -> bool {
-		self.0 & 8 != 0
+		self.0 & Self::OPTIC != 0
 	}
 }
 /// OS capability snapshot for one policy.
@@ -205,21 +244,11 @@ impl Capabilities {
 
 		let policy = read_policy(input.u32()?)?;
 
-		let readiness = match input.u32()? {
-			0 => Readiness::Ready,
-			1 => Readiness::Unavailable,
-			2 => Readiness::NotEnrolled,
-			3 => Readiness::LockedOut,
-			4 => Readiness::CredentialNotSet,
-			5 => Readiness::PermissionDenied,
-			6 => Readiness::SecurityUpdateRequired,
-			7 => Readiness::Unknown,
-			_ => return Err(Error::InvalidArgument),
-		};
+		let readiness = Readiness::from_wire(input.u32()?)?;
 
 		let mask = input.u32()?;
 
-		if mask & !15 != 0 {
+		if mask & !Modalities::KNOWN != 0 {
 			return Err(Error::InvalidArgument);
 		}
 
@@ -298,32 +327,63 @@ impl Outcome {
 			return Err(Error::InvalidArgument);
 		}
 
-		match status {
-			0 => {
-				let method = match method {
-					0 if policy == Policy::BiometricOrCredential => AuthenticationMethod::Unknown,
-					1 => AuthenticationMethod::Biometric,
-
-					2 if policy == Policy::BiometricOrCredential => {
-						AuthenticationMethod::DeviceCredential
-					}
-					_ => return Err(Error::InvalidArgument),
-				};
-
-				Ok(Self::Authenticated(method))
-			}
-			1 => Ok(Self::Failed),
-			2 => Ok(Self::UserCancelled),
-			3 => Ok(Self::SystemCancelled),
-			4 => Ok(Self::AppCancelled),
-			5 => Ok(Self::LockedOut),
-			6 => Ok(Self::NotEnrolled),
-			7 => Ok(Self::Unavailable),
-			8 => Ok(Self::CredentialNotSet),
-			9 => Ok(Self::TimedOut),
-			10 => Ok(Self::SecurityUpdateRequired),
-			_ => Err(Error::InvalidArgument),
+		if status == OUTCOME_AUTHENTICATED {
+			return read_authentication(method, policy).map(Self::Authenticated);
 		}
+
+		read_outcome(status)
+	}
+}
+/// Wire status of a reply the OS authenticated.
+const OUTCOME_AUTHENTICATED: u32 = 0;
+/// Wire codes for a failed [`Outcome`], which carries data and so cannot
+/// declare its own discriminants.
+mod outcome_code {
+	/// The OS terminated an unsuccessful attempt.
+	pub(super) const FAILED: u32 = 1;
+	/// The user dismissed the system prompt.
+	pub(super) const USER_CANCELLED: u32 = 2;
+	/// The system interrupted the prompt.
+	pub(super) const SYSTEM_CANCELLED: u32 = 3;
+	/// The application explicitly cancelled the prompt.
+	pub(super) const APP_CANCELLED: u32 = 4;
+	/// Authentication is locked out.
+	pub(super) const LOCKED_OUT: u32 = 5;
+	/// No acceptable biometrics are enrolled.
+	pub(super) const NOT_ENROLLED: u32 = 6;
+	/// Authentication is unavailable.
+	pub(super) const UNAVAILABLE: u32 = 7;
+	/// Device credential has not been configured.
+	pub(super) const CREDENTIAL_NOT_SET: u32 = 8;
+	/// OS authentication timed out.
+	pub(super) const TIMED_OUT: u32 = 9;
+	/// The platform requires a security update.
+	pub(super) const SECURITY_UPDATE_REQUIRED: u32 = 10;
+}
+/// Maps a successful reply's method onto its provenance.
+fn read_authentication(method: u32, policy: Policy) -> Result<AuthenticationMethod, Error> {
+	match method {
+		0 if policy == Policy::BiometricOrCredential => Ok(AuthenticationMethod::Unknown),
+		1 => Ok(AuthenticationMethod::Biometric),
+
+		2 if policy == Policy::BiometricOrCredential => Ok(AuthenticationMethod::DeviceCredential),
+		_ => Err(Error::InvalidArgument),
+	}
+}
+/// Maps a failed reply's status onto its terminal outcome.
+fn read_outcome(status: u32) -> Result<Outcome, Error> {
+	match status {
+		outcome_code::FAILED => Ok(Outcome::Failed),
+		outcome_code::USER_CANCELLED => Ok(Outcome::UserCancelled),
+		outcome_code::SYSTEM_CANCELLED => Ok(Outcome::SystemCancelled),
+		outcome_code::APP_CANCELLED => Ok(Outcome::AppCancelled),
+		outcome_code::LOCKED_OUT => Ok(Outcome::LockedOut),
+		outcome_code::NOT_ENROLLED => Ok(Outcome::NotEnrolled),
+		outcome_code::UNAVAILABLE => Ok(Outcome::Unavailable),
+		outcome_code::CREDENTIAL_NOT_SET => Ok(Outcome::CredentialNotSet),
+		outcome_code::TIMED_OUT => Ok(Outcome::TimedOut),
+		outcome_code::SECURITY_UPDATE_REQUIRED => Ok(Outcome::SecurityUpdateRequired),
+		_ => Err(Error::InvalidArgument),
 	}
 }
 
@@ -414,7 +474,7 @@ mod tests {
 		assert!(Request::new(Policy::BiometricOnly, " \n").is_err());
 		assert!(Request::new(Policy::BiometricOnly, "reason\0hidden").is_err());
 		assert_eq!(
-			Request::new(Policy::BiometricOnly, "x".repeat(257)),
+			Request::new(Policy::BiometricOnly, "x".repeat(MAX_REASON_BYTES + 1)),
 			Err(Error::TooLarge)
 		);
 
@@ -471,6 +531,7 @@ mod tests {
 			Outcome::decode(&fields(&[1, 2, 0]), Policy::BiometricOnly),
 			Ok(Outcome::UserCancelled)
 		);
+
 		assert_eq!(
 			Outcome::decode(&fields(&[1, 4, 0]), Policy::BiometricOnly),
 			Ok(Outcome::AppCancelled)
@@ -542,6 +603,7 @@ mod tests {
 			Policy::decode(&fields(&[1])),
 			Ok(Policy::BiometricOrCredential)
 		);
+
 		assert_eq!(Policy::decode(&fields(&[2])), Err(Error::InvalidArgument));
 		assert!(Policy::decode(&fields(&[1, 0])).is_err());
 		let request = Request::new(Policy::BiometricOrCredential, "Approve transfer").unwrap();
@@ -549,7 +611,9 @@ mod tests {
 		assert_eq!(request.reason(), "Approve transfer");
 		assert_eq!(request.cancel_label(), "Cancel");
 		assert_eq!(
-			request.clone().with_cancel_label("x".repeat(65)),
+			request
+				.clone()
+				.with_cancel_label("x".repeat(MAX_CANCEL_BYTES + 1)),
 			Err(Error::TooLarge)
 		);
 		assert_eq!(request.with_cancel_label(" "), Err(Error::InvalidArgument));
