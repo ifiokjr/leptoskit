@@ -299,7 +299,7 @@ Each pull request carries a changeset. Dependent layers go in a `gh stack`.
 **Phase 2: the DevTools panel.** Depends on phases 1 and 2 of the [extension plan](extension-plan.md).
 
 1. `feat(extension)`: the `devtools_page` surface and `leptoskit_extension::devtools`. **Done.**
-2. `feat(devtools)`: the panel shell, framing the hub page, and inspected-tab session matching. **Done**, in one pull request with the first. The CI step that runs `leptoskit test extension` on the panel and `leptoskit publish --dry-run` in `devtools/`, in the macOS applications job, is written and waiting for a token with the `workflow` scope.
+2. `feat(devtools)`: the panel shell, framing the hub page, and inspected-tab session matching. **Done**, in one pull request with the first. CI's macOS applications job runs `leptoskit test extension` on the panel and `leptoskit publish --dry-run` in `devtools/`, checking both packages declare the developer tools page and carry its pages.
 3. `ci`: publish the panel with `leptoskit publish` from the release workflow when the shell changes. This depends on phase 1 of the [publishing plan](publishing-plan.md). Still to do: the store listings, which replace the placeholder IDs in `devtools/leptoskit.toml`, the panel's icons, and trying it in Firefox.
 
 **Phase 3: iOS and Android, and the twist.**

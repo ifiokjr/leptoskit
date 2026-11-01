@@ -422,8 +422,8 @@ jobs:
 
       # `leptoskit test extension` loads the extension into Chrome for
       # Testing and checks every page, the worker, and each content script on
-      # a page with a strict content security policy: Commonplace's, and a
-      # freshly scaffolded one's.
+      # a page with a strict content security policy: Commonplace's, the
+      # DevTools panel's, and a freshly scaffolded one's.
       - name: test the extensions in Chrome for Testing
         if: runner.os == 'macOS'
         shell: bash
@@ -433,6 +433,7 @@ jobs:
           sdk="$PWD"
           npx --yes @puppeteer/browsers@2 install chrome@stable chromedriver@stable --path "$HOME/.cache/puppeteer"
           (cd examples/commonplace && "$cli" test extension)
+          (cd devtools && "$cli" test extension)
           "$cli" new "$RUNNER_TEMP/extension-app" --name extension_app --extension --sdk-path "$sdk"
           cd "$RUNNER_TEMP/extension-app"
           "$cli" test extension
@@ -490,6 +491,30 @@ jobs:
           "$cli" publish --dry-run
           test -s .leptoskit/publish/next-steps.json
           test -s .leptoskit/extension/firefox-source.zip
+
+      # The browser DevTools panel is devtools/ built as an extension: a shell
+      # that frames the hub's interface. The dry run builds its release
+      # packages for Chromium and Firefox and checks them for each store, with
+      # no credentials and no store contacted; both packages must declare the
+      # developer tools page and carry the panel's pages.
+      - name: dry-run publishing the DevTools panel
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cli="$PWD/target/debug/leptoskit"
+          cd devtools
+          "$cli" publish --dry-run
+          for browser in chromium firefox; do
+            package=".leptoskit/extension/$browser"
+            grep -qF '"devtools_page": "devtools.html"' "$package/manifest.json"
+            for page in devtools.html devtools.js devtools_panel.html devtools_panel.js; do
+              test -s "$package/$page"
+            done
+            test -s ".leptoskit/extension/$browser.zip"
+          done
+          test -s .leptoskit/extension/firefox-source.zip
+          test -s .leptoskit/publish/next-steps.json
 
       - name: build generated Windows application
         if: runner.os == 'Windows'
