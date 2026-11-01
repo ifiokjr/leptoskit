@@ -13,6 +13,7 @@ pub mod edge;
 pub mod firefox;
 pub mod google;
 pub mod http;
+pub mod images;
 pub mod listing;
 pub mod macos;
 pub mod play;
@@ -420,6 +421,7 @@ impl Session<'_> {
 		Ok((
 			summary,
 			chrome_steps(
+				self.root,
 				self.config,
 				self.store,
 				&self.extension().manifest,
@@ -457,7 +459,10 @@ impl Session<'_> {
 				format!("{} {} is uploaded as a draft.", self.name, self.version)
 			}
 		};
-		Ok((summary, edge_steps(self.config, self.store, self.submit)))
+		Ok((
+			summary,
+			edge_steps(self.root, self.config, self.store, self.submit),
+		))
 	}
 
 	fn firefox(&self) -> Result<(String, Vec<Step>)> {
@@ -470,6 +475,17 @@ impl Session<'_> {
 			.map(|firefox| firefox.id.clone())
 			.context("[extension.firefox] needs the add-on's id")?;
 		self.fits("firefox")?;
+		let listed = settings.channel == leptoskit_config::publish::FirefoxChannel::Listed;
+		// addons.mozilla.org shows one set of screenshots: the first size that
+		// has any.
+		let screenshots: Vec<images::Set> = if listed {
+			images::load(self.root, "firefox")?
+				.into_iter()
+				.take(1)
+				.collect()
+		} else {
+			Vec::new()
+		};
 		let zip = self.package(leptoskit_config::Browser::Firefox)?;
 		let source = self
 			.extension()
@@ -479,7 +495,7 @@ impl Session<'_> {
 			.context("the build wrote no Firefox source archive")?;
 		let mut exists = true;
 		let summary = if self.args.dry_run {
-			self.checked()
+			self.checked() + &checked_images(&screenshots)
 		} else {
 			let client = firefox::Firefox::new(
 				self.http,
@@ -517,26 +533,34 @@ impl Session<'_> {
 			};
 			// A listed add-on's text comes from `store/`; an unlisted one has
 			// no listing.
-			if exists && settings.channel == leptoskit_config::publish::FirefoxChannel::Listed {
+			if exists && listed {
 				exists = client.listing(
 					self.store.listing.name.as_deref(),
 					self.store.summary.as_deref(),
 					self.store.description.as_deref(),
 				)?;
 			}
-			summary
+			match screenshots.first() {
+				Some(set) if exists => {
+					exists = client.replace_previews(&set.images)?;
+					summary + &uploaded_images(&screenshots)
+				}
+				_ => summary,
+			}
 		};
 		Ok((
 			summary,
-			firefox_steps(
-				&guid,
-				&settings,
-				self.store,
-				self.submit,
+			firefox_steps(&FirefoxRun {
+				guid: &guid,
+				settings: &settings,
+				store: self.store,
+				submitted: self.submit,
 				exists,
-				&zip,
-				&source,
-			),
+				zip: &zip,
+				source: &source,
+				root: self.root,
+				screenshots: !screenshots.is_empty(),
+			}),
 		))
 	}
 }
@@ -549,6 +573,7 @@ impl Session<'_> {
 			.team(self.config.native.apple_team_id.as_deref())
 			.context("[publish.app_store] needs team_id")?;
 		self.fits("app_store")?;
+		let screenshots = images::load(self.root, "app_store")?;
 		let version = apple_version(self.config);
 		let out = self.root.join(OUTPUT).join("ios");
 		std::fs::create_dir_all(&out)?;
@@ -567,8 +592,9 @@ impl Session<'_> {
 			};
 			format!(
 				"{} {version} is checked; an upload archives it for team {team}, and its build \
-				 number will be {build}. Nothing was built or uploaded.",
-				self.name
+				 number will be {build}.{} Nothing was built or uploaded.",
+				self.name,
+				checked_images(&screenshots)
 			)
 		} else {
 			let key = app_store::Key::new(
@@ -627,8 +653,12 @@ impl Session<'_> {
 			// preparation, which nobody sees until it is submitted.
 			let (version_id, first) = client.version(app, &version)?;
 			let text = app_store_text(self.store);
-			if !text.is_empty() {
-				client.localize(&version_id, "en-US", &serde_json::Value::Object(text))?;
+			if !text.is_empty() || !screenshots.is_empty() {
+				let localization =
+					client.localize(&version_id, "en-US", &serde_json::Value::Object(text))?;
+				for set in &screenshots {
+					client.replace_screenshots(&localization, set.target.kind, &set.images)?;
+				}
 			}
 			if let Some(url) = &self.store.listing.privacy_policy {
 				client.privacy_policy(app, url)?;
@@ -650,13 +680,15 @@ impl Session<'_> {
 				let state = client.submit_for_review(app, &version_id)?;
 				format!(
 					"{} {version} (build {build}) is in TestFlight{tested}, and submitted for App \
-					 Review ({state}).",
-					self.name
+					 Review ({state}).{}",
+					self.name,
+					uploaded_images(&screenshots)
 				)
 			} else {
 				format!(
-					"{} {version} (build {build}) is in TestFlight{tested}.",
-					self.name
+					"{} {version} (build {build}) is in TestFlight{tested}.{}",
+					self.name,
+					uploaded_images(&screenshots)
 				)
 			}
 		};
@@ -672,8 +704,56 @@ impl Session<'_> {
 				beta_review: beta_review.as_deref(),
 				submitted: self.submit,
 				store: self.store,
+				screenshots: &screenshots,
 			}),
 		))
+	}
+}
+
+/// How to get the screenshots of `sizes` (folder names, or prefixes ending
+/// in `-`): run the capture when `store/screenshots/screenshots.toml` has
+/// one of them, or add `add` to it.
+fn capture(root: &Path, sizes: &[&str], add: &str) -> String {
+	let planned: Vec<String> = screenshots::Plan::load(root)
+		.map(|plan| {
+			plan.devices
+				.into_keys()
+				.filter(|folder| {
+					sizes.iter().any(|size| {
+						folder == size || (size.ends_with('-') && folder.starts_with(size))
+					})
+				})
+				.collect()
+		})
+		.unwrap_or_default();
+	if planned.is_empty() {
+		format!(
+			"add {add} to store/screenshots/screenshots.toml, and run `leptoskit publish \
+			 screenshots`"
+		)
+	} else {
+		format!(
+			"run `leptoskit publish screenshots`, which captures {}",
+			planned.join(" and ")
+		)
+	}
+}
+
+/// What a dry run checked of the images, for its summary.
+fn checked_images(sets: &[images::Set]) -> String {
+	if sets.is_empty() {
+		String::new()
+	} else {
+		format!(" Its screenshots are checked: {}.", images::describe(sets))
+	}
+}
+
+/// What an upload sent of the images, for its summary.
+fn uploaded_images(sets: &[images::Set]) -> String {
+	if sets.is_empty() {
+		String::new()
+	} else {
+		format!(" Its screenshots are uploaded: {}.", images::describe(sets))
 	}
 }
 
@@ -808,6 +888,12 @@ impl Session<'_> {
 impl Session<'_> {
 	fn play(&self) -> Result<(String, Vec<Step>)> {
 		self.fits("play")?;
+		let screenshots = images::load(self.root, "play")?;
+		// Google Play's listing icon: 512 pixels, from app.icon.
+		let icon = match &self.config.app.icon {
+			Some(path) => Some(crate::icons::Icon::load(&self.root.join(path))?),
+			None => None,
+		};
 		let settings = self.config.publish.play.clone().unwrap_or_default();
 		let track = settings.track.as_str();
 		let package = &self.config.native.package_id;
@@ -841,9 +927,10 @@ impl Session<'_> {
 			};
 			format!(
 				"{} {version} is checked; an upload builds an App Bundle signed with your upload \
-				 key, numbered {code}, and puts it on the {track} track as a draft. Nothing was \
+				 key, numbered {code}, and puts it on the {track} track as a draft.{} Nothing was \
 				 built or uploaded.",
-				self.name
+				self.name,
+				checked_images(&screenshots)
 			)
 		} else {
 			let account = self.credentials.require(play::CREDENTIAL, play::HOW)?;
@@ -908,15 +995,11 @@ impl Session<'_> {
 							_ => play::Rollout::Everyone,
 						};
 					}
-					if let (Some(short), Some(full)) =
-						(&self.store.summary, &self.store.description)
-					{
-						let title = self.store.listing.name.as_deref().unwrap_or(&self.name);
-						edit.listing("en-US", title, short, full)?;
-					}
+					self.play_listing(&edit, &screenshots, icon.as_ref())?;
 					edit.release(track, &play::release(&version, code, rollout, notes))?;
 					edit.commit()?;
 					play_summary(&self.name, &version, code, track, rollout)
+						+ &uploaded_images(&screenshots)
 				}
 				_ => {
 					exists = false;
@@ -938,8 +1021,43 @@ impl Session<'_> {
 				rollout,
 				submitted: self.submit,
 				store: self.store,
+				root: self.root,
+				screenshots: &screenshots,
+				icon: icon.is_some(),
 			}),
 		))
+	}
+}
+
+impl Session<'_> {
+	/// Sets the `en-US` listing inside `edit`: its text, images, and icon.
+	fn play_listing(
+		&self,
+		edit: &play::Edit<'_, '_>,
+		screenshots: &[images::Set],
+		icon: Option<&crate::icons::Icon>,
+	) -> Result<()> {
+		if let (Some(short), Some(full)) = (&self.store.summary, &self.store.description) {
+			let title = self.store.listing.name.as_deref().unwrap_or(&self.name);
+			edit.listing("en-US", title, short, full)?;
+		}
+		for set in screenshots {
+			edit.replace_images("en-US", set.target.kind, &set.images)?;
+		}
+		if let Some(icon) = icon {
+			edit.replace_images(
+				"en-US",
+				"icon",
+				&[images::Image {
+					name: "icon-512.png".to_owned(),
+					bytes: icon.png(512)?,
+					width: 512,
+					height: 512,
+					content_type: "image/png",
+				}],
+			)?;
+		}
+		Ok(())
 	}
 }
 
@@ -979,6 +1097,11 @@ struct PlayRun<'a> {
 	rollout: play::Rollout,
 	submitted: bool,
 	store: &'a Store,
+	root: &'a Path,
+	/// The images in `store/screenshots/`, which each upload sends.
+	screenshots: &'a [images::Set],
+	/// Whether app.icon makes the listing's icon.
+	icon: bool,
 }
 
 /// What Google Play's API can't do.
@@ -1018,34 +1141,54 @@ fn play_steps(run: &PlayRun<'_>) -> Vec<Step> {
 		}
 		return steps;
 	}
-	steps.extend([
-		step(
+	let has = |folder: &str| {
+		run.screenshots
+			.iter()
+			.any(|set| set.target.folder == folder)
+	};
+	let listing = missing(&[
+		(
+			"Icon",
+			run.icon,
+			"set app.icon in leptoskit.toml; each upload sends it at 512×512",
+		),
+		(
+			"Feature graphic",
+			has("play-feature-graphic"),
+			"put one 1024×500 image in store/screenshots/play-feature-graphic/",
+		),
+		(
+			"Phone screenshots",
+			has("android-phone"),
+			&format!(
+				"{}; Google Play asks for at least two",
+				capture(run.root, &["android-phone"], "the android-phone size")
+			),
+		),
+		(
+			"Short description",
+			run.store.summary.is_some(),
+			"write it in store/en-US/summary.md, 80 characters at most",
+		),
+		(
+			"Full description",
+			run.store.description.is_some(),
+			"write it in store/en-US/description.md",
+		),
+	]);
+	if !listing.is_empty() {
+		steps.push(step(
 			"play",
 			Who::Agent,
-			"Add the main store listing's images: the icon, the feature graphic, and phone \
-			 screenshots.",
+			"Add what the main store listing is missing to the project, and upload again.",
 			Some(console.clone()),
-			std::iter::once(field(
-				"Screenshots",
-				"store/screenshots/android-phone/*.png, made by `leptoskit publish screenshots`",
-			))
-			.chain(missing(&[
-				(
-					"Short description",
-					run.store.summary.is_some(),
-					"write it in store/en-US/summary.md, 80 characters at most",
-				),
-				(
-					"Full description",
-					run.store.description.is_some(),
-					"write it in store/en-US/description.md",
-				),
-			]))
-			.collect(),
-			"leptoskit uploads the listing's title and descriptions with each upload, but not \
-			 images yet",
+			listing,
+			"leptoskit uploads the listing's text, icon, and images from store/ with each upload, \
+			 and these aren't there yet",
 			"Play Console's dashboard no longer lists the store listing as a task",
-		),
+		));
+	}
+	steps.extend([
 		step(
 			"play",
 			Who::Agent,
@@ -1142,6 +1285,52 @@ struct AppStoreRun<'a> {
 	beta_review: Option<&'a str>,
 	submitted: bool,
 	store: &'a Store,
+	/// The screenshots in `store/screenshots/`, which each upload sends.
+	screenshots: &'a [images::Set],
+}
+
+/// What version's App Store page is missing from `store/`: the screenshots
+/// and text each upload sends.
+fn app_store_page(run: &AppStoreRun<'_>) -> Vec<Field> {
+	let has = |prefix: &str| {
+		run.screenshots
+			.iter()
+			.any(|set| set.target.folder.starts_with(prefix))
+	};
+	missing(&[
+		(
+			"iPhone screenshots",
+			has("iphone-"),
+			&capture(
+				run.root,
+				&["iphone-"],
+				"the iphone-6.3 size, which App Store Connect asks for,",
+			),
+		),
+		(
+			"iPad screenshots",
+			has("ipad-"),
+			&format!(
+				"the app runs on iPad: {}",
+				capture(run.root, &["ipad-"], "the ipad-13 size")
+			),
+		),
+		(
+			"Description",
+			run.store.description.is_some(),
+			"write it in store/en-US/description.md",
+		),
+		(
+			"Keywords",
+			run.store.keywords().is_some(),
+			"add keywords to store/listing.toml",
+		),
+		(
+			"Support URL",
+			run.store.listing.support.is_some(),
+			"add support to store/listing.toml",
+		),
+	])
 }
 
 /// What App Store Connect's API can't do.
@@ -1191,43 +1380,24 @@ fn app_store_steps(run: &AppStoreRun<'_>) -> Vec<Step> {
 		return steps;
 	}
 	let listing = &run.store.listing;
-	steps.extend([
-		step(
+	let page = app_store_page(run);
+	if !page.is_empty() {
+		steps.push(step(
 			"app_store",
 			Who::Agent,
 			&format!(
-				"Add version {}'s screenshots for iPhone and iPad, on its App Store page.",
+				"Add what version {}'s App Store page is missing to store/, and upload again.",
 				run.version
 			),
 			Some(format!("{app}/distribution/ios/version/inflight")),
-			std::iter::once(field(
-				"Screenshots",
-				"store/screenshots/iphone-6.9/*.png and store/screenshots/ipad-13/*.png, made by \
-				 `leptoskit publish screenshots`",
-			))
-			.chain(missing(&[
-				(
-					"Description",
-					run.store.description.is_some(),
-					"write it in store/en-US/description.md",
-				),
-				(
-					"Keywords",
-					run.store.keywords().is_some(),
-					"add keywords to store/listing.toml",
-				),
-				(
-					"Support URL",
-					listing.support.is_some(),
-					"add support to store/listing.toml",
-				),
-			]))
-			.collect(),
-			"leptoskit uploads the version's description, keywords, promotional text, and \
-			 addresses with each upload, but not screenshots yet",
+			page,
+			"leptoskit uploads the version's text and screenshots from store/ with each upload, \
+			 and these aren't there yet",
 			"`leptoskit publish app_store --submit` succeeds; App Review refuses a page without \
 			 screenshots",
-		),
+		));
+	}
+	steps.extend([
 		step(
 			"app_store",
 			Who::Agent,
@@ -1444,8 +1614,35 @@ fn privacy_policy(store: &Store) -> String {
 		.unwrap_or_else(|| "(add privacy_policy to store/listing.toml)".to_owned())
 }
 
+/// The browser stores' screenshots, which are uploaded by hand: the folder
+/// and how many it holds, or how to make them.
+fn browser_screenshots(root: &Path) -> Field {
+	match images::count(root, "chrome-1280x800") {
+		0 => {
+			field(
+				"Screenshots",
+				format!(
+					"({})",
+					capture(root, &["chrome-1280x800"], "the chrome-1280x800 size")
+				),
+			)
+		}
+		count => {
+			field(
+				"Screenshots",
+				format!(
+					"upload store/screenshots/chrome-1280x800/*.png ({count} {}, made by \
+					 `leptoskit publish screenshots`)",
+					if count == 1 { "file" } else { "files" }
+				),
+			)
+		}
+	}
+}
+
 /// What the Chrome Web Store's API can't set.
 fn chrome_steps(
+	root: &Path,
 	config: &LeptoskitConfig,
 	store: &Store,
 	manifest: &serde_json::Value,
@@ -1500,8 +1697,9 @@ fn chrome_steps(
 					store.listing.homepage.clone().unwrap_or_default(),
 				),
 				field("Support", store.listing.support.clone().unwrap_or_default()),
+				browser_screenshots(root),
 			],
-			"the Chrome Web Store API uploads packages but can't edit the listing",
+			"the Chrome Web Store API uploads packages but can't edit the listing or its images",
 			"a submit succeeds; the store refuses one while the listing is incomplete",
 		),
 		step(
@@ -1544,7 +1742,7 @@ fn chrome_steps(
 }
 
 /// What Edge Add-ons' API can't set.
-fn edge_steps(config: &LeptoskitConfig, store: &Store, submitted: bool) -> Vec<Step> {
+fn edge_steps(root: &Path, config: &LeptoskitConfig, store: &Store, submitted: bool) -> Vec<Step> {
 	let settings = config.publish.edge.as_ref().expect("configured");
 	let product = format!(
 		"https://partner.microsoft.com/dashboard/microsoftedge/{}",
@@ -1568,8 +1766,10 @@ fn edge_steps(config: &LeptoskitConfig, store: &Store, submitted: bool) -> Vec<S
 				"Category",
 				store.listing.category.clone().unwrap_or_default(),
 			),
+			browser_screenshots(root),
 		],
-		"Edge Add-ons' Publish API uploads packages and submits them, but can't edit the listing",
+		"Edge Add-ons' Publish API uploads packages and submits them, but can't edit the listing \
+		 or upload its images",
 		"a submit succeeds",
 	)];
 	if !submitted {
@@ -1586,16 +1786,33 @@ fn edge_steps(config: &LeptoskitConfig, store: &Store, submitted: bool) -> Vec<S
 	steps
 }
 
-/// What addons.mozilla.org's API can't do.
-fn firefox_steps(
-	guid: &str,
-	settings: &leptoskit_config::publish::FirefoxStore,
-	store: &Store,
+/// What one addons.mozilla.org run did, for its steps.
+struct FirefoxRun<'a> {
+	guid: &'a str,
+	settings: &'a leptoskit_config::publish::FirefoxStore,
+	store: &'a Store,
 	submitted: bool,
 	exists: bool,
-	zip: &Path,
-	source: &Path,
-) -> Vec<Step> {
+	zip: &'a Path,
+	source: &'a Path,
+	root: &'a Path,
+	/// Whether `store/screenshots/` has the listing's screenshots.
+	screenshots: bool,
+}
+
+/// What addons.mozilla.org's API can't do.
+fn firefox_steps(run: &FirefoxRun<'_>) -> Vec<Step> {
+	let FirefoxRun {
+		guid,
+		settings,
+		store,
+		submitted,
+		exists,
+		zip,
+		source,
+		root,
+		screenshots,
+	} = *run;
 	let mut steps = Vec::new();
 	if !exists {
 		steps.push(step(
@@ -1626,12 +1843,20 @@ fn firefox_steps(
 		steps.push(step(
 			"firefox",
 			Who::Agent,
-			"Add the listing's screenshots and the privacy policy.",
+			"Add the listing's privacy policy.",
 			Some(format!(
 				"https://addons.mozilla.org/developers/addon/{guid}/edit"
 			)),
 			std::iter::once(field("Privacy policy", privacy_policy(store)))
 				.chain(missing(&[
+					(
+						"Screenshots",
+						screenshots,
+						&format!(
+							"{}; each upload sends them",
+							capture(root, &["chrome-1280x800"], "the chrome-1280x800 size")
+						),
+					),
 					(
 						"Summary",
 						store.summary.is_some(),
@@ -1644,9 +1869,9 @@ fn firefox_steps(
 					),
 				]))
 				.collect(),
-			"leptoskit uploads the name, summary, and description with each upload, but not \
-			 screenshots or the privacy policy",
-			"the listing page shows them",
+			"leptoskit uploads the name, summary, description, and screenshots with each upload, \
+			 but the API doesn't set the privacy policy",
+			"the listing page shows it",
 		));
 	}
 	if !submitted {

@@ -86,14 +86,14 @@ The version is `app.version` (a pre-release label like `-beta.1` is dropped, sin
 
 With `--submit`, the command also creates the App Store version (or renames the one you were preparing), sets "What's New" from `store/en-US/release_notes.md`, attaches the build, and submits it for review. Apple refuses the submission until the steps below are done, and says what is missing.
 
-These stay in App Store Connect's own pages, and the steps after each run list them:
+Every upload also fills in the version's page from `store/`: its text, and its screenshots from `store/screenshots/`, replacing the ones there (see [Screenshots from the app](#screenshots-from-the-app)). These stay in App Store Connect's own pages, and the steps after each run list them:
 
-- the version's page: description, keywords, support address, and screenshots;
+- the version's page: whatever `store/` doesn't have yet;
 - App Information: the category and the privacy policy's address;
 - App Privacy, the age rating, and export compliance, which are legal declarations for the account holder. Set `ITSAppUsesNonExemptEncryption` in your app's `Info.plist` to answer export compliance in every build;
 - App Review's contact details, and a demo account if the app needs signing in.
 
-`--dry-run` checks the configuration and writes `.leptoskit/publish/ios/ExportOptions.plist`, but doesn't build the app, since an archive needs your signing team.
+`--dry-run` checks the configuration and the screenshots, and writes `.leptoskit/publish/ios/ExportOptions.plist`, but doesn't build the app, since an archive needs your signing team.
 
 ## Google Play
 
@@ -114,7 +114,7 @@ An upload:
 
 1. asks Google Play for the highest version code on any track, and uses the next one. `--build-number 42` picks it instead.
 2. builds the App Bundle with Gradle, signed with your upload key. Google Play keeps the key that signs what people install (Play App Signing), so the upload key never reaches users.
-3. uploads it, and puts it on the track as a draft. With `--submit`, the release goes to everyone on the track, or, on production with `rollout`, to that fraction of users first.
+3. uploads it, sets the store listing from `store/` (the text, the icon from `app.icon` at 512×512, the feature graphic, and the screenshots, replacing the ones there), and puts the bundle on the track as a draft. With `--submit`, the release goes to everyone on the track, or, on production with `rollout`, to that fraction of users first.
 
 The Gradle script reads the upload key from the four `LEPTOSKIT_ANDROID_*` variables, so the keystore and its passwords stay out of the project; without them, `leptoskit native build android --release` still builds, unsigned. Release builds now make the App Bundle (`app-release.aab`) next to the APK. The app's `versionName` is `app.version`.
 
@@ -122,7 +122,7 @@ Before it uploads, the command checks the Gradle script: it must read the versio
 
 Google Play can't create an app through its API, and takes API uploads only after the first bundle was uploaded in Play Console. The steps after the first run say so, with the bundle's path. These also stay in Play Console:
 
-- the store listing: descriptions, icon, feature graphic, and screenshots;
+- the store listing's images until `store/` has them;
 - App content: the privacy policy, and the data safety, content rating, target audience, and ads declarations, which are the account holder's.
 
 ## A notarized macOS download
@@ -192,12 +192,12 @@ keywords = ["notes", "research", "quotes"]
 
 What goes up with each upload:
 
-| Store                  | Uploaded from `store/`                                                                                           | Left for the steps                          |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| App Store              | description, keywords, summary (as promotional text), support and homepage addresses, privacy policy, What's New | screenshots, category                       |
-| Google Play            | name, summary (as the short description), description, release notes                                             | icon, feature graphic, screenshots          |
-| addons.mozilla.org     | name, summary, description                                                                                       | screenshots, privacy policy                 |
-| Chrome Web Store, Edge | release notes, on Edge                                                                                           | the whole listing: their APIs don't edit it |
+| Store                  | Uploaded from `store/`                                                                                                        | Left for the steps                                           |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| App Store              | description, keywords, summary (as promotional text), support and homepage addresses, privacy policy, What's New, screenshots | category                                                     |
+| Google Play            | name, summary (as the short description), description, release notes, icon, feature graphic, screenshots                      | nothing in the listing                                       |
+| addons.mozilla.org     | name, summary, description, screenshots                                                                                       | privacy policy                                               |
+| Chrome Web Store, Edge | release notes, on Edge                                                                                                        | the whole listing, screenshots too: their APIs don't edit it |
 
 Text a store would refuse as too long fails before anything is built: Google Play takes an 80-character summary and a 30-character name, the App Store 100 bytes of keywords and a 170-character summary, and addons.mozilla.org a 250-character summary.
 
@@ -267,7 +267,25 @@ leptoskit publish screenshots
 - **A simulator or Android size** launches your installed app, takes the screen's `steps`, and captures the app. The steps are the same ones [`leptoskit device`](../platforms/readme.md) and control documents use, so they need Appium with the platform's driver, a booted simulator or running emulator, and the app installed on it.
 - A screen's `devices` list limits it to some sizes. Files are numbered in the order the screens are listed: `01-library.png`, `02-…`.
 
-The steps after each run say which folder each store's screenshots come from. The stores' APIs take images, but leptoskit doesn't upload them yet.
+Each size's name says which store it is for, and `leptoskit publish` uploads the folders it knows, so name the sizes from this list. Each upload replaces the store's screenshots for that size with the folder's, in file name order:
+
+| Folder                                  | Store and size                                                         |
+| --------------------------------------- | ---------------------------------------------------------------------- |
+| `iphone-6.9`                            | App Store, 6.9-inch iPhone: 1320×2868, 1290×2796, or 1260×2736         |
+| `iphone-6.5`                            | App Store, 6.5-inch iPhone: 1284×2778 or 1242×2688                     |
+| `iphone-6.3`                            | App Store, 6.3-inch iPhone: 1206×2622 or 1179×2556                     |
+| `iphone-6.1`                            | App Store, 6.1-inch iPhone: 1170×2532, 1125×2436, or 1080×2340         |
+| `iphone-5.5`, `iphone-4.7`              | App Store, iPhones with a Home button: 1242×2208, and 750×1334         |
+| `ipad-13`                               | App Store, 13-inch iPad: 2064×2752 or 2048×2732                        |
+| `ipad-12.9`, `ipad-11`, `ipad-10.5`     | App Store, older iPads, at the sizes App Store Connect lists for them  |
+| `android-phone`                         | Google Play, phone screenshots                                         |
+| `android-tablet-7`, `android-tablet-10` | Google Play, 7-inch and 10-inch tablet screenshots                     |
+| `play-feature-graphic`                  | Google Play's feature graphic: one 1024×500 image, which you make      |
+| `chrome-1280x800`, `chrome-640x400`     | addons.mozilla.org (uploaded); the Chrome Web Store and Edge (by hand) |
+
+App Store sizes may be upright or on their side. App Store Connect asks for the 6.3-inch iPhone size, and the 13-inch iPad for an app that runs on iPad, which leptoskit's iOS apps do; it scales those down for the smaller sizes. Google Play takes up to 8 screenshots per size, each side 320 to 3840 pixels and the long side at most twice the short one, and asks for at least two phone screenshots. addons.mozilla.org uses the first of the `chrome-` sizes that has screenshots, for a listed add-on.
+
+Before anything is built or uploaded, and with `--dry-run` too, every image is checked against its store: the size, how many (10 per App Store size), and transparency, which the App Store and Google Play refuse. A PNG saved with an alpha channel but no transparent pixels is sent without the channel. A folder leptoskit doesn't know is refused, so a misspelled size isn't silently left out, and `leptoskit publish screenshots` refuses one in `screenshots.toml` before capturing anything. The Chrome Web Store and Edge have no API for images, so their steps name the folder to upload from.
 
 ## Publish from CI
 
@@ -300,7 +318,7 @@ leptoskit skill                  # print it, to paste into any agent
 
 ## What doesn't work yet
 
-- **Screenshots and images** aren't uploaded yet: the steps name the folders to upload them from.
+- **The Chrome Web Store and Edge screenshots** are uploaded by hand, since their APIs take no images. The steps name the folder.
+- **Screenshots in other languages:** each upload sends the `en-US` screenshots, which the stores show in every language without their own.
 - **The Mac App Store** isn't supported. Safari's extension ships inside your iOS app, so it goes through the App Store with the app.
-- **Listing text and screenshots** aren't uploaded; they appear in the steps instead.
 - **A brand new Firefox add-on** needs its first version submitted on the site. After that, `leptoskit publish firefox --submit` adds versions.

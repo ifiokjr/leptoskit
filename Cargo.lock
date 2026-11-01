@@ -4799,6 +4799,7 @@ dependencies = [
  "leptoskit_rpc_codegen",
  "leptoskit_testing",
  "leptoskit_wasm",
+ "md-5",
  "notify",
  "plist",
  "png 0.17.16",

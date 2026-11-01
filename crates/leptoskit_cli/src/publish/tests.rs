@@ -693,6 +693,24 @@ fn no_credential_value_reaches_any_output() {
 /// the packages standing in for a build.
 #[test]
 fn commonplace_dry_run() {
+	let out = tempfile::tempdir().unwrap();
+	let report = commonplace(out.path(), &[], true).unwrap();
+	assert!(
+		out.path()
+			.join(".leptoskit/publish/ios/ExportOptions.plist")
+			.is_file()
+	);
+	insta::assert_snapshot!(report.text());
+}
+
+/// Publishes Commonplace's configuration and `store/` text from `out`, where
+/// the packages stand in for a build, to `stores` (every configured one when
+/// empty). Asserts that no tool ran.
+fn commonplace(
+	out: &std::path::Path,
+	stores: &[&str],
+	dry_run: bool,
+) -> anyhow::Result<super::Report> {
 	use leptoskit_config::Browser;
 
 	let example =
@@ -713,35 +731,44 @@ fn commonplace_dry_run() {
 			icons: &[16, 32, 48, 128],
 			dev: None,
 		});
-	let out = tempfile::tempdir().unwrap();
+	// Commonplace's icon, which Google Play's listing gets.
+	let icon = config.app.icon.clone().unwrap();
+	std::fs::create_dir_all(out.join(&icon).parent().unwrap()).unwrap();
+	std::fs::copy(example.join(&icon), out.join(&icon)).unwrap();
+	// And its screenshot plan, unless the test brought one.
+	let plan = out.join("store/screenshots/screenshots.toml");
+	if !plan.exists() {
+		std::fs::create_dir_all(plan.parent().unwrap()).unwrap();
+		std::fs::copy(example.join("store/screenshots/screenshots.toml"), &plan).unwrap();
+	}
 	// Commonplace's iOS host is `ios/`, as in the example.
-	std::fs::create_dir_all(out.path().join("ios")).unwrap();
-	std::fs::write(out.path().join("ios/Cargo.toml"), "").unwrap();
+	std::fs::create_dir_all(out.join("ios")).unwrap();
+	std::fs::write(out.join("ios/Cargo.toml"), "").unwrap();
 	// And its Android host is `android/`, with its own Gradle script.
-	std::fs::create_dir_all(out.path().join("android/app")).unwrap();
-	std::fs::write(out.path().join("android/Cargo.toml"), "").unwrap();
+	std::fs::create_dir_all(out.join("android/app")).unwrap();
+	std::fs::write(out.join("android/Cargo.toml"), "").unwrap();
 	std::fs::copy(
 		example.join("android/app/build.gradle.kts"),
-		out.path().join("android/app/build.gradle.kts"),
+		out.join("android/app/build.gradle.kts"),
 	)
 	.unwrap();
 	let package = |browser: Browser| {
 		crate::extension::Package {
 			browser,
-			dir: out.path().join(browser.name()),
-			zip: Some(out.path().join(format!("{}.zip", browser.name()))),
+			dir: out.join(browser.name()),
+			zip: Some(out.join(format!("{}.zip", browser.name()))),
 		}
 	};
 	let extension = super::Extension {
 		built: crate::extension::Built {
 			packages: vec![package(Browser::Chromium), package(Browser::Firefox)],
-			source: Some(out.path().join("firefox-source.zip")),
+			source: Some(out.join("firefox-source.zip")),
 		},
 		manifest,
 	};
 	let args = super::PublishArgs {
 		stores: Vec::new(),
-		dry_run: true,
+		dry_run,
 		submit: false,
 		staged: false,
 		yes: false,
@@ -754,7 +781,7 @@ fn commonplace_dry_run() {
 	let runner = super::tools::Recorder::default();
 	let session = super::Session {
 		args: &args,
-		root: out.path(),
+		root: out,
 		config: &config,
 		credentials: &credentials,
 		store: &store,
@@ -766,22 +793,24 @@ fn commonplace_dry_run() {
 		submit: false,
 	};
 	let mut report = super::Report::default();
-	for name in config.publish.stores() {
-		let (summary, steps) = session.publish(name).unwrap();
+	let configured = config.publish.stores();
+	let stores = if stores.is_empty() {
+		configured
+	} else {
+		stores.to_vec()
+	};
+	let published = stores.iter().try_for_each(|name| {
+		let (summary, steps) = session.publish(name)?;
 		report.steps.extend(steps);
 		report.stores.push(super::Status {
-			store: name.to_owned(),
+			store: (*name).to_owned(),
 			summary,
 		});
-	}
+		anyhow::Ok(())
+	});
 	// A dry run runs no tool and contacts no store.
 	assert!(runner.seen.borrow().is_empty());
-	assert!(
-		out.path()
-			.join(".leptoskit/publish/ios/ExportOptions.plist")
-			.is_file()
-	);
-	insta::assert_snapshot!(report.text());
+	published.map(|()| report)
 }
 
 fn google_account() -> Option<Secret> {
@@ -1077,4 +1106,392 @@ fn the_release_workflow_passes_every_credential() {
 	// An existing workflow is the app's; it isn't replaced.
 	let error = super::write_workflow(root.path(), &config).unwrap_err();
 	assert!(error.to_string().contains("remove it first"), "{error}");
+}
+
+/// Two screenshots for a set: real PNGs of `width`×`height`.
+fn shots(width: u32, height: u32) -> Vec<super::images::Image> {
+	["01-projects.png", "02-reading.png"]
+		.into_iter()
+		.map(|name| {
+			super::images::Image {
+				name: name.to_owned(),
+				bytes: super::images::tests::png(width, height, 255),
+				width,
+				height,
+				content_type: "image/png",
+			}
+		})
+		.collect()
+}
+
+#[test]
+fn app_store_replaces_a_screenshot_set_in_parts() {
+	use md5::Digest as _;
+
+	let Some(key) = apple_key() else { return };
+	let base: Arc<std::sync::OnceLock<String>> = Arc::default();
+	let address = Arc::clone(&base);
+	let (url, seen) = store(Box::new(move |request, count| {
+		let base = address.get().unwrap();
+		match (request.method.as_str(), request.path.as_str()) {
+			("GET", "/v1/appStoreVersionLocalizations/l1/appScreenshotSets") => {
+				// Another display type's set only.
+				json(serde_json::json!({ "data": [
+					{ "id": "set-ipad", "attributes": { "screenshotDisplayType": "APP_IPAD_PRO_3GEN_129" } },
+				]}))
+			}
+			("POST", "/v1/appScreenshotSets") => {
+				(
+					StatusCode::CREATED,
+					axum::Json(serde_json::json!({ "data": { "id": "set-1" } })),
+				)
+					.into_response()
+			}
+			("GET", "/v1/appScreenshotSets/set-1/appScreenshots") => {
+				json(serde_json::json!({ "data": [{ "id": "old-1" }, { "id": "old-2" }] }))
+			}
+			("DELETE", path) if path.starts_with("/v1/appScreenshots/old-") => {
+				StatusCode::NO_CONTENT.into_response()
+			}
+			("POST", "/v1/appScreenshots") => {
+				let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+				let size = body["data"]["attributes"]["fileSize"].as_u64().unwrap();
+				let half = size / 2;
+				let id = format!("shot-{count}");
+				// Two parts, as Apple splits large files.
+				json(
+					serde_json::json!({ "data": { "id": id, "attributes": { "uploadOperations": [
+						{ "method": "PUT", "url": format!("{base}/assets/{id}/1"), "offset": 0, "length": half,
+						  "requestHeaders": [{ "name": "Content-Type", "value": "image/png" }, { "name": "x-apple-part", "value": "1" }] },
+						{ "method": "PUT", "url": format!("{base}/assets/{id}/2"), "offset": half, "length": size - half,
+						  "requestHeaders": [{ "name": "Content-Type", "value": "image/png" }] },
+					]}}}),
+				)
+			}
+			("PUT", path) if path.starts_with("/assets/") => StatusCode::OK.into_response(),
+			("PATCH", path) if path.starts_with("/v1/appScreenshots/shot-") => {
+				json(serde_json::json!({}))
+			}
+			("GET", path) if path.starts_with("/v1/appScreenshots/shot-") => {
+				// Processing once, then done.
+				let state = if count % 2 == 0 {
+					"UPLOAD_COMPLETE"
+				} else {
+					"COMPLETE"
+				};
+				json(
+					serde_json::json!({ "data": { "attributes": { "assetDeliveryState": { "state": state } } } }),
+				)
+			}
+			_ => StatusCode::NOT_FOUND.into_response(),
+		}
+	}));
+	base.set(url.clone()).unwrap();
+	let http = Http::default();
+	let client = AppStore::new(&http, &url, &key);
+	let images = shots(1320, 2868);
+	client
+		.replace_screenshots("l1", "APP_IPHONE_67", &images)
+		.unwrap();
+
+	let seen = seen.lock().unwrap();
+	let body =
+		|request: &Seen| -> serde_json::Value { serde_json::from_slice(&request.body).unwrap() };
+	assert_eq!(
+		seen[0].query,
+		"filter%5BscreenshotDisplayType%5D=APP_IPHONE_67"
+	);
+	let set = body(&seen[1]);
+	assert_eq!(
+		set["data"]["attributes"]["screenshotDisplayType"],
+		"APP_IPHONE_67"
+	);
+	assert_eq!(
+		set["data"]["relationships"]["appStoreVersionLocalization"]["data"]["id"],
+		"l1"
+	);
+	let deleted: Vec<&str> = seen
+		.iter()
+		.filter(|request| request.method == "DELETE")
+		.map(|request| request.path.as_str())
+		.collect();
+	assert_eq!(
+		deleted,
+		["/v1/appScreenshots/old-1", "/v1/appScreenshots/old-2"]
+	);
+	// Each image: reserved with its name and size, sent in its parts without
+	// the API key, then committed with its checksum.
+	for image in &images {
+		let reserve = seen
+			.iter()
+			.find(|request| {
+				request.method == "POST"
+					&& request.path == "/v1/appScreenshots"
+					&& body(request)["data"]["attributes"]["fileName"] == image.name.as_str()
+			})
+			.unwrap();
+		assert_eq!(
+			body(reserve)["data"]["attributes"]["fileSize"],
+			image.bytes.len()
+		);
+		assert_eq!(
+			body(reserve)["data"]["relationships"]["appScreenshotSet"]["data"]["id"],
+			"set-1"
+		);
+	}
+	let parts: Vec<&Seen> = seen
+		.iter()
+		.filter(|request| request.method == "PUT")
+		.collect();
+	assert_eq!(parts.len(), 4);
+	assert!(parts.iter().all(|part| part.authorization.is_empty()));
+	assert!(parts.iter().all(|part| part.content_type == "image/png"));
+	let first: Vec<u8> = [parts[0].body.clone(), parts[1].body.clone()].concat();
+	assert_eq!(first, images[0].bytes);
+	let commits: Vec<serde_json::Value> = seen
+		.iter()
+		.filter(|request| request.method == "PATCH")
+		.map(body)
+		.collect();
+	assert_eq!(commits.len(), 2);
+	assert_eq!(commits[0]["data"]["attributes"]["uploaded"], true);
+	assert_eq!(
+		commits[0]["data"]["attributes"]["sourceFileChecksum"],
+		hex::encode(md5::Md5::digest(&images[0].bytes))
+	);
+	assert!(
+		seen.iter()
+			.any(|request| request.query == "fields%5BappScreenshots%5D=assetDeliveryState")
+	);
+}
+
+#[test]
+fn app_store_reports_a_screenshot_apple_could_not_process() {
+	let Some(key) = apple_key() else { return };
+	let (base, _) = store(Box::new(|request, _| {
+		match (request.method.as_str(), request.path.as_str()) {
+			("GET", path) if path.ends_with("/appScreenshotSets") => {
+				json(serde_json::json!({ "data": [
+					{ "id": "set-1", "attributes": { "screenshotDisplayType": "APP_IPHONE_67" } },
+				]}))
+			}
+			("GET", "/v1/appScreenshotSets/set-1/appScreenshots") => {
+				json(serde_json::json!({ "data": [] }))
+			}
+			("POST", "/v1/appScreenshots") => {
+				json(
+					serde_json::json!({ "data": { "id": "shot-1", "attributes": { "uploadOperations": [] } } }),
+				)
+			}
+			("PATCH", "/v1/appScreenshots/shot-1") => json(serde_json::json!({})),
+			("GET", "/v1/appScreenshots/shot-1") => {
+				json(
+					serde_json::json!({ "data": { "attributes": { "assetDeliveryState": {
+						"state": "FAILED",
+						"errors": [{ "code": "IMAGE_INCORRECT_DIMENSIONS", "description": "The dimensions of one or more screenshots are wrong." }],
+					}}}}),
+				)
+			}
+			_ => StatusCode::NOT_FOUND.into_response(),
+		}
+	}));
+	let http = Http::default();
+	let error = AppStore::new(&http, &base, &key)
+		.replace_screenshots("l1", "APP_IPHONE_67", &shots(1320, 2868)[..1])
+		.unwrap_err()
+		.to_string();
+	assert!(
+		error.contains(
+			"couldn't process the screenshot 01-projects.png: The dimensions of one or more \
+			 screenshots are wrong. (IMAGE_INCORRECT_DIMENSIONS)"
+		),
+		"{error}"
+	);
+}
+
+#[test]
+fn play_replaces_the_listing_images_inside_the_edit() {
+	let Some(account) = google_account() else {
+		return;
+	};
+	let (base, seen) = store(Box::new(|request, _| {
+		match (request.method.as_str(), request.path.as_str()) {
+			("POST", "/token") => json(serde_json::json!({ "access_token": "t" })),
+			("POST", path) if path.ends_with("/edits") => json(serde_json::json!({ "id": "e1" })),
+			("DELETE", path) if path.ends_with("/listings/en-US/phoneScreenshots") => {
+				json(serde_json::json!({ "deleted": [] }))
+			}
+			("POST", path) if path.ends_with("/listings/en-US/phoneScreenshots") => {
+				json(serde_json::json!({ "image": { "id": "i" } }))
+			}
+			_ => StatusCode::NOT_FOUND.into_response(),
+		}
+	}));
+	let http = Http::default();
+	let play = super::play::Play::connect(&http, &base, &format!("{base}/token"), &account, "a.b")
+		.unwrap();
+	let images = shots(1080, 1920);
+	play.edit()
+		.unwrap()
+		.unwrap()
+		.replace_images("en-US", "phoneScreenshots", &images)
+		.unwrap();
+	let seen = seen.lock().unwrap();
+	assert_eq!(seen[2].method, "DELETE");
+	assert_eq!(
+		seen[2].path,
+		"/androidpublisher/v3/applications/a.b/edits/e1/listings/en-US/phoneScreenshots"
+	);
+	for (request, image) in seen[3..].iter().zip(&images) {
+		assert_eq!(
+			request.path,
+			"/upload/androidpublisher/v3/applications/a.b/edits/e1/listings/en-US/phoneScreenshots"
+		);
+		assert_eq!(request.query, "uploadType=media");
+		assert_eq!(request.content_type, "image/png");
+		assert_eq!(request.body, image.bytes);
+	}
+	assert_eq!(seen.len(), 5);
+}
+
+#[test]
+fn firefox_replaces_the_listing_screenshots() {
+	let (base, seen) = store(Box::new(|request, _| {
+		match (request.method.as_str(), request.path.as_str()) {
+			("GET", "/addons/addon/notes@example.com/") => {
+				json(serde_json::json!({ "id": 9, "previews": [{ "id": 11 }, { "id": 12 }] }))
+			}
+			("DELETE", path) if path.starts_with("/addons/addon/notes@example.com/previews/") => {
+				StatusCode::NO_CONTENT.into_response()
+			}
+			("POST", "/addons/addon/notes@example.com/previews/") => {
+				(
+					StatusCode::CREATED,
+					axum::Json(serde_json::json!({ "id": 13 })),
+				)
+					.into_response()
+			}
+			_ => StatusCode::NOT_FOUND.into_response(),
+		}
+	}));
+	let http = Http::default();
+	let firefox = |guid: &str| {
+		Firefox::new(
+			&http,
+			&base,
+			guid,
+			Secret::new("i".into()),
+			Secret::new("s".into()),
+		)
+	};
+	let images = shots(1280, 800);
+	assert!(
+		firefox("notes@example.com")
+			.replace_previews(&images)
+			.unwrap()
+	);
+	// An add-on that doesn't exist yet has no listing to show them.
+	assert!(
+		!firefox("new@example.com")
+			.replace_previews(&images)
+			.unwrap()
+	);
+
+	let seen = seen.lock().unwrap();
+	assert_eq!(seen[1].path, "/addons/addon/notes@example.com/previews/11/");
+	assert_eq!(seen[2].path, "/addons/addon/notes@example.com/previews/12/");
+	for (index, request) in seen[3..5].iter().enumerate() {
+		assert!(request.authorization.starts_with("JWT "));
+		let form = String::from_utf8_lossy(&request.body);
+		assert!(
+			form.contains(&format!(
+				"name=\"image\"; filename=\"{}\"\r\nContent-Type: image/png\r\n",
+				images[index].name
+			)),
+			"{form}"
+		);
+		assert!(form.contains(&format!("name=\"position\"\r\n\r\n{index}\r\n")));
+	}
+}
+
+/// A dry run checks every store's screenshots, and refuses one the store
+/// would, before anything builds or uploads.
+#[test]
+fn a_dry_run_checks_the_screenshots_and_refuses_a_wrong_size() {
+	let write = |out: &std::path::Path, path: &str, bytes: Vec<u8>| {
+		let path = out.join("store/screenshots").join(path);
+		std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+		std::fs::write(path, bytes).unwrap();
+	};
+	let png = super::images::tests::png;
+	let out = tempfile::tempdir().unwrap();
+	write(
+		out.path(),
+		"iphone-6.3/01-projects.png",
+		png(1206, 2622, 255),
+	);
+	write(
+		out.path(),
+		"android-phone/01-projects.png",
+		png(1080, 1920, 255),
+	);
+	write(
+		out.path(),
+		"android-phone/02-reading.png",
+		png(1080, 1920, 255),
+	);
+	write(
+		out.path(),
+		"chrome-1280x800/01-projects.png",
+		png(1280, 800, 255),
+	);
+	let report = commonplace(
+		out.path(),
+		&["app_store", "play", "firefox", "chrome"],
+		true,
+	)
+	.unwrap();
+	let text = report.text();
+	assert!(
+		text.contains("Its screenshots are checked: 1 image for iphone-6.3."),
+		"{text}"
+	);
+	assert!(
+		text.contains("Its screenshots are checked: 2 images for android-phone."),
+		"{text}"
+	);
+	assert!(
+		text.contains("Its screenshots are checked: 1 image for chrome-1280x800."),
+		"{text}"
+	);
+	assert!(
+		text.contains("upload store/screenshots/chrome-1280x800/*.png (1 file"),
+		"{text}"
+	);
+	// The iPhone screenshots are there; the iPad ones aren't.
+	assert!(!text.contains("iPhone screenshots:"), "{text}");
+	assert!(
+		text.contains(
+			"iPad screenshots: (the app runs on iPad: add the ipad-13 size to \
+			 store/screenshots/screenshots.toml"
+		),
+		"{text}"
+	);
+
+	write(
+		out.path(),
+		"iphone-6.9/01-projects.png",
+		png(1206, 2622, 255),
+	);
+	for dry_run in [true, false] {
+		let error = commonplace(out.path(), &["app_store"], dry_run)
+			.err()
+			.unwrap()
+			.to_string();
+		assert!(
+			error.contains("iphone-6.9/01-projects.png: it is 1206×2622; the App Store takes"),
+			"{error}"
+		);
+		assert!(error.contains("nothing was uploaded"), "{error}");
+	}
 }

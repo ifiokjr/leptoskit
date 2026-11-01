@@ -14,7 +14,8 @@ chrome: Commonplace 0.1.0 is built and checked; nothing was uploaded.
      Category: Productivity
      Homepage: https://commonplace.example.com
      Support: https://commonplace.example.com/help
-     Why by hand: the Chrome Web Store API uploads packages but can't edit the listing
+     Screenshots: (run `leptoskit publish screenshots`, which captures chrome-1280x800)
+     Why by hand: the Chrome Web Store API uploads packages but can't edit the listing or its images
      Done when: a submit succeeds; the store refuses one while the listing is incomplete
 
   2. Fill in the privacy practices: the single purpose, a justification for each permission, and the privacy policy's address.
@@ -51,7 +52,8 @@ edge: Commonplace 0.1.0 is built and checked; nothing was uploaded.
      Website: https://commonplace.example.com
      Support: https://commonplace.example.com/help
      Category: Productivity
-     Why by hand: Edge Add-ons' Publish API uploads packages and submits them, but can't edit the listing
+     Screenshots: (run `leptoskit publish screenshots`, which captures chrome-1280x800)
+     Why by hand: Edge Add-ons' Publish API uploads packages and submits them, but can't edit the listing or upload its images
      Done when: a submit succeeds
 
   2. Decide to release it, then run `leptoskit publish edge --submit`. (you, the account holder)
@@ -60,11 +62,12 @@ edge: Commonplace 0.1.0 is built and checked; nothing was uploaded.
 
 firefox: Commonplace 0.1.0 is built and checked; nothing was uploaded.
 
-  1. Add the listing's screenshots and the privacy policy.
+  1. Add the listing's privacy policy.
      Open   https://addons.mozilla.org/developers/addon/commonplace@leptoskit.dev/edit
      Privacy policy: https://commonplace.example.com/privacy
-     Why by hand: leptoskit uploads the name, summary, and description with each upload, but not screenshots or the privacy policy
-     Done when: the listing page shows them
+     Screenshots: (run `leptoskit publish screenshots`, which captures chrome-1280x800; each upload sends them)
+     Why by hand: leptoskit uploads the name, summary, description, and screenshots with each upload, but the API doesn't set the privacy policy
+     Done when: the listing page shows it
 
   2. Decide to release it, then run `leptoskit publish firefox --submit`. (you, the account holder)
      Why by hand: a listed version goes to review and then to users
@@ -78,10 +81,11 @@ app_store: Commonplace 0.1.0 is checked; an upload archives it for team ABCDE123
      Why by hand: it is a legal declaration about the app's encryption
      Done when: the build no longer shows Missing Compliance
 
-  2. Add version 0.1.0's screenshots for iPhone and iPad, on its App Store page.
+  2. Add what version 0.1.0's App Store page is missing to store/, and upload again.
      Open   https://appstoreconnect.apple.com/apps/1234567890/distribution/ios/version/inflight
-     Screenshots: store/screenshots/iphone-6.9/*.png and store/screenshots/ipad-13/*.png, made by `leptoskit publish screenshots`
-     Why by hand: leptoskit uploads the version's description, keywords, promotional text, and addresses with each upload, but not screenshots yet
+     iPhone screenshots: (run `leptoskit publish screenshots`, which captures iphone-6.9)
+     iPad screenshots: (the app runs on iPad: add the ipad-13 size to store/screenshots/screenshots.toml, and run `leptoskit publish screenshots`)
+     Why by hand: leptoskit uploads the version's text and screenshots from store/ with each upload, and these aren't there yet
      Done when: `leptoskit publish app_store --submit` succeeds; App Review refuses a page without screenshots
 
   3. Choose the category, in App Information.
@@ -119,10 +123,11 @@ macos: Commonplace 0.1.0 is checked; an upload signs it with your Developer ID, 
 
 play: Commonplace 0.1.0 is checked; an upload builds an App Bundle signed with your upload key, numbered one more than the highest on Google Play, and puts it on the internal track as a draft. Nothing was built or uploaded.
 
-  1. Add the main store listing's images: the icon, the feature graphic, and phone screenshots.
+  1. Add what the main store listing is missing to the project, and upload again.
      Open   https://play.google.com/console
-     Screenshots: store/screenshots/android-phone/*.png, made by `leptoskit publish screenshots`
-     Why by hand: leptoskit uploads the listing's title and descriptions with each upload, but not images yet
+     Feature graphic: (put one 1024×500 image in store/screenshots/play-feature-graphic/)
+     Phone screenshots: (run `leptoskit publish screenshots`, which captures android-phone; Google Play asks for at least two)
+     Why by hand: leptoskit uploads the listing's text, icon, and images from store/ with each upload, and these aren't there yet
      Done when: Play Console's dashboard no longer lists the store listing as a task
 
   2. Set the privacy policy, under App content.

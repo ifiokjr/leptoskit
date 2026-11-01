@@ -11,6 +11,7 @@ use super::http::Http;
 use super::http::Part;
 use super::http::Reply;
 use super::http::poll;
+use super::images::Image;
 use super::secrets::Secret;
 use super::secrets::hs256;
 
@@ -84,6 +85,7 @@ impl<'a> Firefox<'a> {
 						"upload",
 						Part::File {
 							filename: "firefox.zip",
+							content_type: "application/zip",
 							bytes: zip,
 						},
 					),
@@ -164,6 +166,51 @@ impl<'a> Firefox<'a> {
 		Ok(true)
 	}
 
+	/// Replaces the listing's screenshots, which addons.mozilla.org calls
+	/// previews, with `images` in their order. Returns `false` when the
+	/// add-on doesn't exist yet.
+	///
+	/// # Errors
+	///
+	/// When addons.mozilla.org refuses an image.
+	pub fn replace_previews(&self, images: &[Image]) -> Result<bool> {
+		let addon = format!("/addons/addon/{}", segment(&self.guid));
+		let reply = self.send("GET", &format!("{addon}/"), None)?;
+		if reply.status == 404 {
+			return Ok(false);
+		}
+		let detail = reply.ok("reading the add-on")?.json()?;
+		for id in detail["previews"]
+			.as_array()
+			.into_iter()
+			.flatten()
+			.filter_map(|preview| preview["id"].as_u64())
+		{
+			self.send("DELETE", &format!("{addon}/previews/{id}/"), None)?
+				.ok("deleting an earlier screenshot on addons.mozilla.org")?;
+		}
+		for (position, image) in images.iter().enumerate() {
+			let position = position.to_string();
+			self.send(
+				"POST",
+				&format!("{addon}/previews/"),
+				Some(Body::multipart(&[
+					(
+						"image",
+						Part::File {
+							filename: &image.name,
+							content_type: image.content_type,
+							bytes: &image.bytes,
+						},
+					),
+					("position", Part::Text(&position)),
+				])),
+			)?
+			.ok(&format!("uploading {} to addons.mozilla.org", image.name))?;
+		}
+		Ok(true)
+	}
+
 	/// Creates a version of the add-on from an upload, with the source it was
 	/// built from. A listed version goes into review.
 	///
@@ -181,6 +228,7 @@ impl<'a> Firefox<'a> {
 					"source",
 					Part::File {
 						filename: "firefox-source.zip",
+						content_type: "application/zip",
 						bytes: source,
 					},
 				),
