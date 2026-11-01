@@ -72,7 +72,6 @@ internal class NativeWidgetProps(
                     View.IMPORTANT_FOR_ACCESSIBILITY_YES
                 }
         } else if (widget is ImageView) {
-
             applyImage(widget, props)
         }
 

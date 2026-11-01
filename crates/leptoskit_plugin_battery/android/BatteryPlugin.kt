@@ -158,7 +158,6 @@ class BatteryPlugin(
             } else if (reading.getBooleanExtra(BatteryManager.EXTRA_PRESENT, false)) {
                 2
             } else {
-
                 1
             }
         val level = reading.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
@@ -202,7 +201,6 @@ private fun validateSnapshot(payload: ByteBuffer): ByteArray {
     val saving = fields.int
 
     if (presence !in 0..2 || (charge != -1 && charge !in 0..1000) || state !in 0..3 || saving !in 0..2) {
-
         throw PluginException(PluginException.INVALID_ARGUMENT)
     }
 

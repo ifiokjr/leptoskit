@@ -553,7 +553,6 @@ class WidgetHost(
                             }
                             true
                         } else {
-
                             false
                         }
                     }
@@ -1255,7 +1254,6 @@ class WidgetHost(
                     val data = entry.getString("data")
 
                     if (data.isNotEmpty()) {
-
                         val tokens = data.split(' ')
                         var position = 0
 

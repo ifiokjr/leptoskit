@@ -37,7 +37,6 @@ class ApplicationPlugin(
         val versionCode =
             if (Build.VERSION.SDK_INT >= 28) {
                 info.longVersionCode
-
             } else {
                 @Suppress("DEPRECATION")
                 info.versionCode.toLong()

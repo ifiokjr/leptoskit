@@ -141,7 +141,6 @@ class ScreenCapturePluginTest {
                 assertLeaseLimit(plugin)
                 assertFalse(secure(activity))
             } finally {
-
                 plugin.close()
                 activity.window.setFlags(original, ALL_FLAGS)
             }
@@ -339,14 +338,10 @@ class ScreenCapturePluginTest {
     }
 
     /** Whether the window carries the secure bit. */
-    private fun secure(activity: Activity): Boolean {
-        return activity.window.attributes.flags and SECURE != 0
-    }
+    private fun secure(activity: Activity): Boolean = activity.window.attributes.flags and SECURE != 0
 
     /** Whether the window still carries an unrelated flag the test set. */
-    private fun keptScreenOn(activity: Activity): Boolean {
-        return activity.window.attributes.flags and KEEP_SCREEN_ON != 0
-    }
+    private fun keptScreenOn(activity: Activity): Boolean = activity.window.attributes.flags and KEEP_SCREEN_ON != 0
 
     /** A watch that observes the next capture. */
     private fun watch(): ByteBuffer = ByteBuffer.wrap(fields(1, 0))

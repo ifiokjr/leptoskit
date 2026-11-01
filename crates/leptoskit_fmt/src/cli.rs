@@ -195,7 +195,7 @@ fn run_files(args: &FormatArgs) -> Result<Outcome, FormatError> {
 		report_file(file, args);
 	}
 
-	summary(&report, started, args)
+	Ok(summary(&report, started, args))
 }
 
 /// The paths to format: the ones given, or the working directory.
@@ -247,11 +247,7 @@ fn status_name(status: &Status, check: bool) -> &'static str {
 }
 
 /// The closing count, and the exit the run earns.
-fn summary(
-	report: &workspace::Report,
-	started: Instant,
-	args: &FormatArgs,
-) -> Result<Outcome, FormatError> {
+fn summary(report: &workspace::Report, started: Instant, args: &FormatArgs) -> Outcome {
 	let changed = report.changed().count();
 	let failed = report.failed().count();
 	let verb = if args.check {
@@ -271,13 +267,13 @@ fn summary(
 		started.elapsed(),
 	);
 
-	Ok(if failed > 0 {
+	if failed > 0 {
 		Outcome::Failed
 	} else if args.check && changed > 0 {
 		Outcome::WouldFormat(changed)
 	} else {
 		Outcome::Formatted
-	})
+	}
 }
 
 fn print_diff(path: &Path, original: &str, formatted: &str) {

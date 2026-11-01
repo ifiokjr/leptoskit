@@ -60,7 +60,6 @@ internal class WebAuthRequest(
                         .decode(bytes)
                         .toString()
                 } catch (_: CharacterCodingException) {
-
                     throw PluginException(PluginException.INVALID_ARGUMENT)
                 }
 

@@ -61,7 +61,6 @@ class SharingPlugin(
             }
 
             return byteArrayOf()
-
         } finally {
             busy = false
             job = null

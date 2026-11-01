@@ -105,7 +105,6 @@ class StoreReviewPlugin internal constructor(
             continuation.invokeOnCancellation {
                 executor.execute {
                     if (pending === operation) {
-
                         operation.cancelled = true
                         operation.continuation = null
                     }
@@ -188,7 +187,6 @@ class StoreReviewPlugin internal constructor(
 
         if (continuation?.isActive == true) {
             if (error != null) {
-
                 continuation.resumeWithException(error)
             } else {
                 continuation.resume(byteArrayOf(1, 0, 0, 0))

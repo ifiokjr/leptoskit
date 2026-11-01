@@ -76,7 +76,6 @@ class NetworkPlugin(
                 // Register first, then sample, so changes cannot fall between them.
                 update(continuation, previous)
             } catch (error: SecurityException) {
-
                 cleanup()
 
                 if (continuation.isActive) continuation.resumeWithException(PluginException(PluginException.PERMISSION_DENIED, error))
@@ -146,7 +145,6 @@ class NetworkPlugin(
             }
         val connection =
             when {
-
                 capabilities == null -> 1
                 capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> 6
                 capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 2
