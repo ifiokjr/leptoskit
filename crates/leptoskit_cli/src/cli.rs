@@ -64,6 +64,20 @@ pub enum RpcCommand {
 		#[arg(long)]
 		include_internal: bool,
 	},
+	/// Checks the published RPC against a recorded specification and fails
+	/// on a change that would break an installed client.
+	Check {
+		/// The previous spec, written by `leptoskit rpc spec`.
+		#[arg(long)]
+		against: String,
+		/// Read the current spec from a file or URL instead of running the
+		/// server.
+		#[arg(long)]
+		from: Option<String>,
+		/// Include `#[api(internal)]` functions.
+		#[arg(long)]
+		include_internal: bool,
+	},
 	/// Generates typed clients that speak the RPC's own protocol.
 	///
 	/// Targets: `typescript`, `python`, `go`, `rust`, `dart`, `cli` (a command

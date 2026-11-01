@@ -55,6 +55,11 @@ pub fn run(command: RpcCommand) -> Result<()> {
 				include_internal,
 			)
 		}
+		RpcCommand::Check {
+			against,
+			from,
+			include_internal,
+		} => check(&config, &root, &against, from.as_deref(), include_internal),
 		RpcCommand::List {
 			from,
 			include_internal,
@@ -125,6 +130,103 @@ fn write_spec(
 	}
 
 	Ok(())
+}
+
+/// Fails on a change that would break a client generated from the previous
+/// spec: a removed function, a changed kind or route, a new required
+/// argument, a removed argument, a changed result schema, or a new required
+/// scope.
+fn check(
+	config: &LeptoskitConfig,
+	root: &Utf8PathBuf,
+	against: &str,
+	from: Option<&str>,
+	include_internal: bool,
+) -> Result<()> {
+	let current = visible(config, &acquire_spec(config, root, from)?, include_internal);
+	let previous = visible(
+		config,
+		&acquire_spec(config, root, Some(against))?,
+		include_internal,
+	);
+	let breaks = breaking_changes(&previous, &current);
+	if breaks.is_empty() {
+		println!("no breaking changes");
+		return Ok(());
+	}
+	for line in &breaks {
+		println!("breaking: {line}");
+	}
+	anyhow::bail!(
+		"{} breaking change(s) against {against}; bump the RPC's version or keep the old shape",
+		breaks.len()
+	)
+}
+
+/// The changes from `previous` to `current` an installed client would break
+/// on.
+fn breaking_changes(previous: &ApiSpec, current: &ApiSpec) -> Vec<String> {
+	let mut breaks = Vec::new();
+	for old in &previous.functions {
+		let Some(new) = current
+			.functions
+			.iter()
+			.find(|function| function.name == old.name)
+		else {
+			breaks.push(format!("removed `{}`", old.name));
+			continue;
+		};
+		if old.kind != new.kind {
+			breaks.push(format!(
+				"`{}` changed from a {} to a {}",
+				old.name,
+				old.kind.as_str(),
+				new.kind.as_str()
+			));
+		}
+		if old.path != new.path || old.method != new.method {
+			breaks.push(format!(
+				"`{}` moved from {} {} to {} {}",
+				old.name, old.method, old.path, new.method, new.path
+			));
+		}
+		if old.input != new.input || old.output != new.output {
+			breaks.push(format!("`{}` changed its encoding", old.name));
+		}
+		if old.output_schema != new.output_schema {
+			breaks.push(format!("`{}` changed its result schema", old.name));
+		}
+		for param in &old.params {
+			if !new
+				.params
+				.iter()
+				.any(|candidate| candidate.name == param.name)
+			{
+				breaks.push(format!(
+					"`{}` removed its `{}` argument",
+					old.name, param.name
+				));
+			}
+		}
+		for param in &new.params {
+			let was = old
+				.params
+				.iter()
+				.find(|candidate| candidate.name == param.name);
+			if was.is_none() && param.is_required() {
+				breaks.push(format!(
+					"`{}` added the required `{}` argument",
+					old.name, param.name
+				));
+			}
+		}
+		for scope in &new.scopes {
+			if !old.scopes.contains(scope) {
+				breaks.push(format!("`{}` now requires the `{scope}` scope", old.name));
+			}
+		}
+	}
+	breaks
 }
 
 fn list_spec(
@@ -474,5 +576,78 @@ mod tests {
 			"my_app"
 		);
 		assert_eq!(default_package_name(TargetLanguage::Go, "my-app"), "my-app");
+	}
+}
+
+#[cfg(test)]
+mod check_tests {
+	use leptoskit_rpc_codegen::ApiFunction;
+	use leptoskit_rpc_codegen::ApiKind;
+	use leptoskit_rpc_codegen::ApiParam;
+	use leptoskit_rpc_codegen::HttpInput;
+	use leptoskit_rpc_codegen::HttpOutput;
+
+	use super::breaking_changes;
+
+	fn function(name: &str) -> ApiFunction {
+		ApiFunction {
+			name: name.to_owned(),
+			kind: ApiKind::Query,
+			module_path: "app".to_owned(),
+			struct_name: "Op".to_owned(),
+			docs: String::new(),
+			path: format!("/api/{name}"),
+			method: "POST".to_owned(),
+			input: HttpInput::Json,
+			output: HttpOutput::Json,
+			error_content_type: "text/plain".to_owned(),
+			params: vec![ApiParam {
+				name: "limit".to_owned(),
+				docs: String::new(),
+				schema: serde_json::json!({ "type": "integer" }),
+				required: true,
+			}],
+			output_schema: serde_json::json!({ "type": "array" }),
+			internal: false,
+			deprecated: false,
+			tags: Vec::new(),
+			scopes: Vec::new(),
+		}
+	}
+
+	fn spec(functions: Vec<ApiFunction>) -> leptoskit_rpc_codegen::ApiSpec {
+		let mut spec = leptoskit_rpc_codegen::ApiSpec::empty("App", "1.0.0");
+		spec.functions = functions;
+		spec
+	}
+
+	#[test]
+	fn only_breaking_changes_are_reported() {
+		let previous = spec(vec![function("notes")]);
+		assert_eq!(breaking_changes(&previous, &previous), Vec::<String>::new());
+
+		let mut renamed = function("notes");
+		renamed.path = "/api/notes_v2".to_owned();
+		assert_eq!(
+			breaking_changes(&previous, &spec(vec![renamed])),
+			["`notes` moved from POST /api/notes to POST /api/notes_v2"]
+		);
+
+		let mut added = function("notes");
+		added.params.push(ApiParam {
+			name: "starting".to_owned(),
+			docs: String::new(),
+			schema: serde_json::json!({ "type": "string" }),
+			required: true,
+		});
+		assert_eq!(
+			breaking_changes(&previous, &spec(vec![added])),
+			["`notes` added the required `starting` argument"]
+		);
+
+		assert_eq!(
+			breaking_changes(&previous, &spec(Vec::new())),
+			["removed `notes`"]
+		);
 	}
 }
