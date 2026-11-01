@@ -18,6 +18,31 @@ use super::Utterance;
 use super::Voice;
 
 type Completion = oneshot::Sender<Result<(), Error>>;
+
+/// Converts a thousandths value into the browser's 0..=1 fraction.
+fn fraction(value: u32) -> Result<f32, Error> {
+	let thousandths = u16::try_from(value).map_err(|_| Error::InvalidArgument)?;
+
+	Ok(f32::from(thousandths) / 1000.0)
+}
+
+/// Maps the browser's speech error code onto the plugin's error vocabulary.
+fn failure_code(event: &web_sys::Event) -> Error {
+	let Ok(code) = js_sys::Reflect::get(event, &wasm_bindgen::JsValue::from_str("error")) else {
+		return Error::Native;
+	};
+
+	match code.as_string().as_deref() {
+		Some("canceled" | "interrupted") => Error::Cancelled,
+		Some("not-allowed") => Error::PermissionDenied,
+		Some("voice-unavailable" | "language-unavailable" | "synthesis-unavailable") => {
+			Error::Unavailable
+		}
+		Some("text-too-long") => Error::TooLarge,
+		Some("invalid-argument") => Error::InvalidArgument,
+		_ => Error::Native,
+	}
+}
 struct Active {
 	token: u64,
 	completion: Completion,
@@ -30,32 +55,25 @@ struct State {
 }
 thread_local! { static SHARED: RefCell<Weak<State>> = const { RefCell::new(Weak::new()) }; }
 impl State {
-	fn finish(&self, token: u64, result: Result<(), Error>) {
-		let completion = {
-			let mut active = self.active.borrow_mut();
-			if active.as_ref().is_some_and(|active| active.token == token) {
-				active.take()
-			} else {
-				None
-			}
-		};
+	/// Takes the active utterance back, but only when this token owns it.
+	fn take(&self, token: u64) -> Option<Active> {
+		let mut active = self.active.borrow_mut();
 
-		if let Some(active) = completion {
+		if active.as_ref().is_none_or(|active| active.token != token) {
+			return None;
+		}
+
+		active.take()
+	}
+
+	fn finish(&self, token: u64, result: Result<(), Error>) {
+		if let Some(active) = self.take(token) {
 			let _ = active.completion.send(result);
 		}
 	}
 
 	fn cancel(&self, token: u64) {
-		let completion = {
-			let mut active = self.active.borrow_mut();
-			if active.as_ref().is_some_and(|active| active.token == token) {
-				active.take()
-			} else {
-				None
-			}
-		};
-
-		if let Some(active) = completion {
+		if let Some(active) = self.take(token) {
 			self.synthesis.cancel();
 			let _ = active.completion.send(Err(Error::Cancelled));
 		}
@@ -81,10 +99,8 @@ impl Speech {
 	/// Resolves the browser speech service. No audio starts here.
 	pub fn new() -> Result<Self, Error> {
 		SHARED.with(|shared| {
-			if let Some(state) = shared.borrow().upgrade() {
-				if !*state.closed.borrow() {
-					return Ok(Self { state });
-				}
+			if let Some(existing) = Self::reusable(shared) {
+				return Ok(Self { state: existing });
 			}
 
 			let synthesis = web_sys::window()
@@ -100,6 +116,17 @@ impl Speech {
 			*shared.borrow_mut() = Rc::downgrade(&state);
 			Ok(Self { state })
 		})
+	}
+
+	/// The shared handles a later `new` may reuse, when they are still open.
+	fn reusable(shared: &RefCell<Weak<State>>) -> Option<Rc<State>> {
+		let state = shared.borrow().upgrade()?;
+
+		if *state.closed.borrow() {
+			return None;
+		}
+
+		Some(state)
 	}
 
 	fn open(&self) -> Result<(), Error> {
@@ -142,21 +169,44 @@ impl Speech {
 	/// browsers require it.
 	pub async fn speak(&self, request: &Utterance) -> Result<(), Error> {
 		self.open()?;
+		self.require_idle()?;
+		let utterance = self.utterance(request)?;
+		let token = self.next_token()?;
+		let (completion, receiver) = oneshot::channel();
+		*self.state.active.borrow_mut() = Some(Active { token, completion });
+		let guard = Guard {
+			state: Rc::clone(&self.state),
+			token,
+		};
+		let ended = self.end_listener(&utterance, token);
+		let failed = self.error_listener(&utterance, token);
 
-		if self.state.active.borrow().is_some()
-			|| self.state.synthesis.speaking()
-			|| self.state.synthesis.pending()
-		{
+		self.state.synthesis.speak(&utterance);
+
+		let result = receiver.await.map_err(|_| Error::Cancelled)?;
+		drop((ended, failed, guard, utterance));
+		result
+	}
+
+	/// Rejects a second utterance while the first one still owns the service.
+	fn require_idle(&self) -> Result<(), Error> {
+		if self.state.active.borrow().is_some() {
 			return Err(Error::Busy);
 		}
+
+		if self.state.synthesis.speaking() || self.state.synthesis.pending() {
+			return Err(Error::Busy);
+		}
+
+		Ok(())
+	}
+
+	/// Builds the browser utterance the request describes.
+	fn utterance(&self, request: &Utterance) -> Result<SpeechSynthesisUtterance, Error> {
 		let utterance = SpeechSynthesisUtterance::new_with_text(request.text())
 			.map_err(|_| Error::Unavailable)?;
-		let fraction = |value| -> Result<f32, Error> {
-			Ok(f32::from(u16::try_from(value).map_err(|_| Error::InvalidArgument)?) / 1000.0)
-		};
 		utterance.set_rate(fraction(request.rate())?);
 		utterance.set_pitch(fraction(request.pitch())?);
-
 		utterance.set_volume(fraction(request.volume())?);
 
 		if let Some(language) = request.language() {
@@ -164,23 +214,29 @@ impl Speech {
 		}
 
 		if let Some(id) = request.voice() {
-			let mut selected = None;
-
-			for value in self.state.synthesis.get_voices().iter() {
-				let voice = value
-					.dyn_into::<SpeechSynthesisVoice>()
-					.map_err(|_| Error::Native)?;
-
-				if voice.voice_uri() == id {
-					selected = Some(voice);
-					break;
-				}
-			}
-
-			let voice = selected.ok_or(Error::Unavailable)?;
-			utterance.set_voice(Some(&voice));
+			utterance.set_voice(Some(&self.voice(id)?));
 		}
 
+		Ok(utterance)
+	}
+
+	/// Finds the installed voice the request named.
+	fn voice(&self, id: &str) -> Result<SpeechSynthesisVoice, Error> {
+		for value in self.state.synthesis.get_voices().iter() {
+			let voice = value
+				.dyn_into::<SpeechSynthesisVoice>()
+				.map_err(|_| Error::Native)?;
+
+			if voice.voice_uri() == id {
+				return Ok(voice);
+			}
+		}
+
+		Err(Error::Unavailable)
+	}
+
+	/// Allocates the token that attributes browser callbacks to this utterance.
+	fn next_token(&self) -> Result<u64, Error> {
 		let token = self
 			.state
 			.next
@@ -188,38 +244,24 @@ impl Speech {
 			.checked_add(1)
 			.ok_or(Error::Exhausted)?;
 		*self.state.next.borrow_mut() = token;
-		let (completion, receiver) = oneshot::channel();
-		*self.state.active.borrow_mut() = Some(Active { token, completion });
-		let guard = Guard {
-			state: Rc::clone(&self.state),
-			token,
-		};
+
+		Ok(token)
+	}
+
+	/// Answers the wait when the browser reports the utterance finished.
+	fn end_listener(&self, utterance: &SpeechSynthesisUtterance, token: u64) -> EventListener {
 		let state = Rc::clone(&self.state);
-		let ended = EventListener::new(&utterance, "end", move |_| state.finish(token, Ok(())));
+
+		EventListener::new(utterance, "end", move |_| state.finish(token, Ok(())))
+	}
+
+	/// Answers the wait with the error the browser reports.
+	fn error_listener(&self, utterance: &SpeechSynthesisUtterance, token: u64) -> EventListener {
 		let state = Rc::clone(&self.state);
-		let failed = EventListener::new(&utterance, "error", move |event| {
-			let error = match js_sys::Reflect::get(event, &wasm_bindgen::JsValue::from_str("error"))
-			{
-				Ok(code) => {
-					match code.as_string().as_deref() {
-						Some("canceled" | "interrupted") => Error::Cancelled,
-						Some("not-allowed") => Error::PermissionDenied,
-						Some(
-							"voice-unavailable" | "language-unavailable" | "synthesis-unavailable",
-						) => Error::Unavailable,
-						Some("text-too-long") => Error::TooLarge,
-						Some("invalid-argument") => Error::InvalidArgument,
-						_ => Error::Native,
-					}
-				}
-				Err(_) => Error::Native,
-			};
-			state.finish(token, Err(error));
-		});
-		self.state.synthesis.speak(&utterance);
-		let result = receiver.await.map_err(|_| Error::Cancelled)?;
-		drop((ended, failed, guard, utterance));
-		result
+
+		EventListener::new(utterance, "error", move |event| {
+			state.finish(token, Err(failure_code(event)));
+		})
 	}
 
 	/// Stops only the utterance owned by these shared handles.
@@ -288,6 +330,7 @@ mod tests {
 		assert!(!speech.is_speaking());
 		speech.close();
 		assert_eq!(speech.stop(), Err(Error::Cancelled));
+
 		assert_eq!(speech.speak(&request).await, Err(Error::Cancelled));
 	}
 }

@@ -10,6 +10,14 @@ public final class SpeechPlugin: NSObject, NativePlugin, AVSpeechSynthesizerDele
     private var active: ActiveSpeech?
     private var closed = false
 
+    /// The wire methods the Rust crate calls.
+    private enum Method: UInt32 {
+        case voices = 0
+        case speak = 1
+        case stop = 2
+        case status = 3
+    }
+
     private struct ActiveSpeech {
         let token: UUID
         let utterance: AVSpeechUtterance
@@ -22,20 +30,31 @@ public final class SpeechPlugin: NSObject, NativePlugin, AVSpeechSynthesizerDele
     }
 
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
+        try checkOpen(method)
+
+        if method == Method.speak.rawValue { return try await speak(SpeechRequest(payload: payload)) }
+
+        guard payload.count == 0 else { throw PluginError.invalidArgument }
+
+        return try answer(method)
+    }
+
+    /// Rejects a closed plugin or a method this host does not answer.
+    private func checkOpen(_ method: UInt32) throws {
         guard !closed else { throw PluginError.cancelled }
 
         guard methods.contains(method) else { throw PluginError.unavailable }
+    }
 
-        if method == 1 { return try await speak(SpeechRequest(payload: payload)) }
-
-        guard payload.count == 0 else { throw PluginError.invalidArgument }
-        switch method {
-        case 0: return try voices()
-        case 2:
+    /// Answers a method that carries no payload.
+    private func answer(_ method: UInt32) throws -> Data {
+        switch Method(rawValue: method) {
+        case .voices: return try voices()
+        case .stop:
             cancel()
+
             return Data()
-        default:
-            return Data([active == nil ? 0 : 1, 0, 0, 0])
+        default: return Data([active == nil ? 0 : 1, 0, 0, 0])
         }
     }
 
@@ -45,6 +64,8 @@ public final class SpeechPlugin: NSObject, NativePlugin, AVSpeechSynthesizerDele
         synthesizer.delegate = nil
     }
 
+    /// Reports the installed voices, with the quality and source flags the Rust
+    /// crate decodes.
     private func voices() throws -> Data {
         let voices = AVSpeechSynthesisVoice.speechVoices()
 
@@ -73,45 +94,70 @@ public final class SpeechPlugin: NSObject, NativePlugin, AVSpeechSynthesizerDele
         guard active == nil else { throw PluginError.busy }
         let utterance = AVSpeechUtterance(string: request.text)
 
-        if let identifier = request.voice {
-            guard let voice = AVSpeechSynthesisVoice(identifier: identifier) else { throw PluginError.unavailable }
-            utterance.voice = voice
-        } else if let language = request.language {
-            guard let voice = AVSpeechSynthesisVoice(language: language) else { throw PluginError.unavailable }
-            utterance.voice = voice
-        }
-
-        utterance.rate = min(AVSpeechUtteranceMaximumSpeechRate,
-                             max(AVSpeechUtteranceMinimumSpeechRate, AVSpeechUtteranceDefaultSpeechRate * request.rate))
-        utterance.pitchMultiplier = request.pitch
-        utterance.volume = request.volume
+        try selectVoice(utterance, request)
+        applyOptions(utterance, request)
         let token = UUID()
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { completion in
-
-                guard !Task.isCancelled, !closed else {
-                    completion.resume(throwing: PluginError.cancelled)
-
-                    return
-                }
-
-                guard active == nil else {
-                    completion.resume(throwing: PluginError.busy)
-
-                    return
-                }
-
-                active = ActiveSpeech(token: token, utterance: utterance, completion: completion)
-                synthesizer.speak(utterance)
+                begin(token, utterance, completion)
             }
         } onCancel: {
-            Task { @MainActor [weak self] in
-
-                guard self?.active?.token == token else { return }
-                self?.cancel()
-            }
+            Task { @MainActor [weak self] in self?.cancelIfCurrent(token) }
         }
+    }
+
+    /// Selects the voice the request named, or the language it asked for.
+    private func selectVoice(_ utterance: AVSpeechUtterance, _ request: SpeechRequest) throws {
+        if let identifier = request.voice {
+            guard let voice = AVSpeechSynthesisVoice(identifier: identifier) else { throw PluginError.unavailable }
+            utterance.voice = voice
+
+            return
+        }
+
+        guard let language = request.language else { return }
+
+        guard let voice = AVSpeechSynthesisVoice(language: language) else { throw PluginError.unavailable }
+        utterance.voice = voice
+    }
+
+    /// Applies the rate, pitch, and volume the request asked for.
+    private func applyOptions(_ utterance: AVSpeechUtterance, _ request: SpeechRequest) {
+        utterance.rate = min(AVSpeechUtteranceMaximumSpeechRate,
+                             max(AVSpeechUtteranceMinimumSpeechRate,
+                                 AVSpeechUtteranceDefaultSpeechRate * request.rate))
+        utterance.pitchMultiplier = request.pitch
+        utterance.volume = request.volume
+    }
+
+    /// Registers the waiter, or refuses because the speech can no longer start.
+    private func begin(
+        _ token: UUID,
+        _ utterance: AVSpeechUtterance,
+        _ completion: CheckedContinuation<Data, any Error>
+    ) {
+        guard !Task.isCancelled, !closed else {
+            completion.resume(throwing: PluginError.cancelled)
+
+            return
+        }
+
+        guard active == nil else {
+            completion.resume(throwing: PluginError.busy)
+
+            return
+        }
+
+        active = ActiveSpeech(token: token, utterance: utterance, completion: completion)
+        synthesizer.speak(utterance)
+    }
+
+    /// Cancels the speech the caller abandoned, if it is still the one that runs.
+    private func cancelIfCurrent(_ token: UUID) {
+        guard active?.token == token else { return }
+
+        cancel()
     }
 
     private func cancel() {
@@ -132,14 +178,18 @@ public final class SpeechPlugin: NSObject, NativePlugin, AVSpeechSynthesizerDele
         }
     }
 
-    nonisolated public func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
-                                              didFinish utterance: AVSpeechUtterance) {
+    nonisolated public func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        didFinish utterance: AVSpeechUtterance
+    ) {
         let identity = ObjectIdentifier(utterance)
         Task { @MainActor [weak self] in self?.finish(identity, cancelled: false) }
     }
 
-    nonisolated public func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
-                                              didCancel utterance: AVSpeechUtterance) {
+    nonisolated public func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        didCancel utterance: AVSpeechUtterance
+    ) {
         let identity = ObjectIdentifier(utterance)
         Task { @MainActor [weak self] in self?.finish(identity, cancelled: true) }
     }

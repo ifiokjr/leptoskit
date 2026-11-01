@@ -44,6 +44,16 @@ private func mutedRequest() -> Data {
     return result
 }
 
+/// Where each field starts in an encoded request.
+private enum Field {
+    /// Rate thousands, the first of the four option words.
+    static let rate = 4
+    /// The second byte of that word.
+    static let rateUpper = 5
+    /// The first text byte: four option words then a length prefix.
+    static let text = 20
+}
+
 @Test
 func speechWireRejectsMalformedRequests() throws {
     let bytes = mutedRequest()
@@ -54,11 +64,11 @@ func speechWireRejectsMalformedRequests() throws {
     }
 
     var invalid = bytes
-    invalid[4] = 0
-    invalid[5] = 0
+    invalid[Field.rate] = 0
+    invalid[Field.rateUpper] = 0
     #expect(throws: PluginError.invalidArgument) { try SpeechRequest(payload: buffer(invalid)) }
     invalid = bytes
-    invalid[20] = 255
+    invalid[Field.text] = 255
     #expect(throws: PluginError.invalidArgument) { try SpeechRequest(payload: buffer(invalid)) }
 }
 
