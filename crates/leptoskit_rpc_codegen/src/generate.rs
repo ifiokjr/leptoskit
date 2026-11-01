@@ -289,18 +289,13 @@ impl GenerateOptions {
 impl ApiSpec {
 	/// Generates `options.language`.
 	///
-	/// Internal functions (unless included) and `options.exclude` matches are
-	/// removed first, along with the schemas only they referenced; functions
+	/// Internal functions and channels (unless included) and
+	/// `options.exclude` matches are removed first, along with the schemas
+	/// only they referenced; functions
 	/// whose encodings the target cannot speak are skipped with a note in the
 	/// README rather than failing the run.
 	pub fn generate(&self, options: &GenerateOptions) -> Generated {
-		let exclude = &options.exclude;
-		let spec = self.filtered(|function| {
-			(options.include_internal || !function.internal)
-				&& !exclude
-					.iter()
-					.any(|glob| crate::spec::glob_matches(glob, &function.name))
-		});
+		let spec = self.published(options.include_internal, &options.exclude);
 		let context = Context::new(&spec, options);
 
 		match options.language {

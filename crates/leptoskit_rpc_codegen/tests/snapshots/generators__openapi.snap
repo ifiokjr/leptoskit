@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
+assertion_line: 514
 expression: "generate(TargetLanguage::OpenApi, \"todos-openapi\")"
 ---
 ===== openapi.json (Code) =====
@@ -11,6 +12,51 @@ expression: "generate(TargetLanguage::OpenApi, \"todos-openapi\")"
           "type": "integer"
         },
         "type": "object"
+      },
+      "Event": {
+        "description": "Something that happened to a todo.",
+        "oneOf": [
+          {
+            "properties": {
+              "id": {
+                "format": "uint64",
+                "type": "integer"
+              },
+              "kind": {
+                "const": "created",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "id": {
+                "format": "uint64",
+                "type": "integer"
+              },
+              "kind": {
+                "const": "deleted",
+                "type": "string"
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "Todo": {
         "description": "One todo item.",
@@ -51,6 +97,36 @@ expression: "generate(TargetLanguage::OpenApi, \"todos-openapi\")"
           "pending"
         ],
         "type": "string"
+      },
+      "TodoRoom": {
+        "description": "One todo list's room.",
+        "properties": {
+          "filter": {
+            "$ref": "#/components/schemas/TodoFilter"
+          },
+          "list": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "list",
+          "filter"
+        ],
+        "type": "object"
+      },
+      "Viewer": {
+        "description": "What a member of a room shows the others.",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
       }
     }
   },
@@ -495,6 +571,35 @@ expression: "generate(TargetLanguage::OpenApi, \"todos-openapi\")"
       "additionalProperties":
         "type": "integer"
       "type": "object"
+    "Event":
+      "description": "Something that happened to a todo."
+      "oneOf":
+        - "properties":
+            "id":
+              "format": "uint64"
+              "type": "integer"
+            "kind":
+              "const": "created"
+              "type": "string"
+          "required":
+            - "kind"
+            - "id"
+          "type": "object"
+        - "properties":
+            "id":
+              "format": "uint64"
+              "type": "integer"
+            "kind":
+              "const": "deleted"
+              "type": "string"
+            "reason":
+              "type":
+                - "string"
+                - "null"
+          "required":
+            - "kind"
+            - "id"
+          "type": "object"
     "Todo":
       "description": "One todo item."
       "properties":
@@ -525,6 +630,27 @@ expression: "generate(TargetLanguage::OpenApi, \"todos-openapi\")"
         - "done"
         - "pending"
       "type": "string"
+    "TodoRoom":
+      "description": "One todo list's room."
+      "properties":
+        "filter":
+          "$ref": "#/components/schemas/TodoFilter"
+        "list":
+          "format": "uint64"
+          "minimum": 0
+          "type": "integer"
+      "required":
+        - "list"
+        - "filter"
+      "type": "object"
+    "Viewer":
+      "description": "What a member of a room shows the others."
+      "properties":
+        "name":
+          "type": "string"
+      "required":
+        - "name"
+      "type": "object"
 "info":
   "description": "The todo backend."
   "title": "Todos"

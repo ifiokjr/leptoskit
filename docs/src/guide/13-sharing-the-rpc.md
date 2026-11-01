@@ -12,6 +12,9 @@ app crate ── #[api] #[server] fns ──► spec (routes, schemas, docs) ─
                                                 ├─► Rust client crate (reqwest)
                                                 ├─► Dart client (package:http)
                                                 ├─► CLI (one command per function)
+                                                │   (every client also watches queries,
+                                                │    sends mutations, and joins channels
+                                                │    over the live socket)
                                                 └─► openapi.json / openapi.yaml
 ```
 
@@ -268,15 +271,15 @@ leptoskit rpc generate --target typescript --out web/api --package @acme/todos
 leptoskit rpc generate --from spec.json --target cli
 ```
 
-| Target       | Writes                                                                                                                                                    |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `typescript` | One dependency-free `index.ts` over `fetch`, plus `package.json` and `tsconfig.json`. Errors classify into `FnError`.                                     |
-| `python`     | A package with `TypedDict` models, a standard-library `Client`, and an `httpx`-backed `AsyncClient` (install the `async` extra).                          |
-| `go`         | A package over `net/http` with struct models, `json` tags, and string-enum types.                                                                         |
-| `rust`       | A `reqwest` crate with serde models reproducing the wire shapes — string enums, tagged enums, `Option` — depending on neither leptos nor `leptoskit_rpc`. |
-| `dart`       | A package over `package:http` with model classes and `fromJson`/`toJson`.                                                                                 |
-| `cli`        | A clap command line, one kebab-case command per function, each `--flag` parsed as JSON into the function's own type.                                      |
-| `openapi`    | `openapi.json` and `openapi.yaml`.                                                                                                                        |
+| Target       | Writes                                                                                                                                                                                                         |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `typescript` | A dependency-free `index.ts` over `fetch` and `live.ts` over the global `WebSocket`, plus `package.json` and `tsconfig.json`. Errors classify into `FnError`.                                                  |
+| `python`     | A package with `TypedDict` models, a standard-library `Client`, an `httpx`-backed `AsyncClient` (the `async` extra), and `live.py` over `websockets` (the `live` extra).                                       |
+| `go`         | A package over `net/http` with struct models, `json` tags, and string-enum types, and `live.go` over `github.com/gorilla/websocket`.                                                                           |
+| `rust`       | A `reqwest` crate with serde models reproducing the wire shapes — string enums, tagged enums, `Option` — depending on neither leptos nor `leptoskit_rpc`; its default `live` feature adds `tokio-tungstenite`. |
+| `dart`       | A package over `package:http` with model classes and `fromJson`/`toJson`, and `lib/src/live.dart` over `package:web_socket_channel`.                                                                           |
+| `cli`        | A clap command line, one kebab-case command per function, each `--flag` parsed as JSON into the function's own type; `--watch` on queries, and a `join` command per channel.                                   |
+| `openapi`    | `openapi.json` and `openapi.yaml`.                                                                                                                                                                             |
 
 Functions whose encodings a client cannot speak (CBOR and friends) are skipped with the reason recorded in that client's README rather than failing the run.
 
@@ -336,6 +339,134 @@ error: invalid value '"bogus"' for '--filter <FILTER>': not valid JSON for this 
 unknown variant `bogus`, expected one of `all`, `done`, `pending`
 ```
 
+## Live updates in generated clients
+
+A dashboard written in TypeScript, a Flutter app, a Python script that reacts to new orders: each wants to know the moment something changes, not to ask every few seconds. Every generated client keeps its one-shot calls and also speaks the live socket the app's own screens use, at `/live` on the same server: a query can be watched, a mutation can be sent over the socket, and a channel can be joined.
+
+### Publishing a channel
+
+Queries and mutations are published by `#[api]` already. Put `#[api]` above a channel to publish it too, with its join arguments, its messages, and its presence:
+
+```rust
+/// What a reader shows the others in a notebook.
+#[derive(Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct Reader {
+	pub name: String,
+}
+
+/// What readers send each other.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Typing {
+	pub until_ms: u32,
+}
+
+/// Who is reading a notebook, and who is typing.
+#[api]
+#[rpc::channel(message = Typing, presence = Reader, authorize = may_read)]
+pub struct NotebookRoom {
+	pub notebook: String,
+}
+```
+
+The message and presence types need `JsonSchema`, like every published type. A generated client meets the app's own screens in the same room: it names the room after the join arguments exactly as the app's client does.
+
+### The live side in each language
+
+TypeScript, in browsers, Deno, Bun, and Node 22 or newer:
+
+```ts
+const api = new Client({
+	serverUrl: "https://notes.example",
+	live: { token: () => accessToken },
+});
+
+const stop = api.notes.subscribe({ limit: 20 }, (notes) => render(notes));
+const id = await api.addNote.live({ title: "Milk" }); // resolves once `notes` shows it
+const room = api.notebookRoom.join({ notebook: "groceries" }, {
+	presence: { name: "Ada" },
+	onPresence: (readers) => showReaders(readers),
+	onSignal: (typing, from) => showTyping(from),
+});
+room.signal({ until_ms: 3000 });
+api.live.onStatus((status) => banner(status.state)); // connecting, live, reconnecting, offline
+```
+
+Python 3.11 or newer, with the `live` extra (`pip install "todos-api[live]"`):
+
+```python
+api = Client("https://notes.example", live=LiveOptions(token=lambda: access_token))
+
+with api.notes.watch(limit=20) as notes:
+    for value in notes:  # the first value, then every change
+        render(value)
+
+note_id = api.add_note.live(title="Milk")
+room = api.notebook_room.join({"notebook": "groceries"}, presence={"name": "Ada"},
+                              on_signal=lambda typing, sender: show_typing(sender))
+```
+
+`AsyncClient` has the same members: `async for value in api.notes.watch(limit=20)` and `await api.add_note.live(title="Milk")`.
+
+Go:
+
+```go
+client.LiveOptions = notes.LiveOptions{Token: func(ctx context.Context) (string, error) { return accessToken, nil }}
+defer client.Live().Close()
+
+sub, err := client.SubscribeNotes(ctx, 20)
+for value := range sub.Values() { render(value) }
+
+id, err := client.AddNoteLive(ctx, "Milk")
+room, err := client.JoinNotebookRoom(ctx, notes.NotebookRoom{Notebook: "groceries"}, &notes.Reader{Name: "Ada"})
+for signal := range room.Signals() { showTyping(signal.From) }
+```
+
+Rust, on tokio (the crate's default `live` feature):
+
+```rust
+let api = Client::with_server_url("https://notes.example").with_live_token(|| Some(access_token()));
+
+let mut notes = api.notes_watch(20); // a `Stream` of every new value
+while let Some(value) = notes.next().await { render(value?); }
+
+let id = api.add_note_live("Milk".into()).await?;
+let mut room = api.join_notebook_room(NotebookRoom { notebook: "groceries".into() }, Some(Reader { name: "Ada".into() }));
+room.signal(&Typing { until_ms: 3_000 });
+```
+
+Dart and Flutter, on every platform Flutter runs on:
+
+```dart
+final api = Client(serverUrl: 'https://notes.example', live: LiveOptions(token: () => accessToken));
+
+StreamBuilder(stream: api.notes.watch(limit: 20), builder: (context, snapshot) => ...);
+final id = await api.addNote.live(title: 'Milk');
+final room = api.notebookRoom.join(NotebookRoom(notebook: 'groceries'), presence: Reader(name: 'Ada'));
+room.signals.listen((signal) => showTyping(signal.from));
+```
+
+The command line prints one line of JSON per value until you press Ctrl-C:
+
+```bash
+notes-cli notes --limit 20 --watch
+notes-cli notebook-room-join --notebook '"groceries"' --presence '{"name":"Ada"}'
+```
+
+The channel command prints each signal and each change of presence as a line of JSON, and sends each line you type as a signal.
+
+### What the live side does for you
+
+- **One connection.** Every subscription, live mutation, and channel shares one WebSocket, opened the first time one is used.
+- **Small updates.** A list of rows with ids changes by patch, so a 2,000-row list costs about one row per update. Every update in one change applies together, so two watched queries never disagree.
+- **Your own writes.** A live mutation resolves once your client's subscriptions show its write, so a screen never flickers back to the old value. If none of them changes, it resolves after a short wait anyway (two seconds by default, configurable), so it never hangs.
+- **Reconnecting.** A dropped connection comes back with a growing, randomized delay (from a quarter of a second up to 30 seconds), subscribes again, joins channels again, and sends again any mutation whose answer was lost, with the same idempotency key, so it runs once. A mutation sent while offline waits for the connection. When the server is restarting, it says how long to wait, and the client does.
+- **Signing in.** A native or server-side client passes a token provider; the client sends the token on every connect and again when the server says it's about to expire. A browser page on the app's own origin needs nothing: its session cookie rides along.
+- **A status to show.** Each client reports `connecting`, `live`, `reconnecting` (with the attempt and the next delay), or `offline`, for a connection banner.
+
+Channel signals reach everyone else in the room at most once and are never stored; anything that must survive belongs in a live table and a watched query.
+
+Not there yet: the clients use only the WebSocket, so a network that blocks WebSocket upgrades blocks the live side too until the server's server-sent-events fallback lands; actions and streams don't run over the socket; and a channel whose join arguments hold decimal numbers or nested objects may name its room differently from the app's own client, so keep them to strings, integers, and enums.
+
 ## Errors
 
 Every client classifies failures the way `leptoskit_rpc::FnError` does, parsed from the server's `Kind|message` error text:
@@ -361,7 +492,8 @@ The generated clients reproduce what leptos's own codecs do, per function:
 - `PatchUrl` and `PutUrl` send `PATCH` and `PUT` with the form-urlencoded body, and `PatchJson` and `PutJson` with a JSON body;
 - `#[server(input = Json)]` sends `POST` with a JSON body, absent optional arguments omitted so the server's `#[server(default)]` applies;
 - queries and mutations always send `POST /api/<name>` with a JSON body, and a mutation may carry an `Idempotency-Key` header. The spec marks them with `kind`, and the OpenAPI document with `x-leptoskit-kind`;
-- responses are JSON; errors are the `text/plain` `Kind|message` body above.
+- responses are JSON; errors are the `text/plain` `Kind|message` body above;
+- the live side speaks the app's own socket protocol, `leptoskit.live.v1.json`, at the spec's live path (`/live` unless the server nests it elsewhere), and the AsyncAPI document describes its subscriptions, mutations, and channels.
 
 Because the schemas come from `schemars`, `serde` attributes — `rename_all`, `tag`, `default`, `skip` — are already reflected in the generated types; the clients do not guess.
 

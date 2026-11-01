@@ -1,6 +1,6 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
-assertion_line: 1049
+assertion_line: 1109
 expression: code
 ---
 ===== lib/clash.dart =====
@@ -11,6 +11,10 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+
+import 'src/live.dart';
+
+export 'src/live.dart';
 
 class Client2 {
 	Client2({
@@ -174,19 +178,36 @@ String toQueryString(Map<String, Object?> value) {
 /// The server origin baked in at generation time; `null` means the client's own page.
 const String? defaultServerUrl = null;
 
-/// A typed client over `package:http`.
+/// Where the server serves the live socket, relative to its origin.
+const String livePath = '/live';
+
+/// A typed client over `package:http`, with a live side over one WebSocket.
 class Client {
 	/// Creates a client for [serverUrl], an origin such as
 	/// `https://api.example.com`; defaults to [defaultServerUrl]. Pass
-	/// [httpClient] to share connections.
-	Client({String? serverUrl, http.Client? httpClient})
+	/// [httpClient] to share connections, and [live] to sign the live
+	/// connection in or tune its reconnects.
+	Client({String? serverUrl, http.Client? httpClient, LiveOptions live = const LiveOptions()})
 		 : serverUrl = serverUrl ?? defaultServerUrl,
-		   _http = httpClient ?? http.Client();
+		   _http = httpClient ?? http.Client(),
+		   liveOptions = live;
 
 	/// The origin the client sends requests to, without a trailing slash.
 	final String? serverUrl;
 
 	final http.Client _http;
+
+	/// How the live connection signs in and reconnects.
+	final LiveOptions liveOptions;
+
+	LiveConnection? _live;
+
+	/// The live connection: one WebSocket for every subscription, live
+	/// mutation and channel, opened on first use. Read [LiveConnection.status]
+	/// or listen to [LiveConnection.statuses] for a connection banner, and
+	/// call [LiveConnection.close] when done.
+	LiveConnection get live =>
+		_live ??= LiveConnection(liveUrl(serverUrl, livePath), liveOptions);
 
 	/// Arguments:
 	/// - `ctx`: Ends the comment *\/ early, then /* opens one.

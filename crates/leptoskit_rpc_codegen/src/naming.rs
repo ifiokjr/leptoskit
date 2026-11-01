@@ -141,6 +141,8 @@ pub(crate) fn kebab(name: &str) -> String {
 pub(crate) const TS_RESERVED_TYPES: &[&str] = &[
 	"Array",
 	"BaseClient",
+	"CallOptions",
+	"ChannelHandle",
 	"Client",
 	"ClientOptions",
 	"Encoding",
@@ -148,12 +150,23 @@ pub(crate) const TS_RESERVED_TYPES: &[&str] = &[
 	"FnError",
 	"FnErrorKind",
 	"JSON",
+	"JoinOptions",
+	"LiveConnection",
+	"LiveError",
+	"LiveOptions",
+	"LiveSocket",
+	"LiveSocketConstructor",
+	"LiveStatus",
 	"Object",
+	"PresenceMember",
 	"Promise",
 	"Record",
 	"Response",
 	"String",
+	"TextDecoder",
 	"URLSearchParams",
+	"Unsubscribe",
+	"WebSocket",
 ];
 
 /// The members of `BaseClient` and `Object.prototype`, which no generated
@@ -166,6 +179,8 @@ pub(crate) const TS_RESERVED_METHODS: &[&str] = &[
 	"hasOwnProperty",
 	"headers",
 	"isPrototypeOf",
+	"live",
+	"liveOptions",
 	"propertyIsEnumerable",
 	"serverUrl",
 	"toLocaleString",
@@ -205,28 +220,45 @@ pub(crate) fn ts_string(text: &str) -> String {
 pub(crate) const PY_RESERVED_TYPES: &[&str] = &[
 	"Any",
 	"AsyncClient",
+	"AsyncLiveConnection",
+	"AsyncWatch",
+	"Callable",
+	"Channel",
 	"Client",
 	"Exception",
 	"False",
 	"FnError",
 	"ImportError",
 	"Literal",
+	"LiveConnection",
+	"LiveError",
+	"LiveOptions",
+	"LiveStatus",
 	"Mapping",
 	"None",
 	"NotRequired",
 	"Optional",
+	"PresenceMember",
 	"Required",
 	"True",
 	"TypeAlias",
 	"TypedDict",
 	"Union",
 	"ValueError",
+	"Watch",
 ];
 
 /// The attributes and methods the clients define, which a generated method
 /// would shadow or be shadowed by.
-pub(crate) const PY_RESERVED_METHODS: &[&str] =
-	&["aclose", "base_url", "headers", "http", "timeout"];
+pub(crate) const PY_RESERVED_METHODS: &[&str] = &[
+	"aclose",
+	"base_url",
+	"headers",
+	"http",
+	"live",
+	"live_options",
+	"timeout",
+];
 
 /// Parameter names a method signature already uses.
 pub(crate) const PY_RESERVED_PARAMETERS: &[&str] = &["self", "idempotency_key"];
@@ -273,7 +305,8 @@ pub(crate) fn py_string(text: &str) -> String {
 
 // --- Go -----------------------------------------------------------------
 /// Package-level names the Go runtime declares, which models and enum
-/// constants share a namespace with.
+/// constants share a namespace with. The live runtime's all start with
+/// `Live`.
 pub(crate) const GO_RESERVED: &[&str] = &[
 	"Client",
 	"DefaultServerURL",
@@ -284,11 +317,34 @@ pub(crate) const GO_RESERVED: &[&str] = &[
 	"KindNetwork",
 	"KindOther",
 	"KindServer",
+	"LiveChannel",
+	"LiveChannelKey",
+	"LiveConnection",
+	"LiveError",
+	"LiveJoin",
+	"LiveMember",
+	"LiveMutate",
+	"LiveOptions",
+	"LivePath",
+	"LiveSignal",
+	"LiveState",
+	"LiveStateConnecting",
+	"LiveStateLive",
+	"LiveStateOffline",
+	"LiveStateReconnecting",
+	"LiveStatus",
+	"LiveSubprotocol",
+	"LiveSubscribe",
+	"LiveSubscription",
+	"LiveURL",
 	"NewClient",
+	"NewLiveConnection",
+	"WithIdempotencyKey",
 ];
 
-/// The fields of `Client`, which a method may not share a name with.
-pub(crate) const GO_RESERVED_METHODS: &[&str] = &["HTTPClient", "ServerURL"];
+/// The fields and methods of `Client`, which a method may not share a name
+/// with.
+pub(crate) const GO_RESERVED_METHODS: &[&str] = &["HTTPClient", "Live", "LiveOptions", "ServerURL"];
 
 /// Names a generated method's body already uses: the receiver, the context,
 /// the result, and the predeclared identifiers its types and returns spell.
@@ -417,16 +473,63 @@ pub(crate) const RUST_RESERVED_METHODS: &[&str] = &[
 	"exchange",
 	"finish",
 	"fmt",
+	"live",
+	"live_key",
+	"live_status",
 	"new",
 	"server_url",
 	"with_header",
+	"with_idempotency_key",
+	"with_live_options",
+	"with_live_token",
 	"with_server_url",
 ];
 
 /// Flags clap or the CLI already defines, which an argument would collide
-/// with.
-pub(crate) const RUST_CLI_RESERVED_ARGUMENTS: &[&str] =
-	&["help", "idempotency_key", "server_url", "version"];
+/// with, and the names a command's dispatch calls, which an argument's
+/// binding would shadow.
+pub(crate) const RUST_CLI_RESERVED_ARGUMENTS: &[&str] = &[
+	"api",
+	"channel_arguments",
+	"help",
+	"idempotency_key",
+	"print_changes",
+	"print_channel",
+	"run",
+	"server_url",
+	"version",
+	"wire",
+];
+
+/// [`RUST_CLI_RESERVED_ARGUMENTS`] plus a query command's `--watch`.
+pub(crate) const RUST_CLI_RESERVED_QUERY_ARGUMENTS: &[&str] = &[
+	"api",
+	"channel_arguments",
+	"help",
+	"idempotency_key",
+	"print_changes",
+	"print_channel",
+	"run",
+	"server_url",
+	"version",
+	"watch",
+	"wire",
+];
+
+/// [`RUST_CLI_RESERVED_ARGUMENTS`] plus a channel command's `--presence`.
+pub(crate) const RUST_CLI_RESERVED_CHANNEL_ARGUMENTS: &[&str] = &[
+	"api",
+	"channel_arguments",
+	"help",
+	"idempotency_key",
+	"presence",
+	"print_changes",
+	"print_channel",
+	"run",
+	"server_url",
+	"version",
+	"wire",
+];
 
 const RUST_KEYWORDS: &[&str] = &[
 	"abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "do", "dyn",
@@ -460,22 +563,35 @@ pub(crate) fn rust_string(text: &str) -> String {
 }
 
 // --- Dart ----------------------------------------------------------------
-/// Library-level names the Dart runtime declares, plus the `dart:core` and
-/// `dart:typed_data` types its code spells.
+/// Library-level names the Dart runtime and the live runtime it exports
+/// declare, plus the `dart:core` and `dart:typed_data` types its code spells.
 pub(crate) const DART_RESERVED_TYPES: &[&str] = &[
+	"ChannelHandle",
+	"ChannelSignal",
 	"Client",
 	"Exception",
 	"FnError",
 	"Function",
 	"Future",
 	"List",
+	"LiveConnection",
+	"LiveError",
+	"LiveOptions",
+	"LiveState",
+	"LiveStatus",
 	"Map",
 	"MapEntry",
 	"Object",
+	"PresenceMember",
+	"Stream",
 	"String",
 	"Uint8List",
 	"Uri",
+	"channelKey",
 	"defaultServerUrl",
+	"livePath",
+	"liveSubprotocol",
+	"liveUrl",
 	"toQueryString",
 ];
 
@@ -483,6 +599,8 @@ pub(crate) const DART_RESERVED_TYPES: &[&str] = &[
 /// method may not take.
 pub(crate) const DART_RESERVED_METHODS: &[&str] = &[
 	"hashCode",
+	"live",
+	"liveOptions",
 	"noSuchMethod",
 	"runtimeType",
 	"serverUrl",

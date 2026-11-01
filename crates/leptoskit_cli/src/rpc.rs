@@ -25,7 +25,6 @@ use leptoskit_rpc_codegen::ApiSpec;
 use leptoskit_rpc_codegen::GenerateOptions;
 use leptoskit_rpc_codegen::Scaffold;
 use leptoskit_rpc_codegen::TargetLanguage;
-use leptoskit_rpc_codegen::spec;
 
 use crate::cli::RpcCommand;
 use crate::cli::SpecFormat;
@@ -364,17 +363,13 @@ fn generate(config: &LeptoskitConfig, root: &Utf8PathBuf, request: GenerateReque
 	Ok(())
 }
 
-/// The spec with internal functions and `rpc.exclude` matches removed, unless
-/// internal functions were asked for.
+/// The spec with internal functions and channels and `rpc.exclude` matches
+/// removed, unless internal ones were asked for.
 fn visible(config: &LeptoskitConfig, spec: &ApiSpec, include_internal: bool) -> ApiSpec {
-	let exclude = &config.rpc.exclude;
-	let include_internal = include_internal || config.rpc.include_internal;
-	spec.filtered(|function| {
-		(include_internal || !function.internal)
-			&& !exclude
-				.iter()
-				.any(|glob| spec::glob_matches(glob, &function.name))
-	})
+	spec.published(
+		include_internal || config.rpc.include_internal,
+		&config.rpc.exclude,
+	)
 }
 
 /// One target to generate, with its resolved output directory.

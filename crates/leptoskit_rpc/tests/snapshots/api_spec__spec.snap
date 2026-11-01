@@ -1,9 +1,10 @@
 ---
 source: crates/leptoskit_rpc/tests/api_spec.rs
+assertion_line: 262
 expression: spec
 ---
 {
-  "leptoskit_rpc_spec": 2,
+  "leptoskit_rpc_spec": 3,
   "title": "Todos",
   "version": "1.2.3",
   "description": null,
@@ -213,6 +214,7 @@ expression: spec
       ]
     }
   ],
+  "live_path": "/live",
   "schemas": {
     "Event": {
       "description": "Something that happened to a todo.",

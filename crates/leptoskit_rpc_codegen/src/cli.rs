@@ -5,6 +5,10 @@
 //! every argument a `--flag` parsed as JSON into the function's own type, and
 //! the doc comments become `--help` text. The result prints as pretty JSON.
 //!
+//! The live side rides along: a query's command takes `--watch` to print
+//! every change as a line of JSON, and every channel gets a `<channel>-join`
+//! command that prints signals and presence the same way.
+//!
 //! When any function needs an OAuth scope, the CLI also gets `login` and
 //! `logout`: the device flow against the app's own sign-in, with the tokens
 //! kept for the commands that follow.
@@ -16,6 +20,8 @@ use crate::generate::Context;
 use crate::generate::Generated;
 use crate::generate::GeneratedFile;
 use crate::naming::RUST_CLI_RESERVED_ARGUMENTS;
+use crate::naming::RUST_CLI_RESERVED_CHANNEL_ARGUMENTS;
+use crate::naming::RUST_CLI_RESERVED_QUERY_ARGUMENTS;
 use crate::naming::RUST_CLI_RESERVED_TYPES;
 use crate::naming::Scope;
 use crate::naming::comment_text;
@@ -24,7 +30,9 @@ use crate::naming::rust_identifier;
 use crate::naming::rust_string;
 use crate::naming::toml_string;
 use crate::naming::type_name;
+use crate::rust::ChannelField;
 use crate::spec::ApiFunction;
+use crate::spec::ApiKind;
 use crate::spec::ApiParam;
 
 /// The sign-in a CLI gets when its functions need scopes.
@@ -181,7 +189,62 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 			out.push_str(&format!("\t\t#[arg(long)]\n\t\t{ident}: {field_type},\n"));
 		}
 
+		if function.kind == ApiKind::Query {
+			out.push_str(
+				"\t\t/// Keeps watching: prints the first value and every change as one line of \
+				 JSON each,\n\t\t/// until interrupted.\n\t\t#[arg(long)]\n\t\twatch: bool,\n",
+			);
+		}
+
 		out.push_str("\t},\n");
+	}
+
+	let channels = channel_commands(context, sign_in.as_ref(), &mut types);
+
+	for command in &channels {
+		for line in command.channel.docs.lines() {
+			out.push_str(&format!("\t/// {}\n", comment_text(line.trim())));
+		}
+
+		if !command.channel.docs.is_empty() {
+			out.push_str("\t///\n");
+		}
+
+		out.push_str(&format!(
+			"\t/// Joins the {} channel: prints each signal and every change of its members as \
+			 one line\n\t/// of JSON each, until interrupted, and sends each line of standard \
+			 input as a signal.\n",
+			comment_text(&command.channel.name)
+		));
+
+		if command.channel.deprecated {
+			out.push_str("\t///\n\t/// Deprecated.\n");
+		}
+
+		out.push_str(&format!(
+			"\t#[command(name = {})]\n\t{} {{\n",
+			rust_string(&command.name),
+			command.variant
+		));
+
+		for (field, ident) in command.fields.iter().zip(&command.arguments) {
+			for line in field.docs.lines() {
+				out.push_str(&format!("\t\t/// {}\n", comment_text(line.trim())));
+			}
+
+			let field_type = if field.required {
+				format!("Json<{}>", field.type_name)
+			} else {
+				format!("Option<Json<{}>>", field.type_name)
+			};
+			out.push_str(&format!("\t\t#[arg(long)]\n\t\t{ident}: {field_type},\n"));
+		}
+
+		out.push_str(&format!(
+			"\t\t/// What this connection shows the others, as JSON; the channel's default when \
+			 absent.\n\t\t#[arg(long)]\n\t\tpresence: Option<Json<{}>>,\n\t}},\n",
+			command.presence
+		));
 	}
 
 	if let Some(sign_in) = &sign_in {
@@ -198,15 +261,16 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 
 	out.push_str("}\n\n");
 
-	out.push_str(&main_source(context, sign_in.is_some()));
+	out.push_str(&main_source(context, sign_in.is_some(), &channels));
 
 	let mut files = vec![
-		GeneratedFile::scaffold("Cargo.toml", cargo_toml(context, sign_in.is_some())),
+		GeneratedFile::scaffold("Cargo.toml", cargo_toml(context)),
 		GeneratedFile::scaffold(".gitignore", "/target\n"),
+		GeneratedFile::code("src/api/live.rs", crate::rust::live_runtime(context)),
 		GeneratedFile::code("src/api/mod.rs", api),
 		GeneratedFile::code("src/api/models.rs", models),
 		GeneratedFile::code("src/main.rs", out),
-		GeneratedFile::scaffold("README.md", readme(context, sign_in.as_ref())),
+		GeneratedFile::scaffold("README.md", readme(context, sign_in.as_ref(), &channels)),
 	];
 
 	if let Some(sign_in) = &sign_in {
@@ -219,21 +283,94 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 /// The `Command` variant of every callable function, in order, with no two
 /// alike, and clear of the sign-in commands' `Login` and `Logout`.
 fn variant_names(context: &Context<'_>) -> Vec<String> {
+	variant_scope(context).1
+}
+
+/// [`variant_names`], and the scope they're bound in, for the channel
+/// commands to bind theirs after them.
+fn variant_scope(context: &Context<'_>) -> (Scope, Vec<String>) {
 	let mut scope = Scope::new(&["Login", "Logout"]);
-	context
+	let names = context
 		.functions()
 		.map(|function| scope.bind(&type_name(&function.name)))
-		.collect()
+		.collect();
+	(scope, names)
 }
 
 /// The field, and so the `--flag`, of every argument, in order, clear of the
-/// flags clap and the CLI define themselves.
+/// flags clap and the CLI define themselves, and of a query's `--watch`.
 fn argument_names(function: &ApiFunction) -> Vec<String> {
-	let mut scope = Scope::new(RUST_CLI_RESERVED_ARGUMENTS);
+	let mut scope = Scope::new(if function.kind == ApiKind::Query {
+		RUST_CLI_RESERVED_QUERY_ARGUMENTS
+	} else {
+		RUST_CLI_RESERVED_ARGUMENTS
+	});
 	function
 		.params
 		.iter()
 		.map(|param| scope.bind(&rust_identifier(&param.name)))
+		.collect()
+}
+
+/// The command that joins a channel.
+struct ChannelCommand<'a> {
+	channel: &'a crate::spec::ApiChannel,
+	/// The `Command` variant, clear of the functions'.
+	variant: String,
+	/// The command name, `<channel>-join`, clear of the functions'.
+	name: String,
+	/// The client's join method.
+	method: String,
+	/// The join arguments, each a `--flag`.
+	fields: Vec<ChannelField>,
+	/// The field of every join argument, clear of `--presence` and the flags
+	/// clap and the CLI define.
+	arguments: Vec<String>,
+	/// The presence's Rust type.
+	presence: String,
+}
+
+fn channel_commands<'a>(
+	context: &Context<'a>,
+	sign_in: Option<&SignIn>,
+	types: &mut crate::rust::RustTypes,
+) -> Vec<ChannelCommand<'a>> {
+	let (mut variants, _) = variant_scope(context);
+	let mut names = Scope::new(&[]);
+
+	for function in context.functions() {
+		names.bind(&kebab(&function.name));
+	}
+
+	if let Some(sign_in) = sign_in {
+		names.bind(&sign_in.login);
+		names.bind(&sign_in.logout);
+	}
+
+	let methods = crate::rust::live_methods(context).channels;
+	context
+		.spec
+		.channels
+		.iter()
+		.zip(methods)
+		.map(|(channel, method)| {
+			let fields = crate::rust::channel_fields(context, channel, types);
+			let mut scope = Scope::new(RUST_CLI_RESERVED_CHANNEL_ARGUMENTS);
+			let arguments = fields
+				.iter()
+				.map(|field| scope.bind(&rust_identifier(&field.wire)))
+				.collect();
+			let (_, _, presence) = crate::rust::channel_types(context, channel, types);
+			ChannelCommand {
+				channel,
+				variant: variants.bind(&format!("{}Join", type_name(&channel.name))),
+				name: names.bind(&format!("{}-join", kebab(&channel.name))),
+				method,
+				fields,
+				arguments,
+				presence,
+			}
+		})
 		.collect()
 }
 
@@ -243,15 +380,17 @@ fn flag(argument: &str) -> String {
 }
 
 /// The `main` that dispatches commands to the client. With sign-in, `login`
-/// and `logout` run first, and every other command carries the token.
-fn main_source(context: &Context<'_>, sign_in: bool) -> String {
+/// and `logout` run first, and every other command carries the token, over
+/// HTTP and on the live connection alike.
+fn main_source(context: &Context<'_>, sign_in: bool, channels: &[ChannelCommand<'_>]) -> String {
 	let mut arms = String::new();
 	let calls = context
 		.functions()
 		.zip(variant_names(context))
-		.zip(crate::rust::method_names(context));
+		.zip(crate::rust::method_names(context))
+		.zip(crate::rust::live_methods(context).functions);
 
-	for ((function, variant), method) in calls {
+	for (((function, variant), method), live_method) in calls {
 		let arguments = argument_names(function);
 		let mut fields = Vec::new();
 
@@ -264,14 +403,74 @@ fn main_source(context: &Context<'_>, sign_in: bool) -> String {
 		}
 
 		let argument_list = fields.join(", ");
+
+		match live_method {
+			Some(live_method) if function.kind == ApiKind::Query => {
+				let mut bindings = arguments.clone();
+				bindings.push("watch".to_owned());
+				arms.push_str(&format!(
+					"\t\tCommand::{variant} {{ {} }} => if watch {{ \
+					 print_changes(api.{live_method}({argument_list})).await }} else {{ \
+					 run(api.{method}({argument_list}).await).await }},\n",
+					bindings.join(", "),
+				));
+			}
+			_ => {
+				arms.push_str(&format!(
+					"\t\tCommand::{variant} {{ {} }} => \
+					 run(api.{method}({argument_list}).await).await,\n",
+					arguments.join(", "),
+				));
+			}
+		}
+	}
+
+	for command in channels {
+		let values: Vec<String> = command
+			.fields
+			.iter()
+			.zip(&command.arguments)
+			.map(|(field, ident)| {
+				let value = if field.required {
+					format!("Some(wire(&{ident}.0))")
+				} else {
+					format!("{ident}.map(|json| wire(&json.0))")
+				};
+				format!("({}, {value})", rust_string(&field.wire))
+			})
+			.collect();
+		let values = if values.is_empty() {
+			"Vec::new()".to_owned()
+		} else {
+			format!("vec![{}]", values.join(", "))
+		};
+		let mut bindings = command.arguments.clone();
+		bindings.push("presence".to_owned());
 		arms.push_str(&format!(
-			"\t\tCommand::{variant} {{ {} }} => run(api.{method}({argument_list}).await).await,\n",
-			arguments.join(", "),
+			"\t\tCommand::{variant} {{ {bindings} }} => match channel_arguments({values}) {{ \
+			 Ok(args) => print_channel(api.{method}(args, presence.map(|json| json.0))).await, \
+			 Err(error) => Err(error) }},\n",
+			variant = command.variant,
+			bindings = bindings.join(", "),
+			method = command.method,
 		));
 	}
 
+	let mut helpers = HELPERS.to_owned();
+
+	if context
+		.functions()
+		.any(|function| function.kind == ApiKind::Query)
+	{
+		helpers.push_str(WATCH_HELPERS);
+	}
+
+	if !channels.is_empty() {
+		helpers.push_str(CHANNEL_HELPERS);
+	}
+
 	if sign_in {
-		return signed_main(&arms);
+		return signed_main(&arms, &helpers);
 	}
 
 	format!(
@@ -281,28 +480,16 @@ fn main_source(context: &Context<'_>, sign_in: bool) -> String {
 		 match cli.server_url {{\n\t\t\tSome(server_url) => \
 		 api::Client::with_server_url(server_url),\n\t\t\tNone => \
 		 api::Client::new(),\n\t\t}};\n\t\tlet outcome: Result<String, String> = match \
-		 cli.command {{\n{arms}\t\t}};\n\t\tmatch outcome {{\n\t\t\tOk(output) => \
+		 cli.command {{\n{arms}\t\t}};\n\t\tmatch outcome {{\n\t\t\tOk(output) if \
+		 output.is_empty() => {{}}\n\t\t\tOk(output) => \
 		 println!(\"{{output}}\"),\n\t\t\tErr(error) => {{\n\t\t\t\teprintln!(\"error: \
-		 {{error}}\");\n\t\t\t\tstd::process::exit(1);\n\t\t\t}}\n\t\t}}\n\t}});\n}}\n\n/// Runs \
-		 one call and prints its result as pretty JSON.\nasync fn run<T: \
-		 serde::Serialize>(outcome: Result<T, api::Error>) -> Result<String, String> {{\n\tlet \
-		 value = outcome.map_err(|error| \
-		 error.to_string())?;\n\tserde_json::to_string_pretty(&value).map_err(|error| \
-		 error.to_string())\n}}\n\n/// A `--flag` value parsed as JSON into the function's own \
-		 type, so enums and structs validate before anything is sent.\n#[derive(Clone)]\nstruct \
-		 Json<T>(T);\n\nimpl<T: DeserializeOwned> std::str::FromStr for Json<T> {{\n\ttype Err = \
-		 String;\n\n\tfn from_str(text: &str) -> Result<Self, Self::Err> \
-		 {{\n\t\tserde_json::from_str(text)\n\t\t\t.map(Json)\n\t\t\t.map_err(|error| \
-		 format!(\"not valid JSON for this argument: {{error}}\"))\n\t}}\n}}\n\nimpl<T: \
-		 serde::Serialize> std::fmt::Debug for Json<T> {{\n\tfn fmt(&self, formatter: &mut \
-		 std::fmt::Formatter<'_>) -> std::fmt::Result {{\n\t\twrite!(formatter, \"{{}}\", \
-		 serde_json::to_string(&self.0).expect(\"serializable\"))\n\t}}\n}}\n",
+		 {{error}}\");\n\t\t\t\tstd::process::exit(1);\n\t\t\t}}\n\t\t}}\n\t}});\n}}\n\n{helpers}",
 	)
 }
 
 /// `main` for a CLI that signs in: the commands run in `call`, after the
 /// sign-in's header is attached.
-fn signed_main(arms: &str) -> String {
+fn signed_main(arms: &str, helpers: &str) -> String {
 	let arms = arms.replace("\t\tCommand::", "\t\t\tCommand::");
 	format!(
 		"fn main() {{\n\tlet cli = Cli::parse();\n\tlet runtime = \
@@ -316,7 +503,8 @@ fn signed_main(arms: &str) -> String {
 		 login::logout(api.server_url()).await,\n\t\t\tcommand => match \
 		 login::authorization(api.server_url()).await {{\n\t\t\t\tOk(authorization) => \
 		 call(signed(api, authorization), command).await,\n\t\t\t\tErr(error) => \
-		 Err(error),\n\t\t\t}},\n\t\t}};\n\t\tmatch outcome {{\n\t\t\tOk(output) => \
+		 Err(error),\n\t\t\t}},\n\t\t}};\n\t\tmatch outcome {{\n\t\t\tOk(output) if \
+		 output.is_empty() => {{}}\n\t\t\tOk(output) => \
 		 println!(\"{{output}}\"),\n\t\t\tErr(error) => {{\n\t\t\t\teprintln!(\"error: \
 		 {{error}}\");\n\t\t\t\tstd::process::exit(1);\n\t\t\t}}\n\t\t}}\n\t}});\n}}\n\n/// The \
 		 client, sending the sign-in's `Authorization` with every request.\nfn signed(api: \
@@ -326,7 +514,7 @@ fn signed_main(arms: &str) -> String {
 		 => api,\n\t}}\n}}\n\n/// Runs one command against the RPC.\nasync fn call(api: \
 		 api::Client, command: Command) -> Result<String, String> {{\n\tmatch command \
 		 {{\n{arms}\t\tCommand::Login {{ .. }} | Command::Logout => unreachable!(\"signing in and \
-		 out run before any call\"),\n\t}}\n}}\n\n{HELPERS}",
+		 out run before any call\"),\n\t}}\n}}\n\n{helpers}",
 	)
 }
 
@@ -347,7 +535,98 @@ const HELPERS: &str =
 	 std::fmt::Result {\n\t\twrite!(formatter, \"{}\", \
 	 serde_json::to_string(&self.0).expect(\"serializable\"))\n\t}\n}\n";
 
-fn cargo_toml(context: &Context<'_>, sign_in: bool) -> String {
+/// `--watch`: a subscription's values as lines of JSON.
+const WATCH_HELPERS: &str = r#"
+/// Prints a query's first value and every change as one line of compact JSON
+/// each, until the subscription ends.
+async fn print_changes<T: serde::Serialize + DeserializeOwned>(
+	mut values: api::live::Subscription<T>,
+) -> Result<String, String> {
+	while let Some(value) = values.next().await {
+		match value {
+			Ok(value) => {
+				println!(
+					"{}",
+					serde_json::to_string(&value).map_err(|error| error.to_string())?
+				);
+			}
+			Err(error) => eprintln!("error: {error}"),
+		}
+	}
+
+	Ok(String::new())
+}
+"#;
+
+/// `<channel>-join`: a channel's traffic as lines of JSON, and standard
+/// input as signals.
+const CHANNEL_HELPERS: &str = r#"
+/// Prints each signal and every change of a channel's members as one line of
+/// compact JSON each, and sends each line of standard input as a signal,
+/// until the channel ends.
+async fn print_channel<M, P>(mut channel: api::live::Channel<M, P>) -> Result<String, String>
+where
+	M: serde::Serialize + DeserializeOwned,
+	P: serde::Serialize + DeserializeOwned,
+{
+	let (lines, mut input) = tokio::sync::mpsc::unbounded_channel::<String>();
+	// A plain thread, not Tokio's: a read from a terminal can't be cancelled,
+	// and the CLI exits without waiting for it.
+	std::thread::spawn(move || {
+		for line in std::io::stdin().lines() {
+			let Ok(line) = line else {
+				break;
+			};
+
+			if lines.send(line).is_err() {
+				break;
+			}
+		}
+	});
+	let mut reading = true;
+
+	loop {
+		tokio::select! {
+			event = channel.next() => match event {
+				Some(api::live::ChannelEvent::Signal { message, from }) => {
+					println!("{}", serde_json::json!({ "signal": message, "from": from }));
+				}
+				Some(api::live::ChannelEvent::Presence(members)) => {
+					println!("{}", serde_json::json!({ "presence": members }));
+				}
+				Some(api::live::ChannelEvent::Error(error)) => return Err(error.to_string()),
+				None => return Ok(String::new()),
+			},
+			line = input.recv(), if reading => match line {
+				Some(line) if line.trim().is_empty() => {}
+				Some(line) => match serde_json::from_str::<M>(&line) {
+					Ok(message) => channel.signal(&message),
+					Err(error) => eprintln!("error: not valid JSON for a signal: {error}"),
+				},
+				None => reading = false,
+			},
+		}
+	}
+}
+
+/// A channel's join arguments, from the flags given.
+fn channel_arguments<A: DeserializeOwned>(
+	fields: Vec<(&str, Option<serde_json::Value>)>,
+) -> Result<A, String> {
+	let object = fields
+		.into_iter()
+		.filter_map(|(name, value)| Some((name.to_owned(), value?)))
+		.collect();
+	serde_json::from_value(serde_json::Value::Object(object)).map_err(|error| error.to_string())
+}
+
+/// A flag's value, as JSON again.
+fn wire<T: serde::Serialize>(value: &T) -> serde_json::Value {
+	serde_json::to_value(value).unwrap_or_default()
+}
+"#;
+
+fn cargo_toml(context: &Context<'_>) -> String {
 	format!(
 		"{banner}# The CLI is its own workspace so it builds from any directory. To share the
 # app's target directory and lockfile instead, delete this table and add the
@@ -363,20 +642,17 @@ description = {description}
 
 [dependencies]
 clap = {{ version = \"4\", features = [\"derive\"] }}
+futures-util = {{ version = \"0.3\", default-features = false, features = [\"sink\"] }}
 reqwest = {{ version = \"0.12\", default-features = false, features = [\"json\", \"rustls-tls\"] }}
 serde = {{ version = \"1\", features = [\"derive\"] }}
 serde_json = \"1\"
 serde_qs = \"0.15\"
 thiserror = \"2\"
-tokio = {{ version = \"1\", features = [{tokio}] }}
+tokio = {{ version = \"1\", features = [\"macros\", \"rt\", \"sync\", \"time\"] }}
+tokio-tungstenite = {{ version = \"0.30\", default-features = false, features = [\"connect\", \
+		 \"rustls-tls-webpki-roots\"] }}
 ",
 		banner = context.banner("#"),
-		// Signing in waits between polls.
-		tokio = if sign_in {
-			"\"rt\", \"time\""
-		} else {
-			"\"rt\""
-		},
 		name = toml_string(&context.options.package_name),
 		version = toml_string(&context.version),
 		description = toml_string(&format!(
@@ -386,7 +662,11 @@ tokio = {{ version = \"1\", features = [{tokio}] }}
 	)
 }
 
-fn readme(context: &Context<'_>, sign_in: Option<&SignIn>) -> String {
+fn readme(
+	context: &Context<'_>,
+	sign_in: Option<&SignIn>,
+	channels: &[ChannelCommand<'_>],
+) -> String {
 	let example = context
 		.functions()
 		.next()
@@ -410,7 +690,7 @@ fn readme(context: &Context<'_>, sign_in: Option<&SignIn>) -> String {
 				args = args.join(" ")
 			)
 		});
-	let commands: Vec<String> = context
+	let mut commands: Vec<String> = context
 		.functions()
 		.map(|function| {
 			format!(
@@ -420,6 +700,14 @@ fn readme(context: &Context<'_>, sign_in: Option<&SignIn>) -> String {
 			)
 		})
 		.collect();
+
+	for command in channels {
+		commands.push(format!(
+			"- `{}` — joins the `{}` channel",
+			command.name, command.channel.name
+		));
+	}
+
 	format!(
 		"# {name}
 
@@ -436,7 +724,7 @@ anything is sent. Results print as pretty JSON.
 {example}```
 
 Pass `--server-url https://api.example.com` to point it at a server.
-{sign_in}
+{sign_in}{live}
 ## Commands
 
 {commands}
@@ -457,9 +745,58 @@ Pass `--server-url https://api.example.com` to point it at a server.
 				comma = sign_in.scopes.join(","),
 			)
 		}),
+		live = live_readme(context, channels),
 		name = context.options.package_name,
 		commands = commands.join("\n"),
 		title = context.spec.title,
 		version = context.spec.version,
+	)
+}
+
+/// The README's live section: `--watch` on the first query, and the first
+/// channel's command.
+fn live_readme(context: &Context<'_>, channels: &[ChannelCommand<'_>]) -> String {
+	let name = kebab(&context.options.package_name);
+	let mut lines = Vec::new();
+
+	if let Some(function) = context
+		.functions()
+		.find(|function| function.kind == ApiKind::Query)
+	{
+		let args: String = function
+			.params
+			.iter()
+			.zip(argument_names(function))
+			.filter(|(param, _)| param.is_required())
+			.map(|(_, argument)| format!("--{} '<json>' ", flag(&argument)))
+			.collect::<Vec<_>>()
+			.concat();
+		lines.push(format!("{name} {} {args}--watch", kebab(&function.name)));
+	}
+
+	if let Some(command) = channels.first() {
+		let args: String = command
+			.fields
+			.iter()
+			.zip(&command.arguments)
+			.filter(|(field, _)| field.required)
+			.map(|(_, argument)| format!("--{} '<json>' ", flag(argument)))
+			.collect::<Vec<_>>()
+			.concat();
+		lines.push(format!("{name} {} {args}--presence '<json>'", command.name));
+	}
+
+	if lines.is_empty() {
+		return String::new();
+	}
+
+	format!(
+		"\n## Live\n\nA query's command takes `--watch`: it subscribes over the server's live \
+		 connection and prints the first value and every change as one line of compact JSON each, \
+		 until you interrupt it. Every channel has a `-join` command that prints each signal as \
+		 `{{\"signal\": ..., \"from\": ...}}` and the members after every join and leave as \
+		 `{{\"presence\": [...]}}`, one line each, and sends each line you type (or pipe in) as a \
+		 signal. Both reconnect on their own.\n\n```bash\n{}\n```\n",
+		lines.join("\n")
 	)
 }
