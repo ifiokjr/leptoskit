@@ -9,7 +9,7 @@ This file is for people working on leptoskit itself. The [public docs](https://i
 ```bash
 devenv shell install:all   # pinned tools and locked dependencies
 devenv shell test:all      # nextest plus doctests
-devenv shell lint:all      # clippy on every target, leptoskit lint, leptoskit format, dprint, monochange, cargo-deny
+devenv shell lint:all      # clippy on every target, monostyle, leptoskit lint, leptoskit format, dprint, monochange, cargo-deny
 devenv shell fix:all       # autofix everything fixable
 ```
 
@@ -17,6 +17,7 @@ devenv shell fix:all       # autofix everything fixable
 | ---------------------- | ------------------------------------------------------------------------------ |
 | `lint:clippy`          | clippy on this machine's target, failing on any warning, cargo's own included. |
 | `lint:clippy:wasm`     | clippy for the browser and guest code, which only compiles for wasm.           |
+| `lint:monostyle`       | Holds `devenv.nix` to monostyle's 100 readability and complexity scores.       |
 | `test:browser`         | Runs the `leptoskit_testing_library` suite in Chrome.                          |
 | `coverage:all`         | Workspace coverage, held to the coverage gate (below).                         |
 | `docs:build`           | Builds the docs site into `docs/dist`.                                         |
