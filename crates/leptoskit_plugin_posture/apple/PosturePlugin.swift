@@ -29,24 +29,42 @@ public final class PosturePlugin: NativePlugin {
         guard !closed else { throw PluginError.cancelled }
 
         guard method <= 1 else { throw PluginError.unavailable }
-        let previous: Data?
-
-        if method == 0 {
-            guard payload.count == 0 else { throw PluginError.invalidArgument }
-            previous = nil
-        } else {
-            previous = try payload.withUnsafeBytes { bytes in
-                let hinges = (bytes.count - PostureEncoding.headerBytes) / PostureEncoding.hingeBytes
-
-                guard bytes.count >= PostureEncoding.headerBytes,
-                      (bytes.count - PostureEncoding.headerBytes) % PostureEncoding.hingeBytes == 0,
-                      hinges <= PostureEncoding.maxHinges else { throw PluginError.invalidArgument }
-
-                return Data(bytes)
-            }
-        }
+        let previous = try previousPosture(method: method, payload: payload)
 
         #if canImport(UIKit, _version: 9127.0.85)
+        return try await watch(from: previous)
+        #elseif canImport(UIKit)
+        _ = try context.requireAttachedOwner()
+
+        return PostureEncoding.rigid
+        #else
+        throw PluginError.unavailable
+        #endif
+    }
+
+    /// The posture the caller already knows, which the watcher reports changes
+    /// from. The status method carries none.
+    private func previousPosture(method: UInt32, payload: NativeBuffer) throws -> Data? {
+        guard method != 0 else {
+            guard payload.count == 0 else { throw PluginError.invalidArgument }
+
+            return nil
+        }
+
+        return try payload.withUnsafeBytes { bytes in
+            let hinges = (bytes.count - PostureEncoding.headerBytes) / PostureEncoding.hingeBytes
+
+            guard bytes.count >= PostureEncoding.headerBytes,
+                  (bytes.count - PostureEncoding.headerBytes) % PostureEncoding.hingeBytes == 0,
+                  hinges <= PostureEncoding.maxHinges else { throw PluginError.invalidArgument }
+
+            return Data(bytes)
+        }
+    }
+
+    #if canImport(UIKit, _version: 9127.0.85)
+    /// Watches the window's hinges until they change.
+    private func watch(from previous: Data?) async throws -> Data {
         let owner = try context.requireAttachedOwner()
 
         guard #available(iOS 27.1, *) else { return PostureEncoding.rigid }
@@ -57,14 +75,8 @@ public final class PosturePlugin: NativePlugin {
         defer { observer = nil }
 
         return try await watcher.next()
-        #elseif canImport(UIKit)
-        _ = try context.requireAttachedOwner()
-
-        return PostureEncoding.rigid
-        #else
-        throw PluginError.unavailable
-        #endif
     }
+    #endif
 
     public func close() {
         closed = true
