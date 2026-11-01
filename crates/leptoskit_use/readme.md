@@ -1,15 +1,35 @@
-# leptoskit_use
+<h1 align="center">leptoskit_use</h1>
+
+<p align="center">
+  <strong>leptoskit_use</strong> provides cross-platform reactive primitives inspired by leptos-use: state, derived values, watchers, timers, storage, and viewport breakpoints without a DOM or executor.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_use"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_use"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_use.svg"></a>
+  <a href="https://docs.rs/leptoskit_use"><img alt="docs.rs" src="https://docs.rs/leptoskit_use/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Cross-platform Leptos primitives inspired by [leptos-use](https://leptos-use.rs/). The reactive core uses Leptos's `reactive_graph` directly and requires no DOM or particular executor. Optional persistence adapters supply native application files and browser local storage. Application state, hooks, and screen callbacks stay shared across renderers.
-
-```rust
-use leptos::prelude::*;
-use leptoskit_use::{use_toggle, UseToggleReturn};
-
-let UseToggleReturn { value, toggle, .. } = use_toggle(false);
-toggle();
-assert!(value.get());
-```
 
 Use the crate directly or enable `leptoskit`'s `use` feature and import `leptoskit::hooks::*`. Enable `leptoskit_use/local-storage` or `leptoskit/storage` for built-in persistence. Create hooks inside a Leptos `Owner`. Callback captures and stored values are `Send + Sync`; storage futures can stay local to the host event loop.
 
@@ -107,3 +127,25 @@ Use `Viewport<f32>` with native surface dimensions to preserve fractional logica
 Hook results are leptos signals, so they read and write by being called on any toolchain: `value()` and `set_value(true)`. A `MaybeRwSignal` reads the same way, `initial()`. Where a function expects a closure, pass `&*signal`.
 
 `devenv shell coverage:use` enforces 100% line coverage for the portable and native code. `devenv shell coverage:use:browser` separately instruments the browser adapter and enforces 100% line coverage from Chrome and worker execution. It pins a nightly compiler for wasm coverage; application builds remain on the workspace toolchain. Both commands emit LCOV reports. Browser suites also run normally in Chrome and Firefox. CI checks native desktop, browser WASM, WASI, iOS, and Android compilation. Deterministic async tests suspend individual operations to exercise errors, serialization, cancellation, and owner disposal without sleeps.
+
+## How it fits
+
+The hooks read leptos signals and accept host services explicitly, so the same code runs in a browser and in a native guest. It is the utility layer beneath app screens, not a UI framework.
+
+## Use it
+
+```rust
+use leptos::prelude::*;
+use leptoskit_use::{use_toggle, UseToggleReturn};
+
+let UseToggleReturn { value, toggle, .. } = use_toggle(false);
+toggle();
+assert!(value.get());
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_use)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Hooks](https://ifiokjr.github.io/leptoskit/guide/07-shared-components.html)

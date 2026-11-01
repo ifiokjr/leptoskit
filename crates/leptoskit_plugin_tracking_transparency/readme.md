@@ -1,4 +1,33 @@
-# leptoskit_plugin_tracking_transparency
+<h1 align="center">leptoskit_plugin_tracking_transparency</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_tracking_transparency</strong> is the leptoskit plugin for explicit iOS App Tracking Transparency status and authorization requests.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_tracking_transparency"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_tracking_transparency"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_tracking_transparency.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_tracking_transparency"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_tracking_transparency/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Explicit iOS App Tracking Transparency (ATT) authorization. Query the current status or request a system consent UI following user intent. This port does not access advertising IDs, collect identifiers, install an analytics SDK, or start tracking.
 
@@ -25,3 +54,22 @@ Tests use synthetic authorization providers and exercise denied/restricted/undec
 - [Expo TrackingTransparency](https://docs.expo.dev/versions/latest/sdk/tracking-transparency/)
 - [Apple requestTrackingAuthorization](https://developer.apple.com/documentation/apptrackingtransparency/attrackingmanager/requesttrackingauthorization(completionhandler:))
 - [Apple NSUserTrackingUsageDescription](https://developer.apple.com/documentation/bundleresources/information-property-list/nsusertrackingusagedescription)
+
+## How it fits
+
+Add `leptoskit_plugin_tracking_transparency` as a direct dependency and select the `tracking-transparency` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::TrackingTransparency` rather than resolving the plugin on every call. It never reads advertising identifiers or starts tracking; iOS returns the system status, and other platforms return `Unavailable`.
+
+## Use it
+
+```toml
+# In a native host, select `tracking-transparency` in `native.plugins`.
+[dependencies]
+leptoskit_plugin_tracking_transparency = { version = "0.1", features = ["guest"] }
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_tracking_transparency)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)

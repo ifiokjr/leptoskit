@@ -1,18 +1,35 @@
-# leptoskit_plugin_dialog
+<h1 align="center">leptoskit_plugin_dialog</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_dialog</strong> is the leptoskit plugin for asynchronous native file, directory, save, and message dialogs on desktop, plus browser file selection.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_dialog"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_dialog"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_dialog.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_dialog"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_dialog/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Native asynchronous file, directory, save, and message dialogs for macOS, Windows, and Linux. The browser backend selects files through the File System Access API and reads them with an explicit byte limit.
-
-```rust,ignore
-use leptoskit_plugin_dialog::desktop::{FileDialog, FileOptions};
-use leptoskit_plugin_dialog::FileFilter;
-
-let options = FileOptions {
-    title: "Open an image".into(),
-    filters: vec![FileFilter::new("Images", ["png", "jpg"])?],
-    ..FileOptions::default()
-};
-let selected = FileDialog::new(&window, options)?.open_file().await;
-```
 
 The dialog borrows its parent window until completion. Start it on the UI thread of a running application, and keep that event loop running while awaiting the result. On macOS, rfd can fall back to blocking when no `NSApplication` exists. There is deliberately no synchronous `leptoskit_bridge::Plugin` implementation: host applications must await these operations outside the guest interpreter.
 
@@ -38,3 +55,28 @@ The Linux test desktop runs xdg-desktop-portal with its KDE backend, which rende
 - [Electron dialog APIs](https://www.electronjs.org/docs/latest/api/dialog)
 - [rfd platform and threading requirements](https://docs.rs/rfd/latest/rfd/)
 - [Browser picker API](https://developer.mozilla.org/en-US/docs/Web/API/Window/showOpenFilePicker)
+
+## How it fits
+
+Add `leptoskit_plugin_dialog` as a direct dependency and select the `dialog` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Desktop calls need an initialized application event loop and a parent window; the browser adapter uses the File System Access API with an explicit byte limit.
+
+## Use it
+
+```rust,ignore
+use leptoskit_plugin_dialog::desktop::{FileDialog, FileOptions};
+use leptoskit_plugin_dialog::FileFilter;
+
+let options = FileOptions {
+    title: "Open an image".into(),
+    filters: vec![FileFilter::new("Images", ["png", "jpg"])?],
+    ..FileOptions::default()
+};
+let selected = FileDialog::new(&window, options)?.open_file().await;
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_dialog)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)

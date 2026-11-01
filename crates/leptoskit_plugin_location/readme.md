@@ -1,4 +1,33 @@
-# LeptosKit Location
+<h1 align="center">leptoskit_plugin_location</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_location</strong> is the leptoskit plugin for foreground location permission and cancellable bounded fixes through CoreLocation, Android LocationManager, or browser Geolocation.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_location"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_location"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_location.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_location"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_location/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Foreground location acquisition using Apple CoreLocation, Android LocationManager, and browser Geolocation. Add this crate directly and select `location` in `native.plugins` for automatic registration. Apple supports iOS and macOS; there is no Windows/Linux location backend yet.
 
@@ -21,3 +50,22 @@ The wire protocol uses methods 0 permission, 1 request permission, 2 current, an
 Tests use synthetic coordinates, mocked browser hardware, and codec fixtures. They do not request or read the developer's actual location. Physical GPS, OS permission prompts, precision reduction, and moving-device behavior need separate device acceptance testing.
 
 References: [Apple CLLocationManager](https://developer.apple.com/documentation/corelocation/cllocationmanager), [Android LocationManager](https://developer.android.com/reference/android/location/LocationManager), [W3C Geolocation](https://www.w3.org/TR/geolocation/).
+
+## How it fits
+
+Add `leptoskit_plugin_location` as a direct dependency and select the `location` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::Location` rather than resolving the plugin on every call. Native reads never prompt; request permission as a separate, intentional action, and the app supplies its usage description and manifest permissions.
+
+## Use it
+
+```toml
+# In a native host, select `location` in `native.plugins`.
+[dependencies]
+leptoskit_plugin_location = { version = "0.1", features = ["guest"] }
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_location)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)

@@ -1,4 +1,33 @@
-# Local notifications
+<h1 align="center">leptoskit_plugin_notifications</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_notifications</strong> is the leptoskit plugin for immediate local system notifications with explicit permission requests, bounded messages, and cancellation.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_notifications"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_notifications"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_notifications.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_notifications"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_notifications/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Immediate local notifications with explicit permission requests, bounded binary messages and cancellation. A successful call means the platform accepted the request. It does not prove that a banner appeared or the user saw it: Focus modes, channel settings, foreground presentation policy and desktop services control delivery.
 
@@ -17,27 +46,6 @@ Scheduled notifications, remote push registration, service-worker notifications,
 The crate metadata provides Apple and Android registration information for the LeptosKit generator. Android requests `android.permission.POST_NOTIFICATIONS` in the generated manifest and uses the generated activity's `NativePermissionHost` broker. A custom Android host must implement that interface to request runtime permission. Querying permission and posting do not need the permission broker.
 
 Enable the `guest` feature in Wasm guest code and grant the methods the app needs in the host policy. The guest client caches its numeric plugin ID.
-
-```rust,ignore
-use leptoskit_plugin_notifications::{Channel, Identifier, Importance, Notification};
-use leptoskit_plugin_notifications::guest::Notifications;
-
-let client = Notifications::new()?;
-let channel_id = Identifier::new("downloads")?;
-// Android only: create the channel before requesting permission or posting.
-let channel = Channel::new(channel_id.clone(), "Downloads", "", Importance::Low, false)?;
-client.configure_channel(&channel).await?;
-let permission = client.request_permission().await?;
-// Inspect permission before posting; requesting can be denied.
-let notification = Notification::new(
-    Identifier::new("download-1")?,
-    "Download complete",
-    "Your file is ready.",
-    channel_id,
-)?;
-client.show(&notification).await?;
-client.cancel(notification.id()).await?;
-```
 
 Channel configuration is Android-only; do not call it unconditionally on Apple. Apple validates the portable channel identifier but does not use Android channels. Android channel importance and sound become user-controlled after channel creation; configuring the same ID does not override their choices. Notifications are silent on Apple, browser and Linux; Android sound is an explicit channel option. The Android constructor accepts a small-icon resource; its default is the system information icon. Apps should supply a suitable monochrome notification icon when registering a custom instance.
 
@@ -76,3 +84,37 @@ IDs contain 1–64 ASCII letters, digits, `.`, `_` or `-`. Titles have at most 2
 Rust tests cover binary validation and truncation. Apple tests use an injected service to verify late completion, cancellation and close without posting system notifications. The browser test replaces `Notification` with a controlled fake and exercises explicit permission, payload fields, cancellation and unsupported service-worker-only behavior. The Android instrumentation suite posts silent notifications only in a disposable emulator fixture and checks replacement, namespace cancellation and close against `NotificationManager.activeNotifications`.
 
 API scope is informed by [Expo Notifications](https://docs.expo.dev/versions/latest/sdk/notifications/), [Tauri Notification](https://v2.tauri.app/plugin/notification/) and [Electron Notification](https://www.electronjs.org/docs/latest/api/notification). Platform contracts come from [Apple authorization](https://developer.apple.com/documentation/usernotifications/asking-permission-to-use-notifications), [Android notification permission](https://developer.android.com/develop/ui/views/notifications/notification-permission) and the [Freedesktop notification protocol](https://specifications.freedesktop.org/notification/latest/protocol.html).
+
+## How it fits
+
+Add `leptoskit_plugin_notifications` as a direct dependency and select the `notifications` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::Notifications` rather than resolving the plugin on every call. A successful call means the OS accepted the request, not that a banner appeared; focus modes and user settings can still suppress it.
+
+## Use it
+
+```rust,ignore
+use leptoskit_plugin_notifications::{Channel, Identifier, Importance, Notification};
+use leptoskit_plugin_notifications::guest::Notifications;
+
+let client = Notifications::new()?;
+let channel_id = Identifier::new("downloads")?;
+// Android only: create the channel before requesting permission or posting.
+let channel = Channel::new(channel_id.clone(), "Downloads", "", Importance::Low, false)?;
+client.configure_channel(&channel).await?;
+let permission = client.request_permission().await?;
+// Inspect permission before posting; requesting can be denied.
+let notification = Notification::new(
+    Identifier::new("download-1")?,
+    "Download complete",
+    "Your file is ready.",
+    channel_id,
+)?;
+client.show(&notification).await?;
+client.cancel(notification.id()).await?;
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_notifications)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)

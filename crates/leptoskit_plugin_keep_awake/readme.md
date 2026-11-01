@@ -1,4 +1,33 @@
-# LeptosKit Keep Awake
+<h1 align="center">leptoskit_plugin_keep_awake</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_keep_awake</strong> is the leptoskit plugin for scoped display wake locks with cancellation-safe ownership.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_keep_awake"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_keep_awake"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_keep_awake.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_keep_awake"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_keep_awake/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Scoped display wake locks with cancellation-safe ownership. This plugin prevents display idle sleep; it does not promise unrestricted background execution or override explicit OS power policy.
 
@@ -13,3 +42,22 @@ Browser `web::hold().await` uses the Screen Wake Lock API in a secure, visible c
 Wire method `0` accepts only empty bytes and remains pending for the entire lease. Successful completion is a protocol error. A dropped guest future uses the bridge's existing cancellation path, so cleanup requires no separate release message or unpolled fire-and-forget reply.
 
 References: [Expo KeepAwake](https://docs.expo.dev/versions/latest/sdk/keep-awake/), [Screen Wake Lock API](https://developer.mozilla.org/en-US/docs/Web/API/Screen_Wake_Lock_API).
+
+## How it fits
+
+Add `leptoskit_plugin_keep_awake` as a direct dependency and select the `keep-awake` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::KeepAwake` rather than resolving the plugin on every call. iOS preserves and restores the idle timer, Android uses the activity's keep-screen-on flag, desktop uses OS assertions, and the browser uses the Screen Wake Lock API; none of them promise background execution.
+
+## Use it
+
+```toml
+# In a native host, select `keep-awake` in `native.plugins`.
+[dependencies]
+leptoskit_plugin_keep_awake = { version = "0.1", features = ["guest"] }
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_keep_awake)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)

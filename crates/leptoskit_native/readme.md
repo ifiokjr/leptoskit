@@ -1,21 +1,39 @@
+<h1 align="center">leptoskit_native</h1>
+
 <p align="center">
   <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
-# leptoskit_native
+<p align="center">
+  <strong>leptoskit_native</strong> is the native side of the shared tree: builders for every component, the Tailwind compiler, the retained element tree, and the diff that turns a commit into a mutation batch.
+</p>
 
-> The leptoskit native renderer: React Native's architecture, rewritten in Rust.
+<br>
 
-Apps describe their interface with shared Rust builders that return `Element` trees:
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_native"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
 
-```rust
-use leptoskit_native::components::{Button, Text, View};
+<br>
 
-let screen = View().class("gap-4 p-6 md:flex-row").children([
-	Text("Hello, leptoskit").class("text-2xl font-bold"),
-	Button("Continue").class("rounded-lg bg-indigo-500 px-4 py-2 text-white"),
-]);
-```
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_native"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_native.svg"></a>
+  <a href="https://docs.rs/leptoskit_native"><img alt="docs.rs" src="https://docs.rs/leptoskit_native/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
+
+Apps describe their interface with shared Rust builders that return `Element` trees.
 
 The [component catalog](https://ifiokjr.github.io/leptoskit/reference/components.html) has 16 primitive builders for containers, text, images, vector drawings, scrolling, and native controls, including controlled `Switch`, `Checkbox`, `Radio`, `Slider`, progress, `PasswordInput`, activation-only `Pressable`, and optional `Rive` vector playback. Tailwind expresses layout and visual composition. The 31 optional `components::helpers` builders include `Row`, `Column`, `Stack`, `Card`, and eager `ListView`/`GridView` compositions. Web and every native backend render real controls; AppKit is the most complete, and the UIKit, Android, GTK, and Win32 backends are younger.
 
@@ -47,3 +65,26 @@ The optional `web` feature provides `leptoskit_native::web::render(Element)`, wh
 The `leptoskit` crate re-exports the builders, renderer types, and optional web adapter. The wasm host drives a native surface from a code-pushed bundle.
 
 See the [shared component guide](https://ifiokjr.github.io/leptoskit/guide/07-shared-components.html) and [CSS coverage reference](https://ifiokjr.github.io/leptoskit/reference/css-coverage.html) for defaults, supported utilities, and platform limits. Text size utilities set font size only. Native fonts expose four weights, and CSS features outside the supported subset return class diagnostics.
+
+## How it fits
+
+Every native backend implements `NativeBackend` and consumes the mutations this crate produces; the web build uses its optional `web` feature to render the same builders through leptos. App code normally reaches it through `leptoskit::prelude`, not as a direct dependency, so one screen works on every target.
+
+## Use it
+
+```rust
+use leptoskit_native::components::{Button, Text, View};
+
+let screen = View().class("gap-4 p-6 md:flex-row").children([
+	Text("Hello, leptoskit").class("text-2xl font-bold"),
+	Button("Continue").class("rounded-lg bg-indigo-500 px-4 py-2 text-white"),
+]);
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_native)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Shared components](https://ifiokjr.github.io/leptoskit/guide/07-shared-components.html)
+- [CSS coverage](https://ifiokjr.github.io/leptoskit/reference/css-coverage.html)

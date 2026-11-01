@@ -1,10 +1,37 @@
+<h1 align="center">leptoskit_bridge</h1>
+
 <p align="center">
   <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
-# leptoskit_bridge
+<p align="center">
+  <strong>leptoskit_bridge</strong> is the bounded binary transport between a Wasm guest and the native plugins it is allowed to call.
+</p>
 
-> Bounded binary calls and events between leptoskit guests and native plugins.
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_bridge"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_bridge"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_bridge.svg"></a>
+  <a href="https://docs.rs/leptoskit_bridge"><img alt="docs.rs" src="https://docs.rs/leptoskit_bridge/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 A native leptoskit app runs its interface as a Wasm guest, and the guest cannot touch the clipboard, the battery, or the filesystem itself. The host can. This crate is the channel between them: the guest submits a call to a named plugin method with a byte payload, the host does the native work later on its own thread, and the guest collects the reply. Native code can also push events to the guest.
 
@@ -13,24 +40,6 @@ The channel carries bytes and nothing else. There is no JSON envelope, no base64
 ## Host side
 
 The host owns one `Bridge` on its event-loop thread, registers plugins, and grants methods. Nothing is allowed until the host says so, and an over-the-air bundle cannot add native capabilities by naming a different ID.
-
-```rust
-use leptoskit_bridge::Bridge;
-use leptoskit_bridge::Bytes;
-use leptoskit_bridge::MethodId;
-
-let mut bridge = Bridge::default();
-let echo = bridge.register("echo", [MethodId(0)])?;
-bridge.grant(echo, MethodId(0), true)?;
-
-// The guest (or a test) submits a call; the host drains and completes it.
-let id = bridge.submit(echo, MethodId(0), Bytes::from_static(b"hello"))?;
-let request = bridge.next_request().expect("a queued request");
-bridge.complete(id, Ok(request.payload))?;
-let reply = bridge.take_result(id)?.expect("ready")?;
-assert_eq!(reply.as_ref(), b"hello");
-# Ok::<(), leptoskit_bridge::Error>(())
-```
 
 A plugin written in Rust implements the `Plugin` trait (`name`, `methods`, `invoke`) for short, non-blocking work. Slower work uses the host's native async APIs and calls `Bridge::complete` when it finishes; `Bridge::cancel` and `Bridge::next_cancelled` tell the host which running work to stop.
 
@@ -68,3 +77,34 @@ cargo run --release -p leptoskit_bridge --example roundtrip   # devenv shell ben
 ```
 
 The `roundtrip` example times submit, dequeue, completion, and consumption for payloads from 0 bytes to 1 MiB and asserts that no payload is copied. It excludes Wasm, JNI, scheduling, and OS work, so use it to watch the transport, not to compare frameworks.
+
+## How it fits
+
+Plugins define methods, payload limits, cancellation, and error codes once; the guest and the Swift, Kotlin, or C++ host then speak the same protocol. Most apps never name it directly, but every runtime plugin does.
+
+## Use it
+
+```rust
+use leptoskit_bridge::Bridge;
+use leptoskit_bridge::Bytes;
+use leptoskit_bridge::MethodId;
+
+let mut bridge = Bridge::default();
+let echo = bridge.register("echo", [MethodId(0)])?;
+bridge.grant(echo, MethodId(0), true)?;
+
+// The guest (or a test) submits a call; the host drains and completes it.
+let id = bridge.submit(echo, MethodId(0), Bytes::from_static(b"hello"))?;
+let request = bridge.next_request().expect("a queued request");
+bridge.complete(id, Ok(request.payload))?;
+let reply = bridge.take_result(id)?.expect("ready")?;
+assert_eq!(reply.as_ref(), b"hello");
+# Ok::<(), leptoskit_bridge::Error>(())
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_bridge)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugins](https://ifiokjr.github.io/leptoskit/platforms/plugins.html)

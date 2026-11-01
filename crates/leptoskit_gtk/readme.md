@@ -1,4 +1,33 @@
-# leptoskit_gtk
+<h1 align="center">leptoskit_gtk</h1>
+
+<p align="center">
+  <strong>leptoskit_gtk</strong> renders the shared element tree as real GTK4 Linux widgets, consuming the same Yoga mutation stream as every other backend.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_gtk"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_gtk"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_gtk.svg"></a>
+  <a href="https://docs.rs/leptoskit_gtk"><img alt="docs.rs" src="https://docs.rs/leptoskit_gtk/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Real GTK4 Linux widgets consuming leptoskit's shared native mutation stream.
 
@@ -14,11 +43,24 @@ The backend renders containers, labels and text runs, images, vector drawings, s
 
 GTK sliders use a normalized numeric accessibility range of `0..1`, matching GTK4's native accessibility setters; their accessible value text and spoken description expose the shared numeric value and bounds. The description also reaches older GTK4 AT-SPI implementations that omit value text from their numeric interface. Typed events always use the shared `f64` range and canonical step grid. Radios publish group position relations and a spoken position description because GTK4.8 does not export those relations as AT-SPI attributes. Pressable descendants remain decorative in the accessibility tree.
 
-Requires GTK 4.6 or newer; verified on GTK 4.8.3. On Debian/Ubuntu, install `libgtk-4-dev`, `pkg-config`, `xvfb`, `xauth`, `dbus-x11`, `at-spi2-core`, `fonts-dejavu-core`, and `xdotool`. Run the native harness with:
+Requires GTK 4.6 or newer; verified on GTK 4.8.3. On Debian/Ubuntu, install `libgtk-4-dev`, `pkg-config`, `xvfb`, `xauth`, `dbus-x11`, `at-spi2-core`, `fonts-dejavu-core`, and `xdotool`. Run the native harness with.
+
+The harness opens actual GTK windows, sends pointer and keyboard input, queries and sets AT-SPI values, and compares allocations, text metrics, focus, scrolling, and rendered pixels. Generated fixture images and snapshots go under `target/native-widgets/gtk/<process-id>/`; set `LEPTOSKIT_GTK_ARTIFACTS` to change the parent directory. Each run includes a readable `catalog.png` plus geometry, clipping, paint, rounded-control, and writing-direction artifacts.
+
+## How it fits
+
+Initialize GTK on the application thread, construct `GtkBackend`, and hand it to `NativeSurface`. `open_window` hosts a committed root and `run_app` drives the loop; GTK objects stay on their creating thread.
+
+## Use it
 
 ```sh
 GDK_BACKEND=x11 GSK_RENDERER=cairo dbus-run-session -- xvfb-run -a \
   cargo test -p leptoskit_gtk --test widgets
 ```
 
-The harness opens actual GTK windows, sends pointer and keyboard input, queries and sets AT-SPI values, and compares allocations, text metrics, focus, scrolling, and rendered pixels. Generated fixture images and snapshots go under `target/native-widgets/gtk/<process-id>/`; set `LEPTOSKIT_GTK_ARTIFACTS` to change the parent directory. Each run includes a readable `catalog.png` plus geometry, clipping, paint, rounded-control, and writing-direction artifacts.
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_gtk)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Linux](https://ifiokjr.github.io/leptoskit/platforms/windows-linux.html)

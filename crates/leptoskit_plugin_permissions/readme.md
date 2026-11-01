@@ -1,18 +1,35 @@
-# leptoskit_plugin_permissions
+<h1 align="center">leptoskit_plugin_permissions</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_permissions</strong> is the leptoskit plugin for explicit camera and microphone permission queries and requests.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_permissions"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_permissions"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_permissions.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_permissions"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_permissions/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Explicit camera and microphone permission queries and requests for native apps and browsers. This crate does not claim to cover permissions with different OS flows, such as location, photos, notifications, Bluetooth, motion or background access.
-
-```rust,ignore
-use leptoskit_plugin_permissions::{Permission, Status, guest::Permissions};
-
-let permissions = Permissions::new()?;
-let current = permissions.status(Permission::Camera).await?;
-// Call request only after the user chooses a feature needing the camera.
-let result = permissions.request(Permission::Camera).await?;
-if result.status == Status::Granted {
-    // Start the separate camera API; permission does not guarantee hardware.
-}
-```
 
 Add the crate as a direct dependency and select `permissions` in `native.plugins`. Runtime registration grants access to this plugin's methods; the OS still makes its own independent permission decision.
 
@@ -43,3 +60,28 @@ Methods: status `0`, request `1`. Input is one little-endian u32: camera `0` or 
 Rust tests validate the protocol and unknown-state handling. Crate-owned Android instrumentation tests exercise the real permission dialog and callback routing, plus closed/invalid broker requests. The dialog test uses an already-granted permission if the test application has been run before; use a freshly installed test application to exercise the OS prompt.
 
 References: [Apple capture authorization](https://developer.apple.com/documentation/avfoundation/capture-setup/requesting-authorization-to-capture-and-save-media), [Android runtime permissions](https://developer.android.com/training/permissions/requesting), [Media capture](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia), [Expo permission conventions](https://docs.expo.dev/guides/permissions/).
+
+## How it fits
+
+Add `leptoskit_plugin_permissions` as a direct dependency and select the `permissions` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::Permissions` rather than resolving the plugin on every call. Querying status never shows a prompt; request only after the user chooses, and use the dedicated location, notification, and photo APIs for permissions with different OS flows.
+
+## Use it
+
+```rust,ignore
+use leptoskit_plugin_permissions::{Permission, Status, guest::Permissions};
+
+let permissions = Permissions::new()?;
+let current = permissions.status(Permission::Camera).await?;
+// Call request only after the user chooses a feature needing the camera.
+let result = permissions.request(Permission::Camera).await?;
+if result.status == Status::Granted {
+    // Start the separate camera API; permission does not guarantee hardware.
+}
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_permissions)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)

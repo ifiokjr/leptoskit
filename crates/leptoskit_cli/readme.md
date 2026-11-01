@@ -1,29 +1,37 @@
+<h1 align="center">leptoskit_cli</h1>
+
 <p align="center">
   <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
-# leptoskit_cli
+<p align="center">
+  <strong>leptoskit_cli</strong> is the `leptoskit` and `lk` command: scaffold a project, run every platform, build, serve, generate routes and translations, manage code push, lint, format, and inspect toolchains.
+</p>
 
-> The `leptoskit` command line interface.
+<br>
 
-```bash
-leptoskit new my_app --platform native
-leptoskit new huawei_app --platform native --native-target harmonyos
-leptoskit generate app my_app --platform web
-leptoskit generate plugin my_plugin
-leptoskit dev            # run every platform this machine can, rebuild on change
-leptoskit build --release --platform web
-leptoskit serve
-leptoskit codepush release
-leptoskit codepush publish --endpoint <url> --bucket <name>
-leptoskit codepush pull --endpoint <url> --bucket <name>
-leptoskit codepush serve
-leptoskit codepush check
-leptoskit doctor
-leptoskit test run --binary target/debug/examples/widget_suite
-leptoskit test web --package leptoskit_testing_library --browser chrome
-leptoskit completions zsh
-```
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_cli"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_cli"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_cli.svg"></a>
+  <a href="https://docs.rs/leptoskit_cli"><img alt="docs.rs" src="https://docs.rs/leptoskit_cli/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 `lk` is a shorter alias for the same CLI — every command works identically as `lk new`, `lk dev`, `lk build`, and completions answer to the invoked name (`lk completions zsh > ~/.zfunc/_lk`).
 
@@ -58,3 +66,36 @@ file("../../../.leptoskit/android/plugin-dependencies.txt").readLines().forEach 
 `build.features`, leptos plugins (`leptos = true`), and plugin features reach both cargo builds as `--features`; plugin environment variables are set on both. `build.rustflags` and plugin rustflags apply to the wasm client only, passed as `--config target.wasm32-unknown-unknown.rustflags=[...]` so they join any rustflags in `.cargo/config.toml` (an exported `RUSTFLAGS` overrides them, as it does every cargo config). An unknown plugin name is an error.
 
 The client crate is detected automatically — the workspace member producing a `cdylib` target — or pinned with `build.client_package` in `leptoskit.toml`. The dev loop binds `serve.address`, watches every workspace member, `Cargo.toml`, `leptoskit.toml`, and `public/`, and rebuilds once changes have been quiet for 150 ms.
+
+## How it fits
+
+Every workflow starts here. The binary is a thin wrapper over the library, so the same code drives `leptoskit dev`, CI builds, native host preparation, and release checks. Generated projects call it by name; tooling calls the library directly.
+
+## Use it
+
+```bash
+leptoskit new my_app --platform native
+leptoskit new huawei_app --platform native --native-target harmonyos
+leptoskit generate app my_app --platform web
+leptoskit generate plugin my_plugin
+leptoskit dev            # run every platform this machine can, rebuild on change
+leptoskit build --release --platform web
+leptoskit serve
+leptoskit codepush release
+leptoskit codepush publish --endpoint <url> --bucket <name>
+leptoskit codepush pull --endpoint <url> --bucket <name>
+leptoskit codepush serve
+leptoskit codepush check
+leptoskit doctor
+leptoskit test run --binary target/debug/examples/widget_suite
+leptoskit test web --package leptoskit_testing_library --browser chrome
+leptoskit completions zsh
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_cli)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Creating a project](https://ifiokjr.github.io/leptoskit/guide/02-creating.html)
+- [Building](https://ifiokjr.github.io/leptoskit/guide/04-building.html)
