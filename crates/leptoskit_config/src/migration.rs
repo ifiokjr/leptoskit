@@ -114,6 +114,7 @@ fn router_to_plugin(document: &mut DocumentMut) -> Result<(), MigrationError> {
 		return Ok(());
 	};
 	let dir = router.get("dir").and_then(Item::as_value).cloned();
+
 	if let Some(dir) = dir
 		.as_ref()
 		.and_then(toml_edit::Value::as_str)
@@ -138,6 +139,7 @@ fn router_to_plugin(document: &mut DocumentMut) -> Result<(), MigrationError> {
 				.or_insert(Item::ArrayOfTables(toml_edit::ArrayOfTables::new()));
 		}
 		Some(Item::ArrayOfTables(_)) => {}
+
 		Some(Item::Value(value)) if value.as_array().is_some_and(Array::is_empty) => {
 			// An empty inline `plugins = []` becomes the array-of-tables the
 			// router entry appends to.
@@ -148,6 +150,7 @@ fn router_to_plugin(document: &mut DocumentMut) -> Result<(), MigrationError> {
 		}
 		Some(_) => return Err(MigrationError::InvalidPlugins),
 	}
+
 	let Some(Item::ArrayOfTables(plugins)) = document.get_mut("plugins") else {
 		return Err(MigrationError::InvalidPlugins);
 	};
@@ -163,6 +166,7 @@ fn router_to_plugin(document: &mut DocumentMut) -> Result<(), MigrationError> {
 
 	let mut entry = Table::new();
 	entry["name"] = value("router");
+
 	if let Some(dir) = dir
 		&& dir.as_str()
 			!= Some(
@@ -176,6 +180,7 @@ fn router_to_plugin(document: &mut DocumentMut) -> Result<(), MigrationError> {
 		entry.insert("options", Item::Table(options));
 	}
 	plugins.push(entry);
+
 	Ok(())
 }
 

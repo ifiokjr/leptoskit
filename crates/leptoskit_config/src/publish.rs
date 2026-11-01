@@ -169,24 +169,31 @@ impl PublishConfig {
 	#[must_use]
 	pub fn stores(&self) -> Vec<&'static str> {
 		let mut stores = Vec::new();
+
 		if self.chrome.is_some() {
 			stores.push("chrome");
 		}
+
 		if self.edge.is_some() {
 			stores.push("edge");
 		}
+
 		if self.firefox.is_some() {
 			stores.push("firefox");
 		}
+
 		if self.app_store.is_some() {
 			stores.push("app_store");
 		}
+
 		if self.macos.is_some() {
 			stores.push("macos");
 		}
+
 		if self.play.is_some() {
 			stores.push("play");
 		}
+
 		stores
 	}
 
@@ -198,6 +205,7 @@ impl PublishConfig {
 			has_firefox_id,
 			..
 		} = *app;
+
 		if !has_extension
 			&& (self.chrome.is_some() || self.edge.is_some() || self.firefox.is_some())
 		{
@@ -206,65 +214,32 @@ impl PublishConfig {
 					.into(),
 			);
 		}
-		if let Some(chrome) = &self.chrome {
-			let item = chrome.item_id.len() == 32
-				&& chrome
-					.item_id
-					.bytes()
-					.all(|byte| (b'a'..=b'p').contains(&byte));
-			if !item {
-				return Some(format!(
-					"publish.chrome.item_id `{}` must be the item's 32-letter ID, from its URL in \
-					 the developer dashboard",
-					chrome.item_id
-				));
-			}
-			if chrome.publisher_id.trim().is_empty() {
-				return Some("publish.chrome.publisher_id can't be empty".into());
-			}
+
+		if let Some(problem) = self.chrome.as_ref().and_then(chrome_problem) {
+			return Some(problem);
 		}
-		if let Some(edge) = &self.edge
-			&& edge.product_id.trim().is_empty()
-		{
-			return Some("publish.edge.product_id can't be empty".into());
+
+		if let Some(problem) = self.edge.as_ref().and_then(edge_problem) {
+			return Some(problem);
 		}
+
 		if self.firefox.is_some() && !has_firefox_id {
 			return Some("publish.firefox needs [extension.firefox] with the add-on's id".into());
 		}
+
 		if let Some(problem) = self.app_store.as_ref().and_then(|store| store.problem(app)) {
 			return Some(problem);
 		}
-		if let Some(macos) = &self.macos {
-			if !app.platforms.contains(&crate::Platform::Macos) {
-				return Some("publish.macos needs `macos` in app.platforms".into());
-			}
-			if let Some(repository) = &macos.github_release {
-				let parts: Vec<&str> = repository.split('/').collect();
-				if parts.len() != 2 || parts.iter().any(|part| part.trim().is_empty()) {
-					return Some(format!(
-						"publish.macos.github_release `{repository}` must be a repository, \
-						 `owner/name`"
-					));
-				}
-			}
+
+		if let Some(problem) = self
+			.macos
+			.as_ref()
+			.and_then(|macos| macos_problem(macos, app))
+		{
+			return Some(problem);
 		}
-		if let Some(play) = &self.play {
-			if !app.platforms.contains(&crate::Platform::Android) {
-				return Some("publish.play needs `android` in app.platforms".into());
-			}
-			if play.track.trim().is_empty() {
-				return Some("publish.play.track can't be empty".into());
-			}
-			if let Some(rollout) = play.rollout
-				&& !(rollout > 0.0 && rollout < 1.0)
-			{
-				return Some(format!(
-					"publish.play.rollout {rollout} must be a fraction between 0 and 1, such as \
-					 0.1; leave it out to release to everyone"
-				));
-			}
-		}
-		None
+
+		self.play.as_ref().and_then(|play| play_problem(play, app))
 	}
 }
 
@@ -292,6 +267,7 @@ impl AppStore {
 		if !app.platforms.contains(&crate::Platform::Ios) {
 			return Some("publish.app_store needs `ios` in app.platforms".into());
 		}
+
 		if self.app_id.is_empty() || !self.app_id.bytes().all(|byte| byte.is_ascii_digit()) {
 			return Some(format!(
 				"publish.app_store.app_id `{}` must be the app's Apple ID, the number under App \
@@ -299,6 +275,7 @@ impl AppStore {
 				self.app_id
 			));
 		}
+
 		match self.team(app.apple_team_id) {
 			None => {
 				Some(
@@ -326,6 +303,78 @@ impl AppStore {
 			}
 		}
 	}
+}
+
+/// The Chrome Web Store's item and publisher IDs.
+fn chrome_problem(chrome: &ChromeStore) -> Option<String> {
+	let item = chrome.item_id.len() == 32
+		&& chrome
+			.item_id
+			.bytes()
+			.all(|byte| (b'a'..=b'p').contains(&byte));
+
+	if !item {
+		return Some(format!(
+			"publish.chrome.item_id `{}` must be the item's 32-letter ID, from its URL in the \
+			 developer dashboard",
+			chrome.item_id
+		));
+	}
+
+	if chrome.publisher_id.trim().is_empty() {
+		return Some("publish.chrome.publisher_id can't be empty".into());
+	}
+
+	None
+}
+
+/// The Edge Add-ons product ID.
+fn edge_problem(edge: &EdgeStore) -> Option<String> {
+	if edge.product_id.trim().is_empty() {
+		return Some("publish.edge.product_id can't be empty".into());
+	}
+
+	None
+}
+
+/// macOS downloads: the platform, and GitHub's `owner/name`.
+fn macos_problem(macos: &MacosStore, app: &Facts) -> Option<String> {
+	if !app.platforms.contains(&crate::Platform::Macos) {
+		return Some("publish.macos needs `macos` in app.platforms".into());
+	}
+
+	let repository = macos.github_release.as_ref()?;
+	let parts: Vec<&str> = repository.split('/').collect();
+
+	if parts.len() != 2 || parts.iter().any(|part| part.trim().is_empty()) {
+		return Some(format!(
+			"publish.macos.github_release `{repository}` must be a repository, `owner/name`"
+		));
+	}
+
+	None
+}
+
+/// Google Play: the platform, track, and rollout.
+fn play_problem(play: &PlayStore, app: &Facts) -> Option<String> {
+	if !app.platforms.contains(&crate::Platform::Android) {
+		return Some("publish.play needs `android` in app.platforms".into());
+	}
+
+	if play.track.trim().is_empty() {
+		return Some("publish.play.track can't be empty".into());
+	}
+
+	if let Some(rollout) = play.rollout
+		&& !(rollout > 0.0 && rollout < 1.0)
+	{
+		return Some(format!(
+			"publish.play.rollout {rollout} must be a fraction between 0 and 1, such as 0.1; \
+			 leave it out to release to everyone"
+		));
+	}
+
+	None
 }
 
 #[cfg(test)]

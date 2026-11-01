@@ -1656,12 +1656,14 @@ impl AuthProviderConfig {
 					("client_secret_env", &self.client_secret_env),
 				])
 			}
+
 			kind if AUTH_PROVIDER_KINDS.contains(&kind) => {
 				missing(&[
 					("client_id_env", &self.client_id_env),
 					("client_secret_env", &self.client_secret_env),
 				])
 			}
+
 			kind => {
 				Some(format!(
 					"auth.providers.{id}.kind `{kind}` isn't oidc or a built-in provider: {}",
@@ -1867,11 +1869,13 @@ impl AuthIdpConfig {
 					"auth.idp.registration_token_env must name an environment variable".to_owned(),
 				);
 			}
+
 			Some(_) if !self.dynamic_registration => {
 				return Some(
 					"auth.idp.registration_token_env needs dynamic_registration = true".to_owned(),
 				);
 			}
+
 			_ => {}
 		}
 
@@ -1881,6 +1885,7 @@ impl AuthIdpConfig {
 			("refresh_days", self.refresh_days, 400),
 			("signing_key_days", self.signing_key_days, 400),
 		];
+
 		for (name, value, max) in bounds {
 			if !(1..=max).contains(&value) {
 				return Some(format!("auth.idp.{name} must be between 1 and {max}"));
@@ -1941,12 +1946,15 @@ impl AuthMailConfig {
 			(Some(_), Some(_)) => {
 				Some("auth.mail sends over SMTP or a webhook, not both".to_owned())
 			}
+
 			(Some(_), None) if self.from.is_none() => {
 				Some("auth.mail.from is needed to send over SMTP".to_owned())
 			}
+
 			(None, Some(_)) if self.webhook_secret_env.is_none() => {
 				Some("auth.mail.webhook_secret_env is needed to sign webhooks".to_owned())
 			}
+
 			_ => None,
 		}
 	}
@@ -2090,9 +2098,11 @@ pub fn default_package_id(app_name: &str) -> String {
 		.map(|character| character.to_ascii_lowercase())
 		.filter(|character| character.is_ascii_lowercase() || character.is_ascii_digit())
 		.collect();
+
 	if !segment.starts_with(|character: char| character.is_ascii_lowercase()) {
 		segment.insert_str(0, "app");
 	}
+
 	format!("com.leptoskit.{segment}")
 }
 
@@ -2118,21 +2128,26 @@ fn certificate_digest(fingerprint: &str) -> Option<[u8; 32]> {
 /// Why `package_id` is not a valid reverse-domain id, if it is not.
 fn package_id_problem(package_id: &str) -> Option<&'static str> {
 	let segments: Vec<&str> = package_id.split('.').collect();
+
 	if segments.len() < 2 {
 		return Some("it needs at least two dot-separated segments");
 	}
+
 	for segment in segments {
 		let mut characters = segment.chars();
+
 		if !characters
 			.next()
 			.is_some_and(|first| first.is_ascii_alphabetic())
 		{
 			return Some("every segment must start with an ASCII letter");
 		}
+
 		if !characters.all(|character| character.is_ascii_alphanumeric()) {
 			return Some("segments may only contain ASCII letters and digits");
 		}
 	}
+
 	None
 }
 
@@ -2233,6 +2248,37 @@ impl LeptoskitConfig {
 			return Err(ConfigError::SchemaVersion(self.schema_version));
 		}
 
+		self.validate_app()?;
+		self.validate_codepush()?;
+		self.validate_native()?;
+		self.validate_rpc()?;
+		self.validate_paths()?;
+		self.validate_db()?;
+
+		if let Some(problem) = self.auth.as_ref().and_then(AuthConfig::problem) {
+			return Err(ConfigError::InvalidAuth(problem));
+		}
+
+		let builds_extension = self.validate_extension()?;
+
+		if let Some(problem) = self.publish_problem(builds_extension) {
+			return Err(ConfigError::InvalidPublish(problem));
+		}
+
+		if builds_extension && self.codepush.enabled {
+			return Err(ConfigError::InvalidExtension(
+				"extension stores forbid code downloaded after review, so code push can't be on \
+				 while app.platforms has `extension`"
+					.into(),
+			));
+		}
+
+		Ok(())
+	}
+
+	/// The app's platforms: at least one, no repeats, and a default that's
+	/// among them.
+	fn validate_app(&self) -> Result<(), ConfigError> {
 		if self.app.platforms.is_empty() {
 			return Err(ConfigError::NoPlatforms);
 		}
@@ -2243,14 +2289,23 @@ impl LeptoskitConfig {
 			}
 		}
 
-		self.ensure_platform_enabled(self.app.default_platform)?;
+		self.ensure_platform_enabled(self.app.default_platform)
+	}
 
-		if self.codepush.enabled && self.codepush.server.trim().is_empty() {
+	/// Code push's server and signing keys.
+	fn validate_codepush(&self) -> Result<(), ConfigError> {
+		if !self.codepush.enabled {
+			return Ok(());
+		}
+
+		if self.codepush.server.trim().is_empty() {
 			return Err(ConfigError::CodePushServerMissing);
 		}
-		if self.codepush.enabled && self.codepush.public_keys.is_empty() {
+
+		if self.codepush.public_keys.is_empty() {
 			return Err(ConfigError::CodePushPublicKeysMissing);
 		}
+
 		if let Some(key) = self
 			.codepush
 			.public_keys
@@ -2259,12 +2314,21 @@ impl LeptoskitConfig {
 		{
 			return Err(ConfigError::InvalidCodePushPublicKey(key.clone()));
 		}
+
+		Ok(())
+	}
+
+	/// Native settings: plugin options, package id, Apple team, Android
+	/// certificates.
+	fn validate_native(&self) -> Result<(), ConfigError> {
 		let package_id = &self.native.package_id;
+
 		for name in self.native.plugin_options.keys() {
 			if !self.native.plugins.contains(name) {
 				return Err(ConfigError::UnselectedPluginOptions(name.clone()));
 			}
 		}
+
 		if !package_id.is_empty()
 			&& let Some(reason) = package_id_problem(package_id)
 		{
@@ -2273,6 +2337,7 @@ impl LeptoskitConfig {
 				reason,
 			});
 		}
+
 		if let Some(team) = &self.native.apple_team_id
 			&& (team.len() != 10
 				|| !team
@@ -2281,6 +2346,7 @@ impl LeptoskitConfig {
 		{
 			return Err(ConfigError::InvalidAppleTeamId(team.clone()));
 		}
+
 		if let Some(fingerprint) = self
 			.native
 			.android_certificates
@@ -2289,16 +2355,30 @@ impl LeptoskitConfig {
 		{
 			return Err(ConfigError::InvalidAndroidCertificate(fingerprint.clone()));
 		}
+
+		Ok(())
+	}
+
+	/// RPC targets name a language and scaffold this build knows.
+	fn validate_rpc(&self) -> Result<(), ConfigError> {
 		for target in &self.rpc.targets {
 			if !RPC_TARGETS.contains(&target.language.as_str()) {
 				return Err(ConfigError::UnknownRpcTarget(target.language.clone()));
 			}
+
 			if let Some(scaffold) = &target.scaffold
 				&& !RPC_SCAFFOLDS.contains(&scaffold.as_str())
 			{
 				return Err(ConfigError::UnknownRpcScaffold(scaffold.clone()));
 			}
 		}
+
+		Ok(())
+	}
+
+	/// `[router]` and `[l10n]`: each directory and module name inside the
+	/// project.
+	fn validate_paths(&self) -> Result<(), ConfigError> {
 		if let Some(router) = &self.router {
 			let dir = &router.dir;
 			// The directory's name is also the generated module's name.
@@ -2306,55 +2386,78 @@ impl LeptoskitConfig {
 				.file_name()
 				.and_then(|name| name.to_str())
 				.is_some_and(is_module_name);
+
 			if !is_inside_project(dir) || !module_name {
 				return Err(ConfigError::InvalidRouterDir(dir.clone()));
 			}
 		}
-		if let Some(l10n) = &self.l10n {
-			if !is_inside_project(&l10n.dir) {
-				return Err(ConfigError::InvalidL10nDir(l10n.dir.clone()));
-			}
-			let output = &l10n.output;
-			let module = output
-				.extension()
-				.is_some_and(|extension| extension == "rs")
-				&& output
-					.file_stem()
-					.and_then(|stem| stem.to_str())
-					.is_some_and(is_module_name);
-			if !is_inside_project(output) || !module {
-				return Err(ConfigError::InvalidL10nOutput(output.clone()));
-			}
-			let template = &l10n.template;
-			let tag_shaped = !template.is_empty()
-				&& template.split('-').all(|subtag| {
-					!subtag.is_empty() && subtag.bytes().all(|byte| byte.is_ascii_alphanumeric())
-				});
-			if !tag_shaped {
-				return Err(ConfigError::InvalidL10nTemplate(template.clone()));
+
+		let Some(l10n) = &self.l10n else {
+			return Ok(());
+		};
+
+		if !is_inside_project(&l10n.dir) {
+			return Err(ConfigError::InvalidL10nDir(l10n.dir.clone()));
+		}
+
+		let output = &l10n.output;
+		let module = output
+			.extension()
+			.is_some_and(|extension| extension == "rs")
+			&& output
+				.file_stem()
+				.and_then(|stem| stem.to_str())
+				.is_some_and(is_module_name);
+
+		if !is_inside_project(output) || !module {
+			return Err(ConfigError::InvalidL10nOutput(output.clone()));
+		}
+
+		let template = &l10n.template;
+		let tag_shaped = !template.is_empty()
+			&& template.split('-').all(|subtag| {
+				!subtag.is_empty() && subtag.bytes().all(|byte| byte.is_ascii_alphanumeric())
+			});
+
+		if !tag_shaped {
+			return Err(ConfigError::InvalidL10nTemplate(template.clone()));
+		}
+
+		Ok(())
+	}
+
+	/// `[db]`: migrations, package, and the URL variable.
+	fn validate_db(&self) -> Result<(), ConfigError> {
+		let Some(db) = &self.db else {
+			return Ok(());
+		};
+
+		if !is_inside_project(&db.migrations) {
+			return Err(ConfigError::InvalidDbMigrations(db.migrations.clone()));
+		}
+
+		if let Some(package) = &db.package {
+			let valid = !package.is_empty()
+				&& package
+					.bytes()
+					.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-');
+
+			if !valid {
+				return Err(ConfigError::InvalidDbPackage(package.clone()));
 			}
 		}
-		if let Some(db) = &self.db {
-			if !is_inside_project(&db.migrations) {
-				return Err(ConfigError::InvalidDbMigrations(db.migrations.clone()));
-			}
-			if let Some(package) = &db.package {
-				let valid = !package.is_empty()
-					&& package
-						.bytes()
-						.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-');
-				if !valid {
-					return Err(ConfigError::InvalidDbPackage(package.clone()));
-				}
-			}
-			if db.url_env.is_empty() {
-				return Err(ConfigError::InvalidDbUrlEnv);
-			}
+
+		if db.url_env.is_empty() {
+			return Err(ConfigError::InvalidDbUrlEnv);
 		}
-		if let Some(problem) = self.auth.as_ref().and_then(AuthConfig::problem) {
-			return Err(ConfigError::InvalidAuth(problem));
-		}
+
+		Ok(())
+	}
+
+	/// `[extension]`, when the app builds one. Says whether it does.
+	fn validate_extension(&self) -> Result<bool, ConfigError> {
 		let builds_extension = self.app.platforms.contains(&Platform::Extension);
+
 		match &self.extension {
 			Some(extension) => {
 				if let Some(problem) = extension.problem(&self.native.package_id) {
@@ -2368,17 +2471,8 @@ impl LeptoskitConfig {
 			}
 			None => {}
 		}
-		if let Some(problem) = self.publish_problem(builds_extension) {
-			return Err(ConfigError::InvalidPublish(problem));
-		}
-		if builds_extension && self.codepush.enabled {
-			return Err(ConfigError::InvalidExtension(
-				"extension stores forbid code downloaded after review, so code push can't be on \
-				 while app.platforms has `extension`"
-					.into(),
-			));
-		}
-		Ok(())
+
+		Ok(builds_extension)
 	}
 
 	/// The first problem with `[publish]`, given the rest of the app.
@@ -2424,10 +2518,12 @@ impl LeptoskitConfig {
 	/// migration can repair a configuration the current loader rejects.
 	pub fn find_root() -> Result<PathBuf, ConfigError> {
 		let mut current = std::env::current_dir().map_err(ConfigError::Io)?;
+
 		loop {
 			if current.join(CONFIG_FILE).is_file() {
 				return Ok(current);
 			}
+
 			if !current.pop() {
 				return Err(ConfigError::NotFound);
 			}
@@ -2449,9 +2545,11 @@ impl LeptoskitConfig {
 				.unwrap_or("leptoskit_app")
 				.into();
 		}
+
 		if self.native.package_id.is_empty() {
 			self.native.package_id = default_package_id(&self.app.name);
 		}
+
 		self
 	}
 }

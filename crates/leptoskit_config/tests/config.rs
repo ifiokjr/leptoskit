@@ -83,6 +83,7 @@ leptos = true
 	assert_eq!(config.native.package_id, "com.example.counter");
 	assert!(config.codepush.enabled);
 	assert_eq!(config.codepush.public_keys.len(), 1);
+
 	assert_eq!(config.plugins.len(), 2);
 	assert!(config.plugins[1].leptos);
 }
@@ -124,6 +125,7 @@ fn platform_selection_rejects_disabled_defaults_duplicates_and_empty_lists() {
 		config.validate(),
 		Err(ConfigError::DuplicatePlatform(Platform::Ios))
 	));
+
 	config.app.platforms.clear();
 	assert!(matches!(config.validate(), Err(ConfigError::NoPlatforms)));
 }
@@ -154,6 +156,7 @@ fn enabled_platforms_have_one_authoritative_list_in_new_configuration() {
 	config.native.targets = vec![leptoskit_config::NativeTarget::Harmonyos];
 	let serialized = config.to_toml_string().unwrap();
 	let restored: LeptoskitConfig = toml::from_str(&serialized).unwrap();
+
 	assert_eq!(restored.native.targets, config.native.targets);
 }
 
@@ -178,6 +181,7 @@ origins = ["https://api.example.com"]
 	assert_eq!(roundtrip, config);
 	let mut unselected = config;
 	unselected.native.plugins.clear();
+
 	assert!(
 		matches!(unselected.validate(), Err(ConfigError::UnselectedPluginOptions(name)) if name == "http")
 	);
@@ -287,6 +291,7 @@ fn enabled_codepush_requires_valid_public_keys() {
 		matches!(error, ConfigError::CodePushPublicKeysMissing),
 		"got {error:?}"
 	);
+
 	for invalid in ["abc", &"g".repeat(64), &"a".repeat(66)] {
 		let error = load(
 			"codepush_bad_key",
@@ -298,6 +303,7 @@ fn enabled_codepush_requires_valid_public_keys() {
 			"{invalid:?}: got {error:?}"
 		);
 	}
+
 	let valid = "a".repeat(64);
 	assert!(
 		load(
@@ -528,6 +534,7 @@ fn translation_paths_stay_inside_the_project() {
 			"{output:?}: got {error:?}"
 		);
 	}
+
 	for template in ["", "en_US", "pt-", "-", "en US"] {
 		let error = load(
 			"l10n_bad_template",
@@ -540,6 +547,7 @@ fn translation_paths_stay_inside_the_project() {
 		);
 		assert!(error.to_string().contains("l10n.template"), "{error}");
 	}
+
 	let error = load("l10n_unknown_key", "[l10n]\nfallback = \"en\"\n").unwrap_err();
 	assert!(matches!(error, ConfigError::Parse { .. }), "got {error:?}");
 }
@@ -644,6 +652,7 @@ fn explicit_contract_versions_must_match_the_supported_version() {
 			&format!("schema_version = {version}\n"),
 		)
 		.expect_err("unsupported version");
+
 		assert!(matches!(error, ConfigError::SchemaVersion(found) if found == version));
 	}
 }
@@ -693,6 +702,7 @@ fn the_database_table_turns_on_migrations() {
 	assert_eq!(db.features, ["server"]);
 	assert_eq!(db.dev_server, leptoskit_config::DbDevServer::Auto);
 	assert_eq!(db.watch, leptoskit_config::DbWatch::Migrate);
+
 	assert_eq!(
 		db.package(&config.app),
 		format!("{}_db", config.app.name.replace('-', "_"))
@@ -756,6 +766,7 @@ watch = \"report\"
 	.unwrap()
 	.to_toml_string()
 	.unwrap();
+
 	assert!(!defaults.contains("dev_server") && !defaults.contains("watch"));
 
 	for (setting, value) in [("dev_server", "docker"), ("watch", "sync")] {
@@ -985,6 +996,7 @@ fn the_auth_table_names_secrets_by_variable() {
 	let idp = config.auth.expect("auth").idp.expect("idp");
 	assert_eq!(idp.rsa_key_env.as_deref(), Some("IDP_RSA_KEY"));
 	assert!(idp.developer_portal);
+
 	assert_eq!(idp.apps_per_person, 3);
 }
 
@@ -1181,5 +1193,6 @@ fn passwords_are_off_unless_turned_on() {
 	.expect("load");
 	let passwords = config.auth.expect("auth").passwords;
 	assert!(passwords.enabled && passwords.breach_check);
+
 	assert_eq!(passwords.min_length, 8);
 }

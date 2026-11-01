@@ -454,11 +454,13 @@ impl ExtensionConfig {
 		if self.browsers.is_empty() {
 			return Some("extension.browsers must list at least one browser".into());
 		}
+
 		for (index, browser) in self.browsers.iter().enumerate() {
 			if self.browsers[..index].contains(browser) {
 				return Some(format!("extension.browsers lists {browser} more than once"));
 			}
 		}
+
 		if self.pages().next().is_none()
 			&& self.content_scripts.is_empty()
 			&& self.background.is_none()
@@ -469,19 +471,23 @@ impl ExtensionConfig {
 					.into(),
 			);
 		}
+
 		if let Some(description) = &self.description
 			&& description.chars().count() > 132
 		{
 			return Some("extension.description must be at most 132 characters".into());
 		}
+
 		for page in self.pages() {
 			if let Some(problem) = route_problem(page.setting, page.route) {
 				return Some(problem);
 			}
+
 			if let Some(problem) = self.narrowing_problem(page.table(), page.browsers) {
 				return Some(problem);
 			}
 		}
+
 		if let Some(page) = &self.new_tab
 			&& self.browsers.contains(&Browser::Safari)
 			&& page
@@ -507,26 +513,31 @@ impl ExtensionConfig {
 					.name
 					.bytes()
 					.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
+
 			if !valid_name {
 				return Some(format!(
 					"{at}.name `{}` must be lowercase letters, digits, and dashes",
 					script.name
 				));
 			}
+
 			if self.content_scripts[..index]
 				.iter()
 				.any(|other| other.name == script.name)
 			{
 				return Some(format!("two content scripts are named `{}`", script.name));
 			}
+
 			if let Some(problem) = route_problem(&format!("{at}.route"), &script.route) {
 				return Some(problem);
 			}
+
 			if script.inject == Inject::Manifest && script.matches.is_empty() {
 				return Some(format!(
 					"{at} needs `matches`, the pages it runs on, or `inject = \"on_request\"`"
 				));
 			}
+
 			if let Some(pattern) = script
 				.matches
 				.iter()
@@ -536,10 +547,12 @@ impl ExtensionConfig {
 					"{at}.matches has `{pattern}`, which isn't a match pattern"
 				));
 			}
+
 			if let Some(problem) = self.narrowing_problem(&at, script.browsers.as_deref()) {
 				return Some(problem);
 			}
 		}
+
 		None
 	}
 
@@ -556,6 +569,7 @@ impl ExtensionConfig {
 				));
 			}
 		}
+
 		if let Some(server) = &self.server
 			&& server_origin(server).is_none()
 		{
@@ -563,6 +577,7 @@ impl ExtensionConfig {
 				"extension.server `{server}` must be an http or https origin, such as https://api.example.com"
 			));
 		}
+
 		if let Some(background) = &self.background
 			&& let Some(event) = background
 				.events
@@ -574,6 +589,7 @@ impl ExtensionConfig {
 				BACKGROUND_EVENTS.join(", ")
 			));
 		}
+
 		if let Some(name) = self
 			.commands
 			.keys()
@@ -595,6 +611,7 @@ impl ExtensionConfig {
 							.into(),
 					);
 				}
+
 				Some(firefox) if !is_gecko_id(&firefox.id) => {
 					return Some(format!(
 						"extension.firefox.id `{}` must look like an email address, such as \
@@ -602,6 +619,7 @@ impl ExtensionConfig {
 						firefox.id
 					));
 				}
+
 				Some(firefox) => {
 					if let Some(category) = firefox
 						.data_collection
@@ -630,6 +648,7 @@ impl ExtensionConfig {
 				}
 			}
 		}
+
 		if self.browsers.contains(&Browser::Safari) {
 			if package_id.is_empty() {
 				return Some(
@@ -637,11 +656,13 @@ impl ExtensionConfig {
 						.into(),
 				);
 			}
+
 			let suffix = &self.safari.bundle_id_suffix;
 			let valid = !suffix.is_empty()
 				&& suffix
 					.bytes()
 					.all(|byte| byte.is_ascii_alphanumeric() || byte == b'-');
+
 			if !valid {
 				return Some(format!(
 					"extension.safari.bundle_id_suffix `{suffix}` must be letters, digits, and \
@@ -649,17 +670,20 @@ impl ExtensionConfig {
 				));
 			}
 		}
+
 		None
 	}
 
 	/// A surface's own browser list may only narrow the extension's.
 	fn narrowing_problem(&self, at: &str, only: Option<&[Browser]>) -> Option<String> {
 		let only = only?;
+
 		if only.is_empty() {
 			return Some(format!(
 				"{at}.browsers can't be empty; leave it out instead"
 			));
 		}
+
 		only.iter()
 			.find(|browser| !self.browsers.contains(browser))
 			.map(|browser| format!("{at}.browsers has {browser}, which extension.browsers doesn't"))
@@ -675,13 +699,17 @@ fn route_problem(at: &str, route: &str) -> Option<String> {
 #[must_use]
 pub fn server_origin(server: &str) -> Option<String> {
 	let (scheme, rest) = server.split_once("://")?;
+
 	if scheme != "http" && scheme != "https" {
 		return None;
 	}
+
 	let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+
 	if host.is_empty() || host.contains('@') || host.contains(' ') {
 		return None;
 	}
+
 	Some(format!("{scheme}://{host}"))
 }
 
@@ -692,6 +720,7 @@ pub fn is_match_pattern(pattern: &str) -> bool {
 	if pattern == "<all_urls>" {
 		return true;
 	}
+
 	let Some((scheme, rest)) = pattern.split_once("://") else {
 		return false;
 	};
@@ -704,10 +733,13 @@ pub fn is_match_pattern(pattern: &str) -> bool {
 	let Some((host, _path)) = rest.split_once('/') else {
 		return false;
 	};
+
 	if scheme == "file" {
 		return host.is_empty();
 	}
+
 	let host = host.split(':').next().unwrap_or_default();
+
 	match host.strip_prefix("*.") {
 		_ if host == "*" => true,
 		Some(domain) => !domain.is_empty() && !domain.contains('*'),
@@ -813,6 +845,7 @@ id = "inspector@example.com"
 				),
 			]
 		);
+
 		for page in extension.pages() {
 			assert_eq!(page.table(), "extension.devtools_page");
 			assert!(extension.has_page(&page, Browser::Chromium));

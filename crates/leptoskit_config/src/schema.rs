@@ -35,6 +35,7 @@ pub fn configuration(id: &str) -> Schema {
 	let target = &mut definitions["RpcTarget"];
 	target["required"] = serde_json::json!(["language"]);
 	target["properties"]["language"]["enum"] = serde_json::json!(RPC_TARGETS);
+
 	target["properties"]["language"]
 		.as_object_mut()
 		.expect("client language is a string schema")

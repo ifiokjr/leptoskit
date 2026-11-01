@@ -27,6 +27,7 @@ fn assert_legacy_migration(raw: &str) {
 		config.plugins[0].options["message"],
 		original["plugins"][0]["options"]["message"]
 	);
+
 	assert!(output.starts_with(&format!("#:schema {}\n", schema_url())));
 
 	for comment in [
@@ -134,6 +135,7 @@ fn migrates_the_router_table_into_a_plugin_entry() {
 	let spec = &config.plugins[0];
 	assert_eq!(spec.name, "router");
 	assert_eq!(spec.options["dir"], "app/ui".into());
+
 	assert_eq!(migrate(&output).expect("migrate twice"), output);
 }
 
