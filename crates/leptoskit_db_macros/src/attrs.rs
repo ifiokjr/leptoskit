@@ -38,7 +38,8 @@ pub(crate) struct TableArgs {
 	pub hooks: Vec<Ident>,
 	/// Every change is recorded in the audit log.
 	pub audit: bool,
-	/// Every change is published to live subscribers.
+	/// Every write to the table is captured in the change log, by triggers
+	/// that migrations create, for live subscribers.
 	pub live: bool,
 	/// Declared by the database layer itself, such as the audit log: not
 	/// registered for export, and written only from inside its crate.
@@ -276,6 +277,13 @@ impl TableArgs {
 		let view = is_view
 			.then(|| ViewArgs::new(view, keeps_indexes))
 			.transpose()?;
+
+		if live && view.is_some() {
+			return Err(syn::Error::new(
+				Span::call_site(),
+				"a view has no writes to capture: `live` is for tables",
+			));
+		}
 
 		let link = if is_link {
 			let (Some(mut from), Some(mut to)) = (from, to) else {
@@ -634,6 +642,8 @@ pub(crate) struct FieldArgs {
 	pub timestamp: Option<Timestamp>,
 	pub on_delete: Option<Ident>,
 	pub no_foreign_key: bool,
+	/// The column is left out of the change log, for wide or secret data.
+	pub live_skip: bool,
 	pub renamed_from: Option<LitStr>,
 	/// The field is a `#[db::mixin]` struct whose columns join the table.
 	pub flatten: bool,
@@ -692,6 +702,7 @@ impl FieldArgs {
 			timestamp: None,
 			on_delete: None,
 			no_foreign_key: false,
+			live_skip: false,
 			renamed_from: None,
 			flatten: false,
 			prefix: None,
@@ -766,6 +777,10 @@ impl FieldArgs {
 		Ok(true)
 	}
 
+	#[expect(
+		clippy::cognitive_complexity,
+		reason = "one match over every option keeps the accepted list in one place"
+	)]
 	fn option(&mut self, meta: &ParseNestedMeta<'_>) -> syn::Result<()> {
 		if self.rule(meta)? {
 			return Ok(());
@@ -841,6 +856,15 @@ impl FieldArgs {
 			)?);
 		} else if path.is_ident("no_foreign_key") {
 			self.no_foreign_key = true;
+		} else if path.is_ident("live") {
+			let value: Ident = meta.value()?.parse()?;
+
+			if value != "skip" {
+				return Err(meta
+					.error("`live` takes `skip`: the column is never copied into the change log"));
+			}
+
+			self.live_skip = true;
 		} else if path.is_ident("renamed_from") {
 			self.renamed_from = Some(string(meta)?);
 		} else if path.is_ident("flatten") {
@@ -867,8 +891,8 @@ impl FieldArgs {
 				 `index`, `private`, `secret`, `default`, `min_len`, `max_len`, `min`, `max`, \
 				 `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `created_by`, \
 				 `updated_by`, `version`, `slug`, `search`, `geo`, `on_delete`, `on_soft_delete`, \
-				 `backlink`, `no_foreign_key`, `renamed_from`, `flatten`, `prefix`, `in`, or \
-				 `generated`",
+				 `backlink`, `no_foreign_key`, `live`, `renamed_from`, `flatten`, `prefix`, `in`, \
+				 or `generated`",
 			));
 		}
 

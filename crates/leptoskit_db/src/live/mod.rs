@@ -19,24 +19,26 @@
 //!
 //! A change reaches a subscriber only when the subscriber's `select` policy
 //! allows the row as it was before the write or as it is after it, so the
-//! existence of rows someone can't see never leaks. Changes are published
-//! when their transaction commits, and never for one that rolls back. On
-//! Postgres they travel through `LISTEN`/`NOTIFY`, so every server sharing
-//! the database hears every change; on SQLite they stay in the process.
+//! existence of rows someone can't see never leaks.
+//!
+//! Changes come from the change log: capture triggers, which migrations
+//! create for every live table, record each written row in the writing
+//! transaction, whoever writes it, and each commit that wrote one gets the
+//! next version. A feed reads the log after its version, so a subscriber
+//! that falls behind, or a server whose connection to the database drops,
+//! catches up rather than missing anything; a commit that rolls back never
+//! reaches the log. On Postgres a `NOTIFY` at commit wakes every server
+//! sharing the database; on SQLite, commits through this process wake it.
 
-#[cfg(feature = "server")]
-mod capture;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod feed;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod images;
-#[cfg(feature = "postgres")]
-mod wire;
-
 #[cfg(feature = "server")]
-pub(crate) use capture::RowChange;
+mod log;
+
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
-pub(crate) use feed::Event;
+pub use feed::ChangeLog;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use feed::Feed;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -45,14 +47,22 @@ pub(crate) use feed::Hub;
 pub(crate) use images::image_count;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) use images::visible_images;
+#[cfg(feature = "server")]
+pub use log::Change;
+#[cfg(feature = "server")]
+pub use log::ChangeOp;
+#[cfg(feature = "server")]
+pub use log::Commit;
+#[cfg(feature = "server")]
+pub use log::LogEntry;
+#[cfg(feature = "sqlite")]
+pub(crate) use log::seal_sqlite;
+#[cfg(feature = "server")]
+pub(crate) use log::tables;
 use serde::Deserialize;
 use serde::Serialize;
-#[cfg(feature = "postgres")]
-pub(crate) use wire::Assembler;
-#[cfg(feature = "postgres")]
-pub(crate) use wire::encode;
 
-/// The Postgres channel live changes are sent on.
+/// The Postgres channel `live.seal()` notifies with each new version.
 pub const CHANNEL: &str = "leptoskit_live";
 
 /// What a client should refetch: a subscriber's next live change.
@@ -64,8 +74,8 @@ pub const CHANNEL: &str = "leptoskit_live";
 pub enum Invalidation {
 	/// These rows changed: inserted, updated, or deleted.
 	Rows(Vec<ChangedRows>),
-	/// Changes may have been missed, such as while the server reconnected to
-	/// the database: refetch everything read from it.
+	/// Changes may have been missed, such as when the change log was pruned
+	/// past where the subscriber was: refetch everything read from it.
 	Everything,
 }
 
@@ -77,4 +87,15 @@ pub struct ChangedRows {
 	/// Each changed row's key: one text per key column, as the column's
 	/// value displays, such as an `Id`'s hyphenated UUID.
 	pub keys: Vec<Vec<String>>,
+}
+
+/// An [`Invalidation`] with the version of the commit it came from: resume
+/// a feed after it with [`Db::changes_since`](crate::Db::changes_since), or
+/// compare it with a write's version to know a screen has caught up.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct VersionedInvalidation {
+	/// The commit's place in the version line.
+	pub version: i64,
+	/// What to refetch.
+	pub invalidation: Invalidation,
 }

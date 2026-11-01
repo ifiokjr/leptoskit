@@ -26,7 +26,7 @@ use crate::sql::Statement;
 /// The text form timestamps take: RFC 3339 in UTC with three fractional
 /// digits, matching the schema's `now()` default, so text order is time
 /// order.
-const TIMESTAMP_FORMAT: &str = "%Y-%m-%dT%H:%M:%S%.3fZ";
+pub(crate) const TIMESTAMP_FORMAT: &str = "%Y-%m-%dT%H:%M:%S%.3fZ";
 
 #[derive(Clone)]
 pub(crate) struct Pool {
@@ -37,6 +37,8 @@ struct Shared {
 	target: Target,
 	idle: Mutex<Vec<rusqlite::Connection>>,
 	permits: Arc<Semaphore>,
+	/// Wakes live readers when a commit gets a version.
+	live: Arc<crate::live::Hub>,
 }
 
 enum Target {
@@ -47,7 +49,11 @@ enum Target {
 }
 
 impl Pool {
-	pub(crate) fn open(url: &str, options: PoolOptions) -> Result<Self> {
+	pub(crate) fn open(
+		url: &str,
+		options: PoolOptions,
+		live: Arc<crate::live::Hub>,
+	) -> Result<Self> {
 		let location = url
 			.strip_prefix("sqlite://")
 			.or_else(|| url.strip_prefix("sqlite:"))
@@ -64,6 +70,7 @@ impl Pool {
 			idle: Mutex::new(Vec::new()),
 			permits: Arc::new(Semaphore::new(size)),
 			target,
+			live,
 		};
 
 		// Open one connection now, so a bad path fails at startup.
@@ -134,7 +141,15 @@ impl Pool {
 
 		blocking(move || {
 			let mut connection = shared.check_out()?;
+			let before = connection.total_changes();
 			let result = work(&mut connection);
+
+			// A write outside a transaction has committed already; its
+			// changes to live tables take their version now.
+			if connection.total_changes() != before && connection.is_autocommit() {
+				shared.seal(&connection);
+			}
+
 			shared.check_in(connection);
 			drop(permit);
 			result
@@ -163,6 +178,26 @@ impl Shared {
 		#[cfg(feature = "geo")]
 		crate::geo::sqlite::register(&connection).map_err(DbError::connection)?;
 		Ok(connection)
+	}
+
+	/// Gives changes to live tables that have committed without a version,
+	/// such as from a write outside a transaction or another process, the
+	/// next one. A failure leaves them for the next commit to stamp.
+	fn seal(&self, connection: &rusqlite::Connection) {
+		if connection.execute_batch("BEGIN IMMEDIATE").is_err() {
+			return;
+		}
+
+		match crate::live::seal_sqlite(connection, None, None) {
+			Ok(version) => {
+				if connection.execute_batch("COMMIT").is_ok() && version.is_some() {
+					self.live.wake();
+				}
+			}
+			Err(_) => {
+				let _ = connection.execute_batch("ROLLBACK");
+			}
+		}
 	}
 
 	fn check_out(&self) -> Result<rusqlite::Connection> {
@@ -225,7 +260,39 @@ impl Transaction {
 			.await
 	}
 
-	pub(crate) async fn finish(mut self, command: &'static str) -> Result<()> {
+	/// Commits, first giving the transaction's changes to live tables the
+	/// next version, recorded as made by `actor` through `origin`.
+	pub(crate) async fn commit(
+		self,
+		actor: Option<uuid::Uuid>,
+		origin: Option<String>,
+	) -> Result<()> {
+		let live = Arc::clone(&self.shared.live);
+		let sealed = self
+			.finish(move |connection| {
+				let version = crate::live::seal_sqlite(connection, actor, origin.as_deref())
+					.map_err(error)?;
+				connection.execute_batch("COMMIT").map_err(error)?;
+				Ok(version)
+			})
+			.await?;
+
+		if sealed.is_some() {
+			live.wake();
+		}
+
+		Ok(())
+	}
+
+	pub(crate) async fn rollback(self) -> Result<()> {
+		self.finish(|connection| connection.execute_batch("ROLLBACK").map_err(error))
+			.await
+	}
+
+	async fn finish<R: Send + 'static>(
+		mut self,
+		work: impl FnOnce(&rusqlite::Connection) -> Result<R> + Send + 'static,
+	) -> Result<R> {
 		let connection = self.connection.clone();
 		let shared = self.shared.clone();
 		let permit = self.permit.take();
@@ -236,7 +303,7 @@ impl Transaction {
 				.unwrap_or_else(std::sync::PoisonError::into_inner)
 				.take()
 				.expect("a transaction finishes once");
-			let result = connection.execute_batch(command).map_err(error);
+			let result = work(&connection);
 			shared.check_in(connection);
 			drop(permit);
 			result

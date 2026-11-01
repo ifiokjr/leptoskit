@@ -2,6 +2,7 @@
 //! `postgres` or `sqlite` feature.
 
 use std::sync::Arc;
+#[cfg(feature = "sqlite")]
 use std::sync::Mutex;
 
 use leptoskit_db_schema::Dialect;
@@ -14,10 +15,7 @@ use crate::PoolOptions;
 use crate::Read;
 use crate::Result;
 use crate::Value;
-#[cfg(feature = "sqlite")]
-use crate::live::Event;
 use crate::live::Hub;
-use crate::live::RowChange;
 use crate::policy::Access;
 use crate::policy::Context;
 use crate::sql::Statement;
@@ -56,10 +54,11 @@ impl Db {
 		          eagerly isn't a breaking change"
 	)]
 	pub async fn connect_with(url: &str, options: PoolOptions) -> Result<Self> {
-		let pool = Pool::open(url, options)?;
+		let live = Arc::new(Hub::new());
+		let pool = Pool::open(url, options, &live)?;
 		Ok(Self {
 			pool: Arc::new(pool),
-			live: Arc::new(Hub::new()),
+			live,
 			access: Access::default(),
 			row_security: false,
 		})
@@ -202,54 +201,35 @@ impl Db {
 			Pool::Sqlite(pool) => TxInner::Sqlite(pool.begin().await?),
 		};
 
-		Ok(Tx {
+		self.started(inner).await
+	}
+
+	/// A transaction that has begun, telling Postgres who acts in it, so
+	/// that the change log records the commit's actor.
+	async fn started(&self, inner: TxInner) -> Result<Tx> {
+		let tx = Tx {
 			inner,
 			access: self.access.clone(),
 			row_security: self.row_security,
 			#[cfg(feature = "sqlite")]
-			live: Arc::clone(&self.live),
-			pending: Mutex::new(Vec::new()),
-		})
-	}
+			origin: Mutex::new(None),
+		};
 
-	/// The changes to `#[db::table(live)]` tables this handle may know
-	/// about, from now on: each committed insert, update, and delete whose
-	/// row this handle's `select` policy allows, before or after the change.
-	/// Make one per subscriber, from the request's handle.
-	///
-	/// ```ignore
-	/// let mut changes = request_db.changes().await?;
-	/// while let Ok(invalidation) = changes.next().await {
-	/// 	events.send(invalidation).await?;
-	/// }
-	/// ```
-	///
-	/// On Postgres the first call opens a connection that listens for every
-	/// server's changes, and returns once it's listening.
-	#[cfg_attr(
-		not(feature = "postgres"),
-		expect(
-			clippy::unused_async,
-			reason = "only Postgres listens before subscribing"
-		)
-	)]
-	pub async fn changes(&self) -> Result<crate::live::Feed> {
-		match &*self.pool {
-			#[cfg(feature = "postgres")]
-			Pool::Postgres(pool) => {
-				self.live
-					.listener
-					.get_or_try_init(|| {
-						crate::postgres::Listener::start(pool.url(), Arc::downgrade(&self.live))
-					})
-					.await?;
-			}
-			// Commits in this process are all there is to hear.
-			#[cfg(feature = "sqlite")]
-			Pool::Sqlite(_) => {}
+		#[cfg(feature = "postgres")]
+		if matches!(tx.inner, TxInner::Postgres(_))
+			&& let Some(actor) = tx.access.actor()
+		{
+			tx.execute(Statement {
+				sql: format!(
+					"SELECT set_config('{}', $1, true)",
+					leptoskit_db_schema::live::ACTOR_SETTING
+				),
+				args: vec![Value::Text(actor.uuid().to_string())],
+			})
+			.await?;
 		}
 
-		Ok(crate::live::Feed::new(self.clone(), self.live.subscribe()))
+		Ok(tx)
 	}
 
 	/// Starts a transaction at the strictest isolation level, `SERIALIZABLE`:
@@ -272,27 +252,7 @@ impl Db {
 			Pool::Sqlite(pool) => TxInner::Sqlite(pool.begin().await?),
 		};
 
-		let tx = Tx {
-			inner,
-			access: self.access.clone(),
-			row_security: self.row_security,
-			#[cfg(feature = "sqlite")]
-			live: Arc::clone(&self.live),
-			pending: Mutex::new(Vec::new()),
-		};
-
-		#[cfg(feature = "postgres")]
-		if matches!(tx.inner, TxInner::Postgres(_))
-			&& let Some(actor) = tx.access.actor()
-		{
-			tx.execute(Statement {
-				sql: format!("SET LOCAL \"leptoskit.user_id\" = '{}'", actor.uuid()),
-				args: Vec::new(),
-			})
-			.await?;
-		}
-
-		Ok(tx)
+		self.started(inner).await
 	}
 
 	/// Applies every migration this database hasn't had yet, in registry
@@ -425,6 +385,17 @@ impl Db {
 			.collect())
 	}
 
+	/// The Postgres URL the pool connects to, which the connection that
+	/// listens for live changes uses too.
+	#[cfg(feature = "postgres")]
+	pub(crate) fn postgres_url(&self) -> Option<&str> {
+		match &*self.pool {
+			Pool::Postgres(pool) => Some(pool.url()),
+			#[cfg(feature = "sqlite")]
+			Pool::Sqlite(_) => None,
+		}
+	}
+
 	/// Runs SQL that may hold several statements, such as a migration, outside
 	/// any transaction.
 	#[doc(hidden)]
@@ -439,7 +410,11 @@ impl Db {
 }
 
 impl Pool {
-	fn open(url: &str, options: PoolOptions) -> Result<Self> {
+	#[cfg_attr(
+		not(feature = "sqlite"),
+		expect(unused_variables, reason = "SQLite's pool wakes live readers itself")
+	)]
+	fn open(url: &str, options: PoolOptions, live: &Arc<Hub>) -> Result<Self> {
 		#[cfg(feature = "postgres")]
 		if url.starts_with("postgres://") || url.starts_with("postgresql://") {
 			return crate::postgres::Pool::connect(url, options).map(Self::Postgres);
@@ -447,7 +422,7 @@ impl Pool {
 
 		#[cfg(feature = "sqlite")]
 		if url.starts_with("sqlite:") {
-			return crate::sqlite::Pool::open(url, options).map(Self::Sqlite);
+			return crate::sqlite::Pool::open(url, options, Arc::clone(live)).map(Self::Sqlite);
 		}
 
 		let scheme = url.split(':').next().unwrap_or_default().to_string();
@@ -521,38 +496,6 @@ impl Connection for Db {
 	async fn begin_unless_in_transaction(&self) -> Result<Option<Tx>> {
 		self.begin().await.map(Some)
 	}
-
-	async fn publish(&self, changes: Vec<RowChange>) -> Result<()> {
-		match &*self.pool {
-			#[cfg(feature = "postgres")]
-			Pool::Postgres(_) => {
-				for statement in notifications(&changes)? {
-					self.execute(statement).await?;
-				}
-			}
-			#[cfg(feature = "sqlite")]
-			Pool::Sqlite(_) => self.live.send(Event::Changes(changes.into())),
-		}
-
-		Ok(())
-	}
-}
-
-/// `SELECT pg_notify(…)` for each part of a change set.
-#[cfg(feature = "postgres")]
-fn notifications(changes: &[RowChange]) -> Result<Vec<Statement>> {
-	Ok(crate::live::encode(changes)?
-		.into_iter()
-		.map(|payload| {
-			Statement {
-				sql: "SELECT pg_notify($1, $2)".to_string(),
-				args: vec![
-					Value::Text(crate::live::CHANNEL.to_string()),
-					Value::Text(payload),
-				],
-			}
-		})
-		.collect())
 }
 
 /// A transaction. Queries through it see each other's writes, and nothing
@@ -561,12 +504,10 @@ pub struct Tx {
 	inner: TxInner,
 	access: Access,
 	row_security: bool,
-	/// Where SQLite's commits tell live subscribers; Postgres tells them
-	/// itself.
+	/// SQLite: what the change log records the commit as made by, which
+	/// Postgres keeps as a setting.
 	#[cfg(feature = "sqlite")]
-	live: Arc<Hub>,
-	/// Live changes, published when the transaction commits.
-	pending: Mutex<Vec<RowChange>>,
+	origin: Mutex<Option<String>>,
 }
 
 enum TxInner {
@@ -577,32 +518,48 @@ enum TxInner {
 }
 
 impl Tx {
-	/// Makes every write permanent, and tells live subscribers what it
-	/// changed.
+	/// Makes every write permanent. When it wrote a live table, the commit
+	/// takes the next version of the change log, and live subscribers hear
+	/// of it.
 	pub async fn commit(self) -> Result<()> {
-		let pending = std::mem::take(&mut *lock(&self.pending));
-
 		match self.inner {
 			#[cfg(feature = "postgres")]
-			TxInner::Postgres(tx) => {
-				// Postgres delivers a transaction's notifications when, and
-				// only if, it commits.
-				if !pending.is_empty() {
-					for statement in notifications(&pending)? {
-						tx.execute(statement).await?;
-					}
-				}
-
-				tx.finish("COMMIT").await
-			}
+			TxInner::Postgres(tx) => tx.finish("COMMIT").await,
 			#[cfg(feature = "sqlite")]
 			TxInner::Sqlite(tx) => {
-				tx.finish("COMMIT").await?;
+				let origin = self
+					.origin
+					.into_inner()
+					.unwrap_or_else(std::sync::PoisonError::into_inner);
+				tx.commit(self.access.actor().map(|actor| actor.uuid()), origin)
+					.await
+			}
+		}
+	}
 
-				if !pending.is_empty() {
-					self.live.send(Event::Changes(pending.into()));
-				}
-
+	/// Records what made this transaction's writes in the change log, such
+	/// as the name of the operation that runs it. Without one, the commit's
+	/// origin is `sql`.
+	pub async fn set_origin(&self, origin: &str) -> Result<()> {
+		match &self.inner {
+			#[cfg(feature = "postgres")]
+			TxInner::Postgres(tx) => {
+				tx.execute(Statement {
+					sql: format!(
+						"SELECT set_config('{}', $1, true)",
+						leptoskit_db_schema::live::ORIGIN_SETTING
+					),
+					args: vec![Value::Text(origin.to_string())],
+				})
+				.await
+				.map(drop)
+			}
+			#[cfg(feature = "sqlite")]
+			TxInner::Sqlite(_) => {
+				*self
+					.origin
+					.lock()
+					.unwrap_or_else(std::sync::PoisonError::into_inner) = Some(origin.to_string());
 				Ok(())
 			}
 		}
@@ -614,7 +571,7 @@ impl Tx {
 			#[cfg(feature = "postgres")]
 			TxInner::Postgres(tx) => tx.finish("ROLLBACK").await,
 			#[cfg(feature = "sqlite")]
-			TxInner::Sqlite(tx) => tx.finish("ROLLBACK").await,
+			TxInner::Sqlite(tx) => tx.rollback().await,
 		}
 	}
 }
@@ -667,18 +624,4 @@ impl Connection for Tx {
 	fn begin_unless_in_transaction(&self) -> impl Future<Output = Result<Option<Tx>>> + Send {
 		std::future::ready(Ok(None))
 	}
-
-	fn publish(&self, changes: Vec<RowChange>) -> impl Future<Output = Result<()>> + Send {
-		// A transaction keeps its changes until it commits.
-		lock(&self.pending).extend(changes);
-		std::future::ready(Ok(()))
-	}
-}
-
-/// The pending changes, even after a panic elsewhere poisoned the lock:
-/// they're only ever appended to.
-fn lock(pending: &Mutex<Vec<RowChange>>) -> std::sync::MutexGuard<'_, Vec<RowChange>> {
-	pending
-		.lock()
-		.unwrap_or_else(std::sync::PoisonError::into_inner)
 }

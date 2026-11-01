@@ -2,8 +2,9 @@
 //! `ON DELETE CASCADE` deletes the rows linking to them, and `SET NULL`
 //! empties their links. The database layer never sees those rows, so
 //! before such a delete it reads and locks them, through every cascade, and
-//! once the delete has run it records them: in the audit log, and for live
-//! subscribers, as each of their tables asks.
+//! once the delete has run it records them in the audit log, for the tables
+//! that keep one. Live tables need none of this: the database fires their
+//! capture triggers for the rows its cascades change.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -62,7 +63,7 @@ fn edges() -> &'static HashMap<TableName, Vec<Edge>> {
 }
 
 /// Whether deleting rows of `table` for good changes, through the
-/// database's own cascades, rows of a table that records changes.
+/// database's own cascades, rows of an audited table.
 pub(crate) fn reaches<T: Table>() -> bool {
 	static REACHES: OnceLock<HashMap<TableName, bool>> = OnceLock::new();
 	let reaches = REACHES.get_or_init(|| {
@@ -82,7 +83,7 @@ fn reaches_recorded(table: &TableName) -> bool {
 		for edge in edges().get(&table).into_iter().flatten() {
 			let subject = &edge.source.subject;
 
-			if subject.audit || subject.live {
+			if subject.audit {
 				return true;
 			}
 
@@ -131,7 +132,7 @@ pub(crate) async fn before_delete(
 		for edge in edges().get(&table).into_iter().flatten() {
 			let subject = edge.source.subject;
 			let source = (edge.source.name)();
-			let records = subject.audit || subject.live;
+			let records = subject.audit;
 
 			if !records && (edge.set_null || !reaches_recorded(&source)) {
 				continue;

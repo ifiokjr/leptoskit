@@ -1,7 +1,9 @@
-//! Live changes against both databases: every write path publishes what it
-//! changed once it commits, nothing a rollback undid, the rows the
-//! database's own cascades change too, and each subscriber hears only of
-//! rows its policy lets it read, before or after the change.
+//! Live changes against both databases: every write path's changes reach
+//! the change log and subscribers once it commits, nothing a rollback undid,
+//! the rows the database's own cascades change too, and each subscriber
+//! hears only of rows its policy lets it read, before or after the change.
+//! A subscriber that falls behind, or whose server lost its connection,
+//! catches up from the log.
 
 #![cfg(all(feature = "postgres", feature = "sqlite"))]
 
@@ -476,7 +478,7 @@ async fn changes_reach_every_server_sharing_a_postgres_database() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_lost_listening_connection_reconnects_and_says_so() {
+async fn a_lost_listening_connection_reconnects_and_catches_up() {
 	let Some(cluster) = support::postgres::PostgresCluster::start() else {
 		return;
 	};
@@ -494,26 +496,25 @@ async fn a_lost_listening_connection_reconnects_and_says_so() {
 		)
 		.await
 		.unwrap();
-	assert_eq!(next(&mut feed).await, Invalidation::Everything);
 
-	// Once it's listening again, changes arrive as before; whatever came in
-	// between is covered by another `Everything`.
-	// A marker written before it listens again is missed, and the
-	// reconnection says so; one written after arrives.
+	// Written while nothing listens: their notifications are lost, but the
+	// log keeps them, and the reconnection reads it.
 	let mut written = Vec::new();
 
-	loop {
+	for _ in 0..3 {
 		written.push(NewMarker {}.insert(&system).await.unwrap().id.to_string());
-
-		match next(&mut feed).await {
-			Invalidation::Everything => {}
-			Invalidation::Rows(heard) => {
-				assert_eq!(heard.len(), 1);
-				assert!(written.contains(&heard[0].keys[0][0]), "{heard:?}");
-				break;
-			}
-		}
 	}
+
+	for marker in &written {
+		assert_eq!(
+			next(&mut feed).await,
+			changed(&[rows("live_markers", [marker])]),
+			"heard in order, with nothing to refetch"
+		);
+	}
+
+	// Listening again, later changes arrive as before.
+	hears_nothing_else(&system, &mut feed).await;
 
 	// A database that isn't there fails the first subscription.
 	// Port 1 has no server.
@@ -524,18 +525,70 @@ async fn a_lost_listening_connection_reconnects_and_says_so() {
 }
 
 #[tokio::test]
-async fn a_subscriber_that_falls_behind_is_told_to_refetch_everything() {
+async fn a_subscriber_that_falls_behind_catches_up_from_the_log() {
 	let db = Db::connect("sqlite::memory:").await.unwrap();
 	create_schema(&db).await;
 	let system = db.system("a live test");
 	let mut feed = system.changes().await.unwrap();
+	let mut written = Vec::new();
 
 	for _ in 0..1100 {
-		NewMarker {}.insert(&system).await.unwrap();
+		written.push(NewMarker {}.insert(&system).await.unwrap().id.to_string());
 	}
 
-	assert_eq!(next(&mut feed).await, Invalidation::Everything);
+	for marker in &written {
+		assert_eq!(
+			next(&mut feed).await,
+			changed(&[rows("live_markers", [marker])])
+		);
+	}
+
 	assert!(format!("{feed:?}").starts_with("Feed"));
+}
+
+#[tokio::test]
+async fn a_feed_resumes_from_a_version_and_learns_when_it_was_pruned() {
+	on_both(async |db, _| {
+		let system = db.system("a live test");
+		let mut feed = system.changes().await.unwrap();
+		let first = NewMarker {}.insert(&system).await.unwrap();
+		let heard = tokio::time::timeout(Duration::from_secs(10), feed.next_versioned())
+			.await
+			.unwrap()
+			.unwrap();
+		assert_eq!(
+			heard.invalidation,
+			changed(&[rows("live_markers", [first.id.to_string()])])
+		);
+		assert_eq!(heard.version, feed.version());
+		let after_first = feed.version();
+
+		// A client that went away after the first comes back for the rest.
+		let second = NewMarker {}.insert(&system).await.unwrap();
+		let third = NewMarker {}.insert(&system).await.unwrap();
+		let mut resumed = system.changes_since(after_first).await.unwrap();
+
+		for marker in [&second, &third] {
+			assert_eq!(
+				next(&mut resumed).await,
+				changed(&[rows("live_markers", [marker.id.to_string()])])
+			);
+		}
+
+		// Pruned past where a feed is: it can't know what it missed.
+		let newest = system.live_version().await.unwrap();
+		assert_eq!(newest, resumed.version());
+		assert!(system.prune_changes(Duration::ZERO).await.unwrap() > 0);
+		let mut behind = system.changes_since(after_first).await.unwrap();
+		assert_eq!(next(&mut behind).await, Invalidation::Everything);
+		assert_eq!(behind.version(), newest);
+
+		assert_eq!(next(&mut feed).await, Invalidation::Everything);
+
+		// A feed that was up to date misses nothing, and all go on hearing.
+		none_hear_anything_else(&system, &mut [&mut resumed, &mut behind, &mut feed]).await;
+	})
+	.await;
 }
 
 // ---- the property ----------------------------------------------------------

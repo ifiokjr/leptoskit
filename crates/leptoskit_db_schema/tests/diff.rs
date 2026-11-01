@@ -1342,3 +1342,109 @@ fn spatial_indexes_are_recreated_only_when_the_table_changes_under_them() {
 	);
 	assert_eq!(steps(&readded), Vec::<String>::new());
 }
+
+#[test]
+fn routines_are_validated_with_the_tables() {
+	let function = |name: &str| {
+		Function::new(
+			TableName::namespaced("live", name),
+			"trigger",
+			"plpgsql",
+			"BEGIN RETURN NULL; END;",
+		)
+	};
+	let trigger = |name: &str, table: &str, action: TriggerAction| {
+		Trigger {
+			name: name.into(),
+			table: TableName::new(table),
+			timing: TriggerTiming::After,
+			events: vec![TriggerEvent::Insert],
+			deferred: false,
+			columns: Vec::new(),
+			action,
+		}
+	};
+	let calls = |function: &str| {
+		TriggerAction::Function {
+			function: TableName::namespaced("live", function),
+			arguments: Vec::new(),
+		}
+	};
+	let statements = || {
+		TriggerAction::Statements {
+			when: None,
+			sql: "SELECT 1;".into(),
+		}
+	};
+
+	let mut forged = function("forged");
+	forged.checksum = "0".into();
+	let mut quoted = function("quoted");
+	quoted.body = format!("BEGIN {BODY_QUOTE} END;");
+	quoted.checksum = Function::checksum_of(&quoted.body);
+	let mut twice = trigger("twice", "posts", calls("capture"));
+	twice.events = vec![TriggerEvent::Update, TriggerEvent::Update];
+	let mut early = trigger("early", "posts", calls("capture"));
+	early.timing = TriggerTiming::Before;
+	early.deferred = true;
+	let mut copies = trigger("copies", "posts", calls("capture"));
+	copies.columns = vec!["title".into(), "missing".into()];
+	let mut idle = trigger("idle", "posts", calls("capture"));
+	idle.events.clear();
+	let postgres = blog(Dialect::Postgres).with_routines(
+		vec![
+			Sequence::new(TableName::new("posts")),
+			Sequence::new(TableName::new("Bad Name")),
+		],
+		vec![function("capture"), forged, quoted],
+		vec![
+			trigger("on_nothing", "missing", calls("capture")),
+			trigger("lost", "posts", calls("missing")),
+			trigger("dup", "posts", calls("capture")),
+			trigger("dup", "posts", calls("capture")),
+			trigger("dup", "users", calls("capture")),
+			trigger("statements", "posts", statements()),
+			twice,
+			early,
+			copies,
+			idle,
+		],
+	);
+	let mut both = trigger("both", "posts", statements());
+	both.events = vec![TriggerEvent::Insert, TriggerEvent::Delete];
+	let sqlite = blog(Dialect::Sqlite).with_routines(
+		vec![Sequence::new(TableName::new("numbers"))],
+		vec![function("capture")],
+		vec![
+			trigger("calls", "posts", calls("capture")),
+			trigger("same", "posts", statements()),
+			trigger("same", "users", statements()),
+			both,
+		],
+	);
+
+	insta::assert_snapshot!(format!(
+		"{}\n{}",
+		postgres.validate().unwrap_err(),
+		sqlite.validate().unwrap_err()
+	));
+}
+
+#[test]
+fn an_unchanged_trigger_is_left_alone_unless_sqlite_rebuilds_its_table() {
+	let live = |dialect| support::live_blog(dialect);
+
+	for dialect in [Dialect::Postgres, Dialect::Sqlite] {
+		let plan = diff(&live(dialect), &live(dialect), &mut RequireHints).unwrap();
+		assert!(plan.is_empty(), "{dialect}: {:?}", plan.steps);
+
+		// A new index changes nothing a trigger reads, on either dialect.
+		let mut indexed = live(dialect);
+		let users = table_mut(&mut indexed, "users");
+		users
+			.indexes
+			.push(Index::new(&TableName::new("users"), &["display_name"]));
+		let plan = diff(&live(dialect), &indexed, &mut RequireHints).unwrap();
+		assert_eq!(plan.steps.len(), 1, "{dialect}: {:?}", plan.steps);
+	}
+}

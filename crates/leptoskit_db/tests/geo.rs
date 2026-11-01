@@ -168,6 +168,61 @@ where
 	}
 }
 
+/// A live place, whose shape is copied into the change log. Anyone may
+/// read a public one.
+#[table(name = "live_places", live)]
+#[policy(select, |place, _| place.public.eq(true))]
+pub struct LivePlace {
+	pub id: Id<Self>,
+	pub public: bool,
+	pub at: Geography<Point>,
+}
+
+#[tokio::test]
+async fn a_live_table_with_a_shape_is_captured_and_checked() {
+	on_both(async |db| {
+		let system = db.system("a live shape");
+		let mut anyone = db.changes().await.unwrap();
+		let mut log = system.change_log(None).await.unwrap();
+		let place = NewLivePlace {
+			public: true,
+			at: trafalgar(),
+		}
+		.insert(&system)
+		.await
+		.unwrap();
+		NewLivePlace {
+			public: false,
+			at: trafalgar(),
+		}
+		.insert(&system)
+		.await
+		.unwrap();
+
+		// The policy check reads the image; only the public place is heard.
+		let heard = tokio::time::timeout(std::time::Duration::from_secs(10), anyone.next())
+			.await
+			.unwrap()
+			.unwrap();
+		assert_eq!(
+			heard,
+			leptoskit_db::live::Invalidation::Rows(vec![leptoskit_db::live::ChangedRows {
+				table: "live_places".into(),
+				keys: vec![vec![place.id.to_string()]],
+			}])
+		);
+
+		// The log keeps the shape as the database wrote it.
+		let leptoskit_db::live::LogEntry::Commit(commit) = log.next().await.unwrap() else {
+			panic!("expected a commit");
+		};
+		let new = commit.changes[0].new.as_ref().unwrap();
+		assert_ne!(new["at"], serde_json::Value::Null);
+		assert_eq!(new["public"], serde_json::Value::Bool(true));
+	})
+	.await;
+}
+
 /// Trafalgar Square, London.
 fn trafalgar() -> Geography<Point> {
 	Geography(point!(x: -0.1281, y: 51.5080))

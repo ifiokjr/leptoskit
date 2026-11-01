@@ -185,16 +185,16 @@ pub(crate) fn row_security() -> leptoskit_db_schema::RowSecurity {
 	}
 }
 
-/// Whether changes to `T`'s rows are recorded: in the audit log, or as live
-/// changes for subscribers. Writes to such a table read the rows they
-/// change, and run in a transaction.
+/// Whether changes to `T`'s rows are recorded in the audit log. Writes to
+/// such a table read the rows they change, and run in a transaction. Live
+/// tables need none of this: the database's capture triggers record their
+/// writes.
 pub(crate) const fn records<T: Table>() -> bool {
-	T::AUDIT || T::LIVE
+	T::AUDIT
 }
 
-/// What the audit log and live changes need to know about a table to record
-/// its rows, without its Rust type: cascades reach tables they know only by
-/// name.
+/// What the audit log needs to know about a table to record its rows,
+/// without its Rust type: cascades reach tables they know only by name.
 #[derive(Clone, Copy)]
 pub(crate) struct Subject {
 	pub(crate) table: fn() -> TableName,
@@ -207,8 +207,6 @@ pub(crate) struct Subject {
 	pub(crate) normalize: fn(Vec<Value>) -> Result<Vec<Value>>,
 	/// Whether changes go into the audit log.
 	pub(crate) audit: bool,
-	/// Whether changes are published to live subscribers.
-	pub(crate) live: bool,
 }
 
 impl Subject {
@@ -220,7 +218,6 @@ impl Subject {
 			secret: T::SECRET,
 			normalize: normalize::<T>,
 			audit: T::AUDIT,
-			live: T::LIVE,
 		}
 	}
 
@@ -292,9 +289,8 @@ pub(crate) async fn record<T: Table>(
 /// limits on bound values.
 const BATCH: usize = 200;
 
-/// Records changes to rows of one table: in the audit log, in as few
-/// statements as fit, and for live subscribers, once the transaction
-/// commits.
+/// Records changes to rows of one table in the audit log, in as few
+/// statements as fit.
 pub(crate) async fn record_changes(
 	connection: &impl Connection,
 	subject: Subject,
@@ -307,7 +303,6 @@ pub(crate) async fn record_changes(
 	let name = (subject.table)();
 	let table = name.to_string();
 	let mut entries = Vec::with_capacity(changes.len());
-	let mut published = Vec::new();
 
 	for change in changes {
 		let before = change.before.map(subject.normalize).transpose()?;
@@ -315,16 +310,6 @@ pub(crate) async fn record_changes(
 		let Some(values) = after.as_ref().or(before.as_ref()) else {
 			continue;
 		};
-
-		if subject.live {
-			published.push(crate::live::RowChange::new(
-				&subject,
-				name.clone(),
-				change.op,
-				before.as_deref(),
-				after.as_deref(),
-			));
-		}
 
 		if !subject.audit {
 			continue;
@@ -367,10 +352,6 @@ pub(crate) async fn record_changes(
 		}
 
 		connection.execute(sql.finish()).await?;
-	}
-
-	if !published.is_empty() {
-		connection.publish(published).await?;
 	}
 
 	Ok(())
@@ -460,7 +441,6 @@ mod tests {
 			secret: &["password_hash"],
 			normalize: Ok,
 			audit: true,
-			live: false,
 		};
 		let values = [
 			Value::Int(1),
@@ -479,7 +459,8 @@ mod tests {
 		);
 	}
 
-	/// A table whose changes go to live subscribers only.
+	/// A live table, whose writes the database's triggers capture rather
+	/// than the audit log.
 	#[crate::table(name = "live_things", live)]
 	pub struct Thing {
 		pub id: Id<Self>,
@@ -488,18 +469,19 @@ mod tests {
 	}
 
 	#[test]
-	fn only_tables_that_record_changes_have_a_subject() {
+	fn only_audited_tables_record_changes() {
 		assert!(Subject::recorded::<AuditEntry>().is_none());
-		let subject = Subject::recorded::<Thing>().unwrap();
-		assert!(subject.live && !subject.audit);
+		assert!(Subject::recorded::<Thing>().is_none());
+		assert!(!records::<Thing>() && !records::<AuditEntry>());
+		let subject = Subject::of::<Thing>();
+		assert!(!subject.audit);
 		assert_eq!(subject.secret, ["token"]);
 		assert_eq!((subject.table)(), TableName::new("live_things"));
-		assert!(records::<Thing>() && !records::<AuditEntry>());
+		assert_eq!(<Thing as Table>::LIVE_COLUMNS, ["id"]);
 
 		let entry = table::TableEntry::of::<Thing>();
 		assert_eq!((entry.name)(), TableName::new("live_things"));
 		assert_eq!((entry.definition)().columns.len(), 2);
-		assert!(entry.subject.live);
 	}
 
 	#[test]

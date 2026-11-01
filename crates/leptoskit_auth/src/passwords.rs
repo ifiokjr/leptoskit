@@ -600,6 +600,7 @@ impl Auth {
 	#[cfg(not(feature = "password"))]
 	#[allow(
 		clippy::unused_async,
+		clippy::unused_async_trait_impl,
 		clippy::unused_self,
 		reason = "without the feature, passwords are off before this is asked"
 	)]

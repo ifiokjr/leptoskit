@@ -725,6 +725,7 @@ impl Auth {
 		not(feature = "solana"),
 		allow(
 			clippy::unused_async,
+			clippy::unused_async_trait_impl,
 			reason = "the `solana` feature reads the wallets"
 		)
 	)]

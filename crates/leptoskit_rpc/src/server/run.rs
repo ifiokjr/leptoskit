@@ -170,6 +170,8 @@ pub(crate) async fn mutate<M: Operation<Context = MutationCx>>(
 	let mut attempt = 0;
 	loop {
 		let tx = db.begin_serializable().await?;
+		// The change log records the commit as this mutation's.
+		tx.set_origin(M::NAME).await?;
 		let cx = MutationCx::new(tx, identity.clone(), attempt);
 		let outcome = op.clone().run(&cx).await;
 		let (tx, after_commit) = cx.into_parts();

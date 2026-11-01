@@ -27,8 +27,8 @@ use crate::policy;
 use crate::sql::Sql;
 
 /// Whether inserting a `T` does more than write it: hooks to run, slugs to
-/// fill, a change to record, in the audit log or for live subscribers, or a
-/// supertype row to insert first. Such inserts run in a transaction.
+/// fill, a change to record in the audit log, or a supertype row to insert
+/// first. Such inserts run in a transaction.
 fn insert_effects<T: Table>() -> bool {
 	T::HOOKS.before_write
 		|| T::HOOKS.after_insert

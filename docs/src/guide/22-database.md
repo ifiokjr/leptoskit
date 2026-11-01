@@ -555,7 +555,7 @@ The `match` must handle every variant, so adding one, say `Actor::Bot`, points t
 - **Policies.** `#[db::policy]` rules below `#[db::polymorphic]` govern the `actors` table, and every variant inherits them: a person is visible only when their `actors` row is, and changing or removing one needs that row to allow it too. A rule on the enum sees `id` and `kind`, so `|actor, _| !actor.kind.eq(ActorKind::Bot)` hides every bot, whatever the bots table's own rules say. With `policies = "rls"`, Postgres enforces the inherited rules as well.
 - **Soft deletes** stay in the variant table. A soft-deleted person disappears from `Actor::query()` and from links, but keeps their `actors` row, so whatever points at them still holds. `#[db(on_soft_delete = cascade)]` on an `Id<Actor>` column follows a soft delete of any variant.
 - **Removing.** Removing a person removes their `actors` row too, so a budget that still points at them stops it, as any required link would.
-- **Live changes.** `#[db::polymorphic(…, live)]` publishes a change to `actors` whenever a row of any kind is added or removed. Tag a list read through the enum with `table_tag("actors")` and each variant's table, so that edits to a person refetch it too.
+- **Live changes.** `#[db::polymorphic(…, live)]` records a change to `actors` whenever a row of any kind is added or removed. Tag a list read through the enum with `table_tag("actors")` and each variant's table, so that edits to a person refetch it too.
 - **On the client** `Actor` is a marker, like a table, and `PublicActor` holds each variant's public type, tagged with its kind: `{"kind": "team", "row": {…}}`. `ActorKind` names the kinds in both places, and `#[db(rename = "…")]` on a variant changes the kind it stores.
 - **What it can't do yet.** A shape can't follow a link to an enum, since its rows come from several tables; load them with the link's accessor. Every variant must be declared in the crate that declares the enum.
 
@@ -1181,12 +1181,31 @@ A change to a post refetches queries tagged with its table and with its own row,
 
 - **Invalidate, don't replicate.** An invalidation carries the table and the changed rows' keys, never their data. The refetch goes through the same policies as any query.
 - **Nobody learns about rows they can't see.** A subscriber hears of a change only when its `select` policy allows the row as it was before the write or as it is after it, so a post made private still reaches the readers who saw it, and a private draft reaches only its author. Secret columns never take part, so a policy that reads one never matches a change: it fails closed.
-- **Only what commits.** Changes are published when their transaction commits, all of one transaction's together, and never for one that rolls back. Rows the database deletes or empties through `on_delete` cascades are published too.
-- **Every server hears every change.** On Postgres, changes travel through `LISTEN`/`NOTIFY`, so a write on one server reaches subscribers on all of them; the first `changes()` call opens a listening connection. On SQLite they stay in the process.
-- **When changes may be missed**, a feed returns `Invalidation::Everything`: a subscriber that fell far behind, a server that lost its listening connection and reconnected, or a change to a table this build doesn't know, as during a rolling deploy. `apply_invalidation` then refetches every query with a database tag.
-- **What isn't published:** raw SQL, migrations, and refreshing a materialized view.
+- **Every write counts, whoever makes it.** Marking a table `live` gives it triggers in its next migration, which record every insert, update, and delete in the database's change log as part of the same transaction. Writes from your app, from raw SQL, from `psql`, and from other services all reach subscribers, and so do the rows the database deletes or empties through `on_delete` cascades.
+- **Only what commits, in order.** Each transaction that wrote a live table gets the next number in one version line when it commits, and never one that rolls back. A feed hears each transaction once, all of its rows together, in commit order.
+- **Every server hears every change.** On Postgres, a commit wakes every server sharing the database through `LISTEN`/`NOTIFY`; the first `changes()` call opens a listening connection. On SQLite, commits through your app wake its own feeds. Writes from another process, such as the `sqlite3` shell, are recorded too, and reach subscribers with your app's next write.
+- **Nothing is missed when a connection drops.** A feed reads the change log after the last version it heard, so a subscriber that falls behind, or a server that loses its connection to the database for a while, catches up on every change instead of starting over.
+- **Resume where a client left off.** `next_versioned()` returns each invalidation with its version, and `changes_since(version)` starts a feed after it, so a client that reconnects hears only what it missed.
 
-Each write to a `live` table reads the rows it changes, as an audited table's do, and runs in a transaction.
+### Keep the change log small
+
+The change log keeps a copy of each written row, without its `secret` columns. Leave out a large column that no screen filters on, such as an image or a vector, with `#[db(live = skip)]`:
+
+```rust
+#[table(name = "photos", public, live)]
+pub struct Photo {
+	pub id: Id<Photo>,
+	pub caption: String,
+	#[db(live = skip)]
+	pub thumbnail: Vec<u8>,
+}
+```
+
+A skipped column is still named when an update changes it, but its value never enters the log, so, as with a secret column, a policy that reads it never matches a change.
+
+Delete old entries now and then, such as from a scheduled job, with `db.prune_changes(Duration::from_secs(15 * 60))`. A feed that was further behind than that hears `Invalidation::Everything` once and carries on, and `apply_invalidation` refetches every query with a database tag. `Everything` also arrives for a change to a table this build doesn't know, as during a rolling deploy.
+
+`leptoskit db check --live` checks that a database's triggers are the ones the schema expects, which catches a database edited by hand, and warns about wide columns copied into the log.
 
 ## Tables that come from a library
 

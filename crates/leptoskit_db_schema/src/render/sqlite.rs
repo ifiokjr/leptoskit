@@ -38,6 +38,8 @@ use crate::Search;
 use crate::Step;
 use crate::Table;
 use crate::TableName;
+use crate::Trigger;
+use crate::TriggerAction;
 use crate::View;
 use crate::quote_identifier as ident;
 use crate::quote_literal as literal;
@@ -49,6 +51,10 @@ const NOW: &str = "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))";
 /// The prefix for the temporary table a rebuild copies rows into.
 const REBUILD_PREFIX: &str = "_leptoskit_rebuild_";
 
+#[expect(
+	clippy::too_many_lines,
+	reason = "one pass over the plan keeps the rebuild rules together"
+)]
 pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migration {
 	let before_renames = names_before_renames(plan);
 	let rebuilt = tables_to_rebuild(plan, previous, &before_renames);
@@ -56,9 +62,31 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 	let mut notes = Vec::new();
 	let mut rebuilds_written = false;
 	let mut created_views = Vec::new();
+	let mut created_triggers = Vec::new();
 
 	for step in &plan.steps {
 		let table = step.table();
+
+		// Triggers go around everything else: dropped first, so that no table
+		// change trips over one, and created last, after any rebuild.
+		match step {
+			Step::DropTrigger(trigger) => {
+				statements.push(format!("DROP TRIGGER {}", ident(&trigger.name)));
+				continue;
+			}
+			Step::CreateTrigger(trigger) => {
+				created_triggers.push(create_trigger(trigger));
+				continue;
+			}
+			Step::CreateSequence(_)
+			| Step::DropSequence(_)
+			| Step::CreateFunction(_)
+			| Step::ReplaceFunction { .. }
+			| Step::DropFunction(_) => {
+				unreachable!("validation keeps sequences and functions out of SQLite schemas")
+			}
+			_ => {}
+		}
 
 		// Rebuilds run after every rename, new table, and simple new column, so
 		// their copies can read the new names.
@@ -182,6 +210,13 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 			| Step::DropCheck { .. } => {
 				unreachable!("`tables_to_rebuild` rebuilds every table with this step")
 			}
+			Step::DropTrigger(_)
+			| Step::CreateTrigger(_)
+			| Step::CreateSequence(_)
+			| Step::DropSequence(_)
+			| Step::CreateFunction(_)
+			| Step::ReplaceFunction { .. }
+			| Step::DropFunction(_) => unreachable!("handled before the table's steps"),
 		}
 	}
 
@@ -193,6 +228,7 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 	statements.extend(drops);
 	statements.append(&mut created_views);
 	statements.extend(drop_geopackage(previous, target));
+	statements.append(&mut created_triggers);
 
 	Migration {
 		dialect: Dialect::Sqlite,
@@ -212,7 +248,8 @@ fn step_phase_reaches_rebuilds(step: &Step) -> bool {
 
 	!matches!(
 		step,
-		Step::DropView(_)
+		Step::DropTrigger(_)
+			| Step::DropView(_)
 			| Step::DropSearch { .. }
 			| Step::DropGeoIndex { .. }
 			| Step::UnregisterGeoPackage { .. }
@@ -914,6 +951,27 @@ fn drop_tables(plan: &Plan) -> (Vec<String>, bool) {
 	}
 
 	(statements, cycle)
+}
+
+/// `CREATE TRIGGER … FOR EACH ROW [WHEN …] BEGIN … END`.
+fn create_trigger(trigger: &Trigger) -> String {
+	let TriggerAction::Statements { when, sql } = &trigger.action else {
+		unreachable!("validation keeps functions out of SQLite triggers")
+	};
+	let events: Vec<&str> = trigger.events.iter().map(|event| event.sql()).collect();
+	let when = when
+		.as_ref()
+		.map(|condition| format!(" WHEN {condition}"))
+		.unwrap_or_default();
+
+	format!(
+		"CREATE TRIGGER {} {} {} ON {} FOR EACH ROW{when} BEGIN\n\t{}\nEND",
+		ident(&trigger.name),
+		trigger.timing.sql(),
+		events.join(" OR "),
+		ident(&trigger.table.flat()),
+		sql.trim()
+	)
 }
 
 /// A plain view: `CREATE VIEW name (columns) AS query`. SQLite has no

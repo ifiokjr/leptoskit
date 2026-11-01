@@ -10,7 +10,10 @@ use std::fmt;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::Function;
 use crate::SchemaError;
+use crate::Sequence;
+use crate::Trigger;
 
 /// The version of the `schema.json` format this crate reads and writes.
 pub const FORMAT_VERSION: u32 = 1;
@@ -54,6 +57,15 @@ pub struct Schema {
 	/// as QGIS open the file as layers. `[db.geo] geopackage = true`.
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	pub geopackage: bool,
+	/// Postgres only: the sequences, sorted by name.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub sequences: Vec<Sequence>,
+	/// Postgres only: the functions, sorted by name.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub functions: Vec<Function>,
+	/// The triggers, sorted by table and name.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub triggers: Vec<Trigger>,
 }
 
 impl Schema {
@@ -65,6 +77,9 @@ impl Schema {
 			tables: Vec::new(),
 			views: Vec::new(),
 			geopackage: false,
+			sequences: Vec::new(),
+			functions: Vec::new(),
+			triggers: Vec::new(),
 		}
 	}
 
@@ -79,6 +94,9 @@ impl Schema {
 			tables,
 			views: Vec::new(),
 			geopackage: false,
+			sequences: Vec::new(),
+			functions: Vec::new(),
+			triggers: Vec::new(),
 		}
 	}
 
@@ -130,6 +148,41 @@ impl Schema {
 		}
 
 		extensions
+	}
+
+	/// The same schema with these sequences, functions, and triggers added,
+	/// each sorted, as a schema pack's objects join the app's.
+	#[must_use]
+	pub fn with_routines(
+		mut self,
+		sequences: Vec<Sequence>,
+		functions: Vec<Function>,
+		triggers: Vec<Trigger>,
+	) -> Self {
+		self.sequences.extend(sequences);
+		self.sequences
+			.sort_by(|left, right| left.name.cmp(&right.name));
+		self.functions.extend(functions);
+		self.functions
+			.sort_by(|left, right| left.name.cmp(&right.name));
+		self.triggers.extend(triggers);
+		self.triggers
+			.sort_by(|left, right| (&left.table, &left.name).cmp(&(&right.table, &right.name)));
+		self
+	}
+
+	/// The triggers on `table`, in name order.
+	pub fn triggers_on<'a>(&'a self, table: &'a TableName) -> impl Iterator<Item = &'a Trigger> {
+		self.triggers
+			.iter()
+			.filter(move |trigger| &trigger.table == table)
+	}
+
+	/// The function with this name, if there is one.
+	pub fn function(&self, name: &TableName) -> Option<&Function> {
+		self.functions
+			.iter()
+			.find(|function| &function.name == name)
 	}
 
 	/// The view with this name, if there is one.
