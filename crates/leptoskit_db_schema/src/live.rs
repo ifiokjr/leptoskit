@@ -206,6 +206,7 @@ fn sqlite_trigger(table: &Table, columns: &[String], event: TriggerEvent) -> Tri
 		TriggerEvent::Update => ("U", "update", "NEW"),
 		TriggerEvent::Delete => ("D", "delete", "OLD"),
 	};
+
 	let value = |row: &str, column: &str| sqlite_value(table, row, column);
 	let key: Vec<String> = table
 		.primary_key
@@ -219,10 +220,12 @@ fn sqlite_trigger(table: &Table, columns: &[String], event: TriggerEvent) -> Tri
 			.collect();
 		format!("json_object({})", pairs.join(", "))
 	};
+
 	let old = match event {
 		TriggerEvent::Insert => "NULL".to_string(),
 		_ => image("OLD"),
 	};
+
 	let new = match event {
 		TriggerEvent::Delete => "NULL".to_string(),
 		_ => image("NEW"),
@@ -237,6 +240,7 @@ fn sqlite_trigger(table: &Table, columns: &[String], event: TriggerEvent) -> Tri
 		.collect();
 	every.sort_unstable();
 	let differs = |column: &str| format!("OLD.{0} IS NOT NEW.{0}", ident(column));
+
 	let changed = match event {
 		TriggerEvent::Update => {
 			let names: Vec<String> = every
@@ -251,6 +255,7 @@ fn sqlite_trigger(table: &Table, columns: &[String], event: TriggerEvent) -> Tri
 		}
 		_ => "'[]'".to_string(),
 	};
+
 	let changes_table = ident(&self::table(CHANGES).flat());
 	let sql = format!(
 		"INSERT INTO {changes_table} (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \

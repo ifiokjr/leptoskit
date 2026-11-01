@@ -343,6 +343,7 @@ impl Writer {
 					Some(namespace) => format!("{}.{}", ident(namespace), ident(&index.name)),
 					None => ident(&index.name),
 				};
+
 				self.statements.push(format!("DROP INDEX {name}"));
 			}
 			Step::RenameIndex { from, index, .. } => {
@@ -350,6 +351,7 @@ impl Writer {
 					Some(namespace) => format!("{}.{}", ident(namespace), ident(from)),
 					None => ident(from),
 				};
+
 				self.statements.push(format!(
 					"ALTER INDEX {from} RENAME TO {}",
 					ident(&index.name)
@@ -402,6 +404,7 @@ impl Writer {
 					Some(namespace) => format!("{}.{name}", ident(namespace)),
 					None => name,
 				};
+
 				self.statements.push(format!("DROP INDEX {name}"));
 			}
 			Step::CreateGeoIndex { index, .. } => {
@@ -418,6 +421,7 @@ impl Writer {
 					Some(namespace) => format!("{}.{name}", ident(namespace)),
 					None => name,
 				};
+
 				self.statements.push(format!("DROP INDEX {name}"));
 			}
 			Step::CreateVectorSource { vector, .. } => self.create_vector_source(&table, vector),
@@ -475,6 +479,7 @@ impl Writer {
 		else {
 			return;
 		};
+
 		let operators = match distance {
 			VectorDistance::L2 => "l2",
 			VectorDistance::Cosine => "cosine",
@@ -483,10 +488,12 @@ impl Writer {
 			VectorDistance::Hamming => "hamming",
 			VectorDistance::Jaccard => "jaccard",
 		};
+
 		let options = match index {
 			VectorIndexKind::Hnsw => "",
 			VectorIndexKind::IvfFlat => " WITH (lists = 100)",
 		};
+
 		self.statements.push(format!(
 			"CREATE INDEX {} ON {} USING {} ({} {}_{operators}_ops){options}",
 			ident(&vector.index_name(table)),
@@ -662,6 +669,7 @@ fn create_trigger(trigger: &Trigger) -> String {
 	} else {
 		""
 	};
+
 	let events: Vec<&str> = trigger.events.iter().map(|event| event.sql()).collect();
 	let arguments: Vec<String> = arguments.iter().map(|argument| literal(argument)).collect();
 
@@ -698,6 +706,7 @@ fn create_view(view: &View) -> Vec<String> {
 	} else {
 		""
 	};
+
 	let mut statements = vec![format!(
 		"CREATE {} {} ({}){options} AS\n{}",
 		view_keyword(view),

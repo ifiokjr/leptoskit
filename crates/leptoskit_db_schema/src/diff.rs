@@ -387,12 +387,14 @@ impl Step {
 					"fails if existing rows in `{table}` share a value of the new key"
 				))
 			}
+
 			Self::CreateIndex { table, index } if index.unique => {
 				Risk::MayFail(format!(
 					"fails if existing rows in `{table}` share values of ({})",
 					index.columns.join(", ")
 				))
 			}
+
 			Self::AddForeignKey { table, foreign_key } => {
 				Risk::MayFail(format!(
 					"fails if existing rows in `{table}` reference missing `{}` rows",
@@ -434,6 +436,7 @@ impl Step {
 			// A generated column goes before the columns it reads change type,
 			// which Postgres refuses while something is computed from them.
 			Self::AddColumn { .. } => 10,
+
 			Self::DropColumn { column, .. } if column.generated.is_some() => 10,
 			Self::AlterColumn { .. } => 11,
 			Self::DropColumn { .. } => 12,
@@ -516,6 +519,7 @@ impl fmt::Display for Step {
 				} else {
 					"index"
 				};
+
 				write!(f, "+ {kind} {table}({})", index.columns.join(", "))
 			}
 			Self::DropIndex { index, .. } => write!(f, "- index {}", index.name),
@@ -1436,12 +1440,14 @@ fn diff_routines(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
 	for function in &target.functions {
 		match previous.function(&function.name) {
 			None => steps.push(Step::CreateFunction(function.clone())),
+
 			Some(old) if old != function => {
 				steps.push(Step::ReplaceFunction {
 					from: old.clone(),
 					to: function.clone(),
 				});
 			}
+
 			Some(_) => {}
 		}
 	}
@@ -1467,6 +1473,7 @@ fn diff_routines(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
 	} else {
 		HashSet::new()
 	};
+
 	let kept = |trigger: &Trigger| {
 		!altered.contains(&trigger.table)
 			&& previous.triggers.contains(trigger)
@@ -1528,6 +1535,7 @@ fn match_tables<'a>(
 					target: table,
 				});
 			}
+
 			_ => unmatched.push(table),
 		}
 	}
@@ -1608,6 +1616,7 @@ fn match_columns<'a>(
 				claimed.insert(previous_column.name.as_str());
 				matched.push((previous_column, column));
 			}
+
 			_ => unmatched.push(column),
 		}
 	}
