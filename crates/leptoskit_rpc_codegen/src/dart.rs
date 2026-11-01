@@ -3,7 +3,8 @@
 //! Models are ordinary classes with `fromJson`/`toJson` generated from the
 //! schemas, string enums become Dart enums, and shapes Dart cannot model yet
 //! (tagged unions) arrive as `Object?` holding the decoded JSON. Calls go to
-//! the same routes the app itself uses.
+//! the same routes the app itself uses. Queries, mutations and channels
+//! also run over the live socket, through the runtime in `lib/src/live.dart`.
 
 // Generators build source text; the allocation `write!` would save is noise here.
 #![allow(clippy::format_push_string)]
@@ -30,6 +31,7 @@ use crate::schema::analyze;
 use crate::schema::description;
 use crate::schema::has_default;
 use crate::spec::ApiFunction;
+use crate::spec::ApiKind;
 use crate::spec::ApiSpec;
 
 /// Whether a named type is a class or an enum.
@@ -501,11 +503,14 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 	// The client's signatures may synthesize more models (inline enums,
 	// anonymous argument objects), so it is rendered before the models are
 	// written out.
-	let methods = method_names(context);
-	let client = client_class(context, &mut types, &methods);
+	let (methods, channels) = member_names(context);
+	let client = client_class(context, &mut types, &methods, &channels);
 	let mut library = context.banner("//");
 	library.push_str("library;\n\nimport 'dart:convert';\nimport 'dart:typed_data';\n\n");
 	library.push_str("import 'package:http/http.dart' as http;\n\n");
+	// The live runtime is its own library next to this one, and everything
+	// it declares is part of the package's API.
+	library.push_str("import 'src/live.dart';\n\nexport 'src/live.dart';\n\n");
 	library.push_str(&models);
 
 	for synthesized in &types.models {
@@ -514,24 +519,34 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 
 	library.push_str(RUNTIME);
 	library.push_str(&client);
+	let mut live = context.banner("//");
+	live.push_str(include_str!("templates/live.dart"));
 
 	Generated {
 		files: vec![
 			GeneratedFile::scaffold("pubspec.yaml", pubspec(context, &package)),
 			GeneratedFile::code(format!("lib/{package}.dart"), library),
-			GeneratedFile::scaffold("README.md", readme(context, &methods)),
+			GeneratedFile::code("lib/src/live.dart", live),
+			GeneratedFile::scaffold("README.md", readme(context, &methods, &channels)),
 		],
 	}
 }
 
-/// The method name of every callable function, in order, clear of
-/// `Client`'s own members and of each other.
-fn method_names(context: &Context<'_>) -> Vec<String> {
+/// The member name of every callable function and then every channel, in
+/// order, clear of `Client`'s own members and of each other.
+fn member_names(context: &Context<'_>) -> (Vec<String>, Vec<String>) {
 	let mut scope = Scope::new(DART_RESERVED_METHODS);
-	context
+	let methods = context
 		.functions()
 		.map(|function| scope.bind(&dart_identifier(&function.name)))
-		.collect()
+		.collect();
+	let channels = context
+		.spec
+		.channels
+		.iter()
+		.map(|channel| scope.bind(&dart_identifier(&channel.name)))
+		.collect();
+	(methods, channels)
 }
 
 /// The named parameter of every argument, in order, clear of the method
@@ -545,67 +560,24 @@ fn parameter_names(function: &ApiFunction) -> Vec<String> {
 		.collect()
 }
 
-/// The generated `Client`, with one method per published function.
-fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) -> String {
-	let mut out = String::new();
-	out.push_str(&format!(
-		"/// The server origin baked in at generation time; `null` means the client's own \
-		 page.\nconst String? defaultServerUrl = {};\n\n",
-		context
-			.server_url
-			.as_deref()
-			.map_or_else(|| "null".to_owned(), dart_string)
-	));
-	out.push_str("/// A typed client over `package:http`.\n");
-	out.push_str("class Client {\n");
-	out.push_str(
-		"\t/// Creates a client for [serverUrl], an origin such as\n\t/// \
-		 `https://api.example.com`; defaults to [defaultServerUrl]. Pass\n\t/// [httpClient] to \
-		 share connections.\n\tClient({String? serverUrl, http.Client? httpClient})\n\t\t : \
-		 serverUrl = serverUrl ?? defaultServerUrl,\n\t\t   _http = httpClient ?? \
-		 http.Client();\n\n\t/// The origin the client sends requests to, without a trailing \
-		 slash.\n\tfinal String? serverUrl;\n\n\tfinal http.Client _http;\n",
-	);
+/// What every form of a function shares: its result, its parameter list,
+/// and the payload map the arguments build.
+struct Signature {
+	output: DartType,
+	/// The named parameter list, `idempotencyKey` included for a mutation.
+	parameters: String,
+	payload: String,
+	/// The idempotency key argument a mutation passes on.
+	key: &'static str,
+}
 
-	for (function, name) in context.functions().zip(names) {
-		out.push('\n');
+impl Signature {
+	fn new(function: &ApiFunction, types: &mut DartTypes, spec: &ApiSpec) -> Self {
 		let identifiers = parameter_names(function);
-		let mut docs = function.docs.clone();
-		let documented: Vec<(&crate::spec::ApiParam, &String)> = function
-			.params
-			.iter()
-			.zip(&identifiers)
-			.filter(|(param, _)| !param.docs.is_empty())
-			.collect();
-
-		if !documented.is_empty() {
-			if !docs.is_empty() {
-				docs.push_str("\n\n");
-			}
-
-			docs.push_str("Arguments:\n");
-
-			for (param, identifier) in documented {
-				docs.push_str(&format!("- `{identifier}`: {}\n", param.docs.trim()));
-			}
-
-			docs.pop();
-		}
-
-		if function.deprecated {
-			if docs.is_empty() {
-				docs.push_str("Deprecated.");
-			} else {
-				docs.push_str("\n\nDeprecated.");
-			}
-		}
-
-		push_docs(&mut out, (!docs.is_empty()).then_some(docs.as_str()), "\t");
-
 		let output = types.convert(
 			&function.output_schema,
 			&format!("{}Result", type_name(&function.name)),
-			context.spec,
+			spec,
 		);
 
 		let mut parameters = Vec::new();
@@ -615,7 +587,7 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 			let ty = types.convert(
 				&param.schema,
 				&format!("{}{}", type_name(&function.name), type_name(&param.name)),
-				context.spec,
+				spec,
 			);
 			// The parameter type is what the wire accepts; an optional
 			// non-nullable argument becomes nullable once, not twice.
@@ -654,25 +626,12 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 			""
 		};
 
-		let returns = matches!(output, DartType::Void);
-		let return_type = if returns {
-			"Future<void>".to_owned()
-		} else {
-			format!("Future<{}>", output.render())
-		};
-		let parameter_list = if parameters.is_empty() {
+		let parameters = if parameters.is_empty() {
 			String::new()
 		} else {
 			format!("{{\n\t\t{}\n\t}}", parameters.join(",\n\t\t"))
 		};
-
-		let binding = if returns { "" } else { "final result = " };
-		let decode = if returns {
-			String::new()
-		} else {
-			format!("\n\t\treturn {};", output.decode("result"))
-		};
-		let payload_map = if payload.is_empty() {
+		let payload = if payload.is_empty() {
 			"const <String, Object?>{}".to_owned()
 		} else {
 			format!(
@@ -681,9 +640,114 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 			)
 		};
 
-		out.push_str(&format!(
-			"\t{return_type} {name}({parameter_list}) async {{\n\t\t{binding}await _invoke({}, \
-			 {}, {}, {payload_map}{key});{decode}\n\t}}\n",
+		Self {
+			output,
+			parameters,
+			payload,
+			key,
+		}
+	}
+
+	fn returns_nothing(&self) -> bool {
+		matches!(self.output, DartType::Void)
+	}
+
+	/// `Future<T>` of the result.
+	fn future(&self) -> String {
+		if self.returns_nothing() {
+			"Future<void>".to_owned()
+		} else {
+			format!("Future<{}>", self.output.render())
+		}
+	}
+
+	/// An `async` method `name` that sends the arguments through `send`,
+	/// such as `_invoke('POST', '/api/x', 'json', `, and decodes the result.
+	fn method(&self, name: &str, send: &str) -> String {
+		let (binding, decode) = if self.returns_nothing() {
+			("", String::new())
+		} else {
+			(
+				"final result = ",
+				format!("\n\t\treturn {};", self.output.decode("result")),
+			)
+		};
+		format!(
+			"\t{} {name}({}) async {{\n\t\t{binding}await {send}{}{});{decode}\n\t}}\n",
+			self.future(),
+			self.parameters,
+			self.payload,
+			self.key,
+		)
+	}
+}
+
+/// A function's doc comment: its docs, then its documented arguments.
+fn function_docs(function: &ApiFunction) -> String {
+	let mut docs = function.docs.clone();
+	let documented: Vec<(&crate::spec::ApiParam, String)> = function
+		.params
+		.iter()
+		.zip(parameter_names(function))
+		.filter(|(param, _)| !param.docs.is_empty())
+		.collect();
+
+	if !documented.is_empty() {
+		if !docs.is_empty() {
+			docs.push_str("\n\n");
+		}
+
+		docs.push_str("Arguments:\n");
+
+		for (param, identifier) in documented {
+			docs.push_str(&format!("- `{identifier}`: {}\n", param.docs.trim()));
+		}
+
+		docs.pop();
+	}
+
+	if function.deprecated {
+		if docs.is_empty() {
+			docs.push_str("Deprecated.");
+		} else {
+			docs.push_str("\n\nDeprecated.");
+		}
+	}
+
+	docs
+}
+
+/// The generated `Client`, with one member per published function and
+/// channel, followed by the classes behind the live members.
+fn client_class(
+	context: &Context<'_>,
+	types: &mut DartTypes,
+	methods: &[String],
+	channels: &[String],
+) -> String {
+	let mut out = String::new();
+	let mut members = String::new();
+	out.push_str(&format!(
+		"/// The server origin baked in at generation time; `null` means the client's own \
+		 page.\nconst String? defaultServerUrl = {};\n\n/// Where the server serves the live \
+		 socket, relative to its origin.\nconst String livePath = {};\n\n",
+		context
+			.server_url
+			.as_deref()
+			.map_or_else(|| "null".to_owned(), dart_string),
+		dart_string(&context.spec.live_path),
+	));
+	out.push_str("/// A typed client over `package:http`, with a live side over one WebSocket.\n");
+	out.push_str("class Client {\n");
+	out.push_str(CLIENT_FIELDS);
+
+	for (function, name) in context.functions().zip(methods) {
+		out.push('\n');
+		let docs = function_docs(function);
+		push_docs(&mut out, (!docs.is_empty()).then_some(docs.as_str()), "\t");
+		let signature = Signature::new(function, types, context.spec);
+		let invoke = format!(
+			"_invoke({}, {}, {}, ",
 			dart_string(&function.method),
 			dart_string(&function.path),
 			dart_string(match function.input {
@@ -691,17 +755,188 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 				crate::spec::HttpInput::Form => "form",
 				crate::spec::HttpInput::Json | crate::spec::HttpInput::Other { .. } => "json",
 			}),
-		));
+		);
+
+		if !matches!(function.kind, ApiKind::Query | ApiKind::Mutation) {
+			out.push_str(&signature.method(name, &invoke));
+			continue;
+		}
+
+		// A query or mutation is an object: calling it makes the one-shot
+		// HTTP call, as before, and its methods run it over the socket.
+		let suffix = if function.kind == ApiKind::Query {
+			"Query"
+		} else {
+			"Mutation"
+		};
+		let class = types.reserve(&format!("{}{suffix}", type_name(&function.name)));
+		out.push_str(&format!("\tlate final {class} {name} = {class}._(this);\n"));
+		members.push_str(&live_class(function, &class, &signature, &invoke));
+	}
+
+	for (channel, name) in context.spec.channels.iter().zip(channels) {
+		out.push('\n');
+		let mut docs = channel.docs.clone();
+
+		if channel.deprecated {
+			docs.push_str(if docs.is_empty() {
+				"Deprecated."
+			} else {
+				"\n\nDeprecated."
+			});
+		}
+
+		push_docs(&mut out, (!docs.is_empty()).then_some(docs.as_str()), "\t");
+		let class = types.reserve(&format!("{}Channel", type_name(&channel.name)));
+		out.push_str(&format!("\tlate final {class} {name} = {class}._(this);\n"));
+		members.push_str(&channel_class(channel, &class, name, types, context.spec));
 	}
 
 	out.push_str(INVOKE);
+	out.push_str(&members);
 	out
 }
+
+/// The class behind a query or mutation member: `call` for the one-shot
+/// HTTP call, with `watch` for a query and `live` for a mutation.
+fn live_class(function: &ApiFunction, class: &str, signature: &Signature, invoke: &str) -> String {
+	let name = dart_string(&function.name);
+	let mut out = format!(
+		"\n/// The `{}` {}: call it for one answer over HTTP, or {}\n/// over the live \
+		 connection.\nclass {class} {{\n\t{class}._(this._client);\n\n\tfinal Client \
+		 _client;\n\n\t/// Calls it once over HTTP.\n",
+		function.name,
+		function.kind.as_str(),
+		if function.kind == ApiKind::Query {
+			"[watch] it"
+		} else {
+			"run it [live]"
+		},
+	);
+	out.push_str(&signature.method("call", &format!("_client.{invoke}")));
+	out.push('\n');
+
+	if function.kind == ApiKind::Query {
+		let (ty, decode) = if signature.returns_nothing() {
+			("void".to_owned(), "(result) {}".to_owned())
+		} else {
+			(
+				signature.output.render(),
+				format!("(result) => {}", signature.output.decode("result")),
+			)
+		};
+		out.push_str(&format!(
+			"\t/// Watches the result over the live connection: the stream gets the first\n\t/// \
+			 value and each new one, ready for a `StreamBuilder`. A failure arrives as\n\t/// a \
+			 [LiveError] error event, and the subscription recovers on the next\n\t/// change. \
+			 Each listener gets its own subscription, until it cancels.\n\tStream<{ty}> watch({}) \
+			 => _client.live.watch<{ty}>({name}, {}, {decode});\n",
+			signature.parameters, signature.payload,
+		));
+	} else {
+		out.push_str(
+			"\t/// Runs it over the live connection. It completes once this client's\n\t/// \
+			 subscriptions show the write, and a call whose answer is lost is sent\n\t/// again \
+			 after a reconnect with the same key, so it runs once.\n",
+		);
+		out.push_str(&signature.method("live", &format!("_client.live.mutate({name}, ")));
+	}
+
+	out.push_str("}\n");
+	out
+}
+
+/// The class behind a channel member: `join` returns the joined channel.
+fn channel_class(
+	channel: &crate::spec::ApiChannel,
+	class: &str,
+	member: &str,
+	types: &mut DartTypes,
+	spec: &ApiSpec,
+) -> String {
+	let hint = type_name(&channel.name);
+	// A channel's values are JSON, never nothing.
+	let mut convert = |schema: &Value, suffix: &str| {
+		match types.convert(schema, &format!("{hint}{suffix}"), spec) {
+			DartType::Void => DartType::Dynamic,
+			other => other,
+		}
+	};
+	let args = convert(&channel.args_schema, "Args");
+	let message = convert(&channel.message_schema, "Message");
+	let presence = convert(&channel.presence_schema, "Presence");
+	let optional_presence = match presence {
+		DartType::Nullable(_) | DartType::Dynamic => presence.clone(),
+		_ => DartType::Nullable(Box::new(presence.clone())),
+	};
+	let fields = channel
+		.fields
+		.iter()
+		.map(|field| dart_string(field))
+		.collect::<Vec<_>>()
+		.join(", ");
+	let (message_type, presence_type) = (message.render(), presence.render());
+	format!(
+		"\n/// The `{channel_name}` channel; see [Client.{member}].\nclass {class} \
+		 {{\n\t{class}._(this._client);\n\n\tfinal Client _client;\n\n\t/// Joins the channel \
+		 instance [args] names: signals and presence arrive on\n\t/// the handle's streams, and \
+		 the join is made again after a reconnect, until\n\t/// [ChannelHandle.leave]. [presence] \
+		 is what this connection shows the others;\n\t/// the channel's default when \
+		 absent.\n\tChannelHandle<{message_type}, {presence_type}> join({args_type} args, \
+		 {{{optional_presence} presence}}) =>\n\t\t_client.live.join<{message_type}, \
+		 {presence_type}>(\n\t\t\t{name},\n\t\t\tfields: const <String>[{fields}],\n\t\t\targs: \
+		 {args_json},\n\t\t\tpresence: presence,\n\t\t\tdecodeMessage: (json) => \
+		 {decode_message},\n\t\t\tencodeMessage: (message) => \
+		 {encode_message},\n\t\t\tdecodePresence: (json) => \
+		 {decode_presence},\n\t\t\tencodePresence: (state) => {encode_presence},\n\t\t);\n}}\n",
+		channel_name = channel.name,
+		name = dart_string(&channel.name),
+		args_type = args.render(),
+		optional_presence = optional_presence.render(),
+		args_json = to_json_value(&args, "args"),
+		decode_message = message.decode("json"),
+		encode_message = to_json_value(&message, "message"),
+		decode_presence = presence.decode("json"),
+		encode_presence = to_json_value(&presence, "state"),
+	)
+}
+
+/// An expression converting `expr` into JSON, guarding a nullable model.
+fn to_json_value(ty: &DartType, expr: &str) -> String {
+	match ty {
+		DartType::Nullable(inner) => {
+			let encoded = inner.encode(expr);
+			if encoded == expr {
+				encoded
+			} else {
+				format!("{expr} == null ? null : {encoded}")
+			}
+		}
+		_ => ty.encode(expr),
+	}
+}
+
+/// The constructor and fields every `Client` opens with.
+const CLIENT_FIELDS: &str =
+	"\t/// Creates a client for [serverUrl], an origin such as\n\t/// `https://api.example.com`; \
+	 defaults to [defaultServerUrl]. Pass\n\t/// [httpClient] to share connections, and [live] to \
+	 sign the live\n\t/// connection in or tune its reconnects.\n\tClient({String? serverUrl, \
+	 http.Client? httpClient, LiveOptions live = const LiveOptions()})\n\t\t : serverUrl = \
+	 serverUrl ?? defaultServerUrl,\n\t\t   _http = httpClient ?? http.Client(),\n\t\t   \
+	 liveOptions = live;\n\n\t/// The origin the client sends requests to, without a trailing \
+	 slash.\n\tfinal String? serverUrl;\n\n\tfinal http.Client _http;\n\n\t/// How the live \
+	 connection signs in and reconnects.\n\tfinal LiveOptions liveOptions;\n\n\tLiveConnection? \
+	 _live;\n\n\t/// The live connection: one WebSocket for every subscription, live\n\t/// \
+	 mutation and channel, opened on first use. Read [LiveConnection.status]\n\t/// or listen to \
+	 [LiveConnection.statuses] for a connection banner, and\n\t/// call [LiveConnection.close] \
+	 when done.\n\tLiveConnection get live =>\n\t\t_live ??= LiveConnection(liveUrl(serverUrl, \
+	 livePath), liveOptions);\n";
 
 fn pubspec(context: &Context<'_>, package: &str) -> String {
 	format!(
 		"{banner}name: {package}\ndescription: {description}\nversion: {version}\npublish_to: \
-		 none\n\nenvironment:\n  sdk: '>=3.0.0 <4.0.0'\n\ndependencies:\n  http: ^1.2.0\n",
+		 none\n\nenvironment:\n  sdk: '>=3.0.0 <4.0.0'\n\ndependencies:\n  http: ^1.2.0\n  \
+		 web_socket_channel: '>=2.4.0 <4.0.0'\n",
 		banner = context.banner("#"),
 		description = serde_json::to_string(&format!(
 			"A typed client for the {} RPC.",
@@ -712,7 +947,7 @@ fn pubspec(context: &Context<'_>, package: &str) -> String {
 	)
 }
 
-fn readme(context: &Context<'_>, methods: &[String]) -> String {
+fn readme(context: &Context<'_>, methods: &[String], channels: &[String]) -> String {
 	let example =
 		context
 			.functions()
@@ -731,6 +966,7 @@ fn readme(context: &Context<'_>, methods: &[String]) -> String {
 					args.join(", ")
 				)
 			});
+	let live = live_readme(context, methods, channels);
 	let mut skipped = String::new();
 
 	if !context.skipped.is_empty() {
@@ -747,7 +983,8 @@ fn readme(context: &Context<'_>, methods: &[String]) -> String {
 A typed Dart client for the **{title} {version}** RPC, generated by `leptoskit rpc generate \
 		 --target dart`.
 
-It depends on `package:http`, and the calls go to the same routes the app itself uses.
+It depends on `package:http` and `package:web_socket_channel`, and the calls go to the same routes \
+		 the app itself uses.
 
 ## Usage
 
@@ -767,7 +1004,7 @@ try {{
 
 `FnError.kind` is one of `network`, `invalid`, `server`, `decode`, or `other`, mirroring the \
 		 server's classification; `retryable` is true only for `network`. Types that Dart cannot \
-		 model yet (tagged unions) appear as `Object?` holding the raw JSON.{skipped}",
+		 model yet (tagged unions) appear as `Object?` holding the raw JSON.\n{live}{skipped}",
 		name = context.options.package_name,
 		package = dart_package_name(&context.options.package_name),
 		title = context.spec.title,
@@ -778,6 +1015,73 @@ try {{
 				.as_deref()
 				.unwrap_or("https://example.com")
 		),
+	)
+}
+
+/// The README's live section: what the socket gives, with the first query,
+/// mutation and channel as examples.
+fn live_readme(context: &Context<'_>, methods: &[String], channels: &[String]) -> String {
+	let example = |kind: ApiKind| {
+		context
+			.functions()
+			.zip(methods)
+			.find(|(function, _)| function.kind == kind)
+	};
+	// The required arguments, as `name: ...`.
+	let arguments = |function: &ApiFunction| {
+		function
+			.params
+			.iter()
+			.zip(parameter_names(function))
+			.filter(|(param, _)| param.is_required())
+			.map(|(_, identifier)| format!("{identifier}: ..."))
+			.collect::<Vec<_>>()
+			.join(", ")
+	};
+	let mut lines = Vec::new();
+
+	if let Some((function, method)) = example(ApiKind::Query) {
+		lines.push(format!(
+			"// A stream of results, ready for a StreamBuilder.\nfinal results = \
+			 client.{method}.watch({});",
+			arguments(function)
+		));
+	}
+
+	if let Some((function, method)) = example(ApiKind::Mutation) {
+		lines.push(format!(
+			"// Completes once this client's subscriptions show the write.\nawait \
+			 client.{method}.live({});",
+			arguments(function)
+		));
+	}
+
+	if let Some(member) = channels.first() {
+		lines.push(format!(
+			"final room = client.{member}.join(..., presence: ...);\nroom.signals.listen((signal) \
+			 => show(signal.message, signal.from));\nroom.presence.listen((members) => \
+			 list(members));\nroom.signal(...);\nroom.leave();"
+		));
+	}
+
+	if lines.is_empty() {
+		return String::new();
+	}
+
+	format!(
+		"\n## Live\n\nQueries, mutations and channels also run over one WebSocket to the server's \
+		 `{path}`, opened on first use:\n\n```dart\n{examples}\n```\n\nA query's `watch(...)` \
+		 stream gets the first value and every change; lists of rows change by patch, so a long \
+		 list costs about one row per update. A mutation's `live(...)` completes once your own \
+		 subscriptions show the write, or after `readYourWrites` (2 seconds by default) if none \
+		 of them changes. The connection reconnects with backoff, subscribes again, and re-sends \
+		 a mutation whose answer was lost with the same key, so it runs once. Sign in with \
+		 `Client(live: LiveOptions(token: () => accessToken))`; listen to `client.live.statuses` \
+		 for a connection banner, and call `client.live.close()` when done. It works wherever \
+		 `package:web_socket_channel` does: Flutter on every platform, the browser, and the Dart \
+		 VM.\n",
+		path = context.spec.live_path,
+		examples = lines.join("\n"),
 	)
 }
 

@@ -277,7 +277,10 @@ fn operation_macro(
 /// ```
 ///
 /// It publishes `#[rpc::query]` and `#[rpc::mutation]` operations the same
-/// way: place it above them.
+/// way: place it above them. Above `#[rpc::channel]`, it publishes the
+/// channel's join arguments, messages, and presence, so generated clients
+/// can join it; the message and presence types must implement
+/// `schemars::JsonSchema`.
 ///
 /// Options:
 ///

@@ -157,6 +157,8 @@ fn assert_metadata_outputs(
 			.path
 			.extension()
 			.is_some_and(|extension| extension == "py")
+			// The live runtime carries no metadata beyond the banner.
+			&& file.path.file_stem().is_none_or(|stem| stem != "live")
 		{
 			let literal = file.contents.lines().nth(1).expect("module docstring");
 			let docs: String = serde_json::from_str(literal).expect("one encoded string literal");
@@ -1276,7 +1278,8 @@ fn clis_whose_functions_need_scopes_can_sign_in() {
 		main.contains("Command::Login { .. } | Command::Logout =>"),
 		"{main}"
 	);
-	assert!(generated["Cargo.toml"].contains("features = [\"rt\", \"time\"]"));
+	// Signing in waits between polls, as the live connection does anyway.
+	assert!(generated["Cargo.toml"].contains("\"rt\", \"sync\", \"time\""));
 	assert!(generated["README.md"].contains("## Signing in"));
 
 	assert!(generated["README.md"].contains("TODOS_CLI_CLIENT_ID"));

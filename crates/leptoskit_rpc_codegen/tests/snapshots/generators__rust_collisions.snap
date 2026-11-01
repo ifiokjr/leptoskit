@@ -1,6 +1,6 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
-assertion_line: 1030
+assertion_line: 1090
 expression: code
 ---
 ===== src/models.rs =====
@@ -48,11 +48,16 @@ pub type Record = std::collections::HashMap<String, String>;
 //! The transport: one method per published function.
 
 use crate::models::*;
+#[cfg(feature = "live")]
+use crate::live;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 /// The server origin baked in at generation time.
 pub const DEFAULT_SERVER_URL: &str = "https://example.com";
+
+/// Where the server serves the live connection, relative to its origin.
+pub const LIVE_PATH: &str = "/live";
 
 #[derive(Serialize)]
 struct CallInput {
@@ -119,6 +124,8 @@ pub enum Error {
 }
 
 /// How a request body is encoded.
+// A spec whose functions all speak JSON never builds the others.
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 enum Encoding {
 	Query,
@@ -132,6 +139,11 @@ pub struct Client {
 	server_url: String,
 	http: reqwest::Client,
 	headers: reqwest::header::HeaderMap,
+	#[cfg(feature = "live")]
+	live_options: live::LiveOptions,
+	/// Opened on first use, and shared by the clones.
+	#[cfg(feature = "live")]
+	live: std::sync::Arc<std::sync::OnceLock<live::LiveConnection>>,
 }
 
 impl Default for Client {
@@ -147,6 +159,10 @@ impl Client {
 			server_url: DEFAULT_SERVER_URL.trim_end_matches('/').to_owned(),
 			http: reqwest::Client::new(),
 			headers: reqwest::header::HeaderMap::new(),
+			#[cfg(feature = "live")]
+			live_options: live::LiveOptions::default(),
+			#[cfg(feature = "live")]
+			live: std::sync::Arc::default(),
 		}
 	}
 
@@ -158,13 +174,19 @@ impl Client {
 		}
 	}
 
-	/// Sets a header sent with every request, such as `Authorization`.
+	/// Sets a header sent with every request, such as `Authorization`, and
+	/// with the live connection's upgrade request.
 	pub fn with_header(
 		mut self,
 		name: reqwest::header::HeaderName,
 		value: reqwest::header::HeaderValue,
 	) -> Self {
 		self.headers.insert(name, value);
+		#[cfg(feature = "live")]
+		{
+			// The connection's identity changed: it opens its own.
+			self.live = std::sync::Arc::default();
+		}
 		self
 	}
 
@@ -174,10 +196,10 @@ impl Client {
 	}
 
 	/// A copy of this client that sends `key` as the `Idempotency-Key` of
-	/// every call. Calling a mutation again with the same key and arguments
-	/// returns the first call's result instead of running it twice, so a call
-	/// whose answer was lost is safe to retry. Use a fresh key, such as a
-	/// UUID, for each new call.
+	/// every call, and as the key of every live call. Calling a mutation
+	/// again with the same key and arguments returns the first call's result
+	/// instead of running it twice, so a call whose answer was lost is safe to
+	/// retry. Use a fresh key, such as a UUID, for each new call.
 	pub fn with_idempotency_key(&self, key: reqwest::header::HeaderValue) -> Self {
 		let mut client = self.clone();
 		client.headers.insert("idempotency-key", key);
@@ -262,6 +284,8 @@ impl Client {
 		serde_json::from_str(&text).map_err(Error::Decode)
 	}
 
+	// A spec without a function that returns nothing never calls it.
+	#[allow(dead_code)]
 	async fn call_void(
 		&self,
 		method: &str,
@@ -316,13 +340,63 @@ impl Client {
 
 }
 
+#[cfg(feature = "live")]
+impl Client {
+	/// A copy of this client whose live connection uses `options`: its token,
+	/// its read-your-writes wait, and its backoff. The copy opens its own
+	/// connection.
+	pub fn with_live_options(mut self, options: live::LiveOptions) -> Self {
+		self.live_options = options;
+		self.live = std::sync::Arc::default();
+		self
+	}
+
+	/// A copy of this client whose live connection signs in with the bearer
+	/// token `token` returns, such as a native session's access token. It's
+	/// called on every connect, and again when the server says the token is
+	/// about to expire.
+	pub fn with_live_token(self, token: impl Fn() -> Option<String> + Send + Sync + 'static) -> Self {
+		let options = self.live_options.clone().token(token);
+		self.with_live_options(options)
+	}
+
+	/// The live connection: one WebSocket to the server's [`LIVE_PATH`] for
+	/// every subscription, live call and channel, opened on first use and
+	/// shared by this client's clones. Make live calls from inside a Tokio
+	/// runtime.
+	pub fn live(&self) -> &live::LiveConnection {
+		self.live.get_or_init(|| {
+			let origin = match self.server_url.strip_prefix("http") {
+				Some(rest) => format!("ws{rest}"),
+				None => self.server_url.clone(),
+			};
+			let headers = self
+				.headers
+				.iter()
+				.filter(|(name, _)| name.as_str() != "idempotency-key")
+				.filter_map(|(name, value)| Some((name.as_str().to_owned(), value.to_str().ok()?.to_owned())))
+				.collect();
+			live::LiveConnection::new(format!("{origin}{LIVE_PATH}"), headers, self.live_options.clone())
+		})
+	}
+
+	/// Where the live connection is, now and as it changes, for a
+	/// "reconnecting…" banner.
+	pub fn live_status(&self) -> tokio::sync::watch::Receiver<live::LiveStatus> {
+		self.live().watch_status()
+	}
+
+}
+
 ===== src/lib.rs =====
 // Generated by `leptoskit rpc generate` from Clash 0.0.1. Do not edit; regenerate instead.
 //! A typed client for the Clash 0.0.1 RPC.
 //!
-//! Generated by `leptoskit rpc generate --target rust`; see `client` for the calls and `models` for the types.
+//! Generated by `leptoskit rpc generate --target rust`; see `client` for the calls, `models` for the types, and `live` for the live connection.
 
 pub mod client;
+#[cfg(feature = "live")]
+pub mod live;
 pub mod models;
 
 pub use client::Client;

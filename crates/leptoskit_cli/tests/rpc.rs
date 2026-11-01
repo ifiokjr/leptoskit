@@ -110,7 +110,7 @@ fn spec_writes_every_format() {
 	let spec: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("spec json");
 	// The fixture is a version 1 spec: it still reads, and is written as the
 	// current version, every function a `call`.
-	assert_eq!(spec["leptoskit_rpc_spec"], 2);
+	assert_eq!(spec["leptoskit_rpc_spec"], 3);
 	assert!(
 		spec["functions"]
 			.as_array()
@@ -783,16 +783,28 @@ fn build_runs_cargo_check_on_generated_crates() {
 			.collect();
 		dependencies.sort_unstable();
 		let expected = if target == "rust" {
-			vec!["reqwest", "serde", "serde_json", "serde_qs", "thiserror"]
-		} else {
+			// The live runtime is behind the crate's default `live` feature.
 			vec![
-				"clap",
+				"futures-util",
 				"reqwest",
 				"serde",
 				"serde_json",
 				"serde_qs",
 				"thiserror",
 				"tokio",
+				"tokio-tungstenite",
+			]
+		} else {
+			vec![
+				"clap",
+				"futures-util",
+				"reqwest",
+				"serde",
+				"serde_json",
+				"serde_qs",
+				"thiserror",
+				"tokio",
+				"tokio-tungstenite",
 			]
 		};
 
