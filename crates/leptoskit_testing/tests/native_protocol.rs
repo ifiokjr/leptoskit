@@ -51,8 +51,8 @@ fn server(replies: Vec<Reply>) -> (Options, std::thread::JoinHandle<Vec<Value>>)
 		let mut bodies = Vec::new();
 
 		for expected in replies {
-			let stream = accept(&listener, &expected.path);
-			let body = read_body(&stream, &expected.path);
+			let stream = accept(&listener, expected.path);
+			let body = read_body(&stream, expected.path);
 			bodies.push(if body.is_empty() {
 				Value::Null
 			} else {
@@ -123,8 +123,8 @@ fn read_body(stream: &TcpStream, path: &str) -> Vec<u8> {
 
 /// Writes the reply the test expects.
 fn respond(mut stream: &TcpStream, expected: &Reply) {
-	let (status, content_type, body) = match &expected.raw {
-		Some((status, body)) => (*status, "text/html", body.to_owned()),
+	let (status, content_type, body): (&str, &str, String) = match &expected.raw {
+		Some((status, body)) => (*status, "text/html", String::from(*body)),
 		None => {
 			(
 				"200 OK",
@@ -517,7 +517,7 @@ fn polling_server(answer: fn(&str) -> Value) -> (Options, std::thread::JoinHandl
 			let Some(first) = unless_abandoned(read_request(&stream)) else {
 				continue;
 			};
-			unless_abandoned(respond(&stream, &answer(&first)));
+			unless_abandoned(reply_value(&stream, &answer(&first)));
 			if first.starts_with("DELETE ") {
 				return;
 			}
@@ -561,7 +561,7 @@ fn read_request(stream: &TcpStream) -> std::io::Result<String> {
 	Ok(first)
 }
 
-fn respond(stream: &TcpStream, value: &Value) -> std::io::Result<()> {
+fn reply_value(stream: &TcpStream, value: &Value) -> std::io::Result<()> {
 	let body = json!({ "value": value }).to_string();
 	write!(
 		&*stream,
@@ -670,7 +670,7 @@ fn responses_cut_short_by_the_wait_deadline_time_out_the_wait() {
 				_ => Value::Null,
 			};
 
-			unless_abandoned(respond(&stream, &value));
+			unless_abandoned(reply_value(&stream, &value));
 			if first.starts_with("DELETE ") {
 				return;
 			}

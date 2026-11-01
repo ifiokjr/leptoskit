@@ -247,10 +247,10 @@ impl Options {
 
 	/// Claims an app launched from a path so teardown quits it.
 	///
-	/// WebDriverAgentMac terminates the apps it owns by bundle identifier when
-	/// a session ends. A path-launched app carries none, so WDA leaves it
-	/// running after DELETE /session and the next journey starts with it still
-	/// on screen. An explicit `skipAppKill` of false claims the app.
+	/// `WebDriverAgentMac` terminates the apps it owns by bundle identifier
+	/// when a session ends. A path-launched app carries none, so WDA leaves
+	/// it running after DELETE /session and the next journey starts with it
+	/// still on screen. An explicit `skipAppKill` of false claims the app.
 	fn claim_path_launched_app(&self, capabilities: &mut BTreeMap<String, Value>) {
 		if self.platform == Platform::Macos {
 			capabilities.insert("appium:skipAppKill".to_owned(), json!(false));
@@ -297,7 +297,7 @@ impl Options {
 		);
 	}
 
-	/// Gives the XCTest runner the session's startup budget to build.
+	/// Gives the `XCTest` runner the session's startup budget to build.
 	fn apply_macos(&self, capabilities: &mut BTreeMap<String, Value>) {
 		// The driver builds and launches its XCTest runner on first use, which
 		// the session's own startup budget already covers.

@@ -7,6 +7,10 @@ import UIKit
 import AppKit
 #endif
 
+// swiftlint:disable file_length
+// The plugin keeps its location manager delegate, bridge methods, and wire
+// validation in one file because the bridge resolves the plugin by name.
+
 /// Bounds the wire record enforces.
 private enum Wire {
     /// One record is five u32 fields and eight doubles.
@@ -19,6 +23,7 @@ private enum Wire {
 }
 
 @MainActor
+// swiftlint:disable:next type_body_length
 public final class LocationPlugin: NSObject, NativePlugin, @preconcurrency CLLocationManagerDelegate {
     public let name = "location"
     public let methods: [UInt32] = [0, 1, 2, 3]
@@ -503,3 +508,4 @@ private func requireDeliverable(_ values: [Double]) throws {
           (-Wire.maxLongitude...Wire.maxLongitude).contains(values[2]),
           values[3] >= 0 else { throw PluginError.native }
 }
+// swiftlint:enable file_length

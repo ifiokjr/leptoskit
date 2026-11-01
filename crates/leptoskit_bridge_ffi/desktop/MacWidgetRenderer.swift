@@ -1,6 +1,10 @@
 import AppKit
 import LeptosKitBridge
 
+// swiftlint:disable file_length
+// The renderer's widget cases share the same view and transaction state; the
+// file is a few lines past the default limit after the DevTools overlay.
+
 final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }

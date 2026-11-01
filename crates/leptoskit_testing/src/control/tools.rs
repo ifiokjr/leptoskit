@@ -66,7 +66,7 @@ pub fn run(command: &mut Command, timeout: Duration) -> Result<ToolOutput, Error
 	// Reap the child in either case. After a kill this also lets the tool's
 	// own pipe ends close, so the readers usually finish inside the grace.
 	let code = child.wait().ok().and_then(|status| status.code());
-	let (raw, err) = collect(receiver, readers, Duration::from_secs(1));
+	let (raw, err) = collect(&receiver, readers, Duration::from_secs(1));
 
 	if timed_out {
 		return Err(Error::Tool {
@@ -90,6 +90,9 @@ enum Stream {
 	Err,
 }
 
+/// The reader channel and the number of pipes still feeding it.
+type PipeReaders = (mpsc::Receiver<(Stream, Option<Vec<u8>>)>, usize);
+
 /// Starts the tool, naming it in anything that goes wrong.
 fn spawn(command: &mut Command, name: &str) -> Result<Child, Error> {
 	command.spawn().map_err(|error| {
@@ -107,7 +110,7 @@ fn spawn(command: &mut Command, name: &str) -> Result<Child, Error> {
 /// pipes to close would then wait for that process to exit, which can be
 /// forever. The readers report on a channel instead, so a pipe that stays open
 /// costs one bounded grace period rather than the whole run.
-fn read_pipes(child: &mut Child) -> (mpsc::Receiver<(Stream, Option<Vec<u8>>)>, usize) {
+fn read_pipes(child: &mut Child) -> PipeReaders {
 	let (sender, receiver) = mpsc::channel();
 	let mut readers = 0;
 
@@ -185,7 +188,7 @@ fn wait(child: &mut Child, timeout: Duration, name: &str) -> bool {
 
 /// Collects what the readers send until both end, or `grace` passes.
 fn collect(
-	receiver: mpsc::Receiver<(Stream, Option<Vec<u8>>)>,
+	receiver: &mpsc::Receiver<(Stream, Option<Vec<u8>>)>,
 	mut readers: usize,
 	grace: Duration,
 ) -> (Vec<u8>, Vec<u8>) {

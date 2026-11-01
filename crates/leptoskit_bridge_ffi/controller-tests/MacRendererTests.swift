@@ -115,6 +115,9 @@ struct MacRendererTests {
         #expect(events.allSatisfy { $0.text.isEmpty })
     }
 
+    // swiftlint:disable function_body_length
+    // The overlay's phases share one rendered tree; decoding it again for each
+    // phase would test the fixture more than the overlay.
     /// The DevTools overlay outlines the hub's highlight over the view the
     /// platform draws for it, follows scrolling, and while the hub picks takes
     /// the next click for the hub instead of the app.
@@ -193,6 +196,7 @@ struct MacRendererTests {
         renderer.close()
         #expect(overlay.superview == nil)
     }
+    // swiftlint:enable function_body_length
 
     private func decode(_ source: String) throws -> Transaction {
         let decoder = JSONDecoder()

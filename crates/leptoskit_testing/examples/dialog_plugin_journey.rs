@@ -26,7 +26,7 @@ mod journey {
 
 	/// Drives the journey the arguments ask for.
 	pub(super) fn run() -> Result<(), Box<dyn std::error::Error>> {
-		let args = Args::parse(std::env::args().skip(1).collect())?;
+		let args = Args::parse(&std::env::args().skip(1).collect::<Vec<_>>())?;
 		let options = args.options();
 
 		NativeTester::run(options, |tester| {
@@ -59,7 +59,7 @@ mod journey {
 	impl Args {
 		/// Reads `<windows|macos|linux> <endpoint> <app|Root>
 		/// <accept|decline>`.
-		fn parse(args: Vec<String>) -> Result<Self, String> {
+		fn parse(args: &[String]) -> Result<Self, String> {
 			if args.len() != 4 {
 				return Err(
 					"usage: dialog_plugin_journey <windows|macos|linux> <endpoint> <app|Root> \
@@ -94,7 +94,7 @@ mod journey {
 		}
 
 		/// The session options, with the longer budgets macOS's first run
-		/// needs for its XCTest runner.
+		/// needs for its `XCTest` runner.
 		fn options(&self) -> Options {
 			let verdict = if self.accept { "accept" } else { "decline" };
 			let platform = match self.platform {

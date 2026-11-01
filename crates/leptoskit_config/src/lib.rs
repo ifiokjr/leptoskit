@@ -1139,7 +1139,7 @@ impl Default for DbVectorConfig {
 }
 
 impl DbVectorConfig {
-	#[expect(
+	#[allow(
 		clippy::trivially_copy_pass_by_ref,
 		reason = "serde's `skip_serializing_if` passes a reference"
 	)]

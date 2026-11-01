@@ -145,17 +145,6 @@ public final class PedometerPlugin: NativePlugin {
     /// The furthest back a history request may reach, in milliseconds.
     private static let historyWindow: Double = 7 * 24 * 60 * 60 * 1000
 
-        guard UIApplication.shared.applicationState == .active else { throw PluginError.cancelled }
-
-        if method != 2, CMPedometer.authorizationStatus() != .authorized { throw PluginError.permissionDenied }
-
-        if let start = request.start, let end = request.end {
-            let now = Date().timeIntervalSince1970 * 1000
-
-            guard start >= now - 7 * 24 * 60 * 60 * 1000, end <= now else { throw PluginError.invalidArgument }
-        }
-    }
-
     private var permissionData: Data {
         let value: UInt8
         switch CMPedometer.authorizationStatus() {

@@ -60,7 +60,7 @@ pub extern "C" fn leptoskit_main() {
 	});
 }
 
-/// The change count, as a component, so DevTools names it on every platform.
+/// The change count, as a component, so `DevTools` names it on every platform.
 #[component]
 fn ChangeCount(count: u32) -> Element {
 	view! { <Text>"Changes: " {count}</Text> }
