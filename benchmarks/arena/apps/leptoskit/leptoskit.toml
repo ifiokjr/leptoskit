@@ -53,3 +53,12 @@ servers = []
 exclude = []
 include_internal = false
 targets = []
+
+[lint]
+# The arena is the reference for what an app's own code looks like: components
+# are capitalized and marked. Its SSR shell is leptos markup over an HTML
+# document, so the markup style is left to each tree.
+markup = "any"
+
+[lint.rules]
+component_attribute = "deny"

@@ -114,7 +114,7 @@ leptoskit::guest::mount(move || {
 
 ## Update a value without rebuilding the screen
 
-Re-rendering costs every element on the screen. A list of 1,000 cards is about 3,000 elements, so changing 100 labels that way rebuilds 3,000 to change 100. For a value that changes in place, bind the element to a signal:
+Re-rendering costs every element on the screen. A list of 1,000 cards is about 3,000 elements, so changing 100 labels that way rebuilds 3,000 to change 100. When the value changes outside an event — on a timer, in a frame callback, in a plugin reply — bind the element to a signal instead:
 
 ```rust
 use leptoskit::prelude::*;
@@ -130,12 +130,14 @@ View()
 			"Not marked".to_owned()
 		}
 	}))
-	.child(Button("Mark").on_press(move || marked.set(true)));
+	.child(Text("A row that does not change"));
 ```
 
 `Element::text_from` reads the signal once while it builds the element, so the first frame is right with no extra step, and `Element::background_from` does the same for a background colour.
 
-The renderer then keeps the node. After writing a signal outside an event handler — in a plugin reply, a frame callback, or a scenario step — call `leptoskit::guest::refresh()` once. It reads each binding, sends only the elements whose value differs, and commits them together, so the cost follows the values that changed rather than the size of the screen.
+Write the signal, then call `leptoskit::guest::refresh()` once. It visits the bound nodes, sends the ones whose value differs, and commits them together, so the cost follows the values that changed rather than the size of the screen.
+
+Events are the exception. After every event the native guest calls the view again, so a press that writes a signal rebuilds the screen whether or not that value is bound; bindings pay off for the changes that do not come from an event. Create the signals in your application state rather than inside a view function: a signal lives as long as the guest, so one created on every render is never freed.
 
 On the web the same tree shows the value read at build time, and leptos re-runs the screen when the signal changes, so nothing else is needed there. `leptoskit::prelude` exports leptos's own `RwSignal`, so a screen shared with the browser keeps one signal type.
 

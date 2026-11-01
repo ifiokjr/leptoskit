@@ -4,12 +4,14 @@ use leptoskit::prelude::Button;
 use leptoskit::prelude::Element;
 use leptoskit::prelude::ScrollView;
 use leptoskit::prelude::View;
+use leptoskit::prelude::component;
 
 use crate::services::Arena;
 use crate::services::Scenario;
 
 /// Lists every scenario as a button that starts it.
-pub fn screen(arena: &Arena) -> Element {
+#[component]
+pub fn HomeScreen(arena: &Arena) -> Element {
 	ScrollView()
 		.class("flex-1")
 		.child(

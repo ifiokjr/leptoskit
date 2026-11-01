@@ -97,9 +97,15 @@ fn ensure_owner() {
 /// Sends the nodes whose bound value changed, without rebuilding the tree.
 ///
 /// Call this after writing the signals an [`Element::text_from`] or
-/// [`Element::background_from`] binding reads. Reading the bindings is cheap,
-/// and only the nodes whose value differs are encoded and sent, so a screen
-/// that changes a hundred rows out of a thousand pays for a hundred.
+/// [`Element::background_from`] binding reads, when the change did not come
+/// from an event: a timer, a frame callback, a plugin reply, a scenario step.
+/// Only the bound nodes are visited, and only the ones whose value differs
+/// are encoded and sent, so a screen that changes a hundred rows out of a
+/// thousand pays for a hundred.
+///
+/// Events do not need it: [`dispatch`] renders the view again after every
+/// handler, and that render reads the same signals. A signal written in a
+/// handler is therefore reflected either way, at the cost of the rebuild.
 ///
 /// Call it before [`render`] when a change is both structural and bound:
 /// a rebuild re-reads every element it builds, and sends the bindings it

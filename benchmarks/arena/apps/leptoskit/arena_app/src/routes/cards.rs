@@ -4,6 +4,7 @@ use leptoskit::prelude::Element;
 use leptoskit::prelude::Get;
 use leptoskit::prelude::Text;
 use leptoskit::prelude::View;
+use leptoskit::prelude::component;
 
 use crate::services::Card;
 
@@ -20,7 +21,8 @@ pub fn title(card: &Card) -> String {
 ///
 /// A card's title is bound to its `marked` signal, so marking every tenth card
 /// rewrites a hundred labels instead of rebuilding three thousand elements.
-pub fn list(cards: &[Card]) -> Element {
+#[component]
+pub fn CardList(cards: &[Card]) -> Element {
 	View().children(cards.iter().map(|card| {
 		let number = card.number;
 		let marked = card.marked;
