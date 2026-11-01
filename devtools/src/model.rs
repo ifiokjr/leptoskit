@@ -707,10 +707,23 @@ impl Model {
 		moments
 	}
 
-	/// The address that opens a source location in an editor.
+	/// The address that opens a source location in an editor, when the
+	/// file is one this project plausibly holds. Guests report their own
+	/// file names, so a path that climbs with `..` is refused rather than
+	/// opened: the link is a convenience for the developer's own tree, not
+	/// a way to make their editor open an arbitrary file.
 	#[must_use]
-	pub fn editor_url(&self, source: &leptoskit_devtools_protocol::SourceLocation) -> String {
+	pub fn editor_url(
+		&self,
+		source: &leptoskit_devtools_protocol::SourceLocation,
+	) -> Option<String> {
 		let file = &source.file;
+		if std::path::Path::new(&file.as_str())
+			.components()
+			.any(|component| matches!(component, std::path::Component::ParentDir))
+		{
+			return None;
+		}
 		let absolute = file.starts_with('/') || file.get(1..3) == Some(":\\");
 		let path = match &self.hub {
 			Some(hub) if !absolute && !hub.root.is_empty() => {
@@ -718,12 +731,12 @@ impl Model {
 			}
 			_ => file.clone(),
 		};
-		format!(
+		Some(format!(
 			"vscode://file/{}:{}:{}",
 			path.trim_start_matches('/'),
 			source.line,
 			source.column
-		)
+		))
 	}
 }
 
@@ -1261,13 +1274,40 @@ pub(crate) mod tests {
 		};
 		assert_eq!(
 			model.editor_url(&source),
-			"vscode://file/work/app/src/lib.rs:4:9"
+			Some("vscode://file/work/app/src/lib.rs:4:9".to_owned())
 		);
 		let source = SourceLocation {
 			file: "/abs/lib.rs".into(),
 			..source
 		};
-		assert_eq!(model.editor_url(&source), "vscode://file/abs/lib.rs:4:9");
+		assert_eq!(
+			model.editor_url(&source),
+			Some("vscode://file/abs/lib.rs:4:9".to_owned())
+		);
+	}
+
+	#[test]
+	fn climbing_paths_are_never_opened() {
+		let model = Model {
+			hub: Some(HubInfo {
+				version: "0.1.0".into(),
+				root: "/work/app/".into(),
+			}),
+			..Model::default()
+		};
+		for file in [
+			"../secrets.rs",
+			"src/../../.ssh/id_rsa",
+			"..",
+			"/../../etc/passwd",
+		] {
+			let source = SourceLocation {
+				file: file.into(),
+				line: 1,
+				column: 1,
+			};
+			assert_eq!(model.editor_url(&source), None, "{file} must not open");
+		}
 	}
 
 	#[test]

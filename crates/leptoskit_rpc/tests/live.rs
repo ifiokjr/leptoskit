@@ -6,6 +6,7 @@
 
 use std::time::Duration;
 
+use futures::FutureExt;
 use futures::SinkExt;
 use futures::StreamExt;
 use leptoskit_db::Db;
@@ -378,6 +379,111 @@ async fn a_refused_channel_says_why() {
 	};
 	assert_eq!(channel, "secret");
 	assert!(err.message.contains("private"));
+
+	server.abort();
+}
+
+/// Refuses every token, for the failure-budget test: the default
+/// `Anonymous` identify accepts any bearer token, so it can never be
+/// refused.
+struct NoTokens;
+
+impl rpc::server::Identify for NoTokens {
+	fn identify<'a>(
+		&'a self,
+		_request: &'a http::request::Parts,
+	) -> futures::future::BoxFuture<'a, rpc::Result<rpc::server::Identity>> {
+		Box::pin(std::future::ready(Ok(rpc::server::Identity::anonymous())))
+	}
+
+	fn identify_token<'a>(
+		&'a self,
+		_token: &'a str,
+	) -> futures::future::BoxFuture<'a, rpc::Result<rpc::server::Identity>> {
+		Box::pin(std::future::ready(Err(rpc::Error::unauthorized(
+			"no session has that token",
+		))))
+	}
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_socket_whose_token_is_refused_is_closed() {
+	let db = leptoskit_db::testing::sqlite().await;
+	let live = Live::new(db).identify(NoTokens);
+	let app = live.clone().router::<()>();
+	let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+	let address = listener.local_addr().unwrap();
+	let server = tokio::spawn(async move {
+		axum::serve(listener, app).await.unwrap();
+	});
+	let url = format!("ws://{address}/live");
+	let (mut socket, _) = connect_async(&url).await.unwrap();
+	let _ = next(&mut socket).await;
+
+	// A refused token is answered once and the connection ends, so a
+	// guesser pays for a new handshake per guess instead of running them
+	// through one socket.
+	send(
+		&mut socket,
+		ClientFrame::Auth {
+			token: "a guess".into(),
+		},
+	)
+	.await;
+	let ServerFrame::AuthStatus { refused, .. } = next(&mut socket).await else {
+		panic!("a refusal");
+	};
+	assert!(refused);
+
+	let ended = tokio::time::timeout(Duration::from_secs(20), async {
+		while let Some(message) = socket.next().await {
+			if matches!(message, Ok(Message::Close(_))) {
+				break;
+			}
+		}
+	})
+	.await;
+	assert!(ended.is_ok(), "the server closes the socket");
+
+	server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_socket_that_sends_faster_than_the_server_serves_is_closed() {
+	let (_db, url, _live, server) = start().await;
+	let (mut socket, _) = connect_async(&url).await.unwrap();
+	let _ = next(&mut socket).await;
+
+	// The burst covers a reconnecting client's whole subscription set, and
+	// the budget refills as the sends take time, so this keeps sending
+	// past what any window refills: one frame past the budget ends the
+	// connection with a reason instead of more database work.
+	let mut why = None;
+	for _ in 0..1600 {
+		let frame = serde_json::to_string(&ClientFrame::Hello { resume: None }).unwrap();
+		if socket.send(Message::Text(frame.into())).await.is_err() {
+			break;
+		}
+		while let Some(Some(Ok(message))) = socket.next().now_or_never() {
+			let Message::Text(text) = message else {
+				continue;
+			};
+			if let Ok(ServerFrame::Done {
+				err: Some(error), ..
+			}) = serde_json::from_str(&text)
+				&& error.message.contains("faster")
+			{
+				why = Some(error.message);
+			}
+		}
+		if why.is_some() {
+			break;
+		}
+	}
+	assert_eq!(
+		why,
+		Some("this connection is sending frames faster than the server serves them".to_owned())
+	);
 
 	server.abort();
 }

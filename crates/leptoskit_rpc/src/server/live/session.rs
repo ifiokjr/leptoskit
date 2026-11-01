@@ -27,6 +27,8 @@ use tokio::sync::broadcast;
 use tokio::sync::mpsc;
 use tokio::sync::watch;
 
+use super::FRAME_BURST;
+use super::FRAMES_PER_SECOND;
 use super::Identity;
 use super::Incoming;
 use super::Invocation;
@@ -119,6 +121,10 @@ struct Session {
 	/// transition has reached yet.
 	awaiting: Option<u64>,
 	resume_floor: Option<u64>,
+	/// Frames the connection may still send, as thousandths of a frame,
+	/// refilled by elapsed time.
+	frame_tokens: u64,
+	frame_at: std::time::Instant,
 }
 
 struct Subscription {
@@ -226,6 +232,8 @@ impl Live {
 			full_next: false,
 			awaiting: None,
 			resume_floor,
+			frame_tokens: FRAME_BURST * 1_000,
+			frame_at: std::time::Instant::now(),
 		};
 		session.note_caller();
 
@@ -370,12 +378,39 @@ impl Session {
 		.await
 	}
 
+	/// Charges one frame against the connection's budget, refilled by
+	/// elapsed time. Returns whether the frame is served; a connection
+	/// that has spent its burst and keeps sending is closed by the caller.
+	fn spend_frame(&mut self) -> bool {
+		let now = std::time::Instant::now();
+		let elapsed = now.saturating_duration_since(self.frame_at).as_millis() as u64;
+		self.frame_at = now;
+		self.frame_tokens =
+			(self.frame_tokens + elapsed * FRAMES_PER_SECOND).min(FRAME_BURST * 1_000);
+		if self.frame_tokens < 1_000 {
+			return false;
+		}
+		self.frame_tokens -= 1_000;
+		true
+	}
+
 	/// Handles one frame. Returns whether the connection stays open.
 	async fn handle(&mut self, incoming: Incoming) -> bool {
 		let frame = match incoming {
 			Incoming::Frame(frame) => frame,
 			Incoming::Invalid(error) => return self.done(0, Err(error)).await,
 		};
+
+		if !self.spend_frame() {
+			return self
+				.done(
+					0,
+					Err(WireError::invalid(
+						"this connection is sending frames faster than the server serves them",
+					)),
+				)
+				.await;
+		}
 
 		match frame {
 			ClientFrame::Hello { resume } => {
@@ -819,6 +854,8 @@ impl Session {
 	}
 
 	async fn authenticate(&mut self, token: String) -> bool {
+		// A refused token closes the connection, so guessing means paying
+		// for a new handshake each time.
 		let identity = match self.live.inner.identify.identify_token(&token).await {
 			Ok(identity) => identity,
 			Err(error) => return self.identity_failure(&error).await,

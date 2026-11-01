@@ -15,6 +15,7 @@ pub mod fetch;
 pub mod ui;
 
 use std::collections::BTreeMap;
+use std::collections::VecDeque;
 use std::convert::Infallible;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -213,9 +214,19 @@ impl HubState {
 struct Session {
 	info: SessionInfo,
 	view: SessionView,
-	commands: Vec<Command>,
+	/// Commands the agent has not collected, oldest first. Capped: an
+	/// agent that never polls must not grow the hub's memory forever.
+	commands: VecDeque<Command>,
+	/// How many commands the cap dropped from the front, so an agent's
+	/// `after` still counts from the session's first command.
+	commands_dropped: usize,
 	notify: Arc<Notify>,
 }
+
+/// How many commands wait for one agent. Anything older is dropped: the
+/// agent missed it, and the interface still shows every command through
+/// the change broadcast.
+const MAX_QUEUED_COMMANDS: usize = 256;
 
 /// What `GET /api/hub` answers: who the hub is and what it serves.
 #[derive(Clone, Debug, Serialize)]
@@ -327,7 +338,8 @@ async fn create_session(
 	let session = Session {
 		info: info.clone(),
 		view: SessionView::default(),
-		commands: Vec::new(),
+		commands: VecDeque::new(),
+		commands_dropped: 0,
 		notify: Arc::new(Notify::new()),
 	};
 	state.sessions.write().await.insert(id.clone(), session);
@@ -370,8 +382,14 @@ async fn commands(
 			let mut sessions = state.sessions.write().await;
 			let session = sessions.get_mut(&id).ok_or_else(ApiError::not_found)?;
 			session.info.last_seen_ms = now_ms();
-			let commands: Vec<Command> =
-				session.commands.iter().skip(after.after).cloned().collect();
+			let commands: Vec<Command> = session
+				.commands
+				.iter()
+				// An `after` older than what the cap dropped has missed
+				// those commands; it reads from the oldest retained.
+				.skip(after.after.saturating_sub(session.commands_dropped))
+				.cloned()
+				.collect();
 			(commands, Arc::clone(&session.notify))
 		};
 
@@ -420,7 +438,11 @@ async fn send_command(
 	let id = SessionId(id);
 	let mut sessions = state.sessions.write().await;
 	let session = sessions.get_mut(&id).ok_or_else(ApiError::not_found)?;
-	session.commands.push(command.clone());
+	if session.commands.len() == MAX_QUEUED_COMMANDS {
+		session.commands.pop_front();
+		session.commands_dropped += 1;
+	}
+	session.commands.push_back(command.clone());
 	session.notify.notify_waiters();
 	state.broadcast(Change::Command {
 		session: id,

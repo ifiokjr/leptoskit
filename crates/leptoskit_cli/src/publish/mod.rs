@@ -201,7 +201,9 @@ const NEEDED: [Needed; 17] = [
 ];
 
 /// An API's address: the store's own, or an override for a proxy or a
-/// test server, such as `LEPTOSKIT_PUBLISH_CHROME_API`.
+/// test server, such as `LEPTOSKIT_PUBLISH_CHROME_API`. Whatever address
+/// this names receives the store's credentials and signed tokens, so only
+/// set it deliberately.
 fn api(variable: &str, default: &str) -> String {
 	std::env::var(variable).unwrap_or_else(|_| default.to_owned())
 }

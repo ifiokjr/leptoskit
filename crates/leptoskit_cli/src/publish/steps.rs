@@ -108,12 +108,27 @@ impl Report {
 	}
 
 	/// The report as Markdown, written next to the build.
+	///
+	/// Field values carry text the stores sent and prose from the project,
+	/// and a workflow appends this file to the run summary, which renders
+	/// HTML: everything interpolated here is escaped, so nothing can mark
+	/// up the summary beyond this report's own Markdown.
 	#[must_use]
 	pub fn markdown(&self) -> String {
+		let escape = |text: &str| {
+			text.replace('&', "&amp;")
+				.replace('<', "&lt;")
+				.replace('>', "&gt;")
+		};
 		let mut out = String::from("# What to do next\n");
 
 		for status in &self.stores {
-			let _ = writeln!(out, "\n## {}\n\n{}\n", status.store, status.summary);
+			let _ = writeln!(
+				out,
+				"\n## {}\n\n{}\n",
+				status.store,
+				escape(&status.summary)
+			);
 
 			for step in self.steps.iter().filter(|step| step.store == status.store) {
 				let by = match step.by {
@@ -121,19 +136,18 @@ impl Report {
 					Who::Person => " _(the account holder)_",
 				};
 
-				let _ = writeln!(out, "- **{}**{by}", step.what);
-
+				let _ = writeln!(out, "- **{}**{by}", escape(&step.what));
 				if let Some(url) = &step.url {
-					let _ = writeln!(out, "  - Open <{url}>");
+					let _ = writeln!(out, "  - Open <{}>", escape(url));
 				}
 
 				for field in &step.enter {
-					let value = field.value.replace('\n', "\n    ");
-					let _ = writeln!(out, "  - {}: {value}", field.label);
+					let value = escape(&field.value).replace('\n', "\n    ");
+					let _ = writeln!(out, "  - {}: {value}", escape(&field.label));
 				}
 
-				let _ = writeln!(out, "  - Why by hand: {}", step.why);
-				let _ = writeln!(out, "  - Done when: {}", step.done_when);
+				let _ = writeln!(out, "  - Why by hand: {}", escape(&step.why));
+				let _ = writeln!(out, "  - Done when: {}", escape(&step.done_when));
 			}
 		}
 
@@ -195,5 +209,39 @@ mod tests {
 		");
 		let json: serde_json::Value = serde_json::to_value(&report).unwrap();
 		assert_eq!(json["steps"][0]["by"], "person");
+	}
+
+	#[test]
+	fn store_text_cannot_mark_up_the_run_summary() {
+		let report = Report {
+			stores: vec![Status {
+				store: "app_store".into(),
+				summary: "beta review answered: <b>your key was revoked</b>".into(),
+			}],
+			steps: vec![Step {
+				store: "app_store".into(),
+				by: Who::Agent,
+				what: "Re-enter the key at https://attacker.example".into(),
+				url: Some("https://attacker.example?key=1&next=<script>".into()),
+				enter: vec![Field {
+					label: "key".into(),
+					value: "enter <img src=x> & paste \"this\"".into(),
+				}],
+				why: "the store says so".into(),
+				done_when: "a & b".into(),
+			}],
+		};
+
+		let markdown = report.markdown();
+		assert!(
+			markdown.contains("&lt;b&gt;your key was revoked&lt;/b&gt;"),
+			"{markdown}"
+		);
+		assert!(markdown.contains("&amp;next=&lt;script&gt;"), "{markdown}");
+		assert!(markdown.contains("&lt;img src=x&gt; &amp;"), "{markdown}");
+		assert!(markdown.contains("a &amp; b"), "{markdown}");
+		assert!(!markdown.contains("<b>"), "{markdown}");
+		assert!(!markdown.contains("<img"), "{markdown}");
+		assert!(!markdown.contains("<script>"), "{markdown}");
 	}
 }

@@ -44,6 +44,9 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          # The whole history, so the tag check below can see the default
+          # branch to compare against.
+          fetch-depth: 0
 
       - name: find the stores
         id: stores
@@ -71,6 +74,15 @@ jobs:
             echo "::error::the tag $GITHUB_REF_NAME isn't v$version, app.version in leptoskit.toml"
             exit 1
 
+          fi
+          # A tag names a commit, not a review: the version check above reads
+          # the tagged tree itself, so an unreviewed commit would pass it. A
+          # commit the default branch doesn't carry must not reach this
+          # workflow's credentials, or anyone who can push a tag could
+          # publish anything with them.
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$GITHUB_DEFAULT_BRANCH"; then
+            echo "::error::$GITHUB_REF_NAME points at a commit $GITHUB_DEFAULT_BRANCH does not carry. Merge the release first, then tag it."
+            exit 1
           fi
 
       # A release builds from scratch: no cache another branch could have
@@ -151,6 +163,16 @@ jobs:
           else
             leptoskit publish
           fi
+
+      - name: drop the signing material
+        # Otherwise the keychain stays unlocked and the keystore stays on
+        # disk for the rest of the job, where the published build's own
+        # tooling runs.
+        if: always() && steps.stores.outputs.any == 'true'
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/upload.jks" "$RUNNER_TEMP/certificate.p12"
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
 
       - name: what to do next
         if: always() && steps.stores.outputs.any == 'true'

@@ -185,15 +185,19 @@ fn insert_node(tree: &mut Tree, node: &Node) {
 		return;
 	}
 
-	match &node.parent {
-		Some(parent) => {
-			if let Some(slot) = tree.nodes.iter_mut().find(|item| &item.id == parent) {
-				slot.children.push(node.id.clone());
-			}
-		}
-		None => tree.root = node.id.clone(),
+	let Some(parent) = &node.parent else {
+		tree.root = node.id.clone();
+		tree.nodes.push(node.clone());
+		return;
+	};
+	// A node whose parent isn't in the tree yet is dropped, not parked: a
+	// parked node can name a parent that later names it back, and the two
+	// form a cycle no tree walk can leave.
+	if let Some(slot) = tree.nodes.iter_mut().find(|item| &item.id == parent) {
+		slot.children.push(node.id.clone());
+	} else {
+		return;
 	}
-
 	tree.nodes.push(node.clone());
 }
 
@@ -218,12 +222,17 @@ fn descendants(tree: &Tree, root: &NodeRef) -> Vec<NodeRef> {
 
 	while index < found.len() {
 		let current = found[index].clone();
-		found.extend(
-			tree.nodes
-				.iter()
-				.filter(|node| node.parent.as_ref() == Some(&current))
-				.map(|node| node.id.clone()),
-		);
+		let mut children = Vec::new();
+		for node in &tree.nodes {
+			// The guard keeps the walk finite whatever the tree says: an
+			// update can point a parent chain into a cycle, and without
+			// it each pass would name the same nodes again, forever,
+			// while the caller holds the session lock.
+			if node.parent.as_ref() == Some(&current) && !found.contains(&node.id) {
+				children.push(node.id.clone());
+			}
+		}
+		found.extend(children);
 		index += 1;
 	}
 
@@ -343,6 +352,73 @@ mod tests {
 		assert_eq!(
 			view.node(&NodeRef::Native(1)).unwrap().children,
 			[NodeRef::Native(4)]
+		);
+	}
+
+	#[test]
+	fn a_cyclic_patch_cannot_wedge_the_walk() {
+		let mut view = SessionView::default();
+		view.apply(&snapshot());
+		// An update can point a parent chain into a cycle, because it
+		// replaces the node wholesale; removing either side of the cycle
+		// must still finish rather than collect the same nodes forever
+		// under the session lock.
+		view.apply(&Event::TreePatch {
+			patch: TreePatch {
+				ops: vec![TreeOp::Update {
+					node: node(2, Some(3)),
+				}],
+			},
+		});
+		view.apply(&Event::TreePatch {
+			patch: TreePatch {
+				ops: vec![TreeOp::Remove {
+					id: NodeRef::Native(2),
+				}],
+			},
+		});
+		let tree = view.tree.as_ref().unwrap();
+		assert_eq!(
+			tree.nodes,
+			[node(1, None)],
+			"the cycle leaves with its side"
+		);
+
+		// A node parented at itself is the same shape one step shorter.
+		view.apply(&Event::TreePatch {
+			patch: TreePatch {
+				ops: vec![TreeOp::Update {
+					node: node(1, Some(1)),
+				}],
+			},
+		});
+		view.apply(&Event::TreePatch {
+			patch: TreePatch {
+				ops: vec![TreeOp::Remove {
+					id: NodeRef::Native(1),
+				}],
+			},
+		});
+		assert!(
+			view.tree.as_ref().unwrap().nodes.is_empty(),
+			"the self-parented node leaves"
+		);
+	}
+
+	#[test]
+	fn inserts_whose_parent_is_absent_are_dropped_not_parked() {
+		let mut view = SessionView::default();
+		view.apply(&snapshot());
+		view.apply(&Event::TreePatch {
+			patch: TreePatch {
+				ops: vec![TreeOp::Insert {
+					node: node(9, Some(99)),
+				}],
+			},
+		});
+		assert!(
+			view.node(&NodeRef::Native(9)).is_none(),
+			"a node with no parent to hang from is not kept"
 		);
 	}
 
