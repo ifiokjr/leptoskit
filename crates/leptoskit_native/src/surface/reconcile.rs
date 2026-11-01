@@ -79,6 +79,8 @@ impl<B: NativeBackend> NativeSurface<B> {
 			#[cfg(feature = "devtools")]
 			source: None,
 			#[cfg(feature = "devtools")]
+			component: None,
+			#[cfg(feature = "devtools")]
 			classes: Vec::new(),
 		});
 		self.frames.push(None);
@@ -104,6 +106,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 		#[cfg(feature = "devtools")]
 		{
 			self.shadows[id.index()].source = element.source_location();
+			self.shadows[id.index()].component = element.component_name();
 			self.shadows[id.index()].classes = element
 				.applied_classes()
 				.classes()
@@ -204,6 +207,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 		#[cfg(feature = "devtools")]
 		{
 			self.shadows[id.index()].source = element.source_location();
+			self.shadows[id.index()].component = element.component_name();
 			self.shadows[id.index()].classes = element
 				.applied_classes()
 				.classes()

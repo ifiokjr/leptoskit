@@ -55,6 +55,7 @@ fn node(id: u64, parent: Option<u64>, kind: &str, children: &[u64], text: Option
 		classes: vec!["p-4".into(), "dark:bg-black".into()],
 		text: text.map(str::to_owned),
 		children: children.iter().copied().map(NodeRef::Native).collect(),
+		component: None,
 		styles: vec![StyleRule {
 			class: "p-4".into(),
 			declarations: "padding-top:1rem;padding-bottom:1rem;".into(),
@@ -64,12 +65,19 @@ fn node(id: u64, parent: Option<u64>, kind: &str, children: &[u64], text: Option
 }
 
 fn tree() -> Tree {
+	let in_component = |mut node: Node, component: &str| {
+		node.component = Some(component.into());
+		node
+	};
 	Tree {
 		root: NodeRef::Native(1),
 		nodes: vec![
-			node(1, None, "View", &[2, 3], None),
-			node(2, Some(1), "Text", &[], Some("Library")),
-			node(3, Some(1), "Button", &[], Some("New project")),
+			in_component(node(1, None, "View", &[2, 3], None), "Library"),
+			in_component(node(2, Some(1), "Text", &[], Some("Library")), "Library"),
+			in_component(
+				node(3, Some(1), "Button", &[], Some("New project")),
+				"NewProjectButton",
+			),
 		],
 	}
 }
@@ -275,7 +283,9 @@ fn selecting_a_row_selects_and_highlights_it_in_the_app() {
 	store::show(&ios());
 	let mut tester = tester();
 	tester
-		.tap(&Finder::text("Button .p-4 .dark:bg-black “New project”"))
+		.tap(&Finder::text(
+			"<NewProjectButton> Button .p-4 .dark:bg-black “New project”",
+		))
 		.unwrap();
 	let key = MatchKey::new("src/screen.rs:3:5#0");
 	assert_eq!(
@@ -596,4 +606,31 @@ fn the_panel_layout_lists_sessions_as_chips() {
 		store::peek(|model| model.current.clone()),
 		Some(SessionId::new("web"))
 	);
+}
+
+#[test]
+fn components_name_where_their_output_starts_and_are_searchable() {
+	load(false);
+	store::show(&ios());
+	let mut tester = tester();
+	// The root starts `Library`; its text belongs to the same component, so
+	// only the button, another component, is named again.
+	tester
+		.find(&Finder::text("<Library> View .p-4 .dark:bg-black"))
+		.unwrap();
+	tester
+		.find(&Finder::text("Text .p-4 .dark:bg-black “Library”"))
+		.unwrap();
+	tester
+		.tap(&Finder::text(
+			"<NewProjectButton> Button .p-4 .dark:bg-black “New project”",
+		))
+		.unwrap();
+	tester.find(&Finder::text("NewProjectButton")).unwrap();
+
+	tester
+		.enter_text(&Finder::label("Search the tree"), "newproject")
+		.unwrap();
+	// The match and its ancestor.
+	assert_eq!(store::peek(|model| model.rows().len()), 2);
 }

@@ -277,6 +277,7 @@ fn render_node(
 		custom_attribute("data-lk-key", devtools.key),
 		custom_attribute("data-lk-source", devtools.source),
 		custom_attribute("data-lk-kind", devtools.kind),
+		custom_attribute("data-lk-component", devtools.component),
 		custom_attribute("aria-label", label.clone()),
 		custom_attribute("aria-disabled", (!enabled).then_some("true")),
 		custom_attribute("data-testid", test_id),
@@ -492,6 +493,7 @@ struct DevtoolsAttributes {
 	key: Option<String>,
 	source: Option<String>,
 	kind: Option<String>,
+	component: Option<&'static str>,
 }
 
 impl NodePath {
@@ -560,6 +562,7 @@ impl NodePath {
 					)
 				}),
 				kind: Some(format!("{:?}", element.kind)),
+				component: element.component_name(),
 			}
 		}
 		#[cfg(not(feature = "devtools"))]

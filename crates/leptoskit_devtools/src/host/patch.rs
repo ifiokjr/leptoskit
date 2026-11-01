@@ -90,6 +90,7 @@ mod tests {
 					classes: Vec::new(),
 					text: Some((*text).to_owned()),
 					children: Vec::new(),
+					component: None,
 					styles: Vec::new(),
 				}
 			})

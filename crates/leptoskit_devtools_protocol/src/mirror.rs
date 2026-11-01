@@ -256,6 +256,7 @@ mod tests {
 			classes: Vec::new(),
 			text: None,
 			children: Vec::new(),
+			component: None,
 			styles: Vec::new(),
 		}
 	}

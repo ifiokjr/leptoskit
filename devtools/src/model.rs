@@ -187,6 +187,9 @@ pub struct Row<'a> {
 	pub collapsed: bool,
 	/// Whether it matches the search.
 	pub matched: bool,
+	/// The `#[component]` whose output starts here: the node's component,
+	/// when its parent belongs to another one.
+	pub component: Option<&'a str>,
 }
 
 /// One entry on the calls or commits timeline.
@@ -605,12 +608,21 @@ impl Model {
 			}
 
 			let collapsed = search.is_empty() && self.collapsed.contains(id);
+			let parent_component = node
+				.parent
+				.as_ref()
+				.and_then(|parent| nodes.get(parent))
+				.and_then(|parent| parent.component.as_deref());
 			rows.push(Row {
 				node,
 				depth,
 				parent: !node.children.is_empty(),
 				collapsed,
 				matched: !search.is_empty() && matches(node, &search),
+				component: node
+					.component
+					.as_deref()
+					.filter(|component| Some(*component) != parent_component),
 			});
 
 			if !collapsed {
@@ -772,6 +784,10 @@ fn matches(node: &Node, search: &str) -> bool {
 			.as_ref()
 			.is_some_and(|text| text.to_lowercase().contains(search))
 		|| node.key.as_str().to_lowercase() == search
+		|| node
+			.component
+			.as_ref()
+			.is_some_and(|component| component.to_lowercase().contains(search))
 }
 
 /// The nodes matching `search`, with every ancestor of each.
@@ -873,6 +889,7 @@ pub(crate) mod tests {
 				.iter()
 				.map(|child| NodeRef::Web((*child).into()))
 				.collect(),
+			component: None,
 			styles: Vec::new(),
 		}
 	}

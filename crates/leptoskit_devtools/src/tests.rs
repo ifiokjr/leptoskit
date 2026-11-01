@@ -121,6 +121,7 @@ fn tree(kind: &str) -> Tree {
 			classes: Vec::new(),
 			text: None,
 			children: Vec::new(),
+			component: None,
 			styles: Vec::new(),
 		}],
 	}

@@ -47,7 +47,11 @@ fn without_devtools_attributes(html: &str) -> String {
 		let name = &rest[start + 1..name_end];
 		if !matches!(
 			name,
-			"data-lk-node" | "data-lk-key" | "data-lk-kind" | "data-lk-source"
+			"data-lk-node"
+				| "data-lk-key"
+				| "data-lk-kind"
+				| "data-lk-source"
+				| "data-lk-component"
 		) {
 			out.push_str(&rest[..name_end]);
 			rest = &rest[name_end..];

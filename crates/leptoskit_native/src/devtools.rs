@@ -78,6 +78,28 @@ pub fn ordinals<'a>(origins: impl IntoIterator<Item = Origin<'a>>) -> Vec<usize>
 		.collect()
 }
 
+std::thread_local! {
+	/// The `#[component]`s whose bodies are running, innermost last.
+	static COMPONENTS: std::cell::RefCell<Vec<&'static str>> = const {
+		std::cell::RefCell::new(Vec::new())
+	};
+}
+
+/// The innermost `#[component]` whose body is running.
+pub(crate) fn current_component() -> Option<&'static str> {
+	COMPONENTS.with(|stack| stack.borrow().last().copied())
+}
+
+pub(crate) fn enter_component(name: &'static str) {
+	COMPONENTS.with(|stack| stack.borrow_mut().push(name));
+}
+
+pub(crate) fn leave_component() {
+	COMPONENTS.with(|stack| {
+		stack.borrow_mut().pop();
+	});
+}
+
 /// A key as the protocol writes it.
 #[must_use]
 pub fn format(key: u64) -> String {

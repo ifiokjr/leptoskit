@@ -366,6 +366,7 @@ impl Component {
 	fn into_tokens(mut self) -> TokenStream {
 		self.document_props();
 		self.qualify_into_view();
+		self.enter_scope();
 		let function = &self.function;
 		let vis = &function.vis;
 		let name = &function.sig.ident;
@@ -409,6 +410,18 @@ impl Component {
 				#build
 			}
 		}
+	}
+
+	/// Opens the component's `DevTools` scope at the top of its body, so the
+	/// elements the body creates carry its name. Without the `devtools`
+	/// feature the scope is empty and compiles away.
+	fn enter_scope(&mut self) {
+		let scope = scope_guard();
+		let label = self.function.sig.ident.to_string();
+		let statement: syn::Stmt = syn::parse_quote! {
+			let #scope = ::leptoskit::__private::ComponentScope::enter(#label);
+		};
+		self.function.block.stmts.insert(0, statement);
 	}
 
 	/// Appends the props to the function's docs, as leptos does.
@@ -615,6 +628,8 @@ impl Component {
 			}
 		}
 
+		let scope = scope_guard();
+		let label = self.function.sig.ident.to_string();
 		quote! {
 			/// Renders the component with the props set so far.
 			#[allow(clippy::type_complexity)]
@@ -622,10 +637,18 @@ impl Component {
 			where
 				#(#predicates,)*
 			{
+				// `view!` output can turn into elements only here, after the
+				// function returned, so the scope covers this too.
+				let #scope = ::leptoskit::__private::ComponentScope::enter(#label);
 				::leptoskit::IntoView::into_view(#name(#(#values),*))
 			}
 		}
 	}
+}
+
+/// The scope guard's name, unreachable from the component's own code.
+fn scope_guard() -> Ident {
+	Ident::new("__leptoskit_component_scope", Span::mixed_site())
 }
 
 fn requirement_trait(component: &Ident, prop: &Ident) -> Ident {

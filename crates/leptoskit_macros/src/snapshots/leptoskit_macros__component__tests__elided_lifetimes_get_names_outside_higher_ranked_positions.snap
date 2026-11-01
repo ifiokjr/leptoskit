@@ -21,6 +21,9 @@ pub(crate) fn Label(
     items: Vec<impl Into<String>>,
     layout: Layout,
 ) -> impl leptoskit::IntoView + use<> {
+    let __leptoskit_component_scope = ::leptoskit::__private::ComponentScope::enter(
+        "Label",
+    );
     format(text)
 }
 ///The `view!` tag for [`Label`](fn@Label): `<Label …/>` sets its props by name through [`Label::builder`].
@@ -292,6 +295,9 @@ impl<
         __S4: __Label_requires_items<Vec<__Prop3>>,
         __S5: ::leptoskit::__private::Optional<Layout>,
     {
+        let __leptoskit_component_scope = ::leptoskit::__private::ComponentScope::enter(
+            "Label",
+        );
         ::leptoskit::IntoView::into_view(
             Label(
                 __Label_requires_text::value(self.text),

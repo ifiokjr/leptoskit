@@ -476,6 +476,7 @@ fn node_for(element: &web_sys::Element, path: &str) -> Node {
 			.collect(),
 		text,
 		children: Vec::new(),
+		component: element.get_attribute("data-lk-component"),
 		styles: Vec::new(),
 	}
 }

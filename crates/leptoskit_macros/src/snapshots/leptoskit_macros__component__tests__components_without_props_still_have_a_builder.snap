@@ -4,6 +4,9 @@ expression: "pretty(expand(&TokenStream::new(), quote!\n{ fn Divider() -> Elemen
 ---
 #[allow(non_snake_case, clippy::too_many_arguments, clippy::needless_pass_by_value)]
 fn Divider() -> Element {
+    let __leptoskit_component_scope = ::leptoskit::__private::ComponentScope::enter(
+        "Divider",
+    );
     View()
 }
 ///The `view!` tag for [`Divider`](fn@Divider): `<Divider …/>` sets its props by name through [`Divider::builder`].
@@ -22,6 +25,9 @@ impl DividerBuilder {
     /// Renders the component with the props set so far.
     #[allow(clippy::type_complexity)]
     pub fn build(self) -> ::leptoskit::__private::Element {
+        let __leptoskit_component_scope = ::leptoskit::__private::ComponentScope::enter(
+            "Divider",
+        );
         ::leptoskit::IntoView::into_view(Divider())
     }
 }
