@@ -49,6 +49,7 @@ pub async fn bump(cx: &rpc::MutationCx, name: String) -> rpc::Result<i64> {
 		.await?;
 	let Some(tally) = existing else {
 		NewTally { name, count: 1 }.insert(cx.tx()).await?;
+
 		return Ok(1);
 	};
 	let count = tally.count + 1;
@@ -274,10 +275,12 @@ pub async fn transfer(_cx: &rpc::JobCx, wallet: String, n: u32) -> rpc::Result<(
 	} else {
 		&WALLET_B_MOST
 	};
+
 	let now = slot.fetch_add(1, Ordering::SeqCst) + 1;
 	most.fetch_max(now, Ordering::SeqCst);
 	tokio::time::sleep(Duration::from_millis(100)).await;
 	slot.fetch_sub(1, Ordering::SeqCst);
+
 	TRANSFERS.fetch_add(1, Ordering::SeqCst);
 	Ok(())
 }
@@ -363,6 +366,7 @@ async fn steps_resume_after_a_crash_with_the_same_keys(db: &Db) {
 		rpc::call(&grace, rpc::JobStatusArgs { id: id.to_string() }).await,
 		Err(rpc::Error::NotFound(_))
 	));
+
 	assert!(matches!(
 		rpc::call(&grace, rpc::JobStatusArgs { id: "nope".into() }).await,
 		Err(rpc::Error::Invalid(_))
@@ -383,10 +387,12 @@ async fn failures_retry_then_run_on_failure_once(db: &Db) {
 	assert_eq!(waiting.error.as_deref(), Some("the network is down"));
 	// Its backoff hasn't passed.
 	assert_eq!(jobs.run_jobs_until_idle().await, 0);
+
 	for _ in 0..2 {
 		jobs.advance(Duration::from_secs(2)).await;
 		jobs.run_jobs_until_idle().await;
 	}
+
 	let failed = row(db, id).await;
 	assert_eq!(failed.state, JobState::Failed, "{failed:?}");
 	assert_eq!(failed.attempts, 3);
@@ -503,6 +509,7 @@ async fn cancelling_stops_waiting_and_running_jobs(db: &Db) {
 	.await
 	.unwrap();
 	assert_eq!(row(db, waiting).await.state, JobState::Cancelled);
+
 	// Cancelling a finished job changes nothing.
 	rpc::call(
 		&ada,
@@ -598,6 +605,7 @@ async fn notices_reach_their_owner_and_enqueued_jobs_inherit_it(db: &Db) {
 		.into_iter()
 		.find(|job| job.name == "later")
 		.unwrap();
+
 	assert_eq!(next.owner, row(db, next.id).await.owner);
 	assert_ne!(next.owner, "");
 }
@@ -620,6 +628,7 @@ async fn cron_enqueues_each_tick_once_across_schedulers(db: &Db) {
 			.is_some_and(|key| key.starts_with("cron:heartbeat:"))
 	}));
 	first.run_jobs_until_idle().await;
+
 	assert!(
 		first
 			.all()
@@ -678,10 +687,12 @@ async fn workers_wake_on_enqueue(enqueue_on: &Db, work_on: &Db, tag: &str) {
 		.await
 		.unwrap();
 	let until = std::time::Instant::now() + Duration::from_secs(10);
+
 	while seen(tag).is_empty() {
 		assert!(std::time::Instant::now() < until, "the worker wasn't woken");
 		tokio::time::sleep(Duration::from_millis(20)).await;
 	}
+
 	jobs.shutdown().await;
 }
 
@@ -701,9 +712,11 @@ async fn limits_hold_across_two_pools(first: &Db, second: &Db) {
 	TRANSFERS.store(0, Ordering::SeqCst);
 	WALLET_A_MOST.store(0, Ordering::SeqCst);
 	WALLET_B_MOST.store(0, Ordering::SeqCst);
+
 	for n in 0..8 {
 		rpc::enqueue(first, Narrow { n }).await.unwrap();
 	}
+
 	for n in 0..4 {
 		rpc::enqueue(
 			first,
@@ -724,14 +737,18 @@ async fn limits_hold_across_two_pools(first: &Db, second: &Db) {
 		.await
 		.unwrap();
 	}
+
 	let until = std::time::Instant::now() + Duration::from_secs(60);
+
 	while NARROW_DONE.load(Ordering::SeqCst) < 8 || TRANSFERS.load(Ordering::SeqCst) < 8 {
 		assert!(std::time::Instant::now() < until, "the jobs didn't finish");
 		tokio::time::sleep(Duration::from_millis(50)).await;
 	}
+
 	for pool in pools {
 		pool.shutdown().await;
 	}
+
 	assert!(NARROW_MOST.load(Ordering::SeqCst) <= 2);
 	assert!(NARROW_MOST.load(Ordering::SeqCst) >= 1);
 	assert_eq!(WALLET_A_MOST.load(Ordering::SeqCst), 1);

@@ -47,12 +47,14 @@ fn flaky(errors: Vec<FnError>) -> impl Fn() -> Fetch + Send + Sync + 'static {
 /// The latest record for each attempt, in the order they started.
 fn latest(records: Vec<RpcAttempt>) -> Vec<RpcAttempt> {
 	let mut latest: Vec<RpcAttempt> = Vec::new();
+
 	for record in records {
 		match latest.iter_mut().find(|seen| seen.id == record.id) {
 			Some(seen) => *seen = record,
 			None => latest.push(record),
 		}
 	}
+
 	latest
 }
 
@@ -78,10 +80,12 @@ fn each_attempt_records_its_start_and_its_error_class() {
 			.collect::<Vec<_>>(),
 		[(1, Some("network")), (2, Some("network")), (3, None)]
 	);
+
 	for attempt in &attempts {
 		assert!(attempt.finished_ms.unwrap() >= attempt.started_ms);
 		assert_eq!(attempt.function, attempts[0].function);
 	}
+
 	assert!(
 		attempts[0].function.starts_with("devtools::"),
 		"named after the code that made the call: {}",

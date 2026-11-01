@@ -113,11 +113,13 @@ impl Server {
 		let registrations = super::registrations().unwrap_or_else(|error| panic!("{error}"));
 		self.install();
 		let mut router = Router::new();
+
 		for registration in registrations {
 			// Jobs run in the background; a worker claims them, not a route.
 			if registration.kind == Kind::Job {
 				continue;
 			}
+
 			let server = self.clone();
 			router = router.route(
 				&format!("/api/{}", registration.name),
@@ -127,6 +129,7 @@ impl Server {
 				}),
 			);
 		}
+
 		router
 	}
 
@@ -149,6 +152,7 @@ impl Server {
 				}
 			}
 		};
+
 		let request_id = (registration.kind == Kind::Mutation)
 			.then(|| {
 				parts
@@ -158,11 +162,13 @@ impl Server {
 			})
 			.flatten()
 			.transpose();
+
 		let Ok(request_id) = request_id else {
 			return failure(&Error::invalid(
 				"the idempotency key must be printable ASCII",
 			));
 		};
+
 		match self.call(&parts, registration, arguments, request_id).await {
 			Ok(value) => {
 				(

@@ -94,6 +94,7 @@ pub async fn summarize(cx: &rpc::ActionCx, channel: String) -> rpc::Result<Strin
 		text: summary.clone(),
 	})
 	.await?;
+
 	cx.notify(
 		me,
 		rpc::Notice::new("Summary ready")
@@ -123,6 +124,7 @@ pub async fn tidy(_cx: &rpc::JobCx) -> rpc::Result<()> {
 #[rpc::mutation]
 pub async fn tell(cx: &rpc::MutationCx, to: Vec<Id<()>>, fail: bool) -> rpc::Result<Vec<String>> {
 	let mut ids = Vec::new();
+
 	for account in &to {
 		if let Some(id) = cx
 			.notify(*account, rpc::Notice::new("Hello").body("from a test"))
@@ -131,15 +133,18 @@ pub async fn tell(cx: &rpc::MutationCx, to: Vec<Id<()>>, fail: bool) -> rpc::Res
 			ids.push(id);
 		}
 	}
+
 	// Nobody to tell: nothing written.
 	assert!(
 		cx.notify(None::<Id<()>>, rpc::Notice::new("Nobody"))
 			.await?
 			.is_none()
 	);
+
 	if fail {
 		return Err(rpc::Error::invalid("changed my mind"));
 	}
+
 	Ok(ids)
 }
 
@@ -205,11 +210,14 @@ impl Identify for Header {
 async fn wait_for_delivery(account: Id<()>, count: usize) -> Vec<Delivery> {
 	for _ in 0..200 {
 		let delivered = delivered_to(account);
+
 		if delivered.len() >= count {
 			return delivered;
 		}
+
 		tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 	}
+
 	delivered_to(account)
 }
 
@@ -418,9 +426,11 @@ async fn postgres_actions_and_inbox() {
 	let Some(cluster) = PostgresCluster::start() else {
 		return;
 	};
+
 	for scenario in 0..2 {
 		let db = Db::connect(&cluster.database()).await.unwrap();
 		leptoskit_db::testing::create_tables(&db).await.unwrap();
+
 		if scenario == 0 {
 			actions_run_as_the_caller(&db).await;
 		} else {

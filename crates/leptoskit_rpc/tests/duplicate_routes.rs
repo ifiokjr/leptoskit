@@ -60,6 +60,7 @@ fn the_server_refuses_to_start() {
 		spec::export_if_requested();
 		unreachable!("a duplicate exits before the server starts");
 	}
+
 	let child = Command::new(std::env::current_exe().expect("the test binary"))
 		.args([
 			"--exact",

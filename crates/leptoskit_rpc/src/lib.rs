@@ -165,6 +165,7 @@ pub mod devtools;
 mod inbox;
 mod jobs;
 pub mod live;
+
 mod operation;
 pub mod scopes;
 #[cfg(feature = "server")]
@@ -314,6 +315,7 @@ impl FnError {
 			return Self::Other(text.to_owned());
 		};
 		let message = message.to_owned();
+
 		match kind {
 			"Request" => Self::Network(message),
 			"Args" | "MissingArg" => Self::Invalid(message),
@@ -403,6 +405,7 @@ impl RetryPolicy {
 		if retry == 0 {
 			return 0;
 		}
+
 		let shift = retry.saturating_sub(1).min(16);
 		self.base_delay_ms
 			.saturating_mul(1_u64 << shift)
@@ -464,6 +467,7 @@ where
 					if attempt >= policy.attempts || !error.retryable() {
 						return Err(error);
 					}
+
 					leptoskit_query::sleep(Duration::from_millis(policy.delay_ms(attempt))).await;
 				}
 			}

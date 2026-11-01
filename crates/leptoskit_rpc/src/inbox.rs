@@ -153,6 +153,7 @@ impl NoticeAction {
 		if self.operation != O::NAME {
 			return None;
 		}
+
 		serde_json::from_value(self.arguments.clone()).ok()
 	}
 }
@@ -276,6 +277,7 @@ mod tests {
 		] {
 			assert_eq!(NoticeKind::parse(kind.as_str()), kind);
 		}
+
 		assert_eq!(NoticeKind::parse("shout"), NoticeKind::Info);
 	}
 }

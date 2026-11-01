@@ -257,11 +257,14 @@ mod tests {
 		assert_eq!(backoff.ceiling(8), Duration::from_secs(256));
 		assert_eq!(backoff.ceiling(9), Duration::from_secs(300));
 		assert_eq!(backoff.ceiling(200), Duration::from_secs(300));
+
 		for random in [0, 1, 999, u64::MAX] {
 			let wait = backoff.delay(3, random);
+
 			assert!(wait >= Duration::from_secs(4), "{wait:?}");
 			assert!(wait <= Duration::from_secs(8), "{wait:?}");
 		}
+
 		assert_eq!(Backoff::default(), Backoff::DEFAULT);
 		assert_eq!(JobOptions::default(), JobOptions::DEFAULT);
 	}

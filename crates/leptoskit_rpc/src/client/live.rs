@@ -57,6 +57,7 @@ use crate::live::Resume;
 #[allow(unused_imports, reason = "only a socket build speaks the subprotocol")]
 use crate::live::SUBPROTOCOL;
 use crate::live::ServerFrame;
+use crate::live::Transition;
 use crate::live::Update;
 use crate::live::WireError;
 use crate::live::apply;
@@ -309,10 +310,6 @@ async fn send(connection: &dyn Connection, frame: &ClientFrame) -> bool {
 	connection.send(text).await.is_ok()
 }
 
-#[expect(
-	clippy::cognitive_complexity,
-	reason = "one connection's state machine reads best in one place"
-)]
 async fn run(inner: Arc<Inner>, mut commands: UnboundedReceiver<Command>) {
 	let mut backoff = BACKOFF_START;
 
@@ -324,91 +321,24 @@ async fn run(inner: Arc<Inner>, mut commands: UnboundedReceiver<Command>) {
 		};
 		backoff = BACKOFF_START;
 
-		let hello = ClientFrame::Hello {
-			resume: Some(Resume {
-				version: inner.version.load(Ordering::Relaxed),
-			}),
-		};
-		if !send(connection.as_ref(), &hello).await {
+		if !handshake(inner.as_ref(), connection.as_ref()).await {
 			continue;
 		}
-		if let Some(token) = token(inner.as_ref()).await {
-			send(connection.as_ref(), &ClientFrame::Auth { token }).await;
-		}
-		resubscribe(inner.as_ref(), connection.as_ref()).await;
-		resend_mutations(inner.as_ref(), connection.as_ref()).await;
-		rejoin(inner.as_ref(), connection.as_ref()).await;
 
 		loop {
 			let command = commands.next().fuse();
 			let frame = connection.next().fuse();
 			futures::pin_mut!(command, frame);
+
 			match futures::future::select(command, frame).await {
-				Either::Left((Some(Command::Subscribe(id)), _)) => {
-					let frame = inner.subscribers().get(&id).map(|subscriber| {
-						ClientFrame::Sub {
-							id,
-							query: subscriber.name.clone(),
-							args: subscriber.args.clone(),
-						}
-					});
-					if let Some(frame) = frame
-						&& !send(connection.as_ref(), &frame).await
-					{
-						break;
-					}
-				}
-				Either::Left((Some(Command::Unsubscribe(id)), _)) => {
-					if !send(connection.as_ref(), &ClientFrame::Unsub { id }).await {
-						break;
-					}
-				}
-				Either::Left((Some(Command::Mutate(id)), _)) => {
-					let frame = inner.mutations().get(&id).map(|mutation| {
-						ClientFrame::Mutate {
-							request: id,
-							name: mutation.name.clone(),
-							args: mutation.args.clone(),
-							key: mutation.key.clone(),
-						}
-					});
-					if let Some(frame) = frame
-						&& !send(connection.as_ref(), &frame).await
-					{
-						break;
-					}
-				}
-				Either::Left((Some(Command::Join(key)), _)) => {
-					let frame = inner.channels().get(&key).map(|channel| {
-						ClientFrame::Join {
-							channel: key.clone(),
-							name: channel.name.clone(),
-							args: channel.args.clone(),
-							state: channel.state.clone(),
-						}
-					});
-					if let Some(frame) = frame
-						&& !send(connection.as_ref(), &frame).await
-					{
-						break;
-					}
-				}
-				Either::Left((Some(Command::Leave(key)), _)) => {
-					if !send(connection.as_ref(), &ClientFrame::Leave { channel: key }).await {
-						break;
-					}
-				}
-				Either::Left((Some(Command::Signal(key, message)), _)) => {
-					let frame = ClientFrame::Signal {
-						channel: key,
-						message,
-					};
-					if !send(connection.as_ref(), &frame).await {
+				Either::Left((Some(Command::Reconnect) | None, _)) => break,
+				Either::Left((Some(command), _)) => {
+					if !send_command(inner.as_ref(), connection.as_ref(), command).await {
 						break;
 					}
 				}
 				Either::Right((Ok(Some(text)), _)) => dispatch(inner.as_ref(), &text),
-				Either::Left((None | Some(Command::Reconnect), _)) | Either::Right((..)) => break,
+				Either::Right((..)) => break,
 			}
 		}
 
@@ -417,23 +347,93 @@ async fn run(inner: Arc<Inner>, mut commands: UnboundedReceiver<Command>) {
 	}
 }
 
+/// Says hello, authenticates, and restores what the connection held.
+async fn handshake(inner: &Inner, connection: &dyn Connection) -> bool {
+	let hello = ClientFrame::Hello {
+		resume: Some(Resume {
+			version: inner.version.load(Ordering::Relaxed),
+		}),
+	};
+
+	if !send(connection, &hello).await {
+		return false;
+	}
+
+	if let Some(token) = token(inner).await {
+		send(connection, &ClientFrame::Auth { token }).await;
+	}
+
+	resubscribe(inner, connection).await;
+	resend_mutations(inner, connection).await;
+	rejoin(inner, connection).await;
+	true
+}
+
+/// Sends one queued command, saying whether the connection is still open.
+async fn send_command(inner: &Inner, connection: &dyn Connection, command: Command) -> bool {
+	let frame = match command {
+		Command::Subscribe(id) => {
+			match inner.subscribers().get(&id) {
+				Some(subscriber) => {
+					ClientFrame::Sub {
+						id,
+						query: subscriber.name.clone(),
+						args: subscriber.args.clone(),
+					}
+				}
+				None => return true,
+			}
+		}
+		Command::Unsubscribe(id) => ClientFrame::Unsub { id },
+		Command::Mutate(id) => {
+			match inner.mutations().get(&id) {
+				Some(mutation) => {
+					ClientFrame::Mutate {
+						request: id,
+						name: mutation.name.clone(),
+						args: mutation.args.clone(),
+						key: mutation.key.clone(),
+					}
+				}
+				None => return true,
+			}
+		}
+		Command::Join(key) => {
+			match inner.channels().get(&key) {
+				Some(channel) => {
+					ClientFrame::Join {
+						channel: key.clone(),
+						name: channel.name.clone(),
+						args: channel.args.clone(),
+						state: channel.state.clone(),
+					}
+				}
+				None => return true,
+			}
+		}
+		Command::Leave(key) => ClientFrame::Leave { channel: key },
+		Command::Signal(key, message) => {
+			ClientFrame::Signal {
+				channel: key,
+				message,
+			}
+		}
+		Command::Reconnect => return false,
+	};
+
+	send(connection, &frame).await
+}
+
 fn dispatch(inner: &Inner, text: &str) {
 	let Ok(frame) = serde_json::from_str::<ServerFrame>(text) else {
 		return;
 	};
+
 	match frame {
 		ServerFrame::Welcome { version, .. } => {
 			inner.version.store(version, Ordering::Relaxed);
 		}
-		ServerFrame::Transition(transition) => {
-			inner.version.store(transition.to, Ordering::Relaxed);
-			let subscribers = inner.subscribers();
-			for update in transition.updates {
-				if let Some(subscriber) = subscribers.get(&update.id) {
-					let _ = subscriber.sender.unbounded_send(update.update);
-				}
-			}
-		}
+		ServerFrame::Transition(transition) => apply_transition(inner, transition),
 		ServerFrame::Done {
 			request,
 			ok,
@@ -441,33 +441,9 @@ fn dispatch(inner: &Inner, text: &str) {
 			version,
 		} => {
 			inner.version.store(version, Ordering::Relaxed);
-			if let Some(sender) = inner.pending().remove(&request) {
-				inner.mutations().remove(&request);
-				let answer = match err {
-					Some(error) => Err(error),
-					None => Ok(ok.unwrap_or(Value::Null)),
-				};
-				let _ = sender.send(answer);
-			} else if let Some(subscriber) = inner.subscribers().get(&request)
-				&& let Some(value) = ok
-			{
-				// A subscription's first value.
-				let _ = subscriber.sender.unbounded_send(Update::Ok(value));
-			}
+			finish(inner, request, ok, err);
 		}
-		ServerFrame::AuthStatus { refused, .. } => {
-			if refused {
-				// The socket stays open, but nothing it holds may be read:
-				// every result becomes an error until the app signs in again.
-				let subscribers = inner.subscribers();
-				for subscriber in subscribers.values() {
-					let _ = subscriber.sender.unbounded_send(Update::Err(WireError {
-						status: 401,
-						message: "sign in again to watch this".to_owned(),
-					}));
-				}
-			}
-		}
+		ServerFrame::AuthStatus { refused, .. } => refuse(inner, refused),
 		ServerFrame::Reconnect { .. } => {
 			let _ = inner.commands.unbounded_send(Command::Reconnect);
 		}
@@ -476,28 +452,76 @@ fn dispatch(inner: &Inner, text: &str) {
 			from,
 			message,
 		} => {
-			if let Some(joined) = inner.channels().get(&channel) {
-				let _ = joined
-					.sender
-					.unbounded_send(ChannelEvent::Signal { from, message });
-			}
+			send_channel(inner, &channel, ChannelEvent::Signal { from, message });
 		}
 		ServerFrame::Presence { channel, members } => {
-			if let Some(joined) = inner.channels().get(&channel) {
-				let _ = joined
-					.sender
-					.unbounded_send(ChannelEvent::Presence(members));
-			}
+			send_channel(inner, &channel, ChannelEvent::Presence(members));
 		}
 		ServerFrame::ChannelError { channel, err } => {
-			if let Some(joined) = inner.channels().get(&channel) {
-				let _ = joined.sender.unbounded_send(ChannelEvent::Error(err));
-			}
+			send_channel(inner, &channel, ChannelEvent::Error(err));
 		}
 		ServerFrame::Item { .. }
 		| ServerFrame::End { .. }
 		| ServerFrame::Pong
 		| ServerFrame::Unknown => {}
+	}
+}
+
+/// Hands each changed result to the subscriber watching for it.
+fn apply_transition(inner: &Inner, transition: Transition) {
+	inner.version.store(transition.to, Ordering::Relaxed);
+	let subscribers = inner.subscribers();
+
+	for update in transition.updates {
+		if let Some(subscriber) = subscribers.get(&update.id) {
+			let _ = subscriber.sender.unbounded_send(update.update);
+		}
+	}
+}
+
+/// Answers a finished call, or sends a subscription's first value.
+fn finish(inner: &Inner, request: u32, ok: Option<Value>, err: Option<WireError>) {
+	let Some(sender) = inner.pending().remove(&request) else {
+		if let Some(subscriber) = inner.subscribers().get(&request)
+			&& let Some(value) = ok
+		{
+			// A subscription's first value.
+			let _ = subscriber.sender.unbounded_send(Update::Ok(value));
+		}
+
+		return;
+	};
+	inner.mutations().remove(&request);
+
+	let answer = match err {
+		Some(error) => Err(error),
+		None => Ok(ok.unwrap_or(Value::Null)),
+	};
+
+	let _ = sender.send(answer);
+}
+
+/// Refused credentials make every result an error until the app signs in
+/// again.
+fn refuse(inner: &Inner, refused: bool) {
+	if !refused {
+		return;
+	}
+
+	let subscribers = inner.subscribers();
+
+	for subscriber in subscribers.values() {
+		let _ = subscriber.sender.unbounded_send(Update::Err(WireError {
+			status: 401,
+			message: "sign in again to watch this".to_owned(),
+		}));
+	}
+}
+
+/// Sends a channel event to the app watching that channel, if any.
+fn send_channel(inner: &Inner, channel: &str, event: ChannelEvent) {
+	if let Some(joined) = inner.channels().get(channel) {
+		let _ = joined.sender.unbounded_send(event);
 	}
 }
 
@@ -513,6 +537,7 @@ async fn resubscribe(inner: &Inner, connection: &dyn Connection) {
 			}
 		})
 		.collect();
+
 	for frame in frames {
 		if !send(connection, &frame).await {
 			return;
@@ -533,6 +558,7 @@ async fn resend_mutations(inner: &Inner, connection: &dyn Connection) {
 			}
 		})
 		.collect();
+
 	for frame in frames {
 		if !send(connection, &frame).await {
 			return;
@@ -553,6 +579,7 @@ async fn rejoin(inner: &Inner, connection: &dyn Connection) {
 			}
 		})
 		.collect();
+
 	for frame in frames {
 		if !send(connection, &frame).await {
 			return;
@@ -575,6 +602,7 @@ pub(crate) fn install(config: &ClientConfig) {
 	if CLIENT.get().is_some() {
 		return;
 	}
+
 	if let Some(transport) = transport(config) {
 		let _ = CLIENT.set(LiveClient::new(config, transport));
 	}
@@ -638,6 +666,7 @@ fn transport(_config: &ClientConfig) -> Option<Arc<dyn Transport>> {
 ))]
 fn socket_url(origin: &str) -> String {
 	let origin = origin.trim_end_matches('/');
+
 	if let Some(rest) = origin.strip_prefix("https://") {
 		format!("wss://{rest}/live")
 	} else if let Some(rest) = origin.strip_prefix("http://") {
@@ -866,6 +895,7 @@ impl<C: Channel> ChannelHandle<C> {
 		let Some(key) = self.key.get_value() else {
 			return;
 		};
+
 		if let Some(live) = CLIENT.get() {
 			live.signal::<C>(&key, &message);
 		}
@@ -908,6 +938,7 @@ where
 			if let Some(previous) = key.get_value() {
 				live.leave(&previous);
 			}
+
 			let (joined, mut events) = live.join(args, None);
 			key.set_value(Some(joined));
 			Executor::spawn_local(async move {
@@ -940,6 +971,7 @@ fn push_signal<C: Channel>(signals: RwSignal<Vec<C::Message>>, message: Value) {
 		if list.len() >= 100 {
 			list.remove(0);
 		}
+
 		list.push(message);
 	});
 }
@@ -979,6 +1011,7 @@ where
 		if let Some(previous) = subscription.get_value() {
 			live.unsubscribe(previous);
 		}
+
 		let Ok(value) = serde_json::to_value(key.get()) else {
 			subscription.set_value(None);
 			return;
@@ -1061,11 +1094,14 @@ mod tests {
 						Some(sent.remove(0))
 					}
 				};
+
 				if let Some(text) = text {
 					return serde_json::from_str(&text).unwrap();
 				}
+
 				tokio::time::sleep(Duration::from_millis(5)).await;
 			}
+
 			panic!("the client sent nothing");
 		}
 	}
@@ -1091,6 +1127,7 @@ mod tests {
 					if let Some(text) = this.incoming.lock().unwrap().pop_front() {
 						return Ok(Some(text));
 					}
+
 					tokio::time::sleep(Duration::from_millis(5)).await;
 				}
 			})
@@ -1133,7 +1170,7 @@ mod tests {
 					Update::Ok(json!([{ "id": "a", "body": "one" }]))
 				);
 
-				socket.server_says(&ServerFrame::Transition(crate::live::Transition {
+				socket.server_says(&ServerFrame::Transition(Transition {
 					from: 0,
 					to: 1,
 					updates: vec![crate::live::SubscriptionUpdate {

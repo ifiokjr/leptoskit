@@ -305,6 +305,7 @@ fn collisions_are_reported() {
 	let a = descriptor("same", "/api/a", Method::POST, form, json);
 	let b = descriptor("same", "/api/b", Method::POST, form, json);
 	let error = spec::collect_from(&[&a, &b], &options).expect_err("same name");
+
 	assert!(matches!(error, spec::SpecError::DuplicateName { ref name, .. } if name == "same"));
 	assert!(
 		error.to_string().contains("#[api(name = \"...\")]"),
@@ -362,6 +363,7 @@ fn encodings_classify_by_method_and_content_type() {
 			.expect(name)
 	};
 	assert_eq!(by_name("q").input, HttpInput::Query);
+
 	assert_eq!(by_name("j").input, HttpInput::Json);
 	assert_eq!(
 		by_name("c").input,
@@ -510,6 +512,7 @@ async fn openapi_router_serves_json_and_yaml() {
 	let document: serde_json::Value = serde_json::from_slice(&body).expect("json");
 	assert_eq!(document["openapi"], "3.1.0");
 	assert!(document["paths"]["/api/list_todos"].is_object());
+
 	assert!(
 		document["paths"]["/api/flush_caches"].is_null(),
 		"the router serves the public spec"

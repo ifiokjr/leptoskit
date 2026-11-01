@@ -38,11 +38,13 @@ fn a_requested_export_writes_the_spec_and_exits_cleanly() {
 		spec::export_if_requested();
 		unreachable!("export_if_requested exits once an export is requested");
 	}
+
 	let dir = scratch("ok");
 	let out = dir.join("spec.json");
 	let child = export_in_child("a_requested_export_writes_the_spec_and_exits_cleanly", &out);
 	let stderr = String::from_utf8_lossy(&child.stderr);
 	assert!(child.status.success(), "{stderr}");
+
 	assert!(
 		stderr.contains("wrote the RPC specification to"),
 		"{stderr}"
@@ -58,6 +60,7 @@ fn a_failed_export_reports_the_error_and_exits_with_failure() {
 		spec::export_if_requested_with(&SpecOptions::new("Todos", "1.0.0"));
 		unreachable!("export_if_requested_with exits once an export is requested");
 	}
+
 	// The output path is an existing directory, which cannot be written as a
 	// file.
 	let dir = scratch("fail");
@@ -71,6 +74,7 @@ fn a_failed_export_reports_the_error_and_exits_with_failure() {
 		stderr.contains("could not export the RPC specification"),
 		"{stderr}"
 	);
+
 	assert!(
 		stderr.contains("os error"),
 		"the IO error that caused it is reported too: {stderr}"
@@ -98,9 +102,11 @@ fn writing_over_a_directory_names_the_path() {
 		std::error::Error::source(&error).is_some(),
 		"the IO error is the source"
 	);
+
 	match error {
 		spec::SpecError::Write { path, .. } => assert_eq!(path, dir),
 		other => panic!("expected a write error, got {other}"),
 	}
+
 	let _ = std::fs::remove_dir_all(&dir);
 }

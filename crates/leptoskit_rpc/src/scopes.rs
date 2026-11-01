@@ -140,6 +140,7 @@ mod tests {
 		for name in ["openid", "posts:read", "https://api.example/read", "a!#[]~"] {
 			assert!(is_scope_name(name), "{name}");
 		}
+
 		for name in ["", "two words", "quote\"", "back\\slash", "tab\t", "é"] {
 			assert!(!is_scope_name(name), "{name}");
 		}

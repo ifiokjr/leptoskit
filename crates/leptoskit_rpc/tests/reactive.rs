@@ -57,13 +57,14 @@ async fn eventually<T>(label: &str, read: impl Fn() -> Option<T>) -> T {
 		if let Some(value) = read() {
 			return value;
 		}
+
 		tokio::time::sleep(Duration::from_millis(5)).await;
 	}
+
 	panic!("timed out waiting for {label}");
 }
 
 // ---- the wire ---------------------------------------------------------------
-
 /// Every way a server function can fail, as leptos reports it.
 #[allow(deprecated)]
 fn every_server_fn_error() -> Vec<(ServerFnError, FnError)> {
@@ -138,6 +139,7 @@ fn errors_read_as_their_kind_and_message() {
 		(FnError::Decode("json".to_owned()), "decode", false),
 		(FnError::Other("odd".to_owned()), "other", false),
 	];
+
 	for (error, kind, retryable) in cases {
 		assert_eq!(error.retryable(), retryable, "{error}");
 		assert_eq!(
@@ -161,7 +163,6 @@ fn the_preset_policies() {
 }
 
 // ---- queries ----------------------------------------------------------------
-
 #[tokio::test]
 async fn a_query_resolves_and_reruns_when_its_inputs_change() {
 	let _owner = runtime();
@@ -218,7 +219,6 @@ async fn a_query_retries_retryable_failures_and_reports_the_rest() {
 }
 
 // ---- mutations --------------------------------------------------------------
-
 #[tokio::test]
 async fn a_mutation_runs_once_per_dispatch_and_never_retries() {
 	let _owner = runtime();
@@ -275,7 +275,6 @@ async fn an_idempotent_mutation_retries_with_the_same_input() {
 }
 
 // ---- leptoskit_query --------------------------------------------------------
-
 /// `FnError` works as a `leptoskit_query` error type, and its classification
 /// decides that crate's retries: a dropped connection is retried, invalid
 /// input fails at once.

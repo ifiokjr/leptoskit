@@ -21,6 +21,7 @@ pub mod channel;
 mod cx;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod http;
+
 #[cfg(feature = "db")]
 mod identity;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -161,6 +162,7 @@ fn registrations_from(
 			.cmp(b.name)
 			.then_with(|| a.module_path.cmp(b.module_path))
 	});
+
 	for pair in registrations.windows(2) {
 		if pair[0].name == pair[1].name {
 			return Err(RegistryError {
@@ -170,6 +172,7 @@ fn registrations_from(
 			});
 		}
 	}
+
 	Ok(registrations)
 }
 

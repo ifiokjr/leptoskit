@@ -261,6 +261,7 @@ pub fn call<O: Operation>(
 	} else {
 		Key::None
 	};
+
 	send(&op, key)
 }
 
@@ -399,6 +400,7 @@ pub fn use_job(
 	if live::available() {
 		return use_live(move || crate::jobs::JobStatusArgs { id: id() });
 	}
+
 	let scope = QueryScope::new(|args: Args<crate::jobs::JobStatusArgs>| call(args.into_inner()))
 		.with_name("rpc:job_status")
 		.with_refetch_interval(std::time::Duration::from_secs(1));

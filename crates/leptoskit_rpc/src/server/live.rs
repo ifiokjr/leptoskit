@@ -249,6 +249,7 @@ impl Live {
 		let Some(allowed) = &self.inner.origin else {
 			return true;
 		};
+
 		match headers.get(ORIGIN) {
 			// Native apps send no `Origin`; they authenticate with a token.
 			None => true,
@@ -263,6 +264,7 @@ impl Live {
 
 async fn upgrade(State(live): State<Live>, request: axum::extract::Request) -> Response {
 	let (mut parts, _body) = request.into_parts();
+
 	if !live.origin_ok(&parts.headers) {
 		return StatusCode::FORBIDDEN.into_response();
 	}
@@ -327,6 +329,7 @@ impl Live {
 					break;
 				}
 			}
+
 			let _ = sink.close().await;
 		});
 
@@ -361,42 +364,54 @@ impl Live {
 			})
 			.await;
 
-		let mut heartbeat = tokio::time::interval(Duration::from_secs(HEARTBEAT_SECONDS));
-		heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 		let mut drained = self.inner.drain.subscribe();
 
-		loop {
-			tokio::select! {
-				frame = stream.next() => {
-					let Some(Ok(message)) = frame else { break };
-					if !session.handle(message).await {
-						break;
-					}
-				}
-				entry = session.log.next() => {
-					let Ok(entry) = entry else { break };
-					session.changed(entry).await;
-				}
-				_ = heartbeat.tick() => {
-					if session.out.send(Message::Ping(Vec::new().into())).await.is_err() {
-						break;
-					}
-				}
-				_ = drained.recv() => {
-					session.drain = true;
-					break;
-				}
-			}
-		}
-
-		if session.drain {
+		if session.serve(&mut stream, &mut drained).await {
 			let after_ms = 250 + (session.last_sent % 2_000);
 			session.send(ServerFrame::Reconnect { after_ms }).await;
 		}
+
 		session.leave_all();
 		let _ = self.connections().remove(&number);
 		drop(session.out);
 		let _ = writer.await;
+	}
+}
+
+impl Session {
+	/// Reads frames and changes, answers them, and says whether the server
+	/// is draining and wants the client back.
+	async fn serve(
+		&mut self,
+		stream: &mut futures::stream::SplitStream<WebSocket>,
+		drained: &mut broadcast::Receiver<u64>,
+	) -> bool {
+		let mut heartbeat = tokio::time::interval(Duration::from_secs(HEARTBEAT_SECONDS));
+		heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+		loop {
+			tokio::select! {
+				frame = stream.next() => {
+					let Some(Ok(message)) = frame else { return false };
+					if !self.handle(message).await {
+						return false;
+					}
+				}
+				entry = self.log.next() => {
+					let Ok(entry) = entry else { return false };
+					self.changed(entry).await;
+				}
+				_ = heartbeat.tick() => {
+					if self.out.send(Message::Ping(Vec::new().into())).await.is_err() {
+						return false;
+					}
+				}
+				_ = drained.recv() => {
+					self.drain = true;
+					return true;
+				}
+			}
+		}
 	}
 }
 
@@ -413,6 +428,7 @@ impl Session {
 			Ok(value) => (Some(value), None),
 			Err(error) => (None, Some(error)),
 		};
+
 		self.send(ServerFrame::Done {
 			request,
 			ok,
@@ -538,6 +554,7 @@ impl Session {
 				)
 				.await;
 		};
+
 		if registration.kind != Kind::Mutation {
 			return self
 				.done(
@@ -563,10 +580,12 @@ impl Session {
 		// version this call reaches, so a client can hold its optimistic
 		// update until it arrives.
 		let version = self.live.next_version();
+
 		let (ok, err) = match result {
 			Ok(value) => (Some(value), None),
 			Err(error) => (None, Some(error)),
 		};
+
 		self.send(ServerFrame::Done {
 			request,
 			ok,
@@ -593,33 +612,13 @@ impl Session {
 			.db
 			.with_context(self.identity.context.clone());
 		// Every result is now read as somebody else: re-run them all.
+		let dialect = self.db.dialect();
 		let mut updates = Vec::new();
 		let ids: Vec<u32> = self.subscriptions.keys().copied().collect();
+
 		for id in ids {
-			let Some((query, args)) = self
-				.subscriptions
-				.get(&id)
-				.map(|sub| (sub.query.clone(), sub.args.clone()))
-			else {
-				continue;
-			};
-			match self.query(&query, args).await {
-				Ok((result, reads)) => {
-					updates.push(SubscriptionUpdate {
-						id,
-						update: Update::Ok(result.clone()),
-					});
-					if let Some(subscription) = self.subscriptions.get_mut(&id) {
-						subscription.result = result;
-						subscription.reads = reads;
-					}
-				}
-				Err(error) => {
-					updates.push(SubscriptionUpdate {
-						id,
-						update: Update::Err(error),
-					});
-				}
+			if let Some(update) = self.rerun(id, None, true, dialect).await {
+				updates.push(update);
 			}
 		}
 
@@ -634,7 +633,19 @@ impl Session {
 			.caller
 			.clone()
 			.unwrap_or_else(|| format!("live-{}", self.number));
+		self.reauthorize().await;
+
+		self.send(ServerFrame::AuthStatus {
+			refused: false,
+			expiring: false,
+		})
+		.await
+	}
+
+	/// Checks every joined channel again, for the new identity.
+	async fn reauthorize(&mut self) {
 		let keys: Vec<String> = self.joined.keys().cloned().collect();
+
 		for key in keys {
 			let Some((name, args, state)) = self.joined.get(&key).map(|joined| {
 				(
@@ -650,17 +661,10 @@ impl Session {
 				continue;
 			};
 			let cx = QueryCx::new(self.db.clone(), self.identity.clone());
+
 			match (registration.authorize)(args, cx).await {
 				Ok(()) => {
-					{
-						let mut rooms = self.live.rooms();
-						if let Some(room) = rooms.get_mut(&key)
-							&& let Some(member) = room.members.get_mut(&self.number)
-						{
-							member.id.clone_from(&self.member);
-							member.state = state;
-						}
-					}
+					self.refresh_member(&key, state);
 					self.broadcast_presence(&key);
 				}
 				Err(error) => {
@@ -669,12 +673,69 @@ impl Session {
 				}
 			}
 		}
+	}
 
-		self.send(ServerFrame::AuthStatus {
-			refused: false,
-			expiring: false,
-		})
-		.await
+	/// Records the new identity in the channel's room.
+	fn refresh_member(&mut self, key: &str, state: Value) {
+		let mut rooms = self.live.rooms();
+
+		if let Some(room) = rooms.get_mut(key)
+			&& let Some(member) = room.members.get_mut(&self.number)
+		{
+			member.id.clone_from(&self.member);
+			member.state = state;
+		}
+	}
+
+	/// Runs a subscription again when the change could touch it, and says
+	/// what to send the client.
+	async fn rerun(
+		&mut self,
+		id: u32,
+		changes: Option<&[leptoskit_db::live::Change]>,
+		full: bool,
+		dialect: leptoskit_db::Dialect,
+	) -> Option<SubscriptionUpdate> {
+		let (query, args, previous, reads) = {
+			let subscription = self.subscriptions.get(&id)?;
+			(
+				subscription.query.clone(),
+				subscription.args.clone(),
+				subscription.result.clone(),
+				subscription.reads.clone(),
+			)
+		};
+
+		if !is_dirty(&reads, changes, full, dialect) {
+			return None;
+		}
+
+		self.live.inner.stats.reruns.fetch_add(1, Ordering::Relaxed);
+
+		match self.query(&query, args).await {
+			Ok((result, new_reads)) => {
+				let update = if full {
+					Some(Update::Ok(result.clone()))
+				} else if result != previous {
+					Some(patch(&previous, &result))
+				} else {
+					None
+				};
+
+				if let Some(subscription) = self.subscriptions.get_mut(&id) {
+					subscription.result = result;
+					subscription.reads = new_reads;
+				}
+
+				update.map(|update| SubscriptionUpdate { id, update })
+			}
+			Err(error) => {
+				Some(SubscriptionUpdate {
+					id,
+					update: Update::Err(error),
+				})
+			}
+		}
 	}
 
 	async fn changed(&mut self, entry: LogEntry) {
@@ -690,72 +751,28 @@ impl Session {
 				(None, version, true)
 			}
 		};
+
 		let dialect = self.db.dialect();
 		let mut updates = Vec::new();
-
 		let ids: Vec<u32> = self.subscriptions.keys().copied().collect();
-		for id in ids {
-			let Some((query, args, previous, reads)) = self.subscriptions.get(&id).map(|sub| {
-				(
-					sub.query.clone(),
-					sub.args.clone(),
-					sub.result.clone(),
-					sub.reads.clone(),
-				)
-			}) else {
-				continue;
-			};
-			// Only a read whose rows could have changed is run again. An
-			// unknown table, a pruned log, and a condition the matcher can't
-			// decide all count as a change.
-			let dirty = full
-				|| reads.is_empty()
-				|| reads.iter().any(|read| {
-					changes.as_ref().is_some_and(|changes| {
-						changes
-							.iter()
-							.any(|change| read.could_change(change, dialect))
-					})
-				});
-			if !dirty {
-				continue;
-			}
 
-			self.live.inner.stats.reruns.fetch_add(1, Ordering::Relaxed);
-			match self.query(&query, args).await {
-				Ok((result, new_reads)) => {
-					if full {
-						updates.push(SubscriptionUpdate {
-							id,
-							update: Update::Ok(result.clone()),
-						});
-					} else if result != previous {
-						let update = patch(&previous, &result);
-						updates.push(SubscriptionUpdate { id, update });
-					}
-					if let Some(subscription) = self.subscriptions.get_mut(&id) {
-						subscription.result = result;
-						subscription.reads = new_reads;
-					}
-				}
-				Err(error) => {
-					updates.push(SubscriptionUpdate {
-						id,
-						update: Update::Err(error),
-					});
-				}
+		for id in ids {
+			if let Some(update) = self.rerun(id, changes.as_deref(), full, dialect).await {
+				updates.push(update);
 			}
 		}
 
 		if updates.is_empty() {
 			return;
 		}
+
 		let to = version.max(self.last_sent + 1);
 		self.send_transition(updates, to, full);
 	}
 
 	fn send_transition(&mut self, mut updates: Vec<SubscriptionUpdate>, to: u64, full: bool) {
 		let full = full || self.full_next;
+
 		if full {
 			updates = self
 				.subscriptions
@@ -768,11 +785,13 @@ impl Session {
 				})
 				.collect();
 		}
+
 		self.full_next = false;
 
 		// A frame over the limit is split, all at the same `to`: the client
 		// applies the chunks in order and lands on the same state.
 		let mut chunk = Vec::new();
+
 		for update in updates {
 			chunk.push(update);
 			let transition = Transition {
@@ -784,12 +803,15 @@ impl Session {
 			let Ok(text) = serde_json::to_string(&ServerFrame::Transition(transition)) else {
 				continue;
 			};
+
 			if text.len() > MAX_FRAME_BYTES && chunk.len() > 1 {
 				let last = chunk.pop().expect("just pushed");
+
 				self.send_chunk(&chunk, to, full);
 				chunk = vec![last];
 			}
 		}
+
 		if !chunk.is_empty() {
 			self.send_chunk(&chunk, to, full);
 		}
@@ -812,6 +834,7 @@ impl Session {
 		let Ok(text) = serde_json::to_string(&ServerFrame::Transition(transition)) else {
 			return;
 		};
+
 		if self.out.try_send(Message::Text(text.into())).is_err() {
 			// A slow connection gets the newest state, not every step.
 			self.full_next = true;
@@ -827,6 +850,7 @@ impl Session {
 		if self.joined.contains_key(&channel) {
 			self.leave(&channel);
 		}
+
 		let Some(registration) = super::channel::registration(name) else {
 			return self
 				.channel_error(
@@ -837,6 +861,7 @@ impl Session {
 		};
 
 		let cx = QueryCx::new(self.db.clone(), self.identity.clone());
+
 		if let Err(error) = (registration.authorize)(args.clone(), cx).await {
 			return self.channel_error(&channel, WireError::new(&error)).await;
 		}
@@ -852,6 +877,7 @@ impl Session {
 				},
 			);
 		}
+
 		self.joined.insert(
 			channel.clone(),
 			Joined {
@@ -868,15 +894,18 @@ impl Session {
 		if self.joined.remove(channel).is_none() {
 			return;
 		}
+
 		let empty = {
 			let mut rooms = self.live.rooms();
 			if let Some(room) = rooms.get_mut(channel) {
 				room.members.remove(&self.number);
 			}
+
 			rooms
 				.get(channel)
 				.is_none_or(|room| room.members.is_empty())
 		};
+
 		if empty {
 			self.live.rooms().remove(channel);
 		} else {
@@ -886,6 +915,7 @@ impl Session {
 
 	fn leave_all(&mut self) {
 		let keys: Vec<String> = self.joined.keys().cloned().collect();
+
 		for key in keys {
 			self.leave(&key);
 		}
@@ -895,6 +925,7 @@ impl Session {
 		if !self.joined.contains_key(channel) {
 			return;
 		}
+
 		let (senders, from) = {
 			let rooms = self.live.rooms();
 			let Some(room) = rooms.get(channel) else {
@@ -921,6 +952,7 @@ impl Session {
 		let Ok(text) = serde_json::to_string(&frame) else {
 			return;
 		};
+
 		for sender in senders {
 			let _ = sender.try_send(Message::Text(text.clone().into()));
 		}
@@ -948,6 +980,7 @@ impl Session {
 		let Ok(text) = serde_json::to_string(&frame) else {
 			return;
 		};
+
 		for sender in senders {
 			let _ = sender.try_send(Message::Text(text.clone().into()));
 		}
@@ -967,12 +1000,14 @@ impl Session {
 				"no operation is named `{name}`"
 			)));
 		};
+
 		if registration.kind != Kind::Query {
 			return Err(WireError::invalid(format!(
 				"`{name}` is a {}, and only a query can be subscribed to",
 				registration.kind
 			)));
 		}
+
 		let sink = ReadSink::new();
 		let value = (registration.handler)(Invocation {
 			db: self.db.clone(),
@@ -984,6 +1019,7 @@ impl Session {
 		.await
 		.map_err(|error| WireError::new(&error))?;
 		let size = serde_json::to_vec(&value).map_or(0, |bytes| bytes.len());
+
 		if size > MAX_RESULT_BYTES {
 			return Err(WireError {
 				status: 413,
@@ -993,6 +1029,7 @@ impl Session {
 				),
 			});
 		}
+
 		Ok((value, sink.take()))
 	}
 }
@@ -1003,4 +1040,23 @@ impl std::fmt::Debug for Live {
 			.field("version", &self.version())
 			.finish_non_exhaustive()
 	}
+}
+
+/// Whether a change could touch the read, and the subscription must run
+/// again. An unknown table, a pruned log, and a condition the matcher can't
+/// decide all count as a change.
+fn is_dirty(
+	reads: &[ReadEntry],
+	changes: Option<&[leptoskit_db::live::Change]>,
+	full: bool,
+	dialect: leptoskit_db::Dialect,
+) -> bool {
+	full || reads.is_empty()
+		|| reads.iter().any(|read| {
+			changes.is_some_and(|changes| {
+				changes
+					.iter()
+					.any(|change| read.could_change(change, dialect))
+			})
+		})
 }

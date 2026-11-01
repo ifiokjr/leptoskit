@@ -192,6 +192,7 @@ fn wire_text_classifies_like_the_server() {
 		FnError::from_wire("no separator"),
 		FnError::Other("no separator".to_owned())
 	);
+
 	assert_eq!(FnError::from_wire("Args|bad input").message(), "bad input");
 	assert_eq!(FnError::from_wire("ServerError|down").message(), "down");
 	assert_eq!(FnError::from_wire("Deserialization|odd").message(), "odd");

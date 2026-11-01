@@ -38,6 +38,7 @@ async fn fill(bytes: &mut [u8; 16]) {
 	let filled = web_sys::window()
 		.and_then(|window| window.crypto().ok())
 		.and_then(|crypto| crypto.get_random_values_with_u8_array(bytes).ok());
+
 	if filled.is_none() {
 		fallback(bytes);
 	}
@@ -51,6 +52,7 @@ async fn fill(bytes: &mut [u8; 16]) {
 		Ok(crypto) => crypto.random_bytes(16).await.ok(),
 		Err(_) => None,
 	};
+
 	match random {
 		Some(random) if random.len() == 16 => bytes.copy_from_slice(&random),
 		_ => fallback(bytes),

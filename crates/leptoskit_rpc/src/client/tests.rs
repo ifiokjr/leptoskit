@@ -277,6 +277,7 @@ fn query_keys_compare_by_their_arguments() {
 	assert_eq!(format!("{:?}", key("a")), r#"{"text":"a","score":0.5}"#);
 	let cloned = key("c").clone();
 	assert_eq!(cloned.get().text, "c");
+
 	assert_eq!(Args::from(cloned.into_inner()), key("c"));
 	assert_eq!(
 		super::query_scope::<Search>().name(),

@@ -121,6 +121,7 @@ mod running {
 					"an idempotency key is 1 to {MAX_REQUEST_ID_LEN} characters long"
 				)));
 			}
+
 			let encoded =
 				serde_json::to_vec(arguments).map_err(|error| Error::invalid(error.to_string()))?;
 			let mut hash = Sha256::new();
@@ -162,12 +163,14 @@ mod running {
 			let Some(receipt) = receipt else {
 				return Ok(None);
 			};
+
 			if receipt.operation != self.operation || receipt.arguments != self.arguments {
 				return Err(Error::conflict(
 					"this idempotency key was already used for a different call; use a new key \
 					 for each call",
 				));
 			}
+
 			Ok(Some(receipt.result.0))
 		}
 

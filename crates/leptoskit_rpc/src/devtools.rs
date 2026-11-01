@@ -63,13 +63,16 @@ pub fn dropped() -> u64 {
 /// until then, so does this.
 pub fn now_ms() -> u64 {
 	let now = leptoskit_query::now_ms();
+
 	if now == 0 {
 		return 0;
 	}
+
 	let epoch = match EPOCH.compare_exchange(0, now + 1, Ordering::Relaxed, Ordering::Relaxed) {
 		Ok(_) => now,
 		Err(stored) => stored - 1,
 	};
+
 	now.saturating_sub(epoch)
 }
 
@@ -80,6 +83,7 @@ fn function_name(type_name: &'static str) -> &'static str {
 	while let Some(trimmed) = name.strip_suffix("::{{closure}}") {
 		name = trimmed;
 	}
+
 	name
 }
 

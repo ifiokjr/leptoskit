@@ -149,10 +149,12 @@ impl<H: Http> Inner<H> {
 		if response.status != 401 {
 			return Ok(response);
 		}
+
 		let renewed = match &self.credentials {
 			Some(credentials) => credentials.refused(authorization).await?,
 			None => false,
 		};
+
 		if !renewed {
 			return Ok(response);
 		}
@@ -175,16 +177,21 @@ impl<H: Http> Inner<H> {
 		} else {
 			1
 		};
+
 		let mut attempt = 0;
+
 		let response = loop {
 			attempt += 1;
+
 			match self.send(&url, &body, idempotency_key.as_ref()).await {
 				Err(FnError::Network(_)) if attempt < attempts => {
 					leptoskit_query::sleep(Duration::from_millis(250 * u64::from(attempt))).await;
 				}
+
 				outcome => break outcome?,
 			}
 		};
+
 		decode(&response)
 	}
 }
@@ -205,6 +212,7 @@ impl<H: Http> Api for Remote<H> {
 /// [`FnError::from_wire`] classifies it.
 pub(crate) fn decode(response: &HttpResponse) -> Result<Value, FnError> {
 	let text = String::from_utf8_lossy(&response.body);
+
 	if !(200..300).contains(&response.status) {
 		if text.trim().is_empty() {
 			return Err(FnError::Other(format!(
@@ -212,11 +220,14 @@ pub(crate) fn decode(response: &HttpResponse) -> Result<Value, FnError> {
 				response.status
 			)));
 		}
+
 		return Err(FnError::from_wire(&text));
 	}
+
 	if text.trim().is_empty() {
 		return Ok(Value::Null);
 	}
+
 	serde_json::from_str(&text)
 		.map_err(|error| FnError::Decode(format!("the answer wasn't JSON: {error}")))
 }

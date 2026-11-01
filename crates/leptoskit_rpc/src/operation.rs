@@ -239,6 +239,7 @@ impl Error {
 			Self::Invalid(_) => "Args",
 			_ => "ServerError",
 		};
+
 		format!("{kind}|{}", self.message())
 	}
 }
@@ -331,14 +332,17 @@ mod tests {
 			(Error::conflict("taken"), 409, "ServerError|taken"),
 			(Error::server("down"), 500, "ServerError|down"),
 		];
+
 		for (error, status, wire) in cases {
 			assert_eq!(error.status(), status);
 			assert_eq!(error.to_wire(), wire);
 			assert_eq!(error.to_string(), error.message());
 			assert!(!error.is_contended());
 		}
+
 		assert_eq!(Error::Contended.status(), 409);
 		assert!(Error::Contended.is_contended());
+
 		assert!(Error::Contended.to_wire().starts_with("ServerError|"));
 		assert_eq!(
 			FnError::from(Error::invalid("bad")),
@@ -369,6 +373,7 @@ mod tests {
 		assert_eq!(permanent.status(), 500);
 		assert_eq!(permanent.to_wire(), "ServerError|declined");
 		assert!(permanent.is_permanent());
+
 		assert!(!Error::server("down").is_permanent());
 	}
 
