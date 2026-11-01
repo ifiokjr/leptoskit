@@ -8,6 +8,8 @@
 
 mod support;
 
+use std::collections::BTreeMap;
+
 use geo::Distance;
 use geo::Geodesic;
 use geo::Relate;
@@ -18,10 +20,15 @@ use leptoskit_db::DbError;
 use leptoskit_db::Dialect;
 use leptoskit_db::Expr;
 use leptoskit_db::Id;
+use leptoskit_db::Read;
+use leptoskit_db::ReadEntry;
+use leptoskit_db::ReadKind;
 use leptoskit_db::Shape;
 use leptoskit_db::Statement;
 use leptoskit_db::Table;
 use leptoskit_db::Timestamp;
+use leptoskit_db::Tracked;
+use leptoskit_db::Tri;
 use leptoskit_db::Value;
 use leptoskit_db::geo::Geo;
 use leptoskit_db::geo::Geography;
@@ -741,6 +748,71 @@ async fn nearest_orders_planar_shapes_and_pages() {
 
 /// The keys in a spatial index's rows table, and how many boxes its
 /// R*Tree holds, on SQLite.
+/// What a live query reads through a tracked connection: the nearest rows
+/// and spatial conditions are recorded on their table, and only the
+/// database can tell whether a row is near or inside a shape.
+#[tokio::test]
+async fn nearest_and_spatial_reads_are_recorded() {
+	on_both(async |db| {
+		let ada = owner(&db, "Ada").await;
+		let gallery = place(&db, ada, "Gallery", trafalgar()).await;
+		let tracked = Tracked::new(db.with_context(Context::new().with(Viewer(ada))));
+
+		let nearest = Place::query()
+			.nearest(|p| p.location, &trafalgar())
+			.limit(1)
+			.all(&tracked)
+			.await
+			.unwrap();
+		assert_eq!(nearest.len(), 1);
+		let every = Place::query()
+			.nearest(|p| p.location, &trafalgar())
+			.with_distance()
+			.all(&tracked)
+			.await
+			.unwrap();
+		assert_eq!(every.len(), 1);
+		let close = Place::query()
+			.filter(|p| p.location.within_distance(&trafalgar(), Meters(100.0)))
+			.count(&tracked)
+			.await
+			.unwrap();
+		assert_eq!(close, 1);
+
+		let reads = tracked.into_reads();
+		let places: Vec<&ReadEntry> = reads
+			.iter()
+			.filter(|entry| entry.table == Place::table_name())
+			.collect();
+		assert_eq!(
+			places.iter().map(|entry| entry.kind).collect::<Vec<_>>(),
+			[ReadKind::Rows, ReadKind::Rows, ReadKind::Count]
+		);
+		// Distance orders the rows, so no column does.
+		assert_eq!(places[0].order, Vec::new());
+		assert_eq!(places[0].limit, Some(1));
+		assert_eq!(
+			places[1].keys,
+			Some(vec![vec![Value::Uuid(gallery.id.uuid())]])
+		);
+
+		let row: BTreeMap<String, Value> = Place::COLUMNS
+			.iter()
+			.map(ToString::to_string)
+			.zip(gallery.to_values().unwrap())
+			.collect();
+		for entry in &places {
+			assert_eq!(entry.condition.eval(&row), Tri::Unknown, "{entry:?}");
+		}
+		let mut gone = row.clone();
+		gone.insert("deleted_at".into(), Value::Timestamp(leptoskit_db::now()));
+		for entry in &places {
+			assert_eq!(entry.condition.eval(&gone), Tri::False, "{entry:?}");
+		}
+	})
+	.await;
+}
+
 async fn index_contents(db: &Db, table: &str, column: &str) -> (i64, i64) {
 	let count = |sql: String| {
 		async move {

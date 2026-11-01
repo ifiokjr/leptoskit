@@ -5,7 +5,6 @@
 
 mod support;
 
-use leptoskit_db::Connection;
 use leptoskit_db::Db;
 use leptoskit_db::HasId;
 use leptoskit_db::Id;

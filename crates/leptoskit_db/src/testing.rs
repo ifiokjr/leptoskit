@@ -11,7 +11,6 @@
 use leptoskit_db_schema::RequireHints;
 use leptoskit_db_schema::Schema;
 
-use crate::Connection;
 use crate::Db;
 #[cfg(feature = "sqlite")]
 use crate::Migration;

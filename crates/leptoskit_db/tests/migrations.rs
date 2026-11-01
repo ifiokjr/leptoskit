@@ -4,12 +4,12 @@
 
 mod support;
 
-use leptoskit_db::Connection;
 use leptoskit_db::Db;
 use leptoskit_db::DbError;
 use leptoskit_db::Id;
 use leptoskit_db::Migration;
 use leptoskit_db::MigrationError;
+use leptoskit_db::Read;
 use leptoskit_db::table;
 use leptoskit_db_schema::RequireHints;
 use leptoskit_db_schema::Schema;

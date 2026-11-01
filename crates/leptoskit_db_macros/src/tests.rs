@@ -1648,6 +1648,49 @@ fn live_tables_say_so_and_shapes_ask_for_deleted_rows() {
 }
 
 #[test]
+fn a_view_that_declares_its_reads_records_them() {
+	let expanded = pretty(
+		expand_view(
+			quote!(name = "totals", reads(Post, crate::User), sql = "SELECT 1"),
+			quote! {
+				pub struct Totals {
+					pub n: i64,
+				}
+			},
+		)
+		.expect("the view expands"),
+	);
+	// Inside `vec![…]` the tokens stay as written, so compare them without
+	// spaces.
+	let compact: String = expanded.split_whitespace().collect();
+	let at = compact
+		.find("fnreads_through")
+		.expect("the view says what it reads");
+	assert!(
+		compact[at..].contains(
+			"Some(::std::vec![<Postas::leptoskit_db::Table>::table_name(),\
+			 <crate::Useras::leptoskit_db::Table>::table_name()],)"
+		),
+		"{}",
+		&compact[at..at + 300]
+	);
+
+	// A plain view that doesn't say can't be tracked.
+	let unsaid = pretty(
+		expand_view(
+			quote!(name = "totals", sql = "SELECT 1"),
+			quote! {
+				pub struct Totals {
+					pub n: i64,
+				}
+			},
+		)
+		.expect("the view expands"),
+	);
+	assert!(unsaid.contains("::core::option::Option::None"));
+}
+
+#[test]
 fn view_mistakes_are_explained() {
 	let error = |args: TokenStream, item: TokenStream| {
 		expand_view(args, item)
@@ -1717,6 +1760,21 @@ fn view_mistakes_are_explained() {
 		(
 			"sql on a table",
 			table_error(quote!(name = "stats", sql = "x"), stats(quote!())),
+		),
+		(
+			"reads on a table",
+			table_error(quote!(name = "stats", reads(Post)), stats(quote!())),
+		),
+		(
+			"reads nothing",
+			error(quote!(name = "stats", sql = "x", reads()), stats(quote!())),
+		),
+		(
+			"reads twice",
+			error(
+				quote!(name = "stats", sql = "x", reads(Post), reads(User)),
+				stats(quote!()),
+			),
 		),
 	];
 

@@ -19,11 +19,11 @@ use leptoskit_db_schema::quote_literal;
 use crate::Action;
 use crate::Col;
 use crate::Column;
-use crate::Connection;
 use crate::DbError;
 use crate::Expr;
 use crate::Order;
 use crate::Query;
+use crate::Read;
 use crate::Result;
 use crate::Shape;
 use crate::Table;
@@ -32,6 +32,8 @@ use crate::Value;
 use crate::policy;
 use crate::shape::Selected;
 use crate::sql::Sql;
+use crate::tracked::ReadKind;
+use crate::tracked::Reads;
 
 /// A table with a full-text search index: `#[db(search)]` on some of its
 /// text columns. The attribute implements it; you don't.
@@ -185,7 +187,7 @@ impl<T: Searchable> Search<T> {
 	}
 
 	/// The matching rows, best first.
-	pub async fn all(self, connection: &impl Connection) -> Result<Vec<T>> {
+	pub async fn all(self, connection: &impl Read) -> Result<Vec<T>> {
 		Ok(self
 			.hits(connection)
 			.await?
@@ -195,14 +197,15 @@ impl<T: Searchable> Search<T> {
 	}
 
 	/// The best matching row, if any.
-	pub async fn first(self, connection: &impl Connection) -> Result<Option<T>> {
+	pub async fn first(self, connection: &impl Read) -> Result<Option<T>> {
 		Ok(self.limit(1).all(connection).await?.into_iter().next())
 	}
 
 	/// The matching rows, best first, each with its rank and the
 	/// highlights asked for.
-	pub async fn hits(self, connection: &impl Connection) -> Result<Vec<Hit<T>>> {
-		self.found(connection, &Output::Rows, T::from_values).await
+	pub async fn hits(self, connection: &impl Read) -> Result<Vec<Hit<T>>> {
+		self.found(connection, &Output::Rows, T::from_values, |_, reads| reads)
+			.await
 	}
 
 	/// Each match as shape `S`, best first, with the search's filters,
@@ -224,12 +227,14 @@ impl<T: Searchable> Search<T> {
 	}
 
 	/// The matching rows, each read by `read` from what `output` selects,
-	/// with its rank and highlights.
+	/// with its rank and highlights. `shaped` adds what a shape's nested
+	/// rows read to the search's own read.
 	async fn found<R, E>(
 		&self,
-		connection: &impl Connection,
+		connection: &impl Read,
 		output: &Output,
 		read: impl Fn(Vec<Value>) -> std::result::Result<R, E>,
+		shaped: fn(&policy::Access, Reads) -> Reads,
 	) -> Result<Vec<Hit<R>>>
 	where
 		DbError: From<E>,
@@ -243,7 +248,12 @@ impl<T: Searchable> Search<T> {
 		let width = output.width::<T>();
 
 		connection
-			.fetch(sql.finish())
+			.read(sql.finish(), || {
+				Ok(shaped(
+					connection.access(),
+					self.reads(connection, ReadKind::Rows)?,
+				))
+			})
 			.await?
 			.into_iter()
 			.map(|mut values| {
@@ -277,13 +287,31 @@ impl<T: Searchable> Search<T> {
 	}
 
 	/// How many rows match.
-	pub async fn count(self, connection: &impl Connection) -> Result<u64> {
+	pub async fn count(self, connection: &impl Read) -> Result<u64> {
 		let Some(terms) = self.prepared()? else {
 			return Ok(0);
 		};
 		let mut sql = Sql::new(connection.dialect());
 		self.write(&mut sql, connection, terms, &Output::Count)?;
-		crate::sql::count_of(&connection.fetch(sql.finish()).await?)
+		let rows = connection
+			.read(sql.finish(), || self.reads(connection, ReadKind::Count))
+			.await?;
+		crate::sql::count_of(&rows)
+	}
+
+	/// What the search reads, for a read set: the query's rows, narrowed by
+	/// a match only the database can decide.
+	fn reads(&self, connection: &impl Read, kind: ReadKind) -> Result<Reads> {
+		let reads = self
+			.query
+			.reads(connection, kind)?
+			.narrowed(Expr::Opaque("a full-text search's match"));
+
+		// The rank orders the rows before any column does.
+		Ok(match kind {
+			ReadKind::Count => reads,
+			_ => reads.tail(&[], self.query.limit, self.query.offset),
+		})
 	}
 
 	/// The search's terms, or `None` when it has none to match, so it finds
@@ -303,7 +331,7 @@ impl<T: Searchable> Search<T> {
 	fn write(
 		&self,
 		sql: &mut Sql,
-		connection: &impl Connection,
+		connection: &impl Read,
 		terms: &Terms,
 		output: &Output,
 	) -> Result<()> {
@@ -580,7 +608,7 @@ where
 	S::From: Searchable,
 {
 	/// The matching rows' shapes, best first.
-	pub async fn all(self, connection: &impl Connection) -> Result<Vec<S>> {
+	pub async fn all(self, connection: &impl Read) -> Result<Vec<S>> {
 		Ok(self
 			.hits(connection)
 			.await?
@@ -590,7 +618,7 @@ where
 	}
 
 	/// The best matching row's shape, if any.
-	pub async fn first(self, connection: &impl Connection) -> Result<Option<S>> {
+	pub async fn first(self, connection: &impl Read) -> Result<Option<S>> {
 		let first = ShapedSearch {
 			search: self.search.limit(1),
 		};
@@ -599,9 +627,14 @@ where
 
 	/// The matching rows' shapes, best first, each with its rank and the
 	/// highlights asked for.
-	pub async fn hits(self, connection: &impl Connection) -> Result<Vec<Hit<S>>> {
+	pub async fn hits(self, connection: &impl Read) -> Result<Vec<Hit<S>>> {
 		self.search
-			.found(connection, &Output::Shape(S::selection()), S::from_values)
+			.found(
+				connection,
+				&Output::Shape(S::selection()),
+				S::from_values,
+				crate::shape::shaped_reads::<S>,
+			)
 			.await
 	}
 }

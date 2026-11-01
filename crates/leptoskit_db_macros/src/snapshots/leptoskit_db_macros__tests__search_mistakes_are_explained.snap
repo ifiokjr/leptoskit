@@ -10,4 +10,4 @@ not a weight: `search` takes `weight = A`, `B`, `C`, or `D`: how much a match in
 generated: a generated column can't be searched; search the columns it's computed from: the database computes its value from the row's other columns
 flattened mixin: `search` marks one text column; put it on the mixin's own fields
 view: a view's columns are what its query returns, so they take only `column`, `private`, `secret`, and `in(...)`
-view option: unknown view option; expected `name`, `sql`, `materialized`, `namespace`, `public`, `projection`, `index`, `unique`, or `crate`
+view option: unknown view option; expected `name`, `sql`, `materialized`, `reads`, `namespace`, `public`, `projection`, `index`, `unique`, or `crate`

@@ -16,16 +16,18 @@ use super::query::write_candidates;
 use super::query::write_measure;
 use crate::Action;
 use crate::Col;
-use crate::Connection;
 use crate::DbError;
 use crate::Expr;
 use crate::Order;
 use crate::Query;
+use crate::Read;
 use crate::Result;
 use crate::Table;
 use crate::Value;
 use crate::policy;
 use crate::sql::Sql;
+use crate::tracked::ReadKind;
+use crate::tracked::Reads;
 
 impl<T: Table> Query<T> {
 	/// The matching rows nearest `target`, nearest first, by the shapes in
@@ -123,7 +125,7 @@ impl<T: Table, P: Space> Nearest<T, P> {
 	}
 
 	/// The rows, nearest first.
-	pub async fn all(self, connection: &impl Connection) -> Result<Vec<T>> {
+	pub async fn all(self, connection: &impl Read) -> Result<Vec<T>> {
 		Ok(self
 			.rows(connection)
 			.await?
@@ -133,11 +135,11 @@ impl<T: Table, P: Space> Nearest<T, P> {
 	}
 
 	/// The nearest row, if any.
-	pub async fn first(self, connection: &impl Connection) -> Result<Option<T>> {
+	pub async fn first(self, connection: &impl Read) -> Result<Option<T>> {
 		Ok(self.limit(1).all(connection).await?.into_iter().next())
 	}
 
-	async fn rows(self, connection: &impl Connection) -> Result<Vec<(T, f64)>> {
+	async fn rows(self, connection: &impl Read) -> Result<Vec<(T, f64)>> {
 		let target = self
 			.target
 			.clone()
@@ -154,7 +156,9 @@ impl<T: Table, P: Space> Nearest<T, P> {
 			}
 			_ => {
 				connection
-					.fetch(self.statement(connection, &target, None)?)
+					.read(self.statement(connection, &target, None)?, || {
+						self.reads(connection)
+					})
 					.await?
 			}
 		};
@@ -169,7 +173,7 @@ impl<T: Table, P: Space> Nearest<T, P> {
 	/// of them, so the first `wanted` are the nearest.
 	async fn grow(
 		&self,
-		connection: &impl Connection,
+		connection: &impl Read,
 		target: &Argument,
 		wanted: u64,
 		envelope: [f64; 4],
@@ -200,7 +204,10 @@ impl<T: Table, P: Space> Nearest<T, P> {
 			}
 
 			let rows = connection
-				.fetch(self.statement(connection, target, Some((search, radius)))?)
+				.read(
+					self.statement(connection, target, Some((search, radius)))?,
+					|| Ok(Reads::default()),
+				)
 				.await?;
 
 			if rows.len() as u64 >= wanted {
@@ -211,8 +218,26 @@ impl<T: Table, P: Space> Nearest<T, P> {
 		}
 
 		connection
-			.fetch(self.statement(connection, target, None)?)
+			.read(self.statement(connection, target, None)?, || {
+				Ok(Reads::default())
+			})
 			.await
+	}
+
+	/// What the search reads, for a read set: the query's rows with a
+	/// shape, nearest first, which only the database can order.
+	fn reads(&self, connection: &impl Read) -> Result<Reads> {
+		let (column, _) = self.source.column().expect("nearest reads a column");
+		Ok(self
+			.query
+			.reads(connection, ReadKind::Rows)?
+			.narrowed(
+				Expr::Null {
+					column,
+					negated: true,
+				} & Expr::Opaque("the distance to a place"),
+			)
+			.tail(&[], self.query.limit, self.query.offset))
 	}
 
 	/// The box around the target that holds every shape within `radius`.
@@ -231,17 +256,24 @@ impl<T: Table, P: Space> Nearest<T, P> {
 
 	/// The box around every indexed shape, and how many there are: `[min_x,
 	/// max_x, min_y, max_y, count]`, or `None` with none.
-	async fn extent(&self, connection: &impl Connection) -> Result<Option<[f64; 5]>> {
+	async fn extent(&self, connection: &impl Read) -> Result<Option<[f64; 5]>> {
 		let Some((_, Some(indexed))) = self.source.column() else {
 			return Ok(None);
 		};
+		// The search's first statement, so it records what the search reads;
+		// it returns the index's extent, not rows, so no keys.
+		let statement = crate::Statement {
+			sql: format!(
+				"SELECT min(minx), max(maxx), min(miny), max(maxy), count(*) FROM {}",
+				leptoskit_db_schema::quote_identifier(&indexed.rtree_table())
+			),
+			args: Vec::new(),
+		};
 		let rows = connection
-			.fetch(crate::Statement {
-				sql: format!(
-					"SELECT min(minx), max(maxx), min(miny), max(maxy), count(*) FROM {}",
-					leptoskit_db_schema::quote_identifier(&indexed.rtree_table())
-				),
-				args: Vec::new(),
+			.read(statement, || {
+				let mut reads = self.reads(connection)?;
+				reads.keys = None;
+				Ok(reads)
 			})
 			.await?;
 		let float = |value: &Value| {
@@ -266,7 +298,7 @@ impl<T: Table, P: Space> Nearest<T, P> {
 	/// given.
 	fn statement(
 		&self,
-		connection: &impl Connection,
+		connection: &impl Read,
 		target: &Argument,
 		within: Option<([f64; 4], f64)>,
 	) -> Result<crate::Statement> {
@@ -325,7 +357,7 @@ impl<T: Table, P: Space> Nearest<T, P> {
 
 impl<T: Table, P: Space> NearestWithDistance<T, P> {
 	/// The rows, nearest first, each with its distance.
-	pub async fn all(self, connection: &impl Connection) -> Result<Vec<(T, P::Distance)>> {
+	pub async fn all(self, connection: &impl Read) -> Result<Vec<(T, P::Distance)>> {
 		Ok(self
 			.0
 			.rows(connection)
@@ -336,7 +368,7 @@ impl<T: Table, P: Space> NearestWithDistance<T, P> {
 	}
 
 	/// The nearest row, if any, with its distance.
-	pub async fn first(self, connection: &impl Connection) -> Result<Option<(T, P::Distance)>> {
+	pub async fn first(self, connection: &impl Read) -> Result<Option<(T, P::Distance)>> {
 		Ok(Self(self.0.limit(1))
 			.all(connection)
 			.await?

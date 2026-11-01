@@ -7,7 +7,6 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use leptoskit_db::Connection;
 use leptoskit_db::Db;
 use leptoskit_db::Id;
 use leptoskit_db::Table;

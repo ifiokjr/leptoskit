@@ -389,6 +389,27 @@ let post = db
 
 `DbError` says what went wrong (`NotFound`, `Conflict`, `ForeignKey`, `Check`, or `Invalid`) and names the table, never the values, so passing it on with `?` can't leak data.
 
+### Code that only reads
+
+A helper that only looks things up shouldn't be able to change anything by mistake. Take `&impl db::Read` instead of `&impl db::Connection`:
+
+```rust
+async fn unread_count(db: &impl db::Read, user: Id<User>) -> db::Result<u64> {
+	Message::query().filter(|message| message.to_id.eq(user) & message.read_at.is_null()).count(db).await
+}
+```
+
+Every query, count, `get`, `find`, link accessor, shape, search, and nearest-place lookup takes a `Read`, and `Db` and `Tx` are both, so callers pass what they already have. Writes need a `Connection`, so `insert`, `save`, `update`, and `delete` don't compile inside such a function. Like the rest of the database layer, this runs on the server.
+
+`db::Tracked` wraps a connection and records what each read through it looked at: the table, the filter combined with the access policy and soft deletes, the order and limit, and the keys of the rows it returned. It only reads. An `#[rpc::query]` body reads through one, which is why a query can't write, and how real-time queries tell which writes can change their results. SQL you write yourself has to say which tables it reads before a tracked connection will run it:
+
+```rust
+let rows = db::Statement::new("SELECT count(*) FROM posts WHERE score > $1", vec![db::Value::Int(10)])
+	.reads::<Post>()
+	.fetch(&tracked)
+	.await?;
+```
+
 ## Follow links
 
 An `Id<T>` column links to `T`. Each link gets an accessor named after the field, without its `_id`, and a query for the rows pointing at a given row:
@@ -934,6 +955,8 @@ Leaderboard::refresh_concurrently(&db).await?;
 ```
 
 A view can read another view: migrations create each view after the views its query names, and drop it before them. Shapes can start from a view, too: `AuthorStats::query().shape::<StatsCard>()` with `#[db(from = AuthorStats)]`, following the view's `Id<T>` columns with `via`.
+
+A view's SQL reads its tables directly, so a tracked read can't see what it read. Name them with `reads(...)`, as in `#[db::view(name = "author_stats", reads(Post), sql = "…")]`; a tracked read of a view that doesn't fails with `DbError::UndeclaredRead` rather than miss a change. A materialized view holds its own rows until it's refreshed, so it needs none.
 
 Migrations create views after every table change and drop them before. A view's SQL isn't parsed, so when a migration changes a table in a way a view could notice, it drops and recreates every view, which refills materialized ones.
 

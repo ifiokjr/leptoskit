@@ -480,8 +480,6 @@ impl App {
 		at: leptoskit_db::Timestamp,
 		condition: &str,
 	) {
-		use leptoskit_db::Connection;
-
 		let (table, value) = match self.db.dialect() {
 			leptoskit_db::Dialect::Postgres => {
 				(

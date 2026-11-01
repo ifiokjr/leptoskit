@@ -12,6 +12,7 @@ use super::Identity;
 use super::MutationCx;
 use super::OperationContext;
 use super::QueryCx;
+use super::ReadSink;
 use super::receipts::ReceiptKey;
 use super::receipts::ReceiptOwner;
 use crate::Error;
@@ -28,6 +29,9 @@ pub struct Invocation {
 	pub request_id: Option<String>,
 	/// The arguments, as one JSON object.
 	pub arguments: Value,
+	/// Where a query adds what it read, for the live hub; `None` to let
+	/// the read set go.
+	pub reads: Option<ReadSink>,
 }
 
 /// What a registration runs.
@@ -41,10 +45,11 @@ pub fn handle<O: Operation>(invocation: Invocation) -> BoxFuture<'static, crate:
 		let op: O = serde_json::from_value(invocation.arguments).map_err(|error| {
 			Error::invalid(format!("the arguments of `{}` don't fit: {error}", O::NAME))
 		})?;
-		let output = O::Context::dispatch(
+		let output = O::Context::dispatch_recording(
 			&invocation.db,
 			invocation.identity,
 			invocation.request_id.as_deref(),
+			invocation.reads,
 			op,
 		)
 		.await?;

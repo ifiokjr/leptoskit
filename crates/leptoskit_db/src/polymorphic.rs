@@ -53,6 +53,7 @@ use crate::Expr;
 use crate::HasId;
 use crate::Id;
 use crate::Query;
+use crate::Read;
 use crate::Result;
 use crate::Table;
 use crate::Value;
@@ -94,7 +95,7 @@ pub trait Polymorphic: crate::Referenced + Sized + Send + 'static {
 	/// The rows of one variant on a page, as the enum.
 	#[doc(hidden)]
 	fn fetch(
-		connection: &impl Connection,
+		connection: &impl Read,
 		kind: Self::Kind,
 		page: &Page,
 	) -> impl Future<Output = Result<Vec<Self>>> + Send;
@@ -102,7 +103,7 @@ pub trait Polymorphic: crate::Referenced + Sized + Send + 'static {
 	/// How many rows of one variant are on a page, ignoring its limit.
 	#[doc(hidden)]
 	fn count(
-		connection: &impl Connection,
+		connection: &impl Read,
 		kind: Self::Kind,
 		page: &Page,
 	) -> impl Future<Output = Result<u64>> + Send;
@@ -115,7 +116,7 @@ pub trait Polymorphic: crate::Referenced + Sized + Send + 'static {
 	message = "`{Self}` isn't a variant of a polymorphic table",
 	note = "list it in the `#[db::polymorphic]` enum it extends"
 )]
-pub trait Variant: HasId {
+pub trait Variant: Table + HasId {
 	/// The polymorphic table it's a variant of.
 	type Of: Polymorphic;
 
@@ -137,10 +138,7 @@ impl<V: Variant> Id<V> {
 impl<P: Polymorphic> Id<P> {
 	/// The `V` row with this key, if the key is one of `V`'s and the
 	/// request may see it.
-	pub async fn downcast<V: Variant<Of = P>>(
-		self,
-		connection: &impl Connection,
-	) -> Result<Option<V>> {
+	pub async fn downcast<V: Variant<Of = P>>(self, connection: &impl Read) -> Result<Option<V>> {
 		crate::links::by_id(Id::<V>::from_uuid(self.uuid()))
 			.first(connection)
 			.await
@@ -246,7 +244,7 @@ impl<P: Polymorphic> Variants<P> {
 	}
 
 	/// Every matching row, as the enum.
-	pub async fn all(self, connection: &impl Connection) -> Result<Vec<P>> {
+	pub async fn all(self, connection: &impl Read) -> Result<Vec<P>> {
 		let limit = self.page.limit;
 		// Each table's first `offset + limit` rows hold the merged page.
 		let page = Page {
@@ -273,12 +271,12 @@ impl<P: Polymorphic> Variants<P> {
 	}
 
 	/// The first matching row, if any.
-	pub async fn first(self, connection: &impl Connection) -> Result<Option<P>> {
+	pub async fn first(self, connection: &impl Read) -> Result<Option<P>> {
 		Ok(self.limit(1).all(connection).await?.into_iter().next())
 	}
 
 	/// How many rows match, ignoring the limit and offset.
-	pub async fn count(self, connection: &impl Connection) -> Result<u64> {
+	pub async fn count(self, connection: &impl Read) -> Result<u64> {
 		let mut total = 0;
 
 		for kind in self.kinds() {
@@ -320,10 +318,7 @@ fn variant_query<V: Variant>(page: &Page) -> Query<V> {
 
 /// One variant's rows on a page, in key order, as the enum.
 #[doc(hidden)]
-pub async fn fetch_variant<V: Variant>(
-	connection: &impl Connection,
-	page: &Page,
-) -> Result<Vec<V::Of>> {
+pub async fn fetch_variant<V: Variant>(connection: &impl Read, page: &Page) -> Result<Vec<V::Of>> {
 	let key = Col::<V, Id<V>>::new(V::KEY[0]);
 	let mut query = variant_query::<V>(page).order_by(|_| {
 		if page.descending {
@@ -347,17 +342,18 @@ pub async fn fetch_variant<V: Variant>(
 
 /// How many of one variant's rows are on a page.
 #[doc(hidden)]
-pub async fn count_variant<V: Variant>(connection: &impl Connection, page: &Page) -> Result<u64> {
+pub async fn count_variant<V: Variant>(connection: &impl Read, page: &Page) -> Result<u64> {
 	variant_query::<V>(page).count(connection).await
 }
 
 /// The row with this key, of whichever variant it is: its supertype row
 /// says which, then that variant's table has it.
 #[doc(hidden)]
-pub async fn load<P: Polymorphic>(connection: &impl Connection, id: Id<P>) -> Result<Option<P>> {
+pub async fn load<P: Polymorphic>(connection: &impl Read, id: Id<P>) -> Result<Option<P>> {
 	let key = Col::<P::Row, Id<P>>::new(P::Row::KEY[0]);
 	let Some(row) = Query::<P::Row>::new()
 		.filter(|_| key.eq(id))
+		.point()
 		.first(connection)
 		.await?
 	else {

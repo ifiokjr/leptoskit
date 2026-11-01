@@ -364,6 +364,18 @@ pub enum Comparison {
 }
 
 impl Comparison {
+	/// Whether two values ordered as `ordering` meet the comparison.
+	pub(crate) fn holds(self, ordering: std::cmp::Ordering) -> bool {
+		match self {
+			Self::Equal => ordering.is_eq(),
+			Self::NotEqual => ordering.is_ne(),
+			Self::Greater => ordering.is_gt(),
+			Self::GreaterOrEqual => ordering.is_ge(),
+			Self::Less => ordering.is_lt(),
+			Self::LessOrEqual => ordering.is_le(),
+		}
+	}
+
 	pub(crate) fn operator(self) -> &'static str {
 		match self {
 			Self::Equal => " = ",
@@ -390,6 +402,18 @@ pub enum Expr {
 	/// checks, from inside one of its counts.
 	#[doc(hidden)]
 	CompareColumn {
+		column: &'static str,
+		comparison: Comparison,
+		table: TableName,
+		other: &'static str,
+	},
+	/// A column compared with a column of a row around the one the
+	/// condition is about, in a [`ReadEntry`](crate::ReadEntry): a nested
+	/// read's link to its parent row, or a subquery's to the row it counts
+	/// for. It has no SQL of its own, and [`Expr::eval`] can't see the other
+	/// row, so it's unknown there.
+	#[doc(hidden)]
+	Correlated {
 		column: &'static str,
 		comparison: Comparison,
 		table: TableName,
@@ -456,6 +480,12 @@ pub enum Expr {
 	/// Every row, or none.
 	#[doc(hidden)]
 	Constant(bool),
+	/// A condition only the database can decide, in a
+	/// [`ReadEntry`](crate::ReadEntry): a full-text search's match, named by
+	/// what it is. It has no SQL of its own, and [`Expr::eval`] can't decide
+	/// it, so it's unknown there.
+	#[doc(hidden)]
+	Opaque(&'static str),
 	/// A value that couldn't be encoded; the query fails when it runs.
 	#[doc(hidden)]
 	Invalid(String),
@@ -530,6 +560,17 @@ impl Expr {
 			} => {
 				sql.identifier(column).push(comparison.operator());
 				sql.outer_column(table, other)?;
+			}
+			Self::Correlated { column, .. } => {
+				return Err(invalid(&format!(
+					"`{column}` is compared with a column of a row around it, which only a read \
+					 set records; it can't be run on its own"
+				)));
+			}
+			Self::Opaque(what) => {
+				return Err(invalid(&format!(
+					"{what} is recorded in a read set only; it can't be run on its own"
+				)));
 			}
 			Self::CompareSetting {
 				column,
@@ -659,6 +700,16 @@ pub struct Order {
 }
 
 impl Order {
+	/// The column it orders by.
+	pub const fn column(self) -> &'static str {
+		self.column
+	}
+
+	/// Whether it orders from the largest value down.
+	pub const fn is_descending(self) -> bool {
+		self.descending
+	}
+
 	/// An ordering by a column known only by name, such as one the studio
 	/// was asked to sort by.
 	#[cfg(all(

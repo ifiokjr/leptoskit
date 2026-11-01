@@ -49,6 +49,8 @@ mod db;
 #[cfg(feature = "server")]
 mod error;
 #[cfg(feature = "server")]
+mod eval;
+#[cfg(feature = "server")]
 mod expr;
 #[cfg(feature = "server")]
 mod fallout;
@@ -125,6 +127,8 @@ pub use audit::AuditReader;
 pub use connection::Connection;
 #[cfg(feature = "server")]
 pub use connection::PoolOptions;
+#[cfg(feature = "server")]
+pub use connection::Read;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use db::Db;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -134,7 +138,14 @@ pub use error::DbError;
 #[cfg(feature = "server")]
 pub use error::Result;
 #[cfg(feature = "server")]
+pub use eval::Row;
+#[cfg(feature = "server")]
+pub use eval::Tri;
+#[cfg(feature = "server")]
 pub use expr::Col;
+#[cfg(feature = "server")]
+#[doc(hidden)]
+pub use expr::Comparison;
 #[cfg(feature = "server")]
 pub use expr::ConflictTarget;
 #[cfg(feature = "server")]
@@ -165,6 +176,7 @@ pub use hooks::BeforeWrite;
 pub use hooks::Hooks;
 #[cfg(feature = "server")]
 pub use hooks::WriteContext;
+pub use id::HasId;
 pub use id::Id;
 pub use json::Json;
 /// Stores a unit enum as text, one value per variant: the variant's name in
@@ -321,7 +333,7 @@ pub use leptoskit_db_schema::Dialect;
 #[cfg(feature = "server")]
 pub use leptoskit_db_schema::SearchWeight;
 #[cfg(feature = "server")]
-pub use links::HasId;
+pub use leptoskit_db_schema::TableName;
 #[cfg(feature = "server")]
 pub use links::Link;
 #[cfg(feature = "server")]
@@ -434,9 +446,14 @@ pub use time::Timestamp;
 #[cfg(feature = "server")]
 pub use time::now;
 #[cfg(feature = "server")]
-pub use tracked::Read;
+pub use tracked::RawRead;
 #[cfg(feature = "server")]
 pub use tracked::ReadEntry;
+#[cfg(feature = "server")]
+pub use tracked::ReadKind;
+#[cfg(feature = "server")]
+#[doc(hidden)]
+pub use tracked::Reads;
 #[cfg(feature = "server")]
 pub use tracked::Tracked;
 pub use validate::ValidationErrors;

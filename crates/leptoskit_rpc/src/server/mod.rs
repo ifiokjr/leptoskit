@@ -37,6 +37,8 @@ pub use cx::MutationCx;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use cx::QueryCx;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use cx::ReadSink;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use http::IDEMPOTENCY_KEY;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use http::Server;
@@ -90,6 +92,21 @@ pub trait OperationContext: Send + Sync + Sized + 'static + sealed::Sealed {
 		request_id: Option<&str>,
 		op: O,
 	) -> impl Future<Output = crate::Result<O::Output>> + Send;
+
+	/// Runs `op` as [`dispatch`](Self::dispatch) does, and adds what a query
+	/// read to `reads`.
+	#[cfg(any(feature = "postgres", feature = "sqlite"))]
+	#[doc(hidden)]
+	fn dispatch_recording<O: crate::Operation<Context = Self>>(
+		db: &leptoskit_db::Db,
+		identity: Identity,
+		request_id: Option<&str>,
+		reads: Option<ReadSink>,
+		op: O,
+	) -> impl Future<Output = crate::Result<O::Output>> + Send {
+		let _ = reads;
+		Self::dispatch(db, identity, request_id, op)
+	}
 }
 
 pub(crate) mod sealed {

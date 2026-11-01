@@ -474,7 +474,7 @@ impl Polymorphic<'_> {
 
 		quote! {
 				fn fetch(
-					connection: &impl #krate::Connection,
+					connection: &impl #krate::Read,
 					kind: #kind,
 					page: &#krate::__private::polymorphic::Page,
 				) -> #fetched {
@@ -486,7 +486,7 @@ impl Polymorphic<'_> {
 				}
 
 				fn count(
-					connection: &impl #krate::Connection,
+					connection: &impl #krate::Read,
 					kind: #kind,
 					page: &#krate::__private::polymorphic::Page,
 				) -> #counted {
@@ -514,7 +514,7 @@ impl Polymorphic<'_> {
 					<Self as #krate::Polymorphic>::id(self)
 				}
 
-				fn load(connection: &impl #krate::Connection, id: #krate::Id<Self>) -> #loaded {
+				fn load(connection: &impl #krate::Read, id: #krate::Id<Self>) -> #loaded {
 					#krate::__private::polymorphic::load(connection, id)
 				}
 			}
@@ -548,14 +548,14 @@ impl Polymorphic<'_> {
 				/// The row with this key, of whichever kind it is, if it exists,
 				/// the request may see it, and it isn't soft-deleted.
 				pub async fn find(
-					connection: &impl #krate::Connection,
+					connection: &impl #krate::Read,
 					id: #krate::Id<Self>,
 				) -> #krate::Result<::core::option::Option<Self>> {
 					#krate::__private::polymorphic::load(connection, id).await
 				}
 
 				/// The row with this key, or `DbError::NotFound`.
-				pub async fn get(connection: &impl #krate::Connection, id: #krate::Id<Self>) -> #krate::Result<Self> {
+				pub async fn get(connection: &impl #krate::Read, id: #krate::Id<Self>) -> #krate::Result<Self> {
 					Self::find(connection, id).await?.ok_or_else(|| #krate::DbError::NotFound {
 						table: <#row as #krate::Table>::flat_name(),
 					})

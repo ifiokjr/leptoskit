@@ -193,6 +193,7 @@ impl Server {
 			identity,
 			request_id,
 			arguments,
+			reads: None,
 		})
 		.await
 	}
