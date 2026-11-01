@@ -62,7 +62,23 @@ fn read_directory(
 		files: Vec::new(),
 		directories: Vec::new(),
 	};
+	let Some(entries) = read_entries(path, diagnostics) else {
+		return directory;
+	};
 
+	// Module names this directory has handed out, to catch two names that
+	// become the same Rust module.
+	let mut modules: BTreeMap<String, String> = BTreeMap::new();
+
+	for entry in entries {
+		visit(&mut directory, entry, &mut modules, diagnostics);
+	}
+
+	directory
+}
+
+/// The directory's entries, sorted. `None` when it could not be read.
+fn read_entries(path: &Path, diagnostics: &mut Vec<Diagnostic>) -> Option<Vec<PathBuf>> {
 	let mut entries = match std::fs::read_dir(path) {
 		Ok(entries) => {
 			entries
@@ -76,91 +92,102 @@ fn read_directory(
 				None,
 				format!("could not read: {error}"),
 			));
-			return directory;
+
+			return None;
 		}
 	};
 
 	entries.sort();
 
-	// Module names this directory has handed out, to catch two names that
-	// become the same Rust module.
-	let mut modules: BTreeMap<String, String> = BTreeMap::new();
+	Some(entries)
+}
 
-	for entry in entries {
-		let Some(disk_name) = entry
-			.file_name()
-			.and_then(|name| name.to_str())
-			.map(str::to_owned)
-		else {
-			diagnostics.push(Diagnostic::new(
-				&entry,
-				None,
-				"route names must be UTF-8".to_owned(),
-			));
-			continue;
-		};
+/// Reads one entry, keeping it when it names a route.
+fn visit(
+	directory: &mut Directory,
+	entry: PathBuf,
+	modules: &mut BTreeMap<String, String>,
+	diagnostics: &mut Vec<Diagnostic>,
+) {
+	let Some(disk_name) = entry
+		.file_name()
+		.and_then(|name| name.to_str())
+		.map(str::to_owned)
+	else {
+		diagnostics.push(Diagnostic::new(
+			&entry,
+			None,
+			"route names must be UTF-8".to_owned(),
+		));
 
-		if disk_name.starts_with('.') {
-			continue;
-		}
+		return;
+	};
 
-		let is_dir = entry.is_dir();
-		let stem = if is_dir {
-			disk_name.as_str()
-		} else if let Some(stem) = disk_name.strip_suffix(".rs") {
-			stem
-		} else {
-			// Only Rust files are routes; anything else is left alone.
-			continue;
-		};
-
-		let parsed = match name::parse(stem, is_dir) {
-			Ok(parsed) => parsed,
-			Err(message) => {
-				diagnostics.push(Diagnostic::new(&entry, None, message));
-				continue;
-			}
-		};
-
-		let module = name::module_name(&parsed);
-
-		if let Some(previous) = modules.insert(module.clone(), disk_name.clone()) {
-			diagnostics.push(Diagnostic::new(
-				&entry,
-				None,
-				format!(
-					"`{disk_name}` and `{previous}` both become the Rust module `{module}`; \
-					 rename one (a route file with children belongs in its directory as \
-					 `index.rs`)"
-				),
-			));
-			continue;
-		}
-
-		if is_dir {
-			let child = read_directory(&entry, disk_name, Some(parsed), module, diagnostics);
-
-			if !child.is_empty() {
-				directory.directories.push(child);
-			}
-		} else {
-			let exports = if matches!(parsed, Name::Private(_)) {
-				None
-			} else {
-				read_exports(&entry, diagnostics)
-			};
-
-			directory.files.push(File {
-				disk_name,
-				name: parsed,
-				module,
-				path: entry,
-				exports,
-			});
-		}
+	if disk_name.starts_with('.') {
+		return;
 	}
 
-	directory
+	let is_dir = entry.is_dir();
+	let Some(stem) = stem_of(&disk_name, is_dir) else {
+		// Only Rust files are routes; anything else is left alone.
+		return;
+	};
+
+	let parsed = match name::parse(stem, is_dir) {
+		Ok(parsed) => parsed,
+		Err(message) => {
+			diagnostics.push(Diagnostic::new(&entry, None, message));
+
+			return;
+		}
+	};
+	let module = name::module_name(&parsed);
+
+	if let Some(previous) = modules.insert(module.clone(), disk_name.clone()) {
+		diagnostics.push(Diagnostic::new(
+			&entry,
+			None,
+			format!(
+				"`{disk_name}` and `{previous}` both become the Rust module `{module}`; rename \
+				 one (a route file with children belongs in its directory as `index.rs`)"
+			),
+		));
+
+		return;
+	}
+
+	if is_dir {
+		let child = read_directory(&entry, disk_name, Some(parsed), module, diagnostics);
+
+		if !child.is_empty() {
+			directory.directories.push(child);
+		}
+
+		return;
+	}
+
+	let exports = if matches!(parsed, Name::Private(_)) {
+		None
+	} else {
+		read_exports(&entry, diagnostics)
+	};
+
+	directory.files.push(File {
+		disk_name,
+		name: parsed,
+		module,
+		path: entry,
+		exports,
+	});
+}
+
+/// The name a route file or directory is known by, without its `.rs`.
+fn stem_of(disk_name: &str, is_dir: bool) -> Option<&str> {
+	if is_dir {
+		return Some(disk_name);
+	}
+
+	disk_name.strip_suffix(".rs")
 }
 
 fn read_exports(path: &Path, diagnostics: &mut Vec<Diagnostic>) -> Option<Exports> {
