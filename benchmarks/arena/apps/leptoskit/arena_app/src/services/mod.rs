@@ -210,21 +210,14 @@ impl Arena {
 		}
 	}
 
-	/// Changes the beacon's phase, then applies it.
+	/// Changes the beacon's phase.
 	///
-	/// A phase is a value the header follows, not a screen: the native shell
-	/// rewrites the beacon's colour and its label in place, and the browser
-	/// renders again.
+	/// A phase is a value the header follows, not a screen: the header binds
+	/// the beacon's colour and its label, so writing the signal is the whole
+	/// change. The native host settles bound values after the turn; the
+	/// browser renders again.
 	pub fn set_phase(&self, phase: Phase) {
 		self.read().phase.set(phase);
-		self.settle();
-	}
-
-	/// Applies the values that signals changed, without rebuilding the tree on
-	/// a renderer that supports bindings.
-	pub fn settle(&self) {
-		#[cfg(feature = "native")]
-		leptoskit::guest::refresh();
 
 		#[cfg(not(feature = "native"))]
 		if let Some(notify) = &self.on_change {

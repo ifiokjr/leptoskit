@@ -17,6 +17,7 @@ use leptoskit_yoga::PositionType;
 use leptoskit_yoga::Rect;
 use leptoskit_yoga::TrackSizing;
 
+use super::IntoText;
 use super::ScrollView;
 use super::Text;
 use super::View;
@@ -463,7 +464,7 @@ pub fn Card() -> Element {
 
 /// A compact, rounded label; positioning beside an icon is the caller's choice.
 #[track_caller]
-pub fn Badge(label: impl Into<String>) -> Element {
+pub fn Badge(label: impl IntoText) -> Element {
 	Center()
 		.background(Color::rgba(30, 64, 175, 255))
 		.color(Color::rgba(255, 255, 255, 255))
@@ -485,7 +486,7 @@ pub fn Badge(label: impl Into<String>) -> Element {
 
 /// A decorative label capsule, with no selection, deletion, or press behavior.
 #[track_caller]
-pub fn Chip(label: impl Into<String>) -> Element {
+pub fn Chip(label: impl IntoText) -> Element {
 	Row()
 		.background(Color::rgba(241, 245, 249, 255))
 		.color(Color::rgba(15, 23, 42, 255))

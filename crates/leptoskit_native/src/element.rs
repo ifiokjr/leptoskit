@@ -37,6 +37,36 @@ use crate::vector::VectorPath;
 use crate::vector::VectorScaling;
 use crate::vector::ViewBox;
 
+/// A background colour: a value, or a closure that reads one from application
+/// state.
+///
+/// [`Element::background`] takes either. A closure binds the value, so writing
+/// the signal it reads rewrites the node instead of rebuilding the screen
+/// around it.
+pub trait IntoBackground {
+	/// Paints this background onto `element`.
+	fn into_background(self, element: Element) -> Element;
+}
+
+impl IntoBackground for Color {
+	fn into_background(self, mut element: Element) -> Element {
+		element.props.background = Some(self);
+		element
+	}
+}
+
+impl<F> IntoBackground for F
+where
+	F: Fn() -> Color + Send + Sync + 'static,
+{
+	fn into_background(self, mut element: Element) -> Element {
+		let binding = Binding::new(self);
+		element.props.background = Some(binding.read());
+		element.bindings.background = Some(binding);
+		element
+	}
+}
+
 /// One node of a declarative interface: a widget kind, its style, its props,
 /// its children, and its event handlers.
 ///
@@ -416,7 +446,7 @@ impl Element {
 	///
 	/// The saving applies to changes outside an event: after an event the
 	/// native guest renders the view again, bound or not. See
-	/// [`guest::refresh`](crate::guest::refresh).
+	/// [`guest::flush`](crate::guest::flush).
 	#[track_caller]
 	#[must_use]
 	pub fn text_from(read: impl Fn() -> String + Send + Sync + 'static) -> Self {
@@ -1374,9 +1404,8 @@ impl Element {
 
 	/// Sets the background color.
 	#[must_use]
-	pub fn background(mut self, color: Color) -> Self {
-		self.props.background = Some(color);
-		self
+	pub fn background(self, color: impl IntoBackground) -> Self {
+		color.into_background(self)
 	}
 
 	/// Sets the foreground (text) color.

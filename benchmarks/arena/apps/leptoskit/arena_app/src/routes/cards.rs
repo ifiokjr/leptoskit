@@ -28,7 +28,7 @@ pub fn CardList(cards: &[Card]) -> Element {
 		let marked = card.marked;
 
 		View().class("px-4 py-2").children([
-			Element::text_from(move || {
+			Text(move || {
 				if marked.get() {
 					format!("Card {number} !")
 				} else {

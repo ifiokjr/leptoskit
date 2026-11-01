@@ -79,10 +79,54 @@ pub fn View() -> Element {
 	Element::view()
 }
 
+/// What a [`Text`] shows: a value, or a closure that reads one from
+/// application state.
+///
+/// A closure is bound: the label follows the signals it reads without the
+/// screen being rebuilt. That is the form to reach for when the text changes
+/// on its own — a timer, a frame callback, a plugin reply — and it costs the
+/// same as a plain string when it does not.
+pub trait IntoText {
+	/// The label showing this content.
+	fn into_text(self) -> Element;
+}
+
+impl IntoText for &str {
+	fn into_text(self) -> Element {
+		Element::text(self)
+	}
+}
+
+impl IntoText for String {
+	fn into_text(self) -> Element {
+		Element::text(self)
+	}
+}
+
+impl IntoText for &String {
+	fn into_text(self) -> Element {
+		Element::text(self.clone())
+	}
+}
+
+impl<F> IntoText for F
+where
+	F: Fn() -> String + Send + Sync + 'static,
+{
+	fn into_text(self) -> Element {
+		Element::text_from(self)
+	}
+}
+
 /// A text label with inherited font and foreground styling.
+///
+/// Pass a string for text that never changes, or a closure that reads a
+/// signal — `Text(move || format!("Count: {}", count.get()))` — and the label
+/// follows it, so writing the signal rewrites this node instead of rebuilding
+/// the screen.
 #[track_caller]
-pub fn Text(content: impl Into<String>) -> Element {
-	Element::text(content)
+pub fn Text(content: impl IntoText) -> Element {
+	content.into_text()
 }
 
 /// A section title at the given depth, starting at one for the page's prime
@@ -91,8 +135,9 @@ pub fn Text(content: impl Into<String>) -> Element {
 /// The web renderer emits a real heading element (`<h1>` to `<h6>` within
 /// its range); native backends expose the heading trait, flag, or level.
 #[track_caller]
-pub fn Heading(level: u8, content: impl Into<String>) -> Element {
-	Element::text(content)
+pub fn Heading(level: u8, content: impl IntoText) -> Element {
+	content
+		.into_text()
 		.role(Role::Heading)
 		.aria_level(u32::from(level.clamp(1, 9)))
 }
@@ -100,13 +145,13 @@ pub fn Heading(level: u8, content: impl Into<String>) -> Element {
 /// A polite live region: screen readers announce changes to its text once
 /// they are idle. The usual home of status messages.
 #[track_caller]
-pub fn Status(content: impl Into<String>) -> Element {
+pub fn Status(content: impl IntoText) -> Element {
 	View().role(Role::Status).child(Text(content))
 }
 
 /// An assertive live region for urgent messages, announced immediately.
 #[track_caller]
-pub fn Alert(content: impl Into<String>) -> Element {
+pub fn Alert(content: impl IntoText) -> Element {
 	View().role(Role::Alert).child(Text(content))
 }
 

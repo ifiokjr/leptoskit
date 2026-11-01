@@ -192,9 +192,8 @@ async fn step(
 		};
 		update(cards);
 	}
-	match change {
-		Change::Tree => arena.render(),
-		Change::Labels => arena.settle(),
+	if matches!(change, Change::Tree) {
+		arena.render();
 	}
 	host.next_frame().await?;
 	let elapsed = host.now_ms().await? - start;

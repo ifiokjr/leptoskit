@@ -19,9 +19,9 @@ pub use runtime::alloc;
 #[cfg(target_arch = "wasm32")]
 pub use runtime::dispatch;
 #[cfg(target_arch = "wasm32")]
-pub use runtime::mount;
+pub use runtime::flush;
 #[cfg(target_arch = "wasm32")]
-pub use runtime::refresh;
+pub use runtime::mount;
 #[cfg(target_arch = "wasm32")]
 pub use runtime::render;
 #[cfg(target_arch = "wasm32")]

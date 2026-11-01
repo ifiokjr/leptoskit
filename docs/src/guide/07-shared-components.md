@@ -114,30 +114,26 @@ leptoskit::guest::mount(move || {
 
 ## Update a value without rebuilding the screen
 
-Re-rendering costs every element on the screen. A list of 1,000 cards is about 3,000 elements, so changing 100 labels that way rebuilds 3,000 to change 100. When the value changes outside an event — on a timer, in a frame callback, in a plugin reply — bind the element to a signal instead:
+Re-rendering costs every element on the screen. A list of 1,000 cards is about 3,000 elements, so changing 100 labels that way rebuilds 3,000 to change 100. Write the label against the signal instead, and the renderer updates that node:
 
 ```rust
 use leptoskit::prelude::*;
 
-let marked = RwSignal::new(false);
+let count = RwSignal::new(0);
 
 View()
 	.class("flex-col gap-2 p-4")
-	.child(Element::text_from(move || {
-		if marked.get() {
-			"Marked".to_owned()
-		} else {
-			"Not marked".to_owned()
-		}
-	}))
+	.child(Text(move || format!("Count: {}", count.get())))
 	.child(Text("A row that does not change"));
 ```
 
-`Element::text_from` reads the signal once while it builds the element, so the first frame is right with no extra step, and `Element::background_from` does the same for a background colour.
+`Text` takes a string or a closure. A closure is a binding: `Text` reads it while it builds the element, so the first frame is right, and the native host then reads it again after every turn — the poll that runs your tasks, and the render after an event. Writing `count.set(…)` is the whole change; nothing else to call, and the same code works on every platform. `background`, and the other value props that take a closure, do the same.
 
-Write the signal, then call `leptoskit::guest::refresh()` once. It visits the bound nodes, sends the ones whose value differs, and commits them together, so the cost follows the values that changed rather than the size of the screen.
+Only the nodes that read application state are visited, and only the ones whose value differs are sent, so a screen that changes a hundred rows out of a thousand pays for a hundred.
 
-Events are the exception. After every event the native guest calls the view again, so a press that writes a signal rebuilds the screen whether or not that value is bound; bindings pay off for the changes that do not come from an event. Create the signals in your application state rather than inside a view function: a signal lives as long as the guest, so one created on every render is never freed.
+Events are the exception to the saving: after every event the guest renders the view again, so a press that writes a signal rebuilds the screen even when the value is bound. Bindings pay off for changes that arrive outside an event.
+
+Keep a signal in application state rather than creating one inside a view function: a signal lives as long as the guest, so one created on every render is never freed.
 
 On the web the same tree shows the value read at build time, and leptos re-runs the screen when the signal changes, so nothing else is needed there. `leptoskit::prelude` exports leptos's own `RwSignal`, so a screen shared with the browser keeps one signal type.
 

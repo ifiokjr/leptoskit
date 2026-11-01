@@ -167,6 +167,13 @@ pub extern "C" fn leptoskit_poll() {
 	runtime::poll();
 }
 
+/// Settles the values application state bound, after a turn.
+#[cfg(all(target_arch = "wasm32", feature = "native"))]
+#[unsafe(no_mangle)]
+pub extern "C" fn leptoskit_flush() {
+	leptoskit::guest::flush();
+}
+
 /// Allocates the native runtime's event payload buffer.
 #[cfg(all(target_arch = "wasm32", feature = "native"))]
 #[unsafe(no_mangle)]

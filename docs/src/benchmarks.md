@@ -54,28 +54,28 @@ Not measured yet.
 
 |                                                 |  leptoskit | React Native |       Lynx |    Flutter |
 | ----------------------------------------------- | ---------: | -----------: | ---------: | ---------: |
-| Cold open: launch to ready                      |     397 ms |       397 ms |     439 ms |     481 ms |
-| Big bang: 1,000 cards to the screen             |     103 ms |       755 ms |     443 ms |     250 ms |
-| Big bang: update every tenth card               |    17.2 ms |      62.3 ms |    60.3 ms |    48.4 ms |
-| Big bang: clear 1,000 cards                     |    17.0 ms |      49.3 ms |    73.3 ms |    27.8 ms |
-| Echo, async: integer round trip (p50)           |      16 µs |       108 µs |     111 µs |      70 µs |
-| Echo, async: integer round trip (p99)           |      69 µs |       231 µs |     147 µs |     100 µs |
-| Echo, async: 1 KiB string (p50)                 |      65 µs |       143 µs |     153 µs |      86 µs |
-| Echo, async: 64 KiB of bytes (p50)              |     184 µs |     22.42 ms |     389 µs |     200 µs |
-| Echo, async: 100-field object (p50)             |     476 µs |      1.74 ms |     338 µs |     156 µs |
-| Echo, async: integer calls per second           |   51,540/s |      8,763/s |    8,855/s |   13,795/s |
+| Cold open: launch to ready                      |     397 ms |       397 ms |     439 ms |     488 ms |
+| Big bang: 1,000 cards to the screen             |     108 ms |       745 ms |     443 ms |     253 ms |
+| Big bang: update every tenth card               |    18.6 ms |      63.6 ms |    60.3 ms |    48.8 ms |
+| Big bang: clear 1,000 cards                     |    17.3 ms |      49.5 ms |    73.3 ms |    28.5 ms |
+| Echo, async: integer round trip (p50)           |      59 µs |       111 µs |     111 µs |      71 µs |
+| Echo, async: integer round trip (p99)           |      92 µs |       301 µs |     147 µs |     102 µs |
+| Echo, async: 1 KiB string (p50)                 |      78 µs |       142 µs |     153 µs |      86 µs |
+| Echo, async: 64 KiB of bytes (p50)              |     196 µs |     22.42 ms |     389 µs |     197 µs |
+| Echo, async: 100-field object (p50)             |     486 µs |      1.66 ms |     338 µs |     156 µs |
+| Echo, async: integer calls per second           |   16,444/s |      8,121/s |    8,855/s |   13,657/s |
 | Echo, sync: integer round trip (p50)            |          — |      0.92 µs |      28 µs |    0.08 µs |
-| Echo, sync: 64 KiB of bytes (p50)               |          — |        50 µs |     224 µs |    5.23 µs |
-| Ticker wall: presented frames per second        |       73.8 |         29.1 |       58.1 |       26.6 |
+| Echo, sync: 64 KiB of bytes (p50)               |          — |        49 µs |     224 µs |    5.54 µs |
+| Ticker wall: presented frames per second        |       72.6 |         29.3 |       58.1 |       25.9 |
 | Ticker wall: display mode it ran in             |      60 Hz |        60 Hz |      60 Hz |      60 Hz |
-| Ticker wall: hitch time                         |   0.9 ms/s |   478.0 ms/s | 129.8 ms/s | 564.3 ms/s |
+| Ticker wall: hitch time                         |   5.0 ms/s |   478.0 ms/s | 129.8 ms/s | 578.6 ms/s |
 | Ticker wall, tuned: presented frames per second |          — |            — |       98.6 |          — |
-| Autoscroll: presented frames per second         |       95.0 |         88.6 |      107.4 |      112.5 |
+| Autoscroll: presented frames per second         |       95.1 |         89.7 |      107.4 |      112.2 |
 | Autoscroll: display mode it ran in              |     120 Hz |       120 Hz |     120 Hz |     120 Hz |
-| Autoscroll: hitch time                          | 205.3 ms/s |   274.2 ms/s | 110.8 ms/s |  65.7 ms/s |
-| Busy hands: presented frames per second         |      105.6 |         74.2 |       51.4 |       75.7 |
+| Autoscroll: hitch time                          | 206.7 ms/s |   265.0 ms/s | 110.8 ms/s |  66.5 ms/s |
+| Busy hands: presented frames per second         |      120.5 |         82.2 |       51.4 |       78.6 |
 | Busy hands: display mode it ran in              |     120 Hz |       120 Hz |     120 Hz |     120 Hz |
-| Busy hands: hitch time                          | 121.5 ms/s |   317.6 ms/s | 579.0 ms/s | 360.7 ms/s |
+| Busy hands: hitch time                          |   0.0 ms/s |   314.1 ms/s | 579.0 ms/s | 341.9 ms/s |
 
 _Measured 2026-11-01 on Seeker, Android 16 (physical), 5 runs per framework, medians; leptoskit 0.1.0, React Native 0.88.1, Lynx 4.2.0, Flutter 3.47.8._
 
