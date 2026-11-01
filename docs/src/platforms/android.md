@@ -6,7 +6,7 @@ The generated app runs your screens' code on a thread of its own, not Android's 
 
 ## What you need
 
-- Java 17 or newer, the Android SDK with platform 35, CMake, and an NDK. Set `ANDROID_HOME` to the SDK; `ANDROID_NDK_HOME` picks a specific NDK.
+- Java 17 or newer, the Android SDK with platform 36, CMake, and an NDK. Set `ANDROID_HOME` to the SDK; `ANDROID_NDK_HOME` picks a specific NDK.
 - The Rust targets for your device or emulator, and for WebAssembly:
 
 ```bash

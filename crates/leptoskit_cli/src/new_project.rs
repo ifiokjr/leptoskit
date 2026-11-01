@@ -379,6 +379,12 @@ fn template(config: &LeptoskitConfig, sdk: Option<&Utf8Path>) -> Result<Vec<(Str
 			expand(include_str!("new_project/templates/server.rs")),
 		),
 		(
+			// Publishes to the stores in [publish] on a version tag; it does
+			// nothing until one is configured.
+			RELEASE_WORKFLOW.into(),
+			release_workflow(),
+		),
+		(
 			format!("{app}/Cargo.toml"),
 			app_manifest(name, sdk, config.auth.is_some())?,
 		),
@@ -1161,6 +1167,17 @@ The starter requests no native plugin capabilities. Add native plugins to the ru
 	)
 }
 
+/// Where the release workflow goes.
+pub const RELEASE_WORKFLOW: &str = ".github/workflows/release.yml";
+
+/// The GitHub Actions workflow that runs `leptoskit publish` on a version
+/// tag, installing this version of the CLI.
+#[must_use]
+pub fn release_workflow() -> String {
+	include_str!("new_project/templates/release.yml")
+		.replace("__VERSION__", env!("CARGO_PKG_VERSION"))
+}
+
 /// Stable root template files, independent of the chosen application name.
 pub fn template_files() -> &'static [&'static str] {
 	&[
@@ -1168,6 +1185,7 @@ pub fn template_files() -> &'static [&'static str] {
 		".gitignore",
 		"Cargo.toml",
 		"src/main.rs",
+		RELEASE_WORKFLOW,
 		"web/index.html",
 		"assets/app.css",
 		"README.md",

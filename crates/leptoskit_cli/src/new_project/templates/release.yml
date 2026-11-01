@@ -1,0 +1,165 @@
+# Publishes the app to the stores that leptoskit.toml's [publish] tables name,
+# when you push a version tag such as v1.4.0. Without a [publish] table it
+# does nothing.
+#
+# A tag uploads: drafts in the extension stores, a TestFlight build, a draft
+# release on Google Play's track, and a notarized macOS download. Nothing
+# reaches users. To submit for review or release, run this workflow by hand
+# (Actions, release, Run workflow) with "submit" checked.
+#
+# Credentials are repository secrets (Settings, Secrets and variables,
+# Actions), under the names `leptoskit publish credentials` lists. Three are
+# files, stored base64-encoded instead:
+#   LEPTOSKIT_ANDROID_KEYSTORE_BASE64     the upload keystore: base64 -i upload.jks
+#   LEPTOSKIT_MACOS_CERTIFICATE_BASE64    the Developer ID certificate, exported as a .p12
+#   LEPTOSKIT_MACOS_CERTIFICATE_PASSWORD  the .p12's password
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      submit:
+        description: Submit for review or release, which reaches users
+        type: boolean
+        default: false
+
+permissions:
+  # The macOS download is attached to a GitHub release with --submit.
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # Apple's stores need a Mac; the extension stores and Google Play run
+    # here too.
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: find the stores
+        id: stores
+        shell: bash
+        run: |
+          any=false
+          for store in chrome edge firefox app_store macos play; do
+            if grep -q "^\[publish\.$store\]" leptoskit.toml; then
+              echo "$store=true" >> "$GITHUB_OUTPUT"
+              any=true
+            fi
+          done
+          echo "any=$any" >> "$GITHUB_OUTPUT"
+          if [ "$any" = false ]; then
+            echo "leptoskit.toml has no [publish] table, so there is nothing to publish." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: check the tag is app.version
+        if: steps.stores.outputs.any == 'true' && github.ref_type == 'tag'
+        shell: bash
+        run: |
+          version=$(sed -n '/^\[app\]/,/^\[/s/^version *= *"\(.*\)"/\1/p' leptoskit.toml)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::the tag $GITHUB_REF_NAME isn't v$version, app.version in leptoskit.toml"
+            exit 1
+          fi
+
+      # A release builds from scratch: no cache another branch could have
+      # written.
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        if: steps.stores.outputs.any == 'true'
+        with:
+          targets: wasm32-unknown-unknown,aarch64-apple-ios,aarch64-apple-darwin,aarch64-linux-android
+
+      - name: install leptoskit
+        if: steps.stores.outputs.any == 'true'
+        run: |
+          cargo install leptoskit_cli --version __VERSION__ --locked
+          brew install binaryen
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        if: steps.stores.outputs.play == 'true'
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: install the Android SDK platform and NDK
+        if: steps.stores.outputs.play == 'true'
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "ndk;27.1.12297006"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.1.12297006" >> "$GITHUB_ENV"
+
+      - name: decode the upload key
+        if: steps.stores.outputs.play == 'true'
+        env:
+          KEYSTORE: ${{ secrets.LEPTOSKIT_ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/upload.jks"
+          echo "LEPTOSKIT_ANDROID_KEYSTORE=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
+
+      - name: import the Developer ID certificate
+        if: steps.stores.outputs.macos == 'true'
+        env:
+          CERTIFICATE: ${{ secrets.LEPTOSKIT_MACOS_CERTIFICATE_BASE64 }}
+          PASSWORD: ${{ secrets.LEPTOSKIT_MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password=$(openssl rand -hex 16)
+          echo "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain"
+          read -ra keychains <<< "$(security list-keychains -d user | tr -d '"')"
+          security list-keychains -d user -s "$keychain" "${keychains[@]}"
+          rm "$RUNNER_TEMP/certificate.p12"
+
+      - name: publish
+        if: steps.stores.outputs.any == 'true'
+        env:
+          LEPTOSKIT_PUBLISH_CHROME_SERVICE_ACCOUNT: ${{ secrets.LEPTOSKIT_PUBLISH_CHROME_SERVICE_ACCOUNT }}
+          LEPTOSKIT_PUBLISH_EDGE_CLIENT_ID: ${{ secrets.LEPTOSKIT_PUBLISH_EDGE_CLIENT_ID }}
+          LEPTOSKIT_PUBLISH_EDGE_API_KEY: ${{ secrets.LEPTOSKIT_PUBLISH_EDGE_API_KEY }}
+          LEPTOSKIT_PUBLISH_FIREFOX_JWT_ISSUER: ${{ secrets.LEPTOSKIT_PUBLISH_FIREFOX_JWT_ISSUER }}
+          LEPTOSKIT_PUBLISH_FIREFOX_JWT_SECRET: ${{ secrets.LEPTOSKIT_PUBLISH_FIREFOX_JWT_SECRET }}
+          LEPTOSKIT_PUBLISH_APPLE_ISSUER_ID: ${{ secrets.LEPTOSKIT_PUBLISH_APPLE_ISSUER_ID }}
+          LEPTOSKIT_PUBLISH_APPLE_KEY_ID: ${{ secrets.LEPTOSKIT_PUBLISH_APPLE_KEY_ID }}
+          LEPTOSKIT_PUBLISH_APPLE_KEY: ${{ secrets.LEPTOSKIT_PUBLISH_APPLE_KEY }}
+          LEPTOSKIT_PUBLISH_MACOS_IDENTITY: ${{ secrets.LEPTOSKIT_PUBLISH_MACOS_IDENTITY }}
+          LEPTOSKIT_PUBLISH_PLAY_SERVICE_ACCOUNT: ${{ secrets.LEPTOSKIT_PUBLISH_PLAY_SERVICE_ACCOUNT }}
+          LEPTOSKIT_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.LEPTOSKIT_ANDROID_KEYSTORE_PASSWORD }}
+          LEPTOSKIT_ANDROID_KEY_ALIAS: ${{ secrets.LEPTOSKIT_ANDROID_KEY_ALIAS }}
+          LEPTOSKIT_ANDROID_KEY_PASSWORD: ${{ secrets.LEPTOSKIT_ANDROID_KEY_PASSWORD }}
+          # gh attaches the macOS download to a GitHub release.
+          GH_TOKEN: ${{ github.token }}
+          SUBMIT: ${{ inputs.submit }}
+        run: |
+          if [ "$SUBMIT" = true ]; then
+            leptoskit publish --submit --yes
+          else
+            leptoskit publish
+          fi
+
+      - name: what to do next
+        if: always() && steps.stores.outputs.any == 'true'
+        run: |
+          if [ -f .leptoskit/publish/next-steps.md ]; then
+            cat .leptoskit/publish/next-steps.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always() && steps.stores.outputs.any == 'true'
+        with:
+          name: publish
+          path: |
+            .leptoskit/publish/next-steps.*
+            .leptoskit/publish/macos/*.dmg
+            .leptoskit/publish/macos/*.zip
+          if-no-files-found: ignore

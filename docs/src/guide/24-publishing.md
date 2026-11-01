@@ -269,6 +269,25 @@ leptoskit publish screenshots
 
 The steps after each run say which folder each store's screenshots come from. The stores' APIs take images, but leptoskit doesn't upload them yet.
 
+## Publish from CI
+
+`leptoskit new` writes `.github/workflows/release.yml`, a GitHub Actions workflow that runs `leptoskit publish` when you push a version tag. It does nothing until `leptoskit.toml` has a `[publish]` table, so it's safe to keep. A project made before it was written gets one with:
+
+```bash
+leptoskit publish workflow
+```
+
+1. Add each credential `leptoskit publish credentials` lists as a repository secret, under the same name (**Settings**, **Secrets and variables**, **Actions**). Three are files, stored base64-encoded instead:
+   - `LEPTOSKIT_ANDROID_KEYSTORE_BASE64`: the upload keystore (`base64 -i upload.jks`), in place of `LEPTOSKIT_ANDROID_KEYSTORE`;
+   - `LEPTOSKIT_MACOS_CERTIFICATE_BASE64` and `LEPTOSKIT_MACOS_CERTIFICATE_PASSWORD`: the Developer ID certificate, exported from Keychain Access as a `.p12`, and its password.
+2. Raise `app.version`, commit, and tag the commit with the same version:
+
+   ```bash
+   git tag v1.4.0 && git push origin v1.4.0
+   ```
+
+The workflow runs on a Mac, checks that the tag matches `app.version`, installs the CLI version that wrote it, and sets up only what the configured stores need: the Android SDK and upload key for Google Play, the certificate for a macOS download. A tag only uploads. To submit, run the workflow by hand from the **Actions** tab with **submit** checked. The run's summary shows "What to do next", and the macOS download is kept with the run.
+
 ## Let an agent finish the release
 
 `leptoskit skill install` gives coding agents, such as Claude Code, leptoskit's skill for the version of the CLI you have. Its publishing guide walks an agent through a release: run the dry run and fix what fails, upload, then work through the steps in each dashboard with computer use. The agent stops for every step marked for the account holder, and never submits without being told to.
