@@ -488,10 +488,10 @@ fn deploy_files_for_a_new_project_are_pinned() {
 		stdout(&again)
 	);
 
-	let output = leptoskit(&project, &["generate", "deploy", "--target", "kubernetes"]);
+	let output = leptoskit(&project, &["generate", "deploy", "--target", "nomad"]);
 	assert!(!output.status.success());
 	assert!(
-		stderr(&output).contains("possible values: docker, compose, fly"),
+		stderr(&output).contains("possible values: docker, compose, fly, kubernetes, systemd"),
 		"{}",
 		stderr(&output)
 	);

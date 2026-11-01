@@ -27,6 +27,11 @@ pub enum Target {
 	Compose,
 	/// `fly.toml` beside the `Dockerfile`, for Fly.io.
 	Fly,
+	/// `kubernetes.yaml` beside the `Dockerfile`: a Deployment, Service,
+	/// and `PodDisruptionBudget` for any Kubernetes cluster.
+	Kubernetes,
+	/// A systemd unit beside the `Dockerfile`, for a Linux host.
+	Systemd,
 }
 
 impl Target {
@@ -37,19 +42,23 @@ impl Target {
 			Self::Docker => "docker",
 			Self::Compose => "compose",
 			Self::Fly => "fly",
+			Self::Kubernetes => "kubernetes",
+			Self::Systemd => "systemd",
 		}
 	}
 
 	/// The files this target writes, relative to the project root.
-	fn files(self, project: &Project) -> Vec<(&'static str, String)> {
+	fn files(self, project: &Project) -> Vec<(String, String)> {
 		let mut files = vec![
-			("Dockerfile", dockerfile(project)),
-			(".dockerignore", DOCKERIGNORE.to_owned()),
+			("Dockerfile".to_owned(), dockerfile(project)),
+			(".dockerignore".to_owned(), DOCKERIGNORE.to_owned()),
 		];
 		match self {
 			Self::Docker => {}
-			Self::Compose => files.push(("compose.yaml", compose(project))),
-			Self::Fly => files.push(("fly.toml", fly(project))),
+			Self::Compose => files.push(("compose.yaml".to_owned(), compose(project))),
+			Self::Fly => files.push(("fly.toml".to_owned(), fly(project))),
+			Self::Kubernetes => files.push(("kubernetes.yaml".to_owned(), kubernetes(project))),
+			Self::Systemd => files.push((format!("{}.service", project.app), systemd(project))),
 		}
 		files
 	}
@@ -60,6 +69,8 @@ impl Target {
 			Self::Docker => docker_next(project),
 			Self::Compose => compose_next(project),
 			Self::Fly => fly_next(project),
+			Self::Kubernetes => kubernetes_next(project),
+			Self::Systemd => systemd_next(project),
 		}
 	}
 }
@@ -311,7 +322,7 @@ pub fn generate(
 		..Report::default()
 	};
 	for (file, contents) in target.files(&project) {
-		write_owned(root, file, &contents, force, &mut report)?;
+		write_owned(root, &file, &contents, force, &mut report)?;
 	}
 	if !project.has_probes {
 		report.next.push(
@@ -922,6 +933,280 @@ fn fly_next(project: &Project) -> Vec<String> {
 		));
 	}
 	steps.push("Deploy: `fly deploy`".to_owned());
+	steps
+}
+
+/// A Kubernetes Deployment, Service, and `PodDisruptionBudget`.
+#[expect(
+	clippy::too_many_lines,
+	reason = "one manifest per resource reads best beside the others"
+)]
+fn kubernetes(project: &Project) -> String {
+	let image = project.image();
+	let port = project.port;
+	let replicas = if project.sqlite().is_some() { 1 } else { 2 };
+	let mut out = format!(
+		"# {app} on Kubernetes, written by `leptoskit generate deploy`. It's
+# yours to edit: running the generator again keeps your changes unless you
+# pass --force.
+#
+#   kubectl apply -f kubernetes.yaml
+#
+# The Deployment runs {replicas} replica{plural}. On SIGTERM the server fails
+# /readyz, waits 5 seconds for the load balancer to stop sending it traffic,
+# and gives requests in flight 20 more; the pod's grace period is {STOP_TIMEOUT_SECONDS} seconds.
+",
+		app = project.app,
+		plural = if replicas == 1 { "" } else { "s" },
+	);
+	if project.sqlite().is_some() {
+		out.push_str(
+			"#\n# The SQLite database lives on a PersistentVolumeClaim, so the\n# Deployment runs \
+			 one replica and replaces it on deploy.\n",
+		);
+	}
+	if !project.runtime_secrets().is_empty() {
+		let _ = write!(
+			out,
+			"#\n# The container reads these from the Secret `{image}`, which you create\n# with \
+			 `kubectl create secret generic {image} --from-literal=...`:\n",
+		);
+		for secret in project.runtime_secrets() {
+			let _ = writeln!(out, "#   {secret}");
+		}
+	}
+	let _ = write!(
+		out,
+		"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {image}
+spec:
+  replicas: {replicas}
+"
+	);
+	if project.sqlite().is_some() {
+		out.push_str(
+			"  strategy:
+    type: Recreate
+",
+		);
+	}
+	let _ = write!(
+		out,
+		"  selector:
+    matchLabels:
+      app: {image}
+  template:
+    metadata:
+      labels:
+        app: {image}
+    spec:
+      terminationGracePeriodSeconds: {STOP_TIMEOUT_SECONDS}
+      containers:
+        - name: {image}
+          image: {image}
+          ports:
+            - containerPort: {port}
+          env:
+            - name: LEPTOS_SITE_ADDR
+              value: \"0.0.0.0:{port}\"
+"
+	);
+	if !project.runtime_secrets().is_empty() {
+		let _ = write!(
+			out,
+			"          envFrom:
+            - secretRef:
+                name: {image}
+"
+		);
+	}
+	let _ = write!(
+		out,
+		"          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {port}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {port}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          lifecycle:
+            preStop:
+              exec:
+                command: [\"sh\", \"-c\", \"sleep 5\"]
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+"
+	);
+	if project.sqlite().is_some() {
+		let _ = write!(
+			out,
+			"          volumeMounts:
+            - name: data
+              mountPath: {DATA_DIR}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {image}-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {image}-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+"
+		);
+	}
+	let _ = write!(
+		out,
+		"---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {image}
+spec:
+  selector:
+    app: {image}
+  ports:
+    - port: 80
+      targetPort: {port}
+---
+apiVersion: policy/v1
+kind: `PodDisruptionBudget`
+metadata:
+  name: {image}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: {image}
+"
+	);
+	out
+}
+
+/// A systemd service that runs the server as a hardened unit.
+fn systemd(project: &Project) -> String {
+	let mut out = format!(
+		"# {app} under systemd, written by `leptoskit generate deploy`. It's
+# yours to edit: running the generator again keeps your changes unless you
+# pass --force.
+#
+#   sudo cp {app}.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now {app}
+#
+# It reads the environment from /etc/{app}/{app}.env, which is where the
+# secrets go. The binary and the built site are installed by your deploy;
+# the paths below match /usr/local/bin and /srv/{app}.
+",
+		app = project.app,
+	);
+	let _ = write!(
+		out,
+		"
+[Unit]
+Description={app}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={app}
+Group={app}
+WorkingDirectory=/srv/{app}
+EnvironmentFile=/etc/{app}/{app}.env
+Environment=LEPTOS_SITE_ADDR=0.0.0.0:{port}
+Environment=LEPTOS_SITE_ROOT=/srv/{app}/{DIST_DIR}
+",
+		app = project.app,
+		port = project.port,
+	);
+	if project.sqlite().is_some() {
+		let _ = writeln!(
+			out,
+			"Environment={url_env}=sqlite:///var/lib/{app}/{app}.sqlite3",
+			url_env = project.sqlite().unwrap().url_env,
+			app = project.app
+		);
+		out.push_str("StateDirectory=");
+		out.push_str(&project.app);
+		out.push('\n');
+	}
+	let _ = write!(
+		out,
+		"ExecStart=/usr/local/bin/{binary}
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec={STOP_TIMEOUT_SECONDS}
+
+# A read-only filesystem, except for the paths systemd gives the service.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+",
+		binary = project.binary,
+	);
+	if project.sqlite().is_some() {
+		let _ = writeln!(out, "ReadWritePaths=/var/lib/{}", project.app);
+	}
+	out.push_str(
+		"
+[Install]
+WantedBy=multi-user.target
+",
+	);
+	out
+}
+
+fn kubernetes_next(project: &Project) -> Vec<String> {
+	let image = project.image();
+	let mut steps = vec![
+		format!(
+			"Build and push the image: `docker build -t {image} .` then push it to your registry."
+		),
+		"Set image to the pushed reference in kubernetes.yaml.".to_owned(),
+	];
+	if !project.runtime_secrets().is_empty() {
+		steps.push(format!(
+			"Create the Secret: `kubectl create secret generic {image} --from-literal=NAME=...`."
+		));
+	}
+	steps.push("Apply it: `kubectl apply -f kubernetes.yaml`".to_owned());
+	steps
+}
+
+fn systemd_next(project: &Project) -> Vec<String> {
+	let mut steps = vec![
+		"Install the binary at /usr/local/bin and the built site at /srv/<app>.".to_owned(),
+		"Put the environment, including secrets, in /etc/<app>/<app>.env.".to_owned(),
+		format!(
+			"Install the unit and start it: `sudo cp {}.service /etc/systemd/system/ && sudo \
+			 systemctl daemon-reload && sudo systemctl enable --now {}`.",
+			project.app, project.app
+		),
+	];
+	steps.push("Create the app's system user, or change User/Group in the unit.".to_owned());
 	steps
 }
 

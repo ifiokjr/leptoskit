@@ -23,11 +23,13 @@ This page covers what the files contain, the health checks and graceful shutdown
 
 ## The targets
 
-| Target    | What it writes                | What you get                                                                                                                                          |
-| --------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docker`  | `Dockerfile`, `.dockerignore` | An image for any container platform.                                                                                                                  |
-| `compose` | the above, and `compose.yaml` | The app and its database on one machine with `docker compose up`: a Postgres service with its own volume, or a volume for the SQLite file.            |
-| `fly`     | the above, and `fly.toml`     | An app on Fly.io whose proxy checks `/readyz`, gives the server time to stop, and keeps machines running. SQLite gets a volume; Postgres is attached. |
+| Target       | What it writes                   | What you get                                                                                                                                                     |
+| ------------ | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docker`     | `Dockerfile`, `.dockerignore`    | An image for any container platform.                                                                                                                             |
+| `compose`    | the above, and `compose.yaml`    | The app and its database on one machine with `docker compose up`: a Postgres service with its own volume, or a volume for the SQLite file.                       |
+| `fly`        | the above, and `fly.toml`        | An app on Fly.io whose proxy checks `/readyz`, gives the server time to stop, and keeps machines running. SQLite gets a volume; Postgres is attached.            |
+| `kubernetes` | the above, and `kubernetes.yaml` | A Deployment, Service, and `PodDisruptionBudget` for any cluster, with `/readyz` and `/healthz` probes and a preStop drain. SQLite gets a PersistentVolumeClaim. |
+| `systemd`    | the above, and `<app>.service`   | A hardened systemd unit for a Linux host, with `/readyz` for your proxy, a 30-second stop, and the SQLite database in the service's state directory.             |
 
 The files are yours. Edit them as you like: running the generator again changes nothing, says so, and keeps any file you've edited. Pass `--force` to replace edited files with the current templates. Each target writes the same `Dockerfile`, so you can generate `compose` for a staging machine and `fly` for production in the same project.
 
@@ -48,7 +50,7 @@ The `Dockerfile` has two stages:
 1. **Build.** It installs the leptoskit CLI at the version your project uses and runs `leptoskit build --release`, the same build you run on your machine, so the server, the wasm client, and the precompressed site come out exactly as they do there. A `rust-toolchain.toml` at the root picks the Rust release; otherwise the image uses the latest stable.
 2. **Run.** A small Debian image with the server and `dist/`, nothing else. It sets the `LEPTOS_*` environment (`LEPTOS_SITE_ADDR=0.0.0.0:3000`, `LEPTOS_SITE_ROOT=/app/dist`, `LEPTOS_OUTPUT_NAME`, and `LEPTOS_ENV=PROD`), runs as an unprivileged user, and writes nothing to its own filesystem, so it runs with a read-only root filesystem. A SQLite database lives on a volume at `/data`, the one path it writes. A `HEALTHCHECK` calls `/healthz`.
 
-Secrets never go in the `Dockerfile`, `compose.yaml`, or `fly.toml`. The Postgres URL, `AUTH_ENCRYPTION_KEYS`, and mail settings come from the environment when the container starts: `docker run -e`, an `.env` file beside `compose.yaml`, or `fly secrets set`. The `.dockerignore` keeps `.env` files, local databases, and build output out of the image.
+Secrets never go in the `Dockerfile`, `compose.yaml`, `fly.toml`, `kubernetes.yaml`, or the unit file. The Postgres URL, `AUTH_ENCRYPTION_KEYS`, and mail settings come from the environment when the container starts: `docker run -e`, an `.env` file beside `compose.yaml`, or `fly secrets set`. The `.dockerignore` keeps `.env` files, local databases, and build output out of the image.
 
 To build and run the image on your machine:
 
@@ -153,9 +155,27 @@ fly secrets set AUTH_ENCRYPTION_KEYS="$(date +%Y-%m):$(openssl rand 32 | basenc 
 fly deploy
 ```
 
+## Kubernetes
+
+`leptoskit generate deploy --target kubernetes` writes a Deployment, a Service on port 80, and a `PodDisruptionBudget` with `minAvailable: 1`. The container:
+
+- answers `/readyz` for readiness and `/healthz` for liveness;
+- runs as a non-root user with a read-only root filesystem;
+- gets a 30-second termination grace period, and its `preStop` sleeps 5 seconds so the load balancer stops sending traffic before the server drains.
+
+With Postgres the Deployment runs two replicas and reads its secrets from a Secret named after the image. With SQLite it runs one replica with a `Recreate` strategy and a `PersistentVolumeClaim` mounted at `/data`.
+
+Build and push the image, set `image` in `kubernetes.yaml` to the pushed reference, create the Secret if the app has one, then `kubectl apply -f kubernetes.yaml`.
+
+## systemd
+
+`leptoskit generate deploy --target systemd` writes `<app>.service`. It runs the server from `/usr/local/bin/<app>` with the site at `/srv/<app>/dist`, reads the environment from `/etc/<app>/<app>.env`, and restarts on failure. The unit is sandboxed with a read-only filesystem, no home or devices, and only the service's `StateDirectory` writable; with SQLite, the database is `/var/lib/<app>/<app>.sqlite3`.
+
+Create the app's user, install the binary and site, put the environment in `/etc/<app>/<app>.env`, then copy the unit to `/etc/systemd/system/`, `systemctl daemon-reload`, and `systemctl enable --now <app>`. Put a proxy that terminates TLS in front of it.
+
 ## Limits
 
 - The image builds from the project's root. Crates outside it, such as a local leptoskit checkout passed with `--sdk-path`, aren't in the build context, so the build can't find them.
 - The build copies the server from `target/release`. If `.cargo/config.toml` moves the target directory, change the `cp` line in the `Dockerfile` to match.
 - The first build compiles the leptoskit CLI and every dependency, which takes several minutes. Later builds reuse Docker's caches.
-- Kubernetes and systemd targets aren't there yet. The `docker` target's image works on Kubernetes today: point a readiness probe at `/readyz`, a liveness probe at `/healthz`, and set `terminationGracePeriodSeconds: 30`.
+- The Kubernetes manifest and the systemd unit assume the image, binary, and site are installed where they say; the generator doesn't push images or copy files to hosts.
