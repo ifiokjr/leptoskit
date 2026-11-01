@@ -202,44 +202,14 @@ fn ident_value(value: &syn::Expr, option: &str, example: &str) -> syn::Result<Id
 }
 
 impl OperationArgs {
-	#[expect(
-		clippy::too_many_lines,
-		reason = "one arm per option, each with its own error, reads best in one place"
-	)]
 	pub(crate) fn parse(kind: OperationKind, tokens: TokenStream) -> syn::Result<Self> {
 		let metas = Punctuated::<Meta, Token![,]>::parse_terminated.parse2(tokens)?;
 		let mut args = Self::default();
 
 		for meta in metas {
-			let job_only = |pair: &syn::MetaNameValue| {
-				if kind == OperationKind::Job {
-					return Ok(());
-				}
-
-				Err(syn::Error::new_spanned(
-					pair,
-					format!(
-						"`{}` only applies to #[rpc::job]; for #[rpc::{}], expected {}",
-						pair.path.to_token_stream(),
-						kind.attribute(),
-						expected_options(kind)
-					),
-				))
-			};
-			let once = |given: bool, pair: &syn::MetaNameValue| {
-				if given {
-					return Err(syn::Error::new_spanned(
-						pair,
-						format!("`{}` is given twice", pair.path.to_token_stream()),
-					));
-				}
-
-				Ok(())
-			};
-
 			match &meta {
 				Meta::NameValue(pair) if pair.path.is_ident("name") => {
-					once(args.name.is_some(), pair)?;
+					Self::once(args.name.is_some(), pair)?;
 					let name = crate::string_value(&pair.value, "name")?;
 					if !crate::is_route_segment(&name.value()) {
 						return Err(syn::Error::new_spanned(
@@ -254,7 +224,7 @@ impl OperationArgs {
 				}
 
 				Meta::NameValue(pair) if pair.path.is_ident("crate") => {
-					once(args.krate.is_some(), pair)?;
+					Self::once(args.krate.is_some(), pair)?;
 					let path = crate::string_value(&pair.value, "crate")?;
 					args.krate = Some(path.parse::<Path>().map_err(|_| {
 						syn::Error::new_spanned(
@@ -285,7 +255,7 @@ impl OperationArgs {
 						OperationKind::Mutation | OperationKind::Job => {}
 					}
 
-					once(args.retries.is_some(), pair)?;
+					Self::once(args.retries.is_some(), pair)?;
 					let syn::Expr::Lit(syn::ExprLit {
 						lit: syn::Lit::Int(count),
 						..
@@ -301,8 +271,8 @@ impl OperationArgs {
 				}
 
 				Meta::NameValue(pair) if pair.path.is_ident("queue") => {
-					job_only(pair)?;
-					once(args.job.queue.is_some(), pair)?;
+					Self::job_only(kind, pair)?;
+					Self::once(args.job.queue.is_some(), pair)?;
 					let queue = crate::string_value(&pair.value, "queue")?;
 					if queue.value().is_empty() {
 						return Err(syn::Error::new_spanned(&queue, "a queue needs a name"));
@@ -312,8 +282,8 @@ impl OperationArgs {
 				}
 
 				Meta::NameValue(pair) if pair.path.is_ident("backoff") => {
-					job_only(pair)?;
-					once(args.job.backoff.is_some(), pair)?;
+					Self::job_only(kind, pair)?;
+					Self::once(args.job.backoff.is_some(), pair)?;
 					let error = || {
 						syn::Error::new_spanned(
 							&pair.value,
@@ -336,22 +306,22 @@ impl OperationArgs {
 				}
 
 				Meta::NameValue(pair) if pair.path.is_ident("deadline") => {
-					job_only(pair)?;
-					once(args.job.deadline.is_some(), pair)?;
+					Self::job_only(kind, pair)?;
+					Self::once(args.job.deadline.is_some(), pair)?;
 					args.job.deadline =
 						Some(duration_value(&pair.value, "deadline", "deadline = 15m")?);
 				}
 
 				Meta::NameValue(pair) if pair.path.is_ident("timeout") => {
-					job_only(pair)?;
-					once(args.job.timeout.is_some(), pair)?;
+					Self::job_only(kind, pair)?;
+					Self::once(args.job.timeout.is_some(), pair)?;
 					args.job.timeout =
 						Some(duration_value(&pair.value, "timeout", "timeout = 30s")?);
 				}
 
 				Meta::NameValue(pair) if pair.path.is_ident("serialize_by") => {
-					job_only(pair)?;
-					once(args.job.serialize_by.is_some(), pair)?;
+					Self::job_only(kind, pair)?;
+					Self::once(args.job.serialize_by.is_some(), pair)?;
 					args.job.serialize_by = Some(ident_value(
 						&pair.value,
 						"serialize_by",
@@ -360,8 +330,8 @@ impl OperationArgs {
 				}
 
 				Meta::NameValue(pair) if pair.path.is_ident("visible_to") => {
-					job_only(pair)?;
-					once(args.job.visible_to.is_some(), pair)?;
+					Self::job_only(kind, pair)?;
+					Self::once(args.job.visible_to.is_some(), pair)?;
 					args.job.visible_to = Some(ident_value(
 						&pair.value,
 						"visible_to",
@@ -370,8 +340,8 @@ impl OperationArgs {
 				}
 
 				Meta::NameValue(pair) if pair.path.is_ident("on_failure") => {
-					job_only(pair)?;
-					once(args.job.on_failure.is_some(), pair)?;
+					Self::job_only(kind, pair)?;
+					Self::once(args.job.on_failure.is_some(), pair)?;
 					let syn::Expr::Path(path) = &pair.value else {
 						return Err(syn::Error::new_spanned(
 							&pair.value,
@@ -396,6 +366,35 @@ impl OperationArgs {
 		}
 
 		Ok(args)
+	}
+
+	/// Rejects an option only a job takes.
+	fn job_only(kind: OperationKind, pair: &syn::MetaNameValue) -> syn::Result<()> {
+		if kind == OperationKind::Job {
+			return Ok(());
+		}
+
+		Err(syn::Error::new_spanned(
+			pair,
+			format!(
+				"`{}` only applies to #[rpc::job]; for #[rpc::{}], expected {}",
+				pair.path.to_token_stream(),
+				kind.attribute(),
+				expected_options(kind)
+			),
+		))
+	}
+
+	/// Rejects an option given twice.
+	fn once(given: bool, pair: &syn::MetaNameValue) -> syn::Result<()> {
+		if given {
+			return Err(syn::Error::new_spanned(
+				pair,
+				format!("`{}` is given twice", pair.path.to_token_stream()),
+			));
+		}
+
+		Ok(())
 	}
 }
 
