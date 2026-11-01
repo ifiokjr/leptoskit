@@ -119,16 +119,21 @@ pub struct Element {
 )]
 impl std::fmt::Debug for Element {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("Element")
+		let mut debug = f.debug_struct("Element");
+		debug
 			.field("kind", &self.kind)
 			.field("style", &self.style)
 			.field("props", &self.props)
 			.field("children", &self.children)
 			.field("classes", &self.classes)
 			.field("handlers", &self.handlers)
-			.field("bindings", &self.bindings)
-			.field("region", &self.region.is_some())
-			.finish()
+			.field("bindings", &self.bindings);
+		// A region is absent on almost every node. Leaving it out of the
+		// debug output keeps the digest of an unchanged node stable.
+		if self.region.is_some() {
+			debug.field("region", &true);
+		}
+		debug.finish()
 	}
 }
 
