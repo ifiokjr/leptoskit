@@ -132,6 +132,22 @@ impl Drop for Connection {
 	}
 }
 
+async fn next_event(body: &mut Body, buffered: &mut String) -> Option<ServerFrame> {
+	loop {
+		if let Some(end) = buffered.find("\n\n") {
+			let event: String = buffered.drain(..end + 2).collect();
+			if let Some(data) = event.lines().find_map(|line| line.strip_prefix("data: ")) {
+				return Some(serde_json::from_str(data).unwrap());
+			}
+			continue;
+		}
+		let frame = body.frame().await?.unwrap();
+		if let Ok(bytes) = frame.into_data() {
+			buffered.push_str(std::str::from_utf8(&bytes).unwrap());
+		}
+	}
+}
+
 impl Connection {
 	async fn open(live: &Live, auth: &Auth, sign_in: &SignIn, bearer: bool, socket: bool) -> Self {
 		let router = Router::new().merge(live.router()).layer(auth.layer());
@@ -188,30 +204,14 @@ impl Connection {
 								return Some(serde_json::from_str(&text).unwrap());
 							}
 							Ok(Message::Ping(bytes)) => {
-								socket.send(Message::Pong(bytes)).await.unwrap()
+								socket.send(Message::Pong(bytes)).await.unwrap();
 							}
 							Ok(Message::Close(_)) | Err(_) => return None,
 							_ => {}
 						}
 					}
 				}
-				Self::Sse { body, buffered } => {
-					loop {
-						if let Some(end) = buffered.find("\n\n") {
-							let event: String = buffered.drain(..end + 2).collect();
-							if let Some(data) =
-								event.lines().find_map(|line| line.strip_prefix("data: "))
-							{
-								return Some(serde_json::from_str(data).unwrap());
-							}
-							continue;
-						}
-						let frame = body.frame().await?.unwrap();
-						if let Ok(bytes) = frame.into_data() {
-							buffered.push_str(std::str::from_utf8(&bytes).unwrap());
-						}
-					}
-				}
+				Self::Sse { body, buffered } => next_event(body, buffered).await,
 			}
 		})
 		.await
@@ -285,6 +285,7 @@ async fn expiration_ends_an_idle_connection_without_another_write() {
 		for socket in [false, true] {
 			for bearer in [false, true] {
 				let sign_in = sign_in(&auth, bearer).await;
+				let mut connection = Connection::open(&live, &auth, &sign_in, bearer, socket).await;
 				let expires = leptoskit_db::now() + chrono::TimeDelta::milliseconds(300);
 				set(
 					&db,
@@ -294,7 +295,6 @@ async fn expiration_ends_an_idle_connection_without_another_write() {
 					sign_in.session.id,
 				)
 				.await;
-				let mut connection = Connection::open(&live, &auth, &sign_in, bearer, socket).await;
 				connection.refused().await;
 			}
 		}
@@ -333,7 +333,10 @@ async fn a_revoked_session_cannot_get_a_new_lease_but_another_device_can() {
 	let two = sign_in(&auth, true).await;
 	let identity = auth.identify_token(one.token.expose()).await.unwrap();
 	let other = auth.identify_token(two.token.expose()).await.unwrap();
-	assert!(!auth.lease(&identity).await.unwrap().reads.is_empty());
+	assert_ne!(
+		auth.lease(&identity).await.unwrap().reads,
+		[] as [leptoskit_db::ReadEntry; 0]
+	);
 	auth.revoke(&two.signed_in(), one.session.id, &RequestInfo::default())
 		.await
 		.unwrap();
@@ -342,6 +345,7 @@ async fn a_revoked_session_cannot_get_a_new_lease_but_another_device_can() {
 	assert!(auth.lease(&other).await.is_ok());
 }
 
+static ACTION_CASE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 static ACTION_ENTERED: tokio::sync::Notify = tokio::sync::Notify::const_new();
 static ACTION_RELEASE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(0);
 
@@ -356,6 +360,7 @@ async fn lease_delayed(cx: &leptoskit_rpc::ActionCx) -> leptoskit_rpc::Result<St
 
 #[tokio::test]
 async fn an_old_identitys_action_result_is_not_sent_to_the_new_identity() {
+	let _case = ACTION_CASE.lock().await;
 	let db = leptoskit_db::testing::sqlite().await;
 	let auth = auth(&db);
 	let ada = sign_in(&auth, true).await;
@@ -453,6 +458,28 @@ async fn session_revocations_reach_relay_consumers_without_database_fallback() {
 			.origin(ORIGIN)
 			.relay(&relay);
 		let mut connection = Connection::open(&live, &auth, &sign_in, true, true).await;
+		let Connection::Socket { socket, .. } = &mut connection else {
+			unreachable!()
+		};
+		socket
+			.send(Message::Text(
+				serde_json::to_string(&ClientFrame::Auth {
+					token: sign_in.token.expose().to_owned(),
+				})
+				.unwrap()
+				.into(),
+			))
+			.await
+			.unwrap();
+		loop {
+			if let Some(ServerFrame::AuthStatus {
+				refused: false,
+				expiring: false,
+			}) = connection.next().await
+			{
+				break;
+			}
+		}
 		auth.sign_out_everywhere(sign_in.session.account_id, &RequestInfo::default())
 			.await
 			.unwrap();
@@ -488,4 +515,206 @@ async fn short_token_lifetimes_warn_in_the_future_and_absolute_expiry_cannot_loo
 	)
 	.await;
 	assert!(auth.lease(&identity).await.unwrap().refresh_at.is_none());
+}
+
+struct Unavailable(Auth);
+
+impl Identify for Unavailable {
+	fn identify<'a>(
+		&'a self,
+		request: &'a axum::http::request::Parts,
+	) -> std::pin::Pin<
+		Box<dyn Future<Output = leptoskit_rpc::Result<leptoskit_rpc::Identity>> + Send + 'a>,
+	> {
+		self.0.identify(request)
+	}
+
+	fn lease<'a>(
+		&'a self,
+		_identity: &'a leptoskit_rpc::Identity,
+	) -> std::pin::Pin<
+		Box<
+			dyn Future<Output = leptoskit_rpc::Result<leptoskit_rpc::server::IdentityLease>>
+				+ Send
+				+ 'a,
+		>,
+	> {
+		Box::pin(std::future::ready(Err(leptoskit_rpc::Error::server(
+			"temporarily unavailable",
+		))))
+	}
+}
+
+#[tokio::test]
+async fn a_failed_validation_read_reconnects_without_reporting_a_sign_out() {
+	let db = leptoskit_db::testing::sqlite().await;
+	let auth = auth(&db);
+	let sign_in = sign_in(&auth, true).await;
+	let live = Live::new(db)
+		.identify(Unavailable(auth.clone()))
+		.origin(ORIGIN);
+	let mut connection = Connection::open(&live, &auth, &sign_in, true, true).await;
+	assert!(matches!(
+		connection.next().await,
+		Some(ServerFrame::Reconnect { .. })
+	));
+	assert!(connection.next().await.is_none());
+}
+
+#[tokio::test]
+async fn reauthenticating_the_same_identity_keeps_its_pending_action() {
+	let _case = ACTION_CASE.lock().await;
+	let db = leptoskit_db::testing::sqlite().await;
+	let auth = auth(&db);
+	let sign_in = sign_in(&auth, true).await;
+	let live = Live::new(db).identify(auth.clone()).origin(ORIGIN);
+	let mut connection = Connection::open(&live, &auth, &sign_in, true, true).await;
+	let Connection::Socket { socket, .. } = &mut connection else {
+		unreachable!()
+	};
+	socket
+		.send(Message::Text(
+			serde_json::to_string(&ClientFrame::Act {
+				request: 7,
+				name: "lease_delayed".to_owned(),
+				args: serde_json::json!({}),
+			})
+			.unwrap()
+			.into(),
+		))
+		.await
+		.unwrap();
+	tokio::time::timeout(WAIT, ACTION_ENTERED.notified())
+		.await
+		.unwrap();
+	socket
+		.send(Message::Text(
+			serde_json::to_string(&ClientFrame::Auth {
+				token: sign_in.token.expose().to_owned(),
+			})
+			.unwrap()
+			.into(),
+		))
+		.await
+		.unwrap();
+	loop {
+		if let Some(ServerFrame::AuthStatus {
+			refused: false,
+			expiring: false,
+		}) = connection.next().await
+		{
+			break;
+		}
+	}
+	ACTION_RELEASE.add_permits(1);
+	loop {
+		if let Some(ServerFrame::Done {
+			request: 7,
+			ok,
+			err,
+			..
+		}) = connection.next().await
+		{
+			assert!(err.is_none());
+			assert_eq!(
+				ok.unwrap(),
+				serde_json::json!(sign_in.session.id.to_string())
+			);
+			break;
+		}
+	}
+}
+
+struct Roles {
+	one: String,
+}
+
+impl Identify for Roles {
+	fn identify<'a>(
+		&'a self,
+		request: &'a axum::http::request::Parts,
+	) -> std::pin::Pin<
+		Box<dyn Future<Output = leptoskit_rpc::Result<leptoskit_rpc::Identity>> + Send + 'a>,
+	> {
+		let one = request
+			.headers
+			.get("authorization")
+			.and_then(|value| value.to_str().ok())
+			.is_some_and(|value| value.strip_prefix("Bearer ") == Some(self.one.as_str()));
+		Box::pin(std::future::ready(Ok(leptoskit_rpc::Identity::new(
+			leptoskit_db::Context::new().with(if one { "one" } else { "two" }.to_owned()),
+		)
+		.with_caller("same caller"))))
+	}
+
+	fn lease<'a>(
+		&'a self,
+		identity: &'a leptoskit_rpc::Identity,
+	) -> std::pin::Pin<
+		Box<
+			dyn Future<Output = leptoskit_rpc::Result<leptoskit_rpc::server::IdentityLease>>
+				+ Send
+				+ 'a,
+		>,
+	> {
+		Box::pin(std::future::ready(Ok(
+			leptoskit_rpc::server::IdentityLease {
+				continuity: identity.context.get::<String>().cloned(),
+				..Default::default()
+			},
+		)))
+	}
+}
+
+/// A policy-relevant context value, with no database reads to separate it.
+#[leptoskit_rpc::query]
+async fn leased_role(cx: &leptoskit_rpc::QueryCx) -> leptoskit_rpc::Result<String> {
+	Ok(cx.get::<String>().cloned().unwrap())
+}
+
+async fn role(connection: &mut Connection) -> String {
+	let Connection::Socket { socket, .. } = connection else {
+		unreachable!()
+	};
+	socket
+		.send(Message::Text(
+			serde_json::to_string(&ClientFrame::Sub {
+				id: 1,
+				query: "leased_role".to_owned(),
+				args: serde_json::json!({}),
+			})
+			.unwrap()
+			.into(),
+		))
+		.await
+		.unwrap();
+	loop {
+		if let Some(ServerFrame::Done {
+			request: 1,
+			ok,
+			err,
+			..
+		}) = connection.next().await
+		{
+			assert!(err.is_none());
+			return ok.unwrap().as_str().unwrap().to_owned();
+		}
+	}
+}
+
+#[tokio::test]
+async fn the_same_caller_with_different_policy_revisions_does_not_share_results() {
+	let db = leptoskit_db::testing::sqlite().await;
+	let auth = auth(&db);
+	let one = sign_in(&auth, true).await;
+	let two = sign_in(&auth, true).await;
+	let live = Live::new(db)
+		.identify(Roles {
+			one: one.token.expose().to_owned(),
+		})
+		.origin(ORIGIN);
+	let mut first = Connection::open(&live, &auth, &one, true, true).await;
+	let mut second = Connection::open(&live, &auth, &two, true, true).await;
+	assert_eq!(role(&mut first).await, "one");
+	assert_eq!(role(&mut second).await, "two");
 }

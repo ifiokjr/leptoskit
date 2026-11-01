@@ -74,7 +74,11 @@ pub fn provide() -> Shell {
 	// disposes the signed-in owner above.
 	let cache = leptoskit::query::use_query_client();
 	Effect::new(move |_| {
-		if shell.huddle.get().is_some_and(|huddle| huddle.session.error().is_some()) {
+		if shell
+			.huddle
+			.get()
+			.is_some_and(|huddle| huddle.session.error().is_some())
+		{
 			drop(cache.invalidate_scope(&leptoskit::auth::client::session()));
 		}
 

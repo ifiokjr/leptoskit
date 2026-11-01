@@ -234,13 +234,13 @@ A screen that shows someone's private channels should show them the moment they 
 
 Signing out works the same way: results the signed-out person can no longer see become empty or `Forbidden`. A stream opened as the old identity ends as interrupted; a resumable one opens again as the new one. If your app signs in some other way, call `rpc::client::reauthenticate()` after the credentials change.
 
-Ending a session from another device also ends its open connections. With `Live::new(db).identify(auth)`, first-party cookie and bearer sessions are checked when their session or account changes; disabling an account ends all its connections. This works on WebSocket and SSE, including idle connections with no queries. Session and access-token deadlines are enforced even when the database is quiet. Native bearer clients receive a warning a minute before expiry and renew through their configured credentials.
+Ending a session from another device also ends its open connections. With `Live::new(db).identify(auth)`, first-party cookie and bearer sessions are checked when their session or account changes; disabling an account ends all its connections. This works on WebSocket and SSE, including idle connections with no queries. Session and access-token deadlines are enforced even when the database is quiet. Native bearer clients receive a warning up to a minute before access-token expiry and renew through their configured credentials. Shorter token lifetimes warn halfway through; an absolute session deadline is enforced without repeated renewal attempts.
 
 After upgrading an existing app, run `lk db migration create live_auth_sessions` and apply the migration: the auth pack now captures changes to accounts and sessions. Keep this migration with the rest of your app's migrations.
 
 If you implement `Identify` yourself, implement its `lease` method to return the reads and deadlines that keep an identity valid. Make those checks against the primary database. The default lease has no dependencies or deadline; it does not validate a custom session after the connection opens.
 
-When credentials are refused, pending live calls fail and cached values are fetched afresh on the next connection. An action already running on the server may finish its work; if the connection has since accepted a different identity, its old result is returned as an authorization error.
+In a leptoskit app, refused credentials fail pending live calls and cached values are fetched afresh on the next connection. Generated SDKs report refusal through their auth-refusal callback; close that client and create a fresh one when signing in as another person, so its cached subscriptions belong to that person. An action already running on the server may finish its work; if the connection has since accepted a different identity, its old result is returned as an authorization error.
 
 ## Working offline
 

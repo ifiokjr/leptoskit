@@ -1,3 +1,4 @@
 # The migrations for Postgres, in the order they apply. `leptoskit db migration create`
 # adds to it, with `[db] dialect = "postgres"` and `migrations = "migrations-postgres"`.
 20261101T143717_init
+20261101T182506_live_auth_sessions

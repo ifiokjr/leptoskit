@@ -28,6 +28,7 @@ serde_json = { workspace = true }
 futures = { workspace = true }
 leptoskit_db = { workspace = true, features = ["sqlite"] }
 reqwest = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect"] }
 

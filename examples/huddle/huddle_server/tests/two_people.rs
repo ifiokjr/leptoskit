@@ -483,7 +483,10 @@ async fn two_people_huddle() {
 	ada.ok("sign_out_everywhere", json!({ "user": grace_id }))
 		.await;
 	loop {
-		if matches!(grace_live.next().await, ServerFrame::AuthStatus { refused: true, .. }) {
+		if matches!(
+			grace_live.next().await,
+			ServerFrame::AuthStatus { refused: true, .. }
+		) {
 			break;
 		}
 	}

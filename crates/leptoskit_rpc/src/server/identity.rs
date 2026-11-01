@@ -14,6 +14,11 @@ use crate::Error;
 /// deadline also ends an idle connection when no database writes occur.
 #[derive(Clone, Debug, Default)]
 pub struct IdentityLease {
+	/// A stable revision of the caller and all policy-relevant context.
+	/// Equal, nonempty keys allow shared query results and let an in-flight
+	/// action answer after a credential refresh. Leave unset when that
+	/// equivalence is unknown.
+	pub continuity: Option<String>,
 	/// The rows whose changes require another call to [`Identify::lease`].
 	pub reads: Vec<leptoskit_db::ReadEntry>,
 	/// The latest time the connection may keep this identity.

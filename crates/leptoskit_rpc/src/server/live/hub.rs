@@ -109,6 +109,8 @@ pub(super) enum ShareKey {
 		query: String,
 		args: String,
 		who: Who,
+		/// The adapter's revision of policy-relevant identity context.
+		revision: Option<String>,
 	},
 	/// A caller the hub can't vouch for, such as one with globals but no
 	/// caller ID: its subscription runs alone.
@@ -150,10 +152,19 @@ impl ShareKey {
 					query: query.to_owned(),
 					args,
 					who,
+					revision: None,
 				}
 			}
 			Err(_) => Self::Alone { connection, id },
 		}
+	}
+
+	/// Keeps distinct policy revisions out of the same shared group.
+	pub(super) fn with_revision(mut self, key: Option<String>) -> Self {
+		if let Self::Shared { revision, .. } = &mut self {
+			*revision = key.filter(|key| !key.is_empty());
+		}
+		self
 	}
 }
 

@@ -282,14 +282,7 @@ impl Session {
 			tokio::select! {
 				biased;
 				() = identity_deadline(deadline) => {
-					let now = SystemTime::now();
-					if self.lease.expires_at.is_some_and(|expires| expires <= now) {
-						return self.refuse_identity().await;
-					}
-					self.lease.refresh_at = None;
-					if !self.send(ServerFrame::AuthStatus { refused: false, expiring: true }).await {
-						return false;
-					}
+					if !self.check_deadline().await { return false; }
 				}
 				() = self.out.closed() => return false,
 				_ = drained.recv() => return true,
@@ -564,7 +557,8 @@ impl Session {
 		known: bool,
 	) -> Result<Started, WireError> {
 		let hub = self.live.hub();
-		let key = ShareKey::new(query, args, &self.identity, self.number, id);
+		let key = ShareKey::new(query, args, &self.identity, self.number, id)
+			.with_revision(self.lease.continuity.clone());
 
 		if let Some((_, reads)) = hub.peek(&key) {
 			let at = hub.applied();
@@ -836,10 +830,13 @@ impl Session {
 			self.live.hub().leave(self.number, id);
 		}
 		while self.batches.try_recv().is_ok() {}
-		self.epoch = self.epoch.wrapping_add(1);
+		let previous = self.lease.continuity.clone().filter(|key| !key.is_empty());
 		self.identity = identity;
 		if !self.validate_identity().await {
 			return false;
+		}
+		if previous.is_none() || previous != self.lease.continuity {
+			self.epoch = self.epoch.wrapping_add(1);
 		}
 		self.db = self
 			.live
@@ -934,6 +931,22 @@ impl Session {
 		// valid. Reconnect instead of telling the app it was signed out.
 		self.send(ServerFrame::Reconnect { after_ms: 250 }).await;
 		false
+	}
+
+	async fn check_deadline(&mut self) -> bool {
+		if self
+			.lease
+			.expires_at
+			.is_some_and(|expires| expires <= SystemTime::now())
+		{
+			return self.refuse_identity().await;
+		}
+		self.lease.refresh_at = None;
+		self.send(ServerFrame::AuthStatus {
+			refused: false,
+			expiring: true,
+		})
+		.await
 	}
 
 	async fn identity_failure(&self, error: &crate::Error) -> bool {
@@ -1257,7 +1270,7 @@ async fn identity_deadline(deadline: Option<SystemTime>) {
 					.duration_since(SystemTime::now())
 					.unwrap_or_default(),
 			)
-			.await
+			.await;
 		}
 		None => std::future::pending().await,
 	}

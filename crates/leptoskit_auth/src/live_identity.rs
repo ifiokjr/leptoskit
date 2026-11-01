@@ -58,6 +58,7 @@ pub(crate) async fn lease(auth: &Auth, identity: &Identity) -> Result<IdentityLe
 		.min(session.access_expires_at.unwrap_or(session.expires_at));
 	let expires_at = std::time::SystemTime::from(expires);
 	Ok(IdentityLease {
+		continuity: Some(format!("{me:?}")),
 		reads: db.into_reads(),
 		expires_at: Some(expires_at),
 		refresh_at: session

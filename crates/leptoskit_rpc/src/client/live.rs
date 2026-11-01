@@ -143,8 +143,8 @@ struct Inner {
 	/// Set when the app's sign-in changed, until the connection reads as
 	/// the new identity.
 	reauthenticate: AtomicBool,
-	/// A new identity has been sent but has not yet been acknowledged.
-	authenticating: AtomicBool,
+	/// Authentication frames sent but not yet acknowledged, in wire order.
+	auth_pending: AtomicU32,
 	/// Where the queue is kept between runs of the app, when it is.
 	offline: Option<Offline>,
 	/// Whether what the device kept is back on the queue: until then,
@@ -349,7 +349,7 @@ impl LiveClient {
 			next_id: AtomicU32::new(1),
 			version: AtomicU64::new(0),
 			reauthenticate: AtomicBool::new(false),
-			authenticating: AtomicBool::new(false),
+			auth_pending: AtomicU32::new(0),
 			queue_offline: config.offline_queue || offline.is_some(),
 			restored: AtomicBool::new(offline.is_none()),
 			offline,
@@ -1046,7 +1046,7 @@ async fn read_as_new_identity(inner: &Inner, connection: &dyn Connection) -> Rea
 		return Reauthenticated::InPlace;
 	}
 
-	inner.authenticating.store(true, Ordering::SeqCst);
+	inner.auth_pending.fetch_add(1, Ordering::SeqCst);
 	inner.forget_results();
 
 	if let Some(token) = token(inner).await {
@@ -1069,15 +1069,16 @@ async fn read_as_new_identity(inner: &Inner, connection: &dyn Connection) -> Rea
 /// away, nothing resumes: every query takes a fresh first value.
 async fn handshake(inner: &Inner, connection: &dyn Connection) -> bool {
 	let changed = inner.reauthenticate.swap(false, Ordering::SeqCst);
-	let unfinished = inner.authenticating.swap(false, Ordering::SeqCst);
+	let unfinished = inner.auth_pending.swap(0, Ordering::SeqCst) > 0;
 	if changed || unfinished {
 		inner.forget_results();
 	}
 
-	if let Some(token) = token(inner).await
-		&& !send(connection, &ClientFrame::Auth { token }).await
-	{
-		return false;
+	if let Some(token) = token(inner).await {
+		inner.auth_pending.fetch_add(1, Ordering::SeqCst);
+		if !send(connection, &ClientFrame::Auth { token }).await {
+			return false;
+		}
 	}
 
 	let queries: Vec<ResumeQuery> = inner
@@ -1253,7 +1254,12 @@ fn dispatch(inner: &Inner, text: &str) {
 		} => finish(inner, request, ok, err, version),
 		ServerFrame::AuthStatus { refused, expiring } => {
 			if !refused && !expiring {
-				inner.authenticating.store(false, Ordering::SeqCst);
+				let _ =
+					inner
+						.auth_pending
+						.try_update(Ordering::SeqCst, Ordering::SeqCst, |pending| {
+							Some(pending.saturating_sub(1))
+						});
 			}
 			refuse(inner, refused);
 			if refused || expiring {
@@ -3121,6 +3127,10 @@ mod tests {
 				);
 				let _ = socket.next_sent().await;
 				let _ = socket.next_sent().await;
+				socket.server_says(&ServerFrame::AuthStatus {
+					refused: false,
+					expiring: false,
+				});
 				let (id, mut values) = client.subscribe("private_notes", json!({}));
 				let _ = socket.next_sent().await;
 				socket.server_says(&ServerFrame::Done {
@@ -3134,6 +3144,20 @@ mod tests {
 				client.reauthenticate();
 				assert!(
 					matches!(socket.next_sent().await, ClientFrame::Auth { token } if token == "new")
+				);
+				client.reauthenticate();
+				assert!(
+					matches!(socket.next_sent().await, ClientFrame::Auth { token } if token == "new")
+				);
+				// Only the first of these two auth frames has been
+				// acknowledged.
+				dispatch(
+					&client.inner,
+					&serde_json::to_string(&ServerFrame::AuthStatus {
+						refused: false,
+						expiring: false,
+					})
+					.unwrap(),
 				);
 				// A frame queued before the server received auth still belongs
 				// to the previous identity, even if it arrives after we sent
@@ -3162,7 +3186,7 @@ mod tests {
 				else {
 					panic!("a fresh hello");
 				};
-				assert!(resume.queries.is_empty());
+				assert_eq!(resume.queries.len(), 0);
 			})
 			.await;
 	}
