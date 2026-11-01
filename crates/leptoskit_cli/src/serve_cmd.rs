@@ -28,7 +28,9 @@ pub fn run(dir: &str, port: Option<u16>) -> Result<()> {
 	);
 	crate::build::serve_plugins(&config)?;
 	let port = port.unwrap_or(config.serve.port);
-	if config.app.render.renders_on_server() {
+	// A client-rendered app with a server package is served by that server,
+	// which answers its API too, as `leptoskit dev` does.
+	if config.app.render.renders_on_server() || has_built_server(&root) {
 		return run_app_server(&config, &root, dir_path, port);
 	}
 	let options = leptoskit_axum::ServeOptions::new(
@@ -47,6 +49,13 @@ pub fn run(dir: &str, port: Option<u16>) -> Result<()> {
 		leptoskit_axum::serve(options)
 			.await
 			.map_err(|error| anyhow::anyhow!("{error}"))
+	})
+}
+
+/// Whether the last build produced a server binary.
+fn has_built_server(root: &Utf8PathBuf) -> bool {
+	crate::wasm::cargo_metadata(root.as_std_path()).is_ok_and(|metadata| {
+		BuiltServer::load(&metadata.target_directory, root.as_std_path()).is_ok()
 	})
 }
 
