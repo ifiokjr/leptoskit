@@ -17,11 +17,11 @@ name = "huddle_server"
 
 [dependencies]
 huddle_api = { path = "../huddle_api", features = ["server"] }
-huddle_db = { path = "../huddle_db", features = ["server"] }
-leptoskit = { workspace = true, features = ["server", "db-sqlite", "auth", "rpc-live"] }
-leptoskit_auth = { workspace = true, features = ["axum", "sqlite", "rpc"] }
+huddle_db = { path = "../huddle_db", features = ["server", "postgres"] }
+leptoskit = { workspace = true, features = ["server", "db-sqlite", "db-postgres", "auth", "rpc-relay"] }
+leptoskit_auth = { workspace = true, features = ["axum", "sqlite", "postgres", "rpc"] }
 leptoskit_config = { workspace = true }
-leptoskit_rpc = { workspace = true, features = ["live", "sqlite"] }
+leptoskit_rpc = { workspace = true, features = ["relay", "sqlite", "postgres"] }
 serde_json = { workspace = true }
 
 [dev-dependencies]

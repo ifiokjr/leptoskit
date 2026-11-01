@@ -330,3 +330,10 @@ leptoskit_db::export_schema!();
 /// Every migration, embedded for the server to apply at startup.
 #[cfg(feature = "server")]
 pub static MIGRATIONS: &[leptoskit_db::Migration] = leptoskit_db::migrations!("../migrations");
+
+/// The same migrations written for Postgres, for running several servers
+/// on one database: `leptoskit db migration create` with `[db] dialect =
+/// "postgres"` and `migrations = "migrations-postgres"` writes them.
+#[cfg(feature = "postgres")]
+pub static POSTGRES_MIGRATIONS: &[leptoskit_db::Migration] =
+	leptoskit_db::migrations!("../migrations-postgres");

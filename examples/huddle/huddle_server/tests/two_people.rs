@@ -488,5 +488,5 @@ async fn two_people_huddle() {
 	assert_eq!(grace.ok("whoami", json!({})).await, Value::Null);
 
 	server.abort();
-	huddle.jobs.shutdown().await;
+	huddle.shutdown().await;
 }

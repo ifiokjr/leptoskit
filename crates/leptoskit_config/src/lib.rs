@@ -918,6 +918,39 @@ pub struct RpcConfig {
 	pub targets: Vec<RpcTarget>,
 	/// The background job workers.
 	pub jobs: RpcJobsConfig,
+	/// Live queries across several servers.
+	#[serde(skip_serializing_if = "RpcLiveConfig::is_default")]
+	pub live: RpcLiveConfig,
+}
+
+/// Live queries across several servers: `[rpc.live]`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct RpcLiveConfig {
+	/// The environment variable holding the NATS URL of the live relay,
+	/// such as `NATS_URL`. When it's set, one server publishes the change
+	/// log to NATS JetStream and every server reads it from there, rather
+	/// than each reading the database, and channel signals and presence
+	/// cross between servers. Unset, or empty, every server reads the
+	/// database itself.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub relay_url_env: Option<String>,
+}
+
+impl RpcLiveConfig {
+	fn is_default(&self) -> bool {
+		*self == Self::default()
+	}
+
+	/// The relay's URL, when `relay_url_env` names a variable that's set.
+	pub fn relay_url(&self) -> Option<String> {
+		let name = self.relay_url_env.as_deref()?;
+		std::env::var(name)
+			.ok()
+			.map(|url| url.trim().to_owned())
+			.filter(|url| !url.is_empty())
+	}
 }
 
 /// The background job workers: `[rpc.jobs]`.
@@ -1120,6 +1153,13 @@ pub struct DbConfig {
 	/// server starts `Db::live_maintenance`.
 	#[serde(skip_serializing_if = "is_default_live_retention")]
 	pub live_retention_minutes: u32,
+	/// Environment variables holding the URLs of Postgres read replicas,
+	/// such as `["DATABASE_REPLICA_URL"]`. Live queries re-run on a replica
+	/// once it has replayed the commit that caused the re-run, and on the
+	/// primary until then; other reads stay on the primary unless the app
+	/// asks. A variable that isn't set is skipped.
+	#[serde(skip_serializing_if = "Vec::is_empty")]
+	pub replica_url_envs: Vec<String>,
 	/// Geospatial columns' options.
 	#[serde(skip_serializing_if = "DbGeoConfig::is_default")]
 	pub geo: DbGeoConfig,
@@ -1203,6 +1243,7 @@ impl Default for DbConfig {
 			policies: DbPolicies::default(),
 			live_capture: DbLiveCapture::default(),
 			live_retention_minutes: DEFAULT_LIVE_RETENTION_MINUTES,
+			replica_url_envs: Vec::new(),
 			geo: DbGeoConfig::default(),
 			vector: DbVectorConfig::default(),
 		}

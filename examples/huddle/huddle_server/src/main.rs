@@ -1,9 +1,16 @@
 //! `huddle`: the web client, the API, the live socket, sign-in, and the job
-//! workers, in one process on one SQLite file.
+//! workers, in one process on one SQLite file, or split across several on
+//! Postgres.
+//!
+//! `--role` (or `LEPTOSKIT_ROLE`) picks what this process runs, such as
+//! `--role web,live` or `--role worker,capture`: every role unless it says.
 //!
 //! | Variable                          | Default                    | What it does                                   |
 //! | --------------------------------- | -------------------------- | ---------------------------------------------- |
-//! | `DATABASE_URL`                    | `sqlite://huddle.sqlite3`  | The database                                   |
+//! | `DATABASE_URL`                    | `sqlite://huddle.sqlite3`  | The database: `sqlite://…` or `postgres://…`   |
+//! | `DATABASE_REPLICA_URL`            | none                       | A Postgres read replica live queries re-run on |
+//! | `NATS_URL`                        | none                       | The live relay, for several servers            |
+//! | `LEPTOSKIT_ROLE`                  | every role                 | `web`, `live`, `worker`, `capture`, or a list  |
 //! | `LEPTOS_SITE_ADDR`                | `127.0.0.1:3000`           | Where to listen                                |
 //! | `LEPTOS_SITE_ROOT`                | `dist`                     | The built web client                           |
 //! | `AUTH_ENCRYPTION_KEYS`            | a development key in debug | Sign-in's keys; required in release            |
@@ -21,6 +28,8 @@ use leptoskit::server::GracefulShutdown;
 use leptoskit::server::Readiness;
 use leptoskit::server::tokio;
 use leptoskit_rpc::server::Jobs;
+use leptoskit_rpc::server::Relay;
+use leptoskit_rpc::server::Roles;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -33,8 +42,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		);
 	}
 
+	let roles = Roles::from_env_and_args()?;
+	println!("roles: {roles}");
+	// `/readyz` checks only what this process runs.
 	let readiness = Readiness::new();
 	let migrated = readiness.check("migrations");
+	let live_ready = roles.live().then(|| readiness.check("live"));
 	let address: SocketAddr = std::env::var("LEPTOS_SITE_ADDR")
 		.unwrap_or_else(|_| "127.0.0.1:3000".to_owned())
 		.parse()?;
@@ -42,21 +55,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 	let url =
 		std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://huddle.sqlite3".to_owned());
-	let db = leptoskit::db::Db::connect(&url).await?;
+	let config = sign_in::config()?;
+	let (db, migrations) = if url.starts_with("postgres") {
+		(
+			leptoskit::db::Db::connect_with(
+				&url,
+				leptoskit::db::PoolOptions {
+					max_connections: 32,
+				},
+			)
+			.await?,
+			huddle_db::POSTGRES_MIGRATIONS,
+		)
+	} else {
+		(
+			leptoskit::db::Db::connect(&url).await?,
+			huddle_db::MIGRATIONS,
+		)
+	};
+	let db = db.with_replicas_from_env(
+		&config
+			.db
+			.as_ref()
+			.map_or_else(Vec::new, |db| db.replica_url_envs.clone()),
+	)?;
 
-	for name in db.migrate(huddle_db::MIGRATIONS).await? {
+	for name in db.migrate(migrations).await? {
 		println!("applied migration {name}");
 	}
 
 	migrated.pass();
 
-	let config = sign_in::config()?;
+	let relay = match config.rpc.live.relay_url() {
+		Some(url) => {
+			println!("live relay: {url}");
+			Some(Relay::connect(&url).await?)
+		}
+		None => None,
+	};
+
 	let mut options = Options::new(&db);
 	options.origin = std::env::var("HUDDLE_ORIGIN")
 		.ok()
 		.or_else(|| config.auth.as_ref().and_then(|auth| auth.origin.clone()));
 	options.site_root = Some(site_root.into());
 	options.jobs = Jobs::from_config(db.clone(), &config.rpc.jobs);
+	options.roles = roles;
+	options.relay = relay;
 	options.settlement.failure_rate = 0.2;
 
 	if let Ok(delay) = std::env::var("HUDDLE_SETTLEMENT_DELAY_MS") {
@@ -68,8 +113,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	}
 
 	let huddle = huddle_server::start(&db, sign_in::builder(&db)?, options)?;
+
+	if let Some(ready) = live_ready {
+		huddle.live.start().await?;
+		ready.pass();
+	}
+
 	let app = huddle
 		.router
+		.clone()
 		.merge(readiness.routes())
 		// The native apps' association files, for their passkeys.
 		.merge(sign_in::associations()?);
@@ -89,7 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 			live.drain();
 		});
 	let served = leptoskit::server::serve_listener_with(listener, app, shutdown).await;
-	huddle.jobs.shutdown().await;
+	huddle.shutdown().await;
 	served?;
 
 	Ok(())

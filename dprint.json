@@ -57,6 +57,8 @@
 		// checksummed, so formatting one would change history.
 		"**/migrations/*/migration.sql",
 		"**/migrations/*/schema.json",
+		"**/migrations-*/*/migration.sql",
+		"**/migrations-*/*/schema.json",
 		"**/snapshots",
 		"**/target",
 		"**/.build",

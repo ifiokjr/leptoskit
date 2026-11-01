@@ -10,6 +10,11 @@
 //! | `/auth/…`          | Sign-in, from `leptoskit_auth`, with dev sign-in in debug builds           |
 //! | `/_leptoskit/mail` | The demo mailbox: sign-in codes and invitations, when mail stays in-app    |
 //! | everything else    | The web client from `dist/`, built by `leptoskit build`                    |
+//!
+//! A process runs any of four roles, every one unless [`Options::roles`]
+//! says otherwise: `web` serves the API, sign-in, the mailbox and the
+//! files; `live` the socket; `worker` the job workers; and `capture`
+//! replication capture and, with a relay, its publisher.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -28,6 +33,9 @@ use leptoskit_auth::Mailbox;
 use leptoskit_rpc::server::Jobs;
 use leptoskit_rpc::server::JobsHandle;
 use leptoskit_rpc::server::Live;
+use leptoskit_rpc::server::Relay;
+use leptoskit_rpc::server::RelayPublisher;
+use leptoskit_rpc::server::Roles;
 
 pub mod sign_in;
 
@@ -46,6 +54,11 @@ pub struct Options {
 	pub mail_delay: Duration,
 	/// The job workers: how many, and each queue's limit.
 	pub jobs: Jobs,
+	/// Which parts this process runs: every one by default.
+	pub roles: Roles,
+	/// The live relay, for several servers: the socket takes commits from
+	/// it, channels cross it, and the `capture` role publishes to it.
+	pub relay: Option<Relay>,
 }
 
 impl Options {
@@ -60,6 +73,8 @@ impl Options {
 			jobs: Jobs::new(db.clone())
 				.queue("mail", 2)
 				.queue("settlement", 2),
+			roles: Roles::ALL,
+			relay: None,
 		}
 	}
 }
@@ -71,6 +86,8 @@ impl std::fmt::Debug for Options {
 			.field("site_root", &self.site_root)
 			.field("settlement", &self.settlement)
 			.field("mail_delay", &self.mail_delay)
+			.field("roles", &self.roles)
+			.field("relay", &self.relay)
 			.finish_non_exhaustive()
 	}
 }
@@ -79,10 +96,17 @@ impl std::fmt::Debug for Options {
 pub struct Huddle {
 	/// Everything Huddle serves.
 	pub router: Router,
-	/// The live socket's server, to drain on shutdown.
+	/// The live socket's server, to start and to drain on shutdown.
 	pub live: Live,
-	/// The job workers, to stop on shutdown.
-	pub jobs: JobsHandle,
+	/// The job workers, to stop on shutdown, with the `worker` role.
+	pub jobs: Option<JobsHandle>,
+	/// Replication capture, with the `capture` role but not `worker`, whose
+	/// workers run it otherwise.
+	pub capture: Option<leptoskit::db::live::Capture>,
+	/// The relay's publisher, with the `capture` role and a relay.
+	pub publisher: Option<RelayPublisher>,
+	/// The roles it runs.
+	pub roles: Roles,
 	/// Sign-in.
 	pub auth: Auth,
 	/// Where every email goes: sign-in codes and invitations.
@@ -98,7 +122,9 @@ impl std::fmt::Debug for Huddle {
 }
 
 /// Builds Huddle on a migrated `db`, with sign-in from `auth`, and starts
-/// its job workers.
+/// what its roles run in the background: the job workers, capture, and the
+/// relay's publisher. Start [`Huddle::live`] before serving, so the socket's
+/// readiness reflects it.
 ///
 /// Every email, the sign-in codes and the invitations alike, goes to an
 /// in-app [`Mailbox`] shown at `/_leptoskit/mail`. That's the development
@@ -124,18 +150,32 @@ pub fn start(db: &Db, auth: AuthBuilder, options: Options) -> Result<Huddle, Aut
 		..Services::new(auth.clone(), mailbox.clone())
 	});
 
+	let roles = options.roles;
 	let rpc = leptoskit_rpc::server::Server::new(db.clone()).identify(auth.clone());
 	let live = match &options.origin {
 		Some(origin) => rpc.live().origin(origin),
 		None => rpc.live(),
 	};
-	let jobs = options.jobs.start();
-	let shown = mailbox.clone();
-	let mut router = Router::new()
-		.merge(rpc.router())
-		.merge(live.router())
-		.merge(auth.router())
-		.route(
+	let live = match &options.relay {
+		Some(relay) => live.relay(relay),
+		None => live,
+	};
+	// The workers run capture themselves, unless this process doesn't
+	// capture.
+	let jobs = roles
+		.worker()
+		.then(|| options.jobs.capture(roles.capture()).start());
+	let capture = (roles.capture() && !roles.worker()).then(|| db.capture_changes());
+	let publisher = options
+		.relay
+		.as_ref()
+		.filter(|_| roles.capture())
+		.map(|relay| relay.publish(db));
+	let mut router = Router::new();
+
+	if roles.web() {
+		let shown = mailbox.clone();
+		router = router.merge(rpc.router()).merge(auth.router()).route(
 			"/_leptoskit/mail",
 			get(move || {
 				let mailbox = shown.clone();
@@ -143,8 +183,13 @@ pub fn start(db: &Db, auth: AuthBuilder, options: Options) -> Result<Huddle, Aut
 			}),
 		);
 
-	if let Some(root) = &options.site_root {
-		router = router.fallback_service(leptoskit::server::static_files(root));
+		if let Some(root) = &options.site_root {
+			router = router.fallback_service(leptoskit::server::static_files(root));
+		}
+	}
+
+	if roles.live() {
+		router = router.merge(live.router());
 	}
 
 	// Last, so it wraps every route: it finds each request's session and
@@ -155,9 +200,30 @@ pub fn start(db: &Db, auth: AuthBuilder, options: Options) -> Result<Huddle, Aut
 		router,
 		live,
 		jobs,
+		capture,
+		publisher,
+		roles,
 		auth,
 		mailbox,
 	})
+}
+
+impl Huddle {
+	/// Stops what [`start`] started in the background: the workers finish
+	/// or release their jobs, capture and the publisher hand over.
+	pub async fn shutdown(self) {
+		if let Some(jobs) = self.jobs {
+			jobs.shutdown().await;
+		}
+
+		if let Some(capture) = self.capture {
+			capture.shutdown().await;
+		}
+
+		if let Some(publisher) = self.publisher {
+			publisher.shutdown().await;
+		}
+	}
 }
 
 /// Every email so far, newest first, as a page.
