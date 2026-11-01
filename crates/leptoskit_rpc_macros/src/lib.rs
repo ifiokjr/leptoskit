@@ -41,6 +41,7 @@ use syn::Lit;
 use syn::LitStr;
 use syn::Meta;
 use syn::Pat;
+use syn::PatType;
 use syn::Path;
 use syn::Token;
 use syn::Type;
@@ -138,6 +139,7 @@ pub fn channel(
 ) -> proc_macro::TokenStream {
 	let item = TokenStream::from(item);
 	let server = cfg!(feature = "server");
+
 	match channel::expand(args.into(), item.clone(), server) {
 		Ok(tokens) => tokens.into(),
 		// Only the error: the struct's field types may not compile on a
@@ -249,6 +251,7 @@ fn operation_macro(
 	item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
 	let item = TokenStream::from(item);
+
 	match operation::expand(kind, args.into(), item.clone(), cfg!(feature = "server")) {
 		Ok(tokens) => tokens.into(),
 		// Only the error: the function's body may not compile on a client.
@@ -303,6 +306,7 @@ pub fn api(
 	item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
 	let item = TokenStream::from(item);
+
 	match expand(args.into(), item.clone(), cfg!(feature = "ssr")) {
 		Ok(tokens) => tokens.into(),
 		// The function is kept as written, so the error is the only one:
@@ -329,13 +333,16 @@ impl ApiArgs {
 	fn parse(tokens: TokenStream) -> syn::Result<Self> {
 		let metas = Punctuated::<Meta, Token![,]>::parse_terminated.parse2(tokens)?;
 		let mut args = Self::default();
+
 		for meta in metas {
 			match &meta {
 				Meta::Path(path) if path.is_ident("internal") => args.internal = true,
+
 				Meta::NameValue(pair) if pair.path.is_ident("name") => {
 					if args.name.is_some() {
 						return Err(syn::Error::new_spanned(pair, "`name` is given twice"));
 					}
+
 					let name = string_value(&pair.value, "name")?;
 					if !is_route_segment(&name.value()) {
 						return Err(syn::Error::new_spanned(
@@ -345,11 +352,14 @@ impl ApiArgs {
 							 `-`, and `.`, as in `chat.messages`",
 						));
 					}
+
 					args.name = Some(name);
 				}
+
 				Meta::NameValue(pair) if pair.path.is_ident("tag") => {
 					args.tags.push(string_value(&pair.value, "tag")?);
 				}
+
 				Meta::NameValue(pair) if pair.path.is_ident("scope") => {
 					if let Expr::Lit(ExprLit {
 						lit: Lit::Str(name),
@@ -363,12 +373,15 @@ impl ApiArgs {
 							 `\"`, and `\\`, such as \"posts:read\"",
 						));
 					}
+
 					args.scopes.push(pair.value.clone());
 				}
+
 				Meta::NameValue(pair) if pair.path.is_ident("crate") => {
 					if args.krate.is_some() {
 						return Err(syn::Error::new_spanned(pair, "`crate` is given twice"));
 					}
+
 					let path = string_value(&pair.value, "crate")?;
 					args.krate = Some(path.parse::<Path>().map_err(|_| {
 						syn::Error::new_spanned(
@@ -378,6 +391,7 @@ impl ApiArgs {
 						)
 					})?);
 				}
+
 				other => {
 					return Err(syn::Error::new_spanned(
 						other,
@@ -387,6 +401,7 @@ impl ApiArgs {
 				}
 			}
 		}
+
 		Ok(args)
 	}
 }
@@ -451,11 +466,13 @@ impl ServerArgs {
 	fn parse(tokens: TokenStream) -> syn::Result<Self> {
 		let parser = |input: ParseStream| {
 			let mut args = Self::default();
+
 			while !input.is_empty() {
 				let position = args.args.len() + 1;
 				let arg = if input.peek(Ident) && input.peek2(Token![=]) {
 					let key: Ident = input.parse()?;
 					input.parse::<Token![=]>()?;
+
 					let value = match key.to_string().as_str() {
 						"name" => {
 							let name: Ident = input.parse()?;
@@ -489,30 +506,39 @@ impl ServerArgs {
 						"input_derive" => input.parse::<syn::ExprTuple>()?.into_token_stream(),
 						_ => input.parse::<Expr>()?.into_token_stream(),
 					};
+
 					ServerArg::Named { key, value }
 				} else if input.peek(Ident) {
 					let ident: Ident = input.parse()?;
 					args.positional = true;
+
 					if position == 1 {
 						args.struct_name = Some(ident.clone());
 					}
+
 					ServerArg::Positional(ident.into_token_stream())
 				} else if input.peek(LitStr) {
 					let text: LitStr = input.parse()?;
 					args.positional = true;
+
 					if position == 4 {
 						args.has_endpoint = true;
 					}
+
 					ServerArg::Positional(text.into_token_stream())
 				} else {
 					return Err(input.error("unexpected token in #[server] arguments"));
 				};
+
 				args.args.push_value(arg);
+
 				if input.is_empty() {
 					break;
 				}
+
 				args.args.push_punct(input.parse()?);
 			}
+
 			Ok(args)
 		};
 		parser.parse2(tokens)
@@ -568,6 +594,7 @@ fn unsupported_codec(tokens: TokenStream) -> Option<(Ident, &'static str)> {
 			TokenTree::Punct(_) | TokenTree::Literal(_) => {}
 		}
 	}
+
 	None
 }
 
@@ -610,6 +637,7 @@ fn expand_server(args: &ApiArgs, mut function: ItemFn, register: bool) -> syn::R
 			)
 		})?;
 	let server_attr = &function.attrs[server_index];
+
 	let server_tokens = match &server_attr.meta {
 		Meta::Path(_) => TokenStream::new(),
 		Meta::List(list) => list.tokens.clone(),
@@ -620,7 +648,9 @@ fn expand_server(args: &ApiArgs, mut function: ItemFn, register: bool) -> syn::R
 			));
 		}
 	};
+
 	let mut server_args = ServerArgs::parse(server_tokens)?;
+
 	if let Some((codec, reason)) = server_args.unsupported_codec() {
 		return Err(syn::Error::new(
 			codec.span(),
@@ -631,6 +661,7 @@ fn expand_server(args: &ApiArgs, mut function: ItemFn, register: bool) -> syn::R
 			),
 		));
 	}
+
 	if server_args.positional && !server_args.has_endpoint {
 		return Err(syn::Error::new_spanned(
 			server_attr,
@@ -644,6 +675,7 @@ fn expand_server(args: &ApiArgs, mut function: ItemFn, register: bool) -> syn::R
 
 	let fn_ident = function.sig.ident.clone();
 	let fn_name = fn_ident.to_string();
+
 	if let Some(unraw) = fn_name.strip_prefix("r#") {
 		return Err(syn::Error::new(
 			fn_ident.span(),
@@ -654,6 +686,7 @@ fn expand_server(args: &ApiArgs, mut function: ItemFn, register: bool) -> syn::R
 			),
 		));
 	}
+
 	let name = args
 		.name
 		.clone()
@@ -699,6 +732,7 @@ fn expand_server(args: &ApiArgs, mut function: ItemFn, register: bool) -> syn::R
 			Some(wrapper) => syn::parse_quote!(#wrapper<#struct_ident>),
 			None => syn::parse_quote!(#struct_ident),
 		};
+
 		let struct_name = LitStr::new(&struct_ident.to_string(), struct_ident.span());
 		let docs = LitStr::new(&docs, Span::call_site());
 		let internal = args.internal;
@@ -726,6 +760,7 @@ fn expand_server(args: &ApiArgs, mut function: ItemFn, register: bool) -> syn::R
 				}
 			}
 		});
+
 		quote! {
 			#krate::__private::inventory::submit! {
 				#krate::spec::ApiFnDescriptor {
@@ -774,6 +809,7 @@ fn expand_operation(
 	register: bool,
 ) -> syn::Result<TokenStream> {
 	let attr = &function.attrs[index];
+
 	let tokens = match &attr.meta {
 		Meta::Path(_) => TokenStream::new(),
 		Meta::List(list) => list.tokens.clone(),
@@ -784,7 +820,9 @@ fn expand_operation(
 			));
 		}
 	};
+
 	let operation_args = OperationArgs::parse(kind, tokens.clone())?;
+
 	if let (Some(api_name), Some(_)) = (&args.name, &operation_args.name) {
 		return Err(syn::Error::new_spanned(
 			api_name,
@@ -795,6 +833,7 @@ fn expand_operation(
 			),
 		));
 	}
+
 	if let (Some(api_crate), Some(_)) = (&args.krate, &operation_args.krate) {
 		return Err(syn::Error::new_spanned(
 			api_crate,
@@ -805,6 +844,7 @@ fn expand_operation(
 			),
 		));
 	}
+
 	let signature = operation::signature(kind, &function)?;
 	let fn_ident = function.sig.ident.clone();
 	let name = args
@@ -821,16 +861,20 @@ fn expand_operation(
 	// The operation macro names the operation and finds `leptoskit_rpc`
 	// itself, so what `#[api]` was told goes on to it.
 	let mut forwarded: Punctuated<TokenStream, Token![,]> = Punctuated::new();
+
 	if !tokens.is_empty() {
 		forwarded.push(tokens);
 	}
+
 	if let Some(api_name) = &args.name {
 		forwarded.push(quote!(name = #api_name));
 	}
+
 	if let Some(api_crate) = &args.krate {
 		let text = LitStr::new(&api_crate.to_token_stream().to_string(), Span::call_site());
 		forwarded.push(quote!(crate = #text));
 	}
+
 	let path = function.attrs[index].path().clone();
 	function.attrs[index] = syn::parse_quote!(#[#path(#forwarded)]);
 
@@ -851,6 +895,7 @@ fn expand_operation(
 		let tags = &args.tags;
 		let api_kind = kind.api_variant();
 		let mut param_descriptors = Vec::new();
+
 		for argument in &signature.arguments {
 			let ident = argument.ident.unraw().to_string();
 			let (wire_name, required) = serde_field(&argument.field_attrs, &ident)?;
@@ -865,6 +910,7 @@ fn expand_operation(
 					.collect::<Vec<_>>()
 					.join(" ")
 			};
+
 			let wire_name = LitStr::new(&wire_name, Span::call_site());
 			let param_docs = LitStr::new(&param_docs, Span::call_site());
 			let ty = &argument.ty;
@@ -877,6 +923,7 @@ fn expand_operation(
 				}
 			});
 		}
+
 		quote! {
 			#[allow(deprecated)]
 			const _: () = {
@@ -921,32 +968,40 @@ fn expand_operation(
 fn serde_field(attrs: &[Attribute], ident: &str) -> syn::Result<(String, bool)> {
 	let mut wire_name = ident.to_owned();
 	let mut required = true;
+
 	for attr in attrs {
 		if !attr.path().is_ident("serde") {
 			continue;
 		}
+
 		let Meta::List(list) = &attr.meta else {
 			continue;
 		};
 		let metas = Punctuated::<Meta, Token![,]>::parse_terminated.parse2(list.tokens.clone())?;
+
 		for meta in metas {
 			match &meta {
 				Meta::Path(path) if path.is_ident("default") => required = false,
+
 				Meta::NameValue(pair) if pair.path.is_ident("default") => required = false,
+
 				Meta::NameValue(pair) if pair.path.is_ident("rename") => {
 					wire_name = string_value(&pair.value, "rename")?.value();
 				}
+
 				// serde reports anything malformed.
 				_ => {}
 			}
 		}
 	}
+
 	Ok((wire_name, required))
 }
 
 /// Whether an attribute is `#[rpc::query]` or `#[rpc::mutation]`, and which.
 fn operation_attribute(attr: &Attribute) -> Option<OperationKind> {
 	let segment = attr.path().segments.last()?;
+
 	if segment.ident == "query" {
 		Some(OperationKind::Query)
 	} else if segment.ident == "mutation" {
@@ -979,6 +1034,7 @@ fn is_server_attribute(attr: &Attribute) -> bool {
 fn params_of(function: &ItemFn, docs: &str) -> syn::Result<Vec<Param>> {
 	let arguments = argument_docs(docs);
 	let mut params = Vec::new();
+
 	for input in &function.sig.inputs {
 		let typed = match input {
 			FnArg::Receiver(receiver) => {
@@ -989,61 +1045,14 @@ fn params_of(function: &ItemFn, docs: &str) -> syn::Result<Vec<Param>> {
 			}
 			FnArg::Typed(typed) => typed,
 		};
-		let ident = match &*typed.pat {
-			Pat::Ident(pattern) => pattern.ident.unraw(),
-			Pat::Wild(wild) => {
-				return Err(syn::Error::new_spanned(
-					wild,
-					"#[api] needs a name for every argument: it is the argument's key on the wire",
-				));
-			}
-			other => {
-				return Err(syn::Error::new_spanned(
-					other,
-					"#[api] needs a plain argument name here; destructuring patterns are not \
-					 supported",
-				));
-			}
-		};
-		let mut wire_name = ident.to_string();
-		let mut required = true;
-		let mut skipped = false;
-		for attr in &typed.attrs {
-			if !attr.path().is_ident("server") {
-				continue;
-			}
-			let Meta::List(list) = &attr.meta else {
-				continue;
-			};
-			let metas =
-				Punctuated::<Meta, Token![,]>::parse_terminated.parse2(list.tokens.clone())?;
-			for meta in metas {
-				match &meta {
-					Meta::Path(path) if path.is_ident("default") => required = false,
-					Meta::NameValue(pair) if pair.path.is_ident("default") => {
-						required = false;
-					}
-					Meta::NameValue(pair) if pair.path.is_ident("rename") => {
-						wire_name = string_value(&pair.value, "rename")?.value();
-					}
-					Meta::Path(path) if path.is_ident("skip") => skipped = true,
-					Meta::Path(path) if path.is_ident("flatten") => {
-						return Err(syn::Error::new_spanned(
-							path,
-							"#[api] cannot describe `#[server(flatten)]` arguments: their fields \
-							 travel at the top level of the request, which generated clients \
-							 would nest under the argument's name. Pass the fields as separate \
-							 arguments, or the struct as one named argument.",
-						));
-					}
-					// The server macro reports anything else.
-					_ => {}
-				}
-			}
-		}
+
+		let ident = param_ident(typed)?;
+		let (wire_name, required, skipped) = server_param(typed, &ident)?;
+
 		if skipped {
 			continue;
 		}
+
 		let own_docs = docs_of(&typed.attrs);
 		params.push(Param {
 			docs: if own_docs.is_empty() {
@@ -1064,27 +1073,102 @@ fn params_of(function: &ItemFn, docs: &str) -> syn::Result<Vec<Param>> {
 			required,
 		});
 	}
+
 	Ok(params)
+}
+
+/// The argument's name, which is its key on the wire.
+fn param_ident(typed: &PatType) -> syn::Result<Ident> {
+	match &*typed.pat {
+		Pat::Ident(pattern) => Ok(pattern.ident.unraw()),
+		Pat::Wild(wild) => {
+			Err(syn::Error::new_spanned(
+				wild,
+				"#[api] needs a name for every argument: it is the argument's key on the wire",
+			))
+		}
+		other => {
+			Err(syn::Error::new_spanned(
+				other,
+				"#[api] needs a plain argument name here; destructuring patterns are not supported",
+			))
+		}
+	}
+}
+
+/// The `#[server(...)]` options on one argument: its wire name, whether it
+/// has a default, and whether the server skips it.
+fn server_param(typed: &PatType, ident: &Ident) -> syn::Result<(String, bool, bool)> {
+	let mut wire_name = ident.to_string();
+	let mut required = true;
+	let mut skipped = false;
+
+	for attr in &typed.attrs {
+		if !attr.path().is_ident("server") {
+			continue;
+		}
+
+		let Meta::List(list) = &attr.meta else {
+			continue;
+		};
+		let metas = Punctuated::<Meta, Token![,]>::parse_terminated.parse2(list.tokens.clone())?;
+
+		for meta in metas {
+			match &meta {
+				Meta::Path(path) if path.is_ident("default") => required = false,
+
+				Meta::NameValue(pair) if pair.path.is_ident("default") => {
+					required = false;
+				}
+
+				Meta::NameValue(pair) if pair.path.is_ident("rename") => {
+					wire_name = string_value(&pair.value, "rename")?.value();
+				}
+
+				Meta::Path(path) if path.is_ident("skip") => skipped = true,
+
+				Meta::Path(path) if path.is_ident("flatten") => {
+					return Err(syn::Error::new_spanned(
+						path,
+						"#[api] cannot describe `#[server(flatten)]` arguments: their fields \
+						 travel at the top level of the request, which generated clients would \
+						 nest under the argument's name. Pass the fields as separate arguments, \
+						 or the struct as one named argument.",
+					));
+				}
+
+				// The server macro reports anything else.
+				_ => {}
+			}
+		}
+	}
+
+	Ok((wire_name, required, skipped))
 }
 
 /// Removes the `# Arguments` section from a doc comment, leaving the rest.
 fn strip_arguments_section(docs: &str) -> String {
 	let mut out = String::new();
 	let mut in_section = false;
+
 	for line in docs.lines() {
 		if let Some(heading) = line.trim().strip_prefix("# ") {
 			in_section = heading.trim() == "Arguments";
+
 			if !in_section {
 				out.push_str(line);
 				out.push('\n');
 			}
+
 			continue;
 		}
+
 		if !in_section {
 			out.push_str(line);
 			out.push('\n');
 		}
 	}
+
 	out.trim().to_owned()
 }
 
@@ -1096,20 +1180,26 @@ fn argument_docs(docs: &str) -> HashMap<String, String> {
 	let mut in_section = false;
 	// The argument a wrapped line continues.
 	let mut current: Option<String> = None;
+
 	for line in docs.lines() {
 		let line = line.trim();
+
 		if let Some(heading) = line.strip_prefix("# ") {
 			in_section = heading.trim() == "Arguments";
 			current = None;
+
 			continue;
 		}
+
 		if !in_section {
 			continue;
 		}
+
 		if line.is_empty() {
 			current = None;
 			continue;
 		}
+
 		let bullet = line.strip_prefix("* ").or_else(|| line.strip_prefix("- "));
 		let entry = bullet.or_else(|| line.starts_with('`').then_some(line));
 		let Some(entry) = entry else {
@@ -1117,6 +1207,7 @@ fn argument_docs(docs: &str) -> HashMap<String, String> {
 				description.push(' ');
 				description.push_str(line);
 			}
+
 			continue;
 		};
 		current = None;
@@ -1125,12 +1216,15 @@ fn argument_docs(docs: &str) -> HashMap<String, String> {
 		};
 		let name = name.trim().trim_matches('`');
 		let name = name.strip_prefix("r#").unwrap_or(name);
+
 		if name.is_empty() || description.trim().is_empty() {
 			continue;
 		}
+
 		arguments.insert(name.to_owned(), description.trim().to_owned());
 		current = Some(name.to_owned());
 	}
+
 	arguments
 }
 
@@ -1145,6 +1239,7 @@ fn docs_of(attrs: &[Attribute]) -> String {
 			if !pair.path.is_ident("doc") {
 				return None;
 			}
+
 			let Expr::Lit(ExprLit {
 				lit: Lit::Str(text),
 				..
@@ -1159,6 +1254,7 @@ fn docs_of(attrs: &[Attribute]) -> String {
 				// A bare `///` is a paragraph break; `lines()` would drop it.
 				return vec![String::new()];
 			}
+
 			text.lines()
 				.map(|line| line.strip_prefix(' ').unwrap_or(line).to_owned())
 				.collect::<Vec<_>>()
@@ -1176,6 +1272,7 @@ fn string_value(value: &Expr, key: &str) -> syn::Result<LitStr> {
 	{
 		return Ok(text.clone());
 	}
+
 	Err(syn::Error::new_spanned(
 		value,
 		format!("`{key}` expects a string literal"),

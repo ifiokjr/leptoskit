@@ -14,22 +14,27 @@ use super::expand;
 /// Rust.
 fn pretty(tokens: TokenStream) -> String {
 	let mut file = syn::parse2::<syn::File>(tokens).expect("valid Rust");
+
 	for item in &mut file.items {
 		let syn::Item::Macro(registration) = item else {
 			continue;
 		};
 		let path = registration.mac.path.to_token_stream().to_string();
+
 		if path.ends_with("__require_db") {
 			continue;
 		}
+
 		assert!(
 			path.ends_with("__private :: inventory :: submit"),
 			"registrations go through the re-exported inventory: {path}"
 		);
+
 		let descriptor: syn::ExprStruct = registration.mac.parse_body().expect("one descriptor");
 		let ty = &descriptor.path;
 		*item = syn::parse_quote!(static REGISTERED: #ty = #descriptor;);
 	}
+
 	prettyplease::unparse(&file)
 }
 
@@ -365,7 +370,6 @@ fn wrapped_argument_entries_keep_every_line() {
 
 // ---- diagnostics
 // -------------------------------------------------------------
-
 #[test]
 fn a_missing_server_attribute_points_at_the_function() {
 	let (message, underlined) = error("", "pub async fn ping() -> Result<(), ServerFnError> {}");
@@ -844,6 +848,7 @@ mod operations {
 				"timeout = 3",
 			),
 		];
+
 		for (kind, args, item, message, underlined) in cases {
 			let (found, span) = error(*kind, args, item);
 			assert!(found.contains(message), "{item}: {found}");
@@ -947,6 +952,7 @@ mod jobs {
 			let output = expanded(OperationKind::Job, args, settle(), false);
 			assert!(output.contains(variant), "{output}");
 		}
+
 		for unit in ["1d", "2h", "3s"] {
 			let args: TokenStream = format!("timeout = {unit}").parse().unwrap();
 			expanded(OperationKind::Job, args, settle(), false);
@@ -1104,6 +1110,7 @@ mod jobs {
 				"belongs to #[rpc::action]",
 			),
 		];
+
 		for (kind, args, item, message) in cases {
 			let (found, _) = error(*kind, args, item);
 			assert!(found.contains(message), "{args} {item}: {found}");
