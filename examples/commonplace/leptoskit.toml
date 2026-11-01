@@ -141,3 +141,10 @@ product_id = "00000000-0000-0000-0000-000000000000"
 
 [publish.firefox]
 channel = "listed"
+
+# The iOS app, with the Safari extension inside it: TestFlight, then App
+# Review with --submit.
+[publish.app_store]
+app_id = "1234567890"
+team_id = "ABCDE12345"
+testflight_groups = ["Internal"]

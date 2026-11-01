@@ -1,0 +1,118 @@
+---
+source: crates/leptoskit_cli/src/publish/tests.rs
+expression: report.text()
+---
+What to do next
+
+chrome: Commonplace 0.1.0 is built and checked; nothing was uploaded.
+
+  1. Fill in the store listing: the description, category, and language, a 128×128 icon, and at least one 1280×800 screenshot.
+     Open   https://chrome.google.com/webstore/devconsole/commonplace-example/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/edit
+     Description: Commonplace keeps the passages worth remembering from everything you read.
+         
+         Select a passage on any page and clip it into a research project, with a note and tags. Commonplace keeps the page's title, author, site, and date, so every clip can be cited, and highlights your clips when you come back to a page. Your library is the same on the web, on your phone, and in the extension.
+     Category: Productivity
+     Homepage: https://commonplace.example.com
+     Support: https://commonplace.example.com/help
+     Why by hand: the Chrome Web Store API uploads packages but can't edit the listing
+     Done when: a submit succeeds; the store refuses one while the listing is incomplete
+
+  2. Fill in the privacy practices: the single purpose, a justification for each permission, and the privacy policy's address.
+     Open   https://chrome.google.com/webstore/devconsole/commonplace-example/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/edit/privacy
+     Single purpose: Clip quotes from anything you read into your Commonplace research projects.
+     activeTab: Reads the page you're on, only when you press the toolbar button or the shortcut, so you can clip from it.
+     alarms: Retries clips saved while you were offline, once a minute, until they reach your library.
+     contextMenus: Adds "Clip to Commonplace" to the menu you see when you right-click selected text.
+     scripting: Shows the clipper beside the text you selected, and your highlights on the sites you chose.
+     sidePanel: Shows a project's clips beside the page you're reading.
+     storage: Keeps your sign-in and your chosen project on this device.
+     Host permission: Talks to your Commonplace server, and highlights your clips only on the sites you allow in the options.
+     Privacy policy: https://commonplace.example.com/privacy
+     Why by hand: the API has no privacy practices endpoint
+     Done when: a submit succeeds
+
+  3. Certify, on the same page, that the extension's data use follows the Developer Program Policies. (you, the account holder)
+     Open   https://chrome.google.com/webstore/devconsole/commonplace-example/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/edit/privacy
+     Why by hand: it is a legal declaration, which only the account holder can make
+     Done when: a submit succeeds
+
+  4. Decide to release it, then run `leptoskit publish chrome --submit`. (you, the account holder)
+     Why by hand: submitting sends it to review and then to users, which is the account holder's decision
+     Done when: the store shows the version as pending review
+
+edge: Commonplace 0.1.0 is built and checked; nothing was uploaded.
+
+  1. Fill in the product's Properties (category, privacy policy, website, support) and its Store listing (description and screenshots).
+     Open   https://partner.microsoft.com/dashboard/microsoftedge/00000000-0000-0000-0000-000000000000/properties
+     Description: Commonplace keeps the passages worth remembering from everything you read.
+         
+         Select a passage on any page and clip it into a research project, with a note and tags. Commonplace keeps the page's title, author, site, and date, so every clip can be cited, and highlights your clips when you come back to a page. Your library is the same on the web, on your phone, and in the extension.
+     Privacy policy: https://commonplace.example.com/privacy
+     Website: https://commonplace.example.com
+     Support: https://commonplace.example.com/help
+     Category: Productivity
+     Why by hand: Edge Add-ons' Publish API uploads packages and submits them, but can't edit the listing
+     Done when: a submit succeeds
+
+  2. Decide to release it, then run `leptoskit publish edge --submit`. (you, the account holder)
+     Why by hand: submitting sends it to certification and then to users
+     Done when: Partner Center shows the submission in certification
+
+firefox: Commonplace 0.1.0 is built and checked; nothing was uploaded.
+
+  1. Fill in the listing: the description, screenshots, and privacy policy.
+     Open   https://addons.mozilla.org/developers/addon/commonplace@leptoskit.dev/edit
+     Description: Commonplace keeps the passages worth remembering from everything you read.
+         
+         Select a passage on any page and clip it into a research project, with a note and tags. Commonplace keeps the page's title, author, site, and date, so every clip can be cited, and highlights your clips when you come back to a page. Your library is the same on the web, on your phone, and in the extension.
+     Privacy policy: https://commonplace.example.com/privacy
+     Why by hand: leptoskit doesn't upload listing text and images yet
+     Done when: the listing page shows them
+
+  2. Decide to release it, then run `leptoskit publish firefox --submit`. (you, the account holder)
+     Why by hand: a listed version goes to review and then to users
+     Done when: addons.mozilla.org shows the version awaiting review
+
+app_store: Commonplace 0.1.0 is checked; an upload archives it for team ABCDE12345, and its build number will be one more than App Store Connect's highest. Nothing was built or uploaded.
+
+  1. Answer the export compliance question for each build in TestFlight. (you, the account holder)
+     Open   https://appstoreconnect.apple.com/apps/1234567890/testflight/ios
+     To answer it once: set ITSAppUsesNonExemptEncryption in ios/Info.plist, and every later build carries the answer
+     Why by hand: it is a legal declaration about the app's encryption
+     Done when: the build no longer shows Missing Compliance
+
+  2. Fill in version 0.1.0's App Store page: the description, keywords, support address, and screenshots for iPhone and iPad.
+     Open   https://appstoreconnect.apple.com/apps/1234567890/distribution/ios/version/inflight
+     Description: Commonplace keeps the passages worth remembering from everything you read.
+         
+         Select a passage on any page and clip it into a research project, with a note and tags. Commonplace keeps the page's title, author, site, and date, so every clip can be cited, and highlights your clips when you come back to a page. Your library is the same on the web, on your phone, and in the extension.
+     Support URL: https://commonplace.example.com/help
+     Marketing URL: https://commonplace.example.com
+     Why by hand: leptoskit doesn't upload App Store listing text and screenshots yet
+     Done when: `leptoskit publish app_store --submit` succeeds; App Review refuses an incomplete page
+
+  3. Fill in App Information: the category, and the privacy policy's address.
+     Open   https://appstoreconnect.apple.com/apps/1234567890/distribution/info
+     Category: Productivity
+     Privacy Policy URL: https://commonplace.example.com/privacy
+     Why by hand: leptoskit doesn't upload App Information yet
+     Done when: a submit succeeds
+
+  4. Answer the App Privacy questions: which data the app collects, and what for. (you, the account holder)
+     Open   https://appstoreconnect.apple.com/apps/1234567890/distribution/privacy
+     Why by hand: they are a legal declaration about the app's data, which the API can't make
+     Done when: a submit succeeds
+
+  5. Answer the age rating questions, in App Information. (you, the account holder)
+     Open   https://appstoreconnect.apple.com/apps/1234567890/distribution/info
+     Why by hand: a content rating's answers are the account holder's declaration
+     Done when: a submit succeeds
+
+  6. Give App Review a contact, and a demo account if the app needs signing in, on the version's page. (you, the account holder)
+     Open   https://appstoreconnect.apple.com/apps/1234567890/distribution/ios/version/inflight
+     Why by hand: the contact details and the account are the account holder's own
+     Done when: a submit succeeds
+
+  7. Decide to release it, then run `leptoskit publish app_store --submit`. (you, the account holder)
+     Why by hand: submitting sends it to App Review and then to users
+     Done when: App Store Connect shows the version waiting for review

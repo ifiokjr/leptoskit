@@ -12,6 +12,8 @@ use axum::http::Uri;
 use axum::response::IntoResponse;
 use axum::response::Response;
 
+use super::app_store::AppStore;
+use super::app_store::Key;
 use super::chrome::Chrome;
 use super::edge::Edge;
 use super::firefox::Firefox;
@@ -23,6 +25,7 @@ use super::secrets::Secret;
 struct Seen {
 	method: String,
 	path: String,
+	query: String,
 	authorization: String,
 	content_type: String,
 	body: Vec<u8>,
@@ -61,6 +64,7 @@ fn store(answer: Answer) -> (String, Arc<Mutex<Vec<Seen>>>) {
 						let request = Seen {
 							method: method.to_string(),
 							path: uri.path().to_owned(),
+							query: uri.query().unwrap_or_default().to_owned(),
 							authorization: header("authorization"),
 							content_type: header("content-type"),
 							body: body.to_vec(),
@@ -321,4 +325,457 @@ fn firefox_reports_failed_validation_and_a_missing_add_on() {
 		error.contains("has no add-on new@example.com yet"),
 		"{error}"
 	);
+}
+
+fn apple_key() -> Option<Key> {
+	let pem = super::secrets::tests::ec_key()?;
+	Some(
+		Key::new(
+			Secret::new("issuer-1".into()),
+			Secret::new("KEY123".into()),
+			&Secret::new(pem),
+		)
+		.unwrap(),
+	)
+}
+
+/// The claims of a bearer token.
+fn claims(authorization: &str) -> serde_json::Value {
+	use base64::Engine as _;
+
+	let token = authorization.strip_prefix("Bearer ").unwrap();
+	let claims = token.split('.').nth(1).unwrap();
+	serde_json::from_slice(
+		&base64::engine::general_purpose::URL_SAFE_NO_PAD
+			.decode(claims)
+			.unwrap(),
+	)
+	.unwrap()
+}
+
+#[test]
+fn app_store_numbers_the_next_build_and_waits_for_processing() {
+	let Some(key) = apple_key() else { return };
+	let (base, seen) = store(Box::new(|request, count| {
+		match (request.method.as_str(), request.path.as_str()) {
+			("GET", "/v1/builds") if request.query.contains("sort=-uploadedDate") => {
+				json(serde_json::json!({ "data": [
+					{ "id": "b1", "attributes": { "version": "7" } },
+					{ "id": "b2", "attributes": { "version": "41" } },
+					{ "id": "b3", "attributes": { "version": "1.0.3" } },
+				]}))
+			}
+			("GET", "/v1/builds") => {
+				// Not listed yet, then processing, then done.
+				match count {
+					1 => json(serde_json::json!({ "data": [] })),
+					2 => {
+						json(serde_json::json!({ "data": [
+							{ "id": "b4", "attributes": { "processingState": "PROCESSING" } },
+						]}))
+					}
+					_ => {
+						json(serde_json::json!({ "data": [
+							{ "id": "b4", "attributes": { "processingState": "VALID" } },
+						]}))
+					}
+				}
+			}
+			_ => StatusCode::NOT_FOUND.into_response(),
+		}
+	}));
+	let http = Http::default();
+	let client = AppStore::new(&http, &base, &key);
+	assert_eq!(client.highest_build("123").unwrap(), Some(41));
+	assert_eq!(client.wait_for_build("123", "1.4.0", 42).unwrap(), "b4");
+
+	let seen = seen.lock().unwrap();
+	assert_eq!(
+		seen[0].query,
+		"filter%5Bapp%5D=123&sort=-uploadedDate&limit=200&fields%5Bbuilds%5D=version"
+	);
+	assert_eq!(
+		seen[1].query,
+		"filter%5Bapp%5D=123&filter%5Bversion%5D=42&filter%5BpreReleaseVersion.version%5D=1.4.0&\
+		 limit=1"
+	);
+	let claims = claims(&seen[0].authorization);
+	assert_eq!(claims["iss"], "issuer-1");
+	assert_eq!(claims["aud"], "appstoreconnect-v1");
+	assert_eq!(
+		claims["exp"].as_u64().unwrap() - claims["iat"].as_u64().unwrap(),
+		1200
+	);
+}
+
+#[test]
+fn app_store_reports_a_build_that_failed_processing() {
+	let Some(key) = apple_key() else { return };
+	let (base, _) = store(Box::new(|_, _| {
+		json(serde_json::json!({ "data": [
+			{ "id": "b4", "attributes": { "processingState": "INVALID" } },
+		]}))
+	}));
+	let http = Http::default();
+	let error = AppStore::new(&http, &base, &key)
+		.wait_for_build("123", "1.4.0", 42)
+		.unwrap_err()
+		.to_string();
+	assert!(error.contains("couldn't process build 42"), "{error}");
+}
+
+#[test]
+fn app_store_adds_builds_to_testflight_groups() {
+	let Some(key) = apple_key() else { return };
+	let (base, seen) = store(Box::new(|request, _| {
+		match (request.method.as_str(), request.path.as_str()) {
+			("GET", "/v1/apps/123/betaGroups") => {
+				json(serde_json::json!({ "data": [
+					{ "id": "g1", "attributes": { "name": "Team", "isInternalGroup": true, "hasAccessToAllBuilds": true } },
+					{ "id": "g2", "attributes": { "name": "QA", "isInternalGroup": true, "hasAccessToAllBuilds": false } },
+					{ "id": "g3", "attributes": { "name": "Beta", "isInternalGroup": false } },
+				]}))
+			}
+			("POST", "/v1/builds/b4/relationships/betaGroups") => {
+				StatusCode::NO_CONTENT.into_response()
+			}
+			("POST", "/v1/betaAppReviewSubmissions") => {
+				(StatusCode::CONFLICT, "Missing export compliance").into_response()
+			}
+			_ => StatusCode::NOT_FOUND.into_response(),
+		}
+	}));
+	let http = Http::default();
+	let client = AppStore::new(&http, &base, &key);
+	let names = ["Team", "QA", "Beta"].map(str::to_owned);
+	let groups = client.add_to_groups("123", "b4", &names).unwrap();
+	assert_eq!(groups.len(), 3);
+	let error = client.submit_for_beta_review("b4").unwrap_err().to_string();
+	assert!(error.contains("Missing export compliance"), "{error}");
+	let error = client
+		.add_to_groups("123", "b4", &["Friends".to_owned()])
+		.unwrap_err()
+		.to_string();
+	assert!(
+		error.contains("no TestFlight group `Friends`; it has `Team`, `QA`, `Beta`"),
+		"{error}"
+	);
+
+	let seen = seen.lock().unwrap();
+	let added: serde_json::Value = serde_json::from_slice(&seen[1].body).unwrap();
+	// The group that gets every build already has it.
+	assert_eq!(
+		added,
+		serde_json::json!({ "data": [
+			{ "type": "betaGroups", "id": "g2" },
+			{ "type": "betaGroups", "id": "g3" },
+		]})
+	);
+	let review: serde_json::Value = serde_json::from_slice(&seen[2].body).unwrap();
+	assert_eq!(review["data"]["relationships"]["build"]["data"]["id"], "b4");
+}
+
+#[test]
+fn app_store_submits_a_version_for_review() {
+	let Some(key) = apple_key() else { return };
+	let (base, seen) = store(Box::new(|request, _| {
+		match (request.method.as_str(), request.path.as_str()) {
+			("GET", "/v1/apps/123/appStoreVersions") => {
+				json(serde_json::json!({ "data": [
+					{ "id": "v1", "attributes": { "versionString": "1.0.0", "appStoreState": "READY_FOR_SALE" } },
+					{ "id": "v2", "attributes": { "versionString": "1.1.0", "appStoreState": "PREPARE_FOR_SUBMISSION" } },
+				]}))
+			}
+			("PATCH", "/v1/appStoreVersions/v2") => {
+				json(serde_json::json!({ "data": { "id": "v2" } }))
+			}
+			("GET", "/v1/appStoreVersions/v2/appStoreVersionLocalizations") => {
+				json(serde_json::json!({ "data": [
+					{ "id": "l1", "attributes": { "locale": "en-US" } },
+				]}))
+			}
+			("PATCH", "/v1/appStoreVersionLocalizations/l1") => json(serde_json::json!({})),
+			("PATCH", "/v1/appStoreVersions/v2/relationships/build") => {
+				StatusCode::NO_CONTENT.into_response()
+			}
+			("GET", "/v1/reviewSubmissions") => json(serde_json::json!({ "data": [] })),
+			("POST", "/v1/reviewSubmissions") => {
+				json(serde_json::json!({ "data": { "id": "s1" } }))
+			}
+			("POST", "/v1/reviewSubmissionItems") => {
+				(
+					StatusCode::CREATED,
+					axum::Json(serde_json::json!({ "data": { "id": "i1" } })),
+				)
+					.into_response()
+			}
+			("PATCH", "/v1/reviewSubmissions/s1") => {
+				json(
+					serde_json::json!({ "data": { "id": "s1", "attributes": { "state": "WAITING_FOR_REVIEW" } } }),
+				)
+			}
+			_ => StatusCode::NOT_FOUND.into_response(),
+		}
+	}));
+	let http = Http::default();
+	let client = AppStore::new(&http, &base, &key);
+	// The version in preparation takes the new number.
+	let (version, first) = client.version("123", "1.2.0").unwrap();
+	assert_eq!((version.as_str(), first), ("v2", false));
+	client
+		.localize(
+			&version,
+			"en-US",
+			&serde_json::json!({ "whatsNew": "Clip from the side panel." }),
+		)
+		.unwrap();
+	client.attach(&version, "b4").unwrap();
+	assert_eq!(
+		client.submit_for_review("123", &version).unwrap(),
+		"waiting for review"
+	);
+
+	let seen = seen.lock().unwrap();
+	let body =
+		|index: usize| -> serde_json::Value { serde_json::from_slice(&seen[index].body).unwrap() };
+	assert_eq!(seen[0].query, "filter%5Bplatform%5D=IOS&limit=200");
+	assert_eq!(body(1)["data"]["attributes"]["versionString"], "1.2.0");
+	assert_eq!(
+		body(3)["data"]["attributes"]["whatsNew"],
+		"Clip from the side panel."
+	);
+	assert_eq!(
+		body(4),
+		serde_json::json!({ "data": { "type": "builds", "id": "b4" } })
+	);
+	assert_eq!(
+		seen[5].query,
+		"filter%5Bapp%5D=123&filter%5Bplatform%5D=IOS&filter%5Bstate%5D=READY_FOR_REVIEW"
+	);
+	assert_eq!(body(6)["data"]["attributes"]["platform"], "IOS");
+	let item = body(7);
+	assert_eq!(
+		item["data"]["relationships"]["reviewSubmission"]["data"]["id"],
+		"s1"
+	);
+	assert_eq!(
+		item["data"]["relationships"]["appStoreVersion"]["data"]["id"],
+		"v2"
+	);
+	assert_eq!(body(8)["data"]["attributes"]["submitted"], true);
+}
+
+#[test]
+fn app_store_creates_a_first_version_and_refuses_a_released_one() {
+	let Some(key) = apple_key() else { return };
+	let (base, seen) = store(Box::new(|request, _| {
+		match (request.method.as_str(), request.path.as_str()) {
+			("GET", "/v1/apps/1/appStoreVersions") => json(serde_json::json!({ "data": [] })),
+			("POST", "/v1/appStoreVersions") => json(serde_json::json!({ "data": { "id": "v9" } })),
+			("GET", "/v1/apps/2/appStoreVersions") => {
+				json(serde_json::json!({ "data": [
+					{ "id": "v1", "attributes": { "versionString": "1.0.0", "appStoreState": "READY_FOR_SALE" } },
+				]}))
+			}
+			_ => StatusCode::NOT_FOUND.into_response(),
+		}
+	}));
+	let http = Http::default();
+	let client = AppStore::new(&http, &base, &key);
+	assert_eq!(
+		client.version("1", "1.0.0").unwrap(),
+		("v9".to_owned(), true)
+	);
+	let created: serde_json::Value = serde_json::from_slice(&seen.lock().unwrap()[1].body).unwrap();
+	assert_eq!(created["data"]["attributes"]["platform"], "IOS");
+	assert_eq!(created["data"]["relationships"]["app"]["data"]["id"], "1");
+	let error = client.version("2", "1.0.0").unwrap_err().to_string();
+	assert!(error.contains("already ready for sale"), "{error}");
+}
+
+#[test]
+fn app_store_explains_a_refused_key() {
+	let Some(key) = apple_key() else { return };
+	let (base, _) = store(Box::new(|_, _| StatusCode::UNAUTHORIZED.into_response()));
+	let http = Http::default();
+	let error = AppStore::new(&http, &base, &key)
+		.highest_build("1")
+		.unwrap_err()
+		.to_string();
+	assert!(error.contains("LEPTOSKIT_PUBLISH_APPLE_KEY_ID"), "{error}");
+}
+
+/// Every credential, set to a value no output may contain.
+#[test]
+fn no_credential_value_reaches_any_output() {
+	use std::fmt::Write as _;
+
+	let dir = tempfile::tempdir().unwrap();
+	let project = tempfile::tempdir().unwrap();
+	let file = dir.path().join("credentials.toml");
+	let value = |name: &str| format!("value-of-{name}");
+	let mut text = String::new();
+	for needed in &super::NEEDED {
+		let _ = writeln!(text, "{} = \"{}\"", needed.name, value(needed.name));
+	}
+	std::fs::write(&file, text).unwrap();
+	let credentials = super::Credentials::load(Some(&file), project.path()).unwrap();
+	let stores: Vec<&str> = leptoskit_config::publish::STORES.to_vec();
+
+	let mut outputs = vec![
+		super::list_credentials(&stores, &credentials),
+		format!("{credentials:?}"),
+	];
+	for needed in &super::NEEDED {
+		let secret = credentials.require(needed.name, needed.how).unwrap();
+		outputs.push(format!("{secret} {secret:?}"));
+	}
+	// The stores' refusals, and keys that can't be used.
+	let (base, _) = store(Box::new(|_, _| StatusCode::UNAUTHORIZED.into_response()));
+	let http = Http::default();
+	let get = |name: &str| credentials.get(name).unwrap();
+	let edge = Edge::new(
+		&http,
+		&base,
+		"p",
+		get(super::edge::CLIENT_ID),
+		get(super::edge::API_KEY),
+	);
+	outputs.push(format!("{:#}", edge.upload(b"zip".to_vec()).unwrap_err()));
+	let firefox = Firefox::new(
+		&http,
+		&base,
+		"a@b",
+		get(super::firefox::ISSUER),
+		get(super::firefox::SECRET),
+	);
+	outputs.push(format!(
+		"{:#}",
+		firefox.upload(b"zip", "listed").unwrap_err()
+	));
+	outputs.push(format!(
+		"{:#}",
+		Chrome::connect(
+			&http,
+			&base,
+			&base,
+			&get(super::chrome::CREDENTIAL),
+			"p",
+			"i"
+		)
+		.err()
+		.unwrap()
+	));
+	let apple = Key::new(
+		get(super::app_store::ISSUER),
+		get(super::app_store::KEY_ID),
+		&get(super::app_store::KEY),
+	);
+	outputs.push(format!("{:#}", apple.err().unwrap()));
+
+	for output in &outputs {
+		for needed in &super::NEEDED {
+			assert!(
+				!output.contains(&value(needed.name)),
+				"{} leaked into: {output}",
+				needed.name
+			);
+		}
+	}
+	assert!(outputs[0].contains("LEPTOSKIT_PUBLISH_APPLE_KEY "));
+}
+
+/// `leptoskit publish --dry-run` on Commonplace: every store's checks and
+/// remaining steps, from its real configuration and `store/` folder, with
+/// the packages standing in for a build.
+#[test]
+fn commonplace_dry_run() {
+	use leptoskit_config::Browser;
+
+	let example =
+		std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/commonplace");
+	let config = leptoskit_config::LeptoskitConfig::from_toml(
+		&std::fs::read_to_string(example.join("leptoskit.toml")).unwrap(),
+		&example,
+	)
+	.unwrap();
+	let store = super::listing::Store::load(&example).unwrap();
+	let extension_config = config.extension.clone().unwrap();
+	let manifest =
+		crate::extension::manifest::manifest(&crate::extension::manifest::ManifestInput {
+			browser: Browser::Chromium,
+			config: &config,
+			extension: &extension_config,
+			plugin_permissions: &[],
+			icons: &[16, 32, 48, 128],
+			dev: None,
+		});
+	let out = tempfile::tempdir().unwrap();
+	// Commonplace's iOS host is `ios/`, as in the example.
+	std::fs::create_dir_all(out.path().join("ios")).unwrap();
+	std::fs::write(out.path().join("ios/Cargo.toml"), "").unwrap();
+	let package = |browser: Browser| {
+		crate::extension::Package {
+			browser,
+			dir: out.path().join(browser.name()),
+			zip: Some(out.path().join(format!("{}.zip", browser.name()))),
+		}
+	};
+	let extension = super::Extension {
+		built: crate::extension::Built {
+			packages: vec![package(Browser::Chromium), package(Browser::Firefox)],
+			source: Some(out.path().join("firefox-source.zip")),
+		},
+		manifest,
+	};
+	let args = super::PublishArgs {
+		stores: Vec::new(),
+		dry_run: true,
+		submit: false,
+		staged: false,
+		yes: false,
+		json: false,
+		credentials: None,
+		build_number: super::BuildNumber::Auto,
+	};
+	let credentials = super::Credentials::default();
+	let http = Http::default();
+	let runner = super::tools::Recorder::default();
+	let session = super::Session {
+		args: &args,
+		root: out.path(),
+		config: &config,
+		credentials: &credentials,
+		store: &store,
+		http: &http,
+		runner: &runner,
+		extension: Some(&extension),
+		name: super::display_name(&config),
+		version: super::apple_version(&config),
+		submit: false,
+	};
+	let mut report = super::Report::default();
+	for name in config.publish.stores() {
+		let (summary, steps) = match name {
+			"chrome" => session.chrome(),
+			"edge" => session.edge(),
+			"firefox" => session.firefox(),
+			"app_store" => session.app_store(),
+			other => panic!("{other} has no dry run here"),
+		}
+		.unwrap();
+		report.steps.extend(steps);
+		report.stores.push(super::Status {
+			store: name.to_owned(),
+			summary,
+		});
+	}
+	// A dry run runs no tool and contacts no store.
+	assert!(runner.seen.borrow().is_empty());
+	assert!(
+		out.path()
+			.join(".leptoskit/publish/ios/ExportOptions.plist")
+			.is_file()
+	);
+	insta::assert_snapshot!(report.text());
 }

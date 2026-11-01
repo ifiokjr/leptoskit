@@ -7,6 +7,7 @@
 //! the steps the stores' APIs can't take, which a person, or an agent with
 //! `leptoskit skill`, finishes in each dashboard.
 
+pub mod app_store;
 pub mod chrome;
 pub mod edge;
 pub mod firefox;
@@ -14,6 +15,7 @@ pub mod http;
 pub mod listing;
 pub mod secrets;
 pub mod steps;
+pub mod tools;
 
 use std::io::IsTerminal as _;
 use std::path::Path;
@@ -35,9 +37,9 @@ use self::steps::Who;
 #[derive(Debug, Clone, clap::Args)]
 #[allow(clippy::struct_excessive_bools, reason = "each is a command-line flag")]
 pub struct PublishArgs {
-	/// The stores: `chrome`, `edge`, and `firefox`; every store `[publish]`
-	/// configures when omitted. `credentials` lists the credentials each
-	/// configured store needs instead.
+	/// The stores: `chrome`, `edge`, `firefox`, and `app_store`; every store
+	/// `[publish]` configures when omitted. `credentials` lists the credentials
+	/// each configured store needs instead.
 	pub stores: Vec<String>,
 	/// Build and check everything, and contact no store.
 	#[arg(long)]
@@ -55,6 +57,10 @@ pub struct PublishArgs {
 	/// Print the report as JSON.
 	#[arg(long)]
 	pub json: bool,
+	/// The app stores' build number (`CFBundleVersion`): `auto`, one more
+	/// than the store's highest, or a number.
+	#[arg(long, default_value = "auto")]
+	pub build_number: BuildNumber,
 	/// A TOML file of credentials, by their environment variables' names,
 	/// outside the project.
 	#[arg(long)]
@@ -64,6 +70,31 @@ pub struct PublishArgs {
 /// Where the report and the store-ready files go.
 const OUTPUT: &str = ".leptoskit/publish";
 
+/// The stores that publish the browser extension's packages.
+const EXTENSION_STORES: [&str; 3] = ["chrome", "edge", "firefox"];
+
+/// An app store's build number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildNumber {
+	/// One more than the store's highest.
+	Auto,
+	Number(u64),
+}
+
+impl std::str::FromStr for BuildNumber {
+	type Err = String;
+
+	fn from_str(text: &str) -> Result<Self, Self::Err> {
+		if text == "auto" {
+			return Ok(Self::Auto);
+		}
+		match text.parse() {
+			Ok(number) if number > 0 => Ok(Self::Number(number)),
+			_ => Err("a build number is `auto` or a whole number above 0".to_owned()),
+		}
+	}
+}
+
 /// A credential a store needs.
 struct Needed {
 	store: &'static str,
@@ -71,7 +102,7 @@ struct Needed {
 	how: &'static str,
 }
 
-const NEEDED: [Needed; 5] = [
+const NEEDED: [Needed; 8] = [
 	Needed {
 		store: "chrome",
 		name: chrome::CREDENTIAL,
@@ -97,6 +128,21 @@ const NEEDED: [Needed; 5] = [
 		name: firefox::SECRET,
 		how: firefox::HOW,
 	},
+	Needed {
+		store: "app_store",
+		name: app_store::ISSUER,
+		how: app_store::HOW,
+	},
+	Needed {
+		store: "app_store",
+		name: app_store::KEY_ID,
+		how: app_store::HOW,
+	},
+	Needed {
+		store: "app_store",
+		name: app_store::KEY,
+		how: app_store::HOW,
+	},
 ];
 
 /// An API's address: the store's own, or an override for a proxy or a
@@ -116,11 +162,11 @@ pub fn run(args: &PublishArgs) -> Result<()> {
 	let configured = config.publish.stores();
 	anyhow::ensure!(
 		!configured.is_empty(),
-		"no store is configured: add [publish.chrome], [publish.edge], or [publish.firefox] to \
-		 leptoskit.toml"
+		"no store is configured: add [publish.chrome], [publish.edge], [publish.firefox], or \
+		 [publish.app_store] to leptoskit.toml"
 	);
 	if args.stores.iter().any(|store| store == "credentials") {
-		list_credentials(&configured, &credentials);
+		print!("{}", list_credentials(&configured, &credentials));
 		return Ok(());
 	}
 	let stores: Vec<&str> = if args.stores.is_empty() {
@@ -148,28 +194,37 @@ pub fn run(args: &PublishArgs) -> Result<()> {
 	}
 
 	let store = Store::load(&root)?;
-	let built = crate::extension::build(true, None)?;
-	let manifest: serde_json::Value = {
-		let chromium = built
-			.packages
-			.iter()
-			.find(|package| package.browser == leptoskit_config::Browser::Chromium)
-			.or_else(|| built.packages.first())
-			.context("the build made no package")?;
-		serde_json::from_slice(&std::fs::read(chromium.dir.join("manifest.json"))?)?
+	let extension = if stores.iter().any(|store| EXTENSION_STORES.contains(store)) {
+		Some(Extension::build()?)
+	} else {
+		None
 	};
-	let version = manifest["version"].as_str().unwrap_or_default().to_owned();
-	let name = manifest["name"].as_str().unwrap_or_default().to_owned();
+	let (name, version) = match &extension {
+		Some(extension) => {
+			(
+				extension.manifest["name"]
+					.as_str()
+					.unwrap_or_default()
+					.to_owned(),
+				extension.manifest["version"]
+					.as_str()
+					.unwrap_or_default()
+					.to_owned(),
+			)
+		}
+		None => (display_name(&config), apple_version(&config)),
+	};
 	let submit = args.submit && !args.dry_run && confirm(args, &name, &version, &stores)?;
 	let http = http::Http::default();
 	let session = Session {
 		args,
+		root: &root,
 		config: &config,
 		credentials: &credentials,
 		store: &store,
 		http: &http,
-		built: &built,
-		manifest: &manifest,
+		runner: &tools::System,
+		extension: extension.as_ref(),
 		name,
 		version,
 		submit,
@@ -180,6 +235,7 @@ pub fn run(args: &PublishArgs) -> Result<()> {
 			"chrome" => session.chrome()?,
 			"edge" => session.edge()?,
 			"firefox" => session.firefox()?,
+			"app_store" => session.app_store()?,
 			other => anyhow::bail!("`{other}` isn't a store leptoskit publish publishes to"),
 		};
 		report.steps.extend(steps);
@@ -202,24 +258,71 @@ pub fn run(args: &PublishArgs) -> Result<()> {
 	Ok(())
 }
 
+/// The browser extension's release build, which the extension stores
+/// upload.
+struct Extension {
+	built: crate::extension::Built,
+	manifest: serde_json::Value,
+}
+
+impl Extension {
+	fn build() -> Result<Self> {
+		let built = crate::extension::build(true, None)?;
+		let manifest = {
+			let chromium = built
+				.packages
+				.iter()
+				.find(|package| package.browser == leptoskit_config::Browser::Chromium)
+				.or_else(|| built.packages.first())
+				.context("the build made no package")?;
+			serde_json::from_slice(&std::fs::read(chromium.dir.join("manifest.json"))?)?
+		};
+		Ok(Self { built, manifest })
+	}
+}
+
+/// The app's name, as people see it.
+fn display_name(config: &LeptoskitConfig) -> String {
+	config
+		.extension
+		.as_ref()
+		.and_then(|extension| extension.name.clone())
+		.or_else(|| config.auth.as_ref().and_then(|auth| auth.app_name.clone()))
+		.unwrap_or_else(|| config.app.name.clone())
+}
+
+/// `app.version` as Apple's version: up to three integers, so a
+/// pre-release's label is dropped.
+fn apple_version(config: &LeptoskitConfig) -> String {
+	let version = &config.app.version;
+	format!("{}.{}.{}", version.major, version.minor, version.patch)
+}
+
 /// Everything one run's stores share.
 struct Session<'a> {
 	args: &'a PublishArgs,
+	root: &'a Path,
 	config: &'a LeptoskitConfig,
 	credentials: &'a Credentials,
 	store: &'a Store,
 	http: &'a http::Http,
-	built: &'a crate::extension::Built,
-	manifest: &'a serde_json::Value,
+	runner: &'a dyn tools::Runner,
+	extension: Option<&'a Extension>,
 	name: String,
 	version: String,
 	submit: bool,
 }
 
 impl Session<'_> {
+	fn extension(&self) -> &Extension {
+		self.extension
+			.expect("the extension stores build the extension first")
+	}
+
 	/// A browser family's zip.
 	fn package(&self, browser: leptoskit_config::Browser) -> Result<PathBuf> {
-		self.built
+		self.extension()
+			.built
 			.packages
 			.iter()
 			.find(|package| package.browser == browser)
@@ -264,7 +367,12 @@ impl Session<'_> {
 		};
 		Ok((
 			summary,
-			chrome_steps(self.config, self.store, self.manifest, self.submit),
+			chrome_steps(
+				self.config,
+				self.store,
+				&self.extension().manifest,
+				self.submit,
+			),
 		))
 	}
 
@@ -311,6 +419,7 @@ impl Session<'_> {
 			.context("[extension.firefox] needs the add-on's id")?;
 		let zip = self.package(leptoskit_config::Browser::Firefox)?;
 		let source = self
+			.extension()
 			.built
 			.source
 			.clone()
@@ -369,6 +478,297 @@ impl Session<'_> {
 	}
 }
 
+impl Session<'_> {
+	fn app_store(&self) -> Result<(String, Vec<Step>)> {
+		let settings = self.config.publish.app_store.as_ref().expect("configured");
+		let app = &settings.app_id;
+		let team = settings
+			.team(self.config.native.apple_team_id.as_deref())
+			.context("[publish.app_store] needs team_id")?;
+		let version = apple_version(self.config);
+		let out = self.root.join(OUTPUT).join("ios");
+		std::fs::create_dir_all(&out)?;
+		std::fs::write(
+			out.join("ExportOptions.plist"),
+			app_store::export_options(team),
+		)?;
+		let info_plist =
+			crate::native::host_dir(self.root, crate::native::Target::Ios).join("Info.plist");
+		let mut uploaded = None;
+		let mut beta_review = None;
+		let summary = if self.args.dry_run {
+			let build = match self.args.build_number {
+				BuildNumber::Auto => "one more than App Store Connect's highest".to_owned(),
+				BuildNumber::Number(number) => number.to_string(),
+			};
+			format!(
+				"{} {version} is checked; an upload archives it for team {team}, and its build \
+				 number will be {build}. Nothing was built or uploaded.",
+				self.name
+			)
+		} else {
+			let key = app_store::Key::new(
+				self.credentials
+					.require(app_store::ISSUER, app_store::HOW)?,
+				self.credentials
+					.require(app_store::KEY_ID, app_store::HOW)?,
+				&self.credentials.require(app_store::KEY, app_store::HOW)?,
+			)?;
+			let client = app_store::AppStore::new(
+				self.http,
+				&api("LEPTOSKIT_PUBLISH_APPLE_API", app_store::API),
+				&key,
+			);
+			let build = match self.args.build_number {
+				BuildNumber::Auto => client.highest_build(app)?.map_or(1, |highest| highest + 1),
+				BuildNumber::Number(number) => number,
+			};
+			crate::native::run(crate::native::NativeCommand::Prepare {
+				target: crate::native::Target::Ios,
+				release: true,
+			})?;
+			for stale in ["App.xcarchive", "export"] {
+				let stale = out.join(stale);
+				if stale.exists() {
+					std::fs::remove_dir_all(&stale)?;
+				}
+			}
+			let file = key.file(&out)?;
+			self.runner.run(&app_store::archive(
+				self.root, &out, team, &version, build, &file,
+			))?;
+			self.runner.run(&app_store::export(&out, &file))?;
+			drop(file);
+			let id = client.wait_for_build(app, &version, build)?;
+			uploaded = Some(build);
+			let groups = client.add_to_groups(app, &id, &settings.testflight_groups)?;
+			if groups.iter().any(|group| !group.internal)
+				&& let Err(error) = client.submit_for_beta_review(&id)
+			{
+				beta_review = Some(format!("{error:#}"));
+			}
+			let tested = if groups.is_empty() {
+				String::new()
+			} else {
+				format!(
+					" for {}",
+					groups
+						.iter()
+						.map(|group| group.name.as_str())
+						.collect::<Vec<_>>()
+						.join(", ")
+				)
+			};
+			if self.submit {
+				let (version_id, first) = client.version(app, &version)?;
+				if !first {
+					let notes = self
+						.store
+						.release_notes
+						.clone()
+						.unwrap_or_else(|| format!("Version {version}."));
+					client.localize(
+						&version_id,
+						"en-US",
+						&serde_json::json!({ "whatsNew": notes }),
+					)?;
+				}
+				client.attach(&version_id, &id)?;
+				let state = client.submit_for_review(app, &version_id)?;
+				format!(
+					"{} {version} (build {build}) is in TestFlight{tested}, and submitted for App \
+					 Review ({state}).",
+					self.name
+				)
+			} else {
+				format!(
+					"{} {version} (build {build}) is in TestFlight{tested}.",
+					self.name
+				)
+			}
+		};
+		Ok((
+			summary,
+			app_store_steps(&AppStoreRun {
+				app,
+				version: &version,
+				build: uploaded,
+				root: self.root,
+				info_plist: &info_plist,
+				encryption_answered: encryption_answered(&info_plist),
+				beta_review: beta_review.as_deref(),
+				submitted: self.submit,
+				store: self.store,
+			}),
+		))
+	}
+}
+
+/// Whether the app's `Info.plist` answers export compliance for every build
+/// with `ITSAppUsesNonExemptEncryption`.
+fn encryption_answered(plist: &Path) -> bool {
+	plist::Value::from_file(plist).is_ok_and(|plist| {
+		plist
+			.as_dictionary()
+			.is_some_and(|plist| plist.contains_key("ITSAppUsesNonExemptEncryption"))
+	})
+}
+
+/// What one App Store run did, for its steps.
+struct AppStoreRun<'a> {
+	app: &'a str,
+	version: &'a str,
+	/// The build uploaded, when one was.
+	build: Option<u64>,
+	root: &'a Path,
+	/// The app-owned `Info.plist`.
+	info_plist: &'a Path,
+	encryption_answered: bool,
+	/// Why TestFlight's beta review refused the build, when it did.
+	beta_review: Option<&'a str>,
+	submitted: bool,
+	store: &'a Store,
+}
+
+/// What App Store Connect's API can't do.
+fn app_store_steps(run: &AppStoreRun<'_>) -> Vec<Step> {
+	let app = format!("https://appstoreconnect.apple.com/apps/{}", run.app);
+	let build = run
+		.build
+		.map_or_else(|| "each build".to_owned(), |build| format!("build {build}"));
+	let info_plist = run
+		.info_plist
+		.strip_prefix(run.root)
+		.unwrap_or(run.info_plist)
+		.display()
+		.to_string();
+	let mut steps = Vec::new();
+	if let Some(problem) = run.beta_review {
+		steps.push(step(
+			"app_store",
+			Who::Agent,
+			&format!("Submit {build} for TestFlight's beta review, so external testers get it."),
+			Some(format!("{app}/testflight/ios")),
+			vec![field("App Store Connect said", problem)],
+			"App Store Connect refused it through the API, usually until export compliance is \
+			 answered",
+			"the build shows as waiting for beta review",
+		));
+	}
+	if !run.encryption_answered {
+		steps.push(step(
+			"app_store",
+			Who::Person,
+			&format!("Answer the export compliance question for {build} in TestFlight."),
+			Some(format!("{app}/testflight/ios")),
+			vec![field(
+				"To answer it once",
+				format!(
+					"set ITSAppUsesNonExemptEncryption in {info_plist}, and every later build \
+					 carries the answer"
+				),
+			)],
+			"it is a legal declaration about the app's encryption",
+			"the build no longer shows Missing Compliance",
+		));
+	}
+	if run.submitted {
+		// App Review takes a version only once everything below is done.
+		return steps;
+	}
+	let listing = &run.store.listing;
+	steps.extend([
+		step(
+			"app_store",
+			Who::Agent,
+			&format!(
+				"Fill in version {}'s App Store page: the description, keywords, support address, \
+				 and screenshots for iPhone and iPad.",
+				run.version
+			),
+			Some(format!("{app}/distribution/ios/version/inflight")),
+			vec![
+				field(
+					"Description",
+					run.store
+						.description
+						.clone()
+						.unwrap_or_else(|| "(write it in store/en-US/description.md)".to_owned()),
+				),
+				field(
+					"Support URL",
+					listing
+						.support
+						.clone()
+						.unwrap_or_else(|| "(add support to store/listing.toml)".to_owned()),
+				),
+				field(
+					"Marketing URL",
+					listing.homepage.clone().unwrap_or_default(),
+				),
+			],
+			"leptoskit doesn't upload App Store listing text and screenshots yet",
+			"`leptoskit publish app_store --submit` succeeds; App Review refuses an incomplete \
+			 page",
+		),
+		step(
+			"app_store",
+			Who::Agent,
+			"Fill in App Information: the category, and the privacy policy's address.",
+			Some(format!("{app}/distribution/info")),
+			vec![
+				field(
+					"Category",
+					listing.category.clone().unwrap_or_else(|| {
+						"(choose one, and add category to store/listing.toml)".to_owned()
+					}),
+				),
+				field("Privacy Policy URL", privacy_policy(run.store)),
+			],
+			"leptoskit doesn't upload App Information yet",
+			"a submit succeeds",
+		),
+		step(
+			"app_store",
+			Who::Person,
+			"Answer the App Privacy questions: which data the app collects, and what for.",
+			Some(format!("{app}/distribution/privacy")),
+			Vec::new(),
+			"they are a legal declaration about the app's data, which the API can't make",
+			"a submit succeeds",
+		),
+		step(
+			"app_store",
+			Who::Person,
+			"Answer the age rating questions, in App Information.",
+			Some(format!("{app}/distribution/info")),
+			Vec::new(),
+			"a content rating's answers are the account holder's declaration",
+			"a submit succeeds",
+		),
+		step(
+			"app_store",
+			Who::Person,
+			"Give App Review a contact, and a demo account if the app needs signing in, on the \
+			 version's page.",
+			Some(format!("{app}/distribution/ios/version/inflight")),
+			Vec::new(),
+			"the contact details and the account are the account holder's own",
+			"a submit succeeds",
+		),
+		step(
+			"app_store",
+			Who::Person,
+			"Decide to release it, then run `leptoskit publish app_store --submit`.",
+			None,
+			Vec::new(),
+			"submitting sends it to App Review and then to users",
+			"App Store Connect shows the version waiting for review",
+		),
+	]);
+	steps
+}
+
 /// Asks before submitting, in a terminal; `--yes` and CI skip the question.
 fn confirm(args: &PublishArgs, name: &str, version: &str, stores: &[&str]) -> Result<bool> {
 	if args.yes || std::env::var_os("CI").is_some() || !std::io::stdin().is_terminal() {
@@ -387,8 +787,10 @@ fn confirm(args: &PublishArgs, name: &str, version: &str, stores: &[&str]) -> Re
 	Ok(true)
 }
 
-fn list_credentials(stores: &[&str], credentials: &Credentials) {
-	println!("Credentials for {}:\n", stores.join(", "));
+fn list_credentials(stores: &[&str], credentials: &Credentials) -> String {
+	use std::fmt::Write as _;
+
+	let mut out = format!("Credentials for {}:\n\n", stores.join(", "));
 	for needed in NEEDED
 		.iter()
 		.filter(|needed| stores.contains(&needed.store))
@@ -398,15 +800,16 @@ fn list_credentials(stores: &[&str], credentials: &Credentials) {
 		} else {
 			"missing"
 		};
-		println!("  {:<8} {:<42} {state}", needed.store, needed.name);
+		let _ = writeln!(out, "  {:<10} {:<42} {state}", needed.store, needed.name);
 		if state == "missing" {
-			println!("           To make it: {}.", needed.how);
+			let _ = writeln!(out, "             To make it: {}.", needed.how);
 		}
 	}
-	println!(
+	out.push_str(
 		"\nSet each as an environment variable, or put them in a TOML file outside the project \
-		 and pass --credentials <file>. Values are never printed."
+		 and pass --credentials <file>. Values are never printed.\n",
 	);
+	out
 }
 
 fn step(

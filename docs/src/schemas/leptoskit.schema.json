@@ -219,6 +219,36 @@
 			},
 			"additionalProperties": false
 		},
+		"AppStore": {
+			"description": "An app in App Store Connect, created once there.",
+			"type": "object",
+			"properties": {
+				"app_id": {
+					"description": "The app's Apple ID: the number in its App Store Connect address,\nunder App Information.",
+					"type": "string",
+					"pattern": "^[0-9]+$"
+				},
+				"team_id": {
+					"description": "The Apple Developer team that signs the app, such as `ABCDE12345`.\nDefaults to `native.apple_team_id`.",
+					"type": [
+						"string",
+						"null"
+					],
+					"pattern": "^[A-Z0-9]{10}$"
+				},
+				"testflight_groups": {
+					"description": "The TestFlight groups each uploaded build is added to, by name.",
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				}
+			},
+			"additionalProperties": false,
+			"required": [
+				"app_id"
+			]
+		},
 		"AttributeBraces": {
 			"description": "Whether the formatter keeps the braces around attribute values.",
 			"oneOf": [
@@ -1744,6 +1774,17 @@
 			"description": "The stores an app is published to.",
 			"type": "object",
 			"properties": {
+				"app_store": {
+					"description": "App Store Connect, for the iOS app and the Safari extension inside\nit: TestFlight, then App Store review.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/AppStore"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
 				"chrome": {
 					"description": "The Chrome Web Store, for the Chromium package.",
 					"anyOf": [

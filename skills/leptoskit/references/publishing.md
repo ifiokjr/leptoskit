@@ -11,7 +11,7 @@ Publishing has two halves on every store:
 
 1. **Check.** Run `leptoskit publish --dry-run`. It builds every package and runs every check without contacting a store. Fix what fails, then run it again.
 2. **Credentials.** Run `leptoskit publish credentials`. It lists, for each configured store, which environment variables are set and which are missing, and where each one is made. **Don't create credentials yourself:** making an API key or a service account needs the account holder, two-factor sign-in, and sometimes payment. Ask the person to create the missing ones and set them. Never ask them to paste a secret into the conversation.
-3. **Upload.** Run `leptoskit publish <stores>`, such as `leptoskit publish chrome firefox edge`. Then read `.leptoskit/publish/next-steps.json`.
+3. **Upload.** Run `leptoskit publish <stores>`, such as `leptoskit publish chrome firefox edge` or `leptoskit publish app_store`. Then read `.leptoskit/publish/next-steps.json`. The app stores number each build one more than the store's highest; `--build-number <n>` overrides it.
 4. **Work through the steps.** Each step has:
    - `store`: which store;
    - `by`: `agent` or `person`;
@@ -71,6 +71,22 @@ When you have computer use (screenshots, clicks, and typing) or a browser automa
 - Common rejections:
   - source that doesn't rebuild to the same package (the archive's `BUILD.md` lists the exact commands);
   - a missing or wrong data collection declaration (`[extension.firefox].data_collection`).
+
+**App Store Connect (iOS, with the Safari extension inside)**
+
+- Dashboard: <https://appstoreconnect.apple.com/apps>. The app is created there once (**Apps**, **+**, **New App**), which needs the account holder; its Apple ID goes in `[publish.app_store].app_id`.
+- `leptoskit publish app_store` needs a Mac with Xcode. It archives, uploads, waits for processing (up to an hour), and adds the build to `testflight_groups`. Testers in internal groups get it at once; external groups wait for Apple's beta review.
+- Pages, under the app:
+  - **Distribution, the version in preparation:** description, keywords, support URL, screenshots for each device size, and **App Review Information** (contact and demo account, a person step).
+  - **App Information:** category, privacy policy URL, and the **age rating** questions (a person step).
+  - **App Privacy:** the data collection answers (a person step).
+  - **TestFlight:** a build marked **Missing Compliance** needs the export compliance answer (a person step). `ITSAppUsesNonExemptEncryption` in the app's `Info.plist` answers it for every build.
+- Agreements, tax, and banking (**Business**) are the account holder's, and paid apps can't be submitted without them.
+- Common rejections:
+  - a demo account that doesn't work, or none when the app needs signing in;
+  - screenshots that don't show the app in use;
+  - a privacy policy URL that doesn't load, or App Privacy answers that don't match what the app collects;
+  - a permission's usage description (`NS…UsageDescription`) that doesn't say why the app needs it.
 
 ## After a release
 

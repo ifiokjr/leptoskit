@@ -175,6 +175,34 @@ pub fn rs256(claims: &serde_json::Value, private_key_pem: &str) -> Result<String
 	Ok(format!("{message}.{}", URL_SAFE_NO_PAD.encode(signed)))
 }
 
+/// A JWT signed with ES256 under the key `key_id`, as App Store Connect
+/// takes: `private_key_pem` is the `.p8` key it gave out.
+///
+/// # Errors
+///
+/// When the key isn't a P-256 PKCS#8 key.
+pub fn es256(claims: &serde_json::Value, key_id: &str, private_key_pem: &str) -> Result<String> {
+	let random = SystemRandom::new();
+	let key = signature::EcdsaKeyPair::from_pkcs8(
+		&signature::ECDSA_P256_SHA256_FIXED_SIGNING,
+		&pem_der(private_key_pem)?,
+		&random,
+	)
+	.map_err(|error| anyhow::anyhow!("the App Store Connect key isn't usable: {error}"))?;
+	let message = format!(
+		"{}.{}",
+		encode(&serde_json::json!({ "alg": "ES256", "kid": key_id, "typ": "JWT" })),
+		encode(claims)
+	);
+	let signed = key
+		.sign(&random, message.as_bytes())
+		.map_err(|_| anyhow::anyhow!("could not sign with the App Store Connect key"))?;
+	Ok(format!(
+		"{message}.{}",
+		URL_SAFE_NO_PAD.encode(signed.as_ref())
+	))
+}
+
 /// A JWT signed with HS256, as addons.mozilla.org takes: issued now, for
 /// one minute, with a unique ID.
 ///
@@ -215,7 +243,7 @@ pub fn issued_at() -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
 	use super::*;
 
 	#[test]
@@ -245,6 +273,51 @@ mod tests {
 			claims["exp"].as_u64().unwrap() - claims["iat"].as_u64().unwrap(),
 			60
 		);
+	}
+
+	#[test]
+	fn es256_tokens_verify_with_the_public_key() {
+		use ring::signature::KeyPair as _;
+
+		let Some(pem) = ec_key() else { return };
+		let token = es256(&serde_json::json!({ "iss": "issuer" }), "KEY123", &pem).unwrap();
+		let (message, signed) = token.rsplit_once('.').unwrap();
+		let header = message.split('.').next().unwrap();
+		let header: serde_json::Value =
+			serde_json::from_slice(&URL_SAFE_NO_PAD.decode(header).unwrap()).unwrap();
+		assert_eq!(header["alg"], "ES256");
+		assert_eq!(header["kid"], "KEY123");
+		let key = signature::EcdsaKeyPair::from_pkcs8(
+			&signature::ECDSA_P256_SHA256_FIXED_SIGNING,
+			&pem_der(&pem).unwrap(),
+			&SystemRandom::new(),
+		)
+		.unwrap();
+		signature::UnparsedPublicKey::new(
+			&signature::ECDSA_P256_SHA256_FIXED,
+			key.public_key().as_ref(),
+		)
+		.verify(message.as_bytes(), &URL_SAFE_NO_PAD.decode(signed).unwrap())
+		.unwrap();
+	}
+
+	/// A fresh P-256 key in PKCS#8 PEM, the form of App Store Connect's
+	/// `.p8` files, so no private key is ever committed.
+	pub(crate) fn ec_key() -> Option<String> {
+		let output = std::process::Command::new("openssl")
+			.args([
+				"genpkey",
+				"-algorithm",
+				"EC",
+				"-pkeyopt",
+				"ec_paramgen_curve:P-256",
+			])
+			.output()
+			.ok()?;
+		output
+			.status
+			.success()
+			.then(|| String::from_utf8(output.stdout).unwrap())
 	}
 
 	#[test]

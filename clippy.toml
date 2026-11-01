@@ -4,6 +4,7 @@ suppress-restriction-lint-in-const = true
 doc-valid-idents = [
 	"AppKit",
 	"UIKit",
+	"TestFlight",
 	"HarmonyOS",
 	"ArkUI",
 	"ArkTS",
