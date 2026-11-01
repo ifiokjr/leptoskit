@@ -427,6 +427,12 @@ pub enum Expr {
 		comparison: Comparison,
 		setting: crate::settings::SettingRef,
 	},
+	/// Whether the request holds a setting at all: `current_setting(…) IS
+	/// NOT NULL` in a row-level security policy.
+	#[doc(hidden)]
+	SettingPresent {
+		setting: crate::settings::SettingRef,
+	},
 	#[doc(hidden)]
 	In {
 		column: &'static str,
@@ -575,6 +581,7 @@ impl Expr {
 				setting,
 			} => write_compare_setting(sql, column, *comparison, setting),
 			Self::InSetting { column, setting } => write_in_setting(sql, column, setting)?,
+			Self::SettingPresent { setting } => write_setting_present(sql, setting),
 
 			Self::In { values, .. } if values.is_empty() => {
 				sql.push("1 = 0");
@@ -677,6 +684,29 @@ fn write_compare_setting(
 			}
 			None => {
 				sql.push("NULL");
+			}
+		}
+	}
+}
+
+/// Whether the transaction holds a setting, by its name.
+fn write_setting_present(sql: &mut Sql, setting: &crate::settings::SettingRef) {
+	if sql.renders_policy() {
+		sql.push(&format!(
+			"NULLIF(current_setting({}, true), '') IS NOT NULL",
+			leptoskit_db_schema::quote_literal(&format!(
+				"{}{}",
+				leptoskit_db_schema::SETTING_PREFIX,
+				setting.name
+			))
+		));
+	} else {
+		match &setting.value {
+			Some(_) => {
+				sql.push("1 = 1");
+			}
+			None => {
+				sql.push("1 = 0");
 			}
 		}
 	}

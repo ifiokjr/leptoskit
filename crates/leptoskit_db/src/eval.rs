@@ -185,6 +185,12 @@ impl Expr {
 			Self::Constant(value) => Tri::from(*value),
 			#[cfg(feature = "geo")]
 			Self::Spatial(_) => Tri::Unknown,
+			Self::SettingPresent { setting } => {
+				match &setting.value {
+					Some(_) => Tri::True,
+					None => Tri::False,
+				}
+			}
 			Self::InSetting { .. }
 			| Self::Contains { .. }
 			| Self::Like { .. }
