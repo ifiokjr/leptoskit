@@ -11,6 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		Some("--check") => true,
 		Some(_) => return Err("usage: schema [--check]".into()),
 	};
+
 	let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/src");
 	let versioned = format!("schemas/leptoskit.v{SCHEMA_VERSION}.schema.json");
 	let assets = ["schema.json", "schemas/leptoskit.schema.json", &versioned];
@@ -25,12 +26,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		serde::Serialize::serialize(&schema, &mut serializer)?;
 		let mut bytes = serializer.into_inner();
 		bytes.push(b'\n');
+
 		let path = root.join(asset);
 
 		if check {
 			match std::fs::read(&path) {
 				Ok(existing) if existing == bytes => {}
 				Ok(_) => stale.push(asset),
+
 				Err(error) if error.kind() == std::io::ErrorKind::NotFound => stale.push(asset),
 				Err(error) => return Err(error.into()),
 			}
