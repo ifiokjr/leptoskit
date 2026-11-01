@@ -1508,13 +1508,25 @@ mod devtools_tests {
 
 	#[test]
 	fn components_record_the_call_site() {
+		use crate::components::Heading;
+		use crate::components::ScrollView;
 		use crate::components::Switch;
+		use crate::components::View;
 
 		let line = line!() + 1;
-		let switch = Switch(true);
-		let source = switch.source_location().expect("a source location");
-		assert_eq!(source.file(), file!());
-		assert_eq!(source.line(), line);
+		let built = [Switch(true), View(), ScrollView(), Heading(1, "Clips")];
+		for element in built {
+			let source = element.source_location().expect("a source location");
+			assert_eq!(source.file(), file!());
+			assert_eq!(source.line(), line);
+		}
+		// `view!` starts each tag from its builder.
+		let line = line!() + 1;
+		let tag = View::builder();
+		assert_eq!(
+			tag.source_location().map(std::panic::Location::line),
+			Some(line)
+		);
 	}
 
 	#[test]

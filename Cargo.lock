@@ -4518,6 +4518,7 @@ dependencies = [
  "leptoskit_codepush",
  "leptoskit_config",
  "leptoskit_db",
+ "leptoskit_devtools",
  "leptoskit_extension",
  "leptoskit_form",
  "leptoskit_gtk",

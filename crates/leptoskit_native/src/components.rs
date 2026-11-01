@@ -35,6 +35,7 @@ macro_rules! tag {
 
 		impl $name {
 			/// Starts this component's element for `view!`.
+			#[track_caller]
 			pub fn builder() -> crate::Element {
 				$start
 			}
@@ -73,11 +74,13 @@ pub use crate::vector::VectorScaling;
 pub use crate::vector::ViewBox;
 
 /// A container whose children use column layout by default.
+#[track_caller]
 pub fn View() -> Element {
 	Element::view()
 }
 
 /// A text label with inherited font and foreground styling.
+#[track_caller]
 pub fn Text(content: impl Into<String>) -> Element {
 	Element::text(content)
 }
@@ -87,6 +90,7 @@ pub fn Text(content: impl Into<String>) -> Element {
 ///
 /// The web renderer emits a real heading element (`<h1>` to `<h6>` within
 /// its range); native backends expose the heading trait, flag, or level.
+#[track_caller]
 pub fn Heading(level: u8, content: impl Into<String>) -> Element {
 	Element::text(content)
 		.role(Role::Heading)
@@ -95,21 +99,25 @@ pub fn Heading(level: u8, content: impl Into<String>) -> Element {
 
 /// A polite live region: screen readers announce changes to its text once
 /// they are idle. The usual home of status messages.
+#[track_caller]
 pub fn Status(content: impl Into<String>) -> Element {
 	View().role(Role::Status).child(Text(content))
 }
 
 /// An assertive live region for urgent messages, announced immediately.
+#[track_caller]
 pub fn Alert(content: impl Into<String>) -> Element {
 	View().role(Role::Alert).child(Text(content))
 }
 
 /// An accessible pressable control; register activation with `on_press`.
+#[track_caller]
 pub fn Button(label: impl Into<String>) -> Element {
 	Element::button(label)
 }
 
 /// An image from a source understood by the platform backend.
+#[track_caller]
 pub fn Image(source: impl Into<String>) -> Element {
 	Element::image(source)
 }
@@ -145,12 +153,14 @@ pub fn Image(source: impl Into<String>) -> Element {
 /// 	);
 /// # Ok::<(), leptoskit_native::VectorError>(())
 /// ```
+#[track_caller]
 pub fn Vector(view_box: ViewBox) -> Element {
 	Element::vector(view_box)
 }
 
 /// A Rive scene rendered by the native host, initially paused. Set an explicit
 /// size, label or decorative state, and `running(true)` when it should animate.
+#[track_caller]
 pub fn Rive(playback: leptoskit_rive::Playback) -> Element {
 	Element::rive(playback)
 }
@@ -158,6 +168,7 @@ pub fn Rive(playback: leptoskit_rive::Playback) -> Element {
 tag!(Rive => Element::new(crate::NativeKind::Rive));
 
 /// A container whose overflowing children can scroll.
+#[track_caller]
 pub fn ScrollView() -> Element {
 	Element::scroll_view()
 }
@@ -169,6 +180,7 @@ pub fn ScrollView() -> Element {
 /// size is 28 tall. A background, border, or corner radius replaces that
 /// chrome, and the field is then as tall as its text plus its padding. A
 /// height class such as `h-10` replaces the measured height.
+#[track_caller]
 pub fn TextInput() -> Element {
 	Element::text_input()
 }

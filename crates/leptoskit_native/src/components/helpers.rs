@@ -269,6 +269,7 @@ pub fn ConstrainedBox(constraints: BoxConstraints) -> Element {
 /// and min/max bounds take precedence, as they do for CSS `aspect-ratio`.
 /// Supported ratios range from `1e-6` through `1e6`, matching Tailwind
 /// utilities.
+#[track_caller]
 pub fn AspectRatio(ratio: f32) -> Result<Element, LayoutError> {
 	if !ratio.is_finite() || !(1e-6..=1e6).contains(&ratio) {
 		return Err(LayoutError::InvalidAspectRatio);
@@ -377,6 +378,7 @@ pub fn ClipRect() -> Element {
 }
 
 /// Clips descendants to a rectangle with a uniform corner radius.
+#[track_caller]
 pub fn ClipRRect(radius: f32) -> Result<Element, LayoutError> {
 	if !radius.is_finite() || radius < 0.0 {
 		return Err(LayoutError::InvalidRadius);
@@ -389,6 +391,7 @@ pub fn ClipRRect(radius: f32) -> Result<Element, LayoutError> {
 ///
 /// Zero opacity preserves layout, hit testing, and accessibility. Use
 /// [`Visibility`] when the subtree should be removed from layout and input.
+#[track_caller]
 pub fn Opacity(opacity: f32) -> Result<Element, LayoutError> {
 	if !opacity.is_finite() || !(0.0..=1.0).contains(&opacity) {
 		return Err(LayoutError::InvalidOpacity);

@@ -71,7 +71,15 @@ pub fn render(element: Element) -> AnyView {
 	let wants_focus = asks_for_focus(&element);
 	let scrolls = sets_scroll_offset(&element);
 	let mut sheets = BTreeMap::new();
-	let root = render_node(element, true, true, false, &[], &mut sheets, "");
+	let root = render_node(
+		element,
+		true,
+		true,
+		false,
+		&[],
+		&mut sheets,
+		&NodePath::root(),
+	);
 	let css = sheets.into_values().collect::<String>();
 
 	if wants_focus {
@@ -208,9 +216,10 @@ fn render_node(
 	parent_hidden: bool,
 	ancestors: &[Handlers],
 	sheets: &mut BTreeMap<String, String>,
-	path: &str,
+	path: &NodePath,
 ) -> AnyView {
 	let (scope, sheet) = scoped_sheet(&element, root);
+	let devtools = path.attributes(&element);
 	let handlers: Handlers = element.handlers().to_vec().into();
 	let mut chain = ancestors.to_vec();
 	chain.push(Arc::clone(&handlers));
@@ -247,12 +256,12 @@ fn render_node(
 	let custom_control = semantics::custom_control(kind, props.aria());
 
 	sheets.entry(scope.clone()).or_insert(sheet);
+	let child_paths = path.children(&element.children);
 	let children = element
 		.children
 		.into_iter()
-		.enumerate()
-		.map(|(index, child)| {
-			let child_path = format!("{path}.{index}");
+		.zip(child_paths)
+		.map(|(child, child_path)| {
 			render_node(child, false, enabled, hidden, &chain, sheets, &child_path)
 		})
 		.collect::<Vec<_>>();
@@ -264,7 +273,10 @@ fn render_node(
 		custom_attribute("data-lk-focus", focused.then_some("true")),
 		custom_attribute("data-lk-scroll", scroll),
 		custom_attribute("class", classes),
-		custom_attribute("data-lk-node", devtools_path(path)),
+		custom_attribute("data-lk-node", devtools.node),
+		custom_attribute("data-lk-key", devtools.key),
+		custom_attribute("data-lk-source", devtools.source),
+		custom_attribute("data-lk-kind", devtools.kind),
 		custom_attribute("aria-label", label.clone()),
 		custom_attribute("aria-disabled", (!enabled).then_some("true")),
 		custom_attribute("data-testid", test_id),
@@ -465,9 +477,97 @@ fn listeners(
 /// Changing handlers attach to typed elements before erasure. In the pinned
 /// Tachys version, rebuilding attributes spread onto `AnyView` keeps the
 /// original listener state instead of replacing its callbacks.
-/// The node path a `DevTools` pick reports, when the feature is on.
-fn devtools_path(path: &str) -> Option<String> {
-	cfg!(feature = "devtools").then(|| path.to_owned())
+/// Where a node sits, for the `DevTools` attributes: its path from the
+/// render root, and its cross-platform match key.
+struct NodePath {
+	path: String,
+	#[cfg(feature = "devtools")]
+	key: u64,
+}
+
+/// The `DevTools` attributes of one node; all `None` without the feature.
+#[derive(Default)]
+struct DevtoolsAttributes {
+	node: Option<String>,
+	key: Option<String>,
+	source: Option<String>,
+	kind: Option<String>,
+}
+
+impl NodePath {
+	fn root() -> Self {
+		Self {
+			path: String::new(),
+			#[cfg(feature = "devtools")]
+			key: crate::devtools::ROOT,
+		}
+	}
+
+	/// Each child's path, in order.
+	fn children(&self, children: &[Element]) -> Vec<Self> {
+		#[cfg(feature = "devtools")]
+		{
+			use crate::devtools::Origin;
+
+			let origins: Vec<Origin> = children
+				.iter()
+				.map(|child| Origin::of(child.source_location(), child.kind))
+				.collect();
+			let ordinals = crate::devtools::ordinals(origins.iter().copied());
+			origins
+				.into_iter()
+				.zip(ordinals)
+				.enumerate()
+				.map(|(index, (origin, ordinal))| {
+					Self {
+						path: format!("{}.{index}", self.path),
+						key: crate::devtools::child(self.key, origin, ordinal),
+					}
+				})
+				.collect()
+		}
+		#[cfg(not(feature = "devtools"))]
+		{
+			(0..children.len())
+				.map(|index| {
+					Self {
+						path: format!("{}.{index}", self.path),
+					}
+				})
+				.collect()
+		}
+	}
+
+	#[cfg_attr(
+		not(feature = "devtools"),
+		expect(
+			clippy::unused_self,
+			reason = "the attributes exist only with the devtools feature"
+		)
+	)]
+	fn attributes(&self, element: &Element) -> DevtoolsAttributes {
+		#[cfg(feature = "devtools")]
+		{
+			DevtoolsAttributes {
+				node: Some(self.path.clone()),
+				key: Some(crate::devtools::format(self.key)),
+				source: element.source_location().map(|location| {
+					format!(
+						"{}:{}:{}",
+						location.file(),
+						location.line(),
+						location.column()
+					)
+				}),
+				kind: Some(format!("{:?}", element.kind)),
+			}
+		}
+		#[cfg(not(feature = "devtools"))]
+		{
+			let _ = element;
+			DevtoolsAttributes::default()
+		}
+	}
 }
 
 fn typed_element(parts: NodeParts, attrs: impl Attribute + 'static) -> AnyView {
@@ -700,11 +800,75 @@ fn spans_view(spans: Vec<crate::TextSpan>) -> AnyView {
 
 #[cfg(test)]
 mod devtools_tests {
+	use super::*;
+
+	fn tree() -> Element {
+		let card = |title: &str| Element::view().child(Element::text(title));
+		Element::view()
+			.child(Element::text("Clips"))
+			.child(card("first"))
+			.child(card("second"))
+	}
+
 	#[test]
-	fn the_devtools_path_is_the_node_path() {
+	fn attributes_appear_only_with_the_feature() {
+		let element = tree();
+		let attributes = NodePath::root().attributes(&element);
 		#[cfg(feature = "devtools")]
-		assert_eq!(super::devtools_path("0.1"), Some("0.1".to_owned()));
+		{
+			assert_eq!(attributes.node.as_deref(), Some(""));
+			assert_eq!(attributes.kind.as_deref(), Some("View"));
+			assert!(
+				attributes
+					.source
+					.is_some_and(|source| source.contains("mod.rs"))
+			);
+			assert_eq!(attributes.key.map(|key| key.len()), Some(16));
+		}
 		#[cfg(not(feature = "devtools"))]
-		assert_eq!(super::devtools_path("0.1"), None);
+		assert!(attributes.node.is_none() && attributes.key.is_none());
+		let paths = NodePath::root().children(&element.children);
+		assert_eq!(
+			paths
+				.iter()
+				.map(|path| path.path.as_str())
+				.collect::<Vec<_>>(),
+			[".0", ".1", ".2"]
+		);
+	}
+
+	/// The web and native builds name each element the same way, so a node
+	/// picked in one finds its twin in the other.
+	#[cfg(feature = "devtools")]
+	#[test]
+	fn web_keys_match_native_keys() {
+		fn web_keys(element: &Element, path: &NodePath, keys: &mut Vec<String>) {
+			keys.push(crate::devtools::format(path.key));
+			for (child, path) in element
+				.children
+				.iter()
+				.zip(path.children(&element.children))
+			{
+				web_keys(child, &path, keys);
+			}
+		}
+
+		let element = tree();
+		let mut web = Vec::new();
+		web_keys(&element, &NodePath::root(), &mut web);
+
+		let mut surface = crate::NativeSurface::new(crate::HeadlessBackend::new());
+		surface.set_viewport(320.0, 480.0);
+		surface.set_root(&element);
+		let native: Vec<String> = surface
+			.devtools_tree()
+			.nodes
+			.into_iter()
+			.map(|node| node.key.0)
+			.collect();
+
+		assert_eq!(web, native);
+		let unique: std::collections::BTreeSet<_> = web.iter().collect();
+		assert_eq!(unique.len(), web.len(), "every node has its own key");
 	}
 }

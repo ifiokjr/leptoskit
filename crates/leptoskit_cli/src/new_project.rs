@@ -873,6 +873,8 @@ tui = ["native", "leptoskit/tui"]
 csr = ["web", "leptos/csr"]
 hydrate = ["web", "leptos/hydrate"]
 ssr = ["web", "leptos/ssr"]
+# The DevTools agents; `leptoskit dev` turns this on, `leptoskit build` never does.
+devtools = ["leptoskit/devtools"]
 
 [dependencies]
 {name}_shared = {{ path = "../{name}_shared" }}

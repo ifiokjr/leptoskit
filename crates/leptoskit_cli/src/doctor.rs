@@ -58,6 +58,9 @@ pub fn run() -> Result<()> {
 	if let Some(check) = extension_check() {
 		checks.push(check);
 	}
+	if let Some(check) = devtools_check() {
+		checks.push(check);
+	}
 
 	crate::ui::heading("doctor", "the tools leptoskit builds with");
 	let mut summary = crate::ui::Summary::default();
@@ -143,6 +146,37 @@ fn extension_check() -> Option<Check> {
 			.map(|path| path.display().to_string())
 			.ok_or_else(|| crate::extension::dev::support().err().unwrap_or_default()),
 	})
+}
+
+/// Whether the app's client crate can take the `DevTools` agents, which
+/// `leptoskit dev` turns on through a `devtools` feature.
+fn devtools_check() -> Option<Check> {
+	let (config, root) = LeptoskitConfig::load().ok()?;
+	let metadata = crate::wasm::cargo_metadata(&root).ok()?;
+	let client = crate::wasm::detect_client_with(
+		config.build.client_package.as_deref(),
+		Some(&config.app.name),
+		&metadata,
+	)
+	.ok()??;
+	let package = metadata.package(&client.name)?;
+	Some(Check {
+		name: "devtools",
+		required: false,
+		outcome: devtools_outcome(package),
+	})
+}
+
+fn devtools_outcome(package: &crate::wasm::MetadataPackage) -> Result<String, String> {
+	if package.declares_feature("devtools") {
+		Ok(format!("{} declares `devtools`", package.name))
+	} else {
+		Err(format!(
+			"add `devtools = [\"leptoskit/devtools\"]` to {}'s [features] so `leptoskit dev` can \
+			 inspect it",
+			package.name
+		))
+	}
 }
 
 /// The project's wasm-bindgen compatibility, when run inside a project.

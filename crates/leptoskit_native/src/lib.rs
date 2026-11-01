@@ -26,6 +26,8 @@ pub mod aria;
 pub mod backend;
 pub mod components;
 pub mod controls;
+#[cfg(feature = "devtools")]
+pub mod devtools;
 pub mod element;
 pub mod flatten;
 mod hash;

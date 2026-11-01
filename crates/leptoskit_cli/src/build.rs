@@ -285,6 +285,59 @@ pub fn run(
 	})
 }
 
+/// `leptoskit dev`'s `DevTools` hub, compiled into the clients it builds.
+///
+/// Only `leptoskit dev` sets the hub, so `leptoskit build` never compiles
+/// the agents in (plan D4).
+pub(crate) mod devtools {
+	use std::sync::OnceLock;
+
+	use super::CargoOptions;
+	use crate::wasm;
+
+	static HUB: OnceLock<String> = OnceLock::new();
+
+	/// Compile the hub at `url` into this process's development builds.
+	pub(crate) fn set_hub(url: &str) {
+		let _ = HUB.set(url.to_owned());
+	}
+
+	/// The hub development builds report to, when `leptoskit dev` runs one.
+	pub(crate) fn hub() -> Option<&'static str> {
+		HUB.get().map(String::as_str)
+	}
+
+	/// A development client's options with the app's `devtools` feature and
+	/// the hub's URL, which the agent reads at compile time. Apps without a
+	/// `devtools` feature, and release builds, are left alone.
+	pub(crate) fn client_options(
+		options: CargoOptions,
+		package: Option<&wasm::MetadataPackage>,
+		release: bool,
+	) -> CargoOptions {
+		with_hub(options, package, release, hub())
+	}
+
+	pub(super) fn with_hub(
+		options: CargoOptions,
+		package: Option<&wasm::MetadataPackage>,
+		release: bool,
+		hub: Option<&str>,
+	) -> CargoOptions {
+		let Some(hub) = hub.filter(|_| !release) else {
+			return options;
+		};
+		if !package.is_some_and(|package| package.declares_feature("devtools")) {
+			return options;
+		}
+		let mut options = options.with_features(&["devtools".to_owned()]);
+		options
+			.env
+			.insert("LEPTOSKIT_DEVTOOLS_HUB".to_owned(), hub.to_owned());
+		options
+	}
+}
+
 /// Settings a platform overrides: an extension never splits its client,
 /// because split chunks load with dynamic `import()`, which extension service
 /// workers forbid, and stores review one package anyway.
@@ -367,7 +420,12 @@ fn client_cargo_options(
 	if config.bundle.split {
 		client_options.rustflags.push(split::EMIT_RELOCS.to_owned());
 	}
-	Ok(client_options)
+	let release = client_options.release;
+	Ok(devtools::client_options(
+		client_options,
+		client_package,
+		release,
+	))
 }
 
 /// Prints a release client bundle's size per file, with the profile that
@@ -632,6 +690,15 @@ pub(crate) fn plugin_context(
 		}
 	}
 	registry.before_build(&mut context)?;
+	anyhow::ensure!(
+		!(release
+			&& context
+				.cargo_features
+				.iter()
+				.any(|feature| feature == "devtools")),
+		"build.features turns on `devtools`, which only `leptoskit dev` uses; remove it for a \
+		 release build"
+	);
 	Ok((registry, context))
 }
 
@@ -736,5 +803,38 @@ mod tests {
 		assert_eq!(spec.options["dir"], "app/ui".into());
 
 		assert!(router_spec(&LeptoskitConfig::default()).is_none());
+	}
+
+	fn package(features: &[&str]) -> wasm::MetadataPackage {
+		wasm::MetadataPackage {
+			name: "app".into(),
+			manifest_path: PathBuf::from("Cargo.toml"),
+			targets: Vec::new(),
+			features: features
+				.iter()
+				.map(|feature| ((*feature).to_owned(), Vec::new()))
+				.collect(),
+			dependencies: Vec::new(),
+		}
+	}
+
+	#[test]
+	fn only_development_clients_with_the_feature_get_the_hub() {
+		let hub = Some("http://127.0.0.1:7340");
+		let options = CargoOptions::default();
+		let app = package(&["devtools"]);
+
+		let dev = devtools::with_hub(options.clone(), Some(&app), false, hub);
+		assert_eq!(dev.features, ["devtools"]);
+		assert_eq!(dev.env["LEPTOSKIT_DEVTOOLS_HUB"], "http://127.0.0.1:7340");
+
+		let release = devtools::with_hub(options.clone(), Some(&app), true, hub);
+		assert!(release.features.is_empty() && release.env.is_empty());
+
+		let without = devtools::with_hub(options.clone(), Some(&package(&[])), false, hub);
+		assert!(without.features.is_empty() && without.env.is_empty());
+
+		let no_hub = devtools::with_hub(options, Some(&app), false, None);
+		assert!(no_hub.features.is_empty() && no_hub.env.is_empty());
 	}
 }
