@@ -186,6 +186,7 @@ async fn the_database_enforces_scalar_rules_too() {
 			Dialect::Postgres => format!("'{}'", id.uuid()),
 			Dialect::Sqlite => format!("X'{}'", id.uuid().simple()),
 		};
+
 		let insert = |handle: &str, stars: i16| {
 			format!("INSERT INTO profiles (id, handle, stars) VALUES ({key}, '{handle}', {stars})")
 		};

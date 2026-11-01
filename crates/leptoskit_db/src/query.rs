@@ -84,6 +84,7 @@ impl<T: Table> Query<T> {
 			Some(filter) => filter & condition,
 			None => condition,
 		});
+
 		self
 	}
 
@@ -155,6 +156,7 @@ impl<T: Table> Query<T> {
 		} else {
 			ReadKind::Rows
 		};
+
 		self.rows(connection, kind).await
 	}
 
@@ -374,6 +376,7 @@ impl<T: Table> Update<T> {
 			Some(filter) => filter & condition,
 			None => condition,
 		});
+
 		self
 	}
 
@@ -569,6 +572,7 @@ impl<T: Table> Changes<T> {
 			(Some(filter), Some(rows)) => Some(filter.clone() & rows.clone()),
 			(filter, rows) => filter.clone().or_else(|| rows.cloned()),
 		};
+
 		write_where::<T>(&mut sql, filter.as_ref(), policy, self.with_deleted)?;
 		Ok(sql)
 	}
@@ -629,6 +633,7 @@ impl<T: Table> Changes<T> {
 		} else {
 			AuditOp::Update
 		};
+
 		let mut keys = Vec::with_capacity(old.len());
 		let mut changes = Vec::with_capacity(old.len());
 

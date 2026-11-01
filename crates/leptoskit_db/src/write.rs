@@ -175,10 +175,12 @@ async fn stored_row<T: Table>(
 	filter: Option<&Expr>,
 ) -> Result<Option<T>> {
 	let row = policy::keys_condition::<T>(&[policy::key_of::<T>(values)]);
+
 	let condition = match filter {
 		Some(filter) => row & filter.clone(),
 		None => row,
 	};
+
 	Ok(select_for_update(connection, &condition)
 		.await?
 		.into_iter()
@@ -406,6 +408,7 @@ async fn effected_upsert<T: Table>(
 
 		audit::record(connection, AuditOp::Insert, None, Some(&stored)).await?;
 		stored.hook_after_insert(connection).await?;
+
 		return Ok(stored);
 	};
 
@@ -472,6 +475,7 @@ async fn checked_upsert<T: Table>(
 		} else {
 			values
 		};
+
 		refuse_result_before_row_security::<T>(connection, &result, action, check).await?;
 	}
 
@@ -605,6 +609,7 @@ async fn write_upsert<T: Table>(
 	} else {
 		updated
 	};
+
 	sql.push(" DO UPDATE SET ");
 
 	for (index, column) in updated.iter().enumerate() {
@@ -635,6 +640,7 @@ pub async fn save<T: Table>(connection: &impl Connection, row: &mut T) -> Result
 			effected_save(tx, row, check.as_ref()).await
 		})?;
 		*row = stored;
+
 		return Ok(());
 	}
 
@@ -832,6 +838,7 @@ pub async fn delete<T: Table>(connection: &impl Connection, row: &mut T) -> Resu
 			effected_soft_delete(tx, row, filter.as_ref()).await
 		})?;
 		*row = stored;
+
 		return Ok(());
 	}
 
@@ -843,6 +850,7 @@ pub async fn delete<T: Table>(connection: &impl Connection, row: &mut T) -> Resu
 	} else {
 		soft_delete_cascading(connection, row, filter.as_ref()).await
 	};
+
 	#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
 	let deleted = soft_delete_cascading(connection, row, filter.as_ref()).await;
 

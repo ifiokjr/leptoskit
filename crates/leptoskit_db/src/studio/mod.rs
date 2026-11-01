@@ -149,6 +149,7 @@ pub async fn start(db: Db, options: Options) -> std::io::Result<Running> {
 		feeds: Mutex::new(HashMap::new()),
 	});
 	let router = router(studio);
+
 	let task = tokio::spawn(async move { axum::serve(listener, router).await });
 	Ok(Running { url, task })
 }
@@ -343,6 +344,7 @@ impl Viewer {
 			} else {
 				kind
 			},
+
 			who: text("who"),
 			reason: text("reason"),
 			edit: query.get("edit").is_some_and(|edit| edit == "1"),
@@ -816,6 +818,7 @@ async fn follow(
 				Ok(invalidation) => summary(&invalidation),
 				Err(error) => format!("the feed stopped: {}", chain(&error)),
 			};
+
 			let stopped = what.starts_with("the feed stopped");
 			let mut kept = kept
 				.lock()

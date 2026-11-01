@@ -524,6 +524,7 @@ async fn agrees_with_the_model(db: &Db, spec: Spec) -> Result<(), TestCaseError>
 		Some(viewer) => as_author(db, ids[viewer]),
 		None => db.with_context(Context::new()),
 	};
+
 	let mut seen: Vec<(Id<Author>, i64, i64)> = AuthorTotals::query()
 		.all(&request)
 		.await

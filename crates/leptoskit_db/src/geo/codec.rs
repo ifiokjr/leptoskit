@@ -79,11 +79,13 @@ pub fn encode_ewkb(geometry: &Geometry, srid: u32) -> Result<Vec<u8>, String> {
 /// The SRID EWKB carries, if any.
 fn ewkb_srid(bytes: &[u8]) -> Result<Option<u32>, String> {
 	let too_short = || "invalid EWKB: too short".to_string();
+
 	let little = match bytes.first() {
 		Some(1) => true,
 		Some(0) => false,
 		_ => return Err("invalid WKB: the first byte isn't a byte order".into()),
 	};
+
 	let word = |range: std::ops::Range<usize>| -> Result<u32, String> {
 		let word: [u8; 4] = bytes
 			.get(range)
@@ -165,6 +167,7 @@ impl Gpkg {
 		}
 
 		let little = flags & 1 == 1;
+
 		let doubles = match (flags >> 1) & 0b111 {
 			0 => 0,
 			1 => 4,
@@ -172,6 +175,7 @@ impl Gpkg {
 			4 => 8,
 			other => return Err(format!("GeoPackage envelope kind {other} isn't defined")),
 		};
+
 		let end = 8 + doubles * 8;
 
 		if bytes.len() < end {
@@ -184,10 +188,12 @@ impl Gpkg {
 		} else {
 			i32::from_be_bytes(srid)
 		};
+
 		let double = |index: usize| {
 			let bytes: [u8; 8] = bytes[8 + index * 8..16 + index * 8]
 				.try_into()
 				.expect("checked the length");
+
 			if little {
 				f64::from_le_bytes(bytes)
 			} else {
@@ -212,6 +218,7 @@ pub fn decode_any(bytes: &[u8]) -> Result<(i64, Geometry), String> {
 	if bytes.starts_with(&GPKG_MAGIC) {
 		let header = Gpkg::header(bytes)?;
 		let geometry = decode_wkb(&bytes[header.wkb..])?;
+
 		return Ok((i64::from(header.srid), geometry));
 	}
 

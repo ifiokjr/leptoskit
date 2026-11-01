@@ -402,6 +402,7 @@ async fn each_viewer_reads_what_its_policies_allow() {
 			leptoskit_db::Dialect::Postgres => ("$1", "$2"),
 			leptoskit_db::Dialect::Sqlite => ("?1", "?2"),
 		};
+
 		assert!(policies.body.contains(&format!(
 			"SELECT * FROM \"notes\" WHERE (\"public\" = {first} OR \"writer_id\" = {second})\n-- \
 			 with [Bool(true), Uuid("

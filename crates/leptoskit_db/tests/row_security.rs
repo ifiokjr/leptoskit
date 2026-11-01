@@ -398,6 +398,7 @@ async fn raw_sql_is_filtered_by_the_database() {
 	)
 	.await;
 	let message = forged.unwrap_err().to_string();
+
 	assert!(message.contains("row-level security"), "{message}");
 	assert_eq!(
 		raw_execute(
@@ -450,6 +451,7 @@ async fn refusals(db: &Db) -> Vec<String> {
 		.await
 		.unwrap();
 	taken.writer_id = ada;
+
 	let given_away = taken.save(&as_grace).await.unwrap_err();
 
 	[saved, forged, given_away]
@@ -514,6 +516,7 @@ async fn migrations_change_every_row_whatever_the_policies() {
 	};
 	let applied = db.migrate(&[migration]).await.unwrap();
 	assert_eq!(applied, ["20261030T0000_shout"]);
+
 	assert_eq!(
 		raw(
 			&db.system("checking"),
@@ -815,6 +818,7 @@ async fn outcome(db: &Db, spec: &Spec) -> Outcome {
 		Some(viewer) => as_writer(db, writers[viewer]),
 		None => db.with_context(Context::new()),
 	};
+
 	let titles = async |request: &Db| {
 		let mut titles: Vec<String> = Post::query()
 			.all(request)
@@ -846,6 +850,7 @@ async fn outcome(db: &Db, spec: &Spec) -> Outcome {
 	.await
 	.map(|post| post.title)
 	.map_err(|error| kind(&error));
+
 	let deleted = Post::query()
 		.filter(|post| post.published.eq(true))
 		.delete(&request)

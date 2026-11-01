@@ -229,6 +229,7 @@ fn enums_store_their_values_as_text() {
 		Role::from_value(Role::Moderator.to_value().unwrap()).unwrap(),
 		Role::Moderator
 	);
+
 	assert!(Role::from_value(Value::Int(1)).is_err());
 	insta::assert_json_snapshot!(schemars::schema_for!(Role));
 }
@@ -288,6 +289,7 @@ fn primitives_decode_from_either_driver() {
 		f64::from_value(Value::Int(2)).unwrap().to_bits(),
 		2.0_f64.to_bits()
 	);
+
 	assert!(f64::from_value(Value::Bool(true)).is_err());
 	assert!(String::from_value(Value::Bytes(vec![1])).is_err());
 	assert_eq!(Vec::<u8>::from_value(Value::Bytes(vec![1])).unwrap(), [1]);
@@ -474,6 +476,7 @@ fn rules_check_optional_and_borrowed_values() {
 	rules::range(&mut errors, "age", &None::<i64>, Some(5.0), None);
 	rules::range(&mut errors, "big", &u64::MAX, None, Some(1.0));
 	rules::range(&mut errors, "small", &-1_i64, Some(0.0), None);
+
 	rules::one_of(&mut errors, "size", &Some("xl".to_string()), &["s", "m"]);
 	rules::pattern(&mut errors, "code", &Some("ab".to_string()), "^[0-9]+$");
 	rules::pattern(&mut errors, "code", &None::<String>, "^[0-9]+$");

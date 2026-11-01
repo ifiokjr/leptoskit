@@ -36,6 +36,7 @@ use uuid::Uuid;
 	Some(actor) => wallet.owner.eq(actor.uuid()),
 	None => Expr::never(),
 })]
+
 pub struct Wallet {
 	pub id: Id<Self>,
 	pub owner: Uuid,
@@ -326,6 +327,7 @@ async fn bulk_writes_and_cascades_record_every_row() {
 				.await
 				.unwrap();
 			}
+
 			wallets.push(stored);
 		}
 
@@ -600,6 +602,7 @@ impl History<'_> {
 				matches!(result, Err(DbError::Forbidden { .. })),
 				"{result:?}"
 			);
+
 			return Ok(());
 		}
 
@@ -619,6 +622,7 @@ impl History<'_> {
 
 		if self.rows[index].owner != actor {
 			prop_assert!(result.is_err());
+
 			return Ok(());
 		}
 

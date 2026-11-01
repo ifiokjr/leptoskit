@@ -148,6 +148,7 @@ impl<T: Table, P: Space> Nearest<T, P> {
 			(Dialect::Sqlite, Some(wanted), Some(_), Some(envelope)) if wanted > 0 => {
 				self.grow(connection, &target, wanted, envelope).await?
 			}
+
 			_ => {
 				connection
 					.read(self.statement(connection, &target, None)?, || {

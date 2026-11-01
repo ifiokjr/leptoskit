@@ -295,6 +295,7 @@ mod tests {
 		assert_eq!(<Option<Id<()>>>::from_actor(None), Some(None));
 		assert_eq!(Uuid::from_actor(Some(actor)), Some(Uuid::from_u128(7)));
 		assert_eq!(Uuid::from_actor(None), None);
+
 		assert_eq!(<Id<()>>::unset().uuid(), Uuid::nil());
 		assert_eq!(Uuid::unset(), Uuid::nil());
 		assert_eq!(<Option<Uuid>>::unset(), None);

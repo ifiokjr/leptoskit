@@ -220,6 +220,7 @@ impl SpatialExpr {
 					(Dialect::Sqlite, false) => "lk_st_dwithin(",
 					(Dialect::Sqlite, true) => "lk_st_geodesic_dwithin(",
 				};
+
 				sql.push(function);
 				self.source.write(sql)?;
 				sql.push(", ");
@@ -247,6 +248,7 @@ impl SpatialExpr {
 		} else {
 			self.narrow(sql, other.envelope(), 0.0)
 		};
+
 		let (function, negated, as_geometry) = match (sql.dialect(), self.geography, predicate) {
 			(Dialect::Postgres, _, Predicate::Intersects | Predicate::Disjoint) => {
 				("ST_Intersects", predicate == Predicate::Disjoint, false)
@@ -411,6 +413,7 @@ pub(crate) fn write_measure(
 		(Dialect::Sqlite, true, Measured::Area) => "lk_st_geodesic_area(",
 		(Dialect::Sqlite, true, Measured::Length) => "lk_st_geodesic_length(",
 	};
+
 	sql.push(function);
 	source.write(sql)?;
 

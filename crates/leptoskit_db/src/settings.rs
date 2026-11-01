@@ -308,6 +308,7 @@ pub(crate) fn for_access(
 			crate::policy::Access::Context(cx) => (entry.read)(cx).transpose()?,
 			crate::policy::Access::System { .. } => None,
 		};
+
 		settings.push((
 			format!("{SETTING_PREFIX}{}", entry.name),
 			value.unwrap_or_default(),
@@ -444,6 +445,7 @@ mod tests {
 			postgres_literal(&Value::Float(f64::NEG_INFINITY)),
 			"E'-Infinity'::float8"
 		);
+
 		assert_eq!(
 			postgres_literal(&Value::Bytes(vec![0, 255])),
 			r"E'\\x00ff'::bytea"
@@ -477,6 +479,7 @@ mod tests {
 		assert_eq!(text(&Value::Float(f64::INFINITY)), "Infinity");
 		assert_eq!(text(&Value::Text("a".into())), "a");
 		assert_eq!(text(&Value::Bytes(vec![1])), "\\x01");
+
 		assert_eq!(text(&Value::Json(serde_json::json!([1]))), "[1]");
 		let date = chrono::NaiveDate::from_ymd_opt(2026, 1, 2).unwrap();
 		assert_eq!(text(&Value::Date(date)), "2026-01-02");

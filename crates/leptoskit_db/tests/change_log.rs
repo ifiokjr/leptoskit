@@ -284,6 +284,7 @@ fn raw_note(dialect: Dialect, id: Id<Note>, title: &str) -> String {
 		Dialect::Postgres => (format!("'{id}'"), "'\\x0102'".to_string()),
 		Dialect::Sqlite => (format!("x'{}'", id.uuid().simple()), "x'0102'".to_string()),
 	};
+
 	format!(
 		"INSERT INTO log_notes (id, title, secret, preview, created_at) VALUES ({id}, '{title}', \
 		 's', {preview}, '2026-10-31T12:00:00.000Z')"
@@ -459,7 +460,6 @@ async fn a_live_table_has_the_columns_its_trigger_copies() {
 }
 
 // ---- Postgres ordering ---------------------------------------------------
-
 /// A deferred trigger that runs at commit, after `live.seal()` has taken
 /// the version, and can pause or fail the commit.
 const COMMIT_GATE: &str = "
@@ -502,6 +502,7 @@ async fn gate(tx: &leptoskit_db::Tx, id: i64, fail: bool, pause_ms: i32) -> Resu
 async fn heard_until(log: &mut ChangeLog, until: i64, heard: &mut Vec<String>) {
 	while log.version() < until {
 		let before = log.version();
+
 		match tokio::time::timeout(Duration::from_secs(30), log.next())
 			.await
 			.expect("the log reaches the newest version")

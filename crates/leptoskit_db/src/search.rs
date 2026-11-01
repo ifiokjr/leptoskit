@@ -260,11 +260,14 @@ impl<T: Searchable> Search<T> {
 				let extra = values.split_off(width);
 				let row = read(values)?;
 				let mut extra = extra.into_iter();
+
 				let rank = match extra.next() {
 					Some(Value::Float(rank)) => rank,
 					Some(Value::Int(rank)) => rank as f64,
+
 					_ => return Err(decode("the search returned no rank")),
 				};
+
 				let highlights = extra
 					.by_ref()
 					.take(marks)
@@ -435,6 +438,7 @@ impl<T: Searchable> Search<T> {
 
 			for mark in &self.marks {
 				let (column, _) = T::SEARCHED[mark.column];
+
 				let options = match mark.words {
 					None => format!("StartSel={OPEN}, StopSel={CLOSE}, HighlightAll=true"),
 					Some(words) => {
@@ -445,6 +449,7 @@ impl<T: Searchable> Search<T> {
 						)
 					}
 				};
+
 				sql.push(&format!(
 					", ts_headline({language}, replace(replace(coalesce({}, ''), chr(57344), ''), \
 					 chr(57345), ''), ",
@@ -462,6 +467,38 @@ impl<T: Searchable> Search<T> {
 		Ok(())
 	}
 
+	/// The columns the matches subquery selects: each key, then the rank
+	/// and the marks when the search returns rows.
+	fn selected_columns(&self, text: &str, count: bool, keys: &[(String, String)]) -> Vec<String> {
+		let mut selected: Vec<String> = keys
+			.iter()
+			.map(|(key, alias)| format!("\"lk_rows\".{key} AS {alias}"))
+			.collect();
+
+		if count {
+			return selected;
+		}
+
+		let weights: Vec<String> = T::SEARCHED
+			.iter()
+			.map(|(_, weight)| format!("{:?}", weight.factor()))
+			.collect();
+		// `bm25` is lower for better matches; ranks are higher.
+		selected.push(format!(
+			"-bm25({text}, {}) AS \"lk_rank\"",
+			weights.join(", ")
+		));
+
+		for (index, mark) in self.marks.iter().enumerate() {
+			selected.push(format!(
+				"{} AS \"lk_mark_{index}\"",
+				mark_function(text, mark)
+			));
+		}
+
+		selected
+	}
+
 	/// `SELECT …, rank, highlights FROM table JOIN (the FTS5 matches) ON
 	/// key`, numbering each match's row through the companion table.
 	fn write_sqlite(
@@ -473,10 +510,12 @@ impl<T: Searchable> Search<T> {
 		row: &Row,
 	) -> Result<()> {
 		let name = T::table_name();
+
 		let table = match row {
 			Row::Named => quote_identifier(&name.flat()),
 			Row::Aliased { alias, .. } => alias.clone(),
 		};
+
 		let text = quote_identifier(&SearchIndex::text_table(&name));
 		let rows = quote_identifier(&SearchIndex::rows_table(&name));
 		let hits = quote_identifier("lk_hits");
@@ -504,40 +543,7 @@ impl<T: Searchable> Search<T> {
 		sql.push(" FROM ");
 		row.write_from::<T>(sql);
 		sql.push(" JOIN (SELECT ");
-		let mut selected: Vec<String> = keys
-			.iter()
-			.map(|(key, alias)| format!("\"lk_rows\".{key} AS {alias}"))
-			.collect();
-
-		if !count {
-			let weights: Vec<String> = T::SEARCHED
-				.iter()
-				.map(|(_, weight)| format!("{:?}", weight.factor()))
-				.collect();
-			// `bm25` is lower for better matches; ranks are higher.
-			selected.push(format!(
-				"-bm25({text}, {}) AS \"lk_rank\"",
-				weights.join(", ")
-			));
-
-			for (index, mark) in self.marks.iter().enumerate() {
-				let function = match mark.words {
-					None => {
-						format!(
-							"highlight({text}, {}, char(57344), char(57345))",
-							mark.column
-						)
-					}
-					Some(words) => {
-						format!(
-							"snippet({text}, {}, char(57344), char(57345), '', {words})",
-							mark.column
-						)
-					}
-				};
-				selected.push(format!("{function} AS \"lk_mark_{index}\""));
-			}
-		}
+		let selected = self.selected_columns(&text, count, &keys);
 
 		let joined: Vec<String> = keys
 			.iter()
@@ -552,6 +558,24 @@ impl<T: Searchable> Search<T> {
 			.value(Value::Text(terms.fts5()))
 			.push(&format!(") AS {hits} ON {}", joined.join(" AND ")));
 		Ok(())
+	}
+}
+
+/// The FTS5 function that marks `mark`'s matches in `text`.
+fn mark_function(text: &str, mark: &Mark) -> String {
+	match mark.words {
+		None => {
+			format!(
+				"highlight({text}, {}, char(57344), char(57345))",
+				mark.column
+			)
+		}
+		Some(words) => {
+			format!(
+				"snippet({text}, {}, char(57344), char(57345), '', {words})",
+				mark.column
+			)
+		}
 	}
 }
 
@@ -756,6 +780,53 @@ struct Term {
 	prefix: bool,
 }
 
+/// One word or quoted phrase, with the `-` and `*` around it.
+struct Token {
+	text: String,
+	quoted: bool,
+	negated: bool,
+	starred: bool,
+}
+
+/// The next word or `"phrase"`, skipping the whitespace before it.
+fn next_token(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<Token> {
+	while chars.peek().is_some_and(|next| next.is_whitespace()) {
+		chars.next();
+	}
+
+	chars.peek()?;
+	let negated = chars.next_if_eq(&'-').is_some();
+	let (text, quoted) = if chars.next_if_eq(&'"').is_some() {
+		let phrase: String = chars.by_ref().take_while(|&inner| inner != '"').collect();
+		(phrase, true)
+	} else {
+		let mut word = String::new();
+
+		while let Some(inner) = chars.next_if(|&inner| !inner.is_whitespace() && inner != '"') {
+			word.push(inner);
+		}
+
+		(word, false)
+	};
+	let starred = if quoted {
+		chars.next_if_eq(&'*').is_some()
+	} else {
+		text.ends_with('*')
+	};
+	let text = if quoted {
+		text
+	} else {
+		text.trim_end_matches('*').to_string()
+	};
+
+	Some(Token {
+		text,
+		quoted,
+		negated,
+		starred,
+	})
+}
+
 impl Terms {
 	/// Reads a web-search-style query: words, `"phrases"`, `-excluded`,
 	/// `OR`, and `prefix*`. Terms without a letter or digit are dropped, and
@@ -764,58 +835,27 @@ impl Terms {
 		let mut groups: Vec<Vec<Term>> = vec![Vec::new()];
 		let mut chars = text.chars().peekable();
 
-		while let Some(&next) = chars.peek() {
-			if next.is_whitespace() {
-				chars.next();
-				continue;
-			}
-
-			let negated = chars.next_if_eq(&'-').is_some();
-			let (text, quoted) = if chars.next_if_eq(&'"').is_some() {
-				let phrase: String = chars.by_ref().take_while(|&inner| inner != '"').collect();
-				(phrase, true)
-			} else {
-				let mut word = String::new();
-
-				while let Some(inner) =
-					chars.next_if(|&inner| !inner.is_whitespace() && inner != '"')
-				{
-					word.push(inner);
-				}
-
-				(word, false)
-			};
-
-			if !quoted && !negated && text == "OR" {
+		while let Some(token) = next_token(&mut chars) {
+			if token.text == "OR" && !token.quoted && !token.negated {
 				groups.push(Vec::new());
 				continue;
 			}
 
-			let starred = if quoted {
-				chars.next_if_eq(&'*').is_some()
-			} else {
-				text.ends_with('*')
-			};
-			let text = if quoted {
-				text
-			} else {
-				text.trim_end_matches('*').to_string()
-			};
-
-			if !text.chars().any(char::is_alphanumeric) {
+			if !token.text.chars().any(char::is_alphanumeric) {
 				continue;
 			}
 
-			let prefix = starred
-				&& text
+			let prefix = token.starred
+				&& token
+					.text
 					.chars()
 					.all(|character| character.is_alphanumeric() || character == '_');
 			groups
 				.last_mut()
 				.expect("there is always a group")
 				.push(Term {
-					text,
-					negated,
+					text: token.text,
+					negated: token.negated,
 					prefix,
 				});
 		}

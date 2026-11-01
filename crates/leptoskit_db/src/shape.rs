@@ -376,6 +376,7 @@ impl<T: Table> Related<T> {
 			Some(filter) => filter & condition,
 			None => condition,
 		});
+
 		self
 	}
 
@@ -432,6 +433,7 @@ impl Selected {
 	fn kind(&self) -> Kind {
 		match &self.0 {
 			Field::Column { ty, .. } => Kind::Column(ty.clone()),
+
 			Field::Related(related) if matches!(related.fetch, Fetch::Count) => Kind::Count,
 			Field::Related(_) => Kind::Nested,
 		}
@@ -586,6 +588,7 @@ fn write_subquery(
 					"(SELECT json_group_array(json(\"lk_value\") ORDER BY \"lk_rank\")"
 				}
 			});
+
 			sql.push(" FROM (SELECT ");
 			write_row(sql, access, &selection(), alias)?;
 			sql.push(" AS \"lk_value\", row_number() OVER (");
@@ -621,6 +624,7 @@ fn write_row(sql: &mut Sql, access: &Access, fields: &[Selected], alias: &str) -
 		Dialect::Postgres => "json_build_array(",
 		Dialect::Sqlite => "json_array(",
 	});
+
 	write_fields(sql, access, fields, alias, true)?;
 	sql.push(")");
 	Ok(())
@@ -786,6 +790,7 @@ fn record_related(
 			other,
 		}
 	};
+
 	let correlation = match &related.definition.kind {
 		RelationKind::Forward { column } => joined(target.key[0], outer, column),
 		RelationKind::Backward { column, key } => joined(column, outer, key),
@@ -801,6 +806,7 @@ fn record_related(
 			joined(target.key[0], &link.table, far)
 		}
 	};
+
 	let condition = visible(
 		access,
 		target,
@@ -810,10 +816,12 @@ fn record_related(
 		])),
 		related.with_deleted,
 	);
+
 	let kind = match related.fetch {
 		Fetch::Count => ReadKind::Count,
 		Fetch::Rows { .. } => ReadKind::Rows,
 	};
+
 	let at = entries.len();
 	record(target, kind, condition, entries);
 
@@ -825,7 +833,9 @@ fn record_related(
 		} else {
 			Some(1)
 		};
+
 		entry.offset = related.offset;
+
 		record_fields(access, &selection(), &target.table, entries);
 	}
 }
@@ -952,6 +962,7 @@ fn nested<S: Shape>(row: serde_json::Value, kinds: &[Kind], shape: &str, field: 
 			field,
 		));
 	};
+
 	if elements.len() != kinds.len() {
 		return Err(located(
 			format!(
@@ -983,6 +994,7 @@ fn from_json(kind: &Kind, json: serde_json::Value) -> std::result::Result<Value,
 		Kind::Count => &ColumnType::Int64,
 		Kind::Column(ty) => ty,
 	};
+
 	let mismatch = |json: &Json| DecodeError::custom(format!("expected {ty}, found {json}"));
 
 	Ok(match (ty, json) {
@@ -1026,6 +1038,7 @@ fn from_json(kind: &Kind, json: serde_json::Value) -> std::result::Result<Value,
 				"a nested shape can't hold a {ty} column yet; select it at the top level"
 			)));
 		}
+
 		(_, json) => return Err(mismatch(&json)),
 	})
 }

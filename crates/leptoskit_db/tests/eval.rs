@@ -371,6 +371,7 @@ fn leaf() -> impl Strategy<Value = Expr> {
 				Some(level) => Context::new().with(Level(level)),
 				None => Context::new(),
 			};
+
 			let int = Sample::columns().int;
 			let level = cx.setting::<Level>();
 			match comparison {
@@ -703,6 +704,7 @@ fn check(
 
 fn run_property(db: &Db, runtime: &tokio::runtime::Runtime, cases: u32) {
 	let eval: Eval = |condition, row| condition.eval(row);
+
 	let tally = match check(db, runtime, cases, eval, Strictness::Exact) {
 		Ok(tally) => tally,
 		Err(error) => panic!("{error}"),
@@ -726,6 +728,7 @@ fn run_property(db: &Db, runtime: &tokio::runtime::Runtime, cases: u32) {
 		.into_inner()
 		.unwrap_or_else(PoisonError::into_inner);
 	eprintln!("conditions checked, by kind: {kinds:?}");
+
 	for kind in KINDS {
 		assert!(
 			kinds.get(kind).copied().unwrap_or_default() > 0,

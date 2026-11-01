@@ -418,6 +418,29 @@ pub fn schema_with_row_security(dialect: Dialect) -> Result<Schema, SchemaError>
 	let mut schema = schema(dialect)?;
 	let mut problems = Vec::new();
 
+	apply_row_security(&mut schema, &mut problems);
+	apply_audit(&mut schema);
+
+	if dialect == Dialect::Postgres {
+		invoke_security(&mut schema);
+	}
+
+	check_settings(&mut problems);
+	schema
+		.problems()
+		.into_iter()
+		.for_each(|problem| problems.push(problem));
+
+	if problems.is_empty() {
+		Ok(schema)
+	} else {
+		Err(SchemaError::Invalid(problems))
+	}
+}
+
+/// Attaches each table's row-level security, and names the ones whose rules
+/// the database can't enforce.
+fn apply_row_security(schema: &mut Schema, problems: &mut Vec<leptoskit_db_schema::Problem>) {
 	for entry in inventory::iter::<TableEntry>() {
 		let name = (entry.name)();
 
@@ -435,19 +458,27 @@ pub fn schema_with_row_security(dialect: Dialect) -> Result<Schema, SchemaError>
 			}
 		}
 	}
+}
 
+/// The audit log's own policy, when the schema has its table.
+fn apply_audit(schema: &mut Schema) {
 	let audit = crate::AuditEntry::table_name();
 
 	if let Some(table) = schema.tables.iter_mut().find(|table| table.name == audit) {
 		table.row_security = Some(crate::audit::row_security());
 	}
+}
 
-	if dialect == Dialect::Postgres {
-		for view in schema.views.iter_mut().filter(|view| !view.materialized) {
-			view.security_invoker = true;
-		}
+/// Views read as their owner on Postgres, so their rules apply to the
+/// reader.
+fn invoke_security(schema: &mut Schema) {
+	for view in schema.views.iter_mut().filter(|view| !view.materialized) {
+		view.security_invoker = true;
 	}
+}
 
+/// Checks each setting's name, and that no two types are named the same.
+fn check_settings(problems: &mut Vec<leptoskit_db_schema::Problem>) {
 	let mut names: Vec<(&str, &str)> = Vec::new();
 
 	for entry in crate::settings::entries() {
@@ -478,23 +509,12 @@ pub fn schema_with_row_security(dialect: Dialect) -> Result<Schema, SchemaError>
 					message: format!("`{other}` is named `{}` too", entry.name),
 				});
 			}
+
 			Some(_) => {}
 			None => names.push((entry.name, type_name)),
 		}
 	}
-
-	schema
-		.problems()
-		.into_iter()
-		.for_each(|problem| problems.push(problem));
-
-	if problems.is_empty() {
-		Ok(schema)
-	} else {
-		Err(SchemaError::Invalid(problems))
-	}
 }
-
 /// The environment variable saying whether `export_schema!` exports the
 /// policies as row-level security: `rls`, or `orm` (the default).
 pub const POLICIES_ENV: &str = "LEPTOSKIT_DB_POLICIES";
@@ -639,6 +659,7 @@ impl TableBuilder {
 						*max_len = max;
 						true
 					}
+
 					_ => false,
 				}
 			});
@@ -718,6 +739,7 @@ impl TableBuilder {
 		} else {
 			ReferentialAction::Restrict
 		});
+
 		let referenced: Vec<&str> = reference.columns.iter().map(String::as_str).collect();
 		let mut foreign_key =
 			ForeignKey::new(&self.table.name, &[column], reference.table, &referenced)
@@ -854,12 +876,14 @@ pub const STUDIO_MIGRATIONS_ENV: &str = "LEPTOSKIT_DB_STUDIO_MIGRATIONS";
 pub fn export_schema_if_requested() {
 	if std::env::var_os(STUDIO_ENV).is_some() {
 		serve_studio();
+
 		return;
 	}
 
 	let Some(out) = std::env::var_os(SCHEMA_OUT_ENV) else {
 		return;
 	};
+
 	let dialect = match std::env::var(DIALECT_ENV).as_deref() {
 		Ok("sqlite") => Dialect::Sqlite,
 		Ok("postgres") | Err(_) => Dialect::Postgres,
@@ -871,11 +895,13 @@ pub fn export_schema_if_requested() {
 		Ok("orm") | Err(_) => schema(dialect),
 		Ok(other) => panic!("{POLICIES_ENV} is `{other}`; expected `orm` or `rls`"),
 	};
+
 	let geopackage = match std::env::var(GEOPACKAGE_ENV).as_deref() {
 		Ok("1") => true,
 		Ok("0") | Err(_) => false,
 		Ok(other) => panic!("{GEOPACKAGE_ENV} is `{other}`; expected `0` or `1`"),
 	};
+
 	let exported = exported.and_then(|schema| with_geopackage(schema, geopackage));
 
 	match exported {

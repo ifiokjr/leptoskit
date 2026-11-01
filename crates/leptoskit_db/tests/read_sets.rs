@@ -193,6 +193,7 @@ impl World {
 		};
 		let general = channel("general", true).await;
 		let secret = channel("secret", true).await;
+
 		let ada_in_general = NewMembership {
 			channel_id: general,
 			person_id: ada,

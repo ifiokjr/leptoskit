@@ -41,6 +41,7 @@ mod hybrid;
 mod nearest;
 #[cfg(feature = "sqlite")]
 pub(crate) mod sqlite;
+
 #[cfg(feature = "server")]
 mod stale;
 

@@ -592,7 +592,6 @@ async fn a_feed_resumes_from_a_version_and_learns_when_it_was_pruned() {
 }
 
 // ---- the property ----------------------------------------------------------
-
 /// One step of a random history, each by the system.
 #[derive(Clone, Debug)]
 enum Step {
@@ -777,6 +776,7 @@ async fn agrees_with_the_model(db: &Db, steps: Vec<Step>) -> Result<(), TestCase
 				let mut keys: Vec<String> =
 					heard[0].keys.iter().map(|key| key[0].clone()).collect();
 				keys.sort();
+
 				prop_assert_eq!(keys, expected, "viewer {} after {:?}", viewer, step);
 			}
 

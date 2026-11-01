@@ -144,34 +144,13 @@ impl Expr {
 				column,
 				comparison,
 				value,
-			} => {
-				let Some(found) = row.value(column) else {
-					return Tri::Unknown;
-				};
-
-				match (comparison, value) {
-					// `eq(None)` and `ne(None)` are `IS NULL` and `IS NOT
-					// NULL`.
-					(Comparison::Equal, Value::Null) => Tri::from(*found == Value::Null),
-					(Comparison::NotEqual, Value::Null) => Tri::from(*found != Value::Null),
-					// Any other comparison with `None` fails to run.
-					(_, Value::Null) => Tri::Unknown,
-					_ => compare(&found, *comparison, value),
-				}
-			}
+			} => compare_value(row, column, *comparison, value),
 			Self::CompareColumn {
 				column,
 				comparison,
 				other,
 				..
-			} => {
-				// At a query's top level, another column of its own table is
-				// the same row's.
-				match (row.value(column), row.value(other)) {
-					(Some(left), Some(right)) => compare(&left, *comparison, &right),
-					_ => Tri::Unknown,
-				}
-			}
+			} => compare_columns(row, column, *comparison, other),
 			// A setting binds its value, or `NULL` without one, so it compares
 			// as a value would, except that `NULL` never matches.
 			Self::CompareSetting {
@@ -184,6 +163,7 @@ impl Expr {
 					_ => Tri::Unknown,
 				}
 			}
+
 			Self::In { values, .. } if values.is_empty() => Tri::False,
 			Self::In { column, values } => {
 				let Some(found) = row.value(column) else {
@@ -216,6 +196,41 @@ impl Expr {
 			#[cfg(feature = "vector")]
 			Self::Stale(_) => Tri::Unknown,
 		}
+	}
+}
+
+/// `column comparison value`, with `eq(None)` and `ne(None)` as `IS NULL`
+/// and `IS NOT NULL`.
+fn compare_value<R: Row + ?Sized>(
+	row: &R,
+	column: &str,
+	comparison: Comparison,
+	value: &Value,
+) -> Tri {
+	let Some(found) = row.value(column) else {
+		return Tri::Unknown;
+	};
+
+	match (comparison, value) {
+		(Comparison::Equal, Value::Null) => Tri::from(*found == Value::Null),
+		(Comparison::NotEqual, Value::Null) => Tri::from(*found != Value::Null),
+		// Any other comparison with `None` fails to run.
+		(_, Value::Null) => Tri::Unknown,
+		_ => compare(&found, comparison, value),
+	}
+}
+
+/// Two columns of the same row compared: at a query's top level, another
+/// column of its own table is the same row's.
+fn compare_columns<R: Row + ?Sized>(
+	row: &R,
+	column: &str,
+	comparison: Comparison,
+	other: &str,
+) -> Tri {
+	match (row.value(column), row.value(other)) {
+		(Some(left), Some(right)) => compare(&left, comparison, &right),
+		_ => Tri::Unknown,
 	}
 }
 
@@ -370,6 +385,7 @@ mod tests {
 			compare_with("other", Comparison::Equal, Value::Int(1)).eval(&row),
 			Tri::Unknown
 		);
+
 		assert_eq!(
 			Expr::Null {
 				column: "other",

@@ -288,12 +288,15 @@ fn big_endian_headers_and_other_envelopes_are_read() {
 	let mut bytes = b"GP\x00".to_vec();
 	bytes.push(0b0000_0100);
 	bytes.extend_from_slice(&3857_i32.to_be_bytes());
+
 	for bound in [3.0_f64, 3.0, 4.0, 4.0, 0.0, 0.0] {
 		bytes.extend_from_slice(&bound.to_be_bytes());
 	}
+
 	bytes.extend_from_slice(&wkb);
 	let header = codec::Gpkg::header(&bytes).unwrap();
 	assert_eq!(header.srid, 3857);
+
 	assert_eq!(header.envelope, Some([3.0, 3.0, 4.0, 4.0]));
 	assert_eq!(decode_any(&bytes).unwrap(), (3857, point.clone()));
 
@@ -318,6 +321,7 @@ fn malformed_bytes_are_refused() {
 	assert!(refuse(b"GP\x00\x23\x00\x00\x00\x00").contains("extended"));
 	assert!(refuse(b"GP\x00\x0b\x00\x00\x00\x00").contains("envelope kind 5"));
 	assert!(refuse(b"GP\x00\x03\x00\x00\x00\x00").contains("too short"));
+
 	assert!(codec::Gpkg::header(&[1, 2, 3]).unwrap_err().contains("GP"));
 
 	// An empty point can't be held.
@@ -330,9 +334,11 @@ fn malformed_bytes_are_refused() {
 	// Nor a point with a Z value.
 	let mut z = vec![1_u8];
 	z.extend_from_slice(&1001_u32.to_le_bytes());
+
 	for value in [1.0_f64, 2.0, 3.0] {
 		z.extend_from_slice(&value.to_le_bytes());
 	}
+
 	assert!(refuse(&z).contains("two-dimensional"));
 
 	assert!(encode_gpkg(&Geometry::Point(point!(x: 0.0, y: 0.0)), u32::MAX).is_err());
@@ -361,6 +367,7 @@ fn validation_checks_coordinates_and_validity() {
 	rules::geo(&mut errors, "none", &Option::<Geography<Point>>::None, true);
 	assert_eq!(errors.errors.len(), 2, "{errors}");
 	assert_eq!(errors.errors[0].field, "area");
+
 	assert!(errors.to_string().contains("valid shape"));
 	assert!(errors.to_string().contains("latitude 100"));
 }

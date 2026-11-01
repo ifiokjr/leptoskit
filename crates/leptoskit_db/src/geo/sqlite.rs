@@ -58,6 +58,7 @@ pub(crate) fn register(connection: &Connection) -> rusqlite::Result<()> {
 			ValueRef::Blob(bytes) => bytes,
 			_ => return Ok(Some(0)),
 		};
+
 		let shape: String = context.get(1)?;
 		let srid: i64 = context.get(2)?;
 		let geography: bool = context.get(3)?;
@@ -235,6 +236,7 @@ fn conforms(bytes: &[u8], shape: &str, srid: i64, geography: bool) -> bool {
 	let Ok(geometry) = codec::decode_wkb(&bytes[header.wkb..]) else {
 		return false;
 	};
+
 	let kind = match &geometry {
 		Geometry::Point(_) => "Point",
 		Geometry::LineString(_) => "LineString",
@@ -245,7 +247,9 @@ fn conforms(bytes: &[u8], shape: &str, srid: i64, geography: bool) -> bool {
 		Geometry::GeometryCollection(_) => "GeometryCollection",
 		_ => return false,
 	};
+
 	let envelope = super::envelope(&geometry);
+
 	let header_fits = match header.envelope {
 		Some(found) => envelope == Some(found),
 		None => true,

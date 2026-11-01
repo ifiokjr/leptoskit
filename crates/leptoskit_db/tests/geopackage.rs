@@ -222,6 +222,7 @@ async fn spatial_indexes_survive_rebuilds_and_renames_with_rows() {
 	})
 	.await
 	.unwrap();
+
 	assert_eq!(
 		count(&db, "SELECT count(*) FROM rtree_benchmarks_at").await,
 		3

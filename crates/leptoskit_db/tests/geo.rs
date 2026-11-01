@@ -302,6 +302,7 @@ fn the_macro_declares_geospatial_columns() {
 	assert_eq!(Place::GEO_INDEXED, &["location", "area", "spot"]);
 	assert_eq!(Plot::GEO_INDEXED, &["indexed"]);
 	assert_eq!(Route::GEO_INDEXED, &[] as &[&str]);
+
 	assert_eq!(schema.extensions(), vec!["postgis"]);
 
 	let routes = schema
@@ -701,6 +702,7 @@ async fn geography_measures_on_the_spheroid_alike() {
 			.insert(&db)
 			.await
 			.unwrap();
+
 			for (bound, count) in [(true_length - 0.01, 1), (true_length + 0.01, 0)] {
 				let found = Route::query()
 					.filter(|route| route.path.length().gt(bound))
@@ -856,11 +858,14 @@ async fn nearest_and_spatial_reads_are_recorded() {
 			.map(ToString::to_string)
 			.zip(gallery.to_values().unwrap())
 			.collect();
+
 		for entry in &places {
 			assert_eq!(entry.condition.eval(&row), Tri::Unknown, "{entry:?}");
 		}
+
 		let mut gone = row.clone();
 		gone.insert("deleted_at".into(), Value::Timestamp(leptoskit_db::now()));
+
 		for entry in &places {
 			assert_eq!(entry.condition.eval(&gone), Tri::False, "{entry:?}");
 		}
@@ -1001,6 +1006,7 @@ async fn coordinates_and_validity_are_checked_everywhere() {
 
 			// Every other column refuses to encode it.
 			let path = |end: f64| line_string![(x: 0.0, y: 0.0), (x: end, y: 0.0)];
+
 			for end in [181.0, f64::NAN, f64::INFINITY] {
 				let refused = NewRoute {
 					path: Geography(path(end)),
@@ -1047,6 +1053,7 @@ async fn coordinates_and_validity_are_checked_everywhere() {
 
 			// The database refuses it too, from raw SQL.
 			let gallery = place(&db, ada, "gallery", trafalgar()).await;
+
 			let bytes = match db.dialect() {
 				Dialect::Sqlite => {
 					leptoskit_db::geo::encode_gpkg(
@@ -1063,12 +1070,14 @@ async fn coordinates_and_validity_are_checked_everywhere() {
 					.unwrap()
 				}
 			};
+
 			let sql = match db.dialect() {
 				Dialect::Sqlite => "UPDATE \"places\" SET \"area\" = ?1",
 				Dialect::Postgres => {
 					"UPDATE \"places\" SET \"area\" = ST_GeomFromEWKB($1)::geography"
 				}
 			};
+
 			let refused = db
 				.execute(Statement {
 					sql: sql.into(),
@@ -1228,7 +1237,6 @@ async fn audit_and_raw_reads_see_the_same_shape_on_both() {
 
 // The property: what each viewer finds with spatial filters and nearest,
 // against a plain-Rust model of the policy and the measurements.
-
 const OWNERS: usize = 3;
 
 #[derive(Clone, Debug)]
@@ -1351,6 +1359,7 @@ async fn agrees_with_the_model(db: &Db, spec: Spec) -> Result<(), TestCaseError>
 		Some(viewer) => db.with_context(Context::new().with(Viewer(owners[viewer]))),
 		None => db.with_context(Context::new()),
 	};
+
 	let visible = stored.iter().filter(|(_, placed)| spec.visible(placed));
 
 	match &spec.ask {

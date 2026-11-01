@@ -80,6 +80,7 @@ impl Sql {
 		if self.policy {
 			self.text
 				.push_str(&crate::settings::postgres_literal(&value));
+
 			return self;
 		}
 

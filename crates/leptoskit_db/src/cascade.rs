@@ -113,66 +113,96 @@ pub(crate) async fn soft_delete_linked(
 			inventory::iter::<SoftCascade>().filter(|cascade| (cascade.target)() == table)
 		{
 			let source = (cascade.source)();
-			let mut sql = Sql::new(connection.dialect());
-			sql.push("UPDATE ")
-				.table_name(&source)
-				.push(" SET ")
-				.identifier(cascade.deleted_at)
-				.push(" = ")
-				.value(Value::Timestamp(now));
-
-			if let Some(updated_at) = cascade.updated_at {
-				sql.push(", ")
-					.identifier(updated_at)
-					.push(" = ")
-					.value(Value::Timestamp(now));
-			}
-
-			if let Some(updated_by) = cascade.updated_by {
-				let actor = connection
-					.access()
-					.actor()
-					.map_or(Value::Null, |actor| Value::Uuid(actor.uuid()));
-				sql.push(", ")
-					.identifier(updated_by)
-					.push(" = ")
-					.value(actor);
-			}
-
-			if let Some(version) = cascade.version {
-				sql.push(", ")
-					.identifier(version)
-					.push(" = ")
-					.identifier(version)
-					.push(" + 1");
-			}
-
-			write_linked(&mut sql, cascade, &keys);
-
-			if let Some(subject) = cascade.audit {
-				let linked = audited(connection, cascade, subject, &keys, sql).await?;
-				pending.push((source, linked));
-				continue;
-			}
-
-			// Only a table keyed by a single `Id` can be linked to, so only
-			// its rows can cascade further.
-			if let [key] = cascade.key {
-				sql.push(" RETURNING ").identifier(key);
-				let linked = connection
-					.fetch(sql.finish())
-					.await?
-					.into_iter()
-					.filter_map(|row| row.into_iter().next())
-					.collect();
-				pending.push((source, linked));
-			} else {
-				connection.execute(sql.finish()).await?;
-			}
+			let sql = soft_delete_statement(connection, cascade, &keys, now);
+			let linked = apply_soft_delete(connection, cascade, sql, &keys).await?;
+			pending.push((source, linked));
 		}
 	}
 
 	Ok(())
+}
+
+/// The `UPDATE` that soft-deletes the rows `cascade` links to `keys`.
+fn soft_delete_statement(
+	connection: &impl Connection,
+	cascade: &SoftCascade,
+	keys: &[Value],
+	now: Timestamp,
+) -> Sql {
+	let source = (cascade.source)();
+	let mut sql = Sql::new(connection.dialect());
+	sql.push("UPDATE ")
+		.table_name(&source)
+		.push(" SET ")
+		.identifier(cascade.deleted_at)
+		.push(" = ")
+		.value(Value::Timestamp(now));
+	write_updates(connection, cascade, &mut sql, now);
+	write_linked(&mut sql, cascade, keys);
+	sql
+}
+
+/// The other columns a soft delete records: when, by whom, and its
+/// version.
+fn write_updates(
+	connection: &impl Connection,
+	cascade: &SoftCascade,
+	sql: &mut Sql,
+	now: Timestamp,
+) {
+	if let Some(updated_at) = cascade.updated_at {
+		sql.push(", ")
+			.identifier(updated_at)
+			.push(" = ")
+			.value(Value::Timestamp(now));
+	}
+
+	if let Some(updated_by) = cascade.updated_by {
+		let actor = connection
+			.access()
+			.actor()
+			.map_or(Value::Null, |actor| Value::Uuid(actor.uuid()));
+		sql.push(", ")
+			.identifier(updated_by)
+			.push(" = ")
+			.value(actor);
+	}
+
+	if let Some(version) = cascade.version {
+		sql.push(", ")
+			.identifier(version)
+			.push(" = ")
+			.identifier(version)
+			.push(" + 1");
+	}
+}
+
+/// Runs the statement, and returns the rows it reached for the next round.
+async fn apply_soft_delete(
+	connection: &impl Connection,
+	cascade: &SoftCascade,
+	mut sql: Sql,
+	keys: &[Value],
+) -> Result<Vec<Value>> {
+	if let Some(subject) = cascade.audit {
+		return audited(connection, cascade, subject, keys, sql).await;
+	}
+
+	// Only a table keyed by a single `Id` can be linked to, so only its
+	// rows can cascade further.
+	if let [key] = cascade.key {
+		sql.push(" RETURNING ").identifier(key);
+		let linked = connection
+			.fetch(sql.finish())
+			.await?
+			.into_iter()
+			.filter_map(|row| row.into_iter().next())
+			.collect();
+		return Ok(linked);
+	}
+
+	connection.execute(sql.finish()).await?;
+	Ok(Vec::new())
 }
 
 /// ` WHERE column IN (keys) AND deleted_at IS NULL`: the live rows linked to
