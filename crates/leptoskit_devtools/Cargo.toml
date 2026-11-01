@@ -16,11 +16,21 @@ description = "The DevTools agents that report a running leptoskit app to the lo
 default = ["host"]
 host = ["dep:anyhow", "dep:leptoskit_native", "dep:ureq"]
 web = ["dep:gloo-net", "dep:gloo-timers", "dep:js-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:web-sys"]
+# `track_form`, which reports a `leptoskit_form` form. The facade turns it on
+# when an app has both `form` and `devtools`.
+form = ["dep:leptoskit_form", "leptoskit_form/devtools"]
+# `track_queries`, which reports a `leptoskit_query` cache. The facade turns
+# it on when an app has both `query` and `devtools`.
+query = ["dep:leptoskit_query", "leptoskit_query/devtools"]
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
 leptoskit_devtools_protocol = { workspace = true }
+leptoskit_form = { workspace = true, optional = true }
 leptoskit_native = { workspace = true, optional = true, features = ["devtools"] }
+leptoskit_query = { workspace = true, optional = true }
+leptoskit_router = { workspace = true }
+reactive_graph = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 ureq = { workspace = true, optional = true, features = ["rustls"] }
@@ -32,6 +42,10 @@ js-sys = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true, optional = true }
 web-sys = { workspace = true, optional = true, features = ["Document", "DomRect", "Element", "EventTarget", "Location", "MouseEvent", "MutationObserver", "MutationObserverInit", "Node", "NodeList", "Window", "console"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+any_spawner = { workspace = true, features = ["tokio"] }
+tokio = { workspace = true, features = ["macros", "rt", "time"] }
 
 [lints]
 workspace = true

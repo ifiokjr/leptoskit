@@ -579,7 +579,7 @@ dependencies = [
  "leptoskit_plugin_secure_store",
  "leptoskit_router",
  "leptoskit_testing",
- "reactive_graph 0.2.16",
+ "reactive_graph",
  "serde",
  "serde_json",
  "tokio",
@@ -2075,7 +2075,7 @@ dependencies = [
  "or_poisoned",
  "paste",
  "rand 0.10.3",
- "reactive_graph 0.3.0-rc0",
+ "reactive_graph",
  "rustc-hash",
  "rustc_version",
  "send_wrapper",
@@ -2139,7 +2139,7 @@ checksum = "d13a3e5f65433d01e36696fdd88e2d4fc11a73820556972cd81d29890c42230f"
 dependencies = [
  "js-sys",
  "or_poisoned",
- "reactive_graph 0.3.0-rc0",
+ "reactive_graph",
  "send_wrapper",
  "tachys",
  "wasm-bindgen",
@@ -2179,7 +2179,7 @@ dependencies = [
  "lru",
  "mime",
  "or_poisoned",
- "reactive_graph 0.3.0-rc0",
+ "reactive_graph",
  "tokio",
 ]
 
@@ -2233,7 +2233,7 @@ dependencies = [
  "leptos_router_macro",
  "or_poisoned",
  "percent-encoding",
- "reactive_graph 0.3.0-rc0",
+ "reactive_graph",
  "rustc_version",
  "send_wrapper",
  "tachys",
@@ -2266,7 +2266,7 @@ dependencies = [
  "futures",
  "hydration_context",
  "or_poisoned",
- "reactive_graph 0.3.0-rc0",
+ "reactive_graph",
  "send_wrapper",
  "serde",
  "serde_json",
@@ -2291,6 +2291,7 @@ dependencies = [
  "leptoskit_db",
  "leptoskit_devtools",
  "leptoskit_extension",
+ "leptoskit_form",
  "leptoskit_idp",
  "leptoskit_l10n",
  "leptoskit_macros",
@@ -2327,6 +2328,14 @@ dependencies = [
  "objc2-foundation",
  "objc2-quartz-core",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "leptoskit_aria"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_native",
+ "leptoskit_yoga",
 ]
 
 [[package]]
@@ -2491,6 +2500,8 @@ dependencies = [
  "gloo-timers",
  "js-sys",
  "leptoskit_devtools_protocol",
+ "leptoskit_router",
+ "reactive_graph",
  "serde",
  "serde_json",
  "wasm-bindgen",
@@ -2521,6 +2532,15 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "leptoskit_form"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_aria",
+ "leptoskit_native",
+ "serde",
 ]
 
 [[package]]
@@ -2556,7 +2576,7 @@ version = "0.1.0"
 dependencies = [
  "intl_pluralrules",
  "js-sys",
- "reactive_graph 0.3.0-rc0",
+ "reactive_graph",
  "thiserror 2.0.21",
  "unic-langid",
  "web-sys",
@@ -2714,7 +2734,7 @@ version = "0.1.0"
 dependencies = [
  "leptoskit_native",
  "leptoskit_router_macros",
- "reactive_graph 0.3.0-rc0",
+ "reactive_graph",
  "send_wrapper",
  "thiserror 2.0.21",
  "wasm-bindgen",
@@ -3765,28 +3785,6 @@ dependencies = [
 
 [[package]]
 name = "reactive_graph"
-version = "0.2.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bcec36a2d1b9a53a4129b3270b19e3df6f6b88c2e7c97ed9404dc9307f137d7"
-dependencies = [
- "any_spawner",
- "async-lock",
- "futures",
- "guardian",
- "indexmap",
- "or_poisoned",
- "paste",
- "pin-project-lite",
- "rustc-hash",
- "rustc_version",
- "send_wrapper",
- "slotmap",
- "thiserror 2.0.21",
- "web-sys",
-]
-
-[[package]]
-name = "reactive_graph"
 version = "0.3.0-rc0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f341eb0a6541e99d85583c3289ad39f056436dfd2f50dca37a884039d4ca062c"
@@ -3820,7 +3818,7 @@ dependencies = [
  "itertools",
  "or_poisoned",
  "paste",
- "reactive_graph 0.3.0-rc0",
+ "reactive_graph",
  "reactive_stores_macro",
  "rustc-hash",
  "send_wrapper",
@@ -4620,7 +4618,7 @@ dependencies = [
  "oco_ref",
  "or_poisoned",
  "paste",
- "reactive_graph 0.3.0-rc0",
+ "reactive_graph",
  "reactive_stores",
  "rustc-hash",
  "rustc_version",

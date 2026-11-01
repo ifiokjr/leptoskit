@@ -71,7 +71,7 @@ codepush = ["dep:leptoskit_codepush"]
 # The code push HTTP client, which also follows `leptoskit dev` in desktop
 # runners.
 codepush-http = ["codepush", "leptoskit_codepush/http"]
-form = ["dep:leptoskit_form", "aria"]
+form = ["dep:leptoskit_form", "aria", "leptoskit_devtools?/form"]
 # leptos, leptos_router, and leptos_meta, re-exported so an app reaches them
 # through leptoskit at the versions it was built against. The render-mode
 # features forward to them, following the leptos convention.
@@ -191,7 +191,7 @@ macos = ["appkit"]
 # leptos's `nightly` feature, for its macro and renderer. Requires a nightly
 # compiler; a no-op on stable.
 nightly = ["leptos?/nightly"]
-query = ["dep:leptoskit_query"]
+query = ["dep:leptoskit_query", "leptoskit_devtools?/query"]
 rive = ["dep:leptoskit_rive", "leptoskit_rive/native", "leptoskit_native/rive", "leptoskit_wasm?/rive"]
 uikit = ["dep:leptoskit_uikit"]
 use = ["dep:leptoskit_use"]
@@ -202,8 +202,15 @@ svg = ["leptoskit_native/svg"]
 wasm = ["dep:leptoskit_wasm", "leptoskit_native/serde"]
 # The DevTools agents: `leptoskit dev` turns this on in development builds of
 # apps that declare `devtools = ["leptoskit/devtools"]`, and never in
-# `leptoskit build`. See `leptoskit::devtools::install`.
-devtools = ["dep:leptoskit_devtools", "leptoskit_native/devtools"]
+# `leptoskit build`. See `leptoskit::devtools::install`. With `query` or
+# `form` on too, `leptoskit::devtools` also has `track_queries` or
+# `track_form`.
+devtools = [
+	"dep:leptoskit_devtools",
+	"leptoskit_native/devtools",
+	"leptoskit_query?/devtools",
+	"leptoskit_form?/devtools",
+]
 web = [
 	"leptoskit_native/web",
 	"leptoskit_devtools?/web",

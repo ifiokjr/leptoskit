@@ -12,9 +12,17 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Headless form state for the leptoskit element tree, in the style of TanStack Form: typed field specs, sync validators, touch and submit tracking, and inputs wired through leptoskit_aria fields."
 
+[features]
+default = []
+# A `Serialize` implementation for `FormState`, so leptoskit's DevTools can
+# show a tracked form. `leptoskit dev` turns it on through
+# `leptoskit/devtools`.
+devtools = ["dep:serde"]
+
 [dependencies]
 leptoskit_aria = { workspace = true }
 leptoskit_native = { workspace = true }
+serde = { workspace = true, optional = true, features = ["derive"] }
 
 [dev-dependencies]
 leptoskit_testing = { workspace = true }

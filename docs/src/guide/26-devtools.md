@@ -54,6 +54,46 @@ A panel that a platform can't feed says so. A web page has no native plugin call
 
 When the code of a native app changes, `leptoskit dev` replaces the interface inside the running app. Its state starts over, including values you edited in DevTools. The Calls and Commits timelines mark the moment with "Guest reloaded", and the selected element stays selected when it still exists.
 
+## Showing your app's data
+
+DevTools sees every element on its own, but not your router, your query cache, your forms, or your signals. You hand each one over with a line in `leptoskit::devtools`, behind your app's `devtools` feature like `install`. Outside `leptoskit dev` these calls do nothing, and release builds don't contain them.
+
+This browser app, with [file routes](10-file-routes.md), a [query cache](11-fetching-data.md), and a cart counter, fills the Route, Queries, Mutations, and State panels:
+
+```rust
+#[leptos::component]
+pub fn App() -> impl leptos::prelude::IntoView {
+	use leptos::prelude::*;
+	use leptoskit::query::QueryClient;
+
+	let navigation = routes::Navigation::from_browser()
+		.unwrap_or_else(|_| routes::Navigation::new(routes::Route::Index));
+	let client = QueryClient::new();
+	client.provide();
+	let cart = RwSignal::new(0_usize);
+
+	#[cfg(feature = "devtools")]
+	{
+		leptoskit::devtools::track_router(&navigation);
+		leptoskit::devtools::track_queries(&client);
+		leptoskit::devtools::expose("cart.count", cart);
+	}
+
+	move || leptoskit::web::render(navigation.render())
+}
+```
+
+| Call                           | Panel              | What it shows                                                                                                                                                                                                                                             |
+| ------------------------------ | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `track_router(&navigation)`    | Route              | The current route, as soon as the app navigates. **Navigate** goes to any route, as a link would.                                                                                                                                                         |
+| `track_queries(&client)`       | Queries, Mutations | Each query by its scope and key, with its status, whether it is fetching or stale, how many views use it, when its data arrived, and the data. Each mutation's status. Needs the `query` feature.                                                         |
+| `expose("cart.count", signal)` | State              | The signal's value as JSON, with its Rust type. Editing it sets the signal. Only state you name this way appears.                                                                                                                                         |
+| `track_form("signup", &state)` | Forms              | A [form](19-forms.md)'s values, its errors, the fields the user has left, and whether a submit was attempted. A `FormState` is a plain value, so call this wherever you have the latest one, such as where you render the form. Needs the `form` feature. |
+
+A query's data is shown and edited through the codec its scope uses for server rendering, so give the scope `.with_ssr()` to see its data. A query without one still shows its status, and its value says why the data is missing. An exposed signal's type needs `Serialize` and `Deserialize`.
+
+DevTools reads these values once your app has settled, not while it renders, and sends only what changed. These calls report from browser apps today. In iOS, Android, and desktop apps they compile and do nothing yet.
+
 ## The same element on every platform
 
 When your app runs on several platforms under one `leptoskit dev`, select an element and the Node panel lists its frame on each of them:
@@ -83,7 +123,7 @@ It is kept in your cache folder: `~/.cache/leptoskit/devtools/<version>/`, or un
 
 The hub, the page, and `leptoskit devtools fetch` work today. The panel for Chrome, Edge, and Firefox is built, and isn't in their extension stores yet. Apps report to the hub once `leptoskit dev` builds them with DevTools turned on, which is still being connected: until then the hub lists no sessions. Release builds never include DevTools. Once connected, each platform reports:
 
-- **Web:** the element tree, frames, classes, picking, and highlighting.
-- **macOS, iOS, and Android:** the element tree, frames, source locations, and each class's CSS. Picking and highlighting inside the native apps come later.
+- **Web:** the element tree, frames, classes, picking, and highlighting, and the route, queries, mutations, forms, and state your app hands over.
+- **macOS, iOS, and Android:** the element tree, frames, source locations, and each class's CSS. Picking and highlighting inside the native apps come later, and so do the route, queries, forms, and state.
 - **Windows, Linux, the terminal, and HarmonyOS (experimental):** not yet.
-- **Queries, forms, state, and calls** appear as each part of leptoskit starts reporting them; until then their panels say the app doesn't report them.
+- **Calls** appear as each part of leptoskit starts reporting them; until then the Calls panel says the app doesn't report them.

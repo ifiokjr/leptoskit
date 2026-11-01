@@ -29,6 +29,7 @@ use crate::tasks::spawn;
 
 /// Something loaded from the server.
 #[derive(Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "devtools", derive(serde::Serialize, serde::Deserialize))]
 pub enum Load<T> {
 	#[default]
 	Idle,
@@ -49,6 +50,7 @@ impl<T> Load<T> {
 
 /// Whether someone is signed in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "devtools", derive(serde::Serialize, serde::Deserialize))]
 pub enum Session {
 	/// Still asking the server.
 	#[default]
@@ -59,6 +61,7 @@ pub enum Session {
 
 /// The sign-in form.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "devtools", derive(serde::Serialize, serde::Deserialize))]
 pub struct SignInForm {
 	pub email: String,
 	pub code: String,
@@ -70,6 +73,7 @@ pub struct SignInForm {
 
 /// A clip being written by hand.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "devtools", derive(serde::Serialize, serde::Deserialize))]
 pub struct ClipDraft {
 	pub url: String,
 	pub title: String,
@@ -83,6 +87,7 @@ pub struct ClipDraft {
 
 /// Everything the screens show.
 #[derive(Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "devtools", derive(serde::Serialize, serde::Deserialize))]
 pub struct State {
 	pub session: Session,
 	pub sign_in: SignInForm,
@@ -105,6 +110,7 @@ pub struct State {
 
 /// What the extension's surfaces add.
 #[derive(Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "devtools", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExtensionState {
 	/// The page the popup, or a content script's frame, clips from.
 	pub page: Option<PageInput>,
@@ -180,6 +186,13 @@ impl Store {
 	#[must_use]
 	pub fn snapshot(&self) -> State {
 		self.state.get_untracked()
+	}
+
+	/// Shows the state in `DevTools` as `store`, where it can be read and
+	/// edited.
+	#[cfg(feature = "devtools")]
+	pub fn expose(&self) {
+		leptoskit::devtools::expose("store", self.state.clone());
 	}
 
 	/// Puts a failure on screen. A signed-out failure returns to sign-in.

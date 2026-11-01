@@ -129,6 +129,21 @@ impl QueryFilter {
 		}
 	}
 
+	/// Exactly `query`, by identity: a query that later replaced it under
+	/// the same key is not caught up in it.
+	#[cfg(feature = "devtools")]
+	pub(crate) fn exactly(query: &Arc<dyn AnyQuery>) -> Self {
+		let target = Arc::clone(query);
+		Self {
+			scope: Some(query.scope_id()),
+			key_hash: Some(query.key_hash()),
+			predicate: Some(Arc::new(move |candidate: &Arc<dyn AnyQuery>| {
+				Arc::ptr_eq(candidate, &target)
+			})),
+			..Self::default()
+		}
+	}
+
 	/// Every query tagged at or below `tag`.
 	#[must_use]
 	pub fn tag(tag: impl Into<Tag>) -> Self {

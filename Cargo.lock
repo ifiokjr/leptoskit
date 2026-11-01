@@ -4922,14 +4922,20 @@ dependencies = [
 name = "leptoskit_devtools"
 version = "0.1.0"
 dependencies = [
+ "any_spawner",
  "anyhow",
  "gloo-net",
  "gloo-timers",
  "js-sys",
  "leptoskit_devtools_protocol",
+ "leptoskit_form",
  "leptoskit_native",
+ "leptoskit_query",
+ "leptoskit_router",
+ "reactive_graph",
  "serde",
  "serde_json",
+ "tokio",
  "ureq",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -5016,6 +5022,7 @@ dependencies = [
  "leptoskit_aria",
  "leptoskit_native",
  "leptoskit_testing",
+ "serde",
 ]
 
 [[package]]

@@ -2782,6 +2782,8 @@ dependencies = [
  "gloo-timers",
  "js-sys",
  "leptoskit_devtools_protocol",
+ "leptoskit_router",
+ "reactive_graph",
  "serde",
  "serde_json",
  "wasm-bindgen",
@@ -2989,6 +2991,25 @@ dependencies = [
  "flate2",
  "sha2 0.10.9",
  "tar",
+]
+
+[[package]]
+name = "leptoskit_router"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_native",
+ "leptoskit_router_macros",
+ "reactive_graph",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "leptoskit_router_macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
 ]
 
 [[package]]

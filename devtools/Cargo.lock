@@ -1165,6 +1165,8 @@ dependencies = [
  "gloo-timers",
  "js-sys",
  "leptoskit_devtools_protocol",
+ "leptoskit_router",
+ "reactive_graph",
  "serde",
  "serde_json",
  "wasm-bindgen",
@@ -1317,6 +1319,25 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "leptoskit_router"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_native",
+ "leptoskit_router_macros",
+ "reactive_graph",
+ "thiserror",
+]
+
+[[package]]
+name = "leptoskit_router_macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
 ]
 
 [[package]]

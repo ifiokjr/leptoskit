@@ -797,6 +797,14 @@ pub(crate) trait AnyQuery: Any + Send + Sync {
 	fn hydrate(&self, dehydrated: &DehydratedQuery);
 	fn info(&self) -> QueryInfo;
 	fn as_any(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
+	#[cfg(feature = "devtools")]
+	fn data_type(&self) -> &'static str;
+	#[cfg(feature = "devtools")]
+	fn has_codec(&self) -> bool;
+	#[cfg(feature = "devtools")]
+	fn encode_data(&self) -> Option<Result<serde_json::Value, serde_json::Error>>;
+	#[cfg(feature = "devtools")]
+	fn set_json(&self, json: serde_json::Value) -> Result<(), crate::devtools::EditError>;
 }
 
 impl<K, T, E> AnyQuery for Query<K, T, E>
@@ -922,5 +930,36 @@ where
 
 	fn as_any(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
 		self
+	}
+
+	#[cfg(feature = "devtools")]
+	fn data_type(&self) -> &'static str {
+		std::any::type_name::<T>()
+	}
+
+	#[cfg(feature = "devtools")]
+	fn has_codec(&self) -> bool {
+		self.codec.is_some()
+	}
+
+	#[cfg(feature = "devtools")]
+	fn encode_data(&self) -> Option<Result<serde_json::Value, serde_json::Error>> {
+		let codec = self.codec.as_ref()?;
+		self.signals
+			.data
+			.with_untracked(|data| data.as_ref().map(|data| codec.encode(data)))
+	}
+
+	#[cfg(feature = "devtools")]
+	fn set_json(&self, json: serde_json::Value) -> Result<(), crate::devtools::EditError> {
+		let codec = self
+			.codec
+			.as_ref()
+			.ok_or(crate::devtools::EditError::NoCodec)?;
+		let data = codec
+			.decode(json)
+			.map_err(crate::devtools::EditError::Decode)?;
+		self.set_data(data, None);
+		Ok(())
 	}
 }
