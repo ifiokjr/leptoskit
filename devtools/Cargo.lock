@@ -1260,6 +1260,7 @@ dependencies = [
  "leptos",
  "leptoskit_rive",
  "leptoskit_yoga",
+ "reactive_graph",
  "sha2",
  "wasm-bindgen",
  "web-sys",
