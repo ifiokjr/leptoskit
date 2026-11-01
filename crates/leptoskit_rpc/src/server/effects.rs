@@ -132,6 +132,7 @@ impl Effects {
 		for work in self.after_commit {
 			tokio::spawn(work);
 		}
+
 		drop(self.jobs);
 		drop(self.publications);
 	}

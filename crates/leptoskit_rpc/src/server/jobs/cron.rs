@@ -48,6 +48,7 @@ impl Schedule {
 	fn day_matches(&self, at: Timestamp) -> bool {
 		let day = self.days & (1 << at.day()) != 0;
 		let weekday = self.weekdays & (1 << at.weekday().num_days_from_sunday()) != 0;
+
 		match (self.any_day, self.any_weekday) {
 			(true, true) => true,
 			(true, false) => weekday,
@@ -65,6 +66,7 @@ impl Schedule {
 			.with_nanosecond(0)?
 			.checked_add_signed(chrono::Duration::minutes(1))?;
 		let limit = after.checked_add_signed(chrono::Duration::days(366 * 8))?;
+
 		while at <= limit {
 			if self.months & (1 << at.month()) == 0 || !self.day_matches(at) {
 				// The rest of this day can't tick.
@@ -73,15 +75,20 @@ impl Schedule {
 					.and_utc();
 				continue;
 			}
+
 			if self.hours & (1 << at.hour()) == 0 {
 				at = at.with_minute(0)? + chrono::Duration::hours(1);
+
 				continue;
 			}
+
 			if self.minutes & (1 << at.minute()) != 0 {
 				return Some(at);
 			}
+
 			at += chrono::Duration::minutes(1);
 		}
+
 		None
 	}
 }
@@ -121,6 +128,7 @@ pub fn enqueue_tick<J: Job>(
 		if exists {
 			return Ok(false);
 		}
+
 		Enqueue::on(db, job, None).key(key).at(tick).await?;
 		Ok(true)
 	})

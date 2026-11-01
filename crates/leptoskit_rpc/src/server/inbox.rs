@@ -167,6 +167,7 @@ pub(crate) async fn deliver(delivery: Delivery) {
 		.read()
 		.unwrap_or_else(PoisonError::into_inner)
 		.clone();
+
 	for channel in channels {
 		let _ = channel.deliver(&delivery).await;
 	}
@@ -182,9 +183,11 @@ pub(crate) async fn insert(
 	let Some(account) = account.account() else {
 		return Ok(None);
 	};
+
 	if notice.title.trim().is_empty() {
 		return Err(Error::invalid("a notice needs a title"));
 	}
+
 	let row = NewInboxRow {
 		account: account.clone(),
 		title: notice.title.clone(),
@@ -252,6 +255,7 @@ pub(crate) async fn mark_read(cx: &MutationCx, id: String) -> Result<()> {
 		.first(cx.tx())
 		.await?
 		.ok_or_else(|| Error::not_found("no such notice"))?;
+
 	if notice.read_at.is_none() {
 		InboxRow::update()
 			.filter(|notice| notice.id.eq(id))
@@ -259,6 +263,7 @@ pub(crate) async fn mark_read(cx: &MutationCx, id: String) -> Result<()> {
 			.run(cx.tx())
 			.await?;
 	}
+
 	Ok(())
 }
 
@@ -268,6 +273,7 @@ pub(crate) async fn mark_all_read(cx: &MutationCx) -> Result<u64> {
 	if !cx.signed_in() {
 		return Err(Error::unauthorized("sign in to read your notices"));
 	}
+
 	InboxRow::update()
 		.filter(|notice| notice.read_at.is_null())
 		.set(|notice| notice.read_at, leptoskit_db::now())

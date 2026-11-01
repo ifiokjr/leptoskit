@@ -67,6 +67,7 @@ impl RunState {
 				Value::Object(steps) => steps,
 				_ => serde_json::Map::new(),
 			}),
+
 			progress: Mutex::new(progress),
 			cancelled: AtomicBool::new(cancelled),
 			killed: AtomicBool::new(false),
@@ -78,9 +79,11 @@ impl RunState {
 	/// The progress to write, if it changed, marked written.
 	pub(crate) fn take_progress(&self) -> Option<Progress> {
 		let mut progress = self.progress.lock().unwrap_or_else(PoisonError::into_inner);
+
 		if !progress.dirty {
 			return None;
 		}
+
 		progress.dirty = false;
 		Some(progress.clone())
 	}
@@ -237,6 +240,7 @@ impl JobCx {
 		} else {
 			fraction.clamp(0.0, 1.0)
 		});
+
 		progress.dirty = true;
 	}
 
@@ -271,6 +275,7 @@ impl JobCx {
 			.unwrap_or_else(PoisonError::into_inner)
 			.get(name)
 			.cloned();
+
 		if let Some(saved) = saved {
 			return serde_json::from_value(saved).map_err(|error| {
 				Error::permanent(format!(
@@ -281,6 +286,7 @@ impl JobCx {
 
 		self.check_cancelled().await?;
 		let value = STEP.scope(name.to_owned(), work()).await?;
+
 		if self
 			.state
 			.faults
@@ -289,6 +295,7 @@ impl JobCx {
 		{
 			// A test's fault: the worker dies before it saves the result.
 			self.state.killed.store(true, Ordering::Relaxed);
+
 			return Err(Error::server("the worker stopped"));
 		}
 
@@ -320,14 +327,17 @@ impl JobCx {
 				job.id.eq(row) & job.state.eq(JobState::Running) & job.attempts.eq(attempt)
 			})
 			.set(|job| job.steps, Json(steps));
+
 		if let Some(progress) = self.state.take_progress() {
 			update = update
 				.set(|job| job.progress, progress.text)
 				.set(|job| job.fraction, progress.fraction);
 		}
+
 		if update.run(&self.db).await? == 0 {
 			return Err(Error::retry("another worker took this job over"));
 		}
+
 		Ok(())
 	}
 
@@ -342,9 +352,11 @@ impl JobCx {
 		{
 			self.state.cancel();
 		}
+
 		if self.state.is_cancelled() {
 			return Err(Error::permanent("the job was cancelled"));
 		}
+
 		Ok(())
 	}
 

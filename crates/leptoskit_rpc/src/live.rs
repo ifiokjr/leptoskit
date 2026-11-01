@@ -380,11 +380,14 @@ fn rows(value: &Value) -> Option<Vec<(String, Value)>> {
 fn diff(before: &[(String, Value)], after: &[(String, Value)]) -> Option<Patch> {
 	let before_ids: std::collections::HashSet<&str> =
 		before.iter().map(|(id, _)| id.as_str()).collect();
+
 	if before_ids.len() != before.len() {
 		return None;
 	}
+
 	let after_ids: std::collections::HashSet<&str> =
 		after.iter().map(|(id, _)| id.as_str()).collect();
+
 	if after_ids.len() != after.len() {
 		return None;
 	}
@@ -407,6 +410,7 @@ fn diff(before: &[(String, Value)], after: &[(String, Value)]) -> Option<Patch> 
 		.map(|(id, _)| id.as_str())
 		.filter(|id| before_ids.contains(id))
 		.collect();
+
 	if stayed != after_stayed {
 		return None;
 	}
@@ -483,6 +487,7 @@ mod tests {
 			},
 			ClientFrame::Ping,
 		];
+
 		for frame in frames {
 			let json = serde_json::to_string(&frame).unwrap();
 			let back: ClientFrame = serde_json::from_str(&json).unwrap();
@@ -518,6 +523,7 @@ mod tests {
 			ServerFrame::Reconnect { after_ms: 250 },
 			ServerFrame::Pong,
 		];
+
 		for frame in frames {
 			let json = serde_json::to_string(&frame).unwrap();
 			let back: ServerFrame = serde_json::from_str(&json).unwrap();

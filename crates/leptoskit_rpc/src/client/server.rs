@@ -39,6 +39,7 @@ impl Api for InProcess {
 				// otherwise.
 				None => http::Request::new(()).into_parts().0,
 			};
+
 			server
 				.call(&parts, registration, arguments, key.resolve().await)
 				.await

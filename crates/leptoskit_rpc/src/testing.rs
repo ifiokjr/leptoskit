@@ -104,6 +104,7 @@ impl TestJobs {
 	/// If the database fails.
 	pub async fn run_jobs_until_idle(&self) -> usize {
 		let mut runs = 0;
+
 		loop {
 			if crate::server::jobs::run_one(&self.db, &self.settings, false)
 				.await
@@ -115,9 +116,11 @@ impl TestJobs {
 			let swept = crate::server::jobs::sweep_failures(&self.db)
 				.await
 				.expect("on_failure runs");
+
 			if swept == 0 {
 				return runs;
 			}
+
 			runs += swept;
 		}
 	}

@@ -13,6 +13,7 @@ use std::sync::atomic::AtomicI64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use leptoskit_db::Actor;
 use leptoskit_db::Connection;
 use leptoskit_db::Db;
 use leptoskit_db::DbError;
@@ -23,6 +24,7 @@ use tokio::sync::Notify;
 
 use super::FailureRun;
 use super::JobCx;
+use super::JobRegistration;
 use super::JobRow;
 use super::JobRun;
 use super::JobState;
@@ -169,12 +171,14 @@ impl Jobs {
 				(config.retention_days > 0)
 					.then(|| Duration::from_secs(u64::from(config.retention_days) * 24 * 60 * 60)),
 			);
+
 		for (name, queue) in &config.queues {
 			jobs = jobs.queue(
 				name,
 				usize::try_from(queue.concurrency).unwrap_or(usize::MAX),
 			);
 		}
+
 		jobs
 	}
 
@@ -244,6 +248,7 @@ impl Jobs {
 			Arc::clone(&wake),
 			Arc::clone(&shutdown),
 		)));
+
 		if self.cron {
 			tasks.push(tokio::spawn(scheduler(
 				self.db.clone(),
@@ -252,6 +257,7 @@ impl Jobs {
 				Arc::clone(&shutdown),
 			)));
 		}
+
 		for index in 0..self.workers {
 			tasks.push(tokio::spawn(worker(
 				self.db.clone(),
@@ -264,6 +270,7 @@ impl Jobs {
 				self.retention.filter(|_| index == 0),
 			)));
 		}
+
 		JobsHandle {
 			shutdown,
 			wake,
@@ -290,6 +297,7 @@ impl JobsHandle {
 	/// Stops the workers and waits for the jobs they hold to finish.
 	pub async fn shutdown(self) {
 		self.stop();
+
 		for task in self.tasks {
 			let _ = task.await;
 		}
@@ -304,21 +312,25 @@ async fn waker(db: Db, wake: Arc<Notify>, shutdown: Arc<AtomicBool>) {
 		// Without a feed the workers poll, which is slower but complete.
 		return;
 	};
+
 	let table = match JobRow::NAMESPACE {
 		Some(namespace) => format!("{namespace}.{}", JobRow::NAME),
 		None => JobRow::NAME.to_owned(),
 	};
+
 	while !shutdown.load(Ordering::SeqCst) {
 		let changed = tokio::select! {
 			changed = feed.next() => changed,
 			() = tokio::time::sleep(Duration::from_secs(1)) => continue,
 		};
+
 		let wakes = match changed {
 			Ok(leptoskit_db::live::Invalidation::Rows(rows)) => {
 				rows.iter().any(|rows| rows.table == table)
 			}
 			Ok(leptoskit_db::live::Invalidation::Everything) | Err(_) => true,
 		};
+
 		if wakes {
 			wake.notify_waiters();
 		}
@@ -334,6 +346,7 @@ async fn worker(
 	retention: Option<Duration>,
 ) {
 	let mut pruned_at: Option<std::time::Instant> = None;
+
 	while !shutdown.load(Ordering::SeqCst) {
 		// Ask to be woken before looking, so an enqueue between the look
 		// and the wait isn't missed.
@@ -349,16 +362,20 @@ async fn worker(
 				continue;
 			}
 		}
+
 		let _ = sweep_failures(&db).await;
+
 		if let Some(retention) = retention
 			&& pruned_at.is_none_or(|at| at.elapsed() >= Duration::from_hours(1))
 		{
 			pruned_at = Some(std::time::Instant::now());
 			let _ = prune(&db, retention).await;
 		}
+
 		if shutdown.load(Ordering::SeqCst) {
 			break;
 		}
+
 		tokio::select! {
 			() = woken => {}
 			() = tokio::time::sleep(poll) => {}
@@ -418,15 +435,18 @@ async fn claim(db: &Db, settings: &Settings) -> Result<Option<JobRow>, DbError> 
 				Err(error) => return Err(error),
 			}
 		};
+
 		if taken {
 			let mut claimed = row;
 			claimed.state = JobState::Running;
 			claimed.attempts += 1;
 			claimed.started_at = Some(now);
 			claimed.locked_until = Some(now + duration(lease));
+
 			return Ok(Some(claimed));
 		}
 	}
+
 	Ok(None)
 }
 
@@ -465,6 +485,7 @@ async fn guarded_take(
 ) -> Result<bool, DbError> {
 	let tx = system.begin_serializable().await?;
 	let id = row.id;
+
 	let room = match limit {
 		Some(limit) => {
 			let queue = row.queue.clone();
@@ -481,6 +502,7 @@ async fn guarded_take(
 		}
 		None => true,
 	};
+
 	let free = match (&row.serial_key, room) {
 		(Some(serial), true) => {
 			let serial = serial.clone();
@@ -496,10 +518,13 @@ async fn guarded_take(
 		}
 		(_, room) => room,
 	};
+
 	if !free || !take(&tx, row, now, lease).await? {
 		tx.rollback().await?;
+
 		return Ok(false);
 	}
+
 	tx.commit().await?;
 	Ok(true)
 }
@@ -535,70 +560,22 @@ async fn execute(db: &Db, settings: &Settings, row: JobRow, heartbeat: bool) {
 	));
 	let registration = job_registration(&row.name);
 
-	let outcome = if row.cancel_requested {
-		Outcome::Cancelled("the job was cancelled".to_owned())
-	} else if row.deadline_at.is_some_and(|deadline| deadline < now) {
-		Outcome::Failed {
-			error: "the job passed its deadline".to_owned(),
-			permanent: true,
-		}
-	} else if row.attempts > row.max_attempts {
-		Outcome::Failed {
-			error: row
-				.error
-				.clone()
-				.unwrap_or_else(|| "the worker running its last attempt stopped".to_owned()),
-			permanent: true,
-		}
+	let outcome = if let Some(outcome) = skip_reason(&row, now) {
+		outcome
 	} else if let Some(registration) = registration {
-		let cx = JobCx::for_run(
-			system.clone(),
-			identity,
-			row.id,
-			row.attempts,
-			owner,
-			Arc::clone(&state),
-		);
-		let running = (registration.handler)(JobRun {
-			cx,
-			arguments: row.arguments.0.clone(),
-		});
-		let beat = heartbeat.then(|| {
-			tokio::spawn(beat(
-				system.clone(),
-				row.id,
-				row.attempts,
-				lease_for(settings, &row.name),
-				settings.clock.clone(),
-				Arc::clone(&state),
-			))
-		});
-		let result = match registration.options.timeout {
-			Some(timeout) => {
-				tokio::time::timeout(timeout, running)
-					.await
-					.unwrap_or_else(|_| {
-						Err(Error::retry(format!(
-							"the job ran longer than its timeout of {timeout:?}"
-						)))
-					})
-			}
-			None => running.await,
-		};
-		if let Some(beat) = beat {
-			beat.abort();
-		}
-		match result {
-			_ if state.is_killed() => Outcome::Abandoned,
-			Ok(value) => Outcome::Done(value),
-			Err(error) if state.is_cancelled() => Outcome::Cancelled(error.message().to_owned()),
-			Err(error) => {
-				Outcome::Failed {
-					permanent: error.is_permanent(),
-					error: error.message().to_owned(),
-				}
-			}
-		}
+		run_handler(
+			registration,
+			ClaimedJob {
+				system: system.clone(),
+				identity,
+				row: &row,
+				owner,
+				settings,
+				heartbeat,
+				state: &state,
+			},
+		)
+		.await
 	} else {
 		// Another instance, on a newer build, may know it.
 		Outcome::Failed {
@@ -608,6 +585,101 @@ async fn execute(db: &Db, settings: &Settings, row: JobRow, heartbeat: bool) {
 	};
 
 	let _ = record(&system, settings, &row, &state, outcome).await;
+}
+
+/// Why a claimed job doesn't run, if it doesn't: it was cancelled, it
+/// passed its deadline, or it ran its last attempt.
+fn skip_reason(row: &JobRow, now: Timestamp) -> Option<Outcome> {
+	if row.cancel_requested {
+		return Some(Outcome::Cancelled("the job was cancelled".to_owned()));
+	}
+
+	if row.deadline_at.is_some_and(|deadline| deadline < now) {
+		return Some(Outcome::Failed {
+			error: "the job passed its deadline".to_owned(),
+			permanent: true,
+		});
+	}
+
+	if row.attempts > row.max_attempts {
+		return Some(Outcome::Failed {
+			error: row
+				.error
+				.clone()
+				.unwrap_or_else(|| "the worker running its last attempt stopped".to_owned()),
+			permanent: true,
+		});
+	}
+
+	None
+}
+
+/// Everything one claimed job's run needs.
+struct ClaimedJob<'a> {
+	system: Db,
+	identity: Identity,
+	row: &'a JobRow,
+	owner: Option<Actor>,
+	settings: &'a Settings,
+	heartbeat: bool,
+	state: &'a Arc<RunState>,
+}
+
+/// Runs a claimed job's handler, with its timeout and heartbeat, and says
+/// how it went.
+async fn run_handler(registration: &'static JobRegistration, job: ClaimedJob<'_>) -> Outcome {
+	let cx = JobCx::for_run(
+		job.system.clone(),
+		job.identity,
+		job.row.id,
+		job.row.attempts,
+		job.owner,
+		Arc::clone(job.state),
+	);
+
+	let running = (registration.handler)(JobRun {
+		cx,
+		arguments: job.row.arguments.0.clone(),
+	});
+	let beat = job.heartbeat.then(|| {
+		tokio::spawn(beat(
+			job.system.clone(),
+			job.row.id,
+			job.row.attempts,
+			lease_for(job.settings, &job.row.name),
+			job.settings.clock.clone(),
+			Arc::clone(job.state),
+		))
+	});
+
+	let result = match registration.options.timeout {
+		Some(timeout) => {
+			tokio::time::timeout(timeout, running)
+				.await
+				.unwrap_or_else(|_| {
+					Err(Error::retry(format!(
+						"the job ran longer than its timeout of {timeout:?}"
+					)))
+				})
+		}
+		None => running.await,
+	};
+
+	if let Some(beat) = beat {
+		beat.abort();
+	}
+
+	match result {
+		_ if job.state.is_killed() => Outcome::Abandoned,
+		Ok(value) => Outcome::Done(value),
+		Err(error) if job.state.is_cancelled() => Outcome::Cancelled(error.message().to_owned()),
+		Err(error) => {
+			Outcome::Failed {
+				permanent: error.is_permanent(),
+				error: error.message().to_owned(),
+			}
+		}
+	}
 }
 
 /// Keeps a running job's lease, writes its progress a few times a second,
@@ -622,26 +694,33 @@ async fn beat(
 ) {
 	let renew_every = (lease / 3).max(PROGRESS_EVERY);
 	let mut renewed = std::time::Instant::now();
+
 	loop {
 		tokio::time::sleep(PROGRESS_EVERY).await;
 		let renew = renewed.elapsed() >= renew_every;
 		let progress = state.take_progress();
+
 		if !renew && progress.is_none() {
 			continue;
 		}
+
 		let mut update = JobRow::update().filter(|job| {
 			job.id.eq(id) & job.state.eq(JobState::Running) & job.attempts.eq(attempt)
 		});
+
 		if renew {
 			renewed = std::time::Instant::now();
 			update = update.set(|job| job.locked_until, clock.now() + duration(lease));
 		}
+
 		if let Some(progress) = progress {
 			update = update
 				.set(|job| job.progress, progress.text)
 				.set(|job| job.fraction, progress.fraction);
 		}
+
 		let _ = update.run(&db).await;
+
 		if renew
 			&& let Ok(true) = JobRow::query()
 				.filter(|job| job.id.eq(id) & job.cancel_requested.eq(true))
@@ -669,6 +748,7 @@ async fn record(
 		.set(|job| job.locked_until, None::<Timestamp>)
 		.set(|job| job.progress, progress.text)
 		.set(|job| job.fraction, progress.fraction);
+
 	let update = match outcome {
 		Outcome::Abandoned => return Ok(()),
 		Outcome::Done(value) => {
@@ -710,6 +790,7 @@ async fn record(
 			}
 		}
 	};
+
 	update.run(system).await.map(|_| ())
 }
 
@@ -717,11 +798,14 @@ async fn record(
 fn truncate(mut error: String) -> String {
 	if error.len() > 2000 {
 		let mut end = 2000;
+
 		while !error.is_char_boundary(end) {
 			end -= 1;
 		}
+
 		error.truncate(end);
 	}
+
 	error
 }
 
@@ -736,9 +820,11 @@ pub(crate) async fn sweep_failures(db: &Db) -> Result<usize, DbError> {
 		.all(&system)
 		.await?;
 	let mut ran = 0;
+
 	for row in failed {
 		let id = row.id;
 		let handler = job_registration(&row.name).and_then(|registration| registration.on_failure);
+
 		let done = match handler {
 			None => true,
 			Some(handler) => {
@@ -764,6 +850,7 @@ pub(crate) async fn sweep_failures(db: &Db) -> Result<usize, DbError> {
 					})
 			}
 		};
+
 		if done {
 			JobRow::update()
 				.filter(|job| job.id.eq(id) & job.failure_pending.eq(true))
@@ -772,6 +859,7 @@ pub(crate) async fn sweep_failures(db: &Db) -> Result<usize, DbError> {
 				.await?;
 		}
 	}
+
 	Ok(ran)
 }
 
@@ -813,22 +901,28 @@ pub(crate) async fn enqueue_cron(
 ) -> crate::Result<usize> {
 	let system = db.system("enqueue cron jobs");
 	let mut enqueued = 0;
+
 	for registration in inventory::iter::<CronRegistration>() {
 		let mut from = after;
+
 		for _ in 0..MOST_TICKS {
 			let Some(tick) = registration.schedule.next_after(from) else {
 				break;
 			};
+
 			if tick > until {
 				break;
 			}
+
 			from = tick;
 			let key = format!("cron:{}:{}", registration.name, tick.to_rfc3339());
+
 			if (registration.enqueue)(system.clone(), key, tick).await? {
 				enqueued += 1;
 			}
 		}
 	}
+
 	Ok(enqueued)
 }
 
@@ -837,7 +931,9 @@ async fn scheduler(db: Db, clock: Clock, wake: Arc<Notify>, shutdown: Arc<Atomic
 	if inventory::iter::<CronRegistration>().next().is_none() {
 		return;
 	}
+
 	let mut last = clock.now();
+
 	while !shutdown.load(Ordering::SeqCst) {
 		let next = inventory::iter::<CronRegistration>()
 			.filter_map(|registration| registration.schedule.next_after(last))
@@ -848,6 +944,7 @@ async fn scheduler(db: Db, clock: Clock, wake: Arc<Notify>, shutdown: Arc<Atomic
 			.min(Duration::from_secs(1));
 		tokio::time::sleep(wait).await;
 		let now = clock.now();
+
 		if enqueue_cron(&db, last, now).await.is_ok() {
 			last = now;
 			wake.notify_waiters();

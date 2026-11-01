@@ -452,6 +452,7 @@ async fn insert<J: Job>(
 			argument_text(&arguments, field).unwrap_or_default()
 		)
 	});
+
 	let (visibility, viewer) = match options.visible_to {
 		Visibility::Owner => (JobVisibility::Owner, String::new()),
 		Visibility::SignedIn => (JobVisibility::SignedIn, String::new()),
@@ -463,6 +464,7 @@ async fn insert<J: Job>(
 			)
 		}
 	};
+
 	let row = NewJobRow {
 		key: settings.key.clone(),
 		name: J::NAME.to_owned(),
@@ -496,10 +498,12 @@ async fn insert<J: Job>(
 
 	match row {
 		Ok(row) => Ok(row.id),
+
 		Err(leptoskit_db::DbError::Conflict { .. }) if settings.key.is_some() => {
 			if in_transaction {
 				return Err(Error::Contended);
 			}
+
 			let key = settings.key.unwrap_or_default();
 			JobRow::query()
 				.filter(|row| row.key.eq(key))
@@ -508,6 +512,7 @@ async fn insert<J: Job>(
 				.map(|row| row.id)
 				.map_err(Into::into)
 		}
+
 		Err(error) => Err(error.into()),
 	}
 }
@@ -567,6 +572,7 @@ pub async fn cancel_on(connection: &impl Connection, id: Id<JobRow>) -> Result<(
 		.first(connection)
 		.await?
 		.ok_or_else(|| Error::not_found("no such job"))?;
+
 	let changed = match row.state {
 		JobState::Pending => {
 			JobRow::update()
@@ -586,9 +592,11 @@ pub async fn cancel_on(connection: &impl Connection, id: Id<JobRow>) -> Result<(
 		}
 		JobState::Done | JobState::Failed | JobState::Cancelled => return Ok(()),
 	};
+
 	if changed == 1 {
 		return Ok(());
 	}
+
 	// Either the caller may read the job but not change it, or it moved on
 	// meanwhile, such as a worker starting it: try again with what it is
 	// now, which ends once it stops moving.
@@ -597,9 +605,11 @@ pub async fn cancel_on(connection: &impl Connection, id: Id<JobRow>) -> Result<(
 		.first(connection)
 		.await?
 		.ok_or_else(|| Error::not_found("no such job"))?;
+
 	if now.state == row.state {
 		return Err(Error::forbidden("only whoever started a job may cancel it"));
 	}
+
 	Box::pin(cancel_on(connection, id)).await
 }
 
@@ -635,9 +645,11 @@ pub async fn retry(db: &Db, id: Id<JobRow>) -> Result<()> {
 		.set(|job| job.failure_pending, false)
 		.run(db)
 		.await?;
+
 	if changed == 1 {
 		return Ok(());
 	}
+
 	match JobRow::query()
 		.filter(|job| job.id.eq(id))
 		.first(db)

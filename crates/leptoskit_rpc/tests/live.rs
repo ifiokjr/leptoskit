@@ -105,6 +105,7 @@ async fn next(socket: &mut Socket) -> ServerFrame {
 			.expect("a frame arrives")
 			.unwrap()
 			.unwrap();
+
 		match message {
 			Message::Text(text) => return serde_json::from_str(&text).unwrap(),
 			Message::Ping(_) | Message::Pong(_) => {}
@@ -298,6 +299,7 @@ async fn may_join(cx: &rpc::QueryCx, chat: &Chat) -> rpc::Result<()> {
 	if chat.channel == "secret" {
 		return Err(rpc::Error::forbidden("that room is private"));
 	}
+
 	let _ = cx;
 	Ok(())
 }

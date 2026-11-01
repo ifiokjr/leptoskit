@@ -90,9 +90,11 @@ static COMMITTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 #[rpc::mutation]
 pub async fn add_note(cx: &rpc::MutationCx, title: String) -> rpc::Result<Id<Note>> {
 	let me = cx.require::<Me>()?;
+
 	if title.is_empty() {
 		return Err(rpc::Error::invalid("a note needs a title"));
 	}
+
 	let note = NewNote {
 		owner: me.0.clone(),
 		title: title.clone(),
@@ -184,6 +186,7 @@ impl Identify for Header {
 			if user == "banned" {
 				return Err(rpc::Error::unauthorized("banned"));
 			}
+
 			Ok(Identity::new(Context::new().with(Me(user.to_owned()))).with_caller(user))
 		})
 	}
@@ -224,18 +227,22 @@ impl<'a> Call<'a> {
 	async fn send(self, router: &Router) -> (StatusCode, String) {
 		let mut request =
 			Request::post(format!("/api/{}", self.name)).header("content-type", "application/json");
+
 		if let Some(user) = self.user {
 			request = request.header("x-user", user);
 		}
+
 		if let Some(key) = self.key {
 			request = request.header("idempotency-key", key);
 		}
+
 		let response = router
 			.clone()
 			.oneshot(request.body(Body::from(self.body)).unwrap())
 			.await
 			.unwrap();
 		let status = response.status();
+
 		let bytes = response.into_body().collect().await.unwrap().to_bytes();
 		(status, String::from_utf8(bytes.to_vec()).unwrap())
 	}
@@ -289,6 +296,7 @@ async fn routes_answer_as_the_caller(db: &Db) {
 	assert_eq!(body, r#"["bread"]"#);
 	// An empty body is no arguments, and `starting` may be left out.
 	let (status, body) = Call::new("notes", &json!({})).raw("").send(&router).await;
+
 	assert_eq!((status, body.as_str()), (StatusCode::OK, "[]"));
 	let (_, body) = Call::new("note_count", &json!({}))
 		.user("ada")
@@ -323,6 +331,7 @@ async fn failures_arrive_classified(db: &Db) {
 		body.starts_with("Args|the arguments of `add_note` don't fit"),
 		"{body}"
 	);
+
 	let (status, _) = Call::new("add_note", &json!({}))
 		.raw("[1]")
 		.user("ada")
@@ -558,6 +567,7 @@ async fn server_code_calls_operations(db: &Db) {
 	assert!(format!("{cx:?}").contains("QueryCx"));
 	let reads = cx.into_reads();
 	assert_eq!(reads.len(), 1);
+
 	assert_eq!(reads[0].table, <Note as leptoskit_db::Table>::table_name());
 	assert_eq!(reads[0].kind, leptoskit_db::ReadKind::Rows);
 	assert!(reads[0].keys.as_ref().is_some_and(|keys| !keys.is_empty()));
@@ -580,6 +590,7 @@ async fn server_code_calls_operations(db: &Db) {
 	assert_eq!(reads.len(), 1);
 	assert_eq!(reads[0].table, <Note as leptoskit_db::Table>::table_name());
 	assert_eq!(sink.take(), Vec::<leptoskit_db::ReadEntry>::new());
+
 	let registration = rpc::server::registration("add_note").unwrap();
 	(registration.handler)(rpc::server::Invocation {
 		db: ada.clone(),
@@ -616,6 +627,7 @@ async fn postgres_routes_receipts_retries_and_calls() {
 	mutations_commit_all_or_nothing(&db).await;
 	let db = postgres(&cluster).await;
 	a_repeated_call_runs_once(&db).await;
+
 	receipts_stay_private_and_expire(&db).await;
 	server_code_calls_operations(&postgres(&cluster).await).await;
 
@@ -642,6 +654,7 @@ async fn postgres_routes_receipts_retries_and_calls() {
 	let mut values = vec![a.unwrap(), b.unwrap()];
 	values.sort_unstable();
 	assert_eq!(values, [1, 2]);
+
 	assert!(BUMP_RUNS.load(Ordering::SeqCst) >= 3, "one bump ran again");
 
 	// Without retries, the loser gives up.
@@ -681,6 +694,7 @@ fn published_operations_join_the_spec_with_their_kind() {
 	assert_eq!(notes.tags, ["notes"]);
 	assert_eq!(notes.docs, "The caller's notes, newest last.");
 	assert_eq!(notes.params.len(), 1, "the context isn't an argument");
+
 	assert_eq!(notes.params[0].name, "starting");
 	assert_eq!(notes.params[0].docs, "Only titles beginning with this.");
 	assert!(!notes.params[0].required);

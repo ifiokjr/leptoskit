@@ -161,6 +161,7 @@ pub(crate) async fn mutate<M: Operation<Context = MutationCx>>(
 		}
 		_ => db.clone(),
 	};
+
 	if let Some(key) = &receipt
 		&& let Some(stored) = key.find(&db).await?
 	{
@@ -168,53 +169,78 @@ pub(crate) async fn mutate<M: Operation<Context = MutationCx>>(
 	}
 
 	let mut attempt = 0;
+
 	loop {
-		let tx = db.begin_serializable().await?;
-		// The change log records the commit as this mutation's.
-		tx.set_origin(M::NAME).await?;
-		let cx = MutationCx::new(tx, identity.clone(), attempt);
-		let outcome = op.clone().run(&cx).await;
-		let (tx, after_commit) = cx.into_parts();
-
-		let failure = match outcome {
-			Ok(output) => {
-				match finish(tx, receipt.as_ref(), &output).await {
-					Ok(()) => {
-						for work in after_commit {
-							tokio::spawn(work);
-						}
-						return Ok(output);
-					}
-					Err(Finish::Repeated) => {
-						// Another call with this request ID committed first.
-						let stored = match &receipt {
-							Some(key) => key.find(&db).await?,
-							None => None,
-						};
-						return match stored {
-							Some(stored) => decode::<M>(stored),
-							None => Err(Error::Contended),
-						};
-					}
-					Err(Finish::Failed(error)) => error,
+		match run_once(&db, &identity, receipt.as_ref(), &op, attempt).await? {
+			Attempt::Done(output) => return Ok(output),
+			Attempt::Failed(error) => {
+				if !error.is_contended() {
+					return Err(error);
 				}
-			}
-			Err(error) => {
-				// The transaction may already be over; rolling back is
-				// cleanup either way.
-				let _ = tx.rollback().await;
-				error
-			}
-		};
 
-		if !failure.is_contended() {
-			return Err(failure);
+				if attempt >= M::RETRIES {
+					return Err(Error::Contended);
+				}
+
+				leptoskit_query::sleep(backoff(attempt)).await;
+				attempt += 1;
+			}
 		}
-		if attempt >= M::RETRIES {
-			return Err(Error::Contended);
+	}
+}
+
+/// How one attempt ended: finished, or failed in a way the loop may retry.
+enum Attempt<O> {
+	Done(O),
+	Failed(Error),
+}
+
+/// Runs `op` once, in a serializable transaction, and commits its receipt.
+async fn run_once<M: Operation<Context = MutationCx>>(
+	db: &Db,
+	identity: &Identity,
+	receipt: Option<&ReceiptKey>,
+	op: &M,
+	attempt: u32,
+) -> crate::Result<Attempt<M::Output>> {
+	let tx = db.begin_serializable().await?;
+	// The change log records the commit as this mutation's.
+	tx.set_origin(M::NAME).await?;
+	let cx = MutationCx::new(tx, identity.clone(), attempt);
+	let outcome = op.clone().run(&cx).await;
+	let (tx, after_commit) = cx.into_parts();
+
+	match outcome {
+		Ok(output) => {
+			match finish(tx, receipt, &output).await {
+				Ok(()) => {
+					for work in after_commit {
+						tokio::spawn(work);
+					}
+
+					Ok(Attempt::Done(output))
+				}
+				Err(Finish::Repeated) => {
+					// Another call with this request ID committed first.
+					let stored = match receipt {
+						Some(key) => key.find(db).await?,
+						None => None,
+					};
+
+					match stored {
+						Some(stored) => decode::<M>(stored).map(Attempt::Done),
+						None => Err(Error::Contended),
+					}
+				}
+				Err(Finish::Failed(error)) => Ok(Attempt::Failed(error)),
+			}
 		}
-		leptoskit_query::sleep(backoff(attempt)).await;
-		attempt += 1;
+		Err(error) => {
+			// The transaction may already be over; rolling back is
+			// cleanup either way.
+			let _ = tx.rollback().await;
+			Ok(Attempt::Failed(error))
+		}
 	}
 }
 
@@ -234,6 +260,7 @@ async fn finish(
 	if let Some(key) = receipt {
 		let result = serde_json::to_value(output)
 			.map_err(|_| Finish::Failed(Error::server("the result isn't JSON")))?;
+
 		if let Err(error) = key.write(&tx, result).await {
 			let _ = tx.rollback().await;
 			return Err(if error.is_conflict() {
@@ -243,6 +270,7 @@ async fn finish(
 			});
 		}
 	}
+
 	tx.commit().await.map_err(|error| {
 		if receipt.is_some() && error.is_conflict() {
 			Finish::Repeated
