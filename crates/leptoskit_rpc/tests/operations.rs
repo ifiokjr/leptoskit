@@ -706,7 +706,6 @@ fn published_operations_join_the_spec_with_their_kind() {
 		.unwrap()
 		.iter()
 		.map(|registration| registration.name)
-		.filter(|name| !name.starts_with("rpc."))
 		.collect();
 	assert_eq!(
 		names,

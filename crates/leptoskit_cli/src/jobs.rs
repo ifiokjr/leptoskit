@@ -12,6 +12,7 @@ use leptoskit_db::Connection;
 use leptoskit_db::Db;
 use leptoskit_db::Dialect;
 use leptoskit_db::Id;
+use leptoskit_db::Read;
 use leptoskit_db::Statement;
 use leptoskit_db::Timestamp;
 use leptoskit_db::Value;
@@ -384,11 +385,7 @@ mod tests {
 				.contains("will run again")
 		);
 		assert_eq!(
-			list(db, Some("pending"), 10)
-				.await
-				.unwrap()
-				.lines()
-				.count(),
+			list(db, Some("pending"), 10).await.unwrap().lines().count(),
 			2
 		);
 

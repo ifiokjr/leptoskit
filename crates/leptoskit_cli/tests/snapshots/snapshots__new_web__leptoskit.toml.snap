@@ -56,3 +56,10 @@ servers = []
 exclude = []
 include_internal = false
 targets = []
+
+[rpc.jobs]
+workers = 4
+poll_seconds = 5
+retention_days = 7
+
+[rpc.jobs.queues]

@@ -1886,7 +1886,7 @@
 					"minimum": 0
 				},
 				"queues": {
-					"description": "Queues with their own concurrency, by name, such as `[rpc.jobs.queues.mail]`.",
+					"description": "Queues with their own concurrency, by name, such as\n`[rpc.jobs.queues.mail]`.",
 					"type": "object",
 					"additionalProperties": {
 						"$ref": "#/$defs/RpcQueueConfig"

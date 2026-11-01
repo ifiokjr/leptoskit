@@ -135,7 +135,8 @@ impl NoticeAction {
 	/// strings.
 	#[expect(
 		clippy::needless_pass_by_value,
-		reason = "an action is written `NoticeAction::new(\"Retry\", Op { … })`: the arguments are built for it"
+		reason = "an action is written `NoticeAction::new(\"Retry\", Op { … })`: the arguments \
+		          are built for it"
 	)]
 	pub fn new<O: Operation>(label: impl Into<String>, operation: O) -> Self {
 		Self {
