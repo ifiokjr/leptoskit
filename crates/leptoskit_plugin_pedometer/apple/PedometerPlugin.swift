@@ -20,6 +20,8 @@ public final class PedometerPlugin: NativePlugin {
     #endif
     public init() {}
 
+    #if os(iOS)
+    /// Answers one plugin call: availability, permission, or a sample.
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
         guard !closed else { throw PluginError.cancelled }
 
@@ -30,33 +32,31 @@ public final class PedometerPlugin: NativePlugin {
 
         guard available else { throw PluginError.unavailable }
 
-        #if os(iOS)
+        return try await invokeOnIOS(method: method, request: request)
+    }
 
+    /// The answers that need CoreMotion and a foreground app.
+    private func invokeOnIOS(method: UInt32, request: Request) async throws -> Data {
         if method == 1 { return permissionData }
 
         if method == 2, CMPedometer.authorizationStatus() != .notDetermined { return permissionData }
+
         try preflight(request)
         try Task.checkCancellation()
-        let identifier = UUID()
 
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                pending = continuation
-                pendingID = identifier
-                begin(request, identifier: identifier)
-            }
-        } onCancel: { [weak self] in
-            Task { @MainActor in
-
-                guard self?.pendingID == identifier else { return }
-                self?.finish(.failure(CancellationError()))
-            }
-        }
-        #else
-        _ = request
-        throw PluginError.unavailable
-        #endif
+        return try await awaitSample(request)
     }
+    #else
+    /// Every call is unavailable without CoreMotion.
+    public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
+        guard !closed else { throw PluginError.cancelled }
+
+        guard methods.contains(method) else { throw PluginError.unavailable }
+        _ = payload
+
+        throw PluginError.unavailable
+    }
+    #endif
 
     private var available: Bool {
         #if os(iOS)
@@ -71,6 +71,7 @@ public final class PedometerPlugin: NativePlugin {
         finish(.failure(PluginError.cancelled))
     }
 
+    /// Answers the waiting call, once.
     private func finish(_ result: Result<Data, any Error>) {
         guard let continuation = pending else { return }
         pending = nil
@@ -89,15 +90,60 @@ public final class PedometerPlugin: NativePlugin {
     }
 
     #if os(iOS)
-    private func preflight(_ request: Request) throws {
-        let method = request.method
+    /// Waits for the sample the sensor or the history query reports.
+    private func awaitSample(_ request: Request) async throws -> Data {
+        let identifier = UUID()
 
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                pending = continuation
+                pendingID = identifier
+                begin(request, identifier: identifier)
+            }
+        } onCancel: { [weak self] in
+            Task { @MainActor in
+
+                guard self?.pendingID == identifier else { return }
+                self?.finish(.failure(CancellationError()))
+            }
+        }
+    }
+
+    /// Checks the app may ask before any motion data is read.
+    private func preflight(_ request: Request) throws {
         guard pending == nil, historyInFlight == nil else { throw PluginError.busy }
 
+        try checkUsageDescription()
+
+        guard UIApplication.shared.applicationState == .active else { throw PluginError.cancelled }
+
+        if request.method != 2, CMPedometer.authorizationStatus() != .authorized {
+            throw PluginError.permissionDenied
+        }
+
+        try checkWindow(request)
+    }
+
+    /// The usage description the system requires before any motion access.
+    private func checkUsageDescription() throws {
         guard let description = Bundle.main.object(forInfoDictionaryKey: "NSMotionUsageDescription") as? String,
               !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw PluginError.permissionDenied
         }
+    }
+
+    /// A history request asks for a window ending now and starting no earlier
+    /// than a week ago.
+    private func checkWindow(_ request: Request) throws {
+        guard let start = request.start, let end = request.end else { return }
+
+        let now = Date().timeIntervalSince1970 * 1000
+
+        guard start >= now - Self.historyWindow, end <= now else { throw PluginError.invalidArgument }
+    }
+
+    /// The furthest back a history request may reach, in milliseconds.
+    private static let historyWindow: Double = 7 * 24 * 60 * 60 * 1000
 
         guard UIApplication.shared.applicationState == .active else { throw PluginError.cancelled }
 
@@ -123,22 +169,14 @@ public final class PedometerPlugin: NativePlugin {
         return Data([value, 0, 0, 0])
     }
 
+    /// Gives up when the caller's timeout passes with no sample.
     private func startTimer(_ request: Request, identifier: UUID) {
         timer = Task { [weak self] in
             let ticks = request.method == 2 ? request.timeout / 100 : 1
 
             for _ in 0..<ticks {
-                do {
-                    try await Task.sleep(for: .milliseconds(request.method == 2 ? 100 : request.timeout))
-                } catch { return }
-
-                guard let self, self.pendingID == identifier else { return }
-
-                if request.method == 2, CMPedometer.authorizationStatus() != .notDetermined {
-                    self.finish(.success(self.permissionData))
-
-                    return
-                }
+                guard let self else { return }
+                guard await self.tick(request, identifier: identifier) else { return }
             }
 
             guard let self, self.pendingID == identifier else { return }
@@ -146,6 +184,26 @@ public final class PedometerPlugin: NativePlugin {
         }
     }
 
+    /// Sleeps one tick. Says whether the wait should keep going.
+    private func tick(_ request: Request, identifier: UUID) async -> Bool {
+        do {
+            try await Task.sleep(for: .milliseconds(request.method == 2 ? 100 : request.timeout))
+        } catch {
+            return false
+        }
+
+        guard pendingID == identifier else { return false }
+
+        if request.method == 2, CMPedometer.authorizationStatus() != .notDetermined {
+            finish(.success(permissionData))
+
+            return false
+        }
+
+        return true
+    }
+
+    /// Turns the sensor's answer into the call's result, or an error.
     private func receive(_ sample: StepSample?, failed: Bool, request: Request) {
         if request.method == 2 {
             if CMPedometer.authorizationStatus() != .notDetermined {
@@ -167,12 +225,23 @@ public final class PedometerPlugin: NativePlugin {
             return
         }
 
-        guard !failed, let sample else { finish(.failure(PluginError.native)); return }
+        guard !failed, let sample else {
+            finish(.failure(PluginError.native))
+
+            return
+        }
+
         finish(Result { try sample.encode() })
     }
 
+    /// Starts the query or the live updates the request asked for.
     private func begin(_ request: Request, identifier: UUID) {
-        guard !Task.isCancelled else { finish(.failure(CancellationError())); return }
+        guard !Task.isCancelled else {
+            finish(.failure(CancellationError()))
+
+            return
+        }
+
         backgroundObserver = NotificationCenter.default.addObserver(
             forName: request.method == 2 ? UIApplication.didEnterBackgroundNotification
                 : UIApplication.willResignActiveNotification, object: nil, queue: .main
@@ -180,7 +249,21 @@ public final class PedometerPlugin: NativePlugin {
             MainActor.assumeIsolated { self?.finish(.failure(PluginError.cancelled)) }
         }
         startTimer(request, identifier: identifier)
-        let callback: CMPedometerHandler = { [weak self] data, error in
+
+        if let start = request.start, let end = request.end {
+            historyInFlight = identifier
+            pedometer.queryPedometerData(from: Date(timeIntervalSince1970: start / 1000),
+                                        to: Date(timeIntervalSince1970: end / 1000),
+                                        withHandler: handler(identifier, request: request))
+
+        } else {
+            pedometer.startUpdates(from: Date(), withHandler: handler(identifier, request: request))
+        }
+    }
+
+    /// The sensor's answer, handed back on the main actor.
+    private func handler(_ identifier: UUID, request: Request) -> CMPedometerHandler {
+        { [weak self] data, error in
             // Extract immutable primitives before crossing onto the UI actor.
             let sample = data.map { StepSample(start: $0.startDate.timeIntervalSince1970 * 1000,
                                                end: $0.endDate.timeIntervalSince1970 * 1000,
@@ -195,15 +278,6 @@ public final class PedometerPlugin: NativePlugin {
                 guard self.pendingID == identifier else { return }
                 self.receive(sample, failed: failed, request: request)
             }
-        }
-
-        if let start = request.start, let end = request.end {
-            historyInFlight = identifier
-            pedometer.queryPedometerData(from: Date(timeIntervalSince1970: start / 1000),
-                                        to: Date(timeIntervalSince1970: end / 1000), withHandler: callback)
-
-        } else {
-            pedometer.startUpdates(from: Date(), withHandler: callback)
         }
     }
     #endif
