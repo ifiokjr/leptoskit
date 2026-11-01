@@ -168,10 +168,6 @@ fn check_link_option(meta: &ParseNestedMeta<'_>, is_link: bool) -> syn::Result<(
 }
 
 impl TableArgs {
-	#[expect(
-		clippy::too_many_lines,
-		reason = "one parser for every table option keeps the accepted list in one place"
-	)]
 	pub fn parse(tokens: TokenStream) -> syn::Result<Self> {
 		let mut name = None;
 		let mut namespace = None;
@@ -781,6 +777,10 @@ impl FieldArgs {
 		Ok(true)
 	}
 
+	#[expect(
+		clippy::cognitive_complexity,
+		reason = "one match over every option keeps the accepted list in one place"
+	)]
 	fn option(&mut self, meta: &ParseNestedMeta<'_>) -> syn::Result<()> {
 		if self.rule(meta)? {
 			return Ok(());

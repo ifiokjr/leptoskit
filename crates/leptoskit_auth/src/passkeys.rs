@@ -936,7 +936,12 @@ mod unsupported {
 
 	const OFF: AuthError = AuthError::Unsupported("this server doesn't have passkeys turned on");
 
-	#[allow(missing_docs, reason = "documented with the feature")]
+	#[allow(
+		missing_docs,
+		clippy::unused_async,
+		clippy::unused_async_trait_impl,
+		reason = "the fallbacks share the enabled methods' async signatures"
+	)]
 	impl Auth {
 		pub async fn begin_passkey_registration(
 			&self,

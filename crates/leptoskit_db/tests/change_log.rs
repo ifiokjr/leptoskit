@@ -177,7 +177,7 @@ async fn capture_records_inserts_updates_and_deletes() {
 		row.save(&db).await.unwrap();
 		let change = only_change(&db, 2).await;
 		assert_eq!(change.op, ChangeOp::Update);
-		assert!(change.changed.is_empty());
+		assert_eq!(change.changed, Vec::<String>::new());
 
 		row.destroy(&db).await.unwrap();
 		let change = only_change(&db, 3).await;
@@ -290,7 +290,7 @@ fn raw_note(dialect: Dialect, id: Id<Note>, title: &str) -> String {
 	)
 }
 
-fn raw_id(dialect: Dialect, id: impl std::fmt::Display + Copy, simple: String) -> String {
+fn raw_id(dialect: Dialect, id: impl std::fmt::Display + Copy, simple: &str) -> String {
 	match dialect {
 		Dialect::Postgres => format!("'{id}'"),
 		Dialect::Sqlite => format!("x'{simple}'"),
@@ -318,7 +318,7 @@ async fn raw_sql_is_captured_and_heard() {
 			}])
 		);
 
-		let quoted = raw_id(dialect, id, id.uuid().simple().to_string());
+		let quoted = raw_id(dialect, id, &id.uuid().simple().to_string());
 		db.run_script(&format!(
 			"UPDATE log_notes SET title = 'edited by hand' WHERE id = {quoted}"
 		))
@@ -349,7 +349,7 @@ async fn the_database_s_own_cascades_fire_the_capture_triggers() {
 		let before = db.live_version().await.unwrap();
 
 		// Raw SQL, so only the database's foreign keys reach the other rows.
-		let quoted = raw_id(dialect, parent.id, parent.id.uuid().simple().to_string());
+		let quoted = raw_id(dialect, parent.id, &parent.id.uuid().simple().to_string());
 		db.run_script(&format!("DELETE FROM log_notes WHERE id = {quoted}"))
 			.await
 			.unwrap();
@@ -420,7 +420,7 @@ async fn pruning_keeps_the_version_line_and_marks_how_far_it_went() {
 			panic!("expected the new commit");
 		};
 		assert_eq!(commit.version, 4);
-		assert!(commits_since(&db, 3).await.len() == 1);
+		assert_eq!(commits_since(&db, 3).await.len(), 1);
 	})
 	.await;
 }
@@ -455,7 +455,7 @@ async fn a_database_without_live_tables_has_an_empty_log() {
 #[tokio::test]
 async fn a_live_table_has_the_columns_its_trigger_copies() {
 	assert_eq!(<Note as Table>::LIVE_COLUMNS, ["id", "title", "created_at"]);
-	assert!(<Note as Table>::LIVE && !<Note as Table>::AUDIT);
+	const { assert!(<Note as Table>::LIVE && !<Note as Table>::AUDIT) };
 }
 
 // ---- Postgres ordering ---------------------------------------------------

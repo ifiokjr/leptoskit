@@ -460,9 +460,8 @@ mod reading {
 				"D" => ChangeOp::Delete,
 				other => return Err(decode(&format!("`{other}` isn't a change's operation"))),
 			};
-			let key = match json(key)? {
-				Some(serde_json::Value::Array(key)) => key,
-				_ => return Err(decode("a change's key isn't an array")),
+			let Some(serde_json::Value::Array(key)) = json(key)? else {
+				return Err(decode("a change's key isn't an array"));
 			};
 			let changed = match json(changed)? {
 				Some(serde_json::Value::Array(names)) => {

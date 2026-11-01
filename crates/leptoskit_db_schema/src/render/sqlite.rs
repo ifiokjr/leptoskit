@@ -51,6 +51,10 @@ const NOW: &str = "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))";
 /// The prefix for the temporary table a rebuild copies rows into.
 const REBUILD_PREFIX: &str = "_leptoskit_rebuild_";
 
+#[expect(
+	clippy::too_many_lines,
+	reason = "one pass over the plan keeps the rebuild rules together"
+)]
 pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migration {
 	let before_renames = names_before_renames(plan);
 	let rebuilt = tables_to_rebuild(plan, previous, &before_renames);
