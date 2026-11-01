@@ -128,50 +128,68 @@ class PosturePlugin(
     ): ByteArray {
         val window = WindowMetricsCalculator.getOrCreate().computeCurrentWindowMetrics(activity).bounds
         val folds = layout.displayFeatures.filterIsInstance<FoldingFeature>().take(MAX_HINGES)
-        val fold =
-            when {
-                folds.any { it.state == FoldingFeature.State.HALF_OPENED } -> HALF_OPEN
-                folds.isNotEmpty() -> OPEN
-                angle == null -> UNKNOWN
-                angle < CLOSED_BELOW_DEGREES -> CLOSED
-                angle < OPEN_FROM_DEGREES -> HALF_OPEN
-                else -> OPEN
-            }
         val foldable = hingeSensor != null || folds.isNotEmpty()
         val output = ByteBuffer.allocate(HEADER_BYTES + HINGE_BYTES * folds.size).order(ByteOrder.LITTLE_ENDIAN)
 
         output.putInt(if (foldable) TRUE else UNKNOWN_FLAG)
-        output.putInt(fold)
+        output.putInt(foldState(folds, angle))
         output.putInt(folds.size)
+
         val width = window.width().toFloat()
         val height = window.height().toFloat()
 
         for (feature in folds) {
-            // Folding feature bounds are already in the window's coordinate space.
-            val bounds = feature.bounds
-            val x = (bounds.left / width).coerceIn(0f, 1f)
-
-            val y = (bounds.top / height).coerceIn(0f, 1f)
-
-            output.putInt(if (feature.state == FoldingFeature.State.HALF_OPENED) HALF_OPEN else OPEN)
-
-            output.putInt(if (feature.orientation == FoldingFeature.Orientation.VERTICAL) VERTICAL else HORIZONTAL)
-
-            output.putInt(if (feature.occlusionType == FoldingFeature.OcclusionType.FULL) TRUE else FALSE)
-            output.putInt(1)
-            output.putFloat(x)
-            output.putFloat(y)
-            output.putFloat((bounds.width() / width).coerceIn(0f, 1f - x))
-            output.putFloat((bounds.height() / height).coerceIn(0f, 1f - y))
-            // A single sensor cannot say which of several hinges it measures.
-            output.putInt(if (folds.size == 1 && angle != null) angle else -1)
+            writeHinge(output, feature, width, height, angle, folds.size)
         }
 
         return output.array()
     }
 
+    /** The posture the hinges report, with the sensor's angle as a fallback. */
+    private fun foldState(
+        folds: List<FoldingFeature>,
+        angle: Int?,
+    ): Int =
+        when {
+            folds.any { it.state == FoldingFeature.State.HALF_OPENED } -> HALF_OPEN
+            folds.isNotEmpty() -> OPEN
+            angle == null -> UNKNOWN
+            angle < CLOSED_BELOW_DEGREES -> CLOSED
+            angle < OPEN_FROM_DEGREES -> HALF_OPEN
+            else -> OPEN
+        }
+
+    /** Writes one hinge's state, place, and fractional bounds. */
+    private fun writeHinge(
+        output: ByteBuffer,
+        feature: FoldingFeature,
+        width: Float,
+        height: Float,
+        angle: Int?,
+        count: Int,
+    ) {
+        // Folding feature bounds are already in the window's coordinate space.
+        val bounds = feature.bounds
+        val x = (bounds.left / width).coerceIn(0f, 1f)
+        val y = (bounds.top / height).coerceIn(0f, 1f)
+
+        output.putInt(if (feature.state == FoldingFeature.State.HALF_OPENED) HALF_OPEN else OPEN)
+        output.putInt(if (feature.orientation == FoldingFeature.Orientation.VERTICAL) VERTICAL else HORIZONTAL)
+        output.putInt(if (feature.occlusionType == FoldingFeature.OcclusionType.FULL) TRUE else FALSE)
+        output.putInt(1)
+        output.putFloat(x)
+        output.putFloat(y)
+        output.putFloat((bounds.width() / width).coerceIn(0f, 1f - x))
+        output.putFloat((bounds.height() / height).coerceIn(0f, 1f - y))
+        // A single sensor cannot say which of several hinges it measures.
+        output.putInt(if (count == 1 && angle != null) angle else NO_ANGLE)
+    }
+
     internal companion object {
         const val MAX_HINGES = 4
+
+        /** The angle field when the sensor cannot attribute one to this hinge. */
+        const val NO_ANGLE = -1
         const val HEADER_BYTES = 12
         const val HINGE_BYTES = 36
         const val FIRST_ANGLE_TIMEOUT_MS = 250L
