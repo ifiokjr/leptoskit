@@ -142,7 +142,8 @@ impl Tree {
 
 	/// Sends the nodes whose bound value changed, without rebuilding the tree.
 	///
-	/// This is the update path for [`Element::text_from`](crate::Element::text_from)
+	/// This is the update path for
+	/// [`Element::text_from`](crate::Element::text_from)
 	/// and [`Element::background_from`](crate::Element::background_from):
 	/// reading each binding is a signal read, and a node is encoded only when
 	/// its value actually differs, so a frame costs the nodes that changed
