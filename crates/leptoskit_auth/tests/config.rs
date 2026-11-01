@@ -163,6 +163,7 @@ async fn auth_is_configured_from_leptoskit_toml() {
 	);
 	let header = |name: &str| headers[name].to_str().unwrap().to_owned();
 	let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(b"secret").unwrap();
+
 	mac.update(
 		format!(
 			"{}.{}.{body}",

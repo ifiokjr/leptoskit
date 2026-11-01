@@ -28,6 +28,7 @@ fn provider(pairs: &[(&str, &str)]) -> AuthProviderConfig {
 
 	for (setting, value) in pairs {
 		let value = Some((*value).to_owned());
+
 		match *setting {
 			"client_id_env" => provider.client_id_env = value,
 			"client_secret_env" => provider.client_secret_env = value,
@@ -69,6 +70,7 @@ async fn providers_and_the_mfa_policy_come_from_leptoskit_toml() {
 		"microsoft".to_owned(),
 		provider(&[shared[0], shared[1], ("tenant", "consumers")]),
 	);
+
 	providers.insert(
 		"apple".to_owned(),
 		provider(&[

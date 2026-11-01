@@ -117,6 +117,7 @@ impl QueryClient {
 				if notification.event != CacheEvent::Updated || is_applying(id) {
 					return;
 				}
+
 				let Some(query) =
 					cache.unique(notification.query.scope, notification.query.key_hash)
 				else {
@@ -142,6 +143,7 @@ impl QueryClient {
 					client.cache().hydrate(dehydrated, client.waiting_gc_time());
 				}
 			}
+
 			APPLYING.with_borrow_mut(|applying| applying.retain(|entry| *entry != id));
 		}));
 
@@ -264,6 +266,7 @@ impl BroadcastTransport for LocalPeer {
 			.filter(|(id, _)| *id != self.id)
 			.map(|(_, handler)| Arc::clone(handler))
 			.collect();
+
 		for handler in others {
 			handler(message);
 		}

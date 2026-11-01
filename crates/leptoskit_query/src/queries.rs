@@ -152,6 +152,7 @@ where
 	let client = use_query_client();
 	let keys = ArcMemo::new(move |_| keys());
 	let handles = RwSignal::new(Vec::<QueryHandle<T, E>>::new());
+
 	// Handles belong to the component, not to the effect that adds them: an
 	// effect disposes whatever its previous run owned each time it re-runs.
 	let owner = Owner::current();
@@ -169,6 +170,7 @@ where
 				observer.bind(&scope, Some(key));
 				continue;
 			}
+
 			let observer = Observer::new(client.clone(), QueryObserverOptions::default());
 			observer.bind(&scope, Some(key));
 			let handle = match &owner {
@@ -181,6 +183,7 @@ where
 				current.push(handle);
 			}
 		}
+
 		handles.try_set(current);
 	});
 	sync(keys.get_untracked());

@@ -1167,6 +1167,7 @@ mod tests {
 			"response": { "authenticatorData": "AA", "clientDataJSON": "AA", "signature": "AA" }
 		}))
 		.unwrap();
+
 		let assertion = PasskeyAssertion {
 			credential,
 			token: Some("secret-token".into()),

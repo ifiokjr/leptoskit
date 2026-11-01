@@ -502,6 +502,7 @@ impl<E> ResolvedQueryOptions<E> {
 				} else {
 					GcTime::DEFAULT
 				}),
+
 			retry: options
 				.retry
 				.clone()
@@ -511,6 +512,7 @@ impl<E> ResolvedQueryOptions<E> {
 				} else {
 					Retry::count(3)
 				}),
+
 			retry_delay: options
 				.retry_delay
 				.clone()

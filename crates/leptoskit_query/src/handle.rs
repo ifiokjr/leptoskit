@@ -300,7 +300,6 @@ where
 	}
 
 	// ---- data --------------------------------------------------------------
-
 	/// The data to show: the query's own, or placeholder data while it has
 	/// none.
 	pub fn data(&self) -> Option<T> {
@@ -359,7 +358,6 @@ where
 	}
 
 	// ---- status ------------------------------------------------------------
-
 	/// See [`QueryStatus`]. Placeholder data counts as success.
 	pub fn status(&self) -> QueryStatus {
 		self.observer()
@@ -448,7 +446,6 @@ where
 	}
 
 	// ---- bookkeeping -------------------------------------------------------
-
 	/// Timestamps, counters, and flags.
 	pub fn meta(&self) -> QueryMeta {
 		self.observer()
@@ -500,7 +497,6 @@ where
 	}
 
 	// ---- acting ------------------------------------------------------------
-
 	/// Fetches again, restarting any fetch in flight. The fetch runs whether
 	/// or not the returned [`Refetch`] is awaited; await it for the outcome.
 	pub fn refetch(&self) -> Refetch<T, E> {
@@ -655,6 +651,7 @@ where
 {
 	let key = ArcMemo::new(move |_| key().into_maybe_key());
 	let observer = Observer::new(client, options);
+
 	observer.bind(&scope, key.get_untracked());
 
 	let effect_observer = Arc::clone(&observer);

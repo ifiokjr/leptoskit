@@ -107,20 +107,24 @@ impl CacheInner {
 		if let Some(query) = self.get(scope, key_hash, &is_key) {
 			return query;
 		}
+
 		let (query, alone) = {
 			let mut queries = self.queries.write();
 			let bucket = queries.entry((scope, key_hash)).or_default();
 			if let Some(query) = bucket.iter().find(|query| is_key(query)) {
 				return Arc::clone(query);
 			}
+
 			let query = create();
 			bucket.push(Arc::clone(&query));
 			(query, bucket.len() == 1)
 		};
 		let waiting = self.pending_hydration.lock().remove(&(scope, key_hash));
+
 		if let Some(waiting) = waiting.filter(|waiting| alone && !waiting.is_expired(now_ms())) {
 			query.hydrate(&waiting.query);
 		}
+
 		query.schedule_gc();
 		self.emit(CacheEvent::Added, &*query);
 		self.version.notify();
@@ -145,11 +149,13 @@ impl CacheInner {
 			if bucket.is_empty() {
 				queries.remove(&id);
 			}
+
 			removed
 		};
 		removed.cancel();
 		removed.on_removed();
 		self.emit(CacheEvent::Removed, &*removed);
+
 		self.version.notify();
 	}
 
@@ -171,12 +177,15 @@ impl CacheInner {
 			.drain()
 			.flat_map(|(_, bucket)| bucket)
 			.collect();
+
 		for query in &queries {
 			query.cancel();
 			query.on_removed();
 			self.emit(CacheEvent::Removed, &**query);
 		}
+
 		self.pending_hydration.lock().clear();
+
 		if !queries.is_empty() {
 			self.version.notify();
 		}
@@ -193,6 +202,7 @@ impl CacheInner {
 		if self.listeners.is_empty() {
 			return;
 		}
+
 		self.listeners.emit(&CacheNotification {
 			event,
 			query: query.info(),
@@ -232,18 +242,23 @@ impl CacheInner {
 	pub(crate) fn hydrate(&self, dehydrated: DehydratedQuery, gc_time: GcTime) {
 		let id = (dehydrated.scope, dehydrated.key_hash);
 		let cached = self.queries.read().get(&id).cloned();
+
 		if let Some(bucket) = cached {
 			// Colliding keys cannot tell whose data this is; see `unique`.
 			if let [query] = bucket.as_slice() {
 				query.hydrate(&dehydrated);
 			}
+
 			return;
 		}
+
 		let now = now_ms();
+
 		let expires_at = match gc_time {
 			GcTime::Duration(gc_time) => Some(now.saturating_add(millis(gc_time))),
 			GcTime::Never => None,
 		};
+
 		let mut pending = self.pending_hydration.lock();
 		pending.retain(|_, waiting| !waiting.is_expired(now));
 		// Older data never replaces newer, matching `Query::hydrate`.

@@ -55,6 +55,7 @@ impl FocusManager {
 		let before = Self::is_focused_untracked();
 		FOCUSED.set(focused);
 		let after = Self::is_focused_untracked();
+
 		if before != after {
 			FOCUS_LISTENERS.emit(&after);
 		}
@@ -68,6 +69,7 @@ impl FocusManager {
 	#[cfg(all(target_arch = "wasm32", feature = "browser"))]
 	fn notify_browser_change() {
 		FOCUS_DETECTED.notify();
+
 		if FOCUSED.get_untracked().is_none() {
 			FOCUS_LISTENERS.emit(&detect_focused());
 		}
@@ -104,13 +106,17 @@ impl OnlineManager {
 		if ONLINE.get_untracked() == online {
 			return;
 		}
+
 		ONLINE.set(online);
+
 		if online {
 			let waiters = std::mem::take(&mut *ONLINE_WAITERS.lock());
+
 			for waiter in waiters {
 				let _ = waiter.send(());
 			}
 		}
+
 		ONLINE_LISTENERS.emit(&online);
 	}
 
@@ -126,6 +132,7 @@ impl OnlineManager {
 			if ONLINE.get_untracked() {
 				return;
 			}
+
 			let (sender, receiver) = oneshot::channel();
 			waiters.push(sender);
 			receiver
@@ -177,6 +184,7 @@ pub fn install_browser_listeners() {
 					on_visibility.as_ref().unchecked_ref(),
 				);
 			}
+
 			// The listeners live as long as the page.
 			on_online.forget();
 			on_offline.forget();

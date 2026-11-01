@@ -109,15 +109,18 @@ impl<S: SecretStore> TokenKeeper<S> {
 	async fn renew<H: Http>(&self, server: &Endpoint<H>) -> Result<bool, ErrorResponse> {
 		let Some(refresh_token) = self.store.get().await? else {
 			*self.access() = None;
+
 			return Ok(false);
 		};
 
 		match server.refresh(refresh_token).await {
 			Ok(tokens) => self.hold(tokens).await.map(|()| true),
+
 			Err(refused) if refused.error == "signed_out" => {
 				self.clear().await;
 				Ok(false)
 			}
+
 			// The token may still be good: a lost answer can be retried with
 			// it for a short while.
 			Err(error) => Err(error),
@@ -246,6 +249,7 @@ impl Http for Plugin {
 						super::protocol::Method::Get => Method::Get,
 						super::protocol::Method::Post => Method::Post,
 					},
+
 					url: request.url,
 					headers,
 					body: request.body.unwrap_or_default().into_bytes(),

@@ -64,6 +64,7 @@ mod config;
 mod email;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod error;
+
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod events;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]

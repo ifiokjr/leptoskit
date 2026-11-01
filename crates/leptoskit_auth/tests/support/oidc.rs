@@ -327,6 +327,7 @@ impl FakeIdp {
 			.iter()
 			.find(|spec| spec.authorize_host == host)
 			.unwrap_or_else(|| panic!("the fake doesn't stand in for {host}"));
+
 		let issuer = match spec.issuer {
 			Some("microsoft") => {
 				format!(
@@ -430,6 +431,7 @@ impl FakeIdp {
 		} else {
 			json!({ "alg": "ES256", "kid": "k1" })
 		};
+
 		let signed = format!(
 			"{}.{}",
 			URL_SAFE_NO_PAD.encode(header.to_string()),
@@ -440,7 +442,9 @@ impl FakeIdp {
 		} else {
 			&self.key
 		};
+
 		let signature = pair.sign(&SystemRandom::new(), signed.as_bytes()).unwrap();
+
 		format!("{signed}.{}", URL_SAFE_NO_PAD.encode(signature.as_ref()))
 	}
 
@@ -463,78 +467,69 @@ impl FakeIdp {
 	/// the form, or with HTTP Basic where the provider wants that), and
 	/// PKCE, then answers with tokens.
 	fn token(&self, request: &ProviderRequest) -> (u16, Value) {
-		let body = request.body.as_deref().unwrap_or_default();
-		let json_body = header(request, "content-type") == Some("application/json");
-		let form: HashMap<String, String> = if json_body {
-			serde_json::from_str(body).unwrap()
-		} else {
-			url::form_urlencoded::parse(body.as_bytes())
-				.into_owned()
-				.collect()
-		};
+		let form = token_form(request);
+
 		if form.get("grant_type").map(String::as_str) == Some("refresh_token") {
 			return self.refreshed(request, &form);
 		}
 
 		let Some(code) = form.get("code") else {
-			return (400, json!({ "error": "invalid_request" }));
+			return refused("invalid_request");
 		};
 		let Some(grant) = self.state.lock().unwrap().grants.remove(code) else {
-			return (400, json!({ "error": "invalid_grant" }));
+			return refused("invalid_grant");
 		};
+
+		if !self.token_request_ok(request, &form, &grant) {
+			return refused("invalid_grant");
+		}
+
+		self.tokens_for(code, grant)
+	}
+
+	/// Whether the token request names the code's grant: its host, client,
+	/// redirect, PKCE verifier, and the form the provider expects.
+	fn token_request_ok(
+		&self,
+		request: &ProviderRequest,
+		form: &HashMap<String, String>,
+		grant: &Grant,
+	) -> bool {
 		let host = url::Url::parse(&request.url)
 			.unwrap()
 			.host_str()
 			.unwrap()
 			.to_owned();
-		let basic = header(request, "authorization")
-			.and_then(|value| value.strip_prefix("Basic "))
-			.map(|credentials| {
-				let decoded = String::from_utf8(STANDARD.decode(credentials).unwrap()).unwrap();
-				let (id, secret) = decoded.split_once(':').unwrap();
-				(decode(id), decode(secret))
-			});
-		let (client_id, secret) = match &basic {
-			Some((id, secret)) => (Some(id.clone()), Some(secret.clone())),
-			None => {
-				(
-					form.get(grant.spec.client_param).cloned(),
-					form.get("client_secret").cloned(),
-				)
-			}
-		};
+		let basic = basic_credentials(request);
+		let (client_id, secret) = client_credentials(form, grant, basic.as_ref());
 		let authenticated_as_asked = if grant.spec.basic {
 			basic.is_some() && !form.contains_key("client_secret")
 		} else {
 			basic.is_none()
 		};
-		let pkce_ok = match form.get("code_verifier") {
-			Some(verifier) => {
-				grant.spec.pkce
-					&& URL_SAFE_NO_PAD.encode(digest(&SHA256, verifier.as_bytes()))
-						== grant.challenge
-			}
-			None => !grant.spec.pkce,
-		};
-		let client_ok = match grant.issuer.as_str() {
-			"https://appleid.apple.com" => {
-				self.apple_secret_ok(secret.as_deref().unwrap_or_default(), &grant)
-			}
+
+		host == grant.spec.token_host
+			&& form["grant_type"] == "authorization_code"
+			&& client_id.as_deref() == Some(grant.client_id.as_str())
+			&& form["redirect_uri"] == grant.redirect_uri
+			&& code_verifier_ok(form, grant)
+			&& token_form_is_json(request) == grant.spec.json
+			&& authenticated_as_asked
+			&& self.client_secret_ok(secret.as_deref(), grant)
+	}
+
+	/// The client secret the provider expects: Apple's minted one, or the
+	/// one shared secret.
+	fn client_secret_ok(&self, secret: Option<&str>, grant: &Grant) -> bool {
+		match grant.issuer.as_str() {
+			"https://appleid.apple.com" => self.apple_secret_ok(secret.unwrap_or_default(), grant),
 			_ => secret.is_none_or(|secret| secret == SECRET),
-		};
-
-		if host != grant.spec.token_host
-			|| form["grant_type"] != "authorization_code"
-			|| client_id.as_deref() != Some(grant.client_id.as_str())
-			|| form["redirect_uri"] != grant.redirect_uri
-			|| !pkce_ok
-			|| json_body != grant.spec.json
-			|| !authenticated_as_asked
-			|| !client_ok
-		{
-			return (400, json!({ "error": "invalid_grant" }));
 		}
+	}
 
+	/// The tokens a valid code earns, with the claims some providers put
+	/// right here rather than in an ID token.
+	fn tokens_for(&self, code: &str, grant: Grant) -> (u16, Value) {
 		if grant.spec.issuer.is_none() {
 			let access = URL_SAFE_NO_PAD.encode(digest(&SHA256, code.as_bytes()));
 			// Some providers, such as Notion, say who signed in right here.
@@ -552,6 +547,7 @@ impl FakeIdp {
 				.unwrap()
 				.tokens
 				.insert(access, grant.claims);
+
 			return (200, answer);
 		}
 
@@ -681,11 +677,13 @@ impl FakeIdp {
 					}),
 				)
 			}
+
 			"GET" if KEY_SETS.contains(&request.url.as_str()) => (200, self.jwks()),
 			"GET" if host == "login.microsoftonline.com" => (200, self.jwks()),
 			"GET" if API_HOSTS.contains(&host) => {
 				self.profile(&url, header(request, "authorization"))
 			}
+
 			"POST" if url.path().contains("revoke") => self.revoke(request),
 			"POST" if SPECS.iter().any(|spec| spec.token_host == host) => self.token(request),
 			_ => (404, json!({ "error": "not_found" })),
@@ -722,4 +720,69 @@ impl ProviderHttp for FakeIdp {
 			body: body.to_string().into_bytes(),
 		})))
 	}
+}
+
+/// The token request's fields, from JSON or a form.
+fn token_form(request: &ProviderRequest) -> HashMap<String, String> {
+	let body = request.body.as_deref().unwrap_or_default();
+
+	if token_form_is_json(request) {
+		return serde_json::from_str(body).unwrap();
+	}
+
+	url::form_urlencoded::parse(body.as_bytes())
+		.into_owned()
+		.collect()
+}
+
+/// Whether the token request's body is JSON rather than a form.
+fn token_form_is_json(request: &ProviderRequest) -> bool {
+	header(request, "content-type") == Some("application/json")
+}
+
+/// The client's credentials from HTTP Basic, where the provider wants
+/// them there.
+fn basic_credentials(request: &ProviderRequest) -> Option<(String, String)> {
+	header(request, "authorization")
+		.and_then(|value| value.strip_prefix("Basic "))
+		.map(|credentials| {
+			let decoded = String::from_utf8(STANDARD.decode(credentials).unwrap()).unwrap();
+			let (id, secret) = decoded.split_once(':').unwrap();
+			(decode(id), decode(secret))
+		})
+}
+
+/// The client's credentials, from Basic or the form, as the grant names
+/// them.
+fn client_credentials(
+	form: &HashMap<String, String>,
+	grant: &Grant,
+	basic: Option<&(String, String)>,
+) -> (Option<String>, Option<String>) {
+	match basic {
+		Some((id, secret)) => (Some(id.clone()), Some(secret.clone())),
+		None => {
+			(
+				form.get(grant.spec.client_param).cloned(),
+				form.get("client_secret").cloned(),
+			)
+		}
+	}
+}
+
+/// Whether the verifier hashes to the challenge the code was issued with,
+/// where the provider takes PKCE.
+fn code_verifier_ok(form: &HashMap<String, String>, grant: &Grant) -> bool {
+	match form.get("code_verifier") {
+		Some(verifier) => {
+			grant.spec.pkce
+				&& URL_SAFE_NO_PAD.encode(digest(&SHA256, verifier.as_bytes())) == grant.challenge
+		}
+		None => !grant.spec.pkce,
+	}
+}
+
+/// A refused grant, as the provider answers it.
+fn refused(error: &str) -> (u16, Value) {
+	(400, json!({ "error": error }))
 }

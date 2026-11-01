@@ -93,6 +93,7 @@ where
 		if let Some(error) = self.signals.error.get_untracked() {
 			return Err(error);
 		}
+
 		match self.signals.data.get_untracked() {
 			Some(data) => Ok(data),
 			None => unreachable!("a settled mutation has data or an error"),
@@ -289,6 +290,7 @@ impl MutationCacheInner {
 			let index = mutations.iter().position(|mutation| mutation.id() == id);
 			index.map(|index| mutations.remove(index))
 		};
+
 		if let Some(mutation) = removed {
 			self.emit(MutationEvent::Removed, mutation.as_ref());
 			self.version.notify();
@@ -308,9 +310,11 @@ impl MutationCacheInner {
 
 	pub(crate) fn clear(&self) {
 		let mutations: Vec<_> = self.mutations.write().drain(..).collect();
+
 		for mutation in &mutations {
 			self.emit(MutationEvent::Removed, &**mutation);
 		}
+
 		if !mutations.is_empty() {
 			self.version.notify();
 		}
@@ -320,6 +324,7 @@ impl MutationCacheInner {
 		if self.listeners.is_empty() {
 			return;
 		}
+
 		self.listeners.emit(&MutationNotification {
 			event,
 			mutation: mutation.info(),
@@ -347,9 +352,11 @@ impl MutationCacheInner {
 				None
 			}
 		};
+
 		if let Some(receiver) = wait {
 			let _ = receiver.await;
 		}
+
 		SerialPermit { cache: self, name }
 	}
 }
@@ -366,12 +373,14 @@ impl Drop for SerialPermit {
 		let Some(queue) = queues.get_mut(&self.name) else {
 			return;
 		};
+
 		while let Some(next) = queue.waiters.pop_front() {
 			if next.send(()).is_ok() {
 				// The turn passes directly; the queue stays busy.
 				return;
 			}
 		}
+
 		queues.remove(&self.name);
 	}
 }

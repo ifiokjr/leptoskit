@@ -2,7 +2,6 @@
 
 //! Mutations: lifecycle, callbacks, optimistic updates, retries, serial
 //! scopes, pausing, and the mutation cache.
-
 mod common;
 
 use std::sync::Arc;
@@ -54,6 +53,7 @@ async fn mutate_async_reports_the_life_of_a_call() {
 	assert_eq!(add.data(), Some("Buy milk".to_owned()));
 	assert_eq!(add.variables(), Some("Buy milk".to_owned()));
 	assert!(add.submitted_at().is_some());
+
 	assert_eq!(add.context(), Some(()), "the default context is unit");
 	assert_eq!(client.mutating_count(), 0);
 
@@ -256,6 +256,7 @@ async fn awaited_settled_keeps_the_mutation_pending_until_refetches_finish() {
 					while !gate.load(Ordering::SeqCst) {
 						tokio::time::sleep(Duration::from_millis(2)).await;
 					}
+
 					args.client.invalidate_scope(&todos).await;
 				}
 			})
@@ -345,6 +346,7 @@ async fn mutation_state_lists_cached_mutations() {
 				while !slow.load(Ordering::SeqCst) {
 					tokio::time::sleep(Duration::from_millis(2)).await;
 				}
+
 				Ok(title)
 			}
 		})

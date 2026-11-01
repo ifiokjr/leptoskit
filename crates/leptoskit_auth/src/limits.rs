@@ -64,48 +64,7 @@ impl DbRateLimiter {
 		// in between. A lost race reads again; a busy key that keeps losing
 		// is refused rather than let through.
 		for _ in 0..8 {
-			let now = leptoskit_db::now();
-			let row = RateLimit::query()
-				.filter(|limit| limit.key.eq(key.to_vec()))
-				.first(&self.db)
-				.await?;
-			let Some(row) = row else {
-				let inserted = NewRateLimit {
-					key: key.to_vec(),
-					window_start: now,
-					count: 1,
-				}
-				.insert(&self.db)
-				.await;
-
-				match inserted {
-					Ok(_) => return Ok(()),
-					Err(DbError::Conflict { .. }) => continue,
-					Err(error) => return Err(error.into()),
-				}
-			};
-			let ends = row.window_start + window;
-			let (window_start, count) = if now >= ends {
-				(now, 1)
-			} else if row.count >= max {
-				return Err(AuthError::RateLimited {
-					retry_after: (ends - now).to_std().unwrap_or_default(),
-				});
-			} else {
-				(row.window_start, row.count + 1)
-			};
-			let changed = RateLimit::update()
-				.filter(|limit| {
-					limit.id.eq(row.id)
-						& limit.window_start.eq(row.window_start)
-						& limit.count.eq(row.count)
-				})
-				.set(|limit| limit.window_start, window_start)
-				.set(|limit| limit.count, count)
-				.run(&self.db)
-				.await?;
-
-			if changed == 1 {
+			if self.count_once(key, window, max).await? {
 				return Ok(());
 			}
 		}
@@ -114,6 +73,81 @@ impl DbRateLimiter {
 			retry_after: Duration::from_secs(1),
 		})
 	}
+
+	/// One read-then-update pass. Says whether the counter was updated: a
+	/// lost race says no, so the caller reads again.
+	async fn count_once(&self, key: &[u8], window: chrono::TimeDelta, max: i32) -> Result<bool> {
+		let now = leptoskit_db::now();
+		let row = RateLimit::query()
+			.filter(|limit| limit.key.eq(key.to_vec()))
+			.first(&self.db)
+			.await?;
+		let Some(row) = row else {
+			return match self.insert_first(key, now).await {
+				Ok(()) => Ok(true),
+				Err(Some(error)) => Err(error),
+				Err(None) => Ok(false),
+			};
+		};
+		let ends = row.window_start + window;
+		let (window_start, count) = next_count(&row, now, ends, max)?;
+
+		let changed = RateLimit::update()
+			.filter(|limit| {
+				limit.id.eq(row.id)
+					& limit.window_start.eq(row.window_start)
+					& limit.count.eq(row.count)
+			})
+			.set(|limit| limit.window_start, window_start)
+			.set(|limit| limit.count, count)
+			.run(&self.db)
+			.await?;
+
+		Ok(changed == 1)
+	}
+
+	/// Inserts the first counter for `key`. A conflict means another
+	/// request got there first, which is a lost race.
+	async fn insert_first(
+		&self,
+		key: &[u8],
+		now: leptoskit_db::Timestamp,
+	) -> std::result::Result<(), Option<AuthError>> {
+		let inserted = NewRateLimit {
+			key: key.to_vec(),
+			window_start: now,
+			count: 1,
+		}
+		.insert(&self.db)
+		.await;
+
+		match inserted {
+			Ok(_) => Ok(()),
+			Err(DbError::Conflict { .. }) => Err(None),
+			Err(error) => Err(Some(error.into())),
+		}
+	}
+}
+
+/// Where the window stands after this request, or the refusal when the
+/// limit is reached.
+fn next_count(
+	row: &RateLimit,
+	now: leptoskit_db::Timestamp,
+	ends: leptoskit_db::Timestamp,
+	max: i32,
+) -> Result<(leptoskit_db::Timestamp, i32)> {
+	if now >= ends {
+		return Ok((now, 1));
+	}
+
+	if row.count >= max {
+		return Err(AuthError::RateLimited {
+			retry_after: (ends - now).to_std().unwrap_or_default(),
+		});
+	}
+
+	Ok((row.window_start, row.count + 1))
 }
 
 impl RateLimiter for DbRateLimiter {

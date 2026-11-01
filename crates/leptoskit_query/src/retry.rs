@@ -53,6 +53,7 @@ impl<E> Attempts<'_, E> {
 		Fut: Future<Output = Result<T, E>>,
 	{
 		let mut failures = 0_u32;
+
 		loop {
 			let error = match until_cancelled(self.token, attempt()).await {
 				Some(Ok(data)) => return Settled::Success(data),
@@ -64,17 +65,21 @@ impl<E> Attempts<'_, E> {
 			let delay = self.retry_delay.delay(failures, &error);
 			failures += 1;
 			on_failure(failures, &error);
+
 			if !should_retry {
 				return Settled::Error(error);
 			}
+
 			if until_cancelled(self.token, sleep(delay)).await.is_none() {
 				return Settled::Cancelled;
 			}
+
 			// Retries wait for the network unless the mode says to always
 			// fetch; offline-first gets its one optimistic attempt and then
 			// waits like everyone else.
 			if self.network_mode != NetworkMode::Always && !OnlineManager::is_online_untracked() {
 				on_pause(true);
+
 				if until_cancelled(self.token, OnlineManager::wait_until_online())
 					.await
 					.is_none()
@@ -97,6 +102,7 @@ pub(crate) async fn until_cancelled<F: Future>(
 	future: F,
 ) -> Option<F::Output> {
 	let future = pin!(future);
+
 	match select(token.cancelled(), future).await {
 		Either::Left(_) => None,
 		Either::Right((output, _)) => Some(output),

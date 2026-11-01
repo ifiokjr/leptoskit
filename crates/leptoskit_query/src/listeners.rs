@@ -49,6 +49,7 @@ impl<A: 'static> Listeners<A> {
 			.iter()
 			.map(|(_, listener)| Arc::clone(listener))
 			.collect();
+
 		for listener in listeners {
 			listener(event);
 		}

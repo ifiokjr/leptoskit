@@ -146,9 +146,11 @@ impl QueryClient {
 	/// [`provide`](Self::provide) calls it.
 	pub fn mount(&self) {
 		let mut mounted = self.inner.mounted.lock();
+
 		if !mounted.is_empty() {
 			return;
 		}
+
 		install_browser_listeners();
 		let cache = Arc::clone(&self.inner.cache);
 		mounted.push(FocusManager::subscribe(move |focused| {
@@ -184,7 +186,6 @@ impl QueryClient {
 	}
 
 	// ---- internal lookup ---------------------------------------------------
-
 	/// Returns the query for `key`, creating it with the scope's fetcher.
 	pub(crate) fn get_or_create<K, T, E>(
 		&self,
@@ -245,7 +246,6 @@ impl QueryClient {
 	}
 
 	// ---- fetching ----------------------------------------------------------
-
 	/// Returns fresh cached data, or fetches and caches it.
 	///
 	/// Data is fresh when it is younger than the scope's stale time. A fetch
@@ -259,6 +259,7 @@ impl QueryClient {
 		E: QueryError,
 	{
 		let query = self.get_or_create(scope, key);
+
 		if !query.is_stale_for(query.options.stale_time)
 			&& let Some(data) = query.signals.data.get_untracked()
 		{
@@ -284,9 +285,11 @@ impl QueryClient {
 			if let Some(error) = query.signals.error.get_untracked() {
 				return Err(error);
 			}
+
 			if let Some(data) = query.signals.data.get_untracked() {
 				return Ok(data);
 			}
+
 			let fetch = query
 				.in_flight()
 				.unwrap_or_else(|| query.fetch(FetchOptions::JOIN));
@@ -317,9 +320,11 @@ impl QueryClient {
 		E: QueryError,
 	{
 		let query = self.get_or_create(scope, key);
+
 		if let Some(data) = query.signals.data.get_untracked() {
 			return Ok(data);
 		}
+
 		// A cached error is no answer: like TanStack, fetch whenever there is
 		// no data.
 		query.fetch(FetchOptions::JOIN).await;
@@ -339,18 +344,20 @@ impl QueryClient {
 		E: QueryError,
 	{
 		let query = self.get_or_create(scope, key);
+
 		if let Some(data) = query.signals.data.get_untracked() {
 			if query.is_stale_for(query.options.stale_time) {
 				drop(query.fetch(FetchOptions::JOIN));
 			}
+
 			return Ok(data);
 		}
+
 		query.fetch(FetchOptions::JOIN).await;
 		Self::settle(&query).await
 	}
 
 	// ---- reading -----------------------------------------------------------
-
 	/// The cached data for `key`, without subscribing. For callbacks such as
 	/// optimistic updates; views should use [`use_query`](crate::use_query).
 	///
@@ -361,6 +368,7 @@ impl QueryClient {
 		if let Some(query) = self.find(scope, key) {
 			return query.signals.data.get_untracked();
 		}
+
 		let waiting = self
 			.inner
 			.cache
@@ -394,7 +402,6 @@ impl QueryClient {
 	}
 
 	// ---- writing -----------------------------------------------------------
-
 	/// Writes data into the cache as if a fetch had just succeeded, creating
 	/// the query if needed. Every observer sees it immediately.
 	///
@@ -457,20 +464,22 @@ impl QueryClient {
 		updater: impl Fn(&S::Key, S::Data) -> Option<S::Data>,
 	) -> usize {
 		let mut written = 0;
+
 		for query in self.typed_queries::<S>(&QueryFilter::scope(scope)) {
 			let Some(current) = query.signals.data.get_untracked() else {
 				continue;
 			};
+
 			if let Some(next) = updater(&query.key, current) {
 				query.set_data(next, None);
 				written += 1;
 			}
 		}
+
 		written
 	}
 
 	// ---- invalidation ------------------------------------------------------
-
 	/// Marks matching queries stale and refetches the observed ones.
 	///
 	/// The refetches start immediately; await the returned [`Refetches`] to
@@ -487,15 +496,18 @@ impl QueryClient {
 		options: InvalidateOptions,
 	) -> Refetches {
 		let queries = self.inner.cache.find_all(&filter);
+
 		for query in &queries {
 			query.invalidate();
 		}
+
 		let kind = match options.refetch_type {
 			RefetchType::Active => Some(QueryKind::Active),
 			RefetchType::Inactive => Some(QueryKind::Inactive),
 			RefetchType::All => Some(QueryKind::All),
 			RefetchType::None => None,
 		};
+
 		let fetches = kind.map_or_else(Vec::new, |kind| {
 			let queries: Vec<_> = queries
 				.into_iter()
@@ -570,9 +582,11 @@ impl QueryClient {
 		filter: QueryFilter,
 	) -> impl Future<Output = ()> + Send + 'static + use<> {
 		let queries = self.inner.cache.find_all(&filter);
+
 		for query in &queries {
 			query.reset();
 		}
+
 		let active: Vec<_> = queries
 			.into_iter()
 			.filter(|query| query.is_active())
@@ -581,7 +595,6 @@ impl QueryClient {
 	}
 
 	// ---- counters ----------------------------------------------------------
-
 	/// How many queries are fetching, without subscribing.
 	#[must_use]
 	pub fn fetching_count(&self) -> usize {
@@ -603,7 +616,6 @@ impl QueryClient {
 	}
 
 	// ---- cache -------------------------------------------------------------
-
 	/// Empties both caches.
 	pub fn clear(&self) {
 		self.inner.cache.clear();
@@ -630,7 +642,6 @@ impl QueryClient {
 	}
 
 	// ---- hydration ---------------------------------------------------------
-
 	/// Serializes every successful query whose scope has a codec.
 	///
 	/// # Panics

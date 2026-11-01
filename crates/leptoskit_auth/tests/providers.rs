@@ -174,6 +174,7 @@ impl Browser {
 		} else {
 			"/auth/oauth/start"
 		};
+
 		let started = self
 			.post(
 				app,
@@ -291,6 +292,7 @@ async fn an_openid_connect_provider_signs_people_up_then_in() {
 		);
 		assert_eq!(query["scope"], "openid email profile");
 		assert_eq!(query["state"].len(), 43);
+
 		assert_eq!(query["code_challenge"].len(), 43);
 		assert!(query.contains_key("nonce"));
 
@@ -396,6 +398,7 @@ async fn forged_replayed_and_misdirected_answers_are_refused() {
 		ProviderOutcome::Failed("sign_in_expired".into())
 	);
 	let mut other = Browser::default();
+
 	other
 		.post(&app, "/auth/oauth/start", json!({ "provider": "company" }))
 		.await;
@@ -435,6 +438,7 @@ async fn forged_replayed_and_misdirected_answers_are_refused() {
 		.idp
 		.authorize(&url, person("u-4", "x@example.com", true));
 	let location = browser.callback(&app, "google", &back).await;
+
 	assert_eq!(
 		outcome(&location),
 		ProviderOutcome::Failed("sign_in_expired".into())
@@ -511,6 +515,7 @@ async fn google_github_microsoft_and_apple_each_work_their_own_way() {
 		.unwrap();
 	assert_eq!(identity.subject, "42");
 	assert_eq!(identity.name.as_deref(), Some("linus"));
+
 	assert!(identity.email_verified);
 
 	// Microsoft: the email claim is never vouched for, so it isn't stored
@@ -564,6 +569,7 @@ async fn google_github_microsoft_and_apple_each_work_their_own_way() {
 		)
 		.await;
 	assert_eq!(cross_site.status(), StatusCode::OK);
+
 	let policy = cross_site.headers()[header::CONTENT_SECURITY_POLICY]
 		.to_str()
 		.unwrap()
@@ -638,6 +644,7 @@ async fn an_address_another_account_has_never_signs_in_to_it() {
 		.unwrap();
 	assert_eq!(emails, 0);
 	let again = stranger.post(&app, "/auth/oauth/continue", json!({})).await;
+
 	assert_eq!(json_body(again).await["error"], "sign_in_expired");
 }
 
@@ -686,6 +693,7 @@ async fn connecting_disconnecting_and_merging_accounts() {
 			)
 			.await;
 		assert_eq!(outcome(&location), ProviderOutcome::AlreadyLinked);
+
 		let location = browser.through(&app, "github", true, github.clone()).await;
 		assert_eq!(outcome(&location), ProviderOutcome::Merge);
 
@@ -723,6 +731,7 @@ async fn connecting_disconnecting_and_merging_accounts() {
 		let system = db.system("test");
 		assert!(Account::find(&system, absorbed).await.unwrap().is_none());
 		assert_eq!(app.auth.resolve_merged(absorbed).await.unwrap(), survivor);
+
 		assert_eq!(app.auth.resolve_merged(survivor).await.unwrap(), survivor);
 		let moved = EmailAddress::query()
 			.filter(|email| email.account_id.eq(survivor))

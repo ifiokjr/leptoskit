@@ -160,6 +160,7 @@ impl Keys {
 		let mut sealed = Vec::with_capacity(2 + id.len() + NONCE_LENGTH + ciphertext.len());
 		sealed.push(SEALED_FORMAT);
 		sealed.push(u8::try_from(id.len()).expect("key IDs are at most 64 bytes"));
+
 		sealed.extend_from_slice(id);
 		sealed.extend_from_slice(&nonce);
 		sealed.extend_from_slice(&ciphertext);
@@ -323,6 +324,7 @@ pub(crate) fn generate_code() -> Result<String, AuthError> {
 		if index == CODE_LENGTH / 2 {
 			code.push('-');
 		}
+
 		code.push(char::from(CODE_ALPHABET[usize::from(byte % 32)]));
 	}
 
@@ -464,6 +466,7 @@ mod tests {
 		assert_eq!(rotated.newest(), "new");
 		assert_eq!(rotated.ids(), ["new", "old"]);
 		let dropped = Keys::single("new", [2; 32]);
+
 		let error = dropped.open(&ADA, &sealed).unwrap_err().to_string();
 		assert!(error.contains("key `old`"), "{error}");
 		assert!(!error.contains("secret`"), "{error}");

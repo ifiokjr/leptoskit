@@ -401,10 +401,12 @@ async fn signed_in_at(db: &Db, account: Id<Account>, minutes: i64) {
 	use leptoskit_db::Connection;
 
 	let system = db.system("test: age a session");
+
 	let (table, first, second) = match system.dialect() {
 		leptoskit_db::Dialect::Postgres => ("auth.sessions", "$1", "$2"),
 		leptoskit_db::Dialect::Sqlite => ("auth_sessions", "?1", "?2"),
 	};
+
 	system
 		.execute(leptoskit_db::Statement {
 			sql: format!(
@@ -823,6 +825,7 @@ async fn bringing_the_data_needs_the_app_to_cover_every_table() {
 				json!({ "mode": "move_login", "confirm": true, "code": totp::totp(&secret, 1) }),
 			)
 			.await;
+
 		assert_eq!(merged.status(), StatusCode::NO_CONTENT);
 
 		// "Move only the login": the other account's data went with it.

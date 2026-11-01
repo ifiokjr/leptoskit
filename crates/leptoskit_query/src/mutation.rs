@@ -651,7 +651,6 @@ where
 	}
 
 	// ---- acting ------------------------------------------------------------
-
 	/// Runs the mutation. Fire and forget; the handle reports progress. Does
 	/// nothing once the owning component is disposed.
 	pub fn mutate(&self, variables: V) {
@@ -749,7 +748,6 @@ where
 	}
 
 	// ---- reading -----------------------------------------------------------
-
 	fn with_current<R>(&self, read: impl FnOnce(Option<&Arc<Mutation<V, T, E, C>>>) -> R) -> R {
 		match self.inner() {
 			Some(inner) => inner.current.with(|current| read(current.as_ref())),
@@ -921,6 +919,7 @@ where
 {
 	let name = scope.serial.as_ref()?;
 	mutation.set_paused(true);
+
 	let permit = Arc::clone(cache).acquire(Arc::clone(name)).await;
 	mutation.set_paused(false);
 	Some(permit)
@@ -940,6 +939,7 @@ where
 	C: QueryData,
 {
 	let network_mode = scope.network_mode.unwrap_or_default();
+
 	if network_mode == NetworkMode::Online && !OnlineManager::is_online_untracked() {
 		mutation.set_paused(true);
 		OnlineManager::wait_until_online().await;
@@ -967,6 +967,7 @@ where
 			|paused| mutation.set_paused(paused),
 		)
 		.await;
+
 	match settled {
 		Settled::Success(data) => Ok(data),
 		Settled::Error(error) => Err(error),
@@ -1033,6 +1034,7 @@ async fn run_scope_callbacks<V, T, E, C>(
 			}
 		}
 	}
+
 	if let Some(on_settled) = &scope.on_settled {
 		on_settled(call.settled(result.clone())).await;
 	}
@@ -1061,6 +1063,7 @@ fn record_outcome<V, T, E, C>(
 			mutation.signals.status.set(MutationStatus::Error);
 		}
 	}
+
 	cache
 		.pending
 		.update(|count| *count = count.saturating_sub(1));
@@ -1083,6 +1086,7 @@ fn run_call_callbacks<V, T, E, C>(
 		on_error,
 		on_settled,
 	} = callbacks;
+
 	match &result {
 		Ok(data) => {
 			if let Some(on_success) = on_success {
@@ -1095,6 +1099,7 @@ fn run_call_callbacks<V, T, E, C>(
 			}
 		}
 	}
+
 	if let Some(on_settled) = on_settled {
 		on_settled(call.settled(result));
 	}
@@ -1111,6 +1116,7 @@ fn schedule_gc<V, T, E, C>(
 	} else {
 		GcTime::DEFAULT
 	});
+
 	if let GcTime::Duration(gc_time) = gc_time {
 		spawn(async move {
 			sleep(gc_time).await;

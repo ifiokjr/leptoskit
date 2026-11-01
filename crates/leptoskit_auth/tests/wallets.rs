@@ -271,10 +271,12 @@ async fn email_sign_in(app: &App, browser: &mut Browser, address: &str) {
 /// Runs `UPDATE auth.<table> SET <assignments> WHERE <key> = <value>`.
 async fn age(db: &Db, table: &str, assignments: &str, key: &str, values: [DbValue; 2]) {
 	let system = db.system("test: age a row");
+
 	let (table, first, second) = match system.dialect() {
 		Dialect::Postgres => (format!("auth.{table}"), "$1", "$2"),
 		Dialect::Sqlite => (format!("auth_{table}"), "?1", "?2"),
 	};
+
 	let assignments = assignments.replace("$1", first);
 	system
 		.execute(Statement {
@@ -372,6 +374,7 @@ async fn a_wallet_links_with_a_fresh_proof_that_works_once() {
 		assert_eq!(linked["wallet"]["address"], wallet.address().to_string());
 		assert_eq!(linked["wallet"]["label"], "Treasury");
 		assert_eq!(linked["wallet"]["can_sign_in"], false);
+
 		assert_eq!(linked["wallet"]["is_public"], false);
 
 		// The proof is kept for audit; the owner is told.
@@ -517,6 +520,7 @@ async fn policies_name_the_owner_of_a_wallet() {
 			serde_json::from_value(json_body(nobody.get(&app, "/vaults").await).await).unwrap();
 		assert_eq!(names, [] as [String; 0]);
 		let mut grace = Browser::default();
+
 		email_sign_in(&app, &mut grace, "grace@example.com").await;
 		let names: Vec<String> =
 			serde_json::from_value(json_body(grace.get(&app, "/vaults").await).await).unwrap();
@@ -562,6 +566,7 @@ async fn wallets_sign_in_only_when_their_owner_and_the_server_allow_it() {
 		email_sign_in(&off, &mut ada, "ada@example.com").await;
 		let wallet = SoftwareWallet::new();
 		let linked = ada.link(&off, &wallet).await;
+
 		let id = linked["wallet"]["id"].clone();
 		let refused = ada
 			.post(
@@ -654,6 +659,7 @@ async fn wallets_sign_in_only_when_their_owner_and_the_server_allow_it() {
 		assert_eq!(json_body(renamed).await["label"], "Cold storage");
 		let public = app.auth.public_wallets(account).await.unwrap();
 		assert_eq!(public.len(), 1);
+
 		assert_eq!(public[0].address, wallet.address());
 
 		let mut ada = Browser::default();
@@ -842,6 +848,7 @@ async fn a_wallet_signs_in_as_one_factor() {
 				json!({ "proof": wallet.sign_in(&input) }),
 			)
 			.await;
+
 		let body = json_body(response).await;
 		assert_eq!(
 			body["second_factor"]["factors"],
@@ -884,6 +891,7 @@ async fn fresh_proofs_unlinking_and_the_last_way_in() {
 		let wallet = SoftwareWallet::new();
 		let linked = ada.link(&app, &wallet).await;
 		let id = linked["wallet"]["id"].clone();
+
 		let me = leptoskit_auth::SignedIn {
 			account,
 			session: Id::new(),
@@ -937,6 +945,7 @@ async fn fresh_proofs_unlinking_and_the_last_way_in() {
 			.post(&app, "/auth/wallets/proof", json!(impostor.sign_in(&input)))
 			.await;
 		assert_eq!(json_body(wrong).await["error"], "wallet_failed");
+
 		let options = ada
 			.post(
 				&app,
@@ -1017,6 +1026,7 @@ async fn fresh_proofs_unlinking_and_the_last_way_in() {
 		let unlinked = ada
 			.post(&app, "/auth/wallets/unlink", json!({ "id": id }))
 			.await;
+
 		assert_eq!(unlinked.status(), StatusCode::NO_CONTENT);
 		assert_eq!(ada.wallets(&app).await.len(), 1);
 		assert_eq!(events(&db, account, EventKind::WalletUnlinked).await, 1);

@@ -233,6 +233,7 @@ async fn a_browser_signs_in_with_a_host_only_cookie_and_signs_out() {
 	assert!(set_cookie.ends_with("; Path=/; HttpOnly; SameSite=Lax; Max-Age=7776000; Secure"));
 	let signed_in: SignedInResponse = body(verified).await;
 	assert!(signed_in.signed_up);
+
 	assert_eq!(signed_in.tokens, None);
 
 	let cookie = set_cookie.split(';').next().unwrap();
@@ -522,6 +523,7 @@ async fn changes_from_other_sites_are_refused() {
 	assert_eq!(refused.status(), StatusCode::FORBIDDEN);
 	assert!(!refused.headers().contains_key(header::SET_COOKIE));
 	let signed_in = app.send(verify("bearer")).await;
+
 	assert_eq!(signed_in.status(), StatusCode::OK);
 	let signed_in: SignedInResponse = body(signed_in).await;
 	assert!(signed_in.tokens.is_some());
@@ -918,6 +920,7 @@ async fn a_browser_turns_on_an_authenticator_and_needs_it_to_sign_in() {
 	let off = app
 		.call("POST", "/auth/totp/disable", None, Some(&laptop))
 		.await;
+
 	assert_eq!(off.status(), StatusCode::NO_CONTENT);
 	let again: ErrorResponse = body(
 		app.call("POST", "/auth/totp/disable", None, Some(&laptop))
@@ -965,6 +968,7 @@ async fn browser_turns_on(app: &App, cookie: &str) -> Vec<String> {
 	let elevated = session_cookie(&confirmed);
 	assert_ne!(elevated, cookie, "the token rotates");
 	let confirmed: TotpConfirmedResponse = body(confirmed).await;
+
 	assert_eq!(confirmed.tokens, None);
 	let codes = confirmed.recovery_codes.unwrap().codes;
 	assert_eq!(codes.len(), 10);
@@ -1001,6 +1005,7 @@ async fn browser_second_step(app: &App, codes: &[String]) -> String {
 	assert!(pending[0].starts_with("__Host-second-factor="));
 	assert!(pending[0].contains("; Path=/; HttpOnly; SameSite=Lax; Max-Age="));
 	assert!(pending[0].ends_with("; Secure"));
+
 	let pending = pending[0].split(';').next().unwrap().to_owned();
 	let VerifyResponse::SecondFactor(step) = body(verified).await else {
 		panic!("the account has a second factor");
@@ -1042,6 +1047,7 @@ async fn browser_second_step(app: &App, codes: &[String]) -> String {
 		"{cookies:?}"
 	);
 	let laptop = session_cookie(&signed_in);
+
 	let signed_in: SignedInResponse = body(signed_in).await;
 	assert!(signed_in.session.mfa_at.is_some());
 
@@ -1164,6 +1170,7 @@ async fn a_native_app_carries_the_second_step_and_steps_up_with_tokens() {
 		))
 		.await;
 	assert_eq!(stale.status(), StatusCode::UNAUTHORIZED);
+
 	let off = app
 		.send(native(
 			"/auth/totp/disable",
@@ -1206,6 +1213,7 @@ async fn a_session_that_must_set_up_two_step_reaches_only_that() {
 			Some(&cookie),
 		)
 		.await;
+
 	assert_eq!(confirmed.status(), StatusCode::OK);
 	let cookie = session_cookie(&confirmed);
 	let me = app.call("GET", "/me", None, Some(&cookie)).await;
@@ -1237,6 +1245,7 @@ async fn register(
 	let cookie = session_cookie(&added);
 	let added: leptoskit_auth::PasskeyAddedResponse = body(added).await;
 	assert_eq!(added.passkey.name, "Laptop");
+
 	assert!(
 		added.tokens.is_none(),
 		"a browser's session stays in its cookie"
@@ -1280,6 +1289,7 @@ async fn a_browser_signs_in_with_a_passkey_through_its_cookie() {
 			Some(&ceremony),
 		)
 		.await;
+
 	assert_eq!(signed_in.status(), StatusCode::OK);
 	let set = set_cookies(&signed_in);
 	assert!(

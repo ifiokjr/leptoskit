@@ -207,6 +207,7 @@ mod tests {
 		assert_eq!(secret.verify("287082", now + 1, None), Some(now));
 		assert_eq!(secret.verify("287082", now + 2, None), None);
 		assert_eq!(secret.verify("287083", now, None), None);
+
 		assert_eq!(secret.verify("28708", now, None), None);
 		assert_eq!(secret.verify("abcdef", now, None), None);
 	}

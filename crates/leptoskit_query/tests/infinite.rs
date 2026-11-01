@@ -1,7 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 //! Infinite queries: paging forward and backward, trimming, and refetching.
-
 mod common;
 
 use std::time::Duration;

@@ -226,7 +226,6 @@ where
 	}
 
 	// ---- binding -----------------------------------------------------------
-
 	/// Points the observer at the query for `key`, or at nothing.
 	///
 	/// Called synchronously on creation so the first render and SSR see the
@@ -237,15 +236,10 @@ where
 			query as Access<T, E>
 		});
 		let previous = self.current.get_untracked();
-		let same_query = match (&previous, &next) {
-			(Some(previous), Some(next)) => previous.ptr_id() == next.ptr_id(),
-			(None, None) => true,
-			_ => false,
-		};
 		let enabled = (self.enabled)();
 		let was_enabled = self.last_enabled.swap(enabled, Ordering::SeqCst);
 
-		if same_query {
+		if Self::same_query(previous.as_ref(), next.as_ref()) {
 			// Re-enabling behaves like mounting afresh.
 			if enabled
 				&& !was_enabled
@@ -254,44 +248,14 @@ where
 				self.fetch_on_mount(query);
 				self.start_interval(query);
 			}
+
 			return;
 		}
 
-		// Leave the previous query before joining the next.
-		let left = self.registration.lock().take();
-		drop(left);
-		if let Some(previous) = &previous {
-			let data = previous.signals().data.get_untracked();
-			if data.is_some() {
-				self.previous_data.set(data);
-			}
-		}
+		self.leave_previous(previous.as_ref());
 
 		match &next {
-			Some(query) => {
-				if let Some((data, updated_at)) = self.initial_data.lock().take()
-					&& !query.has_data_untracked()
-				{
-					query.set_data(data, updated_at);
-				}
-				query.add_observer(ObserverEntry {
-					id: self.id,
-					options: self.effective_options(query),
-					enabled: Arc::clone(&self.enabled),
-				});
-				let registered = Arc::clone(query);
-				let id = self.id;
-				*self.registration.lock() =
-					Some(Subscription::new(move || registered.remove_observer(id)));
-				let meta = query.signals().meta.get_untracked();
-				self.bound_counts
-					.set((meta.data_update_count, meta.error_update_count));
-				Self::hook_up_ssr(scope, query);
-				if enabled {
-					self.fetch_on_mount(query);
-				}
-				self.start_interval(query);
-			}
+			Some(query) => self.join(scope, query, enabled),
 			None => self.stop_interval(),
 		}
 
@@ -299,6 +263,66 @@ where
 		self.rebinds
 			.lock()
 			.retain(|waiter| waiter.unbounded_send(()).is_ok());
+	}
+
+	/// Whether `next` is the query already being watched.
+	fn same_query(previous: Option<&Access<T, E>>, next: Option<&Access<T, E>>) -> bool {
+		match (previous, next) {
+			(Some(previous), Some(next)) => previous.ptr_id() == next.ptr_id(),
+			(None, None) => true,
+			_ => false,
+		}
+	}
+
+	/// Leaves the previous query before joining the next, keeping its data for
+	/// a placeholder.
+	fn leave_previous(&self, previous: Option<&Access<T, E>>) {
+		let left = self.registration.lock().take();
+		drop(left);
+
+		let Some(previous) = previous else {
+			return;
+		};
+
+		let data = previous.signals().data.get_untracked();
+
+		if data.is_some() {
+			self.previous_data.set(data);
+		}
+	}
+
+	/// Starts watching `query`, with the data it was given before it existed.
+	fn join<K: QueryKey>(
+		self: &Arc<Self>,
+		scope: &QueryScope<K, T, E>,
+		query: &Access<T, E>,
+		enabled: bool,
+	) {
+		if let Some((data, updated_at)) = self.initial_data.lock().take()
+			&& !query.has_data_untracked()
+		{
+			query.set_data(data, updated_at);
+		}
+
+		query.add_observer(ObserverEntry {
+			id: self.id,
+			options: self.effective_options(query),
+			enabled: Arc::clone(&self.enabled),
+		});
+		let registered = Arc::clone(query);
+		let id = self.id;
+		*self.registration.lock() = Some(Subscription::new(move || registered.remove_observer(id)));
+
+		let meta = query.signals().meta.get_untracked();
+		self.bound_counts
+			.set((meta.data_update_count, meta.error_update_count));
+		Self::hook_up_ssr(scope, query);
+
+		if enabled {
+			self.fetch_on_mount(query);
+		}
+
+		self.start_interval(query);
 	}
 
 	/// Stops observing; the observer keeps serving its last state. Calling it
@@ -316,6 +340,7 @@ where
 	/// Tracks the signals that should re-run the binding effect.
 	pub(crate) fn track_rebind_sources(&self) {
 		let _ = (self.enabled)();
+
 		if let Some(query) = self.current.get_untracked() {
 			// A removed query is replaced by a fresh one on the next run.
 			query.removed().track();
@@ -333,6 +358,7 @@ where
 		if is_server() && !query.has_codec() {
 			return;
 		}
+
 		let options = self.effective_options(query);
 		let should_fetch = if query.has_data_untracked() {
 			match options.refetch_on_mount {
@@ -343,6 +369,7 @@ where
 		} else {
 			query.status_untracked() != QueryStatus::Error || options.retry_on_mount
 		};
+
 		if should_fetch {
 			drop(query.fetch(FetchOptions::JOIN));
 		}
@@ -354,6 +381,7 @@ where
 		if scope.codec.is_none() {
 			return;
 		}
+
 		let Some(context) = Owner::current_shared_context() else {
 			return;
 		};
@@ -361,6 +389,7 @@ where
 		// here only when the scope has a codec keeps server and browser in
 		// step.
 		let id = context.next_id();
+
 		if context.is_browser() {
 			if let Some(serialized) = context.read_data(&id)
 				&& let Ok(Some(dehydrated)) =
@@ -394,8 +423,10 @@ where
 		if is_server() || !crate::time::has_timer() {
 			return;
 		}
+
 		let in_background = options.refetch_interval_in_background;
 		let observer = Arc::downgrade(self);
+
 		let query = Arc::clone(query);
 		spawn(async move {
 			loop {
@@ -412,6 +443,7 @@ where
 				if !in_background && !FocusManager::is_focused_untracked() {
 					continue;
 				}
+
 				drop(query.fetch(FetchOptions::JOIN));
 			}
 		});
@@ -422,7 +454,6 @@ where
 	}
 
 	// ---- reading -----------------------------------------------------------
-
 	fn with_query<R>(&self, read: impl FnOnce(Option<&Access<T, E>>) -> R) -> R {
 		self.current.with(|query| read(query.as_ref()))
 	}
@@ -509,6 +540,7 @@ where
 		} else {
 			None
 		};
+
 		QueryResult {
 			is_placeholder_data: own.is_none() && placeholder.is_some(),
 			state: QueryState {
@@ -525,7 +557,6 @@ where
 	}
 
 	// ---- acting ------------------------------------------------------------
-
 	pub(crate) fn refetch(
 		&self,
 	) -> impl Future<Output = Option<Result<T, E>>> + Send + 'static + use<T, E> {
@@ -537,6 +568,7 @@ where
 			let query = query?;
 			fetch?.await;
 			let state = query.state_untracked();
+
 			match (state.error, state.data) {
 				(Some(error), _) => Some(Err(error)),
 				(None, Some(data)) => Some(Ok(data)),
@@ -548,6 +580,7 @@ where
 	pub(crate) fn invalidate(&self) {
 		if let Some(query) = self.current.get_untracked() {
 			query.invalidate();
+
 			if untrack(|| (self.enabled)()) {
 				drop(query.fetch(FetchOptions::RESTART));
 			}
@@ -576,18 +609,23 @@ where
 				// subscribing so a bind in between is not missed.
 				let (sender, mut receiver) = mpsc::unbounded();
 				self.rebinds.lock().push(sender);
+
 				if self.current.get_untracked().is_none() {
 					receiver.next().await;
 				}
+
 				continue;
 			};
 			let state = query.state_untracked();
+
 			if let Some(error) = state.error {
 				return Err(error);
 			}
+
 			if let Some(data) = state.data {
 				return Ok(data);
 			}
+
 			let fetch = query
 				.in_flight()
 				.unwrap_or_else(|| query.fetch(FetchOptions::JOIN));

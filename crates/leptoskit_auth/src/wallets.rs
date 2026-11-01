@@ -172,6 +172,7 @@ impl Auth {
 				let wallet = self.proved(&wallet, &link.proof, request).await?;
 				Ok(WalletLinked::AlreadyLinked(wallet))
 			}
+
 			Some(wallet) => {
 				if !(wallet.can_sign_in && self.wallet_sign_in_enabled()) {
 					return Err(AuthError::WalletInUse);
@@ -604,6 +605,7 @@ impl Auth {
 				let challenge = self
 					.second_factor_challenge(&tx, account.id, factors, None)
 					.await?;
+
 				return Ok(SignInStep::SecondFactor(challenge));
 			}
 
@@ -718,6 +720,7 @@ impl Auth {
 	) -> Result<()> {
 		if verify(issued, proof, leptoskit_db::now()).is_err() {
 			record(&self.inner.db, account, EventKind::WalletFailed, request).await?;
+
 			return Err(AuthError::WalletFailed);
 		}
 
@@ -986,6 +989,7 @@ mod tests {
 		);
 		let mut mixed = theirs.clone();
 		mixed.address = address.clone();
+
 		assert_eq!(
 			verify(&issued(), &mixed, now),
 			Err("the message names another address")

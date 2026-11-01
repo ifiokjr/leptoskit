@@ -1,7 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 //! Query caching, observers, staleness, retries, invalidation, and lifecycle.
-
 mod common;
 
 use std::sync::Arc;
@@ -155,15 +154,18 @@ async fn key_changes_rebind_and_keep_previous_data() {
 	settle().await;
 	// The new key is loading, but the previous data stays on screen.
 	assert!(query.is_placeholder_data() || query.data() == Some(20));
+
 	if query.is_placeholder_data() {
 		assert_eq!(query.data(), Some(2));
 		assert!(query.is_success(), "placeholder data counts as success");
 	}
+
 	wait_for("second key", || {
 		query.data() == Some(20) && !query.is_placeholder_data()
 	})
 	.await;
 	assert_eq!(calls.get(), 2);
+
 	assert_eq!(client.query_infos().len(), 2, "both keys are cached");
 
 	owner.cleanup();
@@ -294,6 +296,7 @@ async fn exhausted_retries_surface_the_error() {
 	assert_eq!(query.failure_count(), 3);
 	assert_eq!(query.failure_reason(), Some(Boom("down")));
 	assert!(query.is_loading_error());
+
 	assert_eq!(query.result(), Some(Err(Boom("down"))));
 
 	owner.cleanup();
@@ -1025,6 +1028,7 @@ async fn filters_narrow_by_key_predicate_and_status() {
 	let client = quiet_client();
 	let calls = Counter::new();
 	let scope = doubler(calls.clone()).with_stale_time(Duration::from_secs(60));
+
 	for key in 1..=4 {
 		assert_eq!(client.fetch_query(&scope, key).await, Ok(key * 2));
 	}
@@ -1047,7 +1051,6 @@ async fn filters_narrow_by_key_predicate_and_status() {
 }
 
 // ---- lifecycle -------------------------------------------------------------
-
 #[tokio::test]
 async fn use_queries_keeps_every_handle_live_as_keys_grow() {
 	let client = quiet_client();
@@ -1172,6 +1175,7 @@ async fn a_superseded_fetch_never_lands() {
 		Some(0),
 		"the superseded response is discarded"
 	);
+
 	assert_eq!(client.fetching_count(), 1, "B is still in flight");
 
 	gates.answer(1, Ok(2));
@@ -1268,9 +1272,11 @@ async fn rescheduled_cleanups_keep_one_timer_per_query() {
 	let client = quiet_client();
 	// A zero stale time, so every call fetches and reschedules the cleanup.
 	let scope: QueryScope<u32, u32, Boom> = QueryScope::new(|key: u32| async move { Ok(key) });
+
 	for _ in 0..20 {
 		assert_eq!(client.fetch_query(&scope, 1).await, Ok(1));
 	}
+
 	settle().await;
 	assert_eq!(
 		tokio::runtime::Handle::current()

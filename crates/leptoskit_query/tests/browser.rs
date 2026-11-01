@@ -33,8 +33,10 @@ async fn wait_for(label: &str, condition: impl Fn() -> bool) {
 		if condition() {
 			return;
 		}
+
 		sleep(Duration::from_millis(5)).await;
 	}
+
 	panic!("timed out waiting for: {label}");
 }
 

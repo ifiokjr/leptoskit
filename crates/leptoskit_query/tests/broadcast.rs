@@ -1,7 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 //! Keeping several caches in sync over a [`LocalBroadcast`] bus.
-
 mod common;
 
 use std::sync::Arc;
@@ -26,6 +25,7 @@ fn counter(name: &'static str, codec: bool, calls: Arc<AtomicU32>) -> QueryScope
 	})
 	.with_name(name)
 	.with_stale_time(Duration::from_secs(60));
+
 	if codec { scope.with_ssr() } else { scope }
 }
 
