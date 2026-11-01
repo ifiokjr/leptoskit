@@ -42,6 +42,7 @@ impl Pool {
 		} else {
 			Manager::new(config, tls()?)
 		};
+
 		let pool = deadpool_postgres::Pool::builder(manager)
 			.max_size(options.max_connections.max(1))
 			.build()
@@ -253,14 +254,17 @@ impl ToSql for Param {
 					_ => value.to_sql_checked(ty, out),
 				}
 			}
+
 			Value::Float(value) if *ty == Type::FLOAT4 => (*value as f32).to_sql_checked(ty, out),
 			Value::Float(value) => value.to_sql_checked(ty, out),
 			Value::Text(value) => value.as_str().to_sql_checked(ty, out),
 			Value::Bytes(value) => bytes_to_sql(value, ty, out),
 			Value::Uuid(value) => value.to_sql_checked(ty, out),
+
 			Value::Timestamp(value) if *ty == Type::TIMESTAMP => {
 				value.naive_utc().to_sql_checked(ty, out)
 			}
+
 			Value::Timestamp(value) => value.to_sql_checked(ty, out),
 			Value::Date(value) => value.to_sql_checked(ty, out),
 			Value::Json(value) => value.to_sql_checked(ty, out),
@@ -281,6 +285,7 @@ fn decode(row: &Row) -> Result<Vec<Value>> {
 
 fn decode_column(row: &Row, index: usize) -> Result<Value> {
 	let ty = row.columns()[index].type_();
+
 	let value = match *ty {
 		Type::BOOL => get::<bool>(row, index)?.map(Value::Bool),
 		Type::INT2 => get::<i16>(row, index)?.map(|value| Value::Int(value.into())),
@@ -301,6 +306,7 @@ fn decode_column(row: &Row, index: usize) -> Result<Value> {
 		}
 		Type::DATE => get::<chrono::NaiveDate>(row, index)?.map(Value::Date),
 		Type::JSON | Type::JSONB => get::<serde_json::Value>(row, index)?.map(Value::Json),
+
 		#[cfg(feature = "vector")]
 		ref other if is_vector(other) => {
 			get::<Raw>(row, index)?
@@ -314,6 +320,7 @@ fn decode_column(row: &Row, index: usize) -> Result<Value> {
 				})?
 				.map(Value::Bytes)
 		}
+
 		#[cfg(feature = "geo")]
 		ref other if is_geospatial(other) => {
 			get::<Raw>(row, index)?
@@ -327,6 +334,7 @@ fn decode_column(row: &Row, index: usize) -> Result<Value> {
 				})?
 				.map(Value::Bytes)
 		}
+
 		ref other => {
 			return Err(DbError::Decode(DecodeError::custom(format!(
 				"column `{}` has Postgres type `{other}`, which leptoskit_db doesn't read yet",
@@ -350,12 +358,14 @@ fn bytes_to_sql(
 	#[cfg(feature = "geo")]
 	if is_geospatial(ty) {
 		out.extend_from_slice(&crate::geo::codec::to_ewkb(value)?);
+
 		return Ok(IsNull::No);
 	}
 
 	#[cfg(feature = "vector")]
 	if let Some(converted) = crate::vector::to_postgres(ty.name(), value) {
 		out.extend_from_slice(&converted?);
+
 		return Ok(IsNull::No);
 	}
 
@@ -764,6 +774,7 @@ async fn listen(
 		// one is retried.
 		if let Some(ready) = ready.take() {
 			let _ = ready.send(Err(error));
+
 			return;
 		}
 

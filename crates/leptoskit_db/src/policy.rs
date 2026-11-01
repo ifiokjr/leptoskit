@@ -93,6 +93,7 @@ impl Context {
 	pub fn get<G: 'static>(&self) -> Option<&G> {
 		if let Some(symbolic) = &self.symbolic {
 			lock(symbolic).opaque.push(std::any::type_name::<G>());
+
 			return None;
 		}
 
@@ -454,6 +455,7 @@ pub(crate) fn row_security<T: Table>()
 				.map_err(|error| error.to_string())?;
 			Ok(sql.finish().sql)
 		};
+
 		let (using, check) = match (command, soft_delete) {
 			(PolicyCommand::Select | PolicyCommand::Delete, _) => (Some(render(&condition)?), None),
 			(PolicyCommand::Insert, _) => (None, Some(render(&condition)?)),
@@ -472,6 +474,7 @@ pub(crate) fn row_security<T: Table>()
 				)
 			}
 		};
+
 		rendered.push(RowPolicy {
 			command,
 			using,
@@ -1060,6 +1063,7 @@ mod tests {
 				.unwrap()
 				.contains("FROM \"library\".\"books\" AS \"lk_count_1\"")
 		);
+
 		assert!(
 			row_security::<crate::AuditEntry>()
 				.unwrap_err()

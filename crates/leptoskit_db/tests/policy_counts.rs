@@ -222,6 +222,7 @@ impl Spec {
 				.filter(|(t, public)| *t == team && *public)
 				.count()
 		};
+
 		counted > PROJECT_LIMIT as usize
 	}
 
@@ -323,6 +324,7 @@ fn sorted<T: Ord>(mut items: Vec<T>) -> Vec<T> {
 /// Checks every action against the model for one world.
 async fn agrees_with_the_model(db: &Db, mut spec: Spec) -> Result<(), TestCaseError> {
 	let seeded = seed(db, &spec).await;
+
 	let request = match spec.viewer {
 		Some(person) => db.with_context(Context::new().with(Viewer(seeded.people[person]))),
 		None => db.clone(),

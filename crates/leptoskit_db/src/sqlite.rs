@@ -66,6 +66,7 @@ impl Pool {
 				options.max_connections.max(1),
 			)
 		};
+
 		let shared = Shared {
 			idle: Mutex::new(Vec::new()),
 			permits: Arc::new(Semaphore::new(size)),
@@ -165,6 +166,7 @@ impl Shared {
 			Target::File(path) => rusqlite::Connection::open(path),
 		}
 		.map_err(DbError::connection)?;
+
 		let pragmas = match self.target {
 			Target::Memory => "PRAGMA foreign_keys = ON;",
 			Target::File(_) => {
@@ -172,6 +174,7 @@ impl Shared {
 				 PRAGMA synchronous = NORMAL;"
 			}
 		};
+
 		connection
 			.execute_batch(pragmas)
 			.map_err(DbError::connection)?;

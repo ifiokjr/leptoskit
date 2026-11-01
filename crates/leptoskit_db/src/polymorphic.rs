@@ -458,6 +458,7 @@ impl Supertype {
 pub(crate) fn inherited<T: Table>(access: &Access, action: Action) -> Option<Expr> {
 	let supertype = T::SUPERTYPE?;
 	let rule = (supertype.condition)(access, action)?;
+
 	let rule = match action {
 		Action::Select => rule,
 		_ => {

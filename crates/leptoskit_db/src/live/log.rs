@@ -231,6 +231,7 @@ mod reading {
 		pub(crate) async fn start(db: Db, since: Option<i64>) -> Result<Self> {
 			db.listen().await?;
 			let wake = db.live.subscribe();
+
 			let version = match since {
 				Some(version) => version,
 				None => latest_version(&db).await?,
@@ -267,6 +268,7 @@ mod reading {
 						RawEntry::Commit(commit) => commit.version,
 						RawEntry::Pruned { through } => *through,
 					};
+
 					return Ok(entry);
 				}
 
@@ -338,6 +340,7 @@ mod reading {
 				 'live_commits'"
 			}
 		};
+
 		let rows = db
 			.fetch(Statement {
 				sql: sql.to_string(),
@@ -388,26 +391,7 @@ mod reading {
 			return Ok(Vec::new());
 		}
 
-		let dialect = db.dialect();
-		let join = match dialect {
-			Dialect::Postgres => "ch.\"txid\" = c.\"txid\"",
-			Dialect::Sqlite => "ch.\"version\" = c.\"version\"",
-		};
-		let rows = db
-			.fetch(Statement {
-				sql: format!(
-					"SELECT c.\"version\", c.\"committed_at\", c.\"actor\", c.\"origin\", \
-					 ch.\"table_name\", ch.\"op\", ch.\"key\", ch.\"old\", ch.\"new\", \
-					 ch.\"changed\" FROM (SELECT * FROM {} WHERE \"version\" > {} ORDER BY \
-					 \"version\" LIMIT {COMMITS_PER_READ}) c LEFT JOIN {} ch ON {join} ORDER BY \
-					 c.\"version\", ch.\"seq\"",
-					commits(dialect),
-					placeholder(dialect, 1),
-					changes(dialect)
-				),
-				args: vec![Value::Int(after)],
-			})
-			.await?;
+		let rows = db.fetch(read_statement(db.dialect(), after)).await?;
 		let mut entries: Vec<RawEntry> = Vec::new();
 
 		for row in rows {
@@ -428,67 +412,120 @@ mod reading {
 			let Value::Int(version) = version else {
 				return Err(decode("a commit's version isn't a number"));
 			};
-			let same = match entries.last() {
-				Some(RawEntry::Commit(commit)) => commit.version == version,
-				Some(RawEntry::Pruned { through }) => *through == version,
-				None => false,
-			};
 
-			if !same {
-				let origin = text(origin)?;
-				entries.push(if origin == PRUNED {
-					RawEntry::Pruned { through: version }
-				} else {
-					RawEntry::Commit(RawCommit {
-						version,
-						committed_at: timestamp(at)?,
-						actor: uuid(actor)?,
-						origin,
-						changes: Vec::new(),
-					})
-				});
-			}
-
-			// A commit with no changes left, or a pruned marker.
-			let (Some(RawEntry::Commit(commit)), Value::Text(table)) = (entries.last_mut(), table)
-			else {
-				continue;
-			};
-			let op = match text(op)?.as_str() {
-				"I" => ChangeOp::Insert,
-				"U" => ChangeOp::Update,
-				"D" => ChangeOp::Delete,
-				other => return Err(decode(&format!("`{other}` isn't a change's operation"))),
-			};
-			let Some(serde_json::Value::Array(key)) = json(key)? else {
-				return Err(decode("a change's key isn't an array"));
-			};
-			let changed = match json(changed)? {
-				Some(serde_json::Value::Array(names)) => {
-					names
-						.into_iter()
-						.filter_map(|name| {
-							match name {
-								serde_json::Value::String(name) => Some(name),
-								_ => None,
-							}
-						})
-						.collect()
-				}
-				_ => Vec::new(),
-			};
-
-			commit.changes.push(RawChange {
-				table: table_name(&table),
-				op,
-				key,
-				old: object(old)?,
-				new: object(new)?,
-				changed,
-			});
+			push_commit(&mut entries, version, at, actor, origin)?;
+			push_change(&mut entries, table, op, key, old, new, changed)?;
 		}
 
 		Ok(entries)
+	}
+
+	/// The one statement that reads commits and their changes.
+	fn read_statement(dialect: Dialect, after: i64) -> Statement {
+		let join = match dialect {
+			Dialect::Postgres => "ch.\"txid\" = c.\"txid\"",
+			Dialect::Sqlite => "ch.\"version\" = c.\"version\"",
+		};
+
+		Statement {
+			sql: format!(
+				"SELECT c.\"version\", c.\"committed_at\", c.\"actor\", c.\"origin\", \
+				 ch.\"table_name\", ch.\"op\", ch.\"key\", ch.\"old\", ch.\"new\", ch.\"changed\" \
+				 FROM (SELECT * FROM {} WHERE \"version\" > {} ORDER BY \"version\" LIMIT \
+				 {COMMITS_PER_READ}) c LEFT JOIN {} ch ON {join} ORDER BY c.\"version\", \
+				 ch.\"seq\"",
+				commits(dialect),
+				placeholder(dialect, 1),
+				changes(dialect)
+			),
+			args: vec![Value::Int(after)],
+		}
+	}
+
+	/// Starts a commit the row belongs to, unless it is the one before.
+	fn push_commit(
+		entries: &mut Vec<RawEntry>,
+		version: i64,
+		at: Value,
+		actor: Value,
+		origin: Value,
+	) -> Result<()> {
+		let same = match entries.last() {
+			Some(RawEntry::Commit(commit)) => commit.version == version,
+			Some(RawEntry::Pruned { through }) => *through == version,
+			None => false,
+		};
+
+		if same {
+			return Ok(());
+		}
+
+		let origin = text(origin)?;
+		entries.push(if origin == PRUNED {
+			RawEntry::Pruned { through: version }
+		} else {
+			RawEntry::Commit(RawCommit {
+				version,
+				committed_at: timestamp(at)?,
+				actor: uuid(actor)?,
+				origin,
+				changes: Vec::new(),
+			})
+		});
+		Ok(())
+	}
+
+	/// Adds the row's change to the commit it belongs to, if it has one.
+	fn push_change(
+		entries: &mut [RawEntry],
+		table: Value,
+		op: Value,
+		key: Value,
+		old: Value,
+		new: Value,
+		changed: Value,
+	) -> Result<()> {
+		// A commit with no changes left, or a pruned marker.
+		let (Some(RawEntry::Commit(commit)), Value::Text(table)) = (entries.last_mut(), table)
+		else {
+			return Ok(());
+		};
+
+		let op = match text(op)?.as_str() {
+			"I" => ChangeOp::Insert,
+			"U" => ChangeOp::Update,
+			"D" => ChangeOp::Delete,
+			other => return Err(decode(&format!("`{other}` isn't a change's operation"))),
+		};
+
+		let Some(serde_json::Value::Array(key)) = json(key)? else {
+			return Err(decode("a change's key isn't an array"));
+		};
+
+		let changed = match json(changed)? {
+			Some(serde_json::Value::Array(names)) => {
+				names
+					.into_iter()
+					.filter_map(|name| {
+						match name {
+							serde_json::Value::String(name) => Some(name),
+							_ => None,
+						}
+					})
+					.collect()
+			}
+			_ => Vec::new(),
+		};
+
+		commit.changes.push(RawChange {
+			table: table_name(&table),
+			op,
+			key,
+			old: object(old)?,
+			new: object(new)?,
+			changed,
+		});
+		Ok(())
 	}
 
 	/// `$n` or `?n`.
@@ -672,6 +709,7 @@ mod reading {
 			Some(Value::Int(lowest)) => (*lowest, through - 1, false),
 			_ => (through, through, true),
 		};
+
 		let delete_changes = match dialect {
 			Dialect::Postgres => {
 				format!(
@@ -688,6 +726,7 @@ mod reading {
 				)
 			}
 		};
+
 		tx.execute(Statement {
 			sql: delete_changes,
 			args: vec![Value::Int(from), Value::Int(to)],

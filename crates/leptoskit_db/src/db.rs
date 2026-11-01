@@ -347,6 +347,7 @@ impl Db {
 				"SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = ?1"
 			}
 		};
+
 		let rows = self
 			.fetch(Statement {
 				sql: exists.to_owned(),

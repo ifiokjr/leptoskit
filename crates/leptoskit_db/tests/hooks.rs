@@ -138,6 +138,7 @@ impl AfterDelete for Order {
 		} else {
 			"removed"
 		};
+
 		event(tx, self.id, kind).await
 	}
 }

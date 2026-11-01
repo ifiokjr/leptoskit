@@ -49,6 +49,7 @@ fn edges() -> &'static HashMap<TableName, Vec<Edge>> {
 					ReferentialAction::SetNull => true,
 					ReferentialAction::NoAction | ReferentialAction::Restrict => continue,
 				};
+
 				edges.entry(foreign_key.references).or_default().push(Edge {
 					source: entry,
 					columns: foreign_key.columns,
@@ -130,77 +131,117 @@ pub(crate) async fn before_delete(
 
 	while let Some((table, columns, rows)) = pending.pop() {
 		for edge in edges().get(&table).into_iter().flatten() {
-			let subject = edge.source.subject;
-			let source = (edge.source.name)();
-			let records = subject.audit;
-
-			if !records && (edge.set_null || !reaches_recorded(&source)) {
+			let Some((source, reached)) = reach(connection, edge, columns, &rows).await? else {
 				continue;
-			}
-
-			let referenced: Vec<usize> = edge
-				.referenced
-				.iter()
-				.filter_map(|name| columns.iter().position(|column| column == name))
-				.collect();
-
-			if referenced.len() != edge.referenced.len() {
-				continue;
-			}
-
-			let targets: Vec<Vec<Value>> = rows
-				.iter()
-				.map(|row| referenced.iter().map(|&index| row[index].clone()).collect())
-				.filter(|values: &Vec<Value>| !values.contains(&Value::Null))
-				.collect();
-			let mut reached = Vec::new();
-
-			for batch in targets.chunks(BATCH) {
-				for row in linked(connection, &source, subject.columns, edge, batch).await? {
-					// Read back through the table's type, so keys compare
-					// and record the same whichever statement read them.
-					reached.push((subject.normalize)(row)?);
-				}
-			}
-
-			let mut cascading = Vec::new();
-
-			for row in reached {
-				let key = format!("{:?}", subject.key_of(&row));
-
-				if deleted.contains(&(source.clone(), key.clone())) {
-					continue;
-				}
-
-				let change = if edge.set_null {
-					emptied(edge, &subject, row)
-				} else {
-					deleted.insert((source.clone(), key));
-					cascading.push(row.clone());
-					Change {
-						op: AuditOp::Delete,
-						before: Some(row),
-						after: None,
-					}
-				};
-
-				if records {
-					recorded
-						.entry(source.clone())
-						.or_insert_with(|| (subject, Vec::new()))
-						.1
-						.push(change);
-				}
-			}
+			};
+			let cascading = record_edge(&mut recorded, &mut deleted, edge, &source, reached);
 
 			if !cascading.is_empty() {
-				pending.push((source, subject.columns, cascading));
+				pending.push(((edge.source.name)(), edge.source.subject.columns, cascading));
 			}
 		}
 	}
 
-	// A row both emptied and deleted is deleted.
-	let changes = recorded
+	Ok(Fallout {
+		changes: recorded_changes(recorded, &deleted),
+	})
+}
+
+/// The rows of `edge`'s source table that point at `rows`, read through the
+/// table's type. `None` when the edge doesn't reach these rows.
+async fn reach(
+	connection: &impl Connection,
+	edge: &Edge,
+	columns: &[&str],
+	rows: &[Vec<Value>],
+) -> Result<Option<(TableName, Vec<Vec<Value>>)>> {
+	let subject = edge.source.subject;
+	let source = (edge.source.name)();
+	let records = subject.audit;
+
+	if !records && (edge.set_null || !reaches_recorded(&source)) {
+		return Ok(None);
+	}
+
+	let referenced: Vec<usize> = edge
+		.referenced
+		.iter()
+		.filter_map(|name| columns.iter().position(|column| column == name))
+		.collect();
+
+	if referenced.len() != edge.referenced.len() {
+		return Ok(None);
+	}
+
+	let targets: Vec<Vec<Value>> = rows
+		.iter()
+		.map(|row| referenced.iter().map(|&index| row[index].clone()).collect())
+		.filter(|values: &Vec<Value>| !values.contains(&Value::Null))
+		.collect();
+	let mut reached = Vec::new();
+
+	for batch in targets.chunks(BATCH) {
+		for row in linked(connection, &source, subject.columns, edge, batch).await? {
+			// Read back through the table's type, so keys compare and
+			// record the same whichever statement read them.
+			reached.push((subject.normalize)(row)?);
+		}
+	}
+
+	Ok(Some((source, reached)))
+}
+
+/// Records each reached row, and returns the ones the database deletes on
+/// its own, to follow from there.
+fn record_edge(
+	recorded: &mut HashMap<TableName, (Subject, Vec<Change>)>,
+	deleted: &mut HashSet<(TableName, String)>,
+	edge: &Edge,
+	source: &TableName,
+	reached: Vec<Vec<Value>>,
+) -> Vec<Vec<Value>> {
+	let subject = edge.source.subject;
+	let records = subject.audit;
+	let mut cascading = Vec::new();
+
+	for row in reached {
+		let key = format!("{:?}", subject.key_of(&row));
+
+		if deleted.contains(&(source.clone(), key.clone())) {
+			continue;
+		}
+
+		let change = if edge.set_null {
+			emptied(edge, &subject, row)
+		} else {
+			deleted.insert((source.clone(), key));
+			cascading.push(row.clone());
+			Change {
+				op: AuditOp::Delete,
+				before: Some(row),
+				after: None,
+			}
+		};
+
+		if records {
+			recorded
+				.entry(source.clone())
+				.or_insert_with(|| (subject, Vec::new()))
+				.1
+				.push(change);
+		}
+	}
+
+	cascading
+}
+
+/// The recorded changes, with a row both emptied and deleted kept only as
+/// the delete.
+fn recorded_changes(
+	recorded: HashMap<TableName, (Subject, Vec<Change>)>,
+	deleted: &HashSet<(TableName, String)>,
+) -> Vec<(Subject, Vec<Change>)> {
+	recorded
 		.into_values()
 		.map(|(subject, changes)| {
 			let table = (subject.table)();
@@ -216,9 +257,7 @@ pub(crate) async fn before_delete(
 				.collect();
 			(subject, changes)
 		})
-		.collect();
-
-	Ok(Fallout { changes })
+		.collect()
 }
 
 /// A row whose `edge` columns the database empties, before and after.

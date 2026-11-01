@@ -265,6 +265,7 @@ pub(crate) fn display_as(ty: Option<&ColumnType>, value: &Value) -> Cell {
 	else {
 		return display(value);
 	};
+
 	let first: Vec<String> = match element {
 		leptoskit_db_schema::VectorElement::Float32
 		| leptoskit_db_schema::VectorElement::Float16 => {
@@ -338,6 +339,7 @@ fn filter_expr<T: Table>(filter: &Filter) -> Result<Expr> {
 		Op::Greater => Comparison::Greater,
 		Op::Less => Comparison::Less,
 	};
+
 	let (ty, _) = column_type::<T>(column)?;
 	let value = parse_value(&ty, &filter.value).map_err(invalid)?;
 
@@ -373,6 +375,7 @@ fn read<'a, T: Table>(db: &'a Db, browse: &'a Browse) -> Boxed<'a, Rows> {
 			Some((column, descending)) => Order::by(column_of::<T>(column)?, *descending),
 			None => Order::by(T::KEY[0], false),
 		};
+
 		query = query
 			.order_by(|_| order)
 			.limit(browse.limit)
@@ -463,6 +466,7 @@ fn edit<T: Table>(db: Db, edit: Edit) -> Local<()> {
 			None => return Err(invalid(format!("`{column}` can't be NULL"))),
 			Some(text) => parse_value(&ty, text).map_err(invalid)?,
 		};
+
 		let row = find::<T>(&db, &edit.key).await?;
 		let mut values = row.to_values()?;
 		let position = T::COLUMNS

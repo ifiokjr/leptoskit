@@ -89,6 +89,7 @@ fn each_audience_sees_its_own_columns() {
 		fields,
 		["email", "handle", "home", "id", "joined_at", "phone"]
 	);
+
 	assert_eq!(json["home"], serde_json::json!({ "city": "London" }));
 	assert_eq!(serde_json::from_value::<SelfMember>(json).unwrap(), own);
 

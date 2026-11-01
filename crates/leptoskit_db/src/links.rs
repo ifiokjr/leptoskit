@@ -182,6 +182,7 @@ impl<J: Link, Near: Table + HasId, Far: Table + HasId> Links<J, Near, Far> {
 			Some(filter) => filter & condition,
 			None => condition,
 		});
+
 		self
 	}
 

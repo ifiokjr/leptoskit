@@ -537,6 +537,7 @@ async fn search(
 			let search = query
 				.nearest(|m| m.$column, &target.$column)
 				.with_distance();
+
 			let search = match limit {
 				Some(limit) => search.limit(limit),
 				None => search,
@@ -648,6 +649,7 @@ async fn filters_policies_and_soft_deletes_choose_the_rows_searched() {
 				} else {
 					query
 				};
+
 				query.first(&db)
 			};
 			assert_eq!(nearest(false).await.unwrap().unwrap().title, "d02");
@@ -715,6 +717,7 @@ async fn postgres_indexes_find_every_row_asked_for() {
 		.unwrap();
 	assert_eq!(filtered.len(), 15);
 	assert!(filtered.iter().all(|m| m.label.ends_with('7')));
+
 	tx.rollback().await.unwrap();
 }
 

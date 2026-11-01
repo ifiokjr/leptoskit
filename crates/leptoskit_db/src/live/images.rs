@@ -199,6 +199,7 @@ fn logged_value(
 		(ColumnType::Decimal { .. }, Json::String(text)) if dialect == Dialect::Sqlite => {
 			Value::Text(text.clone())
 		}
+
 		(ColumnType::Text { .. }, Json::String(text)) => Value::Text(text.clone()),
 		(ColumnType::Uuid, Json::String(text)) => {
 			Value::Uuid(uuid::Uuid::parse_str(text).map_err(|_| mismatch())?)

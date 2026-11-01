@@ -349,6 +349,7 @@ fn normalize(change: RawChange, dialect: leptoskit_db_schema::Dialect) -> Result
 					Value::Null => image[*name].clone(),
 					value => crate::audit::json(&value),
 				};
+
 				((*name).to_string(), json)
 			})
 			.collect())

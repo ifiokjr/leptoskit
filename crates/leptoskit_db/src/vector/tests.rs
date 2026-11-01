@@ -62,6 +62,7 @@ fn bits_pack_lowest_first_and_travel_as_text() {
 	assert_eq!(vector.get(9), Some(true));
 	assert_eq!(vector.get(10), Some(false));
 	assert_eq!(vector.get(16), None);
+
 	assert_eq!(vector.count_ones(), 2);
 
 	let json = serde_json::to_value(&vector).unwrap();

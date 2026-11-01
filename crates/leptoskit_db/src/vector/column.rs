@@ -308,6 +308,7 @@ pub(crate) fn from_postgres(ty: &str, raw: &[u8]) -> Option<Result<Vec<u8>, Stri
 			} else {
 				f32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
 			};
+
 			out.extend_from_slice(&value.to_le_bytes());
 		}
 

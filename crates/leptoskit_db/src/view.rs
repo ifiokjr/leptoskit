@@ -96,6 +96,7 @@ pub async fn refresh<V: View>(connection: &impl Connection, concurrently: bool) 
 
 		if !connection.row_security() {
 			connection.execute(sql.finish()).await?;
+
 			return Ok(());
 		}
 
@@ -110,6 +111,7 @@ pub async fn refresh<V: View>(connection: &impl Connection, concurrently: bool) 
 				],
 			}
 		};
+
 		let restore = match connection.access() {
 			crate::policy::Access::System { .. } => "on",
 			crate::policy::Access::Context(_) => "",

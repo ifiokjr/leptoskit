@@ -722,6 +722,7 @@ fn sorted<T: Ord>(mut items: Vec<T>) -> Vec<T> {
 
 async fn agrees_with_the_model(db: &Db, spec: Spec) -> Result<(), TestCaseError> {
 	let seeded = seed(db, &spec).await;
+
 	let request = match spec.viewer {
 		Some(writer) => db.with_context(Context::new().with(Viewer(seeded.writers[writer]))),
 		None => db.clone(),

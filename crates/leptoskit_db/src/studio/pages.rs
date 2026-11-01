@@ -229,6 +229,7 @@ fn header(links: &Links, viewer: &Viewer, personas: &[&'static Persona]) -> impl
 		} else {
 			"Edit mode"
 		};
+
 		view! { <a href=links.with_viewer("/", &toggled, &[])>{label}</a> }
 	};
 	let banner_class = if viewer.edit {
@@ -308,6 +309,7 @@ fn tables_view(links: &Links, tables: &[(String, Result<u64, String>)]) -> impl 
 				Ok(count) => count.to_string(),
 				Err(error) => error.clone(),
 			};
+
 			view! {
 				<tr>
 					<td>
@@ -336,6 +338,7 @@ fn cell_view(cell: &Cell) -> impl IntoView + use<> {
 		Cell::Secret => "secret",
 		Cell::Text(_) => "",
 	};
+
 	view! { <span class=class>{cell.text().to_string()}</span> }
 }
 
@@ -471,6 +474,7 @@ fn rows_view(
 			params.push(("deleted", "1".into()));
 			"Show soft-deleted rows"
 		};
+
 		view! { <a href=links.href(&path, &params)>{label}</a> }
 	};
 
@@ -550,12 +554,16 @@ fn confirm_edit_view(links: &Links, table: &str, change: &Edit) -> impl IntoView
 		<form method="post" action=action>
 			{post_fields(links)} <input type="hidden" name="key" value=key />
 			<input type="hidden" name="column" value=change.column.clone() />
+
+
 			{match value {
 				Some(value) => {
 					view! { <input type="hidden" name="value" value=value /> }.into_any()
 				}
 				None => view! { <input type="hidden" name="null" value="1" /> }.into_any(),
 			}}
+
+
 			<input type="hidden" name="confirmed" value="yes" />
 			<button>"Confirm the change"</button> " "
 			<a href=links.href(&format!("/table/{table}"), &[])>"Cancel"</a>
@@ -717,10 +725,12 @@ fn policies_view(tables: &[(String, Result<Rules, String>)]) -> impl IntoView + 
 								Some(statement) if statement.args.is_empty() => {
 									statement.sql.clone()
 								}
+
 								Some(statement) => {
 									format!("{}\n-- with {:?}", statement.sql, statement.args)
 								}
 							};
+
 							view! {
 								<h3>{format!("{action:?}")}</h3>
 								<pre>{shown}</pre>
@@ -730,6 +740,7 @@ fn policies_view(tables: &[(String, Result<Rules, String>)]) -> impl IntoView + 
 						.into_any()
 				}
 			};
+
 			view! {
 				<h2>{name.clone()}</h2>
 				{rules}

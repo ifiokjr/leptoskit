@@ -44,9 +44,11 @@ proptest! {
 	#[test]
 	fn arbitrary_text_never_panics(text in "\\PC{0,100}") {
 		let parsed = Pubkey::parse(text.clone());
+
 		if let Ok(address) = parsed {
 			prop_assert_eq!(Pubkey::from_bytes(address.to_bytes()), address);
 		}
+
 		let _ = Signature::parse(text.clone());
 		let _ = base58::decode_exact::<32>(&text);
 	}

@@ -72,10 +72,12 @@ impl Stale {
 	/// sources' fingerprint now`.
 	pub(crate) fn write(&self, sql: &mut Sql) {
 		let now = source_fingerprint_sql(sql.dialect(), None, &self.sources);
+
 		let differs = match sql.dialect() {
 			Dialect::Postgres => " IS DISTINCT FROM ",
 			Dialect::Sqlite => " IS NOT ",
 		};
+
 		sql.push("(")
 			.identifier(self.column)
 			.push(" IS NULL OR ")

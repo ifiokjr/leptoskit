@@ -737,10 +737,12 @@ fn migrations_create_the_supertype_and_its_foreign_keys() {
 		let empty = Schema::empty(dialect);
 		let plan = leptoskit_db_schema::diff(&empty, &schema, &mut RequireHints).unwrap();
 		let migration = leptoskit_db_schema::render(&plan, &empty, &schema);
+
 		let name = match dialect {
 			Dialect::Postgres => "migration_postgres",
 			Dialect::Sqlite => "migration_sqlite",
 		};
+
 		insta::assert_snapshot!(name, migration.sql());
 	}
 
@@ -936,11 +938,13 @@ const KINDS: [ActorKind; 3] = [ActorKind::Person, ActorKind::Team, ActorKind::Bo
 fn visible(row: RowSpec, id: Id<Actor>, viewer: Option<Id<Actor>>) -> bool {
 	let (kind, listed, size, deleted) = row;
 	let supertype = kind != 2 || viewer == Some(id);
+
 	let variant = match kind {
 		0 => listed && !deleted,
 		1 => size > 0,
 		_ => true,
 	};
+
 	supertype && variant
 }
 
@@ -961,6 +965,7 @@ async fn compare(
 
 	for (index, row) in spec.rows.iter().enumerate() {
 		let name = format!("r{index}");
+
 		let id = match row.0 {
 			0 => {
 				let mut person = person(&system, &name, row.1).await;
@@ -974,14 +979,17 @@ async fn compare(
 			1 => team(&system, &name, row.2).await.id.upcast(),
 			_ => bot(&system, &name).await.id.upcast(),
 		};
+
 		ids.push(id);
 	}
 
 	let viewer = spec.viewer.and_then(|index| ids.get(index).copied());
+
 	let request = match viewer {
 		Some(viewer) => as_actor(db, viewer),
 		None => db.with_context(Context::new()),
 	};
+
 	let only: Vec<ActorKind> = spec
 		.only
 		.iter()
@@ -1078,6 +1086,7 @@ fn holds(db: &Db, cases: u32, rule: fn(RowSpec, Id<Actor>, Option<Id<Actor>>) ->
 /// tell apart from the database.
 fn ignoring_the_supertype(row: RowSpec, _: Id<Actor>, _: Option<Id<Actor>>) -> bool {
 	let (kind, listed, size, deleted) = row;
+
 	match kind {
 		0 => listed && !deleted,
 		1 => size > 0,

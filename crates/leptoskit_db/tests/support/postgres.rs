@@ -30,6 +30,7 @@ impl PostgresCluster {
 				"LEPTOSKIT_REQUIRE_POSTGRES is set, but no Postgres binaries were found"
 			);
 			eprintln!("skipping: no Postgres binaries (initdb, pg_ctl, psql) found");
+
 			return None;
 		};
 
@@ -60,6 +61,7 @@ impl PostgresCluster {
 		} else {
 			" -c unix_socket_directories=''"
 		};
+
 		// No pipes: on Windows the server inherits pg_ctl's output handles, so
 		// waiting for them to close would wait for the server to exit. Its
 		// output goes to the log instead.

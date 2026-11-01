@@ -309,11 +309,13 @@ impl<T: Table> Search<'_, T> {
 		let Some(index) = self.options.index else {
 			return connection.fetch(self.postgres_statement(None)?).await;
 		};
+
 		let (setting, order) = match index {
 			_ if self.exact => ("enable_indexscan", "off"),
 			VectorIndexKind::Hnsw => ("hnsw.iterative_scan", "strict_order"),
 			VectorIndexKind::IvfFlat => ("ivfflat.iterative_scan", "relaxed_order"),
 		};
+
 		let set = |value: &str| {
 			Statement {
 				sql: format!("SET LOCAL {setting} = {value}"),
@@ -401,6 +403,7 @@ impl<T: Table> Search<'_, T> {
 			Some(limit) if self.options.is_indexed(Dialect::Sqlite) => {
 				self.sqlite_knn(dialect, bits, limit)
 			}
+
 			_ => self.sqlite_exact(dialect, bits),
 		}
 	}
@@ -474,6 +477,7 @@ impl<T: Table> Search<'_, T> {
 			VectorDistance::InnerProduct => "lk_vec_distance_ip",
 			VectorDistance::Jaccard => "lk_vec_distance_jaccard",
 		};
+
 		// sqlite-vec reads a bare BLOB as floats; its Hamming distance needs
 		// both marked as bits.
 		let marked = bits && self.distance == VectorDistance::Hamming;

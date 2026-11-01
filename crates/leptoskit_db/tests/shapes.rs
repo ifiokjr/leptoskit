@@ -931,6 +931,7 @@ async fn seed(db: &Db, spec: &Spec) {
 async fn agrees_with_the_model(db: &Db, spec: Spec) -> Result<(), TestCaseError> {
 	seed(db, &spec).await;
 	let system = db.system("finding the viewer");
+
 	let request = match spec.viewer {
 		Some(index) => {
 			let viewer = Author::query()

@@ -94,9 +94,11 @@ impl ReadEntry {
 		if self.table != change.table {
 			return false;
 		}
+
 		if self.kind == ReadKind::Table {
 			return true;
 		}
+
 		let Some(entry) = crate::table::entries().get(&change.table).copied() else {
 			return true;
 		};
@@ -112,6 +114,7 @@ impl ReadEntry {
 					.collect::<std::collections::HashMap<_, _>>(),
 			)
 		};
+
 		let old = change.old.as_ref().and_then(decode);
 		let new = change.new.as_ref().and_then(decode);
 		let may =
@@ -195,6 +198,7 @@ impl Reads {
 			ReadKind::Rows | ReadKind::Exists | ReadKind::Point if !T::KEY.is_empty() => {
 				Some(key_of::<T> as KeyOf)
 			}
+
 			_ => None,
 		};
 

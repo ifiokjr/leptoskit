@@ -32,6 +32,7 @@ fn typed_text_becomes_a_value_of_the_columns_type() {
 			.unwrap_err()
 			.contains("number")
 	);
+
 	assert_eq!(
 		parse(ColumnType::TEXT, " as typed "),
 		Ok(Value::Text(" as typed ".into()))
@@ -65,6 +66,7 @@ fn typed_text_becomes_a_value_of_the_columns_type() {
 		parse(ColumnType::Json, r#"{"a":1}"#),
 		Ok(Value::Json(serde_json::json!({ "a": 1 })))
 	);
+
 	assert!(parse(ColumnType::Json, "{").unwrap_err().contains("JSON"));
 	assert!(
 		parse(ColumnType::Bytes, "00")
@@ -83,6 +85,7 @@ fn values_show_as_text() {
 	assert_eq!(display(&Value::Int(3)).text(), "3");
 	assert_eq!(display(&Value::Float(0.5)).text(), "0.5");
 	assert_eq!(display(&Value::Uuid(uuid)).text(), uuid.to_string());
+
 	// SQLite stores UUIDs as 16 bytes.
 	assert_eq!(
 		display(&Value::Bytes(uuid.as_bytes().to_vec())).text(),
@@ -102,6 +105,7 @@ fn filters_name_their_comparisons() {
 		assert_eq!(Op::parse(op.name()), Some(op));
 		assert_ne!(op.label(), "");
 	}
+
 	assert_eq!(Op::parse("like"), None);
 }
 

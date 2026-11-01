@@ -539,14 +539,7 @@ impl Expr {
 				column,
 				comparison,
 				value: Value::Null,
-			} => {
-				let negated = match comparison {
-					Comparison::Equal => false,
-					Comparison::NotEqual => true,
-					_ => return Err(invalid("only `eq` and `ne` compare with `None`")),
-				};
-				Self::Null { column, negated }.write(sql)?;
-			}
+			} => write_null_compare(sql, column, *comparison)?,
 			Self::Compare {
 				column,
 				comparison,
@@ -580,71 +573,20 @@ impl Expr {
 				column,
 				comparison,
 				setting,
-			} => {
-				sql.identifier(column).push(comparison.operator());
-
-				if sql.renders_policy() {
-					sql.push(&format!(
-						"NULLIF(current_setting({}, true), '')::{}",
-						leptoskit_db_schema::quote_literal(&format!(
-							"{}{}",
-							leptoskit_db_schema::SETTING_PREFIX,
-							setting.name
-						)),
-						leptoskit_db_schema::postgres_type(&setting.ty)
-					));
-				} else {
-					match &setting.value {
-						Some(value) => {
-							sql.value(value.clone());
-						}
-						None => {
-							sql.push("NULL");
-						}
-					}
-				}
-			}
+			} => write_compare_setting(sql, column, *comparison, setting),
 			Self::InSetting { column, setting } => write_in_setting(sql, column, setting)?,
+
 			Self::In { values, .. } if values.is_empty() => {
 				sql.push("1 = 0");
 			}
-			Self::In { column, values } => {
-				sql.identifier(column).push(" IN (");
 
-				for (index, value) in values.iter().enumerate() {
-					if index > 0 {
-						sql.push(", ");
-					}
-
-					sql.value(value.clone());
-				}
-
-				sql.push(")");
-			}
+			Self::In { column, values } => write_in(sql, column, values),
 			Self::Null { column, negated } => {
 				sql.identifier(column)
 					.push(if *negated { " IS NOT NULL" } else { " IS NULL" });
 			}
-			Self::Contains { column, needle } => {
-				let function = match sql.dialect() {
-					Dialect::Postgres => "strpos(",
-					Dialect::Sqlite => "instr(",
-				};
-				sql.push(function)
-					.identifier(column)
-					.push(", ")
-					.value(Value::Text(needle.clone()))
-					.push(") > 0");
-			}
-			Self::Like { column, pattern } => {
-				let operator = match sql.dialect() {
-					Dialect::Postgres => " ILIKE ",
-					Dialect::Sqlite => " LIKE ",
-				};
-				sql.identifier(column)
-					.push(operator)
-					.value(Value::Text(pattern.clone()));
-			}
+			Self::Contains { column, needle } => write_contains(sql, column, needle),
+			Self::Like { column, pattern } => write_like(sql, column, pattern),
 			Self::And(left, right) => Self::binary(sql, left, " AND ", right)?,
 			Self::Or(left, right) => Self::binary(sql, left, " OR ", right)?,
 			Self::Not(inner) => {
@@ -692,6 +634,94 @@ impl Expr {
 		sql.push(")");
 		Ok(())
 	}
+}
+/// `column IS NULL` or `IS NOT NULL`, from `eq(None)` or `ne(None)`.
+fn write_null_compare(
+	sql: &mut Sql,
+	column: &'static str,
+	comparison: Comparison,
+) -> Result<(), DbError> {
+	let negated = match comparison {
+		Comparison::Equal => false,
+		Comparison::NotEqual => true,
+		_ => return Err(invalid("only `eq` and `ne` compare with `None`")),
+	};
+
+	Expr::Null { column, negated }.write(sql)
+}
+
+/// A column compared with a request setting: the bound value, or the
+/// transaction's `leptoskit.<name>` under row-level security.
+fn write_compare_setting(
+	sql: &mut Sql,
+	column: &str,
+	comparison: Comparison,
+	setting: &crate::settings::SettingRef,
+) {
+	sql.identifier(column).push(comparison.operator());
+
+	if sql.renders_policy() {
+		sql.push(&format!(
+			"NULLIF(current_setting({}, true), '')::{}",
+			leptoskit_db_schema::quote_literal(&format!(
+				"{}{}",
+				leptoskit_db_schema::SETTING_PREFIX,
+				setting.name
+			)),
+			leptoskit_db_schema::postgres_type(&setting.ty)
+		));
+	} else {
+		match &setting.value {
+			Some(value) => {
+				sql.value(value.clone());
+			}
+			None => {
+				sql.push("NULL");
+			}
+		}
+	}
+}
+
+/// A column in a list of values.
+fn write_in(sql: &mut Sql, column: &str, values: &[Value]) {
+	sql.identifier(column).push(" IN (");
+
+	for (index, value) in values.iter().enumerate() {
+		if index > 0 {
+			sql.push(", ");
+		}
+
+		sql.value(value.clone());
+	}
+
+	sql.push(")");
+}
+
+/// A text column containing `needle`.
+fn write_contains(sql: &mut Sql, column: &str, needle: &str) {
+	let function = match sql.dialect() {
+		Dialect::Postgres => "strpos(",
+		Dialect::Sqlite => "instr(",
+	};
+
+	sql.push(function)
+		.identifier(column)
+		.push(", ")
+		.value(Value::Text(needle.to_owned()))
+		.push(") > 0");
+}
+
+/// A text column matching a `LIKE` pattern, case-insensitively where the
+/// database has `ILIKE`.
+fn write_like(sql: &mut Sql, column: &str, pattern: &str) {
+	let operator = match sql.dialect() {
+		Dialect::Postgres => " ILIKE ",
+		Dialect::Sqlite => " LIKE ",
+	};
+
+	sql.identifier(column)
+		.push(operator)
+		.value(Value::Text(pattern.to_owned()));
 }
 
 pub(crate) fn invalid(message: &str) -> DbError {
@@ -775,12 +805,14 @@ fn write_in_setting(
 			)),
 			leptoskit_db_schema::postgres_type(&setting.ty)
 		));
+
 		return Ok(());
 	}
 
 	let Some(values) = &setting.values else {
 		// As `column = ANY(NULL)` is: neither true nor false.
 		sql.push("NULL");
+
 		return Ok(());
 	};
 

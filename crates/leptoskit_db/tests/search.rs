@@ -805,6 +805,7 @@ async fn agrees_with_the_model(db: &Db, spec: Spec) -> Result<(), TestCaseError>
 		Some(viewer) => db.with_context(Context::new().with(Viewer(writers[viewer]))),
 		None => db.with_context(Context::new()),
 	};
+
 	let hits = Article::query()
 		.search(&spec.text())
 		.hits(&request)
