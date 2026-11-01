@@ -112,8 +112,13 @@ fn snapshot() -> Snapshot {
 			plugin: "http".into(),
 			method: "fetch".into(),
 			started_ms: 120,
+			running_ms: Some(121),
 			finished_ms: Some(180),
+			taken_ms: Some(181),
+			completed_late_ms: None,
 			status: CallStatus::Ok,
+			request_bytes: Some(96),
+			response_bytes: Some(4300),
 		}],
 		rpc: vec![RpcAttempt {
 			id: 1,
@@ -506,6 +511,11 @@ fn calls_and_commits_show_guest_reloads() {
 		.find(&Finder::text("Guest reloaded at 2.500 s"))
 		.unwrap();
 	tester_calls.find(&Finder::text("http.fetch")).unwrap();
+	tester_calls
+		.find(&Finder::text(
+			"at 0.120 s · 60 ms · 96 B sent, 4.2 KiB back",
+		))
+		.unwrap();
 	tester_calls
 		.find(&Finder::text("list_projects (attempt 2)"))
 		.unwrap();

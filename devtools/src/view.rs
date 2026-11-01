@@ -782,11 +782,23 @@ fn calls_panel(model: &Model, live: &Live) -> Vec<Element> {
 						CallStatus::Error => "error",
 						CallStatus::Cancelled => "cancelled",
 					};
+					let mut detail = duration(call.started_ms, call.finished_ms);
+					if let (Some(sent), Some(back)) = (call.request_bytes, call.response_bytes) {
+						detail.push_str(&format!(" · {} sent, {} back", bytes(sent), bytes(back)));
+					} else if let Some(sent) = call.request_bytes {
+						detail.push_str(&format!(" · {} sent", bytes(sent)));
+					}
+					if let Some(late) = call.completed_late_ms {
+						detail.push_str(&format!(
+							" · answered {} after it was cancelled",
+							seconds(late.saturating_sub(call.finished_ms.unwrap_or(late)))
+						));
+					}
 					timeline_row(
 						call.started_ms,
 						format!("{}.{}", call.plugin, call.method),
 						status,
-						duration(call.started_ms, call.finished_ms),
+						detail,
 					)
 				}
 				Moment::Rpc(attempt) => {
@@ -908,6 +920,14 @@ fn duration(started: u64, finished: Option<u64>) -> String {
 		|| "· running".to_owned(),
 		|finished| format!("· {} ms", finished.saturating_sub(started)),
 	)
+}
+
+fn bytes(count: u64) -> String {
+	if count < 1024 {
+		format!("{count} B")
+	} else {
+		format!("{:.1} KiB", count as f64 / 1024.0)
+	}
 }
 
 fn seconds(ms: u64) -> String {

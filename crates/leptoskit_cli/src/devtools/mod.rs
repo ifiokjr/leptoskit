@@ -112,7 +112,7 @@ pub fn start(
 	let url = format!("http://{address}");
 	write_config(root, &url, std::process::id())?;
 	let mut state = HubState::new(address.port(), web_port, POLL, EXPIRY);
-	state.root = root.to_owned();
+	root.clone_into(&mut state.root);
 	state.interface = ui::Sources::from_env();
 	let state = Arc::new(state);
 	let router = router(state.clone());

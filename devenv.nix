@@ -511,16 +511,19 @@ in
     "test:cargo" = {
       exec = ''
         set -euo pipefail
-        # file_routes is its own workspace (the scaffold's shape), so its
-        # suites run through the manifest path next to the repository's.
+        # file_routes and the DevTools interface are their own workspaces (the
+        # scaffold's shape), so their suites run through their manifest paths
+        # next to the repository's.
         if [ "$(uname -s)" = Linux ] && [ -z "''${DISPLAY:-}" ]; then
           dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
             cargo nextest run --workspace --all-features
-          exec dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
+          dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
             cargo nextest run --manifest-path examples/file_routes/Cargo.toml
+          exec cargo nextest run --manifest-path devtools/Cargo.toml
         fi
         cargo nextest run --workspace --all-features
         cargo nextest run --manifest-path examples/file_routes/Cargo.toml
+        cargo nextest run --manifest-path devtools/Cargo.toml
       '';
       description = "Run cargo tests with nextest.";
       binary = "bash";

@@ -353,8 +353,13 @@ mod tests {
 					plugin: "p".into(),
 					method: "m".into(),
 					started_ms: 0,
+					running_ms: None,
 					finished_ms: None,
+					taken_ms: None,
+					completed_late_ms: None,
 					status,
+					request_bytes: None,
+					response_bytes: None,
 				},
 			}
 		};

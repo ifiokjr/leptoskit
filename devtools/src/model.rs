@@ -1184,8 +1184,13 @@ pub(crate) mod tests {
 			plugin: "http".into(),
 			method: "fetch".into(),
 			started_ms: 30,
+			running_ms: Some(31),
 			finished_ms: Some(50),
+			taken_ms: Some(51),
+			completed_late_ms: None,
 			status: CallStatus::Ok,
+			request_bytes: None,
+			response_bytes: None,
 		});
 		live.view.rpc.push(leptoskit_devtools_protocol::RpcAttempt {
 			id: 1,
