@@ -116,6 +116,8 @@ class LeptosKitView(
                     fail = { error -> runUi { throw error } },
                 )
             renderer.onRiveViewportChange = { riveAnimator?.requestFrame() }
+            // Creating the app starts its DevTools report when `leptoskit dev` named a hub.
+            renderer.attachDevtools()
         } catch (error: Exception) {
             close()
             throw NativeApplicationInitializationFailure(error) { closeAndJoin() }

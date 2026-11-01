@@ -36,6 +36,32 @@ internal object NativeDevtools {
         app: ByteArray,
     ): Int
 
+    /** Whether this process reports to a hub, so renderers add the highlight overlay. */
+    @JvmStatic external fun active(): Boolean
+
+    /** Whether the hub waits for a tap to pick a node; that tap must not reach the app. */
+    @JvmStatic external fun picking(): Boolean
+
+    /**
+     * Writes the highlighted node and the drawn view to place its outline in
+     * to [ids], and the outline's left, top, width, and height in that view's
+     * child coordinates, in layout units, to [frame]; false with nothing to show.
+     */
+    @JvmStatic external fun highlight(
+        ids: LongArray,
+        frame: FloatArray,
+    ): Boolean
+
+    /**
+     * Picks what a tap at ([x], [y]), in layout units in the child coordinates
+     * of the drawn view [view], lands on; false when the hub is not picking.
+     */
+    @JvmStatic external fun pick(
+        view: Long,
+        x: Float,
+        y: Float,
+    ): Boolean
+
     /** Call before the first app is created; later apps report through the same session. */
     fun configure(context: Context) {
         val intent = (context as? Activity)?.intent ?: return

@@ -27,7 +27,7 @@ let controllerTargets: [Target] = [
             "mobile/MobileApplicationGuests.swift"
         ],
         sources: [
-            "mobile/NativeRive.swift",
+            "mobile/NativeRive.swift", "mobile/DevtoolsOverlay.swift",
             "desktop/MacWidgetRenderer.swift", "desktop/MacTextLabel.swift", "desktop/MacScrollView.swift",
             "mobile/RenderTransaction.swift", "mobile/BinaryTransaction.swift",
             "mobile/WidgetProps.swift", "mobile/ScrollTracker.swift",

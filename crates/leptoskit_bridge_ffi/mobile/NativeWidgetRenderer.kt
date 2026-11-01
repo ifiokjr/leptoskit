@@ -9,11 +9,13 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.TypedValue
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -69,7 +71,23 @@ internal class NativeWidgetRenderer(
         private set
     private var rootId: Long? = null
 
+    /** The DevTools highlight and picking, in apps `leptoskit dev` reports to a hub. */
+    private var devtools: NativeDevtoolsOverlay? = null
+
+    /** Adds the DevTools overlay above the app, once the first app reports to a hub. */
+    fun attachDevtools() {
+        if (devtools != null || !NativeDevtools.active()) return
+        val overlay = NativeDevtoolsOverlay(context, widgets::get, ::nodeOf) { density }
+        root.addView(overlay, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        devtools = overlay
+    }
+
+    /** The node `view` draws, when the renderer made it. */
+    private fun nodeOf(view: View): Long? = (view.tag as? Long)?.takeIf { widgets[it] === view }
+
     fun clear() {
+        devtools?.let(root::removeView)
+        devtools = null
         onRiveViewportChange = null
         widgets.values.forEach { (it as? ImageView)?.setImageDrawable(null) }
         riveBitmaps.clear()
@@ -356,7 +374,8 @@ internal class NativeWidgetRenderer(
 
         if (child.parent === root) return
         detach(child)
-        root.addView(child)
+        // Below the DevTools overlay, which stays on top.
+        root.addView(child, devtools?.let(root::indexOfChild) ?: -1)
     }
 
     private companion object {
@@ -574,5 +593,167 @@ internal class NativeVectorFrame(
 
             return NativeVectorFrame(path, outline, stroke.width * scale, dashes)
         }
+    }
+}
+
+/**
+ * Lies over everything the renderer draws: it outlines the node the DevTools
+ * hub highlights, as the web agent does, and while the hub picks a node it
+ * takes the next tap instead of the app. Otherwise no touch reaches it.
+ *
+ * The highlight changes on the runtime's reporting thread, so the overlay
+ * reads it ten times a second, the rate the runtime reports layout at,
+ * rather than having that thread call into the JVM.
+ */
+internal class NativeDevtoolsOverlay(
+    context: Context,
+    private val widget: (Long) -> View?,
+    private val node: (View) -> Long?,
+    private val density: () -> Float,
+) : View(context) {
+    private val ids = LongArray(2)
+    private val frame = FloatArray(4)
+    private val location = IntArray(2)
+    private val origin = IntArray(2)
+    private val outline = RectF()
+    private var shown = false
+    private val fill = Paint().apply { color = FILL }
+    private val stroke =
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = STROKE
+            style = Paint.Style.STROKE
+        }
+    private val poll =
+        object : Runnable {
+            override fun run() {
+                refresh()
+                postDelayed(this, INTERVAL_MS)
+            }
+        }
+
+    init {
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+        setWillNotDraw(false)
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        post(poll)
+    }
+
+    override fun onDetachedFromWindow() {
+        removeCallbacks(poll)
+        super.onDetachedFromWindow()
+    }
+
+    /** Moves the outline over the highlighted node, wherever its views have scrolled to, or hides it. */
+    fun refresh() {
+        val placed = NativeDevtools.highlight(ids, frame) && place()
+
+        if (placed || shown) invalidate()
+        shown = placed
+    }
+
+    /** Sets [outline] in this view's pixels; false when the anchor is not on screen. */
+    private fun place(): Boolean {
+        val anchor = widget(ids[1])?.takeIf { it.isAttachedToWindow } ?: return false
+        getLocationInWindow(origin)
+
+        if (ids[0] == ids[1]) {
+            anchor.getLocationInWindow(location)
+            val left = (location[0] - origin[0]).toFloat()
+            val top = (location[1] - origin[1]).toFloat()
+            outline.set(left, top, left + anchor.width, top + anchor.height)
+        } else {
+            content(anchor).getLocationInWindow(location)
+            val scale = density()
+            val left = location[0] - origin[0] + frame[0] * scale
+            val top = location[1] - origin[1] + frame[1] * scale
+            outline.set(left, top, left + frame[2] * scale, top + frame[3] * scale)
+        }
+
+        return true
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        if (!shown) return
+        val width = 2 * density()
+        stroke.strokeWidth = width
+        canvas.drawRect(outline, fill)
+        // A stroke is centred on its path; this one lies just outside the frame.
+        val half = width / 2
+        canvas.drawRect(outline.left - half, outline.top - half, outline.right + half, outline.bottom + half, stroke)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) return NativeDevtools.picking()
+
+        if (event.actionMasked == MotionEvent.ACTION_UP) {
+            pick(event.x, event.y)
+            performClick()
+        }
+
+        return true
+    }
+
+    override fun performClick(): Boolean = super.performClick()
+
+    /**
+     * Picks the node under ([x], [y]) in this view's pixels: the deepest
+     * drawn view there tells the runtime where, and the runtime finds the
+     * node, layout-only containers included.
+     */
+    private fun pick(
+        x: Float,
+        y: Float,
+    ) {
+        getLocationInWindow(origin)
+        val windowX = origin[0] + x
+        val windowY = origin[1] + y
+        var view = deepest(parent as? ViewGroup ?: return, windowX, windowY)
+
+        while (view != null && view !== parent) {
+            val id = node(view)
+
+            if (id != null) {
+                content(view).getLocationInWindow(location)
+                val scale = density()
+                NativeDevtools.pick(id, (windowX - location[0]) / scale, (windowY - location[1]) / scale)
+                refresh()
+
+                return
+            }
+
+            view = view.parent as? View
+        }
+    }
+
+    /** The deepest visible view under a point in window pixels, drawn last first, skipping this overlay. */
+    private fun deepest(
+        group: ViewGroup,
+        x: Float,
+        y: Float,
+    ): View? {
+        for (index in group.childCount - 1 downTo 0) {
+            val child = group.getChildAt(index)
+
+            if (child === this || child.visibility != VISIBLE) continue
+            child.getLocationInWindow(location)
+
+            if (x < location[0] || y < location[1] || x >= location[0] + child.width || y >= location[1] + child.height) continue
+
+            return (child as? ViewGroup)?.let { deepest(it, x, y) } ?: child
+        }
+
+        return null
+    }
+
+    /** The view a drawn widget lays its children out in: a scroll view's content. */
+    private fun content(view: View): View = (view as? ScrollView)?.getChildAt(0) ?: view
+
+    private companion object {
+        const val INTERVAL_MS = 100L
+        const val STROKE = 0xFFE500FF.toInt()
+        const val FILL = 0x22E500FF
     }
 }

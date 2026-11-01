@@ -73,9 +73,21 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
     private var widgets: [Int: NSView] = [:]
     private let scrolls = ScrollTracker()
     private var applying = false
+    /// The DevTools highlight and picking, in apps `leptoskit dev` reports to a hub.
+    private(set) var devtools: DevtoolsOverlay?
     var onEvent: ((Int, UInt32, String) -> Void)?
-    init(view: NSView) { self.view = view }
+    init(view: NSView, devtools link: DevtoolsLink? = DevtoolsLink.live()) {
+        self.view = view
+        super.init()
+        guard let link else { return }
+        let overlay = DevtoolsOverlay(
+            link: link, widget: { [weak self] in self?.widgets[$0] }, node: { [weak self] in self?.node($0) })
+        overlay.attach(to: view)
+        devtools = overlay
+    }
     func close() {
+        devtools?.close()
+        devtools = nil
         for widget in widgets.values { (widget as? NSImageView)?.image = nil }
         widgets.removeAll()
         scrolls.removeAll()
@@ -109,7 +121,11 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
         for change in transaction.mutations { try apply(change) }
 
         if let root = transaction.root, let widget = widgets[root], widget.superview !== view {
-            view.addSubview(widget)
+            if let devtools {
+                view.addSubview(widget, positioned: .below, relativeTo: devtools)
+            } else {
+                view.addSubview(widget)
+            }
         }
 
         updateScrollSizes()
@@ -228,7 +244,9 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
         }
     }
 
-    private func node(_ widget: NSView) -> Int? { widget.identifier.flatMap { Int($0.rawValue) } }
+    private func node(_ widget: NSView) -> Int? {
+        widget.identifier.flatMap { Int($0.rawValue) }.flatMap { widgets[$0] === widget ? $0 : nil }
+    }
 
     @objc private func pressed(_ sender: NSButton) {
         if let id = node(sender) { event(id, 0) }

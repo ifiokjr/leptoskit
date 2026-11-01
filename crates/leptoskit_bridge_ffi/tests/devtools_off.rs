@@ -12,8 +12,10 @@ use std::time::Duration;
 
 use leptoskit_bridge_ffi::app::*;
 use leptoskit_bridge_ffi::devtools::DevtoolsFrame;
+use leptoskit_bridge_ffi::devtools::lk_devtools_active;
 use leptoskit_bridge_ffi::devtools::lk_devtools_highlight;
 use leptoskit_bridge_ffi::devtools::lk_devtools_hub;
+use leptoskit_bridge_ffi::devtools::lk_devtools_pick;
 use leptoskit_bridge_ffi::devtools::lk_devtools_picking;
 use leptoskit_bridge_ffi::lk_buffer_release;
 
@@ -68,6 +70,8 @@ fn nothing_reports_without_a_hub_or_the_feature() {
 		"no app opened a session"
 	);
 	assert_eq!(lk_devtools_picking(), 0);
+	assert_eq!(lk_devtools_active(), 0, "platforms draw no overlay");
+	assert_eq!(lk_devtools_pick(1, 1.0, 1.0), 0, "taps reach the app");
 	let mut frame = DevtoolsFrame::default();
 	// SAFETY: The output is writable.
 	assert_eq!(unsafe { lk_devtools_highlight(&raw mut frame) }, 0);

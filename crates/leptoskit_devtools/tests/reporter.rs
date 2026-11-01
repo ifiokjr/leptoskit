@@ -421,6 +421,16 @@ fn commands_snapshot_highlight_pick_and_profile() {
 	source.send(screen(1, "Hello"));
 	let (session, snapshot) = hub.snapshot(0);
 	let heading = snapshot.tree.nodes[1].clone();
+	let explained: Vec<&str> = snapshot.tree.nodes[0]
+		.styles
+		.iter()
+		.map(|rule| rule.class.as_str())
+		.collect();
+	assert_eq!(
+		explained,
+		["flex-col", "p-4"],
+		"native classes are explained"
+	);
 
 	hub.send(&session, Command::RequestSnapshot);
 	hub.snapshot(1);
@@ -436,6 +446,12 @@ fn commands_snapshot_highlight_pick_and_profile() {
 			.highlight()
 			.is_some_and(|highlight| highlight.node == Some((2, frame(16.0, 24.0, 100.0, 20.0))))
 	});
+	// Without word of which views the platform draws, the outline goes on
+	// the root, which every platform draws.
+	assert_eq!(
+		reporter.highlight().unwrap().anchor,
+		Some((1, frame(16.0, 24.0, 100.0, 20.0)))
+	);
 	hub.send(
 		&session,
 		Command::Highlight {
@@ -462,6 +478,34 @@ fn commands_snapshot_highlight_pick_and_profile() {
 		reporter
 			.highlight()
 			.is_some_and(|highlight| highlight.key == heading.key)
+	});
+
+	// A tap anywhere picks whatever the tree has under it.
+	assert!(
+		!reporter.tap(1, 300.0, 400.0),
+		"a tap is the app's until the hub picks"
+	);
+	hub.send(&session, Command::Pick { on: true });
+	eventually("picking by tap", || reporter.picking());
+	assert!(reporter.tap(1, 300.0, 400.0));
+	assert!(!reporter.picking(), "one tap picks one node");
+	let picked = hub.wait("the tapped pick", |state| {
+		state
+			.events
+			.iter()
+			.filter_map(|(_, event)| {
+				match event {
+					Event::Picked { node, .. } => Some(node.clone()),
+					_ => None,
+				}
+			})
+			.nth(1)
+	});
+	assert_eq!(picked, NodeRef::Native(1), "the tap missed the heading");
+	eventually("the tapped node's highlight", || {
+		reporter
+			.highlight()
+			.is_some_and(|highlight| highlight.node.is_some_and(|(id, _)| id == 1))
 	});
 
 	hub.send(&session, Command::StartProfiling);
