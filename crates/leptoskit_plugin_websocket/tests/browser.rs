@@ -12,6 +12,9 @@ use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
+/// Small enough that the server's oversized-message guard trips.
+const MAX_MESSAGE_BYTES: usize = 8;
+
 fn origin() -> Result<&'static str, &'static str> {
 	option_env!("LEPTOSKIT_WEBSOCKET_TEST_URL")
 		.ok_or("start browser_test_server and set LEPTOSKIT_WEBSOCKET_TEST_URL when building tests")
@@ -36,8 +39,8 @@ async fn browser_binary_echo_and_close_use_a_real_local_socket() {
 async fn browser_rejects_an_oversized_incoming_message() {
 	let origin = origin().unwrap();
 	let mut config = Config::new([origin]).unwrap();
-	config.max_message_bytes = 8;
-	let mut socket = Client::new(config)
+	config.max_message_bytes = MAX_MESSAGE_BYTES;
+	let socket = Client::new(config)
 		.unwrap()
 		.connect(&format!("{origin}/large"), &[])
 		.await
@@ -50,7 +53,7 @@ async fn browser_empty_message_flood_is_bounded_by_item_count() {
 	let origin = origin().unwrap();
 	let mut config = Config::new([origin]).unwrap();
 	config.max_pending_messages = 2;
-	let mut socket = Client::new(config)
+	let socket = Client::new(config)
 		.unwrap()
 		.connect(&format!("{origin}/flood"), &[])
 		.await
