@@ -218,8 +218,20 @@ fn render_node(
 	sheets: &mut BTreeMap<String, String>,
 	path: &NodePath,
 ) -> AnyView {
-	let (scope, sheet) = scoped_sheet(&element, root);
 	let devtools = path.attributes(&element);
+	let base = styles::base(&element, root);
+	let styles_active = element.classes().active_class().is_some();
+	let control = styles::control("", element.kind, styles_active);
+	let scope = style_scope(&base, element.classes().classes(), &control);
+	sheets.entry(scope.clone()).or_insert_with(|| {
+		scoped_sheet(
+			&scope,
+			&base,
+			element.classes(),
+			element.kind,
+			styles_active,
+		)
+	});
 	let handlers: Handlers = element.handlers().to_vec().into();
 	let mut chain = ancestors.to_vec();
 	chain.push(Arc::clone(&handlers));
@@ -255,7 +267,6 @@ fn render_node(
 	};
 	let custom_control = semantics::custom_control(kind, props.aria());
 
-	sheets.entry(scope.clone()).or_insert(sheet);
 	let child_paths = path.children(&element.children);
 	let children = element
 		.children
@@ -321,25 +332,41 @@ fn render_node(
 	}
 }
 
-/// The node's style scope and its stylesheet: typed base styles, utility
-/// classes, and control decoration, under a selector derived from their
-/// content so equal styles share one sheet.
-fn scoped_sheet(element: &Element, root: bool) -> (String, String) {
-	let base = styles::base(element, root);
-	let styles_active = element.classes().active_class().is_some();
-	let fingerprint = format!(
-		"{base}\0{}{}",
-		element.classes().css(),
-		styles::control("", element.kind, styles_active)
-	);
-	let scope = format!("lk-{:x}", Sha256::digest(fingerprint.as_bytes()));
+/// The style scope a node's content hashes to, so equal styles share one
+/// sheet.
+///
+/// The scope derives from the same content as the sheet: the typed base
+/// styles, the normalized class string, and the control decoration. The
+/// normalized classes determine the generated utilities — the same string
+/// always compiles to the same CSS — so hashing the string costs a fraction
+/// of generating the stylesheet to hash it.
+fn style_scope(base: &str, classes: &str, control: &str) -> String {
+	let mut hasher = Sha256::new();
+	hasher.update(base);
+	hasher.update(b"\0");
+	hasher.update(classes);
+	hasher.update(b"\0");
+	hasher.update(control);
+	format!("lk-{:x}", hasher.finalize())
+}
+
+/// The node's stylesheet: typed base styles, utility classes, and control
+/// decoration, under the selector its scope names. Only built for a scope
+/// the document has not seen, so a re-render that reuses every style builds
+/// none.
+fn scoped_sheet(
+	scope: &str,
+	base: &str,
+	classes: &crate::tailwind::Tailwind,
+	kind: NativeKind,
+	styles_active: bool,
+) -> String {
 	let selector = format!("[data-lk-style=\"{scope}\"]");
-	let sheet = format!(
+	format!(
 		":where({selector}){{{base}}}{}{}",
-		element.classes().css_scoped(&selector),
-		styles::control(&selector, element.kind, styles_active),
-	);
-	(scope, sheet)
+		classes.css_scoped(&selector),
+		styles::control(&selector, kind, styles_active),
+	)
 }
 
 /// The DOM listeners every node carries, which translate browser events into
@@ -481,6 +508,15 @@ fn listeners(
 /// Where a node sits, for the `DevTools` attributes: its path from the
 /// render root, and its cross-platform match key.
 struct NodePath {
+	// Nothing reads the path without the devtools feature: the attributes it
+	// names are absent, so child paths are never formatted.
+	#[cfg_attr(
+		not(feature = "devtools"),
+		expect(
+			dead_code,
+			reason = "the path names nodes only with the devtools feature"
+		)
+	)]
 	path: String,
 	#[cfg(feature = "devtools")]
 	key: u64,
@@ -506,6 +542,13 @@ impl NodePath {
 	}
 
 	/// Each child's path, in order.
+	#[cfg_attr(
+		not(feature = "devtools"),
+		expect(
+			clippy::unused_self,
+			reason = "the path names nodes only with the devtools feature"
+		)
+	)]
 	fn children(&self, children: &[Element]) -> Vec<Self> {
 		#[cfg(feature = "devtools")]
 		{
@@ -530,10 +573,12 @@ impl NodePath {
 		}
 		#[cfg(not(feature = "devtools"))]
 		{
+			// Nothing reads the path without the feature — the attributes
+			// it names are absent — so the string is never built.
 			(0..children.len())
-				.map(|index| {
+				.map(|_| {
 					Self {
-						path: format!("{}.{index}", self.path),
+						path: String::new(),
 					}
 				})
 				.collect()

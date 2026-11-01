@@ -303,7 +303,10 @@ pub struct WireError {
 	pub message: String,
 }
 
-#[cfg(any(feature = "live", feature = "postgres", feature = "sqlite"))]
+// The constructors compile with the server's live module, which the `live`
+// feature builds (`live` implies `server`); in builds without it, such as
+// an app server that depends on the auth crate alone, they are dead code.
+#[cfg(feature = "live")]
 impl WireError {
 	/// The failure `error` carries.
 	pub(crate) fn new(error: &crate::Error) -> Self {

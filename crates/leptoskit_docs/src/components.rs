@@ -70,7 +70,8 @@ impl Components {
 				};
 
 				Ok(match props.url("href") {
-					Some(href) => view! { <a class="lk-card" href=href>{body}</a> }.into_any(),
+					Some(Ok(href)) => view! { <a class="lk-card" href=href>{body}</a> }.into_any(),
+					Some(Err(error)) => return Err(error),
 					None => view! { <div class="lk-card">{body}</div> }.into_any(),
 				})
 			})

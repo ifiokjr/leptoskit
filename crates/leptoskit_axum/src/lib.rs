@@ -400,9 +400,15 @@ pub async fn serve_listener_with(
 		tokio::time::sleep(drain_delay).await;
 		let _ = closing.send(());
 	};
-	let server = axum::serve(listener, router)
-		.with_graceful_shutdown(stop)
-		.into_future();
+	// `ConnectInfo` is attached so handlers can see the peer address: the
+	// auth layer's per-IP rate limits read it, and they silently do nothing
+	// when it is absent.
+	let server = axum::serve(
+		listener,
+		router.into_make_service_with_connect_info::<SocketAddr>(),
+	)
+	.with_graceful_shutdown(stop)
+	.into_future();
 	// The grace period starts when the listener closes. The sender only
 	// drops unsent when the server has already finished, which wins the
 	// race below anyway.

@@ -100,7 +100,7 @@ fn custom_components() -> Components {
 			let title = props.require("title")?.to_owned();
 			let href = props
 				.url("href")
-				.ok_or_else(|| PropError::new("<Feature> needs an `href`"))?;
+				.ok_or_else(|| PropError::new("<Feature> needs an `href`"))??;
 			Ok(view! { <a class="feature" href=href>{title}</a> }.into_any())
 		})
 }
@@ -316,6 +316,24 @@ fn escapes_text_and_attributes() {
 		html,
 		"<p>Tags in text: &lt;b&gt; &amp; <img src=\"a.png\" alt=\"&lt;!&gt; &amp; \
 		 &quot;quoted&quot;\"></p>"
+	);
+}
+
+#[test]
+fn link_props_with_a_script_scheme_are_refused() {
+	let diagnostics = render_to_html(
+		"<Cards>\n\t<Card title=\"Launch\" \
+		 href=\"javascript:alert(1)\">\n\t\tGo.\n\t</Card>\n</Cards>",
+		&Components::new(),
+	)
+	.unwrap_err();
+
+	let messages: Vec<String> = diagnostics.iter().map(ToString::to_string).collect();
+	assert!(
+		messages
+			.iter()
+			.any(|message| message.contains("javascript:alert(1)")),
+		"got {messages:?}"
 	);
 }
 

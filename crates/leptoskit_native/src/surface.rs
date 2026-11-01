@@ -306,6 +306,9 @@ pub struct NativeSurface<B: NativeBackend> {
 	/// Per-node hit areas, rebuilt by every layout commit. Kept apart from
 	/// the shadow nodes so pruning reads a dense array.
 	hit_areas: Vec<HitArea>,
+	/// Scratch space for reconciliation: the children a commit walks, so the
+	/// steady state allocates nothing to snapshot them.
+	scratch_children: Vec<NodeId>,
 	source: Option<Element>,
 	dark: bool,
 	safe_area: Rect<f32>,
@@ -329,6 +332,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 			viewport: Size::new(0.0, 0.0),
 			frames: Vec::new(),
 			hit_areas: Vec::new(),
+			scratch_children: Vec::new(),
 			source: None,
 			dark: false,
 			safe_area: Rect::default(),

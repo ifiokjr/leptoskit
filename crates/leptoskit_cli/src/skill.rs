@@ -69,6 +69,22 @@ fn listed(list: &str) -> Vec<String> {
 		.collect()
 }
 
+/// A listed name, checked to stay inside the directory the skill installs
+/// into: relative, and normal components only, so a hostile `files.txt`
+/// cannot write or remove files anywhere else on the machine.
+fn inside(name: &str) -> Result<&Path> {
+	let path = Path::new(name);
+	anyhow::ensure!(
+		!name.is_empty()
+			&& path.is_relative()
+			&& path
+				.components()
+				.all(|component| matches!(component, std::path::Component::Normal(_))),
+		"{name:?} is not a file inside the skill"
+	);
+	Ok(path)
+}
+
 fn read_local(dir: &Path) -> Result<Files> {
 	let list = std::fs::read_to_string(dir.join("files.txt"))?;
 	listed(&list)
@@ -149,12 +165,12 @@ fn install(dir: &Path, files: &Files, source: &str, force: bool) -> Result<()> {
 	if let Ok(previous) = std::fs::read_to_string(&marker) {
 		for name in listed(&previous).into_iter().skip(1) {
 			if !files.iter().any(|(file, _)| *file == name) {
-				let _ = std::fs::remove_file(dir.join(name));
+				let _ = std::fs::remove_file(dir.join(inside(&name)?));
 			}
 		}
 	}
 	for (name, contents) in files {
-		let path = dir.join(name);
+		let path = dir.join(inside(name)?);
 		if let Some(parent) = path.parent() {
 			std::fs::create_dir_all(parent)?;
 		}
@@ -297,5 +313,16 @@ mod tests {
 		);
 		let error = fetch(&base, "v0.0.0").unwrap_err().to_string();
 		assert!(error.contains("--ref main"), "{error}");
+	}
+
+	#[test]
+	fn names_that_escape_the_folder_are_refused() {
+		assert_eq!(
+			inside("references/publishing.md").unwrap(),
+			Path::new("references/publishing.md")
+		);
+		for escape in ["", "..", "../escape", "/absolute", "a/../../b"] {
+			assert!(inside(escape).is_err(), "{escape:?} must not install");
+		}
 	}
 }

@@ -48,23 +48,102 @@ pub fn is_layout_only(kind: NativeKind, props: &NativeProps) -> bool {
 		return false;
 	}
 
-	let mut rest = props.clone();
-	rest.color = None;
-	rest.font_size = None;
-	rest.font_weight = None;
-	rest.text_align = None;
-	rest.direction = None;
-	rest.enabled = None;
+	// Text styling, disabled state, and accessibility hiding are inherited:
+	// the surface has already copied them to every descendant, so on a
+	// container they draw nothing. Everything else must be unset, so a
+	// property added later keeps its container a native view until it is
+	// known to be safe here.
+	//
+	// The fields are matched exhaustively rather than cloned-and-cleared:
+	// this runs for every element of every flattened tree on every commit,
+	// and a clone allocated every string and map the props carried. A field
+	// added to `NativeProps` must be listed here to compile, and one not
+	// listed — including a newly added field — disqualifies flattening,
+	// which is the safe default.
+	let NativeProps {
+		rive,
+		text,
+		source,
+		placeholder,
+		autocomplete,
+		value,
+		checked,
+		radio_group,
+		slider,
+		progress,
+		running,
+		drawing,
+		// Inherited to descendants, so a container draws none of them.
+		color: _,
+		background,
+		enabled: _,
+		accessibility_label,
+		aria,
+		id,
+		corner_radius,
+		border_width,
+		border_widths,
+		border_color,
+		opacity,
+		hidden,
+		clip,
+		font_size: _,
+		font_weight: _,
+		italic,
+		spans,
+		text_align: _,
+		direction: _,
+		focused,
+		scroll_offset,
+		extra,
+	} = props;
 
-	if rest.aria.is_some() {
-		rest.aria_mut().hidden = None;
+	rive.is_none()
+		&& text.is_none()
+		&& source.is_none()
+		&& placeholder.is_none()
+		&& autocomplete.is_none()
+		&& value.is_none()
+		&& checked.is_none()
+		&& radio_group.is_none()
+		&& slider.is_none()
+		&& progress.is_none()
+		&& running.is_none()
+		&& drawing.is_none()
+		&& background.is_none()
+		&& accessibility_label.is_none()
+		&& id.is_none()
+		&& corner_radius.is_none()
+		&& border_width.is_none()
+		&& border_widths.is_none()
+		&& border_color.is_none()
+		&& opacity.is_none()
+		&& hidden.is_none()
+		&& clip.is_none()
+		&& italic.is_none()
+		&& spans.is_none()
+		&& focused.is_none()
+		&& scroll_offset.is_none()
+		&& extra.is_empty()
+		&& aria_only_hides(aria.as_deref())
+}
 
-		if *rest.aria() == Aria::EMPTY {
-			rest.aria = None;
-		}
+/// Whether an aria group carries nothing but hiding, which the surface
+/// copies to descendants the way it copies the other inherited properties.
+fn aria_only_hides(aria: Option<&Aria>) -> bool {
+	let Some(aria) = aria else {
+		return true;
+	};
+
+	if aria.hidden.is_none() {
+		// Nothing to clear: the group as a whole must already be unset.
+		return *aria == Aria::EMPTY;
 	}
 
-	rest == NativeProps::default()
+	// Hiding alone is inherited, so the rest of the group must be unset.
+	let mut bare = aria.clone();
+	bare.hidden = None;
+	bare == Aria::EMPTY
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
