@@ -1039,3 +1039,42 @@ fn a_store_without_its_icon_gets_a_step() {
 	std::fs::write(root.path().join("assets/icon-128.png"), "png").unwrap();
 	assert!(super::icon_step(root.path(), &without, "chrome").is_none());
 }
+
+/// The release workflow passes every credential `leptoskit publish` reads,
+/// so a new store's credential can't be forgotten there.
+#[test]
+fn the_release_workflow_passes_every_credential() {
+	let workflow = crate::new_project::release_workflow();
+	for needed in &super::NEEDED {
+		// The keystore is a file, decoded from its own secret.
+		if needed.name == super::play::KEYSTORE {
+			assert!(workflow.contains("secrets.LEPTOSKIT_ANDROID_KEYSTORE_BASE64"));
+			assert!(workflow.contains("LEPTOSKIT_ANDROID_KEYSTORE=$RUNNER_TEMP/upload.jks"));
+			continue;
+		}
+		assert!(
+			workflow.contains(&format!("{0}: ${{{{ secrets.{0} }}}}", needed.name)),
+			"the release workflow doesn't pass {}",
+			needed.name
+		);
+	}
+	for store in leptoskit_config::publish::STORES {
+		assert!(
+			workflow.contains(store),
+			"the workflow doesn't look for {store}"
+		);
+	}
+	assert!(workflow.contains(&format!(
+		"cargo install leptoskit_cli --version {} --locked",
+		env!("CARGO_PKG_VERSION")
+	)));
+
+	let root = tempfile::tempdir().unwrap();
+	let config = leptoskit_config::LeptoskitConfig::default();
+	super::write_workflow(root.path(), &config).unwrap();
+	let path = root.path().join(crate::new_project::RELEASE_WORKFLOW);
+	assert_eq!(std::fs::read_to_string(&path).unwrap(), workflow);
+	// An existing workflow is the app's; it isn't replaced.
+	let error = super::write_workflow(root.path(), &config).unwrap_err();
+	assert!(error.to_string().contains("remove it first"), "{error}");
+}

@@ -28,11 +28,13 @@ water/
 ├── water_backend/        server-only code, such as the `GET /api/health` endpoint
 ├── water_shared/         types the app and the backend both use
 ├── web/  assets/         the browser's HTML page and shared files
+├── .github/workflows/release.yml
+│                         publishes to the stores on a version tag, once you set them up
 └── ios/  android/  macos/  windows/  linux/
                           one small native app per platform, which runs water_app
 ```
 
-Most of your work happens in `water_app`. The platform folders hold what only that platform needs: its app icon and permissions, its startup code, and its native dependencies. Build output goes into `.leptoskit/`, which is ignored by Git.
+Most of your work happens in `water_app`. The platform folders hold what only that platform needs: its permissions, its startup code, and its native dependencies. Build output goes into `.leptoskit/`, which is ignored by Git.
 
 ## Make it yours
 

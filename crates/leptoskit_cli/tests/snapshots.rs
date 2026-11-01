@@ -623,6 +623,8 @@ fn with_cli_version_masked() -> insta::Settings {
 		.collect();
 	let mut settings = insta::Settings::clone_current();
 	settings.add_filter(&format!("={escaped}"), "=[version]");
+	// The release workflow installs the CLI that wrote it.
+	settings.add_filter(&format!("--version {escaped} "), "--version [version] ");
 	settings
 }
 

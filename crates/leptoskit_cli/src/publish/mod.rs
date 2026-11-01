@@ -43,8 +43,9 @@ use self::steps::Who;
 pub struct PublishArgs {
 	/// The stores: `chrome`, `edge`, `firefox`, `app_store`, `macos`, and
 	/// `play`; every store `[publish]` configures when omitted.
-	/// `credentials` lists the credentials each configured store needs, and
-	/// `screenshots` captures the stores' screenshots instead.
+	/// `credentials` lists the credentials each configured store needs,
+	/// `screenshots` captures the stores' screenshots, and `workflow` writes
+	/// the GitHub Actions workflow that publishes on a version tag, instead.
 	pub stores: Vec<String>,
 	/// Build and check everything, and contact no store.
 	#[arg(long)]
@@ -212,6 +213,9 @@ pub fn run(args: &PublishArgs) -> Result<()> {
 	let credentials = Credentials::load(args.credentials.as_deref(), &root)?;
 	if args.stores.iter().any(|store| store == "screenshots") {
 		return screenshots::run(&root, &config.native.package_id, args.dry_run);
+	}
+	if args.stores.iter().any(|store| store == "workflow") {
+		return write_workflow(&root, &config);
 	}
 	let configured = config.publish.stores();
 	anyhow::ensure!(
@@ -1327,6 +1331,26 @@ fn icon_step(root: &Path, config: &LeptoskitConfig, store: &str) -> Option<Step>
 		"stores refuse an app without its icon sizes, and leptoskit makes them all from one image",
 		"app.icon is set",
 	))
+}
+
+/// `leptoskit publish workflow`: the release workflow `leptoskit new`
+/// writes, for a project made before it did.
+fn write_workflow(root: &Path, config: &LeptoskitConfig) -> Result<()> {
+	let path = root.join(crate::new_project::RELEASE_WORKFLOW);
+	anyhow::ensure!(
+		!path.exists(),
+		"{} exists; remove it first to write this version's",
+		path.display()
+	);
+	std::fs::create_dir_all(path.parent().expect("in a folder"))?;
+	std::fs::write(&path, crate::new_project::release_workflow())?;
+	println!(
+		"wrote {}: it publishes to the stores in [publish] when you push a tag like v{}. Add the \
+		 credentials `leptoskit publish credentials` lists as repository secrets.",
+		crate::new_project::RELEASE_WORKFLOW,
+		config.app.version
+	);
+	Ok(())
 }
 
 /// Asks before submitting, in a terminal; `--yes` and CI skip the question.

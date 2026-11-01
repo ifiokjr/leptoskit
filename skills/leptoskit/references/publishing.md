@@ -114,6 +114,12 @@ When you have computer use (screenshots, clicks, and typing) or a browser automa
 - If notarization fails, run the `xcrun notarytool log <id>` command the error prints, with the same key, and fix what it lists; usually an unsigned binary or a missing secure timestamp.
 - With `[publish.macos].github_release`, `--submit` attaches the files to the GitHub release `v<version>` with `gh`. Ask before it: a release reaches everyone who downloads from it.
 
+## Releasing from CI
+
+- `.github/workflows/release.yml` (from `leptoskit new`, or `leptoskit publish workflow`) runs `leptoskit publish` on a `v<version>` tag, and with `--submit` when run by hand with **submit** checked.
+- Adding the repository secrets is the person's to do: they are the credentials. Tell them the names from `leptoskit publish credentials`, plus `LEPTOSKIT_ANDROID_KEYSTORE_BASE64`, `LEPTOSKIT_MACOS_CERTIFICATE_BASE64`, and `LEPTOSKIT_MACOS_CERTIFICATE_PASSWORD` for the files.
+- A release is: raise `app.version`, commit, then `git tag v<version>` and push the tag. The run's summary has "What to do next".
+
 ## After a release
 
 - `leptoskit publish` writes `.leptoskit/publish/next-steps.md` every run; it's the place to see what's left.
