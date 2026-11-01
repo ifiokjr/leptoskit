@@ -682,6 +682,7 @@ fn scaffold_files_are_the_promised_set() {
 			".gitignore",
 			"Cargo.toml",
 			"src/main.rs",
+			new_project::RELEASE_WORKFLOW,
 			"web/index.html",
 			"assets/app.css",
 			"README.md",
