@@ -130,7 +130,7 @@ jobs:
         run: |
           set -euo pipefail
           bash setup/scripts/android_sdk_install.sh \
-            emulator "system-images;android-35;default;x86_64" "platforms;android-35" "build-tools;37.0.0" platform-tools
+            emulator "system-images;android-35;default;x86_64" "platforms;android-35" "platforms;android-36" "build-tools;37.0.0" platform-tools
       - name: test Android native permissions
         if: matrix.platform == 'android'
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2

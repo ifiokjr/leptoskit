@@ -359,7 +359,7 @@ jobs:
         run: |
           set -euo pipefail
           bash setup/scripts/android_sdk_install.sh "ndk;${NDK_VERSION}" \
-            emulator "system-images;android-35;default;x86_64" "platforms;android-35" "build-tools;37.0.0" platform-tools
+            emulator "system-images;android-35;default;x86_64" "platforms;android-35" "platforms;android-36" "build-tools;37.0.0" platform-tools
         shell: bash
 
       - name: enable KVM
