@@ -314,6 +314,7 @@ pub(crate) fn expand(
 				),
 			);
 		}
+
 		let points_at_self = id_target(&ty).is_some_and(|target| is_type_named(target, &name));
 
 		fields.push(Field {
@@ -508,6 +509,7 @@ pub(crate) fn expand_continued(input: TokenStream) -> syn::Result<TokenStream> {
 				TokenTree::Group(group) if group.delimiter() == proc_macro2::Delimiter::Brace => {
 					Ok(group.stream())
 				}
+
 				other => {
 					Err(syn::Error::new(
 						other.span(),
@@ -1166,6 +1168,7 @@ impl Table<'_> {
 		let columns = self.columns_type();
 		let methods = self.methods();
 		let public = self.public_type();
+
 		let has_mixins = self.has_mixins();
 		let policy_import = self.policy_import.map(|path| {
 			quote! {
@@ -1242,6 +1245,7 @@ impl Table<'_> {
 		let table_impl = self.table_impl();
 		let columns = self.columns_type();
 		let links = self.links();
+
 		let public_columns = self.public_columns();
 		let public = self.public_type();
 		let projections = self.projections();
@@ -1432,6 +1436,7 @@ impl Table<'_> {
 			.filter(|field| field.key)
 			.map(|field| &field.column);
 		let created = self.marker(|args| args.timestamp == Some(Timestamp::Created));
+
 		let updated = self.marker(|args| args.timestamp == Some(Timestamp::Updated));
 		let deleted = self.marker(|args| args.timestamp == Some(Timestamp::Deleted));
 		let version = self.marker(|args| args.version);
@@ -1490,6 +1495,7 @@ impl Table<'_> {
 			self.on_marker(|args| args.version, |access| quote! { self.#access += 1; });
 		let filled = self.filled_consts(&all);
 		let stamp = self.stamp_fn(&all);
+
 		let hooks = self.hook_fns();
 		let reads_through = self.reads_through_fn();
 
@@ -1557,6 +1563,7 @@ impl Table<'_> {
 	fn reads_through_fn(&self) -> Option<TokenStream> {
 		let krate = self.krate;
 		let view = self.args.view.as_ref()?;
+
 		let body = match &view.reads {
 			Some(tables) => {
 				quote! {
@@ -1565,9 +1572,11 @@ impl Table<'_> {
 					])
 				}
 			}
+
 			None if view.materialized => {
 				quote! { ::core::option::Option::Some(::std::vec::Vec::new()) }
 			}
+
 			None => quote! { ::core::option::Option::None },
 		};
 
@@ -2014,6 +2023,7 @@ impl Table<'_> {
 		// `Id<Self>` key references nothing. A mixin's field types aren't
 		// visible here, so its columns ask their type at run time.
 		let field = column.field;
+
 		let references = match column.inner {
 			Some(_) => true,
 			None => id_target(&field.ty).is_some() && !(field.key && field.points_at_self),
@@ -2032,6 +2042,7 @@ impl Table<'_> {
 				} else {
 					action.to_string()
 				};
+
 				let variant = format_ident!(
 					"{}",
 					convert_case::Converter::new()
@@ -2295,11 +2306,14 @@ impl Table<'_> {
 		} else {
 			quote!(pub)
 		};
+
 		let name = self.name;
+
 		let new = self.new_name();
 		let columns = self.columns_name();
 		let keys: Vec<&Field> = self.fields.iter().filter(|field| field.key).collect();
 		let stale = self.stale_embeddings();
+
 		let by_key = match keys.as_slice() {
 			[key] => {
 				let ident = &key.ident;
@@ -2421,6 +2435,7 @@ impl Table<'_> {
 					}
 				}
 			};
+
 			let by_doc = format!(" The rows whose `{ident}` points at `id`.");
 			let via = format_ident!("__via_{}", unraw(&link), span = ident.span());
 			let column = &field.column;
@@ -2433,10 +2448,12 @@ impl Table<'_> {
 			} else {
 				quote! {
 					pub fn #via() -> #krate::__private::shape::Relation<Self, #target, #krate::__private::shape::One> {
+
 						#krate::__private::shape::Relation::forward(#column)
 					}
 				}
 			};
+
 			methods.push(quote! {
 				#accessor
 
@@ -2499,6 +2516,7 @@ impl Table<'_> {
 					}
 				})
 			}
+
 			_ => None,
 		};
 
@@ -2569,6 +2587,7 @@ impl Table<'_> {
 
 				let declaration = match &field.mixin {
 					None if is_provided(field) => quote! { #(#docs)* #vis #ident: #ty },
+
 					None => return None,
 					Some(mixin) => {
 						let path = &mixin.path;
@@ -2603,6 +2622,7 @@ impl Table<'_> {
 		// `inject_link_ends` put the ends first.
 		let (from, to) = (&self.fields[0], &self.fields[1]);
 		let (from_ident, to_ident) = (&from.ident, &to.ident);
+
 		let (from_column, to_column) = (&from.column, &to.column);
 		let (from_table, to_table) = (&link.from.table, &link.to.table);
 		let properties: Vec<(&Field, TokenStream)> = self
@@ -2629,6 +2649,7 @@ impl Table<'_> {
 				},
 			)
 		};
+
 		let assignments = properties.iter().map(|(field, _)| {
 			let ident = &field.ident;
 			quote! { #ident: properties.#ident }
@@ -2647,6 +2668,7 @@ impl Table<'_> {
 			} else {
 				(quote!(backward), to_column, from_column)
 			};
+
 			let doc = format!(
 				" The `{}` rows linked to this one through [`{name}`].",
 				quote!(#far)
@@ -2779,11 +2801,14 @@ impl Table<'_> {
 
 			match &field.mixin {
 				None if is_provided(field) => quote! { #ident: self.#ident },
+
 				None if field.generated => quote_spanned! { span=> #ident: #krate::Id::new() },
+
 				None if field.args.slug.is_some() => {
 					let binding = format_ident!("__slug_{}", unraw(ident));
 					quote_spanned! { span=> #ident: #binding }
 				}
+
 				None => {
 					let ty = &field.ty;
 					let value = automatic(krate, &quote!(#ty), &field.args);
@@ -2961,6 +2986,7 @@ impl Table<'_> {
 					&& visible.iter().any(|field| field.ident == key.ident) =>
 			{
 				let ident = &key.ident;
+
 				Some(quote! {
 					impl #krate::HasId<#name> for #type_name {
 						fn id(&self) -> #krate::Id<#name> {

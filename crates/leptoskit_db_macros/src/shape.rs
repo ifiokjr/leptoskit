@@ -249,6 +249,7 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
 		label: name.to_string(),
 		from,
 		private: &private,
+
 		columns: if args.public {
 			quote! { #from::__public_columns() }
 		} else {
@@ -256,6 +257,7 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
 		},
 	};
 	let mut selection = Vec::new();
+
 	let mut decoders = Vec::new();
 	let mut public_nested = Vec::new();
 
@@ -330,6 +332,7 @@ fn key_field<'a>(
 			Some(Source::Column(column)) => column,
 			Some(_) => return None,
 		};
+
 		let target = wrapped(&field.ty, "Id")?;
 
 		(column == "id" && quote!(#target).to_string() == quote!(#from).to_string())

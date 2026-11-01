@@ -177,6 +177,7 @@ impl TableArgs {
 		let mut checks = Vec::new();
 		let mut renamed_from = None;
 		let mut pack = None;
+
 		let mut on_account_merge = None;
 		let mut krate = None;
 		let mut projections = Vec::new();
@@ -350,6 +351,7 @@ fn unknown_table_option(is_link: bool) -> &'static str {
 fn search_language_option(meta: &ParseNestedMeta<'_>) -> syn::Result<LitStr> {
 	const HINT: &str = "`search` takes `language = \"…\"`, such as `search(language = \
 	                    \"english\")`; mark the searched columns with `#[db(search)]`";
+
 	if !meta.input.peek(syn::token::Paren) {
 		return Err(meta.error(HINT));
 	}
@@ -405,6 +407,7 @@ fn check(meta: &ParseNestedMeta<'_>) -> syn::Result<(LitStr, LitStr)> {
 		} else {
 			return Err(inner.error("`check` takes `name = \"...\"` and `sql = \"...\"`"));
 		}
+
 		Ok(())
 	})?;
 
@@ -632,6 +635,7 @@ pub(crate) struct FieldArgs {
 	pub unique_except: Option<Ident>,
 	pub index: bool,
 	pub visibility: Visibility,
+
 	pub default: Option<DefaultSpec>,
 	pub min_len: Option<Expr>,
 	pub max_len: Option<Expr>,
@@ -1063,16 +1067,19 @@ impl FieldArgs {
 					 are public unless they're `private` or `secret`",
 				))
 			}
+
 			(Some(span), true) if self.visibility != Visibility::Public => {
 				Err(syn::Error::new(
 					span,
 					"a column is `public`, `private`, or `secret`, not more than one",
 				))
 			}
+
 			(None, true) if self.visibility == Visibility::Public => {
 				self.visibility = Visibility::Private;
 				Ok(())
 			}
+
 			_ => Ok(()),
 		}
 	}
@@ -1140,6 +1147,7 @@ fn default(meta: &ParseNestedMeta<'_>) -> syn::Result<DefaultSpec> {
 				Err(inner.error("`default(...)` takes `sql = \"...\"`"))
 			}
 		})?;
+
 		return sql
 			.map(DefaultSpec::Sql)
 			.ok_or_else(|| meta.error("`default(...)` needs `sql = \"...\"`"));
@@ -1149,6 +1157,7 @@ fn default(meta: &ParseNestedMeta<'_>) -> syn::Result<DefaultSpec> {
 
 	if value.peek(Token![-]) {
 		value.parse::<Token![-]>()?;
+
 		return Ok(DefaultSpec::Negative(value.parse()?));
 	}
 
@@ -1183,6 +1192,7 @@ fn default(meta: &ParseNestedMeta<'_>) -> syn::Result<DefaultSpec> {
 fn dialect_sql(meta: &ParseNestedMeta<'_>, option: &str) -> syn::Result<(LitStr, LitStr)> {
 	if !meta.input.peek(syn::token::Paren) {
 		let sql = string(meta)?;
+
 		return Ok((sql.clone(), sql));
 	}
 

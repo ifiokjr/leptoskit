@@ -233,6 +233,7 @@ impl Polymorphic<'_> {
 			.collect();
 		let attrs = &self.item.attrs;
 		let idents: Vec<&Ident> = self.variants.iter().map(|variant| variant.ident).collect();
+
 		let types: Vec<&Type> = self.variants.iter().map(|variant| variant.ty).collect();
 		let variant_attrs = self.variants.iter().map(|variant| &variant.attrs);
 		let kinds = self.variants.iter().map(|variant| &variant.kind);
@@ -343,6 +344,7 @@ impl Polymorphic<'_> {
 		});
 		let live = self.args.live.then(|| quote!(live,));
 		let audit = self.args.audit.then(|| quote!(audit,));
+
 		let policies = self.policies;
 		let row_doc = format!(
 			" The `{}` table: one row per `{name}`, of any kind, holding its key and its kind. \
@@ -618,6 +620,7 @@ impl Polymorphic<'_> {
 		let schemars_path = format!("{krate}::__private::schemars").replace(' ', "");
 		let idents: Vec<&Ident> = self.variants.iter().map(|variant| variant.ident).collect();
 		let publics = self.variants.iter().map(|variant| public_path(variant.ty));
+
 		let renames = self.variants.iter().map(|variant| &variant.kind);
 		let doc = format!(
 			" What a client may see of a [`{name}`]: its variant's public type, tagged with its \
@@ -668,6 +671,7 @@ fn public_path(ty: &Type) -> TokenStream {
 
 			quote!(#path)
 		}
+
 		other => {
 			syn::Error::new_spanned(
 				other,
