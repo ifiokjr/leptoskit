@@ -645,6 +645,11 @@ struct Param {
 /// registered: the `ssr` feature in the real macro, either way in tests.
 fn expand(args: TokenStream, item: TokenStream, register: bool) -> syn::Result<TokenStream> {
 	let args = ApiArgs::parse(args)?;
+
+	if let Ok(channel) = syn::parse2::<syn::ItemStruct>(item.clone()) {
+		return expand_channel(&args, &channel, register);
+	}
+
 	let function: ItemFn = syn::parse2(item)?;
 
 	match function
@@ -1037,6 +1042,167 @@ fn param_descriptors(
 	}
 
 	Ok(params)
+}
+
+/// Publishes an `#[rpc::channel]`: its join arguments, messages and
+/// presence, with the arguments' wire names in declaration order.
+fn expand_channel(
+	args: &ApiArgs,
+	item: &syn::ItemStruct,
+	register: bool,
+) -> syn::Result<TokenStream> {
+	let Some(channel_attr) = item.attrs.iter().find(|attr| {
+		attr.path()
+			.segments
+			.last()
+			.is_some_and(|segment| segment.ident == "channel")
+	}) else {
+		return Err(syn::Error::new(
+			item.ident.span(),
+			"#[api] on a struct publishes a channel, so it must be placed above \
+			 #[rpc::channel(...)]",
+		));
+	};
+
+	if args.name.is_some() {
+		return Err(syn::Error::new(
+			item.ident.span(),
+			"a channel is named by #[rpc::channel(name = \"...\")], not by #[api]",
+		));
+	}
+
+	if !args.scopes.is_empty() {
+		return Err(syn::Error::new(
+			item.ident.span(),
+			"a channel decides who may join with its `authorize` function; #[api(scope = ...)] \
+			 applies to calls only",
+		));
+	}
+
+	let channel_args = match &channel_attr.meta {
+		Meta::List(list) => channel::krate(list.tokens.clone())?,
+		_ => None,
+	};
+	let krate = args
+		.krate
+		.clone()
+		.or(channel_args)
+		.unwrap_or_else(|| syn::parse_quote!(::leptoskit_rpc));
+
+	if !register {
+		return Ok(item.to_token_stream());
+	}
+
+	let rename_all = serde_rename_all(&item.attrs)?;
+	let syn::Fields::Named(named) = &item.fields else {
+		return Err(syn::Error::new_spanned(
+			&item.fields,
+			"a published channel's join arguments are a struct with named fields",
+		));
+	};
+	let mut fields = Vec::new();
+
+	for field in &named.named {
+		let Some(ident) = &field.ident else {
+			continue;
+		};
+		let ident = ident.unraw().to_string();
+		let default_name = match &rename_all {
+			Some(case) => {
+				Converter::new()
+					.from_case(Case::Snake)
+					.to_case(*case)
+					.convert(&ident)
+			}
+			None => ident.clone(),
+		};
+		let (wire_name, _) = serde_field(&field.attrs, &default_name)?;
+		fields.push(LitStr::new(&wire_name, Span::call_site()));
+	}
+
+	let ident = &item.ident;
+	let struct_name = LitStr::new(&ident.to_string(), ident.span());
+	let docs = LitStr::new(&docs_of(&item.attrs), Span::call_site());
+	let internal = args.internal;
+	let tags = &args.tags;
+	let deprecated = item
+		.attrs
+		.iter()
+		.any(|attr| attr.path().is_ident("deprecated"));
+
+	Ok(quote! {
+		#item
+
+		#[allow(deprecated)]
+		const _: () = {
+			#krate::__private::inventory::submit! {
+				#krate::spec::ApiChannelDescriptor {
+					name: <#ident as #krate::Channel>::NAME,
+					module_path: ::core::module_path!(),
+					struct_name: #struct_name,
+					docs: #docs,
+					fields: &[#(#fields),*],
+					args_schema: |generator| generator.subschema_for::<#ident>(),
+					message_schema: |generator| {
+						generator.subschema_for::<<#ident as #krate::Channel>::Message>()
+					},
+					presence_schema: |generator| {
+						generator.subschema_for::<<#ident as #krate::Channel>::Presence>()
+					},
+					internal: #internal,
+					deprecated: #deprecated,
+					tags: &[#(#tags),*],
+				}
+			}
+		};
+	})
+}
+
+/// The case `#[serde(rename_all = "...")]` puts field names in, when a
+/// struct says.
+fn serde_rename_all(attrs: &[Attribute]) -> syn::Result<Option<Case<'static>>> {
+	for attr in attrs {
+		if !attr.path().is_ident("serde") {
+			continue;
+		}
+
+		let Meta::List(list) = &attr.meta else {
+			continue;
+		};
+		let metas = Punctuated::<Meta, Token![,]>::parse_terminated.parse2(list.tokens.clone())?;
+
+		for meta in metas {
+			let Meta::NameValue(pair) = &meta else {
+				continue;
+			};
+
+			if !pair.path.is_ident("rename_all") {
+				continue;
+			}
+
+			let value = string_value(&pair.value, "rename_all")?;
+			let case = match value.value().as_str() {
+				"lowercase" => Case::Flat,
+				"UPPERCASE" => Case::UpperFlat,
+				"PascalCase" => Case::Pascal,
+				"camelCase" => Case::Camel,
+				"snake_case" => Case::Snake,
+				"SCREAMING_SNAKE_CASE" => Case::UpperSnake,
+				"kebab-case" => Case::Kebab,
+				"SCREAMING-KEBAB-CASE" => Case::UpperKebab,
+				_ => {
+					return Err(syn::Error::new_spanned(
+						value,
+						"#[api] can't tell how this `rename_all` names a channel's fields; rename \
+						 each field instead",
+					));
+				}
+			};
+			return Ok(Some(case));
+		}
+	}
+
+	Ok(None)
 }
 
 /// An argument's name on the wire, and whether it must be sent, from the

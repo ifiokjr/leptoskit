@@ -12,9 +12,15 @@ use serde_json::Value;
 pub const SPEC_MARKER: &str = "leptoskit_rpc_spec";
 
 /// The specification version this crate writes. Version 2 added
-/// [`ApiFunction::kind`]; this crate still reads version 1, whose functions
-/// are all [`ApiKind::Call`].
-pub const SPEC_VERSION: u32 = 2;
+/// [`ApiFunction::kind`]; version 3 added [`ApiSpec::channels`] and
+/// [`ApiSpec::live_path`]. This crate still reads versions 1 and 2, whose
+/// functions are all [`ApiKind::Call`] in version 1, and which publish no
+/// channels.
+pub const SPEC_VERSION: u32 = 3;
+
+/// Where a server serves the live socket by default, relative to its
+/// origin.
+pub const DEFAULT_LIVE_PATH: &str = "/live";
 
 /// The oldest specification version this crate reads.
 pub const OLDEST_SPEC_VERSION: u32 = 1;
@@ -161,6 +167,45 @@ fn default_true() -> bool {
 	true
 }
 
+/// One published `#[rpc::channel]`: who may join is the server's business;
+/// the spec carries what a client sends to join, what members send each
+/// other, and what each shows the others.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApiChannel {
+	/// The channel's name, as a client joins it.
+	pub name: String,
+	/// Where the channel is declared, such as `my_app::chat`.
+	pub module_path: String,
+	/// The join argument struct's name, such as `Chat`.
+	pub struct_name: String,
+	/// The doc comment, with `///` markers stripped.
+	#[serde(default)]
+	pub docs: String,
+	/// The join arguments' wire names, in declaration order.
+	///
+	/// A client names the channel instance it joins with the arguments
+	/// serialized as compact JSON in this order, the way the app's own Rust
+	/// client does, so every client of the same instance meets in one room.
+	#[serde(default)]
+	pub fields: Vec<String>,
+	/// The JSON Schema of the join arguments.
+	pub args_schema: Value,
+	/// The JSON Schema of a signal: what members send each other.
+	pub message_schema: Value,
+	/// The JSON Schema of a member's presence state.
+	pub presence_schema: Value,
+	/// Whether the channel is internal: joinable, just not publicized.
+	#[serde(default)]
+	pub internal: bool,
+	/// Whether the channel is deprecated.
+	#[serde(default)]
+	pub deprecated: bool,
+	/// Grouping tags, from `#[api(tag = "...")]`.
+	#[serde(default)]
+	pub tags: Vec<String>,
+}
+
 /// How a function's request is encoded.
 ///
 /// The variants carry just enough for the generators to build requests; any
@@ -246,10 +291,21 @@ pub struct ApiSpec {
 	pub servers: Vec<String>,
 	/// The functions, sorted by name.
 	pub functions: Vec<ApiFunction>,
-	/// The named JSON Schemas referenced from the functions, keyed by schema
-	/// name.
+	/// The channels, sorted by name. Absent before version 3.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub channels: Vec<ApiChannel>,
+	/// Where the live socket is served, relative to each server URL, such
+	/// as `/live`. Absent before version 3, which means the default.
+	#[serde(default = "default_live_path")]
+	pub live_path: String,
+	/// The named JSON Schemas referenced from the functions and channels,
+	/// keyed by schema name.
 	#[serde(default)]
 	pub schemas: IndexMap<String, Value>,
+}
+
+fn default_live_path() -> String {
+	DEFAULT_LIVE_PATH.to_owned()
 }
 
 impl ApiSpec {
@@ -263,6 +319,8 @@ impl ApiSpec {
 			description: None,
 			servers: Vec::new(),
 			functions: Vec::new(),
+			channels: Vec::new(),
+			live_path: default_live_path(),
 			schemas: IndexMap::new(),
 		}
 	}
@@ -302,31 +360,51 @@ impl ApiSpec {
 		Ok(spec)
 	}
 
-	/// The spec with internal functions removed and unreferenced schemas
-	/// garbage-collected: what gets publicized.
+	/// The spec with internal functions and channels removed and
+	/// unreferenced schemas garbage-collected: what gets publicized.
 	#[must_use]
 	pub fn public(&self) -> Self {
-		self.filtered(|function| !function.internal)
+		self.filtered_by(|function| !function.internal, |channel| !channel.internal)
 	}
 
-	/// The spec with functions whose name matches an `exclude` glob removed,
-	/// alongside the internal ones.
+	/// The spec with functions and channels whose name matches an `exclude`
+	/// glob removed, alongside the internal ones.
 	#[must_use]
 	pub fn excluding(&self, exclude: &[String]) -> Self {
-		self.filtered(|function| {
-			!function.internal
-				&& !exclude
-					.iter()
-					.any(|glob| glob_matches(glob, &function.name))
-		})
+		self.published(false, exclude)
 	}
 
-	/// Builds a copy keeping the functions accepted by `keep`, then drops
-	/// schemas nothing references anymore.
+	/// The spec a client is generated from: internal functions and channels
+	/// only when `include_internal`, and nothing whose name matches an
+	/// `exclude` glob.
+	#[must_use]
+	pub fn published(&self, include_internal: bool, exclude: &[String]) -> Self {
+		let excluded = |name: &str| exclude.iter().any(|glob| glob_matches(glob, name));
+		self.filtered_by(
+			|function| (include_internal || !function.internal) && !excluded(&function.name),
+			|channel| (include_internal || !channel.internal) && !excluded(&channel.name),
+		)
+	}
+
+	/// Builds a copy keeping the functions accepted by `keep`, and every
+	/// channel, then drops schemas nothing references anymore.
 	#[must_use]
 	pub fn filtered(&self, keep: impl Fn(&ApiFunction) -> bool) -> Self {
+		self.filtered_by(keep, |_| true)
+	}
+
+	/// Builds a copy keeping the functions accepted by `keep` and the
+	/// channels accepted by `keep_channel`, then drops schemas nothing
+	/// references anymore.
+	#[must_use]
+	pub fn filtered_by(
+		&self,
+		keep: impl Fn(&ApiFunction) -> bool,
+		keep_channel: impl Fn(&ApiChannel) -> bool,
+	) -> Self {
 		let mut spec = self.clone();
 		spec.functions.retain(keep);
+		spec.channels.retain(keep_channel);
 		let mut reachable = BTreeSet::new();
 		let mut stack: Vec<String> = Vec::new();
 
@@ -338,6 +416,14 @@ impl ApiSpec {
 				collect_refs(&param.schema, &mut roots);
 			}
 
+			stack.extend(roots);
+		}
+
+		for channel in &spec.channels {
+			let mut roots = BTreeSet::new();
+			collect_refs(&channel.args_schema, &mut roots);
+			collect_refs(&channel.message_schema, &mut roots);
+			collect_refs(&channel.presence_schema, &mut roots);
 			stack.extend(roots);
 		}
 

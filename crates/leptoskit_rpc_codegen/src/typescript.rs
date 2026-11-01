@@ -30,34 +30,52 @@ use crate::schema::analyze;
 use crate::schema::description;
 use crate::schema::has_default;
 use crate::spec::ApiFunction;
+use crate::spec::ApiKind;
 use crate::spec::HttpInput;
 
 pub(crate) fn generate(context: &Context<'_>) -> Generated {
 	let names = component_names(context.spec, &mut Scope::new(TS_RESERVED_TYPES));
-	let methods = method_names(context);
+	let (methods, channels) = member_names(context);
 	let mut index = context.banner("//");
+	index.push_str(LIVE_IMPORTS);
 	index.push_str(&types_section(context, &names));
 	index.push_str(RUNTIME);
-	index.push_str(&client_section(context, &names, &methods));
+	index.push_str(&client_section(context, &names, &methods, &channels));
+	let mut live = context.banner("//");
+	live.push_str(include_str!("templates/live.ts"));
 	Generated {
 		files: vec![
 			GeneratedFile::code("index.ts", index),
+			GeneratedFile::code("live.ts", live),
 			GeneratedFile::scaffold("package.json", package_json(context)),
 			GeneratedFile::scaffold("tsconfig.json", TSCONFIG.to_owned()),
-			GeneratedFile::scaffold("README.md", readme(context, &methods)),
+			GeneratedFile::scaffold("README.md", readme(context, &methods, &channels)),
 		],
 	}
 }
 
-/// The method name of every callable function, in order, clear of
-/// `BaseClient`'s members and of each other.
-fn method_names(context: &Context<'_>) -> Vec<String> {
+/// The member name of every callable function and then every channel, in
+/// order, clear of `BaseClient`'s members and of each other.
+fn member_names(context: &Context<'_>) -> (Vec<String>, Vec<String>) {
 	let mut scope = Scope::new(TS_RESERVED_METHODS);
-	context
+	let methods = context
 		.functions()
 		.map(|function| scope.bind(&ts_method(&function.name)))
-		.collect()
+		.collect();
+	let channels = context
+		.spec
+		.channels
+		.iter()
+		.map(|channel| scope.bind(&ts_method(&channel.name)))
+		.collect();
+	(methods, channels)
 }
+
+/// What `index.ts` takes from the live runtime next to it, and hands on.
+const LIVE_IMPORTS: &str = "import { channelKey, LiveConnection, liveUrl } from \
+                            \"./live.ts\";\nimport type { ChannelHandle, JoinOptions, LiveError, \
+                            LiveOptions, Unsubscribe } from \"./live.ts\";\n\nexport * from \
+                            \"./live.ts\";\n\n";
 
 /// `export interface`/`export type` for every component schema, under the
 /// names in `names`.
@@ -239,15 +257,19 @@ fn client_section(
 	context: &Context<'_>,
 	names: &HashMap<String, String>,
 	methods: &[String],
+	channels: &[String],
 ) -> String {
 	let mut out = String::new();
 	out.push_str(&format!(
 		"/** The server origin baked in at generation time; `undefined` means the page's own \
-		 origin. */\nexport const DEFAULT_SERVER_URL: string | undefined = {};\n\n",
+		 origin. */\nexport const DEFAULT_SERVER_URL: string | undefined = {};\n\n/** Where the \
+		 server serves the live socket, relative to its origin. */\nexport const LIVE_PATH = \
+		 {};\n\n",
 		context
 			.server_url
 			.as_deref()
-			.map_or_else(|| "undefined".to_owned(), ts_string)
+			.map_or_else(|| "undefined".to_owned(), ts_string),
+		ts_string(&context.spec.live_path),
 	));
 	push_jsdoc(
 		&mut out,
@@ -275,6 +297,12 @@ fn client_section(
 		push_jsdoc(&mut out, (!docs.is_empty()).then_some(docs.as_str()), "\t");
 		let output = render(&function.output_schema, names);
 		let encoding = encoding(function);
+
+		if matches!(function.kind, ApiKind::Query | ApiKind::Mutation) {
+			out.push_str(&live_member(function, method, &output, names));
+			continue;
+		}
+
 		// A mutation takes an idempotency key, so a retried call runs once.
 		let (options, key) = if function.kind.is_idempotent_with_key() {
 			("options?: CallOptions", ", options?.idempotencyKey")
@@ -306,11 +334,114 @@ fn client_section(
 		}
 	}
 
+	for (channel, member) in context.spec.channels.iter().zip(channels) {
+		out.push('\n');
+		out.push_str(&channel_member(channel, member, names));
+	}
+
 	out.push_str("}\n\n");
 	out.push_str(
 		"/** A client with the default options; construct `new Client(...)` for anything else. \
 		 */\nexport const client = new Client();\n",
 	);
+	out
+}
+
+/// A query or mutation: callable for the one-shot HTTP call, with the live
+/// form beside it, `.subscribe` for a query and `.live` for a mutation.
+fn live_member(
+	function: &ApiFunction,
+	member: &str,
+	output: &str,
+	names: &HashMap<String, String>,
+) -> String {
+	let input = input_type(function, names);
+	// The input type, as a parameter at `indent`.
+	let parameter = |indent: &str| {
+		input.as_ref().map_or_else(String::new, |input| {
+			format!("input: {}", input.replace('\n', &format!("\n{indent}")))
+		})
+	};
+	let argument = if input.is_some() { "input" } else { "{}" };
+	let call = format!(
+		"this.call<{output}>({}, {}, {}, {argument}",
+		ts_string(&function.method),
+		ts_string(&function.path),
+		ts_string(encoding(function)),
+	);
+	let name = ts_string(&function.name);
+
+	if function.kind == ApiKind::Query {
+		let input_line = if input.is_some() {
+			format!("\t\t\t\t{},\n", parameter("\t\t\t\t"))
+		} else {
+			String::new()
+		};
+		return format!(
+			"\treadonly {member} = Object.assign(\n\t\t({one_shot}): Promise<{output}> \
+			 =>\n\t\t\t{call}),\n\t\t{{\n\t\t\t/**\n\t\t\t * Watches the result: `onValue` gets \
+			 the first value and each new one, until the\n\t\t\t * returned function is called. A \
+			 failure goes to `onError`, and the\n\t\t\t * subscription recovers on the next \
+			 change.\n\t\t\t */\n\t\t\tsubscribe: (\n{input_line}\t\t\t\tonValue: (value: \
+			 {output}, version: number) => void,\n\t\t\t\tonError?: (error: LiveError) => \
+			 void,\n\t\t\t): Unsubscribe => this.live.subscribe<{output}>({name}, {argument}, \
+			 onValue, onError),\n\t\t}},\n\t);\n",
+			one_shot = parameter("\t\t"),
+		);
+	}
+
+	let separator = if input.is_some() { ", " } else { "" };
+	format!(
+		"\treadonly {member} = Object.assign(\n\t\t({one_shot}{separator}options?: CallOptions): \
+		 Promise<{output}> =>\n\t\t\t{call}, options?.idempotencyKey),\n\t\t{{\n\t\t\t/**\n\t\t\t \
+		 * Runs the mutation over the live socket. It resolves once this client's\n\t\t\t * \
+		 subscriptions show the write, and a call whose answer is lost is sent\n\t\t\t * again \
+		 after a reconnect with the same key, so it runs once.\n\t\t\t */\n\t\t\tlive: \
+		 ({live}{separator}options?: CallOptions): Promise<{output}> \
+		 =>\n\t\t\t\tthis.live.mutate<{output}>({name}, {argument}, \
+		 options?.idempotencyKey),\n\t\t}},\n\t);\n",
+		one_shot = parameter("\t\t"),
+		live = parameter("\t\t\t"),
+	)
+}
+
+/// A channel: `.join(args, options)` returns the joined channel.
+fn channel_member(
+	channel: &crate::spec::ApiChannel,
+	member: &str,
+	names: &HashMap<String, String>,
+) -> String {
+	let mut out = String::new();
+	let mut docs = channel.docs.clone();
+
+	if channel.deprecated {
+		docs.push_str(if docs.is_empty() {
+			"@deprecated"
+		} else {
+			"\n\n@deprecated"
+		});
+	}
+
+	push_jsdoc(&mut out, (!docs.is_empty()).then_some(docs.as_str()), "\t");
+	let args = render(&channel.args_schema, names);
+	let message = render(&channel.message_schema, names);
+	let presence = render(&channel.presence_schema, names);
+	let fields = channel
+		.fields
+		.iter()
+		.map(|field| ts_string(field))
+		.collect::<Vec<_>>()
+		.join(", ");
+	out.push_str(&format!(
+		"\treadonly {member} = {{\n\t\t/**\n\t\t * Joins the channel: signals and presence arrive \
+		 through `options`, and the\n\t\t * join is made again after a reconnect, until \
+		 `leave()`.\n\t\t */\n\t\tjoin: (\n\t\t\targs: {args},\n\t\t\toptions?: \
+		 JoinOptions<{message}, {presence}>,\n\t\t): ChannelHandle<{message}, {presence}> \
+		 =>\n\t\t\tthis.live.join<{message}, \
+		 {presence}>(\n\t\t\t\t{name},\n\t\t\t\tchannelKey([{fields}], args as unknown as \
+		 Record<string, unknown>),\n\t\t\t\targs,\n\t\t\t\toptions,\n\t\t\t),\n\t}};\n",
+		name = ts_string(&channel.name),
+	));
 	out
 }
 
@@ -382,13 +513,13 @@ fn package_json(context: &Context<'_>) -> String {
 		"type": "module",
 		"exports": "./index.ts",
 		"types": "./index.ts",
-		"files": ["index.ts", "README.md"],
+		"files": ["index.ts", "live.ts", "README.md"],
 		"sideEffects": false,
 	});
 	serde_json::to_string_pretty(&value).unwrap_or_default() + "\n"
 }
 
-fn readme(context: &Context<'_>, methods: &[String]) -> String {
+fn readme(context: &Context<'_>, methods: &[String], channels: &[String]) -> String {
 	let example =
 		context
 			.functions()
@@ -409,6 +540,7 @@ fn readme(context: &Context<'_>, methods: &[String]) -> String {
 
 				format!("const result = await api.{method}({args});\n")
 			});
+	let live = live_readme(context, methods, channels);
 	let mut skipped = String::new();
 
 	if !context.skipped.is_empty() {
@@ -450,7 +582,7 @@ try {{
 
 Errors are `FnError` instances with a `kind` of `network`, `invalid`, `server`, `decode`, or \
 		 `other`, mirroring the server's classification; `retryable` is true only for \
-		 `network`.{skipped}",
+		 `network`.\n{live}{skipped}",
 		name = context.options.package_name,
 		title = context.spec.title,
 		version = context.spec.version,
@@ -464,6 +596,63 @@ Errors are `FnError` instances with a `kind` of `network`, `invalid`, `server`, 
 	)
 }
 
+/// The README's live section: what the socket gives, with the first query,
+/// mutation and channel as examples.
+fn live_readme(context: &Context<'_>, methods: &[String], channels: &[String]) -> String {
+	let example = |kind: ApiKind| {
+		context
+			.functions()
+			.zip(methods)
+			.find(|(function, _)| function.kind == kind)
+	};
+	let mut lines = Vec::new();
+
+	if let Some((function, method)) = example(ApiKind::Query) {
+		let args = if function.params.is_empty() {
+			""
+		} else {
+			"{ /* ... */ }, "
+		};
+		lines.push(format!(
+			"const stop = api.{method}.subscribe({args}(value) => render(value));"
+		));
+	}
+
+	if let Some((function, method)) = example(ApiKind::Mutation) {
+		let args = if function.params.is_empty() {
+			""
+		} else {
+			"{ /* ... */ }"
+		};
+		lines.push(format!("await api.{method}.live({args});"));
+	}
+
+	if let Some(member) = channels.first() {
+		lines.push(format!(
+			"const room = api.{member}.join({{ /* ... */ }}, {{ onSignal: (message, from) => \
+			 show(message), onPresence: (members) => list(members) }});\nroom.signal(/* ... */);"
+		));
+	}
+
+	if lines.is_empty() {
+		return String::new();
+	}
+
+	format!(
+		"\n## Live\n\nQueries, mutations and channels also run over one WebSocket to the server's \
+		 `{path}`, opened on first use:\n\n```ts\n{examples}\n```\n\nA subscription gets the \
+		 first value and every change; lists of rows change by patch, so a long list costs about \
+		 one row per update. `.live(...)` resolves once your own subscriptions show the write, or \
+		 after `readYourWritesMs` (2 seconds by default) if none of them changes. The connection \
+		 reconnects with backoff, subscribes again, and re-sends a mutation whose answer was lost \
+		 with the same key, so it runs once. Sign in with `new Client({{ live: {{ token: () => \
+		 accessToken }} }})`; watch `api.live.onStatus(...)` for a connection banner, and call \
+		 `api.live.close()` when done.\n",
+		path = context.spec.live_path,
+		examples = lines.join("\n"),
+	)
+}
+
 const TSCONFIG: &str = r#"{
 	"compilerOptions": {
 		"target": "ES2022",
@@ -473,9 +662,10 @@ const TSCONFIG: &str = r#"{
 		"strict": true,
 		"declaration": true,
 		"outDir": "dist",
+		"rewriteRelativeImportExtensions": true,
 		"skipLibCheck": true
 	},
-	"include": ["index.ts"]
+	"include": ["index.ts", "live.ts"]
 }
 "#;
 
@@ -557,6 +747,8 @@ export interface ClientOptions {
 	headers?: Record<string, string>;
 	/** The `fetch` implementation to use; defaults to the global one. */
 	fetch?: typeof fetch;
+	/** How the live connection signs in and reconnects. */
+	live?: LiveOptions;
 }
 
 /** Options for one call. */
@@ -603,11 +795,26 @@ export class BaseClient {
 	readonly serverUrl: string;
 	readonly headers: Record<string, string>;
 	readonly fetchImpl: typeof fetch;
+	readonly liveOptions: LiveOptions;
+	#live: LiveConnection | null = null;
 
 	constructor(options: ClientOptions = {}) {
 		this.serverUrl = (options.serverUrl ?? DEFAULT_SERVER_URL ?? "").replace(/\/+$/, "");
 		this.headers = { ...(options.headers ?? {}) };
 		this.fetchImpl = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
+		this.liveOptions = options.live ?? {};
+	}
+
+	/**
+	 * The live connection: one WebSocket for every subscription, live mutation
+	 * and channel, opened on first use. Read `live.status` or call
+	 * `live.onStatus(...)` for a connection banner, and `live.close()` when done.
+	 */
+	get live(): LiveConnection {
+		if (this.#live === null) {
+			this.#live = new LiveConnection(liveUrl(this.serverUrl, LIVE_PATH), this.liveOptions);
+		}
+		return this.#live;
 	}
 
 	protected async call<T>(

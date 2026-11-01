@@ -1,0 +1,756 @@
+// The live protocol runtime: one WebSocket to the server's `/live`, carrying
+// subscriptions, mutations and channels, kept up across reconnects.
+//
+// It has no dependencies: it uses the global `WebSocket` of browsers, Deno,
+// Bun and Node 22 or newer, or the constructor passed as `LiveOptions.WebSocket`.
+
+/** The WebSocket subprotocol the server speaks. */
+export const LIVE_SUBPROTOCOL = "leptoskit.live.v1.json";
+
+/** A failure the server reported over the live connection. */
+export class LiveError extends Error {
+	/** The HTTP status the same failure would carry; `0` when the connection closed. */
+	readonly status: number;
+
+	constructor(status: number, message: string) {
+		super(message);
+		this.name = "LiveError";
+		this.status = status;
+	}
+}
+
+/** Where the connection is, for a "reconnecting…" banner. */
+export type LiveStatus =
+	| { state: "connecting"; attempt: number }
+	| { state: "live"; version: number; connection: string }
+	| { state: "reconnecting"; attempt: number; nextInMs: number }
+	| { state: "offline" };
+
+/** Someone in a channel, and the presence they joined with. */
+export interface PresenceMember<P> {
+	/** Who: the caller id the server knows them by. */
+	id: string;
+	/** What they show the others. */
+	state: P;
+}
+
+/** Stops a subscription or a listener. */
+export type Unsubscribe = () => void;
+
+/** The parts of the `WebSocket` interface the runtime uses. */
+export interface LiveSocket {
+	readonly readyState: number;
+	onopen: ((event: unknown) => void) | null;
+	onmessage: ((event: { data: unknown }) => void) | null;
+	onclose: ((event: unknown) => void) | null;
+	onerror: ((event: unknown) => void) | null;
+	send(data: string): void;
+	close(code?: number, reason?: string): void;
+}
+
+/** A `WebSocket` constructor, such as the global one or the `ws` package's. */
+export type LiveSocketConstructor = new (
+	url: string,
+	protocols?: string | string[],
+) => LiveSocket;
+
+/** How the live connection behaves. */
+export interface LiveOptions {
+	/**
+	 * Returns the bearer token the connection signs in with, such as a native
+	 * session's access token; called on every connect, and again when the
+	 * server says the token is about to expire. A browser on the app's own
+	 * origin needs none: its session cookie rides the upgrade.
+	 */
+	token?: () => string | null | undefined | Promise<string | null | undefined>;
+	/** Called when the server refuses the token. */
+	onAuthRefused?: () => void;
+	/** The `WebSocket` constructor; defaults to the global one. */
+	WebSocket?: LiveSocketConstructor;
+	/**
+	 * How long a mutation over the socket waits for its own write to reach the
+	 * subscriptions before it resolves anyway, in milliseconds. Defaults to 2000.
+	 */
+	readYourWritesMs?: number;
+	/** The first reconnect delay's upper bound, in milliseconds. Defaults to 250. */
+	minBackoffMs?: number;
+	/** The longest reconnect delay, in milliseconds. Defaults to 30000. */
+	maxBackoffMs?: number;
+}
+
+/** What to do with a channel's traffic. */
+export interface JoinOptions<M, P> {
+	/** What this connection shows the others; the channel's default when absent. */
+	presence?: P;
+	/** Called with each signal another member sends, and who sent it. */
+	onSignal?: (message: M, from: string | undefined) => void;
+	/** Called with everyone in the channel, after each join and leave. */
+	onPresence?: (members: PresenceMember<P>[]) => void;
+	/** Called when the server refuses the join. */
+	onError?: (error: LiveError) => void;
+}
+
+/** A joined channel. */
+export interface ChannelHandle<M, P> {
+	/** Everyone in the channel, as last reported. */
+	readonly members: PresenceMember<P>[];
+	/** Sends a signal to everyone else in the channel, at most once. */
+	signal(message: M): void;
+	/** Changes what this connection shows the others. */
+	setPresence(state: P): void;
+	/** Leaves the channel. */
+	leave(): void;
+}
+
+/**
+ * The name of a channel instance: its join arguments as compact JSON, with the
+ * fields in the order the server declares them, as the app's own client
+ * writes it, so every client of the same instance meets in one room.
+ */
+export function channelKey(
+	fields: string[],
+	args: Record<string, unknown>,
+): string {
+	const ordered: Record<string, unknown> = {};
+	for (const field of fields) {
+		ordered[field] = args[field] ?? null;
+	}
+	for (const [field, value] of Object.entries(args)) {
+		if (!(field in ordered)) {
+			ordered[field] = value;
+		}
+	}
+	return JSON.stringify(ordered);
+}
+
+/** The live URL for a server origin, such as `https://api.example.com`. */
+export function liveUrl(serverUrl: string, path: string): string {
+	if (serverUrl === "") {
+		const location =
+			(globalThis as { location?: { protocol: string; host: string } })
+				.location;
+		if (location === undefined) {
+			throw new LiveError(
+				0,
+				"a live connection needs a server URL outside a browser",
+			);
+		}
+		return `${
+			location.protocol === "https:" ? "wss" : "ws"
+		}://${location.host}${path}`;
+	}
+	return serverUrl.replace(/^http/, "ws") + path;
+}
+
+type Frame = { type?: unknown; [key: string]: unknown };
+
+interface Subscription {
+	query: string;
+	args: unknown;
+	value: unknown;
+	onValue: (value: unknown, version: number) => void;
+	onError?: (error: LiveError) => void;
+}
+
+interface Pending {
+	frame: Frame;
+	resolve: (value: unknown) => void;
+	reject: (error: LiveError) => void;
+}
+
+interface Waiter {
+	version: number;
+	value: unknown;
+	resolve: (value: unknown) => void;
+	timer: ReturnType<typeof setTimeout>;
+}
+
+interface Joined {
+	name: string;
+	args: unknown;
+	state: unknown;
+	members: PresenceMember<unknown>[];
+	options: JoinOptions<unknown, unknown>;
+}
+
+const OPEN = 1;
+
+/** One live connection, opened on first use and kept up until `close()`. */
+export class LiveConnection {
+	readonly url: string;
+	#options: LiveOptions;
+	#socket: LiveSocket | null = null;
+	#ready = false;
+	#closed = false;
+	#status: LiveStatus = { state: "offline" };
+	#listeners = new Set<(status: LiveStatus) => void>();
+	#nextId = 1;
+	#subscriptions = new Map<number, Subscription>();
+	#pending = new Map<number, Pending>();
+	#waiters: Waiter[] = [];
+	#channels = new Map<string, Joined>();
+	#version = 0;
+	#attempt = 0;
+	#retry: ReturnType<typeof setTimeout> | null = null;
+	#heartbeat: ReturnType<typeof setInterval> | null = null;
+	#heartbeatMs = 30_000;
+	#lastHeard = 0;
+	#reconnectAfter: number | null = null;
+
+	constructor(url: string, options: LiveOptions = {}) {
+		this.url = url;
+		this.#options = options;
+	}
+
+	/** Where the connection is now. */
+	get status(): LiveStatus {
+		return this.#status;
+	}
+
+	/** The last version the connection applied. */
+	get version(): number {
+		return this.#version;
+	}
+
+	/** Calls `listener` with every status change, until the returned function is called. */
+	onStatus(listener: (status: LiveStatus) => void): Unsubscribe {
+		this.#listeners.add(listener);
+		return () => this.#listeners.delete(listener);
+	}
+
+	/**
+	 * Watches the query `name`: `onValue` gets the first value and each new one,
+	 * with the version it reflects, until the returned function is called. A
+	 * failure goes to `onError`; the subscription stays, and recovers on the
+	 * next change.
+	 */
+	subscribe<T>(
+		name: string,
+		args: unknown,
+		onValue: (value: T, version: number) => void,
+		onError?: (error: LiveError) => void,
+	): Unsubscribe {
+		const id = this.#nextId++;
+		this.#subscriptions.set(id, {
+			query: name,
+			args: present(args),
+			value: undefined,
+			onValue: onValue as (value: unknown, version: number) => void,
+			onError,
+		});
+		this.#send({ type: "sub", id, query: name, args: present(args) });
+		this.#ensure();
+		return () => {
+			if (this.#subscriptions.delete(id)) {
+				this.#send({ type: "unsub", id });
+			}
+		};
+	}
+
+	/**
+	 * Runs the mutation `name` over the socket. It resolves once the
+	 * connection's subscriptions show the write (read-your-writes), or after
+	 * `readYourWritesMs` if no change to them arrives. A call sent while the
+	 * connection is down waits for it, and one whose answer is lost is sent
+	 * again with the same request id and key, so it runs once.
+	 */
+	mutate<T>(name: string, args: unknown, idempotencyKey?: string): Promise<T> {
+		const request = this.#nextId++;
+		const key = idempotencyKey ?? randomKey();
+		const frame: Frame = {
+			type: "mutate",
+			request,
+			name,
+			args: present(args),
+			key,
+		};
+		return new Promise<T>((resolve, reject) => {
+			this.#pending.set(request, {
+				frame,
+				resolve: resolve as (value: unknown) => void,
+				reject,
+			});
+			this.#send(frame);
+			this.#ensure();
+		});
+	}
+
+	/**
+	 * Joins the channel instance `key` of the channel `name`. Signals and
+	 * presence arrive through `options`; the join is made again after a
+	 * reconnect, until `leave()`.
+	 */
+	join<M, P>(
+		name: string,
+		key: string,
+		args: unknown,
+		options: JoinOptions<M, P> = {},
+	): ChannelHandle<M, P> {
+		const joined: Joined = {
+			name,
+			args: present(args),
+			state: options.presence ?? null,
+			members: [],
+			options: options as JoinOptions<unknown, unknown>,
+		};
+		this.#channels.set(key, joined);
+		this.#send(this.#joinFrame(key, joined));
+		this.#ensure();
+		return {
+			get members() {
+				return joined.members as PresenceMember<P>[];
+			},
+			signal: (message: M) => {
+				if (this.#channels.get(key) === joined) {
+					this.#send({ type: "signal", channel: key, message });
+				}
+			},
+			setPresence: (state: P) => {
+				if (this.#channels.get(key) === joined) {
+					joined.state = state;
+					this.#send(this.#joinFrame(key, joined));
+				}
+			},
+			leave: () => {
+				if (this.#channels.get(key) === joined) {
+					this.#channels.delete(key);
+					this.#send({ type: "leave", channel: key });
+				}
+			},
+		};
+	}
+
+	/** Sends the token again, such as after signing in. */
+	async reauthenticate(): Promise<void> {
+		const token = await this.#options.token?.();
+		if (token) {
+			this.#send({ type: "auth", token });
+		}
+	}
+
+	/** Closes the connection for good; pending mutations fail. */
+	close(): void {
+		this.#closed = true;
+		this.#clearTimers();
+		const socket = this.#socket;
+		this.#socket = null;
+		this.#ready = false;
+		socket?.close(1000, "closed");
+		for (const pending of this.#pending.values()) {
+			pending.reject(new LiveError(0, "the live connection closed"));
+		}
+		this.#pending.clear();
+		for (const waiter of this.#waiters) {
+			clearTimeout(waiter.timer);
+			waiter.resolve(waiter.value);
+		}
+		this.#waiters = [];
+		this.#subscriptions.clear();
+		this.#channels.clear();
+		this.#setStatus({ state: "offline" });
+	}
+
+	#joinFrame(key: string, joined: Joined): Frame {
+		return {
+			type: "join",
+			channel: key,
+			name: joined.name,
+			args: joined.args,
+			state: joined.state,
+		};
+	}
+
+	#send(frame: Frame): void {
+		if (
+			this.#ready && this.#socket !== null && this.#socket.readyState === OPEN
+		) {
+			this.#socket.send(JSON.stringify(frame));
+		}
+	}
+
+	#busy(): boolean {
+		return this.#subscriptions.size > 0 || this.#pending.size > 0 ||
+			this.#channels.size > 0;
+	}
+
+	#ensure(): void {
+		if (this.#closed) {
+			throw new LiveError(0, "the live connection is closed");
+		}
+		if (this.#socket === null && this.#retry === null) {
+			this.#open();
+		}
+	}
+
+	#open(): void {
+		this.#setStatus({ state: "connecting", attempt: this.#attempt });
+		const Socket = this.#options.WebSocket ??
+			(globalThis as unknown as { WebSocket?: LiveSocketConstructor })
+				.WebSocket;
+		if (Socket === undefined) {
+			throw new LiveError(
+				0,
+				"this platform has no WebSocket; pass one as LiveOptions.WebSocket",
+			);
+		}
+		let socket: LiveSocket;
+		try {
+			socket = new Socket(this.url, [LIVE_SUBPROTOCOL]);
+		} catch {
+			this.#lost();
+			return;
+		}
+		this.#socket = socket;
+		this.#lastHeard = Date.now();
+		socket.onopen = () => {
+			void this.#greet(socket);
+		};
+		socket.onmessage = (event) => {
+			if (this.#socket !== socket) {
+				return;
+			}
+			this.#lastHeard = Date.now();
+			const text = typeof event.data === "string"
+				? event.data
+				: new TextDecoder().decode(event.data as ArrayBuffer);
+			let frame: Frame;
+			try {
+				frame = JSON.parse(text) as Frame;
+			} catch {
+				return;
+			}
+			this.#receive(frame);
+		};
+		socket.onclose = () => {
+			if (this.#socket === socket) {
+				this.#lost();
+			}
+		};
+		socket.onerror = () => {
+			// A close event follows.
+		};
+	}
+
+	/** Says hello, signs in, and sends everything the connection holds. */
+	async #greet(socket: LiveSocket): Promise<void> {
+		const raw = (frame: Frame) => socket.send(JSON.stringify(frame));
+		raw(
+			this.#version > 0
+				? { type: "hello", resume: { version: this.#version } }
+				: { type: "hello" },
+		);
+		let token: string | null | undefined;
+		try {
+			token = await this.#options.token?.();
+		} catch {
+			token = undefined;
+		}
+		if (this.#socket !== socket || socket.readyState !== OPEN) {
+			return;
+		}
+		if (token) {
+			raw({ type: "auth", token });
+		}
+		for (const [id, subscription] of this.#subscriptions) {
+			raw({
+				type: "sub",
+				id,
+				query: subscription.query,
+				args: subscription.args,
+			});
+		}
+		for (const [key, joined] of this.#channels) {
+			raw(this.#joinFrame(key, joined));
+		}
+		// The same request id and key: the server's receipt answers a call
+		// that already ran with its first result.
+		for (const pending of this.#pending.values()) {
+			raw(pending.frame);
+		}
+		this.#ready = true;
+	}
+
+	#receive(frame: Frame): void {
+		switch (frame.type) {
+			case "welcome": {
+				this.#attempt = 0;
+				this.#version = number(frame.version, this.#version);
+				this.#startHeartbeat(number(frame.heartbeat_seconds, 30));
+				this.#setStatus({
+					state: "live",
+					version: this.#version,
+					connection: String(frame.connection ?? ""),
+				});
+				break;
+			}
+			case "transition":
+				this.#transition(frame);
+				break;
+			case "done":
+				this.#done(frame);
+				break;
+			case "auth_status":
+				if (frame.refused === true) {
+					this.#options.onAuthRefused?.();
+				} else if (frame.expiring === true) {
+					void this.reauthenticate();
+				}
+				break;
+			case "reconnect":
+				this.#reconnectAfter = number(frame.after_ms, 0);
+				break;
+			case "signal": {
+				const joined = this.#channels.get(String(frame.channel));
+				const from = typeof frame.from === "string" ? frame.from : undefined;
+				joined?.options.onSignal?.(frame.message, from);
+				break;
+			}
+			case "presence": {
+				const joined = this.#channels.get(String(frame.channel));
+				if (joined !== undefined && Array.isArray(frame.members)) {
+					joined.members = frame.members as PresenceMember<unknown>[];
+					joined.options.onPresence?.(joined.members);
+				}
+				break;
+			}
+			case "channel_error": {
+				const joined = this.#channels.get(String(frame.channel));
+				joined?.options.onError?.(wireError(frame.err));
+				break;
+			}
+			default:
+				// `pong`, and frames a newer server sends that this runtime
+				// doesn't know.
+				break;
+		}
+	}
+
+	/** Applies one transition: every update, then every listener, then the version. */
+	#transition(frame: Frame): void {
+		const updates = Array.isArray(frame.updates)
+			? frame.updates as Frame[]
+			: [];
+		const changed: [Subscription, unknown][] = [];
+		const failed: [Subscription, LiveError][] = [];
+		for (const update of updates) {
+			const subscription = this.#subscriptions.get(number(update.id, -1));
+			if (subscription === undefined) {
+				continue;
+			}
+			if ("ok" in update) {
+				changed.push([subscription, update.ok]);
+			} else if ("patch" in update) {
+				changed.push([
+					subscription,
+					applyPatch(subscription.value, update.patch as Frame),
+				]);
+			} else if ("err" in update) {
+				failed.push([subscription, wireError(update.err)]);
+			}
+		}
+		const to = number(frame.to, this.#version);
+		this.#version = Math.max(this.#version, to);
+		for (const [subscription, value] of changed) {
+			subscription.value = value;
+		}
+		for (const [subscription, value] of changed) {
+			subscription.onValue(value, to);
+		}
+		for (const [subscription, error] of failed) {
+			subscription.onError?.(error);
+		}
+		this.#reached(to);
+	}
+
+	#done(frame: Frame): void {
+		const request = number(frame.request, 0);
+		const version = number(frame.version, 0);
+		const pending = this.#pending.get(request);
+		if (pending !== undefined) {
+			this.#pending.delete(request);
+			if (frame.err !== undefined && frame.err !== null) {
+				pending.reject(wireError(frame.err));
+				return;
+			}
+			const value = frame.ok ?? null;
+			if (this.#subscriptions.size === 0 || this.#version >= version) {
+				pending.resolve(value);
+				return;
+			}
+			const waiter: Waiter = {
+				version,
+				value,
+				resolve: pending.resolve,
+				timer: setTimeout(() => {
+					this.#waiters = this.#waiters.filter((other) => other !== waiter);
+					waiter.resolve(waiter.value);
+				}, this.#options.readYourWritesMs ?? 2000),
+			};
+			this.#waiters.push(waiter);
+			return;
+		}
+		const subscription = this.#subscriptions.get(request);
+		if (subscription === undefined) {
+			return;
+		}
+		if (frame.err !== undefined && frame.err !== null) {
+			subscription.onError?.(wireError(frame.err));
+			return;
+		}
+		subscription.value = frame.ok ?? null;
+		subscription.onValue(subscription.value, version);
+		// A fresh first value reflects every write the server had committed.
+		this.#reached(version);
+	}
+
+	#reached(version: number): void {
+		const ready = this.#waiters.filter((waiter) => waiter.version <= version);
+		if (ready.length === 0) {
+			return;
+		}
+		this.#waiters = this.#waiters.filter((waiter) => waiter.version > version);
+		for (const waiter of ready) {
+			clearTimeout(waiter.timer);
+			waiter.resolve(waiter.value);
+		}
+	}
+
+	#startHeartbeat(seconds: number): void {
+		if (this.#heartbeat !== null) {
+			clearInterval(this.#heartbeat);
+		}
+		this.#heartbeatMs = Math.max(1, seconds) * 1000;
+		this.#heartbeat = setInterval(() => {
+			const socket = this.#socket;
+			if (socket === null) {
+				return;
+			}
+			if (Date.now() - this.#lastHeard > 2 * this.#heartbeatMs + 5000) {
+				// Two missed heartbeats: the connection is gone without saying so.
+				socket.close(4000, "no heartbeat");
+				this.#lost();
+				return;
+			}
+			this.#send({ type: "ping" });
+		}, this.#heartbeatMs);
+	}
+
+	#clearTimers(): void {
+		if (this.#retry !== null) {
+			clearTimeout(this.#retry);
+			this.#retry = null;
+		}
+		if (this.#heartbeat !== null) {
+			clearInterval(this.#heartbeat);
+			this.#heartbeat = null;
+		}
+	}
+
+	/** The socket closed: try again after a backoff, or when the server said. */
+	#lost(): void {
+		this.#socket = null;
+		this.#ready = false;
+		this.#clearTimers();
+		if (this.#closed) {
+			return;
+		}
+		if (!this.#busy()) {
+			this.#reconnectAfter = null;
+			this.#setStatus({ state: "offline" });
+			return;
+		}
+		let delay: number;
+		if (this.#reconnectAfter !== null) {
+			delay = this.#reconnectAfter;
+			this.#reconnectAfter = null;
+		} else {
+			const min = this.#options.minBackoffMs ?? 250;
+			const max = this.#options.maxBackoffMs ?? 30_000;
+			delay = Math.floor(
+				Math.random() * Math.min(max, min * 2 ** this.#attempt),
+			);
+		}
+		this.#attempt += 1;
+		this.#setStatus({
+			state: "reconnecting",
+			attempt: this.#attempt,
+			nextInMs: delay,
+		});
+		this.#retry = setTimeout(() => {
+			this.#retry = null;
+			if (!this.#closed) {
+				this.#open();
+			}
+		}, delay);
+	}
+
+	#setStatus(status: LiveStatus): void {
+		this.#status = status;
+		for (const listener of this.#listeners) {
+			listener(status);
+		}
+	}
+}
+
+/** Applies a keyed patch: removals first, then each upsert at its index. */
+function applyPatch(value: unknown, patch: Frame): unknown {
+	if (!Array.isArray(value)) {
+		return value;
+	}
+	const remove = new Set(
+		Array.isArray(patch.remove) ? patch.remove as string[] : [],
+	);
+	const items = value.filter((item) => {
+		const id = (item as { id?: unknown } | null)?.id;
+		return typeof id !== "string" || !remove.has(id);
+	});
+	for (
+		const upsert of Array.isArray(patch.upsert) ? patch.upsert as Frame[] : []
+	) {
+		const at = number(upsert.at, items.length);
+		if (at < items.length) {
+			items[at] = upsert.value;
+		} else {
+			items.push(upsert.value);
+		}
+	}
+	return items;
+}
+
+function wireError(err: unknown): LiveError {
+	const error = (err ?? {}) as { status?: unknown; message?: unknown };
+	return new LiveError(
+		number(error.status, 500),
+		String(error.message ?? "the server failed"),
+	);
+}
+
+function number(value: unknown, fallback: number): number {
+	return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/** The arguments without absent optional fields, as the HTTP calls send them. */
+function present(args: unknown): unknown {
+	if (args === null || args === undefined) {
+		return {};
+	}
+	if (typeof args !== "object" || Array.isArray(args)) {
+		return args;
+	}
+	return Object.fromEntries(
+		Object.entries(args as Record<string, unknown>).filter(([, item]) =>
+			item !== undefined && item !== null
+		),
+	);
+}
+
+function randomKey(): string {
+	const crypto =
+		(globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+	if (crypto?.randomUUID !== undefined) {
+		return crypto.randomUUID();
+	}
+	return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}${
+		Math.random().toString(36).slice(2)
+	}`;
+}

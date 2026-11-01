@@ -36,6 +36,7 @@ use leptos::server_fn::Http;
 use leptos::server_fn::ServerFn;
 use leptos::server_fn::codec::Encoding;
 use leptos::server_fn::error::FromServerFnError;
+pub use leptoskit_rpc_codegen::ApiChannel;
 pub use leptoskit_rpc_codegen::ApiFunction;
 pub use leptoskit_rpc_codegen::ApiKind;
 pub use leptoskit_rpc_codegen::ApiParam;
@@ -113,6 +114,35 @@ pub struct ApiParamDescriptor {
 
 inventory::collect!(ApiFnDescriptor);
 
+/// One `#[api]` channel, as the macro registers it.
+#[derive(Debug)]
+pub struct ApiChannelDescriptor {
+	/// The channel's name, `Channel::NAME`.
+	pub name: &'static str,
+	/// `module_path!()` at the definition.
+	pub module_path: &'static str,
+	/// The join argument struct's name.
+	pub struct_name: &'static str,
+	/// The doc comment, `///` markers stripped.
+	pub docs: &'static str,
+	/// The join arguments' wire names, in declaration order.
+	pub fields: &'static [&'static str],
+	/// Produces the schema of the join arguments.
+	pub args_schema: fn(&mut SchemaGenerator) -> Schema,
+	/// Produces the schema of a signal.
+	pub message_schema: fn(&mut SchemaGenerator) -> Schema,
+	/// Produces the schema of a member's presence.
+	pub presence_schema: fn(&mut SchemaGenerator) -> Schema,
+	/// `#[api(internal)]`.
+	pub internal: bool,
+	/// Whether the struct carries `#[deprecated]`.
+	pub deprecated: bool,
+	/// `#[api(tag = "...")]`, in order.
+	pub tags: &'static [&'static str],
+}
+
+inventory::collect!(ApiChannelDescriptor);
+
 /// The method queries and mutations are called with.
 pub const OPERATION_METHOD: http::Method = http::Method::POST;
 
@@ -184,6 +214,9 @@ pub struct SpecOptions {
 	pub description: Option<String>,
 	/// The base URLs the RPC is served from.
 	pub servers: Vec<String>,
+	/// Where the live socket is served, relative to each server URL;
+	/// `/live` unless the app nests `Live::router` elsewhere.
+	pub live_path: String,
 }
 
 impl SpecOptions {
@@ -194,6 +227,7 @@ impl SpecOptions {
 			version: version.into(),
 			description: None,
 			servers: Vec::new(),
+			live_path: leptoskit_rpc_codegen::DEFAULT_LIVE_PATH.to_owned(),
 		}
 	}
 
@@ -222,6 +256,7 @@ impl SpecOptions {
 						.collect()
 				})
 				.unwrap_or_default(),
+			live_path: leptoskit_rpc_codegen::DEFAULT_LIVE_PATH.to_owned(),
 		}
 	}
 
@@ -229,6 +264,13 @@ impl SpecOptions {
 	#[must_use]
 	pub fn with_description(mut self, description: impl Into<String>) -> Self {
 		self.description = Some(description.into());
+		self
+	}
+
+	/// Sets where the live socket is served, such as `/realtime/live`.
+	#[must_use]
+	pub fn with_live_path(mut self, path: impl Into<String>) -> Self {
+		self.live_path = path.into();
 		self
 	}
 
@@ -244,6 +286,18 @@ impl SpecOptions {
 pub fn descriptors() -> Vec<&'static ApiFnDescriptor> {
 	let mut descriptors: Vec<&'static ApiFnDescriptor> =
 		inventory::iter::<ApiFnDescriptor>().collect();
+	descriptors.sort_by(|a, b| {
+		a.name
+			.cmp(b.name)
+			.then_with(|| a.module_path.cmp(b.module_path))
+	});
+	descriptors
+}
+
+/// Every registered channel descriptor, sorted by name then module path.
+pub fn channel_descriptors() -> Vec<&'static ApiChannelDescriptor> {
+	let mut descriptors: Vec<&'static ApiChannelDescriptor> =
+		inventory::iter::<ApiChannelDescriptor>().collect();
 	descriptors.sort_by(|a, b| {
 		a.name
 			.cmp(b.name)
@@ -276,7 +330,7 @@ pub fn scopes_for(method: &http::Method, path: &str) -> Option<&'static [&'stati
 /// clients could not tell them apart, and the server would silently route one
 /// of them to the other's handler.
 pub fn collect(options: &SpecOptions) -> Result<ApiSpec, SpecError> {
-	collect_from(&descriptors(), options)
+	collect_with_channels(&descriptors(), &channel_descriptors(), options)
 }
 
 /// Checks that every registered `#[api]` function has its own name and its
@@ -332,7 +386,32 @@ pub fn collect_from(
 	descriptors: &[&ApiFnDescriptor],
 	options: &SpecOptions,
 ) -> Result<ApiSpec, SpecError> {
+	collect_with_channels(descriptors, &[], options)
+}
+
+/// [`collect_from`] with channels too, in the order given.
+///
+/// # Errors
+///
+/// As [`collect`], and [`SpecError::DuplicateName`] when two channels share
+/// a name.
+pub fn collect_with_channels(
+	descriptors: &[&ApiFnDescriptor],
+	channels: &[&ApiChannelDescriptor],
+	options: &SpecOptions,
+) -> Result<ApiSpec, SpecError> {
 	check_from(descriptors)?;
+	let mut channel_names: HashMap<&str, &ApiChannelDescriptor> = HashMap::new();
+
+	for channel in channels.iter().copied() {
+		if let Some(existing) = channel_names.insert(channel.name, channel) {
+			return Err(SpecError::DuplicateName {
+				name: channel.name.to_owned(),
+				first: existing.module_path.to_owned(),
+				second: channel.module_path.to_owned(),
+			});
+		}
+	}
 
 	let mut generator = SchemaSettings::draft2020_12()
 		.with(|settings| {
@@ -384,6 +463,28 @@ pub fn collect_from(
 			}
 		})
 		.collect();
+	let channels = channels
+		.iter()
+		.map(|channel| {
+			ApiChannel {
+				name: channel.name.to_owned(),
+				module_path: channel.module_path.to_owned(),
+				struct_name: channel.struct_name.to_owned(),
+				docs: channel.docs.to_owned(),
+				fields: channel
+					.fields
+					.iter()
+					.map(|field| (*field).to_owned())
+					.collect(),
+				args_schema: (channel.args_schema)(&mut generator).to_value(),
+				message_schema: (channel.message_schema)(&mut generator).to_value(),
+				presence_schema: (channel.presence_schema)(&mut generator).to_value(),
+				internal: channel.internal,
+				deprecated: channel.deprecated,
+				tags: channel.tags.iter().map(|tag| (*tag).to_owned()).collect(),
+			}
+		})
+		.collect();
 	let schemas: BTreeMap<String, serde_json::Value> =
 		generator.take_definitions(false).into_iter().collect();
 
@@ -394,6 +495,8 @@ pub fn collect_from(
 		description: options.description.clone(),
 		servers: options.servers.clone(),
 		functions,
+		channels,
+		live_path: options.live_path.clone(),
 		schemas: schemas.into_iter().collect(),
 	})
 }

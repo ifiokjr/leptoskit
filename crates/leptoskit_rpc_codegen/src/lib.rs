@@ -69,11 +69,13 @@ pub use generate::TargetLanguage;
 #[cfg(feature = "generators")]
 pub use generate::Written;
 pub use openapi::openapi_version;
+pub use spec::ApiChannel;
 pub use spec::ApiFunction;
 pub use spec::ApiKind;
 pub use spec::ApiParam;
 pub use spec::ApiSpec;
 pub use spec::CodegenError;
+pub use spec::DEFAULT_LIVE_PATH;
 pub use spec::HttpInput;
 pub use spec::HttpOutput;
 pub use spec::SPEC_MARKER;

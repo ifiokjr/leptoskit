@@ -59,10 +59,12 @@ http-body-util = "0.1"
 insta = { workspace = true, features = ["json"] }
 leptos = { workspace = true, features = ["csr", "ssr"] }
 leptoskit_db = { workspace = true, features = ["postgres", "sqlite"] }
+# The live SDK tests generate each language's client from the collected spec.
+leptoskit_rpc_codegen = { workspace = true, features = ["generators"] }
 parking_lot = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
-tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake"] }
 tower = { workspace = true, features = ["util"] }
 trybuild = { workspace = true }
 

@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
+use leptoskit_rpc_codegen::ApiChannel;
 use leptoskit_rpc_codegen::ApiFunction;
 use leptoskit_rpc_codegen::ApiKind;
 use leptoskit_rpc_codegen::ApiParam;
@@ -202,12 +203,26 @@ fn assert_metadata_outputs(
 /// function, and the schema shapes the generators model.
 fn spec() -> ApiSpec {
 	ApiSpec {
-		leptoskit_rpc_spec: 2,
+		leptoskit_rpc_spec: 3,
 		title: "Todos".to_owned(),
 		version: "1.2.3".to_owned(),
 		description: Some("The todo backend.".to_owned()),
 		servers: vec!["https://todos.example".to_owned()],
 		functions: functions(),
+		channels: vec![ApiChannel {
+			name: "todo_room".to_owned(),
+			module_path: "todos::api".to_owned(),
+			struct_name: "TodoRoom".to_owned(),
+			docs: "Who is looking at a todo list, and what they're doing.".to_owned(),
+			fields: vec!["list".to_owned(), "filter".to_owned()],
+			args_schema: json!({ "$ref": "#/components/schemas/TodoRoom" }),
+			message_schema: json!({ "$ref": "#/components/schemas/Event" }),
+			presence_schema: json!({ "$ref": "#/components/schemas/Viewer" }),
+			internal: false,
+			deprecated: false,
+			tags: Vec::new(),
+		}],
+		live_path: "/live".to_owned(),
 		schemas: schemas().into_iter().collect(),
 	}
 }
@@ -266,6 +281,29 @@ fn schemas() -> BTreeMap<String, serde_json::Value> {
 					"type": "object"
 				}
 			]
+		}),
+	);
+	schemas.insert(
+		"TodoRoom".to_owned(),
+		json!({
+			"description": "One todo list's room.",
+			"type": "object",
+			"properties": {
+				"filter": { "$ref": "#/components/schemas/TodoFilter" },
+				"list": { "type": "integer", "format": "uint64", "minimum": 0 }
+			},
+			"required": ["list", "filter"]
+		}),
+	);
+	schemas.insert(
+		"Viewer".to_owned(),
+		json!({
+			"description": "What a member of a room shows the others.",
+			"type": "object",
+			"properties": {
+				"name": { "type": "string" }
+			},
+			"required": ["name"]
 		}),
 	);
 	schemas.insert(
@@ -694,6 +732,8 @@ fn edge_spec() -> ApiSpec {
 		version: "0.0.1".to_owned(),
 		description: None,
 		servers: Vec::new(),
+		channels: Vec::new(),
+		live_path: "/live".to_owned(),
 		functions: vec![
 			ApiFunction {
 				kind: ApiKind::Call,
@@ -934,6 +974,8 @@ fn colliding_spec() -> ApiSpec {
 		version: "0.0.1".to_owned(),
 		description: None,
 		servers: Vec::new(),
+		channels: Vec::new(),
+		live_path: "/live".to_owned(),
 		functions: vec![
 			function(
 				"call",
@@ -973,11 +1015,10 @@ fn generate_colliding(language: TargetLanguage, package: &str) -> String {
 	let generated = colliding_spec().generate(&GenerateOptions::new(language, package));
 	let mut out = String::new();
 
-	for file in generated
-		.files
-		.iter()
-		.filter(|file| file.kind == FileKind::Code)
-	{
+	// The live runtime doesn't depend on the spec; the main snapshots show it.
+	for file in generated.files.iter().filter(|file| {
+		file.kind == FileKind::Code && file.path.file_stem().is_none_or(|stem| stem != "live")
+	}) {
 		let _ = writeln!(
 			out,
 			"===== {} =====\n{}",

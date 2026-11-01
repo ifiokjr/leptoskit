@@ -120,6 +120,12 @@ pub(crate) fn expand(
 	})
 }
 
+/// The `crate = "..."` a `#[rpc::channel(...)]` was given, for `#[api]`
+/// above it.
+pub(crate) fn krate(args: TokenStream) -> syn::Result<Option<Path>> {
+	Ok(parse(args)?.krate)
+}
+
 fn parse(args: TokenStream) -> syn::Result<ChannelArgs> {
 	let parser = Punctuated::<Meta, Token![,]>::parse_terminated;
 	let pairs = parser.parse2(args)?;
