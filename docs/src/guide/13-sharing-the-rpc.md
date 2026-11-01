@@ -364,3 +364,21 @@ The generated clients reproduce what leptos's own codecs do, per function:
 - responses are JSON; errors are the `text/plain` `Kind|message` body above.
 
 Because the schemas come from `schemars`, `serde` attributes — `rename_all`, `tag`, `default`, `skip` — are already reflected in the generated types; the clients do not guess.
+
+## Checking compatibility
+
+Installed apps and published SDKs are a wire contract. Record the published spec before a release:
+
+```bash
+leptoskit rpc spec --out rpc.json
+```
+
+Then, in CI, compare the next revision with it:
+
+```bash
+leptoskit rpc check --against rpc.json
+```
+
+It fails on a removed function, a changed kind, route, or encoding, a changed result schema, a removed argument, a new required argument, or a new required OAuth scope — the changes a client generated from the old spec can't survive. Calls and functions excluded by `rpc.exclude` are compared the same way unless `--include-internal` asks otherwise. Fix the break or give the operation a new name, and keep the old one as a deprecated alias until installed clients have moved on.
+
+`--from` reads the current spec from a file or URL instead of building the server, so the check runs without a toolchain.
