@@ -132,6 +132,7 @@ fn encode(value: &str) -> String {
 	use std::fmt::Write;
 
 	let mut encoded = String::with_capacity(value.len());
+
 	for byte in value.bytes() {
 		if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
 			encoded.push(char::from(byte));
@@ -139,6 +140,7 @@ fn encode(value: &str) -> String {
 			let _ = write!(encoded, "%{byte:02X}");
 		}
 	}
+
 	encoded
 }
 
@@ -162,6 +164,7 @@ fn found(response: &HttpResponse) -> Result<bool, ErrorResponse> {
 	if response.status == 404 && response.body.is_empty() {
 		return Ok(false);
 	}
+
 	succeeded(response).map(|()| true)
 }
 

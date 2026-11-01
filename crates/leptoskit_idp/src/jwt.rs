@@ -111,6 +111,7 @@ impl PublicKey {
 			("EC", None | Some("ES256")) if text("crv") == Some("P-256") => {
 				verifying_key(text("x")?, text("y")?).map(Self::Ec)
 			}
+
 			("RSA", None | Some("RS256")) => {
 				let n = from_base64url(text("n")?)?;
 				let e = from_base64url(text("e")?)?;
@@ -136,6 +137,7 @@ pub(crate) fn sign(
 		PrivateKey::Ec(_) => SigningAlgorithm::Es256,
 		PrivateKey::Rsa(_) => SigningAlgorithm::Rs256,
 	};
+
 	let header = Header {
 		alg: algorithm.as_str().into(),
 		typ: Some(typ.into()),
@@ -145,6 +147,7 @@ pub(crate) fn sign(
 	let header = serde_json::to_vec(&header).expect("a header always serializes");
 	let claims = serde_json::to_vec(claims).expect("claims always serialize");
 	let input = format!("{}.{}", base64url(&header), base64url(&claims));
+
 	let signature = match &signer.key {
 		PrivateKey::Ec(key) => {
 			let signature: Signature = key.sign(input.as_bytes());
@@ -186,6 +189,7 @@ pub(crate) fn parse(token: &str) -> Option<Unverified<'_>> {
 	let header: Header = serde_json::from_slice(&from_base64url(header)?).ok()?;
 	let claims: Value = serde_json::from_slice(&from_base64url(claims)?).ok()?;
 	let signature = from_base64url(signature)?;
+
 	let algorithm = match header.alg.as_str() {
 		"ES256" => SigningAlgorithm::Es256,
 		"RS256" => SigningAlgorithm::Rs256,
@@ -467,6 +471,7 @@ pub(crate) mod tests {
 		let no_kid = base64url(br#"{"alg":"ES256"}"#);
 		let token = format!("{no_kid}.{claims}.{signature}");
 		let parsed = parse(&token).unwrap();
+
 		assert_eq!(parsed.kid, None);
 		assert!(parsed.verify_assertion(&public_of(1)).is_none());
 	}
@@ -475,6 +480,7 @@ pub(crate) mod tests {
 	fn assertions_take_their_own_types() {
 		let signer = key(3);
 		let public = public(&signer);
+
 		for typ in ["JWT", "client-authentication+jwt"] {
 			let token = sign(&signer, typ, &json!({ "iss": "app" })).unwrap();
 			assert!(
@@ -482,6 +488,7 @@ pub(crate) mod tests {
 				"{typ}"
 			);
 		}
+
 		let header = base64url(br#"{"alg":"ES256"}"#);
 		let input = format!("{header}.{}", base64url(br#"{"iss":"app"}"#));
 		let PrivateKey::Ec(private) = &signer.key else {
@@ -526,6 +533,7 @@ pub(crate) mod tests {
 			PublicKey::Ec(key) => key,
 			PublicKey::Rsa { .. } => unreachable!(),
 		});
+
 		assert_eq!(x.len(), 43);
 		assert!(verifying_key("AA", &y).is_none());
 		assert!(signing_key(&[0; 32]).is_none());
@@ -552,6 +560,7 @@ pub(crate) mod tests {
 		assert_eq!(rsa_thumbprint(&n, &e), rsa_thumbprint(&n, &e));
 		assert!(rsa_key(b"not a key").is_none());
 		assert!(rsa_key(b"-----BEGIN PRIVATE KEY-----\n!!\n-----END PRIVATE KEY-----").is_none());
+
 		assert!(pem_body(b"-----BEGIN X-----\n-----END X-----").is_none());
 	}
 }

@@ -27,6 +27,7 @@ impl Idp {
 		else {
 			return;
 		};
+
 		match self.answer(&command, Path::new(&out)).await {
 			Ok(failed) => std::process::exit(i32::from(failed)),
 			Err(error) => {
@@ -47,6 +48,7 @@ impl Idp {
 				}
 			}
 		};
+
 		write_output(out, &output)?;
 		Ok(matches!(output, ClientCommandOutput::Failed { .. }))
 	}

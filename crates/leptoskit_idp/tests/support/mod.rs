@@ -117,6 +117,7 @@ impl Claims for User {
 				out.name(&user.name);
 			}
 		}
+
 		Ok(())
 	}
 }
@@ -170,6 +171,7 @@ pub async fn caller(Extension(current): Extension<CurrentSession>) -> String {
 		.delegation
 		.map(|delegation| delegation.client_id)
 		.unwrap_or_default();
+
 	match current.signed_in {
 		Some(me) => format!("{app} for {}", me.account),
 		None => format!("{app} as itself"),
@@ -222,9 +224,11 @@ pub async fn app_with(db: Db, configure: impl FnOnce(IdpBuilder) -> IdpBuilder) 
 /// Both databases, each with every table, including both packs.
 pub async fn databases(cluster: Option<&PostgresCluster>) -> Vec<Db> {
 	let mut databases = vec![Db::connect("sqlite::memory:").await.unwrap()];
+
 	if let Some(cluster) = cluster {
 		databases.push(Db::connect(&cluster.database()).await.unwrap());
 	}
+
 	databases
 }
 
@@ -286,9 +290,11 @@ impl App {
 
 	pub async fn get(&self, path: &str, cookie: Option<&str>) -> Response {
 		let mut builder = Request::get(path);
+
 		if let Some(cookie) = cookie {
 			builder = builder.header(header::COOKIE, cookie);
 		}
+
 		self.send(builder.body(Body::empty()).unwrap()).await
 	}
 
@@ -296,9 +302,11 @@ impl App {
 		let mut builder = Request::post(path)
 			.header(header::ORIGIN, ORIGIN)
 			.header(header::CONTENT_TYPE, "application/json");
+
 		if let Some(cookie) = cookie {
 			builder = builder.header(header::COOKIE, cookie);
 		}
+
 		self.send(builder.body(Body::from(body.to_string())).unwrap())
 			.await
 	}
@@ -316,9 +324,11 @@ impl App {
 		let mut builder = Request::post(path)
 			.header(header::ORIGIN, "https://partner.example")
 			.header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
+
 		if let Some(authorization) = authorization {
 			builder = builder.header(header::AUTHORIZATION, authorization);
 		}
+
 		self.send(builder.body(Body::from(form)).unwrap()).await
 	}
 
@@ -432,9 +442,11 @@ impl App {
 			("redirect_uri", CALLBACK),
 			("code_verifier", verifier),
 		];
+
 		if secret.is_none() {
 			pairs.push(("client_id", client_id));
 		}
+
 		self.post_form("/oauth/token", &pairs, authorization.as_deref())
 			.await
 	}
@@ -494,6 +506,7 @@ impl App {
 				)
 			}
 		};
+
 		self.db
 			.run_script(&format!(
 				"UPDATE {table} SET {column} = {value} WHERE {condition}"
@@ -587,9 +600,11 @@ pub fn es256_jwt(key: &p256::ecdsa::SigningKey, kid: Option<&str>, claims: &Valu
 	use p256::ecdsa::signature::Signer;
 
 	let mut header = json!({ "alg": "ES256", "typ": "JWT" });
+
 	if let Some(kid) = kid {
 		header["kid"] = json!(kid);
 	}
+
 	let input = format!(
 		"{}.{}",
 		URL_SAFE_NO_PAD.encode(header.to_string()),

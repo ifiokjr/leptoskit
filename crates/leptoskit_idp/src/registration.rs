@@ -177,6 +177,7 @@ impl Idp {
 
 		if let Some(expected) = &registration.initial_access_token {
 			let presented = token.unwrap_or_default();
+
 			if !secrets::matches(presented, &secrets::hash(expected)) {
 				return Err(invalid_token("send the initial access token to register"));
 			}
@@ -243,17 +244,20 @@ impl Idp {
 		if metadata.client_id.as_deref() != Some(client_id) {
 			return Err(metadata_error("send the app's own client_id"));
 		}
+
 		if let Some(secret) = &metadata.client_secret {
 			let current = client
 				.secret_hash
 				.as_ref()
 				.is_some_and(|hash| secrets::matches(secret, hash));
+
 			if !current {
 				return Err(metadata_error(
 					"client_secret isn't the app's current secret",
 				));
 			}
 		}
+
 		refuse_server_fields(&metadata)?;
 
 		let spec = self.spec_from(metadata)?;
@@ -265,11 +269,13 @@ impl Idp {
 			&spec.grant_types,
 		)?;
 		check_authentication(spec.auth_method, &spec.grant_types, spec.jwks.as_ref())?;
+
 		if spec.dpop_bound && !self.inner.dpop {
 			return Err(metadata_error(
 				"DPoP-bound tokens need DPoP on the server: turn on `dpop` in [auth.idp]",
 			));
 		}
+
 		if spec.id_token_alg == SigningAlgorithm::Rs256 && self.inner.rsa_key.is_none() {
 			return Err(metadata_error(
 				"RS256 ID tokens need an RSA key on the server: ask for ES256",
@@ -293,8 +299,10 @@ impl Idp {
 		} else {
 			None
 		};
+
 		let secret_hash = match &new_secret {
 			Some(secret) => Some(secrets::hash(secret.expose())),
+
 			None if needs_secret => client.secret_hash.clone(),
 			None => None,
 		};
@@ -328,6 +336,7 @@ impl Idp {
 			if !removed.is_empty() {
 				crate::portal::narrow_grants(&tx, &client, &scopes, &removed).await?;
 			}
+
 			if method_changed {
 				// How it proves who it is changed, so nothing it got before
 				// should outlive the change.
@@ -335,6 +344,7 @@ impl Idp {
 					.filter(|family| family.client_id.eq(client.id) & family.revoked_at.is_null())
 					.all(&tx)
 					.await?;
+
 				for family in families {
 					crate::tokens::revoke_family(&tx, family.id).await?;
 				}
@@ -398,101 +408,16 @@ impl Idp {
 			));
 		}
 
-		let auth_method = match metadata.token_endpoint_auth_method.as_deref() {
-			None | Some("client_secret_basic") => ClientAuth::SecretBasic,
-			Some("client_secret_post") => ClientAuth::SecretPost,
-			Some("private_key_jwt") => ClientAuth::PrivateKeyJwt,
-			Some("none") => ClientAuth::None,
-			Some(other) => {
-				return Err(metadata_error(&format!(
-					"token_endpoint_auth_method `{other}` isn't supported"
-				)));
-			}
-		};
-
-		let mut grant_types = Vec::new();
-		for grant in metadata
-			.grant_types
-			.unwrap_or_else(|| vec![GrantType::AuthorizationCode.as_str().to_owned()])
-		{
-			match grant.as_str() {
-				// Implied by the code and device grants.
-				"refresh_token" => {}
-				"authorization_code" => grant_types.push(GrantType::AuthorizationCode),
-				"client_credentials" => grant_types.push(GrantType::ClientCredentials),
-				other if other == GrantType::DeviceCode.as_str() => {
-					grant_types.push(GrantType::DeviceCode);
-				}
-				other => {
-					return Err(metadata_error(&format!(
-						"the grant type `{other}` isn't supported"
-					)));
-				}
-			}
-		}
-
-		let response_types = metadata
-			.response_types
-			.unwrap_or_else(|| vec!["code".to_owned()]);
-		if response_types.iter().any(|kind| kind != "code") {
-			return Err(metadata_error("the only response type is `code`"));
-		}
-		if !response_types.is_empty() && !grant_types.contains(&GrantType::AuthorizationCode) {
-			return Err(metadata_error(
-				"the `code` response type needs the authorization_code grant",
-			));
-		}
-
-		let id_token_alg = match metadata.id_token_signed_response_alg.as_deref() {
-			None if self.inner.rsa_key.is_some() => SigningAlgorithm::Rs256,
-			None | Some("ES256") => SigningAlgorithm::Es256,
-			Some("RS256") => SigningAlgorithm::Rs256,
-			Some(other) => {
-				return Err(metadata_error(&format!(
-					"ID tokens can't be signed with `{other}`: use ES256 or RS256"
-				)));
-			}
-		};
-
-		let scopes = match metadata.scope.as_deref() {
-			Some(scope) => split_scopes(scope),
-			None => {
-				DEFAULT_SCOPES
-					.iter()
-					.map(|scope| (*scope).to_owned())
-					.collect()
-			}
-		};
-
-		if let Some(uri) = metadata
-			.redirect_uris
-			.iter()
-			.find(|uri| crate::clients::check_redirect_uri(uri).is_err())
-		{
-			return Err(IdpError::oauth(
-				"invalid_redirect_uri",
-				format!(
-					"`{uri}` must be https, http to this device, or a reverse-domain app scheme, \
-					 with no fragment"
-				),
-			));
-		}
-
-		let name = metadata
-			.client_name
-			.filter(|name| !name.trim().is_empty())
-			.or_else(|| {
-				metadata
-					.redirect_uris
-					.first()
-					.and_then(|uri| url::Url::parse(uri).ok())
-					.and_then(|url| url.host_str().map(str::to_owned))
-			})
-			.unwrap_or_else(|| "Unnamed app".to_owned());
+		let auth_method = token_auth(&metadata)?;
+		let grant_types = grant_types(&metadata)?;
+		let id_token_alg = self.id_token_alg(&metadata)?;
+		let scopes = spec_scopes(&metadata);
+		let redirect_uris = checked_redirect_uris(&metadata.redirect_uris)?;
+		let name = client_name(&metadata);
 
 		Ok(NewClientSpec {
 			name,
-			redirect_uris: metadata.redirect_uris,
+			redirect_uris,
 			post_logout_redirect_uris: metadata.post_logout_redirect_uris,
 			scopes,
 			auth_method,
@@ -503,6 +428,20 @@ impl Idp {
 			introspection: false,
 			dpop_bound: metadata.dpop_bound_access_tokens,
 		})
+	}
+
+	/// The algorithm the app asks its ID tokens to be signed with.
+	fn id_token_alg(&self, metadata: &ClientMetadata) -> Result<SigningAlgorithm> {
+		match metadata.id_token_signed_response_alg.as_deref() {
+			None if self.inner.rsa_key.is_some() => Ok(SigningAlgorithm::Rs256),
+			None | Some("ES256") => Ok(SigningAlgorithm::Es256),
+			Some("RS256") => Ok(SigningAlgorithm::Rs256),
+			Some(other) => {
+				Err(metadata_error(&format!(
+					"ID tokens can't be signed with `{other}`: use ES256 or RS256"
+				)))
+			}
+		}
 	}
 
 	/// The registration answer for `app`, without its secrets.
@@ -516,6 +455,7 @@ impl Idp {
 			.iter()
 			.map(|grant| grant.as_str().to_owned())
 			.collect();
+
 		if refreshes {
 			grant_types.push("refresh_token".to_owned());
 		}
@@ -532,11 +472,13 @@ impl Idp {
 			post_logout_redirect_uris: app.post_logout_redirect_uris.clone(),
 			token_endpoint_auth_method: app.auth_method.as_str().to_owned(),
 			grant_types,
+
 			response_types: if app.grant_types.contains(&GrantType::AuthorizationCode) {
 				vec!["code".to_owned()]
 			} else {
 				Vec::new()
 			},
+
 			scope: app.scopes.join(" "),
 			jwks: app.jwks.clone(),
 			id_token_signed_response_alg: app.id_token_alg.as_str().to_owned(),
@@ -570,6 +512,113 @@ fn metadata_error(description: &str) -> IdpError {
 /// missing or wrong.
 fn invalid_token(description: &str) -> IdpError {
 	IdpError::oauth("invalid_token", description.to_owned())
+}
+
+/// How the app proves who it is at the token endpoint.
+fn token_auth(metadata: &ClientMetadata) -> Result<ClientAuth> {
+	match metadata.token_endpoint_auth_method.as_deref() {
+		None | Some("client_secret_basic") => Ok(ClientAuth::SecretBasic),
+		Some("client_secret_post") => Ok(ClientAuth::SecretPost),
+		Some("private_key_jwt") => Ok(ClientAuth::PrivateKeyJwt),
+		Some("none") => Ok(ClientAuth::None),
+		Some(other) => {
+			Err(metadata_error(&format!(
+				"token_endpoint_auth_method `{other}` isn't supported"
+			)))
+		}
+	}
+}
+
+/// The grants the app asks for, with `refresh_token` implied by the code
+/// and device grants.
+fn grant_types(metadata: &ClientMetadata) -> Result<Vec<GrantType>> {
+	let mut grants = Vec::new();
+
+	for grant in metadata
+		.grant_types
+		.clone()
+		.unwrap_or_else(|| vec![GrantType::AuthorizationCode.as_str().to_owned()])
+	{
+		match grant.as_str() {
+			"refresh_token" => {}
+			"authorization_code" => grants.push(GrantType::AuthorizationCode),
+			"client_credentials" => grants.push(GrantType::ClientCredentials),
+
+			other if other == GrantType::DeviceCode.as_str() => {
+				grants.push(GrantType::DeviceCode);
+			}
+
+			other => {
+				return Err(metadata_error(&format!(
+					"the grant type `{other}` isn't supported"
+				)));
+			}
+		}
+	}
+
+	let response_types = metadata
+		.response_types
+		.clone()
+		.unwrap_or_else(|| vec!["code".to_owned()]);
+
+	if response_types.iter().any(|kind| kind != "code") {
+		return Err(metadata_error("the only response type is `code`"));
+	}
+
+	if !response_types.is_empty() && !grants.contains(&GrantType::AuthorizationCode) {
+		return Err(metadata_error(
+			"the `code` response type needs the authorization_code grant",
+		));
+	}
+
+	Ok(grants)
+}
+
+/// The scopes the app asks for, or this provider's defaults.
+fn spec_scopes(metadata: &ClientMetadata) -> Vec<String> {
+	match metadata.scope.as_deref() {
+		Some(scope) => split_scopes(scope),
+		None => {
+			DEFAULT_SCOPES
+				.iter()
+				.map(|scope| (*scope).to_owned())
+				.collect()
+		}
+	}
+}
+
+/// The app's redirect URIs, each one checked.
+fn checked_redirect_uris(uris: &[String]) -> Result<Vec<String>> {
+	if let Some(uri) = uris
+		.iter()
+		.find(|uri| crate::clients::check_redirect_uri(uri).is_err())
+	{
+		return Err(IdpError::oauth(
+			"invalid_redirect_uri",
+			format!(
+				"`{uri}` must be https, http to this device, or a reverse-domain app scheme, with \
+				 no fragment"
+			),
+		));
+	}
+
+	Ok(uris.to_vec())
+}
+
+/// The app's name, from its metadata or its first host.
+fn client_name(metadata: &ClientMetadata) -> String {
+	metadata
+		.client_name
+		.clone()
+		.filter(|name| !name.trim().is_empty())
+		.or_else(|| {
+			metadata
+				.redirect_uris
+				.first()
+				.and_then(|uri| url::Url::parse(uri).ok())
+				.and_then(|url| url.host_str().map(str::to_owned))
+		})
+		.unwrap_or_else(|| "Unnamed app".to_owned())
 }
 
 #[cfg(test)]

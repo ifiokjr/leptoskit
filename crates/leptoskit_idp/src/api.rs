@@ -479,6 +479,7 @@ mod tests {
 				ClientCommandOutput::Added { client, .. } => client.clone(),
 				_ => unreachable!(),
 			},
+
 			secret: Some("portal-secret".into()),
 		};
 
@@ -512,6 +513,7 @@ mod tests {
 		assert_eq!(spec.auth_method, ClientAuth::None);
 		assert_eq!(spec.grant_types, [GrantType::AuthorizationCode]);
 		assert_eq!(spec.id_token_alg, SigningAlgorithm::Es256);
+
 		assert!(!spec.first_party);
 		let spec: NewClientSpec = serde_json::from_str(
 			r#"{"name":"CLI","scopes":["notes:read"],"auth_method":"none","grant_types":["urn:ietf:params:oauth:grant-type:device_code"],"id_token_alg":"RS256"}"#,

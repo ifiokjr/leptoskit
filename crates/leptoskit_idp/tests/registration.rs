@@ -40,9 +40,11 @@ impl App {
 			.uri(path)
 			.header(header::ORIGIN, "https://partner.example")
 			.header(header::CONTENT_TYPE, "application/json");
+
 		if let Some(token) = token {
 			builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
 		}
+
 		let body = body.map_or_else(Body::empty, |body| Body::from(body.to_string()));
 		self.send(builder.body(body).unwrap()).await
 	}
@@ -96,6 +98,7 @@ async fn an_app_registers_itself_signs_someone_in_and_manages_its_registration()
 		let manager = registered.registration_access_token.clone().unwrap();
 		assert_eq!(registered.client_name, "Partner");
 		assert_eq!(registered.client_secret_expires_at, Some(0));
+
 		assert_eq!(
 			registered.registration_client_uri,
 			format!("{ORIGIN}/oauth/register/{}", registered.client_id)
@@ -125,6 +128,7 @@ async fn an_app_registers_itself_signs_someone_in_and_manages_its_registration()
 			.iter()
 			.find(|client| client.client_id == client_id)
 			.unwrap();
+
 		assert!(info.self_registered && !info.first_party && !info.introspection);
 
 		// It reads its registration back, without the secret.
@@ -145,6 +149,7 @@ async fn an_app_registers_itself_signs_someone_in_and_manages_its_registration()
 				r#"Bearer error="invalid_token""#
 			);
 		}
+
 		let other: ClientRegistration = body(app.register_json(None, partner()).await).await;
 		let response = app
 			.registration(
@@ -158,6 +163,7 @@ async fn an_app_registers_itself_signs_someone_in_and_manages_its_registration()
 		let unknown = app
 			.registration("GET", "/oauth/register/nobody", Some(&manager), None)
 			.await;
+
 		assert_eq!(unknown.status(), StatusCode::UNAUTHORIZED);
 
 		// A change must name the app, can't set the server's fields, and
@@ -205,6 +211,7 @@ async fn an_app_registers_itself_signs_someone_in_and_manages_its_registration()
 		assert_eq!(response.status(), StatusCode::OK);
 		let changed: ClientRegistration = body(response).await;
 		assert_eq!(changed.client_name, "Partner Two");
+
 		assert_eq!(changed.scope, "openid");
 		assert_eq!(changed.client_secret, None);
 		let refreshed = app
@@ -230,6 +237,7 @@ async fn an_app_registers_itself_signs_someone_in_and_manages_its_registration()
 			"invalid_client"
 		);
 		change["token_endpoint_auth_method"] = json!("client_secret_post");
+
 		let response = app
 			.registration("PUT", &path, Some(&manager), Some(change.clone()))
 			.await;
@@ -539,10 +547,12 @@ async fn open_registration_is_limited() {
 
 	for db in databases(cluster.as_ref()).await {
 		let open = app_with(db, |idp| idp.dynamic_registration(Registration::default())).await;
+
 		for _ in 0..10 {
 			let response = open.register_json(None, partner()).await;
 			assert_eq!(response.status(), StatusCode::CREATED);
 		}
+
 		let response = open.register_json(None, partner()).await;
 		assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
 		assert!(response.headers().contains_key(header::RETRY_AFTER));

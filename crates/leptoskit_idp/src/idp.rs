@@ -117,6 +117,7 @@ impl Idp {
 			.collect();
 
 		let mut id_token_algorithms = vec![SigningAlgorithm::Es256.as_str()];
+
 		if self.inner.rsa_key.is_some() {
 			id_token_algorithms.push(SigningAlgorithm::Rs256.as_str());
 		}
@@ -168,6 +169,7 @@ impl Idp {
 		if self.inner.dpop {
 			document["dpop_signing_alg_values_supported"] = crate::dpop::ALGORITHMS.into();
 		}
+
 		if self.inner.registration.is_some() {
 			document["registration_endpoint"] = endpoint("/oauth/register").into();
 		}
@@ -408,12 +410,14 @@ impl IdpBuilder {
 			if !leptoskit_rpc::is_scope_name(scope.name) {
 				return Err(IdpError::Config(format!("`{}` isn't a scope", scope.name)));
 			}
+
 			if scopes.iter().any(|known| known.name == scope.name) {
 				return Err(IdpError::Config(format!(
 					"the scope `{}` is declared twice",
 					scope.name
 				)));
 			}
+
 			scopes.push(ScopeDescription {
 				name: scope.name.into(),
 				description: scope.description(),
@@ -656,6 +660,7 @@ impl ClaimSet {
 		if !RESERVED_CLAIMS.contains(&name) {
 			self.claims.insert(name.to_owned(), value.into());
 		}
+
 		self
 	}
 

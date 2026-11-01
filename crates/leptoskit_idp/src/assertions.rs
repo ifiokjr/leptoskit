@@ -76,6 +76,7 @@ impl Idp {
 		}
 
 		let exp = number("exp").ok_or_else(IdpError::invalid_client)?;
+
 		if exp + SKEW <= now
 			|| exp > now + MAX_LIFETIME.num_seconds() + SKEW
 			|| number("nbf").is_some_and(|nbf| nbf > now + SKEW)
@@ -180,6 +181,7 @@ pub(crate) fn check_jwks(jwks: &Value) -> std::result::Result<(), String> {
 					.into(),
 			);
 		}
+
 		if ["d", "p", "q", "dp", "dq", "qi", "k"]
 			.iter()
 			.any(|private| key.get(*private).is_some())
@@ -222,6 +224,7 @@ mod tests {
 				.contains("private half")
 		);
 		assert!(check_jwks(&json!({ "keys": vec![public; 11] })).is_err());
+
 		assert_eq!(unverified_claims("a.e30.c"), Some(json!({})));
 		assert_eq!(unverified_claims("nonsense"), None);
 	}

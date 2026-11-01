@@ -64,10 +64,12 @@ pub(crate) fn hash(token: &str) -> Vec<u8> {
 /// lists of parts hash alike.
 pub(crate) fn digest(parts: &[&[u8]]) -> Vec<u8> {
 	let mut hasher = Sha256::new();
+
 	for part in parts {
 		hasher.update((part.len() as u64).to_be_bytes());
 		hasher.update(part);
 	}
+
 	hasher.finalize().to_vec()
 }
 
@@ -194,6 +196,7 @@ mod tests {
 		);
 		assert_eq!(normalize_user_code("WDJB-MJH"), None);
 		assert_eq!(normalize_user_code("AEIO-UAEI"), None);
+
 		assert_ne!(digest(&[b"ab", b"c"]), digest(&[b"a", b"bc"]));
 	}
 

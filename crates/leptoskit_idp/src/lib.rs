@@ -42,6 +42,7 @@ mod authorize;
 mod clients;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod command;
+
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod config;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]

@@ -86,6 +86,7 @@ impl Idp {
 		if text("htm") != Some(expected.method) {
 			return Err(invalid("its `htm` must be this request's method"));
 		}
+
 		if !text("htu").is_some_and(|url| same_url(url, expected.url)) {
 			return Err(invalid("its `htu` must be this request's URL"));
 		}

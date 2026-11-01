@@ -75,6 +75,7 @@ impl Idp {
 				.filter(|client| client.owner_id.eq(Some(me.account)))
 				.count(&tx)
 				.await?;
+
 			if owned >= u64::from(portal.apps_per_person) {
 				return Err(metadata(format!(
 					"you can register at most {} apps; delete one first",
@@ -289,6 +290,7 @@ impl Idp {
 			.filter(|grant| grant.client_id.eq(client.id))
 			.all(tx)
 			.await?;
+
 		for grant in grants {
 			self.inner
 				.auth
@@ -301,6 +303,7 @@ impl Idp {
 				)
 				.await?;
 		}
+
 		Client::query()
 			.filter(|row| row.id.eq(client.id))
 			.delete(tx)
@@ -330,6 +333,7 @@ pub(crate) async fn narrow_grants(
 		.filter(|grant| grant.client_id.eq(client.id))
 		.all(tx)
 		.await?;
+
 	for grant in grants {
 		let left: Vec<String> = grant
 			.scopes
@@ -337,6 +341,7 @@ pub(crate) async fn narrow_grants(
 			.filter(|scope| kept.contains(*scope))
 			.cloned()
 			.collect();
+
 		if left.is_empty() {
 			Grant::query()
 				.filter(|row| row.id.eq(grant.id))
@@ -355,10 +360,12 @@ pub(crate) async fn narrow_grants(
 		.filter(|family| family.client_id.eq(client.id) & family.revoked_at.is_null())
 		.all(tx)
 		.await?;
+
 	for family in families {
 		if family.scopes.iter().any(|scope| removed.contains(scope)) {
 			revoke_family(tx, family.id).await?;
 		}
 	}
+
 	Ok(())
 }

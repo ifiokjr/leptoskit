@@ -173,6 +173,7 @@ async fn a_partner_app_signs_someone_in_and_calls_the_api() {
 		assert_eq!(id["nonce"], "n-0S6_WzA2Mj");
 		assert!(id["auth_time"].is_i64());
 		let access = claims(&tokens.access_token);
+
 		assert_eq!(access["sub"], id["sub"]);
 		assert_eq!(access["client_id"], client_id.as_str());
 		assert_eq!(access["aud"], ORIGIN);
@@ -210,15 +211,18 @@ async fn a_partner_app_signs_someone_in_and_calls_the_api() {
 			refused.headers()[header::WWW_AUTHENTICATE],
 			"Bearer error=\"insufficient_scope\", scope=\"notes:read notes:write\""
 		);
+
 		for path in ["/api/delete_everything", "/auth/sessions", "/oauth/grants"] {
 			let method = if path.starts_with("/api") {
 				"POST"
 			} else {
 				"GET"
 			};
+
 			let refused = app.with_bearer(method, path, &tokens.access_token).await;
 			assert_eq!(refused.status(), StatusCode::FORBIDDEN, "{path}");
 		}
+
 		let garbage = app.with_bearer("POST", "/api/list_notes", "a.b.c").await;
 		assert_eq!(garbage.status(), StatusCode::UNAUTHORIZED);
 
@@ -362,6 +366,7 @@ async fn a_partner_app_signs_someone_in_and_calls_the_api() {
 				Some(&cookie),
 			)
 			.await;
+
 		assert_eq!(disconnected.status(), StatusCode::NO_CONTENT);
 		let after = app
 			.refresh(
@@ -479,6 +484,7 @@ async fn a_public_app_signs_in_with_pkce_and_signs_out() {
 		let after = app
 			.with_bearer("GET", "/oauth/userinfo", &tokens.access_token)
 			.await;
+
 		assert_eq!(after.status(), StatusCode::UNAUTHORIZED);
 
 		// Signed out now, `prompt=none` hears `login_required`.
@@ -520,11 +526,13 @@ async fn bad_requests_are_refused_where_its_safe_to_say_so() {
 		let mut pairs = query(&url);
 		pairs.retain(|(key, _)| !drop.contains(&key.as_str()));
 		let mut deduped: Vec<(String, String)> = Vec::new();
+
 		for (key, value) in pairs.into_iter().rev() {
 			if !deduped.iter().any(|(seen, _)| *seen == key) {
 				deduped.push((key, value));
 			}
 		}
+
 		let query = url::form_urlencoded::Serializer::new(String::new())
 			.extend_pairs(deduped)
 			.finish();
@@ -671,6 +679,7 @@ async fn the_token_endpoints_refuse_what_they_cannot_take() {
 		App::error(response, StatusCode::BAD_REQUEST).await,
 		"invalid_request"
 	);
+
 	// Preflights are answered for browsers.
 	let preflight = app
 		.send(
@@ -913,11 +922,13 @@ async fn edges_of_the_token_endpoints_are_refused_or_handled() {
 		let repeated = app
 			.post_form(path, &[("token", "x"), ("token", "y")], Some(&auth))
 			.await;
+
 		assert_eq!(
 			App::error(repeated, StatusCode::BAD_REQUEST).await,
 			"invalid_request"
 		);
 	}
+
 	let bad = app
 		.post_form("/oauth/token", &[("grant_type", "x")], Some("Basic !!!"))
 		.await;
@@ -964,6 +975,7 @@ async fn edges_of_the_token_endpoints_are_refused_or_handled() {
 	let seen: Introspection = body(seen).await;
 	assert!(seen.active);
 	assert_eq!(seen.client_id.as_deref(), Some(client_id.as_str()));
+
 	let (other, other_secret) = app.register(ClientAuth::SecretBasic, &["openid"]).await;
 	let unseen = app
 		.introspect(&other, &other_secret.unwrap(), &narrowed.access_token)
@@ -983,6 +995,7 @@ async fn edges_of_signing_in_and_out_are_refused_or_handled() {
 	let (other, _) = app.register(ClientAuth::SecretBasic, &["openid"]).await;
 	let cookie = app.sign_in("ada@example.com").await;
 	let code = app.code(&client_id, "openid notes:read", &cookie).await;
+
 	let tokens: TokenResponse = body(
 		app.exchange(&client_id, Some(&secret), &code, VERIFIER)
 			.await,
@@ -1064,6 +1077,7 @@ async fn edges_of_signing_in_and_out_are_refused_or_handled() {
 		.with_bearer("POST", "/api/list_notes", &tokens.access_token)
 		.await;
 	assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+
 	let refused = app
 		.post_form(
 			"/oauth/token",
