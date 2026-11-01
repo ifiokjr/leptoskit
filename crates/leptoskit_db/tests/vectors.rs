@@ -717,3 +717,375 @@ async fn postgres_indexes_find_every_row_asked_for() {
 	assert!(filtered.iter().all(|m| m.label.ends_with('7')));
 	tx.rollback().await.unwrap();
 }
+
+/// An article, searched by its words and by its embedding, which is made
+/// from its title and body.
+#[table(name = "articles", public)]
+#[policy(select, |article, cx| article.published.eq(true) | cx.global(|viewer: &Viewer| article.author.eq(viewer.0.clone())))]
+#[policy(insert, update, delete, |_, _| Expr::always())]
+pub struct Article {
+	pub id: Id<Self>,
+	pub author: String,
+	#[db(search(weight = A))]
+	pub title: String,
+	#[db(search(weight = B))]
+	pub body: Option<String>,
+	pub published: bool,
+	#[db(vector(distance = cosine, index = hnsw, source(title, body)))]
+	pub embedding: Option<Vector<3>>,
+}
+
+/// A model that counts three words, so its vectors can be checked: `rust`,
+/// `passkeys`, and `sqlite`, plus a little of everything.
+#[derive(Default)]
+struct Counter {
+	calls: std::sync::atomic::AtomicUsize,
+	short: bool,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("the model is down")]
+struct Down;
+
+fn counted(text: &str) -> Vector<3> {
+	let count = |word: &str| text.to_lowercase().matches(word).count() as f32;
+	Vector::new([
+		count("rust") + 0.1,
+		count("passkeys") + 0.1,
+		count("sqlite") + 0.1,
+	])
+}
+
+impl leptoskit_db::vector::Embedder<Vector<3>> for Counter {
+	type Error = Down;
+
+	fn embed(&self, texts: &[String]) -> impl Future<Output = Result<Vec<Vector<3>>, Down>> + Send {
+		self.calls
+			.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+		let mut vectors: Vec<Vector<3>> = texts.iter().map(|text| counted(text)).collect();
+
+		if self.short {
+			vectors.pop();
+		}
+
+		std::future::ready(Ok(vectors))
+	}
+}
+
+async fn article(
+	db: &Db,
+	title: &str,
+	body: Option<&str>,
+	embedding: Option<Vector<3>>,
+) -> Article {
+	NewArticle {
+		author: "ada".into(),
+		title: title.into(),
+		body: body.map(Into::into),
+		published: true,
+		embedding,
+	}
+	.insert(db)
+	.await
+	.unwrap()
+}
+
+async fn stale_titles(db: &Db) -> Vec<String> {
+	let mut titles: Vec<String> = Article::stale_embeddings()
+		.all(db)
+		.await
+		.unwrap()
+		.into_iter()
+		.map(|article| article.title)
+		.collect();
+	titles.sort();
+	titles
+}
+
+#[tokio::test]
+async fn writes_to_a_vectors_sources_leave_it_stale_until_it_is_made_again() {
+	on_both(|db| {
+		async move {
+			let missing = article(&db, "missing", None, None).await;
+			let mut edited =
+				article(&db, "edited", Some("rust"), Some(counted("edited\n\nrust"))).await;
+			let mut moved = article(
+				&db,
+				"moved",
+				Some("sqlite"),
+				Some(counted("moved\n\nsqlite")),
+			)
+			.await;
+			assert_eq!(stale_titles(&db).await, ["missing"]);
+
+			// A new vector records the fingerprint of its sources, the same
+			// one Rust computes on either database.
+			let fingerprint = db
+				.fetch(Statement {
+					sql: "SELECT lk_embedding_source FROM articles WHERE title = 'edited'".into(),
+					args: Vec::new(),
+				})
+				.await
+				.unwrap();
+			assert_eq!(
+				fingerprint[0][0],
+				Value::Text(leptoskit_db_schema::source_fingerprint(&[
+					Some("edited"),
+					Some("rust")
+				]))
+			);
+
+			// Changing a source makes the vector stale; anything else doesn't.
+			edited.body = Some("rust and passkeys".into());
+			edited.save(&db).await.unwrap();
+			moved.author = "grace".into();
+			moved.save(&db).await.unwrap();
+			assert_eq!(stale_titles(&db).await, ["edited", "missing"]);
+
+			// Raw SQL too.
+			db.execute(Statement {
+				sql: "UPDATE articles SET title = 'renamed' WHERE title = 'moved'".into(),
+				args: Vec::new(),
+			})
+			.await
+			.unwrap();
+			assert_eq!(stale_titles(&db).await, ["edited", "missing", "renamed"]);
+
+			// Fresh rows can be left out of a search.
+			let fresh = Article::query()
+				.filter(|a| !a.embedding.is_stale())
+				.count(&db)
+				.await
+				.unwrap();
+			assert_eq!(fresh, 0);
+
+			// The job embeds each stale row's sources, once.
+			let model = Counter::default();
+			let embedded = Article::stale_embeddings()
+				.limit(2)
+				.embed_stale(|a| a.embedding, &model, &db)
+				.await
+				.unwrap();
+			assert_eq!(embedded, 2);
+			let embedded = Article::stale_embeddings()
+				.embed_stale(|a| a.embedding, &model, &db)
+				.await
+				.unwrap();
+			assert_eq!(embedded, 1);
+			assert_eq!(stale_titles(&db).await, Vec::<String>::new());
+			assert_eq!(
+				Article::stale_embeddings()
+					.embed_stale(|a| a.embedding, &model, &db)
+					.await
+					.unwrap(),
+				0
+			);
+			assert_eq!(model.calls.load(std::sync::atomic::Ordering::Relaxed), 2);
+
+			let edited = Article::get(&db, edited.id).await.unwrap();
+			assert_eq!(
+				edited.embedding,
+				Some(counted("edited\n\nrust and passkeys"))
+			);
+			let missing = Article::get(&db, missing.id).await.unwrap();
+			assert_eq!(missing.embedding, Some(counted("missing")));
+
+			// Making the same vector again still freshens the row.
+			let mut again = Article::get(&db, edited.id).await.unwrap();
+			again.title = "edited again".into();
+			again.save(&db).await.unwrap();
+			db.execute(Statement {
+				sql: "UPDATE articles SET body = NULL WHERE title = 'edited again'".into(),
+				args: Vec::new(),
+			})
+			.await
+			.unwrap();
+			assert_eq!(stale_titles(&db).await, ["edited again"]);
+			assert_eq!(
+				Article::stale_embeddings()
+					.embed_stale(|a| a.embedding, &model, &db)
+					.await
+					.unwrap(),
+				1
+			);
+			assert_eq!(stale_titles(&db).await, Vec::<String>::new());
+		}
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn the_embedding_job_reports_a_model_that_fails() {
+	on_both(|db| {
+		async move {
+			article(&db, "one", None, None).await;
+			article(&db, "two", None, None).await;
+			let short = Counter {
+				short: true,
+				..Counter::default()
+			};
+			let refused = Article::stale_embeddings()
+				.embed_stale(|a| a.embedding, &short, &db)
+				.await;
+			assert!(
+				matches!(&refused, Err(DbError::Embedder(error)) if error.to_string() == "the embedder made 1 vectors for 2 texts"),
+				"{refused:?}"
+			);
+			assert_eq!(stale_titles(&db).await, ["one", "two"]);
+
+			// A column without sources can't be stale.
+			let refused = Measure::query()
+				.filter(|m| m.cosine.is_stale())
+				.all(&db)
+				.await;
+			assert!(
+				matches!(&refused, Err(DbError::Encode(error)) if error.to_string().contains("isn't made from sources")),
+				"{refused:?}"
+			);
+		}
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn hybrid_search_fuses_the_text_and_vector_rankings() {
+	on_both(|db| {
+		async move {
+			let texts = [
+				("passkeys in rust", "rust rust passkeys"),
+				("rust", "sqlite and rust"),
+				("sqlite", "sqlite sqlite"),
+				("passkeys", "passkeys everywhere"),
+				("rust passkeys", "rust"),
+				("cooking", "nothing here"),
+			];
+
+			for (title, body) in texts {
+				article(
+					&db,
+					title,
+					Some(body),
+					Some(counted(&format!("{title}\n\n{body}"))),
+				)
+				.await;
+			}
+
+			let mut hidden = article(
+				&db,
+				"rust secrets",
+				Some("rust passkeys"),
+				Some(counted("rust passkeys")),
+			)
+			.await;
+			hidden.published = false;
+			hidden.author = "grace".into();
+			hidden.save(&db).await.unwrap();
+
+			let target = counted("rust passkeys");
+			let text: Vec<String> = Article::query()
+				.search("rust")
+				.all(&db)
+				.await
+				.unwrap()
+				.into_iter()
+				.map(|article| article.title)
+				.collect();
+			let vector: Vec<String> = Article::query()
+				.nearest(|a| a.embedding, &target)
+				.exact()
+				.all(&db)
+				.await
+				.unwrap()
+				.into_iter()
+				.map(|article| article.title)
+				.collect();
+			assert!(!text.contains(&"rust secrets".to_string()));
+
+			// Reciprocal rank fusion, measured in Rust from the two rankings.
+			let rank = |list: &[String], title: &str| list.iter().position(|other| other == title);
+			let mut expected: Vec<(f64, usize, String)> = vector
+				.iter()
+				.map(|title| {
+					let ranks = [rank(&text, title), rank(&vector, title)];
+					let score = ranks
+						.iter()
+						.flatten()
+						.map(|rank| 1.0 / (61.0 + *rank as f64))
+						.sum();
+					let best = ranks.iter().flatten().min().copied().unwrap_or(usize::MAX);
+					(score, best, title.clone())
+				})
+				.collect();
+			expected.sort_by(|left, right| right.0.total_cmp(&left.0).then(left.1.cmp(&right.1)));
+
+			let hits = Article::query()
+				.hybrid(|h| h.text("rust").vector(|a| a.embedding, &target))
+				.limit(4)
+				.hits(&db)
+				.await
+				.unwrap();
+			assert_eq!(
+				hits.iter()
+					.map(|hit| hit.row.title.as_str())
+					.collect::<Vec<_>>(),
+				expected[..4]
+					.iter()
+					.map(|(_, _, title)| title.as_str())
+					.collect::<Vec<_>>(),
+				"{}",
+				db.dialect()
+			);
+
+			for hit in &hits {
+				assert_eq!(
+					hit.text_rank,
+					rank(&text, &hit.row.title).map(|rank| rank + 1)
+				);
+				assert_eq!(
+					hit.vector_rank,
+					rank(&vector, &hit.row.title).map(|rank| rank + 1)
+				);
+				assert!(hit.distance.is_some());
+			}
+
+			// The viewer's policy applies to both rankings.
+			let ada = db.with_context(Context::new().with(Viewer("grace".into())));
+			let mine = Article::query()
+				.hybrid(|h| h.text("secrets").vector(|a| a.embedding, &target))
+				.all(&ada)
+				.await
+				.unwrap();
+			assert!(mine.iter().any(|article| article.title == "rust secrets"));
+
+			// Text alone, and a filter.
+			let only_text = Article::query()
+				.hybrid(|h| h.text("rust"))
+				.all(&db)
+				.await
+				.unwrap();
+			assert_eq!(
+				only_text
+					.into_iter()
+					.map(|article| article.title)
+					.collect::<Vec<_>>(),
+				text
+			);
+			let filtered = Article::query()
+				.hybrid(|h| h.vector(|a| a.embedding, &target))
+				.filter(|a| a.title.ilike("%sqlite%"))
+				.all(&db)
+				.await
+				.unwrap();
+			assert_eq!(
+				filtered
+					.into_iter()
+					.map(|article| article.title)
+					.collect::<Vec<_>>(),
+				["sqlite"]
+			);
+
+			assert!(Article::query().hybrid(|h| h).all(&db).await.is_err());
+		}
+	})
+	.await;
+}

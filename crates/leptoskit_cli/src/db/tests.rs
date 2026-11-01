@@ -896,3 +896,69 @@ fn check_live_finds_a_missing_or_extra_trigger() {
 		"{error}"
 	);
 }
+
+#[test]
+fn check_warns_about_public_vectors_and_large_exact_searches() {
+	use leptoskit_db_schema::VectorDistance;
+	use leptoskit_db_schema::VectorElement;
+	use leptoskit_db_schema::VectorOptions;
+
+	let mut articles = Table::new(
+		TableName::new("articles"),
+		vec![
+			Column::new("id", ColumnType::Int64),
+			Column::new(
+				"embedding",
+				ColumnType::Vector {
+					element: VectorElement::Float32,
+					dimensions: 3,
+				},
+			),
+			Column::new(
+				"code",
+				ColumnType::Vector {
+					element: VectorElement::Bit,
+					dimensions: 8,
+				},
+			),
+		],
+		vec!["id".into()],
+	);
+	articles.vectors.push(VectorOptions::new(
+		"embedding",
+		Some(VectorDistance::Cosine),
+	));
+	let mut code = VectorOptions::new("code", Some(VectorDistance::Hamming));
+	code.public = true;
+	articles.vectors.push(code);
+	let schema = Schema::new(Dialect::Sqlite, vec![articles]);
+
+	assert_eq!(
+		super::public_vectors(&schema),
+		[
+			"`articles.code` is a vector clients can see: vectors are large, and an embedding can \
+			 give away the text it was made from; drop `public` unless clients need it"
+		]
+	);
+	assert_eq!(
+		super::public_vectors(&schema.without_rename_hints()),
+		Vec::<String>::new()
+	);
+
+	let counts = [
+		(TableName::new("articles"), 150_000),
+		(TableName::new("notes"), 10),
+	];
+	assert_eq!(
+		super::exact_searches(&counts, 100_000),
+		[
+			"`articles` has 150000 rows, and SQLite measures every one in each vector search; \
+			 past 100000 (`db.vector.exact_search_rows`) searches slow down, and Postgres's HNSW \
+			 indexes suit it better"
+		]
+	);
+	assert_eq!(
+		super::exact_searches(&counts, 200_000),
+		Vec::<String>::new()
+	);
+}

@@ -1113,6 +1113,39 @@ pub struct DbConfig {
 	/// Geospatial columns' options.
 	#[serde(skip_serializing_if = "DbGeoConfig::is_default")]
 	pub geo: DbGeoConfig,
+	/// Vector columns' options.
+	#[serde(skip_serializing_if = "DbVectorConfig::is_default")]
+	pub vector: DbVectorConfig,
+}
+
+/// Vector columns' options: `[db.vector]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct DbVectorConfig {
+	/// SQLite only: how many rows a table with a searched vector column may
+	/// have before `leptoskit db check` warns that its searches, which
+	/// measure every row, are getting slow, and that Postgres's indexes
+	/// would suit it better.
+	pub exact_search_rows: u64,
+}
+
+impl Default for DbVectorConfig {
+	fn default() -> Self {
+		Self {
+			exact_search_rows: 100_000,
+		}
+	}
+}
+
+impl DbVectorConfig {
+	#[expect(
+		clippy::trivially_copy_pass_by_ref,
+		reason = "serde's `skip_serializing_if` passes a reference"
+	)]
+	fn is_default(&self) -> bool {
+		*self == Self::default()
+	}
 }
 
 /// Geospatial columns' options: `[db.geo]`.
@@ -1159,6 +1192,7 @@ impl Default for DbConfig {
 			branch_databases: true,
 			policies: DbPolicies::default(),
 			geo: DbGeoConfig::default(),
+			vector: DbVectorConfig::default(),
 		}
 	}
 }

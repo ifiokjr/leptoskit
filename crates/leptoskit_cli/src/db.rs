@@ -60,17 +60,20 @@ pub enum DbCommand {
 	/// Fails when the tables changed without a migration, the migrations
 	/// directory is inconsistent, or, with sign-in, a table that holds an
 	/// account's data doesn't say how its rows move when accounts merge.
-	/// With `--live`, also checks the connected database's capture
-	/// triggers. For CI.
+	/// Warns about vector columns clients can see, and, on SQLite, with a
+	/// database to look at, about tables with vector columns grown past
+	/// `db.vector.exact_search_rows`. With `--live`, also checks the
+	/// connected database's capture triggers. For CI.
 	Check {
 		/// Check the connected database's live pack: every trigger the schema
 		/// expects exists, unchanged, and no capture trigger copies a wide
 		/// column.
 		#[arg(long)]
 		live: bool,
-		/// The database URL `--live` checks; defaults to the variable
-		/// `db.url_env` names.
-		#[arg(long, requires = "live")]
+		/// The database `--live` checks and vector row counts read; defaults
+		/// to the variable `db.url_env` names. Without either, row counts are
+		/// skipped.
+		#[arg(long)]
 		url: Option<String>,
 	},
 	/// Shows the migrations, whether the tables changed since the latest, and,
@@ -230,6 +233,20 @@ pub fn run(command: DbCommand) -> Result<()> {
 
 			if let Some(summary) = check_account_merges(&target)? {
 				println!("{summary}");
+			}
+
+			for warning in public_vectors(&target) {
+				println!("warning: {warning}");
+			}
+
+			let url = url.or_else(|| std::env::var(&project.config.url_env).ok());
+
+			if let (Some(url), Dialect::Sqlite) = (&url, project.dialect()) {
+				let counts = runtime()?.block_on(count_searched_rows(url, &target))?;
+
+				for warning in exact_searches(&counts, project.config.vector.exact_search_rows) {
+					println!("warning: {warning}");
+				}
 			}
 
 			if live {
@@ -816,6 +833,74 @@ pub(crate) fn check(history: &History, target: &Schema) -> Result<()> {
 		history.latest_name().unwrap_or("the start"),
 		invoked_name()
 	)
+}
+
+/// A warning for each vector column clients can see: embeddings are large,
+/// and they can give away the text they were made from.
+pub(crate) fn public_vectors(target: &Schema) -> Vec<String> {
+	target
+		.tables
+		.iter()
+		.flat_map(|table| {
+			table
+				.vectors
+				.iter()
+				.filter(|vector| vector.public)
+				.map(move |vector| {
+					format!(
+						"`{}.{}` is a vector clients can see: vectors are large, and an embedding \
+						 can give away the text it was made from; drop `public` unless clients \
+						 need it",
+						table.name, vector.column
+					)
+				})
+		})
+		.collect()
+}
+
+/// How many rows each table with a searched vector column has.
+async fn count_searched_rows(url: &str, target: &Schema) -> Result<Vec<(TableName, u64)>> {
+	let db = Db::connect(url).await?;
+	let mut counts = Vec::new();
+
+	for table in &target.tables {
+		if !table.vectors.iter().any(|vector| vector.distance.is_some()) {
+			continue;
+		}
+
+		let rows = db
+			.fetch(Statement {
+				sql: format!(
+					"SELECT count(*) FROM {}",
+					leptoskit_db_schema::quote_identifier(&table.name.flat())
+				),
+				args: Vec::new(),
+			})
+			.await?;
+		let count = match rows.first().and_then(|row| row.first()) {
+			Some(leptoskit_db::Value::Int(count)) => u64::try_from(*count).unwrap_or_default(),
+			_ => 0,
+		};
+		counts.push((table.name.clone(), count));
+	}
+
+	Ok(counts)
+}
+
+/// A warning for each table, of `counts`, with more rows than SQLite's
+/// exact vector searches suit.
+pub(crate) fn exact_searches(counts: &[(TableName, u64)], most: u64) -> Vec<String> {
+	counts
+		.iter()
+		.filter(|(_, count)| *count > most)
+		.map(|(table, count)| {
+			format!(
+				"`{table}` has {count} rows, and SQLite measures every one in each vector search; \
+				 past {most} (`db.vector.exact_search_rows`) searches slow down, and Postgres's \
+				 HNSW indexes suit it better"
+			)
+		})
+		.collect()
 }
 
 /// The table sign-in keeps accounts in.

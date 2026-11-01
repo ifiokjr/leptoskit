@@ -36,9 +36,13 @@
 #[cfg(feature = "server")]
 mod column;
 #[cfg(feature = "server")]
+mod hybrid;
+#[cfg(feature = "server")]
 mod nearest;
 #[cfg(feature = "sqlite")]
 pub(crate) mod sqlite;
+#[cfg(feature = "server")]
+mod stale;
 
 use std::borrow::Cow;
 use std::fmt;
@@ -54,6 +58,10 @@ pub(crate) use column::to_postgres;
 /// The 16-bit float [`HalfVector`] holds.
 pub use half::f16;
 #[cfg(feature = "server")]
+pub use hybrid::Hybrid;
+#[cfg(feature = "server")]
+pub use hybrid::HybridHit;
+#[cfg(feature = "server")]
 pub use nearest::Nearest;
 #[cfg(feature = "server")]
 pub use nearest::NearestWithDistance;
@@ -63,6 +71,11 @@ use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
 use serde::Serializer;
+#[cfg(feature = "server")]
+pub use stale::Embedder;
+#[cfg(feature = "server")]
+#[doc(hidden)]
+pub use stale::Stale;
 
 /// A vector of `N` 32-bit floats, such as an embedding from a language
 /// model. Every value must be finite.

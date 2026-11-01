@@ -122,6 +122,11 @@ pub enum DbError {
 	/// The database couldn't be reached.
 	#[error("the database can't be reached")]
 	Connection(#[source] Source),
+	/// An [`Embedder`](crate::vector::Embedder) couldn't make the vectors
+	/// asked of it.
+	#[cfg(feature = "vector")]
+	#[error("the embedder couldn't make the vectors")]
+	Embedder(#[source] Source),
 }
 
 /// What an [`DbError::UndeclaredRead`] says.
