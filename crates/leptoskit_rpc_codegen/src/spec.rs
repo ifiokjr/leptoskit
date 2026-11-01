@@ -437,18 +437,32 @@ fn collect_refs(schema: &Value, refs: &mut BTreeSet<String>) {
 		return;
 	};
 
+	collect_reference(object, refs);
+	collect_nested(object, refs);
+	collect_variants(object, refs);
+	collect_properties(object, refs);
+}
+
+/// The schema's own `$ref`, when it has one.
+fn collect_reference(object: &Map<String, Value>, refs: &mut BTreeSet<String>) {
 	if let Some(Value::String(reference)) = object.get("$ref")
 		&& let Some(name) = ref_name(reference)
 	{
 		refs.insert(name.to_owned());
 	}
+}
 
+/// The schemas under single-schema keywords.
+fn collect_nested(object: &Map<String, Value>, refs: &mut BTreeSet<String>) {
 	for key in ["items", "additionalProperties", "contains", "propertyNames"] {
 		if let Some(nested) = object.get(key) {
 			collect_refs(nested, refs);
 		}
 	}
+}
 
+/// The schemas listed under variant keywords.
+fn collect_variants(object: &Map<String, Value>, refs: &mut BTreeSet<String>) {
 	for key in ["allOf", "anyOf", "oneOf", "prefixItems"] {
 		if let Some(Value::Array(variants)) = object.get(key) {
 			for variant in variants {
@@ -456,14 +470,16 @@ fn collect_refs(schema: &Value, refs: &mut BTreeSet<String>) {
 			}
 		}
 	}
+}
 
+/// The schemas of an object's properties.
+fn collect_properties(object: &Map<String, Value>, refs: &mut BTreeSet<String>) {
 	if let Some(Value::Object(properties)) = object.get("properties") {
 		for property in properties.values() {
 			collect_refs(property, refs);
 		}
 	}
 }
-
 /// The schema name in a `$ref` pointing at the components, if it is one.
 pub(crate) fn ref_name(reference: &str) -> Option<&str> {
 	for prefix in ["/components/schemas/", "/$defs/"] {

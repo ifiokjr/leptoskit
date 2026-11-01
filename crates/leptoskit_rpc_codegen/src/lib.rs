@@ -50,6 +50,7 @@ mod python;
 mod rust;
 #[cfg(feature = "generators")]
 mod schema;
+
 #[cfg(feature = "generators")]
 mod typescript;
 

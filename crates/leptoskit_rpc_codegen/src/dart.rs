@@ -246,6 +246,25 @@ fn class_declaration(
 	types: &mut DartTypes,
 	spec: &ApiSpec,
 ) -> String {
+	let fields = class_fields(object, types, spec, name);
+	let mut out = String::new();
+	push_docs(&mut out, description(schema), "");
+	out.push_str(&format!("class {name} {{\n"));
+	out.push_str(&constructor(name, &fields));
+	out.push_str(&field_lines(&fields));
+	out.push_str(&from_json(name, &fields));
+	out.push_str(&to_json(&fields));
+	out.push_str("}\n\n");
+	out
+}
+
+/// Each property's Dart field, named within the class.
+fn class_fields(
+	object: &crate::schema::ObjectShape<'_>,
+	types: &mut DartTypes,
+	spec: &ApiSpec,
+	name: &str,
+) -> Vec<Field> {
 	let mut fields = Vec::new();
 	let mut field_names = Scope::new(DART_RESERVED_FIELDS);
 
@@ -265,10 +284,12 @@ fn class_declaration(
 		});
 	}
 
-	let mut out = String::new();
-	push_docs(&mut out, description(schema), "");
-	out.push_str(&format!("class {name} {{\n"));
-	out.push_str(&format!(
+	fields
+}
+
+/// The constructor's named parameters.
+fn constructor(name: &str, fields: &[Field]) -> String {
+	format!(
 		"\t{name}({{\n{}\n\t}});\n\n",
 		fields
 			.iter()
@@ -281,9 +302,14 @@ fn class_declaration(
 			})
 			.collect::<Vec<_>>()
 			.join("\n")
-	));
+	)
+}
 
-	for field in &fields {
+/// Each field's declaration, with its docs.
+fn field_lines(fields: &[Field]) -> String {
+	let mut out = String::new();
+
+	for field in fields {
 		let ty = if field.nullable {
 			DartType::Nullable(Box::new(field.ty.clone()))
 		} else {
@@ -297,7 +323,12 @@ fn class_declaration(
 		out.push_str(&format!("\tfinal {} {};\n", ty.render(), field.dart));
 	}
 
-	out.push_str(&format!(
+	out
+}
+
+/// The `fromJson` factory.
+fn from_json(name: &str, fields: &[Field]) -> String {
+	format!(
 		"\n\tfactory {name}.fromJson(Map<String, dynamic> json) => {name}(\n{}\n\t);\n",
 		fields
 			.iter()
@@ -316,8 +347,12 @@ fn class_declaration(
 			})
 			.collect::<Vec<_>>()
 			.join("\n")
-	));
-	out.push_str(&format!(
+	)
+}
+
+/// The `toJson` method.
+fn to_json(fields: &[Field]) -> String {
+	format!(
 		"\n\tMap<String, Object?> toJson() => <String, Object?>{{\n{}\n\t}};\n",
 		fields
 			.iter()
@@ -340,9 +375,7 @@ fn class_declaration(
 			})
 			.collect::<Vec<_>>()
 			.join("\n")
-	));
-	out.push_str("}\n\n");
-	out
+	)
 }
 
 /// The `enum` declaration for a string-enum schema.
@@ -632,6 +665,7 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 		} else {
 			format!("{{\n\t\t{}\n\t}}", parameters.join(",\n\t\t"))
 		};
+
 		let binding = if returns { "" } else { "final result = " };
 		let decode = if returns {
 			String::new()

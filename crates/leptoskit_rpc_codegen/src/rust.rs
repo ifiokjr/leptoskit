@@ -159,68 +159,13 @@ impl RustTypes {
 			}
 			Shape::String {
 				values: Some(_), ..
-			} => {
-				let name = self.reserve(&type_name(hint));
-				self.synthesized.push(enum_declaration(schema, &name));
-				name
-			}
+			} => self.render_string(schema, hint),
 			Shape::String { .. } => "String".to_owned(),
-			Shape::Array { items } => {
-				format!(
-					"Vec<{}>",
-					items.map_or_else(
-						|| "serde_json::Value".to_owned(),
-						|items| self.render(items, &format!("{hint}Item"), spec)
-					)
-				)
-			}
-			Shape::Tuple(items) => {
-				let parts: Vec<String> = items
-					.iter()
-					.enumerate()
-					.map(|(index, item)| self.render(item, &format!("{hint}{index}"), spec))
-					.collect();
-				format!("({},)", parts.join(", "))
-			}
-			Shape::Object(object) => {
-				if object.properties.is_empty() {
-					match object.additional {
-						Some(values) => {
-							format!(
-								"std::collections::HashMap<String, {}>",
-								self.render(values, &format!("{hint}Value"), spec)
-							)
-						}
-						None => "std::collections::HashMap<String, serde_json::Value>".to_owned(),
-					}
-				} else {
-					let name = self.reserve(&type_name(hint));
-					let declaration =
-						struct_declaration(&name, description(schema), &object, self, spec, &name);
-					self.synthesized.push(declaration);
-					name
-				}
-			}
-			Shape::Map { values } => {
-				format!(
-					"std::collections::HashMap<String, {}>",
-					values.map_or_else(
-						|| "serde_json::Value".to_owned(),
-						|values| self.render(values, &format!("{hint}Value"), spec)
-					)
-				)
-			}
-			Shape::Union(variants) => {
-				let name = self.reserve(&type_name(hint));
-				let references: Vec<&Value> = variants.clone();
-				let Some(serde_enum) = recognize_enum(&references) else {
-					return "serde_json::Value".to_owned();
-				};
-				let declaration =
-					serde_enum_declaration(&name, description(schema), &serde_enum, self, spec);
-				self.synthesized.push(declaration);
-				name
-			}
+			Shape::Array { items } => self.render_array(items, hint, spec),
+			Shape::Tuple(items) => self.render_tuple(&items, hint, spec),
+			Shape::Object(object) => self.render_object(schema, &object, hint, spec),
+			Shape::Map { values } => self.render_map(values, hint, spec),
+			Shape::Union(variants) => self.render_union(schema, &variants, hint, spec),
 			Shape::Any => "serde_json::Value".to_owned(),
 		};
 
@@ -229,6 +174,90 @@ impl RustTypes {
 		} else {
 			base
 		}
+	}
+
+	/// A string enum, declared and named.
+	fn render_string(&mut self, schema: &Value, hint: &str) -> String {
+		let name = self.reserve(&type_name(hint));
+		self.synthesized.push(enum_declaration(schema, &name));
+		name
+	}
+
+	/// A `Vec` of the item type.
+	fn render_array(&mut self, items: Option<&Value>, hint: &str, spec: &ApiSpec) -> String {
+		format!(
+			"Vec<{}>",
+			items.map_or_else(
+				|| "serde_json::Value".to_owned(),
+				|items| self.render(items, &format!("{hint}Item"), spec)
+			)
+		)
+	}
+
+	/// A tuple of the item types.
+	fn render_tuple(&mut self, items: &[&Value], hint: &str, spec: &ApiSpec) -> String {
+		let parts: Vec<String> = items
+			.iter()
+			.enumerate()
+			.map(|(index, item)| self.render(item, &format!("{hint}{index}"), spec))
+			.collect();
+		format!("({},)", parts.join(", "))
+	}
+
+	/// A declared struct, or a map when the object has no properties.
+	fn render_object(
+		&mut self,
+		schema: &Value,
+		object: &ObjectShape<'_>,
+		hint: &str,
+		spec: &ApiSpec,
+	) -> String {
+		if object.properties.is_empty() {
+			return match object.additional {
+				Some(values) => {
+					format!(
+						"std::collections::HashMap<String, {}>",
+						self.render(values, &format!("{hint}Value"), spec)
+					)
+				}
+				None => "std::collections::HashMap<String, serde_json::Value>".to_owned(),
+			};
+		}
+
+		let name = self.reserve(&type_name(hint));
+		let declaration = struct_declaration(&name, description(schema), object, self, spec, &name);
+		self.synthesized.push(declaration);
+		name
+	}
+
+	/// A map of the value type.
+	fn render_map(&mut self, values: Option<&Value>, hint: &str, spec: &ApiSpec) -> String {
+		format!(
+			"std::collections::HashMap<String, {}>",
+			values.map_or_else(
+				|| "serde_json::Value".to_owned(),
+				|values| self.render(values, &format!("{hint}Value"), spec)
+			)
+		)
+	}
+
+	/// A union that names an enum, or `serde_json::Value` when it doesn't.
+	fn render_union(
+		&mut self,
+		schema: &Value,
+		variants: &[&Value],
+		hint: &str,
+		spec: &ApiSpec,
+	) -> String {
+		let name = self.reserve(&type_name(hint));
+		let references: Vec<&Value> = variants.to_vec();
+		let Some(serde_enum) = recognize_enum(&references) else {
+			return "serde_json::Value".to_owned();
+		};
+		let declaration =
+			serde_enum_declaration(&name, description(schema), &serde_enum, self, spec);
+		self.synthesized.push(declaration);
+		name
 	}
 }
 
