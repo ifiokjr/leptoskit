@@ -113,9 +113,11 @@ impl Site {
 	#[must_use]
 	pub fn url(mut self, url: impl Into<String>) -> Self {
 		let mut url = url.into();
+
 		if !url.ends_with('/') {
 			url.push('/');
 		}
+
 		self.url = Some(url);
 		self
 	}
@@ -201,6 +203,7 @@ impl Site {
 
 		for chapter in &chapters {
 			let source = chapter.path.as_deref().expect("pages have paths");
+
 			if !seen.insert(source) {
 				diagnostics.push(
 					Diagnostic::new(0, 0, format!("`{source}` is listed more than once"))
@@ -216,6 +219,7 @@ impl Site {
 		}
 
 		diagnostics.extend(self.check_links(&pages));
+
 		if !diagnostics.is_empty() {
 			return Err(Error::Docs(diagnostics));
 		}
@@ -338,6 +342,7 @@ impl Site {
 
 		for (chapter, rendered) in pages {
 			let source = chapter.path.as_deref().expect("pages have paths");
+
 			for link in &rendered.links {
 				let Some(problem) = self.link_problem(source, &link.url, &anchors) else {
 					continue;
@@ -386,6 +391,7 @@ impl Site {
 				} else {
 					resolve(source, path)
 				};
+
 				let Some(target) = target else {
 					return Some("points outside the book".to_owned());
 				};
@@ -395,9 +401,11 @@ impl Site {
 				}
 				match (anchors.get(target.as_str()), anchor) {
 					(None, _) => Some(format!("`{target}` is not a chapter in SUMMARY.md")),
+
 					(Some(ids), Some(anchor)) if !ids.contains(anchor) => {
 						Some(format!("`{target}` has no heading with the id `{anchor}`"))
 					}
+
 					_ => None,
 				}
 			}
@@ -440,9 +448,11 @@ impl Site {
 				.strip_prefix(&self.root)
 				.expect("walked inside the root");
 			let target = out.join(relative);
+
 			if let Some(parent) = target.parent() {
 				fs::create_dir_all(parent).map_err(Error::io("create", parent))?;
 			}
+
 			fs::copy(entry.path(), &target).map_err(Error::io("copy", entry.path()))?;
 			copied += 1;
 		}
@@ -536,6 +546,7 @@ fn classify(url: &str) -> Target<'_> {
 			Some((path, anchor)) => (path, Some(anchor)),
 			None => (url, None),
 		};
+
 		let path = path.split_once('?').map_or(path, |(path, _)| path);
 		Target::Relative { path, anchor }
 	}
@@ -548,6 +559,7 @@ fn is_local_address(url: &str) -> bool {
 	let Some((scheme, rest)) = url.split_once("://") else {
 		return false;
 	};
+
 	if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
 		return false;
 	}
@@ -565,6 +577,7 @@ fn is_local_address(url: &str) -> bool {
 			.split_once(':')
 			.map_or(host_and_port, |(host, _)| host)
 	};
+
 	let host = host.trim_end_matches('.').to_ascii_lowercase();
 
 	host == "localhost"
@@ -647,6 +660,7 @@ fn prepare_output(out: &Path) -> Result<(), Error> {
 				return Err(Error::ForeignOutput(out.to_owned()));
 			}
 		}
+
 		Err(error) if error.kind() == io::ErrorKind::NotFound => {}
 		Err(error) => return Err(Error::io("read", out)(error)),
 	}

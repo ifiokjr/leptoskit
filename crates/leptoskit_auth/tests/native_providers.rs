@@ -616,6 +616,7 @@ async fn apples_posted_answer_goes_straight_on_to_the_app() {
 	let finished = native.signed_in(finished).await;
 	assert_eq!(finished.outcome, ProviderOutcome::SignedIn);
 	let identities = json_body(native.get(&app, "/auth/identities").await).await;
+
 	assert_eq!(identities[0]["name"], "Ada Lovelace");
 }
 

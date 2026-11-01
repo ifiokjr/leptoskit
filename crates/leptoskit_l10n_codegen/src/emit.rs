@@ -74,6 +74,7 @@ fn code(text: &str) -> String {
 	if text.is_empty() {
 		return "The empty string.".to_owned();
 	}
+
 	let longest_run = text
 		.split(|character| character != '`')
 		.map(str::len)
@@ -83,6 +84,7 @@ fn code(text: &str) -> String {
 	let padded = text.starts_with('`')
 		|| text.ends_with('`')
 		|| (text.starts_with(' ') && text.ends_with(' ') && !text.trim().is_empty());
+
 	if padded {
 		format!("{fence} {text} {fence}")
 	} else {
@@ -119,6 +121,7 @@ fn handle_items(catalog: &Catalog, runtime: &TokenStream) -> TokenStream {
 	let dispatcher_doc = doc(format!(
 		"Which locale has which messages: {listed}. A locale it does not list gets the template's."
 	));
+
 	// `MESSAGES` follows `supported_locales`, and finding a locale there
 	// compares whole tags, variants included, so `ca-ES-valencia` and
 	// `ca-ES` each get their own.
@@ -165,6 +168,7 @@ fn trait_item(catalog: &Catalog, locales_dir: &str) -> TokenStream {
 			Some(description) => format!("{description}\n\n{text}"),
 			None => text,
 		};
+
 		let documentation = doc(documentation);
 		quote!(#documentation #signature;)
 	});
@@ -201,6 +205,7 @@ fn signature(message: &Message, unread: &BTreeSet<&str>) -> TokenStream {
 	} else {
 		quote!(String)
 	};
+
 	quote!(fn #method(&self #(#parameters)*) -> #returns)
 }
 
@@ -221,6 +226,7 @@ fn locale_items(
 		"The `{tag}` messages, from `{locales_dir}/{}`.",
 		locale.file
 	);
+
 	if locale.tag == template.tag {
 		documentation.push_str(" The template every other locale translates.");
 	} else if !locale.untranslated.is_empty() {
@@ -236,6 +242,7 @@ fn locale_items(
 			template.ident
 		);
 	}
+
 	let documentation = doc(documentation);
 	let mut asks_rules = false;
 	let methods: Vec<TokenStream> = catalog
@@ -278,6 +285,7 @@ fn locale_items(
 			} else {
 				emitter.string(parts, None)
 			};
+
 			asks_rules |= emitter.asks_rules.get();
 			// A body that is already a block becomes the method's block, rather
 			// than a block inside it.
@@ -286,8 +294,10 @@ fn locale_items(
 					let statements = block.block.stmts;
 					quote!(#(#statements)*)
 				}
+
 				_ => body,
 			};
+
 			let read = emitter.read.borrow();
 			let unread = message
 				.placeholders
@@ -360,12 +370,14 @@ enum Condition {
 /// written: each text with the selectors that lead to it.
 fn merge<S>(forms: impl IntoIterator<Item = (S, TokenStream)>) -> Vec<(Vec<S>, TokenStream)> {
 	let mut merged: Vec<(Vec<S>, TokenStream)> = Vec::new();
+
 	for (selector, body) in forms {
 		match merged.iter_mut().find(|(_, seen)| same(seen, &body)) {
 			Some((selectors, _)) => selectors.push(selector),
 			None => merged.push((vec![selector], body)),
 		}
 	}
+
 	merged
 }
 
@@ -397,6 +409,7 @@ impl Emitter<'_> {
 	/// reads like the message.
 	fn string(&self, parts: &[Part], number: Option<&Placeholder>) -> TokenStream {
 		let shown_number = || self.read(number.expect("`#` only appears inside a plural"));
+
 		match parts {
 			[] => quote!(::std::string::String::new()),
 			[Part::Text(text)] => quote!(#text.to_owned()),
@@ -416,6 +429,7 @@ impl Emitter<'_> {
 				let mut bind = |arg: &str, form: TokenStream, template: &mut String| {
 					let mut ident = format_ident!("{}_form", arg.to_snake_case());
 					let mut attempt = 1;
+
 					while bindings.iter().any(|(bound, _)| *bound == ident)
 						|| self
 							.placeholders
@@ -486,6 +500,7 @@ impl Emitter<'_> {
 			.into_iter()
 			.map(|(numbers, body)| (vec![Condition::Exact(numbers)], body))
 			.collect();
+
 		let fallback = match <[_; 1]>::try_from(named) {
 			// One form's categories end the chain; an `=N` form with its text
 			// moves last, since `=N` forms never overlap, and joins it.
@@ -497,14 +512,17 @@ impl Emitter<'_> {
 				} else {
 					chain.push((vec![Condition::Categories(variants)], body));
 				}
+
 				other
 			}
+
 			Err(named) if named.is_empty() => {
 				// Nothing asks the category, so an `=N` form with the text of
 				// `other` is `other`.
 				chain.retain(|(_, body)| !same(body, &other));
 				other
 			}
+
 			Err(named) => {
 				let category = self.category(placeholder);
 				let arms = named.iter().map(
@@ -518,6 +536,7 @@ impl Emitter<'_> {
 				} else {
 					quote!(_ => #other,)
 				};
+
 				quote! {
 					match #category {
 						#(#arms)*
@@ -526,6 +545,7 @@ impl Emitter<'_> {
 				}
 			}
 		};
+
 		self.chain(placeholder, chain, fallback)
 	}
 
@@ -547,12 +567,14 @@ impl Emitter<'_> {
 					.reduce(|left, right| quote!(#left || #right))
 					.expect("every link in the chain has a condition");
 				let rest = else_branch(rest);
+
 				quote!(if #condition { #body } else #rest)
 			})
 	}
 
 	fn condition(&self, placeholder: &Placeholder, condition: Condition) -> TokenStream {
 		let runtime = self.runtime;
+
 		match condition {
 			Condition::Exact(numbers) => {
 				let arg = self.read(placeholder);
@@ -568,6 +590,7 @@ impl Emitter<'_> {
 								Literal::u64_unsuffixed(number)
 							}
 						};
+
 						quote!(#arg == #literal)
 					})
 					.reduce(|left, right| quote!(#left || #right))
@@ -603,6 +626,7 @@ impl Emitter<'_> {
 			.map(|(case, body)| (case.as_str(), self.string(body, number)));
 		let mut named = merge(cases);
 		named.retain(|(_, body)| !same(body, &other));
+
 		match named.as_slice() {
 			[] => other,
 			[(cases, body)] => {
@@ -612,6 +636,7 @@ impl Emitter<'_> {
 				} else {
 					quote!(matches!(#arg, #(#cases)|*))
 				};
+
 				let other = else_branch(other);
 				quote!(if #condition { #body } else #other)
 			}

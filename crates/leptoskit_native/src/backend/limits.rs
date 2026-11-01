@@ -101,6 +101,7 @@ mod tests {
 		backend.limit_mutation_log(usize::MAX);
 		backend.apply(&batch);
 		assert_eq!(backend.log(), []);
+
 		assert!(backend.render_error().is_some());
 	}
 }

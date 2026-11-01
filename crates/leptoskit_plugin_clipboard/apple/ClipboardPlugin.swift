@@ -17,6 +17,7 @@ public final class ClipboardPlugin: NativePlugin {
         switch method {
         case 0:
             guard payload.count == 0 else { throw PluginError.invalidArgument }
+
             #if os(iOS)
             return Data((UIPasteboard.general.string ?? "").utf8)
             #elseif os(macOS)
@@ -26,19 +27,23 @@ public final class ClipboardPlugin: NativePlugin {
             #endif
         case 1:
             let text = try payload.utf8()
+
             #if os(iOS)
             UIPasteboard.general.string = text
             #elseif os(macOS)
             NSPasteboard.general.clearContents()
+
             guard NSPasteboard.general.setString(text, forType: .string) else {
                 throw PluginError.native
             }
+
             #else
             throw PluginError.unavailable
             #endif
             return Data()
         case 2:
             guard payload.count == 0 else { throw PluginError.invalidArgument }
+
             #if os(iOS)
             UIPasteboard.general.items = []
             #elseif os(macOS)

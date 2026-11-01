@@ -99,6 +99,7 @@ impl AndroidBackend {
 		let host = env.new_global_ref(host)?;
 		let sink = Rc::new(EventSink::default());
 		let handle = NEXT_HOST.fetch_add(1, Ordering::Relaxed);
+
 		env.call_method(host.as_obj(), "bind", "(J)V", &[JValue::Long(handle)])?;
 		SINKS.with(|sinks| sinks.borrow_mut().insert(handle, Rc::downgrade(&sink)));
 		let measurer = Arc::new(AndroidTextMeasurer {
@@ -164,6 +165,7 @@ impl AndroidBackend {
 
 	fn record(&self, mutation: &Mutation) {
 		let mut nodes = self.sink.nodes.borrow_mut();
+
 		match mutation {
 			Mutation::Create { id, props, .. } | Mutation::UpdateProps { id, props } => {
 				nodes.insert(id.index(), (*id, props.clone()));
@@ -182,6 +184,7 @@ impl Drop for AndroidBackend {
 			sinks.borrow_mut().remove(&self.handle);
 		});
 		self.sink.listener.borrow_mut().take();
+
 		if let Ok(mut env) = self.vm.attach_current_thread()
 			&& let Err(error) = env.call_method(self.host.as_obj(), "close", "()V", &[])
 		{
@@ -260,6 +263,7 @@ impl NativeBackend for AndroidBackend {
 		for mutation in mutations.mutations() {
 			self.record(mutation);
 		}
+
 		self.send(mutations.mutations());
 	}
 
@@ -353,6 +357,7 @@ impl TextMeasurer for AndroidTextMeasurer {
 				FontWeight::Semibold => 600,
 				FontWeight::Bold => 700,
 			};
+
 			let class: &JClass<'_> = self.class.as_obj().into();
 			let array = env
 				.call_static_method(
@@ -396,6 +401,7 @@ pub extern "system" fn Java_dev_leptoskit_widgets_WidgetHost_nativeEvent(
 	let Some((id, props)) = sink.nodes.borrow().get(&(index as usize)).cloned() else {
 		return;
 	};
+
 	let event = match kind {
 		0 => NativeEvent::Press,
 		1 | 2 => {
@@ -434,6 +440,7 @@ pub extern "system" fn Java_dev_leptoskit_widgets_WidgetHost_nativeEvent(
 				Ok(text) => text.into(),
 				Err(_) => return,
 			};
+
 			let Ok([offset_x, offset_y]) = serde_json::from_str::<[f32; 2]>(&offsets) else {
 				return;
 			};
@@ -451,6 +458,7 @@ pub extern "system" fn Java_dev_leptoskit_widgets_WidgetHost_nativeEvent(
 			} else {
 				slider.value() - increment
 			};
+
 			let Some(value) = slider.proposed_value(proposal) else {
 				return;
 			};
@@ -460,7 +468,9 @@ pub extern "system" fn Java_dev_leptoskit_widgets_WidgetHost_nativeEvent(
 		11 => NativeEvent::PressOut,
 		_ => return,
 	};
+
 	let listener = sink.listener.borrow().clone();
+
 	if let Some(listener) = listener {
 		listener(id, &event);
 	}

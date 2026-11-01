@@ -51,12 +51,15 @@ use crate::submit;
 #[must_use]
 pub fn field_wiring(form: &Form, field: &FieldSpec, state: &FormState) -> Field {
 	let mut wiring = Field::new(format!("{}-{}", form.id, field.id), &field.label);
+
 	if let Some(help) = &field.help {
 		wiring = wiring.help(help.clone());
 	}
+
 	if let Some(error) = state.error_of(&field.id) {
 		wiring = wiring.error(error.to_owned());
 	}
+
 	wiring
 }
 

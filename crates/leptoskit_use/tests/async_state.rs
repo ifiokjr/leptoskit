@@ -92,6 +92,7 @@ fn state_variants_clone_and_format() {
 	assert_eq!(error.clone(), error);
 	assert_eq!(format!("{pending:?}"), "Pending");
 	assert_eq!(format!("{success:?}"), "Success(7)");
+
 	assert_eq!(format!("{error:?}"), "Error(0)");
 	let success = AsyncState::<String, String>::Success("value".to_owned());
 	let error = AsyncState::<String, String>::Error("boom".to_owned());

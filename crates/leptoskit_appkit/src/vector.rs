@@ -139,16 +139,20 @@ impl VectorLayers {
 		// by default; a redraw must land in the same frame as its layout.
 		CATransaction::begin();
 		CATransaction::setDisableActions(true);
+
 		for stale in self.layers.drain(paths.len().min(self.layers.len())..) {
 			stale.removeFromSuperlayer();
 		}
+
 		while self.layers.len() < paths.len() {
 			let shape = CAShapeLayer::new();
 			host.addSublayer(&shape);
 			self.layers.push(shape);
 		}
+
 		if let Some(drawing) = &self.drawing {
 			let transform = drawing.transform(bounds.size.width as f32, bounds.size.height as f32);
+
 			for (shape, path) in self.layers.iter().zip(paths) {
 				shape.setFrame(bounds);
 				shape.setContentsScale(scale);
@@ -159,6 +163,7 @@ impl VectorLayers {
 				apply_stroke(shape, path.stroke_style(), transform);
 			}
 		}
+
 		CATransaction::commit();
 	}
 }
@@ -182,11 +187,13 @@ fn apply_stroke(shape: &CAShapeLayer, stroke: Option<&Stroke>, transform: Transf
 		shape.setStrokeColor(None);
 		shape.setLineWidth(0.0);
 		shape.setLineDashPattern(None);
+
 		return;
 	};
 	shape.setStrokeColor(Some(&ns_color(stroke.color()).CGColor()));
 	shape.setLineWidth(f64::from(stroke.frame_width(transform)));
 	shape.setMiterLimit(f64::from(stroke.miter()));
+
 	let dashes = stroke
 		.frame_dashes(transform)
 		.map(|length| NSNumber::new_f64(f64::from(length)))

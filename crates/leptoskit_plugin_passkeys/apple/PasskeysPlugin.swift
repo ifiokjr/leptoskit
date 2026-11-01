@@ -36,11 +36,13 @@ public final class PasskeysPlugin: NSObject, NativePlugin {
             let registration = provider.createCredentialRegistrationRequest(
                 challenge: options.challenge, name: options.userName, userID: options.userID)
             registration.userVerificationPreference = .required
+
             if #available(iOS 17.4, macOS 14.4, *) {
                 registration.excludedCredentials = options.excluded.map {
                     ASAuthorizationPlatformPublicKeyCredentialDescriptor(credentialID: $0)
                 }
             }
+
             request = registration
         case 1:
             let options = try RequestOptions(payload: payload)
@@ -60,19 +62,23 @@ public final class PasskeysPlugin: NSObject, NativePlugin {
         default:
             throw PluginError.unavailable
         }
+
         guard controller == nil else { throw PluginError.busy }
         _ = try context.requirePresentationOwner()
         try Task.checkCancellation()
         let invocation = UUID()
         self.invocation = invocation
+
         let authorization = try await withTaskCancellationHandler {
             try await perform(request)
         } onCancel: {
             Task { @MainActor [weak self] in
+
                 guard let self, self.invocation == invocation else { return }
                 self.cancel()
             }
         }
+
         return try Self.answer(authorization.credential)
     }
 
@@ -91,6 +97,7 @@ public final class PasskeysPlugin: NSObject, NativePlugin {
         if #available(iOS 16.0, macOS 13.0, *) {
             controller?.cancel()
         }
+
         finish(.failure(PluginError.cancelled))
     }
 
@@ -110,17 +117,20 @@ public final class PasskeysPlugin: NSObject, NativePlugin {
                 credentialID: made.credentialID, clientData: made.rawClientDataJSON,
                 attestationObject: attestation)
         }
+
         if let signed = credential as? ASAuthorizationPlatformPublicKeyCredentialAssertion {
             return try assertionJSON(
                 credentialID: signed.credentialID, clientData: signed.rawClientDataJSON,
                 authenticatorData: signed.rawAuthenticatorData, signature: signed.signature,
                 userID: signed.userID)
         }
+
         if let apple = credential as? ASAuthorizationAppleIDCredential, let token = apple.identityToken {
             return try appleIDJSON(
                 identityToken: token, givenName: apple.fullName?.givenName,
                 familyName: apple.fullName?.familyName)
         }
+
         throw PluginError.native
     }
 

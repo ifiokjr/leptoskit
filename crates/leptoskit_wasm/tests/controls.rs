@@ -148,6 +148,7 @@ fn rich_pressable_content_routes_hits_to_its_wire_action() {
 	let pressable = host.surface().children(root)[0];
 	let hit = host.surface().hit_test(20.0, 20.0).unwrap();
 	assert_eq!(hit, pressable);
+
 	assert_eq!(
 		host.dispatch(hit, &NativeEvent::Press).unwrap(),
 		EventOutcome::Handled
@@ -254,6 +255,7 @@ fn numeric_proposals_use_json_numbers_and_snap_to_the_committed_grid() {
 		EventOutcome::Unhandled
 	);
 	assert_eq!(host.commits(), 1);
+
 	assert_eq!(
 		host.dispatch(slider, &NativeEvent::ValueChange { value: 0.7 })
 			.unwrap(),

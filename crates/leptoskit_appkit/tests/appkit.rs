@@ -207,12 +207,14 @@ mod macos {
 			.unwrap()
 			.downcast_ref::<NSTextField>()
 			.unwrap();
+
 		assert_eq!(field.stringValue().to_string(), "Count: 1");
 		let png = surface
 			.backend()
 			.snapshot_png(root, 1.0)
 			.expect("render native views");
 		assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+
 		if let Some(directory) = std::env::var_os("LEPTOSKIT_TEST_ARTIFACTS") {
 			std::fs::create_dir_all(&directory).unwrap();
 			std::fs::write(
@@ -254,9 +256,11 @@ mod macos {
 		let root = surface.root().expect("root");
 		let mut nodes = vec![root];
 		nodes.extend_from_slice(surface.children(root));
+
 		for id in nodes {
 			let frame = surface.frame(id).expect("frame");
 			let view = surface.backend().view(id).expect("view").frame();
+
 			assert_eq!(
 				(
 					view.origin.x,
@@ -279,9 +283,11 @@ mod macos {
 		let mut ids = Yoga::new();
 		let mut backend = AppKitBackend::new(mtm());
 		let [parent, first, second, third] = [(); 4].map(|()| ids.create_node());
+
 		for id in [parent, first, second, third] {
 			backend.create(id, NativeKind::View, &NativeProps::default());
 		}
+
 		backend.insert_child(parent, first, 0);
 		backend.insert_child(parent, third, 1);
 		backend.insert_child(parent, second, 1);
@@ -293,6 +299,7 @@ mod macos {
 			.map(|&id| backend.view(id).expect("child"))
 			.collect();
 		assert_eq!(order.len(), 3);
+
 		for (actual, expected) in order.iter().zip(expected) {
 			assert!(**actual == *expected, "subviews are out of order");
 		}
@@ -354,9 +361,11 @@ mod macos {
 		let mut ids = Yoga::new();
 		let [root, parent, child, sibling] = [(); 4].map(|()| ids.create_node());
 		let mut backend = AppKitBackend::new(mtm());
+
 		for id in [root, sibling] {
 			backend.create(id, NativeKind::View, &NativeProps::default());
 		}
+
 		backend.create(
 			parent,
 			NativeKind::View,
@@ -367,6 +376,7 @@ mod macos {
 		);
 		backend.create(child, NativeKind::Button, &NativeProps::text("Go"));
 		backend.insert_child(root, parent, 0);
+
 		backend.insert_child(parent, child, 0);
 		backend.insert_child(root, sibling, 1);
 		assert!(backend.view(parent).expect("parent").isHidden());
@@ -496,6 +506,7 @@ mod macos {
 					if let NativeEvent::Scroll { offset_y, .. } = event {
 						offsets.lock().expect("uncontended").push(*offset_y);
 					}
+
 					EventOutcome::Handled
 				}
 			})
@@ -630,12 +641,14 @@ mod macos {
 			}));
 		let surface = surface(400.0, 800.0, &tree);
 		let root = surface.root().expect("root");
+
 		for (&id, (text, size, ..)) in surface.children(root).iter().zip(cases) {
 			let view = surface.backend().view(id).expect("label");
 			let label = view
 				.downcast_ref::<NSTextField>()
 				.expect("text is an NSTextField");
 			let frame = label.frame();
+
 			let cell = label.cell().expect("labels have a cell");
 			let needed = cell.cellSizeForBounds(NSRect::new(
 				NSPoint::ZERO,

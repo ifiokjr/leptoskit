@@ -122,6 +122,7 @@ impl SessionView {
 		self.forms = named(&snapshot.forms);
 		self.state = named(&snapshot.state);
 		self.calls.clone_from(&snapshot.calls);
+
 		self.rpc.clone_from(&snapshot.rpc);
 		self.commits.clear();
 	}
@@ -336,6 +337,7 @@ mod tests {
 				}],
 			},
 		});
+
 		let tree = view.tree.as_ref().unwrap();
 		assert_eq!(tree.nodes.len(), 2);
 		assert_eq!(
@@ -380,6 +382,7 @@ mod tests {
 				},
 			});
 		}
+
 		assert_eq!(view.commits.len(), HISTORY);
 		assert_eq!(view.commits[0].seq, 10);
 	}

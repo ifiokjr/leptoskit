@@ -57,6 +57,7 @@ class ProbeActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+
         if (::host.isInitialized && mounted) host.setForeground(true)
     }
 
@@ -67,10 +68,12 @@ class ProbeActivity : Activity() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+
         if (mounted) {
             nativeDestroy()
             mounted = false
         }
+
         super.onDestroy()
     }
 
@@ -79,9 +82,11 @@ class ProbeActivity : Activity() {
 
         fun visit(view: View) {
             result.add(view)
+
             if (view is ViewGroup) repeat(view.childCount) { visit(view.getChildAt(it)) }
         }
         visit(root)
+
         return result
     }
 
@@ -146,6 +151,7 @@ class ProbeActivity : Activity() {
         val time = android.os.SystemClock.uptimeMillis()
         val x = view.paddingLeft + fraction * (view.width - view.paddingLeft - view.paddingRight)
         val y = view.height / 2f
+
         for (action in listOf(android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP)) {
             val event = android.view.MotionEvent.obtain(time, time, action, x, y, 0)
             view.dispatchTouchEvent(event)
@@ -168,6 +174,7 @@ class ProbeActivity : Activity() {
             "Single create, insert and layout mutations build native Views",
         )
         control.performClick()
+
         assertion(nativeContractStep(0) == 1, "A directly driven backend delivers native presses")
         nativeContractStep(1)
         assertion(
@@ -210,6 +217,7 @@ class ProbeActivity : Activity() {
     private fun verify() {
         runCatching {
             assertion(controls().any { it is TextView } && named("Action") is Button, "Text and Button are platform widgets")
+
             for (label in listOf("Amara Okafor", "Following", "Projects", "Overview")) {
                 val view = controls().filterIsInstance<TextView>().first { it.text.toString() == label }
                 assertion(
@@ -217,6 +225,7 @@ class ProbeActivity : Activity() {
                     "Intrinsic native text preserves every glyph in $label",
                 )
             }
+
             val input = named("Editor") as EditText
             val password = named("Secure editor") as EditText
             val toggle = named("Notifications") as Switch
@@ -411,6 +420,7 @@ class ProbeActivity : Activity() {
     private fun pixels(view: View): Bitmap {
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         view.draw(Canvas(bitmap))
+
         return bitmap
     }
 
@@ -433,6 +443,7 @@ class ProbeActivity : Activity() {
         // The decorative drawing has no label; it is the other view reporting
         // itself as an image without being an ImageView.
         val stroked =
+
             controls().single {
                 it !is ImageView && it !== filled && it !== rules && it.accessibilityClassName == ImageView::class.java.name
             }
@@ -607,6 +618,7 @@ class ProbeActivity : Activity() {
             root.draw(Canvas(screenshot))
             File(filesDir, "failed.png").outputStream().use { screenshot.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
+
         Log.e(TAG, "NOT VERIFIED", error)
         File(filesDir, "verdict.txt").writeText("NOT VERIFIED\n${error.stackTraceToString()}")
     }

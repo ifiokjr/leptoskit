@@ -196,6 +196,7 @@ define_class!(
 				} else {
 					state.value() - increment.min(state.value() - state.min())
 				};
+
 				target.propose_slider(self, value);
 			} else {
 				// SAFETY: NSSlider implements keyDown: with this exact signature.
@@ -308,6 +309,7 @@ impl EventSink {
 		} else {
 			(index + radios.len() - 1) % radios.len()
 		};
+
 		let (button, target) = &radios[next];
 
 		if let Some(window) = button.window() {
@@ -328,6 +330,7 @@ impl EventSink {
 		}
 
 		let listener = self.listener.borrow().clone();
+
 		if let Some(listener) = listener {
 			listener(node, event);
 		}

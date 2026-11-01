@@ -109,6 +109,7 @@ impl Registry {
 impl Transport for Registry {
 	fn fetch(&mut self, url: &str) -> Result<Vec<u8>, CodePushError> {
 		self.fetched.push(url.to_owned());
+
 		if url.ends_with("/index.json") {
 			return Ok(serde_json::to_vec(&self.index)?);
 		}
@@ -131,6 +132,7 @@ fn confirmed_candidate_survives_offline_restart_with_original_signature() {
 	let original = installed.launch().expect("baseline");
 	assert_eq!(original.wasm, BASELINE);
 	assert!(!original.metadata.candidate);
+
 	let report = installed
 		.sync_with(&mut Registry::new(replacement))
 		.expect("download");
@@ -208,6 +210,7 @@ fn replacement_owner_cannot_interrupt_a_live_update_or_erase_its_confirmation() 
 		matches!(during_download, Err(CodePushError::Activation(ref message)) if message.contains("already owned"))
 	);
 	let state = fs::read(directory.path().join("state.json")).expect("trial state");
+
 	assert!(matches!(
 		InstalledBundles::open(directory.path(), &baseline, configuration()),
 		Err(CodePushError::Activation(message)) if message.contains("already owned")
@@ -298,6 +301,7 @@ fn ready_survives_restart_but_an_unconfirmed_trial_recovers_and_stays_refused() 
 		.sync_with(&mut replay)
 		.expect("failed bundle replay");
 	assert_eq!((report.status, report.build), (UpdateStatus::Current, 0));
+
 	assert_eq!(
 		replay.fetched,
 		["https://updates.example/counter/production/index.json"],
@@ -328,6 +332,7 @@ fn explicit_rejection_preserves_last_confirmed_download_and_stale_callbacks_fail
 	installed
 		.sync_with(&mut Registry::new(native_bundle(2, BASELINE)))
 		.expect("stage bad startup");
+
 	let bad = installed.launch().expect("second trial");
 	assert!(installed.confirm(&working.metadata.receipt).is_err());
 	installed
@@ -357,6 +362,7 @@ fn incompatible_or_missing_native_contract_and_entry_never_become_ready() {
 	incompatible_abi.abi = 2;
 	let mut incompatible_shell = contract();
 	incompatible_shell.shell = "other-shell".to_owned();
+
 	let mut missing_plugin = contract();
 	missing_plugin.plugins.push("camera".to_owned());
 	let descriptors = [
@@ -404,6 +410,7 @@ fn interrupted_download_and_invalid_signature_leave_no_trial() {
 	interrupted.interrupt = true;
 	assert!(installed.sync_with(&mut interrupted).is_err());
 	let mut forged = Registry::new(native_bundle(1, REPLACEMENT));
+
 	forged
 		.index
 		.signature
@@ -442,6 +449,7 @@ fn offline_tampering_and_unknown_selector_recover_with_diagnostic() {
 		.sync_with(&mut Registry::new(replacement))
 		.expect("stage");
 	let trial = installed.launch().expect("trial");
+
 	installed.confirm(&trial.metadata.receipt).expect("confirm");
 	drop(installed);
 	fs::write(
@@ -486,6 +494,7 @@ fn newer_store_baseline_supersedes_confirmed_and_ready_downloads() {
 	installed
 		.sync_with(&mut Registry::new(native_bundle(2, REPLACEMENT)))
 		.expect("stage next");
+
 	drop(installed);
 	let newer = native_bundle(3, BASELINE);
 	let mut upgraded =
@@ -571,6 +580,7 @@ async fn real_axum_tcp_download_activation_and_offline_restart() {
 			false,
 		)
 		.expect("publish");
+
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
 		.await
 		.expect("bind");
@@ -646,6 +656,7 @@ fn failure_while_confirm_result_is_in_flight_restores_previous_selection() {
 	installed
 		.reject(&trial.metadata.receipt)
 		.expect("UI refused handoff before confirmation callback");
+
 	assert!(installed.confirm(&trial.metadata.receipt).is_err());
 	drop(installed);
 	let mut reopened =
@@ -668,6 +679,7 @@ fn previous_confirmation_cannot_be_rejected_after_another_launch_or_restart() {
 	let trial = installed.launch().expect("trial");
 	installed.confirm(&trial.metadata.receipt).expect("confirm");
 	drop(installed);
+
 	let mut reopened =
 		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("restart");
 	assert!(
@@ -710,14 +722,17 @@ fn truncated_download_stores_nothing_and_keeps_the_working_release() {
 	let mut installed =
 		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("open");
 	let full = native_bundle(1, REPLACEMENT);
+
 	for cut in [0, 8, full.len() / 2, full.len() - 1] {
 		let mut truncated = Registry::new(full.clone());
 		truncated.container.truncate(cut);
+
 		assert!(
 			installed.sync_with(&mut truncated).is_err(),
 			"a container cut at {cut} bytes must not stage"
 		);
 	}
+
 	assert_eq!(release_entries(directory.path()), 0);
 	let launch = installed.launch().expect("working release");
 	assert_eq!(launch.wasm, BASELINE);
@@ -738,13 +753,16 @@ fn signed_downgrades_and_replays_are_up_to_date() {
 	let mut installed =
 		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("open");
 	install(&mut installed, native_bundle(2, REPLACEMENT));
+
 	for older in [native_bundle(1, BASELINE), native_bundle(2, REPLACEMENT)] {
 		let report = installed
 			.sync_with(&mut Registry::new(older))
 			.expect("validly signed older release");
 		assert_eq!(report.status, UpdateStatus::Current);
+
 		assert_eq!(report.build, 2);
 	}
+
 	let launch = installed.launch().expect("still the newer release");
 	assert_eq!(launch.metadata.build, 2);
 	assert!(!launch.metadata.candidate);
@@ -765,6 +783,7 @@ fn disk_full_while_staging_keeps_the_working_release() {
 	// does: creating the release directory and its files.
 	fs::set_permissions(&releases, fs::Permissions::from_mode(0o555)).expect("read only");
 	let failed = installed.sync_with(&mut Registry::new(native_bundle(2, BASELINE)));
+
 	fs::set_permissions(&releases, fs::Permissions::from_mode(0o755)).expect("writable");
 	assert!(matches!(failed, Err(CodePushError::Io(_))), "{failed:?}");
 
@@ -807,6 +826,7 @@ fn power_loss_at_each_persistence_step_recovers_the_working_release() {
 	let mut installed =
 		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("reopen");
 	assert!(!torn.exists());
+
 	let launch = installed.launch().expect("working release");
 	assert_eq!(launch.metadata.build, 1);
 	assert!(!launch.metadata.candidate);
@@ -823,6 +843,7 @@ fn power_loss_at_each_persistence_step_recovers_the_working_release() {
 	assert!(installed.confirm(&trial.metadata.receipt).is_err());
 	let launch = installed.launch().expect("working release");
 	assert_eq!(launch.metadata.build, 1);
+
 	assert!(!launch.metadata.candidate);
 }
 
@@ -841,6 +862,7 @@ fn a_torn_staged_release_is_rejected_with_a_diagnostic() {
 		.sync_with(&mut Registry::new(staged.clone()))
 		.expect("stage");
 	drop(installed);
+
 	let file = directory
 		.path()
 		.join("releases")
@@ -914,6 +936,7 @@ fn staged_and_trying_states_gate_further_checks() {
 		.expect("stage");
 	let staged = installed.sync_with(&mut Unreachable).expect("still staged");
 	assert_eq!((staged.status, staged.build), (UpdateStatus::Staged, 1));
+
 	installed.launch().expect("trial");
 	assert!(
 		installed
@@ -942,6 +965,7 @@ fn hostile_selectors_never_escape_the_release_store() {
 	let impostor = "f".repeat(64);
 	let releases = directory.path().join("releases");
 	fs::create_dir(releases.join(&impostor)).expect("impostor");
+
 	for file in ["release.lkb", "release.sig"] {
 		fs::copy(
 			releases.join(&confirmed).join(file),
@@ -949,11 +973,13 @@ fn hostile_selectors_never_escape_the_release_store() {
 		)
 		.expect("copy");
 	}
+
 	edit_state(directory.path(), |state| {
 		state["confirmed"] = impostor.clone().into();
 	});
 	let mut recovered =
 		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("impostor");
+
 	assert!(
 		recovered
 			.recovery_diagnostic()
@@ -1008,6 +1034,7 @@ fn store_baselines_must_be_for_this_app_and_within_size_limits() {
 	let manifest = serde_json::to_vec(&manifest).expect("manifest");
 	let mut bomb = container[..4].to_vec();
 	bomb.extend((manifest.len() as u64).to_le_bytes());
+
 	bomb.extend(&manifest);
 	bomb.extend(&container[12 + manifest_len..]);
 	assert!(
@@ -1078,6 +1105,7 @@ async fn a_channel_without_releases_is_up_to_date_over_real_http() {
 	});
 	let installed_path = temporary.path().join("installed");
 	let mut config = configuration();
+
 	config.server = format!("http://{address}");
 	config.allow_http = true;
 	let report = tokio::task::spawn_blocking(move || {
@@ -1124,13 +1152,16 @@ fn only_the_working_and_staged_releases_stay_on_disk() {
 	let baseline = native_bundle(0, BASELINE);
 	let mut installed =
 		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("open");
+
 	for build in 1..=3 {
 		install(&mut installed, native_bundle(build, REPLACEMENT));
 	}
+
 	installed
 		.sync_with(&mut Registry::new(native_bundle(4, BASELINE)))
 		.expect("stage the trapping release");
 	let trapped = installed.launch().expect("trial");
+
 	installed.reject(&trapped.metadata.receipt).expect("trap");
 	installed
 		.sync_with(&mut Registry::new(native_bundle(5, REPLACEMENT)))
@@ -1164,9 +1195,11 @@ fn deltas_cannot_rebuild_more_than_the_client_allows() {
 			if url.ends_with("/index.json") {
 				return Ok(serde_json::to_vec(&self.index)?);
 			}
+
 			if url.contains("/deltas/") {
 				return Ok(self.delta.clone());
 			}
+
 			Ok(self.container.clone())
 		}
 	}
@@ -1260,6 +1293,7 @@ fn launch_falls_back_past_releases_damaged_while_running() {
 		.bundle_hash();
 	install(&mut installed, confirmed.clone());
 	let staged = native_bundle(2, BASELINE);
+
 	let staged_id = read_container(&staged)
 		.expect("parse")
 		.manifest

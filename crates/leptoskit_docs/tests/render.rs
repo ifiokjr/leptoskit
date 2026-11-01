@@ -51,6 +51,7 @@ fn pretty(html: &str) -> String {
 	while let Some(index) = rest.find('<') {
 		let (text, tag) = rest.split_at(index);
 		out.push_str(text);
+
 		if BLOCKS.iter().any(|block| tag.starts_with(block))
 			&& !out.is_empty()
 			&& !out.ends_with('\n')
@@ -60,6 +61,7 @@ fn pretty(html: &str) -> String {
 		out.push('<');
 		rest = &tag[1..];
 	}
+
 	out.push_str(rest);
 	out
 }

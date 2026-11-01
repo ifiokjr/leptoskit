@@ -125,10 +125,12 @@ impl Source for QuerySource {
 		for (key, query, info) in labelled(&self.client) {
 			let stamp = Stamp::of(&info);
 			let id: QueryId = (info.scope, info.key_hash, info.key.clone());
+
 			let value = match cache.remove(&id) {
 				Some(cached) if cached.stamp == stamp => cached.value,
 				_ => query_value(&query, &info),
 			};
+
 			report.query(key, value.clone());
 			live.insert(id, Cached { stamp, value });
 		}
@@ -186,9 +188,11 @@ fn labelled(client: &QueryClient) -> Vec<(String, InspectedQuery, QueryInfo)> {
 	});
 
 	let mut seen: HashMap<String, usize> = HashMap::new();
+
 	for (label, ..) in &mut queries {
 		let count = seen.entry(label.clone()).or_insert(0);
 		*count += 1;
+
 		if *count > 1 {
 			*label = format!("{label} #{count}");
 		}
@@ -201,6 +205,7 @@ fn labelled(client: &QueryClient) -> Vec<(String, InspectedQuery, QueryInfo)> {
 /// prints it, unless the key is `()`.
 fn label(info: &QueryInfo) -> String {
 	let scope = scope_label(&info.scope_name);
+
 	if info.key == "()" {
 		scope.to_owned()
 	} else {
@@ -212,9 +217,11 @@ fn label(info: &QueryInfo) -> String {
 /// `app::queries::clips::{{closure}}` reads `app::queries::clips`.
 fn scope_label(name: &str) -> &str {
 	let mut name = name;
+
 	while let Some(outer) = name.strip_suffix("::{{closure}}") {
 		name = outer;
 	}
+
 	name
 }
 
@@ -248,6 +255,7 @@ fn query_value(query: &InspectedQuery, info: &QueryInfo) -> Value {
 		Some(Err(error)) => {
 			json["read_only"] = format!("Its codec couldn't encode the data: {error}").into();
 		}
+
 		None if !query.has_codec() => json["read_only"] = NO_CODEC.into(),
 		None => {}
 	}
@@ -285,6 +293,7 @@ fn set_data(query: &InspectedQuery, key: &str, value: &Value) -> Result<(), Stri
 			"the new data for {key:?} arrived truncated, so it wasn't set"
 		));
 	}
+
 	let data = value
 		.json
 		.get("data")

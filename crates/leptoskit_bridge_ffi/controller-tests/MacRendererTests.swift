@@ -100,6 +100,7 @@ struct MacRendererTests {
         let children = try #require(view.subviews.first?.subviews)
         let button = try #require(children.first as? PressButton)
         button.onHold?(true)
+
         button.onHold?(false)
         let card = try #require(children.last as? PressView)
         let mouse = { (type: NSEvent.EventType) in
@@ -133,6 +134,7 @@ struct MacRendererTests {
                 return picking
             })
         let renderer = MacWidgetRenderer(view: view, devtools: link)
+
         try renderer.render(decode("""
         {"version":1,"root":1,"mutations":[
           {"Create":{"id":1,"kind":"View","props":{}}},
@@ -185,6 +187,7 @@ struct MacRendererTests {
         // content's coordinates, scrolled by 10.
         #expect(picks.count == 1)
         #expect(picks.first?.node == 3)
+
         #expect(picks.first?.point == CGPoint(x: 10, y: 20))
 
         renderer.close()

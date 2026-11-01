@@ -46,6 +46,7 @@ impl Policy {
 	/// Decodes a policy, rejecting unknown values and trailing bytes.
 	pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
 		let mut decoder = Decoder::new(bytes);
+
 		let value = match decoder.u32()? {
 			0 => Self::Portrait,
 			1 => Self::Landscape,
@@ -56,6 +57,7 @@ impl Policy {
 			6 => Self::Any,
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		decoder.finish()?;
 		Ok(value)
 	}
@@ -98,12 +100,14 @@ impl Snapshot {
 	/// Decodes the exact eight-byte response.
 	pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
 		let mut decoder = Decoder::new(bytes);
+
 		let orientation = match decoder.u32()? {
 			0 => Orientation::Unknown,
 			1 => Orientation::Portrait,
 			2 => Orientation::Landscape,
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		let angle = match decoder.u32()? {
 			u32::MAX => None,
 			value @ (0 | 90 | 180 | 270) => {
@@ -111,6 +115,7 @@ impl Snapshot {
 			}
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		decoder.finish()?;
 		Ok(Self { orientation, angle })
 	}
@@ -181,9 +186,11 @@ mod tests {
 		] {
 			assert_eq!(Policy::decode(&policy.encode()), Ok(policy));
 		}
+
 		for bytes in [vec![], vec![0; 3], vec![0; 5], 7_u32.to_le_bytes().to_vec()] {
 			assert_eq!(Policy::decode(&bytes), Err(Error::InvalidArgument));
 		}
+
 		for angle in [None, Some(0), Some(90), Some(180), Some(270)] {
 			let value = Snapshot {
 				orientation: Orientation::Portrait,
@@ -191,6 +198,7 @@ mod tests {
 			};
 			assert_eq!(Snapshot::decode(&value.encode().unwrap()), Ok(value));
 		}
+
 		assert_eq!(
 			Snapshot {
 				orientation: Orientation::Unknown,

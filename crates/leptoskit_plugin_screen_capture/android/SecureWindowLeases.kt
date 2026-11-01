@@ -16,11 +16,14 @@ internal object SecureWindowLeases {
 
     fun acquire(window: Window) {
         val existing = windows[window]
+
         if (existing != null) {
             if (existing.owners >= 64) throw PluginException(PluginException.BUSY)
             existing.owners += 1
+
             return
         }
+
         val original = window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         windows[window] = Protection(original, 1)
@@ -29,6 +32,7 @@ internal object SecureWindowLeases {
     fun release(window: Window) {
         val protection = checkNotNull(windows[window])
         protection.owners -= 1
+
         if (protection.owners != 0) return
         windows.remove(window)
         // Restore only this bit; unrelated window flags may have changed meanwhile.

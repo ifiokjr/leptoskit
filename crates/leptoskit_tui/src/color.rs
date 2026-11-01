@@ -55,6 +55,7 @@ impl ColorDepth {
 		}
 
 		let term = term.unwrap_or_default().to_ascii_lowercase();
+
 		if term.contains("256color") {
 			Self::Indexed256
 		} else if term.contains("color") || term.contains("ansi") || term.contains("xterm") {
@@ -164,7 +165,9 @@ pub fn nearest_16(red: u8, green: u8, blue: u8) -> u8 {
 	if saturation < 0.2 {
 		return match max {
 			below if below < 0.25 => 0,
+
 			below if below < 0.62 => 8,
+
 			below if below < 0.9 => 7,
 			_ => 15,
 		};

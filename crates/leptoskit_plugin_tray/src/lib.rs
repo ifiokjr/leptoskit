@@ -15,6 +15,7 @@ pub const TRAY_CAPACITY: usize = if cfg!(all(target_os = "linux", not(target_env
 } else {
 	16
 };
+
 /// Maximum RGBA icon width or height; bounds native conversion work to 256 KiB.
 pub const ICON_DIMENSION_LIMIT: u32 = 256;
 
@@ -111,12 +112,15 @@ impl Options {
 	pub fn validate(&self) -> Result<(), Error> {
 		validate_tooltip(self.tooltip.as_deref())?;
 		validate_title(self.title.as_deref())?;
+
 		if self.template && !cfg!(target_os = "macos") {
 			return Err(Error::Unavailable);
 		}
+
 		if self.title.is_some() && cfg!(target_os = "windows") {
 			return Err(Error::Unavailable);
 		}
+
 		Ok(())
 	}
 }
@@ -252,10 +256,12 @@ mod tests {
 		for (width, height) in [(0, 1), (1, 0), (257, 1), (u32::MAX, u32::MAX)] {
 			assert!(RgbaIcon::new(vec![], width, height).is_err());
 		}
+
 		assert!(RgbaIcon::new(vec![0; 3], 1, 1).is_err());
 		assert!(RgbaIcon::new(vec![0; 5], 1, 1).is_err());
 		let icon = RgbaIcon::new(vec![0, 1, 2, 255], 1, 1).unwrap();
 		assert_eq!(icon.pixels(), &[0, 1, 2, 255]);
+
 		assert_eq!((icon.width(), icon.height()), (1, 1));
 	}
 	#[test]

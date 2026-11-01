@@ -80,6 +80,7 @@ internal class NativeTextMeasurer(
         var widest = 0f
         repeat(measured.lineCount) { widest = max(widest, measured.getLineWidth(it)) }
         val pixels = ceil(widest.coerceAtMost(limit.coerceAtLeast(0f)).toDouble()).toFloat()
+
         return floatArrayOf(pixels / metrics.density, measured.height / metrics.density)
     }
 
@@ -94,12 +95,14 @@ internal class NativeTextMeasurer(
         val paint =
             (existing ?: TextPaint(TextPaint.ANTI_ALIAS_FLAG)).apply {
                 textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, size, metrics)
+
                 typeface = Typeface.defaultFromStyle(if (bold) Typeface.BOLD else Typeface.NORMAL)
                 isAntiAlias = true
             }
         painted = paint
         paintedSize = size
         paintedBold = bold
+
         return paint
     }
 

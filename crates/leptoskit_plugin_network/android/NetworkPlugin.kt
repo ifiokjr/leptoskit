@@ -31,12 +31,17 @@ class NetworkPlugin(
         payload: ByteBuffer,
     ): ByteArray {
         if (closed) throw PluginException(PluginException.CANCELLED)
+
         if (method !in methods) throw PluginException(PluginException.UNAVAILABLE)
+
         if (method == 0) {
             if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
+
             return snapshot()
         }
+
         val previous = previous(payload)
+
         if (waiting != null) throw PluginException(PluginException.BUSY)
         val connectivity = manager ?: throw PluginException(PluginException.UNAVAILABLE)
         return suspendCancellableCoroutine { continuation ->
@@ -71,10 +76,13 @@ class NetworkPlugin(
                 // Register first, then sample, so changes cannot fall between them.
                 update(continuation, previous)
             } catch (error: SecurityException) {
+
                 cleanup()
+
                 if (continuation.isActive) continuation.resumeWithException(PluginException(PluginException.PERMISSION_DENIED, error))
             } catch (error: RuntimeException) {
                 cleanup()
+
                 if (continuation.isActive) continuation.resumeWithException(PluginException(PluginException.NATIVE, error))
             }
         }
@@ -93,9 +101,11 @@ class NetworkPlugin(
         payload.get(bytes)
         val input = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
         val fields = IntArray(8) { input.int }
+
         if (fields[0] !in 0..7 || (1..4).any { fields[it] !in 0..2 } || fields[7] !in 0..4) {
             throw PluginException(PluginException.INVALID_ARGUMENT)
         }
+
         return bytes
     }
 
@@ -106,12 +116,14 @@ class NetworkPlugin(
         if (waiting !== continuation || !continuation.isActive) return
         try {
             val current = snapshot()
+
             if (!previous.contentEquals(current)) {
                 cleanup()
                 continuation.resume(current)
             }
         } catch (error: PluginException) {
             cleanup()
+
             continuation.resumeWithException(error)
         }
     }
@@ -120,6 +132,7 @@ class NetworkPlugin(
         val observer = callback
         callback = null
         waiting = null
+
         if (observer != null) manager?.unregisterNetworkCallback(observer)
     }
 
@@ -133,6 +146,7 @@ class NetworkPlugin(
             }
         val connection =
             when {
+
                 capabilities == null -> 1
                 capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> 6
                 capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 2
@@ -154,6 +168,7 @@ class NetworkPlugin(
             } else {
                 2
             }
+
         // Restrict-background state is app-specific, not a general low-data-mode flag.
         return ByteBuffer
             .allocate(32)

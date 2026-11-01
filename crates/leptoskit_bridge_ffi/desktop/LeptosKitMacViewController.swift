@@ -49,6 +49,7 @@ public final class LeptosKitMacViewController: NSViewController, NSTextFieldDele
 
     public override func viewDidLayout() {
         super.viewDidLayout()
+
         do { try layoutRuntime() } catch { fail(error) }
     }
 
@@ -95,6 +96,7 @@ public final class LeptosKitMacViewController: NSViewController, NSTextFieldDele
             try runtime?.riveTick(elapsed, scale: scale, flags: flags, callbacks: callbacks) ?? false
         }
         animator.onFailure = { [weak self] error in self?.fail(error) }
+
         animator.setPresented(view.window != nil)
         riveAnimator = animator
     }
@@ -109,6 +111,7 @@ public final class LeptosKitMacViewController: NSViewController, NSTextFieldDele
     private func reload(_ wasm: Data) {
         riveAnimator?.close()
         riveAnimator = nil
+
         if let previous = runtime {
             previous.close()
             Task {
@@ -165,6 +168,7 @@ public final class LeptosKitMacViewController: NSViewController, NSTextFieldDele
             return try decoder.decode(Transaction.self, from: Data($0))
         }
         try renderer?.render(transaction)
+
         if lk_app_has_rive(raw) == 1 { riveAnimator?.requestFrame() } else { riveAnimator?.stop() }
     }
 }

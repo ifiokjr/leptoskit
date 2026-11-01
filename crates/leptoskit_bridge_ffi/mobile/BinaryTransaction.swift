@@ -130,6 +130,7 @@ private struct BinaryReader {
         let color = has(5) ? try uint32() : nil
         let background = has(6) ? try uint32() : nil
         let borderColor = has(7) ? try uint32() : nil
+
         let enabled = has(8) ? try uint8() != 0 : nil
         let hidden = has(9) ? try uint8() != 0 : nil
         let clip = has(10) ? try uint8() != 0 : nil
@@ -152,6 +153,7 @@ private struct BinaryReader {
 
     private mutating func choice(_ names: [String]) throws -> String {
         let index = Int(try uint8())
+
         guard index < names.count else { throw malformed }
 
         return names[index]

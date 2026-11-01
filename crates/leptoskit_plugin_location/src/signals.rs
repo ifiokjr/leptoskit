@@ -123,15 +123,18 @@ pub fn use_geolocation(source: impl Source, options: Options) -> UseGeolocationR
 		if value.try_set(Some(first)).is_some() {
 			return Ok(());
 		}
+
 		let mut after_timestamp_ms = first.timestamp_ms;
 		loop {
 			if value.is_disposed() {
 				return Ok(());
 			}
+
 			let next = source.next(options, after_timestamp_ms).await?;
 			if value.try_set(Some(next)).is_some() {
 				return Ok(());
 			}
+
 			after_timestamp_ms = next.timestamp_ms;
 		}
 	});
@@ -212,8 +215,10 @@ mod tests {
 			if self.delay {
 				self.delay = false;
 				context.waker().wake_by_ref();
+
 				return Poll::Pending;
 			}
+
 			Poll::Ready(self.result)
 		}
 	}
@@ -284,6 +289,7 @@ mod tests {
 		let waker: Waker = noop_waker();
 		let mut context = Context::from_waker(&waker);
 		assert!(task.as_mut().poll(&mut context).is_pending());
+
 		owner.cleanup();
 		assert_eq!(task.as_mut().poll(&mut context), Poll::Ready(Ok(())));
 	}

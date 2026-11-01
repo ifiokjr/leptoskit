@@ -60,15 +60,20 @@ impl AppKitBackend {
 
 	fn render_png(&self, root: NodeId, scale: f64) -> Result<Vec<u8>, SnapshotError> {
 		let view = self.view(root).ok_or(SnapshotError::UnknownNode(root))?;
+
 		if !(scale.is_finite() && scale > 0.0) {
 			return Err(SnapshotError::InvalidScale(scale));
 		}
+
 		let bounds = view.bounds();
 		let (width, height) = (bounds.size.width, bounds.size.height);
+
 		if !(width >= 1.0 && height >= 1.0) {
 			return Err(SnapshotError::EmptyView { width, height });
 		}
+
 		let pixels_wide = (width * scale).round() as isize;
+
 		let pixels_high = (height * scale).round() as isize;
 
 		// SAFETY: null planes ask AppKit to allocate and own the pixel buffer;

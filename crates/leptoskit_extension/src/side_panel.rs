@@ -27,8 +27,10 @@ pub async fn open(window: i64) -> Result<()> {
 			.await
 			.map(drop);
 	}
+
 	if js::has("sidebarAction.open") {
 		return js::call::<Value>("sidebarAction.open", &[]).await.map(drop);
 	}
+
 	Err(Error::Unavailable("sidePanel".into()))
 }

@@ -107,6 +107,7 @@ mod macos {
 		let content = button.subviews().objectAtIndex(0);
 		assert!((content.frame().origin.y - 16.0).abs() < 0.01);
 		let hit = button.hitTest(NSPoint::new(24.0, 24.0)).unwrap();
+
 		assert_eq!(hit.downcast_ref::<NSButton>(), Some(&*button));
 		assert!(button.hitTest(NSPoint::new(1.0, 1.0)).is_none());
 		// SAFETY: QuartzCore exports this immutable corner-curve name.
@@ -147,6 +148,7 @@ mod macos {
 			button.accessibilityLabel().unwrap().to_string(),
 			"Open profile"
 		);
+
 		assert!(
 			button
 				.accessibilityChildren()
@@ -167,6 +169,7 @@ mod macos {
 		// SAFETY: retained detached NSButtons remain valid objects; the
 		// backend has cleared their target and action before deletion.
 		unsafe { button.performClick(None) };
+
 		assert_eq!(events.borrow().len(), 1);
 	}
 
@@ -223,6 +226,7 @@ mod macos {
 		let surface = Rc::new(RefCell::new(surface));
 		let hold = Rc::new(RefCell::new(Hold::default()));
 		let (weak, seen) = (Rc::downgrade(&surface), Rc::clone(&hold));
+
 		surface
 			.borrow()
 			.backend()
@@ -233,6 +237,7 @@ mod macos {
 					NativeEvent::PressOut => surface.borrow_mut().press_out(id),
 					_ => {}
 				}
+
 				let surface = surface.borrow();
 				let view = surface.backend().view(id).unwrap();
 				let mut seen = seen.borrow_mut();
@@ -274,6 +279,7 @@ mod macos {
 			assert_eq!(surface.borrow().pressed(), None);
 			// The release's activation arrives while the control is still held.
 			assert!(hold.labels.iter().all(|label| label == &hold.labels[0]));
+
 			assert_eq!(hold.backgrounds[0], hold.backgrounds[1]);
 			assert_eq!(hold.opacities[0], hold.opacities[1]);
 
@@ -293,6 +299,7 @@ mod macos {
 				assert_eq!(hold.opacities[2], 1.0);
 			}
 		}
+
 		window.close();
 	}
 
@@ -311,6 +318,7 @@ mod macos {
 		let surface = surface.borrow();
 		assert_eq!(surface.children(surface.root().unwrap()), []);
 		assert!(button.target().is_none());
+
 		assert!(button.action().is_none());
 	}
 
@@ -330,15 +338,18 @@ mod macos {
 			}
 		});
 		assert!(window.makeFirstResponder(Some(&button)));
+
 		assert_eq!(
 			window.firstResponder().unwrap().downcast_ref::<NSButton>(),
 			Some(&*button)
 		);
+
 		for (index, character, code) in [(1, " ", 49), (2, "\r", 36)] {
 			window.sendEvent(&key(&window, NSEventType::KeyDown, character, code, false));
 			window.sendEvent(&key(&window, NSEventType::KeyUp, character, code, false));
 			assert_eq!(*presses.borrow(), index);
 		}
+
 		window.sendEvent(&key(&window, NSEventType::KeyDown, " ", 49, true));
 		assert_eq!(*presses.borrow(), 2);
 		button.setEnabled(false);

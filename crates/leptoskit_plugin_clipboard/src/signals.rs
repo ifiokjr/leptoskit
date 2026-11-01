@@ -204,6 +204,7 @@ mod tests {
 			if self.failing.load(Ordering::Relaxed) {
 				return Box::pin(std::future::ready(Err(Error::PermissionDenied)));
 			}
+
 			Box::pin(std::future::ready(Ok(self.content.lock().unwrap().clone())))
 		}
 
@@ -211,6 +212,7 @@ mod tests {
 			if self.failing.load(Ordering::Relaxed) {
 				return Box::pin(std::future::ready(Err(Error::PermissionDenied)));
 			}
+
 			text.clone_into(&mut self.content.lock().unwrap());
 			Box::pin(std::future::ready(Ok(())))
 		}
@@ -219,6 +221,7 @@ mod tests {
 			if self.failing.load(Ordering::Relaxed) {
 				return Box::pin(std::future::ready(Err(Error::PermissionDenied)));
 			}
+
 			self.content.lock().unwrap().clear();
 			Box::pin(std::future::ready(Ok(())))
 		}
@@ -234,6 +237,7 @@ mod tests {
 		block_on((hook.write)("copied".to_owned())).unwrap();
 		assert_eq!(hook.text.get(), "copied");
 		block_on((hook.clear)()).unwrap();
+
 		assert_eq!(hook.text.get(), "");
 		owner.cleanup();
 	}

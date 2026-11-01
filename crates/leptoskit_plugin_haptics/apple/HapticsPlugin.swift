@@ -25,14 +25,17 @@ public final class HapticsPlugin: NativePlugin {
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
         guard method <= 2 else { throw PluginError.unavailable }
         let value: UInt32
+
         if method == 0 {
             guard payload.count == 0 else { throw PluginError.invalidArgument }
             value = 0
         } else {
             guard payload.count == 4 else { throw PluginError.invalidArgument }
             value = payload.withUnsafeBytes { UInt32(littleEndian: $0.loadUnaligned(as: UInt32.self)) }
+
             guard value <= (method == 1 ? 4 : 2) else { throw PluginError.invalidArgument }
         }
+
         #if os(iOS)
         perform(method, value)
         #elseif os(macOS)
@@ -45,6 +48,7 @@ public final class HapticsPlugin: NativePlugin {
         #else
         throw PluginError.unavailable
         #endif
+
         return Data()
     }
 

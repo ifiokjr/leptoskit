@@ -203,6 +203,7 @@ fn post<T: Serialize + ?Sized>(agent: &ureq::Agent, url: &str, body: &T) -> anyh
 pub fn loopback_hub(url: &str) -> Option<&str> {
 	let hub = url.trim().trim_end_matches('/');
 	let authority = hub.strip_prefix("http://")?;
+
 	let (host, port) = match authority.rsplit_once(':') {
 		Some((host, port)) if !host.is_empty() && !port.contains(']') => (host, Some(port)),
 		_ => (authority, None),

@@ -90,6 +90,7 @@ impl Queue {
 		if !self.live || !self.ids.values().any(|id| *id == event.id) {
 			return false;
 		}
+
 		if event.kind == EventKind::Move
 			&& self
 				.events
@@ -99,6 +100,7 @@ impl Queue {
 			if let Some(last) = self.events.back_mut() {
 				*last = event;
 			}
+
 			self.coalesced = self.coalesced.saturating_add(1);
 		} else if self.events.len() == EVENT_CAPACITY {
 			self.lost = self.lost.saturating_add(1);
@@ -111,6 +113,7 @@ impl Queue {
 	fn remove(&mut self, id: TrayId) {
 		self.ids.retain(|_, value| *value != id);
 		self.events.retain(|event| event.id != id);
+
 		if self.events.is_empty() {
 			self.wake_pending = false;
 		}
@@ -146,6 +149,7 @@ impl Events {
 		let Some(event) = convert(native, id) else {
 			return;
 		};
+
 		if queue.push(event)
 			&& std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (self.wake)())).is_err()
 		{
@@ -156,6 +160,7 @@ impl Events {
 	#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 	fn push(&self, event: Event) {
 		let mut queue = self.queue.lock();
+
 		if queue.push(event)
 			&& std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (self.wake)())).is_err()
 		{
@@ -187,6 +192,7 @@ fn convert(native: &TrayIconEvent, id: TrayId) -> Option<Event> {
 			} else {
 				EventKind::Released(button(*value))
 			};
+
 			(kind, position, rect)
 		}
 		TrayIconEvent::DoubleClick {
@@ -200,6 +206,7 @@ fn convert(native: &TrayIconEvent, id: TrayId) -> Option<Event> {
 		TrayIconEvent::Leave { position, rect, .. } => (EventKind::Leave, position, rect),
 		_ => return None,
 	};
+
 	let position = (position.x.is_finite() && position.y.is_finite()).then_some(Point {
 		x: position.x,
 		y: position.y,
@@ -256,6 +263,7 @@ impl TrayHost {
 		#[cfg(target_os = "macos")]
 		{
 			let marker = objc2::MainThreadMarker::new().ok_or(Error::WrongThread)?;
+
 			if !objc2_app_kit::NSApplication::sharedApplication(marker).isRunning() {
 				return Err(Error::EventLoopNotRunning);
 			}
@@ -295,9 +303,11 @@ impl TrayHost {
 		menu: Option<Rc<DesktopMenu>>,
 	) -> Result<TrayId, Error> {
 		options.validate()?;
+
 		if self.trays.len() >= TRAY_CAPACITY {
 			return Err(Error::Capacity);
 		}
+
 		let id = TrayId(
 			NEXT_ID
 				.try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
@@ -322,6 +332,7 @@ impl TrayHost {
 		if !self.trays.contains_key(&id) {
 			return Err(Error::UnknownTray);
 		}
+
 		self.events.queue.lock().remove(id);
 		self.trays.remove(&id);
 		Ok(())
@@ -332,6 +343,7 @@ impl TrayHost {
 		if template && !cfg!(target_os = "macos") {
 			return Err(Error::Unavailable);
 		}
+
 		let tray = self.tray(id)?;
 		tray.native.set_icon(icon, template)
 	}
@@ -346,9 +358,11 @@ impl TrayHost {
 	/// Changes/clears macOS title or Linux SNI Title. Windows is unsupported.
 	pub fn set_title(&mut self, id: TrayId, title: Option<&str>) -> Result<(), Error> {
 		crate::validate_title(title)?;
+
 		if cfg!(target_os = "windows") {
 			return Err(Error::Unavailable);
 		}
+
 		self.tray(id)?.native.set_title(title)?;
 		Ok(())
 	}
@@ -413,6 +427,7 @@ mod tests {
 		let id = TrayId(1);
 		let mut queue = Queue::default();
 		queue.ids.insert("owned".into(), id);
+
 		assert!(queue.push(sample(id, EventKind::Move, 1.0)));
 		assert!(!queue.push(sample(id, EventKind::Move, 2.0)));
 		queue.push(sample(id, EventKind::Pressed(Button::Left), 3.0));
@@ -421,9 +436,11 @@ mod tests {
 		assert_eq!(batch.events.len(), 3);
 		assert_eq!(batch.coalesced, 1);
 		assert_eq!(batch.events[0].position, Some(Point { x: 2.0, y: 0.0 }));
+
 		for _ in 0..EVENT_CAPACITY + 9 {
 			queue.push(sample(id, EventKind::Pressed(Button::Left), 0.0));
 		}
+
 		let batch = queue.drain();
 		assert_eq!(batch.events.len(), EVENT_CAPACITY);
 		assert_eq!(batch.lost, 9);

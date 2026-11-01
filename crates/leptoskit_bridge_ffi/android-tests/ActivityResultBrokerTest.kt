@@ -53,6 +53,7 @@ class ActivityResultBrokerTest {
                 assertTrue(broker.onResult(nextCode, Activity.RESULT_OK, data))
                 assertEquals(NativeActivityResult(Activity.RESULT_OK, data), next.await())
                 assertFalse(broker.onResult(nextCode, Activity.RESULT_OK, data))
+
                 broker.close()
             }
         }

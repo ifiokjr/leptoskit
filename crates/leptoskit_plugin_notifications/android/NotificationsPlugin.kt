@@ -36,13 +36,16 @@ class NotificationsPlugin(
         payload: ByteBuffer,
     ): ByteArray {
         check(Looper.myLooper() == Looper.getMainLooper())
+
         if (closed) throw PluginException(PluginException.CANCELLED)
         currentCoroutineContext().ensureActive()
         val manager = manager ?: throw PluginException(PluginException.UNAVAILABLE)
         when (method) {
             0, 1 -> {
                 empty(payload)
+
                 if (method == 1) requestPermission()
+
                 return ByteBuffer
                     .allocate(4)
                     .order(ByteOrder.LITTLE_ENDIAN)
@@ -57,13 +60,16 @@ class NotificationsPlugin(
                 val body = input.text(4096, true, false)
                 val channel = input.identifier()
                 input.finish()
+
                 if (permission() != 3) throw PluginException(PluginException.PERMISSION_DENIED)
                 val configured =
                     manager.getNotificationChannel(PREFIX + channel)
                         ?: throw PluginException(PluginException.INVALID_ARGUMENT)
+
                 if (configured.importance == NotificationManager.IMPORTANCE_NONE) {
                     throw PluginException(PluginException.PERMISSION_DENIED)
                 }
+
                 val notification =
                     Notification
                         .Builder(context, configured.id)
@@ -84,6 +90,7 @@ class NotificationsPlugin(
                 val input = Reader(payload, 68)
                 val id = input.identifier()
                 input.finish()
+
                 if (method == 3) manager.cancel(PREFIX + id, 0) else manager.deleteNotificationChannel(PREFIX + id)
             }
 
@@ -93,6 +100,7 @@ class NotificationsPlugin(
 
             6 -> {
                 empty(payload)
+
                 for (notification in manager.activeNotifications) {
                     if (notification.tag?.startsWith(PREFIX) == true) manager.cancel(notification.tag, notification.id)
                 }
@@ -102,6 +110,7 @@ class NotificationsPlugin(
                 throw PluginException(PluginException.UNAVAILABLE)
             }
         }
+
         return byteArrayOf()
     }
 
@@ -115,8 +124,10 @@ class NotificationsPlugin(
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             val activity = context as? Activity
+
             return if (activity?.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) == true) 2 else 0
         }
+
         return if (manager.areNotificationsEnabled()) 3 else 2
     }
 
@@ -130,11 +141,15 @@ class NotificationsPlugin(
                     PackageManager.GET_PERMISSIONS,
                 ).requestedPermissions
                 .orEmpty()
+
         if (Manifest.permission.POST_NOTIFICATIONS !in declarations) throw PluginException(PluginException.INVALID_ARGUMENT)
         val host = context as? NativePermissionHost ?: throw PluginException(PluginException.UNAVAILABLE)
         val results = host.requestNativePermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+
         if (closed) throw PluginException(PluginException.CANCELLED)
+
         currentCoroutineContext().ensureActive()
+
         if (results.size != 1) throw PluginException(PluginException.NATIVE)
     }
 
@@ -150,6 +165,7 @@ class NotificationsPlugin(
                 1 -> NotificationManager.IMPORTANCE_LOW
                 2 -> NotificationManager.IMPORTANCE_DEFAULT
                 3 -> NotificationManager.IMPORTANCE_HIGH
+
                 else -> throw PluginException(PluginException.INVALID_ARGUMENT)
             }
         val sound =
@@ -189,14 +205,17 @@ private class Reader(
 
     fun number(): Int {
         if (data.remaining() < 4) throw PluginException(PluginException.INVALID_ARGUMENT)
+
         return data.int
     }
 
     fun identifier(): String {
         val value = text(64, false, true)
+
         if (!value.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it in "._-" }) {
             throw PluginException(PluginException.INVALID_ARGUMENT)
         }
+
         return value
     }
 
@@ -206,6 +225,7 @@ private class Reader(
         required: Boolean,
     ): String {
         val length = number()
+
         if (length !in 0..maximum || length > data.remaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
         val field = data.slice().apply { limit(length) }
         data.position(data.position() + length)
@@ -221,9 +241,11 @@ private class Reader(
             } catch (_: CharacterCodingException) {
                 throw PluginException(PluginException.INVALID_ARGUMENT)
             }
+
         if ((required && value.isBlank()) || value.any { it.isISOControl() && !(multiline && (it == '\n' || it == '\t')) }) {
             throw PluginException(PluginException.INVALID_ARGUMENT)
         }
+
         return value
     }
 

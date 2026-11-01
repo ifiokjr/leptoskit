@@ -31,6 +31,7 @@ impl Drop for Guard {
 		if self.0.released() {
 			return;
 		}
+
 		match self.0.release() {
 			Ok(promise) => {
 				spawn_local(async move {
@@ -52,6 +53,7 @@ fn map_error(error: &JsValue) -> Error {
 			_ => {}
 		}
 	}
+
 	Error::Native
 }
 
@@ -62,9 +64,11 @@ pub async fn hold() -> Result<Infallible, Error> {
 	let navigator = web_sys::window().ok_or(Error::Unavailable)?.navigator();
 	let value = js_sys::Reflect::get(navigator.as_ref(), &JsValue::from_str("wakeLock"))
 		.map_err(|error| map_error(&error))?;
+
 	if value.is_null() || value.is_undefined() {
 		return Err(Error::Unavailable);
 	}
+
 	let wake_lock: WakeLock = value.unchecked_into();
 	let promise = wake_lock
 		.request("screen")
@@ -80,6 +84,7 @@ pub async fn hold() -> Result<Infallible, Error> {
 			.map_err(|error| map_error(&error));
 		drop(sender.send(result));
 	});
+
 	let guard = receiver.await.map_err(|_| Error::Cancelled)??;
 	let (sender, receiver) = oneshot::channel();
 	let mut sender = Some(sender);
@@ -88,9 +93,11 @@ pub async fn hold() -> Result<Infallible, Error> {
 			let _ = sender.send(());
 		}
 	});
+
 	if guard.0.released() {
 		return Err(Error::Cancelled);
 	}
+
 	let _ = receiver.await;
 	drop(listener);
 	drop(guard);

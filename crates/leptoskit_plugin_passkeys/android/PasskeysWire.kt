@@ -33,18 +33,22 @@ internal fun webAuthnOptions(payload: ByteBuffer): String {
         } catch (_: JSONException) {
             throw PluginException(PluginException.INVALID_ARGUMENT)
         }
+
     if (options.optString("challenge").isEmpty()) throw PluginException(PluginException.INVALID_ARGUMENT)
+
     return text
 }
 
 /** An answer to return: bounded UTF-8 of a JSON object. */
 internal fun webAuthnAnswer(json: String): ByteArray {
     val bytes = json.toByteArray(Charsets.UTF_8)
+
     if (bytes.size !in 1..MAX_JSON_BYTES) throw PluginException(PluginException.NATIVE)
     try {
         JSONObject(json)
     } catch (_: JSONException) {
         throw PluginException(PluginException.NATIVE)
     }
+
     return bytes
 }

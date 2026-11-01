@@ -53,16 +53,21 @@ impl VectorLayers {
 		// default; a redraw must land in the same frame as its layout.
 		CATransaction::begin();
 		CATransaction::setDisableActions(true);
+
 		for stale in self.layers.drain(paths.len().min(self.layers.len())..) {
 			stale.removeFromSuperlayer();
 		}
+
 		while self.layers.len() < paths.len() {
 			let layer = CAShapeLayer::new();
+
 			view.layer().addSublayer(&layer);
 			self.layers.push(layer);
 		}
+
 		if let Some(drawing) = drawing {
 			let transform = drawing.transform(bounds.size.width as f32, bounds.size.height as f32);
+
 			for (layer, path) in self.layers.iter().zip(paths) {
 				layer.setFrame(bounds);
 				layer.setPath(Some(&cg_path(path.data(), transform)));
@@ -71,6 +76,7 @@ impl VectorLayers {
 				apply_stroke(layer, path.stroke_style(), transform);
 			}
 		}
+
 		CATransaction::commit();
 	}
 }
@@ -80,6 +86,7 @@ fn cg_path(data: &PathData, transform: Transform) -> CFRetained<CGMutablePath> {
 	let path = CGMutablePath::new();
 	let target = Some(&*path);
 	let none = std::ptr::null();
+
 	for command in data.transformed(transform) {
 		// SAFETY: Every point is already in frame units, so each call passes
 		// a null transform, which Core Graphics accepts.
@@ -126,6 +133,7 @@ fn cg_path(data: &PathData, transform: Transform) -> CFRetained<CGMutablePath> {
 			}
 		}
 	}
+
 	path
 }
 
@@ -137,11 +145,13 @@ fn apply_stroke(layer: &CAShapeLayer, stroke: Option<&Stroke>, transform: Transf
 		layer.setStrokeColor(None);
 		layer.setLineWidth(0.0);
 		layer.setLineDashPattern(None);
+
 		return;
 	};
 	layer.setStrokeColor(Some(&cg_color(stroke.color())));
 	layer.setLineWidth(f64::from(stroke.frame_width(transform)));
 	layer.setMiterLimit(f64::from(stroke.miter()));
+
 	let dashes = stroke
 		.frame_dashes(transform)
 		.map(|length| NSNumber::new_f64(f64::from(length)))

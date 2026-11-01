@@ -28,13 +28,16 @@ struct WebAuthRequest {
 
     init(payload: NativeBuffer) throws {
         let bytes = payload.withUnsafeBytes { Data($0) }
+
         guard bytes.count > 4, bytes.count <= 4 + 8192 else { throw PluginError.invalidArgument }
         session = bytes.prefix(4).enumerated().reduce(UInt32(0)) { value, byte in
             value | UInt32(byte.element) << (8 * UInt32(byte.offset))
         }
+
         guard let text = String(data: bytes.dropFirst(4), encoding: .utf8) else {
             throw PluginError.invalidArgument
         }
+
         url = try Self.providerPage(text)
     }
 
@@ -47,7 +50,9 @@ struct WebAuthRequest {
               components.user == nil, components.password == nil,
               let url = components.url else { throw PluginError.invalidArgument }
         let local = host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
+
         guard scheme == "https" || (scheme == "http" && local) else { throw PluginError.invalidArgument }
+
         return url
     }
 }
@@ -55,6 +60,7 @@ struct WebAuthRequest {
 /// Whether the browser came back to `returnTo` itself, with only a query.
 func webAuthCameBack(_ url: URL, to returnTo: String) -> Bool {
     guard let back = URLComponents(url: url, resolvingAgainstBaseURL: false),
+
           let expected = URLComponents(string: returnTo) else { return false }
     return back.scheme?.lowercased() == expected.scheme?.lowercased()
         && back.host == expected.host && back.port == expected.port

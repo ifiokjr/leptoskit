@@ -47,16 +47,22 @@ class PosturePlugin(
         payload: ByteBuffer,
     ): ByteArray {
         if (closed) throw PluginException(PluginException.CANCELLED)
+
         if (method !in methods) throw PluginException(PluginException.UNAVAILABLE)
         val activity = context as? Activity ?: throw PluginException(PluginException.UNAVAILABLE)
+
         if (activity.isDestroyed) throw PluginException(PluginException.UNAVAILABLE)
         val layouts = WindowInfoTracker.getOrCreate(activity).windowLayoutInfo(activity)
+
         if (method == 0) {
             if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
             val angle = lastAngle ?: withTimeoutOrNull(FIRST_ANGLE_TIMEOUT_MS) { angles().first() }
+
             return encode(activity, layouts.first(), angle)
         }
+
         val previous = previous(payload)
+
         if (waiting) throw PluginException(PluginException.BUSY)
         waiting = true
         try {
@@ -92,9 +98,11 @@ class PosturePlugin(
                         accuracy: Int,
                     ) {}
                 }
+
             if (!manager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)) {
                 close(PluginException(PluginException.UNAVAILABLE))
             }
+
             awaitClose { manager.unregisterListener(listener) }
         }.distinctUntilChanged()
     }
@@ -102,11 +110,14 @@ class PosturePlugin(
     private fun previous(payload: ByteBuffer): ByteArray {
         val length = payload.remaining()
         val hinges = (length - HEADER_BYTES) / HINGE_BYTES
+
         if (length < HEADER_BYTES || (length - HEADER_BYTES) % HINGE_BYTES != 0 || hinges > MAX_HINGES) {
             throw PluginException(PluginException.INVALID_ARGUMENT)
         }
+
         val bytes = ByteArray(length)
         payload.get(bytes)
+
         return bytes
     }
 
@@ -128,18 +139,24 @@ class PosturePlugin(
             }
         val foldable = hingeSensor != null || folds.isNotEmpty()
         val output = ByteBuffer.allocate(HEADER_BYTES + HINGE_BYTES * folds.size).order(ByteOrder.LITTLE_ENDIAN)
+
         output.putInt(if (foldable) TRUE else UNKNOWN_FLAG)
         output.putInt(fold)
         output.putInt(folds.size)
         val width = window.width().toFloat()
         val height = window.height().toFloat()
+
         for (feature in folds) {
             // Folding feature bounds are already in the window's coordinate space.
             val bounds = feature.bounds
             val x = (bounds.left / width).coerceIn(0f, 1f)
+
             val y = (bounds.top / height).coerceIn(0f, 1f)
+
             output.putInt(if (feature.state == FoldingFeature.State.HALF_OPENED) HALF_OPEN else OPEN)
+
             output.putInt(if (feature.orientation == FoldingFeature.Orientation.VERTICAL) VERTICAL else HORIZONTAL)
+
             output.putInt(if (feature.occlusionType == FoldingFeature.OcclusionType.FULL) TRUE else FALSE)
             output.putInt(1)
             output.putFloat(x)
@@ -149,6 +166,7 @@ class PosturePlugin(
             // A single sensor cannot say which of several hinges it measures.
             output.putInt(if (folds.size == 1 && angle != null) angle else -1)
         }
+
         return output.array()
     }
 

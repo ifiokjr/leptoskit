@@ -267,6 +267,7 @@ impl Shared {
 					*queued_event = event;
 				}
 			}
+
 			(Command::Wake, Some(Command::Wake)) => {}
 			_ => state.commands.push_back(command),
 		}
@@ -540,6 +541,7 @@ pub unsafe extern "C" fn lk_guest_complete(
 			std::slice::from_raw_parts(data, len)
 		}))
 	};
+
 	// SAFETY: The caller lends a live guest.
 	unsafe {
 		post(
@@ -701,6 +703,7 @@ pub unsafe extern "C" fn lk_guest_rive_tick(
 		// SAFETY: The caller lends `count` readable IDs.
 		unsafe { std::slice::from_raw_parts(visible, count) }.to_vec()
 	};
+
 	guest.shared.post(Command::RiveTick {
 		elapsed: Duration::from_secs_f64(elapsed.min(0.1)),
 		environment: RiveEnvironment {
@@ -871,6 +874,7 @@ fn step(
 					visible: &visible,
 					images: &mut rive_images,
 				};
+
 				match app
 					.host_mut()
 					.tick_rive_with(elapsed, environment, &mut presenter)
@@ -1130,6 +1134,7 @@ mod tests {
 		});
 		shared.post(scroll(1, 40.0));
 		shared.post(Command::Wake);
+
 		shared.post(Command::Wake);
 
 		let (commands, _) = shared.next_batch().unwrap();

@@ -98,10 +98,12 @@ pub fn use_battery(source: impl Source) -> UseBatteryReturn {
 			if value.is_disposed() {
 				return Ok(());
 			}
+
 			let next = source.wait_for_change(previous).await?;
 			if value.try_set(Some(next)).is_some() {
 				return Ok(());
 			}
+
 			previous = next;
 		}
 	});
@@ -196,8 +198,10 @@ mod tests {
 			if self.delay {
 				self.delay = false;
 				context.waker().wake_by_ref();
+
 				return Poll::Pending;
 			}
+
 			Poll::Ready(self.result)
 		}
 	}
@@ -226,6 +230,7 @@ mod tests {
 		let waker: Waker = noop_waker();
 		let mut context = Context::from_waker(&waker);
 		assert!(task.as_mut().poll(&mut context).is_pending());
+
 		owner.cleanup();
 		assert_eq!(task.as_mut().poll(&mut context), Poll::Ready(Ok(())));
 	}

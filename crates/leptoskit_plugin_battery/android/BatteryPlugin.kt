@@ -37,7 +37,9 @@ class BatteryPlugin(
         payload: ByteBuffer,
     ): ByteArray {
         check(Looper.myLooper() == Looper.getMainLooper())
+
         if (closed) throw PluginException(PluginException.CANCELLED)
+
         return when (method) {
             0 -> {
                 if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
@@ -46,7 +48,9 @@ class BatteryPlugin(
 
             1 -> {
                 val value = validateSnapshot(payload)
+
                 if (waiter?.isActive == false) cleanup()
+
                 if (waiter != null) throw PluginException(PluginException.BUSY)
                 suspendCancellableCoroutine { continuation ->
                     waiter = continuation
@@ -74,7 +78,9 @@ class BatteryPlugin(
                     } catch (error: Exception) {
                         receiver = null
                         cleanup()
+
                         continuation.resumeWithException(error)
+
                         return@suspendCancellableCoroutine
                     }
                     continuation.invokeOnCancellation {
@@ -83,6 +89,7 @@ class BatteryPlugin(
                             Runnable {
                                 if (waiter === continuation) cleanup()
                             }
+
                         if (Looper.myLooper() == Looper.getMainLooper()) remove.run() else handler.post(remove)
                     }
                     changed()
@@ -124,8 +131,10 @@ class BatteryPlugin(
             } catch (error: Exception) {
                 cleanup()
                 pending.resumeWithException(error)
+
                 return
             }
+
         if (!value.contentEquals(previous)) {
             cleanup()
             pending.resume(value)
@@ -149,6 +158,7 @@ class BatteryPlugin(
             } else if (reading.getBooleanExtra(BatteryManager.EXTRA_PRESENT, false)) {
                 2
             } else {
+
                 1
             }
         val level = reading.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
@@ -170,6 +180,7 @@ class BatteryPlugin(
             } else {
                 1
             }
+
         return ByteBuffer
             .allocate(16)
             .order(ByteOrder.LITTLE_ENDIAN)
@@ -189,8 +200,11 @@ private fun validateSnapshot(payload: ByteBuffer): ByteArray {
     val charge = fields.int
     val state = fields.int
     val saving = fields.int
+
     if (presence !in 0..2 || (charge != -1 && charge !in 0..1000) || state !in 0..3 || saving !in 0..2) {
+
         throw PluginException(PluginException.INVALID_ARGUMENT)
     }
+
     return bytes
 }

@@ -110,6 +110,7 @@ async fn providers_and_the_mfa_policy_come_from_leptoskit_toml() {
 	company.scopes = Some(vec!["email".into()]);
 	providers.insert("company".to_owned(), company);
 	let mut config = LeptoskitConfig::default();
+
 	config.app.name = "notes".into();
 	config.auth = Some(AuthConfig {
 		keys_env: "PROVIDER_TEST_KEYS".into(),

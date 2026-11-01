@@ -139,6 +139,7 @@ pub fn generate(dir: &Path, template: &str) -> Result<Generated, Diagnostics> {
 			"the locales directory needs a name that is UTF-8".to_owned(),
 		)]));
 	};
+
 	if !dir.is_dir() {
 		return Err(Diagnostics(vec![Diagnostic::new(
 			dir,
@@ -146,12 +147,14 @@ pub fn generate(dir: &Path, template: &str) -> Result<Generated, Diagnostics> {
 			format!("the locales directory does not exist; create it with `{template}.arb` inside"),
 		)]));
 	}
+
 	let files = arb::read_dir(dir, &mut diagnostics);
 	let catalog = catalog::build(files, dir, template, &mut diagnostics);
 	let Some(catalog) = catalog.filter(|_| diagnostics.is_empty()) else {
 		// By file, then by line, the way an editor lists them; problems at one
 		// line stay in the order they were found.
 		diagnostics.sort_by(|left, right| (&left.file, left.line).cmp(&(&right.file, right.line)));
+
 		return Err(Diagnostics(diagnostics));
 	};
 	let source = emit::source(&catalog, dir_name);
@@ -205,6 +208,7 @@ pub enum Status {
 pub fn status(output: &Path, generated: &Generated) -> Result<Status, WriteError> {
 	let existing = match std::fs::read_to_string(output) {
 		Ok(existing) => existing,
+
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Status::Missing),
 		Err(source) => {
 			return Err(WriteError::Io {
@@ -213,9 +217,11 @@ pub fn status(output: &Path, generated: &Generated) -> Result<Status, WriteError
 			});
 		}
 	};
+
 	if !existing.contains(emit::MARKER) {
 		return Err(WriteError::NotGenerated(output.to_path_buf()));
 	}
+
 	let current = normalized(&existing).is_some_and(|existing| {
 		normalized(&generated.source).is_some_and(|generated| generated == existing)
 	});
@@ -238,6 +244,7 @@ pub fn write(output: &Path, generated: &Generated) -> Result<bool, WriteError> {
 	if status(output, generated)? == Status::Current {
 		return Ok(false);
 	}
+
 	std::fs::write(output, &generated.source).map_err(|source| {
 		WriteError::Io {
 			path: output.to_path_buf(),
@@ -295,6 +302,7 @@ impl Canonical {
 			let [syn::Stmt::Expr(inner, None)] = block.block.stmts.as_slice() else {
 				return;
 			};
+
 			if !block.attrs.is_empty() || block.label.is_some() {
 				return;
 			}
@@ -321,6 +329,7 @@ impl Canonical {
 	/// splits long literals with `\` and a line break.
 	fn literal(literal: proc_macro2::Literal) -> proc_macro2::Literal {
 		let token = proc_macro2::TokenTree::Literal(literal.clone());
+
 		match syn::parse2::<syn::LitStr>(token.into()) {
 			Ok(text) => proc_macro2::Literal::string(&text.value()),
 			Err(_) => literal,
@@ -374,10 +383,12 @@ impl syn::visit_mut::VisitMut for Canonical {
 			words.extend(text.split_whitespace().map(str::to_owned));
 			false
 		});
+
 		if !words.is_empty() {
 			let text = words.join(" ");
 			attributes.insert(0, syn::parse_quote!(#[doc = #text]));
 		}
+
 		for attribute in attributes {
 			self.visit_attribute_mut(attribute);
 		}

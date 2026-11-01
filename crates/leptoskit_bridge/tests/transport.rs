@@ -194,6 +194,7 @@ fn queued_running_and_ready_calls_can_be_cancelled() {
 		Err(Error::InvalidCall)
 	);
 	bridge.cancel(ready).unwrap();
+
 	assert_eq!(bridge.next_cancelled(), Some(running));
 	assert_eq!(bridge.next_cancelled(), None);
 	assert_eq!(bridge.buffered_bytes(), 0);

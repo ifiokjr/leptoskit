@@ -64,6 +64,7 @@ impl std::fmt::Display for DeviceKind {
 			Self::Host => "host",
 			Self::WebBrowser => "web_browser",
 		};
+
 		formatter.write_str(name)
 	}
 }
@@ -104,20 +105,25 @@ pub struct Inventory {
 /// rather than failing; the run that needs it reports the gap.
 pub fn list() -> Inventory {
 	let mut devices = Vec::new();
+
 	if cfg!(target_os = "macos") {
 		if let Some(output) = tools::simulator_list(LIST_TIMEOUT) {
 			devices.extend(parse_simulators(&output));
 		}
+
 		if let Some(output) = tools::iphone_list(LIST_TIMEOUT) {
 			devices.extend(parse_iphones(&output));
 		}
 	}
+
 	if let Some(output) = tools::android_list(LIST_TIMEOUT) {
 		devices.extend(parse_android(&output));
 	}
+
 	if let Some(output) = tools::avd_list(LIST_TIMEOUT) {
 		devices.extend(parse_avds(&output));
 	}
+
 	if DeviceKind::Host.target().is_some() {
 		devices.push(Device {
 			id: "host".to_owned(),
@@ -126,6 +132,7 @@ pub fn list() -> Inventory {
 			state: "available".to_owned(),
 		});
 	}
+
 	for (browser, driver) in [("chrome", "chromedriver"), ("firefox", "geckodriver")] {
 		if tools::find_in_path(driver).is_some() {
 			devices.push(Device {
@@ -136,6 +143,7 @@ pub fn list() -> Inventory {
 			});
 		}
 	}
+
 	if cfg!(target_os = "macos") {
 		devices.push(Device {
 			id: "safari".to_owned(),
@@ -144,6 +152,7 @@ pub fn list() -> Inventory {
 			state: "available".to_owned(),
 		});
 	}
+
 	Inventory {
 		schema_version: SCHEMA_VERSION,
 		devices,
@@ -240,6 +249,7 @@ pub fn parse_iphones(output: &str) -> Vec<Device> {
 			if id.trim().is_empty() {
 				return None;
 			}
+
 			let name = phone
 				.name
 				.or_else(|| phone.hardware_properties.and_then(|hardware| hardware.name))
@@ -289,6 +299,7 @@ pub fn parse_android(output: &str) -> Vec<Device> {
 				} else {
 					DeviceKind::AndroidDevice
 				},
+
 				state,
 			})
 		})

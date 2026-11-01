@@ -134,8 +134,10 @@ impl Expander {
 						 letter, like `<View>`; leptos's `view!` is the one for HTML elements"
 					),
 				);
+
 				return None;
 			}
+
 			return Some(path.to_token_stream());
 		}
 
@@ -152,6 +154,7 @@ impl Expander {
 	/// The builder method call an attribute makes.
 	fn attribute(&mut self, attribute: &KeyedAttribute) -> Option<TokenStream> {
 		let method = self.method(&attribute.key)?;
+
 		let arguments = match &attribute.possible_value {
 			KeyedAttributeValue::None => quote_spanned!(method.span()=> true),
 			KeyedAttributeValue::Value(value) => {
@@ -181,6 +184,7 @@ impl Expander {
 			NodeName::Path(path) if path.path.get_ident().is_some() => {
 				path.path.get_ident().cloned()
 			}
+
 			NodeName::Punctuated(parts) => {
 				let pairs = parts.pairs().collect::<Vec<_>>();
 				if let [first, second] = pairs.as_slice()
@@ -225,6 +229,7 @@ impl Expander {
 					let span = text.join_spans().unwrap_or_else(Span::call_site);
 					syn::LitStr::new(&text.to_string_best(), span).to_token_stream()
 				}
+
 				Node::Block(NodeBlock::ValidBlock(block)) if block.stmts.is_empty() => continue,
 				Node::Block(NodeBlock::ValidBlock(block)) => {
 					unbrace(&Expr::Block(syn::ExprBlock {
@@ -242,6 +247,7 @@ impl Expander {
 					continue;
 				}
 			};
+
 			fragment = quote!(#fragment.with(#child));
 		}
 

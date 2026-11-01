@@ -184,6 +184,7 @@ mod macos {
 			if surface.kind(id) == NativeKind::Vector {
 				found.push(id);
 			}
+
 			pending.extend_from_slice(surface.children(id));
 		}
 
@@ -335,6 +336,7 @@ mod macos {
 			assert_color(&bitmap, x, 5.0, BLUE, "a dash");
 			assert_color(&bitmap, x, 15.0, WHITE, "an offset gap");
 		}
+
 		for x in [15.0, 35.0, 95.0] {
 			assert_color(&bitmap, x, 5.0, WHITE, "a gap");
 			assert_color(&bitmap, x, 15.0, BLUE, "an offset dash");

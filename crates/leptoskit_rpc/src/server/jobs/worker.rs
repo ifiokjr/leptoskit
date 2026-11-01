@@ -672,6 +672,7 @@ async fn run_handler(registration: &'static JobRegistration, job: ClaimedJob<'_>
 	match result {
 		_ if job.state.is_killed() => Outcome::Abandoned,
 		Ok(value) => Outcome::Done(value),
+
 		Err(error) if job.state.is_cancelled() => Outcome::Cancelled(error.message().to_owned()),
 		Err(error) => {
 			Outcome::Failed {

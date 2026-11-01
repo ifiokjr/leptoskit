@@ -107,6 +107,7 @@ pub unsafe extern "C" fn lk_dev_next(development: *mut Development, wasm: *mut B
 
 	if wasm.is_null() {
 		development.error = "development guest output is null".into();
+
 		return -1;
 	}
 

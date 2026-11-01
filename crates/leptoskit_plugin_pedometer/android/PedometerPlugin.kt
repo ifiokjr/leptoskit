@@ -49,11 +49,17 @@ class PedometerPlugin(
         payload: ByteBuffer,
     ): ByteArray {
         if (closed) throw PluginException(PluginException.CANCELLED)
+
         if (method !in methods) throw PluginException(PluginException.UNAVAILABLE)
+
         if (method <= 2 && payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
+
         if (method == 0) return sensor.invoke(0, payload)
+
         if (method == 1) return byteArrayOf(status().toByte(), 0, 0, 0)
+
         if (method == 4) throw PluginException(PluginException.UNAVAILABLE)
+
         if (busy) throw PluginException(PluginException.BUSY)
         busy = true
         try {
@@ -75,10 +81,14 @@ class PedometerPlugin(
                 val result =
                     withTimeoutOrNull(30_000) { host.requestNativePermissions(arrayOf(Manifest.permission.ACTIVITY_RECOGNITION)) }
                         ?: throw PluginException(PluginException.UNAVAILABLE)
+
                 if (result.size != 1) throw PluginException(PluginException.NATIVE)
+
                 if (closed) throw PluginException(PluginException.CANCELLED)
+
                 return byteArrayOf(if (granted()) 3 else 2, 0, 0, 0)
             }
+
             if (payload.remaining() != 4) throw PluginException(PluginException.INVALID_ARGUMENT)
             val timeout = payload.order(ByteOrder.LITTLE_ENDIAN).int
             val request =
@@ -88,6 +98,7 @@ class PedometerPlugin(
                     .putInt(200)
                     .putInt(timeout)
             request.flip()
+
             return sensor.invoke(1, request)
         } finally {
             permissionJob = null

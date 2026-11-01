@@ -134,6 +134,7 @@ async fn renders_moves_pauses_and_releases_the_real_runtime() {
 		first.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0),
 		"the first pose must be visible while paused"
 	);
+
 	player.play().unwrap();
 	advance(8).await;
 	assert_ne!(
@@ -185,6 +186,7 @@ async fn validates_inputs_and_rejects_broken_files_and_scene_names() {
 			.validate_input(&Name::new("amount").unwrap(), Input::Trigger)
 			.is_err()
 	);
+
 	player
 		.set_input(&Name::new("amount").unwrap(), Input::Number(2.0))
 		.unwrap();
@@ -239,6 +241,7 @@ async fn dropping_pending_imports_and_large_canvases_is_bounded() {
 	assert!(canvas.width() <= 4096 && canvas.height() <= 4096);
 	assert!(u64::from(canvas.width()) * u64::from(canvas.height()) <= 4_194_304);
 	drop(player);
+
 	let pending = Player::new(&runtime, &canvas, &asset(), &Options::default()).unwrap();
 	drop(pending);
 	advance(3).await;

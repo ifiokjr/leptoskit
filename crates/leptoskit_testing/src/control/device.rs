@@ -47,6 +47,7 @@ pub fn boot(target: &Target, timeout: Duration) -> Result<(), Error> {
 		return Err(error);
 	}
 	let mut status = tools::simctl();
+
 	status.args(["bootstatus", id, "-b"]);
 	super::tool(&mut status, timeout)?;
 	Ok(())
@@ -56,6 +57,7 @@ pub fn boot(target: &Target, timeout: Duration) -> Result<(), Error> {
 /// `emulator-PORT` serial.
 pub fn shutdown(target: &Target, timeout: Duration) -> Result<(), Error> {
 	let id = device_id(target)?;
+
 	match target.kind {
 		TargetKind::IosSimulator => {
 			let mut command = tools::simctl();
@@ -67,12 +69,14 @@ pub fn shutdown(target: &Target, timeout: Duration) -> Result<(), Error> {
 			}
 			Ok(())
 		}
+
 		TargetKind::Android if id.starts_with("emulator-") => {
 			let mut command = tools::adb(id);
 			command.args(["emu", "kill"]);
 			super::tool(&mut command, timeout)?;
 			Ok(())
 		}
+
 		TargetKind::Android => {
 			Err(Error::Configuration(
 				"shutting down a physical Android device is not a thing; stop the app instead"
@@ -101,6 +105,7 @@ pub fn start_emulator(
 		.lines()
 		.filter_map(|line| line.split_whitespace().next().map(str::to_owned))
 		.collect::<Vec<_>>();
+
 	let port = match port {
 		Some(port) => port,
 		None => {
@@ -116,17 +121,21 @@ pub fn start_emulator(
 				})?
 		}
 	};
+
 	if !(5554..=5682).contains(&port) || port % 2 != 0 {
 		return Err(Error::Configuration(
 			"emulator port must be even and between 5554 and 5682".to_owned(),
 		));
 	}
+
 	let serial = format!("emulator-{port}");
+
 	if serials.iter().any(|existing| existing == &serial) {
 		return Err(Error::Configuration(format!(
 			"device {serial} already exists"
 		)));
 	}
+
 	let mut command = tools::android_tool("emulator");
 	command
 		.args(["-avd", avd, "-port", &port.to_string(), "-no-audio"])
@@ -156,6 +165,7 @@ pub fn start_app(
 	timeout: Duration,
 ) -> Result<String, Error> {
 	let id = device_id(target)?;
+
 	match target.kind {
 		TargetKind::IosSimulator => {
 			let mut command = tools::simctl();
@@ -164,6 +174,7 @@ pub fn start_app(
 				// simctl passes child environment through prefixed variables.
 				command.env(format!("SIMCTL_CHILD_{name}"), value);
 			}
+
 			command.args(arguments);
 			Ok(super::tool(&mut command, timeout)?.stdout)
 		}
@@ -173,6 +184,7 @@ pub fn start_app(
 					"devicectl launches take no arguments or environment".to_owned(),
 				));
 			}
+
 			let mut command = tools::devicectl();
 			command
 				.args(["device", "process", "launch"])
@@ -187,6 +199,7 @@ pub fn start_app(
 					"Android launches take no environment through am".to_owned(),
 				));
 			}
+
 			let component = launcher_activity(id, identifier, timeout)?;
 			let mut command = tools::adb(id);
 			command
@@ -231,6 +244,7 @@ fn launcher_activity(serial: &str, package: &str, timeout: Duration) -> Result<S
 /// Terminates an installed app.
 pub fn stop_app(target: &Target, identifier: &str, timeout: Duration) -> Result<(), Error> {
 	let id = device_id(target)?;
+
 	match target.kind {
 		TargetKind::IosSimulator => {
 			let mut command = tools::simctl();
@@ -265,6 +279,7 @@ pub fn stop_app(target: &Target, identifier: &str, timeout: Duration) -> Result<
 /// Captures the device's whole screen as PNG bytes.
 pub fn screenshot(target: &Target, timeout: Duration) -> Result<Vec<u8>, Error> {
 	let id = device_id(target)?;
+
 	match target.kind {
 		TargetKind::IosSimulator => {
 			let path = std::env::temp_dir().join(format!(
@@ -284,6 +299,7 @@ pub fn screenshot(target: &Target, timeout: Duration) -> Result<Vec<u8>, Error> 
 					return Err(error);
 				}
 			};
+
 			let _ = std::fs::remove_file(&path);
 			Ok(bytes?)
 		}
@@ -338,11 +354,13 @@ pub fn swipe(
 /// Presses one Android key event code.
 pub fn key(target: &Target, key: &str, timeout: Duration) -> Result<(), Error> {
 	only(target, TargetKind::Android, "key events")?;
+
 	if key.is_empty() || key.contains(char::is_whitespace) {
 		return Err(Error::Configuration(
 			"key must be one keyevent code".to_owned(),
 		));
 	}
+
 	let mut command = tools::adb(device_id(target)?);
 	command.args(["shell", "input", "keyevent", key]);
 	super::tool(&mut command, timeout)?;
@@ -357,6 +375,7 @@ pub fn logs(
 	timeout: Duration,
 ) -> Result<String, Error> {
 	let id = device_id(target)?;
+
 	let text = match target.kind {
 		TargetKind::Android => {
 			let lines = tail.unwrap_or(500).to_string();
@@ -384,5 +403,6 @@ pub fn logs(
 			)));
 		}
 	};
+
 	Ok(text)
 }

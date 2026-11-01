@@ -23,6 +23,7 @@ fn real_capture_preserves_pixels_and_metadata_and_rejects_corruption() {
 	}
 	let capture = Screenshot::from_png(bytes.clone()).unwrap();
 	assert_eq!(capture.dimensions(), (2, 2));
+
 	assert_eq!(capture.distinct_colors(8).unwrap(), 4);
 	// Counting stops as soon as the limit is exceeded.
 	assert_eq!(capture.distinct_colors(1).unwrap(), 2);

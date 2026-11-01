@@ -110,9 +110,11 @@ where
 	pub fn navigate(&self, to: impl Into<R>) {
 		let to = to.into();
 		let current = self.inner.current.get_untracked();
+
 		if to == current {
 			return;
 		}
+
 		match &self.inner.history {
 			History::Memory(earlier) => {
 				earlier
@@ -123,6 +125,7 @@ where
 			#[cfg(all(feature = "web", target_arch = "wasm32"))]
 			History::Browser(browser) => browser.push(&to.href()),
 		}
+
 		self.inner.current.set(to);
 	}
 
@@ -130,10 +133,12 @@ where
 	/// return to.
 	pub fn replace(&self, to: impl Into<R>) {
 		let to = to.into();
+
 		#[cfg(all(feature = "web", target_arch = "wasm32"))]
 		if let History::Browser(browser) = &self.inner.history {
 			browser.replace(&to.href());
 		}
+
 		self.inner.current.set(to);
 	}
 

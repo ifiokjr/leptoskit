@@ -427,15 +427,18 @@ fn edit_field(backend: &mut TuiBackend, id: NodeId, key: Key) -> Vec<Dispatch> {
 			caret += 1;
 			true
 		}
+
 		KeyCode::Backspace if caret > 0 => {
 			caret -= 1;
 			chars.remove(caret);
 			true
 		}
+
 		KeyCode::Delete if caret < chars.len() => {
 			chars.remove(caret);
 			true
 		}
+
 		KeyCode::Left => {
 			set_caret(backend, id, caret.saturating_sub(1));
 			return Vec::new();
@@ -500,6 +503,7 @@ pub(crate) fn handle_mouse(backend: &mut TuiBackend, mouse: Mouse) -> Vec<Dispat
 			} else {
 				1.0
 			};
+
 			scroll_enclosing(backend, hit, direction)
 		}
 		Mouse::Click { .. } => click(backend, hit, x),

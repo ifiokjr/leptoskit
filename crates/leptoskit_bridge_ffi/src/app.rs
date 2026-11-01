@@ -38,6 +38,7 @@ mod guest;
 mod render;
 #[cfg(not(target_arch = "wasm32"))]
 mod rive;
+
 mod services;
 mod text;
 #[cfg(not(target_arch = "wasm32"))]
@@ -306,6 +307,7 @@ impl App {
 				return Err(Error::Unavailable);
 			}
 		};
+
 		self.close_scheduler = Some(close_scheduler);
 		self.close_wake = Some(wake.fork());
 		self.service = Some(ServiceState::Failed);
@@ -325,6 +327,7 @@ impl App {
 			.host
 			.as_mut()
 			.expect("live applications own an interpreter");
+
 		let work = match service.poll(host) {
 			Ok(work) => work,
 			Err(error) => {
@@ -332,6 +335,7 @@ impl App {
 				return Err(error);
 			}
 		};
+
 		self.routed_requests.extend(work.requests);
 		self.routed_cancelled.extend(work.cancelled);
 		Ok(())
@@ -488,6 +492,7 @@ impl App {
 
 		if let Some(error) = self.host_mut().render_error() {
 			self.error = error.into();
+
 			return -1;
 		}
 
@@ -1143,8 +1148,10 @@ impl App {
 		if let Some(error) = self.host_mut().render_error() {
 			self.error = error.into();
 			self.render_failed = true;
+
 			return None;
 		}
+
 		let root = self.host_mut().surface().root().map(NodeId::index);
 		let mutations = self.host_mut().take_mutations();
 
@@ -1155,6 +1162,7 @@ impl App {
 			(Some(devtools), Some(host)) => devtools.render(host, mutations, &mut self.flattener),
 			_ => self.flattener.translate(mutations),
 		};
+
 		#[cfg(not(all(feature = "devtools", not(target_arch = "wasm32"))))]
 		let mutations = self.flattener.translate(mutations);
 

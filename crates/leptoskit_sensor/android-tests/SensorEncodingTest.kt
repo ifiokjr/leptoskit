@@ -31,6 +31,7 @@ class SensorEncodingTest {
         assertEquals(1, steps.int)
         assertEquals(0, steps.int)
         assertEquals(13L, steps.long)
+
         assertEquals(2.5, steps.double, 0.0)
         assertEquals(0.0, steps.double, 0.0)
     }
@@ -40,6 +41,7 @@ class SensorEncodingTest {
         for (value in floatArrayOf(-1f, Float.NaN, Float.POSITIVE_INFINITY, 1.5f)) {
             assertThrows(PluginException::class.java) { encodeSensorEvent(Sensor.TYPE_STEP_COUNTER, 1, floatArrayOf(value), true) }
         }
+
         assertThrows(PluginException::class.java) { encodeSensorEvent(Sensor.TYPE_LIGHT, 1, floatArrayOf(-1f), true) }
         val vector = encodeSensorEvent(Sensor.TYPE_ACCELEROMETER, 1_000_000_000, floatArrayOf(-9.8f, 0f, 2f), false)
         assertEquals(32, vector.size)

@@ -104,6 +104,7 @@ fn native_hidden_and_clipping_properties_change_query_visibility() {
 		assert!(tester.tap(&finder).is_err());
 		tester.pump();
 		tester.find(&finder).unwrap();
+
 		tester.tap(&finder).unwrap();
 	}
 }
@@ -166,6 +167,7 @@ fn held_controls_show_pressed_styles_until_released_without_pressing() {
 	tester.hold(&add).unwrap();
 	let held = tester.find(&add).unwrap().props;
 	assert_ne!(held.background, resting.background);
+
 	assert_eq!(held.accessible_name(), Some("Add"));
 	tester.release().unwrap();
 	assert_eq!(tester.find(&add).unwrap().props, resting);
@@ -212,6 +214,7 @@ fn form_entry_updates_visible_feedback() {
 							if let NativeEvent::Change { value } = event {
 								state.lock().unwrap().clone_from(value);
 							}
+
 							EventOutcome::Handled
 						}),
 				)
@@ -302,6 +305,7 @@ fn disabled_ancestors_and_invisible_controls_cannot_be_activated() {
 		assert!(tester.tap(&Finder::text("Danger")).is_err());
 		assert_eq!(tester.find_all(&Finder::text("Danger")).is_empty(), hidden);
 	}
+
 	let mut tester = WidgetTester::new(
 		|| {
 			Element::view().child(
@@ -426,6 +430,7 @@ fn scroll_dispatches_to_the_component_and_renders_its_result() {
 							if let NativeEvent::Scroll { offset_y, .. } = event {
 								*state.lock().unwrap() = *offset_y;
 							}
+
 							EventOutcome::Handled
 						}),
 				)

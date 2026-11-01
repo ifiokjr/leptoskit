@@ -131,6 +131,7 @@ fn sugar_builds_each_finder() {
 	assert_eq!(tester.get_all_by_text("Delete").unwrap().len(), 2);
 	assert!(tester.get_all_by_label("Open").is_err());
 	assert!(tester.query_by_test_id("missing").unwrap().is_none());
+
 	assert!(tester.query_by_role(Role::Button, "Delete").is_err());
 	assert_eq!(tester.query_all_by_label("Close").len(), 1);
 	assert_eq!(tester.query_all_by_test_id("archive").len(), 1);

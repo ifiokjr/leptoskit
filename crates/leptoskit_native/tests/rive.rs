@@ -274,6 +274,7 @@ fn surfaces_bound_player_count_and_total_backing_pixels() {
 		budget.uploads, 16,
 		"paused scenes do no further raster or upload work"
 	);
+
 	surface.set_root(&tree(17));
 	assert!(
 		surface
@@ -384,6 +385,7 @@ fn controlled_inputs_update_a_retained_player_and_invalid_updates_can_be_correct
 			.unwrap()
 	);
 	assert_eq!(surface.root(), root);
+
 	assert_eq!(presenter.uploads.len(), 2);
 	assert_ne!(presenter.uploads[0].1, presenter.uploads[1].1);
 	let mut invalid = content.clone();

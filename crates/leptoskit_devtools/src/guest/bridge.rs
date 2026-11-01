@@ -29,14 +29,17 @@ pub(crate) fn start() -> bool {
 	if AGENT.with_borrow(Option::is_some) {
 		return true;
 	}
+
 	if ASKED.replace(true) {
 		return false;
 	}
+
 	let Ok(plugin) = Devtools::new() else {
 		return false;
 	};
 	let agent = Rc::new(Agent::new(Bridge(plugin), Waker::from(Arc::new(Poll))));
 	AGENT.set(Some(Rc::clone(&agent)));
+
 	registry::install(Rc::new(Wake(Rc::clone(&agent))));
 	agent.start();
 	true

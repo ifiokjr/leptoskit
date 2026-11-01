@@ -18,6 +18,7 @@ public final class PosturePlugin: NativePlugin {
     public let methods: [UInt32] = [0, 1]
     private let context: NativePluginContext
     private var closed = false
+
     #if canImport(UIKit)
     private var observer: AnyObject?
     #endif
@@ -26,30 +27,39 @@ public final class PosturePlugin: NativePlugin {
 
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
         guard !closed else { throw PluginError.cancelled }
+
         guard method <= 1 else { throw PluginError.unavailable }
         let previous: Data?
+
         if method == 0 {
             guard payload.count == 0 else { throw PluginError.invalidArgument }
             previous = nil
         } else {
             previous = try payload.withUnsafeBytes { bytes in
                 let hinges = (bytes.count - PostureEncoding.headerBytes) / PostureEncoding.hingeBytes
+
                 guard bytes.count >= PostureEncoding.headerBytes,
                       (bytes.count - PostureEncoding.headerBytes) % PostureEncoding.hingeBytes == 0,
                       hinges <= PostureEncoding.maxHinges else { throw PluginError.invalidArgument }
+
                 return Data(bytes)
             }
         }
+
         #if canImport(UIKit, _version: 9127.0.85)
         let owner = try context.requireAttachedOwner()
+
         guard #available(iOS 27.1, *) else { return PostureEncoding.rigid }
+
         guard observer == nil else { throw PluginError.busy }
         let watcher = HingeWatcher(view: owner.view, previous: previous)
         observer = watcher
         defer { observer = nil }
+
         return try await watcher.next()
         #elseif canImport(UIKit)
         _ = try context.requireAttachedOwner()
+
         return PostureEncoding.rigid
         #else
         throw PluginError.unavailable
@@ -58,10 +68,13 @@ public final class PosturePlugin: NativePlugin {
 
     public func close() {
         closed = true
+
         #if canImport(UIKit, _version: 9127.0.85)
+
         if #available(iOS 27.1, *), let watcher = observer as? HingeWatcher {
             watcher.finish(.failure(PluginError.cancelled))
         }
+
         #endif
     }
 }
@@ -88,10 +101,13 @@ private final class HingeWatcher {
     func next() async throws -> Data {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
+
                 guard !Task.isCancelled, let view else {
                     continuation.resume(throwing: PluginError.cancelled)
+
                     return
                 }
+
                 self.continuation = continuation
                 // The handler runs with the initial state as soon as the
                 // interaction joins the hierarchy, then on every hinge change.
@@ -116,6 +132,7 @@ private final class HingeWatcher {
     private func evaluate() {
         guard sawHinge, let view else { return }
         let current = PostureEncoding.encode(view: view, hinge: hinge)
+
         if current != previous { finish(.success(current)) }
     }
 
@@ -124,6 +141,7 @@ private final class HingeWatcher {
         self.continuation = nil
         geometry?.invalidate()
         geometry = nil
+
         if let interaction { view?.removeInteraction(interaction) }
         interaction = nil
         continuation.resume(with: result)
@@ -147,10 +165,12 @@ enum PostureEncoding {
 
     static func data(_ words: [UInt32]) -> Data {
         var result = Data(capacity: words.count * 4)
+
         for word in words {
             var little = word.littleEndian
             withUnsafeBytes(of: &little) { result.append(contentsOf: $0) }
         }
+
         return result
     }
 
@@ -173,6 +193,7 @@ enum PostureEncoding {
         let bounds = view.bounds
         let division = view.reservedRegions(kind: .division, options: .includeInactive).first
         var words: [UInt32] = [trueFlag, fold, 1, fold]
+
         if let division, bounds.width > 0, bounds.height > 0 {
             let frame = division.frame.intersection(bounds)
             let occluded = view.reservedRegions(kind: .occlusion).contains { $0.frame.intersects(frame) }
@@ -188,7 +209,9 @@ enum PostureEncoding {
         } else {
             words += [0, unknownFlag, 0, 0, 0, 0, 0]
         }
+
         words.append(degrees)
+
         return data(words)
     }
     #endif

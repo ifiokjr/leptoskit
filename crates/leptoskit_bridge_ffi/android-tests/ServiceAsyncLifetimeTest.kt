@@ -116,6 +116,7 @@ private suspend fun kotlinx.coroutines.CoroutineScope.verifyClose(
     service.finishAdmission()
     val view = allocate(LeptosKitView::class.java)
     assign(view, "closeStarted", true)
+
     assign(view, "closingJobs", closing)
     assign(view, "services", service)
 
@@ -123,6 +124,7 @@ private suspend fun kotlinx.coroutines.CoroutineScope.verifyClose(
 
     while (true) (turns.poll() ?: break).invoke()
     service.awaitClosed()
+
     yield()
 
     check(releases == 1 && !joined.isCompleted && !task.isCompleted)

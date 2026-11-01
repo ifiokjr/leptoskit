@@ -25,10 +25,12 @@ impl RouteUrl {
 		let url = url.split_once('#').map_or(url, |(before, _)| before);
 		let (path, query) = url.split_once('?').unwrap_or((url, ""));
 		let mut segments: Vec<String> = Vec::new();
+
 		for segment in path.split('/').filter(|segment| !segment.is_empty()) {
 			// Decoding first also resolves `%2e` and `%2e%2e`, which browsers
 			// treat as dot segments too.
 			let segment = decode(segment, false);
+
 			match segment.as_str() {
 				"." => {}
 				".." => {
@@ -37,6 +39,7 @@ impl RouteUrl {
 				_ => segments.push(segment),
 			}
 		}
+
 		let query = query
 			.split('&')
 			.filter(|pair| !pair.is_empty())
@@ -81,20 +84,24 @@ impl Href {
 	/// pairs.
 	pub(crate) fn from_parts(segments: &[String], query: &[(&str, String)]) -> Self {
 		let mut href = String::new();
+
 		for segment in segments {
 			debug_assert!(is_segment(segment), "`{segment}` is not a path segment");
 			href.push('/');
 			encode_into(&mut href, segment, PATH_SAFE);
 		}
+
 		if href.is_empty() {
 			href.push('/');
 		}
+
 		for (index, (key, value)) in query.iter().enumerate() {
 			href.push(if index == 0 { '?' } else { '&' });
 			encode_into(&mut href, key, QUERY_SAFE);
 			href.push('=');
 			encode_into(&mut href, value, QUERY_SAFE);
 		}
+
 		Self(href)
 	}
 }
@@ -144,32 +151,39 @@ const HEX: &[u8; 16] = b"0123456789ABCDEF";
 /// digits stays as it is, and bytes that are not UTF-8 become U+FFFD.
 fn decode(text: &str, plus_is_space: bool) -> String {
 	let escaped = text.contains('%') || (plus_is_space && text.contains('+'));
+
 	if !escaped {
 		return text.to_owned();
 	}
+
 	let bytes = text.as_bytes();
 	let mut decoded = Vec::with_capacity(bytes.len());
 	let mut index = 0;
+
 	while index < bytes.len() {
 		let escape = bytes
 			.get(index..index + 3)
 			.filter(|escape| escape[0] == b'%')
 			.and_then(|escape| Some(hex_value(escape[1])? << 4 | hex_value(escape[2])?));
+
 		match (bytes[index], escape) {
 			(_, Some(byte)) => {
 				decoded.push(byte);
 				index += 3;
 			}
+
 			(b'+', None) if plus_is_space => {
 				decoded.push(b' ');
 				index += 1;
 			}
+
 			(byte, None) => {
 				decoded.push(byte);
 				index += 1;
 			}
 		}
 	}
+
 	String::from_utf8(decoded)
 		.unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned())
 }
@@ -242,6 +256,7 @@ mod tests {
 		for value in ["", ".", ".."] {
 			assert!(!is_segment(value), "{value:?}");
 		}
+
 		for value in ["...", ".a", "%2e", " "] {
 			assert!(is_segment(value), "{value:?}");
 		}

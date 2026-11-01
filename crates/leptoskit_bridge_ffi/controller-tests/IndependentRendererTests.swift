@@ -45,6 +45,7 @@ struct IndependentRendererTests {
         try pixels.withUnsafeBufferPointer { try renderer.presentRive(1, width: 2, height: 1, pixels: $0) }
         let image = try #require(widget.image)
         pixels = Array(repeating: 0, count: pixels.count)
+
         let cg = try #require(image.cgImage(forProposedRect: nil, context: nil, hints: nil))
         let data = try #require(cg.dataProvider?.data)
         let actual = Array(UnsafeBufferPointer(start: CFDataGetBytePtr(data), count: CFDataGetLength(data)))

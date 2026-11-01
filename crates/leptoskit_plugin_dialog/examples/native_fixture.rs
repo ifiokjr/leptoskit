@@ -60,6 +60,7 @@ mod dialogs {
 			file_name: Some("evidence.txt".into()),
 			..FileOptions::default()
 		};
+
 		match FileDialog::new(parent, options) {
 			Ok(dialog) => {
 				match futures::executor::block_on(dialog.open_file()) {
@@ -185,6 +186,7 @@ mod fixture {
 			);
 			assert!(!window.is_null(), "create the fixture window");
 			let mut message = std::mem::zeroed::<MSG>();
+
 			while GetMessageW(&raw mut message, std::ptr::null_mut(), 0, 0) > 0 {
 				TranslateMessage(&raw const message);
 				DispatchMessageW(&raw const message);
@@ -272,6 +274,7 @@ mod fixture {
 						CONFIRM => present(window, false),
 						_ => {}
 					}
+
 					0
 				}
 				OUTCOME => {
@@ -279,6 +282,7 @@ mod fixture {
 						let text = wide(&text);
 						SetWindowTextW(GetDlgItem(window, STATUS), text.as_ptr());
 					}
+
 					0
 				}
 				WM_DESTROY => {
@@ -378,6 +382,7 @@ mod fixture {
 			} else {
 				"Dialog failed: no Wayland surface".into()
 			};
+
 			glib::MainContext::default().invoke(move || {
 				STATUS.with(|status| {
 					if let Some(status) = status.get() {
@@ -542,6 +547,7 @@ mod fixture {
 			} else {
 				crate::dialogs::confirm(&parent)
 			};
+
 			dispatch2::run_on_main(move |_| {
 				STATUS.with(|status| {
 					if let Some(status) = status.get() {
@@ -595,6 +601,7 @@ mod fixture {
 		window.setTitle(&NSString::from_str("Leptoskit dialog fixture"));
 		let content = NSView::new(mtm);
 		window.setContentView(Some(&content));
+
 		let parent = Parent(NonNull::from(&*content).cast());
 		let actions = Actions::new(mtm, parent);
 		content.addSubview(&button(

@@ -50,11 +50,13 @@ class ClipboardPlugin(
 
                 2 -> {
                     requireEmpty(payload)
+
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                         clipboard.clearPrimaryClip()
                     } else {
                         clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
                     }
+
                     byteArrayOf()
                 }
 

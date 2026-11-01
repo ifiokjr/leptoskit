@@ -67,6 +67,7 @@ impl Painter<'_> {
 		}
 
 		let rect = cell_rect(x, y, node.frame.width, node.frame.height);
+
 		if rect.is_empty() {
 			return;
 		}
@@ -194,6 +195,7 @@ impl Painter<'_> {
 				(color.red(), color.green(), color.blue()),
 				color.alpha(),
 			);
+
 			return;
 		}
 
@@ -265,6 +267,7 @@ impl Painter<'_> {
 			if self.clip.contains(col, row) {
 				self.buffer.set_glyph(col, row, symbol, fg, bg, attrs);
 			}
+
 			col += glyph_width(symbol);
 		}
 	}
@@ -299,6 +302,7 @@ impl Painter<'_> {
 		for (width, row) in [(edges.top, top), (edges.bottom, bottom)] {
 			if width > 0.0 {
 				let line = if width >= HEAVY_BORDER { '━' } else { '─' };
+
 				for col in rect.left..=right {
 					draw(col, row, line);
 				}
@@ -311,6 +315,7 @@ impl Painter<'_> {
 			}
 
 			let heavy = width >= HEAVY_BORDER;
+
 			for row in top..=bottom {
 				let symbol = if rows.half_row() == Some(row) {
 					if heavy { '╹' } else { '╵' }
@@ -319,11 +324,13 @@ impl Painter<'_> {
 				} else {
 					'│'
 				};
+
 				draw(col, row, symbol);
 			}
 		}
 
 		let heavy = edges.top.max(edges.bottom).max(edges.left).max(edges.right) >= HEAVY_BORDER;
+
 		let corners = match (heavy, rounded) {
 			(true, _) => ['┏', '┓', '┗', '┛'],
 			(false, true) => ['╭', '╮', '╰', '╯'],
@@ -370,6 +377,7 @@ impl Painter<'_> {
 		for (row, range) in lines.into_iter().enumerate() {
 			let line = &content[range.clone()];
 			let line_row = rect.top + row as i16;
+
 			if line_row >= rect.bottom() {
 				break;
 			}
@@ -383,6 +391,7 @@ impl Painter<'_> {
 				TextAlign::Start if rtl => rect.right() - width as i16,
 				TextAlign::Start => rect.left,
 				TextAlign::Center => rect.left + (rect.width as i16 - width as i16) / 2,
+
 				TextAlign::End if rtl => rect.left,
 				TextAlign::End => rect.right() - width as i16,
 			};
@@ -419,6 +428,7 @@ impl Painter<'_> {
 			if start < end {
 				let fg = span.color.map_or(fg, TuiColor::from_packed);
 				let bg = span.background.map_or(bg, TuiColor::from_packed);
+
 				let mut attrs = match span.font_weight {
 					Some(weight) => {
 						attrs
@@ -427,6 +437,7 @@ impl Painter<'_> {
 					}
 					None => attrs,
 				};
+
 				attrs = match span.italic {
 					Some(true) => attrs.union(Attributes::ITALIC),
 					Some(false) => attrs.without(Attributes::ITALIC),
@@ -461,6 +472,7 @@ impl Painter<'_> {
 
 		if !chrome {
 			self.label(id, rect, fg, bg, attrs, true);
+
 			return;
 		}
 
@@ -473,6 +485,7 @@ impl Painter<'_> {
 
 		let width = display_width(&line) as i16;
 		let align = node.props.text_align.unwrap_or(TextAlign::Center);
+
 		let start = match align {
 			TextAlign::Start => rect.left,
 			TextAlign::Center => rect.left + (rect.width as i16 - width) / 2,
@@ -620,6 +633,7 @@ impl Painter<'_> {
 			} else {
 				'─'
 			};
+
 			if self.clip.contains(col, rect.top) {
 				self.buffer.set_glyph(col, rect.top, symbol, fg, bg, attrs);
 			}
@@ -642,6 +656,7 @@ impl Painter<'_> {
 				} else {
 					'░'
 				};
+
 				if self.clip.contains(col, rect.top) {
 					self.buffer.set_glyph(col, rect.top, symbol, fg, bg, attrs);
 				}

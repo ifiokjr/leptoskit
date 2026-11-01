@@ -171,6 +171,7 @@ pub(crate) fn parse(host: &str, call: &MacroCall) -> Result<Markup, MarkupError>
 	let (nodes, diagnostics) = rstml::Parser::new(config)
 		.parse_recoverable(tokens)
 		.split_vec();
+
 	if let Some(diagnostic) = diagnostics
 		.into_iter()
 		.find(|diagnostic| diagnostic.level() == proc_macro2_diagnostics::Level::Error)
@@ -231,6 +232,7 @@ impl Parser<'_> {
 		let start = self.offset;
 		let mut iter = tokens.clone().into_iter();
 		let prefix: Vec<TokenTree> = iter.by_ref().take(4).collect();
+
 		match prefix.as_slice() {
 			[
 				TokenTree::Ident(class),
@@ -243,6 +245,7 @@ impl Parser<'_> {
 				self.covered.push(value.clone());
 				(Some(value), iter.collect(), after)
 			}
+
 			_ => (None, tokens, start),
 		}
 	}
@@ -253,11 +256,13 @@ impl Parser<'_> {
 		region: Range<usize>,
 	) -> Result<List<Node>, MarkupError> {
 		let mut items = Vec::with_capacity(nodes.len());
+
 		for node in nodes {
 			let range = self.node_range(node)?;
 			let value = self.node(node, range.clone())?;
 			items.push((value, range));
 		}
+
 		self.list(items, region)
 	}
 
@@ -335,6 +340,7 @@ impl Parser<'_> {
 						}
 					}
 				};
+
 				key.start..end
 			}
 		}
@@ -379,10 +385,12 @@ impl Parser<'_> {
 		let open = &element.open_tag;
 		let name_range = self.position(open.name.span());
 		let name = compact(&self.host[name_range.clone()]);
+
 		let generics_range = match (&open.generics.lt_token, &open.generics.gt_token) {
 			(Some(lt), Some(gt)) => Some(self.between(lt.span, gt.span)),
 			_ => None,
 		};
+
 		let generics = generics_range
 			.clone()
 			.map(|range| collapse_whitespace(&self.host[range]));
@@ -394,10 +402,12 @@ impl Parser<'_> {
 			.map_or(end_tag.token_gt.span, |solidus| solidus.span);
 		let attributes_end = self.position(end_tag_start).start;
 		let mut attributes = Vec::with_capacity(open.attributes.len());
+
 		for attribute in &open.attributes {
 			let range = self.attribute_range(attribute);
 			attributes.push((self.attribute(attribute)?, range));
 		}
+
 		let attributes = self.list(attributes, attributes_start..attributes_end)?;
 		let children_start = self.position(end_tag.token_gt.span).end;
 		let children_end = element.close_tag.as_ref().map_or(children_start, |close| {
@@ -437,6 +447,7 @@ impl Parser<'_> {
 						}
 					}
 				};
+
 				Ok(Attribute::Keyed { key, value })
 			}
 		}
@@ -456,6 +467,7 @@ impl Parser<'_> {
 			syn::Expr::Block(block) if block.attrs.is_empty() && block.label.is_none() => {
 				self.braced(&block.block)
 			}
+
 			syn::Expr::Lit(_) => {
 				let range = self.position(expr.span());
 				self.covered.push(range.clone());
@@ -488,6 +500,7 @@ impl Parser<'_> {
 		else {
 			return Value::Block(outer);
 		};
+
 		let mut depth = 0usize;
 		let separated = tokens.iter().any(|(token, _)| {
 			match token {
@@ -496,6 +509,7 @@ impl Parser<'_> {
 				Token::Punct(b';') => return depth == 0,
 				_ => {}
 			}
+
 			false
 		});
 		let first_text = &self.host[inner.start + first_range.start..inner.start + first_range.end];
@@ -504,14 +518,18 @@ impl Parser<'_> {
 		let commented = [first, last]
 			.iter()
 			.any(|token| matches!(token, Token::LineComment | Token::BlockComment));
+
 		if separated || statement || commented {
 			return Value::Block(outer);
 		}
+
 		let range = inner.start + first_range.start..inner.start + last_range.end;
 		let text = &self.host[range.clone()];
+
 		if is_spread(text) {
 			return Value::Spread(format!("{{{}}}", compact(text)));
 		}
+
 		Value::Expr {
 			range,
 			braced: true,
@@ -527,13 +545,16 @@ impl Parser<'_> {
 		let mut items: Vec<Item<T>> = Vec::with_capacity(values.len());
 		let mut previous_end = region.start;
 		let mut values = values.into_iter();
+
 		loop {
 			let next = values.next();
 			let gap_end = next.as_ref().map_or(region.end, |(_, range)| range.start);
 			let gap = self.gap(previous_end..gap_end, !items.is_empty())?;
+
 			if let Some(previous) = items.last_mut() {
 				previous.trailing = gap.trailing;
 			}
+
 			let Some((value, range)) = next else {
 				return Ok(List {
 					items,
@@ -547,6 +568,7 @@ impl Parser<'_> {
 				blank_before: gap.blank_after,
 				joined: previous_end == range.start,
 			});
+
 			previous_end = range.end;
 		}
 	}
@@ -559,10 +581,13 @@ impl Parser<'_> {
 		let mut result = Gap::default();
 		let mut cursor = gap.start;
 		let mut same_line = after_item;
+
 		for comment in comments_in(self.host, gap.clone()) {
 			let between = &self.host[cursor..comment.range.start];
 			same_line &= !between.contains('\n');
+
 			cursor = comment.range.end;
+
 			if same_line {
 				result.trailing.push(comment);
 			} else {
@@ -572,6 +597,7 @@ impl Parser<'_> {
 				});
 			}
 		}
+
 		result.blank_after = has_blank_line(&self.host[cursor..gap.end]);
 		Ok(result)
 	}
@@ -585,6 +611,7 @@ impl Parser<'_> {
 				message: "the markup's source positions overlap".to_owned(),
 			});
 		}
+
 		match Lexer::new(&self.host[gap.clone()])
 			.find(|(token, _)| !matches!(token, Token::LineComment | Token::BlockComment))
 		{
@@ -609,6 +636,7 @@ impl Parser<'_> {
 					range.start <= comment.range.start && comment.range.end <= range.end
 				})
 			});
+
 		match lost {
 			Some(comment) => {
 				Err(MarkupError {
@@ -631,6 +659,7 @@ fn comments_in_text(host: &str, range: Range<usize>) -> Vec<Comment> {
 				Token::BlockComment => true,
 				_ => return None,
 			};
+
 			Some(Comment {
 				range: range.start + offset..range.end + offset,
 				block,
@@ -668,9 +697,11 @@ impl<'a> LineIndex<'a> {
 		let Some(&start) = self.starts.get(position.line.wrapping_sub(1)) else {
 			return self.text.len();
 		};
+
 		if self.text_is_ascii {
 			return (start + position.column).min(self.text.len());
 		}
+
 		self.text[start..]
 			.char_indices()
 			.nth(position.column)
@@ -715,6 +746,7 @@ fn unparsed_block(input: syn::parse::ParseStream<'_>) -> syn::Result<Option<Toke
 	while !input.is_empty() {
 		input.parse::<TokenTree>()?;
 	}
+
 	Ok(Some(TokenStream::new()))
 }
 

@@ -32,9 +32,11 @@ impl Request {
 		let mut encoder = Encoder::default();
 		encoder.bytes(self.command.as_bytes())?;
 		encoder.u32(self.arguments.len() as u32);
+
 		for arg in &self.arguments {
 			encoder.bytes(arg.as_bytes())?;
 		}
+
 		Ok(encoder.finish())
 	}
 
@@ -42,16 +44,21 @@ impl Request {
 		if payload.len() > MAX_REQUEST_BYTES {
 			return Err(BridgeError::TooLarge);
 		}
+
 		let mut decoder = Decoder::new(payload);
 		let command = decoder.string()?.to_owned();
 		let count = decoder.u32()? as usize;
+
 		if count > MAX_ARGUMENTS {
 			return Err(BridgeError::TooLarge);
 		}
+
 		let mut arguments = Vec::new();
+
 		for _ in 0..count {
 			arguments.push(decoder.string()?.to_owned());
 		}
+
 		decoder.finish()?;
 		let request = Self { command, arguments };
 		request.validate()?;
@@ -62,15 +69,18 @@ impl Request {
 		if !valid_name(&self.command) || self.arguments.iter().any(|arg| arg.contains('\0')) {
 			return Err(BridgeError::InvalidArgument);
 		}
+
 		let size = self
 			.arguments
 			.iter()
 			.fold(self.command.len().saturating_add(8), |size, arg| {
 				size.saturating_add(arg.len()).saturating_add(4)
 			});
+
 		if self.arguments.len() > MAX_ARGUMENTS || size > MAX_REQUEST_BYTES {
 			return Err(BridgeError::TooLarge);
 		}
+
 		Ok(())
 	}
 }
@@ -117,6 +127,7 @@ impl Output {
 		));
 		encoder.bytes(&self.stdout)?;
 		encoder.bytes(&self.stderr)?;
+
 		Ok(encoder.finish())
 	}
 
@@ -124,7 +135,9 @@ impl Output {
 		if payload.len() > MAX_OUTPUT_BYTES + 24 {
 			return Err(BridgeError::TooLarge);
 		}
+
 		let mut decoder = Decoder::new(payload);
+
 		let finish = match decoder.u32()? {
 			0 => Finish::Exited,
 			1 => Finish::Cancelled,
@@ -133,20 +146,25 @@ impl Output {
 			4 => Finish::StderrLimit,
 			_ => return Err(BridgeError::InvalidArgument),
 		};
+
 		let success = match decoder.u32()? {
 			0 => false,
 			1 => true,
 			_ => return Err(BridgeError::InvalidArgument),
 		};
+
 		let code_present = match decoder.u32()? {
 			0 => false,
 			1 => true,
 			_ => return Err(BridgeError::InvalidArgument),
 		};
+
 		let code_bits = decoder.u32()?;
+
 		if !code_present && code_bits != 0 {
 			return Err(BridgeError::InvalidArgument);
 		}
+
 		let code = code_present.then_some(i32::from_le_bytes(code_bits.to_le_bytes()));
 		let stdout = Bytes::copy_from_slice(decoder.bytes()?);
 		let stderr = Bytes::copy_from_slice(decoder.bytes()?);
@@ -166,9 +184,11 @@ impl Output {
 		if self.stdout.len().saturating_add(self.stderr.len()) > MAX_OUTPUT_BYTES {
 			return Err(BridgeError::TooLarge);
 		}
+
 		if self.success != (self.finish == Finish::Exited && self.code == Some(0)) {
 			return Err(BridgeError::InvalidArgument);
 		}
+
 		Ok(())
 	}
 }
@@ -201,9 +221,11 @@ impl Error {
 			Self::Denied => BridgeError::PermissionDenied,
 			Self::Busy => BridgeError::Busy,
 			Self::Protocol(error) => *error,
+
 			Self::Io(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
 				BridgeError::PermissionDenied
 			}
+
 			_ => BridgeError::Native,
 		}
 	}
@@ -297,10 +319,13 @@ mod tests {
 		};
 		let encoded = request.encode().unwrap();
 		assert_eq!(Request::decode(&encoded).unwrap(), request);
+
 		for length in 0..encoded.len() {
 			assert!(Request::decode(&encoded[..length]).is_err());
 		}
+
 		let mut trailing = encoded.to_vec();
+
 		trailing.push(0);
 		assert!(Request::decode(&trailing).is_err());
 		assert!(
@@ -349,6 +374,7 @@ mod tests {
 			arguments: vec!["x".repeat(MAX_REQUEST_BYTES)],
 		};
 		assert_eq!(too_long.encode().unwrap_err(), BridgeError::TooLarge);
+
 		for command in ["", "rm -rf", "../tool", &"a".repeat(129)] {
 			let request = Request {
 				command: command.into(),
@@ -414,6 +440,7 @@ mod tests {
 				BridgeError::InvalidArgument
 			);
 		}
+
 		let oversized = Output {
 			code: Some(0),
 			success: true,
@@ -445,9 +472,11 @@ mod tests {
 				BridgeError::Native,
 			),
 		];
+
 		for (error, expected) in cases {
 			assert_eq!(error.bridge_error(), expected, "{error}");
 		}
+
 		assert_eq!(
 			is_available(),
 			cfg!(any(

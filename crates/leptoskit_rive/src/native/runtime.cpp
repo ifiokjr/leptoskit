@@ -6,6 +6,7 @@
 #include "rive/animation/state_machine_instance.hpp"
 #include "rive/animation/state_machine_input_instance.hpp"
 #include "rive/animation/state_machine_bool.hpp"
+
 #include "rive/animation/state_machine_number.hpp"
 #include "rive/animation/state_machine_trigger.hpp"
 #include "rive/layout_component.hpp"
@@ -34,6 +35,7 @@ struct Context {
         command.paint = paint;
         command.opacity = opacity;
         command.released_path = released;
+
         if (matrix) std::memcpy(command.matrix, matrix->values(), sizeof(command.matrix));
         emit(rust, &command);
     }
@@ -67,6 +69,7 @@ public:
         auto verbs = path.verbsU8();
         auto points = path.points();
         static_assert(sizeof(Vec2D) == sizeof(float) * 2);
+
         return {id, revision, verbs.data(), verbs.size(),
                 reinterpret_cast<const float*>(points.data()), points.size() * 2, rule};
     }
@@ -98,10 +101,12 @@ public:
     void join(StrokeJoin v) override { values.join = static_cast<uint32_t>(v); }
     void cap(StrokeCap v) override { values.cap = static_cast<uint32_t>(v); }
     void blendMode(BlendMode v) override { values.blend = static_cast<uint32_t>(v); }
+
     void feather(float v) override { if (v != 0) context.unsupported = true; }
     void strokePosition(StrokePosition v) override {
         if (v != StrokePosition::center) context.unsupported = true;
     }
+
     void additiveness(float v) override { if (v != 0) context.unsupported = true; }
     void shader(rcp<RenderShader> v) override { gradient = std::move(v); }
     void shaderTransform(const Mat2D& v) override { matrix = v; }
@@ -112,6 +117,7 @@ public:
     LkPaint view() const {
         LkPaint result = values;
         std::memcpy(result.shader_matrix, matrix.values(), sizeof(result.shader_matrix));
+
         if (gradient) {
             auto* g = static_cast<Gradient*>(gradient.get());
             result.gradient = g->kind;
@@ -119,6 +125,7 @@ public:
             result.colors = g->colors.data(); result.stops = g->stops.data();
             result.stop_count = g->colors.size();
         }
+
         return result;
     }
 };
@@ -145,8 +152,10 @@ public:
     }
     rcp<RenderPath> makeRenderPath(RawPath& raw, FillRule rule) override {
         auto path = make_rcp<Path>(context); path->addRawPath(raw); path->fillRule(rule);
+
         return path;
     }
+
     rcp<RenderPath> makeEmptyRenderPath() override { return make_rcp<Path>(context); }
     rcp<RenderPaint> makeRenderPaint() override { return make_rcp<Paint>(context); }
     rcp<RenderImage> decodeImage(Span<const uint8_t>) override {
@@ -203,15 +212,20 @@ extern "C" LkRive* lk_rive_new(const uint8_t* bytes,size_t size,const char* boar
     try {
         auto player = std::make_unique<LkRive>(rust,emit);
         player->file = rive::File::import({bytes,size},&player->factory,nullptr,nullptr,nullptr,true);
+
         if (!player->file) return nullptr;
+
         if (!player->file->assets().empty() || player->file->viewModelCount() != 0) {
             *error = 3; return nullptr;
         }
+
         player->artboard = board_len ? player->file->artboardNamed(std::string(board,board_len))
                                       : player->file->artboardDefault();
+
         if (!player->artboard) { *error = 2; return nullptr; }
         // Inspect every source artboard: a nested artboard is instantiated later.
         for (size_t index = 0; index < player->file->artboardCount(); ++index) {
+
           for (auto* object : player->file->artboard(index)->objects()) {
             if (object && (object->is<rive::Text>() || rive::ScriptedObject::from(object) ||
                 (object->is<rive::LayoutComponent>() && !object->is<rive::Artboard>()))) {
@@ -219,6 +233,7 @@ extern "C" LkRive* lk_rive_new(const uint8_t* bytes,size_t size,const char* boar
             }
           }
         }
+
         if (scene_kind == 2) {
             auto machine = player->artboard->stateMachineNamed(std::string(scene,scene_len));
             player->machine = machine.get(); player->scene = std::move(machine);
@@ -227,18 +242,24 @@ extern "C" LkRive* lk_rive_new(const uint8_t* bytes,size_t size,const char* boar
         } else {
             player->scene = player->artboard->animationAt(0);
         }
+
         if (scene_kind && !player->scene) { *error = 2; return nullptr; }
+
         if (player->machine) {
             for (size_t i=0; i<player->machine->inputCount(); ++i) {
                 auto* input = player->machine->input(i);
+
                 if (!input) { *error = 3; return nullptr; }
+
                 if (!player->inputs.emplace(input->name(),input).second) {
                     *error = 4; return nullptr;
                 }
             }
         }
+
         if (player->context.unsupported) { *error = 3; return nullptr; }
         *error = 0;
+
         return player.release();
     } catch (...) { *error = 6; return nullptr; }
 }
@@ -256,6 +277,7 @@ extern "C" uint32_t lk_rive_draw(LkRive* player,float elapsed,uint32_t width,uin
         renderer.align(rive::Fit::contain,rive::Alignment::center,
                        rive::AABB(0,0,float(width),float(height)),bounds);
         player->artboard->draw(&renderer);
+
         return player->context.unsupported ? 3 : 0;
     } catch (...) { return 6; }
 }
@@ -265,20 +287,26 @@ extern "C" uint32_t lk_rive_input(LkRive* player,const char* name,size_t size,ui
         if (!player->machine) return 4;
         std::string key(name,size);
         auto found = player->inputs.find(key);
+
         if (found == player->inputs.end()) return 4;
+
         if (kind == 0) {
             if (!found->second->input()->is<rive::StateMachineBool>()) return 4;
             auto* input = static_cast<rive::SMIBool*>(found->second);
+
             if (apply) input->value(value != 0);
         } else if (kind == 1) {
             if (!found->second->input()->is<rive::StateMachineNumber>()) return 4;
             auto* input = static_cast<rive::SMINumber*>(found->second);
+
             if (apply) input->value(value);
         } else {
             if (!found->second->input()->is<rive::StateMachineTrigger>()) return 4;
             auto* input = static_cast<rive::SMITrigger*>(found->second);
+
             if (apply) input->fire();
         }
+
         return 0;
     } catch (...) { return 6; }
 }

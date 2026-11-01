@@ -151,11 +151,13 @@ pub(super) struct Runtime {
 impl Runtime {
 	pub fn new(asset: &Asset, options: &Options) -> Result<Self, Error> {
 		let board = options.artboard.as_ref().map_or("", Name::as_str);
+
 		let (kind, scene) = match &options.scene {
 			Scene::Default => (0, ""),
 			Scene::Animation(name) => (1, name.as_str()),
 			Scene::StateMachine(name) => (2, name.as_str()),
 		};
+
 		let raster = RasterContext::new()?;
 		let mut code = 0;
 		// SAFETY: Inputs stay borrowed through this call. The owned context has
@@ -177,8 +179,10 @@ impl Runtime {
 		};
 		let Some(raw) = NonNull::new(raw) else {
 			status(code)?;
+
 			return Err(Error::Runtime("native import returned no player".into()));
 		};
+
 		let runtime = Self {
 			raw,
 			raster,
@@ -194,6 +198,7 @@ impl Runtime {
 			Input::Number(value) => (1, value as f32),
 			Input::Trigger => (2, 0.0),
 		};
+
 		// SAFETY: The live player is exclusively borrowed, the validated name
 		// is borrowed only for this synchronous call, and numbers were checked.
 		status(unsafe {
@@ -237,9 +242,11 @@ unsafe extern "C" fn emit(context: *mut c_void, command: *const Command) {
 	// SAFETY: C++ calls synchronously with this stable Raster and a live
 	// command.
 	let (raster, command) = unsafe { (&mut *context.cast::<Raster>(), &*command) };
+
 	if raster.failed() && command.operation != 6 {
 		return;
 	}
+
 	let result = match command.operation {
 		0 => raster.save(),
 		1 => raster.restore(),
@@ -268,12 +275,14 @@ unsafe extern "C" fn emit(context: *mut c_void, command: *const Command) {
 				} else {
 					unsafe { std::slice::from_raw_parts(path.points, path.point_count) }
 				};
+
 				if command.operation == 3 {
 					raster.clip(path, verbs, points)
 				} else {
 					// SAFETY: Draw provides a live paint, with bounded gradient
 					// arrays.
 					let paint = unsafe { &*command.paint };
+
 					if paint.stop_count > 4096 {
 						Err(Error::UnsupportedFeature)
 					} else {
@@ -287,6 +296,7 @@ unsafe extern "C" fn emit(context: *mut c_void, command: *const Command) {
 								)
 							}
 						};
+
 						raster.draw(path, verbs, points, paint, colors, stops)
 					}
 				}
@@ -294,6 +304,7 @@ unsafe extern "C" fn emit(context: *mut c_void, command: *const Command) {
 		}
 		_ => Err(Error::Runtime("invalid native draw command".into())),
 	};
+
 	if let Err(error) = result {
 		raster.fail(error);
 	}
@@ -394,6 +405,7 @@ mod tests {
 		send(&mut raster, &command);
 		command.operation = 3;
 		send(&mut raster, &command);
+
 		assert!(raster.pixels().data().iter().all(|byte| *byte == 0));
 		raster.finish().unwrap();
 		command.operation = u32::MAX;

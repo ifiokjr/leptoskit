@@ -24,14 +24,19 @@ internal object DocumentEncoding {
         if (limit !in 0..MAX_BYTES) throw PluginException(PluginException.TOO_LARGE)
         val output = ByteArrayOutputStream(minOf(limit, 65536))
         val buffer = ByteArray(minOf(limit + 1, 65536))
+
         while (true) {
             checkCancellation()
             val count = stream.read(buffer, 0, minOf(buffer.size, limit - output.size() + 1))
+
             if (count < 0) break
+
             if (count == 0) throw PluginException(PluginException.NATIVE)
+
             if (count > limit - output.size()) throw PluginException(PluginException.TOO_LARGE)
             output.write(buffer, 0, count)
         }
+
         return output.toByteArray()
     }
 
@@ -41,9 +46,12 @@ internal object DocumentEncoding {
         content: ByteArray,
     ): ByteArray {
         validateMetadata(name, mime)
+
         if (content.size > MAX_BYTES) throw PluginException(PluginException.TOO_LARGE)
         val reply = ByteBuffer.allocate(12 + name.size + mime.size + content.size).order(ByteOrder.LITTLE_ENDIAN)
+
         for (field in arrayOf(name, mime, content)) reply.putInt(field.size).put(field)
+
         return reply.array()
     }
 }

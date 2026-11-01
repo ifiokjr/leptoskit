@@ -72,6 +72,7 @@ impl Reading {
 		if payload.len() != 32 || payload[4..8] != [0; 4] {
 			return Err(Error::InvalidArgument);
 		}
+
 		let scope = u32::from_le_bytes(
 			payload[..4]
 				.try_into()
@@ -92,9 +93,11 @@ impl Reading {
 				.try_into()
 				.map_err(|_| Error::InvalidArgument)?,
 		);
+
 		if !first.is_finite() || !second.is_finite() || first < 0.0 {
 			return Err(Error::InvalidArgument);
 		}
+
 		match scope {
 			0 if second >= first => {
 				Ok(Self::Interval {
@@ -103,12 +106,14 @@ impl Reading {
 					reported_steps,
 				})
 			}
+
 			1 if second.to_bits() == 0 => {
 				Ok(Self::BootCounter {
 					timestamp: first,
 					reported_steps,
 				})
 			}
+
 			_ => Err(Error::InvalidArgument),
 		}
 	}
@@ -234,6 +239,7 @@ mod tests {
 			})
 		);
 		bytes[0] = 1;
+
 		assert_eq!(Reading::decode(&bytes), Err(Error::InvalidArgument));
 		bytes[24..].fill(0);
 		assert_eq!(
@@ -274,6 +280,7 @@ mod tests {
 		] {
 			assert_eq!(Permission::decode(&[byte, 0, 0, 0]), Ok(expected));
 		}
+
 		for invalid in [&[5, 0, 0, 0][..], &[3], &[3, 0, 0, 0, 0], &[3, 1, 0, 0]] {
 			assert_eq!(Permission::decode(invalid), Err(Error::InvalidArgument));
 		}

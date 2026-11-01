@@ -64,6 +64,7 @@ use crate::Locale;
 #[must_use]
 pub fn negotiate<'a>(preferred: &[Locale], supported: &'a [Locale]) -> Option<&'a Locale> {
 	let mut language_match = None;
+
 	for (index, want) in preferred.iter().enumerate() {
 		let same_language = |have: &&Locale| have.language() == want.language();
 		// The user's region first, then a locale without one.
@@ -74,9 +75,11 @@ pub fn negotiate<'a>(preferred: &[Locale], supported: &'a [Locale]) -> Option<&'
 				Some(_) => 2,
 			}
 		};
+
 		if let Some(found) = supported.iter().find(|have| *have == want) {
 			return Some(found);
 		}
+
 		if let Some(script) = written_in(want)
 			&& let Some(found) = supported
 				.iter()
@@ -85,6 +88,7 @@ pub fn negotiate<'a>(preferred: &[Locale], supported: &'a [Locale]) -> Option<&'
 		{
 			return Some(found);
 		}
+
 		if let Some(found) = supported.iter().find(|have| {
 			same_language(have)
 				&& want
@@ -93,19 +97,24 @@ pub fn negotiate<'a>(preferred: &[Locale], supported: &'a [Locale]) -> Option<&'
 		}) {
 			return Some(found);
 		}
+
 		if language_match.is_some() {
 			return language_match;
 		}
+
 		if let Some(found) = supported.iter().filter(same_language).min_by_key(rank) {
 			let next_shares_language = preferred
 				.get(index + 1)
 				.is_some_and(|next| next.language() == want.language());
+
 			if !next_shares_language {
 				return Some(found);
 			}
+
 			language_match = Some(found);
 		}
 	}
+
 	language_match
 }
 
@@ -269,6 +278,7 @@ mod tests {
 		);
 		// The supported side counts too: `zh-TW` is written in `Hant`.
 		assert_eq!(best(&["zh-HK"], &["zh-CN", "zh-TW"]), Some("zh-TW".into()));
+
 		assert_eq!(best(&["zh-SG"], &["zh-TW", "zh-CN"]), Some("zh-CN".into()));
 		// The script outranks a region written in the other one.
 		assert_eq!(
@@ -296,6 +306,7 @@ mod tests {
 			.chain(["001", "150", "419"].map(String::from))
 			.filter(|code| code.parse::<Region>().is_ok())
 			.collect();
+
 		for (language, ..) in LIKELY_SCRIPTS {
 			for region in regions.iter().map(Some).chain([None]) {
 				let tag = region.map_or_else(
@@ -311,6 +322,7 @@ mod tests {
 				);
 			}
 		}
+
 		assert_eq!(likely_script("en", Some("US")), None);
 	}
 

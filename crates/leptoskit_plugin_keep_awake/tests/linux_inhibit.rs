@@ -67,6 +67,7 @@ mod linux {
 		if std::env::var_os(PRIVATE_BUS).is_none() {
 			return rerun_on_private_bus();
 		}
+
 		let mut arguments = Arguments::from_args();
 		// Leases are thread-local; one thread keeps each trial's view simple.
 		arguments.test_threads = Some(1);
@@ -99,6 +100,7 @@ mod linux {
 			.expect("re-run the tests on the private bus");
 		daemon.kill().expect("stop the private dbus-daemon");
 		daemon.wait().expect("reap the private dbus-daemon");
+
 		match status.code() {
 			Some(0) => ExitCode::SUCCESS,
 			_ => ExitCode::FAILURE,
@@ -145,13 +147,16 @@ mod linux {
 	fn answer(state: &Service, message: &Message) -> Message {
 		let inhibit = message.interface().as_deref() == Some(SERVICE)
 			&& message.member().as_deref() == Some("Inhibit");
+
 		if !inhibit {
 			return message.error(
 				&ErrorName::new("org.freedesktop.DBus.Error.UnknownMethod").unwrap(),
 				c"unknown",
 			);
 		}
+
 		let (application, reason): (String, String) = message.read2().expect("Inhibit arguments");
+
 		match *state.reply.lock().unwrap() {
 			Reply::Cookie => {
 				state.calls.lock().unwrap().push(Inhibition {
@@ -181,12 +186,15 @@ mod linux {
 
 	fn disconnects(name: &str) -> bool {
 		let deadline = Instant::now() + Duration::from_secs(5);
+
 		while Instant::now() < deadline {
 			if !connected(name) {
 				return true;
 			}
+
 			std::thread::sleep(Duration::from_millis(20));
 		}
+
 		false
 	}
 
@@ -199,6 +207,7 @@ mod linux {
 		{
 			return Err("the screensaver name is already owned on the private bus".into());
 		}
+
 		match Lease::acquire("LeptosKit test", "no screensaver service") {
 			Err(Error::Unavailable) => Ok(()),
 			Err(error) => Err(format!("expected Unavailable, got {error:?}").into()),
@@ -222,6 +231,7 @@ mod linux {
 			"the second lease shares the first inhibitor"
 		);
 		assert_eq!(calls[0].application, "LeptosKit test");
+
 		assert_eq!(calls[0].reason, "keep the display on");
 		let holder = calls[0].sender.clone();
 		assert!(connected(&holder));
@@ -262,6 +272,7 @@ mod linux {
 		] {
 			*service.reply.lock().unwrap() = Reply::Error(name);
 			let result = Lease::acquire("LeptosKit test", "refused inhibitor").map(|_| ());
+
 			if result != Err(expected) {
 				return Err(format!("{name}: expected {expected:?}, got {result:?}").into());
 			}

@@ -327,6 +327,7 @@ extension LeptosKitApplicationController {
     /// Paints the guest's root background behind the safe areas, like a browser canvas.
     func activeChanged() {
         setNeedsUpdateOfSupportedInterfaceOrientations()
+
         guard isViewLoaded else { return }
         view.backgroundColor = active?.canvasColor ?? .systemBackground
         setNeedsStatusBarAppearanceUpdate()

@@ -39,9 +39,11 @@ class PermissionsPluginTest {
                 val plugin = withContext(Dispatchers.Main) { PermissionsPlugin(activity) }
                 val initial = withContext(Dispatchers.Main) { plugin.invoke(0, camera()) }
                 val result = async(Dispatchers.Main) { plugin.invoke(1, camera()) }
+
                 if (ByteBuffer.wrap(initial).order(ByteOrder.LITTLE_ENDIAN).int != 3) {
                     answerPrompt(".*:id/permission_allow(_foreground_only|_one_time)?_button", "camera")
                 }
+
                 assertArrayEquals(byteArrayOf(3, 0, 0, 0, 1, 0, 0, 0), withTimeout(10_000) { result.await() })
                 assertArrayEquals(byteArrayOf(3, 0, 0, 0, 1, 0, 0, 0), withContext(Dispatchers.Main) { plugin.invoke(0, camera()) })
                 withContext(Dispatchers.Main) { plugin.close() }
@@ -63,6 +65,7 @@ class PermissionsPluginTest {
                 scenario.onActivity { activity = it }
                 val plugin = withContext(Dispatchers.Main) { PermissionsPlugin(activity) }
                 val initial = withContext(Dispatchers.Main) { plugin.invoke(0, microphone()) }
+
                 if (ByteBuffer.wrap(initial).order(ByteOrder.LITTLE_ENDIAN).int == 3) {
                     // Revoking a runtime permission kills the instrumented process, so a
                     // re-run on a device that already granted it verifies the grant instead.
@@ -74,6 +77,7 @@ class PermissionsPluginTest {
                     assertArrayEquals(byteArrayOf(2, 0, 0, 0, 2, 0, 0, 0), withTimeout(10_000) { result.await() })
                     assertArrayEquals(byteArrayOf(2, 0, 0, 0, 2, 0, 0, 0), withContext(Dispatchers.Main) { plugin.invoke(0, microphone()) })
                 }
+
                 withContext(Dispatchers.Main) { plugin.close() }
             }
         }
@@ -95,6 +99,7 @@ class PermissionsPluginTest {
                         assertEquals(PluginException.INVALID_ARGUMENT, error.code)
                     }
                     broker.close()
+
                     try {
                         broker.request(arrayOf("android.permission.CAMERA"))
                         fail("Closed brokers must reject new work")
@@ -129,8 +134,10 @@ class PermissionsPluginTest {
     private fun clickNode(pattern: Pattern): Boolean {
         for (window in instrumentation.uiAutomation.windows) {
             val node = window.root?.let { find(it, pattern) } ?: continue
+
             return node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         }
+
         return false
     }
 
@@ -139,9 +146,11 @@ class PermissionsPluginTest {
         pattern: Pattern,
     ): AccessibilityNodeInfo? {
         if (node.isVisibleToUser && node.viewIdResourceName?.let { pattern.matcher(it).matches() } == true) return node
+
         for (index in 0 until node.childCount) {
             node.getChild(index)?.let { child -> find(child, pattern)?.let { return it } }
         }
+
         return null
     }
 

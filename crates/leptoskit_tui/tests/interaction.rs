@@ -185,6 +185,7 @@ fn typing_edits_fields_and_enter_submits() {
 								if let NativeEvent::Submit { value } = event {
 									*submitted.lock().unwrap() = value.clone();
 								}
+
 								EventOutcome::Handled
 							}
 						})
@@ -399,6 +400,7 @@ fn the_wheel_scrolls_the_scrollview_under_the_pointer() {
 						if let NativeEvent::Scroll { offset_x, offset_y } = event {
 							*offset.lock().unwrap() = (*offset_x, *offset_y);
 						}
+
 						EventOutcome::Handled
 					}
 				})

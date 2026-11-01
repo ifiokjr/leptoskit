@@ -49,18 +49,22 @@ fn browser_emits_structured_objects_at_expected_levels_and_stops_after_close() {
 		fields: BTreeMap::from([("case".into(), "browser".into())]),
 	};
 	assert_eq!(logger.write(&record), Ok(false));
+
 	for level in [Level::Info, Level::Warn, Level::Error] {
 		record.level = level;
 		assert_eq!(logger.write(&record), Ok(true));
 	}
+
 	logger.flush().unwrap();
 	logger.close();
 	assert_eq!(logger.write(&record), Err(Error::Cancelled));
 	assert_eq!(logger.flush(), Err(Error::Cancelled));
+
 	logger.close();
 	let emitted: serde_json::Value = serde_json::from_str(&records()).unwrap();
 	let emitted = emitted.as_array().unwrap();
 	assert_eq!(emitted.len(), 3);
+
 	for (entry, level) in emitted.iter().zip(["info", "warn", "error"]) {
 		assert_eq!(entry["method"], level);
 		assert_eq!(entry["value"]["level"], level);

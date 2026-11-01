@@ -82,6 +82,7 @@ fn a_large_report_splits_and_resets_only_in_its_first_payload() {
 		.into_iter()
 		.flat_map(|report| report.events)
 		.collect();
+
 	assert_eq!(joined, events);
 }
 
@@ -208,6 +209,7 @@ mod host {
 			.await
 			.unwrap();
 		assert_eq!(*recorder.hellos.lock().unwrap(), [hello.capabilities]);
+
 		assert_eq!(*recorder.reports.lock().unwrap(), [report]);
 
 		let refused = plugin
@@ -277,9 +279,11 @@ mod host {
 	async fn the_inbox_is_bounded() {
 		let inbox = Inbox::new();
 		let plugin = DevtoolsPlugin::new(Recorder::default(), inbox.clone());
+
 		for count in 0..MAX_COMMANDS + 5 {
 			inbox.push(set_state(count));
 		}
+
 		let reply = plugin
 			.invoke(COMMANDS, Bytes::new(), CancellationToken::new())
 			.await

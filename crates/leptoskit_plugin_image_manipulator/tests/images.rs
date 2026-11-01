@@ -54,6 +54,7 @@ fn png_and_jpeg_roundtrip_real_codecs() {
 			.iter()
 			.all(|pixel| pixel[3] == 255)
 	);
+
 	let converted = manipulate(&jpeg.bytes, &[], Output::Png).unwrap();
 	assert_eq!(decode(&converted.bytes).unwrap(), decoded);
 }
@@ -122,6 +123,7 @@ fn ordered_crop_resize_and_binary_bridge_agree() {
 	assert_eq!(decoded, expected);
 	let pixels = decode(&decoded.bytes).unwrap();
 	assert_eq!((pixels.width(), pixels.height()), (4, 4));
+
 	assert_eq!(
 		red(&pixels),
 		[6, 6, 3, 3, 6, 6, 3, 3, 5, 5, 2, 2, 5, 5, 2, 2]
@@ -172,6 +174,7 @@ fn jpeg_alpha_uses_explicit_background_and_quality_is_validated() {
 	.unwrap();
 	let result = decode(&encoded.bytes).unwrap();
 	assert!(result.rgba()[..3].iter().all(|byte| *byte >= 250));
+
 	for quality in [0, 101, 255] {
 		assert_eq!(
 			encode(
@@ -254,11 +257,13 @@ fn invalid_plan_fails_before_decoding_compressed_pixels() {
 #[test]
 fn malicious_dimensions_are_rejected_before_decode_allocation() {
 	let mut png = png_bytes().to_vec();
+
 	for (width, height) in [(u32::MAX, 1), (1, u32::MAX), (MAX_DIMENSION, MAX_DIMENSION)] {
 		png[16..20].copy_from_slice(&width.to_be_bytes());
 		png[20..24].copy_from_slice(&height.to_be_bytes());
 		assert_eq!(decode(&png), Err(Error::TooLarge));
 	}
+
 	let jpeg = [
 		0xff, 0xd8, 0xff, 0xc0, 0, 11, 8, 0xff, 0xff, 0xff, 0xff, 1, 1, 0x11, 0, 0xff, 0xd9,
 	];
@@ -267,6 +272,7 @@ fn malicious_dimensions_are_rejected_before_decode_allocation() {
 		Bitmap::from_rgba(u32::MAX, u32::MAX, vec![]),
 		Err(Error::TooLarge)
 	);
+
 	assert_eq!(
 		Bitmap::from_rgba(1, 1, vec![0; 3]),
 		Err(Error::InvalidArgument)
@@ -277,9 +283,11 @@ fn malicious_dimensions_are_rejected_before_decode_allocation() {
 #[test]
 fn truncated_corrupt_and_unsupported_images_fail() {
 	let png = png_bytes();
+
 	for length in 0..png.len() {
 		assert!(decode(&png[..length]).is_err(), "prefix {length}");
 	}
+
 	let jpeg = encode(
 		&sample(),
 		Output::Jpeg {
@@ -292,6 +300,7 @@ fn truncated_corrupt_and_unsupported_images_fail() {
 	assert!(decode(&jpeg.bytes[..jpeg.bytes.len() - 2]).is_err());
 	assert_eq!(decode(b"GIF89a"), Err(Error::Unavailable));
 	let mut corrupt = png.to_vec();
+
 	corrupt[32] ^= 255;
 	assert!(decode(&corrupt).is_err());
 }
@@ -323,6 +332,7 @@ fn jpeg_data_after_the_end_of_image_marker_is_ignored() {
 	// end-of-image bytes.
 	let mut thumbnail = vec![0xff, 0xd8, 0xff, 0xe1, 0, 6, 0xff, 0xd9, 0xff, 0xd9];
 	thumbnail.extend_from_slice(&jpeg.bytes[2..]);
+
 	assert_eq!(decode(&thumbnail).unwrap(), expected);
 	let mut unterminated = jpeg.bytes[..jpeg.bytes.len() - 2].to_vec();
 	unterminated.extend_from_slice(b"trailer");
@@ -346,6 +356,7 @@ fn compressed_metadata_is_not_propagated_and_animation_is_rejected() {
 			.unwrap();
 	}
 	assert!(bytes.len() < MAX_INPUT_BYTES);
+
 	// Text remains compressed inside the PNG decoder and is never requested by
 	// the pixel API. A large text expansion must not be propagated to output.
 	let decoded = decode(&bytes).unwrap();
@@ -368,6 +379,7 @@ fn compressed_metadata_is_not_propagated_and_animation_is_rejected() {
 #[test]
 fn wire_decoders_reject_truncation_trailing_bytes_and_mismatched_headers() {
 	let request = encode_request(&png_bytes(), &[], Output::Png).unwrap();
+
 	for length in 0..request.len() {
 		assert!(
 			ImageManipulator
@@ -375,6 +387,7 @@ fn wire_decoders_reject_truncation_trailing_bytes_and_mismatched_headers() {
 				.is_err()
 		);
 	}
+
 	let mut trailing = request.to_vec();
 	trailing.push(0);
 	assert_eq!(
@@ -383,6 +396,7 @@ fn wire_decoders_reject_truncation_trailing_bytes_and_mismatched_headers() {
 	);
 	let mut result = encode(&sample(), Output::Png).unwrap();
 	result.info.width = 2;
+
 	assert_eq!(
 		EncodedImage::decode_reply(result.encode_reply().unwrap()),
 		Err(Error::InvalidArgument)
@@ -391,9 +405,11 @@ fn wire_decoders_reject_truncation_trailing_bytes_and_mismatched_headers() {
 		.unwrap()
 		.encode_reply()
 		.unwrap();
+
 	for length in 0..result.len() {
 		assert!(EncodedImage::decode_reply(result.slice(..length)).is_err());
 	}
+
 	let mut invalid = result.to_vec();
 	invalid[4..8].copy_from_slice(&99_u32.to_le_bytes());
 	assert_eq!(
@@ -443,6 +459,7 @@ fn every_operation_and_output_crosses_the_binary_bridge() {
 		background: [10, 20, 30],
 	};
 	let request = encode_request(&png_bytes(), &operations, output).unwrap();
+
 	let reply = EncodedImage::decode_reply(plugin.invoke(MANIPULATE, request).unwrap()).unwrap();
 	assert_eq!(
 		reply,
@@ -492,6 +509,7 @@ fn native_requests_reject_unknown_tags_and_oversized_options() {
 	)
 	.unwrap();
 	assert_eq!(invoke(word(&resize, 20, 2)), Err(Error::InvalidArgument));
+
 	let jpeg = encode_request(
 		&png_bytes(),
 		&[],
@@ -508,6 +526,7 @@ fn native_requests_reject_unknown_tags_and_oversized_options() {
 			Err(Error::InvalidArgument)
 		);
 	}
+
 	assert_eq!(
 		invoke(vec![0; MAX_INPUT_BYTES + MAX_OPERATIONS * 20 + 29].into()),
 		Err(Error::TooLarge)

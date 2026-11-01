@@ -129,48 +129,61 @@ pub(crate) fn apply(control: &gtk::Widget, props: &NativeProps, kind: NativeKind
 
 fn apply_properties(control: &gtk::Widget, aria: &Aria, kind: NativeKind) {
 	let mut properties = Vec::new();
+
 	if let Some(description) = aria.description.as_deref() {
 		properties.push(accessible::Property::Description(description));
 	}
+
 	if let Some(description) = aria.role_description.as_deref() {
 		properties.push(accessible::Property::RoleDescription(description));
 	}
+
 	if let Some(level) = aria.level {
 		properties.push(accessible::Property::Level(level as i32));
 	}
+
 	if let Some(orientation) = aria.orientation {
 		properties.push(accessible::Property::Orientation(match orientation {
 			leptoskit_native::Orientation::Horizontal => Orientation::Horizontal,
 			leptoskit_native::Orientation::Vertical => Orientation::Vertical,
 		}));
 	}
+
 	if let Some(read_only) = aria.read_only {
 		properties.push(accessible::Property::ReadOnly(read_only));
 	}
+
 	if let Some(required) = aria.required {
 		properties.push(accessible::Property::Required(required));
 	}
+
 	if let Some(modal) = aria.modal {
 		properties.push(accessible::Property::Modal(modal));
 	}
+
 	if let Some(text) = aria.value_text.as_deref() {
 		properties.push(accessible::Property::ValueText(text));
 	}
+
 	let native_range = matches!(
 		kind,
 		NativeKind::Slider | NativeKind::LinearProgressIndicator | NativeKind::ActivityIndicator
 	);
+
 	if !native_range {
 		if let Some(value) = aria.value_now {
 			properties.push(accessible::Property::ValueNow(value));
 		}
+
 		if let Some(value) = aria.value_min {
 			properties.push(accessible::Property::ValueMin(value));
 		}
+
 		if let Some(value) = aria.value_max {
 			properties.push(accessible::Property::ValueMax(value));
 		}
 	}
+
 	if !properties.is_empty() {
 		control.update_property(&properties);
 	}
@@ -178,21 +191,27 @@ fn apply_properties(control: &gtk::Widget, aria: &Aria, kind: NativeKind) {
 
 fn apply_states(control: &gtk::Widget, aria: &Aria) {
 	let mut states = Vec::new();
+
 	if let Some(checked) = aria.checked {
 		states.push(accessible::State::Checked(tristate(checked)));
 	}
+
 	if let Some(pressed) = aria.pressed {
 		states.push(accessible::State::Pressed(tristate(pressed)));
 	}
+
 	if let Some(selected) = aria.selected {
 		states.push(accessible::State::Selected(Some(selected)));
 	}
+
 	if let Some(expanded) = aria.expanded {
 		states.push(accessible::State::Expanded(Some(expanded)));
 	}
+
 	if let Some(busy) = aria.busy {
 		states.push(accessible::State::Busy(busy));
 	}
+
 	if let Some(invalid) = aria.invalid {
 		states.push(accessible::State::Invalid(match invalid {
 			leptoskit_native::Invalid::False => AccessibleInvalidState::False,
@@ -201,9 +220,11 @@ fn apply_states(control: &gtk::Widget, aria: &Aria) {
 			leptoskit_native::Invalid::Spelling => AccessibleInvalidState::Spelling,
 		}));
 	}
+
 	if let Some(hidden) = aria.hidden {
 		states.push(accessible::State::Hidden(hidden));
 	}
+
 	if !states.is_empty() {
 		control.update_state(&states);
 	}
@@ -211,12 +232,15 @@ fn apply_states(control: &gtk::Widget, aria: &Aria) {
 
 fn apply_relations(control: &gtk::Widget, aria: &Aria) {
 	let mut relations = Vec::new();
+
 	if let Some(position) = aria.pos_in_set {
 		relations.push(accessible::Relation::PosInSet(position as i32));
 	}
+
 	if let Some(size) = aria.set_size {
 		relations.push(accessible::Relation::SetSize(size as i32));
 	}
+
 	if !relations.is_empty() {
 		control.update_relation(&relations);
 	}

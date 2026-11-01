@@ -163,6 +163,7 @@ pub fn updates() {
 	surface.set_root(&tree(Element::button(JOURNEY)));
 	let root = surface.root().unwrap();
 	let button = surface.children(root)[0];
+
 	let natural = surface.frame(button).unwrap();
 	surface.set_root(&tree(Element::button("Go")));
 	assert_eq!(surface.children(root), &[button]);

@@ -67,10 +67,12 @@ pub fn Dashboard__N__(metrics: ReadSignal<Vec<Metric__N__>>, user: Signal<Option
 				</section>
 				<aside class="space-y-4">
 					<Card__N__ title="Selected">
+
 						{move || match selected__N__.get() {
 							Some(id) => view! { <MetricDetail__N__ id=id on_close=move || set_selected__N__.set(None) /> }.into_any(),
 							None => view! { <p class="text-slate-500">"Select a metric to see its history__N__."</p> }.into_any(),
 						}}
+
 					</Card__N__>
 					<Card__N__ title="Summary">
 						<dl class="grid grid-cols-2 gap-2 text-sm">

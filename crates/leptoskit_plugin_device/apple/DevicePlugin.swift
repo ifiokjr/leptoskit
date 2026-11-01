@@ -15,6 +15,7 @@ public final class DevicePlugin: NativePlugin {
         guard method == 0 else { throw PluginError.unavailable }
         guard payload.count == 0 else { throw PluginError.invalidArgument }
         let process = ProcessInfo.processInfo
+
         #if os(iOS)
         let device = UIDevice.current
         let model = device.model
@@ -22,23 +23,28 @@ public final class DevicePlugin: NativePlugin {
         let version = device.systemVersion
         #else
         let model = ""
+
         let operatingSystem = "macOS"
         let systemVersion = process.operatingSystemVersion
         let version = "\(systemVersion.majorVersion).\(systemVersion.minorVersion).\(systemVersion.patchVersion)"
         #endif
         let memory = process.physicalMemory
         var result = Data(capacity: 128)
+
         for field in [1, Self.kind, Self.simulator, UInt32(truncatingIfNeeded: memory), UInt32(memory >> 32)] {
             var little = field.littleEndian
             withUnsafeBytes(of: &little) { result.append(contentsOf: $0) }
         }
+
         for text in ["Apple", "Apple", model, operatingSystem, version, Self.architecture] {
             let bytes = Data(text.utf8)
+
             guard bytes.count <= 4096 else { throw PluginError.tooLarge }
             var length = UInt32(bytes.count).littleEndian
             withUnsafeBytes(of: &length) { result.append(contentsOf: $0) }
             result.append(bytes)
         }
+
         return result
     }
 

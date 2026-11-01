@@ -30,6 +30,7 @@ pub(crate) fn short_type_name(full: &str) -> String {
 		if !(character.is_alphanumeric() || character == '_') {
 			path = short.len() + character.len_utf8();
 		}
+
 		short.push(character);
 		rest = &rest[character.len_utf8()..];
 	}
@@ -41,6 +42,7 @@ pub(crate) fn short_type_name(full: &str) -> String {
 /// why instead, so one bad value never hides the rest.
 pub(crate) fn encode<T: Serialize + ?Sized>(value: &T) -> Value {
 	let type_name = type_name::<T>();
+
 	match serde_json::to_value(value) {
 		Ok(json) => Value::from_json(type_name, json),
 		Err(error) => {

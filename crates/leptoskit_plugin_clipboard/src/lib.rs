@@ -83,15 +83,18 @@ mod desktop {
 						.map(Bytes::from)
 						.map_err(|error| map_error(&error))
 				}
+
 				WRITE_TEXT => {
 					let text = std::str::from_utf8(&payload).map_err(|_| Error::InvalidArgument)?;
 					self.write_text(text).map_err(|error| map_error(&error))?;
 					Ok(Bytes::new())
 				}
+
 				CLEAR if payload.is_empty() => {
 					self.clear().map_err(|error| map_error(&error))?;
 					Ok(Bytes::new())
 				}
+
 				READ_TEXT | CLEAR => Err(Error::InvalidArgument),
 				_ => Err(Error::Unavailable),
 			}
@@ -131,11 +134,13 @@ mod desktop {
 				assert!(clipboard.invoke(READ_TEXT, Bytes::new())?.is_empty());
 				Ok::<(), Error>(())
 			})();
+
 			if !previous.is_empty() {
 				clipboard
 					.write_text(&previous)
 					.expect("restore the previous text");
 			}
+
 			outcome.expect("clipboard operations succeed");
 		}
 
@@ -202,14 +207,18 @@ pub mod web {
 
 	fn clipboard() -> Result<web_sys::Clipboard, Error> {
 		let window = web_sys::window().ok_or(Error::Unavailable)?;
+
 		if !window.is_secure_context() {
 			return Err(Error::PermissionDenied);
 		}
+
 		let clipboard = window.navigator().clipboard();
 		let value: &JsValue = clipboard.as_ref();
+
 		if value.is_null() || value.is_undefined() {
 			return Err(Error::Unavailable);
 		}
+
 		Ok(clipboard)
 	}
 

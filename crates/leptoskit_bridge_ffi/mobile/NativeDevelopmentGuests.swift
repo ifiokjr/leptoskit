@@ -60,6 +60,7 @@ final class NativeDevelopmentGuests: @unchecked Sendable {
             case 1:
                 let guest = NativeBuffer(taking: wasm).withUnsafeBytes { Data($0) }
                 Task { @MainActor [weak self] in
+
                     if self?.isClosed == false { onGuest(guest) }
                 }
             case 0:

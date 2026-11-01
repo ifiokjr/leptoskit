@@ -63,6 +63,7 @@ fn application_menu_events_updates_and_lease_restoration() {
 	}])
 	.unwrap();
 	let menu = Rc::new(DesktopMenu::new(definition.clone()).unwrap());
+
 	let other = Rc::new(DesktopMenu::new(definition).unwrap());
 	let lease = macos::ApplicationMenu::attach(menu.clone(), &application).unwrap();
 	assert!(matches!(

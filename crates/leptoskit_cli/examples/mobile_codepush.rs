@@ -101,6 +101,7 @@ async fn main() -> Result<()> {
 		"Retaining build logs, releases, and device evidence in {}",
 		output.display()
 	);
+
 	scaffold(&cli, &sdk, &app, &output)?;
 	let mut config = codepush_config(&app, &server_url, &signer)?;
 	bundle_releases(&cli, &app, &output, platform, &mut config)?;

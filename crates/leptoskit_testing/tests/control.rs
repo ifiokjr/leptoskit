@@ -55,6 +55,7 @@ fn server(replies: Vec<Reply>) -> (String, std::thread::JoinHandle<Vec<Value>>) 
 					Err(error) => panic!("expected {}: {error}", expected.path),
 				}
 			};
+
 			stream.set_nonblocking(false).unwrap();
 			stream
 				.set_read_timeout(Some(Duration::from_secs(5)))
@@ -78,6 +79,7 @@ fn server(replies: Vec<Reply>) -> (String, std::thread::JoinHandle<Vec<Value>>) 
 					length = value.trim().parse().unwrap();
 				}
 			}
+
 			let mut bytes = vec![0; length];
 			reader.read_exact(&mut bytes).unwrap();
 			bodies.push(if bytes.is_empty() {
@@ -85,6 +87,7 @@ fn server(replies: Vec<Reply>) -> (String, std::thread::JoinHandle<Vec<Value>>) 
 			} else {
 				serde_json::from_slice(&bytes).unwrap()
 			});
+
 			let body = json!({"value": expected.value}).to_string();
 			write!(
 				stream,
@@ -94,6 +97,7 @@ fn server(replies: Vec<Reply>) -> (String, std::thread::JoinHandle<Vec<Value>>) 
 			)
 			.unwrap();
 		}
+
 		bodies
 	});
 	(endpoint, handle)
@@ -211,6 +215,7 @@ fn a_web_journey_navigates_taps_and_keeps_its_screenshot() {
 	let outcome = leptoskit_testing::control::run(&document);
 	assert!(outcome.passed, "{:?}", outcome.error);
 	assert_eq!(outcome.steps.len(), 5);
+
 	assert_eq!(outcome.steps[2].action, "tap");
 	let artifact = outcome.steps[4].artifact.as_ref().unwrap();
 	assert_eq!(std::fs::read(artifact).unwrap(), bytes);
@@ -267,6 +272,7 @@ fn a_failed_step_stops_the_journey_and_reports_it() {
 	assert!(!outcome.passed);
 	assert_eq!(outcome.steps.len(), 1);
 	assert_eq!(outcome.steps[0].status, "error");
+
 	assert!(
 		outcome.steps[0]
 			.error
@@ -375,6 +381,7 @@ fn every_driver_step_runs_through_the_session() {
 	let alert = outcome.steps[5].value.as_ref().unwrap();
 	assert_eq!(alert, "Continue?");
 	let command = outcome.steps[8].value.as_ref().unwrap();
+
 	assert_eq!(command["answer"], 42);
 	assert_eq!(
 		outcome.steps[9].value.as_ref().and_then(Value::as_str),
@@ -413,6 +420,7 @@ fn device_steps_report_tool_failures_per_step() {
 		"00000000-0000-0000-0000-000000000000",
 		Step::Boot,
 	);
+
 	run_one(
 		simulator,
 		"00000000-0000-0000-0000-000000000000",
@@ -613,6 +621,7 @@ fn a_native_journey_runs_through_the_shared_session() {
 	assert_eq!(outcome.steps.len(), 14);
 	let requests = server.join().unwrap();
 	let capabilities = &requests[1]["capabilities"]["alwaysMatch"];
+
 	assert_eq!(capabilities["appium:automationName"], "Mac2");
 	assert_eq!(capabilities["appium:bundleId"], "dev.example.app");
 	std::fs::remove_dir_all(outcome.artifacts.unwrap()).unwrap();

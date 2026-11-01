@@ -97,9 +97,11 @@ impl Scopes {
 			.by_config
 			.lock()
 			.unwrap_or_else(std::sync::PoisonError::into_inner);
+
 		if let Some(scope) = scopes.get(&config_path) {
 			return Ok(Arc::clone(scope));
 		}
+
 		let scope = Arc::new(load_scope(config_path.as_deref())?);
 		scopes.insert(config_path, Arc::clone(&scope));
 		Ok(scope)
@@ -116,6 +118,7 @@ fn load_scope(config_path: Option<&Path>) -> Result<Scope, LintError> {
 	};
 	let config = LintConfig::load_from_file(config_path)?;
 	let mut exclude = GlobSetBuilder::new();
+
 	for pattern in &config.exclude {
 		let glob = Glob::new(pattern).map_err(|source| {
 			LintError::Exclude {
@@ -126,6 +129,7 @@ fn load_scope(config_path: Option<&Path>) -> Result<Scope, LintError> {
 		})?;
 		exclude.add(glob);
 	}
+
 	let exclude = exclude.build().map_err(|source| {
 		LintError::Exclude {
 			config: config_path.to_owned(),
@@ -133,6 +137,7 @@ fn load_scope(config_path: Option<&Path>) -> Result<Scope, LintError> {
 			source,
 		}
 	})?;
+
 	Ok(Scope {
 		config,
 		root: config_path.parent().map(Path::to_owned),
@@ -161,6 +166,7 @@ pub fn lint_paths(paths: &[PathBuf]) -> Result<Report, LintError> {
 			if scope.excludes(&path) {
 				return Ok(None);
 			}
+
 			let source = std::fs::read_to_string(&path).map_err(|source| {
 				LintError::Read {
 					path: path.clone(),
@@ -170,6 +176,7 @@ pub fn lint_paths(paths: &[PathBuf]) -> Result<Report, LintError> {
 			if is_generated(&source) {
 				return Ok(None);
 			}
+
 			// Components declared in one file are called from others, so every
 			// file's components are known before any file is checked. syn's
 			// trees cannot cross threads, so the check parses again.
@@ -189,6 +196,7 @@ pub fn lint_paths(paths: &[PathBuf]) -> Result<Report, LintError> {
 		.collect::<Result<Vec<_>, LintError>>()?;
 
 	let mut components = ComponentNames::built_in();
+
 	for file in &sources {
 		if let Some(declared) = &file.components {
 			components.extend(declared);
@@ -228,12 +236,14 @@ pub fn lint_paths(paths: &[PathBuf]) -> Result<Report, LintError> {
 			)
 		})
 		.collect::<Vec<_>>();
+
 	for result in checked {
 		match result {
 			Ok(diagnostics) => report.diagnostics.extend(diagnostics),
 			Err(path) => report.unparsed.push(path),
 		}
 	}
+
 	report.diagnostics.sort_by(|left, right| {
 		(&left.path, left.finding.start).cmp(&(&right.path, right.finding.start))
 	});
@@ -252,23 +262,27 @@ struct SourceFile {
 /// Every `.rs` file under `paths`, sorted so runs report in the same order.
 fn rust_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, LintError> {
 	let mut files = Vec::new();
+
 	for path in paths {
 		if path.is_file() {
 			files.push(path.clone());
 			continue;
 		}
+
 		if !path.exists() {
 			return Err(LintError::Read {
 				path: path.clone(),
 				source: std::io::Error::from(std::io::ErrorKind::NotFound),
 			});
 		}
+
 		// Build output is never source, even outside a git repository whose
 		// ignore file would say so.
 		let walk = ignore::WalkBuilder::new(path)
 			.require_git(false)
 			.filter_entry(|entry| entry.file_name() != "target")
 			.build();
+
 		for entry in walk {
 			let entry = entry.map_err(|source| {
 				LintError::Walk {
@@ -281,11 +295,13 @@ fn rust_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, LintError> {
 					.path()
 					.extension()
 					.is_some_and(|extension| extension == "rs");
+
 			if is_rust {
 				files.push(entry.into_path());
 			}
 		}
 	}
+
 	files.sort();
 	files.dedup();
 	Ok(files)

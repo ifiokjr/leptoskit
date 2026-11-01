@@ -33,6 +33,7 @@ fn child_helper() {
 	assert!(std::env::var_os("PATH").is_none());
 	let marker = std::env::var_os("LEPTOSKIT_ASYNC_SHELL_PID").unwrap();
 	std::fs::write(marker, std::process::id().to_string()).unwrap();
+
 	match mode.as_str() {
 		"sleep" => std::thread::sleep(Duration::from_secs(120)),
 		"binary" => {
@@ -131,6 +132,7 @@ async fn typed_rpc_preserves_binary_nonzero_status_and_limits() {
 	assert_eq!(output.finish, Finish::Exited);
 	assert!(output.stdout.windows(3).any(|bytes| bytes == [0, 255, 128]));
 	assert_eq!(output.stderr.as_ref(), b"failure");
+
 	assert!(reply.bytes().len() <= fixture.plugin.reply_limit(EXECUTE).unwrap());
 	assert_child_finished(fixture.pid().await);
 	let fixture = Fixture::new("large", 128, 5000);
@@ -158,14 +160,18 @@ async fn typed_rpc_preserves_binary_nonzero_status_and_limits() {
 #[tokio::test]
 async fn cancellation_reaps_before_reply_and_immediately_releases_capacity() {
 	let fixture = Fixture::new("sleep", 1024, 30_000);
+
 	for _ in 0..2 {
 		let marker = fixture.directory.path().join("pid");
+
 		if marker.exists() {
 			std::fs::remove_file(marker).unwrap();
 		}
+
 		let token = CancellationToken::new();
 		let child_token = token.clone();
 		let plugin = Arc::clone(&fixture.plugin);
+
 		let request = Fixture::request();
 		let invocation =
 			tokio::spawn(async move { plugin.invoke(EXECUTE, request, child_token).await });
@@ -205,6 +211,7 @@ async fn dropped_invocation_remains_owned_until_shutdown_reaps_child() {
 	tokio::time::timeout(Duration::from_secs(5), fixture.plugin.shutdown())
 		.await
 		.unwrap();
+
 	assert_child_finished(pid);
 	assert!(matches!(
 		fixture
@@ -265,6 +272,7 @@ async fn pre_cancelled_denied_and_malformed_calls_never_start_a_child() {
 	));
 	let mut request = Request::decode(&Fixture::request()).unwrap();
 	request.arguments[2] = "x--nocapture".into();
+
 	assert!(matches!(
 		fixture
 			.plugin
@@ -315,6 +323,7 @@ fn factory_validates_strict_host_policy_without_a_runtime_or_process() {
 	let mut unknown = fixture.options.clone();
 	unknown["commands"]["fixture"]["arguments"][0]["extra"] = json!(true);
 	assert!(from_config(&unknown.to_string()).is_err());
+
 	let mut unknown = fixture.options.clone();
 	unknown["commands"]["fixture"]["shell"] = json!(true);
 	assert!(from_config(&unknown.to_string()).is_err());

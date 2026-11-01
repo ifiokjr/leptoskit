@@ -24,6 +24,7 @@ public final class CaptureActivity extends Activity {
         TextView title = new TextView(this);
         title.setText("Native capture lab");
         title.setTextSize(30);
+
         title.setTextColor(Color.rgb(74, 55, 160));
         layout.addView(title);
         TextView subtitle = new TextView(this);

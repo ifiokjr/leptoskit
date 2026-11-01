@@ -15,14 +15,18 @@ extension UIKitControls {
         ]}
         """
         try renderer.render(decoder.decode(Transaction.self, from: Data(create.utf8)))
+
         guard let widget = host.subviews.first as? UIImageView else {
             record(false, "Rive creates a native UIImageView")
+
             return
         }
+
         var pixels: [UInt8] = [128, 0, 0, 128, 0, 0, 255, 255]
         try pixels.withUnsafeBufferPointer { try renderer.presentRive(1, width: 2, height: 1, pixels: $0) }
         let image = widget.image
         pixels = Array(repeating: 0, count: pixels.count)
+
         if let data = image?.cgImage?.dataProvider?.data {
             let actual = Array(UnsafeBufferPointer(start: CFDataGetBytePtr(data), count: CFDataGetLength(data)))
             record(actual == [128, 0, 0, 128, 0, 0, 255, 255], "Rive preserves RGBA alpha and owns uploaded pixels")
@@ -37,6 +41,7 @@ extension UIKitControls {
         host.isHidden = true
         record(!renderer.riveVisible(1), "hidden Rive ancestor stops frame work")
         host.isHidden = false
+
         try await nativeRiveDisplay(host, renderer: renderer)
         renderer.close()
         record(widget.image == nil, "closing the renderer releases the Rive image")
@@ -49,6 +54,7 @@ extension UIKitControls {
         var frames = 0, queries = 0
         var reentered = false
         var elapsedTimes: [Double] = []
+
         animator.hasScenes = { queries += 1; return true }
         animator.tick = { [weak animator] elapsed, _, _, callbacks in
             frames += 1
@@ -60,8 +66,10 @@ extension UIKitControls {
             let uploaded = pixels.withUnsafeBufferPointer {
                 callbacks.present(callbacks.context, 1, 1, 1, $0.baseAddress, $0.count)
             }
+
             return uploaded == 1 && frames < 2
         }
+
         let active = await until { UIApplication.shared.applicationState == .active }
         record(active, "display test reaches an active application")
         animator.setPresented(true)
@@ -88,6 +96,7 @@ extension UIKitControls {
 
     private func widgetHasGreenPixel(_ host: UIView) -> Bool {
         guard let image = (host.subviews.first as? UIImageView)?.image?.cgImage,
+
             let data = image.dataProvider?.data, CFDataGetLength(data) == 4 else { return false }
         return Array(UnsafeBufferPointer(start: CFDataGetBytePtr(data), count: 4)) == [0, 128, 0, 128]
     }

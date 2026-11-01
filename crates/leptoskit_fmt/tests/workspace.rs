@@ -68,6 +68,7 @@ fn unreadable_and_misconfigured_files_fail_on_their_own() {
 		status("app/other.rs"),
 		Status::Failed(FormatError::Config { .. })
 	));
+
 	assert_eq!(report.failed().count(), 3);
 	assert_eq!(
 		std::fs::read_to_string(root.join("good.rs")).expect("read"),

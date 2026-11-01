@@ -346,6 +346,7 @@ mod imp {
 					.unwrap_or_else(|| "the inspected page couldn't run the expression".to_owned()),
 			));
 		}
+
 		js::from_js(&value)
 	}
 
@@ -384,6 +385,7 @@ mod imp {
 			if !js::has("devtools.inspectedWindow.eval") {
 				return Err(Error::Unavailable("devtools.inspectedWindow".into()));
 			}
+
 			let state = Rc::new(WatchState {
 				stopped: Cell::new(false),
 				round: Cell::new(0),
@@ -423,20 +425,26 @@ mod imp {
 	async fn look(state: Rc<WatchState>, round: u32) {
 		let current = |state: &WatchState| !state.stopped.get() && state.round.get() == round;
 		let mut attempt = 0;
+
 		while current(&state) {
 			let found = inspected_session().await;
+
 			if !current(&state) {
 				return;
 			}
+
 			if let Ok(Some(session)) = found {
 				let changed = state.session.borrow().as_deref() != Some(session.as_str());
+
 				if changed {
 					state.session.replace(Some(session.clone()));
 					(state.changed.borrow_mut())(session);
 				}
+
 				// Found: from now on, look only now and then.
 				attempt = u32::MAX;
 			}
+
 			sleep(retry_delay_ms(attempt)).await;
 			attempt = attempt.saturating_add(1);
 		}
@@ -506,13 +514,16 @@ mod imp {
 			let Some(port) = self.port.get() else {
 				return;
 			};
+
 			let from_frame = match (event.source(), self.iframe.content_window()) {
 				(Some(source), Some(window)) => js_sys::Object::is(&source, &window),
 				_ => false,
 			};
+
 			if !from_frame || event.origin() != hub_origin(port) {
 				return;
 			}
+
 			if js::from_js::<Value>(&event.data()).is_ok_and(|message| is_ready(&message)) {
 				self.post();
 			}
@@ -538,11 +549,13 @@ mod imp {
 				self.port.set(Some(port));
 				self.iframe.set_src(&hub_url(port));
 			}
+
 			let _ = self.iframe.style().set_property("display", "block");
 		}
 
 		pub(super) fn hide(&self) {
 			let _ = self.iframe.style().set_property("display", "none");
+
 			if self.port.take().is_some() {
 				self.iframe.set_src("about:blank");
 			}
@@ -562,6 +575,7 @@ mod imp {
 					self.on_message.as_ref().unchecked_ref(),
 				);
 			}
+
 			self.iframe.remove();
 		}
 	}
@@ -581,6 +595,7 @@ mod tests {
 	fn typed_ports_are_whole_numbers_from_1_to_65535() {
 		assert_eq!(parse_port(" 7341 "), Some(7341));
 		assert_eq!(parse_port("65535"), Some(65_535));
+
 		for text in ["", "0", "65536", "-1", "7340.5", "port", "73 40"] {
 			assert_eq!(parse_port(text), None, "{text:?}");
 		}
@@ -635,6 +650,7 @@ mod tests {
 		let panel = futures::executor::block_on(create_panel("leptoskit", ""));
 		assert!(matches!(panel, Err(Error::Unavailable(_))));
 		let session = futures::executor::block_on(inspected_session());
+
 		assert!(matches!(session, Err(Error::Unavailable(_))));
 	}
 }

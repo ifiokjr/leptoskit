@@ -35,6 +35,7 @@ pub(super) fn link(linker: &mut Linker<HostState>) -> Result<(), wasmi::errors::
 	linker.func_wrap(MODULE, "cancel", cancel)?;
 	linker.func_wrap(MODULE, "event_info", event_info)?;
 	linker.func_wrap(MODULE, "take_event", take_event)?;
+
 	Ok(())
 }
 
@@ -51,6 +52,7 @@ fn resolve(mut caller: Caller<'_, HostState>, ptr: i32, len: i32) -> Result<i64,
 	if len as u32 > 256 {
 		return Ok(status(Error::TooLarge));
 	}
+
 	let memory = memory(&mut caller)?;
 	let start = ptr as u32 as usize;
 	let bytes = memory
@@ -77,9 +79,11 @@ fn submit(
 	let plugin = PluginId(plugin as u32);
 	let method = MethodId(method as u32);
 	let len = len as u32 as usize;
+
 	if let Err(error) = caller.data().plugins.check_call(plugin, method, len) {
 		return Ok(status(error));
 	}
+
 	let memory = memory(&mut caller)?;
 	let start = ptr as u32 as usize;
 	let input = memory
@@ -116,6 +120,7 @@ fn take_result(
 	// Split the interpreter's memory and host state so output can borrow the
 	// original Bytes without cloning a handle or promoting its shared owner.
 	let (memory, state) = memory.data_and_store_mut(&mut caller);
+
 	let bytes = match state.plugins.result(id) {
 		Ok(Some(Ok(bytes))) => bytes,
 		Ok(None) => return Ok(-1),
@@ -126,9 +131,11 @@ fn take_result(
 		}
 		Err(error) => return Ok(status(error)),
 	};
+
 	if bytes.len() > capacity as u32 as usize {
 		return Ok(status(Error::TooLarge));
 	}
+
 	let len = bytes.len();
 	let start = ptr as u32 as usize;
 	let output = memory
@@ -160,6 +167,7 @@ fn event_info(mut caller: Caller<'_, HostState>, ptr: i32) -> Result<i32, wasmi:
 	info[8..].copy_from_slice(&(event.payload.len() as u32).to_le_bytes());
 	let memory = memory(&mut caller)?;
 	memory.write(&mut caller, ptr as u32 as usize, &info)?;
+
 	Ok(1)
 }
 
@@ -173,9 +181,11 @@ fn take_event(
 	let Some(event) = state.plugins.event() else {
 		return Ok(-1);
 	};
+
 	if event.payload.len() > capacity as u32 as usize {
 		return Ok(status(Error::TooLarge));
 	}
+
 	let len = event.payload.len();
 	let start = ptr as u32 as usize;
 	let output = memory

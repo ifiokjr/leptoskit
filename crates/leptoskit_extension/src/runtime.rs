@@ -26,9 +26,11 @@ pub fn server() -> Option<&'static str> {
 /// When no worker answers, or its handler failed, with its reason.
 pub async fn send<M: Serialize, R: DeserializeOwned>(message: &M) -> Result<R> {
 	let reply: Value = js::call("runtime.sendMessage", &[message]).await?;
+
 	if let Some(error) = reply.get("__leptoskit_error").and_then(Value::as_str) {
 		return Err(Error::Browser(error.to_owned()));
 	}
+
 	serde_json::from_value(reply).map_err(|error| Error::Json(error.to_string()))
 }
 
@@ -42,6 +44,7 @@ pub fn id() -> Result<String> {
 	#[cfg(target_arch = "wasm32")]
 	{
 		let runtime = js::object("runtime")?;
+
 		return js_sys::Reflect::get(&runtime, &"id".into())
 			.ok()
 			.and_then(|id| id.as_string())

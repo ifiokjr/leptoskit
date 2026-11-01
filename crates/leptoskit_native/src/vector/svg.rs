@@ -338,6 +338,7 @@ fn check_unsupported(read: &impl Fn(&str) -> Option<String>) -> Result<(), SvgEr
 			});
 		}
 	}
+
 	Ok(())
 }
 
@@ -366,6 +367,7 @@ fn apply_fill(style: &mut Style, read: &impl Fn(&str) -> Option<String>) -> Resu
 	if let Some(value) = read("opacity") {
 		style.opacity *= opacity("opacity", &value)?;
 	}
+
 	Ok(())
 }
 
@@ -424,6 +426,7 @@ fn apply_stroke(
 	if let Some(value) = read("stroke-dashoffset") {
 		style.dash_offset = length("stroke-dashoffset", &value, viewport.diagonal())?;
 	}
+
 	Ok(())
 }
 
@@ -445,6 +448,7 @@ fn apply_visibility(
 	if let Some(value) = node.attribute("transform") {
 		style.transform = parent.transform.then(Affine::parse(value)?);
 	}
+
 	Ok(())
 }
 /// One shape element as a painted path, or `None` when it draws nothing.

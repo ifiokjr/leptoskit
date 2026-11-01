@@ -48,16 +48,19 @@ class PasskeysPlugin(
         payload: ByteBuffer,
     ): ByteArray {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Passkeys require the owning UI thread" }
+
         if (closed) throw PluginException(PluginException.CANCELLED)
         // Method 2, Sign in with Apple, has no Android implementation.
         if (method !in 0..1) throw PluginException(PluginException.UNAVAILABLE)
         val options = webAuthnOptions(payload)
         val activity = context as? Activity ?: throw PluginException(PluginException.UNAVAILABLE)
+
         if (job != null) throw PluginException(PluginException.BUSY)
         currentCoroutineContext().ensureActive()
         job = currentCoroutineContext()[Job]
         try {
             val manager = CredentialManager.create(activity)
+
             return if (method == 0) create(manager, activity, options) else get(manager, activity, options)
         } finally {
             job = null
@@ -79,9 +82,11 @@ class PasskeysPlugin(
             } catch (error: CreateCredentialUnsupportedException) {
                 throw PluginException(PluginException.UNAVAILABLE, error)
             } catch (error: CreateCredentialException) {
+
                 throw PluginException(PluginException.NATIVE, error)
             }
         val created = response as? CreatePublicKeyCredentialResponse ?: throw PluginException(PluginException.NATIVE)
+
         return webAuthnAnswer(created.registrationResponseJson)
     }
 
@@ -101,11 +106,13 @@ class PasskeysPlugin(
             } catch (error: GetCredentialProviderConfigurationException) {
                 throw PluginException(PluginException.UNAVAILABLE, error)
             } catch (error: GetCredentialUnsupportedException) {
+
                 throw PluginException(PluginException.UNAVAILABLE, error)
             } catch (error: GetCredentialException) {
                 throw PluginException(PluginException.NATIVE, error)
             }
         val credential = response.credential as? PublicKeyCredential ?: throw PluginException(PluginException.NATIVE)
+
         return webAuthnAnswer(credential.authenticationResponseJson)
     }
 }

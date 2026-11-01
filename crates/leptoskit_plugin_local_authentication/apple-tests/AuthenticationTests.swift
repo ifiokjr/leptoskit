@@ -28,16 +28,19 @@ private func buffer(_ bytes: Data = Data()) throws -> NativeBuffer {
     #expect(call > 0)
     var request = lk_request()
     #expect(lk_bridge_next_request(bridge, &request) == 1)
+
     return NativeBuffer(taking: request.payload)
 }
 
 private func request() -> Data {
     var result = authenticationFields([1, 0])
+
     for text in ["Unlock your notes", "Cancel"] {
         let bytes = Data(text.utf8)
         result.append(authenticationFields([UInt32(bytes.count)]))
         result.append(bytes)
     }
+
     return result
 }
 
@@ -45,9 +48,11 @@ private func request() -> Data {
 func authenticationWireRejectsMalformedRequestsWithoutNativeEvaluation() throws {
     let bytes = request()
     #expect(try AuthenticationRequest(payload: buffer(bytes)).policy == 0)
+
     for count in 0..<bytes.count {
         #expect(throws: PluginError.self) { try AuthenticationRequest(payload: buffer(bytes.prefix(count))) }
     }
+
     var invalid = bytes
     invalid[4] = 2
     #expect(throws: PluginError.invalidArgument) { try AuthenticationRequest(payload: buffer(invalid)) }
@@ -94,8 +99,10 @@ func backgroundNotificationCancelsPendingAuthenticationWithoutSystemUI() async t
         try await plugin.evaluate(LAContext(), request: decoded) { callback = $0 }
     }
     defer { pending.cancel() }
+
     for _ in 0..<100 where callback == nil { await Task.yield() }
     let completion = try #require(callback)
+
     #if os(iOS)
     let notification = UIApplication.didEnterBackgroundNotification
     #else
@@ -110,6 +117,7 @@ func backgroundNotificationCancelsPendingAuthenticationWithoutSystemUI() async t
     }
     // A late OS callback must not revive a cancelled request.
     completion(true, nil)
+
     await Task.yield()
     #expect(try await plugin.invoke(method: 2, payload: buffer()).isEmpty)
 }

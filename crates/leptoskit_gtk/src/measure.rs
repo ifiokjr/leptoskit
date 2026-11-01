@@ -48,6 +48,7 @@ pub(crate) fn font(style: TextStyle) -> pango::FontDescription {
 		FontWeight::Semibold => pango::Weight::Semibold,
 		FontWeight::Bold => pango::Weight::Bold,
 	});
+
 	font
 }
 
@@ -61,6 +62,7 @@ impl TextMeasurer for GtkTextMeasurer {
 		} else {
 			pango::Direction::Ltr
 		});
+
 		let mut options =
 			pangocairo::cairo::FontOptions::new().expect("Cairo font options allocation");
 		context.set_round_glyph_positions(self.hinted);
@@ -69,10 +71,13 @@ impl TextMeasurer for GtkTextMeasurer {
 		} else {
 			pangocairo::cairo::HintMetrics::Off
 		});
+
 		pangocairo::functions::context_set_font_options(&context, Some(&options));
+
 		let layout = pango::Layout::new(&context);
 		layout.set_auto_dir(false);
 		layout.set_font_description(Some(&font(style)));
+
 		layout.set_text(if text.is_empty() { " " } else { text });
 		layout.set_wrap(pango::WrapMode::WordChar);
 
@@ -94,6 +99,7 @@ impl TextMeasurer for GtkTextMeasurer {
 			}
 			AvailableSpace::MaxContent => {}
 		}
+
 		let (width, height) = layout.pixel_size();
 		Size::new(
 			if text.is_empty() { 0.0 } else { width as f32 },

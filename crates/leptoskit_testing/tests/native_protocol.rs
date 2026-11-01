@@ -62,6 +62,7 @@ fn server(replies: Vec<Reply>) -> (Options, std::thread::JoinHandle<Vec<Value>>)
 					Err(error) => panic!("expected {}: {error}", expected.path),
 				}
 			};
+
 			stream.set_nonblocking(false).unwrap();
 			stream
 				.set_read_timeout(Some(Duration::from_secs(5)))
@@ -85,6 +86,7 @@ fn server(replies: Vec<Reply>) -> (Options, std::thread::JoinHandle<Vec<Value>>)
 					length = value.trim().parse().unwrap();
 				}
 			}
+
 			let mut bytes = vec![0; length];
 			reader.read_exact(&mut bytes).unwrap();
 			bodies.push(if bytes.is_empty() {
@@ -102,6 +104,7 @@ fn server(replies: Vec<Reply>) -> (Options, std::thread::JoinHandle<Vec<Value>>)
 					)
 				}
 			};
+
 			write!(
 				stream,
 				"HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: \
@@ -110,6 +113,7 @@ fn server(replies: Vec<Reply>) -> (Options, std::thread::JoinHandle<Vec<Value>>)
 			)
 			.unwrap();
 		}
+
 		bodies
 	});
 	let mut options = Options::new(endpoint, Platform::Windows, Application::Desktop);
@@ -157,6 +161,7 @@ fn ambiguous_controls_are_not_clicked_and_failure_report_embeds_real_png() {
 	let directory = tester.artifacts().to_path_buf();
 	let result = tester.tap(&Locator::text("<Open>"));
 	assert!(matches!(result, Err(Error::Ambiguous { count: 2, .. })));
+
 	assert!(tester.finish(result).is_err());
 	let requests = server.join().unwrap();
 	assert_eq!(
@@ -193,6 +198,7 @@ fn corrupt_screenshot_and_cleanup_failure_both_fail_the_run() {
 		.to_string();
 	assert!(failure.contains("original failure"));
 	assert!(failure.contains("invalid screenshot base64"));
+
 	assert!(failure.contains("cleanup failed"));
 	assert!(!directory.join("capture-001.png").exists());
 	server.join().unwrap();
@@ -223,6 +229,7 @@ fn mutation_errors_are_not_retried() {
 	);
 	tester.finish(Ok(())).unwrap();
 	server.join().unwrap();
+
 	std::fs::remove_dir_all(directory).unwrap();
 }
 
@@ -242,6 +249,7 @@ fn linux_driver_uses_its_native_timeout_contract_and_balanced_actions() {
 	tester.perform_actions(&json!([{"type":"key","id":"keyboard","actions":[{"type":"keyDown","value":"a"},{"type":"keyUp","value":"a"}]}])).unwrap();
 	tester.finish(Ok(())).unwrap();
 	let bodies = server.join().unwrap();
+
 	assert_eq!(bodies[2], json!({"ms":100}));
 	std::fs::remove_dir_all(directory).unwrap();
 }
@@ -263,6 +271,7 @@ fn typed_keys_are_one_balanced_key_action_and_empty_input_sends_nothing() {
 	));
 	tester.input_key('\u{E007}').unwrap();
 	tester.input_type("ok").unwrap();
+
 	tester.finish(Ok(())).unwrap();
 	let bodies = server.join().unwrap();
 	let key = |value: &str| {
@@ -308,6 +317,7 @@ fn panicking_assertions_retain_evidence_close_the_session_and_resume_the_panic()
 		Some(&"native assertion failed")
 	);
 	let directory = directory.into_inner().unwrap().unwrap();
+
 	let html = std::fs::read_to_string(directory.join("index.html")).unwrap();
 	assert!(html.contains("scenario panicked: native assertion failed"));
 	assert_eq!(
@@ -340,6 +350,7 @@ fn startup_failures_keep_the_http_status_and_write_a_report() {
 		matches!(*source, Error::Response(ref message) if message.contains("HTTP 502 Bad Gateway") && message.contains("upstream driver crashed"))
 	);
 	assert!(!before.contains(&directory));
+
 	let html = std::fs::read_to_string(directory.join("index.html")).unwrap();
 	assert!(html.contains("HTTP 502 Bad Gateway"));
 	assert!(!html.contains("capture-001"));
@@ -449,6 +460,7 @@ fn serialized_suites_drive_every_step_through_the_driver_once() {
 	let directory = suite.run().unwrap();
 	let bodies = server.join().unwrap();
 	assert_eq!(bodies[7], json!({"text": "Ada", "value": ["A", "d", "a"]}));
+
 	assert_eq!(
 		bodies[21],
 		json!({"script": "mobile: pressButton", "args": [{"name": "home"}]})
@@ -501,6 +513,7 @@ fn polling_server(answer: fn(&str) -> Value) -> (Options, std::thread::JoinHandl
 fn read_request(stream: &TcpStream) -> std::io::Result<String> {
 	fn read_line(reader: &mut impl BufRead) -> std::io::Result<String> {
 		let mut line = String::new();
+
 		match reader.read_line(&mut line)? {
 			0 => Err(ErrorKind::UnexpectedEof.into()),
 			_ => Ok(line),
@@ -510,15 +523,19 @@ fn read_request(stream: &TcpStream) -> std::io::Result<String> {
 	let mut reader = BufReader::new(stream);
 	let first = read_line(&mut reader)?;
 	let mut length = 0;
+
 	loop {
 		let line = read_line(&mut reader)?;
+
 		if line == "\r\n" {
 			break;
 		}
+
 		if let Some(value) = line.to_lowercase().strip_prefix("content-length:") {
 			length = value.trim().parse().unwrap();
 		}
 	}
+
 	reader.read_exact(&mut vec![0; length])?;
 	Ok(first)
 }
@@ -587,6 +604,7 @@ fn disabled_controls_time_out_with_an_explanation() {
 		"{error}"
 	);
 	assert!(tester.finish::<()>(Err(error)).is_err());
+
 	server.join().unwrap();
 	let html = std::fs::read_to_string(directory.join("index.html")).unwrap();
 	assert!(html.contains("to be visible and enabled"));
@@ -630,6 +648,7 @@ fn responses_cut_short_by_the_wait_deadline_time_out_the_wait() {
 				"/wd/session/s/source" => json!("<desktop/>"),
 				_ => Value::Null,
 			};
+
 			unless_abandoned(respond(&stream, &value));
 			if first.starts_with("DELETE ") {
 				return;
@@ -641,6 +660,7 @@ fn responses_cut_short_by_the_wait_deadline_time_out_the_wait() {
 	options.wait_seconds = 1;
 	let tester = NativeTester::connect(options).unwrap();
 	let directory = tester.artifacts().to_path_buf();
+
 	let error = tester.tap(&Locator::text("Save")).unwrap_err();
 	assert!(
 		matches!(&error, Error::Timeout(message) if message.contains("to be visible and enabled")),
@@ -672,6 +692,7 @@ fn driver_readiness_waits_through_unready_status_and_rejects_malformed_status() 
 	let Err(Error::Evidence { directory, source }) = NativeTester::connect(options) else {
 		panic!("a malformed status must fail startup with evidence");
 	};
+
 	assert!(matches!(*source, Error::Response(ref message) if message.contains("ready")));
 	driver.join().unwrap();
 	std::fs::remove_dir_all(directory).unwrap();
@@ -696,6 +717,7 @@ fn unreachable_drivers_fail_within_the_startup_deadline() {
 		panic!("an unreachable driver must fail startup with evidence");
 	};
 	assert!(matches!(*source, Error::Timeout(_)), "{source}");
+
 	assert!(start.elapsed() < Duration::from_secs(5));
 	std::fs::remove_dir_all(directory).unwrap();
 }
@@ -709,6 +731,7 @@ fn endpoints_and_responses_are_validated() {
 			"{endpoint}"
 		);
 	}
+
 	let replies = vec![
 		reply("GET /wd/status ", json!({"ready": true})),
 		raw("POST /wd/session ", "200 OK", "not json"),
@@ -718,6 +741,7 @@ fn endpoints_and_responses_are_validated() {
 		panic!("a non-JSON success must fail startup");
 	};
 	assert!(matches!(*source, Error::Json(_)), "{source}");
+
 	server.join().unwrap();
 	std::fs::remove_dir_all(directory).unwrap();
 }
@@ -749,6 +773,7 @@ fn slow_observations_share_the_wait_deadline_not_the_command_deadline() {
 	let start = Instant::now();
 	tester.tap(&Locator::accessibility_id("greet")).unwrap();
 	assert!(start.elapsed() >= Duration::from_millis(1_500));
+
 	tester.finish(Ok(())).unwrap();
 	server.join().unwrap();
 	std::fs::remove_dir_all(directory).unwrap();
@@ -782,6 +807,7 @@ fn slow_actions_are_not_abandoned_while_the_driver_may_still_run_them() {
 	let start = Instant::now();
 	tester.tap(&Locator::accessibility_id("greet")).unwrap();
 	assert!(start.elapsed() >= Duration::from_millis(1_500));
+
 	tester.finish(Ok(())).unwrap();
 	server.join().unwrap();
 	std::fs::remove_dir_all(directory).unwrap();
@@ -808,6 +834,7 @@ fn a_session_the_driver_ended_reports_only_the_failure_that_ended_it() {
 	let Err(Error::Evidence { source, .. }) = tester.finish::<()>(Err(timeout)) else {
 		panic!("a failed run must carry its evidence directory");
 	};
+
 	assert!(
 		matches!(*source, Error::Driver { ref code, .. } if code == "timeout"),
 		"{source}"
@@ -848,6 +875,7 @@ fn linux_observations_see_through_an_accessible_destroyed_mid_walk() {
 	let directory = tester.artifacts().to_path_buf();
 	tester.expect_absent(&Locator::text("Cancel")).unwrap();
 	tester.finish(Ok(())).unwrap();
+
 	server.join().unwrap();
 	std::fs::remove_dir_all(directory).unwrap();
 }
@@ -868,6 +896,7 @@ fn the_at_spi_signature_is_an_ordinary_driver_error_elsewhere() {
 	));
 	tester.finish(Ok(())).unwrap();
 	server.join().unwrap();
+
 	std::fs::remove_dir_all(directory).unwrap();
 }
 
@@ -896,6 +925,7 @@ fn linux_actions_on_a_destroyed_accessible_still_fail() {
 		Err(Error::Driver { code, .. }) if code == "unknown error"
 	));
 	tester.finish(Ok(())).unwrap();
+
 	server.join().unwrap();
 	std::fs::remove_dir_all(directory).unwrap();
 }

@@ -151,6 +151,7 @@ impl ReleaseStore {
 		let release_exists =
 			|| CodePushError::ReleaseExists(format!("{app}/{channel}/{version}+{build}"));
 		let release_dir = self.release_dir(app, channel, version, build);
+
 		if release_dir.join(RELEASE_FILE).try_exists()? {
 			return Err(release_exists());
 		}
@@ -173,10 +174,12 @@ impl ReleaseStore {
 		// Snapshot the previous release before the new one becomes visible,
 		// so the delta is computed against it rather than against itself.
 		let previous = self.latest(app, channel)?;
+
 		let delta = match previous {
 			Some(previous) if previous.manifest.bundle_hash() != manifest.bundle_hash() => {
 				worthwhile_delta(&previous.container, &container)?
 			}
+
 			_ => None,
 		};
 
@@ -190,12 +193,15 @@ impl ReleaseStore {
 			(SIGNATURE_FILE, signature_json.as_slice()),
 			(CONTAINER_HASH_FILE, container_hash.as_bytes()),
 		];
+
 		if let (Some(path), Some((_, bytes))) = (&delta_path, &delta) {
 			files.push((path.as_str(), bytes.as_slice()));
 		}
+
 		if !publish_release_dir(&release_dir, &files)? {
 			return Err(release_exists());
 		}
+
 		self.refresh_index(app, channel)?;
 
 		Ok(IngestedRelease {
@@ -243,12 +249,14 @@ impl ReleaseStore {
 					(CONTAINER_HASH_FILE, container_hash.as_bytes()),
 				],
 			)?;
+
 		if !imported {
 			if fs::read(release_dir.join(RELEASE_FILE))? != container {
 				return Err(CodePushError::ReleaseExists(format!(
 					"{app}/{channel}/{version}+{build}"
 				)));
 			}
+
 			write_atomically(
 				&release_dir.join(CONTAINER_HASH_FILE),
 				container_hash.as_bytes(),
@@ -257,10 +265,12 @@ impl ReleaseStore {
 			// other; a release left without its signature is completed by
 			// importing it again.
 			let signature_path = release_dir.join(SIGNATURE_FILE);
+
 			if !signature_path.try_exists()? {
 				write_atomically(&signature_path, &signature_json)?;
 			}
 		}
+
 		self.refresh_index(app, channel)?;
 		Ok(imported)
 	}
@@ -276,14 +286,17 @@ impl ReleaseStore {
 	fn refresh_index(&self, app: &str, channel: &str) -> Result<(), CodePushError> {
 		let path = self.path_of(&ObjectKey::index(app, channel));
 		let mut written: Option<ChannelIndex> = None;
+
 		loop {
 			let Some(latest) = self.latest(app, channel)? else {
 				return Ok(());
 			};
 			let index = latest.channel_index();
+
 			if written.as_ref() == Some(&index) {
 				return Ok(());
 			}
+
 			write_atomically(&path, &serde_json::to_vec_pretty(&index)?)?;
 			written = Some(index);
 		}
@@ -325,17 +338,21 @@ impl ReleaseStore {
 		build: u64,
 	) -> Result<Option<String>, StoreError> {
 		let release = self.path_of(&ObjectKey::release(app, channel, version, build));
+
 		if !self.object_exists(&ObjectKey::release(app, channel, version, build))? {
 			return Ok(None);
 		}
 
 		let file = match fs::File::open(release.with_file_name(CONTAINER_HASH_FILE)) {
 			Ok(file) => file,
+
 			Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
 			Err(error) => return Err(error.into()),
 		};
+
 		let mut hash = String::new();
 		file.take(65).read_to_string(&mut hash)?;
+
 		if hash.len() != 64
 			|| !hash
 				.bytes()
@@ -355,6 +372,7 @@ impl ReleaseStore {
 			Ok(_) => {
 				Err(std::io::Error::new(ErrorKind::InvalidData, "expected a release file").into())
 			}
+
 			Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
 			Err(error) => Err(error.into()),
 		}
@@ -371,21 +389,27 @@ impl ReleaseStore {
 			bytes: record.container.clone(),
 		}];
 		let signature = ObjectKey::signature(app, channel, version, build);
+
 		if let Some(bytes) = self.read_object(&signature)? {
 			objects.push(StaticObject {
 				key: signature,
 				bytes,
 			});
 		}
+
 		let deltas_dir = self
 			.path_of(&ObjectKey::release(app, channel, version, build))
 			.with_file_name(DELTAS_DIR);
+
 		let entries = match fs::read_dir(&deltas_dir) {
 			Ok(entries) => entries,
+
 			Err(error) if error.kind() == ErrorKind::NotFound => return Ok(objects),
 			Err(error) => return Err(error.into()),
 		};
+
 		let mut deltas = Vec::new();
+
 		for entry in entries {
 			let name = entry?.file_name();
 			// Temporary files of an interrupted write, and anything else that
@@ -397,10 +421,12 @@ impl ReleaseStore {
 			else {
 				continue;
 			};
+
 			if let Some(bytes) = self.read_object(&key)? {
 				deltas.push(StaticObject { key, bytes });
 			}
 		}
+
 		deltas.sort_by(|left, right| left.key.as_str().cmp(right.key.as_str()));
 		objects.extend(deltas);
 		Ok(objects)
@@ -420,30 +446,38 @@ impl ReleaseStore {
 	pub fn list(&self, app: &str, channel: &str) -> Result<Vec<ReleaseRecord>, StoreError> {
 		let channel_dir = self.root.join(channel_path(app, channel));
 		let mut records = Vec::new();
+
 		let entries = match fs::read_dir(&channel_dir) {
 			Ok(entries) => entries,
+
 			Err(error) if error.kind() == ErrorKind::NotFound => return Ok(records),
 			Err(error) => return Err(error.into()),
 		};
+
 		for entry in entries {
 			let entry = entry?;
 			let is_release = entry
 				.file_name()
 				.to_str()
 				.is_some_and(|name| parse_release_name(name).is_some());
+
 			if !is_release || !entry.file_type()?.is_dir() {
 				continue;
 			}
+
 			let container = match fs::read(entry.path().join(RELEASE_FILE)) {
 				Ok(container) => container,
+
 				Err(error) if error.kind() == ErrorKind::NotFound => continue,
 				Err(error) => return Err(error.into()),
 			};
+
 			let parsed = match read_container(&container) {
 				Ok(parsed) => parsed,
 				Err(CodePushError::UnsupportedFormatVersion(_)) => continue,
 				Err(error) => return Err(error.into()),
 			};
+
 			let signature = read_optional_json(&entry.path().join(SIGNATURE_FILE))?;
 			records.push(ReleaseRecord {
 				manifest: parsed.manifest,
@@ -451,6 +485,7 @@ impl ReleaseStore {
 				signature,
 			});
 		}
+
 		records.sort_by(|left, right| right.id().cmp(&left.id()));
 		Ok(records)
 	}
@@ -479,6 +514,7 @@ impl ReleaseStore {
 fn read_optional(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
 	match fs::read(path) {
 		Ok(bytes) => Ok(Some(bytes)),
+
 		Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
 		Err(error) => Err(error),
 	}
@@ -521,16 +557,19 @@ fn publish_release_dir(release_dir: &Path, files: &[(&str, &[u8])]) -> Result<bo
 	let channel_dir = durable::parent_of(release_dir);
 	fs::create_dir_all(channel_dir)?;
 	let assembled = durable::assemble_directory(release_dir, files)?;
+
 	if let Err(error) = fs::rename(&assembled, release_dir) {
 		// The rename already failed; that error, or the release that beat it
 		// into place, is what to report.
 		let _ = fs::remove_dir_all(&assembled);
+
 		return if release_dir.join(RELEASE_FILE).try_exists()? {
 			Ok(false)
 		} else {
 			Err(error.into())
 		};
 	}
+
 	durable::sync_directory(channel_dir)?;
 	Ok(true)
 }

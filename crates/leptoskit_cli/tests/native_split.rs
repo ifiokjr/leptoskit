@@ -95,6 +95,7 @@ fn rust_chunks_share_memory_and_load_on_demand_without_javascript() {
 		2
 	);
 	begin.call(&mut store, ()).expect("retry lazy call");
+
 	assert_eq!(poll.call(&mut store, ()).expect("retry requests a load"), 0);
 	assert_eq!(store.data().loads, 2);
 

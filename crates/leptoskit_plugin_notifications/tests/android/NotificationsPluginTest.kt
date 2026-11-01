@@ -52,6 +52,7 @@ class NotificationsPluginTest {
                     try {
                         plugin.invoke(2, fields(listOf(id, "Missing channel", "", "$channel-missing")))
                         fail("Posting without an existing channel was accepted")
+
                     } catch (error: PluginException) {
                         assertEquals(PluginException.INVALID_ARGUMENT, error.code)
                     }
@@ -93,6 +94,7 @@ class NotificationsPluginTest {
                     }
                 }
                 awaitNotification(manager, tag, "Persists after close")
+
             } finally {
                 withContext(Dispatchers.Main) { plugin.close() }
                 manager.cancel(tag, 0)
@@ -114,6 +116,7 @@ class NotificationsPluginTest {
                             fields(listOf("id", "Title", "bad\u0000body", "general")),
                             ByteBuffer.wrap(byteArrayOf(-1, -1, -1, -1)),
                         )
+
                     for (payload in invalid) {
                         try {
                             plugin.invoke(2, payload)
@@ -122,6 +125,7 @@ class NotificationsPluginTest {
                             assertEquals(PluginException.INVALID_ARGUMENT, error.code)
                         }
                     }
+
                     try {
                         plugin.invoke(4, fields(listOf("invalid-channel", "Test", ""), listOf(4, 0)))
                         fail("Unknown channel importance was accepted")
@@ -162,6 +166,7 @@ class NotificationsPluginTest {
         numbers: List<Int> = emptyList(),
     ): ByteBuffer {
         val output = ByteArrayOutputStream()
+
         for (value in strings) {
             val bytes = value.toByteArray(Charsets.UTF_8)
             output.write(
@@ -173,6 +178,7 @@ class NotificationsPluginTest {
             )
             output.write(bytes)
         }
+
         for (value in numbers) {
             output.write(
                 ByteBuffer
@@ -182,6 +188,7 @@ class NotificationsPluginTest {
                     .array(),
             )
         }
+
         return ByteBuffer.wrap(output.toByteArray())
     }
 }

@@ -1260,6 +1260,7 @@ mod tests {
 			.args(DEBUG_HOST_ARGUMENTS)
 			.output()
 			.unwrap();
+
 		assert!(
 			output.status.success(),
 			"{}",

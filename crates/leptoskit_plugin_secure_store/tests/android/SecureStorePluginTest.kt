@@ -31,6 +31,7 @@ class SecureStorePluginTest {
                 assertArrayEquals(byteArrayOf(1, 0, 0, 0), plugin.invoke(0, request("binary")))
                 plugin.invoke(2, request("binary"))
                 plugin.invoke(2, request("binary"))
+
                 assertArrayEquals(byteArrayOf(0, 0, 0, 0), plugin.invoke(0, request("binary")))
             } finally {
                 plugin.invoke(2, request("binary"))
@@ -53,6 +54,7 @@ class SecureStorePluginTest {
                 } catch (error: PluginException) {
                     assertEquals(PluginException.NATIVE, error.code)
                 }
+
             } finally {
                 file.writeBytes(original)
                 plugin.invoke(2, request("tamper"))
@@ -72,6 +74,7 @@ class SecureStorePluginTest {
                     assertEquals(PluginException.NATIVE, error.code)
                 }
             } finally {
+
                 plugin.invoke(2, request("swap-a"))
                 plugin.invoke(2, request("swap-b"))
             }
@@ -85,15 +88,18 @@ class SecureStorePluginTest {
                 limited.invoke(1, request("quota-a", byteArrayOf(1)))
                 limited.invoke(1, request("quota-b", byteArrayOf()))
                 val saved = archiveFile().readBytes()
+
                 for (payload in listOf(request("quota-c", byteArrayOf()), request("quota-a", ByteArray(256)))) {
                     try {
                         limited.invoke(1, payload)
                         fail("Aggregate quota must reject the write")
                     } catch (error: PluginException) {
+
                         assertEquals(PluginException.TOO_LARGE, error.code)
                     }
                     assertArrayEquals(saved, archiveFile().readBytes())
                 }
+
                 limited.close()
                 val reopened = SecureStorePlugin(context, maxBytes = 256, maxEntries = 2)
                 assertArrayEquals(byteArrayOf(1, 0, 0, 0, 1), reopened.invoke(0, request("quota-a")))
@@ -109,6 +115,7 @@ class SecureStorePluginTest {
     fun rejectsMalformedRequestsBeforeStorage() =
         runBlocking {
             val invalid = listOf(ByteArray(0), request("trailer").array() + byteArrayOf(0), request("../escape").array())
+
             for (payload in invalid) {
                 try {
                     plugin.invoke(0, ByteBuffer.wrap(payload))
@@ -126,6 +133,7 @@ class SecureStorePluginTest {
     ): ByteBuffer {
         val serviceBytes = scope.toByteArray()
         val keyBytes = key.toByteArray()
+
         return ByteBuffer
             .allocate(8 + serviceBytes.size + keyBytes.size + (value?.let { 4 + it.size } ?: 0))
             .order(ByteOrder.LITTLE_ENDIAN)
@@ -140,6 +148,7 @@ class SecureStorePluginTest {
     private fun storedFile(key: String): File {
         val identity = "leptoskit.secure-store:${context.packageName}:$service/$key".toByteArray()
         val name = MessageDigest.getInstance("SHA-256").digest(identity).joinToString("") { "%02x".format(it.toInt() and 255) }
+
         return File(File(context.noBackupFilesDir, "leptoskit-secure-store"), name)
     }
 

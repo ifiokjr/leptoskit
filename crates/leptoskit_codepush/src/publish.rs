@@ -92,6 +92,7 @@ pub fn publish_channel(
 		.first()
 		.ok_or_else(|| CodePushError::NoReleases(format!("{app}/{channel}")))?;
 	let latest_name = release_name(&latest.manifest.version, latest.manifest.build);
+
 	if latest.signature.is_none() {
 		return Err(CodePushError::Unsigned(format!(
 			"{app}/{channel}/{latest_name}"
@@ -106,18 +107,22 @@ pub fn publish_channel(
 	let remote_id = remote
 		.as_ref()
 		.map(|index| (&index.manifest.version, index.manifest.build));
+
 	if let (Some(remote), Some(remote_id)) = (&remote, remote_id) {
 		let remote_name = release_name(remote_id.0, remote_id.1);
+
 		if remote_id > latest.id() {
 			return Err(CodePushError::RegistryAhead {
 				registry: remote_name,
 				store: latest_name,
 			});
 		}
+
 		let diverged = records.iter().any(|record| {
 			record.id() == remote_id
 				&& record.manifest.bundle_hash() != remote.manifest.bundle_hash()
 		});
+
 		if diverged {
 			return Err(CodePushError::RegistryConflict(format!(
 				"{app}/{channel}/{remote_name}"
@@ -136,6 +141,7 @@ pub fn publish_channel(
 		.iter()
 		.rev()
 		.filter(|record| remote_id.is_none_or(|remote_id| record.id() > remote_id));
+
 	for record in pending {
 		for object in store.release_objects(record)? {
 			if object.key.kind() == ObjectKind::Delta
@@ -157,6 +163,7 @@ pub fn publish_channel(
 				}
 			}
 		}
+
 		report.releases.push(release_name(
 			&record.manifest.version,
 			record.manifest.build,
@@ -164,6 +171,7 @@ pub fn publish_channel(
 	}
 
 	let index = latest.channel_index();
+
 	if remote.as_ref() != Some(&index) {
 		bucket.put(&StaticObject {
 			key: index_key,
@@ -171,6 +179,7 @@ pub fn publish_channel(
 		})?;
 		report.written += 1;
 	}
+
 	Ok(report)
 }
 
@@ -219,18 +228,22 @@ pub fn pull_channel(
 		return Ok(PullReport::Empty);
 	};
 	let index = parse_index(&index_bytes)?;
+
 	if index.format_version != INDEX_FORMAT_VERSION {
 		return Err(CodePushError::UnsupportedFormatVersion(
 			index.format_version,
 		));
 	}
+
 	let manifest = &index.manifest;
+
 	if manifest.app != app || manifest.channel != channel {
 		return Err(CodePushError::WrongTarget {
 			tracked: format!("{app}/{channel}"),
 			offered: format!("{}/{}", manifest.app, manifest.channel),
 		});
 	}
+
 	let signature = index.signature.as_ref().ok_or_else(|| {
 		CodePushError::Unsigned(format!(
 			"{app}/{channel}/{}",
@@ -247,6 +260,7 @@ pub fn pull_channel(
 	// The container's own manifest declares how large each file inflates, so
 	// it must be the signed one before anything is decompressed.
 	let (container_manifest, _) = container_manifest(&container)?;
+
 	if container_manifest.bundle_hash() != manifest.bundle_hash() {
 		return Err(CodePushError::HashMismatch {
 			path: release_key.as_str().to_owned(),
@@ -263,6 +277,7 @@ pub fn pull_channel(
 		}
 		Err(error) => return Err(error),
 	};
+
 	Ok(PullReport::Pulled {
 		version: version.clone(),
 		build,

@@ -46,13 +46,16 @@ class SecureStorePlugin(
         payload: ByteBuffer,
     ): ByteArray {
         if (closed.get()) throw PluginException(PluginException.CANCELLED)
+
         if (method !in methods) throw PluginException(PluginException.UNAVAILABLE)
         // The bridge-owned buffer must not cross a suspension point.
         val request = Request.decode(method, payload)
+
         return try {
             withContext(Dispatchers.IO) {
                 lock.withLock {
                     ensureActive()
+
                     if (closed.get()) throw PluginException(PluginException.CANCELLED)
                     try {
                         if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Cannot create secure-store directory")
@@ -64,6 +67,7 @@ class SecureStorePlugin(
                     } catch (error: GeneralSecurityException) {
                         throw PluginException(PluginException.NATIVE, error)
                     } catch (error: IOException) {
+
                         throw PluginException(PluginException.NATIVE, error)
                     }
                 }
@@ -82,6 +86,7 @@ class SecureStorePlugin(
                 val stored = readCiphertext(file, 2560)
                 val cipher = Cipher.getInstance("AES/GCM/NoPadding")
                 cipher.init(Cipher.DECRYPT_MODE, encryptionKey(create = false), GCMParameterSpec(128, stored, 1, 12))
+
                 cipher.updateAAD(identity)
                 val plaintext = cipher.doFinal(stored, 13, stored.size - 13)
                 try {
@@ -97,6 +102,7 @@ class SecureStorePlugin(
                 val value = archive.get(request.service, request.key) ?: return executeLegacy(request)
                 return byteArrayOf(1, 0, 0, 0) + value
             }
+
             if (request.method == 1) {
                 archive.set(request.service, request.key, request.secret ?: throw PluginException(PluginException.INVALID_ARGUMENT))
             } else {
@@ -110,7 +116,9 @@ class SecureStorePlugin(
             } finally {
                 plaintext.fill(0)
             }
+
             if (request.method == 1) executeLegacy(Request(2, request.service, request.key, null))
+
             return byteArrayOf()
         } finally {
             archive.clear()
@@ -129,11 +137,15 @@ class SecureStorePlugin(
             ) {
                 throw IOException("Cannot delete secure-store archive")
             }
+
             return
         }
+
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, encryptionKey(create = true))
+
         if (cipher.iv.size != 12) throw GeneralSecurityException("Unexpected GCM IV size")
+
         cipher.updateAAD(identity)
         val ciphertext = byteArrayOf(1) + cipher.iv + cipher.doFinal(value)
         val stream = file.startWrite()
@@ -145,6 +157,7 @@ class SecureStorePlugin(
             file.failWrite(stream)
             throw error
         }
+
         if (!MessageDigest.isEqual(ciphertext, readCiphertext(file, 2560))) {
             throw IOException("Secure-store write did not commit")
         }
@@ -155,6 +168,7 @@ class SecureStorePlugin(
         val digest = MessageDigest.getInstance("SHA-256").digest(identity)
         val filename = digest.joinToString("") { "%02x".format(it.toInt() and 255) }
         val file = AtomicFile(File(directory, filename))
+
         return when (request.method) {
             0 -> {
                 // AtomicFile restores an interrupted write from its backup, if present.
@@ -166,6 +180,7 @@ class SecureStorePlugin(
                     cipher.init(Cipher.DECRYPT_MODE, encryptionKey(create = false), GCMParameterSpec(128, stored, 1, 12))
                     cipher.updateAAD(identity)
                     val plaintext = cipher.doFinal(stored, 13, stored.size - 13)
+
                     try {
                         byteArrayOf(1, 0, 0, 0) + plaintext
                     } finally {
@@ -197,14 +212,18 @@ class SecureStorePlugin(
         file.openRead().use { input ->
             val bytes = ByteArray(maximum + 30)
             var count = 0
+
             while (count < bytes.size) {
                 val read = input.read(bytes, count, bytes.size - count)
+
                 if (read < 0) break
                 count += read
             }
+
             if (count < 29 || count > maximum + 29 || bytes[0] != 1.toByte()) {
                 throw IOException("Invalid secure-store ciphertext")
             }
+
             bytes.copyOf(count)
         }
 
@@ -214,13 +233,17 @@ class SecureStorePlugin(
         if (store.containsAlias(alias)) {
             return store.getKey(alias, null) as? SecretKey ?: throw GeneralSecurityException("Invalid secure-store key type")
         }
+
         if (!create) throw GeneralSecurityException("Secure-store key is missing")
         // Without the key, remaining ciphertext can never be decrypted. Discard it
         // before generating a new key so the store recovers instead of failing forever.
         directory.listFiles()?.forEach { entry ->
+
             if (entry.name == ".lock") return@forEach
+
             if (!entry.delete() && entry.exists()) throw IOException("Cannot discard undecryptable secure-store entry")
         }
+
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
         generator.init(
             KeyGenParameterSpec
@@ -231,6 +254,7 @@ class SecureStorePlugin(
                 .setRandomizedEncryptionRequired(true)
                 .build(),
         )
+
         return generator.generateKey()
     }
 
@@ -250,12 +274,15 @@ class SecureStorePlugin(
                 fun field(limit: Int): ByteArray {
                     if (input.remaining() < 4) throw PluginException(PluginException.INVALID_ARGUMENT)
                     val size = input.int
+
                     if (limit == MAX_SECRET && (size < 0 || size > limit)) {
                         throw PluginException(PluginException.TOO_LARGE)
                     }
+
                     if (size < 0 || size > limit || size > input.remaining()) {
                         throw PluginException(PluginException.INVALID_ARGUMENT)
                     }
+
                     return ByteArray(size).also(input::get)
                 }
 
@@ -269,15 +296,18 @@ class SecureStorePlugin(
                     ) {
                         throw PluginException(PluginException.INVALID_ARGUMENT)
                     }
+
                     return value.toString(Charsets.US_ASCII)
                 }
                 val service = name()
                 val key = name()
                 val secret = if (method == 1) field(MAX_SECRET) else null
+
                 if (input.hasRemaining()) {
                     secret?.fill(0)
                     throw PluginException(PluginException.INVALID_ARGUMENT)
                 }
+
                 return Request(method, service, key, secret)
             }
         }

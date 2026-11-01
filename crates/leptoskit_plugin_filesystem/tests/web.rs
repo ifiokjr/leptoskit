@@ -17,6 +17,7 @@ async fn opfs_roundtrip_and_boundaries() {
 	assert_eq!(web::read(&path).await.unwrap().as_ref(), &[0, 1, 255]);
 	let metadata = web::stat(&path).await.unwrap();
 	assert_eq!(metadata.kind, Kind::File);
+
 	assert_eq!(metadata.len, 3);
 	assert_eq!(web::list(&directory).await.unwrap(), ["binary"]);
 	assert_eq!(web::stat(&directory).await.unwrap().kind, Kind::Directory);

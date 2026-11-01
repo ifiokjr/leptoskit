@@ -142,6 +142,7 @@ impl<'a> Props<'a> {
 				self.component
 			))));
 		}
+
 		Some(Ok(self.links.record(url, self.line, self.column)))
 	}
 

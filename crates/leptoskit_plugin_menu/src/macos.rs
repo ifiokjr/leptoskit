@@ -42,15 +42,18 @@ impl ApplicationMenu {
 		{
 			return Err(Error::Unavailable);
 		}
+
 		if ATTACHED.with(|attached| attached.replace(true)) {
 			return Err(Error::Busy);
 		}
+
 		let previous = application.mainMenu();
 		// SAFETY: muda owns a live NSMenu on this main thread. Retain it so the
 		// lease can compare identities independently of the application slot.
 		let installed = unsafe { Retained::retain(menu.native_menu().ns_menu().cast::<NSMenu>()) };
 		let Some(installed) = installed else {
 			ATTACHED.with(|attached| attached.set(false));
+
 			return Err(Error::Native);
 		};
 		application.setMainMenu(Some(&installed));
@@ -78,6 +81,7 @@ impl Drop for ApplicationMenu {
 		}) {
 			self.application.setMainMenu(self.previous.as_deref());
 		}
+
 		ATTACHED.with(|attached| attached.set(false));
 	}
 }

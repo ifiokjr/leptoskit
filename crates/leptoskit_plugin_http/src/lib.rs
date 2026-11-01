@@ -150,18 +150,23 @@ impl Config {
 	/// explicitly.
 	pub fn new(origins: impl IntoIterator<Item = impl AsRef<str>>) -> Result<Self, Error> {
 		let mut allowed = Vec::new();
+
 		for origin in origins {
 			let url = parse_url(origin.as_ref())?;
+
 			if url.path() != "/" || url.query().is_some() {
 				return Err(Error::Invalid("allowlist entries must be origins".into()));
 			}
+
 			if !allowed.contains(&url.origin()) {
 				allowed.push(url.origin());
 			}
 		}
+
 		if allowed.is_empty() {
 			return Err(Error::Invalid("at least one origin is required".into()));
 		}
+
 		Ok(Self {
 			origins: allowed,
 			max_body_bytes: 8 * 1024 * 1024,
@@ -185,18 +190,23 @@ impl Config {
 
 	fn request_url(&self, request: &Request) -> Result<Url, Error> {
 		let url = parse_url(&request.url)?;
+
 		if !self.origins.contains(&url.origin()) {
 			return Err(Error::DestinationDenied);
 		}
+
 		if request.body.len() > self.max_body_bytes {
 			return Err(Error::TooLarge);
 		}
+
 		if matches!(request.method, Method::Get | Method::Head) && !request.body.is_empty() {
 			return Err(Error::Invalid(
 				"GET/HEAD request bodies are unsupported".into(),
 			));
 		}
+
 		check_headers(&request.headers, self.max_header_bytes)?;
+
 		for header in &request.headers {
 			if matches!(
 				header.name.to_ascii_lowercase().as_str(),
@@ -210,6 +220,7 @@ impl Config {
 				return Err(Error::Invalid("transport-owned request header".into()));
 			}
 		}
+
 		Ok(url)
 	}
 }
@@ -218,6 +229,7 @@ impl Config {
 fn parse_url(value: &str) -> Result<Url, Error> {
 	let url =
 		Url::parse(value).map_err(|_| Error::Invalid("absolute HTTP(S) URL required".into()))?;
+
 	if !matches!(url.scheme(), "http" | "https")
 		|| url.host_str().is_none_or(|host| host.contains('*'))
 		|| !url.username().is_empty()
@@ -233,14 +245,17 @@ fn parse_url(value: &str) -> Result<Url, Error> {
 #[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
 fn check_headers(headers: &[Header], max_bytes: usize) -> Result<(), Error> {
 	let mut size = 0_usize;
+
 	for header in headers {
 		size = size
 			.checked_add(header.name.len())
 			.and_then(|sum| sum.checked_add(header.value.len()))
 			.ok_or(Error::TooLarge)?;
+
 		if size > max_bytes {
 			return Err(Error::TooLarge);
 		}
+
 		if header.name.is_empty()
 			|| !header
 				.name
@@ -252,6 +267,7 @@ fn check_headers(headers: &[Header], max_bytes: usize) -> Result<(), Error> {
 			return Err(Error::Invalid("invalid HTTP header".into()));
 		}
 	}
+
 	Ok(())
 }
 #[cfg(not(target_arch = "wasm32"))]
@@ -259,6 +275,7 @@ fn append_body(output: &mut Vec<u8>, chunk: &[u8], limit: usize) -> Result<(), E
 	if chunk.len() > limit.saturating_sub(output.len()) {
 		return Err(Error::TooLarge);
 	}
+
 	output.extend_from_slice(chunk);
 	Ok(())
 }
@@ -311,6 +328,7 @@ mod tests {
 	#[test]
 	fn request_limits_and_header_injection_are_checked_before_io() {
 		let mut config = Config::new(["https://example.com"]).unwrap();
+
 		config.max_body_bytes = 2;
 		let mut request = Request::get("https://example.com");
 		request.method = Method::Post;
@@ -372,9 +390,11 @@ mod tests {
 			(Method::Delete, "DELETE"),
 			(Method::Options, "OPTIONS"),
 		];
+
 		for (method, token) in tokens {
 			assert_eq!(method.as_str(), token);
 		}
+
 		let mut request = Request::get("https://example.com");
 		request.body = vec![1];
 		assert!(matches!(

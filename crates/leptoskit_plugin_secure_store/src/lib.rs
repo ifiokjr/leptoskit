@@ -62,14 +62,17 @@ impl<'a> Key<'a> {
 		if secret.is_some_and(|value| value.len() > MAX_SECRET_BYTES) {
 			return Err(Error::TooLarge);
 		}
+
 		let mut output = Encoder::with_capacity(
 			12 + self.service.len() + self.key.len() + secret.map_or(0, <[u8]>::len),
 		);
 		output.bytes(self.service.as_bytes())?;
 		output.bytes(self.key.as_bytes())?;
+
 		if let Some(secret) = secret {
 			output.bytes(secret)?;
 		}
+
 		Ok(output.finish())
 	}
 }
@@ -102,6 +105,7 @@ impl<'a> Request<'a> {
 		if !METHODS.contains(&method) {
 			return Err(Error::Unavailable);
 		}
+
 		let mut input = Decoder::new(payload);
 		let key = Key::new(input.string()?, input.string()?)?;
 		let secret = if method == SET {
@@ -109,9 +113,11 @@ impl<'a> Request<'a> {
 		} else {
 			None
 		};
+
 		if secret.is_some_and(|value| value.len() > MAX_SECRET_BYTES) {
 			return Err(Error::TooLarge);
 		}
+
 		input.finish()?;
 		Ok(Self { key, secret })
 	}
@@ -120,8 +126,10 @@ impl<'a> Request<'a> {
 /// Decodes a get response, preserving the difference between absent and empty.
 pub fn decode_secret(response: &[u8]) -> Result<Option<&[u8]>, Error> {
 	let (flag, secret) = response.split_at_checked(4).ok_or(Error::Native)?;
+
 	match flag {
 		[0, 0, 0, 0] if secret.is_empty() => Ok(None),
+
 		[1, 0, 0, 0] if secret.len() <= MAX_SECRET_BYTES => Ok(Some(secret)),
 		_ => Err(Error::Native),
 	}
@@ -201,9 +209,11 @@ mod desktop {
 			let file = options
 				.open(directory.join(".lock"))
 				.map_err(|_| Error::Native)?;
+
 			if !file.metadata().map_err(|_| Error::Native)?.is_file() {
 				return Err(Error::PermissionDenied);
 			}
+
 			fs4::FileExt::lock(&file).map_err(|_| Error::Native)?;
 			Ok(file)
 		}
@@ -214,6 +224,7 @@ mod desktop {
 				self.application,
 				key.service()
 			);
+
 			#[cfg(test)]
 			if let Some(entry) = self.mock_entry(&service, key.key()) {
 				return Ok(entry);
@@ -234,6 +245,7 @@ mod desktop {
 
 		fn archive_entry(&self) -> Result<keyring::Entry, Error> {
 			let service = format!("leptoskit.secure-store-v2:{}", self.application);
+
 			#[cfg(test)]
 			if let Some(entry) = self.mock_entry(&service, "entries") {
 				return Ok(entry);
@@ -281,6 +293,7 @@ mod desktop {
 			if secret.len() > MAX_SECRET_BYTES {
 				return Err(Error::TooLarge);
 			}
+
 			let _lock = STORE_LOCK.lock().map_err(|_| Error::Native)?;
 			let _file = self.lock()?;
 			let mut archive = self.archive()?;
@@ -289,6 +302,7 @@ mod desktop {
 			self.archive_entry()?
 				.set_secret(&bytes)
 				.map_err(|error| map_error(&error))?;
+
 			self.delete_legacy(key)
 		}
 
@@ -336,6 +350,7 @@ mod desktop {
 
 		fn invoke(&mut self, method: MethodId, payload: Bytes) -> Result<Bytes, Error> {
 			let request = Request::decode(method, &payload)?;
+
 			match method {
 				GET => {
 					let value = self.get(request.key)?;
@@ -344,6 +359,7 @@ mod desktop {
 					if let Some(value) = value {
 						response.extend_from_slice(&value);
 					}
+
 					Ok(response.into())
 				}
 				SET => {
@@ -438,6 +454,7 @@ mod desktop {
 			store.set(b, b"").unwrap();
 			assert_eq!(store.set(c, b""), Err(Error::TooLarge));
 			assert_eq!(store.set(a, &[0; 128]), Err(Error::TooLarge));
+
 			assert_eq!(store.get(a).unwrap().as_deref(), Some(b"old".as_slice()));
 			let backend = Arc::clone(store.test_store.as_ref().unwrap());
 			backend.lock().unwrap().fail_write = true;
@@ -474,6 +491,7 @@ mod desktop {
 				.set_secret(b"corrupt")
 				.unwrap();
 			assert!(store.get(key).is_err());
+
 			assert!(store.set(key, b"overwrite").is_err());
 			assert_eq!(
 				store.archive_entry().unwrap().get_secret().unwrap(),
@@ -529,6 +547,7 @@ mod desktop {
 			assert_eq!(set, Ok(Bytes::new()));
 			let absent = store.invoke(GET, key.encode(None).unwrap()).unwrap();
 			assert_eq!(decode_secret(&absent), Ok(None));
+
 			assert_eq!(
 				store.invoke(DELETE, key.encode(None).unwrap()),
 				Ok(Bytes::new())
@@ -618,18 +637,22 @@ pub mod guest {
 		/// Stores a bounded binary secret.
 		pub async fn set(self, key: Key<'_>, secret: &[u8]) -> Result<(), Error> {
 			let response = self.0.call(SET, &key.encode(Some(secret))?)?.await?;
+
 			if !response.is_empty() {
 				return Err(Error::Native);
 			}
+
 			Ok(())
 		}
 
 		/// Deletes a secret. Deleting an absent key succeeds.
 		pub async fn delete(self, key: Key<'_>) -> Result<(), Error> {
 			let response = self.0.call(DELETE, &key.encode(None)?)?.await?;
+
 			if !response.is_empty() {
 				return Err(Error::Native);
 			}
+
 			Ok(())
 		}
 	}
@@ -693,6 +716,7 @@ mod tests {
 		for name in ["", "a/b", "a\0b", "é", "a b"] {
 			assert!(Key::new("test", name).is_err());
 		}
+
 		assert!(Key::new(&"a".repeat(MAX_NAME_BYTES + 1), "key").is_err());
 		let key = Key::new("login", "token").unwrap();
 		assert_eq!(
@@ -700,6 +724,7 @@ mod tests {
 			Err(Error::TooLarge)
 		);
 		let payload = key.encode(Some(&[0, 255, 128])).unwrap();
+
 		let request = Request::decode(SET, &payload).unwrap();
 		assert_eq!(request.key, key);
 		assert_eq!(request.secret, Some([0, 255, 128].as_slice()));
@@ -710,9 +735,11 @@ mod tests {
 			.unwrap()
 			.encode(Some(b"secret"))
 			.unwrap();
+
 		for length in 0..payload.len() {
 			assert!(Request::decode(SET, &payload[..length]).is_err());
 		}
+
 		let mut trailing = payload.to_vec();
 		trailing.push(0);
 		assert!(Request::decode(SET, &trailing).is_err());
@@ -730,6 +757,7 @@ mod tests {
 			decode_secret(&[1, 0, 0, 0, 255]),
 			Ok(Some([255].as_slice()))
 		);
+
 		for input in [&[0][..], &[2, 0, 0, 0], &[0, 0, 0, 0, 1]] {
 			assert_eq!(decode_secret(input), Err(Error::Native));
 		}

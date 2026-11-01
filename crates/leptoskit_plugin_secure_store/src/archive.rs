@@ -160,6 +160,7 @@ mod tests {
 		archive.set(a, b"1234");
 		archive.set(b, b"");
 		let saved = archive.encode(quota).unwrap();
+
 		let mut restored = Archive::decode(&saved).unwrap();
 		restored.set(c, b"");
 		assert_eq!(restored.encode(quota), Err(Error::TooLarge));

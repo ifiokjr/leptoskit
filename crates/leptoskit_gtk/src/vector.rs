@@ -101,6 +101,7 @@ impl Vector {
 pub(crate) fn role(props: &leptoskit_native::NativeProps) -> gtk::AccessibleRole {
 	match props.aria().role {
 		Some(role) => crate::accessibility::role(role),
+
 		None if props.accessibility_label.is_some() => gtk::AccessibleRole::Img,
 		None => gtk::AccessibleRole::None,
 	}
@@ -135,7 +136,9 @@ fn paint_bounds(drawing: &Drawing, transform: Transform) -> Option<graphene::Rec
 			}
 		}
 	}
+
 	let (min, max) = extent?;
+
 	let outset = outset + 1.0;
 	Some(graphene::Rect::new(
 		min.x - outset,
@@ -157,10 +160,12 @@ fn stroke_outset(stroke: &Stroke, transform: Transform) -> f32 {
 		LineJoin::Miter => stroke.miter(),
 		LineJoin::Round | LineJoin::Bevel => 1.0,
 	};
+
 	let cap = match stroke.line_cap() {
 		LineCap::Square => std::f32::consts::SQRT_2,
 		LineCap::Butt | LineCap::Round => 1.0,
 	};
+
 	stroke.frame_width(transform) / 2.0 * join.max(cap)
 }
 
@@ -175,6 +180,7 @@ fn points(command: PathCommand) -> impl Iterator<Item = Point> {
 		} => [Some(control1), Some(control2), Some(to)],
 		PathCommand::Close => [None, None, None],
 	};
+
 	points.into_iter().flatten()
 }
 
@@ -195,6 +201,7 @@ fn paint(
 		if path.fill_color().is_none() && stroke.is_none() {
 			continue;
 		}
+
 		trace(context, path.data().transformed(transform));
 
 		if let Some(color) = path.fill_color() {
@@ -202,6 +209,7 @@ fn paint(
 				FillRule::Nonzero => cairo::FillRule::Winding,
 				FillRule::Evenodd => cairo::FillRule::EvenOdd,
 			});
+
 			source(context, color);
 			context.fill_preserve()?;
 		}
@@ -214,6 +222,7 @@ fn paint(
 			None => context.new_path(),
 		}
 	}
+
 	Ok(())
 }
 
@@ -240,6 +249,7 @@ fn apply_stroke(
 		LineJoin::Round => cairo::LineJoin::Round,
 		LineJoin::Bevel => cairo::LineJoin::Bevel,
 	});
+
 	context.set_miter_limit(f64::from(stroke.miter()));
 	dashes.clear();
 	dashes.extend(stroke.frame_dashes(transform).map(f64::from));

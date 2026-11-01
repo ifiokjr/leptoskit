@@ -69,11 +69,13 @@ impl Queue {
 		if !self.keys.contains_key(&event.id) {
 			return false;
 		}
+
 		if self.events.len() == EVENT_CAPACITY {
 			self.lost = self.lost.saturating_add(1);
 		} else {
 			self.events.push_back(event);
 		}
+
 		!std::mem::replace(&mut self.wake_pending, true)
 	}
 
@@ -100,6 +102,7 @@ struct Events {
 impl Events {
 	fn push(&self, event: Event) {
 		let accepted = self.queue.lock().push(event);
+
 		if accepted
 			&& std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (self.wake)())).is_err()
 		{
@@ -168,6 +171,7 @@ impl GlobalShortcuts {
 		if objc2::MainThreadMarker::new().is_none() {
 			return Err(Error::WrongThread);
 		}
+
 		#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 		if std::env::var_os("WAYLAND_DISPLAY").is_some()
 			|| std::env::var("XDG_SESSION_TYPE").is_ok_and(|value| value == "wayland")
@@ -217,21 +221,28 @@ impl GlobalShortcuts {
 		if accelerator.is_empty() || accelerator.len() > 256 {
 			return Err(Error::InvalidShortcut);
 		}
+
 		let key: HotKey = accelerator.parse().map_err(|_| Error::InvalidShortcut)?;
 		{
 			let mut queue = self.inner.events.queue.lock();
+
 			if queue.keys.contains_key(&key.id()) {
 				return Err(Error::Conflict(accelerator.into()));
 			}
+
 			if queue.keys.len() == REGISTRATION_CAPACITY {
 				return Err(Error::Capacity);
 			}
+
 			queue.keys.insert(key.id(), key);
 		}
+
 		if let Err(error) = self.inner.backend.register(key) {
 			self.inner.events.queue.lock().remove(key.id());
+
 			return Err(error);
 		}
+
 		Ok(Registration {
 			inner: Rc::clone(&self.inner),
 			key: Some(key),
@@ -283,6 +294,7 @@ impl Registration {
 			self.inner.unregister(key)?;
 			self.key = None;
 		}
+
 		Ok(())
 	}
 }
@@ -333,6 +345,7 @@ mod tests {
 
 		fn unregister(&self, key: HotKey) -> Result<(), Error> {
 			self.unregisters.lock().push(key.id());
+
 			if self.unregister_fails.load(Ordering::Relaxed) {
 				Err(Error::Native("unregister failed".into()))
 			} else {
@@ -358,6 +371,7 @@ mod tests {
 	fn guard_unregisters_once_and_removes_pending_events() {
 		let backend = Arc::new(Mock::default());
 		let owner = manager(Arc::clone(&backend));
+
 		let guard = owner.register("Control+Shift+KeyK").unwrap();
 		let id = guard.id();
 		owner.inner.events.push(Event {
@@ -399,12 +413,14 @@ mod tests {
 	fn bounded_queue_reports_overflow_and_ignores_unowned_events() {
 		let owner = manager(Arc::new(Mock::default()));
 		let guard = owner.register("Control+KeyK").unwrap();
+
 		for _ in 0..EVENT_CAPACITY + 7 {
 			owner.inner.events.push(Event {
 				id: guard.id(),
 				state: KeyState::Pressed,
 			});
 		}
+
 		let batch = owner.drain();
 		assert_eq!(batch.events.len(), EVENT_CAPACITY);
 		assert_eq!(batch.lost, 7);
@@ -429,6 +445,7 @@ mod tests {
 		));
 		backend.unregister_fails.store(false, Ordering::Relaxed);
 		guard.unregister().unwrap();
+
 		drop(guard);
 		let guard = owner.register("Control+KeyK").unwrap();
 		backend.unregister_fails.store(true, Ordering::Relaxed);
@@ -455,9 +472,11 @@ mod tests {
 			id: key.id(),
 			state: KeyState::Pressed,
 		};
+
 		for _ in 0..200 {
 			events.push(event);
 		}
+
 		assert_eq!(wakes.load(Ordering::Relaxed), 1);
 		events.queue.lock().drain();
 		events.push(event);
@@ -494,6 +513,7 @@ mod tests {
 			.invoke(REGISTER, Bytes::from_static(b"Control+Shift+KeyP"))
 			.unwrap();
 		let id = u32::from_le_bytes(reply.as_ref().try_into().unwrap());
+
 		events.push(Event {
 			id,
 			state: KeyState::Pressed,

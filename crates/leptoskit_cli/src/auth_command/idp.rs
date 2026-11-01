@@ -589,6 +589,7 @@ mod tests {
 				client_id: "abc".into()
 			}
 		);
+
 		assert!(
 			Harness::try_parse_from([
 				"auth",

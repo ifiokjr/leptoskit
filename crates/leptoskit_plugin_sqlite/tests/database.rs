@@ -46,6 +46,7 @@ fn page_quota_rolls_back_batches_survives_restart_and_reuses_deleted_space() {
 	db.execute(&insert).unwrap();
 	let request = encode_transaction(&[insert.clone(), insert.clone(), insert.clone()]).unwrap();
 	assert_eq!(db.invoke(TRANSACTION, request), Err(Error::TooLarge));
+
 	assert_eq!(count(&mut db), 1);
 	db.close().unwrap();
 	let mut db = Database::with_quota(root.path(), quota).unwrap();
@@ -75,6 +76,7 @@ fn page_quota_rolls_back_batches_survives_restart_and_reuses_deleted_space() {
 			<= quota
 	);
 	let mut smaller = Database::with_quota(root.path(), 4096).unwrap();
+
 	assert_eq!(
 		smaller.invoke(QUERY, statement("SELECT 1").encode().unwrap()),
 		Err(Error::TooLarge)
@@ -111,6 +113,7 @@ fn bindings_preserve_all_values_and_parameter_text_is_not_sql() {
 			last_insert_rowid: 1
 		}
 	);
+
 	let response = db
 		.invoke(
 			QUERY,
@@ -156,6 +159,7 @@ fn failed_batch_rolls_back_and_next_transaction_works() {
 		.invoke(TRANSACTION, encode_transaction(&success).unwrap())
 		.unwrap();
 	let results = decode_transaction_result(&response).unwrap();
+
 	assert_eq!(results.len(), 2);
 	assert!(results.iter().all(|result| result.changes == 1));
 	assert_eq!(count(&mut db), 2);
@@ -261,6 +265,7 @@ fn row_byte_and_instruction_limits_recover_for_following_calls() {
 		db.query(&statement("SELECT 7")).unwrap().rows,
 		[vec![Value::Integer(7)]]
 	);
+
 	assert!(
 		Statement::new("SELECT ?", vec![Value::Blob(vec![0; MAX_BYTES])])
 			.encode()
@@ -311,6 +316,7 @@ fn symlinked_directory_database_and_sidecars_cannot_escape() {
 		let outside = tempfile::tempdir().unwrap();
 		let sentinel = outside.path().join("sentinel");
 		std::fs::write(&sentinel, b"untouched").unwrap();
+
 		if name != "sqlite" {
 			std::fs::create_dir(root.path().join("sqlite")).unwrap();
 			std::fs::set_permissions(
@@ -319,6 +325,7 @@ fn symlinked_directory_database_and_sidecars_cannot_escape() {
 			)
 			.unwrap();
 		}
+
 		symlink(
 			if name == "sqlite" {
 				outside.path()
@@ -338,13 +345,16 @@ fn symlinked_directory_database_and_sidecars_cannot_escape() {
 fn malformed_wire_and_empty_transactions_are_rejected() {
 	let (_root, mut db) = database();
 	let encoded = statement("SELECT 1").encode().unwrap();
+
 	for end in 0..encoded.len() {
 		assert!(Statement::decode(&encoded[..end]).is_err());
 	}
+
 	let mut trailing = encoded.to_vec();
 	trailing.push(1);
 	assert_eq!(Statement::decode(&trailing), Err(Error::InvalidArgument));
 	assert_eq!(encode_transaction(&[]), Err(Error::InvalidArgument));
+
 	assert_eq!(
 		db.invoke(TRANSACTION, Bytes::from_static(&[0, 0, 0, 0])),
 		Err(Error::InvalidArgument)
@@ -353,6 +363,7 @@ fn malformed_wire_and_empty_transactions_are_rejected() {
 		db.invoke(CLOSE, Bytes::from_static(&[1])),
 		Err(Error::InvalidArgument)
 	);
+
 	for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
 		assert!(
 			Statement::new("SELECT ?", vec![Value::Real(value)])
@@ -378,6 +389,7 @@ fn preexisting_hard_links_are_rejected_on_every_platform() {
 	let sentinel = root.path().join("sentinel");
 	std::fs::write(&sentinel, b"untouched").unwrap();
 	std::fs::hard_link(&sentinel, root.path().join("sqlite/app.sqlite3")).unwrap();
+
 	assert!(db.query(&statement("SELECT 1")).is_err());
 	assert_eq!(std::fs::read(&sentinel).unwrap(), b"untouched");
 }
@@ -416,6 +428,7 @@ fn junctioned_database_directory_cannot_escape() {
 	assert!(status.success(), "create a directory junction");
 	assert!(db.query(&statement("SELECT 1")).is_err());
 	assert_eq!(std::fs::read(&sentinel).unwrap(), b"untouched");
+
 	assert!(!outside.path().join("app.sqlite3").exists());
 }
 
@@ -427,9 +440,11 @@ fn strict_wire_limits_cover_tags_numbers_columns_and_rows() {
 	}
 	.encode()
 	.unwrap();
+
 	for end in 0..sample.len() {
 		assert!(QueryResult::decode(&sample[..end]).is_err());
 	}
+
 	let mut trailing = sample.to_vec();
 	trailing.push(0);
 	assert_eq!(QueryResult::decode(&trailing), Err(Error::InvalidArgument));
@@ -438,6 +453,7 @@ fn strict_wire_limits_cover_tags_numbers_columns_and_rows() {
 		rows: vec![],
 	};
 	assert_eq!(oversized.encode(), Err(Error::TooLarge));
+
 	let wrong_width = QueryResult {
 		columns: vec!["x".into()],
 		rows: vec![vec![]],

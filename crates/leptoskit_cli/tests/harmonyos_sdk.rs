@@ -88,6 +88,7 @@ fn packages_counter_and_instrumentation_for_both_abis() {
 	fs::write(&manifest, toml::to_string(&cargo).unwrap()).unwrap();
 	let settings = app.join("leptoskit.toml");
 	let mut config: toml::Table = fs::read_to_string(&settings).unwrap().parse().unwrap();
+
 	config["native"]
 		.as_table_mut()
 		.unwrap()

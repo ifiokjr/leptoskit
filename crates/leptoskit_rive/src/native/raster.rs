@@ -56,6 +56,7 @@ fn transform(values: [f32; 6]) -> Result<Transform, Error> {
 	if values.iter().any(|v| !v.is_finite()) {
 		return Err(invalid());
 	}
+
 	let [sx, ky, kx, sy, tx, ty] = values;
 	Ok(Transform::from_row(sx, ky, kx, sy, tx, ty))
 }
@@ -110,6 +111,7 @@ fn cached<'a>(
 		if points.iter().any(|p| !p.is_finite()) {
 			return Err(invalid());
 		}
+
 		let mut builder = PathBuilder::new();
 		let mut points = points;
 
@@ -121,6 +123,7 @@ fn cached<'a>(
 				5 => 0,
 				_ => return Err(invalid()),
 			};
+
 			let Some((p, remaining)) = points.split_at_checked(count) else {
 				return Err(invalid());
 			};
@@ -139,6 +142,7 @@ fn cached<'a>(
 		if !points.is_empty() {
 			return Err(invalid());
 		}
+
 		cache.insert(
 			view.id,
 			CachedPath {
@@ -169,10 +173,12 @@ impl Raster {
 			..State::default()
 		};
 		self.stack.clear();
+
 		if self.pixels.width() != width || self.pixels.height() != height {
 			self.masks.clear();
 			self.pixels = Pixmap::new(width, height).ok_or(Error::InvalidFrame)?;
 		}
+
 		self.pixels.fill(Color::TRANSPARENT);
 		self.error = None;
 		Ok(())
@@ -182,9 +188,11 @@ impl Raster {
 		if let Some(error) = self.error.take() {
 			return Err(error);
 		}
+
 		if !self.stack.is_empty() {
 			return Err(invalid());
 		}
+
 		Ok(())
 	}
 
@@ -210,6 +218,7 @@ impl Raster {
 		if self.stack.len() >= 64 {
 			return Err(Error::UnsupportedFeature);
 		}
+
 		self.stack.push(self.state.clone());
 		Ok(())
 	}
@@ -221,9 +230,11 @@ impl Raster {
 
 	pub fn transform(&mut self, matrix: [f32; 6]) -> Result<(), Error> {
 		self.state.transform = self.state.transform.pre_concat(transform(matrix)?);
+
 		if !self.state.transform.is_finite() {
 			return Err(invalid());
 		}
+
 		Ok(())
 	}
 
@@ -231,6 +242,7 @@ impl Raster {
 		if !opacity.is_finite() || !(0.0..=1.0).contains(&opacity) {
 			return Err(invalid());
 		}
+
 		self.state.opacity *= opacity;
 		Ok(())
 	}
@@ -239,6 +251,7 @@ impl Raster {
 		if self.state.clip_depth >= 8 {
 			return Err(Error::UnsupportedFeature);
 		}
+
 		let path = cached(&mut self.paths, view, verbs, points)?;
 		// Saved states retain only live masks. Reuse a free buffer between
 		// siblings and frames rather than allocating an image-sized mask each
@@ -249,16 +262,20 @@ impl Raster {
 			.position(|mask| Rc::strong_count(mask) == 1)
 		{
 			Some(index) => index,
+
 			None if self.masks.len() < 8 => {
 				self.masks.push(Rc::new(
 					Mask::new(self.pixels.width(), self.pixels.height())
 						.ok_or(Error::InvalidFrame)?,
 				));
+
 				self.masks.len() - 1
 			}
+
 			None => return Err(Error::UnsupportedFeature),
 		};
 		let mask = Rc::get_mut(&mut self.masks[index]).ok_or_else(invalid)?;
+
 		if let Some(previous) = &self.state.mask {
 			mask.data_mut().copy_from_slice(previous.data());
 		} else {
@@ -274,7 +291,9 @@ impl Raster {
 		} else {
 			mask.clear();
 		}
+
 		self.state.mask = Some(Rc::clone(&self.masks[index]));
+
 		self.state.clip_depth += 1;
 		Ok(())
 	}
@@ -291,6 +310,7 @@ impl Raster {
 		let Some(path) = cached(&mut self.paths, view, verbs, points)? else {
 			return Ok(());
 		};
+
 		let mut shader = match values.gradient {
 			0 => Shader::SolidColor(color(values.color)),
 			1 | 2 => {
@@ -334,6 +354,7 @@ impl Raster {
 			}
 			_ => return Err(Error::UnsupportedFeature),
 		};
+
 		shader.apply_opacity(self.state.opacity);
 		let paint = Paint {
 			shader,
@@ -355,14 +376,17 @@ impl Raster {
 			if !values.thickness.is_finite() || values.thickness < 0.0 {
 				return Err(invalid());
 			}
+
 			let stroke = Stroke {
 				width: values.thickness,
+
 				line_cap: match values.cap {
 					0 => LineCap::Butt,
 					1 => LineCap::Round,
 					2 => LineCap::Square,
 					_ => return Err(invalid()),
 				},
+
 				line_join: match values.join {
 					0 => LineJoin::Miter,
 					1 => LineJoin::Round,
@@ -371,11 +395,13 @@ impl Raster {
 				},
 				..Stroke::default()
 			};
+
 			self.pixels
 				.stroke_path(path, &paint, &stroke, self.state.transform, mask);
 		} else {
 			return Err(invalid());
 		}
+
 		Ok(())
 	}
 }
@@ -461,6 +487,7 @@ mod tests {
 				&[],
 			)
 			.unwrap();
+
 		assert_eq!(raster.pixels().pixel(12, 8).unwrap().alpha(), 0);
 		assert!(raster.pixels().pixel(4, 8).unwrap().alpha() > 0);
 		raster.release(path.id);
@@ -489,9 +516,11 @@ mod tests {
 			.transform([f32::MAX, 0.0, 0.0, f32::MAX, 0.0, 0.0])
 			.unwrap();
 		assert!(raster.transform([2.0, 0.0, 0.0, 2.0, 0.0, 0.0]).is_err());
+
 		for opacity in [f32::NAN, -0.1, 1.1] {
 			assert!(raster.opacity(opacity).is_err());
 		}
+
 		raster.save().unwrap();
 		assert!(raster.finish().is_err());
 		raster.fail(Error::UnsupportedFeature);
@@ -557,6 +586,7 @@ mod tests {
 			gradient: 1,
 			..paint()
 		};
+
 		for stops in [&[][..], &[f32::NAN, 1.0], &[1.0, 0.0], &[-0.1, 1.0]] {
 			assert!(
 				raster
@@ -564,6 +594,7 @@ mod tests {
 					.is_err()
 			);
 		}
+
 		gradient.coordinates[0] = f32::NAN;
 		assert!(
 			raster
@@ -609,6 +640,7 @@ mod tests {
 					&& pixel.blue() <= pixel.alpha()
 			);
 		}
+
 		for cap in 0..3 {
 			raster.begin(16, 16).unwrap();
 			raster
@@ -635,20 +667,26 @@ mod tests {
 	fn sibling_clips_and_later_frames_reuse_bounded_mask_storage() {
 		let mut raster = Raster::new().unwrap();
 		let mut allocation = None;
+
 		for _ in 0..10 {
 			raster.begin(16, 16).unwrap();
+
 			for _ in 0..32 {
 				raster.save().unwrap();
 				raster.clip(&rectangle(), VERBS, POINTS).unwrap();
 				let mask = raster.state.mask.as_ref().unwrap();
+
 				assert_eq!(mask.data()[8 * 16 + 8], 255);
 				assert_eq!(mask.data()[0], 0);
+
 				if let Some(previous) = allocation {
 					assert_eq!(mask.data().as_ptr(), previous);
 				}
+
 				allocation = Some(mask.data().as_ptr());
 				raster.restore().unwrap();
 			}
+
 			raster.finish().unwrap();
 			assert_eq!(raster.masks.len(), 1);
 		}
@@ -658,25 +696,32 @@ mod tests {
 	fn clipping_depth_and_save_depth_fail_before_unbounded_allocation() {
 		let mut raster = Raster::new().unwrap();
 		raster.begin(16, 16).unwrap();
+
 		for _ in 0..8 {
 			raster.save().unwrap();
 			raster.clip(&rectangle(), VERBS, POINTS).unwrap();
 		}
+
 		assert_eq!(
 			raster.clip(&rectangle(), VERBS, POINTS),
 			Err(Error::UnsupportedFeature)
 		);
 		assert_eq!(raster.masks.len(), 8);
+
 		for _ in 0..8 {
 			raster.restore().unwrap();
 		}
+
 		for _ in 0..64 {
 			raster.save().unwrap();
 		}
+
 		assert_eq!(raster.save(), Err(Error::UnsupportedFeature));
+
 		for _ in 0..64 {
 			raster.restore().unwrap();
 		}
+
 		raster.finish().unwrap();
 	}
 }

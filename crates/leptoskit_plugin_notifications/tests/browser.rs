@@ -100,6 +100,7 @@ async fn explicit_permission_delivery_and_cancellation() {
 	assert_eq!(request_count(), 0, "posting must never open a prompt");
 	assert_eq!(web::request_permission().await, Ok(Permission::Granted));
 	let handle = web::show(&notification).unwrap();
+
 	assert_eq!(posted_count(), 1);
 	assert!(content_matches());
 	handle.cancel();

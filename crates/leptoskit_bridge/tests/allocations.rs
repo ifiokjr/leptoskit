@@ -74,6 +74,7 @@ fn initialized_rust_transport_does_not_allocate_per_call() {
 	let pointer = payload.as_ptr();
 	ALLOCATIONS.set(0);
 	COUNTING.set(true);
+
 	for _ in 0..1000 {
 		let id = bridge.submit(plugin, MethodId(0), payload).unwrap();
 		let request = bridge.next_request().unwrap();
@@ -82,6 +83,7 @@ fn initialized_rust_transport_does_not_allocate_per_call() {
 		assert_eq!(payload.as_ptr(), pointer);
 		assert_eq!(payload.len(), 8192);
 	}
+
 	COUNTING.set(false);
 	assert_eq!(
 		ALLOCATIONS.get(),

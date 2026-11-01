@@ -153,9 +153,11 @@ fn collect(
 	let mut layouts = layouts.to_vec();
 	layouts.extend(directory_layout(directory, modules, diagnostics));
 	let layouts = layouts.as_slice();
+
 	for file in &directory.files {
 		let mut file_modules = modules.to_vec();
 		file_modules.push(file.module.clone());
+
 		match &file.name {
 			Name::Index => {
 				routes.extend(route_file(
@@ -191,11 +193,14 @@ fn collect(
 			Name::Group(_) | Name::Private(_) => {}
 		}
 	}
+
 	for child in &directory.directories {
 		let mut child_prefix = prefix.to_vec();
+
 		if let Some(Name::Segment(segment)) = &child.name {
 			child_prefix.push(segment.clone());
 		}
+
 		let mut child_modules = modules.to_vec();
 		child_modules.push(child.module.clone());
 		collect(
@@ -224,6 +229,7 @@ fn directory_layout(
 	let export = file.exports.as_ref()?.components.get(&Component::Layout)?;
 	let mut problems = Vec::new();
 	let mut props = Vec::new();
+
 	for param in &export.params {
 		let prop = match param.name.as_str() {
 			"children" if param.by_ref => {
@@ -248,6 +254,7 @@ fn directory_layout(
 					by_ref: param.by_ref,
 				}
 			}
+
 			name => {
 				problems.push((
 					Some(export.line),
@@ -259,8 +266,10 @@ fn directory_layout(
 				continue;
 			}
 		};
+
 		props.push(prop);
 	}
+
 	if !props.contains(&Prop::Children) && problems.is_empty() {
 		problems.push((
 			Some(export.line),
@@ -270,10 +279,13 @@ fn directory_layout(
 			),
 		));
 	}
+
 	if !problems.is_empty() {
 		report(file, problems, diagnostics);
+
 		return None;
 	}
+
 	let mut modules = modules.to_vec();
 	modules.push(file.module.clone());
 	Some(Call {
@@ -291,6 +303,7 @@ fn page_call(
 	problems: &mut Vec<Problem>,
 ) -> Call {
 	let mut props = Vec::new();
+
 	for param in &export.params {
 		match param.name.as_str() {
 			"route" if has_route => {
@@ -313,6 +326,7 @@ fn page_call(
 					by_ref: param.by_ref,
 				});
 			}
+
 			name => {
 				problems.push((
 					Some(export.line),
@@ -324,6 +338,7 @@ fn page_call(
 			}
 		}
 	}
+
 	Call {
 		modules,
 		function: export.name.clone(),
@@ -341,8 +356,10 @@ fn route_file(
 	let exports = file.exports.as_ref()?;
 	let mut problems = Vec::new();
 	let page = page_export(exports, &mut problems);
+
 	for (component, export) in &exports.components {
 		let line = &export.line;
+
 		if matches!(component, Component::Layout | Component::Html) {
 			problems.push((
 				Some(*line),
@@ -354,6 +371,7 @@ fn route_file(
 			));
 		}
 	}
+
 	for (hook, line) in &exports.hooks {
 		if matches!(hook, Hook::Navigator | Hook::Redirect) {
 			problems.push((
@@ -364,6 +382,7 @@ fn route_file(
 	}
 
 	let mut seen = Vec::new();
+
 	for param in segments.iter().filter_map(Segment::param) {
 		if seen.contains(&param) {
 			problems.push((
@@ -371,8 +390,10 @@ fn route_file(
 				format!("the parameter `{param}` appears twice in this route's path"),
 			));
 		}
+
 		seen.push(param);
 	}
+
 	let optional = segments
 		.iter()
 		.filter(|segment| {
@@ -382,6 +403,7 @@ fn route_file(
 			)
 		})
 		.count();
+
 	if optional > MAX_OPTIONAL_SEGMENTS {
 		problems.push((
 			None,
@@ -391,6 +413,7 @@ fn route_file(
 			),
 		));
 	}
+
 	let target = match &exports.route {
 		Some(route) => {
 			check_struct(route, &segments, &mut problems);
@@ -399,6 +422,7 @@ fn route_file(
 				unit: route.unit,
 			}
 		}
+
 		None if seen.is_empty() => Target::Unit,
 		None => {
 			let fields = seen
@@ -416,18 +440,22 @@ fn route_file(
 			Target::Unit
 		}
 	};
+
 	let variant = match &target {
 		Target::Struct { name, .. } => name.clone(),
 		_ => derived_name(&segments, ""),
 	};
+
 	let has_route = matches!(target, Target::Struct { .. });
 	let call = page.map(|page| page_call(page, modules, has_route, &mut problems));
 	// A route with problems stays out of the table, so it causes no
 	// knock-on errors about names or competing URLs.
 	if !problems.is_empty() {
 		report(file, problems, diagnostics);
+
 		return None;
 	}
+
 	Some(Route {
 		variant,
 		shapes: shapes(&segments),
@@ -452,6 +480,7 @@ fn not_found_file(
 	let mut problems = Vec::new();
 	let page = page_export(exports, &mut problems);
 	let call = page.map(|page| page_call(page, modules, true, &mut problems));
+
 	if prefix.iter().any(|segment| segment.param().is_some()) {
 		problems.push((
 			None,
@@ -460,6 +489,7 @@ fn not_found_file(
 				.to_owned(),
 		));
 	}
+
 	if let Some(route) = &exports.route {
 		problems.push((
 			Some(route.line),
@@ -468,6 +498,7 @@ fn not_found_file(
 				.to_owned(),
 		));
 	}
+
 	for (hook, line) in &exports.hooks {
 		if *hook != Hook::Load {
 			problems.push((
@@ -476,10 +507,13 @@ fn not_found_file(
 			));
 		}
 	}
+
 	if !problems.is_empty() {
 		report(file, problems, diagnostics);
+
 		return None;
 	}
+
 	let mut segments = prefix.to_vec();
 	segments.push(Segment::OptionalRest("path".to_owned()));
 	Some(Route {
@@ -505,6 +539,7 @@ fn page_export<'a>(
 	problems: &mut Vec<Problem>,
 ) -> Option<&'a ComponentExport> {
 	let page = exports.components.get(&Component::Page);
+
 	if page.is_none() {
 		problems.push(missing_export(
 			exports,
@@ -512,6 +547,7 @@ fn page_export<'a>(
 			"a route file exports `pub fn page`, or `pub fn Page` annotated with `#[component]`",
 		));
 	}
+
 	page
 }
 
@@ -532,6 +568,7 @@ fn missing_export(exports: &Exports, component: Component, message: &str) -> Pro
 
 fn check_struct(route: &RouteStruct, segments: &[Segment], problems: &mut Vec<Problem>) {
 	let line = Some(route.line);
+
 	if route.name == "Route" || route.name == "Navigation" {
 		problems.push((
 			line,
@@ -541,6 +578,7 @@ fn check_struct(route: &RouteStruct, segments: &[Segment], problems: &mut Vec<Pr
 			),
 		));
 	}
+
 	for segment in segments {
 		let Some(param) = segment.param() else {
 			continue;
@@ -554,8 +592,10 @@ fn check_struct(route: &RouteStruct, segments: &[Segment], problems: &mut Vec<Pr
 					written(segment)
 				),
 			));
+
 			continue;
 		};
+
 		let (expected, reason) = match segment {
 			Segment::Param(_) => (FieldKind::One, "is always one value, so it is a plain type"),
 			Segment::OptionalParam(_) => {
@@ -569,6 +609,7 @@ fn check_struct(route: &RouteStruct, segments: &[Segment], problems: &mut Vec<Pr
 			}
 			Segment::Static(_) => continue,
 		};
+
 		if field.kind != expected {
 			problems.push((
 				line,
@@ -583,6 +624,7 @@ fn check_layout(file: &File, diagnostics: &mut Vec<Diagnostic>) {
 		return;
 	};
 	let mut problems = Vec::new();
+
 	if !exports.components.contains_key(&Component::Layout) {
 		problems.push(missing_export(
 			exports,
@@ -591,8 +633,10 @@ fn check_layout(file: &File, diagnostics: &mut Vec<Diagnostic>) {
 			 `#[component]`",
 		));
 	}
+
 	for (component, export) in &exports.components {
 		let line = &export.line;
+
 		if matches!(component, Component::Page | Component::Html) {
 			problems.push((
 				Some(*line),
@@ -604,23 +648,27 @@ fn check_layout(file: &File, diagnostics: &mut Vec<Diagnostic>) {
 			));
 		}
 	}
+
 	if let Some(route) = &exports.route {
 		problems.push((
 			Some(route.line),
 			"a route struct belongs in a route file, not `_layout.rs`".to_owned(),
 		));
 	}
+
 	if let Some(line) = exports.hooks.get(&Hook::Prerender) {
 		problems.push((
 			Some(*line),
 			"`prerender` belongs in a route file".to_owned(),
 		));
 	}
+
 	report(file, problems, diagnostics);
 }
 
 fn check_html(file: &File, is_root: bool, diagnostics: &mut Vec<Diagnostic>) {
 	let mut problems = Vec::new();
+
 	if !is_root {
 		problems.push((
 			None,
@@ -628,6 +676,7 @@ fn check_html(file: &File, is_root: bool, diagnostics: &mut Vec<Diagnostic>) {
 				.to_owned(),
 		));
 	}
+
 	if let Some(exports) = &file.exports
 		&& !exports.components.contains_key(&Component::Html)
 	{
@@ -680,14 +729,17 @@ fn derived_name(segments: &[Segment], suffix: &str) -> String {
 			}
 		})
 		.collect();
+
 	if name.is_empty() && suffix.is_empty() {
 		return "Index".to_owned();
 	}
+
 	name::escape(name + suffix)
 }
 
 fn check_names(routes: &[Route], dir: &Path, diagnostics: &mut Vec<Diagnostic>) {
 	let mut names: BTreeMap<&str, &Route> = BTreeMap::new();
+
 	for route in routes {
 		if let Some(previous) = names.insert(&route.variant, route) {
 			diagnostics.push(Diagnostic::new(
@@ -712,6 +764,7 @@ fn shapes(segments: &[Segment]) -> Vec<Shape> {
 		segments: Vec::new(),
 		absent: Vec::new(),
 	}];
+
 	for segment in segments {
 		let (present, name) = match segment {
 			Segment::OptionalParam(name) => (Segment::Param(name.clone()), name),
@@ -720,9 +773,11 @@ fn shapes(segments: &[Segment]) -> Vec<Shape> {
 				for shape in &mut shapes {
 					shape.segments.push(required.clone());
 				}
+
 				continue;
 			}
 		};
+
 		shapes = shapes
 			.into_iter()
 			.flat_map(|shape| {
@@ -734,6 +789,7 @@ fn shapes(segments: &[Segment]) -> Vec<Shape> {
 			})
 			.collect();
 	}
+
 	let mut seen = BTreeSet::new();
 	shapes.retain(|shape| seen.insert(shape_key(&shape.segments)));
 	shapes
@@ -763,6 +819,7 @@ fn order_key(route: &Route, shape: &Shape) -> (bool, usize, (Vec<u8>, Vec<String
 	} else {
 		0
 	};
+
 	(
 		not_found,
 		depth,
@@ -785,8 +842,10 @@ fn check_duplicates(
 		(not_found, shape)
 	};
 	let mut reported = BTreeSet::new();
+
 	for run in matches.chunk_by(|left, right| key(left) == key(right)) {
 		let (first, shape) = run[0];
+
 		for &(other, _) in &run[1..] {
 			if other != first && reported.insert((first, other)) {
 				diagnostics.push(Diagnostic::new(
@@ -857,14 +916,17 @@ mod tests {
 	fn table(files: &[(&str, &str)]) -> (Table, Vec<String>) {
 		let project = tempfile::tempdir().expect("temp dir");
 		let dir = project.path().join("routes");
+
 		for (path, source) in files {
 			let path = dir.join(path);
 			std::fs::create_dir_all(path.parent().expect("a parent")).expect("create dirs");
 			std::fs::write(path, source).expect("write route file");
 		}
+
 		let mut diagnostics = Vec::new();
 		let root = crate::tree::read(&dir, &mut diagnostics);
 		let table = build(&root, &dir, &mut diagnostics);
+
 		let messages = diagnostics
 			.iter()
 			.map(|diagnostic| diagnostic.relative_to(&dir))

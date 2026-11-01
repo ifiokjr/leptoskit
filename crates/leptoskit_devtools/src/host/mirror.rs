@@ -458,6 +458,7 @@ impl Mirror {
 			Some((left, top)) => (view, left + x, top + y),
 			None => (self.root()?, x, y),
 		};
+
 		let (left, top) = self.viewport_origin(start)?;
 		let mut best = start;
 		let mut stack = vec![(start, left, top)];
@@ -741,6 +742,7 @@ mod tests {
 			assert_eq!(node.source, expected.source);
 			assert_eq!(node.classes, expected.classes);
 			assert_eq!(node.text, expected.text);
+
 			assert_eq!(node.children, expected.children);
 			assert_eq!(node.frame, expected.frame, "{} frames", node.kind);
 			assert_eq!(node.styles, expected.styles, "{} styles", node.kind);
@@ -790,6 +792,7 @@ mod tests {
 				.collect::<Vec<_>>()
 		};
 		assert_eq!(ids(&tree), ids(&expected));
+
 		assert_eq!(tree.nodes[0].classes, ["flex-col", "gap-2", "p-4", "p-8"]);
 		assert_eq!(mirror.len(), tree.nodes.len(), "deleted widgets are gone");
 	}
@@ -909,6 +912,7 @@ mod tests {
 			(within(spacer, content).x, within(spacer, content).y),
 			(20.0, 44.0)
 		);
+
 		assert_eq!(mirror.anchor(footer).unwrap().0, footer);
 	}
 
@@ -931,6 +935,7 @@ mod tests {
 		assert_eq!(mirror.hit(root, 2.0, 2.0), Some(root));
 		// An unknown view reads the point in viewport space from the root.
 		assert_eq!(mirror.hit(9999, 16.0 + 25.0, 16.0 + 25.0), Some(title));
+
 		assert_ne!(scroll, content);
 	}
 
@@ -972,6 +977,7 @@ mod tests {
 			id: 2,
 			text: Some("after".into()),
 		});
+
 		assert!(mirror.tree().is_none(), "nothing is shown before a root");
 		mirror.set_root(Some(1));
 		let tree = mirror.tree().unwrap();

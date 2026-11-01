@@ -75,10 +75,13 @@ pub fn decode(method: MethodId, payload: &[u8]) -> Result<Effect, Error> {
 			Err(Error::InvalidArgument)
 		};
 	}
+
 	if !matches!(method, IMPACT | NOTIFICATION) {
 		return Err(Error::Unavailable);
 	}
+
 	let value = u32::from_le_bytes(payload.try_into().map_err(|_| Error::InvalidArgument)?);
+
 	match (method, value) {
 		(IMPACT, 0) => Ok(Effect::Impact(Impact::Light)),
 		(IMPACT, 1) => Ok(Effect::Impact(Impact::Medium)),
@@ -120,11 +123,13 @@ pub fn perform(effect: Effect) -> Result<(), Error> {
 	use objc2_app_kit::NSHapticFeedbackPerformanceTime;
 	use objc2_app_kit::NSHapticFeedbackPerformer as _;
 	let _main = objc2::MainThreadMarker::new().ok_or(Error::InvalidArgument)?;
+
 	let pattern = match effect {
 		Effect::Selection => NSHapticFeedbackPattern::Alignment,
 		Effect::Impact(_) => NSHapticFeedbackPattern::LevelChange,
 		Effect::Notification(_) => NSHapticFeedbackPattern::Generic,
 	};
+
 	NSHapticFeedbackManager::defaultPerformer()
 		.performFeedbackPattern_performanceTime(pattern, NSHapticFeedbackPerformanceTime::Now);
 	Ok(())
@@ -149,9 +154,11 @@ pub mod web {
 		let navigator = web_sys::window().ok_or(Error::Unavailable)?.navigator();
 		let method = js_sys::Reflect::get(navigator.as_ref(), &JsValue::from_str("vibrate"))
 			.map_err(|_| Error::Native)?;
+
 		if !method.is_instance_of::<js_sys::Function>() {
 			return Err(Error::Unavailable);
 		}
+
 		let duration = match effect {
 			Effect::Selection | Effect::Impact(Impact::Light | Impact::Soft) => 10,
 			Effect::Impact(Impact::Medium | Impact::Rigid) => 20,
@@ -160,6 +167,7 @@ pub mod web {
 			Effect::Notification(Notification::Warning) => 60,
 			Effect::Notification(Notification::Error) => 80,
 		};
+
 		if navigator.vibrate_with_duration(duration) {
 			Ok(())
 		} else {
@@ -233,10 +241,13 @@ mod tests {
 			decode(NOTIFICATION, &[2, 0, 0, 0]),
 			Ok(Effect::Notification(Notification::Error))
 		);
+
 		for payload in [&[0][..], &[0, 0, 0], &[5, 0, 0, 0], &[0, 0, 0, 0, 0]] {
 			assert_eq!(decode(IMPACT, payload), Err(Error::InvalidArgument));
 		}
+
 		assert_eq!(decode(SELECTION, &[0]), Err(Error::InvalidArgument));
+
 		assert_eq!(decode(MethodId(99), &[]), Err(Error::Unavailable));
 	}
 
@@ -249,23 +260,27 @@ mod tests {
 			Impact::Rigid,
 			Impact::Soft,
 		];
+
 		for impact in impacts {
 			assert_eq!(
 				decode(IMPACT, &(impact as u32).to_le_bytes()),
 				Ok(Effect::Impact(impact))
 			);
 		}
+
 		let notifications = [
 			Notification::Success,
 			Notification::Warning,
 			Notification::Error,
 		];
+
 		for notification in notifications {
 			assert_eq!(
 				decode(NOTIFICATION, &(notification as u32).to_le_bytes()),
 				Ok(Effect::Notification(notification))
 			);
 		}
+
 		assert_eq!(
 			decode(NOTIFICATION, &3_u32.to_le_bytes()),
 			Err(Error::InvalidArgument)
@@ -293,6 +308,7 @@ mod tests {
 		} else {
 			Error::Unavailable
 		};
+
 		assert_eq!(haptics.invoke(SELECTION, Bytes::new()), Err(expected));
 	}
 }

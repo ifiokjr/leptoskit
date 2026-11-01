@@ -21,12 +21,14 @@ private func payload(_ bytes: [UInt8]) throws -> NativeBuffer {
     #expect(call > 0)
     var request = lk_request()
     #expect(lk_bridge_next_request(bridge, &request) == 1)
+
     return NativeBuffer(taking: request.payload)
 }
 
 @Test @MainActor
 func unavailableAndClosedAreExplicit() async throws {
     let plugin = PedometerPlugin()
+
     #if os(macOS)
     #expect(try await plugin.invoke(method: 0, payload: payload([])) == Data([0, 0, 0, 0]))
     #endif

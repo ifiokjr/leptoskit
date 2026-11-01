@@ -115,9 +115,11 @@ impl RouterPlugin {
 			output: parsed.output,
 		};
 		validate_directory(&settings.dir)?;
+
 		if let Some(output) = &settings.output {
 			validate_output(output)?;
 		}
+
 		Ok(settings)
 	}
 
@@ -146,6 +148,7 @@ fn validate_directory(dir: &Path) -> Result<(), PluginError> {
 				.is_some_and(|first| first == '_' || first.is_ascii_alphabetic())
 				&& characters.all(|char| char == '_' || char.is_ascii_alphanumeric())
 		});
+
 	if inside_project && module_name {
 		Ok(())
 	} else {
@@ -166,6 +169,7 @@ fn validate_output(output: &Path) -> Result<(), PluginError> {
 		&& output
 			.components()
 			.all(|component| matches!(component, std::path::Component::Normal(_)));
+
 	if inside_project {
 		Ok(())
 	} else {
@@ -207,6 +211,7 @@ fn ensure_parent(root: &Path, output: &Path) -> Result<(), PluginError> {
 		.parent()
 		.map(Path::to_path_buf)
 		.filter(|parent| !parent.as_os_str().is_empty());
+
 	if let Some(parent) = parent {
 		std::fs::create_dir_all(&parent).map_err(|error| {
 			PluginError::Hook {
@@ -215,6 +220,7 @@ fn ensure_parent(root: &Path, output: &Path) -> Result<(), PluginError> {
 			}
 		})?;
 	}
+
 	Ok(())
 }
 
@@ -231,6 +237,7 @@ fn print_table(generated: &Generated) {
 			if route.page == ExportStyle::Component {
 				name.push_str(" (component)");
 			}
+
 			[route.pattern.clone(), name, route.file.clone()]
 		})
 		.collect();
@@ -240,6 +247,7 @@ fn print_table(generated: &Generated) {
 			.max()
 			.unwrap_or(0)
 	});
+
 	for [pattern, name, file] in rows {
 		println!(
 			"  {pattern:<pattern_width$}  {name:<name_width$}  {file}",
@@ -308,6 +316,7 @@ impl LeptoskitPlugin for RouterPlugin {
 		let generated = generate(&context.root, &settings)?;
 		let output = settings.output();
 		let shown = output.display();
+
 		if check {
 			let status = leptoskit_router_codegen::status(&context.root.join(&output), &generated)
 				.map_err(|error| {
@@ -316,6 +325,7 @@ impl LeptoskitPlugin for RouterPlugin {
 						message: error.to_string(),
 					}
 				})?;
+
 			if status != leptoskit_router_codegen::Status::Current {
 				return Err(PluginError::Hook {
 					plugin: "router".to_owned(),
@@ -326,6 +336,7 @@ impl LeptoskitPlugin for RouterPlugin {
 					),
 				});
 			}
+
 			println!("{shown} is up to date");
 		} else {
 			ensure_parent(&context.root, &output)?;
@@ -342,6 +353,7 @@ impl LeptoskitPlugin for RouterPlugin {
 				println!("{shown} is up to date");
 			}
 		}
+
 		print_table(&generated);
 		Ok(0)
 	}

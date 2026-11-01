@@ -161,9 +161,11 @@ fn convert_icon(icon: RgbaIcon) -> ksni::Icon {
 	// StatusNotifierItem pixmaps are ARGB32 in network byte order: rotate each
 	// RGBA pixel in place instead of copying the buffer.
 	let mut data = icon.pixels;
+
 	for pixel in data.as_chunks_mut::<4>().0 {
 		pixel.rotate_right(1);
 	}
+
 	ksni::Icon {
 		width: icon.width as i32,
 		height: icon.height as i32,
@@ -173,6 +175,7 @@ fn convert_icon(icon: RgbaIcon) -> ksni::Icon {
 fn label(text: &str) -> String {
 	let mut output = String::with_capacity(text.len());
 	let mut chars = text.chars().peekable();
+
 	while let Some(character) = chars.next() {
 		match character {
 			'_' => output.push_str("__"),
@@ -184,6 +187,7 @@ fn label(text: &str) -> String {
 			value => output.push(value),
 		}
 	}
+
 	output
 }
 fn project_menu(items: &[MenuItemKindSnapshot]) -> Vec<ksni::MenuItem<Model>> {
@@ -247,6 +251,7 @@ fn project_nodes(
 				MenuItemKindSnapshot::Predefined(item) if item.is_separator() => {
 					ksni::MenuItem::Separator
 				}
+
 				_ => {
 					ksni::menu::StandardItem {
 						label: "Unsupported menu item".into(),
@@ -300,6 +305,7 @@ mod tests {
 		assert!(matches!(model.status(), ksni::Status::Active));
 		model.visible = false;
 		assert!(matches!(model.status(), ksni::Status::Passive));
+
 		assert!(model.menu().is_empty());
 		assert!(!model.watcher_offline(ksni::OfflineReason::No));
 		model.activate(0, 0);
@@ -363,6 +369,7 @@ mod tests {
 		};
 		assert_eq!(open.label, "__Open");
 		assert!(open.enabled);
+
 		assert!(matches!(items[1], MenuItem::Separator));
 		let MenuItem::Checkmark(pin) = &items[2] else {
 			panic!("toggle projects to a checkmark")
@@ -374,6 +381,7 @@ mod tests {
 		let MenuItem::Standard(nested) = &more.submenu[0] else {
 			panic!("nested command projects to a standard item")
 		};
+
 		while muda::MenuEvent::receiver().try_recv().is_ok() {}
 		(open.activate)(&mut model);
 		assert!(muda::MenuEvent::receiver().try_recv().is_ok());
@@ -410,8 +418,10 @@ mod tests {
 		let MenuItem::Standard(unsupported) = &items[1] else {
 			panic!("unsupported items project to a standard item")
 		};
+
 		assert_eq!(unsupported.label, "Unsupported menu item");
 		assert!(!unsupported.enabled);
+
 		while muda::MenuEvent::receiver().try_recv().is_ok() {}
 		(pin.activate)(&mut model);
 		assert!(muda::MenuEvent::receiver().try_recv().is_ok());

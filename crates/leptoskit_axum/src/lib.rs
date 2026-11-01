@@ -134,12 +134,14 @@ impl ServeOptions {
 /// is a `404` instead of an HTML page the browser tries to compile.
 pub fn dev_router(options: &ServeOptions) -> Router {
 	let mut router = Router::new().route("/_leptoskit/health", get(health));
+
 	if let Some(store) = &options.release_store {
 		router = router.nest(
 			"/api/codepush",
 			leptoskit_codepush::codepush_router(store.clone()).fallback(not_found),
 		);
 	}
+
 	router.fallback_service(static_service(&options.dist_dir))
 }
 
@@ -244,9 +246,11 @@ mod spa_fallback {
 
 	async fn spa_response(dir: &Path, client_route: bool, uri: Uri) -> Response {
 		let index = dir.join("index.html");
+
 		if !client_route || !index.is_file() {
 			return not_found(uri).await;
 		}
+
 		match tokio::fs::read(&index).await {
 			Ok(body) => {
 				let mut response = Response::new(Body::from(body));
@@ -394,9 +398,11 @@ pub async fn serve_listener_with(
 	let (closing, closed) = tokio::sync::oneshot::channel::<()>();
 	let stop = async move {
 		signal.await;
+
 		if let Some(readiness) = &readiness {
 			readiness.shut_down();
 		}
+
 		tokio::time::sleep(drain_delay).await;
 		let _ = closing.send(());
 	};

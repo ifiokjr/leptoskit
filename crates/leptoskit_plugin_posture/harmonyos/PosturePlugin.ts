@@ -18,6 +18,7 @@ const UNKNOWN = 0;
 const CLOSED = 1;
 const HALF_OPEN = 2;
 const OPEN = 3;
+
 const VERTICAL = 1;
 const HORIZONTAL = 2;
 const UNKNOWN_FLAG = 0;
@@ -63,9 +64,11 @@ interface Hinge {
 export function hingeFolds(status: number): number[] {
 	const first = [UNKNOWN, OPEN, CLOSED, HALF_OPEN][status % 10] ?? UNKNOWN;
 	const second = [UNKNOWN, OPEN, HALF_OPEN][Math.floor(status / 10)];
+
 	if (!Number.isInteger(status) || first === UNKNOWN || second === undefined) {
 		return [];
 	}
+
 	return second === UNKNOWN ? [first] : [first, second];
 }
 
@@ -74,9 +77,11 @@ function overallFold(folds: number[]): number {
 	if (folds.includes(HALF_OPEN)) {
 		return HALF_OPEN;
 	}
+
 	if (folds.includes(OPEN)) {
 		return OPEN;
 	}
+
 	return folds.length > 0 && folds.every((fold: number) => fold === CLOSED)
 		? CLOSED
 		: UNKNOWN;
@@ -95,12 +100,14 @@ function crossing(crease: Rect, frame: Rect): Rect | undefined {
 	const height = Math.min(crease.top + crease.height, bottom) - top;
 	const acrossX = width > 0 || (left > frame.left && left < right);
 	const acrossY = height > 0 || (top > frame.top && top < bottom);
+
 	if (
 		frame.width <= 0 || frame.height <= 0 || width < 0 || height < 0 ||
 		!acrossX || !acrossY
 	) {
 		return undefined;
 	}
+
 	return {
 		left: (left - frame.left) / frame.width,
 		top: (top - frame.top) / frame.height,
@@ -156,6 +163,7 @@ export function encodePosture(reading: PostureReading): ArrayBuffer {
 	view.setUint32(0, reading.foldable ? TRUE_FLAG : UNKNOWN_FLAG, true);
 	view.setUint32(4, overallFold(folds), true);
 	view.setUint32(8, hinges.length, true);
+
 	hinges.forEach((hinge: Hinge, index: number) => {
 		const offset = HEADER_BYTES + HINGE_BYTES * index;
 		const region = hinge.region;
@@ -178,6 +186,7 @@ export function encodePosture(reading: PostureReading): ArrayBuffer {
 			});
 		view.setUint32(offset + 32, hinge.angle, true);
 	});
+
 	return output;
 }
 
@@ -185,8 +194,10 @@ function same(left: ArrayBuffer, right: ArrayBuffer): boolean {
 	if (left.byteLength !== right.byteLength) {
 		return false;
 	}
+
 	const a = new Uint8Array(left);
 	const b = new Uint8Array(right);
+
 	return a.every((byte: number, index: number) => byte === b[index]);
 }
 
@@ -217,13 +228,17 @@ export class PosturePlugin implements NativePlugin {
 		if (this.closed) {
 			throw new PluginError(CANCELLED);
 		}
+
 		if (call.method === 0) {
 			if (call.payload.byteLength !== 0) {
 				throw new PluginError(INVALID_ARGUMENT);
 			}
+
 			await this.observe();
+
 			return this.encode();
 		}
+
 		const length = call.payload.byteLength;
 		if (
 			length < HEADER_BYTES || (length - HEADER_BYTES) % HINGE_BYTES !== 0 ||
@@ -231,12 +246,15 @@ export class PosturePlugin implements NativePlugin {
 		) {
 			throw new PluginError(INVALID_ARGUMENT);
 		}
+
 		if (this.waiting) {
 			throw new PluginError(BUSY);
 		}
+
 		this.waiting = true;
 		try {
 			await this.observe();
+
 			return await this.next(call);
 		} finally {
 			this.waiting = false;
@@ -259,6 +277,7 @@ export class PosturePlugin implements NativePlugin {
 					reject(new PluginError(CANCELLED));
 					return;
 				}
+
 				// Runs inside platform callbacks, so failures go to the guest.
 				try {
 					const current = this.encode();
@@ -296,8 +315,10 @@ export class PosturePlugin implements NativePlugin {
 	private async observe(): Promise<void> {
 		if (this.target !== undefined || !display.isFoldable()) {
 			await this.target;
+
 			return;
 		}
+
 		this.target = window.getLastWindow(this.context);
 		const status = (): void => this.notify();
 		display.on("foldStatusChange", status);
@@ -309,9 +330,11 @@ export class PosturePlugin implements NativePlugin {
 		display.on("foldAngleChange", angles);
 		this.stops.push(() => display.off("foldAngleChange", angles));
 		const target = await this.target;
+
 		if (this.closed) {
 			return;
 		}
+
 		const resize = (): void => {
 			this.frame = target.getWindowProperties().windowRect;
 			this.notify();

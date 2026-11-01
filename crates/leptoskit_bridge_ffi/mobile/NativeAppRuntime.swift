@@ -33,6 +33,7 @@ final class NativeAppRuntime {
             app.raw, elapsed, scale, flags, callbacks.context, callbacks.visible, callbacks.present
         )
         try check(status)
+
         return status == 1
     }
 
@@ -236,17 +237,20 @@ final class NativeFrameLink: NSObject {
             link?.isPaused = true
             timer?.invalidate()
             timer = nil
+
             return
         }
 
         if let link {
             link.isPaused = false
+
             return
         }
 
         #if os(iOS)
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
         #else
+
         guard let screen = NSScreen.main else { return startTimer() }
         let link = screen.displayLink(target: self, selector: #selector(tick(_:)))
         #endif

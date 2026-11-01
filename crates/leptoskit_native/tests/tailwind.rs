@@ -123,6 +123,7 @@ fn flex_and_position_utilities_match_their_typed_contract() {
 	assert_eq!(style.inset.left, Dimension::Points(32.0));
 	assert_eq!(style.inset.bottom, Dimension::Points(16.0));
 	assert_eq!(style.box_sizing, BoxSizing::ContentBox);
+
 	close(resolve("flex-2 grow").0.flex_grow, 1.0);
 }
 

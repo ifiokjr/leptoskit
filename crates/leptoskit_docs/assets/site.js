@@ -29,7 +29,6 @@
 	};
 
 	// Theme -------------------------------------------------------------------
-
 	const themeButton = document.querySelector("[data-lk-theme]");
 	if (themeButton) {
 		themeButton.hidden = false;
@@ -43,7 +42,6 @@
 	}
 
 	// Chapter drawer ----------------------------------------------------------
-
 	const menu = document.querySelector("[data-lk-menu]");
 	/** @param {boolean} open */
 	const setDrawer = (open) => {
@@ -66,7 +64,6 @@
 	});
 
 	// Copy buttons ------------------------------------------------------------
-
 	for (const figure of document.querySelectorAll(".lk-code")) {
 		const code = figure.querySelector("pre");
 		if (!code || !navigator.clipboard) continue;
@@ -88,7 +85,6 @@
 	}
 
 	// Tabs --------------------------------------------------------------------
-
 	const tabGroups = [...document.querySelectorAll("[data-lk-tabs]")];
 
 	/** @param {string} label @param {boolean} remember */
@@ -155,7 +151,6 @@
 	if (rememberedTab) selectTab(rememberedTab, false);
 
 	// On this page ------------------------------------------------------------
-
 	const tocLinks = new Map(
 		[...document.querySelectorAll(".lk-toc a")].map((link) => [
 			decodeURIComponent(link.getAttribute("href")?.slice(1) || ""),
@@ -191,7 +186,6 @@
 	}
 
 	// Search ------------------------------------------------------------------
-
 	const dialog =
 		/** @type {HTMLDialogElement | null} */ (document.querySelector(
 			"[data-lk-search]",
@@ -272,10 +266,12 @@
 						score = 0;
 						break;
 					}
+
 					score += hit;
 				}
 				if (score > 0) scored.push({ entry, score });
 			}
+
 			scored.sort((a, b) => b.score - a.score);
 
 			selected = 0;
@@ -354,7 +350,6 @@
 	}
 
 	// Live reload -------------------------------------------------------------
-
 	if ("liveReload" in html.dataset) {
 		/** @param {string | null} seen */
 		const poll = async (seen) => {
@@ -368,6 +363,7 @@
 					location.reload();
 					return;
 				}
+
 				poll(generation);
 			} catch {
 				setTimeout(() => poll(seen), 1000);

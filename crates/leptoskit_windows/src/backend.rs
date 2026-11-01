@@ -300,6 +300,7 @@ impl WindowsBackend {
 		if self.applying {
 			return;
 		}
+
 		let _suppressed = self.sink.suppress();
 
 		for widget in self.widgets.iter().flatten() {
@@ -385,6 +386,7 @@ impl Widget {
 		if !self.alive.get() {
 			return;
 		}
+
 		self.repaint_layer();
 
 		for child in self.children.borrow().iter() {
@@ -404,6 +406,7 @@ impl Widget {
 		if !self.alive.get() {
 			return;
 		}
+
 		let props = self.props.borrow().clone();
 		self.update_props(&props);
 
@@ -515,6 +518,7 @@ impl Widget {
 			.filter(|_| self.kind == NativeKind::Vector)
 		else {
 			*vector = None;
+
 			return;
 		};
 
@@ -542,6 +546,7 @@ impl Widget {
 						x -= border;
 						y -= border;
 					}
+
 					parent.content()
 				} else {
 					let [parent_left, parent_top, _, _] = parent.composition_bounds.get();
@@ -560,6 +565,7 @@ impl Widget {
 		} else {
 			physical_parent
 		};
+
 		let scale = self.scale();
 		let opacity = self.props.borrow().opacity.unwrap_or(1.0).clamp(0.0, 1.0)
 			* f32::from(self.backdrop_alpha().unwrap_or(u8::MAX))
@@ -574,6 +580,7 @@ impl Widget {
 				SetParent(self.composition, Some(physical_parent))
 					.expect("owned group can be reparented");
 			}
+
 			SetWindowPos(
 				self.composition,
 				Some(HWND_TOP),
@@ -640,6 +647,7 @@ impl Widget {
 		if !self.alive.get() {
 			return;
 		}
+
 		let scale = self.scale();
 		let [left, top, _, _] = self.composition_bounds.get();
 		let [_, _, width, height] = self.layout.get();
@@ -727,6 +735,7 @@ impl Widget {
 						((y + child_top - top) * scale).round() as i32,
 					);
 					CombineRgn(Some(region), Some(region), Some(child_region), RGN_OR);
+
 					let _ = DeleteObject(child_region.into());
 				}
 			}
@@ -823,6 +832,7 @@ impl Widget {
 		if !self.alive.get() {
 			return;
 		}
+
 		let interactive = self.interactive();
 		let visible = self.visible()
 			&& !(self.kind == NativeKind::ActivityIndicator
@@ -833,6 +843,7 @@ impl Widget {
 			if decorative {
 				self.group_annotated.set(true);
 			}
+
 			// SAFETY: Native MSAA names/states remain separate from edit
 			// values. UI Automation additionally receives a
 			// non-control provider in the subclass; flattened
@@ -881,6 +892,7 @@ impl Widget {
 				}
 			}
 		}
+
 		let props = self.props.borrow();
 		*self.brush.borrow_mut() = Brush::new(self.fill());
 		let animate = visible
@@ -891,6 +903,7 @@ impl Widget {
 				}
 				_ => false,
 			};
+
 		// SAFETY: All handles belong to this widget and remain on its UI
 		// thread.
 		unsafe {
@@ -903,6 +916,7 @@ impl Widget {
 				let _ = EnableWindow(control, interactive);
 				let _ = InvalidateRect(Some(control), None, true);
 			}
+
 			let _ = InvalidateRect(Some(self.frame), None, true);
 
 			if animate != self.animating.replace(animate) {
@@ -997,6 +1011,7 @@ impl Widget {
 		if !self.alive.get() {
 			return;
 		}
+
 		let old_source = self.props.borrow().source.clone();
 		*self.props.borrow_mut() = props.clone();
 		let font = Font::new(props.text_style(), self.scale());
@@ -1007,6 +1022,7 @@ impl Widget {
 		} else {
 			self.annotate_frame(props);
 		}
+
 		// SAFETY: The frame is a live window owned by this widget.
 		unsafe {
 			let _ = InvalidateRect(Some(self.frame), None, true);
@@ -1065,6 +1081,7 @@ impl Widget {
 					.or(props.text.as_deref())
 					.unwrap_or("")
 			};
+
 			self.accessibility
 				.services()
 				.SetHwndPropStr(
@@ -1093,6 +1110,7 @@ impl Widget {
 					PCWSTR(wide(props.text.as_deref().unwrap_or("")).as_ptr()),
 				)
 				.expect("owned label accepts text");
+
 				let alignment = match (props.text_align.unwrap_or_default(), rtl) {
 					(leptoskit_native::TextAlign::Start, false)
 					| (leptoskit_native::TextAlign::End, true) => SS_LEFT.0,
@@ -1100,6 +1118,7 @@ impl Widget {
 					(leptoskit_native::TextAlign::End, false)
 					| (leptoskit_native::TextAlign::Start, true) => SS_RIGHT.0,
 				};
+
 				let style = GetWindowLongW(control, GWL_STYLE) as u32;
 				SetWindowLongW(control, GWL_STYLE, ((style & !0x1f) | alignment) as i32);
 			}
@@ -1143,6 +1162,7 @@ impl Widget {
 			} else {
 				style & !PBS_MARQUEE
 			};
+
 			SetWindowLongW(control, GWL_STYLE, style as i32);
 			SendMessageW(
 				control,
@@ -1176,6 +1196,7 @@ impl Widget {
 				.or(props.text.as_deref())
 				.unwrap_or("")
 		};
+
 		let role = msaa_role(props.aria().role, self.kind);
 		// SAFETY: The frame is a live window owned by this widget, and every
 		// string outlives its synchronous call.
@@ -1211,6 +1232,7 @@ impl Widget {
 					PCWSTR(wide(description).as_ptr()),
 				)
 				.expect("owned frame accepts accessibility description");
+
 			if let Some(value) = props.aria().value_text.as_deref() {
 				self.accessibility
 					.services()
@@ -1263,6 +1285,7 @@ impl Widget {
 		if !self.alive.get() {
 			return;
 		}
+
 		let [_, _, width, height] = self.layout.get();
 		let scale = self.scale();
 		let radius = (self
@@ -1299,9 +1322,11 @@ impl Widget {
 		let Some(document) = self.document else {
 			return;
 		};
+
 		if !self.alive.get() {
 			return;
 		}
+
 		let [_, _, width, height] = self.layout.get();
 		let scale = self.scale();
 		let [width, height] = [
@@ -1366,6 +1391,7 @@ impl Widget {
 			old[1].clamp(0, (extent[1] - page_height).max(0)),
 		];
 		self.scroll.set(offset);
+
 		// SAFETY: The viewport owns its document and standard scroll bars.
 		unsafe {
 			SetWindowPos(
@@ -1417,6 +1443,7 @@ impl Widget {
 		if self.destroying.replace(true) {
 			return;
 		}
+
 		self.alive.set(false);
 
 		let _suppressed = self.sink.suppress();
@@ -1425,6 +1452,7 @@ impl Widget {
 		for child in self.children.borrow().iter() {
 			child.destroy();
 		}
+
 		// SAFETY: This destroys only the window owned by this widget.
 		// Subclasses release their retained callback contexts on
 		// WM_NCDESTROY.
@@ -1470,6 +1498,7 @@ impl Widget {
 						)
 						.expect("owned group annotations can be cleared");
 				}
+
 				DestroyWindow(self.composition).expect("owned widget group can be destroyed");
 			}
 		}
@@ -1492,30 +1521,38 @@ impl NativeBackend for WindowsBackend {
 			if !IsWindowVisible(widget.frame).as_bool() || IsIconic(widget.host.get()).as_bool() {
 				return false;
 			}
+
 			let mut rect = RECT::default();
 			let mut host = RECT::default();
+
 			if GetWindowRect(widget.frame, &raw mut rect).is_err()
 				|| GetWindowRect(widget.host.get(), &raw mut host).is_err()
 			{
 				return false;
 			}
 			let mut ancestor = widget.parent.borrow().upgrade();
+
 			while let Some(parent) = ancestor {
 				if parent.clips() {
 					let mut clip = RECT::default();
+
 					if GetWindowRect(parent.frame, &raw mut clip).is_err() {
 						return false;
 					}
+
 					rect.left = rect.left.max(clip.left);
 					rect.top = rect.top.max(clip.top);
 					rect.right = rect.right.min(clip.right);
 					rect.bottom = rect.bottom.min(clip.bottom);
+
 					if rect.right <= rect.left || rect.bottom <= rect.top {
 						return false;
 					}
 				}
+
 				ancestor = parent.parent.borrow().upgrade();
 			}
+
 			rect.right > host.left
 				&& rect.bottom > host.top
 				&& rect.left < host.right
@@ -1527,14 +1564,17 @@ impl NativeBackend for WindowsBackend {
 		let Some(widget) = self.widgets.get(id.index()).and_then(Option::as_ref) else {
 			return false;
 		};
+
 		if !matches!(widget.kind, NativeKind::Image | NativeKind::Rive) {
 			return false;
 		}
+
 		let mut storage = widget.rive.borrow_mut();
 
 		if storage.as_ref().is_none_or(|bitmap| !bitmap.matches(frame)) {
 			*storage = crate::rive::Bitmap::new(frame);
 		}
+
 		let Some(bitmap) = storage.as_mut() else {
 			return false;
 		};
@@ -1542,6 +1582,7 @@ impl NativeBackend for WindowsBackend {
 		if !bitmap.update(frame) {
 			return false;
 		}
+
 		// SAFETY: Invalidate the owned native image window; painting reuses the
 		// DIB.
 		unsafe { InvalidateRect(Some(widget.frame), None, false).as_bool() }
@@ -1608,6 +1649,7 @@ impl NativeBackend for WindowsBackend {
 		if let Some(control) = control {
 			install_subclass(&widget, control, true);
 		}
+
 		if let Some(document) = document {
 			install_subclass(&widget, document, false);
 		}
@@ -1713,6 +1755,7 @@ impl Drop for WindowsBackend {
 		for widget in self.widgets.iter().flatten() {
 			widget.destroy();
 		}
+
 		self.widgets.clear();
 		// SAFETY: All child windows are gone. The shared apartment releases COM
 		// only after any in-flight native callback also releases its widget.
@@ -1759,6 +1802,7 @@ fn create_windows(parking: HWND, kind: NativeKind) -> (HWND, HWND, Option<HWND>,
 			None,
 		)
 		.expect("Windows could not create a native frame");
+
 		let class_and_style = match kind {
 			NativeKind::Text | NativeKind::TextRun => {
 				Some((w!("STATIC"), SS_LEFT.0 | SS_NOPREFIX.0))
@@ -1774,6 +1818,7 @@ fn create_windows(parking: HWND, kind: NativeKind) -> (HWND, HWND, Option<HWND>,
 			NativeKind::LinearProgressIndicator => Some((PROGRESS_CLASSW, PBS_SMOOTH)),
 			_ => None,
 		};
+
 		let control = class_and_style.map(|(class, style)| {
 			let tab = if matches!(
 				kind,
@@ -1949,6 +1994,7 @@ fn load_image(source: &str) -> Result<image::RgbaImage, String> {
 		if source.contains("://") {
 			return Err("image source must be a local file".to_owned());
 		}
+
 		std::path::PathBuf::from(source)
 	};
 

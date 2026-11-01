@@ -206,6 +206,7 @@ class NativeVectorViewTest {
                     """"scaling":"fit","align":{"x":"end","y":"start"}""" to RectF(20f, 0f, 40f, 20f),
                     """"align":{"x":"start","y":"end"}""" to RectF(0f, 0f, 20f, 20f),
                 )
+
             for ((fields, bounds) in cases) {
                 val (_, vector) =
                     render(
@@ -251,6 +252,7 @@ class NativeVectorViewTest {
                     """"paths":[{"data":"M 0 0","stroke":{"color":0,"width":1,"dashes":[-1,2]}}]""",
                     """"paths":[{"data":"M 0 0","stroke":{"color":0,"width":0}}]""",
                 )
+
             for (fields in invalid) {
                 val drawing = """{"view_box":{"min_x":0,"min_y":0,"width":1,"height":1},$fields}"""
                 assertThrows(fields, IllegalArgumentException::class.java) { render("0, 0, 1, 1", drawing) }
@@ -305,6 +307,7 @@ class NativeVectorViewTest {
         vector.frames[index].outline.computeBounds(bounds, true)
         val pixels = RectF(px(expected.left), px(expected.top), px(expected.right), px(expected.bottom))
         val edges = listOf(bounds.left to pixels.left, bounds.top to pixels.top, bounds.right to pixels.right)
+
         for ((actual, wanted) in edges + (bounds.bottom to pixels.bottom)) {
             assertTrue("expected $pixels, got $bounds", abs(actual - wanted) <= 1f)
         }

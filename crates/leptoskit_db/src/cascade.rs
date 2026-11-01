@@ -198,6 +198,7 @@ async fn apply_soft_delete(
 			.into_iter()
 			.filter_map(|row| row.into_iter().next())
 			.collect();
+
 		return Ok(linked);
 	}
 

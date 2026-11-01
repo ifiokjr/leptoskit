@@ -141,6 +141,7 @@ pub fn generate(dir: &Path) -> Result<Generated, Diagnostics> {
 			"the routes directory needs a name that is UTF-8".to_owned(),
 		)]));
 	};
+
 	if !dir.is_dir() {
 		return Err(Diagnostics(vec![Diagnostic::new(
 			dir,
@@ -148,8 +149,10 @@ pub fn generate(dir: &Path) -> Result<Generated, Diagnostics> {
 			"the routes directory does not exist".to_owned(),
 		)]));
 	}
+
 	let root = tree::read(dir, &mut diagnostics);
 	let table = table::build(&root, dir, &mut diagnostics);
+
 	if table.routes.is_empty() && diagnostics.is_empty() {
 		diagnostics.push(Diagnostic::new(
 			dir,
@@ -157,9 +160,11 @@ pub fn generate(dir: &Path) -> Result<Generated, Diagnostics> {
 			"there are no route files; add `index.rs` with a `page`".to_owned(),
 		));
 	}
+
 	if !diagnostics.is_empty() {
 		return Err(Diagnostics(diagnostics));
 	}
+
 	let source = emit::source(&root, dir_name, &table).map_err(|message| {
 		Diagnostics(vec![Diagnostic::new(
 			dir,
@@ -210,6 +215,7 @@ pub enum Status {
 pub fn status(output: &Path, generated: &Generated) -> Result<Status, WriteError> {
 	let existing = match std::fs::read_to_string(output) {
 		Ok(existing) => existing,
+
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Status::Missing),
 		Err(source) => {
 			return Err(WriteError::Io {
@@ -218,9 +224,11 @@ pub fn status(output: &Path, generated: &Generated) -> Result<Status, WriteError
 			});
 		}
 	};
+
 	if !existing.contains(emit::MARKER) {
 		return Err(WriteError::NotGenerated(output.to_path_buf()));
 	}
+
 	let current = normalized(&existing).is_some_and(|existing| {
 		normalized(&generated.source).is_some_and(|generated| generated == existing)
 	});
@@ -243,6 +251,7 @@ pub fn write(output: &Path, generated: &Generated) -> Result<bool, WriteError> {
 	if status(output, generated)? == Status::Current {
 		return Ok(false);
 	}
+
 	std::fs::write(output, &generated.source).map_err(|source| {
 		WriteError::Io {
 			path: output.to_path_buf(),
@@ -294,6 +303,7 @@ impl Unbrace {
 			let [syn::Stmt::Expr(inner, None)] = block.block.stmts.as_slice() else {
 				return;
 			};
+
 			if !block.attrs.is_empty() || block.label.is_some() {
 				return;
 			}
@@ -322,6 +332,7 @@ fn sort_items(items: &mut [syn::Item]) {
 			sort_items(inner);
 		}
 	}
+
 	items.sort_by_cached_key(|item| {
 		// A file holding just this item, built from an empty parse so it
 		// does not depend on which fields `syn::File` has.
@@ -345,6 +356,7 @@ pub(crate) fn pattern_display(segments: &[name::Segment]) -> String {
 	if segments.is_empty() {
 		return "/".to_owned();
 	}
+
 	segments
 		.iter()
 		.map(|segment| {

@@ -26,9 +26,11 @@ fn guest() -> String {
 		"style": Style { width: Dimension::Points(128.0), height: Dimension::Points(128.0), ..Style::default() },
 	})).unwrap();
 	let mut data = String::with_capacity(json.len() * 3);
+
 	for byte in &json {
 		write!(&mut data, "\\{byte:02x}").unwrap();
 	}
+
 	format!(
 		r#"(module
         (import "leptoskit" "node_create" (func $create (param i64 i32)))
@@ -67,6 +69,7 @@ struct Images {
 unsafe extern "C" fn visible(context: *mut c_void, _node: usize) -> i32 {
 	// SAFETY: Each tick exclusively lends this stack-owned Images to callbacks.
 	let images = unsafe { &mut *context.cast::<Images>() };
+
 	if images.invalid_visibility {
 		-1
 	} else {
@@ -86,9 +89,11 @@ unsafe extern "C" fn present(
 	// length readable bytes for this synchronous upload, never retained.
 	let images = unsafe { &mut *context.cast::<Images>() };
 	assert_eq!((width, height, length), (128, 128, 128 * 128 * 4));
+
 	if images.fail {
 		return -1;
 	}
+
 	images
 		.frames
 		.push(unsafe { std::slice::from_raw_parts(pixels, length) }.to_vec());

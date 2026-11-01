@@ -472,6 +472,7 @@ async fn malformed_proofs_are_refused_at_the_token_endpoint() {
 		future["iat"] = json!(leptoskit_db::now().timestamp() + 600);
 		let mut elsewhere = token_claims();
 		elsewhere["htu"] = json!("https://other.example/oauth/token");
+
 		let mut long_jti = token_claims();
 		long_jti["jti"] = json!("j".repeat(257));
 

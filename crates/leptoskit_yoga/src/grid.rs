@@ -126,6 +126,7 @@ impl AbsoluteAxis {
 
 	fn position(&self, size: f32) -> f32 {
 		let containing_start = self.bounds.start;
+
 		let (start, end, alignment) = match (self.start, self.end) {
 			(Some(start), None) => return containing_start + start + self.margin_start,
 			(None, Some(end)) => return self.bounds.end - end - size - self.margin_end,
@@ -138,6 +139,7 @@ impl AbsoluteAxis {
 				)
 			}
 		};
+
 		let free = end - start - self.margin_start - self.margin_end - size;
 
 		if self.start.is_some() && self.end.is_some() && free > 0.0 {
@@ -156,11 +158,14 @@ impl AbsoluteAxis {
 
 		let offset = match alignment {
 			Align::Center => free / 2.0,
+
 			Align::FlexEnd if !self.reverse => free,
 			Align::FlexEnd => 0.0,
+
 			_ if self.reverse => free,
 			_ => 0.0,
 		};
+
 		start + self.margin_start + offset
 	}
 }
@@ -301,6 +306,7 @@ impl Yoga {
 			sizings: std::mem::take(&mut grid.template_rows),
 			..AxisTracks::default()
 		};
+
 		for item in &items {
 			columns.reserve(item.col_start + item.col_span, &grid.auto_columns);
 			rows.reserve(item.row_start + item.row_span, &grid.auto_rows);
@@ -356,11 +362,13 @@ impl Yoga {
 		};
 		let mut content_max_width = 0.0f32;
 		let mut content_max_height = 0.0f32;
+
 		for (index, item) in items.iter().enumerate() {
 			let corner = self.place_grid_item(index, item, &sized);
 			content_max_width = content_max_width.max(corner.width);
 			content_max_height = content_max_height.max(corner.height);
 		}
+
 		for child in absolute {
 			let corner = self.place_absolute_grid_child(child, &sized);
 			content_max_width = content_max_width.max(corner.width);
@@ -385,6 +393,7 @@ impl Yoga {
 			if !columns.spans_intrinsic(item.col_start, item.col_span) {
 				continue;
 			}
+
 			let contribution = BoxMetrics::new(self.style(item.node), Size::new(None, None))
 				.size
 				.width
@@ -415,6 +424,7 @@ impl Yoga {
 			if !rows.spans_intrinsic(item.row_start, item.row_span) {
 				continue;
 			}
+
 			let area_width = spanned_size(column_bases, item.col_start, item.col_span, column_gap);
 			let contribution =
 				BoxMetrics::new(self.style(item.node), Size::new(Some(area_width), None))
@@ -456,6 +466,7 @@ impl Yoga {
 		let area_y = rows.offsets.get(item.row_start).copied().unwrap_or(0.0);
 		let area_height = spanned_size(&rows.bases, item.row_start, item.row_span, sized.row_gap);
 		let metrics = BoxMetrics::new(&child_style, Size::new(Some(area_width), Some(area_height)));
+
 		let margins = resolve_margins(&child_style.margin, Some(area_width));
 
 		// `normal` (the `Auto` default) behaves as stretch for grid items.
@@ -467,9 +478,11 @@ impl Yoga {
 		} else {
 			justify
 		};
+
 		let align = child_style.align_self.resolve_self(sized.style.align_items);
 		let stretch_width = matches!(justify, Align::Stretch) && child_style.width.is_auto();
 		let stretch_height = matches!(align, Align::Stretch) && child_style.height.is_auto();
+
 		let width = if stretch_width {
 			Some((area_width - margins.horizontal()).max(0.0))
 		} else {
@@ -498,11 +511,13 @@ impl Yoga {
 		// Alignment inside the area for non-stretched axes.
 		let free_x = (area_width - margins.horizontal() - size.width).max(0.0);
 		let free_y = (area_height - margins.vertical() - size.height).max(0.0);
+
 		let lead_x = match justify {
 			Align::FlexEnd => free_x,
 			Align::Center => free_x / 2.0,
 			_ => 0.0,
 		};
+
 		let lead_y = match align {
 			Align::FlexEnd => free_y,
 			Align::Center => free_y / 2.0,
@@ -615,6 +630,7 @@ impl Yoga {
 			static_alignment: justify.resolve_self(grid.justify_items),
 			reverse: parent.direction == crate::Direction::Rtl,
 		};
+
 		let vertical = AbsoluteAxis {
 			bounds: bounds.height,
 			start: resolve_signed(style.inset.top, Some(height)),
@@ -691,6 +707,7 @@ impl Yoga {
 		} else {
 			explicit_rows
 		};
+
 		let minor_tracks = requests
 			.iter()
 			.filter_map(|request| request.minor.map(|minor| minor + request.minor_span))
@@ -702,6 +719,7 @@ impl Yoga {
 		};
 
 		let areas = place_areas(&requests, grid.auto_flow.is_dense(), minor_tracks);
+
 		for (item, area) in items.iter_mut().zip(areas) {
 			if row_flow {
 				item.row_start = area.major;
@@ -754,6 +772,7 @@ impl AxisTracks {
 				end.map(|index| content.start + alignment + end_offset(index)),
 			)
 		};
+
 		AxisBounds {
 			start: start.unwrap_or(padding.start),
 			end: end.unwrap_or(padding.end),
@@ -810,6 +829,7 @@ impl AxisTracks {
 		self.limits = vec![None; count];
 		self.fractions = vec![0.0; count];
 		self.fraction_contributions.clear();
+
 		for (index, sizing) in self.sizings.iter().enumerate() {
 			match sizing {
 				TrackSizing::Points(value) => self.bases[index] = value.max(0.0),
@@ -886,13 +906,16 @@ impl AxisTracks {
 				span,
 				size: contribution,
 			});
+
 			return;
 		}
 
 		if span == 1 {
 			self.bases[start] = self.bases[start].max(contribution);
+
 			return;
 		}
+
 		// Distribute the contribution across the spanned intrinsic tracks
 		// after accounting for definite tracks and gaps.
 		let tracks = start..start + span;
@@ -903,6 +926,7 @@ impl AxisTracks {
 			.count();
 		let needed = (contribution - current - gap * (span - 1) as f32).max(0.0);
 		let share = needed / intrinsic_count as f32;
+
 		for index in tracks {
 			if self.intrinsic[index] {
 				self.bases[index] += share;
@@ -919,6 +943,7 @@ impl AxisTracks {
 	/// what is left, and computes the track offsets.
 	fn finish(&mut self, available: AvailableSpace, gap: f32) {
 		let count = self.bases.len();
+
 		match available {
 			// Free space is shared equally, freezing tracks at their limits.
 			AvailableSpace::Definite(total) => {
@@ -930,10 +955,13 @@ impl AxisTracks {
 								.is_some_and(|limit| limit > self.bases[index] + EPSILON)
 						})
 						.collect();
+
 					if growable.is_empty() || free <= EPSILON {
 						break;
 					}
+
 					let share = free / growable.len() as f32;
+
 					for index in growable {
 						let limit = self.limits[index].unwrap_or(self.bases[index]);
 						self.bases[index] = (self.bases[index] + share).min(limit);
@@ -980,6 +1008,7 @@ impl AxisTracks {
 		self.total = self.used(gap);
 		self.offsets = Vec::with_capacity(count);
 		let mut offset = 0.0;
+
 		for base in &self.bases {
 			self.offsets.push(offset);
 			offset += base + gap;
@@ -1084,6 +1113,7 @@ fn absolute_lines(
 			GridLine::Line(_) | GridLine::Auto => None,
 		}
 	};
+
 	let (start, end) = match (line(placement.start), line(placement.end)) {
 		(Some(start), Some(end)) if start == end => (Some(start), Some(start + 1)),
 		(Some(start), Some(end)) => (Some(start.min(end)), Some(start.max(end))),
@@ -1091,6 +1121,7 @@ fn absolute_lines(
 		(None, Some(end)) => (span(placement.start).map(|span| end - span), Some(end)),
 		(None, None) => (None, None),
 	};
+
 	let existing = |line: Option<i64>| {
 		line.and_then(|line| usize::try_from(line).ok())
 			.filter(|&line| line <= tracks)
@@ -1124,6 +1155,7 @@ fn resolve_axis(placement: &GridPlacement, explicit: usize) -> (Option<usize>, u
 			GridLine::Auto | GridLine::Line(_) => 1,
 		}
 	};
+
 	match (line(placement.start), line(placement.end)) {
 		(Some(start), Some(end)) => {
 			// Lines given in reverse order still bound the same area.
@@ -1173,6 +1205,7 @@ fn place_areas(requests: &[PlacementRequest], dense: bool, minor_tracks: usize) 
 	// Items locked to a major line scan along it; in sparse mode each search
 	// starts past the items this step already placed on that line.
 	let mut line_ends: Vec<(usize, usize)> = Vec::new();
+
 	for (index, request) in requests.iter().enumerate() {
 		let (Some(major), None) = (request.major, request.minor) else {
 			continue;
@@ -1180,18 +1213,22 @@ fn place_areas(requests: &[PlacementRequest], dense: bool, minor_tracks: usize) 
 		let line_end = line_ends.iter().position(|&(line, _)| line == major);
 		let mut area = Area {
 			major,
+
 			minor: match line_end {
 				Some(position) if !dense => line_ends[position].1,
 				_ => 0,
 			},
 			..spans(request)
 		};
+
 		while !is_free(&occupied, area) {
 			area.minor += 1;
 		}
+
 		occupied.push(area);
 		areas[index] = area;
 		let end = area.minor + area.minor_span;
+
 		match line_end {
 			Some(position) => line_ends[position].1 = end,
 			None => line_ends.push((major, end)),
@@ -1199,6 +1236,7 @@ fn place_areas(requests: &[PlacementRequest], dense: bool, minor_tracks: usize) 
 	}
 
 	let (mut cursor_major, mut cursor_minor) = (0usize, 0usize);
+
 	for (index, request) in requests.iter().enumerate() {
 		if request.major.is_some() {
 			continue;
@@ -1214,12 +1252,15 @@ fn place_areas(requests: &[PlacementRequest], dense: bool, minor_tracks: usize) 
 				} else {
 					cursor_major
 				},
+
 				minor,
 				..spans(request)
 			};
+
 			while !is_free(&occupied, area) {
 				area.major += 1;
 			}
+
 			area
 		} else {
 			let from = if dense {
@@ -1227,15 +1268,19 @@ fn place_areas(requests: &[PlacementRequest], dense: bool, minor_tracks: usize) 
 			} else {
 				(cursor_major, cursor_minor)
 			};
+
 			find_free_area(&occupied, from, spans(request), minor_tracks)
 		};
+
 		occupied.push(area);
 		areas[index] = area;
+
 		if !dense {
 			cursor_major = area.major;
 			cursor_minor = area.minor + area.minor_span;
 		}
 	}
+
 	areas
 }
 
@@ -1255,13 +1300,16 @@ fn find_free_area(
 		minor: from.1,
 		..spans
 	};
+
 	loop {
 		while area.minor.saturating_add(area.minor_span) <= bound {
 			if !occupied.iter().any(|&o| o.overlaps(area)) {
 				return area;
 			}
+
 			area.minor += 1;
 		}
+
 		area.major += 1;
 		area.minor = 0;
 	}
@@ -1271,6 +1319,7 @@ fn find_free_area(
 fn distribute_leftover(axis: &mut AxisTracks, inner: f32, gap: f32, align: Align) -> f32 {
 	let count = axis.bases.len();
 	let leftover = (inner - axis.used(gap)).max(0.0);
+
 	match align {
 		// `normal` (the default) behaves as stretch for grid: leftover space
 		// goes to intrinsic tracks, which is how `auto` fills fill the row.
@@ -1279,18 +1328,23 @@ fn distribute_leftover(axis: &mut AxisTracks, inner: f32, gap: f32, align: Align
 			if intrinsic_count > 0 {
 				let share = leftover / intrinsic_count as f32;
 				let mut offset = 0.0;
+
 				for index in 0..count {
 					axis.offsets[index] = offset;
+
 					if axis.intrinsic[index] {
 						axis.bases[index] += share;
 					}
+
 					offset += axis.bases[index] + gap;
 				}
 			}
+
 			0.0
 		}
 		Align::FlexEnd => leftover,
 		Align::Center => leftover / 2.0,
+
 		Align::SpaceBetween if count > 1 => {
 			let spacing = leftover / (count - 1) as f32;
 			let mut offset = 0.0;
@@ -1298,8 +1352,10 @@ fn distribute_leftover(axis: &mut AxisTracks, inner: f32, gap: f32, align: Align
 				axis.offsets[index] = offset;
 				offset += axis.bases[index] + gap + spacing;
 			}
+
 			0.0
 		}
+
 		Align::SpaceAround => {
 			let spacing = leftover / count.max(1) as f32;
 			let mut offset = spacing / 2.0;
@@ -1307,6 +1363,7 @@ fn distribute_leftover(axis: &mut AxisTracks, inner: f32, gap: f32, align: Align
 				axis.offsets[index] = offset;
 				offset += axis.bases[index] + gap + spacing;
 			}
+
 			0.0
 		}
 		Align::SpaceEvenly => {
@@ -1316,6 +1373,7 @@ fn distribute_leftover(axis: &mut AxisTracks, inner: f32, gap: f32, align: Align
 				axis.offsets[index] = offset;
 				offset += axis.bases[index] + gap + spacing;
 			}
+
 			0.0
 		}
 		_ => 0.0,

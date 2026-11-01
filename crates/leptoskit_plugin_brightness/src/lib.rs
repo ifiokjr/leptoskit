@@ -35,6 +35,7 @@ impl Level {
 		if !value.is_finite() || !(0.0..=1.0).contains(&value) {
 			return Err(Error::InvalidArgument);
 		}
+
 		Ok(Self((value * 1000.0).round() as u16))
 	}
 
@@ -137,6 +138,7 @@ mod tests {
 	#[test]
 	fn fractions_reject_nonfinite_and_out_of_range_values() {
 		assert_eq!(Level::from_fraction(0.375).unwrap().thousandths(), 375);
+
 		for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.01, 1.01] {
 			assert_eq!(Level::from_fraction(value), Err(Error::InvalidArgument));
 		}
@@ -151,10 +153,12 @@ mod tests {
 			Level::decode(&u32::MAX.to_le_bytes()),
 			Err(Error::InvalidArgument)
 		);
+
 		for value in [0, 375, 1000] {
 			let level = Level::new(value).unwrap();
 			assert_eq!(Setting::decode(&level.encode()), Ok(Setting::Level(level)));
 		}
+
 		for payload in [&[][..], &[1], &[0, 0, 0, 0, 0], &[233, 3, 0, 0]] {
 			assert_eq!(Setting::decode(payload), Err(Error::InvalidArgument));
 		}

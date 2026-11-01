@@ -16,11 +16,13 @@ struct Tree {
 impl Tree {
 	fn new(files: &[(&str, &str)]) -> Self {
 		let project = tempfile::tempdir().expect("temp dir");
+
 		for (path, source) in files {
 			let path = project.path().join("routes").join(path);
 			std::fs::create_dir_all(path.parent().expect("a parent")).expect("create dirs");
 			std::fs::write(path, source).expect("write route file");
 		}
+
 		Self { project }
 	}
 
@@ -473,6 +475,7 @@ fn unreadable_files_and_directories_are_reported() {
 	lock(&vault, 0o000);
 	let result = leptoskit_router_codegen::generate(&tree.dir());
 	lock(&locked, 0o644);
+
 	lock(&vault, 0o755);
 	let messages: Vec<String> = result
 		.expect_err("unreadable")

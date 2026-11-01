@@ -52,9 +52,11 @@ pub fn validate(method: MethodId, payload: &[u8]) -> Result<(), Error> {
 	if !METHODS.contains(&method) {
 		return Err(Error::Unavailable);
 	}
+
 	if !payload.is_empty() {
 		return Err(Error::InvalidArgument);
 	}
+
 	Ok(())
 }
 
@@ -140,6 +142,7 @@ mod tests {
 		] {
 			assert_eq!(Status::decode(&status.encode()), Ok(status));
 		}
+
 		for bytes in [&[][..], &[0; 3], &[0; 5], &[4, 0, 0, 0], &[255; 4]] {
 			assert_eq!(Status::decode(bytes), Err(Error::Native));
 		}
@@ -149,6 +152,7 @@ mod tests {
 		let mut plugin = Unsupported;
 		assert_eq!(plugin.name(), NAME);
 		assert_eq!(plugin.methods(), METHODS);
+
 		for method in METHODS {
 			assert_eq!(
 				plugin.invoke(*method, leptoskit_bridge::Bytes::new()),
@@ -156,6 +160,7 @@ mod tests {
 			);
 			assert_eq!(validate(*method, &[0]), Err(Error::InvalidArgument));
 		}
+
 		assert_eq!(validate(MethodId(2), &[]), Err(Error::Unavailable));
 	}
 }

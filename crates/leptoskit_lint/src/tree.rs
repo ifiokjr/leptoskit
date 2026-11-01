@@ -82,6 +82,7 @@ impl Tree {
 	pub fn from_builder(expr: &Expr, components: &ComponentNames) -> Option<Self> {
 		let mut methods: Vec<&ExprMethodCall> = Vec::new();
 		let mut current = expr;
+
 		let root = loop {
 			match current {
 				Expr::MethodCall(call) => {
@@ -93,10 +94,13 @@ impl Tree {
 				_ => return None,
 			}
 		};
+
 		let ident = component_call(root, components)?;
 		let mut calls = Vec::new();
+
 		for method in methods.into_iter().rev() {
 			let name = method.method.to_string();
+
 			match name.as_str() {
 				"child" => {
 					let child = method
@@ -128,6 +132,7 @@ impl Tree {
 				}
 			}
 		}
+
 		Some(Self {
 			name: ident.to_string(),
 			span: ident.span(),
@@ -174,6 +179,7 @@ impl Tree {
 	/// Calls `visit` with this tree and every tree nested inside it.
 	pub fn walk(&self, visit: &mut impl FnMut(&Self)) {
 		visit(self);
+
 		for child in self.children() {
 			if let Child::Tree(tree) = child {
 				tree.walk(visit);
@@ -192,9 +198,11 @@ pub fn component_call<'a>(
 	let Expr::Path(path) = &*call.func else {
 		return None;
 	};
+
 	if path.qself.is_some() {
 		return None;
 	}
+
 	let mut segments = path.path.segments.iter().rev();
 	let ident = &segments.next()?.ident;
 	let in_type = segments
@@ -207,8 +215,10 @@ fn child(expr: &Expr, components: &ComponentNames) -> Child {
 	if let Some(tree) = Tree::from_builder(expr, components) {
 		return Child::Tree(tree);
 	}
+
 	match expr {
 		Expr::Lit(literal) if matches!(literal.lit, Lit::Str(_)) => Child::Text,
+
 		Expr::Macro(mac) if is_view_macro(&mac.mac) => {
 			let mut trees = Tree::from_markup(mac.mac.tokens.clone());
 			match (trees.pop(), trees.is_empty()) {
@@ -216,6 +226,7 @@ fn child(expr: &Expr, components: &ComponentNames) -> Child {
 				_ => Child::Other,
 			}
 		}
+
 		_ => Child::Other,
 	}
 }
@@ -294,6 +305,7 @@ fn markup_tree(element: &NodeElement<rstml::Infallible>) -> Tree {
 			}
 		})
 		.collect();
+
 	for node in element.children() {
 		let child = match node {
 			Node::Element(element) => Child::Tree(markup_tree(element)),
@@ -301,8 +313,10 @@ fn markup_tree(element: &NodeElement<rstml::Infallible>) -> Tree {
 			Node::Comment(_) => continue,
 			_ => Child::Other,
 		};
+
 		calls.push(Call::Child(child));
 	}
+
 	Tree {
 		name: last_segment(name),
 		span: name.span(),

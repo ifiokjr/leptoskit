@@ -99,6 +99,7 @@ mod macos {
 		assert_eq!(value.unwrap().to_string(), "Level 2 of 6");
 		assert!(view.isAccessibilitySelected());
 		assert!(view.isAccessibilityExpanded());
+
 		assert!(view.isAccessibilityRequired());
 		assert_eq!(
 			view.accessibilityOrientation(),

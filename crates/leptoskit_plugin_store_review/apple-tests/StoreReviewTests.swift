@@ -29,6 +29,7 @@ private func payload(_ bytes: [UInt8] = []) throws -> NativeBuffer {
     #expect(call > 0)
     var request = lk_request()
     #expect(lk_bridge_next_request(bridge, &request) == 1)
+
     return NativeBuffer(taking: request.payload)
 }
 
@@ -43,6 +44,7 @@ func ownedWindowReadinessAndCloseNeverCallRealStoreKit() async throws {
     let plugin = StoreReviewPlugin(context: context, service: service)
     let window = NSWindow(contentViewController: owner)
     window.isReleasedWhenClosed = false
+
     defer { plugin.close(); window.orderOut(nil); window.contentViewController = nil }
     #expect(try await plugin.invoke(method: 0, payload: payload()) == Data([2, 0, 0, 0]))
     await #expect(throws: PluginError.unavailable) { try await plugin.invoke(method: 1, payload: payload()) }
@@ -66,13 +68,16 @@ func invalidPayloadAndCancelledTaskNeverReachReviewService() async throws {
     let owner = NSViewController()
     let service = ReviewSpy()
     let plugin = StoreReviewPlugin(context: NativePluginContext(owner: owner), service: service)
+
     for method: UInt32 in [0, 1] {
         await #expect(throws: PluginError.invalidArgument) {
             try await plugin.invoke(method: method, payload: payload([0]))
         }
     }
+
     let task = Task {
         withUnsafeCurrentTask { $0?.cancel() }
+
         return try await plugin.invoke(method: 1, payload: payload())
     }
     await #expect(throws: CancellationError.self) { try await task.value }

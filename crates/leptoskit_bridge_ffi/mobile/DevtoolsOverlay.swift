@@ -77,9 +77,11 @@ final class DevtoolsOverlay: DevtoolsView {
         self.node = node
         super.init(frame: .zero)
         let (red, green, blue) = Self.color
+
         #if os(macOS)
         autoresizingMask = [.width, .height]
         setAccessibilityElement(false)
+
         outline.wantsLayer = true
         outline.layer?.borderWidth = 2
         outline.layer?.borderColor = NSColor(srgbRed: red, green: green, blue: blue, alpha: 1).cgColor
@@ -127,6 +129,7 @@ final class DevtoolsOverlay: DevtoolsView {
             let rect = place(highlight, in: anchor)
         else {
             outline.isHidden = true
+
             return
         }
 
@@ -145,8 +148,10 @@ final class DevtoolsOverlay: DevtoolsView {
     /// The view a drawn widget lays its children out in.
     private static func content(of view: DevtoolsView) -> DevtoolsView {
         #if os(macOS)
+
         return (view as? NSScrollView)?.documentView ?? view
         #else
+
         return view
         #endif
     }
@@ -158,6 +163,7 @@ final class DevtoolsOverlay: DevtoolsView {
     func pick(at point: CGPoint) -> Bool {
         guard let host = superview else { return false }
         searching = true
+
         #if os(macOS)
         // AppKit hit-tests a view with a point in its superview's coordinates.
         let hit = host.hitTest(host.superview.map { $0.convert(point, from: self) } ?? host.convert(point, from: self))
@@ -165,6 +171,7 @@ final class DevtoolsOverlay: DevtoolsView {
         let hit = host.hitTest(host.convert(point, from: self), with: nil)
         #endif
         searching = false
+
         var candidate = hit
 
         while let view = candidate, view !== host {
@@ -172,6 +179,7 @@ final class DevtoolsOverlay: DevtoolsView {
                 let content = Self.content(of: view)
                 let found = link.pick(id, content.convert(point, from: self))
                 refresh()
+
                 return found
             }
 

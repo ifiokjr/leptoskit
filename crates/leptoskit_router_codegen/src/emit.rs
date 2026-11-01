@@ -50,6 +50,7 @@ fn idents(names: &[String]) -> Result<Vec<Ident>, String> {
 /// to that module's directory.
 fn modules(directory: &Directory, prefix: &str) -> Result<Vec<TokenStream>, String> {
 	let mut items = Vec::new();
+
 	for file in &directory.files {
 		let path = format!("{prefix}{}", file.disk_name);
 		let module = ident(&file.module)?;
@@ -58,15 +59,18 @@ fn modules(directory: &Directory, prefix: &str) -> Result<Vec<TokenStream>, Stri
 			quote!(#[path = #path] pub mod #module;),
 		));
 	}
+
 	for child in &directory.directories {
 		let path = format!("{prefix}{}", child.disk_name);
 		let module = ident(&child.module)?;
+
 		let inner = modules(child, "")?;
 		items.push((
 			child.module.clone(),
 			quote!(#[path = #path] pub mod #module { #(#inner)* }),
 		));
 	}
+
 	// rustfmt orders module declarations by name; emitting them in that order
 	// keeps a formatted file identical to a fresh one.
 	items.sort_by(|left, right| left.0.cmp(&right.0));
@@ -99,6 +103,7 @@ fn routes_code(table: &Table) -> Result<TokenStream, String> {
 	let mut re_exports = Vec::new();
 	let mut froms = Vec::new();
 	let mut assertions = Vec::new();
+
 	let mut hrefs = Vec::new();
 
 	for (position, route) in table.routes.iter().enumerate() {
@@ -248,6 +253,7 @@ fn route_code(route: &Route, position: usize) -> Result<RouteCode, String> {
 			});
 		}
 	}
+
 	Ok(code)
 }
 
@@ -276,6 +282,7 @@ fn shapes_code(table: &Table) -> Result<Vec<TokenStream>, String> {
 					}
 				}
 			};
+
 			Ok(quote!((
 				#runtime::__private::Shape::new(&[#(#present),*], &[#(#absent),*]),
 				#read
@@ -290,6 +297,7 @@ fn render_code(table: &Table) -> Result<TokenStream, String> {
 	let private = quote!(::leptoskit_router::__private);
 	let mut uses_navigation = false;
 	let mut arms = Vec::new();
+
 	for route in &table.routes {
 		let variant = ident(&route.variant)?;
 		let calls = std::iter::once(&route.page_call).chain(route.layouts.iter().rev());
@@ -303,13 +311,17 @@ fn render_code(table: &Table) -> Result<TokenStream, String> {
 			.props
 			.iter()
 			.any(|prop| matches!(prop, Prop::Route { .. }));
+
 		let pattern = match &route.target {
 			Target::Unit | Target::Struct { unit: true, .. } => quote!(Self::#variant),
+
 			Target::Struct { .. } | Target::NotFound if page_takes_route => {
 				quote!(Self::#variant(route))
 			}
+
 			Target::Struct { .. } | Target::NotFound => quote!(Self::#variant(_)),
 		};
+
 		// A unit struct route has no value in the variant, so the page gets
 		// a fresh one.
 		let page_route = if let Target::Struct {
@@ -321,6 +333,7 @@ fn render_code(table: &Table) -> Result<TokenStream, String> {
 		} else {
 			quote!(route)
 		};
+
 		let page = call(&route.page_call, |by_ref| {
 			match (&route.target, by_ref) {
 				(Target::Struct { unit: true, .. }, true) => quote!(&#page_route),
@@ -331,6 +344,7 @@ fn render_code(table: &Table) -> Result<TokenStream, String> {
 		// Each call wraps the one before it; the outermost is the arm's value.
 		let mut inner = Vec::new();
 		let mut outermost = page;
+
 		for layout in route.layouts.iter().rev() {
 			let layout = call(layout, |by_ref| {
 				if by_ref {
@@ -341,6 +355,7 @@ fn render_code(table: &Table) -> Result<TokenStream, String> {
 			})?;
 			inner.push(std::mem::replace(&mut outermost, layout));
 		}
+
 		arms.push(quote! {
 			#pattern => {
 				#(let view = #private::IntoView::into_view(#inner);)*
@@ -353,6 +368,7 @@ fn render_code(table: &Table) -> Result<TokenStream, String> {
 	} else {
 		quote!(_navigation)
 	};
+
 	Ok(quote! {
 		impl ::leptoskit_router::Render for Route {
 			fn render(&self, #navigation: &Navigation) -> #private::Element {

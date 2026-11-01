@@ -129,6 +129,7 @@ impl Browser {
 		if !self.can_go_back() {
 			return false;
 		}
+
 		history().back().expect("go back");
 		true
 	}

@@ -33,8 +33,10 @@ fn invoke(object: &JsValue, method: &str) -> Result<JsValue, Error> {
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn weekday(info: &JsValue) -> Result<Option<u8>, Error> {
 	let value = property(info, "firstDay")?;
+
 	match value.as_f64() {
 		Some(day) if (1.0..=7.0).contains(&day) && day.fract() == 0.0 => Ok(Some(day as u8)),
+
 		None if value.is_undefined() => Ok(None),
 		_ => Err(Error::Native),
 	}
@@ -48,15 +50,19 @@ fn weekday(info: &JsValue) -> Result<Option<u8>, Error> {
 pub fn snapshot() -> Result<Snapshot, Error> {
 	let navigator = web_sys::window().ok_or(Error::Unavailable)?.navigator();
 	let languages = navigator.languages();
+
 	if languages.length() > 64 {
 		return Err(Error::TooLarge);
 	}
+
 	let intl = property(&js_sys::global(), "Intl")?;
 	let mut locales = Vec::with_capacity(languages.length() as usize);
 	let mut first_weekday = None;
+
 	for (index, value) in languages.iter().enumerate() {
 		let tag = value.as_string().ok_or(Error::Native)?;
 		let locale = construct(&intl, "Locale", &Array::of1(&value))?;
+
 		if index == 0 {
 			let getter = property(&locale, "getWeekInfo")?;
 			let info = if getter.is_function() {
@@ -64,16 +70,19 @@ pub fn snapshot() -> Result<Snapshot, Error> {
 			} else {
 				property(&locale, "weekInfo")?
 			};
+
 			if info.is_object() {
 				first_weekday = weekday(&info)?;
 			}
 		}
+
 		locales.push(Locale {
 			tag,
 			language: text(&locale, "language")?,
 			region: text(&locale, "region")?,
 		});
 	}
+
 	let options = Object::new();
 	Reflect::set(
 		&options,

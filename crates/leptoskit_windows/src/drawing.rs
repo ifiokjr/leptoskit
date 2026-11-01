@@ -46,6 +46,7 @@ impl Font {
 			FontWeight::Semibold => 600,
 			FontWeight::Bold => 700,
 		};
+
 		// SAFETY: All font parameters are values; the static family is
 		// terminated.
 		let font = unsafe {
@@ -116,6 +117,7 @@ pub(crate) fn draw_text(dc: HDC, text: &str, rect: &mut RECT, format: DRAW_TEXT_
 	if text.is_empty() {
 		return;
 	}
+
 	let mut utf16: Vec<u16> = text.encode_utf16().collect();
 	// SAFETY: The buffer is non-empty and outlives this synchronous call; the
 	// caller owns `dc` on this thread.
@@ -151,11 +153,13 @@ impl TextMeasurer for WindowsTextMeasurer {
 
 		let scale = self.dpi as f32 / 96.0;
 		let font = Font::new(style, scale);
+
 		let width = match available.width {
 			AvailableSpace::Definite(width) => (width * scale).ceil().max(1.0) as i32,
 			AvailableSpace::MinContent => 1,
 			AvailableSpace::MaxContent => 1_000_000,
 		};
+
 		let mut rect = RECT {
 			left: 0,
 			top: 0,

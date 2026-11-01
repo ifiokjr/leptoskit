@@ -177,6 +177,7 @@ fn wake_in_flight_survives_invalidation_join_and_last_foreign_owner_release() {
 	late.wake();
 	assert_eq!(callbacks_owner.notified.load(Ordering::Acquire), 1);
 	assert_eq!(callbacks_owner.released.load(Ordering::Acquire), 1);
+
 	assert_eq!(Arc::strong_count(&callbacks_owner), 1);
 }
 

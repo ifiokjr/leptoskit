@@ -31,6 +31,7 @@ final class DocumentReadJob: @unchecked Sendable {
         lock.lock()
         let cancelled = cancelled
         lock.unlock()
+
         if cancelled { throw CancellationError() }
     }
 

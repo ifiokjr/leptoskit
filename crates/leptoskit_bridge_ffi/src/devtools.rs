@@ -224,11 +224,13 @@ mod agent {
 
 		if !cfg!(debug_assertions) {
 			eprintln!("leptoskit devtools: only debug builds report to a hub; ignoring {HUB_ENV}");
+
 			return None;
 		}
 
 		let Some(hub) = leptoskit_devtools::loopback_hub(&url) else {
 			eprintln!("leptoskit devtools: {url:?} is not a loopback hub, so nothing is reported");
+
 			return None;
 		};
 		let hello = Hello::new(

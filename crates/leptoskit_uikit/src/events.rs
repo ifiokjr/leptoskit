@@ -105,6 +105,7 @@ impl EventSink {
 		} else {
 			(index + members.len() - 1) % members.len()
 		};
+
 		let (button, _) = &members[next];
 		button.becomeFirstResponder();
 		button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
@@ -114,7 +115,9 @@ impl EventSink {
 		if self.suppressed.get() {
 			return;
 		}
+
 		let listener = self.listener.borrow().clone();
+
 		if let Some(listener) = listener {
 			listener(node, event);
 		}
@@ -125,13 +128,17 @@ pub(crate) fn interactive(view: &UIView) -> bool {
 	if view.isHidden() || !view.isUserInteractionEnabled() || view.alpha() <= 0.01 {
 		return false;
 	}
+
 	let mut parent = view.superview();
+
 	while let Some(view) = parent {
 		if view.isHidden() || !view.isUserInteractionEnabled() || view.alpha() <= 0.01 {
 			return false;
 		}
+
 		parent = view.superview();
 	}
+
 	true
 }
 
@@ -139,13 +146,17 @@ pub(crate) fn visible(view: &UIView) -> bool {
 	if view.isHidden() || view.alpha() <= 0.01 {
 		return false;
 	}
+
 	let mut parent = view.superview();
+
 	while let Some(view) = parent {
 		if view.isHidden() || view.alpha() <= 0.01 {
 			return false;
 		}
+
 		parent = view.superview();
 	}
+
 	true
 }
 
@@ -157,6 +168,7 @@ pub(crate) fn slider_proposal(state: SliderState, coordinate: f32) -> Option<f64
 	if !coordinate.is_finite() {
 		return None;
 	}
+
 	let proposal =
 		f64::from(coordinate.clamp(0.0, 1.0)).mul_add(state.max() - state.min(), state.min());
 	state.proposed_value(proposal)
@@ -276,6 +288,7 @@ define_class!(
 			if field.isEnabled() && interactive(&field) {
 				self.emit(&NativeEvent::Submit { value: field.text().map(|text| text.to_string()).unwrap_or_default() });
 			}
+
 			false
 		}
 	}
@@ -314,6 +327,7 @@ impl ActionTarget {
 
 	fn emit(&self, event: &NativeEvent) {
 		let _keep_alive = self.retain();
+
 		if self.ivars().active.get() {
 			self.ivars().sink.emit(self.ivars().node, event);
 		}
@@ -330,9 +344,11 @@ impl ActionTarget {
 	fn propose_slider(&self, slider: &UISlider, value: f64) {
 		let _keep_alive = self.retain();
 		let slider = slider.retain();
+
 		if slider.isEnabled() && interactive(&slider) {
 			self.emit(&NativeEvent::ValueChange { value });
 		}
+
 		if self.ivars().active.get() {
 			slider.setValue(slider_coordinate(
 				self.ivars().props.borrow().slider.unwrap_or_default(),
@@ -353,6 +369,7 @@ impl ActionTarget {
 		} else {
 			proposed < state.value()
 		};
+
 		if !moved {
 			proposed = if increment {
 				state.value().next_up()
@@ -360,7 +377,9 @@ impl ActionTarget {
 				state.value().next_down()
 			};
 		}
+
 		proposed = proposed.clamp(state.min(), state.max());
+
 		if let Some(value) = state.proposed_value(proposed) {
 			self.propose_slider(slider, value);
 		}
@@ -397,6 +416,7 @@ impl ControlledSlider {
 	fn accessible_step(&self, increment: bool) {
 		let _keep_alive = self.retain();
 		let target = self.ivars().target.borrow().as_ref().and_then(Weak::load);
+
 		if let Some(target) = target {
 			target.step_slider(self, increment);
 		}
@@ -431,9 +451,11 @@ define_class!(
 impl ContentButton {
 	fn activate_accessibly(&self) -> bool {
 		let _keep_alive = self.retain();
+
 		if !self.isEnabled() || !interactive(self) {
 			return false;
 		}
+
 		self.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
 		true
 	}
@@ -446,6 +468,7 @@ impl ContentButton {
 		if !interactive(self) || !self.isEnabled() || !self.pointInside_withEvent(point, event) {
 			return None;
 		}
+
 		let radius = self
 			.layer()
 			.cornerRadius()
@@ -454,9 +477,11 @@ impl ContentButton {
 		let size = self.bounds().size;
 		let center_x = point.x.clamp(radius, size.width - radius);
 		let center_y = point.y.clamp(radius, size.height - radius);
+
 		if (point.x - center_x).powi(2) + (point.y - center_y).powi(2) > radius.powi(2) {
 			return None;
 		}
+
 		Some(self.retain().into_super().into_super().into_super())
 	}
 }
@@ -509,6 +534,7 @@ impl RadioButton {
 			return;
 		};
 		let group = target.ivars().props.borrow().radio_group.clone();
+
 		if let Some(group) = group {
 			target
 				.ivars()

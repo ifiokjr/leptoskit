@@ -190,10 +190,12 @@ impl Path {
 				(control.y - from.y).mul_add(2.0 / 3.0, from.y),
 			)
 		};
+
 		let mode = match path.rule() {
 			FillRule::Nonzero => gdiplus::FillModeWinding,
 			FillRule::Evenodd => gdiplus::FillModeAlternate,
 		};
+
 		let mut geometry = null_mut();
 		// SAFETY: GDI+ writes one owned path.
 		unsafe {
@@ -205,6 +207,7 @@ impl Path {
 		let geometry = Self(geometry);
 		let mut start = Point::default();
 		let mut current = Point::default();
+
 		// GDI+ closes the path's last figure on a close, so a close only
 		// applies once the current subpath has a segment of its own.
 		let mut drawn = false;
@@ -261,6 +264,7 @@ impl Path {
 						if drawn {
 							check(gdiplus::GdipClosePathFigure(geometry.0), "close a subpath");
 						}
+
 						current = start;
 					}
 				}
@@ -331,6 +335,7 @@ impl Pen {
 			LineCap::Round => (gdiplus::LineCapRound, gdiplus::DashCapRound),
 			LineCap::Square => (gdiplus::LineCapSquare, gdiplus::DashCapFlat),
 		};
+
 		// GDI+'s plain miter join clips long miters at the limit; SVG bevels
 		// them, which is GDI+'s clipped-miter join.
 		let join = match join {
@@ -338,6 +343,7 @@ impl Pen {
 			LineJoin::Round => gdiplus::LineJoinRound,
 			LineJoin::Bevel => gdiplus::LineJoinBevel,
 		};
+
 		let mut pen = null_mut();
 		// SAFETY: GDI+ writes one owned pen, then configures it while live.
 		unsafe {
@@ -518,6 +524,7 @@ impl PathRegion {
 					"set a fill mode",
 				);
 				self.add(&outline);
+
 				return;
 			}
 		}
@@ -612,6 +619,7 @@ impl Prepared {
 			if fill.is_none() && stroke.is_none() {
 				continue;
 			}
+
 			let Some(geometry) = Path::new(path, transform, scale) else {
 				continue;
 			};

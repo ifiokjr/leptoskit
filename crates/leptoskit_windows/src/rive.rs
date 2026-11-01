@@ -32,9 +32,11 @@ impl Bitmap {
 		// value. Failure branches release already-created handles.
 		unsafe {
 			let dc = CreateCompatibleDC(None);
+
 			if dc.is_invalid() {
 				return None;
 			}
+
 			let mut bits = std::ptr::null_mut();
 			let Ok(bitmap) = CreateDIBSection(
 				Some(dc),
@@ -45,19 +47,24 @@ impl Bitmap {
 				0,
 			) else {
 				let _ = DeleteDC(dc);
+
 				return None;
 			};
 			let Some(bits) = NonNull::new(bits.cast()) else {
 				let _ = DeleteObject(bitmap.into());
 				let _ = DeleteDC(dc);
+
 				return None;
 			};
 			let previous = SelectObject(dc, bitmap.into());
+
 			if previous.is_invalid() {
 				let _ = DeleteObject(bitmap.into());
 				let _ = DeleteDC(dc);
+
 				return None;
 			}
+
 			Some(Self {
 				dc,
 				handle: bitmap,
@@ -77,11 +84,13 @@ impl Bitmap {
 		if !self.matches(frame) {
 			return false;
 		}
+
 		// SAFETY: GDI batches may still read this UI-thread DIB. Complete
 		// those operations before writing through its raw pixel pointer.
 		if !unsafe { GdiFlush() }.as_bool() {
 			return false;
 		}
+
 		// SAFETY: The retained DIB has exactly the validated frame's byte
 		// count.
 		let destination =

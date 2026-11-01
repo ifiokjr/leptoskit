@@ -125,11 +125,14 @@ pub fn bundle_directory_as(
 /// compressed blob in manifest order, without writing anything.
 pub(crate) fn pack_directory(dir: &Path) -> Result<(BundleManifest, Vec<Vec<u8>>), CodePushError> {
 	let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+
 	for entry in WalkDir::new(dir).sort_by_file_name() {
 		let entry = entry.map_err(CodePushError::Walk)?;
+
 		if !entry.file_type().is_file() {
 			continue;
 		}
+
 		let relative = entry
 			.path()
 			.strip_prefix(dir)
@@ -139,10 +142,12 @@ pub(crate) fn pack_directory(dir: &Path) -> Result<(BundleManifest, Vec<Vec<u8>>
 		let content = fs::read(entry.path())?;
 		entries.push((relative, content));
 	}
+
 	entries.sort_by(|left, right| left.0.cmp(&right.0));
 
 	let mut files = Vec::with_capacity(entries.len());
 	let mut blobs = Vec::with_capacity(entries.len());
+
 	for (path, content) in &entries {
 		let compressed = gzip(content)?;
 		files.push(BundleFile {
@@ -220,6 +225,7 @@ const GEAR: [u64; 256] = {
 		table[index] = mixed ^ (mixed >> 31);
 		index += 1;
 	}
+
 	table
 };
 
@@ -241,6 +247,7 @@ fn gzip(content: &[u8]) -> Result<Vec<u8>, CodePushError> {
 	let mut out = Vec::with_capacity(GZIP_HEADER.len() + content.len() / 2 + 64);
 	out.extend_from_slice(&GZIP_HEADER);
 	let mut start = 0;
+
 	loop {
 		let end = chunk_end(content, start);
 		let last = end == content.len();
@@ -252,13 +259,17 @@ fn gzip(content: &[u8]) -> Result<Vec<u8>, CodePushError> {
 		} else {
 			FlushCompress::Sync
 		};
+
 		deflate(&mut compress, &content[start..end], &mut out, flush)?;
+
 		if last {
 			break;
 		}
+
 		compress.reset();
 		start = end;
 	}
+
 	let mut crc = Crc::new();
 	crc.update(content);
 	out.extend_from_slice(&crc.sum().to_le_bytes());
@@ -270,12 +281,15 @@ fn gzip(content: &[u8]) -> Result<Vec<u8>, CodePushError> {
 /// Where the chunk of `content` that starts at `start` ends.
 fn chunk_end(content: &[u8], start: usize) -> usize {
 	let mut hash = 0u64;
+
 	for (index, &byte) in content.iter().enumerate().skip(start) {
 		hash = (hash << 1).wrapping_add(GEAR[usize::from(byte)]);
+
 		if index + 1 - start >= MIN_CHUNK && hash & CHUNK_MASK == 0 {
 			return index + 1;
 		}
 	}
+
 	content.len()
 }
 
@@ -302,6 +316,7 @@ fn deflate(
 			FlushCompress::Finish => status == Status::StreamEnd,
 			_ => input.is_empty() && out.len() < out.capacity(),
 		};
+
 		if done {
 			return Ok(());
 		}
@@ -321,9 +336,11 @@ pub fn container_bytes(
 	out.extend_from_slice(CONTAINER_MAGIC);
 	out.extend_from_slice(&(manifest_bytes.len() as u64).to_le_bytes());
 	out.extend_from_slice(&manifest_bytes);
+
 	for blob in blobs {
 		out.extend_from_slice(blob);
 	}
+
 	Ok(out)
 }
 
@@ -365,6 +382,7 @@ pub fn read_container(bytes: &[u8]) -> Result<Container, CodePushError> {
 
 	let mut offset = manifest_end;
 	let mut files = Vec::with_capacity(manifest.files.len());
+
 	for entry in &manifest.files {
 		let compressed = usize::try_from(entry.compressed_size)
 			.ok()
@@ -375,6 +393,7 @@ pub fn read_container(bytes: &[u8]) -> Result<Container, CodePushError> {
 			})?;
 		let content = decompress(compressed, entry)?;
 		let actual = hash_bytes(&content);
+
 		if actual != entry.hash {
 			return Err(CodePushError::HashMismatch {
 				path: entry.path.clone(),
@@ -382,15 +401,18 @@ pub fn read_container(bytes: &[u8]) -> Result<Container, CodePushError> {
 				actual,
 			});
 		}
+
 		offset += compressed.len();
 		files.push((entry.path.clone(), content));
 	}
+
 	if offset != bytes.len() {
 		return Err(CodePushError::Malformed(format!(
 			"{} bytes follow the last container entry",
 			bytes.len() - offset
 		)));
 	}
+
 	Ok(Container { manifest, files })
 }
 
@@ -425,6 +447,7 @@ pub(crate) fn container_manifest(bytes: &[u8]) -> Result<(BundleManifest, usize)
 	if bytes.len() < HEADER_LEN || &bytes[0..4] != CONTAINER_MAGIC {
 		return Err(CodePushError::Malformed("not an LKB1 container".to_owned()));
 	}
+
 	let manifest_len = u64::from_le_bytes(
 		bytes[4..HEADER_LEN]
 			.try_into()
@@ -455,6 +478,7 @@ pub(crate) fn container_manifest(bytes: &[u8]) -> Result<(BundleManifest, usize)
 			manifest.format_version,
 		));
 	}
+
 	for entry in &manifest.files {
 		validate_bundle_path(&entry.path)?;
 	}
@@ -470,9 +494,11 @@ fn validate_bundle_path(path: &str) -> Result<(), CodePushError> {
 	let only_normal = parsed
 		.components()
 		.all(|component| matches!(component, Component::Normal(_)));
+
 	if path.is_empty() || parsed.is_absolute() || !only_normal {
 		return Err(CodePushError::InvalidPath(path.to_owned()));
 	}
+
 	Ok(())
 }
 
@@ -487,6 +513,7 @@ fn decompress(compressed: &[u8], entry: &BundleFile) -> Result<Vec<u8>, CodePush
 		.read_to_end(&mut out)
 		.map_err(|error| CodePushError::Malformed(format!("corrupt gzip entry: {error}")))?;
 	let unread = limited.into_inner().into_inner();
+
 	if out.len() as u64 != entry.size {
 		return Err(CodePushError::Malformed(format!(
 			"{} declares {} bytes but inflates to {}{}",
@@ -500,6 +527,7 @@ fn decompress(compressed: &[u8], entry: &BundleFile) -> Result<Vec<u8>, CodePush
 			},
 		)));
 	}
+
 	if !unread.is_empty() {
 		return Err(CodePushError::Malformed(format!(
 			"{} bytes follow the gzip stream of {}",
@@ -507,6 +535,7 @@ fn decompress(compressed: &[u8], entry: &BundleFile) -> Result<Vec<u8>, CodePush
 			entry.path
 		)));
 	}
+
 	Ok(out)
 }
 
@@ -791,18 +820,24 @@ mod tests {
 			state
 		};
 		let mut vocabulary = Vec::new();
+
 		for _ in 0..256 {
 			let word_len = next() % 12 + 1;
 			let mut word = Vec::new();
+
 			for _ in 0..word_len {
 				word.push(next() as u8);
 			}
+
 			vocabulary.push(word);
 		}
+
 		let mut out = Vec::with_capacity(len + 16);
+
 		while out.len() < len {
 			out.extend_from_slice(&vocabulary[(next() % 256) as usize]);
 		}
+
 		out.truncate(len);
 		out
 	}

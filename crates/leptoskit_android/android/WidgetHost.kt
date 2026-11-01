@@ -115,6 +115,7 @@ class WidgetHost(
     /** Effective native visibility includes ancestor clipping and scrolling. */
     fun riveVisible(id: Long): Boolean {
         checkUiThread()
+
         val view = nodes[id]?.control ?: return false
         return foreground && view.isShown && view.getGlobalVisibleRect(Rect())
     }
@@ -129,10 +130,13 @@ class WidgetHost(
         checkUiThread()
         require(width in 1..4096 && height in 1..4096 && width.toLong() * height <= 4_194_304)
         require(pixels.remaining().toLong() == width.toLong() * height * 4)
+
         val node = nodes[id] ?: return false
+
         if (node.kind != "rive") return false
         val image = node.control as? ImageView ?: return false
         var bitmap = node.riveBitmap
+
         if (bitmap == null || bitmap.width != width || bitmap.height != height) {
             bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             bitmap.density = Bitmap.DENSITY_NONE
@@ -140,8 +144,10 @@ class WidgetHost(
             node.riveBitmap = bitmap
             image.setImageBitmap(bitmap)
         }
+
         bitmap.copyPixelsFromBuffer(pixels)
         image.invalidate()
+
         return true
     }
 
@@ -154,11 +160,14 @@ class WidgetHost(
         suppress {
             val root = rootId?.let { checkNotNull(nodes[it]) { "Unknown native root $it" } }
             val previous = mountedRoot
+
             if (previous?.view !== root?.outer || previous?.container !== container) {
                 previous?.let { (it.view.parent as? ViewGroup)?.removeView(it.view) }
                 mountedRoot = root?.let { RootMount(it.id, container, it.outer) }
+
                 if (root != null) container.addView(root.outer)
             }
+
             refreshMountedRoot()
         }
     }
@@ -166,13 +175,17 @@ class WidgetHost(
     private fun refreshMountedRoot() {
         val mounted = mountedRoot ?: return
         val node = nodes[mounted.id]
+
         if (node == null) {
             mounted.container.removeView(mounted.view)
             mountedRoot = null
+
             return
         }
+
         val frame = node.outer.frame
         val width = (frame.right.roundToInt() - frame.left.roundToInt()).coerceAtLeast(0)
+
         val height = (frame.bottom.roundToInt() - frame.top.roundToInt()).coerceAtLeast(0)
         val left = frame.left.roundToInt()
         val top = frame.top.roundToInt()
@@ -233,6 +246,7 @@ class WidgetHost(
                             child.outer,
                             position + if (parent.content === parent.outer && parent.control != null) 1 else 0,
                         )
+
                         if (parent.kind == "pressable") decorative(child.outer)
                         resizeScroll(parent)
                     }
@@ -251,10 +265,12 @@ class WidgetHost(
                             node.outer.clearFocus()
                             (node.outer.parent as? ViewGroup)?.removeView(node.outer)
                             stopAnimation(node)
+
                             if (node.kind == "rive") {
                                 (node.control as? ImageView)?.setImageDrawable(null)
                                 node.riveBitmap = null
                             }
+
                             node.outer.removeAllViews()
                         }
                     }
@@ -281,12 +297,15 @@ class WidgetHost(
     /** Activity lifecycle owner must forward onStart/onStop. */
     fun setForeground(value: Boolean) {
         checkUiThread()
+
         if (!value && foreground) {
             suspendedFocus = nodes.values.firstOrNull { it.control?.isFocused == true || it.outer.isFocused }?.id
         }
+
         foreground = value
         suppress {
             refresh()
+
             if (value) {
                 suspendedFocus?.let { id -> nodes[id]?.let { (it.control ?: it.outer).requestFocus() } }
                 suspendedFocus = null
@@ -366,6 +385,7 @@ class WidgetHost(
                         setSingleLine(true)
                         inputType =
                             InputType.TYPE_CLASS_TEXT or
+
                             if (kind == "password_input") InputType.TYPE_TEXT_VARIATION_PASSWORD else InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
                         imeOptions = EditorInfo.IME_ACTION_DONE
                         setPadding(0, 0, 0, 0)
@@ -401,9 +421,12 @@ class WidgetHost(
                                 action == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
                             ) {
                                 if (!isEnabled) return false
+
                                 emit(id, if (action == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) 8 else 9)
+
                                 return true
                             }
+
                             return super.performAccessibilityAction(action, arguments)
                         }
 
@@ -413,10 +436,13 @@ class WidgetHost(
                         ): Boolean {
                             val increase = code == KeyEvent.KEYCODE_DPAD_RIGHT || code == KeyEvent.KEYCODE_DPAD_UP
                             val decrease = code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_DOWN
+
                             if (increase || decrease) {
                                 if (event.repeatCount == 0) emit(id, if (increase) 8 else 9)
+
                                 return true
                             }
+
                             return super.onKeyDown(code, event)
                         }
                     }.apply {
@@ -463,11 +489,14 @@ class WidgetHost(
             }
         val node = Node(id, kind, outer, control, content, props, scroll)
         nodes[id] = node
+
         if (control != null) {
             outer.fill = control
             outer.addView(control)
+
             control.setOnFocusChangeListener { _, focused -> emit(id, if (focused) 3 else 4) }
         }
+
         when (control) {
             is EditText -> {
                 control.addTextChangedListener(
@@ -505,14 +534,17 @@ class WidgetHost(
 
             is CompoundButton -> {
                 control.setOnCheckedChangeListener { _, checked ->
+
                     if (kind == "radio") {
                         if (checked) emit(id, 5, 1.0)
                     } else {
                         emit(id, 5, if (checked) 1.0 else 0.0)
                     }
                 }
+
                 if (kind == "radio") {
                     control.setOnKeyListener { _, code, event ->
+
                         if (code in RADIO_KEYS && event.action == KeyEvent.ACTION_DOWN) {
                             if (event.repeatCount ==
                                 0
@@ -521,6 +553,7 @@ class WidgetHost(
                             }
                             true
                         } else {
+
                             false
                         }
                     }
@@ -550,11 +583,14 @@ class WidgetHost(
                 control.onPressedChanged = { pressed -> emit(id, if (pressed) 10 else 11) }
             }
         }
+
         if (outer is PressableGroup) {
             outer.setOnClickListener { emit(id, 0) }
             outer.onPressedChanged = { pressed -> emit(id, if (pressed) 10 else 11) }
+
             outer.setOnFocusChangeListener { _, focused -> emit(id, if (focused) 3 else 4) }
         }
+
         update(node)
     }
 
@@ -583,6 +619,7 @@ class WidgetHost(
         val selected = props.optBoolean("aria_selected")
         val expanded = if (props.isNull("aria_expanded")) null else props.optBoolean("aria_expanded")
         val position = props.number("aria_pos_in_set", -1.0).toInt()
+
         val setSize = props.number("aria_set_size", -1.0).toInt()
         if (role == null && described == null && valueText == null && checked == null && !selected &&
             expanded == null && position <= 0 && setSize <= 0
@@ -641,8 +678,10 @@ class WidgetHost(
                             info.className = "android.widget.MenuItem"
                         }
                     }
+
                     if (heading && Build.VERSION.SDK_INT >= 28) info.isHeading = true
                     described?.let { info.hintText = it }
+
                     if (valueText != null && Build.VERSION.SDK_INT >= 30) {
                         info.stateDescription = valueText
                     }
@@ -663,12 +702,14 @@ class WidgetHost(
                             info.isCheckable = true
                         }
                     }
+
                     if (selected) info.isSelected = true
                     expanded?.let {
                         info.addAction(
                             if (it) AccessibilityNodeInfo.ACTION_EXPAND else AccessibilityNodeInfo.ACTION_COLLAPSE,
                         )
                     }
+
                     if (position > 0 && setSize > 0) {
                         info.collectionItemInfo =
                             AccessibilityNodeInfo.CollectionItemInfo.obtain(
@@ -692,6 +733,7 @@ class WidgetHost(
         outer.alpha = props.number("opacity", 1.0).toFloat()
         outer.radius = px(props.number("corner_radius"))
         outer.clipping = props.optBoolean("clip") || outer.radius > 0f
+
         outer.background =
             SurfaceDrawable(
                 props.color("background", android.graphics.Color.TRANSPARENT),
@@ -711,10 +753,12 @@ class WidgetHost(
                 if (label != null) View.IMPORTANT_FOR_ACCESSIBILITY_YES else View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         val foregroundColor = props.color("color", if (dark) 0xffeeeeee.toInt() else 0xff202124.toInt())
+
         if (control is Button || control is EditText) {
             val sharedPaint =
                 !props.isNull("background") || !props.isNull("border_width") || !props.isNull("border_color") || outer.radius > 0f
             control.background = if (sharedPaint) null else node.nativeBackground
+
             if (!sharedPaint) {
                 control.backgroundTintList =
                     ColorStateList.valueOf(
@@ -727,8 +771,10 @@ class WidgetHost(
                         },
                     )
             }
+
             control.setPadding(0, 0, 0, 0)
         }
+
         if (control is TextView) {
             control.textDirection = if (rtl) View.TEXT_DIRECTION_RTL else View.TEXT_DIRECTION_LTR
             val weight =
@@ -742,6 +788,7 @@ class WidgetHost(
             control.setTextSize(TypedValue.COMPLEX_UNIT_PX, px(props.number("font_size", 14.0)))
             control.setTextColor(foregroundColor)
             control.gravity =
+
                 (if (control is EditText || control is Button) Gravity.CENTER_VERTICAL else Gravity.TOP) or
                 when (props.string("text_align")) {
                     "center" -> Gravity.CENTER_HORIZONTAL
@@ -749,6 +796,7 @@ class WidgetHost(
                     "start" -> Gravity.START
                     else -> if (node.kind == "button") Gravity.CENTER_HORIZONTAL else Gravity.START
                 }
+
             if (control is EditText) {
                 val value = props.string("value") ?: props.string("text") ?: ""
                 if (control.text.toString() != value) {
@@ -757,7 +805,9 @@ class WidgetHost(
                     control.setText(value)
                     control.setSelection(start, end)
                 }
+
                 control.hint = props.string("placeholder")
+
                 control.setHintTextColor(if (dark) 0xffa0a0a0.toInt() else 0xff707070.toInt())
             } else if (control !is CompoundButton) {
                 control.text = props.string("text") ?: ""
@@ -771,6 +821,7 @@ class WidgetHost(
                         arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
                         intArrayOf(props.color("color", 0xff2563eb.toInt()), if (dark) 0xffbbbbbb.toInt() else 0xff616161.toInt()),
                     )
+
                 if (control is Switch) {
                     control.thumbTintList = tint
                     control.trackTintList = tint
@@ -789,10 +840,12 @@ class WidgetHost(
                             ((slider.getDouble("value") - slider.getDouble("min")) / (slider.getDouble("max") - slider.getDouble("min"))) *
                                 SLIDER_STEPS
                         ).roundToInt().coerceIn(0, SLIDER_STEPS)
+
                     if (android.os.Build.VERSION.SDK_INT >= 30) control.stateDescription = slider.getDouble("value").toString()
                 }
                 control.progressTintList = ColorStateList.valueOf(props.color("color", 0xff2563eb.toInt()))
                 control.thumbTintList = control.progressTintList
+
                 control.progressBackgroundTintList = ColorStateList.valueOf(if (dark) 0xffbbbbbb.toInt() else 0xff616161.toInt())
             }
 
@@ -800,6 +853,7 @@ class WidgetHost(
                 val progress = props.optJSONObject("progress")
                 val fraction = progress?.optDouble("determinate", Double.NaN)
                 control.isIndeterminate = node.kind == "activity_indicator" || fraction == null || fraction.isNaN()
+
                 if (fraction != null && !fraction.isNaN()) control.progress = (fraction * SLIDER_STEPS).roundToInt()
                 control.progressTintList = ColorStateList.valueOf(props.color("color", 0xff2563eb.toInt()))
                 control.indeterminateTintList = control.progressTintList
@@ -807,14 +861,17 @@ class WidgetHost(
 
             is ImageView -> {
                 val source = props.string("source")
+
                 if (node.imageSource != source) {
                     node.imageSource = source
                     control.setImageDrawable(null)
+
                     if (source != null) {
                         val uri = Uri.parse(source)
                         require(uri.scheme == null || uri.scheme == "file" || uri.scheme == "android.resource") {
                             "Images require a local file or android.resource URI"
                         }
+
                         control.setImageURI(if (uri.scheme == null) Uri.fromFile(java.io.File(source)) else uri)
                     }
                 }
@@ -824,24 +881,29 @@ class WidgetHost(
                 control.drawing = props.optJSONObject("drawing")
             }
         }
+
         outer.invalidate()
     }
 
     private fun enabled(node: Node): Boolean {
         var current: Node? = node
+
         while (current != null) {
             if (current.props.optBoolean("hidden") || !current.props.optBoolean("enabled", true)) return false
             current = current.parent?.let(nodes::get)
         }
+
         return true
     }
 
     private fun visible(node: Node): Boolean {
         var current: Node? = node
+
         while (current != null) {
             if (current.props.optBoolean("hidden")) return false
             current = current.parent?.let(nodes::get)
         }
+
         return true
     }
 
@@ -852,14 +914,18 @@ class WidgetHost(
             node.outer.isEnabled = interactive
             node.control?.isEnabled = interactive
             node.scroll?.vertical?.isEnabled = interactive
+
             if (!interactive && previouslyEnabled) node.scroll?.let(::stopFling)
+
             if (!interactive && node.outer.hasFocus()) node.outer.clearFocus()
+
             if (node.control is ProgressBar) {
                 val requested = node.kind != "activity_indicator" || node.props.optBoolean("running", true)
                 val running = requested && visible(node) && foreground
                 node.control.visibility = if (running) View.VISIBLE else View.INVISIBLE
                 node.control.indeterminateDrawable?.setVisible(running, false)
                 val animation = node.control.indeterminateDrawable as? Animatable
+
                 if (node.control.isIndeterminate && running) animation?.start() else animation?.stop()
             }
         }
@@ -884,6 +950,7 @@ class WidgetHost(
 
     private fun resizeScroll(node: Node) {
         val owner = if (node.scroll != null) node else node.parent?.let(nodes::get)
+
         val scroll = owner?.scroll ?: return
         var width =
             owner.outer.frame
@@ -903,6 +970,7 @@ class WidgetHost(
             }
         }
         owner.content.layoutParams = FrameLayout.LayoutParams(width, height)
+
         scroll.vertical.layoutParams =
             FrameLayout.LayoutParams(
                 width,
@@ -927,6 +995,7 @@ class WidgetHost(
                 update(node)
                 refresh()
             }
+
             return
         }
         nativeEvent(handle, id, kind, value, text)
@@ -956,6 +1025,7 @@ class WidgetHost(
         if (!enabled(node)) return
         val group = node.props.string("radio_group") ?: return
         var root = node
+
         while (root.parent != null) root = nodes[root.parent] ?: break
         val members = mutableListOf<Node>()
 
@@ -965,6 +1035,7 @@ class WidgetHost(
         }
         visit(root)
         val position = members.indexOf(node)
+
         if (position < 0 || members.isEmpty()) return
         val next = members[(position + if (forwards) 1 else members.size - 1) % members.size]
         next.control?.requestFocus()
@@ -975,6 +1046,7 @@ class WidgetHost(
         view.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         view.isFocusable = false
         view.isClickable = false
+
         if (view is ViewGroup) repeat(view.childCount) { decorative(view.getChildAt(it)) }
     }
 
@@ -1023,10 +1095,12 @@ class WidgetHost(
             paint.style = Paint.Style.FILL
             paint.color = background
             canvas.drawRoundRect(rect, radius, radius, paint)
+
             if (stroke > 0f) {
                 rect.inset(stroke / 2, stroke / 2)
                 paint.style = Paint.Style.STROKE
                 paint.strokeWidth = stroke
+
                 paint.color = border
                 canvas.drawRoundRect(rect, (radius - stroke / 2).coerceAtLeast(0f), (radius - stroke / 2).coerceAtLeast(0f), paint)
             }
@@ -1075,6 +1149,7 @@ class WidgetHost(
         var drawing: JSONObject? = null
             set(value) {
                 val next = value?.toString()
+
                 if (next == encoded) return
                 encoded = next
                 field = value
@@ -1117,14 +1192,18 @@ class WidgetHost(
 
         private fun rebuild() {
             val drawing = drawing
+
             if (drawing == null) {
                 shapes = emptyArray()
+
                 return
             }
+
             val box = drawing.getJSONObject("view_box")
             val minX = box.getDouble("min_x").toFloat()
             val minY = box.getDouble("min_y").toFloat()
             val boxWidth = box.getDouble("width").toFloat()
+
             val boxHeight = box.getDouble("height").toFloat()
             val frameWidth = width.toFloat()
             val frameHeight = height.toFloat()
@@ -1133,6 +1212,7 @@ class WidgetHost(
             val offsetX: Float
             val offsetY: Float
             val scaling = drawing.optString("scaling", "fit")
+
             if (scaling == "stretch") {
                 scaleX = frameWidth / boxWidth
                 scaleY = frameHeight / boxHeight
@@ -1152,6 +1232,7 @@ class WidgetHost(
                 offsetX = (frameWidth - boxWidth * scale) * alignFactor(align?.optString("x")) - minX * scale
                 offsetY = (frameHeight - boxHeight * scale) * alignFactor(align?.optString("y")) - minY * scale
             }
+
             // Pixels per stroke unit: layout units for a fixed stroke, view box
             // units for one scaling with the drawing.
             val drawingStrokeScale = sqrt(abs(scaleX * scaleY))
@@ -1168,16 +1249,20 @@ class WidgetHost(
                                     Path.FillType.WINDING
                                 }
                         }
+
                     // Canonical path data: absolute M, L, Q, C, and Z, every
                     // token separated by exactly one space.
                     val data = entry.getString("data")
+
                     if (data.isNotEmpty()) {
+
                         val tokens = data.split(' ')
                         var position = 0
 
                         fun x(): Float = tokens[position++].toFloat() * scaleX + offsetX
 
                         fun y(): Float = tokens[position++].toFloat() * scaleY + offsetY
+
                         while (position < tokens.size) {
                             when (val command = tokens[position++]) {
                                 "M" -> path.moveTo(x(), y())
@@ -1189,6 +1274,7 @@ class WidgetHost(
                             }
                         }
                     }
+
                     val stroke = entry.optJSONObject("stroke")
                     val strokeScale = if (stroke?.optString("scaling") == "drawing") drawingStrokeScale else density
                     val strokeWidth = (stroke?.getDouble("width") ?: 0.0).toFloat() * strokeScale
@@ -1317,8 +1403,10 @@ class WidgetHost(
         override fun draw(canvas: Canvas) {
             if (!clipping) {
                 super.draw(canvas)
+
                 return
             }
+
             val saved = canvas.save()
             val path = Path().apply { addRoundRect(0f, 0f, width.toFloat(), height.toFloat(), radius, radius, Path.Direction.CW) }
             canvas.clipPath(path)
@@ -1339,6 +1427,7 @@ class WidgetHost(
         override fun setPressed(pressed: Boolean) {
             val changed = pressed != isPressed
             super.setPressed(pressed)
+
             if (changed) onPressedChanged?.invoke(pressed)
         }
     }
@@ -1368,6 +1457,7 @@ class WidgetHost(
             super.onInitializeAccessibilityNodeInfo(info)
             info.className = Button::class.java.name
             info.isClickable = isEnabled
+
             if (isEnabled) info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK)
         }
 
@@ -1377,8 +1467,10 @@ class WidgetHost(
         ): Boolean {
             if (code == KeyEvent.KEYCODE_SPACE || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_DPAD_CENTER) {
                 if (isEnabled && event.repeatCount == 0) isPressed = true
+
                 return true
             }
+
             return super.onKeyDown(code, event)
         }
 
@@ -1389,9 +1481,12 @@ class WidgetHost(
             if (code == KeyEvent.KEYCODE_SPACE || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_DPAD_CENTER) {
                 val activate = isPressed && isEnabled && !event.isCanceled
                 isPressed = false
+
                 if (activate) performClick()
+
                 return true
             }
+
             return super.onKeyUp(code, event)
         }
     }
@@ -1447,6 +1542,7 @@ class WidgetHost(
             var actual = 0f
             repeat(layout.lineCount) { actual = max(actual, layout.getLineWidth(it)) }
             val pixelWidth = ceil(actual.coerceAtMost(limit.coerceAtLeast(0f)).toDouble()).toFloat()
+
             return floatArrayOf(pixelWidth / density, layout.height / density)
         }
     }

@@ -36,30 +36,39 @@ impl Snapshot {
 	pub fn encode(&self) -> Result<Bytes, Error> {
 		let mut output = Encoder::with_capacity(128);
 		output.u32(1);
+
 		for field in [&self.id, &self.name, &self.version, &self.build] {
 			if field.as_ref().is_some_and(String::is_empty) {
 				return Err(Error::InvalidArgument);
 			}
+
 			let text = field.as_deref().unwrap_or_default();
+
 			if text.len() > 4096 {
 				return Err(Error::TooLarge);
 			}
+
 			output.bytes(text.as_bytes())?;
 		}
+
 		Ok(output.finish())
 	}
 
 	/// Validates version, bounded text, UTF-8 and complete message consumption.
 	pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
 		let mut input = Decoder::new(bytes);
+
 		if input.u32()? != 1 {
 			return Err(Error::InvalidArgument);
 		}
+
 		let mut text = || -> Result<Option<String>, Error> {
 			let value = input.string()?;
+
 			if value.len() > 4096 {
 				return Err(Error::TooLarge);
 			}
+
 			Ok((!value.is_empty()).then(|| value.to_owned()))
 		};
 		let result = Self {
@@ -100,9 +109,11 @@ impl Plugin for Application {
 		if method != SNAPSHOT {
 			return Err(Error::Unavailable);
 		}
+
 		if !payload.is_empty() {
 			return Err(Error::InvalidArgument);
 		}
+
 		Ok(self.encoded.clone())
 	}
 }
@@ -149,6 +160,7 @@ mod tests {
 			host.invoke(MethodId(1), Bytes::new()),
 			Err(Error::Unavailable)
 		);
+
 		assert_eq!(
 			host.invoke(SNAPSHOT, Bytes::from_static(&[1])),
 			Err(Error::InvalidArgument)
@@ -162,12 +174,14 @@ mod tests {
 		}
 		.encode()
 		.unwrap();
+
 		for length in 0..encoded.len() {
 			assert_eq!(
 				Snapshot::decode(&encoded[..length]),
 				Err(Error::InvalidArgument)
 			);
 		}
+
 		let mut invalid = encoded.to_vec();
 		invalid[8] = 255;
 		assert_eq!(Snapshot::decode(&invalid), Err(Error::InvalidArgument));

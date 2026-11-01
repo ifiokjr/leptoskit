@@ -177,11 +177,14 @@ impl Session {
 		} else {
 			(vec!["timeouts"], serde_json::json!({"implicit": 0}))
 		};
+
 		if let Err(error) = session.command(Method::POST, &timeouts.0, Some(&timeouts.1)) {
 			let mut closed = session;
 			let _ = closed.close();
+
 			return Err(error);
 		}
+
 		Ok(session)
 	}
 
@@ -191,6 +194,7 @@ impl Session {
 			self.connection
 				.request(Method::DELETE, &["session", &id], None, self.command)?;
 		}
+
 		Ok(())
 	}
 
@@ -248,6 +252,7 @@ impl Session {
 		if text.is_empty() {
 			return Err(Error::Configuration("cannot type empty input".to_owned()));
 		}
+
 		let keys: Vec<_> = text
 			.chars()
 			.flat_map(|character| {
@@ -292,6 +297,7 @@ impl Session {
 			.as_array()
 			.ok_or_else(|| Error::Response("elements is not an array".to_owned()))?;
 		let mut visible = Vec::new();
+
 		for element in elements {
 			let id = element
 				.get(ELEMENT_KEY)
@@ -301,10 +307,12 @@ impl Session {
 				.checked_sub(start.elapsed())
 				.filter(|time| !time.is_zero())
 				.ok_or_else(|| Error::Timeout(format!("resolving {selector:?}")))?;
+
 			if self.element_bool(id, "displayed", remaining)? {
 				visible.push(id.to_owned());
 			}
 		}
+
 		Ok(visible)
 	}
 
@@ -325,6 +333,7 @@ impl Session {
 					count: ids.len(),
 				});
 			}
+
 			let Some(id) = ids.into_iter().next() else {
 				return Ok(None);
 			};
@@ -362,14 +371,17 @@ impl Session {
 		observe: impl Fn(Duration) -> Result<Option<T>, Error>,
 	) -> Result<T, Error> {
 		let deadline = Instant::now() + self.wait;
+
 		loop {
 			let remaining = deadline
 				.checked_duration_since(Instant::now())
 				.filter(|time| !time.is_zero())
 				.ok_or_else(|| Error::Timeout(description.to_owned()))?;
+
 			match observe(remaining) {
 				Ok(Some(value)) => return Ok(value),
 				Ok(None) => {}
+
 				Err(error) if self.vanished_during_observation(&error) => {}
 				// An observation cut short by this wait's deadline is this
 				// wait's timeout, whichever nested check or request noticed it
@@ -382,6 +394,7 @@ impl Session {
 				}
 				Err(error) => return Err(error),
 			}
+
 			// Poll a condition; this is not a fixed delay between UI actions.
 			std::thread::sleep(
 				deadline
@@ -401,6 +414,7 @@ pub(crate) struct Connection {
 impl Connection {
 	pub fn wait_ready(&self, timeout: Duration) -> Result<(), Error> {
 		let deadline = Instant::now() + timeout;
+
 		loop {
 			let remaining = deadline
 				.checked_duration_since(Instant::now())
@@ -419,6 +433,7 @@ impl Connection {
 				{
 					return Ok(());
 				}
+
 				Ok(value)
 					if value.get("ready") == Some(&Value::Bool(false))
 						|| value.get("ready") == Some(&Value::String("false".to_owned())) => {}
@@ -427,7 +442,9 @@ impl Connection {
 						"status has no boolean ready field".to_owned(),
 					));
 				}
+
 				Err(Error::Transport(error)) if error.is_connect() || error.is_timeout() => {}
+
 				Err(error) => return Err(error),
 			}
 			std::thread::sleep(
@@ -441,6 +458,7 @@ impl Connection {
 	pub fn new(endpoint: &str) -> Result<Self, Error> {
 		let endpoint =
 			Url::parse(endpoint).map_err(|error| Error::Configuration(error.to_string()))?;
+
 		if !matches!(endpoint.scheme(), "http" | "https")
 			|| endpoint.host_str().is_none()
 			|| endpoint.query().is_some()
@@ -470,9 +488,11 @@ impl Connection {
 			.pop_if_empty()
 			.extend(segments);
 		let mut request = self.client.request(method, url).timeout(timeout);
+
 		if let Some(body) = body {
 			request = request.json(body);
 		}
+
 		let response = request.send()?;
 		let status = response.status();
 		let mut bytes = Vec::new();
@@ -480,9 +500,11 @@ impl Connection {
 			.take(MAX_RESPONSE + 1)
 			.read_to_end(&mut bytes)
 			.map_err(body_error)?;
+
 		if bytes.len() as u64 > MAX_RESPONSE {
 			return Err(Error::Response("response exceeded 64 MiB".to_owned()));
 		}
+
 		let envelope: Value = match serde_json::from_slice(&bytes) {
 			Ok(envelope) => envelope,
 			// Proxies and crashed servers answer with HTML or plain text; the
@@ -494,9 +516,11 @@ impl Connection {
 			}
 			Err(error) => return Err(error.into()),
 		};
+
 		let value = envelope
 			.get("value")
 			.ok_or_else(|| Error::Response("missing W3C value".to_owned()))?;
+
 		if let Some(code) = value.get("error").and_then(Value::as_str) {
 			return Err(Error::Driver {
 				code: code.to_owned(),
@@ -507,9 +531,11 @@ impl Connection {
 					.to_owned(),
 			});
 		}
+
 		if !status.is_success() {
 			return Err(Error::Response(format!("HTTP {status}: {value}")));
 		}
+
 		Ok(value.clone())
 	}
 }

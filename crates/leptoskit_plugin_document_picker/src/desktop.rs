@@ -85,13 +85,16 @@ fn read_file(path: &Path, options: Options, cancelled: &AtomicBool) -> Result<Do
 	if cancelled.load(Ordering::Acquire) {
 		return Err(Error::Cancelled);
 	}
+
 	let name = path
 		.file_name()
 		.and_then(|name| name.to_str())
 		.ok_or(Error::InvalidArgument)?;
+
 	if name.is_empty() || name.len() > MAX_METADATA_BYTES {
 		return Err(Error::TooLarge);
 	}
+
 	let mut open = OpenOptions::new();
 	open.read(true);
 	#[cfg(unix)]
@@ -107,32 +110,41 @@ fn read_file(path: &Path, options: Options, cancelled: &AtomicBool) -> Result<Do
 	}
 	let mut file = open.open(path).map_err(|error| io_error(&error))?;
 	let metadata = file.metadata().map_err(|error| io_error(&error))?;
+
 	if !metadata.is_file() {
 		return Err(Error::InvalidArgument);
 	}
+
 	if metadata.len() > u64::from(options.max_bytes()) {
 		return Err(Error::TooLarge);
 	}
+
 	let mut content = Vec::new();
 	let mut chunk = vec![0_u8; 65536].into_boxed_slice();
+
 	loop {
 		if cancelled.load(Ordering::Acquire) {
 			return Err(Error::Cancelled);
 		}
+
 		let count = chunk
 			.len()
 			.min(options.max_bytes() as usize - content.len() + 1);
 		let count = file
 			.read(&mut chunk[..count])
 			.map_err(|error| io_error(&error))?;
+
 		if count == 0 {
 			break;
 		}
+
 		if count > options.max_bytes() as usize - content.len() {
 			return Err(Error::TooLarge);
 		}
+
 		content.extend_from_slice(&chunk[..count]);
 	}
+
 	Ok(Document {
 		name: name.to_owned(),
 		mime_type: None,
@@ -159,6 +171,7 @@ mod tests {
 		let path = directory.join("fixture.txt");
 		std::fs::write(&path, b"abc").unwrap();
 		let cancelled = AtomicBool::new(false);
+
 		assert_eq!(
 			read_file(&path, Options::new(3).unwrap(), &cancelled)
 				.unwrap()
@@ -198,6 +211,7 @@ mod tests {
 		std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
 		let result = read_file(&path, Options::default(), &AtomicBool::new(false));
 		std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+
 		std::fs::remove_dir_all(&directory).unwrap();
 		// Root can read any file, so only assert the mapping when access fails.
 		if result.is_err() {
@@ -221,6 +235,7 @@ mod tests {
 			.unwrap();
 		let result = read_file(&path, Options::default(), &AtomicBool::new(false));
 		drop(held);
+
 		std::fs::remove_dir_all(&directory).unwrap();
 		assert!(result.is_err());
 	}
@@ -232,6 +247,7 @@ mod tests {
 	/// its reader permit only when its closure ends, just after that send.
 	fn wait_for_reader_admission_to_settle() {
 		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+
 		while READERS.load(Ordering::Acquire) > 0 {
 			assert!(
 				std::time::Instant::now() < deadline,
@@ -260,6 +276,7 @@ mod tests {
 		std::fs::write(&path, b"imported").unwrap();
 		let document =
 			futures::executor::block_on(import(path.clone(), Options::default())).unwrap();
+
 		assert_eq!(document.name, "import.txt");
 		assert_eq!(document.bytes, b"imported"[..]);
 		wait_for_reader_admission_to_settle();
@@ -289,6 +306,7 @@ mod tests {
 			finish.recv().unwrap();
 		});
 		drop(caller);
+
 		assert!(cancellation.load(Ordering::Acquire));
 		assert!(matches!(ReadPermit::acquire(), Err(Error::Busy)));
 		release.send(()).unwrap();

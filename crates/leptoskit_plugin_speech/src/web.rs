@@ -39,6 +39,7 @@ impl State {
 				None
 			}
 		};
+
 		if let Some(active) = completion {
 			let _ = active.completion.send(result);
 		}
@@ -53,6 +54,7 @@ impl State {
 				None
 			}
 		};
+
 		if let Some(active) = completion {
 			self.synthesis.cancel();
 			let _ = active.completion.send(Err(Error::Cancelled));
@@ -84,6 +86,7 @@ impl Speech {
 					return Ok(Self { state });
 				}
 			}
+
 			let synthesis = web_sys::window()
 				.ok_or(Error::Unavailable)?
 				.speech_synthesis()
@@ -112,9 +115,11 @@ impl Speech {
 	pub fn voices(&self) -> Result<Vec<Voice>, Error> {
 		self.open()?;
 		let voices = self.state.synthesis.get_voices();
+
 		if voices.length() > 1024 {
 			return Err(Error::TooLarge);
 		}
+
 		voices
 			.iter()
 			.map(|value| {
@@ -137,6 +142,7 @@ impl Speech {
 	/// browsers require it.
 	pub async fn speak(&self, request: &Utterance) -> Result<(), Error> {
 		self.open()?;
+
 		if self.state.active.borrow().is_some()
 			|| self.state.synthesis.speaking()
 			|| self.state.synthesis.pending()
@@ -150,24 +156,31 @@ impl Speech {
 		};
 		utterance.set_rate(fraction(request.rate())?);
 		utterance.set_pitch(fraction(request.pitch())?);
+
 		utterance.set_volume(fraction(request.volume())?);
+
 		if let Some(language) = request.language() {
 			utterance.set_lang(language);
 		}
+
 		if let Some(id) = request.voice() {
 			let mut selected = None;
+
 			for value in self.state.synthesis.get_voices().iter() {
 				let voice = value
 					.dyn_into::<SpeechSynthesisVoice>()
 					.map_err(|_| Error::Native)?;
+
 				if voice.voice_uri() == id {
 					selected = Some(voice);
 					break;
 				}
 			}
+
 			let voice = selected.ok_or(Error::Unavailable)?;
 			utterance.set_voice(Some(&voice));
 		}
+
 		let token = self
 			.state
 			.next
@@ -218,9 +231,11 @@ impl Speech {
 			.borrow()
 			.as_ref()
 			.map(|active| active.token);
+
 		if let Some(token) = token {
 			self.state.cancel(token);
 		}
+
 		Ok(())
 	}
 
@@ -238,6 +253,7 @@ impl Speech {
 			.borrow()
 			.as_ref()
 			.map(|active| active.token);
+
 		if let Some(token) = token {
 			self.state.cancel(token);
 		}
@@ -263,6 +279,7 @@ mod tests {
 		assert!(speech.is_speaking());
 		assert_eq!(speech.speak(&request).await, Err(Error::Busy));
 		speech.stop().unwrap();
+
 		assert_eq!(speaking.await, Err(Error::Cancelled));
 		assert!(!speech.is_speaking());
 		let mut dropped = Box::pin(speech.speak(&request));

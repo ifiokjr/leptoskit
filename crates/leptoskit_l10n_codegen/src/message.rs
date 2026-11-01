@@ -127,9 +127,11 @@ impl Parser {
 
 	fn bump(&mut self) -> Option<char> {
 		let next = self.peek();
+
 		if next.is_some() {
 			self.position += 1;
 		}
+
 		next
 	}
 
@@ -149,6 +151,7 @@ impl Parser {
 	/// Reads `[A-Za-z0-9_]*`.
 	fn word(&mut self) -> String {
 		let mut word = String::new();
+
 		while let Some(next) = self
 			.peek()
 			.filter(|next| next.is_ascii_alphanumeric() || *next == '_')
@@ -178,12 +181,15 @@ impl Parser {
 				parts.push(Part::Text(std::mem::take(text)));
 			}
 		};
+
 		loop {
 			match self.peek() {
 				None if nested => {
 					return Err(self.error("a form opened with `{` never closes; add `}`"));
 				}
+
 				None => break,
+
 				Some('}') if nested => break,
 				Some('}') => {
 					return Err(self.error("`}` closes nothing; write `'}'` for a literal brace"));
@@ -193,11 +199,13 @@ impl Parser {
 					self.position += 1;
 					parts.push(self.argument(in_plural)?);
 				}
+
 				Some('#') if in_plural => {
 					flush(&mut text, &mut parts);
 					self.position += 1;
 					parts.push(Part::Number);
 				}
+
 				Some('\'') => {
 					self.position += 1;
 					self.quoted(in_plural, &mut text)?;
@@ -208,6 +216,7 @@ impl Parser {
 				}
 			}
 		}
+
 		flush(&mut text, &mut parts);
 		Ok(parts)
 	}
@@ -216,31 +225,37 @@ impl Parser {
 	/// the number, inside a plural.
 	fn quoted(&mut self, in_plural: bool, text: &mut String) -> Result<(), SyntaxError> {
 		let start = self.position - 1;
+
 		match self.peek() {
 			Some('\'') => {
 				self.position += 1;
 				text.push('\'');
 			}
 			Some('{' | '}') => self.quoted_text(start, text)?,
+
 			Some('#') if in_plural => self.quoted_text(start, text)?,
 			_ => text.push('\''),
 		}
+
 		Ok(())
 	}
 
 	/// Reads quoted text up to the next lone `'`, which `start` opened.
 	fn quoted_text(&mut self, start: usize, text: &mut String) -> Result<(), SyntaxError> {
 		let mut quoted = String::new();
+
 		loop {
 			match self.bump() {
 				Some('\'') if self.peek() == Some('\'') => {
 					self.position += 1;
 					quoted.push('\'');
 				}
+
 				None | Some('\'') => break,
 				Some(next) => quoted.push(next),
 			}
 		}
+
 		if let Some(name) = placeholder_in(&quoted) {
 			return Err(error_at(
 				start,
@@ -251,6 +266,7 @@ impl Parser {
 				),
 			));
 		}
+
 		text.push_str(&quoted);
 		Ok(())
 	}
@@ -260,13 +276,16 @@ impl Parser {
 		self.skip_whitespace();
 		let start = self.position;
 		let name = self.word();
+
 		if name.is_empty() || name.starts_with(|first: char| first.is_ascii_digit()) {
 			return Err(error_at(
 				start,
 				"a placeholder needs a name that starts with a letter or `_`: `{name}`",
 			));
 		}
+
 		self.skip_whitespace();
+
 		match self.bump() {
 			Some('}') => Ok(Part::Placeholder(name)),
 			Some(',') => {
@@ -307,27 +326,34 @@ impl Parser {
 	/// character it starts at.
 	fn selector(&mut self) -> Result<(String, usize), SyntaxError> {
 		let start = self.position;
+
 		if self.peek() == Some('=') {
 			self.position += 1;
 			let digits = self.word();
+
 			if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
 				return Err(error_at(
 					start,
 					"`=` needs a whole number after it, such as `=0`",
 				));
 			}
+
 			return Ok((format!("={digits}"), start));
 		}
+
 		let word = self.word();
+
 		if word.is_empty() {
 			return Err(self.error("expected a form such as `one {...}`, or `}` to end the forms"));
 		}
+
 		if self.peek() == Some(':') {
 			return Err(error_at(
 				start,
 				"`offset:` is not supported; count the placeholder as it is",
 			));
 		}
+
 		Ok((word, start))
 	}
 
@@ -346,6 +372,7 @@ impl Parser {
 	/// Whether the forms of a plural or select end here, consuming the `}`.
 	fn forms_end(&mut self, arg: &str, kind: &str) -> Result<bool, SyntaxError> {
 		self.skip_whitespace();
+
 		match self.peek() {
 			None => {
 				Err(self.error(format!(
@@ -364,9 +391,11 @@ impl Parser {
 		let mut exact = Vec::new();
 		let mut categories: Vec<(Category, Vec<Part>)> = Vec::new();
 		let mut other = None;
+
 		while !self.forms_end(&arg, "plural")? {
 			let (selector, start) = self.selector()?;
 			let twice = || format!("`{selector}` is written twice; keep one form");
+
 			if let Some(digits) = selector.strip_prefix('=') {
 				let number: u64 = digits.parse().map_err(|_| {
 					error_at(
@@ -376,22 +405,29 @@ impl Parser {
 						),
 					)
 				})?;
+
 				let body = self.form(&selector, true)?;
+
 				if exact.iter().any(|(seen, _)| *seen == number) {
 					return Err(error_at(start, twice()));
 				}
+
 				exact.push((number, body));
 			} else if selector == "other" {
 				let body = self.form(&selector, true)?;
+
 				if other.is_some() {
 					return Err(error_at(start, twice()));
 				}
+
 				other = Some(body);
 			} else if let Some(category) = Category::parse(&selector) {
 				let body = self.form(&selector, true)?;
+
 				if categories.iter().any(|(seen, _)| *seen == category) {
 					return Err(error_at(start, twice()));
 				}
+
 				categories.push((category, body));
 			} else {
 				return Err(error_at(
@@ -403,6 +439,7 @@ impl Parser {
 				));
 			}
 		}
+
 		let Some(other) = other else {
 			return Err(error_at(
 				self.position.saturating_sub(1),
@@ -423,20 +460,25 @@ impl Parser {
 	fn select(&mut self, arg: String, in_plural: bool) -> Result<Select, SyntaxError> {
 		let mut cases: Vec<(String, Vec<Part>)> = Vec::new();
 		let mut other = None;
+
 		while !self.forms_end(&arg, "select")? {
 			let (selector, start) = self.selector()?;
+
 			if selector.starts_with('=') {
 				return Err(error_at(
 					start,
 					format!("`{selector}` is not a select form; forms are words, such as `male`"),
 				));
 			}
+
 			let body = self.form(&selector, in_plural)?;
 			let twice = || format!("`{selector}` is written twice; keep one form");
+
 			if selector == "other" {
 				if other.is_some() {
 					return Err(error_at(start, twice()));
 				}
+
 				other = Some(body);
 			} else if cases.iter().any(|(seen, _)| *seen == selector) {
 				return Err(error_at(start, twice()));
@@ -444,6 +486,7 @@ impl Parser {
 				cases.push((selector, body));
 			}
 		}
+
 		let Some(other) = other else {
 			return Err(error_at(
 				self.position.saturating_sub(1),
@@ -535,6 +578,7 @@ mod tests {
 			parse("# outside a plural").unwrap(),
 			[text("# outside a plural")]
 		);
+
 		assert_eq!(
 			parse("{n, plural, other {'#' {n, select, other {'#'}}}}").unwrap(),
 			[Part::Plural(Plural {
@@ -800,6 +844,7 @@ mod tests {
 				"`{n, select, ...}` needs an `other` form, for every value no other form names",
 			),
 		];
+
 		for (message, offset, expected) in cases {
 			let found = error(message);
 			assert_eq!(
@@ -808,6 +853,7 @@ mod tests {
 				"{message}"
 			);
 		}
+
 		assert_eq!(
 			error("}").to_string(),
 			"`}` closes nothing; write `'}'` for a literal brace (at character 1)"

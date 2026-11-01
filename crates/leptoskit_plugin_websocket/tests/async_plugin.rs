@@ -57,6 +57,7 @@ fn cancelled_dns_keeps_resolver_admission_until_blocking_work_finishes() {
 			cancellation.cancel();
 			assert!(matches!(call.await, Err(Error::Cancelled)));
 		}
+
 		// All guest calls have completed cancellation, but their queued OS
 		// resolver jobs must still occupy bounded admission.
 		assert!(matches!(
@@ -144,6 +145,7 @@ async fn pending_receive_allows_sends_and_cancelled_waiter_can_be_replaced() {
 			let message = socket.next().await.unwrap().unwrap();
 			socket.send(message).await.unwrap();
 		}
+
 		assert!(matches!(
 			socket.next().await,
 			Some(Ok(tungstenite::Message::Close(_)))
@@ -251,6 +253,7 @@ async fn cancellation_of_open_permission_closes_committed_socket() {
 	consume(reply);
 	permission.cancel();
 	plugin.shutdown().await;
+
 	server.await.unwrap();
 }
 
@@ -293,12 +296,14 @@ async fn completed_close_releases_connection_capacity_before_reopening() {
 		}
 	});
 	let plugin = plugin(&url);
+
 	for _ in 0..2 {
 		let id = open(&plugin, &url).await;
 		rpc(&plugin, 3, protocol::close(id, 1000, "next").unwrap())
 			.await
 			.unwrap();
 	}
+
 	plugin.shutdown().await;
 	server.await.unwrap();
 }

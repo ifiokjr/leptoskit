@@ -36,6 +36,7 @@ impl Drop for Reservation {
 
 fn window() -> Result<web_sys::Window, Error> {
 	let window = web_sys::window().ok_or(Error::Unavailable)?;
+
 	if js_sys::Reflect::get(window.as_ref(), &JsValue::from_str("isSecureContext"))
 		.map_err(|_| Error::Native)?
 		.as_bool()
@@ -64,12 +65,14 @@ pub async fn permission() -> Result<Permission, Error> {
 	let status = value
 		.dyn_into::<web_sys::PermissionStatus>()
 		.map_err(|_| Error::Native)?;
+
 	let status = match status.state() {
 		web_sys::PermissionState::Granted => Status::Granted,
 		web_sys::PermissionState::Denied => Status::Denied,
 		web_sys::PermissionState::Prompt => Status::Prompt,
 		_ => Status::Unknown,
 	};
+
 	Ok(Permission {
 		status,
 		accuracy: AccuracyPermission::Unknown,
@@ -114,6 +117,7 @@ pub async fn next(options: Options, after_timestamp_ms: f64) -> Result<Fix, Loca
 	if !after_timestamp_ms.is_finite() || after_timestamp_ms < 0.0 {
 		return Err(Error::InvalidArgument.into());
 	}
+
 	bounded(options, Some(after_timestamp_ms), false).await
 }
 async fn bounded(
@@ -163,14 +167,18 @@ async fn acquire(
 	may_prompt: bool,
 ) -> Result<Fix, LocationError> {
 	let _reservation = Reservation::acquire()?;
+
 	if !may_prompt && permission().await?.status != Status::Granted {
 		return Err(Error::PermissionDenied.into());
 	}
+
 	let window = window()?;
 	let document = window.document().ok_or(Error::Unavailable)?;
+
 	if document.hidden() {
 		return Err(Error::Cancelled.into());
 	}
+
 	let geolocation = window
 		.navigator()
 		.geolocation()
@@ -319,6 +327,7 @@ export function locationError(code) { failure({code}); }
 		assert!(futures::poll!(&mut reading).is_pending());
 		TimeoutFuture::new(0).await;
 		assert!(futures::poll!(&mut reading).is_pending());
+
 		assert_eq!(current(options).await, Err(Error::Busy.into()));
 		send_fix();
 		let fix = reading.await.unwrap();
@@ -371,6 +380,7 @@ export function locationError(code) { failure({code}); }
 			current(Options::new(false, 5, 0).unwrap()).await,
 			Err(LocationError::TimedOut)
 		);
+
 		assert_eq!(
 			counts().to_vec(),
 			[JsValue::from_f64(4.0), JsValue::from_f64(4.0)]

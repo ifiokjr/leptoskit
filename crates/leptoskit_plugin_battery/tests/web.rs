@@ -98,13 +98,16 @@ async fn installed<F: Future>(mut pending: Pin<&mut F>) {
 				.poll(&mut Context::from_waker(Waker::noop()))
 				.is_pending()
 		);
+
 		if listeners() == 2 {
 			return;
 		}
+
 		JsFuture::from(js_sys::Promise::resolve(&JsValue::UNDEFINED))
 			.await
 			.unwrap();
 	}
+
 	panic!("battery listeners were not installed");
 }
 

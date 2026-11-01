@@ -124,8 +124,10 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 			Delimiter::Paren => format!("{}!(", call.path),
 			Delimiter::Bracket => format!("{}![", call.path),
 		};
+
 		let close = call.delimiter.close().to_string();
 		let nodes = &markup.nodes;
+
 		if markup.global_class.is_none() && nodes.items.is_empty() && nodes.dangling.is_empty() {
 			return self.text(format!("{head}{close}"));
 		}
@@ -134,20 +136,25 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 		} else {
 			Line::Soft
 		};
+
 		let inner = indent + self.unit;
 		let mut body = Vec::new();
+
 		if let Some(class) = &markup.global_class {
 			body.push(self.text(format!("class={},", compact(&self.host[class.clone()]))));
+
 			if !nodes.items.is_empty() || !nodes.dangling.is_empty() {
 				body.push(line(Line::Hard));
 			}
 		}
+
 		let single = markup.global_class.is_none()
 			&& nodes.items.len() == 1
 			&& nodes.dangling.is_empty()
 			&& !has_comments(&nodes.items[0]);
 		body.push(self.stacked(nodes, inner));
 		let body = Doc::Concat(body);
+
 		if single {
 			return group(Doc::Concat(vec![
 				self.text(head),
@@ -156,6 +163,7 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 				self.text(close),
 			]));
 		}
+
 		Doc::Concat(vec![
 			self.text(head),
 			indented(Doc::Concat(vec![line(Line::Hard), body])),
@@ -167,13 +175,16 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 	/// Nodes one per line, keeping single blank lines between them.
 	fn stacked(&mut self, list: &List<Node>, indent: usize) -> Doc {
 		let mut parts = Vec::new();
+
 		for (index, item) in list.items.iter().enumerate() {
 			if index > 0 {
 				parts.push(line(Line::Hard));
 			}
+
 			let node = self.node(&item.value, indent);
 			parts.push(self.with_comments(item, node, index == 0, true));
 		}
+
 		parts.push(self.dangling(list, false));
 		Doc::Concat(parts)
 	}
@@ -182,16 +193,21 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 	/// starts a new line only when there are items before it.
 	fn dangling<T>(&self, list: &List<T>, keep_blank_lines: bool) -> Doc {
 		let mut parts = Vec::new();
+
 		for (index, leading) in list.dangling.iter().enumerate() {
 			let first = list.items.is_empty() && index == 0;
+
 			if !first {
 				parts.push(line(Line::Hard));
+
 				if keep_blank_lines && leading.blank_before {
 					parts.push(line(Line::Hard));
 				}
 			}
+
 			parts.push(self.comment(&leading.comment));
 		}
+
 		Doc::Concat(parts)
 	}
 
@@ -206,22 +222,28 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 	) -> Doc {
 		let mut parts = Vec::new();
 		let mut at_start = first;
+
 		for leading in &item.leading {
 			if keep_blank_lines && leading.blank_before && !at_start {
 				parts.push(line(Line::Hard));
 			}
+
 			parts.push(self.comment(&leading.comment));
 			parts.push(line(Line::Hard));
 			at_start = false;
 		}
+
 		if keep_blank_lines && item.blank_before && !at_start {
 			parts.push(line(Line::Hard));
 		}
+
 		parts.push(doc);
+
 		for comment in &item.trailing {
 			parts.push(self.text(" "));
 			parts.push(self.comment(comment));
 		}
+
 		Doc::Concat(parts)
 	}
 
@@ -233,14 +255,17 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 	/// they may be inside a string.
 	fn verbatim(&self, text: &str) -> Doc {
 		let mut parts = Vec::new();
+
 		for (index, text_line) in text.split('\n').enumerate() {
 			if index > 0 {
 				parts.push(line(Line::Literal));
 			}
+
 			if !text_line.is_empty() {
 				parts.push(self.text(text_line));
 			}
 		}
+
 		Doc::Concat(parts)
 	}
 
@@ -273,10 +298,13 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 				ClosingTags::Explicit => is_void(&element.name),
 				ClosingTags::Preserve => element.self_closed,
 			};
+
 		let open = self.open_tag(&name, &element.attributes, self_closing, indent);
+
 		if self_closing {
 			return open;
 		}
+
 		self.children(open, children, &format!("</{}>", element.name), indent)
 	}
 
@@ -290,8 +318,10 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 		let items = &attributes.items;
 		let commented = !attributes.dangling.is_empty() || items.iter().any(has_comments);
 		let end = if self_closing { " />" } else { ">" };
+
 		match items.as_slice() {
 			[] if !commented => self.text(format!("{name}{end}")),
+
 			[only] if !commented => {
 				let prefix = self.width(name) + 1;
 				let attribute = self.attribute(&only.value, indent, prefix, false);
@@ -301,6 +331,7 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 					self.text(end),
 				])
 			}
+
 			_ => {
 				let inner = indent + self.unit;
 				let mut parts = Vec::new();
@@ -312,6 +343,7 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 					} else {
 						Line::Space
 					}));
+
 					let attribute = self.attribute(&item.value, inner, 0, before_block);
 					parts.push(self.with_comments(item, attribute, index == 0, false));
 					previous_line_comment = ends_with_line_comment(item);
@@ -319,12 +351,14 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 				if items.is_empty() {
 					parts.push(line(Line::Hard));
 				}
+
 				parts.push(self.dangling(attributes, false));
 				let closing = if self_closing {
 					vec![line(Line::Space), self.text("/>")]
 				} else {
 					vec![line(Line::Soft), self.text(">")]
 				};
+
 				let mut doc = vec![self.text(name.to_owned()), indented(Doc::Concat(parts))];
 				doc.extend(closing);
 				if commented {
@@ -342,6 +376,7 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 			if list.dangling.is_empty() {
 				return Doc::Concat(vec![open, self.text(close.to_owned())]);
 			}
+
 			let dangling = self.dangling(list, false);
 			return Doc::Concat(vec![
 				open,
@@ -355,6 +390,7 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 			first.value,
 			Node::Text(_) | Node::RawText(_) | Node::Block(_)
 		);
+
 		if !textual {
 			let children = self.stacked(list, inner);
 			return Doc::Concat(vec![
@@ -364,11 +400,14 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 				self.text(close.to_owned()),
 			]);
 		}
+
 		let mut parts = Vec::new();
+
 		for (index, item) in list.items.iter().enumerate() {
 			if index > 0 {
 				parts.push(fill_separator(&list.items[index - 1], item));
 			}
+
 			let node = self.node(&item.value, inner);
 			// A group, so a child that must break counts as not fitting and
 			// gets lines of its own.
@@ -379,12 +418,14 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 		} else {
 			Line::Hard
 		};
+
 		let ends_in_comment = list.items.last().is_some_and(ends_with_line_comment);
 		let closing_line = if ends_in_comment || !list.dangling.is_empty() {
 			Line::Hard
 		} else {
 			Line::Soft
 		};
+
 		let inside = vec![
 			line(opening_line),
 			Doc::Fill(parts),
@@ -444,6 +485,7 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 			Value::Block(_) | Value::Spread(_) => return self.braced(value, indent, prefix),
 			Value::Expr { range, braced } => (range.clone(), *braced),
 		};
+
 		let source = dedent(&self.host[range.clone()]);
 		// leptoskit spreads an unbraced tuple into several arguments,
 		// `name=(a, b)` calling `.name(a, b)`, while `name={(a, b)}` passes one
@@ -458,9 +500,11 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 				AttributeBraces::Preserve => braced || !unbraced_is_safe(&source, before_block),
 			}
 		};
+
 		if keep_braces {
 			return self.braced(value, indent, prefix);
 		}
+
 		self.expression(range, indent, prefix)
 	}
 
@@ -490,29 +534,36 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 				indent,
 				prefix,
 			};
+
 			match self.resolver.resolve(request) {
 				Some(formatted) => formatted,
 				// Laid out again once rustfmt has answered.
 				None => return Doc::Concat(Vec::new()),
 			}
 		};
+
 		if formatted.unparsed {
 			self.failures.push(MarkupError {
 				offset: range.start,
 				message: "rustfmt could not parse this Rust, so it was left as written".to_owned(),
 			});
 		}
+
 		let found = find_macros(&formatted.text, &self.config.macros);
+
 		if found.len() != calls.len() {
 			self.failures.push(MarkupError {
 				offset: range.start,
 				message: "rustfmt changed the markup macros inside this expression".to_owned(),
 			});
+
 			return self.verbatim(source);
 		}
+
 		let mut parts = Vec::new();
 		let mut cursor = 0;
 		let mut line_index = 0;
+
 		for (placed, original) in found.iter().zip(&calls) {
 			self.formatted_lines(
 				&mut parts,
@@ -530,6 +581,7 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 			line_index += formatted.text[placed.range.clone()].matches('\n').count();
 			cursor = placed.range.end;
 		}
+
 		self.formatted_lines(
 			&mut parts,
 			&formatted,
@@ -546,6 +598,7 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 			.entry(call.range.start)
 			.or_insert_with(|| markup::parse(host, call).map(Rc::new))
 			.clone();
+
 		match parsed {
 			Ok(markup) => {
 				let track = self.builder.track_id();
@@ -583,6 +636,7 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 					.unwrap_or(false);
 				parts.push(line(if verbatim { Line::Literal } else { Line::Hard }));
 			}
+
 			if !text_line.is_empty() {
 				parts.push(self.text(text_line));
 			}

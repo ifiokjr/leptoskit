@@ -20,6 +20,7 @@ final class CaptureViewController: UIViewController {
         name.placeholder = "Your name"
         name.accessibilityIdentifier = "name"
         status.text = "Ready"
+
         status.accessibilityIdentifier = "status"
         status.numberOfLines = 0
         let increment = button("Increment", id: "increment", action: #selector(incrementCount))
@@ -46,6 +47,7 @@ final class CaptureViewController: UIViewController {
         button.configuration = configuration
         button.accessibilityIdentifier = id
         button.addTarget(self, action: action, for: .touchUpInside)
+
         return button
     }
 
@@ -80,6 +82,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         window = UIWindow(frame: UIScreen.main.bounds)
         window?.rootViewController = CaptureViewController()
         window?.makeKeyAndVisible()
+
         return true
     }
 }

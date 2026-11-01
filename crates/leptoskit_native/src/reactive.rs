@@ -193,6 +193,7 @@ where
 {
 	let each = Arc::new(each);
 	let key = Arc::new(key);
+
 	let view = Arc::new(view);
 	region_element(move || {
 		each()

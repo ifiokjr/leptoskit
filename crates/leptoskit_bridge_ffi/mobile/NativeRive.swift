@@ -58,12 +58,14 @@ final class NativeRiveAnimator: NSObject {
     init(view: NativeRiveView) {
         self.view = view
         super.init()
+
         #if os(macOS)
         observe(.default, NSApplication.didBecomeActiveNotification)
         observe(.default, NSApplication.didResignActiveNotification)
         observe(.default, NSWindow.didMiniaturizeNotification)
         observe(.default, NSWindow.didDeminiaturizeNotification)
         observe(.default, NSWindow.didChangeBackingPropertiesNotification)
+
         observe(.default, NSView.boundsDidChangeNotification)
         observe(NSWorkspace.shared.notificationCenter, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification)
         #else
@@ -86,10 +88,13 @@ final class NativeRiveAnimator: NSObject {
 
     private var active: Bool {
         guard presented, let view, let window = view.window else { return false }
+
         #if os(macOS)
+
         return NSApplication.shared.isActive && window.isVisible
             && !window.isMiniaturized && !view.isHiddenOrHasHiddenAncestor
         #else
+
         return UIApplication.shared.applicationState == .active && !window.isHidden && !view.isHidden
         #endif
     }
@@ -97,20 +102,25 @@ final class NativeRiveAnimator: NSObject {
     func setPresented(_ shown: Bool) {
         guard open else { return }
         presented = shown
+
         if shown { requestFrame() } else { stop() }
     }
 
     func requestFrame() {
         guard open else { return }
+
         guard active, let view else { stop(); return }
         // A synchronous native image upload can post layout notifications.
         // Never query the Rust app again while that display callback is live.
         guard link == nil && !ticking else { return }
+
         guard hasScenes?() == true else { return }
+
         #if os(macOS)
         let display = view.displayLink(target: self, selector: #selector(displayFrame(_:)))
         #else
         let display = CADisplayLink(target: self, selector: #selector(displayFrame(_:)))
+
         #endif
         display.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
         previous = 0
@@ -128,11 +138,13 @@ final class NativeRiveAnimator: NSObject {
         guard open else { return }
         open = false
         stop()
+
         for (center, token) in observers { center.removeObserver(token) }
         observers.removeAll()
         sink = nil
         tick = nil
         hasScenes = nil
+
         onFailure = nil
     }
 
@@ -142,9 +154,11 @@ final class NativeRiveAnimator: NSObject {
         defer { ticking = false }
         let elapsed = previous == 0 ? 0 : max(0, display.timestamp - previous)
         previous = display.timestamp
+
         #if os(macOS)
         let scale = Float(view.window?.backingScaleFactor ?? 1)
         let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+
         #else
         let scale = Float(view.window?.screen.scale ?? 1)
         let reduced = UIAccessibility.isReduceMotionEnabled
@@ -156,6 +170,7 @@ final class NativeRiveAnimator: NSObject {
                     context: Unmanaged.passUnretained(self).toOpaque(), visible: Self.visible, present: Self.present
                 )) ?? false
             }
+
             if !pending { stop() }
         } catch {
             stop()
@@ -165,25 +180,31 @@ final class NativeRiveAnimator: NSObject {
     }
 
     private nonisolated static let visible: NativeRiveVisible = { context, node in
+
         guard let context else { return -1 }
         let owner = Unmanaged<NativeRiveAnimator>.fromOpaque(context).takeUnretainedValue()
+
         return MainActor.assumeIsolated {
             return owner.sink?.riveVisible(node) == true ? 1 : 0
         }
     }
 
     private nonisolated static let present: NativeRivePresent = { context, node, width, height, bytes, length in
+
         guard let context, let bytes, width > 0, height > 0, width <= 4096, height <= 4096,
             length >= 0, UInt64(width) * UInt64(height) <= 4_194_304,
+
             UInt64(length) == UInt64(width) * UInt64(height) * 4 else { return -1 }
         let owner = Unmanaged<NativeRiveAnimator>.fromOpaque(context).takeUnretainedValue()
         // This C callback is synchronous on the display link's main actor.
         // assumeIsolated asserts that executor; the borrowed buffer never escapes.
         nonisolated(unsafe) let pixels = UnsafeBufferPointer(start: bytes, count: length)
+
         return MainActor.assumeIsolated {
             guard let sink = owner.sink else { return -1 }
             do {
                 try sink.presentRive(node, width: Int(width), height: Int(height), pixels: pixels)
+
                 return 1
             } catch { owner.callbackError = error; return -1 }
         }
@@ -193,6 +214,7 @@ final class NativeRiveAnimator: NSObject {
 /// One native upload copy. Core Graphics retains its own immutable CFData.
 func nativeRiveImage(width: Int, height: Int, pixels: UnsafeBufferPointer<UInt8>) throws -> CGImage {
     let data = Data(buffer: pixels)
+
     guard let provider = CGDataProvider(data: data as CFData),
         let space = CGColorSpace(name: CGColorSpace.sRGB),
         let image = CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
@@ -200,5 +222,6 @@ func nativeRiveImage(width: Int, height: Int, pixels: UnsafeBufferPointer<UInt8>
             bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue).union(.byteOrder32Big),
             provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
     else { throw PluginError.native }
+
     return image
 }

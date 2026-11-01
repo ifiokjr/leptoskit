@@ -40,9 +40,13 @@ class SpeechPlugin(
         payload: ByteBuffer,
     ): ByteArray {
         if (closed) throw PluginException(PluginException.CANCELLED)
+
         if (method !in methods) throw PluginException(PluginException.UNAVAILABLE)
+
         if (method == 1) return speak(SpeechRequest.decode(payload))
+
         if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
+
         return when (method) {
             0 -> {
                 voices(ready())
@@ -68,7 +72,9 @@ class SpeechPlugin(
                 created.setOnUtteranceProgressListener(progress())
             }
         val status = withTimeoutOrNull(10_000) { pending.await() } ?: throw PluginException(PluginException.UNAVAILABLE)
+
         if (closed) throw PluginException(PluginException.CANCELLED)
+
         if (status != TextToSpeech.SUCCESS) {
             // A failed engine never recovers. Release its service binding so the
             // next call creates a fresh engine, e.g. after one is installed.
@@ -77,8 +83,10 @@ class SpeechPlugin(
                 engine = null
                 initialized = null
             }
+
             throw PluginException(PluginException.UNAVAILABLE)
         }
+
         return engine ?: throw PluginException(PluginException.CANCELLED)
     }
 
@@ -112,29 +120,40 @@ class SpeechPlugin(
 
     private fun voices(speech: TextToSpeech): ByteArray {
         val voices = speech.voices?.sortedBy { it.name } ?: emptyList()
+
         if (voices.size > 1024) throw PluginException(PluginException.TOO_LARGE)
         val output = SpeechEncoder()
         output.integer(1)
         output.integer(voices.size)
+
         for (voice in voices) {
             output.text(voice.name)
             output.text(voice.name)
+
             output.text(voice.locale.toLanguageTag())
+
             output.integer(if (voice.quality >= android.speech.tts.Voice.QUALITY_HIGH) 2 else 1)
+
             output.integer(if (voice.isNetworkConnectionRequired) 1 else 2)
         }
+
         return output.bytes()
     }
 
     private suspend fun speak(request: SpeechRequest): ByteArray {
         val speech = ready()
+
         if (active != null) throw PluginException(PluginException.BUSY)
+
         if (request.text.length > TextToSpeech.getMaxSpeechInputLength()) throw PluginException(PluginException.TOO_LARGE)
+
         if (request.voice != null) {
             val voice = speech.voices?.firstOrNull { it.name == request.voice } ?: throw PluginException(PluginException.UNAVAILABLE)
+
             if (speech.setVoice(voice) == TextToSpeech.ERROR) throw PluginException(PluginException.NATIVE)
         } else {
             val language = request.language?.let { Locale.forLanguageTag(it) } ?: Locale.getDefault()
+
             if (speech.setLanguage(language) < 0) throw PluginException(PluginException.UNAVAILABLE)
         }
         if (speech.setSpeechRate(request.rate) == TextToSpeech.ERROR ||
@@ -143,6 +162,7 @@ class SpeechPlugin(
             throw PluginException(PluginException.NATIVE)
         }
         return suspendCancellableCoroutine { continuation ->
+
             if (!continuation.isActive) return@suspendCancellableCoroutine
             val id = UUID.randomUUID().toString()
             active = ActiveSpeech(id, continuation)
@@ -174,6 +194,7 @@ class SpeechPlugin(
         val current = active ?: return
         if (current.id != id) return
         active = null
+
         if (!current.completion.isActive) return
         if (error == null) {
             current.completion.resume(ByteArray(0))
@@ -186,11 +207,13 @@ class SpeechPlugin(
         val current = active ?: return true
         active = null
         val stopped = engine?.stop() != TextToSpeech.ERROR
+
         if (current.completion.isActive) {
             current.completion.resumeWithException(
                 PluginException(if (stopped) PluginException.CANCELLED else PluginException.NATIVE),
             )
         }
+
         return stopped
     }
 

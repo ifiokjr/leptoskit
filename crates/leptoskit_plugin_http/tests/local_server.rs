@@ -20,11 +20,13 @@ async fn listener() -> (TcpListener, String) {
 }
 async fn request_head(stream: &mut TcpStream) -> Vec<u8> {
 	let mut request = Vec::new();
+
 	while !request.ends_with(b"\r\n\r\n") {
 		let byte = stream.read_u8().await.unwrap();
 		request.push(byte);
 		assert!(request.len() < 16 * 1024);
 	}
+
 	request
 }
 
@@ -72,6 +74,7 @@ async fn binary_bodies_headers_and_unsuccessful_status_are_preserved() {
 	});
 	request.body = vec![0, 255, 128, 42];
 	let response = client.execute(request).await.unwrap();
+
 	assert_eq!(response.status, 422);
 	assert_eq!(response.body, [0, 255, 128, 42]);
 	assert!(
@@ -174,5 +177,6 @@ async fn dropping_in_flight_request_closes_the_response_stream() {
 	received.await.unwrap();
 	pending.abort();
 	assert!(pending.await.unwrap_err().is_cancelled());
+
 	server.await.unwrap();
 }

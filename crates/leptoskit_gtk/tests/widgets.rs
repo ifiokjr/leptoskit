@@ -208,6 +208,7 @@ mod linux {
 		assert!(mounted.surface.borrow().backend().rive_visible(id));
 		picture.set_opacity(0.0);
 		assert!(!mounted.surface.borrow().backend().rive_visible(id));
+
 		picture.set_opacity(1.0);
 		let mut source = vec![128, 0, 0, 128];
 		assert!(
@@ -265,6 +266,7 @@ mod linux {
 			while context.pending() {
 				context.iteration(false);
 			}
+
 			std::thread::sleep(Duration::from_millis(5));
 		}
 	}
@@ -428,9 +430,11 @@ mod linux {
 			Role::Subscript,
 			Role::Superscript,
 		];
+
 		for role in rest {
 			tree = tree.child(roled(role));
 		}
+
 		let mounted = mounted(&tree);
 		let cases = [
 			(child(&mounted, 0), gtk::AccessibleRole::Button),
@@ -441,6 +445,7 @@ mod linux {
 			// Plain containers keep GTK's default generic role.
 			(child(&mounted, 4), gtk::AccessibleRole::Generic),
 		];
+
 		for (id, expected) in cases {
 			let control = mounted
 				.surface
@@ -567,6 +572,7 @@ mod linux {
 			assert!((bounds.x() - layout.x).abs() <= 0.5);
 			assert!((bounds.y() - layout.y).abs() <= 0.5);
 		}
+
 		for index in 1..8 {
 			let view = surface
 				.backend()
@@ -578,6 +584,7 @@ mod linux {
 				"native minimum must not enlarge Yoga"
 			);
 		}
+
 		std::fs::write(
 			artifact_path("primitives.png"),
 			surface.backend().snapshot_png(root).unwrap(),
@@ -604,6 +611,7 @@ mod linux {
 		// pointer delivery to switches is covered by
 		// default_switch_size_contains_native_chrome.
 		switch.set_active(true);
+
 		pump();
 		assert!(!switch.is_active());
 		assert!(
@@ -667,6 +675,7 @@ mod linux {
 			move |id, event| events.borrow_mut().push((id, event))
 		});
 		let radio = native::<gtk::CheckButton>(&mounted, first);
+
 		assert_eq!(radio.accessible_role(), gtk::AccessibleRole::Radio);
 		let other = native::<gtk::CheckButton>(&mounted, third);
 		other.set_active(true);
@@ -699,6 +708,7 @@ mod linux {
 				.borrow()
 				.contains(&(slider_id, NativeEvent::ValueChange { value: 10.0 }))
 		);
+
 		for index in 0..20 {
 			let mut props = mounted.surface.borrow().props(third).clone();
 			props.radio_group = Some(
@@ -729,6 +739,7 @@ mod linux {
 		surface.set_root(&Button("Late guest root").class("w-40 h-10"));
 		pump();
 		let root = surface.root().unwrap();
+
 		let first = surface.backend().view(root).unwrap();
 		assert!(first.is_mapped());
 		assert_eq!((first.width(), first.height()), (160, 40));
@@ -747,6 +758,7 @@ mod linux {
 				.class("w-full h-full p-4 gap-4 bg-white")
 				.children([Switch(false), Switch(true)]),
 		);
+
 		for index in 0..2 {
 			let control = native::<gtk::Switch>(&mounted, child(&mounted, index));
 			let view = mounted
@@ -762,7 +774,9 @@ mod linux {
 				"normal shared switch size contains native chrome: {bounds:?}"
 			);
 		}
+
 		let events = Rc::new(RefCell::new(Vec::new()));
+
 		mounted.surface.borrow().backend().set_event_listener({
 			let events = events.clone();
 			move |id, event| events.borrow_mut().push((id, event))
@@ -831,6 +845,7 @@ mod linux {
 				view.height() >= placeholder.measure(gtk::Orientation::Vertical, -1).0,
 				"{index}: the frame is shorter than its placeholder"
 			);
+
 			let bounds = placeholder.compute_bounds(&view).unwrap();
 			let top = bounds.y() + (bounds.height() - text_height as f32) * placeholder.yalign();
 			assert!(
@@ -840,6 +855,7 @@ mod linux {
 				view.height()
 			);
 		}
+
 		// Stripped of chrome, an entry is exactly as tall as its frame, so
 		// its focus ring and caret are not clipped either.
 		for index in 0..2 {
@@ -850,6 +866,7 @@ mod linux {
 				"{index}: chrome-less entry height"
 			);
 		}
+
 		std::fs::write(
 			artifact_path("entry-placeholders.png"),
 			surface
@@ -901,6 +918,7 @@ mod linux {
 				view.height()
 			);
 		}
+
 		std::fs::write(
 			artifact_path("entry-chrome.png"),
 			surface
@@ -920,6 +938,7 @@ mod linux {
 			next = child.next_sibling();
 			found.push(child);
 		}
+
 		found
 	}
 
@@ -948,6 +967,7 @@ mod linux {
 				.open_window(surface.root().unwrap(), "Leptoskit GTK Tests", 480, 640)
 				.unwrap()
 		};
+
 		assert_eq!(
 			callbacks.get(),
 			0,
@@ -1020,6 +1040,7 @@ mod linux {
 			move |id, event| events.borrow_mut().push((id, event))
 		});
 		entry.grab_focus();
+
 		pump();
 		key("End");
 		key("x");
@@ -1092,7 +1113,9 @@ mod linux {
 			move |id, event| events.borrow_mut().push((id, event))
 		});
 		scroll.vadjustment().set_value(40.0);
+
 		pump();
+
 		assert!(events.borrow().iter().any(|(id, event)| *id == scroll_id && matches!(event, NativeEvent::Scroll { offset_y, .. } if (*offset_y - 40.0).abs() < f32::EPSILON)));
 		let hidden = mounted.surface.borrow().children(child(&mounted, 1))[0];
 		native::<gtk::CheckButton>(&mounted, hidden).set_active(true);
@@ -1135,6 +1158,7 @@ mod linux {
 		})
 		.join()
 		.unwrap();
+
 		assert!(result.width > 0.0 && result.height > 0.0);
 	}
 
@@ -1167,6 +1191,7 @@ mod linux {
 		let pressable = native::<gtk::Button>(&mounted, pressable_id);
 		assert_eq!(pressable.accessible_role(), gtk::AccessibleRole::Button);
 		let events = Rc::new(RefCell::new(Vec::new()));
+
 		mounted.surface.borrow().backend().set_event_listener({
 			let events = events.clone();
 			move |id, event| events.borrow_mut().push((id, event))
@@ -1291,6 +1316,7 @@ mod linux {
 		);
 		mouse("mouseup", 96, 40);
 		pump_until(|| pressed().is_none());
+
 		assert_eq!(
 			mounted.surface.borrow().props(button_id).background,
 			background("bg-blue-600")
@@ -1316,6 +1342,7 @@ mod linux {
 			mounted.surface.borrow().props(pressable_id).opacity,
 			Some(0.8)
 		);
+
 		assert!(
 			events
 				.borrow()
@@ -1403,16 +1430,19 @@ mod linux {
 		let texture = gtk::gdk::Texture::from_bytes(&gtk::glib::Bytes::from_owned(png)).unwrap();
 		let mut pixels = vec![0; texture.width() as usize * texture.height() as usize * 4];
 		texture.download(&mut pixels, texture.width() as usize * 4);
+
 		for index in [1, 3] {
 			let layout = surface.layout(child(&mounted, index));
 			let mut min_x = layout.width as usize;
 			let mut max_x = 0;
+
 			for y in 2..layout.height as usize - 2 {
 				for x in 2..layout.width as usize - 2 {
 					let offset = ((layout.y as usize + y) * texture.width() as usize
 						+ layout.x as usize
 						+ x)
 						* 4;
+
 					if pixels[offset + 3] == 255
 						&& pixels[offset..offset + 3]
 							.iter()
@@ -1423,6 +1453,7 @@ mod linux {
 					}
 				}
 			}
+
 			assert!(
 				min_x > 50 && max_x > 140,
 				"declared RTL start positions Arabic and Latin at right: {min_x}..{max_x}"
@@ -1470,6 +1501,7 @@ mod linux {
 		native::<gtk::Button>(&mounted, child(&mounted, 2)).grab_focus();
 		pump();
 		focus.store(0, Ordering::SeqCst);
+
 		blur.store(0, Ordering::SeqCst);
 		native::<gtk::Entry>(&mounted, child(&mounted, 0)).grab_focus();
 		pump();
@@ -1529,6 +1561,7 @@ mod linux {
 			.insert_child(root, back, 0);
 		pump();
 		let events = Rc::new(RefCell::new(Vec::new()));
+
 		mounted.surface.borrow().backend().set_event_listener({
 			let events = events.clone();
 			move |id, event| events.borrow_mut().push((id, event))
@@ -1610,6 +1643,7 @@ mod linux {
 				"rejected native proposal restores normalized minimum"
 			);
 			scale.grab_focus();
+
 			pump();
 			key("Right");
 			assert!(
@@ -1637,6 +1671,7 @@ mod linux {
 			);
 			events.borrow_mut().clear();
 		}
+
 		mounted
 			.surface
 			.borrow_mut()
@@ -1716,16 +1751,20 @@ mod linux {
 			sender.send(atspi_probe()).unwrap();
 		});
 		let deadline = std::time::Instant::now() + Duration::from_secs(20);
+
 		let result = loop {
 			pump();
+
 			if let Ok(result) = receiver.try_recv() {
 				break result;
 			}
+
 			assert!(
 				std::time::Instant::now() < deadline,
 				"AT-SPI probe timed out"
 			);
 		};
+
 		worker.join().unwrap();
 		result.expect("AT-SPI native interface proof");
 		assert!(
@@ -1793,6 +1832,7 @@ mod linux {
 			if depth > 30 {
 				return Err("AT-SPI tree depth".into());
 			}
+
 			let name = property(connection, target, "org.a11y.atspi.Accessible", "Name")?
 				.get::<String>()
 				.ok_or("accessible name")?;
@@ -1807,9 +1847,11 @@ mod linux {
 			.get::<(Vec<Ref>,)>()
 			.ok_or("accessible children")?
 			.0;
+
 			for child in children {
 				walk(connection, &child, found, depth + 1)?;
 			}
+
 			Ok(())
 		}
 	}
@@ -1866,11 +1908,13 @@ mod linux {
 		)?
 		.get::<String>()
 		.ok_or("slider spoken value")?;
+
 		if spoken_value != "0 (range -10 to 10)" {
 			return Err(format!(
 				"shared numeric domain missing from AT-SPI: {spoken_value}"
 			));
 		}
+
 		let current = property(&connection, &volume, "org.a11y.atspi.Value", "CurrentValue")?
 			.get::<f64>()
 			.ok_or("current value")?;
@@ -1880,6 +1924,7 @@ mod linux {
 		let max = property(&connection, &volume, "org.a11y.atspi.Value", "MaximumValue")?
 			.get::<f64>()
 			.ok_or("maximum")?;
+
 		if (current - 0.5).abs() > f64::EPSILON
 			|| min.abs() > f64::EPSILON
 			|| (max - 1.0).abs() > f64::EPSILON
@@ -1896,15 +1941,19 @@ mod linux {
 		let restored = property(&connection, &volume, "org.a11y.atspi.Value", "CurrentValue")?
 			.get::<f64>()
 			.ok_or("restored current")?;
+
 		if (restored - 0.5).abs() > f64::EPSILON {
 			return Err(format!("controlled AT rejection: {restored}"));
 		}
+
 		if found.iter().any(|(name, _)| name == "Decorative text") {
 			return Err(format!("decorative child appears in AT tree: {found:?}"));
 		}
+
 		if !found.iter().any(|(name, _)| name == "AT add preview") {
 			return Err("explicit native Button accessibility label was overwritten".into());
 		}
+
 		for (name, target) in found
 			.iter()
 			.filter(|(name, _)| name == "AT first" || name == "AT second")
@@ -1922,6 +1971,7 @@ mod linux {
 			} else {
 				"Option 2 of 2"
 			};
+
 			if description != expected {
 				return Err(format!("radio group position: {description} != {expected}"));
 			}
@@ -1942,9 +1992,11 @@ mod linux {
 		.get::<(u32,)>()
 		.ok_or("drawing role")?
 		.0;
+
 		if role != ATSPI_ROLE_IMAGE {
 			return Err(format!("labelled drawing is not an image: role {role}"));
 		}
+
 		Ok(())
 	}
 
@@ -2069,6 +2121,7 @@ mod linux {
 		});
 		mounted.window.set_default_size(600, 700);
 		pump();
+
 		assert!(sizes.borrow().contains(&(600.0, 700.0)));
 		assert_eq!((old.width(), old.height()), (600, 700));
 		mounted
@@ -2096,6 +2149,7 @@ mod linux {
 			.surface
 			.borrow_mut()
 			.set_root(&View().class("w-0 h-0"));
+
 		pump();
 		assert_eq!((view.width(), view.height()), (0, 0));
 	}
@@ -2138,6 +2192,7 @@ mod linux {
 				.contains(&(child(&mounted, 0), NativeEvent::Press))
 		);
 		events.borrow_mut().clear();
+
 		click(129, 17);
 		assert!(
 			!events
@@ -2200,6 +2255,7 @@ mod linux {
 			let offset = (y * texture.width() as usize + x) * 4;
 			&pixels[offset..offset + 4]
 		};
+
 		assert!(
 			pixel(80, 40)[1] > pixel(80, 40)[2],
 			"ordinary View paints overflow"
@@ -2225,6 +2281,7 @@ mod linux {
 		const GREEN_PIXEL: [u8; 4] = [0, 255, 0, 255];
 		const BLUE_PIXEL: [u8; 4] = [255, 0, 0, 255];
 		let ten = ViewBox::new(0.0, 0.0, 10.0, 10.0).unwrap();
+
 		let wide = || drawn("M 0 0 L 20 0 L 20 10 L 0 10 Z").fill(GREEN);
 		let nested = || drawn("M 0 0 L 10 0 L 10 10 L 0 10 Z M 3 3 L 7 3 L 7 7 L 3 7 Z");
 		let mounted = mounted(
@@ -2358,6 +2415,7 @@ mod linux {
 			.update_layout(stretched, 0.0, 0.0, 80.0, 80.0);
 		let view = surface.backend().view(stretched).unwrap();
 		drop(surface);
+
 		pump_until(|| view.width() == 80);
 		let labelled = native::<gtk::Widget>(&mounted, stretched);
 		assert_eq!(labelled.accessible_role(), gtk::AccessibleRole::Img);

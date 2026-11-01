@@ -11,6 +11,7 @@ enum WidgetImageStyle {
             image.accessibilityTraits = .image
             return
         }
+
         image.image = try props.source.map(load)
     }
 

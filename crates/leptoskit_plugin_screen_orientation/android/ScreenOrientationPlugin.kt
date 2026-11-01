@@ -63,11 +63,16 @@ class ScreenOrientationPlugin(
         payload: ByteBuffer,
     ): ByteArray {
         check(Looper.myLooper() == Looper.getMainLooper())
+
         if (closed) throw PluginException(PluginException.CANCELLED)
+
         if (method !in 0..1) throw PluginException(PluginException.UNAVAILABLE)
+
         if (payload.remaining() != if (method == 1) 4 else 0) throw PluginException(PluginException.INVALID_ARGUMENT)
         val activity = context as? Activity ?: throw PluginException(PluginException.UNAVAILABLE)
+
         if (activity.isDestroyed || activity.isFinishing) throw PluginException(PluginException.UNAVAILABLE)
+
         if (method == 0) {
             val orientation =
                 when (activity.resources.configuration.orientation) {
@@ -84,8 +89,10 @@ class ScreenOrientationPlugin(
                     Surface.ROTATION_90 -> 90
                     Surface.ROTATION_180 -> 180
                     Surface.ROTATION_270 -> 270
+
                     else -> -1
                 }
+
             return ByteBuffer
                 .allocate(8)
                 .order(ByteOrder.LITTLE_ENDIAN)
@@ -93,15 +100,19 @@ class ScreenOrientationPlugin(
                 .putInt(angle)
                 .array()
         }
+
         val requested = decodePolicy(payload.order(ByteOrder.LITTLE_ENDIAN).int)
         // Visible, not focused: apps commonly lock orientation at launch, before
         // the window gains focus, and a dialog may hold focus.
         if (activity.window?.decorView?.isShown != true) throw PluginException(PluginException.UNAVAILABLE)
+
         owners[activity]?.let { owner -> if (owner.pending?.isActive != true) owner.finish(PluginException.CANCELLED) }
+
         if (owners.containsKey(activity)) throw PluginException(PluginException.BUSY)
         var lease: CancellableContinuation<ByteArray>? = null
         try {
             return suspendCancellableCoroutine { continuation ->
+
                 if (!continuation.isActive) return@suspendCancellableCoroutine
                 lease = continuation
                 original = activity.requestedOrientation
@@ -118,6 +129,7 @@ class ScreenOrientationPlugin(
                 }
                 continuation.invokeOnCancellation {
                     val cleanup = Runnable { if (pending === continuation) finish(PluginException.CANCELLED) }
+
                     if (Looper.myLooper() == Looper.getMainLooper()) cleanup.run() else handler.post(cleanup)
                 }
             }
@@ -127,9 +139,11 @@ class ScreenOrientationPlugin(
             // resumed call is back on the main thread here, so restore the original policy
             // before the cancellation is observed.
             val continuation = lease
+
             if (continuation != null && pending === continuation && Looper.myLooper() == Looper.getMainLooper()) {
                 finish(PluginException.CANCELLED)
             }
+
             throw cancelled
         }
     }
@@ -145,11 +159,14 @@ class ScreenOrientationPlugin(
         pending = null
         val activity = context as Activity
         owners.remove(activity)
+
         if (observing) {
             observing = false
             activity.application.unregisterActivityLifecycleCallbacks(callbacks)
         }
+
         var failure = reason
+
         val saved = original
         original = null
         try {
@@ -159,6 +176,7 @@ class ScreenOrientationPlugin(
         } catch (_: IllegalStateException) {
             failure = PluginException.NATIVE
         }
+
         if (continuation.isActive) {
             continuation.resumeWithException(PluginException(failure))
         } else if (failure != reason) {

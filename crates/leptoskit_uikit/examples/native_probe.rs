@@ -114,6 +114,7 @@ mod probe {
 					Ok(lines) => format!("VERIFIED\tUIKit native renderer\n{}\n", lines.join("\n")),
 					Err(error) => format!("FAILED\t{}\n", error.downcast_ref::<String>().map(String::as_str).or_else(|| error.downcast_ref::<&str>().copied()).unwrap_or("native assertion panic")),
 				};
+
 				// The verifier stops the simulator once the report exists, so the
 				// coverage profile must be complete before it is written.
 				#[cfg(feature = "coverage")]
@@ -342,12 +343,15 @@ mod probe {
 
 	fn id(surface: &NativeSurface<UIKitBackend>, name: &str) -> NodeId {
 		let mut nodes = vec![surface.root().expect("mounted tree")];
+
 		while let Some(node) = nodes.pop() {
 			if surface.props(node).accessibility_label.as_deref() == Some(name) {
 				return node;
 			}
+
 			nodes.extend_from_slice(surface.children(node));
 		}
+
 		panic!("missing fixture node {name}")
 	}
 
@@ -360,12 +364,15 @@ mod probe {
 				.expect("native view")
 				.retain(),
 		];
+
 		while let Some(view) = views.pop() {
 			if let Some(view) = view.downcast_ref::<T>() {
 				return view.retain();
 			}
+
 			views.extend(view.subviews().iter());
 		}
+
 		panic!("concrete UIKit class for {name}")
 	}
 
@@ -397,6 +404,7 @@ mod probe {
 			.downcast_ref::<UIImageView>()
 			.unwrap()
 			.retain();
+
 		let mut pixels = [128, 0, 0, 128, 0, 0, 255, 255];
 		let frame = RiveFrame::new(2, 1, &pixels).unwrap();
 		assert!(!backend.present_rive(missing, &frame));
@@ -466,6 +474,7 @@ mod probe {
 			})));
 		let mut passed = Vec::new();
 		passed.push("PASS\twrapped gallery footnotes match native UILabel height".into());
+
 		passed.push(
 			"PASS\tRive Core Graphics upload owns premultiplied pixels and preserves paused images"
 				.into(),
@@ -509,6 +518,7 @@ mod probe {
 				.is_some()
 		);
 		host_lifecycle(window, mtm);
+
 		passed.push(
 			"PASS\tretained host preserves Yoga root frames and handles replacement and resize"
 				.into(),
@@ -592,6 +602,7 @@ mod probe {
 				props.source = Some("resource://probe-image.bmp".into());
 			});
 			assert!(image.image().is_some(), "gallery BMP decodes in UIKit");
+
 			let local_image = format!("{}/Documents/a local image.png", NSHomeDirectory());
 			std::fs::write(&local_image, include_bytes!("../probe/probe-image.png"))
 				.expect("local image fixture");
@@ -641,11 +652,13 @@ mod probe {
 			let surface = self.surface;
 			let root = self.root;
 			let mut children = surface.borrow().children(root).to_vec();
+
 			while let Some(child) = children.pop() {
 				let surface = surface.borrow();
 				children.extend_from_slice(surface.children(child));
 				let layout = surface.layout(child);
 				let frame = surface.backend().view(child).expect("native child").frame();
+
 				assert!((frame.origin.x - f64::from(layout.x)).abs() < 0.01);
 				assert!((frame.origin.y - f64::from(layout.y)).abs() < 0.01);
 				assert!((frame.size.width - f64::from(layout.width)).abs() < 0.01);
@@ -677,6 +690,7 @@ mod probe {
 				TextStyle::default(),
 				Size::new(AvailableSpace::Definite(45.0), AvailableSpace::MaxContent),
 			);
+
 			assert!(wrapped.height > 30.0);
 			assert!(
 				!label.isOpaque(),
@@ -720,6 +734,7 @@ mod probe {
 				!switch.isOn(),
 				"rejected switch proposal restores committed false"
 			);
+
 			checkbox.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
 			assert!(!checkbox.isSelected());
 			radio_b.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
@@ -756,6 +771,7 @@ mod probe {
 				)
 			});
 			let radio_b_id = id(&surface.borrow(), "radio-b");
+
 			assert!(events.borrow()[before..].iter().any(|(node, event)| {
 				*node == radio_b_id && matches!(event, NativeEvent::Toggle { checked: true })
 			}));
@@ -792,6 +808,7 @@ mod probe {
 					if let NativeEvent::Toggle { checked } = event {
 						props.checked = Some(*checked);
 					}
+
 					surface
 						.borrow_mut()
 						.backend_mut()
@@ -800,6 +817,7 @@ mod probe {
 			switch.setOn(true);
 			switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
 			assert!(switch.isOn(), "accepted update is read after callback");
+
 			assert!(std::ptr::eq(
 				&raw const *switch,
 				&raw const *native::<UISwitch>(surface, "switch")
@@ -822,7 +840,9 @@ mod probe {
 			slider.setValue(0.47);
 			slider.sendActionsForControlEvents(UIControlEvents::ValueChanged);
 			assert!((slider.value() - 0.4).abs() < 0.0001);
+
 			assert!(events.borrow().iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if (*value - 45.0).abs() < 0.0001)));
+
 			let extreme = SliderState::new(0.0, 1.0e200, 0.0, Some(1.0e199))
 				.expect("shared finite large grid");
 			modify(surface, "slider", |props| props.slider = Some(extreme));
@@ -831,12 +851,14 @@ mod probe {
 			let expected = extreme
 				.proposed_value(extreme.max() * 0.75)
 				.expect("shared canonical proposal");
+
 			assert!(events.borrow().iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if (*value - expected).abs() / expected.abs() < 1.0e-12)));
 			assert!((slider.value() - 0.0).abs() < 0.0001);
 			let tiny = SliderState::new(0.0, 1.0e-200, 0.0, Some(1.0e-201))
 				.expect("shared finite tiny grid");
 			modify(surface, "slider", |props| props.slider = Some(tiny));
 			slider.accessibilityIncrement(mtm);
+
 			assert!(events.borrow().iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if *value > 0.0 && (*value / 1.0e-201 - 1.0).abs() < 0.001)));
 			for state in [
 				SliderState::new(1.0, 1.0f64.next_up(), 1.0, None)
@@ -847,6 +869,7 @@ mod probe {
 				modify(surface, "slider", |props| props.slider = Some(state));
 				let before = events.borrow().len();
 				slider.accessibilityIncrement(mtm);
+
 				assert!(events.borrow()[before..].iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if *value > state.min() && *value <= state.max())));
 			}
 			"PASS\tf64 slider grids survive normalized UIKit coordinates and accessibility steps"
@@ -872,6 +895,7 @@ mod probe {
 			);
 			let before = events.borrow().len();
 			password.setText(Some(&NSString::from_str("dummy-proposal")));
+
 			password.sendActionsForControlEvents(UIControlEvents::EditingChanged);
 			assert_eq!(
 				password.text().expect("secure value").to_string(),
@@ -947,6 +971,7 @@ mod probe {
 			let input = &*self.input;
 			let before = events.borrow().len();
 			modify(surface, "button", |props| props.enabled = Some(false));
+
 			button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
 			assert_eq!(events.borrow().len(), before);
 			modify(surface, "button", |props| {
@@ -1008,6 +1033,7 @@ mod probe {
 					(node, NativeEvent::PressOut),
 				]
 			);
+
 			surface.borrow_mut().press_in(node);
 			let held = surface
 				.borrow()
@@ -1040,6 +1066,7 @@ mod probe {
 			let pressable = &*self.pressable;
 			let before = events.borrow().len();
 			scroll.setContentOffset(CGPoint::new(0.0, 60.0));
+
 			assert!(scroll.contentOffset().y > 0.0);
 			assert!(events.borrow()[before..].iter().any(
 				|(_, event)| matches!(event, NativeEvent::Scroll { offset_y, .. } if *offset_y > 0.0)
@@ -1089,6 +1116,7 @@ mod probe {
 			let root_props = surface.borrow().props(root).clone();
 			assert!(activity.isAnimating());
 			assert!(fill.layer().animationKeys().is_some());
+
 			// SAFETY: Core Animation's presentation layer is a live read-only
 			// copy.
 			let presentation =
@@ -1157,6 +1185,7 @@ mod probe {
 				})));
 			switch.setOn(false);
 			switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
+
 			assert!(switch.superview().is_none());
 			switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
 			assert!(!activity.isAnimating());
@@ -1208,6 +1237,7 @@ mod probe {
 			let transform = drawing.transform(size.width as f32, size.height as f32);
 			let layers = shapes(view);
 			assert_eq!(layers.len(), drawing.paths().len(), "one layer per path");
+
 			for (layer, path) in layers.iter().zip(drawing.paths()) {
 				let points: Vec<_> = path
 					.data()
@@ -1219,6 +1249,7 @@ mod probe {
 						}
 					})
 					.collect();
+
 				let min_x = points
 					.iter()
 					.map(|point| point.x)
@@ -1245,6 +1276,7 @@ mod probe {
 				);
 				assert_eq!(layer.fillColor().is_some(), path.fill_color().is_some());
 				assert_eq!(layer.strokeColor().is_some(), path.stroke_style().is_some());
+
 				if let Some(stroke) = path.stroke_style() {
 					assert!(
 						(layer.lineWidth() - f64::from(stroke.width())).abs() < 1.0e-6,
@@ -1256,6 +1288,7 @@ mod probe {
 						"solid strokes are undashed"
 					);
 				}
+
 				// SAFETY: Core Animation exports this immutable constant.
 				assert!(
 					layer
@@ -1265,6 +1298,7 @@ mod probe {
 				assert!(!layer.masksToBounds());
 			}
 		}
+
 		let stretched = shapes(&stretch);
 		assert!(stretched[0].strokeColor().is_none() && stretched[1].fillColor().is_none());
 		// SAFETY: Core Animation exports this immutable constant.
@@ -1339,6 +1373,7 @@ mod probe {
 			.update_props(fit_node, &unnamed);
 		assert!(!fit.isAccessibilityElement(mtm));
 		modify(surface, "vector-fit", |_| {});
+
 		assert!(fit.isAccessibilityElement(mtm));
 	}
 
@@ -1381,6 +1416,7 @@ mod probe {
 		let scale = (size.width / 24.0).min(size.height / 24.0);
 		let close = |actual: f64, expected: f64| (actual - expected).abs() < 1.0e-4;
 		let dashed = &layers[1];
+
 		assert!(
 			close(dashed.lineWidth(), 2.0 * scale),
 			"scaling strokes take their frame width: {} at scale {scale}",
@@ -1421,6 +1457,7 @@ mod probe {
 			.borrow_mut()
 			.backend_mut()
 			.update_props(fit_node, &unchanged);
+
 		// SAFETY: Core Animation exports this immutable constant.
 		assert!(
 			shapes(fit)[0]
@@ -1454,6 +1491,7 @@ mod probe {
 			.rootViewController()
 			.expect("retained surface controller");
 		controller.viewDidLayoutSubviews();
+
 		let container = controller.view().expect("stable host view");
 		let button_view = container.subviews().objectAtIndex(0);
 		let button = button_view
@@ -1521,6 +1559,7 @@ mod probe {
 			indicator.isAnimating(),
 			"a new controller resumes requested animation"
 		);
+
 		reopened.setRootViewController(None);
 	}
 
@@ -1597,6 +1636,7 @@ mod probe {
 		fixture
 			.borrow_mut()
 			.set_root(&Element::text("Switch deleted"));
+
 		assert!(outer.superview().is_none());
 		assert!(switch.window().is_none());
 		assert_eq!(switch.allTargets().count(), 0);
@@ -1664,6 +1704,7 @@ mod probe {
 				}
 			})));
 		input.insertText(&NSString::from_str("x"));
+
 		assert!(input.superview().is_none());
 		assert!(input.delegate().is_none());
 		assert_eq!(

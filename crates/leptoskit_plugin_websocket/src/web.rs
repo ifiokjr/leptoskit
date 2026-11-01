@@ -42,6 +42,7 @@ impl Client {
 			let timeout = gloo_timers::future::TimeoutFuture::new(
 				self.config.connect_timeout.as_millis() as u32,
 			);
+
 			let opened = poll_fn(|context| {
 				let mut state = connection.state.borrow_mut();
 				if let Some(error) = state.error.take() {
@@ -59,15 +60,18 @@ impl Client {
 				}
 			});
 			futures::pin_mut!(opened, timeout);
+
 			match select(opened, timeout).await {
 				Either::Left((result, _)) => result?,
 				Either::Right(((), _)) => return Err(Error::Timeout),
 			}
 		}
+
 		connection.protocol = match connection.socket.protocol() {
 			value if value.is_empty() => None,
 			value => Some(value),
 		};
+
 		Ok(connection)
 	}
 }
@@ -112,10 +116,12 @@ impl Connection {
 			if state.error.is_none() {
 				state.error = Some(Error::Transport("browser WebSocket failed".into()));
 			}
+
 			state.wake();
 		});
 		socket.set_onerror(Some(error.as_ref().unchecked_ref()));
 		let close_state = Rc::clone(&state);
+
 		let close = Closure::new(move |event: web_sys::CloseEvent| {
 			let mut state = close_state.borrow_mut();
 			state.closed = true;
@@ -124,6 +130,7 @@ impl Connection {
 					"WebSocket closed without completing its handshake".into(),
 				));
 			}
+
 			state.wake();
 		});
 		socket.set_onclose(Some(close.as_ref().unchecked_ref()));
@@ -135,6 +142,7 @@ impl Connection {
 			if state.closed || state.error.is_some() {
 				return;
 			}
+
 			let data = event.data();
 			let message = if let Some(text) = data.as_string() {
 				Ok(Message::Text(text))
@@ -151,6 +159,7 @@ impl Connection {
 				Ok(message) if message.len() > message_config.max_message_bytes => {
 					state.error = Some(Error::TooLarge);
 				}
+
 				Ok(message)
 					if state.queue.len() >= message_config.max_pending_messages
 						|| message.len()
@@ -175,6 +184,7 @@ impl Connection {
 					state.error = Some(js_error(error));
 				}
 			}
+
 			state.wake();
 		});
 		socket.set_onmessage(Some(message.as_ref().unchecked_ref()));
@@ -209,9 +219,11 @@ impl Connection {
 		if self.socket.ready_state() != web_sys::WebSocket::OPEN || self.state.borrow().closed {
 			return Err(Error::Closed);
 		}
+
 		if message.len() > self.config.max_message_bytes {
 			return Err(Error::TooLarge);
 		}
+
 		if message.len()
 			> self
 				.config
@@ -220,6 +232,7 @@ impl Connection {
 		{
 			return Err(Error::Backpressure);
 		}
+
 		match message {
 			Message::Text(text) => self.socket.send_with_str(&text),
 			Message::Binary(bytes) => self.socket.send_with_u8_array(&bytes),
@@ -243,6 +256,7 @@ impl Connection {
 			if state.closed {
 				return Poll::Ready(Ok(None));
 			}
+
 			state.waker = Some(context.waker().clone());
 			Poll::Pending
 		})
@@ -266,10 +280,12 @@ impl Connection {
 			if self.socket.ready_state() == web_sys::WebSocket::CLOSED {
 				return Poll::Ready(Ok(()));
 			}
+
 			state.waker = Some(context.waker().clone());
 			Poll::Pending
 		});
 		futures::pin_mut!(closed, timeout);
+
 		match select(closed, timeout).await {
 			Either::Left((result, _)) => result,
 			Either::Right(((), _)) => Err(Error::Timeout),

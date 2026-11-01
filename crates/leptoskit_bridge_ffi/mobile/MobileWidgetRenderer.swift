@@ -60,6 +60,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
     init(view: UIView, devtools link: DevtoolsLink? = DevtoolsLink.live()) {
         self.view = view
         super.init()
+
         guard let link else { return }
         let overlay = DevtoolsOverlay(
             link: link, widget: { [weak self] in self?.widgets[$0] },
@@ -72,10 +73,12 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         devtools?.close()
         devtools = nil
         onRiveViewportChange = nil
+
         for widget in widgets.values { (widget as? UIImageView)?.image = nil }
         widgets.removeAll()
         radii.removeAll()
         childCounts.removeAll()
+
         scrolls.removeAll()
         recycled = RecycledViews()
     }
@@ -87,14 +90,18 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
 
     func riveVisible(_ node: Int) -> Bool {
         guard let widget = widgets[node], let window = widget.window, !widget.isHidden,
+
             widget.alpha > 0 else { return false }
         var visible = widget.convert(widget.bounds, to: window)
         var ancestor = widget.superview
+
         while let parent = ancestor {
             if parent.isHidden || parent.alpha == 0 { return false }
+
             if parent.clipsToBounds { visible = visible.intersection(parent.convert(parent.bounds, to: window)) }
             ancestor = parent.superview
         }
+
         return !visible.isEmpty && visible.intersects(window.bounds)
     }
 
@@ -105,6 +112,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         onRiveViewportChange?()
+
         guard widgets[scrollView.tag] === scrollView else { return }
 
         if applying { scrolls.movedWhileApplying(scrollView.tag) } else { reportScroll(scrollView.tag) }
@@ -145,6 +153,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
     private func updateCanvas(_ named: Int?) {
         if let named { root = named }
         let color = root.flatMap { widgets[$0]?.backgroundColor }.flatMap { $0.cgColor.alpha == 1 ? $0 : nil }
+
         guard color != canvas else { return }
         canvas = color
         onCanvasChange?()
@@ -288,6 +297,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         if let edge = change.insertChild, let parent = widgets[edge.parent],
            let child = widgets[edge.child] {
             detach(child)
+
             let count = childCounts[edge.parent, default: 0]
             parent.insertSubview(child, at: min(edge.index ?? count, count))
             childCounts[edge.parent] = count + 1
@@ -303,6 +313,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
 
             if let widget = widgets.removeValue(forKey: item.id) {
                 detach(widget)
+
                 if empty { recycled.keep(widget) }
             }
         }

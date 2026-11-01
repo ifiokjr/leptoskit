@@ -55,15 +55,19 @@ impl Snapshot {
 			let program = args.next().ok_or(Error::MissingProgram)?;
 			let mut arguments = Vec::new();
 			let mut length = program.as_encoded_bytes().len().saturating_add(8);
+
 			for argument in args {
 				length = length
 					.saturating_add(argument.as_encoded_bytes().len())
 					.saturating_add(4);
+
 				if arguments.len() >= MAX_ARGUMENTS || length > MAX_BYTES {
 					return Err(Error::TooLarge);
 				}
+
 				arguments.push(argument);
 			}
+
 			Self::new(program, arguments)
 		}
 		#[cfg(not(any(
@@ -82,6 +86,7 @@ impl Snapshot {
 		if program.is_empty() {
 			return Err(Error::MissingProgram);
 		}
+
 		if program.as_encoded_bytes().contains(&0)
 			|| arguments
 				.iter()
@@ -97,9 +102,11 @@ impl Snapshot {
 					.saturating_add(4)
 			},
 		);
+
 		if arguments.len() > MAX_ARGUMENTS || length > MAX_BYTES {
 			return Err(Error::TooLarge);
 		}
+
 		Ok(Self { program, arguments })
 	}
 
@@ -127,11 +134,13 @@ impl Snapshot {
 			.bytes(self.program.to_str().ok_or(Error::NonUtf8)?.as_bytes())
 			.map_err(|_| Error::TooLarge)?;
 		output.u32(self.arguments.len() as u32);
+
 		for argument in &self.arguments {
 			output
 				.bytes(argument.to_str().ok_or(Error::NonUtf8)?.as_bytes())
 				.map_err(|_| Error::TooLarge)?;
 		}
+
 		Ok(output.finish())
 	}
 
@@ -141,19 +150,26 @@ impl Snapshot {
 		if payload.len() > MAX_BYTES {
 			return Err(BridgeError::TooLarge);
 		}
+
 		let mut decoder = Decoder::new(payload);
 		let program = decoder.string()?;
+
 		if program.is_empty() {
 			return Err(BridgeError::InvalidArgument);
 		}
+
 		let count = decoder.u32()? as usize;
+
 		if count > MAX_ARGUMENTS {
 			return Err(BridgeError::TooLarge);
 		}
+
 		let mut arguments = Vec::new();
+
 		for _ in 0..count {
 			arguments.push(OsString::from(decoder.string()?));
 		}
+
 		decoder.finish()?;
 		Self::new(program.into(), arguments).map_err(|_| BridgeError::InvalidArgument)
 	}
@@ -184,9 +200,11 @@ impl Plugin for Arguments {
 		if method != SNAPSHOT {
 			return Err(BridgeError::Unavailable);
 		}
+
 		if !payload.is_empty() {
 			return Err(BridgeError::InvalidArgument);
 		}
+
 		Ok(self.encoded.clone())
 	}
 }
@@ -249,6 +267,7 @@ mod tests {
 			original
 		);
 		let mut plugin = Arguments::new(&original).unwrap();
+
 		assert_eq!(
 			plugin.invoke(SNAPSHOT, Bytes::new()).unwrap(),
 			original.encode().unwrap()
@@ -265,9 +284,11 @@ mod tests {
 			Err(Error::InvalidArgument)
 		));
 		let encoded = snapshot(&["x"]).encode().unwrap();
+
 		for length in 0..encoded.len() {
 			assert!(Snapshot::decode(&encoded[..length]).is_err());
 		}
+
 		let mut trailing = encoded.to_vec();
 		trailing.push(0);
 		assert!(Snapshot::decode(&trailing).is_err());

@@ -18,6 +18,7 @@ pub fn validate(method: MethodId, payload: &[u8]) -> Result<(), Error> {
 	if method != HOLD {
 		return Err(Error::Unavailable);
 	}
+
 	if payload.is_empty() {
 		Ok(())
 	} else {
@@ -77,6 +78,7 @@ pub mod desktop {
 				if let Some(lease) = shared.upgrade() {
 					return Ok(Self(lease));
 				}
+
 				let lease = acquire_platform(application, reason)?;
 				let lease = Rc::new(lease);
 				*shared = Rc::downgrade(&lease);
@@ -223,6 +225,7 @@ mod tests {
 		let second =
 			desktop::Lease::acquire("LeptosKit test", "shares the first assertion").unwrap();
 		assert_eq!(second.owners(), 2);
+
 		assert!(assertions().contains(&reason));
 		drop(first);
 		assert_eq!(second.owners(), 1);
@@ -261,6 +264,7 @@ mod tests {
 		assert!(display_required());
 		drop(first);
 		assert!(display_required());
+
 		drop(second);
 		assert!(!display_required());
 	}

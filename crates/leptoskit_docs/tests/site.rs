@@ -28,11 +28,13 @@ fn site(root: impl Into<PathBuf>) -> Site {
 /// A book of `files` in a fresh directory.
 fn book(files: &[(&str, &str)]) -> tempfile::TempDir {
 	let root = tempfile::tempdir().unwrap();
+
 	for (path, contents) in files {
 		let path = root.path().join(path);
 		fs::create_dir_all(path.parent().unwrap()).unwrap();
 		fs::write(path, contents).unwrap();
 	}
+
 	root
 }
 

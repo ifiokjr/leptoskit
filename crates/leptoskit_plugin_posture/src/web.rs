@@ -28,13 +28,17 @@ fn present(value: &JsValue) -> bool {
 /// Reads the viewport's segments in CSS pixels, if the browser reports any.
 fn segments(window: &web_sys::Window) -> Result<Vec<web_sys::DomRect>, Error> {
 	let viewport = property(window.as_ref(), "viewport")?;
+
 	if !present(&viewport) {
 		return Ok(Vec::new());
 	}
+
 	let segments = property(&viewport, "segments")?;
+
 	if !present(&segments) {
 		return Ok(Vec::new());
 	}
+
 	js_sys::Array::from(&segments)
 		.iter()
 		.map(|segment| {
@@ -63,6 +67,7 @@ fn hinge_between(
 		let region = Region::within(0.0, first.bottom() as f32, width, gap, width, height);
 		(Axis::Horizontal, gap, region)
 	};
+
 	Hinge {
 		fold,
 		axis,
@@ -82,12 +87,14 @@ pub fn snapshot() -> Result<Posture, Error> {
 	} else {
 		None
 	};
+
 	let segments = segments(&window)?;
 	let width = window
 		.inner_width()
 		.map_err(|_| Error::Native)?
 		.as_f64()
 		.ok_or(Error::Native)?;
+
 	let height = window
 		.inner_height()
 		.map_err(|_| Error::Native)?
@@ -98,16 +105,20 @@ pub fn snapshot() -> Result<Posture, Error> {
 	} else {
 		Fold::Open
 	};
+
 	let hinges: Vec<Hinge> = segments
 		.windows(2)
 		.take(MAX_HINGES)
 		.map(|pair| hinge_between(&pair[0], &pair[1], hinge_fold, width, height))
 		.collect();
+
 	let fold = match folded {
 		Some(true) => Fold::HalfOpen,
+
 		_ if !hinges.is_empty() => Fold::Open,
 		_ => Fold::Unknown,
 	};
+
 	Ok(Posture {
 		foldable: (folded == Some(true) || !hinges.is_empty()).then_some(true),
 		fold,
@@ -126,6 +137,7 @@ pub async fn wait_for_change(previous: &Posture) -> Result<Posture, Error> {
 		let previous = previous.clone();
 		move || {
 			let current = snapshot();
+
 			if current.as_ref() != Ok(&previous)
 				&& let Some(sender) = sender.borrow_mut().take()
 			{
@@ -137,6 +149,7 @@ pub async fn wait_for_change(previous: &Posture) -> Result<Posture, Error> {
 	let mut listeners = Vec::with_capacity(2);
 	{
 		let changed = changed.clone();
+
 		listeners.push(gloo_events::EventListener::new(
 			&window,
 			"resize",
@@ -144,6 +157,7 @@ pub async fn wait_for_change(previous: &Posture) -> Result<Posture, Error> {
 		));
 	}
 	let posture = property(window.navigator().as_ref(), "devicePosture")?;
+
 	if present(&posture) {
 		let target = posture
 			.dyn_into::<web_sys::EventTarget>()
@@ -155,6 +169,7 @@ pub async fn wait_for_change(previous: &Posture) -> Result<Posture, Error> {
 			move |_| changed(),
 		));
 	}
+
 	// Listen before sampling so a change between the two is not missed.
 	changed();
 	let result = receiver.await.map_err(|_| Error::Cancelled)?;
@@ -167,6 +182,7 @@ pub async fn wait_for_change(previous: &Posture) -> Result<Posture, Error> {
 pub async fn watch(mut on_change: impl FnMut(&Posture)) -> Result<Infallible, Error> {
 	let mut current = snapshot()?;
 	on_change(&current);
+
 	loop {
 		current = wait_for_change(&current).await?;
 		on_change(&current);

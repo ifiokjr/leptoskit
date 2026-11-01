@@ -20,6 +20,7 @@ export function configure(module, wasmUrl) {
 	}
 
 	const existing = runtimes.get(module);
+
 	if (existing && existing !== url.href) {
 		throw new Error(
 			"Rive runtime was already configured with a different Wasm URL",
@@ -46,9 +47,11 @@ export function mount(
 	if (!runtimes.has(module)) {
 		throw new Error("configure the Rive runtime before mounting");
 	}
+
 	if (canvases.has(canvas)) {
 		throw new Error("canvas already owns a Rive player");
 	}
+
 	if (!canvas.isConnected) {
 		throw new Error("attach the canvas before mounting Rive");
 	}
@@ -67,6 +70,7 @@ export function mount(
 	let intersecting = false;
 	let hasSize = false;
 	let running = false;
+
 	let settle;
 	const ready = new Promise((resolve) => {
 		settle = resolve;
@@ -87,8 +91,10 @@ export function mount(
 		if (!loaded || disposed) return;
 		const active = wanted && intersecting && hasSize && !document.hidden &&
 			!motion.matches;
+
 		if (active === running) return;
 		running = active;
+
 		if (active) {
 			rive.play();
 			rive.startRendering();
@@ -102,6 +108,7 @@ export function mount(
 		if (disposed) return;
 		const bounds = canvas.getBoundingClientRect();
 		hasSize = bounds.width > 0 && bounds.height > 0;
+
 		if (hasSize) {
 			// Bound GPU allocation even for giant CSS boxes or high-DPI displays.
 			const scale = Math.min(
@@ -113,12 +120,15 @@ export function mount(
 			);
 			const width = Math.max(1, Math.floor(bounds.width * scale));
 			const height = Math.max(1, Math.floor(bounds.height * scale));
+
 			if (canvas.width !== width || canvas.height !== height) {
 				canvas.width = width;
 				canvas.height = height;
+
 				if (loaded) rive.resizeToCanvas();
 			}
 		}
+
 		syncPlayback();
 	}
 
@@ -131,6 +141,7 @@ export function mount(
 		document.removeEventListener("visibilitychange", syncPlayback);
 		motion.removeEventListener("change", syncPlayback);
 		globalThis.removeEventListener("resize", resizeCanvas);
+
 		// Cleanup owns pending imports too; the runtime checks its destroyed flag.
 		try {
 			rive?.cleanup();
@@ -152,19 +163,25 @@ export function mount(
 
 	function inputFor(name, kind) {
 		assertLive();
+
 		if (!loaded) throw new Error("wait for Rive import before setting inputs");
+
 		if (sceneKind !== "stateMachine") {
 			throw new Error("player has no selected state machine");
 		}
+
 		inputs ??= new Map(
 			rive.stateMachineInputs(scene).map((input) => [input.name, input]),
 		);
 		const input = inputs.get(name);
+
 		if (!input) throw new Error(`unknown Rive input: ${name}`);
 		const expected = { number: 56, boolean: 59, trigger: 58 }[kind];
+
 		if (input.type !== expected) {
 			throw new Error(`Rive input type mismatch: ${name}`);
 		}
+
 		return input;
 	}
 
@@ -180,6 +197,7 @@ export function mount(
 		intersection.observe(canvas);
 		document.addEventListener("visibilitychange", syncPlayback);
 		motion.addEventListener("change", syncPlayback);
+
 		globalThis.addEventListener("resize", resizeCanvas);
 		resizeCanvas();
 		timer = setTimeout(
@@ -217,6 +235,7 @@ export function mount(
 						if (scene && !names.includes(scene)) {
 							throw new Error(`unknown Rive scene: ${scene}`);
 						}
+
 						loaded = true;
 						clearTimeout(timer);
 						rive.resizeToCanvas();
@@ -250,6 +269,7 @@ export function mount(
 		},
 		setInput(name, kind, value) {
 			const input = inputFor(name, kind);
+
 			if (kind === "trigger") input.fire();
 			else input.value = value;
 		},

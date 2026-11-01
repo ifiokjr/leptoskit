@@ -56,6 +56,7 @@ where
 	});
 	let effect = Arc::new(Mutex::new(Some(effect)));
 	let stopped = Arc::clone(&effect);
+
 	let stop: Action = Arc::new(move || {
 		stopped.lock().take();
 		active.try_set(false);

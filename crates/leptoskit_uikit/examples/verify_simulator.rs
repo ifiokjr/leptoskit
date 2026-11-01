@@ -26,6 +26,7 @@ mod host {
 
 	fn command(program: &str, arguments: &[&str]) -> Result<String> {
 		let output = Command::new(program).args(arguments).output()?;
+
 		if !output.status.success() {
 			return Err(format!(
 				"{program} {} failed ({})\n{}\n{}",
@@ -36,6 +37,7 @@ mod host {
 			)
 			.into());
 		}
+
 		Ok(String::from_utf8(output.stdout)?.trim().to_owned())
 	}
 
@@ -47,12 +49,14 @@ mod host {
 
 	fn option(name: &str, default: &str) -> Result<String> {
 		let args: Vec<_> = std::env::args().skip(1).collect();
+
 		if let Some(index) = args.iter().position(|value| value == name) {
 			return args
 				.get(index + 1)
 				.cloned()
 				.ok_or_else(|| format!("{name} requires a value").into());
 		}
+
 		Ok(default.to_owned())
 	}
 
@@ -89,6 +93,7 @@ mod host {
 		} else {
 			"x86_64-apple-ios"
 		};
+
 		let mut build = Command::new("cargo");
 		build.args([
 			"build",
@@ -99,19 +104,23 @@ mod host {
 			"--example",
 			"native_probe",
 		]);
+
 		if coverage {
 			build
 				.args(["--features", "coverage"])
 				.env("RUSTFLAGS", "-C instrument-coverage");
 		}
+
 		let status = build
 			.env("CARGO_TARGET_DIR", &target_dir)
 			.env("CARGO_BUILD_JOBS", "2")
 			.env("IPHONEOS_DEPLOYMENT_TARGET", "15.0")
 			.status()?;
+
 		if !status.success() {
 			return Err("UIKit probe build failed".into());
 		}
+
 		std::fs::create_dir_all(&output)?;
 		let bundle = output.join("LeptoskitUIKitProbe.app");
 		std::fs::create_dir_all(&bundle)?;
@@ -119,9 +128,11 @@ mod host {
 			target_dir.join(target).join("debug/examples/native_probe"),
 			bundle.join("native_probe"),
 		)?;
+
 		for file in ["Info.plist", "probe-image.png", "probe-image.bmp"] {
 			std::fs::copy(root.join("probe").join(file), bundle.join(file))?;
 		}
+
 		command(
 			"codesign",
 			&[
@@ -135,6 +146,7 @@ mod host {
 		// saves the minutes a fresh device spends on its first boot; without
 		// it the run creates, boots, and deletes its own.
 		let existing = option("--device", "")?;
+
 		if !existing.is_empty() {
 			// A reused device keeps an earlier install's data container, report
 			// included, so the app is removed first and only this run's report
@@ -146,8 +158,10 @@ mod host {
 				"Verified UIKit native renderer on {existing}. Artifacts: {}",
 				output.display()
 			);
+
 			return Ok(());
 		}
+
 		let device = sim(&[
 			"create",
 			"Leptoskit UIKit Verification",
@@ -156,10 +170,12 @@ mod host {
 		])?;
 		println!("Task-owned simulator {device}");
 		let boot = sim(&["boot", &device]);
+
 		let result = match boot {
 			Ok(_) => verify(&device, &bundle, &output, coverage),
 			Err(error) => Err(error),
 		};
+
 		let shutdown = sim(&["shutdown", &device]);
 		let deletion = sim(&["delete", &device]);
 		result?;
@@ -184,6 +200,7 @@ mod host {
 		])?;
 		let mut launch = Command::new("xcrun");
 		launch.args(["simctl", "launch", device, BUNDLE]);
+
 		if coverage {
 			// simctl forwards SIMCTL_CHILD_-prefixed variables to the app.
 			launch.env(
@@ -192,7 +209,9 @@ mod host {
 				output.join("uikit.profraw"),
 			);
 		}
+
 		let launched = launch.output()?;
+
 		if !launched.status.success() {
 			return Err(format!(
 				"simctl launch failed\n{}",
@@ -200,15 +219,19 @@ mod host {
 			)
 			.into());
 		}
+
 		let container = sim(&["get_app_container", device, BUNDLE, "data"])?;
 		let report = Path::new(&container).join("Documents/native-report.tsv");
 		let deadline = Instant::now() + Duration::from_secs(60);
+
 		while !report.exists() {
 			if Instant::now() >= deadline {
 				return Err("native UIKit probe did not produce a report within 60 seconds".into());
 			}
+
 			std::thread::sleep(Duration::from_millis(200));
 		}
+
 		let report_text = std::fs::read_to_string(&report)?;
 		std::fs::copy(&report, output.join("native-report.tsv"))?;
 		sim(&[
@@ -221,9 +244,11 @@ mod host {
 				.ok_or("screenshot path must be Unicode")?,
 		])?;
 		print!("{report_text}");
+
 		if !report_text.starts_with("VERIFIED\t") {
 			return Err("native UIKit assertions failed".into());
 		}
+
 		Ok(())
 	}
 }

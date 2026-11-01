@@ -57,6 +57,7 @@ impl Screenshot {
 		let mut pixels = vec![0; reader.output_buffer_size()];
 		reader.next_frame(&mut pixels)?;
 		reader.finish()?;
+
 		Ok(Self {
 			bytes,
 			width,
@@ -105,12 +106,15 @@ impl LayoutImage {
 		if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
 			return Err(CaptureError::Dimensions);
 		}
+
 		let (width, height) = (width.ceil() as u32, height.ceil() as u32);
 		let pixels = pixel_count(width, height)?;
 		let mut rgba = vec![240; pixels * 4];
+
 		for pixel in rgba.as_chunks_mut::<4>().0 {
 			pixel[3] = 255;
 		}
+
 		for (index, frame) in frames.iter().enumerate() {
 			fill_frame(
 				&mut rgba,
@@ -120,6 +124,7 @@ impl LayoutImage {
 				PALETTE[index % PALETTE.len()],
 			);
 		}
+
 		let mut bytes = Vec::new();
 		{
 			let mut encoder = png::Encoder::new(&mut bytes, width, height);
@@ -159,10 +164,12 @@ fn fill_frame(rgba: &mut [u8], width: u32, height: u32, frame: &Frame, color: [u
 	let top = frame.y.max(0.0).min(height as f32) as u32;
 	let right = (frame.x + frame.width).max(0.0).min(width as f32) as u32;
 	let bottom = (frame.y + frame.height).max(0.0).min(height as f32) as u32;
+
 	for y in top..bottom {
 		for x in left..right {
 			let offset = (y as usize * width as usize + x as usize) * 4;
 			let border = x == left || y == top || x + 1 == right || y + 1 == bottom;
+
 			let fill = if border { [30; 3] } else { color };
 			rgba[offset..offset + 3].copy_from_slice(&fill);
 		}
@@ -181,19 +188,24 @@ fn distinct_colors(bytes: &[u8], limit: usize) -> Result<usize, CaptureError> {
 	let mut pixels = vec![0; reader.output_buffer_size()];
 	let frame = reader.next_frame(&mut pixels)?;
 	let mut colors = std::collections::HashSet::new();
+
 	for pixel in pixels[..frame.buffer_size()].chunks_exact(frame.color_type.samples()) {
 		colors.insert(pixel);
+
 		if colors.len() > limit {
 			break;
 		}
 	}
+
 	Ok(colors.len())
 }
 
 fn pixel_count(width: u32, height: u32) -> Result<usize, CaptureError> {
 	let count = u64::from(width) * u64::from(height);
+
 	if count == 0 || count > MAX_PIXELS as u64 {
 		return Err(CaptureError::Dimensions);
 	}
+
 	Ok(count as usize)
 }

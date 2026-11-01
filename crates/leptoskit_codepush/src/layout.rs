@@ -261,6 +261,7 @@ fn sanitize(component: &str) -> String {
 			}
 		})
 		.collect();
+
 	if sanitized.is_empty() {
 		"_".to_owned()
 	} else {
@@ -281,15 +282,18 @@ fn is_sha256_hex(hash: &str) -> bool {
 pub(crate) fn encode_component(component: &str) -> String {
 	const HEX: &[u8; 16] = b"0123456789ABCDEF";
 	let mut encoded = String::with_capacity(component.len());
+
 	for byte in component.bytes() {
 		if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
 			encoded.push(char::from(byte));
 		} else {
 			encoded.push('%');
 			encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+
 			encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
 		}
 	}
+
 	encoded
 }
 

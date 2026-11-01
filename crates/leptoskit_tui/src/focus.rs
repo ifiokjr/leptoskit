@@ -55,6 +55,7 @@ pub(crate) fn focusables(backend: &TuiBackend) -> Vec<NodeId> {
 		if focusable_kind(node.kind) {
 			match node.props.aria().tab_index {
 				Some(index) if index > 0 => positive.push((index, id)),
+
 				Some(index) if index < 0 => {}
 				_ => rest.push(id),
 			}

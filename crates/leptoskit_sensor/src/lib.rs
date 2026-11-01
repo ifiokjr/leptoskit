@@ -70,22 +70,28 @@ impl VectorReading {
 	/// Decodes four little-endian f64 values, rejecting invalid samples.
 	pub fn decode(payload: &[u8]) -> Result<Self, Error> {
 		let [timestamp, x, y, z] = decode_values(payload)?;
+
 		if timestamp < 0.0 {
 			return Err(Error::InvalidArgument);
 		}
+
 		Ok(Self { timestamp, x, y, z })
 	}
 
 	/// Validates and encodes a platform sample without allocation.
 	pub fn encode(self) -> Result<[u8; 32], Error> {
 		let values = [self.timestamp, self.x, self.y, self.z];
+
 		if self.timestamp < 0.0 || values.iter().any(|v| !v.is_finite()) {
 			return Err(Error::InvalidArgument);
 		}
+
 		let mut bytes = [0; 32];
+
 		for (slot, value) in bytes.as_chunks_mut::<8>().0.iter_mut().zip(values) {
 			slot.copy_from_slice(&value.to_le_bytes());
 		}
+
 		Ok(bytes)
 	}
 }
@@ -103,9 +109,11 @@ impl PressureReading {
 	/// pressure.
 	pub fn decode(payload: &[u8]) -> Result<Self, Error> {
 		let [timestamp, hectopascals] = decode_values(payload)?;
+
 		if timestamp < 0.0 || hectopascals <= 0.0 {
 			return Err(Error::InvalidArgument);
 		}
+
 		Ok(Self {
 			timestamp,
 			hectopascals,
@@ -132,14 +140,18 @@ fn decode_values<const N: usize>(payload: &[u8]) -> Result<[f64; N], Error> {
 	if payload.len() != N * 8 {
 		return Err(Error::InvalidArgument);
 	}
+
 	let mut values = [0.0; N];
 	let (chunks, _) = payload.as_chunks::<8>();
+
 	for (value, bytes) in values.iter_mut().zip(chunks) {
 		*value = f64::from_le_bytes(*bytes);
+
 		if !value.is_finite() {
 			return Err(Error::InvalidArgument);
 		}
 	}
+
 	Ok(values)
 }
 
@@ -180,6 +192,7 @@ mod tests {
 				.collect::<Vec<_>>()
 		};
 		assert!(PressureReading::decode(&pressure(0.0, 1013.25)).is_ok());
+
 		for (timestamp, hectopascals) in [(-1.0, 1013.25), (0.0, 0.0), (0.0, -5.0)] {
 			assert_eq!(
 				PressureReading::decode(&pressure(timestamp, hectopascals)),
@@ -190,13 +203,16 @@ mod tests {
 	#[test]
 	fn intervals_are_bounded_and_exact() {
 		assert_eq!(Interval::new(250).unwrap().milliseconds(), 250);
+
 		for value in [5, 16, 60_000] {
 			let interval = Interval::new(value).unwrap();
 			assert_eq!(Interval::decode(&interval.encode()), Ok(interval));
 		}
+
 		for value in [0, 4, 60_001, u32::MAX] {
 			assert_eq!(Interval::new(value), Err(Error::InvalidArgument));
 		}
+
 		assert_eq!(
 			Interval::decode(&[5, 0, 0, 0, 0]),
 			Err(Error::InvalidArgument)
@@ -217,6 +233,7 @@ mod tests {
 			VectorReading::decode(&bytes[..31]),
 			Err(Error::InvalidArgument)
 		);
+
 		for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
 			assert_eq!(
 				VectorReading {
@@ -233,6 +250,7 @@ mod tests {
 				Err(Error::InvalidArgument)
 			);
 		}
+
 		assert_eq!(
 			VectorReading {
 				timestamp: -1.0,
@@ -252,6 +270,7 @@ mod tests {
 			PressureReading::decode(&sample.encode().unwrap()),
 			Ok(sample)
 		);
+
 		for pressure in [0.0, -1.0, f64::NAN, f64::INFINITY] {
 			assert_eq!(
 				PressureReading {
@@ -262,6 +281,7 @@ mod tests {
 				Err(Error::InvalidArgument)
 			);
 		}
+
 		assert_eq!(decode_available(&[2, 0, 0, 0]), Err(Error::InvalidArgument));
 		assert_eq!(decode_available(&[1, 0, 0, 0]), Ok(true));
 	}
@@ -331,9 +351,11 @@ impl LightReading {
 	/// Decodes the exact two-double payload, rejecting nonfinite/negative data.
 	pub fn decode(payload: &[u8]) -> Result<Self, Error> {
 		let [timestamp, lux] = decode_values(payload)?;
+
 		if timestamp < 0.0 || lux < 0.0 {
 			return Err(Error::InvalidArgument);
 		}
+
 		Ok(Self { timestamp, lux })
 	}
 }
@@ -355,7 +377,9 @@ mod bounded_tests {
 		assert!(LightReading::decode(&[0; 15]).is_err());
 		let mut bad = [0; 16];
 		bad[8..].copy_from_slice(&(-1_f64).to_le_bytes());
+
 		assert!(LightReading::decode(&bad).is_err());
+
 		for invalid in [0, 120_001, u32::MAX] {
 			assert!(Timeout::new(invalid).is_err());
 		}

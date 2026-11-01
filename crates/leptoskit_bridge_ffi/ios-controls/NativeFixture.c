@@ -166,6 +166,7 @@ lk_buffer lk_app_render_binary(lk_app *app) {
         int64_t root = 1;
         put(&out, &root, sizeof(root));
         put_u32(&out, 2);
+
         // Create: text 0, accessibility label 4; guest 2 adds background 6
         // and corner radius 11.
         put(&out, (const uint8_t[]){1}, 1);
@@ -331,6 +332,7 @@ int32_t lk_guest_stop(lk_guest *guest) {
 }
 
 void lk_guest_ack(const lk_guest *guest) {}
+
 int32_t lk_guest_start(const lk_guest *guest, float width, float height) { return guest_step(guest); }
 int32_t lk_guest_resize(const lk_guest *guest, float width, float height, bool dark) { return guest_step(guest); }
 int32_t lk_guest_event(const lk_guest *guest, size_t node, uint32_t kind, const uint8_t *text, size_t len) {
@@ -372,5 +374,6 @@ int32_t lk_guest_rive_tick(const lk_guest *guest, double elapsed, float scale, u
 lk_buffer lk_guest_take_rive_frame(const lk_guest *guest, size_t *node, uint32_t *width, uint32_t *height) {
     return (lk_buffer){NULL, 0, NULL};
 }
+
 int32_t lk_guest_failed(const lk_guest *guest) { return guest->failed; }
 lk_buffer lk_guest_error(const lk_guest *guest) { return lk_app_error(guest->app); }

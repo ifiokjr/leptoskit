@@ -237,9 +237,11 @@ fn module(marker: &str, edits: usize) -> Vec<u8> {
 		CODE[(state % CODE.len() as u64) as usize]
 	}));
 	let middle = wasm.len() / 2;
+
 	for edit in 0..edits {
 		wasm[middle + edit * 4096..][..12].copy_from_slice(b"patched code");
 	}
+
 	wasm
 }
 

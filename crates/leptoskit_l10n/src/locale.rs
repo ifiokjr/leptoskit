@@ -139,6 +139,7 @@ pub struct LocaleError {
 #[must_use]
 pub fn accept_language(header: &str) -> Vec<Locale> {
 	let mut entries: Vec<(u16, Locale)> = Vec::new();
+
 	for entry in header.split(',') {
 		let mut parts = entry.split(';').map(str::trim);
 		let Some(tag) = parts.next().filter(|tag| !tag.is_empty() && *tag != "*") else {
@@ -149,22 +150,28 @@ pub fn accept_language(header: &str) -> Vec<Locale> {
 				Some((name, value)) if name.trim().eq_ignore_ascii_case("q") => {
 					thousandths(value.trim())
 				}
+
 				_ => Some(quality),
 			}
 		}) else {
 			continue;
 		};
+
 		if quality == 0 {
 			continue;
 		}
+
 		let Ok(locale) = Locale::new(tag) else {
 			continue;
 		};
+
 		if entries.iter().any(|(_, seen)| *seen == locale) {
 			continue;
 		}
+
 		entries.push((quality, locale));
 	}
+
 	entries.sort_by_key(|(quality, _)| std::cmp::Reverse(*quality));
 	entries.into_iter().map(|(_, locale)| locale).collect()
 }
@@ -174,10 +181,13 @@ pub fn accept_language(header: &str) -> Vec<Locale> {
 /// zeros.
 fn thousandths(value: &str) -> Option<u16> {
 	let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
+
 	if fraction.len() > 3 || !fraction.bytes().all(|byte| byte.is_ascii_digit()) {
 		return None;
 	}
+
 	let decimals = format!("{fraction:0<3}").parse::<u16>().ok()?;
+
 	match whole {
 		"0" => Some(decimals),
 		"1" if decimals == 0 => Some(1000),
@@ -199,6 +209,7 @@ mod tests {
 		assert_eq!(locale, Locale::new("zh-Hant-TW").unwrap());
 		assert_eq!(locale, "zh-hant-tw");
 		assert_ne!(locale, "zh-TW");
+
 		assert_ne!(locale, "not a tag");
 		assert_eq!(format!("{locale:?}"), "Locale(\"zh-Hant-TW\")");
 		assert_eq!("en".parse::<Locale>().unwrap().to_string(), "en");
@@ -228,6 +239,7 @@ mod tests {
 		assert_eq!(accept_language("*"), [] as [Locale; 0]);
 		assert_eq!(accept_language("en;q=0, fr;q=-1"), [] as [Locale; 0]);
 		assert_eq!(accept_language("en;q=abc"), [] as [Locale; 0]);
+
 		let tags: Vec<String> = accept_language(" fr ;  Q = 0.5 ,de;level=1")
 			.iter()
 			.map(ToString::to_string)

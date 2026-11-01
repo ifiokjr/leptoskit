@@ -40,6 +40,7 @@ final class TextLabel: NSView {
         string = NSAttributedString(string: text, attributes: [
             .font: font, .foregroundColor: color, .paragraphStyle: paragraph
         ])
+
         needsDisplay = true
     }
 

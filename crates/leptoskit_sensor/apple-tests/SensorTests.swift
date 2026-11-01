@@ -21,6 +21,7 @@ private func payload(_ bytes: [UInt8]) throws -> NativeBuffer {
     #expect(call > 0)
     var request = lk_request()
     #expect(lk_bridge_next_request(bridge, &request) == 1)
+
     return NativeBuffer(taking: request.payload)
 }
 
@@ -28,6 +29,7 @@ private func payload(_ bytes: [UInt8]) throws -> NativeBuffer {
 @MainActor
 func unavailableHardwareAndClosedSensorsNeverFabricateReadings() async throws {
     #if os(macOS) || targetEnvironment(simulator)
+
     for kind in [MotionSensorPlugin.Kind.accelerometer, .gyroscope, .magnetometer, .barometer] {
         let plugin = MotionSensorPlugin(name: "test", kind: kind)
         let availability = try await plugin.invoke(method: 0, payload: payload([]))
@@ -47,5 +49,6 @@ func unavailableHardwareAndClosedSensorsNeverFabricateReadings() async throws {
             try await plugin.invoke(method: 0, payload: payload([]))
         }
     }
+
     #endif
 }

@@ -199,6 +199,7 @@ fn builders_set_structure_and_state_properties() {
 	assert_eq!(aria.invalid, Some(Invalid::Spelling));
 	assert_eq!(aria.read_only, Some(true));
 	assert_eq!(aria.multiline, Some(false));
+
 	assert_eq!(aria.has_popup, Some(HasPopup::Menu));
 }
 
@@ -679,6 +680,7 @@ fn aria_props_round_trip_through_their_wire_names() {
 	assert_eq!(json["aria"]["aria_extra"]["aria-rowindex"], "3");
 	assert_eq!(json["aria"]["tab_index"], 0);
 	let decoded: NativeProps = serde_json::from_value(json).expect("decode");
+
 	assert_eq!(decoded, element.props);
 }
 

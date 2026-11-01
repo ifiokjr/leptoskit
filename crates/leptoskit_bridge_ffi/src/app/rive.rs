@@ -26,12 +26,15 @@ impl RivePresenter for Presenter {
 		if self.failed {
 			return false;
 		}
+
 		// SAFETY: The host lends this callback/context for the synchronous
 		// tick.
 		let status = unsafe { (self.visible)(self.context, id.index()) };
+
 		if status != 0 && status != 1 {
 			self.failed = true;
 		}
+
 		status == 1
 	}
 
@@ -50,10 +53,12 @@ impl RivePresenter for Presenter {
 					frame.bytes().len(),
 				)
 			};
+
 			if status == 1 {
 				return Ok(());
 			}
 		}
+
 		self.failed = true;
 		Err(RiveError::Runtime(
 			"native Rive image adapter failed".into(),
@@ -103,6 +108,7 @@ pub unsafe extern "C" fn lk_app_rive_tick(
 	};
 	let (Some(visible), Some(present)) = (visible, present) else {
 		app.error = "native Rive callbacks are required".into();
+
 		return -1;
 	};
 
@@ -113,6 +119,7 @@ pub unsafe extern "C" fn lk_app_rive_tick(
 		|| flags & !3 != 0
 	{
 		app.error = "invalid native Rive display environment".into();
+
 		return -1;
 	}
 	let mut presenter = Presenter {
@@ -136,6 +143,7 @@ pub unsafe extern "C" fn lk_app_rive_tick(
 			app.error.clear();
 			i32::from(pending)
 		}
+
 		Ok(_) => {
 			app.error = "native Rive visibility adapter failed".into();
 			-1

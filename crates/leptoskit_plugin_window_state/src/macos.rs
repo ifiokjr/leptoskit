@@ -64,6 +64,7 @@ pub fn capture(window: &NSWindow, last_normal: Option<Bounds>) -> Result<WindowS
 	} else {
 		bounds(window.frame())?
 	};
+
 	Ok(WindowState {
 		normal_bounds,
 		display_id: window.screen().as_deref().map(display_id).transpose()?,
@@ -84,13 +85,17 @@ pub fn restore(
 	if window.styleMask().contains(NSWindowStyleMask::FullScreen) {
 		return Err(Error::Unavailable);
 	}
+
 	let placed = crate::placement(state, &displays(main_thread)?)?;
+
 	if window.isMiniaturized() {
 		window.deminiaturize(None);
 	}
+
 	if window.isZoomed() {
 		window.zoom(None);
 	}
+
 	let frame = placed.bounds;
 	window.setFrame_display(
 		NSRect::new(
@@ -99,11 +104,14 @@ pub fn restore(
 		),
 		false,
 	);
+
 	if placed.mode == WindowMode::Maximized {
 		window.zoom(None);
 	}
+
 	if placed.minimized {
 		window.miniaturize(None);
 	}
+
 	Ok(())
 }

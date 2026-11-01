@@ -87,6 +87,7 @@ class KeepAwakePluginTest {
                     assertEquals(PluginException.CANCELLED, withTimeout(5000) { first.await() })
                     awaitFlag(activity, false)
                     scenario.moveToState(Lifecycle.State.RESUMED)
+
                     awaitFocus(activity)
                     val second = hold(plugin)
                     awaitFlag(activity, true)
@@ -173,12 +174,14 @@ class KeepAwakePluginTest {
 
     private fun launch(): ActivityScenario<Activity> {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+
         return ActivityScenario.launch(requireNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName)))
     }
 
     private fun activity(scenario: ActivityScenario<Activity>): Activity {
         lateinit var activity: Activity
         scenario.onActivity { activity = it }
+
         return activity
     }
 

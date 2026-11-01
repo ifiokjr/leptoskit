@@ -148,6 +148,7 @@ impl GtkBackend {
 		if view.parent().is_some() {
 			return None;
 		}
+
 		Some(self.window(Some(root), title, width, height))
 	}
 
@@ -173,6 +174,7 @@ impl GtkBackend {
 		}) {
 			host.put(&widget.0, widget.1, 0, false);
 		}
+
 		self.state.borrow_mut().hosts.push(Host {
 			frame: host.downgrade(),
 			root,
@@ -192,6 +194,7 @@ impl GtkBackend {
 			.default_height(height)
 			.child(&host)
 			.build();
+
 		window.present();
 		self.refresh();
 		drop(guard);
@@ -256,6 +259,7 @@ impl GtkBackend {
 				.expect("radio control")
 				.set_group(None::<&gtk::CheckButton>);
 		}
+
 		for widget in state.widgets.values() {
 			if let Some(anchor) = &widget.radio_anchor {
 				anchor.set_group(None::<&gtk::CheckButton>);
@@ -269,9 +273,11 @@ impl GtkBackend {
 		{
 			if let Some(group) = widget.props.radio_group.as_ref() {
 				let mut root = *id;
+
 				while let Some(parent) = state.widgets.get(&root).and_then(|widget| widget.parent) {
 					root = parent;
 				}
+
 				let anchor = groups
 					.entry((root, group.name()))
 					.or_insert_with(|| widget.radio_anchor.clone().expect("radio anchor"));
@@ -283,6 +289,7 @@ impl GtkBackend {
 					.set_group(Some(anchor));
 			}
 		}
+
 		for (root, name) in groups.keys() {
 			let mut members = Vec::new();
 			collect_visible_group(&state, *root, name, &mut members);
@@ -321,6 +328,7 @@ impl GtkBackend {
 					}
 					_ => false,
 				};
+
 				(*id, visible && running && widget.frame.is_mapped())
 			})
 			.collect::<Vec<_>>();
@@ -336,12 +344,14 @@ impl GtkBackend {
 				if let Some(source) = widget.animation.take() {
 					source.remove();
 				}
+
 				continue;
 			}
 
 			if widget.kind != NativeKind::LinearProgressIndicator || widget.animation.is_some() {
 				continue;
 			}
+
 			let weak = widget.control.downgrade();
 			widget.animation = Some(glib::timeout_add_local(
 				Duration::from_millis(80),
@@ -354,6 +364,7 @@ impl GtkBackend {
 				},
 			));
 		}
+
 		drop(state);
 		drop(guard);
 	}
@@ -369,6 +380,7 @@ impl Drop for GtkBackend {
 		for widget in state.widgets.values_mut() {
 			stop(widget);
 		}
+
 		// Hosts may still retain a root. Disconnect callbacks by clearing the
 		// weakly referenced ownership map and stop all animations immediately.
 		state.widgets.clear();
@@ -407,6 +419,7 @@ impl NativeBackend for GtkBackend {
 		if !control.is_mapped() || !control.is_visible() || control.opacity() == 0.0 {
 			return false;
 		}
+
 		let Some(root) = control.root() else {
 			return false;
 		};
@@ -414,10 +427,12 @@ impl NativeBackend for GtkBackend {
 			return false;
 		};
 		let mut ancestor = control.parent();
+
 		while let Some(parent) = ancestor {
 			if !parent.is_visible() || parent.opacity() == 0.0 {
 				return false;
 			}
+
 			if parent.overflow() == gtk::Overflow::Hidden
 				|| parent.is::<gtk::ScrolledWindow>()
 				|| parent.is::<gtk::Viewport>()
@@ -432,6 +447,7 @@ impl NativeBackend for GtkBackend {
 			}
 			ancestor = parent.parent();
 		}
+
 		visible.width() > 0.0
 			&& visible.height() > 0.0
 			&& visible.x() < root.width() as f32
@@ -460,6 +476,7 @@ impl NativeBackend for GtkBackend {
 			frame.stride(),
 		);
 		picture.set_paintable(Some(&texture));
+
 		true
 	}
 
@@ -469,6 +486,7 @@ impl NativeBackend for GtkBackend {
 		for mutation in mutations.mutations() {
 			self.apply_one(mutation);
 		}
+
 		sync_hosts(&mut self.state.borrow_mut());
 		self.refresh();
 		drop(guard);
@@ -481,6 +499,7 @@ impl NativeBackend for GtkBackend {
 		} else {
 			Frame::new()
 		};
+
 		let control: gtk::Widget = match kind {
 			NativeKind::View | NativeKind::Custom(_) => content.clone().upcast(),
 			NativeKind::Text | NativeKind::TextRun => {
@@ -506,6 +525,7 @@ impl NativeBackend for GtkBackend {
 				} else {
 					gtk::InputPurpose::FreeForm
 				});
+
 				entry.upcast()
 			}
 			NativeKind::Switch => gtk::Switch::new().upcast(),
@@ -531,6 +551,7 @@ impl NativeBackend for GtkBackend {
 			}
 			NativeKind::Vector => crate::vector::Vector::new(crate::vector::role(props)).upcast(),
 		};
+
 		let css = gtk::CssProvider::new();
 		let radio_anchor = if kind == NativeKind::Radio {
 			let anchor = gtk::CheckButton::new();
@@ -543,6 +564,7 @@ impl NativeBackend for GtkBackend {
 		} else {
 			None
 		};
+
 		control
 			.style_context()
 			.add_provider(&css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -551,17 +573,21 @@ impl NativeBackend for GtkBackend {
 		if let Some(role) = props.aria().role {
 			control.set_accessible_role(crate::accessibility::role(role));
 		}
+
 		if kind == NativeKind::Switch {
 			let mut child = control.first_child();
+
 			while let Some(widget) = child {
 				if widget.css_name() == "slider" {
 					widget
 						.style_context()
 						.add_provider(&css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
 				}
+
 				child = widget.next_sibling();
 			}
 		}
+
 		frame.put(&control, graphene::Rect::new(0.0, 0.0, 0.0, 0.0), 0, true);
 		let widget = Widget {
 			kind,
@@ -590,6 +616,7 @@ impl NativeBackend for GtkBackend {
 				update_vector_role(widget);
 			}
 		}
+
 		self.refresh();
 	}
 
@@ -608,6 +635,7 @@ impl NativeBackend for GtkBackend {
 		} else if let Some(host) = frame.parent().and_downcast::<Frame>() {
 			host.position(&frame, rect);
 		}
+
 		update_scroll_extents(&state);
 	}
 
@@ -644,6 +672,7 @@ impl NativeBackend for GtkBackend {
 			parent.children.retain(|id| *id != child);
 			parent.content.remove(&frame);
 		}
+
 		update_scroll_extents(&state);
 		drop(state);
 		self.refresh();
@@ -658,6 +687,7 @@ impl NativeBackend for GtkBackend {
 			widget.frame.set_sensitive(false);
 			widget.frame.set_visible(false);
 		}
+
 		drop(guard);
 	}
 
@@ -684,6 +714,7 @@ impl NativeBackend for GtkBackend {
 		if let Some(settings) = gtk::Settings::default() {
 			settings.set_gtk_application_prefer_dark_theme(dark);
 		}
+
 		self.refresh();
 	}
 }
@@ -699,9 +730,11 @@ fn sync_hosts(state: &mut State) {
 		if host.root.is_some_and(|id| state.widgets.contains_key(&id)) {
 			continue;
 		}
+
 		while let Some(child) = frame.first_child() {
 			frame.remove(&child);
 		}
+
 		let root = state.widgets.iter().find_map(|(id, widget)| {
 			(widget.parent.is_none() && widget.frame.parent().is_none()).then_some(*id)
 		});
@@ -733,6 +766,7 @@ fn update_vector_role(widget: &mut Widget) {
 	if widget.control.accessible_role() == role {
 		return;
 	}
+
 	let control: gtk::Widget = crate::vector::Vector::new(role).upcast();
 	control
 		.style_context()
@@ -786,6 +820,7 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 		widget.frame.set_overflow(gtk::Overflow::Hidden);
 	}
 	let css = control_css(widget.kind, props);
+
 	if *widget.css_text.borrow() != css {
 		widget.css.load_from_data(&css);
 		widget.css_text.replace(css);
@@ -836,6 +871,7 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 	if let Ok(vector) = widget.control.clone().downcast::<crate::vector::Vector>() {
 		vector.set_drawing(props.drawing.as_ref());
 	}
+
 	// Toolkit label/title setters can replace accessibility names. Apply the
 	// explicit application label last, after every native content setter.
 	widget
@@ -853,6 +889,7 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 			.control
 			.reset_relation(gtk::AccessibleRelation::LabelledBy);
 	}
+
 	crate::accessibility::apply(&widget.control, props, widget.kind);
 }
 
@@ -887,6 +924,7 @@ fn control_css(kind: NativeKind, props: &NativeProps) -> String {
 			"button { background: transparent; border: 0; box-shadow: none; padding: 0; }",
 		);
 	}
+
 	if matches!(kind, NativeKind::TextInput | NativeKind::PasswordInput) {
 		// Yoga sizes an input from its text. The theme's minimum (34px in
 		// Adwaita) would make the entry taller than that frame and
@@ -899,6 +937,7 @@ fn control_css(kind: NativeKind, props: &NativeProps) -> String {
 			);
 		}
 	}
+
 	if kind == NativeKind::Switch {
 		// The shared primitive defaults to 40×24. Adapt GTK's CSS size
 		// request, retaining native theme paint and hit testing, so this
@@ -908,6 +947,7 @@ fn control_css(kind: NativeKind, props: &NativeProps) -> String {
 			 18px; }",
 		);
 	}
+
 	css
 }
 
@@ -923,6 +963,7 @@ fn configure_label(label: &gtk::Label, props: &NativeProps) {
 		TextAlign::Center => 0.5,
 		TextAlign::End => 1.0,
 	});
+
 	let attrs = gtk::pango::AttrList::new();
 	attrs.insert(gtk::pango::AttrFontDesc::new(&font(props.text_style())));
 	label.set_attributes(Some(&attrs));
@@ -931,6 +972,7 @@ fn configure_label(label: &gtk::Label, props: &NativeProps) {
 
 fn configure_button(button: &gtk::Button, props: &NativeProps) {
 	button.set_label(props.text.as_deref().unwrap_or(""));
+
 	if let Some(label) = button.child().and_downcast::<gtk::Label>() {
 		let alignment = props.text_align.unwrap_or(TextAlign::Center);
 		label.set_xalign(match alignment {
@@ -943,6 +985,7 @@ fn configure_button(button: &gtk::Button, props: &NativeProps) {
 			TextAlign::Center => gtk::Justification::Center,
 			TextAlign::End => gtk::Justification::Right,
 		});
+
 		label.layout().set_auto_dir(false);
 	}
 }
@@ -953,6 +996,7 @@ fn configure_entry(entry: &gtk::Entry, kind: NativeKind, props: &NativeProps, rt
 		.as_deref()
 		.or(props.text.as_deref())
 		.unwrap_or("");
+
 	let physical = match props.text_align.unwrap_or_default() {
 		TextAlign::Start => {
 			if rtl {
@@ -970,6 +1014,7 @@ fn configure_entry(entry: &gtk::Entry, kind: NativeKind, props: &NativeProps, rt
 			}
 		}
 	};
+
 	// GtkText reverses xalign using its content's first strong direction,
 	// which can differ from the declared Yoga direction. Compensate at
 	// this native boundary so both Latin and Arabic honor logical start.
@@ -978,9 +1023,11 @@ fn configure_entry(entry: &gtk::Entry, kind: NativeKind, props: &NativeProps, rt
 	} else {
 		gtk::pango::find_base_dir(value)
 	};
+
 	let resolved_rtl = match natural {
 		gtk::pango::Direction::Rtl => true,
 		gtk::pango::Direction::Ltr => false,
+
 		_ if entry.state_flags().contains(gtk::StateFlags::FOCUS_WITHIN) => {
 			entry
 				.display()
@@ -988,8 +1035,10 @@ fn configure_entry(entry: &gtk::Entry, kind: NativeKind, props: &NativeProps, rt
 				.and_then(|seat| seat.keyboard())
 				.is_some_and(|keyboard| keyboard.direction() == gtk::pango::Direction::Rtl)
 		}
+
 		_ => rtl,
 	};
+
 	EntryExt::set_alignment(
 		entry,
 		if resolved_rtl {
@@ -1004,6 +1053,7 @@ fn configure_entry(entry: &gtk::Entry, kind: NativeKind, props: &NativeProps, rt
 		entry.set_text(value);
 		entry.set_position(position.min(value.chars().count() as i32));
 	}
+
 	entry.set_placeholder_text(props.placeholder.as_deref());
 }
 
@@ -1037,6 +1087,7 @@ fn configure_picture(picture: &gtk::Picture, props: &NativeProps) {
 			gtk::gio::File::for_path(source)
 		}
 	});
+
 	let unchanged = match (picture.file(), file.as_ref()) {
 		(Some(old), Some(new)) => old.equal(new),
 		(None, None) => true,
@@ -1069,6 +1120,7 @@ fn emit(weak: &Weak<RefCell<State>>, flag: &Cell<bool>, id: NodeId, event: Nativ
 	if flag.get() {
 		return;
 	}
+
 	let Some(state) = weak.upgrade() else {
 		return;
 	};
@@ -1112,6 +1164,7 @@ fn connect(state: &Rc<RefCell<State>>, id: NodeId, widget: &Widget) {
 			GtkBackend::refresh_state(&state);
 		}
 	});
+
 	connect_proposals(state, id, widget, &weak, &flag);
 
 	if matches!(
@@ -1132,6 +1185,7 @@ fn connect(state: &Rc<RefCell<State>>, id: NodeId, widget: &Widget) {
 		let weak_focus = weak.clone();
 		let flag_focus = flag.clone();
 		focus.connect_leave(move |_| emit(&weak_focus, &flag_focus, id, NativeEvent::Blur));
+
 		widget.control.add_controller(focus);
 	}
 
@@ -1149,6 +1203,7 @@ fn connect(state: &Rc<RefCell<State>>, id: NodeId, widget: &Widget) {
 				emit(&weak, &flag, target, event);
 				return glib::Propagation::Stop;
 			}
+
 			glib::Propagation::Proceed
 		});
 		widget.control.add_controller(key);
@@ -1181,6 +1236,7 @@ fn connect_proposals(
 				} else {
 					NativeEvent::PressOut
 				};
+
 				emit(&weak, &flag, id, event);
 			}
 		});
@@ -1247,6 +1303,7 @@ fn connect_proposals(
 			if flag.get() {
 				return;
 			}
+
 			let slider = weak.upgrade().and_then(|state| {
 				state
 					.borrow()
@@ -1298,6 +1355,7 @@ fn key_proposal(
 	if !interactive(state, id) {
 		return None;
 	}
+
 	let rtl = widget.props.direction == Some(leptoskit_yoga::Direction::Rtl);
 	let forward =
 		key == gdk::Key::Down || key == if rtl { gdk::Key::Left } else { gdk::Key::Right };
@@ -1308,11 +1366,14 @@ fn key_proposal(
 		let increment = slider
 			.step()
 			.unwrap_or((slider.max() - slider.min()) / 100.0);
+
 		let value = match key {
 			gdk::Key::Home => slider.min(),
 			gdk::Key::End => slider.max(),
 			gdk::Key::Up => slider.value() + increment,
+
 			gdk::Key::Left if rtl => slider.value() + increment,
+
 			gdk::Key::Right if !rtl => slider.value() + increment,
 			gdk::Key::Down | gdk::Key::Left | gdk::Key::Right => slider.value() - increment,
 			_ => return None,
@@ -1329,12 +1390,14 @@ fn key_proposal(
 	if widget.kind != NativeKind::Radio || (!forward && !backward) {
 		return None;
 	}
+
 	let group = widget.props.radio_group.as_ref()?;
 	let mut root = id;
 
 	while let Some(parent) = state.widgets.get(&root).and_then(|widget| widget.parent) {
 		root = parent;
 	}
+
 	let mut members = Vec::new();
 	collect_radios(state, root, group, &mut members);
 	let current = members.iter().position(|member| *member == id)?;
@@ -1343,6 +1406,7 @@ fn key_proposal(
 	} else {
 		(current + members.len() - 1) % members.len()
 	};
+
 	let target = members[next];
 	Some((
 		target,

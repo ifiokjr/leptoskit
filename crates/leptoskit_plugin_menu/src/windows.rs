@@ -44,19 +44,26 @@ impl WindowMenu {
 		if unsafe { IsWindow(hwnd) } == 0 {
 			return Err(Error::Native);
 		}
+
 		if unsafe { GetWindowThreadProcessId(hwnd, std::ptr::null_mut()) != GetCurrentThreadId() } {
 			return Err(Error::WrongThread);
 		}
+
 		if !ATTACHED.with(|attached| attached.borrow_mut().insert(hwnd as isize)) {
 			return Err(Error::Busy);
 		}
+
 		// SAFETY: caller keeps the current-thread HWND and previous menu alive.
 		let previous = unsafe { GetMenu(hwnd) };
+
 		if unsafe { menu.native_menu().init_for_hwnd(hwnd as isize) }.is_err() {
 			ATTACHED.with(|attached| attached.borrow_mut().remove(&(hwnd as isize)));
+
 			return Err(Error::Native);
 		}
+
 		let installed = unsafe { GetMenu(hwnd) };
+
 		if installed.is_null() || installed == previous {
 			unsafe {
 				let _ = menu.native_menu().remove_for_hwnd(hwnd as isize);
@@ -64,8 +71,10 @@ impl WindowMenu {
 				DrawMenuBar(hwnd);
 			}
 			ATTACHED.with(|attached| attached.borrow_mut().remove(&(hwnd as isize)));
+
 			return Err(Error::Native);
 		}
+
 		Ok(Self {
 			menu,
 			hwnd,
@@ -106,6 +115,7 @@ impl Drop for WindowMenu {
 			} else {
 				current
 			};
+
 			let _ = self.menu.native_menu().remove_for_hwnd(self.hwnd as isize);
 			SetMenu(self.hwnd, restore);
 			DrawMenuBar(self.hwnd);

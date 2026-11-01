@@ -206,6 +206,7 @@ impl ProcessPlugin {
 		let output = child
 			.wait_with_output()
 			.map_err(|error| self.error(error.to_string()))?;
+
 		if !output.status.success() {
 			return Err(self.error(format!(
 				"exited with {}: {}",
@@ -213,8 +214,10 @@ impl ProcessPlugin {
 				String::from_utf8_lossy(&output.stderr).trim()
 			)));
 		}
+
 		let reply: Reply = serde_json::from_slice(&output.stdout)
 			.map_err(|error| self.error(format!("reply is not valid JSON: {error}")))?;
+
 		if !reply.ok {
 			return Err(self.error(if reply.message.is_empty() {
 				"replied not ok without a message".to_owned()
@@ -222,6 +225,7 @@ impl ProcessPlugin {
 				reply.message
 			}));
 		}
+
 		Ok(reply)
 	}
 
@@ -246,9 +250,11 @@ impl ProcessPlugin {
 		for feature in &reply.features {
 			context.add_feature(feature.clone());
 		}
+
 		for (key, value) in &reply.env {
 			context.set_env(key.clone(), value.clone());
 		}
+
 		context.rustflags.extend(reply.rustflags.iter().cloned());
 	}
 }
@@ -281,9 +287,11 @@ impl LeptoskitPlugin for ProcessPlugin {
 				"args": args,
 			}),
 		)?;
+
 		if !reply.message.is_empty() {
 			println!("[{}] {}", self.name, reply.message);
 		}
+
 		Ok(reply.exit)
 	}
 
@@ -292,9 +300,11 @@ impl LeptoskitPlugin for ProcessPlugin {
 			"generate",
 			self.context(&context.root, context.platform, context.release),
 		)?;
+
 		for written in &reply.written {
 			context.generated(context.root.join(written));
 		}
+
 		Ok(())
 	}
 

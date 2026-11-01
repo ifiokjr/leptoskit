@@ -151,6 +151,7 @@ impl Players {
 				return true;
 			}
 		}
+
 		false
 	}
 

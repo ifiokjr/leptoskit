@@ -12,9 +12,11 @@ use leptoskit_lint::render_diagnostic;
 /// `leptoskit.toml`, or no configuration at all.
 fn lint(config: Option<&str>, source: &str) -> Report {
 	let project = tempfile::tempdir().expect("scratch project");
+
 	if let Some(config) = config {
 		std::fs::write(project.path().join("leptoskit.toml"), config).expect("write config");
 	}
+
 	std::fs::create_dir(project.path().join("src")).expect("create src");
 	std::fs::write(project.path().join("src/lib.rs"), source).expect("write source");
 	lint_paths(&[project.path().to_owned()]).expect("lint")
@@ -293,6 +295,7 @@ fn files_named_directly_share_their_project_configuration() {
 	std::fs::write(&second, BUILDER_TREE).expect("write source");
 	let report = lint_paths(&[first, second]).expect("lint");
 	assert_eq!(report.files, 2);
+
 	assert_eq!(report.errors(), 2);
 }
 
@@ -339,9 +342,11 @@ mod unreadable {
 		let project = tempfile::tempdir().expect("scratch project");
 		let source = project.path().join("lib.rs");
 		std::fs::write(&source, "").expect("write source");
+
 		if !lock(&source) {
 			return;
 		}
+
 		let error = lint_paths(&[project.path().to_owned()]).expect_err("unreadable source");
 		assert!(error.to_string().contains("lib.rs"), "{error}");
 	}
@@ -352,9 +357,11 @@ mod unreadable {
 		let config = project.path().join("leptoskit.toml");
 		std::fs::write(&config, "").expect("write config");
 		std::fs::write(project.path().join("lib.rs"), "").expect("write source");
+
 		if !lock(&config) {
 			return;
 		}
+
 		let error = lint_paths(&[project.path().to_owned()]).expect_err("unreadable config");
 		assert!(error.to_string().contains("leptoskit.toml"), "{error}");
 	}
@@ -368,8 +375,10 @@ mod unreadable {
 		let result = lint_paths(&[project.path().to_owned()]);
 		// Restore access so the scratch directory can be removed.
 		std::fs::set_permissions(&hidden, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+
 		if locked {
 			let error = result.expect_err("unreadable directory");
+
 			assert!(error.to_string().contains("locked"), "{error}");
 		}
 	}

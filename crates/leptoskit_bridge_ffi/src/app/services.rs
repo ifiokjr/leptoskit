@@ -189,6 +189,7 @@ impl Future for ClosingApp {
 			Some(future) => std::task::ready!(future.as_mut().poll(context)),
 			None => Ok(()),
 		};
+
 		self.future.take();
 		self.result = Some(result);
 

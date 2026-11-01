@@ -31,6 +31,7 @@ fn main() {
 			Ok(())
 		},
 	)];
+
 	#[cfg(not(any(
 		target_os = "macos",
 		target_os = "windows",
@@ -89,6 +90,7 @@ fn real_status_item_lifecycle_inside_the_appkit_loop() {
 		})
 		.expect("schedule the native fixture");
 	app.run();
+
 	if let Some(Err(panic)) = OUTCOME.lock().unwrap().take() {
 		std::panic::resume_unwind(panic);
 	}
@@ -129,16 +131,19 @@ fn exercise() {
 	let mut host = TrayHost::install(|| {}).unwrap();
 	assert!(matches!(TrayHost::install(|| {}), Err(Error::AlreadyOwned)));
 	let icon = RgbaIcon::new(vec![255; 16 * 16 * 4], 16, 16).unwrap();
+
 	let template = Options {
 		template: true,
 		..Options::default()
 	};
+
 	if !macos {
 		assert!(matches!(
 			host.create(icon.clone(), &template, None),
 			Err(Error::Unavailable)
 		));
 	}
+
 	let id = host
 		.create(
 			icon.clone(),
@@ -157,6 +162,7 @@ fn exercise() {
 		host.set_tooltip(id, Some("bad\ntooltip")),
 		Err(Error::InvalidText)
 	));
+
 	if macos {
 		host.set_title(id, Some("Test")).unwrap();
 		host.set_title(id, None).unwrap();
@@ -171,6 +177,7 @@ fn exercise() {
 			Err(Error::Unavailable)
 		));
 	}
+
 	host.set_icon(id, icon.clone(), false).unwrap();
 	host.set_visible(id, false).unwrap();
 	host.set_visible(id, true).unwrap();
@@ -189,22 +196,27 @@ fn exercise() {
 	menu.set_enabled("fixture", false).unwrap();
 
 	let mut ids = Vec::new();
+
 	for _ in 0..TRAY_CAPACITY {
 		ids.push(
 			host.create(icon.clone(), &Options::default(), None)
 				.unwrap(),
 		);
 	}
+
 	assert!(!ids.contains(&id));
 	assert!(matches!(
 		host.create(icon.clone(), &Options::default(), None),
 		Err(Error::Capacity)
 	));
+
 	for id in ids.drain(1..) {
 		host.remove(id).unwrap();
 	}
+
 	// Owner teardown with a still-live native icon.
 	drop(host);
+
 	let mut replacement = TrayHost::install(|| {}).unwrap();
 	let next = replacement.create(icon, &Options::default(), None).unwrap();
 	assert!(!ids.contains(&next) && next != id);
@@ -240,7 +252,9 @@ fn unavailable_session_bus_retains_no_icon() {
 			Err(Error::Native(_))
 		));
 	}
+
 	assert_eq!(host.drain().events, [] as [Event; 0]);
 	drop(host);
+
 	drop(TrayHost::install(|| {}).unwrap());
 }

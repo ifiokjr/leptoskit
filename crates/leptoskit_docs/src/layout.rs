@@ -103,6 +103,7 @@ fn head(
 	} else {
 		format!("{title} · {}", site.title)
 	};
+
 	let description = description
 		.or_else(|| site.description.clone())
 		.unwrap_or_default();
@@ -112,6 +113,7 @@ fn head(
 		} else {
 			output.to_owned()
 		};
+
 		format!("{url}{page}")
 	});
 	let social_image = site
@@ -164,6 +166,7 @@ fn head(
 /// repository link, and the theme switch.
 fn header(site: &Site, root: &str) -> impl IntoView {
 	let at = |path: &str| format!("{root}{path}");
+
 	let brand = match &site.logo {
 		Some((light, dark)) => {
 			view! {
@@ -328,6 +331,7 @@ fn navigation(summary: &Summary, current: &str, root: &str) -> AnyView {
 			}
 		}
 	}
+
 	flush(&mut chapters, &mut groups);
 
 	groups.into_any()
@@ -345,6 +349,7 @@ fn nav_chapter(chapter: &Chapter, current: &str, root: &str) -> AnyView {
 		}
 		None => view! { <span class="lk-nav-draft">{chapter.title.clone()}</span> }.into_any(),
 	};
+
 	let children = (!chapter.children.is_empty()).then(|| {
 		let children = chapter
 			.children

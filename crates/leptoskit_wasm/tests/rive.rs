@@ -30,12 +30,15 @@ fn guest(kind: i32, props: &[Value]) -> String {
 	let mut data = String::new();
 	let mut calls = String::new();
 	let mut offset = 0;
+
 	for props in props {
 		let bytes = serde_json::to_vec(props).unwrap();
 		let mut escaped = String::with_capacity(bytes.len() * 3);
+
 		for byte in &bytes {
 			write!(&mut escaped, "\\{byte:02x}").unwrap();
 		}
+
 		write!(&mut data, "(data (i32.const {offset}) \"{escaped}\")").unwrap();
 		write!(
 			&mut calls,
@@ -45,6 +48,7 @@ fn guest(kind: i32, props: &[Value]) -> String {
 		.unwrap();
 		offset += bytes.len();
 	}
+
 	let pages = offset.div_ceil(65536);
 	format!(
 		r#"(module
@@ -111,6 +115,7 @@ fn a_replacement_guest_renders_its_own_scene_on_the_retained_widget() {
 	host.tick_rive_with(Duration::ZERO, RiveEnvironment::default(), &mut image)
 		.unwrap();
 	assert_eq!(image.0.len(), 128 * 128 * 4);
+
 	assert!(image.0.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0));
 }
 
@@ -140,6 +145,7 @@ fn compact_input_updates_retain_a_node_scoped_asset_and_render_it() {
 	let mut host = WasmHost::headless(wasm.as_bytes()).unwrap();
 	host.start(128.0, 128.0).unwrap();
 	assert!(host.has_rive_players());
+
 	let root = host.surface().root().unwrap();
 	assert_eq!(
 		host.surface().kind(root),
@@ -196,6 +202,7 @@ fn compact_updates_cannot_select_another_nodes_asset_or_bypass_binding_limits() 
 		guest(16, &[content(), serde_json::json!({"rive_inputs": inputs})]).as_bytes(),
 	)
 	.unwrap();
+
 	assert!(
 		host.start(128.0, 128.0)
 			.unwrap_err()
@@ -219,6 +226,7 @@ fn compact_updates_cannot_hide_retained_scene_bytes_from_the_property_limit() {
 	assert!(host.surface().root().is_none());
 	assert!(host.render_error().is_some());
 	assert!(!host.rive_needs_frame());
+
 	assert!(
 		!host
 			.tick_rive(Duration::ZERO, RiveEnvironment::default())
@@ -295,6 +303,7 @@ fn compact_updates_cannot_return_the_retained_scene_budget_to_other_nodes() {
 	let extra = serde_json::json!({"text": "x".repeat(1000)}).to_string();
 	let extra_len = extra.len();
 	let extra = extra.replace('"', "\\22");
+
 	let wasm = format!(
 		r#"(module
  (import "leptoskit" "node_create" (func $create (param i64 i32)))

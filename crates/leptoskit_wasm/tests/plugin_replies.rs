@@ -10,22 +10,26 @@ use leptoskit_wasm::WasmHost;
 fn compiled_rust_guest_validates_plugin_acknowledgements_and_batch_cardinality() {
 	let path = std::env::var("LEPTOSKIT_PLUGIN_REPLY_GUEST").expect("fixture wasm path");
 	let mut host = WasmHost::headless(&std::fs::read(path).unwrap()).unwrap();
+
 	for (name, count) in [("filesystem", 7), ("haptics", 4), ("sqlite", 4)] {
 		let plugin = host
 			.plugins()
 			.register(name, (0..count).map(MethodId))
 			.unwrap();
+
 		for method in 0..count {
 			host.plugins()
 				.grant(plugin, MethodId(method), true)
 				.unwrap();
 		}
 	}
+
 	host.start(100.0, 100.0).unwrap();
 	assert_eq!(
 		host.dispatch_wire(0, EventKind::Press, None).unwrap(),
 		EventOutcome::Unhandled
 	);
+
 	// Filesystem mutations, haptic effects, then a two-statement transaction.
 	let calls = [
 		(0, 1),
@@ -38,6 +42,7 @@ fn compiled_rust_guest_validates_plugin_acknowledgements_and_batch_cardinality()
 		(1, 3),
 		(2, 2),
 	];
+
 	for valid in [false, true] {
 		for (plugin, method) in calls {
 			let request = host
@@ -53,19 +58,23 @@ fn compiled_rust_guest_validates_plugin_acknowledgements_and_batch_cardinality()
 				let mut result = [0; 16];
 				result[..8].copy_from_slice(&1_u64.to_le_bytes());
 				result[8..].copy_from_slice(&2_i64.to_le_bytes());
+
 				for _ in 0..count {
 					encoder.bytes(&result).unwrap();
 				}
+
 				encoder.finish()
 			} else if valid {
 				Bytes::new()
 			} else {
 				Bytes::from_static(&[42])
 			};
+
 			host.plugins().complete(request.id, Ok(response)).unwrap();
 			host.wake_plugins().expect("guest assertions must pass");
 		}
 	}
+
 	assert!(host.plugins().next_request().is_none());
 	assert_eq!(host.plugins().buffered_bytes(), 0);
 	assert_eq!(

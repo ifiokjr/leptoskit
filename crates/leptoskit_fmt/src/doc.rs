@@ -184,9 +184,11 @@ impl Printer<'_> {
 			mode: Mode::Break,
 			item: Item::Doc(doc),
 		}];
+
 		while let Some(command) = commands.pop() {
 			self.run(command, &mut commands);
 		}
+
 		Printed {
 			text: self.out,
 			tracks: self.tracks,
@@ -202,6 +204,7 @@ impl Printer<'_> {
 				item,
 			});
 		};
+
 		let doc = match item {
 			Item::Doc(doc) => doc,
 			Item::Fill(parts) => return self.fill(parts, &indent, mode, commands),
@@ -210,11 +213,13 @@ impl Printer<'_> {
 				return;
 			}
 		};
+
 		match doc {
 			Doc::Text(text, width) => {
 				if let Some(pending) = self.pending_indent.take() {
 					self.out.push_str(&pending.text);
 				}
+
 				self.out.push_str(text);
 				self.column += width;
 			}
@@ -239,12 +244,14 @@ impl Printer<'_> {
 				} else {
 					let remaining = self.remaining();
 					let flat = vec![(Mode::Flat, Item::Doc(contents.as_ref()))];
+
 					if Self::fits(flat, commands, remaining, false) {
 						Mode::Flat
 					} else {
 						Mode::Break
 					}
 				};
+
 				push(commands, &indent, group_mode, Item::Doc(contents));
 			}
 			Doc::Fill(parts) => self.fill(parts, &indent, mode, commands),
@@ -316,15 +323,20 @@ impl Printer<'_> {
 		} else {
 			Mode::Break
 		};
+
 		let Some(separator) = parts.get(1) else {
 			commands.push(command(content_mode, Item::Doc(content)));
+
 			return;
 		};
+
 		if parts.len() == 2 {
 			commands.push(command(content_mode, Item::Doc(separator)));
 			commands.push(command(content_mode, Item::Doc(content)));
+
 			return;
 		}
+
 		let pair_fits = Self::fits(
 			vec![
 				(Mode::Flat, Item::Doc(&parts[2])),
@@ -351,18 +363,22 @@ impl Printer<'_> {
 		must_be_flat: bool,
 	) -> bool {
 		let mut rest_index = rest.len();
+
 		loop {
 			if width < 0 {
 				return false;
 			}
+
 			let Some((mode, item)) = stack.pop() else {
 				if must_be_flat || rest_index == 0 {
 					return true;
 				}
+
 				rest_index -= 1;
 				stack.push((rest[rest_index].mode, rest[rest_index].item));
 				continue;
 			};
+
 			let doc = match item {
 				Item::Doc(doc) => doc,
 				Item::Fill(parts) => {
@@ -371,6 +387,7 @@ impl Printer<'_> {
 				}
 				Item::EndTrack(_) => continue,
 			};
+
 			match doc {
 				Doc::Text(_, text_width) => width -= *text_width as isize,
 				Doc::Concat(parts) | Doc::Fill(parts) => {
@@ -413,12 +430,15 @@ mod tests {
 
 	fn words(builder: &Builder<'_>, words: &[&str]) -> Doc {
 		let mut parts = Vec::new();
+
 		for (index, word) in words.iter().enumerate() {
 			if index > 0 {
 				parts.push(line(Line::Space));
 			}
+
 			parts.push(builder.text(*word));
 		}
+
 		Doc::Fill(parts)
 	}
 

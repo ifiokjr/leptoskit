@@ -77,6 +77,7 @@ impl Authorization {
 	/// Decodes exactly eight bytes, rejecting unknown enum values and trailers.
 	pub fn decode(payload: &[u8]) -> Result<Self, Error> {
 		let (status, prompt) = payload.split_at_checked(4).ok_or(Error::Native)?;
+
 		let status = match status {
 			[0, 0, 0, 0] => Status::Unknown,
 			[1, 0, 0, 0] => Status::NotDetermined,
@@ -85,12 +86,14 @@ impl Authorization {
 			[4, 0, 0, 0] => Status::Restricted,
 			_ => return Err(Error::Native),
 		};
+
 		let can_prompt = match prompt {
 			[0, 0, 0, 0] => None,
 			[1, 0, 0, 0] => Some(false),
 			[2, 0, 0, 0] => Some(true),
 			_ => return Err(Error::Native),
 		};
+
 		Ok(Self { status, can_prompt })
 	}
 
@@ -120,15 +123,18 @@ pub mod web {
 
 	fn navigator() -> Result<web_sys::Navigator, Error> {
 		let window = web_sys::window().ok_or(Error::Unavailable)?;
+
 		if !window.is_secure_context() {
 			return Err(Error::PermissionDenied);
 		}
+
 		Ok(window.navigator())
 	}
 	fn failure(value: &JsValue) -> Error {
 		if value.is_instance_of::<js_sys::TypeError>() {
 			return Error::Unavailable;
 		}
+
 		match value
 			.dyn_ref::<web_sys::DomException>()
 			.map(web_sys::DomException::name)
@@ -168,9 +174,11 @@ pub mod web {
 				failure(&error)
 			}
 		})?;
+
 		let result = result
 			.dyn_into::<web_sys::PermissionStatus>()
 			.map_err(|_| Error::Native)?;
+
 		let authorization = match result.state() {
 			web_sys::PermissionState::Granted => {
 				Authorization {
@@ -192,6 +200,7 @@ pub mod web {
 			}
 			_ => return Err(Error::Native),
 		};
+
 		Ok(authorization)
 	}
 	/// Requests access by opening then immediately stopping a media stream.
@@ -218,6 +227,7 @@ pub mod web {
 					track.stop();
 				}
 			}
+
 			Ok(JsValue::UNDEFINED)
 		});
 		JsFuture::from(cleanup)
@@ -265,6 +275,7 @@ mod tests {
 		for permission in [Permission::Camera, Permission::Microphone] {
 			assert_eq!(Permission::decode(&permission.encode()), Ok(permission));
 		}
+
 		for payload in [&[][..], &[0], &[2, 0, 0, 0], &[0, 0, 0, 0, 0]] {
 			assert_eq!(Permission::decode(payload), Err(Error::InvalidArgument));
 		}
@@ -280,6 +291,7 @@ mod tests {
 		] {
 			for can_prompt in [None, Some(false), Some(true)] {
 				let value = Authorization { status, can_prompt };
+
 				assert_eq!(Authorization::decode(&value.encode()), Ok(value));
 			}
 		}

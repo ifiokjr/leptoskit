@@ -321,6 +321,7 @@ fn parse_fields(fields: &str, input: &mut SiwsInput) -> Result<(), SiwsError> {
 	for line in lines.by_ref() {
 		if line == "Resources:" {
 			input.resources = resources(lines)?;
+
 			return Ok(());
 		}
 

@@ -47,6 +47,7 @@ pub(crate) fn attributed(
 		Direction::Ltr => NSWritingDirection::LeftToRight,
 		Direction::Rtl => NSWritingDirection::RightToLeft,
 	});
+
 	paragraph.setLineBreakMode(NSLineBreakMode::ByWordWrapping);
 	// SAFETY: UIKit exports immutable attribute keys with the documented font,
 	// UIColor, and paragraph-style value types supplied in this dictionary.

@@ -159,6 +159,7 @@ fn the_first_render_is_a_snapshot_and_later_ones_patch_it() {
 		panic!("two nodes: {:?}", tree.nodes);
 	};
 	assert_eq!(root.kind, "View");
+
 	assert_eq!(root.classes, ["flex-col", "p-4"]);
 	assert_eq!(
 		root.source,
@@ -381,6 +382,7 @@ fn a_reloaded_guest_keeps_the_session_and_sends_a_snapshot_once_it_renders() {
 		matches!(&ops[..], [TreeOp::Update { node }] if node.text.as_deref() == Some("Shown")),
 		"{ops:?}"
 	);
+
 	assert_eq!(hub.shared.state.lock().unwrap().hellos.len(), 1);
 }
 
@@ -447,6 +449,7 @@ fn a_guests_values_join_its_tree_in_one_session() {
 	assert!(hello.capabilities.contains(&Capability::Tree));
 	assert!(hello.capabilities.contains(&Capability::State));
 	assert!(hello.capabilities.contains(&Capability::Navigation));
+
 	assert_eq!(snapshot.route.as_deref(), Some("/clips"));
 	assert_eq!(snapshot.state.len(), 1);
 	assert_eq!(snapshot.state[0].value.json, json!({ "count": 1 }));
@@ -576,6 +579,7 @@ fn a_guest_that_never_says_hello_still_gets_a_session() {
 		"the session waited for the guest"
 	);
 	let hello = hub.shared.state.lock().unwrap().hellos[0].clone();
+
 	assert!(!hello.capabilities.contains(&Capability::State));
 }
 

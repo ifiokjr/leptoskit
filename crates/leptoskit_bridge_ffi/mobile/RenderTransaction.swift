@@ -139,6 +139,7 @@ struct VectorPath: Decodable, Equatable {
     enum FillRule: String, Decodable { case nonzero, evenodd }
 
     private static let pointCounts: [Substring: Int] = ["M": 1, "L": 1, "Q": 2, "C": 3, "Z": 0]
+
     enum CodingKeys: String, CodingKey { case data, fill, fillRule, stroke }
     /// The outline in view-box coordinates.
     let outline: CGPath
@@ -198,9 +199,11 @@ struct VectorPath: Decodable, Equatable {
 /// How an outline is stroked: in layout units when fixed, in view-box units when it scales with the drawing.
 struct VectorStroke: Decodable, Equatable {
     enum Cap: String, Decodable { case butt, round, square }
+
     enum Join: String, Decodable { case miter, round, bevel }
     /// Whether the width and dashes follow the drawing's scale.
     enum Scaling: String, Decodable { case fixed, drawing }
+
     enum CodingKeys: String, CodingKey { case color, width, cap, join, miterLimit, dashes, dashOffset, scaling }
     let color: UInt32
     let width: CGFloat
@@ -242,6 +245,7 @@ struct VectorStroke: Decodable, Equatable {
         } else {
             dashes + dashes
         }
+
         self.dashOffset = self.dashes.isEmpty ? 0 : dashOffset
     }
 
@@ -284,6 +288,7 @@ struct VectorLayers {
     mutating func paint(_ drawing: VectorDrawing?, in host: CALayer) {
         let geometry = Geometry(size: host.bounds.size, scale: host.contentsScale)
         let rebuild = drawing != self.drawing
+
         guard rebuild || geometry != self.geometry else { return }
 
         CATransaction.begin()
@@ -295,6 +300,7 @@ struct VectorLayers {
                 item.fill?.removeFromSuperlayer()
                 item.stroke?.removeFromSuperlayer()
             }
+
             painted = (drawing?.paths ?? []).map { path in
                 Painted(
                     path: path,
@@ -302,13 +308,16 @@ struct VectorLayers {
                     stroke: path.stroke.map(Self.stroke)
                 )
             }
+
             for layer in painted.flatMap({ [$0.fill, $0.stroke] }).compactMap(\.self) {
                 host.addSublayer(layer)
             }
+
             self.drawing = drawing
         }
 
         self.geometry = geometry
+
         guard let drawing else { return }
 
         var transform = drawing.transform(for: geometry.size)

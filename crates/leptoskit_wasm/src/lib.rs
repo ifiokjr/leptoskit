@@ -579,6 +579,7 @@ impl Guest {
 			.map_err(|_| {
 				WasmError::Compile("leptoskit_clock must take an i64 and return nothing".to_owned())
 			})?;
+
 		store.data_mut().memory = instance
 			.get_export(&store, "memory")
 			.and_then(Extern::into_memory);
@@ -650,6 +651,7 @@ impl<B: NativeBackend> WasmHost<B> {
 		self.event_fn = guest.event_fn;
 		self.alloc_fn = guest.alloc_fn;
 		self.plugins_ready = guest.plugins_ready;
+
 		self.plugins_poll = guest.plugins_poll;
 		self.flush = guest.flush;
 		self.viewport_fn = guest.viewport_fn;
@@ -716,6 +718,7 @@ impl<B: NativeBackend> WasmHost<B> {
 		if self.render_error().is_some() {
 			return Ok(false);
 		}
+
 		self.surface.tick_rive(elapsed, environment)
 	}
 
@@ -731,6 +734,7 @@ impl<B: NativeBackend> WasmHost<B> {
 		if self.render_error().is_some() {
 			return Ok(false);
 		}
+
 		self.surface.tick_rive_with(elapsed, environment, presenter)
 	}
 
@@ -880,9 +884,11 @@ impl<B: NativeBackend> WasmHost<B> {
 	/// Runs `leptoskit_main` and commits the initial tree.
 	pub fn start(&mut self, width: f32, height: f32) -> Result<(), WasmError> {
 		self.set_viewport(width, height);
+
 		if let Some(error) = self.deferred.take() {
 			return Err(error);
 		}
+
 		self.refuel()?;
 		self.main_fn
 			.call(&mut self.store, &[], &mut [])
@@ -909,6 +915,7 @@ impl<B: NativeBackend> WasmHost<B> {
 		if let Some(error) = self.deferred.take() {
 			return Err(error);
 		}
+
 		if !self.allow_render(self.wire_ids.len()) {
 			return Err(host_trap(self.render_error().expect("rendering was rejected")).into());
 		}
@@ -1122,6 +1129,7 @@ impl<B: NativeBackend> WasmHost<B> {
 			self.resync_map();
 			self.check_backend()?;
 		}
+
 		Ok(())
 	}
 
@@ -1140,6 +1148,7 @@ impl<B: NativeBackend> WasmHost<B> {
 				.data_mut()
 				.budget
 				.stop("render allocation limit exceeded; reload the guest");
+
 			return false;
 		}
 
@@ -1163,6 +1172,7 @@ impl<B: NativeBackend> WasmHost<B> {
 		// committed yet, and the widgets it inherited target no guest.
 		if self.wire_ids.is_empty() {
 			self.store.data_mut().wire_by_node = BTreeMap::new();
+
 			return;
 		}
 

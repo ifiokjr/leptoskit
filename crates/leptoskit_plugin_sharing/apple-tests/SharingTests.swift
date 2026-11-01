@@ -9,6 +9,7 @@ final class SharingWireTests: XCTestCase {
         for var number in [kind.littleEndian, UInt32(value.utf8.count).littleEndian] {
             withUnsafeBytes(of: &number) { result.append(contentsOf: $0) }
         }
+
         result.append(contentsOf: value.utf8)
         return result
     }
@@ -17,6 +18,7 @@ final class SharingWireTests: XCTestCase {
         for (value, kind): (String, UInt32) in [("hello\n世界", 0), ("https://example.test/a%20b", 1)] {
             let bytes = wire(value, kind: kind)
             _ = try bytes.withUnsafeBytes(ShareContent.decode)
+
             for count in 0..<bytes.count {
                 XCTAssertThrowsError(try bytes.prefix(count).withUnsafeBytes(ShareContent.decode))
             }
@@ -92,10 +94,12 @@ final class SharingHostTests: XCTestCase {
         XCTAssertEqual(plugin, 0)
         XCTAssertEqual(lk_bridge_grant(bridge, 0, 0, true), 0)
         let bytes: [UInt8] = [0, 0, 0, 0, 1, 0, 0, 0, 120]
+
         let call = bytes.withUnsafeBufferPointer { lk_bridge_submit(bridge, 0, 0, $0.baseAddress, $0.count) }
         XCTAssertGreaterThan(call, 0)
         var request = lk_request()
         XCTAssertEqual(lk_bridge_next_request(bridge, &request), 1)
+
         return NativeBuffer(taking: request.payload)
     }
 }

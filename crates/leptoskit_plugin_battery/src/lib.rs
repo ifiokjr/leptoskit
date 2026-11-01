@@ -54,6 +54,7 @@ impl Charge {
 		if !value.is_finite() || !(0.0..=1.0).contains(&value) {
 			return Err(Error::InvalidArgument);
 		}
+
 		Ok(Self((value * 1000.0).round() as u16))
 	}
 }
@@ -116,6 +117,7 @@ impl Snapshot {
 	pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
 		let mut input = Decoder::new(bytes);
 		let present = read_flag(input.u32()?)?;
+
 		let charge = match input.u32()? {
 			u32::MAX => None,
 			value => {
@@ -124,6 +126,7 @@ impl Snapshot {
 				)?)
 			}
 		};
+
 		let state = match input.u32()? {
 			0 => State::Unknown,
 			1 => State::Discharging,
@@ -131,6 +134,7 @@ impl Snapshot {
 			3 => State::Full,
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		let power_save = read_flag(input.u32()?)?;
 		input.finish()?;
 		Ok(Self {
@@ -173,6 +177,7 @@ pub mod desktop {
 			if interval < Duration::from_secs(1) {
 				return Err(Error::InvalidArgument);
 			}
+
 			let now = Instant::now();
 			now.checked_add(interval).ok_or(Error::InvalidArgument)?;
 			Ok(Self {
@@ -188,17 +193,22 @@ pub mod desktop {
 		/// notification stream.
 		pub fn poll(&mut self) -> Result<Option<Vec<Snapshot>>, Error> {
 			let now = Instant::now();
+
 			if now < self.next {
 				return Ok(None);
 			}
+
 			self.next = now
 				.checked_add(self.interval)
 				.ok_or(Error::InvalidArgument)?;
 			let current = batteries()?;
+
 			if self.previous.as_ref() == Some(&current) {
 				return Ok(None);
 			}
+
 			self.previous = Some(current.clone());
+
 			Ok(Some(current))
 		}
 	}
@@ -208,9 +218,11 @@ pub mod desktop {
 	/// past full; one bad reading shouldn't fail the whole snapshot.
 	pub(crate) fn reading(fraction: f32) -> Option<Charge> {
 		let fraction = f64::from(fraction);
+
 		if !fraction.is_finite() || !(0.0..=1.05).contains(&fraction) {
 			return None;
 		}
+
 		Charge::from_fraction(fraction.min(1.0)).ok()
 	}
 
@@ -230,6 +242,7 @@ pub mod desktop {
 					starship_battery::State::Full => State::Full,
 					_ => State::Unknown,
 				};
+
 				Ok(Snapshot {
 					present: Some(true),
 					charge: reading(battery.state_of_charge().value),
@@ -257,9 +270,11 @@ pub mod desktop {
 			if method != SNAPSHOT {
 				return Err(Error::Unavailable);
 			}
+
 			if !payload.is_empty() {
 				return Err(Error::InvalidArgument);
 			}
+
 			Ok(batteries()?
 				.first()
 				.copied()
@@ -308,11 +323,13 @@ pub mod guest {
 		pub async fn optimization_enabled(self) -> Result<bool, Error> {
 			let bytes = self.0.call(OPTIMIZATION_ENABLED, &[])?.await?;
 			let mut input = Decoder::new(&bytes);
+
 			let enabled = match input.u32()? {
 				0 => false,
 				1 => true,
 				_ => return Err(Error::InvalidArgument),
 			};
+
 			input.finish()?;
 			Ok(enabled)
 		}
@@ -351,6 +368,7 @@ mod tests {
 			Snapshot::decode(&reading.encode()[..15]),
 			Err(Error::InvalidArgument)
 		);
+
 		let mut invalid = reading.encode().to_vec();
 		invalid[0] = 3;
 		assert_eq!(Snapshot::decode(&invalid), Err(Error::InvalidArgument));
@@ -368,14 +386,17 @@ mod tests {
 			power_save: None,
 		}
 		.encode();
+
 		for (field, value) in [(0, 3_u32), (1, 1001), (1, 65536), (2, 4), (3, 3)] {
 			let mut bytes = snapshot.to_vec();
 			bytes[field * 4..field * 4 + 4].copy_from_slice(&value.to_le_bytes());
 			assert_eq!(Snapshot::decode(&bytes), Err(Error::InvalidArgument));
 		}
+
 		let mut trailing = snapshot.to_vec();
 		trailing.push(0);
 		assert_eq!(Snapshot::decode(&trailing), Err(Error::InvalidArgument));
+
 		assert_eq!(Charge::from_fraction(0.37049).unwrap().thousandths(), 370);
 		assert_eq!(Charge::from_fraction(0.37051).unwrap().thousandths(), 371);
 		assert_eq!(
@@ -453,6 +474,7 @@ mod tests {
 		let snapshot = Snapshot::decode(&reply).unwrap();
 		let batteries = desktop::batteries().unwrap();
 		assert_eq!(snapshot.present, Some(!batteries.is_empty()));
+
 		for battery in &batteries {
 			assert_eq!(battery.present, Some(true));
 			// A reading that isn't a charge is unknown, never out of range.

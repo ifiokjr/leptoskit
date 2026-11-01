@@ -61,6 +61,7 @@ impl Metadata {
 	/// Encodes the fixed-width metadata response.
 	pub fn encode(self) -> Bytes {
 		let mut bytes = Vec::with_capacity(12);
+
 		bytes.extend_from_slice(&(if self.kind == Kind::File { 1_u32 } else { 2 }).to_le_bytes());
 		bytes.extend_from_slice(&self.len.to_le_bytes());
 		bytes.into()
@@ -69,16 +70,20 @@ impl Metadata {
 	/// Validates the fixed-width metadata response.
 	pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
 		let mut decoder = Decoder::new(bytes);
+
 		let kind = match decoder.u32()? {
 			1 => Kind::File,
 			2 => Kind::Directory,
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		let len = u64::from(decoder.u32()?) | (u64::from(decoder.u32()?) << 32);
 		decoder.finish()?;
+
 		if kind == Kind::Directory && len != 0 {
 			return Err(Error::InvalidArgument);
 		}
+
 		Ok(Self { kind, len })
 	}
 }
@@ -91,6 +96,7 @@ pub fn validate_path(path: &str, allow_root: bool) -> Result<(), Error> {
 	if path.len() > MAX_PATH_BYTES {
 		return Err(Error::TooLarge);
 	}
+
 	if path.is_empty() {
 		return if allow_root {
 			Ok(())
@@ -98,6 +104,7 @@ pub fn validate_path(path: &str, allow_root: bool) -> Result<(), Error> {
 			Err(Error::InvalidArgument)
 		};
 	}
+
 	if path
 		.chars()
 		.any(|ch| ch.is_control() || ['\\', ':', '<', '>', '"', '|', '?', '*'].contains(&ch))
@@ -120,6 +127,7 @@ pub fn validate_path(path: &str, allow_root: bool) -> Result<(), Error> {
 		}) {
 		return Err(Error::InvalidArgument);
 	}
+
 	Ok(())
 }
 
@@ -139,17 +147,22 @@ fn encode_names(names: &[String]) -> Result<Bytes, Error> {
 	if names.len() > MAX_ENTRIES {
 		return Err(Error::TooLarge);
 	}
+
 	let size = names.iter().try_fold(4_usize, |size, name| {
 		size.checked_add(4 + name.len()).ok_or(Error::TooLarge)
 	})?;
+
 	if size > MAX_LIST_BYTES {
 		return Err(Error::TooLarge);
 	}
+
 	let mut encoder = Encoder::with_capacity(size);
 	encoder.u32(u32::try_from(names.len()).map_err(|_| Error::TooLarge)?);
+
 	for name in names {
 		encoder.bytes(name.as_bytes())?;
 	}
+
 	Ok(encoder.finish())
 }
 
@@ -158,20 +171,27 @@ fn decode_names(bytes: &[u8]) -> Result<Vec<String>, Error> {
 	if bytes.len() > MAX_LIST_BYTES {
 		return Err(Error::TooLarge);
 	}
+
 	let mut decoder = Decoder::new(bytes);
 	let count = decoder.u32()? as usize;
+
 	if count > MAX_ENTRIES {
 		return Err(Error::TooLarge);
 	}
+
 	let mut names = Vec::with_capacity(count);
+
 	for _ in 0..count {
 		let name = decoder.string()?;
 		validate_path(name, false)?;
+
 		if name.contains('/') {
 			return Err(Error::InvalidArgument);
 		}
+
 		names.push(name.to_owned());
 	}
+
 	decoder.finish()?;
 	Ok(names)
 }
@@ -209,9 +229,11 @@ pub mod guest {
 		/// Reads a regular file of at most [`MAX_FILE_BYTES`].
 		pub async fn read(self, path: &str) -> Result<Bytes, Error> {
 			let response = self.0.call(READ, &request(path, false)?.finish())?.await?;
+
 			if response.len() > MAX_FILE_BYTES {
 				return Err(Error::TooLarge);
 			}
+
 			Ok(response)
 		}
 
@@ -220,6 +242,7 @@ pub mod guest {
 			if bytes.len() > MAX_FILE_BYTES {
 				return Err(Error::TooLarge);
 			}
+
 			let mut input = request(path, false)?;
 			input.bytes(bytes)?;
 			Decoder::new(&self.0.call(WRITE, &input.finish())?.await?).finish()
@@ -300,6 +323,7 @@ mod tests {
 		};
 		assert_eq!(Metadata::decode(&meta.encode()), Ok(meta));
 		assert!(Metadata::decode(&[0; 12]).is_err());
+
 		assert!(Metadata::decode(&meta.encode()[..11]).is_err());
 		assert_eq!(
 			decode_names(&encode_names(&["a".into(), "b".into()]).unwrap()).unwrap(),

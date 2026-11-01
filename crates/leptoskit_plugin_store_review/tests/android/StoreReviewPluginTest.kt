@@ -40,6 +40,7 @@ class StoreReviewPluginTest {
             requests++
             preparation = TaskCompletionSource()
             flow = TaskCompletionSource()
+
             return preparation.task
         }
 
@@ -49,6 +50,7 @@ class StoreReviewPluginTest {
         ): Task<Void> {
             launches++
             launchedOwner = activity
+
             return flow.task
         }
 
@@ -140,6 +142,7 @@ class StoreReviewPluginTest {
                 val plugin = StoreReviewPlugin(context, manager)
                 try {
                     assertEquals(2, plugin.invoke(0, empty())[0].toInt())
+
                     for (method in listOf(0, 1)) {
                         try {
                             plugin.invoke(method, ByteBuffer.wrap(byteArrayOf(0)))
@@ -148,12 +151,14 @@ class StoreReviewPluginTest {
                             assertEquals(PluginException.INVALID_ARGUMENT, error.code)
                         }
                     }
+
                     try {
                         plugin.invoke(1, empty())
                         fail("An application context cannot present a review")
                     } catch (error: PluginException) {
                         assertEquals(PluginException.UNAVAILABLE, error.code)
                     }
+
                     assertEquals(0, manager.requests)
                 } finally {
                     plugin.close()

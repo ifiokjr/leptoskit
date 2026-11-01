@@ -22,10 +22,12 @@ fn outline(element: &Element) -> String {
 		element.style,
 		element.children.len()
 	);
+
 	for child in &element.children {
 		outline.push_str("\n  ");
 		outline.push_str(&outline_child(child));
 	}
+
 	outline
 }
 

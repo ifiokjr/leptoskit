@@ -214,6 +214,7 @@ pub(crate) fn request(stream: &mut TcpStream) -> Option<(String, String)> {
 
 			if buffer.len() >= end + 4 + length {
 				let body = String::from_utf8_lossy(&buffer[end + 4..end + 4 + length]);
+
 				return Some((head.to_owned(), body.into_owned()));
 			}
 		}

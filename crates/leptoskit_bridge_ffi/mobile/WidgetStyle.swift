@@ -27,19 +27,27 @@ enum WidgetStyle {
         }
 
         let background = props.background.map(color) ?? .clear
+
         if widget.backgroundColor != background { widget.backgroundColor = background }
+
         if widget.isOpaque { widget.isOpaque = false }
         let interactive = props.enabled ?? true
+
         if widget.isUserInteractionEnabled != interactive { widget.isUserInteractionEnabled = interactive }
         let hidden = props.hidden ?? false
+
         if widget.isHidden != hidden { widget.isHidden = hidden }
         let alpha = props.opacity ?? 1
+
         if widget.alpha != alpha { widget.alpha = alpha }
         let radius = fitRadius(props.cornerRadius ?? 0, to: widget.bounds.size)
+
         if widget.layer.cornerRadius != radius { widget.layer.cornerRadius = radius }
         let borderWidth = props.borderWidth ?? 0
+
         if widget.layer.borderWidth != borderWidth { widget.layer.borderWidth = borderWidth }
         let borderColor = props.borderColor.map(color)?.cgColor
+
         if widget.layer.borderColor != borderColor { widget.layer.borderColor = borderColor }
 
         applyClipping(props, to: widget)
@@ -51,6 +59,7 @@ enum WidgetStyle {
     @MainActor
     private static func applyClipping(_ props: WidgetProps, to widget: UIView) {
         let clips = (props.clip ?? false) || (props.cornerRadius ?? 0) > 0
+
         if widget.clipsToBounds != clips { widget.clipsToBounds = clips }
     }
 

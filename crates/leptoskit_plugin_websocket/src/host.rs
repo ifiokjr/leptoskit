@@ -80,6 +80,7 @@ fn timeout() -> u64 {
 pub fn from_config(options_json: &str) -> Result<WebSocketPlugin, BridgeError> {
 	let options: Options =
 		serde_json::from_str(options_json).map_err(|_| BridgeError::InvalidArgument)?;
+
 	if options.max_connections == 0
 		|| options.max_connections > 128
 		|| options.max_message_bytes > 8 * 1024 * 1024 - 8
@@ -90,6 +91,7 @@ pub fn from_config(options_json: &str) -> Result<WebSocketPlugin, BridgeError> {
 	let mut config = Config::new(options.origins).map_err(BridgeError::from)?;
 	config.max_message_bytes = options.max_message_bytes;
 	config.max_pending_bytes = options.max_pending_bytes;
+
 	config.connect_timeout = Duration::from_millis(options.timeout_ms);
 	config.send_timeout = config.connect_timeout;
 	Ok(WebSocketPlugin {
@@ -135,6 +137,7 @@ struct ActorLifetime {
 impl Drop for ActorLifetime {
 	fn drop(&mut self) {
 		drop(self.permit.take());
+
 		if let Some(state) = self.state.upgrade()
 			&& let Ok(mut entries) = state.entries.lock()
 		{
@@ -165,6 +168,7 @@ impl WebSocketPlugin {
 			.try_acquire_owned()
 			.map_err(|_| BridgeError::Busy)?;
 		let connection = tokio::select! { biased;
+
 			() = cancellation.cancelled() => return Err(BridgeError::Cancelled),
 			() = self.state.closed.cancelled() => return Err(BridgeError::Cancelled),
 			connection = self.client.connect(&url, &protocols) => connection.map_err(BridgeError::from)?,
@@ -186,9 +190,11 @@ impl WebSocketPlugin {
 		};
 		{
 			let mut entries = self.state.entries.lock().map_err(|_| BridgeError::Native)?;
+
 			if self.state.closed.is_cancelled() || closed.is_cancelled() {
 				return Err(BridgeError::Cancelled);
 			}
+
 			entries.insert(id, entry);
 		}
 		let lifetime = ActorLifetime {
@@ -220,12 +226,14 @@ impl WebSocketPlugin {
 		cancellation: CancellationToken,
 	) -> Result<Reply, BridgeError> {
 		let (answer, result) = oneshot::channel();
+
 		let (entry, command) = match method.0 {
 			1 => {
 				let (id, message) = protocol::decode_send(&payload)?;
 				if message.len() > self.config.max_message_bytes {
 					return Err(BridgeError::TooLarge);
 				}
+
 				let bytes = Arc::clone(&self.state.queued_bytes)
 					.try_acquire_many_owned(message.len() as u32)
 					.map_err(|_| BridgeError::Busy)?;
@@ -247,9 +255,11 @@ impl WebSocketPlugin {
 			}
 			_ => return Err(BridgeError::Unavailable),
 		};
+
 		if cancellation.is_cancelled() || self.state.closed.is_cancelled() {
 			return Err(BridgeError::Cancelled);
 		}
+
 		entry.commands.try_send(command).map_err(|error| {
 			match error {
 				mpsc::error::TrySendError::Full(_) => BridgeError::Busy,
@@ -350,19 +360,24 @@ async fn run_connection(
 		app_closed,
 		waiter: None,
 	};
+
 	let terminal_answer = loop {
 		let action = actor.next_action(&mut commands).await;
+
 		if let ControlFlow::Break(terminal) = actor.handle(action).await {
 			break terminal;
 		}
 	};
+
 	let ConnectionActor {
 		connection, waiter, ..
 	} = actor;
 	drop(connection);
 	drop(commands);
+
 	drop(waiter);
 	drop(lifetime);
+
 	if let Some((answer, result)) = terminal_answer {
 		let _ = answer.send(result);
 	}
@@ -396,6 +411,7 @@ impl ConnectionActor {
 				if let Some((answer, _)) = self.waiter.take() {
 					let _ = answer.send(Err(BridgeError::Cancelled));
 				}
+
 				ControlFlow::Continue(())
 			}
 			Action::Message(message) => self.deliver(message),
@@ -407,6 +423,7 @@ impl ConnectionActor {
 				} else {
 					self.waiter = Some((answer, cancellation));
 				}
+
 				ControlFlow::Continue(())
 			}
 			Action::Command(Some(Command::Send(message, answer, cancellation, bytes))) => {
@@ -437,12 +454,15 @@ impl ConnectionActor {
 				.and_then(|message| protocol::message(message.as_ref()).map(Reply::from));
 			(answer, result)
 		});
+
 		if terminal {
 			return ControlFlow::Break(answer);
 		}
+
 		if let Some((answer, result)) = answer {
 			let _ = answer.send(result);
 		}
+
 		ControlFlow::Continue(())
 	}
 
@@ -470,6 +490,7 @@ impl ConnectionActor {
 		if failed {
 			return ControlFlow::Break(Some((answer, result)));
 		}
+
 		let _ = answer.send(result);
 		ControlFlow::Continue(())
 	}
@@ -507,6 +528,7 @@ mod tests {
 			plugin.reply_limit(MethodId(4)),
 			Err(BridgeError::Unavailable)
 		);
+
 		assert_eq!(plugin.state.connections.available_permits(), connections());
 		for options in [
 			r#"{"origins":["wss://example.com"],"max_connections":0}"#,

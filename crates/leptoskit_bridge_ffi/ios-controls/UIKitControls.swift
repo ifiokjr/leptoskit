@@ -304,6 +304,7 @@ private extension UIKitControls {
 
     func rgba(_ color: UIColor?) -> [Int] {
         var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+
         guard color?.getRed(&red, green: &green, blue: &blue, alpha: &alpha) == true else { return [] }
 
         return [red, green, blue, alpha].map { Int(($0 * 255).rounded()) }

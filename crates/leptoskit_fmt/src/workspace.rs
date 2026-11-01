@@ -108,6 +108,7 @@ impl Report {
 /// [`FormatError::Config`] for an invalid glob.
 pub fn collect_files(paths: &[PathBuf], exclude: &[String]) -> Result<Vec<PathBuf>, FormatError> {
 	let mut files = Vec::new();
+
 	for path in paths {
 		let metadata = std::fs::metadata(path).map_err(|source| {
 			FormatError::Io {
@@ -115,11 +116,14 @@ pub fn collect_files(paths: &[PathBuf], exclude: &[String]) -> Result<Vec<PathBu
 				source,
 			}
 		})?;
+
 		if metadata.is_file() {
 			files.push(path.clone());
 			continue;
 		}
+
 		let mut overrides = ignore::overrides::OverrideBuilder::new(path);
+
 		for glob in exclude {
 			overrides.add(&format!("!{glob}")).map_err(|error| {
 				FormatError::Config {
@@ -128,6 +132,7 @@ pub fn collect_files(paths: &[PathBuf], exclude: &[String]) -> Result<Vec<PathBu
 				}
 			})?;
 		}
+
 		let overrides = overrides.build().map_err(|error| {
 			FormatError::Config {
 				path: path.clone(),
@@ -135,17 +140,20 @@ pub fn collect_files(paths: &[PathBuf], exclude: &[String]) -> Result<Vec<PathBu
 			}
 		})?;
 		let walker = ignore::WalkBuilder::new(path).overrides(overrides).build();
+
 		for entry in walker.filter_map(Result::ok) {
 			let is_rust = entry.file_type().is_some_and(|kind| kind.is_file())
 				&& entry
 					.path()
 					.extension()
 					.is_some_and(|extension| extension == "rs");
+
 			if is_rust {
 				files.push(entry.into_path());
 			}
 		}
 	}
+
 	files.sort();
 	files.dedup();
 	Ok(files)
@@ -168,6 +176,7 @@ pub fn default_cache_dir(dir: &Path) -> Option<PathBuf> {
 	if let Some(target) = std::env::var_os("CARGO_TARGET_DIR") {
 		return Some(PathBuf::from(target).join("leptoskit").join("format"));
 	}
+
 	let dir = std::path::absolute(dir).ok()?;
 	dir.ancestors()
 		.find(|ancestor| ancestor.join("Cargo.lock").is_file())
@@ -243,17 +252,23 @@ impl<'a> Run<'a> {
 			key: settings_key,
 		} = prepared.as_ref();
 		let key = content_key(*settings_key, &source);
+
 		if self.known.get(path) == Some(&key) {
 			self.remember(path, key);
+
 			return Ok(Status::Cached);
 		}
+
 		let output = format_source(&source, settings, rustfmt)?;
 		*diagnostics = output.diagnostics;
 		*stats = output.stats;
+
 		if output.text == source {
 			self.remember(path, key);
+
 			return Ok(Status::Unchanged);
 		}
+
 		if !self.options.check {
 			std::fs::write(path, &output.text).map_err(|source| {
 				FormatError::Io {
@@ -263,6 +278,7 @@ impl<'a> Run<'a> {
 			})?;
 			self.remember(path, content_key(*settings_key, &output.text));
 		}
+
 		Ok(Status::Changed {
 			original: source,
 			formatted: output.text,
@@ -280,6 +296,7 @@ impl<'a> Run<'a> {
 	fn prepared_for(&self, path: &Path) -> Result<Arc<Prepared>, FormatError> {
 		let dir = path.parent().unwrap_or(path).to_owned();
 		let mut cache = self.settings.lock().map_err(|_| poisoned(path))?;
+
 		if let Some(entry) = cache.get(&dir) {
 			return entry.clone().map_err(|message| {
 				FormatError::Config {
@@ -288,6 +305,7 @@ impl<'a> Run<'a> {
 				}
 			});
 		}
+
 		let prepared = Settings::for_path(path).and_then(|settings| {
 			let rustfmt = self.rustfmt_for(&settings)?;
 			let key = settings_key(&settings, &rustfmt);
@@ -302,7 +320,9 @@ impl<'a> Run<'a> {
 		if let Err(error @ FormatError::RustfmtMissing { .. }) = prepared {
 			return Err(error);
 		}
+
 		let entry = prepared.map_err(|error| error.to_string());
+
 		cache.insert(dir, entry.clone());
 		entry.map_err(|message| {
 			FormatError::Config {
@@ -347,6 +367,7 @@ impl<'a> Run<'a> {
 			.map(|(path, key)| format!("{key:016x}\t{}", path.display()))
 			.collect();
 		lines.sort();
+
 		// The cache only saves time: a run that cannot write it still
 		// formatted every file correctly.
 		if std::fs::create_dir_all(dir).is_ok() {
@@ -400,13 +421,18 @@ fn settings_key(settings: &Settings, rustfmt: &Rustfmt) -> u64 {
 	let mut hasher = DefaultHasher::new();
 	env!("CARGO_PKG_VERSION").hash(&mut hasher);
 	settings.hash(&mut hasher);
+
 	if let Some(config) = &settings.rustfmt_config {
 		std::fs::read(config).ok().hash(&mut hasher);
 	}
+
 	rustfmt.identity().hash(&mut hasher);
+
 	if let Ok(metadata) = std::fs::metadata(rustfmt.program()) {
 		metadata.len().hash(&mut hasher);
+
 		metadata.modified().ok().hash(&mut hasher);
 	}
+
 	hasher.finish()
 }

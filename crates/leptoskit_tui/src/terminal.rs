@@ -65,6 +65,7 @@ impl FrameWriter {
 		// Writing cells moves the cursor, so a visible one goes back to the
 		// caret after every changed frame.
 		let cursor_moved = previous.cursor() != next.cursor();
+
 		if changed || cursor_moved {
 			out.write_all(&cursor_sequence(next.cursor()))?;
 			out.flush()?;

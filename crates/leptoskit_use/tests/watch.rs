@@ -71,6 +71,7 @@ fn owner_cleanup_unsubscribes_and_controls_tolerate_disposal() {
 	let watch =
 		owner.with(|| watch_pausable(move || read.get(), move |_, _| *log.lock() += 1, false));
 	source.set(1);
+
 	assert_eq!(*calls.lock(), 1);
 	owner.cleanup();
 	(watch.pause)();

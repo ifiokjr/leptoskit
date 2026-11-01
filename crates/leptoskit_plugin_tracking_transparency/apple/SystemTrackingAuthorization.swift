@@ -27,6 +27,7 @@ final class SystemTrackingAuthorization: TrackingAuthorizationProvider {
     func prepare(onBackground: @escaping @MainActor @Sendable () -> Void) throws -> TrackingObservation {
         #if os(iOS)
         let owner = try context.requirePresentationOwner()
+
         guard UIApplication.shared.applicationState == .active,
               let scene = owner.viewIfLoaded?.window?.windowScene else { throw PluginError.unavailable }
         try Self.validatePurpose(Bundle.main.object(forInfoDictionaryKey: "NSUserTrackingUsageDescription"))
@@ -38,6 +39,7 @@ final class SystemTrackingAuthorization: TrackingAuthorizationProvider {
                 MainActor.assumeIsolated { onBackground() }
             })
         }
+
         return TrackingObservation {
             for observer in observers { NotificationCenter.default.removeObserver(observer) }
         }

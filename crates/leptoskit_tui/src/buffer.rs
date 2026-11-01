@@ -176,12 +176,14 @@ impl Buffer {
 		} else {
 			bg
 		};
+
 		self.cells[index] = Cell::styled(symbol, fg, bg, attrs);
 
 		if unicode_width(symbol) > 1 {
 			let continuation = u16::try_from(col + 1)
 				.ok()
 				.filter(|next| *next < self.width);
+
 			if let (Some(next_col), Ok(row)) = (continuation, u16::try_from(row)) {
 				let next = usize::from(row) * usize::from(self.width) + usize::from(next_col);
 				self.cells[next] = Cell::continuation();
@@ -271,6 +273,7 @@ impl Buffer {
 						Some(cell) => line.push(cell.symbol),
 						None => line.push(' '),
 					}
+
 					col += 1;
 				}
 

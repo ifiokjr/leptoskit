@@ -630,6 +630,7 @@ impl<'a> AppStore<'a> {
 			Ok(id.to_owned())
 		} else {
 			let mut attributes = attributes.clone();
+
 			attributes["locale"] = json!(locale);
 			let created = self
 				.send(

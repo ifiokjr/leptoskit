@@ -195,6 +195,7 @@ impl PluginGenerateContext {
 	/// from re-triggering builds.
 	pub fn generated(&mut self, path: impl Into<PathBuf>) {
 		let path = path.into();
+
 		if !self.generated.contains(&path) {
 			self.generated.push(path);
 		}
@@ -254,6 +255,7 @@ impl PluginBuildContext {
 	/// Adds a cargo feature unless it is already present.
 	pub fn add_feature(&mut self, feature: impl Into<String>) {
 		let feature = feature.into();
+
 		if !self.cargo_features.contains(&feature) {
 			self.cargo_features.push(feature);
 		}
@@ -327,12 +329,14 @@ impl PluginRegistry {
 	pub fn resolve(config: &LeptoskitConfig) -> Result<(Self, Vec<UnresolvedPlugin>), PluginError> {
 		let mut registry = Self::new();
 		let mut unresolved = Vec::new();
+
 		for spec in &config.plugins {
 			if spec.leptos {
 				// Leptos plugins activate through the app's cargo features;
 				// nothing to load into the tooling.
 				continue;
 			}
+
 			match Builtins::by_name(&spec.name) {
 				Some(builtin) => {
 					let options = toml_options(&spec.options);
@@ -342,6 +346,7 @@ impl PluginRegistry {
 				None => unresolved.push(UnresolvedPlugin { spec: spec.clone() }),
 			}
 		}
+
 		Ok((registry, unresolved))
 	}
 
@@ -350,6 +355,7 @@ impl PluginRegistry {
 		for plugin in &self.plugins {
 			plugin.before_build(context)?;
 		}
+
 		Ok(())
 	}
 
@@ -358,6 +364,7 @@ impl PluginRegistry {
 		for plugin in &self.plugins {
 			plugin.after_build(context)?;
 		}
+
 		Ok(())
 	}
 
@@ -366,6 +373,7 @@ impl PluginRegistry {
 		for plugin in &self.plugins {
 			plugin.before_serve(context)?;
 		}
+
 		Ok(())
 	}
 
@@ -398,11 +406,13 @@ impl PluginRegistry {
 		release: bool,
 	) -> Result<Vec<PathBuf>, PluginError> {
 		let mut outputs = Vec::new();
+
 		for plugin in &self.plugins {
 			let mut context = PluginGenerateContext::new(root, platform, release);
 			plugin.generate(&mut context)?;
 			outputs.extend(context.outputs().iter().cloned());
 		}
+
 		Ok(outputs)
 	}
 
@@ -424,6 +434,7 @@ impl PluginRegistry {
 			}
 		})?;
 		let declared = plugin.commands();
+
 		if !declared.iter().any(|declared| declared.name == command) {
 			let known = if declared.is_empty() {
 				"none".to_owned()
@@ -439,6 +450,7 @@ impl PluginRegistry {
 				message: format!("no command `{command}`; its commands are {known}"),
 			});
 		}
+
 		let context = PluginCommandContext {
 			root: root.to_owned(),
 			config: config.clone(),
@@ -454,6 +466,7 @@ impl PluginRegistry {
 			.filter(|plugin| !plugin.metadata().supports(platform))
 			.map(|plugin| plugin.name().to_owned())
 			.collect::<Vec<_>>();
+
 		if unsupported.is_empty() {
 			Ok(())
 		} else {
@@ -542,6 +555,7 @@ impl LeptoskitPlugin for SizeReportPlugin {
 				size as f64 / 1024.0
 			);
 		}
+
 		Ok(())
 	}
 }
@@ -621,6 +635,7 @@ mod tests {
 			for file in &self.generated {
 				context.generated(format!("{}/{file}", context.root.display()));
 			}
+
 			Ok(())
 		}
 	}
@@ -674,6 +689,7 @@ mod tests {
 		bare.generate(&mut context)
 			.expect("the default generates nothing");
 		assert_eq!(context.outputs(), [] as [PathBuf; 0]);
+
 		assert!(bare.native_integration(Platform::Ios).is_none());
 	}
 
@@ -764,6 +780,7 @@ mod tests {
 	#[test]
 	fn platform_support_defaults_to_every_platform_and_can_be_limited() {
 		let registry = registry_with(Recorder::default());
+
 		for platform in Platform::APPLICATION {
 			registry
 				.ensure_supported(platform)

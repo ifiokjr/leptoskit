@@ -186,6 +186,7 @@ impl TableArgs {
 		let mut to = None;
 		let mut from_column = None;
 		let mut to_column = None;
+
 		let mut exclusive = false;
 		let mut hooks = Vec::new();
 		let mut audit = false;

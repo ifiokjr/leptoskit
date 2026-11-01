@@ -12,6 +12,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+
 #include <thread>
 #include <unordered_set>
 #include <vector>
@@ -85,6 +86,7 @@ napi_value Copy(napi_env env, lk_buffer buffer) {
     void *data = nullptr;
     napi_value result;
     Check(napi_create_arraybuffer(env, buffer.len, &data, &result));
+
     if (buffer.len > 0) std::memcpy(data, buffer.data, buffer.len);
 
     return result;
@@ -106,9 +108,11 @@ struct RiveImage {
         ImageStatus(OH_PixelmapInitializationOptions_SetHeight(raw, height));
         ImageStatus(OH_PixelmapInitializationOptions_SetPixelFormat(raw, PIXEL_FORMAT_RGBA_8888));
         ImageStatus(OH_PixelmapInitializationOptions_SetAlphaType(raw, PIXELMAP_ALPHA_TYPE_PREMULTIPLIED));
+
         // API 12 creates editable empty maps. WritePixels copies raw bytes,
         // avoiding source-format conversion or premultiplying them a second time.
         const auto status = OH_PixelmapNative_CreateEmptyPixelmap(raw, &pixels);
+
         if (status != IMAGE_SUCCESS) {
             if (pixels) OH_PixelmapNative_Release(pixels);
             pixels = nullptr;
@@ -149,21 +153,27 @@ struct Runtime {
 
         for (; count < kMaxBatch; ++count) {
             const int64_t id = lk_app_next_cancelled(app);
+
             if (id < 0) throw std::runtime_error("Cannot read native plugin cancellations");
+
             if (id == 0) break;
             Check(napi_set_element(env, cancelled, count, Unsigned(env, static_cast<double>(id))));
         }
+
         pending = count == kMaxBatch;
 
         for (count = 0; count < kMaxBatch; ++count) {
             lk_request request{};
             const int32_t status = lk_app_next_request(app, &request);
             Status(status);
+
             if (status == 0) break;
+
             if (status == 2) {
                 pending = true;
                 break;
             }
+
             if (!plugins.count(request.plugin) ||
                 static_cast<double>(request.id) > kMaxSafeInteger) {
                 // Selection rejects worker plugins. Fail closed if a mismatched
@@ -182,6 +192,7 @@ struct Runtime {
             Check(napi_set_named_property(env, item, "method", Unsigned(env, request.method)));
             Check(napi_set_element(env, requests, count, item));
         }
+
         pending = pending || count == kMaxBatch;
 
         const std::string json = std::string("{\"pending\":") + (pending ? "true" : "false") +
@@ -210,6 +221,7 @@ struct RiveContext {
 
 int32_t RiveVisible(void* opaque, size_t node) {
     auto& context = *static_cast<RiveContext*>(opaque);
+
     return std::find(context.visible.begin(), context.visible.end(), node) != context.visible.end() ? 1 : 0;
 }
 
@@ -229,6 +241,7 @@ int32_t RivePresent(void* opaque, size_t node, uint32_t width, uint32_t height,
         ImageStatus(OH_PixelmapNative_WritePixels(image->pixels, const_cast<uint8_t*>(pixels), length));
         napi_value bitmap, result, id, w, h;
         ImageStatus(OH_PixelmapNative_ConvertPixelmapNativeToNapi(context.env, image->pixels, &bitmap));
+
         Check(napi_create_object(context.env, &result));
         Check(napi_create_double(context.env, static_cast<double>(node), &id));
         Check(napi_create_uint32(context.env, width, &w));
@@ -238,10 +251,12 @@ int32_t RivePresent(void* opaque, size_t node, uint32_t width, uint32_t height,
         Check(napi_set_named_property(context.env, result, "height", h));
         Check(napi_set_named_property(context.env, result, "pixelMap", bitmap));
         Check(napi_set_element(context.env, context.frames, context.count++, result));
+
         return 1;
     } catch (...) {
         // Exceptions must never unwind across Rust's extern-C callback.
         context.failure = std::current_exception();
+
         return -1;
     }
 }
@@ -439,6 +454,7 @@ napi_value Rive(napi_env env, napi_callback_info info) {
             }
             context.visible.push_back(static_cast<size_t>(node));
         }
+
         const auto status = lk_app_rive_tick(runtime->app, elapsed, static_cast<float>(scale),
             (active ? 1u : 0u) | (reduced ? 2u : 0u), &context, RiveVisible, RivePresent);
         if (context.failure) std::rethrow_exception(context.failure);

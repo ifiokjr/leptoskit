@@ -16,6 +16,7 @@ public sealed class CaptureLab : Form {
         layout.Controls.Add(new Label { Text = "Native capture lab", AutoSize = true, ForeColor = Color.Indigo, Font = new Font("Segoe UI", 24, FontStyle.Bold) });
         layout.Controls.Add(new Label { Text = "Real text, native controls, system dialogs.", AutoSize = true });
         var name = new TextBox { Name = "name", Width = 450 };
+
         layout.Controls.Add(name);
         AddButton(layout, "Greet", "greet", () => status.Text = "Hello, " + name.Text);
         AddButton(layout, "Increment", "increment", () => status.Text = "Count: " + (++count));

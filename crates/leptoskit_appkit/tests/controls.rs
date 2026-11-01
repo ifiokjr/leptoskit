@@ -129,6 +129,7 @@ mod macos {
 		let view = native::<NSButton>(&surface, checkbox);
 		// SAFETY: AppKit exports immutable appearance-name strings.
 		let (light, dark) = unsafe { (NSAppearanceNameAqua, NSAppearanceNameDarkAqua) };
+
 		assert!(view.effectiveAppearance().name().isEqualToString(light));
 		surface.set_dark_mode(true);
 		assert!(view.effectiveAppearance().name().isEqualToString(dark));
@@ -189,6 +190,7 @@ mod macos {
 		let environment = RiveEnvironment::default();
 		assert!(surface.tick_rive(Duration::ZERO, environment).unwrap());
 		let initial = surface.backend().snapshot_png(root, 1.0).unwrap();
+
 		assert!(
 			surface
 				.tick_rive(Duration::from_millis(100), environment)
@@ -245,6 +247,7 @@ mod macos {
 			.unwrap()
 			.retain();
 		let mut source = vec![128, 0, 0, 128, 0, 0, 255, 255];
+
 		assert!(backend.present_rive(id, &RiveFrame::new(2, 1, &source).unwrap()));
 		let image = view.image().unwrap();
 		let bitmap = image
@@ -343,6 +346,7 @@ mod macos {
 		assert!(!checkbox.isEnabled());
 		let count = events.borrow().len();
 		switch.setState(0);
+
 		action(&switch);
 		click(&checkbox);
 		assert_eq!(
@@ -420,6 +424,7 @@ mod macos {
 			(5.0, 15.0, 7.0)
 		);
 		assert!(slider.isContinuous());
+
 		slider.setDoubleValue(10.8);
 		action(&slider);
 		assert_eq!(
@@ -482,6 +487,7 @@ mod macos {
 		let other_id = child(&surface, 1);
 		let last_id = surface.children(child(&surface, 4))[0];
 		let first = native::<NSButton>(&surface, first_id);
+
 		let last = native::<NSButton>(&surface, last_id);
 		let card = native::<NSButton>(&surface, other_id);
 		let window = surface
@@ -583,6 +589,7 @@ mod macos {
 			}
 			assert!(field.currentEditor().is_some());
 			events.borrow_mut().clear();
+
 			for dark in [false, true, false] {
 				surface.borrow_mut().set_dark_mode(dark);
 				assert!(
@@ -595,6 +602,7 @@ mod macos {
 					"appearance does not emit during a surface operation"
 				);
 			}
+
 			surface.borrow_mut().set_root(&View());
 			assert!(
 				events.borrow().is_empty(),
@@ -643,6 +651,7 @@ mod macos {
 		let activity = native::<NSProgressIndicator>(&surface, activity_id);
 		let determinate = native::<NSProgressIndicator>(&surface, determinate_id);
 		assert_eq!(activity.style(), NSProgressIndicatorStyle::Spinning);
+
 		assert!(activity.isIndeterminate());
 		assert!(!activity.isDisplayedWhenStopped());
 		assert_eq!(surface.backend().is_animating(activity_id), Some(true));
@@ -691,6 +700,7 @@ mod macos {
 			}
 		});
 		edit(&secure, "rejected");
+
 		assert_eq!(
 			*events.borrow(),
 			vec![NativeEvent::Change {
@@ -740,6 +750,7 @@ mod macos {
 					.class("h-auto"),
 			]),
 		);
+
 		for index in 0..3 {
 			let field = native::<NSTextField>(&surface, child(&surface, index));
 			assert!(field.isBezeled());

@@ -120,10 +120,13 @@ impl Hello {
 		if bytes.len() > MAX_HELLO_BYTES {
 			return Err(Error::TooLarge);
 		}
+
 		let hello: Self = serde_json::from_slice(bytes).map_err(|_| Error::InvalidArgument)?;
+
 		if hello.protocol != PROTOCOL_VERSION {
 			return Err(Error::InvalidArgument);
 		}
+
 		Ok(hello)
 	}
 }
@@ -157,6 +160,7 @@ impl Report {
 		const CLOSE: &[u8] = b"]}";
 
 		let mut payloads = Vec::new();
+
 		let mut payload: Vec<u8> = (if self.reset { OPEN_RESET } else { OPEN }).to_vec();
 		let mut empty = true;
 
@@ -164,18 +168,24 @@ impl Report {
 			if !is_value(event) {
 				return Err(Error::InvalidArgument);
 			}
+
 			let encoded = serde_json::to_vec(event).map_err(|_| Error::InvalidArgument)?;
+
 			if OPEN_RESET.len() + encoded.len() + CLOSE.len() > MAX_REPORT_BYTES {
 				continue;
 			}
+
 			if !empty && payload.len() + 1 + encoded.len() + CLOSE.len() > MAX_REPORT_BYTES {
 				payload.extend_from_slice(CLOSE);
+
 				payloads.push(std::mem::replace(&mut payload, OPEN.to_vec()));
 				empty = true;
 			}
+
 			if !empty {
 				payload.push(b',');
 			}
+
 			payload.extend_from_slice(&encoded);
 			empty = false;
 		}
@@ -184,6 +194,7 @@ impl Report {
 			payload.extend_from_slice(CLOSE);
 			payloads.push(payload);
 		}
+
 		Ok(payloads)
 	}
 
@@ -197,10 +208,13 @@ impl Report {
 		if bytes.len() > MAX_REPORT_BYTES {
 			return Err(Error::TooLarge);
 		}
+
 		let report: Self = serde_json::from_slice(bytes).map_err(|_| Error::InvalidArgument)?;
+
 		if !report.events.iter().all(is_value) {
 			return Err(Error::InvalidArgument);
 		}
+
 		Ok(report)
 	}
 }
@@ -250,16 +264,21 @@ pub fn encode_commands(queue: &mut VecDeque<Command>) -> Vec<u8> {
 			queue.pop_front();
 			continue;
 		};
+
 		if encoded.len() + 2 > MAX_COMMANDS_BYTES {
 			queue.pop_front();
+
 			continue;
 		}
+
 		if reply.len() + 1 + encoded.len() + 1 > MAX_COMMANDS_BYTES {
 			break;
 		}
+
 		if count > 0 {
 			reply.push(b',');
 		}
+
 		reply.extend_from_slice(&encoded);
 		queue.pop_front();
 		count += 1;
@@ -279,6 +298,7 @@ pub fn decode_commands(bytes: &[u8]) -> Result<Vec<Command>, Error> {
 	if bytes.len() > MAX_COMMANDS_BYTES {
 		return Err(Error::TooLarge);
 	}
+
 	let commands: Vec<Command> =
 		serde_json::from_slice(bytes).map_err(|_| Error::InvalidArgument)?;
 	Ok(commands.into_iter().filter(is_for_guest).collect())
@@ -299,9 +319,11 @@ pub fn encode_wait(ms: u32) -> [u8; 4] {
 pub fn decode_wait(bytes: &[u8]) -> Result<u32, Error> {
 	let bytes: [u8; 4] = bytes.try_into().map_err(|_| Error::InvalidArgument)?;
 	let ms = u32::from_le_bytes(bytes);
+
 	if ms > MAX_WAIT_MS {
 		return Err(Error::InvalidArgument);
 	}
+
 	Ok(ms)
 }
 

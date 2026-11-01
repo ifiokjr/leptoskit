@@ -123,6 +123,7 @@ pub unsafe extern "C" fn lk_bridge_register(
 			if name_len > 256 || method_count > 4096 {
 				return Err(Error::TooLarge);
 			}
+
 			let name =
 				std::str::from_utf8(borrow(name, name_len)?).map_err(|_| Error::InvalidArgument)?;
 			bridge.register(
@@ -195,9 +196,11 @@ pub unsafe extern "C" fn lk_bridge_next_request(
 	let Some(bridge) = (unsafe { bridge.as_mut() }) else {
 		return -(Error::InvalidArgument as i32);
 	};
+
 	if out.is_null() {
 		return -(Error::InvalidArgument as i32);
 	}
+
 	let Some(request) = bridge.next_request() else {
 		return 0;
 	};
@@ -240,6 +243,7 @@ pub unsafe extern "C" fn lk_bridge_complete(
 			} else {
 				Err(Error::from_status(-i64::from(error) - 1))
 			};
+
 			bridge.complete(CallId(id), result)
 		})()
 	})
@@ -264,6 +268,7 @@ pub unsafe extern "C" fn lk_bridge_complete_owned(
 	if buffer.owner.is_null() {
 		return -(Error::InvalidArgument as i32);
 	}
+
 	// SAFETY: The caller transfers the allocation originally made by
 	// Buffer::new. Moving Bytes out releases the small owner allocation,
 	// retaining its payload.
@@ -292,9 +297,11 @@ pub unsafe extern "C" fn lk_bridge_take_result(
 	let Some(bridge) = (unsafe { bridge.as_mut() }) else {
 		return -(Error::InvalidArgument as i32);
 	};
+
 	if out.is_null() {
 		return -(Error::InvalidArgument as i32);
 	}
+
 	match bridge.take_result(CallId(id)) {
 		Ok(Some(Ok(bytes))) => {
 			// SAFETY: out points to caller-owned output storage.
@@ -365,9 +372,11 @@ unsafe fn borrow<'a, T>(data: *const T, len: usize) -> Result<&'a [T], Error> {
 	if len == 0 {
 		return Ok(&[]);
 	}
+
 	if data.is_null() || len > isize::MAX as usize / size_of::<T>() {
 		return Err(Error::InvalidArgument);
 	}
+
 	// SAFETY: Validity/alignment and lifetime are required by every public
 	// caller.
 	Ok(unsafe { slice::from_raw_parts(data, len) })

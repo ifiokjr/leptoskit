@@ -33,6 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	} else {
 		adapter.flag("-isystem").flag(include);
 	}
+
 	adapter.compile("leptoskit_rive_adapter");
 	Ok(())
 }

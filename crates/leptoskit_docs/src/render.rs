@@ -308,6 +308,7 @@ impl<'d> Walker<'d, '_> {
 					(true, Some(start)) if start != 1 => {
 						html::ol().start(start.to_string()).child(items).into_any()
 					}
+
 					(true, _) => html::ol().child(items).into_any(),
 					(false, _) => html::ul().child(items).into_any(),
 				}
@@ -470,6 +471,7 @@ impl<'d> Walker<'d, '_> {
 
 		let seen = self.slugs.entry(slug.clone()).or_insert(0);
 		*seen += 1;
+
 		if *seen > 1 {
 			slug = format!("{slug}-{}", *seen - 1);
 		}
@@ -502,14 +504,17 @@ impl<'d> Walker<'d, '_> {
 		let rest = rest.trim_start().to_owned();
 		self.prose(&rest);
 		let mut lead = Vec::new();
+
 		if !rest.is_empty() {
 			lead.push(rest.into_any());
 		}
+
 		lead.extend(
 			first.children[1..]
 				.iter()
 				.map(|child| self.node(child, false)),
 		);
+
 		self.prose(" ");
 
 		let lead = (!lead.is_empty()).then(|| html::p().child(lead));
@@ -577,6 +582,7 @@ impl<'d> Walker<'d, '_> {
 					Some(AlignKind::Center) => Some("text-align: center"),
 					Some(AlignKind::None) | None => None,
 				};
+
 				let children = self.children(cell, false);
 				self.prose(" ");
 
@@ -687,9 +693,11 @@ impl<'d> Walker<'d, '_> {
 	) -> AnyView {
 		match name {
 			None => self.nodes(children, false),
+
 			Some(name) if name.starts_with(|first: char| first.is_ascii_uppercase()) => {
 				self.component(name, attributes, children, at)
 			}
+
 			Some(name) => self.html_element(name, attributes, children, at),
 		}
 	}
@@ -708,10 +716,12 @@ impl<'d> Walker<'d, '_> {
 				at.1,
 				format!("unknown component <{name}>; the known components are {known}"),
 			));
+
 			return ().into_any();
 		};
 
 		let body = self.nodes(children, false);
+
 		let props = match Props::new(name, attributes, &self.links, at) {
 			Ok(props) => props,
 			Err(error) => {
@@ -722,6 +732,7 @@ impl<'d> Walker<'d, '_> {
 		};
 
 		let view = component(&props, Box::new(move || body));
+
 		for unread in props.unread() {
 			self.diagnostics.push(Diagnostic::new(
 				at.0,
@@ -745,6 +756,7 @@ impl<'d> Walker<'d, '_> {
 		at: (usize, usize),
 	) -> AnyView {
 		let mut attrs = Vec::new();
+
 		for attribute in attributes {
 			let AttributeContent::Property(property) = attribute else {
 				self.diagnostics.push(Diagnostic::new(
@@ -788,6 +800,7 @@ impl<'d> Walker<'d, '_> {
 					format!("<{name}> cannot have children; close it with `<{name} />`"),
 				));
 			}
+
 			return void;
 		}
 

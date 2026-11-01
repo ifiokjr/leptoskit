@@ -20,6 +20,7 @@ private final class SystemNotificationService: NotificationService {
     func identifiers() async -> [String] {
         let pending = await center.pendingNotificationRequests().map(\.identifier)
         let delivered = await center.deliveredNotifications().map { $0.request.identifier }
+
         return pending + delivered
     }
     func remove(_ identifiers: [String]) {
@@ -64,13 +65,16 @@ public final class NotificationsPlugin: NativePlugin {
             service.remove([id])
         case 6:
             guard payload.count == 0 else { throw PluginError.invalidArgument }
+
             for id in pending.keys { pending[id]?.cancelled = true }
             let identifiers = await service.identifiers().filter { $0.hasPrefix(Self.prefix) }
+
             guard !closed else { throw PluginError.cancelled }
             service.remove(identifiers)
         default:
             throw PluginError.unavailable
         }
+
         return Data()
     }
 
@@ -79,11 +83,15 @@ public final class NotificationsPlugin: NativePlugin {
             guard !requesting else { throw PluginError.busy }
             requesting = true
             defer { requesting = false }
+
             do { try await service.requestAuthorization() } catch { throw mapped(error) }
         }
+
         let status = await service.authorization()
+
         guard !closed else { throw PluginError.cancelled }
         try Task.checkCancellation()
+
         return encode(status)
     }
 
@@ -91,12 +99,14 @@ public final class NotificationsPlugin: NativePlugin {
     /// removed again after completion if an OS operation could not be aborted.
     public func close() {
         closed = true
+
         for id in pending.keys { pending[id]?.cancelled = true }
         service.remove(Array(pending.keys))
     }
 
     private func show(_ content: Content) async throws {
         let id = Self.prefix + content.id
+
         guard pending[id] == nil, pending.count < 64 else { throw PluginError.busy }
         let ticket = UUID()
         pending[id] = Pending(ticket: ticket)
@@ -104,9 +114,11 @@ public final class NotificationsPlugin: NativePlugin {
         try await withTaskCancellationHandler {
             let status = await service.authorization()
             try checkPending(id)
+
             guard (3...5).contains(authorizationValue(status)) else {
                 throw PluginError.permissionDenied
             }
+
             let native = UNMutableNotificationContent()
             native.title = content.title
             native.body = content.body
@@ -117,12 +129,15 @@ public final class NotificationsPlugin: NativePlugin {
                 service.remove([id])
                 throw mapped(error)
             }
+
             do { try checkPending(id) } catch {
                 service.remove([id])
+
                 throw error
             }
         } onCancel: { [weak self] in
             Task { @MainActor in
+
                 guard let self, self.pending[id]?.ticket == ticket else { return }
                 self.pending[id]?.cancelled = true
                 self.service.remove([id])
@@ -138,9 +153,11 @@ public final class NotificationsPlugin: NativePlugin {
     private func mapped(_ error: any Error) -> any Error {
         if error is CancellationError { return PluginError.cancelled }
         let native = error as NSError
+
         if native.domain == UNErrorDomain && native.code == UNError.Code.notificationsNotAllowed.rawValue {
             return PluginError.permissionDenied
         }
+
         return PluginError.native
     }
 
@@ -154,6 +171,7 @@ public final class NotificationsPlugin: NativePlugin {
         case .denied: 2
         case .authorized: 3
         case .provisional: 4
+
         #if os(iOS)
         case .ephemeral: 5
         #endif
@@ -187,21 +205,28 @@ private struct Reader {
         let value = try text(maximum: 64, multiline: false, required: true)
         guard value.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) ||
             (97...122).contains($0) || [45, 46, 95].contains($0) }) else { throw PluginError.invalidArgument }
+
         return value
     }
+
     mutating func text(maximum: Int, multiline: Bool, required: Bool) throws -> String {
         guard bytes.count - offset >= 4 else { throw PluginError.invalidArgument }
         let length = Int(UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: offset, as: UInt32.self)))
         offset += 4
+
         guard length <= maximum, length <= bytes.count - offset,
               let value = String(bytes: bytes[offset..<(offset + length)], encoding: .utf8) else {
             throw PluginError.invalidArgument
         }
         offset += length
+
         guard !required || !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+
               !value.unicodeScalars.contains(where: { ($0.value <= 31 || (127...159).contains($0.value)) &&
                   !(multiline && ($0.value == 10 || $0.value == 9)) }) else { throw PluginError.invalidArgument }
+
         return value
     }
+
     func finish() throws { guard offset == bytes.count else { throw PluginError.invalidArgument } }
 }

@@ -29,11 +29,13 @@ impl Style {
 			} else {
 				encode(cell.fg, depth)
 			},
+
 			bg: if colorless {
 				TerminalColor::Default
 			} else {
 				encode(cell.bg, depth)
 			},
+
 			attrs: cell.attrs,
 		}
 	}
@@ -44,15 +46,19 @@ impl Style {
 		if self.attrs.bold() {
 			sequence.push_str(";1");
 		}
+
 		if self.attrs.dim() {
 			sequence.push_str(";2");
 		}
+
 		if self.attrs.italic() {
 			sequence.push_str(";3");
 		}
+
 		if self.attrs.underline() {
 			sequence.push_str(";4");
 		}
+
 		if self.attrs.reverse() {
 			sequence.push_str(";7");
 		}
@@ -153,6 +159,7 @@ pub fn diff(
 					if let Some(position) = cursor.as_mut() {
 						position.0 += 1;
 					}
+
 					continue;
 				}
 

@@ -32,6 +32,7 @@ async fn local_storage_persists_namespaces_and_uses_the_async_contract() {
 		.unwrap();
 	assert_eq!(hook.value.get(), "fallback");
 	(hook.set_value)("saved".into()).await.unwrap();
+
 	let reopened = LocalStorage::<String>::new("leptoskit-use:persistence").unwrap();
 	assert_eq!(reopened.get("key").unwrap(), Some("saved".into()));
 	assert!(isolated.get("key").unwrap().is_none());
@@ -45,6 +46,7 @@ async fn local_storage_persists_namespaces_and_uses_the_async_contract() {
 	assert_eq!(hook.value.get(), "fallback");
 	assert!(store.get_async("key".into()).await.unwrap().is_none());
 	store.remove_async("key".into()).await.unwrap();
+
 	for key in ["", ":key", "../name", "🌍"] {
 		store.set(key, &key.to_owned()).unwrap();
 		assert_eq!(reopened.get(key).unwrap(), Some(key.to_owned()));
@@ -77,6 +79,7 @@ async fn the_same_tailwind_screen_saves_through_browser_press_and_reopens() {
 			}))
 		}
 	});
+
 	tick().await;
 	assert!(parent.text_content().unwrap().contains("Name: Guest"));
 	let button = parent
@@ -126,17 +129,21 @@ fn browser_exceptions_and_corrupt_values_are_returned_without_resetting_state() 
 		.with(|| use_storage(store.clone(), "key", "fallback".into()))
 		.unwrap()
 		.clone();
+
 	for method in ["getItem", "setItem", "removeItem"] {
 		let restore = fail_method(method);
+
 		let result = match method {
 			"getItem" => (hook.reload)(),
 			"setItem" => (hook.set_value)("next".into()),
 			_ => (hook.remove)(),
 		};
+
 		assert!(matches!(result, Err(StorageError::Browser(_))));
 		assert_eq!(hook.value.get(), "saved");
 		restore.call0(&JsValue::NULL).unwrap();
 	}
+
 	Function::new_no_args(
 		r"
         const key = Object.keys(localStorage).find(key => key.includes('leptoskit-use:errors'));
@@ -166,6 +173,7 @@ fn inaccessible_or_disabled_browser_storage_is_a_typed_error() {
         return () => Object.defineProperty(window, 'localStorage', original);
     ",
 	);
+
 	for mode in ["denied", "disabled"] {
 		let restore: Function = install
 			.call1(&JsValue::NULL, &JsValue::from_str(mode))
@@ -173,11 +181,13 @@ fn inaccessible_or_disabled_browser_storage_is_a_typed_error() {
 			.dyn_into()
 			.unwrap();
 		let result = LocalStorage::<String>::new("leptoskit-use:unavailable");
+
 		if mode == "denied" {
 			assert!(matches!(result, Err(StorageError::Browser(_))));
 		} else {
 			assert!(matches!(result, Err(StorageError::Unavailable(_))));
 		}
+
 		restore.call0(&JsValue::NULL).unwrap();
 	}
 }

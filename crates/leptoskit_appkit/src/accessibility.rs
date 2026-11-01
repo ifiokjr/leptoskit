@@ -137,6 +137,7 @@ pub(super) fn apply(view: &NSView, props: &NativeProps, kind: NativeKind) {
 
 	if aria.is_hidden() {
 		view.setAccessibilityElement(false);
+
 		return;
 	}
 
@@ -163,6 +164,7 @@ pub(super) fn apply(view: &NSView, props: &NativeProps, kind: NativeKind) {
 		.as_deref()
 		.map(NSString::from_str)
 		.or_else(|| checked_value(aria.role, aria.checked).map(NSString::from_str));
+
 	if let Some(value) = value.as_deref() {
 		// SAFETY: a string is a valid accessibility value object for any
 		// role that accepts one.
@@ -174,6 +176,7 @@ pub(super) fn apply(view: &NSView, props: &NativeProps, kind: NativeKind) {
 	view.setAccessibilitySelected(aria.selected == Some(true));
 	view.setAccessibilityExpanded(aria.expanded == Some(true));
 	view.setAccessibilityRequired(aria.required == Some(true));
+
 	if let Some(orientation) = aria.orientation {
 		view.setAccessibilityOrientation(match orientation {
 			leptoskit_native::Orientation::Horizontal => NSAccessibilityOrientation::Horizontal,
@@ -194,6 +197,7 @@ pub(super) fn apply(view: &NSView, props: &NativeProps, kind: NativeKind) {
 			|| aria.live.is_some()
 			|| aria.live_text.is_some();
 		view.setAccessibilityElement(element);
+
 		if element && absorbs_children(aria.role) {
 			let children = NSArray::new();
 			// SAFETY: an empty array is always a valid children list.
@@ -203,6 +207,7 @@ pub(super) fn apply(view: &NSView, props: &NativeProps, kind: NativeKind) {
 		// A named drawing is an image; an unnamed one is decoration.
 		let element = aria.role.is_some() || label.is_some();
 		view.setAccessibilityElement(element);
+
 		if element && aria.role.is_none() {
 			// SAFETY: AppKit exports this immutable role-name static.
 			view.setAccessibilityRole(Some(unsafe { NSAccessibilityImageRole }));
@@ -239,6 +244,7 @@ pub(super) fn announce(view: &NSView, text: &str, live: Live) {
 		Live::Assertive => NSAccessibilityPriorityLevel::High,
 		_ => NSAccessibilityPriorityLevel::Low,
 	};
+
 	let announcement: Retained<AnyObject> = NSString::from_str(text).into();
 	let priority: Retained<AnyObject> = objc2_foundation::NSNumber::new_isize(priority.0).into();
 	let info;

@@ -33,17 +33,21 @@ public final class SharingPlugin: NSObject, NativePlugin {
 
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
         guard !closed else { throw PluginError.cancelled }
+
         guard method == 0 else { throw PluginError.unavailable }
+
         guard session == nil else { throw PluginError.busy }
         let content = try payload.withUnsafeBytes(ShareContent.decode)
         let owner = try context.requirePresentationOwner()
         try Task.checkCancellation()
         let invocation = UUID()
         currentInvocation = invocation
+
         return try await withTaskCancellationHandler {
             try await present(content, owner: owner)
         } onCancel: {
             Task { @MainActor [weak self] in
+
                 guard self?.currentInvocation == invocation else { return }
                 self?.cancel()
             }
@@ -54,20 +58,26 @@ public final class SharingPlugin: NSObject, NativePlugin {
 
     private func present(_ content: ShareContent, owner: NativePresentationOwner) async throws -> Data {
         #if canImport(UIKit)
+
         guard owner.presentedViewController == nil, !owner.isBeingDismissed,
               !owner.isBeingPresented, owner.transitionCoordinator == nil else { throw PluginError.busy }
         let activity = UIActivityViewController(activityItems: [content.item], applicationActivities: nil)
         self.activity = activity
         let bounds = owner.view.bounds
+
         if let popover = activity.popoverPresentationController {
             popover.sourceView = owner.view
+
             popover.sourceRect = CGRect(x: bounds.midX, y: bounds.midY, width: 1, height: 1)
         }
+
         return try await withCheckedThrowingContinuation { continuation in
             let session = ShareSession(continuation)
             self.session = session
             activity.completionWithItemsHandler = { [weak self] _, completed, _, error in
+
                 guard let self, self.session?.id == session.id else { return }
+
                 if error != nil {
                     self.finish(.failure(PluginError.native))
                 } else if completed {
@@ -80,13 +90,17 @@ public final class SharingPlugin: NSObject, NativePlugin {
             activity.presentationController?.delegate = self
         }
         #elseif canImport(AppKit)
+
         guard let window = owner.view.window, window.attachedSheet == nil else { throw PluginError.busy }
+
         guard !NSSharingService.sharingServices(forItems: [content.item]).isEmpty else {
             throw PluginError.unavailable
         }
+
         let picker = NSSharingServicePicker(items: [content.item])
         picker.delegate = self
         self.picker = picker
+
         return try await withCheckedThrowingContinuation { continuation in
             session = ShareSession(continuation)
             let bounds = owner.view.bounds
@@ -103,14 +117,17 @@ public final class SharingPlugin: NSObject, NativePlugin {
         activity?.dismiss(animated: false)
         finish(.failure(PluginError.cancelled))
         #elseif canImport(AppKit)
+
         if service == nil {
             picker?.close()
             finish(.failure(PluginError.cancelled))
         } else {
+
             // Retain busy admission until the service ends; cancellation is
             // not a promise to retract content already handed to that service.
             session?.complete(.failure(PluginError.cancelled))
         }
+
         #endif
     }
 
@@ -118,11 +135,13 @@ public final class SharingPlugin: NSObject, NativePlugin {
         let pending = session
         session = nil
         currentInvocation = nil
+
         #if canImport(UIKit)
         activity?.completionWithItemsHandler = nil
         activity = nil
         #elseif canImport(AppKit)
         picker?.delegate = nil
+
         picker = nil
         service?.delegate = nil
         service = nil
@@ -148,16 +167,19 @@ extension SharingPlugin: @preconcurrency NSSharingServicePickerDelegate {
         guard sharingServicePicker === picker, let id = session?.id else { return nil }
         service = sharingService
         let delegate = ShareServiceDelegate(context: context) { [weak self] result in
+
             guard let self, self.session?.id == id else { return }
             self.finish(result)
         }
         serviceDelegate = delegate
+
         return delegate
     }
 
     public func sharingServicePicker(_ sharingServicePicker: NSSharingServicePicker,
                                      didChoose sharingService: NSSharingService?) {
         guard sharingServicePicker === picker else { return }
+
         if sharingService == nil { finish(.failure(PluginError.cancelled)) }
     }
 }

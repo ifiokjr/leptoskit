@@ -81,6 +81,7 @@ impl Inbox {
 		if !is_for_guest(&command) {
 			return;
 		}
+
 		let wakers = {
 			let mut waiting = self.lock();
 			if waiting.closed {
@@ -89,6 +90,7 @@ impl Inbox {
 			if waiting.commands.len() == MAX_COMMANDS {
 				waiting.commands.pop_front();
 			}
+
 			waiting.commands.push_back(command);
 			std::mem::take(&mut waiting.wakers)
 		};
@@ -125,10 +127,12 @@ impl Inbox {
 					if waiting.wakers.len() == MAX_WAKERS {
 						waiting.wakers.remove(0);
 					}
+
 					waiting.wakers.push(context.waker().clone());
 				}
 				return Poll::Pending;
 			}
+
 			Poll::Ready(Some(Bytes::from(encode_commands(&mut waiting.commands))))
 		})
 		.await
@@ -165,6 +169,7 @@ impl DevtoolsPlugin {
 			if cancelled.as_mut().poll(context).is_ready() {
 				return Poll::Ready(Err(Error::Cancelled));
 			}
+
 			next.as_mut()
 				.poll(context)
 				.map(|reply| reply.map(Reply::from).ok_or(Error::Cancelled))
@@ -180,6 +185,7 @@ impl DevtoolsPlugin {
 			if cancelled.as_mut().poll(context).is_ready() {
 				return Poll::Ready(Err(Error::Cancelled));
 			}
+
 			sleep
 				.as_mut()
 				.poll(context)

@@ -102,6 +102,7 @@ impl Agent {
 		let mut capabilities = vec![Capability::Tree, Capability::Picking];
 		capabilities.extend(registry::capabilities());
 		let hello = Hello::new(self.app.clone(), Platform::Web, None, capabilities);
+
 		loop {
 			match post_json::<_, SessionId>(&format!("{}/agent/sessions", self.hub), &hello).await {
 				Ok(session) => {
@@ -145,8 +146,10 @@ impl Agent {
 		let options = web_sys::MutationObserverInit::new();
 		options.set_child_list(true);
 		options.set_subtree(true);
+
 		options.set_attributes(true);
 		options.set_character_data(true);
+
 		if let Some(body) = document().and_then(|document| document.body()) {
 			let _ = observer.observe_with_options(&body, &options);
 		}
@@ -156,6 +159,7 @@ impl Agent {
 		if self.flush_pending.replace(true) {
 			return;
 		}
+
 		let agent = Rc::clone(self);
 		spawn_local(async move {
 			gloo_timers::future::TimeoutFuture::new(DEBOUNCE_MS).await;
@@ -171,6 +175,7 @@ impl Agent {
 					break;
 				}
 			}
+
 			agent.flushing.set(false);
 		});
 	}
@@ -192,6 +197,7 @@ impl Agent {
 		{
 			snapshot.route = web_sys::window().and_then(|window| window.location().pathname().ok());
 		}
+
 		if post(&self.events_url(&session), &batch.events)
 			.await
 			.is_ok()
@@ -222,6 +228,7 @@ impl Agent {
 				self.hub,
 				self.after.get()
 			);
+
 			match get::<Vec<Command>>(&url).await {
 				Ok(commands) => {
 					self.after.set(self.after.get() + commands.len());
@@ -243,6 +250,7 @@ impl Agent {
 	fn apply(self: &Rc<Self>, command: Command) {
 		match command {
 			Command::Highlight { key } | Command::Select { key, .. } => highlight(&key.0),
+
 			Command::Pick { on } if on => self.start_picking(),
 			Command::Pick { .. } => stop_picking(),
 			Command::RequestSnapshot => {
@@ -266,6 +274,7 @@ impl Agent {
 		if PICKING.with(Cell::get) {
 			return;
 		}
+
 		PICKING.with(|picking| picking.set(true));
 		let agent = Rc::clone(self);
 		let closure =
@@ -296,6 +305,7 @@ impl Agent {
 					let _ = post(&url, &[event]).await;
 				});
 			});
+
 		if let Some(document) = document() {
 			// Capture, so the pick runs before the app's own handlers.
 			let _ = document.add_event_listener_with_callback_and_bool(
@@ -304,6 +314,7 @@ impl Agent {
 				true,
 			);
 		}
+
 		PICK_LISTENER.with(|listener| *listener.borrow_mut() = Some(closure));
 	}
 }
@@ -353,6 +364,7 @@ fn highlight(key: &str) {
 		if let Some(overlay) = document.get_element_by_id(OVERLAY) {
 			overlay.remove();
 		}
+
 		return;
 	};
 	let overlay = document.get_element_by_id(OVERLAY).or_else(|| {
@@ -361,6 +373,7 @@ fn highlight(key: &str) {
 		document.body()?.append_child(&overlay).ok()?;
 		Some(overlay)
 	});
+
 	let Some(overlay) = overlay else {
 		return;
 	};
@@ -392,6 +405,7 @@ fn tree() -> Tree {
 			}
 			None => root = root.or_else(|| Some(NodeRef::Web(path.clone()))),
 		}
+
 		nodes.push(node_for(&element, &path));
 	}
 
@@ -414,6 +428,7 @@ fn dom_nodes() -> Vec<(String, web_sys::Element)> {
 	else {
 		return found;
 	};
+
 	for index in 0..elements.length() {
 		let Some(element) = elements
 			.item(index)
@@ -424,6 +439,7 @@ fn dom_nodes() -> Vec<(String, web_sys::Element)> {
 		let path = element.get_attribute("data-lk-node").unwrap_or_default();
 		found.push((path, element));
 	}
+
 	found
 }
 
@@ -494,12 +510,15 @@ async fn get<R: DeserializeOwned>(url: &str) -> Result<R, Failure> {
 		.send()
 		.await
 		.map_err(|error| Failure::Other(error.to_string()))?;
+
 	if response.status() == 404 {
 		return Err(Failure::Gone);
 	}
+
 	if !response.ok() {
 		return Err(Failure::Other(response.text().await.unwrap_or_default()));
 	}
+
 	response
 		.json::<R>()
 		.await
@@ -514,9 +533,11 @@ async fn post_json<T: Serialize, R: DeserializeOwned>(url: &str, body: &T) -> Re
 		.send()
 		.await
 		.map_err(|error| error.to_string())?;
+
 	if !response.ok() {
 		return Err(response.text().await.unwrap_or_default());
 	}
+
 	response
 		.json::<R>()
 		.await
@@ -531,8 +552,10 @@ async fn post<T: Serialize>(url: &str, body: &T) -> Result<(), String> {
 		.send()
 		.await
 		.map_err(|error| error.to_string())?;
+
 	if response.status() != 204 && !response.ok() {
 		return Err(response.text().await.unwrap_or_default());
 	}
+
 	Ok(())
 }

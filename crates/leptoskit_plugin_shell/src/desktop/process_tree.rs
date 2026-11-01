@@ -62,6 +62,7 @@ impl ProcessTree {
 		// between the non-reaping query and the asynchronous notification.
 		let mut notifications = signal(SignalKind::child())?;
 		let options = WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT;
+
 		loop {
 			match rustix::process::waitid(WaitId::Pid(self.group), options) {
 				Ok(Some(_)) => return Ok(()),
@@ -154,6 +155,7 @@ impl Drop for ProcessTree {
 			if self.armed {
 				let _ = self.child.start_kill();
 			}
+
 			permit.forget();
 		}
 	}

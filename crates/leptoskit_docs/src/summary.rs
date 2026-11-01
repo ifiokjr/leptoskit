@@ -71,8 +71,10 @@ impl Summary {
 					if titled {
 						items.push(SummaryItem::Part(node.to_string()));
 					}
+
 					titled = true;
 				}
+
 				Node::Paragraph(paragraph) => {
 					let links = paragraph
 						.children
@@ -134,6 +136,7 @@ impl Summary {
 		}
 
 		let mut pages = Vec::new();
+
 		for item in &self.items {
 			if let SummaryItem::Chapter(chapter) = item {
 				walk(chapter, &mut pages);
@@ -154,6 +157,7 @@ fn chapters(list: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<Chapter> {
 				Node::Paragraph(paragraph) if paragraph.children.len() == 1 => {
 					chapter_link(&paragraph.children[0], diagnostics)
 				}
+
 				_ => None,
 			}
 		}) else {
@@ -165,6 +169,7 @@ fn chapters(list: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<Chapter> {
 		};
 
 		let mut children = Vec::new();
+
 		for rest in parts {
 			if matches!(rest, Node::List(_)) {
 				children.extend(chapters(rest, diagnostics));

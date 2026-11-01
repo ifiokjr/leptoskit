@@ -34,6 +34,7 @@ fn name_after<'a>(line: &'a str, prefix: &str) -> Option<&'a str> {
 #[test]
 fn built_in_components_match_their_tags() {
 	let mut declared = BTreeSet::new();
+
 	for source in TAG_SOURCES {
 		for line in read(source).lines() {
 			if let Some(name) = name_after(line, "tag!(") {
@@ -41,9 +42,11 @@ fn built_in_components_match_their_tags() {
 			}
 		}
 	}
+
 	for source in COMPONENT_SOURCES {
 		let text = read(source);
 		let mut lines = text.lines();
+
 		while let Some(line) = lines.next() {
 			if line.trim() == "#[component]"
 				&& let Some(name) = lines.next().and_then(|next| name_after(next, "pub fn "))
@@ -52,6 +55,7 @@ fn built_in_components_match_their_tags() {
 			}
 		}
 	}
+
 	let listed: BTreeSet<String> = leptoskit_lint::BUILT_IN_COMPONENTS
 		.iter()
 		.map(|&name| name.to_owned())
@@ -65,12 +69,14 @@ fn only_color_literal_is_opt_in() {
 	use leptoskit_lint::Rule;
 
 	let rules = leptoskit_lint::LintConfig::default().rules;
+
 	for rule in Rule::ALL {
 		let expected = if rule == Rule::ColorLiteral {
 			LintLevel::Allow
 		} else {
 			LintLevel::Warn
 		};
+
 		assert_eq!(rule.level(&rules), expected, "{rule}");
 	}
 }
@@ -79,6 +85,7 @@ fn only_color_literal_is_opt_in() {
 fn every_rule_is_described_in_the_linting_guide() {
 	let guide = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/src/guide/23-linting.md");
 	let guide = std::fs::read_to_string(guide).expect("read the linting guide");
+
 	for rule in leptoskit_lint::Rule::ALL {
 		// A rule has a section of its own, or a row in the table of tree rules.
 		let heading = format!("### `{}`", rule.name());

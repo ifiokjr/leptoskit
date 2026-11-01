@@ -19,6 +19,7 @@ fn sources(directory: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
 			files.push(path);
 		}
 	}
+
 	Ok(())
 }
 
@@ -28,21 +29,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	if env::var("CARGO_CFG_TARGET_ARCH")? == "wasm32" {
 		return Ok(());
 	}
+
 	let compressed = fs::read("vendor/runtime.tar.gz")?;
 	let digest = format!("{:x}", sha2::Sha256::digest(&compressed));
 
 	if digest != "5d2106870e8caeb9a69ebd702e3874560ca6f628ec0eaed1b0c1006f59521872" {
 		return Err("pinned Rive source archive checksum mismatch".into());
 	}
+
 	let output = PathBuf::from(env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?);
 	// Keep MSVC include paths short. Replace the extraction as a whole so a
 	// pinned revision update cannot retain sources removed upstream.
 	let root = output.join("rive");
+
 	if root.exists() {
 		fs::remove_dir_all(&root)?;
 	}
+
 	let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(compressed.as_slice()));
 	archive.unpack(&root)?;
+
 	let mut files = Vec::new();
 	sources(&root.join("src"), &mut files)?;
 	files.sort();
@@ -59,6 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		.files(files)
 		.flag_if_supported("-Wno-deprecated-declarations")
 		.warnings(false);
+
 	if runtime.get_compiler().is_like_msvc() {
 		// Preserve destructors when an upstream allocation throws into the
 		// adapter's exception boundary. MSVC also needs the complete context
@@ -67,6 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			.flag("/EHsc")
 			.flag("/FIrive/data_bind/data_context.hpp");
 	}
+
 	runtime.compile("leptoskit_rive_runtime");
 	println!("cargo:include={}", root.join("include").display());
 	Ok(())

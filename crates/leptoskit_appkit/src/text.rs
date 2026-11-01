@@ -87,6 +87,7 @@ pub(crate) fn attributed_string(
 		Direction::Ltr => NSWritingDirection::LeftToRight,
 		Direction::Rtl => NSWritingDirection::RightToLeft,
 	});
+
 	paragraph.setLineBreakMode(NSLineBreakMode::ByWordWrapping);
 
 	// SAFETY: the attribute name keys are immutable `NSString` statics

@@ -183,6 +183,7 @@ fn rebuild(site: &Site, out: &Path, generation: &Generation) {
 		}
 		Err(error) => eprintln!("{error}"),
 	}
+
 	generation.bump();
 }
 
@@ -209,6 +210,7 @@ impl Changes {
 	/// unrelated events arrive.
 	fn next(&mut self) -> bool {
 		let mut compare = Instant::now() + self.rescan;
+
 		loop {
 			match self
 				.events
@@ -220,13 +222,16 @@ impl Changes {
 					if fingerprint(&self.root, &self.out) != self.built {
 						break;
 					}
+
 					compare = Instant::now() + self.rescan;
 				}
+
 				Err(mpsc::RecvTimeoutError::Disconnected) => return false,
 			}
 		}
 
 		let mut settled = Instant::now() + SETTLE;
+
 		loop {
 			match self
 				.events
@@ -235,8 +240,10 @@ impl Changes {
 				Ok(event) if reports_change(&event, &self.out) => {
 					settled = Instant::now() + SETTLE;
 				}
+
 				Ok(_) => {}
 				Err(mpsc::RecvTimeoutError::Timeout) => break,
+
 				Err(mpsc::RecvTimeoutError::Disconnected) => return false,
 			}
 		}
@@ -257,6 +264,7 @@ impl Changes {
 fn reports_change(event: &notify::Result<notify::Event>, out: &Path) -> bool {
 	match event {
 		Err(_) => true,
+
 		Ok(event) if event.need_rescan() => true,
 		Ok(event) => {
 			!event.kind.is_access() && event.paths.iter().any(|path| !path.starts_with(out))
@@ -284,6 +292,7 @@ fn fingerprint(root: &Path, out: &Path) -> u64 {
 		let Ok(metadata) = entry.metadata() else {
 			continue;
 		};
+
 		if metadata.is_file() {
 			entry.path().hash(&mut hasher);
 			metadata.len().hash(&mut hasher);
@@ -302,6 +311,7 @@ fn respond(stream: &TcpStream, out: &Path, generation: &Generation) {
 
 	let mut reader = BufReader::new(stream);
 	let mut request = String::new();
+
 	if reader.read_line(&mut request).is_err() {
 		return;
 	}
@@ -313,6 +323,7 @@ fn respond(stream: &TcpStream, out: &Path, generation: &Generation) {
 
 	// Drain the headers; nothing in them changes the response.
 	let mut header = String::new();
+
 	while reader.read_line(&mut header).is_ok_and(|read| read > 2) {
 		header.clear();
 	}
@@ -322,12 +333,14 @@ fn respond(stream: &TcpStream, out: &Path, generation: &Generation) {
 	}
 
 	let (path, query) = target.split_once('?').unwrap_or((target, ""));
+
 	if path == format!("/{ASSETS}/live") {
 		let seen = query
 			.strip_prefix("since=")
 			.and_then(|seen| seen.parse().ok())
 			.unwrap_or(0);
 		let count = generation.after(seen).to_string();
+
 		return reply(stream, "200 OK", "text/plain", count.as_bytes());
 	}
 
@@ -348,6 +361,7 @@ fn respond(stream: &TcpStream, out: &Path, generation: &Generation) {
 fn resolve(out: &Path, path: &str) -> Option<PathBuf> {
 	let decoded = decode(path)?;
 	let relative = Path::new(decoded.trim_start_matches('/'));
+
 	if relative
 		.components()
 		.any(|component| !matches!(component, Component::Normal(_)))
@@ -396,6 +410,7 @@ fn content_type(file: &Path) -> &'static str {
 		Some("json") => "application/json",
 		Some("svg") => "image/svg+xml",
 		Some("png") => "image/png",
+
 		Some("jpg" | "jpeg") => "image/jpeg",
 		Some("gif") => "image/gif",
 		Some("webp") => "image/webp",
@@ -513,6 +528,7 @@ mod tests {
 				sender.send(Ok(output_event(modify, &out))).unwrap();
 				thread::sleep(Duration::from_millis(10));
 			}
+
 			sender
 		});
 
@@ -563,6 +579,7 @@ mod tests {
 				sender.send(Ok(output_event(modify, &out))).unwrap();
 				thread::sleep(Duration::from_millis(5));
 			}
+
 			sender
 		});
 		fs::write(&readme, "# Home\n\nAn edit no event reported.\n").unwrap();

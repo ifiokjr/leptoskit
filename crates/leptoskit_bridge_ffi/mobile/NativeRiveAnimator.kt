@@ -33,6 +33,7 @@ internal class NativeRiveAnimator(
         if (!open) return
         if (!active()) {
             stop()
+
             return
         }
         // Uploads may synchronously notify the native view hierarchy. Never
@@ -40,12 +41,15 @@ internal class NativeRiveAnimator(
         if (scheduled || ticking) return
         if (!hasScenes()) {
             detach()
+
             return
         }
+
         if (!observing) {
             root.context.contentResolver.registerContentObserver(preference, false, observer)
             observing = true
         }
+
         scheduled = true
         display.postFrameCallback(this)
     }
@@ -55,31 +59,39 @@ internal class NativeRiveAnimator(
 
     override fun doFrame(frameTimeNanos: Long) {
         scheduled = false
+
         if (!open || !active()) {
             stop()
+
             return
         }
+
         // A fixed cadence limits raster work on 90/120 Hz displays without
         // accumulating time while paused. The tolerance avoids halving 60 Hz.
         if (deadline != 0L && frameTimeNanos + 500_000L < deadline) {
             requestFrame()
+
             return
         }
         val elapsed = if (previous == 0L) 0.0 else (frameTimeNanos - previous).coerceAtLeast(0) / 1_000_000_000.0
+
         previous = frameTimeNanos
         deadline = if (deadline == 0L) frameTimeNanos + 16_666_667L else maxOf(deadline + 16_666_667L, frameTimeNanos + 1_000_000L)
         val pending =
             try {
                 ticking = true
                 val reduced = Settings.Global.getFloat(root.context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+
                 tick(elapsed, root.resources.displayMetrics.density, if (reduced) 3 else 1)
             } catch (error: Exception) {
                 stop()
                 fail(error)
+
                 return
             } finally {
                 ticking = false
             }
+
         if (pending) requestFrame() else stop()
     }
 
@@ -92,6 +104,7 @@ internal class NativeRiveAnimator(
 
     fun detach() {
         stop()
+
         if (observing) root.context.contentResolver.unregisterContentObserver(observer)
         observing = false
     }

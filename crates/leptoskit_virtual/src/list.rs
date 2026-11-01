@@ -111,6 +111,7 @@ pub fn VirtualList(
 					Axis::Horizontal => *offset_x,
 				}));
 			}
+
 			EventOutcome::Handled
 		})
 		.child(content);

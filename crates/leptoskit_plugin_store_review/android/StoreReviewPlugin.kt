@@ -73,10 +73,14 @@ class StoreReviewPlugin internal constructor(
         payload: ByteBuffer,
     ): ByteArray {
         checkMain()
+
         if (closed) throw PluginException(PluginException.CANCELLED)
+
         if (method !in methods) throw PluginException(PluginException.UNAVAILABLE)
+
         if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
         currentCoroutineContext().ensureActive()
+
         if (method == 0) {
             val value =
                 if (pending != null) {
@@ -86,9 +90,12 @@ class StoreReviewPlugin internal constructor(
                 } else {
                     2
                 }
+
             return byteArrayOf(value.toByte(), 0, 0, 0)
         }
+
         if (pending != null) throw PluginException(PluginException.BUSY)
+
         if (activeOwner() == null) throw PluginException(PluginException.UNAVAILABLE)
         return suspendCancellableCoroutine { continuation ->
             val operation = Operation(continuation)
@@ -98,6 +105,7 @@ class StoreReviewPlugin internal constructor(
             continuation.invokeOnCancellation {
                 executor.execute {
                     if (pending === operation) {
+
                         operation.cancelled = true
                         operation.continuation = null
                     }
@@ -110,6 +118,7 @@ class StoreReviewPlugin internal constructor(
     private fun prepare(operation: Operation) {
         try {
             manager.requestReviewFlow().addOnCompleteListener(executor) { task ->
+
                 if (pending !== operation) return@addOnCompleteListener
                 val owner = activeOwner()
                 when {
@@ -170,13 +179,16 @@ class StoreReviewPlugin internal constructor(
         error: PluginException?,
     ) {
         checkMain()
+
         if (pending !== operation) return
         pending = null
         stopObserving()
         val continuation = operation.continuation
         operation.continuation = null
+
         if (continuation?.isActive == true) {
             if (error != null) {
+
                 continuation.resumeWithException(error)
             } else {
                 continuation.resume(byteArrayOf(1, 0, 0, 0))
@@ -186,6 +198,7 @@ class StoreReviewPlugin internal constructor(
 
     override fun close() {
         checkMain()
+
         if (closed) return
         closed = true
         stopObserving()
@@ -193,6 +206,7 @@ class StoreReviewPlugin internal constructor(
             it.cancelled = true
             val continuation = it.continuation
             it.continuation = null
+
             if (continuation?.isActive == true) {
                 continuation.resumeWithException(PluginException(PluginException.CANCELLED))
             }

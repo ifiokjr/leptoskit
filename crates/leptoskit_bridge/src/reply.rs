@@ -72,6 +72,7 @@ impl<G: ReplyGuard> ReplyGuard for CombinedGuard<G> {
 		if let Some(inner) = &mut self.inner {
 			inner.commit();
 		}
+
 		self.outer.commit();
 	}
 }

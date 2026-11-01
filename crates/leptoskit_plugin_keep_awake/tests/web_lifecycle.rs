@@ -73,12 +73,15 @@ async fn cancellation_cleans_up_late_acquisition_and_revocation_ends_a_live_leas
 	assert!(matches!(poll!(acquiring.as_mut()), Poll::Pending));
 	drop(acquiring);
 	fixture.0.resolve();
+
 	for _ in 0..20 {
 		if fixture.0.releases() == 1 {
 			break;
 		}
+
 		microtask().await;
 	}
+
 	assert_eq!(
 		fixture.0.releases(),
 		1,
@@ -88,12 +91,15 @@ async fn cancellation_cleans_up_late_acquisition_and_revocation_ends_a_live_leas
 	let mut active = Box::pin(web::hold());
 	assert!(matches!(poll!(active.as_mut()), Poll::Pending));
 	fixture.0.resolve();
+
 	for _ in 0..5 {
 		microtask().await;
 	}
+
 	assert!(matches!(poll!(active.as_mut()), Poll::Pending));
 	fixture.0.revoke();
 	assert_eq!(active.await, Err(Error::Cancelled));
+
 	assert_eq!(
 		fixture.0.releases(),
 		1,
@@ -103,9 +109,11 @@ async fn cancellation_cleans_up_late_acquisition_and_revocation_ends_a_live_leas
 	let mut held = Box::pin(web::hold());
 	assert!(matches!(poll!(held.as_mut()), Poll::Pending));
 	fixture.0.resolve();
+
 	for _ in 0..5 {
 		microtask().await;
 	}
+
 	assert!(matches!(poll!(held.as_mut()), Poll::Pending));
 	drop(held);
 	assert_eq!(fixture.0.releases(), 2, "a live lease releases on drop");

@@ -13,12 +13,17 @@ enum WidgetTextStyle {
             // Each setter re-lays out the label's text, so only changes are set.
             if label.text != props.text { label.text = props.text }
             let accessibilityLabel = props.accessibilityLabel ?? props.text
+
             if label.accessibilityLabel != accessibilityLabel { label.accessibilityLabel = accessibilityLabel }
             let accessibilityValue = props.accessibilityLabel == nil ? nil : props.text
+
             if label.accessibilityValue != accessibilityValue { label.accessibilityValue = accessibilityValue }
+
             if label.font !== font { label.font = font }
             let color = textColor(props)
+
             if label.textColor != color { label.textColor = color }
+
             if label.textAlignment != alignment { label.textAlignment = alignment }
         }
 

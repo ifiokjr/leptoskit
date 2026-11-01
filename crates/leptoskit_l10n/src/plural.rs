@@ -257,6 +257,7 @@ mod tests {
 		let unknown = rules("xx");
 		assert_eq!(unknown.category(1), PluralCategory::Other);
 		assert_eq!(unknown.locale(), &Locale::new("xx").unwrap());
+
 		assert_eq!(
 			format!("{unknown:?}"),
 			"PluralRules { locale: Locale(\"xx\"), known: false }"
@@ -274,6 +275,7 @@ mod tests {
 		assert_eq!(english.category(1_usize), PluralCategory::One);
 		assert_eq!(english.category(-1_i8), PluralCategory::One);
 		assert_eq!(english.category(-1_i16), PluralCategory::One);
+
 		assert_eq!(english.category(-1_i32), PluralCategory::One);
 		assert_eq!(english.category(i64::MIN), PluralCategory::Other);
 		assert_eq!(english.category(-1_isize), PluralCategory::One);

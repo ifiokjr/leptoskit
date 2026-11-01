@@ -19,6 +19,7 @@ internal data class ShareContent(
             val kind = bytes.int
             val size = bytes.int
             if (kind !in 0..1 || size != bytes.remaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
+
             if (size > if (kind == 0) 65536 else 8192) throw PluginException(PluginException.TOO_LARGE)
             val value =
                 try {
@@ -31,8 +32,11 @@ internal data class ShareContent(
                 } catch (error: CharacterCodingException) {
                     throw PluginException(PluginException.INVALID_ARGUMENT, error)
                 }
+
             if (value.isEmpty() || '\u0000' in value) throw PluginException(PluginException.INVALID_ARGUMENT)
+
             if (kind == 1) validateUrl(value)
+
             return ShareContent(kind, value)
         }
 

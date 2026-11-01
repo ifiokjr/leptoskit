@@ -227,6 +227,7 @@ mod tests {
 		);
 		block_on((hook.remove)()).unwrap();
 		assert_eq!(hook.value.get(), Settings { name: "Ada".into() });
+
 		owner.cleanup();
 	}
 

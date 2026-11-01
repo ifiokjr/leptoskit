@@ -36,6 +36,7 @@ impl UuidV4 {
 		if bytes[6] >> 4 != 4 || bytes[8] >> 6 != 2 {
 			return Err(Error::InvalidArgument);
 		}
+
 		Ok(Self(bytes))
 	}
 
@@ -61,8 +62,10 @@ impl std::fmt::Display for UuidV4 {
 			if matches!(index, 4 | 6 | 8 | 10) {
 				formatter.write_str("-")?;
 			}
+
 			write!(formatter, "{byte:02x}")?;
 		}
+
 		Ok(())
 	}
 }
@@ -124,9 +127,11 @@ fn validate_random_length(length: usize) -> Result<(), Error> {
 #[cfg(any(test, all(target_arch = "wasm32", feature = "guest")))]
 fn decode_random_reply(length: usize, reply: Bytes) -> Result<Bytes, Error> {
 	validate_random_length(length)?;
+
 	if reply.len() != length {
 		return Err(Error::InvalidArgument);
 	}
+
 	Ok(reply)
 }
 
@@ -170,6 +175,7 @@ impl Plugin for Crypto {
 				if !payload.is_empty() {
 					return Err(Error::InvalidArgument);
 				}
+
 				Ok(Bytes::copy_from_slice(uuid_v4()?.as_bytes()))
 			}
 			_ => Err(Error::Unavailable),
@@ -264,9 +270,11 @@ mod tests {
 	fn sha512_empty_input_matches_published_vector() {
 		let digest = sha512(b"");
 		let mut hex = String::with_capacity(128);
+
 		for byte in digest {
 			write!(&mut hex, "{byte:02x}").unwrap();
 		}
+
 		assert_eq!(
 			hex,
 			concat!(
@@ -296,6 +304,7 @@ mod random_tests {
 				response
 			);
 		}
+
 		assert_eq!(random_bytes(MAX_RANDOM_BYTES + 1), Err(Error::TooLarge));
 		assert_eq!(
 			Crypto.invoke(
@@ -304,12 +313,14 @@ mod random_tests {
 			),
 			Err(Error::TooLarge)
 		);
+
 		for length in [0, 1, 3, 5, 8] {
 			assert_eq!(
 				Crypto.invoke(RANDOM_BYTES, vec![0; length].into()),
 				Err(Error::InvalidArgument)
 			);
 		}
+
 		assert_eq!(
 			decode_random_reply(3, Bytes::from_static(&[1, 2])),
 			Err(Error::InvalidArgument)
@@ -329,13 +340,16 @@ mod random_tests {
 		let uuid = UuidV4::from_bytes(expected).unwrap();
 		assert_eq!(uuid.to_string(), "00112233-4455-4677-8899-aabbccddeeff");
 		assert_eq!(uuid.into_bytes(), expected);
+
 		for _ in 0..32 {
 			let uuid = uuid_v4().unwrap();
 			assert_eq!(uuid.as_bytes()[6] & 0xf0, 0x40);
 			assert_eq!(uuid.as_bytes()[8] & 0xc0, 0x80);
+
 			assert_eq!(UuidV4::decode(uuid.as_bytes()).unwrap(), uuid);
 			assert_eq!(uuid.to_string().len(), 36);
 		}
+
 		let wire = Crypto.invoke(UUID_V4, Bytes::new()).unwrap();
 		UuidV4::decode(&wire).unwrap();
 		assert_eq!(

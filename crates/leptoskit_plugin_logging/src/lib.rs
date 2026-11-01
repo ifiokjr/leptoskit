@@ -90,9 +90,11 @@ fn label(value: &str, maximum: usize) -> Result<(), Error> {
 	if value.len() > maximum {
 		return Err(Error::TooLarge);
 	}
+
 	if value.is_empty() || value.chars().any(char::is_control) {
 		return Err(Error::InvalidArgument);
 	}
+
 	Ok(())
 }
 
@@ -100,20 +102,27 @@ impl Record {
 	/// Validates an event without allocating an encoded copy.
 	pub fn validate(&self) -> Result<(), Error> {
 		label(&self.target, MAX_TARGET_BYTES)?;
+
 		if self.message.len() > MAX_MESSAGE_BYTES || self.fields.len() > MAX_FIELDS {
 			return Err(Error::TooLarge);
 		}
+
 		let mut bytes = 16 + self.target.len() + self.message.len();
+
 		for (key, value) in &self.fields {
 			label(key, MAX_FIELD_KEY_BYTES)?;
+
 			if value.len() > MAX_FIELD_VALUE_BYTES {
 				return Err(Error::TooLarge);
 			}
+
 			bytes += 8 + key.len() + value.len();
 		}
+
 		if bytes > MAX_RECORD_BYTES {
 			return Err(Error::TooLarge);
 		}
+
 		Ok(())
 	}
 
@@ -125,10 +134,13 @@ impl Record {
 		output.bytes(self.target.as_bytes())?;
 		output.bytes(self.message.as_bytes())?;
 		output.u32(u32::try_from(self.fields.len()).map_err(|_| Error::TooLarge)?);
+
 		for (key, value) in &self.fields {
 			output.bytes(key.as_bytes())?;
+
 			output.bytes(value.as_bytes())?;
 		}
+
 		Ok(output.finish())
 	}
 
@@ -138,30 +150,39 @@ impl Record {
 		if bytes.len() > MAX_RECORD_BYTES {
 			return Err(Error::TooLarge);
 		}
+
 		let mut input = Decoder::new(bytes);
 		let level = Level::decode(input.u32()?)?;
 		let target = input.string()?;
 		label(target, MAX_TARGET_BYTES)?;
 		let message = input.string()?;
+
 		if message.len() > MAX_MESSAGE_BYTES {
 			return Err(Error::TooLarge);
 		}
+
 		let count = input.u32()? as usize;
+
 		if count > MAX_FIELDS {
 			return Err(Error::TooLarge);
 		}
+
 		let mut fields = BTreeMap::new();
+
 		for _ in 0..count {
 			let key = input.string()?;
 			label(key, MAX_FIELD_KEY_BYTES)?;
 			let value = input.string()?;
+
 			if value.len() > MAX_FIELD_VALUE_BYTES {
 				return Err(Error::TooLarge);
 			}
+
 			if fields.insert(key.into(), value.into()).is_some() {
 				return Err(Error::InvalidArgument);
 			}
 		}
+
 		input.finish()?;
 		let record = Self {
 			level,
@@ -227,11 +248,13 @@ pub mod guest {
 		pub async fn write(self, record: &Record) -> Result<bool, Error> {
 			let result = self.0.call(WRITE, &record.encode()?)?.await?;
 			let mut input = Decoder::new(&result);
+
 			let accepted = match input.u32()? {
 				0 => false,
 				1 => true,
 				_ => return Err(Error::InvalidArgument),
 			};
+
 			input.finish()?;
 			Ok(accepted)
 		}
@@ -272,12 +295,15 @@ mod tests {
 		let record = record();
 		let bytes = record.encode().unwrap();
 		assert_eq!(Record::decode(&bytes), Ok(record));
+
 		for length in 0..bytes.len() {
 			assert!(Record::decode(&bytes[..length]).is_err());
 		}
+
 		let mut bytes = bytes.to_vec();
 		bytes.push(0);
 		assert_eq!(Record::decode(&bytes), Err(Error::InvalidArgument));
+
 		bytes[0] = 5;
 		assert_eq!(Record::decode(&bytes), Err(Error::InvalidArgument));
 		let mut duplicate = Encoder::with_capacity(40);
@@ -285,10 +311,12 @@ mod tests {
 		duplicate.bytes(b"tests").unwrap();
 		duplicate.bytes(b"message").unwrap();
 		duplicate.u32(2);
+
 		for _ in 0..2 {
 			duplicate.bytes(b"same").unwrap();
 			duplicate.bytes(b"value").unwrap();
 		}
+
 		assert_eq!(
 			Record::decode(&duplicate.finish()),
 			Err(Error::InvalidArgument)

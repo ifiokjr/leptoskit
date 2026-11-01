@@ -26,6 +26,7 @@ fn literals<'a>(source: &'a str, call: &str) -> Vec<Vec<&'a str>> {
 						literals.push(&arguments[from..index]);
 						open = None;
 					}
+
 					(')', None) => return literals,
 					_ => {}
 				}

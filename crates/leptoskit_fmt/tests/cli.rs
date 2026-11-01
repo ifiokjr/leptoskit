@@ -92,6 +92,7 @@ fn check_reports_a_diff_and_fails_without_writing() {
 		"{}",
 		text(&output.stderr)
 	);
+
 	assert_eq!(project.read("src/lib.rs"), UNFORMATTED);
 }
 
@@ -223,6 +224,7 @@ fn markup_that_does_not_parse_is_a_warning() {
 		stderr.contains(&format!("warning: {}:2:", reported.display())),
 		"{stderr}"
 	);
+
 	assert!(stderr.contains("markup left as written"), "{stderr}");
 }
 
@@ -241,11 +243,13 @@ fn toolchain_flags_choose_rustfmt() {
 			text(&output.stderr)
 		);
 	}
+
 	let output = project
 		.command(&["--check", "--toolchain", "leptoskit-fmt-no-such-toolchain"])
 		.env_remove(leptoskit_fmt::RUSTFMT_ENV)
 		.output()
 		.expect("run");
+
 	assert_eq!(output.status.code(), Some(2));
 	assert!(
 		text(&output.stderr)

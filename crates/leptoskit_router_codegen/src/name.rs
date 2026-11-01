@@ -71,6 +71,7 @@ const PLATFORMS: [&str; 9] = [
 pub(crate) fn parse(name: &str, is_dir: bool) -> Result<Name, String> {
 	// `[...topic]` is the one place a name holds dots.
 	let without_rest = name.replacen("...", "", 1);
+
 	if let Some((_, suffix)) = without_rest.rsplit_once('.') {
 		if PLATFORMS.contains(&suffix) {
 			return Err(format!(
@@ -82,6 +83,7 @@ pub(crate) fn parse(name: &str, is_dir: bool) -> Result<Name, String> {
 			"`{name}` contains `.`, which route names cannot use"
 		));
 	}
+
 	if let Some(inner) = name
 		.strip_prefix("[[")
 		.and_then(|rest| rest.strip_suffix("]]"))
@@ -91,6 +93,7 @@ pub(crate) fn parse(name: &str, is_dir: bool) -> Result<Name, String> {
 			None => Segment::OptionalParam(param_name(name, inner)?),
 		}));
 	}
+
 	if let Some(inner) = name
 		.strip_prefix('[')
 		.and_then(|rest| rest.strip_suffix(']'))
@@ -100,6 +103,7 @@ pub(crate) fn parse(name: &str, is_dir: bool) -> Result<Name, String> {
 			None => Segment::Param(param_name(name, inner)?),
 		}));
 	}
+
 	if let Some(group) = name
 		.strip_prefix('(')
 		.and_then(|rest| rest.strip_suffix(')'))
@@ -107,9 +111,12 @@ pub(crate) fn parse(name: &str, is_dir: bool) -> Result<Name, String> {
 		if !is_dir {
 			return Err(format!("`{name}.rs`: a group is a directory, `{name}/`"));
 		}
+
 		static_text(name, group)?;
+
 		return Ok(Name::Group(group.to_owned()));
 	}
+
 	if let Some(special) = name.strip_prefix('+') {
 		return match (special, is_dir) {
 			("not-found", false) => Ok(Name::NotFound),
@@ -123,6 +130,7 @@ pub(crate) fn parse(name: &str, is_dir: bool) -> Result<Name, String> {
 			}
 		};
 	}
+
 	if let Some(private) = name.strip_prefix('_') {
 		if is_dir {
 			return Err(format!(
@@ -130,12 +138,16 @@ pub(crate) fn parse(name: &str, is_dir: bool) -> Result<Name, String> {
 				 module, or in a `_file.rs` beside the routes that use it"
 			));
 		}
+
 		if private == "layout" {
 			return Ok(Name::Layout);
 		}
+
 		static_text(name, private)?;
+
 		return Ok(Name::Private(name.to_owned()));
 	}
+
 	if name == "index" {
 		return if is_dir {
 			Err("`index/`: `index` names a directory's own route file, `index.rs`".to_owned())
@@ -143,6 +155,7 @@ pub(crate) fn parse(name: &str, is_dir: bool) -> Result<Name, String> {
 			Ok(Name::Index)
 		};
 	}
+
 	static_text(name, name)?;
 	Ok(Name::Segment(Segment::Static(name.to_owned())))
 }
@@ -174,6 +187,7 @@ fn static_text(name: &str, text: &str) -> Result<(), String> {
 		&& text
 			.chars()
 			.all(|char| char.is_ascii_alphanumeric() || matches!(char, '-' | '_' | '~'));
+
 	if valid {
 		Ok(())
 	} else {
@@ -221,10 +235,12 @@ pub(crate) fn escape(mut name: String) -> String {
 	if name.is_empty() || name.starts_with(|char: char| char.is_ascii_digit()) {
 		name.insert(0, '_');
 	}
+
 	// syn's keyword list predates edition 2024, which reserves `gen`.
 	if name == "gen" || syn::parse_str::<syn::Ident>(&name).is_err() {
 		name.push('_');
 	}
+
 	name
 }
 
@@ -270,6 +286,7 @@ mod tests {
 		);
 		assert_eq!(parse("(tabs)", true), Ok(Name::Group("tabs".to_owned())));
 		assert_eq!(parse("_layout", false), Ok(Name::Layout));
+
 		assert_eq!(parse("+not-found", false), Ok(Name::NotFound));
 		assert_eq!(parse("+html", false), Ok(Name::Html));
 		assert_eq!(
@@ -326,6 +343,7 @@ mod tests {
 		assert_eq!(identifier("2fa"), "_2fa");
 		assert_eq!(identifier("Notes"), "notes");
 		assert_eq!(identifier("-"), "__");
+
 		assert_eq!(pascal_case("sign-in"), "SignIn");
 		assert_eq!(pascal_case("notes"), "Notes");
 		assert_eq!(escape(pascal_case("404")), "_404");

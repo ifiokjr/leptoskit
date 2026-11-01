@@ -580,6 +580,7 @@ fn refreshing_font_metrics_reflows_without_replacing_widgets_or_handlers() {
 	assert_eq!(surface.children(root), &[text]);
 	assert_eq!(surface.frame(text).unwrap().width, 60.0);
 	assert_eq!(surface.frame(text).unwrap().height, 24.0);
+
 	assert!(
 		surface
 			.backend()
