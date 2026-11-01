@@ -956,6 +956,16 @@
 					"description": "Geospatial columns' options.",
 					"$ref": "#/$defs/DbGeoConfig"
 				},
+				"live_capture": {
+					"description": "How writes to live tables reach the change log that live queries\nfollow.",
+					"$ref": "#/$defs/DbLiveCapture"
+				},
+				"live_retention_minutes": {
+					"description": "How many minutes of the change log the servers keep, so a client that\nreconnects within them catches up rather than refetching everything;\n0 keeps all of it. Pruning runs with the job workers, or wherever the\nserver starts `Db::live_maintenance`.",
+					"type": "integer",
+					"format": "uint32",
+					"minimum": 0
+				},
 				"migrations": {
 					"description": "The migrations directory, relative to the project root.",
 					"type": "string",
@@ -1031,6 +1041,21 @@
 				}
 			},
 			"additionalProperties": false
+		},
+		"DbLiveCapture": {
+			"description": "How writes to live tables reach the change log.",
+			"oneOf": [
+				{
+					"description": "Triggers that migrations add to every live table record each write\nin the writing transaction. Works on both databases, and suits most\napps.",
+					"type": "string",
+					"const": "triggers"
+				},
+				{
+					"description": "Postgres's logical replication: migrations publish the live tables\ninstead, and one server reads each commit from the write-ahead log\nafter it commits, so writers pay nothing extra. Needs `wal_level =\nlogical` and a role allowed to replicate. Postgres only.",
+					"type": "string",
+					"const": "replication"
+				}
+			]
 		},
 		"DbPolicies": {
 			"description": "Who enforces the tables' access policies.",
