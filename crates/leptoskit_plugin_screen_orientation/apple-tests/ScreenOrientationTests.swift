@@ -5,7 +5,9 @@ import XCTest
 
 final class ScreenOrientationTests: XCTestCase {
     func testPoliciesRejectUnknownTruncatedAndTrailingValues() throws {
-        for raw in UInt32(0)...6 {
+        let policies = UInt32(0)...OrientationPolicy.any.rawValue
+
+        for raw in policies {
             let bytes = withUnsafeBytes(of: raw.littleEndian) { Data($0) }
             XCTAssertEqual(try bytes.withUnsafeBytes { try OrientationPolicy.decode($0).rawValue }, raw)
         }
