@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use sdk_live_client::Client;
 use sdk_live_client::SdkNote;
+use sdk_live_client::SdkPage;
 use sdk_live_client::SdkPresence;
 use sdk_live_client::SdkRoom;
 use sdk_live_client::SdkSignal;
@@ -40,6 +41,8 @@ struct Person {
 	api: Client,
 	notes: Subscription<Vec<SdkNote>>,
 	latest: Option<Vec<SdkNote>>,
+	page: Subscription<SdkPage>,
+	latest_page: Option<SdkPage>,
 	statuses: Arc<Mutex<Vec<LiveStatus>>>,
 }
 
@@ -64,11 +67,14 @@ impl Person {
 			}
 		});
 		let notes = api.sdk_notes_watch(prefix.to_owned());
+		let page = api.sdk_page_rows_watch(prefix.to_owned());
 		Self {
 			name,
 			api,
 			notes,
 			latest: None,
+			page,
+			latest_page: None,
 			statuses,
 		}
 	}
@@ -86,19 +92,28 @@ impl Person {
 		let deadline = Instant::now() + STEP;
 
 		loop {
-			if self.latest.is_some() && test(self) {
+			if self.latest.is_some() && self.latest_page.is_some() && test(self) {
 				return Ok(());
 			}
 
-			let next = tokio::time::timeout_at(deadline, self.notes.next())
+			let changed = async {
+				tokio::select! {
+					next = self.notes.next() => match next {
+						Some(Ok(notes)) => self.latest = Some(notes),
+						Some(Err(error)) => eprintln!("{}: {error}", self.name),
+						None => return Err(format!("{}: the subscription ended", self.name).into()),
+					},
+					next = self.page.next() => match next {
+						Some(Ok(page)) => self.latest_page = Some(page),
+						Some(Err(error)) => eprintln!("{}: {error}", self.name),
+						None => return Err(format!("{}: the page subscription ended", self.name).into()),
+					},
+				}
+				Ok::<(), Failure>(())
+			};
+			tokio::time::timeout_at(deadline, changed)
 				.await
-				.map_err(|_| format!("{}: waited too long for {what}", self.name))?;
-
-			match next {
-				Some(Ok(notes)) => self.latest = Some(notes),
-				Some(Err(error)) => eprintln!("{}: {error}", self.name),
-				None => return Err(format!("{}: the subscription ended", self.name).into()),
-			}
+				.map_err(|_| format!("{}: waited too long for {what}", self.name))??;
 		}
 	}
 
@@ -178,11 +193,38 @@ async fn scenario() -> Result<(), Failure> {
 		current.iter().filter(|note| note.body == one).count() == 1,
 		format!("Bob sees his own write: {current:?}"),
 	)?;
+	let page = bob.page.current().transpose()?.expect("the first page");
+	check(
+		page.items.len() == 1 && page.end.as_ref() == Some(&first) && page.has_more,
+		"Bob's page rows and metadata reflect his write",
+	)?;
 	println!("ok read-your-writes");
 
 	// Ada's subscription receives it as a patch.
 	ada.until("Bob's note", |ada| ada.has(&one) == 1).await?;
 	println!("ok patch");
+
+	let alpha = format!("{prefix}alpha");
+	bob.api.add_sdk_note_live(alpha.clone()).await?;
+	ada.until("an insertion before the existing row", |ada| {
+		ada.latest.as_ref().is_some_and(|notes| notes.len() == 2)
+			&& ada
+				.latest_page
+				.as_ref()
+				.is_some_and(|page| page.items.len() == 2)
+	})
+	.await?;
+	let notes = ada.latest.as_ref().unwrap();
+	let page = ada.latest_page.as_ref().unwrap();
+	check(
+		ada.has(&one) == 1 && notes[0].body == alpha,
+		"inserting preserves the existing row",
+	)?;
+	check(
+		page.items[0].body == alpha && page.end.as_ref() == Some(&first) && !page.has_more,
+		"page patches update rows and metadata together",
+	)?;
+	println!("ok insertion and page");
 
 	// The proxy lets this through, then cuts the connection before the answer.
 	let marked = format!("{prefix}drop-me");
@@ -198,9 +240,22 @@ async fn scenario() -> Result<(), Failure> {
 	println!("ok reconnect");
 
 	let two = format!("{prefix}two");
-	bob.api.add_sdk_note_live(two.clone()).await?;
+	let last = bob.api.add_sdk_note_live(two.clone()).await?;
 	ada.until("a note after the reconnect", |ada| ada.has(&two) == 1)
 		.await?;
+	ada.until("the resumed page", |ada| {
+		ada.latest_page
+			.as_ref()
+			.is_some_and(|page| page.items.len() == 4)
+	})
+	.await?;
+	let page = ada.latest_page.as_ref().unwrap();
+	check(
+		ada.latest.as_ref().unwrap().len() == 4
+			&& page.end.as_ref() == Some(&last)
+			&& !page.has_more,
+		"resumed list and page preserve every row and update the end cursor",
+	)?;
 	println!("ok resumed");
 
 	// Channels: presence from both, and Bob's signal reaches Ada.

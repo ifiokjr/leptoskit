@@ -1,6 +1,6 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
-assertion_line: 530
+assertion_line: 532
 expression: "generate(TargetLanguage::Python, \"todos-api\")"
 ---
 ===== pyproject.toml (Scaffold) =====
@@ -1746,8 +1746,26 @@ def _connector() -> Any:
 
 
 def _apply_patch(value: Any, patch: Any) -> Any:
-    """Applies a keyed patch: removals first, then each upsert at its index."""
-    if not isinstance(value, list) or not isinstance(patch, dict):
+    """Applies a list patch or a page's row and metadata changes together."""
+    if not isinstance(patch, dict):
+        return value
+    field = patch.get("field")
+    if isinstance(field, str):
+        if not isinstance(value, dict):
+            return value
+        fields = dict(value)
+        changed = patch.get("set")
+        if isinstance(changed, dict):
+            fields.update(changed)
+        if field in fields:
+            fields[field] = _apply_rows(fields[field], patch)
+        return fields
+    return _apply_rows(value, patch)
+
+
+def _apply_rows(value: Any, patch: dict[str, Any]) -> Any:
+    """Removes rows first, then replaces matching ids or inserts new rows."""
+    if not isinstance(value, list):
         return value
     remove = patch.get("remove")
     removed = set(remove) if isinstance(remove, list) else set()
@@ -1760,11 +1778,14 @@ def _apply_patch(value: Any, patch: Any) -> Any:
     for upsert in upserts if isinstance(upserts, list) else []:
         if not isinstance(upsert, dict):
             continue
-        at = _number(upsert.get("at"), len(items))
-        if at < len(items):
-            items[at] = upsert.get("value")
+        at = max(0, min(int(_number(upsert.get("at"), len(items))), len(items)))
+        row = upsert.get("value")
+        row_id = row.get("id") if isinstance(row, dict) else None
+        previous = items[at] if at < len(items) else None
+        if isinstance(row_id, str) and isinstance(previous, dict) and previous.get("id") == row_id:
+            items[at] = row
         else:
-            items.append(upsert.get("value"))
+            items.insert(at, row)
     return items
 
 

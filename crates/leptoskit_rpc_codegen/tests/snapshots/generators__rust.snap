@@ -1,6 +1,6 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
-assertion_line: 540
+assertion_line: 542
 expression: "generate(TargetLanguage::Rust, \"todos-client\")"
 ---
 ===== Cargo.toml (Scaffold) =====
@@ -1683,9 +1683,28 @@ fn backoff(min: Duration, max: Duration, attempt: u32) -> Duration {
 	Duration::from_nanos(random() % nanos)
 }
 
-/// Applies a keyed patch: removals by `id` first, then each upsert at its
-/// index, replacing the row there or appending past the end.
+/// Applies a list patch or a page's row and metadata changes together.
 fn apply_patch(value: Option<&Value>, patch: &Value) -> Value {
+	let Some(field) = patch["field"].as_str() else {
+		return apply_rows(value, patch);
+	};
+	let Some(mut fields) = value.and_then(Value::as_object).cloned() else {
+		return value.cloned().unwrap_or(Value::Null);
+	};
+
+	if let Some(changed) = patch["set"].as_object() {
+		fields.extend(changed.clone());
+	}
+
+	if let Some(items) = fields.get_mut(field) {
+		*items = apply_rows(Some(items), patch);
+	}
+
+	Value::Object(fields)
+}
+
+/// Removes rows first, then replaces matching ids or inserts new rows.
+fn apply_rows(value: Option<&Value>, patch: &Value) -> Value {
 	let Some(Value::Array(items)) = value else {
 		return value.cloned().unwrap_or(Value::Null);
 	};
@@ -1704,12 +1723,15 @@ fn apply_patch(value: Option<&Value>, patch: &Value) -> Value {
 	for upsert in patch["upsert"].as_array().into_iter().flatten() {
 		let at = number(&upsert["at"])
 			.and_then(|at| usize::try_from(at).ok())
-			.unwrap_or(items.len());
+			.unwrap_or(items.len())
+			.min(items.len());
+		let id = upsert["value"]["id"].as_str();
 
-		if at < items.len() {
-			items[at] = upsert["value"].clone();
-		} else {
-			items.push(upsert["value"].clone());
+		match items.get_mut(at) {
+			Some(slot) if id.is_some() && slot["id"].as_str() == id => {
+				*slot = upsert["value"].clone();
+			}
+			_ => items.insert(at, upsert["value"].clone()),
 		}
 	}
 

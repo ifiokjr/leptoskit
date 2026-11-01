@@ -920,9 +920,32 @@ Stream<T> _withLatest<T>(Stream<T> stream, T Function() latest,
   });
 }
 
-/// Applies a keyed patch: removals first, then each upsert at its index.
+/// Applies a list patch or a page's row and metadata changes together.
 Object? _applyPatch(Object? value, Object? patch) {
-  if (value is! List || patch is! Map) {
+  if (patch is! Map) {
+    return value;
+  }
+  final field = patch['field'];
+  if (field is String) {
+    if (value is! Map) {
+      return value;
+    }
+    final fields = Map<String, Object?>.from(value);
+    final changed = patch['set'];
+    if (changed is Map) {
+      fields.addAll(Map<String, Object?>.from(changed));
+    }
+    if (fields.containsKey(field)) {
+      fields[field] = _applyRows(fields[field], patch);
+    }
+    return fields;
+  }
+  return _applyRows(value, patch);
+}
+
+/// Removes rows first, then replaces matching ids or inserts new rows.
+Object? _applyRows(Object? value, Map<dynamic, dynamic> patch) {
+  if (value is! List) {
     return value;
   }
   final removals = patch['remove'];
@@ -937,11 +960,14 @@ Object? _applyPatch(Object? value, Object? patch) {
     if (upsert is! Map) {
       continue;
     }
-    final at = _int(upsert['at'], items.length);
-    if (at < items.length) {
-      items[at] = upsert['value'];
+    final at = _int(upsert['at'], items.length).clamp(0, items.length).toInt();
+    final row = upsert['value'];
+    final id = row is Map ? row['id'] : null;
+    final previous = at < items.length ? items[at] : null;
+    if (id is String && previous is Map && previous['id'] == id) {
+      items[at] = row;
     } else {
-      items.add(upsert['value']);
+      items.insert(at, row);
     }
   }
   return items;

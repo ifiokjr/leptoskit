@@ -20,6 +20,7 @@ type person struct {
 	token  string
 	client *Client
 	notes  *LiveSubscription[[]SdkNote]
+	page   *LiveSubscription[SdkPage]
 
 	mu       sync.Mutex
 	statuses []LiveState
@@ -43,6 +44,11 @@ func newPerson(ctx context.Context, t *testing.T, serverURL string, prefix strin
 		t.Fatalf("%s subscribes: %v", token, err)
 	}
 	p.notes = notes
+	page, err := client.SubscribeSdkPageRows(ctx, prefix)
+	if err != nil {
+		t.Fatalf("%s subscribes to the page: %v", token, err)
+	}
+	p.page = page
 	go func() {
 		for err := range notes.Errors() {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", token, err)
@@ -117,8 +123,9 @@ func TestLiveScenario(t *testing.T) {
 
 	for _, someone := range []*person{ada, bob} {
 		until(t, someone.token+": the first value", func() bool {
-			_, ok := someone.notes.Value()
-			return ok
+			_, notesOK := someone.notes.Value()
+			_, pageOK := someone.page.Value()
+			return notesOK && pageOK
 		})
 	}
 	if notes, _ := ada.notes.Value(); len(notes) != 0 {
@@ -135,11 +142,32 @@ func TestLiveScenario(t *testing.T) {
 		notes, _ := bob.notes.Value()
 		t.Fatalf("Bob sees his own write: %v", notes)
 	}
+	if page, ok := bob.page.Value(); !ok || len(page.Items) != 1 || page.End == nil || *page.End != first || !page.HasMore {
+		t.Fatalf("Bob's page rows and metadata reflect his write: %+v", page)
+	}
 	fmt.Println("ok read-your-writes")
 
 	// Ada's subscription receives it as a patch.
 	until(t, "ada: Bob's note", func() bool { return ada.has(prefix+"one") == 1 })
 	fmt.Println("ok patch")
+
+	if _, err := bob.client.AddSdkNoteLive(ctx, prefix+"alpha"); err != nil {
+		t.Fatal(err)
+	}
+	until(t, "an insertion before the existing row", func() bool {
+		notes, _ := ada.notes.Value()
+		page, _ := ada.page.Value()
+		return len(notes) == 2 && len(page.Items) == 2
+	})
+	notes, _ := ada.notes.Value()
+	page, _ := ada.page.Value()
+	if ada.has(prefix+"one") != 1 || notes[0].Body != prefix+"alpha" {
+		t.Fatal("inserting preserves the existing row")
+	}
+	if page.Items[0].Body != prefix+"alpha" || page.End == nil || *page.End != first || page.HasMore {
+		t.Fatalf("page patches update rows and metadata together: %+v", page)
+	}
+	fmt.Println("ok insertion and page")
 
 	// The proxy lets this through, then cuts the connection before the answer.
 	dropped, err := ada.client.AddSdkNoteLive(ctx, prefix+"drop-me")
@@ -155,10 +183,20 @@ func TestLiveScenario(t *testing.T) {
 	}
 	fmt.Println("ok reconnect")
 
-	if _, err := bob.client.AddSdkNoteLive(ctx, prefix+"two"); err != nil {
+	last, err := bob.client.AddSdkNoteLive(ctx, prefix+"two")
+	if err != nil {
 		t.Fatal(err)
 	}
 	until(t, "ada: a note after the reconnect", func() bool { return ada.has(prefix+"two") == 1 })
+	until(t, "the resumed page", func() bool {
+		page, _ := ada.page.Value()
+		return len(page.Items) == 4
+	})
+	notes, _ = ada.notes.Value()
+	page, _ = ada.page.Value()
+	if len(notes) != 4 || page.End == nil || *page.End != last || page.HasMore {
+		t.Fatalf("resumed list and page preserve every row and update the end cursor: %+v", page)
+	}
 	fmt.Println("ok resumed")
 
 	// Channels: presence from both, and Bob's signal reaches Ada.
@@ -195,4 +233,6 @@ func TestLiveScenario(t *testing.T) {
 
 	ada.notes.Close()
 	bob.notes.Close()
+	ada.page.Close()
+	bob.page.Close()
 }
