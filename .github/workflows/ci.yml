@@ -1187,7 +1187,7 @@ jobs:
       - name: install the android sdk packages
         run: |
           set -euo pipefail
-          bash setup/scripts/android_sdk_install.sh "ndk;${NDK_VERSION}" "platforms;android-35" "build-tools;36.0.0" \
+          bash setup/scripts/android_sdk_install.sh "ndk;${NDK_VERSION}" "platforms;android-35" "platforms;android-36" "build-tools;36.0.0" \
             emulator "system-images;android-35;default;x86_64" "build-tools;37.0.0" platform-tools
 
       - name: install the kotlin compiler

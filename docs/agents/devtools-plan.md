@@ -289,7 +289,7 @@ Each pull request carries a changeset. Dependent layers go in a `gh stack`.
 3. `feat(devtools)`: the host agent in `leptoskit_devtools` for `NativeSurface`, and the in-process headless test.
 4. `feat(dev)`: the hub in `leptoskit dev`, with its `Host`, `Origin`, and `Sec-Fetch-Site` checks, `.leptoskit/devtools.json`, `--no-devtools`, and the release gate in CI.
 5. `feat(devtools)`: the `devtools/` interface with the tree, node details, and styles panels, served by the hub, plus the macOS host agent in `leptoskit_bridge_ffi`. **Interface and serving done**; native snapshots carry classes and their declarations (`Node.styles`).
-6. `ci`: the interface archive in the publish workflow, the hash compiled into the CLI, and `leptoskit devtools fetch`. **The hash and `leptoskit devtools fetch` are done; the publish workflow job is written and waiting for a token with the `workflow` scope.**
+6. `ci`: the interface archive in the publish workflow, the hash compiled into the CLI, and `leptoskit devtools fetch`. **Done (#388).**
 
 **Phase 1: the web.**
 
