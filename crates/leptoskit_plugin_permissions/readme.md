@@ -9,6 +9,7 @@ let permissions = Permissions::new()?;
 let current = permissions.status(Permission::Camera).await?;
 // Call request only after the user chooses a feature needing the camera.
 let result = permissions.request(Permission::Camera).await?;
+
 if result.status == Status::Granted {
     // Start the separate camera API; permission does not guarantee hardware.
 }
