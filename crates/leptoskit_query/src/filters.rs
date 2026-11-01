@@ -213,48 +213,43 @@ impl QueryFilter {
 	}
 
 	pub(crate) fn matches(&self, query: &Arc<dyn AnyQuery>) -> bool {
-		if self.scope.is_some_and(|scope| query.scope_id() != scope) {
-			return false;
-		}
-		if self.key_hash.is_some_and(|hash| query.key_hash() != hash) {
-			return false;
-		}
-		if let Some(tag) = &self.tag
-			&& !query
+		self.scope_matches(query)
+			&& self.key_matches(query)
+			&& self.tag_matches(query)
+			&& self.kind_matches(query)
+			&& self.stale.is_none_or(|stale| query.is_stale() == stale)
+			&& self
+				.fetch_status
+				.is_none_or(|status| query.fetch_status() == status)
+			&& self
+				.predicate
+				.as_ref()
+				.is_none_or(|predicate| predicate(query))
+	}
+
+	fn scope_matches(&self, query: &Arc<dyn AnyQuery>) -> bool {
+		self.scope.is_none_or(|scope| query.scope_id() == scope)
+	}
+
+	fn key_matches(&self, query: &Arc<dyn AnyQuery>) -> bool {
+		self.key_hash.is_none_or(|hash| query.key_hash() == hash)
+	}
+
+	fn tag_matches(&self, query: &Arc<dyn AnyQuery>) -> bool {
+		self.tag.as_ref().is_none_or(|tag| {
+			query
 				.tags()
 				.iter()
 				.any(|candidate| candidate.starts_with(tag))
-		{
-			return false;
-		}
+		})
+	}
+
+	fn kind_matches(&self, query: &Arc<dyn AnyQuery>) -> bool {
 		match self.kind {
-			QueryKind::All => {}
-			QueryKind::Active => {
-				if !query.is_active() {
-					return false;
-				}
-			}
-			QueryKind::Inactive => {
-				if query.is_active() {
-					return false;
-				}
-			}
+			QueryKind::All => true,
+			QueryKind::Active => query.is_active(),
+			QueryKind::Inactive => !query.is_active(),
 		}
-		if self.stale.is_some_and(|stale| query.is_stale() != stale) {
-			return false;
-		}
-		if self
-			.fetch_status
-			.is_some_and(|status| query.fetch_status() != status)
-		{
-			return false;
-		}
-		if let Some(predicate) = &self.predicate
-			&& !predicate(query)
-		{
-			return false;
-		}
-		true
 	}
 }
 

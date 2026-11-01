@@ -32,6 +32,7 @@ pub fn base32_decode(text: &str) -> Vec<u8> {
 			b'2'..=b'7' => character - b'2' + 26,
 			_ => panic!("not base32"),
 		};
+
 		buffer = (buffer << 5) | u64::from(value);
 		bits += 5;
 

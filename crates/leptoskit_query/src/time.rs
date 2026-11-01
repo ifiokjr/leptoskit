@@ -89,14 +89,15 @@ pub fn sleep(duration: Duration) -> BoxFuture<'static, ()> {
 	if let Some(sleep) = SLEEP.get() {
 		return sleep(duration);
 	}
+
 	if duration.is_zero() {
 		return Box::pin(std::future::ready(()));
 	}
+
 	Box::pin(default_sleep(duration))
 }
 
 // ---- native ----------------------------------------------------------------
-
 #[cfg(not(target_arch = "wasm32"))]
 fn default_now_ms() -> u64 {
 	std::time::SystemTime::now()
@@ -186,6 +187,7 @@ mod timer_thread {
 		// Abandoned sleeps are pruned whenever the heap doubles, so it stays
 		// proportional to the sleeps still waiting.
 		let mut prune_at = 64;
+
 		loop {
 			let message = match pending.peek() {
 				None => receiver.recv().map_err(|_| RecvTimeoutError::Disconnected),
@@ -193,6 +195,7 @@ mod timer_thread {
 					receiver.recv_timeout(next.at.saturating_duration_since(Instant::now()))
 				}
 			};
+
 			match message {
 				Ok(deadline) => {
 					pending.push(Reverse(deadline));
@@ -204,7 +207,9 @@ mod timer_thread {
 				Err(RecvTimeoutError::Timeout) => {}
 				Err(RecvTimeoutError::Disconnected) => return,
 			}
+
 			let now = Instant::now();
+
 			while pending
 				.peek()
 				.is_some_and(|Reverse(deadline)| deadline.at <= now)
@@ -219,7 +224,6 @@ mod timer_thread {
 }
 
 // ---- browser ---------------------------------------------------------------
-
 #[cfg(all(target_arch = "wasm32", feature = "browser"))]
 fn default_now_ms() -> u64 {
 	web_sys::js_sys::Date::now() as u64
@@ -248,7 +252,6 @@ async fn default_sleep(duration: Duration) {
 
 // ---- leptoskit's native runtime
 // ----------------------------------------------
-
 /// The time leptoskit's native Wasm runtime last reported. The runtime has no
 /// clock import; instead it calls the guest's `leptoskit_clock` export with
 /// the wall clock before every entry point, so the value is current for the
@@ -303,7 +306,6 @@ fn default_now_ms() -> u64 {
 }
 
 // ---- embedded wasm ---------------------------------------------------------
-
 #[cfg(all(
 	target_arch = "wasm32",
 	not(feature = "browser"),
@@ -328,6 +330,7 @@ fn default_sleep(_duration: Duration) -> std::future::Ready<()> {
 #[cfg(all(target_arch = "wasm32", not(feature = "browser")))]
 fn warn_missing_host(what: &str) {
 	static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 	if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
 		leptos::logging::warn!(
 			"leptoskit_query: this host has no {what}. Call `leptoskit_query::install_clock` and \

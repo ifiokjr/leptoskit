@@ -2,7 +2,6 @@
 
 //! Applying `leptoskit_db` live changes: exactly the queries tagged with a
 //! changed row, or with its table, go stale.
-
 mod common;
 
 use std::time::Duration;

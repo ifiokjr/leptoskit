@@ -332,6 +332,7 @@ async fn a_reset_ends_every_session_and_waits_for_a_second_factor() {
 		};
 		assert_eq!(live_sessions(&db, account).await, 1, "only the new one");
 		assert!(auth.resolve(&first.token).await.unwrap().is_none());
+
 		assert_eq!(fresh.session.account_id, account);
 		auth.sign_in_with_password("hedy@example.com", BETTER, &request())
 			.await
@@ -371,6 +372,7 @@ async fn a_reset_ends_every_session_and_waits_for_a_second_factor() {
 		else {
 			panic!("the reset waits for the authenticator");
 		};
+
 		assert!(matches!(
 			auth.sign_in_with_password("hedy@example.com", GOOD, &request())
 				.await,
@@ -398,10 +400,12 @@ async fn a_reset_ends_every_session_and_waits_for_a_second_factor() {
 /// Changes a stored hash as an older release would have made it.
 async fn store_hash(db: &Db, account: Id<Account>, hash: &str) {
 	let system = db.system("test: an older hash");
+
 	let (table, first, second) = match system.dialect() {
 		Dialect::Postgres => ("auth.passwords", "$1", "$2"),
 		Dialect::Sqlite => ("auth_passwords", "?1", "?2"),
 	};
+
 	system
 		.execute(Statement {
 			sql: format!("UPDATE {table} SET hash = {first} WHERE account_id = {second}"),
@@ -427,6 +431,7 @@ async fn hashes_made_with_older_parameters_are_replaced_at_sign_in() {
 	);
 	let salt =
 		argon2::password_hash::SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);
+
 	let old = argon2::PasswordHasher::hash_password(&weaker, GOOD.as_bytes(), &salt)
 		.unwrap()
 		.to_string();
@@ -469,6 +474,7 @@ impl BreachedPasswords for Pwned {
 					.to_owned(),
 			)
 		};
+
 		Box::pin(std::future::ready(answer))
 	}
 }

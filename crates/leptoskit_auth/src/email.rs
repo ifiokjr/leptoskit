@@ -51,6 +51,7 @@ impl Auth {
 			self.limit(&[b"email-code-ip", ip.as_bytes()], limits.code_per_ip)
 				.await?;
 		}
+
 		self.limit(
 			&[b"email-code-address", address.as_bytes()],
 			limits.code_per_address,
@@ -164,6 +165,7 @@ impl Auth {
 		});
 		let Some(challenge) = challenge else {
 			self.fail(&address, request).await?;
+
 			return Err(AuthError::InvalidCode);
 		};
 
@@ -187,6 +189,7 @@ impl Auth {
 
 		if counted == 0 || !matches || attempts > allowed {
 			self.fail(&address, request).await?;
+
 			return Err(AuthError::InvalidCode);
 		}
 
@@ -249,6 +252,7 @@ impl Auth {
 			.filter(|email| email.address.eq(address))
 			.first(tx)
 			.await?;
+
 		let (account, signed_up) = match existing {
 			Some(email) => {
 				let account = Account::get(tx, email.account_id).await?;
@@ -262,6 +266,7 @@ impl Auth {
 			}
 			None => (self.sign_up(tx, address, request).await?, true),
 		};
+
 		Ok((account, signed_up))
 	}
 
@@ -284,6 +289,7 @@ impl Auth {
 				let challenge = self
 					.second_factor_challenge(tx, account, factors, None)
 					.await?;
+
 				return Ok(SignInStep::SecondFactor(challenge));
 			}
 		}

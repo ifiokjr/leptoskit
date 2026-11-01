@@ -166,10 +166,12 @@ impl Auth {
 				.delete(connection)
 				.await?;
 			let id = row.identity_id.uuid();
+
 			let (sealed, which, refresh) = match &row.refresh_token {
 				Some(refresh) => (refresh, b"refresh".as_slice(), true),
 				None => (&row.access_token, b"access".as_slice(), false),
 			};
+
 			let opened = self
 				.inner
 				.keys
@@ -315,11 +317,13 @@ impl Auth {
 				.filter(|token| token.id.eq(row.id) & token.updated_at.eq(row.updated_at))
 				.delete(db)
 				.await?;
+
 			if gone == 1 {
 				return Ok(None);
 			}
 
 			let row = latest(db, account, provider).await?;
+
 			return row.map(|row| self.open_access(&row)).transpose();
 		};
 		let identity = Identity::get(db, row.identity_id).await?;

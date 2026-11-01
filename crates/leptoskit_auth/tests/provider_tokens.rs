@@ -123,6 +123,7 @@ impl Browser {
 		} else {
 			request.header(header::COOKIE, cookies)
 		};
+
 		let response = app
 			.router
 			.clone()
@@ -166,6 +167,7 @@ impl Browser {
 		} else {
 			"/auth/oauth/start"
 		};
+
 		let started = self.post(app, path, json!({ "provider": provider })).await;
 		assert_eq!(started.status(), StatusCode::OK);
 		let url = json_body(started).await["url"].as_str().unwrap().to_owned();
@@ -180,6 +182,7 @@ impl Browser {
 				Body::empty(),
 			)
 			.await;
+
 		let location = response.headers()[header::LOCATION]
 			.to_str()
 			.unwrap()
@@ -208,10 +211,12 @@ fn person(sub: &str) -> Value {
 /// Moves the account's stored tokens' expiry to within the refresh margin.
 async fn expire(db: &Db, account: Id<Account>) {
 	let system = db.system("test: expire provider tokens");
+
 	let (table, first, second) = match system.dialect() {
 		Dialect::Postgres => ("auth.provider_tokens", "$1", "$2"),
 		Dialect::Sqlite => ("auth_provider_tokens", "?1", "?2"),
 	};
+
 	system
 		.execute(Statement {
 			sql: format!("UPDATE {table} SET expires_at = {first} WHERE account_id = {second}"),
@@ -366,6 +371,7 @@ async fn disconnecting_merging_and_deleting_revoke_kept_tokens() {
 		let response = ada
 			.post(&app, "/auth/identities/unlink", json!({ "id": google.id }))
 			.await;
+
 		assert_eq!(response.status(), StatusCode::NO_CONTENT);
 		let rows = stored(&db, account).await;
 		assert_eq!(rows.len(), 1);
@@ -396,6 +402,7 @@ async fn disconnecting_merging_and_deleting_revoke_kept_tokens() {
 			.await;
 		assert_eq!(merged.status(), StatusCode::NO_CONTENT);
 		assert!(stored(&db, absorbed).await.is_empty());
+
 		assert_eq!(
 			stored(&db, account).await.len(),
 			1,

@@ -306,11 +306,13 @@ impl Auth {
 				.get(header::USER_AGENT)
 				.and_then(|agent| agent.to_str().ok())
 				.map(str::to_owned),
+
 			transport: if bearer(headers).is_some() {
 				Transport::Bearer
 			} else {
 				Transport::Cookie
 			},
+
 			device_name: None,
 		}
 	}
@@ -325,10 +327,12 @@ impl Auth {
 		let bearer = bearer(parts_headers);
 		let request = self.request_info_from(parts_headers, peer);
 		let token = bearer.or_else(|| cookie(parts_headers, self.cookie_name()));
+
 		let resolved = match &token {
 			Some(token) => self.resolve_session(token).await?,
 			None => None,
 		};
+
 		let (signed_in, enrolling) = match resolved {
 			Some(resolved) if resolved.enrolling => (None, Some(resolved.signed_in)),
 			Some(resolved) => (Some(resolved.signed_in), None),
@@ -372,12 +376,14 @@ impl Auth {
 			.get(header::AUTHORIZATION)
 			.and_then(|value| value.to_str().ok())
 			.is_some_and(|value| value.starts_with("Bearer "));
+
 		if bearer && cookie(headers, self.cookie_name()).is_none() {
 			return true;
 		}
 
 		if let Some(origin) = headers.get(header::ORIGIN) {
 			let origin = origin.to_str().unwrap_or_default();
+
 			if let Some(expected) = &self.inner.origin {
 				return origin == expected;
 			}
@@ -385,6 +391,7 @@ impl Auth {
 			let host = headers
 				.get(header::HOST)
 				.and_then(|host| host.to_str().ok());
+
 			return origin
 				.split_once("://")
 				.is_some_and(|(_, authority)| Some(authority) == host);
@@ -667,6 +674,7 @@ where
 					Ok(context) => context,
 					Err(error) => return Ok(error.into_response()),
 				};
+
 				let db = auth.inner.db.with_context(context);
 				request.extensions_mut().insert(db);
 				request.extensions_mut().insert(auth.clone());
@@ -696,6 +704,7 @@ where
 						"this request came from another site",
 					));
 				}
+
 				request.extensions_mut().insert(CrossSite);
 			}
 
@@ -710,6 +719,7 @@ where
 				Ok(context) => context,
 				Err(error) => return Ok(error.into_response()),
 			};
+
 			let db = auth.inner.db.with_context(context);
 			request.extensions_mut().insert(db);
 			request.extensions_mut().insert(auth.clone());
@@ -756,10 +766,12 @@ impl AuthError {
 			Self::SignUp(_) => (StatusCode::UNPROCESSABLE_ENTITY, "sign_up"),
 			Self::Config(_) | Self::Db(_) => (StatusCode::INTERNAL_SERVER_ERROR, "server"),
 		};
+
 		let retry_after = match self {
 			Self::RateLimited { retry_after } => Some(retry_after.as_secs().max(1)),
 			_ => None,
 		};
+
 		// The server's own failures never reach the client, which hears only
 		// that something went wrong.
 		let message = match self {
@@ -774,6 +786,7 @@ impl AuthError {
 			}
 			_ => self.to_string(),
 		};
+
 		(
 			status,
 			ErrorResponse {
@@ -927,6 +940,7 @@ async fn verify_code(
 			"this request came from another site",
 		));
 	}
+
 	let request = RequestInfo {
 		transport: body.transport,
 		device_name: body.device_name,
@@ -954,6 +968,7 @@ async fn second_factor(
 		device_name: body.device_name,
 		..request
 	};
+
 	let result = auth.complete_sign_in(&token, &body.code, &request).await;
 	// A finished or abandoned step's cookie goes; a wrong code keeps it for
 	// the next attempt.
@@ -961,6 +976,7 @@ async fn second_factor(
 		result,
 		Err(AuthError::InvalidCode | AuthError::RateLimited { .. })
 	) && body.transport == Transport::Cookie;
+
 	let mut response = match result {
 		Ok(sign_in) => auth.signed_in_response(sign_in),
 		Err(error) => error.into_response(),
@@ -993,6 +1009,7 @@ async fn password_sign_in(
 			"this request came from another site",
 		));
 	}
+
 	let request = RequestInfo {
 		transport: body.transport,
 		device_name: body.device_name,
@@ -1017,6 +1034,7 @@ async fn reset_password(
 			"this request came from another site",
 		));
 	}
+
 	let request = RequestInfo {
 		transport: body.transport,
 		device_name: body.device_name,
@@ -1119,6 +1137,7 @@ async fn session(
 		}
 		None => None,
 	};
+
 	Ok(Json(SessionResponse { session }))
 }
 
@@ -1365,6 +1384,7 @@ async fn passkey_second_factor(
 		result,
 		Err(AuthError::PasskeyFailed | AuthError::RateLimited { .. })
 	) && body.transport == Transport::Cookie;
+
 	let mut response = match result {
 		Ok(sign_in) => auth.signed_in_response(sign_in),
 		Err(error) => error.into_response(),
@@ -1604,6 +1624,7 @@ impl Auth {
 		let result = self
 			.provider_result(provider, &binding, &params, &request)
 			.await;
+
 		let (redirect_to, result) = match result {
 			Ok((redirect_to, result)) => (redirect_to, result),
 			Err((redirect_to, error)) => {
@@ -1615,6 +1636,7 @@ impl Auth {
 				return response;
 			}
 		};
+
 		let (outcome, cookie) = match result {
 			crate::ProviderResult::SignedIn(sign_in) => {
 				(
@@ -1639,6 +1661,7 @@ impl Auth {
 			}
 			crate::ProviderResult::Outcome(outcome) => (outcome, None),
 		};
+
 		let mut response = Self::back_to(&redirect_to, &outcome);
 
 		if let Some(cookie) = cookie {
@@ -1799,6 +1822,7 @@ async fn continue_provider(
 		};
 		let binding = SessionToken::new(token);
 		let sign_in = auth.continue_provider_sign_up(&binding, &request).await?;
+
 		return Ok(auth.signed_in_response(sign_in));
 	}
 
@@ -1866,6 +1890,7 @@ impl Auth {
 				}
 			}
 		};
+
 		Ok(Json(finished))
 	}
 
@@ -2097,6 +2122,7 @@ impl leptoskit_rpc::Identify for Auth {
 					.map_err(|error| rpc_error(&error))?
 					.signed_in
 			};
+
 			let caller = signed_in.as_ref().map(|me| me.session.to_string());
 			let identity = leptoskit_rpc::Identity::new(crate::context(signed_in));
 			Ok(match caller {
@@ -2111,6 +2137,7 @@ impl leptoskit_rpc::Identify for Auth {
 #[cfg(feature = "rpc")]
 fn rpc_error(error: &AuthError) -> leptoskit_rpc::Error {
 	let (status, body) = error.describe();
+
 	match status {
 		StatusCode::UNAUTHORIZED => leptoskit_rpc::Error::unauthorized(body.message),
 		StatusCode::FORBIDDEN => leptoskit_rpc::Error::forbidden(body.message),

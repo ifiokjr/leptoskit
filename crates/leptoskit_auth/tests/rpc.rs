@@ -73,9 +73,11 @@ impl App {
 		let mut request = Request::post(path)
 			.header(header::ORIGIN, ORIGIN)
 			.header(header::CONTENT_TYPE, "application/json");
+
 		for (name, value) in headers {
 			request = request.header(*name, *value);
 		}
+
 		let response = self
 			.router
 			.clone()
@@ -94,6 +96,7 @@ impl App {
 		});
 		let bytes = response.into_body().collect().await.unwrap().to_bytes();
 		let text = String::from_utf8(bytes.to_vec()).unwrap();
+
 		(status, cookie.unwrap_or(text))
 	}
 

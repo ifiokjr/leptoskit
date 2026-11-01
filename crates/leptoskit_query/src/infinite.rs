@@ -188,6 +188,7 @@ impl<T, P> PageParams<T, P> {
 			data.pages.push(page);
 			data.page_params.push(param);
 		}
+
 		if let Some(max_pages) = self.max_pages
 			&& data.pages.len() > max_pages
 		{
@@ -536,6 +537,7 @@ where
 		} else {
 			params.next_param(&current)
 		};
+
 		let Some(param) = param else {
 			return Ok(current);
 		};
@@ -563,6 +565,7 @@ where
 				None => break,
 			}
 		};
+
 		let page = fetch_page(param.clone(), None).await?;
 		params.add_page(&mut data, page, param, false);
 		index += 1;
@@ -570,6 +573,7 @@ where
 			break;
 		}
 	}
+
 	Ok(data)
 }
 

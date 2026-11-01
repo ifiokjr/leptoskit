@@ -116,10 +116,12 @@ async fn events(db: &Db, account: Id<Account>) -> Vec<EventKind> {
 /// = $2`, with `$1` and `$2` bound to `values`.
 async fn age(db: &Db, table: &str, assignments: &str, key: &str, values: [Value; 2]) {
 	let system = db.system("test: age a row");
+
 	let (table, first, second) = match system.dialect() {
 		Dialect::Postgres => (format!("auth.{table}"), "$1", "$2"),
 		Dialect::Sqlite => (format!("auth_{table}"), "?1", "?2"),
 	};
+
 	let assignments = assignments.replace("$1", first);
 	let changed = system
 		.execute(Statement {
@@ -440,6 +442,7 @@ async fn a_recovery_code_signs_in_once_and_ends_the_other_sessions() {
 			.await
 			.unwrap();
 		assert_eq!(stored.len(), 10);
+
 		for code in &codes {
 			let plain = code.replace('-', "");
 			assert!(stored.iter().all(|row| {
@@ -516,6 +519,7 @@ async fn sensitive_changes_need_step_up_which_rotates_the_token() {
 		// The recovery code ended this session; step up again to continue.
 		assert_eq!(auth.resolve(&stepped.token).await.unwrap(), None);
 		let laptop_me = laptop.signed_in();
+
 		auth.disable_totp(&laptop_me, &request()).await.unwrap();
 
 		let status = auth.mfa_status(account).await.unwrap();

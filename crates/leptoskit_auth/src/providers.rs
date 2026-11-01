@@ -261,59 +261,97 @@ impl Auth {
 		binding: &SessionToken,
 		request: &RequestInfo,
 	) -> Result<ProviderResult> {
-		let db = &self.inner.db;
-		let existing = Identity::query()
-			.filter(|identity| {
-				identity.provider.eq(flow.provider.clone())
-					& identity.subject.eq(profile.subject.clone())
-			})
-			.first(db)
-			.await?;
+		let existing = self.identity_for(&flow.provider, &profile.subject).await?;
 
 		match &flow.intent {
 			Intent::SignIn => {
-				match existing {
-					Some(identity) => self.sign_in_identity(&identity, profile, request).await,
-					None => {
-						self.sign_up_identity(&flow.provider, profile, binding, request)
-							.await
-					}
-				}
+				self.sign_in_existing(existing.as_ref(), flow, profile, binding, request)
+					.await
 			}
 			Intent::Link { account, session } => {
-				let live = Session::query()
-					.filter(|row| {
-						row.id.eq(*session) & row.account_id.eq(*account) & row.revoked_at.is_null()
-					})
-					.count(db)
-					.await?;
-
-				if live == 0 {
-					return Err(AuthError::SignedOut);
-				}
-
-				match existing {
-					Some(identity) if identity.account_id == *account => {
-						Ok(ProviderResult::Outcome(ProviderOutcome::AlreadyLinked))
-					}
-					Some(identity) => {
-						self.store_merge_offer(
-							*account,
-							*session,
-							identity.account_id,
-							&flow.provider,
-						)
-						.await?;
-						Ok(ProviderResult::Outcome(ProviderOutcome::Merge))
-					}
-					None => {
-						self.link_identity(*account, &flow.provider, profile, request)
-							.await?;
-						Ok(ProviderResult::Outcome(ProviderOutcome::Linked))
-					}
-				}
+				self.link_existing(
+					existing.as_ref(),
+					*account,
+					*session,
+					flow,
+					profile,
+					request,
+				)
+				.await
 			}
 		}
+	}
+
+	/// The identity `provider` gave `subject`, if it is known.
+	async fn identity_for(&self, provider: &str, subject: &str) -> Result<Option<Identity>> {
+		let identity = Identity::query()
+			.filter(|identity| {
+				identity.provider.eq(provider.to_owned()) & identity.subject.eq(subject.to_owned())
+			})
+			.first(&self.inner.db)
+			.await?;
+		Ok(identity)
+	}
+
+	/// Signs in or up, by whether the identity is already known.
+	async fn sign_in_existing(
+		&self,
+		existing: Option<&Identity>,
+		flow: &Flow,
+		profile: &ProviderProfile,
+		binding: &SessionToken,
+		request: &RequestInfo,
+	) -> Result<ProviderResult> {
+		match existing {
+			Some(identity) => self.sign_in_identity(identity, profile, request).await,
+			None => {
+				self.sign_up_identity(&flow.provider, profile, binding, request)
+					.await
+			}
+		}
+	}
+
+	/// Connects the identity to the signed-in account, or offers to merge
+	/// the account that already has it.
+	async fn link_existing(
+		&self,
+		existing: Option<&Identity>,
+		account: Id<Account>,
+		session: Id<Session>,
+		flow: &Flow,
+		profile: &ProviderProfile,
+		request: &RequestInfo,
+	) -> Result<ProviderResult> {
+		if !self.session_is_live(account, session).await? {
+			return Err(AuthError::SignedOut);
+		}
+
+		match existing {
+			Some(identity) if identity.account_id == account => {
+				Ok(ProviderResult::Outcome(ProviderOutcome::AlreadyLinked))
+			}
+			Some(identity) => {
+				self.store_merge_offer(account, session, identity.account_id, &flow.provider)
+					.await?;
+				Ok(ProviderResult::Outcome(ProviderOutcome::Merge))
+			}
+			None => {
+				self.link_identity(account, &flow.provider, profile, request)
+					.await?;
+				Ok(ProviderResult::Outcome(ProviderOutcome::Linked))
+			}
+		}
+	}
+
+	/// Whether the session is still the signed-in account's.
+	async fn session_is_live(&self, account: Id<Account>, session: Id<Session>) -> Result<bool> {
+		let live = Session::query()
+			.filter(|row| {
+				row.id.eq(session) & row.account_id.eq(account) & row.revoked_at.is_null()
+			})
+			.count(&self.inner.db)
+			.await?;
+		Ok(live != 0)
 	}
 
 	/// Offers to merge `absorbed` into the signed-in account, after the
@@ -375,6 +413,7 @@ impl Auth {
 				let challenge = self
 					.second_factor_challenge(&tx, account.id, factors, None)
 					.await?;
+
 				return Ok(ProviderResult::SecondFactor(challenge));
 			}
 
@@ -422,6 +461,7 @@ impl Auth {
 					MERGE_LIFETIME,
 				)
 				.await?;
+
 				return Ok(ProviderResult::Outcome(ProviderOutcome::EmailInUse));
 			}
 		}
@@ -656,6 +696,7 @@ impl Auth {
 			.filter(|passkey| passkey.account_id.eq(absorbed.id))
 			.count(db)
 			.await?;
+
 		let wallets = crate::Wallet::query()
 			.filter(|wallet| wallet.account_id.eq(absorbed.id))
 			.all(db)
@@ -753,30 +794,59 @@ impl Auth {
 			));
 		}
 
-		let data = match merge.mode {
-			MergeMode::MoveLogin => None,
-			MergeMode::BringData => {
-				let data = self.account_data()?;
+		let data = self.merge_account_data(merge.mode)?;
+		let offer = self.pending_merge(me).await?;
+		self.check_merge_proof(me, merge, &offer, request).await?;
+		self.apply_merge(me, offer, data.as_ref(), request).await
+	}
 
-				if !self.can_bring_data(&data) {
-					return Err(AuthError::Unsupported(
-						"this app can't bring the other account's data along yet: every table \
-						 that holds it must say how with `on_account_merge`",
-					));
-				}
+	/// The account data the merge brings along, if it brings any.
+	fn merge_account_data(
+		&self,
+		mode: MergeMode,
+	) -> Result<Option<leptoskit_db::merge::AccountData>> {
+		if mode == MergeMode::MoveLogin {
+			return Ok(None);
+		}
 
-				Some(data)
-			}
-		};
-		let db = &self.inner.db;
-		self.require_fresh(db, me).await?;
+		let data = self.account_data()?;
+
+		if !self.can_bring_data(&data) {
+			return Err(AuthError::Unsupported(
+				"this app can't bring the other account's data along yet: every table that holds \
+				 it must say how with `on_account_merge`",
+			));
+		}
+
+		Ok(Some(data))
+	}
+
+	/// The offer for `me`'s session, checked to be this account's.
+	async fn pending_merge(&self, me: &SignedIn) -> Result<PendingMerge> {
+		self.require_fresh(&self.inner.db, me).await?;
 		let (offer, _) = self.peek_merge(me).await?.ok_or(AuthError::SignInExpired)?;
 
 		if offer.survivor != me.account {
 			return Err(AuthError::SignInExpired);
 		}
 
-		let factors = self.factors(db, offer.absorbed).await?;
+		Ok(offer)
+	}
+
+	/// Checks the second factor when the absorbed account has one.
+	async fn check_merge_proof(
+		&self,
+		me: &SignedIn,
+		merge: &MergeAccounts,
+		offer: &PendingMerge,
+		request: &RequestInfo,
+	) -> Result<()> {
+		let factors = self.factors(&self.inner.db, offer.absorbed).await?;
+
+		if factors.is_empty() {
+			return Ok(());
+		}
+
 		let subject = merge_passkey_subject(me.session);
 		let proof = match (&merge.code, &merge.credential) {
 			(_, Some(credential)) => {
@@ -788,33 +858,43 @@ impl Auth {
 			(Some(code), None) => Some(Proof::Code(code)),
 			(None, None) => None,
 		};
+		let Some(proof) = proof else {
+			return Err(AuthError::StepUpRequired);
+		};
 
-		if !factors.is_empty() {
-			let Some(proof) = proof else {
-				return Err(AuthError::StepUpRequired);
-			};
-			self.limit(
-				&[b"second-factor-account", offer.absorbed.uuid().as_bytes()],
-				self.inner.limits.second_factor_per_account,
-			)
-			.await?;
+		self.limit(
+			&[b"second-factor-account", offer.absorbed.uuid().as_bytes()],
+			self.inner.limits.second_factor_per_account,
+		)
+		.await?;
 
-			if !self.prove(offer.absorbed, proof, request).await? {
-				self.second_factor_failed(offer.absorbed, request).await?;
-				return Err(match proof {
-					Proof::Code(_) => AuthError::InvalidCode,
-					Proof::Passkey { .. } => AuthError::PasskeyFailed,
-				});
-			}
+		if self.prove(offer.absorbed, proof, request).await? {
+			return Ok(());
 		}
 
+		self.second_factor_failed(offer.absorbed, request).await?;
+		Err(match proof {
+			Proof::Code(_) => AuthError::InvalidCode,
+			Proof::Passkey { .. } => AuthError::PasskeyFailed,
+		})
+	}
+
+	/// Uses the offer up, and moves the login and its data in one
+	/// transaction.
+	async fn apply_merge(
+		&self,
+		me: &SignedIn,
+		offer: PendingMerge,
+		data: Option<&leptoskit_db::merge::AccountData>,
+		request: &RequestInfo,
+	) -> Result<()> {
 		// The offer works once.
 		self.take_ceremony(Purpose::Merge, &merge_subject(me.session), None)
 			.await?
 			.ok_or(AuthError::SignInExpired)?;
-		let tx = db.begin().await?;
+		let tx = self.inner.db.begin().await?;
 		let result = async {
-			if let Some(data) = &data {
+			if let Some(data) = data {
 				self.bring_data(&tx, data, me.account, offer.absorbed)
 					.await?;
 			}
@@ -825,17 +905,12 @@ impl Auth {
 		.await;
 		let ended = finish(tx, result).await?;
 		self.revoke_provider_tokens(ended).await;
-		let text = if data.is_some() {
-			"Another account's sign-in methods and data were moved into this one, and the other \
-			 account was deleted. If you didn't do this, sign in and sign out everywhere, then \
-			 contact support."
-		} else {
-			"Another account's sign-in methods were moved into this one, and the other account and \
-			 its data were deleted. If you didn't do this, sign in and sign out everywhere, then \
-			 contact support."
-		};
-		self.notify(me.account, "Two accounts were merged", text)
-			.await;
+		self.notify(
+			me.account,
+			"Two accounts were merged",
+			merge_notice(data.is_some()),
+		)
+		.await;
 		Ok(())
 	}
 
@@ -854,6 +929,7 @@ impl Auth {
 					.await?
 			}
 		};
+
 		let tx = self.inner.db.begin().await?;
 		let result = self.use_proof(&tx, account, proof, ceremony).await;
 		finish(tx, result).await
@@ -1024,6 +1100,20 @@ async fn refresh_identity(
 
 fn truncate<const N: usize>(text: &str) -> String {
 	text.chars().take(N).collect()
+}
+
+/// What people are told after a merge, by whether it brought the other
+/// account's data along.
+fn merge_notice(brought_data: bool) -> &'static str {
+	if brought_data {
+		"Another account's sign-in methods and data were moved into this one, and the other \
+		 account was deleted. If you didn't do this, sign in and sign out everywhere, then contact \
+		 support."
+	} else {
+		"Another account's sign-in methods were moved into this one, and the other account and its \
+		 data were deleted. If you didn't do this, sign in and sign out everywhere, then contact \
+		 support."
+	}
 }
 
 #[cfg(test)]

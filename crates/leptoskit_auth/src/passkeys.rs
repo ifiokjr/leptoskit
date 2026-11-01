@@ -361,6 +361,7 @@ pub(crate) fn ceremony_context<'a>(
 		Purpose::PasswordPause => b"password-pause",
 		Purpose::EmailCode | Purpose::SecondFactor => b"code",
 	};
+
 	[b"ceremony", purpose, subject.as_bytes(), hash]
 }
 
@@ -532,6 +533,7 @@ mod ceremonies {
 				selection.resident_key = Some(ResidentKeyRequirement::Required);
 				selection.require_resident_key = true;
 			}
+
 			let state = serde_json::to_vec(&state)
 				.map_err(|_| AuthError::Config("a passkey couldn't be started".into()))?;
 			self.store_ceremony(
@@ -574,6 +576,7 @@ mod ceremonies {
 				.finish_passkey_registration(credential, &state)
 			else {
 				record(db, Some(me.account), EventKind::PasskeyFailed, request).await?;
+
 				return Err(AuthError::PasskeyFailed);
 			};
 			let tx = db.begin().await?;
@@ -609,6 +612,7 @@ mod ceremonies {
 				} else {
 					Some(crate::mfa::replace_recovery_codes(self, &tx, me.account).await?)
 				};
+
 				let sign_in = self.elevate(&tx, me, request).await?;
 				record(&tx, Some(me.account), EventKind::PasskeyAdded, request).await?;
 				Ok(PasskeyAdded {
@@ -713,6 +717,7 @@ mod ceremonies {
 				&[DiscoverableKey::from(&key)],
 			) else {
 				record(db, Some(row.account_id), EventKind::PasskeyFailed, request).await?;
+
 				return Err(AuthError::PasskeyFailed);
 			};
 			let tx = db.begin().await?;

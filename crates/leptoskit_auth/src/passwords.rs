@@ -246,6 +246,7 @@ impl Auth {
 			.first(db)
 			.await?
 			.map(|email| email.account_id);
+
 		let stored = match account {
 			Some(account) => {
 				Password::query()
@@ -255,6 +256,7 @@ impl Auth {
 			}
 			None => None,
 		};
+
 		let password = normalize(password);
 		// A missing password is checked against a stand-in hash, so it takes
 		// as long to refuse as a wrong one.
@@ -263,6 +265,7 @@ impl Auth {
 
 		let (Some(account), Some(stored), true) = (account, stored, verified) else {
 			self.password_failed(&address, account, request).await?;
+
 			return Err(AuthError::InvalidPassword);
 		};
 
@@ -328,6 +331,7 @@ impl Auth {
 			} else {
 				EventKind::PasswordSet
 			};
+
 			record(&tx, Some(me.account), kind, request).await?;
 			Ok(changed)
 		}
@@ -340,6 +344,7 @@ impl Auth {
 			"You can now sign in with a password. If you didn't set one, reset it and sign out \
 			 everywhere."
 		};
+
 		self.notify(me.account, "Your password was set", text).await;
 		Ok(())
 	}
@@ -419,6 +424,7 @@ impl Auth {
 				let challenge = self
 					.second_factor_challenge(&tx, account, factors, Some(&then))
 					.await?;
+
 				return Ok((SignInStep::SecondFactor(challenge), account, false));
 			}
 

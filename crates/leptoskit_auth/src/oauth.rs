@@ -573,6 +573,7 @@ impl Provider {
 					"organizations" => tid != MICROSOFT_CONSUMERS,
 					tenant => tid.eq_ignore_ascii_case(tenant),
 				};
+
 				allowed.then(|| format!("https://login.microsoftonline.com/{tid}/v2.0"))
 			}
 			_ => endpoints.issuer.clone(),
@@ -662,6 +663,7 @@ impl ProviderHttp for Network {
 			} else {
 				reqwest::Method::GET
 			};
+
 			let mut builder = self.0.request(method, &request.url);
 
 			for (name, value) in &request.headers {
@@ -892,6 +894,7 @@ impl Providers {
 		} else {
 			"access_token"
 		};
+
 		let fields = vec![
 			("token", token.to_owned()),
 			("token_type_hint", hint.to_owned()),
@@ -1207,49 +1210,78 @@ fn check_claims(
 		nonce_optional,
 		now,
 	} = expected;
-	let refuse = |what: &str| {
-		Err(AuthError::Provider(format!(
-			"the ID token's {what} is wrong"
-		)))
-	};
+	check_issuer(provider, endpoints, claims)?;
+	check_audience(claims, audience)?;
+	check_times(claims, now)?;
+	check_nonce(claims, nonce, nonce_optional)?;
+	check_subject(claims)
+}
+
+/// The provider's issuer, or Google's short form of its own.
+fn check_issuer(provider: &Provider, endpoints: &Endpoints, claims: &IdClaims) -> Result<()> {
 	let issuer = provider.issuer(endpoints, claims.tid.as_deref());
 	let google_short =
 		matches!(provider.flavor, Flavor::Google) && claims.iss == "accounts.google.com";
 
 	if issuer.as_deref() != Some(claims.iss.as_str()) && !google_short {
-		return refuse("issuer");
+		return Err(wrong_claim("issuer"));
 	}
 
+	Ok(())
+}
+
+/// The app the token was issued to, and the party it was authorized for
+/// when more than one is named.
+fn check_audience(claims: &IdClaims, audience: &str) -> Result<()> {
 	if !claims.aud.contains(audience) {
-		return refuse("audience");
+		return Err(wrong_claim("audience"));
 	}
 
 	if (claims.aud.several() || claims.azp.is_some()) && claims.azp.as_deref() != Some(audience) {
-		return refuse("authorized party");
+		return Err(wrong_claim("authorized party"));
 	}
 
+	Ok(())
+}
+
+/// When it was issued, and when it expires, within a small clock skew.
+fn check_times(claims: &IdClaims, now: i64) -> Result<()> {
 	if claims.exp <= now - SKEW {
-		return refuse("expiry");
+		return Err(wrong_claim("expiry"));
 	}
 
 	if claims.iat > now + SKEW || claims.nbf.is_some_and(|nbf| nbf > now + SKEW) {
-		return refuse("issue time");
+		return Err(wrong_claim("issue time"));
 	}
 
+	Ok(())
+}
+
+/// The nonce the flow bound the token to, in constant time.
+fn check_nonce(claims: &IdClaims, nonce: &str, nonce_optional: bool) -> Result<()> {
 	let matches = match claims.nonce.as_deref() {
 		Some(claimed) => bool::from(claimed.as_bytes().ct_eq(nonce.as_bytes())),
 		None => nonce_optional,
 	};
 
 	if !matches {
-		return refuse("nonce");
-	}
-
-	if claims.sub.is_empty() || claims.sub.len() > 255 {
-		return refuse("subject");
+		return Err(wrong_claim("nonce"));
 	}
 
 	Ok(())
+}
+
+/// The person the token names.
+fn check_subject(claims: &IdClaims) -> Result<()> {
+	if claims.sub.is_empty() || claims.sub.len() > 255 {
+		return Err(wrong_claim("subject"));
+	}
+
+	Ok(())
+}
+
+fn wrong_claim(what: &str) -> AuthError {
+	AuthError::Provider(format!("the ID token's {what} is wrong"))
 }
 
 /// A flow that has started: where to send the browser, and the token that
@@ -1264,6 +1296,115 @@ pub struct ProviderStart {
 	/// For Sign in with Apple on the device: the nonce its ID token must
 	/// carry.
 	pub nonce: Option<String>,
+}
+
+/// The provider's authorization page, with the flow and PKCE bound to
+/// `state`.
+fn authorization_url(
+	provider: &Provider,
+	authorization_endpoint: &str,
+	redirect_uri: &str,
+	state: &str,
+	challenge: &str,
+	nonce: &str,
+	linking: bool,
+) -> Result<url::Url> {
+	let mut url = url::Url::parse(authorization_endpoint)
+		.map_err(|_| AuthError::Config(format!("`{}` has a bad authorization URL", provider.id)))?;
+	let mut query = url.query_pairs_mut();
+
+	for (name, value) in
+		authorization_params(provider, redirect_uri, state, challenge, nonce, linking)
+	{
+		query.append_pair(name, &value);
+	}
+
+	drop(query);
+	Ok(url)
+}
+
+/// The authorization page's query: the standard parameters, then the
+/// provider's quirks.
+fn authorization_params(
+	provider: &Provider,
+	redirect_uri: &str,
+	state: &str,
+	challenge: &str,
+	nonce: &str,
+	linking: bool,
+) -> Vec<(&'static str, String)> {
+	let quirks = &provider.quirks;
+	let offline = provider.store_tokens.then_some(quirks.offline);
+	let mut params = vec![
+		("response_type", "code".to_string()),
+		(quirks.client_id_param, provider.client_id.clone()),
+		("redirect_uri", redirect_uri.to_string()),
+		("state", state.to_string()),
+	];
+	let scopes = scopes_with_offline(provider, offline);
+
+	if !scopes.is_empty() {
+		params.push(("scope", scopes.join(quirks.scope_separator)));
+	}
+
+	if quirks.pkce {
+		params.push(("code_challenge", challenge.to_string()));
+		params.push(("code_challenge_method", "S256".to_string()));
+	}
+
+	if provider.id_token_rules().is_some() {
+		params.push(("nonce", nonce.to_string()));
+	}
+
+	if matches!(provider.flavor, Flavor::Apple) {
+		params.push(("response_mode", "form_post".to_string()));
+	}
+
+	params.extend(extra_params(quirks, offline));
+
+	if linking && quirks.select_account {
+		// Connecting should pick the account, not reuse whichever one the
+		// browser is signed in to there.
+		params.push(("prompt", "select_account".to_string()));
+	}
+
+	params
+}
+
+/// The app's scopes, with the one that asks for a refresh token when the
+/// provider wants it that way.
+fn scopes_with_offline(provider: &Provider, offline: Option<Offline>) -> Vec<String> {
+	let mut scopes = provider.scopes.clone();
+
+	if let Some(Offline::Scope(scope)) = offline
+		&& !scopes.iter().any(|existing| existing == scope)
+	{
+		scopes.push(scope.to_owned());
+	}
+
+	scopes
+}
+
+/// The parameters a provider's quirks add, with the one that asks for a
+/// refresh token last, replacing its own of the same name.
+fn extra_params(quirks: &Quirks, offline: Option<Offline>) -> Vec<(&'static str, String)> {
+	let offline_param = match offline {
+		Some(Offline::Param(name, value)) => Some((name, value)),
+		_ => None,
+	};
+	let mut params = Vec::new();
+
+	for (name, value) in &quirks.authorize {
+		if offline_param.is_none_or(|(offline, _)| offline != *name) {
+			params.push((*name, value.clone()));
+		}
+	}
+
+	if let Some((name, value)) = offline_param {
+		params.push((name, value.to_owned()));
+	}
+
+	params
 }
 
 impl Auth {
@@ -1406,6 +1547,7 @@ impl Auth {
 				Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
 				_ => false,
 			};
+
 		let package = &self.inner.native.package_id;
 		let scheme = !package.is_empty()
 			&& url.scheme() == package.to_ascii_lowercase()
@@ -1448,6 +1590,7 @@ impl Auth {
 			}
 			None => Intent::SignIn,
 		};
+
 		let endpoints = self.inner.providers.endpoints(provider).await?;
 		let redirect_uri = self.redirect_uri(provider)?;
 		let verifier = URL_SAFE_NO_PAD.encode(secrets::random::<32>()?);
@@ -1471,66 +1614,15 @@ impl Auth {
 				FLOW_LIFETIME,
 			)
 			.await?;
-		let mut url = url::Url::parse(&endpoints.authorization_endpoint).map_err(|_| {
-			AuthError::Config(format!("`{}` has a bad authorization URL", provider.id))
-		})?;
-		{
-			let mut query = url.query_pairs_mut();
-			let quirks = &provider.quirks;
-			query
-				.append_pair("response_type", "code")
-				.append_pair(quirks.client_id_param, &provider.client_id)
-				.append_pair("redirect_uri", &redirect_uri)
-				.append_pair("state", state.expose());
-
-			let offline = provider.store_tokens.then_some(quirks.offline);
-			let mut scopes = provider.scopes.clone();
-
-			if let Some(Offline::Scope(scope)) = offline
-				&& !scopes.iter().any(|existing| existing == scope)
-			{
-				scopes.push(scope.to_owned());
-			}
-
-			if !scopes.is_empty() {
-				query.append_pair("scope", &scopes.join(quirks.scope_separator));
-			}
-
-			if quirks.pkce {
-				query
-					.append_pair("code_challenge", &challenge)
-					.append_pair("code_challenge_method", "S256");
-			}
-
-			if provider.id_token_rules().is_some() {
-				query.append_pair("nonce", &nonce);
-			}
-
-			if matches!(provider.flavor, Flavor::Apple) {
-				query.append_pair("response_mode", "form_post");
-			}
-
-			let offline_param = match offline {
-				Some(Offline::Param(name, value)) => Some((name, value)),
-				_ => None,
-			};
-
-			for (name, value) in &quirks.authorize {
-				if offline_param.is_none_or(|(offline, _)| offline != *name) {
-					query.append_pair(name, value);
-				}
-			}
-
-			if let Some((name, value)) = offline_param {
-				query.append_pair(name, value);
-			}
-
-			if me.is_some() && provider.quirks.select_account {
-				// Connecting should pick the account, not reuse whichever
-				// one the browser is signed in to there.
-				query.append_pair("prompt", "select_account");
-			}
-		}
+		let url = authorization_url(
+			provider,
+			&endpoints.authorization_endpoint,
+			&redirect_uri,
+			state.expose(),
+			&challenge,
+			&nonce,
+			me.is_some(),
+		)?;
 
 		Ok(ProviderStart {
 			url: url.into(),
@@ -1626,6 +1718,7 @@ impl Auth {
 			error: finish.error.clone(),
 			user: finish.user.clone(),
 		};
+
 		let (flow, profile) = match &finish.id_token {
 			Some(id_token) => {
 				self.apple_id_profile(&finish.provider, &binding, id_token, &params)
@@ -1636,6 +1729,7 @@ impl Auth {
 					.await?
 			}
 		};
+
 		self.finish_flow(&flow, &profile, &binding, &request).await
 	}
 
@@ -1762,6 +1856,7 @@ impl Auth {
 				.and_then(serde_json::Value::as_str)
 				.map(str::to_owned)
 		};
+
 		let mut profile = match &provider.quirks.identify {
 			Identify::Api(api) => {
 				let access = text("access_token")
@@ -1797,6 +1892,7 @@ impl Auth {
 				profile
 			}
 		};
+
 		profile.grant = provider.store_tokens.then(|| grant(&tokens)).flatten();
 
 		Ok((flow, profile))
@@ -1845,6 +1941,7 @@ fn token_request(
 			)?)
 		}
 	};
+
 	let quirks = &provider.quirks;
 	let mut headers = vec![("accept".to_owned(), "application/json".to_owned())];
 
@@ -1855,6 +1952,7 @@ fn token_request(
 				basic_credentials(&provider.client_id, &secret),
 			));
 		}
+
 		secret => {
 			fields.push((quirks.client_id_param, provider.client_id.clone()));
 			fields.extend(secret.map(|secret| ("client_secret", secret)));
@@ -1875,6 +1973,7 @@ fn token_request(
 		form.extend_pairs(fields);
 		("application/x-www-form-urlencoded", form.finish())
 	};
+
 	headers.push(("content-type".to_owned(), content_type.to_owned()));
 
 	Ok(ProviderRequest {
@@ -1919,6 +2018,7 @@ fn app_user_agent(app_name: &str) -> (String, String) {
 	} else {
 		name.as_str()
 	};
+
 	(
 		"user-agent".to_owned(),
 		format!("web:{name}:leptoskit-auth/{}", env!("CARGO_PKG_VERSION")),
@@ -2121,6 +2221,7 @@ mod tests {
 			x: Some(URL_SAFE_NO_PAD.encode(pair.public_key().as_ref())),
 			..rfc_key()
 		};
+
 		let jws = parse_jws(&token).unwrap();
 		verify_signature(&jws, &key).unwrap();
 		let wrong_curve = Jwk {
@@ -2185,6 +2286,7 @@ mod tests {
 			.unwrap();
 		let mut both = with("aud", serde_json::json!(["client", "other"]));
 		both["azp"] = "client".into();
+
 		check(both).unwrap();
 		assert!(check(with("azp", "other".into())).is_err());
 		assert!(check(with("exp", (now - 61).into())).is_err());
@@ -2260,6 +2362,7 @@ mod tests {
 		assert_eq!(google.id(), "google");
 		let debug = format!("{:?}", Provider::google("c", "very-secret"));
 		assert!(!debug.contains("very-secret"), "{debug}");
+
 		assert!(valid_id("company-sso"));
 		assert!(!valid_id(""));
 		assert!(!valid_id(&"a".repeat(65)));

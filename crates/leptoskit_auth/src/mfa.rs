@@ -441,6 +441,7 @@ impl Auth {
 					.run(db)
 					.await?;
 			}
+
 			self.second_factor_failed(account, request).await?;
 		}
 
@@ -556,6 +557,7 @@ impl Auth {
 			)
 			.await?;
 		}
+
 		self.limit_second_factor(me.account).await?;
 		refuse_unusable(&Account::get(&self.inner.db, me.account).await?)?;
 		let ceremony = self.ceremony(proof).await?;
@@ -590,9 +592,11 @@ impl Auth {
 				)
 				.await;
 			}
+
 			Err(error) if wrong(error) => {
 				self.second_factor_failed(me.account, request).await?;
 			}
+
 			_ => {}
 		}
 
@@ -720,6 +724,7 @@ impl Auth {
 			} else {
 				None
 			};
+
 			let sign_in = self.elevate(&tx, me, request).await?;
 			record(&tx, Some(me.account), EventKind::TotpEnabled, request).await?;
 			Ok(TotpConfirmed {
@@ -878,6 +883,7 @@ impl Auth {
 				return Ok(verified.then_some(Used::Passkey));
 			}
 		};
+
 		let connection = tx;
 		let now = leptoskit_db::now();
 
@@ -908,6 +914,7 @@ impl Auth {
 				.set(|update| update.last_used_step, Some(step))
 				.run(connection)
 				.await?;
+
 			return Ok((claimed == 1).then_some(Used::Totp));
 		}
 
@@ -980,6 +987,7 @@ impl Auth {
 		let now = leptoskit_db::now();
 		let session = Session::get(connection, me.session).await?;
 		let token = SessionToken::generate()?;
+
 		let (refresh, access_expires_at) = match request.transport {
 			Transport::Cookie => (None, None),
 			Transport::Bearer => {
@@ -989,6 +997,7 @@ impl Auth {
 				)
 			}
 		};
+
 		let changed = Session::update()
 			.filter(|row| row.id.eq(me.session) & row.revoked_at.is_null())
 			.set(|row| row.token_hash, token.hash())
@@ -1308,6 +1317,7 @@ fn generate_recovery_code() -> Result<String> {
 		if index == RECOVERY_CODE_LENGTH / 2 {
 			code.push('-');
 		}
+
 		code.push(char::from(secrets::CODE_ALPHABET[usize::from(byte % 32)]));
 	}
 

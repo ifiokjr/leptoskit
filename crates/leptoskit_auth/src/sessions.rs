@@ -201,6 +201,7 @@ impl Auth {
 				request,
 			)
 			.await?;
+
 			return Ok(None);
 		}
 
@@ -407,6 +408,7 @@ impl Auth {
 		let now = leptoskit_db::now();
 		let token = SessionToken::generate()?;
 		let expires_at = now + self.absolute()?;
+
 		let (refresh, access_expires_at) = match request.transport {
 			Transport::Cookie => (None, None),
 			Transport::Bearer => {
@@ -416,6 +418,7 @@ impl Auth {
 				)
 			}
 		};
+
 		let session = NewSession {
 			account_id: account,
 			token_hash: token.hash(),

@@ -110,6 +110,7 @@ impl ApiProfile {
 			request.headers.extend(user_agent.clone());
 			request
 		};
+
 		let profile: Value = match &self.url {
 			Some(url) => providers.json(request(url)).await?,
 			None => tokens.clone(),

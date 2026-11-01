@@ -40,6 +40,7 @@ impl CancelToken {
 	pub fn cancel(&self) {
 		if !self.inner.cancelled.swap(true, Ordering::SeqCst) {
 			let wakers = std::mem::take(&mut *self.inner.wakers.lock());
+
 			for waker in wakers {
 				waker.wake();
 			}
@@ -76,10 +77,12 @@ impl Future for Cancelled {
 		}
 		{
 			let mut wakers = self.token.inner.wakers.lock();
+
 			if !wakers.iter().any(|waker| waker.will_wake(cx.waker())) {
 				wakers.push(cx.waker().clone());
 			}
 		}
+
 		// A cancellation that landed between the first check and registering
 		// the waker would otherwise be missed.
 		if self.token.is_cancelled() {

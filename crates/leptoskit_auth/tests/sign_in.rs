@@ -298,11 +298,13 @@ async fn wrong_guesses_use_up_a_code() {
 			.await
 			.unwrap();
 		let right = code(&mailbox, "ada@example.com");
+
 		for _ in 0..4 {
 			auth.verify_email_code("ada@example.com", wrong, &request())
 				.await
 				.unwrap_err();
 		}
+
 		auth.verify_email_code("ada@example.com", &right, &request())
 			.await
 			.unwrap()
@@ -697,6 +699,7 @@ async fn too_many_attempts_are_rate_limited() {
 				.await
 				.unwrap_err();
 		}
+
 		assert!(matches!(
 			auth.verify_email_code("ada@example.com", "AAAA-AAAA", &request())
 				.await,

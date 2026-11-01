@@ -250,7 +250,6 @@ where
 	}
 
 	// ---- reading -----------------------------------------------------------
-
 	/// A snapshot that subscribes to nothing.
 	pub(crate) fn state_untracked(&self) -> QueryState<T, E> {
 		QueryState {
@@ -299,18 +298,20 @@ where
 		if !has_data {
 			return true;
 		}
+
 		if stale_time == StaleTime::Static {
 			return false;
 		}
+
 		if meta.is_invalidated {
 			return true;
 		}
+
 		meta.data_updated_at
 			.is_none_or(|updated_at| stale_time.is_stale_at(updated_at, now_ms()))
 	}
 
 	// ---- observers ---------------------------------------------------------
-
 	pub(crate) fn add_observer(&self, entry: ObserverEntry<E>) {
 		self.cancel_gc();
 		self.observers.lock().push(entry);
@@ -324,6 +325,7 @@ where
 			observers.is_empty()
 		};
 		self.emit(CacheEvent::ObserverRemoved);
+
 		if empty {
 			self.schedule_gc();
 		}
@@ -353,29 +355,34 @@ where
 		if self.observer_count() > 0 {
 			return !self.is_active();
 		}
+
 		let meta = self.signals.meta.get_untracked();
 		meta.data_update_count + meta.error_update_count == 0
 	}
 
 	// ---- fetching ----------------------------------------------------------
-
 	/// Starts a fetch, or joins the one in flight.
 	pub(crate) fn fetch(&self, options: FetchOptions) -> FetchFuture {
 		let mut in_flight = self.in_flight.lock();
+
 		if let Some(current) = in_flight.as_ref() {
 			// A fetch that was already cancelled, by `cancel_queries` say, is
 			// settling rather than loading: joining it would hand the caller
 			// nothing.
 			let restart = current.token.is_cancelled()
 				|| (options.cancel_refetch && self.has_data_untracked());
+
 			if !restart {
 				return current.future.clone();
 			}
+
 			current.token.cancel();
 		}
+
 		let Some(this) = self.self_weak.upgrade() else {
 			// The query is being dropped; nothing can observe the result.
 			let done: BoxFuture<'static, ()> = Box::pin(std::future::ready(()));
+
 			return done.shared();
 		};
 
@@ -428,9 +435,11 @@ where
 			meta.fetch_direction = direction;
 		});
 		Self::set_signal(&self.signals.failure_reason, None);
+
 		if !had_data {
 			Self::set_signal(&self.signals.error, None);
 		}
+
 		let paused = self.options.network_mode == NetworkMode::Online
 			&& !OnlineManager::is_online_untracked();
 		self.set_fetch_status(if paused {
@@ -438,6 +447,7 @@ where
 		} else {
 			FetchStatus::Fetching
 		});
+
 		(revert, paused)
 	}
 
@@ -457,6 +467,7 @@ where
 		} else {
 			settled
 		};
+
 		query.finish(settled, revert, options.direction, generation);
 	}
 
@@ -474,6 +485,7 @@ where
 		if token.is_cancelled() {
 			return Settled::Cancelled;
 		}
+
 		if paused {
 			if until_cancelled(token, OnlineManager::wait_until_online())
 				.await
@@ -483,6 +495,7 @@ where
 			}
 			self.set_fetch_status(FetchStatus::Fetching);
 		}
+
 		let attempts = Attempts {
 			retry: &self.options.retry,
 			retry_delay: &self.options.retry_delay,
@@ -526,6 +539,7 @@ where
 		// nothing any more: whatever it ended with is discarded, and the
 		// status belongs to whatever came after it.
 		let superseded = self.fetch_generation.load(Ordering::SeqCst) != generation;
+
 		match settled {
 			_ if superseded => {}
 			Settled::Success(data) => self.on_success(data),
@@ -536,8 +550,10 @@ where
 				self.update_meta(|meta| meta.failure_count = revert.failure_count);
 			}
 		}
+
 		if !superseded {
 			let mut in_flight = self.in_flight.lock();
+
 			if in_flight
 				.as_ref()
 				.is_some_and(|current| current.generation == generation)
@@ -546,8 +562,10 @@ where
 			}
 			drop(in_flight);
 			self.set_fetch_status(FetchStatus::Idle);
+
 			self.update_meta(|meta| meta.fetch_direction = None);
 		}
+
 		if self.observers.lock().is_empty() {
 			self.schedule_gc();
 		}
@@ -561,9 +579,11 @@ where
 					.is_some_and(|existing| eq(existing, &data))
 			})
 		});
+
 		if !keep_existing {
 			self.signals.data.set(Some(data));
 		}
+
 		Self::set_signal(&self.signals.error, None);
 		Self::set_signal(&self.signals.failure_reason, None);
 		self.update_meta(|meta| {
@@ -593,13 +613,13 @@ where
 			.lock()
 			.as_ref()
 			.map(|current| current.token.clone());
+
 		if let Some(token) = token {
 			token.cancel();
 		}
 	}
 
 	// ---- writing -----------------------------------------------------------
-
 	/// Writes data as if a fetch had succeeded.
 	pub(crate) fn set_data(&self, data: T, updated_at: Option<u64>) {
 		self.signals.data.set(Some(data));
@@ -636,6 +656,7 @@ where
 		let mut meta = self.signals.meta.get_untracked();
 		let before = meta;
 		update(&mut meta);
+
 		if meta != before {
 			self.signals.meta.set(meta);
 		}
@@ -647,15 +668,19 @@ where
 		if value.is_none() && signal.with_untracked(Option::is_none) {
 			return;
 		}
+
 		signal.set(value);
 	}
 
 	fn set_fetch_status(&self, status: FetchStatus) {
 		let previous = self.signals.fetch_status.get_untracked();
+
 		if previous == status {
 			return;
 		}
+
 		self.signals.fetch_status.set(status);
+
 		if let Some(cache) = self.cache.upgrade() {
 			match (previous, status) {
 				(FetchStatus::Fetching, _) => {
@@ -676,7 +701,6 @@ where
 	}
 
 	// ---- lifecycle ---------------------------------------------------------
-
 	/// Drops the query from the cache once it has gone unobserved for its gc
 	/// time. A fetch still in flight defers removal until it settles.
 	///
@@ -687,14 +711,17 @@ where
 			return;
 		};
 		let token = CancelToken::new();
+
 		if let Some(previous) = self.pending_gc.lock().replace(token.clone()) {
 			previous.cancel();
 		}
+
 		let weak = self.self_weak.clone();
 		spawn(async move {
 			if until_cancelled(&token, sleep(gc_time)).await.is_none() {
 				return;
 			}
+
 			let Some(query) = weak.upgrade() else {
 				return;
 			};
@@ -748,6 +775,7 @@ where
 					}
 			})
 		});
+
 		if should_fetch {
 			drop(self.fetch(FetchOptions::JOIN));
 		}
@@ -887,9 +915,11 @@ where
 
 	fn dehydrate(&self) -> Option<DehydratedQuery> {
 		let codec = self.codec.as_ref()?;
+
 		if self.status_untracked() != QueryStatus::Success {
 			return None;
 		}
+
 		let data = self
 			.signals
 			.data
@@ -916,9 +946,11 @@ where
 		};
 		// Fresher local data wins over what was dehydrated earlier.
 		let current = self.signals.meta.get_untracked().data_updated_at;
+
 		if current.is_some_and(|current| current >= dehydrated.data_updated_at) {
 			return;
 		}
+
 		if let Ok(data) = codec.decode(dehydrated.data.clone()) {
 			self.set_data(data, Some(dehydrated.data_updated_at));
 		}

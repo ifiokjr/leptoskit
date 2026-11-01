@@ -424,6 +424,7 @@ async fn signs_out_everywhere_and_here(
 	assert_eq!(session_id(laptop).await, None);
 	let signed_out = laptop.api.devices().await.unwrap_err();
 	assert_eq!(signed_out.error, "signed_out");
+
 	assert_eq!(
 		laptop.api.revoke_others().await.unwrap_err().error,
 		"signed_out"
@@ -510,6 +511,7 @@ async fn signs_in_with_a_recovery_code(
 		.complete_sign_in("000000".into())
 		.await
 		.unwrap_err();
+
 	assert_eq!(wrong.error, "invalid_code");
 	let signed_in = phone.api.complete_sign_in(codes[0].clone()).await.unwrap();
 	assert!((phone.held)());
@@ -942,6 +944,7 @@ async fn the_scopes_call_the_configured_client() {
 	} else {
 		"config"
 	};
+
 	assert_eq!(
 		api().send_code(ADA.to_owned()).await.unwrap_err().error,
 		unconfigured
@@ -1309,10 +1312,12 @@ impl protocol::Platform for Page {
 			"autofill asks for conditional mediation"
 		);
 		let mut passkey = self.passkey.lock().unwrap();
+
 		let answer = match passkey.as_mut() {
 			Some(device) if device.pick(&options).is_some() => Ok(device.sign(&options)),
 			_ => Err(error("cancelled", "no passkey")),
 		};
+
 		Box::pin(std::future::ready(answer))
 	}
 
@@ -1363,8 +1368,10 @@ impl protocol::Platform for Page {
 		use ed25519_dalek::Signer;
 
 		let key = self.wallet.lock().unwrap();
+
 		let answer = match key.as_ref() {
 			_ if self.declines.load(Ordering::SeqCst) => Err(error("cancelled", "declined")),
+
 			Some(key) if wallet == "Test Wallet" => {
 				let address = leptoskit_db::Pubkey::from_bytes(key.verifying_key().to_bytes());
 
@@ -1372,6 +1379,7 @@ impl protocol::Platform for Page {
 					Some(wanted) if *wanted != address.to_string() => {
 						Err(error("wallet_failed", "another account"))
 					}
+
 					_ => {
 						let message = input.message(&address);
 						Ok(crate::WalletProof {
@@ -1384,8 +1392,10 @@ impl protocol::Platform for Page {
 					}
 				}
 			}
+
 			_ => Err(error("no_wallet", "no wallet by that name")),
 		};
+
 		Box::pin(std::future::ready(answer))
 	}
 }
@@ -1428,6 +1438,7 @@ async fn a_browser_adds_passkeys_and_signs_in_with_them() {
 		})
 		.await
 		.unwrap();
+
 	assert_eq!(laptop.api.passkeys().await.unwrap()[0].name, "Work laptop");
 
 	// Another browser on the same device signs in with it, from autofill or
@@ -1705,6 +1716,7 @@ async fn the_passkey_and_provider_scopes_call_the_configured_client() {
 			.with_refetch_on_reconnect(RefetchOn::Never)
 			.with_network_mode(NetworkMode::Always),
 	);
+
 	client.provide();
 	sign_in(&server, &browser).await;
 
@@ -1785,6 +1797,7 @@ async fn the_passkey_and_provider_scopes_call_the_configured_client() {
 			.await
 			.unwrap();
 		assert_eq!(client.get_query_data(&session(), &()), Some(Some(stepped)));
+
 		use_mutation_in(client.clone(), remove_passkey())
 			.mutate_async(added.passkey.id)
 			.await
@@ -1835,6 +1848,7 @@ async fn a_device_without_passkeys_or_pages_says_so() {
 	);
 	none.cancel();
 	assert_eq!(none.query(), None);
+
 	assert_eq!(none.wallet_apps().await.unwrap_err().error, "unsupported");
 	let signed = none
 		.sign_with_wallet("Phantom".into(), crate::SiwsInput::default())
@@ -2048,6 +2062,7 @@ async fn the_wallet_scopes_call_the_configured_client() {
 			.with_refetch_on_reconnect(RefetchOn::Never)
 			.with_network_mode(NetworkMode::Always),
 	);
+
 	client.provide();
 	sign_in(&server, &browser).await;
 
@@ -2211,6 +2226,7 @@ impl protocol::Platform for Phone {
 			} else {
 				Request::get(format!("{path}?{query}")).body(Body::empty())
 			};
+
 			let response = this.router.oneshot(request.unwrap()).await.unwrap();
 			assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
 			let location = response.headers()[header::LOCATION]

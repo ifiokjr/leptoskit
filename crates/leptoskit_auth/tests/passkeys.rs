@@ -123,10 +123,12 @@ async fn events(db: &Db, account: Id<Account>) -> Vec<EventKind> {
 async fn stale(db: &Db, me: &SignedIn) -> SignedIn {
 	let then = leptoskit_db::now() - TimeDelta::minutes(20);
 	let system = db.system("test: age a session");
+
 	let (table, first, second) = match system.dialect() {
 		Dialect::Postgres => ("auth.sessions", "$1", "$2"),
 		Dialect::Sqlite => ("auth_sessions", "?1", "?2"),
 	};
+
 	system
 		.execute(Statement {
 			sql: format!(
@@ -226,6 +228,7 @@ async fn a_passkey_is_added_and_then_signs_in_on_its_own() {
 			.unwrap();
 		assert_eq!(signed_in.session.account_id, me.account);
 		assert_eq!(signed_in.session.aal, Aal::Two);
+
 		assert!(
 			signed_in
 				.signed_in()
@@ -416,6 +419,7 @@ async fn an_emailed_code_then_asks_for_the_passkey() {
 			.complete_sign_in(&step.token, &codes[0], &request())
 			.await
 			.unwrap();
+
 		assert_eq!(finished.session.aal, Aal::Two);
 	}
 }
@@ -491,6 +495,7 @@ async fn passkeys_step_up_and_are_managed_after_it() {
 				.await
 				.contains(&EventKind::PasskeyRemoved)
 		);
+
 		assert!(matches!(
 			auth.begin_passkey_step_up(&me, &request()).await,
 			Err(AuthError::NotEnrolled)
@@ -643,6 +648,7 @@ async fn rotating_keys_re_encrypts_ceremonies_in_flight() {
 	let old = with(&format!("old:{}", encode(1)));
 	let mut device = SoftPasskey::new(ORIGIN);
 	let (..) = with_passkey(&old, &mailbox, "ada@example.com", &mut device).await;
+
 	let challenge = old.begin_passkey_sign_in(&request()).await.unwrap();
 
 	let both = with(&format!("new:{},old:{}", encode(2), encode(1)));
@@ -697,6 +703,7 @@ async fn the_native_apps_passkeys_count_as_the_sites() {
 	let mut device = device.on(ORIGIN);
 	let challenge = auth.begin_passkey_sign_in(&request()).await.unwrap();
 	let assertion = device.sign(&challenge.options);
+
 	auth.finish_passkey_sign_in(&challenge.token, &assertion, &request())
 		.await
 		.unwrap();

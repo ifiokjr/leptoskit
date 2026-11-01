@@ -114,6 +114,7 @@ impl Browser {
 		} else {
 			request.header(header::COOKIE, cookies)
 		};
+
 		let response = app
 			.router
 			.clone()
@@ -168,6 +169,7 @@ impl Browser {
 			.await;
 		assert_eq!(response.status(), StatusCode::SEE_OTHER);
 		let location = response.headers()[header::LOCATION].to_str().unwrap();
+
 		let query = location.split_once('?').unwrap().1;
 		(ProviderOutcome::from_query(query).unwrap(), url)
 	}
@@ -422,6 +424,7 @@ async fn each_provider_signs_people_up_with_only_the_addresses_it_vouches_for() 
 				.unwrap()
 				.unwrap();
 			assert_eq!(identity.provider, provider);
+
 			assert_eq!(identity.subject, fixture.subject, "{provider}");
 			assert_eq!(identity.name.as_deref(), Some(fixture.name), "{provider}");
 			assert_eq!(
@@ -694,6 +697,7 @@ async fn a_notion_grant_signs_in_only_the_person_who_owns_it() {
 		.sign_in(&app, "notion", not_a_person)
 		.await;
 	assert_eq!(outcome, ProviderOutcome::Failed("provider".into()));
+
 	let requests = app.idp.requests();
 	assert!(
 		requests

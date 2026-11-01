@@ -1054,6 +1054,7 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 			.await?;
 		let signed_in: SignedInResponse = decode(&response)?;
 		self.rotated(signed_in.tokens).await?;
+
 		Ok(signed_in.session)
 	}
 
@@ -1110,6 +1111,7 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 		} else {
 			"/auth/oauth/start"
 		};
+
 		let body = StartProviderRequest {
 			start: input,
 			native: None,
@@ -1172,6 +1174,7 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 			)
 		})?;
 		let sent_state = query_value(&started.url, "state");
+
 		let returned = match self.platform.browse(session, started.url).await {
 			Ok(returned) => returned,
 			Err(failed) => {
@@ -1182,6 +1185,7 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 
 		if sent_state.is_none() || query_value(&returned, "state") != sent_state {
 			self.native_state().outcome = Some(ProviderOutcome::Failed("sign_in_expired".into()));
+
 			return Ok(());
 		}
 
@@ -1211,14 +1215,17 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 				"the server didn't send a nonce for Sign in with Apple; is it up to date?",
 			));
 		};
+
 		let credential = match self.platform.apple_id(nonce).await {
 			Ok(credential) => credential,
+
 			Err(failed) if failed.error == "unsupported" => return Ok(None),
 			Err(failed) => {
 				self.native_state().outcome = Some(ProviderOutcome::Failed(failed.error));
 				return Ok(Some(()));
 			}
 		};
+
 		let finish = FinishProvider {
 			provider: provider.to_owned(),
 			token,
@@ -1242,6 +1249,7 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 				Some(json(&finish)),
 			)
 			.await;
+
 		let finished = match response.and_then(|response| decode::<ProviderFinished>(&response)) {
 			Ok(finished) => finished,
 			Err(refused) => {
@@ -1284,6 +1292,7 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 				}))
 			}
 		};
+
 		let response = self
 			.server
 			.send(Method::Post, "/auth/oauth/continue", None, body)
@@ -1343,12 +1352,14 @@ impl<H: Http, C: Credentials> Remote<H, C> {
 		} else {
 			None
 		};
+
 		let body = json(&MergeAccounts {
 			mode: input.mode.unwrap_or(MergeMode::MoveLogin),
 			confirm: input.confirm,
 			code: input.code,
 			credential,
 		});
+
 		let response = self
 			.call(Method::Post, "/auth/merge", Some(body), unauthorized)
 			.await?;

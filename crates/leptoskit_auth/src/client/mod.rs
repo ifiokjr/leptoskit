@@ -101,6 +101,7 @@ mod protocol;
 mod qr;
 #[cfg(feature = "ssr")]
 mod server;
+
 #[cfg(all(test, feature = "axum", feature = "sqlite"))]
 mod tests;
 #[cfg(all(feature = "web", target_arch = "wasm32"))]

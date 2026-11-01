@@ -2,7 +2,6 @@
 
 //! The public surface beyond the main flows: builders, accessors, filters,
 //! context hooks, and the debug output devtools and logs rely on.
-
 mod common;
 
 use std::sync::Arc;
@@ -85,6 +84,7 @@ fn retry_policies_and_delays() {
 	let from_count: Retry<Boom> = 2_u32.into();
 	assert!(from_count.should_retry(1, &Boom("x")));
 	assert!(!from_count.should_retry(2, &Boom("x")));
+
 	let from_policy: Retry<Boom> = RetryPolicy::Never.into();
 	assert!(!from_policy.should_retry(0, &Boom("x")));
 	let decide: Retry<Boom> = Retry::decide(|count, error: &Boom| count < 1 && error.0 == "retry");
@@ -104,6 +104,7 @@ fn retry_policies_and_delays() {
 		Duration::from_millis(4)
 	);
 	assert!(format!("{fixed:?}").starts_with("Fixed"));
+
 	assert!(format!("{backoff:?}").starts_with("Backoff"));
 	assert_eq!(format!("{decided:?}"), "Decide(..)");
 }
@@ -121,6 +122,7 @@ fn tags_and_scope_ids() {
 	assert_eq!(user.segments(), ["users", "7"]);
 	let id = ScopeId::named("todos");
 	assert_eq!(id, ScopeId::named("todos"));
+
 	assert_ne!(id.raw(), ScopeId::named("users").raw());
 }
 
@@ -320,6 +322,7 @@ async fn handles_expose_every_accessor() {
 		Some(1),
 		"selection follows the placeholder too"
 	);
+
 	assert_eq!(query.refetch().await, Some(Err(Boom("down"))));
 
 	owner.cleanup();
@@ -436,6 +439,7 @@ async fn mutation_scopes_keep_callbacks_across_a_new_context() {
 	assert_eq!(seen.load(Ordering::SeqCst), 4, "error and settled");
 	let state = mutation.get();
 	assert!(state.is_error());
+
 	assert!(!state.is_idle());
 }
 
@@ -472,6 +476,7 @@ async fn the_mutation_cache_from_components() {
 		states.get_untracked().first().map(|state| state.status),
 		Some(MutationStatus::Success)
 	);
+
 	client.resume_paused_mutations().await;
 
 	client.clear();
@@ -521,6 +526,7 @@ async fn infinite_scopes_build_and_read() {
 	pages.fetch_next_page().await;
 	assert_eq!(pages.items::<u32>(), vec![10, 11, 12, 13]);
 	assert!(!pages.has_next_page());
+
 	assert_eq!(client.invalidate_tag(tag!["pages", 10]).await, ());
 
 	owner.cleanup();

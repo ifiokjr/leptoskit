@@ -469,6 +469,7 @@ async fn refusals_second_factors_and_taken_addresses_reach_the_app() {
 				json!({ "code": totp::totp(&secret, 0) }),
 			)
 			.await;
+
 		assert_eq!(confirmed.status(), StatusCode::OK);
 
 		let mut second = Native::default();
@@ -484,6 +485,7 @@ async fn refusals_second_factors_and_taken_addresses_reach_the_app() {
 		);
 		let step = finished.second_factor.unwrap();
 		assert!(finished.signed_in.is_none());
+
 		let completed = second
 			.post(
 				&app,
@@ -512,6 +514,7 @@ async fn refusals_second_factors_and_taken_addresses_reach_the_app() {
 			.post(&app, "/auth/oauth/continue", json!({ "token": "nope" }))
 			.await;
 		assert_eq!(json_body(wrong).await["error"], "sign_in_expired");
+
 		let continued = rival
 			.post(
 				&app,
@@ -592,6 +595,7 @@ async fn apples_posted_answer_goes_straight_on_to_the_app() {
 	let form = url::form_urlencoded::Serializer::new(String::new())
 		.extend_pairs(&back)
 		.finish();
+
 	// Apple posts from its own site, with no cookie of this site's.
 	let response = send(
 		&app,
@@ -680,6 +684,7 @@ async fn sign_in_with_apple_on_the_device_checks_its_id_token() {
 		let user = json!({ "name": { "firstName": "Hal", "lastName": "Laning" } }).to_string();
 		let mut native = Native::default();
 		let finished = finish(token, id_token, Some(&user)).await;
+
 		let finished = native.signed_in(finished).await;
 		assert_eq!(finished.outcome, ProviderOutcome::SignedIn);
 		let identities = json_body(native.get(&app, "/auth/identities").await).await;
@@ -725,6 +730,7 @@ async fn a_desktop_app_signs_in_through_its_loopback_address() {
 			.unwrap()
 			.unwrap();
 	assert!(browser.join().unwrap().contains("go back to the app"));
+
 	assert_eq!(returned, location);
 
 	let finished = native.finish(&app, "company", &token, &returned).await;

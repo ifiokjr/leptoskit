@@ -61,6 +61,7 @@ pub async fn settle() {
 	for _ in 0..3 {
 		any_spawner::Executor::tick().await;
 	}
+
 	tokio::time::sleep(Duration::from_millis(10)).await;
 }
 
@@ -70,8 +71,10 @@ pub async fn wait_for(label: &str, condition: impl Fn() -> bool) {
 		if condition() {
 			return;
 		}
+
 		tokio::time::sleep(Duration::from_millis(5)).await;
 	}
+
 	panic!("timed out waiting for: {label}");
 }
 

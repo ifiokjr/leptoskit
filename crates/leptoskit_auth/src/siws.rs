@@ -244,8 +244,10 @@ impl SiwsMessage {
 			..SiwsInput::default()
 		};
 		let rest: Vec<&str> = paragraphs.collect();
+
 		let (statement, fields) = match rest.as_slice() {
 			[] => (None, None),
+
 			[only] if is_fields(only) => (None, Some(*only)),
 			[only] => (Some(*only), None),
 			[statement, fields] => (Some(*statement), Some(*fields)),
@@ -294,6 +296,7 @@ pub(crate) fn valid_domain(domain: &str) -> bool {
 		Some((host, port)) => (host, Some(port)),
 		None => (domain, None),
 	};
+
 	let host_ok = !host.is_empty()
 		&& host.len() <= 253
 		&& host
@@ -312,29 +315,13 @@ pub(crate) fn valid_domain(domain: &str) -> bool {
 }
 
 fn parse_fields(fields: &str, input: &mut SiwsInput) -> Result<(), SiwsError> {
-	let mut lines = fields.split('\n').peekable();
+	let mut lines = fields.split('\n');
 	let mut next_label = 0;
 
-	while let Some(line) = lines.next() {
+	for line in lines.by_ref() {
 		if line == "Resources:" {
-			let mut resources = Vec::new();
-
-			for line in lines.by_ref() {
-				let resource = line.strip_prefix("- ").ok_or(SiwsError::Field)?;
-
-				if !valid_value(resource) {
-					return Err(SiwsError::Field);
-				}
-
-				resources.push(resource.to_owned());
-			}
-
-			if resources.is_empty() {
-				return Err(SiwsError::Field);
-			}
-
-			input.resources = resources;
-			break;
+			input.resources = resources(lines)?;
+			return Ok(());
 		}
 
 		let (index, value) = LABELS
@@ -349,28 +336,56 @@ fn parse_fields(fields: &str, input: &mut SiwsInput) -> Result<(), SiwsError> {
 		}
 
 		next_label = index + 1;
-		let value = Some(value.to_owned());
+		set_field(index, Some(value.to_owned()), input)?;
+	}
 
-		match index {
-			0 => input.uri = value,
-			1 => {
-				if value.as_deref() != Some("1") {
-					return Err(SiwsError::Version);
-				}
-				input.version = value;
-			}
-			2 => input.chain_id = value,
-			3 => {
-				if !value.as_deref().is_some_and(valid_nonce) {
-					return Err(SiwsError::Nonce);
-				}
-				input.nonce = value;
-			}
-			4 => input.issued_at = time(value)?,
-			5 => input.expiration_time = time(value)?,
-			6 => input.not_before = time(value)?,
-			_ => input.request_id = value,
+	Ok(())
+}
+
+/// The resources listed after `Resources:`, one per `- ` line.
+fn resources<'a>(lines: impl Iterator<Item = &'a str>) -> Result<Vec<String>, SiwsError> {
+	let mut resources = Vec::new();
+
+	for line in lines {
+		let resource = line.strip_prefix("- ").ok_or(SiwsError::Field)?;
+
+		if !valid_value(resource) {
+			return Err(SiwsError::Field);
 		}
+
+		resources.push(resource.to_owned());
+	}
+
+	if resources.is_empty() {
+		return Err(SiwsError::Field);
+	}
+
+	Ok(resources)
+}
+
+/// Stores one field, checking the ones with their own rule.
+fn set_field(index: usize, value: Option<String>, input: &mut SiwsInput) -> Result<(), SiwsError> {
+	match index {
+		0 => input.uri = value,
+		1 => {
+			if value.as_deref() != Some("1") {
+				return Err(SiwsError::Version);
+			}
+
+			input.version = value;
+		}
+		2 => input.chain_id = value,
+		3 => {
+			if !value.as_deref().is_some_and(valid_nonce) {
+				return Err(SiwsError::Nonce);
+			}
+
+			input.nonce = value;
+		}
+		4 => input.issued_at = time(value)?,
+		5 => input.expiration_time = time(value)?,
+		6 => input.not_before = time(value)?,
+		_ => input.request_id = value,
 	}
 
 	Ok(())

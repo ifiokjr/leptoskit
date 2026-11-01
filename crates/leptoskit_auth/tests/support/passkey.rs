@@ -69,6 +69,7 @@ impl SoftPasskey {
 		let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).unwrap();
 		let key = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng)
 			.unwrap();
+
 		let mut id = vec![0; 32];
 		ring::rand::SecureRandom::fill(&rng, &mut id).unwrap();
 		let point = key.public_key().as_ref();

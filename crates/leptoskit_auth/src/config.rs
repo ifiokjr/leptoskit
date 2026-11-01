@@ -78,6 +78,7 @@ impl Auth {
 			apple_team_id: config.native.apple_team_id.clone(),
 			android_certificates: config.native.android_certificate_digests(),
 		});
+
 		if auth.passwords.enabled {
 			builder = builder.passwords(crate::PasswordOptions {
 				min_length: auth.passwords.min_length,
@@ -101,6 +102,7 @@ fn providers(mut builder: AuthBuilder, auth: &AuthConfig) -> Result<AuthBuilder>
 			|name: &Option<String>| -> Result<String> { env(name.as_deref().unwrap_or_default()) };
 		let optional = |name: &Option<String>| name.as_deref().map(env).transpose();
 		let kind = config.kind(id);
+
 		let mut provider = match kind.as_str() {
 			"microsoft" => {
 				Provider::microsoft(
@@ -192,12 +194,14 @@ fn mailer(builder: AuthBuilder, auth: &AuthConfig) -> Result<AuthBuilder> {
 	if let Some(name) = &mail.smtp_url_env {
 		let url = env(name)?;
 		let from = mail.from.as_deref().unwrap_or_default();
+
 		return smtp(builder, &url, from);
 	}
 
 	if let Some(name) = &mail.webhook_url_env {
 		let url = env(name)?;
 		let secret = env(mail.webhook_secret_env.as_deref().unwrap_or_default())?;
+
 		return webhook(builder, url, &secret, mail.from.clone());
 	}
 

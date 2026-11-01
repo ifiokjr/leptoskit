@@ -1,7 +1,6 @@
 #![cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
 
 //! What leptoskit's `DevTools` read from a cache, and the edits they make.
-
 mod common;
 
 use std::time::Duration;
