@@ -57,6 +57,7 @@ fn lease_commits_only_on_consumption_not_inspection() {
 	assert_eq!(discarded.load(Ordering::SeqCst), 0);
 	bridge.take_result(id).unwrap().unwrap().unwrap();
 	drop(bridge);
+
 	assert_eq!(discarded.load(Ordering::SeqCst), 0);
 }
 #[test]
@@ -72,6 +73,7 @@ fn ready_cancel_rejection_overflow_and_app_drop_release_resource_once() {
 		Err(Error::InvalidCall)
 	);
 	assert_eq!(discarded.load(Ordering::SeqCst), 2);
+
 	let id = pending(&mut bridge);
 	bridge.complete_reply(id, Ok(reply(&discarded))).unwrap();
 	drop(bridge);
@@ -96,6 +98,7 @@ fn revoke_discards_ready_resource_and_regrant_does_not_revive_old_call() {
 	bridge.complete_reply(id, Ok(reply(&discarded))).unwrap();
 	bridge.grant(plugin, MethodId(0), false).unwrap();
 	bridge.grant(plugin, MethodId(0), true).unwrap();
+
 	assert!(old.is_cancelled());
 	assert_eq!(discarded.load(Ordering::SeqCst), 1);
 	assert_eq!(

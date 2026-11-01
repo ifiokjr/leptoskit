@@ -383,6 +383,7 @@ fn measure_size(size: usize, modes: [Completion; 2]) {
 	} else {
 		LARGE_ITERATIONS
 	};
+
 	let mut samples = sample(&mut hosts, size, modes, iterations);
 
 	for (index, mode) in modes.into_iter().enumerate() {

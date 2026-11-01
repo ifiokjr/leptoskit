@@ -34,6 +34,7 @@ fn fake_book_fold(posture_type: &str) -> (web_sys::Window, web_sys::EventTarget)
 	let viewport = js_sys::Object::new();
 	js_sys::Reflect::set(&viewport, &"segments".into(), &segments).unwrap();
 	define(window.as_ref(), "viewport", &viewport);
+
 	let posture = web_sys::EventTarget::new().unwrap();
 	js_sys::Reflect::set(&posture, &"type".into(), &posture_type.into()).unwrap();
 	define(window.navigator().as_ref(), "devicePosture", &posture);
@@ -50,6 +51,7 @@ async fn segments_and_posture_become_hinges_and_wake_waiters() {
 	let hinge = current.hinges[0];
 	assert_eq!(hinge.axis, Axis::Vertical);
 	assert_eq!(hinge.occluding, Some(true));
+
 	assert_eq!(hinge.angle, None);
 	assert_eq!(current.panes().len(), 2);
 	assert_eq!(

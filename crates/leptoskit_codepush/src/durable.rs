@@ -55,11 +55,14 @@ pub(crate) fn is_temporary(name: &str) -> bool {
 pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
 	let temporary = temporary_sibling(path)?;
 	let written = write_new_file(&temporary, bytes).and_then(|()| fs::rename(&temporary, path));
+
 	if let Err(error) = written {
 		// The write already failed; that error is the one to report.
 		let _ = fs::remove_file(&temporary);
+
 		return Err(error);
 	}
+
 	sync_directory(parent_of(path))
 }
 
@@ -74,18 +77,23 @@ pub(crate) fn assemble_directory(target: &Path, files: &[(&str, &[u8])]) -> io::
 	let temporary = temporary_sibling(target)?;
 	fs::create_dir(&temporary)?;
 	let written = write_tree(&temporary, files);
+
 	if let Err(error) = written {
 		// The write already failed; that error is the one to report.
 		let _ = fs::remove_dir_all(&temporary);
+
 		return Err(error);
 	}
+
 	Ok(temporary)
 }
 
 fn write_tree(root: &Path, files: &[(&str, &[u8])]) -> io::Result<()> {
 	let mut directories = BTreeSet::from([root.to_path_buf()]);
+
 	for (path, bytes) in files {
 		let file = root.join(path);
+
 		if let Some(parent) = file.parent() {
 			fs::create_dir_all(parent)?;
 			directories.extend(
@@ -95,8 +103,10 @@ fn write_tree(root: &Path, files: &[(&str, &[u8])]) -> io::Result<()> {
 					.map(Path::to_path_buf),
 			);
 		}
+
 		write_new_file(&file, bytes)?;
 	}
+
 	directories
 		.iter()
 		.try_for_each(|directory| sync_directory(directory))
@@ -126,6 +136,7 @@ pub(crate) fn sync_directory(directory: &Path) -> io::Result<()> {
 	if cfg!(unix) {
 		fs::File::open(directory)?.sync_all()?;
 	}
+
 	Ok(())
 }
 

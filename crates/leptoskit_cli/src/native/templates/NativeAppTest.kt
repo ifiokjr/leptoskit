@@ -112,6 +112,7 @@ class NativeAppTest {
         assertNotNull(device.wait(Until.findObject(By.text("Haptic request accepted")), 10000))
         try {
             device.executeShellCommand("cmd battery set present true")
+
             device.executeShellCommand("cmd battery set level 37")
             device.findObject(By.desc("Read battery")).click()
             assertNotNull(device.wait(Until.findObject(By.text("Battery: 37%")), 10000))

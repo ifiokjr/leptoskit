@@ -54,6 +54,7 @@ impl Reservation {
 			if active.get() & bit != 0 {
 				return Err(Error::Busy);
 			}
+
 			active.set(active.get() | bit);
 			Ok(Self(bit))
 		})
@@ -85,9 +86,11 @@ fn js_error(error: JsValue) -> Error {
 }
 fn window() -> Result<web_sys::Window, Error> {
 	let window = web_sys::window().ok_or(Error::Unavailable)?;
+
 	if property(window.as_ref(), "isSecureContext")?.as_bool() != Some(true) {
 		return Err(Error::PermissionDenied);
 	}
+
 	Ok(window)
 }
 fn generic_constructor(kind: Kind) -> Result<Option<Function>, Error> {
@@ -102,6 +105,7 @@ pub fn available(kind: Kind) -> Result<bool, Error> {
 	if generic_constructor(kind)?.is_some() {
 		return Ok(true);
 	}
+
 	Ok(kind != Kind::Magnetometer
 		&& property(window()?.as_ref(), "DeviceMotionEvent")?.is_function())
 }
@@ -114,17 +118,23 @@ pub async fn request_permission(kind: Kind) -> Result<(), Error> {
 	if generic_constructor(kind)?.is_some() {
 		return Ok(());
 	}
+
 	if kind == Kind::Magnetometer {
 		return Err(Error::Unavailable);
 	}
+
 	let constructor = property(window()?.as_ref(), "DeviceMotionEvent")?;
+
 	if !constructor.is_function() {
 		return Err(Error::Unavailable);
 	}
+
 	let request = property(&constructor, "requestPermission")?;
+
 	if request.is_undefined() {
 		return Ok(());
 	}
+
 	let request = request.dyn_into::<Function>().map_err(|_| Error::Native)?;
 	let promise = request
 		.call0(&constructor)
@@ -134,6 +144,7 @@ pub async fn request_permission(kind: Kind) -> Result<(), Error> {
 	let status = wasm_bindgen_futures::JsFuture::from(promise)
 		.await
 		.map_err(js_error)?;
+
 	if status.as_string().as_deref() == Some("granted") {
 		Ok(())
 	} else {
@@ -166,6 +177,7 @@ fn number(value: &JsValue, name: &str) -> Result<f64, Error> {
 /// browser's rate.
 pub async fn next(kind: Kind, interval: Interval) -> Result<VectorReading, Error> {
 	let _reservation = Reservation::acquire(kind)?;
+
 	if let Some(constructor) = generic_constructor(kind)? {
 		return generic_next(constructor, interval, |source| {
 			validate(VectorReading {
@@ -177,16 +189,20 @@ pub async fn next(kind: Kind, interval: Interval) -> Result<VectorReading, Error
 		})
 		.await;
 	}
+
 	if kind == Kind::Magnetometer {
 		return Err(Error::Unavailable);
 	}
+
 	if !available(kind)? {
 		return Err(Error::Unavailable);
 	}
+
 	request_permission(kind).await?;
 	let (sender, receiver) = oneshot::channel();
 	let sender = Rc::new(RefCell::new(Some(sender)));
 	let window = window()?;
+
 	let listener = EventListener::new(&window, "devicemotion", move |event| {
 		if let Some(sender) = sender.borrow_mut().take() {
 			let result = (|| {
@@ -213,6 +229,7 @@ pub async fn next(kind: Kind, interval: Interval) -> Result<VectorReading, Error
 						number(&values, "alpha")?.to_radians(),
 					)
 				};
+
 				validate(VectorReading {
 					timestamp: event.time_stamp() / 1000.0,
 					x,
@@ -297,6 +314,7 @@ export function emitDenied() {
 		assert_eq!(next(Kind::Accelerometer, interval).await, Err(Error::Busy));
 		emit_reading();
 		let reading = sample.await.unwrap();
+
 		assert_eq!(reading.timestamp.to_bits(), 1.25_f64.to_bits());
 		assert_eq!(reading.x.to_bits(), (-9.80665_f64).to_bits());
 		assert_eq!(
@@ -405,11 +423,13 @@ pub async fn next_light(
 		if timestamp < 0.0 || lux < 0.0 {
 			return Err(Error::Native);
 		}
+
 		Ok(crate::LightReading { timestamp, lux })
 	});
 	futures::pin_mut!(sample);
 	let timer = gloo_timers::future::TimeoutFuture::new(timeout.milliseconds());
 	futures::pin_mut!(timer);
+
 	match futures::future::select(sample, timer).await {
 		futures::future::Either::Left((result, _)) => result.map_err(Into::into),
 		futures::future::Either::Right(_) => Err(crate::SensorError::TimedOut),
@@ -462,6 +482,7 @@ export function lightStops(){return stoppedLight;}
 		assert_eq!(light_available(), Ok(true));
 		let mut pending = Box::pin(next_light(interval, timeout));
 		assert!(futures::poll!(&mut pending).is_pending());
+
 		assert_eq!(next_light(interval, timeout).await, Err(Error::Busy.into()));
 		emit_light(0.0);
 		assert_eq!(

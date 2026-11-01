@@ -30,6 +30,7 @@ pub mod inbox;
 pub mod jobs;
 #[cfg(feature = "live")]
 mod live;
+
 #[cfg(feature = "db")]
 pub mod receipts;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]

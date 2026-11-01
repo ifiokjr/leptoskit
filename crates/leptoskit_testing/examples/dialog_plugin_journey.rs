@@ -12,6 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	use leptoskit_testing::native::Platform;
 	use serde_json::json;
 	let args: Vec<String> = std::env::args().skip(1).collect();
+
 	if args.len() != 4 {
 		return Err(
 			"usage: dialog_plugin_journey <windows|macos|linux> <endpoint> <app|Root> \
@@ -19,12 +20,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				.into(),
 		);
 	}
+
 	let platform = match args[0].as_str() {
 		"windows" => Platform::Windows,
 		"macos" => Platform::Macos,
 		"linux" => Platform::Linux,
 		_ => return Err("expected windows, macos or linux".into()),
 	};
+
 	let accept = match args[3].as_str() {
 		"accept" => true,
 		"decline" => false,
@@ -35,12 +38,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	} else {
 		Application::Path(args[2].clone())
 	};
+
 	let mut options = Options::new(&args[1], platform, application);
 	options.artifacts = format!(
 		"target/native-ui/reports/dialog-plugin-{}-{}",
 		args[0], args[3]
 	)
 	.into();
+
 	if platform == Platform::Macos {
 		// The first session builds the driver's XCTest runner with Xcode.
 		options.startup_seconds = 900;
@@ -50,6 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			.capabilities
 			.insert("appium:showServerLogs".to_owned(), json!(true));
 	}
+
 	let dialog_button = |dialog: &str, label: &str| {
 		if platform == Platform::Linux {
 			// The AT-SPI driver's XPath strategy only walks Qt accessibles,
@@ -58,6 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			// portal file chooser and zenity's buttons are uniquely named.
 			return Locator::text(label);
 		}
+
 		if platform == Platform::Macos {
 			// A macOS session sees only the fixture, and both dialogs are
 			// sheets on its window.
@@ -65,6 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				"//XCUIElementTypeSheet//XCUIElementTypeButton[@title='{label}']"
 			));
 		}
+
 		// Hosted runners can show unrelated system dialogs whose buttons
 		// share these names (a paging-file warning has its own "OK"), so
 		// address each button through the fixture's own owned dialog.
@@ -108,6 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		} else {
 			"Cancelled"
 		}))?;
+
 		tester.expect_absent(&choice)?;
 		tester.checkpoint("File chooser result returned to the app")?;
 
@@ -127,6 +136,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		} else {
 			dialog_button("Confirm evidence", if accept { "OK" } else { "Cancel" })
 		};
+
 		tester.expect_visible(&answer)?;
 		tester.checkpoint("The plugin's native message box")?;
 		if platform == Platform::Linux {
@@ -143,6 +153,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		} else {
 			"Declined"
 		}))?;
+
 		tester.expect_absent(&answer)?;
 		tester.checkpoint("Message box result returned to the app")?;
 
@@ -153,6 +164,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				"capture has too few colors for a rendered native window".to_owned(),
 			));
 		}
+
 		println!(
 			"Native report: {}",
 			tester.artifacts().join("index.html").display()

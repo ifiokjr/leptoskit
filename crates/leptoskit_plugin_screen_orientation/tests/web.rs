@@ -96,6 +96,7 @@ async fn browser_policy_lifetime_cancellation_and_errors() {
 	assert!(matches!(poll!(first.as_mut()), Poll::Pending));
 	assert_eq!(fixture.0.requested(), "portrait");
 	assert_eq!(fixture.0.listeners(), 3);
+
 	assert_eq!(web::hold(Policy::Any).await, Err(Error::Busy));
 	drop(first);
 	tick().await;

@@ -108,14 +108,17 @@ impl Request {
 	/// Validates version, policy, UTF-8, bounds and complete consumption.
 	pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
 		let mut input = Decoder::new(bytes);
+
 		if input.u32()? != 1 {
 			return Err(Error::InvalidArgument);
 		}
+
 		let policy = read_policy(input.u32()?)?;
 		let reason = input.string()?;
 		validate_text(reason, 256)?;
 		let cancel = input.string()?;
 		validate_text(cancel, 64)?;
+
 		input.finish()?;
 		Self::new(policy, reason)?.with_cancel_label(cancel)
 	}
@@ -124,9 +127,11 @@ fn validate_text(value: &str, limit: usize) -> Result<(), Error> {
 	if value.len() > limit {
 		return Err(Error::TooLarge);
 	}
+
 	if value.trim().is_empty() || value.contains('\0') {
 		return Err(Error::InvalidArgument);
 	}
+
 	Ok(())
 }
 
@@ -193,10 +198,13 @@ impl Capabilities {
 	/// Decodes and validates the fixed 20-byte capability response.
 	pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
 		let mut input = Decoder::new(bytes);
+
 		if input.u32()? != 1 {
 			return Err(Error::InvalidArgument);
 		}
+
 		let policy = read_policy(input.u32()?)?;
+
 		let readiness = match input.u32()? {
 			0 => Readiness::Ready,
 			1 => Readiness::Unavailable,
@@ -208,16 +216,20 @@ impl Capabilities {
 			7 => Readiness::Unknown,
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		let mask = input.u32()?;
+
 		if mask & !15 != 0 {
 			return Err(Error::InvalidArgument);
 		}
+
 		let device_secure = match input.u32()? {
 			0 => None,
 			1 => Some(false),
 			2 => Some(true),
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		input.finish()?;
 		Ok(Self {
 			policy,
@@ -273,25 +285,31 @@ impl Outcome {
 	/// `BiometricOnly`.
 	pub fn decode(bytes: &[u8], policy: Policy) -> Result<Self, Error> {
 		let mut input = Decoder::new(bytes);
+
 		if input.u32()? != 1 {
 			return Err(Error::InvalidArgument);
 		}
+
 		let status = input.u32()?;
 		let method = input.u32()?;
 		input.finish()?;
+
 		if status != 0 && method != 0 {
 			return Err(Error::InvalidArgument);
 		}
+
 		match status {
 			0 => {
 				let method = match method {
 					0 if policy == Policy::BiometricOrCredential => AuthenticationMethod::Unknown,
 					1 => AuthenticationMethod::Biometric,
+
 					2 if policy == Policy::BiometricOrCredential => {
 						AuthenticationMethod::DeviceCredential
 					}
 					_ => return Err(Error::InvalidArgument),
 				};
+
 				Ok(Self::Authenticated(method))
 			}
 			1 => Ok(Self::Failed),
@@ -346,9 +364,11 @@ pub mod guest {
 					.call(CAPABILITIES, &(policy as u32).to_le_bytes())?
 					.await?,
 			)?;
+
 			if result.policy != policy {
 				return Err(Error::InvalidArgument);
 			}
+
 			Ok(result)
 		}
 
@@ -386,20 +406,24 @@ mod tests {
 			.unwrap();
 		let encoded = request.encode().unwrap();
 		assert_eq!(Request::decode(&encoded), Ok(request));
+
 		for length in 0..encoded.len() {
 			assert!(Request::decode(&encoded[..length]).is_err());
 		}
+
 		assert!(Request::new(Policy::BiometricOnly, " \n").is_err());
 		assert!(Request::new(Policy::BiometricOnly, "reason\0hidden").is_err());
 		assert_eq!(
 			Request::new(Policy::BiometricOnly, "x".repeat(257)),
 			Err(Error::TooLarge)
 		);
+
 		for offset in [0, 4, 12] {
 			let mut invalid = encoded.to_vec();
 			invalid[offset] = 255;
 			assert!(Request::decode(&invalid).is_err());
 		}
+
 		let mut trailing = encoded.to_vec();
 		trailing.push(0);
 		assert!(Request::decode(&trailing).is_err());
@@ -410,9 +434,11 @@ mod tests {
 		let capabilities = Capabilities::decode(&bytes).unwrap();
 		assert_eq!(capabilities.readiness, Readiness::Ready);
 		assert!(capabilities.modalities.face() && capabilities.modalities.fingerprint());
+
 		for length in 0..bytes.len() {
 			assert!(Capabilities::decode(&bytes[..length]).is_err());
 		}
+
 		for values in [[1, 0, 8, 0, 0], [1, 0, 0, 16, 0], [1, 0, 0, 0, 3]] {
 			assert!(Capabilities::decode(&fields(&values)).is_err());
 		}
@@ -449,6 +475,7 @@ mod tests {
 			Outcome::decode(&fields(&[1, 4, 0]), Policy::BiometricOnly),
 			Ok(Outcome::AppCancelled)
 		);
+
 		for values in [[1, 1, 1], [1, 11, 0], [1, 0, 3], [2, 0, 1]] {
 			assert!(Outcome::decode(&fields(&values), Policy::BiometricOnly).is_err());
 		}
@@ -467,6 +494,7 @@ mod tests {
 			Outcome::TimedOut,
 			Outcome::SecurityUpdateRequired,
 		];
+
 		for (status, outcome) in (1..).zip(expected) {
 			assert_eq!(
 				Outcome::decode(&fields(&[1, status, 0]), Policy::BiometricOrCredential),
@@ -486,12 +514,14 @@ mod tests {
 			Readiness::SecurityUpdateRequired,
 			Readiness::Unknown,
 		];
+
 		for (value, readiness) in (0..).zip(expected) {
 			let decoded = Capabilities::decode(&fields(&[1, 1, value, 0, 0])).unwrap();
 			assert_eq!(decoded.policy, Policy::BiometricOrCredential);
 			assert_eq!(decoded.readiness, readiness);
 			assert_eq!(decoded.device_secure, None);
 		}
+
 		let iris_and_optic = Capabilities::decode(&fields(&[1, 0, 0, 12, 1])).unwrap();
 		assert!(iris_and_optic.modalities.iris() && iris_and_optic.modalities.optic());
 		assert!(!iris_and_optic.modalities.face() && !iris_and_optic.modalities.fingerprint());

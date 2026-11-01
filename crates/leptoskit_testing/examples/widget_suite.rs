@@ -36,9 +36,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	tester.find(&Finder::text("Count: 2"))?;
 	// Holding the button shows its `active:` style without pressing it.
 	let resting = tester.find(&Finder::text("Add"))?.props;
+
 	tester.hold(&Finder::text("Add"))?;
 	let held = tester.find(&Finder::text("Add"))?.props;
 	tester.release()?;
+
 	if held.background == resting.background
 		|| held.accessible_name() != resting.accessible_name()
 		|| tester.find(&Finder::text("Add"))?.props != resting
@@ -53,9 +55,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let colors = tester
 		.layout_image()?
 		.distinct_colors(LayoutImage::MAX_COLORS)?;
+
 	if !(3..=LayoutImage::MAX_COLORS).contains(&colors) {
 		return Err(format!("layout image has {colors} colours, expected flat colour").into());
 	}
+
 	println!("widget suite: passed on {}", std::env::consts::OS);
 	Ok(())
 }

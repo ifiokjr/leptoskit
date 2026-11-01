@@ -175,9 +175,11 @@ impl Yoga {
 		mode: RunMode,
 	) -> Size<f32> {
 		let ctx = ctx.normalized(&self.nodes[node.0].style);
+
 		if let Some(size) = self.nodes[node.0].layout_cache.get(&ctx, mode) {
 			return size;
 		}
+
 		let size = self.run_layout(node, ctx, mode);
 		let pass = self.pass;
 		let entry = &mut self.nodes[node.0];
@@ -189,8 +191,10 @@ impl Yoga {
 	/// Runs the node's layout algorithm, bypassing the cache.
 	fn run_layout(&mut self, node: NodeId, ctx: crate::SizingCtx, mode: RunMode) -> Size<f32> {
 		let style = self.shared_style(node);
+
 		if style.display == Display::None {
 			self.nodes[node.0].layout = Layout::default();
+
 			return Size::new(0.0, 0.0);
 		}
 
@@ -294,6 +298,7 @@ impl Yoga {
 				resolve_flexible_lengths(&mut items, line, limit - gaps, axes.is_row);
 			}
 		}
+
 		let definite_cross = axes.cross(definite_border).is_some();
 		self.measure_cross_sizes(&mut items, &mut lines, &container, definite_cross);
 		let placement = size_flex_container(
@@ -307,8 +312,10 @@ impl Yoga {
 
 		let mut content_max_width = 0.0f32;
 		let mut content_max_height = 0.0f32;
+
 		for line in &lines {
 			let mut cursor = self.main_cursor(line, &items, &container, placement.inner_main);
+
 			for &index in &line.items {
 				let corner = self.place_flex_item(
 					index,
@@ -325,6 +332,7 @@ impl Yoga {
 
 		// Out-of-flow children against this container's padding box.
 		let border_box = placement.border_box;
+
 		for child in absolute {
 			self.layout_absolute(child, border_box, border, style.direction, mode);
 			let layout = self.nodes[child.0].layout;
@@ -339,6 +347,7 @@ impl Yoga {
 			layout.content_width = content_max_width.max(border_box.width);
 			layout.content_height = content_max_height.max(border_box.height);
 		}
+
 		border_box
 	}
 
@@ -392,6 +401,7 @@ impl Yoga {
 		} else {
 			child_style.height
 		};
+
 		let base = metrics
 			.flex_basis(flex_basis, axes.main(child_basis), is_row)
 			.unwrap_or_else(|| self.content_flex_base(child, &child_style, &margins, container));
@@ -401,6 +411,7 @@ impl Yoga {
 		} else {
 			metrics.inner_padding.vertical()
 		};
+
 		let inner = base.clamp(min_main, max_main.max(min_main));
 		let outer = inner + main_margins(&margins, is_row);
 		FlexItem {
@@ -464,6 +475,7 @@ impl Yoga {
 					// is the wrapped height, not a single line's.
 					Size::new(cross_space, available)
 				},
+
 				forced: Size::new(stretched_width, None),
 				percent_basis: container.child_basis,
 			},
@@ -492,8 +504,10 @@ impl Yoga {
 		definite_cross: bool,
 	) {
 		let single_line = container.style.flex_wrap == FlexWrap::NoWrap;
+
 		for line in lines {
 			let mut line_cross = 0.0f32;
+
 			for &index in &line.items {
 				if definite_cross
 					&& single_line
@@ -503,12 +517,14 @@ impl Yoga {
 					items[index].inner_cross = 0.0;
 					continue;
 				}
+
 				let cross = self.hypothetical_cross_size(&items[index], container);
 				items[index].inner_cross = cross;
 				let outer_cross =
 					cross + cross_margins(&items[index].margins, container.axes.is_row);
 				line_cross = line_cross.max(outer_cross);
 			}
+
 			line.cross = line_cross;
 		}
 	}
@@ -524,6 +540,7 @@ impl Yoga {
 		} else {
 			(style.width, style.margin.left, style.margin.right)
 		};
+
 		style.align_self.resolve_self(container.style.align_items) == Align::Stretch
 			&& cross.is_auto()
 			&& lead != Dimension::Auto
@@ -546,6 +563,7 @@ impl Yoga {
 		} else {
 			(child_style.width, child_basis.width)
 		};
+
 		// An auto cross size with an aspect ratio is transferred from the
 		// resolved main size, as CSS sizes a ratio-bound box.
 		let transferred = child_style.aspect_ratio.map(|ratio| {
@@ -568,6 +586,7 @@ impl Yoga {
 			);
 			axes.cross(self.content_size(item.node, available, child_basis))
 		});
+
 		cross.clamp(axes.cross(metrics.min), axes.cross(metrics.max))
 	}
 
@@ -588,6 +607,7 @@ impl Yoga {
 		let free_main = inner_main - line_outer_main(line, items, container.item_gap, is_row);
 
 		let mut auto_margins = 0usize;
+
 		for &index in &line.items {
 			auto_margins += auto_margin_count(&self.style(items[index].node).margin, is_row);
 		}
@@ -603,6 +623,7 @@ impl Yoga {
 		} else {
 			container.style.justify_content
 		};
+
 		// Like CSS, end and center alignment overflow the start edge when the
 		// items do not fit: a chat pinned to its newest message stays pinned.
 		// The distributed alignments fall back to the start instead.
@@ -613,12 +634,14 @@ impl Yoga {
 			JustifyContent::SpaceEvenly => free_main.max(0.0) / (count + 1) as f32,
 			_ => 0.0,
 		};
+
 		let spacing = match justify {
 			JustifyContent::SpaceBetween if count > 1 => free_main.max(0.0) / (count - 1) as f32,
 			JustifyContent::SpaceAround => free_main.max(0.0) / count.max(1) as f32,
 			JustifyContent::SpaceEvenly => free_main.max(0.0) / (count + 1) as f32,
 			_ => 0.0,
 		};
+
 		MainCursor {
 			position,
 			spacing,
@@ -663,6 +686,7 @@ impl Yoga {
 			.resolve_self(container.style.align_items);
 		let outer_cross = item.inner_cross + cross_margins(&item.margins, is_row);
 		let cross_free = (line.cross - outer_cross).max(0.0);
+
 		let cross_lead = match align {
 			Align::FlexEnd => cross_free,
 			Align::Center => cross_free / 2.0,
@@ -674,12 +698,14 @@ impl Yoga {
 		} else {
 			child_style.width.is_auto()
 		};
+
 		let stretch = matches!(align, Align::Stretch) && cross_auto;
 		let final_cross = if stretch {
 			(line.cross - cross_margins(&item.margins, is_row)).max(0.0)
 		} else {
 			item.inner_cross
 		};
+
 		// A stretched item fills the line; a ratio-bound item keeps the cross
 		// size transferred from its main size.
 		let forced_cross =
@@ -721,6 +747,7 @@ impl Yoga {
 			} else {
 				inner_padding.left + lead
 			};
+
 			(
 				x + relative.width,
 				inner_padding.top + cross_position + relative.height,
@@ -731,6 +758,7 @@ impl Yoga {
 			} else {
 				inner_padding.top + lead
 			};
+
 			(
 				inner_padding.left + cross_position + relative.width,
 				y + relative.height,
@@ -806,6 +834,7 @@ impl Yoga {
 		} else {
 			border.left + margins.left
 		};
+
 		let y = if let Some(top) = top {
 			border.top + top + margins.top
 		} else if let Some(bottom) = bottom {
@@ -836,16 +865,19 @@ fn collect_flex_lines(items: &[FlexItem], container: &FlexContainer) -> Vec<Flex
 	let mut lines = vec![FlexLine::default()];
 	let mut used_on_line = 0.0f32;
 	let mut count_on_line = 0usize;
+
 	for (index, item) in items.iter().enumerate() {
 		let fits = !wraps
 			|| count_on_line == 0
 			|| !matches!(definite_inner_main, Some(limit)
 				if used_on_line + container.item_gap + item.outer_base > limit + EPSILON);
+
 		if !fits {
 			lines.push(FlexLine::default());
 			used_on_line = 0.0;
 			count_on_line = 0;
 		}
+
 		// A gap only separates items on the same line: the first item of a
 		// line, wrapped or not, has none before it.
 		let gap_before = if count_on_line > 0 {
@@ -853,6 +885,7 @@ fn collect_flex_lines(items: &[FlexItem], container: &FlexContainer) -> Vec<Flex
 		} else {
 			0.0
 		};
+
 		used_on_line += gap_before + item.outer_base;
 		count_on_line += 1;
 		lines
@@ -861,6 +894,7 @@ fn collect_flex_lines(items: &[FlexItem], container: &FlexContainer) -> Vec<Flex
 			.items
 			.push(index);
 	}
+
 	lines
 }
 
@@ -888,12 +922,15 @@ fn size_flex_container(
 		+ container.line_gap * (lines.len() - 1) as f32;
 	// The main axis content size: the widest line.
 	let mut lines_main_total = 0.0f32;
+
 	for line in lines {
 		lines_main_total =
 			lines_main_total.max(line_outer_main(line, items, container.item_gap, is_row));
 	}
+
 	// The cross axis content size when items do not wrap: the widest item.
 	let mut items_cross_total = 0.0f32;
+
 	for item in items {
 		let outer = item.inner_cross + cross_margins(&item.margins, is_row);
 		items_cross_total = items_cross_total.max(outer);
@@ -909,6 +946,7 @@ fn size_flex_container(
 			lines_main_total + main_borders,
 		)
 	};
+
 	let border_box = Size::new(
 		definite_border.width.unwrap_or(content_width),
 		definite_border.height.unwrap_or(content_height),
@@ -936,8 +974,10 @@ fn align_flex_lines(lines: &mut [FlexLine], container: &FlexContainer, inner_cro
 		let line = lines.first_mut().expect("a line always exists");
 		line.cross = inner_cross;
 		line.cross_offset = 0.0;
+
 		return;
 	}
+
 	let leftover_cross = inner_cross
 		- (lines.iter().map(|line| line.cross).sum::<f32>()
 			+ container.line_gap * lines.len().saturating_sub(1) as f32);
@@ -1040,6 +1080,7 @@ fn resolve_flexible_lengths(items: &mut [FlexItem], line: &FlexLine, space: f32,
 				} else {
 					0.0
 				};
+
 			item.inner_main = target.clamp(item.min_main, item.max_main);
 			item.violation = item.inner_main - target;
 			total_violation += item.violation;
@@ -1123,6 +1164,7 @@ fn place_lines(lines: &mut [FlexLine], leftover: f32, line_gap: f32, align: Alig
 	} else {
 		0.0
 	};
+
 	let mut cursor = match align {
 		Align::FlexEnd => leftover,
 		Align::Center => leftover / 2.0,
@@ -1130,16 +1172,19 @@ fn place_lines(lines: &mut [FlexLine], leftover: f32, line_gap: f32, align: Alig
 		Align::SpaceEvenly => leftover / (count + 1) as f32,
 		_ => 0.0,
 	};
+
 	let spacing = match align {
 		Align::SpaceBetween if count > 1 => leftover / (count - 1) as f32,
 		Align::SpaceAround => leftover / count.max(1) as f32,
 		Align::SpaceEvenly => leftover / (count + 1) as f32,
 		_ => 0.0,
 	};
+
 	for line in lines.iter_mut() {
 		if stretch_share > 0.0 {
 			line.cross += stretch_share;
 		}
+
 		line.cross_offset = cursor;
 		cursor += line.cross + line_gap + spacing;
 	}

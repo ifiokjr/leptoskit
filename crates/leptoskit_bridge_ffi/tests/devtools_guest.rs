@@ -103,6 +103,7 @@ impl State {
 			}
 			_ => {}
 		}
+
 		self.events.push(event);
 	}
 
@@ -162,6 +163,7 @@ impl Hub {
 				for event in events {
 					state.apply(event);
 				}
+
 				self.changed.notify_all();
 				("204 No Content", String::new())
 			}
@@ -233,6 +235,7 @@ fn request(stream: &mut TcpStream) -> Option<(String, String)> {
 
 			if buffer.len() >= end + 4 + length {
 				let body = String::from_utf8_lossy(&buffer[end + 4..end + 4 + length]);
+
 				return Some((head.to_owned(), body.into_owned()));
 			}
 		}
@@ -300,6 +303,7 @@ impl Platform {
 				1 => {}
 				status => panic!("next request: {status}"),
 			}
+
 			// SAFETY: The call wrote the request.
 			let request = unsafe { request.assume_init() };
 			// SAFETY: The request is live until released below.

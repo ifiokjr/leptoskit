@@ -134,6 +134,7 @@ impl ComponentNames {
 				if is_component(&function.attrs) {
 					self.0.insert(function.sig.ident.to_string());
 				}
+
 				syn::visit::visit_item_fn(self, function);
 			}
 		}
@@ -204,9 +205,11 @@ impl Checker<'_> {
 	fn check_component_attribute(&mut self, attributes: &[Attribute], signature: &Signature) {
 		let name = signature.ident.to_string();
 		let capitalized = name.chars().next().is_some_and(char::is_uppercase);
+
 		if !capitalized || !returns_view(&signature.output) || is_component(attributes) {
 			return;
 		}
+
 		self.report(
 			Rule::ComponentAttribute,
 			signature.ident.span(),
@@ -226,13 +229,17 @@ impl Checker<'_> {
 			Written::Builder => MarkupStyle::Builder,
 			Written::Markup => MarkupStyle::View,
 		};
+
 		if !self.enabled(Rule::MarkupStyle) || matches!(self.config.markup, MarkupStyle::Any) {
 			return;
 		}
+
 		if self.config.markup == expected {
 			return;
 		}
+
 		let name = &tree.name;
+
 		match tree.written {
 			Written::Builder => {
 				self.report(
@@ -275,6 +282,7 @@ impl Checker<'_> {
 					}
 				}
 			}
+
 			self.check_children_last(node);
 			self.check_image_label(node);
 			self.check_color_literal(node);
@@ -289,6 +297,7 @@ impl Checker<'_> {
 				(Some(Child::Tree(_) | Child::Text), None)
 			)
 		};
+
 		if !self.enabled(Rule::RedundantView)
 			|| tree.name != "View"
 			|| tree.attributes().next().is_some()
@@ -318,6 +327,7 @@ impl Checker<'_> {
 		let only_sizes = classes.is_some_and(|classes| {
 			!classes.is_empty() && classes.iter().all(|class| is_size_class(class))
 		});
+
 		if !self.enabled(Rule::SpacerView)
 			|| tree.name != "View"
 			|| tree.children().next().is_some()
@@ -340,6 +350,7 @@ impl Checker<'_> {
 		if !self.enabled(Rule::ChildrenLast) || tree.written != Written::Builder {
 			return;
 		}
+
 		let first_child = tree
 			.calls
 			.iter()
@@ -374,6 +385,7 @@ impl Checker<'_> {
 			"aria_hidden",
 			"role",
 		];
+
 		if !self.enabled(Rule::ImageLabel)
 			|| tree.name != "Image"
 			|| NAMING.iter().any(|name| tree.has_attribute(name))
@@ -394,6 +406,7 @@ impl Checker<'_> {
 		if !self.enabled(Rule::ColorLiteral) {
 			return;
 		}
+
 		let literals: Vec<(String, Span)> = tree
 			.attributes()
 			.filter(|attribute| {
@@ -403,6 +416,7 @@ impl Checker<'_> {
 			})
 			.map(|attribute| (attribute.name.clone(), attribute.span))
 			.collect();
+
 		for (name, span) in literals {
 			self.report(
 				Rule::ColorLiteral,
@@ -422,6 +436,7 @@ impl<'ast> Visit<'ast> for Checker<'_> {
 		if self.enabled(Rule::ComponentAttribute) {
 			self.check_component_attribute(&function.attrs, &function.sig);
 		}
+
 		syn::visit::visit_item_fn(self, function);
 	}
 
@@ -431,21 +446,26 @@ impl<'ast> Visit<'ast> for Checker<'_> {
 		if let Some(tree) = Tree::from_builder(expr, self.components) {
 			self.check_markup_style(&tree);
 			self.check_tree(&tree);
+
 			return;
 		}
+
 		syn::visit::visit_expr(self, expr);
 	}
 
 	fn visit_macro(&mut self, mac: &'ast Macro) {
 		if is_view_macro(mac) {
 			let trees = Tree::from_markup(mac.tokens.clone());
+
 			if let Some(first) = trees.first() {
 				self.check_markup_style(first);
 			}
+
 			for tree in &trees {
 				self.check_tree(tree);
 			}
 		}
+
 		syn::visit::visit_macro(self, mac);
 	}
 }
@@ -487,6 +507,7 @@ fn returns_view(output: &ReturnType) -> bool {
 	let ReturnType::Type(_, ty) = output else {
 		return false;
 	};
+
 	match &**ty {
 		Type::ImplTrait(implementation) => {
 			implementation.bounds.iter().any(|bound| {
@@ -512,6 +533,7 @@ fn allow_comments(source: &str) -> HashMap<usize, BTreeSet<&str>> {
 	const DIRECTIVE: &str = "leptoskit-lint: allow(";
 
 	let mut allowed = HashMap::new();
+
 	for (index, line) in source.lines().enumerate() {
 		let Some(comment) = line.trim_start().strip_prefix("//") else {
 			continue;
@@ -522,11 +544,13 @@ fn allow_comments(source: &str) -> HashMap<usize, BTreeSet<&str>> {
 		let Some((rules, _)) = rest.split_once(')') else {
 			continue;
 		};
+
 		// Lines count from 1, so the next line's number is this index + 2.
 		allowed
 			.entry(index + 2)
 			.or_insert_with(BTreeSet::new)
 			.extend(rules.split(',').map(str::trim));
 	}
+
 	allowed
 }

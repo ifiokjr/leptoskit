@@ -36,6 +36,7 @@ class LocationPluginTest {
         location.time = Long.MAX_VALUE
         location.elapsedRealtimeNanos = 900_000_000
         assertTrue(!acceptsLocation(location, options, 1_800_000_000, 2_000_000_000))
+
         location.elapsedRealtimeNanos = 1_700_000_000
         assertTrue(!acceptsLocation(location, options.copy(maximumAge = 0), 1_800_000_000, 2_000_000_000))
     }
@@ -55,6 +56,7 @@ class LocationPluginTest {
         assertEquals(0, input.int)
         assertEquals(0, input.int) // Optional values are absent, not fabricated zeros.
         assertEquals(0, input.int) // Unknown provider remains unknown.
+
         input.position(20)
         assertEquals(location.time.toDouble(), input.double, 0.0)
         assertEquals(37.0, input.double, 0.0)
@@ -81,16 +83,20 @@ class LocationPluginTest {
                     .putInt(1)
                     .putInt(timeout)
                     .putInt(0)
+
             if (previous != null) bytes.putDouble(previous)
             bytes.rewind()
+
             return bytes
         }
         val valid = LocationOptions.decode(payload(1000), false)
         assertTrue(valid.highAccuracy)
         assertEquals(1000, valid.timeout)
+
         for (timeout in intArrayOf(0, 120_001)) {
             expectInvalid(PluginException.INVALID_ARGUMENT) { LocationOptions.decode(payload(timeout), false) }
         }
+
         expectInvalid(PluginException.INVALID_ARGUMENT) { LocationOptions.decode(payload(1000, Double.NaN), true) }
         expectInvalid(PluginException.INVALID_ARGUMENT) { LocationOptions.decode(payload(1000), true) }
     }

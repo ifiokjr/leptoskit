@@ -116,6 +116,7 @@ class LeptosKitApplicationView(
             // Before the first app, so every guest `leptoskit dev` sends reports to its hub.
             NativeDevtools.configure(context)
             val wasm = NativeUpdates.entry(embedded)
+
             current = adopt(LeptosKitView(context, wasm, register = register))
             guests.addView(current, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
             development = developmentUrl?.let { NativeDevelopmentGuests(it, wasm, ::reload) }
@@ -417,6 +418,7 @@ class LeptosKitApplicationView(
                 )
             candidate = view
             pending = view
+
             view.alpha = 0f
             view.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
             guests.addView(view, 0, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -556,6 +558,7 @@ private fun Window.useLightSystemBars(light: Boolean) {
         val mask =
             WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
                 WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+
         insetsController?.setSystemBarsAppearance(if (light) mask else 0, mask)
 
         return

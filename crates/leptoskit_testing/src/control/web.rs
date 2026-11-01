@@ -52,6 +52,7 @@ impl Browser {
 				if headless {
 					options["goog:chromeOptions"]["args"] = json!(["--headless=new"]);
 				}
+
 				options
 			}
 			Self::Firefox => {
@@ -59,6 +60,7 @@ impl Browser {
 				if headless {
 					options["moz:firefoxOptions"]["args"] = json!(["-headless"]);
 				}
+
 				options
 			}
 			// Safari's driver has no headless mode.
@@ -75,6 +77,7 @@ struct DriverGuard {
 impl DriverGuard {
 	fn spawn(browser: Browser, path: &std::path::Path, port: u16) -> Result<Self, Error> {
 		let mut command = Command::new(path);
+
 		match browser {
 			Browser::Chrome => {
 				command.args([
@@ -87,6 +90,7 @@ impl DriverGuard {
 				command.arg("--port").arg(port.to_string());
 			}
 		}
+
 		let child = command
 			.stdin(Stdio::null())
 			.stdout(Stdio::null())
@@ -137,9 +141,11 @@ impl WebSession {
 			let port = crate::control::tools::free_port().ok_or_else(|| {
 				Error::Configuration("no free loopback port for the browser driver".to_owned())
 			})?;
+
 			let guard = DriverGuard::spawn(browser, &path, port)?;
 			(format!("http://127.0.0.1:{port}"), Some(guard))
 		};
+
 		let limits = Limits {
 			startup: Duration::from_secs(target.startup_seconds.min(120)),
 			command: Duration::from_secs(
@@ -150,9 +156,11 @@ impl WebSession {
 			atspi_quirks: false,
 		};
 		let mut always_match = browser.capabilities(target.headless);
+
 		for (key, value) in &target.capabilities {
 			merge_capability(&mut always_match, key, value);
 		}
+
 		let capabilities = json!({"capabilities": {"alwaysMatch": always_match}});
 		let connection = Connection::new(&endpoint)?;
 		let session = Session::start(connection, &capabilities, limits)?;
@@ -405,6 +413,7 @@ mod tests {
 		if crate::control::tools::find_in_path("chromedriver").is_some() {
 			return;
 		}
+
 		let target = Target {
 			kind: TargetKind::Web,
 			device: None,
@@ -439,6 +448,7 @@ mod tests {
 			firefox["moz:firefoxOptions"]["args"],
 			serde_json::json!(["-headless"])
 		);
+
 		let safari = Browser::Safari.capabilities(true);
 		assert_eq!(safari["browserName"], "safari");
 	}

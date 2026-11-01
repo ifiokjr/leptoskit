@@ -51,6 +51,7 @@ impl Permission {
 		if bytes.len() != 8 {
 			return Err(Error::InvalidArgument);
 		}
+
 		let status = match u32_value(&bytes[..4])? {
 			0 => Status::Unknown,
 			1 => Status::Prompt,
@@ -59,15 +60,18 @@ impl Permission {
 			4 => Status::Restricted,
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		let accuracy = match u32_value(&bytes[4..])? {
 			0 => AccuracyPermission::Unknown,
 			1 => AccuracyPermission::Reduced,
 			2 => AccuracyPermission::Full,
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		if status != Status::Granted && accuracy != AccuracyPermission::Unknown {
 			return Err(Error::InvalidArgument);
 		}
+
 		Ok(Self { status, accuracy })
 	}
 }
@@ -136,6 +140,7 @@ impl Fix {
 				return Err(Error::InvalidArgument);
 			}
 		}
+
 		if self.altitude_accuracy_m.is_some_and(|v| v < 0.0)
 			|| self.speed_mps.is_some_and(|v| v < 0.0)
 			|| self
@@ -193,10 +198,13 @@ impl Fix {
 		if bytes.len() != 80 {
 			return Err(Error::InvalidArgument);
 		}
+
 		let mask = u32_value(&bytes[..4])?;
+
 		if mask > 15 || u32_value(&bytes[12..16])? != 0 {
 			return Err(Error::InvalidArgument);
 		}
+
 		let provider = match u32_value(&bytes[4..8])? {
 			0 => Provider::Unknown,
 			1 => Provider::Gps,
@@ -205,18 +213,24 @@ impl Fix {
 			4 => Provider::Fused,
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		let simulated = match u32_value(&bytes[8..12])? {
 			0 => None,
 			1 => Some(false),
 			2 => Some(true),
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		let mut values = [0.0; 8];
+
 		let (chunks, _) = bytes[16..].as_chunks::<8>();
+
 		for (value, input) in values.iter_mut().zip(chunks) {
 			*value = f64::from_le_bytes(*input);
 		}
+
 		let mut optional = [None; 4];
+
 		for (index, value) in values[4..].iter().enumerate() {
 			if mask & (1 << index) != 0 {
 				optional[index] = Some(*value);
@@ -224,6 +238,7 @@ impl Fix {
 				return Err(Error::InvalidArgument);
 			}
 		}
+
 		Self {
 			timestamp_ms: values[0],
 			latitude: values[1],
@@ -252,6 +267,7 @@ impl Options {
 		if timeout_ms == 0 || timeout_ms > 120_000 || maximum_age_ms > 3_600_000 {
 			return Err(Error::InvalidArgument);
 		}
+
 		Ok(Self {
 			high_accuracy,
 			timeout_ms,
@@ -293,10 +309,13 @@ impl Options {
 		if bytes.len() != 12 {
 			return Err(Error::InvalidArgument);
 		}
+
 		let accuracy = u32_value(&bytes[..4])?;
+
 		if accuracy > 1 {
 			return Err(Error::InvalidArgument);
 		}
+
 		Self::new(
 			accuracy == 1,
 			u32_value(&bytes[4..8])?,
@@ -330,9 +349,11 @@ pub fn decode_response(bytes: &[u8]) -> Result<Fix, LocationError> {
 	if bytes.len() == 4 && bytes == 1u32.to_le_bytes() {
 		return Err(LocationError::TimedOut);
 	}
+
 	if bytes.len() != 84 || u32_value(&bytes[..4])? != 0 {
 		return Err(Error::InvalidArgument.into());
 	}
+
 	Ok(Fix::decode(&bytes[4..])?)
 }
 fn u32_value(bytes: &[u8]) -> Result<u32, Error> {
@@ -391,6 +412,7 @@ pub mod guest {
 			if !after_timestamp_ms.is_finite() || after_timestamp_ms < 0.0 {
 				return Err(Error::InvalidArgument.into());
 			}
+
 			let mut payload = [0; 20];
 			payload[..12].copy_from_slice(&options.encode());
 			payload[12..].copy_from_slice(&after_timestamp_ms.to_le_bytes());
@@ -439,6 +461,7 @@ mod tests {
 				Err(Error::InvalidArgument)
 			);
 		}
+
 		for heading in [-1.0, 360.0, f64::NAN] {
 			assert_eq!(
 				Fix {
@@ -449,13 +472,16 @@ mod tests {
 				Err(Error::InvalidArgument)
 			);
 		}
+
 		let encoded = fix().encode().unwrap();
 		assert_eq!(Fix::decode(&encoded[..79]), Err(Error::InvalidArgument));
+
 		for index in [0, 4, 8, 12, 79] {
 			let mut corrupt = encoded;
 			corrupt[index] = 255;
 			assert_eq!(Fix::decode(&corrupt), Err(Error::InvalidArgument));
 		}
+
 		assert_eq!(decode_response(&[1, 0, 0, 0]), Err(LocationError::TimedOut));
 		assert_eq!(
 			decode_response(&[1, 0, 0, 0, 0]),

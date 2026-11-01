@@ -74,6 +74,7 @@ fn tapping_boolean_controls_proposes_typed_changes_and_renders_owned_state() {
 					NativeKind::Checkbox => Checkbox(current),
 					_ => unreachable!(),
 				};
+
 				control
 					.accessibility_label("Choice")
 					.on_toggle(move |value| state.store(value, Ordering::Relaxed))
@@ -87,6 +88,7 @@ fn tapping_boolean_controls_proposes_typed_changes_and_renders_owned_state() {
 		assert_eq!(tester.find(&finder).unwrap().props.checked, Some(true));
 		tester.tap(&finder).unwrap();
 		assert_eq!(tester.find(&finder).unwrap().props.checked, Some(false));
+
 		tester.toggle(&finder, true).unwrap();
 		assert_eq!(tester.find(&finder).unwrap().props.checked, Some(true));
 	}
@@ -120,6 +122,7 @@ fn owners_can_reject_boolean_and_slider_proposals() {
 		.set_slider_value(&Finder::label("Volume"), 0.7)
 		.unwrap();
 	assert_eq!(*boolean_proposals.lock().unwrap(), [true]);
+
 	assert_eq!(*slider_proposals.lock().unwrap(), [0.75]);
 	assert_eq!(
 		tester
@@ -210,6 +213,7 @@ fn sliders_snap_clamp_and_reject_nonfinite_proposals_without_rerendering() {
 	}
 
 	let before = tester.tree();
+
 	for proposal in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
 		assert!(
 			tester

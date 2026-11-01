@@ -24,12 +24,15 @@ fn browser_webcrypto_random_bytes_and_uuid_work() {
 	browser_crypto
 		.get_random_values_with_u8_array(&mut browser_buffer)
 		.unwrap();
+
 	for length in [0, 1, 32, MAX_RANDOM_BYTES] {
 		assert_eq!(random_bytes(length).unwrap().len(), length);
 	}
+
 	let mut reusable = [0; 32];
 	fill_random(&mut reusable).unwrap();
 	let uuid = uuid_v4().unwrap();
+
 	assert_eq!(uuid.as_bytes()[6] >> 4, 4);
 	assert_eq!(uuid.as_bytes()[8] >> 6, 2);
 	assert_eq!(uuid.to_string().len(), 36);
@@ -54,6 +57,7 @@ fn failed_webcrypto_does_not_fall_back_to_predictable_randomness() {
 	assert!(js_sys::Reflect::set(&crypto, &key, throw.as_ref()).unwrap());
 	let random_result = random_bytes(32);
 	let uuid_result = uuid_v4();
+
 	// Restore the real browser function before making assertions.
 	if descriptor.is_undefined() {
 		assert!(js_sys::Reflect::delete_property(crypto.as_ref(), &key).unwrap());
@@ -63,6 +67,7 @@ fn failed_webcrypto_does_not_fall_back_to_predictable_randomness() {
 				.unwrap()
 		);
 	}
+
 	assert_eq!(random_result, Err(Error::Native));
 	assert_eq!(uuid_result, Err(Error::Native));
 	assert!(original.dyn_ref::<js_sys::Function>().is_some());

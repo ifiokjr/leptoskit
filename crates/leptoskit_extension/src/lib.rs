@@ -27,7 +27,6 @@
 //! [`Error::Unavailable`] where a browser lacks it, and stops listening when
 //! its handle is dropped. Outside a browser every call is unavailable, so the
 //! app's code compiles and its tests run on any host.
-
 mod js;
 
 pub mod action;
@@ -38,6 +37,7 @@ pub mod context_menus;
 pub mod devtools;
 pub mod notifications;
 pub mod page;
+
 pub mod permissions;
 pub mod runtime;
 pub mod scripting;

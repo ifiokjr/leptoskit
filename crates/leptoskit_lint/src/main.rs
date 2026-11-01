@@ -25,6 +25,7 @@ fn main() -> ExitCode {
 	} else {
 		cli.paths
 	};
+
 	let report = match leptoskit_lint::lint_paths(&paths) {
 		Ok(report) => report,
 		Err(error) => {
@@ -38,8 +39,10 @@ fn main() -> ExitCode {
 			return ExitCode::from(2);
 		}
 	};
+
 	let base = std::env::current_dir().unwrap_or_default();
 	let mut out = anstream::stdout().lock();
+
 	for diagnostic in &report.diagnostics {
 		let _ = writeln!(
 			out,
@@ -47,10 +50,12 @@ fn main() -> ExitCode {
 			leptoskit_lint::render_diagnostic(diagnostic, &base)
 		);
 	}
+
 	for path in &report.unparsed {
 		let shown = path.strip_prefix(&base).unwrap_or(path);
 		let _ = writeln!(out, "skipped {}: it does not parse", shown.display());
 	}
+
 	let plural = |count: usize, noun: &str| {
 		if count == 1 {
 			format!("{count} {noun}")
@@ -65,6 +70,7 @@ fn main() -> ExitCode {
 		plural(report.warnings(), "warning"),
 		plural(report.errors(), "error")
 	);
+
 	if report.failed(cli.deny_warnings) {
 		ExitCode::FAILURE
 	} else {

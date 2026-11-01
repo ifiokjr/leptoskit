@@ -47,19 +47,25 @@ public final class StoreReviewPlugin: NativePlugin {
 
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
         guard !closed else { throw PluginError.cancelled }
+
         guard methods.contains(method) else { throw PluginError.unavailable }
+
         guard payload.count == 0 else { throw PluginError.invalidArgument }
         try Task.checkCancellation()
+
         if method == 0 {
             do {
                 _ = try context.requirePresentationOwner()
+
                 return Data([1, 0, 0, 0])
             } catch PluginError.unavailable {
                 return Data([2, 0, 0, 0])
             }
         }
+
         let owner = try context.requirePresentationOwner()
         try service.request(from: owner)
+
         return Data([1, 0, 0, 0])
     }
 

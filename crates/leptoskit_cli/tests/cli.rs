@@ -2480,6 +2480,7 @@ printf '%s' "$target:$profile" > "$target_dir/$target/$profile/libleptoskit_app.
 "#,
 	)
 	.unwrap();
+
 	let hvigor = tools.join("hvigorw");
 	std::fs::write(&hvigor, r#"#!/bin/sh
 set -eu

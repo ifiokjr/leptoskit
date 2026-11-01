@@ -133,6 +133,7 @@ impl std::fmt::Debug for Element {
 		if self.region.is_some() {
 			debug.field("region", &true);
 		}
+
 		debug.finish()
 	}
 }
@@ -240,6 +241,7 @@ impl Element {
 		if self.kind == NativeKind::Rive {
 			return Err(ControlTreeError::RiveNotEnabled);
 		}
+
 		if let Some(container) = button_ancestor
 			&& (matches!(
 				self.kind,
@@ -641,6 +643,7 @@ impl Element {
 		if uses_aria {
 			element.resolve_accessibility();
 		}
+
 		element
 	}
 
@@ -726,6 +729,7 @@ impl Element {
 					Some([first, rest @ ..]) if *first == index => Some(rest),
 					_ => None,
 				};
+
 				let (child, uses) = child.resolve_inherited(context, &element.props, held);
 				children_uses_aria |= uses;
 				child
@@ -1498,6 +1502,7 @@ impl Element {
 		for child in children {
 			self.push_child(child);
 		}
+
 		self
 	}
 
@@ -1585,6 +1590,7 @@ impl Element {
 			if let NativeEvent::Toggle { checked } = event {
 				handler(*checked);
 			}
+
 			crate::props::EventOutcome::Handled
 		})
 	}
@@ -1596,6 +1602,7 @@ impl Element {
 			if let NativeEvent::ValueChange { value } = event {
 				handler(*value);
 			}
+
 			crate::props::EventOutcome::Handled
 		})
 	}
@@ -1628,14 +1635,17 @@ mod devtools_tests {
 
 		let line = line!() + 1;
 		let built = [Switch(true), View(), ScrollView(), Heading(1, "Clips")];
+
 		for element in built {
 			let source = element.source_location().expect("a source location");
 			assert_eq!(source.file(), file!());
 			assert_eq!(source.line(), line);
 		}
+
 		// `view!` starts each tag from its builder.
 		let line = line!() + 1;
 		let tag = View::builder();
+
 		assert_eq!(
 			tag.source_location().map(std::panic::Location::line),
 			Some(line)

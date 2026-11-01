@@ -119,6 +119,7 @@ fn main() -> Result<()> {
 		"Prepared {} with async checks in Check files",
 		destination.display()
 	);
+
 	Ok(())
 }
 

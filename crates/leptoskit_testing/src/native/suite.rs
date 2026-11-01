@@ -52,6 +52,7 @@ impl Suite {
 		if self.steps.is_empty() {
 			return Err(Error::Configuration("native suite has no steps".to_owned()));
 		}
+
 		NativeTester::run(self.session, |tester| {
 			for step in self.steps {
 				match step {
@@ -69,6 +70,7 @@ impl Suite {
 					Step::PerformActions { sources } => tester.perform_actions(&sources)?,
 				}
 			}
+
 			Ok(tester.artifacts().to_path_buf())
 		})
 	}

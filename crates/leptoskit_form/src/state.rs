@@ -64,9 +64,11 @@ impl FormState {
 		};
 
 		let value = value.into();
+
 		if self.submitted || self.touched.contains(field_id) {
 			self.resolve(field, &value);
 		}
+
 		self.values.insert(field_id.to_owned(), value);
 		self
 	}

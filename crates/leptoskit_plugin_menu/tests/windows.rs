@@ -106,9 +106,11 @@ fn window_menu_commands_and_teardown() {
 		);
 		menu.set_enabled("save", false).unwrap();
 		SendMessageW(window, WM_COMMAND, command_id as usize, 0);
+
 		if let Some(event) = events.try_recv() {
 			assert!(menu.handle_event(&event).is_none());
 		}
+
 		drop(lease);
 		assert_eq!(GetMenu(window), previous);
 		assert_ne!(SetMenu(window, std::ptr::null_mut()), 0);

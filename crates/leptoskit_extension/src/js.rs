@@ -28,8 +28,10 @@ mod imp {
 	/// The extension API's root object.
 	pub(crate) fn namespace() -> Option<JsValue> {
 		let global = js_sys::global();
+
 		for name in ["browser", "chrome"] {
 			let candidate = Reflect::get(&global, &JsValue::from_str(name)).ok()?;
+
 			if candidate.is_object()
 				&& Reflect::get(&candidate, &JsValue::from_str("runtime"))
 					.is_ok_and(|runtime| runtime.is_object())
@@ -37,18 +39,21 @@ mod imp {
 				return Some(candidate);
 			}
 		}
+
 		None
 	}
 
 	/// The object at `path` under the namespace, such as `tabs`.
 	pub(crate) fn object(path: &str) -> Result<JsValue, Error> {
 		let mut value = namespace().ok_or_else(|| Error::Unavailable(path.to_owned()))?;
+
 		for part in path.split('.') {
 			value = Reflect::get(&value, &JsValue::from_str(part))
 				.ok()
 				.filter(|value| !value.is_undefined() && !value.is_null())
 				.ok_or_else(|| Error::Unavailable(path.to_owned()))?;
 		}
+
 		Ok(value)
 	}
 
@@ -65,6 +70,7 @@ mod imp {
 		} else {
 			object(parent)?
 		};
+
 		let function = Reflect::get(&this, &JsValue::from_str(name))
 			.ok()
 			.and_then(|value| value.dyn_into::<Function>().ok())
@@ -88,6 +94,7 @@ mod imp {
 		let result = function
 			.apply(&this, &args)
 			.map_err(|error| Error::Browser(message(&error)))?;
+
 		match result.dyn_into::<Promise>() {
 			Ok(promise) => {
 				JsFuture::from(promise)
@@ -143,6 +150,7 @@ mod imp {
 				.as_string()
 				.unwrap_or_else(|| "null".to_owned())
 		};
+
 		serde_json::from_str(&json).map_err(|error| Error::Json(error.to_string()))
 	}
 

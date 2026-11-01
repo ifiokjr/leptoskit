@@ -207,6 +207,7 @@ impl<T, S: Backend> SecureStorage<T, S> {
 		} else {
 			std::borrow::Cow::Owned(format!("{:x}", sha2::Sha256::digest(key.as_bytes())))
 		};
+
 		(std::borrow::Cow::Borrowed(self.service.as_str()), name)
 	}
 }
@@ -424,6 +425,7 @@ mod tests {
 				token: "issued".into()
 			}
 		);
+
 		block_on((hook.remove)()).unwrap();
 		assert_eq!(
 			hook.value.get(),

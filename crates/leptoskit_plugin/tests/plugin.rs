@@ -67,6 +67,7 @@ fn every_builtin_name_resolves() {
 		let plugin = Builtins::by_name(name).expect("builtin");
 		assert_eq!(plugin.name(), *name);
 	}
+
 	assert!(Builtins::by_name("nope").is_none());
 }
 
@@ -101,6 +102,7 @@ fn size_report_reads_the_bundle_after_a_build() {
 	let registry = PluginRegistry::resolve(&config_with(vec![spec("size_report", false)]))
 		.expect("resolve")
 		.0;
+
 	for wasm_bundle in [Some(bundle), Some(dir.join("missing.wasm")), None] {
 		let mut context = leptoskit_plugin::PluginPostBuildContext {
 			config: LeptoskitConfig::default(),
@@ -113,5 +115,6 @@ fn size_report_reads_the_bundle_after_a_build() {
 			.after_build(&mut context)
 			.expect("a missing or absent bundle is reported, not an error");
 	}
+
 	let _ = std::fs::remove_dir_all(&dir);
 }

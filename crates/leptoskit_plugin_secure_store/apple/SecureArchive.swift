@@ -36,24 +36,32 @@ struct SecureArchive {
             func count() throws -> Int {
                 guard bytes.count - offset >= 4 else { throw PluginError.native }
                 defer { offset += 4 }
+
                 return Int(UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: offset, as: UInt32.self)))
             }
             let length = try count()
+
             guard length <= 64 else { throw PluginError.native }
+
             for _ in 0..<length {
                 let start = offset
+
                 for _ in 0..<3 {
                     let size = try count()
+
                     guard size <= bytes.count - offset else { throw PluginError.native }
                     offset += size
                 }
+
                 let request = try SecureRequest(
                     method: 1, bytes: UnsafeRawBufferPointer(rebasing: bytes[start..<offset])
                 )
+
                 guard value(service: request.service, key: request.key) == nil,
                       let secret = request.secret else { throw PluginError.native }
                 entries.append(Entry(service: request.service, key: request.key, value: secret))
             }
+
             guard offset == bytes.count else { throw PluginError.native }
         }
     }
@@ -73,6 +81,7 @@ struct SecureArchive {
 
     func encode(quota: SecureStoreQuota) throws -> Data {
         try quota.validate()
+
         guard entries.count <= quota.maxEntries else { throw PluginError.tooLarge }
         var data = Data()
         func count(_ value: Int) {
@@ -84,12 +93,15 @@ struct SecureArchive {
             data.append(value)
         }
         count(entries.count)
+
         for entry in entries {
             field(Data(entry.service.utf8))
             field(Data(entry.key.utf8))
             field(entry.value)
         }
+
         guard data.count <= quota.maxBytes else { throw PluginError.tooLarge }
+
         return data
     }
 }

@@ -106,6 +106,7 @@ impl ExecuteResult {
 		if bytes.len() != 16 {
 			return Err(Error::InvalidArgument);
 		}
+
 		Ok(Self {
 			changes: u64::from_le_bytes(bytes[..8].try_into().map_err(|_| Error::InvalidArgument)?),
 			last_insert_rowid: i64::from_le_bytes(
@@ -130,7 +131,9 @@ impl QueryResult {
 		if self.columns.len() > MAX_COLUMNS || self.rows.len() > MAX_ROWS {
 			return Err(Error::TooLarge);
 		}
+
 		let mut size = 8_usize;
+
 		for column in &self.columns {
 			size = size
 				.checked_add(column.len())
@@ -138,16 +141,21 @@ impl QueryResult {
 				.ok_or(Error::TooLarge)?;
 			check_size(size)?;
 		}
+
 		let mut encoder = Encoder::default();
 		encoder.u32(self.columns.len() as u32);
+
 		for column in &self.columns {
 			encoder.bytes(column.as_bytes())?;
 		}
+
 		encoder.u32(self.rows.len() as u32);
+
 		for row in &self.rows {
 			if row.len() != self.columns.len() {
 				return Err(Error::InvalidArgument);
 			}
+
 			for value in row {
 				size = size
 					.checked_add(value_size(value)?)
@@ -156,6 +164,7 @@ impl QueryResult {
 				encode_value(&mut encoder, value)?;
 			}
 		}
+
 		Ok(encoder.finish())
 	}
 
@@ -166,18 +175,24 @@ impl QueryResult {
 		let mut decoder = Decoder::new(bytes);
 		let count = read_count(&mut decoder, MAX_COLUMNS)?;
 		let mut columns = Vec::with_capacity(count);
+
 		for _ in 0..count {
 			columns.push(decoder.string()?.to_owned());
 		}
+
 		let count = read_count(&mut decoder, MAX_ROWS)?;
 		let mut rows = Vec::with_capacity(count);
+
 		for _ in 0..count {
 			let mut row = Vec::with_capacity(columns.len());
+
 			for _ in 0..columns.len() {
 				row.push(decode_value(&mut decoder)?);
 			}
+
 			rows.push(row);
 		}
+
 		decoder.finish()?;
 		Ok(Self { columns, rows })
 	}
@@ -188,9 +203,11 @@ pub fn encode_transaction(statements: &[Statement]) -> Result<Bytes, Error> {
 	let size = transaction_size(statements)?;
 	let mut encoder = Encoder::with_capacity(size);
 	encoder.u32(statements.len() as u32);
+
 	for statement in statements {
 		encode_statement(&mut encoder, statement)?;
 	}
+
 	Ok(encoder.finish())
 }
 
@@ -198,16 +215,20 @@ fn transaction_size(statements: &[Statement]) -> Result<usize, Error> {
 	if statements.is_empty() {
 		return Err(Error::InvalidArgument);
 	}
+
 	if statements.len() > MAX_STATEMENTS {
 		return Err(Error::TooLarge);
 	}
+
 	let mut size = 4_usize;
+
 	for statement in statements {
 		size = size
 			.checked_add(statement_size(statement)?)
 			.ok_or(Error::TooLarge)?;
 		check_size(size)?;
 	}
+
 	Ok(size)
 }
 
@@ -216,13 +237,17 @@ pub fn decode_transaction_result(bytes: &[u8]) -> Result<Vec<ExecuteResult>, Err
 	check_size(bytes.len())?;
 	let mut decoder = Decoder::new(bytes);
 	let count = read_count(&mut decoder, MAX_STATEMENTS)?;
+
 	if count == 0 {
 		return Err(Error::InvalidArgument);
 	}
+
 	let mut results = Vec::with_capacity(count);
+
 	for _ in 0..count {
 		results.push(ExecuteResult::decode(decoder.bytes()?)?);
 	}
+
 	decoder.finish()?;
 	Ok(results)
 }
@@ -231,16 +256,21 @@ fn statement_size(statement: &Statement) -> Result<usize, Error> {
 	if statement.sql.trim().is_empty() || statement.sql.contains('\0') {
 		return Err(Error::InvalidArgument);
 	}
+
 	if statement.sql.len() > MAX_SQL_BYTES || statement.parameters.len() > MAX_PARAMETERS {
 		return Err(Error::TooLarge);
 	}
+
 	let mut size = 8 + statement.sql.len();
+
 	for value in &statement.parameters {
 		size = size
 			.checked_add(value_size(value)?)
 			.ok_or(Error::TooLarge)?;
 	}
+
 	check_size(size)?;
+
 	Ok(size)
 }
 
@@ -248,23 +278,30 @@ fn encode_statement(encoder: &mut Encoder, statement: &Statement) -> Result<(), 
 	statement_size(statement)?;
 	encoder.bytes(statement.sql.as_bytes())?;
 	encoder.u32(statement.parameters.len() as u32);
+
 	for value in &statement.parameters {
 		encode_value(encoder, value)?;
 	}
+
 	Ok(())
 }
 
 fn decode_statement(decoder: &mut Decoder<'_>) -> Result<Statement, Error> {
 	let sql = decoder.string()?;
+
 	if sql.len() > MAX_SQL_BYTES {
 		return Err(Error::TooLarge);
 	}
+
 	let count = read_count(decoder, MAX_PARAMETERS)?;
 	let mut parameters = Vec::with_capacity(count);
+
 	for _ in 0..count {
 		parameters.push(decode_value(decoder)?);
 	}
+
 	let statement = Statement::new(sql, parameters);
+
 	statement_size(&statement)?;
 	Ok(statement)
 }
@@ -273,6 +310,7 @@ fn value_size(value: &Value) -> Result<usize, Error> {
 	match value {
 		Value::Null => Ok(4),
 		Value::Integer(_) => Ok(16),
+
 		Value::Real(value) if value.is_finite() => Ok(16),
 		Value::Real(_) => Err(Error::InvalidArgument),
 		Value::Text(value) => value.len().checked_add(8).ok_or(Error::TooLarge),
@@ -282,6 +320,7 @@ fn value_size(value: &Value) -> Result<usize, Error> {
 
 fn encode_value(encoder: &mut Encoder, value: &Value) -> Result<(), Error> {
 	value_size(value)?;
+
 	match value {
 		Value::Null => encoder.u32(0),
 		Value::Integer(value) => {
@@ -301,6 +340,7 @@ fn encode_value(encoder: &mut Encoder, value: &Value) -> Result<(), Error> {
 			encoder.bytes(value)?;
 		}
 	}
+
 	Ok(())
 }
 
@@ -325,6 +365,7 @@ fn decode_value(decoder: &mut Decoder<'_>) -> Result<Value, Error> {
 			if !value.is_finite() {
 				return Err(Error::InvalidArgument);
 			}
+
 			Ok(Value::Real(value))
 		}
 		3 => Ok(Value::Text(decoder.string()?.to_owned())),
@@ -335,9 +376,11 @@ fn decode_value(decoder: &mut Decoder<'_>) -> Result<Value, Error> {
 
 fn read_count(decoder: &mut Decoder<'_>, maximum: usize) -> Result<usize, Error> {
 	let count = decoder.u32()? as usize;
+
 	if count > maximum {
 		return Err(Error::TooLarge);
 	}
+
 	Ok(count)
 }
 fn check_size(size: usize) -> Result<(), Error> {
@@ -398,15 +441,18 @@ pub mod guest {
 					.call(TRANSACTION, &encode_transaction(statements)?)?
 					.await?,
 			)?;
+
 			if results.len() != statements.len() {
 				return Err(Error::InvalidArgument);
 			}
+
 			Ok(results)
 		}
 
 		/// Closes the native connection. Later operations reopen it lazily.
 		pub async fn close(self) -> Result<(), Error> {
 			let result = self.0.call(CLOSE, &[])?.await?;
+
 			if result.is_empty() {
 				Ok(())
 			} else {

@@ -28,6 +28,7 @@ final class DocumentReaderTests: XCTestCase {
     func testCancelledReadDoesNotOpenMissingFile() async {
         let task = Task {
             withUnsafeCurrentTask { $0?.cancel() }
+
             return try DocumentReader.read(URL(fileURLWithPath: "/synthetic-missing-document"), limit: 3)
         }
         do {
@@ -48,9 +49,12 @@ final class DocumentReaderTests: XCTestCase {
         prematurelyCompleted.isInverted = true
         let task = Task {
             defer { prematurelyCompleted.fulfill() }
+
             return try await job.run(on: queue)
         }
+
         let deadline = ContinuousClock.now + .seconds(5)
+
         while queue.operationCount == 0, ContinuousClock.now < deadline { await Task.yield() }
         XCTAssertEqual(queue.operationCount, 1)
         task.cancel()

@@ -51,6 +51,7 @@ final class ScrollTracker {
         guard !moved.isEmpty, !reportScheduled else { return }
         reportScheduled = true
         Task { [weak self] in
+
             guard let self else { return }
             reportScheduled = false
             let ids = moved.sorted()

@@ -76,12 +76,14 @@ mod imp {
 				} else {
 					child.rect
 				};
+
 				let target_width = rect.width().round().max(0.0) as i32;
 				let target_height = rect.height().round().max(0.0) as i32;
 				// Measure the width without a height constraint. GTK 4.14
 				// answers a width-for-height query for a wrapping label with
 				// a wider-than-allocated width, which then unwraps its text.
 				let minimum_width = child.widget.measure(gtk::Orientation::Horizontal, -1).0;
+
 				let allocated_width = minimum_width.max(target_width);
 				let minimum_height = child
 					.widget
@@ -99,12 +101,14 @@ mod imp {
 				} else {
 					0
 				};
+
 				let transform = gsk::Transform::new()
 					.translate(&graphene::Point::new(rect.x(), rect.y() - overflow as f32));
 				child
 					.widget
 					.allocate(allocated_width, allocated_height, -1, Some(transform));
 			}
+
 			if self.last_size.replace((width, height)) != (width, height)
 				&& let Some(resize) = self.resize.borrow().clone()
 			{
@@ -143,10 +147,13 @@ mod imp {
 					let clip_child = child.native
 						&& !child.widget.is::<super::Frame>()
 						&& !child.widget.is::<crate::vector::Vector>();
+
 					if clip_child {
 						snapshot.push_clip(&bounds);
 					}
+
 					obj.snapshot_child(&child.widget, snapshot);
+
 					if clip_child {
 						snapshot.pop();
 					}
@@ -236,6 +243,7 @@ impl Frame {
 		if widget.parent().as_ref() == Some(self.upcast_ref()) {
 			widget.unparent();
 		}
+
 		self.queue_allocate();
 	}
 
@@ -262,6 +270,7 @@ impl Frame {
 				props.corner_radius.unwrap_or(0.0)
 			));
 		}
+
 		self.imp().props.replace(props.clone());
 		self.set_opacity(f64::from(props.opacity.unwrap_or(1.0)));
 		self.set_visible(!props.hidden.unwrap_or(false));

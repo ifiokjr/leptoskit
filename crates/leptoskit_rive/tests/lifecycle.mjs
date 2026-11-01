@@ -9,6 +9,7 @@ function throws(fn, expected) {
 		fn();
 	} catch (error) {
 		assert(error.message.includes(expected), error.message);
+
 		return;
 	}
 	throw new Error(`expected failure: ${expected}`);
@@ -85,6 +86,7 @@ function environment() {
 		instance.options.onLoad();
 		await Promise.resolve();
 	};
+
 	return {
 		module,
 		canvas,

@@ -55,6 +55,7 @@ mod tests {
 				acquire(Path::new(&path)),
 				Err(CodePushError::Activation(message)) if message.contains("already owned")
 			));
+
 			return;
 		}
 

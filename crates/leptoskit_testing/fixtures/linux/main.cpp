@@ -16,6 +16,7 @@ int main(int argc, char **argv) {
     auto *title = new QLabel("Native capture lab");
     title->setStyleSheet("font-size: 30px; font-weight: bold; color: #4a37a0;");
     layout->addWidget(title);
+
     layout->addWidget(new QLabel("Real text, native controls, system dialogs."));
     auto *name = new QLineEdit;
     name->setAccessibleName("name");
@@ -37,7 +38,9 @@ int main(int argc, char **argv) {
         auto file = QFileDialog::getOpenFileName(&window, "Choose evidence", QApplication::applicationDirPath() + "/evidence.txt");
         status->setText(file.isEmpty() ? "Cancelled" : "Selected: " + QFileInfo(file).fileName());
     });
+
     layout->addWidget(status);
     window.show();
+
     return app.exec();
 }

@@ -27,6 +27,7 @@ struct CallbackLifecycleTests {
         precondition(retained != nil, "callback context was not retained")
         var polls = 0
         var releases = 0
+
         var ready = false
         let owner = NativeAppClosing(poll: {
             precondition(Thread.isMainThread, "native cleanup left the main thread")
@@ -64,6 +65,7 @@ struct CallbackLifecycleTests {
         }, release: {})
         test_service_wakes(callbacks, Self.wakeCount)
         await nextMainTurn()
+
         precondition(polls == 0, "retired callback polled replacement generation")
         NativeServiceRegistry.poll(replacement)
         precondition(polls == 1)

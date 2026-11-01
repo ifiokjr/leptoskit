@@ -127,6 +127,7 @@ impl Region {
 		if !(window_width > 0.0 && window_height > 0.0) {
 			return None;
 		}
+
 		let region = Self {
 			x: x / window_width,
 			y: y / window_height,
@@ -234,19 +235,23 @@ impl Posture {
 	pub fn panes(&self) -> Vec<Region> {
 		let mut columns = vec![(0.0, 1.0)];
 		let mut rows = vec![(0.0, 1.0)];
+
 		for hinge in &self.hinges {
 			let Some(region) = hinge.region else {
 				continue;
 			};
+
 			if hinge.fold == Fold::Closed {
 				continue;
 			}
+
 			match hinge.axis {
 				Axis::Vertical => cut(&mut columns, region.x, region.x + region.width),
 				Axis::Horizontal => cut(&mut rows, region.y, region.y + region.height),
 				Axis::Unknown => {}
 			}
 		}
+
 		rows.iter()
 			.flat_map(|&(top, bottom)| {
 				columns.iter().map(move |&(left, right)| {
@@ -267,11 +272,13 @@ impl Posture {
 		if self.hinges.len() > MAX_HINGES {
 			return Err(Error::InvalidArgument);
 		}
+
 		let mut output =
 			Encoder::with_capacity(4 * (HEADER_WORDS + HINGE_WORDS * self.hinges.len()));
 		output.u32(flag(self.foldable));
 		output.u32(self.fold as u32);
 		output.u32(self.hinges.len() as u32);
+
 		for hinge in &self.hinges {
 			if hinge.region.is_some_and(|region| !region.is_valid())
 				|| hinge.angle.is_some_and(|angle| angle > 360)
@@ -283,11 +290,14 @@ impl Posture {
 			output.u32(hinge.axis as u32);
 			output.u32(flag(hinge.occluding));
 			output.u32(u32::from(hinge.region.is_some()));
+
 			for value in [region.x, region.y, region.width, region.height] {
 				output.u32(value.to_bits());
 			}
+
 			output.u32(hinge.angle.map_or(u32::MAX, u32::from));
 		}
+
 		Ok(output.finish())
 	}
 
@@ -298,33 +308,41 @@ impl Posture {
 		let foldable = read_flag(input.u32()?)?;
 		let fold = Fold::decode(input.u32()?)?;
 		let count = input.u32()? as usize;
+
 		if count > MAX_HINGES {
 			return Err(Error::InvalidArgument);
 		}
+
 		let mut hinges = Vec::with_capacity(count);
+
 		for _ in 0..count {
 			let fold = Fold::decode(input.u32()?)?;
 			let axis = Axis::decode(input.u32()?)?;
 			let occluding = read_flag(input.u32()?)?;
+
 			let has_region = match input.u32()? {
 				0 => false,
 				1 => true,
 				_ => return Err(Error::InvalidArgument),
 			};
+
 			let region = Region {
 				x: f32::from_bits(input.u32()?),
 				y: f32::from_bits(input.u32()?),
 				width: f32::from_bits(input.u32()?),
 				height: f32::from_bits(input.u32()?),
 			};
+
 			if !region.is_valid() {
 				return Err(Error::InvalidArgument);
 			}
+
 			let angle = match input.u32()? {
 				u32::MAX => None,
 				value @ 0..=360 => Some(value as u16),
 				_ => return Err(Error::InvalidArgument),
 			};
+
 			hinges.push(Hinge {
 				fold,
 				axis,
@@ -333,6 +351,7 @@ impl Posture {
 				occluding,
 			});
 		}
+
 		input.finish()?;
 		Ok(Self {
 			foldable,
@@ -353,6 +372,7 @@ fn cut(spans: &mut Vec<(f32, f32)>, start: f32, end: f32) {
 	};
 	let (low, high) = spans.remove(index);
 	let pieces = [(low, start), (end, high)];
+
 	for (offset, piece) in pieces
 		.into_iter()
 		.filter(|(a, b)| b - a > EDGE_EPSILON)
@@ -415,6 +435,7 @@ pub mod guest {
 		pub async fn watch(self, mut on_change: impl FnMut(&Posture)) -> Result<Infallible, Error> {
 			let mut current = self.snapshot().await?;
 			on_change(&current);
+
 			loop {
 				current = self.wait_for_change(&current).await?;
 				on_change(&current);
@@ -468,6 +489,7 @@ mod tests {
 				},
 			],
 		};
+
 		for posture in [Posture::default(), Posture::rigid(), trifold] {
 			let bytes = posture.encode().unwrap();
 			assert_eq!(
@@ -500,8 +522,10 @@ mod tests {
 				"word {word}"
 			);
 		}
+
 		let mut too_many = bytes.clone();
 		too_many[8..12].copy_from_slice(&5_u32.to_le_bytes());
+
 		assert_eq!(Posture::decode(&too_many), Err(Error::InvalidArgument));
 		let mut outside = bytes.clone();
 		outside[28..32].copy_from_slice(&1.5_f32.to_bits().to_le_bytes());
@@ -573,6 +597,7 @@ mod tests {
 			..tabletop
 		};
 		assert!(!flat.is_tabletop());
+
 		assert!(!flat.is_book());
 		assert!(!Posture::rigid().is_tabletop());
 	}

@@ -86,6 +86,7 @@ impl Pattern {
 			})
 			.collect();
 		let mut path = Vec::new();
+
 		for (segment, mut values) in self.segments.iter().zip(values) {
 			let complete = match *segment {
 				Segment::Static(text) => {
@@ -103,10 +104,12 @@ impl Pattern {
 				Segment::Rest(_) => !values.is_empty() && extend_path(&mut path, values),
 				Segment::OptionalRest(_) => extend_path(&mut path, values),
 			};
+
 			if !complete {
 				break;
 			}
 		}
+
 		Href::from_parts(&path, &sink.into_query())
 	}
 
@@ -133,8 +136,10 @@ fn extend_path(path: &mut Vec<String>, values: Vec<String>) -> bool {
 		if !is_segment(&value) {
 			return false;
 		}
+
 		path.push(value);
 	}
+
 	true
 }
 
@@ -173,6 +178,7 @@ fn capture_into(pattern: &[Segment], path: &[String], captures: &mut Captures) -
 	let Some((segment, pattern)) = pattern.split_first() else {
 		return path.is_empty();
 	};
+
 	match *segment {
 		Segment::Static(text) => {
 			path.first().is_some_and(|first| first == text)
@@ -199,12 +205,16 @@ fn take(
 		if count > path.len() {
 			continue;
 		}
+
 		captures.push((name, path[..count].to_vec()));
+
 		if capture_into(pattern, &path[count..], captures) {
 			return true;
 		}
+
 		captures.pop();
 	}
+
 	false
 }
 
@@ -215,6 +225,7 @@ impl fmt::Display for Pattern {
 		if self.segments.is_empty() {
 			return formatter.write_str("/");
 		}
+
 		for segment in self.segments {
 			match segment {
 				Segment::Static(text) => write!(formatter, "/{text}")?,
@@ -224,6 +235,7 @@ impl fmt::Display for Pattern {
 				Segment::OptionalRest(name) => write!(formatter, "/*{name}?")?,
 			}
 		}
+
 		Ok(())
 	}
 }

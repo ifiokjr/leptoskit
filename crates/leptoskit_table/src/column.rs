@@ -64,11 +64,13 @@ impl<T> Clone for Column<T> {
 			id: self.id.clone(),
 			header: self.header.clone(),
 			cell: Arc::clone(&self.cell),
+
 			sort: match &self.sort {
 				Some(SortBy::Text) => Some(SortBy::Text),
 				Some(SortBy::Custom(compare)) => Some(SortBy::Custom(Arc::clone(compare))),
 				None => None,
 			},
+
 			filter: self.filter.as_ref().map(Arc::clone),
 		}
 	}
@@ -161,6 +163,7 @@ impl<T> Column<T> {
 						rows.sort_by_cached_key(|row| Reverse(self.cell_text(row)));
 					}
 				}
+
 				true
 			}
 			Some(SortBy::Custom(compare)) => {
@@ -168,6 +171,7 @@ impl<T> Column<T> {
 					SortDirection::Ascending => rows.sort_by(|left, right| compare(left, right)),
 					SortDirection::Descending => rows.sort_by(|left, right| compare(right, left)),
 				}
+
 				true
 			}
 			None => false,

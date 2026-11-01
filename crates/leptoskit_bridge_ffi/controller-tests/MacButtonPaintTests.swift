@@ -79,6 +79,7 @@ struct MacButtonPaintTests {
         let compact = try ButtonPaint.capture(button)
         button.frame.size.width += Self.referencePadding
         button.frame.size.height = Self.referenceHeight
+
         let reference = try ButtonPaint.capture(button)
         #expect(compact == reference)
         #expect(compact.coverage > 0)

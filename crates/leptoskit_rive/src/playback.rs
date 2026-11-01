@@ -70,6 +70,7 @@ impl Playback {
 				"native widget exceeds 64 input bindings".into(),
 			));
 		}
+
 		self.inputs.insert(name, Update { value, sequence });
 		Ok(())
 	}
@@ -102,9 +103,11 @@ impl Playback {
 				"native widget exceeds 64 input bindings".into(),
 			));
 		}
+
 		for update in inputs.values() {
 			update.value.validate()?;
 		}
+
 		self.inputs = inputs;
 		Ok(())
 	}
@@ -149,6 +152,7 @@ impl TryFrom<Wire> for Playback {
 		if wire.asset.len() > crate::MAX_ASSET_BYTES.div_ceil(3) * 4 {
 			return Err(Error::AssetTooLarge);
 		}
+
 		let bytes = base64::engine::general_purpose::STANDARD
 			.decode(wire.asset)
 			.map_err(|_| Error::InvalidHeader)?;
@@ -162,6 +166,7 @@ impl TryFrom<Wire> for Playback {
 		for (name, update) in wire.inputs {
 			playback.set_input(name, update.value, update.sequence)?;
 		}
+
 		Ok(playback)
 	}
 }

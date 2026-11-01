@@ -46,25 +46,31 @@ class LocationPlugin(
         payload: ByteBuffer,
     ): ByteArray {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Location dispatch requires the UI thread" }
+
         if (closed) throw PluginException(PluginException.CANCELLED)
         when (method) {
             0 -> {
                 if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
+
                 return permission()
             }
 
             1 -> {
                 if (payload.remaining() != 4) throw PluginException(PluginException.INVALID_ARGUMENT)
                 val precise = payload.order(ByteOrder.LITTLE_ENDIAN).int
+
                 if (precise !in 0..1) throw PluginException(PluginException.INVALID_ARGUMENT)
+
                 return requestPermission(precise == 1)
             }
 
             2, 3 -> {
                 val options = LocationOptions.decode(payload, method == 3)
+
                 if (!granted(Manifest.permission.ACCESS_COARSE_LOCATION) && !granted(Manifest.permission.ACCESS_FINE_LOCATION)) {
                     throw PluginException(PluginException.PERMISSION_DENIED)
                 }
+
                 if (pending != null || requesting) throw PluginException(PluginException.BUSY)
                 val activity = activity ?: throw PluginException(PluginException.UNAVAILABLE)
                 // Foreground means visible, not focused: a resumed Activity can lack
@@ -74,6 +80,7 @@ class LocationPlugin(
                 if (activity.isFinishing || activity.isDestroyed || activity.window?.decorView?.isShown != true) {
                     throw PluginException(PluginException.CANCELLED)
                 }
+
                 return acquire(options)
             }
 
@@ -89,6 +96,7 @@ class LocationPlugin(
         val fine = granted(Manifest.permission.ACCESS_FINE_LOCATION)
         val coarse = granted(Manifest.permission.ACCESS_COARSE_LOCATION)
         val denied = activity?.shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_COARSE_LOCATION) == true
+
         return ByteBuffer
             .allocate(8)
             .order(ByteOrder.LITTLE_ENDIAN)
@@ -118,7 +126,9 @@ class LocationPlugin(
             } else {
                 arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION)
             }
+
         if (permissions.all(::granted)) return permission()
+
         if (pending != null || requesting) throw PluginException(PluginException.BUSY)
         val host = permissionHost ?: throw PluginException(PluginException.UNAVAILABLE)
 
@@ -130,15 +140,19 @@ class LocationPlugin(
                     PackageManager.GET_PERMISSIONS,
                 ).requestedPermissions
                 .orEmpty()
+
         if (permissions.any { it !in declared }) throw PluginException(PluginException.INVALID_ARGUMENT)
         requesting = true
         try {
             val result = host.requestNativePermissions(permissions)
+
             if (closed) throw PluginException(PluginException.CANCELLED)
+
             if (result.size != permissions.size) throw PluginException(PluginException.NATIVE)
             val response = permission()
             // A completed explicit denial is known even if rationale is unavailable.
             if (ByteBuffer.wrap(response).order(ByteOrder.LITTLE_ENDIAN).int == 0) response[0] = 2
+
             return response
         } finally {
             requesting = false
@@ -165,10 +179,12 @@ class LocationPlugin(
                         val gpsAllowed =
                             granted(Manifest.permission.ACCESS_FINE_LOCATION) &&
                                 LocationManager.GPS_PROVIDER in enabled && (options.highAccuracy || isEmpty())
+
                         if (gpsAllowed) add(LocationManager.GPS_PROVIDER)
                     }
                 }
             }
+
         if (providers.isEmpty()) throw PluginException(PluginException.UNAVAILABLE)
         val started = SystemClock.elapsedRealtimeNanos()
         val preciseAtStart = granted(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -179,11 +195,15 @@ class LocationPlugin(
                     override fun onLocationChanged(location: Location) {
                         if (pending !== continuation || !continuation.isActive) return
                         val precise = granted(Manifest.permission.ACCESS_FINE_LOCATION)
+
                         val authorized = precise || granted(Manifest.permission.ACCESS_COARSE_LOCATION)
+
                         if (!permitsLocationDelivery(preciseAtStart, authorized, precise)) {
                             fail(continuation, PluginException(PluginException.PERMISSION_DENIED))
+
                             return
                         }
+
                         if (!acceptsLocation(location, options, started, SystemClock.elapsedRealtimeNanos())) return
                         try {
                             finish(continuation, encodeLocation(location))
@@ -214,22 +234,29 @@ class LocationPlugin(
                     ) = Unit
                 }
             listener = observer
+
             continuation.invokeOnCancellation { handler.post { if (pending === continuation) cleanup() } }
+
             if (!continuation.isActive) {
                 cleanup()
+
                 return@suspendCancellableCoroutine
             }
+
             val deadline = Runnable { finish(continuation, byteArrayOf(1, 0, 0, 0)) }
             timeout = deadline
             handler.postDelayed(deadline, options.timeout.toLong())
             try {
                 for (provider in providers) manager.requestLocationUpdates(provider, 0, 0f, observer, Looper.getMainLooper())
                 observeBackground(continuation)
+
                 if (options.maximumAge > 0) {
                     val cached = providers.mapNotNull(manager::getLastKnownLocation).maxByOrNull { it.time }
+
                     if (cached != null) observer.onLocationChanged(cached)
                 }
             } catch (error: SecurityException) {
+
                 fail(continuation, PluginException(PluginException.PERMISSION_DENIED, error))
             } catch (error: RuntimeException) {
                 fail(continuation, PluginException(PluginException.NATIVE, error))
@@ -283,6 +310,7 @@ class LocationPlugin(
     ) {
         if (pending !== continuation) return
         cleanup()
+
         if (continuation.isActive) continuation.resume(bytes)
     }
 
@@ -292,6 +320,7 @@ class LocationPlugin(
     ) {
         if (pending !== continuation) return
         cleanup()
+
         if (continuation.isActive) continuation.resumeWithException(error)
     }
 
@@ -335,6 +364,7 @@ internal data class LocationOptions(
             ) {
                 throw PluginException(PluginException.INVALID_ARGUMENT)
             }
+
             return LocationOptions(accuracy == 1, timeout, age, previous)
         }
     }
@@ -349,6 +379,7 @@ internal fun acceptsLocation(
 ): Boolean {
     val oldest = if (options.maximumAge == 0) started else now - options.maximumAge.toLong() * 1_000_000
     val measured = location.elapsedRealtimeNanos
+
     return measured > 0 && measured >= oldest && measured <= now &&
         (options.after?.let { location.time.toDouble() > it } ?: true)
 }
@@ -371,6 +402,7 @@ internal fun encodeLocation(location: Location): ByteArray {
         throw PluginException(PluginException.NATIVE)
     }
     var mask = 0
+
     optional.forEachIndexed { index, value -> if (value != null) mask = mask or (1 shl index) }
     val provider =
         when (location.provider) {
@@ -393,5 +425,6 @@ internal fun encodeLocation(location: Location): ByteArray {
             .putInt(if (mock) 2 else 1)
             .putInt(0)
     values.forEach(bytes::putDouble)
+
     return bytes.array()
 }

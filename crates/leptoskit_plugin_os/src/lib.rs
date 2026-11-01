@@ -67,6 +67,7 @@ impl Plugin for Os {
 		if !payload.is_empty() {
 			return Err(Error::InvalidArgument);
 		}
+
 		let info = info();
 		let mut output = Encoder::with_capacity(8 + info.platform.len() + info.architecture.len());
 		output.bytes(info.platform.as_bytes())?;

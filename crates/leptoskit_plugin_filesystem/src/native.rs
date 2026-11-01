@@ -54,6 +54,7 @@ fn usage(root: &Dir, max_bytes: u64, max_entries: u64) -> Result<(u64, u64), Err
 			root.open_dir(&path)
 		}
 		.map_err(failure)?;
+
 		for entry in directory.entries().map_err(failure)? {
 			let entry = entry.map_err(failure)?;
 
@@ -99,6 +100,7 @@ pub fn from_app_dirs(data_dir: &Path, _cache_dir: &Path) -> Result<Filesystem, E
 	builder.recursive(true);
 	parent.create_dir_with("files", &builder).map_err(failure)?;
 	let root = parent.open_dir("files").map_err(failure)?;
+
 	#[cfg(unix)]
 	{
 		use cap_std::fs::PermissionsExt as _;
@@ -154,6 +156,7 @@ impl Filesystem {
 		// atomically, then open the existing file when another writer won.
 		let file = match self.root.open_with(QUOTA_LOCK, &options) {
 			Ok(file) => file,
+
 			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
 				options.create_new(false);
 				self.root.open_with(QUOTA_LOCK, &options).map_err(failure)?
@@ -210,6 +213,7 @@ impl Filesystem {
 			self.root.symlink_metadata(path)
 		}
 		.map_err(failure)?;
+
 		if metadata.is_file() {
 			Ok(Metadata {
 				kind: Kind::File,
@@ -230,14 +234,18 @@ impl Filesystem {
 	pub fn read(&self, path: &str) -> Result<Bytes, Error> {
 		validate_path(path, false)?;
 		let metadata = self.metadata(path)?;
+
 		if metadata.kind != Kind::File {
 			return Err(Error::InvalidArgument);
 		}
+
 		if metadata.len > MAX_FILE_BYTES as u64 {
 			return Err(Error::TooLarge);
 		}
+
 		let mut options = cap_std::fs::OpenOptions::new();
 		options.read(true);
+
 		#[cfg(unix)]
 		{
 			use cap_std::fs::OpenOptionsExt as _;
@@ -245,16 +253,20 @@ impl Filesystem {
 			options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
 		}
 		let file = self.root.open_with(path, &options).map_err(failure)?;
+
 		if !file.metadata().map_err(failure)?.is_file() {
 			return Err(Error::PermissionDenied);
 		}
+
 		let mut bytes = Vec::new();
 		file.take((MAX_FILE_BYTES + 1) as u64)
 			.read_to_end(&mut bytes)
 			.map_err(failure)?;
+
 		if bytes.len() > MAX_FILE_BYTES {
 			return Err(Error::TooLarge);
 		}
+
 		Ok(bytes.into())
 	}
 
@@ -264,9 +276,11 @@ impl Filesystem {
 	/// promised.
 	pub fn write(&self, path: &str, bytes: &[u8]) -> Result<(), Error> {
 		validate_path(path, false)?;
+
 		if bytes.len() > MAX_FILE_BYTES {
 			return Err(Error::TooLarge);
 		}
+
 		let _lock = self.lock()?;
 		let (parent, name) = path.rsplit_once('/').unwrap_or(("", path));
 		let parent = if parent.is_empty() {
@@ -275,12 +289,15 @@ impl Filesystem {
 			self.root.open_dir(parent)
 		}
 		.map_err(failure)?;
+
 		let (replaced_bytes, added_entries) = match parent.symlink_metadata(name) {
 			Ok(meta) if !meta.is_file() => return Err(Error::PermissionDenied),
 			Ok(meta) => (meta.len(), 0),
+
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => (0, 1),
 			Err(error) => return Err(failure(error)),
 		};
+
 		self.reserve(bytes.len() as u64, added_entries, replaced_bytes)?;
 		let mut nonce = [0_u8; 16];
 		getrandom::fill(&mut nonce).map_err(|_| Error::Native)?;
@@ -296,13 +313,16 @@ impl Filesystem {
 		let result = file.write_all(bytes).and_then(|()| file.sync_all());
 		drop(file);
 		let result = result.and_then(|()| parent.rename(&temporary, &parent, name));
+
 		if let Err(error) = result {
 			// Report the write failure itself. A temporary that cannot be
 			// removed stays hidden from list() and is never
 			// addressable by the guest.
 			let _ = parent.remove_file(&temporary);
+
 			return Err(failure(error));
 		}
+
 		Ok(())
 	}
 
@@ -318,27 +338,35 @@ impl Filesystem {
 		.map_err(failure)?;
 		let mut names = Vec::new();
 		let mut size = 4;
+
 		for entry in directory.entries().map_err(failure)? {
 			let entry = entry.map_err(failure)?;
 			let kind = entry.file_type().map_err(failure)?;
+
 			if !kind.is_file() && !kind.is_dir() {
 				continue;
 			}
+
 			// Names the guest could not address (non-UTF-8, reserved, or
 			// in-flight temporaries) are skipped like special
 			// files, not reported as errors.
 			let Ok(name) = entry.file_name().into_string() else {
 				continue;
 			};
+
 			if validate_path(&name, false).is_err() {
 				continue;
 			}
+
 			size += 4 + name.len();
+
 			if names.len() >= MAX_ENTRIES || size > MAX_LIST_BYTES {
 				return Err(Error::TooLarge);
 			}
+
 			names.push(name);
 		}
+
 		names.sort_unstable();
 		Ok(names)
 	}
@@ -354,13 +382,16 @@ impl Filesystem {
 			if !prefix.is_empty() {
 				prefix.push('/');
 			}
+
 			prefix.push_str(part);
 
 			match self.root.symlink_metadata(&prefix) {
 				Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink() => {
 					return Err(Error::PermissionDenied);
 				}
+
 				Ok(_) => (),
+
 				Err(error) if error.kind() == std::io::ErrorKind::NotFound => added += 1,
 				Err(error) => return Err(failure(error)),
 			}
@@ -374,6 +405,7 @@ impl Filesystem {
 	pub fn remove(&self, path: &str) -> Result<(), Error> {
 		validate_path(path, false)?;
 		let _lock = self.lock()?;
+
 		match self.metadata(path)?.kind {
 			Kind::File => self.root.remove_file(path),
 			Kind::Directory => self.root.remove_dir(path),
@@ -413,9 +445,11 @@ impl Plugin for Filesystem {
 		if !METHODS.contains(&method) {
 			return Err(Error::Unavailable);
 		}
+
 		if payload.len() > MAX_FILE_BYTES + MAX_PATH_BYTES + 8 {
 			return Err(Error::TooLarge);
 		}
+
 		let mut input = Decoder::new(&payload);
 		let path = input.string()?;
 		let second = if method == WRITE || method == RENAME {
@@ -423,7 +457,9 @@ impl Plugin for Filesystem {
 		} else {
 			None
 		};
+
 		input.finish()?;
+
 		match method {
 			READ => self.read(path),
 			WRITE => {
@@ -470,6 +506,7 @@ mod tests {
 		fs.write("b", b"5678").unwrap();
 		assert_eq!(fs.write("c", b""), Err(Error::TooLarge));
 		assert_eq!(fs.write("a", b"12345"), Err(Error::TooLarge));
+
 		assert_eq!(fs.read("a").unwrap().as_ref(), b"1234");
 		fs.write("a", b"12").unwrap();
 		fs.rename("a", "dir/a").unwrap();
@@ -502,6 +539,7 @@ mod tests {
 			max_entries: 0,
 		});
 		fs.remove("a").unwrap();
+
 		assert_eq!(fs.list("").unwrap(), [] as [String; 0]);
 	}
 
@@ -545,6 +583,7 @@ mod tests {
 		let root = tempfile::tempdir().unwrap();
 		let fs = Arc::new(Filesystem::open(root.path()).unwrap());
 		let stop = Arc::new(AtomicBool::new(false));
+
 		let old = vec![1; 4096];
 		let new = vec![2; 8192];
 		fs.write("item", &old).unwrap();
@@ -560,10 +599,12 @@ mod tests {
 				}
 			})
 		};
+
 		for _ in 0..20 {
 			fs.write("item", &new).unwrap();
 			fs.write("item", &old).unwrap();
 		}
+
 		stop.store(true, Ordering::Release);
 		reader.join().unwrap();
 		assert_eq!(fs.list("").unwrap(), ["item"]);
@@ -580,6 +621,7 @@ mod tests {
 		#[cfg(unix)]
 		{
 			use std::os::unix::fs::PermissionsExt as _;
+
 			assert_eq!(
 				std::fs::metadata(root.path().join("files"))
 					.unwrap()
@@ -689,9 +731,11 @@ mod tests {
 		let root = tempfile::tempdir().unwrap();
 		let fs = Filesystem::open(root.path()).unwrap();
 		fs.write("kept", b"data").unwrap();
+
 		for name in ["trailing ", "CON.log", "report:1.txt"] {
 			std::fs::write(root.path().join(name), b"host").unwrap();
 		}
+
 		// Linux filesystems accept arbitrary bytes; APFS rejects non-UTF-8.
 		#[cfg(target_os = "linux")]
 		{
@@ -728,6 +772,7 @@ mod tests {
 		);
 		assert_eq!(fs.list("").unwrap(), [] as [String; 0]);
 		std::fs::write(root.path().join("large"), vec![0; MAX_FILE_BYTES + 1]).unwrap();
+
 		assert_eq!(fs.read("large"), Err(Error::TooLarge));
 	}
 

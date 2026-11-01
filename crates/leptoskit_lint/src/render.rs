@@ -28,6 +28,7 @@ impl Palette {
 			LintLevel::Deny => AnsiColor::BrightRed,
 			LintLevel::Warn | LintLevel::Allow => AnsiColor::BrightYellow,
 		};
+
 		Self {
 			level: Style::new().fg_color(Some(color.into())).bold(),
 			gutter: Style::new()
@@ -49,10 +50,12 @@ pub fn render_diagnostic(diagnostic: &Diagnostic, base: &Path) -> String {
 		emphasis,
 	} = palette;
 	let finding = &diagnostic.finding;
+
 	let label = match diagnostic.level {
 		LintLevel::Deny => "error",
 		LintLevel::Warn | LintLevel::Allow => "warning",
 	};
+
 	// A path inside `base` is written with `/` on every platform, so output and
 	// its snapshots read the same everywhere.
 	let path = match diagnostic.path.strip_prefix(base) {
@@ -65,6 +68,7 @@ pub fn render_diagnostic(diagnostic: &Diagnostic, base: &Path) -> String {
 		}
 		Err(_) => diagnostic.path.display().to_string(),
 	};
+
 	let line_number = finding.start.line.to_string();
 	let pad = " ".repeat(line_number.len());
 
@@ -103,6 +107,7 @@ pub fn render_diagnostic(diagnostic: &Diagnostic, base: &Path) -> String {
 		"{pad} {gutter}={gutter:#} {emphasis}help{emphasis:#}: {}",
 		finding.help
 	);
+
 	out
 }
 
@@ -125,5 +130,6 @@ fn underline(line: &str, finding: &crate::Finding) -> (usize, usize) {
 	} else {
 		1
 	};
+
 	(display_width(&before), width.max(1))
 }

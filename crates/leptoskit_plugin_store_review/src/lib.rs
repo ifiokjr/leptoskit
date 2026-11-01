@@ -120,13 +120,16 @@ mod tests {
 		] {
 			assert_eq!(Availability::decode(&u32::to_le_bytes(value)), Ok(expected));
 		}
+
 		for bytes in [&[][..], &[1], &[1, 0, 0], &[1, 0, 0, 0, 0], &[4, 0, 0, 0]] {
 			assert_eq!(Availability::decode(bytes), Err(Error::InvalidArgument));
 		}
+
 		assert_eq!(
 			RequestAcceptance::decode(&[1, 0, 0, 0]),
 			Ok(RequestAcceptance::Accepted)
 		);
+
 		for bytes in [&[][..], &[0, 0, 0, 0], &[2, 0, 0, 0], &[1, 0, 0, 0, 0]] {
 			assert_eq!(
 				RequestAcceptance::decode(bytes),

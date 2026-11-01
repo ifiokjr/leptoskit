@@ -28,6 +28,7 @@ private func buffer(_ bytes: Data = Data()) throws -> NativeBuffer {
     #expect(call > 0)
     var request = lk_request()
     #expect(lk_bridge_next_request(bridge, &request) == 1)
+
     return NativeBuffer(taking: request.payload)
 }
 
@@ -56,6 +57,7 @@ func creationAndRequestOptionsAreRead() throws {
     let request = try RequestOptions(payload: buffer(text(#"{"rpId":"notes.example","challenge":"CQ"}"#)))
     #expect(request.allowed.isEmpty)
     #expect(request.challenge == Data([9]))
+
     for bad in [#"{"challenge":"AA"}"#, #"{"rpId":"","challenge":"AA"}"#, #"{"rpId":"a","challenge":""}"#,
                 #"{"rpId":"a","challenge":"A+"}"#, #"{"rpId":"a","challenge":"AA","allowCredentials":[{}]}"#,
                 "[]", "nope"] {
@@ -78,6 +80,7 @@ func answersAreWebAuthnJSON() throws {
         credentialID: Data([1]), clientData: Data([2]), authenticatorData: Data([3]), signature: Data([4]),
         userID: Data([5]))
     let assertion = try #require(try JSONSerialization.jsonObject(with: signed) as? [String: Any])
+
     let fields = try #require(assertion["response"] as? [String: Any])
     #expect(fields["userHandle"] as? String == "BQ")
     #expect(fields["signature"] as? String == "BA")

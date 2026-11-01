@@ -61,6 +61,7 @@ impl Outbox {
 		// A tree that can't be serialized can't be posted either; the failed
 		// post resets the outbox.
 		let json = serde_json::to_string(&tree).unwrap_or_default();
+
 		if !changes.removed && self.sent_tree.as_deref() == Some(json.as_str()) {
 			// The DOM changed, but not the tree the hub has.
 			return deltas(changes.events);
@@ -100,6 +101,7 @@ fn calls() -> Vec<Event> {
 		if !DRAINS_CALLS.get() {
 			return Vec::new();
 		}
+
 		leptoskit_rpc::devtools::drain()
 			.into_iter()
 			.map(|attempt| Event::RpcAttempt { attempt })

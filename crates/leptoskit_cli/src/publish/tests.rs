@@ -1288,6 +1288,7 @@ fn app_store_replaces_a_screenshot_set_in_parts() {
 		.map(body)
 		.collect();
 	assert_eq!(commits.len(), 2);
+
 	assert_eq!(commits[0]["data"]["attributes"]["uploaded"], true);
 	assert_eq!(
 		commits[0]["data"]["attributes"]["sourceFileChecksum"],

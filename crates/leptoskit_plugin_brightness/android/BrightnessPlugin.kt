@@ -23,15 +23,20 @@ class BrightnessPlugin(
         payload: ByteBuffer,
     ): ByteArray {
         check(Looper.myLooper() == Looper.getMainLooper())
+
         if (closed) throw PluginException(PluginException.CANCELLED)
+
         if (method !in 0..2) throw PluginException(PluginException.UNAVAILABLE)
+
         if (payload.remaining() != if (method == 1) 4 else 0) throw PluginException(PluginException.INVALID_ARGUMENT)
         val activity = context as? Activity ?: throw PluginException(PluginException.UNAVAILABLE)
         val attributes = activity.window.attributes
         when (method) {
             0 -> {
                 val level = attributes.screenBrightness
+
                 if (!level.isFinite() || (level != -1f && level !in 0f..1f)) throw PluginException(PluginException.NATIVE)
+
                 return ByteBuffer
                     .allocate(4)
                     .order(ByteOrder.LITTLE_ENDIAN)
@@ -41,7 +46,9 @@ class BrightnessPlugin(
 
             1 -> {
                 val level = payload.order(ByteOrder.LITTLE_ENDIAN).int
+
                 if (level !in 0..1000) throw PluginException(PluginException.INVALID_ARGUMENT)
+
                 if (original == null) original = attributes.screenBrightness
                 attributes.screenBrightness = level.toFloat() / 1000f
                 activity.window.attributes = attributes
@@ -51,11 +58,13 @@ class BrightnessPlugin(
                 restore()
             }
         }
+
         return byteArrayOf()
     }
 
     override fun close() {
         check(Looper.myLooper() == Looper.getMainLooper())
+
         if (closed) return
         closed = true
         restore()

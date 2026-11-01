@@ -78,6 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	surface.borrow_mut().set_viewport(width, height);
 	surface.borrow_mut().set_root(&app());
 	let weak = Rc::downgrade(&surface);
+
 	surface
 		.borrow_mut()
 		.backend_mut()
@@ -107,6 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			surface.backend_mut().set_dpi(dpi);
 			surface.refresh_text_measurer();
 		}
+
 		surface.set_viewport(width, height);
 		surface.set_root(&app());
 	}));
@@ -120,6 +122,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		std::thread::sleep(std::time::Duration::from_millis(120));
 		window.pump_messages();
 		std::fs::write(directory.join("widgets.png"), window.snapshot_png()?)?;
+
 		std::fs::write(
 			directory.join("report.json"),
 			format!(
@@ -128,6 +131,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				window.dpi()
 			),
 		)?;
+
 		return Ok(());
 	}
 

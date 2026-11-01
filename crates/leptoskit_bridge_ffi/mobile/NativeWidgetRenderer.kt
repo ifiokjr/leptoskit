@@ -94,6 +94,7 @@ internal class NativeWidgetRenderer(
         movedScrolls.clear()
         retargeted.clear()
         widgets.clear()
+
         recycledViews.clear()
         recycledTexts.clear()
     }
@@ -119,8 +120,10 @@ internal class NativeWidgetRenderer(
     ): Boolean {
         require(width in 1..4096 && height in 1..4096 && width.toLong() * height <= 4_194_304)
         require(pixels.remaining().toLong() == width.toLong() * height * 4)
+
         val image = widgets[id] as? NativeRiveImage ?: return false
         var bitmap = riveBitmaps[id]
+
         if (bitmap == null || bitmap.width != width || bitmap.height != height) {
             bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             bitmap.density = Bitmap.DENSITY_NONE
@@ -128,8 +131,10 @@ internal class NativeWidgetRenderer(
             riveBitmaps[id] = bitmap
             image.setImageBitmap(bitmap)
         }
+
         bitmap.copyPixelsFromBuffer(pixels)
         image.invalidate()
+
         return true
     }
 
@@ -145,6 +150,7 @@ internal class NativeWidgetRenderer(
             updateCanvas(batch.root)
         } finally {
             retargeted.clear()
+
             applying = false
         }
     }
@@ -220,6 +226,7 @@ internal class NativeWidgetRenderer(
 
             is RenderMutation.Delete -> {
                 riveBitmaps.remove(change.id)
+
                 val view = widgets.remove(change.id) ?: return
                 if (view is NativeRiveImage) view.setImageDrawable(null)
                 detach(view)
@@ -439,6 +446,7 @@ internal class PressButton(
     /** The theme's borderless ripple, shown while the button draws no paint of its own. */
     val ripple: Drawable? =
         TypedValue().let { value ->
+
             if (context.theme.resolveAttribute(android.R.attr.selectableItemBackground, value, true)) {
                 context.getDrawable(value.resourceId)
             } else {
@@ -449,6 +457,7 @@ internal class PressButton(
     override fun setPressed(pressed: Boolean) {
         val changed = pressed != isPressed
         super.setPressed(pressed)
+
         if (changed) pressedChanged(pressed)
     }
 }
@@ -461,6 +470,7 @@ internal class PressFrame(
     override fun setPressed(pressed: Boolean) {
         val changed = pressed != isPressed
         super.setPressed(pressed)
+
         if (changed) pressedChanged(pressed)
     }
 }
@@ -526,6 +536,7 @@ internal class NativeVectorView(
         for (index in frames.indices) {
             val frame = frames[index]
             val fill = frame.path.fill
+
             if (fill != null) {
                 fillPaint.color = fill
                 canvas.drawPath(frame.outline, fillPaint)
@@ -558,7 +569,9 @@ internal class NativeVectorView(
                 val density = resources.displayMetrics.density
                 // For a scale-and-translate matrix, a mapped unit radius is sqrt(|scaleX * scaleY|).
                 val drawingScale = matrix.mapRadius(1f)
+
                 drawing.paths.map { path ->
+
                     NativeVectorFrame.map(path, matrix, if (path.stroke?.scalesWithDrawing == true) drawingScale else density)
                 }
             }
@@ -586,6 +599,7 @@ internal class NativeVectorFrame(
             val outline = Path()
             path.outline.transform(matrix, outline)
             outline.fillType = path.fillType
+
             val stroke = path.stroke ?: return NativeVectorFrame(path, outline, 0f, null)
             val intervals = FloatArray(stroke.dashes.size) { stroke.dashes[it] * scale }
             // A collapsed frame scales every dash to zero, which is no pattern at all.
@@ -619,6 +633,7 @@ internal class NativeDevtoolsOverlay(
     private var shown = false
     private val fill = Paint().apply { color = FILL }
     private val stroke =
+
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = STROKE
             style = Paint.Style.STROKE
@@ -667,6 +682,7 @@ internal class NativeDevtoolsOverlay(
         } else {
             content(anchor).getLocationInWindow(location)
             val scale = density()
+
             val left = location[0] - origin[0] + frame[0] * scale
             val top = location[1] - origin[1] + frame[1] * scale
             outline.set(left, top, left + frame[2] * scale, top + frame[3] * scale)
@@ -710,6 +726,7 @@ internal class NativeDevtoolsOverlay(
         getLocationInWindow(origin)
         val windowX = origin[0] + x
         val windowY = origin[1] + y
+
         var view = deepest(parent as? ViewGroup ?: return, windowX, windowY)
 
         while (view != null && view !== parent) {

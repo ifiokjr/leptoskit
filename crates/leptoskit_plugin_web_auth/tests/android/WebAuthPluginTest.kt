@@ -38,6 +38,7 @@ class WebAuthPluginTest {
             return error.code
         }
         fail("expected a plugin failure")
+
         return 0
     }
 
@@ -48,10 +49,13 @@ class WebAuthPluginTest {
         assertNull(returnAddress("com.my_app"))
         val request = WebAuthRequest.decode(authenticate(7, "https://accounts.example/authorize?state=x"))
         assertEquals(7, request.session)
+
         for (page in listOf("http://example.com/", "file:///etc/passwd", "javascript:alert(1)", "https://a:b@example.com/")) {
             assertEquals(PluginException.INVALID_ARGUMENT, code { WebAuthRequest.decode(authenticate(1, page)) })
         }
+
         assertTrue(cameBack("com.example.app:/auth/native/return?state=a", "com.example.app:/auth/native/return"))
+
         assertFalse(cameBack("com.evil.app:/auth/native/return?state=a", "com.example.app:/auth/native/return"))
         assertFalse(cameBack("com.example.app:/auth/native/return#x", "com.example.app:/auth/native/return"))
     }

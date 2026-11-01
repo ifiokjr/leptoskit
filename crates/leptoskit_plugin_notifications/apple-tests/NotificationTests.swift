@@ -16,6 +16,7 @@ private final class Service: NotificationService {
     func requestAuthorization() async throws {}
     func add(_ request: UNNotificationRequest) async throws {
         posted.append(request.identifier)
+
         if pause { try await withCheckedThrowingContinuation { continuation = $0 } }
     }
     func identifiers() async -> [String] { existing }
@@ -25,12 +26,14 @@ private final class Service: NotificationService {
 
 private func bytes(_ fields: [String]) -> [UInt8] {
     var result: [UInt8] = []
+
     for field in fields {
         let value = Array(field.utf8)
         var length = UInt32(value.count).littleEndian
         withUnsafeBytes(of: &length) { result += $0 }
         result += value
     }
+
     return result
 }
 
@@ -47,9 +50,11 @@ private func payload(_ bytes: [UInt8]) throws -> NativeBuffer {
     #expect(id == 0)
     #expect(lk_bridge_grant(bridge, 0, 0, true) == 0)
     let call = bytes.withUnsafeBufferPointer { lk_bridge_submit(bridge, 0, 0, $0.baseAddress, $0.count) }
+
     #expect(call > 0)
     var request = lk_request()
     #expect(lk_bridge_next_request(bridge, &request) == 1)
+
     return NativeBuffer(taking: request.payload)
 }
 
@@ -62,6 +67,7 @@ func cancellationRemovesLatePostAndPreventsReplacementRace() async throws {
     let content = try payload(bytes(["job", "Title", "Body", "general"]))
     let task = Task { try await plugin.invoke(method: 2, payload: content) }
     defer { service.complete(); task.cancel(); plugin.close() }
+
     for _ in 0..<100 where service.continuation == nil { await Task.yield() }
     try #require(service.continuation != nil)
     _ = try await plugin.invoke(method: 3, payload: payload(bytes(["job"])))
@@ -87,6 +93,7 @@ func closeCancelsPendingPostsAndCancellationIsNamespaceScoped() async throws {
     service.pause = true
     let task = Task { try await plugin.invoke(method: 2, payload: payload(bytes(["new", "Title", "", "general"]))) }
     defer { service.complete(); task.cancel(); plugin.close() }
+
     for _ in 0..<100 where service.continuation == nil { await Task.yield() }
     try #require(service.continuation != nil)
     plugin.close()
@@ -104,9 +111,11 @@ func taskCancellationRetractsAnUnabortableLatePost() async throws {
     let plugin = NotificationsPlugin(service: service)
     let task = Task { try await plugin.invoke(method: 2, payload: payload(bytes(["job", "Title", "", "general"]))) }
     defer { service.complete(); task.cancel(); plugin.close() }
+
     for _ in 0..<100 where service.continuation == nil { await Task.yield() }
     try #require(service.continuation != nil)
     task.cancel()
+
     for _ in 0..<100 where service.removed.isEmpty { await Task.yield() }
     #expect(service.removed == ["leptoskit.notifications.job"])
     service.complete()
@@ -122,11 +131,13 @@ func malformedMessagesNeverReachTheNotificationService() async throws {
     let invalidMessages = [
         bytes(["id", "", "body", "general"]), bytes(["id", "Title", "bad\0body", "general"]), [255, 0, 0, 0]
     ]
+
     for invalid in invalidMessages {
         await #expect(throws: PluginError.invalidArgument) {
             try await plugin.invoke(method: 2, payload: payload(invalid))
         }
     }
+
     #expect(service.posted.isEmpty)
     #expect(service.removed.isEmpty)
     plugin.close()

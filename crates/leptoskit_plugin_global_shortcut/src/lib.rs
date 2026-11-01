@@ -137,10 +137,12 @@ impl EventBatch {
 		output.u32(self.lost as u32);
 		output.u32((self.lost >> 32) as u32);
 		output.u32(self.events.len() as u32);
+
 		for event in &self.events {
 			output.u32(event.id);
 			output.u32(event.state as u32);
 		}
+
 		output.finish()
 	}
 
@@ -150,19 +152,25 @@ impl EventBatch {
 		let low = u64::from(input.u32()?);
 		let high = u64::from(input.u32()?);
 		let count = input.u32()? as usize;
+
 		if count > EVENT_CAPACITY {
 			return Err(leptoskit_bridge::Error::TooLarge);
 		}
+
 		let mut events = Vec::with_capacity(count);
+
 		for _ in 0..count {
 			let id = input.u32()?;
+
 			let state = match input.u32()? {
 				1 => KeyState::Pressed,
 				2 => KeyState::Released,
 				_ => return Err(leptoskit_bridge::Error::InvalidArgument),
 			};
+
 			events.push(Event { id, state });
 		}
+
 		input.finish()?;
 		Ok(Self {
 			events,
@@ -232,12 +240,15 @@ impl Plugin for ShortcutPlugin {
 				self.registrations.remove(&id);
 				Ok(Bytes::new())
 			}
+
 			EVENTS if payload.is_empty() => {
 				if let Some(error) = self.manager.take_cleanup_error() {
 					return Err(error.into());
 				}
+
 				Ok(self.manager.drain().encode())
 			}
+
 			EVENTS => Err(leptoskit_bridge::Error::InvalidArgument),
 			_ => Err(leptoskit_bridge::Error::Unavailable),
 		}
@@ -270,6 +281,7 @@ pub mod guest {
 			if accelerator.is_empty() || accelerator.len() > 256 {
 				return Err(Error::InvalidArgument);
 			}
+
 			let bytes = self.0.call(REGISTER, accelerator.as_bytes())?.await?;
 			Ok(u32::from_le_bytes(
 				bytes
@@ -282,9 +294,11 @@ pub mod guest {
 		/// Unregister a previously returned identifier.
 		pub async fn unregister(self, id: u32) -> Result<(), Error> {
 			let output = self.0.call(UNREGISTER, &id.to_le_bytes())?.await?;
+
 			if !output.is_empty() {
 				return Err(Error::InvalidArgument);
 			}
+
 			Ok(())
 		}
 
@@ -312,6 +326,7 @@ mod tests {
 		malformed[16] = 3;
 		assert!(EventBatch::decode(&malformed).is_err());
 		assert!(EventBatch::decode(&batch.encode()[..19]).is_err());
+
 		malformed = batch.encode().to_vec();
 		malformed.push(0);
 		assert!(EventBatch::decode(&malformed).is_err());

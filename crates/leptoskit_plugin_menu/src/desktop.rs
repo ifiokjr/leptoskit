@@ -71,6 +71,7 @@ impl EventChannel {
 		if capacity == 0 || capacity > MAX_EVENTS {
 			return Err(Error::InvalidDefinition);
 		}
+
 		let (sender, receiver) = sync_channel(capacity);
 		Ok(Self {
 			receiver,
@@ -125,6 +126,7 @@ impl DesktopMenu {
 		if objc2::MainThreadMarker::new().is_none() {
 			return Err(Error::WrongThread);
 		}
+
 		validate_accelerators(definition.items())?;
 		let serial = NEXT_MENU
 			.try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
@@ -137,13 +139,16 @@ impl DesktopMenu {
 			local: HashMap::new(),
 			definition,
 		};
+
 		for item in result.definition.items().to_vec() {
 			let native = result.build(&item, serial, &[])?;
+
 			result
 				.menu
 				.append(native.as_ref())
 				.map_err(|_| Error::Native)?;
 		}
+
 		Ok(result)
 	}
 
@@ -159,14 +164,18 @@ impl DesktopMenu {
 	/// submenus, and commands disabled since the native event was queued.
 	pub fn handle_event(&self, event: &muda::MenuEvent) -> Option<Event> {
 		let entry = self.entries.get(&event.id.0)?;
+
 		if entry.ancestors.iter().any(|item| !item.is_enabled()) {
 			return None;
 		}
+
 		let checked = match &entry.item {
 			muda::MenuItemKind::MenuItem(item) if item.is_enabled() => None,
+
 			muda::MenuItemKind::Check(item) if item.is_enabled() => Some(item.is_checked()),
 			_ => return None,
 		};
+
 		Some(Event {
 			id: entry.local_id.clone(),
 			checked,
@@ -181,6 +190,7 @@ impl DesktopMenu {
 			muda::MenuItemKind::Submenu(item) => item.set_enabled(enabled),
 			_ => return Err(Error::InvalidItem),
 		}
+
 		Ok(())
 	}
 
@@ -206,12 +216,14 @@ impl DesktopMenu {
 		if !valid_label(label) {
 			return Err(Error::InvalidDefinition);
 		}
+
 		match &self.entry(id)?.item {
 			muda::MenuItemKind::MenuItem(item) => item.set_text(label),
 			muda::MenuItemKind::Check(item) => item.set_text(label),
 			muda::MenuItemKind::Submenu(item) => item.set_text(label),
 			_ => return Err(Error::InvalidItem),
 		}
+
 		Ok(())
 	}
 
@@ -276,15 +288,18 @@ impl DesktopMenu {
 				);
 				let mut children_ancestors = ancestors.to_vec();
 				children_ancestors.push(submenu.clone());
+
 				for child in items {
 					submenu
 						.append(self.build(child, serial, &children_ancestors)?.as_ref())
 						.map_err(|_| Error::Native)?;
 				}
+
 				(id, Box::new(submenu))
 			}
 			Item::Separator => return Ok(Box::new(muda::PredefinedMenuItem::separator())),
 		};
+
 		let native_id = item.id().0.clone();
 		self.local.insert(id.to_owned(), native_id.clone());
 		self.entries.insert(
@@ -316,6 +331,7 @@ fn validate_accelerators(items: &[Item]) -> Result<(), Error> {
 			Item::Separator => {}
 		}
 	}
+
 	Ok(())
 }
 
@@ -335,6 +351,7 @@ mod tests {
 		});
 		assert_eq!(channel.take_dropped(), 1);
 		assert_eq!(channel.try_recv().unwrap().id.0, "first");
+
 		sender.forward(muda::MenuEvent {
 			id: "x".repeat(129).into(),
 		});
@@ -408,6 +425,7 @@ mod tests {
 		assert_eq!(menu.handle_event(&event("view")), None);
 		menu.set_enabled("view", false).unwrap();
 		assert_eq!(menu.handle_event(&event("pin")), None);
+
 		menu.set_enabled("view", true).unwrap();
 		menu.set_enabled("pin", false).unwrap();
 		assert_eq!(menu.handle_event(&event("pin")), None);
@@ -417,6 +435,7 @@ mod tests {
 		for id in ["save", "pin", "view"] {
 			menu.set_label(id, "Renamed").unwrap();
 		}
+
 		assert_eq!(
 			menu.set_label("save", "bad\0label"),
 			Err(Error::InvalidDefinition)

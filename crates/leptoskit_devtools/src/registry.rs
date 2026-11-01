@@ -173,6 +173,7 @@ pub(crate) fn install(sink: Rc<dyn Sink>) {
 	// after it starts and ends.
 	#[cfg(feature = "rpc")]
 	leptoskit_rpc::devtools::set_waker(Some(wake));
+
 	if DIRTY.with_borrow(|dirty| !dirty.is_empty()) {
 		wake();
 	}
@@ -198,15 +199,19 @@ pub(crate) fn capabilities() -> Vec<Capability> {
 		Capability::State,
 		Capability::Editing,
 	];
+
 	if cfg!(feature = "form") {
 		capabilities.push(Capability::Forms);
 	}
+
 	if cfg!(feature = "query") {
 		capabilities.extend([Capability::Queries, Capability::Mutations]);
 	}
+
 	if cfg!(feature = "rpc") {
 		capabilities.push(Capability::Rpc);
 	}
+
 	capabilities
 }
 
@@ -257,6 +262,7 @@ pub(crate) fn unregister(id: SourceId) {
 		.try_with(|registry| registry.borrow_mut().remove(|entry| entry.id == id))
 		.ok()
 		.flatten();
+
 	if removed.is_some() {
 		drop(removed);
 		wake();
@@ -269,6 +275,7 @@ pub(crate) fn mark_dirty(id: SourceId) {
 	let fresh = DIRTY
 		.try_with(|dirty| dirty.borrow_mut().insert(id))
 		.unwrap_or(false);
+
 	if fresh {
 		wake();
 	}
@@ -276,6 +283,7 @@ pub(crate) fn mark_dirty(id: SourceId) {
 
 fn wake() {
 	let sink = SINK.try_with(|sink| sink.borrow().clone()).ok().flatten();
+
 	if let Some(sink) = sink {
 		sink.wake();
 	}
@@ -344,6 +352,7 @@ pub(crate) fn fill(snapshot: &mut Snapshot, values: &BTreeMap<Slot, Reported>) {
 				value: value.clone(),
 			}
 		};
+
 		match (slot, reported) {
 			(Slot::Route, Reported::Route(route)) => snapshot.route = Some(route.clone()),
 			(Slot::Query(key), Reported::Value(value)) => {
@@ -402,6 +411,7 @@ pub(crate) fn slot_of(event: Event) -> Option<(Slot, Reported)> {
 		Event::StateChanged { name, value } => (Slot::State(name), value),
 		_ => return None,
 	};
+
 	Some((slot.0, Reported::Value(slot.1)))
 }
 
@@ -425,9 +435,11 @@ pub(crate) fn apply(command: &Command) -> Result<(), String> {
 	for (id, source) in sources {
 		if let Some(result) = source.apply(command) {
 			mark_dirty(id);
+
 			return result;
 		}
 	}
+
 	Err(unhandled(command))
 }
 
@@ -478,15 +490,18 @@ impl Registry {
 				if self.reported.get(&slot) == Some(&value) {
 					continue;
 				}
+
 				if let Some(event) = event(&slot, &value) {
 					changes.events.push(event);
 				}
+
 				self.reported.insert(slot, value);
 			}
 		}
 
 		for slot in std::mem::take(&mut self.orphaned) {
 			let owned = self.entries.iter().any(|entry| entry.slots.contains(&slot));
+
 			if !owned && self.reported.remove(&slot).is_some() {
 				changes.removed = true;
 			}
@@ -530,6 +545,7 @@ pub(crate) fn event(slot: &Slot, value: &Reported) -> Option<Event> {
 		}
 		_ => return None,
 	};
+
 	Some(event)
 }
 

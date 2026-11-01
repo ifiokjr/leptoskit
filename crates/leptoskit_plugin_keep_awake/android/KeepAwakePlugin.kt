@@ -57,9 +57,13 @@ class KeepAwakePlugin(
         payload: ByteBuffer,
     ): ByteArray {
         check(Looper.myLooper() == Looper.getMainLooper())
+
         if (closed) throw PluginException(PluginException.CANCELLED)
+
         if (method != 0) throw PluginException(PluginException.UNAVAILABLE)
+
         if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
+
         if (pending.size >= 64) throw PluginException(PluginException.BUSY)
         val activity = context as? Activity ?: throw PluginException(PluginException.UNAVAILABLE)
         // Visible, not focused: a lease can start at launch, before the window
@@ -68,20 +72,25 @@ class KeepAwakePlugin(
             throw PluginException(PluginException.UNAVAILABLE)
         }
         return suspendCancellableCoroutine { continuation ->
+
             if (!continuation.isActive) return@suspendCancellableCoroutine
+
             if (pending.isEmpty()) {
                 original = activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
                 activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 activity.application.registerActivityLifecycleCallbacks(callbacks)
                 observing = true
             }
+
             pending.add(continuation)
             continuation.invokeOnCancellation {
                 val remove =
                     Runnable {
                         pending.remove(continuation)
+
                         if (pending.isEmpty()) stop()
                     }
+
                 if (Looper.myLooper() == Looper.getMainLooper()) remove.run() else handler.post(remove)
             }
         }
@@ -97,14 +106,17 @@ class KeepAwakePlugin(
         val continuations = pending.toList()
         pending.clear()
         stop()
+
         for (continuation in continuations) continuation.resumeWithException(PluginException(PluginException.CANCELLED))
     }
 
     private fun stop() {
         if (!observing) return
         observing = false
+
         val activity = context as? Activity ?: return
         activity.application.unregisterActivityLifecycleCallbacks(callbacks)
+
         if (!original) activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 }

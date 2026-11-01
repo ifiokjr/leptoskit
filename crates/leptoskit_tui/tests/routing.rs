@@ -261,6 +261,7 @@ fn a_click_on_a_slider_proposes_the_click_position() {
 	);
 
 	let mut mouse = Vec::new();
+
 	for dispatch in surface
 		.backend_mut()
 		.handle_mouse(&Mouse::Click { col: 10, row: 0 })

@@ -201,9 +201,11 @@ async fn object_response(
 			ApiError::from(StoreError::Io(error))
 		}
 	})?;
+
 	if !metadata.is_file() {
 		return Err(StoreError::Io(std::io::Error::other("expected a release file")).into());
 	}
+
 	let mut response = ServeFile::new(path)
 		.with_buf_chunk_size(STREAM_CHUNK_BYTES)
 		.try_call(request)
@@ -211,10 +213,12 @@ async fn object_response(
 		.map_err(StoreError::from)?
 		.map(Body::new);
 	let kind = key.kind();
+
 	let cache_control = match kind {
 		ObjectKind::Index => INDEX_CACHE_CONTROL,
 		ObjectKind::Release | ObjectKind::Signature | ObjectKind::Delta => kind.cache_control(),
 	};
+
 	response.headers_mut().insert(
 		header::CONTENT_TYPE,
 		kind.content_type().parse().expect("static header"),
@@ -236,9 +240,11 @@ async fn mutable_object_response(
 	let headers = request.headers_mut();
 	headers.remove(header::IF_MODIFIED_SINCE);
 	headers.remove(header::IF_UNMODIFIED_SINCE);
+
 	if headers.remove(header::IF_RANGE).is_some() {
 		headers.remove(header::RANGE);
 	}
+
 	let mut response = object_response(store, key, request).await?;
 	response.headers_mut().remove(header::LAST_MODIFIED);
 	response.headers_mut().insert(
@@ -442,6 +448,7 @@ mod tests {
 		running.await.expect("running");
 		task.abort();
 		assert!(task.await.expect_err("cancelled").is_cancelled());
+
 		assert!(slots.clone().try_acquire_owned().is_err());
 		finish.send(()).expect("release worker");
 		let _recovered = slots.acquire_owned().await.expect("capacity returned");

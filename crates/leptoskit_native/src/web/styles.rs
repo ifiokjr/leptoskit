@@ -207,6 +207,7 @@ fn paints(css: &mut String, props: &NativeProps) {
 			property(css, name, &color_css(color));
 		}
 	}
+
 	if let Some(widths) = props.border_widths {
 		// Per-edge border props paint inside the box too, one inset shadow
 		// per drawn edge.

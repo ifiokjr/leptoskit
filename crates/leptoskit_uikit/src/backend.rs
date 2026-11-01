@@ -159,6 +159,7 @@ impl Widget {
 		if let Some(target) = self.target() {
 			target.invalidate();
 		}
+
 		if let Some(control) = self.view.downcast_ref::<UIControl>() {
 			// SAFETY: Removing all registered target/actions leaves retained,
 			// detached controls inert before their node and target disappear.
@@ -170,6 +171,7 @@ impl Widget {
 				);
 			}
 		}
+
 		match &self.control {
 			Control::Switch { switch, .. } => {
 				// SAFETY: The switch's owned target is about to be invalidated.
@@ -219,6 +221,7 @@ impl UIKitBackend {
 
 	pub(crate) fn pause_animations(&self) {
 		self.animations_active.set(false);
+
 		for widget in self.widgets.iter().flatten() {
 			match &widget.control {
 				Control::Activity(indicator) => indicator.stopAnimating(),
@@ -270,6 +273,7 @@ impl UIKitBackend {
 	fn build(&self, id: NodeId, kind: NativeKind) -> Widget {
 		let frame = CGRect::ZERO;
 		let target = || ActionTarget::new(self.mtm, id, kind, Rc::clone(&self.sink));
+
 		let (view, control) = match kind {
 			NativeKind::Text | NativeKind::TextRun => {
 				let label = UILabel::initWithFrame(UILabel::alloc(self.mtm), frame);
@@ -401,9 +405,11 @@ impl UIKitBackend {
 				)
 			}
 		};
+
 		if let Some(dark) = self.dark {
 			view.setOverrideUserInterfaceStyle(appearance(dark));
 		}
+
 		Widget {
 			id,
 			kind,
@@ -431,12 +437,14 @@ impl UIKitBackend {
 				self.mtm,
 			)
 		};
+
 		connect(
 			&button,
 			target,
 			sel!(activate:),
 			UIControlEvents::PrimaryActionTriggered,
 		);
+
 		if matches!(kind, NativeKind::Button | NativeKind::Pressable) {
 			// These are the events on which UIKit sets and clears the
 			// button's highlight, so `active:` styles follow it.
@@ -456,6 +464,7 @@ impl UIKitBackend {
 					| UIControlEvents::TouchCancel,
 			);
 		}
+
 		button
 	}
 
@@ -463,14 +472,17 @@ impl UIKitBackend {
 		for widget in self.widgets.iter().flatten() {
 			if let Control::Scroll { scroll, .. } = &widget.control {
 				let mut size = widget.view.bounds().size;
+
 				for child in &widget.children {
 					let frame = self.widget(*child).view.frame();
 					size.width = size.width.max(frame.origin.x + frame.size.width);
 					size.height = size.height.max(frame.origin.y + frame.size.height);
 				}
+
 				scroll.setContentSize(size);
 			}
 		}
+
 		let children: std::collections::HashSet<_> = self
 			.widgets
 			.iter()
@@ -485,9 +497,11 @@ impl UIKitBackend {
 			.map(|widget| widget.id)
 			.collect();
 		let mut radios = Vec::new();
+
 		while let Some(node) = pending.pop() {
 			let widget = self.widget(node);
 			pending.extend(widget.children.iter().rev().copied());
+
 			if widget.kind == NativeKind::Radio
 				&& let Control::Button { button, target } = &widget.control
 			{
@@ -497,19 +511,26 @@ impl UIKitBackend {
 				});
 			}
 		}
+
 		self.sink.set_radios(radios);
+
 		for widget in self.widgets.iter_mut().flatten() {
 			let available = visible(&widget.view) && self.animations_active.get();
+
 			if let Some(control) = widget.view.downcast_ref::<UIControl>() {
 				let mut enabled = widget.props.enabled.unwrap_or(true);
 				let mut parent = widget.view.superview();
+
 				while let Some(view) = parent {
 					enabled &= view.isUserInteractionEnabled();
 					parent = view.superview();
 				}
+
 				control.setEnabled(enabled);
 			}
+
 			let mut parent = widget.view.superview();
+
 			while let Some(view) = parent {
 				if view.downcast_ref::<ContentButton>().is_some() {
 					widget.view.setUserInteractionEnabled(false);
@@ -517,8 +538,10 @@ impl UIKitBackend {
 					widget.view.setIsAccessibilityElement(false, self.mtm);
 					break;
 				}
+
 				parent = view.superview();
 			}
+
 			match &mut widget.control {
 				Control::Activity(indicator) => {
 					let mut requested = self.animations_active.get()
@@ -535,6 +558,7 @@ impl UIKitBackend {
 					} else {
 						indicator.stopAnimating();
 					}
+
 					indicator.setAccessibilityElementsHidden(!requested, self.mtm);
 				}
 				Control::Switch { switch, .. } => {
@@ -544,6 +568,7 @@ impl UIKitBackend {
 						enabled &= view.isUserInteractionEnabled();
 						parent = view.superview();
 					}
+
 					switch.setEnabled(enabled);
 				}
 				Control::Progress {
@@ -557,6 +582,7 @@ impl UIKitBackend {
 					);
 					progress.setHidden(indeterminate);
 					fill.setHidden(!indeterminate);
+
 					if available && indeterminate && !animating.get() {
 						let animation = CABasicAnimation::animationWithKeyPath(Some(
 							&NSString::from_str("transform.translation.x"),
@@ -645,6 +671,7 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 	view.setHidden(props.hidden.unwrap_or(false));
 	view.setAlpha(f64::from(props.opacity.unwrap_or(1.0)));
 	view.setUserInteractionEnabled(enabled);
+
 	view.setSemanticContentAttribute(
 		if props.text_style().direction == leptoskit_yoga::Direction::Rtl {
 			objc2_ui_kit::UISemanticContentAttribute::ForceRightToLeft
@@ -674,6 +701,7 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 		);
 		view.setTintColor(Some(&foreground));
 	}
+
 	view.setAccessibilityLabel(
 		props
 			.accessibility_label
@@ -683,16 +711,20 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 		mtm,
 	);
 	crate::accessibility::apply(view, props, widget.kind, mtm);
+
 	if let Some(control) = view.downcast_ref::<UIControl>() {
 		control.setEnabled(enabled);
 	}
+
 	if let Some(target) = widget.target() {
 		target.sync(props);
 	}
+
 	let font = UIFont::systemFontOfSize_weight(
 		f64::from(props.text_style().font_size),
 		font_weight(props.text_style().font_weight),
 	);
+
 	match &mut widget.control {
 		Control::Plain => {
 			view.setIsAccessibilityElement(crate::accessibility::is_element(props), mtm);
@@ -739,12 +771,14 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 				image.setImage(loaded.as_deref());
 				source.clone_from(&props.source);
 			}
+
 			view.setIsAccessibilityElement(crate::accessibility::is_element(props), mtm);
 		}
 		Control::Vector(layers) => {
 			if widget.props.drawing != props.drawing {
 				layers.draw(view, props.drawing.as_ref());
 			}
+
 			// A named drawing reads as one image; an unnamed one is decorative.
 			view.setIsAccessibilityElement(crate::accessibility::is_element(props), mtm);
 			view.setAccessibilityTraits(
@@ -769,7 +803,9 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 			}
 		}
 	}
+
 	let live = props.aria().effective_live(widget.kind);
+
 	if live != leptoskit_native::Live::Off
 		&& let Some(text) = props
 			.aria()
@@ -804,17 +840,20 @@ fn apply_button_props(
 		UIControlState::Normal,
 	);
 	button.setTitleColor_forState(Some(foreground), UIControlState::Normal);
+
 	if let Some(label) = button.titleLabel() {
 		unsafe {
 			label.setFont(Some(font));
 		}
 	}
+
 	if toggle {
 		let (off, on) = if kind == NativeKind::Radio {
 			("circle", "largecircle.fill.circle")
 		} else {
 			("square", "checkmark.square.fill")
 		};
+
 		button.setImage_forState(
 			UIImage::systemImageNamed(&NSString::from_str(off)).as_deref(),
 			UIControlState::Normal,
@@ -847,6 +886,7 @@ fn apply_button_props(
 			mtm,
 		);
 	}
+
 	if kind == NativeKind::Pressable {
 		button.setIsAccessibilityElement(true, mtm);
 	}
@@ -859,6 +899,7 @@ fn apply_input_props(
 	font: &UIFont,
 ) {
 	let value = input_value(props);
+
 	if field
 		.text()
 		.map(|text| text.to_string())
@@ -876,9 +917,11 @@ fn apply_input_props(
 	);
 	field.setFont(Some(font));
 	field.setTextColor(Some(foreground));
+
 	field.setTextAlignment(alignment(props.text_style()));
 	let beginning = field.beginningOfDocument();
 	let end = field.endOfDocument();
+
 	if let Some(range) = field.textRangeFromPosition_toPosition(&beginning, &end) {
 		field.setBaseWritingDirection_forRange(
 			if props.text_style().direction == leptoskit_yoga::Direction::Rtl {
@@ -898,8 +941,10 @@ fn load_image(source: &str) -> Option<Retained<UIImage>> {
 	if let Some(name) = source.strip_prefix("resource://") {
 		return UIImage::imageNamed(&NSString::from_str(name));
 	}
+
 	if source.starts_with("file:") {
 		let url = NSURL::URLWithString(&NSString::from_str(source))?;
+
 		if !url.isFileURL()
 			|| url.host().is_some_and(|host| {
 				!host.is_empty() && !host.isEqualToString(&NSString::from_str("localhost"))
@@ -907,11 +952,14 @@ fn load_image(source: &str) -> Option<Retained<UIImage>> {
 			return None;
 		}
 		let path = url.path()?;
+
 		return UIImage::imageWithContentsOfFile(&path);
 	}
+
 	if source.contains("://") {
 		return None;
 	}
+
 	UIImage::imageWithContentsOfFile(&NSString::from_str(source))
 }
 
@@ -926,6 +974,7 @@ fn apply_progress_props(
 	progress.setProgressTintColor(Some(foreground));
 	progress.setTrackTintColor(props.background.map(color).as_deref());
 	fill.setBackgroundColor(Some(foreground));
+
 	if let Progress::Determinate(value) = props.progress.unwrap_or_default() {
 		progress.setProgress(value.get() as f32);
 		view.setAccessibilityValue(
@@ -938,6 +987,7 @@ fn apply_progress_props(
 	} else {
 		view.setAccessibilityValue(Some(&NSString::from_str("Loading")), mtm);
 	}
+
 	view.setIsAccessibilityElement(true, mtm);
 }
 
@@ -956,17 +1006,21 @@ impl NativeBackend for UIKitBackend {
 			if parent.isHidden() || parent.alpha() == 0.0 {
 				return false;
 			}
+
 			if parent.clipsToBounds() {
 				rect = objc2_core_graphics::CGRectIntersection(
 					rect,
 					parent.convertRect_toView(parent.bounds(), Some(&window)),
 				);
+
 				if objc2_core_graphics::CGRectIsEmpty(rect) {
 					return false;
 				}
 			}
+
 			ancestor = parent.superview();
 		}
+
 		let bounds = window.bounds();
 		!view.isHidden()
 			&& view.alpha() > 0.0
@@ -996,16 +1050,19 @@ impl NativeBackend for UIKitBackend {
 
 	fn apply(&mut self, mutations: &MutationList) {
 		let _events = self.sink.suppress();
+
 		for mutation in mutations.mutations() {
 			if let Mutation::Delete { id } = mutation {
 				self.widget(*id).deactivate();
 			}
 		}
+
 		autoreleasepool(|_| {
 			self.applying = true;
 			for mutation in mutations.mutations() {
 				self.apply_one(mutation);
 			}
+
 			self.applying = false;
 			self.refresh();
 		});
@@ -1015,9 +1072,11 @@ impl NativeBackend for UIKitBackend {
 		let _events = self.sink.suppress();
 		let mut widget = self.build(id, kind);
 		apply_props(&mut widget, props, self.mtm);
+
 		if self.widgets.len() <= id.index() {
 			self.widgets.resize_with(id.index() + 1, || None);
 		}
+
 		self.widgets[id.index()] = Some(widget);
 		self.refresh_unbatched();
 	}
@@ -1043,6 +1102,7 @@ impl NativeBackend for UIKitBackend {
 		if resized && let Control::Vector(layers) = &mut widget.control {
 			layers.draw(&widget.view, widget.props.drawing.as_ref());
 		}
+
 		if let Control::Switch { switch, .. } = &widget.control {
 			let native = switch.bounds().size;
 			let scale = if native.width > 0.0 && native.height > 0.0 {
@@ -1050,6 +1110,7 @@ impl NativeBackend for UIKitBackend {
 			} else {
 				1.0
 			};
+
 			switch.setTransform(objc2_core_foundation::CGAffineTransform {
 				a: scale,
 				b: 0.0,
@@ -1063,6 +1124,7 @@ impl NativeBackend for UIKitBackend {
 				f64::from(height) / 2.0,
 			));
 		}
+
 		if let Control::Progress {
 			progress,
 			fill,
@@ -1079,6 +1141,7 @@ impl NativeBackend for UIKitBackend {
 			});
 			progress.setFrame(widget.view.bounds());
 			let native_height = progress.bounds().size.height;
+
 			if native_height > 0.0 {
 				progress.setTransform(objc2_core_foundation::CGAffineTransform {
 					a: 1.0,
@@ -1093,6 +1156,7 @@ impl NativeBackend for UIKitBackend {
 					f64::from(height) / 2.0,
 				));
 			}
+
 			fill.setFrame(CGRect::new(
 				CGPoint::new(-f64::from(width) * 0.3, 0.0),
 				CGSize::new(f64::from(width) * 0.3, f64::from(height)),
@@ -1100,6 +1164,7 @@ impl NativeBackend for UIKitBackend {
 			fill.layer().removeAllAnimations();
 			animating.set(false);
 		}
+
 		self.refresh_unbatched();
 	}
 
@@ -1111,11 +1176,14 @@ impl NativeBackend for UIKitBackend {
 		parent_widget
 			.view
 			.insertSubview_atIndex(&view, index as isize);
+
 		if parent_widget.kind == NativeKind::Pressable {
 			view.setUserInteractionEnabled(false);
 			view.setAccessibilityElementsHidden(true, self.mtm);
+
 			view.setIsAccessibilityElement(false, self.mtm);
 		}
+
 		self.widget_mut(parent).children.insert(index, child);
 		self.refresh_unbatched();
 	}
@@ -1149,6 +1217,7 @@ impl NativeBackend for UIKitBackend {
 	fn set_dark_mode(&mut self, dark: bool) {
 		let _events = self.sink.suppress();
 		self.dark = Some(dark);
+
 		for widget in self.widgets.iter().flatten() {
 			widget.view.setOverrideUserInterfaceStyle(appearance(dark));
 		}
@@ -1158,6 +1227,7 @@ impl NativeBackend for UIKitBackend {
 impl Drop for UIKitBackend {
 	fn drop(&mut self) {
 		let _events = self.sink.suppress();
+
 		for widget in self.widgets.iter().flatten() {
 			widget.deactivate();
 		}

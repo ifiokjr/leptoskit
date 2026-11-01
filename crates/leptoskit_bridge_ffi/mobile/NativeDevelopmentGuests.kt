@@ -129,6 +129,7 @@ internal class NativeDevelopmentGuests(
     private fun poll(handle: Long) {
         try {
             val guest = NativeDevelopment.next(handle) ?: return
+
             main.post { if (!closed) onGuest(guest) }
         } catch (error: IllegalStateException) {
             Log.w(TAG, "leptoskit dev: ${error.message}")

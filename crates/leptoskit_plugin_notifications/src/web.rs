@@ -12,6 +12,7 @@ use super::Permission;
 
 fn supported() -> Result<(), Error> {
 	let window = web_sys::window().ok_or(Error::Unavailable)?;
+
 	if js_sys::Reflect::get(window.as_ref(), &JsValue::from_str("Notification"))
 		.map_err(|_| Error::Native)?
 		.is_function()
@@ -33,6 +34,7 @@ fn map_error(error: &JsValue) -> Error {
 	if error.is_instance_of::<js_sys::TypeError>() {
 		return Error::Unavailable;
 	}
+
 	if let Some(exception) = error.dyn_ref::<web_sys::DomException>() {
 		match exception.name().as_str() {
 			"NotAllowedError" | "SecurityError" => return Error::PermissionDenied,
@@ -40,6 +42,7 @@ fn map_error(error: &JsValue) -> Error {
 			_ => {}
 		}
 	}
+
 	Error::Native
 }
 /// Reads browser permission without opening a prompt.
@@ -62,6 +65,7 @@ pub fn show(notification: &Notification) -> Result<Handle, Error> {
 	if permission()? != Permission::Granted {
 		return Err(Error::PermissionDenied);
 	}
+
 	let options = web_sys::NotificationOptions::new();
 	options.set_body(notification.body());
 	options.set_tag(&format!(

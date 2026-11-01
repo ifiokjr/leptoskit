@@ -82,6 +82,7 @@ mod tests {
 			bytes: Vec::new(),
 			limit: expected.len() - 1,
 		};
+
 		assert!(serde_json::to_writer(&mut buffer, &transaction).is_err());
 		assert!(buffer.bytes.len() <= buffer.limit);
 	}

@@ -111,25 +111,31 @@ unsafe extern "system" fn subclass(
 		if let Some(widget) = context.widget.upgrade() {
 			widget.alive.set(false);
 			widget.animating.set(false);
+
 			if hwnd == widget.frame {
 				widget.frame_alive.set(false);
 			}
+
 			if hwnd == widget.composition {
 				widget.composition_alive.set(false);
 			}
+
 			if Some(hwnd) == widget.control {
 				widget.control_alive.set(false);
 			}
+
 			if Some(hwnd) == widget.document {
 				widget.document_alive.set(false);
 			}
 		}
+
 		// SAFETY: This is the subclass's final message; release its installed
 		// Rc exactly once, while the local reference keeps the context
 		// alive.
 		unsafe {
 			let _ = RemoveWindowSubclass(hwnd, Some(subclass), 1);
 			drop(Rc::from_raw(pointer));
+
 			return DefSubclassProc(hwnd, message, wparam, lparam);
 		}
 	}
@@ -194,6 +200,7 @@ unsafe extern "system" fn subclass(
 
 				let _ = EndPaint(hwnd, &raw const paint);
 			}
+
 			return LRESULT(0);
 		}
 
@@ -276,6 +283,7 @@ fn control_message(
 				NativeEvent::Blur
 			},
 		);
+
 		return Some(result);
 	}
 
@@ -310,6 +318,7 @@ fn control_message(
 		if lparam.0 & (1 << 30) == 0 {
 			propose(widget, NativeEvent::Press);
 		}
+
 		return Some(LRESULT(0));
 	}
 
@@ -324,6 +333,7 @@ fn control_message(
 				value: window_text(hwnd),
 			},
 		);
+
 		return Some(LRESULT(0));
 	}
 
@@ -334,6 +344,7 @@ fn control_message(
 			widget,
 			matches!(key, key if key == VK_LEFT.0 || key == VK_UP.0),
 		);
+
 		return Some(LRESULT(0));
 	}
 
@@ -343,12 +354,18 @@ fn control_message(
 
 	let state = widget.props.borrow().slider.unwrap_or_default();
 	let increment = state.step().unwrap_or((state.max() - state.min()) / 100.0);
+
 	let next = match key {
 		key if key == VK_HOME.0 => state.min(),
+
 		key if key == VK_END.0 => state.max(),
+
 		key if key == VK_LEFT.0 || key == VK_DOWN.0 => (-increment).mul_add(1.0, state.value()),
+
 		key if key == VK_RIGHT.0 || key == VK_UP.0 => increment.mul_add(1.0, state.value()),
+
 		key if key == VK_PRIOR.0 => increment.mul_add(10.0, state.value()),
+
 		key if key == VK_NEXT.0 => (-increment).mul_add(10.0, state.value()),
 		_ => return None,
 	};
@@ -406,6 +423,7 @@ fn radio_arrow(widget: &Rc<Widget>, backward: bool) {
 	} else {
 		(index + 1) % members.len()
 	};
+
 	let target = Rc::clone(&members[next]);
 
 	if let Some(control) = target.control {
@@ -461,12 +479,14 @@ fn frame_message(
 					}
 
 					paint_button(widget, draw);
+
 					return Some(LRESULT(CDRF_SKIPDEFAULT as isize));
 				}
 			}
 
 			None
 		}
+
 		WM_COMMAND
 			if widget
 				.control
@@ -474,6 +494,7 @@ fn frame_message(
 		{
 			let notification = ((wparam.0 >> 16) & 0xffff) as u32;
 			let control = widget.control.expect("matched control");
+
 			let event = match (widget.kind, notification) {
 				(NativeKind::Button | NativeKind::Pressable, BN_CLICKED) => {
 					Some(NativeEvent::Press)
@@ -498,6 +519,7 @@ fn frame_message(
 
 			Some(LRESULT(0))
 		}
+
 		WM_HSCROLL if widget.kind == NativeKind::Slider && lparam.0 != 0 => {
 			let state = widget.props.borrow().slider.unwrap_or_default();
 			// SAFETY: This is a normalized integer coordinate, never the shared
@@ -514,10 +536,12 @@ fn frame_message(
 
 			Some(LRESULT(0))
 		}
+
 		WM_VSCROLL | WM_HSCROLL | WM_MOUSEWHEEL | WM_MOUSEHWHEEL if widget.document.is_some() => {
 			scroll(widget, message, wparam);
 			Some(LRESULT(0))
 		}
+
 		WM_TIMER if wparam.0 == 1 => {
 			widget.phase.set(widget.phase.get().wrapping_add(1));
 
@@ -541,6 +565,7 @@ fn frame_message(
 			}
 			Some(LRESULT(0))
 		}
+
 		WM_ERASEBKGND => Some(LRESULT(1)),
 		WM_PAINT => {
 			paint(widget, hwnd);
@@ -553,6 +578,7 @@ fn frame_message(
 			} else {
 				Color::rgba(20, 20, 20, 255)
 			});
+
 			let background = widget.background();
 			// SAFETY: Windows supplied this DC for the synchronous color query.
 			unsafe {
@@ -580,6 +606,7 @@ fn scroll(widget: &Rc<Widget>, message: u32, wparam: WPARAM) {
 	} else {
 		client.bottom - client.top
 	};
+
 	let maximum = (widget.extent.get()[axis] - viewport).max(0);
 
 	if matches!(message, WM_MOUSEWHEEL | WM_MOUSEHWHEEL) {
@@ -592,13 +619,20 @@ fn scroll(widget: &Rc<Widget>, message: u32, wparam: WPARAM) {
 			/ 120;
 	} else {
 		let command = (wparam.0 & 0xffff) as u32;
+
 		offset[axis] = match command {
 			value if value == SB_LINEUP.0 as u32 => offset[axis] - 20,
+
 			value if value == SB_LINEDOWN.0 as u32 => offset[axis] + 20,
+
 			value if value == SB_PAGEUP.0 as u32 => offset[axis] - viewport,
+
 			value if value == SB_PAGEDOWN.0 as u32 => offset[axis] + viewport,
+
 			value if value == SB_TOP.0 as u32 => 0,
+
 			value if value == SB_BOTTOM.0 as u32 => maximum,
+
 			value if value == SB_THUMBTRACK.0 as u32 || value == SB_THUMBPOSITION.0 as u32 => {
 				let mut info = SCROLLINFO {
 					cbSize: size_of::<SCROLLINFO>() as u32,
@@ -650,6 +684,7 @@ fn paint(widget: &Widget, hwnd: HWND) {
 		} else {
 			Color::rgba(20, 20, 20, 255)
 		});
+
 		SetTextColor(dc, rgb(foreground));
 		SetBkMode(dc, TRANSPARENT);
 
@@ -692,6 +727,7 @@ fn paint(widget: &Widget, hwnd: HWND) {
 				));
 				let previous = SelectObject(dc, brush.0.into());
 				let x = (f64::from(bounds.right) / 2.0 + angle.cos() * radius).round() as i32;
+
 				let y = (f64::from(bounds.bottom) / 2.0 + angle.sin() * radius).round() as i32;
 				let _ = Ellipse(dc, x - 2, y - 2, x + 3, y + 3);
 				SelectObject(dc, previous);
@@ -757,6 +793,7 @@ fn paint_button(widget: &Widget, draw: &NMCUSTOMDRAW) {
 	} else {
 		Color::rgba(20, 20, 20, 255)
 	});
+
 	// SAFETY: The native custom-draw DC is borrowed for this synchronous call.
 	unsafe {
 		FillRect(draw.hdc, &raw const bounds, widget.brush.borrow().0);
@@ -803,6 +840,7 @@ fn paint_button(widget: &Widget, draw: &NMCUSTOMDRAW) {
 			if props.checked.unwrap_or(false) {
 				flags |= DFCS_CHECKED;
 			}
+
 			if !widget.interactive() {
 				flags |= DFCS_INACTIVE;
 			}
@@ -821,6 +859,7 @@ fn paint_button(widget: &Widget, draw: &NMCUSTOMDRAW) {
 					.text_align
 					.unwrap_or(leptoskit_native::TextAlign::Center);
 			}
+
 			let align = text_flags(style) & !DT_WORDBREAK;
 			draw_text(
 				draw.hdc,

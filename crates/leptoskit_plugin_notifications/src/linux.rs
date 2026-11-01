@@ -65,9 +65,11 @@ impl Notifications {
 				),
 			)
 			.map_err(|_| Error::Native)?;
+
 		if id == 0 {
 			return Err(Error::Native);
 		}
+
 		Ok(Handle {
 			connection: Rc::clone(&self.connection),
 			id,

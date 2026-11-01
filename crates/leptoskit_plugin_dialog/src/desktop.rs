@@ -38,11 +38,13 @@ impl FileOptions {
 		if !valid_text(&self.title) {
 			return Err(Error::InvalidOption);
 		}
+
 		if let Some(directory) = &self.directory
 			&& (!directory.is_absolute() || path_contains_nul(directory))
 		{
 			return Err(Error::InvalidOption);
 		}
+
 		if let Some(file_name) = &self.file_name
 			&& (file_name.is_empty()
 				|| matches!(file_name.as_str(), "." | "..")
@@ -51,24 +53,30 @@ impl FileOptions {
 		{
 			return Err(Error::InvalidOption);
 		}
+
 		Ok(())
 	}
 
 	fn build(self) -> Result<rfd::AsyncFileDialog, Error> {
 		self.validate()?;
 		let mut dialog = rfd::AsyncFileDialog::new();
+
 		if !self.title.is_empty() {
 			dialog = dialog.set_title(self.title);
 		}
+
 		if let Some(directory) = self.directory {
 			dialog = dialog.set_directory(directory);
 		}
+
 		if let Some(file_name) = self.file_name {
 			dialog = dialog.set_file_name(file_name);
 		}
+
 		for filter in self.filters {
 			dialog = dialog.add_filter(filter.name, &filter.extensions);
 		}
+
 		Ok(dialog)
 	}
 }
@@ -193,6 +201,7 @@ fn validate_message(title: &str, message: &str, buttons: &MessageButtons) -> Res
 		MessageButtons::YesNoCancelCustom(yes, no, cancel) => &[yes, no, cancel],
 		_ => &[],
 	};
+
 	if !valid_text(title)
 		|| !valid_text(message)
 		|| labels
@@ -318,6 +327,7 @@ mod tests {
 				Err(Error::InvalidOption)
 			);
 		}
+
 		assert!(
 			FileOptions {
 				file_name: Some("notes.txt".into()),
@@ -365,6 +375,7 @@ mod tests {
 		};
 		assert!(options.validate().is_ok());
 		assert_eq!(options.directory.as_ref(), Some(&directory));
+
 		assert_eq!(
 			FileOptions {
 				directory: Some("/tmp/\0bad".into()),

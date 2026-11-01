@@ -57,6 +57,7 @@ impl Fixture {
 impl Drop for Fixture {
 	fn drop(&mut self) {
 		restore_storage();
+
 		match &self.previous {
 			Some(value) => self.storage.set_item(STORAGE_KEY, value).unwrap(),
 			None => self.storage.remove_item(STORAGE_KEY).unwrap(),
@@ -88,6 +89,7 @@ fn real_local_storage_reload_atomic_failure_clear_and_error_mapping() {
 	assert_eq!(store.save(), Err(Error::PermissionDenied));
 	reject_write("UnknownError");
 	assert_eq!(store.save(), Err(Error::Native));
+
 	restore_storage();
 
 	fixture.storage.set_item(STORAGE_KEY, "broken").unwrap();
@@ -103,6 +105,7 @@ fn real_local_storage_reload_atomic_failure_clear_and_error_mapping() {
 	let restored = Store::open().unwrap();
 	assert_eq!(restored.get("null").unwrap(), Some(&Value::Null));
 	assert_eq!(restored.get("missing").unwrap(), None);
+
 	store.clear().unwrap();
 	assert_eq!(Store::open().unwrap().entries().len(), 1);
 	store.save().unwrap();
@@ -154,6 +157,7 @@ mod async_storage {
 		reject_write("QuotaExceededError");
 		let error = block_on((hook.set_value)("Grace".to_owned()));
 		restore_storage();
+
 		assert!(matches!(
 			error.unwrap_err(),
 			leptoskit_use::AsyncStorageError::Backend(leptoskit_plugin_store::StoreError::Backend(

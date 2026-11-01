@@ -241,6 +241,7 @@ impl LayoutCache {
 			.committed
 			.filter(|(input, _)| input == ctx)
 			.map(|(_, size)| size);
+
 		match mode {
 			RunMode::Commit => committed,
 			RunMode::Measure => {
@@ -258,13 +259,17 @@ impl LayoutCache {
 	/// Records an executed run, which rewrote every position in the subtree.
 	pub(crate) fn insert(&mut self, ctx: SizingCtx, size: Size<f32>, mode: RunMode, pass: u64) {
 		self.committed = (mode == RunMode::Commit).then_some((ctx, size));
+
 		if let Some(entry) = self.sizes.iter_mut().find(|entry| entry.ctx == ctx) {
 			entry.pass = pass;
+
 			return;
 		}
+
 		if self.sizes.len() >= RETAINED_CACHE_ENTRIES {
 			self.sizes.retain(|entry| entry.pass == pass);
 		}
+
 		self.sizes.push(CacheEntry { ctx, size, pass });
 	}
 
@@ -308,12 +313,15 @@ impl SizingCtx {
 	/// percentage lengths and aspect ratio.
 	pub(crate) fn normalized(mut self, style: &Style) -> Self {
 		let definite = definite_border_box(style, &self);
+
 		if let Some(width) = definite.width {
 			self.available.width = AvailableSpace::Definite(width);
 		}
+
 		if let Some(height) = definite.height {
 			self.available.height = AvailableSpace::Definite(height);
 		}
+
 		let is_percent = |dimension: Dimension| matches!(dimension, Dimension::Percent(_));
 		let uses_basis = style.aspect_ratio.is_some()
 			|| [
@@ -330,9 +338,11 @@ impl SizingCtx {
 			]
 			.into_iter()
 			.any(is_percent);
+
 		if !uses_basis {
 			self.percent_basis = Size::new(None, None);
 		}
+
 		self
 	}
 }
@@ -379,6 +389,7 @@ impl Yoga {
 	pub fn set_style(&mut self, node: NodeId, style: Style) {
 		let sanitized = sanitize_style(style);
 		let entry = &mut self.nodes[node.0];
+
 		if *entry.style != sanitized {
 			entry.style = Arc::new(sanitized);
 			self.mark_dirty(node);
@@ -424,18 +435,22 @@ impl Yoga {
 	pub fn remove_child(&mut self, parent: NodeId, child: NodeId) {
 		let entry = &mut self.nodes[parent.0];
 		entry.children.retain(|&c| c != child);
+
 		if self.nodes[child.0].parent == Some(parent) {
 			self.nodes[child.0].parent = None;
 		}
+
 		self.mark_dirty(parent);
 	}
 
 	/// Detaches a node from its parent, returning the former parent.
 	pub fn detach(&mut self, node: NodeId) -> Option<NodeId> {
 		let parent = self.nodes[node.0].parent;
+
 		if let Some(parent) = parent {
 			self.remove_child(parent, node);
 		}
+
 		parent
 	}
 
@@ -447,17 +462,21 @@ impl Yoga {
 	/// one of its ancestors.
 	pub fn set_children(&mut self, parent: NodeId, children: impl IntoIterator<Item = NodeId>) {
 		let children: Vec<NodeId> = children.into_iter().collect();
+
 		for &child in &children {
 			self.assert_acyclic(parent, child);
 		}
+
 		for existing in std::mem::take(&mut self.nodes[parent.0].children) {
 			self.nodes[existing.0].parent = None;
 		}
+
 		for child in children {
 			self.detach(child);
 			self.nodes[parent.0].children.push(child);
 			self.nodes[child.0].parent = Some(parent);
 		}
+
 		self.mark_dirty(parent);
 	}
 
@@ -482,6 +501,7 @@ impl Yoga {
 	/// change then costs the changed cells, not the grid.
 	pub fn mark_dirty(&mut self, node: NodeId) {
 		let mut current = Some(node);
+
 		while let Some(id) = current {
 			// `node` itself always reaches its parent: a change to its own
 			// style can change how the parent sizes it.
@@ -490,10 +510,13 @@ impl Yoga {
 			entry.dirty = true;
 			entry.measure_cache.clear();
 			entry.layout_cache.clear();
+
 			if let Some(ctx) = boundary {
 				self.pending.push((id, ctx));
+
 				return;
 			}
+
 			current = entry.parent;
 		}
 	}
@@ -508,15 +531,18 @@ impl Yoga {
 		let baseline = entry.style.align_self == Align::Baseline
 			|| (entry.style.align_self == Align::Auto
 				&& self.nodes[parent.0].style.align_items == Align::Baseline);
+
 		if baseline || entry.dirty {
 			return None;
 		}
+
 		entry.layout_cache.boundary()
 	}
 
 	/// Panics when attaching `child` under `parent` would create a cycle.
 	fn assert_acyclic(&self, parent: NodeId, child: NodeId) {
 		let mut current = Some(parent);
+
 		while let Some(id) = current {
 			assert!(
 				id != child,
@@ -552,13 +578,16 @@ impl Yoga {
 		available: Size<AvailableSpace>,
 	) {
 		let style = &self.nodes[root.0].style;
+
 		let width = match available.width {
 			AvailableSpace::Definite(width) if style.width.is_auto() => {
 				let margin = resolve_margins(&style.margin, Some(width));
 				Some((width - margin.left - margin.right).max(0.0))
 			}
+
 			_ => None,
 		};
+
 		self.layout_root(root, available, Size::new(width, None));
 	}
 
@@ -582,9 +611,11 @@ impl Yoga {
 				self.layout_node(node, ctx, RunMode::Commit);
 			}
 		}
+
 		// Laying out a subtree on its own rewrites sizes its ancestors' last
 		// runs positioned, so those runs no longer describe the tree.
 		let mut ancestor = self.nodes[root.0].parent;
+
 		while let Some(id) = ancestor {
 			self.nodes[id.0].layout_cache.committed = None;
 			ancestor = self.nodes[id.0].parent;
@@ -601,6 +632,7 @@ impl Yoga {
 		if let Some(size) = self.nodes[node.0].measure_cache.get(available) {
 			return size;
 		}
+
 		let measure = self.nodes[node.0]
 			.measure
 			.clone()
@@ -622,21 +654,27 @@ impl Yoga {
 		let mut flow = Vec::with_capacity(children.len());
 		let mut absolute = Vec::new();
 		let mut stack: Vec<NodeId> = children.iter().rev().copied().collect();
+
 		while let Some(child) = stack.pop() {
 			let style = self.style(child);
+
 			if style.display == Display::None {
 				continue;
 			}
+
 			if matches!(style.position, PositionType::Absolute | PositionType::Fixed) {
 				absolute.push(child);
 				continue;
 			}
+
 			if style.display == Display::Contents {
 				stack.extend(self.children(child).iter().rev().copied());
 				continue;
 			}
+
 			flow.push(child);
 		}
+
 		(flow, absolute)
 	}
 }
@@ -708,6 +746,7 @@ impl BoxMetrics {
 			axis(style.min_width, basis.width, horizontal).unwrap_or(horizontal),
 			axis(style.min_height, basis.height, vertical).unwrap_or(vertical),
 		);
+
 		let max = Size::new(
 			axis(style.max_width, basis.width, horizontal)
 				.unwrap_or(f32::INFINITY)
@@ -1067,6 +1106,7 @@ mod boundary_tests {
 		);
 		let mut labels = Vec::new();
 		let mut tiles = Vec::new();
+
 		for _ in 0..3 {
 			let tile = yoga.create_node();
 			yoga.set_style(
@@ -1079,11 +1119,13 @@ mod boundary_tests {
 					..Style::default()
 				},
 			);
+
 			let text = label(&mut yoga, 20);
 			yoga.set_children(tile, [text.node]);
 			tiles.push(tile);
 			labels.push(text);
 		}
+
 		yoga.set_children(row, tiles.clone());
 		yoga.calculate_layout(row, SPACE);
 
@@ -1140,11 +1182,13 @@ mod boundary_tests {
 				} else {
 					FlexDirection::Column
 				},
+
 				flex_wrap: if random.below(4) == 0 {
 					FlexWrap::Wrap
 				} else {
 					FlexWrap::NoWrap
 				},
+
 				align_items: [
 					Align::Stretch,
 					Align::Stretch,
@@ -1161,6 +1205,7 @@ mod boundary_tests {
 				} else {
 					Dimension::Auto
 				},
+
 				width: dimension(random),
 				height: dimension(random),
 				margin: Rect {
@@ -1173,6 +1218,7 @@ mod boundary_tests {
 			};
 			yoga.set_style(node, style);
 			let mut children = Vec::new();
+
 			for _ in 0..=random.below(3) {
 				if depth < 3 && random.below(2) == 0 {
 					children.push(container(yoga, random, depth + 1, widths, labels));
@@ -1183,6 +1229,7 @@ mod boundary_tests {
 					labels.push(text);
 				}
 			}
+
 			yoga.set_children(node, children);
 			node
 		}
@@ -1194,15 +1241,18 @@ mod boundary_tests {
 
 	fn layouts(yoga: &Yoga, root: NodeId) -> Vec<Layout> {
 		let mut out = vec![*yoga.layout(root)];
+
 		for &child in yoga.children(root) {
 			out.extend(layouts(yoga, child));
 		}
+
 		out
 	}
 
 	#[test]
 	fn incremental_layout_matches_a_fresh_layout() {
 		let mut with_boundaries = 0;
+
 		for seed in 0..2000 {
 			let before: Vec<u32> = (0..64)
 				.map(|index| 10 + (index * 7 + seed as u32) % 50)
@@ -1215,6 +1265,7 @@ mod boundary_tests {
 			// tree built afresh with the new widths.
 			let mut after = before.clone();
 			let mut random = Random(seed ^ 0x5eed);
+
 			for (index, text) in labels.iter().enumerate() {
 				if random.below(3) == 0 {
 					let width = 5 + random.below(80) as u32;
@@ -1222,7 +1273,9 @@ mod boundary_tests {
 					relabel(&mut incremental, text, width);
 				}
 			}
+
 			with_boundaries += usize::from(!incremental.pending.is_empty());
+
 			incremental.calculate_layout(root, SPACE);
 
 			let mut fresh = Yoga::new();
@@ -1234,6 +1287,7 @@ mod boundary_tests {
 				"seed {seed}"
 			);
 		}
+
 		// The comparison means something only if boundaries actually formed.
 		assert!(
 			with_boundaries > 150,

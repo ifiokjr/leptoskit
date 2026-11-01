@@ -75,6 +75,7 @@ impl<T: Translations> L10n<T> {
 	/// locale already in use.
 	pub fn set_locale(&self, locale: &Locale) {
 		let next = Self::resolve(std::slice::from_ref(locale));
+
 		if self.locale.with_untracked(|current| *current != next) {
 			self.locale.set(next);
 		}

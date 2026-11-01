@@ -49,6 +49,7 @@ internal class NativeRustAsync private constructor(
         id: Long,
     ): Int {
         val value = synchronized(lock) { reply.also { reply = 0 } }
+
         return NativeApp.guestCompleteWorker(guest, id, value)
     }
 

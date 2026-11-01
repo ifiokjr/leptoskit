@@ -35,10 +35,12 @@ pub fn track_form(name: &str, state: &FormState) {
 
 	let tracked =
 		registry::find::<FormSource>(|key| matches!(key, Slot::Form(form) if form == name));
+
 	if let Some((id, form)) = tracked {
 		if form.replace(state) {
 			registry::mark_dirty(id);
 		}
+
 		return;
 	}
 
@@ -60,9 +62,11 @@ impl FormSource {
 	/// Keeps `state`, and says whether it differs from the one kept before.
 	fn replace(&self, state: &FormState) -> bool {
 		let mut current = self.state.borrow_mut();
+
 		if *current == *state {
 			return false;
 		}
+
 		current.clone_from(state);
 		true
 	}

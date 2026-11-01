@@ -55,25 +55,31 @@ fn behavior(module: &str, name: &str) -> Option<Behavior> {
 			_ => Behavior::Trap(BROWSER_WORK),
 		});
 	}
+
 	if module != "__wbindgen_placeholder__" {
 		return None;
 	}
+
 	match name {
 		"__wbindgen_describe"
 		| "__wbindgen_describe_generic_import"
 		| "__wbindgen_object_drop_ref" => Some(Behavior::Discard),
+
 		_ if name.starts_with("__wbg_warn_") => Some(Behavior::Report),
+
 		_ if name.starts_with("__wbg___wbindgen_throw") => {
 			Some(Behavior::Trap(
 				"the guest threw through wasm-bindgen; the panic message is in the browser-only \
 				 ABI",
 			))
 		}
+
 		_ if name.starts_with("__wbg___wbindgen_jspi_spawn_poll") => {
 			Some(Behavior::Trap(
 				"wasm-bindgen JSPI futures are unavailable in the native runtime",
 			))
 		}
+
 		_ => Some(Behavior::Trap(BROWSER_WORK)),
 	}
 }
@@ -89,6 +95,7 @@ pub(super) fn link(
 			Some(function) => function.clone(),
 			None => continue,
 		};
+
 		let module_name = import.module().to_owned();
 		let name = import.name().to_owned();
 		let Some(behavior) = behavior(&module_name, &name) else {
@@ -99,6 +106,7 @@ pub(super) fn link(
 			shim(caller, behavior, &shim_name, results)
 		})?;
 	}
+
 	Ok(())
 }
 
@@ -123,12 +131,14 @@ fn shim(
 		}
 		Behavior::Trap(message) => return Err(host_trap(format!("{message}: {name}"))),
 	}
+
 	for (index, slot) in results.iter_mut().enumerate() {
 		if index == 0 && matches!(behavior, Behavior::Grow) {
 			continue;
 		}
 		*slot = zero(slot);
 	}
+
 	Ok(())
 }
 

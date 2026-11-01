@@ -35,6 +35,7 @@ mod conformance {
 					.into(),
 			);
 		}
+
 		let platform = match args[0].as_str() {
 			"ios" => Platform::Ios,
 			"android" => Platform::Android,
@@ -43,6 +44,7 @@ mod conformance {
 			"linux" => Platform::Linux,
 			_ => return Err("unknown platform".into()),
 		};
+
 		let allow = match args[4].as_str() {
 			"allow" => true,
 			"deny" => false,
@@ -53,17 +55,21 @@ mod conformance {
 		} else {
 			Application::Path(args[2].clone())
 		};
+
 		let mut options = Options::new(&args[1], platform, application);
 		options.artifacts = format!("target/native-ui/reports/{}-{}", args[0], args[4]).into();
+
 		if matches!(platform, Platform::Ios | Platform::Android) {
 			options.device = Some(args[3].clone());
 		}
+
 		match platform {
 			Platform::Android => configure_android(&mut options),
 			Platform::Ios => configure_ios(&mut options)?,
 			Platform::Macos => configure_macos(&mut options),
 			Platform::Windows | Platform::Linux => {}
 		}
+
 		Ok((options, platform, allow))
 	}
 
@@ -114,6 +120,7 @@ mod conformance {
 		options
 			.capabilities
 			.insert("appium:waitForIdleTimeout".to_owned(), json!(0));
+
 		// CI builds WebDriverAgent while the job compiles
 		// (native_wda_build.sh), so the session launches that runner
 		// instead of compiling it first.
@@ -128,6 +135,7 @@ mod conformance {
 				.capabilities
 				.insert("appium:derivedDataPath".to_owned(), json!(derived_data));
 		}
+
 		Ok(())
 	}
 
@@ -166,12 +174,14 @@ mod conformance {
 		tester.expect_visible(&choice)?;
 		tester.checkpoint("Real operating-system dialog, before responding")?;
 		tester.tap(&choice)?;
+
 		let expected = match (platform, allow) {
 			(Platform::Ios | Platform::Android, true) => "Notifications allowed",
 			(Platform::Ios | Platform::Android, false) => "Notifications denied",
 			(_, true) => "Selected: evidence.txt",
 			(_, false) => "Cancelled",
 		};
+
 		tester.expect_visible(&Locator::text(expected))?;
 		tester.expect_absent(&choice)?;
 		tester.checkpoint("Result returned by the native dialog")?;
@@ -179,16 +189,19 @@ mod conformance {
 		// assertion above separately proves this frame belongs to the scenario.
 		let capture = tester.screenshot()?;
 		let (width, height) = capture.dimensions();
+
 		if width < 200 || height < 200 {
 			return Err(Error::Assertion(
 				"native capture is unexpectedly small".to_owned(),
 			));
 		}
+
 		if capture.distinct_colors(32)? <= 32 {
 			return Err(Error::Assertion(
 				"capture has too few colors for rendered native text and controls".to_owned(),
 			));
 		}
+
 		println!(
 			"Native report: {}",
 			tester.artifacts().join("index.html").display()
@@ -206,6 +219,7 @@ mod conformance {
 					if allow { "allow" } else { "deny" }
 				))
 			}
+
 			Platform::Ios => Locator::text(if allow { "Allow" } else { "Don’t Allow" }),
 			// The open panel is a sheet on the fixture's window.
 			Platform::Macos => {

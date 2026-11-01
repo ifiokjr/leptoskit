@@ -1194,6 +1194,7 @@ mod tests {
 		};
 		assert!(!format!("{challenge:?}").contains("secret-token"));
 		let address = Pubkey::from_bytes([7; 32]);
+
 		let sign_in = WalletSignIn {
 			proof: WalletProof {
 				address: address.clone(),

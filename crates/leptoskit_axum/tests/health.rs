@@ -140,6 +140,7 @@ async fn get_once(address: SocketAddr, path: &str) -> std::io::Result<(u16, Stri
 
 async fn eventually(what: &str, mut condition: impl AsyncFnMut() -> bool) {
 	let start = Instant::now();
+
 	while !condition().await {
 		assert!(
 			start.elapsed() < Duration::from_secs(10),
@@ -174,6 +175,7 @@ async fn shutdown_fails_readiness_then_drains_then_finishes_in_flight_requests()
 	let app = Router::new().route("/slow", slow).merge(readiness.routes());
 	let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
 	let address = listener.local_addr().expect("address");
+
 	let (stop, stopped) = oneshot::channel::<()>();
 	let drain_delay = Duration::from_millis(400);
 	let shutdown = GracefulShutdown::new()
@@ -242,6 +244,7 @@ async fn the_server_stops_waiting_for_requests_after_the_grace_period() {
 		});
 	let server = tokio::spawn(serve_listener_with(listener, app, shutdown));
 	let stuck = tokio::spawn(get_once(address, "/forever"));
+
 	entered.notified().await;
 
 	let signalled = Instant::now();
@@ -284,6 +287,7 @@ async fn an_idle_server_stops_at_once_without_a_grace_period() {
 	})
 	.await;
 	stop.send(()).expect("signal");
+
 	tokio::time::timeout(Duration::from_secs(10), server)
 		.await
 		.expect("stops")

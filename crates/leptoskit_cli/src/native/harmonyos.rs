@@ -471,6 +471,7 @@ mod tests {
 			std::fs::read_to_string(tests).unwrap(),
 			"// application-owned test journey"
 		);
+
 		let profile: serde_json::Value = serde_json::from_str(
 			&std::fs::read_to_string(root.join("hosts/harmonyos/entry/build-profile.json5"))
 				.unwrap(),

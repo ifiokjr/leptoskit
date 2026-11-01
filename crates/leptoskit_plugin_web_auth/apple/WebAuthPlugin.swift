@@ -39,7 +39,9 @@ public final class WebAuthPlugin: NSObject, NativePlugin {
         switch method {
         case 0:
             guard payload.count == 0 else { throw PluginError.invalidArgument }
+
             guard session == nil else { throw PluginError.busy }
+
             guard let identifier = bundleIdentifier,
                   let returnTo = webAuthReturnAddress(bundleIdentifier: identifier) else {
                 throw PluginError.unavailable
@@ -49,7 +51,9 @@ public final class WebAuthPlugin: NSObject, NativePlugin {
             return encodeWebAuthSession(id: next, returnTo: returnTo)
         case 1:
             let request = try WebAuthRequest(payload: payload)
+
             guard session == nil else { throw PluginError.busy }
+
             guard let begun, begun.id == request.session else { throw PluginError.invalidCall }
             self.begun = nil
             let owner = try context.requirePresentationOwner()
@@ -60,6 +64,7 @@ public final class WebAuthPlugin: NSObject, NativePlugin {
                 try await authenticate(request.url, returnTo: begun.returnTo, owner: owner)
             } onCancel: {
                 Task { @MainActor [weak self] in
+
                     guard let self, self.invocation == invocation else { return }
                     self.session?.cancel()
                 }
@@ -78,31 +83,39 @@ public final class WebAuthPlugin: NSObject, NativePlugin {
         }
         let back: URL = try await withCheckedThrowingContinuation { continuation in
             let completion: ASWebAuthenticationSession.CompletionHandler = { url, error in
+
                 if let url {
                     continuation.resume(returning: url)
                 } else if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
                     continuation.resume(throwing: PluginError.cancelled)
                 } else {
+
                     continuation.resume(throwing: PluginError.native)
                 }
             }
             let session: ASWebAuthenticationSession
+
             if #available(iOS 17.4, macOS 14.4, *) {
                 session = ASWebAuthenticationSession(
                     url: url, callback: .customScheme(scheme), completionHandler: completion)
             } else {
                 session = ASWebAuthenticationSession(url: url, callbackURLScheme: scheme, completionHandler: completion)
             }
+
             session.presentationContextProvider = anchor
             self.session = session
+
             guard session.start() else {
                 self.session = nil
                 continuation.resume(throwing: PluginError.unavailable)
+
                 return
             }
         }
         withExtendedLifetime(anchor) {}
+
         guard webAuthCameBack(back, to: returnTo) else { throw PluginError.native }
+
         return Data(back.absoluteString.utf8)
     }
 }

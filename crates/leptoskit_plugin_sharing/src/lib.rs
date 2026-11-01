@@ -28,12 +28,15 @@ impl Content {
 	/// Preserves nonempty UTF-8 text, including newlines. NUL is rejected.
 	pub fn text(value: impl Into<String>) -> Result<Self, Error> {
 		let value = value.into();
+
 		if value.len() > MAX_TEXT_BYTES {
 			return Err(Error::TooLarge);
 		}
+
 		if value.is_empty() || value.contains('\0') {
 			return Err(Error::InvalidArgument);
 		}
+
 		Ok(Self { kind: 0, value })
 	}
 
@@ -43,9 +46,11 @@ impl Content {
 	/// such as encoded hostnames or abbreviated IPv4 addresses on Android.
 	pub fn url(value: impl Into<String>) -> Result<Self, Error> {
 		let value = value.into();
+
 		if value.len() > MAX_URL_BYTES {
 			return Err(Error::TooLarge);
 		}
+
 		let authority = value
 			.strip_prefix("https://")
 			.or_else(|| value.strip_prefix("http://"))
@@ -53,6 +58,7 @@ impl Content {
 			.split(['/', '?', '#'])
 			.next()
 			.ok_or(Error::InvalidArgument)?;
+
 		if authority.is_empty()
 			|| authority.contains('@')
 			|| value
@@ -61,6 +67,7 @@ impl Content {
 		{
 			return Err(Error::InvalidArgument);
 		}
+
 		for (index, byte) in value.bytes().enumerate() {
 			if byte == b'%'
 				&& !value
@@ -71,7 +78,9 @@ impl Content {
 				return Err(Error::InvalidArgument);
 			}
 		}
+
 		let parsed = url::Url::parse(&value).map_err(|_| Error::InvalidArgument)?;
+
 		if parsed.host_str().is_none()
 			|| !parsed.username().is_empty()
 			|| parsed.password().is_some()
@@ -104,10 +113,12 @@ impl Content {
 		if payload.len() > MAX_TEXT_BYTES + 8 {
 			return Err(Error::TooLarge);
 		}
+
 		let mut decoder = Decoder::new(payload);
 		let kind = decoder.u32()?;
 		let value = decoder.string()?;
 		decoder.finish()?;
+
 		match kind {
 			0 => Self::text(value),
 			1 => Self::url(value),
@@ -122,6 +133,7 @@ pub async fn share(content: &Content) -> Result<(), Error> {
 	let reply = leptoskit_bridge::guest::Client::new(NAME)?
 		.call(SHARE, &content.encode()?)?
 		.await?;
+
 	if reply.is_empty() {
 		Ok(())
 	} else {
@@ -143,9 +155,11 @@ mod tests {
 		] {
 			let bytes = content.encode().unwrap();
 			assert_eq!(Content::decode(&bytes).unwrap(), content);
+
 			for end in 0..bytes.len() {
 				assert!(Content::decode(&bytes[..end]).is_err());
 			}
+
 			let mut trailing = bytes.to_vec();
 			trailing.push(0);
 			assert!(Content::decode(&trailing).is_err());

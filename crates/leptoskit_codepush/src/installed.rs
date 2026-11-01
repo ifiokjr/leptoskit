@@ -186,6 +186,7 @@ impl InstalledBundles {
 		} else {
 			None
 		};
+
 		let baseline = validate_container(embedded, &config)?;
 		let baseline_hash = baseline.manifest.bundle_hash();
 		let directory_lock = ownership::acquire(directory)?;
@@ -202,6 +203,7 @@ impl InstalledBundles {
 			}
 		};
 		let mut recovery = None;
+
 		let state = match fs::read(directory.join("state.json")) {
 			Ok(bytes) => {
 				match serde_json::from_slice::<State>(&bytes) {
@@ -213,9 +215,11 @@ impl InstalledBundles {
 					}
 				}
 			}
+
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => initial(),
 			Err(error) => return Err(error.into()),
 		};
+
 		let mut installed = Self {
 			directory: directory.to_owned(),
 			embedded: embedded.to_vec(),
@@ -233,6 +237,7 @@ impl InstalledBundles {
 			installed.state.candidate = None;
 			installed.state.launch = None;
 		}
+
 		installed.recover(&baseline.manifest);
 		installed.state.embedded = baseline_hash;
 		installed.persist()?;
@@ -257,10 +262,12 @@ impl InstalledBundles {
 	/// the next one down runs instead.
 	pub fn launch(&mut self) -> Result<LaunchBundle, CodePushError> {
 		self.just_confirmed = None;
+
 		if let Some(Candidate::Trying { release }) = self.state.candidate.clone() {
 			self.recovery = Some("unconfirmed trial recovered to working release".to_owned());
 			self.reject_release(release);
 		}
+
 		let (release, parsed) = loop {
 			let release = self
 				.state
@@ -275,7 +282,9 @@ impl InstalledBundles {
 				(loaded, release) => break (release, loaded?.1),
 			}
 		};
+
 		let candidate = self.state.candidate.is_some();
+
 		let wasm = entry_of(&parsed)?.to_vec();
 		self.state.generation = self
 			.state
@@ -331,6 +340,7 @@ impl InstalledBundles {
 			self.state.confirmed = release;
 			self.state.candidate = None;
 		}
+
 		self.state
 			.launch
 			.as_mut()
@@ -418,8 +428,10 @@ impl InstalledBundles {
 		transport: &mut impl Transport,
 	) -> Result<UpdateReport, CodePushError> {
 		self.just_confirmed = None;
+
 		if let Some(Candidate::Ready { release }) = &self.state.candidate {
 			let (_, parsed) = self.load(Some(release))?;
+
 			return Ok(report(UpdateStatus::Staged, parsed.manifest));
 		}
 
@@ -434,6 +446,7 @@ impl InstalledBundles {
 				"confirm or reject the outstanding trial before checking",
 			));
 		}
+
 		self.prune()?;
 
 		let keys = self
@@ -459,6 +472,7 @@ impl InstalledBundles {
 		if self.state.rejected.contains(&offer.manifest.bundle_hash()) {
 			return Ok(report(UpdateStatus::Current, current.manifest));
 		}
+
 		let download = client.download_offer(*offer)?;
 		let parsed = validate_container(&download.container, &self.config)?;
 		let id = parsed.manifest.bundle_hash();
@@ -500,6 +514,7 @@ impl InstalledBundles {
 			if self.state.rejected.len() >= MAX_REJECTED {
 				self.state.rejected.remove(0);
 			}
+
 			self.state.rejected.push(release);
 		}
 
@@ -516,6 +531,7 @@ impl InstalledBundles {
 			.candidate
 			.as_ref()
 			.is_some_and(|candidate| candidate.release() == release);
+
 		if is_candidate {
 			self.reject_release(release.to_owned());
 		} else {
@@ -532,11 +548,13 @@ impl InstalledBundles {
 
 		// The release a candidate must beat; each stored release is read once.
 		let mut working = baseline.clone();
+
 		if let Some(id) = self.state.confirmed.clone() {
 			match self.load(Some(&id)) {
 				Ok((_, parsed)) if release_order(&parsed.manifest) > release_order(baseline) => {
 					working = parsed.manifest;
 				}
+
 				Ok(_) => {
 					self.state.confirmed = None;
 					self.state.launch = None;
@@ -606,25 +624,31 @@ impl InstalledBundles {
 		for entry in fs::read_dir(&self.directory)? {
 			let entry = entry?;
 			let interrupted = entry.file_name().to_str().is_some_and(is_temporary);
+
 			if interrupted && entry.file_type()?.is_file() {
 				fs::remove_file(entry.path())?;
 			}
 		}
+
 		let keep = [
 			self.state.confirmed.as_deref(),
 			self.state.candidate.as_ref().map(Candidate::release),
 		];
+
 		for entry in fs::read_dir(self.directory.join("releases"))? {
 			let entry = entry?;
+
 			if keep.contains(&entry.file_name().to_str()) {
 				continue;
 			}
+
 			if entry.file_type()?.is_dir() {
 				fs::remove_dir_all(entry.path())?;
 			} else {
 				fs::remove_file(entry.path())?;
 			}
 		}
+
 		Ok(())
 	}
 
@@ -775,6 +799,7 @@ impl Transport for HttpTransport {
 	fn fetch(&mut self, url: &str) -> Result<Vec<u8>, CodePushError> {
 		let secure = url.starts_with("https://");
 		let development = self.allow_http && url.starts_with("http://");
+
 		if !(secure || development) {
 			return Err(CodePushError::Transport(
 				"HTTPS is required; enable allow_http only for development".to_owned(),
@@ -788,9 +813,11 @@ impl Transport for HttpTransport {
 			.map_err(|error| CodePushError::Transport(error.to_string()))?;
 
 		let status = response.status();
+
 		if status == ureq::http::StatusCode::NOT_FOUND {
 			return Err(CodePushError::NotFound(url.to_owned()));
 		}
+
 		if !status.is_success() {
 			return Err(CodePushError::Transport(format!("HTTP {status}")));
 		}

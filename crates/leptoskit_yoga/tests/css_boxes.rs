@@ -503,6 +503,7 @@ fn relative_insets_choose_the_leading_edge_without_moving_siblings() {
 			} else {
 				0.0
 			};
+
 			assert_eq!(
 				(tree.layout(child).x, tree.layout(child).y),
 				(
@@ -1217,6 +1218,7 @@ fn intrinsic_fractional_spans_use_the_combined_fraction_factors() {
 		} else {
 			tree.layout(root).height
 		};
+
 		assert_eq!(size, 90.0, "columns: {columns}");
 	}
 }

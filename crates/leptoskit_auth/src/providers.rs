@@ -330,6 +330,7 @@ impl Auth {
 			Some(identity) if identity.account_id == account => {
 				Ok(ProviderResult::Outcome(ProviderOutcome::AlreadyLinked))
 			}
+
 			Some(identity) => {
 				self.store_merge_offer(account, session, identity.account_id, &flow.provider)
 					.await?;
@@ -848,6 +849,7 @@ impl Auth {
 		}
 
 		let subject = merge_passkey_subject(me.session);
+
 		let proof = match (&merge.code, &merge.credential) {
 			(_, Some(credential)) => {
 				Some(Proof::Passkey {
@@ -858,6 +860,7 @@ impl Auth {
 			(Some(code), None) => Some(Proof::Code(code)),
 			(None, None) => None,
 		};
+
 		let Some(proof) = proof else {
 			return Err(AuthError::StepUpRequired);
 		};

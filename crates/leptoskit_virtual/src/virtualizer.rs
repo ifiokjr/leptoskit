@@ -341,6 +341,7 @@ impl Virtualizer {
 		if self.measured[index].replace(size) != Some(size) {
 			self.measurements.get_mut().truncate(index);
 		}
+
 		Ok(())
 	}
 
@@ -470,11 +471,13 @@ impl Virtualizer {
 
 		for index in measurements.len()..self.count {
 			let size = self.measured[index].unwrap_or_else(|| self.estimate.size_of(index));
+
 			if !is_layout_size(size) {
 				// The items before this one stay resolved; the next read
 				// retries from here, once a measurement or the count changed.
 				return Err(InvalidEstimate { index, value: size });
 			}
+
 			measurements.push(Measurement {
 				start,
 				size,

@@ -39,9 +39,11 @@ pub async fn remove(origins: &[String]) -> Result<bool> {
 #[must_use]
 pub fn site_pattern(url: &str) -> Option<String> {
 	let (scheme, rest) = url.split_once("://")?;
+
 	if scheme != "http" && scheme != "https" {
 		return None;
 	}
+
 	let host = rest.split(['/', '?', '#']).next()?;
 	let host = host.rsplit('@').next()?;
 	(!host.is_empty()).then(|| format!("{scheme}://{host}/*"))

@@ -52,6 +52,7 @@ fn validates_host_directories_before_installing_plugins() {
 	};
 	assert!(called);
 	assert!(!app.is_null());
+
 	// SAFETY: The create call returned the unique app handle.
 	unsafe { leptoskit_bridge_ffi::app::lk_app_destroy(app) };
 }
@@ -113,6 +114,7 @@ fn factory_failure_is_reported_and_null_context_rejected() {
 	// SAFETY: Error allocation is uniquely owned.
 	unsafe { leptoskit_bridge_ffi::lk_buffer_release(error) };
 	let mut error = empty_buffer();
+
 	// SAFETY: Null context is explicitly checked; module/output are valid.
 	let app = unsafe {
 		create_with_context(

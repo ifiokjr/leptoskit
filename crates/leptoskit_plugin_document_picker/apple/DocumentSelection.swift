@@ -12,6 +12,7 @@ final class DocumentSelection {
         let identifier = UUID()
         self.identifier = identifier
         self.continuation = continuation
+
         return identifier
     }
 

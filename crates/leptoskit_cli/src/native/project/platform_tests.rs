@@ -194,6 +194,7 @@ fn an_app_with_a_safari_extension_embeds_it_as_an_app_extension_target() {
 		root.join(".leptoskit/ios/Assets.xcassets/AppIcon.appiconset/icon-1024.png")
 			.is_file()
 	);
+
 	let extension = root.join(".leptoskit/ios/SafariExtension");
 	assert!(
 		std::fs::read_to_string(extension.join("Info.plist"))

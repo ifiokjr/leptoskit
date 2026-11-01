@@ -139,8 +139,10 @@ pub fn DataTable<T>(
 		.role(Role::Table)
 		.class("flex-col w-full")
 		.child(header_row(columns, state, &on_change));
+
 	for row in &table.rows {
 		let mut cells = View().role(Role::Row).class("flex-row");
+
 		for column in columns {
 			cells = cells.child(
 				View()
@@ -149,6 +151,7 @@ pub fn DataTable<T>(
 					.child(Text(column.cell_text(row))),
 			);
 		}
+
 		grid = grid.child(cells);
 	}
 
@@ -167,6 +170,7 @@ pub fn DataTable<T>(
 		.class("flex-col gap-2 w-full")
 		.child(filter_field)
 		.child(grid);
+
 	if state.page_size.is_none() {
 		return screen;
 	}
@@ -246,11 +250,13 @@ fn header_row<T>(
 			.as_ref()
 			.filter(|sort| sort.column == column.id)
 			.map(|sort| sort.direction);
+
 		if let Some(direction) = direction {
 			let (mark, value) = match direction {
 				SortDirection::Ascending => ("▲", "ascending"),
 				SortDirection::Descending => ("▼", "descending"),
 			};
+
 			header = header
 				.aria_attr("aria-sort", value)
 				.child(Text(mark).aria_hidden(true));

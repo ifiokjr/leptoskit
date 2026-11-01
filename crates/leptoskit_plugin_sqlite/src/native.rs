@@ -42,9 +42,11 @@ impl DatabaseError {
 	fn bridge_error(&self) -> Error {
 		match self {
 			Self::Contract(error) => *error,
+
 			Self::Io(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
 				Error::PermissionDenied
 			}
+
 			Self::Sql(rusqlite::Error::SqliteFailure(error, _)) => {
 				match error.code {
 					rusqlite::ErrorCode::AuthorizationForStatementDenied
@@ -98,9 +100,11 @@ impl Database {
 	/// available. Existing databases larger than the budget refuse to open.
 	pub fn with_quota(data_dir: impl AsRef<Path>, max_bytes: u64) -> Result<Self, Error> {
 		let data_dir = data_dir.as_ref();
+
 		if !data_dir.is_absolute() || max_bytes < 512 || max_bytes > u64::from(u32::MAX - 1) * 512 {
 			return Err(Error::InvalidArgument);
 		}
+
 		Ok(Self {
 			data_dir: data_dir.to_owned(),
 			max_bytes,
@@ -127,23 +131,29 @@ impl Database {
 		self.reset_budget();
 		let connection = self.connection.as_ref().ok_or(Error::Native)?;
 		let mut prepared = connection.prepare_cached(&statement.sql)?;
+
 		if !prepared.readonly() || prepared.column_count() == 0 {
 			return Err(Error::InvalidArgument.into());
 		}
+
 		let columns: Vec<String> = prepared
 			.column_names()
 			.into_iter()
 			.map(str::to_owned)
 			.collect();
+
 		let mut size = 8 + columns.iter().map(|name| 4 + name.len()).sum::<usize>();
 		check_size(size)?;
 		let mut cursor = prepared.query(params_from_iter(&statement.parameters))?;
 		let mut rows = Vec::new();
+
 		while let Some(row) = cursor.next()? {
 			if rows.len() == MAX_ROWS {
 				return Err(Error::TooLarge.into());
 			}
+
 			let mut values = Vec::with_capacity(columns.len());
+
 			for index in 0..columns.len() {
 				let value = row.get_ref(index)?;
 				// Check the borrowed `SQLite` value before allocating a Rust
@@ -153,6 +163,7 @@ impl Database {
 					ValueRef::Integer(_) | ValueRef::Real(_) => 16,
 					ValueRef::Text(value) | ValueRef::Blob(value) => 8 + value.len(),
 				};
+
 				size = size.checked_add(bytes).ok_or(Error::TooLarge)?;
 				check_size(size)?;
 				values.push(match value {
@@ -170,8 +181,10 @@ impl Database {
 					ValueRef::Blob(value) => Value::Blob(value.to_vec()),
 				});
 			}
+
 			rows.push(values);
 		}
+
 		Ok(QueryResult { columns, rows })
 	}
 
@@ -201,11 +214,13 @@ impl Database {
 			})
 			.collect::<Result<Vec<_>, DatabaseError>>();
 		let result = result.and_then(|results| self.control("COMMIT").map(|()| results));
+
 		if result.is_err() {
 			// Report the statement's own failure. A failed rollback already
 			// discards the connection, so no transaction outlives this call.
 			let _ = self.rollback();
 		}
+
 		result
 	}
 
@@ -217,6 +232,7 @@ impl Database {
 			&& let Err((connection, error)) = connection.close()
 		{
 			self.connection = Some(connection);
+
 			return Err(error.into());
 		}
 		Ok(())
@@ -241,6 +257,7 @@ impl Database {
 		// `SQLite` may already have rolled back when the progress hook
 		// interrupted it.
 		self.reset_budget();
+
 		if self
 			.connection
 			.as_ref()
@@ -250,6 +267,7 @@ impl Database {
 			// Never reuse a connection whose transaction outcome is
 			// uncertain.
 			self.connection.take();
+
 			return Err(error);
 		}
 		Ok(())
@@ -259,6 +277,7 @@ impl Database {
 		if self.connection.is_some() {
 			return Ok(());
 		}
+
 		let data_dir = std::fs::canonicalize(&self.data_dir)?;
 		let root = Dir::open_ambient_dir(&data_dir, ambient_authority())?;
 		let builder = DirBuilder::new();
@@ -269,20 +288,26 @@ impl Database {
 			builder.mode(0o700);
 			builder
 		};
+
 		match root.create_dir_with("sqlite", &builder) {
 			Ok(()) => (),
+
 			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
 			Err(error) => return Err(error.into()),
 		}
+
 		let metadata = root.symlink_metadata("sqlite")?;
+
 		if !metadata.is_dir() || metadata.file_type().is_symlink() {
 			return Err(Error::PermissionDenied.into());
 		}
+
 		// Unix permission bits; Windows protects the per-user app data
 		// directory with inherited ACLs, which this check does not inspect.
 		#[cfg(unix)]
 		{
 			use cap_std::fs::PermissionsExt as _;
+
 			if metadata.permissions().mode() & 0o077 != 0 {
 				return Err(Error::PermissionDenied.into());
 			}
@@ -302,6 +327,7 @@ impl Database {
 				Ok(metadata) if !metadata.is_file() || metadata.file_type().is_symlink() => {
 					return Err(Error::PermissionDenied.into());
 				}
+
 				Ok(metadata) => {
 					// A second hard link lets another path read the database or
 					// redirects writes into a file the app does not own.
@@ -324,6 +350,7 @@ impl Database {
 						return Err(Error::PermissionDenied.into());
 					}
 				}
+
 				Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
 				Err(error) => return Err(error.into()),
 			}
@@ -410,6 +437,7 @@ impl Database {
 			}),
 		)?;
 		self.connection = Some(connection);
+
 		Ok(())
 	}
 }
@@ -437,6 +465,7 @@ impl Plugin for Database {
 
 	fn invoke(&mut self, method: MethodId, payload: Bytes) -> Result<Bytes, Error> {
 		check_size(payload.len())?;
+
 		match method {
 			EXECUTE => {
 				self.execute(&Statement::decode(&payload)?)
@@ -455,6 +484,7 @@ impl Plugin for Database {
 				for _ in 0..count {
 					statements.push(decode_statement(&mut decoder)?);
 				}
+
 				decoder.finish()?;
 				let results = self
 					.transaction(&statements)
@@ -464,12 +494,14 @@ impl Plugin for Database {
 				for result in results {
 					encoder.bytes(&result.encode())?;
 				}
+
 				Ok(encoder.finish())
 			}
 			CLOSE => {
 				if !payload.is_empty() {
 					return Err(Error::InvalidArgument);
 				}
+
 				self.close().map_err(|error| error.bridge_error())?;
 				Ok(Bytes::new())
 			}
@@ -504,6 +536,7 @@ fn windows_link_count(path: &Path) -> std::io::Result<u32> {
 	if unsafe { GetFileInformationByHandle(file.as_raw_handle(), information.as_mut_ptr()) } == 0 {
 		return Err(std::io::Error::last_os_error());
 	}
+
 	// SAFETY: the successful call initialized every field.
 	Ok(unsafe { information.assume_init() }.nNumberOfLinks)
 }

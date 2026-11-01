@@ -45,6 +45,7 @@ fn main() -> Result<()> {
 	} else {
 		("probe", &[])
 	};
+
 	let mut cargo = toolchain.rustc("leptoskit_android", &["--features", features], rustc_flags)?;
 	cargo.env(
 		"CARGO_BUILD_JOBS",
@@ -87,6 +88,7 @@ fn main() -> Result<()> {
 		"Android Activity produced no verdict; inspect {}",
 		artifacts.join("logcat.txt").display()
 	);
+
 	let verdict = device.read_app_file(PACKAGE, VERDICT)?;
 	fs::write(artifacts.join("verdict.txt"), &verdict)?;
 	let verdict = String::from_utf8(verdict)?;
@@ -96,6 +98,7 @@ fn main() -> Result<()> {
 		"Android native widgets failed; inspect {}",
 		artifacts.join("logcat.txt").display()
 	);
+
 	for filename in ["widgets.png", "styled-controls.png"] {
 		let image = device.read_app_file(PACKAGE, &format!("files/{filename}"))?;
 		ensure!(
@@ -104,12 +107,14 @@ fn main() -> Result<()> {
 		);
 		fs::write(artifacts.join(filename), image)?;
 	}
+
 	if coverage {
 		let profile = device
 			.read_app_file(PACKAGE, COVERAGE_PROFILE)
 			.context("the coverage build wrote no LLVM profile")?;
 		fs::write(artifacts.join("coverage.profraw"), profile)?;
 	}
+
 	println!("Android native widget evidence: {}", artifacts.display());
 	Ok(())
 }

@@ -112,6 +112,7 @@ fn expand_in(module: &Module, manifest: &Path, platform: &str) -> syn::Result<To
 	})?;
 	let shared = checked_source(&source, &stem.with_extension("rs"), &module.path)?;
 	let platform_source = source.join(stem.with_extension(format!("{platform}.rs")));
+
 	let selected = match std::fs::symlink_metadata(&platform_source) {
 		Ok(_) if platform != "shared" => {
 			checked_source(
@@ -120,7 +121,9 @@ fn expand_in(module: &Module, manifest: &Path, platform: &str) -> syn::Result<To
 				&module.path,
 			)?
 		}
+
 		Ok(_) => shared,
+
 		Err(source_error) if source_error.kind() == std::io::ErrorKind::NotFound => shared,
 		Err(source_error) => {
 			return Err(error(&format!(
@@ -129,6 +132,7 @@ fn expand_in(module: &Module, manifest: &Path, platform: &str) -> syn::Result<To
 			)));
 		}
 	};
+
 	let selected = selected
 		.to_str()
 		.ok_or_else(|| error("platform module paths must be UTF-8"))?;

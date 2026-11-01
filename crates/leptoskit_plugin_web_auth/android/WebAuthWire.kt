@@ -21,6 +21,7 @@ internal fun returnAddress(packageName: String): String? {
             segments.all { segment ->
                 segment.isNotEmpty() && segment[0] in 'a'..'z' && segment.all { it in 'a'..'z' || it in '0'..'9' }
             }
+
     return if (valid) "$scheme:$RETURN_PATH" else null
 }
 
@@ -30,6 +31,7 @@ internal fun encodeSession(
     returnTo: String,
 ): ByteArray {
     val address = returnTo.toByteArray(Charsets.UTF_8)
+
     return ByteBuffer
         .allocate(4 + address.size)
         .order(ByteOrder.LITTLE_ENDIAN)
@@ -46,6 +48,7 @@ internal class WebAuthRequest(
     companion object {
         fun decode(payload: ByteBuffer): WebAuthRequest {
             val bytes = payload.duplicate().order(ByteOrder.LITTLE_ENDIAN)
+
             if (bytes.remaining() !in 5..(4 + 8192)) throw PluginException(PluginException.INVALID_ARGUMENT)
             val session = bytes.int
             val text =
@@ -57,8 +60,10 @@ internal class WebAuthRequest(
                         .decode(bytes)
                         .toString()
                 } catch (_: CharacterCodingException) {
+
                     throw PluginException(PluginException.INVALID_ARGUMENT)
                 }
+
             return WebAuthRequest(session, providerPage(text))
         }
 
@@ -74,9 +79,11 @@ internal class WebAuthRequest(
             val host = url.host ?: throw PluginException(PluginException.INVALID_ARGUMENT)
             val local = host == "localhost" || host == "127.0.0.1" || host == "[::1]"
             val scheme = url.scheme?.lowercase(Locale.ROOT)
+
             if (url.rawUserInfo != null || !(scheme == "https" || (scheme == "http" && local))) {
                 throw PluginException(PluginException.INVALID_ARGUMENT)
             }
+
             return url
         }
     }
@@ -94,6 +101,7 @@ internal fun cameBack(
             return false
         }
     val expected = URI(returnTo)
+
     return back.scheme.equals(expected.scheme, ignoreCase = true) &&
         back.rawAuthority == expected.rawAuthority &&
         back.rawPath == expected.rawPath &&

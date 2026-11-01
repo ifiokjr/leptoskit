@@ -161,6 +161,7 @@ fn retained_service_close_cancels_async_jobs_and_preserves_callback_cleanup() {
 	.unwrap();
 	app.with_host(|host| host.plugins().submit(plugin, METHOD, Bytes::new()))
 		.unwrap();
+
 	let receiver = start(&mut app);
 	entered_receiver.recv_timeout(TIMEOUT).unwrap();
 

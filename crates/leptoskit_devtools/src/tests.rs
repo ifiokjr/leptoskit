@@ -69,6 +69,7 @@ impl Routable for Page {
 	fn from_url(url: &RouteUrl) -> Result<Self, NoMatch> {
 		match url.segments() {
 			[] => Ok(Self::Home),
+
 			[settings] if settings == "settings" => Ok(Self::Settings),
 			_ => Err(NoMatch),
 		}
@@ -137,6 +138,7 @@ fn hooks_do_nothing_without_an_agent() {
 	track_router(&Router::<Page>::new(Page::Home));
 	#[cfg(feature = "form")]
 	crate::track_form("signup", &leptoskit_form::FormState::default());
+
 	#[cfg(feature = "query")]
 	crate::track_queries(&leptoskit_query::QueryClient::new());
 
@@ -170,6 +172,7 @@ fn sessions_declare_what_the_hooks_can_feed() {
 		capabilities.contains(&Capability::Forms),
 		cfg!(feature = "form")
 	);
+
 	for capability in [Capability::Queries, Capability::Mutations] {
 		assert_eq!(
 			capabilities.contains(&capability),
@@ -320,6 +323,7 @@ fn a_snapshot_carries_every_value() {
 	let snapshot = registry::snapshot(tree("View"));
 	assert_eq!(snapshot.tree, tree("View"));
 	assert_eq!(snapshot.route.as_deref(), Some("/settings"));
+
 	assert_eq!(snapshot.state.len(), 1);
 	assert_eq!(snapshot.state[0].name, "count");
 	assert_eq!(snapshot.state[0].value, Value::from_json("usize", json!(7)));
@@ -501,6 +505,7 @@ mod queries {
 	/// The one query event of a collect.
 	fn changed() -> (String, Value) {
 		let events = registry::collect().events;
+
 		match events.as_slice() {
 			[Event::QueryChanged { key, value }] => (key.clone(), value.clone()),
 			_ => panic!("one query changed: {events:?}"),
@@ -512,8 +517,10 @@ mod queries {
 			if condition() {
 				return;
 			}
+
 			tokio::time::sleep(Duration::from_millis(5)).await;
 		}
+
 		panic!("timed out waiting for: {label}");
 	}
 
@@ -531,6 +538,7 @@ mod queries {
 		assert_eq!(value.json["scope"], "clips");
 		assert_eq!(value.json["key"], "()");
 		assert_eq!(value.json["status"], "success");
+
 		assert_eq!(value.json["fetch_status"], "idle");
 		assert_eq!(value.json["stale"], false);
 		assert_eq!(value.json["invalidated"], false);
@@ -555,6 +563,7 @@ mod queries {
 		assert_eq!(value.type_name, "QueryState<u32>");
 		assert_eq!(value.json["status"], "success");
 		assert!(value.json["data"].is_null());
+
 		assert!(
 			value.json["read_only"]
 				.as_str()
@@ -674,6 +683,7 @@ mod queries {
 		assert!(value.truncated);
 		assert_eq!(value.json["status"], "success", "the status stays readable");
 		assert_eq!(value.json["data"]["truncated"], true);
+
 		assert!(value.json["data"]["bytes"].as_u64().unwrap() > 2 * 64 * 1024);
 	}
 
@@ -709,6 +719,7 @@ mod queries {
 		assert_eq!(value.json["status"], "success");
 		assert_eq!(value.json["scope"], "create_project");
 		assert_eq!(value.json["paused"], false);
+
 		assert!(value.json["submitted_at"].is_u64());
 	}
 
@@ -724,6 +735,7 @@ mod queries {
 			QueryScope::new(|()| async move { Ok(0) }).with_name("same 1");
 		client.set_query_data(&first, 1, 1);
 		client.set_query_data(&second, (), 2);
+
 		let mut keys: Vec<String> = registry::collect()
 			.events
 			.iter()

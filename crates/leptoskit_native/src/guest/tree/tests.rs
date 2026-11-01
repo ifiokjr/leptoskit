@@ -141,6 +141,7 @@ fn rive_input_updates_reuse_only_the_asset_already_installed_on_the_same_node() 
 		Element::view().child(Element::rive(playback).aria_hidden(true)),
 		&mut host,
 	);
+
 	let child = host.nodes[&tree.root.unwrap()].children[0];
 	assert!(host.nodes[&child].props["rive"]["asset"].is_string());
 }
@@ -671,6 +672,7 @@ fn a_binding_settles_without_recreating_its_siblings() {
 		.map(|(id, _)| id)
 		.unwrap();
 	host.created.clear();
+
 	host.updated.clear();
 	host.deleted.clear();
 	count.set(1);
@@ -707,6 +709,7 @@ fn a_list_region_replaces_its_rows_and_leaves_the_rest_of_the_screen() {
 		.map(|(id, _)| id)
 		.unwrap();
 	host.created.clear();
+
 	host.updated.clear();
 	host.deleted.clear();
 	items.set(vec!["a".to_owned(), "c".to_owned()]);
@@ -742,6 +745,7 @@ fn show_drops_its_child_without_touching_the_sibling() {
 		.find(|(_, node)| node.props["text"] == "static")
 		.map(|(id, _)| id)
 		.unwrap();
+
 	host.created.clear();
 	host.deleted.clear();
 	host.updated.clear();

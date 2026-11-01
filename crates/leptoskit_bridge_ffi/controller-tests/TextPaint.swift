@@ -46,6 +46,7 @@ struct TextPaint {
         // The light appearance, so the dynamic label color is dark on the white canvas.
         window.appearance = NSAppearance(named: .aqua)
         window.contentView = view
+
         defer { window.contentView = nil; window.close() }
         let bitmap = try #require(NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,

@@ -51,6 +51,7 @@ impl NativeTester {
 		};
 		let connection = Connection::new(&options.endpoint)?;
 		let artifacts = create_artifacts(&options.artifacts)?;
+
 		let session = match Session::start(connection, &capabilities, limits) {
 			Ok(session) => session,
 			Err(error) => {
@@ -68,6 +69,7 @@ impl NativeTester {
 				);
 			}
 		};
+
 		Ok(Self {
 			session,
 			options,
@@ -293,9 +295,11 @@ impl NativeTester {
 				Err(Error::Driver { code, .. }) if code == "invalid session id" => {
 					self.session.abandon();
 				}
+
 				capture => result = combine(result, capture),
 			}
 		}
+
 		let message = result.as_ref().err().map(ToString::to_string);
 		result = combine(result, self.session.close());
 		let message = result.as_ref().err().map(ToString::to_string).or(message);
@@ -350,10 +354,12 @@ fn write_report(
 		 #ccc}pre{white-space:pre-wrap}figure{margin:24px 0}</style><h1>Leptoskit native \
 		 test</h1><p>Actual operating-system screenshots. Images retain their original pixels.</p>",
 	);
+
 	if let Some(failure) = failure {
 		write!(html, "<h2>Failed</h2><pre>{}</pre>", escape(failure))
 			.expect("writing to a String cannot fail");
 	}
+
 	for (label, stem) in captures {
 		write!(
 			html,
@@ -364,6 +370,7 @@ fn write_report(
 		)
 		.expect("writing to a String cannot fail");
 	}
+
 	html.push_str("</html>");
 	std::fs::write(artifacts.join("index.html"), html)?;
 	Ok(())

@@ -21,6 +21,7 @@ final class CaptureController: NSObject {
         let subtitle = NSTextField(wrappingLabelWithString: "Real text, native controls, system dialogs.")
         name.placeholderString = "Your name"
         name.setAccessibilityIdentifier("name")
+
         status.setAccessibilityIdentifier("status")
         let greet = button("Greet", id: "greet", action: #selector(greetUser))
         let increment = button("Increment", id: "increment", action: #selector(incrementCount))
@@ -50,6 +51,7 @@ final class CaptureController: NSObject {
         button.bezelStyle = .push
         button.bezelColor = .systemIndigo
         button.setAccessibilityIdentifier(id)
+
         return button
     }
 
@@ -73,6 +75,7 @@ final class CaptureController: NSObject {
         panel.directoryURL = Bundle.main.bundleURL
             .deletingLastPathComponent()
             .appendingPathComponent("evidence.txt")
+
         panel.beginSheetModal(for: window) { response in
             self.status.stringValue = response == .OK
                 ? "Selected: \(panel.url?.lastPathComponent ?? "")"

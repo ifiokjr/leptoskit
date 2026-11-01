@@ -61,6 +61,7 @@ const ACCESSIBILITY_LABEL: u32 = 1 << 4;
 const COLOR: u32 = 1 << 5;
 const BACKGROUND: u32 = 1 << 6;
 const BORDER_COLOR: u32 = 1 << 7;
+
 const ENABLED: u32 = 1 << 8;
 const HIDDEN: u32 = 1 << 9;
 const CLIP: u32 = 1 << 10;
@@ -84,10 +85,12 @@ pub(super) fn encode(
 		limit,
 	};
 	writer.put(MAGIC)?;
+
 	let root = match root {
 		Some(root) => i64::try_from(root).map_err(|_| too_large("root id"))?,
 		None => -1,
 	};
+
 	writer.put(&root.to_le_bytes())?;
 	writer.u32(u32::try_from(mutations.len()).map_err(|_| too_large("mutation count"))?)?;
 
@@ -189,6 +192,7 @@ impl Writer {
 		let accessibility_label = rest.accessibility_label.take();
 		let color = rest.color.take();
 		let background = rest.background.take();
+
 		let border_color = rest.border_color.take();
 		let enabled = rest.enabled.take();
 		let hidden = rest.hidden.take();

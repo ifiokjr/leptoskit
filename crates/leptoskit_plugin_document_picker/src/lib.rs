@@ -29,6 +29,7 @@ impl Options {
 		if max_bytes > MAX_BYTES {
 			return Err(Error::TooLarge);
 		}
+
 		Ok(Self { max_bytes })
 	}
 
@@ -66,6 +67,7 @@ impl Document {
 		let mut decoder = Decoder::new(&reply);
 		let name = decoder.string()?;
 		let mime_type = decoder.string()?;
+
 		if name.is_empty()
 			|| name.len() > MAX_METADATA_BYTES
 			|| mime_type.len() > MAX_METADATA_BYTES
@@ -73,9 +75,11 @@ impl Document {
 			return Err(Error::InvalidArgument);
 		}
 		let bytes = decoder.bytes()?;
+
 		if bytes.len() > options.max_bytes as usize {
 			return Err(Error::TooLarge);
 		}
+
 		let offset = 12 + name.len() + mime_type.len();
 		let length = bytes.len();
 		decoder.finish()?;
@@ -121,6 +125,7 @@ mod tests {
 		let bytes = reply("example.txt", b"abc");
 		let document = Document::decode(bytes.clone(), Options::new(3).unwrap()).unwrap();
 		assert_eq!(document.bytes, b"abc"[..]);
+
 		assert_eq!(document.bytes.as_ptr(), bytes[33..].as_ptr());
 		assert_eq!(
 			Document::decode(bytes, Options::new(2).unwrap()),
@@ -131,9 +136,11 @@ mod tests {
 	fn rejects_invalid_limits_truncation_trailing_and_metadata() {
 		assert_eq!(Options::new(MAX_BYTES + 1), Err(Error::TooLarge));
 		let good = reply("a", b"");
+
 		for len in 0..good.len() {
 			assert!(Document::decode(good.slice(..len), Options::default()).is_err());
 		}
+
 		let mut trailing = good.to_vec();
 		trailing.push(0);
 		assert!(Document::decode(trailing.into(), Options::default()).is_err());

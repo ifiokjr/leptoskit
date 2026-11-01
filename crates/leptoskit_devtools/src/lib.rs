@@ -43,6 +43,7 @@ mod guest;
 mod host;
 #[cfg(feature = "query")]
 mod query;
+
 mod registry;
 #[cfg(any(
 	test,
@@ -107,8 +108,10 @@ pub fn install(app: &str) {
 	#[cfg(all(feature = "web", target_arch = "wasm32"))]
 	if let Some(hub) = hub() {
 		web::install(hub, app);
+
 		return;
 	}
+
 	#[cfg(all(feature = "guest", target_arch = "wasm32"))]
 	guest::start();
 	let _ = app;

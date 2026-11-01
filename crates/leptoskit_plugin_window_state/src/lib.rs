@@ -130,6 +130,7 @@ impl Display {
 		if id.is_empty() || id.len() > 256 {
 			return Err(Error::InvalidDisplay);
 		}
+
 		Ok(Self { id, work_area })
 	}
 

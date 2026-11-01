@@ -22,21 +22,25 @@ private func buffer(_ bytes: Data = Data()) throws -> NativeBuffer {
     #expect(call > 0)
     var request = lk_request()
     #expect(lk_bridge_next_request(bridge, &request) == 1)
+
     return NativeBuffer(taking: request.payload)
 }
 
 private func mutedRequest() -> Data {
     var result = Data()
+
     for value: UInt32 in [1, 1000, 1000, 0] {
         var little = value.littleEndian
         withUnsafeBytes(of: &little) { result.append(contentsOf: $0) }
     }
+
     for text in ["Muted cancellation test", "", ""] {
         let data = Data(text.utf8)
         var count = UInt32(data.count).littleEndian
         withUnsafeBytes(of: &count) { result.append(contentsOf: $0) }
         result.append(data)
     }
+
     return result
 }
 
@@ -44,9 +48,11 @@ private func mutedRequest() -> Data {
 func speechWireRejectsMalformedRequests() throws {
     let bytes = mutedRequest()
     #expect(try SpeechRequest(payload: buffer(bytes)).volume == 0)
+
     for count in 0..<bytes.count {
         #expect(throws: PluginError.self) { try SpeechRequest(payload: buffer(bytes.prefix(count))) }
     }
+
     var invalid = bytes
     invalid[4] = 0
     invalid[5] = 0

@@ -32,9 +32,11 @@ fn tree_helper() {
 	let Ok(mode) = std::env::var(MODE) else {
 		return;
 	};
+
 	if mode == "capacity" {
 		return;
 	}
+
 	let directory = std::env::var_os(DIRECTORY).unwrap();
 	let directory = Path::new(&directory);
 
@@ -63,6 +65,7 @@ fn tree_helper() {
 	if mode == "branch" || mode == "leaf" {
 		std::fs::write(directory.join(mode), std::process::id().to_string()).unwrap();
 		std::thread::sleep(Duration::from_secs(120));
+
 		return;
 	}
 
@@ -90,6 +93,7 @@ fn tree_helper() {
 		assert!(std::time::Instant::now() < deadline);
 		std::thread::sleep(Duration::from_millis(5));
 	}
+
 	match mode.as_str() {
 		"exit" | "exit-inherited" => std::process::exit(7),
 		"stdout" => std::io::stdout().write_all(&vec![b'x'; 64 * 1024]).unwrap(),
@@ -151,6 +155,7 @@ fn cleanup_process(pid: u32) {
 		// SAFETY: fixture PID only; every acquired handle is closed once.
 		unsafe {
 			let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
+
 			if !handle.is_null() {
 				TerminateProcess(handle, 1);
 				CloseHandle(handle);
@@ -230,6 +235,7 @@ impl Fixture {
 			for pid in pids {
 				self.process_handles.borrow_mut().push(observe_process(pid));
 			}
+
 			std::fs::write(self.directory.path().join("observing"), b"ready").unwrap();
 		}
 		pids
@@ -277,6 +283,7 @@ fn process_alive(pid: u32) -> bool {
 	{
 		// SAFETY: signal zero only queries this fixture's known process ID.
 		let result = unsafe { libc::kill(i32::try_from(pid).unwrap(), 0) };
+
 		if result == 0 {
 			return true;
 		}
@@ -300,11 +307,13 @@ fn process_alive(pid: u32) -> bool {
 		// SAFETY: the handle is opened for synchronization only and closed
 		// once.
 		let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+
 		if handle.is_null() {
 			assert_eq!(
 				std::io::Error::last_os_error().raw_os_error(),
 				Some(ERROR_INVALID_PARAMETER as i32)
 			);
+
 			return false;
 		}
 
@@ -336,6 +345,7 @@ async fn normal_exit_timeout_and_output_limits_clean_descendants_before_returnin
 			.unwrap()
 			.unwrap();
 		assert_eq!(output.finish, expected);
+
 		if matches!(mode, "exit" | "exit-inherited") {
 			assert_eq!(output.code, Some(7));
 		}
@@ -386,6 +396,7 @@ async fn shutdown_joins_descendants_of_live_and_dropped_invocations() {
 			.await
 			.unwrap();
 		fixture.assert_finished(pids);
+
 		if abort {
 			assert!(invocation.await.unwrap_err().is_cancelled());
 		} else {
@@ -425,6 +436,7 @@ fn runtime_shutdown_kills_the_container_without_releasing_unjoined_capacity() {
 	drop(child);
 
 	let deadline = std::time::Instant::now() + Duration::from_secs(15);
+
 	while pids.into_iter().any(process_alive) {
 		assert!(
 			std::time::Instant::now() < deadline,
@@ -432,6 +444,7 @@ fn runtime_shutdown_kills_the_container_without_releasing_unjoined_capacity() {
 		);
 		std::thread::sleep(Duration::from_millis(5));
 	}
+
 	fixture.assert_finished(pids);
 
 	let runtime = tokio::runtime::Builder::new_current_thread()
@@ -460,6 +473,7 @@ async fn failed_cleanup_reports_an_error_and_forfeits_its_capacity() {
 		.await
 		.unwrap()
 		.unwrap_err();
+
 	assert!(matches!(error, Error::Io(error) if error.kind() == std::io::ErrorKind::TimedOut));
 
 	tokio::time::timeout(Duration::from_secs(15), async {

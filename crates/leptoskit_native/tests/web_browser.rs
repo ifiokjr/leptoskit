@@ -125,6 +125,7 @@ async fn rerenders_refresh_callbacks_and_slider_configuration_without_replacing_
 		find::<web_sys::HtmlInputElement>(&parent, "input[type=checkbox]"),
 		checkbox
 	);
+
 	assert_eq!(
 		find::<web_sys::HtmlInputElement>(&parent, "input[type=range]"),
 		slider
@@ -197,6 +198,7 @@ async fn rich_pressables_keep_native_button_semantics_and_focus_during_updates()
 	button.focus().expect("focus rich button");
 	let decoration: web_sys::HtmlElement = find(&button, "span");
 	decoration.click();
+
 	tick().await;
 	assert_eq!(count.get_untracked(), 1);
 	assert_eq!(outer.load(Ordering::Relaxed), 0);
@@ -1005,6 +1007,7 @@ async fn controlled_toggles_propose_once_bubble_typed_events_and_restore_rejecti
 	input.focus().expect("focus checkbox");
 	input.click();
 	tick().await;
+
 	assert!(
 		!input.checked(),
 		"rejected proposal must reset without a signal update"
@@ -1077,6 +1080,7 @@ async fn sliders_and_passwords_keep_owner_state_and_dom_identity() {
 	input_event(&slider);
 	tick().await;
 	assert_eq!(slider.value(), "6", "rejected range proposal must reset");
+
 	password.focus().expect("focus password");
 	password.set_value("rejected");
 	input_event(&password);
@@ -1144,6 +1148,7 @@ async fn radio_groups_restore_rejection_support_arrows_and_isolate_render_roots(
 	rejected.click();
 	tick().await;
 	assert!(first.checked());
+
 	assert!(!rejected.checked());
 	first.focus().expect("focus first");
 	let options = web_sys::KeyboardEventInit::new();
@@ -1230,6 +1235,7 @@ async fn disabled_hidden_controls_reject_synthetic_input_and_spinners_stop() {
 	assert_eq!(proposals.load(Ordering::SeqCst), 0);
 	let disabled: web_sys::HtmlInputElement = find(&parent, "[aria-label=Disabled]");
 	assert!(disabled.disabled());
+
 	let stopped: web_sys::HtmlElement = find(&parent, "[aria-label=Stopped]");
 	stopped.click();
 	assert_eq!(proposals.load(Ordering::SeqCst), 0);
@@ -1472,6 +1478,7 @@ async fn responsive_visibility_uses_css_without_disabling_the_control() {
 			.expect("display")
 	};
 	assert_eq!(display(), "none");
+
 	assert!(!input.disabled());
 
 	frame.set_width("900");

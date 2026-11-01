@@ -22,13 +22,16 @@ public final class SecureStorePlugin: NativePlugin {
 
     public func close() {
         closed = true
+
         for operation in inFlight.values { operation.cancel() }
     }
 
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
         guard !closed else { throw PluginError.cancelled }
+
         guard methods.contains(method) else { throw PluginError.unavailable }
         try Task.checkCancellation()
+
         guard let application = Bundle.main.bundleIdentifier else { throw PluginError.unavailable }
         let request = try payload.withUnsafeBytes { bytes in
             try SecureRequest(method: method, bytes: bytes)
@@ -39,6 +42,7 @@ public final class SecureStorePlugin: NativePlugin {
         let operation = Task.detached {
             await previous?.value
             try Task.checkCancellation()
+
             return try Self.storeLock.withLock {
                 try Self.withFileLock(application: application) {
                     try Self.execute(request, application: application, quota: quota)
@@ -46,9 +50,11 @@ public final class SecureStorePlugin: NativePlugin {
             }
         }
         tail = Task { _ = try? await operation.value }
+
         let identifier = UUID()
         inFlight[identifier] = operation
         defer { inFlight[identifier] = nil }
+
         return try await withTaskCancellationHandler {
             try await operation.value
         } onCancel: {
@@ -68,10 +74,13 @@ public final class SecureStorePlugin: NativePlugin {
         let descriptor = Darwin.open(
             directory.appendingPathComponent(".lock").path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600
         )
+
         guard descriptor >= 0 else { throw PluginError.native }
         defer { Darwin.close(descriptor) }
+
         guard flock(descriptor, LOCK_EX) == 0 else { throw PluginError.native }
         defer { _ = flock(descriptor, LOCK_UN) }
+
         return try operation()
     }
 
@@ -85,7 +94,9 @@ public final class SecureStorePlugin: NativePlugin {
         case 0:
             let value = try archive.value(service: request.service, key: request.key)
                 ?? readLegacy(request, application: application)
+
             guard let value else { return Data([0, 0, 0, 0]) }
+
             guard value.count <= 2048 else { throw PluginError.tooLarge }
             return Data([1, 0, 0, 0]) + value
         case 1:
@@ -100,6 +111,7 @@ public final class SecureStorePlugin: NativePlugin {
         default:
             throw PluginError.unavailable
         }
+
         return Data()
     }
 
@@ -121,23 +133,30 @@ public final class SecureStorePlugin: NativePlugin {
         read[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         let status = SecItemCopyMatching(read as CFDictionary, &result)
+
         if status == errSecItemNotFound { return nil }
         try check(status)
+
         guard let value = result as? Data, value.count <= 2560 else { throw PluginError.native }
+
         return value
     }
 
     nonisolated private static func write(_ query: [String: Any], value: Data) throws {
         if value.count == 4 {
             let status = SecItemDelete(query as CFDictionary)
+
             if status != errSecItemNotFound { try check(status) }
+
             return
         }
+
         let attributes: [String: Any] = [
             kSecValueData as String: value,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
         let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+
         if status == errSecItemNotFound {
             var insert = query
             insert.merge(attributes) { _, updated in updated }
@@ -163,6 +182,7 @@ public final class SecureStorePlugin: NativePlugin {
 
     nonisolated private static func deleteLegacy(_ request: SecureRequest, application: String) throws {
         let status = SecItemDelete(legacyQuery(request, application: application) as CFDictionary)
+
         if status != errSecItemNotFound { try check(status) }
     }
 
@@ -189,10 +209,13 @@ struct SecureRequest: Sendable {
             guard bytes.count - offset >= 4 else { throw PluginError.invalidArgument }
             let count = Int(UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: offset, as: UInt32.self)))
             offset += 4
+
             if limit == 2048 && count > limit { throw PluginError.tooLarge }
+
             guard count <= limit, count <= bytes.count - offset else { throw PluginError.invalidArgument }
             let result = UnsafeRawBufferPointer(rebasing: bytes[offset..<(offset + count)])
             offset += count
+
             return result
         }
         func name() throws -> String {
@@ -201,13 +224,16 @@ struct SecureRequest: Sendable {
                 (65...90).contains(byte) || (97...122).contains(byte) || (48...57).contains(byte)
                     || byte == 45 || byte == 46 || byte == 95
             }) else { throw PluginError.invalidArgument }
+
             guard let name = String(bytes: value, encoding: .ascii) else { throw PluginError.invalidArgument }
+
             return name
         }
         self.method = method
         self.service = try name()
         self.key = try name()
         self.secret = method == 1 ? Data(try field(limit: 2048)) : nil
+
         guard offset == bytes.count else { throw PluginError.invalidArgument }
     }
 }

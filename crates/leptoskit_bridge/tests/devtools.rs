@@ -74,6 +74,7 @@ fn a_call_records_submit_run_answer_and_read() {
 	assert!(running.running_ms.unwrap() >= running.started_ms);
 	assert_eq!(answered.status, CallStatus::Ok);
 	assert_eq!(answered.response_bytes, Some(10));
+
 	assert!(answered.finished_ms.unwrap() >= answered.running_ms.unwrap());
 	assert_eq!(answered.taken_ms, None);
 	assert!(taken.taken_ms.unwrap() >= taken.finished_ms.unwrap());
@@ -166,6 +167,7 @@ fn an_answer_after_cancelling_records_a_late_completion() {
 		Err(Error::InvalidCall)
 	);
 	assert_eq!(bridge.next_cancelled(), Some(early));
+
 	assert_eq!(bridge.next_cancelled(), Some(late));
 	assert_eq!(
 		bridge.complete(late, Ok(Bytes::new())),
@@ -184,6 +186,7 @@ fn an_answer_after_cancelling_records_a_late_completion() {
 		.collect();
 	assert_eq!(lates.len(), 2, "{records:#?}");
 	assert_ne!(lates[0].id, lates[1].id);
+
 	for record in lates {
 		assert_eq!(record.status, CallStatus::Cancelled);
 		assert!(record.completed_late_ms >= record.finished_ms);
@@ -218,6 +221,7 @@ fn a_full_timeline_drops_the_oldest_records_and_counts_them() {
 	let (mut bridge, plugin) = bridge("timeline.overflow");
 	let dropped = devtools::dropped();
 	let calls = CAPACITY + 10;
+
 	for _ in 0..calls {
 		let id = bridge.submit(plugin, READ, Bytes::new()).unwrap();
 		bridge.cancel(id).unwrap();

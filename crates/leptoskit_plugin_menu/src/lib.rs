@@ -134,11 +134,14 @@ fn validate<'a>(
 	if items.is_empty() || depth > MAX_DEPTH || items.len() > MAX_ITEMS {
 		return Err(Error::InvalidDefinition);
 	}
+
 	for item in items {
 		*count += 1;
+
 		if *count > MAX_ITEMS {
 			return Err(Error::InvalidDefinition);
 		}
+
 		let (id, label, accelerator) = match item {
 			Item::Command {
 				id,
@@ -160,6 +163,7 @@ fn validate<'a>(
 			}
 			Item::Separator => continue,
 		};
+
 		if id.is_empty()
 			|| id.len() > 64
 			|| !id
@@ -170,6 +174,7 @@ fn validate<'a>(
 		{
 			return Err(Error::InvalidDefinition);
 		}
+
 		if let Some(accelerator) = accelerator
 			&& (accelerator.is_empty()
 				|| accelerator.len() > 64
@@ -179,6 +184,7 @@ fn validate<'a>(
 			return Err(Error::InvalidAccelerator);
 		}
 	}
+
 	Ok(())
 }
 
@@ -220,9 +226,11 @@ mod tests {
 			Err(Error::InvalidDefinition)
 		);
 		let mut item = command("valid");
+
 		if let Item::Command { label, .. } = &mut item {
 			*label = "bad\0label".into();
 		}
+
 		assert_eq!(Definition::new(vec![item]), Err(Error::InvalidDefinition));
 		assert_eq!(
 			Definition::new(vec![command("bad id")]),
@@ -238,6 +246,7 @@ mod tests {
 			Err(Error::InvalidDefinition)
 		);
 		let mut item = command("leaf");
+
 		for depth in 0..=MAX_DEPTH {
 			item = Item::Submenu {
 				id: format!("level{depth}"),
@@ -246,6 +255,7 @@ mod tests {
 				items: vec![item],
 			};
 		}
+
 		assert_eq!(Definition::new(vec![item]), Err(Error::InvalidDefinition));
 		assert_eq!(Definition::new(vec![]), Err(Error::InvalidDefinition));
 	}
@@ -285,6 +295,7 @@ mod tests {
 			}])
 		};
 		assert!(with("CmdOrCtrl+P").is_ok());
+
 		for accelerator in ["", &"K".repeat(65), "Ctrl+é", "Ctrl+\tP"] {
 			assert_eq!(
 				with(accelerator),

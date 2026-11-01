@@ -58,7 +58,9 @@ pub fn expand(attribute: &TokenStream, item: TokenStream) -> TokenStream {
 		Ok(function) => function,
 		Err(error) => return error.to_compile_error(),
 	};
+
 	let mut errors = Vec::new();
+
 	if !attribute.is_empty() {
 		errors.push(syn::Error::new(
 			attribute.span(),
@@ -68,8 +70,10 @@ pub fn expand(attribute: &TokenStream, item: TokenStream) -> TokenStream {
 
 	let props = take_props(&mut function, &mut errors);
 	check_signature(&function, &mut errors);
+
 	if !errors.is_empty() {
 		let errors = errors.iter().map(syn::Error::to_compile_error);
+
 		return quote!(#(#errors)* #function);
 	}
 
@@ -124,6 +128,7 @@ fn take_props(function: &mut ItemFn, errors: &mut Vec<syn::Error>) -> Vec<Prop> 
 				if let Err(error) = options.read(attribute) {
 					errors.push(error);
 				}
+
 				false
 			} else {
 				true
@@ -137,6 +142,7 @@ fn take_props(function: &mut ItemFn, errors: &mut Vec<syn::Error>) -> Vec<Prop> 
 			));
 			continue;
 		};
+
 		if pattern.by_ref.is_some() || pattern.subpat.is_some() {
 			errors.push(syn::Error::new(
 				pattern.span(),
@@ -148,6 +154,7 @@ fn take_props(function: &mut ItemFn, errors: &mut Vec<syn::Error>) -> Vec<Prop> 
 		let mut ty = parameter.ty.as_ref().clone();
 		rewriter.introduced.clear();
 		rewriter.visit_type_mut(&mut ty);
+
 		let kind = match options.kind(&ty) {
 			Ok(kind) => kind,
 			Err(message) => {
@@ -158,6 +165,7 @@ fn take_props(function: &mut ItemFn, errors: &mut Vec<syn::Error>) -> Vec<Prop> 
 				continue;
 			}
 		};
+
 		props.push(Prop {
 			name: pattern.ident.clone(),
 			written: parameter.ty.as_ref().clone(),
@@ -199,6 +207,7 @@ impl PropOptions {
 					 …`, or `into`",
 				));
 			}
+
 			Ok(())
 		})
 	}
@@ -209,6 +218,7 @@ impl PropOptions {
 			self.optional_no_strip,
 			self.default.is_some(),
 		];
+
 		match optional_kinds.iter().filter(|set| **set).count() {
 			0 => Ok(PropKind::Required),
 			1 => {
@@ -231,12 +241,15 @@ impl PropOptions {
 fn option_inner(ty: &Type) -> Option<&Type> {
 	let Type::Path(path) = ty else { return None };
 	let segment = path.path.segments.last()?;
+
 	if segment.ident != "Option" {
 		return None;
 	}
+
 	let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
 		return None;
 	};
+
 	match arguments.args.first() {
 		Some(syn::GenericArgument::Type(inner)) if arguments.args.len() == 1 => Some(inner),
 		_ => None,
@@ -246,18 +259,21 @@ fn option_inner(ty: &Type) -> Option<&Type> {
 /// Rejects what cannot be a component and normalizes its return type.
 fn check_signature(function: &ItemFn, errors: &mut Vec<syn::Error>) {
 	let signature = &function.sig;
+
 	if signature.asyncness.is_some() {
 		errors.push(syn::Error::new(
 			signature.asyncness.span(),
 			"a component cannot be `async`; load data outside it and pass the result as a prop",
 		));
 	}
+
 	if let Some(variadic) = &signature.variadic {
 		errors.push(syn::Error::new(
 			variadic.span(),
 			"a component cannot be variadic",
 		));
 	}
+
 	if !signature
 		.ident
 		.to_string()
@@ -270,6 +286,7 @@ fn check_signature(function: &ItemFn, errors: &mut Vec<syn::Error>) {
 			 tell it from a prop",
 		));
 	}
+
 	if matches!(signature.output, ReturnType::Default) {
 		errors.push(syn::Error::new(
 			signature.ident.span(),
@@ -301,9 +318,11 @@ impl VisitMut for TypeRewriter {
 	fn visit_type_mut(&mut self, ty: &mut Type) {
 		if let Type::ImplTrait(implementation) = ty {
 			let mut bounds = implementation.bounds.clone();
+
 			for bound in &mut bounds {
 				self.visit_type_param_bound_mut(bound);
 			}
+
 			self.count += 1;
 			let ident = format_ident!("__Prop{}", self.count, span = implementation.span());
 			self.introduced.push(GenericParam::Type(TypeParam {
@@ -314,8 +333,10 @@ impl VisitMut for TypeRewriter {
 				default: None,
 			}));
 			*ty = syn::parse_quote!(#ident);
+
 			return;
 		}
+
 		syn::visit_mut::visit_type_mut(self, ty);
 	}
 
@@ -323,6 +344,7 @@ impl VisitMut for TypeRewriter {
 		if reference.lifetime.is_none() {
 			reference.lifetime = Some(self.lifetime(reference.and_token.span()));
 		}
+
 		syn::visit_mut::visit_type_reference_mut(self, reference);
 	}
 
@@ -372,6 +394,7 @@ impl Component {
 		let name = &function.sig.ident;
 		let builder = &self.builder;
 		let slots = &self.slots;
+
 		let fields = self.props.iter().map(|prop| &prop.name).collect::<Vec<_>>();
 		let empty = vec![quote!(()); self.props.len()];
 		let marker_doc = format!(
@@ -429,17 +452,22 @@ impl Component {
 		if self.props.is_empty() {
 			return;
 		}
+
 		let mut lines = vec![String::new(), "# Props".to_owned(), String::new()];
+
 		for prop in &self.props {
 			let ty = readable(&prop.written.to_token_stream());
+
 			let requirement = match &prop.kind {
 				PropKind::Required => "required".to_owned(),
+
 				PropKind::Optional { default: None, .. } => "optional".to_owned(),
 				PropKind::Optional {
 					default: Some(default),
 					..
 				} => format!("default `{}`", readable(&default.to_token_stream())),
 			};
+
 			let summary = prop
 				.docs
 				.iter()
@@ -447,12 +475,14 @@ impl Component {
 				.collect::<Vec<_>>()
 				.join(" ");
 			let summary = summary.trim();
+
 			let separator = if summary.is_empty() { "" } else { ": " };
 			lines.push(format!(
 				"- **`{}`** (`{ty}`, {requirement}){separator}{summary}",
 				prop.name
 			));
 		}
+
 		for line in lines {
 			self.function.attrs.push(syn::parse_quote!(#[doc = #line]));
 		}
@@ -521,6 +551,7 @@ impl Component {
 				}
 				(_, false) => (ty.to_token_stream(), quote!(value)),
 			};
+
 			let used = used_generics(ty, generics, &prop.introduced);
 			let (parameters, predicates) = used.split();
 			let next = self.builder_with(index, &quote!((#ty,)));
@@ -559,6 +590,7 @@ impl Component {
 			if !matches!(prop.kind, PropKind::Required) {
 				return None;
 			}
+
 			let requirement = requirement_trait(name, &prop.name);
 			let message = format!("`<{name}>` is missing the required prop `{}`", prop.name);
 			let label = if prop.name == "children" {
@@ -567,6 +599,7 @@ impl Component {
 			} else {
 				format!("set it with `{}=…`", prop.name)
 			};
+
 			Some(quote! {
 				#[doc(hidden)]
 				#[allow(non_camel_case_types)]
@@ -608,6 +641,7 @@ impl Component {
 		for (prop, slot) in self.props.iter().zip(&self.slots) {
 			let field = &prop.name;
 			let ty = &prop.ty;
+
 			match &prop.kind {
 				PropKind::Required => {
 					let requirement = requirement_trait(name, field);
@@ -807,20 +841,24 @@ fn parameter_name(parameter: &GenericParam) -> String {
 fn names(tokens: &TokenStream) -> BTreeSet<String> {
 	let mut names = BTreeSet::new();
 	let mut tokens = tokens.clone().into_iter().peekable();
+
 	while let Some(token) = tokens.next() {
 		match token {
 			TokenTree::Ident(ident) => {
 				names.insert(ident.to_string());
 			}
+
 			TokenTree::Punct(punct) if punct.as_char() == '\'' => {
 				if let Some(TokenTree::Ident(ident)) = tokens.next() {
 					names.insert(format!("'{ident}"));
 				}
 			}
+
 			TokenTree::Group(group) => names.extend(self::names(&group.stream())),
 			_ => {}
 		}
 	}
+
 	names
 }
 

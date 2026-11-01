@@ -117,18 +117,22 @@ pub fn from_config(options_json: &str) -> Result<ShellPlugin, BridgeError> {
 	if options_json.len() > MAX_CONFIG_BYTES {
 		return Err(BridgeError::TooLarge);
 	}
+
 	let options: Options =
 		serde_json::from_str(options_json).map_err(|_| BridgeError::InvalidArgument)?;
 	let mut policies = BTreeMap::new();
 	let mut reply_limit = 24;
+
 	for (name, command) in options.commands {
 		let limit = command
 			.stdout_bytes
 			.checked_add(command.stderr_bytes)
 			.ok_or(BridgeError::TooLarge)?;
+
 		if limit > crate::MAX_OUTPUT_BYTES {
 			return Err(BridgeError::TooLarge);
 		}
+
 		reply_limit = reply_limit.max(limit + 24);
 		policies.insert(
 			name,
@@ -149,6 +153,7 @@ pub fn from_config(options_json: &str) -> Result<ShellPlugin, BridgeError> {
 			},
 		);
 	}
+
 	let shell = Shell::new(policies, options.max_children).map_err(|error| error.bridge_error())?;
 	Ok(ShellPlugin {
 		shell,
@@ -169,12 +174,14 @@ impl State {
 			Ok(registry) => registry,
 			Err(error) => error.into_inner(),
 		};
+
 		registry.children.values().cloned().collect()
 	}
 }
 impl Drop for ShellPlugin {
 	fn drop(&mut self) {
 		self.state.closed.cancel();
+
 		for child in self.state.cancellations() {
 			child.cancel();
 		}
@@ -215,6 +222,7 @@ impl AsyncPlugin for ShellPlugin {
 				if cancellation.is_cancelled() || self.state.closed.is_cancelled() {
 					return Err(BridgeError::Cancelled);
 				}
+
 				// A dropped invocation leaves its cancellation handle here.
 				// Retire it only after the supervisor has finished container
 				// cleanup.
@@ -222,6 +230,7 @@ impl AsyncPlugin for ShellPlugin {
 				if registry.children.len() >= self.state.max_children {
 					return Err(BridgeError::Busy);
 				}
+
 				let id = registry.next.checked_add(1).ok_or(BridgeError::Exhausted)?;
 				let child = self
 					.shell

@@ -23,6 +23,7 @@ private func buffer(_ bytes: Data = Data()) throws -> NativeBuffer {
     #expect(call > 0)
     var request = lk_request()
     #expect(lk_bridge_next_request(bridge, &request) == 1)
+
     return NativeBuffer(taking: request.payload)
 }
 
@@ -35,6 +36,7 @@ func textRoundTripsThroughThePasteboardAndClears() async throws {
     let previous = pasteboard.string(forType: .string)
     defer {
         pasteboard.clearContents()
+
         if let previous { pasteboard.setString(previous, forType: .string) }
     }
     let plugin = ClipboardPlugin()

@@ -97,6 +97,7 @@ pub(crate) fn describe(root: &Element) -> String {
 	strip_noise(&copy);
 
 	let markup = copy.outer_html();
+
 	match markup.char_indices().nth(DESCRIBE_LIMIT) {
 		Some((cut, _)) => {
 			format!(

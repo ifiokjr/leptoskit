@@ -168,6 +168,7 @@ impl IRawElementProviderSimple_Impl for DecorativeProvider_Impl {
 				leptoskit_native::Live::Assertive => Assertive,
 				_ => Polite,
 			};
+
 			return Ok(VARIANT::from(setting.0));
 		}
 
@@ -211,6 +212,7 @@ impl IRawElementProviderSimple_Impl for DecorativeProvider_Impl {
 /// the previously announced text.
 pub(crate) fn announce_live(widget: &Rc<Widget>, props: &leptoskit_native::NativeProps) {
 	let live = props.aria().effective_live(widget.kind);
+
 	if live == leptoskit_native::Live::Off {
 		return;
 	}
@@ -238,6 +240,7 @@ pub(crate) fn announce_live(widget: &Rc<Widget>, props: &leptoskit_native::Nativ
 	} else {
 		NotificationProcessing_All
 	};
+
 	let text = windows_core::BSTR::from(text);
 	let activity = windows_core::BSTR::from("leptoskit aria-live");
 	// SAFETY: the provider is a live COM object retained for this call, and
@@ -281,6 +284,7 @@ impl IRawElementProviderSimple_Impl for SliderProvider_Impl {
 		if pattern == UIA_RangeValuePatternId {
 			return self.to_interface::<IRangeValueProvider>().cast();
 		}
+
 		Err(E_NOINTERFACE.into())
 	}
 
@@ -290,16 +294,20 @@ impl IRawElementProviderSimple_Impl for SliderProvider_Impl {
 		if property == UIA_ControlTypePropertyId {
 			return Ok(VARIANT::from(UIA_SliderControlTypeId.0));
 		}
+
 		if property == UIA_IsRangeValuePatternAvailablePropertyId {
 			return Ok(VARIANT::from(true));
 		}
+
 		if property == UIA_IsControlElementPropertyId || property == UIA_IsContentElementPropertyId
 		{
 			return Ok(VARIANT::from(true));
 		}
+
 		if property == UIA_IsEnabledPropertyId {
 			return Ok(VARIANT::from(widget.interactive()));
 		}
+
 		if property == UIA_NamePropertyId {
 			return Ok(VARIANT::from(
 				widget

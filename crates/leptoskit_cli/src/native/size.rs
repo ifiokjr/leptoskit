@@ -369,6 +369,7 @@ mod tests {
 		std::fs::write(mobile.join("app.lkb"), vec![0_u8; 128]).unwrap();
 		std::fs::write(mobile.join("codepush.json"), b"{}").unwrap();
 		let report = android(&root, true).unwrap().expect("an APK");
+
 		assert!(
 			report
 				.entries

@@ -15,7 +15,9 @@ class TrackingTransparencyPlugin : NativePlugin {
         payload: ByteBuffer,
     ): ByteArray {
         if (closed) throw PluginException(PluginException.CANCELLED)
+
         if (method !in 0..1) throw PluginException(PluginException.UNAVAILABLE)
+
         if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
         throw PluginException(PluginException.UNAVAILABLE)
     }

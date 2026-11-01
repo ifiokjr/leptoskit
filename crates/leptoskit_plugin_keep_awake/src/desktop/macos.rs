@@ -27,9 +27,11 @@ impl PlatformLease {
 				&raw mut identifier,
 			)
 		};
+
 		if status != kIOReturnSuccess {
 			return Err(Error::Native);
 		}
+
 		Ok(Self(identifier))
 	}
 }
@@ -37,6 +39,7 @@ impl PlatformLease {
 impl Drop for PlatformLease {
 	fn drop(&mut self) {
 		let status = IOPMAssertionRelease(self.0);
+
 		if status != kIOReturnSuccess {
 			eprintln!("LeptosKit display assertion release failed: {status}");
 		}

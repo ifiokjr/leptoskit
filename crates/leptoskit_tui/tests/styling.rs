@@ -224,9 +224,11 @@ fn a_focused_field_shows_the_terminal_cursor_at_its_caret() {
 fn the_last_widget_asking_for_focus_gets_it() {
 	let tree = |dialog: bool| {
 		let mut root = View().child(TextInput().id("prompt").aria_label("Prompt").focused(true));
+
 		if dialog {
 			root = root.child(TextInput().id("search").aria_label("Search").focused(true));
 		}
+
 		root
 	};
 	let focused_id = |surface: &NativeSurface<TuiBackend>| {

@@ -54,8 +54,10 @@ pub(crate) fn read_dir(dir: &Path, diagnostics: &mut Vec<Diagnostic>) -> Vec<Arb
 			return Vec::new();
 		}
 	};
+
 	paths.sort();
 	let mut files: Vec<ArbFile> = Vec::new();
+
 	for path in paths {
 		let name = path
 			.file_name()
@@ -74,8 +76,10 @@ pub(crate) fn read_dir(dir: &Path, diagnostics: &mut Vec<Diagnostic>) -> Vec<Arb
 					 as `en.arb` or `pt-BR.arb`"
 				),
 			));
+
 			continue;
 		};
+
 		if let Some(other) = files.iter().find(|file| file.locale == locale) {
 			diagnostics.push(Diagnostic::new(
 				&path,
@@ -87,10 +91,12 @@ pub(crate) fn read_dir(dir: &Path, diagnostics: &mut Vec<Diagnostic>) -> Vec<Arb
 			));
 			continue;
 		}
+
 		if let Some(file) = read_file(&path, name, locale, diagnostics) {
 			files.push(file);
 		}
 	}
+
 	files
 }
 
@@ -111,6 +117,7 @@ fn read_file(
 			return None;
 		}
 	};
+
 	let value: Value = match serde_json::from_str(&raw) {
 		Ok(value) => value,
 		Err(error) => {
@@ -127,16 +134,19 @@ fn read_file(
 			return None;
 		}
 	};
+
 	let Value::Object(object) = value else {
 		diagnostics.push(Diagnostic::new(
 			path,
 			Some(1),
 			"the file must hold one JSON object, with a message per key".to_owned(),
 		));
+
 		return None;
 	};
 	let tag = locale.to_string();
 	let mut lines = BTreeMap::new();
+
 	for (key, line) in key_lines(&raw) {
 		match lines.entry(key) {
 			Entry::Occupied(first) => {
@@ -151,16 +161,20 @@ fn read_file(
 			}
 		}
 	}
+
 	let line_of = |key: &str| lines.get(key).copied();
 
 	let mut messages = BTreeMap::new();
 	let mut metadata = Vec::new();
+
 	for (key, value) in object {
 		let line = line_of(&key);
+
 		if key == "@@locale" {
 			let written = value
 				.as_str()
 				.and_then(|tag| tag.parse::<LanguageIdentifier>().ok());
+
 			if written.as_ref() != Some(&locale) {
 				diagnostics.push(Diagnostic::new(
 					path,
@@ -191,6 +205,7 @@ fn read_file(
 			));
 		}
 	}
+
 	for (base, key, value, line) in metadata {
 		let Some(message) = messages.get_mut(&base) else {
 			diagnostics.push(Diagnostic::new(
@@ -202,6 +217,7 @@ fn read_file(
 		};
 		read_metadata(path, &key, &value, line, message, diagnostics);
 	}
+
 	Some(ArbFile {
 		locale,
 		tag,
@@ -226,8 +242,10 @@ fn read_metadata(
 			line,
 			format!("`{key}` must be an object, with a `description` and `placeholders`"),
 		));
+
 		return;
 	};
+
 	match object.get("description") {
 		None => {}
 		Some(Value::String(description)) => message.description = Some(description.clone()),
@@ -239,6 +257,7 @@ fn read_metadata(
 			));
 		}
 	}
+
 	let placeholders = match object.get("placeholders") {
 		None => return,
 		Some(Value::Object(placeholders)) => placeholders,
@@ -253,6 +272,7 @@ fn read_metadata(
 			return;
 		}
 	};
+
 	for (name, spec) in placeholders {
 		let Value::Object(spec) = spec else {
 			diagnostics.push(Diagnostic::new(
@@ -260,8 +280,10 @@ fn read_metadata(
 				line,
 				format!("the placeholder `{name}` of `{key}` must be an object, such as `{{}}`"),
 			));
+
 			continue;
 		};
+
 		let kind = match spec.get("type") {
 			None => None,
 			Some(Value::String(kind)) => {
@@ -287,6 +309,7 @@ fn read_metadata(
 				continue;
 			}
 		};
+
 		message.declared.insert(name.clone(), kind);
 	}
 }
@@ -298,6 +321,7 @@ fn key_lines(raw: &str) -> Vec<(String, usize)> {
 	let mut depth = 0_usize;
 	let mut line = 1;
 	let mut index = 0;
+
 	while index < bytes.len() {
 		match bytes[index] {
 			b'\n' => {
@@ -320,18 +344,23 @@ fn key_lines(raw: &str) -> Vec<(String, usize)> {
 					if bytes[index] == b'\\' {
 						index += 1;
 					}
+
 					if bytes.get(index) == Some(&b'\n') {
 						line += 1;
 					}
+
 					index += 1;
 				}
+
 				let end = index;
 				index += 1;
 				if depth == 1 {
 					let mut after = index;
+
 					while bytes.get(after).is_some_and(u8::is_ascii_whitespace) {
 						after += 1;
 					}
+
 					if bytes.get(after) == Some(&b':')
 						&& let Some(key) = raw
 							.get(start..=end)
@@ -344,6 +373,7 @@ fn key_lines(raw: &str) -> Vec<(String, usize)> {
 			_ => index += 1,
 		}
 	}
+
 	keys
 }
 

@@ -220,6 +220,7 @@ impl EncodedImage {
 		if self.bytes.len() > MAX_OUTPUT_BYTES {
 			return Err(Error::TooLarge);
 		}
+
 		let info = self.info.encode()?;
 		let mut encoder = Encoder::with_capacity(20 + self.bytes.len());
 		encoder.bytes(&info)?;
@@ -233,16 +234,20 @@ impl EncodedImage {
 		if bytes.len() > MAX_OUTPUT_BYTES + 20 {
 			return Err(Error::TooLarge);
 		}
+
 		let mut decoder = Decoder::new(&bytes);
 		let info = ImageInfo::decode(decoder.bytes()?)?;
 		let image = decoder.bytes()?;
 		decoder.finish()?;
+
 		if image.len() > MAX_OUTPUT_BYTES {
 			return Err(Error::TooLarge);
 		}
+
 		if inspect(image)? != info {
 			return Err(Error::InvalidArgument);
 		}
+
 		bytes = bytes.slice_ref(image);
 		Ok(Self { info, bytes })
 	}
@@ -257,8 +262,10 @@ pub fn encode_request(
 	if input.len() > MAX_INPUT_BYTES || operations.len() > MAX_OPERATIONS {
 		return Err(Error::TooLarge);
 	}
+
 	output.validate()?;
 	let mut encoder = Encoder::with_capacity(input.len() + operations.len() * 20 + 28);
+
 	match output {
 		Output::Png => encoder.u32(0),
 		Output::Jpeg {
@@ -267,12 +274,15 @@ pub fn encode_request(
 		} => {
 			encoder.u32(1);
 			encoder.u32(u32::from(quality));
+
 			for byte in background {
 				encoder.u32(u32::from(byte));
 			}
 		}
 	}
+
 	encoder.u32(operations.len() as u32);
+
 	for operation in operations {
 		match *operation {
 			Operation::Resize {
@@ -283,6 +293,7 @@ pub fn encode_request(
 				if width == Some(0) || height == Some(0) || (width.is_none() && height.is_none()) {
 					return Err(Error::InvalidArgument);
 				}
+
 				encoder.u32(0);
 				encoder.u32(width.unwrap_or(0));
 				encoder.u32(height.unwrap_or(0));
@@ -298,6 +309,7 @@ pub fn encode_request(
 				height,
 			} => {
 				encoder.u32(1);
+
 				for value in [x, y, width, height] {
 					encoder.u32(value);
 				}
@@ -319,6 +331,7 @@ pub fn encode_request(
 			}
 		}
 	}
+
 	encoder.bytes(input)?;
 	Ok(encoder.finish())
 }
@@ -328,7 +341,9 @@ fn decode_request(bytes: &[u8]) -> Result<(&[u8], Vec<Operation>, Output), Error
 	if bytes.len() > MAX_INPUT_BYTES + MAX_OPERATIONS * 20 + 28 {
 		return Err(Error::TooLarge);
 	}
+
 	let mut decoder = Decoder::new(bytes);
+
 	let output = match decoder.u32()? {
 		0 => Output::Png,
 		1 => {
@@ -343,12 +358,16 @@ fn decode_request(bytes: &[u8]) -> Result<(&[u8], Vec<Operation>, Output), Error
 		}
 		_ => return Err(Error::InvalidArgument),
 	};
+
 	output.validate()?;
 	let count = decoder.u32()? as usize;
+
 	if count > MAX_OPERATIONS {
 		return Err(Error::TooLarge);
 	}
+
 	let mut operations = Vec::with_capacity(count);
+
 	for _ in 0..count {
 		operations.push(match decoder.u32()? {
 			0 => {
@@ -359,6 +378,7 @@ fn decode_request(bytes: &[u8]) -> Result<(&[u8], Vec<Operation>, Output), Error
 					1 => Filter::Bilinear,
 					_ => return Err(Error::InvalidArgument),
 				};
+
 				Operation::Resize {
 					width: (width != 0).then_some(width),
 					height: (height != 0).then_some(height),
@@ -391,11 +411,14 @@ fn decode_request(bytes: &[u8]) -> Result<(&[u8], Vec<Operation>, Output), Error
 			_ => return Err(Error::InvalidArgument),
 		});
 	}
+
 	let input = decoder.bytes()?;
 	decoder.finish()?;
+
 	if input.len() > MAX_INPUT_BYTES {
 		return Err(Error::TooLarge);
 	}
+
 	Ok((input, operations, output))
 }
 #[cfg(feature = "engine")]
@@ -407,10 +430,13 @@ fn pixels(width: u32, height: u32) -> Result<u64, Error> {
 	if width == 0 || height == 0 {
 		return Err(Error::InvalidArgument);
 	}
+
 	let count = u64::from(width) * u64::from(height);
+
 	if width > MAX_DIMENSION || height > MAX_DIMENSION || count > MAX_PIXELS {
 		return Err(Error::TooLarge);
 	}
+
 	Ok(count)
 }
 #[cfg(feature = "engine")]
@@ -468,6 +494,7 @@ pub mod guest {
 			if input.len() > MAX_INPUT_BYTES {
 				return Err(Error::TooLarge);
 			}
+
 			ImageInfo::decode(&self.0.call(INSPECT, input)?.await?)
 		}
 

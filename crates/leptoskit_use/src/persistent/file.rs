@@ -57,6 +57,7 @@ where
 	fn get(&self, key: &str) -> Result<Option<T>, StorageError> {
 		match fs::read(self.path(key)) {
 			Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
 			Err(error) => Err(error.into()),
 		}
@@ -75,6 +76,7 @@ where
 	fn remove(&self, key: &str) -> Result<(), StorageError> {
 		match fs::remove_file(self.path(key)) {
 			Ok(()) => Ok(()),
+
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
 			Err(error) => Err(error.into()),
 		}

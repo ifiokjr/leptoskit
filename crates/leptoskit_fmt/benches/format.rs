@@ -66,10 +66,12 @@ fn formatted_file(bencher: Bencher<'_, '_>, copies: usize) {
 #[divan::bench(args = COPIES, sample_count = 10)]
 fn unformatted_file(bencher: Bencher<'_, '_>, copies: usize) {
 	let mut source = String::new();
+
 	for line in formatted(copies).lines() {
 		source.push_str(line.trim_start());
 		source.push('\n');
 	}
+
 	bencher
 		.counter(divan::counter::BytesCount::of_str(&source))
 		.bench(|| format_source(&source, &SETTINGS, &RUSTFMT).expect("format"));

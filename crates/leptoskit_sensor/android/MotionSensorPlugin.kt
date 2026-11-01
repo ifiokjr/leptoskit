@@ -43,25 +43,34 @@ open class MotionSensorPlugin(
         payload: ByteBuffer,
     ): ByteArray {
         if (closed) throw PluginException(PluginException.CANCELLED)
+
         if (method !in methods) throw PluginException(PluginException.UNAVAILABLE)
         val sensors = manager
         val sensor = sensors?.getDefaultSensor(sensorType)
+
         if (method == 0) {
             if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
+
             return byteArrayOf(if (sensor == null) 0 else 1, 0, 0, 0)
         }
+
         if (payload.remaining() != if (bounded) 8 else 4) throw PluginException(PluginException.INVALID_ARGUMENT)
         val interval = payload.order(ByteOrder.LITTLE_ENDIAN).int
+
         if (interval !in 5..60_000) throw PluginException(PluginException.INVALID_ARGUMENT)
         val timeout = if (bounded) payload.int else 0
+
         if (bounded && timeout !in 1..120_000) throw PluginException(PluginException.INVALID_ARGUMENT)
         // Bounded reads need visible content, not focus: a dialog over the
         // activity does not stop the app from being in use.
         if (bounded && activity != null && activity.window?.decorView?.isShown != true) {
             throw PluginException(PluginException.UNAVAILABLE)
         }
+
         authorize()
+
         if (waiting != null) throw PluginException(PluginException.BUSY)
+
         if (sensors == null || sensor == null) throw PluginException(PluginException.UNAVAILABLE)
         return suspendCancellableCoroutine { continuation ->
             waiting = continuation
@@ -81,8 +90,10 @@ open class MotionSensorPlugin(
                                 encodeSensorEvent(sensorType, event.timestamp, event.values, bounded)
                             } catch (error: PluginException) {
                                 fail(continuation, error)
+
                                 return
                             }
+
                         cleanup()
                         continuation.resume(bytes)
                     }
@@ -91,21 +102,26 @@ open class MotionSensorPlugin(
             continuation.invokeOnCancellation {
                 handler.post { if (waiting === continuation) cleanup() }
             }
+
             if (!continuation.isActive) {
                 cleanup()
+
                 return@suspendCancellableCoroutine
             }
+
             if (bounded) {
                 val task =
                     Runnable {
                         if (waiting === continuation) {
                             cleanup()
+
                             if (continuation.isActive) continuation.resume(byteArrayOf(1, 0, 0, 0))
                         }
                     }
                 deadline = task
                 handler.postDelayed(task, timeout.toLong())
             }
+
             try {
                 if (!sensors.registerListener(observer, sensor, interval * 1000, handler)) {
                     fail(continuation, PluginException(PluginException.UNAVAILABLE))
@@ -161,6 +177,7 @@ open class MotionSensorPlugin(
     ) {
         if (waiting !== continuation) return
         cleanup()
+
         if (continuation.isActive) continuation.resumeWithException(error)
     }
 
@@ -192,9 +209,12 @@ internal fun encodeSensorEvent(
     }
     val size = if (type == Sensor.TYPE_STEP_COUNTER) 32 else (count + 1) * 8
     val bytes = ByteBuffer.allocate(size + if (bounded) 4 else 0).order(ByteOrder.LITTLE_ENDIAN)
+
     if (bounded) bytes.putInt(0)
+
     if (type == Sensor.TYPE_STEP_COUNTER) {
         val steps = values[0].toDouble()
+
         if (steps >= Long.MAX_VALUE.toDouble() || steps != kotlin.math.floor(steps)) throw PluginException(PluginException.NATIVE)
         bytes
             .putInt(1)
@@ -206,5 +226,6 @@ internal fun encodeSensorEvent(
         bytes.putDouble(timestamp.toDouble() / 1_000_000_000.0)
         repeat(count) { bytes.putDouble(values[it].toDouble()) }
     }
+
     return bytes.array()
 }

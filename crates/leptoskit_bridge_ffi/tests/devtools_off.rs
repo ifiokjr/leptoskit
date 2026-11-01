@@ -47,6 +47,7 @@ fn run_app() {
 fn nothing_reports_without_a_hub_or_the_feature() {
 	if std::env::var_os("LEPTOSKIT_DEVTOOLS").is_some() {
 		eprintln!("skipped: LEPTOSKIT_DEVTOOLS names a hub for this process");
+
 		return;
 	}
 
@@ -61,6 +62,7 @@ fn nothing_reports_without_a_hub_or_the_feature() {
 	// SAFETY: Both inputs live for the call.
 	let configured = unsafe { lk_devtools_hub(url.as_ptr(), url.len(), b"app".as_ptr(), 3) };
 	let reports = cfg!(all(feature = "devtools", debug_assertions));
+
 	assert_eq!(configured, if reports { 0 } else { -1 });
 	run_app();
 

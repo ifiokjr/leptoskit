@@ -28,6 +28,7 @@ async fn text_binary_and_graceful_close_round_trip() {
 			let message = socket.next().await.unwrap().unwrap();
 			socket.send(message).await.unwrap();
 		}
+
 		assert!(matches!(
 			socket.next().await,
 			Some(Ok(tungstenite::Message::Close(_)))
@@ -49,6 +50,7 @@ async fn text_binary_and_graceful_close_round_trip() {
 		socket.send(Message::Text("late".into())).await,
 		Err(Error::Closed)
 	));
+
 	server.await.unwrap();
 }
 
@@ -101,6 +103,7 @@ async fn oversized_outgoing_message_is_rejected_without_losing_the_connection() 
 		socket.receive().await.unwrap(),
 		Some(Message::Text("ok".into()))
 	);
+
 	server.await.unwrap();
 }
 
@@ -231,6 +234,7 @@ async fn negotiated_subprotocol_is_reported_and_invalid_requests_fail_locally() 
 	assert_eq!(socket.protocol(), Some("chat.v2"));
 	drop(socket);
 	server.await.unwrap();
+
 	assert!(matches!(
 		client.connect(&url, &["bad protocol".to_owned()]).await,
 		Err(Error::Invalid(_))
@@ -253,13 +257,17 @@ async fn a_failed_send_closes_the_connection() {
 	// The peer's reset surfaces on a later write; once it does, the socket is
 	// gone instead of being reused in an unknown state.
 	let mut failed = false;
+
 	for _ in 0..200 {
 		if socket.send(Message::Binary(vec![0; 1024])).await.is_err() {
 			failed = true;
+
 			break;
 		}
+
 		tokio::time::sleep(Duration::from_millis(5)).await;
 	}
+
 	assert!(failed, "writes to a reset peer must eventually fail");
 	assert!(matches!(
 		socket.send(Message::Text("late".into())).await,

@@ -275,6 +275,7 @@ fn the_platform_decoders_fixture_matches_the_encoder() {
 	let json_path = directory.join("render-transaction.json");
 	let kotlin_path =
 		PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("android-tests/RenderBatchFixture.kt");
+
 	let kotlin = kotlin_fixture(
 		&bytes,
 		&serde_json::to_string(&json_transaction(root, &mutations)).unwrap(),

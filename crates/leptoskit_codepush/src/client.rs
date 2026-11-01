@@ -108,14 +108,17 @@ fn decode_path(path: &str) -> Result<String, CodePushError> {
 	let malformed = || CodePushError::Transport(format!("malformed path {path:?}"));
 	let mut decoded = Vec::with_capacity(path.len());
 	let mut bytes = path.bytes();
+
 	while let Some(byte) = bytes.next() {
 		if byte != b'%' {
 			decoded.push(byte);
 			continue;
 		}
+
 		let high = bytes
 			.next()
 			.and_then(|digit| char::from(digit).to_digit(16));
+
 		let low = bytes
 			.next()
 			.and_then(|digit| char::from(digit).to_digit(16));
@@ -124,6 +127,7 @@ fn decode_path(path: &str) -> Result<String, CodePushError> {
 		};
 		decoded.push((high * 16 + low) as u8);
 	}
+
 	String::from_utf8(decoded).map_err(|_| malformed())
 }
 
@@ -246,11 +250,13 @@ impl<T: Transport> CodePushClient<T> {
 	/// and [`Self::sync`] falls back to the full container when it does not.
 	pub fn check(&mut self) -> Result<UpdatePlan, CodePushError> {
 		let index_url = self.url(&ObjectKey::index(&self.app, &self.channel));
+
 		let body = match self.transport.fetch(&index_url) {
 			Ok(body) => body,
 			Err(CodePushError::NotFound(_)) => return Ok(UpdatePlan::UpToDate),
 			Err(error) => return Err(error),
 		};
+
 		// The transport bounds the wire for every kind at once; the index
 		// has the tighter bound of its own, and it is parsed on every check.
 		if body.len() as u64 > ObjectKind::Index.max_bytes() {
@@ -259,13 +265,17 @@ impl<T: Transport> CodePushClient<T> {
 				ObjectKind::Index.max_bytes()
 			)));
 		}
+
 		let index: ChannelIndex = serde_json::from_slice(&body)?;
+
 		if index.format_version != INDEX_FORMAT_VERSION {
 			return Err(CodePushError::UnsupportedFormatVersion(
 				index.format_version,
 			));
 		}
+
 		self.verify_release(&index.manifest, index.signature.as_ref())?;
+
 		if !self.is_newer(&index.manifest) {
 			return Ok(UpdatePlan::UpToDate);
 		}
@@ -302,12 +312,14 @@ impl<T: Transport> CodePushClient<T> {
 	pub fn verify_offer(&self, offer: &UpdateOffer) -> Result<(), CodePushError> {
 		let manifest = &offer.manifest;
 		self.verify_release(manifest, offer.signature.as_ref())?;
+
 		if !self.is_newer(manifest) {
 			return Err(CodePushError::NotNewer {
 				current: format!("{}+{}", self.current_version, self.current_build),
 				offered: format!("{}+{}", manifest.version, manifest.build),
 			});
 		}
+
 		Ok(())
 	}
 
@@ -319,12 +331,14 @@ impl<T: Transport> CodePushClient<T> {
 		signature: Option<&ReleaseSignature>,
 	) -> Result<(), CodePushError> {
 		self.trusted_keys.verify(manifest, signature)?;
+
 		if manifest.app != self.app || manifest.channel != self.channel {
 			return Err(CodePushError::WrongTarget {
 				tracked: format!("{}/{}", self.app, self.channel),
 				offered: format!("{}/{}", manifest.app, manifest.channel),
 			});
 		}
+
 		Ok(())
 	}
 
@@ -392,6 +406,7 @@ impl<T: Transport> CodePushClient<T> {
 			(Some(delta_url), Some(base_hash)) => self.fetch_delta(delta_url, base_hash).ok(),
 			_ => None,
 		};
+
 		let used_delta = delta_bytes.is_some();
 		let container_bytes = if let Some(bytes) = delta_bytes {
 			bytes
@@ -402,6 +417,7 @@ impl<T: Transport> CodePushClient<T> {
 		};
 
 		let (manifest, _) = crate::manifest::container_manifest(&container_bytes)?;
+
 		if manifest.bundle_hash() != offer.manifest.bundle_hash() {
 			return Err(CodePushError::HashMismatch {
 				path: "<container>".to_owned(),
@@ -409,6 +425,7 @@ impl<T: Transport> CodePushClient<T> {
 				actual: manifest.bundle_hash(),
 			});
 		}
+
 		let parsed = read_container(&container_bytes)?;
 		let signature = offer
 			.signature
@@ -430,6 +447,7 @@ impl<T: Transport> CodePushClient<T> {
 				self.max_container_bytes
 			)));
 		}
+
 		Ok(())
 	}
 
@@ -440,12 +458,14 @@ impl<T: Transport> CodePushClient<T> {
 		self.within_limit("delta", delta_bytes.len())?;
 		let delta: crate::delta::Delta = serde_json::from_slice(&delta_bytes)?;
 		let current_hash = hash_bytes(&self.current_container);
+
 		if delta.base_hash != base_hash || delta.base_hash != current_hash {
 			return Err(CodePushError::DeltaBaseMismatch {
 				expected: base_hash.to_owned(),
 				actual: current_hash,
 			});
 		}
+
 		crate::delta::apply_delta_within(&self.current_container, &delta, self.max_container_bytes)
 	}
 
@@ -482,27 +502,36 @@ fn stage(staging_dir: &Path, container: &crate::manifest::Container) -> Result<(
 	let staged = durable::assemble_directory(staging_dir, &files)?;
 	let previous = if staging_dir.try_exists()? {
 		let previous = durable::temporary_sibling(staging_dir)?;
+
 		if let Err(error) = std::fs::rename(staging_dir, &previous) {
 			// The rename already failed; that error is the one to report.
 			let _ = std::fs::remove_dir_all(&staged);
+
 			return Err(error.into());
 		}
+
 		Some(previous)
 	} else {
 		None
 	};
+
 	if let Err(error) = std::fs::rename(&staged, staging_dir) {
 		// Put the previous staging back; the failed rename is what to report.
 		if let Some(previous) = &previous {
 			let _ = std::fs::rename(previous, staging_dir);
 		}
+
 		let _ = std::fs::remove_dir_all(&staged);
+
 		return Err(error.into());
 	}
+
 	durable::sync_directory(parent)?;
+
 	if let Some(previous) = previous {
 		std::fs::remove_dir_all(previous)?;
 	}
+
 	Ok(())
 }
 
@@ -524,9 +553,11 @@ impl ReleaseStore {
 		let latest = index.manifest;
 		let newer = latest.version > *current
 			|| (latest.version == *current && latest.build > current_build);
+
 		if !newer {
 			return Ok(UpdatePlan::UpToDate);
 		}
+
 		// A delta applies only when the client runs exactly the release the
 		// delta was computed against, matched by container hash rather than
 		// by version: out-of-order ingests and rebuilt versions mean the
@@ -535,10 +566,12 @@ impl ReleaseStore {
 		let delta_key = current_hash
 			.as_ref()
 			.and_then(|hash| ObjectKey::delta(app, channel, &latest.version, latest.build, hash));
+
 		let has_delta = match delta_key {
 			Some(key) => self.object_exists(&key)?,
 			None => false,
 		};
+
 		let (app, channel) = (encode_component(app), encode_component(channel));
 		Ok(UpdatePlan::Available(Box::new(UpdateOffer {
 			download_url: format!(

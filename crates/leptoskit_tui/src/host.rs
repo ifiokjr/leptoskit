@@ -233,6 +233,7 @@ impl TuiHost {
 	/// backend's own input, such as typing and moving focus.
 	fn key(app: &mut dyn TuiApplication, key: Key) {
 		let target = app.backend().focused().or_else(|| app.backend().root());
+
 		let taken = match (target, crate::input::key_press(key)) {
 			(Some(target), Some(press)) => {
 				app.dispatch(target, &NativeEvent::Key(press)) == EventOutcome::Handled
@@ -256,9 +257,11 @@ impl TuiHost {
 		// of rounds covers any real interface without risking a loop.
 		for _ in 0..4 {
 			let events = app.backend().take_events();
+
 			if events.is_empty() {
 				return;
 			}
+
 			for dispatch in events {
 				app.dispatch(dispatch.node, &dispatch.event);
 			}

@@ -35,8 +35,10 @@ pub fn format_with(source: &str, settings: &Settings) -> Output {
 /// The formatted text, followed by any diagnostics.
 pub fn describe(output: &Output) -> String {
 	let mut description = output.text.clone();
+
 	for diagnostic in &output.diagnostics {
 		let _ = writeln!(description, "// diagnostic {diagnostic}");
 	}
+
 	description
 }

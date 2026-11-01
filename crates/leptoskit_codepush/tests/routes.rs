@@ -65,9 +65,11 @@ fn store(scratch: &Scratch) -> (ReleaseStore, Vec<u8>) {
 		})
 		.collect();
 	let mut v1 = Vec::new();
+
 	for (version, build, marker) in [("1.0.0+abc", 1, "one"), ("1.1.0", 2, "two")] {
 		let dir = scratch.0.join(marker);
 		std::fs::create_dir_all(&dir).expect("mkdir");
+
 		std::fs::write(dir.join("app.wasm"), &wasm).expect("write");
 		std::fs::write(dir.join("marker.txt"), marker).expect("write");
 		let ingested = store
@@ -81,10 +83,12 @@ fn store(scratch: &Scratch) -> (ReleaseStore, Vec<u8>) {
 				false,
 			)
 			.expect("ingest");
+
 		if v1.is_empty() {
 			v1 = ingested.record.container;
 		}
 	}
+
 	(store, v1)
 }
 
@@ -126,9 +130,11 @@ async fn static_routes_serve_the_files_a_bucket_would_hold() {
 			1,
 		),
 	];
+
 	for key in keys {
 		let (status, cache_control, body) = get(&store, &format!("/{}", key.url_path())).await;
 		assert_eq!(status, StatusCode::OK, "{}", key.as_str());
+
 		let expected = std::fs::read(scratch.0.join("releases").join(key.as_str())).expect("file");
 		assert_eq!(body, expected, "{}", key.as_str());
 		let expected_cache = if key == index {
@@ -136,6 +142,7 @@ async fn static_routes_serve_the_files_a_bucket_would_hold() {
 		} else {
 			key.kind().cache_control()
 		};
+
 		assert_eq!(cache_control.as_deref(), Some(expected_cache));
 	}
 }
@@ -172,6 +179,7 @@ async fn the_dynamic_routes_still_offer_deltas() {
 	let delta_url = plan["delta_url"].as_str().expect("a delta is offered");
 	let (status, cache_control, _) = get(&store, delta_url).await;
 	assert_eq!(status, StatusCode::OK, "{delta_url}");
+
 	assert_eq!(cache_control.as_deref(), Some("no-cache"));
 	let download_url = plan["download_url"].as_str().expect("download url");
 	let (status, _, body) = get(&store, download_url).await;
@@ -259,6 +267,7 @@ async fn checks_and_deltas_use_persisted_hashes_without_reading_base_or_delta_bo
 	)
 	.expect("replace base");
 	std::fs::write(&delta_path, b"body must not be parsed").expect("replace delta");
+
 	let store = ReleaseStore::open(store.root()).expect("reopen");
 	let (status, _, body) = get(&store, "/app/production/check?version=1.0.0%2Babc&build=1").await;
 	assert_eq!(status, StatusCode::OK);
@@ -289,6 +298,7 @@ async fn older_stores_offer_full_downloads_and_invalid_hash_metadata_fails_close
 	let (status, _, body) = get(&store, "/app/production/check?version=1.0.0%2Babc&build=1").await;
 	assert_eq!(status, StatusCode::OK);
 	let plan: serde_json::Value = serde_json::from_slice(&body).expect("plan");
+
 	assert!(plan["delta_url"].is_null());
 	assert!(plan["download_url"].is_string());
 	let (status, ..) = get(&store, "/app/production/delta/1.0.0%2Babc/1").await;
@@ -317,6 +327,7 @@ async fn importing_releases_persists_and_repairs_hash_metadata() {
 	)
 	.expect("parse");
 	std::fs::remove_file(&hash_path).expect("old store");
+
 	assert!(
 		!store
 			.import_release(&base, &signature)
@@ -350,6 +361,7 @@ async fn downloads_stream_ranges_and_head_without_buffering_the_file() {
 	let file = std::fs::File::create(path).expect("file");
 	file.set_len(8 * 1024 * 1024).expect("large file");
 	let router = codepush_router(store);
+
 	for url in [
 		format!("/{}", key.url_path()),
 		"/app/production/download/1.0.0/1".to_owned(),
@@ -378,9 +390,11 @@ async fn downloads_stream_ranges_and_head_without_buffering_the_file() {
 			),
 		] {
 			let mut builder = Request::builder().method(method).uri(&url);
+
 			if !range.is_empty() {
 				builder = builder.header(header::RANGE, range);
 			}
+
 			let response = router
 				.clone()
 				.oneshot(builder.body(Body::empty()).expect("request"))
@@ -401,11 +415,13 @@ async fn admission_includes_unconsumed_bodies_and_recovers_after_cancellation() 
 	let (store, _) = store(&scratch);
 	let router = codepush_router(store);
 	let mut responses = Vec::new();
+
 	for _ in 0..16 {
 		let response = request(&router, "/app/production/1.1.0%2B2/release.lkb").await;
 		assert_eq!(response.status(), StatusCode::OK);
 		responses.push(response);
 	}
+
 	let response = request(&router, "/app/production/check?version=0.0.0&build=0").await;
 	assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 	responses.pop();

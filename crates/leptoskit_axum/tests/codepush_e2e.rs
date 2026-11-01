@@ -156,6 +156,7 @@ impl leptoskit_codepush::Transport for RouterTransport {
 									"{target} returned {status}"
 								)));
 							}
+
 							Ok(bytes.to_vec())
 						})
 				})
@@ -193,6 +194,7 @@ async fn check_endpoint_reports_the_latest_release() {
 	};
 	assert_eq!(offer.manifest.version, Version::new(1, 0, 0));
 	assert!(offer.manifest.mandatory, "the v1.0.0 release is mandatory");
+
 	assert!(
 		offer.delta_url.is_some(),
 		"a client on the previous release must be offered the delta"

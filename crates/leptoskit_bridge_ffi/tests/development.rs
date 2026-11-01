@@ -3,7 +3,6 @@
 
 //! The development guest ABI against a canned HTTP server: a new guest, an
 //! unchanged one, a server failure, and invalid input.
-
 use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Write;
@@ -165,6 +164,7 @@ fn invalid_urls_and_owners_fail_with_a_diagnostic() {
 	assert!(error.contains("null input with nonzero length"), "{error}");
 	// SAFETY: Without a diagnostic buffer the call fails before reading input.
 	let development = unsafe { lk_dev_open(ptr::null(), 0, ptr::null(), 0, ptr::null_mut()) };
+
 	assert!(development.is_null());
 
 	assert_eq!(next(ptr::null_mut()), (-1, None));

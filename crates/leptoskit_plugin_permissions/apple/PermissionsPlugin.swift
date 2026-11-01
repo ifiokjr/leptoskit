@@ -16,9 +16,12 @@ public final class PermissionsPlugin: NativePlugin {
 
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
         guard !closed else { throw PluginError.cancelled }
+
         guard methods.contains(method) else { throw PluginError.unavailable }
         let kind = try payload.withUnsafeBytes { bytes -> UInt32 in
+
             guard bytes.count == 4 else { throw PluginError.invalidArgument }
+
             return UInt32(littleEndian: bytes.loadUnaligned(as: UInt32.self))
         }
         let media: AVMediaType
@@ -32,8 +35,10 @@ public final class PermissionsPlugin: NativePlugin {
             description = "NSMicrophoneUsageDescription"
         default: throw PluginError.invalidArgument
         }
+
         if method == 1 && AVCaptureDevice.authorizationStatus(for: media) == .notDetermined {
             guard !requesting.contains(media) else { throw PluginError.busy }
+
             guard let purpose = Bundle.main.object(forInfoDictionaryKey: description) as? String,
                   !purpose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 // Apple terminates apps requesting access without this declaration.
@@ -43,9 +48,12 @@ public final class PermissionsPlugin: NativePlugin {
             requesting.insert(media)
             defer { requesting.remove(media) }
             _ = await AVCaptureDevice.requestAccess(for: media)
+
             try Task.checkCancellation()
+
             guard !closed else { throw PluginError.cancelled }
         }
+
         return response(for: media)
     }
 
@@ -60,9 +68,11 @@ public final class PermissionsPlugin: NativePlugin {
         @unknown default: (status, canPrompt) = (0, 0)
         }
         var result = Data()
+
         for var value in [status.littleEndian, canPrompt.littleEndian] {
             withUnsafeBytes(of: &value) { result.append(contentsOf: $0) }
         }
+
         return result
     }
 }

@@ -75,9 +75,11 @@ impl Store {
 	/// unchanged.
 	pub fn apply(&mut self, changes: &[Change], save: Save) -> Result<(), Error> {
 		let (next, bytes) = candidate(&self.entries, changes)?;
+
 		if save == Save::Commit {
 			self.write(&bytes)?;
 		}
+
 		self.entries = next;
 		Ok(())
 	}

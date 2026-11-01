@@ -60,6 +60,7 @@ fn reading(battery: &BatteryManager) -> Result<Snapshot, Error> {
 		} else {
 			State::Discharging
 		},
+
 		power_save: None,
 	})
 }
@@ -108,6 +109,7 @@ pub async fn wait_for_change(previous: Snapshot) -> Result<Snapshot, Error> {
 		callback,
 		names: Vec::with_capacity(2),
 	};
+
 	for name in ["chargingchange", "levelchange"] {
 		listeners
 			.manager
@@ -115,12 +117,14 @@ pub async fn wait_for_change(previous: Snapshot) -> Result<Snapshot, Error> {
 			.map_err(|error| js_error(&error))?;
 		listeners.names.push(name);
 	}
+
 	poll_fn(|cx| {
 		match reading(&listeners.manager) {
 			Ok(snapshot) if snapshot == previous => {
 				*waker.borrow_mut() = Some(cx.waker().clone());
 				Poll::Pending
 			}
+
 			result => Poll::Ready(result),
 		}
 	})

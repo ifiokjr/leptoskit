@@ -193,6 +193,7 @@ mod imp {
 							Some(error) => Err(error.to_owned()),
 							None => Ok(message.get("result").cloned().unwrap_or(Value::Null)),
 						};
+
 						let _ = sender.send(reply);
 					}
 				} else if message.get("event").is_some()

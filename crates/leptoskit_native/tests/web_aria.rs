@@ -95,6 +95,7 @@ fn structural_roles_render_their_html_elements_without_redundant_roles() {
 	assert!(page.contains("<article"));
 	assert!(page.contains("<section") && page.contains("aria-label=\"Orders\""));
 	assert!(page.contains("role=\"region\""));
+
 	assert!(page.contains("<search"));
 	assert!(page.contains("<p ") && page.contains(">Prose<!>"));
 	assert!(page.contains("<hr"));

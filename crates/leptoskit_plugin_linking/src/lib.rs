@@ -39,20 +39,25 @@ impl Link {
 			return Err(Error::InvalidArgument);
 		}
 		let bytes = value.as_bytes();
+
 		for (index, byte) in bytes.iter().enumerate() {
 			if *byte == b'%' {
 				let escape = bytes
 					.get(index + 1..index + 3)
 					.ok_or(Error::InvalidArgument)?;
+
 				if !escape.iter().all(u8::is_ascii_hexdigit) {
 					return Err(Error::InvalidArgument);
 				}
+
 				if matches!(escape[0], b'0' | b'1') || escape.eq_ignore_ascii_case(b"7f") {
 					return Err(Error::InvalidArgument);
 				}
 			}
 		}
+
 		let parsed = url::Url::parse(value).map_err(|_| Error::InvalidArgument)?;
+
 		match parsed.scheme() {
 			"http" | "https" => {
 				let (_, destination) = value.split_once(':').ok_or(Error::InvalidArgument)?;
@@ -74,6 +79,7 @@ impl Link {
 				if !parsed.path().is_empty() && !parsed.path().starts_with('/') => {}
 			_ => return Err(Error::InvalidArgument),
 		}
+
 		Ok(Self(parsed))
 	}
 
@@ -135,6 +141,7 @@ pub mod desktop {
 						&u32::from(can_open(&Link::decode(&payload)?)?).to_le_bytes(),
 					))
 				}
+
 				OPEN_SETTINGS if !payload.is_empty() => Err(Error::InvalidArgument),
 				_ => Err(Error::Unavailable),
 			}
@@ -206,6 +213,7 @@ pub mod guest {
 		/// Opens a validated link using the operating system.
 		pub async fn open(self, link: &Link) -> Result<(), Error> {
 			let response = self.0.call(OPEN, link.as_str().as_bytes())?.await?;
+
 			if response.is_empty() {
 				Ok(())
 			} else {
@@ -221,6 +229,7 @@ pub mod guest {
 		/// Opens the application's settings page on iOS or Android.
 		pub async fn open_settings(self) -> Result<(), Error> {
 			let response = self.0.call(OPEN_SETTINGS, &[])?.await?;
+
 			if response.is_empty() {
 				Ok(())
 			} else {
@@ -284,6 +293,7 @@ mod tests {
 	fn boolean_wire_responses_are_not_truthy_coercions() {
 		assert_eq!(decode_can_open(&[1, 0, 0, 0]), Ok(true));
 		assert_eq!(decode_can_open(&[0, 0, 0, 0]), Ok(false));
+
 		for value in [&[][..], &[1], &[2, 0, 0, 0], &[1, 0, 0, 0, 0]] {
 			assert_eq!(decode_can_open(value), Err(Error::InvalidArgument));
 		}
@@ -312,6 +322,7 @@ mod tests {
 				Err(Error::InvalidArgument)
 			);
 		}
+
 		assert_eq!(
 			linking.invoke(OPEN_SETTINGS, Bytes::from_static(b"x")),
 			Err(Error::InvalidArgument)
@@ -320,6 +331,7 @@ mod tests {
 			linking.invoke(OPEN_SETTINGS, Bytes::new()),
 			Err(Error::Unavailable)
 		);
+
 		assert_eq!(
 			linking.invoke(MethodId(9), Bytes::new()),
 			Err(Error::Unavailable)
@@ -327,6 +339,7 @@ mod tests {
 		// Querying handlers never opens anything. macOS answers from Launch
 		// Services; other desktops have no portable discovery API.
 		let reply = linking.invoke(CAN_OPEN, Bytes::from_static(b"https://example.com"));
+
 		if cfg!(target_os = "macos") {
 			assert!(decode_can_open(&reply.unwrap()).is_ok());
 		} else {

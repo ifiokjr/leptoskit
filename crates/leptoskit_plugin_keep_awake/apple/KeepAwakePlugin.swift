@@ -22,11 +22,15 @@ public final class KeepAwakePlugin: NativePlugin {
 
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
         guard !closed else { throw PluginError.cancelled }
+
         guard method == 0 else { throw PluginError.unavailable }
+
         guard payload.count == 0 else { throw PluginError.invalidArgument }
+
         guard pending.count < 64 else { throw PluginError.busy }
         try Task.checkCancellation()
         let identifier = UUID()
+
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 do {
@@ -48,6 +52,7 @@ public final class KeepAwakePlugin: NativePlugin {
 
     private func finish(_ identifier: UUID) {
         guard let continuation = pending.removeValue(forKey: identifier) else { return }
+
         if pending.isEmpty { stop() }
         continuation.resume(throwing: PluginError.cancelled)
     }
@@ -56,11 +61,13 @@ public final class KeepAwakePlugin: NativePlugin {
         let continuations = Array(pending.values)
         pending.removeAll()
         stop()
+
         for continuation in continuations { continuation.resume(throwing: PluginError.cancelled) }
     }
 
     private func start() throws {
         #if os(iOS)
+
         guard UIApplication.shared.applicationState == .active else { throw PluginError.unavailable }
         original = UIApplication.shared.isIdleTimerDisabled
         UIApplication.shared.isIdleTimerDisabled = true
@@ -73,6 +80,7 @@ public final class KeepAwakePlugin: NativePlugin {
         assertion = ProcessInfo.processInfo.beginActivity(
             options: [.idleDisplaySleepDisabled], reason: "LeptosKit display wake lock"
         )
+
         #else
         throw PluginError.unavailable
         #endif
@@ -80,13 +88,16 @@ public final class KeepAwakePlugin: NativePlugin {
 
     private func stop() {
         #if os(iOS)
+
         guard let observer = backgroundObserver else { return }
         NotificationCenter.default.removeObserver(observer)
         backgroundObserver = nil
         UIApplication.shared.isIdleTimerDisabled = original
         #elseif os(macOS)
+
         if let assertion { ProcessInfo.processInfo.endActivity(assertion) }
         assertion = nil
+
         #endif
     }
 }

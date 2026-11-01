@@ -75,6 +75,7 @@ mod linux {
 		if std::env::var_os(PRIVATE_BUS).is_none() {
 			return rerun_on_private_bus();
 		}
+
 		let mut arguments = Arguments::from_args();
 		// Clients hold an Rc connection; one thread keeps each trial simple.
 		arguments.test_threads = Some(1);
@@ -107,6 +108,7 @@ mod linux {
 			.expect("re-run the tests on the private bus");
 		daemon.kill().expect("stop the private dbus-daemon");
 		daemon.wait().expect("reap the private dbus-daemon");
+
 		match status.code() {
 			Some(0) => ExitCode::SUCCESS,
 			_ => ExitCode::FAILURE,
@@ -174,6 +176,7 @@ mod linux {
 								)
 							}
 						};
+
 						connection.send(response).expect("send the reply");
 						true
 					}),
@@ -207,8 +210,10 @@ mod linux {
 				return Err(format!("accepted application name {application:?}").into());
 			}
 		}
+
 		let notifications =
 			Notifications::new("LeptosKit test").map_err(|error| format!("{error:?}"))?;
+
 		match notifications.show(&notification("no server")) {
 			Err(Error::Native) => Ok(()),
 			Err(error) => Err(format!("expected Native, got {error:?}").into()),
@@ -243,6 +248,7 @@ mod linux {
 		handle
 			.cancel()
 			.map_err(|error| format!("cancel: {error:?}"))?;
+
 		assert_eq!(*service.closed.lock().unwrap(), [42]);
 		Ok(())
 	}

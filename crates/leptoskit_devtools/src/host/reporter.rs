@@ -148,9 +148,11 @@ impl Reporter {
 		let shared = Arc::new(Shared::default());
 		let (sender, receiver) = mpsc::channel();
 		let mut worker = Worker::new(hub.to_owned(), hello, Arc::clone(&shared));
+
 		if await_guest {
 			worker.fed = Fed::Awaited;
 		}
+
 		std::thread::Builder::new()
 			.name("leptoskit-devtools".to_owned())
 			.spawn(move || worker.run(&receiver))?;
@@ -166,6 +168,7 @@ impl Reporter {
 			.spawn(move || poller.run())
 		{
 			let _ = sender.send(Message::Stop);
+
 			return Err(error);
 		}
 
@@ -377,6 +380,7 @@ fn call_recorded() {
 		.lock()
 		.unwrap_or_else(PoisonError::into_inner)
 		.clone();
+
 	if let Some(sender) = sender {
 		let _ = sender.send(Message::Calls);
 	}
@@ -481,6 +485,7 @@ impl Worker {
 	fn run(mut self, receiver: &mpsc::Receiver<Message>) {
 		loop {
 			let wait = self.next_wake().saturating_duration_since(Instant::now());
+
 			let first = match receiver.recv_timeout(wait) {
 				Ok(message) => Some(message),
 				Err(mpsc::RecvTimeoutError::Timeout) => None,
@@ -490,6 +495,7 @@ impl Worker {
 			for message in first.into_iter().chain(receiver.try_iter()) {
 				if !self.handle(message) {
 					self.shared.publish(None);
+
 					return;
 				}
 			}
@@ -507,9 +513,11 @@ impl Worker {
 			if call.plugin == leptoskit_plugin_devtools::NAME {
 				continue;
 			}
+
 			if self.calls.len() == HISTORY {
 				self.calls.pop_front();
 			}
+
 			self.calls.push_back(call);
 		}
 	}
@@ -542,6 +550,7 @@ impl Worker {
 		if !matches!(self.fed, Fed::Awaited) {
 			return None;
 		}
+
 		let until = self
 			.first_render
 			.map_or(self.started + GUEST_WAIT, |rendered| {
@@ -609,20 +618,27 @@ impl Worker {
 					if self.rpc.len() == HISTORY {
 						self.rpc.pop_front();
 					}
+
 					self.rpc.push_back(attempt);
 				}
+
 				continue;
 			}
+
 			let Some((slot, value)) = registry::slot_of(event) else {
 				continue;
 			};
+
 			if !guest.values.contains_key(&slot) && guest.values.len() >= MAX_GUEST_VALUES {
 				continue;
 			}
+
 			let before = previous.as_ref().unwrap_or(&guest.values).get(&slot);
+
 			if shown && before != Some(&value) {
 				self.dirty.insert(slot.clone());
 			}
+
 			guest.values.insert(slot, value);
 		}
 
@@ -642,6 +658,7 @@ impl Worker {
 			.or_else(|| self.guests.keys().next_back().copied())
 			.and_then(|id| self.guests.get(&id))
 			.and_then(|guest| guest.deliver.as_ref());
+
 		if let Some(deliver) = deliver {
 			deliver(command);
 		}
@@ -786,6 +803,7 @@ impl Worker {
 		}
 
 		let mut hello = self.hello.clone();
+
 		if let Fed::Heard(fed) = &self.fed {
 			hello.capabilities.extend(fed.iter().copied());
 		}
@@ -835,8 +853,10 @@ impl Worker {
 
 		if let Some(tree) = self.current_tree() {
 			self.refresh_highlight(&tree);
+
 			let patch = match &self.sent {
 				Some(sent) if !self.snapshot && self.changed => diff(sent, &tree),
+
 				Some(_) if !self.snapshot => Some(Vec::new()),
 				_ => None,
 			};
@@ -853,6 +873,7 @@ impl Worker {
 					if let Some(guest) = self.current.and_then(|id| self.guests.get(&id)) {
 						registry::fill(&mut snapshot, &guest.values);
 					}
+
 					self.dirty.clear();
 					events.push(Event::Snapshot { snapshot });
 				}
@@ -869,8 +890,10 @@ impl Worker {
 				.current
 				.and_then(|id| self.guests.get(&id))
 				.map(|guest| &guest.values);
+
 			for slot in std::mem::take(&mut self.dirty) {
 				let value = values.and_then(|values| values.get(&slot));
+
 				if let Some(event) = value.and_then(|value| registry::event(&slot, value)) {
 					events.push(event);
 				}
@@ -922,6 +945,7 @@ impl Worker {
 
 		match result {
 			Ok(()) => self.next_report = now + INTERVAL,
+
 			Err(error) if error.is::<SessionGone>() => self.disconnect(),
 			Err(error) => {
 				eprintln!(
@@ -982,6 +1006,7 @@ impl Poller {
 						}
 					}
 				}
+
 				Err(error) if error.is::<SessionGone>() => {
 					gone = true;
 
@@ -993,6 +1018,7 @@ impl Poller {
 						return;
 					}
 				}
+
 				Err(_) => std::thread::sleep(RETRY),
 			}
 		}
@@ -1016,6 +1042,7 @@ impl Poller {
 				if !ours {
 					*polling = Some(open.clone());
 					*gone = false;
+
 					return true;
 				}
 

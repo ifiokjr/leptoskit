@@ -33,6 +33,7 @@ class BrightnessPluginTest {
                         assertEquals(0.375f, activity.window.attributes.screenBrightness, 0.0001f)
                         assertEquals(375, read(plugin))
                         plugin.invoke(1, level(800))
+
                         assertEquals(0.8f, activity.window.attributes.screenBrightness, 0.0001f)
                         plugin.invoke(2, empty())
                         assertEquals(-1f, activity.window.attributes.screenBrightness, 0f)
@@ -68,6 +69,7 @@ class BrightnessPluginTest {
                             expectError(PluginException.INVALID_ARGUMENT) { plugin.invoke(1, level(value)) }
                             assertEquals(original, activity.window.attributes.screenBrightness, 0f)
                         }
+
                         expectError(PluginException.INVALID_ARGUMENT) { plugin.invoke(1, ByteBuffer.allocate(3)) }
                         expectError(PluginException.INVALID_ARGUMENT) { plugin.invoke(2, level(0)) }
                         assertEquals(original, activity.window.attributes.screenBrightness, 0f)

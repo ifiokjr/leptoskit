@@ -20,6 +20,7 @@ class ApplicationPlugin(
         payload: ByteBuffer,
     ): ByteArray {
         if (method != 0) throw PluginException(PluginException.UNAVAILABLE)
+
         if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
         val manager = context.packageManager
         val info =
@@ -36,6 +37,7 @@ class ApplicationPlugin(
         val versionCode =
             if (Build.VERSION.SDK_INT >= 28) {
                 info.longVersionCode
+
             } else {
                 @Suppress("DEPRECATION")
                 info.versionCode.toLong()
@@ -49,8 +51,10 @@ class ApplicationPlugin(
             )
         val result = ByteArrayOutputStream(128)
         result.write(byteArrayOf(1, 0, 0, 0))
+
         for (value in fields) {
             val text = (value ?: "").toByteArray(Charsets.UTF_8)
+
             if (text.size > 4096) throw PluginException(PluginException.TOO_LARGE)
             result.write(
                 ByteBuffer
@@ -61,6 +65,7 @@ class ApplicationPlugin(
             )
             result.write(text)
         }
+
         return result.toByteArray()
     }
 }

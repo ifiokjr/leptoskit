@@ -36,6 +36,7 @@ mod expr;
 mod layout;
 mod lexer;
 mod markup;
+
 mod rustfmt;
 pub mod workspace;
 

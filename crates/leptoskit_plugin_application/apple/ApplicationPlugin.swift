@@ -20,13 +20,16 @@ public final class ApplicationPlugin: NativePlugin {
             bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String
         ]
         var result = Data([1, 0, 0, 0])
+
         for value in fields {
             let text = Data((value ?? "").utf8)
+
             guard text.count <= 4096 else { throw PluginError.tooLarge }
             var length = UInt32(text.count).littleEndian
             withUnsafeBytes(of: &length) { result.append(contentsOf: $0) }
             result.append(text)
         }
+
         return result
     }
 }

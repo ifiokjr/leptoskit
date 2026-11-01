@@ -23,8 +23,11 @@ public final class SpeechPlugin: NSObject, NativePlugin, AVSpeechSynthesizerDele
 
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
         guard !closed else { throw PluginError.cancelled }
+
         guard methods.contains(method) else { throw PluginError.unavailable }
+
         if method == 1 { return try await speak(SpeechRequest(payload: payload)) }
+
         guard payload.count == 0 else { throw PluginError.invalidArgument }
         switch method {
         case 0: return try voices()
@@ -44,13 +47,16 @@ public final class SpeechPlugin: NSObject, NativePlugin, AVSpeechSynthesizerDele
 
     private func voices() throws -> Data {
         let voices = AVSpeechSynthesisVoice.speechVoices()
+
         guard voices.count <= 1024 else { throw PluginError.tooLarge }
         var output = SpeechEncoder()
         output.integer(1)
         output.integer(UInt32(voices.count))
+
         for voice in voices {
             try output.text(voice.identifier)
             try output.text(voice.name)
+
             try output.text(voice.language)
             switch voice.quality {
             case .default: output.integer(1)
@@ -59,12 +65,14 @@ public final class SpeechPlugin: NSObject, NativePlugin, AVSpeechSynthesizerDele
             }
             output.integer(0)
         }
+
         return output.data
     }
 
     private func speak(_ request: SpeechRequest) async throws -> Data {
         guard active == nil else { throw PluginError.busy }
         let utterance = AVSpeechUtterance(string: request.text)
+
         if let identifier = request.voice {
             guard let voice = AVSpeechSynthesisVoice(identifier: identifier) else { throw PluginError.unavailable }
             utterance.voice = voice
@@ -72,26 +80,34 @@ public final class SpeechPlugin: NSObject, NativePlugin, AVSpeechSynthesizerDele
             guard let voice = AVSpeechSynthesisVoice(language: language) else { throw PluginError.unavailable }
             utterance.voice = voice
         }
+
         utterance.rate = min(AVSpeechUtteranceMaximumSpeechRate,
                              max(AVSpeechUtteranceMinimumSpeechRate, AVSpeechUtteranceDefaultSpeechRate * request.rate))
         utterance.pitchMultiplier = request.pitch
         utterance.volume = request.volume
         let token = UUID()
+
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { completion in
+
                 guard !Task.isCancelled, !closed else {
                     completion.resume(throwing: PluginError.cancelled)
+
                     return
                 }
+
                 guard active == nil else {
                     completion.resume(throwing: PluginError.busy)
+
                     return
                 }
+
                 active = ActiveSpeech(token: token, utterance: utterance, completion: completion)
                 synthesizer.speak(utterance)
             }
         } onCancel: {
             Task { @MainActor [weak self] in
+
                 guard self?.active?.token == token else { return }
                 self?.cancel()
             }
@@ -108,6 +124,7 @@ public final class SpeechPlugin: NSObject, NativePlugin, AVSpeechSynthesizerDele
     private func finish(_ identity: ObjectIdentifier, cancelled: Bool) {
         guard let current = active, ObjectIdentifier(current.utterance) == identity else { return }
         active = nil
+
         if cancelled {
             current.completion.resume(throwing: PluginError.cancelled)
         } else {

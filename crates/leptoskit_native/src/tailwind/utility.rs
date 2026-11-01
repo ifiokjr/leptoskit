@@ -466,6 +466,7 @@ fn paint(utility: &str) -> Option<Parsed> {
 				.map(|color| (300, vec![Declaration::Color(ColorField::Background, color)])),
 		);
 	}
+
 	if let Some(value) = utility.strip_prefix("text-") {
 		return text_paint(value);
 	}

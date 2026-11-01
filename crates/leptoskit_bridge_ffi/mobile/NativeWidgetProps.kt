@@ -37,15 +37,21 @@ internal class NativeWidgetProps(
         props: WidgetProps,
     ) {
         val description = props.accessibilityLabel
+
         if (widget.contentDescription?.toString() != description) widget.contentDescription = description
         val enabled = props.enabled ?: true
+
         if (widget.isEnabled != enabled) widget.isEnabled = enabled
         val visibility = if (props.hidden == true) View.INVISIBLE else View.VISIBLE
+
         if (widget.visibility != visibility) widget.visibility = visibility
         val alpha = (props.opacity ?: 1.0).toFloat()
+
         if (widget.alpha != alpha) widget.alpha = alpha
+
         val clip = props.clip == true || (props.cornerRadius ?: 0.0) > 0
         backdrop(widget, props, clip)
+
         if (widget.clipToOutline != clip) widget.clipToOutline = clip
 
         // A button without paint of its own keeps a platform pressed ripple;
@@ -66,6 +72,7 @@ internal class NativeWidgetProps(
                     View.IMPORTANT_FOR_ACCESSIBILITY_YES
                 }
         } else if (widget is ImageView) {
+
             applyImage(widget, props)
         }
 
@@ -149,6 +156,7 @@ internal class NativeWidgetProps(
         // NativeTextMeasurer sizes text without font padding, as layout expects.
         if (widget.includeFontPadding) widget.includeFontPadding = false
         val hint = props.placeholder
+
         if (widget.hint?.toString() != hint) widget.hint = hint
 
         val weight =
@@ -348,6 +356,7 @@ internal data class NativeVectorPath(
             fun number(): Float {
                 val value = tokens.getOrNull(index++)?.toFloatOrNull()
                 require(value != null && value.isFinite()) { "Invalid vector path data: $data" }
+
                 return value
             }
 

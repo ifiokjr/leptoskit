@@ -31,6 +31,7 @@ function decode(bytes: ArrayBuffer) {
 	const count = view.getUint32(8, true);
 	equal(bytes.byteLength, 12 + 36 * count);
 	const hinges: DecodedHinge[] = [];
+
 	for (let index = 0; index < count; index++) {
 		const at = 12 + 36 * index;
 		const word = (offset: number) => view.getUint32(at + offset, true);
@@ -45,6 +46,7 @@ function decode(bytes: ArrayBuffer) {
 			angle: word(32) === 0xffffffff ? undefined : word(32),
 		});
 	}
+
 	return {
 		foldable: view.getUint32(0, true),
 		fold: view.getUint32(4, true),
@@ -202,6 +204,7 @@ function plugin(): PosturePlugin {
 	device.status = 1;
 	device.window = { left: 0, top: 0, width: 2000, height: 1000 };
 	device.creases = [{ left: 1000, top: 0, width: 0, height: 1000 }];
+
 	return new PosturePlugin({ filesDir: "/data" });
 }
 
@@ -263,6 +266,7 @@ Deno.test("one wait at a time, cancellation, and malformed payloads", async () =
 			code(INVALID_ARGUMENT),
 		);
 	}
+
 	await rejects(
 		posture.invoke(call(0, new ArrayBuffer(4))),
 		code(INVALID_ARGUMENT),

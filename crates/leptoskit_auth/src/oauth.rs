@@ -1392,6 +1392,7 @@ fn extra_params(quirks: &Quirks, offline: Option<Offline>) -> Vec<(&'static str,
 		Some(Offline::Param(name, value)) => Some((name, value)),
 		_ => None,
 	};
+
 	let mut params = Vec::new();
 
 	for (name, value) in &quirks.authorize {
@@ -2295,6 +2296,7 @@ mod tests {
 		assert!(check(with("nonce", "replayed".into())).is_err());
 		assert!(check(with("sub", "".into())).is_err());
 		let mut no_nonce = good.clone();
+
 		no_nonce.as_object_mut().unwrap().remove("nonce");
 		assert!(check(no_nonce).is_err());
 

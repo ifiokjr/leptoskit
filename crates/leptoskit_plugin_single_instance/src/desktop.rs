@@ -41,15 +41,18 @@ impl InstanceGuard {
 			));
 		}
 		let metadata = fs::symlink_metadata(directory)?;
+
 		if !metadata.file_type().is_dir() {
 			return Err(io::Error::new(
 				io::ErrorKind::InvalidInput,
 				"instance directory must not be a symlink",
 			));
 		}
+
 		#[cfg(unix)]
 		{
 			use std::os::unix::fs::MetadataExt;
+
 			if metadata.uid() != rustix::process::geteuid().as_raw() || metadata.mode() & 0o077 != 0
 			{
 				return Err(io::Error::new(
@@ -60,15 +63,18 @@ impl InstanceGuard {
 		}
 		let file = open_lock(&directory.join(format!("{identity}.lock")))?;
 		let metadata = file.metadata()?;
+
 		if !metadata.is_file() {
 			return Err(io::Error::new(
 				io::ErrorKind::InvalidInput,
 				"instance lock must be a regular file",
 			));
 		}
+
 		#[cfg(unix)]
 		{
 			use std::os::unix::fs::MetadataExt;
+
 			if metadata.uid() != rustix::process::geteuid().as_raw()
 				|| metadata.nlink() != 1
 				|| metadata.mode() & 0o077 != 0
@@ -88,6 +94,7 @@ impl InstanceGuard {
 				"instance lock must be a file with one link",
 			));
 		}
+
 		match FileExt::try_lock(&file) {
 			Ok(()) => Ok(Some(Self { _file: file })),
 			Err(fs4::TryLockError::WouldBlock) => Ok(None),
@@ -137,6 +144,7 @@ fn link_count(file: &File) -> io::Result<u32> {
 	if unsafe { GetFileInformationByHandle(file.as_raw_handle(), information.as_mut_ptr()) } == 0 {
 		return Err(io::Error::last_os_error());
 	}
+
 	// SAFETY: the successful call initialized every field.
 	Ok(unsafe { information.assume_init() }.nNumberOfLinks)
 }
@@ -165,6 +173,7 @@ mod tests {
 				.unwrap()
 				.is_none()
 		);
+
 		assert!(
 			InstanceGuard::acquire(dir.path(), "dev.other.app")
 				.unwrap()
@@ -181,6 +190,7 @@ mod tests {
 	#[test]
 	fn invalid_identity_cannot_escape_directory() {
 		let dir = private_directory();
+
 		for identity in ["", "../escape", "foo/bar", ".hidden"] {
 			assert_eq!(
 				InstanceGuard::acquire(dir.path(), identity)
@@ -241,6 +251,7 @@ mod tests {
 		assert_eq!(fs::read_to_string(&target).unwrap(), "untouched");
 		let linked = dir.path().join("linked");
 		symlink(dir.path(), &linked).unwrap();
+
 		assert_eq!(
 			InstanceGuard::acquire(&linked, "app").unwrap_err().kind(),
 			io::ErrorKind::InvalidInput

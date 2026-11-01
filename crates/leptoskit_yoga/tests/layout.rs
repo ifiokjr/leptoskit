@@ -281,6 +281,7 @@ fn wrapping_breaks_lines_and_stacks_them() {
 			..Style::default()
 		},
 	);
+
 	for _ in 0..3 {
 		simple_child(
 			&mut tree,
@@ -292,6 +293,7 @@ fn wrapping_breaks_lines_and_stacks_them() {
 			},
 		);
 	}
+
 	tree.calculate_layout(root, definite(100.0, 50.0));
 
 	let first = tree.children(root)[0];
@@ -465,6 +467,7 @@ fn paragraph_leaf(tree: &mut Yoga) -> NodeId {
 			} else {
 				1.0
 			};
+
 			Size::new(width, lines * 10.0)
 		})),
 	);
@@ -604,6 +607,7 @@ fn aspect_ratio_derives_the_cross_size_of_a_flexed_item() {
 		let layout = tree.layout(tile);
 		assert_eq!((layout.width, layout.height), (100.0, 100.0));
 	}
+
 	assert_eq!(tree.layout(row).height, 100.0);
 }
 
@@ -763,7 +767,6 @@ fn rtl_row_lays_out_from_the_right_edge() {
 }
 
 // --- grid ---
-
 fn grid_style(columns: Vec<TrackSizing>, rows: Vec<TrackSizing>) -> Style {
 	Style {
 		display: Display::Grid,
@@ -789,9 +792,11 @@ fn grid_fixed_tracks_place_items_in_cells() {
 			vec![TrackSizing::Points(50.0), TrackSizing::Points(150.0)],
 		),
 	);
+
 	for _ in 0..4 {
 		simple_child(&mut tree, root, Style::default());
 	}
+
 	tree.calculate_layout(root, definite(300.0, 200.0));
 
 	let [a, b, c, d] = [0, 1, 2, 3].map(|index| tree.children(root)[index]);
@@ -1004,6 +1009,7 @@ fn grid_column_flow_walks_down_first() {
 			..Style::default()
 		},
 	);
+
 	tree.calculate_layout(root, definite(300.0, 200.0));
 
 	// Column flow fills the first column top-to-bottom before moving right.
@@ -1061,7 +1067,6 @@ fn grid_item_alignment_centers_within_area() {
 }
 
 // --- regressions ---
-
 /// A leaf whose measure function counts its invocations and wraps a 200-wide
 /// run of text into 10-high lines at the available width.
 fn wrapping_text_leaf(tree: &mut Yoga, calls: &std::sync::Arc<AtomicUsize>) -> NodeId {
@@ -1078,6 +1083,7 @@ fn wrapping_text_leaf(tree: &mut Yoga, calls: &std::sync::Arc<AtomicUsize>) -> N
 				} else {
 					1.0
 				};
+
 				Size::new(width, lines * 10.0)
 			},
 		)),
@@ -1096,13 +1102,16 @@ fn nested_chain(
 	calls: &std::sync::Arc<AtomicUsize>,
 ) -> NodeId {
 	let mut current = root;
+
 	for level in 0..depth {
 		let style = if level % 2 == 0 {
 			Style::row()
 		} else {
 			Style::default()
 		};
+
 		let next = simple_child(tree, current, style);
+
 		if siblings {
 			simple_child(
 				tree,
@@ -1114,8 +1123,10 @@ fn nested_chain(
 				},
 			);
 		}
+
 		current = next;
 	}
+
 	let leaf = wrapping_text_leaf(tree, calls);
 	tree.insert_child(current, leaf, 0);
 	leaf
@@ -1184,6 +1195,7 @@ fn cached_layout_reflects_changes_below_clean_ancestors() {
 		},
 	);
 	tree.calculate_layout(root, definite(300.0, 300.0));
+
 	tree.calculate_layout(root, definite(200.0, 300.0));
 	assert_eq!(tree.layout(branch).width, 200.0);
 	tree.calculate_layout(root, definite(300.0, 300.0));

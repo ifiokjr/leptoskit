@@ -40,12 +40,15 @@ impl Utterance {
 	/// contain 1..=4096 UTF-8 bytes and at most 4000 UTF-16 code units.
 	pub fn new(text: impl Into<String>) -> Result<Self, Error> {
 		let text = text.into();
+
 		if text.is_empty() {
 			return Err(Error::InvalidArgument);
 		}
+
 		if text.len() > 4096 || text.encode_utf16().count() > 4000 {
 			return Err(Error::TooLarge);
 		}
+
 		Ok(Self {
 			text,
 			rate: 1000,
@@ -63,6 +66,7 @@ impl Utterance {
 		if !(500..=2000).contains(&rate) || !(500..=2000).contains(&pitch) || volume > 1000 {
 			return Err(Error::InvalidArgument);
 		}
+
 		self.rate = rate;
 		self.pitch = pitch;
 		self.volume = volume;
@@ -73,9 +77,11 @@ impl Utterance {
 	/// voice identifier cannot be combined with language selection.
 	pub fn with_language(mut self, language: impl Into<String>) -> Result<Self, Error> {
 		let language = language.into();
+
 		if self.voice.is_some() || !valid_language(&language) {
 			return Err(Error::InvalidArgument);
 		}
+
 		self.language = Some(language);
 		Ok(self)
 	}
@@ -83,12 +89,15 @@ impl Utterance {
 	/// Selects an identifier returned by voice discovery.
 	pub fn with_voice(mut self, voice: impl Into<String>) -> Result<Self, Error> {
 		let voice = voice.into();
+
 		if self.language.is_some() || voice.is_empty() {
 			return Err(Error::InvalidArgument);
 		}
+
 		if voice.len() > 512 {
 			return Err(Error::TooLarge);
 		}
+
 		self.voice = Some(voice);
 		Ok(self)
 	}
@@ -126,6 +135,7 @@ impl Utterance {
 	/// Encodes validated fields.
 	pub fn encode(&self) -> Result<Bytes, Error> {
 		let mut output = Encoder::with_capacity(self.text.len() + 32);
+
 		for field in [1, self.rate, self.pitch, self.volume] {
 			output.u32(field);
 		}
@@ -143,29 +153,40 @@ impl Utterance {
 	/// trailing bytes.
 	pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
 		let mut input = Decoder::new(bytes);
+
 		if input.u32()? != 1 {
 			return Err(Error::InvalidArgument);
 		}
+
 		let (rate, pitch, volume) = (input.u32()?, input.u32()?, input.u32()?);
 		let text = input.string()?;
+
 		if text.len() > 4096 {
 			return Err(Error::TooLarge);
 		}
+
 		let mut result = Self::new(text)?.with_audio(rate, pitch, volume)?;
+
 		let language = input.string()?;
+
 		if language.len() > 64 {
 			return Err(Error::TooLarge);
 		}
+
 		if !language.is_empty() {
 			result = result.with_language(language)?;
 		}
+
 		let voice = input.string()?;
+
 		if voice.len() > 512 {
 			return Err(Error::TooLarge);
 		}
+
 		if !voice.is_empty() {
 			result = result.with_voice(voice)?;
 		}
+
 		input.finish()?;
 		Ok(result)
 	}
@@ -174,6 +195,7 @@ fn valid_language(value: &str) -> bool {
 	let mut parts = value.split('-');
 	// `split` always yields a first part, which may be empty.
 	let language = parts.next().unwrap_or_default();
+
 	if !(2..=3).contains(&language.len())
 		|| !language.bytes().all(|byte| byte.is_ascii_alphabetic())
 	{
@@ -185,6 +207,7 @@ fn valid_language(value: &str) -> bool {
 	}) {
 		next = parts.next();
 	}
+
 	if let Some(region) = next
 		&& !((region.len() == 2 && region.bytes().all(|byte| byte.is_ascii_alphabetic()))
 			|| (region.len() == 3 && region.bytes().all(|byte| byte.is_ascii_digit())))
@@ -222,38 +245,49 @@ pub struct Voice {
 /// Decodes a bounded voice list (at most 1024 voices, 512-byte text fields).
 pub fn decode_voices(bytes: &[u8]) -> Result<Vec<Voice>, Error> {
 	let mut input = Decoder::new(bytes);
+
 	if input.u32()? != 1 {
 		return Err(Error::InvalidArgument);
 	}
+
 	let count = input.u32()?;
+
 	if count > 1024 {
 		return Err(Error::TooLarge);
 	}
+
 	let mut result = Vec::with_capacity(count as usize);
+
 	for _ in 0..count {
 		let mut text = || -> Result<String, Error> {
 			let value = input.string()?;
+
 			if value.is_empty() {
 				return Err(Error::InvalidArgument);
 			}
+
 			if value.len() > 512 {
 				return Err(Error::TooLarge);
 			}
+
 			Ok(value.to_owned())
 		};
 		let (id, name, language) = (text()?, text()?, text()?);
+
 		let quality = match input.u32()? {
 			0 => Quality::Unknown,
 			1 => Quality::Default,
 			2 => Quality::Enhanced,
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		let local = match input.u32()? {
 			0 => None,
 			1 => Some(false),
 			2 => Some(true),
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		result.push(Voice {
 			id,
 			name,
@@ -262,6 +296,7 @@ pub fn decode_voices(bytes: &[u8]) -> Result<Vec<Voice>, Error> {
 			local,
 		});
 	}
+
 	input.finish()?;
 	Ok(result)
 }
@@ -303,11 +338,13 @@ pub mod guest {
 		pub async fn is_speaking(self) -> Result<bool, Error> {
 			let bytes = self.0.call(IS_SPEAKING, &[])?.await?;
 			let mut input = Decoder::new(&bytes);
+
 			let result = match input.u32()? {
 				0 => false,
 				1 => true,
 				_ => return Err(Error::InvalidArgument),
 			};
+
 			input.finish()?;
 			Ok(result)
 		}
@@ -328,6 +365,7 @@ mod tests {
 			.with_language("zh-Hant-TW")
 			.unwrap();
 		assert_eq!(Utterance::decode(&options.encode().unwrap()), Ok(options));
+
 		for language in ["en", "en-US", "es-419", "zh-Hant", "fil-PH"] {
 			assert!(valid_language(language));
 		}
@@ -374,9 +412,11 @@ mod tests {
 				.is_err()
 		);
 		let encoded = Utterance::new("text").unwrap().encode().unwrap();
+
 		for length in 0..encoded.len() {
 			assert!(Utterance::decode(&encoded[..length]).is_err());
 		}
+
 		let mut invalid = encoded.to_vec();
 		invalid[20] = 255;
 		assert_eq!(Utterance::decode(&invalid), Err(Error::InvalidArgument));
@@ -389,9 +429,11 @@ mod tests {
 		let mut output = Encoder::with_capacity(64);
 		output.u32(1);
 		output.u32(1);
+
 		for text in ["voice", "Voice", "en-US"] {
 			output.bytes(text.as_bytes()).unwrap();
 		}
+
 		output.u32(2);
 		output.u32(2);
 		let encoded = output.finish();
@@ -399,9 +441,11 @@ mod tests {
 			decode_voices(&encoded).unwrap()[0].quality,
 			Quality::Enhanced
 		);
+
 		for length in 0..encoded.len() {
 			assert!(decode_voices(&encoded[..length]).is_err());
 		}
+
 		let mut invalid = encoded.to_vec();
 		invalid[4..8].copy_from_slice(&1025_u32.to_le_bytes());
 		assert_eq!(decode_voices(&invalid), Err(Error::TooLarge));
@@ -444,6 +488,7 @@ mod tests {
 			Err(Error::InvalidArgument)
 		);
 		let base = Utterance::new("hello").unwrap();
+
 		assert_eq!(base.clone().with_voice(""), Err(Error::InvalidArgument));
 		assert_eq!(
 			base.clone().with_voice("v".repeat(513)),
@@ -456,12 +501,15 @@ mod tests {
 
 		let wire = |text: &str, language: &str, voice: &str| {
 			let mut output = Encoder::with_capacity(64);
+
 			for field in [1, 1000, 1000, 1000] {
 				output.u32(field);
 			}
+
 			for value in [text, language, voice] {
 				output.bytes(value.as_bytes()).unwrap();
 			}
+
 			output.finish()
 		};
 		assert_eq!(
@@ -478,6 +526,7 @@ mod tests {
 		);
 		let mut version = wire("x", "", "").to_vec();
 		version[0] = 2;
+
 		assert_eq!(Utterance::decode(&version), Err(Error::InvalidArgument));
 	}
 
@@ -487,9 +536,11 @@ mod tests {
 			let mut output = Encoder::with_capacity(64);
 			output.u32(1);
 			output.u32(1);
+
 			for text in [id, "Name", "en-US"] {
 				output.bytes(text.as_bytes()).unwrap();
 			}
+
 			output.u32(quality);
 			output.u32(local);
 			output.finish()
@@ -512,6 +563,7 @@ mod tests {
 			decode_voices(&voices(1, 1, "")),
 			Err(Error::InvalidArgument)
 		);
+
 		assert_eq!(
 			decode_voices(&voices(1, 1, &"v".repeat(513))),
 			Err(Error::TooLarge)

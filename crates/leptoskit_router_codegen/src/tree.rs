@@ -62,6 +62,7 @@ fn read_directory(
 		files: Vec::new(),
 		directories: Vec::new(),
 	};
+
 	let mut entries = match std::fs::read_dir(path) {
 		Ok(entries) => {
 			entries
@@ -78,11 +79,13 @@ fn read_directory(
 			return directory;
 		}
 	};
+
 	entries.sort();
 
 	// Module names this directory has handed out, to catch two names that
 	// become the same Rust module.
 	let mut modules: BTreeMap<String, String> = BTreeMap::new();
+
 	for entry in entries {
 		let Some(disk_name) = entry
 			.file_name()
@@ -96,9 +99,11 @@ fn read_directory(
 			));
 			continue;
 		};
+
 		if disk_name.starts_with('.') {
 			continue;
 		}
+
 		let is_dir = entry.is_dir();
 		let stem = if is_dir {
 			disk_name.as_str()
@@ -108,6 +113,7 @@ fn read_directory(
 			// Only Rust files are routes; anything else is left alone.
 			continue;
 		};
+
 		let parsed = match name::parse(stem, is_dir) {
 			Ok(parsed) => parsed,
 			Err(message) => {
@@ -115,7 +121,9 @@ fn read_directory(
 				continue;
 			}
 		};
+
 		let module = name::module_name(&parsed);
+
 		if let Some(previous) = modules.insert(module.clone(), disk_name.clone()) {
 			diagnostics.push(Diagnostic::new(
 				&entry,
@@ -128,8 +136,10 @@ fn read_directory(
 			));
 			continue;
 		}
+
 		if is_dir {
 			let child = read_directory(&entry, disk_name, Some(parsed), module, diagnostics);
+
 			if !child.is_empty() {
 				directory.directories.push(child);
 			}
@@ -139,6 +149,7 @@ fn read_directory(
 			} else {
 				read_exports(&entry, diagnostics)
 			};
+
 			directory.files.push(File {
 				disk_name,
 				name: parsed,
@@ -148,6 +159,7 @@ fn read_directory(
 			});
 		}
 	}
+
 	directory
 }
 
@@ -163,6 +175,7 @@ fn read_exports(path: &Path, diagnostics: &mut Vec<Diagnostic>) -> Option<Export
 			return None;
 		}
 	};
+
 	match exports::read(&source) {
 		Ok(exports) => Some(exports),
 		Err(problems) => {

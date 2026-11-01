@@ -119,6 +119,7 @@ fn generated_runtime_starts_renders_and_polls_rust_plugin_completions() {
 			0,
 			"a well-formed scroll for an unknown node is ignored"
 		);
+
 		for malformed in [&b"{\"x\":0}"[..], b"{\"x\":0,\"y\":\"far\"}", b"120"] {
 			assert_eq!(
 				lk_app_event(app, usize::MAX, 5, malformed.as_ptr(), malformed.len()),
@@ -130,6 +131,7 @@ fn generated_runtime_starts_renders_and_polls_rust_plugin_completions() {
 					.contains("scroll event")
 			);
 		}
+
 		assert_eq!(lk_app_start(app, 100.0, 100.0), -1);
 		lk_app_destroy(app);
 	}

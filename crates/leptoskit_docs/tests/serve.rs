@@ -92,6 +92,7 @@ fn serves_rebuilds_and_reloads() {
 
 	fs::write(root.path().join("readme.md"), "# Home\n\nSecond draft.\n").unwrap();
 	let deadline = Instant::now() + Duration::from_secs(30);
+
 	while !get(address, "/").1.contains("Second draft.") {
 		assert!(Instant::now() < deadline, "the edit was never rebuilt");
 		std::thread::sleep(Duration::from_millis(50));

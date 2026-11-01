@@ -91,19 +91,23 @@ fn format_passes(
 		Some(body) => ("\u{feff}", body),
 		None => ("", source),
 	};
+
 	let crlf = settings.layout.newline_style.use_crlf(body);
 	let mut text = body.replace("\r\n", "\n");
 	let mut diagnostics = Vec::new();
 	let mut stats = Stats::default();
+
 	for _ in 0..MAX_PASSES {
 		stats.passes += 1;
 		let pass = Pass::run(&text, settings, rustfmt, &mut stats)?;
 		diagnostics = pass.diagnostics;
 		text = pass.text;
+
 		if pass.settled {
 			return Ok(finish(bom, &text, crlf, diagnostics, stats));
 		}
 	}
+
 	diagnostics.push(Diagnostic {
 		line: 1,
 		column: 1,
@@ -120,6 +124,7 @@ fn finish(bom: &str, text: &str, crlf: bool, diagnostics: Vec<Diagnostic>, stats
 	} else {
 		text.to_owned()
 	};
+
 	Output {
 		text: format!("{bom}{text}"),
 		diagnostics,
@@ -189,6 +194,7 @@ impl Pass {
 		// expressions it holds, so rustfmt formats them with the file.
 		let mut predict = Predict::default();
 		let mut parsed = Parsed::new();
+
 		for (call, markup) in calls.iter().zip(&markups) {
 			if let Ok(markup) = markup {
 				let indent = layout.width(line_indentation(source, call.range.start));
@@ -196,6 +202,7 @@ impl Pass {
 					.macro_doc(call, markup, indent);
 			}
 		}
+
 		let requests: Vec<Request> = predict.requests.into_iter().collect();
 		let masked = mask_calls(source, &calls);
 		let (formatted, answers) =
@@ -211,11 +218,13 @@ impl Pass {
 				.iter()
 				.zip(&calls)
 				.any(|(placed, call)| placed.path != call.path);
+
 		if moved {
 			return Err(FormatError::Rustfmt(
 				"rustfmt added or removed a markup macro; the file was left unchanged".to_owned(),
 			));
 		}
+
 		let placements: Vec<Placement<'_>> = placed
 			.iter()
 			.map(|place| Placement::of(&formatted, place, settings))
@@ -226,8 +235,10 @@ impl Pass {
 		// rustfmt reshaped) go to rustfmt together, one round per level of
 		// nesting rather than one per macro.
 		let mut laid: Vec<Option<Laid<'_>>> = Vec::with_capacity(calls.len());
+
 		for _ in 0..=MAX_ROUNDS {
 			laid.clear();
+
 			for ((call, markup), placement) in calls.iter().zip(&markups).zip(&placements) {
 				let Ok(markup) = markup else {
 					laid.push(None);
@@ -241,6 +252,7 @@ impl Pass {
 					failures,
 					..
 				} = layouter;
+
 				laid.push(Some(Laid {
 					doc,
 					builder,
@@ -248,13 +260,16 @@ impl Pass {
 					failures,
 				}));
 			}
+
 			if memo.missing.is_empty() {
 				break;
 			}
+
 			let requests: Vec<Request> = std::mem::take(&mut memo.missing).into_iter().collect();
 			memo.answers
 				.extend(rustfmt.expressions(&requests, settings, stats));
 		}
+
 		let unresolved = !memo.missing.is_empty();
 
 		let mut pass = Self {
@@ -263,6 +278,7 @@ impl Pass {
 			diagnostics: Vec::new(),
 		};
 		let mut cursor = 0;
+
 		for (((call, markup), placement), (place, laid)) in calls
 			.iter()
 			.zip(&markups)
@@ -270,6 +286,7 @@ impl Pass {
 			.zip(placed.iter().zip(laid))
 		{
 			pass.text.push_str(&formatted[cursor..place.range.start]);
+
 			let rendered = match (markup, laid) {
 				(Ok(_), Some(laid)) if !unresolved => pass.print(source, call, placement, laid),
 				(Ok(_), _) => {
@@ -285,6 +302,7 @@ impl Pass {
 					source[call.range.clone()].to_owned()
 				}
 			};
+
 			pass.text.push_str(&rendered);
 			cursor = place.range.end;
 		}
@@ -317,10 +335,12 @@ impl Pass {
 		let rendered = printed.text[..printed.text.len() - placement.suffix.len()].to_owned();
 		self.settled &= body_shape(&source[call.body.clone()])
 			== body_shape(body_of(&rendered, placement.head));
+
 		for nested in nested {
 			let text = &printed.text[printed.tracks[nested.track].clone()];
 			self.settled &= nested.shape == body_shape(body_of(text, nested.head));
 		}
+
 		self.diagnostics
 			.extend(failures.iter().map(|error| diagnostic(source, error)));
 		rendered

@@ -128,6 +128,7 @@ impl<'a> ParagraphWrap<'a> {
 			self.line_width += self.pending_space + width;
 			self.line_end = end;
 			self.pending_space = 0;
+
 			return;
 		}
 
@@ -137,6 +138,7 @@ impl<'a> ParagraphWrap<'a> {
 			self.line_end = end;
 			self.line_width = width;
 			self.pending_space = 0;
+
 			return;
 		}
 

@@ -71,11 +71,13 @@ impl Capabilities {
 	pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
 		let mut input = Decoder::new(bytes);
 		version(&mut input)?;
+
 		let prevention = match input.u32()? {
 			0 => false,
 			1 => true,
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		let capture = Scope::decode(input.u32()?)?;
 		let screenshots = Scope::decode(input.u32()?)?;
 		input.finish()?;
@@ -123,12 +125,14 @@ impl Snapshot {
 		let mut input = Decoder::new(bytes);
 		version(&mut input)?;
 		let capture = CaptureState::decode(input.u32()?)?;
+
 		let protected = match input.u32()? {
 			0 => None,
 			1 => Some(false),
 			2 => Some(true),
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		input.finish()?;
 		Ok(Self { capture, protected })
 	}
@@ -148,10 +152,12 @@ impl Watch {
 	/// Encodes kind and previous state as two little-endian words.
 	pub fn encode(self) -> Bytes {
 		let mut output = Encoder::with_capacity(8);
+
 		let (kind, state) = match self {
 			Self::CaptureChanged(state) => (0, state as u32),
 			Self::Screenshot => (1, 0),
 		};
+
 		output.u32(kind);
 		output.u32(state);
 		output.finish()
@@ -163,6 +169,7 @@ impl Watch {
 		let kind = input.u32()?;
 		let state = input.u32()?;
 		input.finish()?;
+
 		match (kind, state) {
 			(0, state) => Ok(Self::CaptureChanged(CaptureState::decode(state)?)),
 			(1, 0) => Ok(Self::Screenshot),
@@ -187,12 +194,14 @@ impl Event {
 		let kind = input.u32()?;
 		let state = input.u32()?;
 		input.finish()?;
+
 		match (watch, kind, state) {
 			(Watch::CaptureChanged(previous), 0, state) => {
 				let state = CaptureState::decode(state)?;
 				if state == previous {
 					return Err(Error::InvalidArgument);
 				}
+
 				Ok(Self::CaptureChanged(state))
 			}
 			(Watch::Screenshot, 1, 0) => Ok(Self::Screenshot),
@@ -316,6 +325,7 @@ mod tests {
 			Capabilities::decode(&words(&[1, 1, 0, 1])).unwrap().capture,
 			Scope::Unavailable
 		);
+
 		for values in [[2, 0, 2, 3], [1, 2, 0, 0], [1, 0, 4, 0], [1, 0, 0, 4]] {
 			assert_eq!(
 				Capabilities::decode(&words(&values)),
@@ -332,11 +342,15 @@ mod tests {
 				protected: Some(true)
 			})
 		);
+
 		let valid = words(&[1, 2, 0]);
+
 		for size in 0..valid.len() {
 			assert!(Snapshot::decode(&valid[..size]).is_err());
 		}
+
 		assert!(Snapshot::decode(&words(&[1, 2, 0, 0])).is_err());
+
 		for values in [[0, 0, 0], [1, 3, 0], [1, 0, 3]] {
 			assert!(Snapshot::decode(&words(&values)).is_err());
 		}
@@ -350,17 +364,21 @@ mod tests {
 		] {
 			assert_eq!(Watch::decode(&watch.encode()), Ok(watch));
 		}
+
 		for values in [[0, 3], [1, 1], [2, 0]] {
 			assert!(Watch::decode(&words(&values)).is_err());
 		}
+
 		let watch = Watch::CaptureChanged(CaptureState::Inactive);
 		assert_eq!(
 			Event::decode(&words(&[1, 0, 2]), watch),
 			Ok(Event::CaptureChanged(CaptureState::Active))
 		);
+
 		for values in [[1, 0, 1], [1, 1, 0], [1, 0, 3], [2, 0, 2]] {
 			assert!(Event::decode(&words(&values), watch).is_err());
 		}
+
 		assert_eq!(
 			Event::decode(&words(&[1, 1, 0]), Watch::Screenshot),
 			Ok(Event::Screenshot)

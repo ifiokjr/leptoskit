@@ -32,6 +32,7 @@ fn unparsable_markup_is_left_exactly_as_written() {
 		diagnostic.message.starts_with("markup left as written:"),
 		"{diagnostic}"
 	);
+
 	let again = format(&output.text);
 	assert_eq!(
 		(again.text, again.diagnostics),
@@ -56,6 +57,7 @@ fn comments_the_layout_cannot_place_leave_the_markup_alone() {
 fn invalid_blocks_and_tokens_are_reported() {
 	for markup in ["<a>{ let }</a>", "<a b={ ) }/>", "<a>\"unterminated</a>"] {
 		let source = format!("fn f() {{\n\tview! {{ {markup} }};\n}}\n");
+
 		match leptoskit_fmt::format_source(&source, &support::SETTINGS, &support::RUSTFMT) {
 			Ok(output) => {
 				assert_eq!(output.text, source, "{markup}");
@@ -173,6 +175,7 @@ fn invalid_configuration_is_reported() {
 	std::fs::write(dir.join("leptoskit.toml"), "[format]\n").expect("write");
 	std::fs::write(dir.join("rustfmt.toml"), "max_width = \"wide\"\n").expect("write");
 	let error = Settings::for_path(&dir.join("lib.rs")).expect_err("invalid max_width");
+
 	assert!(error.to_string().contains("rustfmt.toml"), "{error}");
 	std::fs::remove_dir_all(&dir).expect("clean up");
 }

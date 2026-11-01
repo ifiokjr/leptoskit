@@ -62,9 +62,11 @@ pub fn is_available() -> bool {
 /// Await the returned request to observe API completion, never delivery.
 pub fn share(content: &Content) -> Result<ShareRequest, Error> {
 	let window = web_sys::window().ok_or(Error::Unavailable)?;
+
 	if !window.is_secure_context() {
 		return Err(Error::PermissionDenied);
 	}
+
 	begin(window.navigator().as_ref(), content)
 }
 
@@ -73,6 +75,7 @@ fn begin(target: &JsValue, content: &Content) -> Result<ShareRequest, Error> {
 	let admission = Admission::acquire()?;
 	let data = Object::new();
 	let field = if content.is_url() { "url" } else { "text" };
+
 	if !Reflect::set(&data, &field.into(), &content.as_str().into())
 		.map_err(|error| failure(&error))?
 	{
@@ -84,6 +87,7 @@ fn begin(target: &JsValue, content: &Content) -> Result<ShareRequest, Error> {
 		.dyn_into::<Promise>()
 		.map_err(|_| Error::Native)?;
 	let (sender, receiver) = oneshot::channel();
+
 	wasm_bindgen_futures::spawn_local(async move {
 		let result = JsFuture::from(promise)
 			.await
@@ -112,6 +116,7 @@ fn failure(error: &JsValue) -> Error {
 		Some("NotAllowedError" | "SecurityError") => Error::PermissionDenied,
 		Some("InvalidStateError") => Error::Busy,
 		Some("NotSupportedError") => Error::Unavailable,
+
 		_ if error.is_instance_of::<js_sys::TypeError>() => Error::InvalidArgument,
 		_ => Error::Native,
 	}

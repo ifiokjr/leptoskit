@@ -101,11 +101,13 @@ impl Player {
 		options: &Options,
 	) -> Result<Self, Error> {
 		let bytes = Uint8Array::from(asset.bytes());
+
 		let (kind, name) = match &options.scene {
 			Scene::Default => ("default", None),
 			Scene::Animation(name) => ("animation", Some(name.as_str())),
 			Scene::StateMachine(name) => ("stateMachine", Some(name.as_str())),
 		};
+
 		let handle = mount(
 			&runtime.0,
 			canvas,
@@ -157,6 +159,7 @@ impl Player {
 	/// Updates one input, failing for a missing input or a mismatched type.
 	pub fn set_input(&self, name: &Name, input: Input) -> Result<(), Error> {
 		input.validate()?;
+
 		let (kind, value) = match input {
 			Input::Boolean(value) => ("boolean", JsValue::from_bool(value)),
 			Input::Number(value) => ("number", JsValue::from_f64(value)),
@@ -171,11 +174,13 @@ impl Player {
 	/// Checks a named input's type without updating it or firing a trigger.
 	pub fn validate_input(&self, name: &Name, input: Input) -> Result<(), Error> {
 		input.validate()?;
+
 		let kind = match input {
 			Input::Boolean(_) => "boolean",
 			Input::Number(_) => "number",
 			Input::Trigger => "trigger",
 		};
+
 		self.0
 			.validate_input(name.as_str(), kind)
 			.map_err(|error| runtime_error(&error))

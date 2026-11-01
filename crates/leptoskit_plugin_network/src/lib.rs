@@ -121,6 +121,7 @@ impl Snapshot {
 		if self.downlink_kbps == Some(u32::MAX) || self.round_trip_ms == Some(u32::MAX) {
 			return Err(Error::InvalidArgument);
 		}
+
 		let mut output = Encoder::with_capacity(32);
 		for field in [
 			self.connection as u32,
@@ -140,6 +141,7 @@ impl Snapshot {
 	/// Rejects truncated/trailing data and invalid enum/boolean values.
 	pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
 		let mut input = Decoder::new(bytes);
+
 		let connection = match input.u32()? {
 			0 => Connection::Unknown,
 			1 => Connection::None,
@@ -151,12 +153,14 @@ impl Snapshot {
 			7 => Connection::Other,
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		let connected = read_flag(input.u32()?)?;
 		let internet_validated = read_flag(input.u32()?)?;
 		let expensive = read_flag(input.u32()?)?;
 		let data_saver = read_flag(input.u32()?)?;
 		let downlink_kbps = optional(input.u32()?);
 		let round_trip_ms = optional(input.u32()?);
+
 		let effective_type = match input.u32()? {
 			0 => EffectiveType::Unknown,
 			1 => EffectiveType::Slow2g,
@@ -165,6 +169,7 @@ impl Snapshot {
 			4 => EffectiveType::FourG,
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		input.finish()?;
 		Ok(Self {
 			connection,
@@ -217,6 +222,7 @@ pub mod desktop {
 			.iter()
 			.filter(|entry| routable(entry))
 			.any(|entry| entry.oper_status == if_addrs::IfOperStatus::Unknown);
+
 		if connected {
 			Snapshot::connection(Connection::Unknown, Some(true))
 		} else if unknown {
@@ -243,9 +249,11 @@ pub mod desktop {
 			if method != SNAPSHOT {
 				return Err(Error::Unavailable);
 			}
+
 			if !payload.is_empty() {
 				return Err(Error::InvalidArgument);
 			}
+
 			snapshot()?.encode()
 		}
 	}
@@ -286,6 +294,7 @@ pub mod desktop {
 				Ipv4Addr::new(192, 168, 1, 2),
 				if_addrs::IfOperStatus::Unknown,
 			);
+
 			assert_eq!(from_interfaces(&[unknown]).connected, None);
 			let apipa = interface(Ipv4Addr::new(169, 254, 10, 2), if_addrs::IfOperStatus::Up);
 			assert_eq!(from_interfaces(&[apipa]).connected, Some(false));
@@ -321,13 +330,17 @@ pub mod web {
 	}
 	fn estimate(value: &JsValue, key: &str, scale: f64) -> Result<Option<u32>, Error> {
 		let number = property(value, key)?;
+
 		if number.is_undefined() || number.is_null() {
 			return Ok(None);
 		}
+
 		let number = number.as_f64().ok_or(Error::Native)? * scale;
+
 		if !number.is_finite() || number < 0.0 || number.round() >= f64::from(u32::MAX) {
 			return Err(Error::Native);
 		}
+
 		Ok(Some(number.round() as u32))
 	}
 	/// `navigator.onLine` is an unreliable hint. Never gate application
@@ -345,9 +358,11 @@ pub mod web {
 			Some(online),
 		);
 		let connection = property(navigator.as_ref(), "connection")?;
+
 		if connection.is_null() || connection.is_undefined() {
 			return Ok(result);
 		}
+
 		if online {
 			result.connection = match property(&connection, "type")?.as_string().as_deref() {
 				Some("wifi") => Connection::Wifi,
@@ -358,9 +373,12 @@ pub mod web {
 				_ => Connection::Unknown,
 			};
 		}
+
 		result.data_saver = property(&connection, "saveData")?.as_bool();
+
 		result.downlink_kbps = estimate(&connection, "downlink", 1000.0)?;
 		result.round_trip_ms = estimate(&connection, "rtt", 1.0)?;
+
 		result.effective_type = match property(&connection, "effectiveType")?
 			.as_string()
 			.as_deref()
@@ -385,6 +403,7 @@ pub mod web {
 			let sender = Rc::clone(&sender);
 			move || {
 				let current = snapshot();
+
 				if current != Ok(previous) {
 					if let Some(sender) = sender.borrow_mut().take() {
 						// Cancellation can drop the receiver before an already
@@ -395,13 +414,17 @@ pub mod web {
 			}
 		};
 		let mut listeners = Vec::with_capacity(3);
+
 		for event in ["online", "offline"] {
 			let changed = changed.clone();
+
 			listeners.push(gloo_events::EventListener::new(&window, event, move |_| {
 				changed();
 			}));
 		}
+
 		let connection = property(window.navigator().as_ref(), "connection")?;
+
 		if !connection.is_undefined() && !connection.is_null() {
 			let target = connection
 				.dyn_into::<web_sys::EventTarget>()
@@ -413,6 +436,7 @@ pub mod web {
 				move |_| changed(),
 			));
 		}
+
 		// Install before sampling to avoid missing a change between them.
 		changed();
 		let result = receiver.await.map_err(|_| Error::Cancelled)?;
@@ -457,11 +481,13 @@ mod tests {
 		assert_eq!(bytes.len(), 32);
 		assert_eq!(&bytes[..12], &[2, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0]);
 		assert_eq!(Snapshot::decode(&bytes), Ok(reading));
+
 		for field in [0, 4, 8, 12, 16, 28] {
 			let mut invalid = bytes.to_vec();
 			invalid[field] = 99;
 			assert_eq!(Snapshot::decode(&invalid), Err(Error::InvalidArgument));
 		}
+
 		assert_eq!(Snapshot::decode(&bytes[..31]), Err(Error::InvalidArgument));
 		let mut trailing = bytes.to_vec();
 		trailing.push(0);
@@ -495,6 +521,7 @@ mod tests {
 			EffectiveType::ThreeG,
 			EffectiveType::FourG,
 		];
+
 		for (index, connection) in connections.into_iter().enumerate() {
 			let reading = Snapshot {
 				connection,

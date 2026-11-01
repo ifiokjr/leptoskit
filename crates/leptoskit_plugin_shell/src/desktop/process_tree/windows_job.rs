@@ -141,6 +141,7 @@ impl Job {
 		// SAFETY: a successful query initialized this header within buffer.
 		let header = unsafe { &*header };
 		let count = usize::try_from(header.NumberOfProcessIdsInList).expect("DWORD fits usize");
+
 		if header.NumberOfAssignedProcesses != header.NumberOfProcessIdsInList
 			|| count > MAX_TRACKED
 		{
@@ -179,12 +180,15 @@ impl JobChild {
 	fn observe(&mut self) -> io::Result<()> {
 		for pid in self.job.members(&mut self.snapshot)? {
 			let pid = u32::try_from(*pid).map_err(io::Error::other)?;
+
 			if self.processes.contains_key(&pid) {
 				continue;
 			}
+
 			if self.processes.len() == MAX_TRACKED {
 				return Err(io::Error::other("shell process tracking limit exceeded"));
 			}
+
 			// SAFETY: this opens only a query/synchronization handle. A PID
 			// obtained from the job may already have exited or been reused;
 			// membership is checked before counting it as a witness.
@@ -196,17 +200,21 @@ impl JobChild {
 				)
 			}) {
 				Ok(process) => process,
+
 				Err(error) if error.raw_os_error() == Some(ERROR_INVALID_PARAMETER as i32) => {
 					continue;
 				}
 				Err(error) => return Err(error),
 			};
+
 			if self.job.contains(&process)? {
 				self.processes.insert(pid, process);
 			}
+
 			// A lost process identity is never counted. The lifetime process
 			// total below makes any missing witness fail closed.
 		}
+
 		Ok(())
 	}
 }
@@ -215,11 +223,14 @@ pub(super) async fn exited(child: &mut dyn ChildWrapper) -> io::Result<()> {
 	let child = (child as &mut dyn std::any::Any)
 		.downcast_mut::<JobChild>()
 		.expect("Windows shell child owns a job");
+
 	loop {
 		child.observe()?;
+
 		if child.child.try_wait()?.is_some() {
 			return Ok(());
 		}
+
 		tokio::time::sleep(Duration::from_millis(5)).await;
 	}
 }
@@ -251,19 +262,23 @@ impl ChildWrapper for JobChild {
 	fn wait(&mut self) -> Pin<Box<dyn Future<Output = io::Result<ExitStatus>> + Send + '_>> {
 		Box::pin(async {
 			let status = self.child.wait().await?;
+
 			loop {
 				self.observe()?;
 				let mut complete = true;
+
 				for process in self.processes.values() {
 					// SAFETY: every witness is an owned process handle opened
 					// for synchronization, and a zero timeout cannot block.
 					match unsafe { WaitForSingleObject(process.as_raw_handle(), 0) } {
 						WAIT_OBJECT_0 => {}
 						WAIT_TIMEOUT => complete = false,
+
 						WAIT_FAILED => return Err(io::Error::last_os_error()),
 						_ => return Err(io::Error::other("unexpected shell process wait status")),
 					}
 				}
+
 				if complete {
 					// Handles pin unique identities. Their signaled state
 					// proves termination; matching the monotonic lifetime total
@@ -271,13 +286,16 @@ impl ChildWrapper for JobChild {
 					// alone does not provide this guarantee.
 					let tracked =
 						u32::try_from(self.processes.len()).expect("bounded witness count");
+
 					if self.job.total_processes()? != tracked {
 						return Err(io::Error::other(
 							"shell cleanup could not witness every job member",
 						));
 					}
+
 					return Ok(status);
 				}
+
 				tokio::time::sleep(Duration::from_millis(5)).await;
 			}
 		})
@@ -294,28 +312,36 @@ fn resume(pid: u32) -> io::Result<()> {
 	// SAFETY: the snapshot is open and entry declares its exact buffer size.
 	check(unsafe { Thread32First(snapshot.as_raw_handle(), &raw mut entry) })?;
 	let mut resumed = false;
+
 	loop {
 		if entry.th32OwnerProcessID == pid {
 			// SAFETY: the suspended owned child still holds this PID; only
 			// threads belonging to that process are opened for resumption.
 			let thread =
 				owned(unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID) })?;
+
 			// SAFETY: the owned thread handle is valid until after this call.
 			let count = unsafe { ResumeThread(thread.as_raw_handle()) };
+
 			if count == u32::MAX {
 				return Err(io::Error::last_os_error());
 			}
+
 			resumed |= count > 0;
 		}
+
 		// SAFETY: both the snapshot and initialized entry remain valid.
 		if unsafe { Thread32Next(snapshot.as_raw_handle(), &raw mut entry) } == 0 {
 			let error = io::Error::last_os_error();
+
 			if error.raw_os_error() != Some(ERROR_NO_MORE_FILES as i32) {
 				return Err(error);
 			}
+
 			break;
 		}
 	}
+
 	if resumed {
 		Ok(())
 	} else {
@@ -329,6 +355,7 @@ fn owned(handle: HANDLE) -> io::Result<OwnedHandle> {
 	if handle.is_null() || handle == INVALID_HANDLE_VALUE {
 		return Err(io::Error::last_os_error());
 	}
+
 	// SAFETY: callers pass newly acquired, uniquely owned kernel handles.
 	Ok(unsafe { OwnedHandle::from_raw_handle(handle) })
 }
@@ -362,6 +389,7 @@ mod tests {
 		command.wrap(process_wrap::tokio::KillOnDrop);
 		command.wrap(JobObject);
 		let mut child = command.spawn().unwrap();
+
 		let root = usize::try_from(child.id().unwrap()).unwrap();
 		let child = (child.as_mut() as &mut dyn std::any::Any)
 			.downcast_mut::<JobChild>()

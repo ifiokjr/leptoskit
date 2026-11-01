@@ -20,6 +20,7 @@ fn shared_tailwind_screen_persists_through_native_press_and_reopens_after_restar
 	let cloned = hook.clone();
 	let mut surface = NativeSurface::new(HeadlessBackend::new());
 	surface.set_viewport(900.5, 600.25);
+
 	surface.set_root(&common::settings_screen(&cloned, |task| {
 		block_on(task).unwrap();
 	}));

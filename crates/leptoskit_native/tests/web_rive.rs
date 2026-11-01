@@ -151,6 +151,7 @@ async fn shared_canvas_retains_its_pose_through_updates_and_disposes_on_removal(
 	assert_eq!(canvas.get_attribute("role").as_deref(), Some("img"));
 	revision.set(1);
 	leptos::task::tick().await;
+
 	assert_eq!(
 		parent.query_selector("canvas").unwrap().unwrap(),
 		canvas.clone().into()
@@ -251,6 +252,7 @@ async fn controlled_inputs_and_scene_replacement_recover_from_browser_failures()
 	initial
 		.set_input(Name::new("enabled").unwrap(), Input::Boolean(true), 1)
 		.unwrap();
+
 	initial
 		.set_input(Name::new("activate").unwrap(), Input::Trigger, 1)
 		.unwrap();
@@ -321,6 +323,7 @@ async fn missing_runtime_reports_a_diagnostic_and_removal_cancels_pending_mounts
 	JsFuture::from(nextFrame()).await.unwrap();
 	assert!(!pending.is_connected());
 	assert_eq!(pending.get_attribute("data-lk-rive-error"), None);
+
 	parent.remove();
 	web_sys::Url::revoke_object_url(&wasm_url).unwrap();
 }

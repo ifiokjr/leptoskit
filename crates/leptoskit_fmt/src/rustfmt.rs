@@ -81,23 +81,29 @@ impl Rustfmt {
 		if let Some(program) = std::env::var_os(RUSTFMT_ENV) {
 			return Ok(Self::at(program));
 		}
+
 		if toolchain.is_empty() {
 			return Ok(Self::at("rustfmt"));
 		}
+
 		let rustup_home = std::env::var_os("RUSTUP_HOME")
 			.map(PathBuf::from)
 			.or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".rustup")));
+
 		if let Some(program) = rustup_home.and_then(|home| toolchain_binary(&home, toolchain)) {
 			return Ok(Self::at(program));
 		}
+
 		let output = Command::new("rustup")
 			.args(["which", "--toolchain", toolchain, "rustfmt"])
 			.output();
+
 		match output {
 			Ok(output) if output.status.success() => {
 				let path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
 				Ok(Self::at(path))
 			}
+
 			Ok(output) => {
 				Err(FormatError::RustfmtMissing {
 					toolchain: toolchain.to_owned(),
@@ -136,22 +142,27 @@ impl Rustfmt {
 
 	fn spawn(&self, input: &str, settings: &Settings) -> Result<String, String> {
 		let mut command = Command::new(&self.program);
+
 		if let Some(toolchain) = &self.toolchain {
 			command.arg(format!("+{toolchain}"));
 		}
+
 		command
 			.args(["--emit", "stdout", "--edition", &settings.edition])
 			// The formatter converts line endings itself, after splicing the
 			// markup back in.
 			.args(["--config", "newline_style=Unix"]);
+
 		if let Some(config) = &settings.rustfmt_config {
 			command.arg("--config-path").arg(config);
 		}
+
 		if settings.directory.is_dir() {
 			// Without a configuration file rustfmt searches from its working
 			// directory, which must then be the file's.
 			command.current_dir(&settings.directory);
 		}
+
 		let mut child = command
 			.stdin(Stdio::piped())
 			.stdout(Stdio::piped())
@@ -174,6 +185,7 @@ impl Rustfmt {
 		if !output.status.success() {
 			return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
 		}
+
 		written.map_err(|error| format!("could not write to rustfmt: {error}"))?;
 		String::from_utf8(output.stdout)
 			.map_err(|error| format!("rustfmt wrote invalid UTF-8: {error}"))
@@ -192,24 +204,30 @@ impl Rustfmt {
 			let formatted = self
 				.run(file, settings, stats)
 				.map_err(FormatError::Rustfmt)?;
+
 			return Ok((formatted, HashMap::new()));
 		}
+
 		if self.concurrent {
 			return self.side_by_side(file, requests, settings, stats);
 		}
+
 		let synthetic = synthetic(requests, &settings.layout);
 		let mut input = String::with_capacity(file.len() + synthetic.len() + 2);
 		input.push_str(file);
 		input.push_str("\n\n");
 		input.push_str(&synthetic);
+
 		if let Ok(output) = self.run(&input, settings, stats) {
 			let start = output.rfind(&format!("\nfn {MARKER}0()")).ok_or_else(|| {
 				FormatError::Rustfmt("rustfmt dropped the expressions it was given".to_owned())
 			})?;
 			let formatted_file = format!("{}\n", output[..start].trim_end());
 			let answers = parse_synthetic(&output[start + 1..], requests, &settings.layout);
+
 			return Ok((formatted_file, answers));
 		}
+
 		let formatted = self
 			.run(file, settings, stats)
 			.map_err(FormatError::Rustfmt)?;
@@ -250,14 +268,18 @@ impl Rustfmt {
 		stats: &mut Stats,
 	) -> HashMap<Request, Arc<Formatted>> {
 		let layout = &settings.layout;
+
 		if let Ok(output) = self.run(&synthetic(requests, layout), settings, stats) {
 			return parse_synthetic(&output, requests, layout);
 		}
+
 		if requests.len() == 1 {
 			let request = requests[0].clone();
 			let formatted = Arc::new(Formatted::unparsed(request.text.clone()));
+
 			return HashMap::from([(request, formatted)]);
 		}
+
 		let (first, second) = requests.split_at(requests.len() / 2);
 		let mut answers = self.expressions(first, settings, stats);
 		answers.extend(self.expressions(second, settings, stats));
@@ -273,12 +295,15 @@ fn toolchain_binary(home: &Path, toolchain: &str) -> Option<PathBuf> {
 	} else {
 		"rustfmt"
 	};
+
 	let prefix = format!("{toolchain}-{}-", std::env::consts::ARCH);
+
 	let os = match std::env::consts::OS {
 		"macos" => "apple-darwin",
 		"windows" => "pc-windows",
 		other => other,
 	};
+
 	let mut matches = std::fs::read_dir(home.join("toolchains"))
 		.ok()?
 		.filter_map(Result::ok)
@@ -298,33 +323,43 @@ fn toolchain_binary(home: &Path, toolchain: &str) -> Option<PathBuf> {
 fn synthetic(requests: &[Request], layout: &Layout) -> String {
 	let unit = layout.indent_unit();
 	let mut out = String::new();
+
 	for (index, request) in requests.iter().enumerate() {
 		let (levels, extra) = nesting(request.indent, layout.tab_spaces);
 		let _ = writeln!(out, "fn {MARKER}{index}() {{");
+
 		for level in 1..levels {
 			out.push_str(&unit.repeat(level));
 			out.push_str("{\n");
 		}
+
 		let indentation = unit.repeat(levels);
 		out.push_str(&indentation);
 		let _ = write!(out, "let {} = ", binding(extra + request.prefix));
 		let verbatim = verbatim_lines(&request.text);
+
 		for (line_index, text_line) in request.text.split('\n').enumerate() {
 			if line_index > 0 {
 				out.push('\n');
+
 				if !verbatim[line_index] && !text_line.is_empty() {
 					out.push_str(&indentation);
 				}
 			}
+
 			out.push_str(text_line);
 		}
+
 		out.push_str(";\n");
+
 		for level in (1..levels).rev() {
 			out.push_str(&unit.repeat(level));
 			out.push_str("}\n");
 		}
+
 		out.push_str("}\n");
 	}
+
 	out
 }
 
@@ -350,6 +385,7 @@ fn parse_synthetic(
 ) -> HashMap<Request, Arc<Formatted>> {
 	let mut answers = HashMap::with_capacity(requests.len());
 	let marker = format!("fn {MARKER}");
+
 	for chunk in output.split(&marker).skip(1) {
 		let Some((index, body)) = chunk.split_once("()") else {
 			continue;
@@ -364,11 +400,13 @@ fn parse_synthetic(
 		let formatted = extract(body, request, layout).unwrap_or_else(|| request.text.clone());
 		answers.insert(request.clone(), Arc::new(Formatted::new(formatted)));
 	}
+
 	for request in requests {
 		answers
 			.entry(request.clone())
 			.or_insert_with(|| Arc::new(Formatted::new(request.text.clone())));
 	}
+
 	answers
 }
 
@@ -386,6 +424,7 @@ fn extract(body: &str, request: &Request, layout: &Layout) -> Option<String> {
 		.trim_end_matches(|character: char| character == '}' || character.is_whitespace());
 	statement = end.strip_suffix(';')?;
 	let unit = layout.indent_unit();
+
 	let mut depth = levels;
 	let expression = if let Some(rest) = statement.strip_prefix(' ') {
 		rest
@@ -397,6 +436,7 @@ fn extract(body: &str, request: &Request, layout: &Layout) -> Option<String> {
 			.strip_prefix('\n')?
 			.trim_start()
 	};
+
 	let indentation = unit.repeat(depth);
 	let verbatim = verbatim_lines(expression);
 	let lines: Vec<&str> = expression
@@ -479,11 +519,13 @@ mod tests {
 		} else {
 			"rustfmt"
 		};
+
 		let os = match std::env::consts::OS {
 			"macos" => "apple-darwin",
 			"windows" => "pc-windows-msvc",
 			other => other,
 		};
+
 		let install = |name: &str| {
 			let bin = home.join("toolchains").join(name).join("bin");
 			std::fs::create_dir_all(&bin).expect("toolchain dir");
@@ -491,6 +533,7 @@ mod tests {
 			bin.join(binary)
 		};
 		let arch = std::env::consts::ARCH;
+
 		assert_eq!(toolchain_binary(&home, "nightly"), None);
 		let nightly = install(&format!("nightly-{arch}-{os}"));
 		install(&format!("nightly-2026-01-01-{arch}-{os}"));

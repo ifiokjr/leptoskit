@@ -112,6 +112,7 @@ pub fn archive(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
 	out.extend_from_slice(&0_u16.to_le_bytes());
 	out.extend_from_slice(&0_u16.to_le_bytes());
 	out.extend_from_slice(&count.to_le_bytes());
+
 	out.extend_from_slice(&count.to_le_bytes());
 	out.extend_from_slice(&central_size.to_le_bytes());
 	out.extend_from_slice(&central_offset.to_le_bytes());

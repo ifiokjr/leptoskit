@@ -14,9 +14,11 @@ use crate::js;
 /// Outside an extension.
 pub async fn set_badge(text: &str, tab: Option<i64>) -> Result<()> {
 	let mut details = json!({ "text": text });
+
 	if let Some(tab) = tab {
 		details["tabId"] = json!(tab);
 	}
+
 	js::call::<Value>("action.setBadgeText", &[&details])
 		.await
 		.map(drop)

@@ -21,6 +21,7 @@ fn child_helper() {
 	let Ok(mode) = std::env::var("LEPTOSKIT_SCOPED_CHILD_TEST_MODE") else {
 		return;
 	};
+
 	match mode.as_str() {
 		"success" => {
 			std::io::stdout().write_all(b"completed").unwrap();
@@ -110,6 +111,7 @@ async fn nonzero_exit_and_binary_output_are_not_fabricated_success() {
 	let shell = scoped("output", Limits::default());
 	let output = shell.spawn(&request()).unwrap().wait().await.unwrap();
 	assert_eq!(output.code, Some(7));
+
 	assert!(!output.success);
 	assert_eq!(output.finish, Finish::Exited);
 	assert!(output.stdout.windows(3).any(|part| part == [b'O', 0xff, 0]));
@@ -139,6 +141,7 @@ async fn cancellation_reaps_and_releases_capacity() {
 		Finish::Cancelled
 	);
 }
+
 #[tokio::test]
 async fn dropping_owner_cancels_even_without_waiting() {
 	let shell = scoped("sleep", Limits::default());
@@ -163,6 +166,7 @@ async fn aborting_wait_future_still_cancels_owned_child() {
 	tokio::time::timeout(Duration::from_secs(5), cancellation.closed())
 		.await
 		.unwrap();
+
 	shell
 		.spawn(&request())
 		.unwrap()
@@ -240,6 +244,7 @@ async fn scope_rejects_unknown_commands_extra_arguments_and_argument_changes() {
 	denied.arguments.push("extra".into());
 	assert!(matches!(shell.spawn(&denied), Err(Error::Denied)));
 	let mut denied = request();
+
 	denied.arguments[1] = "different_test".into();
 	assert!(matches!(shell.spawn(&denied), Err(Error::Denied)));
 }

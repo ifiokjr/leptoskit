@@ -188,6 +188,7 @@ fn existing_implicit_lines_are_valid_but_negative_lines_anchor_to_explicit_track
 	);
 	calculate(&mut yoga, root);
 	assert_frame(&yoga, implicit, (175.0, 7.0, 25.0, 30.0));
+
 	assert_frame(&yoga, negative, (85.0, 47.0, 80.0, 50.0));
 }
 
@@ -277,6 +278,7 @@ fn rtl_grid_lines_are_logical_and_insets_remain_physical() {
 	let mut style = yoga.style(item).clone();
 	style.inset.left = Dimension::Points(4.0);
 	style.inset.right = Dimension::Points(6.0);
+
 	yoga.set_style(item, style);
 	calculate(&mut yoga, root);
 	assert_frame(&yoga, item, (45.0, 47.0, 70.0, 50.0));
@@ -297,6 +299,7 @@ fn absolute_grid_children_do_not_contribute_to_intrinsic_container_size() {
 	);
 	let mut style = yoga.style(item).clone();
 	style.width = Dimension::Points(500.0);
+
 	style.height = Dimension::Points(500.0);
 	yoga.set_style(item, style);
 	calculate(&mut yoga, root);
@@ -460,6 +463,7 @@ fn self_alignment_keeps_auto_dimensions_fitted_to_content() {
 			..Style::default()
 		},
 	);
+
 	yoga.insert_child(item, content, 0);
 	calculate(&mut yoga, root);
 	assert_frame(&yoga, item, (115.0, 67.0, 20.0, 10.0));
@@ -485,6 +489,7 @@ fn one_auto_inset_retains_physical_position_regardless_of_self_alignment() {
 	);
 	style.align_self = Align::Center;
 	style.grid.as_mut().expect("placement").justify_self = Align::Center;
+
 	yoga.set_style(item, style);
 	calculate(&mut yoga, root);
 	assert_frame(&yoga, item, (89.0, 53.0, 20.0, 10.0));
@@ -500,6 +505,7 @@ fn auto_grid_edges_use_the_padding_box_for_static_position_and_percentages() {
 	style.inset = Rect::default();
 	yoga.set_style(item, style);
 	calculate(&mut yoga, root);
+
 	assert_frame(&yoga, item, (2.0, 2.0, 98.0, 10.0));
 }
 
@@ -534,6 +540,7 @@ fn fractional_intrinsic_grid_does_not_fill_a_bounded_nonstretch_parent() {
 		},
 	);
 	yoga.insert_child(root, grid, 0);
+
 	for (width, height) in [(80.0, 30.0), (40.0, 60.0)] {
 		let node = yoga.create_node();
 		yoga.set_style(
@@ -551,6 +558,7 @@ fn fractional_intrinsic_grid_does_not_fill_a_bounded_nonstretch_parent() {
 		);
 		yoga.insert_child(grid, node, yoga.children(grid).len());
 	}
+
 	calculate(&mut yoga, root);
 	assert_frame(&yoga, grid, (0.0, 0.0, 80.0, 60.0));
 }
@@ -558,14 +566,17 @@ fn fractional_intrinsic_grid_does_not_fill_a_bounded_nonstretch_parent() {
 #[test]
 fn changing_an_in_flow_item_to_absolute_clears_its_old_flow_order() {
 	let (mut yoga, root) = grid();
+
 	for _ in 0..2 {
 		let node = yoga.create_node();
 		yoga.insert_child(root, node, yoga.children(root).len());
 	}
+
 	let node = yoga.children(root)[1];
 	calculate(&mut yoga, root);
 	assert_eq!(yoga.layout(node).order, 1);
 	let mut style = yoga.style(node).clone();
+
 	style.position = PositionType::Absolute;
 	yoga.set_style(node, style);
 	calculate(&mut yoga, root);
@@ -605,6 +616,7 @@ fn intrinsic_percentage_rows_measure_content_before_resolving_used_tracks() {
 			GridPlacement::line(1, 2),
 			GridPlacement::line(1, 2),
 		);
+
 		let root = if bounded_parent {
 			let parent = yoga.create_node();
 			yoga.set_style(
@@ -621,6 +633,7 @@ fn intrinsic_percentage_rows_measure_content_before_resolving_used_tracks() {
 		} else {
 			grid
 		};
+
 		calculate(&mut yoga, root);
 		assert_frame(&yoga, grid, (0.0, 0.0, 80.0, 40.0));
 		assert_eq!(yoga.layout(content).height, 40.0);
@@ -650,6 +663,7 @@ fn intrinsic_percentage_columns_and_fractional_tracks_resolve_after_container_si
 			..Style::default()
 		},
 	);
+
 	for column in [GridPlacement::line(1, 2), GridPlacement::line(2, 3)] {
 		let content = yoga.create_node();
 		yoga.set_style(
@@ -666,12 +680,14 @@ fn intrinsic_percentage_columns_and_fractional_tracks_resolve_after_container_si
 		);
 		yoga.insert_child(root, content, yoga.children(root).len());
 	}
+
 	let first = child(
 		&mut yoga,
 		root,
 		GridPlacement::line(1, 2),
 		GridPlacement::line(1, 2),
 	);
+
 	let second = child(
 		&mut yoga,
 		root,
@@ -761,6 +777,7 @@ fn intrinsic_percentage_tracks_resolve_against_the_settled_content_box() {
 			..Style::default()
 		},
 	);
+
 	yoga.insert_child(root, content, 0);
 	let marker = child(
 		&mut yoga,

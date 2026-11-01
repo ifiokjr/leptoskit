@@ -81,8 +81,10 @@ where
 				self.name
 			));
 		}
+
 		let decoded: T = serde_json::from_value(value.json.clone())
 			.map_err(|error| format!("{:?} holds {}: {error}", self.name, type_name::<T>()))?;
+
 		match self.signal.try_set(decoded) {
 			None => Ok(()),
 			Some(_) => Err(format!("{:?} is no longer mounted", self.name)),

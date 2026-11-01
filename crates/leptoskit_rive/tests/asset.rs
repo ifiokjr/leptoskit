@@ -122,6 +122,7 @@ fn replacing_bindings_is_atomic_and_keeps_the_selected_artboard() {
 	)]);
 	assert_eq!(playback.replace_inputs(invalid), Err(Error::InvalidNumber));
 	assert_eq!(playback, original);
+
 	let oversized = (0..65)
 		.map(|index| {
 			(
@@ -158,6 +159,7 @@ fn serialized_playback_preserves_validated_assets_and_rejects_invalid_bindings()
 	invalid["inputs"]["amount"]["value"] = serde_json::json!({"Number": f64::MAX});
 	assert!(serde_json::from_value::<Playback>(invalid).is_err());
 	let mut invalid = value.clone();
+
 	invalid["asset"] = "not base64".into();
 	assert!(serde_json::from_value::<Playback>(invalid).is_err());
 	let mut invalid = value.clone();

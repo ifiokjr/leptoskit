@@ -46,12 +46,14 @@ impl TextMeasurer for HostMeasurer {
 			AvailableSpace::MinContent => -2.0,
 			AvailableSpace::MaxContent => -1.0,
 		};
+
 		let weight = match style.font_weight {
 			FontWeight::Regular => 400,
 			FontWeight::Medium => 500,
 			FontWeight::Semibold => 600,
 			FontWeight::Bold => 700,
 		};
+
 		let mut size = [0.0_f32; 2];
 		// SAFETY: The context is owned until release, the text borrow outlives
 		// the call, and `size` holds the two floats the contract writes.
@@ -178,9 +180,11 @@ mod tests {
 			.lock()
 			.unwrap()
 			.push((text.to_owned(), font_size, weight, width, rtl));
+
 		if text == "fail" {
 			return false;
 		}
+
 		// SAFETY: See above.
 		unsafe {
 			out.write(text.len() as f32 * 3.0);
@@ -243,6 +247,7 @@ mod tests {
 			(AvailableSpace::MinContent, FontWeight::Semibold),
 			(AvailableSpace::MaxContent, FontWeight::Bold),
 		];
+
 		for (width, weight) in cases {
 			measurer.measure(
 				"Go",
@@ -250,6 +255,7 @@ mod tests {
 				Size::new(width, AvailableSpace::MaxContent),
 			);
 		}
+
 		let go = |weight, width| ("Go".to_owned(), 16.0, weight, width, false);
 		assert_eq!(
 			host.calls(),
@@ -276,6 +282,7 @@ mod tests {
 		});
 		assert_eq!(measured, Size::new(21.0, 20.0));
 		assert_eq!(host.released(), 0);
+
 		drop(app);
 		assert_eq!(host.released(), 1);
 	}

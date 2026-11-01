@@ -128,10 +128,12 @@ impl Trace {
 	/// The host answered: with this many bytes, or with an error.
 	pub(crate) fn answered(&mut self, bytes: Option<usize>) {
 		self.finished_ms = Some(now_ms());
+
 		self.status = match bytes {
 			Some(_) => CallStatus::Ok,
 			None => CallStatus::Error,
 		};
+
 		self.response_bytes = bytes.map(|bytes| bytes as u64);
 		self.record();
 	}
@@ -156,6 +158,7 @@ impl Trace {
 		if self.finished_ms.is_none() {
 			self.finished_ms = Some(now_ms());
 		}
+
 		self.status = CallStatus::Cancelled;
 		self.response_bytes = None;
 		self.record();

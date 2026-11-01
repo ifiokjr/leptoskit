@@ -81,6 +81,7 @@ impl Snapshot {
 			Some(false) => 1,
 			Some(true) => 2,
 		});
+
 		let memory = self.total_memory.map_or(0, NonZeroU64::get).to_le_bytes();
 		output.u32(u32::from_le_bytes(
 			memory[..4].try_into().map_err(|_| Error::InvalidArgument)?,
@@ -100,10 +101,12 @@ impl Snapshot {
 				if value.is_empty() {
 					return Err(Error::InvalidArgument);
 				}
+
 				if value.len() > MAX_TEXT_BYTES {
 					return Err(Error::TooLarge);
 				}
 			}
+
 			output.bytes(value.as_deref().unwrap_or_default().as_bytes())?;
 		}
 		Ok(output.finish())
@@ -112,9 +115,11 @@ impl Snapshot {
 	/// Validates the version, flags, UTF-8, lengths, and complete consumption.
 	pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
 		let mut input = Decoder::new(bytes);
+
 		if input.u32()? != 1 {
 			return Err(Error::InvalidArgument);
 		}
+
 		let kind = match input.u32()? {
 			0 => Kind::Unknown,
 			1 => Kind::Phone,
@@ -126,20 +131,25 @@ impl Snapshot {
 			7 => Kind::Headset,
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		let simulator = match input.u32()? {
 			0 => None,
 			1 => Some(false),
 			2 => Some(true),
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		let low = u64::from(input.u32()?);
 		let high = u64::from(input.u32()?);
 		let total_memory = NonZeroU64::new(low | (high << 32));
+
 		let mut text = || -> Result<Option<String>, Error> {
 			let value = input.string()?;
+
 			if value.len() > MAX_TEXT_BYTES {
 				return Err(Error::TooLarge);
 			}
+
 			Ok((!value.is_empty()).then(|| value.to_owned()))
 		};
 		let result = Self {
@@ -199,9 +209,11 @@ pub mod desktop {
 			if method != SNAPSHOT {
 				return Err(Error::Unavailable);
 			}
+
 			if !payload.is_empty() {
 				return Err(Error::InvalidArgument);
 			}
+
 			snapshot().encode()
 		}
 	}
@@ -230,6 +242,7 @@ pub mod web {
 		} else {
 			None
 		};
+
 		Ok(Snapshot {
 			os_name,
 			..Snapshot::default()
@@ -287,6 +300,7 @@ mod tests {
 			Kind::Car,
 			Kind::Headset,
 		];
+
 		for kind in kinds {
 			for simulator in [None, Some(false), Some(true)] {
 				let snapshot = Snapshot {
@@ -307,18 +321,22 @@ mod tests {
 		}
 		.encode()
 		.unwrap();
+
 		for length in 0..encoded.len() {
 			assert_eq!(
 				Snapshot::decode(&encoded[..length]),
 				Err(Error::InvalidArgument)
 			);
 		}
+
 		for (offset, value) in [(0, 2), (4, 8), (8, 3), (32, 255)] {
 			let mut invalid = encoded.to_vec();
 			invalid[offset] = value;
 			assert_eq!(Snapshot::decode(&invalid), Err(Error::InvalidArgument));
 		}
+
 		let mut trailing = encoded.to_vec();
+
 		trailing.push(0);
 		assert_eq!(Snapshot::decode(&trailing), Err(Error::InvalidArgument));
 	}

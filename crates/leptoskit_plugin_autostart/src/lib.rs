@@ -71,6 +71,7 @@ impl Autostart {
 	/// entry specification.
 	pub fn new(identity: String, executable: &Path, arguments: Vec<String>) -> Result<Self, Error> {
 		let executable_text = executable.to_str().ok_or(Error::InvalidConfiguration)?;
+
 		if !valid_identity(&identity)
 			|| !executable.is_absolute()
 			|| executable_text.chars().any(char::is_control)
@@ -82,9 +83,11 @@ impl Autostart {
 		{
 			return Err(Error::InvalidConfiguration);
 		}
+
 		if !std::fs::metadata(executable)?.is_file() {
 			return Err(Error::InvalidConfiguration);
 		}
+
 		Ok(Self {
 			identity,
 			executable: executable_text.to_owned(),
@@ -140,9 +143,11 @@ impl Plugin for Autostart {
 			}
 			_ => return Err(BridgeError::Unavailable),
 		};
+
 		if !payload.is_empty() {
 			return Err(BridgeError::InvalidArgument);
 		}
+
 		operation(self).map_err(|error| bridge_error(&error))
 	}
 }
@@ -151,9 +156,11 @@ fn bridge_error(error: &Error) -> BridgeError {
 	match error {
 		Error::Unavailable => BridgeError::Unavailable,
 		Error::InvalidConfiguration => BridgeError::InvalidArgument,
+
 		Error::Io(io) if io.kind() == std::io::ErrorKind::PermissionDenied => {
 			BridgeError::PermissionDenied
 		}
+
 		Error::Conflict | Error::Io(_) => BridgeError::Native,
 	}
 }
@@ -185,6 +192,7 @@ mod platform {
 			"desktop",
 			file_entry::desktop_entry(app),
 		);
+
 		let directory = directory.ok_or_else(|| {
 			std::io::Error::new(
 				std::io::ErrorKind::NotFound,
@@ -232,18 +240,22 @@ fn windows_command(app: &Autostart) -> String {
 	fn quoted(value: &str) -> String {
 		let mut result = String::from("\"");
 		let mut slashes = 0;
+
 		for ch in value.chars() {
 			if ch == '\\' {
 				slashes += 1;
 				continue;
 			}
+
 			result.extend(std::iter::repeat_n(
 				'\\',
 				if ch == '"' { slashes * 2 + 1 } else { slashes },
 			));
 			result.push(ch);
+
 			slashes = 0;
 		}
+
 		result.extend(std::iter::repeat_n('\\', slashes * 2));
 		result.push('"');
 		result
@@ -269,6 +281,7 @@ pub mod guest {
 
 		pub async fn enable(self) -> Result<(), BridgeError> {
 			let response = self.0.call(ENABLE, &[])?.await?;
+
 			if response.is_empty() {
 				Ok(())
 			} else {
@@ -278,6 +291,7 @@ pub mod guest {
 
 		pub async fn disable(self) -> Result<(), BridgeError> {
 			let response = self.0.call(DISABLE, &[])?.await?;
+
 			if response.is_empty() {
 				Ok(())
 			} else {
@@ -305,6 +319,7 @@ mod tests {
 				Autostart::new(identity.into(), &std::env::current_exe().unwrap(), vec![]).is_err()
 			);
 		}
+
 		let mut app = Autostart::new(
 			"dev.leptoskit.test".into(),
 			&std::env::current_exe().unwrap(),
@@ -328,6 +343,7 @@ mod tests {
 			vec![],
 		)
 		.unwrap();
+
 		assert_eq!(app.methods(), &[ENABLE, DISABLE, IS_REGISTERED]);
 	}
 	#[test]

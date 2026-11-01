@@ -21,6 +21,7 @@ struct IndependentLifecycleTests {
         NativeServiceRegistry.poll(token)
         #expect(releases == 0)
         ready = true
+
         signal.enqueue()
         #expect(await first.value == Self.joinedFailure)
 

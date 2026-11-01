@@ -18,7 +18,9 @@ internal data class AuthenticationRequest(
             if (policy !in 0..1) throw PluginException(PluginException.INVALID_ARGUMENT)
             val reason = text(input, 256)
             val cancel = text(input, 64)
+
             if (input.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
+
             return AuthenticationRequest(policy, reason, cancel)
         }
 
@@ -28,7 +30,9 @@ internal data class AuthenticationRequest(
         ): String {
             if (input.remaining() < 4) throw PluginException(PluginException.INVALID_ARGUMENT)
             val count = input.int
+
             if (count < 0 || count > limit) throw PluginException(PluginException.TOO_LARGE)
+
             if (count > input.remaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
             val bytes = input.slice().apply { limit(count) }
             val value =
@@ -43,7 +47,9 @@ internal data class AuthenticationRequest(
                     throw PluginException(PluginException.INVALID_ARGUMENT, error)
                 }
             input.position(input.position() + count)
+
             if (value.isBlank() || '\u0000' in value) throw PluginException(PluginException.INVALID_ARGUMENT)
+
             return value
         }
     }
@@ -51,6 +57,8 @@ internal data class AuthenticationRequest(
 
 internal fun authenticationFields(vararg values: Int): ByteArray {
     val output = ByteBuffer.allocate(values.size * 4).order(ByteOrder.LITTLE_ENDIAN)
+
     for (value in values) output.putInt(value)
+
     return output.array()
 }

@@ -67,6 +67,7 @@ fn derived_predicates_and_logic_follow_sources() {
 			assert_eq!(and.get(), left && right);
 			assert_eq!(or.get(), left || right);
 		}
+
 		let option = RwSignal::new(None::<u32>);
 		let (some, none) = (is_some(option), is_none(option));
 		assert!(!some.get());

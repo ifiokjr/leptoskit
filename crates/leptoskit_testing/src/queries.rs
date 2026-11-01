@@ -103,12 +103,14 @@ pub trait Queries {
 	/// Every visible match; none is an error.
 	fn get_all(&self, finder: &Finder) -> Result<Vec<Self::Node>, TestError> {
 		let found = self.query_all(finder);
+
 		if found.is_empty() {
 			return Err(query_error(
 				self,
 				format!("expected at least one match for {finder:?}, found 0"),
 			));
 		}
+
 		Ok(found)
 	}
 
@@ -116,6 +118,7 @@ pub trait Queries {
 	/// absence check would hide a duplicate.
 	fn query(&self, finder: &Finder) -> Result<Option<Self::Node>, TestError> {
 		let mut found = self.query_all(finder);
+
 		if found.len() > 1 {
 			return Err(query_error(
 				self,
@@ -125,6 +128,7 @@ pub trait Queries {
 				),
 			));
 		}
+
 		Ok(found.pop())
 	}
 

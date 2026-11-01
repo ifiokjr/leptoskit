@@ -15,36 +15,48 @@ pub fn open(url: &str, protocols: &[String]) -> Result<Bytes, Error> {
 	if url.len() > 4096 || protocols.len() > 32 {
 		return Err(Error::TooLarge);
 	}
+
 	let mut out = Encoder::default();
 	out.bytes(url.as_bytes())?;
 	out.u32(protocols.len() as u32);
+
 	for value in protocols {
 		if value.len() > 256 {
 			return Err(Error::TooLarge);
 		}
+
 		out.bytes(value.as_bytes())?;
 	}
+
 	Ok(out.finish())
 }
 /// Decodes a connection request before network access.
 pub fn decode_open(bytes: &[u8]) -> Result<(String, Vec<String>), Error> {
 	let mut input = Decoder::new(bytes);
 	let url = input.string()?;
+
 	if url.len() > 4096 {
 		return Err(Error::TooLarge);
 	}
+
 	let count = input.u32()?;
+
 	if count > 32 {
 		return Err(Error::TooLarge);
 	}
+
 	let mut protocols = Vec::with_capacity(count as usize);
+
 	for _ in 0..count {
 		let value = input.string()?;
+
 		if value.len() > 256 {
 			return Err(Error::TooLarge);
 		}
+
 		protocols.push(value.to_owned());
 	}
+
 	input.finish()?;
 	Ok((url.to_owned(), protocols))
 }
@@ -57,14 +69,17 @@ pub fn decode_id(bytes: &[u8]) -> Result<ConnectionId, Error> {
 	let mut input = Decoder::new(bytes);
 	let id = input.u32()?;
 	input.finish()?;
+
 	if id == 0 {
 		return Err(Error::InvalidArgument);
 	}
+
 	Ok(ConnectionId(id))
 }
 /// Encodes text, binary, or the end of the receive stream.
 pub fn message(value: Option<&Message>) -> Result<Bytes, Error> {
 	let mut out = Encoder::default();
+
 	match value {
 		None => out.u32(0),
 		Some(Message::Text(text)) => {
@@ -76,17 +91,20 @@ pub fn message(value: Option<&Message>) -> Result<Bytes, Error> {
 			out.bytes(bytes)?;
 		}
 	}
+
 	Ok(out.finish())
 }
 /// Decodes text, binary, or orderly close.
 pub fn decode_message(bytes: &[u8]) -> Result<Option<Message>, Error> {
 	let mut input = Decoder::new(bytes);
+
 	let value = match input.u32()? {
 		0 => None,
 		1 => Some(Message::Text(input.string()?.to_owned())),
 		2 => Some(Message::Binary(input.bytes()?.to_vec())),
 		_ => return Err(Error::InvalidArgument),
 	};
+
 	input.finish()?;
 	Ok(value)
 }
@@ -140,6 +158,7 @@ mod tests {
 			open("wss://example.test", &vec![String::new(); 33]).unwrap_err(),
 			Error::TooLarge
 		);
+
 		assert_eq!(
 			open("wss://example.test", &["p".repeat(257)]).unwrap_err(),
 			Error::TooLarge
@@ -148,9 +167,11 @@ mod tests {
 			let mut out = Encoder::default();
 			out.bytes(url.as_bytes()).unwrap();
 			out.u32(count);
+
 			if count == 1 {
 				out.bytes(protocol.as_bytes()).unwrap();
 			}
+
 			out.finish()
 		};
 		assert_eq!(
@@ -185,6 +206,7 @@ mod tests {
 			Error::InvalidArgument
 		);
 		assert_eq!(decode_id(&id(ConnectionId(9))).unwrap(), ConnectionId(9));
+
 		assert_eq!(decode_id(&[0; 4]).unwrap_err(), Error::InvalidArgument);
 		let text = Message::Text("ping".into());
 		assert_eq!(

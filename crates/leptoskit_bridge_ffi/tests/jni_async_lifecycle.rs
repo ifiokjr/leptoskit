@@ -57,6 +57,7 @@ fn build_native_library(root: &Path, directory: &Path) {
 	} else {
 		("linux", "libasync_host_test.so", "-shared")
 	};
+
 	succeeds(
 		Command::new("c++")
 			.args([
@@ -121,6 +122,7 @@ fn jni_async_callbacks_release_cancelled_capacity_after_cleanup() {
 	);
 	build_native_library(&root, &directory);
 	let jar = build_kotlin_jar(&root, &directory, &coroutines);
+
 	succeeds(
 		Command::new("java")
 			.args(["-Xcheck:jni", "-XX:ActiveProcessorCount=2"])

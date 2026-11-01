@@ -152,29 +152,38 @@ impl<T: Transport> Agent<T> {
 	pub(crate) fn poll(&self) {
 		if self.polling.replace(true) {
 			self.again.set(true);
+
 			return;
 		}
+
 		loop {
 			self.again.set(false);
 			self.step();
+
 			if !self.again.get() {
 				break;
 			}
 		}
+
 		self.polling.set(false);
 	}
 
 	/// A source changed: start the debounce, without reading anything.
 	fn schedule(&self) {
 		self.changed.set(true);
+
 		if self.polling.get() {
 			self.again.set(true);
+
 			return;
 		}
+
 		let mut calls = self.calls.borrow_mut();
+
 		if matches!(calls.flush, Flush::Idle) {
 			calls.flush = self.wait();
 			let mut context = Context::from_waker(&self.waker);
+
 			Self::arm(&mut calls, &mut context);
 		}
 	}
@@ -215,16 +224,19 @@ impl<T: Transport> Agent<T> {
 	/// does, and renders what they changed.
 	fn apply(&self, commands: Vec<Command>) {
 		let mut render = false;
+
 		for command in commands {
 			if command == Command::RequestSnapshot {
 				self.resend.set(true);
 				self.changed.set(true);
 				continue;
 			}
+
 			// A command for a value the app doesn't show has nothing to do;
 			// the panels show what the guest reports, so nothing is lost.
 			render |= registry::apply(&command).is_ok();
 		}
+
 		if render {
 			self.transport.render();
 		}
@@ -234,11 +246,13 @@ impl<T: Transport> Agent<T> {
 	fn advance(&self, context: &mut Context<'_>) {
 		loop {
 			let mut calls = self.calls.borrow_mut();
+
 			match &mut calls.flush {
 				Flush::Idle => {
 					if !self.changed.get() {
 						return;
 					}
+
 					calls.flush = self.wait();
 				}
 				Flush::Waiting(_) => {
@@ -294,9 +308,11 @@ impl<T: Transport> Agent<T> {
 		let Flush::Waiting(wait) = &mut calls.flush else {
 			return true;
 		};
+
 		if wait.as_mut().poll(context).is_pending() {
 			return false;
 		}
+
 		calls.flush = Flush::Due;
 		true
 	}
@@ -304,9 +320,11 @@ impl<T: Transport> Agent<T> {
 	/// Collects the dirty sources and starts sending what changed.
 	fn collect(&self) -> Flush {
 		self.changed.set(false);
+
 		if self.resend.replace(false) {
 			self.outbox.borrow_mut().reset();
 		}
+
 		let Some(batch) = self.outbox.borrow().batch(false, empty_tree) else {
 			return Flush::Idle;
 		};
@@ -314,6 +332,7 @@ impl<T: Transport> Agent<T> {
 		let mut rest = VecDeque::from(payloads);
 		let Some(first) = rest.pop_front() else {
 			self.outbox.borrow_mut().sent(batch);
+
 			return Flush::Idle;
 		};
 		Flush::Posting {
@@ -345,6 +364,7 @@ fn empty_tree() -> Tree {
 /// The report for a batch: a snapshot becomes a reset carrying every value.
 fn report(batch: &Batch) -> Report {
 	let mut report = Report::default();
+
 	for event in &batch.events {
 		match event {
 			Event::Snapshot { snapshot } => {
@@ -354,6 +374,7 @@ fn report(batch: &Batch) -> Report {
 			event => report.events.push(event.clone()),
 		}
 	}
+
 	report
 }
 

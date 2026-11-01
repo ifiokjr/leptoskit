@@ -82,8 +82,10 @@ fn without_comments(source: &str) -> Cow<'_, str> {
 	raw_html(&root, &mut ranges);
 
 	let mut bytes = source.as_bytes().to_vec();
+
 	for (start, end) in ranges {
 		let mut cursor = start;
+
 		while let Some(open) = source[cursor..end].find("<!--") {
 			let open = cursor + open;
 			let Some(close) = source[open + 4..end].find("-->") else {
@@ -96,6 +98,7 @@ fn without_comments(source: &str) -> Cow<'_, str> {
 					*byte = b' ';
 				}
 			}
+
 			cursor = close;
 		}
 	}

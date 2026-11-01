@@ -89,6 +89,7 @@ impl Resolve for Memo {
 		if let Some(formatted) = self.answers.get(&request) {
 			return Some(Arc::clone(formatted));
 		}
+
 		self.missing.insert(request);
 		None
 	}
@@ -125,6 +126,7 @@ pub(crate) fn body_shape(body: &str) -> Shape {
 	if body.contains('\n') {
 		return Shape::Lines;
 	}
+
 	Shape::Line(
 		body.chars()
 			.map(|character| {
@@ -142,6 +144,7 @@ pub(crate) fn body_shape(body: &str) -> Shape {
 pub(crate) fn mask_calls(text: &str, calls: &[MacroCall]) -> String {
 	let mut masked = String::with_capacity(text.len());
 	let mut cursor = 0;
+
 	for call in calls {
 		masked.push_str(&text[cursor..call.body.start]);
 		let line_start = text[..call.range.start]
@@ -151,6 +154,7 @@ pub(crate) fn mask_calls(text: &str, calls: &[MacroCall]) -> String {
 		masked.push_str(&mask_body(&text[call.body.clone()], indentation));
 		cursor = call.body.end;
 	}
+
 	masked.push_str(&text[cursor..]);
 	masked
 }
@@ -161,6 +165,7 @@ pub(crate) fn dedent(text: &str) -> String {
 	if !text.contains('\n') {
 		return text.to_owned();
 	}
+
 	let verbatim = verbatim_lines(text);
 	let indentable = || {
 		text.split('\n')
@@ -173,9 +178,11 @@ pub(crate) fn dedent(text: &str) -> String {
 		.map(leading_whitespace)
 		.reduce(|common, indentation| common_prefix(common, indentation))
 		.unwrap_or("");
+
 	if common.is_empty() {
 		return text.to_owned();
 	}
+
 	text.split('\n')
 		.zip(&verbatim)
 		.enumerate()
@@ -211,6 +218,7 @@ pub(crate) fn is_trivial(text: &str) -> bool {
 	if text.is_empty() || text.contains(char::is_whitespace) {
 		return false;
 	}
+
 	let mut previous = None;
 	Lexer::new(text).all(|(token, _)| {
 		let allowed = match token {
@@ -223,6 +231,7 @@ pub(crate) fn is_trivial(text: &str) -> bool {
 			Token::Close(b')') => previous == Some(Token::Open(b'(')),
 			_ => false,
 		};
+
 		previous = Some(token);
 		allowed
 	})
@@ -255,6 +264,7 @@ pub(crate) fn unbraced_is_safe(text: &str, before_block: bool) -> bool {
 	let mut first = None;
 	let mut last = None;
 	let mut before_last = None;
+
 	for (token, _) in Lexer::new(text) {
 		match token {
 			Token::LineComment | Token::BlockComment => return false,
@@ -263,6 +273,7 @@ pub(crate) fn unbraced_is_safe(text: &str, before_block: bool) -> bool {
 					first.get_or_insert(token);
 					before_last = last.replace(token);
 				}
+
 				depth += 1;
 			}
 			Token::Close(_) => {
@@ -271,6 +282,7 @@ pub(crate) fn unbraced_is_safe(text: &str, before_block: bool) -> bool {
 					before_last = last.replace(token);
 				}
 			}
+
 			_ if depth > 0 => {}
 			Token::Punct(b'<' | b'>') => return false,
 			_ => {
@@ -279,12 +291,15 @@ pub(crate) fn unbraced_is_safe(text: &str, before_block: bool) -> bool {
 			}
 		}
 	}
+
 	if first == Some(Token::Open(b'{')) {
 		return false;
 	}
+
 	match last {
 		None => false,
 		Some(Token::Punct(byte)) => byte == b'?',
+
 		Some(Token::Ident) if before_block => before_last == Some(Token::Punct(b'.')),
 		Some(_) => true,
 	}
@@ -327,6 +342,7 @@ mod tests {
 		] {
 			assert!(is_trivial(text), "{text}");
 		}
+
 		for text in ["a+b", "f(a,b)", "move || x", "x.get( )", "f(x)", "a - b"] {
 			assert!(!is_trivial(text), "{text}");
 		}
@@ -342,6 +358,7 @@ mod tests {
 		assert!(!unbraced_is_safe("Vec::<u8>::new()", false));
 		assert!(!unbraced_is_safe("|| -> u8 { 1 }", false));
 		assert!(!unbraced_is_safe("0..", false));
+
 		assert!(!unbraced_is_safe("name", true));
 		assert!(!unbraced_is_safe("{ x }.y()", false));
 		assert!(!unbraced_is_safe("x /* why */", false));

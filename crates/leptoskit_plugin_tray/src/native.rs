@@ -36,24 +36,30 @@ impl NativeTray {
 		{
 			builder = builder.with_icon(icon);
 		}
+
 		if let Some(text) = &options.tooltip {
 			builder = builder.with_tooltip(text);
 		}
+
 		if let Some(title) = &options.title {
 			builder = builder.with_title(title);
 		}
+
 		if let Some(menu) = menu {
 			builder = builder.with_menu(Box::new(menu.native_menu().clone()));
 		}
+
 		builder.build().map(Self).map_err(native_error)
 	}
 
 	pub(super) fn set_icon(&self, icon: RgbaIcon, template: bool) -> Result<(), Error> {
 		let icon = convert_icon(icon)?;
+
 		#[cfg(target_os = "macos")]
 		if template {
 			return self.0.set_icon_templated(Some(icon)).map_err(native_error);
 		}
+
 		#[cfg(not(target_os = "macos"))]
 		let _ = template;
 		self.0.set_icon(Some(icon)).map_err(native_error)

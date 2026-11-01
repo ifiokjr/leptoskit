@@ -44,9 +44,11 @@ async fn call(object: &JsValue, name: &str, args: &[JsValue]) -> Result<JsValue,
 		.map_or(JsValue::UNDEFINED, Into::into)
 	})?;
 	let arguments = Array::new();
+
 	for arg in args {
 		arguments.push(arg);
 	}
+
 	let promise = function.apply(object, &arguments)?.dyn_into::<Promise>()?;
 	JsFuture::from(promise).await
 }
@@ -59,13 +61,17 @@ fn options(create: bool) -> Result<JsValue, Error> {
 
 async fn root() -> Result<JsValue, Error> {
 	let window = web_sys::window().ok_or(Error::Unavailable)?;
+
 	if !window.is_secure_context() {
 		return Err(Error::PermissionDenied);
 	}
+
 	let storage = get(window.navigator().as_ref(), "storage")?;
+
 	if storage.is_undefined() {
 		return Err(Error::Unavailable);
 	}
+
 	let root = call(&storage, "getDirectory", &[]).await.map_err(failure)?;
 	call(
 		&root,
@@ -79,6 +85,7 @@ async fn root() -> Result<JsValue, Error> {
 async fn directory(path: &str, create: bool) -> Result<JsValue, Error> {
 	validate_path(path, true)?;
 	let mut handle = root().await?;
+
 	if !path.is_empty() {
 		for name in path.split('/') {
 			handle = call(
@@ -90,6 +97,7 @@ async fn directory(path: &str, create: bool) -> Result<JsValue, Error> {
 			.map_err(failure)?;
 		}
 	}
+
 	Ok(handle)
 }
 
@@ -108,9 +116,11 @@ async fn file(path: &str, create: bool) -> Result<JsValue, Error> {
 
 fn byte_length(value: &JsValue) -> Result<u64, Error> {
 	let value = get(value, "size")?.as_f64().ok_or(Error::Native)?;
+
 	if !(0.0..=js_sys::Number::MAX_SAFE_INTEGER).contains(&value) || value.fract() != 0.0 {
 		return Err(Error::Native);
 	}
+
 	// Validated nonnegative safe integer, representable by u64.
 	#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 	Ok(value as u64)
@@ -121,14 +131,18 @@ pub async fn read(path: &str) -> Result<Bytes, Error> {
 	let snapshot = call(&file(path, false).await?, "getFile", &[])
 		.await
 		.map_err(failure)?;
+
 	if byte_length(&snapshot)? > MAX_FILE_BYTES as u64 {
 		return Err(Error::TooLarge);
 	}
+
 	let buffer = call(&snapshot, "arrayBuffer", &[]).await.map_err(failure)?;
 	let bytes = Uint8Array::new(&buffer);
+
 	if bytes.length() as usize > MAX_FILE_BYTES {
 		return Err(Error::TooLarge);
 	}
+
 	Ok(bytes.to_vec().into())
 }
 
@@ -136,19 +150,24 @@ pub async fn read(path: &str) -> Result<Bytes, Error> {
 /// may reject quota exhaustion or concurrent writer contention.
 pub async fn write(path: &str, bytes: &[u8]) -> Result<(), Error> {
 	validate_path(path, false)?;
+
 	if bytes.len() > MAX_FILE_BYTES {
 		return Err(Error::TooLarge);
 	}
+
 	let stream = call(&file(path, true).await?, "createWritable", &[])
 		.await
 		.map_err(failure)?;
 	let result = call(&stream, "write", &[Uint8Array::from(bytes).into()]).await;
+
 	if let Err(error) = result {
 		// Abort releases the browser transaction. Preserve the original write
 		// error.
 		let _ = call(&stream, "abort", &[]).await;
+
 		return Err(failure(error));
 	}
+
 	call(&stream, "close", &[]).await.map_err(failure)?;
 	Ok(())
 }
@@ -162,22 +181,30 @@ pub async fn list(path: &str) -> Result<Vec<String>, Error> {
 	let iterator = method.call0(&dir).map_err(failure)?;
 	let mut names = Vec::new();
 	let mut size = 4;
+
 	loop {
 		let next = call(&iterator, "next", &[]).await.map_err(failure)?;
+
 		if get(&next, "done")?.as_bool() == Some(true) {
 			break;
 		}
+
 		let name = get(&next, "value")?.as_string().ok_or(Error::Native)?;
 		validate_path(&name, false)?;
+
 		if name.contains('/') {
 			return Err(Error::Native);
 		}
+
 		size += name.len() + 4;
+
 		if names.len() >= MAX_ENTRIES || size > MAX_LIST_BYTES {
 			return Err(Error::TooLarge);
 		}
+
 		names.push(name);
 	}
+
 	names.sort_unstable();
 	Ok(names)
 }
@@ -201,6 +228,7 @@ pub async fn remove(path: &str) -> Result<(), Error> {
 /// Queries regular-file length or directory type.
 pub async fn stat(path: &str) -> Result<Metadata, Error> {
 	validate_path(path, true)?;
+
 	if path.is_empty() {
 		root().await?;
 		return Ok(Metadata {
@@ -208,7 +236,9 @@ pub async fn stat(path: &str) -> Result<Metadata, Error> {
 			len: 0,
 		});
 	}
+
 	let (parent, name) = parent(path).await?;
+
 	match call(&parent, "getFileHandle", &[name.into()]).await {
 		Ok(handle) => {
 			let file = call(&handle, "getFile", &[]).await.map_err(failure)?;
@@ -240,9 +270,11 @@ pub async fn stat(path: &str) -> Result<Metadata, Error> {
 pub async fn rename(source: &str, destination: &str) -> Result<(), Error> {
 	validate_path(source, false)?;
 	validate_path(destination, false)?;
+
 	if stat(source).await?.kind != Kind::File {
 		return Err(Error::Unavailable);
 	}
+
 	let file = file(source, false).await?;
 	let (parent, name) = parent(destination).await?;
 	call(&file, "move", &[parent, name.into()])

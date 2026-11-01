@@ -23,23 +23,30 @@ impl Logger {
 		if self.closed {
 			return Err(Error::Cancelled);
 		}
+
 		record.validate()?;
+
 		if record.level < self.minimum {
 			return Ok(false);
 		}
+
 		let milliseconds = js_sys::Date::now();
+
 		if !milliseconds.is_finite() || milliseconds < 0.0 || milliseconds >= u64::MAX as f64 {
 			return Err(Error::Native);
 		}
+
 		let bytes = json(record, milliseconds as u64)?;
 		let value = js_sys::JSON::parse(std::str::from_utf8(&bytes).map_err(|_| Error::Native)?)
 			.map_err(|_| Error::Native)?;
+
 		match record.level {
 			Level::Trace | Level::Debug => web_sys::console::debug_1(&value),
 			Level::Info => web_sys::console::info_1(&value),
 			Level::Warn => web_sys::console::warn_1(&value),
 			Level::Error => web_sys::console::error_1(&value),
 		}
+
 		Ok(true)
 	}
 

@@ -76,6 +76,7 @@ fn event_listeners_dispatch_until_stopped_and_on_owner_cleanup() {
 		})
 	});
 	dispatch();
+
 	assert_eq!(count.get(), 1);
 	(stop)();
 	dispatch();

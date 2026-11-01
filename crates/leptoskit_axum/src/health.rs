@@ -136,12 +136,14 @@ impl Readiness {
 		} else {
 			StatusCode::SERVICE_UNAVAILABLE
 		};
+
 		let body = serde_json::json!({ "ready": failing.is_empty(), "failing": failing });
 		let mut response = (status, no_store(body.to_string())).into_response();
 		response.headers_mut().insert(
 			header::CONTENT_TYPE,
 			HeaderValue::from_static("application/json"),
 		);
+
 		response
 	}
 

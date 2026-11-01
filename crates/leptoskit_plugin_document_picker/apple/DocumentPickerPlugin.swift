@@ -16,6 +16,7 @@ public final class DocumentPickerPlugin: NSObject, NativePlugin {
     private let selection = DocumentSelection()
     private var selectionID: UUID?
     private var reader: DocumentReadJob?
+
     #if canImport(UIKit)
     private var picker: UIDocumentPickerViewController?
     #elseif canImport(AppKit)
@@ -32,16 +33,22 @@ public final class DocumentPickerPlugin: NSObject, NativePlugin {
 
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
         guard !closed else { throw PluginError.cancelled }
+
         guard method == 0 else { throw PluginError.unavailable }
         let limit = try payload.withUnsafeBytes { bytes -> Int in
+
             guard bytes.count == 4 else { throw PluginError.invalidArgument }
+
             return Int(UInt32(littleEndian: bytes.loadUnaligned(as: UInt32.self)))
         }
+
         guard limit <= DocumentReader.maximum else { throw PluginError.tooLarge }
+
         guard !busy else { throw PluginError.busy }
         try Task.checkCancellation()
         busy = true
         let identifier = UUID()
+
         selectionID = identifier
         defer {
             busy = false
@@ -52,6 +59,7 @@ public final class DocumentPickerPlugin: NSObject, NativePlugin {
             try await choose()
         } onCancel: {
             Task { @MainActor [weak self] in
+
                 guard self?.selectionID == identifier else { return }
                 self?.cancelSelection()
             }
@@ -61,36 +69,49 @@ public final class DocumentPickerPlugin: NSObject, NativePlugin {
         self.reader = reader
         let result = try await reader.run()
         try Task.checkCancellation()
+
         guard !closed else { throw PluginError.cancelled }
+
         return result
     }
 
     private func choose() async throws -> URL {
         let owner = try context.requirePresentationOwner()
+
         #if canImport(UIKit)
+
         guard owner.presentedViewController == nil else { throw PluginError.busy }
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: false)
         picker.allowsMultipleSelection = false
         picker.delegate = self
         self.picker = picker
+
         return try await withCheckedThrowingContinuation { continuation in
             selection.begin(continuation)
             owner.present(picker, animated: true)
             picker.presentationController?.delegate = self
         }
+
         #elseif canImport(AppKit)
+
         guard let window = owner.view.window else { throw PluginError.unavailable }
+
         guard window.attachedSheet == nil else { throw PluginError.busy }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
         self.panel = panel
+
         return try await withCheckedThrowingContinuation { continuation in
             let identifier = selection.begin(continuation)
+
             panel.beginSheetModal(for: window) { [weak self, weak panel] result in
+
                 guard let self, let panel, self.panel === panel,
+
                       self.selection.identifier == identifier else { return }
+
                 if result == .OK, let url = panel.url {
                     self.finish(.success(url))
                 } else {
@@ -127,10 +148,13 @@ public final class DocumentPickerPlugin: NSObject, NativePlugin {
 extension DocumentPickerPlugin: UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate {
     public func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         guard controller === picker else { return }
+
         guard urls.count == 1, let url = urls.first else {
             finish(.failure(PluginError.invalidArgument))
+
             return
         }
+
         finish(.success(url))
     }
 

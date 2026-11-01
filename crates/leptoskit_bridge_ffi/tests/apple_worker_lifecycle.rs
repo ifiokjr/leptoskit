@@ -52,6 +52,7 @@ fn queued_apple_worker_cancellation_does_not_invoke_plugin_or_free_capacity_earl
 			.arg("-o")
 			.arg(&executable),
 	);
+
 	succeeds(&mut Command::new(executable));
 	std::fs::remove_dir_all(directory).unwrap();
 }

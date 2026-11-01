@@ -390,6 +390,7 @@ fn payload_events_need_the_allocator() {
 	let error = host
 		.dispatch_wire(1, EventKind::Change, Some(r#"{"value":"x"}"#))
 		.expect_err("no allocator");
+
 	assert!(matches!(error, WasmError::MissingExport(ref name) if name == "leptoskit_alloc"));
 }
 
@@ -471,6 +472,7 @@ fn wire_classes_drive_native_layout_and_paint() {
 		surface.props(root).background,
 		Some(leptoskit_native::Color::rgba(255, 255, 255, 255))
 	);
+
 	assert_eq!(surface.props(root).corner_radius, Some(8.0));
 }
 
@@ -488,6 +490,7 @@ fn a_committed_node_names_the_wire_node_it_was_built_from() {
 	assert_eq!(wire.class, "p-2 gap-1");
 	assert_eq!(wire.source.as_deref(), Some("src/screens/home.rs:12:5"));
 	let child = host.surface().children(root)[0];
+
 	let wire = host.wire_node(child).expect("the child's wire node");
 	assert_eq!((wire.class.as_str(), wire.source.as_deref()), ("", None));
 }
@@ -499,9 +502,11 @@ fn twice_props_guest(first: &serde_json::Value, second: &serde_json::Value) -> S
 
 	let escape = |value: &serde_json::Value| {
 		let mut escaped = String::new();
+
 		for byte in value.to_string().bytes() {
 			write!(escaped, "\\{byte:02x}").expect("write to String");
 		}
+
 		escaped
 	};
 	let (first_len, second_len) = (first.to_string().len(), second.to_string().len());
@@ -648,6 +653,7 @@ fn dark_widget_replacements_preserve_wire_event_targets() {
 	let dark = host.surface().root().expect("dark root");
 	assert_ne!(dark, initial);
 	assert_eq!(host.surface().kind(dark), NativeKind::ScrollView);
+
 	let dark_button = host.surface().children(dark)[0];
 	assert_eq!(
 		host.dispatch(dark_button, &leptoskit_native::NativeEvent::Press)

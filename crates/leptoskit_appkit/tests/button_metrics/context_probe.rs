@@ -33,6 +33,7 @@ pub(super) fn observe() {
 		let graphics = context.CGContext();
 		let initial = CGContext::ctm(Some(&graphics));
 		CGContext::scale_ctm(Some(&graphics), scale / initial.a, scale / initial.d);
+
 		let matrix = CGContext::ctm(Some(&graphics));
 		assert_eq!(matrix.a.to_bits(), scale.to_bits());
 		assert_eq!(matrix.d.to_bits(), scale.to_bits());

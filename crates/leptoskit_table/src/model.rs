@@ -181,6 +181,7 @@ pub fn rows<'a, T>(data: &'a [T], columns: &[Column<T>], state: &TableState) -> 
 	let total = kept.len();
 	let pages = page_count(total, state.page_size);
 	let page = state.page.min(pages - 1);
+
 	let rows = match state.page_size {
 		Some(size) => {
 			let start = page * size.get();

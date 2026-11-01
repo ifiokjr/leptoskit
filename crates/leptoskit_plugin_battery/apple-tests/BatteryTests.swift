@@ -24,6 +24,7 @@ private func payload(_ data: Data = Data()) throws -> NativeBuffer {
     #expect(call > 0)
     var request = lk_request()
     #expect(lk_bridge_next_request(bridge, &request) == 1)
+
     return NativeBuffer(taking: request.payload)
 }
 
@@ -54,6 +55,7 @@ func batteryValidatesPayloadsAndCloseIsTerminal() async throws {
 func batteryCancellationAndCloseReleaseWaiters() async throws {
     let plugin = BatteryPlugin()
     defer { plugin.close() }
+
     for _ in 0..<3 {
         let snapshot = try await plugin.invoke(method: 0, payload: payload())
         let pending = Task { @MainActor in
@@ -68,6 +70,7 @@ func batteryCancellationAndCloseReleaseWaiters() async throws {
         case .failure(let error): #expect(error is CancellationError)
         }
     }
+
     let snapshot = try await plugin.invoke(method: 0, payload: payload())
     let pending = Task { @MainActor in try await plugin.invoke(method: 1, payload: payload(snapshot)) }
     try await Task.sleep(for: .milliseconds(10))

@@ -174,6 +174,7 @@ fn panicking_plugin_returns_failure_and_cannot_reenter_damaged_state() {
 			let mut request = MaybeUninit::uninit();
 			assert_eq!(lk_app_next_request(&raw mut *app, request.as_mut_ptr()), 1);
 			let request = request.assume_init();
+
 			let worker = lk_app_worker(&raw mut *app, &raw const request);
 			lk_buffer_release(request.payload);
 			let reply = lk_worker_execute(worker);
@@ -207,6 +208,7 @@ impl Plugin for Blocking {
 			self.started.send(()).unwrap();
 			self.release.recv().unwrap();
 		}
+
 		Ok(Bytes::new())
 	}
 }
@@ -228,9 +230,11 @@ fn cancellation_while_waiting_for_another_invocation_prevents_side_effects() {
 	// once.
 	unsafe {
 		let mut workers = Vec::new();
+
 		for _ in 0..2 {
 			let call = lk_bridge_submit(lk_app_plugins(&raw mut *app), id.0, 0, ptr::null(), 0);
 			assert!(call > 0);
+
 			let mut request = MaybeUninit::uninit();
 			assert_eq!(lk_app_next_request(&raw mut *app, request.as_mut_ptr()), 1);
 			let request = request.assume_init();
@@ -238,6 +242,7 @@ fn cancellation_while_waiting_for_another_invocation_prevents_side_effects() {
 			lk_buffer_release(request.payload);
 			workers.push(Box::from_raw(worker));
 		}
+
 		let second = workers.pop().unwrap();
 		let token = lk_worker_cancellation(&raw const *second);
 		let first = workers.pop().unwrap();

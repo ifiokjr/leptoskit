@@ -208,9 +208,11 @@ fn an_empty_table_and_an_unmatched_filter_render_one_empty_page() -> Result<(), 
 #[test]
 fn a_zero_page_size_shows_every_row_without_a_pager() -> Result<(), TestError> {
 	let (_, tester) = mount(TableState::new().with_page_size(0), &DATA)?;
+
 	for planet in &DATA {
 		tester.find(&Finder::text(planet.name))?;
 	}
+
 	assert!(
 		tester
 			.find(&Finder::aria_role(Role::Button, "Next page"))

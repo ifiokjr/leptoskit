@@ -1184,6 +1184,7 @@ impl Table<'_> {
 		let geo_columns = self.geo_columns();
 		let vector_columns = self.vector_columns();
 		let public_columns = self.public_columns();
+
 		let projections = self.projections();
 		let name = self.name;
 		// The database layer's own tables join the schema only when needed.
@@ -1261,6 +1262,7 @@ impl Table<'_> {
 		let vis = &self.item.vis;
 		let (postgres, sqlite) = &view.sql;
 		let materialized = view.materialized;
+
 		let refresh = materialized.then(|| {
 			quote! {
 				/// Runs the view's query again and keeps what it returns,
@@ -1454,6 +1456,7 @@ impl Table<'_> {
 			krate,
 			all.iter().filter(|column| column.args.generated.is_none()),
 		);
+
 		let generated = all
 			.iter()
 			.filter(|column| column.args.generated.is_some())
@@ -2635,6 +2638,7 @@ impl Table<'_> {
 			(quote! { () }, quote! {})
 		} else {
 			let declarations = properties.iter().map(|(_, declaration)| declaration);
+
 			let doc = format!(
 				" What a new [`{name}`] holds besides its two ends, for `add`: every column the \
 				 database layer doesn't fill in."

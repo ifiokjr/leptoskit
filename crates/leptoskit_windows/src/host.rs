@@ -138,6 +138,7 @@ impl WindowsWindow {
 		// it closed first keeps final native callbacks from remounting it.
 		if let Err(error) = unsafe { DestroyWindow(self.hwnd) } {
 			self.state.closed.set(false);
+
 			return Err(error);
 		}
 
@@ -166,6 +167,7 @@ impl WindowsWindow {
 		if !self.is_open() {
 			return Ok(());
 		}
+
 		// SAFETY: No native resources cross threads. The message queue belongs
 		// to this host's creating UI thread and the handles slice is
 		// empty.
@@ -182,6 +184,7 @@ impl WindowsWindow {
 					QS_ALLINPUT,
 					MWMO_INPUTAVAILABLE,
 				);
+
 				if result == WAIT_FAILED {
 					return Err(windows::core::Error::from_win32());
 				}
@@ -229,6 +232,7 @@ impl WindowsWindow {
 		if !self.is_open() {
 			return Err(E_HANDLE.into());
 		}
+
 		let mut rect = RECT::default();
 		// SAFETY: The output rectangle belongs to this still-live host window.
 		unsafe {
@@ -269,6 +273,7 @@ impl WindowsWindow {
 		if !self.is_open() {
 			return;
 		}
+
 		// SAFETY: The handle remains owned by this host on its current thread.
 		unsafe {
 			let _ = ShowWindow(self.hwnd, SW_SHOW);
@@ -288,6 +293,7 @@ impl WindowsWindow {
 		if !self.is_open() {
 			return;
 		}
+
 		// SAFETY: The local message structure remains alive during dispatch.
 		unsafe {
 			let mut message = MSG::default();
@@ -308,6 +314,7 @@ impl WindowsWindow {
 		if !self.is_open() {
 			return Ok(());
 		}
+
 		self.show();
 		// SAFETY: GetMessage fills one local MSG; it is dispatched
 		// synchronously.
@@ -320,6 +327,7 @@ impl WindowsWindow {
 				if result == -1 {
 					return Err(windows::core::Error::from_win32());
 				}
+
 				if result == 0 {
 					return Ok(());
 				}
@@ -339,6 +347,7 @@ impl WindowsWindow {
 		if !self.is_open() {
 			return Err(windows::core::Error::from(E_HANDLE).into());
 		}
+
 		self.pump_messages();
 		let mut rect = RECT::default();
 		// SAFETY: Each temporary GDI object is released after its final use;
@@ -358,10 +367,13 @@ impl WindowsWindow {
 				if !bitmap.is_invalid() {
 					let _ = DeleteObject(bitmap.into());
 				}
+
 				if !dc.is_invalid() {
 					let _ = DeleteDC(dc);
 				}
+
 				ReleaseDC(None, source);
+
 				return Err(windows::core::Error::from_win32().into());
 			}
 
@@ -475,6 +487,7 @@ unsafe extern "system" fn window_proc(
 			)
 			.expect("host accepts the system's DPI rectangle");
 		}
+
 		return LRESULT(0);
 	}
 
@@ -504,9 +517,11 @@ unsafe extern "system" fn window_proc(
 		if !pointer.is_null() {
 			// SAFETY: The context remains installed until WM_NCDESTROY below.
 			let context = unsafe { &*pointer };
+
 			if let Some(host) = context.backend_host.borrow().as_ref() {
 				host.set(context.parking.get());
 			}
+
 			let root = context.root.borrow().upgrade();
 
 			if let Some(root) = root {
@@ -519,6 +534,7 @@ unsafe extern "system" fn window_proc(
 		unsafe {
 			PostQuitMessage(0);
 		}
+
 		return LRESULT(0);
 	}
 

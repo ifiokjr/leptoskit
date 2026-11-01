@@ -127,6 +127,7 @@ pub fn return_address(value: &str) -> Result<url::Url, Error> {
 		&& url.fragment().is_none()
 		&& url.username().is_empty()
 		&& url.password().is_none();
+
 	let shape = match url.scheme() {
 		"https" => url.host().is_some(),
 		"http" => {
@@ -259,6 +260,7 @@ pub mod desktop {
 							return Ok(address);
 						}
 					}
+
 					Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
 						if Instant::now() >= deadline {
 							return Err(Error::Cancelled);
@@ -289,15 +291,18 @@ pub mod desktop {
 			let line = request.split(|byte| *byte == b'\r').next()?;
 			let line = core::str::from_utf8(line).ok()?;
 			let mut parts = line.split(' ');
+
 			let target = match (parts.next(), parts.next(), parts.next()) {
 				(Some("GET"), Some(target), Some(version)) if version.starts_with("HTTP/1.") => {
 					target
 				}
+
 				_ => {
 					respond(&mut stream, "400 Bad Request", "");
 					return None;
 				}
 			};
+
 			let origin = self.return_to.strip_suffix(RETURN_PATH)?;
 			let address = format!("{origin}{target}");
 
@@ -366,6 +371,7 @@ pub mod desktop {
 					self.session = Some((session.id, loopback));
 					Ok(Bytes::from(session.encode()))
 				}
+
 				AUTHENTICATE => {
 					let (id, url) = decode_authenticate(&payload)?;
 					let (session, loopback) = self.session.take().ok_or(Error::InvalidCall)?;
@@ -622,6 +628,7 @@ mod tests {
 		);
 		let session = Session::decode(&plugin.invoke(BEGIN, Bytes::new()).unwrap()).unwrap();
 		assert!(session.return_to.starts_with("http://127.0.0.1:"));
+
 		assert_eq!(
 			plugin.invoke(
 				AUTHENTICATE,

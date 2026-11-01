@@ -18,8 +18,10 @@ fn main() {
 		bridge.grant(plugin, MethodId(0), true).expect("grant");
 		let payload = Bytes::from(vec![42; size]);
 		let iterations = 100_000_u32;
+
 		for _ in 0..5 {
 			let start = Instant::now();
+
 			for _ in 0..iterations {
 				let id = bridge
 					.submit(plugin, MethodId(0), black_box(payload.clone()))
@@ -37,8 +39,10 @@ fn main() {
 				assert_eq!(response.as_ptr(), payload.as_ptr());
 				black_box(response);
 			}
+
 			samples.push(start.elapsed().as_secs_f64() * 1e9 / f64::from(iterations));
 		}
+
 		samples.sort_by(f64::total_cmp);
 		println!(
 			"{size} bytes: median {:.1} ns/roundtrip, range {:.1}..{:.1}; 5 x {iterations} \

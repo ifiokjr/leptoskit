@@ -64,6 +64,7 @@ impl Store {
 			parent
 				.create_dir_with("store", &builder)
 				.map_err(|error| failure(&error))?;
+
 			let root = parent.open_dir("store").map_err(|error| failure(&error))?;
 			#[cfg(unix)]
 			{
@@ -74,6 +75,7 @@ impl Store {
 			let files = Filesystem::from_dir(root.try_clone().map_err(|error| failure(&error))?);
 			self.storage = Some(Storage { root, files });
 		}
+
 		self.storage.as_ref().ok_or(Error::Native)
 	}
 
@@ -81,6 +83,7 @@ impl Store {
 		if !self.loaded {
 			self.load()?;
 		}
+
 		Ok(())
 	}
 
@@ -89,11 +92,14 @@ impl Store {
 	/// discards staged edits.
 	pub fn load(&mut self) -> Result<(), Error> {
 		let storage = self.storage()?;
+
 		let next = match storage.root.symlink_metadata(FILE) {
 			Ok(_) => decode(&storage.files.read(FILE)?)?,
+
 			Err(error) if error.kind() == io::ErrorKind::NotFound => Entries::new(),
 			Err(error) => return Err(failure(&error)),
 		};
+
 		self.entries = next;
 		self.loaded = true;
 		Ok(())
@@ -135,6 +141,7 @@ impl Store {
 	/// document, so committing one recovers a store whose file is malformed.
 	pub fn apply(&mut self, changes: &[Change], save: Save) -> Result<(), Error> {
 		let replaces_document = matches!(changes.first(), Some(Change::Clear));
+
 		if !replaces_document {
 			self.ensure_loaded()?;
 		}
@@ -143,10 +150,13 @@ impl Store {
 		} else {
 			self.entries.clone()
 		};
+
 		let (next, bytes) = candidate(&base, changes)?;
+
 		if save == Save::Commit {
 			self.storage()?.files.write(FILE, &bytes)?;
 		}
+
 		self.entries = next;
 		self.loaded = true;
 		Ok(())
@@ -175,6 +185,7 @@ impl Plugin for Store {
 		if payload.len() > MAX_STORE_BYTES {
 			return Err(Error::TooLarge);
 		}
+
 		match method {
 			GET => {
 				let mut input = Decoder::new(&payload);
@@ -187,6 +198,7 @@ impl Plugin for Store {
 				} else {
 					output.u32(0);
 				}
+
 				Ok(output.finish())
 			}
 			ENTRIES | SAVE | LOAD => {
@@ -239,6 +251,7 @@ mod tests {
 			restored.get("theme").unwrap(),
 			Some(&json!({"name":"dark","contrast":true}))
 		);
+
 		store
 			.apply(
 				&[
@@ -286,6 +299,7 @@ mod tests {
 		);
 		std::fs::write(root.path().join("store/settings.json"), b"{bad json").unwrap();
 		assert_eq!(store.load(), Err(Error::InvalidArgument));
+
 		assert_eq!(store.get("keep").unwrap(), Some(&json!(1)));
 	}
 
@@ -307,6 +321,7 @@ mod tests {
 			)
 			.unwrap();
 		assert_eq!(store.get("theme").unwrap(), Some(&json!("light")));
+
 		let mut reopened = Store::new(root.path());
 		assert_eq!(reopened.get("theme").unwrap(), Some(&json!("light")));
 	}
@@ -325,6 +340,7 @@ mod tests {
 		std::fs::remove_file(&target).unwrap();
 		std::fs::create_dir(&target).unwrap();
 		std::fs::write(target.join("occupied"), b"host").unwrap();
+
 		assert!(
 			store
 				.apply(&[Change::Set("keep".into(), json!(2))], Save::Commit)
@@ -368,6 +384,7 @@ mod tests {
 		std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o500)).unwrap();
 		let result = store.apply(&[Change::Set("keep".into(), json!(2))], Save::Commit);
 		std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+
 		assert_eq!(result, Err(Error::PermissionDenied));
 		assert_eq!(store.get("keep").unwrap(), Some(&json!(1)));
 		assert_eq!(
@@ -402,6 +419,7 @@ mod tests {
 				.is_err()
 		);
 		assert_eq!(store.get("keep").unwrap(), Some(&json!(1)));
+
 		drop(held);
 		assert_eq!(std::fs::read(&target).unwrap(), saved);
 		store
@@ -443,6 +461,7 @@ mod tests {
 			.unwrap();
 		assert!(status.success(), "create a directory junction");
 		let mut store = Store::new(root.path());
+
 		assert!(store.get("private").is_err());
 		assert!(
 			store
@@ -466,6 +485,7 @@ mod tests {
 		let changes =
 			encode_changes(&[Change::Set("count".into(), json!(3))], Save::Commit).unwrap();
 		assert_eq!(store.invoke(APPLY, changes), Ok(Bytes::new()));
+
 		let found = store.invoke(GET, name("count")).unwrap();
 		let mut found = Decoder::new(&found);
 		assert_eq!(found.u32(), Ok(1));

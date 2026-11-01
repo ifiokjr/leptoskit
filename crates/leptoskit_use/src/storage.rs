@@ -104,6 +104,7 @@ where
 	let value = RwSignal::new(storage.get(&key)?.unwrap_or_else(|| initial.clone()));
 	let storage = Arc::new(storage);
 	let writer = Arc::clone(&storage);
+
 	let write_key = key.clone();
 	let remover = Arc::clone(&storage);
 	let remove_key = key.clone();

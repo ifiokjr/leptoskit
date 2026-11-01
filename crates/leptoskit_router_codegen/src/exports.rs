@@ -162,6 +162,7 @@ pub(crate) fn read(source: &str) -> Result<Exports, Vec<Problem>> {
 	})?;
 	let mut exports = Exports::default();
 	let mut problems = Vec::new();
+
 	for item in &file.items {
 		match item {
 			Item::Fn(function) => {
@@ -172,6 +173,7 @@ pub(crate) fn read(source: &str) -> Result<Exports, Vec<Problem>> {
 					&mut problems,
 				);
 			}
+
 			Item::Struct(item_struct) if derives_route(&item_struct.attrs) => {
 				let line = item_struct.ident.span().start().line;
 				if !matches!(item_struct.vis, Visibility::Public(_)) {
@@ -195,11 +197,13 @@ pub(crate) fn read(source: &str) -> Result<Exports, Vec<Problem>> {
 					));
 					continue;
 				}
+
 				let mut fields = Vec::new();
 				for field in &item_struct.fields {
 					let Some(ident) = &field.ident else {
 						continue;
 					};
+
 					match field_kind(field) {
 						Ok(kind) => {
 							fields.push(RouteField {
@@ -210,6 +214,7 @@ pub(crate) fn read(source: &str) -> Result<Exports, Vec<Problem>> {
 						Err(problem) => problems.push(problem),
 					}
 				}
+
 				exports.route = Some(RouteStruct {
 					name: item_struct.ident.to_string(),
 					unit: matches!(item_struct.fields, syn::Fields::Unit),
@@ -217,9 +222,11 @@ pub(crate) fn read(source: &str) -> Result<Exports, Vec<Problem>> {
 					line,
 				});
 			}
+
 			_ => {}
 		}
 	}
+
 	if problems.is_empty() {
 		Ok(exports)
 	} else {
@@ -242,12 +249,16 @@ fn read_function(
 		}) {
 			exports.private.entry(component).or_insert((name, line));
 		}
+
 		return;
 	}
+
 	if let Some(hook) = Hook::ALL.into_iter().find(|hook| name == hook.name()) {
 		exports.hooks.insert(hook, line);
+
 		return;
 	}
+
 	for component in Component::ALL {
 		let style = if name == component.function_name() {
 			ExportStyle::Function
@@ -261,18 +272,22 @@ fn read_function(
 						component.function_name()
 					),
 				));
+
 				return;
 			}
+
 			ExportStyle::Component
 		} else {
 			continue;
 		};
+
 		let export = ComponentExport {
 			style,
 			name: name.clone(),
 			line,
 			params: params(&function.sig),
 		};
+
 		if exports.components.insert(component, export).is_some() {
 			problems.push((
 				Some(line),
@@ -283,6 +298,7 @@ fn read_function(
 				),
 			));
 		}
+
 		return;
 	}
 }
@@ -300,6 +316,7 @@ fn params(signature: &syn::Signature) -> Vec<Param> {
 							syn::Pat::Ident(ident) => ident.ident.to_string(),
 							pattern => quote::ToTokens::to_token_stream(pattern).to_string(),
 						},
+
 						by_ref: matches!(typed.ty.as_ref(), Type::Reference(_)),
 					}
 				}
@@ -332,6 +349,7 @@ fn derives_route(attributes: &[syn::Attribute]) -> bool {
 		if !attribute.path().is_ident("derive") {
 			return false;
 		}
+
 		let mut found = false;
 		let _ = attribute.parse_nested_meta(|meta| {
 			found |= meta
@@ -352,10 +370,12 @@ fn derives_route(attributes: &[syn::Attribute]) -> bool {
 /// crate cannot share; the tests in both crates cover the same cases.
 fn field_kind(field: &syn::Field) -> Result<FieldKind, Problem> {
 	let mut default = false;
+
 	for attribute in &field.attrs {
 		if !attribute.path().is_ident("route") {
 			continue;
 		}
+
 		attribute
 			.parse_nested_meta(|meta| {
 				if meta.path.is_ident("default") {
@@ -367,6 +387,7 @@ fn field_kind(field: &syn::Field) -> Result<FieldKind, Problem> {
 			})
 			.map_err(|error| (Some(error.span().start().line), error.to_string()))?;
 	}
+
 	match (wrapper_name(&field.ty), default) {
 		(Some("Option"), false) => Ok(FieldKind::Optional),
 		(Some("Vec"), false) => Ok(FieldKind::Many),

@@ -35,6 +35,7 @@ impl Client {
 		let port = url
 			.port_or_known_default()
 			.ok_or_else(|| Error::Invalid("missing WebSocket port".into()))?;
+
 		match url.host() {
 			Some(url::Host::Ipv4(address)) => Ok(vec![SocketAddr::new(address.into(), port)]),
 			Some(url::Host::Ipv6(address)) => Ok(vec![SocketAddr::new(address.into(), port)]),
@@ -66,6 +67,7 @@ impl Client {
 		let url = self.config.url(url)?;
 		protocols(subprotocols)?;
 		let mut request = url.as_str().into_client_request().map_err(transport)?;
+
 		if !subprotocols.is_empty() {
 			request.headers_mut().insert(
 				"Sec-WebSocket-Protocol",
@@ -75,6 +77,7 @@ impl Client {
 					.map_err(|_| Error::Invalid("invalid subprotocol".into()))?,
 			);
 		}
+
 		let settings = WebSocketConfig::default()
 			.write_buffer_size(0)
 			.max_write_buffer_size(self.config.max_pending_bytes)
@@ -102,6 +105,7 @@ impl Client {
 			.map(|value| value.to_str().map(str::to_owned))
 			.transpose()
 			.map_err(|_| Error::Transport("invalid server subprotocol".into()))?;
+
 		Ok(Connection {
 			socket: Some(socket),
 			config: self.config.clone(),
@@ -131,19 +135,24 @@ impl Connection {
 		if message.len() > self.config.max_message_bytes {
 			return Err(Error::TooLarge);
 		}
+
 		let socket = self.socket.as_mut().ok_or(Error::Closed)?;
+
 		let message = match message {
 			Message::Text(value) => tungstenite::Message::Text(value.into()),
 			Message::Binary(value) => tungstenite::Message::Binary(value.into()),
 		};
+
 		let result = tokio::time::timeout(self.config.send_timeout, socket.send(message))
 			.await
 			.map_err(|_| Error::Timeout)
 			.and_then(|result| result.map_err(transport));
+
 		if result.is_err() {
 			// Like receive, never reuse a socket whose stream state is unknown.
 			self.socket = None;
 		}
+
 		result
 	}
 
@@ -154,6 +163,7 @@ impl Connection {
 			let Some(socket) = self.socket.as_mut() else {
 				return Ok(None);
 			};
+
 			match socket.next().await {
 				Some(Ok(tungstenite::Message::Text(text))) => {
 					return Ok(Some(Message::Text(text.to_string())));
@@ -214,6 +224,7 @@ impl Connection {
 				}
 				result => result.map_err(transport)?,
 			}
+
 			while let Some(message) = socket.next().await {
 				match message {
 					Ok(tungstenite::Message::Close(_))
@@ -222,6 +233,7 @@ impl Connection {
 					_ => {}
 				}
 			}
+
 			Ok(())
 		};
 		tokio::time::timeout(self.config.close_timeout, close)

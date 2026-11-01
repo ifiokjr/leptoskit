@@ -26,15 +26,18 @@ fn file_storage_reopens_persisted_values_and_keeps_keys_within_its_directory() {
 		dark: true,
 		name: "Ada".into(),
 	};
+
 	for key in ["", "../outside", "/absolute", "🌍/name", &"x".repeat(1000)] {
 		assert!(store.get(key).unwrap().is_none());
 		store.set(key, &value).unwrap();
 		let reopened = FileStorage::new(&root).unwrap();
+
 		assert_eq!(reopened.get(key).unwrap(), Some(value.clone()));
 		store.remove(key).unwrap();
 		store.remove(key).unwrap();
 		assert!(reopened.get(key).unwrap().is_none());
 	}
+
 	assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
 	assert!(!directory.path().join("outside").exists());
 	let other = FileStorage::<Settings>::new(directory.path().join("another-app")).unwrap();
@@ -62,6 +65,7 @@ fn async_file_storage_runs_without_a_runtime_and_preserves_reactive_state() {
 		block_on(store.get_async("name".into())).unwrap(),
 		Some("saved".into())
 	);
+
 	let reopened = LocalStorage::<String>::new(directory.path()).unwrap();
 	block_on(reopened.set_async("name".into(), "external".into())).unwrap();
 	block_on((hook.reload)()).unwrap();
@@ -149,6 +153,7 @@ fn encoding_and_io_errors_are_returned_without_hiding_corrupt_data() {
 		.unwrap()
 		.path();
 	let owner = Owner::new();
+
 	let hook = owner
 		.with(|| use_storage(store.clone(), "key", "fallback".into()))
 		.unwrap();

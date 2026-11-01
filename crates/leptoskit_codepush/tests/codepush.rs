@@ -59,9 +59,11 @@ impl Scratch {
 
 	fn write(&self, path: &str, content: &[u8]) -> PathBuf {
 		let target = self.path.join(path);
+
 		if let Some(parent) = target.parent() {
 			std::fs::create_dir_all(parent).expect("parent");
 		}
+
 		std::fs::write(&target, content).expect("write");
 		target
 	}
@@ -93,20 +95,26 @@ fn wasm_like(len: usize, seed: u64) -> Vec<u8> {
 		loop {
 			let byte = (value & 0x7f) as u8;
 			value >>= 7;
+
 			if value == 0 {
 				out.push(byte);
+
 				return;
 			}
+
 			out.push(byte | 0x80);
 		}
 	}
 	let mut state = seed | 1;
+
 	let mut out = b"\0asm\x01\0\0\0".to_vec();
+
 	while out.len() < len {
 		state ^= state << 13;
 		state ^= state >> 7;
 		state ^= state << 17;
 		let operand = state >> 8;
+
 		match state % 16 {
 			// local.get and local.set
 			0..=4 => {
@@ -143,6 +151,7 @@ fn wasm_like(len: usize, seed: u64) -> Vec<u8> {
 			_ => out.extend_from_slice(NAMES[operand as usize % NAMES.len()].as_bytes()),
 		}
 	}
+
 	out.truncate(len);
 	out
 }
@@ -315,6 +324,7 @@ impl Bucket for MemoryBucket {
 		if self.fail_after == Some(self.puts.len()) {
 			return Err(CodePushError::Transport("connection reset".to_owned()));
 		}
+
 		self.puts.push(object.key.as_str().to_owned());
 		self.objects
 			.insert(object.key.as_str().to_owned(), object.clone());
@@ -419,9 +429,11 @@ fn staging_responses(
 		responses.remove(&delta_url).is_some(),
 		"the bucket holds the delta from v1"
 	);
+
 	if let Some(body) = delta_body {
 		responses.insert(delta_url, body);
 	}
+
 	responses
 }
 
@@ -529,6 +541,7 @@ fn client_percent_encodes_build_metadata_in_static_urls() {
 	let UpdatePlan::Available(offer) = client.check().expect("check") else {
 		panic!("expected an update offer");
 	};
+
 	// A literal `+` in a URL path reaches some object stores as a space.
 	assert_eq!(
 		offer.download_url,
@@ -848,6 +861,7 @@ fn a_delta_that_saves_little_is_not_stored() {
 			.expect("ingest");
 		assert!(ingested.delta_from_previous.is_none());
 	}
+
 	assert!(
 		!scratch
 			.path
@@ -984,9 +998,11 @@ fn sync_offer(
 	);
 	let staging = scratch.path.join("client_staged");
 	let result = client.sync(&staging);
+
 	if result.is_err() {
 		assert!(!staging.exists(), "a rejected release must stage nothing");
 	}
+
 	result
 }
 
@@ -1182,6 +1198,7 @@ fn releases_without_a_stored_signature_are_offered_unsigned_and_rejected() {
 	let mut index: ChannelIndex =
 		serde_json::from_slice(&std::fs::read(&index_path).expect("read index")).expect("index");
 	index.signature = None;
+
 	std::fs::write(&index_path, serde_json::to_vec(&index).expect("encode")).expect("write index");
 	let latest = store
 		.latest("app", "staging")
@@ -1209,6 +1226,7 @@ fn releases_without_a_stored_signature_are_offered_unsigned_and_rejected() {
 		),
 		"an unsigned release is never published"
 	);
+
 	assert_eq!(bucket.puts, [] as [String; 0]);
 }
 
@@ -1389,6 +1407,7 @@ fn an_index_in_a_newer_format_is_rejected() {
 fn the_index_names_the_newest_release_whatever_the_ingest_order() {
 	let scratch = Scratch::new("index-order");
 	let store = ReleaseStore::open(scratch.path.join("releases")).expect("open store");
+
 	for version in [1, 3, 2] {
 		store
 			.ingest_directory(
@@ -1402,6 +1421,7 @@ fn the_index_names_the_newest_release_whatever_the_ingest_order() {
 			)
 			.expect("ingest");
 	}
+
 	let index = store
 		.index("app", "production")
 		.expect("read index")
@@ -1463,6 +1483,7 @@ fn publishing_omits_over_budget_deltas_and_resumes_with_a_full_release() {
 		fail_after: Some(4),
 		..MemoryBucket::default()
 	};
+
 	assert!(matches!(
 		publish_channel(&store, "app", "staging", &mut bucket),
 		Err(CodePushError::Transport(_))
@@ -1477,6 +1498,7 @@ fn publishing_omits_over_budget_deltas_and_resumes_with_a_full_release() {
 	let staging = scratch.path.join("client_staged");
 	let report = client.sync(&staging).expect("full release sync");
 	assert!(report.updated);
+
 	assert!(!report.used_delta);
 	assert_staged_v2(&staging);
 	assert_eq!(
@@ -1508,14 +1530,17 @@ fn publishing_writes_every_release_file_before_the_index() {
 			"app/staging/index.json",
 		]
 	);
+
 	for object in bucket.objects.values() {
 		let expected = std::fs::read(scratch.path.join("releases").join(object.key.as_str()))
 			.expect("the bucket mirrors the store");
 		assert_eq!(object.bytes, expected, "{}", object.key.as_str());
 	}
+
 	let index = &bucket.objects["app/staging/index.json"];
 	assert_eq!(index.key.kind(), ObjectKind::Index);
 	assert_eq!(index.key.kind().cache_control(), "public, max-age=60");
+
 	assert_eq!(
 		bucket.objects["app/staging/1.0.0+2/release.lkb"]
 			.key

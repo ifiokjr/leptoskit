@@ -258,6 +258,7 @@ impl Locator {
 				));
 			}
 		};
+
 		Ok(locator)
 	}
 }
@@ -486,10 +487,12 @@ impl Document {
 				));
 			}
 		}
+
 		if target.kind == TargetKind::Web {
 			if target.url.is_none() {
 				return Err(Error::Configuration("web targets require a url".to_owned()));
 			}
+
 			if target.device.is_some() || target.application.is_some() {
 				return Err(Error::Configuration(
 					"web targets take no device or application".to_owned(),
@@ -501,6 +504,7 @@ impl Document {
 					"url and browser belong to web targets".to_owned(),
 				));
 			}
+
 			// Every step but StartEmulator reaches the device itself: driver
 			// steps through `appium:udid`, device steps through the tools.
 			// StartEmulator picks its own serial, so a boot-only document
@@ -509,11 +513,13 @@ impl Document {
 				.steps
 				.iter()
 				.any(|step| !matches!(step, Step::StartEmulator { .. }));
+
 			if target.kind.is_mobile() && needs_device {
 				let empty = target
 					.device
 					.as_deref()
 					.is_none_or(|device| device.trim().is_empty());
+
 				if empty {
 					return Err(Error::Configuration(format!(
 						"{:?} targets require a device id",
@@ -522,6 +528,7 @@ impl Document {
 				}
 			}
 		}
+
 		Ok(())
 	}
 }
@@ -658,6 +665,7 @@ pub fn run(document: &Document) -> Outcome {
 		artifacts: None,
 		error: None,
 	};
+
 	let mut context = match document
 		.validate()
 		.and_then(|()| ExecutionContext::new(&document.target))
@@ -669,9 +677,12 @@ pub fn run(document: &Document) -> Outcome {
 		}
 	};
 	let mut failure = None;
+
 	for (index, step) in document.steps.iter().enumerate() {
 		let result = context.step(step, index);
+
 		let action = step.action_name();
+
 		match result {
 			Ok(step_value) => {
 				outcome.steps.push(StepOutcome {
@@ -697,10 +708,13 @@ pub fn run(document: &Document) -> Outcome {
 			}
 		}
 	}
+
 	let artifacts = context.artifacts.clone();
+
 	if let Err(error) = context.close(failure.as_ref()) {
 		eprintln!("closing the session also failed: {error:#}");
 	}
+
 	outcome.artifacts = Some(artifacts);
 	outcome.passed = failure.is_none();
 	outcome.error = failure.map(|error| format!("{error:#}"));
@@ -935,6 +949,7 @@ impl ExecutionContext {
 		if self.driver.is_none() {
 			self.driver = Some(connect_driver(&self.target)?);
 		}
+
 		Ok(self.driver.as_deref_mut().expect("just connected"))
 	}
 
@@ -952,12 +967,14 @@ fn connect_driver(target: &Target) -> Result<Box<dyn ControlDriver>, Error> {
 	if target.kind == TargetKind::Web {
 		return Ok(Box::new(web::WebSession::connect(target)?));
 	}
+
 	let application = target.application.clone().ok_or_else(|| {
 		Error::Configuration(format!(
 			"{:?} driver steps need target.application: a path, an installed identity, or desktop",
 			target.kind
 		))
 	})?;
+
 	let platform = match target.kind {
 		TargetKind::IosSimulator | TargetKind::IosDevice => Platform::Ios,
 		TargetKind::Android => Platform::Android,
@@ -966,6 +983,7 @@ fn connect_driver(target: &Target) -> Result<Box<dyn ControlDriver>, Error> {
 		TargetKind::Linux => Platform::Linux,
 		TargetKind::Web => unreachable!("web handled above"),
 	};
+
 	let endpoint = target
 		.endpoint
 		.clone()
@@ -974,6 +992,7 @@ fn connect_driver(target: &Target) -> Result<Box<dyn ControlDriver>, Error> {
 	let mut options = NativeOptions::new(endpoint, platform, application);
 	options.device.clone_from(&target.device);
 	options.capabilities.clone_from(&target.capabilities);
+
 	options.startup_seconds = target.startup_seconds;
 	options.command_seconds = target.command_seconds;
 	options.wait_seconds = target.wait_seconds;
@@ -1039,6 +1058,7 @@ impl ControlDriver for NativeTester {
 
 	fn close(self: Box<Self>, failure: Option<&Error>) -> Result<(), Error> {
 		let tester = *self;
+
 		let result = match failure {
 			// The step error was already recorded; this run only asks the
 			// session to retain its evidence and end.
@@ -1049,6 +1069,7 @@ impl ControlDriver for NativeTester {
 			}
 			None => tester.finish::<()>(Ok(())),
 		};
+
 		match result {
 			Ok(()) => Ok(()),
 			// The Evidence wrapper around our placeholder is the expected
@@ -1124,10 +1145,13 @@ fn truncate_chars(text: &str, limit: usize) -> String {
 	if text.len() <= limit {
 		return text.to_owned();
 	}
+
 	let mut end = limit;
+
 	while !text.is_char_boundary(end) {
 		end -= 1;
 	}
+
 	let mut cut = text[..end].to_owned();
 	cut.push('…');
 	cut
@@ -1136,12 +1160,14 @@ fn truncate_chars(text: &str, limit: usize) -> String {
 /// Runs one platform tool or fails with its output.
 fn tool(command: &mut Command, timeout: Duration) -> Result<tools::ToolOutput, Error> {
 	let output = tools::run(command, timeout)?;
+
 	if !output.success() {
 		return Err(Error::Tool {
 			name: command.get_program().to_string_lossy().into_owned(),
 			detail: output.failure(),
 		});
 	}
+
 	Ok(output)
 }
 
@@ -1188,6 +1214,7 @@ mod tests {
 		);
 		document.target.device = None;
 		document.target.kind = TargetKind::Android;
+
 		document.target.url = None;
 		// No step reaches the device, so boot-only documents need no serial.
 		document.validate().unwrap();
@@ -1238,6 +1265,7 @@ mod tests {
 				.contains("belong to web targets")
 		);
 		document = base.clone();
+
 		document.target.application = Some(Application::Desktop);
 		assert!(
 			document
@@ -1289,6 +1317,7 @@ mod tests {
 			Locator::Id("c".to_owned()),
 			Locator::Xpath("//d".to_owned()),
 		];
+
 		for locator in all {
 			assert!(locator.native().is_ok(), "{locator:?}");
 		}

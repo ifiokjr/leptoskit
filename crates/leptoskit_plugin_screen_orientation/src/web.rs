@@ -42,6 +42,7 @@ fn orientation() -> Result<web_sys::ScreenOrientation, Error> {
 /// lock.
 pub fn snapshot() -> Result<Snapshot, Error> {
 	let orientation = orientation()?;
+
 	let kind = match orientation.type_().map_err(|value| error(&value))? {
 		web_sys::OrientationType::PortraitPrimary | web_sys::OrientationType::PortraitSecondary => {
 			Orientation::Portrait
@@ -50,6 +51,7 @@ pub fn snapshot() -> Result<Snapshot, Error> {
 		| web_sys::OrientationType::LandscapeSecondary => Orientation::Landscape,
 		_ => Orientation::Unknown,
 	};
+
 	let result = Snapshot {
 		orientation: kind,
 		angle: Some(orientation.angle().map_err(|value| error(&value))?),
@@ -63,6 +65,7 @@ impl Drop for Guard {
 		if let Err(failure) = self.0.unlock() {
 			web_sys::console::error_1(&failure);
 		}
+
 		HELD.with(|held| held.set(false));
 	}
 }
@@ -73,19 +76,24 @@ impl Drop for Guard {
 pub async fn hold(policy: Policy) -> Result<Infallible, Error> {
 	let window = web_sys::window().ok_or(Error::Unavailable)?;
 	let document = window.document().ok_or(Error::Unavailable)?;
+
 	if document.hidden() {
 		return Err(Error::Unavailable);
 	}
+
 	let orientation = orientation()?;
+
 	if !js_sys::Reflect::get(&orientation, &JsValue::from_str("lock"))
 		.map_err(|value| error(&value))?
 		.is_function()
 	{
 		return Err(Error::Unavailable);
 	}
+
 	if HELD.with(|held| held.replace(true)) {
 		return Err(Error::Busy);
 	}
+
 	let guard = Guard(orientation);
 	let (sender, receiver) = oneshot::channel();
 	let sender = Rc::new(std::cell::RefCell::new(Some(sender)));
@@ -112,6 +120,7 @@ pub async fn hold(policy: Policy) -> Result<Infallible, Error> {
 			let _ = sender.send(());
 		}
 	});
+
 	let policy = match policy {
 		Policy::Portrait => web_sys::OrientationLockType::Portrait,
 		Policy::Landscape => web_sys::OrientationLockType::Landscape,
@@ -121,9 +130,11 @@ pub async fn hold(policy: Policy) -> Result<Infallible, Error> {
 		Policy::LandscapeSecondary => web_sys::OrientationLockType::LandscapeSecondary,
 		Policy::Any => web_sys::OrientationLockType::Any,
 	};
+
 	let request = JsFuture::from(guard.0.lock(policy).map_err(|value| error(&value))?);
 	futures::pin_mut!(request);
 	futures::pin_mut!(receiver);
+
 	match futures::future::select(request, receiver).await {
 		futures::future::Either::Left((result, receiver)) => {
 			result.map_err(|value| error(&value))?;
@@ -131,6 +142,7 @@ pub async fn hold(policy: Policy) -> Result<Infallible, Error> {
 		}
 		futures::future::Either::Right(_) => {}
 	}
+
 	drop((visibility, fullscreen, pagehide, guard));
 	Err(Error::Cancelled)
 }

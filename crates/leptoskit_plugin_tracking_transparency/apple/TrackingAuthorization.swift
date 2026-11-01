@@ -17,6 +17,7 @@ final class TrackingRequestGate {
     func complete(_ identifier: UUID) -> Bool {
         guard self.identifier == identifier else { return false }
         self.identifier = nil
+
         return true
     }
 }

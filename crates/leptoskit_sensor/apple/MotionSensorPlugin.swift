@@ -18,6 +18,7 @@ open class MotionSensorPlugin: NativePlugin {
     private var closed = false
     private var pending: CheckedContinuation<Data, any Error>?
     private var pendingID: UUID?
+
     #if os(iOS)
     private let motion = CMMotionManager()
     private let altimeter = CMAltimeter()
@@ -31,22 +32,32 @@ open class MotionSensorPlugin: NativePlugin {
 
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
         guard !closed else { throw PluginError.cancelled }
+
         if method == 0 {
             guard payload.count == 0 else { throw PluginError.invalidArgument }
+
             return Data([available ? 1 : 0, 0, 0, 0])
         }
+
         guard method == 1 else { throw PluginError.unavailable }
         let interval = try payload.withUnsafeBytes { bytes -> UInt32 in
+
             guard bytes.count == 4 else { throw PluginError.invalidArgument }
             let value = UInt32(littleEndian: bytes.loadUnaligned(as: UInt32.self))
+
             guard (5...60_000).contains(value) else { throw PluginError.invalidArgument }
+
             return value
         }
+
         guard available else { throw PluginError.unavailable }
+
         guard pending == nil else { throw PluginError.busy }
+
         try Task.checkCancellation()
         try preflight()
         let identifier = UUID()
+
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 pending = continuation
@@ -55,6 +66,7 @@ open class MotionSensorPlugin: NativePlugin {
             }
         } onCancel: { [weak self] in
             Task { @MainActor in
+
                 guard self?.pendingID == identifier else { return }
                 self?.finish(.failure(CancellationError()))
             }
@@ -68,6 +80,7 @@ open class MotionSensorPlugin: NativePlugin {
 
     private func preflight() throws {
         #if os(iOS)
+
         guard UIApplication.shared.applicationState == .active else { throw PluginError.cancelled }
         // Raw accelerometer, gyroscope and magnetometer samples need no
         // authorization. The altimeter is motion data that iOS gates behind
@@ -78,8 +91,10 @@ open class MotionSensorPlugin: NativePlugin {
                 throw PluginError.permissionDenied
             }
             let status = CMAltimeter.authorizationStatus()
+
             guard status != .denied && status != .restricted else { throw PluginError.permissionDenied }
         }
+
         #endif
     }
 
@@ -138,6 +153,7 @@ open class MotionSensorPlugin: NativePlugin {
     #if os(iOS)
     private func receive(_ values: [Double]?, error: (any Error)?, identifier: UUID) {
         guard pendingID == identifier else { return }
+
         if let error {
             let native = error as NSError
             let denied = native.domain == CMErrorDomain
@@ -145,18 +161,24 @@ open class MotionSensorPlugin: NativePlugin {
                     native.code == Int($0.rawValue)
                 }
             finish(.failure(denied ? PluginError.permissionDenied : PluginError.native))
+
             return
         }
+
         guard let values, values.allSatisfy(\.isFinite), let timestamp = values.first, timestamp >= 0,
               kind != .barometer || values[1] > 0 else {
+
             finish(.failure(PluginError.native))
+
             return
         }
         var bytes = Data(capacity: values.count * 8)
+
         for value in values {
             var bits = value.bitPattern.littleEndian
             withUnsafeBytes(of: &bits) { bytes.append(contentsOf: $0) }
         }
+
         finish(.success(bytes))
     }
     #endif
@@ -165,11 +187,13 @@ open class MotionSensorPlugin: NativePlugin {
         guard let continuation = pending else { return }
         pending = nil
         pendingID = nil
+
         #if os(iOS)
         motion.stopAccelerometerUpdates()
         motion.stopGyroUpdates()
         motion.stopMagnetometerUpdates()
         altimeter.stopRelativeAltitudeUpdates()
+
         if let backgroundObserver { NotificationCenter.default.removeObserver(backgroundObserver) }
         backgroundObserver = nil
         #endif

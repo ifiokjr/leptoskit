@@ -73,6 +73,7 @@ mod limits;
 mod mail;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod mailers;
+
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod merge;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]

@@ -58,6 +58,7 @@ fn hidden_window_captures_and_restores_onto_a_visible_display() {
 	}
 	let original = macos::capture(&window, None).unwrap();
 	assert_eq!(original.mode, WindowMode::Normal);
+
 	assert!(!window.isVisible());
 	let saved = WindowState {
 		normal_bounds: Bounds::new(area.x() - 5000.0, area.y() - 5000.0, 320.0, 260.0).unwrap(),

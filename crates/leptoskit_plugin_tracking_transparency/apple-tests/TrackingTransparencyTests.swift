@@ -18,6 +18,7 @@ private final class FakeAuthorization: TrackingAuthorizationProvider {
     func prepare(onBackground: @escaping @MainActor @Sendable () -> Void) throws -> TrackingObservation {
         if let preparationError { throw preparationError }
         background = onBackground
+
         return TrackingObservation { [weak self] in
             self?.stopped += 1
             self?.background = nil
@@ -34,17 +35,20 @@ private final class FakeAuthorization: TrackingAuthorizationProvider {
 final class TrackingTransparencyTests: XCTestCase {
     func testPurposeMustBeAnAppOwnedNonblankString() throws {
         let invalid: [Any?] = [nil, "", " \n\t ", 42, ["purpose"]]
+
         for value in invalid {
             XCTAssertThrowsError(try SystemTrackingAuthorization.validatePurpose(value)) { error in
                 XCTAssertEqual(error as? PluginError, .invalidArgument)
             }
         }
+
         XCTAssertNoThrow(try SystemTrackingAuthorization.validatePurpose("Synthetic test purpose"))
     }
 
     private func call(_ plugin: TrackingTransparencyPlugin, method: UInt32 = 1) async throws -> UInt32 {
         let data = try await plugin.invoke(method: method, payload: NativeBuffer(taking: lk_buffer()))
         XCTAssertEqual(data.count, 4)
+
         return data.withUnsafeBytes { UInt32(littleEndian: $0.loadUnaligned(as: UInt32.self)) }
     }
 
@@ -53,17 +57,20 @@ final class TrackingTransparencyTests: XCTestCase {
             if provider.requests >= count { return }
             await Task.yield()
         }
+
         XCTFail("Synthetic provider did not receive the expected request")
     }
 
     func testStatusPreservesEveryStateWithoutRequestingAndRejectsUnknown() async throws {
         let provider = FakeAuthorization()
         let plugin = TrackingTransparencyPlugin(provider: provider, gate: TrackingRequestGate())
+
         for status in UInt32(0)...3 {
             provider.value = status
             let actual = try await call(plugin, method: 0)
             XCTAssertEqual(actual, status)
         }
+
         XCTAssertEqual(provider.requests, 0)
         provider.value = 4
         do {
@@ -89,6 +96,7 @@ final class TrackingTransparencyTests: XCTestCase {
             _ = try await request.value
             XCTFail("Cancelled request returned a status")
         } catch { XCTAssertEqual(error as? PluginError, .cancelled) }
+
         XCTAssertEqual(provider.stopped, 1)
         do {
             _ = try await call(other)
@@ -117,11 +125,13 @@ final class TrackingTransparencyTests: XCTestCase {
             let plugin = TrackingTransparencyPlugin(provider: provider, gate: gate)
             let request = Task { try await self.call(plugin) }
             await waitForRequest(provider)
+
             if close { plugin.close(); plugin.close() } else { provider.background?() }
             do {
                 _ = try await request.value
                 XCTFail("Stopped caller received a result")
             } catch { XCTAssertEqual(error as? PluginError, .cancelled) }
+
             XCTAssertEqual(provider.stopped, 1)
             provider.value = 3
             provider.completion?()
@@ -136,6 +146,7 @@ final class TrackingTransparencyTests: XCTestCase {
         let provider = FakeAuthorization()
         let gate = TrackingRequestGate()
         let plugin = TrackingTransparencyPlugin(provider: provider, gate: gate)
+
         for failure in [PluginError.unavailable, .invalidArgument] {
             provider.preparationError = failure
             do {
@@ -144,7 +155,9 @@ final class TrackingTransparencyTests: XCTestCase {
             } catch { XCTAssertEqual(error as? PluginError, failure) }
             XCTAssertEqual(provider.requests, 0)
         }
+
         provider.preparationError = nil
+
         provider.requestError = .native
         do {
             _ = try await call(plugin)
@@ -165,6 +178,7 @@ final class TrackingTransparencyTests: XCTestCase {
         provider.value = 0
         provider.completion?()
         let result = try await request.value
+
         XCTAssertEqual(result, 0, "Dismissal without a decision must not become authorization")
         XCTAssertEqual(provider.requests, 1)
     }

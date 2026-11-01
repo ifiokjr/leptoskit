@@ -4,7 +4,6 @@
 //! The guest thread runs a real guest: it starts it, answers its frames,
 //! events, and plugin calls, posts transactions and requests for the UI
 //! thread, and gives the app back when stopped.
-
 use std::ffi::c_void;
 use std::mem::MaybeUninit;
 use std::ptr;
@@ -228,6 +227,7 @@ fn the_guest_thread_runs_the_guest_and_posts_for_the_ui_thread() {
 			while let Some((_, count)) = transaction(guest) {
 				rendered += count;
 			}
+
 			(rendered >= 70).then_some(())
 		});
 

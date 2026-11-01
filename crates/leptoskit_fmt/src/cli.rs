@@ -95,6 +95,7 @@ pub fn execute(args: &FormatArgs) -> Outcome {
 	} else {
 		run_files(args)
 	};
+
 	result.unwrap_or_else(|error| {
 		eprintln!("error: {error}");
 		Outcome::Failed
@@ -116,6 +117,7 @@ fn run_stdin(args: &FormatArgs) -> Result<Outcome, FormatError> {
 				source,
 			}
 		})?;
+
 	let path = match &args.stdin_filepath {
 		Some(path) => path.clone(),
 		None => {
@@ -123,6 +125,7 @@ fn run_stdin(args: &FormatArgs) -> Result<Outcome, FormatError> {
 				.map_or_else(|_| PathBuf::from("stdin.rs"), |dir| dir.join("stdin.rs"))
 		}
 	};
+
 	let settings = Settings::for_path(&path)?;
 	let toolchain = args
 		.toolchain()
@@ -131,9 +134,11 @@ fn run_stdin(args: &FormatArgs) -> Result<Outcome, FormatError> {
 	let rustfmt = Rustfmt::locate(&toolchain)?.concurrent(true);
 	let started = Instant::now();
 	let output = format_source(&source, &settings, &rustfmt)?;
+
 	for diagnostic in &output.diagnostics {
 		eprintln!("warning: {}:{diagnostic}", path.display());
 	}
+
 	if args.verbose {
 		let stats = output.stats;
 		eprintln!(
@@ -144,13 +149,17 @@ fn run_stdin(args: &FormatArgs) -> Result<Outcome, FormatError> {
 			stats.passes
 		);
 	}
+
 	if args.check {
 		if output.text == source {
 			return Ok(Outcome::Formatted);
 		}
+
 		print_diff(&path, &source, &output.text);
+
 		return Ok(Outcome::WouldFormat(1));
 	}
+
 	std::io::stdout()
 		.write_all(output.text.as_bytes())
 		.map_err(|source| {
@@ -169,6 +178,7 @@ fn run_files(args: &FormatArgs) -> Result<Outcome, FormatError> {
 	} else {
 		args.paths.clone()
 	};
+
 	let files = workspace::collect_files(&paths, &args.exclude)?;
 	let cache = if args.no_cache {
 		None
@@ -177,6 +187,7 @@ fn run_files(args: &FormatArgs) -> Result<Outcome, FormatError> {
 			.ok()
 			.and_then(|dir| workspace::default_cache_dir(&dir))
 	};
+
 	let options = Options {
 		check: args.check,
 		toolchain: args.toolchain(),
@@ -189,6 +200,7 @@ fn run_files(args: &FormatArgs) -> Result<Outcome, FormatError> {
 		for diagnostic in &file.diagnostics {
 			eprintln!("warning: {}:{diagnostic}", file.path.display());
 		}
+
 		match &file.status {
 			Status::Failed(error) => eprintln!("error: {}: {error}", file.path.display()),
 			Status::Changed {
@@ -197,14 +209,17 @@ fn run_files(args: &FormatArgs) -> Result<Outcome, FormatError> {
 			} if args.check => print_diff(&file.path, original, formatted),
 			_ => {}
 		}
+
 		if args.verbose {
 			let status = match file.status {
 				Status::Unchanged => "unchanged",
 				Status::Cached => "cached",
+
 				Status::Changed { .. } if args.check => "would format",
 				Status::Changed { .. } => "formatted",
 				Status::Failed(_) => "failed",
 			};
+
 			eprintln!(
 				"{:>9.2?} {:>9.2?} rustfmt  {status:<12} {}",
 				file.elapsed,
@@ -226,6 +241,7 @@ fn run_files(args: &FormatArgs) -> Result<Outcome, FormatError> {
 	} else {
 		String::new()
 	};
+
 	eprintln!(
 		"{verb} {changed} of {} files in {:.2?}{failures}",
 		report.files.len(),
@@ -250,14 +266,18 @@ fn print_diff(path: &Path, original: &str, formatted: &str) {
 		.to_string();
 	let colored = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
 	let mut stdout = std::io::stdout().lock();
+
 	for line in unified.lines() {
 		let color = match line.as_bytes().first() {
 			_ if !colored => None,
+
 			Some(b'+') if !line.starts_with("+++") => Some("32"),
+
 			Some(b'-') if !line.starts_with("---") => Some("31"),
 			Some(b'@') => Some("36"),
 			_ => None,
 		};
+
 		// A closed stdout (piping into `head`) is not worth failing for.
 		let _ = match color {
 			Some(color) => writeln!(stdout, "\x1b[{color}m{line}\x1b[0m"),

@@ -201,6 +201,7 @@ where
 	T: Clone + PartialEq + Send + Sync + 'static,
 {
 	let next = source.get_untracked();
+
 	if output.with_untracked(|current| *current != next) {
 		output.set(next);
 	}

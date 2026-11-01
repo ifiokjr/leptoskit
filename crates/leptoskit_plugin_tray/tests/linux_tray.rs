@@ -58,6 +58,7 @@ mod linux {
 		if std::env::var_os(PRIVATE_BUS).is_none() {
 			return rerun_on_private_bus();
 		}
+
 		let mut arguments = Arguments::from_args();
 		// One tray host per process: the trials share it in order.
 		arguments.test_threads = Some(1);
@@ -86,6 +87,7 @@ mod linux {
 			.expect("re-run the tests on the private bus");
 		daemon.kill().expect("stop the private dbus-daemon");
 		daemon.wait().expect("reap the private dbus-daemon");
+
 		match status.code() {
 			Some(0) => ExitCode::SUCCESS,
 			_ => ExitCode::FAILURE,
@@ -139,6 +141,7 @@ mod linux {
 							)
 						}
 					};
+
 					connection.send(reply).expect("send the reply");
 					true
 				}),
@@ -158,14 +161,18 @@ mod linux {
 		let connection = Connection::new_session()?;
 		let proxy = connection.with_proxy(service, "/StatusNotifierItem", Duration::from_secs(5));
 		let deadline = Instant::now() + Duration::from_secs(5);
+
 		loop {
 			let value: String = proxy.get(ITEM, property)?;
+
 			if value == expected {
 				return Ok(());
 			}
+
 			if Instant::now() >= deadline {
 				return Err(format!("{property} stayed {value:?}, expected {expected:?}").into());
 			}
+
 			std::thread::sleep(Duration::from_millis(20));
 		}
 	}
@@ -235,6 +242,7 @@ mod linux {
 		));
 		host.set_icon(id, icon(), false)
 			.map_err(|error| format!("{error:?}"))?;
+
 		host.set_menu(id, None)
 			.map_err(|error| format!("{error:?}"))?;
 		host.set_menu(id, Some(menu))

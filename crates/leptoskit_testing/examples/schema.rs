@@ -10,6 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		Some("--check") => true,
 		Some(_) => return Err("usage: schema [--check]".into()),
 	};
+
 	let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/src");
 	let asset = "schemas/control.schema.json";
 	let id = format!("https://ifiokjr.github.io/leptoskit/{asset}");
@@ -18,6 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let formatter = serde_json::ser::PrettyFormatter::with_indent(b"\t");
 	let mut serializer = serde_json::Serializer::with_formatter(Vec::new(), formatter);
 	serde::Serialize::serialize(&schema, &mut serializer)?;
+
 	let mut bytes = serializer.into_inner();
 	bytes.push(b'\n');
 	let path = root.join(asset);
@@ -30,6 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					format!("stale schema: {asset}; run `devenv shell schema:update`").into(),
 				);
 			}
+
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
 				return Err(
 					format!("missing schema: {asset}; run `devenv shell schema:update`").into(),
@@ -41,6 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		if let Some(parent) = path.parent() {
 			std::fs::create_dir_all(parent)?;
 		}
+
 		std::fs::write(&path, bytes)?;
 		println!("updated {}", path.display());
 	}

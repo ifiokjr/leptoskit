@@ -305,6 +305,7 @@ mod tests {
 		let params = Params::new(&[], &invalid);
 		assert_eq!(params.optional::<u32>("highlight"), Ok(None));
 		assert_eq!(params.one_or_default::<u32>("highlight"), Ok(0));
+
 		assert_eq!(
 			params.one::<u32>("highlight"),
 			Err(ParamError::Missing { name: "highlight" })

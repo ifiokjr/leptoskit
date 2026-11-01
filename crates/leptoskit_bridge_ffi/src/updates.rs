@@ -262,6 +262,7 @@ unsafe fn finish(updates: *mut Updates, receipt: *const u8, len: usize, confirm:
 		} else {
 			updates.bundles.reject(receipt)
 		};
+
 		result.map_err(|error| error.to_string())
 	})();
 	updates.record(result)

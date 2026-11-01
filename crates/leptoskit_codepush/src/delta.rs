@@ -89,22 +89,28 @@ pub fn create_delta(base: &[u8], target: &[u8]) -> Delta {
 	// survives between versions finds a candidate immediately.
 	let mut index: HashMap<u64, Vec<usize>> = HashMap::new();
 	let mut offset = 0;
+
 	while offset + BLOCK <= base.len() {
 		let hash = quick_hash(&base[offset..offset + BLOCK]);
 		let offsets = index.entry(hash).or_default();
+
 		if offsets.len() < MAX_CANDIDATES {
 			offsets.push(offset);
 		}
+
 		offset += BLOCK;
 	}
 
 	let mut ops: Vec<DeltaOp> = Vec::new();
 	let mut literal: Vec<u8> = Vec::new();
 	let mut position = 0;
+
 	while position < target.len() {
 		let mut matched = None;
+
 		if position + BLOCK <= target.len() {
 			let hash = quick_hash(&target[position..position + BLOCK]);
+
 			if let Some(candidates) = index.get(&hash) {
 				matched = candidates
 					.iter()
@@ -116,14 +122,17 @@ pub fn create_delta(base: &[u8], target: &[u8]) -> Delta {
 					.filter(|&(_, length)| length >= BLOCK as u64);
 			}
 		}
+
 		if let Some((base_offset, forward)) = matched {
 			// The match found its block; the bytes just before it that the
 			// base also has are copied too rather than inserted.
 			let mut start = base_offset;
+
 			while start > 0 && literal.last() == Some(&base[start - 1]) {
 				literal.pop();
 				start -= 1;
 			}
+
 			flush_literal(&mut ops, &mut literal);
 			ops.push(DeltaOp::Copy {
 				offset: start as u64,
@@ -135,6 +144,7 @@ pub fn create_delta(base: &[u8], target: &[u8]) -> Delta {
 			position += 1;
 		}
 	}
+
 	flush_literal(&mut ops, &mut literal);
 
 	Delta {
@@ -162,6 +172,7 @@ pub fn apply_delta_within(
 	max_output: u64,
 ) -> Result<Vec<u8>, CodePushError> {
 	let actual = crate::manifest::hash_bytes(base);
+
 	if actual != delta.base_hash {
 		return Err(CodePushError::DeltaBaseMismatch {
 			expected: delta.base_hash.clone(),
@@ -170,6 +181,7 @@ pub fn apply_delta_within(
 	}
 
 	let mut total: u64 = 0;
+
 	for op in &delta.ops {
 		let len = match op {
 			DeltaOp::Copy { offset, len } => {
@@ -184,8 +196,10 @@ pub fn apply_delta_within(
 				}
 				*len
 			}
+
 			DeltaOp::Insert { bytes } => bytes.len() as u64,
 		};
+
 		total = total
 			.checked_add(len)
 			.filter(|&total| total <= max_output)
@@ -197,6 +211,7 @@ pub fn apply_delta_within(
 	}
 
 	let mut out = Vec::with_capacity(total as usize);
+
 	for op in &delta.ops {
 		match op {
 			// Bounds were checked above, and both ends fit in `base.len()`.
@@ -207,7 +222,9 @@ pub fn apply_delta_within(
 			DeltaOp::Insert { bytes } => out.extend_from_slice(bytes),
 		}
 	}
+
 	let produced = crate::manifest::hash_bytes(&out);
+
 	if produced != delta.target_hash {
 		return Err(CodePushError::HashMismatch {
 			path: "<delta result>".to_owned(),
@@ -215,6 +232,7 @@ pub fn apply_delta_within(
 			actual: produced,
 		});
 	}
+
 	Ok(out)
 }
 
@@ -231,20 +249,24 @@ fn flush_literal(ops: &mut Vec<DeltaOp>, literal: &mut Vec<u8>) {
 fn quick_hash(block: &[u8]) -> u64 {
 	let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
 	let quarter = block.len() / 4;
+
 	for &byte in &block[..quarter] {
 		hash ^= u64::from(byte);
 		hash = hash.wrapping_mul(0x100_0000_01b3);
 	}
+
 	for &byte in &block[block.len() - quarter..] {
 		hash ^= u64::from(byte);
 		hash = hash.wrapping_mul(0x100_0000_01b3);
 	}
+
 	hash
 }
 
 /// Extends a candidate match forward, returning the match length.
 fn extend_match(base: &[u8], base_offset: usize, target: &[u8], target_offset: usize) -> u64 {
 	let mut length = 0usize;
+
 	while base_offset + length < base.len()
 		&& target_offset + length < target.len()
 		&& base[base_offset + length] == target[target_offset + length]

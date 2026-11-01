@@ -74,13 +74,18 @@ class ScreenCapturePlugin(
         payload: ByteBuffer,
     ): ByteArray {
         check(Looper.myLooper() == Looper.getMainLooper())
+
         if (closed) throw PluginException(PluginException.CANCELLED)
+
         if (method !in 0..3) throw PluginException(PluginException.UNAVAILABLE)
+
         if (payload.remaining() != if (method == 2) 8 else 0) throw PluginException(PluginException.INVALID_ARGUMENT)
         val watch = if (method == 2) CaptureWatch.decode(payload) else null
         currentCoroutineContext().ensureActive()
         val activity = context as? Activity ?: throw PluginException(PluginException.UNAVAILABLE)
+
         if (activity.isDestroyed || activity.isFinishing) throw PluginException(PluginException.UNAVAILABLE)
+
         return when (method) {
             0 -> {
                 fields(1, 1, 0, if (Build.VERSION.SDK_INT >= 34) 1 else 0)
@@ -94,9 +99,11 @@ class ScreenCapturePlugin(
                 if (checkNotNull(watch).kind == 0 || Build.VERSION.SDK_INT < 34) {
                     throw PluginException(PluginException.UNAVAILABLE)
                 }
+
                 if (activity.checkSelfPermission(Manifest.permission.DETECT_SCREEN_CAPTURE) != PackageManager.PERMISSION_GRANTED) {
                     throw PluginException(PluginException.PERMISSION_DENIED)
                 }
+
                 // Visible, not focused: a dialog or system prompt over the activity
                 // still leaves its content on screen to be captured.
                 if (activity.window?.decorView?.isShown != true) throw PluginException(PluginException.UNAVAILABLE)
@@ -113,11 +120,15 @@ class ScreenCapturePlugin(
 
     private suspend fun prevent(activity: Activity): ByteArray =
         suspendCancellableCoroutine { completion ->
+
             if (!completion.isActive) return@suspendCancellableCoroutine
+
             if (leases.size >= 64) {
                 completion.resumeWithException(PluginException(PluginException.BUSY))
+
                 return@suspendCancellableCoroutine
             }
+
             try {
                 observeLifecycle(activity)
                 val window = activity.window
@@ -130,6 +141,7 @@ class ScreenCapturePlugin(
                     }
                 }
             } catch (error: PluginException) {
+
                 stopLifecycleIfIdle()
                 completion.resumeWithException(error)
             } catch (error: RuntimeException) {
@@ -140,11 +152,15 @@ class ScreenCapturePlugin(
 
     private suspend fun watchScreenshot(activity: Activity): ByteArray =
         suspendCancellableCoroutine { completion ->
+
             if (!completion.isActive) return@suspendCancellableCoroutine
+
             if (wait != null) {
                 completion.resumeWithException(PluginException(PluginException.BUSY))
+
                 return@suspendCancellableCoroutine
             }
+
             val id = UUID.randomUUID()
             wait = Pending(id, completion)
             try {
@@ -168,6 +184,7 @@ class ScreenCapturePlugin(
         screenshot?.close()
         screenshot = null
         stopLifecycleIfIdle()
+
         if (!pending.completion.isActive) return
         if (error == null) pending.completion.resume(fields(1, 1, 0)) else pending.completion.resumeWithException(error)
     }
@@ -190,15 +207,19 @@ class ScreenCapturePlugin(
 
     override fun close() {
         check(Looper.myLooper() == Looper.getMainLooper())
+
         if (closed) return
         closed = true
         wait?.let { finishWait(it.id, PluginException(PluginException.CANCELLED)) }
         val pending = leases.toMap()
         leases.clear()
+
         for ((completion, window) in pending) {
             SecureWindowLeases.release(window)
+
             if (completion.isActive) completion.resumeWithException(PluginException(PluginException.CANCELLED))
         }
+
         stopLifecycleIfIdle()
     }
 }
@@ -210,12 +231,15 @@ internal data class CaptureWatch(
     companion object {
         fun decode(payload: ByteBuffer): CaptureWatch {
             val bytes = payload.duplicate().order(ByteOrder.LITTLE_ENDIAN)
+
             if (bytes.remaining() != 8) throw PluginException(PluginException.INVALID_ARGUMENT)
             val kind = bytes.int
             val previous = bytes.int
+
             if (kind !in 0..1 || previous !in 0..2 || (kind == 1 && previous != 0)) {
                 throw PluginException(PluginException.INVALID_ARGUMENT)
             }
+
             return CaptureWatch(kind, previous)
         }
     }

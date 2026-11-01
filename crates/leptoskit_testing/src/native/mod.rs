@@ -147,6 +147,7 @@ impl Options {
 				"deadlines must be between 1 and 3600 seconds".to_owned(),
 			));
 		}
+
 		let (platform, driver) = match self.platform {
 			Platform::Ios => ("iOS", "XCUITest"),
 			Platform::Android => ("Android", "UiAutomator2"),
@@ -154,10 +155,12 @@ impl Options {
 			Platform::Windows => ("Windows", "NovaWindows"),
 			Platform::Linux => ("linux", "atspi"),
 		};
+
 		let mut capabilities = BTreeMap::from([
 			("platformName".to_owned(), json!(platform)),
 			("appium:automationName".to_owned(), json!(driver)),
 		]);
+
 		if matches!(self.platform, Platform::Ios | Platform::Android) {
 			let device = self
 				.device
@@ -167,12 +170,14 @@ impl Options {
 					Error::Configuration("mobile sessions require an explicit device ID".to_owned())
 				})?;
 			capabilities.insert("appium:udid".to_owned(), json!(device));
+
 			capabilities.insert("appium:noReset".to_owned(), json!(true));
 			capabilities.insert(
 				"appium:newCommandTimeout".to_owned(),
 				json!(self.command_seconds + self.wait_seconds + 60),
 			);
 		}
+
 		match &self.application {
 			Application::Path(path) => {
 				if path.trim().is_empty() {
@@ -183,6 +188,7 @@ impl Options {
 				} else {
 					"appium:app"
 				};
+
 				capabilities.insert(key.to_owned(), json!(path));
 				if self.platform == Platform::Macos {
 					// WebDriverAgentMac terminates the apps it owns by bundle
@@ -205,6 +211,7 @@ impl Options {
 					Platform::Android => "appium:appPackage",
 					Platform::Windows | Platform::Linux => "appium:app",
 				};
+
 				capabilities.insert(key.to_owned(), json!(id));
 			}
 			Application::Desktop => {
@@ -213,12 +220,14 @@ impl Options {
 						"desktop sessions require Windows or Linux".to_owned(),
 					));
 				}
+
 				capabilities.insert("appium:app".to_owned(), json!("Root"));
 				if self.platform == Platform::Windows {
 					capabilities.insert("appium:shouldCloseApp".to_owned(), json!(false));
 				}
 			}
 		}
+
 		if self.platform == Platform::Ios {
 			capabilities.insert(
 				"appium:settings[respectSystemAlerts]".to_owned(),
@@ -245,9 +254,11 @@ impl Options {
 				json!("visible,accessible"),
 			);
 		}
+
 		if self.platform == Platform::Android {
 			capabilities.insert("appium:autoGrantPermissions".to_owned(), json!(false));
 		}
+
 		if self.platform == Platform::Macos {
 			// The driver builds and launches its XCTest runner on first use,
 			// which the session's own startup budget already covers.
@@ -256,6 +267,7 @@ impl Options {
 				json!(self.startup_seconds * 1000),
 			);
 		}
+
 		for (key, value) in &self.capabilities {
 			if !key.contains(':')
 				|| matches!(
@@ -275,6 +287,7 @@ impl Options {
 			}
 			capabilities.insert(key.clone(), value.clone());
 		}
+
 		Ok(json!({"capabilities": {"alwaysMatch": capabilities, "firstMatch": [{}]}}))
 	}
 }
@@ -386,6 +399,7 @@ mod tests {
 			} else {
 				"appium:autoGrantPermissions"
 			};
+
 			assert_eq!(capabilities[key], false);
 			options
 				.capabilities
@@ -414,6 +428,7 @@ mod tests {
 		options
 			.capabilities
 			.insert("appium:commandTimeouts".to_owned(), json!("1000"));
+
 		assert!(configuration_error(&options).contains("commandTimeouts"));
 		options.capabilities.clear();
 		options
@@ -437,6 +452,7 @@ mod tests {
 		assert_eq!(always_match(&options)[key], "");
 		options.capabilities.clear();
 		options.platform = Platform::Android;
+
 		assert!(always_match(&options).get(key).is_none());
 	}
 
@@ -467,6 +483,7 @@ mod tests {
 		overridden
 			.capabilities
 			.insert("appium:skipAppKill".to_owned(), json!(true));
+
 		assert!(configuration_error(&overridden).contains("skipAppKill"));
 	}
 
@@ -514,6 +531,7 @@ mod tests {
 			"application identity is empty"
 		);
 		options.application = Application::Desktop;
+
 		for deadline in [0, 3601] {
 			options.wait_seconds = deadline;
 			assert_eq!(
@@ -521,12 +539,14 @@ mod tests {
 				"deadlines must be between 1 and 3600 seconds"
 			);
 		}
+
 		options.wait_seconds = 15;
 		options
 			.capabilities
 			.insert("noNamespace".to_owned(), json!(true));
 		assert!(configuration_error(&options).contains("noNamespace"));
 		options.capabilities.clear();
+
 		for platform in [Platform::Ios, Platform::Android, Platform::Macos] {
 			let mut mobile = options.clone();
 			mobile.platform = platform;
@@ -559,6 +579,7 @@ mod tests {
 			Application::Identifier("dev.app".to_owned()),
 		);
 		assert_eq!(android["appium:automationName"], "UiAutomator2");
+
 		assert_eq!(android["appium:appPackage"], "dev.app");
 		let windows = identity(
 			Platform::Windows,

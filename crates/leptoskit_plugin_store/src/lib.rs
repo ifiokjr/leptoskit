@@ -85,11 +85,13 @@ fn unique_entries<'de, D: serde::Deserializer<'de>>(input: D) -> Result<Entries,
 
 		fn visit_map<M: serde::de::MapAccess<'de>>(self, mut map: M) -> Result<Entries, M::Error> {
 			let mut entries = Entries::new();
+
 			while let Some((key, value)) = map.next_entry::<String, Value>()? {
 				if entries.insert(key, value).is_some() {
 					return Err(serde::de::Error::custom("duplicate setting key"));
 				}
 			}
+
 			Ok(entries)
 		}
 	}
@@ -100,9 +102,11 @@ pub(crate) fn key(key: &str) -> Result<(), Error> {
 	if key.len() > MAX_KEY_BYTES {
 		return Err(Error::TooLarge);
 	}
+
 	if key.is_empty() || key.chars().any(char::is_control) {
 		return Err(Error::InvalidArgument);
 	}
+
 	Ok(())
 }
 
@@ -110,6 +114,7 @@ fn depth(value: &Value, level: usize) -> Result<(), Error> {
 	if level > MAX_DEPTH {
 		return Err(Error::TooLarge);
 	}
+
 	match value {
 		Value::Array(values) => values.iter().try_for_each(|value| depth(value, level + 1)),
 		Value::Object(values) => {
@@ -131,6 +136,7 @@ impl Write for Limited {
 		if bytes.len() > self.limit.saturating_sub(self.bytes.len()) {
 			return Err(io::Error::other("settings limit exceeded"));
 		}
+
 		self.bytes.extend_from_slice(bytes);
 		Ok(bytes.len())
 	}
@@ -158,6 +164,7 @@ pub(crate) fn read_value(bytes: &[u8]) -> Result<Value, Error> {
 	if bytes.len() > MAX_VALUE_BYTES {
 		return Err(Error::TooLarge);
 	}
+
 	let value = serde_json::from_slice(bytes).map_err(|_| Error::InvalidArgument)?;
 	depth(&value, 0)?;
 	Ok(value)
@@ -167,10 +174,12 @@ pub(crate) fn encode(entries: &Entries) -> Result<Vec<u8>, Error> {
 	if entries.len() > MAX_ENTRIES {
 		return Err(Error::TooLarge);
 	}
+
 	for (name, value) in entries {
 		key(name)?;
 		value_json(value)?;
 	}
+
 	#[derive(Serialize)]
 	struct BorrowedDocument<'a> {
 		version: u32,
@@ -189,10 +198,13 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Entries, Error> {
 	if bytes.len() > MAX_STORE_BYTES {
 		return Err(Error::TooLarge);
 	}
+
 	let document: Document = serde_json::from_slice(bytes).map_err(|_| Error::InvalidArgument)?;
+
 	if document.version != 1 {
 		return Err(Error::InvalidArgument);
 	}
+
 	encode(&document.entries)?;
 	Ok(document.entries)
 }
@@ -205,8 +217,10 @@ pub(crate) fn candidate(
 	if changes.len() > MAX_CHANGES {
 		return Err(Error::TooLarge);
 	}
+
 	let mut next = entries.clone();
 	let mut size = encode(entries)?.len();
+
 	for change in changes {
 		match change {
 			Change::Set(name, value) => {
@@ -220,6 +234,7 @@ pub(crate) fn candidate(
 				if replacement_size > MAX_STORE_BYTES {
 					return Err(Error::TooLarge);
 				}
+
 				size = replacement_size;
 				next.insert(name.clone(), value.clone());
 			}
@@ -237,11 +252,13 @@ pub(crate) fn candidate(
 				size = br#"{"version":1,"entries":{}}"#.len();
 			}
 		}
+
 		// Do not permit transient intermediate states to exceed the key budget.
 		if next.len() > MAX_ENTRIES {
 			return Err(Error::TooLarge);
 		}
 	}
+
 	let bytes = encode(&next)?;
 	Ok((next, bytes))
 }
@@ -251,10 +268,12 @@ pub fn encode_changes(changes: &[Change], save: Save) -> Result<Bytes, Error> {
 	if changes.len() > MAX_CHANGES {
 		return Err(Error::TooLarge);
 	}
+
 	let mut output = Encoder::with_capacity(8);
 	output.u32(u32::from(save == Save::Commit));
 	output.u32(u32::try_from(changes.len()).map_err(|_| Error::TooLarge)?);
 	let mut size = 8;
+
 	for change in changes {
 		match change {
 			Change::Set(name, value) => {
@@ -264,6 +283,7 @@ pub fn encode_changes(changes: &[Change], save: Save) -> Result<Bytes, Error> {
 				if size > MAX_STORE_BYTES {
 					return Err(Error::TooLarge);
 				}
+
 				output.u32(0);
 				output.bytes(name.as_bytes())?;
 				output.bytes(&value)?;
@@ -274,6 +294,7 @@ pub fn encode_changes(changes: &[Change], save: Save) -> Result<Bytes, Error> {
 				if size > MAX_STORE_BYTES {
 					return Err(Error::TooLarge);
 				}
+
 				output.u32(1);
 				output.bytes(name.as_bytes())?;
 			}
@@ -282,14 +303,18 @@ pub fn encode_changes(changes: &[Change], save: Save) -> Result<Bytes, Error> {
 				if size > MAX_STORE_BYTES {
 					return Err(Error::TooLarge);
 				}
+
 				output.u32(2);
 			}
 		}
 	}
+
 	let bytes = output.finish();
+
 	if bytes.len() > MAX_STORE_BYTES {
 		return Err(Error::TooLarge);
 	}
+
 	Ok(bytes)
 }
 
@@ -298,17 +323,23 @@ pub fn decode_changes(bytes: &[u8]) -> Result<(Vec<Change>, Save), Error> {
 	if bytes.len() > MAX_STORE_BYTES {
 		return Err(Error::TooLarge);
 	}
+
 	let mut input = Decoder::new(bytes);
+
 	let save = match input.u32()? {
 		0 => Save::Deferred,
 		1 => Save::Commit,
 		_ => return Err(Error::InvalidArgument),
 	};
+
 	let count = input.u32()? as usize;
+
 	if count > MAX_CHANGES {
 		return Err(Error::TooLarge);
 	}
+
 	let mut changes = Vec::with_capacity(count);
+
 	for _ in 0..count {
 		changes.push(match input.u32()? {
 			0 => {
@@ -325,6 +356,7 @@ pub fn decode_changes(bytes: &[u8]) -> Result<(Vec<Change>, Save), Error> {
 			_ => return Err(Error::InvalidArgument),
 		});
 	}
+
 	input.finish()?;
 	Ok((changes, save))
 }
@@ -370,10 +402,13 @@ mod tests {
 		];
 		let bytes = encode_changes(&changes, Save::Commit).unwrap();
 		assert_eq!(decode_changes(&bytes), Ok((changes.to_vec(), Save::Commit)));
+
 		for truncated in 0..bytes.len() {
 			assert!(decode_changes(&bytes[..truncated]).is_err());
 		}
+
 		let mut trailing = bytes.to_vec();
+
 		trailing.push(0);
 		assert_eq!(decode_changes(&trailing), Err(Error::InvalidArgument));
 		let mut invalid = bytes.to_vec();
@@ -394,9 +429,11 @@ mod tests {
 			Err(Error::TooLarge)
 		);
 		let mut deep = Value::Null;
+
 		for _ in 0..=MAX_DEPTH {
 			deep = Value::Array(vec![deep]);
 		}
+
 		assert_eq!(value_json(&deep), Err(Error::TooLarge));
 		let many = vec![Change::Clear; MAX_CHANGES + 1];
 		assert_eq!(candidate(&entries, &many), Err(Error::TooLarge));

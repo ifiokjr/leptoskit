@@ -111,11 +111,13 @@ impl ReleasePublicKey {
 		let bytes = decode_hex::<32>("a public key", encoded)?;
 		let key = VerifyingKey::from_bytes(&bytes)
 			.map_err(|error| CodePushError::InvalidKey(format!("invalid public key: {error}")))?;
+
 		if key.is_weak() {
 			return Err(CodePushError::InvalidKey(
 				"the public key is a weak, small-order point".to_owned(),
 			));
 		}
+
 		Ok(Self(key))
 	}
 
@@ -155,11 +157,13 @@ impl TrustedKeys {
 	/// that trusts nobody could never install an update.
 	pub fn new(keys: impl IntoIterator<Item = ReleasePublicKey>) -> Result<Self, CodePushError> {
 		let keys: Vec<_> = keys.into_iter().collect();
+
 		if keys.is_empty() {
 			return Err(CodePushError::InvalidKey(
 				"at least one trusted public key is required".to_owned(),
 			));
 		}
+
 		Ok(Self(keys))
 	}
 
@@ -255,6 +259,7 @@ mod tests {
 				"{encoded:?} must be rejected"
 			);
 		}
+
 		// The identity point has small order.
 		let mut identity = [0u8; 32];
 		identity[0] = 1;

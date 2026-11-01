@@ -6,6 +6,7 @@
 #include <pthread.h>
 #include <vector>
 #include <cstdlib>
+
 #include <string>
 
 jobject leptoskit_request(JNIEnv*, lk_bridge*, lk_request);

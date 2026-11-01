@@ -99,18 +99,23 @@ impl Config {
 	/// allowed.
 	pub fn new(origins: impl IntoIterator<Item = impl AsRef<str>>) -> Result<Self, Error> {
 		let mut allowed = Vec::new();
+
 		for origin in origins {
 			let url = parse_url(origin.as_ref())?;
+
 			if url.path() != "/" || url.query().is_some() {
 				return Err(Error::Invalid("allowlist entries must be origins".into()));
 			}
+
 			if !allowed.contains(&url.origin()) {
 				allowed.push(url.origin());
 			}
 		}
+
 		if allowed.is_empty() {
 			return Err(Error::Invalid("at least one origin is required".into()));
 		}
+
 		Ok(Self {
 			origins: allowed,
 			max_message_bytes: 1024 * 1024,
@@ -132,19 +137,23 @@ impl Config {
 				"positive message/queue limits and room for frame overhead required".into(),
 			));
 		}
+
 		for timeout in [self.connect_timeout, self.send_timeout, self.close_timeout] {
 			if timeout.is_zero() || timeout.as_millis() > i32::MAX as u128 {
 				return Err(Error::Invalid("invalid operation timeout".into()));
 			}
 		}
+
 		Ok(())
 	}
 
 	fn url(&self, value: &str) -> Result<Url, Error> {
 		let url = parse_url(value)?;
+
 		if !self.origins.contains(&url.origin()) {
 			return Err(Error::DestinationDenied);
 		}
+
 		Ok(url)
 	}
 }
@@ -152,6 +161,7 @@ impl Config {
 fn parse_url(value: &str) -> Result<Url, Error> {
 	let url =
 		Url::parse(value).map_err(|_| Error::Invalid("absolute WS(S) URL required".into()))?;
+
 	if !matches!(url.scheme(), "ws" | "wss")
 		|| url.host_str().is_none_or(|host| host.contains('*'))
 		|| !url.username().is_empty()
@@ -176,6 +186,7 @@ fn protocols(values: &[String]) -> Result<(), Error> {
 			return Err(Error::Invalid("invalid or duplicate subprotocol".into()));
 		}
 	}
+
 	Ok(())
 }
 #[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
@@ -186,6 +197,7 @@ fn close_frame(code: u16, reason: &str) -> Result<(), Error> {
 			"invalid close code or reason longer than 123 bytes".into(),
 		));
 	}
+
 	Ok(())
 }
 
@@ -226,6 +238,7 @@ mod tests {
 			assert!(scope.url(value).is_err());
 		}
 		assert!(protocols(&["chat".into(), "chat".into()]).is_err());
+
 		assert!(protocols(&["bad protocol".into()]).is_err());
 		assert!(close_frame(1006, "").is_err());
 		assert!(close_frame(1000, &"x".repeat(124)).is_err());

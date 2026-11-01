@@ -386,6 +386,7 @@ async fn a_partner_app_signs_someone_in_and_calls_the_api() {
 		let connected: Vec<ConnectedApp> =
 			body(app.get("/oauth/grants", Some(&cookie)).await).await;
 		assert_eq!(connected, [] as [ConnectedApp; 0]);
+
 		let again = app
 			.post_json(
 				"/oauth/grants/revoke",

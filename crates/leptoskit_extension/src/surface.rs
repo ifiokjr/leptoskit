@@ -61,12 +61,14 @@ impl Surface {
 	#[must_use]
 	pub fn parse(surface: &str, route: &str) -> Option<Self> {
 		let route = route.to_owned();
+
 		if let Some(name) = surface.strip_prefix("content:") {
 			return Some(Self::Content {
 				name: name.to_owned(),
 				route,
 			});
 		}
+
 		let name = match surface {
 			"popup" => PageName::Popup,
 			"side_panel" => PageName::SidePanel,
@@ -76,6 +78,7 @@ impl Surface {
 			"devtools_panel" => PageName::DevtoolsPanel,
 			_ => return None,
 		};
+
 		Some(Self::Page { name, route })
 	}
 
@@ -96,6 +99,7 @@ where
 {
 	let Some(surface) = Surface::parse(surface, route) else {
 		leptos::logging::error!("leptoskit: the page named an unknown surface `{surface}`");
+
 		return;
 	};
 	let render = main(surface);

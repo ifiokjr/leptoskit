@@ -47,11 +47,13 @@ class HapticsPlugin(
                 }
             }
         activity.window.decorView.performHapticFeedback(effect)
+
         return byteArrayOf()
     }
 
     private fun value(payload: ByteBuffer): Int {
         if (payload.remaining() != 4) throw PluginException(PluginException.INVALID_ARGUMENT)
+
         return payload.order(ByteOrder.LITTLE_ENDIAN).int
     }
 
@@ -69,6 +71,7 @@ class HapticsPlugin(
         when (kind) {
             0 -> if (Build.VERSION.SDK_INT >= 30) Feedback.CONFIRM else Feedback.VIRTUAL_KEY
             1 -> Feedback.LONG_PRESS
+
             2 -> if (Build.VERSION.SDK_INT >= 30) Feedback.REJECT else Feedback.LONG_PRESS
             else -> throw PluginException(PluginException.INVALID_ARGUMENT)
         }
@@ -91,7 +94,9 @@ class HapticsPlugin(
 
                 else -> throw PluginException(PluginException.INVALID_ARGUMENT)
             }
+
         if (Build.VERSION.SDK_INT < minimum) throw PluginException(PluginException.UNAVAILABLE)
+
         return effect
     }
 }

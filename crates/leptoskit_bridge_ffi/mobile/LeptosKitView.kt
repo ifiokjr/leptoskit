@@ -146,6 +146,7 @@ class LeptosKitView(
             dispatcher.close()
         } catch (error: Exception) {
             closeFailure = error
+
         } finally {
             if (owned != 0L) services.close(NativeApp.beginClose(owned))
             services.finishAdmission()

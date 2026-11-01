@@ -52,6 +52,7 @@ fn registers_queries_and_removes_a_real_login_entry() {
 	let executable = std::env::current_exe().unwrap();
 	let arguments = vec!["--hidden".to_owned(), "a \"quoted\" $value".to_owned()];
 	let mut app = Autostart::new(identity.clone(), &executable, arguments.clone()).unwrap();
+
 	assert_eq!(app.identity(), identity);
 	assert_eq!(app.executable(), executable);
 	assert_eq!(app.arguments(), arguments);
@@ -88,6 +89,7 @@ fn registers_queries_and_removes_a_real_login_entry() {
 	assert_eq!(app.invoke(DISABLE, Bytes::new()), Ok(Bytes::new()));
 	assert_eq!(app.invoke(DISABLE, Bytes::new()), Ok(Bytes::new()));
 	assert_eq!(registered(&mut app).as_ref(), [0]);
+
 	if let Err(panic) = result {
 		std::panic::resume_unwind(panic);
 	}

@@ -34,23 +34,28 @@ class LinkingPlugin(
             } else {
                 Intent(Intent.ACTION_VIEW, validatedUri(decode(payload))).addCategory(Intent.CATEGORY_BROWSABLE)
             }
+
         if (method == 1) {
             // Android package visibility can hide handlers without matching <queries> declarations.
             return byteArrayOf(if (intent.resolveActivity(context.packageManager) != null) 1 else 0, 0, 0, 0)
         }
+
         if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         try {
             context.startActivity(intent)
         } catch (_: ActivityNotFoundException) {
             throw PluginException(PluginException.UNAVAILABLE)
+
         } catch (_: SecurityException) {
             throw PluginException(PluginException.PERMISSION_DENIED)
         }
+
         return byteArrayOf()
     }
 
     private fun decode(payload: ByteBuffer): String {
         if (payload.remaining() !in 1..8192) throw PluginException(PluginException.INVALID_ARGUMENT)
+
         return try {
             Charsets.UTF_8
                 .newDecoder()
@@ -67,13 +72,17 @@ class LinkingPlugin(
         if (value.isEmpty() || value.length > 8192 || value.any { it.code !in 33..126 || it == '\\' }) {
             throw PluginException(PluginException.INVALID_ARGUMENT)
         }
+
         for (index in value.indices) {
             if (value[index] != '%') continue
             val decoded = if (index + 2 < value.length) value.substring(index + 1, index + 3).toIntOrNull(16) else null
+
             if (decoded == null || decoded < 32 || decoded == 127) throw PluginException(PluginException.INVALID_ARGUMENT)
         }
+
         val parsed =
             try {
+
                 URI(value)
             } catch (_: URISyntaxException) {
                 throw PluginException(PluginException.INVALID_ARGUMENT)
@@ -97,6 +106,7 @@ class LinkingPlugin(
                 throw PluginException(PluginException.INVALID_ARGUMENT)
             }
         }
+
         return Uri.parse(value)
     }
 }

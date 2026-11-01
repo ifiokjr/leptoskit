@@ -23,6 +23,7 @@ public final class LocalAuthenticationPlugin: NSObject, NativePlugin {
 
     public override init() {
         super.init()
+
         #if os(iOS)
         let notification = UIApplication.didEnterBackgroundNotification
         #else
@@ -55,8 +56,10 @@ public final class LocalAuthenticationPlugin: NSObject, NativePlugin {
         switch method {
         case 0:
             let policy = try payload.withUnsafeBytes { bytes -> UInt32 in
+
                 guard bytes.count == 4 else { throw PluginError.invalidArgument }
                 let value = bytes.loadUnaligned(as: UInt32.self).littleEndian
+
                 guard value <= 1 else { throw PluginError.invalidArgument }
                 return value
             }
@@ -89,9 +92,11 @@ public final class LocalAuthenticationPlugin: NSObject, NativePlugin {
         let status = available ? 0 : readiness(error)
         let credentialContext = LAContext()
         defer { credentialContext.invalidate() }
+
         var credentialError: NSError?
         let credential = credentialContext.canEvaluatePolicy(.deviceOwnerAuthentication, error: &credentialError)
         let secure: UInt32 = credential ? 2 : (credentialError?.code == LAError.passcodeNotSet.rawValue ? 1 : 0)
+
         return authenticationFields([1, policy, status, modality, secure])
     }
 
@@ -112,27 +117,38 @@ public final class LocalAuthenticationPlugin: NSObject, NativePlugin {
 
     private func authenticate(_ request: AuthenticationRequest) async throws -> Data {
         guard !Task.isCancelled else { throw PluginError.cancelled }
+
         guard active == nil else { throw PluginError.busy }
+
         guard foreground else { throw PluginError.unavailable }
         let context = LAContext()
         context.localizedCancelTitle = request.cancelLabel
         context.touchIDAuthenticationAllowableReuseDuration = 0
+
         if request.policy == 0 { context.localizedFallbackTitle = "" }
         var error: NSError?
+
         let available = context.canEvaluatePolicy(nativePolicy(request.policy), error: &error)
+
         #if os(iOS)
+
         if context.biometryType == .faceID {
             let purpose = Bundle.main.object(forInfoDictionaryKey: "NSFaceIDUsageDescription") as? String
+
             guard let purpose, !purpose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 context.invalidate()
                 throw PluginError.invalidArgument
             }
         }
+
         #endif
+
         if !available {
             context.invalidate()
+
             return try failure(error)
         }
+
         return try await evaluate(context, request: request) { completion in
             context.evaluatePolicy(
                 self.nativePolicy(request.policy), localizedReason: request.reason, reply: completion
@@ -146,18 +162,24 @@ public final class LocalAuthenticationPlugin: NSObject, NativePlugin {
         start: (@escaping @Sendable (Bool, (any Error)?) -> Void) -> Void
     ) async throws -> Data {
         let token = UUID()
+
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { completion in
+
                 guard !Task.isCancelled, !closed else {
                     context.invalidate()
                     completion.resume(throwing: PluginError.cancelled)
+
                     return
                 }
+
                 guard active == nil else {
                     context.invalidate()
                     completion.resume(throwing: PluginError.busy)
+
                     return
                 }
+
                 active = Session(token: token, context: context, policy: request.policy, completion: completion)
                 start { [weak self] success, error in
                     Task { @MainActor [weak self] in self?.complete(token, success: success, error: error) }
@@ -165,6 +187,7 @@ public final class LocalAuthenticationPlugin: NSObject, NativePlugin {
             }
         } onCancel: {
             Task { @MainActor [weak self] in
+
                 guard self?.active?.token == token else { return }
                 self?.cancel(transport: true)
             }
@@ -187,6 +210,7 @@ public final class LocalAuthenticationPlugin: NSObject, NativePlugin {
         guard let session = active else { return }
         active = nil
         session.context.invalidate()
+
         if transport {
             session.completion.resume(throwing: PluginError.cancelled)
         } else {
@@ -207,6 +231,7 @@ public final class LocalAuthenticationPlugin: NSObject, NativePlugin {
         case LAError.passcodeNotSet.rawValue: 8
         default: throw PluginError.native
         }
+
         return authenticationFields([1, outcome, 0])
     }
 }

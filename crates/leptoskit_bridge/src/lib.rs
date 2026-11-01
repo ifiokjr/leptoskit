@@ -354,12 +354,14 @@ impl Bridge {
 			.methods
 			.get_mut(&method)
 			.ok_or(Error::Unavailable)?;
+
 		#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
 		if *grant != allowed {
 			let permission = registration
 				.permissions
 				.get_mut(&method)
 				.expect("registered permission");
+
 			if allowed {
 				*permission = new_permission();
 			} else {
@@ -367,6 +369,7 @@ impl Bridge {
 			}
 		}
 		*grant = allowed;
+
 		#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
 		if !allowed {
 			for slot in &mut self.calls {
@@ -383,6 +386,7 @@ impl Bridge {
 						result: Err(Error::PermissionDenied),
 						lease: None,
 					};
+
 					#[cfg(feature = "devtools")]
 					if let Some(trace) = &mut slot.trace {
 						trace.denied();
@@ -390,6 +394,7 @@ impl Bridge {
 				}
 			}
 		}
+
 		Ok(())
 	}
 
@@ -461,10 +466,12 @@ impl Bridge {
 			.slot_mut(request.id)
 			.expect("queued request owns a call slot");
 		slot.call = Some(Call::Running);
+
 		#[cfg(feature = "devtools")]
 		if let Some(trace) = &mut slot.trace {
 			trace.running();
 		}
+
 		Some(request)
 	}
 
@@ -486,6 +493,7 @@ impl Bridge {
 		if !matches!(self.call(id), Some(Call::Running)) {
 			#[cfg(feature = "devtools")]
 			self.trace_late(id);
+
 			return Err(Error::InvalidCall);
 		}
 
@@ -495,10 +503,12 @@ impl Bridge {
 		} else {
 			result
 		};
+
 		let result = result.and_then(|reply| {
 			self.check_payload(reply.bytes.len())?;
 			Ok(reply)
 		});
+
 		let (result, lease) = match result {
 			Ok(mut reply) => {
 				self.buffered_bytes += reply.bytes.len();
@@ -507,11 +517,14 @@ impl Bridge {
 			}
 			Err(error) => (Err(error), None),
 		};
+
 		let slot = self.slot_mut(id).expect("running call owns a slot");
+
 		#[cfg(feature = "devtools")]
 		if let Some(trace) = &mut slot.trace {
 			trace.answered(result.as_ref().ok().map(Bytes::len));
 		}
+
 		slot.call = Some(Call::Ready(ReadyReply { result, lease }));
 		Ok(())
 	}
@@ -548,15 +561,19 @@ impl Bridge {
 		if let Some(mut trace) = self.slot_mut(id).and_then(|slot| slot.trace.take()) {
 			trace.taken();
 		}
+
 		let Call::Ready(mut reply) = self.remove_call(id)? else {
 			unreachable!("result was checked above");
 		};
+
 		if let Some(guard) = reply.lease.as_mut().and_then(|lease| lease.guard.as_mut()) {
 			guard.commit();
 		}
+
 		if let Ok(bytes) = &reply.result {
 			self.buffered_bytes -= bytes.len();
 		}
+
 		Ok(Some(reply.result))
 	}
 
@@ -575,6 +592,7 @@ impl Bridge {
 				if let Some(trace) = &mut slot.trace {
 					trace.cancelled();
 				}
+
 				self.cancelled.push_back(id);
 				return Ok(());
 			}
@@ -665,9 +683,11 @@ impl Bridge {
 			.calls
 			.get(self.index(id).ok_or(Error::InvalidCall)?)
 			.ok_or(Error::InvalidCall)?;
+
 		if slot.id != id || slot.call.is_none() {
 			return Err(Error::InvalidCall);
 		}
+
 		slot.permission.clone().ok_or(Error::InvalidCall)
 	}
 
@@ -729,9 +749,11 @@ impl Bridge {
 		let Some(trace) = self.slot_mut(id).and_then(|slot| slot.trace.take()) else {
 			return;
 		};
+
 		if self.cancelled_traces.len() >= self.limits.calls {
 			self.cancelled_traces.pop_front();
 		}
+
 		if self.limits.calls > 0 {
 			self.cancelled_traces.push_back(trace);
 		}
@@ -746,8 +768,10 @@ impl Bridge {
 			if let Some(trace) = self.slot_mut(id).and_then(|slot| slot.trace.as_mut()) {
 				trace.completed_late();
 			}
+
 			return;
 		}
+
 		if let Some(trace) = self
 			.cancelled_traces
 			.iter_mut()

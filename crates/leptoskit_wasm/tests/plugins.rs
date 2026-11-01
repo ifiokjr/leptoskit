@@ -349,6 +349,7 @@ fn cached_memory_handles_work_during_instantiation_and_after_growth() {
 	host.plugins()
 		.complete(request.id, Ok(request.payload))
 		.unwrap();
+
 	host.wake_plugins().unwrap();
 	assert_eq!(host.plugins().buffered_bytes(), 0);
 }
@@ -387,6 +388,7 @@ fn compiled_rust_guest_handles_async_calls_events_and_cancellation() {
 	host.wake_plugins().unwrap();
 	host.dispatch_wire(0, leptoskit_wasm::EventKind::Press, None)
 		.unwrap();
+
 	let request = host.plugins().next_request().unwrap();
 	assert_eq!(request.method, MethodId(2));
 	assert_eq!(request.payload.as_ref(), b"passed");

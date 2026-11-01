@@ -47,6 +47,7 @@ pub async fn pick(options: Options) -> Result<Document, Error> {
 		.map_err(|_| Error::Native)?;
 	input.set_type("file");
 	input.set_hidden(true);
+
 	if !js_sys::Reflect::has(input.as_ref(), &"oncancel".into()).map_err(|_| Error::Native)?
 		|| !js_sys::Reflect::get(input.as_ref(), &"showPicker".into())
 			.map_err(|_| Error::Native)?
@@ -55,6 +56,7 @@ pub async fn pick(options: Options) -> Result<Document, Error> {
 		return Err(Error::Unavailable);
 	}
 	let (sender, receiver) = oneshot::channel();
+
 	let sender = Rc::new(RefCell::new(Some(sender)));
 	let changed = sender.clone();
 	let selected = input.clone();
@@ -97,24 +99,31 @@ pub async fn pick(options: Options) -> Result<Document, Error> {
 /// Reads an already selected browser File, without prompting again.
 pub async fn read_file(file: &web_sys::File, options: Options) -> Result<Document, Error> {
 	let size = file.size();
+
 	if !size.is_finite() || size < 0.0 {
 		return Err(Error::Native);
 	}
+
 	if size > f64::from(options.max_bytes()) {
 		return Err(Error::TooLarge);
 	}
+
 	let name = file.name();
 	let mime = file.type_();
+
 	if name.is_empty() || name.len() > MAX_METADATA_BYTES || mime.len() > MAX_METADATA_BYTES {
 		return Err(Error::TooLarge);
 	}
+
 	let buffer = JsFuture::from(file.array_buffer())
 		.await
 		.map_err(|error| failure(&error))?;
 	let content = Uint8Array::new(&buffer);
+
 	if content.length() > options.max_bytes() {
 		return Err(Error::TooLarge);
 	}
+
 	Ok(Document {
 		name,
 		mime_type: (!mime.is_empty()).then_some(mime),

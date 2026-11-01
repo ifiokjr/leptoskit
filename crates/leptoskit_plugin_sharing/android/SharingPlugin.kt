@@ -33,8 +33,11 @@ class SharingPlugin(
         payload: ByteBuffer,
     ): ByteArray {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Sharing requires the owning UI thread" }
+
         if (closed) throw PluginException(PluginException.CANCELLED)
+
         if (method != 0) throw PluginException(PluginException.UNAVAILABLE)
+
         if (busy) throw PluginException(PluginException.BUSY)
         val content = ShareContent.decode(payload)
         val host = host ?: throw PluginException(PluginException.UNAVAILABLE)
@@ -49,13 +52,16 @@ class SharingPlugin(
                 }
             val result = host.launchPluginActivity(Intent.createChooser(intent, null))
             currentCoroutineContext().ensureActive()
+
             if (closed) throw PluginException(PluginException.CANCELLED)
             // Android chooser result codes do not prove target selection or
             // delivery. RESULT_CANCELED also occurs after a valid handoff.
             if (result.resultCode != Activity.RESULT_OK && result.resultCode != Activity.RESULT_CANCELED) {
                 throw PluginException(PluginException.NATIVE)
             }
+
             return byteArrayOf()
+
         } finally {
             busy = false
             job = null

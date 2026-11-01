@@ -188,6 +188,7 @@ impl<B: NativeBackend> WidgetTester<B> {
 		if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
 			return Err(self.error("viewport dimensions must be finite and positive"));
 		}
+
 		self.viewport = (width, height);
 		self.surface.set_viewport(width, height);
 		Ok(())
@@ -206,12 +207,15 @@ impl<B: NativeBackend> WidgetTester<B> {
 	pub fn layout_image(&self) -> Result<capture::LayoutImage, capture::CaptureError> {
 		let mut frames = Vec::new();
 		let mut pending = self.surface.root().into_iter().collect::<Vec<_>>();
+
 		while let Some(id) = pending.pop() {
 			if let Some(frame) = self.visible_frame(id) {
 				frames.push(frame);
 			}
+
 			pending.extend(self.surface.children(id).iter().rev().copied());
 		}
+
 		capture::LayoutImage::render(self.viewport.0, self.viewport.1, &frames)
 	}
 
@@ -236,11 +240,13 @@ impl<B: NativeBackend> WidgetTester<B> {
 		for step in 0..=max_pumps {
 			match self.matches(finder).len() {
 				1 => return self.find(finder),
+
 				0 if step < max_pumps => self.pump(),
 				0 => break,
 				_ => return Err(self.error(format!("ambiguous finder {finder:?}"))),
 			}
 		}
+
 		Err(self.error(format!(
 			"{finder:?} did not appear within {max_pumps} pumps"
 		)))
@@ -267,9 +273,11 @@ impl<B: NativeBackend> WidgetTester<B> {
 		}) else {
 			return Err(self.error(format!("{finder:?} is obscured at its center")));
 		};
+
 		if !self.enabled(hit) {
 			return Err(self.error(format!("{finder:?} has a disabled hit target")));
 		}
+
 		match self.surface.kind(id) {
 			NativeKind::Switch | NativeKind::Checkbox => {
 				let checked = !self.surface.props(id).checked.unwrap_or(false);
@@ -389,9 +397,11 @@ impl<B: NativeBackend> WidgetTester<B> {
 	/// native scroll view's internal content offset.
 	pub fn scroll(&mut self, finder: &Finder, x: f32, y: f32) -> Result<(), TestError> {
 		let id = self.action_target(finder)?;
+
 		if self.surface.kind(id) != NativeKind::ScrollView || !x.is_finite() || !y.is_finite() {
 			return Err(self.error("scroll requires a scroll view and finite offsets"));
 		}
+
 		self.dispatch(
 			id,
 			&NativeEvent::Scroll {
@@ -420,6 +430,7 @@ impl<B: NativeBackend> WidgetTester<B> {
 			.map(|id| (id, 0))
 			.into_iter()
 			.collect::<Vec<_>>();
+
 		while let Some((id, depth)) = pending.pop() {
 			let props = self.surface.props(id);
 			let frame = self.absolute_frame(id);
@@ -450,6 +461,7 @@ impl<B: NativeBackend> WidgetTester<B> {
 					.map(|&child| (child, depth + 1)),
 			);
 		}
+
 		output
 	}
 
@@ -463,20 +475,24 @@ impl<B: NativeBackend> WidgetTester<B> {
 	/// assertions and snapshots, like Flutter's semantics tree dump.
 	pub fn semantics(&self) -> String {
 		let mut lines = Vec::new();
+
 		if let Some(root) = self.surface.root() {
 			self.semantics_walk(root, 0, &mut lines);
 		}
 
 		let mut output = lines.join("\n");
+
 		if !output.is_empty() {
 			output.push('\n');
 		}
+
 		output
 	}
 
 	fn semantics_walk(&self, id: NodeId, depth: usize, lines: &mut Vec<String>) {
 		let props = self.surface.props(id);
 		let aria = props.aria();
+
 		if aria.is_hidden() {
 			return;
 		}
@@ -494,6 +510,7 @@ impl<B: NativeBackend> WidgetTester<B> {
 			}
 			_ => None,
 		});
+
 		let has_states = checked.is_some()
 			|| aria.pressed.is_some()
 			|| aria.selected.is_some()
@@ -509,6 +526,7 @@ impl<B: NativeBackend> WidgetTester<B> {
 		let value = aria.value_now.or_else(|| {
 			(kind == NativeKind::Slider).then(|| props.slider.unwrap_or_default().value())
 		});
+
 		let included = role.is_some()
 			|| name.is_some()
 			|| aria.description.is_some()
@@ -524,15 +542,19 @@ impl<B: NativeBackend> WidgetTester<B> {
 				"  ".repeat(depth),
 				role.map_or(kind.wire_name(), Role::wire_name)
 			);
+
 			if let Some(level) = aria.level {
 				write!(entry, "({level})").expect("writing to a string");
 			}
+
 			if let Some(name) = name {
 				write!(entry, " {name:?}").expect("writing to a string");
 			}
+
 			if !self.enabled(id) {
 				entry.push_str(" [disabled]");
 			}
+
 			let flag =
 				|value: Option<bool>| value.filter(|value| *value).map(|_| "true".to_owned());
 			for (state, value) in [
@@ -564,24 +586,30 @@ impl<B: NativeBackend> WidgetTester<B> {
 					write!(entry, " [{state}={value}]").expect("writing to a string");
 				}
 			}
+
 			if let Some(value) = value {
 				write!(entry, " value={value}").expect("writing to a string");
 			}
+
 			if let Some(text) = &aria.value_text {
 				write!(entry, " {text:?}").expect("writing to a string");
 			}
+
 			if let Some(description) = &aria.description {
 				write!(entry, " description={description:?}").expect("writing to a string");
 			}
+
 			if live != leptoskit_native::Live::Off {
 				write!(entry, " live={}", live.as_str()).expect("writing to a string");
 				let atomic = aria
 					.atomic
 					.unwrap_or_else(|| role.is_some_and(Role::implicit_atomic));
+
 				if atomic {
 					entry.push_str(" atomic");
 				}
 			}
+
 			lines.push(entry);
 		}
 
@@ -599,6 +627,7 @@ impl<B: NativeBackend> WidgetTester<B> {
 						| NativeKind::Text
 						| NativeKind::TextRun
 				));
+
 		if !merged {
 			for &child in self.surface.children(id) {
 				self.semantics_walk(child, depth + usize::from(included), lines);
@@ -626,25 +655,31 @@ impl<B: NativeBackend> WidgetTester<B> {
 
 			return Err(self.error(format!("{finder:?} did not handle {event:?}")));
 		}
+
 		self.pump();
 		Ok(())
 	}
 
 	fn action_target(&self, finder: &Finder) -> Result<NodeId, TestError> {
 		let id = self.unique(finder)?;
+
 		if !self.enabled(id) {
 			return Err(self.error(format!("{finder:?} is disabled")));
 		}
+
 		let frame = self.absolute_frame(id);
 		let (x, y) = (frame.x + frame.width / 2.0, frame.y + frame.height / 2.0);
+
 		if x < 0.0 || y < 0.0 || x >= self.viewport.0 || y >= self.viewport.1 {
 			return Err(self.error(format!("{finder:?} has its center outside the viewport")));
 		}
+
 		Ok(id)
 	}
 
 	fn unique(&self, finder: &Finder) -> Result<NodeId, TestError> {
 		let matches = self.matches(finder);
+
 		match matches.as_slice() {
 			[id] => Ok(*id),
 			_ => {
@@ -659,12 +694,15 @@ impl<B: NativeBackend> WidgetTester<B> {
 	fn matches(&self, finder: &Finder) -> Vec<NodeId> {
 		let mut found = Vec::new();
 		let mut pending = self.surface.root().into_iter().collect::<Vec<_>>();
+
 		while let Some(id) = pending.pop() {
 			if self.visible(id) && finder.matches(self.surface.kind(id), self.surface.props(id)) {
 				found.push(id);
 			}
+
 			pending.extend(self.surface.children(id).iter().rev().copied());
 		}
+
 		found
 	}
 
@@ -679,6 +717,7 @@ impl<B: NativeBackend> WidgetTester<B> {
 	fn absolute_frame(&self, id: NodeId) -> Frame {
 		let mut frame = self.surface.frame(id).expect("reachable nodes have frames");
 		let mut parent = self.surface.parent(id);
+
 		while let Some(id) = parent {
 			let offset = self
 				.surface
@@ -688,6 +727,7 @@ impl<B: NativeBackend> WidgetTester<B> {
 			frame.y += offset.y;
 			parent = self.surface.parent(id);
 		}
+
 		frame
 	}
 
@@ -697,6 +737,7 @@ impl<B: NativeBackend> WidgetTester<B> {
 
 	fn visible_frame(&self, id: NodeId) -> Option<Frame> {
 		let frame = self.absolute_frame(id);
+
 		if ![frame.x, frame.y, frame.width, frame.height]
 			.into_iter()
 			.all(f32::is_finite)
@@ -711,8 +752,10 @@ impl<B: NativeBackend> WidgetTester<B> {
 		}
 		let mut current = Some(id);
 		let mut visible = frame;
+
 		while let Some(node) = current {
 			let props = self.surface.props(node);
+
 			if props.hidden == Some(true)
 				|| (self.surface.kind(node) == NativeKind::ActivityIndicator
 					&& props.running == Some(false))
@@ -723,9 +766,11 @@ impl<B: NativeBackend> WidgetTester<B> {
 				return None;
 			}
 			let layout = self.surface.layout(node);
+
 			if layout.width <= 0.0 || layout.height <= 0.0 {
 				return None;
 			}
+
 			if node != id
 				&& (props.clip == Some(true) || self.surface.kind(node) == NativeKind::ScrollView)
 			{
@@ -736,34 +781,42 @@ impl<B: NativeBackend> WidgetTester<B> {
 				visible.y = visible.y.max(clip.y);
 				visible.width = right - visible.x;
 				visible.height = bottom - visible.y;
+
 				if visible.width <= 0.0 || visible.height <= 0.0 {
 					return None;
 				}
 			}
 			current = self.surface.parent(node);
 		}
+
 		Some(visible)
 	}
 
 	fn enabled(&self, id: NodeId) -> bool {
 		let mut current = Some(id);
+
 		while let Some(node) = current {
 			if self.surface.props(node).enabled == Some(false) {
 				return false;
 			}
+
 			current = self.surface.parent(node);
 		}
+
 		true
 	}
 
 	fn is_descendant(&self, child: NodeId, ancestor: NodeId) -> bool {
 		let mut current = Some(child);
+
 		while let Some(node) = current {
 			if node == ancestor {
 				return true;
 			}
+
 			current = self.surface.parent(node);
 		}
+
 		false
 	}
 }

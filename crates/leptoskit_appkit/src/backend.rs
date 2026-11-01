@@ -313,6 +313,7 @@ impl AppKitBackend {
 	fn build(&self, id: NodeId, kind: NativeKind) -> Widget {
 		let mtm = self.mtm;
 		let target = || ActionTarget::new(mtm, id, Rc::clone(&self.sink));
+
 		let (view, control): (Retained<NSView>, Control) = match kind {
 			NativeKind::View | NativeKind::Custom(_) => {
 				(
@@ -339,6 +340,7 @@ impl AppKitBackend {
 			}
 			NativeKind::ScrollView => build_scroll(mtm, target()),
 		};
+
 		view.setAppearance(self.appearance.as_deref());
 		Widget {
 			id,
@@ -365,11 +367,13 @@ impl AppKitBackend {
 			};
 			let visible = scroll.contentSize();
 			let mut extent = NSSize::new(visible.width, visible.height);
+
 			for child in &document.subviews() {
 				let frame = child.frame();
 				extent.width = extent.width.max(frame.origin.x + frame.size.width);
 				extent.height = extent.height.max(frame.origin.y + frame.size.height);
 			}
+
 			document.setFrame(NSRect::new(NSPoint::ZERO, extent));
 		}
 	}
@@ -472,10 +476,12 @@ fn pixel_aligned(x: f32, y: f32, width: f32, height: f32, measured: bool) -> NSR
 	let top = snap(y);
 	let mut snapped_width = snap(x + width) - left;
 	let mut snapped_height = snap(y + height) - top;
+
 	if measured {
 		snapped_width = snapped_width.max(snap_up(width));
 		snapped_height = snapped_height.max(snap_up(height));
 	}
+
 	NSRect::new(
 		NSPoint::new(left, top),
 		NSSize::new(snapped_width, snapped_height),
@@ -492,6 +498,7 @@ fn build_label(mtm: MainThreadMarker) -> (Retained<NSView>, Control) {
 	label.setDrawsBackground(false);
 	label.setLineBreakMode(NSLineBreakMode::ByWordWrapping);
 	label.setUsesSingleLineMode(false);
+
 	label.setMaximumNumberOfLines(0);
 	label.setWantsLayer(true);
 	(label_view(&label), Control::Label(label))
@@ -509,6 +516,7 @@ fn build_button(
 	} else {
 		Retained::into_super(PressButton::new(mtm, &target))
 	};
+
 	button.setButtonType(NSButtonType::MomentaryPushIn);
 	button.setBezelStyle(NSBezelStyle::Push);
 	// SAFETY: `press:` is implemented by `ActionTarget` and takes
@@ -519,12 +527,14 @@ fn build_button(
 		button.setAction(Some(sel!(press:)));
 	}
 	button.setWantsLayer(true);
+
 	let view = Retained::into_super(Retained::into_super(button.retain()));
 	let control = if kind == NativeKind::Pressable {
 		Control::Pressable { button, target }
 	} else {
 		Control::Button { button, target }
 	};
+
 	(view, control)
 }
 
@@ -562,6 +572,7 @@ fn build_toggle(
 	} else {
 		NSButtonType::Switch
 	});
+
 	button.setAllowsMixedState(false);
 	// SAFETY: the retained target implements toggle: with an action
 	// signature.
@@ -569,6 +580,7 @@ fn build_toggle(
 		button.setTarget(Some(&target));
 		button.setAction(Some(sel!(toggle:)));
 	}
+
 	button.setWantsLayer(true);
 	let view = Retained::into_super(Retained::into_super(button.retain()));
 	(
@@ -612,9 +624,11 @@ fn build_progress(mtm: MainThreadMarker, kind: NativeKind) -> (Retained<NSView>,
 	} else {
 		NSProgressIndicatorStyle::Bar
 	});
+
 	indicator.setDisplayedWhenStopped(kind != NativeKind::ActivityIndicator);
 	indicator.setWantsLayer(true);
 	let view = Retained::into_super(indicator.retain());
+
 	(
 		view,
 		Control::Progress {
@@ -640,6 +654,7 @@ fn build_input(
 	} else {
 		NSTextField::textFieldWithString(&NSString::new(), mtm)
 	};
+
 	field.setBezelStyle(NSTextFieldBezelStyle::RoundedBezel);
 	field.setUsesSingleLineMode(true);
 	field.setLineBreakMode(NSLineBreakMode::ByTruncatingTail);
@@ -652,6 +667,7 @@ fn build_input(
 		field.setAction(Some(sel!(submit:)));
 		field.setDelegate(Some(objc2::runtime::ProtocolObject::from_ref(&*target)));
 	}
+
 	field.setWantsLayer(true);
 	(label_view(&field), Control::Input { field, target })
 }
@@ -686,6 +702,7 @@ fn build_scroll(
 	let document = FlippedView::new(mtm);
 	scroll.setDocumentView(Some(&document));
 	scroll.setWantsLayer(true);
+
 	observe_scrolling(&scroll, &target);
 	let view = Retained::into_super(scroll.retain());
 	(
@@ -716,6 +733,7 @@ fn apply_common(view: &NSView, props: &NativeProps, kind: NativeKind) {
 	let background = props.background.map(|color| ns_color(color).CGColor());
 	layer.setBackgroundColor(background.as_deref());
 	let radius = f64::from(props.corner_radius.unwrap_or(0.0).max(0.0));
+
 	layer.setCornerRadius(radius);
 	sync_corner_curve(view, kind);
 	layer.setMasksToBounds(radius > 0.0 || props.clip.unwrap_or(false));
@@ -744,6 +762,7 @@ fn sync_corner_curve(view: &NSView, kind: NativeKind) {
 			kCACornerCurveContinuous
 		}
 	};
+
 	layer.setCornerCurve(curve);
 }
 
@@ -752,6 +771,7 @@ const PLACEHOLDER_OPACITY: f64 = 0.45;
 
 fn apply_control(control: &mut Control, props: &NativeProps) {
 	let enabled = props.enabled.unwrap_or(true);
+
 	match control {
 		Control::Container | Control::Scroll { .. } => {}
 		Control::Vector(layers) => layers.set_drawing(props.drawing.as_ref()),
@@ -805,6 +825,7 @@ fn apply_control(control: &mut Control, props: &NativeProps) {
 			} else {
 				indeterminate
 			};
+
 			indicator.setHidden(props.hidden.unwrap_or(false) || (spinning && !*requested));
 		}
 		Control::Button { button, .. } => {
@@ -834,6 +855,7 @@ fn apply_control(control: &mut Control, props: &NativeProps) {
 			} else {
 				NSFocusRingType::Default
 			});
+
 			field.setFont(Some(&system_font(props.text_style())));
 			field.setTextColor(props.color.map(ns_color).as_deref());
 			field.setAlignment(ns_alignment(props.text_style()));
@@ -841,6 +863,7 @@ fn apply_control(control: &mut Control, props: &NativeProps) {
 				leptoskit_yoga::Direction::Ltr => NSWritingDirection::LeftToRight,
 				leptoskit_yoga::Direction::Rtl => NSWritingDirection::RightToLeft,
 			});
+
 			// A placeholder is the text color, faded; without a text color it
 			// is the system's secondary label color, which adapts to the
 			// appearance like the text does.
@@ -865,6 +888,7 @@ fn apply_control(control: &mut Control, props: &NativeProps) {
 			if field.stringValue().to_string() != value {
 				field.setStringValue(&NSString::from_str(value));
 			}
+
 			field.setEnabled(enabled);
 		}
 		Control::Image {
@@ -892,6 +916,7 @@ fn load_image(source: &str) -> Option<Retained<NSImage>> {
 		Some(_) => return None,
 		None => source,
 	};
+
 	NSImage::initWithContentsOfFile(NSImage::alloc(), &NSString::from_str(path))
 }
 
@@ -903,11 +928,13 @@ impl NativeBackend for AppKitBackend {
 				if parent.alphaValue() == 0.0 {
 					return false;
 				}
+
 				// SAFETY: All views belong to this UI-thread hierarchy. Retain
 				// each ancestor while inspecting it; no hierarchy mutation
 				// occurs.
 				ancestor = unsafe { parent.superview() };
 			}
+
 			let rect = view.visibleRect();
 			view.window()
 				.is_some_and(|window| window.isVisible() && !window.isMiniaturized())
@@ -931,6 +958,7 @@ impl NativeBackend for AppKitBackend {
 		if rive.as_ref().is_none_or(|bitmap| !bitmap.matches(frame)) {
 			*rive = crate::rive::Bitmap::new(frame);
 		}
+
 		let Some(bitmap) = rive else {
 			return false;
 		};
@@ -938,6 +966,7 @@ impl NativeBackend for AppKitBackend {
 		if !bitmap.update(frame) {
 			return false;
 		}
+
 		image_view.setImage(Some(&bitmap.image));
 		NSView::setNeedsDisplay(image_view, true);
 		true
@@ -953,6 +982,7 @@ impl NativeBackend for AppKitBackend {
 				NSAppearanceNameAqua
 			}
 		};
+
 		if self
 			.appearance
 			.as_ref()
@@ -960,11 +990,14 @@ impl NativeBackend for AppKitBackend {
 		{
 			return;
 		}
+
 		let appearance =
 			NSAppearance::appearanceNamed(name).expect("AppKit supplies Aqua appearances");
+
 		for widget in self.widgets.iter().flatten() {
 			widget.view.setAppearance(Some(&appearance));
 		}
+
 		self.appearance = Some(appearance);
 	}
 
@@ -985,6 +1018,7 @@ impl NativeBackend for AppKitBackend {
 			for mutation in mutations.mutations() {
 				self.apply_one(mutation);
 			}
+
 			self.applying = false;
 			let moves_views = mutations.mutations().iter().any(|mutation| {
 				matches!(
@@ -997,6 +1031,7 @@ impl NativeBackend for AppKitBackend {
 			if moves_views {
 				self.refresh_scroll_documents();
 			}
+
 			self.refresh_radios();
 			self.refresh_animations();
 		});
@@ -1006,13 +1041,17 @@ impl NativeBackend for AppKitBackend {
 		let mut widget = self.build(id, kind);
 		apply_common(&widget.view, props, widget.kind);
 		apply_control(&mut widget.control, props);
+
 		if self.widgets.len() <= id.index() {
 			self.widgets.resize_with(id.index() + 1, || None);
 		}
+
 		if kind == NativeKind::ScrollView {
 			self.scroll_views.push(id);
 		}
+
 		self.widgets[id.index()] = Some(widget);
+
 		self.refresh_controls_if_unbatched();
 	}
 
@@ -1025,12 +1064,15 @@ impl NativeBackend for AppKitBackend {
 			.then(|| props.aria().live_text.clone())
 			.flatten()
 			.filter(|text| !text.is_empty());
+
 		if announced != widget.announced {
 			if let Some(text) = &announced {
 				crate::accessibility::announce(&widget.view, text, live);
 			}
+
 			widget.announced = announced;
 		}
+
 		self.refresh_controls_if_unbatched();
 	}
 
@@ -1041,6 +1083,7 @@ impl NativeBackend for AppKitBackend {
 		let resized = widget.view.frame().size != frame.size;
 		widget.view.setFrame(frame);
 		sync_corner_curve(&widget.view, widget.kind);
+
 		if resized {
 			widget.redraw();
 		}
@@ -1050,6 +1093,7 @@ impl NativeBackend for AppKitBackend {
 		let child_view = self.expect_widget(child).view.clone();
 		let parent_widget = self.expect_widget(parent);
 		let index = index.min(parent_widget.children.len());
+
 		match parent_widget.children.get(index) {
 			Some(&sibling) => {
 				let sibling_view = self.expect_widget(sibling).view.clone();
@@ -1063,6 +1107,7 @@ impl NativeBackend for AppKitBackend {
 			}
 			None => parent_widget.content().addSubview(&child_view),
 		}
+
 		self.expect_widget_mut(parent).children.insert(index, child);
 		self.refresh_controls_if_unbatched();
 	}
@@ -1083,9 +1128,11 @@ impl NativeBackend for AppKitBackend {
 		// view outliving its node inside a still-live parent.
 		deactivate_control(&widget.control);
 		widget.view.removeFromSuperview();
+
 		if widget.kind == NativeKind::ScrollView {
 			self.scroll_views.retain(|&existing| existing != id);
 		}
+
 		self.refresh_controls_if_unbatched();
 	}
 

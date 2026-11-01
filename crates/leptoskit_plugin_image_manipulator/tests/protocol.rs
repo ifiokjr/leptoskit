@@ -29,6 +29,7 @@ fn decoded_image_retains_reply_storage_without_copying() {
 	assert_eq!(decoded.bytes.as_ptr(), image_start);
 	assert_eq!(decoded.bytes.len(), image_length);
 	drop(reply);
+
 	assert_eq!(decoded.bytes.as_ref(), expected);
 	assert_eq!(inspect(&decoded.bytes), Ok(decoded.info));
 }
@@ -48,9 +49,11 @@ fn guest_header_validation_needs_no_pixel_decoder() {
 	};
 	let reply = image.encode_reply().unwrap();
 	assert_eq!(EncodedImage::decode_reply(reply.clone()), Ok(image.clone()));
+
 	for length in 0..reply.len() {
 		assert!(EncodedImage::decode_reply(reply.slice(..length)).is_err());
 	}
+
 	let mut invalid = reply.to_vec();
 	invalid.push(0);
 	assert_eq!(

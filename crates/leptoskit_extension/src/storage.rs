@@ -108,6 +108,7 @@ pub fn on_changed(
 					changed(&key, change.get("newValue").cloned());
 				}
 			}
+
 			wasm_bindgen::JsValue::UNDEFINED
 		});
 	}

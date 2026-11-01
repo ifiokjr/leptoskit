@@ -105,6 +105,7 @@ impl Player {
 	/// Requests playback; it resumes only while visible and motion is allowed.
 	pub fn play(&mut self) {
 		self.requested = true;
+
 		if matches!(self.frame_state, FrameState::Settled) {
 			self.frame_state = FrameState::Animating;
 		}
@@ -140,9 +141,11 @@ impl Player {
 	/// it.
 	pub fn validate_input(&mut self, name: &Name, input: Input) -> Result<(), Error> {
 		input.validate()?;
+
 		if let Some(error) = &self.error {
 			return Err(error.clone());
 		}
+
 		self.runtime.input(name, input, false)
 	}
 
@@ -151,9 +154,11 @@ impl Player {
 	/// paused.
 	pub fn set_input(&mut self, name: &Name, input: Input) -> Result<(), Error> {
 		input.validate()?;
+
 		if let Some(error) = &self.error {
 			return Err(error.clone());
 		}
+
 		self.runtime.input(name, input, true)?;
 		self.frame_state = FrameState::Dirty;
 		Ok(())
@@ -174,6 +179,7 @@ impl Player {
 		if let Some(error) = &self.error {
 			return Err(error.clone());
 		}
+
 		if width == 0
 			|| height == 0
 			|| width > 4096
@@ -196,6 +202,7 @@ impl Player {
 		} else {
 			0.0
 		};
+
 		self.frame_state = match self.runtime.render(elapsed, width, height) {
 			Ok(true) => FrameState::Animating,
 			Ok(false) => FrameState::Settled,
@@ -204,6 +211,7 @@ impl Player {
 				return Err(error);
 			}
 		};
+
 		self.size = (width, height);
 		let pixels = self.runtime.pixels();
 		Ok(Some(Frame {

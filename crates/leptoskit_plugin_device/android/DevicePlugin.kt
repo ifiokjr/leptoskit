@@ -22,6 +22,7 @@ class DevicePlugin(
         payload: ByteBuffer,
     ): ByteArray {
         if (method != 0) throw PluginException(PluginException.UNAVAILABLE)
+
         if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
         val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         val memory =
@@ -52,6 +53,7 @@ class DevicePlugin(
         )) {
             val text = value?.takeUnless { it.isBlank() || it == Build.UNKNOWN } ?: ""
             val bytes = text.toByteArray(Charsets.UTF_8)
+
             if (bytes.size > 4096) throw PluginException(PluginException.TOO_LARGE)
             result.write(
                 ByteBuffer
@@ -62,11 +64,13 @@ class DevicePlugin(
             )
             result.write(bytes)
         }
+
         return result.toByteArray()
     }
 
     private fun deviceKind(): Int {
         val mode = context.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
+
         return when (mode?.currentModeType) {
             Configuration.UI_MODE_TYPE_TELEVISION -> {
                 3

@@ -388,6 +388,7 @@ fn encodings_classify_by_method_and_content_type() {
 		operation["x-leptoskit-unsupported-output"],
 		"application/cbor"
 	);
+
 	assert_eq!(
 		operation["responses"]["default"]["content"]["application/json"]
 			["x-leptoskit-error-encoding"],

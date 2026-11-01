@@ -19,15 +19,19 @@ impl Store {
 		let mut input = Encoder::with_capacity(name.len() + 4);
 		input.bytes(name.as_bytes())?;
 		let bytes = self.0.call(GET, &input.finish())?.await?;
+
 		if bytes.len() > MAX_VALUE_BYTES + 8 {
 			return Err(Error::TooLarge);
 		}
+
 		let mut output = Decoder::new(&bytes);
+
 		let value = match output.u32()? {
 			0 => None,
 			1 => Some(read_value(output.bytes()?)?),
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		output.finish()?;
 		Ok(value)
 	}
@@ -58,6 +62,7 @@ impl Store {
 	/// publishing.
 	pub async fn apply(self, changes: &[Change], save: Save) -> Result<(), Error> {
 		let reply = self.0.call(APPLY, &encode_changes(changes, save)?)?.await?;
+
 		if reply.is_empty() {
 			Ok(())
 		} else {
@@ -68,6 +73,7 @@ impl Store {
 	/// Persists all staged changes once.
 	pub async fn save(self) -> Result<(), Error> {
 		let reply = self.0.call(SAVE, &[])?.await?;
+
 		if reply.is_empty() {
 			Ok(())
 		} else {
@@ -78,6 +84,7 @@ impl Store {
 	/// Reloads saved data and discards staged changes on successful validation.
 	pub async fn load(self) -> Result<(), Error> {
 		let reply = self.0.call(LOAD, &[])?.await?;
+
 		if reply.is_empty() {
 			Ok(())
 		} else {

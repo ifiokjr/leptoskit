@@ -118,6 +118,7 @@ impl UIKitBackend {
 		let container = controller
 			.view()
 			.expect("UIKit controller loads its root view");
+
 		if view
 			.superview()
 			.as_deref()
@@ -125,9 +126,11 @@ impl UIKitBackend {
 		{
 			return true;
 		}
+
 		for child in &container.subviews() {
 			child.removeFromSuperview();
 		}
+
 		container.addSubview(view);
 		true
 	}
@@ -207,6 +210,7 @@ impl SurfaceState {
 			insets.left as f32,
 		));
 		surface.set_root(&tree);
+
 		if let Some(root) = surface.root() {
 			surface.backend().mount(root, controller);
 		}
@@ -214,6 +218,7 @@ impl SurfaceState {
 
 	fn refresh(&self) {
 		let controller = self.controller.borrow().as_ref().and_then(Weak::load);
+
 		if let Some(controller) = controller {
 			self.render(
 				&controller,
@@ -336,6 +341,7 @@ impl UIKitHost {
 		let window = UIWindow::initWithWindowScene(UIWindow::alloc(mtm), scene);
 		self.state.render(&controller, window.bounds().size);
 		window.setRootViewController(Some(&controller));
+
 		window
 	}
 

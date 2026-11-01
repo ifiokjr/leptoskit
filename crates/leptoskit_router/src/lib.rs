@@ -119,27 +119,35 @@ pub mod __private {
 	/// Whether `fields` contains `name`, in a `const` context.
 	pub const fn has_field(fields: &[&str], name: &str) -> bool {
 		let mut index = 0;
+
 		while index < fields.len() {
 			if str_eq(fields[index], name) {
 				return true;
 			}
+
 			index += 1;
 		}
+
 		false
 	}
 
 	const fn str_eq(left: &str, right: &str) -> bool {
 		let (left, right) = (left.as_bytes(), right.as_bytes());
+
 		if left.len() != right.len() {
 			return false;
 		}
+
 		let mut index = 0;
+
 		while index < left.len() {
 			if left[index] != right[index] {
 				return false;
 			}
+
 			index += 1;
 		}
+
 		true
 	}
 

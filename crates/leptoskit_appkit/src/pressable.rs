@@ -120,6 +120,7 @@ impl ContentButton {
 			.min(bounds.size.width.min(bounds.size.height) * 0.5);
 		let right = bounds.origin.x + bounds.size.width;
 		let bottom = bounds.origin.y + bounds.size.height;
+
 		let dx = local.x - local.x.clamp(bounds.origin.x + radius, right - radius);
 		let dy = local.y - local.y.clamp(bounds.origin.y + radius, bottom - radius);
 

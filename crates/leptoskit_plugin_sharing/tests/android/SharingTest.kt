@@ -32,6 +32,7 @@ fun main() {
             check(error.code == PluginException.INVALID_ARGUMENT)
         }
     }
+
     try {
         ShareContent.decode(wire("a".repeat(65537)))
         error("Expected bounds failure")

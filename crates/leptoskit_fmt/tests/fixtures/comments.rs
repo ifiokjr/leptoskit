@@ -8,7 +8,6 @@ pub fn Commented() -> impl IntoView {
 			// The heading.
 			<h1>"Title"</h1> // trailing after the heading
 
-
 			/* A block comment on its own line. */
 			<p
 				// Why this class:

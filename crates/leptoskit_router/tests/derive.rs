@@ -133,6 +133,7 @@ fn an_optional_segment_a_path_cannot_hold_is_absent() {
 		};
 		assert_eq!(ABOUT.href(&about).as_str(), "/about", "{lang:?}");
 	}
+
 	let href = ABOUT.href(&About {
 		lang: Some("fr".to_owned()),
 	});

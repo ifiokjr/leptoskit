@@ -63,6 +63,7 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
 			"a route struct cannot be generic: its fields are read from a URL",
 		));
 	}
+
 	for attribute in &input.attrs {
 		if attribute.path().is_ident("route") {
 			return Err(syn::Error::new_spanned(
@@ -71,6 +72,7 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
 			));
 		}
 	}
+
 	let Data::Struct(data) = &input.data else {
 		return Err(syn::Error::new_spanned(
 			&input.ident,
@@ -78,6 +80,7 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
 		));
 	};
 	let name = &input.ident;
+
 	let fields = match &data.fields {
 		Fields::Named(fields) => fields.named.iter().collect::<Vec<_>>(),
 		Fields::Unit => Vec::new(),
@@ -93,10 +96,12 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
 	let mut names = Vec::new();
 	let mut decodes = Vec::new();
 	let mut encodes = Vec::new();
+
 	for field in &fields {
 		let ident = field.ident.as_ref().expect("named fields have names");
 		let key = ident.unraw().to_string();
 		let kind = field_kind(field)?;
+
 		let (decode, encode) = match kind {
 			FieldKind::One => {
 				(
@@ -123,6 +128,7 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
 				)
 			}
 		};
+
 		names.push(key);
 		decodes.push(quote!(#ident: #decode));
 		encodes.push(encode);
@@ -138,11 +144,13 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
 	} else {
 		quote!(params)
 	};
+
 	let sink = if fields.is_empty() {
 		quote!(_sink)
 	} else {
 		quote!(sink)
 	};
+
 	Ok(quote! {
 		#[automatically_derived]
 		impl ::leptoskit_router::RouteParams for #name {
@@ -163,10 +171,12 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
 
 fn field_kind(field: &syn::Field) -> syn::Result<FieldKind> {
 	let mut default = false;
+
 	for attribute in &field.attrs {
 		if !attribute.path().is_ident("route") {
 			continue;
 		}
+
 		attribute.parse_nested_meta(|meta| {
 			if meta.path.is_ident("default") {
 				default = true;
@@ -176,7 +186,9 @@ fn field_kind(field: &syn::Field) -> syn::Result<FieldKind> {
 			}
 		})?;
 	}
+
 	let wrapper = wrapper_name(&field.ty);
+
 	match (wrapper.as_deref(), default) {
 		(Some("Option"), false) => Ok(FieldKind::Optional),
 		(Some("Vec"), false) => Ok(FieldKind::Many),
@@ -202,12 +214,15 @@ fn wrapper_name(ty: &Type) -> Option<String> {
 	};
 	let last = path.path.segments.last()?;
 	let name = last.ident.to_string();
+
 	if name != "Option" && name != "Vec" {
 		return None;
 	}
+
 	let PathArguments::AngleBracketed(arguments) = &last.arguments else {
 		return None;
 	};
+
 	matches!(arguments.args.first(), Some(GenericArgument::Type(_))).then_some(name)
 }
 

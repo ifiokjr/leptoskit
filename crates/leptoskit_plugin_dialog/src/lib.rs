@@ -44,6 +44,7 @@ impl FileFilter {
 	) -> Result<Self, Error> {
 		let name = name.into();
 		let extensions: Vec<String> = extensions.into_iter().map(Into::into).collect();
+
 		if name.trim().is_empty()
 			|| !valid_text(&name)
 			|| extensions.is_empty()

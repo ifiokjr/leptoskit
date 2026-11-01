@@ -49,17 +49,22 @@ fn write_text(output: &mut Encoder, value: Option<&str>) -> Result<(), Error> {
 	if value == Some("") {
 		return Err(Error::InvalidArgument);
 	}
+
 	let value = value.unwrap_or_default();
+
 	if value.len() > 256 {
 		return Err(Error::TooLarge);
 	}
+
 	output.bytes(value.as_bytes())
 }
 fn read_text(input: &mut Decoder<'_>) -> Result<Option<String>, Error> {
 	let value = input.string()?;
+
 	if value.len() > 256 {
 		return Err(Error::TooLarge);
 	}
+
 	Ok((!value.is_empty()).then(|| value.to_owned()))
 }
 impl Snapshot {
@@ -69,6 +74,7 @@ impl Snapshot {
 		if self.locales.len() > 64 {
 			return Err(Error::TooLarge);
 		}
+
 		if self
 			.first_weekday
 			.is_some_and(|day| !(1..=7).contains(&day))
@@ -78,11 +84,13 @@ impl Snapshot {
 		let mut output = Encoder::with_capacity(128);
 		output.u32(1);
 		output.u32(u32::try_from(self.locales.len()).map_err(|_| Error::TooLarge)?);
+
 		for locale in &self.locales {
 			write_text(&mut output, Some(&locale.tag))?;
 			write_text(&mut output, locale.language.as_deref())?;
 			write_text(&mut output, locale.region.as_deref())?;
 		}
+
 		write_text(&mut output, self.calendar.as_deref())?;
 		write_text(&mut output, self.time_zone.as_deref())?;
 		output.u32(match self.hour_24 {
@@ -90,6 +98,7 @@ impl Snapshot {
 			Some(false) => 1,
 			Some(true) => 2,
 		});
+
 		output.u32(self.first_weekday.map_or(0, u32::from));
 		Ok(output.finish())
 	}
@@ -97,14 +106,19 @@ impl Snapshot {
 	/// Validates every field and rejects trailing bytes before returning data.
 	pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
 		let mut input = Decoder::new(bytes);
+
 		if input.u32()? != 1 {
 			return Err(Error::InvalidArgument);
 		}
+
 		let count = input.u32()?;
+
 		if count > 64 {
 			return Err(Error::TooLarge);
 		}
+
 		let mut locales = Vec::with_capacity(count as usize);
+
 		for _ in 0..count {
 			locales.push(Locale {
 				tag: read_text(&mut input)?.ok_or(Error::InvalidArgument)?,
@@ -112,19 +126,23 @@ impl Snapshot {
 				region: read_text(&mut input)?,
 			});
 		}
+
 		let calendar = read_text(&mut input)?;
 		let time_zone = read_text(&mut input)?;
+
 		let hour_24 = match input.u32()? {
 			0 => None,
 			1 => Some(false),
 			2 => Some(true),
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		let first_weekday = match input.u32()? {
 			0 => None,
 			value @ 1..=7 => Some(u8::try_from(value).map_err(|_| Error::InvalidArgument)?),
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		input.finish()?;
 		Ok(Self {
 			locales,
@@ -160,6 +178,7 @@ pub mod desktop {
 					}
 					Err(_) => (None, None), // Preserve non-BCP-47 platform values such as POSIX C.
 				};
+
 				Locale {
 					tag,
 					language,
@@ -190,9 +209,11 @@ pub mod desktop {
 			if method != SNAPSHOT {
 				return Err(Error::Unavailable);
 			}
+
 			if !payload.is_empty() {
 				return Err(Error::InvalidArgument);
 			}
+
 			snapshot()?.encode()
 		}
 	}
@@ -253,17 +274,20 @@ mod tests {
 	#[test]
 	fn rejects_truncated_trailing_unknown_version_flags_and_weekday() {
 		let encoded = Snapshot::default().encode().unwrap();
+
 		for length in 0..encoded.len() {
 			assert_eq!(
 				Snapshot::decode(&encoded[..length]),
 				Err(Error::InvalidArgument)
 			);
 		}
+
 		for (offset, value) in [(0, 2), (16, 3), (20, 8)] {
 			let mut invalid = encoded.to_vec();
 			invalid[offset] = value;
 			assert_eq!(Snapshot::decode(&invalid), Err(Error::InvalidArgument));
 		}
+
 		let mut trailing = encoded.to_vec();
 		trailing.push(0);
 		assert_eq!(Snapshot::decode(&trailing), Err(Error::InvalidArgument));

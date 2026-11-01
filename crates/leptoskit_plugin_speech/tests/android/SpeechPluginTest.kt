@@ -34,6 +34,7 @@ class SpeechPluginTest {
                 }
                 try {
                     plugin.invoke(0, ByteBuffer.allocate(0))
+
                     fail("Closed speech must reject voice discovery")
                 } catch (error: PluginException) {
                     assertEquals(PluginException.CANCELLED, error.code)
@@ -65,6 +66,7 @@ class SpeechPluginTest {
         } catch (
             error: PluginException,
         ) {
+
             assertEquals(PluginException.INVALID_ARGUMENT, error.code)
         }
     }

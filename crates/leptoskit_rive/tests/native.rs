@@ -45,6 +45,7 @@ fn actual_native_pixels_advance_pause_and_reuse_the_backing_buffer() {
 			.unwrap()
 			.is_none()
 	);
+
 	player.play();
 	let frame = player
 		.render(Duration::from_millis(100), 128, 128)
@@ -78,6 +79,7 @@ fn native_visibility_motion_and_size_bounds_stop_work() {
 	player.set_reduced_motion(true);
 	player.render(Duration::ZERO, 128, 128).unwrap().unwrap();
 	assert!(!player.needs_frame());
+
 	player.set_reduced_motion(false);
 	assert!(player.needs_frame());
 	assert_eq!(
@@ -144,6 +146,7 @@ fn native_scene_and_input_failures_are_reported() {
 			.set_input(&Name::new("missing").unwrap(), Input::Trigger)
 			.is_err()
 	);
+
 	assert_eq!(
 		player.set_input(&Name::new("amount").unwrap(), Input::Number(f64::NAN)),
 		Err(Error::InvalidNumber)
@@ -176,6 +179,7 @@ fn duplicate_input_names_cannot_select_different_inputs_by_type() {
 			..Options::default()
 		},
 	);
+
 	assert!(matches!(result, Err(Error::Runtime(message)) if message.contains("input")));
 }
 
@@ -201,12 +205,14 @@ fn native_players_have_independent_lifetimes_and_import_errors_release_resources
 	);
 	drop(first);
 	second.pause();
+
 	assert!(second.render(Duration::ZERO, 128, 128).unwrap().is_none());
 	let malformed = Asset::new(b"RIVE\x07\x00\x00\x00").unwrap();
 
 	for _ in 0..100 {
 		assert!(Player::new(&malformed, &Options::default()).is_err());
 	}
+
 	second.play();
 	assert!(
 		second
@@ -234,6 +240,7 @@ fn vector_paints_strokes_clipping_and_premultiplied_alpha_reach_real_pixels() {
 			.all(|value| *value == pixel(116, 32)[3]),
 		"white gradients must remain premultiplied"
 	);
+
 	assert_eq!(pixel(32, 96), [0, 128, 0, 128]);
 	assert_eq!(pixel(10, 96), [255, 128, 0, 255]);
 	assert_eq!(pixel(96, 96), [0, 255, 255, 255]);

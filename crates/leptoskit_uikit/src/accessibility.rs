@@ -108,10 +108,12 @@ pub(crate) fn apply(view: &UIView, props: &NativeProps, kind: NativeKind, mtm: M
 	) && let Some(role) = aria.role
 	{
 		let mut role_traits = traits(role);
+
 		if aria.selected == Some(true) {
 			// SAFETY: as above.
 			role_traits |= unsafe { UIAccessibilityTraitSelected };
 		}
+
 		view.setAccessibilityTraits(role_traits, mtm);
 	}
 }

@@ -80,6 +80,7 @@ impl UIKitTextMeasurer {
 				leptoskit_yoga::Direction::Ltr => CTWritingDirection::LeftToRight,
 				leptoskit_yoga::Direction::Rtl => CTWritingDirection::RightToLeft,
 			};
+
 			let setting = CTParagraphStyleSetting {
 				spec: CTParagraphStyleSpecifier::BaseWritingDirection,
 				valueSize: size_of_val(&direction),
@@ -98,6 +99,7 @@ impl UIKitTextMeasurer {
 			if cache.len() >= Self::CACHED_STYLES {
 				cache.clear();
 			}
+
 			cache.push((style, ui_font.clone(), attributes.clone()));
 		});
 		(ui_font, attributes)
@@ -110,6 +112,7 @@ impl UIKitTextMeasurer {
 		unsafe {
 			// UILabel also lays out an empty line after a trailing line break.
 			let trailing_break = isize::from(text.ends_with(['\n', '\r', '\u{2028}', '\u{2029}']));
+
 			let text = CFString::from_str(if text.is_empty() { " " } else { text });
 			let string = CFAttributedString::new(None, Some(&text), Some(attributes.as_opaque()))
 				.expect("valid Core Text attributed string");
@@ -161,6 +164,7 @@ impl TextMeasurer for UIKitTextMeasurer {
 					.fold(0.0, f64::max)
 			}
 		};
+
 		let size = Self::size(text, style, width);
 		Size::new(
 			if text.is_empty() {

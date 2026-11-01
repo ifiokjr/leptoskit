@@ -20,17 +20,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	} else {
 		argument.as_deref().unwrap_or("127.0.0.1:0")
 	};
+
 	let address: std::net::SocketAddr = address.parse()?;
+
 	if !address.ip().is_loopback() {
 		return Err("browser test server must bind loopback".into());
 	}
+
 	let listener = TcpListener::bind(address).await?;
 	let origin = format!("ws://{}", listener.local_addr()?);
 	println!("{origin}");
+
 	if !run_tests {
 		serve(listener).await?;
+
 		return Ok(());
 	}
+
 	let mut server = tokio::spawn(serve(listener));
 	let mut command =
 		tokio::process::Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
@@ -60,14 +66,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		}
 	};
 	server.abort();
+
 	match server.await {
 		Ok(result) => result?,
+
 		Err(error) if error.is_cancelled() => {}
 		Err(error) => return Err(error.into()),
 	}
+
 	if !status.success() {
 		return Err(format!("browser integration tests failed: {status}").into());
 	}
+
 	Ok(())
 }
 
@@ -121,6 +131,7 @@ async fn serve(listener: TcpListener) -> std::io::Result<()> {
 							break;
 						}
 					}
+
 					Err(_) => break,
 					_ => {}
 				}

@@ -228,6 +228,7 @@ fn fixture(state: &State) -> Element {
 					.class("w-48 h-10 bg-blue-600 rounded-lg")
 					.child(Text("Native pressable").class("text-white text-center")),
 			);
+
 	if !state.removed {
 		root = root.child(
 			Button("Remove this control")
@@ -235,6 +236,7 @@ fn fixture(state: &State) -> Element {
 				.class("w-48 h-10"),
 		);
 	}
+
 	root
 }
 
@@ -250,6 +252,7 @@ fn vectors(state: &State) -> [Element; 3] {
 	} else {
 		Color::rgba(220, 38, 38, 255)
 	};
+
 	[
 		Vector(unit)
 			.accessibility_label("Filled vector")
@@ -406,6 +409,7 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeMount(
 				NativeEvent::PressOut => return surface.borrow_mut().press_out(id),
 				_ => {}
 			}
+
 			surface.borrow().dispatch_event(id, event);
 			let element = fixture(&data.lock().expect("fixture state"));
 			surface.borrow_mut().set_root(&element);
@@ -466,6 +470,7 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeConfigure(
 			18 => state.vector_recolored = true,
 			_ => panic!("unknown fixture mode"),
 		}
+
 		probe.surface.borrow_mut().set_root(&fixture(&state));
 	});
 }
@@ -594,6 +599,7 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeContractSt
 			contract.take().expect("mounted contract");
 			return 0;
 		}
+
 		let Contract {
 			backend,
 			root,
@@ -618,6 +624,7 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeContractSt
 			8 => backend.delete(*rive),
 			_ => panic!("unknown contract step"),
 		}
+
 		jint::try_from(presses.get()).expect("press count fits a jint")
 	})
 }

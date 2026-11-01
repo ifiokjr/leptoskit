@@ -234,6 +234,7 @@ impl World {
 		.await
 		.unwrap()
 		.id;
+
 		hello.labels().add(&system, label, ()).await.unwrap();
 
 		Self {

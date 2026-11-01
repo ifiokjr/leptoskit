@@ -44,6 +44,7 @@ fn mount(root: Element) -> (WindowsWindow, NativeSurface<WindowsBackend>) {
 		.mount(surface.backend(), surface.root().unwrap())
 		.unwrap();
 	window.show();
+
 	// Pixel captures and WindowFromPoint read the screen, so keep the fixture
 	// above any console or runner window that would otherwise cover it.
 	// SAFETY: The fixture owns this live top-level window.
@@ -204,6 +205,7 @@ fn rive_uploads_copy_premultiplied_rgba_and_preserve_paused_native_images() {
 			.present_rive(id, &RiveFrame::new(1, 1, &source).unwrap())
 	);
 	source.fill(0);
+
 	window.pump_messages();
 	near(pixel(&window, view, 16.0, 16.0), [255, 127, 127, 255]);
 	surface.set_root(&tree().aria_label("Updated image"));
@@ -250,6 +252,7 @@ fn overflow_visible_and_clip_hidden_preserve_pixels_and_native_hit_targets() {
 		let _ = ClientToScreen(control, &raw mut point);
 		assert_eq!(WindowFromPoint(point), control);
 	}
+
 	surface.set_root(&app(true));
 	assert_eq!(surface.backend().control(id), Some(control));
 	near(pixel(&window, frame, 10.0, 10.0), [255, 255, 255, 255]);
@@ -403,6 +406,7 @@ fn all_builtin_kinds_create_real_native_windows_and_exact_frames() {
 			rect.right - rect.left,
 			(layout.width * scale).round() as i32
 		);
+
 		assert_eq!(
 			rect.bottom - rect.top,
 			(layout.height * scale).round() as i32
@@ -443,6 +447,7 @@ fn native_controls_reject_proposals_without_losing_identity() {
 	let checkbox = surface.backend().control(child(&surface, 0)).unwrap();
 	let slider = surface.backend().control(child(&surface, 1)).unwrap();
 	let input = surface.backend().control(child(&surface, 2)).unwrap();
+
 	click(checkbox);
 	key(slider, VK_RIGHT);
 	// SAFETY: The EDIT class copies this terminated text synchronously.
@@ -505,6 +510,7 @@ fn accepted_actions_and_synchronous_removal_are_reentrant() {
 	let control = surface.borrow().backend().control(id).unwrap();
 	click(control);
 	assert_eq!(surface.borrow().backend().control(id), Some(control));
+
 	// SAFETY: The live BUTTON's native state reflects the accepted commit.
 	unsafe {
 		assert_eq!(
@@ -553,6 +559,7 @@ fn radio_arrows_skip_hidden_and_disabled_members_across_wrappers() {
 	let first = surface.backend().control(child(&surface, 0)).unwrap();
 	let last_id = child(&surface, 3);
 	let last = surface.backend().control(last_id).unwrap();
+
 	key(first, VK_RIGHT);
 	assert!(
 		events
@@ -630,6 +637,7 @@ fn password_accessibility_names_preserve_values_and_keyboard_events() {
 	}
 	assert_eq!(text(password), "fixture only");
 	let events = Rc::new(RefCell::new(Vec::new()));
+
 	let recorded = Rc::clone(&events);
 	surface
 		.backend_mut()
@@ -685,6 +693,7 @@ fn scroll_document_moves_and_reports_native_offsets() {
 			None,
 		);
 	}
+
 	window.pump_messages();
 	assert!(
 		events
@@ -786,6 +795,7 @@ fn host_close_invalidates_widgets_before_later_reconciliation() {
 		Button("New parked control"),
 	]));
 	surface.set_dark_mode(true);
+
 	drop(surface);
 	// SAFETY: IsWindow accepts a formerly valid HWND without dereferencing it.
 	unsafe {
@@ -812,6 +822,7 @@ fn monitor_dpi_changes_convert_frames_fonts_and_resize_to_logical_units() {
 		recorded.borrow_mut().push((width, height, dpi));
 	}));
 	let mut suggested = RECT::default();
+
 	// WM_DPICHANGED carries the new horizontal DPI in its low word and the
 	// vertical DPI in its high word.
 	let dpi: usize = 144;
@@ -883,6 +894,7 @@ fn clipping_opacity_animation_and_teardown_use_real_native_state() {
 	}
 	assert!(surface.backend().is_animating(activity));
 	assert!(surface.backend().is_animating(progress));
+
 	surface.set_root(
 		&View()
 			.class("w-full h-full")
@@ -930,6 +942,7 @@ fn appearance_and_focused_editor_survive_updates_without_commit_events() {
 		let _ = SetFocus(Some(input));
 	}
 	events.borrow_mut().clear();
+
 	surface.set_dark_mode(true);
 	surface.set_dark_mode(false);
 	assert_eq!(surface.backend().control(id), Some(input));
@@ -1019,6 +1032,7 @@ fn uia_hides_decorative_content_and_uses_the_shared_slider_domain() {
 		}
 	});
 	let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+
 	let result = loop {
 		window.pump_messages();
 
@@ -1037,6 +1051,7 @@ fn uia_hides_decorative_content_and_uses_the_shared_slider_domain() {
 
 		std::thread::sleep(std::time::Duration::from_millis(1));
 	};
+
 	client.join().unwrap();
 	let (names, domain, rejected, removed) = result;
 	assert_eq!(
@@ -1050,6 +1065,7 @@ fn uia_hides_decorative_content_and_uses_the_shared_slider_domain() {
 	assert_eq!(domain, [-10.0, 10.0, 2.0, 0.0]);
 	assert_eq!(rejected, 0.0);
 	assert!(removed);
+
 	assert!(
 		events
 			.borrow()
@@ -1189,6 +1205,7 @@ fn button_text_centers_by_default_and_honors_explicit_alignment_in_pixels() {
 	surface.set_root(&app(Some(leptoskit_native::TextAlign::End)));
 	let (_, end) = ink();
 	assert!(end > 150.0);
+
 	assert_eq!(surface.backend().view(id), Some(frame));
 }
 
@@ -1220,6 +1237,7 @@ fn disabled_and_hidden_ancestors_block_native_control_proposals() {
 			assert!(!IsWindowEnabled(*control).as_bool());
 		}
 	}
+
 	click(controls[0]);
 	key(controls[1], VK_RIGHT);
 	// SAFETY: Even a programmatic native edit cannot escape disabled ancestry.
@@ -1229,6 +1247,7 @@ fn disabled_and_hidden_ancestors_block_native_control_proposals() {
 	assert_eq!(text(controls[2]), "committed");
 	assert!(events.borrow().is_empty());
 	surface.set_root(&app(true, true));
+
 	click(controls[0]);
 	key(controls[1], VK_RIGHT);
 	key(controls[2], VK_RETURN);
@@ -1306,6 +1325,7 @@ fn vector_strokes_keep_layout_widths_and_paint_over_nonzero_fills() {
 	near(pixel(&window, line, 40.0, 26.0), [255, 255, 255, 255]);
 	// The stroke straddles the outline and paints over the fill.
 	near(pixel(&window, outlined, 2.0, 40.0), [0, 0, 255, 255]);
+
 	near(pixel(&window, outlined, 40.0, 40.0), [255, 0, 0, 255]);
 	near(pixel(&window, nested, 40.0, 40.0), [255, 0, 0, 255]);
 }
@@ -1367,6 +1387,7 @@ fn vector_dashes_leave_gaps_and_square_caps_reach_into_them() {
 	near(pixel(&window, butt, 25.0, 20.0), [0, 0, 255, 255]);
 	near(pixel(&window, butt, 35.0, 20.0), [255, 255, 255, 255]);
 	near(pixel(&window, butt, 11.0, 20.0), [255, 255, 255, 255]);
+
 	// Square caps extend every dash by half the width, two units, at both
 	// ends, leaving gaps from 12 to 18.
 	near(pixel(&window, square, 11.0, 20.0), [0, 0, 255, 255]);
@@ -1401,6 +1422,7 @@ fn vector_ink_overflows_its_frame_unless_the_element_clips() {
 			surface.backend().composition_window(id).unwrap()
 		);
 	}
+
 	surface.set_root(&app(true));
 	assert_eq!(surface.backend().view(id), Some(frame));
 	near(pixel(&window, frame, 40.0, 2.0), [0, 0, 255, 255]);
@@ -1511,6 +1533,7 @@ fn held_buttons_follow_the_native_pushed_state_with_active_styles() {
 		}
 		control
 	};
+
 	let release = |control| {
 		// SAFETY: As above, releasing inside the button's client area.
 		unsafe {

@@ -27,6 +27,7 @@ fn cancelling_one_queued_call_preserves_other_requests_and_pending_results() {
 	assert!(bridge.next_request().is_none());
 	assert_eq!(bridge.take_result(retained), Ok(None));
 	assert_eq!(bridge.take_result(cancelled), Err(Error::InvalidCall));
+
 	bridge.complete(retained, Err(Error::Native)).unwrap();
 
 	assert_eq!(bridge.result(retained), Ok(Some(&Err(Error::Native))));

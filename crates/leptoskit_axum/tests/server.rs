@@ -119,11 +119,13 @@ async fn an_unreadable_index_does_not_describe_the_site_root() {
 	let index = scratch.path.join("index.html");
 	std::fs::write(&index, b"<html>app</html>").expect("write");
 	std::fs::set_permissions(&index, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+
 	if std::fs::read(&index).is_ok() {
 		// A privileged user reads the file regardless of its mode, so there
 		// is no failure to observe.
 		return;
 	}
+
 	let router = dev_router(&ServeOptions::new(&scratch.path, "127.0.0.1", 0));
 
 	let response = router

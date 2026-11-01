@@ -12,12 +12,16 @@ final class CaptureObservation {
         guard pending == nil else { throw PluginError.busy }
         guard !Task.isCancelled else { throw PluginError.cancelled }
         let identifier = UUID()
+
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
+
                 guard !Task.isCancelled else {
                     continuation.resume(throwing: PluginError.cancelled)
+
                     return
                 }
+
                 pending = (identifier, continuation)
                 do {
                     let remove = try start { [weak self] result in self?.finish(identifier, result) }
@@ -54,15 +58,18 @@ struct CaptureWatch {
         guard bytes.count == 8 else { throw PluginError.invalidArgument }
         kind = UInt32(littleEndian: bytes.loadUnaligned(as: UInt32.self))
         previous = UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: 4, as: UInt32.self))
+
         guard kind <= 1, previous <= 2, kind == 0 || previous == 0 else { throw PluginError.invalidArgument }
     }
 }
 
 func captureFields(_ values: [UInt32]) -> Data {
     var result = Data(capacity: values.count * 4)
+
     for value in values {
         var little = value.littleEndian
         withUnsafeBytes(of: &little) { result.append(contentsOf: $0) }
     }
+
     return result
 }

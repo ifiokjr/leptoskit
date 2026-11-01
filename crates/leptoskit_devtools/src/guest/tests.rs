@@ -90,9 +90,11 @@ impl Transport for Rc<Host> {
 
 	fn wait(&self, ms: u32) -> Pending<()> {
 		assert_eq!(ms, DEBOUNCE_MS);
+
 		if self.no_waits.get() {
 			return Box::pin(async { Err(Error::Busy) });
 		}
+
 		call(&self.waiting_waits)
 	}
 
@@ -128,9 +130,11 @@ impl Guest {
 	/// The host's clock passes the debounce, if the agent is waiting it out.
 	fn settle(&self) {
 		let waiting = self.host.waiting_waits.borrow_mut().pop_front();
+
 		if let Some(answer) = waiting {
 			*answer.borrow_mut() = Some(Ok(()));
 		}
+
 		self.agent.poll();
 	}
 

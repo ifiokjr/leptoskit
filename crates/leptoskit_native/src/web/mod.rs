@@ -811,6 +811,7 @@ fn on_keydown(
 
 		if dispatch(handlers, &native, event.as_ref()) == EventOutcome::Handled {
 			event.prevent_default();
+
 			return;
 		}
 	}

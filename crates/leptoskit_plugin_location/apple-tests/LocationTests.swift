@@ -45,22 +45,27 @@ func syntheticCoordinatesPreserveUnknownFieldsWithoutAccessingLocation() throws 
 func locationRequestBoundsRejectUnboundedAndNonfiniteRequests() throws {
     func request(timeout: UInt32, after: Double? = nil) -> Data {
         var bytes = Data()
+
         for var field in [UInt32(1), timeout, 0].map(\.littleEndian) {
             withUnsafeBytes(of: &field) { bytes.append(contentsOf: $0) }
         }
+
         if let after {
             var bits = after.bitPattern.littleEndian
             withUnsafeBytes(of: &bits) { bytes.append(contentsOf: $0) }
         }
+
         return bytes
     }
     let valid = try request(timeout: 1000).withUnsafeBytes { try LocationOptions(bytes: $0, hasPrevious: false) }
     #expect(valid.highAccuracy && valid.timeout == 1000 && valid.maximumAge == 0)
+
     for timeout in [UInt32(0), 120_001] {
         #expect(throws: PluginError.invalidArgument) {
             try request(timeout: timeout).withUnsafeBytes { try LocationOptions(bytes: $0, hasPrevious: false) }
         }
     }
+
     #expect(throws: PluginError.invalidArgument) {
         try request(timeout: 1000, after: .nan).withUnsafeBytes { try LocationOptions(bytes: $0, hasPrevious: true) }
     }

@@ -91,10 +91,13 @@ fn flock_exclusive(file: &std::fs::File) -> Result<(), Error> {
 		reason = "Bionic file locking requires this audited FFI call"
 	)]
 	let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+
 	if result == 0 {
 		return Ok(());
 	}
+
 	let error = std::io::Error::last_os_error();
+
 	if error.kind() == std::io::ErrorKind::WouldBlock {
 		Err(Error::Busy)
 	} else {
@@ -124,6 +127,7 @@ impl FileSink {
 			.create_dir_with("logs", &builder)
 			.map_err(|error| failure(&error))?;
 		let root = parent.open_dir("logs").map_err(|error| failure(&error))?;
+
 		#[cfg(unix)]
 		{
 			use cap_std::fs::PermissionsExt as _;
@@ -138,13 +142,16 @@ impl FileSink {
 			size: 0,
 		};
 		sink.preflight(config)?;
+
 		for index in config.max_files..MAX_FILES {
 			match sink.root.remove_file(filename(index)) {
 				Ok(()) => {}
+
 				Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
 				Err(error) => return Err(failure(&error)),
 			}
 		}
+
 		sink.open_current(config)?;
 		Ok(sink)
 	}
@@ -153,9 +160,11 @@ impl FileSink {
 		match root.symlink_metadata(".writer.lock") {
 			Ok(metadata) if !metadata.is_file() => return Err(Error::PermissionDenied),
 			Ok(_) => {}
+
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
 			Err(error) => return Err(failure(&error)),
 		}
+
 		let mut options = cap_std::fs::OpenOptions::new();
 		options.read(true).write(true).create(true);
 		#[cfg(unix)]
@@ -169,12 +178,15 @@ impl FileSink {
 			.open_with(".writer.lock", &options)
 			.map_err(|error| failure(&error))?;
 		let metadata = lock.metadata().map_err(|error| failure(&error))?;
+
 		if !metadata.is_file() {
 			return Err(Error::PermissionDenied);
 		}
+
 		if metadata.len() != 0 {
 			return Err(Error::InvalidArgument);
 		}
+
 		let lock = lock.into_std();
 		#[cfg(target_os = "android")]
 		flock_exclusive(&lock)?;
@@ -192,14 +204,18 @@ impl FileSink {
 		for index in 0..MAX_FILES {
 			match self.root.symlink_metadata(filename(index)) {
 				Ok(metadata) if !metadata.is_file() => return Err(Error::PermissionDenied),
+
 				Ok(metadata) if metadata.len() > config.max_file_bytes => {
 					return Err(Error::TooLarge);
 				}
+
 				Ok(_) => {}
+
 				Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
 				Err(error) => return Err(failure(&error)),
 			}
 		}
+
 		Ok(())
 	}
 
@@ -218,12 +234,15 @@ impl FileSink {
 			.open_with(ACTIVE, &options)
 			.map_err(|error| failure(&error))?;
 		let metadata = file.metadata().map_err(|error| failure(&error))?;
+
 		if !metadata.is_file() {
 			return Err(Error::PermissionDenied);
 		}
+
 		if metadata.len() > config.max_file_bytes {
 			return Err(Error::TooLarge);
 		}
+
 		if metadata.len() != 0 {
 			file.seek(SeekFrom::End(-1))
 				.map_err(|error| failure(&error))?;
@@ -236,6 +255,7 @@ impl FileSink {
 				return Err(Error::InvalidArgument);
 			}
 		}
+
 		self.size = metadata.len();
 		self.current = Some(file);
 		Ok(())
@@ -245,14 +265,18 @@ impl FileSink {
 		self.preflight(config)?;
 		self.flush()?;
 		self.current = None;
+
 		for index in (0..config.max_files).rev() {
 			let source = filename(index);
+
 			match self.root.symlink_metadata(&source) {
 				Ok(metadata) if !metadata.is_file() => return Err(Error::PermissionDenied),
 				Ok(_) => {}
+
 				Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
 				Err(error) => return Err(failure(&error)),
 			}
+
 			if index == config.max_files - 1 {
 				self.root
 					.remove_file(source)
@@ -263,6 +287,7 @@ impl FileSink {
 					.map_err(|error| failure(&error))?;
 			}
 		}
+
 		self.open_current(config)
 	}
 
@@ -270,6 +295,7 @@ impl FileSink {
 		if self.size + bytes.len() as u64 > config.max_file_bytes {
 			self.rotate(config)?;
 		}
+
 		self.current
 			.as_mut()
 			.ok_or(Error::Native)?
@@ -333,21 +359,27 @@ impl Logger {
 	pub fn write(&mut self, record: &Record) -> Result<bool, Error> {
 		self.ready()?;
 		record.validate()?;
+
 		if record.level < self.config.minimum {
 			return Ok(false);
 		}
+
 		let timestamp = SystemTime::now()
 			.duration_since(UNIX_EPOCH)
 			.map_err(|_| Error::Native)?;
 		let timestamp = u64::try_from(timestamp.as_millis()).map_err(|_| Error::Native)?;
 		let bytes = json(record, timestamp)?;
+
 		if self.config.files && bytes.len() as u64 > self.config.max_file_bytes {
 			return Err(Error::TooLarge);
 		}
+
 		let result = self.write_sinks(&bytes);
+
 		if result.is_err() && result != Err(Error::Busy) {
 			self.failed = true;
 		}
+
 		result.map(|()| true)
 	}
 
@@ -356,17 +388,20 @@ impl Logger {
 			if self.file.is_none() {
 				self.file = Some(FileSink::open(&self.data_dir, self.config)?);
 			}
+
 			self.file
 				.as_mut()
 				.ok_or(Error::Native)?
 				.write(bytes, self.config)?;
 		}
+
 		if self.config.stderr {
 			std::io::stderr()
 				.lock()
 				.write_all(bytes)
 				.map_err(|error| failure(&error))?;
 		}
+
 		Ok(())
 	}
 
@@ -376,9 +411,11 @@ impl Logger {
 	pub fn flush(&mut self) -> Result<(), Error> {
 		self.ready()?;
 		let result = self.flush_sinks();
+
 		if result.is_err() {
 			self.failed = true;
 		}
+
 		result
 	}
 
@@ -386,12 +423,14 @@ impl Logger {
 		if let Some(file) = &self.file {
 			file.flush()?;
 		}
+
 		if self.config.stderr {
 			std::io::stderr()
 				.lock()
 				.flush()
 				.map_err(|error| failure(&error))?;
 		}
+
 		Ok(())
 	}
 
@@ -403,6 +442,7 @@ impl Logger {
 		if self.closed {
 			return Ok(());
 		}
+
 		let result = self.flush();
 		self.file = None;
 		self.closed = true;
@@ -436,6 +476,7 @@ impl Plugin for Logger {
 				} else {
 					self.close()?;
 				}
+
 				Ok(Bytes::new())
 			}
 			_ => Err(Error::Unavailable),
@@ -464,17 +505,21 @@ mod tests {
 		};
 		let mut logger = Logger::new(root.path(), config).unwrap();
 		assert!(!root.path().join("logs").exists());
+
 		for index in 0..8 {
 			logger.write(&record(index)).unwrap();
 		}
+
 		logger.close().unwrap();
 		let mut retained = Vec::new();
+
 		for index in (0..3).rev() {
 			let data = std::fs::read(root.path().join("logs").join(filename(index))).unwrap();
 			assert!(data.len() <= 128);
 			let entry: serde_json::Value = serde_json::from_slice(&data).unwrap();
 			retained.push(entry["message"].as_str().unwrap().to_owned());
 		}
+
 		assert_eq!(retained, ["synthetic 5", "synthetic 6", "synthetic 7"]);
 		assert_eq!(
 			std::fs::read_dir(root.path().join("logs")).unwrap().count(),
@@ -550,12 +595,14 @@ mod tests {
 				.as_ref(),
 			&0_u32.to_le_bytes()
 		);
+
 		for method in [FLUSH, CLOSE] {
 			assert_eq!(
 				logger.invoke(method, Bytes::from_static(b"bad")),
 				Err(Error::InvalidArgument)
 			);
 		}
+
 		assert!(logger.invoke(FLUSH, Bytes::new()).unwrap().is_empty());
 		assert!(logger.invoke(CLOSE, Bytes::new()).unwrap().is_empty());
 		assert_eq!(
@@ -622,9 +669,11 @@ mod tests {
 			},
 		)
 		.unwrap();
+
 		for index in 0..6 {
 			logger.write(&record(index)).unwrap();
 		}
+
 		logger.close().unwrap();
 		let mut reduced = Logger::new(
 			root.path(),
@@ -750,9 +799,11 @@ mod tests {
 			.status()
 			.unwrap();
 		assert!(status.success(), "create a directory junction");
+
 		if let Ok(mut logger) = Logger::new(root.path(), Config::default()) {
 			assert!(logger.write(&record(0)).is_err());
 		}
+
 		assert_eq!(std::fs::read(&secret).unwrap(), b"do not touch\n");
 	}
 }

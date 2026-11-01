@@ -232,6 +232,7 @@ fn request(stream: &mut TcpStream) -> Option<(String, String)> {
 
 			if buffer.len() >= end + 4 + length {
 				let body = String::from_utf8_lossy(&buffer[end + 4..end + 4 + length]);
+
 				return Some((head.to_owned(), body.into_owned()));
 			}
 		}
@@ -475,6 +476,7 @@ fn draws_highlights(hub: &Hub, session: &str, snapshot: &Snapshot) {
 		(frame.anchor, frame.anchor_x, frame.anchor_y),
 		(frame.node, 0.0, 0.0)
 	);
+
 	// SAFETY: A null output is refused, not written.
 	assert_eq!(unsafe { lk_devtools_highlight(std::ptr::null_mut()) }, -1);
 
@@ -521,6 +523,7 @@ fn picks_by_tap(hub: &Hub, session: &str, snapshot: &Snapshot) {
 	assert_eq!(tap(root, x, y), 0, "a tap is the app's until the hub picks");
 	hub.send(session, Command::Pick { on: true });
 	eventually("picking by tap", || lk_devtools_picking() == 1);
+
 	assert_eq!(lk_devtools_pick(id(root) as usize, f32::NAN, 0.0), 0);
 	assert_eq!(tap(root, x, y), 1);
 	assert_eq!(lk_devtools_picking(), 0, "one tap picks one node");
@@ -563,6 +566,7 @@ fn an_app_reports_its_tree_commits_and_commands_across_a_reload() {
 	let root = &snapshot.tree.nodes[0];
 	assert_eq!(root.kind, "View");
 	assert_eq!(root.classes, ["flex-col", "p-4"]);
+
 	assert!(
 		root.styles
 			.iter()

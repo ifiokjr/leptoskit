@@ -46,16 +46,19 @@ class ScreenCapturePluginTest {
                         activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                         val one = hold(first)
                         val two = hold(second)
+
                         yield()
                         assertTrue(secure(activity))
                         activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                         one.cancelAndJoin()
+
                         assertTrue(secure(activity))
                         two.cancelAndJoin()
                         assertFalse(secure(activity))
                         assertTrue(activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0)
                         activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
                         val existing = hold(first)
+
                         yield()
                         first.close()
                         assertEquals(PluginException.CANCELLED, existing.await())
@@ -116,15 +119,20 @@ class ScreenCapturePluginTest {
                     try {
                         activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                         val lease = hold(plugin)
+
                         yield()
                         assertTrue(secure(activity))
+
                         assertFalse(lease.isCompleted)
+
                         if (Build.VERSION.SDK_INT >= 34) {
                             val screenshot = async { plugin.invoke(2, ByteBuffer.wrap(fields(1, 0))) }
+
                             yield()
                             assertFalse(screenshot.isCompleted)
                             screenshot.cancelAndJoin()
                         }
+
                         lease.cancelAndJoin()
                         assertFalse(secure(activity))
                     } finally {
@@ -147,6 +155,7 @@ class ScreenCapturePluginTest {
                     val plugin = ScreenCapturePlugin(activity)
                     try {
                         activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+
                         for ((method, bytes) in listOf(3 to byteArrayOf(1), 2 to fields(1, 1), 2 to fields(2, 0))) {
                             try {
                                 plugin.invoke(method, ByteBuffer.wrap(bytes))
@@ -155,6 +164,7 @@ class ScreenCapturePluginTest {
                                 assertEquals(PluginException.INVALID_ARGUMENT, error.code)
                             }
                         }
+
                         assertFalse(secure(activity))
                         val cancelled =
                             async(start = CoroutineStart.UNDISPATCHED) {
@@ -164,6 +174,7 @@ class ScreenCapturePluginTest {
                         cancelled.cancelAndJoin()
                         assertFalse(secure(activity))
                         val leases = List(64) { hold(plugin) }
+
                         yield()
                         assertEquals(PluginException.BUSY, hold(plugin).await())
                         plugin.close()
@@ -195,6 +206,7 @@ class ScreenCapturePluginTest {
                             }
                         }
                     withContext(Dispatchers.Main) {}
+
                     if (Build.VERSION.SDK_INT < 34) {
                         assertEquals(PluginException.UNAVAILABLE, pending.await())
                     } else {
@@ -231,6 +243,7 @@ class ScreenCapturePluginTest {
                 } catch (error: PluginException) {
                     assertEquals(PluginException.PERMISSION_DENIED, error.code)
                 } finally {
+
                     plugin.close()
                 }
             }
@@ -250,12 +263,14 @@ class ScreenCapturePluginTest {
 
     private fun launch(): ActivityScenario<Activity> {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+
         return ActivityScenario.launch(requireNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName)))
     }
 
     private fun activity(scenario: ActivityScenario<Activity>): Activity {
         lateinit var activity: Activity
         scenario.onActivity { activity = it }
+
         return activity
     }
 

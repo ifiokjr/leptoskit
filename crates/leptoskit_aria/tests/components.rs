@@ -109,6 +109,7 @@ fn toggle_button_walks_pressed_states() -> Result<(), leptoskit_testing::TestErr
 		let button = tester.find(&Finder::aria_role(Role::Button, "Mute"))?;
 		assert_eq!(button.props.aria().pressed, Some(expected));
 	}
+
 	Ok(())
 }
 
@@ -152,6 +153,7 @@ fn tabs_switch_panels_and_stay_in_the_tab_order() -> Result<(), leptoskit_testin
 	// keyboard reach, so no tab leaves the sequential focus order.
 	assert_eq!(second.props.aria().tab_index, None);
 	tester.find(&Finder::text("General panel"))?;
+
 	assert!(tester.find(&Finder::text("Notifications panel")).is_err());
 
 	tester.tap(&Finder::aria_role(Role::Tab, "Notifications"))?;
@@ -182,10 +184,12 @@ fn tabs_reject_a_tab_outside_the_set() {
 fn field_wires_label_help_and_error_into_the_input() {
 	let build = |error: Option<&'static str>| {
 		let field = Field::new("email", "Email address").help("We never share your address.");
+
 		let field = match error {
 			Some(text) => field.error(text),
 			None => field,
 		};
+
 		View()
 			.child(field.label_element())
 			.child(field.wire(TextInput()))

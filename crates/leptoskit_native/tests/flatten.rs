@@ -255,6 +255,7 @@ fn flattening_keeps_every_drawn_element_in_place() {
 				);
 				let mut children = Vec::new();
 				logical.native_children(*id, &flattener, &mut children);
+
 				assert_eq!(view.children, children, "{context}: children of {id:?}");
 			}
 		}

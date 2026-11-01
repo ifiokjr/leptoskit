@@ -45,6 +45,7 @@ fn other_process_is_excluded_until_owner_exits() {
 		"{}",
 		String::from_utf8_lossy(&blocked.stderr)
 	);
+
 	drop(guard);
 	let available = probe("1");
 	assert!(

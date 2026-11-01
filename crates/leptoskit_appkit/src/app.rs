@@ -83,6 +83,7 @@ impl AppKitBackend {
 		window.setTitle(&NSString::from_str(title));
 		window.setContentView(Some(view));
 		window.center();
+
 		window.makeKeyAndOrderFront(None);
 		Some(window)
 	}

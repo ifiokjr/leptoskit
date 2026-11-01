@@ -51,6 +51,7 @@ impl Controlled {
 				None
 			}
 		};
+
 		if let Some((_, receive)) = gate {
 			receive.await.unwrap();
 		}
@@ -70,6 +71,7 @@ impl AsyncStorage<i32> for Controlled {
 			if self.fail_read.load(Ordering::SeqCst) {
 				return Err("read failed");
 			}
+
 			Ok(self.values.get(&key).unwrap())
 		})
 	}
@@ -80,6 +82,7 @@ impl AsyncStorage<i32> for Controlled {
 			if self.fail_write.load(Ordering::SeqCst) {
 				return Err("write failed");
 			}
+
 			self.values.set(&key, &value).unwrap();
 			Ok(())
 		})
@@ -91,6 +94,7 @@ impl AsyncStorage<i32> for Controlled {
 			if self.fail_remove.load(Ordering::SeqCst) {
 				return Err("remove failed");
 			}
+
 			self.values.remove(&key).unwrap();
 			Ok(())
 		})
@@ -114,6 +118,7 @@ fn async_state_keeps_its_owner_when_initialized_and_polled_outside_it() {
 	let hook = block_on(initialize).unwrap();
 	assert_eq!(hook.value.get(), 1);
 	assert_eq!(store.get("key"), Ok(None));
+
 	block_on((hook.set_value)(2)).unwrap();
 	assert_eq!(hook.value.get(), 2);
 	store.set("key", &3).unwrap();
@@ -141,6 +146,7 @@ fn pending_save_preserves_displayed_state_and_cannot_be_overtaken_by_reload() {
 	pending(write.as_mut());
 	assert_eq!(hook.value.get(), 1);
 	assert_eq!(store.values.get("key"), Ok(None));
+
 	let mut reload = (hook.reload)();
 	pending(reload.as_mut());
 	assert_eq!(store.reads.load(Ordering::SeqCst), 1);
@@ -165,6 +171,7 @@ fn asynchronous_errors_preserve_last_successful_value() {
 	let hook = block_on(owner.with(|| use_async_storage(store.clone(), "key", 1))).unwrap();
 	block_on((hook.set_value)(2)).unwrap();
 	store.fail_write.store(true, Ordering::SeqCst);
+
 	assert!(matches!(
 		block_on((hook.set_value)(3)),
 		Err(AsyncStorageError::Backend("write failed"))
@@ -215,6 +222,7 @@ fn disposal_during_initial_read_returns_a_typed_error() {
 		block_on(initialize),
 		Err(AsyncStorageError::Disposed)
 	));
+
 	assert_eq!(
 		AsyncStorageError::<&str>::Disposed.to_string(),
 		"storage owner was disposed"
@@ -231,6 +239,7 @@ fn disposed_handles_reject_io_and_pending_writes_do_not_touch_disposed_signals()
 	pending(write.as_mut());
 	owner.cleanup();
 	resume.send(()).unwrap();
+
 	assert!(matches!(block_on(write), Err(AsyncStorageError::Disposed)));
 	assert_eq!(store.values.get("key"), Ok(Some(2)));
 	assert!(matches!(
@@ -258,6 +267,7 @@ fn dropping_a_pending_operation_releases_serialization_and_never_updates_state()
 	pending(write.as_mut());
 	drop(write);
 	assert!(resume.send(()).is_err());
+
 	assert_eq!(hook.value.get(), 1);
 	block_on((hook.set_value)(3)).unwrap();
 	assert_eq!(hook.value.get(), 3);
@@ -279,6 +289,7 @@ fn suspended_reads_and_removal_complete_on_the_callers_executor() {
 	pending(initialize.as_mut());
 	resume.send(()).unwrap();
 	let hook = block_on(initialize).unwrap();
+
 	assert_eq!(hook.value.get(), 7);
 	store.values.set("key", &8).unwrap();
 	let resume = store.suspend(Kind::Read);

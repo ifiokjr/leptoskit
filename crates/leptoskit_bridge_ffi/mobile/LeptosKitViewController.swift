@@ -39,6 +39,7 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
             try self?.renderer?.presentRive(node, width: width, height: height, pixels: pixels)
         }
         runtime?.onRive = { [weak self] scenes in
+
             if scenes { self?.riveAnimator?.requestFrame() } else { self?.riveAnimator?.stop() }
         }
         runtime?.onFailure = { [weak self] error in self?.fail(error) }
@@ -60,6 +61,7 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
         renderer.onCanvasChange = { [weak self] in self?.onCanvasColorChange?() }
         self.renderer = renderer
         let animator = NativeRiveAnimator(view: view)
+
         animator.sink = renderer
         animator.hasScenes = { [weak runtime = self.runtime] in runtime?.hasRive == true }
         // The guest thread advances the scenes; their frames come back through onRiveFrame.

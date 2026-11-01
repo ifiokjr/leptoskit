@@ -87,6 +87,7 @@ pub fn run(command: &mut Command, timeout: Duration) -> Result<ToolOutput, Error
 		sender: &mpsc::Sender<(Stream, Option<Vec<u8>>)>,
 	) {
 		let mut buffer = [0u8; 8192];
+
 		loop {
 			match std::io::Read::read(&mut pipe, &mut buffer) {
 				Ok(0) => break,
@@ -98,25 +99,32 @@ pub fn run(command: &mut Command, timeout: Duration) -> Result<ToolOutput, Error
 						return;
 					}
 				}
+
 				Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
 				Err(_) => break,
 			}
 		}
+
 		let _ = sender.send((stream, None));
 	}
 	let (sender, receiver) = mpsc::channel();
 	let mut readers = 0;
+
 	if let Some(pipe) = child.stdout.take() {
 		readers += 1;
+
 		let sender = sender.clone();
 		std::thread::spawn(move || capture(pipe, Stream::Out, &sender));
 	}
+
 	if let Some(pipe) = child.stderr.take() {
 		readers += 1;
 		std::thread::spawn(move || capture(pipe, Stream::Err, &sender));
 	}
+
 	let started = Instant::now();
 	let mut timed_out = false;
+
 	loop {
 		match child.try_wait() {
 			Ok(Some(_)) => break,
@@ -126,25 +134,31 @@ pub fn run(command: &mut Command, timeout: Duration) -> Result<ToolOutput, Error
 				break;
 			}
 		}
+
 		if started.elapsed() >= timeout {
 			if let Err(error) = terminate(&mut child) {
 				eprintln!("terminating timed-out {name}: {error}");
 			}
+
 			timed_out = true;
 			break;
 		}
+
 		std::thread::sleep(Duration::from_millis(20));
 	}
+
 	// Reap the child in either case. After a kill this also lets the tool's
 	// own pipe ends close, so the readers usually finish inside the grace.
 	let code = child.wait().ok().and_then(|status| status.code());
 	let mut raw = Vec::new();
 	let mut err = Vec::new();
 	let deadline = Instant::now() + Duration::from_secs(1);
+
 	while readers > 0 {
 		let Some(left) = deadline.checked_duration_since(Instant::now()) else {
 			break;
 		};
+
 		match receiver.recv_timeout(left) {
 			Ok((stream, Some(bytes))) => {
 				match stream {
@@ -156,12 +170,14 @@ pub fn run(command: &mut Command, timeout: Duration) -> Result<ToolOutput, Error
 			Err(_) => break,
 		}
 	}
+
 	if timed_out {
 		return Err(Error::Tool {
 			name,
 			detail: format!("exceeded {} seconds", timeout.as_secs()),
 		});
 	}
+
 	Ok(ToolOutput {
 		stdout: String::from_utf8_lossy(&raw).into_owned(),
 		stderr: String::from_utf8_lossy(&err).into_owned(),
@@ -207,6 +223,7 @@ fn terminate(child: &mut Child) -> Result<(), std::io::Error> {
 		let Some(pid) = i32::try_from(child.id()).ok().and_then(Pid::from_raw) else {
 			return Ok(());
 		};
+
 		match kill_process_group(pid, Signal::KILL) {
 			Ok(()) | Err(rustix::io::Errno::SRCH) => Ok(()),
 			Err(error) => Err(std::io::Error::from(error)),
@@ -225,6 +242,7 @@ pub fn android_tool(name: &str) -> Command {
 	} else {
 		name.to_owned()
 	};
+
 	let path = std::env::var_os("ANDROID_HOME")
 		.or_else(|| std::env::var_os("ANDROID_SDK_ROOT"))
 		.map_or_else(
@@ -309,6 +327,7 @@ pub fn find_in_path(program: &str) -> Option<PathBuf> {
 	} else {
 		program.to_owned()
 	};
+
 	std::env::split_paths(&path)
 		.map(|directory| directory.join(&executable))
 		.find(|candidate| candidate.is_file())
@@ -399,6 +418,7 @@ mod tests {
 				return;
 			}
 		}
+
 		panic!("no free port stayed bindable across ten tries");
 	}
 

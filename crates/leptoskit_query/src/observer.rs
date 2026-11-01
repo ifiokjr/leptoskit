@@ -402,6 +402,7 @@ where
 				.in_flight()
 				.unwrap_or_else(|| query.fetch(FetchOptions::JOIN));
 			let query = Arc::clone(query);
+
 			context.write_async(
 				id,
 				Box::pin(async move {

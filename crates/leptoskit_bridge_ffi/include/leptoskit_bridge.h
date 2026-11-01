@@ -109,6 +109,7 @@ void lk_app_close_release(lk_closing_app *owner);
 lk_bridge *lk_app_plugins(lk_app *app);
 int32_t lk_app_start(lk_app *app, float width, float height);
 int32_t lk_app_resize(lk_app *app, float width, float height, bool dark);
+
 /* Kinds: press 0, change 1, submit 2, focus 3, blur 4, scroll 5, press in 8,
  * press out 9. Press in and out bracket a button's native pressed state; a
  * scroll's text is its content offset in layout units, as {"x":0,"y":120.5}. */
@@ -196,6 +197,7 @@ int32_t lk_updates_confirm(lk_updates *updates, const uint8_t *receipt, size_t l
 /* Rejection followed by launch recovers a known working bundle. */
 int32_t lk_updates_reject(lk_updates *updates, const uint8_t *receipt, size_t len);
 lk_buffer lk_updates_error(lk_updates *updates);
+
 /* Copies the verified entry module out of a trusted store-shipped container,
  * for hosts running without the update store (updates disabled, or the store
  * unavailable). Any thread. Returns 0 and an owned Wasm buffer, or -1 and an
@@ -298,6 +300,7 @@ int32_t lk_guest_event(const lk_guest *guest, size_t node, uint32_t kind,
 int32_t lk_guest_frame(const lk_guest *guest, uint64_t timestamp_ns, uint64_t period_ns);
 /* 1 while the guest waits for a frame; a notification follows each change. */
 int32_t lk_guest_frame_requested(const lk_guest *guest);
+
 /* For a service or async plugin wake. */
 int32_t lk_guest_wake(const lk_guest *guest);
 /* lk_bridge_complete's arguments; the bytes are copied. */

@@ -41,8 +41,10 @@ final class PressButton: NSButton {
 
     override func mouseDown(with event: NSEvent) {
         let holding = isEnabled
+
         if holding { onHold?(true) }
         super.mouseDown(with: event)
+
         if holding { onHold?(false) }
     }
 }
@@ -79,6 +81,7 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
     init(view: NSView, devtools link: DevtoolsLink? = DevtoolsLink.live()) {
         self.view = view
         super.init()
+
         guard let link else { return }
         let overlay = DevtoolsOverlay(
             link: link, widget: { [weak self] in self?.widgets[$0] }, node: { [weak self] in self?.node($0) })
@@ -88,6 +91,7 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
     func close() {
         devtools?.close()
         devtools = nil
+
         for widget in widgets.values { (widget as? NSImageView)?.image = nil }
         widgets.removeAll()
         scrolls.removeAll()
@@ -96,10 +100,12 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
     func riveVisible(_ node: Int) -> Bool {
         guard let widget = widgets[node], widget.window != nil else { return false }
         var ancestor: NSView? = widget
+
         while let view = ancestor {
             if view.alphaValue <= 0 { return false }
             ancestor = view.superview
         }
+
         return !widget.isHiddenOrHasHiddenAncestor && !widget.visibleRect.isEmpty
     }
 

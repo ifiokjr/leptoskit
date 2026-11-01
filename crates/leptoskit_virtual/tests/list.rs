@@ -73,6 +73,7 @@ fn committed(tester: &WidgetTester, label: &str) -> Vec<usize> {
 	let prefix = format!("{label} ");
 	let mut pending: Vec<_> = surface.root().into_iter().collect();
 	let mut indexes = Vec::new();
+
 	while let Some(id) = pending.pop() {
 		let index = surface
 			.props(id)
@@ -83,6 +84,7 @@ fn committed(tester: &WidgetTester, label: &str) -> Vec<usize> {
 		indexes.extend(index);
 		pending.extend(surface.children(id).iter().copied());
 	}
+
 	indexes.sort_unstable();
 	indexes
 }
@@ -134,6 +136,7 @@ fn vertical_items_are_sized_to_their_estimate_and_span_the_width() -> Result<(),
 	assert_eq!(second.frame.y - first.frame.y, 64.0);
 	assert_eq!(fourth.frame.y - first.frame.y, 128.0);
 	assert_eq!(first.frame.width, 200.0, "rows stretch across the list");
+
 	Ok(())
 }
 

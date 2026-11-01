@@ -68,6 +68,7 @@ class MotionSensorTest {
                     waiting.cancelAndJoin()
                     // Drain the cancellation cleanup posted to the main Handler.
                     suspendCancellableCoroutine<Unit> { continuation ->
+
                         Handler(Looper.getMainLooper()).post { if (continuation.isActive) continuation.resume(Unit) }
                     }
                     val bytes = withTimeout(10_000) { plugin.invoke(1, request(16)) }
@@ -80,6 +81,7 @@ class MotionSensorTest {
                     assertTrue(x.isFinite() && y.isFinite() && z.isFinite())
                     // At rest the emulator reports gravity (~9.8 m/s²), not Apple's unit-g scale.
                     val magnitude = kotlin.math.sqrt(x * x + y * y + z * z)
+
                     assertTrue("Accelerometer magnitude $magnitude should include gravity in m/s²", magnitude in 8.0..12.0)
                     val closing = async(start = CoroutineStart.UNDISPATCHED) { plugin.invoke(1, request(16)) }
                     plugin.close()
@@ -107,8 +109,10 @@ class MotionSensorTest {
                 try {
                     if (plugin.invoke(0, ByteBuffer.allocate(0))[0].toInt() == 0) {
                         expectError(PluginException.UNAVAILABLE) { plugin.invoke(1, boundedRequest()) }
+
                         return@withContext
                     }
+
                     val waiting = async(start = CoroutineStart.UNDISPATCHED) { plugin.invoke(1, boundedRequest()) }
                     expectError(PluginException.BUSY) { plugin.invoke(1, boundedRequest()) }
                     val reply = withTimeout(5_000) { waiting.await() }
@@ -116,6 +120,7 @@ class MotionSensorTest {
                     val cancelled = async(start = CoroutineStart.UNDISPATCHED) { plugin.invoke(1, boundedRequest()) }
                     cancelled.cancelAndJoin()
                     suspendCancellableCoroutine<Unit> { continuation ->
+
                         Handler(Looper.getMainLooper()).post { if (continuation.isActive) continuation.resume(Unit) }
                     }
                     val replacement = async(start = CoroutineStart.UNDISPATCHED) { plugin.invoke(1, boundedRequest()) }

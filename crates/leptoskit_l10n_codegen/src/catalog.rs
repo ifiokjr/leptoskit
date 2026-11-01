@@ -123,6 +123,7 @@ impl Message {
 		} else {
 			"String"
 		};
+
 		format!("{}({parameters}) -> {returns}", self.method)
 	}
 }
@@ -217,9 +218,11 @@ fn identifier(snake: &str) -> Result<syn::Ident, NotAnIdentifier> {
 	if snake.is_empty() {
 		return Err(NotAnIdentifier::Empty);
 	}
+
 	if snake.starts_with(|first: char| first.is_ascii_digit()) {
 		return Err(NotAnIdentifier::Digit);
 	}
+
 	// A character continues an identifier when `_` and it make one.
 	if let Some(character) = snake
 		.chars()
@@ -227,9 +230,11 @@ fn identifier(snake: &str) -> Result<syn::Ident, NotAnIdentifier> {
 	{
 		return Err(NotAnIdentifier::Character(character));
 	}
+
 	if EDITION_KEYWORDS.contains(&snake) {
 		return Err(NotAnIdentifier::Keyword);
 	}
+
 	syn::parse_str::<syn::Ident>(snake).map_err(|_| NotAnIdentifier::Keyword)
 }
 
@@ -251,6 +256,7 @@ pub(crate) fn build(
 				 file every other file translates, such as \"en\""
 			),
 		));
+
 		return None;
 	};
 	let Some(position) = files.iter().position(|file| file.locale == template_locale) else {
@@ -265,7 +271,9 @@ pub(crate) fn build(
 				 add it, or set `[l10n] template` to the locale of the file that is"
 			)
 		};
+
 		diagnostics.push(Diagnostic::new(dir, None, message));
+
 		return None;
 	};
 	let template = files.remove(position);
@@ -291,6 +299,7 @@ pub(crate) fn build(
 	for file in files {
 		let ident = struct_ident(&file, &locales, diagnostics);
 		let mut translated = BTreeMap::new();
+
 		for (key, written) in &file.messages {
 			let Some(message) = messages.iter().find(|message| message.key == *key) else {
 				// A template message that failed its own checks was reported
@@ -306,15 +315,18 @@ pub(crate) fn build(
 						),
 					));
 				}
+
 				continue;
 			};
 			let Some(parts) = parse_parts(&file.path, key, written, diagnostics) else {
 				continue;
 			};
+
 			if check_translation(&file.path, written.line, &parts, message, diagnostics) {
 				translated.insert(key.clone(), parts);
 			}
 		}
+
 		let untranslated = messages
 			.iter()
 			.filter(|message| !file.messages.contains_key(&message.key))
@@ -328,6 +340,7 @@ pub(crate) fn build(
 			untranslated,
 		});
 	}
+
 	Some(Catalog { messages, locales })
 }
 
@@ -340,10 +353,13 @@ fn template_messages(template: &ArbFile, diagnostics: &mut Vec<Diagnostic>) -> V
 			"the template has no messages; add one, such as `\"appTitle\": \"My App\"`".to_owned(),
 		));
 	}
+
 	let mut messages = Vec::new();
 	let mut methods: BTreeMap<String, &str> = BTreeMap::new();
+
 	for (key, written) in &template.messages {
 		let method = method_ident(&template.path, key, written.line, diagnostics);
+
 		if let Some(method) = &method
 			&& let Some(previous) = methods.insert(method.to_string(), key)
 		{
@@ -369,6 +385,7 @@ fn template_messages(template: &ArbFile, diagnostics: &mut Vec<Diagnostic>) -> V
 				},
 			)
 		});
+
 		if let (Some(method), Some(parts), Some(placeholders)) = (method, parts, placeholders) {
 			messages.push(Message {
 				key: key.clone(),
@@ -380,6 +397,7 @@ fn template_messages(template: &ArbFile, diagnostics: &mut Vec<Diagnostic>) -> V
 			});
 		}
 	}
+
 	messages
 }
 
@@ -411,6 +429,7 @@ fn method_ident(
 	diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<syn::Ident> {
 	let snake = key.to_snake_case();
+
 	let reason = match identifier(&snake) {
 		Ok(ident) if !HANDLE_METHODS.contains(&snake.as_str()) => return Some(ident),
 		Ok(_) => {
@@ -425,6 +444,7 @@ fn method_ident(
 		}
 		Err(not) => format!("{}; rename the key", not.describe(&snake)),
 	};
+
 	diagnostics.push(Diagnostic::new(
 		path,
 		Some(line),
@@ -436,6 +456,7 @@ fn method_ident(
 /// The unit struct a locale becomes: its tag in upper camel case.
 fn struct_ident(file: &ArbFile, taken: &[Locale], diagnostics: &mut Vec<Diagnostic>) -> syn::Ident {
 	let camel = file.tag.to_upper_camel_case();
+
 	if RESERVED.contains(&camel.as_str()) {
 		diagnostics.push(Diagnostic::new(
 			&file.path,
@@ -456,6 +477,7 @@ fn struct_ident(file: &ArbFile, taken: &[Locale], diagnostics: &mut Vec<Diagnost
 			),
 		));
 	}
+
 	// A canonical tag is ASCII letters and digits between hyphens, starting
 	// with a letter; in upper camel case that is an identifier, and never the
 	// one keyword with a capital, `Self`, since no language subtag is four
@@ -498,6 +520,7 @@ fn usages(parts: &[Part], out: &mut Vec<(String, Usage)>) {
 				for (_, body) in &plural.categories {
 					usages(body, out);
 				}
+
 				usages(&plural.other, out);
 			}
 			Part::Select(select) => {
@@ -505,6 +528,7 @@ fn usages(parts: &[Part], out: &mut Vec<(String, Usage)>) {
 				for (_, body) in &select.cases {
 					usages(body, out);
 				}
+
 				usages(&select.other, out);
 			}
 		}
@@ -523,34 +547,41 @@ fn type_placeholders(
 	let mut used = Vec::new();
 	usages(parts, &mut used);
 	let mut names: Vec<&str> = Vec::new();
+
 	for (name, _) in &used {
 		if !names.contains(&name.as_str()) {
 			names.push(name);
 		}
 	}
+
 	let mut placeholders: Vec<Placeholder> = Vec::new();
 	let mut complete = true;
 	let mut report = |message: String| {
 		diagnostics.push(Diagnostic::new(path, Some(written.line), message));
 	};
+
 	for name in &names {
 		let used_as = |usage| used.iter().any(|(used, how)| used == name && *how == usage);
 		let counted = used_as(Usage::Counted);
 		let matched = used_as(Usage::Matched);
+
 		if counted && matched {
 			report(format!(
 				"`{name}` is counted by a plural and matched by a select in `{key}`; use two \
 				 placeholders"
 			));
 			complete = false;
+
 			continue;
 		}
+
 		let declared = written.declared.get(*name).copied().flatten();
 		let ty = declared.unwrap_or(if counted {
 			PlaceholderType::Int
 		} else {
 			PlaceholderType::Str
 		});
+
 		if counted && !ty.is_number() {
 			report(format!(
 				"`{name}` is counted by a plural in `{key}`, so its type must be int or num, not \
@@ -559,6 +590,7 @@ fn type_placeholders(
 			));
 			complete = false;
 		}
+
 		if matched && ty != PlaceholderType::Str {
 			report(format!(
 				"`{name}` is matched by a select in `{key}`, so its type must be String, not {}",
@@ -566,7 +598,9 @@ fn type_placeholders(
 			));
 			complete = false;
 		}
+
 		let snake = name.to_snake_case();
+
 		let ident = match identifier(&snake) {
 			Ok(ident) => ident,
 			Err(not) => {
@@ -578,6 +612,7 @@ fn type_placeholders(
 				continue;
 			}
 		};
+
 		if let Some(other) = placeholders
 			.iter()
 			.find(|placeholder| placeholder.ident == ident)
@@ -596,6 +631,7 @@ fn type_placeholders(
 			ty,
 		});
 	}
+
 	for declared in written.declared.keys() {
 		if !names.contains(&declared.as_str()) {
 			report(format!(
@@ -604,6 +640,7 @@ fn type_placeholders(
 			complete = false;
 		}
 	}
+
 	complete.then_some(placeholders)
 }
 
@@ -634,17 +671,21 @@ fn check_translation(
 		.difference(&expected)
 		.map(|name| format!("`{{{name}}}`"))
 		.collect();
+
 	if !missing.is_empty() || !extra.is_empty() {
 		let mut problems = Vec::new();
+
 		if !missing.is_empty() {
 			problems.push(format!("leaves out {}", missing.join(", ")));
 		}
+
 		if !extra.is_empty() {
 			problems.push(format!(
 				"adds {}, which the template does not have",
 				extra.join(", ")
 			));
 		}
+
 		diagnostics.push(Diagnostic::new(
 			path,
 			Some(line),
@@ -655,6 +696,7 @@ fn check_translation(
 		));
 		complete = false;
 	}
+
 	for (name, usage) in &used {
 		let Some(placeholder) = template
 			.placeholders
@@ -663,11 +705,13 @@ fn check_translation(
 		else {
 			continue;
 		};
+
 		let allowed = match usage {
 			Usage::Shown => true,
 			Usage::Counted => placeholder.ty.is_number(),
 			Usage::Matched => placeholder.ty == PlaceholderType::Str,
 		};
+
 		if !allowed {
 			diagnostics.push(Diagnostic::new(
 				path,
@@ -681,6 +725,7 @@ fn check_translation(
 			complete = false;
 		}
 	}
+
 	complete && exact_numbers_fit(path, line, key, parts, &template.placeholders, diagnostics)
 }
 
@@ -697,6 +742,7 @@ fn exact_numbers_fit(
 	diagnostics: &mut Vec<Diagnostic>,
 ) -> bool {
 	let mut fit = true;
+
 	for part in parts {
 		let inside: Vec<&[Part]> = match part {
 			Part::Text(_) | Part::Placeholder(_) | Part::Number => continue,
@@ -706,6 +752,7 @@ fn exact_numbers_fit(
 					.find(|placeholder| placeholder.name == plural.arg)
 				{
 					let largest = placeholder.ty.largest_exact();
+
 					for (number, _) in plural.exact.iter().filter(|(number, _)| *number > largest) {
 						diagnostics.push(Diagnostic::new(
 							path,
@@ -740,10 +787,12 @@ fn exact_numbers_fit(
 					.collect()
 			}
 		};
+
 		for body in inside {
 			fit &= exact_numbers_fit(path, line, key, body, placeholders, diagnostics);
 		}
 	}
+
 	fit
 }
 
@@ -776,13 +825,16 @@ mod tests {
 		// Every type has `into` and `try_into`, from the prelude's blanket
 		// implementations.
 		let mut found = vec!["into".to_owned(), "try_into".to_owned()];
+
 		for item in &file.items {
 			let syn::Item::Impl(implementation) = item else {
 				continue;
 			};
+
 			let syn::Type::Path(self_ty) = &*implementation.self_ty else {
 				continue;
 			};
+
 			if self_ty
 				.path
 				.segments
@@ -796,12 +848,14 @@ mod tests {
 					let syn::ImplItem::Fn(function) = inner else {
 						continue;
 					};
+
 					if function.sig.receiver().is_some()
 						&& matches!(function.vis, syn::Visibility::Public(_))
 					{
 						found.push(function.sig.ident.to_string());
 					}
 				}
+
 				continue;
 			};
 			let implemented = implemented
@@ -816,6 +870,7 @@ mod tests {
 					.map(ToString::to_string),
 			);
 		}
+
 		assert!(
 			found.contains(&"set_locale".to_owned()),
 			"read the handle: {found:?}"
@@ -839,6 +894,7 @@ mod tests {
 		assert_eq!(reason("self"), "`self` is a Rust keyword");
 		// Reserved from edition 2024, though `syn` takes it as a name.
 		assert_eq!(reason("gen"), "`gen` is a Rust keyword");
+
 		assert_eq!(
 			reason("x²"),
 			"`x²` holds `²`, which a Rust identifier cannot"

@@ -64,6 +64,7 @@ class ScreenOrientationPluginTest {
                     scenario.onActivity { assertSame("Orientation change recreated the native host", activity, it) }
                     withContext(Dispatchers.Main) {
                         val snapshot = ByteBuffer.wrap(plugin.invoke(0, ByteBuffer.allocate(0))).order(ByteOrder.LITTLE_ENDIAN)
+
                         assertEquals(if (policy == 2) 1 else 2, snapshot.int)
                     }
                     first.cancelAndJoin()
@@ -108,8 +109,10 @@ class ScreenOrientationPluginTest {
             ActivityScenario.launch<Activity>(intent).use { scenario ->
                 lateinit var activity: Activity
                 scenario.onActivity { activity = it }
+
                 withTimeout(5000) { while (!withContext(Dispatchers.Main) { activity.hasWindowFocus() }) delay(10) }
                 val dialog = withContext(Dispatchers.Main) { Dialog(activity).apply { show() } }
+
                 withTimeout(5000) { while (withContext(Dispatchers.Main) { activity.hasWindowFocus() }) delay(10) }
                 val plugin = withContext(Dispatchers.Main) { ScreenOrientationPlugin(activity) }
                 val original = withContext(Dispatchers.Main) { activity.requestedOrientation }

@@ -27,11 +27,15 @@ public final class TrackingTransparencyPlugin: NativePlugin {
 
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
         guard !closed else { throw PluginError.cancelled }
+
         guard methods.contains(method) else { throw PluginError.unavailable }
+
         guard payload.count == 0 else { throw PluginError.invalidArgument }
         try Task.checkCancellation()
+
         if method == 0 { return try status() }
         let identifier = UUID()
+
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 begin(identifier, continuation: continuation)
@@ -44,13 +48,16 @@ public final class TrackingTransparencyPlugin: NativePlugin {
     private func begin(_ identifier: UUID, continuation: CheckedContinuation<Data, any Error>) {
         guard !closed, !Task.isCancelled else {
             continuation.resume(throwing: PluginError.cancelled)
+
             return
         }
+
         do {
             try gate.acquire(identifier)
             let observation = try provider.prepare { [weak self] in self?.cancel(identifier) }
             pending = Pending(identifier: identifier, continuation: continuation, observation: observation)
             try provider.request { [weak self, gate] in
+
                 guard gate.complete(identifier) else { return }
                 self?.complete(identifier)
             }
@@ -63,8 +70,10 @@ public final class TrackingTransparencyPlugin: NativePlugin {
 
     private func status() throws -> Data {
         var status = try provider.status()
+
         guard status <= 3 else { throw PluginError.native }
         status = status.littleEndian
+
         return withUnsafeBytes(of: &status) { Data($0) }
     }
 
@@ -81,6 +90,7 @@ public final class TrackingTransparencyPlugin: NativePlugin {
         guard let pending, pending.identifier == identifier else { return nil }
         self.pending = nil
         pending.observation.stop()
+
         return pending
     }
 
@@ -93,6 +103,7 @@ public final class TrackingTransparencyPlugin: NativePlugin {
     public func close() {
         guard !closed else { return }
         closed = true
+
         if let pending { cancel(pending.identifier) }
     }
 }

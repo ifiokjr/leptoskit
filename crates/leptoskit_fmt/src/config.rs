@@ -43,12 +43,15 @@ impl Settings {
 		} else {
 			dir
 		};
+
 		let markup = load_markup_config(dir)?;
 		let rustfmt_config = find_rustfmt_config(dir);
+
 		let layout = match &rustfmt_config {
 			Some(config) => Layout::from_rustfmt_toml(config)?,
 			None => Layout::default(),
 		};
+
 		let edition = layout
 			.edition
 			.clone()
@@ -145,8 +148,10 @@ impl Layout {
 	pub(crate) fn width(&self, text: &str) -> usize {
 		if text.is_ascii() {
 			let tabs = text.bytes().filter(|byte| *byte == b'\t').count();
+
 			return text.len() + tabs * self.tab_spaces.saturating_sub(1);
 		}
+
 		text.chars()
 			.map(|character| {
 				if character == '\t' {
@@ -258,6 +263,7 @@ fn package_edition(dir: &Path) -> Option<String> {
 
 	let dir = std::path::absolute(dir).ok()?;
 	let mut inherits = false;
+
 	for ancestor in dir.ancestors() {
 		let path = ancestor.join("Cargo.toml");
 		let Ok(raw) = std::fs::read_to_string(&path) else {
@@ -266,6 +272,7 @@ fn package_edition(dir: &Path) -> Option<String> {
 		let Ok(manifest) = toml::from_str::<Manifest>(&raw) else {
 			continue;
 		};
+
 		if !inherits {
 			match manifest.package.and_then(|package| package.edition) {
 				Some(toml::Value::String(edition)) => return Some(edition),
@@ -273,6 +280,7 @@ fn package_edition(dir: &Path) -> Option<String> {
 				_ => {}
 			}
 		}
+
 		if let Some(edition) = manifest
 			.workspace
 			.and_then(|workspace| workspace.package)
@@ -280,12 +288,14 @@ fn package_edition(dir: &Path) -> Option<String> {
 		{
 			return Some(edition);
 		}
+
 		if !inherits {
 			// The nearest manifest owns the file; without an edition or a
 			// workspace to inherit from, cargo's default applies.
 			return Some("2015".to_owned());
 		}
 	}
+
 	None
 }
 

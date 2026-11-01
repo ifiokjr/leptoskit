@@ -69,16 +69,19 @@ impl<T> Sink<T> {
 	pub fn record(&self, value: T) {
 		{
 			let mut records = self.lock();
+
 			if records.len() >= CAPACITY {
 				records.pop_front();
 				self.dropped.fetch_add(1, Ordering::Relaxed);
 			}
+
 			records.push_back(value);
 		}
 		let wake = *self
 			.waker
 			.read()
 			.unwrap_or_else(std::sync::PoisonError::into_inner);
+
 		if let Some(wake) = wake {
 			wake();
 		}
@@ -118,14 +121,17 @@ mod tests {
 	#[test]
 	fn a_full_sink_drops_the_oldest_and_counts_it() {
 		let sink = Sink::new();
+
 		for value in 0..CAPACITY + 3 {
 			sink.record(value);
 		}
+
 		let records = sink.drain();
 		assert_eq!(records.len(), CAPACITY);
 		assert_eq!(records.first(), Some(&3));
 		assert_eq!(records.last(), Some(&(CAPACITY + 2)));
 		assert_eq!(sink.dropped(), 3);
+
 		assert_eq!(sink.drain(), Vec::<usize>::new());
 	}
 
@@ -144,6 +150,7 @@ mod tests {
 		sink.set_waker(None);
 		sink.record(4);
 		assert_eq!(WOKEN.load(Ordering::Relaxed), 2);
+
 		assert_eq!(sink.drain(), vec![1, 2, 3, 4]);
 	}
 }

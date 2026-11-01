@@ -28,7 +28,9 @@ impl Entry {
 					Err(Error::Conflict)
 				}
 			}
+
 			Ok(_) => Err(Error::Conflict),
+
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
 			Err(error) => Err(error.into()),
 		}
@@ -38,16 +40,22 @@ impl Entry {
 		if self.is_registered()? {
 			return Ok(());
 		}
+
 		let parent = self.path.parent().ok_or(Error::InvalidConfiguration)?;
 		fs::create_dir_all(parent)?;
+
 		if !fs::symlink_metadata(parent)?.file_type().is_dir() {
 			return Err(Error::Conflict);
 		}
+
 		let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
 		temporary.write_all(self.content.as_bytes())?;
+
 		temporary.as_file().sync_all()?;
+
 		match temporary.persist_noclobber(&self.path) {
 			Ok(_) => Ok(()),
+
 			Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
 				if self.is_registered()? {
 					Ok(())
@@ -55,6 +63,7 @@ impl Entry {
 					Err(Error::Conflict)
 				}
 			}
+
 			Err(error) => Err(error.error.into()),
 		}
 	}
@@ -63,10 +72,12 @@ impl Entry {
 		if self.is_registered()? {
 			match fs::remove_file(&self.path) {
 				Ok(()) => (),
+
 				Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
 				Err(error) => return Err(error.into()),
 			}
 		}
+
 		Ok(())
 	}
 }
@@ -82,11 +93,13 @@ pub(super) fn launch_agent(app: &Autostart) -> String {
 			.replace('\'', "&apos;")
 	}
 	let mut arguments = String::new();
+
 	for argument in std::iter::once(&app.executable).chain(&app.arguments) {
 		arguments.push_str("<string>");
 		arguments.push_str(&escaped(argument));
 		arguments.push_str("</string>");
 	}
+
 	format!(
 		"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>Label</key><string>{}</string><key>ProgramArguments</key><array>{arguments}</array><key>RunAtLoad</key><true/></dict></plist>\n",
 		app.identity
@@ -97,16 +110,21 @@ pub(super) fn launch_agent(app: &Autostart) -> String {
 pub(super) fn desktop_entry(app: &Autostart) -> String {
 	fn quoted(value: &str) -> String {
 		let mut argument = String::from("\"");
+
 		for ch in value.chars() {
 			if matches!(ch, '"' | '`' | '$' | '\\') {
 				argument.push('\\');
 			}
+
 			if ch == '%' {
 				argument.push('%');
 			}
+
 			argument.push(ch);
 		}
+
 		argument.push('"');
+
 		argument.replace('\\', "\\\\")
 	}
 	let command = std::iter::once(&app.executable)
@@ -131,6 +149,7 @@ mod tests {
 		assert!(!entry.is_registered().unwrap());
 		entry.enable().unwrap();
 		entry.enable().unwrap();
+
 		assert!(entry.is_registered().unwrap());
 		let other = Entry::new(path.clone(), "other".into());
 		assert!(matches!(other.enable(), Err(Error::Conflict)));

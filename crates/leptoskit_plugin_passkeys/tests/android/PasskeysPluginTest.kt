@@ -21,6 +21,7 @@ class PasskeysPluginTest {
             return error.code
         }
         fail("expected a plugin failure")
+
         return 0
     }
 
@@ -30,9 +31,11 @@ class PasskeysPluginTest {
     fun optionsAreBoundedJsonWithAChallenge() {
         val options = """{"challenge":"AAEC","rpId":"notes.example"}"""
         assertEquals(options, webAuthnOptions(bytes(options)))
+
         for (bad in listOf("", "[]", "{not json", """{"rpId":"a"}""", """{"challenge":""}""")) {
             assertEquals(PluginException.INVALID_ARGUMENT, code { webAuthnOptions(bytes(bad)) })
         }
+
         val huge = """{"challenge":"${"a".repeat(MAX_JSON_BYTES)}"}"""
         assertEquals(PluginException.INVALID_ARGUMENT, code { webAuthnOptions(bytes(huge)) })
         assertEquals(PluginException.NATIVE, code { webAuthnAnswer("nope") })

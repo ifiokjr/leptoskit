@@ -48,6 +48,7 @@ fn cancelled_dns_keeps_resolver_admission_until_blocking_work_finishes() {
 			cancellation.cancel();
 			assert!(matches!(call.await, Err(Error::Cancelled)));
 		}
+
 		assert!(matches!(
 			plugin
 				.invoke(MethodId(0), request.clone(), CancellationToken::new())
@@ -65,6 +66,7 @@ fn cancelled_dns_keeps_resolver_admission_until_blocking_work_finishes() {
 				bytes.push(stream.read_u8().await.unwrap());
 				assert!(bytes.len() < 16_384);
 			}
+
 			assert!(
 				String::from_utf8(bytes)
 					.unwrap()
@@ -94,6 +96,7 @@ fn cancelled_dns_keeps_resolver_admission_until_blocking_work_finishes() {
 
 async fn head(stream: &mut TcpStream) {
 	let mut bytes = Vec::new();
+
 	while !bytes.ends_with(b"\r\n\r\n") {
 		bytes.push(stream.read_u8().await.unwrap());
 		assert!(bytes.len() < 16_384);
@@ -116,6 +119,7 @@ async fn typed_rpc_preserves_status_headers_binary_and_rejects_denied_destinatio
 		.unwrap();
 	let response = protocol::decode_response(response.bytes()).unwrap();
 	assert_eq!(response.status, 422);
+
 	assert_eq!(response.body, [0, 255, 128]);
 	assert!(
 		response
@@ -167,6 +171,7 @@ async fn cancellation_waits_until_inflight_transport_is_dropped() {
 	let token = CancellationToken::new();
 	let cancellation = token.clone();
 	let request = protocol::encode_request(&Request::get(origin)).unwrap();
+
 	let operation = tokio::spawn(async move { plugin.invoke(MethodId(0), request, token).await });
 	receive_ready.await.unwrap();
 	cancellation.cancel();
@@ -183,9 +188,11 @@ fn configuration_and_frames_cannot_bypass_host_bounds() {
 		assert!(from_config(options).is_err());
 	}
 	let bytes = protocol::encode_request(&Request::get("http://localhost")).unwrap();
+
 	for len in 0..bytes.len() {
 		assert!(protocol::decode_request(&bytes[..len]).is_err());
 	}
+
 	let mut trailing = bytes.to_vec();
 	trailing.push(0);
 	assert!(protocol::decode_request(&trailing).is_err());

@@ -80,6 +80,7 @@ final class MacApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         edit.addItem(
             withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"
         )
+
         editItem.submenu = edit
         NSApp.mainMenu = menu
     }

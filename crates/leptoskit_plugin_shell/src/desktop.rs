@@ -110,17 +110,21 @@ impl CommandPolicy {
 		{
 			return Err(Error::InvalidConfiguration);
 		}
+
 		for argument in &mut self.arguments {
 			if let ArgumentPolicy::Pattern { expression, .. } = argument {
 				*expression = Regex::new(&format!(r"\A(?:{})\z", expression.as_str()))
 					.map_err(|_| Error::InvalidConfiguration)?;
 			}
 		}
+
 		self.executable = self.executable.canonicalize()?;
 		self.directory = self.directory.canonicalize()?;
+
 		if !self.executable.metadata()?.is_file() || !self.directory.metadata()?.is_dir() {
 			return Err(Error::InvalidConfiguration);
 		}
+
 		#[cfg(windows)]
 		if self
 			.executable
@@ -154,12 +158,15 @@ impl Shell {
 		if scopes.is_empty() || scopes.len() > 256 || !(1..=64).contains(&max_children) {
 			return Err(Error::InvalidConfiguration);
 		}
+
 		for (name, policy) in &mut scopes {
 			if !super::valid_name(name) {
 				return Err(Error::InvalidConfiguration);
 			}
+
 			policy.validate()?;
 		}
+
 		Ok(Self {
 			scopes: Arc::new(scopes),
 			capacity: Arc::new(Semaphore::new(max_children)),
@@ -175,6 +182,7 @@ impl Shell {
 		if method != super::EXECUTE {
 			return Err(Error::Unavailable);
 		}
+
 		self.spawn(&Request::decode(payload)?)
 	}
 
@@ -188,6 +196,7 @@ impl Shell {
 	pub fn spawn(&self, request: &Request) -> Result<RunningChild, Error> {
 		request.validate()?;
 		let policy = self.scopes.get(&request.command).ok_or(Error::Denied)?;
+
 		if request.arguments.len() != policy.arguments.len()
 			|| !request
 				.arguments
@@ -204,6 +213,7 @@ impl Shell {
 			.try_acquire_owned()
 			.map_err(|_| Error::Busy)?;
 		let deadline = tokio::time::Instant::now() + policy.limits.duration;
+
 		let mut command = Command::new(&policy.executable);
 		command
 			.args(&request.arguments)
@@ -324,13 +334,16 @@ async fn run(
 	let mut exited = false;
 	let timeout = tokio::time::sleep_until(deadline);
 	tokio::pin!(timeout);
+
 	let finish = loop {
 		if *cancellation.borrow() {
 			break Finish::Cancelled;
 		}
+
 		if exited && !out_open && !err_open {
 			break Finish::Exited;
 		}
+
 		tokio::select! {
 			_ = cancellation.changed() => { break Finish::Cancelled; }
 			() = &mut timeout => { break Finish::TimedOut; }
@@ -342,6 +355,7 @@ async fn run(
 				exited = true;
 			}
 			result = stdout.read(&mut out_buffer), if out_open => {
+
 				let count = match result { Ok(count) => count, Err(error) => { tree.stop().await?; return Err(error.into()); } };
 				out_open = count != 0;
 				let remaining = limits.stdout_bytes - out.len();
@@ -357,6 +371,7 @@ async fn run(
 			}
 		}
 	};
+
 	// Closing pipes before reaping avoids waiting on a descendant that
 	// inherited them.
 	drop(stdout);
@@ -394,6 +409,7 @@ mod tests {
 		assert!(!policy.arguments[0].permits("a\n"));
 		let enumeration = ArgumentPolicy::OneOf(vec!["status".into(), "version".into()]);
 		assert!(enumeration.permits("status"));
+
 		assert!(!enumeration.permits("status;anything"));
 	}
 }

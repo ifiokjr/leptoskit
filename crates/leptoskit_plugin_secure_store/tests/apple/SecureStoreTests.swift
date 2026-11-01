@@ -22,7 +22,9 @@ final class SecureStoreTests: XCTestCase {
         reloaded.remove(service: "login", key: "a")
         reloaded.set(service: "login", key: "c", value: Data([3]))
         XCTAssertNoThrow(try reloaded.encode(quota: quota))
+
         for length in 0..<saved.count {
+
             XCTAssertThrowsError(try SecureArchive(data: saved.prefix(length)))
         }
     }
@@ -40,11 +42,13 @@ final class SecureStoreTests: XCTestCase {
 
     func testRejectsTruncationAndTrailers() {
         let payload = request(service: "login", key: "token", secret: Data([255]))
+
         for count in 0..<payload.count {
             XCTAssertThrowsError(try payload.prefix(count).withUnsafeBytes {
                 try SecureRequest(method: 1, bytes: $0)
             })
         }
+
         var trailing = payload
         trailing.append(0)
         XCTAssertThrowsError(try trailing.withUnsafeBytes { try SecureRequest(method: 1, bytes: $0) })
@@ -56,6 +60,7 @@ final class SecureStoreTests: XCTestCase {
             let payload = request(service: "test", key: name)
             XCTAssertThrowsError(try payload.withUnsafeBytes { try SecureRequest(method: 0, bytes: $0) })
         }
+
         let payload = request(service: "test", key: "large", secret: Data(repeating: 0, count: 2049))
         XCTAssertThrowsError(try payload.withUnsafeBytes { try SecureRequest(method: 1, bytes: $0) }) { error in
             XCTAssertEqual(error as? PluginError, .tooLarge)
@@ -71,7 +76,9 @@ final class SecureStoreTests: XCTestCase {
         }
         append(Data(service.utf8))
         append(Data(key.utf8))
+
         if let secret { append(secret) }
+
         return result
     }
 }

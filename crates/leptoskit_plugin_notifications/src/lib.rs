@@ -199,6 +199,7 @@ impl Notification {
 		if payload.len() > 4496 {
 			return Err(Error::InvalidArgument);
 		}
+
 		let mut input = Decoder::new(payload);
 		let result = Self::new(
 			Identifier::new(input.string()?)?,
@@ -259,9 +260,11 @@ impl Channel {
 	pub fn encode(&self) -> Result<Bytes, Error> {
 		let mut output =
 			Encoder::with_capacity(20 + self.id.0.len() + self.name.len() + self.description.len());
+
 		for value in [self.id.as_str(), &self.name, &self.description] {
 			output.bytes(value.as_bytes())?;
 		}
+
 		output.u32(self.importance as u32);
 		output.u32(u32::from(self.sound));
 		Ok(output.finish())
@@ -272,21 +275,25 @@ impl Channel {
 		if payload.len() > 1236 {
 			return Err(Error::InvalidArgument);
 		}
+
 		let mut input = Decoder::new(payload);
 		let id = Identifier::new(input.string()?)?;
 		let name = input.string()?;
 		let description = input.string()?;
+
 		let importance = match input.u32()? {
 			1 => Importance::Low,
 			2 => Importance::Default,
 			3 => Importance::High,
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		let sound = match input.u32()? {
 			0 => false,
 			1 => true,
 			_ => return Err(Error::InvalidArgument),
 		};
+
 		input.finish()?;
 		Self::new(id, name, description, importance, sound)
 	}
@@ -313,15 +320,20 @@ mod tests {
 		.unwrap();
 		let bytes = note.encode().unwrap();
 		assert_eq!(Notification::decode(&bytes).unwrap(), note);
+
 		for length in 0..bytes.len() {
 			assert!(Notification::decode(&bytes[..length]).is_err());
 		}
+
 		let mut trailing = bytes.to_vec();
+
 		trailing.push(0);
 		assert!(Notification::decode(&trailing).is_err());
+
 		for id in ["", "../a/b", "bad\0id", "é", &"a".repeat(65)] {
 			assert!(Identifier::new(id).is_err());
 		}
+
 		assert!(Notification::new(note.id.clone(), "\t", "", note.channel.clone()).is_err());
 		assert!(Notification::new(note.id, "Valid", "bad\0body", note.channel).is_err());
 	}
@@ -344,6 +356,7 @@ mod tests {
 			Permission::decode(&[4, 0, 0, 0]),
 			Ok(Permission::Provisional)
 		);
+
 		for value in [&[][..], &[3], &[6, 0, 0, 0], &[3, 0, 0, 0, 0]] {
 			assert!(Permission::decode(value).is_err());
 		}
@@ -358,6 +371,7 @@ mod tests {
 			Permission::Provisional,
 			Permission::Ephemeral,
 		];
+
 		for (value, permission) in (0u32..).zip(expected) {
 			assert_eq!(Permission::decode(&value.to_le_bytes()), Ok(permission));
 		}
@@ -385,9 +399,11 @@ mod tests {
 			Err(Error::InvalidArgument)
 		);
 		let mut bad_channel = Encoder::default();
+
 		for value in ["job", "Title", "", "no/slash"] {
 			bad_channel.bytes(value.as_bytes()).unwrap();
 		}
+
 		assert_eq!(
 			Notification::decode(&bad_channel.finish()),
 			Err(Error::InvalidArgument)

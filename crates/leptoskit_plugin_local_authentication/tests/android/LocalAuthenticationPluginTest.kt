@@ -52,6 +52,7 @@ class LocalAuthenticationPluginTest {
     private fun request(): ByteBuffer {
         val reason = "Unlock notes".toByteArray()
         val cancel = "Cancel".toByteArray()
+
         return ByteBuffer
             .allocate(16 + reason.size + cancel.size)
             .order(ByteOrder.LITTLE_ENDIAN)
@@ -72,10 +73,12 @@ class LocalAuthenticationPluginTest {
                 try {
                     val bytes = plugin.invoke(0, ByteBuffer.wrap(authenticationFields(0)))
                     val status = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).getInt(8)
+
                     assertEquals(if (Build.VERSION.SDK_INT >= 30) 5 else 1, status)
                     try {
                         plugin.invoke(1, request())
                         fail("Missing manifest permission cannot authenticate")
+
                     } catch (error: PluginException) {
                         assertEquals(
                             if (Build.VERSION.SDK_INT >=
@@ -103,6 +106,7 @@ class LocalAuthenticationPluginTest {
                     }
                     assertArrayEquals(ByteArray(0), plugin.invoke(2, ByteBuffer.allocate(0)))
                 } finally {
+
                     plugin.close()
                 }
                 try {
@@ -127,6 +131,7 @@ class LocalAuthenticationPluginTest {
                         assertEquals(PluginException.UNAVAILABLE, error.code)
                     }
                 } finally {
+
                     plugin.close()
                 }
             }
@@ -167,6 +172,7 @@ class LocalAuthenticationPluginTest {
         ) {
             assertEquals(PluginException.INVALID_ARGUMENT, error.code)
         }
+
         input.putInt(4, 0)
         input.put(12, 255.toByte())
         try {

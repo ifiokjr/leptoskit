@@ -55,6 +55,7 @@ impl<'a> Lexer<'a> {
 	fn quoted(&mut self) {
 		while let Some(byte) = self.peek(0) {
 			self.pos += 1;
+
 			match byte {
 				b'\\' => self.pos += 1,
 				b'"' => return,
@@ -68,8 +69,10 @@ impl<'a> Lexer<'a> {
 	fn raw_quoted(&mut self, hashes: usize) {
 		while let Some(byte) = self.peek(0) {
 			self.pos += 1;
+
 			if byte == b'"' && (0..hashes).all(|offset| self.peek(offset) == Some(b'#')) {
 				self.pos += hashes;
+
 				return;
 			}
 		}
@@ -77,6 +80,7 @@ impl<'a> Lexer<'a> {
 
 	fn block_comment(&mut self) {
 		let mut depth = 0usize;
+
 		while self.pos < self.src.len() {
 			if self.peek(0) == Some(b'/') && self.peek(1) == Some(b'*') {
 				depth += 1;
@@ -84,6 +88,7 @@ impl<'a> Lexer<'a> {
 			} else if self.peek(0) == Some(b'*') && self.peek(1) == Some(b'/') {
 				depth -= 1;
 				self.pos += 2;
+
 				if depth == 0 {
 					return;
 				}
@@ -97,6 +102,7 @@ impl<'a> Lexer<'a> {
 	/// literal (`b"…"`, `r#"…"#`, `cr"…"`) and consumes the literal if so.
 	fn literal_after_prefix(&mut self, start: usize) -> bool {
 		let prefix = &self.src[start..self.pos];
+
 		match (prefix, self.peek(0)) {
 			(b"b" | b"c", Some(b'"')) => {
 				self.pos += 1;
@@ -117,6 +123,7 @@ impl<'a> Lexer<'a> {
 					// `r#ident`: a raw identifier, not a string.
 					return false;
 				}
+
 				self.pos += hashes + 1;
 				self.raw_quoted(hashes);
 				true
@@ -132,8 +139,10 @@ impl<'a> Lexer<'a> {
 		} else {
 			self.pos += utf8_len(self.peek(0).unwrap_or(0));
 		}
+
 		while let Some(byte) = self.peek(0) {
 			self.pos += 1;
+
 			if byte == b'\'' {
 				return;
 			}
@@ -154,16 +163,20 @@ impl Iterator for Lexer<'_> {
 		while self.peek(0).is_some_and(|byte| byte.is_ascii_whitespace()) {
 			self.pos += 1;
 		}
+
 		let start = self.pos;
 		let byte = self.peek(0)?;
 		self.pos += 1;
+
 		let token = match byte {
 			b'/' if self.peek(0) == Some(b'/') => {
 				while self.peek(0).is_some_and(|byte| byte != b'\n') {
 					self.pos += 1;
 				}
+
 				Token::LineComment
 			}
+
 			b'/' if self.peek(0) == Some(b'*') => {
 				self.pos = start;
 				self.block_comment();
@@ -189,6 +202,7 @@ impl Iterator for Lexer<'_> {
 			}
 			b'(' | b'[' | b'{' => Token::Open(byte),
 			b')' | b']' | b'}' => Token::Close(byte),
+
 			byte if is_ident_byte(byte) => {
 				self.ident_tail();
 				if self.literal_after_prefix(start) {
@@ -199,11 +213,14 @@ impl Iterator for Lexer<'_> {
 						self.pos += 1;
 						self.ident_tail();
 					}
+
 					Token::Ident
 				}
 			}
+
 			byte => Token::Punct(byte),
 		};
+
 		Some((token, start..self.pos.min(self.src.len())))
 	}
 }
@@ -275,13 +292,16 @@ pub(crate) fn find_macros(src: &str, names: &[String]) -> Vec<MacroCall> {
 	let mentioned = names
 		.iter()
 		.any(|name| src.contains(name.rsplit("::").next().unwrap_or(name)));
+
 	if !mentioned || !src.contains('!') {
 		return calls;
 	}
+
 	let tokens: Vec<(Token, Range<usize>)> = Lexer::new(src)
 		.filter(|(token, _)| !matches!(token, Token::LineComment | Token::BlockComment))
 		.collect();
 	let mut index = 0;
+
 	while index < tokens.len() {
 		match tokens[index].0 {
 			Token::Punct(b'#') => {
@@ -307,8 +327,10 @@ pub(crate) fn find_macros(src: &str, names: &[String]) -> Vec<MacroCall> {
 			}
 			_ => {}
 		}
+
 		index += 1;
 	}
+
 	calls
 }
 
@@ -332,16 +354,20 @@ fn macro_at(
 	names: &[String],
 ) -> Option<(MacroCall, usize)> {
 	let mut path = String::new();
+
 	if path_start < first_ident {
 		path.push_str("::");
 	}
+
 	let mut index = first_ident;
+
 	loop {
 		let (Token::Ident, range) = &tokens.get(index)? else {
 			return None;
 		};
 		path.push_str(&src[range.clone()]);
 		index += 1;
+
 		if is_path_separator(tokens, index) {
 			path.push_str("::");
 			index += 2;
@@ -351,12 +377,15 @@ fn macro_at(
 			return None;
 		}
 	}
+
 	let (Token::Open(open), open_range) = tokens.get(index + 1)? else {
 		return None;
 	};
+
 	if !names.contains(&path) {
 		return None;
 	}
+
 	let close = matching_close(tokens, index + 1)?;
 	let call = MacroCall {
 		range: tokens[path_start].1.start..tokens[close].1.end,
@@ -370,6 +399,7 @@ fn macro_at(
 /// The index of the token closing the group opened at `open`.
 fn matching_close(tokens: &[(Token, Range<usize>)], open: usize) -> Option<usize> {
 	let mut depth = 0usize;
+
 	for (index, (token, _)) in tokens.iter().enumerate().skip(open) {
 		match token {
 			Token::Open(_) => depth += 1,
@@ -382,6 +412,7 @@ fn matching_close(tokens: &[(Token, Range<usize>)], open: usize) -> Option<usize
 			_ => {}
 		}
 	}
+
 	None
 }
 
@@ -394,18 +425,23 @@ fn skip_attribute_target(
 ) -> Option<usize> {
 	let inner = tokens.get(hash + 1)?.0 == Token::Punct(b'!');
 	let open = hash + 1 + usize::from(inner);
+
 	if tokens.get(open)?.0 != Token::Open(b'[') {
 		return None;
 	}
+
 	let close = matching_close(tokens, open)?;
 	let attribute: String = tokens[open + 1..close]
 		.iter()
 		.map(|(_, range)| &src[range.clone()])
 		.collect();
+
 	if !attribute.starts_with("rustfmt::skip") {
 		return None;
 	}
+
 	let mut depth = 0isize;
+
 	for (index, (token, _)) in tokens.iter().enumerate().skip(close + 1) {
 		match token {
 			Token::Open(_) => depth += 1,
@@ -417,10 +453,12 @@ fn skip_attribute_target(
 					return Some(index + 1);
 				}
 			}
+
 			Token::Punct(b';') if depth == 0 && !inner => return Some(index + 1),
 			_ => {}
 		}
 	}
+
 	Some(tokens.len())
 }
 
@@ -442,6 +480,7 @@ pub(crate) fn comments_in(src: &str, range: Range<usize>) -> Vec<Comment> {
 				Token::BlockComment => true,
 				_ => return None,
 			};
+
 			Some(Comment {
 				range: range.start + offset..range.end + offset,
 				block,
@@ -456,18 +495,23 @@ pub(crate) fn verbatim_lines(text: &str) -> Vec<bool> {
 	let mut verbatim = vec![false; text.split('\n').count()];
 	let mut line = 0;
 	let mut counted = 0;
+
 	for (token, range) in Lexer::new(text) {
 		if token != Token::Literal {
 			continue;
 		}
+
 		line += text[counted..range.start].matches('\n').count();
 		let inner_lines = text[range.clone()].matches('\n').count();
+
 		for flag in verbatim.iter_mut().skip(line + 1).take(inner_lines) {
 			*flag = true;
 		}
+
 		line += inner_lines;
 		counted = range.end;
 	}
+
 	verbatim
 }
 
