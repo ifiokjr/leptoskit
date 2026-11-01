@@ -57,56 +57,57 @@ pub fn run(command: &mut Command, timeout: Duration) -> Result<ToolOutput, Error
 		.stdin(Stdio::null())
 		.stdout(Stdio::piped())
 		.stderr(Stdio::piped());
+
 	let name = command.get_program().to_string_lossy().into_owned();
-	let spawn = |command: &mut Command| {
-		command.spawn().map_err(|error| {
-			Error::Tool {
-				name: name.clone(),
-				detail: format!("starting: {error}"),
-			}
-		})
-	};
-	let mut child = spawn(command)?;
-	// A tool sometimes leaves a process behind that inherits its output
-	// pipes, such as a device daemon started by `adb` or `devicectl`. Waiting
-	// for the pipes to close would then wait for that process to exit, which
-	// can be forever. The readers report on a channel instead, so a pipe that
-	// stays open costs one bounded grace period rather than the whole run.
-	#[derive(Clone, Copy)]
-	enum Stream {
-		Out,
-		Err,
+	let mut child = spawn(command, &name)?;
+	let (receiver, readers) = read_pipes(&mut child);
+	let timed_out = wait(&mut child, timeout, &name);
+
+	// Reap the child in either case. After a kill this also lets the tool's
+	// own pipe ends close, so the readers usually finish inside the grace.
+	let code = child.wait().ok().and_then(|status| status.code());
+	let (raw, err) = collect(receiver, readers, Duration::from_secs(1));
+
+	if timed_out {
+		return Err(Error::Tool {
+			name,
+			detail: format!("exceeded {} seconds", timeout.as_secs()),
+		});
 	}
-	// Each reader sends the bytes it has as it reads them, then `None` at
-	// end of file. A pipe the tool's own processes closed always reaches end
-	// of file; one a leftover daemon still holds yields what was read by the
-	// deadline.
-	fn capture(
-		mut pipe: impl std::io::Read,
-		stream: Stream,
-		sender: &mpsc::Sender<(Stream, Option<Vec<u8>>)>,
-	) {
-		let mut buffer = [0u8; 8192];
 
-		loop {
-			match std::io::Read::read(&mut pipe, &mut buffer) {
-				Ok(0) => break,
-				Ok(read) => {
-					if sender
-						.send((stream, Some(buffer[..read].to_vec())))
-						.is_err()
-					{
-						return;
-					}
-				}
+	Ok(ToolOutput {
+		stdout: String::from_utf8_lossy(&raw).into_owned(),
+		stderr: String::from_utf8_lossy(&err).into_owned(),
+		raw,
+		code,
+	})
+}
 
-				Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-				Err(_) => break,
-			}
+/// Which pipe a reader is on.
+#[derive(Clone, Copy)]
+enum Stream {
+	Out,
+	Err,
+}
+
+/// Starts the tool, naming it in anything that goes wrong.
+fn spawn(command: &mut Command, name: &str) -> Result<Child, Error> {
+	command.spawn().map_err(|error| {
+		Error::Tool {
+			name: name.to_owned(),
+			detail: format!("starting: {error}"),
 		}
+	})
+}
 
-		let _ = sender.send((stream, None));
-	}
+/// Reads the tool's two pipes on their own threads.
+///
+/// A tool sometimes leaves a process behind that inherits its output pipes,
+/// such as a device daemon started by `adb` or `devicectl`. Waiting for the
+/// pipes to close would then wait for that process to exit, which can be
+/// forever. The readers report on a channel instead, so a pipe that stays open
+/// costs one bounded grace period rather than the whole run.
+fn read_pipes(child: &mut Child) -> (mpsc::Receiver<(Stream, Option<Vec<u8>>)>, usize) {
 	let (sender, receiver) = mpsc::channel();
 	let mut readers = 0;
 
@@ -122,37 +123,75 @@ pub fn run(command: &mut Command, timeout: Duration) -> Result<ToolOutput, Error
 		std::thread::spawn(move || capture(pipe, Stream::Err, &sender));
 	}
 
+	(receiver, readers)
+}
+
+/// Sends the bytes a pipe yields as they arrive, then `None` at end of file.
+fn capture(
+	mut pipe: impl std::io::Read,
+	stream: Stream,
+	sender: &mpsc::Sender<(Stream, Option<Vec<u8>>)>,
+) {
+	let mut buffer = [0u8; 8192];
+
+	loop {
+		match std::io::Read::read(&mut pipe, &mut buffer) {
+			Ok(0) => break,
+			Ok(read) => {
+				if sender
+					.send((stream, Some(buffer[..read].to_vec())))
+					.is_err()
+				{
+					return;
+				}
+			}
+
+			Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+			Err(_) => break,
+		}
+	}
+
+	let _ = sender.send((stream, None));
+}
+
+/// Waits for the tool, killing it once `timeout` passes. Says whether it had
+/// to be killed.
+fn wait(child: &mut Child, timeout: Duration, name: &str) -> bool {
 	let started = Instant::now();
-	let mut timed_out = false;
 
 	loop {
 		match child.try_wait() {
-			Ok(Some(_)) => break,
+			Ok(Some(_)) => return false,
 			Ok(None) => {}
 			Err(error) => {
 				eprintln!("waiting for {name}: {error}");
-				break;
+
+				return false;
 			}
 		}
 
-		if started.elapsed() >= timeout {
-			if let Err(error) = terminate(&mut child) {
-				eprintln!("terminating timed-out {name}: {error}");
-			}
-
-			timed_out = true;
-			break;
+		if started.elapsed() < timeout {
+			std::thread::sleep(Duration::from_millis(20));
+			continue;
 		}
 
-		std::thread::sleep(Duration::from_millis(20));
+		if let Err(error) = terminate(child) {
+			eprintln!("terminating timed-out {name}: {error}");
+		}
+
+		return true;
 	}
+}
 
-	// Reap the child in either case. After a kill this also lets the tool's
-	// own pipe ends close, so the readers usually finish inside the grace.
-	let code = child.wait().ok().and_then(|status| status.code());
+/// Collects what the readers send until both end, or `grace` passes.
+fn collect(
+	receiver: mpsc::Receiver<(Stream, Option<Vec<u8>>)>,
+	mut readers: usize,
+	grace: Duration,
+) -> (Vec<u8>, Vec<u8>) {
 	let mut raw = Vec::new();
 	let mut err = Vec::new();
-	let deadline = Instant::now() + Duration::from_secs(1);
+	let deadline = Instant::now() + grace;
 
 	while readers > 0 {
 		let Some(left) = deadline.checked_duration_since(Instant::now()) else {
@@ -171,19 +210,7 @@ pub fn run(command: &mut Command, timeout: Duration) -> Result<ToolOutput, Error
 		}
 	}
 
-	if timed_out {
-		return Err(Error::Tool {
-			name,
-			detail: format!("exceeded {} seconds", timeout.as_secs()),
-		});
-	}
-
-	Ok(ToolOutput {
-		stdout: String::from_utf8_lossy(&raw).into_owned(),
-		stderr: String::from_utf8_lossy(&err).into_owned(),
-		raw,
-		code,
-	})
+	(raw, err)
 }
 
 /// Spawns a detached process that outlives this run, for emulators a control

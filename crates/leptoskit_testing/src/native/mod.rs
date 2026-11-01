@@ -135,18 +135,7 @@ impl Options {
 	}
 
 	fn driver_capabilities(&self) -> Result<Value, Error> {
-		if [
-			self.startup_seconds,
-			self.command_seconds,
-			self.wait_seconds,
-		]
-		.iter()
-		.any(|value| !(1..=3600).contains(value))
-		{
-			return Err(Error::Configuration(
-				"deadlines must be between 1 and 3600 seconds".to_owned(),
-			));
-		}
+		self.check_deadlines()?;
 
 		let (platform, driver) = match self.platform {
 			Platform::Ios => ("iOS", "XCUITest"),
@@ -161,23 +150,56 @@ impl Options {
 			("appium:automationName".to_owned(), json!(driver)),
 		]);
 
-		if matches!(self.platform, Platform::Ios | Platform::Android) {
-			let device = self
-				.device
-				.as_deref()
-				.filter(|id| !id.trim().is_empty())
-				.ok_or_else(|| {
-					Error::Configuration("mobile sessions require an explicit device ID".to_owned())
-				})?;
-			capabilities.insert("appium:udid".to_owned(), json!(device));
+		self.apply_device(&mut capabilities)?;
+		self.apply_application(&mut capabilities)?;
+		self.apply_platform(&mut capabilities);
+		self.apply_extra(&mut capabilities)?;
 
-			capabilities.insert("appium:noReset".to_owned(), json!(true));
-			capabilities.insert(
-				"appium:newCommandTimeout".to_owned(),
-				json!(self.command_seconds + self.wait_seconds + 60),
-			);
+		Ok(json!({"capabilities": {"alwaysMatch": capabilities, "firstMatch": [{}]}}))
+	}
+
+	/// Rejects a deadline outside the range the drivers accept.
+	fn check_deadlines(&self) -> Result<(), Error> {
+		let deadlines = [
+			self.startup_seconds,
+			self.command_seconds,
+			self.wait_seconds,
+		];
+
+		if deadlines.iter().all(|value| (1..=3600).contains(value)) {
+			return Ok(());
 		}
 
+		Err(Error::Configuration(
+			"deadlines must be between 1 and 3600 seconds".to_owned(),
+		))
+	}
+
+	/// Names the device a mobile session drives, and how long it may sit idle.
+	fn apply_device(&self, capabilities: &mut BTreeMap<String, Value>) -> Result<(), Error> {
+		if !matches!(self.platform, Platform::Ios | Platform::Android) {
+			return Ok(());
+		}
+
+		let device = self
+			.device
+			.as_deref()
+			.filter(|id| !id.trim().is_empty())
+			.ok_or_else(|| {
+				Error::Configuration("mobile sessions require an explicit device ID".to_owned())
+			})?;
+		capabilities.insert("appium:udid".to_owned(), json!(device));
+		capabilities.insert("appium:noReset".to_owned(), json!(true));
+		capabilities.insert(
+			"appium:newCommandTimeout".to_owned(),
+			json!(self.command_seconds + self.wait_seconds + 60),
+		);
+
+		Ok(())
+	}
+
+	/// Points the session at the app to launch, in the key the driver reads.
+	fn apply_application(&self, capabilities: &mut BTreeMap<String, Value>) -> Result<(), Error> {
 		match &self.application {
 			Application::Path(path) => {
 				if path.trim().is_empty() {
@@ -190,15 +212,7 @@ impl Options {
 				};
 
 				capabilities.insert(key.to_owned(), json!(path));
-				if self.platform == Platform::Macos {
-					// WebDriverAgentMac terminates the apps it owns by bundle
-					// identifier when a session ends. A path-launched app
-					// carries none, so WDA leaves it running after
-					// DELETE /session and the next journey starts with it
-					// still on screen. An explicit skipAppKill claims the app
-					// so teardown quits it.
-					capabilities.insert("appium:skipAppKill".to_owned(), json!(false));
-				}
+				self.claim_path_launched_app(capabilities);
 			}
 			Application::Identifier(id) => {
 				if id.trim().is_empty() {
@@ -228,68 +242,100 @@ impl Options {
 			}
 		}
 
-		if self.platform == Platform::Ios {
-			capabilities.insert(
-				"appium:settings[respectSystemAlerts]".to_owned(),
-				json!(true),
-			);
-			capabilities.insert("appium:autoAcceptAlerts".to_owned(), json!(false));
-			capabilities.insert("appium:autoDismissAlerts".to_owned(), json!(false));
-			capabilities.insert(
-				"appium:commandTimeouts".to_owned(),
-				json!((self.driver_command_seconds() * 1000).to_string()),
-			);
-			// Before each action XCTest waits for the app to go idle. System
-			// animations settle well within a second, while continuous ones
-			// (a focused field's caret) never do, so a longer wait only adds a
-			// fixed delay; tests already wait for observable state instead.
-			capabilities.insert("appium:waitForIdleTimeout".to_owned(), json!(1));
-			// While a system alert is up, the accessibility tree comes from
-			// SpringBoard, and WebDriverAgent's per-element visibility and
-			// accessibility checks can stall there past any deadline after an
-			// accessibility error. Evidence trees keep every element's type,
-			// name, label, value, and frame without those two attributes.
-			capabilities.insert(
-				"appium:settings[pageSourceExcludedAttributes]".to_owned(),
-				json!("visible,accessible"),
-			);
-		}
+		Ok(())
+	}
 
-		if self.platform == Platform::Android {
-			capabilities.insert("appium:autoGrantPermissions".to_owned(), json!(false));
-		}
-
+	/// Claims an app launched from a path so teardown quits it.
+	///
+	/// WebDriverAgentMac terminates the apps it owns by bundle identifier when
+	/// a session ends. A path-launched app carries none, so WDA leaves it
+	/// running after DELETE /session and the next journey starts with it still
+	/// on screen. An explicit `skipAppKill` of false claims the app.
+	fn claim_path_launched_app(&self, capabilities: &mut BTreeMap<String, Value>) {
 		if self.platform == Platform::Macos {
-			// The driver builds and launches its XCTest runner on first use,
-			// which the session's own startup budget already covers.
-			capabilities.insert(
-				"appium:serverStartupTimeout".to_owned(),
-				json!(self.startup_seconds * 1000),
-			);
+			capabilities.insert("appium:skipAppKill".to_owned(), json!(false));
 		}
+	}
 
+	/// Adds the settings each platform's driver needs to behave predictably.
+	fn apply_platform(&self, capabilities: &mut BTreeMap<String, Value>) {
+		match self.platform {
+			Platform::Ios => self.apply_ios(capabilities),
+			Platform::Android => {
+				capabilities.insert("appium:autoGrantPermissions".to_owned(), json!(false));
+			}
+			Platform::Macos => self.apply_macos(capabilities),
+			Platform::Windows | Platform::Linux => {}
+		}
+	}
+
+	/// Waits for idleness only briefly, and keeps evidence trees small.
+	fn apply_ios(&self, capabilities: &mut BTreeMap<String, Value>) {
+		capabilities.insert(
+			"appium:settings[respectSystemAlerts]".to_owned(),
+			json!(true),
+		);
+		capabilities.insert("appium:autoAcceptAlerts".to_owned(), json!(false));
+		capabilities.insert("appium:autoDismissAlerts".to_owned(), json!(false));
+		capabilities.insert(
+			"appium:commandTimeouts".to_owned(),
+			json!((self.driver_command_seconds() * 1000).to_string()),
+		);
+		// Before each action XCTest waits for the app to go idle. System
+		// animations settle well within a second, while continuous ones (a
+		// focused field's caret) never do, so a longer wait only adds a fixed
+		// delay; tests already wait for observable state instead.
+		capabilities.insert("appium:waitForIdleTimeout".to_owned(), json!(1));
+		// While a system alert is up, the accessibility tree comes from
+		// SpringBoard, and WebDriverAgent's per-element visibility and
+		// accessibility checks can stall there past any deadline after an
+		// accessibility error. Evidence trees keep every element's type, name,
+		// label, value, and frame without those two attributes.
+		capabilities.insert(
+			"appium:settings[pageSourceExcludedAttributes]".to_owned(),
+			json!("visible,accessible"),
+		);
+	}
+
+	/// Gives the XCTest runner the session's startup budget to build.
+	fn apply_macos(&self, capabilities: &mut BTreeMap<String, Value>) {
+		// The driver builds and launches its XCTest runner on first use, which
+		// the session's own startup budget already covers.
+		capabilities.insert(
+			"appium:serverStartupTimeout".to_owned(),
+			json!(self.startup_seconds * 1000),
+		);
+	}
+
+	/// Adds the caller's namespaced capabilities, refusing the typed ones.
+	fn apply_extra(&self, capabilities: &mut BTreeMap<String, Value>) -> Result<(), Error> {
 		for (key, value) in &self.capabilities {
-			if !key.contains(':')
-				|| matches!(
-					key.as_str(),
-					"appium:automationName"
-						| "appium:app"
-						| "appium:appPath"
-						| "appium:commandTimeouts"
-						| "appium:udid"
-						| "appium:bundleId"
-						| "appium:appPackage"
-						| "appium:skipAppKill"
-				) {
+			if !key.contains(':') || is_typed_capability(key) {
 				return Err(Error::Configuration(format!(
 					"capability {key:?} must use the typed session fields or a driver namespace"
 				)));
 			}
+
 			capabilities.insert(key.clone(), value.clone());
 		}
 
-		Ok(json!({"capabilities": {"alwaysMatch": capabilities, "firstMatch": [{}]}}))
+		Ok(())
 	}
+}
+
+/// Whether a capability is one the typed session fields already set.
+fn is_typed_capability(key: &str) -> bool {
+	matches!(
+		key,
+		"appium:automationName"
+			| "appium:app"
+			| "appium:appPath"
+			| "appium:commandTimeouts"
+			| "appium:udid"
+			| "appium:bundleId"
+			| "appium:appPackage"
+			| "appium:skipAppKill"
+	)
 }
 
 /// A semantic native selector, resolved afresh before every action.
