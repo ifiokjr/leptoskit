@@ -23,6 +23,7 @@ use crate::Sequence;
 use crate::Table;
 use crate::TableName;
 use crate::Trigger;
+use crate::VectorOptions;
 use crate::View;
 
 /// The steps that turn one schema into another, in the order they apply.
@@ -231,6 +232,42 @@ pub enum Step {
 		/// The index as it was.
 		index: GeoIndex,
 	},
+	/// Index a vector column for nearest-neighbour search, after every other
+	/// change to the table, and index the rows it already has: pgvector's
+	/// index on Postgres, a sqlite-vec `vec0` table on SQLite.
+	CreateVectorIndex {
+		/// The table, by its new name.
+		table: TableName,
+		/// The vector column's options.
+		vector: VectorOptions,
+	},
+	/// Drop a vector column's index, before any other change to the table.
+	/// It's derived from the column, so nothing is lost; a changed index is
+	/// dropped and created again.
+	DropVectorIndex {
+		/// The table, by its new name.
+		table: TableName,
+		/// The vector column's options as they were.
+		vector: VectorOptions,
+	},
+	/// Start recording which sources each row's vector was made from: the
+	/// triggers that set its fingerprint, after every other change to the
+	/// table. Vectors already there are taken as made from the row's
+	/// sources.
+	CreateVectorSource {
+		/// The table, by its new name.
+		table: TableName,
+		/// The vector column's options.
+		vector: VectorOptions,
+	},
+	/// Stop recording a vector column's sources, before any other change to
+	/// the table. The fingerprints already recorded stay in their column.
+	DropVectorSource {
+		/// The table, by its new name.
+		table: TableName,
+		/// The vector column's options as they were.
+		vector: VectorOptions,
+	},
 	/// Register a table's geometry column in GeoPackage's metadata tables,
 	/// creating them first if they're missing. SQLite only.
 	RegisterGeoPackage {
@@ -314,6 +351,10 @@ impl Step {
 			| Self::DropRowSecurity { table, .. }
 			| Self::CreateGeoIndex { table, .. }
 			| Self::DropGeoIndex { table, .. }
+			| Self::CreateVectorIndex { table, .. }
+			| Self::DropVectorIndex { table, .. }
+			| Self::CreateVectorSource { table, .. }
+			| Self::DropVectorSource { table, .. }
 			| Self::RegisterGeoPackage { table, .. }
 			| Self::UnregisterGeoPackage { table, .. } => table,
 			Self::CreateView(view) | Self::DropView(view) => &view.name,
@@ -377,6 +418,8 @@ impl Step {
 			| Self::DropSearch { .. }
 			| Self::DropRowSecurity { .. }
 			| Self::DropGeoIndex { .. }
+			| Self::DropVectorIndex { .. }
+			| Self::DropVectorSource { .. }
 			| Self::UnregisterGeoPackage { .. } => 1,
 			Self::DropForeignKey { .. } => 2,
 			Self::DropIndex { .. } => 3,
@@ -401,6 +444,8 @@ impl Step {
 			Self::CreateSearch { .. }
 			| Self::CreateRowSecurity { .. }
 			| Self::CreateGeoIndex { .. }
+			| Self::CreateVectorIndex { .. }
+			| Self::CreateVectorSource { .. }
 			| Self::RegisterGeoPackage { .. } => 17,
 			Self::SetTableComment { .. } | Self::SetColumnComment { .. } => 18,
 			Self::DropTable(_) => 19,
@@ -524,6 +569,29 @@ impl fmt::Display for Step {
 			}
 			Self::DropGeoIndex { table, index } => {
 				write!(f, "- spatial index {table}({})", index.column)
+			}
+			Self::CreateVectorIndex { table, vector } => {
+				write!(f, "+ vector index {table}({})", vector.column)?;
+
+				if let Some(distance) = vector.distance {
+					write!(f, " by {distance}")?;
+				}
+
+				Ok(())
+			}
+			Self::DropVectorIndex { table, vector } => {
+				write!(f, "- vector index {table}({})", vector.column)
+			}
+			Self::CreateVectorSource { table, vector } => {
+				write!(
+					f,
+					"+ vector sources {table}.{} ({})",
+					vector.column,
+					vector.sources.join(", ")
+				)
+			}
+			Self::DropVectorSource { table, vector } => {
+				write!(f, "- vector sources {table}.{}", vector.column)
 			}
 			Self::RegisterGeoPackage { table, layer } => {
 				write!(f, "+ GeoPackage layer {table}({})", layer.column)
@@ -809,6 +877,7 @@ pub fn diff(
 	for (pair, columns) in &matched_tables {
 		diff_search(pair, columns, &rekeyed, &mut steps);
 		diff_geo_indexes(pair, columns, &rekeyed, &mut steps);
+		diff_vectors(target.dialect, pair, columns, &rekeyed, &mut steps);
 		diff_geopackage(previous, target, pair, columns, &mut steps);
 	}
 
@@ -820,6 +889,10 @@ pub fn diff(
 				table: table.name.clone(),
 				index: index.clone(),
 			});
+		}
+
+		for vector in &table.vectors {
+			steps.extend(create_vector(target.dialect, &table.name, vector));
 		}
 
 		if let Some(layer) = target.geopackage_layer(table) {
@@ -850,6 +923,10 @@ pub fn diff(
 				table: table.name.clone(),
 				index: index.clone(),
 			});
+		}
+
+		for vector in &table.vectors {
+			steps.extend(drop_vector(previous.dialect, &table.name, vector));
 		}
 
 		if let Some(search) = &table.search {
@@ -895,6 +972,7 @@ fn diff_row_security(
 				| Step::SetColumnComment { .. }
 				| Step::CreateSearch { .. }
 				| Step::CreateGeoIndex { .. }
+				| Step::CreateVectorIndex { .. }
 				| Step::RegisterGeoPackage { .. }
 		)
 	});
@@ -951,6 +1029,7 @@ fn diff_views(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
 				| Step::CreateRowSecurity { .. }
 				| Step::DropRowSecurity { .. }
 				| Step::CreateGeoIndex { .. }
+				| Step::CreateVectorIndex { .. }
 				| Step::RegisterGeoPackage { .. }
 				| Step::CreateSequence(_)
 				| Step::DropSequence(_)
@@ -1143,6 +1222,135 @@ fn diff_geo_indexes(
 			steps.push(Step::CreateGeoIndex {
 				table: pair.target.name.clone(),
 				index: index.clone(),
+			});
+		}
+	}
+}
+
+/// The steps that index a new vector column and record its sources, as far
+/// as `dialect` keeps either.
+fn create_vector(dialect: Dialect, table: &TableName, vector: &VectorOptions) -> Vec<Step> {
+	let mut steps = Vec::new();
+
+	if vector.is_indexed(dialect) {
+		steps.push(Step::CreateVectorIndex {
+			table: table.clone(),
+			vector: vector.clone(),
+		});
+	}
+
+	if !vector.sources.is_empty() {
+		steps.push(Step::CreateVectorSource {
+			table: table.clone(),
+			vector: vector.clone(),
+		});
+	}
+
+	steps
+}
+
+/// The steps that undo [`create_vector`].
+fn drop_vector(dialect: Dialect, table: &TableName, vector: &VectorOptions) -> Vec<Step> {
+	let mut steps = Vec::new();
+
+	if !vector.sources.is_empty() {
+		steps.push(Step::DropVectorSource {
+			table: table.clone(),
+			vector: vector.clone(),
+		});
+	}
+
+	if vector.is_indexed(dialect) {
+		steps.push(Step::DropVectorIndex {
+			table: table.clone(),
+			vector: vector.clone(),
+		});
+	}
+
+	steps
+}
+
+/// Recreates each vector column's index and source triggers that change,
+/// and each one the table changes under, as [`diff_geo_indexes`] does: the
+/// table is renamed or rekeyed, or a column they read (the vector, a source,
+/// or a key column) is renamed, retyped, or dropped. Visibility alone
+/// changes neither.
+fn diff_vectors(
+	dialect: Dialect,
+	pair: &TablePair<'_>,
+	columns: &ColumnMatches<'_>,
+	rekeyed: &HashSet<TableName>,
+	steps: &mut Vec<Step>,
+) {
+	// The previous names of the columns renamed, retyped, or dropped.
+	let disturbed: HashSet<&str> = columns
+		.matched
+		.iter()
+		.filter(|(from, to)| from.name != to.name || from.ty != to.ty)
+		.map(|(from, _)| from.name.as_str())
+		.chain(columns.removed.iter().map(|column| column.name.as_str()))
+		.collect();
+	let table_changed = pair.previous.name != pair.target.name
+		|| rekeyed.contains(&pair.target.name)
+		|| pair
+			.previous
+			.primary_key
+			.iter()
+			.any(|key| disturbed.contains(key.as_str()));
+	let mut kept_indexes = HashSet::new();
+	let mut kept_sources = HashSet::new();
+
+	for vector in &pair.previous.vectors {
+		let kept = pair
+			.target
+			.vectors
+			.iter()
+			.find(|kept| kept.column == vector.column)
+			.filter(|_| !table_changed && !disturbed.contains(vector.column.as_str()));
+
+		if vector.is_indexed(dialect) {
+			if kept
+				.is_some_and(|kept| (kept.distance, kept.index) == (vector.distance, vector.index))
+			{
+				kept_indexes.insert(vector.column.as_str());
+			} else {
+				steps.push(Step::DropVectorIndex {
+					table: pair.target.name.clone(),
+					vector: vector.clone(),
+				});
+			}
+		}
+
+		if !vector.sources.is_empty() {
+			let sources_kept = kept.is_some_and(|kept| kept.sources == vector.sources)
+				&& !vector
+					.sources
+					.iter()
+					.any(|source| disturbed.contains(source.as_str()));
+
+			if sources_kept {
+				kept_sources.insert(vector.column.as_str());
+			} else {
+				steps.push(Step::DropVectorSource {
+					table: pair.target.name.clone(),
+					vector: vector.clone(),
+				});
+			}
+		}
+	}
+
+	for vector in &pair.target.vectors {
+		if vector.is_indexed(dialect) && !kept_indexes.contains(vector.column.as_str()) {
+			steps.push(Step::CreateVectorIndex {
+				table: pair.target.name.clone(),
+				vector: vector.clone(),
+			});
+		}
+
+		if !vector.sources.is_empty() && !kept_sources.contains(vector.column.as_str()) {
+			steps.push(Step::CreateVectorSource {
+				table: pair.target.name.clone(),
+				vector: vector.clone(),
 			});
 		}
 	}

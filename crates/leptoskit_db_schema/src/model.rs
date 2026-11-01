@@ -133,7 +133,7 @@ impl Schema {
 	}
 
 	/// The Postgres extensions the schema's columns need: `postgis` for
-	/// geospatial columns.
+	/// geospatial columns, `vector` (pgvector) for vector columns.
 	pub fn extensions(&self) -> Vec<&'static str> {
 		let columns = || {
 			self.tables
@@ -145,6 +145,10 @@ impl Schema {
 
 		if columns().any(|column| column.ty.geo().is_some()) {
 			extensions.push(POSTGIS);
+		}
+
+		if columns().any(|column| column.ty.vector().is_some()) {
+			extensions.push(PGVECTOR);
 		}
 
 		extensions
@@ -283,6 +287,10 @@ impl Schema {
 			table.renamed_from = None;
 			table.on_account_merge = None;
 
+			for vector in &mut table.vectors {
+				vector.public = false;
+			}
+
 			for column in &mut table.columns {
 				column.renamed_from = None;
 			}
@@ -379,6 +387,10 @@ pub struct Table {
 	/// Spatial indexes over geospatial columns, in declaration order.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub geo_indexes: Vec<GeoIndex>,
+	/// How each vector column is measured, indexed, and kept fresh, in
+	/// declaration order.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub vectors: Vec<VectorOptions>,
 	/// What happens to the table's rows when two accounts merge and the
 	/// absorbed account's data comes along: `#[db::table(on_account_merge =
 	/// …)]`. Only meaningful in a target schema; snapshots never contain
@@ -436,6 +448,7 @@ impl Table {
 			search: None,
 			row_security: None,
 			geo_indexes: Vec::new(),
+			vectors: Vec::new(),
 			on_account_merge: None,
 		}
 	}
@@ -589,6 +602,14 @@ pub enum ColumnType {
 		/// The kind of shape every value has.
 		shape: GeoShape,
 	},
+	/// A vector of a fixed number of dimensions: pgvector's types on
+	/// Postgres, a `BLOB` in sqlite-vec's layout on SQLite.
+	Vector {
+		/// What each dimension holds.
+		element: VectorElement,
+		/// How many dimensions every value has.
+		dimensions: u32,
+	},
 }
 
 impl ColumnType {
@@ -601,6 +622,17 @@ impl ColumnType {
 		match self {
 			Self::Geometry { shape, srid } => Some((*shape, *srid)),
 			Self::Geography { shape } => Some((*shape, WGS84)),
+			_ => None,
+		}
+	}
+
+	/// The element and dimensions of a vector column.
+	pub fn vector(&self) -> Option<(VectorElement, u32)> {
+		match self {
+			Self::Vector {
+				element,
+				dimensions,
+			} => Some((*element, *dimensions)),
 			_ => None,
 		}
 	}
@@ -667,6 +699,10 @@ impl fmt::Display for ColumnType {
 			Self::Array { element } => write!(f, "{element}[]"),
 			Self::Geometry { shape, srid } => write!(f, "geometry({shape}, {srid})"),
 			Self::Geography { shape } => write!(f, "geography({shape})"),
+			Self::Vector {
+				element,
+				dimensions,
+			} => write!(f, "{}({dimensions})", element.postgres_name()),
 		}
 	}
 }
@@ -792,6 +828,297 @@ pub struct GeoPackageLayer {
 	pub shape: GeoShape,
 	/// Its coordinate system.
 	pub srid: u32,
+}
+
+/// The Postgres extension vector columns need: pgvector, whose extension
+/// is named `vector`.
+pub const PGVECTOR: &str = "vector";
+
+/// What each dimension of a vector column holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VectorElement {
+	/// A 32-bit float: pgvector's `vector`, sqlite-vec's `float`.
+	Float32,
+	/// A 16-bit float: pgvector's `halfvec`. SQLite keeps it as 32-bit
+	/// floats, which hold every 16-bit value exactly.
+	Float16,
+	/// One bit, for binary quantisation: `bit` on Postgres, sqlite-vec's
+	/// `bit`. The dimensions are a multiple of 8.
+	Bit,
+	/// A 32-bit float, mostly zero, stored as the nonzero ones: pgvector's
+	/// `sparsevec`. Postgres only.
+	Sparse,
+}
+
+impl VectorElement {
+	/// The Postgres type's name: `vector`, `halfvec`, `bit`, or `sparsevec`.
+	pub fn postgres_name(self) -> &'static str {
+		match self {
+			Self::Float32 => "vector",
+			Self::Float16 => "halfvec",
+			Self::Bit => "bit",
+			Self::Sparse => "sparsevec",
+		}
+	}
+
+	/// How many bytes a value of `dimensions` takes on SQLite: four per
+	/// float, one per eight bits. Sparse vectors have no SQLite form.
+	pub fn sqlite_bytes(self, dimensions: u32) -> Option<u64> {
+		match self {
+			Self::Float32 | Self::Float16 => Some(u64::from(dimensions) * 4),
+			Self::Bit => Some(u64::from(dimensions) / 8),
+			Self::Sparse => None,
+		}
+	}
+
+	/// The distances that measure this kind: Hamming and Jaccard for bits,
+	/// the others for floats.
+	pub fn measures(self, distance: VectorDistance) -> bool {
+		matches!(
+			(self, distance),
+			(Self::Bit, VectorDistance::Hamming | VectorDistance::Jaccard)
+				| (
+					Self::Float32 | Self::Float16 | Self::Sparse,
+					VectorDistance::L2
+						| VectorDistance::Cosine
+						| VectorDistance::InnerProduct
+						| VectorDistance::L1
+				)
+		)
+	}
+}
+
+/// How two vectors' distance is measured. Smaller is nearer for every one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VectorDistance {
+	/// Euclidean distance.
+	L2,
+	/// One minus the cosine of the angle between them.
+	Cosine,
+	/// The inner product, negated, as pgvector's `<#>` returns it, so the
+	/// most similar come first.
+	InnerProduct,
+	/// Taxicab distance: the sum of the dimensions' differences.
+	L1,
+	/// How many bits differ.
+	Hamming,
+	/// One minus the share of set bits the two have in common.
+	Jaccard,
+}
+
+impl VectorDistance {
+	/// Every distance.
+	pub const ALL: [Self; 6] = [
+		Self::L2,
+		Self::Cosine,
+		Self::InnerProduct,
+		Self::L1,
+		Self::Hamming,
+		Self::Jaccard,
+	];
+
+	/// The attribute's name for it: `l2`, `inner_product`.
+	pub fn name(self) -> &'static str {
+		match self {
+			Self::L2 => "l2",
+			Self::Cosine => "cosine",
+			Self::InnerProduct => "inner_product",
+			Self::L1 => "l1",
+			Self::Hamming => "hamming",
+			Self::Jaccard => "jaccard",
+		}
+	}
+
+	/// The distance with this [`VectorDistance::name`].
+	pub fn from_name(name: &str) -> Option<Self> {
+		Self::ALL
+			.into_iter()
+			.find(|distance| distance.name() == name)
+	}
+
+	/// pgvector's operator: `<->`, `<=>`, `<#>`, `<+>`, `<~>`, or `<%>`.
+	pub fn operator(self) -> &'static str {
+		match self {
+			Self::L2 => "<->",
+			Self::Cosine => "<=>",
+			Self::InnerProduct => "<#>",
+			Self::L1 => "<+>",
+			Self::Hamming => "<~>",
+			Self::Jaccard => "<%>",
+		}
+	}
+
+	/// Whether sqlite-vec ranks by this distance in a `vec0` table. It has
+	/// no inner product or Jaccard distance, which the database layer
+	/// measures in Rust instead.
+	pub fn ranked_by_sqlite_vec(self) -> bool {
+		matches!(self, Self::L2 | Self::Cosine | Self::L1 | Self::Hamming)
+	}
+
+	/// The `distance_metric` of a `vec0` table of floats that ranks by this
+	/// distance. A table of bits always ranks by Hamming distance.
+	pub fn sqlite_metric(self) -> Option<&'static str> {
+		match self {
+			Self::L2 => Some("l2"),
+			Self::Cosine => Some("cosine"),
+			Self::L1 => Some("l1"),
+			Self::InnerProduct | Self::Hamming | Self::Jaccard => None,
+		}
+	}
+}
+
+impl fmt::Display for VectorDistance {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.write_str(self.name())
+	}
+}
+
+/// The approximate index pgvector builds over a vector column.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VectorIndexKind {
+	/// A navigable small-world graph: fast and accurate, slower to build.
+	Hnsw,
+	/// Inverted lists of nearby vectors: quicker to build, and best built
+	/// once the table has rows.
+	#[serde(rename = "ivfflat")]
+	IvfFlat,
+}
+
+impl VectorIndexKind {
+	/// The index method's name: `hnsw` or `ivfflat`.
+	pub fn name(self) -> &'static str {
+		match self {
+			Self::Hnsw => "hnsw",
+			Self::IvfFlat => "ivfflat",
+		}
+	}
+}
+
+/// The prefix of the column that keeps a vector column's freshness: the
+/// fingerprint of the sources its value was made from.
+pub const VECTOR_SOURCE_PREFIX: &str = "lk_";
+
+/// The suffix of that column.
+pub const VECTOR_SOURCE_SUFFIX: &str = "_source";
+
+/// How one vector column is measured, indexed, and kept fresh:
+/// `#[db(vector(distance = …, index = …, source(…)))]`.
+///
+/// On Postgres an index is pgvector's HNSW or IVFFlat, with the operator
+/// class for the distance. On SQLite every search is exact: a sqlite-vec
+/// `vec0` table holds each row's vector, numbered by a table keyed by the
+/// row's key, both kept current by triggers, for the distances sqlite-vec
+/// ranks by; the others are measured in Rust.
+///
+/// With sources, a nullable text column, [`VectorOptions::source_column`],
+/// holds the fingerprint of the sources a row's vector was made from, which
+/// triggers set whenever a write changes the vector without setting it, so
+/// a write that changes only the sources leaves the vector stale.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VectorOptions {
+	/// The vector column.
+	pub column: String,
+	/// How it's measured, for nearest-neighbour search.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub distance: Option<VectorDistance>,
+	/// The approximate index Postgres keeps for it.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub index: Option<VectorIndexKind>,
+	/// The text columns its vectors are made from.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub sources: Vec<String>,
+	/// Whether the column is visible to clients, as vector columns aren't
+	/// by default: `lk db check` warns about it. Only meaningful in a target
+	/// schema; snapshots never contain it.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub public: bool,
+}
+
+impl VectorOptions {
+	/// A vector column measured by `distance`, with no index or sources.
+	pub fn new(column: impl Into<String>, distance: Option<VectorDistance>) -> Self {
+		Self {
+			column: column.into(),
+			distance,
+			index: None,
+			sources: Vec::new(),
+			public: false,
+		}
+	}
+
+	/// The same, indexed by `index` on Postgres.
+	#[must_use]
+	pub fn indexed(mut self, index: VectorIndexKind) -> Self {
+		self.index = Some(index);
+		self
+	}
+
+	/// The same, made from `sources`.
+	#[must_use]
+	pub fn from_sources(mut self, sources: &[&str]) -> Self {
+		self.sources = sources.iter().map(ToString::to_string).collect();
+		self
+	}
+
+	/// The column holding the fingerprint of the sources each row's vector
+	/// was made from: `lk_<column>_source`.
+	pub fn source_column(&self) -> String {
+		source_column(&self.column)
+	}
+
+	/// Whether `dialect` keeps an index for the column: pgvector's on
+	/// Postgres, when one is asked for; the `vec0` table on SQLite, when
+	/// sqlite-vec ranks by its distance.
+	pub fn is_indexed(&self, dialect: Dialect) -> bool {
+		match (dialect, self.distance) {
+			(Dialect::Postgres, Some(_)) => self.index.is_some(),
+			(Dialect::Sqlite, Some(distance)) => distance.ranked_by_sqlite_vec(),
+			(_, None) => false,
+		}
+	}
+
+	/// pgvector's index on Postgres: `<table>_<column>_hnsw`.
+	pub fn index_name(&self, table: &TableName) -> String {
+		let method = self.index.map_or("hnsw", VectorIndexKind::name);
+		crate::constraint_name(table, &[&self.column], method)
+	}
+
+	/// The sqlite-vec `vec0` table holding each row's vector on SQLite.
+	pub fn vec_table(&self, table: &TableName) -> String {
+		crate::shorten_identifier(&format!("{}_lk_vec_{}", table.flat(), self.column))
+	}
+
+	/// The table numbering the indexed rows by key on SQLite.
+	pub fn rows_table(&self, table: &TableName) -> String {
+		crate::shorten_identifier(&format!("{}_lk_vec_{}_rows", table.flat(), self.column))
+	}
+
+	/// The trigger that indexes a row after `event` (`insert`, `update`, or
+	/// `delete`) on SQLite.
+	pub fn trigger_name(&self, table: &TableName, event: &str) -> String {
+		crate::shorten_identifier(&format!("{}_lk_vec_{}_{event}", table.flat(), self.column))
+	}
+
+	/// The trigger that records which sources a vector was made from: on
+	/// Postgres one trigger and its function, both named with no `event`;
+	/// on SQLite one trigger per event, `insert` and `update`.
+	pub fn source_trigger_name(&self, table: &TableName, event: Option<&str>) -> String {
+		let name = match event {
+			Some(event) => format!("{}_lk_{}_source_{event}", table.flat(), self.column),
+			None => format!("{}_lk_{}_source", table.name, self.column),
+		};
+		crate::shorten_identifier(&name)
+	}
+}
+
+/// The column holding the fingerprint of the sources `column`'s vector was
+/// made from: `lk_<column>_source`.
+pub fn source_column(column: &str) -> String {
+	format!("{VECTOR_SOURCE_PREFIX}{column}{VECTOR_SOURCE_SUFFIX}")
 }
 
 /// The expressions a generated column is computed from, one per dialect,

@@ -60,6 +60,9 @@ pub use crate::merge::*;
 pub use crate::model::*;
 pub use crate::render::*;
 pub use crate::triggers::*;
+pub use crate::validate::MAX_SPARSE_DIMENSIONS;
+pub use crate::validate::MAX_SQLITE_VECTOR_DIMENSIONS;
+pub use crate::validate::MAX_VECTOR_DIMENSIONS;
 pub use crate::validate::Problem;
 
 /// The longest identifier Postgres keeps; longer ones are silently truncated,
@@ -130,4 +133,57 @@ pub fn quote_identifier(identifier: &str) -> String {
 /// Quotes a string literal for either dialect.
 pub fn quote_literal(value: &str) -> String {
 	format!("'{}'", value.replace('\'', "''"))
+}
+
+/// The fingerprint of a vector's sources, as the triggers that keep a
+/// vector column's freshness compute it: the SHA-256, in lowercase hex, of
+/// each source as `<bytes>:<text>;`, or `-;` when it's `NULL`. Both
+/// databases compute the same fingerprint, so a row's freshness survives a
+/// move between them.
+pub fn source_fingerprint(sources: &[Option<&str>]) -> String {
+	let mut hasher = Sha256::new();
+
+	for source in sources {
+		match source {
+			Some(text) => {
+				hasher.update(text.len().to_string().as_bytes());
+				hasher.update(b":");
+				hasher.update(text.as_bytes());
+			}
+			None => hasher.update(b"-"),
+		}
+
+		hasher.update(b";");
+	}
+
+	format!("{:x}", hasher.finalize())
+}
+
+/// [`source_fingerprint`] in SQL, over `row`'s columns (`NEW`, `new`, or
+/// the statement's own row when `None`). SQLite computes the hash with
+/// `lk_sha256`, which the database layer registers on every connection.
+pub fn source_fingerprint_sql(dialect: Dialect, row: Option<&str>, sources: &[String]) -> String {
+	let column = |name: &str| {
+		match row {
+			Some(row) => format!("{row}.{}", quote_identifier(name)),
+			None => quote_identifier(name),
+		}
+	};
+	let parts: Vec<String> = sources
+		.iter()
+		.map(|source| {
+			let source = column(source);
+			let length = match dialect {
+				Dialect::Postgres => format!("octet_length({source})::text"),
+				Dialect::Sqlite => format!("octet_length({source})"),
+			};
+			format!("coalesce({length} || ':' || {source}, '-') || ';'")
+		})
+		.collect();
+	let text = parts.join(" || ");
+
+	match dialect {
+		Dialect::Postgres => format!("encode(sha256(convert_to({text}, 'UTF8')), 'hex')"),
+		Dialect::Sqlite => format!("lk_sha256({text})"),
+	}
 }

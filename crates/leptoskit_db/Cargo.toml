@@ -23,6 +23,7 @@ geo-traits = { workspace = true, optional = true }
 geo-types = { workspace = true, optional = true }
 geojson = { workspace = true, optional = true, features = ["geo-types"] }
 getrandom = { workspace = true, optional = true }
+half = { workspace = true, optional = true }
 inventory = { workspace = true, optional = true }
 leptos = { workspace = true, optional = true, features = ["ssr"] }
 leptoskit_db_macros = { workspace = true }
@@ -95,6 +96,9 @@ geo = [
 ]
 ## Solana's `Pubkey` and `Signature` scalars, in strict base58.
 solana = []
+## Vector columns: `Vector<N>`, `HalfVector<N>`, `BitVector<N>`, and
+## `SparseVector<N>`, sent as JSON. Client-safe on its own.
+vector = ["dep:half"]
 ## Checks `regex` rules in `validate()`. Always on with `server`; opt in on the
 ## client.
 regex = ["dep:regex"]

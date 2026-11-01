@@ -110,6 +110,8 @@ mod tracked;
 pub mod validate;
 #[cfg(feature = "server")]
 mod value;
+#[cfg(feature = "vector")]
+pub mod vector;
 #[cfg(feature = "server")]
 mod view;
 #[cfg(feature = "server")]

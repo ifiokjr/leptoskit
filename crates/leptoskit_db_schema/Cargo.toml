@@ -22,6 +22,7 @@ thiserror = { workspace = true }
 insta = { workspace = true }
 # Apply tests: run generated SQLite migrations against a real database.
 rusqlite = { workspace = true, features = ["bundled", "functions"] }
+sqlite-vec = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

@@ -40,9 +40,13 @@ use crate::Table;
 use crate::TableName;
 use crate::Trigger;
 use crate::TriggerAction;
+use crate::VectorDistance;
+use crate::VectorElement;
+use crate::VectorOptions;
 use crate::View;
 use crate::quote_identifier as ident;
 use crate::quote_literal as literal;
+use crate::source_fingerprint_sql;
 
 /// The format SQLite stores timestamps in: RFC 3339 in UTC with exactly three
 /// fractional digits, so that text order is time order.
@@ -104,6 +108,10 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 					| Step::DropSearch { .. }
 					| Step::CreateGeoIndex { .. }
 					| Step::DropGeoIndex { .. }
+					| Step::CreateVectorIndex { .. }
+					| Step::DropVectorIndex { .. }
+					| Step::CreateVectorSource { .. }
+					| Step::DropVectorSource { .. }
 					| Step::RegisterGeoPackage { .. }
 					| Step::UnregisterGeoPackage { .. }
 			) {
@@ -124,6 +132,12 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 					.table(table)
 					.expect("a table gaining a spatial index is in the target schema");
 				statements.extend(create_geo_index(table, index));
+			}
+			Step::DropVectorIndex { .. }
+			| Step::DropVectorSource { .. }
+			| Step::CreateVectorIndex { .. }
+			| Step::CreateVectorSource { .. } => {
+				statements.extend(vector_step(step, target, &before_renames));
 			}
 			Step::UnregisterGeoPackage { .. } => {
 				let table = before_renames.get(table).unwrap_or(table);
@@ -252,6 +266,8 @@ fn step_phase_reaches_rebuilds(step: &Step) -> bool {
 			| Step::DropView(_)
 			| Step::DropSearch { .. }
 			| Step::DropGeoIndex { .. }
+			| Step::DropVectorIndex { .. }
+			| Step::DropVectorSource { .. }
 			| Step::UnregisterGeoPackage { .. }
 			| Step::DropRowSecurity { .. }
 			| Step::DropForeignKey { .. }
@@ -445,6 +461,34 @@ fn rebuild(table: &Table, plan: &Plan, statements: &mut Vec<String>, notes: &mut
 			statements.extend(geo_index_triggers(table, index));
 		}
 	}
+
+	// So do vector indexes, and the fingerprints of vectors' sources live
+	// in the table itself.
+	for vector in &table.vectors {
+		let recreated = |indexing: bool| {
+			plan.steps.iter().any(|step| {
+				match step {
+					Step::CreateVectorIndex {
+						table: indexed,
+						vector: created,
+					} => indexing && indexed == &table.name && created.column == vector.column,
+					Step::CreateVectorSource {
+						table: indexed,
+						vector: created,
+					} => !indexing && indexed == &table.name && created.column == vector.column,
+					_ => false,
+				}
+			})
+		};
+
+		if vector.is_indexed(Dialect::Sqlite) && !recreated(true) {
+			statements.extend(vector_index_triggers(table, vector));
+		}
+
+		if !vector.sources.is_empty() && !recreated(false) {
+			statements.extend(vector_source_triggers(table, vector));
+		}
+	}
 }
 
 /// A spatial index over one column of `table`: an R*Tree of each row's
@@ -601,6 +645,268 @@ fn drop_geo_index(table: &TableName, index: &GeoIndex) -> Vec<String> {
 	statements.push(format!("DROP TABLE {}", ident(&index.rtree_table(table))));
 	statements.push(format!("DROP TABLE {}", ident(&index.rows_table(table))));
 	statements
+}
+
+/// The column a vector column's `vec0` table keeps its vectors in.
+const VEC_COLUMN: &str = "lk_vector";
+
+/// A vector value as sqlite-vec reads it: floats as they're stored, bits
+/// through `vec_bit`, which marks the bytes as bits.
+fn vec_value(element: VectorElement, value: &str) -> String {
+	match element {
+		VectorElement::Bit => format!("vec_bit({value})"),
+		_ => value.to_string(),
+	}
+}
+
+/// The element and dimensions of a table's vector column.
+fn vector_type(table: &Table, vector: &VectorOptions) -> (VectorElement, u32) {
+	table
+		.column(&vector.column)
+		.and_then(|column| column.ty.vector())
+		.expect("validation checks that vector options name a vector column")
+}
+
+/// A vector column's index on SQLite: a sqlite-vec `vec0` table holding
+/// each row's vector, a table numbering the rows by key (a `vec0` table's
+/// rows are numbered by integers, and row ids change when SQLite rebuilds a
+/// table), the triggers that keep both current on every write, raw SQL's
+/// included, and the rows already there. Searches scan every vector, which
+/// `vec0` does quickly; it has no approximate index.
+fn create_vector_index(table: &Table, vector: &VectorOptions) -> Vec<String> {
+	let name = ident(&table.name.flat());
+	let vectors = ident(&vector.vec_table(&table.name));
+	let rows = ident(&vector.rows_table(&table.name));
+	let row = ident(SEARCH_ROW);
+	let column = format!("{name}.{}", ident(&vector.column));
+	let (element, dimensions) = vector_type(table, vector);
+	let definition = match (
+		element,
+		vector.distance.and_then(VectorDistance::sqlite_metric),
+	) {
+		(VectorElement::Bit, _) => format!("{VEC_COLUMN} bit[{dimensions}]"),
+		(_, Some(metric)) => format!("{VEC_COLUMN} float[{dimensions}] distance_metric={metric}"),
+		(_, None) => format!("{VEC_COLUMN} float[{dimensions}]"),
+	};
+	let keys = columns(&table.primary_key);
+	let joined: Vec<String> = table
+		.primary_key
+		.iter()
+		.map(|key| format!("\"lk_rows\".{} = {name}.{}", ident(key), ident(key)))
+		.collect();
+
+	let mut statements = vec![
+		rows_table(table, &vector.rows_table(&table.name)),
+		format!("CREATE VIRTUAL TABLE {vectors} USING vec0({definition})"),
+		format!("INSERT INTO {rows} ({keys}) SELECT {keys} FROM {name}"),
+		format!(
+			"INSERT INTO {vectors} (rowid, {VEC_COLUMN}) SELECT \"lk_rows\".{row}, {} FROM {name} \
+			 JOIN {rows} AS \"lk_rows\" ON {} WHERE {column} IS NOT NULL",
+			vec_value(element, &column),
+			joined.join(" AND ")
+		),
+	];
+	statements.extend(vector_index_triggers(table, vector));
+	statements
+}
+
+/// The table numbering a companion's rows by key: `lk_row`, then the key's
+/// columns, unique together.
+fn rows_table(table: &Table, rows: &str) -> String {
+	let mut definitions = vec![format!("{} INTEGER PRIMARY KEY", ident(SEARCH_ROW))];
+
+	for key in &table.primary_key {
+		let column = table.column(key).expect("validation checks the key");
+		definitions.push(format!(
+			"{} {} NOT NULL",
+			ident(key),
+			storage_type(&column.ty)
+		));
+	}
+
+	definitions.push(format!(
+		"CONSTRAINT {} UNIQUE ({})",
+		ident(&crate::shorten_identifier(&format!("{rows}_key"))),
+		columns(&table.primary_key)
+	));
+	format!(
+		"CREATE TABLE {} (\n\t{}\n) STRICT",
+		ident(rows),
+		definitions.join(",\n\t")
+	)
+}
+
+/// The triggers that keep a vector column's index current when a row is
+/// inserted, its vector or key changes, and it's deleted.
+fn vector_index_triggers(table: &Table, vector: &VectorOptions) -> Vec<String> {
+	let name = ident(&table.name.flat());
+	let vectors = ident(&vector.vec_table(&table.name));
+	let rows = ident(&vector.rows_table(&table.name));
+	let row = ident(SEARCH_ROW);
+	let keys = columns(&table.primary_key);
+	let (element, _) = vector_type(table, vector);
+	let matching = |image: &str| key_matches(table, image);
+	let insert_vector = |image: &str| {
+		let value = format!("{image}.{}", ident(&vector.column));
+		format!(
+			"INSERT INTO {vectors} (rowid, {VEC_COLUMN}) SELECT {row}, {} FROM {rows} WHERE {} \
+			 AND {value} IS NOT NULL;",
+			vec_value(element, &value),
+			matching(image)
+		)
+	};
+	let delete_vector = |image: &str| {
+		format!(
+			"DELETE FROM {vectors} WHERE rowid = (SELECT {row} FROM {rows} WHERE {});",
+			matching(image)
+		)
+	};
+	let new_keys: Vec<String> = table
+		.primary_key
+		.iter()
+		.map(|key| format!("new.{}", ident(key)))
+		.collect();
+	let set_keys: Vec<String> = table
+		.primary_key
+		.iter()
+		.map(|key| format!("{} = new.{}", ident(key), ident(key)))
+		.collect();
+	let watched: Vec<String> = std::iter::once(vector.column.clone())
+		.chain(
+			table
+				.primary_key
+				.iter()
+				.filter(|key| **key != vector.column)
+				.cloned(),
+		)
+		.collect();
+
+	vec![
+		format!(
+			"CREATE TRIGGER {} AFTER INSERT ON {name} BEGIN\n\tINSERT INTO {rows} ({keys}) VALUES \
+			 ({});\n\t{}\nEND",
+			ident(&vector.trigger_name(&table.name, "insert")),
+			new_keys.join(", "),
+			insert_vector("new")
+		),
+		format!(
+			"CREATE TRIGGER {} AFTER UPDATE OF {} ON {name} BEGIN\n\t{}\n\tUPDATE {rows} SET {} \
+			 WHERE {};\n\t{}\nEND",
+			ident(&vector.trigger_name(&table.name, "update")),
+			columns(&watched),
+			delete_vector("old"),
+			set_keys.join(", "),
+			matching("old"),
+			insert_vector("new")
+		),
+		format!(
+			"CREATE TRIGGER {} AFTER DELETE ON {name} BEGIN\n\t{}\n\tDELETE FROM {rows} WHERE \
+			 {};\nEND",
+			ident(&vector.trigger_name(&table.name, "delete")),
+			delete_vector("old"),
+			matching("old")
+		),
+	]
+}
+
+/// `key = image.key AND …` for each of the table's key columns.
+fn key_matches(table: &Table, image: &str) -> String {
+	table
+		.primary_key
+		.iter()
+		.map(|key| format!("{} = {image}.{}", ident(key), ident(key)))
+		.collect::<Vec<_>>()
+		.join(" AND ")
+}
+
+/// The statements of a step that indexes a vector column or records its
+/// sources, or stops: drops name the table as it was before renames.
+fn vector_step(
+	step: &Step,
+	target: &Schema,
+	before_renames: &HashMap<TableName, TableName>,
+) -> Vec<String> {
+	let table = step.table();
+	let created = || {
+		target
+			.table(table)
+			.expect("a table gaining a vector index is in the target schema")
+	};
+	let dropped = || before_renames.get(table).unwrap_or(table);
+
+	match step {
+		Step::CreateVectorIndex { vector, .. } => create_vector_index(created(), vector),
+		Step::CreateVectorSource { vector, .. } => create_vector_source(created(), vector),
+		Step::DropVectorIndex { vector, .. } => drop_vector_index(dropped(), vector),
+		Step::DropVectorSource { vector, .. } => drop_vector_source(dropped(), vector),
+		_ => Vec::new(),
+	}
+}
+
+/// Drops a vector column's index: its triggers, then its companion tables.
+fn drop_vector_index(table: &TableName, vector: &VectorOptions) -> Vec<String> {
+	let mut statements: Vec<String> = ["insert", "update", "delete"]
+		.into_iter()
+		.map(|event| format!("DROP TRIGGER {}", ident(&vector.trigger_name(table, event))))
+		.collect();
+	statements.push(format!("DROP TABLE {}", ident(&vector.vec_table(table))));
+	statements.push(format!("DROP TABLE {}", ident(&vector.rows_table(table))));
+	statements
+}
+
+/// Starts recording which sources each row's vector was made from: the
+/// vectors already there are taken as made from their rows' sources, and
+/// then the triggers follow every write.
+fn create_vector_source(table: &Table, vector: &VectorOptions) -> Vec<String> {
+	let column = ident(&vector.column);
+	let source = ident(&vector.source_column());
+	let mut statements = vec![format!(
+		"UPDATE {} SET {source} = {} WHERE {column} IS NOT NULL AND {source} IS NULL",
+		ident(&table.name.flat()),
+		source_fingerprint_sql(Dialect::Sqlite, None, &vector.sources)
+	)];
+	statements.extend(vector_source_triggers(table, vector));
+	statements
+}
+
+/// The triggers that record a row's sources' fingerprint when its vector
+/// is inserted, or changes without the write setting the fingerprint
+/// itself.
+fn vector_source_triggers(table: &Table, vector: &VectorOptions) -> Vec<String> {
+	let name = ident(&table.name.flat());
+	let column = ident(&vector.column);
+	let source = ident(&vector.source_column());
+	let fingerprint = source_fingerprint_sql(Dialect::Sqlite, Some("new"), &vector.sources);
+	let matching = key_matches(table, "new");
+
+	vec![
+		format!(
+			"CREATE TRIGGER {} AFTER INSERT ON {name} WHEN new.{source} IS NULL AND new.{column} \
+			 IS NOT NULL BEGIN\n\tUPDATE {name} SET {source} = {fingerprint} WHERE \
+			 {matching};\nEND",
+			ident(&vector.source_trigger_name(&table.name, Some("insert")))
+		),
+		format!(
+			"CREATE TRIGGER {} AFTER UPDATE OF {column} ON {name} WHEN new.{column} IS NOT \
+			 old.{column} AND new.{source} IS old.{source} BEGIN\n\tUPDATE {name} SET {source} = \
+			 CASE WHEN new.{column} IS NULL THEN NULL ELSE {fingerprint} END WHERE \
+			 {matching};\nEND",
+			ident(&vector.source_trigger_name(&table.name, Some("update")))
+		),
+	]
+}
+
+/// Stops recording a vector column's sources.
+fn drop_vector_source(table: &TableName, vector: &VectorOptions) -> Vec<String> {
+	["insert", "update"]
+		.into_iter()
+		.map(|event| {
+			format!(
+				"DROP TRIGGER {}",
+				ident(&vector.source_trigger_name(table, Some(event)))
+			)
+		})
+		.collect()
 }
 
 /// GeoPackage's definition of WGS 84, which its specification requires
@@ -1067,7 +1373,8 @@ fn storage_type(ty: &ColumnType) -> &'static str {
 		ColumnType::Bytes
 		| ColumnType::Uuid
 		| ColumnType::Geometry { .. }
-		| ColumnType::Geography { .. } => "BLOB",
+		| ColumnType::Geography { .. }
+		| ColumnType::Vector { .. } => "BLOB",
 		ColumnType::Array { .. } => unreachable!("validation rejects arrays on SQLite"),
 	}
 }
@@ -1099,6 +1406,15 @@ fn type_check(column: &Column) -> Option<String> {
 				literal(shape.name()),
 				crate::WGS84
 			))
+		}
+		// sqlite-vec's layout: four bytes a float, one byte eight bits.
+		ColumnType::Vector {
+			element,
+			dimensions,
+		} => {
+			element
+				.sqlite_bytes(*dimensions)
+				.map(|bytes| format!("length({name}) = {bytes}"))
 		}
 		_ => None,
 	}

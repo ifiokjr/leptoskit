@@ -153,6 +153,10 @@ db-studio = ["db-server", "leptoskit_db/studio"]
 ## with `db-postgres`, and a built-in layer of the same operations with
 ## `db-sqlite`.
 db-geo = ["db", "leptoskit_db/geo"]
+## Vector columns, `leptoskit::db::vector`: embeddings sent as JSON on the
+## client; pgvector with `db-postgres`, and sqlite-vec, linked into the
+## build, with `db-sqlite`.
+db-vector = ["db", "leptoskit_db/vector"]
 ## Sign-in: `leptoskit::auth`, with the `auth` schema pack and the headless
 ## client. Its server side follows `db-server`, `db-postgres`, and
 ## `db-sqlite`, and `server` adds the `/auth` routes, the session layer, the

@@ -31,9 +31,14 @@ use crate::Table;
 use crate::TableName;
 use crate::Trigger;
 use crate::TriggerAction;
+use crate::VectorDistance;
+use crate::VectorElement;
+use crate::VectorIndexKind;
+use crate::VectorOptions;
 use crate::View;
 use crate::quote_identifier as ident;
 use crate::quote_literal as literal;
+use crate::source_fingerprint_sql;
 
 pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migration {
 	let mut writer = Writer {
@@ -116,8 +121,18 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 					qualified(&view.name)
 				));
 			}
-			Step::DropSearch { table, .. } | Step::DropGeoIndex { table, .. }
+			Step::DropSearch { table, .. }
+			| Step::DropGeoIndex { table, .. }
+			| Step::DropVectorIndex { table, .. }
 				if dropping.contains(table) => {}
+			Step::CreateVectorIndex { table, vector } => {
+				let element = target
+					.table(table)
+					.and_then(|table| table.column(&vector.column))
+					.and_then(|column| column.ty.vector())
+					.map(|(element, _)| element);
+				writer.create_vector_index(table, vector, element);
+			}
 			Step::DropRowSecurity { table, security } => {
 				let table = writer.name_for(step, table).clone();
 				let reenabled = target
@@ -171,6 +186,8 @@ impl Writer {
 			| Step::DropCheck { .. }
 			| Step::DropSearch { .. }
 			| Step::DropGeoIndex { .. }
+			| Step::DropVectorIndex { .. }
+			| Step::DropVectorSource { .. }
 			| Step::DropRowSecurity { .. } => self.before_renames.get(table).unwrap_or(table),
 			_ => table,
 		}
@@ -277,7 +294,9 @@ impl Writer {
 			| Step::DropView(_)
 			| Step::DropFunction(_)
 			| Step::DropSequence(_)
-			| Step::CreateTrigger(_) => {
+			| Step::CreateTrigger(_)
+			| Step::DropRowSecurity { .. }
+			| Step::CreateVectorIndex { .. } => {
 				unreachable!("handled by `render`")
 			}
 			Step::CreateSequence(sequence) => {
@@ -372,7 +391,6 @@ impl Writer {
 				self.statements
 					.push(column_comment(&table, column, comment.as_deref()));
 			}
-			Step::DropRowSecurity { .. } => unreachable!("handled by `render`"),
 			Step::CreateRowSecurity { security, .. } => self.create_row_security(&table, security),
 			// The index goes with its column.
 			Step::DropSearch { .. } => {
@@ -394,6 +412,30 @@ impl Writer {
 					ident(&index.column)
 				));
 			}
+			Step::DropVectorIndex { vector, .. } => {
+				let name = ident(&vector.index_name(&table));
+				let name = match &table.namespace {
+					Some(namespace) => format!("{}.{name}", ident(namespace)),
+					None => name,
+				};
+				self.statements.push(format!("DROP INDEX {name}"));
+			}
+			Step::CreateVectorSource { vector, .. } => self.create_vector_source(&table, vector),
+			Step::DropVectorSource { vector, .. } => {
+				let name = vector.source_trigger_name(&table, None);
+				self.statements.push(format!(
+					"DROP TRIGGER {} ON {}",
+					ident(&name),
+					qualified(&table)
+				));
+				self.statements.push(format!(
+					"DROP FUNCTION {}()",
+					qualified(&TableName {
+						namespace: table.namespace.clone(),
+						name,
+					})
+				));
+			}
 			// Validation keeps GeoPackage metadata to SQLite.
 			Step::RegisterGeoPackage { .. } | Step::UnregisterGeoPackage { .. } => {}
 			Step::CreateSearch { search, .. } => {
@@ -413,6 +455,77 @@ impl Writer {
 				));
 			}
 		}
+	}
+
+	/// pgvector's index over a vector column, with the operator class for
+	/// its distance. IVFFlat takes pgvector's suggested 100 lists to start.
+	fn create_vector_index(
+		&mut self,
+		table: &TableName,
+		vector: &VectorOptions,
+		element: Option<VectorElement>,
+	) {
+		let (Some(index), Some(distance), Some(element)) = (vector.index, vector.distance, element)
+		else {
+			return;
+		};
+		let operators = match distance {
+			VectorDistance::L2 => "l2",
+			VectorDistance::Cosine => "cosine",
+			VectorDistance::InnerProduct => "ip",
+			VectorDistance::L1 => "l1",
+			VectorDistance::Hamming => "hamming",
+			VectorDistance::Jaccard => "jaccard",
+		};
+		let options = match index {
+			VectorIndexKind::Hnsw => "",
+			VectorIndexKind::IvfFlat => " WITH (lists = 100)",
+		};
+		self.statements.push(format!(
+			"CREATE INDEX {} ON {} USING {} ({} {}_{operators}_ops){options}",
+			ident(&vector.index_name(table)),
+			qualified(table),
+			index.name(),
+			ident(&vector.column),
+			element.postgres_name()
+		));
+	}
+
+	/// The trigger that records which sources each row's vector was made
+	/// from: before a row is written, when its vector changes and the write
+	/// doesn't set the fingerprint itself, the fingerprint of the row's
+	/// sources as written. The vectors already there are taken as made from
+	/// their rows' sources.
+	fn create_vector_source(&mut self, table: &TableName, vector: &VectorOptions) {
+		let name = vector.source_trigger_name(table, None);
+		let function = qualified(&TableName {
+			namespace: table.namespace.clone(),
+			name: name.clone(),
+		});
+		let column = ident(&vector.column);
+		let source = ident(&vector.source_column());
+		let fingerprint = |row| source_fingerprint_sql(Dialect::Postgres, row, &vector.sources);
+
+		self.statements.push(format!(
+			"UPDATE {} SET {source} = {} WHERE {column} IS NOT NULL AND {source} IS NULL",
+			qualified(table),
+			fingerprint(None)
+		));
+		self.statements.push(format!(
+			"CREATE FUNCTION {function}() RETURNS trigger LANGUAGE plpgsql AS $lk$\nBEGIN\n\tIF \
+			 TG_OP = 'INSERT' THEN\n\t\tIF NEW.{source} IS NULL AND NEW.{column} IS NOT NULL \
+			 THEN\n\t\t\tNEW.{source} := {new};\n\t\tEND IF;\n\tELSIF NEW.{column} IS DISTINCT \
+			 FROM OLD.{column} AND NEW.{source} IS NOT DISTINCT FROM OLD.{source} \
+			 THEN\n\t\tNEW.{source} := CASE WHEN NEW.{column} IS NULL THEN NULL ELSE {new} \
+			 END;\n\tEND IF;\n\tRETURN NEW;\nEND\n$lk$",
+			new = fingerprint(Some("NEW"))
+		));
+		self.statements.push(format!(
+			"CREATE TRIGGER {} BEFORE INSERT OR UPDATE OF {column} ON {} FOR EACH ROW EXECUTE \
+			 FUNCTION {function}()",
+			ident(&name),
+			qualified(table)
+		));
 	}
 
 	fn rename_table(&mut self, from: &TableName, to: &TableName) {
@@ -646,6 +759,10 @@ pub fn sql_type(ty: &ColumnType) -> String {
 		ColumnType::Array { element } => format!("{}[]", sql_type(element)),
 		ColumnType::Geometry { shape, srid } => format!("geometry({shape}, {srid})"),
 		ColumnType::Geography { shape } => format!("geography({shape}, {})", crate::WGS84),
+		ColumnType::Vector {
+			element,
+			dimensions,
+		} => format!("{}({dimensions})", element.postgres_name()),
 	}
 }
 

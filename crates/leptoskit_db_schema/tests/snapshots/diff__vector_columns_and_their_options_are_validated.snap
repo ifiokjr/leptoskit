@@ -1,0 +1,25 @@
+---
+source: crates/leptoskit_db_schema/tests/diff.rs
+expression: schema.validate().unwrap_err().to_string()
+---
+the schema has 20 problem(s):
+  - posts: the index on `embedding` keeps its vectors in `posts_lk_vec_embedding`, which is already another table's name
+  - posts: the index on `embedding` keeps its vectors in `posts_lk_vec_embedding_rows`, which is already another table's name
+  - posts.empty: a vector on postgres has 1 to 16000 dimensions, not 0
+  - posts.odd_bits: a bit vector's dimensions are a multiple of 8, not 12
+  - posts.many: arrays of vectors aren't supported
+  - posts.derived: a vector column can't be generated; store the vectors the app makes
+  - posts.code: pgvector's `ivfflat` has no index for `jaccard` distance; use `index = hnsw`
+  - posts.title: `vector` options are for vector columns, and this one's type is text
+  - posts: vector options name `missing`, which isn't a column
+  - posts.code: the column's vector options are declared twice
+  - posts.code: cosine distance doesn't measure a bit; bits are measured by `hamming` or `jaccard`
+  - posts.huge: pgvector indexes a vector of at most 2000 dimensions, and this one has 3072; store a `HalfVector` or `BitVector`, or search it without an index
+  - posts.empty: an `hnsw` index orders rows by a distance; add `distance = …`
+  - posts.sparse: pgvector's `ivfflat` has no index for sparse vectors; use `index = hnsw`
+  - posts.odd_bits: pgvector's `ivfflat` has no index for `jaccard` distance; use `index = hnsw`
+  - posts.odd_bits: `title` is a source twice
+  - posts.odd_bits: the vector is made from `score`, whose type is int32; sources are text
+  - posts.odd_bits: the vector is made from `nowhere`, which isn't a column
+  - posts.odd_bits: a vector made from sources keeps their fingerprint in a nullable text column, `lk_odd_bits_source`
+  - posts.embedding: the column's vector options are declared twice
