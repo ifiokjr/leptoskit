@@ -469,6 +469,18 @@ impl UIKitBackend {
 	}
 
 	fn refresh(&mut self) {
+		self.refresh_scrolls();
+		self.refresh_radios();
+
+		for widget in self.widgets.iter_mut().flatten() {
+			sync_enabled(widget);
+			hide_under_content_button(widget, self.mtm);
+			sync_control(&self.animations_active, self.mtm, widget);
+		}
+	}
+
+	/// Sizes every scroll view to the area its children occupy.
+	fn refresh_scrolls(&self) {
 		for widget in self.widgets.iter().flatten() {
 			if let Control::Scroll { scroll, .. } = &widget.control {
 				let mut size = widget.view.bounds().size;
@@ -482,7 +494,10 @@ impl UIKitBackend {
 				scroll.setContentSize(size);
 			}
 		}
+	}
 
+	/// Registers the radio buttons, so a group keeps only the chosen one.
+	fn refresh_radios(&mut self) {
 		let children: std::collections::HashSet<_> = self
 			.widgets
 			.iter()
@@ -513,109 +528,128 @@ impl UIKitBackend {
 		}
 
 		self.sink.set_radios(radios);
-
-		for widget in self.widgets.iter_mut().flatten() {
-			let available = visible(&widget.view) && self.animations_active.get();
-
-			if let Some(control) = widget.view.downcast_ref::<UIControl>() {
-				let mut enabled = widget.props.enabled.unwrap_or(true);
-				let mut parent = widget.view.superview();
-
-				while let Some(view) = parent {
-					enabled &= view.isUserInteractionEnabled();
-					parent = view.superview();
-				}
-
-				control.setEnabled(enabled);
-			}
-
-			let mut parent = widget.view.superview();
-
-			while let Some(view) = parent {
-				if view.downcast_ref::<ContentButton>().is_some() {
-					widget.view.setUserInteractionEnabled(false);
-					widget.view.setAccessibilityElementsHidden(true, self.mtm);
-					widget.view.setIsAccessibilityElement(false, self.mtm);
-					break;
-				}
-
-				parent = view.superview();
-			}
-
-			match &mut widget.control {
-				Control::Activity(indicator) => {
-					let mut requested = self.animations_active.get()
-						&& widget.props.running.unwrap_or(true)
-						&& !widget.props.hidden.unwrap_or(false)
-						&& widget.props.opacity.unwrap_or(1.0) > 0.01;
-					let mut parent = indicator.superview();
-					while let Some(view) = parent {
-						requested &= visible(&view);
-						parent = view.superview();
-					}
-					if requested {
-						indicator.startAnimating();
-					} else {
-						indicator.stopAnimating();
-					}
-
-					indicator.setAccessibilityElementsHidden(!requested, self.mtm);
-				}
-				Control::Switch { switch, .. } => {
-					let mut enabled = widget.props.enabled.unwrap_or(true);
-					let mut parent = switch.superview();
-					while let Some(view) = parent {
-						enabled &= view.isUserInteractionEnabled();
-						parent = view.superview();
-					}
-
-					switch.setEnabled(enabled);
-				}
-				Control::Progress {
-					progress,
-					fill,
-					animating,
-				} => {
-					let indeterminate = matches!(
-						widget.props.progress.unwrap_or_default(),
-						Progress::Indeterminate
-					);
-					progress.setHidden(indeterminate);
-					fill.setHidden(!indeterminate);
-
-					if available && indeterminate && !animating.get() {
-						let animation = CABasicAnimation::animationWithKeyPath(Some(
-							&NSString::from_str("transform.translation.x"),
-						));
-						animation.setDuration(1.2);
-						animation.setRepeatCount(f32::INFINITY);
-						// SAFETY: A translation-x animation expects NSNumber
-						// values.
-						unsafe {
-							animation.setFromValue(Some(&NSNumber::new_f64(0.0)));
-							animation.setToValue(Some(&NSNumber::new_f64(
-								widget.view.bounds().size.width * 1.4,
-							)));
-							fill.layer().addAnimation_forKey(
-								&animation,
-								Some(&NSString::from_str("leptoskit.indeterminate")),
-							);
-						}
-						animating.set(true);
-					} else if (!available || !indeterminate) && animating.get() {
-						fill.layer().removeAllAnimations();
-						animating.set(false);
-					}
-				}
-				_ => {}
-			}
-		}
 	}
 
 	fn refresh_unbatched(&mut self) {
 		if !self.applying {
 			self.refresh();
 		}
+	}
+}
+
+/// Disables a control whose ancestors disable interaction.
+fn sync_enabled(widget: &Widget) {
+	let Some(control) = widget.view.downcast_ref::<UIControl>() else {
+		return;
+	};
+	let mut enabled = widget.props.enabled.unwrap_or(true);
+	let mut parent = widget.view.superview();
+
+	while let Some(view) = parent {
+		enabled &= view.isUserInteractionEnabled();
+		parent = view.superview();
+	}
+
+	control.setEnabled(enabled);
+}
+
+/// Hides a widget under a content button, so the button takes the tap.
+fn hide_under_content_button(widget: &Widget, mtm: MainThreadMarker) {
+	let mut parent = widget.view.superview();
+
+	while let Some(view) = parent {
+		if view.downcast_ref::<ContentButton>().is_some() {
+			widget.view.setUserInteractionEnabled(false);
+			widget.view.setAccessibilityElementsHidden(true, mtm);
+			widget.view.setIsAccessibilityElement(false, mtm);
+
+			return;
+		}
+
+		parent = view.superview();
+	}
+}
+
+/// Keeps a widget's native control in step with its props.
+fn sync_control(animations_active: &Cell<bool>, mtm: MainThreadMarker, widget: &mut Widget) {
+	let available = visible(&widget.view) && animations_active.get();
+	let width = widget.view.bounds().size.width;
+	let widget_progress = widget.props.progress.unwrap_or_default();
+
+	match &mut widget.control {
+		Control::Activity(indicator) => {
+			let mut requested = animations_active.get()
+				&& widget.props.running.unwrap_or(true)
+				&& !widget.props.hidden.unwrap_or(false)
+				&& widget.props.opacity.unwrap_or(1.0) > 0.01;
+			let mut parent = indicator.superview();
+
+			while let Some(view) = parent {
+				requested &= visible(&view);
+				parent = view.superview();
+			}
+			if requested {
+				indicator.startAnimating();
+			} else {
+				indicator.stopAnimating();
+			}
+
+			indicator.setAccessibilityElementsHidden(!requested, mtm);
+		}
+		Control::Switch { switch, .. } => {
+			let mut enabled = widget.props.enabled.unwrap_or(true);
+			let mut parent = switch.superview();
+
+			while let Some(view) = parent {
+				enabled &= view.isUserInteractionEnabled();
+				parent = view.superview();
+			}
+
+			switch.setEnabled(enabled);
+		}
+		Control::Progress {
+			progress,
+			fill,
+			animating,
+		} => {
+			sync_progress(progress, fill, animating, available, widget_progress, width);
+		}
+		_ => {}
+	}
+}
+
+/// Shows the progress bar or its sweep, and animates the sweep while asked.
+fn sync_progress(
+	progress: &UIProgressView,
+	fill: &UIView,
+	animating: &Cell<bool>,
+	available: bool,
+	value: Progress,
+	width: f64,
+) {
+	let indeterminate = matches!(value, Progress::Indeterminate);
+	progress.setHidden(indeterminate);
+	fill.setHidden(!indeterminate);
+
+	if available && indeterminate && !animating.get() {
+		let animation = CABasicAnimation::animationWithKeyPath(Some(&NSString::from_str(
+			"transform.translation.x",
+		)));
+		animation.setDuration(1.2);
+		animation.setRepeatCount(f32::INFINITY);
+		// SAFETY: A translation-x animation expects NSNumber values.
+		unsafe {
+			animation.setFromValue(Some(&NSNumber::new_f64(0.0)));
+			animation.setToValue(Some(&NSNumber::new_f64(width * 1.4)));
+			fill.layer().addAnimation_forKey(
+				&animation,
+				Some(&NSString::from_str("leptoskit.indeterminate")),
+			);
+		}
+		animating.set(true);
+	} else if (!available || !indeterminate) && animating.get() {
+		fill.layer().removeAllAnimations();
+		animating.set(false);
 	}
 }
 
