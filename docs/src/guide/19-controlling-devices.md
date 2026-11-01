@@ -111,3 +111,27 @@ curl -s http://127.0.0.1:7331/ -d '{"jsonrpc":"2.0","id":1,"method":"tools/call"
 ```
 
 The same document reaches all three surfaces: flags build one for a single command, `device run` takes the file, and the MCP tools take it as tool arguments.
+
+## Agents: debugging a running app
+
+A screenshot shows what went wrong on screen, but not why: which node is too wide, which class it has, which line built it, or what the query cache holds. `leptoskit dev` starts a devtools hub, and apps running with leptoskit's devtools report their element tree, layout, queries, and named state to it. The same `leptoskit mcp` server reads them through eight more tools:
+
+| Tool                | What it does                                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `devtools_sessions` | Lists the apps reporting to the hub: id, app, platform, device, and what each can show.                      |
+| `inspect_tree`      | Prints the element tree one node per line, with kind, text, classes, frame, and source line, to a `depth`.   |
+| `inspect_node`      | Returns one node as JSON, with its match key, parent, source, frame, classes, text, and children.            |
+| `explain_styles`    | Returns a node's active classes, and the declarations they resolved to when the app sends them.              |
+| `query_cache`       | Returns the query cache and mutations, or one `key`.                                                         |
+| `navigate`          | Opens a route in the app, such as `/settings`.                                                               |
+| `highlight`         | Highlights a node; with `all_sessions`, the same node on every platform the app is running on, by match key. |
+| `set_state`         | Sets a piece of named state the app exposes to the devtools. On native, a hot reload resets it.              |
+
+For example, with the web page and the iOS simulator both running under `leptoskit dev`, an agent asks for the iOS tree and then highlights a row everywhere:
+
+```json
+{ "name": "inspect_tree", "arguments": { "session": "ios", "depth": 3 } }
+{ "name": "highlight", "arguments": { "session": "ios", "node": 42, "all_sessions": true } }
+```
+
+`session` takes a session id or the start of one, a platform such as `web` or `ios`, or the app's name. Leave it out when only one app is reporting; when several are, the tool lists them. Run the MCP server from the project: the tools find the hub through `.leptoskit/devtools.json`, which `leptoskit dev` writes, and say "no hub is running — start `leptoskit dev`" when there is none.
