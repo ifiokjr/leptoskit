@@ -1,6 +1,6 @@
 # Plan: browser extensions as a platform
 
-Status: **approved** (revision 3). Nothing is implemented yet. The work starts with Commonplace, a research app on web, native, and server, and a spike built on it that settles the risky assumptions before the platform work starts.
+Status: **approved** (revision 3), implemented through the extension stores. "Progress" at the end names what each pull request delivered; the app-store half of publishing stays in the [publishing plan](publishing-plan.md).
 
 Revision 2 added the implementation detail: every file each phase touches, the generated output, the tests, and the pull requests. Revision 3 records the answers to the open questions:
 
@@ -495,3 +495,15 @@ Phase 5's dev loop is useful from phase 1 on, so its first pull request can move
 - **Q2, Safari on iOS:** in scope, together with macOS (E7).
 - **Q3, store publishing:** leptoskit publishes, and makes it as easy as it can. It covers the extension stores first and the app stores after them, in its own plan (E8).
 - **Q4, a hosted Commonplace:** no. Commonplace is not hosted or listed; the publishing dry runs in CI prove the path.
+
+## Progress
+
+- **Phase 0a:** Commonplace's server, database, sign-in, website, and native apps (#294).
+- **Phase 0b:** the spike answered all eight questions; the answers are above.
+- **Phase 1:** `Platform::Extension`, `[extension]`, `leptoskit_extension`, manifests, pages, packages, `leptoskit new --extension`, and `leptoskit build --platform extension` (#296).
+- **Phase 2:** runtime, storage, tabs, windows, action, typed messages, the background worker and its queue, plugin permissions, and worker-safe store/http/notifications/linking (#296).
+- **Phase 3:** side panels, scripting, alarms, context menus, commands, notifications, permissions, content scripts in all three injection modes, and the clipping overlay (#296, #303).
+- **Phase 4:** Safari extensions inside the generated macOS and iOS apps, and Commonplace's Safari package (#304).
+- **Phase 5:** `leptoskit dev` launches and reloads the extension, `leptoskit doctor` finds Chrome for Testing, and `leptoskit test extension` drives every page, the worker, and each content script in CI (#299).
+- **Phase 6:** `leptoskit publish` covers the Chrome Web Store, Edge Add-ons, and addons.mozilla.org, including the Firefox source archive, with `--dry-run` (#302). The Apple and Google Play halves are the publishing plan's phases 2 to 4 and are not done.
+- **Still open:** Safari's store submission goes through App Store Connect, so it belongs to the publishing plan's Apple phase. `leptoskit publish` packages the Safari extension inside the macOS and iOS apps today; submitting those apps is not implemented.

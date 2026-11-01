@@ -1,6 +1,6 @@
 # Plan: publishing to the stores
 
-Status: **approved** (revision 2). Nothing is implemented yet.
+Status: **approved** (revision 2), with phase 1 and the skill on `main`. "Progress" at the end records what each pull request delivered; the Apple, Google Play, listing, and CI phases remain.
 
 Revision 2 adds two things:
 
@@ -315,3 +315,9 @@ The skill's first pull request can land early, because it does not depend on pub
 
 - **Q1, confirming `--submit`:** in an interactive terminal it asks for confirmation as well, and `--yes` skips the question for scripts. CI is detected and never prompts.
 - **Q2, icons:** leptoskit generates every platform's icon sizes from one source image, `app.icon`, because missing sizes are the most common store rejection.
+
+## Progress
+
+- **Phase 1:** `[publish]` in `leptoskit.toml`, validation and the schema, `leptoskit publish` with `--dry-run`, `--submit`, credentials from the environment or a file outside the project, version mapping, the store checks, and the "next steps" report in text and JSON. Chrome Web Store, Edge Add-ons, and addons.mozilla.org upload, wait for their checks, and submit, with the Firefox source archive (#302).
+- **Phase 6:** `leptoskit skill` and `leptoskit skill install` write the repository's skill, including the release flow (#302). The reference files grow with each feature: extensions and the debugger are there, Apple and Google Play follow their phases.
+- **Still open:** App Store Connect (iOS, and Safari on iOS and macOS), the macOS Developer ID and notarization path, Google Play, listing and screenshot uploads, and the generated release workflow (phases 2 to 5).
