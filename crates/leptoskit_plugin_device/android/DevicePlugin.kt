@@ -15,34 +15,53 @@ class DevicePlugin(
     private val context: Context,
 ) : NativePlugin {
     override val name = "device"
-    override val methods = intArrayOf(0)
+    override val methods = intArrayOf(STATUS)
+
+    private companion object {
+        /** The only method: this device's identity. */
+        const val STATUS = 0
+
+        /** The wire format version every reply carries. */
+        const val VERSION_ONE = 1
+
+        // / Header words: version, kind, simulator, and a 64-bit memory size.
+        const val HEADER_BYTES = 20
+
+        /** Room for the header and this answer's six short strings. */
+        const val RESULT_CAPACITY = 128
+
+        /** Longest string the wire format carries. */
+        const val MAX_TEXT_BYTES = 4096
+
+        /** The emulator flag's value when the hardware is an emulator. */
+        const val SIMULATOR = 2
+    }
 
     override suspend fun invoke(
         method: Int,
         payload: ByteBuffer,
     ): ByteArray {
-        if (method != 0) throw PluginException(PluginException.UNAVAILABLE)
+        if (method != STATUS) throw PluginException(PluginException.UNAVAILABLE)
 
         if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
-        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-        val memory =
-            manager?.let {
-                val info = ActivityManager.MemoryInfo()
-                it.getMemoryInfo(info)
-                info.totalMem.coerceAtLeast(0)
-            } ?: 0L
-        val simulator = if (Build.HARDWARE == "goldfish" || Build.HARDWARE == "ranchu") 2 else 0
-        val result = ByteArrayOutputStream(128)
+
+        return encode()
+    }
+
+    /** Packs the device's kind, memory, and identifying strings. */
+    private fun encode(): ByteArray {
+        val result = ByteArrayOutputStream(RESULT_CAPACITY)
         result.write(
             ByteBuffer
-                .allocate(20)
+                .allocate(HEADER_BYTES)
                 .order(ByteOrder.LITTLE_ENDIAN)
-                .putInt(1)
+                .putInt(VERSION_ONE)
                 .putInt(deviceKind())
-                .putInt(simulator)
-                .putLong(memory)
+                .putInt(simulatorFlag())
+                .putLong(totalMemory())
                 .array(),
         )
+
         for (value in listOf(
             Build.MANUFACTURER,
             Build.BRAND,
@@ -51,21 +70,41 @@ class DevicePlugin(
             Build.VERSION.RELEASE,
             Build.SUPPORTED_ABIS.firstOrNull(),
         )) {
-            val text = value?.takeUnless { it.isBlank() || it == Build.UNKNOWN } ?: ""
-            val bytes = text.toByteArray(Charsets.UTF_8)
-
-            if (bytes.size > 4096) throw PluginException(PluginException.TOO_LARGE)
-            result.write(
-                ByteBuffer
-                    .allocate(4)
-                    .order(ByteOrder.LITTLE_ENDIAN)
-                    .putInt(bytes.size)
-                    .array(),
-            )
-            result.write(bytes)
+            writeText(result, value)
         }
 
         return result.toByteArray()
+    }
+
+    /** The device's total memory, or zero when the activity service is missing. */
+    private fun totalMemory(): Long {
+        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return 0L
+        val info = ActivityManager.MemoryInfo()
+        manager.getMemoryInfo(info)
+
+        return info.totalMem.coerceAtLeast(0)
+    }
+
+    /** 2 when this build runs on an emulator, and 0 otherwise. */
+    private fun simulatorFlag(): Int = if (Build.HARDWARE == "goldfish" || Build.HARDWARE == "ranchu") SIMULATOR else 0
+
+    /** Writes one length-prefixed string, treating blank and unknown values as empty. */
+    private fun writeText(
+        result: ByteArrayOutputStream,
+        value: String?,
+    ) {
+        val text = value?.takeUnless { it.isBlank() || it == Build.UNKNOWN } ?: ""
+        val bytes = text.toByteArray(Charsets.UTF_8)
+
+        if (bytes.size > MAX_TEXT_BYTES) throw PluginException(PluginException.TOO_LARGE)
+        result.write(
+            ByteBuffer
+                .allocate(4)
+                .order(ByteOrder.LITTLE_ENDIAN)
+                .putInt(bytes.size)
+                .array(),
+        )
+        result.write(bytes)
     }
 
     private fun deviceKind(): Int {

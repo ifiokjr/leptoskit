@@ -85,58 +85,96 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn serve(listener: TcpListener) -> std::io::Result<()> {
 	loop {
 		let (stream, _) = listener.accept().await?;
-		tokio::spawn(async move {
-			let mut path = String::new();
-			#[expect(
-				clippy::result_large_err,
-				reason = "tungstenite's handshake callback fixes its error type"
-			)]
-			let socket = tokio_tungstenite::accept_hdr_async(
-				stream,
-				|request: &tungstenite::handshake::server::Request,
-				 response: tungstenite::handshake::server::Response| {
-					path = request.uri().path().into();
-					Ok(response)
-				},
-			)
-			.await;
-			let Ok(mut socket) = socket else { return };
-			if path == "/large" {
+		tokio::spawn(handle(stream));
+	}
+}
+
+/// Answers one connection: the canned greeting its path asks for, then an
+/// echo of everything the client sends.
+async fn handle(stream: tokio::net::TcpStream) {
+	let Some((mut socket, path)) = accept(stream).await else {
+		return;
+	};
+
+	if greet(&mut socket, &path).await {
+		echo(socket).await;
+	}
+}
+
+/// Completes the handshake, keeping the path the client asked for.
+async fn accept(
+	stream: tokio::net::TcpStream,
+) -> Option<(
+	tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+	String,
+)> {
+	let mut path = String::new();
+	#[expect(
+		clippy::result_large_err,
+		reason = "tungstenite's handshake callback fixes its error type"
+	)]
+	let socket = tokio_tungstenite::accept_hdr_async(
+		stream,
+		|request: &tungstenite::handshake::server::Request,
+		 response: tungstenite::handshake::server::Response| {
+			path = request.uri().path().into();
+			Ok(response)
+		},
+	)
+	.await;
+
+	socket.ok().map(|socket| (socket, path))
+}
+
+/// Sends the oversized message or the flood a path asks for. False when the
+/// client went away before the echo could start.
+async fn greet(
+	socket: &mut tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+	path: &str,
+) -> bool {
+	match path {
+		"/large" => {
+			socket
+				.send(tungstenite::Message::Binary(vec![0; 9].into()))
+				.await
+				.is_ok()
+		}
+
+		"/flood" => {
+			for _ in 0..8 {
 				if socket
-					.send(tungstenite::Message::Binary(vec![0; 9].into()))
+					.send(tungstenite::Message::Text("".into()))
 					.await
 					.is_err()
 				{
-					return;
-				}
-			} else if path == "/flood" {
-				for _ in 0..8 {
-					if socket
-						.send(tungstenite::Message::Text("".into()))
-						.await
-						.is_err()
-					{
-						return;
-					}
+					return false;
 				}
 			}
-			while let Some(message) = socket.next().await {
-				match message {
-					Ok(tungstenite::Message::Close(_)) => {
-						let _ = socket.flush().await;
-						break;
-					}
-					Ok(message) if message.is_text() || message.is_binary() => {
-						if socket.send(message).await.is_err() {
-							break;
-						}
-					}
 
-					Err(_) => break,
-					_ => {}
+			true
+		}
+
+		_ => true,
+	}
+}
+
+/// Echoes every text or binary message until the client closes.
+async fn echo(mut socket: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>) {
+	while let Some(message) = socket.next().await {
+		match message {
+			Ok(tungstenite::Message::Close(_)) => {
+				let _ = socket.flush().await;
+				break;
+			}
+			Ok(message) if message.is_text() || message.is_binary() => {
+				if socket.send(message).await.is_err() {
+					break;
 				}
 			}
-		});
+
+			Err(_) => break,
+			_ => {}
+		}
 	}
 }
 

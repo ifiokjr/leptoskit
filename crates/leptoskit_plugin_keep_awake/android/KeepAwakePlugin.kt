@@ -25,6 +25,15 @@ class KeepAwakePlugin(
     private var closed = false
     private var original = false
     private var observing = false
+
+    private companion object {
+        /** The only method: takes another lease. */
+        const val STATUS = 0
+
+        /** How many leases one app may hold at once. */
+        const val MAX_LEASES = 64
+    }
+
     private val callbacks =
         object : Application.ActivityLifecycleCallbacks {
             override fun onActivityStopped(activity: Activity) {
@@ -60,39 +69,55 @@ class KeepAwakePlugin(
 
         if (closed) throw PluginException(PluginException.CANCELLED)
 
-        if (method != 0) throw PluginException(PluginException.UNAVAILABLE)
+        if (method != STATUS) throw PluginException(PluginException.UNAVAILABLE)
 
         if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
 
-        if (pending.size >= 64) throw PluginException(PluginException.BUSY)
+        if (pending.size >= MAX_LEASES) throw PluginException(PluginException.BUSY)
+        val activity = visibleActivity()
+
+        return suspendCancellableCoroutine { continuation ->
+            if (!continuation.isActive) return@suspendCancellableCoroutine
+
+            hold(activity)
+            pending.add(continuation)
+            releaseOnCancel(continuation)
+        }
+    }
+
+    /** The attached activity, when it is visible enough to keep the screen on. */
+    private fun visibleActivity(): Activity {
         val activity = context as? Activity ?: throw PluginException(PluginException.UNAVAILABLE)
+
         // Visible, not focused: a lease can start at launch, before the window
         // gains focus, or while a dialog has it.
         if (activity.isDestroyed || activity.isFinishing || activity.window?.decorView?.isShown != true) {
             throw PluginException(PluginException.UNAVAILABLE)
         }
-        return suspendCancellableCoroutine { continuation ->
 
-            if (!continuation.isActive) return@suspendCancellableCoroutine
+        return activity
+    }
 
-            if (pending.isEmpty()) {
-                original = activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
-                activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                activity.application.registerActivityLifecycleCallbacks(callbacks)
-                observing = true
-            }
+    /** Keeps the screen on for the first lease, and watches the activity for it. */
+    private fun hold(activity: Activity) {
+        if (pending.isNotEmpty()) return
+        original = activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
+        activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        activity.application.registerActivityLifecycleCallbacks(callbacks)
+        observing = true
+    }
 
-            pending.add(continuation)
-            continuation.invokeOnCancellation {
-                val remove =
-                    Runnable {
-                        pending.remove(continuation)
+    /** Drops the lease when its caller cancels, on the main thread. */
+    private fun releaseOnCancel(continuation: CancellableContinuation<ByteArray>) {
+        continuation.invokeOnCancellation {
+            val remove =
+                Runnable {
+                    pending.remove(continuation)
 
-                        if (pending.isEmpty()) stop()
-                    }
+                    if (pending.isEmpty()) stop()
+                }
 
-                if (Looper.myLooper() == Looper.getMainLooper()) remove.run() else handler.post(remove)
-            }
+            if (Looper.myLooper() == Looper.getMainLooper()) remove.run() else handler.post(remove)
         }
     }
 
