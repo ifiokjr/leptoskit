@@ -69,88 +69,43 @@ const PLATFORMS: [&str; 9] = [
 
 /// Parses a file stem (`is_dir` false) or directory name.
 pub(crate) fn parse(name: &str, is_dir: bool) -> Result<Name, String> {
-	// `[...topic]` is the one place a name holds dots.
-	let without_rest = name.replacen("...", "", 1);
+	check_dots(name)?;
 
-	if let Some((_, suffix)) = without_rest.rsplit_once('.') {
-		if PLATFORMS.contains(&suffix) {
-			return Err(format!(
-				"`{name}` is a platform override; per-platform files and folders are an opt-in \
-				 extension that leptoskit does not support yet"
-			));
-		}
-		return Err(format!(
-			"`{name}` contains `.`, which route names cannot use"
-		));
-	}
+	if let Some(inner) = brackets(name, "[[", "]]") {
+		let optional = inner.strip_prefix("...");
+		let param = param_name(name, optional.unwrap_or(inner))?;
 
-	if let Some(inner) = name
-		.strip_prefix("[[")
-		.and_then(|rest| rest.strip_suffix("]]"))
-	{
-		return Ok(Name::Segment(match inner.strip_prefix("...") {
-			Some(param) => Segment::OptionalRest(param_name(name, param)?),
-			None => Segment::OptionalParam(param_name(name, inner)?),
+		return Ok(Name::Segment(match optional {
+			Some(_) => Segment::OptionalRest(param),
+			None => Segment::OptionalParam(param),
 		}));
 	}
 
-	if let Some(inner) = name
-		.strip_prefix('[')
-		.and_then(|rest| rest.strip_suffix(']'))
-	{
-		return Ok(Name::Segment(match inner.strip_prefix("...") {
-			Some(param) => Segment::Rest(param_name(name, param)?),
-			None => Segment::Param(param_name(name, inner)?),
+	if let Some(inner) = brackets(name, "[", "]") {
+		let rest = inner.strip_prefix("...");
+		let param = param_name(name, rest.unwrap_or(inner))?;
+
+		return Ok(Name::Segment(match rest {
+			Some(_) => Segment::Rest(param),
+			None => Segment::Param(param),
 		}));
 	}
 
-	if let Some(group) = name
-		.strip_prefix('(')
-		.and_then(|rest| rest.strip_suffix(')'))
-	{
-		if !is_dir {
-			return Err(format!("`{name}.rs`: a group is a directory, `{name}/`"));
-		}
-
-		static_text(name, group)?;
-
-		return Ok(Name::Group(group.to_owned()));
+	if let Some(inner) = brackets(name, "(", ")") {
+		return group(name, inner, is_dir);
 	}
 
-	if let Some(special) = name.strip_prefix('+') {
-		return match (special, is_dir) {
-			("not-found", false) => Ok(Name::NotFound),
-			("html", false) => Ok(Name::Html),
-			(_, true) => Err(format!("`{name}/`: names starting with `+` are files")),
-			_ => {
-				Err(format!(
-					"`{name}.rs` is not a route file leptoskit knows; the `+` files are \
-					 `+not-found.rs` and `+html.rs`"
-				))
-			}
-		};
+	if let Some(inner) = name.strip_prefix('+') {
+		return special(name, inner, is_dir);
 	}
 
-	if let Some(private) = name.strip_prefix('_') {
-		if is_dir {
-			return Err(format!(
-				"`{name}/`: private directories are not supported; put shared code in a crate \
-				 module, or in a `_file.rs` beside the routes that use it"
-			));
-		}
-
-		if private == "layout" {
-			return Ok(Name::Layout);
-		}
-
-		static_text(name, private)?;
-
-		return Ok(Name::Private(name.to_owned()));
+	if let Some(inner) = name.strip_prefix('_') {
+		return private_file(name, inner, is_dir);
 	}
 
 	if name == "index" {
 		return if is_dir {
-			Err("`index/`: `index` names a directory's own route file, `index.rs`".to_owned())
+			Err("`index/`: `index` names a directory\'s own route file, `index.rs`".to_owned())
 		} else {
 			Ok(Name::Index)
 		};
@@ -158,6 +113,77 @@ pub(crate) fn parse(name: &str, is_dir: bool) -> Result<Name, String> {
 
 	static_text(name, name)?;
 	Ok(Name::Segment(Segment::Static(name.to_owned())))
+}
+
+/// The text between `open` and `close`, when the whole name is wrapped in it.
+fn brackets<'a>(name: &'a str, open: &str, close: &str) -> Option<&'a str> {
+	name.strip_prefix(open)
+		.and_then(|rest| rest.strip_suffix(close))
+}
+
+/// Rejects the dots a route name cannot hold, and platform overrides.
+fn check_dots(name: &str) -> Result<(), String> {
+	// `[...topic]` is the one place a name holds dots.
+	let without_rest = name.replacen("...", "", 1);
+
+	let Some((_, suffix)) = without_rest.rsplit_once('.') else {
+		return Ok(());
+	};
+
+	if PLATFORMS.contains(&suffix) {
+		return Err(format!(
+			"`{name}` is a platform override; per-platform files and folders are an opt-in \
+			 extension that leptoskit does not support yet"
+		));
+	}
+
+	Err(format!(
+		"`{name}` contains `.`, which route names cannot use"
+	))
+}
+
+/// A `(group)` directory.
+fn group(name: &str, group: &str, is_dir: bool) -> Result<Name, String> {
+	if !is_dir {
+		return Err(format!("`{name}.rs`: a group is a directory, `{name}/`"));
+	}
+
+	static_text(name, group)?;
+
+	Ok(Name::Group(group.to_owned()))
+}
+
+/// A `+not-found.rs` or `+html.rs` file.
+fn special(name: &str, inner: &str, is_dir: bool) -> Result<Name, String> {
+	match (inner, is_dir) {
+		("not-found", false) => Ok(Name::NotFound),
+		("html", false) => Ok(Name::Html),
+		(_, true) => Err(format!("`{name}/`: names starting with `+` are files")),
+		_ => {
+			Err(format!(
+				"`{name}.rs` is not a route file leptoskit knows; the `+` files are \
+				 `+not-found.rs` and `+html.rs`"
+			))
+		}
+	}
+}
+
+/// A `_layout.rs` or `_private.rs` file.
+fn private_file(name: &str, inner: &str, is_dir: bool) -> Result<Name, String> {
+	if is_dir {
+		return Err(format!(
+			"`{name}/`: private directories are not supported; put shared code in a crate module, \
+			 or in a `_file.rs` beside the routes that use it"
+		));
+	}
+
+	if inner == "layout" {
+		return Ok(Name::Layout);
+	}
+
+	static_text(name, inner)?;
+
+	Ok(Name::Private(name.to_owned()))
 }
 
 fn param_name(name: &str, param: &str) -> Result<String, String> {
