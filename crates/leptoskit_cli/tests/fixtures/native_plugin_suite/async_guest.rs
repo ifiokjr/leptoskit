@@ -53,7 +53,6 @@ async fn async_plugins() -> Result<(), leptoskit_bridge::Error> {
 		return Err(Error::Native);
 	}
 	let socket = websocket.open(&format!("{WS_ORIGIN}/echo"), &[]).await?;
-
 	for message in [
 		Message::Text("async guest ready".into()),
 		Message::Binary(vec![0, 127, 255]),

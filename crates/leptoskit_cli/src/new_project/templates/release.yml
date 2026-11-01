@@ -123,7 +123,6 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain"
           read -ra keychains <<< "$(security list-keychains -d user | tr -d '"')"
           security list-keychains -d user -s "$keychain" "${keychains[@]}"
-
           rm "$RUNNER_TEMP/certificate.p12"
 
       - name: publish
@@ -143,7 +142,6 @@ jobs:
           LEPTOSKIT_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.LEPTOSKIT_ANDROID_KEYSTORE_PASSWORD }}
           LEPTOSKIT_ANDROID_KEY_ALIAS: ${{ secrets.LEPTOSKIT_ANDROID_KEY_ALIAS }}
           LEPTOSKIT_ANDROID_KEY_PASSWORD: ${{ secrets.LEPTOSKIT_ANDROID_KEY_PASSWORD }}
-
           # gh attaches the macOS download to a GitHub release.
           GH_TOKEN: ${{ github.token }}
           SUBMIT: ${{ inputs.submit }}
