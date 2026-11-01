@@ -30,8 +30,10 @@ android {
         // API 36 or later.
         targetSdk = 36
         versionCode =
-            (findProperty("leptoskit.versionCode") as String?
-                ?: leptoskitVersion.getProperty("versionCode")).toInt()
+            (
+                findProperty("leptoskit.versionCode") as String?
+                    ?: leptoskitVersion.getProperty("versionCode")
+            ).toInt()
         versionName = leptoskitVersion.getProperty("versionName")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += file("../../.leptoskit/android/abi.txt").readText().trim() }
