@@ -88,22 +88,26 @@ pub fn View() -> Element {
 /// same as a plain string when it does not.
 pub trait IntoText {
 	/// The label showing this content.
+	#[track_caller]
 	fn into_text(self) -> Element;
 }
 
 impl IntoText for &str {
+	#[track_caller]
 	fn into_text(self) -> Element {
 		Element::text(self)
 	}
 }
 
 impl IntoText for String {
+	#[track_caller]
 	fn into_text(self) -> Element {
 		Element::text(self)
 	}
 }
 
 impl IntoText for &String {
+	#[track_caller]
 	fn into_text(self) -> Element {
 		Element::text(self.clone())
 	}
@@ -113,6 +117,7 @@ impl<F> IntoText for F
 where
 	F: Fn() -> String + Send + Sync + 'static,
 {
+	#[track_caller]
 	fn into_text(self) -> Element {
 		Element::text_from(self)
 	}
