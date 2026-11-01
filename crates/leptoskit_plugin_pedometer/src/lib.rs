@@ -257,6 +257,7 @@ mod tests {
 	#[test]
 	fn reserved_bytes_and_lengths_are_rejected() {
 		let mut reserved = [0; 32];
+
 		reserved[24..].copy_from_slice(&1_f64.to_le_bytes());
 		assert!(Reading::decode(&reserved).is_ok());
 		reserved[4] = 1;
@@ -265,6 +266,7 @@ mod tests {
 		let mut negative = [0; 32];
 		negative[16..24].copy_from_slice(&(-1_f64).to_le_bytes());
 		assert_eq!(Reading::decode(&negative), Err(Error::InvalidArgument));
+
 		let mut unknown_scope = [0; 32];
 		unknown_scope[0] = 2;
 		assert_eq!(Reading::decode(&unknown_scope), Err(Error::InvalidArgument));
