@@ -602,73 +602,86 @@ impl ExtensionConfig {
 
 	/// Each browser's own settings.
 	fn browser_problem(&self, package_id: &str) -> Option<String> {
-		if self.browsers.contains(&Browser::Firefox) {
-			match &self.firefox {
-				None => {
-					return Some(
-						"Firefox needs an add-on ID: add [extension.firefox] with id = \
-						 \"name@example.com\""
-							.into(),
-					);
-				}
-
-				Some(firefox) if !is_gecko_id(&firefox.id) => {
-					return Some(format!(
-						"extension.firefox.id `{}` must look like an email address, such as \
-						 name@example.com",
-						firefox.id
-					));
-				}
-
-				Some(firefox) => {
-					if let Some(category) = firefox
-						.data_collection
-						.iter()
-						.find(|category| !FIREFOX_DATA_COLLECTION.contains(&category.as_str()))
-					{
-						return Some(format!(
-							"extension.firefox.data_collection has `{category}`; expected one of \
-							 {}",
-							FIREFOX_DATA_COLLECTION.join(", ")
-						));
-					}
-					if firefox.data_collection.is_empty()
-						|| (firefox.data_collection.len() > 1
-							&& firefox
-								.data_collection
-								.iter()
-								.any(|category| category == "none"))
-					{
-						return Some(
-							"extension.firefox.data_collection must be [\"none\"] or the \
-							 categories the extension sends"
-								.into(),
-						);
-					}
-				}
-			}
+		if self.browsers.contains(&Browser::Firefox)
+			&& let Some(problem) = self.firefox_problem()
+		{
+			return Some(problem);
 		}
 
-		if self.browsers.contains(&Browser::Safari) {
-			if package_id.is_empty() {
-				return Some(
-					"Safari's extension lives in the native app, so native.package_id must be set"
-						.into(),
-				);
-			}
+		if self.browsers.contains(&Browser::Safari)
+			&& let Some(problem) = self.safari_problem(package_id)
+		{
+			return Some(problem);
+		}
 
-			let suffix = &self.safari.bundle_id_suffix;
-			let valid = !suffix.is_empty()
-				&& suffix
-					.bytes()
-					.all(|byte| byte.is_ascii_alphanumeric() || byte == b'-');
+		None
+	}
 
-			if !valid {
-				return Some(format!(
-					"extension.safari.bundle_id_suffix `{suffix}` must be letters, digits, and \
-					 dashes"
-				));
-			}
+	/// Firefox's add-on ID and data-collection categories.
+	fn firefox_problem(&self) -> Option<String> {
+		let Some(firefox) = &self.firefox else {
+			return Some(
+				"Firefox needs an add-on ID: add [extension.firefox] with id = \
+				 \"name@example.com\""
+					.into(),
+			);
+		};
+
+		if !is_gecko_id(&firefox.id) {
+			return Some(format!(
+				"extension.firefox.id `{}` must look like an email address, such as \
+				 name@example.com",
+				firefox.id
+			));
+		}
+
+		if let Some(category) = firefox
+			.data_collection
+			.iter()
+			.find(|category| !FIREFOX_DATA_COLLECTION.contains(&category.as_str()))
+		{
+			return Some(format!(
+				"extension.firefox.data_collection has `{category}`; expected one of {}",
+				FIREFOX_DATA_COLLECTION.join(", ")
+			));
+		}
+
+		if firefox.data_collection.is_empty()
+			|| (firefox.data_collection.len() > 1
+				&& firefox
+					.data_collection
+					.iter()
+					.any(|category| category == "none"))
+		{
+			return Some(
+				"extension.firefox.data_collection must be [\"none\"] or the categories the \
+				 extension sends"
+					.into(),
+			);
+		}
+
+		None
+	}
+
+	/// Safari's bundle ID suffix, and the app it lives in.
+	fn safari_problem(&self, package_id: &str) -> Option<String> {
+		if package_id.is_empty() {
+			return Some(
+				"Safari's extension lives in the native app, so native.package_id must be set"
+					.into(),
+			);
+		}
+
+		let suffix = &self.safari.bundle_id_suffix;
+		let valid = !suffix.is_empty()
+			&& suffix
+				.bytes()
+				.all(|byte| byte.is_ascii_alphanumeric() || byte == b'-');
+
+		if !valid {
+			return Some(format!(
+				"extension.safari.bundle_id_suffix `{suffix}` must be letters, digits, and dashes"
+			));
 		}
 
 		None

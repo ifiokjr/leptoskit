@@ -2464,11 +2464,13 @@ impl LeptoskitConfig {
 					return Err(ConfigError::InvalidExtension(problem));
 				}
 			}
+
 			None if builds_extension => {
 				return Err(ConfigError::InvalidExtension(
 					"app.platforms has `extension`, so add an [extension] table".into(),
 				));
 			}
+
 			None => {}
 		}
 
