@@ -3,6 +3,7 @@
 use leptoskit::prelude::Element;
 use leptoskit::prelude::Text;
 use leptoskit::prelude::View;
+use leptoskit::prelude::component;
 
 /// Tiles per row.
 pub const COLUMNS: u64 = 15;
@@ -10,7 +11,8 @@ pub const COLUMNS: u64 = 15;
 pub const ROWS: u64 = 20;
 
 /// The wall at `frame`: tile `i` shows `frame + i`.
-pub fn grid(frame: u64) -> Element {
+#[component]
+pub fn TickerGrid(frame: u64) -> Element {
 	View().class("flex-1").children((0..ROWS).map(|row| {
 		View()
 			.class("h-8 flex-row")

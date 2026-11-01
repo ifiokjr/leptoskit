@@ -11,6 +11,7 @@ use crate::NativeKind;
 use crate::NativeProps;
 use crate::element::HandlerEntry;
 use crate::hash::FastHash;
+use crate::reactive::Binding;
 
 /// The UI imports, separated from tree reconciliation so it can run in tests.
 pub(super) trait Host {
@@ -36,6 +37,9 @@ pub(super) struct Tree {
 	/// Node ids in build order, parents before children: the order the host
 	/// hears about them, independent of the map's.
 	order: Vec<i64>,
+	/// Node ids that read application state: what a refresh visits, so it
+	/// costs the values that changed rather than the size of the tree.
+	bound: Vec<i64>,
 	root: Option<i64>,
 	next_id: i64,
 }
@@ -104,6 +108,7 @@ impl Tree {
 		let mut next = Self {
 			nodes: HashMap::with_capacity_and_hasher(self.nodes.len(), FastHash::default()),
 			order: Vec::with_capacity(self.order.len()),
+			bound: Vec::new(),
 			root: None,
 			next_id: self.next_id,
 		};
@@ -156,32 +161,30 @@ impl Tree {
 	pub(super) fn refresh_reactive(&mut self, host: &mut impl Host) -> bool {
 		let mut changed = false;
 
-		for index in 0..self.order.len() {
-			let id = self.order[index];
-			let node = self.nodes.get_mut(&id).expect("every listed id has a node");
-			if node.element.bindings().is_empty() {
-				continue;
-			}
-
-			let bindings = node.element.bindings().clone();
+		for index in 0..self.bound.len() {
+			let id = self.bound[index];
+			let node = self.nodes.get_mut(&id).expect("every bound id has a node");
+			let text = node.element.bindings().text.as_ref().map(Binding::read);
+			let background = node
+				.element
+				.bindings()
+				.background
+				.as_ref()
+				.map(Binding::read);
 			let mut node_changed = false;
 
-			if let Some(read) = &bindings.text {
-				let text = read.read();
-
-				if node.element.props.text.as_deref() != Some(text.as_str()) {
-					node.element.props.text = Some(text);
-					node_changed = true;
-				}
+			if let Some(text) = text
+				&& node.element.props.text.as_deref() != Some(text.as_str())
+			{
+				node.element.props.text = Some(text);
+				node_changed = true;
 			}
 
-			if let Some(read) = &bindings.background {
-				let color = read.read();
-
-				if node.element.props.background != Some(color) {
-					node.element.props.background = Some(color);
-					node_changed = true;
-				}
+			if let Some(background) = background
+				&& node.element.props.background != Some(background)
+			{
+				node.element.props.background = Some(background);
+				node_changed = true;
 			}
 
 			if !node_changed {
@@ -238,6 +241,11 @@ impl Tree {
 			|(id, _)| id,
 		);
 		self.order.push(id);
+
+		if !element.bindings().is_empty() {
+			self.bound.push(id);
+		}
+
 		let children = std::mem::take(&mut element.children)
 			.into_iter()
 			.enumerate()

@@ -4,6 +4,7 @@ use leptoskit::prelude::Color;
 use leptoskit::prelude::Element;
 use leptoskit::prelude::Text;
 use leptoskit::prelude::View;
+use leptoskit::prelude::component;
 use leptoskit::virtual_list::Axis;
 use leptoskit::virtual_list::VirtualItem;
 use leptoskit::virtual_list::VirtualList;
@@ -27,7 +28,8 @@ const OVERSCAN: usize = 4;
 
 /// The feed's window at the current offset, scrolled to the scenario's
 /// target when it sets one.
-pub fn list(arena: &Arena, feed: &Feed) -> Element {
+#[component]
+pub fn FeedList(arena: &Arena, feed: &Feed) -> Element {
 	let mut virtualizer =
 		Virtualizer::new(VirtualOptions::fixed(LENGTH, ITEM_HEIGHT).with_overscan(OVERSCAN));
 	virtualizer.set_viewport(VIEWPORT_HEIGHT);

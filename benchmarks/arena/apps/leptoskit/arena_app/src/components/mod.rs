@@ -4,6 +4,7 @@ use leptoskit::prelude::Element;
 use leptoskit::prelude::Get;
 use leptoskit::prelude::RwSignal;
 use leptoskit::prelude::View;
+use leptoskit::prelude::component;
 
 use crate::services::Phase;
 use crate::services::Scenario;
@@ -13,7 +14,8 @@ use crate::services::Scenario;
 /// The beacon's colour and the status text follow `phase` as bindings, so a
 /// scenario that moves from running to done rewrites two nodes rather than
 /// rebuilding the screen around them.
-pub fn header(scenario: Option<Scenario>, phase: RwSignal<Phase>) -> Element {
+#[component]
+pub fn Header(scenario: Option<Scenario>, phase: RwSignal<Phase>) -> Element {
 	let name = scenario.map_or("arena", Scenario::id);
 
 	View()

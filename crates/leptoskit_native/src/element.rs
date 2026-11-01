@@ -413,6 +413,10 @@ impl Element {
 	/// the signal changes: a hundred changed labels cost a hundred nodes
 	/// rather than a rebuilt tree. A renderer that does not support bindings
 	/// still shows the text read when the element was built.
+	///
+	/// The saving applies to changes outside an event: after an event the
+	/// native guest renders the view again, bound or not. See
+	/// [`guest::refresh`](crate::guest::refresh).
 	#[track_caller]
 	#[must_use]
 	pub fn text_from(read: impl Fn() -> String + Send + Sync + 'static) -> Self {

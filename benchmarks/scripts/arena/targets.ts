@@ -295,6 +295,28 @@ export async function android(serial: string): Promise<Target> {
 	const adb = (...args: string[]) => run(ADB, ["-s", serial, ...args]);
 	const property = async (name: string) =>
 		(await adb("shell", "getprop", name)).trim();
+	// A locked or dozing device still runs the app, one power state down: the
+	// display drops to a slow mode, frames arrive late, and every scenario
+	// reports a number and a half. Waking does not dismiss a keyguard the
+	// device is configured to keep, so a run that finds one stops here rather
+	// than recording it.
+	const requireUnlocked = async () => {
+		const [power, window] = await Promise.all([
+			adb("shell", "dumpsys", "power"),
+			adb("shell", "dumpsys", "window"),
+		]);
+		const awake = /mWakefulness=(\w+)/.exec(power)?.[1];
+		if (awake !== undefined && awake !== "Awake") {
+			throw new Error(
+				`the device is ${awake}; wake it and unlock it before measuring`,
+			);
+		}
+		if (/isKeyguardShowing=true/.test(window)) {
+			throw new Error(
+				"the device is locked; unlock it before measuring",
+			);
+		}
+	};
 	const model = await property("ro.product.model");
 	const release = await property("ro.build.version.release");
 	const emulator = (await property("ro.kernel.qemu")) === "1" ||
@@ -328,6 +350,7 @@ export async function android(serial: string): Promise<Target> {
 			// A long run outlasts the screen timeout; waking is a no-op when
 			// the display is already on, and changes no setting.
 			await adb("shell", "input", "keyevent", "KEYCODE_WAKEUP");
+			await requireUnlocked();
 			await adb("shell", "am", "force-stop", packageName);
 			await adb("logcat", "-c");
 			const remote = "/data/local/tmp/arena.mp4";
