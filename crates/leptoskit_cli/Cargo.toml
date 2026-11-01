@@ -62,7 +62,7 @@ leptoskit_auth = { workspace = true, features = ["oauth", "postgres", "sqlite"] 
 leptoskit_axum = { workspace = true }
 leptoskit_codepush = { workspace = true }
 leptoskit_config = { workspace = true }
-leptoskit_db = { workspace = true, features = ["postgres", "sqlite", "vector"] }
+leptoskit_db = { workspace = true, features = ["postgres", "sqlite", "geo", "vector"] }
 leptoskit_db_schema = { workspace = true }
 leptoskit_devtools_protocol = { workspace = true }
 leptoskit_fmt = { workspace = true, features = ["cli"] }

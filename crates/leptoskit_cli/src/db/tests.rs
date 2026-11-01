@@ -962,3 +962,19 @@ fn check_warns_about_public_vectors_and_large_exact_searches() {
 		Vec::<String>::new()
 	);
 }
+
+/// `lk db migrate` runs SQLite migrations in this process, so their
+/// spatial and vector checks need the functions the database layer
+/// registers on each connection.
+#[test]
+fn sqlite_connections_check_spatial_and_vector_columns() {
+	super::runtime()
+		.unwrap()
+		.block_on(async {
+			let db = leptoskit_db::Db::connect("sqlite::memory:").await?;
+			db.run_script("SELECT lk_geo_check(NULL, 'Point', 4326, 1); SELECT vec_version();")
+				.await?;
+			anyhow::Ok(())
+		})
+		.unwrap();
+}
