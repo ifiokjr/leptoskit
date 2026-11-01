@@ -356,7 +356,13 @@ mod tests {
 	const ABOVE_FULL: u32 = 1001;
 	/// A charge that does not even fit the truncated field.
 	const BEYOND_U16: u32 = 65_536;
-	/// One millisecond short of the minimum poll interval.
+	/// One millisecond short of the minimum poll interval. Only the desktop
+	/// watcher polls, so only its targets use it.
+	#[cfg(any(
+		target_os = "macos",
+		target_os = "windows",
+		all(target_os = "linux", not(target_env = "ohos"))
+	))]
 	const TOO_QUICK: u64 = 999;
 
 	#[test]
