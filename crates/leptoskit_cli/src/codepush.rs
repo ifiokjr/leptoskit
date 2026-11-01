@@ -165,6 +165,7 @@ fn pull(
 	let report =
 		leptoskit_codepush::pull_channel(&release_store, app, &channel, &mut bucket, &trusted)
 			.map_err(|error| anyhow::anyhow!("could not pull {app}/{channel}: {error}"))?;
+
 	match report {
 		leptoskit_codepush::PullReport::Empty => {
 			println!(
@@ -182,12 +183,14 @@ fn pull(
 			} else {
 				"already in the store"
 			};
+
 			println!(
 				"{app} {version}+{build} on {channel} from {}: {note}",
 				location.bucket
 			);
 		}
 	}
+
 	Ok(())
 }
 
@@ -213,6 +216,7 @@ fn publish(
 	} else {
 		format!("uploaded {}", report.releases.join(", "))
 	};
+
 	println!(
 		"published {app} {}+{} on {channel} to {}: {uploaded}; {} objects written, {} already \
 		 present",
@@ -238,6 +242,7 @@ fn load_signing_key(path: Option<&str>) -> Result<ReleaseSigningKey> {
 			})?
 		}
 	};
+
 	ReleaseSigningKey::from_hex(&encoded)
 		.map_err(|error| anyhow::anyhow!("could not load the signing key: {error}"))
 }
@@ -302,6 +307,7 @@ fn next_version(
 		return Ok((project_version.clone(), 1));
 	};
 	let latest_version = &record.manifest.version;
+
 	match project_version.cmp(latest_version) {
 		std::cmp::Ordering::Equal => Ok((project_version.clone(), record.manifest.build + 1)),
 		std::cmp::Ordering::Greater => Ok((project_version.clone(), 1)),
@@ -326,6 +332,7 @@ fn serve(store: &str, dir: &str, port: Option<u16>) -> Result<()> {
 	let address = &config.serve.address;
 	println!("serving code push updates on http://{address}:{port}/api/codepush");
 	let runtime = tokio::runtime::Runtime::new().context("could not start the async runtime")?;
+
 	let options =
 		leptoskit_axum::ServeOptions::new(root.join(dir).as_std_path(), address.clone(), port)
 			.with_release_store(release_store);
@@ -354,6 +361,7 @@ fn check(
 	let plan = release_store
 		.plan_update(&config.app.name, &channel, &current, build)
 		.map_err(|error| anyhow::anyhow!("could not plan the update: {error}"))?;
+
 	match plan {
 		leptoskit_codepush::UpdatePlan::UpToDate => {
 			println!(
@@ -371,6 +379,7 @@ fn check(
 			);
 		}
 	}
+
 	Ok(())
 }
 

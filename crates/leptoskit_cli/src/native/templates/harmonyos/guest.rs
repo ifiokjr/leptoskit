@@ -71,7 +71,9 @@ pub extern "C" fn leptoskit_event(node: i64, kind: i32, _pointer: i32, _length: 
 	if node == 3 && kind == 0 {
 		COUNT.set(COUNT.get().saturating_add(1));
 		render();
+
 		return 1;
 	}
+
 	0
 }

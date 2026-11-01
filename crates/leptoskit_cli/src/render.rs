@@ -43,21 +43,26 @@ pub fn mode_features(
 	if !mode.renders_on_server() {
 		return Ok(ModeFeatures::default());
 	}
+
 	let mut features = ModeFeatures {
 		server: vec![required_feature(mode, server, SSR_FEATURE, "server")?],
 		client: Vec::new(),
 	};
+
 	if let Some(client) = client {
 		features
 			.client
 			.push(required_feature(mode, client, HYDRATE_FEATURE, "client")?);
 	}
+
 	if mode == RenderMode::Islands {
 		features.server.push(islands_feature(server)?);
+
 		if let Some(client) = client {
 			features.client.push(islands_feature(client)?);
 		}
 	}
+
 	Ok(features)
 }
 

@@ -177,6 +177,7 @@ fn configure(destination: &Path, sdk: &Path) -> Result<()> {
 		for (_, package) in BASE_PLUGINS.iter().chain(OPTIONAL_PLUGINS) {
 			add_dependency(manifest, sdk, package, Side::Host)?;
 		}
+
 		Ok(())
 	})?;
 	edit_toml(
@@ -232,6 +233,7 @@ fn configure(destination: &Path, sdk: &Path) -> Result<()> {
 		for (name, _) in BASE_PLUGINS.iter().chain(OPTIONAL_PLUGINS) {
 			plugins.push((*name).into());
 		}
+
 		Ok(())
 	})?;
 
@@ -279,14 +281,17 @@ fn configure(destination: &Path, sdk: &Path) -> Result<()> {
 		include_str!("../src/native/templates/NativeAppTest.kt")
 			.replace("dev.leptoskit.generated", &config.native.package_id),
 	)?;
+
 	for relative in ANDROID_TESTS {
 		let source = sdk.join("crates").join(relative);
 		let name = source.file_name().context("test source lacks a filename")?;
 		let output = tests.join(name);
 		anyhow::ensure!(!output.exists(), "duplicate test file {}", output.display());
+
 		std::fs::copy(&source, &output)
 			.with_context(|| format!("copy Android test {}", source.display()))?;
 	}
+
 	std::fs::write(
 		tests.join("SystemBarsTest.kt"),
 		include_str!("../tests/fixtures/native_plugin_suite/SystemBarsTest.kt"),
@@ -339,12 +344,15 @@ fn add_dependency(manifest: &mut toml::Table, sdk: &Path, package: &str, side: S
 		"path".into(),
 		path.to_str().context("SDK path is not UTF-8")?.into(),
 	);
+
 	if side != Side::Host {
 		dependency.insert("features".into(), vec!["guest"].into());
 	}
+
 	if side == Side::GuestWithoutDefaults {
 		dependency.insert("default-features".into(), false.into());
 	}
+
 	let dependencies = manifest
 		.entry("dependencies")
 		.or_insert_with(|| toml::Value::Table(toml::Table::new()))
@@ -400,6 +408,7 @@ mod tests {
 			for name in ["sharing", "store-review", "tracking-transparency"] {
 				assert!(plugins.iter().any(|value| value.as_str() == Some(name)));
 			}
+
 			let tests = destination.join("android/app/src/androidTest/java");
 			for name in [
 				"StoreReviewPluginTest.kt",
@@ -411,6 +420,7 @@ mod tests {
 			Ok(())
 		})();
 		std::fs::remove_dir_all(destination)?;
+
 		result
 	}
 }

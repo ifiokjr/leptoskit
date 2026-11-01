@@ -37,6 +37,7 @@ fn async_factories_require_host_options_and_select_host_features() {
 	assert!(!source.contains("&_context.data_dir"));
 	assert!(source.contains("\\\"origins\\\""));
 	assert!(resolve_metadata(metadata("Plugin"), &config).is_err());
+
 	config
 		.native
 		.plugin_options

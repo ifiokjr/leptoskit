@@ -58,18 +58,22 @@ fn normalize(text: &str, root: &Path) -> String {
 	let root = root.to_string_lossy();
 	let mut text = text.replace(root.as_ref(), "[ROOT]");
 	let stripped = root.trim_start_matches(r"\\?\");
+
 	if stripped != root {
 		text = text.replace(stripped, "[ROOT]");
 	}
+
 	let mut normalized = String::with_capacity(text.len());
 	let mut segments = text.split("[ROOT]");
 	normalized.push_str(segments.next().unwrap_or_default());
+
 	for segment in segments {
 		let path_end = segment.find(char::is_whitespace).unwrap_or(segment.len());
 		normalized.push_str("[ROOT]");
 		normalized.push_str(&segment[..path_end].replace('\\', "/"));
 		normalized.push_str(&segment[path_end..]);
 	}
+
 	normalized.replace("leptoskit.exe", "leptoskit")
 }
 
@@ -176,6 +180,7 @@ fn help_text_is_pinned() {
 		} else {
 			format!("help__{}", args[..args.len() - 1].join("-"))
 		};
+
 		insta::assert_snapshot!(name, normalize(&stdout(&output), &scratch.path));
 	}
 }
@@ -218,6 +223,7 @@ fn web_scaffold_is_pinned_file_by_file() {
 		]
 		.map(str::to_owned),
 	);
+
 	for file in files {
 		let contents = std::fs::read_to_string(project.join(&file))
 			.unwrap_or_else(|error| panic!("read {file}: {error}"));
@@ -298,6 +304,7 @@ fn database_scaffold_is_pinned() {
 	assert!(read("Cargo.toml").contains("features = [\"server\", \"db-postgres\"]"));
 	assert!(read("postgres_db/Cargo.toml").contains("server = [\"leptoskit_db/postgres\"]"));
 	assert!(read("src/main.rs").contains("such as postgres://localhost/postgres\")?;"));
+
 	assert!(!read(".gitignore").contains("sqlite3"));
 	assert!(read("README.md").contains("`leptoskit dev` runs a development Postgres"));
 
@@ -369,6 +376,7 @@ fn auth_scaffold_is_pinned() {
 			contents
 		);
 	}
+
 	for page in ["mod.rs", "sign_in.rs", "devices.rs"] {
 		assert!(
 			project
@@ -525,6 +533,7 @@ fn native_scaffold_is_pinned() {
 		]
 		.map(str::to_owned),
 	);
+
 	for file in files {
 		let contents = std::fs::read_to_string(project.join(&file))
 			.unwrap_or_else(|error| panic!("read {file}: {error}"));
@@ -678,6 +687,7 @@ fn codepush_artifacts_are_pinned() {
 	let store = ReleaseStore::open(project.path.join("releases")).expect("open store");
 	let records = store.list("pushed", "production").expect("list releases");
 	assert_eq!(records.len(), 2, "both releases live in the store");
+
 	for record in &records {
 		let name = format!(
 			"codepush__manifest_{}+{}",

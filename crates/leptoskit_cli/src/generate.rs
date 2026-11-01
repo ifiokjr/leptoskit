@@ -31,6 +31,7 @@ pub fn plugin(path: &str, name: Option<&str>, bridge_path: Option<&str>) -> Resu
 	);
 	let mut dependency = toml::Table::new();
 	dependency.insert("version".to_owned(), env!("CARGO_PKG_VERSION").into());
+
 	if let Some(path) = bridge_path {
 		let path = std::fs::canonicalize(path).context("resolve --bridge-path")?;
 		anyhow::ensure!(
@@ -40,6 +41,7 @@ pub fn plugin(path: &str, name: Option<&str>, bridge_path: Option<&str>) -> Resu
 		let path = path.to_str().context("--bridge-path is not UTF-8")?;
 		dependency.insert("path".to_owned(), path.into());
 	}
+
 	let manifest = format!(
 		"[package]\nname = {crate_name:?}\nversion = \"0.1.0\"\nedition = \"2024\"\nlicense = \
 		 \"Unlicense\"\n\n[package.metadata.leptoskit.runtime]\nname = {name:?}\nrust-type = \
@@ -100,6 +102,7 @@ pub fn tool_plugin(path: &str, name: Option<&str>) -> Result<()> {
 		(".gitignore", "/target\n".to_owned()),
 	];
 	let dir = scaffold(destination, &files)?;
+
 	crate::ui::success(format_args!("created {program} in {dir}"));
 	crate::ui::hint(
 		"next",
@@ -114,14 +117,18 @@ fn scaffold(destination: &std::path::Path, files: &[(&str, String)]) -> Result<U
 	std::fs::create_dir_all(destination).context("create plugin directory")?;
 	let dir = Utf8PathBuf::from_path_buf(std::fs::canonicalize(destination)?)
 		.map_err(|_| anyhow::anyhow!("destination is not UTF-8"))?;
+
 	for (relative, _) in files {
 		let target = dir.join(relative);
+
 		match std::fs::symlink_metadata(&target) {
 			Ok(_) => anyhow::bail!("{target} already exists"),
+
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
 			Err(error) => return Err(error).with_context(|| format!("inspect {target}")),
 		}
 	}
+
 	// Refuse an existing symlinked source directory instead of writing outside
 	// the selected project via a pre-existing directory link.
 	match std::fs::symlink_metadata(dir.join("src")) {
@@ -131,12 +138,15 @@ fn scaffold(destination: &std::path::Path, files: &[(&str, String)]) -> Result<U
 				"src must be a directory, not a symlink"
 			);
 		}
+
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
 		Err(error) => return Err(error).context("inspect plugin source directory"),
 	}
+
 	for (relative, content) in files {
 		write_new(&dir.join(relative), content)?;
 	}
+
 	Ok(dir)
 }
 

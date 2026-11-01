@@ -52,12 +52,15 @@ pub fn run() -> Result<()> {
 			}),
 		},
 	];
+
 	if let Some(check) = project_check() {
 		checks.push(check);
 	}
+
 	if let Some(check) = extension_check() {
 		checks.push(check);
 	}
+
 	if let Some(check) = devtools_check() {
 		checks.push(check);
 	}
@@ -65,23 +68,29 @@ pub fn run() -> Result<()> {
 	crate::ui::heading("doctor", "the tools leptoskit builds with");
 	let mut summary = crate::ui::Summary::default();
 	let mut failed = 0;
+
 	for check in &checks {
 		let (outcome, details) = match &check.outcome {
 			Ok(details) => (Outcome::Passed, details.as_str()),
+
 			Err(problem) if check.required => {
 				failed += 1;
 				(Outcome::Failed, problem.as_str())
 			}
+
 			Err(problem) => (Outcome::Warned, problem.as_str()),
 		};
+
 		summary.row(outcome, check.name, details, None);
 	}
+
 	summary.print();
 	let until = if failed == 1 {
 		"it passes"
 	} else {
 		"they pass"
 	};
+
 	anyhow::ensure!(
 		failed == 0,
 		"{} failed; builds will not work until {until}",
@@ -96,12 +105,14 @@ fn version_of(program: &str) -> Result<String, String> {
 		.arg("--version")
 		.output()
 		.map_err(|error| format!("missing: {error}"))?;
+
 	if !output.status.success() {
 		return Err(format!(
 			"`{program} --version` exited with {}",
 			output.status
 		));
 	}
+
 	Ok(String::from_utf8_lossy(&output.stdout)
 		.lines()
 		.next()
@@ -117,14 +128,17 @@ fn wasm_target_installed() -> Result<String, String> {
 		.args(["--print", "sysroot"])
 		.output()
 		.map_err(|error| format!("could not run rustc: {error}"))?;
+
 	if !output.status.success() {
 		return Err(format!(
 			"`rustc --print sysroot` exited with {}",
 			output.status
 		));
 	}
+
 	let sysroot = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
 	let target_lib = sysroot.join("lib").join("rustlib").join(WASM_TARGET);
+
 	if target_lib.is_dir() {
 		Ok("installed".to_owned())
 	} else {
@@ -191,6 +205,7 @@ fn project_check() -> Option<Check> {
 			}
 		}
 	};
+
 	Some(Check {
 		name: "project wasm-bindgen",
 		required: true,
@@ -201,6 +216,7 @@ fn project_check() -> Option<Check> {
 fn lockfile_compatibility(lockfile: &Path) -> Result<String, String> {
 	let contents = std::fs::read_to_string(lockfile)
 		.map_err(|error| format!("could not read {}: {error}", lockfile.display()))?;
+
 	match crate::wasm::wasm_bindgen_compatibility(&contents) {
 		Ok(BindgenCompatibility::NotLocked) => Ok("no wasm-bindgen in Cargo.lock".to_owned()),
 		Ok(BindgenCompatibility::Compatible) => {

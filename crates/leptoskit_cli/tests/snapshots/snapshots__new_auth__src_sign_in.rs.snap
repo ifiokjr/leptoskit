@@ -11,7 +11,6 @@ use leptoskit::auth::AuthError;
 use leptoskit::auth::OnSignUp;
 use leptoskit::config::LeptoskitConfig;
 use leptoskit::db::Db;
-
 /// The sign-in service. `U` is the table that gets a row for each new
 /// account, through its `OnSignUp`.
 ///

@@ -31,6 +31,7 @@ fn packages_counter_and_instrumentation_for_both_abis() {
 		.join(format!("{}-{stamp}", std::process::id()));
 	fs::create_dir_all(&artifacts).unwrap();
 	let app = artifacts.join("counter");
+
 	let host = app.join("hosts/harmonyos");
 	let log = artifacts.join("commands.log");
 	println!("HarmonyOS SDK artifacts: {}", artifacts.display());
@@ -58,6 +59,7 @@ fn packages_counter_and_instrumentation_for_both_abis() {
 	product["app"]["products"][0]["compileSdkVersion"] = 12.into();
 	product["app"]["products"][0]["compatibleSdkVersion"] = 12.into();
 	fs::write(&profile, serde_json::to_vec_pretty(&product).unwrap()).unwrap();
+
 	for source in ["main", "ohosTest"] {
 		let path = host.join(format!("entry/src/{source}/module.json5"));
 		let mut module: serde_json::Value =
@@ -65,6 +67,7 @@ fn packages_counter_and_instrumentation_for_both_abis() {
 		module["module"]["deviceTypes"] = serde_json::json!(["default"]);
 		fs::write(path, serde_json::to_vec_pretty(&module).unwrap()).unwrap();
 	}
+
 	// Select the ArkTS posture plugin, so the SDK compiles a generated
 	// registrant and plugin against the real `@ohos.display` declarations.
 	let manifest = app.join("Cargo.toml");
@@ -114,9 +117,11 @@ fn packages_counter_and_instrumentation_for_both_abis() {
 				repository.join("target/harmonyos-sdk/cargo"),
 			)
 			.args(["native", "build", target]);
+
 		if mode == "release" {
 			command.arg("--release");
 		}
+
 		checked(&mut command, &log);
 		let hap = host.join("entry/build/default/outputs/default/entry-default-unsigned.hap");
 		let listing = checked(Command::new("unzip").arg("-t").arg(&hap), &log);
@@ -196,9 +201,11 @@ fn checked(command: &mut Command, log: &Path) -> Output {
 /// Install package sources into the fixture's actual `oh_modules` path.
 fn copy_directory(source: &Path, destination: &Path) {
 	fs::create_dir_all(destination).unwrap();
+
 	for entry in fs::read_dir(source).unwrap() {
 		let entry = entry.unwrap();
 		let destination = destination.join(entry.file_name());
+
 		if entry.file_type().unwrap().is_dir() {
 			copy_directory(&entry.path(), &destination);
 		} else {

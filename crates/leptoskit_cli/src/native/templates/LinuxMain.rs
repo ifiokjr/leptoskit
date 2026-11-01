@@ -61,6 +61,7 @@ mod application {
 		install_viewport(&host, &window, &frames);
 		let (settings, motion_listener) = install_rive_environment(&window, &frames);
 		install_development(&host, &wasm, &frames);
+
 		frames.request();
 		leptoskit::gtk::run_application();
 		frames.stop();
@@ -186,6 +187,7 @@ mod application {
 			if let Some(callback) = self.callback.take() {
 				callback.remove();
 			}
+
 			self.previous.set(None);
 			self.deadline.set(0);
 		}
@@ -193,21 +195,28 @@ mod application {
 		fn request(self: &Rc<Self>) {
 			let Some(window) = self.window.upgrade() else {
 				self.stop();
+
 				return;
 			};
+
 			if !window.is_mapped() || !window.is_active() || self.failure.borrow().is_some() {
 				self.stop();
+
 				return;
 			}
+
 			if self.callback.borrow().is_some() {
 				return;
 			}
+
 			let Some(host) = self.host.upgrade() else {
 				return;
 			};
+
 			if !host.borrow().has_rive_players() {
 				return;
 			}
+
 			let weak = Rc::downgrade(self);
 			let callback = window.add_tick_callback(move |window, clock| {
 				let Some(owner) = weak.upgrade() else {
@@ -227,6 +236,7 @@ mod application {
 				} else {
 					(owner.deadline.get() + 16_667).max(now + 1_000)
 				});
+
 				let elapsed = owner
 					.previous
 					.replace(Some(now))
@@ -251,6 +261,7 @@ mod application {
 							owner.failure.replace(Some(error.into()));
 							window.close();
 						}
+
 						gtk::glib::ControlFlow::Break
 					}
 				}
@@ -271,6 +282,7 @@ mod application {
 		window.connect_unmap(move |_| owner.stop());
 		let owner = Rc::downgrade(frames);
 		let settings = window.settings();
+
 		let listener = settings.connect_gtk_enable_animations_notify(move |_| {
 			if let Some(owner) = owner.upgrade() {
 				owner.request();

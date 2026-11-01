@@ -85,15 +85,19 @@ impl Tool {
 	fn command(&self) -> Command {
 		let mut command = Command::new(&self.program);
 		command.args(&self.args);
+
 		if let Some(dir) = &self.dir {
 			command.current_dir(dir);
 		}
+
 		for name in &self.unset {
 			command.env_remove(name);
 		}
+
 		for (name, value) in &self.env {
 			command.env(name, value.expose());
 		}
+
 		command
 	}
 }

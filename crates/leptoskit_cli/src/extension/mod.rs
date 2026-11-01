@@ -63,6 +63,7 @@ pub struct Built {
 /// When the configuration or the build fails.
 pub fn command(release: bool) -> Result<()> {
 	let built = build(release, None)?;
+
 	for package in &built.packages {
 		match &package.zip {
 			Some(zip) => {
@@ -82,12 +83,14 @@ pub fn command(release: bool) -> Result<()> {
 			}
 		}
 	}
+
 	if let Some(source) = &built.source {
 		println!(
 			"wrote the source archive addons.mozilla.org asks for: {}",
 			source.display()
 		);
 	}
+
 	Ok(())
 }
 
@@ -148,6 +151,7 @@ pub fn build_for(release: bool, dev: Option<&DevManifest>, browsers: &[Browser])
 	// `app.icon` makes every size; without it, the app's own
 	// `assets/icon-<size>.png` files are used.
 	let generated_icons = output_dir.join("icons");
+
 	let generated = crate::icons::write(
 		&root,
 		&config,
@@ -168,13 +172,16 @@ pub fn build_for(release: bool, dev: Option<&DevManifest>, browsers: &[Browser])
 	} else {
 		browsers.to_vec()
 	};
+
 	let mut packages = Vec::new();
+
 	for &browser in &browsers {
 		let dir = output_dir.join(if dev.is_some() {
 			"dev/chromium".to_owned()
 		} else {
 			browser.name().to_owned()
 		});
+
 		let input = ManifestInput {
 			browser,
 			config: &config,
@@ -192,6 +199,7 @@ pub fn build_for(release: bool, dev: Option<&DevManifest>, browsers: &[Browser])
 		} else {
 			None
 		};
+
 		packages.push(Package { browser, dir, zip });
 	}
 
@@ -203,6 +211,7 @@ pub fn build_for(release: bool, dev: Option<&DevManifest>, browsers: &[Browser])
 	} else {
 		None
 	};
+
 	Ok(Built { packages, source })
 }
 
@@ -220,6 +229,7 @@ fn write_package(
 		std::fs::remove_dir_all(dir)
 			.with_context(|| format!("could not clear {}", dir.display()))?;
 	}
+
 	std::fs::create_dir_all(dir).with_context(|| format!("could not create {}", dir.display()))?;
 	let write = |name: &str, contents: &str| -> Result<()> {
 		std::fs::write(dir.join(name), contents)
@@ -238,6 +248,7 @@ fn write_package(
 		if !extension.has_page(&page, browser) {
 			continue;
 		}
+
 		write(
 			&format!("{}.html", page.name),
 			&pages::page_html(page.name, &title, stylesheet),
@@ -247,6 +258,7 @@ fn write_package(
 			&pages::page_js(module, page.name, page.route),
 		)?;
 	}
+
 	if extension.background.is_some() || input.dev.is_some() {
 		let events = extension
 			.background
@@ -257,17 +269,21 @@ fn write_package(
 			&pages::background_js(module, events, input.dev.map(|dev| dev.server.as_str())),
 		)?;
 	}
+
 	let mut overlay = false;
+
 	for script in &extension.content_scripts {
 		if !extension.includes(script.browsers.as_deref(), browser) {
 			continue;
 		}
+
 		write(
 			&format!("content-{}.js", script.name),
 			&pages::content_js(&script.name, &script.route),
 		)?;
 		overlay = true;
 	}
+
 	if overlay {
 		write(
 			"overlay.html",
@@ -277,12 +293,15 @@ fn write_package(
 	}
 
 	copy_dir(pkg, &dir.join("pkg"))?;
+
 	if assets.is_dir() {
 		copy_dir(assets, &dir.join("assets"))?;
 	}
+
 	if let Some(icons) = icons {
 		copy_dir(icons, &dir.join("assets"))?;
 	}
+
 	Ok(())
 }
 
@@ -337,10 +356,12 @@ fn declared_permissions(metadata: &serde_json::Value, client: &str) -> Vec<Strin
 		.collect();
 	let mut seen = BTreeSet::new();
 	let mut permissions = BTreeSet::new();
+
 	while let Some(id) = stack.pop() {
 		if !seen.insert(id) {
 			continue;
 		}
+
 		if let Some(package) = packages.get(id) {
 			for permission in package["metadata"]["leptoskit"]["runtime"]["extension-permissions"]
 				.as_array()
@@ -351,8 +372,10 @@ fn declared_permissions(metadata: &serde_json::Value, client: &str) -> Vec<Strin
 				permissions.insert(permission.to_owned());
 			}
 		}
+
 		stack.extend(nodes.get(id).into_iter().flatten().copied());
 	}
+
 	permissions.into_iter().collect()
 }
 
@@ -360,6 +383,7 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
 	for entry in walkdir::WalkDir::new(from) {
 		let entry = entry.with_context(|| format!("could not read {}", from.display()))?;
 		let target = to.join(entry.path().strip_prefix(from).expect("under its root"));
+
 		if entry.file_type().is_dir() {
 			std::fs::create_dir_all(&target)
 				.with_context(|| format!("could not create {}", target.display()))?;
@@ -373,6 +397,7 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
 				.with_context(|| format!("could not copy {}", entry.path().display()))?;
 		}
 	}
+
 	Ok(())
 }
 
@@ -412,6 +437,7 @@ fn check_routes(root: &Path, config: &LeptoskitConfig, extension: &ExtensionConf
 				script.route.clone(),
 			)
 		}));
+
 	for (surface, route) in configured {
 		let path = route.split(['?', '#']).next().unwrap_or_default();
 		anyhow::ensure!(
@@ -420,6 +446,7 @@ fn check_routes(root: &Path, config: &LeptoskitConfig, extension: &ExtensionConf
 			dir.display()
 		);
 	}
+
 	Ok(())
 }
 
@@ -429,32 +456,42 @@ fn route_matches(pattern: &str, path: &str) -> bool {
 	let pattern: Vec<&str> = pattern.split('/').filter(|part| !part.is_empty()).collect();
 	let path: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
 	let mut index = 0;
+
 	for (position, part) in pattern.iter().enumerate() {
 		if let Some(rest) = part.strip_prefix('*') {
 			let optional = rest.ends_with('?');
+
 			return optional || path.len() > index || position + 1 < pattern.len();
 		}
+
 		if part.starts_with(':') && part.ends_with('?') {
 			// An optional segment: skip it when what follows still matches.
 			let rest = pattern[position + 1..].join("/");
 			let remaining = path[index..].join("/");
+
 			if route_matches(&format!("/{rest}"), &format!("/{remaining}")) {
 				return true;
 			}
+
 			if index >= path.len() {
 				return false;
 			}
+
 			index += 1;
 			continue;
 		}
+
 		let Some(segment) = path.get(index) else {
 			return false;
 		};
+
 		if !part.starts_with(':') && part != segment {
 			return false;
 		}
+
 		index += 1;
 	}
+
 	index == path.len()
 }
 
@@ -463,11 +500,13 @@ fn route_matches(pattern: &str, path: &str) -> bool {
 /// secrets), plus a `BUILD.md` with the exact commands and tool versions.
 fn source_archive(root: &Path, config: &LeptoskitConfig, release: bool) -> Result<Vec<u8>> {
 	let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+
 	for name in source_files(root) {
 		let contents = std::fs::read(root.join(&name))
 			.with_context(|| format!("could not read {name} for the source archive"))?;
 		files.push((name, contents));
 	}
+
 	let rustc = tool_version("rustc");
 	let cargo = tool_version("cargo");
 	let build = format!(
@@ -485,6 +524,7 @@ fn source_archive(root: &Path, config: &LeptoskitConfig, release: bool) -> Resul
 		release = if release { " --release" } else { "" },
 	);
 	files.retain(|(name, _)| name != "BUILD.md");
+
 	files.push(("BUILD.md".to_owned(), build.into_bytes()));
 	files.sort_by(|left, right| left.0.cmp(&right.0));
 	zip::archive(&files)
@@ -516,6 +556,7 @@ fn source_files(root: &Path) -> Vec<String> {
 		.output()
 		.ok()
 		.filter(|output| output.status.success());
+
 	let mut files: Vec<String> = match listed {
 		Some(output) => {
 			output
@@ -548,6 +589,7 @@ fn source_files(root: &Path) -> Vec<String> {
 				.collect()
 		}
 	};
+
 	// Secrets never go to a store, whatever git tracks.
 	files.retain(|name| {
 		let file = name.rsplit('/').next().unwrap_or(name).to_ascii_lowercase();

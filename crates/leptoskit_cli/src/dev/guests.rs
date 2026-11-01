@@ -65,6 +65,7 @@ impl Guests {
 				wasm: Bytes::from(wasm),
 				hash,
 			});
+
 			true
 		});
 	}

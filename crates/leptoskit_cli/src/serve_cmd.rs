@@ -33,6 +33,7 @@ pub fn run(dir: &str, port: Option<u16>) -> Result<()> {
 	if config.app.render.renders_on_server() || has_built_server(&root) {
 		return run_app_server(&config, &root, dir_path, port);
 	}
+
 	let options = leptoskit_axum::ServeOptions::new(
 		dir_path.as_std_path(),
 		config.serve.address.clone(),

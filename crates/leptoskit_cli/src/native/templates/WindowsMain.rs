@@ -97,14 +97,18 @@ mod application {
 		let mut deadline = Instant::now();
 		let mut previous = None;
 		let mut pending = false;
+
 		while window.is_open() {
 			window.pump_messages();
+
 			if !window.is_open() {
 				break;
 			}
+
 			if let Some(wasm) = guests.and_then(|guests| guests.try_iter().last()) {
 				let result = reload(&mut host.borrow_mut(), window, &wasm);
 				let result = result.and_then(|()| remount(window, &host.borrow(), mounted));
+
 				if let Err(error) = result {
 					eprintln!("leptoskit dev: {error}");
 				} else {
@@ -112,7 +116,9 @@ mod application {
 					pending = false;
 				}
 			}
+
 			let now = Instant::now();
+
 			if !pending || now >= deadline {
 				let elapsed =
 					previous.map_or(Duration::ZERO, |last| now.saturating_duration_since(last));
@@ -127,14 +133,17 @@ mod application {
 				previous = pending.then_some(now);
 				deadline = now + interval;
 			}
+
 			let wait = pending.then(|| deadline.saturating_duration_since(Instant::now()));
 			let wait = if guests.is_some() {
 				Some(wait.map_or(DEVELOPMENT_POLL, |wait| wait.min(DEVELOPMENT_POLL)))
 			} else {
 				wait
 			};
+
 			window.wait_for_messages(wait)?;
 		}
+
 		Ok(())
 	}
 

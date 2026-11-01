@@ -37,6 +37,7 @@ final class AppUITests: XCTestCase {
         assertText("Count: 10")
         app.buttons["Increment"].tap()
         assertText("Count: 20")
+
         capture("04-startup-trap-rollback")
 
         try control("offline")

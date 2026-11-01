@@ -78,6 +78,7 @@ mod application {
 		let mut source = CrosstermSource;
 
 		let exit = TuiHost::new(options).run(&mut app, &mut source, &mut terminal)?;
+
 		if exit == Exit::ExitKey {
 			eprintln!("(exited with ctrl+c)");
 		}

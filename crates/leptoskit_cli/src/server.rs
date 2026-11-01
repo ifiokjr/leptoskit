@@ -115,20 +115,24 @@ struct ArtifactTarget {
 /// cargo interleaves other reasons, such as build script output.
 pub fn binaries_in_messages(messages: impl BufRead) -> Result<Vec<(String, PathBuf)>> {
 	let mut binaries = Vec::new();
+
 	for line in messages.lines() {
 		let line = line.context("could not read cargo's output")?;
 		let Ok(message) = serde_json::from_str::<ArtifactMessage>(&line) else {
 			continue;
 		};
+
 		if message.reason != "compiler-artifact" {
 			continue;
 		}
+
 		if let (Some(target), Some(executable)) = (message.target, message.executable)
 			&& target.kind.iter().any(|kind| kind == "bin")
 		{
 			binaries.push((target.name, executable));
 		}
 	}
+
 	Ok(binaries)
 }
 
@@ -140,10 +144,13 @@ pub fn pick_server(package: &str, binaries: Vec<(String, PathBuf)>) -> Option<Pa
 		.iter()
 		.find(|(name, _)| name == package)
 		.map(|(_, path)| path.clone());
+
 	if named.is_some() {
 		return named;
 	}
+
 	let mut binaries = binaries.into_iter();
+
 	match (binaries.next(), binaries.next()) {
 		(Some((_, only)), None) => Some(only),
 		_ => None,
@@ -174,10 +181,12 @@ impl BuiltServer {
 	/// `project_root`.
 	pub fn save(&self, target_dir: &Path, project_root: &Path) -> Result<()> {
 		let path = Self::path(target_dir, project_root);
+
 		if let Some(parent) = path.parent() {
 			std::fs::create_dir_all(parent)
 				.with_context(|| format!("could not create {}", parent.display()))?;
 		}
+
 		let json = serde_json::to_vec_pretty(self).context("could not encode the server record")?;
 		std::fs::write(&path, json).with_context(|| format!("could not write {}", path.display()))
 	}

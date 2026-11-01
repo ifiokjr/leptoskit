@@ -113,9 +113,11 @@ impl BuildCache {
 	#[must_use]
 	pub fn is_current(&self, fingerprint: &Fingerprint) -> bool {
 		let digest = fingerprint.digest();
+
 		if let Some(recorded) = self.recorded.get(&fingerprint.phase) {
 			return *recorded == digest;
 		}
+
 		self.entry(&fingerprint.phase)
 			.and_then(|path| std::fs::read_to_string(path).ok())
 			.is_some_and(|cached| cached == digest)
@@ -138,12 +140,14 @@ impl BuildCache {
 			return Ok(());
 		};
 		std::fs::create_dir_all(dir)?;
+
 		for (phase, digest) in &self.recorded {
 			let path = entry_in(dir, phase);
 			let partial = path.with_extension(format!("{}.partial", std::process::id()));
 			std::fs::write(&partial, digest)?;
 			std::fs::rename(&partial, &path)?;
 		}
+
 		Ok(())
 	}
 }

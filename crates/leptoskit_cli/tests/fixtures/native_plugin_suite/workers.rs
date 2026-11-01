@@ -25,6 +25,7 @@ async fn image_worker() -> Result<(), leptoskit_bridge::Error> {
 	use leptoskit_plugin_image_manipulator::guest::ImageManipulator;
 	let images = ImageManipulator::new()?;
 	let source = images.inspect(PNG_2X1).await?;
+
 	if source
 		!= (ImageInfo {
 			format: Format::Png,
@@ -43,6 +44,7 @@ async fn image_worker() -> Result<(), leptoskit_bridge::Error> {
 			},
 		)
 		.await?;
+
 	if rotated.info
 		!= (ImageInfo {
 			format: Format::Jpeg,
@@ -63,9 +65,11 @@ async fn image_worker() -> Result<(), leptoskit_bridge::Error> {
 			Output::Png,
 		)
 		.await;
+
 	if outside != Err(Error::InvalidArgument) {
 		return Err(Error::Native);
 	}
+
 	Ok(())
 }
 
@@ -75,6 +79,7 @@ async fn crypto_worker() -> Result<(), leptoskit_bridge::Error> {
 	let second = crypto.random_bytes(32).await?;
 	let uuid = crypto.uuid_v4().await?;
 	let bytes = uuid.as_bytes();
+
 	if first.len() != 32
 		|| second.len() != 32
 		|| first == second
@@ -84,6 +89,7 @@ async fn crypto_worker() -> Result<(), leptoskit_bridge::Error> {
 	{
 		return Err(leptoskit_bridge::Error::Native);
 	}
+
 	Ok(())
 }
 
@@ -98,13 +104,17 @@ async fn logging_worker() -> Result<(), leptoskit_bridge::Error> {
 		message: "Nonsecret Android plugin fixture".into(),
 		fields: [("fixture".into(), "native_plugin_suite".into())].into(),
 	};
+
 	if logger.write(&record).await? {
 		return Err(leptoskit_bridge::Error::Native);
 	}
+
 	record.level = Level::Info;
+
 	if !logger.write(&record).await? {
 		return Err(leptoskit_bridge::Error::Native);
 	}
+
 	logger.flush().await?;
 	Ok(())
 }
@@ -146,9 +156,11 @@ async fn sqlite_worker() -> Result<(), leptoskit_bridge::Error> {
 			),
 		])
 		.await;
+
 	if failed != Err(leptoskit_bridge::Error::Native) {
 		return Err(leptoskit_bridge::Error::Native);
 	}
+
 	database.close().await?;
 	let result = database
 		.query(&Statement::new(
@@ -156,7 +168,9 @@ async fn sqlite_worker() -> Result<(), leptoskit_bridge::Error> {
 			vec![Value::Integer(7)],
 		))
 		.await?;
+
 	database.close().await?;
+
 	if result.rows
 		!= [vec![
 			Value::Integer(7),
@@ -177,18 +191,24 @@ async fn store_worker() -> Result<(), leptoskit_bridge::Error> {
 	store.set(key, expected.clone()).await?;
 	store.save().await?;
 	store.set(key, Value::Null).await?;
+
 	if store.get(key).await? != Some(Value::Null) {
 		return Err(leptoskit_bridge::Error::Native);
 	}
+
 	store.load().await?;
+
 	if store.get(key).await? != Some(expected) {
 		return Err(leptoskit_bridge::Error::Native);
 	}
+
 	store.remove(key).await?;
 	store.save().await?;
 	store.load().await?;
+
 	if store.get(key).await?.is_some() {
 		return Err(leptoskit_bridge::Error::Native);
 	}
+
 	Ok(())
 }

@@ -24,6 +24,7 @@ pub fn command(check: bool) -> Result<()> {
 	let generated = generate(&root, l10n)?;
 	let output = &l10n.output;
 	let shown = output.display();
+
 	if check {
 		let status = leptoskit_l10n_codegen::status(&root.join(output), &generated)?;
 		anyhow::ensure!(
@@ -32,12 +33,14 @@ pub fn command(check: bool) -> Result<()> {
 			l10n.dir.display(),
 			crate::cli::invoked_name()
 		);
+
 		crate::ui::skipped(format_args!("{shown} is up to date"));
 	} else if leptoskit_l10n_codegen::write(&root.join(output), &generated)? {
 		crate::ui::success(format_args!("wrote {shown}"));
 	} else {
 		crate::ui::skipped(format_args!("{shown} is up to date"));
 	}
+
 	print_summary(&generated);
 	Ok(())
 }
@@ -50,6 +53,7 @@ pub fn sync(root: &Path, config: &LeptoskitConfig) -> Result<()> {
 		return Ok(());
 	};
 	let generated = generate(root, l10n)?;
+
 	if leptoskit_l10n_codegen::write(&root.join(&l10n.output), &generated)? {
 		crate::ui::success(format_args!(
 			"wrote {} ({} messages in {} locales)",
@@ -58,6 +62,7 @@ pub fn sync(root: &Path, config: &LeptoskitConfig) -> Result<()> {
 			generated.locales.len()
 		));
 	}
+
 	Ok(())
 }
 
@@ -95,6 +100,7 @@ fn print_summary(generated: &Generated) {
 					locale.untranslated.join(", ")
 				)
 			};
+
 			[locale.tag.clone(), locale.file.clone(), completeness]
 		})
 		.collect();
@@ -117,15 +123,19 @@ fn print_rows<const N: usize>(rows: &[[String; N]]) {
 				.unwrap_or(0)
 		})
 		.collect();
+
 	for row in rows {
 		let mut line = String::from(" ");
+
 		for (column, cell) in row.iter().enumerate() {
 			line.push_str("  ");
 			line.push_str(cell);
+
 			if let Some(width) = widths.get(column) {
 				line.extend(std::iter::repeat_n(' ', width - cell.chars().count()));
 			}
 		}
+
 		println!("{}", line.trim_end());
 	}
 }

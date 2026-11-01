@@ -58,6 +58,7 @@ pub fn error(error: &anyhow::Error) {
 	let mut err = anstream::stderr().lock();
 	let bad = BAD.bold();
 	let _ = writeln!(err, "{bad}error{bad:#}{BOLD}:{BOLD:#} {error}");
+
 	for cause in error.chain().skip(1) {
 		let _ = writeln!(err, "  {DIM}caused by:{DIM:#} {cause}");
 	}
@@ -187,10 +188,12 @@ impl Summary {
 			.max()
 			.unwrap_or(0);
 		let mut out = anstream::stdout().lock();
+
 		for row in &self.rows {
 			let (mark, style) = row.outcome.mark();
 			let name_pad = " ".repeat(names - width(&row.name));
 			let detail_pad = " ".repeat(details - width(&row.detail));
+
 			let elapsed = row.elapsed.map(seconds).unwrap_or_default();
 			let _ = writeln!(
 				out,
@@ -199,6 +202,7 @@ impl Summary {
 				row.name, row.detail,
 			);
 		}
+
 		let _ = writeln!(out);
 	}
 }
@@ -207,6 +211,7 @@ impl Summary {
 #[must_use]
 pub fn seconds(elapsed: Duration) -> String {
 	let millis = elapsed.as_millis();
+
 	if millis < 1_000 {
 		format!("{millis}ms")
 	} else if millis < 60_000 {

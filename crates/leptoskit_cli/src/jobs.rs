@@ -69,6 +69,7 @@ pub fn run(command: JobsCommand) -> Result<()> {
 		| JobsCommand::Retry { url, .. }
 		| JobsCommand::Cancel { url, .. } => database_url(url.clone())?,
 	};
+
 	crate::db::runtime()?.block_on(async {
 		let db = Db::connect(&url)
 			.await
@@ -78,6 +79,7 @@ pub fn run(command: JobsCommand) -> Result<()> {
 			JobsCommand::Retry { id, .. } => retry(&db, &id).await?,
 			JobsCommand::Cancel { id, .. } => cancel(&db, &id).await?,
 		};
+
 		print!("{output}");
 		Ok(())
 	})
@@ -88,6 +90,7 @@ fn database_url(url: Option<String>) -> Result<String> {
 	if let Some(url) = url {
 		return Ok(url);
 	}
+
 	let project = crate::db::Project::load()
 		.context("pass --url with the database's URL, or run this in a project with a database")?;
 	std::env::var(&project.config.url_env).with_context(|| {
@@ -149,6 +152,7 @@ fn text(value: Value) -> String {
 				&hex[20..]
 			)
 		}
+
 		other => {
 			Timestamp::from_value(other.clone()).map_or_else(
 				|_| format!("{other:?}"),
@@ -165,19 +169,26 @@ pub(crate) async fn list(db: &Db, state: Option<&str>, limit: u32) -> Result<Str
 		table(db)
 	);
 	let mut args = Vec::new();
+
 	if let Some(state) = state {
 		if !STATES.contains(&state) {
 			bail!("`{state}` isn't a state; use one of {}", STATES.join(", "));
 		}
+
 		let _ = write!(sql, " WHERE state = {}", placeholder(db, 1));
 		args.push(Value::Text(state.to_owned()));
 	}
+
 	let _ = write!(sql, " ORDER BY created_at DESC LIMIT {}", limit.max(1));
+
 	let rows = db.fetch(statement(sql, args)).await?;
+
 	if rows.is_empty() {
 		return Ok("no jobs\n".to_owned());
 	}
+
 	let mut out = String::new();
+
 	for row in rows {
 		let mut columns = row.into_iter().map(text);
 		let mut next = || columns.next().unwrap_or_default();
@@ -187,12 +198,15 @@ pub(crate) async fn list(db: &Db, state: Option<&str>, limit: u32) -> Result<Str
 			out,
 			"{id}  {name}  {queue}  {state}  {attempts}/{max_attempts}  runs {run_at}"
 		);
+
 		if !error.is_empty() {
 			let error: String = error.chars().take(120).collect();
 			let _ = write!(out, "  {error}");
 		}
+
 		out.push('\n');
 	}
+
 	Ok(out)
 }
 
@@ -224,9 +238,11 @@ pub(crate) async fn retry(db: &Db, id: &str) -> Result<String> {
 			],
 		))
 		.await?;
+
 	if changed == 1 {
 		return Ok(format!("job {} will run again\n", id.trim()));
 	}
+
 	bail!(
 		"{}",
 		missing_or(db, id, "only failed or cancelled jobs can be retried").await?
@@ -256,9 +272,11 @@ pub(crate) async fn cancel(db: &Db, id: &str) -> Result<String> {
 			],
 		))
 		.await?;
+
 	if waiting == 1 {
 		return Ok(format!("job {} is cancelled\n", id.trim()));
 	}
+
 	let running = db
 		.execute(statement(
 			format!(
@@ -275,9 +293,11 @@ pub(crate) async fn cancel(db: &Db, id: &str) -> Result<String> {
 			],
 		))
 		.await?;
+
 	if running == 1 {
 		return Ok(format!("job {} will stop at its next step\n", id.trim()));
 	}
+
 	bail!(
 		"{}",
 		missing_or(db, id, "only waiting or running jobs can be cancelled").await?
@@ -446,6 +466,7 @@ mod tests {
 			})
 			.is_err()
 		);
+
 		assert!(
 			run(JobsCommand::Retry {
 				id: "x".into(),

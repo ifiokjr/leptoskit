@@ -66,6 +66,7 @@ impl DeviceCode {
 	pub fn screen(&self) -> Element {
 		let step = match self.user_code.get() {
 			None => self.enter_code(None),
+
 			Some(_) if self.decide.is_success() => {
 				let approved = self
 					.decide
@@ -78,14 +79,17 @@ impl DeviceCode {
 				})
 				.class("text-slate-300")
 			}
+
 			Some(code) => {
 				match (self.request.data(), self.request.error()) {
 					(Some(request), _) => self.ask(&code, &request),
+
 					(None, Some(error)) if error.error == "not_found" => {
 						self.enter_code(Some(
 							"That code didn't work. Check it, or start again on your device.",
 						))
 					}
+
 					(None, Some(error)) => self.unreachable(&error),
 					(None, None) => Status("Looking up the code…").class("text-slate-300"),
 				}
@@ -139,6 +143,7 @@ impl DeviceCode {
 			} else {
 				scope.description.clone()
 			};
+
 			scopes = scopes.child(Text(format!("• {text}")).class("text-sm text-slate-300"));
 		}
 

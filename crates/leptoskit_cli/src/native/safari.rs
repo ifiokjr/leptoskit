@@ -58,6 +58,7 @@ pub fn prepare(config: &LeptoskitConfig, release: bool) -> Result<Option<PathBuf
 	if !configured(config) {
 		return Ok(None);
 	}
+
 	let built = crate::extension::build_for(release, None, &[Browser::Safari])?;
 	Ok(built.packages.into_iter().next().map(|package| package.dir))
 }
@@ -95,6 +96,7 @@ pub fn info_plist(config: &LeptoskitConfig, macos: bool) -> String {
 	} else {
 		"<key>MinimumOSVersion</key><string>17.0</string>"
 	};
+
 	// The App Store requires an extension's versions to match its app's: on
 	// iOS both come from the Xcode project's build settings, which
 	// `leptoskit publish` sets, and `leptoskit publish macos` sets them in
@@ -110,6 +112,7 @@ pub fn info_plist(config: &LeptoskitConfig, macos: bool) -> String {
 			"$(CURRENT_PROJECT_VERSION)".to_owned(),
 		)
 	};
+
 	format!(
 		r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -199,10 +202,12 @@ pub fn assemble_macos(
 	let appex = application
 		.join("Contents/PlugIns")
 		.join(format!("{NAME}.appex"));
+
 	if appex.exists() {
 		std::fs::remove_dir_all(&appex)
 			.with_context(|| format!("could not clear {}", appex.display()))?;
 	}
+
 	let contents = appex.join("Contents");
 	copy(&binary, &contents.join("MacOS").join(NAME))?;
 	write(&contents.join("Info.plist"), &info_plist(config, true))?;
@@ -232,11 +237,13 @@ pub fn assemble_macos(
 pub fn copy_tree(from: &Path, to: &Path) -> Result<()> {
 	for entry in walkdir::WalkDir::new(from) {
 		let entry = entry.with_context(|| format!("could not read {}", from.display()))?;
+
 		if entry.file_type().is_file() {
 			let relative = entry.path().strip_prefix(from).expect("under its root");
 			copy(entry.path(), &to.join(relative))?;
 		}
 	}
+
 	Ok(())
 }
 
@@ -272,6 +279,7 @@ mod tests {
 		assert!(plist.contains("<string>1.2.3</string>"));
 		assert!(plist.contains("LSMinimumSystemVersion"));
 		let ios = info_plist(&config, false);
+
 		assert!(ios.contains("MinimumOSVersion"));
 		assert!(ios.contains("<string>$(CURRENT_PROJECT_VERSION)</string>"));
 	}

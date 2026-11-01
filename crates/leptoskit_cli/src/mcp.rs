@@ -67,9 +67,11 @@ fn stdio() -> Result<()> {
 fn serve(input: impl BufRead, mut output: impl Write) -> Result<()> {
 	for line in input.lines() {
 		let line = line.context("reading a message from standard input")?;
+
 		if line.trim().is_empty() {
 			continue;
 		}
+
 		let message: Value = match serde_json::from_str(&line) {
 			Ok(message) => message,
 			Err(error) => {
@@ -79,11 +81,13 @@ fn serve(input: impl BufRead, mut output: impl Write) -> Result<()> {
 				continue;
 			}
 		};
+
 		if let Some(response) = dispatch(&message) {
 			writeln!(output, "{response}")?;
 			output.flush()?;
 		}
 	}
+
 	Ok(())
 }
 
@@ -159,6 +163,7 @@ fn dispatch(message: &Value) -> Option<Value> {
 	let id = message.get("id").cloned()?;
 	let method = message.get("method").and_then(Value::as_str).unwrap_or("");
 	let params = message.get("params");
+
 	let result = match method {
 		"initialize" => {
 			let requested = params
@@ -168,6 +173,7 @@ fn dispatch(message: &Value) -> Option<Value> {
 				Some(PROTOCOL_VERSION | LEGACY_PROTOCOL_VERSION) => requested,
 				_ => Some(PROTOCOL_VERSION),
 			};
+
 			json!({
 				"protocolVersion": version,
 				"capabilities": {"tools": {}},
@@ -194,6 +200,7 @@ fn dispatch(message: &Value) -> Option<Value> {
 			));
 		}
 	};
+
 	Some(json!({"jsonrpc": "2.0", "id": id, "result": result}))
 }
 
@@ -208,9 +215,11 @@ fn error_response(id: &Value, code: i64, message: &str) -> Value {
 /// The tool list, with the control document's own schema on `control`.
 fn tools() -> Value {
 	let mut tools = control_tools();
+
 	if let Value::Array(tools) = &mut tools {
 		tools.extend(devtools::tools());
 	}
+
 	tools
 }
 
@@ -264,9 +273,11 @@ fn call_tool(params: Option<&Value>) -> Result<Value, String> {
 		.and_then(Value::as_str)
 		.ok_or("tools/call needs a tool name")?;
 	let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
+
 	if devtools::NAMES.contains(&name) {
 		return Ok(devtools::call(name, &arguments));
 	}
+
 	match name {
 		"list_devices" => {
 			let inventory = leptoskit_testing::control::inventory::list();
@@ -447,6 +458,7 @@ mod tests {
 						Err(error) => panic!("expected {expected}: {error}"),
 					}
 				};
+
 				stream.set_nonblocking(false).unwrap();
 				let mut reader = BufReader::new(&stream);
 				let mut first = String::new();
@@ -466,10 +478,12 @@ mod tests {
 						length = value.trim().parse().unwrap();
 					}
 				}
+
 				let mut bytes = vec![0; length];
 				if length > 0 {
 					reader.read_exact(&mut bytes).unwrap();
 				}
+
 				let body = json!({"value": value}).to_string();
 				write!(
 					stream,
@@ -534,6 +548,7 @@ mod tests {
 		let parsed: Value =
 			serde_json::from_str(outcome["result"]["content"][0]["text"].as_str().unwrap())
 				.unwrap();
+
 		assert_eq!(parsed["passed"], true);
 
 		let (endpoint, screenshot_server) = fake_driver(replies(encoded));
@@ -563,6 +578,7 @@ mod tests {
 		);
 		let path = shot["result"]["content"][1]["text"].as_str().unwrap();
 		std::fs::remove_file(path).unwrap();
+
 		server.join().unwrap();
 		screenshot_server.join().unwrap();
 	}

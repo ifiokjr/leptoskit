@@ -17,11 +17,14 @@ const DOS_TIME: u16 = 0;
 /// Every file under `dir`, as `(path with / separators, contents)`, sorted.
 pub fn files_under(dir: &Path) -> Result<Vec<(String, Vec<u8>)>> {
 	let mut files = Vec::new();
+
 	for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
 		let entry = entry.with_context(|| format!("could not read {}", dir.display()))?;
+
 		if !entry.file_type().is_file() {
 			continue;
 		}
+
 		let relative = entry
 			.path()
 			.strip_prefix(dir)
@@ -33,8 +36,10 @@ pub fn files_under(dir: &Path) -> Result<Vec<(String, Vec<u8>)>> {
 			.join("/");
 		let contents = std::fs::read(entry.path())
 			.with_context(|| format!("could not read {}", entry.path().display()))?;
+
 		files.push((name, contents));
 	}
+
 	files.sort_by(|left, right| left.0.cmp(&right.0));
 	Ok(files)
 }
@@ -43,6 +48,7 @@ pub fn files_under(dir: &Path) -> Result<Vec<(String, Vec<u8>)>> {
 pub fn archive(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
 	let mut out = Vec::new();
 	let mut central = Vec::new();
+
 	for (name, contents) in files {
 		let crc = crc32fast::hash(contents);
 		let mut encoder = DeflateEncoder::new(Vec::new(), Compression::best());
@@ -54,6 +60,7 @@ pub fn archive(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
 		} else {
 			(0, contents)
 		};
+
 		let offset = u32::try_from(out.len()).context("the archive is over 4 GiB")?;
 		let name_len = u16::try_from(name.len()).context("a path is too long for zip")?;
 		let compressed = u32::try_from(data.len()).context("a file is over 4 GiB")?;
@@ -72,6 +79,7 @@ pub fn archive(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
 		out.extend_from_slice(&name_len.to_le_bytes());
 		out.extend_from_slice(&0_u16.to_le_bytes()); // extra field
 		out.extend_from_slice(name.as_bytes());
+
 		out.extend_from_slice(data);
 
 		// Central directory entry.
@@ -88,12 +96,14 @@ pub fn archive(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
 		central.extend_from_slice(&name_len.to_le_bytes());
 		central.extend_from_slice(&0_u16.to_le_bytes()); // extra field
 		central.extend_from_slice(&0_u16.to_le_bytes()); // comment
+
 		central.extend_from_slice(&0_u16.to_le_bytes()); // disk
 		central.extend_from_slice(&0_u16.to_le_bytes()); // internal attributes
 		central.extend_from_slice(&(0o100_644_u32 << 16).to_le_bytes()); // rw-r--r--
 		central.extend_from_slice(&offset.to_le_bytes());
 		central.extend_from_slice(name.as_bytes());
 	}
+
 	let central_offset = u32::try_from(out.len()).context("the archive is over 4 GiB")?;
 	let central_size = u32::try_from(central.len()).context("the archive is over 4 GiB")?;
 	let count = u16::try_from(files.len()).context("too many files for zip")?;
@@ -144,6 +154,7 @@ mod tests {
 			return; // no unzip on this machine
 		};
 		assert!(status.success());
+
 		assert_eq!(
 			std::fs::read(directory.path().join("out/dir/text.txt")).unwrap(),
 			b"some text, some text, some text"

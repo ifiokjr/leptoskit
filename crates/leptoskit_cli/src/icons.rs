@@ -43,6 +43,7 @@ impl Icon {
 				.with_context(|| format!("{} isn't a PNG or an SVG", path.display()))?
 				.to_rgba8()
 		};
+
 		anyhow::ensure!(
 			image.width() == image.height(),
 			"app.icon {} is {}×{}; it must be square",
@@ -50,6 +51,7 @@ impl Icon {
 			image.width(),
 			image.height()
 		);
+
 		anyhow::ensure!(
 			image.width() >= MINIMUM,
 			"app.icon {} is {}×{}; the App Store needs {MINIMUM}×{MINIMUM}, so make it at least \
@@ -83,14 +85,18 @@ impl Icon {
 	/// When encoding fails.
 	pub fn opaque_png(&self, size: u32) -> Result<Vec<u8>> {
 		let mut resized = image::imageops::resize(&self.image, size, size, FilterType::Lanczos3);
+
 		for pixel in resized.pixels_mut() {
 			let alpha = u16::from(pixel[3]);
+
 			for channel in 0..3 {
 				let blended = (u16::from(pixel[channel]) * alpha + 255 * (255 - alpha)) / 255;
 				pixel[channel] = u8::try_from(blended).unwrap_or(u8::MAX);
 			}
+
 			pixel[3] = u8::MAX;
 		}
+
 		encode(&image::DynamicImage::ImageRgba8(resized).to_rgb8())
 	}
 
@@ -154,6 +160,7 @@ impl Icon {
 						self.padded_png(108 * scale / 4, 66 * scale / 4)?,
 					));
 				}
+
 				Ok(files)
 			}
 			Platform::Macos => Ok(vec![("AppIcon.icns".to_owned(), self.icns()?)]),
@@ -170,6 +177,7 @@ impl Icon {
 	/// opaque there, so a full-bleed icon has no seam, and white otherwise.
 	fn background(&self) -> String {
 		let corner = self.image.get_pixel(0, 0);
+
 		if corner[3] == u8::MAX {
 			format!("#{:02X}{:02X}{:02X}", corner[0], corner[1], corner[2])
 		} else {
@@ -181,14 +189,17 @@ impl Icon {
 	/// types.
 	fn icns(&self) -> Result<Vec<u8>> {
 		let mut body = Vec::new();
+
 		for (kind, size) in ICNS {
 			let png = self.png(size)?;
 			body.extend_from_slice(kind.as_bytes());
 			body.extend_from_slice(&u32::try_from(png.len() + 8)?.to_be_bytes());
 			body.extend_from_slice(&png);
 		}
+
 		let mut icns = b"icns".to_vec();
 		icns.extend_from_slice(&u32::try_from(body.len() + 8)?.to_be_bytes());
+
 		icns.extend_from_slice(&body);
 		Ok(icns)
 	}
@@ -291,10 +302,12 @@ fn draw_svg(bytes: &[u8]) -> Result<RgbaImage> {
 	);
 	// tiny-skia keeps premultiplied pixels; images hold straight ones.
 	let mut image = RgbaImage::new(MINIMUM, MINIMUM);
+
 	for (pixel, source) in image.pixels_mut().zip(pixmap.pixels()) {
 		let color = source.demultiply();
 		*pixel = image::Rgba([color.red(), color.green(), color.blue(), color.alpha()]);
 	}
+
 	Ok(image)
 }
 
@@ -314,14 +327,18 @@ pub fn write(
 		return Ok(false);
 	};
 	let icon = Icon::load(&root.join(source))?;
+
 	for (name, bytes) in icon.files(platform)? {
 		let path = dir.join(name);
+
 		if let Some(parent) = path.parent() {
 			std::fs::create_dir_all(parent)?;
 		}
+
 		std::fs::write(&path, bytes)
 			.with_context(|| format!("could not write {}", path.display()))?;
 	}
+
 	Ok(true)
 }
 
@@ -332,12 +349,15 @@ mod tests {
 	/// A 1024-pixel test icon: a filled circle, transparent outside.
 	fn circle() -> Icon {
 		let mut image = RgbaImage::new(MINIMUM, MINIMUM);
+
 		for (x, y, pixel) in image.enumerate_pixels_mut() {
 			let (dx, dy) = (f64::from(x) - 512.0, f64::from(y) - 512.0);
+
 			if dx.hypot(dy) < 400.0 {
 				*pixel = image::Rgba([200, 40, 40, 255]);
 			}
 		}
+
 		Icon { image }
 	}
 
@@ -402,13 +422,16 @@ mod tests {
 		);
 		let mut offset = 8;
 		let mut kinds = Vec::new();
+
 		while offset < icns.len() {
 			let kind = std::str::from_utf8(&icns[offset..offset + 4]).unwrap();
 			let length = u32::from_be_bytes(icns[offset + 4..offset + 8].try_into().unwrap());
+
 			let png = &icns[offset + 8..offset + length as usize];
 			kinds.push((kind.to_owned(), size(png).0));
 			offset += length as usize;
 		}
+
 		assert_eq!(kinds.len(), 10);
 		assert_eq!(kinds.last().unwrap(), &("ic10".to_owned(), 1024));
 	}

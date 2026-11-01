@@ -17,6 +17,7 @@ function dispatcher(): { plugins: NativePlugins; completed: Completed[] } {
 	const plugins = new NativePlugins((id, code, payload) => {
 		completed.push([id, code, Array.from(new Uint8Array(payload))]);
 	});
+
 	return { plugins, completed };
 }
 
@@ -46,6 +47,7 @@ class Manual implements NativePlugin {
 
 	close(): void {
 		this.closed++;
+
 		if (this.closeError !== undefined) {
 			throw this.closeError;
 		}

@@ -200,6 +200,7 @@ mod clippy {
 		);
 		// The same diagnostic from a library and its tests counts once.
 		assert_eq!(stdout.matches("unused variable").count(), 1, "{stdout}");
+
 		assert!(stdout.contains("error: mismatched types"), "{stdout}");
 		assert!(!stdout.contains("not counted"), "{stdout}");
 		assert!(stdout.contains("1 error · 1 warning"), "{stdout}");

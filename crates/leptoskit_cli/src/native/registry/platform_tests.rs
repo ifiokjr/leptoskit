@@ -51,6 +51,7 @@ fn a_platform_table_wins_over_shared_rust_and_shared_rust_wins_over_native_types
 		plugin.implementation(Target::Ios, HostCapabilities::of(Target::Ios)),
 		rust(Constructor::Type("ios::Echo"), Flavour::Sync)
 	);
+
 	for target in [Target::Macos, Target::Android] {
 		assert_eq!(
 			plugin.implementation(target, HostCapabilities::of(target)),
@@ -58,6 +59,7 @@ fn a_platform_table_wins_over_shared_rust_and_shared_rust_wins_over_native_types
 			"{target:?}"
 		);
 	}
+
 	assert_eq!(
 		plugin.implementation(Target::Linux, RUNS_RUST),
 		rust(

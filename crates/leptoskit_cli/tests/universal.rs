@@ -69,6 +69,7 @@ fn add_probe(project: &Path, name: &str, source: &str) {
 		.as_array_mut()
 		.expect("workspace members")
 		.push(name.into());
+
 	fs::write(
 		manifest,
 		toml::to_string(&workspace).expect("encode workspace"),
@@ -113,6 +114,7 @@ fn install_dependency_probes(project: &Path) {
 		toml::to_string(&app).expect("encode app manifest"),
 	)
 	.expect("write app manifest");
+
 	let manifest = project.join("counter_backend/Cargo.toml");
 	let mut backend = fs::read_to_string(&manifest).expect("backend manifest");
 	backend.push_str("server_only_probe = { path = \"../server_only_probe\" }\n");
@@ -342,6 +344,7 @@ fn generated_application_shares_behavior_and_selects_platform_overrides() {
 		&["build", "--platform", "web"],
 	);
 	assert_success(&web);
+
 	assert!(project.join("dist/pkg/counter_app.js").is_file());
 	assert!(project.join("dist/pkg/counter_app_bg.wasm").is_file());
 	let glue =
@@ -392,6 +395,7 @@ fn generated_application_shares_behavior_and_selects_platform_overrides() {
 			"ios,android",
 		],
 	);
+
 	assert!(
 		!conflicting.status.success(),
 		"ambiguous device features must fail"

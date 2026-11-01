@@ -65,6 +65,7 @@ fn harmonyos(path: &str, name: Option<&str>, sdk: Option<&str>) -> Result<()> {
 	let sdk = sdk.map(crate::new_project::resolve_sdk).transpose()?;
 	let ffi = crate::new_project::sdk_dependency("leptoskit_bridge_ffi", sdk.as_deref(), &["app"])?;
 	let bridge = crate::new_project::sdk_dependency("leptoskit_bridge", sdk.as_deref(), &[])?;
+
 	let guest_bridge =
 		crate::new_project::sdk_dependency("leptoskit_bridge", sdk.as_deref(), &["guest"])?;
 	let config = LeptoskitConfig {

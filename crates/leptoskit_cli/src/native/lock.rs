@@ -21,6 +21,7 @@ pub(super) fn acquire(root: &Path) -> Result<File> {
 		.write(true)
 		.open(directory.join("native.lock"))
 		.context("open native application build lock")?;
+
 	match FileExt::try_lock(&file) {
 		Ok(()) => {}
 		Err(fs4::TryLockError::WouldBlock) => {
@@ -33,6 +34,7 @@ pub(super) fn acquire(root: &Path) -> Result<File> {
 			return Err(error).context("lock native application build");
 		}
 	}
+
 	// Retain the file through platform bundling. Never unlink it: a waiter
 	// could otherwise hold a different inode and bypass mutual exclusion.
 	Ok(file)
@@ -70,6 +72,7 @@ mod tests {
 		);
 		let _independent = acquire(other_app.path()).unwrap();
 		drop(guard);
+
 		let _retry = acquire(app.path()).unwrap();
 	}
 
@@ -77,6 +80,7 @@ mod tests {
 	fn separate_process_cannot_acquire_an_active_build_lock() {
 		let _serial = serial();
 		const APP_PATH: &str = "LEPTOSKIT_TEST_NATIVE_LOCK_APP";
+
 		if let Some(path) = std::env::var_os(APP_PATH) {
 			assert!(
 				acquire(Path::new(&path))
@@ -84,8 +88,10 @@ mod tests {
 					.to_string()
 					.contains("another native prepare or build")
 			);
+
 			return;
 		}
+
 		let app = tempfile::tempdir().unwrap();
 		let _guard = acquire(app.path()).unwrap();
 		let output = std::process::Command::new(std::env::current_exe().unwrap())
@@ -96,6 +102,7 @@ mod tests {
 			.env(APP_PATH, app.path())
 			.output()
 			.unwrap();
+
 		assert!(
 			output.status.success(),
 			"{}",
@@ -114,6 +121,7 @@ mod tests {
 		directory_alias(&app, &alias);
 		let guard = acquire(&app).unwrap();
 		assert!(acquire(&alias).is_err());
+
 		drop(guard);
 		let _retry = acquire(&alias).unwrap();
 	}

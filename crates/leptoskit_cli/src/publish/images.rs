@@ -182,8 +182,10 @@ pub struct Set {
 pub fn load(root: &Path, store: &str) -> Result<Vec<Set>> {
 	let dir = root.join(DIR);
 	let mut problems = Vec::new();
+
 	for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
 		let name = entry.file_name().to_string_lossy().into_owned();
+
 		if entry.path().is_dir() && !TARGETS.iter().any(|target| target.folder == name) {
 			problems.push(format!(
 				"{DIR}/{name} isn't a store size leptoskit knows; name it one of {}",
@@ -191,7 +193,9 @@ pub fn load(root: &Path, store: &str) -> Result<Vec<Set>> {
 			));
 		}
 	}
+
 	let mut sets = Vec::new();
+
 	for target in TARGETS.iter().filter(|target| target.store == store) {
 		let folder = dir.join(target.folder);
 		let mut files: Vec<_> = std::fs::read_dir(&folder)
@@ -202,9 +206,11 @@ pub fn load(root: &Path, store: &str) -> Result<Vec<Set>> {
 			.filter(|path| content_type(path).is_some())
 			.collect();
 		files.sort();
+
 		if files.is_empty() {
 			continue;
 		}
+
 		if let Some(max) = target.max
 			&& files.len() > max
 		{
@@ -216,6 +222,7 @@ pub fn load(root: &Path, store: &str) -> Result<Vec<Set>> {
 			));
 		}
 		let mut images = Vec::new();
+
 		for path in files {
 			match image(&path, target) {
 				Ok(image) => images.push(image),
@@ -228,8 +235,10 @@ pub fn load(root: &Path, store: &str) -> Result<Vec<Set>> {
 				}
 			}
 		}
+
 		sets.push(Set { target, images });
 	}
+
 	anyhow::ensure!(
 		problems.is_empty(),
 		"{} can't take these screenshots; nothing was uploaded:\n- {}",
@@ -248,6 +257,7 @@ fn known() -> String {
 
 fn content_type(path: &Path) -> Option<&'static str> {
 	let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+
 	match extension.as_str() {
 		"png" => Some("image/png"),
 		"jpg" | "jpeg" => Some("image/jpeg"),
@@ -265,9 +275,12 @@ fn image(path: &Path, target: &Target) -> Result<Image> {
 	} else {
 		image::ImageFormat::Jpeg
 	};
+
 	let decoded = image::load_from_memory_with_format(&bytes, format)
 		.with_context(|| format!("it isn't a readable {}", &content_type[6..]))?;
+
 	let (width, height) = (decoded.width(), decoded.height());
+
 	match target.rule {
 		Rule::Sizes { sizes, rotated } => {
 			let fits = sizes
@@ -278,6 +291,7 @@ fn image(path: &Path, target: &Target) -> Result<Image> {
 				let last = accepted.pop().unwrap_or_default();
 				accepted = vec![format!("{} or {last}", accepted.join(", "))];
 			}
+
 			anyhow::ensure!(
 				fits,
 				"it is {width}×{height}; {} takes {} for {}{}",
@@ -291,6 +305,7 @@ fn image(path: &Path, target: &Target) -> Result<Image> {
 				}
 			);
 		}
+
 		Rule::PlayScreenshot => {
 			let (short, long) = (width.min(height), width.max(height));
 			anyhow::ensure!(
@@ -300,6 +315,7 @@ fn image(path: &Path, target: &Target) -> Result<Image> {
 			);
 		}
 	}
+
 	let flatten = target.opaque && decoded.color().has_alpha();
 	let bytes = if flatten {
 		let rgba = decoded.to_rgba8();
@@ -319,6 +335,7 @@ fn image(path: &Path, target: &Target) -> Result<Image> {
 	} else {
 		bytes
 	};
+
 	if let Some(max) = target.max_bytes {
 		anyhow::ensure!(
 			bytes.len() <= max,
@@ -328,6 +345,7 @@ fn image(path: &Path, target: &Target) -> Result<Image> {
 			max / 1024 / 1024
 		);
 	}
+
 	Ok(Image {
 		name: path
 			.file_name()
@@ -403,11 +421,13 @@ pub mod tests {
 	/// Writes `files` under `store/screenshots/` in a new project.
 	pub fn project(files: &[(impl AsRef<str>, Vec<u8>)]) -> tempfile::TempDir {
 		let root = tempfile::tempdir().unwrap();
+
 		for (path, bytes) in files {
 			let path = root.path().join(DIR).join(path.as_ref());
 			std::fs::create_dir_all(path.parent().unwrap()).unwrap();
 			std::fs::write(path, bytes).unwrap();
 		}
+
 		root
 	}
 
@@ -426,9 +446,11 @@ pub mod tests {
 			"APP_IPAD_PRO_3GEN_11",
 			"APP_IPAD_105",
 		];
+
 		for target in TARGETS.iter().filter(|target| target.store == "app_store") {
 			assert!(types.contains(&target.kind), "{}", target.kind);
 		}
+
 		// Each folder is one store size for each store.
 		for target in TARGETS {
 			assert_eq!(
@@ -460,6 +482,7 @@ pub mod tests {
 		assert_eq!(names, ["01-projects.png", "02-reading.png"]);
 		let sent = image::load_from_memory(&sets[0].images[0].bytes).unwrap();
 		assert!(!sent.color().has_alpha());
+
 		assert_eq!(describe(&sets), "2 images for iphone-6.9");
 		// Google Play takes the phone screenshots; nothing else is its.
 		let sets = load(root.path(), "play").unwrap();
@@ -477,9 +500,11 @@ pub mod tests {
 			("iphone-7/01-typo.png".to_owned(), png(1320, 2868, 255)),
 		];
 		let opaque = png(1206, 2622, 255);
+
 		for index in 1..=11 {
 			files.push((format!("iphone-6.3/{index:02}.png"), opaque.clone()));
 		}
+
 		let root = project(&files);
 		let error = load(root.path(), "app_store").unwrap_err().to_string();
 		assert!(
@@ -493,6 +518,7 @@ pub mod tests {
 			),
 			"{error}"
 		);
+
 		assert!(
 			error.contains("ipad-13/01-clear.png: it has transparent pixels"),
 			"{error}"

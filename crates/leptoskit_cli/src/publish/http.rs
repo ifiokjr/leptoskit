@@ -23,6 +23,7 @@ impl Reply {
 		if self.body.is_empty() {
 			return Ok(serde_json::Value::Null);
 		}
+
 		serde_json::from_slice(&self.body).with_context(|| {
 			format!(
 				"the store answered {} with something that isn't JSON: {}",
@@ -50,6 +51,7 @@ impl Reply {
 		if (200..300).contains(&self.status) {
 			return Ok(self);
 		}
+
 		let body = String::from_utf8_lossy(&self.body);
 		anyhow::bail!(
 			"{action} failed with {}: {}",
@@ -134,8 +136,10 @@ impl Body {
 	pub fn multipart(fields: &[(&str, Part<'_>)]) -> Self {
 		let boundary = format!("leptoskit-{:016x}", fastrand_seed());
 		let mut bytes = Vec::new();
+
 		for (name, part) in fields {
 			bytes.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+
 			match part {
 				Part::Text(value) => {
 					bytes.extend_from_slice(
@@ -162,6 +166,7 @@ impl Body {
 				}
 			}
 		}
+
 		bytes.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
 		Self {
 			content_type: format!("multipart/form-data; boundary={boundary}"),
@@ -227,6 +232,7 @@ impl Http {
 				for (name, value) in headers {
 					request = request.header(*name, *value);
 				}
+
 				request.call()
 			}
 			(method, body) => {
@@ -287,12 +293,15 @@ pub fn poll<T>(
 	} else {
 		interval
 	};
+
 	for _ in 0..attempts {
 		if let Some(done) = poll()? {
 			return Ok(done);
 		}
+
 		std::thread::sleep(interval);
 	}
+
 	anyhow::bail!("{what} didn't finish; check the store's dashboard")
 }
 
@@ -328,6 +337,7 @@ mod tests {
 		assert!(text.starts_with(&format!("--{boundary}\r\n")));
 		assert!(text.contains("name=\"channel\"\r\n\r\nlisted\r\n"));
 		assert!(text.contains("filename=\"firefox.zip\"\r\nContent-Type: application/zip\r\n"));
+
 		assert!(text.ends_with(&format!("--{boundary}--\r\n")));
 	}
 }

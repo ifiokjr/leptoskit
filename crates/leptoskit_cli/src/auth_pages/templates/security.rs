@@ -272,6 +272,7 @@ impl Security {
 				None => self.turned_off(),
 			}
 		};
+
 		let required = status.required && !status.enrolled();
 
 		screen
@@ -320,6 +321,7 @@ impl Security {
 			} else {
 				"On one device"
 			};
+
 			list = list.child(
 				View()
 					.class("flex-row items-center gap-3 rounded-lg bg-slate-800 p-3")
@@ -426,6 +428,7 @@ impl Security {
 	fn turned_on(&self, status: &MfaStatus) -> Element {
 		let this = *self;
 		let busy = self.regenerate.is_pending() || self.disable.is_pending();
+
 		let left = match status.recovery_codes {
 			0 => {
 				"You have no recovery codes left. Make new ones now, in case you lose your phone."
@@ -528,6 +531,7 @@ impl Security {
 		let mode = self.merge_mode(offer);
 		let mut moves = offer.emails.clone();
 		moves.extend(offer.identities.iter().cloned());
+
 		moves.extend(offer.wallets.iter().map(|wallet| short(wallet.as_str())));
 
 		if offer.passkeys > 0 {
@@ -539,6 +543,7 @@ impl Security {
 		} else {
 			"That login already has its own account"
 		};
+
 		let mut choices = View().class("gap-2");
 
 		for choice in offer.modes.iter().copied() {
@@ -556,6 +561,7 @@ impl Security {
 					)
 				}
 			};
+
 			let chosen = choice == mode;
 			choices = choices.child(
 				Button(if chosen {
@@ -679,6 +685,7 @@ impl Security {
 				.unwrap_or_else(|| short(wallet.address.as_str()));
 			let shown = wallet.is_public;
 			let mut details = vec![short(wallet.address.as_str())];
+
 			details.push(if shown { "Public" } else { "Private" }.to_owned());
 
 			if wallet.can_sign_in {
@@ -751,6 +758,7 @@ impl Security {
 						.class("text-sm text-slate-400"),
 				)
 			}
+
 			(Some(apps), _) => {
 				for app in apps {
 					let name = app.name.clone();
@@ -1050,6 +1058,7 @@ impl Security {
 		if code.is_empty() {
 			self.problem
 				.set(Some("Enter the code your app shows.".into()));
+
 			return;
 		}
 
@@ -1074,6 +1083,7 @@ impl Security {
 		if code.is_empty() {
 			self.problem
 				.set(Some("Enter a code to confirm it's you.".into()));
+
 			return;
 		}
 

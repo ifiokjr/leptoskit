@@ -141,6 +141,7 @@ pub(crate) fn ensure(project: &Project, url: &str) -> Result<String> {
 		.flatten();
 	let Some(branches) = branches else {
 		ensure_database(url, &main, None)?;
+
 		return Ok(main);
 	};
 
@@ -445,6 +446,7 @@ mod tests {
 				})
 				.unwrap();
 		};
+
 		script(
 			"my_app",
 			"CREATE TABLE notes (body text); INSERT INTO notes VALUES ('main')",
@@ -502,6 +504,7 @@ mod tests {
 		);
 		drop(holder);
 		drop(runtime);
+
 		assert_eq!(ensure(&project, &postgres).unwrap(), "my_app__feat_busy");
 
 		let listed = list(&project, &postgres).unwrap();
@@ -531,6 +534,7 @@ mod tests {
 			&["commit", "--quiet", "--allow-empty", "-m", "unmerged"],
 		);
 		let gone = prunable(root.path(), &listed).unwrap();
+
 		assert_eq!(gone.len(), 1, "the branch checked out now stays: {gone:?}");
 		run(root.path(), &["checkout", "--quiet", "main"]);
 		assert_eq!(
@@ -542,6 +546,7 @@ mod tests {
 		for (database, _) in &gone {
 			drop_database(&postgres, &database.name).unwrap();
 		}
+
 		assert_eq!(list(&project, &postgres).unwrap().len(), 1);
 		assert!(prunable(tempfile::tempdir().unwrap().path(), &listed).is_err());
 	}

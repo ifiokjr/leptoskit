@@ -200,6 +200,7 @@ fn client_command(args: ClientArgs) -> Result<ClientCommand> {
 			} else {
 				ClientAuth::SecretBasic
 			};
+
 			ClientCommand::Add(NewClientSpec {
 				name,
 				redirect_uris: redirects,
@@ -213,6 +214,7 @@ fn client_command(args: ClientArgs) -> Result<ClientCommand> {
 				} else {
 					SigningAlgorithm::Es256
 				},
+
 				first_party,
 				introspection: introspect,
 				dpop_bound: dpop,
@@ -270,6 +272,7 @@ fn run_server(
 		if let Some(status) = child.try_wait().context("waiting for the server")? {
 			break status;
 		}
+
 		if started.elapsed() > timeout {
 			let _ = child.kill();
 			let _ = child.wait();
@@ -280,9 +283,12 @@ fn run_server(
 				timeout.as_secs()
 			);
 		}
+
 		std::thread::sleep(Duration::from_millis(50));
 	};
+
 	let mut stderr = String::new();
+
 	if let Some(mut pipe) = child.stderr.take() {
 		std::io::Read::read_to_string(&mut pipe, &mut stderr)
 			.context("reading the server's diagnostics")?;
@@ -315,25 +321,30 @@ fn render(output: &ClientCommandOutput) -> (String, bool) {
 						 hash is kept. Store it in the app's secrets now."
 					);
 				}
+
 				None if client.auth_method == ClientAuth::PrivateKeyJwt => {
 					let _ = writeln!(
 						text,
 						"\nIt signs in with its own key (private_key_jwt): there's no secret."
 					);
 				}
+
 				None => {
 					let _ = writeln!(text, "\nA public app: it has no secret, and uses PKCE.");
 				}
 			}
 		}
+
 		ClientCommandOutput::Listed { clients } if clients.is_empty() => {
 			text.push_str("No apps are registered.\n");
 		}
+
 		ClientCommandOutput::Listed { clients } => {
 			for (index, client) in clients.iter().enumerate() {
 				if index > 0 {
 					text.push('\n');
 				}
+
 				let _ = writeln!(text, "{}", client.name);
 				describe(&mut text, client);
 			}
@@ -367,12 +378,15 @@ fn describe(text: &mut String, client: &ClientInfo) {
 	let _ = writeln!(text, "  auth: {}", client.auth_method.as_str());
 	let grants: Vec<&str> = client.grant_types.iter().map(GrantType::as_str).collect();
 	let _ = writeln!(text, "  grants: {}", grants.join(", "));
+
 	if !client.redirect_uris.is_empty() {
 		let _ = writeln!(text, "  redirects: {}", client.redirect_uris.join(", "));
 	}
+
 	if client.id_token_alg == SigningAlgorithm::Rs256 {
 		let _ = writeln!(text, "  ID tokens: RS256");
 	}
+
 	if !client.post_logout_redirect_uris.is_empty() {
 		let _ = writeln!(
 			text,
@@ -380,16 +394,21 @@ fn describe(text: &mut String, client: &ClientInfo) {
 			client.post_logout_redirect_uris.join(", ")
 		);
 	}
+
 	let _ = writeln!(text, "  scopes: {}", client.scopes.join(" "));
+
 	if client.first_party {
 		let _ = writeln!(text, "  first party: sees account IDs, skips consent");
 	}
+
 	if client.introspection {
 		let _ = writeln!(text, "  may introspect other apps' tokens");
 	}
+
 	if client.dpop_bound {
 		let _ = writeln!(text, "  tokens bound to its key with DPoP");
 	}
+
 	if client.self_registered {
 		let _ = writeln!(text, "  registered itself (dynamic registration)");
 	}
@@ -511,6 +530,7 @@ mod tests {
 			[GrantType::ClientCredentials, GrantType::AuthorizationCode]
 		);
 		assert_eq!(keyed.jwks.unwrap()["keys"][0]["kty"], "EC");
+
 		assert_eq!(keyed.id_token_alg, SigningAlgorithm::Rs256);
 		assert_eq!(
 			parse(&["idp", "client", "rotate-secret", "abc"]),
@@ -528,6 +548,7 @@ mod tests {
 			} else {
 				bad
 			};
+
 			let harness = Harness::try_parse_from([
 				"auth", "idp", "client", "add", "X", "--scopes", "openid", "--jwks", &path,
 			])
@@ -613,6 +634,7 @@ mod tests {
 			client: keyed,
 			secret: None,
 		});
+
 		assert!(text.contains("private_key_jwt"), "{text}");
 		assert!(!text.contains("\n  redirects:"), "{text}");
 		let (text, failed) = render(&ClientCommandOutput::Rotated {
@@ -631,6 +653,7 @@ mod tests {
 		assert!(text.contains("post-logout redirects"), "{text}");
 		assert!(text.contains("bound to its key with DPoP"), "{text}");
 		assert!(text.contains("registered itself"), "{text}");
+
 		let (text, _) = render(&ClientCommandOutput::Listed {
 			clients: Vec::new(),
 		});

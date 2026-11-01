@@ -213,6 +213,7 @@ pub fn resolve(
 			 {skipped}; the app's calls to them fail as unavailable",
 			target.platform()
 		);
+
 		return resolve(root, &config, target);
 	}
 
@@ -228,6 +229,7 @@ pub fn resolve(
 	} else {
 		None
 	};
+
 	let metadata = cargo_metadata(root, None, target, client_feature.as_deref())?;
 	let mut host_config = config.clone();
 
@@ -352,10 +354,12 @@ fn resolve_for_target(
 		.collect();
 	let (available, bridge) = available_plugins(node, &packages)?;
 	let plugins = selected_plugins(available, config)?;
+
 	let (plugins, missing) = match target {
 		Some(target) => select_for_target(plugins, target, config.native.missing_plugins)?,
 		None => (plugins, Vec::new()),
 	};
+
 	let bridge = bridge.context("native apps need a direct leptoskit_bridge_ffi dependency")?;
 	let support = resolve_support(&metadata, &plugins, &bridge)?;
 	let host_features = host_features(app, node, &packages, &plugins, target)?;
@@ -555,6 +559,7 @@ fn validate_plugin(plugin: &Plugin, alias: &str) -> Result<()> {
 	if let Some(name) = &plugin.harmonyos_type {
 		anyhow::ensure!(identifier(name, "_"), "invalid ArkTS plugin type");
 	}
+
 	anyhow::ensure!(
 		!plugin.harmonyos_context || plugin.harmonyos_type.is_some(),
 		"harmonyos-context requires harmonyos-type"
@@ -606,6 +611,7 @@ fn validate_android_paths(plugin: &Plugin) -> Result<()> {
 			"invalid fully qualified Android query action"
 		);
 	}
+
 	for query in &plugin.android_query_intents {
 		let mut bytes = query.scheme.bytes();
 		anyhow::ensure!(

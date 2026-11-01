@@ -91,6 +91,7 @@ fn target_sdk(script: &str) -> Option<u32> {
 #[must_use]
 pub fn problems(script: &str, path: &Path) -> Vec<String> {
 	let mut problems = Vec::new();
+
 	if !script.contains("leptoskit.versionCode") {
 		problems.push(format!(
 			"{} doesn't take the build number leptoskit chooses: set versionCode from the \
@@ -98,6 +99,7 @@ pub fn problems(script: &str, path: &Path) -> Vec<String> {
 			path.display()
 		));
 	}
+
 	if !script.contains(KEYSTORE) {
 		problems.push(format!(
 			"{} doesn't sign the release with the upload key: add the signingConfigs block that \
@@ -105,6 +107,7 @@ pub fn problems(script: &str, path: &Path) -> Vec<String> {
 			path.display()
 		));
 	}
+
 	match target_sdk(script) {
 		Some(target) if target >= TARGET_SDK => {}
 		Some(target) => {
@@ -121,6 +124,7 @@ pub fn problems(script: &str, path: &Path) -> Vec<String> {
 			));
 		}
 	}
+
 	problems
 }
 
@@ -147,12 +151,15 @@ pub fn release(name: &str, version_code: u64, rollout: Rollout, notes: Option<&s
 			Rollout::Staged(_) => "inProgress",
 		},
 	});
+
 	if let Rollout::Staged(fraction) = rollout {
 		release["userFraction"] = json!(fraction);
 	}
+
 	if let Some(notes) = notes {
 		release["releaseNotes"] = json!([{ "language": "en-US", "text": notes }]);
 	}
+
 	release
 }
 
@@ -204,6 +211,7 @@ impl<'a> Play<'a> {
 		let reply = self
 			.http
 			.send(method, url, &[("authorization", &authorization)], body)?;
+
 		if reply.status == 403 {
 			anyhow::bail!(
 				"Google Play refused the service account for {}: invite its email in Play Console \
@@ -211,6 +219,7 @@ impl<'a> Play<'a> {
 				self.package
 			);
 		}
+
 		Ok(reply)
 	}
 
@@ -233,9 +242,11 @@ impl<'a> Play<'a> {
 			&format!("{}/edits", self.app()),
 			Some(Body::json(&json!({}))),
 		)?;
+
 		if reply.status == 404 {
 			return Ok(None);
 		}
+
 		let edit = reply.ok("opening an edit on Google Play")?.json()?;
 		Ok(Some(Edit {
 			play: self,
@@ -359,6 +370,7 @@ impl Edit<'_, '_> {
 				None,
 			)?
 			.ok(&format!("deleting the listing's {image_type}"))?;
+
 		for image in images {
 			let url = format!(
 				"{}/upload/androidpublisher/v3/applications/{}/edits/{}/listings/{language}/\
@@ -373,6 +385,7 @@ impl Edit<'_, '_> {
 				)?
 				.ok(&format!("uploading {} to Google Play", image.name))?;
 		}
+
 		Ok(())
 	}
 

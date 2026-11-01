@@ -37,9 +37,11 @@ async fn secure_storage() -> Result<String, leptoskit_bridge::Error> {
 	// Delete the fixture even if reading it fails.
 	store.delete(key).await?;
 	let stored = stored?;
+
 	if stored.as_deref() != Some(expected.as_slice()) || store.get(key).await?.is_some() {
 		return Err(leptoskit_bridge::Error::Native);
 	}
+
 	Ok("Secure storage roundtrip passed".to_owned())
 }
 
@@ -50,9 +52,11 @@ async fn clipboard() -> Result<String, leptoskit_bridge::Error> {
 	let copied = clipboard.call(MethodId(0), &[])?.await?;
 	clipboard.call(MethodId(2), &[])?.await?;
 	let cleared = clipboard.call(MethodId(0), &[])?.await?;
+
 	if copied.as_ref() != expected.as_bytes() || !cleared.is_empty() {
 		return Err(leptoskit_bridge::Error::Native);
 	}
+
 	Ok("Clipboard roundtrip passed".to_owned())
 }
 
@@ -67,8 +71,10 @@ async fn app_files() -> Result<String, leptoskit_bridge::Error> {
 		.rename("leptoskit-example/original", "leptoskit-example/moved")
 		.await?;
 	let listing = files.list("leptoskit-example").await?;
+
 	files.remove("leptoskit-example/moved").await?;
 	files.remove("leptoskit-example").await?;
+
 	if contents.as_ref() != expected
 		|| metadata.kind != Kind::File
 		|| metadata.len != expected.len() as u64
@@ -145,9 +151,11 @@ pub extern "C" fn leptoskit_event(node: i64, kind: i32, _ptr: i32, _len: i32) ->
 	if kind != 0 || !(3..=9).contains(&node) {
 		return 0;
 	}
+
 	if BUSY.with(|busy| busy.replace(true)) {
 		return 1;
 	}
+
 	status("Working");
 	let task = async move {
 		let result = async {
@@ -188,6 +196,7 @@ pub extern "C" fn leptoskit_event(node: i64, kind: i32, _ptr: i32, _len: i32) ->
 		}
 		.await;
 		BUSY.with(|busy| busy.set(false));
+
 		match result {
 			Ok(message) => status(&message),
 			Err(error) => status(&format!("Plugin failed: {error:?}")),
@@ -200,6 +209,7 @@ pub extern "C" fn leptoskit_event(node: i64, kind: i32, _ptr: i32, _len: i32) ->
 			.expect("executor is live")
 	});
 	leptoskit_poll();
+
 	1
 }
 

@@ -108,6 +108,7 @@ impl<'a> Chrome<'a> {
 			.ok("uploading to the Chrome Web Store")?
 			.json()?;
 		let state = reply["uploadState"].as_str().unwrap_or_default().to_owned();
+
 		if state == "IN_PROGRESS" {
 			poll(
 				"The Chrome Web Store's processing",
@@ -129,6 +130,7 @@ impl<'a> Chrome<'a> {
 		} else if state != "SUCCEEDED" {
 			anyhow::bail!("the Chrome Web Store refused the package: {reply}");
 		}
+
 		Ok(reply["crxVersion"].as_str().unwrap_or_default().to_owned())
 	}
 

@@ -130,9 +130,11 @@ fn load(git_ref: Option<&str>) -> Result<(Files, String)> {
 	if let Some(git_ref) = git_ref {
 		return Ok((fetch(RAW, git_ref)?, git_ref.to_owned()));
 	}
+
 	if let Some(dir) = checkout() {
 		return Ok((read_local(&dir)?, format!("checkout {}", dir.display())));
 	}
+
 	let tag = format!("v{}", env!("CARGO_PKG_VERSION"));
 	Ok((fetch(RAW, &tag)?, tag))
 }
@@ -141,13 +143,16 @@ fn load(git_ref: Option<&str>) -> Result<(Files, String)> {
 /// path.
 fn printed(files: &Files) -> String {
 	let mut out = String::new();
+
 	for (name, contents) in files {
 		if name != "SKILL.md" {
 			let _ = write!(out, "\n\n<!-- {name} -->\n\n");
 		}
+
 		out.push_str(contents.trim_end());
 		out.push('\n');
 	}
+
 	out
 }
 
@@ -155,6 +160,7 @@ fn printed(files: &Files) -> String {
 /// wrote.
 fn install(dir: &Path, files: &Files, source: &str, force: bool) -> Result<()> {
 	let marker = dir.join(MARKER);
+
 	if dir.exists() && !marker.is_file() && std::fs::read_dir(dir)?.next().is_some() {
 		anyhow::ensure!(
 			force,
@@ -162,6 +168,7 @@ fn install(dir: &Path, files: &Files, source: &str, force: bool) -> Result<()> {
 			dir.display()
 		);
 	}
+
 	if let Ok(previous) = std::fs::read_to_string(&marker) {
 		for name in listed(&previous).into_iter().skip(1) {
 			if !files.iter().any(|(file, _)| *file == name) {
@@ -169,19 +176,25 @@ fn install(dir: &Path, files: &Files, source: &str, force: bool) -> Result<()> {
 			}
 		}
 	}
+
 	for (name, contents) in files {
 		let path = dir.join(inside(name)?);
+
 		if let Some(parent) = path.parent() {
 			std::fs::create_dir_all(parent)?;
 		}
+
 		std::fs::write(&path, contents)
 			.with_context(|| format!("could not write {}", path.display()))?;
 	}
+
 	let mut written = format!("# leptoskit skill from {source}\n");
+
 	for (name, _) in files {
 		written.push_str(name);
 		written.push('\n');
 	}
+
 	std::fs::write(marker, written)?;
 	Ok(())
 }
@@ -193,6 +206,7 @@ fn install(dir: &Path, files: &Files, source: &str, force: bool) -> Result<()> {
 /// When the skill can't be fetched or written.
 pub fn run(args: &SkillArgs) -> Result<()> {
 	let (files, source) = load(args.git_ref.as_deref())?;
+
 	match &args.command {
 		None => print!("{}", printed(&files)),
 		Some(SkillCommand::Install { dir, global, force }) => {
@@ -220,6 +234,7 @@ pub fn run(args: &SkillArgs) -> Result<()> {
 			}
 		}
 	}
+
 	Ok(())
 }
 
@@ -312,6 +327,7 @@ mod tests {
 			]
 		);
 		let error = fetch(&base, "v0.0.0").unwrap_err().to_string();
+
 		assert!(error.contains("--ref main"), "{error}");
 	}
 
@@ -321,6 +337,7 @@ mod tests {
 			inside("references/publishing.md").unwrap(),
 			Path::new("references/publishing.md")
 		);
+
 		for escape in ["", "..", "../escape", "/absolute", "a/../../b"] {
 			assert!(inside(escape).is_err(), "{escape:?} must not install");
 		}

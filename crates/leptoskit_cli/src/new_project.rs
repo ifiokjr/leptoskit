@@ -127,12 +127,15 @@ pub fn run_with_options(
 		render: RenderMode::Ssr,
 		..AppConfig::default()
 	};
+
 	if !app.platforms.contains(&platform) {
 		app.platforms.push(platform);
 	}
+
 	if extension {
 		app.platforms.push(Platform::Extension);
 	}
+
 	let config = LeptoskitConfig {
 		app,
 		build: BuildConfig {
@@ -182,15 +185,18 @@ pub fn run_with_options(
 		"created {dir} (all platforms; default: {platform})"
 	));
 	crate::ui::hint("next", format_args!("cd {dir} && {name} build"));
+
 	if database.is_some() {
 		crate::ui::hint("then", format_args!("{name} db migration create init"));
 	}
+
 	if extension {
 		println!(
 			"build the extension with: {} build --platform extension",
 			crate::cli::invoked_name()
 		);
 	}
+
 	println!(
 		"working with a coding agent? give it leptoskit's skill: {} skill install",
 		crate::cli::invoked_name()
@@ -246,9 +252,11 @@ fn preflight_file(root: &Utf8Path, path: &Utf8Path) -> Result<()> {
 	for entry in path.ancestors().take_while(|entry| *entry != root) {
 		let metadata = match std::fs::symlink_metadata(entry) {
 			Ok(metadata) => metadata,
+
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
 			Err(error) => return Err(error).with_context(|| format!("could not inspect {entry}")),
 		};
+
 		anyhow::ensure!(entry != path, "{path} already exists");
 		anyhow::ensure!(
 			metadata.is_dir() && !metadata.file_type().is_symlink(),
@@ -452,6 +460,7 @@ fn template(config: &LeptoskitConfig, sdk: Option<&Utf8Path>) -> Result<Vec<(Str
 		),
 		("README.md".into(), readme(name)),
 	];
+
 	if let Some(db) = &config.db {
 		database_files(&mut files, name, db, sdk, config.auth.is_some())?;
 
@@ -459,6 +468,7 @@ fn template(config: &LeptoskitConfig, sdk: Option<&Utf8Path>) -> Result<Vec<(Str
 			auth_files(&mut files, name);
 		}
 	}
+
 	if config.extension.is_some() {
 		extension_files(&mut files, name)?;
 	}
@@ -504,6 +514,7 @@ fn extension_config(name: &str) -> leptoskit_config::ExtensionConfig {
 /// function the website keeps to itself.
 fn extension_files(files: &mut Vec<(String, String)>, name: &str) -> Result<()> {
 	let app = format!("{name}_app");
+
 	for (path, source) in files.iter_mut() {
 		if *path == format!("{app}/Cargo.toml") {
 			*source = source.replacen(
@@ -547,12 +558,14 @@ fn extension_files(files: &mut Vec<(String, String)>, name: &str) -> Result<()> 
 			);
 		}
 	}
+
 	anyhow::ensure!(
 		files.iter().any(|(path, source)| {
 			*path == format!("{app}/src/lib.rs") && source.contains("entry!")
 		}),
 		"the app template changed shape; update the extension scaffold"
 	);
+
 	files.push((
 		format!("{app}/src/extension.rs"),
 		include_str!("new_project/templates/extension.rs").into(),
@@ -584,6 +597,7 @@ fn database_files(
 	let shared = format!("{name}_shared");
 	let database = format!("{name}_db");
 	let feature = database_feature(db);
+
 	let url = match db.dialect {
 		DbDialect::Postgres => {
 			format!(
@@ -598,6 +612,7 @@ fn database_files(
 			)
 		}
 	};
+
 	let expand = |source: &str| {
 		source
 			.replace("__DATABASE_URL__", &url)
@@ -624,6 +639,7 @@ fn database_files(
 			include_str!("new_project/templates/db.rs"),
 		)
 	};
+
 	replace("src/main.rs".into(), expand(server));
 	replace(
 		format!("{backend_crate}/Cargo.toml"),
@@ -652,6 +668,7 @@ fn database_files(
 	} else {
 		(String::new(), String::new())
 	};
+
 	replace(
 		format!("{database}/Cargo.toml"),
 		format!(
@@ -792,6 +809,7 @@ fn server_manifest(
 	}
 
 	let dependency = sdk_dependency("leptoskit", sdk, &features)?;
+
 	let (database_member, database_dependency) = match db {
 		Some(_) => {
 			(
@@ -801,6 +819,7 @@ fn server_manifest(
 		}
 		None => (String::new(), String::new()),
 	};
+
 	Ok(format!(
 		r#"[package]
 name = "{name}"
@@ -843,6 +862,7 @@ fn app_manifest(name: &str, sdk: Option<&Utf8Path>, auth: bool) -> Result<String
 	} else {
 		&[]
 	};
+
 	let dependency = sdk_dependency("leptoskit", sdk, features)?;
 	let (native, executor) = if auth {
 		(
@@ -854,7 +874,9 @@ fn app_manifest(name: &str, sdk: Option<&Utf8Path>, auth: bool) -> Result<String
 	} else {
 		("\"leptoskit/guest\"", "")
 	};
+
 	let build_dependency = sdk_dependency("leptoskit_build", sdk, &[])?;
+
 	let wasm_bindgen = crate::wasm::embedded_wasm_bindgen();
 	Ok(format!(
 		r#"[package]
@@ -1040,6 +1062,7 @@ fn platform_files(
 		} else {
 			&format!("#[cfg(target_os = \"{platform}\")]")
 		};
+
 		files.push((
 			format!("{platform}/src/lib.rs"),
 			format!(
@@ -1066,6 +1089,7 @@ fn host_manifest(name: &str, platform: &str, sdk: Option<&Utf8Path>, auth: bool)
 	} else {
 		format!("target_os = \"{platform}\"")
 	};
+
 	let mut manifest = format!(
 		"[package]\nname = \"{name}_{platform}\"\nversion = \"0.1.0\"\nedition = \
 		 \"2024\"\npublish = false\n\n[lib]\nname = \"leptoskit_app\"\ncrate-type = \
@@ -1093,6 +1117,7 @@ fn host_manifest(name: &str, platform: &str, sdk: Option<&Utf8Path>, auth: bool)
 		} else {
 			&["wasm", "rive", feature, "codepush-http"]
 		};
+
 		let dependency = sdk_dependency("leptoskit", sdk, features)?;
 		writeln!(manifest, "leptoskit = {dependency}")?;
 		writeln!(

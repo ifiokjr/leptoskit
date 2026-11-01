@@ -12,7 +12,6 @@ use leptoskit::idp::Idp;
 use leptoskit::idp::IdpBuilder;
 use leptoskit::idp::IdpError;
 // leptoskit: end idp
-
 /// The sign-in service. `U` is the table that gets a row for each new
 /// account, through its `OnSignUp`.
 ///
@@ -55,7 +54,6 @@ fn config() -> Result<LeptoskitConfig, AuthError> {
 }
 
 // leptoskit: idp
-
 /// The provider other apps sign in with, from `[auth.idp]`. Add your scopes
 /// and claims, then build it:
 ///

@@ -45,6 +45,7 @@ pub fn run(arguments: &[String]) -> Result<()> {
 			.is_some_and(|argument| argument == "--help" || argument == "-h")
 	{
 		print_help(&registry, namespace);
+
 		return Ok(());
 	}
 
@@ -52,9 +53,11 @@ pub fn run(arguments: &[String]) -> Result<()> {
 	let code = registry
 		.run_command(&root, &config, namespace, command, &rest[1..])
 		.map_err(|error| anyhow::anyhow!(error))?;
+
 	if code != 0 {
 		std::process::exit(code);
 	}
+
 	Ok(())
 }
 
@@ -62,17 +65,21 @@ pub fn run(arguments: &[String]) -> Result<()> {
 fn print_help(registry: &PluginRegistry, namespace: &str) {
 	if let Some(plugin) = registry.by_namespace(namespace) {
 		println!("plugin:{namespace} commands:");
+
 		for command in plugin.commands() {
 			println!(
 				"  plugin:{namespace} {:<12} {}",
 				command.name, command.about
 			);
+
 			for flag in command.flags {
 				println!("    --{}  {}", flag.name, flag.help);
 			}
 		}
+
 		return;
 	}
+
 	crate::ui::warning(format_args!(
 		"no plugin with the namespace `{namespace}` is active in this project"
 	));
@@ -85,10 +92,13 @@ pub fn help_section(root: &Path) -> Option<String> {
 	let config = LeptoskitConfig::load_from(root).ok()?;
 	let registry = crate::build::resolve_plugins(&config).ok()?;
 	let namespaced = registry.namespaced();
+
 	if namespaced.is_empty() {
 		return None;
 	}
+
 	let mut section = String::from("Plugin commands\n");
+
 	for (namespace, commands) in namespaced {
 		for command in commands {
 			use std::fmt::Write as _;
@@ -99,5 +109,6 @@ pub fn help_section(root: &Path) -> Option<String> {
 			);
 		}
 	}
+
 	Some(section)
 }

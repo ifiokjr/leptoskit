@@ -55,9 +55,11 @@ pub fn fixture_project(name: &str) -> Scratch {
 
 fn copy_dir(from: &Path, to: &Path) {
 	fs::create_dir_all(to).expect("create target");
+
 	for entry in fs::read_dir(from).expect("read fixture") {
 		let entry = entry.expect("fixture entry");
 		let target = to.join(entry.file_name());
+
 		if entry.file_type().expect("fixture entry type").is_dir() {
 			copy_dir(&entry.path(), &target);
 		} else {

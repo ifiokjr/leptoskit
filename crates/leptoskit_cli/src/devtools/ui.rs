@@ -111,12 +111,14 @@ impl Interface {
 	pub fn respond(&self, path: &str) -> Response {
 		match self {
 			Self::Local(dir) | Self::Downloaded(dir) => serve_file(dir, path),
+
 			Self::Missing(notice) if is_index(path) => {
 				page(
 					"text/html; charset=utf-8",
 					FALLBACK.replace(NOTICE, &format!("<p id=\"notice\">{notice}</p>")),
 				)
 			}
+
 			Self::Missing(_) => StatusCode::NOT_FOUND.into_response(),
 		}
 	}
@@ -154,6 +156,7 @@ fn serve_file(dir: &Path, path: &str) -> Response {
 	} else {
 		relative
 	};
+
 	let Some(file) = contained(dir, relative) else {
 		return StatusCode::NOT_FOUND.into_response();
 	};

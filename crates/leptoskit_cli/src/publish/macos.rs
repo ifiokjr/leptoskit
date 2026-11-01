@@ -70,6 +70,7 @@ pub fn sign(identity: &str, path: &Path, entitlements: Option<&Path>) -> Tool {
 		"runtime",
 		"--timestamp",
 	]);
+
 	match entitlements {
 		Some(entitlements) => tool.arg("--entitlements").path(entitlements),
 		None => tool,
@@ -117,6 +118,7 @@ pub fn accepted(output: &str) -> Result<()> {
 pub fn distribute(runner: &dyn Runner, plan: &Plan<'_>, key: &KeyFile) -> Result<Artifacts> {
 	let artifacts = plan.artifacts();
 	std::fs::create_dir_all(plan.out)?;
+
 	for stale in [&artifacts.app, &artifacts.zip, &artifacts.dmg] {
 		if stale.is_dir() {
 			std::fs::remove_dir_all(stale)?;
@@ -124,25 +126,31 @@ pub fn distribute(runner: &dyn Runner, plan: &Plan<'_>, key: &KeyFile) -> Result
 			std::fs::remove_file(stale)?;
 		}
 	}
+
 	// `ditto` keeps the bundle's symlinks and metadata, which `codesign`
 	// seals.
 	runner.run(&Tool::new("ditto").path(plan.built).path(&artifacts.app))?;
+
 	let appex = artifacts
 		.app
 		.join("Contents/PlugIns")
 		.join(format!("{}.appex", crate::native::safari::NAME));
 	let mut plists = vec![artifacts.app.join("Contents/Info.plist")];
 	let extension = plan.safari_entitlements.filter(|_| appex.is_dir());
+
 	if extension.is_some() {
 		plists.push(appex.join("Contents/Info.plist"));
 	}
+
 	for plist in &plists {
 		set_versions(plist, plan.version, plan.build)?;
 	}
+
 	// Inside out: the extension is sealed before the app that contains it.
 	if let Some(entitlements) = extension {
 		runner.run(&sign(plan.identity, &appex, Some(entitlements)))?;
 	}
+
 	runner.run(&sign(plan.identity, &artifacts.app, None))?;
 	runner.run(
 		&Tool::new("codesign")
@@ -160,15 +168,18 @@ pub fn distribute(runner: &dyn Runner, plan: &Plan<'_>, key: &KeyFile) -> Result
 	// Notarizing the disk image covers the app inside it, so one submission
 	// gives both their tickets.
 	accepted(&runner.output(&notarize(&artifacts.dmg, key))?)?;
+
 	for stapled in [&artifacts.dmg, &artifacts.app] {
 		runner.run(&Tool::new("xcrun").args(["stapler", "staple"]).path(stapled))?;
 	}
+
 	runner.run(
 		&Tool::new("ditto")
 			.args(["-c", "-k", "--keepParent"])
 			.path(&artifacts.app)
 			.path(&artifacts.zip),
 	)?;
+
 	Ok(artifacts)
 }
 
@@ -181,9 +192,11 @@ fn set_versions(path: &Path, version: &str, build: Option<u64>) -> Result<()> {
 		.as_dictionary_mut()
 		.with_context(|| format!("{} must contain a dictionary", path.display()))?;
 	dictionary.insert("CFBundleShortVersionString".into(), version.into());
+
 	if let Some(build) = build {
 		dictionary.insert("CFBundleVersion".into(), build.to_string().into());
 	}
+
 	plist
 		.to_file_xml(path)
 		.with_context(|| format!("could not write {}", path.display()))
@@ -217,6 +230,7 @@ pub fn release(
 			"release", "create", tag, "--repo", repository, "--title", title, "--notes", notes,
 		])
 	};
+
 	runner.run(&files.iter().fold(tool, |tool, file| tool.path(file)))
 }
 
@@ -280,6 +294,7 @@ mod tests {
 			inner: recorder,
 			from: app.clone(),
 		};
+
 		let artifacts = distribute(&runner, &plan, &key()).unwrap();
 		assert_eq!(artifacts.dmg, out.join("Notes.dmg"));
 
@@ -337,6 +352,7 @@ mod tests {
 			if tool.program == "ditto" && tool.args.len() == 2 {
 				crate::native::safari::copy_tree(&self.from, Path::new(&tool.args[1]))?;
 			}
+
 			self.inner.run(tool)
 		}
 

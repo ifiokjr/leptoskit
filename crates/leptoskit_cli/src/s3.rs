@@ -85,10 +85,12 @@ impl S3Bucket {
 				 {SECRET_ACCESS_KEY_ENV} (and {SESSION_TOKEN_ENV} for temporary credentials)"
 			);
 		};
+
 		let credentials = match variable(SESSION_TOKEN_ENV) {
 			Some(token) => Credentials::new_with_token(key, secret, token),
 			None => Credentials::new(key, secret),
 		};
+
 		Self::new(location, credentials)
 	}
 
@@ -98,6 +100,7 @@ impl S3Bucket {
 			.endpoint
 			.parse()
 			.with_context(|| format!("{} is not a valid endpoint URL", location.endpoint))?;
+
 		if endpoint.scheme() != "https" {
 			// Presigned requests authenticate the request line, not the
 			// payload, so a plain-http endpoint leaves uploads open to a
@@ -114,6 +117,7 @@ impl S3Bucket {
 		} else {
 			UrlStyle::VirtualHost
 		};
+
 		let bucket = rusty_s3::Bucket::new(
 			endpoint,
 			style,
@@ -121,6 +125,7 @@ impl S3Bucket {
 			location.region.clone(),
 		)
 		.with_context(|| format!("could not address bucket {}", location.bucket))?;
+
 		let agent = ureq::Agent::config_builder()
 			.http_status_as_error(false)
 			.timeout_global(Some(REQUEST_TIMEOUT))
@@ -152,6 +157,7 @@ impl Bucket for S3Bucket {
 			.get(url.as_str())
 			.call()
 			.map_err(|error| request_error("GET", &name, &error))?;
+
 		match response.status().as_u16() {
 			200 => {
 				let limit = key.kind().max_bytes();
@@ -201,6 +207,7 @@ impl Bucket for S3Bucket {
 			.header("cache-control", kind.cache_control())
 			.send(&object.bytes[..])
 			.map_err(|error| request_error("PUT", &name, &error))?;
+
 		match response.status().as_u16() {
 			200..=299 => Ok(()),
 			status => Err(status_error("PUT", &name, status)),
@@ -214,9 +221,11 @@ fn normalize_prefix(prefix: Option<&str>) -> Result<String> {
 	let Some(prefix) = prefix.map(|prefix| prefix.trim_matches('/')) else {
 		return Ok(String::new());
 	};
+
 	if prefix.is_empty() {
 		return Ok(String::new());
 	}
+
 	anyhow::ensure!(
 		prefix
 			.split('/')
@@ -238,6 +247,7 @@ fn request_error(method: &str, name: &str, error: &ureq::Error) -> CodePushError
 		ureq::Error::Tls(error) => format!("TLS failed: {error}"),
 		_ => "the request failed".to_owned(),
 	};
+
 	CodePushError::Transport(format!("{method} {name}: {reason}"))
 }
 
@@ -249,6 +259,7 @@ fn status_error(method: &str, name: &str, status: u16) -> CodePushError {
 		}
 		_ => "",
 	};
+
 	CodePushError::Transport(format!("{method} {name}: HTTP {status}{hint}"))
 }
 
@@ -298,6 +309,7 @@ mod tests {
 			} else {
 				format!("Content-Length: {size}\r\n\r\n")
 			};
+
 			write!(stream, "HTTP/1.1 200 OK\r\nConnection: close\r\n{header}").expect("head");
 			let mut body = std::io::repeat(b'x').take(size);
 			// The bounded client may close the connection before all bytes
@@ -398,11 +410,13 @@ mod tests {
 		let scratch = std::env::temp_dir().join(format!("leptoskit_s3_test_{unique}"));
 		let store = ReleaseStore::open(scratch.join("releases")).expect("store");
 		let signer = ReleaseSigningKey::from_seed(&[0x5a; 32]);
+
 		for build in 1..=2 {
 			let dir = scratch.join(format!("bundle{build}"));
 			std::fs::create_dir_all(&dir).expect("bundle");
 			let mut wasm = vec![1u8; 32 * 1024];
 			wasm.extend_from_slice(format!("build {build}").as_bytes());
+
 			std::fs::write(dir.join("app.wasm"), wasm).expect("wasm");
 			store
 				.ingest_directory(
@@ -422,13 +436,16 @@ mod tests {
 
 		let index = ObjectKey::index("app", "production");
 		let mut objects = Vec::new();
+
 		for record in store.list("app", "production").expect("list") {
 			objects.extend(store.release_objects(&record).expect("objects"));
 		}
+
 		objects.push(StaticObject {
 			bytes: store.read_object(&index).expect("read").expect("index"),
 			key: index,
 		});
+
 		for object in &objects {
 			assert_eq!(
 				bucket.get(&object.key).expect("get").as_ref(),
@@ -437,9 +454,11 @@ mod tests {
 				object.key.as_str()
 			);
 		}
+
 		for object in &objects {
 			bucket.delete(&object.key);
 		}
+
 		let _ = std::fs::remove_dir_all(&scratch);
 	}
 
@@ -451,6 +470,7 @@ mod tests {
 			normalize_prefix(Some("/codepush/v1/")).expect("prefix"),
 			"codepush/v1/"
 		);
+
 		for prefix in ["a//b", "../a", "a/./b"] {
 			assert!(normalize_prefix(Some(prefix)).is_err(), "{prefix:?}");
 		}

@@ -118,6 +118,7 @@ fn chrome_signs_in_uploads_and_submits() {
 			path if path.ends_with(":publish") => {
 				json(serde_json::json!({ "state": "PENDING_REVIEW" }))
 			}
+
 			_ => StatusCode::NOT_FOUND.into_response(),
 		}
 	}));
@@ -148,6 +149,7 @@ fn chrome_signs_in_uploads_and_submits() {
 	);
 	assert_eq!(seen[1].authorization, "Bearer token-1");
 	assert_eq!(seen[1].content_type, "application/zip");
+
 	assert_eq!(seen[1].body, b"PK zip");
 	assert_eq!(
 		seen[2].path,
@@ -225,6 +227,7 @@ fn edge_uploads_waits_for_its_operations_and_submits() {
 	let seen = seen.lock().unwrap();
 	assert_eq!(seen[0].authorization, "ApiKey key");
 	assert_eq!(seen[0].content_type, "application/zip");
+
 	assert_eq!(
 		seen.iter()
 			.filter(|request| request.path.ends_with("op-upload"))
@@ -292,6 +295,7 @@ fn firefox_validates_then_submits_with_the_source() {
 	assert!(upload_body.contains("PK package"));
 	let version_body = String::from_utf8_lossy(&seen.last().unwrap().body);
 	assert!(version_body.contains("name=\"upload\"\r\n\r\nu-1"));
+
 	assert!(version_body.contains("filename=\"firefox-source.zip\""));
 	assert!(version_body.contains("PK source"));
 }
@@ -365,6 +369,7 @@ fn app_store_numbers_the_next_build_and_waits_for_processing() {
 					{ "id": "b3", "attributes": { "version": "1.0.3" } },
 				]}))
 			}
+
 			("GET", "/v1/builds") => {
 				// Not listed yet, then processing, then done.
 				match count {
@@ -451,6 +456,7 @@ fn app_store_adds_builds_to_testflight_groups() {
 	let groups = client.add_to_groups("123", "b4", &names).unwrap();
 	assert_eq!(groups.len(), 3);
 	let error = client.submit_for_beta_review("b4").unwrap_err().to_string();
+
 	assert!(error.contains("Missing export compliance"), "{error}");
 	let error = client
 		.add_to_groups("123", "b4", &["Friends".to_owned()])
@@ -530,6 +536,7 @@ fn app_store_submits_a_version_for_review() {
 		)
 		.unwrap();
 	client.attach(&version, "b4").unwrap();
+
 	assert_eq!(
 		client.submit_for_review("123", &version).unwrap(),
 		"waiting for review"
@@ -553,6 +560,7 @@ fn app_store_submits_a_version_for_review() {
 		"filter%5Bapp%5D=123&filter%5Bplatform%5D=IOS&filter%5Bstate%5D=READY_FOR_REVIEW"
 	);
 	assert_eq!(body(6)["data"]["attributes"]["platform"], "IOS");
+
 	let item = body(7);
 	assert_eq!(
 		item["data"]["relationships"]["reviewSubmission"]["data"]["id"],
@@ -589,6 +597,7 @@ fn app_store_creates_a_first_version_and_refuses_a_released_one() {
 	let created: serde_json::Value = serde_json::from_slice(&seen.lock().unwrap()[1].body).unwrap();
 	assert_eq!(created["data"]["attributes"]["platform"], "IOS");
 	assert_eq!(created["data"]["relationships"]["app"]["data"]["id"], "1");
+
 	let error = client.version("2", "1.0.0").unwrap_err().to_string();
 	assert!(error.contains("already ready for sale"), "{error}");
 }
@@ -618,9 +627,11 @@ fn no_credential_value_reaches_any_output() {
 	let mut names: Vec<&str> = super::NEEDED.iter().map(|needed| needed.name).collect();
 	names.sort_unstable();
 	names.dedup();
+
 	for name in names {
 		let _ = writeln!(text, "{name} = \"{}\"", value(name));
 	}
+
 	std::fs::write(&file, text).unwrap();
 	let credentials = super::Credentials::load(Some(&file), project.path()).unwrap();
 	let stores: Vec<&str> = leptoskit_config::publish::STORES.to_vec();
@@ -629,10 +640,12 @@ fn no_credential_value_reaches_any_output() {
 		super::list_credentials(&stores, &credentials),
 		format!("{credentials:?}"),
 	];
+
 	for needed in &super::NEEDED {
 		let secret = credentials.require(needed.name, needed.how).unwrap();
 		outputs.push(format!("{secret} {secret:?}"));
 	}
+
 	// The stores' refusals, and keys that can't be used.
 	let (base, _) = store(Box::new(|_, _| StatusCode::UNAUTHORIZED.into_response()));
 	let http = Http::default();
@@ -644,6 +657,7 @@ fn no_credential_value_reaches_any_output() {
 		get(super::edge::CLIENT_ID),
 		get(super::edge::API_KEY),
 	);
+
 	outputs.push(format!("{:#}", edge.upload(b"zip".to_vec()).unwrap_err()));
 	let firefox = Firefox::new(
 		&http,
@@ -685,6 +699,7 @@ fn no_credential_value_reaches_any_output() {
 			);
 		}
 	}
+
 	assert!(outputs[0].contains("LEPTOSKIT_PUBLISH_APPLE_KEY "));
 }
 
@@ -737,10 +752,12 @@ fn commonplace(
 	std::fs::copy(example.join(&icon), out.join(&icon)).unwrap();
 	// And its screenshot plan, unless the test brought one.
 	let plan = out.join("store/screenshots/screenshots.toml");
+
 	if !plan.exists() {
 		std::fs::create_dir_all(plan.parent().unwrap()).unwrap();
 		std::fs::copy(example.join("store/screenshots/screenshots.toml"), &plan).unwrap();
 	}
+
 	// Commonplace's iOS host is `ios/`, as in the example.
 	std::fs::create_dir_all(out.join("ios")).unwrap();
 	std::fs::write(out.join("ios/Cargo.toml"), "").unwrap();
@@ -799,6 +816,7 @@ fn commonplace(
 	} else {
 		stores.to_vec()
 	};
+
 	let published = stores.iter().try_for_each(|name| {
 		let (summary, steps) = session.publish(name)?;
 		report.steps.extend(steps);
@@ -846,6 +864,7 @@ fn play_numbers_uploads_and_releases_through_an_edit() {
 			("GET", path) if path.ends_with("/bundles") => {
 				json(serde_json::json!({ "bundles": [{ "versionCode": 38 }] }))
 			}
+
 			("DELETE", _) => StatusCode::NO_CONTENT.into_response(),
 			("POST", path) if path.ends_with("/bundles") => {
 				json(serde_json::json!({ "versionCode": 42, "sha256": "…" }))
@@ -856,6 +875,7 @@ fn play_numbers_uploads_and_releases_through_an_edit() {
 			("POST", path) if path.ends_with(":commit") => {
 				json(serde_json::json!({ "id": "edit" }))
 			}
+
 			_ => StatusCode::NOT_FOUND.into_response(),
 		}
 	}));
@@ -870,6 +890,7 @@ fn play_numbers_uploads_and_releases_through_an_edit() {
 	.unwrap();
 	let edit = play.edit().unwrap().unwrap();
 	assert_eq!(edit.highest_version_code().unwrap(), Some(41));
+
 	edit.discard();
 	let edit = play.edit().unwrap().unwrap();
 	assert_eq!(edit.upload(b"PK aab".to_vec()).unwrap(), 42);
@@ -909,6 +930,7 @@ fn play_numbers_uploads_and_releases_through_an_edit() {
 	assert_eq!(upload.body, b"PK aab");
 	let track: serde_json::Value = serde_json::from_slice(&seen[7].body).unwrap();
 	assert_eq!(track["track"], "production");
+
 	assert_eq!(track["releases"][0]["status"], "inProgress");
 	assert_eq!(track["releases"][0]["userFraction"], 0.1);
 	assert_eq!(track["releases"][0]["versionCodes"][0], "42");
@@ -988,6 +1010,7 @@ fn play_sets_the_store_listing() {
 			("PUT", path) if path.ends_with("/edits/e1/listings/en-US") => {
 				json(serde_json::json!({}))
 			}
+
 			_ => StatusCode::NOT_FOUND.into_response(),
 		}
 	}));
@@ -1065,6 +1088,7 @@ fn a_store_without_its_icon_gets_a_step() {
 	// An extension may bring its own sizes instead.
 	assert!(super::icon_step(root.path(), &without, "chrome").is_some());
 	std::fs::create_dir_all(root.path().join("assets")).unwrap();
+
 	std::fs::write(root.path().join("assets/icon-128.png"), "png").unwrap();
 	assert!(super::icon_step(root.path(), &without, "chrome").is_none());
 }
@@ -1074,6 +1098,7 @@ fn a_store_without_its_icon_gets_a_step() {
 #[test]
 fn the_release_workflow_passes_every_credential() {
 	let workflow = crate::new_project::release_workflow();
+
 	for needed in &super::NEEDED {
 		// The keystore is a file, decoded from its own secret.
 		if needed.name == super::play::KEYSTORE {
@@ -1081,18 +1106,21 @@ fn the_release_workflow_passes_every_credential() {
 			assert!(workflow.contains("LEPTOSKIT_ANDROID_KEYSTORE=$RUNNER_TEMP/upload.jks"));
 			continue;
 		}
+
 		assert!(
 			workflow.contains(&format!("{0}: ${{{{ secrets.{0} }}}}", needed.name)),
 			"the release workflow doesn't pass {}",
 			needed.name
 		);
 	}
+
 	for store in leptoskit_config::publish::STORES {
 		assert!(
 			workflow.contains(store),
 			"the workflow doesn't look for {store}"
 		);
 	}
+
 	assert!(workflow.contains(&format!(
 		"cargo install leptoskit_cli --version {} --locked",
 		env!("CARGO_PKG_VERSION")
@@ -1153,6 +1181,7 @@ fn app_store_replaces_a_screenshot_set_in_parts() {
 			("DELETE", path) if path.starts_with("/v1/appScreenshots/old-") => {
 				StatusCode::NO_CONTENT.into_response()
 			}
+
 			("POST", "/v1/appScreenshots") => {
 				let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
 				let size = body["data"]["attributes"]["fileSize"].as_u64().unwrap();
@@ -1179,10 +1208,12 @@ fn app_store_replaces_a_screenshot_set_in_parts() {
 				} else {
 					"COMPLETE"
 				};
+
 				json(
 					serde_json::json!({ "data": { "attributes": { "assetDeliveryState": { "state": state } } } }),
 				)
 			}
+
 			_ => StatusCode::NOT_FOUND.into_response(),
 		}
 	}));
@@ -1190,6 +1221,7 @@ fn app_store_replaces_a_screenshot_set_in_parts() {
 	let http = Http::default();
 	let client = AppStore::new(&http, &url, &key);
 	let images = shots(1320, 2868);
+
 	client
 		.replace_screenshots("l1", "APP_IPHONE_67", &images)
 		.unwrap();
@@ -1219,6 +1251,7 @@ fn app_store_replaces_a_screenshot_set_in_parts() {
 		deleted,
 		["/v1/appScreenshots/old-1", "/v1/appScreenshots/old-2"]
 	);
+
 	// Each image: reserved with its name and size, sent in its parts without
 	// the API key, then committed with its checksum.
 	for image in &images {
@@ -1239,6 +1272,7 @@ fn app_store_replaces_a_screenshot_set_in_parts() {
 			"set-1"
 		);
 	}
+
 	let parts: Vec<&Seen> = seen
 		.iter()
 		.filter(|request| request.method == "PUT")
@@ -1275,6 +1309,7 @@ fn app_store_reports_a_screenshot_apple_could_not_process() {
 					{ "id": "set-1", "attributes": { "screenshotDisplayType": "APP_IPHONE_67" } },
 				]}))
 			}
+
 			("GET", "/v1/appScreenshotSets/set-1/appScreenshots") => {
 				json(serde_json::json!({ "data": [] }))
 			}
@@ -1324,6 +1359,7 @@ fn play_replaces_the_listing_images_inside_the_edit() {
 			("POST", path) if path.ends_with("/listings/en-US/phoneScreenshots") => {
 				json(serde_json::json!({ "image": { "id": "i" } }))
 			}
+
 			_ => StatusCode::NOT_FOUND.into_response(),
 		}
 	}));
@@ -1342,6 +1378,7 @@ fn play_replaces_the_listing_images_inside_the_edit() {
 		seen[2].path,
 		"/androidpublisher/v3/applications/a.b/edits/e1/listings/en-US/phoneScreenshots"
 	);
+
 	for (request, image) in seen[3..].iter().zip(&images) {
 		assert_eq!(
 			request.path,
@@ -1351,6 +1388,7 @@ fn play_replaces_the_listing_images_inside_the_edit() {
 		assert_eq!(request.content_type, "image/png");
 		assert_eq!(request.body, image.bytes);
 	}
+
 	assert_eq!(seen.len(), 5);
 }
 
@@ -1364,6 +1402,7 @@ fn firefox_replaces_the_listing_screenshots() {
 			("DELETE", path) if path.starts_with("/addons/addon/notes@example.com/previews/") => {
 				StatusCode::NO_CONTENT.into_response()
 			}
+
 			("POST", "/addons/addon/notes@example.com/previews/") => {
 				(
 					StatusCode::CREATED,
@@ -1400,6 +1439,7 @@ fn firefox_replaces_the_listing_screenshots() {
 	let seen = seen.lock().unwrap();
 	assert_eq!(seen[1].path, "/addons/addon/notes@example.com/previews/11/");
 	assert_eq!(seen[2].path, "/addons/addon/notes@example.com/previews/12/");
+
 	for (index, request) in seen[3..5].iter().enumerate() {
 		assert!(request.authorization.starts_with("JWT "));
 		let form = String::from_utf8_lossy(&request.body);
@@ -1451,6 +1491,7 @@ fn a_dry_run_checks_the_screenshots_and_refuses_a_wrong_size() {
 		true,
 	)
 	.unwrap();
+
 	let text = report.text();
 	assert!(
 		text.contains("Its screenshots are checked: 1 image for iphone-6.3."),
@@ -1483,6 +1524,7 @@ fn a_dry_run_checks_the_screenshots_and_refuses_a_wrong_size() {
 		"iphone-6.9/01-projects.png",
 		png(1206, 2622, 255),
 	);
+
 	for dry_run in [true, false] {
 		let error = commonplace(out.path(), &["app_store"], dry_run)
 			.err()

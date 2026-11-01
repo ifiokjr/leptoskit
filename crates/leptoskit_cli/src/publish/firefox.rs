@@ -113,6 +113,7 @@ impl<'a> Firefox<'a> {
 					.then_some(upload))
 			},
 		)?;
+
 		if !upload["valid"].as_bool().unwrap_or(false) {
 			let messages: Vec<String> = upload["validation"]["messages"]
 				.as_array()
@@ -126,6 +127,7 @@ impl<'a> Firefox<'a> {
 				messages.join("; ")
 			);
 		}
+
 		Ok(uuid)
 	}
 
@@ -151,17 +153,21 @@ impl<'a> Firefox<'a> {
 				fields.insert(field.to_owned(), serde_json::json!({ "en-US": text }));
 			}
 		}
+
 		if fields.is_empty() {
 			return Ok(true);
 		}
+
 		let reply = self.send(
 			"PATCH",
 			&format!("/addons/addon/{}/", segment(&self.guid)),
 			Some(Body::json(&Value::Object(fields))),
 		)?;
+
 		if reply.status == 404 {
 			return Ok(false);
 		}
+
 		reply.ok("setting the listing on addons.mozilla.org")?;
 		Ok(true)
 	}
@@ -176,10 +182,13 @@ impl<'a> Firefox<'a> {
 	pub fn replace_previews(&self, images: &[Image]) -> Result<bool> {
 		let addon = format!("/addons/addon/{}", segment(&self.guid));
 		let reply = self.send("GET", &format!("{addon}/"), None)?;
+
 		if reply.status == 404 {
 			return Ok(false);
 		}
+
 		let detail = reply.ok("reading the add-on")?.json()?;
+
 		for id in detail["previews"]
 			.as_array()
 			.into_iter()
@@ -189,6 +198,7 @@ impl<'a> Firefox<'a> {
 			self.send("DELETE", &format!("{addon}/previews/{id}/"), None)?
 				.ok("deleting an earlier screenshot on addons.mozilla.org")?;
 		}
+
 		for (position, image) in images.iter().enumerate() {
 			let position = position.to_string();
 			self.send(
@@ -208,6 +218,7 @@ impl<'a> Firefox<'a> {
 			)?
 			.ok(&format!("uploading {} to addons.mozilla.org", image.name))?;
 		}
+
 		Ok(true)
 	}
 
@@ -234,6 +245,7 @@ impl<'a> Firefox<'a> {
 				),
 			])),
 		)?;
+
 		if reply.status == 404 {
 			anyhow::bail!(
 				"addons.mozilla.org has no add-on {} yet: submit its first version on the site, \
@@ -241,6 +253,7 @@ impl<'a> Firefox<'a> {
 				self.guid
 			);
 		}
+
 		reply.ok("submitting to addons.mozilla.org")?.json()
 	}
 }

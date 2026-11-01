@@ -90,6 +90,7 @@ fn select_with(
 	} else {
 		config.app.platforms.clone()
 	};
+
 	let mut selection = Selection::default();
 
 	for platform in candidates {
@@ -124,12 +125,15 @@ fn select_with(
 			Platform::Extension => {
 				match support(platform) {
 					Ok(()) => selection.extension = true,
+
 					Err(reason) if explicit => {
 						anyhow::bail!("cannot run {platform} here: {reason}")
 					}
+
 					Err(reason) => selection.skipped.push((platform, reason)),
 				}
 			}
+
 			platform if selection.native.contains(&platform) => {}
 			platform => {
 				if explicit {
@@ -138,9 +142,11 @@ fn select_with(
 
 				match support(platform) {
 					Ok(()) => selection.native.push(platform),
+
 					Err(reason) if explicit => {
 						anyhow::bail!("cannot run {platform} here: {reason}")
 					}
+
 					Err(reason) => selection.skipped.push((platform, reason)),
 				}
 			}
@@ -379,16 +385,21 @@ impl Tools {
 			Platform::Macos | Platform::Ios if !cfg!(target_os = "macos") => {
 				Err(format!("{platform} apps build on a Mac"))
 			}
+
 			Platform::Ios if !succeeds(self.xcrun().args(["--find", "simctl"])) => {
 				Err("the iOS Simulator needs Xcode's command-line tools".to_owned())
 			}
+
 			Platform::Android if !succeeds(Command::new(&self.adb).arg("version")) => {
 				Err("set ANDROID_HOME to an Android SDK with platform-tools installed".to_owned())
 			}
+
 			Platform::Windows if !cfg!(windows) => Err("Windows apps build on Windows".to_owned()),
+
 			Platform::Linux if !cfg!(target_os = "linux") => {
 				Err("Linux apps build on Linux".to_owned())
 			}
+
 			Platform::Harmonyos => {
 				Err(
 					"`leptoskit dev` does not run HarmonyOS apps yet; use `leptoskit native build \
@@ -609,6 +620,7 @@ impl Tools {
 			.stderr(Stdio::null());
 		crate::testing::isolate(&mut command);
 		command.spawn().context("could not start the emulator")?;
+
 		let deadline = Instant::now() + EMULATOR_BOOT;
 
 		loop {
@@ -656,6 +668,7 @@ impl Tools {
 				} else {
 					config.app.name.clone()
 				};
+
 				let mut command = Command::new(
 					crate::native::generated_dir(root, *target)
 						.join("app")
@@ -831,6 +844,7 @@ impl NativeDev {
 				platform,
 				format_args!("skipping: no {platform} device matches --device"),
 			);
+
 			return Ok(());
 		}
 
@@ -1555,6 +1569,7 @@ esac"#,
 			"`adb shell getprop` failed on R58M: device unauthorized"
 		);
 		assert!(!tools.booted("R58M"));
+
 		assert_eq!(
 			tools.adb_serials().unwrap_err().to_string(),
 			"adb devices failed"
@@ -1733,6 +1748,7 @@ esac"#,
 				.unwrap(),
 		);
 		let app = root.join(".leptoskit/ios/build/Build/Products/Debug-iphonesimulator/App.app");
+
 		assert_eq!(
 			calls(root, "xcrun"),
 			[
@@ -1758,6 +1774,7 @@ esac"#,
 		std::fs::write(apks.join("output-metadata.json"), "{}").unwrap();
 		std::fs::write(apks.join("app-debug.apk"), "new").unwrap();
 		std::fs::write(apks.join("stale.apk"), "old").unwrap();
+
 		std::fs::File::options()
 			.write(true)
 			.open(apks.join("stale.apk"))
@@ -1921,6 +1938,7 @@ esac"#,
 				.unwrap(),
 		);
 		let adb = calls(root, "adb");
+
 		assert_eq!(
 			adb[..2],
 			[

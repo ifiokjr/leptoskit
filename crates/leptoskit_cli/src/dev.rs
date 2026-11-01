@@ -439,6 +439,7 @@ fn rebuild(mut started: Started, watching: &Watching) {
 				Err(RecvTimeoutError::Timeout) => break,
 			}
 		}
+
 		// Before the rebuild, so the server starts on the branch's database
 		// and embeds a migration written now.
 		follow_database(
@@ -625,6 +626,7 @@ impl Web {
 				.context("could not configure the listener")?;
 			Some(listener)
 		};
+
 		let mut web = Self {
 			config: config.clone(),
 			address,

@@ -46,6 +46,7 @@ impl BundleReport {
 		known: &BTreeMap<PathBuf, Sizes>,
 	) -> Result<Self> {
 		let mut entries = Vec::new();
+
 		for entry in walkdir::WalkDir::new(pkg_dir) {
 			let entry = entry?;
 			let path = entry.path();
@@ -53,9 +54,11 @@ impl BundleReport {
 				path.extension().and_then(|extension| extension.to_str()),
 				Some("js" | "wasm")
 			);
+
 			if !entry.file_type().is_file() || !downloaded {
 				continue;
 			}
+
 			let relative = path.strip_prefix(site_root).unwrap_or(path);
 			entries.push(Entry {
 				path: relative
@@ -67,9 +70,11 @@ impl BundleReport {
 					Some(sizes) => *sizes,
 					None => compress::measure(path)?,
 				},
+
 				lazy: is_lazy(path),
 			});
 		}
+
 		entries.sort_by(|left, right| (left.lazy, &left.path).cmp(&(right.lazy, &right.path)));
 		Ok(Self { entries })
 	}
@@ -113,24 +118,30 @@ impl BundleReport {
 			"  {:width$}  {:>10}  {:>10}  {:>10}",
 			"", "raw", "gzip", "brotli"
 		);
+
 		for entry in &self.entries {
 			let name = if entry.lazy {
 				format!("{} (lazy)", entry.path)
 			} else {
 				entry.path.clone()
 			};
+
 			let _ = writeln!(out, "  {name:width$}  {}", columns(entry.sizes));
 		}
+
 		let initial = self.initial();
 		let _ = write!(out, "  {:width$}  {}", "initial load", columns(initial));
+
 		if let Some(budget) = budget_kib {
 			let verdict = if initial.brotli <= u64::from(budget) * 1024 {
 				"within"
 			} else {
 				"OVER"
 			};
+
 			let _ = write!(out, "  {verdict} the {budget} KiB budget");
 		}
+
 		out
 	}
 }
