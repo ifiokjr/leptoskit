@@ -11,6 +11,11 @@
 //! The tools map straight onto the control document: `list_devices` reports
 //! the inventory, `control` runs a whole document, and `screenshot` returns a
 //! capture as image content so vision-capable agents see the screen inline.
+//!
+//! The devtools tools (`devtools_sessions`, `inspect_tree`, `inspect_node`,
+//! `explain_styles`, `query_cache`, `navigate`, `highlight`, and `set_state`)
+//! read a running app through the hub `leptoskit dev` starts; see
+//! [`devtools`].
 
 use std::io::BufRead;
 use std::io::Write;
@@ -20,6 +25,8 @@ use anyhow::Result;
 use clap::Subcommand;
 use serde_json::Value;
 use serde_json::json;
+
+mod devtools;
 
 /// The protocol revisions this server speaks.
 const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -200,6 +207,15 @@ fn error_response(id: &Value, code: i64, message: &str) -> Value {
 
 /// The tool list, with the control document's own schema on `control`.
 fn tools() -> Value {
+	let mut tools = control_tools();
+	if let Value::Array(tools) = &mut tools {
+		tools.extend(devtools::tools());
+	}
+	tools
+}
+
+/// The device control tools.
+fn control_tools() -> Value {
 	json!([
 		{
 			"name": "list_devices",
@@ -248,6 +264,9 @@ fn call_tool(params: Option<&Value>) -> Result<Value, String> {
 		.and_then(Value::as_str)
 		.ok_or("tools/call needs a tool name")?;
 	let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
+	if devtools::NAMES.contains(&name) {
+		return Ok(devtools::call(name, &arguments));
+	}
 	match name {
 		"list_devices" => {
 			let inventory = leptoskit_testing::control::inventory::list();
@@ -381,7 +400,22 @@ mod tests {
 			.iter()
 			.map(|tool| tool["name"].as_str().unwrap())
 			.collect();
-		assert_eq!(names, ["list_devices", "control", "screenshot"]);
+		assert_eq!(
+			names,
+			[
+				"list_devices",
+				"control",
+				"screenshot",
+				"devtools_sessions",
+				"inspect_tree",
+				"inspect_node",
+				"explain_styles",
+				"query_cache",
+				"navigate",
+				"highlight",
+				"set_state",
+			]
+		);
 		// The control tool carries the document schema, so clients validate
 		// journeys before sending them.
 		let schema = &response["result"]["tools"][1]["inputSchema"];

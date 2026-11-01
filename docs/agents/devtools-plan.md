@@ -313,7 +313,7 @@ Each pull request carries a changeset. Dependent layers go in a `gh stack`.
 
 **Phase 5: MCP.**
 
-1. `feat(mcp)`: the devtools tools.
+1. `feat(mcp)`: the devtools tools. **Done:** all eight in `crates/leptoskit_cli/src/mcp/devtools.rs`, with dispatch tests against a fake hub. `explain_styles` shows each node's active classes and the declarations the session resolved them to (the protocol's `Node::styles`); a session that sends only classes gets a note saying so. `highlight` with `all_sessions` fans out from the MCP side, since the hub's command route targets one session.
 
 **Phase 6: Leptos internals.**
 
