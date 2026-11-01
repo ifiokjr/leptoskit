@@ -292,7 +292,26 @@ impl ChangeLog {
 	/// When the log can't be read, or holds a value its column can't; the
 	/// next call reads on from the same place, or past that commit.
 	pub async fn next(&mut self) -> Result<LogEntry> {
-		match self.reader.next().await? {
+		let entry = self.reader.next().await?;
+		self.entry(entry)
+	}
+
+	/// The next commit when the last read of the log already fetched it,
+	/// without reading the log again: for a reader that handles commits in
+	/// batches, taking whatever has arrived together. `None` when the next
+	/// entry needs a read; call [`ChangeLog::next`] for it.
+	///
+	/// # Errors
+	///
+	/// As [`ChangeLog::next`], for a commit holding a value its column
+	/// can't.
+	pub fn next_ready(&mut self) -> Option<Result<LogEntry>> {
+		let entry = self.reader.next_ready()?;
+		Some(self.entry(entry))
+	}
+
+	fn entry(&self, entry: RawEntry) -> Result<LogEntry> {
+		match entry {
 			RawEntry::Pruned { through } => Ok(LogEntry::Pruned { through }),
 			RawEntry::Commit(commit) => {
 				let dialect = self.reader.db().dialect();

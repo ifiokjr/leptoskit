@@ -17,6 +17,8 @@ any_spawner = { workspace = true }
 axum = { workspace = true, optional = true, features = ["ws"] }
 chrono = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
+# The secret in a server-sent events connection's name.
+getrandom = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 inventory = { workspace = true, optional = true }
 leptos = { workspace = true }
@@ -46,7 +48,7 @@ leptoskit_plugin_http = { path = "../leptoskit_plugin_http", version = "0.1.0", 
 send_wrapper = { workspace = true, optional = true, features = ["futures"] }
 wasm-bindgen = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true, optional = true }
-web-sys = { workspace = true, optional = true, features = ["Crypto", "Headers", "Location", "Request", "RequestCredentials", "RequestInit", "RequestMode", "Response", "Window"] }
+web-sys = { workspace = true, optional = true, features = ["Crypto", "Event", "EventSource", "Headers", "Location", "MessageEvent", "Request", "RequestCredentials", "RequestInit", "RequestMode", "Response", "Window"] }
 
 [dev-dependencies]
 any_spawner = { workspace = true, features = ["tokio"] }
@@ -121,9 +123,10 @@ sqlite = ["db", "leptoskit_db/sqlite"]
 # Records every retrying call's attempts for leptoskit's devtools; see
 # `devtools`.
 devtools = ["dep:leptoskit_devtools_protocol"]
-# Serves live queries over a WebSocket at `/live`, on top of the database's
+# Serves live queries over a WebSocket at `/live`, and over server-sent events
+# at `/live/events` where a socket can't get through, on top of the database's
 # change feed. Pick a driver with `postgres` or `sqlite`.
-live = ["server", "db", "dep:futures"]
+live = ["server", "db", "dep:futures", "dep:getrandom"]
 
 [lints]
 workspace = true

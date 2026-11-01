@@ -10,13 +10,42 @@
 //!
 //! ```text
 //! client → server                                   server → client
-//! hello   { resume?: { version } }                  welcome     { connection, version, heartbeat_seconds }
+//! hello   { resume?: { version, queries? } }        welcome     { connection, version, heartbeat_seconds }
 //! auth    { token }                                 transition  { from, to, updates: [ { id, ok | patch | err } ] }
 //! sub     { id, query, args }                       done        { request, ok | err, version }
 //! unsub   { id }                                    auth_status { refused | expiring }
 //! mutate  { request, name, args, key? }             reconnect   { after_ms }
-//! ping                                              pong
+//! act     { request, name, args }                   pong
+//! ping
 //! ```
+//!
+//! # Versions
+//!
+//! Every commit to a live table takes the next version of the database's
+//! change log. A transition's `to` is the version its results reflect, and
+//! a `done` for a mutation or an action names the version its writes
+//! committed at: once the client has applied a transition with `to` at or
+//! past it, every result it holds includes them. The server sends an empty
+//! transition when a commit changes none of a connection's results but the
+//! connection is waiting for it, so a mutation never waits for a change
+//! that won't come.
+//!
+//! # Resuming
+//!
+//! A client that reconnects sends the last `to` it applied, and the queries
+//! it holds, in [`ClientFrame::Hello`]. When the change log still reaches
+//! back that far, the server subscribes them again and sends one transition
+//! with only the results that changed since; otherwise the transition is
+//! [`full`](Transition::full).
+//!
+//! # Server-sent events
+//!
+//! Where a WebSocket can't get through, the same frames travel over HTTP:
+//! `GET /live/events` streams server frames as server-sent events, each
+//! transition with its `to` as the event's `id`, and the client posts its
+//! own frames to `POST /live/frames?connection=<id>`, a JSON array at a
+//! time, with the `connection` from `welcome`. A reconnecting event source
+//! sends `Last-Event-ID`, which stands in for the hello's resume version.
 //!
 //! [`patch`] turns two results into an [`Update::Patch`] when both are lists
 //! of rows with an `id`, and into [`Update::Ok`] with the whole value
@@ -42,6 +71,14 @@ pub const MAX_RESULT_BYTES: usize = 512 * 1024;
 
 /// The largest frame a connection may send, in bytes.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
+
+/// Where a server-sent events connection reads server frames, next to the
+/// WebSocket's `/live`.
+pub const EVENTS_PATH: &str = "/live/events";
+
+/// Where a server-sent events connection posts its client frames, with
+/// `?connection=<id>` from [`ServerFrame::Welcome`].
+pub const FRAMES_PATH: &str = "/live/frames";
 
 /// What a client sends.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -114,6 +151,18 @@ pub enum ClientFrame {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		key: Option<String>,
 	},
+	/// Run an action. Its `request` echoes in [`ServerFrame::Done`]. An
+	/// action may call the outside world, so a client never sends one
+	/// twice.
+	Act {
+		/// The client's name for the call.
+		request: u32,
+		/// The operation's name.
+		name: String,
+		/// Its arguments, as one JSON object.
+		#[serde(default)]
+		args: Value,
+	},
 	/// Check the connection is alive.
 	Ping,
 	/// A frame this version doesn't know: ignored, so a newer client can
@@ -123,10 +172,29 @@ pub enum ClientFrame {
 }
 
 /// What a resuming client already applied.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Resume {
-	/// The last version the client applied.
+	/// The last version the client applied: the `to` of the last
+	/// transition.
 	pub version: u64,
+	/// The queries the client holds results for. The server subscribes
+	/// them again without a `done` each, and sends one transition with the
+	/// results that changed since `version`. Empty for a client that sends
+	/// a `sub` for each instead.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub queries: Vec<ResumeQuery>,
+}
+
+/// A query a resuming client already holds the result of.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResumeQuery {
+	/// The client's name for the subscription, as in [`ClientFrame::Sub`].
+	pub id: u32,
+	/// The operation's name.
+	pub query: String,
+	/// Its arguments, as one JSON object.
+	#[serde(default)]
+	pub args: Value,
 }
 
 /// What a server sends.
@@ -158,7 +226,10 @@ pub enum ServerFrame {
 		/// Why it failed, when it did.
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		err: Option<WireError>,
-		/// The version the call's writes committed at.
+		/// The version the call's writes committed at, which a transition
+		/// reaching it includes; for a call that wrote no live table, the
+		/// version the connection had already reached. For a subscription's
+		/// first value, the version the connection had reached.
 		version: u64,
 	},
 	/// What happened to the connection's identity.
@@ -468,7 +539,19 @@ mod tests {
 	fn frames_round_trip_through_json() {
 		let frames = [
 			ClientFrame::Hello {
-				resume: Some(Resume { version: 7 }),
+				resume: Some(Resume {
+					version: 7,
+					queries: vec![ResumeQuery {
+						id: 1,
+						query: "messages".into(),
+						args: json!({ "channel": "general" }),
+					}],
+				}),
+			},
+			ClientFrame::Act {
+				request: 3,
+				name: "summarize".into(),
+				args: json!({}),
 			},
 			ClientFrame::Auth {
 				token: "abc".into(),
@@ -529,6 +612,20 @@ mod tests {
 			let back: ServerFrame = serde_json::from_str(&json).unwrap();
 			assert_eq!(back, frame);
 		}
+	}
+
+	#[test]
+	fn an_older_hello_still_parses() {
+		assert_eq!(
+			serde_json::from_str::<ClientFrame>(r#"{"type":"hello","resume":{"version":4}}"#)
+				.unwrap(),
+			ClientFrame::Hello {
+				resume: Some(Resume {
+					version: 4,
+					queries: Vec::new(),
+				}),
+			}
+		);
 	}
 
 	#[test]

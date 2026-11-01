@@ -266,12 +266,13 @@ impl Transaction {
 	}
 
 	/// Commits, first giving the transaction's changes to live tables the
-	/// next version, recorded as made by `actor` through `origin`.
+	/// next version, recorded as made by `actor` through `origin`. Returns
+	/// that version, or `None` when it wrote no live table.
 	pub(crate) async fn commit(
 		self,
 		actor: Option<uuid::Uuid>,
 		origin: Option<String>,
-	) -> Result<()> {
+	) -> Result<Option<i64>> {
 		let live = Arc::clone(&self.shared.live);
 		let sealed = self
 			.finish(move |connection| {
@@ -286,7 +287,7 @@ impl Transaction {
 			live.wake();
 		}
 
-		Ok(())
+		Ok(sealed)
 	}
 
 	pub(crate) async fn rollback(self) -> Result<()> {

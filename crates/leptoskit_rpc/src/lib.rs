@@ -91,6 +91,10 @@ pub use client::use_inbox;
 pub use client::use_job;
 #[cfg(feature = "client")]
 pub use client::use_live;
+#[cfg(feature = "client")]
+pub use client::use_live_action;
+#[cfg(feature = "client")]
+pub use client::use_live_mutation;
 pub use inbox::Inbox;
 pub use inbox::InboxArgs;
 pub use inbox::InboxNotice;

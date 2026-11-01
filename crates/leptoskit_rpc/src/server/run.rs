@@ -139,6 +139,50 @@ pub async fn call_as<O: Operation>(
 	O::Context::dispatch(&db, identity, request_id, op).await
 }
 
+tokio::task_local! {
+	/// The newest change log version a mutation committed at in this task,
+	/// while [`recording_commits`] watches it: how a live connection learns
+	/// the version its `done` frame names.
+	static COMMITTED: std::cell::Cell<Option<i64>>;
+}
+
+/// Runs `work`, and returns with its output the newest change log version
+/// a mutation it ran committed at, or reached when its receipt answered for
+/// it. `None` when nothing it ran wrote a live table.
+#[cfg(feature = "live")]
+pub(crate) async fn recording_commits<F: Future>(work: F) -> (F::Output, Option<i64>) {
+	COMMITTED
+		.scope(std::cell::Cell::new(None), async move {
+			let output = work.await;
+			(output, COMMITTED.with(std::cell::Cell::get))
+		})
+		.await
+}
+
+/// Notes that a mutation's writes are visible from `version` on.
+fn committed(version: i64) {
+	let _ = COMMITTED.try_with(|newest| {
+		newest.set(Some(newest.get().map_or(version, |seen| seen.max(version))));
+	});
+}
+
+/// A receipt answered for the call, so its commit is somewhere at or
+/// before the newest version: note that one, for whoever is waiting.
+async fn committed_before_now(db: &Db) {
+	if COMMITTED.try_with(|_| ()).is_err() {
+		return;
+	}
+
+	if let Ok(version) = db
+		.system("the version a repeated call has reached")
+		.live_version()
+		.await
+		&& version > 0
+	{
+		committed(version);
+	}
+}
+
 /// The first delay before a mutation runs again, and the longest.
 const FIRST_RETRY: Duration = Duration::from_millis(10);
 const LONGEST_RETRY: Duration = Duration::from_millis(500);
@@ -165,6 +209,7 @@ pub(crate) async fn mutate<M: Operation<Context = MutationCx>>(
 	if let Some(key) = &receipt
 		&& let Some(stored) = key.find(&db).await?
 	{
+		committed_before_now(&db).await;
 		return decode::<M>(stored);
 	}
 
@@ -228,7 +273,10 @@ async fn run_once<M: Operation<Context = MutationCx>>(
 					};
 
 					match stored {
-						Some(stored) => decode::<M>(stored).map(Attempt::Done),
+						Some(stored) => {
+							committed_before_now(db).await;
+							decode::<M>(stored).map(Attempt::Done)
+						}
 						None => Err(Error::Contended),
 					}
 				}
@@ -271,13 +319,19 @@ async fn finish(
 		}
 	}
 
-	tx.commit().await.map_err(|error| {
+	let version = tx.commit_version().await.map_err(|error| {
 		if receipt.is_some() && error.is_conflict() {
 			Finish::Repeated
 		} else {
 			Finish::Failed(error.into())
 		}
-	})
+	})?;
+
+	if let Some(version) = version {
+		committed(version);
+	}
+
+	Ok(())
 }
 
 fn decode<M: Operation>(stored: Value) -> crate::Result<M::Output> {

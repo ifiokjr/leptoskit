@@ -179,6 +179,61 @@ impl Transaction {
 		let client = self.client.take().expect("a transaction finishes once");
 		client.batch_execute(command).await.map_err(error)
 	}
+
+	/// Commits, and reads back the version `live.seal()` gave the commit:
+	/// the capture trigger's transaction-local setting says whether this
+	/// transaction wrote a live table, and its ID finds the commit's row.
+	pub(crate) async fn commit_version(mut self) -> Result<Option<i64>> {
+		let rows = self
+			.fetch(Statement {
+				sql: format!(
+					"SELECT CASE WHEN current_setting('{}', true) = 'on' THEN \
+					 pg_current_xact_id()::text::bigint END",
+					leptoskit_db_schema::live::REGISTERED_SETTING
+				),
+				args: Vec::new(),
+			})
+			.await;
+		let txid = match rows {
+			Ok(rows) => {
+				match rows.first().and_then(|row| row.first()) {
+					Some(Value::Int(txid)) => Some(*txid),
+					_ => None,
+				}
+			}
+			Err(error) => {
+				self.finish("ROLLBACK").await?;
+				return Err(error);
+			}
+		};
+		let client = self.client.take().expect("a transaction finishes once");
+		client.batch_execute("COMMIT").await.map_err(error)?;
+		let Some(txid) = txid else {
+			return Ok(None);
+		};
+		// The commit has happened: failing to read its version back must not
+		// look like a failed commit, which a caller might run again.
+		let Ok(rows) = fetch(
+			&client,
+			Statement {
+				sql: format!(
+					"SELECT \"version\" FROM {}.{} WHERE \"txid\" = $1",
+					leptoskit_db_schema::quote_identifier(leptoskit_db_schema::live::NAMESPACE),
+					leptoskit_db_schema::quote_identifier(leptoskit_db_schema::live::COMMITS)
+				),
+				args: vec![Value::Int(txid)],
+			},
+		)
+		.await
+		else {
+			return Ok(None);
+		};
+
+		Ok(match rows.first().and_then(|row| row.first()) {
+			Some(Value::Int(version)) => Some(*version),
+			_ => None,
+		})
+	}
 }
 
 impl Drop for Transaction {

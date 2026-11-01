@@ -254,6 +254,17 @@ mod reading {
 			&self.db
 		}
 
+		/// The next entry an earlier read already fetched, without reading
+		/// the log again: `None` when there's none to hand.
+		pub(crate) fn next_ready(&mut self) -> Option<RawEntry> {
+			let entry = self.ready.pop_front()?;
+			self.version = match &entry {
+				RawEntry::Commit(commit) => commit.version,
+				RawEntry::Pruned { through } => *through,
+			};
+			Some(entry)
+		}
+
 		/// The next entry, waiting for one. The reader moves past it, so a
 		/// later call reads on from there.
 		///
@@ -263,12 +274,7 @@ mod reading {
 		/// same version.
 		pub(crate) async fn next(&mut self) -> Result<RawEntry> {
 			loop {
-				if let Some(entry) = self.ready.pop_front() {
-					self.version = match &entry {
-						RawEntry::Commit(commit) => commit.version,
-						RawEntry::Pruned { through } => *through,
-					};
-
+				if let Some(entry) = self.next_ready() {
 					return Ok(entry);
 				}
 

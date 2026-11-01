@@ -78,6 +78,13 @@ impl Context {
 		self
 	}
 
+	/// Whether the context holds no globals at all: nobody, as every policy
+	/// sees it. Two empty contexts read the same rows, so a server may share
+	/// work between them.
+	pub fn is_empty(&self) -> bool {
+		self.globals.is_empty()
+	}
+
 	/// Who is making the request's changes: the [`Actor`](crate::Actor)
 	/// global, which `#[db(created_by)]`, `#[db(updated_by)]` and the audit
 	/// log read. `leptoskit_auth` adds one for a signed-in request.
