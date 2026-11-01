@@ -10,6 +10,22 @@ import UIKit
 import AppKit
 #endif
 
+/// Where the policy and the reason's first byte sit in an encoded request.
+private enum Field {
+    static let policy = 4
+    static let reason = 12
+}
+
+/// The notification the host posts when the app leaves the foreground.
+@MainActor
+private func backgroundNotification() -> Notification.Name {
+    #if os(iOS)
+    UIApplication.didEnterBackgroundNotification
+    #else
+    NSApplication.didHideNotification
+    #endif
+}
+
 private func buffer(_ bytes: Data = Data()) throws -> NativeBuffer {
     let bridge = try #require(lk_bridge_create())
     defer { lk_bridge_destroy(bridge) }
@@ -25,6 +41,7 @@ private func buffer(_ bytes: Data = Data()) throws -> NativeBuffer {
     let call = bytes.withUnsafeBytes {
         lk_bridge_submit(bridge, 0, 0, $0.baseAddress?.assumingMemoryBound(to: UInt8.self), $0.count)
     }
+
     #expect(call > 0)
     var request = lk_request()
     #expect(lk_bridge_next_request(bridge, &request) == 1)
@@ -54,10 +71,10 @@ func authenticationWireRejectsMalformedRequestsWithoutNativeEvaluation() throws 
     }
 
     var invalid = bytes
-    invalid[4] = 2
+    invalid[Field.policy] = 2
     #expect(throws: PluginError.invalidArgument) { try AuthenticationRequest(payload: buffer(invalid)) }
     invalid = bytes
-    invalid[12] = 255
+    invalid[Field.reason] = 255
     #expect(throws: PluginError.invalidArgument) { try AuthenticationRequest(payload: buffer(invalid)) }
 }
 
@@ -103,12 +120,7 @@ func backgroundNotificationCancelsPendingAuthenticationWithoutSystemUI() async t
     for _ in 0..<100 where callback == nil { await Task.yield() }
     let completion = try #require(callback)
 
-    #if os(iOS)
-    let notification = UIApplication.didEnterBackgroundNotification
-    #else
-    let notification = NSApplication.didHideNotification
-    #endif
-    NotificationCenter.default.post(name: notification, object: nil)
+    NotificationCenter.default.post(name: backgroundNotification(), object: nil)
     do {
         _ = try await pending.value
         Issue.record("Backgrounded authentication remained active")

@@ -166,8 +166,11 @@ mod tests {
 	use crate::Options;
 	use crate::Provider;
 
+	/// The timeout a reactive source waits for each fix.
+	const SAMPLE_TIMEOUT_MS: u32 = 30_000;
+
 	fn options() -> Options {
-		Options::new(false, 30_000, 0).unwrap()
+		Options::new(false, SAMPLE_TIMEOUT_MS, 0).unwrap()
 	}
 
 	fn fix(timestamp_ms: f64, latitude: f64) -> Fix {
@@ -258,21 +261,32 @@ mod tests {
 		}
 	}
 
+	/// Two measured coordinates in the order the fake source reports them.
+	const FIRST_TIMESTAMP_MS: f64 = 1000.0;
+	const FIRST_LATITUDE: f64 = 51.0;
+	const SECOND_TIMESTAMP_MS: f64 = 5000.0;
+	const SECOND_LATITUDE: f64 = 51.1;
+	const EARLIER_TIMESTAMP_MS: f64 = 2000.0;
+	const OTHER_LATITUDE: f64 = 51.2;
+
 	#[test]
 	fn publishes_fixes_and_chains_timestamps_until_the_source_fails() {
 		let owner = Owner::new();
 		let source = Arc::new(Fake::new(vec![
-			Ok(fix(1000.0, 51.0)),
-			Ok(fix(5000.0, 51.1)),
+			Ok(fix(FIRST_TIMESTAMP_MS, FIRST_LATITUDE)),
+			Ok(fix(SECOND_TIMESTAMP_MS, SECOND_LATITUDE)),
 			Err(LocationError::TimedOut),
 		]));
 		let hook = owner.with(|| use_geolocation(Arc::clone(&source), options()));
 		assert_eq!(hook.value.get(), None);
 		assert_eq!(block_on(hook.task), Err(LocationError::TimedOut));
-		assert_eq!(hook.value.get().map(|fix| fix.latitude), Some(51.1));
+		assert_eq!(
+			hook.value.get().map(|fix| fix.latitude),
+			Some(SECOND_LATITUDE)
+		);
 		assert_eq!(
 			source.watched_from.lock().unwrap().as_slice(),
-			[1000.0, 5000.0]
+			[FIRST_TIMESTAMP_MS, SECOND_TIMESTAMP_MS]
 		);
 		owner.cleanup();
 	}
@@ -280,7 +294,10 @@ mod tests {
 	#[test]
 	fn owner_disposal_during_a_wait_ends_the_task_cleanly() {
 		let owner = Owner::new();
-		let source = Fake::new(vec![Ok(fix(1000.0, 51.0)), Ok(fix(2000.0, 51.2))]);
+		let source = Fake::new(vec![
+			Ok(fix(FIRST_TIMESTAMP_MS, FIRST_LATITUDE)),
+			Ok(fix(EARLIER_TIMESTAMP_MS, OTHER_LATITUDE)),
+		]);
 		source
 			.delay_first_wait
 			.store(true, std::sync::atomic::Ordering::Relaxed);

@@ -1,6 +1,25 @@
 import Foundation
 import LeptosKitBridge
 
+/// Bounds the Rust crate enforces on one request.
+private enum Limits {
+    /// Rate and pitch are thousandths of the engine's normal value.
+    static let thousandthsMin: UInt32 = 500
+    static let thousandthsMax: UInt32 = 2000
+    static let volumeMax: UInt32 = 1000
+    /// Longest accepted strings, in UTF-8 bytes.
+    static let textBytes = 4096
+    static let languageBytes = 64
+    static let voiceBytes = 512
+    /// Characters a platform engine speaks in one utterance.
+    static let textCharacters = 4000
+    /// A voice list starts small and grows on demand.
+    static let encoderBytes = 256
+}
+
+/// The language tags the Rust crate accepts.
+private let languagePattern = #"^[A-Za-z]{2,3}(?:-[A-Za-z]{4})?(?:-(?:[A-Za-z]{2}|[0-9]{3}))?$"#
+
 struct SpeechRequest {
     let text: String
     let rate: Float
@@ -17,27 +36,21 @@ struct SpeechRequest {
             let rate = try input.integer()
             let pitch = try input.integer()
             let volume = try input.integer()
+            try checkOptions(rate, pitch, volume)
 
-            guard (500...2000).contains(rate), (500...2000).contains(pitch), volume <= 1000 else {
-                throw PluginError.invalidArgument
-            }
+            let text = try input.text(limit: Limits.textBytes)
+            let language = try input.text(limit: Limits.languageBytes)
+            let voice = try input.text(limit: Limits.voiceBytes)
+            try checkScope(text, language, voice, finished: input.finished)
 
-            let text = try input.text(limit: 4096)
-            let language = try input.text(limit: 64)
-            let voice = try input.text(limit: 512)
-
-            guard text.utf16.count <= 4000 else { throw PluginError.tooLarge }
-
-            guard !text.isEmpty, input.finished,
-                  language.isEmpty || voice.isEmpty else { throw PluginError.invalidArgument }
-            let pattern = #"^[A-Za-z]{2,3}(?:-[A-Za-z]{4})?(?:-(?:[A-Za-z]{2}|[0-9]{3}))?$"#
-
-            guard language.isEmpty || language.range(of: pattern, options: .regularExpression) != nil else {
-                throw PluginError.invalidArgument
-            }
-            return SpeechRequest(text: text, rate: Float(rate) / 1000, pitch: Float(pitch) / 1000,
-                                 volume: Float(volume) / 1000, language: language.isEmpty ? nil : language,
-                                 voice: voice.isEmpty ? nil : voice)
+            return SpeechRequest(
+                text: text,
+                rate: Float(rate) / 1000,
+                pitch: Float(pitch) / 1000,
+                volume: Float(volume) / 1000,
+                language: language.isEmpty ? nil : language,
+                voice: voice.isEmpty ? nil : voice
+            )
         }
     }
 
@@ -48,6 +61,26 @@ struct SpeechRequest {
         self.volume = volume
         self.language = language
         self.voice = voice
+    }
+}
+
+/// Rejects options the Rust crate would refuse to play.
+private func checkOptions(_ rate: UInt32, _ pitch: UInt32, _ volume: UInt32) throws {
+    guard (Limits.thousandthsMin...Limits.thousandthsMax).contains(rate),
+          (Limits.thousandthsMin...Limits.thousandthsMax).contains(pitch),
+          volume <= Limits.volumeMax else {
+        throw PluginError.invalidArgument
+    }
+}
+
+/// Rejects text the engine cannot speak, a request naming two voices, and trailing bytes.
+private func checkScope(_ text: String, _ language: String, _ voice: String, finished: Bool) throws {
+    guard text.utf16.count <= Limits.textCharacters else { throw PluginError.tooLarge }
+
+    guard !text.isEmpty, finished, language.isEmpty || voice.isEmpty else { throw PluginError.invalidArgument }
+
+    guard language.isEmpty || language.range(of: languagePattern, options: .regularExpression) != nil else {
+        throw PluginError.invalidArgument
     }
 }
 
@@ -79,7 +112,7 @@ private struct SpeechReader {
 }
 
 struct SpeechEncoder {
-    var data = Data(capacity: 256)
+    var data = Data(capacity: Limits.encoderBytes)
 
     mutating func integer(_ value: UInt32) {
         var little = value.littleEndian
@@ -91,7 +124,7 @@ struct SpeechEncoder {
 
         guard !value.isEmpty else { throw PluginError.native }
 
-        guard value.count <= 512 else { throw PluginError.tooLarge }
+        guard value.count <= Limits.voiceBytes else { throw PluginError.tooLarge }
         integer(UInt32(value.count))
         data.append(value)
     }

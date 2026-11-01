@@ -7,6 +7,9 @@ import java.util.WeakHashMap
 
 /** UI-thread only. All plugin instances sharing a window share its first baseline. */
 internal object SecureWindowLeases {
+    /** How many holders may share one window's protection. */
+    private const val MAX_OWNERS = 64
+
     private data class Protection(
         val original: Boolean,
         var owners: Int,
@@ -18,7 +21,7 @@ internal object SecureWindowLeases {
         val existing = windows[window]
 
         if (existing != null) {
-            if (existing.owners >= 64) throw PluginException(PluginException.BUSY)
+            if (existing.owners >= MAX_OWNERS) throw PluginException(PluginException.BUSY)
             existing.owners += 1
 
             return

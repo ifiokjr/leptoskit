@@ -18,6 +18,30 @@ pub const NEXT: MethodId = MethodId(3);
 /// Runtime methods.
 pub const METHODS: &[MethodId] = &[PERMISSION, REQUEST_PERMISSION, CURRENT, NEXT];
 
+/// A permission reply is two little-endian u32 fields.
+const PERMISSION_BYTES: usize = 8;
+/// A bounds request is three little-endian u32 fields.
+const OPTIONS_BYTES: usize = 12;
+/// A fix record is four tag fields followed by eight doubles.
+const FIX_BYTES: usize = 80;
+/// A tagged acquisition reply is a u32 tag followed by a fix record.
+const RESPONSE_BYTES: usize = FIX_BYTES + 4;
+/// A fix record carries eight doubles: four required and four optional.
+const RECORD_DOUBLES: usize = 8;
+const REQUIRED_FIELDS: usize = 4;
+const OPTIONAL_FIELDS: usize = 4;
+/// The four optional-value bits a fix record may set.
+const OPTIONAL_BITS: u32 = 15;
+/// Latitude and longitude bounds, in degrees.
+const MAX_LATITUDE: f64 = 90.0;
+const MAX_LONGITUDE: f64 = 180.0;
+/// A heading stays below a full turn, in degrees.
+const FULL_TURN: f64 = 360.0;
+/// Longest acquisition timeout, in milliseconds.
+const MAX_TIMEOUT_MS: u32 = 120_000;
+/// Longest accepted cache tolerance, in milliseconds.
+const MAX_AGE_MS: u32 = 3_600_000;
+
 /// Foreground permission state, distinct from device service availability.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
@@ -48,7 +72,7 @@ pub struct Permission {
 impl Permission {
 	/// Decodes the exact native permission response.
 	pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
-		if bytes.len() != 8 {
+		if bytes.len() != PERMISSION_BYTES {
 			return Err(Error::InvalidArgument);
 		}
 
@@ -116,45 +140,72 @@ impl Fix {
 	/// Validates coordinates and optional values before serializing or using a
 	/// fix.
 	pub fn validate(self) -> Result<Self, Error> {
-		if !self.timestamp_ms.is_finite()
-			|| self.timestamp_ms < 0.0
-			|| !self.latitude.is_finite()
-			|| !(-90.0..=90.0).contains(&self.latitude)
-			|| !self.longitude.is_finite()
-			|| !(-180.0..=180.0).contains(&self.longitude)
-			|| !self.accuracy_m.is_finite()
-			|| self.accuracy_m < 0.0
+		self.validate_required()?;
+		self.validate_optional()?;
+		Ok(self)
+	}
+
+	/// The timestamp and the measurements every fix must carry.
+	fn validate_required(self) -> Result<(), Error> {
+		if !self.timestamp_ms.is_finite() || self.timestamp_ms < 0.0 {
+			return Err(Error::InvalidArgument);
+		}
+
+		if !self.accuracy_m.is_finite() || self.accuracy_m < 0.0 {
+			return Err(Error::InvalidArgument);
+		}
+
+		if !self.latitude.is_finite() || !(-MAX_LATITUDE..=MAX_LATITUDE).contains(&self.latitude) {
+			return Err(Error::InvalidArgument);
+		}
+
+		if !self.longitude.is_finite()
+			|| !(-MAX_LONGITUDE..=MAX_LONGITUDE).contains(&self.longitude)
 		{
 			return Err(Error::InvalidArgument);
 		}
-		for value in [
+
+		Ok(())
+	}
+
+	/// The measurements a platform may omit; each must be finite and in range.
+	fn validate_optional(self) -> Result<(), Error> {
+		let omitted = [
 			self.altitude_m,
 			self.altitude_accuracy_m,
 			self.heading_degrees,
 			self.speed_mps,
-		]
-		.into_iter()
-		.flatten()
-		{
-			if !value.is_finite() {
-				return Err(Error::InvalidArgument);
-			}
-		}
+		];
 
-		if self.altitude_accuracy_m.is_some_and(|v| v < 0.0)
-			|| self.speed_mps.is_some_and(|v| v < 0.0)
-			|| self
-				.heading_degrees
-				.is_some_and(|v| !(0.0..360.0).contains(&v))
+		if omitted
+			.into_iter()
+			.flatten()
+			.any(|value| !value.is_finite())
 		{
 			return Err(Error::InvalidArgument);
 		}
-		Ok(self)
+
+		if self.altitude_accuracy_m.is_some_and(|value| value < 0.0) {
+			return Err(Error::InvalidArgument);
+		}
+
+		if self.speed_mps.is_some_and(|value| value < 0.0) {
+			return Err(Error::InvalidArgument);
+		}
+
+		if self
+			.heading_degrees
+			.is_some_and(|value| !(0.0..FULL_TURN).contains(&value))
+		{
+			return Err(Error::InvalidArgument);
+		}
+
+		Ok(())
 	}
 
 	/// Fixed 80-byte little-endian wire representation, with explicit
 	/// optional-value bits.
-	pub fn encode(self) -> Result<[u8; 80], Error> {
+	pub fn encode(self) -> Result<[u8; FIX_BYTES], Error> {
 		self.validate()?;
 		let optional = [
 			self.altitude_m,
@@ -168,7 +219,8 @@ impl Fix {
 			.fold(0u32, |mask, (bit, value)| {
 				mask | if value.is_some() { 1 << bit } else { 0 }
 			});
-		let mut bytes = [0; 80];
+		let mut bytes = [0; FIX_BYTES];
+
 		bytes[..4].copy_from_slice(&mask.to_le_bytes());
 		bytes[4..8].copy_from_slice(&(self.provider as u32).to_le_bytes());
 		bytes[8..12].copy_from_slice(
@@ -195,49 +247,20 @@ impl Fix {
 
 	/// Strictly decodes the 80-byte fix payload, including reserved fields.
 	pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
-		if bytes.len() != 80 {
+		if bytes.len() != FIX_BYTES {
 			return Err(Error::InvalidArgument);
 		}
 
 		let mask = u32_value(&bytes[..4])?;
 
-		if mask > 15 || u32_value(&bytes[12..16])? != 0 {
+		if mask > OPTIONAL_BITS || u32_value(&bytes[12..16])? != 0 {
 			return Err(Error::InvalidArgument);
 		}
 
-		let provider = match u32_value(&bytes[4..8])? {
-			0 => Provider::Unknown,
-			1 => Provider::Gps,
-			2 => Provider::Network,
-			3 => Provider::Passive,
-			4 => Provider::Fused,
-			_ => return Err(Error::InvalidArgument),
-		};
-
-		let simulated = match u32_value(&bytes[8..12])? {
-			0 => None,
-			1 => Some(false),
-			2 => Some(true),
-			_ => return Err(Error::InvalidArgument),
-		};
-
-		let mut values = [0.0; 8];
-
-		let (chunks, _) = bytes[16..].as_chunks::<8>();
-
-		for (value, input) in values.iter_mut().zip(chunks) {
-			*value = f64::from_le_bytes(*input);
-		}
-
-		let mut optional = [None; 4];
-
-		for (index, value) in values[4..].iter().enumerate() {
-			if mask & (1 << index) != 0 {
-				optional[index] = Some(*value);
-			} else if value.to_bits() != 0 {
-				return Err(Error::InvalidArgument);
-			}
-		}
+		let provider = read_provider(u32_value(&bytes[4..8])?)?;
+		let simulated = read_simulated(u32_value(&bytes[8..12])?)?;
+		let values = read_values(&bytes[16..]);
+		let optional = read_optional(&values, mask)?;
 
 		Self {
 			timestamp_ms: values[0],
@@ -254,6 +277,58 @@ impl Fix {
 		.validate()
 	}
 }
+
+/// Rejects a provider code the wire format does not define.
+fn read_provider(code: u32) -> Result<Provider, Error> {
+	match code {
+		0 => Ok(Provider::Unknown),
+		1 => Ok(Provider::Gps),
+		2 => Ok(Provider::Network),
+		3 => Ok(Provider::Passive),
+		4 => Ok(Provider::Fused),
+		_ => Err(Error::InvalidArgument),
+	}
+}
+
+/// Reads the mock flag, which is absent when the platform does not report it.
+fn read_simulated(code: u32) -> Result<Option<bool>, Error> {
+	match code {
+		0 => Ok(None),
+		1 => Ok(Some(false)),
+		2 => Ok(Some(true)),
+		_ => Err(Error::InvalidArgument),
+	}
+}
+
+/// Reads the eight little-endian doubles of one fix record.
+fn read_values(bytes: &[u8]) -> [f64; RECORD_DOUBLES] {
+	let mut values = [0.0; RECORD_DOUBLES];
+	let (chunks, _) = bytes.as_chunks::<8>();
+
+	for (value, input) in values.iter_mut().zip(chunks) {
+		*value = f64::from_le_bytes(*input);
+	}
+
+	values
+}
+
+/// Reads the optional values, rejecting a cleared bit that still carries bytes.
+fn read_optional(
+	values: &[f64; RECORD_DOUBLES],
+	mask: u32,
+) -> Result<[Option<f64>; OPTIONAL_FIELDS], Error> {
+	let mut optional = [None; OPTIONAL_FIELDS];
+
+	for (index, value) in values[REQUIRED_FIELDS..].iter().enumerate() {
+		if mask & (1 << index) != 0 {
+			optional[index] = Some(*value);
+		} else if value.to_bits() != 0 {
+			return Err(Error::InvalidArgument);
+		}
+	}
+
+	Ok(optional)
+}
 /// Validated acquisition bounds. Maximum age is an explicit cache tolerance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Options {
@@ -264,7 +339,7 @@ pub struct Options {
 impl Options {
 	/// Timeout is 1..=120,000ms and maximum cached age is 0..=3,600,000ms.
 	pub fn new(high_accuracy: bool, timeout_ms: u32, maximum_age_ms: u32) -> Result<Self, Error> {
-		if timeout_ms == 0 || timeout_ms > 120_000 || maximum_age_ms > 3_600_000 {
+		if timeout_ms == 0 || timeout_ms > MAX_TIMEOUT_MS || maximum_age_ms > MAX_AGE_MS {
 			return Err(Error::InvalidArgument);
 		}
 
@@ -292,8 +367,8 @@ impl Options {
 	}
 
 	/// Exact request representation.
-	pub fn encode(self) -> [u8; 12] {
-		let mut bytes = [0; 12];
+	pub fn encode(self) -> [u8; OPTIONS_BYTES] {
+		let mut bytes = [0; OPTIONS_BYTES];
 		for (slot, value) in bytes.as_chunks_mut::<4>().0.iter_mut().zip([
 			u32::from(self.high_accuracy),
 			self.timeout_ms,
@@ -306,7 +381,7 @@ impl Options {
 
 	/// Validates options from a complete native request.
 	pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
-		if bytes.len() != 12 {
+		if bytes.len() != OPTIONS_BYTES {
 			return Err(Error::InvalidArgument);
 		}
 
@@ -350,7 +425,7 @@ pub fn decode_response(bytes: &[u8]) -> Result<Fix, LocationError> {
 		return Err(LocationError::TimedOut);
 	}
 
-	if bytes.len() != 84 || u32_value(&bytes[..4])? != 0 {
+	if bytes.len() != RESPONSE_BYTES || u32_value(&bytes[..4])? != 0 {
 		return Err(Error::InvalidArgument.into());
 	}
 
@@ -424,6 +499,9 @@ pub mod guest {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// A timeout a real acquisition would use.
+	const SAMPLE_TIMEOUT_MS: u32 = 30_000;
 	fn fix() -> Fix {
 		Fix {
 			timestamp_ms: 1_800_000_000_000.0,
@@ -455,14 +533,19 @@ mod tests {
 	}
 	#[test]
 	fn invalid_wire_and_coordinate_data_are_rejected() {
-		for latitude in [-91.0, 91.0, f64::NAN, f64::INFINITY] {
+		for latitude in [
+			-MAX_LATITUDE - 1.0,
+			MAX_LATITUDE + 1.0,
+			f64::NAN,
+			f64::INFINITY,
+		] {
 			assert_eq!(
 				Fix { latitude, ..fix() }.encode(),
 				Err(Error::InvalidArgument)
 			);
 		}
 
-		for heading in [-1.0, 360.0, f64::NAN] {
+		for heading in [-1.0, FULL_TURN, f64::NAN] {
 			assert_eq!(
 				Fix {
 					heading_degrees: Some(heading),
@@ -474,7 +557,10 @@ mod tests {
 		}
 
 		let encoded = fix().encode().unwrap();
-		assert_eq!(Fix::decode(&encoded[..79]), Err(Error::InvalidArgument));
+		assert_eq!(
+			Fix::decode(&encoded[..FIX_BYTES - 1]),
+			Err(Error::InvalidArgument)
+		);
 
 		for index in [0, 4, 8, 12, 79] {
 			let mut corrupt = encoded;
@@ -491,11 +577,12 @@ mod tests {
 	#[test]
 	fn request_bounds_and_authorization_scope_are_strict() {
 		assert!(Options::new(true, 0, 0).is_err());
-		assert!(Options::new(false, 120_001, 0).is_err());
-		assert!(Options::new(false, 1000, 3_600_001).is_err());
-		let options = Options::new(true, 30_000, 0).unwrap();
+		assert!(Options::new(false, MAX_TIMEOUT_MS + 1, 0).is_err());
+		assert!(Options::new(false, 1000, MAX_AGE_MS + 1).is_err());
+		let options = Options::new(true, SAMPLE_TIMEOUT_MS, 0).unwrap();
 		assert_eq!(Options::decode(&options.encode()), Ok(options));
 		assert!(Permission::decode(&[2, 0, 0, 0, 2, 0, 0, 0]).is_err());
+
 		assert_eq!(
 			Permission::decode(&[3, 0, 0, 0, 1, 0, 0, 0])
 				.unwrap()
@@ -508,8 +595,10 @@ mod tests {
 		let pair = |status: u32, accuracy: u32| {
 			let mut bytes = status.to_le_bytes().to_vec();
 			bytes.extend(accuracy.to_le_bytes());
+
 			Permission::decode(&bytes)
 		};
+
 		for (value, status) in (0..).zip([
 			Status::Unknown,
 			Status::Prompt,
@@ -550,12 +639,14 @@ mod tests {
 					speed_mps: Some(3.0),
 					..fix()
 				};
+
 				assert_eq!(Fix::decode(&measured.encode().unwrap()), Ok(measured));
 			}
 		}
 		let mut unknown_provider = fix().encode().unwrap();
 		unknown_provider[4] = 5;
 		assert_eq!(Fix::decode(&unknown_provider), Err(Error::InvalidArgument));
+
 		let mut unknown_simulation = fix().encode().unwrap();
 		unknown_simulation[8] = 3;
 		assert_eq!(
@@ -565,19 +656,21 @@ mod tests {
 	}
 	#[test]
 	fn options_accessors_and_strict_decoding() {
-		let options = Options::new(false, 1, 3_600_000).unwrap();
+		let options = Options::new(false, 1, MAX_AGE_MS).unwrap();
 		assert!(!options.high_accuracy());
 		assert_eq!(options.timeout_ms(), 1);
-		assert_eq!(options.maximum_age_ms(), 3_600_000);
+		assert_eq!(options.maximum_age_ms(), MAX_AGE_MS);
 		assert_eq!(Options::decode(&options.encode()), Ok(options));
+
 		let mut invalid_accuracy = options.encode();
 		invalid_accuracy[0] = 2;
 		assert_eq!(
 			Options::decode(&invalid_accuracy),
 			Err(Error::InvalidArgument)
 		);
+
 		assert_eq!(
-			Options::decode(&options.encode()[..11]),
+			Options::decode(&options.encode()[..OPTIONS_BYTES - 1]),
 			Err(Error::InvalidArgument)
 		);
 	}
@@ -586,6 +679,7 @@ mod tests {
 		let mut response = 0u32.to_le_bytes().to_vec();
 		response.extend(fix().encode().unwrap());
 		assert_eq!(decode_response(&response), Ok(fix()));
+
 		response[0] = 2;
 		assert_eq!(
 			decode_response(&response),

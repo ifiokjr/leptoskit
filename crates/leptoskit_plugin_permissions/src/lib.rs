@@ -17,6 +17,8 @@ pub const STATUS: MethodId = MethodId(0);
 pub const REQUEST: MethodId = MethodId(1);
 /// Supported methods.
 pub const METHODS: &[MethodId] = &[STATUS, REQUEST];
+/// An authorization response is two little-endian u32 fields.
+const AUTHORIZATION_BYTES: usize = 8;
 
 /// Supported capabilities; additional permissions require distinct OS
 /// workflows.
@@ -99,7 +101,7 @@ impl Authorization {
 
 	/// Encodes status and a tri-state can-prompt flag.
 	pub fn encode(self) -> Bytes {
-		let mut bytes = Vec::with_capacity(8);
+		let mut bytes = Vec::with_capacity(AUTHORIZATION_BYTES);
 		bytes.extend_from_slice(&(self.status as u32).to_le_bytes());
 		bytes.extend_from_slice(
 			&self
@@ -146,63 +148,71 @@ pub mod web {
 			_ => Error::Native,
 		}
 	}
-	/// Queries without prompting. Browser support for camera/microphone queries
-	/// varies; unsupported queries return unavailable, not an inferred grant.
-	pub async fn status(permission: Permission) -> Result<Authorization, Error> {
-		let navigator = navigator()?;
-		let permissions = navigator.permissions().map_err(|error| failure(&error))?;
+	/// The Permissions API name a capability is queried under.
+	fn query_name(permission: Permission) -> &'static str {
+		match permission {
+			Permission::Camera => "camera",
+			Permission::Microphone => "microphone",
+		}
+	}
+
+	/// Builds the descriptor a permission query is issued with.
+	fn descriptor(permission: Permission) -> Result<js_sys::Object, Error> {
 		let descriptor = js_sys::Object::new();
 		js_sys::Reflect::set(
 			&descriptor,
 			&JsValue::from_str("name"),
-			&JsValue::from_str(match permission {
-				Permission::Camera => "camera",
-				Permission::Microphone => "microphone",
-			}),
+			&JsValue::from_str(query_name(permission)),
 		)
 		.map_err(|_| Error::Native)?;
-		let result = JsFuture::from(
-			permissions
-				.query(&descriptor)
-				.map_err(|_| Error::Unavailable)?,
-		)
-		.await
-		.map_err(|error| {
+
+		Ok(descriptor)
+	}
+
+	/// Maps a browser permission state onto the shared authorization shape.
+	fn authorization(state: web_sys::PermissionState) -> Result<Authorization, Error> {
+		let (status, can_prompt) = match state {
+			web_sys::PermissionState::Granted => (Status::Granted, Some(false)),
+			web_sys::PermissionState::Denied => (Status::Denied, Some(false)),
+			web_sys::PermissionState::Prompt => (Status::NotDetermined, Some(true)),
+			_ => return Err(Error::Native),
+		};
+
+		Ok(Authorization { status, can_prompt })
+	}
+
+	/// Queries without prompting. Browser support for camera/microphone queries
+	/// varies; unsupported queries return unavailable, not an inferred grant.
+	pub async fn status(permission: Permission) -> Result<Authorization, Error> {
+		let permissions = navigator()?
+			.permissions()
+			.map_err(|error| failure(&error))?;
+		let query = permissions
+			.query(&descriptor(permission)?)
+			.map_err(|_| Error::Unavailable)?;
+		let result = JsFuture::from(query).await.map_err(|error| {
 			if error.is_instance_of::<js_sys::TypeError>() {
 				Error::Unavailable
 			} else {
 				failure(&error)
 			}
 		})?;
-
-		let result = result
+		let status = result
 			.dyn_into::<web_sys::PermissionStatus>()
 			.map_err(|_| Error::Native)?;
 
-		let authorization = match result.state() {
-			web_sys::PermissionState::Granted => {
-				Authorization {
-					status: Status::Granted,
-					can_prompt: Some(false),
-				}
-			}
-			web_sys::PermissionState::Denied => {
-				Authorization {
-					status: Status::Denied,
-					can_prompt: Some(false),
-				}
-			}
-			web_sys::PermissionState::Prompt => {
-				Authorization {
-					status: Status::NotDetermined,
-					can_prompt: Some(true),
-				}
-			}
-			_ => return Err(Error::Native),
-		};
-
-		Ok(authorization)
+		authorization(status.state())
 	}
+
+	/// Stops every track a granted stream opened.
+	fn stop(stream: &web_sys::MediaStream) {
+		for track in stream.get_tracks().iter() {
+			if let Some(track) = track.dyn_ref::<web_sys::MediaStreamTrack>() {
+				track.stop();
+			}
+		}
+	}
+
 	/// Requests access by opening then immediately stopping a media stream.
 	/// Rejections propagate as errors; a denied query remains separately
 	/// available.
@@ -222,17 +232,14 @@ pub mod web {
 			let stream = JsFuture::from(capture)
 				.await?
 				.dyn_into::<web_sys::MediaStream>()?;
-			for track in stream.get_tracks().iter() {
-				if let Some(track) = track.dyn_ref::<web_sys::MediaStreamTrack>() {
-					track.stop();
-				}
-			}
+			stop(&stream);
 
 			Ok(JsValue::UNDEFINED)
 		});
 		JsFuture::from(cleanup)
 			.await
 			.map_err(|error| failure(&error))?;
+
 		Ok(Authorization {
 			status: Status::Granted,
 			can_prompt: Some(false),

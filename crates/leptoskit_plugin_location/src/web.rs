@@ -19,13 +19,13 @@ thread_local! { static ACTIVE: Cell<bool> = const { Cell::new(false) }; }
 struct Reservation;
 impl Reservation {
 	fn acquire() -> Result<Self, Error> {
-		ACTIVE.with(|active| {
-			if active.replace(true) {
-				Err(Error::Busy)
-			} else {
-				Ok(Self)
-			}
-		})
+		let busy = ACTIVE.with(|active| active.replace(true));
+
+		if busy {
+			return Err(Error::Busy);
+		}
+
+		Ok(Self)
 	}
 }
 impl Drop for Reservation {
@@ -82,9 +82,12 @@ pub async fn permission() -> Result<Permission, Error> {
 /// permission by acquiring a fix; that coordinate is discarded. This is not a
 /// no-location permission API. Acquisition is bounded to 30 seconds.
 pub async fn request_permission(high_accuracy: bool) -> Result<Permission, Error> {
-	let options = Options::new(high_accuracy, 30_000, 0)?;
+	let options = Options::new(high_accuracy, PERMISSION_TIMEOUT_MS, 0)?;
 	request_permission_with_options(options).await
 }
+
+/// How long a browser permission request waits for its single fix.
+const PERMISSION_TIMEOUT_MS: u32 = 30_000;
 
 async fn request_permission_with_options(options: Options) -> Result<Permission, Error> {
 	match bounded(options, None, true).await {
@@ -167,83 +170,17 @@ async fn acquire(
 	may_prompt: bool,
 ) -> Result<Fix, LocationError> {
 	let _reservation = Reservation::acquire()?;
-
-	if !may_prompt && permission().await?.status != Status::Granted {
-		return Err(Error::PermissionDenied.into());
-	}
-
-	let window = window()?;
-	let document = window.document().ok_or(Error::Unavailable)?;
-
-	if document.hidden() {
-		return Err(Error::Cancelled.into());
-	}
-
+	let (window, document) = foreground_window(may_prompt).await?;
 	let geolocation = window
 		.navigator()
 		.geolocation()
 		.map_err(|_| Error::Unavailable)?;
-	let (sender, receiver) = oneshot::channel();
-	let sender = Rc::new(RefCell::new(Some(sender)));
-	let accepted = Rc::clone(&sender);
+	let (receiver, sender) = answer_channel();
 	let started = js_sys::Date::now();
-	let success = Closure::<dyn FnMut(web_sys::Position)>::new(move |value: web_sys::Position| {
-		let result = position(&value).map_err(LocationError::from);
-		if let Ok(fix) = &result {
-			let oldest = if options.maximum_age_ms() == 0 {
-				started
-			} else {
-				js_sys::Date::now() - f64::from(options.maximum_age_ms())
-			};
-			if fix.timestamp_ms < oldest || after.is_some_and(|time| fix.timestamp_ms <= time) {
-				return;
-			}
-		}
-		if let Some(sender) = accepted.borrow_mut().take() {
-			let _ = sender.send(result);
-		}
-	});
-	let failed = Rc::clone(&sender);
-	let failure =
-		Closure::<dyn FnMut(web_sys::PositionError)>::new(move |error: web_sys::PositionError| {
-			let error = match error.code() {
-				1 => Error::PermissionDenied.into(),
-				2 => Error::Unavailable.into(),
-				3 => LocationError::TimedOut,
-				_ => Error::Native.into(),
-			};
-			if let Some(sender) = failed.borrow_mut().take() {
-				let _ = sender.send(Err(error));
-			}
-		});
-	let source = document.clone();
-	let visibility = EventListener::new(&document, "visibilitychange", move |_| {
-		if source.hidden() {
-			if let Some(sender) = sender.borrow_mut().take() {
-				let _ = sender.send(Err(Error::Cancelled.into()));
-			}
-		}
-	});
-	let native_options = web_sys::PositionOptions::new();
-	native_options.set_enable_high_accuracy(options.high_accuracy());
-	native_options.set_timeout(options.timeout_ms());
-	native_options.set_maximum_age(options.maximum_age_ms());
-	let identifier = geolocation
-		.watch_position_with_error_callback_and_options(
-			success.as_ref().unchecked_ref(),
-			Some(failure.as_ref().unchecked_ref()),
-			&native_options,
-		)
-		.map_err(|error| {
-			let name = js_sys::Reflect::get(&error, &JsValue::from_str("name"))
-				.ok()
-				.and_then(|name| name.as_string());
-			if matches!(name.as_deref(), Some("SecurityError" | "NotAllowedError")) {
-				Error::PermissionDenied
-			} else {
-				Error::Native
-			}
-		})?;
+	let success = success_handler(Rc::clone(&sender), options, after, started);
+	let failure = failure_handler(Rc::clone(&sender));
+	let visibility = visibility_listener(&document, sender);
+	let identifier = start_watch(&geolocation, &success, &failure, options)?;
 	// Declare the watch last: cancellation clears it before freeing callback
 	// closures.
 	let watch = Watch {
@@ -256,6 +193,139 @@ async fn acquire(
 	drop(watch);
 	drop((success, failure, visibility));
 	result
+}
+
+/// The channel the browser callbacks answer the waiting caller on.
+type Answer = oneshot::Sender<Result<Fix, LocationError>>;
+/// The shared handle each callback takes its one answer from.
+type PendingAnswer = Rc<RefCell<Option<Answer>>>;
+
+fn answer_channel() -> (oneshot::Receiver<Result<Fix, LocationError>>, PendingAnswer) {
+	let (sender, receiver) = oneshot::channel();
+
+	(receiver, Rc::new(RefCell::new(Some(sender))))
+}
+
+/// Checks the page may prompt and is visible before a watch starts.
+async fn foreground_window(
+	may_prompt: bool,
+) -> Result<(web_sys::Window, web_sys::Document), Error> {
+	if !may_prompt && permission().await?.status != Status::Granted {
+		return Err(Error::PermissionDenied);
+	}
+
+	let window = window()?;
+	let document = window.document().ok_or(Error::Unavailable)?;
+
+	if document.hidden() {
+		return Err(Error::Cancelled);
+	}
+
+	Ok((window, document))
+}
+
+/// Answers with the first fix the request's window accepts.
+fn success_handler(
+	sender: PendingAnswer,
+	options: Options,
+	after: Option<f64>,
+	started: f64,
+) -> Closure<dyn FnMut(web_sys::Position)> {
+	Closure::new(move |value: web_sys::Position| {
+		let result = position(&value).map_err(LocationError::from);
+
+		if result
+			.as_ref()
+			.is_ok_and(|fix| !accepts(fix, options, after, started))
+		{
+			return;
+		}
+
+		if let Some(sender) = sender.borrow_mut().take() {
+			let _ = sender.send(result);
+		}
+	})
+}
+
+/// Whether a reported fix is new enough and newer than the caller's cursor.
+fn accepts(fix: &Fix, options: Options, after: Option<f64>, started: f64) -> bool {
+	let oldest = if options.maximum_age_ms() == 0 {
+		started
+	} else {
+		js_sys::Date::now() - f64::from(options.maximum_age_ms())
+	};
+
+	if fix.timestamp_ms < oldest {
+		return false;
+	}
+
+	!after.is_some_and(|time| fix.timestamp_ms <= time)
+}
+
+/// Maps a browser position error onto the plugin's error vocabulary.
+fn failure_handler(sender: PendingAnswer) -> Closure<dyn FnMut(web_sys::PositionError)> {
+	Closure::new(move |error: web_sys::PositionError| {
+		if let Some(sender) = sender.borrow_mut().take() {
+			let _ = sender.send(Err(position_error(error.code())));
+		}
+	})
+}
+
+/// The terminal error a browser position error code stands for.
+fn position_error(code: u16) -> LocationError {
+	match code {
+		1 => Error::PermissionDenied.into(),
+		2 => Error::Unavailable.into(),
+		3 => LocationError::TimedOut,
+		_ => Error::Native.into(),
+	}
+}
+
+/// Ends the wait when the page becomes hidden, since a hidden page cannot
+/// prompt.
+fn visibility_listener(document: &web_sys::Document, sender: PendingAnswer) -> EventListener {
+	let source = document.clone();
+
+	EventListener::new(document, "visibilitychange", move |_| {
+		if !source.hidden() {
+			return;
+		}
+
+		if let Some(sender) = sender.borrow_mut().take() {
+			let _ = sender.send(Err(Error::Cancelled.into()));
+		}
+	})
+}
+
+/// Starts the watch, rejecting the security failures a refusal surfaces as.
+fn start_watch(
+	geolocation: &web_sys::Geolocation,
+	success: &Closure<dyn FnMut(web_sys::Position)>,
+	failure: &Closure<dyn FnMut(web_sys::PositionError)>,
+	options: Options,
+) -> Result<i32, Error> {
+	let native_options = web_sys::PositionOptions::new();
+	native_options.set_enable_high_accuracy(options.high_accuracy());
+	native_options.set_timeout(options.timeout_ms());
+	native_options.set_maximum_age(options.maximum_age_ms());
+
+	geolocation
+		.watch_position_with_error_callback_and_options(
+			success.as_ref().unchecked_ref(),
+			Some(failure.as_ref().unchecked_ref()),
+			&native_options,
+		)
+		.map_err(|error| {
+			let name = js_sys::Reflect::get(&error, &JsValue::from_str("name"))
+				.ok()
+				.and_then(|name| name.as_string());
+
+			if matches!(name.as_deref(), Some("SecurityError" | "NotAllowedError")) {
+				Error::PermissionDenied
+			} else {
+				Error::Native
+			}
+		})
 }
 
 #[cfg(test)]
@@ -318,15 +388,39 @@ export function locationError(code) { failure({code}); }
 			restore();
 		}
 	}
+	/// Maximum age a browser request accepts, in milliseconds.
+	const SAMPLE_AGE_MS: u32 = 60_000;
+	/// A timeout short enough to expire inside one test turn.
+	const SHORT_TIMEOUT_MS: u32 = 5;
+	/// A cursor ahead of any fix the shim reports.
+	const FUTURE_CURSOR_MS: f64 = 60_000.0;
+
+	/// Proves a reading waits for the browser instead of answering eagerly.
+	macro_rules! assert_pending {
+		($reading:expr) => {
+			assert!(futures::poll!(&mut $reading).is_pending());
+			TimeoutFuture::new(0).await;
+			assert!(futures::poll!(&mut $reading).is_pending());
+		};
+	}
+
+	/// Expects the shim to have started and cleared the same number of watches.
+	fn expect_watches(watches: u32) {
+		let value = f64::from(watches);
+
+		assert_eq!(
+			counts().to_vec(),
+			[JsValue::from_f64(value), JsValue::from_f64(value)]
+		);
+	}
+
 	#[wasm_bindgen_test]
-	async fn browser_location_is_bounded_cancelled_and_requires_observed_permission() {
+	async fn browser_location_is_bounded_and_cancelled() {
 		install();
 		let _installed = Installed;
-		let options = Options::new(false, 1000, 60_000).unwrap();
+		let options = Options::new(false, 1000, SAMPLE_AGE_MS).unwrap();
 		let mut reading = Box::pin(current(options));
-		assert!(futures::poll!(&mut reading).is_pending());
-		TimeoutFuture::new(0).await;
-		assert!(futures::poll!(&mut reading).is_pending());
+		assert_pending!(reading);
 
 		assert_eq!(current(options).await, Err(Error::Busy.into()));
 		send_fix();
@@ -334,88 +428,67 @@ export function locationError(code) { failure({code}); }
 		assert_eq!(fix.latitude.to_bits(), 37_f64.to_bits());
 		assert_eq!(fix.altitude_m, None);
 		assert_eq!(fix.speed_mps, Some(0.0));
-		assert_eq!(
-			counts().to_vec(),
-			[JsValue::from_f64(1.0), JsValue::from_f64(1.0)]
-		);
+		expect_watches(1);
 
 		let mut cancelled = Box::pin(current(options));
-		assert!(futures::poll!(&mut cancelled).is_pending());
-		TimeoutFuture::new(0).await;
-		assert!(futures::poll!(&mut cancelled).is_pending());
+		assert_pending!(cancelled);
 		drop(cancelled);
-		assert_eq!(
-			counts().to_vec(),
-			[JsValue::from_f64(2.0), JsValue::from_f64(2.0)]
-		);
+		expect_watches(2);
 
 		let mut timed = Box::pin(current(options));
-		assert!(futures::poll!(&mut timed).is_pending());
-		TimeoutFuture::new(0).await;
-		assert!(futures::poll!(&mut timed).is_pending());
+		assert_pending!(timed);
 		send_error(3);
 		assert_eq!(timed.await, Err(LocationError::TimedOut));
-		assert_eq!(
-			counts().to_vec(),
-			[JsValue::from_f64(3.0), JsValue::from_f64(3.0)]
-		);
+		expect_watches(3);
+	}
 
+	#[wasm_bindgen_test]
+	async fn browser_location_requires_observed_permission_and_a_newer_fix() {
+		install();
+		let _installed = Installed;
+		let options = Options::new(false, 1000, SAMPLE_AGE_MS).unwrap();
 		set_permission("prompt");
 		assert_eq!(current(options).await, Err(Error::PermissionDenied.into()));
-		assert_eq!(
-			counts().to_vec(),
-			[JsValue::from_f64(3.0), JsValue::from_f64(3.0)]
-		);
+		expect_watches(0);
+
 		set_permission("granted");
 		assert_eq!(
-			current(Options::new(false, 5, 0).unwrap()).await,
+			current(Options::new(false, SHORT_TIMEOUT_MS, 0).unwrap()).await,
 			Err(LocationError::TimedOut)
 		);
-		assert_eq!(
-			counts().to_vec(),
-			[JsValue::from_f64(4.0), JsValue::from_f64(4.0)]
-		);
+		expect_watches(1);
+
 		set_permission("pending");
 		assert_eq!(
-			current(Options::new(false, 5, 0).unwrap()).await,
+			current(Options::new(false, SHORT_TIMEOUT_MS, 0).unwrap()).await,
 			Err(LocationError::TimedOut)
 		);
+		expect_watches(1);
 
-		assert_eq!(
-			counts().to_vec(),
-			[JsValue::from_f64(4.0), JsValue::from_f64(4.0)]
-		);
 		set_permission("granted");
 		let mut denied = Box::pin(current(options));
-		assert!(futures::poll!(&mut denied).is_pending());
-		TimeoutFuture::new(0).await;
-		assert!(futures::poll!(&mut denied).is_pending());
+		assert_pending!(denied);
 		send_error(1);
 		assert_eq!(denied.await, Err(Error::PermissionDenied.into()));
-		let mut newer = Box::pin(next(options, js_sys::Date::now() + 60_000.0));
-		assert!(futures::poll!(&mut newer).is_pending());
-		TimeoutFuture::new(0).await;
-		assert!(futures::poll!(&mut newer).is_pending());
+
+		let cursor = js_sys::Date::now() + FUTURE_CURSOR_MS;
+		let mut newer = Box::pin(next(options, cursor));
+		assert_pending!(newer);
 		send_fix();
 		assert!(futures::poll!(&mut newer).is_pending());
 		drop(newer);
-		assert_eq!(
-			counts().to_vec(),
-			[JsValue::from_f64(6.0), JsValue::from_f64(6.0)]
-		);
+		expect_watches(3);
+
 		// A timed-out permission request must not issue an unbounded query.
 		set_permission("pending");
 		let result = future::select(
 			Box::pin(request_permission_with_options(
-				Options::new(false, 5, 0).unwrap(),
+				Options::new(false, SHORT_TIMEOUT_MS, 0).unwrap(),
 			)),
-			Box::pin(TimeoutFuture::new(1000)),
+			Box::pin(TimeoutFuture::new(SAMPLE_AGE_MS)),
 		)
 		.await;
 		assert!(matches!(result, Either::Left((Err(Error::Unavailable), _))));
-		assert_eq!(
-			counts().to_vec(),
-			[JsValue::from_f64(7.0), JsValue::from_f64(7.0)]
-		);
+		expect_watches(3);
 	}
 }

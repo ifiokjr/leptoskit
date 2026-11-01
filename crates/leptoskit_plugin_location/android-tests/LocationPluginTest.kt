@@ -34,7 +34,7 @@ class LocationPluginTest {
         assertTrue(acceptsLocation(location, options, 1_800_000_000, 2_000_000_000))
         assertTrue(!acceptsLocation(location, options.copy(after = 2.0), 1_800_000_000, 2_000_000_000))
         location.time = Long.MAX_VALUE
-        location.elapsedRealtimeNanos = 900_000_000
+        location.elapsedRealtimeNanos = STALE_NANOS
         assertTrue(!acceptsLocation(location, options, 1_800_000_000, 2_000_000_000))
 
         location.elapsedRealtimeNanos = 1_700_000_000
@@ -57,7 +57,7 @@ class LocationPluginTest {
         assertEquals(0, input.int) // Optional values are absent, not fabricated zeros.
         assertEquals(0, input.int) // Unknown provider remains unknown.
 
-        input.position(20)
+        input.position(DOUBLES_OFFSET)
         assertEquals(location.time.toDouble(), input.double, 0.0)
         assertEquals(37.0, input.double, 0.0)
         assertEquals(-122.0, input.double, 0.0)
@@ -65,11 +65,13 @@ class LocationPluginTest {
         location.altitude = 0.0
         location.speed = 0f
         val withZero = ByteBuffer.wrap(encodeLocation(location)).order(ByteOrder.LITTLE_ENDIAN)
+
         assertEquals(9, withZero.getInt(4))
-        location.latitude = 91.0
+        location.latitude = MAX_LATITUDE + 1.0
         expectInvalid(PluginException.NATIVE) { encodeLocation(location) }
     }
 
+    /** Rejects bounds the Rust crate would refuse, including a non-finite cursor. */
     @Test
     fun malformedBoundsAndPreviousTimestampsAreRejected() {
         fun payload(
@@ -78,7 +80,7 @@ class LocationPluginTest {
         ): ByteBuffer {
             val bytes =
                 ByteBuffer
-                    .allocate(if (previous == null) 12 else 20)
+                    .allocate(if (previous == null) BOUNDS_BYTES else PREVIOUS_BYTES)
                     .order(ByteOrder.LITTLE_ENDIAN)
                     .putInt(1)
                     .putInt(timeout)
@@ -93,12 +95,28 @@ class LocationPluginTest {
         assertTrue(valid.highAccuracy)
         assertEquals(1000, valid.timeout)
 
-        for (timeout in intArrayOf(0, 120_001)) {
+        for (timeout in intArrayOf(0, MAX_TIMEOUT_MS + 1)) {
             expectInvalid(PluginException.INVALID_ARGUMENT) { LocationOptions.decode(payload(timeout), false) }
         }
 
         expectInvalid(PluginException.INVALID_ARGUMENT) { LocationOptions.decode(payload(1000, Double.NaN), true) }
         expectInvalid(PluginException.INVALID_ARGUMENT) { LocationOptions.decode(payload(1000), true) }
+    }
+
+    private companion object {
+        /** Three bounds fields, or those plus one timestamp. */
+        const val BOUNDS_BYTES = 12
+        const val PREVIOUS_BYTES = 20
+
+        /** Where the eight doubles start: five u32 fields precede them. */
+        const val DOUBLES_OFFSET = 20
+
+        /** A measurement older than the caller's request started. */
+        const val STALE_NANOS = 900_000_000L
+
+        /** Values the decoder must reject. */
+        const val MAX_TIMEOUT_MS = 120_000
+        const val MAX_LATITUDE = 90.0
     }
 
     private fun expectInvalid(

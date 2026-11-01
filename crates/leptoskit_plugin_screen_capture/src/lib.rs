@@ -22,6 +22,8 @@ pub const WAIT: MethodId = MethodId(2);
 /// Cancellation releases this lease; pending is not an acquisition
 /// acknowledgement.
 pub const PREVENT: MethodId = MethodId(3);
+/// A watch is two little-endian u32 fields.
+const WATCH_BYTES: usize = 8;
 
 /// What the platform observation refers to, rather than inferred attribution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,7 +153,7 @@ pub enum Watch {
 impl Watch {
 	/// Encodes kind and previous state as two little-endian words.
 	pub fn encode(self) -> Bytes {
-		let mut output = Encoder::with_capacity(8);
+		let mut output = Encoder::with_capacity(WATCH_BYTES);
 
 		let (kind, state) = match self {
 			Self::CaptureChanged(state) => (0, state as u32),
@@ -196,18 +198,22 @@ impl Event {
 		input.finish()?;
 
 		match (watch, kind, state) {
-			(Watch::CaptureChanged(previous), 0, state) => {
-				let state = CaptureState::decode(state)?;
-				if state == previous {
-					return Err(Error::InvalidArgument);
-				}
-
-				Ok(Self::CaptureChanged(state))
-			}
+			(Watch::CaptureChanged(previous), 0, state) => changed_event(previous, state),
 			(Watch::Screenshot, 1, 0) => Ok(Self::Screenshot),
 			_ => Err(Error::InvalidArgument),
 		}
 	}
+}
+
+/// Accepts a capture state that differs from the one the caller already saw.
+fn changed_event(previous: CaptureState, state: u32) -> Result<Event, Error> {
+	let state = CaptureState::decode(state)?;
+
+	if state == previous {
+		return Err(Error::InvalidArgument);
+	}
+
+	Ok(Event::CaptureChanged(state))
 }
 fn version(input: &mut Decoder<'_>) -> Result<(), Error> {
 	if input.u32()? == 1 {
