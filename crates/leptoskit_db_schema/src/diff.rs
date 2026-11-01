@@ -894,61 +894,11 @@ pub fn diff(
 	}
 
 	for table in pairs.added {
-		steps.push(Step::CreateTable(table.clone()));
-
-		for index in &table.geo_indexes {
-			steps.push(Step::CreateGeoIndex {
-				table: table.name.clone(),
-				index: index.clone(),
-			});
-		}
-
-		for vector in &table.vectors {
-			steps.extend(create_vector(target.dialect, &table.name, vector));
-		}
-
-		if let Some(layer) = target.geopackage_layer(table) {
-			steps.push(Step::RegisterGeoPackage {
-				table: table.name.clone(),
-				layer,
-			});
-		}
-
-		if let Some(search) = &table.search {
-			steps.push(Step::CreateSearch {
-				table: table.name.clone(),
-				search: search.clone(),
-			});
-		}
+		create_table_steps(target, table, &mut steps);
 	}
 
 	for table in pairs.removed {
-		if let Some(layer) = previous.geopackage_layer(table) {
-			steps.push(Step::UnregisterGeoPackage {
-				table: table.name.clone(),
-				layer,
-			});
-		}
-
-		for index in &table.geo_indexes {
-			steps.push(Step::DropGeoIndex {
-				table: table.name.clone(),
-				index: index.clone(),
-			});
-		}
-
-		for vector in &table.vectors {
-			steps.extend(drop_vector(previous.dialect, &table.name, vector));
-		}
-
-		if let Some(search) = &table.search {
-			steps.push(Step::DropSearch {
-				table: table.name.clone(),
-				search: search.clone(),
-			});
-		}
-
-		steps.push(Step::DropTable(table.clone()));
+		drop_table_steps(previous, table, &mut steps);
 	}
 
 	diff_row_security(previous, target, &table_renames, &mut steps);
@@ -962,6 +912,67 @@ pub fn diff(
 		dialect: target.dialect,
 		steps,
 	})
+}
+
+/// The steps that create `table`: its search, spatial, and vector indexes,
+/// and its GeoPackage layer.
+fn create_table_steps(target: &Schema, table: &Table, steps: &mut Vec<Step>) {
+	steps.push(Step::CreateTable(table.clone()));
+
+	for index in &table.geo_indexes {
+		steps.push(Step::CreateGeoIndex {
+			table: table.name.clone(),
+			index: index.clone(),
+		});
+	}
+
+	for vector in &table.vectors {
+		steps.extend(create_vector(target.dialect, &table.name, vector));
+	}
+
+	if let Some(layer) = target.geopackage_layer(table) {
+		steps.push(Step::RegisterGeoPackage {
+			table: table.name.clone(),
+			layer,
+		});
+	}
+
+	if let Some(search) = &table.search {
+		steps.push(Step::CreateSearch {
+			table: table.name.clone(),
+			search: search.clone(),
+		});
+	}
+}
+
+/// The steps that drop `table`, in the order its indexes and layer go.
+fn drop_table_steps(previous: &Schema, table: &Table, steps: &mut Vec<Step>) {
+	if let Some(layer) = previous.geopackage_layer(table) {
+		steps.push(Step::UnregisterGeoPackage {
+			table: table.name.clone(),
+			layer,
+		});
+	}
+
+	for index in &table.geo_indexes {
+		steps.push(Step::DropGeoIndex {
+			table: table.name.clone(),
+			index: index.clone(),
+		});
+	}
+
+	for vector in &table.vectors {
+		steps.extend(drop_vector(previous.dialect, &table.name, vector));
+	}
+
+	if let Some(search) = &table.search {
+		steps.push(Step::DropSearch {
+			table: table.name.clone(),
+			search: search.clone(),
+		});
+	}
+
+	steps.push(Step::DropTable(table.clone()));
 }
 
 /// Drops the row-level security policies that changed, and creates them
@@ -1309,6 +1320,21 @@ fn diff_vectors(
 			.primary_key
 			.iter()
 			.any(|key| disturbed.contains(key.as_str()));
+	let (kept_indexes, kept_sources) =
+		drop_vectors(dialect, pair, &disturbed, table_changed, steps);
+
+	create_vectors(dialect, pair, &kept_indexes, &kept_sources, steps);
+}
+
+/// Drops the vector indexes and sources that changed, and says which the
+/// target keeps.
+fn drop_vectors<'a>(
+	dialect: Dialect,
+	pair: &'a TablePair<'_>,
+	disturbed: &HashSet<&str>,
+	table_changed: bool,
+	steps: &mut Vec<Step>,
+) -> (HashSet<&'a str>, HashSet<&'a str>) {
 	let mut kept_indexes = HashSet::new();
 	let mut kept_sources = HashSet::new();
 
@@ -1351,6 +1377,17 @@ fn diff_vectors(
 		}
 	}
 
+	(kept_indexes, kept_sources)
+}
+
+/// Creates the target's vector indexes and sources that aren't kept.
+fn create_vectors(
+	dialect: Dialect,
+	pair: &TablePair<'_>,
+	kept_indexes: &HashSet<&str>,
+	kept_sources: &HashSet<&str>,
+	steps: &mut Vec<Step>,
+) {
 	for vector in &pair.target.vectors {
 		if vector.is_indexed(dialect) && !kept_indexes.contains(vector.column.as_str()) {
 			steps.push(Step::CreateVectorIndex {
@@ -1367,7 +1404,6 @@ fn diff_vectors(
 		}
 	}
 }
-
 /// Registers a table's GeoPackage layer again when it changes, or when the
 /// table or its geometry column is renamed.
 fn diff_geopackage(
@@ -1411,6 +1447,13 @@ fn diff_geopackage(
 /// and `ALTER TABLE` may rewrite a trigger's statements. Called once every
 /// table step is in `steps`.
 fn diff_routines(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
+	diff_sequences(previous, target, steps);
+	diff_functions(previous, target, steps);
+	diff_triggers(previous, target, steps);
+}
+
+/// Drops the sequences that went and creates the ones that came.
+fn diff_sequences(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
 	for sequence in &previous.sequences {
 		if !target
 			.sequences
@@ -1430,7 +1473,11 @@ fn diff_routines(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
 			steps.push(Step::CreateSequence(sequence.clone()));
 		}
 	}
+}
 
+/// Drops the functions that went, creates the ones that came, and replaces
+/// the ones whose body changed.
+fn diff_functions(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
 	for function in &previous.functions {
 		if target.function(&function.name).is_none() {
 			steps.push(Step::DropFunction(function.clone()));
@@ -1451,7 +1498,11 @@ fn diff_routines(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
 			Some(_) => {}
 		}
 	}
+}
 
+/// Drops and creates the triggers a rebuilt table lost, and the ones that
+/// changed.
+fn diff_triggers(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
 	let altered: HashSet<TableName> = if target.dialect == Dialect::Sqlite {
 		steps
 			.iter()
@@ -1490,7 +1541,6 @@ fn diff_routines(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
 		steps.push(Step::CreateTrigger(trigger.clone()));
 	}
 }
-
 struct TablePair<'a> {
 	previous: &'a Table,
 	target: &'a Table,

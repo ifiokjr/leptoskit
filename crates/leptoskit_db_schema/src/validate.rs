@@ -395,6 +395,19 @@ impl Schema {
 		let postgres = self.dialect == Dialect::Postgres;
 		let mut names = HashSet::new();
 
+		self.validate_sequences(postgres, &mut names, problems);
+		self.validate_functions(postgres, &mut names, problems);
+		self.validate_triggers(postgres, problems);
+	}
+
+	/// Sequences exist only on Postgres, and no other object shares their
+	/// names.
+	fn validate_sequences<'a>(
+		&'a self,
+		postgres: bool,
+		names: &mut HashSet<&'a TableName>,
+		problems: &mut Problems,
+	) {
 		for sequence in &self.sequences {
 			let location = format!("sequence {}", sequence.name);
 
@@ -402,9 +415,18 @@ impl Schema {
 				problems.push(&location, "SQLite has no sequences");
 			}
 
-			self.routine_name(&location, &sequence.name, &mut names, problems);
+			self.routine_name(&location, &sequence.name, names, problems);
 		}
+	}
 
+	/// Functions exist only on Postgres, and their bodies match their
+	/// checksums.
+	fn validate_functions<'a>(
+		&'a self,
+		postgres: bool,
+		names: &mut HashSet<&'a TableName>,
+		problems: &mut Problems,
+	) {
 		for function in &self.functions {
 			let location = format!("function {}", function.name);
 
@@ -412,7 +434,7 @@ impl Schema {
 				problems.push(&location, "SQLite has no functions");
 			}
 
-			self.routine_name(&location, &function.name, &mut names, problems);
+			self.routine_name(&location, &function.name, names, problems);
 
 			if Function::checksum_of(&function.body) != function.checksum {
 				problems.push(
@@ -429,7 +451,11 @@ impl Schema {
 				);
 			}
 		}
+	}
 
+	/// Triggers point at their table and its columns, and do what the
+	/// dialect can.
+	fn validate_triggers(&self, postgres: bool, problems: &mut Problems) {
 		let mut triggers = HashSet::new();
 
 		for trigger in &self.triggers {
@@ -621,61 +647,9 @@ impl Schema {
 	pub fn validate_portable(tables: &[Table]) -> Result<(), SchemaError> {
 		let mut problems = Problems::default();
 
-		for table in tables {
-			for column in &table.columns {
-				if matches!(column.default, Some(DefaultValue::Sql(_))) {
-					problems.push(
-						&format!("{}.{}", table.name, column.name),
-						"a pack's column can't default to raw SQL, which is written for one \
-						 dialect",
-					);
-				}
-
-				if column.generated.is_some() {
-					problems.push(
-						&format!("{}.{}", table.name, column.name),
-						"a pack's column can't be generated: its expression is raw SQL",
-					);
-				}
-			}
-
-			for check in &table.checks {
-				if matches!(check.rule, CheckRule::Sql { .. }) {
-					problems.push(
-						&table.name.to_string(),
-						format!(
-							"check `{}` is raw SQL, written for one dialect; a pack uses the \
-							 portable rules",
-							check.name
-						),
-					);
-				}
-			}
-		}
-
-		let mut found: Vec<(Dialect, Problem)> = Vec::new();
-
-		for dialect in [Dialect::Postgres, Dialect::Sqlite] {
-			if let Err(SchemaError::Invalid(invalid)) =
-				Schema::new(dialect, tables.to_vec()).validate()
-			{
-				found.extend(invalid.into_iter().map(|problem| (dialect, problem)));
-			}
-		}
-
-		for (index, (dialect, problem)) in found.iter().enumerate() {
-			let everywhere = found.iter().filter(|(_, other)| other == problem).count() > 1;
-
-			if !everywhere {
-				problems.push(
-					&problem.location,
-					format!("on {dialect}, {}", problem.message),
-				);
-			} else if found[..index].iter().all(|(_, other)| other != problem) {
-				problems.0.push(problem.clone());
-			}
-		}
-
+		raw_sql_problems(tables, &mut problems);
+		let found = dialect_problems(tables);
+		merge_dialect_problems(&found, &mut problems);
 		problems.into_result()
 	}
 
@@ -770,22 +744,7 @@ impl Schema {
 		let location = table.name.to_string();
 		let name = &foreign_key.name;
 
-		for column in &foreign_key.columns {
-			problems.column_exists(table, &location, name, column);
-
-			if table
-				.column(column)
-				.is_some_and(|column| column.generated.is_some())
-			{
-				problems.push(
-					&location,
-					format!(
-						"foreign key `{name}` is on `{column}`, a generated column; link from a \
-						 column the app writes"
-					),
-				);
-			}
-		}
+		validate_foreign_key_columns(table, foreign_key, &location, problems);
 
 		if foreign_key.columns.len() != foreign_key.referenced_columns.len() {
 			problems.push(
@@ -808,51 +767,7 @@ impl Schema {
 			return;
 		};
 
-		for (column, referenced_column) in foreign_key
-			.columns
-			.iter()
-			.zip(&foreign_key.referenced_columns)
-		{
-			let Some(referenced_column) = referenced.column(referenced_column) else {
-				problems.push(
-					&location,
-					format!(
-						"foreign key `{name}` references `{}.{referenced_column}`, which isn't a \
-						 column",
-						referenced.name
-					),
-				);
-				continue;
-			};
-
-			if let Some(column) = table.column(column) {
-				if column.ty != referenced_column.ty {
-					problems.push(
-						&location,
-						format!(
-							"foreign key `{name}` joins `{}` ({}) to `{}.{}` ({}); the types must \
-							 match",
-							column.name,
-							column.ty,
-							referenced.name,
-							referenced_column.name,
-							referenced_column.ty
-						),
-					);
-				}
-
-				if foreign_key.on_delete == ReferentialAction::SetNull && !column.nullable {
-					problems.push(
-						&location,
-						format!(
-							"foreign key `{name}` sets `{}` to NULL on delete, but the column \
-							 isn't nullable",
-							column.name
-						),
-					);
-				}
-			}
-		}
+		validate_foreign_key_reference(table, foreign_key, referenced, &location, problems);
 
 		let is_key = referenced.primary_key == foreign_key.referenced_columns
 			|| referenced.indexes.iter().any(|index| {
@@ -874,7 +789,182 @@ impl Schema {
 	}
 }
 
+/// The key's own columns exist and aren't generated.
+fn validate_foreign_key_columns(
+	table: &Table,
+	foreign_key: &ForeignKey,
+	location: &str,
+	problems: &mut Problems,
+) {
+	let name = &foreign_key.name;
+
+	for column in &foreign_key.columns {
+		problems.column_exists(table, location, name, column);
+
+		if table
+			.column(column)
+			.is_some_and(|column| column.generated.is_some())
+		{
+			problems.push(
+				location,
+				format!(
+					"foreign key `{name}` is on `{column}`, a generated column; link from a \
+					 column the app writes"
+				),
+			);
+		}
+	}
+}
+
+/// Each column matches the type of the one it joins, and `set null` needs a
+/// nullable column.
+fn validate_foreign_key_reference(
+	table: &Table,
+	foreign_key: &ForeignKey,
+	referenced: &Table,
+	location: &str,
+	problems: &mut Problems,
+) {
+	let name = &foreign_key.name;
+
+	for (column, referenced_column) in foreign_key
+		.columns
+		.iter()
+		.zip(&foreign_key.referenced_columns)
+	{
+		let Some(referenced_column) = referenced.column(referenced_column) else {
+			problems.push(
+				location,
+				format!(
+					"foreign key `{name}` references `{}.{referenced_column}`, which isn't a \
+					 column",
+					referenced.name
+				),
+			);
+			continue;
+		};
+
+		if let Some(column) = table.column(column) {
+			if column.ty != referenced_column.ty {
+				problems.push(
+					location,
+					format!(
+						"foreign key `{name}` joins `{}` ({}) to `{}.{}` ({}); the types must \
+						 match",
+						column.name,
+						column.ty,
+						referenced.name,
+						referenced_column.name,
+						referenced_column.ty
+					),
+				);
+			}
+
+			if foreign_key.on_delete == ReferentialAction::SetNull && !column.nullable {
+				problems.push(
+					location,
+					format!(
+						"foreign key `{name}` sets `{}` to NULL on delete, but the column isn't \
+						 nullable",
+						column.name
+					),
+				);
+			}
+		}
+	}
+}
+
+/// A pack can't carry raw SQL: its dialect is chosen when it's used.
+fn raw_sql_problems(tables: &[Table], problems: &mut Problems) {
+	for table in tables {
+		for column in &table.columns {
+			if matches!(column.default, Some(DefaultValue::Sql(_))) {
+				problems.push(
+					&format!("{}.{}", table.name, column.name),
+					"a pack's column can't default to raw SQL, which is written for one dialect",
+				);
+			}
+
+			if column.generated.is_some() {
+				problems.push(
+					&format!("{}.{}", table.name, column.name),
+					"a pack's column can't be generated: its expression is raw SQL",
+				);
+			}
+		}
+
+		for check in &table.checks {
+			if matches!(check.rule, CheckRule::Sql { .. }) {
+				problems.push(
+					&table.name.to_string(),
+					format!(
+						"check `{}` is raw SQL, written for one dialect; a pack uses the portable \
+						 rules",
+						check.name
+					),
+				);
+			}
+		}
+	}
+}
+
+/// The problems each dialect finds, in order.
+fn dialect_problems(tables: &[Table]) -> Vec<(Dialect, Problem)> {
+	let mut found: Vec<(Dialect, Problem)> = Vec::new();
+
+	for dialect in [Dialect::Postgres, Dialect::Sqlite] {
+		if let Err(SchemaError::Invalid(invalid)) = Schema::new(dialect, tables.to_vec()).validate()
+		{
+			found.extend(invalid.into_iter().map(|problem| (dialect, problem)));
+		}
+	}
+
+	found
+}
+
+/// Keeps a problem every dialect shares once, and the rest with the dialect
+/// that found it.
+fn merge_dialect_problems(found: &[(Dialect, Problem)], problems: &mut Problems) {
+	for (index, (dialect, problem)) in found.iter().enumerate() {
+		let everywhere = found.iter().filter(|(_, other)| other == problem).count() > 1;
+
+		if !everywhere {
+			problems.push(
+				&problem.location,
+				format!("on {dialect}, {}", problem.message),
+			);
+		} else if found[..index].iter().all(|(_, other)| other != problem) {
+			problems.0.push(problem.clone());
+		}
+	}
+}
+
 fn validate_column(dialect: Dialect, column: &Column, location: &str, problems: &mut Problems) {
+	validate_column_type(dialect, column, location, problems);
+	validate_generated_column(dialect, column, location, problems);
+
+	let Some(default) = &column.default else {
+		return;
+	};
+
+	if !default_fits(default, column) {
+		problems.push(
+			location,
+			format!(
+				"the default {default} doesn't fit the column's type, {}",
+				column.ty
+			),
+		);
+	}
+}
+
+/// Arrays, shapes, vectors, and coordinate systems this dialect can't store.
+fn validate_column_type(
+	dialect: Dialect,
+	column: &Column,
+	location: &str,
+	problems: &mut Problems,
+) {
 	if dialect == Dialect::Sqlite && matches!(column.ty, ColumnType::Array { .. }) {
 		problems.push(
 			location,
@@ -907,28 +997,37 @@ fn validate_column(dialect: Dialect, column: &Column, location: &str, problems: 
 	}
 
 	validate_vector_column(dialect, column, location, problems);
+}
 
-	if let Some(generated) = &column.generated {
-		if column.default.is_some() {
-			problems.push(
-				location,
-				"a generated column can't have a default: the database computes every value",
-			);
-		}
-
-		if generated.sql(dialect).trim().is_empty() {
-			problems.push(
-				location,
-				format!("the generated column has no expression on {dialect}"),
-			);
-		}
-	}
-
-	let Some(default) = &column.default else {
+/// A generated column has no default, and an expression for each dialect.
+fn validate_generated_column(
+	dialect: Dialect,
+	column: &Column,
+	location: &str,
+	problems: &mut Problems,
+) {
+	let Some(generated) = &column.generated else {
 		return;
 	};
 
-	let fits = match default {
+	if column.default.is_some() {
+		problems.push(
+			location,
+			"a generated column can't have a default: the database computes every value",
+		);
+	}
+
+	if generated.sql(dialect).trim().is_empty() {
+		problems.push(
+			location,
+			format!("the generated column has no expression on {dialect}"),
+		);
+	}
+}
+
+/// Whether `default` fits the column's type.
+fn default_fits(default: &DefaultValue, column: &Column) -> bool {
+	match default {
 		DefaultValue::Bool(_) => column.ty == ColumnType::Bool,
 		DefaultValue::Integer(_) => {
 			matches!(
@@ -958,16 +1057,6 @@ fn validate_column(dialect: Dialect, column: &Column, location: &str, problems: 
 		}
 		DefaultValue::Now => column.ty == ColumnType::Timestamp,
 		DefaultValue::Sql(_) => true,
-	};
-
-	if !fits {
-		problems.push(
-			location,
-			format!(
-				"the default {default} doesn't fit the column's type, {}",
-				column.ty
-			),
-		);
 	}
 }
 
@@ -994,41 +1083,55 @@ fn validate_search(dialect: Dialect, table: &Table, search: &Search, problems: &
 		problems.push(&location, "a search index needs at least one column");
 	}
 
+	validate_search_names(table, &location, problems);
+	validate_searched_columns(table, search, &location, problems);
+}
+
+/// The search's own column names are reserved from the table's.
+fn validate_search_names(table: &Table, location: &str, problems: &mut Problems) {
 	if table.column(SEARCH_COLUMN).is_some() {
 		problems.push(
-			&location,
+			location,
 			format!("`{SEARCH_COLUMN}` holds a searched table's words, so no column may use it"),
 		);
 	}
 
 	if table.primary_key.iter().any(|key| key == SEARCH_ROW) {
 		problems.push(
-			&location,
+			location,
 			format!(
 				"on SQLite the search index numbers its rows in `{SEARCH_ROW}`, so the key can't \
 				 use that name"
 			),
 		);
 	}
+}
 
+/// Each searched column exists, holds text, and is listed once.
+fn validate_searched_columns(
+	table: &Table,
+	search: &Search,
+	location: &str,
+	problems: &mut Problems,
+) {
 	let mut seen = HashSet::new();
 
 	for searched in &search.columns {
 		if !seen.insert(searched.name.as_str()) {
-			problems.push(&location, format!("`{}` is searched twice", searched.name));
+			problems.push(location, format!("`{}` is searched twice", searched.name));
 		}
 
 		match table.column(&searched.name) {
 			None => {
 				problems.push(
-					&location,
+					location,
 					format!("searches `{}`, which isn't a column", searched.name),
 				);
 			}
 
 			Some(column) if !matches!(column.ty, ColumnType::Text { .. }) => {
 				problems.push(
-					&location,
+					location,
 					format!(
 						"searches `{}`, whose type is {}; only text is searched",
 						searched.name, column.ty
@@ -1038,7 +1141,7 @@ fn validate_search(dialect: Dialect, table: &Table, search: &Search, problems: &
 
 			Some(column) if column.generated.is_some() => {
 				problems.push(
-					&location,
+					location,
 					format!(
 						"searches `{}`, a generated column; search the columns it's computed from",
 						searched.name
