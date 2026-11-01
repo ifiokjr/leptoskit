@@ -42,3 +42,15 @@ Each of these blocked or bent a scenario. Each fix is a public API, so it needs 
 - `leptoskit native build android` prints "built; no artifact found to measure". `crates/leptoskit_cli/src/native/size.rs` still looks under the old `hosts/android/…` path, but scaffolds now put the Gradle project in `android/`.
 - `leptoskit native build android` needs `JAVA_HOME`. Without it, Gradle fails with "Unable to locate a Java Runtime", where it could fall back to Android Studio's bundled JDK the way the other frameworks' tooling does.
 - The guest learns its launch scenario through an asynchronous plugin call, so the first commit is an empty screen and the ready screen is the second. A synchronous launch-arguments import would let the first commit be the real one.
+
+## What the arena app does that a normal app should not
+
+The arena app is not what a leptoskit app should look like. It carries three pieces of scaffolding that exist only because the framework has no automatic path yet:
+
+- `Arena::settle` calls `leptoskit::guest::refresh()` after state written outside an event. A normal app should never call it: the runtime knows when a turn ends.
+- `Element::text_from` and `Element::background_from` construct a binding by hand. A normal app should write `Text(move || …)`, and the component should bind it.
+- The app drives its own executor through `leptoskit_poll`. The runtime should own that loop, so a flush lands after every plugin reply and timer without the app wiring it.
+
+The fixes, in order: a `leptoskit_flush` export the host calls after `leptoskit_main`, `leptoskit_event`, and `leptoskit_poll`, so bindings settle themselves; reactive parameters on the components that hold values (`Text`, `background`, and so on), so a binding is declared rather than constructed; a built-in guest executor, so the poll loop belongs to the runtime; and reactive containers (`For`, `Show`) so a structural change is scoped to the container rather than the screen.
+
+Until then, any benchmark number for leptoskit measures an app written the way the framework allows, not the way its docs teach.
