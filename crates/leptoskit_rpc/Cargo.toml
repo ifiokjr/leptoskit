@@ -20,6 +20,7 @@ futures = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 inventory = { workspace = true, optional = true }
 leptos = { workspace = true }
+leptoskit_config = { workspace = true, optional = true }
 leptoskit_db = { workspace = true, optional = true }
 leptoskit_devtools_protocol = { workspace = true, optional = true }
 # The retry backoff timer, which covers every host leptoskit_query does, and
@@ -112,7 +113,7 @@ guest = [
 server = ["axum", "client", "leptoskit_rpc_macros/server", "dep:tokio"]
 # Queries and mutations over `leptoskit_db`: their contexts, `Identify`, and
 # the `rpc` schema pack's receipts. Pick a driver with `postgres` or `sqlite`.
-db = ["server", "dep:chrono", "dep:leptoskit_db", "leptoskit_db/server", "dep:sha2"]
+db = ["server", "dep:chrono", "dep:leptoskit_config", "dep:leptoskit_db", "leptoskit_db/server", "dep:sha2"]
 # Runs operations on Postgres.
 postgres = ["db", "leptoskit_db/postgres"]
 # Runs operations on SQLite.

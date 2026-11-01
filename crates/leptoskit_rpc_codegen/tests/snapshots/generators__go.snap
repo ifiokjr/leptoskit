@@ -1,6 +1,5 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
-assertion_line: 480
 expression: "generate(TargetLanguage::Go, \"example.com/todos\")"
 ---
 ===== go.mod (Scaffold) =====
@@ -383,6 +382,20 @@ func (c *Client) CompleteTodo(ctx context.Context, id uint64) (Todo, error) {
 // Pass a context from WithIdempotencyKey to make a retried call run once.
 func (c *Client) ClearDone(ctx context.Context) error {
 	return c.call(ctx, "POST", "/api/clear_done", "json", nil)
+}
+
+// SummarizeTodos summarizes the open todos with an outside service.
+// 
+// style is How to write it.
+func (c *Client) SummarizeTodos(ctx context.Context, style string) (string, error) {
+	var result string
+	if err := c.callInto(ctx, "POST", "/api/summarize_todos", "json", struct {
+	Style string `json:"style"`
+	}{Style: style}, &result); err != nil {
+		var zero string
+		return zero, err
+	}
+	return result, nil
 }
 
 

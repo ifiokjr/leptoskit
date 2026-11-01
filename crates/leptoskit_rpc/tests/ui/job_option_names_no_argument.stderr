@@ -1,0 +1,5 @@
+error: `serialize_by` names one of the job's arguments, and `wallet` isn't one
+ --> tests/ui/job_option_names_no_argument.rs:4:27
+  |
+4 | #[rpc::job(serialize_by = wallet)]
+  |                           ^^^^^^

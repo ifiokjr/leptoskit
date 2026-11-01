@@ -909,6 +909,53 @@ pub struct RpcConfig {
 	/// What `leptoskit rpc generate` writes when no `--target` is given. Empty
 	/// means every target, into its default directory.
 	pub targets: Vec<RpcTarget>,
+	/// The background job workers.
+	pub jobs: RpcJobsConfig,
+}
+
+/// The background job workers: `[rpc.jobs]`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct RpcJobsConfig {
+	/// How many jobs each instance runs at once.
+	pub workers: u32,
+	/// How often idle workers look for jobs that are due, in seconds, besides
+	/// being woken whenever a job is enqueued.
+	pub poll_seconds: u32,
+	/// How many days finished and cancelled jobs are kept; 0 keeps them.
+	/// Failed jobs stay until someone retries them.
+	pub retention_days: u32,
+	/// Queues with their own concurrency, by name, such as
+	/// `[rpc.jobs.queues.mail]`.
+	pub queues: BTreeMap<String, RpcQueueConfig>,
+}
+
+impl Default for RpcJobsConfig {
+	fn default() -> Self {
+		Self {
+			workers: 4,
+			poll_seconds: 5,
+			retention_days: 7,
+			queues: BTreeMap::new(),
+		}
+	}
+}
+
+/// One job queue: `[rpc.jobs.queues.<name>]`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct RpcQueueConfig {
+	/// How many of its jobs run at once, across every instance, so a
+	/// rate-limited service never sees more.
+	pub concurrency: u32,
+}
+
+impl Default for RpcQueueConfig {
+	fn default() -> Self {
+		Self { concurrency: 1 }
+	}
 }
 
 /// One client `leptoskit rpc generate` writes.

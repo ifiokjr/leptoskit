@@ -1,0 +1,5 @@
+error: `backoff` expects a duration: a whole number and a unit, `ms`, `s`, `m`, `h`, or `d`, such as `exponential(2s, 5m)`
+ --> tests/ui/job_backoff_without_units.rs:4:34
+  |
+4 | #[rpc::job(backoff = exponential(2, 5m))]
+  |                                  ^

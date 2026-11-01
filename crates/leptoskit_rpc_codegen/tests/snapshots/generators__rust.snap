@@ -1,6 +1,5 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
-assertion_line: 485
 expression: "generate(TargetLanguage::Rust, \"todos-client\")"
 ---
 ===== Cargo.toml (Scaffold) =====
@@ -102,6 +101,12 @@ struct SearchTodosInput {
 struct CompleteTodoInput {
 	/// The todo.
 	id: u64,
+}
+
+#[derive(Serialize)]
+struct SummarizeTodosInput {
+	/// How to write it.
+	style: String,
 }
 
 /// How a failed call is classified, mirroring `leptoskit_rpc::FnError`.
@@ -374,6 +379,15 @@ impl Client {
 	/// Call it on [`Client::with_idempotency_key`] to make a retried call run once.
 	pub async fn clear_done(&self) -> Result<(), Error> {
 		self.call_void("POST", "/api/clear_done", Encoding::Json, &serde_json::json!({})).await
+	}
+
+	/// Summarizes the open todos with an outside service.
+	///
+	/// # Arguments
+	///
+	/// * `style` — How to write it.
+	pub async fn summarize_todos(&self, style: String) -> Result<String, Error> {
+		self.call("POST", "/api/summarize_todos", Encoding::Json, &SummarizeTodosInput { style }).await
 	}
 
 }

@@ -13,6 +13,8 @@
 //! Queries and mutations run on a database, so everything past the registry
 //! needs a driver: the `postgres` or `sqlite` feature.
 
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod action;
 #[cfg(feature = "live")]
 pub mod channel;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -22,6 +24,8 @@ mod http;
 #[cfg(feature = "db")]
 mod identity;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub mod inbox;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub mod jobs;
 #[cfg(feature = "live")]
 mod live;
@@ -30,6 +34,8 @@ pub mod receipts;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod run;
 
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use action::ActionCx;
 #[cfg(feature = "live")]
 pub use channel::ChannelRegistration;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -63,6 +69,8 @@ pub use jobs::JobRun;
 pub use jobs::Jobs;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use jobs::JobsHandle;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use jobs::cancel;
 #[cfg(feature = "live")]
 pub use live::Live;
 #[cfg(feature = "live")]
@@ -79,7 +87,8 @@ pub use run::call_as;
 #[doc(hidden)]
 pub use run::handle;
 
-/// What an operation's body receives: [`QueryCx`] or [`MutationCx`]. Sealed:
+/// What an operation's body receives: [`QueryCx`], [`MutationCx`],
+/// [`ActionCx`], or [`JobCx`]. Sealed:
 /// a new kind of operation brings its own.
 pub trait OperationContext: Send + Sync + Sized + 'static + sealed::Sealed {
 	/// Runs `op` as `identity`, on `db`, with a mutation's retries and

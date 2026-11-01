@@ -1,0 +1,92 @@
+---
+source: crates/leptoskit_rpc_macros/src/tests.rs
+expression: server
+---
+/// Settles a payment.
+#[derive(
+    ::core::clone::Clone,
+    ::leptoskit_rpc::__private::serde::Serialize,
+    ::leptoskit_rpc::__private::serde::Deserialize,
+    ::leptoskit_rpc::__private::schemars::JsonSchema,
+)]
+#[serde(crate = ":: leptoskit_rpc :: __private :: serde")]
+#[schemars(crate = ":: leptoskit_rpc :: __private :: schemars")]
+pub struct SettlePayment {
+    pub payment: Id<Payment>,
+    pub recipient: Id<User>,
+}
+const _: () = {
+    #[allow(dead_code)]
+    fn __check() {
+        ::leptoskit_rpc::__private::assert_argument::<Id<Payment>>();
+        ::leptoskit_rpc::__private::assert_argument::<Id<User>>();
+        ::leptoskit_rpc::__private::assert_output::<()>();
+    }
+};
+/// Settles a payment.
+#[allow(clippy::unused_async)]
+pub async fn settle_payment(
+    cx: &rpc::JobCx,
+    payment: Id<Payment>,
+    recipient: Id<User>,
+) -> rpc::Result<()> {
+    Ok(())
+}
+#[allow(deprecated)]
+impl ::leptoskit_rpc::Operation for SettlePayment {
+    const NAME: &'static str = "settle_payment";
+    const KIND: ::leptoskit_rpc::Kind = ::leptoskit_rpc::Kind::Job;
+    type Output = ();
+    type Context = ::leptoskit_rpc::JobCx;
+    fn run(
+        self,
+        cx: &::leptoskit_rpc::JobCx,
+    ) -> impl ::core::future::Future<
+        Output = ::leptoskit_rpc::Result<Self::Output>,
+    > + ::core::marker::Send {
+        let Self { payment, recipient } = self;
+        settle_payment(cx, payment, recipient)
+    }
+}
+#[allow(deprecated)]
+impl ::leptoskit_rpc::Job for SettlePayment {
+    const NAME: &'static str = "settle_payment";
+    const OPTIONS: ::leptoskit_rpc::JobOptions = ::leptoskit_rpc::JobOptions {
+        queue: "chain",
+        retries: 20,
+        backoff: ::leptoskit_rpc::Backoff::exponential(
+            ::core::time::Duration::from_millis(2000u64),
+            ::core::time::Duration::from_millis(300000u64),
+        ),
+        deadline: ::core::option::Option::Some(
+            ::core::time::Duration::from_millis(900000u64),
+        ),
+        timeout: ::core::option::Option::Some(
+            ::core::time::Duration::from_millis(500u64),
+        ),
+        serialize_by: ::core::option::Option::Some("payment"),
+        visible_to: ::leptoskit_rpc::Visibility::Argument("recipient"),
+        on_failure: true,
+    };
+    type Output = ();
+    fn run(
+        self,
+        cx: &::leptoskit_rpc::JobCx,
+    ) -> impl ::core::future::Future<
+        Output = ::leptoskit_rpc::Result<Self::Output>,
+    > + ::core::marker::Send {
+        let Self { payment, recipient } = self;
+        settle_payment(cx, payment, recipient)
+    }
+}
+::leptoskit_rpc::__require_db!();
+#[allow(deprecated)]
+const _: () = {
+    ::leptoskit_rpc::__private::inventory::submit! {
+        ::leptoskit_rpc::server::jobs::JobRegistration { name : < SettlePayment as
+        ::leptoskit_rpc::Job > ::NAME, options : < SettlePayment as ::leptoskit_rpc::Job
+        > ::OPTIONS, handler : ::leptoskit_rpc::__private::run_job:: < SettlePayment >,
+        on_failure : ::core::option::Option::Some(::leptoskit_rpc::__private::fail_job::
+        < SettlePayment, crate ::pay::PaymentGaveUp >), }
+    }
+};

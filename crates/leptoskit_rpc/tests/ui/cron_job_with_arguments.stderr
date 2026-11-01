@@ -1,0 +1,5 @@
+error: a cron job takes only its context, `cx: &rpc::JobCx`: nothing enqueues it with arguments
+ --> tests/ui/cron_job_with_arguments.rs:6:21
+  |
+6 | pub async fn remind(cx: &rpc::JobCx, user: u64) -> rpc::Result<()> {
+  |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^

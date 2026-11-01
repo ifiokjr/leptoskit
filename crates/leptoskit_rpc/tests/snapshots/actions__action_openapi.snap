@@ -1,0 +1,56 @@
+---
+source: crates/leptoskit_rpc/tests/actions.rs
+expression: "openapi[\"paths\"][\"/api/summarize\"]"
+---
+{
+  "post": {
+    "operationId": "summarize",
+    "requestBody": {
+      "content": {
+        "application/json": {
+          "schema": {
+            "properties": {
+              "channel": {
+                "description": "Which channel.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "channel"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "required": true
+    },
+    "responses": {
+      "200": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "The function's return value."
+      },
+      "default": {
+        "content": {
+          "text/plain": {
+            "schema": {
+              "type": "string"
+            },
+            "x-leptoskit-error-encoding": "kind-pipe-message"
+          }
+        },
+        "description": "An error; see the leptoskit error encoding"
+      }
+    },
+    "summary": "Summarizes a channel with an outside service, then pins the summary.",
+    "tags": [
+      "chat"
+    ],
+    "x-leptoskit-kind": "action"
+  }
+}

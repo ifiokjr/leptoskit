@@ -76,7 +76,14 @@ pub use channel::assert_channel_argument;
 pub use channel::assert_channel_message;
 pub use channel::assert_channel_presence;
 #[cfg(feature = "client")]
+pub use client::use_action;
+#[cfg(feature = "client")]
 pub use client::use_channel;
+#[cfg(all(
+	feature = "client",
+	any(not(feature = "server"), feature = "postgres", feature = "sqlite")
+))]
+pub use client::use_inbox;
 #[cfg(all(
 	feature = "client",
 	any(not(feature = "server"), feature = "postgres", feature = "sqlite")
@@ -84,13 +91,29 @@ pub use client::use_channel;
 pub use client::use_job;
 #[cfg(feature = "client")]
 pub use client::use_live;
+pub use inbox::Inbox;
+pub use inbox::InboxArgs;
+pub use inbox::InboxNotice;
+pub use inbox::MarkAllRead;
+pub use inbox::MarkRead;
+pub use inbox::Notice;
+pub use inbox::NoticeAction;
+pub use inbox::NoticeKind;
+pub use jobs::Backoff;
+pub use jobs::CancelJob;
+pub use jobs::Failed;
+pub use jobs::Job;
+pub use jobs::JobOptions;
 pub use jobs::JobStatus;
 pub use jobs::JobStatusArgs;
+pub use jobs::Visibility;
 use leptos::prelude::Action;
 use leptos::prelude::ArcAsyncDerived;
 use leptos::prelude::ServerFnError;
+pub use leptoskit_rpc_macros::action;
 pub use leptoskit_rpc_macros::api;
 pub use leptoskit_rpc_macros::channel;
+pub use leptoskit_rpc_macros::cron;
 pub use leptoskit_rpc_macros::job;
 pub use leptoskit_rpc_macros::mutation;
 pub use leptoskit_rpc_macros::query;
@@ -101,6 +124,8 @@ pub use operation::Result;
 pub use scopes::ScopeInfo;
 pub use scopes::Scopes;
 pub use scopes::is_scope_name;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use server::ActionCx;
 #[cfg(feature = "db")]
 pub use server::Identify;
 #[cfg(feature = "db")]
@@ -122,9 +147,11 @@ pub use server::QueryCx;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use server::call;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
-pub use server::jobs::Enqueue;
+pub use server::cancel;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
-pub use server::jobs::Job;
+pub use server::inbox::Recipient;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use server::jobs::Enqueue;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use server::jobs::enqueue;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -135,6 +162,7 @@ mod channel;
 pub mod client;
 #[cfg(feature = "devtools")]
 pub mod devtools;
+mod inbox;
 mod jobs;
 pub mod live;
 mod operation;
@@ -143,6 +171,8 @@ pub mod scopes;
 pub mod server;
 #[cfg(feature = "ssr")]
 pub mod spec;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub mod testing;
 
 /// Re-exports the macros and the generated clients expand to; not part of
 /// the public API.
@@ -165,6 +195,14 @@ pub mod __private {
 	pub use crate::operation::assert_output;
 	#[cfg(any(feature = "postgres", feature = "sqlite"))]
 	pub use crate::server::handle;
+	#[cfg(any(feature = "postgres", feature = "sqlite"))]
+	pub use crate::server::jobs::assert_on_failure;
+	#[cfg(any(feature = "postgres", feature = "sqlite"))]
+	pub use crate::server::jobs::cron::enqueue_tick;
+	#[cfg(any(feature = "postgres", feature = "sqlite"))]
+	pub use crate::server::jobs::fail_job;
+	#[cfg(any(feature = "postgres", feature = "sqlite"))]
+	pub use crate::server::jobs::run_job;
 }
 
 /// Refuses a server build that declares queries or mutations without a

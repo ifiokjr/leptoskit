@@ -1,0 +1,5 @@
+error: the minute field has 60, outside 0 to 59
+ --> tests/ui/cron_bad_expression.rs:4:13
+  |
+4 | #[rpc::cron("60 * * * *")]
+  |             ^^^^^^^^^^^^

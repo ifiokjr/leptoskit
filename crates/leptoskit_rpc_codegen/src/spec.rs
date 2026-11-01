@@ -52,16 +52,21 @@ pub enum ApiKind {
 	/// An `#[rpc::mutation]`: one transaction. A call that sends an
 	/// `Idempotency-Key` header runs once however often it is sent.
 	Mutation,
+	/// An `#[rpc::action]`: may call anything, outside any transaction, so
+	/// a client never sends it twice by itself.
+	Action,
 }
 
 impl ApiKind {
-	/// The kind's name in the spec: `call`, `query`, or `mutation`.
+	/// The kind's name in the spec: `call`, `query`, `mutation`, or
+	/// `action`.
 	#[must_use]
 	pub fn as_str(self) -> &'static str {
 		match self {
 			Self::Call => "call",
 			Self::Query => "query",
 			Self::Mutation => "mutation",
+			Self::Action => "action",
 		}
 	}
 
@@ -631,6 +636,8 @@ mod tests {
 				.all(|function| function.kind == ApiKind::Call)
 		);
 		assert_eq!(ApiKind::Mutation.as_str(), "mutation");
+		assert_eq!(ApiKind::Action.as_str(), "action");
+		assert!(!ApiKind::Action.is_idempotent_with_key());
 		assert!(ApiKind::Mutation.is_idempotent_with_key());
 		assert!(!ApiKind::Query.is_idempotent_with_key());
 	}

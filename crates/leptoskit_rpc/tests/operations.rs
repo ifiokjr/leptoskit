@@ -717,7 +717,12 @@ fn published_operations_join_the_spec_with_their_kind() {
 			"bump",
 			"bump_once",
 			"note_count",
-			"notes"
+			"notes",
+			"rpc.cancel_job",
+			"rpc.inbox",
+			"rpc.job_status",
+			"rpc.mark_all_read",
+			"rpc.mark_read"
 		]
 	);
 	assert_eq!(

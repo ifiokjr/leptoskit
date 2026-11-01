@@ -425,6 +425,20 @@ fn functions() -> Vec<ApiFunction> {
 			kind: ApiKind::Mutation,
 			..api_function("clear_done", "POST", HttpInput::Json)
 		},
+		// An action is a one-shot call too, but never sent with an
+		// idempotency key: it isn't safe to repeat.
+		ApiFunction {
+			kind: ApiKind::Action,
+			docs: "Summarizes the open todos with an outside service.".to_owned(),
+			params: vec![param(
+				"style",
+				"How to write it.",
+				json!({ "type": "string" }),
+				true,
+			)],
+			output_schema: json!({ "type": "string" }),
+			..api_function("summarize_todos", "POST", HttpInput::Json)
+		},
 	]
 }
 

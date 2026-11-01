@@ -1,0 +1,54 @@
+---
+source: crates/leptoskit_rpc_macros/src/tests.rs
+expression: server
+---
+/// Summarizes a channel.
+#[derive(
+    ::core::clone::Clone,
+    ::leptoskit_rpc::__private::serde::Serialize,
+    ::leptoskit_rpc::__private::serde::Deserialize,
+    ::leptoskit_rpc::__private::schemars::JsonSchema,
+)]
+#[serde(crate = ":: leptoskit_rpc :: __private :: serde")]
+#[schemars(crate = ":: leptoskit_rpc :: __private :: schemars")]
+pub struct Summarize {
+    pub channel: String,
+}
+const _: () = {
+    #[allow(dead_code)]
+    fn __check() {
+        ::leptoskit_rpc::__private::assert_argument::<String>();
+        ::leptoskit_rpc::__private::assert_output::<String>();
+    }
+};
+/// Summarizes a channel.
+#[allow(clippy::unused_async)]
+pub async fn summarize(cx: &rpc::ActionCx, channel: String) -> rpc::Result<String> {
+    Ok(channel)
+}
+#[allow(deprecated)]
+impl ::leptoskit_rpc::Operation for Summarize {
+    const NAME: &'static str = "summarize";
+    const KIND: ::leptoskit_rpc::Kind = ::leptoskit_rpc::Kind::Action;
+    type Output = String;
+    type Context = ::leptoskit_rpc::ActionCx;
+    fn run(
+        self,
+        cx: &::leptoskit_rpc::ActionCx,
+    ) -> impl ::core::future::Future<
+        Output = ::leptoskit_rpc::Result<Self::Output>,
+    > + ::core::marker::Send {
+        let Self { channel } = self;
+        summarize(cx, channel)
+    }
+}
+::leptoskit_rpc::__require_db!();
+#[allow(deprecated)]
+const _: () = {
+    ::leptoskit_rpc::__private::inventory::submit! {
+        ::leptoskit_rpc::server::Registration { name : < Summarize as
+        ::leptoskit_rpc::Operation > ::NAME, kind : < Summarize as
+        ::leptoskit_rpc::Operation > ::KIND, module_path : ::core::module_path!(),
+        handler : ::leptoskit_rpc::__private::handle:: < Summarize >, }
+    }
+};

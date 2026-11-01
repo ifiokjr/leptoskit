@@ -32,9 +32,11 @@ use std::sync::PoisonError;
 use std::sync::RwLock;
 
 use leptoskit_query::BoxFuture;
+use leptoskit_query::MutationHandle;
 use leptoskit_query::MutationScope;
 use leptoskit_query::QueryHandle;
 use leptoskit_query::QueryScope;
+use leptoskit_query::use_mutation;
 use leptoskit_query::use_query;
 use serde_json::Value;
 
@@ -381,8 +383,9 @@ where
 		.with_ssr()
 }
 
-/// A background job's state, polled every second while the component is
-/// mounted.
+/// A background job's state: live over the app's socket when it has one,
+/// so each step and progress update arrives as it's written, and otherwise
+/// polled every second while the component is mounted.
 ///
 /// ```ignore
 /// let invite = use_job(move || invite_id.get().to_string());
@@ -393,12 +396,62 @@ where
 pub fn use_job(
 	id: impl Fn() -> String + Send + Sync + 'static,
 ) -> QueryHandle<crate::jobs::JobStatus, FnError> {
+	if live::available() {
+		return use_live(move || crate::jobs::JobStatusArgs { id: id() });
+	}
 	let scope = QueryScope::new(|args: Args<crate::jobs::JobStatusArgs>| call(args.into_inner()))
 		.with_name("rpc:job_status")
 		.with_refetch_interval(std::time::Duration::from_secs(1));
 	use_query(scope, move || {
 		Args::new(crate::jobs::JobStatusArgs { id: id() })
 	})
+}
+
+/// The signed-in person's inbox, newest first, live on every device they
+/// have open, with the actions that clear it.
+///
+/// ```ignore
+/// let inbox = use_inbox();
+/// let unread = move || inbox.notices.data().map_or(0, |inbox| inbox.unread);
+/// inbox.mark_read(notice.id.clone());
+/// inbox.mark_all_read();
+/// ```
+#[cfg(any(not(feature = "server"), feature = "postgres", feature = "sqlite"))]
+#[track_caller]
+pub fn use_inbox() -> InboxHandle {
+	InboxHandle {
+		notices: use_live(|| crate::inbox::InboxArgs { limit: 50 }),
+		read: use_mutation(mutation_scope::<crate::inbox::MarkRead>()),
+		all_read: use_mutation(mutation_scope::<crate::inbox::MarkAllRead>()),
+	}
+}
+
+/// What [`use_inbox`] returns.
+#[cfg(any(not(feature = "server"), feature = "postgres", feature = "sqlite"))]
+pub struct InboxHandle {
+	/// The newest fifty notices and the unread count, as one query, so the
+	/// badge never disagrees with the list.
+	pub notices: QueryHandle<crate::inbox::Inbox, FnError>,
+	read: MutationHandle<crate::inbox::MarkRead, (), FnError>,
+	all_read: MutationHandle<crate::inbox::MarkAllRead, u64, FnError>,
+}
+
+#[cfg(any(not(feature = "server"), feature = "postgres", feature = "sqlite"))]
+impl InboxHandle {
+	/// How many notices are unread, once the inbox has loaded.
+	pub fn unread(&self) -> u64 {
+		self.notices.data().map_or(0, |inbox| inbox.unread)
+	}
+
+	/// Marks notice `id` read.
+	pub fn mark_read(&self, id: impl Into<String>) {
+		self.read.mutate(crate::inbox::MarkRead { id: id.into() });
+	}
+
+	/// Marks every notice read.
+	pub fn mark_all_read(&self) {
+		self.all_read.mutate(crate::inbox::MarkAllRead {});
+	}
 }
 
 /// A query's result, as a query handle that refetches when the arguments
@@ -439,4 +492,32 @@ where
 	M::Output: Clone,
 {
 	MutationScope::new(|op: M| call(op)).with_name(&format!("rpc:{}", M::NAME))
+}
+
+/// The `leptoskit_query` scope of an action, named `rpc:<name>`: run it with
+/// `mutate`, and read whether it's pending and what it returned. An action
+/// is never sent twice, since it isn't safe to repeat.
+pub fn action_scope<A>() -> MutationScope<A, A::Output, FnError>
+where
+	A: Operation,
+	A::Output: Clone,
+{
+	MutationScope::new(|op: A| call(op)).with_name(&format!("rpc:{}", A::NAME))
+}
+
+/// An action, ready to run from a screen: `.mutate(args)` runs it once, and
+/// `.is_pending()` and `.data()` follow it.
+///
+/// ```ignore
+/// let summarize = use_action::<SummarizeChannel>();
+/// summarize.mutate(SummarizeChannel { channel });
+/// let summary = move || summarize.data();
+/// ```
+#[track_caller]
+pub fn use_action<A>() -> MutationHandle<A, A::Output, FnError>
+where
+	A: Operation,
+	A::Output: Clone,
+{
+	use_mutation(action_scope::<A>())
 }

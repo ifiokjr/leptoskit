@@ -1,0 +1,19 @@
+error[E0277]: `GaveUp` can't be the `on_failure` of `Settle`
+  --> tests/ui/job_on_failure_wrong_mutation.rs:4:25
+   |
+ 4 | #[rpc::job(on_failure = gave_up)]
+   |                         ^^^^^^^ not a mutation taking `rpc::Failed<Settle>`
+   |
+help: the trait `From<leptoskit_rpc::Failed<Settle>>` is not implemented for `GaveUp`
+  --> tests/ui/job_on_failure_wrong_mutation.rs:11:1
+   |
+11 | #[rpc::mutation]
+   | ^^^^^^^^^^^^^^^^
+   = note: an `on_failure` mutation takes one argument, `job: rpc::Failed<Settle>`, and is declared with #[rpc::mutation]
+   = note: required for `GaveUp` to implement `OnFailure<Settle>`
+note: required by a bound in `leptoskit_rpc::server::jobs::fail_job`
+  --> src/server/jobs/mod.rs
+   |
+   | pub fn fail_job<J: Job, M: OnFailure<J>>(run: FailureRun) -> BoxFuture<'static, Result<()>> {
+   |                            ^^^^^^^^^^^^ required by this bound in `fail_job`
+   = note: this error originates in the attribute macro `rpc::mutation` (in Nightly builds, run with -Z macro-backtrace for more info)

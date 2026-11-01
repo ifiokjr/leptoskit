@@ -1,0 +1,19 @@
+---
+source: crates/leptoskit_rpc_macros/src/tests.rs
+expression: server
+---
+#[rpc::job]
+pub async fn tidy(cx: &rpc::JobCx) -> rpc::Result<()> {
+    Ok(())
+}
+#[allow(deprecated)]
+const _: () = {
+    ::leptoskit_rpc::__private::inventory::submit! {
+        ::leptoskit_rpc::server::jobs::cron::CronRegistration { name : < Tidy as
+        ::leptoskit_rpc::Job > ::NAME, expression : "*/15 * * * *", schedule :
+        ::leptoskit_rpc::server::jobs::cron::Schedule { minutes : 35185445863425u64,
+        hours : 16777215u32, days : 4294967294u32, months : 8190u16, weekdays : 127u8,
+        any_day : true, any_weekday : true, }, enqueue : | db, key, tick | {
+        ::leptoskit_rpc::__private::enqueue_tick(Tidy {}, db, key, tick) }, }
+    }
+};

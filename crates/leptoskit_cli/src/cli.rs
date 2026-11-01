@@ -320,6 +320,12 @@ pub enum Command {
 		#[command(subcommand)]
 		command: crate::db::DbCommand,
 	},
+	/// Lists, retries, and cancels background jobs in a database: `jobs
+	/// list`, `jobs retry <id>`, and `jobs cancel <id>`.
+	Jobs {
+		#[command(subcommand)]
+		command: crate::jobs::JobsCommand,
+	},
 	/// Checks sign-in's configuration, rotates its keys, adds third-party
 	/// providers, and registers the apps that may sign people in with yours.
 	///
@@ -722,6 +728,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		Command::Routes { check } => routes::command(check),
 		Command::L10n { check } => l10n::command(check),
 		Command::Db { command } => crate::db::run(command),
+		Command::Jobs { command } => crate::jobs::run(command),
 		Command::Auth { command } => crate::auth_command::run(command),
 		Command::Codepush { command } => codepush::run(command),
 		Command::Doctor => doctor::run(),
