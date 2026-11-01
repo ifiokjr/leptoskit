@@ -103,6 +103,11 @@ pub enum UpdateStatus {
 	Staged,
 }
 
+/// How many rejected releases to remember. A registry only re-offers its
+/// newest release, so only recency matters, and the oldest remembered
+/// rejection names a release the device will never be offered again.
+const MAX_REJECTED: usize = 64;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct State {
@@ -489,6 +494,12 @@ impl InstalledBundles {
 
 	fn reject_release(&mut self, release: String) {
 		if !self.state.rejected.contains(&release) {
+			// The list is bounded: state a publisher cannot shrink is state
+			// a device carries forever, and the oldest entry is the one the
+			// registry can no longer offer.
+			if self.state.rejected.len() >= MAX_REJECTED {
+				self.state.rejected.remove(0);
+			}
 			self.state.rejected.push(release);
 		}
 

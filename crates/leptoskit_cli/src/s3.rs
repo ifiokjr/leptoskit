@@ -94,10 +94,21 @@ impl S3Bucket {
 
 	/// A bucket at `location`, signing with `credentials`.
 	pub fn new(location: &S3Location, credentials: Credentials) -> Result<Self> {
-		let endpoint = location
+		let endpoint: url::Url = location
 			.endpoint
 			.parse()
 			.with_context(|| format!("{} is not a valid endpoint URL", location.endpoint))?;
+		if endpoint.scheme() != "https" {
+			// Presigned requests authenticate the request line, not the
+			// payload, so a plain-http endpoint leaves uploads open to a
+			// network attacker. Every reader verifies what it downloads,
+			// so the damage is a failed release, not a bad one; this
+			// mirrors `codepush.allow_http`'s friction and says so.
+			eprintln!(
+				"[codepush] endpoint {} is not https, so uploads can be tampered with in flight",
+				location.endpoint
+			);
+		}
 		let style = if location.path_style {
 			UrlStyle::Path
 		} else {

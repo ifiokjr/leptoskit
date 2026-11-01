@@ -403,8 +403,11 @@ impl Auth {
 		self.password_options()?;
 		let address = Email::parse(address).map_err(|_| AuthError::InvalidEmail)?;
 		let password = self.check_new_password(password, Some(&address)).await?;
-		let hash = hashing::hash(&password).await?;
 		let challenge = self.check_email_code(&address, code, request).await?;
+		// Argon2 runs only after the code check's rate limits have passed:
+		// the reset endpoint is unauthenticated, so the expensive hash must
+		// not be reachable without paying for a guess.
+		let hash = hashing::hash(&password).await?;
 		let tx = self.inner.db.begin().await?;
 		let result = async {
 			self.claim_code(&tx, &challenge).await?;

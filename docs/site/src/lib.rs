@@ -54,7 +54,7 @@ pub fn components() -> Components {
 		.with("Hero", |props, children| {
 			let start = props
 				.url("start")
-				.ok_or_else(|| PropError::new("<Hero> needs a `start` link"))?;
+				.ok_or_else(|| PropError::new("<Hero> needs a `start` link"))??;
 			Ok(view! { <Hero start>{children()}</Hero> }.into_any())
 		})
 		.with("Gallery", |_props, children| {
@@ -75,7 +75,7 @@ pub fn components() -> Components {
 		.with("Logo", |props, _children| {
 			let src = props
 				.url("src")
-				.ok_or_else(|| PropError::new("<Logo> needs a `src` image"))?;
+				.ok_or_else(|| PropError::new("<Logo> needs a `src` image"))??;
 			let label = props.require("label")?.to_owned();
 			let ink = props.parse("ink")?.unwrap_or(false);
 			Ok(view! { <Logo src label ink /> }.into_any())
@@ -106,7 +106,7 @@ fn Hero(start: String, children: Children) -> impl IntoView {
 fn shot(props: &Props<'_>, children: Children) -> Result<AnyView, PropError> {
 	let src = props
 		.url("src")
-		.ok_or_else(|| PropError::new("<Shot> needs a `src` image"))?;
+		.ok_or_else(|| PropError::new("<Shot> needs a `src` image"))??;
 	let alt = props.require("alt")?.to_owned();
 	let title = props.require("title")?.to_owned();
 	let wide = props.parse("wide")?.unwrap_or(false);

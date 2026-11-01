@@ -31,6 +31,7 @@ use crate::durable;
 use crate::layout::ChannelIndex;
 use crate::layout::INDEX_FORMAT_VERSION;
 use crate::layout::ObjectKey;
+use crate::layout::ObjectKind;
 use crate::layout::encode_component;
 use crate::manifest::BundleManifest;
 use crate::manifest::hash_bytes;
@@ -250,6 +251,14 @@ impl<T: Transport> CodePushClient<T> {
 			Err(CodePushError::NotFound(_)) => return Ok(UpdatePlan::UpToDate),
 			Err(error) => return Err(error),
 		};
+		// The transport bounds the wire for every kind at once; the index
+		// has the tighter bound of its own, and it is parsed on every check.
+		if body.len() as u64 > ObjectKind::Index.max_bytes() {
+			return Err(CodePushError::Malformed(format!(
+				"channel index exceeds {} bytes",
+				ObjectKind::Index.max_bytes()
+			)));
+		}
 		let index: ChannelIndex = serde_json::from_slice(&body)?;
 		if index.format_version != INDEX_FORMAT_VERSION {
 			return Err(CodePushError::UnsupportedFormatVersion(

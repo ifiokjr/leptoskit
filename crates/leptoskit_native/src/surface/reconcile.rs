@@ -217,8 +217,12 @@ impl<B: NativeBackend> NativeSurface<B> {
 		}
 		self.yoga.set_style(id, element.style.clone());
 
-		let old_children = self.shadows[id.index()].children.clone();
+		// The snapshot lives in scratch space reused across commits, so
+		// walking an unchanged tree allocates nothing.
+		let mut old_children = std::mem::take(&mut self.scratch_children);
+		old_children.clone_from(&self.shadows[id.index()].children);
 		self.reconcile_children(id, &old_children, &element.children, out);
+		self.scratch_children = old_children;
 		id
 	}
 

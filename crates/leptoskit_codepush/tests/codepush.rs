@@ -1050,6 +1050,20 @@ fn signatures_forged_under_a_trusted_key_are_rejected() {
 }
 
 #[test]
+fn oversized_channel_indexes_are_refused_without_parsing() {
+	let result = sync_offer((Version::new(0, 9, 0), 1), |offer| {
+		// Padding past the index kind's own bound must be refused before
+		// the document is parsed, so a hostile registry cannot make a
+		// device buffer and parse an index of bundle size.
+		offer.manifest.app = "a".repeat(ObjectKind::Index.max_bytes() as usize);
+	});
+	assert!(
+		matches!(result, Err(CodePushError::Malformed(_))),
+		"got {result:?}"
+	);
+}
+
+#[test]
 fn manifests_tampered_after_signing_are_rejected() {
 	for tamper in [
 		|offer: &mut ChannelIndex| offer.manifest.mandatory = !offer.manifest.mandatory,

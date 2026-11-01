@@ -1104,9 +1104,7 @@ mod tests {
 		local
 			.run_until(async {
 				let socket = Memory::default();
-				eprintln!("DEBUG before new");
 				let client = LiveClient::new(&ClientConfig::new(), Arc::new(socket.clone()));
-				eprintln!("DEBUG after new");
 
 				assert!(matches!(
 					socket.next_sent().await,

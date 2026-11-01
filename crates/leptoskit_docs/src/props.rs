@@ -120,10 +120,29 @@ impl<'a> Props<'a> {
 	///
 	/// Pass every URL a component renders through here rather than
 	/// [`Props::get`]: links to `.md` files are rewritten to the pages built
-	/// from them, and a [`Site`](crate::Site) checks the target exists.
-	pub fn url(&self, name: &str) -> Option<String> {
+	/// from them, a [`Site`](crate::Site) checks the target exists, and the
+	/// scheme is held to links a page may navigate to, so a stray
+	/// `javascript:` value cannot reach the published site.
+	pub fn url(&self, name: &str) -> Option<Result<String, PropError>> {
 		let url = self.get(name)?;
-		Some(self.links.record(url, self.line, self.column))
+		// A colon before any separator names a scheme; anything else is a
+		// relative link or a fragment, which a page may navigate to.
+		let scheme = url
+			.split(['/', '?', '#'])
+			.next()
+			.and_then(|start| start.split_once(':').map(|(scheme, _)| scheme));
+		if scheme.is_some_and(|scheme| {
+			!matches!(
+				scheme.to_ascii_lowercase().as_str(),
+				"http" | "https" | "mailto"
+			)
+		}) {
+			return Some(Err(PropError::new(format!(
+				"`{name}=\"{url}\"` on <{}> is not an http, https, mailto, or relative link",
+				self.component
+			))));
+		}
+		Some(Ok(self.links.record(url, self.line, self.column)))
 	}
 
 	pub(crate) fn unread(&self) -> impl Iterator<Item = &str> {
