@@ -970,6 +970,12 @@ in
         cargo build --locked --target wasm32-unknown-unknown --package hooks_guest_probe
         LEPTOSKIT_HOOKS_GUEST="$(pwd)/target/wasm32-unknown-unknown/debug/hooks_guest_probe.wasm" \
           cargo test --locked --package leptoskit_wasm --test hooks_guest -- --ignored
+        # The same guest with DevTools, in a real app reporting to a fake
+        # hub. Its own target directory keeps the build above as it is.
+        cargo build --locked --target wasm32-unknown-unknown --package hooks_guest_probe \
+          --features devtools --target-dir target/devtools-guest
+        LEPTOSKIT_DEVTOOLS_GUEST="$(pwd)/target/devtools-guest/wasm32-unknown-unknown/debug/hooks_guest_probe.wasm" \
+          cargo test --locked --package leptoskit_bridge_ffi --features devtools --test devtools_guest -- --ignored
       '';
       description = "Run compiled Rust plugin and hooks guests through the interpreter.";
       binary = "bash";

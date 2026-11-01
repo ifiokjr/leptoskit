@@ -190,7 +190,9 @@ mod agent {
 				Capability::Profiling,
 			],
 		);
-		Reporter::start(hub, hello)
+		// Each app's guest reports its own values through the `DevTools`
+		// plugin, and says what it feeds before the session opens.
+		Reporter::with_guests(hub, hello)
 			.inspect_err(|error| eprintln!("leptoskit devtools: cannot start reporting: {error}"))
 			.ok()
 	}

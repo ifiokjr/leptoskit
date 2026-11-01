@@ -47,12 +47,12 @@ With `app` enabled, `lk_app_create_with_context` loads a guest bundle into the i
 
 ## Features
 
-| Feature      | What it adds                                                                                                                            |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| _(default)_  | The `lk_bridge_*` plugin ABI only; depends on `leptoskit_bridge`.                                                                       |
-| `app`        | The application runtime: `leptoskit_wasm`, `leptoskit_native`, `leptoskit_yoga`, `leptoskit_codepush`, and the AppKit or UIKit backend. |
-| `async-host` | Implies `app`. Runs async plugin jobs on a Tokio runtime with cancellation (`leptoskit_bridge/async-host`).                             |
-| `devtools`   | Implies `app`. Reports each app to the DevTools hub that `leptoskit dev` runs (`lk_devtools_*`); only `leptoskit dev` turns it on.      |
+| Feature      | What it adds                                                                                                                                                                                                         |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _(default)_  | The `lk_bridge_*` plugin ABI only; depends on `leptoskit_bridge`.                                                                                                                                                    |
+| `app`        | The application runtime: `leptoskit_wasm`, `leptoskit_native`, `leptoskit_yoga`, `leptoskit_codepush`, and the AppKit or UIKit backend.                                                                              |
+| `async-host` | Implies `app`. Runs async plugin jobs on a Tokio runtime with cancellation (`leptoskit_bridge/async-host`).                                                                                                          |
+| `devtools`   | Implies `app` and `async-host`. Reports each app to the DevTools hub that `leptoskit dev` runs (`lk_devtools_*`), with its guest's values through the `leptoskit.devtools` plugin; only `leptoskit dev` turns it on. |
 
 Generated apps depend on this crate with `app` through the `leptoskit_bridge_ffi` entry the scaffold writes into their `Cargo.toml`; app authors do not add it themselves.
 

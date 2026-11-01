@@ -104,7 +104,7 @@ When something looks wrong in an app running under `leptoskit dev`, read the app
 1. `devtools_sessions` lists the running apps and their platforms.
 2. `inspect_tree` (with `depth`, and `root` to look inside one node) shows each node's kind, text, classes, frame, and the source line that built it. Use the frame and the source line to find the code to change.
 3. `inspect_node` and `explain_styles` give one node's details and the Tailwind classes styling it.
-4. `query_cache` shows what data the screen has; `navigate` opens a route; `set_state` changes named state the app exposes to the devtools; `highlight` with `all_sessions` marks the same node on every platform.
+4. `query_cache` shows what data the screen has; `navigate` opens a route; `set_state` changes named state the app exposes to the devtools (with `leptoskit::devtools::expose`, which reports from web and native apps alike); `highlight` with `all_sessions` marks the same node on every platform.
 
 Pass `session` (an id, `web`, `ios`, … or the app name) when more than one app is running. "No hub is running" means start `leptoskit dev` first.
 

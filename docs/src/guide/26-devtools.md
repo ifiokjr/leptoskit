@@ -94,7 +94,26 @@ pub fn App() -> impl leptos::prelude::IntoView {
 
 A query's data is shown and edited through the codec its scope uses for server rendering, so give the scope `.with_ssr()` to see its data. A query without one still shows its status, and its value says why the data is missing. An exposed signal's type needs `Serialize` and `Deserialize`.
 
-DevTools reads these values once your app has settled, not while it renders, and sends only what changed. These calls report from browser apps today. In iOS, Android, and desktop apps they compile and do nothing yet.
+DevTools reads these values once your app has settled, not while it renders, and sends only what changed.
+
+The same calls report from the macOS, iOS, and Android apps `leptoskit dev` runs, so one line covers every platform. Make them where your native entry point builds the app, as you do in the browser component. Commonplace, for example, shows its route and its store on the web and in its macOS app:
+
+```rust
+#[unsafe(no_mangle)]
+pub extern "C" fn leptoskit_main() {
+	#[cfg(feature = "devtools")]
+	leptoskit::devtools::install(env!("CARGO_PKG_NAME"));
+	let navigation = routes::Navigation::new(routes::Route::Library);
+	#[cfg(feature = "devtools")]
+	{
+		leptoskit::devtools::track_router(&navigation);
+		store::Store::current().expose();
+	}
+	leptoskit::guest::mount(move || navigation.render());
+}
+```
+
+In a native app the values join the element tree in the app's one session, and **Navigate**, editing state, and the query buttons work the same way: the app applies the change and draws the result. When `leptoskit dev` reloads the interface after a code change, the panels show the new interface's values, starting over like the rest of its state, rather than keeping the old ones. A native app needs no `install` call for the hooks themselves, which start reporting on their own; `install` only matters before the first hook runs.
 
 ## The same element on every platform
 
@@ -126,6 +145,6 @@ It is kept in your cache folder: `~/.cache/leptoskit/devtools/<version>/`, or un
 The hub, the page, and `leptoskit devtools fetch` work today. The panel for Chrome, Edge, and Firefox is built, and isn't in their extension stores yet. `leptoskit dev` builds your web page and your macOS, iOS, and Android apps with DevTools turned on, so each one it runs reports itself to the hub. Release builds never include DevTools. Each platform reports:
 
 - **Web:** the element tree with each element's component, frames, classes, picking, and highlighting, and the route, queries, mutations, forms, and state your app hands over.
-- **macOS, iOS, and Android:** the element tree, with each element's kind, classes, text, frame, and the line that built it (but not yet its component), and every render in the Commits panel, timed while you profile. **Pick** takes your next tap on a button or another control, and the app never receives that tap; elements that don't respond to taps can't be picked yet. Selecting an element doesn't draw a highlight inside the app yet, and the Styles panel lists a native element's classes without the CSS they resolved to. The route, queries, forms, and state come later. On Android, `leptoskit dev` forwards the hub's port to the emulator or USB device, so it reaches the hub on your machine.
+- **macOS, iOS, and Android:** the element tree, with each element's kind, classes, text, frame, and the line that built it (but not yet its component), and every render in the Commits panel, timed while you profile. **Pick** takes your next tap on a button or another control, and the app never receives that tap; elements that don't respond to taps can't be picked yet. Selecting an element doesn't draw a highlight inside the app yet, and the Styles panel lists a native element's classes without the CSS they resolved to. The route, queries, mutations, forms, and state your app hands over appear as on the web, and can be navigated and edited. On Android, `leptoskit dev` forwards the hub's port to the emulator or USB device, so it reaches the hub on your machine.
 - **Windows, Linux, the terminal, and HarmonyOS (experimental):** not yet.
 - **Calls** appear as each part of leptoskit starts reporting them; until then the Calls panel says the app doesn't report them.

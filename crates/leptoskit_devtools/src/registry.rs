@@ -10,18 +10,21 @@
 //! changes costs one value each, and the registry never grows past one entry
 //! per value the app shows.
 //!
-//! The agent is a [`Sink`]. The web agent installs itself when it starts; a
-//! native guest's bridge plugin can install another without changing a
-//! hook.
+//! The agent is a [`Sink`]. The web agent installs itself when it starts,
+//! and a native guest's agent when the host offers the `DevTools` plugin; the
+//! hooks don't change.
 //!
 //! The registry is per thread: hooks and agents run on the app's UI thread,
 //! and wasm has only that one. A callback that fires on another thread finds
 //! that thread's registry, which no agent drains.
 
-// The agent that drains the registry runs only in the browser so far; a
-// native guest's will use the same calls.
+// The agents that drain the registry run in the browser and in native
+// guests; the host's reporter reuses its slots and events.
 #![cfg_attr(
-	not(any(test, all(feature = "web", target_arch = "wasm32"))),
+	not(any(
+		test,
+		all(any(feature = "web", feature = "guest"), target_arch = "wasm32")
+	)),
 	allow(dead_code)
 )]
 
@@ -80,7 +83,7 @@ pub(crate) enum Slot {
 
 /// A value as the hub was last sent it.
 #[derive(Clone, Debug, PartialEq)]
-enum Reported {
+pub(crate) enum Reported {
 	Route(String),
 	Value(Value),
 }
@@ -173,8 +176,14 @@ pub(crate) fn install(sink: Rc<dyn Sink>) {
 
 /// Whether hooks should register anything: an agent is installed, or this
 /// build will start one. Without either, every hook does nothing.
+///
+/// A native guest starts its agent here, on the first hook, when its host
+/// offers the `DevTools` plugin, so it needs no `install` call first.
 pub(crate) fn active() -> bool {
-	WEB_AGENT || SINK.with_borrow(Option::is_some)
+	let installed = WEB_AGENT || SINK.with_borrow(Option::is_some);
+	#[cfg(all(feature = "guest", target_arch = "wasm32"))]
+	let installed = installed || crate::guest::start();
+	installed
 }
 
 /// What a session with these hooks can feed and accept, whether or not the
@@ -315,33 +324,74 @@ pub(crate) fn snapshot(tree: Tree) -> Snapshot {
 		calls: Vec::new(),
 		rpc: Vec::new(),
 	};
-	REGISTRY.with_borrow(|registry| {
-		for (slot, reported) in &registry.reported {
-			let named = |name: &String, value: &Value| {
-				NamedValue {
-					name: name.clone(),
-					value: value.clone(),
-				}
-			};
-			match (slot, reported) {
-				(Slot::Route, Reported::Route(route)) => snapshot.route = Some(route.clone()),
-				(Slot::Query(key), Reported::Value(value)) => {
-					snapshot.queries.push(named(key, value));
-				}
-				(Slot::Mutation(key), Reported::Value(value)) => {
-					snapshot.mutations.push(named(key, value));
-				}
-				(Slot::Form(name), Reported::Value(value)) => {
-					snapshot.forms.push(named(name, value));
-				}
-				(Slot::State(name), Reported::Value(value)) => {
-					snapshot.state.push(named(name, value));
-				}
-				_ => {}
-			}
-		}
-	});
+	REGISTRY.with_borrow(|registry| fill(&mut snapshot, &registry.reported));
 	snapshot
+}
+
+/// Puts `values` in the snapshot's route and value lists.
+pub(crate) fn fill(snapshot: &mut Snapshot, values: &BTreeMap<Slot, Reported>) {
+	for (slot, reported) in values {
+		let named = |name: &String, value: &Value| {
+			NamedValue {
+				name: name.clone(),
+				value: value.clone(),
+			}
+		};
+		match (slot, reported) {
+			(Slot::Route, Reported::Route(route)) => snapshot.route = Some(route.clone()),
+			(Slot::Query(key), Reported::Value(value)) => {
+				snapshot.queries.push(named(key, value));
+			}
+			(Slot::Mutation(key), Reported::Value(value)) => {
+				snapshot.mutations.push(named(key, value));
+			}
+			(Slot::Form(name), Reported::Value(value)) => {
+				snapshot.forms.push(named(name, value));
+			}
+			(Slot::State(name), Reported::Value(value)) => {
+				snapshot.state.push(named(name, value));
+			}
+			_ => {}
+		}
+	}
+}
+
+/// The events that report every value in `snapshot`, the inverse of
+/// [`fill`].
+pub(crate) fn values(snapshot: Snapshot) -> Vec<Event> {
+	let named = |values: Vec<NamedValue>, slot: fn(String) -> Slot| {
+		values
+			.into_iter()
+			.filter_map(move |named| event(&slot(named.name), &Reported::Value(named.value)))
+	};
+	snapshot
+		.route
+		.map(|route| Event::RouteChanged { route })
+		.into_iter()
+		.chain(named(snapshot.queries, Slot::Query))
+		.chain(named(snapshot.mutations, Slot::Mutation))
+		.chain(named(snapshot.forms, Slot::Form))
+		.chain(named(snapshot.state, Slot::State))
+		.collect()
+}
+
+/// Where a value event goes in the session view, and its value; `None` for
+/// an event that isn't a value. The host's reporter keeps guests' values by
+/// it.
+#[cfg_attr(
+	not(all(feature = "host", not(target_arch = "wasm32"))),
+	allow(dead_code)
+)]
+pub(crate) fn slot_of(event: Event) -> Option<(Slot, Reported)> {
+	let slot = match event {
+		Event::RouteChanged { route } => return Some((Slot::Route, Reported::Route(route))),
+		Event::QueryChanged { key, value } => (Slot::Query(key), value),
+		Event::MutationChanged { key, value } => (Slot::Mutation(key), value),
+		Event::FormChanged { name, value } => (Slot::Form(name), value),
+		Event::StateChanged { name, value } => (Slot::State(name), value),
+		_ => return None,
+	};
+	Some((slot.0, Reported::Value(slot.1)))
 }
 
 /// Applies a command to the source it addresses, and marks that source
@@ -435,7 +485,8 @@ impl Registry {
 	}
 }
 
-fn event(slot: &Slot, value: &Reported) -> Option<Event> {
+/// The event that reports `value` in `slot`.
+pub(crate) fn event(slot: &Slot, value: &Reported) -> Option<Event> {
 	let event = match (slot, value) {
 		(Slot::Route, Reported::Route(route)) => {
 			Event::RouteChanged {

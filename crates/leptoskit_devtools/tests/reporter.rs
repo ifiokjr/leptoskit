@@ -1,5 +1,6 @@
 //! The native reporter against a hub on an ephemeral port: sessions,
-//! snapshots, patches, commits, commands, and reconnecting.
+//! snapshots, patches, commits, commands, reconnecting, and the values a
+//! guest reports beside its tree.
 
 #![cfg(all(feature = "host", not(target_arch = "wasm32")))]
 
@@ -17,6 +18,7 @@ use std::time::Instant;
 use leptoskit_devtools::Batch;
 use leptoskit_devtools::Change;
 use leptoskit_devtools::CommitRecord;
+use leptoskit_devtools::Guest;
 use leptoskit_devtools::Reporter;
 use leptoskit_devtools_protocol::Capability;
 use leptoskit_devtools_protocol::Command;
@@ -29,7 +31,9 @@ use leptoskit_devtools_protocol::Platform;
 use leptoskit_devtools_protocol::Snapshot;
 use leptoskit_devtools_protocol::SourceLocation;
 use leptoskit_devtools_protocol::TreeOp;
+use leptoskit_devtools_protocol::Value;
 use leptoskit_native::NativeKind;
+use serde_json::json;
 
 /// How long a test waits for the reporter before failing.
 const PATIENCE: Duration = Duration::from_secs(10);
@@ -530,4 +534,199 @@ fn a_reloaded_guest_keeps_the_session_and_sends_a_snapshot_once_it_renders() {
 		"{ops:?}"
 	);
 	assert_eq!(hub.shared.state.lock().unwrap().hellos.len(), 1);
+}
+
+fn store(count: u64) -> Event {
+	Event::StateChanged {
+		name: "store".into(),
+		value: Value::from_json("Store", json!({ "count": count })),
+	}
+}
+
+fn set_store(count: u64) -> Command {
+	Command::SetState {
+		name: "store".into(),
+		value: Value::from_json("Store", json!({ "count": count })),
+	}
+}
+
+fn navigated(route: &str) -> Event {
+	Event::RouteChanged {
+		route: route.into(),
+	}
+}
+
+/// The values sent after the first snapshot.
+fn values(hub: &Hub) -> Vec<Event> {
+	let state = hub.shared.state.lock().unwrap();
+	state
+		.events
+		.iter()
+		.map(|(_, event)| event)
+		.filter(|event| leptoskit_plugin_devtools::is_value(event))
+		.cloned()
+		.collect()
+}
+
+/// The commands a guest received, as the `DevTools` plugin's inbox would.
+fn commands(guest: &Guest) -> Arc<Mutex<Vec<Command>>> {
+	let received = Arc::new(Mutex::new(Vec::new()));
+	let sink = Arc::clone(&received);
+	guest.on_command(move |command| sink.lock().unwrap().push(command));
+	received
+}
+
+#[test]
+fn a_guests_values_join_its_tree_in_one_session() {
+	let hub = Hub::start();
+	let reporter = Reporter::with_guests(&hub.url, hello()).unwrap();
+	let source = reporter.source();
+	let guest = source.guest();
+
+	// A guest says what it feeds before it renders, so the session lists it.
+	guest.hello(
+		[
+			Capability::Navigation,
+			Capability::State,
+			Capability::Editing,
+		]
+		.into(),
+	);
+	guest.report(true, vec![navigated("/clips"), store(1)]);
+	source.send(screen(1, "Clips"));
+	let (session, snapshot) = hub.snapshot(0);
+	let hello = hub.shared.state.lock().unwrap().hellos[0].clone();
+	assert!(hello.capabilities.contains(&Capability::Tree));
+	assert!(hello.capabilities.contains(&Capability::State));
+	assert!(hello.capabilities.contains(&Capability::Navigation));
+	assert_eq!(snapshot.route.as_deref(), Some("/clips"));
+	assert_eq!(snapshot.state.len(), 1);
+	assert_eq!(snapshot.state[0].value.json, json!({ "count": 1 }));
+
+	// Later changes are sent as they are, beside the tree's.
+	guest.report(false, vec![store(2)]);
+	hub.wait("the changed state", |state| {
+		state
+			.events
+			.iter()
+			.any(|(_, event)| *event == store(2))
+			.then_some(())
+	});
+	// An unchanged value is not sent again.
+	guest.report(false, vec![store(2), navigated("/clips")]);
+	source.send(retext(2, "Clips again"));
+	hub.wait("the patch after it", |state| {
+		state
+			.events
+			.iter()
+			.any(|(_, event)| matches!(event, Event::TreePatch { .. }))
+			.then_some(())
+	});
+	assert_eq!(values(&hub), [store(2)]);
+
+	// A snapshot the hub asks for carries the values, and the guest is asked
+	// to resend its own.
+	let received = commands(&guest);
+	hub.send(&session, Command::RequestSnapshot);
+	let (_, snapshot) = hub.snapshot(1);
+	assert_eq!(snapshot.state[0].value.json, json!({ "count": 2 }));
+	eventually("the guest's snapshot request", || {
+		*received.lock().unwrap() == [Command::RequestSnapshot]
+	});
+}
+
+#[test]
+fn the_hubs_commands_for_the_guest_reach_it() {
+	let hub = Hub::start();
+	let reporter = Reporter::with_guests(&hub.url, hello()).unwrap();
+	let source = reporter.source();
+	let guest = source.guest();
+	let received = commands(&guest);
+	guest.hello([Capability::State].into());
+	source.send(screen(1, "Clips"));
+	let (session, _) = hub.snapshot(0);
+
+	hub.send(&session, set_store(5));
+	hub.send(
+		&session,
+		Command::Navigate {
+			href: "/settings".into(),
+		},
+	);
+	// The host's own commands stay with the host.
+	hub.send(&session, Command::StartProfiling);
+	eventually("the guest's commands", || {
+		received.lock().unwrap().len() == 2
+	});
+	assert_eq!(
+		*received.lock().unwrap(),
+		[
+			set_store(5),
+			Command::Navigate {
+				href: "/settings".into(),
+			},
+		]
+	);
+	eventually("profiling", || source.profiling());
+
+	// The guest applies them and reports the result.
+	guest.report(false, vec![store(5), navigated("/settings")]);
+	hub.wait("the guest's new values", |state| {
+		let events: Vec<&Event> = state.events.iter().map(|(_, event)| event).collect();
+		(events.contains(&&store(5)) && events.contains(&&navigated("/settings"))).then_some(())
+	});
+}
+
+#[test]
+fn a_reloaded_guest_replaces_the_values_of_the_last() {
+	let hub = Hub::start();
+	let reporter = Reporter::with_guests(&hub.url, hello()).unwrap();
+	let old = reporter.source();
+	old.guest().hello([Capability::State].into());
+	old.guest()
+		.report(true, vec![store(9), navigated("/edited")]);
+	old.send(screen(1, "Old"));
+	let (session, snapshot) = hub.snapshot(0);
+	assert_eq!(snapshot.state[0].value.json, json!({ "count": 9 }));
+
+	// The new guest starts fresh: its first report replaces every value the
+	// old one had, even one it doesn't report at all.
+	let new = reporter.source();
+	drop(old);
+	new.guest().report(true, vec![store(0)]);
+	new.send(screen(10, "New"));
+	let (reloaded, snapshot) = hub.snapshot(1);
+	assert_eq!(reloaded, session);
+	assert_eq!(snapshot.state[0].value.json, json!({ "count": 0 }));
+	assert_eq!(snapshot.route, None, "the old guest's route is gone");
+
+	// A reset that leaves a value out sends a snapshot without it.
+	new.guest().report(false, vec![navigated("/clips")]);
+	hub.wait("the new route", |state| {
+		state
+			.events
+			.iter()
+			.any(|(_, event)| *event == navigated("/clips"))
+			.then_some(())
+	});
+	new.guest().report(true, vec![navigated("/clips")]);
+	let (_, snapshot) = hub.snapshot(2);
+	assert!(snapshot.state.is_empty(), "{:?}", snapshot.state);
+	assert_eq!(snapshot.route.as_deref(), Some("/clips"));
+}
+
+#[test]
+fn a_guest_that_never_says_hello_still_gets_a_session() {
+	let hub = Hub::start();
+	let reporter = Reporter::with_guests(&hub.url, hello()).unwrap();
+	let source = reporter.source();
+	let started = Instant::now();
+	source.send(screen(1, "Clips"));
+	hub.snapshot(0);
+	assert!(
+		started.elapsed() >= Duration::from_millis(400),
+		"the session waited for the guest"
+	);
+	let hello = hub.shared.state.lock().unwrap().hellos[0].clone();
+	assert!(!hello.capabilities.contains(&Capability::State));
 }

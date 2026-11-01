@@ -30,17 +30,24 @@
 //!
 //! On the app's path a hook only notes that something changed. The agent
 //! serializes values in its debounced flush and sends the ones that changed.
-//! The web agent reports them today; in a native guest the hooks compile and
-//! do nothing yet.
+//! On the web that is the web agent. In a native guest it is the `guest`
+//! agent, which sends them through the host's `DevTools` plugin
+//! (`leptoskit_plugin_devtools`); the host merges them into the session it
+//! reports, and passes the hub's commands for them back.
 
 #[cfg(feature = "form")]
 mod form;
+#[cfg(any(test, all(feature = "guest", target_arch = "wasm32")))]
+mod guest;
 #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
 mod host;
 #[cfg(feature = "query")]
 mod query;
 mod registry;
-#[cfg(any(test, all(feature = "web", target_arch = "wasm32")))]
+#[cfg(any(
+	test,
+	all(any(feature = "web", feature = "guest"), target_arch = "wasm32")
+))]
 mod report;
 mod router;
 mod state;
@@ -56,6 +63,8 @@ pub use host::Batch;
 pub use host::Change;
 #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
 pub use host::CommitRecord;
+#[cfg(all(feature = "host", not(target_arch = "wasm32")))]
+pub use host::Guest;
 #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
 pub use host::Highlight;
 #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
@@ -90,11 +99,17 @@ pub const fn hub() -> Option<&'static str> {
 ///
 /// It does nothing in a build without a hub address, or on a platform whose
 /// agent the host starts instead: native hosts report their surface
-/// themselves.
+/// themselves. A native guest starts its agent here when its host offers the
+/// `DevTools` plugin, which only a host `leptoskit dev` built does; the host
+/// names the app, so `app` is unused there. The first hook starts it too, so
+/// a guest needs this call only to report before it calls any hook.
 pub fn install(app: &str) {
 	#[cfg(all(feature = "web", target_arch = "wasm32"))]
 	if let Some(hub) = hub() {
 		web::install(hub, app);
+		return;
 	}
+	#[cfg(all(feature = "guest", target_arch = "wasm32"))]
+	guest::start();
 	let _ = app;
 }

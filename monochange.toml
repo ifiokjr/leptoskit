@@ -148,6 +148,7 @@ packages = [
 	"leptoskit_idp",
 	"leptoskit_extension",
 	"leptoskit_devtools_protocol",
+	"leptoskit_plugin_devtools",
 	"leptoskit_devtools",
 	"leptoskit_l10n",
 	"leptoskit_l10n_codegen",
@@ -469,6 +470,10 @@ type = "cargo"
 
 [package.leptoskit_devtools_protocol]
 path = "crates/leptoskit_devtools_protocol"
+type = "cargo"
+
+[package.leptoskit_plugin_devtools]
+path = "crates/leptoskit_plugin_devtools"
 type = "cargo"
 
 [package.leptoskit_devtools]

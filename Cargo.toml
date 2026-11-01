@@ -192,6 +192,7 @@ leptoskit_plugin_brightness = { path = "crates/leptoskit_plugin_brightness", ver
 leptoskit_plugin_clipboard = { path = "crates/leptoskit_plugin_clipboard", version = "0.1.0" }
 leptoskit_plugin_crypto = { path = "crates/leptoskit_plugin_crypto", version = "0.1.0" }
 leptoskit_plugin_device = { path = "crates/leptoskit_plugin_device", version = "0.1.0" }
+leptoskit_plugin_devtools = { path = "crates/leptoskit_plugin_devtools", version = "0.1.0" }
 leptoskit_plugin_dialog = { path = "crates/leptoskit_plugin_dialog", version = "0.1.0" }
 leptoskit_plugin_document_picker = { path = "crates/leptoskit_plugin_document_picker", version = "0.1.0" }
 leptoskit_plugin_filesystem = { path = "crates/leptoskit_plugin_filesystem", version = "0.1.0" }

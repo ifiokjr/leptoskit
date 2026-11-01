@@ -1,24 +1,34 @@
 //! An app's part of the `DevTools` report: each render's mutations as the
 //! platform receives them, the classes and source locations only the guest
-//! knows, and the surface's commits.
+//! knows, and the surface's commits. The guest's own values (its route,
+//! queries, forms, and named state) arrive through the `DevTools` plugin,
+//! which [`Devtools::plugin`] connects to the same report.
 //!
 //! Everything here runs on the render path, so it only copies what the
 //! mirror needs and hands it to the reporter's thread, which mirrors,
 //! serializes, and sends it.
 
 use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 
 use leptoskit_devtools::Batch;
 use leptoskit_devtools::Change;
 use leptoskit_devtools::CommitRecord;
+use leptoskit_devtools::Guest;
 use leptoskit_devtools::Source;
+use leptoskit_devtools_protocol::Capability;
 use leptoskit_devtools_protocol::HISTORY;
 use leptoskit_native::HeadlessBackend;
 use leptoskit_native::Mutation;
+use leptoskit_plugin_devtools::DevtoolsPlugin;
+use leptoskit_plugin_devtools::Inbox;
+use leptoskit_plugin_devtools::Link;
+use leptoskit_plugin_devtools::Report;
 use leptoskit_wasm::WasmHost;
 use leptoskit_yoga::NodeId;
 
@@ -102,6 +112,17 @@ impl Devtools {
 		}
 	}
 
+	/// The `DevTools` plugin for this app's guest: what the guest reports
+	/// joins the tree in the session, and the hub's commands for the guest
+	/// wait in its open call.
+	pub(super) fn plugin(&self) -> Arc<DevtoolsPlugin> {
+		let guest = self.source.guest();
+		let inbox = Inbox::new();
+		let commands = inbox.clone();
+		guest.on_command(move |command| commands.push(command));
+		Arc::new(DevtoolsPlugin::new(GuestLink(guest), inbox))
+	}
+
 	/// Whether a press on `node` belongs to the hub, which asked to pick a
 	/// node with the next tap. The hub then hears which node it was.
 	pub(super) fn pick(&self, node: NodeId) -> bool {
@@ -163,5 +184,18 @@ impl Devtools {
 			self.profiling = profiling;
 			host.surface_mut().set_profiling(profiling);
 		}
+	}
+}
+
+/// Hands what the guest says to the reporter.
+struct GuestLink(Guest);
+
+impl Link for GuestLink {
+	fn hello(&self, capabilities: BTreeSet<Capability>) {
+		self.0.hello(capabilities);
+	}
+
+	fn report(&self, report: Report) {
+		self.0.report(report.reset, report.events);
 	}
 }

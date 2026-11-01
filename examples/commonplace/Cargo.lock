@@ -2499,7 +2499,10 @@ dependencies = [
  "gloo-net",
  "gloo-timers",
  "js-sys",
+ "leptoskit_bridge",
  "leptoskit_devtools_protocol",
+ "leptoskit_native",
+ "leptoskit_plugin_devtools",
  "leptoskit_router",
  "reactive_graph",
  "serde",
@@ -2626,6 +2629,16 @@ dependencies = [
  "getrandom 0.4.3",
  "leptoskit_bridge",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "leptoskit_plugin_devtools"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_bridge",
+ "leptoskit_devtools_protocol",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
