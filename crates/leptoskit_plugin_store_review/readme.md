@@ -6,6 +6,7 @@ Requests an in-app review through StoreKit on iOS/macOS and Google Play on Andro
 use leptoskit_plugin_store_review::{Availability, guest::StoreReview};
 
 let review = StoreReview::new()?;
+
 if review.availability().await? == Availability::Ready {
     let acceptance = review.request().await?;
     // Accepted acknowledges the platform call. It contains no review outcome.
