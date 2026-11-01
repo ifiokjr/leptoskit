@@ -1,6 +1,6 @@
 //! A real app reporting to a hub on an ephemeral port: the tree it renders,
-//! its commits, the hub's commands, a reloaded guest, and a hub that forgets
-//! the session.
+//! its commits, the hub's commands, what a platform draws for a highlight,
+//! picking by tap, a reloaded guest, and a hub that forgets the session.
 //!
 //! The report is the process's, so this file holds one test that walks
 //! through every step in order.
@@ -23,8 +23,10 @@ use std::time::Instant;
 
 use leptoskit_bridge_ffi::app::*;
 use leptoskit_bridge_ffi::devtools::DevtoolsFrame;
+use leptoskit_bridge_ffi::devtools::lk_devtools_active;
 use leptoskit_bridge_ffi::devtools::lk_devtools_highlight;
 use leptoskit_bridge_ffi::devtools::lk_devtools_hub;
+use leptoskit_bridge_ffi::devtools::lk_devtools_pick;
 use leptoskit_bridge_ffi::devtools::lk_devtools_picking;
 use leptoskit_bridge_ffi::lk_buffer_release;
 use leptoskit_devtools_protocol::Command;
@@ -331,6 +333,19 @@ fn counter_guest() -> String {
 				Some(1),
 				json!({ "text": "Add one", "source": "src/app.rs:12:9" }),
 			),
+			// A layout-only container, which the platform draws no view for.
+			(
+				4,
+				0,
+				Some(1),
+				json!({ "class": "p-2", "source": "src/app.rs:13:9" }),
+			),
+			(
+				5,
+				1,
+				Some(4),
+				json!({ "text": "Nested", "class": "w-20 h-6", "source": "src/app.rs:14:13" }),
+			),
 		],
 		Some((3, 2, counter(1))),
 	)
@@ -374,6 +389,46 @@ fn node<'a>(snapshot: &'a Snapshot, kind: &str) -> &'a Node {
 		.unwrap_or_else(|| panic!("no {kind} in {:?}", snapshot.tree.nodes))
 }
 
+fn by_id<'a>(snapshot: &'a Snapshot, id: &NodeRef) -> &'a Node {
+	snapshot
+		.tree
+		.nodes
+		.iter()
+		.find(|node| &node.id == id)
+		.unwrap_or_else(|| panic!("no {id:?} in {:?}", snapshot.tree.nodes))
+}
+
+/// The hub's highlight, once it names `node`.
+fn highlight_of(node: &Node) -> DevtoolsFrame {
+	let mut found = None;
+	eventually("the highlight", || {
+		found = highlighted().filter(|frame| frame.node as u64 == id(node));
+		found.is_some()
+	});
+	found.unwrap()
+}
+
+/// Taps `(x, y)` in `view`'s child coordinates, as a platform reports it.
+fn tap(view: &Node, x: f32, y: f32) -> i32 {
+	lk_devtools_pick(id(view) as usize, x, y)
+}
+
+/// The `index`th node the hub heard was picked.
+fn picked(hub: &Hub, index: usize) -> (NodeRef, leptoskit_devtools_protocol::MatchKey) {
+	hub.wait(&format!("pick {index}"), |state| {
+		state
+			.events
+			.iter()
+			.filter_map(|(_, event)| {
+				match event {
+					Event::Picked { node, key } => Some((node.clone(), key.clone())),
+					_ => None,
+				}
+			})
+			.nth(index)
+	})
+}
+
 fn id(node: &Node) -> u64 {
 	let NodeRef::Native(id) = node.id else {
 		panic!("a native node: {node:?}");
@@ -396,6 +451,100 @@ fn highlighted() -> Option<DevtoolsFrame> {
 	(unsafe { lk_devtools_highlight(&raw mut frame) } == 1).then_some(frame)
 }
 
+/// What a platform reads to outline a node: a drawn node's own view, and
+/// the nearest drawn ancestor's for a layout-only container.
+fn draws_highlights(hub: &Hub, session: &str, snapshot: &Snapshot) {
+	let root = &snapshot.tree.nodes[0];
+	let container = by_id(snapshot, &root.children[2]);
+	let text = node(snapshot, "Text");
+	// The hub highlights a node, for the platform to draw over.
+	hub.send(
+		session,
+		Command::Highlight {
+			key: text.key.clone(),
+		},
+	);
+	let frame = highlight_of(text);
+	let viewport = text.frame.unwrap();
+	assert_eq!(
+		(frame.x, frame.y, frame.width, frame.height),
+		(viewport.x, viewport.y, viewport.width, viewport.height)
+	);
+	// The platform draws the text, so the outline is the text view's own.
+	assert_eq!(
+		(frame.anchor, frame.anchor_x, frame.anchor_y),
+		(frame.node, 0.0, 0.0)
+	);
+	// SAFETY: A null output is refused, not written.
+	assert_eq!(unsafe { lk_devtools_highlight(std::ptr::null_mut()) }, -1);
+
+	// A layout-only container has no view, so its outline is placed in the
+	// nearest view the platform draws: the root's.
+	hub.send(
+		session,
+		Command::Highlight {
+			key: container.key.clone(),
+		},
+	);
+	let frame = highlight_of(container);
+	let (within, origin) = (container.frame.unwrap(), root.frame.unwrap());
+	assert_eq!(frame.anchor as u64, id(root));
+	assert_eq!(
+		(frame.anchor_x, frame.anchor_y, frame.width, frame.height),
+		(
+			within.x - origin.x,
+			within.y - origin.y,
+			within.width,
+			within.height
+		)
+	);
+	assert!(frame.anchor_y > 0.0, "{frame:?}");
+	hub.send(
+		session,
+		Command::Highlight {
+			key: leptoskit_devtools_protocol::MatchKey::new(""),
+		},
+	);
+	eventually("the highlight to clear", || highlighted().is_none());
+}
+
+/// Taps pick whatever is under them, given in the coordinates of the drawn
+/// view they landed in, and never reach the guest.
+fn picks_by_tap(hub: &Hub, session: &str, snapshot: &Snapshot) {
+	let root = &snapshot.tree.nodes[0];
+	let container = by_id(snapshot, &root.children[2]);
+	let nested = by_id(snapshot, &container.children[0]);
+	let (within, origin) = (container.frame.unwrap(), root.frame.unwrap());
+	// A tap anywhere picks what is under it, even a container the platform
+	// draws no view for, given in the coordinates of the view it landed in.
+	let (x, y) = (within.x - origin.x + 2.0, within.y - origin.y + 2.0);
+	assert_eq!(tap(root, x, y), 0, "a tap is the app's until the hub picks");
+	hub.send(session, Command::Pick { on: true });
+	eventually("picking by tap", || lk_devtools_picking() == 1);
+	assert_eq!(lk_devtools_pick(id(root) as usize, f32::NAN, 0.0), 0);
+	assert_eq!(tap(root, x, y), 1);
+	assert_eq!(lk_devtools_picking(), 0, "one tap picks one node");
+	assert_eq!(
+		picked(hub, 1),
+		(container.id.clone(), container.key.clone())
+	);
+	// The picked node is highlighted, for the platform to draw.
+	assert_eq!(highlight_of(container).anchor as u64, id(root));
+
+	hub.send(session, Command::Pick { on: true });
+	eventually("picking the nested text", || lk_devtools_picking() == 1);
+	let viewport = nested.frame.unwrap();
+	assert_eq!(
+		tap(
+			root,
+			viewport.x - origin.x + 1.0,
+			viewport.y - origin.y + 1.0
+		),
+		1
+	);
+	assert_eq!(picked(hub, 2), (nested.id.clone(), nested.key.clone()));
+}
+
 #[test]
 fn an_app_reports_its_tree_commits_and_commands_across_a_reload() {
 	let hub = Arc::new(Hub::default());
@@ -410,11 +559,24 @@ fn an_app_reports_its_tree_commits_and_commands_across_a_reload() {
 	let (session, snapshot) = hub.snapshot(0);
 	let hello = hub.state.lock().unwrap().hellos[0].clone();
 	assert_eq!(hello.app, "counter_app");
+	assert_eq!(lk_devtools_active(), 1);
 	let root = &snapshot.tree.nodes[0];
 	assert_eq!(root.kind, "View");
 	assert_eq!(root.classes, ["flex-col", "p-4"]);
+	assert!(
+		root.styles
+			.iter()
+			.any(|rule| rule.class == "p-4" && rule.declarations.contains("padding")),
+		"the reporter explains native classes: {:?}",
+		root.styles
+	);
 	assert_eq!(root.source.as_ref().map(|source| source.line), Some(10));
-	assert_eq!(root.children.len(), 2);
+	assert_eq!(root.children.len(), 3);
+	let container = by_id(&snapshot, &root.children[2]);
+	assert_eq!(
+		by_id(&snapshot, &container.children[0]).text.as_deref(),
+		Some("Nested")
+	);
 	let text = node(&snapshot, "Text");
 	assert_eq!(text.text.as_deref(), Some("Count: 0"));
 	assert_eq!(text.classes, ["text-lg"]);
@@ -449,19 +611,7 @@ fn an_app_reports_its_tree_commits_and_commands_across_a_reload() {
 		hub.count(|event| matches!(event, Event::Commit { .. })) >= 2
 	});
 
-	// The hub highlights a node, for the platform to draw over.
-	hub.send(
-		&session,
-		Command::Highlight {
-			key: text.key.clone(),
-		},
-	);
-	eventually("the highlight", || {
-		highlighted().is_some_and(|frame| frame.node as u64 == id(text))
-	});
-	// SAFETY: A null output is refused, not written.
-	assert_eq!(unsafe { lk_devtools_highlight(std::ptr::null_mut()) }, -1);
-
+	draws_highlights(&hub, &session, &snapshot);
 	hub.send(&session, Command::RequestSnapshot);
 	hub.snapshot(1);
 
@@ -472,15 +622,9 @@ fn an_app_reports_its_tree_commits_and_commands_across_a_reload() {
 	let commits = hub.count(|event| matches!(event, Event::Commit { .. }));
 	press(app, id(&button));
 	assert_eq!(lk_devtools_picking(), 0);
-	let picked = hub.wait("the pick", |state| {
-		state.events.iter().find_map(|(_, event)| {
-			match event {
-				Event::Picked { node, key } => Some((node.clone(), key.clone())),
-				_ => None,
-			}
-		})
-	});
-	assert_eq!(picked, (button.id.clone(), button.key.clone()));
+	assert_eq!(picked(&hub, 0), (button.id.clone(), button.key.clone()));
+
+	picks_by_tap(&hub, &session, &snapshot);
 	std::thread::sleep(Duration::from_millis(300));
 	assert_eq!(
 		hub.count(|event| matches!(event, Event::Commit { .. })),

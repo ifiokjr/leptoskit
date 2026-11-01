@@ -605,6 +605,43 @@ Java_dev_leptoskit_mobile_NativeDevtools_hub(JNIEnv* env, jclass, jbyteArray url
     return lk_devtools_hub(address.data(), address.size(), name.data(), name.size());
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_leptoskit_mobile_NativeDevtools_active(JNIEnv*, jclass) {
+    return lk_devtools_active() == 1 ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_leptoskit_mobile_NativeDevtools_picking(JNIEnv*, jclass) {
+    return lk_devtools_picking() == 1 ? JNI_TRUE : JNI_FALSE;
+}
+
+// Writes {node, anchor} and the outline's {x, y, width, height} in the
+// anchor's child coordinates; false with nothing to show.
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_leptoskit_mobile_NativeDevtools_highlight(JNIEnv* env, jclass, jlongArray ids,
+    jfloatArray frame) {
+    lk_devtools_frame value{};
+
+    if (ids == nullptr || frame == nullptr || env->GetArrayLength(ids) < 2 ||
+        env->GetArrayLength(frame) < 4 || lk_devtools_highlight(&value) != 1) {
+        return JNI_FALSE;
+    }
+
+    const jlong nodes[] = {static_cast<jlong>(value.node), static_cast<jlong>(value.anchor)};
+    const jfloat outline[] = {value.anchor_x, value.anchor_y, value.width, value.height};
+    env->SetLongArrayRegion(ids, 0, 2, nodes);
+    env->SetFloatArrayRegion(frame, 0, 4, outline);
+
+    return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_leptoskit_mobile_NativeDevtools_pick(JNIEnv*, jclass, jlong view, jfloat x, jfloat y) {
+    if (view < 0) return JNI_FALSE;
+
+    return lk_devtools_pick(static_cast<size_t>(view), x, y) == 1 ? JNI_TRUE : JNI_FALSE;
+}
+
 namespace {
 struct AsyncCompletion {
     JavaVM* vm;

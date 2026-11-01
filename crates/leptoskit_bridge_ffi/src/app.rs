@@ -1148,13 +1148,14 @@ impl App {
 		let root = self.host_mut().surface().root().map(NodeId::index);
 		let mutations = self.host_mut().take_mutations();
 
-		#[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
-		if let (Some(devtools), Some(host)) = (self.devtools.as_mut(), self.host.as_mut()) {
-			devtools.render(host, &mutations);
-		}
-
 		// The platform draws a flattened tree: layout-only containers get no
 		// view, which saves creating, laying out, and compositing them.
+		#[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
+		let mutations = match (self.devtools.as_mut(), self.host.as_mut()) {
+			(Some(devtools), Some(host)) => devtools.render(host, mutations, &mut self.flattener),
+			_ => self.flattener.translate(mutations),
+		};
+		#[cfg(not(all(feature = "devtools", not(target_arch = "wasm32"))))]
 		let mutations = self.flattener.translate(mutations);
 
 		let bytes = match encode(root, &mutations) {

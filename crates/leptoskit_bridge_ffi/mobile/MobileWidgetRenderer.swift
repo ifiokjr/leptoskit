@@ -55,9 +55,22 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
     var onCanvasChange: (() -> Void)?
     /// A transaction names its root only when the root changes.
     private var root: Int?
-    init(view: UIView) { self.view = view }
+    /// The DevTools highlight and picking, in apps `leptoskit dev` reports to a hub.
+    private(set) var devtools: DevtoolsOverlay?
+    init(view: UIView, devtools link: DevtoolsLink? = DevtoolsLink.live()) {
+        self.view = view
+        super.init()
+        guard let link else { return }
+        let overlay = DevtoolsOverlay(
+            link: link, widget: { [weak self] in self?.widgets[$0] },
+            node: { [weak self] view in self?.widgets[view.tag] === view ? view.tag : nil })
+        overlay.attach(to: view)
+        devtools = overlay
+    }
     func close() {
         open = false
+        devtools?.close()
+        devtools = nil
         onRiveViewportChange = nil
         for widget in widgets.values { (widget as? UIImageView)?.image = nil }
         widgets.removeAll()
@@ -115,7 +128,11 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         }
 
         if let root = transaction.root, let widget = widgets[root], widget.superview !== view {
-            view.addSubview(widget)
+            if let devtools {
+                view.insertSubview(widget, belowSubview: devtools)
+            } else {
+                view.addSubview(widget)
+            }
         }
 
         scheduleReadiness(transaction.root)

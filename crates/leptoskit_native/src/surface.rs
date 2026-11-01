@@ -537,6 +537,18 @@ impl<B: NativeBackend> NativeSurface<B> {
 		self.devtools.profiling = on;
 	}
 
+	/// What the surface resolves classes against: its viewport, appearance,
+	/// and safe area. `active` is unset; only [`Self::pressed`] has it.
+	#[cfg(feature = "devtools")]
+	pub fn style_context(&self) -> crate::tailwind::StyleContext {
+		crate::tailwind::StyleContext {
+			viewport: self.viewport,
+			dark: self.dark,
+			safe_area: self.safe_area,
+			active: false,
+		}
+	}
+
 	/// The viewport-space highlight rectangle for every committed node, keyed
 	/// by its dense node index.
 	#[cfg(feature = "devtools")]

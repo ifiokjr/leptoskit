@@ -1,8 +1,9 @@
-//! An app's part of the `DevTools` report: each render's mutations as the
-//! platform receives them, the classes and source locations only the guest
-//! knows, and the surface's commits. The guest's own values (its route,
-//! queries, forms, and named state) arrive through the `DevTools` plugin,
-//! which [`Devtools::plugin`] connects to the same report.
+//! An app's part of the `DevTools` report: each render's mutations, the
+//! views the platform draws for them, the classes and source locations only
+//! the guest knows, what those classes resolve against, and the surface's
+//! commits. The guest's own values (its route, queries, forms, and named
+//! state) arrive through the `DevTools` plugin, which [`Devtools::plugin`]
+//! connects to the same report.
 //!
 //! Everything here runs on the render path, so it only copies what the
 //! mirror needs and hands it to the reporter's thread, which mirrors,
@@ -25,6 +26,8 @@ use leptoskit_devtools_protocol::Capability;
 use leptoskit_devtools_protocol::HISTORY;
 use leptoskit_native::HeadlessBackend;
 use leptoskit_native::Mutation;
+use leptoskit_native::flatten::Flattener;
+use leptoskit_native::tailwind::StyleContext;
 use leptoskit_plugin_devtools::DevtoolsPlugin;
 use leptoskit_plugin_devtools::Inbox;
 use leptoskit_plugin_devtools::Link;
@@ -41,6 +44,8 @@ pub(super) struct Devtools {
 	guest_commits: Option<u32>,
 	/// The classes and source last sent for each node.
 	details: HashMap<usize, (String, Option<String>)>,
+	/// What classes resolved against when last sent, and the control held.
+	styling: Option<(StyleContext, Option<u64>)>,
 	profiling: bool,
 }
 
@@ -71,20 +76,29 @@ impl Devtools {
 			commits,
 			guest_commits: None,
 			details: HashMap::new(),
+			styling: None,
 			profiling: false,
 		})
 	}
 
-	/// Hands over one render: `mutations`, before flattening, so the report
-	/// keeps the layout-only containers the platform never draws, then the
-	/// classes and source of every node whose guest description changed, and
-	/// the commits since the last render.
-	pub(super) fn render(&mut self, host: &mut WasmHost<HeadlessBackend>, mutations: &[Mutation]) {
+	/// Flattens one render for the platform and hands it over: `mutations`
+	/// before flattening, so the report keeps the layout-only containers the
+	/// platform never draws, then the classes and source of every node whose
+	/// guest description changed, which nodes the platform draws a view for,
+	/// and the commits since the last render.
+	pub(super) fn render(
+		&mut self,
+		host: &mut WasmHost<HeadlessBackend>,
+		mutations: Vec<Mutation>,
+		flattener: &mut Flattener,
+	) -> Vec<Mutation> {
 		self.profile(host);
-		let mut changes: Vec<Change> = mutations.iter().map(Change::of).collect();
+		let mut changes = Vec::with_capacity(mutations.len() + 1);
+		self.restyle(host, &mut changes);
+		changes.extend(mutations.iter().map(Change::of));
 		let mut created = false;
 
-		for mutation in mutations {
+		for mutation in &mutations {
 			match mutation {
 				Mutation::Create { .. } => created = true,
 				Mutation::Delete { id } => {
@@ -101,7 +115,19 @@ impl Devtools {
 			self.describe(host, &mut changes);
 		}
 
+		let drawn = flattener.translate(mutations);
+		changes.extend(drawn.iter().filter_map(|mutation| {
+			match mutation {
+				Mutation::Create { id, .. } => {
+					Some(Change::Drawn {
+						id: id.index() as u64,
+					})
+				}
+				_ => None,
+			}
+		}));
 		self.send(host, changes);
+		drawn
 	}
 
 	/// Hands over the commits made since the last render when there is
@@ -172,6 +198,24 @@ impl Devtools {
 				id: node.index() as u64,
 				classes: classes.to_owned(),
 				source,
+			});
+		}
+	}
+
+	/// Adds what classes resolve against when it changed, first, so the
+	/// report explains this render's classes against it.
+	fn restyle(&mut self, host: &WasmHost<HeadlessBackend>, changes: &mut Vec<Change>) {
+		let surface = host.surface();
+		let styling = (
+			surface.style_context(),
+			surface.pressed().map(|id| id.index() as u64),
+		);
+
+		if self.styling != Some(styling) {
+			self.styling = Some(styling);
+			changes.push(Change::Styling {
+				context: styling.0,
+				pressed: styling.1,
 			});
 		}
 	}

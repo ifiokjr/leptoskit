@@ -223,21 +223,32 @@ void lk_dev_destroy(lk_dev *development);
  * the hub; elsewhere hub returns -1 and the others report nothing. Desktops and
  * the iOS Simulator read the hub from LEPTOSKIT_DEVTOOLS; Android passes its
  * intent extras to lk_devtools_hub before creating its first app (UTF-8, at
- * most 4 KiB each; 0 on success). Any thread. Highlight writes the node the
- * hub asked to highlight, with its frame in layout units from the root's
- * origin, and returns 1, 0 with nothing to show, or -1 for a null output.
- * Picking is 1 while the hub waits for a tap: the next press picks a node
- * instead of reaching the app. */
+ * most 4 KiB each; 0 on success). Any thread. Active is 1 once an app reports
+ * to a hub, when a renderer adds its overlay. Highlight writes the node the
+ * hub asked to highlight and returns 1, 0 with nothing to show, or -1 for a
+ * null output: x and y are its frame in layout units from the root's origin,
+ * ignoring scrolling, and anchor the nearest view the platform draws, its own
+ * or an ancestor's. The outline is the anchor's bounds when anchor is node,
+ * and otherwise width by height at anchor_x, anchor_y in the anchor's child
+ * coordinates (a scroll view's content). Picking is 1 while the hub waits for
+ * a tap; pick takes that tap, given as the drawn view it landed in and the
+ * point in its child coordinates, returning 1 when the tap is the hub's and
+ * must not reach the app. */
 typedef struct lk_devtools_frame {
     size_t node;
     float x;
     float y;
     float width;
     float height;
+    size_t anchor;
+    float anchor_x;
+    float anchor_y;
 } lk_devtools_frame;
 int32_t lk_devtools_hub(const uint8_t *url, size_t url_len, const uint8_t *app, size_t app_len);
+int32_t lk_devtools_active(void);
 int32_t lk_devtools_highlight(lk_devtools_frame *out);
 int32_t lk_devtools_picking(void);
+int32_t lk_devtools_pick(size_t view, float x, float y);
 
 /* Optional native async dispatch; these symbols exist without async-host too.
  * Retain both job and cancellation token before starting. A non-null job owns

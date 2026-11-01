@@ -17,7 +17,8 @@ use crate::tailwind::StyleContext;
 use crate::tailwind::Tailwind;
 
 impl<B: NativeBackend> NativeSurface<B> {
-	/// The committed tree in the `DevTools` protocol's shape.
+	/// The committed tree in the `DevTools` protocol's shape, with each
+	/// node's frame in viewport space.
 	#[must_use]
 	pub fn devtools_tree(&self) -> Tree {
 		let Some(root) = self.root else {
@@ -36,13 +37,16 @@ impl<B: NativeBackend> NativeSurface<B> {
 
 	fn collect_devtools(&self, id: NodeId, key: u64, nodes: &mut Vec<Node>) {
 		let shadow = &self.shadows[id.index()];
-		let frame = self.frames[id.index()].map(|frame| {
-			ProtocolFrame {
-				x: frame.x,
-				y: frame.y,
-				width: frame.width,
-				height: frame.height,
-			}
+		// The protocol's frames are in viewport space, which the hit areas
+		// the last layout built already are.
+		let frame = self.frames[id.index()].and_then(|_| {
+			let area = self.hit_areas.get(id.index())?;
+			Some(ProtocolFrame {
+				x: area.left,
+				y: area.top,
+				width: area.width,
+				height: area.height,
+			})
 		});
 		let source = shadow.source.map(|location| {
 			SourceLocation {
@@ -103,10 +107,8 @@ impl<B: NativeBackend> NativeSurface<B> {
 			return Vec::new();
 		};
 		let context = StyleContext {
-			viewport: self.viewport,
-			dark: self.dark,
-			safe_area: self.safe_area,
 			active: self.pressed == Some(id),
+			..self.style_context()
 		};
 		tailwind
 			.explain(&context)
@@ -145,6 +147,37 @@ mod tests {
 				.children
 				.len(),
 			1
+		);
+	}
+
+	#[test]
+	fn frames_are_in_viewport_space() {
+		let mut surface = NativeSurface::new(HeadlessBackend::new());
+		surface.set_viewport(200.0, 200.0);
+		let element = Element::view().class("p-4").child(
+			Element::view()
+				.class("p-2")
+				.child(Element::text("deep").class("w-10 h-5")),
+		);
+		surface.set_root(&element);
+		let tree = surface.devtools_tree();
+		let frames: Vec<(f32, f32)> = tree
+			.nodes
+			.iter()
+			.map(|node| {
+				let frame = node.frame.unwrap();
+				(frame.x, frame.y)
+			})
+			.collect();
+		assert_eq!(frames, [(0.0, 0.0), (16.0, 16.0), (24.0, 24.0)]);
+		let text = tree.nodes[2].frame.unwrap();
+		assert_eq!((text.width, text.height), (40.0, 20.0));
+		let inner = surface.children(surface.root().unwrap())[0];
+		let parent_relative = surface.layout(surface.children(inner)[0]);
+		assert_eq!(
+			(parent_relative.x, parent_relative.y),
+			(8.0, 8.0),
+			"layout itself stays parent-relative"
 		);
 	}
 

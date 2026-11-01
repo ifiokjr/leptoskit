@@ -114,6 +114,83 @@ struct MacRendererTests {
         #expect(events.allSatisfy { $0.text.isEmpty })
     }
 
+    /// The DevTools overlay outlines the hub's highlight over the view the
+    /// platform draws for it, follows scrolling, and while the hub picks takes
+    /// the next click for the hub instead of the app.
+    @Test func devtoolsOverlayOutlinesAndPicks() throws {
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 300, height: 300), styleMask: [.titled],
+            backing: .buffered, defer: true)
+        let view = FlippedView(frame: CGRect(x: 0, y: 0, width: 300, height: 300))
+        window.contentView = view
+        var highlight: DevtoolsHighlight?
+        var picking = false
+        var picks: [(node: Int, point: CGPoint)] = []
+        let link = DevtoolsLink(
+            highlight: { highlight }, picking: { picking },
+            pick: { node, point in
+                picks.append((node, point))
+                return picking
+            })
+        let renderer = MacWidgetRenderer(view: view, devtools: link)
+        try renderer.render(decode("""
+        {"version":1,"root":1,"mutations":[
+          {"Create":{"id":1,"kind":"View","props":{}}},
+          {"Create":{"id":2,"kind":"ScrollView","props":{}}},
+          {"Create":{"id":3,"kind":"View","props":{}}},
+          {"Create":{"id":4,"kind":"Text","props":{"text":"Title"}}},
+          {"InsertChild":{"parent":1,"child":2}},
+          {"InsertChild":{"parent":2,"child":3}},
+          {"InsertChild":{"parent":3,"child":4}},
+          {"UpdateLayout":{"id":1,"x":0,"y":0,"width":300,"height":300}},
+          {"UpdateLayout":{"id":2,"x":10,"y":20,"width":200,"height":100}},
+          {"UpdateLayout":{"id":3,"x":0,"y":0,"width":200,"height":400}},
+          {"UpdateLayout":{"id":4,"x":5,"y":6,"width":50,"height":10}}
+        ]}
+        """))
+        let overlay = try #require(renderer.devtools)
+        #expect(view.subviews.last === overlay, "the overlay stays above the app")
+
+        overlay.refresh()
+        #expect(overlay.outline.isHidden)
+
+        // A drawn node is outlined around its own view.
+        highlight = DevtoolsHighlight(node: 4, anchor: 4, frame: .zero)
+        overlay.refresh()
+        #expect(!overlay.outline.isHidden)
+        #expect(overlay.outline.frame == CGRect(x: 13, y: 24, width: 54, height: 14))
+
+        // A layout-only container is outlined in its drawn ancestor's content,
+        // which moves as the scroll view scrolls.
+        highlight = DevtoolsHighlight(node: 9, anchor: 3, frame: CGRect(x: 5, y: 30, width: 20, height: 10))
+        overlay.refresh()
+        #expect(overlay.outline.frame == CGRect(x: 13, y: 48, width: 24, height: 14))
+        let scroll = try #require(view.subviews.first?.subviews.first as? NSScrollView)
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: 10))
+        overlay.refresh()
+        #expect(overlay.outline.frame == CGRect(x: 13, y: 38, width: 24, height: 14))
+
+        highlight = nil
+        overlay.refresh()
+        #expect(overlay.outline.isHidden)
+
+        // Clicks are the app's until the hub picks.
+        let point = CGPoint(x: 20, y: 30)
+        #expect(overlay.hitTest(point) == nil)
+        picking = true
+        #expect(overlay.hitTest(point) === overlay)
+        #expect(overlay.acceptsFirstMouse(for: nil))
+        #expect(overlay.pick(at: point))
+        // The deepest drawn view under the click, with the point in its
+        // content's coordinates, scrolled by 10.
+        #expect(picks.count == 1)
+        #expect(picks.first?.node == 3)
+        #expect(picks.first?.point == CGPoint(x: 10, y: 20))
+
+        renderer.close()
+        #expect(overlay.superview == nil)
+    }
+
     private func decode(_ source: String) throws -> Transaction {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase

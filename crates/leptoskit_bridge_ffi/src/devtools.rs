@@ -14,19 +14,33 @@
 //! the same symbols in every build.
 
 /// A node the hub asked the app to highlight, for the platform to draw over.
+///
+/// The node may be a layout-only container the platform draws no view for,
+/// and may sit in a scrolled scroll view, so the platform places the outline
+/// through `anchor`: the nearest view it draws, the node's own or an
+/// ancestor's. When `anchor` is `node`, the outline is the anchor's own
+/// bounds; otherwise it is `width` by `height` at `anchor_x`, `anchor_y` in
+/// the coordinates the anchor lays its children out in (a scroll view's
+/// content, which moves as it scrolls).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct DevtoolsFrame {
 	/// The node, as render transactions and events name it.
 	pub node: usize,
-	/// The left edge, in layout units from the root's.
+	/// The left edge, in layout units from the root's, ignoring scrolling.
 	pub x: f32,
-	/// The top edge, in layout units from the root's.
+	/// The top edge, in layout units from the root's, ignoring scrolling.
 	pub y: f32,
 	/// The width, in layout units.
 	pub width: f32,
 	/// The height, in layout units.
 	pub height: f32,
+	/// The drawn view to place the outline in.
+	pub anchor: usize,
+	/// The left edge in the anchor's child coordinates; 0 for the anchor.
+	pub anchor_x: f32,
+	/// The top edge in the anchor's child coordinates; 0 for the anchor.
+	pub anchor_y: f32,
 }
 
 /// Points the apps created after this call at the hub `leptoskit dev` runs,
@@ -83,6 +97,26 @@ pub extern "C" fn lk_devtools_picking() -> i32 {
 	i32::from(picking())
 }
 
+/// Whether this process reports to a hub (1) or not (0), so a platform runs
+/// its highlight overlay only then. It turns 1 once the first app is created
+/// with a hub to report to, and stays. Any thread.
+#[unsafe(no_mangle)]
+pub extern "C" fn lk_devtools_active() -> i32 {
+	i32::from(active())
+}
+
+/// Picks the node under a tap while the hub waits for one, and returns 1:
+/// the tap is the hub's and must not reach the app. Returns 0 when the hub
+/// is not picking. `view` is the drawn view the tap landed in and `(x, y)`
+/// the point in the coordinates it lays its children out in (a scroll view's
+/// content), so the platform can hit-test natively and leave scrolling and
+/// layout-only containers to the runtime, which finds the deepest node
+/// there. Any thread.
+#[unsafe(no_mangle)]
+pub extern "C" fn lk_devtools_pick(view: usize, x: f32, y: f32) -> i32 {
+	i32::from(x.is_finite() && y.is_finite() && pick(view, x, y))
+}
+
 /// Borrows bounded UTF-8 input.
 ///
 /// # Safety
@@ -94,9 +128,13 @@ unsafe fn text<'a>(data: *const u8, len: usize) -> Option<&'a str> {
 }
 
 #[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
+use agent::active;
+#[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
 use agent::configure;
 #[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
 use agent::highlighted;
+#[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
+use agent::pick;
 #[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
 use agent::picking;
 #[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
@@ -141,21 +179,36 @@ mod agent {
 	}
 
 	pub(super) fn highlighted() -> Option<DevtoolsFrame> {
-		let (node, frame) = REPORTER.get()?.as_ref()?.highlight()?.node?;
+		let highlight = running()?.highlight()?;
+		let (node, frame) = highlight.node?;
+		let (anchor, within) = highlight.anchor?;
 		Some(DevtoolsFrame {
 			node: usize::try_from(node).ok()?,
 			x: frame.x,
 			y: frame.y,
 			width: frame.width,
 			height: frame.height,
+			anchor: usize::try_from(anchor).ok()?,
+			anchor_x: within.x,
+			anchor_y: within.y,
 		})
 	}
 
 	pub(super) fn picking() -> bool {
-		REPORTER
-			.get()
-			.and_then(Option::as_ref)
-			.is_some_and(Reporter::picking)
+		running().is_some_and(Reporter::picking)
+	}
+
+	pub(super) fn active() -> bool {
+		running().is_some()
+	}
+
+	pub(super) fn pick(view: usize, x: f32, y: f32) -> bool {
+		running().is_some_and(|reporter| reporter.tap(view as u64, x, y))
+	}
+
+	/// The process's report, if one started; never starts one.
+	fn running() -> Option<&'static Reporter> {
+		REPORTER.get()?.as_ref()
 	}
 
 	fn start() -> Option<Reporter> {
@@ -224,5 +277,15 @@ fn highlighted() -> Option<DevtoolsFrame> {
 
 #[cfg(not(all(feature = "devtools", not(target_arch = "wasm32"))))]
 fn picking() -> bool {
+	false
+}
+
+#[cfg(not(all(feature = "devtools", not(target_arch = "wasm32"))))]
+fn active() -> bool {
+	false
+}
+
+#[cfg(not(all(feature = "devtools", not(target_arch = "wasm32"))))]
+fn pick(_: usize, _: f32, _: f32) -> bool {
 	false
 }

@@ -101,6 +101,10 @@ pub struct Highlight {
 	/// The reported tree's node with that key, and its frame in viewport
 	/// space, when the tree has one.
 	pub node: Option<(u64, Frame)>,
+	/// Where a platform draws the outline: the nearest view it draws, the
+	/// node's own or an ancestor's, and the node's frame in the coordinates
+	/// that view lays its children out in (see [`Mirror::anchor`]).
+	pub anchor: Option<(u64, Frame)>,
 }
 
 /// A native host's report to the local hub.
@@ -189,6 +193,24 @@ impl Reporter {
 	#[must_use]
 	pub fn picking(&self) -> bool {
 		self.shared.picking.load(Ordering::Acquire)
+	}
+
+	/// Picks what a tap at `(x, y)` lands on, when the hub asked to pick a
+	/// node with the next tap, and turns picking off. The point is in the
+	/// coordinates the drawn view `view` lays its children out in, so the
+	/// platform need not know where its scroll views are; the shown tree
+	/// finds the deepest node under it, including layout-only containers the
+	/// platform never draws (see [`Mirror::hit`]). Returns whether it did,
+	/// in which case the tap belongs to the hub rather than the app.
+	pub fn tap(&self, view: u64, x: f32, y: f32) -> bool {
+		if !self.shared.picking.load(Ordering::Acquire)
+			|| !self.shared.picking.swap(false, Ordering::AcqRel)
+		{
+			return false;
+		}
+
+		let _ = self.sender.send(Message::Tap(view, x, y));
+		true
 	}
 }
 
@@ -325,6 +347,8 @@ enum Message {
 	Closed(u64),
 	/// A source's node was picked.
 	Picked(u64, u64),
+	/// A tap picked whatever the shown tree has under it.
+	Tap(u64, f32, f32),
 	/// The hub sent a command.
 	Command(Command),
 	/// The hub forgot this session.
@@ -484,6 +508,16 @@ impl Worker {
 			Message::Batch(id, batch) => self.apply(id, batch),
 			Message::Closed(id) => self.close(id),
 			Message::Picked(id, node) => self.pick(id, node),
+			Message::Tap(view, x, y) => {
+				if let Some(current) = self.current
+					&& let Some(node) = self
+						.sources
+						.get(&current)
+						.and_then(|mirror| mirror.hit(view, x, y))
+				{
+					self.pick(current, node);
+				}
+			}
 			Message::Command(command) => self.command(command),
 			Message::Gone(session) => {
 				if self
@@ -654,12 +688,30 @@ impl Worker {
 	/// Highlights the node with `key`; an empty key clears the highlight.
 	fn highlight(&mut self, key: MatchKey) {
 		let highlight = (!key.as_str().is_empty()).then(|| {
-			Highlight {
-				node: self.current_tree().and_then(|tree| locate(&tree, &key)),
+			let mut highlight = Highlight {
 				key,
+				node: None,
+				anchor: None,
+			};
+
+			if let Some(tree) = self.current_tree() {
+				self.locate(&tree, &mut highlight);
 			}
+
+			highlight
 		});
 		*self.shared.highlight() = highlight;
+	}
+
+	/// Finds the highlighted node in `tree`, the shown tree, and where a
+	/// platform draws it.
+	fn locate(&self, tree: &Tree, highlight: &mut Highlight) {
+		highlight.node = locate(tree, &highlight.key);
+		highlight.anchor = highlight.node.and_then(|(id, _)| {
+			self.current
+				.and_then(|current| self.sources.get(&current))
+				.and_then(|mirror| mirror.anchor(id))
+		});
 	}
 
 	fn current_tree(&self) -> Option<Tree> {
@@ -810,7 +862,7 @@ impl Worker {
 	/// Moves the highlight to where its node is in the new tree.
 	fn refresh_highlight(&self, tree: &Tree) {
 		if let Some(highlight) = self.shared.highlight().as_mut() {
-			highlight.node = locate(tree, &highlight.key);
+			self.locate(tree, highlight);
 		}
 	}
 }

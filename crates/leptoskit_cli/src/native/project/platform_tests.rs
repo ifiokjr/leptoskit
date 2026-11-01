@@ -64,6 +64,7 @@ fn assert_ios_sources(
 		"NativeAppRuntime.swift",
 		"NativeRequestExecutor.swift",
 		"MobileWidgetRenderer.swift",
+		"DevtoolsOverlay.swift",
 		"MobileApplicationChrome.swift",
 		"MobileApplicationTeardown.swift",
 		"MobileApplicationDevelopment.swift",
