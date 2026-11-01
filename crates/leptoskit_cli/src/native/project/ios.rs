@@ -248,6 +248,8 @@ fn ios_configurations(
 	config: &leptoskit_config::LeptoskitConfig,
 	package_root: &Path,
 ) -> Result<()> {
+	let info = versioned_info_plist(root)?;
+	let version = marketing_version(config);
 	for (offset, name) in [(0, "Debug"), (1, "Release")] {
 		writeln!(
 			objects,
@@ -271,10 +273,11 @@ fn ios_configurations(
 			 iphonesimulator\"; CODE_SIGN_STYLE = Automatic; LIBRARY_SEARCH_PATHS = \
 			 (\"$(inherited)\",{}); SWIFT_INCLUDE_PATHS = {}; OTHER_SWIFT_FLAGS = \
 			 (\"$(inherited)\",\"-I\",{}); LD_RUNPATH_SEARCH_PATHS = \
-			 (\"$(inherited)\",\"@executable_path/Frameworks\");{release_strip} }}; }};",
+			 (\"$(inherited)\",\"@executable_path/Frameworks\"); MARKETING_VERSION = {version}; \
+			 CURRENT_PROJECT_VERSION = 1;{release_strip} }}; }};",
 			id(APP_DEBUG + offset),
 			config.native.package_id,
-			quote(&super::super::host_dir(root, Target::Ios).join("Info.plist"))?,
+			quote(&info)?,
 			quote(&super::super::generated_dir(root, Target::Ios).join("lib"))?,
 			quote(&package_root.join("leptoskit_bridge_ffi/include"))?,
 			quote(&package_root.join("leptoskit_bridge_ffi/include"))?
@@ -282,6 +285,39 @@ fn ios_configurations(
 	}
 
 	Ok(())
+}
+/// The app's version for `CFBundleShortVersionString`: Apple takes up to
+/// three integers, so a pre-release's label is dropped.
+fn marketing_version(config: &leptoskit_config::LeptoskitConfig) -> String {
+	let version = &config.app.version;
+	format!("{}.{}.{}", version.major, version.minor, version.patch)
+}
+
+/// The app-owned `Info.plist` with its two version keys read from the build
+/// settings, so `app.version` and the build number `leptoskit publish`
+/// chooses reach the app: `.leptoskit/ios/Info.plist`. Without an app-owned
+/// plist, Xcode is pointed at the missing file and says so.
+fn versioned_info_plist(root: &Path) -> Result<std::path::PathBuf> {
+	let owned = super::super::host_dir(root, Target::Ios).join("Info.plist");
+	let Ok(mut plist) = plist::Value::from_file(&owned) else {
+		return Ok(owned);
+	};
+	let dictionary = plist
+		.as_dictionary_mut()
+		.with_context(|| format!("{} must contain a dictionary", owned.display()))?;
+	dictionary.insert(
+		"CFBundleShortVersionString".into(),
+		"$(MARKETING_VERSION)".into(),
+	);
+	dictionary.insert(
+		"CFBundleVersion".into(),
+		"$(CURRENT_PROJECT_VERSION)".into(),
+	);
+	let mut xml = Vec::new();
+	plist.to_writer_xml(&mut xml)?;
+	let generated = root.join(".leptoskit/ios/Info.plist");
+	write(&generated, &String::from_utf8(xml)?)?;
+	Ok(generated)
 }
 fn id(number: usize) -> String {
 	format!("{number:024X}")
@@ -449,7 +485,7 @@ fn safari_target(
 	)?;
 	write(
 		&extension_dir.join("Info.plist"),
-		&safari::info_plist(config, false),
+		&safari::info_plist(config, false, 1),
 	)?;
 	let package = root.join(crate::extension::OUTPUT).join("safari");
 	anyhow::ensure!(
@@ -518,11 +554,12 @@ fn safari_target(
 			 iphonesimulator\"; CODE_SIGN_STYLE = Automatic; SKIP_INSTALL = YES; \
 			 APPLICATION_EXTENSION_API_ONLY = YES; LD_RUNPATH_SEARCH_PATHS = \
 			 (\"$(inherited)\",\"@executable_path/Frameworks\",\"@executable_path/../../\
-			 Frameworks\"); }}; }};",
+			 Frameworks\"); MARKETING_VERSION = {}; CURRENT_PROJECT_VERSION = 1; }}; }};",
 			id(SAFARI_DEBUG + offset),
 			safari::NAME,
 			safari::bundle_id(config),
-			quote(&extension_dir.join("Info.plist"))?
+			quote(&extension_dir.join("Info.plist"))?,
+			marketing_version(config)
 		)?;
 	}
 	writeln!(
@@ -659,6 +696,33 @@ mod tests {
 			Path::new("notes"),
 		)
 		.unwrap()
+	}
+
+	#[test]
+	fn the_app_s_versions_come_from_the_build_settings() {
+		let base = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+		let temporary = tempfile::Builder::new()
+			.prefix("leptoskit-ios-")
+			.tempdir_in(base)
+			.unwrap();
+		let root = temporary.path();
+		std::fs::create_dir_all(root.join("hosts/ios")).unwrap();
+		std::fs::write(
+			root.join("hosts/ios/Info.plist"),
+			include_str!("../templates/Info.plist")
+				.replace("__PACKAGE__", "com.example.notes")
+				.replace("__NAME__", "notes"),
+		)
+		.unwrap();
+		let generated = super::versioned_info_plist(root).unwrap();
+		assert_eq!(generated, root.join(".leptoskit/ios/Info.plist"));
+		let plist = plist::Value::from_file(&generated).unwrap();
+		let plist = plist.as_dictionary().unwrap();
+		let get = |key: &str| plist.get(key).and_then(plist::Value::as_string).unwrap();
+		assert_eq!(get("CFBundleShortVersionString"), "$(MARKETING_VERSION)");
+		assert_eq!(get("CFBundleVersion"), "$(CURRENT_PROJECT_VERSION)");
+		assert_eq!(get("CFBundleIdentifier"), "com.example.notes");
+		assert_eq!(super::marketing_version(&config()), "1.2.3");
 	}
 
 	#[test]

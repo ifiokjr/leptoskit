@@ -83,7 +83,7 @@ final class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
 
 /// The app extension's `Info.plist`.
 #[must_use]
-pub fn info_plist(config: &LeptoskitConfig, macos: bool) -> String {
+pub fn info_plist(config: &LeptoskitConfig, macos: bool, build_number: u64) -> String {
 	let name = config
 		.extension
 		.as_ref()
@@ -94,6 +94,20 @@ pub fn info_plist(config: &LeptoskitConfig, macos: bool) -> String {
 		"<key>LSMinimumSystemVersion</key><string>14.0</string>"
 	} else {
 		"<key>MinimumOSVersion</key><string>17.0</string>"
+	};
+	// The App Store requires an extension's versions to match its app's: on
+	// iOS both come from the Xcode project's build settings, which
+	// `leptoskit publish` sets; the macOS app is assembled with them.
+	let (short, build) = if macos {
+		(
+			format!("{}.{}.{}", version.major, version.minor, version.patch),
+			build_number.to_string(),
+		)
+	} else {
+		(
+			"$(MARKETING_VERSION)".to_owned(),
+			"$(CURRENT_PROJECT_VERSION)".to_owned(),
+		)
 	};
 	format!(
 		r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -107,8 +121,8 @@ pub fn info_plist(config: &LeptoskitConfig, macos: bool) -> String {
 	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
 	<key>CFBundleName</key><string>{NAME}</string>
 	<key>CFBundlePackageType</key><string>XPC!</string>
-	<key>CFBundleShortVersionString</key><string>{major}.{minor}.{patch}</string>
-	<key>CFBundleVersion</key><string>1</string>
+	<key>CFBundleShortVersionString</key><string>{short}</string>
+	<key>CFBundleVersion</key><string>{build}</string>
 	{minimum}
 	<key>NSExtension</key>
 	<dict>
@@ -121,9 +135,6 @@ pub fn info_plist(config: &LeptoskitConfig, macos: bool) -> String {
 "#,
 		name = escape(&name),
 		bundle = escape(&bundle_id(config)),
-		major = version.major,
-		minor = version.minor,
-		patch = version.patch,
 		description = escape(
 			config
 				.extension
@@ -193,7 +204,7 @@ pub fn assemble_macos(
 	}
 	let contents = appex.join("Contents");
 	copy(&binary, &contents.join("MacOS").join(NAME))?;
-	write(&contents.join("Info.plist"), &info_plist(config, true))?;
+	write(&contents.join("Info.plist"), &info_plist(config, true, 1))?;
 	// Safari reads the extension from the app extension's resources.
 	copy_tree(package, &contents.join("Resources"))?;
 	super::run_tool(
@@ -254,11 +265,13 @@ mod tests {
 	fn the_extension_s_identity_derives_from_the_app_s() {
 		let config = config("[\"safari\"]");
 		assert_eq!(bundle_id(&config), "com.example.notes.SafariExtension");
-		let plist = info_plist(&config, true);
+		let plist = info_plist(&config, true, 1);
 		assert!(plist.contains("<string>com.apple.Safari.web-extension</string>"));
 		assert!(plist.contains("<string>Notes &amp; more</string>"));
 		assert!(plist.contains("<string>1.2.3</string>"));
 		assert!(plist.contains("LSMinimumSystemVersion"));
-		assert!(info_plist(&config, false).contains("MinimumOSVersion"));
+		let ios = info_plist(&config, false, 1);
+		assert!(ios.contains("MinimumOSVersion"));
+		assert!(ios.contains("<string>$(CURRENT_PROJECT_VERSION)</string>"));
 	}
 }

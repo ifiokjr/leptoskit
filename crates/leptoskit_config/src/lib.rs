@@ -2327,12 +2327,7 @@ impl LeptoskitConfig {
 			}
 			None => {}
 		}
-		let has_extension = builds_extension && self.extension.is_some();
-		let has_firefox_id = self
-			.extension
-			.as_ref()
-			.is_some_and(|extension| extension.firefox.is_some());
-		if let Some(problem) = self.publish.problem(has_extension, has_firefox_id) {
+		if let Some(problem) = self.publish_problem(builds_extension) {
 			return Err(ConfigError::InvalidPublish(problem));
 		}
 		if builds_extension && self.codepush.enabled {
@@ -2343,6 +2338,19 @@ impl LeptoskitConfig {
 			));
 		}
 		Ok(())
+	}
+
+	/// The first problem with `[publish]`, given the rest of the app.
+	fn publish_problem(&self, builds_extension: bool) -> Option<String> {
+		self.publish.problem(&publish::Facts {
+			has_extension: builds_extension && self.extension.is_some(),
+			has_firefox_id: self
+				.extension
+				.as_ref()
+				.is_some_and(|extension| extension.firefox.is_some()),
+			platforms: &self.app.platforms,
+			apple_team_id: self.native.apple_team_id.as_deref(),
+		})
 	}
 
 	/// Rejects a build for a destination the project has disabled.
