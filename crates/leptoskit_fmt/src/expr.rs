@@ -260,18 +260,46 @@ pub(crate) fn starts_parenthesized(text: &str) -> bool {
 /// attribute such as `{..}`, ends in a path (`a {..}` reads as a struct
 /// literal).
 pub(crate) fn unbraced_is_safe(text: &str, before_block: bool) -> bool {
+	let Some(edges) = token_edges(text) else {
+		return false;
+	};
+
+	if edges.first == Some(Token::Open(b'{')) {
+		return false;
+	}
+
+	match edges.last {
+		None => false,
+		Some(Token::Punct(byte)) => byte == b'?',
+
+		Some(Token::Ident) if before_block => edges.before_last == Some(Token::Punct(b'.')),
+		Some(_) => true,
+	}
+}
+
+/// The first and last tokens at depth zero, and the one before the last.
+struct Edges {
+	first: Option<Token>,
+	last: Option<Token>,
+	before_last: Option<Token>,
+}
+
+/// Reads the edges of `text`: the tokens that decide whether an unbraced
+/// value would stop at the tag's `>`. `None` when a comment sits in it.
+fn token_edges(text: &str) -> Option<Edges> {
 	let mut depth = 0usize;
-	let mut first = None;
-	let mut last = None;
-	let mut before_last = None;
+	let mut edges = Edges {
+		first: None,
+		last: None,
+		before_last: None,
+	};
 
 	for (token, _) in Lexer::new(text) {
 		match token {
-			Token::LineComment | Token::BlockComment => return false,
+			Token::LineComment | Token::BlockComment => return None,
 			Token::Open(_) => {
 				if depth == 0 {
-					first.get_or_insert(token);
-					before_last = last.replace(token);
+					edges.push(token);
 				}
 
 				depth += 1;
@@ -279,29 +307,25 @@ pub(crate) fn unbraced_is_safe(text: &str, before_block: bool) -> bool {
 			Token::Close(_) => {
 				depth = depth.saturating_sub(1);
 				if depth == 0 {
-					before_last = last.replace(token);
+					edges.push(token);
 				}
 			}
 
 			_ if depth > 0 => {}
-			Token::Punct(b'<' | b'>') => return false,
-			_ => {
-				first.get_or_insert(token);
-				before_last = last.replace(token);
-			}
+			Token::Punct(b'<' | b'>') => return None,
+
+			_ => edges.push(token),
 		}
 	}
 
-	if first == Some(Token::Open(b'{')) {
-		return false;
-	}
+	Some(edges)
+}
 
-	match last {
-		None => false,
-		Some(Token::Punct(byte)) => byte == b'?',
-
-		Some(Token::Ident) if before_block => before_last == Some(Token::Punct(b'.')),
-		Some(_) => true,
+impl Edges {
+	/// Records a top-level token, keeping the last two.
+	fn push(&mut self, token: Token) {
+		self.first.get_or_insert(token);
+		self.before_last = self.last.replace(token);
 	}
 }
 

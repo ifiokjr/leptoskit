@@ -154,15 +154,61 @@ impl<'a> Lexer<'a> {
 			self.pos += 1;
 		}
 	}
+
+	/// Skips the whitespace between tokens.
+	fn skip_whitespace(&mut self) {
+		while self.peek(0).is_some_and(|byte| byte.is_ascii_whitespace()) {
+			self.pos += 1;
+		}
+	}
+
+	/// Consumes a `//` comment's body.
+	fn line_comment(&mut self) {
+		while self.peek(0).is_some_and(|byte| byte != b'\n') {
+			self.pos += 1;
+		}
+	}
+
+	/// Reads `'a'` and `'\n'` as characters, and `'a` and `'label` as
+	/// lifetimes.
+	fn character_or_lifetime(&mut self) -> Token {
+		let is_char = self.peek(0) == Some(b'\\') || {
+			let len = utf8_len(self.peek(0).unwrap_or(0));
+			self.peek(len) == Some(b'\'')
+		};
+
+		if is_char {
+			self.char_body();
+			Token::Literal
+		} else {
+			self.ident_tail();
+			Token::Lifetime
+		}
+	}
+
+	/// Reads an identifier, its raw form, or the literal a prefix starts.
+	fn identifier(&mut self, start: usize) -> Token {
+		self.ident_tail();
+
+		if self.literal_after_prefix(start) {
+			return Token::Literal;
+		}
+
+		if self.peek(0) == Some(b'#') && &self.src[start..self.pos] == b"r" {
+			// Raw identifier: `r#type`.
+			self.pos += 1;
+			self.ident_tail();
+		}
+
+		Token::Ident
+	}
 }
 
 impl Iterator for Lexer<'_> {
 	type Item = (Token, Range<usize>);
 
 	fn next(&mut self) -> Option<Self::Item> {
-		while self.peek(0).is_some_and(|byte| byte.is_ascii_whitespace()) {
-			self.pos += 1;
-		}
+		self.skip_whitespace();
 
 		let start = self.pos;
 		let byte = self.peek(0)?;
@@ -170,10 +216,7 @@ impl Iterator for Lexer<'_> {
 
 		let token = match byte {
 			b'/' if self.peek(0) == Some(b'/') => {
-				while self.peek(0).is_some_and(|byte| byte != b'\n') {
-					self.pos += 1;
-				}
-
+				self.line_comment();
 				Token::LineComment
 			}
 
@@ -186,38 +229,10 @@ impl Iterator for Lexer<'_> {
 				self.quoted();
 				Token::Literal
 			}
-			b'\'' => {
-				// `'a'` and `'\n'` are characters; `'a` and `'label` are not.
-				let is_char = self.peek(0) == Some(b'\\') || {
-					let len = utf8_len(self.peek(0).unwrap_or(0));
-					self.peek(len) == Some(b'\'')
-				};
-				if is_char {
-					self.char_body();
-					Token::Literal
-				} else {
-					self.ident_tail();
-					Token::Lifetime
-				}
-			}
+			b'\'' => self.character_or_lifetime(),
 			b'(' | b'[' | b'{' => Token::Open(byte),
 			b')' | b']' | b'}' => Token::Close(byte),
-
-			byte if is_ident_byte(byte) => {
-				self.ident_tail();
-				if self.literal_after_prefix(start) {
-					Token::Literal
-				} else {
-					if self.peek(0) == Some(b'#') && &self.src[start..self.pos] == b"r" {
-						// Raw identifier: `r#type`.
-						self.pos += 1;
-						self.ident_tail();
-					}
-
-					Token::Ident
-				}
-			}
-
+			byte if is_ident_byte(byte) => self.identifier(start),
 			byte => Token::Punct(byte),
 		};
 
@@ -279,6 +294,20 @@ pub(crate) struct MacroCall {
 	pub body: Range<usize>,
 }
 
+/// Where the path an identifier at `index` ends begins, or `None` when the
+/// identifier continues a path already tried from its first segment.
+fn path_start(tokens: &[(Token, Range<usize>)], index: usize) -> Option<usize> {
+	let after_colons = index >= 2 && is_path_separator(tokens, index - 2);
+	let continues_path = after_colons && index >= 3 && tokens[index - 3].0 == Token::Ident;
+
+	if continues_path {
+		return None;
+	}
+
+	// A leading `::` belongs to the path, so it is tried from there.
+	Some(if after_colons { index - 2 } else { index })
+}
+
 /// Finds the calls to the macros named in `names`, outermost first and in
 /// source order. Calls nested inside a found call's body are not reported:
 /// the formatter reaches them through the Rust expressions that contain them.
@@ -303,29 +332,20 @@ pub(crate) fn find_macros(src: &str, names: &[String]) -> Vec<MacroCall> {
 	let mut index = 0;
 
 	while index < tokens.len() {
-		match tokens[index].0 {
-			Token::Punct(b'#') => {
-				if let Some(next) = skip_attribute_target(src, &tokens, index) {
-					index = next;
-					continue;
-				}
-			}
-			Token::Ident => {
-				let after_colons = index >= 2 && is_path_separator(&tokens, index - 2);
-				let continues_path =
-					after_colons && index >= 3 && tokens[index - 3].0 == Token::Ident;
-				// `a::view` is tried from `a`; a leading `::` belongs to the
-				// path.
-				let path_start = if after_colons { index - 2 } else { index };
-				if !continues_path
-					&& let Some((call, next)) = macro_at(src, &tokens, path_start, index, names)
-				{
-					calls.push(call);
-					index = next;
-					continue;
-				}
-			}
-			_ => {}
+		if tokens[index].0 == Token::Punct(b'#')
+			&& let Some(next) = skip_attribute_target(src, &tokens, index)
+		{
+			index = next;
+			continue;
+		}
+
+		if tokens[index].0 == Token::Ident
+			&& let Some(start) = path_start(&tokens, index)
+			&& let Some((call, next)) = macro_at(src, &tokens, start, index, names)
+		{
+			calls.push(call);
+			index = next;
+			continue;
 		}
 
 		index += 1;

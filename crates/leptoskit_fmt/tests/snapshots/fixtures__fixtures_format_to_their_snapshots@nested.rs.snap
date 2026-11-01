@@ -15,6 +15,7 @@ pub fn Nested(items: Vec<String>, kind: Kind) -> impl IntoView {
 				.collect_view()}
 		</ul>
 	};
+
 	let body = match kind {
 		Kind::Short => view! { <p>"short"</p> }.into_any(),
 		Kind::Long => view! {
@@ -24,9 +25,12 @@ pub fn Nested(items: Vec<String>, kind: Kind) -> impl IntoView {
 		}
 		.into_any(),
 	};
+
 	view! {
 		<section>
 			{list} {body}
+
+
 			{move || {
 				if open.get() {
 					view! {
