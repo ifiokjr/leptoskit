@@ -537,6 +537,11 @@ in
         cargo test --manifest-path examples/file_routes/Cargo.toml \
           --test routes --test navigation --test pages
         cargo test --manifest-path examples/file_routes/Cargo.toml --doc
+        # Huddle: its web client through the CLI, its screens, and two people
+        # against its server.
+        (cd examples/huddle && cargo run --locked --manifest-path ../../Cargo.toml \
+          --package leptoskit_cli --bin leptoskit -- build --platform web)
+        cargo test --locked --package huddle_app --package huddle --package huddle_api
       '';
       description = "Check the examples: generated routes current and screens green.";
       binary = "bash";

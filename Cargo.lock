@@ -3515,6 +3515,104 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
+name = "huddle"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "huddle_api",
+ "huddle_db",
+ "leptoskit",
+ "leptoskit_auth",
+ "leptoskit_config",
+ "leptoskit_db",
+ "leptoskit_rpc",
+ "reqwest 0.12.28",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite 0.30.0",
+]
+
+[[package]]
+name = "huddle_api"
+version = "0.1.0"
+dependencies = [
+ "huddle_db",
+ "leptoskit_auth",
+ "leptoskit_db",
+ "leptoskit_rpc",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "huddle_app"
+version = "0.1.0"
+dependencies = [
+ "any_spawner",
+ "futures",
+ "huddle_api",
+ "huddle_db",
+ "leptos",
+ "leptoskit",
+ "leptoskit_rpc",
+ "leptoskit_testing",
+ "serde_json",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "huddle_db"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_auth",
+ "leptoskit_db",
+ "leptoskit_rpc",
+]
+
+[[package]]
+name = "huddle_ios"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_bridge_ffi",
+ "leptoskit_plugin_crypto",
+ "leptoskit_plugin_http",
+ "leptoskit_plugin_passkeys",
+ "leptoskit_plugin_secure_store",
+ "leptoskit_plugin_web_auth",
+ "leptoskit_plugin_websocket",
+]
+
+[[package]]
+name = "huddle_load"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "futures",
+ "leptoskit_rpc",
+ "reqwest 0.12.28",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite 0.30.0",
+]
+
+[[package]]
+name = "huddle_macos"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_bridge_ffi",
+ "leptoskit_plugin_crypto",
+ "leptoskit_plugin_http",
+ "leptoskit_plugin_passkeys",
+ "leptoskit_plugin_secure_store",
+ "leptoskit_plugin_web_auth",
+ "leptoskit_plugin_websocket",
+]
+
+[[package]]
 name = "hybrid-array"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"

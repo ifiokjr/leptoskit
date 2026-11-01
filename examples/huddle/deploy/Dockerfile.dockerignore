@@ -1,0 +1,13 @@
+# Written by `leptoskit generate deploy`. Keeps the build context small, and
+# local builds, databases, and secrets out of the image. Docker reads it from
+# beside the Dockerfile, and its paths start at the repository root, the
+# build context.
+.git
+**/target
+**/node_modules
+**/.leptoskit
+**/dist
+docs/dist
+*.sqlite3*
+**/.env
+**/.env.*

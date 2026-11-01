@@ -1,0 +1,36 @@
+[package]
+name = "huddle_api"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "Huddle's operations: the queries, mutations, channel, jobs, and actions the server runs and every client calls by name."
+
+[dependencies]
+huddle_db = { path = "../huddle_db" }
+leptoskit_auth = { workspace = true }
+leptoskit_db = { workspace = true }
+leptoskit_rpc = { workspace = true, features = ["client"] }
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, optional = true, features = ["time"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+[features]
+default = []
+# The browser client: `fetch` and the browser WebSocket.
+web = ["leptoskit_rpc/web"]
+# A native app's Wasm guest: the HTTP and WebSocket plugins.
+guest = ["leptoskit_rpc/guest"]
+# The server: the bodies, run on SQLite, and the services they reach.
+server = ["huddle_db/server", "leptoskit_auth/sqlite", "leptoskit_rpc/live", "leptoskit_rpc/sqlite", "dep:tokio"]
+
+[lints]
+workspace = true

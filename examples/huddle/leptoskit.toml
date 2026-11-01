@@ -1,0 +1,78 @@
+#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
+
+schema_version = 0
+
+# Huddle: a team chat with a task board, built to show every real-time
+# primitive at once. One server (`huddle_server`, package `huddle`) serves
+# the website, the API, the live socket, and sign-in, and runs the job
+# workers; one app crate (`huddle_app`) renders in the browser and as the
+# native apps' Wasm guest.
+[app]
+name = "huddle"
+version = "0.1.0"
+default_platform = "web"
+platforms = ["web", "ios", "macos"]
+# The website renders in the browser, like every other client, and reaches
+# the server through the same API and live socket.
+render = "csr"
+
+# Huddle's own screens are `view!` markup, the style leptoskit's examples
+# use. The sign-in screen is the one `leptoskit generate auth` writes, in
+# builder calls, and is left as generated.
+[lint]
+markup = "view"
+exclude = ["huddle_app/src/auth/sign_in.rs"]
+
+[serve]
+address = "127.0.0.1"
+port = 3000
+
+[build]
+client_package = "huddle_app"
+
+[native]
+update_contract = "mobile-v1"
+package_id = "com.leptoskit.huddle"
+viewport_width = 390.0
+viewport_height = 844.0
+# The native apps reach the server through the HTTP plugin for calls and the
+# WebSocket plugin for live data, keep the session with secure-store, and
+# make idempotency keys with crypto.
+plugins = ["http", "websocket", "secure-store", "crypto", "passkeys", "web-auth"]
+
+# Both plugins only talk to the origins listed here: the server `leptoskit
+# dev` starts on this machine. A build for the Fly demo adds its origin, and
+# sets HUDDLE_SERVER when it builds.
+[native.plugin-options.http]
+origins = ["http://127.0.0.1:3000", "http://localhost:3000"]
+
+[native.plugin-options.websocket]
+origins = ["ws://127.0.0.1:3000", "ws://localhost:3000"]
+
+[db]
+dialect = "sqlite"
+crate = "huddle_db"
+features = ["server"]
+migrations = "migrations"
+url_env = "DATABASE_URL"
+
+# Sign-in with emailed codes, and `POST /auth/dev/sign-in` in debug builds.
+# `AUTH_ENCRYPTION_KEYS` holds the keys; a debug build without it uses a
+# development key.
+[auth]
+app_name = "Huddle"
+keys_env = "AUTH_ENCRYPTION_KEYS"
+
+[rpc.jobs]
+workers = 4
+poll_seconds = 1
+retention_days = 7
+
+# Invitations: two at a time across every server, as a mail provider
+# would want.
+[rpc.jobs.queues.mail]
+concurrency = 2
+
+# The simulated settlement service takes two at a time.
+[rpc.jobs.queues.settlement]
+concurrency = 2

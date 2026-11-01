@@ -1,0 +1,48 @@
+[package]
+name = "huddle_app"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "Huddle's interface: one tree of components for the browser and the native apps' Wasm guest."
+
+# The library is the app for every host: the browser's wasm client and the
+# native apps' wasm guest. `leptoskit dev` and `leptoskit build` choose its
+# features per platform.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+any_spawner = { workspace = true }
+futures = { workspace = true, features = ["executor"] }
+huddle_api = { path = "../huddle_api" }
+huddle_db = { path = "../huddle_db" }
+leptos = { workspace = true, optional = true }
+leptoskit = { workspace = true, features = ["auth", "db", "leptos", "query", "rpc"] }
+leptoskit_rpc = { workspace = true, features = ["client"] }
+serde_json = { workspace = true }
+wasm-bindgen = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true, features = ["Location", "Window"] }
+
+[dev-dependencies]
+leptoskit_testing = { workspace = true }
+
+[features]
+default = []
+# The browser: the leptos web renderer, `fetch`, and the browser WebSocket.
+web = ["dep:leptos", "dep:wasm-bindgen", "dep:web-sys", "leptoskit/web", "huddle_api/web"]
+csr = ["web", "leptos/csr"]
+# A native app's Wasm guest: the HTTP and WebSocket plugins, and an executor
+# the app keeps itself.
+native = ["leptoskit/guest", "huddle_api/guest"]
+ios = ["native"]
+macos = ["native"]
+# The DevTools agents; `leptoskit dev` turns this on, `leptoskit build` never does.
+devtools = ["leptoskit/devtools"]
+
+[lints]
+workspace = true

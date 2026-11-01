@@ -1,0 +1,2 @@
+# The migrations, in the order they apply. `leptoskit db migration create` adds to it.
+20261101T110858_init

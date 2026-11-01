@@ -95,6 +95,10 @@ wasm() {
 	# can't build for wasm, and `web` and `guest` pick different sockets.
 	wasm_group "leptoskit_rpc in the browser" --package=leptoskit_rpc --no-default-features --features web --lib
 	wasm_group "leptoskit_rpc in a guest" --package=leptoskit_rpc --no-default-features --features guest --lib
+	# Huddle's app, once in the browser and once as the native apps' guest:
+	# its `web` and `native` features pick different clients.
+	wasm_group "huddle in the browser" --package=huddle_app --features csr --lib
+	wasm_group "huddle in a guest" --package=huddle_app --features native --lib
 }
 
 wasm_group() {

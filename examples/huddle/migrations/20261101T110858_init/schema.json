@@ -1,0 +1,3587 @@
+{
+  "format": 1,
+  "dialect": "sqlite",
+  "tables": [
+    {
+      "name": {
+        "name": "channels"
+      },
+      "comment": "A conversation, with its own board.\n\nA channel is visible to its members, and to whoever made it, who decides\nwho else is in it.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "Such as `general` or `launch`, shown as `#general`."
+        },
+        {
+          "name": "private",
+          "type": {
+            "kind": "bool"
+          },
+          "nullable": false,
+          "default": {
+            "bool": false
+          },
+          "comment": "Whether only the people added to it may join. Public channels are\nstill membership-based; everyone joins `#general` when they sign up."
+        },
+        {
+          "name": "created_by",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "summary",
+          "type": {
+            "kind": "text",
+            "max_len": 2000
+          },
+          "nullable": true,
+          "comment": "The last summary someone pinned with \"Summarize this channel\"."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "channels_created_by_fkey",
+          "columns": [
+            "created_by"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "restrict"
+        }
+      ],
+      "checks": [
+        {
+          "name": "channels_name_length",
+          "rule": {
+            "kind": "length",
+            "column": "name",
+            "min": 1,
+            "max": 40
+          }
+        },
+        {
+          "name": "channels_name_pattern",
+          "rule": {
+            "kind": "regex",
+            "column": "name",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "name": "invites"
+      },
+      "comment": "An invitation by email, which a background job sends.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "channel_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "invited_by",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "email",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": {
+            "text": "sending"
+          },
+          "comment": "`sending`, `sent`, or `failed`."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "invites_channel_id_idx",
+          "columns": [
+            "channel_id"
+          ]
+        },
+        {
+          "name": "invites_email_idx",
+          "columns": [
+            "email"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "invites_channel_id_fkey",
+          "columns": [
+            "channel_id"
+          ],
+          "references": {
+            "name": "channels"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        },
+        {
+          "name": "invites_invited_by_fkey",
+          "columns": [
+            "invited_by"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "invites_email_length",
+          "rule": {
+            "kind": "length",
+            "column": "email",
+            "min": 3,
+            "max": 320
+          }
+        },
+        {
+          "name": "invites_status_values",
+          "rule": {
+            "kind": "one_of",
+            "column": "status",
+            "values": [
+              "sending",
+              "sent",
+              "failed"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "name": "memberships"
+      },
+      "comment": "Someone in a channel, and how far they've read.\n\nMembers see each other. The channel's creator adds and removes people;\nanyone may leave, and keeps their own read position.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "channel_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "user_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "last_read_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "Messages after this are unread."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "memberships_user_id_idx",
+          "columns": [
+            "user_id"
+          ]
+        },
+        {
+          "name": "memberships_channel_id_user_id_key",
+          "columns": [
+            "channel_id",
+            "user_id"
+          ],
+          "unique": true
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "memberships_channel_id_fkey",
+          "columns": [
+            "channel_id"
+          ],
+          "references": {
+            "name": "channels"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        },
+        {
+          "name": "memberships_user_id_fkey",
+          "columns": [
+            "user_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ]
+    },
+    {
+      "name": {
+        "name": "messages"
+      },
+      "comment": "Something someone said in a channel.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "channel_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "author_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "body",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "client_key",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "The sender's own name for the message, made before it was sent, so\ntheir screen can swap its greyed-out copy for this row."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "messages_channel_id_created_at_idx",
+          "columns": [
+            "channel_id",
+            "created_at"
+          ]
+        },
+        {
+          "name": "messages_author_id_client_key_key",
+          "columns": [
+            "author_id",
+            "client_key"
+          ],
+          "unique": true
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "messages_channel_id_fkey",
+          "columns": [
+            "channel_id"
+          ],
+          "references": {
+            "name": "channels"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        },
+        {
+          "name": "messages_author_id_fkey",
+          "columns": [
+            "author_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "messages_body_length",
+          "rule": {
+            "kind": "length",
+            "column": "body",
+            "min": 1,
+            "max": 4000
+          }
+        },
+        {
+          "name": "messages_client_key_length",
+          "rule": {
+            "kind": "length",
+            "column": "client_key",
+            "min": 1,
+            "max": 64
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "name": "tasks"
+      },
+      "comment": "A card on a channel's board.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "channel_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "column",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": {
+            "text": "todo"
+          },
+          "comment": "`todo`, `doing`, or `done`."
+        },
+        {
+          "name": "position",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false,
+          "comment": "Its place in the column, from 0. Moves renumber the whole column."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "tasks_channel_id_idx",
+          "columns": [
+            "channel_id"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "tasks_channel_id_fkey",
+          "columns": [
+            "channel_id"
+          ],
+          "references": {
+            "name": "channels"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "tasks_title_length",
+          "rule": {
+            "kind": "length",
+            "column": "title",
+            "min": 1,
+            "max": 200
+          }
+        },
+        {
+          "name": "tasks_column_values",
+          "rule": {
+            "kind": "one_of",
+            "column": "column",
+            "values": [
+              "todo",
+              "doing",
+              "done"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "name": "tips"
+      },
+      "comment": "A tip from one teammate to another, settled by a background job against\nHuddle's simulated settlement service.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "from_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "to_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "amount",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false,
+          "comment": "How many coins: Huddle's pretend currency."
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": {
+            "text": "pending"
+          },
+          "comment": "`pending`, `submitted`, `confirmed`, or `failed`."
+        },
+        {
+          "name": "receipt",
+          "type": {
+            "kind": "text",
+            "max_len": 200
+          },
+          "nullable": true,
+          "comment": "The simulated service's receipt, once it accepted the tip."
+        },
+        {
+          "name": "reason",
+          "type": {
+            "kind": "text",
+            "max_len": 500
+          },
+          "nullable": true,
+          "comment": "Why it failed, when it did."
+        },
+        {
+          "name": "attempt",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false,
+          "default": {
+            "integer": 1
+          },
+          "comment": "How many times it was sent, counting retries from the app."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "tips_from_id_idx",
+          "columns": [
+            "from_id"
+          ]
+        },
+        {
+          "name": "tips_to_id_idx",
+          "columns": [
+            "to_id"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "tips_from_id_fkey",
+          "columns": [
+            "from_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        },
+        {
+          "name": "tips_to_id_fkey",
+          "columns": [
+            "to_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "tips_amount_range",
+          "rule": {
+            "kind": "range",
+            "column": "amount",
+            "min": 1.0,
+            "max": 1000.0
+          }
+        },
+        {
+          "name": "tips_status_values",
+          "rule": {
+            "kind": "one_of",
+            "column": "status",
+            "values": [
+              "pending",
+              "submitted",
+              "confirmed",
+              "failed"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "name": "users"
+      },
+      "comment": "Someone with an account. The row shares its key with their\n`auth::Account`, so deleting the account deletes the person.\n\nEveryone signed in sees everyone's name, to add them to channels. Only\nan admin changes a row: the first person to sign in is one.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "What Huddle calls them, from their address until they change it."
+        },
+        {
+          "name": "email",
+          "type": {
+            "kind": "text",
+            "max_len": 320
+          },
+          "nullable": false,
+          "comment": "The address they signed in with, which invites are matched against."
+        },
+        {
+          "name": "is_admin",
+          "type": {
+            "kind": "bool"
+          },
+          "nullable": false,
+          "default": {
+            "bool": false
+          },
+          "comment": "Whether they may sign people out everywhere."
+        },
+        {
+          "name": "signed_out_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When an admin last signed them out everywhere. Their open apps watch\nthis row, so they drop to the sign-in screen when it changes."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "users_id_fkey",
+          "columns": [
+            "id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "users_name_length",
+          "rule": {
+            "kind": "length",
+            "column": "name",
+            "min": 1,
+            "max": 100
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "accounts"
+      },
+      "comment": "One per person. Everything else about them, from their emails to their\nsessions, points here; the app's own user table shares its key.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        },
+        {
+          "name": "disabled_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When the account was disabled. A disabled account can't sign in, and\nits sessions stop working."
+        },
+        {
+          "name": "locked_until",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "Until when sign-in is refused, after too many failed attempts."
+        }
+      ],
+      "primary_key": [
+        "id"
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "challenges"
+      },
+      "comment": "A short-lived secret a sign-in method sent or expects, such as an email\ncode or the second step of signing in. Only its hash is stored, it\nexpires, and it works once.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "purpose",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "subject",
+          "type": {
+            "kind": "text",
+            "max_len": 320
+          },
+          "nullable": false,
+          "comment": "Who it was issued to, such as an email address."
+        },
+        {
+          "name": "secret_hash",
+          "type": {
+            "kind": "bytes"
+          },
+          "nullable": false
+        },
+        {
+          "name": "state",
+          "type": {
+            "kind": "bytes"
+          },
+          "nullable": true,
+          "comment": "What the ceremony needs to finish, such as a WebAuthn challenge or a\nPKCE verifier: sealed with the server's keys and bound to this row."
+        },
+        {
+          "name": "attempts",
+          "type": {
+            "kind": "int32"
+          },
+          "nullable": false,
+          "comment": "Failed attempts so far."
+        },
+        {
+          "name": "expires_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        },
+        {
+          "name": "used_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_challenges_purpose_subject_idx",
+          "columns": [
+            "purpose",
+            "subject"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "name": "auth_challenges_purpose_values",
+          "rule": {
+            "kind": "one_of",
+            "column": "purpose",
+            "values": [
+              "email_code",
+              "second_factor",
+              "passkey_registration",
+              "passkey_authentication",
+              "provider",
+              "provider_sign_up",
+              "merge",
+              "wallet_link",
+              "wallet_proof",
+              "wallet_sign_in",
+              "password_pause"
+            ]
+          }
+        },
+        {
+          "name": "auth_challenges_attempts_range",
+          "rule": {
+            "kind": "range",
+            "column": "attempts",
+            "min": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "emails"
+      },
+      "comment": "An email address an account has proved it receives mail at.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "account_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "address",
+          "type": {
+            "kind": "text",
+            "max_len": 254
+          },
+          "nullable": false,
+          "comment": "The address, trimmed and lowercased. Each belongs to one account."
+        },
+        {
+          "name": "verified_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When the account last proved it receives mail here."
+        },
+        {
+          "name": "is_primary",
+          "type": {
+            "kind": "bool"
+          },
+          "nullable": false,
+          "comment": "Whether this is the address the account's mail goes to."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_emails_address_key",
+          "columns": [
+            "address"
+          ],
+          "unique": true
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "auth_emails_account_id_fkey",
+          "columns": [
+            "account_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "auth_emails_address_pattern",
+          "rule": {
+            "kind": "regex",
+            "column": "address",
+            "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "events"
+      },
+      "comment": "The audit trail: what happened to an account, and from where. Never\ncredentials.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "account_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": true
+        },
+        {
+          "name": "kind",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "detail",
+          "type": {
+            "kind": "text",
+            "max_len": 200
+          },
+          "nullable": true,
+          "comment": "What it concerns, such as the app that was connected: never a\ncredential."
+        },
+        {
+          "name": "ip",
+          "type": {
+            "kind": "text",
+            "max_len": 64
+          },
+          "nullable": true
+        },
+        {
+          "name": "user_agent",
+          "type": {
+            "kind": "text",
+            "max_len": 512
+          },
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_events_created_at_idx",
+          "columns": [
+            "created_at"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "auth_events_account_id_fkey",
+          "columns": [
+            "account_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "auth_events_kind_values",
+          "rule": {
+            "kind": "one_of",
+            "column": "kind",
+            "values": [
+              "signed_up",
+              "signed_in",
+              "sign_in_failed",
+              "signed_out",
+              "session_revoked",
+              "refresh_reused",
+              "code_sent",
+              "totp_enabled",
+              "totp_disabled",
+              "second_factor_failed",
+              "stepped_up",
+              "recovery_code_used",
+              "recovery_codes_regenerated",
+              "passkey_added",
+              "passkey_removed",
+              "passkey_failed",
+              "locked",
+              "unlocked",
+              "mfa_reset",
+              "identity_linked",
+              "identity_unlinked",
+              "account_merged",
+              "wallet_linked",
+              "wallet_unlinked",
+              "wallet_proved",
+              "wallet_sign_in_changed",
+              "wallet_failed",
+              "app_connected",
+              "app_disconnected",
+              "app_token_reused",
+              "app_registered",
+              "app_changed",
+              "app_deleted",
+              "account_deleted",
+              "password_set",
+              "password_changed",
+              "password_removed",
+              "password_reset",
+              "password_paused"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "identities"
+      },
+      "comment": "A third-party account someone signs in with, such as their Google\naccount. Who they are there is the provider and the provider's subject,\nnever the email address, which some providers let people change to\nanything.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "account_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "provider",
+          "type": {
+            "kind": "text",
+            "max_len": 64
+          },
+          "nullable": false,
+          "comment": "The provider's ID in `[auth.providers]`, such as `google`."
+        },
+        {
+          "name": "subject",
+          "type": {
+            "kind": "text",
+            "max_len": 255
+          },
+          "nullable": false,
+          "comment": "The provider's stable ID for the person."
+        },
+        {
+          "name": "email",
+          "type": {
+            "kind": "text",
+            "max_len": 320
+          },
+          "nullable": true,
+          "comment": "The address the provider gave, as it gave it."
+        },
+        {
+          "name": "email_verified",
+          "type": {
+            "kind": "bool"
+          },
+          "nullable": false,
+          "comment": "Whether the provider vouched for that address. Even then, it never\nconnects accounts by itself."
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "text",
+            "max_len": 200
+          },
+          "nullable": true,
+          "comment": "Their name or username there, to tell connected accounts apart."
+        },
+        {
+          "name": "last_used_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When it last signed in."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_identities_account_id_idx",
+          "columns": [
+            "account_id"
+          ]
+        },
+        {
+          "name": "auth_identities_provider_subject_key",
+          "columns": [
+            "provider",
+            "subject"
+          ],
+          "unique": true
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "auth_identities_account_id_fkey",
+          "columns": [
+            "account_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "merged_accounts"
+      },
+      "comment": "An account that was merged into another. Old references to it, such as\nprofile links, resolve to the account that absorbed it.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "absorbed_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false,
+          "comment": "The account that no longer exists."
+        },
+        {
+          "name": "survivor_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false,
+          "comment": "The account it became part of."
+        },
+        {
+          "name": "merged_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_merged_accounts_absorbed_id_key",
+          "columns": [
+            "absorbed_id"
+          ],
+          "unique": true
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "auth_merged_accounts_survivor_id_fkey",
+          "columns": [
+            "survivor_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "passkeys"
+      },
+      "comment": "A passkey: a key pair on the person's device, or synced through their\npassword manager, whose public half signs them in. Only public keys are\nstored.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "account_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "credential_id",
+          "type": {
+            "kind": "bytes"
+          },
+          "nullable": false,
+          "comment": "The credential ID the device names the key by. Each belongs to one\naccount."
+        },
+        {
+          "name": "credential",
+          "type": {
+            "kind": "bytes"
+          },
+          "nullable": false,
+          "comment": "The public key, its algorithm, and its signature counter, as\n`webauthn-rs` keeps them, in JSON."
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "What the person calls it, such as \"iCloud Keychain\"."
+        },
+        {
+          "name": "backed_up",
+          "type": {
+            "kind": "bool"
+          },
+          "nullable": false,
+          "comment": "Whether it's synced to other devices, such as through a password\nmanager, rather than bound to one."
+        },
+        {
+          "name": "last_used_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When it last signed in or confirmed it's them."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_passkeys_credential_id_key",
+          "columns": [
+            "credential_id"
+          ],
+          "unique": true
+        },
+        {
+          "name": "auth_passkeys_account_id_idx",
+          "columns": [
+            "account_id"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "auth_passkeys_account_id_fkey",
+          "columns": [
+            "account_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "auth_passkeys_name_length",
+          "rule": {
+            "kind": "length",
+            "column": "name",
+            "min": 1,
+            "max": 100
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "passwords"
+      },
+      "comment": "An account's password, as an Argon2id hash in the PHC string format,\nwhich names its parameters, so a hash made with older ones is replaced\nat the next sign-in. Nobody reads it but this crate.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "account_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false,
+          "comment": "One password per account."
+        },
+        {
+          "name": "hash",
+          "type": {
+            "kind": "text",
+            "max_len": 512
+          },
+          "nullable": false
+        },
+        {
+          "name": "changed_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "When it was last set, changed, or reset."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_passwords_account_id_key",
+          "columns": [
+            "account_id"
+          ],
+          "unique": true
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "auth_passwords_account_id_fkey",
+          "columns": [
+            "account_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "provider_tokens"
+      },
+      "comment": "A provider's access and refresh tokens for one connected account, kept\nonly for providers the app configured with `store_tokens`, so the app\ncan call that provider's API for the person. Both are encrypted with the\nserver's keys and bound to the identity, so a copy of the database calls\nno one's API. Nobody reads them directly, not even their owner: the app\nasks [`Auth::provider_access_token`](crate::Auth), which refreshes them.\nDisconnecting the account, merging it away, or deleting the account\ndeletes them, and revokes them where the provider allows.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "identity_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false,
+          "comment": "The connected account they belong to: one set each."
+        },
+        {
+          "name": "account_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "provider",
+          "type": {
+            "kind": "text",
+            "max_len": 64
+          },
+          "nullable": false,
+          "comment": "The provider's ID in `[auth.providers]`, such as `github`."
+        },
+        {
+          "name": "access_token",
+          "type": {
+            "kind": "bytes"
+          },
+          "nullable": false,
+          "comment": "The access token, AES-256-GCM-SIV under the newest key."
+        },
+        {
+          "name": "refresh_token",
+          "type": {
+            "kind": "bytes"
+          },
+          "nullable": true,
+          "comment": "The refresh token, sealed the same way, when the provider gave one."
+        },
+        {
+          "name": "expires_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When the access token stops working, if the provider said."
+        },
+        {
+          "name": "scope",
+          "type": {
+            "kind": "text",
+            "max_len": 2048
+          },
+          "nullable": true,
+          "comment": "The scopes the provider granted, as it listed them."
+        },
+        {
+          "name": "updated_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "When they were last replaced, at sign-in or by a refresh."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_provider_tokens_identity_id_key",
+          "columns": [
+            "identity_id"
+          ],
+          "unique": true
+        },
+        {
+          "name": "auth_provider_tokens_account_id_idx",
+          "columns": [
+            "account_id"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "auth_provider_tokens_identity_id_fkey",
+          "columns": [
+            "identity_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "identities"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        },
+        {
+          "name": "auth_provider_tokens_account_id_fkey",
+          "columns": [
+            "account_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "rate_limits"
+      },
+      "comment": "A fixed-window counter for one action from one source, such as code\nrequests for one address. The key is a hash, so the table holds no\naddresses.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "key",
+          "type": {
+            "kind": "bytes"
+          },
+          "nullable": false
+        },
+        {
+          "name": "window_start",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        },
+        {
+          "name": "count",
+          "type": {
+            "kind": "int32"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_rate_limits_key_key",
+          "columns": [
+            "key"
+          ],
+          "unique": true
+        }
+      ],
+      "checks": [
+        {
+          "name": "auth_rate_limits_count_range",
+          "rule": {
+            "kind": "range",
+            "column": "count",
+            "min": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "recovery_codes"
+      },
+      "comment": "One of an account's recovery codes, for when its authenticator is lost.\nEach works once; only its keyed hash is stored.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "account_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "code_hash",
+          "type": {
+            "kind": "bytes"
+          },
+          "nullable": false
+        },
+        {
+          "name": "used_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_recovery_codes_account_id_idx",
+          "columns": [
+            "account_id"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "auth_recovery_codes_account_id_fkey",
+          "columns": [
+            "account_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "sessions"
+      },
+      "comment": "A signed-in device. The tokens that prove it live only on the device:\nthis row keeps their SHA-256 hashes, so a copy of the database signs no\none in.\n\nA browser holds one token, in a cookie. A native app holds two: a\nshort-lived access token it sends with each request, and a refresh token\nthat trades for a new pair and works once.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "account_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "token_hash",
+          "type": {
+            "kind": "bytes"
+          },
+          "nullable": false,
+          "comment": "The cookie's token, or a native app's access token."
+        },
+        {
+          "name": "access_expires_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When a native app's access token stops working, so it must refresh.\n`None` for a browser's cookie."
+        },
+        {
+          "name": "refresh_hash",
+          "type": {
+            "kind": "bytes"
+          },
+          "nullable": true,
+          "comment": "A native app's refresh token."
+        },
+        {
+          "name": "previous_refresh_hash",
+          "type": {
+            "kind": "bytes"
+          },
+          "nullable": true,
+          "comment": "The refresh token this one replaced. Seen again after a short grace,\nit means someone else has a copy, and the session ends."
+        },
+        {
+          "name": "refreshed_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When the refresh token was last replaced."
+        },
+        {
+          "name": "aal",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "authenticated_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "When its owner last proved who they are, which carries over when the\nsession's token is replaced."
+        },
+        {
+          "name": "mfa_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When its owner last completed a second factor."
+        },
+        {
+          "name": "last_seen_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "When the session was last used, to the minute."
+        },
+        {
+          "name": "idle_expires_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "When it ends unless it's used before then."
+        },
+        {
+          "name": "expires_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "When it ends however often it's used."
+        },
+        {
+          "name": "device",
+          "type": {
+            "kind": "text",
+            "max_len": 200
+          },
+          "nullable": false,
+          "comment": "What signed in, such as \"Firefox on macOS\", for the list of devices."
+        },
+        {
+          "name": "revoked_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When it was signed out or revoked."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_sessions_token_hash_key",
+          "columns": [
+            "token_hash"
+          ],
+          "unique": true
+        },
+        {
+          "name": "auth_sessions_refresh_hash_key",
+          "columns": [
+            "refresh_hash"
+          ],
+          "unique": true
+        },
+        {
+          "name": "auth_sessions_previous_refresh_hash_key",
+          "columns": [
+            "previous_refresh_hash"
+          ],
+          "unique": true
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "auth_sessions_account_id_fkey",
+          "columns": [
+            "account_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "auth_sessions_aal_values",
+          "rule": {
+            "kind": "one_of",
+            "column": "aal",
+            "values": [
+              "aal1",
+              "aal2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "totp"
+      },
+      "comment": "An account's authenticator app: the TOTP secret it shares with the\nserver. The secret is encrypted with the server's keys, so a copy of the\ndatabase can't produce codes, and bound to its account.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "account_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false,
+          "comment": "One authenticator per account."
+        },
+        {
+          "name": "secret",
+          "type": {
+            "kind": "bytes"
+          },
+          "nullable": false,
+          "comment": "AES-256-GCM-SIV under the newest key, with the key's ID."
+        },
+        {
+          "name": "confirmed_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When a code from the app first matched. Until then the app isn't\ntrusted to sign in with."
+        },
+        {
+          "name": "last_used_step",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": true,
+          "comment": "The last 30-second step whose code was used, so no code works twice."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_totp_account_id_key",
+          "columns": [
+            "account_id"
+          ],
+          "unique": true
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "auth_totp_account_id_fkey",
+          "columns": [
+            "account_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "auth",
+        "name": "wallets"
+      },
+      "comment": "A wallet linked to an account, with proof that the account's owner\ncontrols it: a Sign-In With Solana message signed by its key. A wallet\nbelongs to one account. It's private unless its owner shows it, and\nsigns in only when its owner turns that on.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "account_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "chain",
+          "type": {
+            "kind": "text",
+            "max_len": 32
+          },
+          "nullable": false,
+          "comment": "The chain: `solana`."
+        },
+        {
+          "name": "address",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "The address."
+        },
+        {
+          "name": "label",
+          "type": {
+            "kind": "text",
+            "max_len": 100
+          },
+          "nullable": true,
+          "comment": "What the person calls it, such as \"Treasury\"."
+        },
+        {
+          "name": "can_sign_in",
+          "type": {
+            "kind": "bool"
+          },
+          "nullable": false,
+          "comment": "Whether it may sign in to the account. Off until its owner turns it\non."
+        },
+        {
+          "name": "is_public",
+          "type": {
+            "kind": "bool"
+          },
+          "nullable": false,
+          "comment": "Whether it shows on its owner's public profile."
+        },
+        {
+          "name": "verified_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "When it was linked."
+        },
+        {
+          "name": "last_proved_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "When it last signed a proof."
+        },
+        {
+          "name": "proof",
+          "type": {
+            "kind": "text",
+            "max_len": 4096
+          },
+          "nullable": false,
+          "comment": "The latest signed message, kept for audit."
+        },
+        {
+          "name": "proof_signature",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "The message's signature."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "auth_wallets_account_id_idx",
+          "columns": [
+            "account_id"
+          ]
+        },
+        {
+          "name": "auth_wallets_chain_address_key",
+          "columns": [
+            "chain",
+            "address"
+          ],
+          "unique": true
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "auth_wallets_account_id_fkey",
+          "columns": [
+            "account_id"
+          ],
+          "references": {
+            "namespace": "auth",
+            "name": "accounts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "auth_wallets_address_length",
+          "rule": {
+            "kind": "length",
+            "column": "address",
+            "min": 32,
+            "max": 44
+          }
+        },
+        {
+          "name": "auth_wallets_address_pattern",
+          "rule": {
+            "kind": "regex",
+            "column": "address",
+            "pattern": "^[1-9A-HJ-NP-Za-km-z]+$"
+          }
+        },
+        {
+          "name": "auth_wallets_proof_signature_length",
+          "rule": {
+            "kind": "length",
+            "column": "proof_signature",
+            "min": 64,
+            "max": 88
+          }
+        },
+        {
+          "name": "auth_wallets_proof_signature_pattern",
+          "rule": {
+            "kind": "regex",
+            "column": "proof_signature",
+            "pattern": "^[1-9A-HJ-NP-Za-km-z]+$"
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "live",
+        "name": "changes"
+      },
+      "comment": "`live.changes`: one row per written row of a live table.",
+      "columns": [
+        {
+          "name": "seq",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false,
+          "comment": "The change's place among the database's changes."
+        },
+        {
+          "name": "txid",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": true,
+          "comment": "The Postgres transaction that wrote it, which joins it to its commit."
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": true,
+          "comment": "SQLite: the commit's version, set just before the commit."
+        },
+        {
+          "name": "table_name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "The changed table, with its namespace: `messages` or `billing.invoices`."
+        },
+        {
+          "name": "op",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "What the write did."
+        },
+        {
+          "name": "key",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": false,
+          "comment": "The changed row's key, in key column order."
+        },
+        {
+          "name": "old",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": true,
+          "comment": "The row before an update or delete, without `secret` and\n`live = skip` columns."
+        },
+        {
+          "name": "new",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": true,
+          "comment": "The row after an insert or update, without those columns."
+        },
+        {
+          "name": "changed",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": false,
+          "comment": "For an update, every column whose value changed; empty otherwise."
+        }
+      ],
+      "primary_key": [
+        "seq"
+      ],
+      "indexes": [
+        {
+          "name": "live_changes_txid_idx",
+          "columns": [
+            "txid"
+          ]
+        },
+        {
+          "name": "live_changes_version_idx",
+          "columns": [
+            "version"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "name": "live_changes_op_values",
+          "rule": {
+            "kind": "one_of",
+            "column": "op",
+            "values": [
+              "I",
+              "U",
+              "D"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "live",
+        "name": "commits"
+      },
+      "comment": "`live.commits`: one row per committed transaction that wrote a live\ntable.",
+      "columns": [
+        {
+          "name": "version",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false,
+          "comment": "The transaction's place in the version line. Gaps are transactions\nthat rolled back after taking a version, which never become visible."
+        },
+        {
+          "name": "txid",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": true,
+          "comment": "The Postgres transaction ID, which joins the commit to its changes.\n`None` on SQLite."
+        },
+        {
+          "name": "committed_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "When the transaction committed."
+        },
+        {
+          "name": "actor",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": true,
+          "comment": "Who made the change, when the transaction said."
+        },
+        {
+          "name": "origin",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "What made it: what the transaction said, such as an operation's\nname, or `sql`."
+        }
+      ],
+      "primary_key": [
+        "version"
+      ],
+      "indexes": [
+        {
+          "name": "live_commits_txid_key",
+          "columns": [
+            "txid"
+          ],
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "rpc",
+        "name": "inbox"
+      },
+      "comment": "One notice in someone's inbox, in the `rpc` pack's `inbox` table.\n\nIts policies let each account read and mark read only its own notices;\nonly server code writes them, through `cx.notify(...)`.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "account",
+          "type": {
+            "kind": "text",
+            "max_len": 64
+          },
+          "nullable": false,
+          "comment": "Whose notice it is: their account's UUID."
+        },
+        {
+          "name": "title",
+          "type": {
+            "kind": "text",
+            "max_len": 255
+          },
+          "nullable": false
+        },
+        {
+          "name": "body",
+          "type": {
+            "kind": "text",
+            "max_len": 4000
+          },
+          "nullable": false
+        },
+        {
+          "name": "link",
+          "type": {
+            "kind": "text",
+            "max_len": 2000
+          },
+          "nullable": true
+        },
+        {
+          "name": "action",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": true,
+          "comment": "The button on it."
+        },
+        {
+          "name": "kind",
+          "type": {
+            "kind": "text",
+            "max_len": 32
+          },
+          "nullable": false,
+          "comment": "`info`, `success`, `warning`, or `error`."
+        },
+        {
+          "name": "read_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When its owner read it."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "rpc_inbox_account_created_at_idx",
+          "columns": [
+            "account",
+            "created_at"
+          ]
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "rpc",
+        "name": "jobs"
+      },
+      "comment": "One enqueued job, in the `rpc` pack's `jobs` table.\n\nIt's a live table: a client follows a job with\n[`use_job`](crate::client::use_job), and the hub sends each change. Its\npolicies show a job to the account that enqueued it, and to whoever\n`#[rpc::job(visible_to = ...)]` names, and let only the owner change it.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "key",
+          "type": {
+            "kind": "text",
+            "max_len": 255
+          },
+          "nullable": true,
+          "comment": "The app's idempotency key, if it gave one: enqueuing it again returns\nthe same job, until the job is pruned."
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "text",
+            "max_len": 255
+          },
+          "nullable": false,
+          "comment": "The job's name."
+        },
+        {
+          "name": "queue",
+          "type": {
+            "kind": "text",
+            "max_len": 255
+          },
+          "nullable": false,
+          "comment": "Its queue."
+        },
+        {
+          "name": "arguments",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": false,
+          "comment": "The arguments, as JSON."
+        },
+        {
+          "name": "owner",
+          "type": {
+            "kind": "text",
+            "max_len": 64
+          },
+          "nullable": false,
+          "comment": "The account that enqueued it, as a UUID, or empty when nobody signed\nin did."
+        },
+        {
+          "name": "viewer",
+          "type": {
+            "kind": "text",
+            "max_len": 64
+          },
+          "nullable": false,
+          "comment": "Another account that may read it, from `visible_to = argument`, or\nempty."
+        },
+        {
+          "name": "visibility",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "Who else may read it."
+        },
+        {
+          "name": "serial_key",
+          "type": {
+            "kind": "text",
+            "max_len": 512
+          },
+          "nullable": true,
+          "comment": "The job's name and its `serialize_by` argument: at most one job with\na key runs at a time."
+        },
+        {
+          "name": "state",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "attempts",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false,
+          "comment": "How many times a worker has started it."
+        },
+        {
+          "name": "max_attempts",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false,
+          "comment": "How many starts it gets before it fails."
+        },
+        {
+          "name": "priority",
+          "type": {
+            "kind": "int32"
+          },
+          "nullable": false,
+          "comment": "Higher runs first."
+        },
+        {
+          "name": "run_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "Not before this instant."
+        },
+        {
+          "name": "deadline_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "No attempt starts after this instant."
+        },
+        {
+          "name": "started_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When a worker last started it."
+        },
+        {
+          "name": "finished_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When it reached `done`, `failed`, or `cancelled`."
+        },
+        {
+          "name": "locked_until",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "Until when the running worker holds it; `None` when no one does."
+        },
+        {
+          "name": "result",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": true,
+          "comment": "What the body returned, as JSON."
+        },
+        {
+          "name": "error",
+          "type": {
+            "kind": "text",
+            "max_len": 2000
+          },
+          "nullable": true,
+          "comment": "Why the last attempt failed."
+        },
+        {
+          "name": "progress",
+          "type": {
+            "kind": "text",
+            "max_len": 500
+          },
+          "nullable": true,
+          "comment": "What it last said it was doing."
+        },
+        {
+          "name": "fraction",
+          "type": {
+            "kind": "float64"
+          },
+          "nullable": true,
+          "comment": "How far along it last said it was, from 0 to 1."
+        },
+        {
+          "name": "steps",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": false,
+          "comment": "The results of the steps it finished, by name."
+        },
+        {
+          "name": "cancel_requested",
+          "type": {
+            "kind": "bool"
+          },
+          "nullable": false,
+          "comment": "Someone asked it to stop."
+        },
+        {
+          "name": "failure_pending",
+          "type": {
+            "kind": "bool"
+          },
+          "nullable": false,
+          "comment": "It failed, and its `on_failure` mutation hasn't run yet."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "rpc_jobs_key_key",
+          "columns": [
+            "key"
+          ],
+          "unique": true
+        },
+        {
+          "name": "rpc_jobs_state_run_at_idx",
+          "columns": [
+            "state",
+            "run_at"
+          ]
+        },
+        {
+          "name": "rpc_jobs_locked_until_idx",
+          "columns": [
+            "locked_until"
+          ]
+        },
+        {
+          "name": "rpc_jobs_queue_state_idx",
+          "columns": [
+            "queue",
+            "state"
+          ]
+        },
+        {
+          "name": "rpc_jobs_serial_key_state_idx",
+          "columns": [
+            "serial_key",
+            "state"
+          ]
+        },
+        {
+          "name": "rpc_jobs_finished_at_idx",
+          "columns": [
+            "finished_at"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "name": "rpc_jobs_visibility_values",
+          "rule": {
+            "kind": "one_of",
+            "column": "visibility",
+            "values": [
+              "owner",
+              "signed_in",
+              "everyone"
+            ]
+          }
+        },
+        {
+          "name": "rpc_jobs_state_values",
+          "rule": {
+            "kind": "one_of",
+            "column": "state",
+            "values": [
+              "pending",
+              "running",
+              "done",
+              "failed",
+              "cancelled"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "rpc",
+        "name": "receipts"
+      },
+      "comment": "One mutation call that ran with a request ID, and what it returned.\n\nEach caller sees only their own receipts: the policy compares\n[`owner`](Self::owner) with the [`ReceiptOwner`] the RPC adds to the\ncontext it runs a mutation in.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "owner",
+          "type": {
+            "kind": "text",
+            "max_len": 255
+          },
+          "nullable": false,
+          "comment": "Who called: their [`Identity::caller`](super::Identity::caller), such\nas a session ID, or [`ANONYMOUS`] for anonymous callers."
+        },
+        {
+          "name": "request_id",
+          "type": {
+            "kind": "text",
+            "max_len": 255
+          },
+          "nullable": false,
+          "comment": "The ID the call came with."
+        },
+        {
+          "name": "operation",
+          "type": {
+            "kind": "text",
+            "max_len": 255
+          },
+          "nullable": false,
+          "comment": "The operation's name."
+        },
+        {
+          "name": "arguments",
+          "type": {
+            "kind": "text",
+            "max_len": 64
+          },
+          "nullable": false,
+          "comment": "A SHA-256 of the operation's name and arguments, in hex: a repeat\nwith the same request ID and other arguments is refused rather than\nanswered with another call's result."
+        },
+        {
+          "name": "result",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": false,
+          "comment": "What the call returned, as JSON."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "rpc_receipts_created_at_idx",
+          "columns": [
+            "created_at"
+          ]
+        },
+        {
+          "name": "rpc_receipts_owner_request_id_key",
+          "columns": [
+            "owner",
+            "request_id"
+          ],
+          "unique": true
+        }
+      ]
+    }
+  ],
+  "triggers": [
+    {
+      "name": "live_channels_delete",
+      "table": {
+        "name": "channels"
+      },
+      "timing": "after",
+      "events": [
+        "delete"
+      ],
+      "columns": [
+        "id",
+        "name",
+        "private",
+        "created_by",
+        "summary",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'channels', 'D', json_array(CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'name', OLD.\"name\", 'private', OLD.\"private\", 'created_by', CASE WHEN OLD.\"created_by\" IS NULL THEN NULL ELSE lower(hex(OLD.\"created_by\")) END, 'summary', OLD.\"summary\", 'created_at', OLD.\"created_at\"), NULL, '[]');"
+      }
+    },
+    {
+      "name": "live_channels_insert",
+      "table": {
+        "name": "channels"
+      },
+      "timing": "after",
+      "events": [
+        "insert"
+      ],
+      "columns": [
+        "id",
+        "name",
+        "private",
+        "created_by",
+        "summary",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'channels', 'I', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), NULL, json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'name', NEW.\"name\", 'private', NEW.\"private\", 'created_by', CASE WHEN NEW.\"created_by\" IS NULL THEN NULL ELSE lower(hex(NEW.\"created_by\")) END, 'summary', NEW.\"summary\", 'created_at', NEW.\"created_at\"), '[]');"
+      }
+    },
+    {
+      "name": "live_channels_update",
+      "table": {
+        "name": "channels"
+      },
+      "timing": "after",
+      "events": [
+        "update"
+      ],
+      "columns": [
+        "id",
+        "name",
+        "private",
+        "created_by",
+        "summary",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'channels', 'U', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'name', OLD.\"name\", 'private', OLD.\"private\", 'created_by', CASE WHEN OLD.\"created_by\" IS NULL THEN NULL ELSE lower(hex(OLD.\"created_by\")) END, 'summary', OLD.\"summary\", 'created_at', OLD.\"created_at\"), json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'name', NEW.\"name\", 'private', NEW.\"private\", 'created_by', CASE WHEN NEW.\"created_by\" IS NULL THEN NULL ELSE lower(hex(NEW.\"created_by\")) END, 'summary', NEW.\"summary\", 'created_at', NEW.\"created_at\"), (SELECT json_group_array(\"value\") FROM json_each(json_array(CASE WHEN OLD.\"created_at\" IS NOT NEW.\"created_at\" THEN 'created_at' END, CASE WHEN OLD.\"created_by\" IS NOT NEW.\"created_by\" THEN 'created_by' END, CASE WHEN OLD.\"id\" IS NOT NEW.\"id\" THEN 'id' END, CASE WHEN OLD.\"name\" IS NOT NEW.\"name\" THEN 'name' END, CASE WHEN OLD.\"private\" IS NOT NEW.\"private\" THEN 'private' END, CASE WHEN OLD.\"summary\" IS NOT NEW.\"summary\" THEN 'summary' END)) WHERE \"type\" <> 'null'));"
+      }
+    },
+    {
+      "name": "live_invites_delete",
+      "table": {
+        "name": "invites"
+      },
+      "timing": "after",
+      "events": [
+        "delete"
+      ],
+      "columns": [
+        "id",
+        "channel_id",
+        "invited_by",
+        "email",
+        "status",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'invites', 'D', json_array(CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'channel_id', CASE WHEN OLD.\"channel_id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"channel_id\")) END, 'invited_by', CASE WHEN OLD.\"invited_by\" IS NULL THEN NULL ELSE lower(hex(OLD.\"invited_by\")) END, 'email', OLD.\"email\", 'status', OLD.\"status\", 'created_at', OLD.\"created_at\"), NULL, '[]');"
+      }
+    },
+    {
+      "name": "live_invites_insert",
+      "table": {
+        "name": "invites"
+      },
+      "timing": "after",
+      "events": [
+        "insert"
+      ],
+      "columns": [
+        "id",
+        "channel_id",
+        "invited_by",
+        "email",
+        "status",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'invites', 'I', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), NULL, json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'channel_id', CASE WHEN NEW.\"channel_id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"channel_id\")) END, 'invited_by', CASE WHEN NEW.\"invited_by\" IS NULL THEN NULL ELSE lower(hex(NEW.\"invited_by\")) END, 'email', NEW.\"email\", 'status', NEW.\"status\", 'created_at', NEW.\"created_at\"), '[]');"
+      }
+    },
+    {
+      "name": "live_invites_update",
+      "table": {
+        "name": "invites"
+      },
+      "timing": "after",
+      "events": [
+        "update"
+      ],
+      "columns": [
+        "id",
+        "channel_id",
+        "invited_by",
+        "email",
+        "status",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'invites', 'U', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'channel_id', CASE WHEN OLD.\"channel_id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"channel_id\")) END, 'invited_by', CASE WHEN OLD.\"invited_by\" IS NULL THEN NULL ELSE lower(hex(OLD.\"invited_by\")) END, 'email', OLD.\"email\", 'status', OLD.\"status\", 'created_at', OLD.\"created_at\"), json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'channel_id', CASE WHEN NEW.\"channel_id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"channel_id\")) END, 'invited_by', CASE WHEN NEW.\"invited_by\" IS NULL THEN NULL ELSE lower(hex(NEW.\"invited_by\")) END, 'email', NEW.\"email\", 'status', NEW.\"status\", 'created_at', NEW.\"created_at\"), (SELECT json_group_array(\"value\") FROM json_each(json_array(CASE WHEN OLD.\"channel_id\" IS NOT NEW.\"channel_id\" THEN 'channel_id' END, CASE WHEN OLD.\"created_at\" IS NOT NEW.\"created_at\" THEN 'created_at' END, CASE WHEN OLD.\"email\" IS NOT NEW.\"email\" THEN 'email' END, CASE WHEN OLD.\"id\" IS NOT NEW.\"id\" THEN 'id' END, CASE WHEN OLD.\"invited_by\" IS NOT NEW.\"invited_by\" THEN 'invited_by' END, CASE WHEN OLD.\"status\" IS NOT NEW.\"status\" THEN 'status' END)) WHERE \"type\" <> 'null'));"
+      }
+    },
+    {
+      "name": "live_memberships_delete",
+      "table": {
+        "name": "memberships"
+      },
+      "timing": "after",
+      "events": [
+        "delete"
+      ],
+      "columns": [
+        "id",
+        "channel_id",
+        "user_id",
+        "last_read_at",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'memberships', 'D', json_array(CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'channel_id', CASE WHEN OLD.\"channel_id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"channel_id\")) END, 'user_id', CASE WHEN OLD.\"user_id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"user_id\")) END, 'last_read_at', OLD.\"last_read_at\", 'created_at', OLD.\"created_at\"), NULL, '[]');"
+      }
+    },
+    {
+      "name": "live_memberships_insert",
+      "table": {
+        "name": "memberships"
+      },
+      "timing": "after",
+      "events": [
+        "insert"
+      ],
+      "columns": [
+        "id",
+        "channel_id",
+        "user_id",
+        "last_read_at",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'memberships', 'I', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), NULL, json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'channel_id', CASE WHEN NEW.\"channel_id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"channel_id\")) END, 'user_id', CASE WHEN NEW.\"user_id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"user_id\")) END, 'last_read_at', NEW.\"last_read_at\", 'created_at', NEW.\"created_at\"), '[]');"
+      }
+    },
+    {
+      "name": "live_memberships_update",
+      "table": {
+        "name": "memberships"
+      },
+      "timing": "after",
+      "events": [
+        "update"
+      ],
+      "columns": [
+        "id",
+        "channel_id",
+        "user_id",
+        "last_read_at",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'memberships', 'U', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'channel_id', CASE WHEN OLD.\"channel_id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"channel_id\")) END, 'user_id', CASE WHEN OLD.\"user_id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"user_id\")) END, 'last_read_at', OLD.\"last_read_at\", 'created_at', OLD.\"created_at\"), json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'channel_id', CASE WHEN NEW.\"channel_id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"channel_id\")) END, 'user_id', CASE WHEN NEW.\"user_id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"user_id\")) END, 'last_read_at', NEW.\"last_read_at\", 'created_at', NEW.\"created_at\"), (SELECT json_group_array(\"value\") FROM json_each(json_array(CASE WHEN OLD.\"channel_id\" IS NOT NEW.\"channel_id\" THEN 'channel_id' END, CASE WHEN OLD.\"created_at\" IS NOT NEW.\"created_at\" THEN 'created_at' END, CASE WHEN OLD.\"id\" IS NOT NEW.\"id\" THEN 'id' END, CASE WHEN OLD.\"last_read_at\" IS NOT NEW.\"last_read_at\" THEN 'last_read_at' END, CASE WHEN OLD.\"user_id\" IS NOT NEW.\"user_id\" THEN 'user_id' END)) WHERE \"type\" <> 'null'));"
+      }
+    },
+    {
+      "name": "live_messages_delete",
+      "table": {
+        "name": "messages"
+      },
+      "timing": "after",
+      "events": [
+        "delete"
+      ],
+      "columns": [
+        "id",
+        "channel_id",
+        "author_id",
+        "body",
+        "client_key",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'messages', 'D', json_array(CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'channel_id', CASE WHEN OLD.\"channel_id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"channel_id\")) END, 'author_id', CASE WHEN OLD.\"author_id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"author_id\")) END, 'body', OLD.\"body\", 'client_key', OLD.\"client_key\", 'created_at', OLD.\"created_at\"), NULL, '[]');"
+      }
+    },
+    {
+      "name": "live_messages_insert",
+      "table": {
+        "name": "messages"
+      },
+      "timing": "after",
+      "events": [
+        "insert"
+      ],
+      "columns": [
+        "id",
+        "channel_id",
+        "author_id",
+        "body",
+        "client_key",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'messages', 'I', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), NULL, json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'channel_id', CASE WHEN NEW.\"channel_id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"channel_id\")) END, 'author_id', CASE WHEN NEW.\"author_id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"author_id\")) END, 'body', NEW.\"body\", 'client_key', NEW.\"client_key\", 'created_at', NEW.\"created_at\"), '[]');"
+      }
+    },
+    {
+      "name": "live_messages_update",
+      "table": {
+        "name": "messages"
+      },
+      "timing": "after",
+      "events": [
+        "update"
+      ],
+      "columns": [
+        "id",
+        "channel_id",
+        "author_id",
+        "body",
+        "client_key",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'messages', 'U', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'channel_id', CASE WHEN OLD.\"channel_id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"channel_id\")) END, 'author_id', CASE WHEN OLD.\"author_id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"author_id\")) END, 'body', OLD.\"body\", 'client_key', OLD.\"client_key\", 'created_at', OLD.\"created_at\"), json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'channel_id', CASE WHEN NEW.\"channel_id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"channel_id\")) END, 'author_id', CASE WHEN NEW.\"author_id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"author_id\")) END, 'body', NEW.\"body\", 'client_key', NEW.\"client_key\", 'created_at', NEW.\"created_at\"), (SELECT json_group_array(\"value\") FROM json_each(json_array(CASE WHEN OLD.\"author_id\" IS NOT NEW.\"author_id\" THEN 'author_id' END, CASE WHEN OLD.\"body\" IS NOT NEW.\"body\" THEN 'body' END, CASE WHEN OLD.\"channel_id\" IS NOT NEW.\"channel_id\" THEN 'channel_id' END, CASE WHEN OLD.\"client_key\" IS NOT NEW.\"client_key\" THEN 'client_key' END, CASE WHEN OLD.\"created_at\" IS NOT NEW.\"created_at\" THEN 'created_at' END, CASE WHEN OLD.\"id\" IS NOT NEW.\"id\" THEN 'id' END)) WHERE \"type\" <> 'null'));"
+      }
+    },
+    {
+      "name": "live_tasks_delete",
+      "table": {
+        "name": "tasks"
+      },
+      "timing": "after",
+      "events": [
+        "delete"
+      ],
+      "columns": [
+        "id",
+        "channel_id",
+        "title",
+        "column",
+        "position",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'tasks', 'D', json_array(CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'channel_id', CASE WHEN OLD.\"channel_id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"channel_id\")) END, 'title', OLD.\"title\", 'column', OLD.\"column\", 'position', OLD.\"position\", 'created_at', OLD.\"created_at\"), NULL, '[]');"
+      }
+    },
+    {
+      "name": "live_tasks_insert",
+      "table": {
+        "name": "tasks"
+      },
+      "timing": "after",
+      "events": [
+        "insert"
+      ],
+      "columns": [
+        "id",
+        "channel_id",
+        "title",
+        "column",
+        "position",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'tasks', 'I', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), NULL, json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'channel_id', CASE WHEN NEW.\"channel_id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"channel_id\")) END, 'title', NEW.\"title\", 'column', NEW.\"column\", 'position', NEW.\"position\", 'created_at', NEW.\"created_at\"), '[]');"
+      }
+    },
+    {
+      "name": "live_tasks_update",
+      "table": {
+        "name": "tasks"
+      },
+      "timing": "after",
+      "events": [
+        "update"
+      ],
+      "columns": [
+        "id",
+        "channel_id",
+        "title",
+        "column",
+        "position",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'tasks', 'U', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'channel_id', CASE WHEN OLD.\"channel_id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"channel_id\")) END, 'title', OLD.\"title\", 'column', OLD.\"column\", 'position', OLD.\"position\", 'created_at', OLD.\"created_at\"), json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'channel_id', CASE WHEN NEW.\"channel_id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"channel_id\")) END, 'title', NEW.\"title\", 'column', NEW.\"column\", 'position', NEW.\"position\", 'created_at', NEW.\"created_at\"), (SELECT json_group_array(\"value\") FROM json_each(json_array(CASE WHEN OLD.\"channel_id\" IS NOT NEW.\"channel_id\" THEN 'channel_id' END, CASE WHEN OLD.\"column\" IS NOT NEW.\"column\" THEN 'column' END, CASE WHEN OLD.\"created_at\" IS NOT NEW.\"created_at\" THEN 'created_at' END, CASE WHEN OLD.\"id\" IS NOT NEW.\"id\" THEN 'id' END, CASE WHEN OLD.\"position\" IS NOT NEW.\"position\" THEN 'position' END, CASE WHEN OLD.\"title\" IS NOT NEW.\"title\" THEN 'title' END)) WHERE \"type\" <> 'null'));"
+      }
+    },
+    {
+      "name": "live_tips_delete",
+      "table": {
+        "name": "tips"
+      },
+      "timing": "after",
+      "events": [
+        "delete"
+      ],
+      "columns": [
+        "id",
+        "from_id",
+        "to_id",
+        "amount",
+        "status",
+        "receipt",
+        "reason",
+        "attempt",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'tips', 'D', json_array(CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'from_id', CASE WHEN OLD.\"from_id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"from_id\")) END, 'to_id', CASE WHEN OLD.\"to_id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"to_id\")) END, 'amount', OLD.\"amount\", 'status', OLD.\"status\", 'receipt', OLD.\"receipt\", 'reason', OLD.\"reason\", 'attempt', OLD.\"attempt\", 'created_at', OLD.\"created_at\"), NULL, '[]');"
+      }
+    },
+    {
+      "name": "live_tips_insert",
+      "table": {
+        "name": "tips"
+      },
+      "timing": "after",
+      "events": [
+        "insert"
+      ],
+      "columns": [
+        "id",
+        "from_id",
+        "to_id",
+        "amount",
+        "status",
+        "receipt",
+        "reason",
+        "attempt",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'tips', 'I', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), NULL, json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'from_id', CASE WHEN NEW.\"from_id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"from_id\")) END, 'to_id', CASE WHEN NEW.\"to_id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"to_id\")) END, 'amount', NEW.\"amount\", 'status', NEW.\"status\", 'receipt', NEW.\"receipt\", 'reason', NEW.\"reason\", 'attempt', NEW.\"attempt\", 'created_at', NEW.\"created_at\"), '[]');"
+      }
+    },
+    {
+      "name": "live_tips_update",
+      "table": {
+        "name": "tips"
+      },
+      "timing": "after",
+      "events": [
+        "update"
+      ],
+      "columns": [
+        "id",
+        "from_id",
+        "to_id",
+        "amount",
+        "status",
+        "receipt",
+        "reason",
+        "attempt",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'tips', 'U', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'from_id', CASE WHEN OLD.\"from_id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"from_id\")) END, 'to_id', CASE WHEN OLD.\"to_id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"to_id\")) END, 'amount', OLD.\"amount\", 'status', OLD.\"status\", 'receipt', OLD.\"receipt\", 'reason', OLD.\"reason\", 'attempt', OLD.\"attempt\", 'created_at', OLD.\"created_at\"), json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'from_id', CASE WHEN NEW.\"from_id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"from_id\")) END, 'to_id', CASE WHEN NEW.\"to_id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"to_id\")) END, 'amount', NEW.\"amount\", 'status', NEW.\"status\", 'receipt', NEW.\"receipt\", 'reason', NEW.\"reason\", 'attempt', NEW.\"attempt\", 'created_at', NEW.\"created_at\"), (SELECT json_group_array(\"value\") FROM json_each(json_array(CASE WHEN OLD.\"amount\" IS NOT NEW.\"amount\" THEN 'amount' END, CASE WHEN OLD.\"attempt\" IS NOT NEW.\"attempt\" THEN 'attempt' END, CASE WHEN OLD.\"created_at\" IS NOT NEW.\"created_at\" THEN 'created_at' END, CASE WHEN OLD.\"from_id\" IS NOT NEW.\"from_id\" THEN 'from_id' END, CASE WHEN OLD.\"id\" IS NOT NEW.\"id\" THEN 'id' END, CASE WHEN OLD.\"reason\" IS NOT NEW.\"reason\" THEN 'reason' END, CASE WHEN OLD.\"receipt\" IS NOT NEW.\"receipt\" THEN 'receipt' END, CASE WHEN OLD.\"status\" IS NOT NEW.\"status\" THEN 'status' END, CASE WHEN OLD.\"to_id\" IS NOT NEW.\"to_id\" THEN 'to_id' END)) WHERE \"type\" <> 'null'));"
+      }
+    },
+    {
+      "name": "live_users_delete",
+      "table": {
+        "name": "users"
+      },
+      "timing": "after",
+      "events": [
+        "delete"
+      ],
+      "columns": [
+        "id",
+        "name",
+        "email",
+        "is_admin",
+        "signed_out_at",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'users', 'D', json_array(CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'name', OLD.\"name\", 'email', OLD.\"email\", 'is_admin', OLD.\"is_admin\", 'signed_out_at', OLD.\"signed_out_at\", 'created_at', OLD.\"created_at\"), NULL, '[]');"
+      }
+    },
+    {
+      "name": "live_users_insert",
+      "table": {
+        "name": "users"
+      },
+      "timing": "after",
+      "events": [
+        "insert"
+      ],
+      "columns": [
+        "id",
+        "name",
+        "email",
+        "is_admin",
+        "signed_out_at",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'users', 'I', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), NULL, json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'name', NEW.\"name\", 'email', NEW.\"email\", 'is_admin', NEW.\"is_admin\", 'signed_out_at', NEW.\"signed_out_at\", 'created_at', NEW.\"created_at\"), '[]');"
+      }
+    },
+    {
+      "name": "live_users_update",
+      "table": {
+        "name": "users"
+      },
+      "timing": "after",
+      "events": [
+        "update"
+      ],
+      "columns": [
+        "id",
+        "name",
+        "email",
+        "is_admin",
+        "signed_out_at",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'users', 'U', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'name', OLD.\"name\", 'email', OLD.\"email\", 'is_admin', OLD.\"is_admin\", 'signed_out_at', OLD.\"signed_out_at\", 'created_at', OLD.\"created_at\"), json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'name', NEW.\"name\", 'email', NEW.\"email\", 'is_admin', NEW.\"is_admin\", 'signed_out_at', NEW.\"signed_out_at\", 'created_at', NEW.\"created_at\"), (SELECT json_group_array(\"value\") FROM json_each(json_array(CASE WHEN OLD.\"created_at\" IS NOT NEW.\"created_at\" THEN 'created_at' END, CASE WHEN OLD.\"email\" IS NOT NEW.\"email\" THEN 'email' END, CASE WHEN OLD.\"id\" IS NOT NEW.\"id\" THEN 'id' END, CASE WHEN OLD.\"is_admin\" IS NOT NEW.\"is_admin\" THEN 'is_admin' END, CASE WHEN OLD.\"name\" IS NOT NEW.\"name\" THEN 'name' END, CASE WHEN OLD.\"signed_out_at\" IS NOT NEW.\"signed_out_at\" THEN 'signed_out_at' END)) WHERE \"type\" <> 'null'));"
+      }
+    },
+    {
+      "name": "live_rpc_inbox_delete",
+      "table": {
+        "namespace": "rpc",
+        "name": "inbox"
+      },
+      "timing": "after",
+      "events": [
+        "delete"
+      ],
+      "columns": [
+        "id",
+        "account",
+        "title",
+        "body",
+        "link",
+        "action",
+        "kind",
+        "read_at",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'rpc.inbox', 'D', json_array(CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'account', OLD.\"account\", 'title', OLD.\"title\", 'body', OLD.\"body\", 'link', OLD.\"link\", 'action', json(OLD.\"action\"), 'kind', OLD.\"kind\", 'read_at', OLD.\"read_at\", 'created_at', OLD.\"created_at\"), NULL, '[]');"
+      }
+    },
+    {
+      "name": "live_rpc_inbox_insert",
+      "table": {
+        "namespace": "rpc",
+        "name": "inbox"
+      },
+      "timing": "after",
+      "events": [
+        "insert"
+      ],
+      "columns": [
+        "id",
+        "account",
+        "title",
+        "body",
+        "link",
+        "action",
+        "kind",
+        "read_at",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'rpc.inbox', 'I', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), NULL, json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'account', NEW.\"account\", 'title', NEW.\"title\", 'body', NEW.\"body\", 'link', NEW.\"link\", 'action', json(NEW.\"action\"), 'kind', NEW.\"kind\", 'read_at', NEW.\"read_at\", 'created_at', NEW.\"created_at\"), '[]');"
+      }
+    },
+    {
+      "name": "live_rpc_inbox_update",
+      "table": {
+        "namespace": "rpc",
+        "name": "inbox"
+      },
+      "timing": "after",
+      "events": [
+        "update"
+      ],
+      "columns": [
+        "id",
+        "account",
+        "title",
+        "body",
+        "link",
+        "action",
+        "kind",
+        "read_at",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'rpc.inbox', 'U', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'account', OLD.\"account\", 'title', OLD.\"title\", 'body', OLD.\"body\", 'link', OLD.\"link\", 'action', json(OLD.\"action\"), 'kind', OLD.\"kind\", 'read_at', OLD.\"read_at\", 'created_at', OLD.\"created_at\"), json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'account', NEW.\"account\", 'title', NEW.\"title\", 'body', NEW.\"body\", 'link', NEW.\"link\", 'action', json(NEW.\"action\"), 'kind', NEW.\"kind\", 'read_at', NEW.\"read_at\", 'created_at', NEW.\"created_at\"), (SELECT json_group_array(\"value\") FROM json_each(json_array(CASE WHEN OLD.\"account\" IS NOT NEW.\"account\" THEN 'account' END, CASE WHEN OLD.\"action\" IS NOT NEW.\"action\" THEN 'action' END, CASE WHEN OLD.\"body\" IS NOT NEW.\"body\" THEN 'body' END, CASE WHEN OLD.\"created_at\" IS NOT NEW.\"created_at\" THEN 'created_at' END, CASE WHEN OLD.\"id\" IS NOT NEW.\"id\" THEN 'id' END, CASE WHEN OLD.\"kind\" IS NOT NEW.\"kind\" THEN 'kind' END, CASE WHEN OLD.\"link\" IS NOT NEW.\"link\" THEN 'link' END, CASE WHEN OLD.\"read_at\" IS NOT NEW.\"read_at\" THEN 'read_at' END, CASE WHEN OLD.\"title\" IS NOT NEW.\"title\" THEN 'title' END)) WHERE \"type\" <> 'null'));"
+      }
+    },
+    {
+      "name": "live_rpc_jobs_delete",
+      "table": {
+        "namespace": "rpc",
+        "name": "jobs"
+      },
+      "timing": "after",
+      "events": [
+        "delete"
+      ],
+      "columns": [
+        "id",
+        "key",
+        "name",
+        "queue",
+        "arguments",
+        "owner",
+        "viewer",
+        "visibility",
+        "serial_key",
+        "state",
+        "attempts",
+        "max_attempts",
+        "priority",
+        "run_at",
+        "deadline_at",
+        "started_at",
+        "finished_at",
+        "locked_until",
+        "result",
+        "error",
+        "progress",
+        "fraction",
+        "steps",
+        "cancel_requested",
+        "failure_pending",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'rpc.jobs', 'D', json_array(CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'key', OLD.\"key\", 'name', OLD.\"name\", 'queue', OLD.\"queue\", 'arguments', json(OLD.\"arguments\"), 'owner', OLD.\"owner\", 'viewer', OLD.\"viewer\", 'visibility', OLD.\"visibility\", 'serial_key', OLD.\"serial_key\", 'state', OLD.\"state\", 'attempts', OLD.\"attempts\", 'max_attempts', OLD.\"max_attempts\", 'priority', OLD.\"priority\", 'run_at', OLD.\"run_at\", 'deadline_at', OLD.\"deadline_at\", 'started_at', OLD.\"started_at\", 'finished_at', OLD.\"finished_at\", 'locked_until', OLD.\"locked_until\", 'result', json(OLD.\"result\"), 'error', OLD.\"error\", 'progress', OLD.\"progress\", 'fraction', OLD.\"fraction\", 'steps', json(OLD.\"steps\"), 'cancel_requested', OLD.\"cancel_requested\", 'failure_pending', OLD.\"failure_pending\", 'created_at', OLD.\"created_at\"), NULL, '[]');"
+      }
+    },
+    {
+      "name": "live_rpc_jobs_insert",
+      "table": {
+        "namespace": "rpc",
+        "name": "jobs"
+      },
+      "timing": "after",
+      "events": [
+        "insert"
+      ],
+      "columns": [
+        "id",
+        "key",
+        "name",
+        "queue",
+        "arguments",
+        "owner",
+        "viewer",
+        "visibility",
+        "serial_key",
+        "state",
+        "attempts",
+        "max_attempts",
+        "priority",
+        "run_at",
+        "deadline_at",
+        "started_at",
+        "finished_at",
+        "locked_until",
+        "result",
+        "error",
+        "progress",
+        "fraction",
+        "steps",
+        "cancel_requested",
+        "failure_pending",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'rpc.jobs', 'I', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), NULL, json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'key', NEW.\"key\", 'name', NEW.\"name\", 'queue', NEW.\"queue\", 'arguments', json(NEW.\"arguments\"), 'owner', NEW.\"owner\", 'viewer', NEW.\"viewer\", 'visibility', NEW.\"visibility\", 'serial_key', NEW.\"serial_key\", 'state', NEW.\"state\", 'attempts', NEW.\"attempts\", 'max_attempts', NEW.\"max_attempts\", 'priority', NEW.\"priority\", 'run_at', NEW.\"run_at\", 'deadline_at', NEW.\"deadline_at\", 'started_at', NEW.\"started_at\", 'finished_at', NEW.\"finished_at\", 'locked_until', NEW.\"locked_until\", 'result', json(NEW.\"result\"), 'error', NEW.\"error\", 'progress', NEW.\"progress\", 'fraction', NEW.\"fraction\", 'steps', json(NEW.\"steps\"), 'cancel_requested', NEW.\"cancel_requested\", 'failure_pending', NEW.\"failure_pending\", 'created_at', NEW.\"created_at\"), '[]');"
+      }
+    },
+    {
+      "name": "live_rpc_jobs_update",
+      "table": {
+        "namespace": "rpc",
+        "name": "jobs"
+      },
+      "timing": "after",
+      "events": [
+        "update"
+      ],
+      "columns": [
+        "id",
+        "key",
+        "name",
+        "queue",
+        "arguments",
+        "owner",
+        "viewer",
+        "visibility",
+        "serial_key",
+        "state",
+        "attempts",
+        "max_attempts",
+        "priority",
+        "run_at",
+        "deadline_at",
+        "started_at",
+        "finished_at",
+        "locked_until",
+        "result",
+        "error",
+        "progress",
+        "fraction",
+        "steps",
+        "cancel_requested",
+        "failure_pending",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'rpc.jobs', 'U', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'key', OLD.\"key\", 'name', OLD.\"name\", 'queue', OLD.\"queue\", 'arguments', json(OLD.\"arguments\"), 'owner', OLD.\"owner\", 'viewer', OLD.\"viewer\", 'visibility', OLD.\"visibility\", 'serial_key', OLD.\"serial_key\", 'state', OLD.\"state\", 'attempts', OLD.\"attempts\", 'max_attempts', OLD.\"max_attempts\", 'priority', OLD.\"priority\", 'run_at', OLD.\"run_at\", 'deadline_at', OLD.\"deadline_at\", 'started_at', OLD.\"started_at\", 'finished_at', OLD.\"finished_at\", 'locked_until', OLD.\"locked_until\", 'result', json(OLD.\"result\"), 'error', OLD.\"error\", 'progress', OLD.\"progress\", 'fraction', OLD.\"fraction\", 'steps', json(OLD.\"steps\"), 'cancel_requested', OLD.\"cancel_requested\", 'failure_pending', OLD.\"failure_pending\", 'created_at', OLD.\"created_at\"), json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'key', NEW.\"key\", 'name', NEW.\"name\", 'queue', NEW.\"queue\", 'arguments', json(NEW.\"arguments\"), 'owner', NEW.\"owner\", 'viewer', NEW.\"viewer\", 'visibility', NEW.\"visibility\", 'serial_key', NEW.\"serial_key\", 'state', NEW.\"state\", 'attempts', NEW.\"attempts\", 'max_attempts', NEW.\"max_attempts\", 'priority', NEW.\"priority\", 'run_at', NEW.\"run_at\", 'deadline_at', NEW.\"deadline_at\", 'started_at', NEW.\"started_at\", 'finished_at', NEW.\"finished_at\", 'locked_until', NEW.\"locked_until\", 'result', json(NEW.\"result\"), 'error', NEW.\"error\", 'progress', NEW.\"progress\", 'fraction', NEW.\"fraction\", 'steps', json(NEW.\"steps\"), 'cancel_requested', NEW.\"cancel_requested\", 'failure_pending', NEW.\"failure_pending\", 'created_at', NEW.\"created_at\"), (SELECT json_group_array(\"value\") FROM json_each(json_array(CASE WHEN OLD.\"arguments\" IS NOT NEW.\"arguments\" THEN 'arguments' END, CASE WHEN OLD.\"attempts\" IS NOT NEW.\"attempts\" THEN 'attempts' END, CASE WHEN OLD.\"cancel_requested\" IS NOT NEW.\"cancel_requested\" THEN 'cancel_requested' END, CASE WHEN OLD.\"created_at\" IS NOT NEW.\"created_at\" THEN 'created_at' END, CASE WHEN OLD.\"deadline_at\" IS NOT NEW.\"deadline_at\" THEN 'deadline_at' END, CASE WHEN OLD.\"error\" IS NOT NEW.\"error\" THEN 'error' END, CASE WHEN OLD.\"failure_pending\" IS NOT NEW.\"failure_pending\" THEN 'failure_pending' END, CASE WHEN OLD.\"finished_at\" IS NOT NEW.\"finished_at\" THEN 'finished_at' END, CASE WHEN OLD.\"fraction\" IS NOT NEW.\"fraction\" THEN 'fraction' END, CASE WHEN OLD.\"id\" IS NOT NEW.\"id\" THEN 'id' END, CASE WHEN OLD.\"key\" IS NOT NEW.\"key\" THEN 'key' END, CASE WHEN OLD.\"locked_until\" IS NOT NEW.\"locked_until\" THEN 'locked_until' END, CASE WHEN OLD.\"max_attempts\" IS NOT NEW.\"max_attempts\" THEN 'max_attempts' END, CASE WHEN OLD.\"name\" IS NOT NEW.\"name\" THEN 'name' END, CASE WHEN OLD.\"owner\" IS NOT NEW.\"owner\" THEN 'owner' END, CASE WHEN OLD.\"priority\" IS NOT NEW.\"priority\" THEN 'priority' END, CASE WHEN OLD.\"progress\" IS NOT NEW.\"progress\" THEN 'progress' END, CASE WHEN OLD.\"queue\" IS NOT NEW.\"queue\" THEN 'queue' END, CASE WHEN OLD.\"result\" IS NOT NEW.\"result\" THEN 'result' END, CASE WHEN OLD.\"run_at\" IS NOT NEW.\"run_at\" THEN 'run_at' END, CASE WHEN OLD.\"serial_key\" IS NOT NEW.\"serial_key\" THEN 'serial_key' END, CASE WHEN OLD.\"started_at\" IS NOT NEW.\"started_at\" THEN 'started_at' END, CASE WHEN OLD.\"state\" IS NOT NEW.\"state\" THEN 'state' END, CASE WHEN OLD.\"steps\" IS NOT NEW.\"steps\" THEN 'steps' END, CASE WHEN OLD.\"viewer\" IS NOT NEW.\"viewer\" THEN 'viewer' END, CASE WHEN OLD.\"visibility\" IS NOT NEW.\"visibility\" THEN 'visibility' END)) WHERE \"type\" <> 'null'));"
+      }
+    }
+  ]
+}

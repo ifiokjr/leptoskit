@@ -1,0 +1,40 @@
+# huddle with Docker Compose, written by `leptoskit generate deploy`. It's
+# yours to edit: running the generator again keeps your changes unless you
+# pass --force. It builds from the repository root, where Huddle's crates
+# are:
+#
+#   docker compose -f examples/huddle/deploy/compose.yaml up --build
+#
+# It reads these secrets from the environment, or from an `.env` file
+# beside this one, which .dockerignore keeps out of the image. They never go
+# in this file.
+#
+#   AUTH_ENCRYPTION_KEYS
+
+name: huddle
+
+services:
+  app:
+    build:
+      context: ../../..
+      dockerfile: examples/huddle/deploy/Dockerfile
+    image: huddle
+    # Only this machine reaches the server: put a proxy that terminates TLS
+    # in front of it.
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      AUTH_ENCRYPTION_KEYS: ${AUTH_ENCRYPTION_KEYS:?set AUTH_ENCRYPTION_KEYS}
+    # Nothing in the image changes while it runs; the database lives on a volume.
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - data:/data
+    # On `docker compose down` the server fails /readyz, waits 5 seconds, and
+    # gives the requests in flight 20 more, so this leaves it time to finish.
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+volumes:
+  data:
