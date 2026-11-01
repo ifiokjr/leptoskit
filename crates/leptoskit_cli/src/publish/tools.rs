@@ -10,7 +10,7 @@ use anyhow::Context;
 use anyhow::Result;
 
 /// One run of a tool.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Tool {
 	pub program: String,
 	pub args: Vec<String>,
@@ -18,6 +18,9 @@ pub struct Tool {
 	pub dir: Option<PathBuf>,
 	/// Environment variables it must not see.
 	pub unset: Vec<&'static str>,
+	/// Environment variables it gets, such as signing passwords, which
+	/// never print.
+	pub env: Vec<(&'static str, super::secrets::Secret)>,
 }
 
 impl Tool {
@@ -27,6 +30,7 @@ impl Tool {
 			args: Vec::new(),
 			dir: None,
 			unset: Vec::new(),
+			env: Vec::new(),
 		}
 	}
 
@@ -64,6 +68,12 @@ impl Tool {
 		self
 	}
 
+	#[must_use]
+	pub fn env(mut self, name: &'static str, value: super::secrets::Secret) -> Self {
+		self.env.push((name, value));
+		self
+	}
+
 	/// The program and its first argument, for messages.
 	fn name(&self) -> String {
 		match self.args.first() {
@@ -80,6 +90,9 @@ impl Tool {
 		}
 		for name in &self.unset {
 			command.env_remove(name);
+		}
+		for (name, value) in &self.env {
+			command.env(name, value.expose());
 		}
 		command
 	}

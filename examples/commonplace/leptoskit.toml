@@ -153,3 +153,9 @@ testflight_groups = ["Internal"]
 # .zip in .leptoskit/publish/macos/.
 [publish.macos]
 distribution = "developer_id"
+
+# The Android App Bundle, on Google Play's internal testing track; with
+# --submit on production, a staged rollout to a tenth of users first.
+[publish.play]
+track = "internal"
+rollout = 0.1

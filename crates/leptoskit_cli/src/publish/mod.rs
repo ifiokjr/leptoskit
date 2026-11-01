@@ -11,9 +11,11 @@ pub mod app_store;
 pub mod chrome;
 pub mod edge;
 pub mod firefox;
+pub mod google;
 pub mod http;
 pub mod listing;
 pub mod macos;
+pub mod play;
 pub mod secrets;
 pub mod steps;
 pub mod tools;
@@ -38,9 +40,9 @@ use self::steps::Who;
 #[derive(Debug, Clone, clap::Args)]
 #[allow(clippy::struct_excessive_bools, reason = "each is a command-line flag")]
 pub struct PublishArgs {
-	/// The stores: `chrome`, `edge`, `firefox`, `app_store`, and `macos`;
-	/// every store `[publish]` configures when omitted. `credentials` lists the
-	/// credentials each configured store needs instead.
+	/// The stores: `chrome`, `edge`, `firefox`, `app_store`, `macos`, and
+	/// `play`; every store `[publish]` configures when omitted. `credentials`
+	/// lists the credentials each configured store needs instead.
 	pub stores: Vec<String>,
 	/// Build and check everything, and contact no store.
 	#[arg(long)]
@@ -58,9 +60,9 @@ pub struct PublishArgs {
 	/// Print the report as JSON.
 	#[arg(long)]
 	pub json: bool,
-	/// The app stores' build number (`CFBundleVersion`): `auto`, one more
-	/// than the store's highest, or a number. The macOS download keeps the
-	/// app's own unless a number is given.
+	/// The app stores' build number (`CFBundleVersion`, `versionCode`):
+	/// `auto`, one more than the store's highest, or a number. The macOS
+	/// download keeps the app's own unless a number is given.
 	#[arg(long, default_value = "auto")]
 	pub build_number: BuildNumber,
 	/// A TOML file of credentials, by their environment variables' names,
@@ -104,7 +106,7 @@ struct Needed {
 	how: &'static str,
 }
 
-const NEEDED: [Needed; 12] = [
+const NEEDED: [Needed; 17] = [
 	Needed {
 		store: "chrome",
 		name: chrome::CREDENTIAL,
@@ -165,6 +167,31 @@ const NEEDED: [Needed; 12] = [
 		name: app_store::KEY,
 		how: app_store::HOW,
 	},
+	Needed {
+		store: "play",
+		name: play::CREDENTIAL,
+		how: play::HOW,
+	},
+	Needed {
+		store: "play",
+		name: play::KEYSTORE,
+		how: play::KEYSTORE_HOW,
+	},
+	Needed {
+		store: "play",
+		name: play::KEYSTORE_PASSWORD,
+		how: play::KEYSTORE_HOW,
+	},
+	Needed {
+		store: "play",
+		name: play::KEY_ALIAS,
+		how: play::KEYSTORE_HOW,
+	},
+	Needed {
+		store: "play",
+		name: play::KEY_PASSWORD,
+		how: play::KEYSTORE_HOW,
+	},
 ];
 
 /// An API's address: the store's own, or an override for a proxy or a
@@ -184,8 +211,8 @@ pub fn run(args: &PublishArgs) -> Result<()> {
 	let configured = config.publish.stores();
 	anyhow::ensure!(
 		!configured.is_empty(),
-		"no store is configured: add [publish.chrome], [publish.edge], [publish.firefox], \
-		 [publish.app_store], or [publish.macos] to leptoskit.toml"
+		"no store is configured: add a [publish] table for a store, such as [publish.chrome] or \
+		 [publish.play], to leptoskit.toml"
 	);
 	if args.stores.iter().any(|store| store == "credentials") {
 		print!("{}", list_credentials(&configured, &credentials));
@@ -259,6 +286,7 @@ pub fn run(args: &PublishArgs) -> Result<()> {
 			"firefox" => session.firefox()?,
 			"app_store" => session.app_store()?,
 			"macos" => session.macos()?,
+			"play" => session.play()?,
 			other => anyhow::bail!("`{other}` isn't a store leptoskit publish publishes to"),
 		};
 		report.steps.extend(steps);
@@ -753,6 +781,270 @@ impl Session<'_> {
 		};
 		Ok((summary, steps))
 	}
+}
+
+impl Session<'_> {
+	fn play(&self) -> Result<(String, Vec<Step>)> {
+		let settings = self.config.publish.play.clone().unwrap_or_default();
+		let track = settings.track.as_str();
+		let package = &self.config.native.package_id;
+		let android = crate::native::host_dir(self.root, crate::native::Target::Android);
+		let script = android.join("app/build.gradle.kts");
+		let text = std::fs::read_to_string(&script)
+			.with_context(|| format!("could not read {}", script.display()))?;
+		let problems = play::problems(&text, &script);
+		anyhow::ensure!(
+			problems.is_empty(),
+			"Google Play can't take this app's bundle yet:\n- {}",
+			problems.join("\n- ")
+		);
+		let notes = self.store.release_notes.as_deref();
+		if let Some(notes) = notes {
+			anyhow::ensure!(
+				notes.chars().count() <= play::NOTES_LIMIT,
+				"store/en-US/release_notes.md has {} characters; Google Play takes at most {}",
+				notes.chars().count(),
+				play::NOTES_LIMIT
+			);
+		}
+		let version = self.config.app.version.to_string();
+		let aab = play::bundle_path(&android);
+		let mut exists = true;
+		let mut rollout = play::Rollout::Draft;
+		let summary = if self.args.dry_run {
+			let code = match self.args.build_number {
+				BuildNumber::Auto => "one more than the highest on Google Play".to_owned(),
+				BuildNumber::Number(number) => number.to_string(),
+			};
+			format!(
+				"{} {version} is checked; an upload builds an App Bundle signed with your upload \
+				 key, numbered {code}, and puts it on the {track} track as a draft. Nothing was \
+				 built or uploaded.",
+				self.name
+			)
+		} else {
+			let account = self.credentials.require(play::CREDENTIAL, play::HOW)?;
+			let signing = play::Signing {
+				keystore: self
+					.credentials
+					.require(play::KEYSTORE, play::KEYSTORE_HOW)?,
+				keystore_password: self
+					.credentials
+					.require(play::KEYSTORE_PASSWORD, play::KEYSTORE_HOW)?,
+				key_alias: self
+					.credentials
+					.require(play::KEY_ALIAS, play::KEYSTORE_HOW)?,
+				key_password: self
+					.credentials
+					.require(play::KEY_PASSWORD, play::KEYSTORE_HOW)?,
+			};
+			let client = play::Play::connect(
+				self.http,
+				&api("LEPTOSKIT_PUBLISH_PLAY_API", play::API),
+				&api("LEPTOSKIT_PUBLISH_GOOGLE_OAUTH", google::OAUTH),
+				&account,
+				package,
+			)?;
+			let highest = if let Some(edit) = client.edit()? {
+				let highest = edit.highest_version_code();
+				edit.discard();
+				highest?
+			} else {
+				exists = false;
+				None
+			};
+			let code = match self.args.build_number {
+				BuildNumber::Auto => highest.map_or(1, |highest| highest + 1),
+				BuildNumber::Number(number) => number,
+			};
+			crate::native::run(crate::native::NativeCommand::Prepare {
+				target: crate::native::Target::Android,
+				release: true,
+			})?;
+			if aab.exists() {
+				std::fs::remove_file(&aab)?;
+			}
+			self.runner.run(&play::bundle(&android, code, &signing))?;
+			match client.edit()? {
+				Some(edit) if exists => {
+					let uploaded = edit.upload(
+						std::fs::read(&aab)
+							.with_context(|| format!("Gradle wrote no {}", aab.display()))?,
+					)?;
+					anyhow::ensure!(
+						uploaded == code,
+						"Google Play read versionCode {uploaded} from the bundle, not {code}; \
+						 check versionCode in {}",
+						script.display()
+					);
+					if self.submit {
+						rollout = match settings.rollout {
+							Some(fraction) if track == "production" => {
+								play::Rollout::Staged(fraction)
+							}
+							_ => play::Rollout::Everyone,
+						};
+					}
+					edit.release(track, &play::release(&version, code, rollout, notes))?;
+					edit.commit()?;
+					play_summary(&self.name, &version, code, track, rollout)
+				}
+				_ => {
+					exists = false;
+					format!(
+						"{} {version} (versionCode {code}) is built; Google Play has no app \
+						 {package} yet, so its first bundle is uploaded by hand.",
+						self.name
+					)
+				}
+			}
+		};
+		Ok((
+			summary,
+			play_steps(&PlayRun {
+				package,
+				track,
+				aab: &self.relative(&aab),
+				exists,
+				rollout,
+				submitted: self.submit,
+				store: self.store,
+			}),
+		))
+	}
+}
+
+/// Where an upload to Google Play stands.
+fn play_summary(
+	name: &str,
+	version: &str,
+	code: u64,
+	track: &str,
+	rollout: play::Rollout,
+) -> String {
+	match rollout {
+		play::Rollout::Draft => {
+			format!(
+				"{name} {version} (versionCode {code}) is on the {track} track as a draft release."
+			)
+		}
+		play::Rollout::Everyone => {
+			format!("{name} {version} (versionCode {code}) is released on the {track} track.")
+		}
+		play::Rollout::Staged(fraction) => {
+			format!(
+				"{name} {version} (versionCode {code}) is rolling out to {}% of the {track} \
+				 track's users.",
+				fraction * 100.0
+			)
+		}
+	}
+}
+
+/// What one Google Play run did, for its steps.
+struct PlayRun<'a> {
+	package: &'a str,
+	track: &'a str,
+	aab: &'a str,
+	exists: bool,
+	rollout: play::Rollout,
+	submitted: bool,
+	store: &'a Store,
+}
+
+/// What Google Play's API can't do.
+fn play_steps(run: &PlayRun<'_>) -> Vec<Step> {
+	let console = "https://play.google.com/console".to_owned();
+	let mut steps = Vec::new();
+	if !run.exists {
+		steps.push(step(
+			"play",
+			Who::Agent,
+			&format!(
+				"Create the app {} in Play Console, and upload its first App Bundle to the {} \
+				 track.",
+				run.package, run.track
+			),
+			Some(console.clone()),
+			vec![field("App Bundle", run.aab)],
+			"Google Play's API publishes to an app only after Play Console has its first bundle",
+			"`leptoskit publish play` uploads instead",
+		));
+	}
+	if run.submitted {
+		if let play::Rollout::Staged(fraction) = run.rollout {
+			steps.push(step(
+				"play",
+				Who::Person,
+				&format!(
+					"Watch the first {}% of users, then raise the rollout in Play Console, or \
+					 halt it.",
+					fraction * 100.0
+				),
+				Some(console),
+				Vec::new(),
+				"how far to roll out is the account holder's decision",
+				"the release reaches 100%",
+			));
+		}
+		return steps;
+	}
+	let listing = &run.store.listing;
+	steps.extend([
+		step(
+			"play",
+			Who::Agent,
+			"Fill in the main store listing: the app's name, short and full description, icon, \
+			 feature graphic, and phone screenshots.",
+			Some(console.clone()),
+			vec![
+				field("Full description", description_or_hint(run.store)),
+				field("Website", listing.homepage.clone().unwrap_or_default()),
+			],
+			"leptoskit doesn't upload Google Play listings yet",
+			"Play Console's dashboard no longer lists the store listing as a task",
+		),
+		step(
+			"play",
+			Who::Agent,
+			"Set the privacy policy, under App content.",
+			Some(console.clone()),
+			vec![field("Privacy policy", privacy_policy(run.store))],
+			"the Play Developer API has no App content endpoint",
+			"App content shows the privacy policy as done",
+		),
+		step(
+			"play",
+			Who::Person,
+			"Answer App content's declarations: data safety, the content rating questionnaire, \
+			 the target audience, and ads.",
+			Some(console),
+			Vec::new(),
+			"they are legal declarations about the app, which only the account holder can make",
+			"App content shows no task left",
+		),
+		step(
+			"play",
+			Who::Person,
+			&format!(
+				"Decide to release it, then run `leptoskit publish play --submit`, which releases \
+				 the {} track (a staged rollout on production when `rollout` is set).",
+				run.track
+			),
+			None,
+			Vec::new(),
+			"releasing reaches the track's users, which is the account holder's decision",
+			"the track's release shows as available or in progress",
+		),
+	]);
+	steps
+}
+
+fn description_or_hint(store: &Store) -> String {
+	store
+		.description
+		.clone()
+		.unwrap_or_else(|| "(write it in store/en-US/description.md)".to_owned())
 }
 
 /// Whether the app's `Info.plist` answers export compliance for every build

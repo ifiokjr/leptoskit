@@ -717,6 +717,14 @@ fn commonplace_dry_run() {
 	// Commonplace's iOS host is `ios/`, as in the example.
 	std::fs::create_dir_all(out.path().join("ios")).unwrap();
 	std::fs::write(out.path().join("ios/Cargo.toml"), "").unwrap();
+	// And its Android host is `android/`, with its own Gradle script.
+	std::fs::create_dir_all(out.path().join("android/app")).unwrap();
+	std::fs::write(out.path().join("android/Cargo.toml"), "").unwrap();
+	std::fs::copy(
+		example.join("android/app/build.gradle.kts"),
+		out.path().join("android/app/build.gradle.kts"),
+	)
+	.unwrap();
 	let package = |browser: Browser| {
 		crate::extension::Package {
 			browser,
@@ -765,6 +773,7 @@ fn commonplace_dry_run() {
 			"firefox" => session.firefox(),
 			"app_store" => session.app_store(),
 			"macos" => session.macos(),
+			"play" => session.play(),
 			other => panic!("{other} has no dry run here"),
 		}
 		.unwrap();
@@ -782,4 +791,132 @@ fn commonplace_dry_run() {
 			.is_file()
 	);
 	insta::assert_snapshot!(report.text());
+}
+
+fn google_account() -> Option<Secret> {
+	let key = rsa_key()?;
+	Some(Secret::new(
+		serde_json::json!({ "client_email": "ci@project.iam.gserviceaccount.com", "private_key": key })
+			.to_string(),
+	))
+}
+
+#[test]
+fn play_numbers_uploads_and_releases_through_an_edit() {
+	use super::play::Play;
+	use super::play::Rollout;
+
+	let Some(account) = google_account() else {
+		return;
+	};
+	let app = "/androidpublisher/v3/applications/com.example.notes";
+	let (base, seen) = store(Box::new(move |request, count| {
+		let path = request.path.as_str();
+		match (request.method.as_str(), path) {
+			("POST", "/token") => json(serde_json::json!({ "access_token": "token-1" })),
+			("POST", path) if path == format!("{app}/edits") => {
+				json(serde_json::json!({ "id": format!("edit-{count}") }))
+			}
+			("GET", path) if path.ends_with("/tracks") => {
+				json(serde_json::json!({ "tracks": [
+					{ "track": "internal", "releases": [{ "versionCodes": ["40", "41"] }] },
+					{ "track": "production", "releases": [{ "versionCodes": ["39"] }] },
+				]}))
+			}
+			("GET", path) if path.ends_with("/bundles") => {
+				json(serde_json::json!({ "bundles": [{ "versionCode": 38 }] }))
+			}
+			("DELETE", _) => StatusCode::NO_CONTENT.into_response(),
+			("POST", path) if path.ends_with("/bundles") => {
+				json(serde_json::json!({ "versionCode": 42, "sha256": "…" }))
+			}
+			("PUT", path) if path.ends_with("/tracks/production") => {
+				json(serde_json::json!({ "track": "production" }))
+			}
+			("POST", path) if path.ends_with(":commit") => {
+				json(serde_json::json!({ "id": "edit" }))
+			}
+			_ => StatusCode::NOT_FOUND.into_response(),
+		}
+	}));
+	let http = Http::default();
+	let play = Play::connect(
+		&http,
+		&base,
+		&format!("{base}/token"),
+		&account,
+		"com.example.notes",
+	)
+	.unwrap();
+	let edit = play.edit().unwrap().unwrap();
+	assert_eq!(edit.highest_version_code().unwrap(), Some(41));
+	edit.discard();
+	let edit = play.edit().unwrap().unwrap();
+	assert_eq!(edit.upload(b"PK aab".to_vec()).unwrap(), 42);
+	edit.release(
+		"production",
+		&super::play::release("1.4.0", 42, Rollout::Staged(0.1), Some("Faster sync.")),
+	)
+	.unwrap();
+	edit.commit().unwrap();
+
+	let seen = seen.lock().unwrap();
+	let form = String::from_utf8(seen[0].body.clone()).unwrap();
+	let assertion = form.rsplit('=').next().unwrap();
+	let claims: serde_json::Value = {
+		use base64::Engine as _;
+		serde_json::from_slice(
+			&base64::engine::general_purpose::URL_SAFE_NO_PAD
+				.decode(assertion.split('.').nth(1).unwrap())
+				.unwrap(),
+		)
+		.unwrap()
+	};
+	assert_eq!(
+		claims["scope"],
+		"https://www.googleapis.com/auth/androidpublisher"
+	);
+	assert_eq!(seen[1].authorization, "Bearer token-1");
+	assert_eq!(seen[4].method, "DELETE");
+	assert_eq!(seen[4].path, format!("{app}/edits/edit-1"));
+	let upload = &seen[6];
+	assert_eq!(
+		upload.path,
+		"/upload/androidpublisher/v3/applications/com.example.notes/edits/edit-5/bundles"
+	);
+	assert_eq!(upload.query, "uploadType=media");
+	assert_eq!(upload.content_type, "application/octet-stream");
+	assert_eq!(upload.body, b"PK aab");
+	let track: serde_json::Value = serde_json::from_slice(&seen[7].body).unwrap();
+	assert_eq!(track["track"], "production");
+	assert_eq!(track["releases"][0]["status"], "inProgress");
+	assert_eq!(track["releases"][0]["userFraction"], 0.1);
+	assert_eq!(track["releases"][0]["versionCodes"][0], "42");
+	assert_eq!(seen[8].path, format!("{app}/edits/edit-5:commit"));
+}
+
+#[test]
+fn play_reports_a_missing_app_and_a_service_account_without_access() {
+	let Some(account) = google_account() else {
+		return;
+	};
+	let (base, _) = store(Box::new(|request, _| {
+		match request.path.as_str() {
+			"/token" => json(serde_json::json!({ "access_token": "t" })),
+			path if path.contains("com.example.new") => StatusCode::NOT_FOUND.into_response(),
+			_ => StatusCode::FORBIDDEN.into_response(),
+		}
+	}));
+	let http = Http::default();
+	let connect = |package: &str| {
+		super::play::Play::connect(&http, &base, &format!("{base}/token"), &account, package)
+			.unwrap()
+	};
+	assert!(connect("com.example.new").edit().unwrap().is_none());
+	let error = connect("com.example.notes")
+		.edit()
+		.err()
+		.unwrap()
+		.to_string();
+	assert!(error.contains("Users and permissions"), "{error}");
 }

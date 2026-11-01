@@ -426,7 +426,8 @@ fn build_application(
 	}
 }
 
-/// The Gradle wrapper invocation that assembles the generated Android host.
+/// The Gradle wrapper invocation that assembles the generated Android host,
+/// and for a release, its App Bundle too.
 fn gradle_build(root: &Path, target: Target, release: bool) -> Command {
 	let android = host_dir(root, target);
 	let mut command = Command::new(android.join(if cfg!(windows) {
@@ -434,14 +435,13 @@ fn gradle_build(root: &Path, target: Target, release: bool) -> Command {
 	} else {
 		"gradlew"
 	}));
-	command.current_dir(&android).args([
-		"--no-daemon",
-		if release {
-			"assembleRelease"
-		} else {
-			"assembleDebug"
-		},
-	]);
+	command.current_dir(&android).arg("--no-daemon");
+	if release {
+		// The APK installs directly; Google Play takes the App Bundle.
+		command.args(["assembleRelease", "bundleRelease"]);
+	} else {
+		command.arg("assembleDebug");
+	}
 	command
 }
 
@@ -1488,7 +1488,10 @@ mod tests {
 		assert_eq!(wrapper.parent(), Some(android.as_path()));
 		assert_eq!(wrapper.file_stem(), Some("gradlew".as_ref()));
 		assert_eq!(release.get_current_dir(), Some(android.as_path()));
-		assert_eq!(arguments(&release), ["--no-daemon", "assembleRelease"]);
+		assert_eq!(
+			arguments(&release),
+			["--no-daemon", "assembleRelease", "bundleRelease"]
+		);
 
 		let debug = gradle_build(root, Target::AndroidX86_64, false);
 		assert_eq!(arguments(&debug), ["--no-daemon", "assembleDebug"]);

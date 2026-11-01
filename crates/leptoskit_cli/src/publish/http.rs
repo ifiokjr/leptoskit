@@ -75,6 +75,15 @@ impl Body {
 		}
 	}
 
+	/// Any file, such as an Android App Bundle.
+	#[must_use]
+	pub fn bytes(bytes: Vec<u8>) -> Self {
+		Self {
+			content_type: "application/octet-stream".to_owned(),
+			bytes,
+		}
+	}
+
 	/// A zip file.
 	#[must_use]
 	pub fn zip(bytes: Vec<u8>) -> Self {
@@ -195,8 +204,12 @@ impl Http {
 		body: Option<Body>,
 	) -> Result<Reply> {
 		let response = match (method, body) {
-			("GET", _) => {
-				let mut request = self.agent.get(url);
+			(method @ ("GET" | "DELETE"), _) => {
+				let mut request = if method == "GET" {
+					self.agent.get(url)
+				} else {
+					self.agent.delete(url)
+				};
 				for (name, value) in headers {
 					request = request.header(*name, *value);
 				}

@@ -2,7 +2,6 @@
 
 use std::time::Duration;
 
-use anyhow::Context;
 use anyhow::Result;
 use serde_json::Value;
 use serde_json::json;
@@ -11,14 +10,11 @@ use super::http::Body;
 use super::http::Http;
 use super::http::poll;
 use super::secrets::Secret;
-use super::secrets::issued_at;
-use super::secrets::rs256;
 
 /// The API's address.
 pub const API: &str = "https://chromewebstore.googleapis.com";
-/// Google's OAuth token endpoint, which a service account's signed token is
-/// exchanged at.
-pub const OAUTH: &str = "https://oauth2.googleapis.com/token";
+/// Google's OAuth token endpoint.
+pub const OAUTH: &str = super::google::OAUTH;
 /// The credential: the service account's JSON key, or the path to it.
 pub const CREDENTIAL: &str = "LEPTOSKIT_PUBLISH_CHROME_SERVICE_ACCOUNT";
 /// Where to make one.
@@ -48,53 +44,20 @@ impl<'a> Chrome<'a> {
 		publisher: &str,
 		item: &str,
 	) -> Result<Self> {
-		let text = account.expose().trim();
-		let text = if text.starts_with('{') {
-			text.to_owned()
-		} else {
-			std::fs::read_to_string(text)
-				.with_context(|| format!("{CREDENTIAL} names a file that can't be read"))?
-		};
-		let account: Value = serde_json::from_str(&text)
-			.with_context(|| format!("{CREDENTIAL} isn't a service account's JSON key"))?;
-		let email = account["client_email"]
-			.as_str()
-			.with_context(|| format!("{CREDENTIAL} has no client_email"))?;
-		let key = account["private_key"]
-			.as_str()
-			.with_context(|| format!("{CREDENTIAL} has no private_key"))?;
-		let issued = issued_at();
-		let assertion = rs256(
-			&json!({
-				"iss": email,
-				"scope": "https://www.googleapis.com/auth/chromewebstore",
-				"aud": oauth,
-				"iat": issued,
-				"exp": issued + 3600,
-			}),
-			key,
+		let token = super::google::access_token(
+			http,
+			oauth,
+			account,
+			CREDENTIAL,
+			"https://www.googleapis.com/auth/chromewebstore",
+			"the Chrome Web Store",
 		)?;
-		let reply = http
-			.send(
-				"POST",
-				oauth,
-				&[],
-				Some(Body::form(&[
-					("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"),
-					("assertion", &assertion),
-				])),
-			)?
-			.ok("signing in to the Chrome Web Store")?
-			.json()?;
-		let token = reply["access_token"]
-			.as_str()
-			.context("Google answered without an access token")?;
 		Ok(Self {
 			http,
 			api: api.trim_end_matches('/').to_owned(),
 			publisher: publisher.to_owned(),
 			item: item.to_owned(),
-			token: Secret::from(token),
+			token,
 		})
 	}
 
