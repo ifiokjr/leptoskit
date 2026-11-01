@@ -1,0 +1,136 @@
+---
+source: crates/leptoskit_cli/src/publish/screenshots.rs
+expression: summary
+---
+[
+  {
+    "document": {
+      "schema_version": 1,
+      "steps": [
+        {
+          "action": "screenshot",
+          "label": "projects"
+        }
+      ],
+      "target": {
+        "application": {
+          "kind": "identifier",
+          "value": "com.leptoskit.commonplace"
+        },
+        "artifacts": ".leptoskit/publish/screenshots",
+        "command_seconds": 30,
+        "device": "emulator-5554",
+        "headless": true,
+        "kind": "android",
+        "startup_seconds": 300,
+        "wait_seconds": 30
+      }
+    },
+    "file": "android-phone/01-projects.png",
+    "size": null
+  },
+  {
+    "document": {
+      "schema_version": 1,
+      "steps": [
+        {
+          "action": "screenshot",
+          "label": "projects"
+        }
+      ],
+      "target": {
+        "artifacts": ".leptoskit/publish/screenshots",
+        "browser": "chrome",
+        "capabilities": {
+          "goog:chromeOptions": {
+            "mobileEmulation": {
+              "deviceMetrics": {
+                "height": 800,
+                "mobile": false,
+                "pixelRatio": 1.0,
+                "touch": false,
+                "width": 1280
+              }
+            }
+          }
+        },
+        "command_seconds": 30,
+        "headless": true,
+        "kind": "web",
+        "startup_seconds": 300,
+        "url": "http://127.0.0.1:3000/",
+        "wait_seconds": 30
+      }
+    },
+    "file": "chrome-1280x800/01-projects.png",
+    "size": [
+      1280,
+      800
+    ]
+  },
+  {
+    "document": {
+      "schema_version": 1,
+      "steps": [
+        {
+          "action": "screenshot",
+          "label": "reading"
+        }
+      ],
+      "target": {
+        "artifacts": ".leptoskit/publish/screenshots",
+        "browser": "chrome",
+        "capabilities": {
+          "goog:chromeOptions": {
+            "mobileEmulation": {
+              "deviceMetrics": {
+                "height": 800,
+                "mobile": false,
+                "pixelRatio": 1.0,
+                "touch": false,
+                "width": 1280
+              }
+            }
+          }
+        },
+        "command_seconds": 30,
+        "headless": true,
+        "kind": "web",
+        "startup_seconds": 300,
+        "url": "http://127.0.0.1:3000/reading",
+        "wait_seconds": 30
+      }
+    },
+    "file": "chrome-1280x800/02-reading.png",
+    "size": [
+      1280,
+      800
+    ]
+  },
+  {
+    "document": {
+      "schema_version": 1,
+      "steps": [
+        {
+          "action": "screenshot",
+          "label": "projects"
+        }
+      ],
+      "target": {
+        "application": {
+          "kind": "identifier",
+          "value": "com.leptoskit.commonplace"
+        },
+        "artifacts": ".leptoskit/publish/screenshots",
+        "command_seconds": 30,
+        "device": "SIM-UDID",
+        "headless": true,
+        "kind": "ios_simulator",
+        "startup_seconds": 300,
+        "wait_seconds": 30
+      }
+    },
+    "file": "iphone-6.9/01-projects.png",
+    "size": null
+  }
+]

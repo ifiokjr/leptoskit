@@ -920,3 +920,110 @@ fn play_reports_a_missing_app_and_a_service_account_without_access() {
 		.to_string();
 	assert!(error.contains("Users and permissions"), "{error}");
 }
+
+#[test]
+fn app_store_sets_the_privacy_policy_on_app_information() {
+	let Some(key) = apple_key() else { return };
+	let (base, seen) = store(Box::new(|request, _| {
+		match (request.method.as_str(), request.path.as_str()) {
+			("GET", "/v1/apps/123/appInfos") => {
+				json(serde_json::json!({ "data": [
+					{ "id": "live", "attributes": { "appStoreState": "READY_FOR_SALE" } },
+					{ "id": "next", "attributes": { "appStoreState": "PREPARE_FOR_SUBMISSION" } },
+				]}))
+			}
+			("GET", "/v1/appInfos/next/appInfoLocalizations") => {
+				json(serde_json::json!({ "data": [
+					{ "id": "fr", "attributes": { "locale": "fr-FR" } },
+					{ "id": "en", "attributes": { "locale": "en-US" } },
+				]}))
+			}
+			("PATCH", "/v1/appInfoLocalizations/en") => json(serde_json::json!({})),
+			_ => StatusCode::NOT_FOUND.into_response(),
+		}
+	}));
+	let http = Http::default();
+	assert!(
+		AppStore::new(&http, &base, &key)
+			.privacy_policy("123", "https://example.com/privacy")
+			.unwrap()
+	);
+	let seen = seen.lock().unwrap();
+	let body: serde_json::Value = serde_json::from_slice(&seen[2].body).unwrap();
+	assert_eq!(
+		body["data"]["attributes"]["privacyPolicyUrl"],
+		"https://example.com/privacy"
+	);
+}
+
+#[test]
+fn play_sets_the_store_listing() {
+	let Some(account) = google_account() else {
+		return;
+	};
+	let (base, seen) = store(Box::new(|request, _| {
+		match (request.method.as_str(), request.path.as_str()) {
+			("POST", "/token") => json(serde_json::json!({ "access_token": "t" })),
+			("POST", path) if path.ends_with("/edits") => json(serde_json::json!({ "id": "e1" })),
+			("PUT", path) if path.ends_with("/edits/e1/listings/en-US") => {
+				json(serde_json::json!({}))
+			}
+			_ => StatusCode::NOT_FOUND.into_response(),
+		}
+	}));
+	let http = Http::default();
+	let play = super::play::Play::connect(&http, &base, &format!("{base}/token"), &account, "a.b")
+		.unwrap();
+	play.edit()
+		.unwrap()
+		.unwrap()
+		.listing("en-US", "Notes", "Keep notes.", "Keep notes, everywhere.")
+		.unwrap();
+	let body: serde_json::Value = serde_json::from_slice(&seen.lock().unwrap()[2].body).unwrap();
+	assert_eq!(
+		body,
+		serde_json::json!({
+			"language": "en-US", "title": "Notes",
+			"shortDescription": "Keep notes.", "fullDescription": "Keep notes, everywhere.",
+		})
+	);
+}
+
+#[test]
+fn firefox_sets_the_listing_text_it_has() {
+	let (base, seen) = store(Box::new(|request, _| {
+		match (request.method.as_str(), request.path.as_str()) {
+			("PATCH", "/addons/addon/notes@example.com/") => json(serde_json::json!({})),
+			_ => StatusCode::NOT_FOUND.into_response(),
+		}
+	}));
+	let http = Http::default();
+	let firefox = |guid: &str| {
+		Firefox::new(
+			&http,
+			&base,
+			guid,
+			Secret::new("i".into()),
+			Secret::new("s".into()),
+		)
+	};
+	assert!(
+		firefox("notes@example.com")
+			.listing(None, Some("Keep notes."), Some("Keep notes, everywhere."))
+			.unwrap()
+	);
+	// An add-on that doesn't exist yet has no listing to set.
+	assert!(
+		!firefox("new@example.com")
+			.listing(None, Some("Keep notes."), None)
+			.unwrap()
+	);
+	let body: serde_json::Value = serde_json::from_slice(&seen.lock().unwrap()[0].body).unwrap();
+	assert_eq!(
+		body,
+		serde_json::json!({
+			"summary": { "en-US": "Keep notes." },
+			"description": { "en-US": "Keep notes, everywhere." },
+		})
+	);
+}

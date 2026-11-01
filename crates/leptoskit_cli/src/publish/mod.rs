@@ -16,6 +16,7 @@ pub mod http;
 pub mod listing;
 pub mod macos;
 pub mod play;
+pub mod screenshots;
 pub mod secrets;
 pub mod steps;
 pub mod tools;
@@ -41,8 +42,9 @@ use self::steps::Who;
 #[allow(clippy::struct_excessive_bools, reason = "each is a command-line flag")]
 pub struct PublishArgs {
 	/// The stores: `chrome`, `edge`, `firefox`, `app_store`, `macos`, and
-	/// `play`; every store `[publish]` configures when omitted. `credentials`
-	/// lists the credentials each configured store needs instead.
+	/// `play`; every store `[publish]` configures when omitted.
+	/// `credentials` lists the credentials each configured store needs, and
+	/// `screenshots` captures the stores' screenshots instead.
 	pub stores: Vec<String>,
 	/// Build and check everything, and contact no store.
 	#[arg(long)]
@@ -208,6 +210,9 @@ fn api(variable: &str, default: &str) -> String {
 pub fn run(args: &PublishArgs) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
 	let credentials = Credentials::load(args.credentials.as_deref(), &root)?;
+	if args.stores.iter().any(|store| store == "screenshots") {
+		return screenshots::run(&root, &config.native.package_id, args.dry_run);
+	}
 	let configured = config.publish.stores();
 	anyhow::ensure!(
 		!configured.is_empty(),
@@ -468,6 +473,7 @@ impl Session<'_> {
 			.and_then(|extension| extension.firefox.as_ref())
 			.map(|firefox| firefox.id.clone())
 			.context("[extension.firefox] needs the add-on's id")?;
+		self.fits("firefox")?;
 		let zip = self.package(leptoskit_config::Browser::Firefox)?;
 		let source = self
 			.extension()
@@ -487,7 +493,7 @@ impl Session<'_> {
 				self.credentials.require(firefox::SECRET, firefox::HOW)?,
 			);
 			let upload = client.upload(&std::fs::read(&zip)?, settings.channel.name())?;
-			if self.submit {
+			let summary = if self.submit {
 				match client.submit(&upload, &std::fs::read(&source)?) {
 					Ok(_) => {
 						format!(
@@ -512,7 +518,17 @@ impl Session<'_> {
 					"{} {} passed addons.mozilla.org's validation; nothing is submitted yet.",
 					self.name, self.version
 				)
+			};
+			// A listed add-on's text comes from `store/`; an unlisted one has
+			// no listing.
+			if exists && settings.channel == leptoskit_config::publish::FirefoxChannel::Listed {
+				exists = client.listing(
+					self.store.listing.name.as_deref(),
+					self.store.summary.as_deref(),
+					self.store.description.as_deref(),
+				)?;
 			}
+			summary
 		};
 		Ok((
 			summary,
@@ -536,6 +552,7 @@ impl Session<'_> {
 		let team = settings
 			.team(self.config.native.apple_team_id.as_deref())
 			.context("[publish.app_store] needs team_id")?;
+		self.fits("app_store")?;
 		let version = apple_version(self.config);
 		let out = self.root.join(OUTPUT).join("ios");
 		std::fs::create_dir_all(&out)?;
@@ -610,8 +627,17 @@ impl Session<'_> {
 						.join(", ")
 				)
 			};
+			// The listing's text goes up with every upload, on the version in
+			// preparation, which nobody sees until it is submitted.
+			let (version_id, first) = client.version(app, &version)?;
+			let text = app_store_text(self.store);
+			if !text.is_empty() {
+				client.localize(&version_id, "en-US", &serde_json::Value::Object(text))?;
+			}
+			if let Some(url) = &self.store.listing.privacy_policy {
+				client.privacy_policy(app, url)?;
+			}
 			if self.submit {
-				let (version_id, first) = client.version(app, &version)?;
 				if !first {
 					let notes = self
 						.store
@@ -785,6 +811,7 @@ impl Session<'_> {
 
 impl Session<'_> {
 	fn play(&self) -> Result<(String, Vec<Step>)> {
+		self.fits("play")?;
 		let settings = self.config.publish.play.clone().unwrap_or_default();
 		let track = settings.track.as_str();
 		let package = &self.config.native.package_id;
@@ -884,6 +911,12 @@ impl Session<'_> {
 							}
 							_ => play::Rollout::Everyone,
 						};
+					}
+					if let (Some(short), Some(full)) =
+						(&self.store.summary, &self.store.description)
+					{
+						let title = self.store.listing.name.as_deref().unwrap_or(&self.name);
+						edit.listing("en-US", title, short, full)?;
 					}
 					edit.release(track, &play::release(&version, code, rollout, notes))?;
 					edit.commit()?;
@@ -989,19 +1022,32 @@ fn play_steps(run: &PlayRun<'_>) -> Vec<Step> {
 		}
 		return steps;
 	}
-	let listing = &run.store.listing;
 	steps.extend([
 		step(
 			"play",
 			Who::Agent,
-			"Fill in the main store listing: the app's name, short and full description, icon, \
-			 feature graphic, and phone screenshots.",
+			"Add the main store listing's images: the icon, the feature graphic, and phone \
+			 screenshots.",
 			Some(console.clone()),
-			vec![
-				field("Full description", description_or_hint(run.store)),
-				field("Website", listing.homepage.clone().unwrap_or_default()),
-			],
-			"leptoskit doesn't upload Google Play listings yet",
+			std::iter::once(field(
+				"Screenshots",
+				"store/screenshots/android-phone/*.png, made by `leptoskit publish screenshots`",
+			))
+			.chain(missing(&[
+				(
+					"Short description",
+					run.store.summary.is_some(),
+					"write it in store/en-US/summary.md, 80 characters at most",
+				),
+				(
+					"Full description",
+					run.store.description.is_some(),
+					"write it in store/en-US/description.md",
+				),
+			]))
+			.collect(),
+			"leptoskit uploads the listing's title and descriptions with each upload, but not \
+			 images yet",
 			"Play Console's dashboard no longer lists the store listing as a task",
 		),
 		step(
@@ -1040,11 +1086,40 @@ fn play_steps(run: &PlayRun<'_>) -> Vec<Step> {
 	steps
 }
 
-fn description_or_hint(store: &Store) -> String {
-	store
-		.description
-		.clone()
-		.unwrap_or_else(|| "(write it in store/en-US/description.md)".to_owned())
+impl Session<'_> {
+	/// Fails when `store/` has text too long for `store`, before anything is
+	/// built.
+	fn fits(&self, store: &str) -> Result<()> {
+		let problems = self.store.too_long(store, &self.name);
+		anyhow::ensure!(problems.is_empty(), "{}", problems.join("; "));
+		Ok(())
+	}
+}
+
+/// The version's text App Store Connect takes from `store/`.
+fn app_store_text(store: &Store) -> serde_json::Map<String, serde_json::Value> {
+	let mut text = serde_json::Map::new();
+	for (field, value) in [
+		("description", store.description.clone()),
+		("keywords", store.keywords()),
+		("promotionalText", store.summary.clone()),
+		("supportUrl", store.listing.support.clone()),
+		("marketingUrl", store.listing.homepage.clone()),
+	] {
+		if let Some(value) = value {
+			text.insert(field.to_owned(), serde_json::Value::String(value));
+		}
+	}
+	text
+}
+
+/// Fields for the text `store/` is missing, so a step says what to write.
+fn missing(fields: &[(&str, bool, &str)]) -> Vec<Field> {
+	fields
+		.iter()
+		.filter(|(_, present, _)| !present)
+		.map(|(label, _, hint)| field(label, format!("({hint})")))
+		.collect()
 }
 
 /// Whether the app's `Info.plist` answers export compliance for every build
@@ -1125,50 +1200,57 @@ fn app_store_steps(run: &AppStoreRun<'_>) -> Vec<Step> {
 			"app_store",
 			Who::Agent,
 			&format!(
-				"Fill in version {}'s App Store page: the description, keywords, support address, \
-				 and screenshots for iPhone and iPad.",
+				"Add version {}'s screenshots for iPhone and iPad, on its App Store page.",
 				run.version
 			),
 			Some(format!("{app}/distribution/ios/version/inflight")),
-			vec![
-				field(
+			std::iter::once(field(
+				"Screenshots",
+				"store/screenshots/iphone-6.9/*.png and store/screenshots/ipad-13/*.png, made by \
+				 `leptoskit publish screenshots`",
+			))
+			.chain(missing(&[
+				(
 					"Description",
-					run.store
-						.description
-						.clone()
-						.unwrap_or_else(|| "(write it in store/en-US/description.md)".to_owned()),
+					run.store.description.is_some(),
+					"write it in store/en-US/description.md",
 				),
-				field(
+				(
+					"Keywords",
+					run.store.keywords().is_some(),
+					"add keywords to store/listing.toml",
+				),
+				(
 					"Support URL",
-					listing
-						.support
-						.clone()
-						.unwrap_or_else(|| "(add support to store/listing.toml)".to_owned()),
+					listing.support.is_some(),
+					"add support to store/listing.toml",
 				),
-				field(
-					"Marketing URL",
-					listing.homepage.clone().unwrap_or_default(),
-				),
-			],
-			"leptoskit doesn't upload App Store listing text and screenshots yet",
-			"`leptoskit publish app_store --submit` succeeds; App Review refuses an incomplete \
-			 page",
+			]))
+			.collect(),
+			"leptoskit uploads the version's description, keywords, promotional text, and \
+			 addresses with each upload, but not screenshots yet",
+			"`leptoskit publish app_store --submit` succeeds; App Review refuses a page without \
+			 screenshots",
 		),
 		step(
 			"app_store",
 			Who::Agent,
-			"Fill in App Information: the category, and the privacy policy's address.",
+			"Choose the category, in App Information.",
 			Some(format!("{app}/distribution/info")),
-			vec![
-				field(
-					"Category",
-					listing.category.clone().unwrap_or_else(|| {
-						"(choose one, and add category to store/listing.toml)".to_owned()
-					}),
-				),
-				field("Privacy Policy URL", privacy_policy(run.store)),
-			],
-			"leptoskit doesn't upload App Information yet",
+			std::iter::once(field(
+				"Category",
+				listing.category.clone().unwrap_or_else(|| {
+					"(choose one, and add category to store/listing.toml)".to_owned()
+				}),
+			))
+			.chain(missing(&[(
+				"Privacy Policy URL",
+				listing.privacy_policy.is_some(),
+				"add privacy_policy to store/listing.toml",
+			)]))
+			.collect(),
+			"the category is chosen from App Store Connect's list; leptoskit uploads the privacy \
+			 policy's address",
 			"a submit succeeds",
 		),
 		step(
@@ -1485,21 +1567,26 @@ fn firefox_steps(
 		steps.push(step(
 			"firefox",
 			Who::Agent,
-			"Fill in the listing: the description, screenshots, and privacy policy.",
+			"Add the listing's screenshots and the privacy policy.",
 			Some(format!(
 				"https://addons.mozilla.org/developers/addon/{guid}/edit"
 			)),
-			vec![
-				field(
-					"Description",
-					store
-						.description
-						.clone()
-						.unwrap_or_else(|| "(write it in store/en-US/description.md)".to_owned()),
-				),
-				field("Privacy policy", privacy_policy(store)),
-			],
-			"leptoskit doesn't upload listing text and images yet",
+			std::iter::once(field("Privacy policy", privacy_policy(store)))
+				.chain(missing(&[
+					(
+						"Summary",
+						store.summary.is_some(),
+						"write it in store/en-US/summary.md, 250 characters at most",
+					),
+					(
+						"Description",
+						store.description.is_some(),
+						"write it in store/en-US/description.md",
+					),
+				]))
+				.collect(),
+			"leptoskit uploads the name, summary, and description with each upload, but not \
+			 screenshots or the privacy policy",
 			"the listing page shows them",
 		));
 	}

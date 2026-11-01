@@ -1,0 +1,27 @@
+# The screenshots `leptoskit publish screenshots` captures for the stores:
+# each table under [devices] is a store size and the folder its screenshots go
+# in, and each [[screenshot]] is a screen, in the order the stores show them.
+# Run `leptoskit dev` first, so the browser sizes have the app to open.
+url = "http://127.0.0.1:3000"
+
+# The Chrome Web Store and Edge Add-ons: 1280×800.
+[devices.chrome-1280x800]
+viewport = [1280, 800]
+
+# The App Store's 6.9-inch iPhone size (1320×2868), from a booted simulator
+# with the app installed.
+[devices."iphone-6.9"]
+simulator = "iPhone 17 Pro Max"
+
+# Google Play's phone screenshots, from a running emulator.
+[devices.android-phone]
+android = "emulator-5554"
+
+[[screenshot]]
+name = "projects"
+route = "/"
+
+[[screenshot]]
+name = "reading"
+route = "/reading"
+devices = ["chrome-1280x800"]
