@@ -64,3 +64,44 @@ CREATE TABLE "teams" (
 	CONSTRAINT "teams_pkey" PRIMARY KEY ("id"),
 	CONSTRAINT "teams_id_fkey" FOREIGN KEY ("id") REFERENCES "actors" ("id") ON DELETE CASCADE
 ) STRICT;
+
+CREATE TABLE "live_changes" (
+	"seq" INTEGER NOT NULL,
+	"txid" INTEGER,
+	"version" INTEGER,
+	"table_name" TEXT NOT NULL,
+	"op" TEXT NOT NULL,
+	"key" TEXT NOT NULL CHECK (json_valid("key")),
+	"old" TEXT CHECK (json_valid("old")),
+	"new" TEXT CHECK (json_valid("new")),
+	"changed" TEXT NOT NULL CHECK (json_valid("changed")),
+	CONSTRAINT "live_changes_pkey" PRIMARY KEY ("seq"),
+	CONSTRAINT "live_changes_op_values" CHECK ("op" IN ('I', 'U', 'D'))
+) STRICT;
+
+CREATE INDEX "live_changes_txid_idx" ON "live_changes" ("txid");
+
+CREATE INDEX "live_changes_version_idx" ON "live_changes" ("version");
+
+CREATE TABLE "live_commits" (
+	"version" INTEGER NOT NULL,
+	"txid" INTEGER,
+	"committed_at" TEXT NOT NULL,
+	"actor" BLOB CHECK (length("actor") = 16),
+	"origin" TEXT NOT NULL,
+	CONSTRAINT "live_commits_pkey" PRIMARY KEY ("version")
+) STRICT;
+
+CREATE UNIQUE INDEX "live_commits_txid_key" ON "live_commits" ("txid");
+
+CREATE TRIGGER "live_actors_delete" AFTER DELETE ON "actors" FOR EACH ROW BEGIN
+	INSERT INTO "live_changes" ("seq", "txid", "version", "table_name", "op", "key", "old", "new", "changed") VALUES ((SELECT coalesce(max("seq"), 0) + 1 FROM "live_changes"), NULL, NULL, 'actors', 'D', json_array(CASE WHEN OLD."id" IS NULL THEN NULL ELSE lower(hex(OLD."id")) END), json_object('id', CASE WHEN OLD."id" IS NULL THEN NULL ELSE lower(hex(OLD."id")) END, 'kind', OLD."kind"), NULL, '[]');
+END;
+
+CREATE TRIGGER "live_actors_insert" AFTER INSERT ON "actors" FOR EACH ROW BEGIN
+	INSERT INTO "live_changes" ("seq", "txid", "version", "table_name", "op", "key", "old", "new", "changed") VALUES ((SELECT coalesce(max("seq"), 0) + 1 FROM "live_changes"), NULL, NULL, 'actors', 'I', json_array(CASE WHEN NEW."id" IS NULL THEN NULL ELSE lower(hex(NEW."id")) END), NULL, json_object('id', CASE WHEN NEW."id" IS NULL THEN NULL ELSE lower(hex(NEW."id")) END, 'kind', NEW."kind"), '[]');
+END;
+
+CREATE TRIGGER "live_actors_update" AFTER UPDATE ON "actors" FOR EACH ROW BEGIN
+	INSERT INTO "live_changes" ("seq", "txid", "version", "table_name", "op", "key", "old", "new", "changed") VALUES ((SELECT coalesce(max("seq"), 0) + 1 FROM "live_changes"), NULL, NULL, 'actors', 'U', json_array(CASE WHEN NEW."id" IS NULL THEN NULL ELSE lower(hex(NEW."id")) END), json_object('id', CASE WHEN OLD."id" IS NULL THEN NULL ELSE lower(hex(OLD."id")) END, 'kind', OLD."kind"), json_object('id', CASE WHEN NEW."id" IS NULL THEN NULL ELSE lower(hex(NEW."id")) END, 'kind', NEW."kind"), (SELECT json_group_array("value") FROM json_each(json_array(CASE WHEN OLD."id" IS NOT NEW."id" THEN 'id' END, CASE WHEN OLD."kind" IS NOT NEW."kind" THEN 'kind' END)) WHERE "type" <> 'null'));
+END;
