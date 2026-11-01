@@ -37,9 +37,12 @@ thread_local! {
 
 /// Runs `build` as a guest render, so binding reads stay untracked.
 ///
-/// Only the guest runtime calls it. A host build of this crate has no guest
-/// modules, so the function looks unused there.
-#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+/// Only the guest runtime calls it. A non-guest build has no guest modules, so
+/// the function looks unused there.
+#[cfg_attr(
+	not(all(feature = "guest", any(target_arch = "wasm32", test))),
+	allow(dead_code, reason = "only the wasm guest runtime calls this")
+)]
 pub(crate) fn guest_render_scope<T>(build: impl FnOnce() -> T) -> T {
 	GUEST_RENDER.with(|depth| depth.set(depth.get().saturating_add(1)));
 	let value = build();
@@ -133,9 +136,12 @@ impl Region {
 
 	/// The closure, for the guest subscription that re-runs it.
 	///
-	/// Only the guest runtime calls it. A host build of this crate has no
-	/// guest modules, so the method looks unused there.
-	#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+	/// Only the guest runtime calls it. A non-guest build has no guest modules,
+	/// so the method looks unused there.
+	#[cfg_attr(
+		not(all(feature = "guest", any(target_arch = "wasm32", test))),
+		allow(dead_code, reason = "only the wasm guest runtime calls this")
+	)]
 	pub(crate) fn into_render(self) -> Arc<dyn Fn() -> Vec<(u64, Element)> + Send + Sync> {
 		self.render
 	}
