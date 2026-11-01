@@ -1,22 +1,35 @@
-# leptoskit_plugin_image_manipulator
+<h1 align="center">leptoskit_plugin_image_manipulator</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_image_manipulator</strong> is the leptoskit plugin for bounded JPEG and PNG decode, resize, crop, rotate, flip, and encode using one Rust implementation.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_image_manipulator"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_image_manipulator"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_image_manipulator.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_image_manipulator"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_image_manipulator/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Decode, resize, crop, rotate, flip and encode JPEG/PNG images using one Rust implementation on iOS, Android, desktop and browser WASM. The native plugin registers on the Rust worker. A batch of operations takes one bridge call.
-
-```rust
-use leptoskit_plugin_image_manipulator::{Bitmap, Filter, Operation, Output, encode};
-
-# fn example() -> Result<(), leptoskit_bridge::Error> {
-let pixels = Bitmap::from_rgba(1, 1, vec![40, 120, 200, 255])?;
-let resized = pixels.transform(&[Operation::Resize {
-    width: Some(64),
-    height: None,
-    filter: Filter::Bilinear,
-}])?;
-let png = encode(&resized, Output::Png)?;
-assert_eq!(png.info.width, 64);
-# Ok(())
-# }
-```
 
 `inspect` reads dimensions without decoding pixels. `decode` returns a bounded RGBA8 `Bitmap`; `Bitmap::transform` consumes it and applies operations in order. `encode` returns bytes and dimensions. `manipulate` combines these steps and validates the entire operation plan before decompressing pixels.
 
@@ -59,3 +72,32 @@ The API covers core transformations from [Expo ImageManipulator](https://docs.ex
 `MANIPULATE` (1) accepts output format; JPEG additionally includes quality and three background components as u32 values. It then contains an operation count, operations, and a u32-length-prefixed image. Operation tags are 0=resize (width, height, filter), 1=crop (x, y, width, height), 2=rotate (0=90°, 1=180°, 2=270°), 3=flip (0=horizontal, 1=vertical). A zero resize dimension means omitted; filter tags are 0=nearest and 1=bilinear.
 
 The reply contains length-prefixed INSPECT information followed by length-prefixed encoded bytes. The guest validates the returned dimensions/format against the encoded header. `EncodedImage::decode_reply` consumes owned `Bytes` and retains the image's slice of that allocation, avoiding a second image copy. All decoders reject unknown tags, truncation and trailing bytes.
+
+## How it fits
+
+Add `leptoskit_plugin_image_manipulator` as a direct dependency and select the `image-manipulator` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Native calls run on the Rust worker so a batch takes one bridge round trip; browser calls use the same engine compiled to Wasm, and large jobs belong in a Web Worker.
+
+## Use it
+
+```rust
+use leptoskit_plugin_image_manipulator::{Bitmap, Filter, Operation, Output, encode};
+
+# fn example() -> Result<(), leptoskit_bridge::Error> {
+let pixels = Bitmap::from_rgba(1, 1, vec![40, 120, 200, 255])?;
+let resized = pixels.transform(&[Operation::Resize {
+    width: Some(64),
+    height: None,
+    filter: Filter::Bilinear,
+}])?;
+let png = encode(&resized, Output::Png)?;
+assert_eq!(png.info.width, 64);
+# Ok(())
+# }
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_image_manipulator)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)

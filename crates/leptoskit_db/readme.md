@@ -1,30 +1,39 @@
+<h1 align="center">leptoskit_db</h1>
+
 <p align="center">
   <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
-# leptoskit_db
+<p align="center">
+  <strong>leptoskit_db</strong> is leptoskit's database layer: tables declared as Rust structs, typed IDs, client-safe public projections, queries, and migrations.
+</p>
 
-> leptoskit's database layer: tables declared as Rust structs, typed IDs, and client-safe public projections.
+<br>
 
-Declare a table once, with `#[db::table]`:
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_db"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
 
-```rust,ignore
-/// Someone with an account.
-#[db::table(name = "users", public)]
-pub struct User {
-	pub id: Id<User>,
-	#[db(unique(except = deleted_at), max_len = 32)]
-	pub handle: String,
-	#[db(private)]
-	pub email: String,
-	#[db(secret)]
-	pub password_hash: String,
-	#[db(created_at)]
-	pub created_at: Timestamp,
-	#[db(deleted_at)]
-	pub deleted_at: Option<Timestamp>,
-}
-```
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_db"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_db.svg"></a>
+  <a href="https://docs.rs/leptoskit_db"><img alt="docs.rs" src="https://docs.rs/leptoskit_db/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
+
+Declare a table once, with `#[db::table]`.
 
 - **On the server** (the `server` feature), that is the `User` row, with `Debug` that redacts `secret` columns and no serde impls, so a row can never be returned to a client; `NewUser`, everything an insert provides, whose `into_row` fills in the key and timestamps; and the table's schema, registered so that `leptoskit db` can turn every table into migrations.
 - **Everywhere**, `PublicUser` is every column except the `private` and `secret` ones: serializable, described by JSON Schema (so generated RPC clients know its rules), and validated by `validate()` before a form is sent.
@@ -90,3 +99,34 @@ db.migrate(MIGRATIONS).await?;
 Each migration runs in its own transaction and is recorded, with a SHA-256 of its SQL, in `_leptoskit_migrations`. Editing a migration that has been applied stops the server rather than being skipped, and so does a database with a migration the build doesn't know. On Postgres an advisory lock lets several servers start at once; on SQLite, migrations that rebuild tables run with foreign keys off and check every foreign key before committing. The build fails if a migration directory isn't in the registry, or the registry names one that's missing.
 
 For tests, `db::testing::sqlite()` is an in-memory database with every table created from the code, and `db::testing::sqlite_migrated(MIGRATIONS)` applies the real migrations instead.
+
+## How it fits
+
+It gives shared code a typed database without hand-written SQL; `leptoskit db` diffs the schema and writes migrations. Auth and IDP build their schema packs on it.
+
+## Use it
+
+```rust,ignore
+/// Someone with an account.
+#[db::table(name = "users", public)]
+pub struct User {
+	pub id: Id<User>,
+	#[db(unique(except = deleted_at), max_len = 32)]
+	pub handle: String,
+	#[db(private)]
+	pub email: String,
+	#[db(secret)]
+	pub password_hash: String,
+	#[db(created_at)]
+	pub created_at: Timestamp,
+	#[db(deleted_at)]
+	pub deleted_at: Option<Timestamp>,
+}
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_db)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Database](https://ifiokjr.github.io/leptoskit/guide/22-database.html)

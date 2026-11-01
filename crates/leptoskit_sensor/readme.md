@@ -1,4 +1,33 @@
-# LeptosKit sensor support
+<h1 align="center">leptoskit_sensor</h1>
+
+<p align="center">
+  <strong>leptoskit_sensor</strong> is the shared protocol and native acquisition lifecycle behind the accelerometer, gyroscope, magnetometer, barometer, light sensor, and pedometer plugins.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_sensor"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_sensor"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_sensor.svg"></a>
+  <a href="https://docs.rs/leptoskit_sensor"><img alt="docs.rs" src="https://docs.rs/leptoskit_sensor/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Shared protocol, browser implementation, and native acquisition lifecycle for the independently selected `accelerometer`, `gyroscope`, `magnetometer`, `barometer`, `light_sensor`, and `pedometer` plugin crates. This support crate is not registered as a plugin. Its `native-support` Cargo metadata makes the CLI copy its Swift package and Kotlin sources when a selected plugin depends on it.
 
@@ -29,3 +58,21 @@ Pedometer has its own public protocol and permission/history methods. Its Androi
 Rust tests cover wire lengths, finite-value validation, interval bounds, SI units, signed vector components, and absent capabilities. Swift tests exercise the real bridge-owned payload path and unavailable/closed/malformed behavior. Android instrumentation uses real SensorManager to test acquisition, units on the stationary CI emulator, concurrent waiter rejection, cancellation, and close. Physical hardware and browser sensor permissions require device testing beyond these checks.
 
 References: [Apple CoreMotion](https://developer.apple.com/documentation/coremotion/cmmotionmanager), [Android SensorEvent](https://developer.android.com/reference/android/hardware/SensorEvent), [Generic Sensor standard](https://www.w3.org/TR/generic-sensor/).
+
+## How it fits
+
+The sensor plugins share its request/reply layout, cancellation rules, timestamps, and browser fallbacks, so an app can switch sensors without relearning the contract. Apps depend on the individual sensor crate; this crate is the common floor.
+
+## Use it
+
+```rust,ignore
+// Each sensor crate re-exports the shared Interval and sample types.
+use leptoskit_sensor::Interval;
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_sensor)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Controlling devices](https://ifiokjr.github.io/leptoskit/guide/19-controlling-devices.html)

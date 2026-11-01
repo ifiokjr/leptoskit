@@ -1,4 +1,33 @@
-# leptoskit_plugin_global_shortcut
+<h1 align="center">leptoskit_plugin_global_shortcut</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_global_shortcut</strong> is the native-host plugin for scoped desktop global shortcuts with explicit registration conflicts and bounded events.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_global_shortcut"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_global_shortcut"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_global_shortcut.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_global_shortcut"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_global_shortcut/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Scoped global shortcuts using the maintained [Tauri global-hotkey backend](https://github.com/tauri-apps/global-hotkey), following [Tauri's global-shortcut API](https://v2.tauri.app/plugin/global-shortcut/) and [Electron's explicit registration conflicts](https://www.electronjs.org/docs/latest/api/global-shortcut).
 
@@ -13,3 +42,22 @@ Use `with_waker` to post event-loop wake messages from native callbacks. Wakeups
 `ShortcutPlugin` exposes registration, unregister, and bounded event polling over the binary bridge; enable `guest` for the typed Wasm client. Hosts install and grant it explicitly after constructing a native manager. Automatic generated registration is intentionally absent because construction is fallible and requires an initialized event loop.
 
 Tests use an injected backend to verify guards, conflicts and overflow without stealing a real keyboard shortcut or requiring OS permissions. Native dependency compilation does not establish that a particular user-selected accelerator is available.
+
+## How it fits
+
+Native hosts construct it explicitly; it is not a guest plugin and installs nothing by default. macOS, Windows, and X11 are supported; native Wayland, browsers, and mobile return `Unavailable`, with no XWayland fallback or fake browser shortcut.
+
+## Use it
+
+```toml
+# Host-only: construct it explicitly; there is no `native.plugins` entry.
+[dependencies]
+leptoskit_plugin_global_shortcut = "0.1"
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_global_shortcut)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)

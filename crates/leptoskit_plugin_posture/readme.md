@@ -1,4 +1,33 @@
-# leptoskit_plugin_posture
+<h1 align="center">leptoskit_plugin_posture</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_posture</strong> is the leptoskit plugin for fold state, hinge geometry, and hinge angles.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_posture"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_posture"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_posture.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_posture"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_posture/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 How a foldable phone is folded right now, for native and browser apps: closed on its cover screen, half open like a laptop or a book, or open flat, with every hinge that crosses the app's window. Select `posture` in `native.plugins` to register the Swift, Kotlin, and ArkTS handlers. Android adds `androidx.window:window` to the generated app; no permission is needed.
 
@@ -28,3 +57,22 @@ All words are little-endian u32. A posture is a foldable flag, the fold, and the
 - [HarmonyOS display fold status](https://developer.huawei.com/consumer/en/doc/harmonyos-references/js-apis-display)
 - [W3C Device Posture](https://www.w3.org/TR/device-posture/)
 - [MDN Viewport Segments API](https://developer.mozilla.org/en-US/docs/Web/API/Viewport_segments_API)
+
+## How it fits
+
+Add `leptoskit_plugin_posture` as a direct dependency and select the `posture` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::DevicePosture` rather than resolving the plugin on every call. A posture describes the device the app is running on and every hinge that crosses its window; desktop and the browser report a flat, non-foldable device.
+
+## Use it
+
+```toml
+# In a native host, select `posture` in `native.plugins`.
+[dependencies]
+leptoskit_plugin_posture = { version = "0.1", features = ["guest"] }
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_posture)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)

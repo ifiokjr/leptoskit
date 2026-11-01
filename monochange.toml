@@ -181,7 +181,7 @@ versioned_files = [
 # One changelog at the root, listing every package. Each package's own
 # changelog.md is still written by `[defaults.changelog]`; this is the
 # human-readable summary of what went into a release.
-[changelog]
+[group.release.changelog]
 path = "changelog.md"
 format = "monochange"
 include = "all"

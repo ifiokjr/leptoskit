@@ -1,18 +1,39 @@
-# leptoskit_rive
+<h1 align="center">leptoskit_rive</h1>
+
+<p align="center">
+  <strong>leptoskit_rive</strong> loads app-owned `.riv` assets with typed state-machine inputs and an owned player for browser canvas and native vector playback.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_rive"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_rive"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_rive.svg"></a>
+  <a href="https://docs.rs/leptoskit_rive"><img alt="docs.rs" src="https://docs.rs/leptoskit_rive/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Play an app-owned `.riv` file with typed state-machine inputs and an owned player that releases Rive when dropped. The `native` feature provides CPU vector rendering; `web` provides browser canvas playback with an app-supplied official runtime. The optional `leptoskit` feature `rive` exposes it as `leptoskit::rive` and enables the shared `Rive` element.
 
 The asset API works on native, browser Wasm, and WASI. Native widgets use AppKit, UIKit, Android images, GTK textures, Win32 bitmaps, and experimental HarmonyOS PixelMaps. Rendering is not available inside a WASI guest: the native host owns the runtime outside its interpreter.
 
 ## Shared elements
-
-```rust,ignore
-use leptoskit::components::Rive;
-use leptoskit::rive::{Asset, Playback};
-
-let playback = Playback::new(Asset::new(include_bytes!("status.riv"))?);
-let element = Rive(playback).class("w-32 h-32").aria_label("Upload status").running(true);
-```
 
 Scenes start paused. Give the element a definite size and a direct accessible label, or use `aria_hidden(true)` for decoration. Reconciliation retains the scene until the asset, artboard, or selection changes. `Playback::set_input` validates typed updates; a fresh sequence repeats a trigger, while an unchanged sequence prevents unrelated renders from firing it again. Removing a binding preserves its last applied value.
 
@@ -64,3 +85,24 @@ The canvas must have an `aria-label`, or `aria-hidden="true"` when decorative. I
 ## Verification
 
 `cargo test -p leptoskit_rive` covers portable boundaries. `devenv shell test:rive` adds native pixel rendering, retained-surface integration, real offline browser playback, and lifecycle policies. Test fixtures pin the official Canvas runtime at 2.45.0 under its MIT license; fixtures are excluded from the published package. The animation and static paint fixture are authored under `tests/fixtures/scene/` and `tests/fixtures/native/`. Rebuild with the Rive CLI, then verify, inspect, and render before committing exported files. Native pixel output is retained under `target/rive-native/` for comparison with the CLI renderer.
+
+## How it fits
+
+The shared `Rive` component uses it on every backend that supports vector playback; the runtime crate pins the offline C++ build behind it. Apps bring their own assets and keep playback out of the network path.
+
+## Use it
+
+```rust,ignore
+use leptoskit::components::Rive;
+use leptoskit::rive::{Asset, Playback};
+
+let playback = Playback::new(Asset::new(include_bytes!("status.riv"))?);
+let element = Rive(playback).class("w-32 h-32").aria_label("Upload status").running(true);
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_rive)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Rive](https://ifiokjr.github.io/leptoskit/guide/20-rive.html)

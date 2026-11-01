@@ -1,17 +1,35 @@
-# LeptosKit WebSocket
+<h1 align="center">leptoskit_plugin_websocket</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_websocket</strong> is the leptoskit plugin for scoped WebSocket connections with bounded messages and explicit lifecycle.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_websocket"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_websocket"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_websocket.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_websocket"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_websocket/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Scoped asynchronous WebSocket connections for native Rust hosts and browsers. Native connections use tokio-tungstenite with rustls; browser connections own a WebSocket and all its event callbacks. A Tokio runtime is required natively.
-
-```rust,no_run
-# async fn example() -> Result<(), leptoskit_plugin_websocket::Error> {
-use leptoskit_plugin_websocket::{Client, Config, Message};
-let client = Client::new(Config::new(["wss://api.example.com"])? )?;
-let mut connection = client.connect("wss://api.example.com/channel", &[]).await?;
-connection.send(Message::Text("hello".into())).await?;
-let message = connection.receive().await?;
-connection.close(1000, "finished").await?;
-# Ok(()) }
-```
 
 Origins, message sizes, pending bytes, queue item counts, and operation deadlines are explicit host configuration. URL userinfo, fragments, non-WS schemes, invalid or duplicate subprotocols, and invalid close codes/reasons are rejected before I/O. Plain `ws://` must be explicitly allowed. TLS validation is never disabled. Origins grant every path and do not function as an IP firewall. Native and browser handshakes reject HTTP redirects. Browsers enforce their own TLS, cookie, CSP, and HSTS policies.
 
@@ -39,3 +57,27 @@ For manual debugging, run the example without `--test`, then set its printed URL
 The browser tests exercise binary echo and graceful close, oversized messages, and a flood of empty messages that must trip the queue item limit. All servers are local; tests do not contact external services.
 
 References: [Tauri WebSocket plugin](https://v2.tauri.app/plugin/websocket/), [tokio-tungstenite](https://docs.rs/tokio-tungstenite/0.30.0/tokio_tungstenite/), and [browser bufferedAmount](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket/bufferedAmount).
+
+## How it fits
+
+Add `leptoskit_plugin_websocket` as a direct dependency and select the `websocket` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Native connections use tokio-tungstenite with rustls and need a Tokio runtime; browser connections own their socket and event callbacks. Every destination origin is explicit.
+
+## Use it
+
+```rust,no_run
+# async fn example() -> Result<(), leptoskit_plugin_websocket::Error> {
+use leptoskit_plugin_websocket::{Client, Config, Message};
+let client = Client::new(Config::new(["wss://api.example.com"])? )?;
+let mut connection = client.connect("wss://api.example.com/channel", &[]).await?;
+connection.send(Message::Text("hello".into())).await?;
+let message = connection.receive().await?;
+connection.close(1000, "finished").await?;
+# Ok(()) }
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_websocket)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)
