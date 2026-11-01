@@ -327,6 +327,7 @@ impl ChangeLog {
 					actor: commit.actor,
 					origin: commit.origin,
 					changes,
+					lsn: commit.lsn,
 				}))
 			}
 		}

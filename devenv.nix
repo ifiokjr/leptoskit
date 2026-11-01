@@ -45,6 +45,9 @@ in
       ktlint
       kotlin
       libiconv
+      # The live relay's broker, for its tests and for running several
+      # servers locally.
+      nats-server
       nixfmt-rfc-style
       openssl
       rustup

@@ -120,7 +120,10 @@ pub(crate) fn tables(dialect: Dialect) -> Vec<leptoskit_db_schema::Table> {
 
 /// One committed transaction's writes to live tables, read from the change
 /// log: what [`Db::change_log`](crate::Db::change_log) yields.
-#[derive(Clone, Debug, PartialEq)]
+///
+/// It serializes, so a server can pass commits on to others, as the live
+/// relay does.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Commit {
 	/// Its place in the version line.
 	pub version: i64,
@@ -133,6 +136,14 @@ pub struct Commit {
 	pub origin: String,
 	/// Each written row, in the order the transaction wrote them.
 	pub changes: Vec<Change>,
+	/// Postgres: a position in the write-ahead log at or past the end of
+	/// this commit's record, so a read replica that has replayed up to it
+	/// shows the commit. With replication capture it is just past the
+	/// commit's own record; with triggers, which can't know where their
+	/// commit lands, it is the primary's insert position when the log was
+	/// read, which is later. `None` on SQLite.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub lsn: Option<i64>,
 }
 
 /// One written row of a live table.
@@ -142,7 +153,7 @@ pub struct Commit {
 /// `Id` as its hyphenated UUID, a timestamp in RFC 3339, bytes as hex. A
 /// table this build doesn't know keeps its images as the database wrote
 /// them.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Change {
 	/// The table, with its namespace.
 	pub table: TableName,
@@ -161,7 +172,8 @@ pub struct Change {
 }
 
 /// What reading the change log yields next.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum LogEntry {
 	/// A committed transaction.
 	Commit(Commit),
@@ -194,6 +206,8 @@ pub(crate) struct RawCommit {
 	pub(crate) actor: Option<Uuid>,
 	pub(crate) origin: String,
 	pub(crate) changes: Vec<RawChange>,
+	/// See [`Commit::lsn`].
+	pub(crate) lsn: Option<i64>,
 }
 
 /// What a read of the log yields.
@@ -417,20 +431,32 @@ mod reading {
 				at,
 				actor,
 				origin,
+				lsn,
+				fence,
 				table,
 				op,
 				key,
 				old,
 				new,
 				changed,
-			]: [Value; 10] = row
+			]: [Value; 12] = row
 				.try_into()
 				.map_err(|_| decode("a row has the wrong columns"))?;
 			let Value::Int(version) = version else {
 				return Err(decode("a commit's version isn't a number"));
 			};
 
-			push_commit(&mut entries, version, at, actor, origin)?;
+			// Replication capture recorded where the commit's record starts;
+			// one byte past it is past the whole record, since replay stops
+			// only between records. Otherwise, the primary's insert position
+			// as this statement ran, which no commit it sees can be past.
+			let lsn = match (lsn, fence) {
+				(Value::Int(lsn), _) => Some(lsn + 1),
+				(_, Value::Int(fence)) => Some(fence),
+				_ => None,
+			};
+
+			push_commit(&mut entries, version, at, actor, origin, lsn)?;
 			push_change(&mut entries, table, op, key, old, new, changed)?;
 		}
 
@@ -439,18 +465,23 @@ mod reading {
 
 	/// The one statement that reads commits and their changes.
 	fn read_statement(dialect: Dialect, after: i64) -> Statement {
-		let join = match dialect {
-			Dialect::Postgres => "ch.\"txid\" = c.\"txid\"",
-			Dialect::Sqlite => "ch.\"version\" = c.\"version\"",
+		let (join, positions) = match dialect {
+			Dialect::Postgres => {
+				(
+					"ch.\"txid\" = c.\"txid\"",
+					"c.\"lsn\", (pg_current_wal_insert_lsn() - '0/0'::pg_lsn)::bigint",
+				)
+			}
+			Dialect::Sqlite => ("ch.\"version\" = c.\"version\"", "NULL, NULL"),
 		};
 
 		Statement {
 			sql: format!(
 				"SELECT c.\"version\", c.\"committed_at\", c.\"actor\", c.\"origin\", \
-				 ch.\"table_name\", ch.\"op\", ch.\"key\", ch.\"old\", ch.\"new\", ch.\"changed\" \
-				 FROM (SELECT * FROM {} WHERE \"version\" > {} ORDER BY \"version\" LIMIT \
-				 {COMMITS_PER_READ}) c LEFT JOIN {} ch ON {join} ORDER BY c.\"version\", \
-				 ch.\"seq\"",
+				 {positions}, ch.\"table_name\", ch.\"op\", ch.\"key\", ch.\"old\", ch.\"new\", \
+				 ch.\"changed\" FROM (SELECT * FROM {} WHERE \"version\" > {} ORDER BY \
+				 \"version\" LIMIT {COMMITS_PER_READ}) c LEFT JOIN {} ch ON {join} ORDER BY \
+				 c.\"version\", ch.\"seq\"",
 				commits(dialect),
 				placeholder(dialect, 1),
 				changes(dialect)
@@ -466,6 +497,7 @@ mod reading {
 		at: Value,
 		actor: Value,
 		origin: Value,
+		lsn: Option<i64>,
 	) -> Result<()> {
 		let same = match entries.last() {
 			Some(RawEntry::Commit(commit)) => commit.version == version,
@@ -487,6 +519,7 @@ mod reading {
 				actor: uuid(actor)?,
 				origin,
 				changes: Vec::new(),
+				lsn,
 			})
 		});
 

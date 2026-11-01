@@ -174,6 +174,144 @@ impl PostgresCluster {
 	}
 }
 
+/// A streaming standby of a [`PostgresCluster`], made with `pg_basebackup -R`
+/// and replaying the primary's write-ahead log as it's written: a read
+/// replica. Every database on the primary, including ones made after it,
+/// is on it too.
+#[allow(dead_code, reason = "only the read replica tests need a standby")]
+pub struct Standby {
+	binaries: PathBuf,
+	directory: TempDir,
+	port: u16,
+}
+
+#[allow(dead_code, reason = "only the read replica tests need a standby")]
+impl PostgresCluster {
+	/// Starts a streaming standby of this cluster, and returns once it
+	/// accepts reads.
+	pub fn standby(&self) -> Standby {
+		let directory = tempfile::tempdir().unwrap();
+		let data = directory.path().join("data");
+		let port = TcpListener::bind("127.0.0.1:0")
+			.unwrap()
+			.local_addr()
+			.unwrap()
+			.port();
+
+		run(Command::new(self.binaries.join("pg_basebackup"))
+			.args(["-h", "127.0.0.1", "-U", "postgres"])
+			.arg("-p")
+			.arg(self.port.to_string())
+			.arg("-D")
+			.arg(&data)
+			.args(["-R", "-X", "stream", "-c", "fast", "--no-sync"]));
+
+		let socket_option = if cfg!(windows) {
+			""
+		} else {
+			" -c unix_socket_directories=''"
+		};
+		let log = directory.path().join("log");
+		let started = Command::new(self.binaries.join("pg_ctl"))
+			.arg("-D")
+			.arg(&data)
+			.arg("-l")
+			.arg(&log)
+			.arg("-o")
+			// A standby needs at least the primary's limits.
+			.arg(format!(
+				"-p {port} -c listen_addresses=127.0.0.1 -c hot_standby=on -c wal_level=logical \
+				 -c max_replication_slots=64 -c max_wal_senders=64 -F{socket_option}"
+			))
+			.args(["-w", "start"])
+			.stdin(Stdio::null())
+			.stdout(Stdio::null())
+			.stderr(Stdio::null())
+			.status()
+			.expect("run pg_ctl");
+		assert!(
+			started.success(),
+			"pg_ctl couldn't start the standby:\n{}",
+			fs::read_to_string(&log).unwrap_or_default()
+		);
+
+		Standby {
+			binaries: self.binaries.clone(),
+			directory,
+			port,
+		}
+	}
+}
+
+#[allow(dead_code, reason = "only the read replica tests need a standby")]
+impl Standby {
+	/// `primary`, a URL from [`PostgresCluster::database`], on this standby.
+	pub fn url(&self, primary: &str) -> String {
+		let (start, rest) = primary
+			.split_once("@127.0.0.1:")
+			.expect("a test database URL");
+		let (_, path) = rest.split_once('/').expect("a test database URL");
+		format!("{start}@127.0.0.1:{}/{path}", self.port)
+	}
+
+	/// Stops replaying the primary's writes, and returns once it has.
+	pub fn pause_replay(&self) {
+		self.sql("SELECT pg_wal_replay_pause()");
+
+		for _ in 0..500 {
+			if self.sql("SELECT pg_get_wal_replay_pause_state()").trim() == "paused" {
+				return;
+			}
+
+			std::thread::sleep(std::time::Duration::from_millis(10));
+		}
+
+		panic!("the standby didn't pause replay");
+	}
+
+	/// Replays the primary's writes again.
+	pub fn resume_replay(&self) {
+		self.sql("SELECT pg_wal_replay_resume()");
+	}
+
+	/// Runs `sql` on the standby's `postgres` database, returning its
+	/// output unaligned.
+	pub fn sql(&self, sql: &str) -> String {
+		run(Command::new(self.binaries.join("psql"))
+			.args([
+				"-X",
+				"-q",
+				"-A",
+				"-t",
+				"-v",
+				"ON_ERROR_STOP=1",
+				"-h",
+				"127.0.0.1",
+				"-U",
+				"postgres",
+				"-d",
+				"postgres",
+			])
+			.arg("-p")
+			.arg(self.port.to_string())
+			.arg("-c")
+			.arg(sql))
+	}
+}
+
+impl Drop for Standby {
+	fn drop(&mut self) {
+		let _ = Command::new(self.binaries.join("pg_ctl"))
+			.arg("-D")
+			.arg(self.directory.path().join("data"))
+			.args(["-m", "immediate", "-w", "stop"])
+			.stdin(Stdio::null())
+			.stdout(Stdio::null())
+			.stderr(Stdio::null())
+			.status();
+	}
+}
+
 impl Drop for PostgresCluster {
 	fn drop(&mut self) {
 		let _ = Command::new(self.binaries.join("pg_ctl"))
