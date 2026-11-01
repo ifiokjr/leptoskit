@@ -4,17 +4,25 @@ import dev.leptoskit.bridge.PluginException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
+/** Two u32 fields frame the value. */
+private const val HEADER_BYTES = 8
+
+/** One byte past the largest text the plugin accepts. */
+private const val OVERSIZE_TEXT = 65537
+
 private fun wire(
     value: String,
     kind: Int = 0,
 ): ByteBuffer {
     val bytes = value.toByteArray(Charsets.UTF_8)
-    val result = ByteBuffer.allocate(8 + bytes.size).order(ByteOrder.LITTLE_ENDIAN)
+    val result = ByteBuffer.allocate(HEADER_BYTES + bytes.size).order(ByteOrder.LITTLE_ENDIAN)
     result.putInt(kind).putInt(bytes.size).put(bytes)
     result.flip()
+
     return result
 }
 
+/** Exercises the wire framing and the URL policy the plugin exposes to guests. */
 fun main() {
     check(ShareContent.decode(wire("hello\n世界")).value == "hello\n世界")
     check(ShareContent.decode(wire("https://example.test/a%20b", 1)).kind == 1)
@@ -34,7 +42,7 @@ fun main() {
     }
 
     try {
-        ShareContent.decode(wire("a".repeat(65537)))
+        ShareContent.decode(wire("a".repeat(OVERSIZE_TEXT)))
         error("Expected bounds failure")
     } catch (error: PluginException) {
         check(error.code == PluginException.TOO_LARGE)
@@ -42,6 +50,7 @@ fun main() {
     val malformed = ByteBuffer.wrap(byteArrayOf(0, 0, 0, 0, 1, 0, 0, 0, -1))
     try {
         ShareContent.decode(malformed)
+
         error("Expected malformed UTF-8 rejection")
     } catch (error: PluginException) {
         check(error.code == PluginException.INVALID_ARGUMENT)

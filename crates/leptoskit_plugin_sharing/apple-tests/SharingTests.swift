@@ -27,10 +27,13 @@ final class SharingWireTests: XCTestCase {
                       "https:///empty", "https://example.test/%xy", "https://example.test/a b"] {
             XCTAssertThrowsError(try wire(value, kind: 1).withUnsafeBytes(ShareContent.decode))
         }
-        XCTAssertThrowsError(try wire(String(repeating: "a", count: 65537)).withUnsafeBytes(ShareContent.decode))
+        XCTAssertThrowsError(try wire(String(repeating: "a", count: oversizeText)).withUnsafeBytes(ShareContent.decode))
         XCTAssertThrowsError(try wire("").withUnsafeBytes(ShareContent.decode))
     }
 }
+
+/// One byte past the largest text the plugin accepts.
+private let oversizeText = 65537
 
 @MainActor
 final class SharingSessionTests: XCTestCase {
