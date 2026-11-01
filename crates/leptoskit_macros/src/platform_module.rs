@@ -68,80 +68,115 @@ pub fn expand(tokens: TokenStream) -> TokenStream {
 fn expand_in(module: &Module, manifest: &Path, platform: &str) -> syn::Result<TokenStream> {
 	let path = module.path.value();
 	let stem = Path::new(&path);
-	let source = manifest.join("src");
 	let attributes = &module.attributes;
 	let visibility = &module.visibility;
 	let name = &module.name;
-	let error = |message: &str| syn::Error::new(module.path.span(), message);
 
-	if let Some(attribute) = attributes
-		.iter()
-		.find(|attribute| attribute.path().is_ident("path"))
-	{
-		return Err(syn::Error::new_spanned(
-			attribute,
-			"platform_module! selects the module path; remove the #[path] attribute",
-		));
-	}
+	check_attributes(module)?;
+	check_relative(&path, stem, module)?;
+	check_platform(platform, module)?;
 
-	if stem.as_os_str().is_empty()
-		|| stem
-			.components()
-			.any(|component| !matches!(component, Component::Normal(_)))
-		|| stem.extension().is_some()
-		|| path.contains('\\')
-	{
-		return Err(error(
-			"platform module paths must be relative to src without an extension, `..`, or \
-			 backslashes; use \"routes/profile\"",
-		));
-	}
-
-	if platform.is_empty() || !platform.bytes().all(|byte| byte.is_ascii_lowercase()) {
-		return Err(error(
-			"invalid LEPTOSKIT_PLATFORM; select the application platform with \
-			 leptoskit_build::platforms()",
-		));
-	}
-
+	let source = manifest.join("src");
 	let source = source.canonicalize().map_err(|source_error| {
-		error(&format!(
-			"could not resolve {}: {source_error}",
-			source.display()
-		))
+		error(
+			module,
+			&format!("could not resolve {}: {source_error}", source.display()),
+		)
 	})?;
-	let shared = checked_source(&source, &stem.with_extension("rs"), &module.path)?;
-	let platform_source = source.join(stem.with_extension(format!("{platform}.rs")));
-
-	let selected = match std::fs::symlink_metadata(&platform_source) {
-		Ok(_) if platform != "shared" => {
-			checked_source(
-				&source,
-				&stem.with_extension(format!("{platform}.rs")),
-				&module.path,
-			)?
-		}
-
-		Ok(_) => shared,
-
-		Err(source_error) if source_error.kind() == std::io::ErrorKind::NotFound => shared,
-		Err(source_error) => {
-			return Err(error(&format!(
-				"could not inspect {}: {source_error}",
-				platform_source.display(),
-			)));
-		}
-	};
-
+	let selected = selected_source(module, &source, stem, platform)?;
 	let selected = selected
 		.to_str()
-		.ok_or_else(|| error("platform module paths must be UTF-8"))?;
+		.ok_or_else(|| error(module, "platform module paths must be UTF-8"))?;
 
 	Ok(quote! {
 		#(#attributes)*
 		#[path = #selected]
 		#visibility mod #name;
 	})
+}
+
+/// An error that points at the module's path literal.
+fn error(module: &Module, message: &str) -> syn::Error {
+	syn::Error::new(module.path.span(), message)
+}
+
+/// Rejects a `#[path]`, which would fight the one this macro writes.
+fn check_attributes(module: &Module) -> syn::Result<()> {
+	let Some(attribute) = module
+		.attributes
+		.iter()
+		.find(|attribute| attribute.path().is_ident("path"))
+	else {
+		return Ok(());
+	};
+
+	Err(syn::Error::new_spanned(
+		attribute,
+		"platform_module! selects the module path; remove the #[path] attribute",
+	))
+}
+
+/// Rejects a path that could leave `src`.
+fn check_relative(path: &str, stem: &Path, module: &Module) -> syn::Result<()> {
+	let escapes = stem.as_os_str().is_empty()
+		|| stem
+			.components()
+			.any(|component| !matches!(component, Component::Normal(_)))
+		|| stem.extension().is_some()
+		|| path.contains('\\');
+
+	if !escapes {
+		return Ok(());
+	}
+
+	Err(error(
+		module,
+		"platform module paths must be relative to src without an extension, `..`, or \
+		 backslashes; use \"routes/profile\"",
+	))
+}
+
+/// Rejects a platform name the build did not set.
+fn check_platform(platform: &str, module: &Module) -> syn::Result<()> {
+	if !platform.is_empty() && platform.bytes().all(|byte| byte.is_ascii_lowercase()) {
+		return Ok(());
+	}
+
+	Err(error(
+		module,
+		"invalid LEPTOSKIT_PLATFORM; select the application platform with \
+		 leptoskit_build::platforms()",
+	))
+}
+
+/// The file the module comes from: the platform's override when there is
+/// one, and the shared file otherwise.
+fn selected_source(
+	module: &Module,
+	source: &Path,
+	stem: &Path,
+	platform: &str,
+) -> syn::Result<PathBuf> {
+	let shared = checked_source(source, &stem.with_extension("rs"), &module.path)?;
+	let override_stem = stem.with_extension(format!("{platform}.rs"));
+	let platform_source = source.join(&override_stem);
+
+	match std::fs::symlink_metadata(&platform_source) {
+		Ok(_) if platform != "shared" => checked_source(source, &override_stem, &module.path),
+
+		Ok(_) => Ok(shared),
+
+		Err(source_error) if source_error.kind() == std::io::ErrorKind::NotFound => Ok(shared),
+		Err(source_error) => {
+			Err(error(
+				module,
+				&format!(
+					"could not inspect {}: {source_error}",
+					platform_source.display(),
+				),
+			))
+		}
+	}
 }
 
 /// Canonicalizes a module source and refuses symlinks outside the app source.

@@ -370,6 +370,39 @@ struct Component {
 	slots: Vec<Ident>,
 }
 
+/// The type a setter takes, and the value it stores: a stripped optional
+/// prop takes its inner type, and an `Into` prop takes anything that converts.
+fn setter_argument(prop: &Prop) -> (TokenStream, TokenStream) {
+	let ty = &prop.ty;
+
+	match (&prop.kind, prop.into) {
+		(PropKind::Optional { strip: true, .. }, into) => {
+			let inner = option_inner(ty).expect("a stripped prop is an `Option`");
+
+			if into {
+				(
+					quote!(impl ::core::convert::Into<#inner>),
+					quote!(::core::option::Option::Some(value.into())),
+				)
+			} else {
+				(
+					inner.to_token_stream(),
+					quote!(::core::option::Option::Some(value)),
+				)
+			}
+		}
+
+		(_, true) => {
+			(
+				quote!(impl ::core::convert::Into<#ty>),
+				quote!(value.into()),
+			)
+		}
+
+		(_, false) => (ty.to_token_stream(), quote!(value)),
+	}
+}
+
 impl Component {
 	fn new(function: ItemFn, props: Vec<Prop>) -> Self {
 		let name = &function.sig.ident;
@@ -520,65 +553,49 @@ impl Component {
 	}
 
 	fn setters(&self) -> TokenStream {
-		let builder = &self.builder;
-		let fields = self.props.iter().map(|prop| &prop.name).collect::<Vec<_>>();
-		let generics = &self.function.sig.generics;
-		let setters = self.props.iter().enumerate().map(|(index, prop)| {
-			let name = &prop.name;
-			let ty = &prop.ty;
-			let slot = &self.slots[index];
-			let docs = &prop.docs;
-			let (argument, value) = match (&prop.kind, prop.into) {
-				(PropKind::Optional { strip: true, .. }, into) => {
-					let inner = option_inner(ty).expect("a stripped prop is an `Option`");
-					if into {
-						(
-							quote!(impl ::core::convert::Into<#inner>),
-							quote!(::core::option::Option::Some(value.into())),
-						)
-					} else {
-						(
-							inner.to_token_stream(),
-							quote!(::core::option::Option::Some(value)),
-						)
-					}
-				}
-				(_, true) => {
-					(
-						quote!(impl ::core::convert::Into<#ty>),
-						quote!(value.into()),
-					)
-				}
-				(_, false) => (ty.to_token_stream(), quote!(value)),
-			};
+		let setters = (0..self.props.len()).map(|index| self.setter(index));
 
-			let used = used_generics(ty, generics, &prop.introduced);
-			let (parameters, predicates) = used.split();
-			let next = self.builder_with(index, &quote!((#ty,)));
-			let others = fields
-				.iter()
-				.filter(|field| **field != name)
-				.collect::<Vec<_>>();
-			// Prefixed, so a prop called `value` cannot shadow the argument.
-			let kept = others
-				.iter()
-				.map(|field| format_ident!("__{}", field.to_string().trim_start_matches("r#")))
-				.collect::<Vec<_>>();
-
-			quote_spanned! {name.span()=>
-				#(#docs)*
-				#[allow(clippy::type_complexity)]
-				pub fn #name<#parameters>(self, value: #argument) -> #next
-				where
-					#slot: ::leptoskit::__private::Unset,
-					#predicates
-				{
-					let Self { #name: _, #(#others: #kept),* } = self;
-					#builder { #name: (#value,), #(#others: #kept),* }
-				}
-			}
-		});
 		quote!(#(#setters)*)
+	}
+
+	/// One prop's builder method: it takes the value, fills the prop's slot,
+	/// and keeps the other slots as they were.
+	fn setter(&self, index: usize) -> TokenStream {
+		let builder = &self.builder;
+		let generics = &self.function.sig.generics;
+		let prop = &self.props[index];
+		let name = &prop.name;
+		let ty = &prop.ty;
+		let slot = &self.slots[index];
+		let docs = &prop.docs;
+		let (argument, value) = setter_argument(prop);
+		let used = used_generics(ty, generics, &prop.introduced);
+		let (parameters, predicates) = used.split();
+		let next = self.builder_with(index, &quote!((#ty,)));
+		let others = self
+			.props
+			.iter()
+			.map(|prop| &prop.name)
+			.filter(|field| *field != name)
+			.collect::<Vec<_>>();
+		// Prefixed, so a prop called `value` cannot shadow the argument.
+		let kept = others
+			.iter()
+			.map(|field| format_ident!("__{}", field.to_string().trim_start_matches("r#")))
+			.collect::<Vec<_>>();
+
+		quote_spanned! {name.span()=>
+			#(#docs)*
+			#[allow(clippy::type_complexity)]
+			pub fn #name<#parameters>(self, value: #argument) -> #next
+			where
+				#slot: ::leptoskit::__private::Unset,
+				#predicates
+			{
+				let Self { #name: _, #(#others: #kept),* } = self;
+				#builder { #name: (#value,), #(#others: #kept),* }
+			}
+		}
 	}
 
 	/// Per required prop, a trait that only a filled slot implements, whose
