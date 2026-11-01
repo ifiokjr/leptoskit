@@ -30,53 +30,12 @@ impl Link {
 	/// malformed escapes, whitespace, controls, backslashes and empty
 	/// destinations.
 	pub fn parse(value: &str) -> Result<Self, Error> {
-		if value.is_empty()
-			|| value.len() > MAX_URL_BYTES
-			|| value
-				.bytes()
-				.any(|byte| !byte.is_ascii_graphic() || byte == b'\\')
-		{
-			return Err(Error::InvalidArgument);
-		}
-		let bytes = value.as_bytes();
-
-		for (index, byte) in bytes.iter().enumerate() {
-			if *byte == b'%' {
-				let escape = bytes
-					.get(index + 1..index + 3)
-					.ok_or(Error::InvalidArgument)?;
-
-				if !escape.iter().all(u8::is_ascii_hexdigit) {
-					return Err(Error::InvalidArgument);
-				}
-
-				if matches!(escape[0], b'0' | b'1') || escape.eq_ignore_ascii_case(b"7f") {
-					return Err(Error::InvalidArgument);
-				}
-			}
-		}
-
+		validate_encoded(value)?;
 		let parsed = url::Url::parse(value).map_err(|_| Error::InvalidArgument)?;
 
 		match parsed.scheme() {
-			"http" | "https" => {
-				let (_, destination) = value.split_once(':').ok_or(Error::InvalidArgument)?;
-				if !destination.starts_with("//")
-					|| destination.starts_with("///")
-					|| destination
-						.trim_start_matches('/')
-						.split(['/', '?', '#'])
-						.next()
-						.is_some_and(|authority| authority.contains('@'))
-					|| parsed.host_str().is_none()
-					|| !parsed.username().is_empty()
-					|| parsed.password().is_some()
-				{
-					return Err(Error::InvalidArgument);
-				}
-			}
-			"mailto" | "tel" | "sms"
-				if !parsed.path().is_empty() && !parsed.path().starts_with('/') => {}
+			"http" | "https" => validate_web_destination(value, &parsed)?,
+			"mailto" | "tel" | "sms" => validate_contact_destination(&parsed)?,
 			_ => return Err(Error::InvalidArgument),
 		}
 
@@ -93,6 +52,82 @@ impl Link {
 	pub fn decode(payload: &[u8]) -> Result<Self, Error> {
 		Self::parse(core::str::from_utf8(payload).map_err(|_| Error::InvalidArgument)?)
 	}
+}
+
+/// Rejects an empty or oversized payload and any byte a URL cannot carry
+/// literally: whitespace, controls, non-ASCII text and backslashes.
+fn validate_encoded(value: &str) -> Result<(), Error> {
+	if value.is_empty()
+		|| value.len() > MAX_URL_BYTES
+		|| value
+			.bytes()
+			.any(|byte| !byte.is_ascii_graphic() || byte == b'\\')
+	{
+		return Err(Error::InvalidArgument);
+	}
+
+	validate_escapes(value.as_bytes())
+}
+
+/// Rejects truncated or non-hexadecimal `%` sequences.
+fn validate_escapes(bytes: &[u8]) -> Result<(), Error> {
+	for (index, byte) in bytes.iter().enumerate() {
+		if *byte == b'%' {
+			validate_escape(bytes, index)?;
+		}
+	}
+
+	Ok(())
+}
+
+/// Rejects an escape that would decode to a control character once the
+/// destination sees it, even though the source bytes are printable.
+fn validate_escape(bytes: &[u8], index: usize) -> Result<(), Error> {
+	let escape = bytes
+		.get(index + 1..index + 3)
+		.ok_or(Error::InvalidArgument)?;
+
+	if !escape.iter().all(u8::is_ascii_hexdigit) {
+		return Err(Error::InvalidArgument);
+	}
+
+	if matches!(escape[0], b'0' | b'1') || escape.eq_ignore_ascii_case(b"7f") {
+		return Err(Error::InvalidArgument);
+	}
+
+	Ok(())
+}
+
+/// Web destinations must name a host in authority position and carry no
+/// credentials, so `https:example.com` and `https:///path` stay invalid.
+fn validate_web_destination(value: &str, parsed: &url::Url) -> Result<(), Error> {
+	let (_, destination) = value.split_once(':').ok_or(Error::InvalidArgument)?;
+
+	if !destination.starts_with("//")
+		|| destination.starts_with("///")
+		|| destination
+			.trim_start_matches('/')
+			.split(['/', '?', '#'])
+			.next()
+			.is_some_and(|authority| authority.contains('@'))
+		|| parsed.host_str().is_none()
+		|| !parsed.username().is_empty()
+		|| parsed.password().is_some()
+	{
+		return Err(Error::InvalidArgument);
+	}
+
+	Ok(())
+}
+
+/// Contact destinations carry their target in the path, so `tel:` and
+/// `sms://host` stay invalid.
+fn validate_contact_destination(parsed: &url::Url) -> Result<(), Error> {
+	if parsed.path().is_empty() || parsed.path().starts_with('/') {
+		return Err(Error::InvalidArgument);
+	}
+
+	Ok(())
 }
 
 /// Decodes the exact four-byte boolean response; unknown values are invalid.
@@ -142,10 +177,20 @@ pub mod desktop {
 					))
 				}
 
-				OPEN_SETTINGS if !payload.is_empty() => Err(Error::InvalidArgument),
+				OPEN_SETTINGS => settings_reply(&payload),
 				_ => Err(Error::Unavailable),
 			}
 		}
+	}
+
+	/// Desktop hosts have no settings page to open; only a malformed request
+	/// differs from an unsupported one.
+	fn settings_reply(payload: &[u8]) -> Result<Bytes, Error> {
+		if payload.is_empty() {
+			return Err(Error::Unavailable);
+		}
+
+		Err(Error::InvalidArgument)
 	}
 
 	/// Requests the platform's default application. Success means the launcher
@@ -214,11 +259,7 @@ pub mod guest {
 		pub async fn open(self, link: &Link) -> Result<(), Error> {
 			let response = self.0.call(OPEN, link.as_str().as_bytes())?.await?;
 
-			if response.is_empty() {
-				Ok(())
-			} else {
-				Err(Error::InvalidArgument)
-			}
+			expect_empty(&response)
 		}
 
 		/// Queries installed handlers, subject to native query declarations.
@@ -230,12 +271,18 @@ pub mod guest {
 		pub async fn open_settings(self) -> Result<(), Error> {
 			let response = self.0.call(OPEN_SETTINGS, &[])?.await?;
 
-			if response.is_empty() {
-				Ok(())
-			} else {
-				Err(Error::InvalidArgument)
-			}
+			expect_empty(&response)
 		}
+	}
+
+	/// An empty reply is the only success; anything else is a refusal the guest
+	/// can only report as an invalid argument.
+	fn expect_empty(response: &[u8]) -> Result<(), Error> {
+		if response.is_empty() {
+			return Ok(());
+		}
+
+		Err(Error::InvalidArgument)
 	}
 }
 
@@ -332,8 +379,10 @@ mod tests {
 			Err(Error::Unavailable)
 		);
 
+		// A method the plugin never registered is unavailable, not invalid.
+		const UNKNOWN_METHOD: MethodId = MethodId(9);
 		assert_eq!(
-			linking.invoke(MethodId(9), Bytes::new()),
+			linking.invoke(UNKNOWN_METHOD, Bytes::new()),
 			Err(Error::Unavailable)
 		);
 		// Querying handlers never opens anything. macOS answers from Launch
