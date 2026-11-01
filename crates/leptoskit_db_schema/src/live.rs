@@ -11,6 +11,9 @@
 //!   commit, which takes a transaction-scoped advisory lock, allocates the
 //!   version, records the commit, and sends `NOTIFY leptoskit_live`. The lock
 //!   is held until the commit finishes, so versions become visible in order.
+//!   Both functions only ever write the pack's tables, never read them, so
+//!   `SERIALIZABLE` transactions writing live tables don't conflict through
+//!   them; pruning clears `live.pending` along with the commits.
 //! - **SQLite** has one writer at a time, so ordering is free. Its triggers
 //!   leave `version` empty, and `leptoskit_db` stamps the next version on every
 //!   unversioned change just before it commits.
@@ -63,6 +66,10 @@ pub const ACTOR_SETTING: &str = "leptoskit.user_id";
 /// The setting `live.seal()` reads the commit's origin from, such as an
 /// operation's name. Without one, a commit's origin is `sql`.
 pub const ORIGIN_SETTING: &str = "leptoskit.origin";
+
+/// The transaction-local setting `live.capture()` marks a transaction with
+/// once it has registered for a version, so it registers once.
+pub const REGISTERED_SETTING: &str = "leptoskit.live_registered";
 
 /// The origin of a commit that didn't say where it came from.
 pub const DEFAULT_ORIGIN: &str = "sql";
@@ -334,13 +341,20 @@ BEGIN
 		changed_columns
 	);
 
-	-- The first write in this transaction registers it for a version at commit.
-	INSERT INTO {pending} (txid) VALUES (current_txid) ON CONFLICT DO NOTHING;
+	-- The first write in this transaction registers it for a version at
+	-- commit. A transaction-local setting remembers it, rather than reading
+	-- the table, which a serializable transaction would conflict through.
+	IF current_setting('{registered}', true) IS DISTINCT FROM 'on' THEN
+		PERFORM set_config('{registered}', 'on', true);
+		INSERT INTO {pending} (txid) VALUES (current_txid);
+	END IF;
+
 	RETURN NULL;
 END;",
 		changes = postgres_name(CHANGES),
 		pending = postgres_name(PENDING),
 		change_seq = postgres_name("change_seq"),
+		registered = REGISTERED_SETTING,
 	)
 }
 
@@ -357,14 +371,9 @@ fn seal_body() -> String {
 		"DECLARE
 	next_version bigint;
 BEGIN
-	DELETE FROM {pending} WHERE txid = NEW.txid;
-
-	-- Sealed already: `SET CONSTRAINTS ALL IMMEDIATE` ran this before a later
-	-- write registered the transaction again. Its changes join the version it has.
-	IF EXISTS (SELECT 1 FROM {commits} WHERE txid = NEW.txid) THEN
-		RETURN NULL;
-	END IF;
-
+	-- A transaction registers once, so this runs once, even when
+	-- `SET CONSTRAINTS ALL IMMEDIATE` runs it before a later write: that
+	-- write's change joins the version, which nobody sees before the commit.
 	PERFORM pg_advisory_xact_lock({lock});
 	next_version := nextval('{version_seq}');
 	INSERT INTO {commits} (version, txid, committed_at, actor, origin)
@@ -378,7 +387,6 @@ BEGIN
 	PERFORM pg_notify('{channel}', next_version::text);
 	RETURN NULL;
 END;",
-		pending = postgres_name(PENDING),
 		commits = postgres_name(COMMITS),
 		version_seq = postgres_name("version_seq"),
 		lock = COMMIT_LOCK,

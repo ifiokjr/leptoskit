@@ -695,6 +695,21 @@ mod reading {
 		})
 		.await?;
 
+		// The registrations `live.seal()` leaves behind, rather than reading
+		// the table to delete its own.
+		if dialect == Dialect::Postgres {
+			tx.execute(Statement {
+				sql: format!(
+					"DELETE FROM {} WHERE \"txid\" IN (SELECT \"txid\" FROM {} WHERE \"version\" \
+					 >= $1 AND \"version\" <= $2)",
+					name(dialect, leptoskit_db_schema::live::PENDING),
+					commits(dialect)
+				),
+				args: vec![Value::Int(from), Value::Int(to)],
+			})
+			.await?;
+		}
+
 		if done {
 			return Ok(None);
 		}

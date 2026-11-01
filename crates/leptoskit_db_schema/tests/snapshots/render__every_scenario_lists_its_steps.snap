@@ -206,7 +206,7 @@ stop_capturing_a_table
 rebuild_a_live_table
   ~ column posts.title: text → text(200)
 replace_a_capture_function
-  ~ function live.capture: body fd379eee → c5457bc7
+  ~ function live.capture: body 4097acf3 → c5457bc7
 remove_the_live_pack
   - trigger live_capture on posts
   - trigger live_capture on users

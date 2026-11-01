@@ -343,7 +343,15 @@ fn normalize(change: RawChange, dialect: leptoskit_db_schema::Dialect) -> Result
 		Ok(names
 			.iter()
 			.zip(values)
-			.map(|(name, value)| ((*name).to_string(), crate::audit::json(&value)))
+			.map(|(name, value)| {
+				// A value this build can't read back, such as a Postgres
+				// shape, stays as the database wrote it.
+				let json = match value {
+					Value::Null => image[*name].clone(),
+					value => crate::audit::json(&value),
+				};
+				((*name).to_string(), json)
+			})
 			.collect())
 	};
 	let key = super::images::logged_key(&definition, &change.key, dialect)?;
@@ -406,11 +414,16 @@ impl Db {
 	///
 	/// # Errors
 	///
-	/// Unless this handle is a [`Db::system`] one, since the log holds rows
-	/// whoever may read them.
+	/// [`DbError::Forbidden`] unless this handle is a [`Db::system`] one,
+	/// since the log holds rows whoever may read them.
 	pub async fn change_log(&self, version: Option<i64>) -> Result<ChangeLog> {
 		if self.context().is_some() {
-			return Err(DbError::connection(NotSystem));
+			return Err(DbError::Forbidden {
+				table: "live.changes".to_string(),
+				message: "the change log holds rows whoever may read them, so only a `system` \
+				          handle reads it"
+					.to_string(),
+			});
 		}
 
 		Ok(ChangeLog::new(Reader::start(self.clone(), version).await?))
@@ -452,11 +465,6 @@ impl Db {
 		Ok(())
 	}
 }
-
-/// The change log asked of a handle that applies policies.
-#[derive(Debug, thiserror::Error)]
-#[error("the change log holds rows whoever may read them, so only a `system` handle reads it")]
-struct NotSystem;
 
 #[cfg(test)]
 mod tests {
