@@ -84,6 +84,90 @@ struct FlexAxes {
 	cross_reversed: bool,
 }
 
+/// How an item sits across its line: the space before it, and the cross size
+/// the parent forces on it.
+struct CrossPlacement {
+	/// Space before the item, after alignment.
+	lead: f32,
+	/// The cross size the parent forces, when it stretches the item.
+	forced: Option<f32>,
+}
+
+/// Aligns the item across the line, stretching it when asked.
+fn cross_placement(
+	child_style: &Style,
+	item: &FlexItem,
+	line: &FlexLine,
+	container: &FlexContainer,
+) -> CrossPlacement {
+	let is_row = container.axes.is_row;
+	let align = child_style
+		.align_self
+		.resolve_self(container.style.align_items);
+	let outer_cross = item.inner_cross + cross_margins(&item.margins, is_row);
+	let cross_free = (line.cross - outer_cross).max(0.0);
+
+	let lead = match align {
+		Align::FlexEnd => cross_free,
+		Align::Center => cross_free / 2.0,
+		_ => 0.0,
+	};
+	let cross_auto = if is_row {
+		child_style.height.is_auto()
+	} else {
+		child_style.width.is_auto()
+	};
+
+	let stretch = matches!(align, Align::Stretch) && cross_auto;
+	let final_cross = if stretch {
+		(line.cross - cross_margins(&item.margins, is_row)).max(0.0)
+	} else {
+		item.inner_cross
+	};
+
+	// A stretched item fills the line; a ratio-bound item keeps the cross size
+	// transferred from its main size.
+	let forced =
+		(stretch || (cross_auto && child_style.aspect_ratio.is_some())).then_some(final_cross);
+
+	CrossPlacement { lead, forced }
+}
+
+/// Where the item's border box starts, in physical coordinates.
+fn item_origin(
+	axes: FlexAxes,
+	padding: Edges,
+	border_box: Size<f32>,
+	lead: f32,
+	item_main: f32,
+	cross_position: f32,
+	relative: Size<f32>,
+) -> (f32, f32) {
+	if axes.is_row {
+		let x = if axes.main_reversed {
+			border_box.width - padding.right - lead - item_main
+		} else {
+			padding.left + lead
+		};
+
+		(
+			x + relative.width,
+			padding.top + cross_position + relative.height,
+		)
+	} else {
+		let y = if axes.main_reversed {
+			border_box.height - padding.bottom - lead - item_main
+		} else {
+			padding.top + lead
+		};
+
+		(
+			padding.left + cross_position + relative.width,
+			y + relative.height,
+		)
+	}
+}
+
 impl FlexAxes {
 	fn new(style: &Style) -> Self {
 		let is_row = style.flex_direction.is_row();
@@ -669,7 +753,7 @@ impl Yoga {
 		let FlexAxes {
 			is_row,
 			main_reversed,
-			cross_reversed,
+			..
 		} = axes;
 		let inner_padding = container.inner_padding;
 		let border_box = placement.border_box;
@@ -679,44 +763,15 @@ impl Yoga {
 		let (leading_margin, trailing_margin) =
 			main_start_end(item.margins.as_rect(), is_row, main_reversed);
 		let (margin_cross_lead, _) =
-			main_start_end(item.margins.as_rect(), !is_row, cross_reversed);
-
-		let align = child_style
-			.align_self
-			.resolve_self(container.style.align_items);
-		let outer_cross = item.inner_cross + cross_margins(&item.margins, is_row);
-		let cross_free = (line.cross - outer_cross).max(0.0);
-
-		let cross_lead = match align {
-			Align::FlexEnd => cross_free,
-			Align::Center => cross_free / 2.0,
-			_ => 0.0,
-		};
-
-		let cross_auto = if is_row {
-			child_style.height.is_auto()
-		} else {
-			child_style.width.is_auto()
-		};
-
-		let stretch = matches!(align, Align::Stretch) && cross_auto;
-		let final_cross = if stretch {
-			(line.cross - cross_margins(&item.margins, is_row)).max(0.0)
-		} else {
-			item.inner_cross
-		};
-
-		// A stretched item fills the line; a ratio-bound item keeps the cross
-		// size transferred from its main size.
-		let forced_cross =
-			(stretch || (cross_auto && child_style.aspect_ratio.is_some())).then_some(final_cross);
+			main_start_end(item.margins.as_rect(), !is_row, axes.cross_reversed);
+		let cross = cross_placement(&child_style, item, line, container);
 
 		let child_ctx = crate::SizingCtx {
 			available: axes.size(
 				AvailableSpace::Definite(item.inner_main),
 				AvailableSpace::Definite(placement.inner_cross),
 			),
-			forced: axes.size(Some(item.inner_main), forced_cross),
+			forced: axes.size(Some(item.inner_main), cross.forced),
 			percent_basis: placement.content_basis,
 		};
 		let final_size = self.layout_node(item.node, child_ctx, container.mode);
@@ -734,36 +789,22 @@ impl Yoga {
 			+ leading_margin
 			+ cursor.auto_margin
 				* auto_margin_before_count(&child_style.margin, is_row, main_reversed) as f32;
-		let cross_position = line.cross_offset + cross_lead + margin_cross_lead;
-		let cross_position = if cross_reversed {
+		let cross_position = line.cross_offset + cross.lead + margin_cross_lead;
+		let cross_position = if axes.cross_reversed {
 			placement.inner_cross - cross_position - axes.cross(final_size)
 		} else {
 			cross_position
 		};
 
-		let (x, y) = if is_row {
-			let x = if main_reversed {
-				border_box.width - inner_padding.right - lead - item_main
-			} else {
-				inner_padding.left + lead
-			};
-
-			(
-				x + relative.width,
-				inner_padding.top + cross_position + relative.height,
-			)
-		} else {
-			let y = if main_reversed {
-				border_box.height - inner_padding.bottom - lead - item_main
-			} else {
-				inner_padding.top + lead
-			};
-
-			(
-				inner_padding.left + cross_position + relative.width,
-				y + relative.height,
-			)
-		};
+		let (x, y) = item_origin(
+			axes,
+			inner_padding,
+			border_box,
+			lead,
+			item_main,
+			cross_position,
+			relative,
+		);
 
 		let layout = &mut self.nodes[item.node.0].layout;
 		layout.order = index as u32;
@@ -1009,66 +1050,98 @@ fn resolve_flexible_lengths(items: &mut [FlexItem], line: &FlexLine, space: f32,
 		.iter()
 		.map(|&index| items[index].outer_base)
 		.sum();
-	let growing = hypothetical < space;
-	let factor = |item: &FlexItem| if growing { item.grow } else { item.shrink };
-	let weight = |item: &FlexItem| {
-		if growing {
-			item.grow
-		} else {
-			item.scaled_shrink
-		}
+	let mut flex = Flexing {
+		items,
+		line,
+		space,
+		is_row,
+		growing: hypothetical < space,
+		initial_free: 0.0,
 	};
 
-	for &index in &line.items {
-		let item = &mut items[index];
-		item.frozen = factor(item) == 0.0
-			|| if growing {
-				item.flex_base > item.inner_main
-			} else {
-				item.flex_base < item.inner_main
-			};
+	flex.freeze_inflexible();
+	flex.initial_free = flex.remaining();
+
+	for _ in 0..flex.line.items.len() {
+		if flex.distribute() {
+			break;
+		}
+	}
+}
+
+/// The flex factor that grows or shrinks an item.
+fn factor_of(item: &FlexItem, growing: bool) -> f32 {
+	if growing { item.grow } else { item.shrink }
+}
+
+/// The weight that shares the free space: the grow factor, or the scaled
+/// shrink factor.
+fn weight_of(item: &FlexItem, growing: bool) -> f32 {
+	if growing {
+		item.grow
+	} else {
+		item.scaled_shrink
+	}
+}
+
+/// One line's flexible lengths, and what the pass has learned about them.
+struct Flexing<'a> {
+	items: &'a mut [FlexItem],
+	line: &'a FlexLine,
+	space: f32,
+	is_row: bool,
+	growing: bool,
+	initial_free: f32,
+}
+
+impl Flexing<'_> {
+	/// Freezes the items that cannot flex, or whose base already sits past
+	/// their content size in the direction of the flex.
+	fn freeze_inflexible(&mut self) {
+		for &index in &self.line.items {
+			let item = &mut self.items[index];
+			item.frozen = factor_of(item, self.growing) == 0.0
+				|| if self.growing {
+					item.flex_base > item.inner_main
+				} else {
+					item.flex_base < item.inner_main
+				};
+		}
 	}
 
-	let remaining = |items: &[FlexItem]| {
-		space
-			- line
+	/// The space the unfrozen items still have to share.
+	fn remaining(&self) -> f32 {
+		self.space
+			- self
+				.line
 				.items
 				.iter()
 				.map(|&index| {
-					let item = &items[index];
+					let item = &self.items[index];
 					(if item.frozen {
 						item.inner_main
 					} else {
 						item.flex_base
-					}) + main_margins(&item.margins, is_row)
+					}) + main_margins(&item.margins, self.is_row)
 				})
 				.sum::<f32>()
-	};
-	let initial_free = remaining(items);
+	}
 
-	for _ in 0..line.items.len() {
-		let factors: f32 = line
-			.items
-			.iter()
-			.filter(|&&index| !items[index].frozen)
-			.map(|&index| factor(&items[index]))
-			.sum();
-		let weights: f32 = line
-			.items
-			.iter()
-			.filter(|&&index| !items[index].frozen)
-			.map(|&index| weight(&items[index]))
-			.sum();
-		let mut free = remaining(items);
+	/// Shares the free space once, freezing the items responsible for any
+	/// min/max violation. Says whether every item is now frozen.
+	fn distribute(&mut self) -> bool {
+		let factors = self.total(|item| factor_of(item, self.growing));
+		let weights = self.total(|item| weight_of(item, self.growing));
+		let mut free = self.remaining();
 
-		if factors < 1.0 && (initial_free * factors).abs() < free.abs() {
-			free = initial_free * factors;
+		if factors < 1.0 && (self.initial_free * factors).abs() < free.abs() {
+			free = self.initial_free * factors;
 		}
 
 		let mut total_violation = 0.0;
 
-		for &index in &line.items {
-			let item = &mut items[index];
+		for &index in &self.line.items {
+			let item = &mut self.items[index];
 
 			if item.frozen {
 				continue;
@@ -1076,7 +1149,7 @@ fn resolve_flexible_lengths(items: &mut [FlexItem], line: &FlexLine, space: f32,
 
 			let target = item.flex_base
 				+ if weights > 0.0 {
-					free * weight(item) / weights
+					free * weight_of(item, self.growing) / weights
 				} else {
 					0.0
 				};
@@ -1086,18 +1159,34 @@ fn resolve_flexible_lengths(items: &mut [FlexItem], line: &FlexLine, space: f32,
 			total_violation += item.violation;
 		}
 
-		for &index in &line.items {
-			let item = &mut items[index];
+		self.freeze_violators(total_violation);
+		self.line
+			.items
+			.iter()
+			.all(|&index| self.items[index].frozen)
+	}
+
+	/// Sums one number over the unfrozen items.
+	fn total(&self, value: impl Fn(&FlexItem) -> f32) -> f32 {
+		self.line
+			.items
+			.iter()
+			.filter(|&&index| !self.items[index].frozen)
+			.map(|&index| value(&self.items[index]))
+			.sum()
+	}
+
+	/// Freezes the items whose violation runs against the total, so the next
+	/// pass shares what is left among the rest.
+	fn freeze_violators(&mut self, total_violation: f32) {
+		for &index in &self.line.items {
+			let item = &mut self.items[index];
 			item.frozen |= total_violation.abs() <= EPSILON
 				|| if total_violation > 0.0 {
 					item.violation > 0.0
 				} else {
 					item.violation < 0.0
 				};
-		}
-
-		if line.items.iter().all(|&index| items[index].frozen) {
-			break;
 		}
 	}
 }

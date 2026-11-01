@@ -728,6 +728,7 @@ impl Yoga {
 				item.col_span = area.minor_span;
 			} else {
 				item.col_start = area.major;
+
 				item.col_span = area.major_span;
 				item.row_start = area.minor;
 				item.row_span = area.minor_span;
@@ -830,46 +831,62 @@ impl AxisTracks {
 		self.fractions = vec![0.0; count];
 		self.fraction_contributions.clear();
 
-		for (index, sizing) in self.sizings.iter().enumerate() {
-			match sizing {
-				TrackSizing::Points(value) => self.bases[index] = value.max(0.0),
-				TrackSizing::Percent(fraction) => {
-					self.bases[index] = container.map_or(0.0, |total| (fraction * total).max(0.0));
-					self.intrinsic[index] = container.is_none();
-				}
-				TrackSizing::MinMax(inner) => {
-					let base = inner.min.resolve_base(container).unwrap_or(0.0).max(0.0);
-					self.bases[index] = base;
-					// Fractional maxima share space after fixed minimums; auto
-					// maxima grow from intrinsic content contributions.
-					match inner.max {
-						TrackSizing::Fraction(fr) => {
-							self.fractions[index] = crate::finite(fr).max(0.0);
-							self.intrinsic[index] =
-								matches!(inner.min, TrackSizing::Auto) || container.is_none();
-						}
-						_ => {
-							match inner.max.resolve_base(container) {
-								Some(max) => self.limits[index] = Some(max.max(base)),
-								None => self.intrinsic[index] = true,
-							}
-						}
-					}
+		for index in 0..count {
+			let sizing = self.sizings[index].clone();
+			self.init_track(index, &sizing, container);
+		}
+	}
 
-					if matches!(inner.min, TrackSizing::Auto)
-						|| (container.is_none() && contains_percentage(&inner.min))
-					{
-						self.intrinsic[index] = true;
-					}
-				}
-				TrackSizing::Auto => self.intrinsic[index] = true,
-				// `fr` tracks are resolved against leftover space in
-				// `finish`, not against content.
-				TrackSizing::Fraction(fr) => {
-					self.fractions[index] = crate::finite(*fr).max(0.0);
-					self.intrinsic[index] = container.is_none();
+	/// Sets one track's base size, its limit, and whether it grows from
+	/// content.
+	fn init_track(&mut self, index: usize, sizing: &TrackSizing, container: Option<f32>) {
+		match sizing {
+			TrackSizing::Points(value) => self.bases[index] = value.max(0.0),
+
+			TrackSizing::Percent(fraction) => {
+				self.bases[index] = container.map_or(0.0, |total| (fraction * total).max(0.0));
+				self.intrinsic[index] = container.is_none();
+			}
+
+			TrackSizing::MinMax(inner) => self.init_min_max(index, inner, container),
+
+			TrackSizing::Auto => self.intrinsic[index] = true,
+
+			// `fr` tracks are resolved against leftover space in `finish`, not
+			// against content.
+			TrackSizing::Fraction(fr) => {
+				self.fractions[index] = crate::finite(*fr).max(0.0);
+				self.intrinsic[index] = container.is_none();
+			}
+		}
+	}
+
+	/// Sets a `minmax()` track: its minimum is the base, and its maximum
+	/// either shares space as a fraction or caps the track.
+	fn init_min_max(&mut self, index: usize, inner: &crate::MinMax, container: Option<f32>) {
+		let base = inner.min.resolve_base(container).unwrap_or(0.0).max(0.0);
+		self.bases[index] = base;
+
+		// Fractional maxima share space after fixed minimums; auto maxima
+		// grow from intrinsic content contributions.
+		match inner.max {
+			TrackSizing::Fraction(fr) => {
+				self.fractions[index] = crate::finite(fr).max(0.0);
+				self.intrinsic[index] =
+					matches!(inner.min, TrackSizing::Auto) || container.is_none();
+			}
+			_ => {
+				match inner.max.resolve_base(container) {
+					Some(max) => self.limits[index] = Some(max.max(base)),
+					None => self.intrinsic[index] = true,
 				}
 			}
+		}
+
+		if matches!(inner.min, TrackSizing::Auto)
+			|| (container.is_none() && contains_percentage(&inner.min))
+		{
+			self.intrinsic[index] = true;
 		}
 	}
 
@@ -945,42 +962,60 @@ impl AxisTracks {
 		let count = self.bases.len();
 
 		match available {
-			// Free space is shared equally, freezing tracks at their limits.
-			AvailableSpace::Definite(total) => {
-				for _ in 0..=count {
-					let free = total - self.used(gap);
-					let growable: Vec<usize> = (0..count)
-						.filter(|&index| {
-							self.limits[index]
-								.is_some_and(|limit| limit > self.bases[index] + EPSILON)
-						})
-						.collect();
-
-					if growable.is_empty() || free <= EPSILON {
-						break;
-					}
-
-					let share = free / growable.len() as f32;
-
-					for index in growable {
-						let limit = self.limits[index].unwrap_or(self.bases[index]);
-						self.bases[index] = (self.bases[index] + share).min(limit);
-					}
-				}
-			}
-			// Under a max-content constraint every track reaches its limit.
-			AvailableSpace::MaxContent => {
-				for (base, limit) in self.bases.iter_mut().zip(&self.limits) {
-					if let Some(limit) = limit {
-						*base = limit.max(*base);
-					}
-				}
-			}
+			AvailableSpace::Definite(total) => self.share_free_space(total, gap),
+			AvailableSpace::MaxContent => self.reach_limits(),
 			AvailableSpace::MinContent => {}
 		}
 
-		let unit = match available {
+		let unit = self.fraction_unit_for(available, count, gap);
+
+		for (base, factor) in self.bases.iter_mut().zip(&self.fractions) {
+			if *factor > 0.0 {
+				*base = base.max(unit * factor);
+			}
+		}
+
+		self.place_offsets(gap);
+	}
+
+	/// Shares a definite total equally among the tracks that can still grow,
+	/// freezing each at its limit.
+	fn share_free_space(&mut self, total: f32, gap: f32) {
+		for _ in 0..=self.bases.len() {
+			let free = total - self.used(gap);
+			let growable: Vec<usize> = (0..self.bases.len())
+				.filter(|&index| {
+					self.limits[index].is_some_and(|limit| limit > self.bases[index] + EPSILON)
+				})
+				.collect();
+
+			if growable.is_empty() || free <= EPSILON {
+				break;
+			}
+
+			let share = free / growable.len() as f32;
+
+			for index in growable {
+				let limit = self.limits[index].unwrap_or(self.bases[index]);
+				self.bases[index] = (self.bases[index] + share).min(limit);
+			}
+		}
+	}
+
+	/// Under a max-content constraint every track reaches its limit.
+	fn reach_limits(&mut self) {
+		for (base, limit) in self.bases.iter_mut().zip(&self.limits) {
+			if let Some(limit) = limit {
+				*base = limit.max(*base);
+			}
+		}
+	}
+
+	/// The `fr` unit the available space gives.
+	fn fraction_unit_for(&self, available: AvailableSpace, count: usize, gap: f32) -> f32 {
+		match available {
 			AvailableSpace::Definite(total) => self.fraction_unit(0, count, total, gap),
+
 			AvailableSpace::MaxContent => {
 				let minimum_unit = self
 					.bases
@@ -995,18 +1030,15 @@ impl AxisTracks {
 					.map(|item| self.fraction_unit(item.start, item.span, item.size, gap))
 					.fold(minimum_unit, f32::max)
 			}
+
 			AvailableSpace::MinContent => 0.0,
-		};
-
-		for (base, factor) in self.bases.iter_mut().zip(&self.fractions) {
-			if *factor > 0.0 {
-				*base = base.max(unit * factor);
-			}
 		}
+	}
 
-		// Offsets accumulate along the axis.
+	/// Records where every track starts, and how long the axis is.
+	fn place_offsets(&mut self, gap: f32) {
 		self.total = self.used(gap);
-		self.offsets = Vec::with_capacity(count);
+		self.offsets = Vec::with_capacity(self.bases.len());
 		let mut offset = 0.0;
 
 		for base in &self.bases {
@@ -1179,109 +1211,153 @@ fn resolve_axis(placement: &GridPlacement, explicit: usize) -> (Option<usize>, u
 /// never moves the cursor backward; dense placement restarts every search
 /// from the start of the grid.
 fn place_areas(requests: &[PlacementRequest], dense: bool, minor_tracks: usize) -> Vec<Area> {
-	let mut areas = vec![Area::default(); requests.len()];
-	let mut occupied: Vec<Area> = Vec::with_capacity(requests.len());
-	let is_free = |occupied: &[Area], area: Area| !occupied.iter().any(|&o| o.overlaps(area));
-	let spans = |request: &PlacementRequest| {
-		Area {
-			major_span: request.major_span,
-			minor_span: request.minor_span,
-			..Area::default()
-		}
+	let mut placement = Placement {
+		requests,
+		areas: vec![Area::default(); requests.len()],
+		occupied: Vec::with_capacity(requests.len()),
+		dense,
 	};
 
-	for (index, request) in requests.iter().enumerate() {
-		if let (Some(major), Some(minor)) = (request.major, request.minor) {
+	placement.place_fixed();
+	placement.place_on_major_lines();
+	placement.place_automatically(minor_tracks);
+
+	placement.areas
+}
+
+/// The span an item asks for, before it has a position.
+fn spans_of(request: &PlacementRequest) -> Area {
+	Area {
+		major_span: request.major_span,
+		minor_span: request.minor_span,
+		..Area::default()
+	}
+}
+
+/// The grid as it fills: every area placed so far, and the requests that
+/// still need one.
+struct Placement<'a> {
+	requests: &'a [PlacementRequest],
+	areas: Vec<Area>,
+	occupied: Vec<Area>,
+	dense: bool,
+}
+
+impl Placement<'_> {
+	/// Whether nothing placed so far overlaps `area`.
+	fn is_free(&self, area: Area) -> bool {
+		!self.occupied.iter().any(|&other| other.overlaps(area))
+	}
+
+	/// Places the items fixed on both axes, which claim their cell outright.
+	fn place_fixed(&mut self) {
+		for (index, request) in self.requests.iter().enumerate() {
+			let (Some(major), Some(minor)) = (request.major, request.minor) else {
+				continue;
+			};
+
 			let area = Area {
 				major,
 				minor,
-				..spans(request)
+				..spans_of(request)
 			};
-			occupied.push(area);
-			areas[index] = area;
+
+			self.occupied.push(area);
+			self.areas[index] = area;
 		}
 	}
 
-	// Items locked to a major line scan along it; in sparse mode each search
-	// starts past the items this step already placed on that line.
-	let mut line_ends: Vec<(usize, usize)> = Vec::new();
+	/// Places the items locked to a major line, scanning along it. In sparse
+	/// mode each search starts past what this step already placed on the
+	/// line.
+	fn place_on_major_lines(&mut self) {
+		let mut line_ends: Vec<(usize, usize)> = Vec::new();
 
-	for (index, request) in requests.iter().enumerate() {
-		let (Some(major), None) = (request.major, request.minor) else {
-			continue;
-		};
-		let line_end = line_ends.iter().position(|&(line, _)| line == major);
-		let mut area = Area {
-			major,
-
-			minor: match line_end {
-				Some(position) if !dense => line_ends[position].1,
-				_ => 0,
-			},
-			..spans(request)
-		};
-
-		while !is_free(&occupied, area) {
-			area.minor += 1;
-		}
-
-		occupied.push(area);
-		areas[index] = area;
-		let end = area.minor + area.minor_span;
-
-		match line_end {
-			Some(position) => line_ends[position].1 = end,
-			None => line_ends.push((major, end)),
-		}
-	}
-
-	let (mut cursor_major, mut cursor_minor) = (0usize, 0usize);
-
-	for (index, request) in requests.iter().enumerate() {
-		if request.major.is_some() {
-			continue;
-		}
-		let area = if let Some(minor) = request.minor {
-			// A definite minor line: walk down the major axis from the cursor,
-			// moving to the next line when the cursor already passed it.
+		for (index, request) in self.requests.iter().enumerate() {
+			let (Some(major), None) = (request.major, request.minor) else {
+				continue;
+			};
+			let line_end = line_ends.iter().position(|&(line, _)| line == major);
 			let mut area = Area {
-				major: if dense {
-					0
-				} else if minor < cursor_minor {
-					cursor_major + 1
-				} else {
-					cursor_major
-				},
+				major,
 
-				minor,
-				..spans(request)
+				minor: match line_end {
+					Some(position) if !self.dense => line_ends[position].1,
+					_ => 0,
+				},
+				..spans_of(request)
 			};
 
-			while !is_free(&occupied, area) {
-				area.major += 1;
+			while !self.is_free(area) {
+				area.minor += 1;
 			}
 
-			area
-		} else {
-			let from = if dense {
-				(0, 0)
-			} else {
-				(cursor_major, cursor_minor)
-			};
+			self.occupied.push(area);
+			self.areas[index] = area;
+			let end = area.minor + area.minor_span;
 
-			find_free_area(&occupied, from, spans(request), minor_tracks)
-		};
-
-		occupied.push(area);
-		areas[index] = area;
-
-		if !dense {
-			cursor_major = area.major;
-			cursor_minor = area.minor + area.minor_span;
+			match line_end {
+				Some(position) => line_ends[position].1 = end,
+				None => line_ends.push((major, end)),
+			}
 		}
 	}
 
-	areas
+	/// Places the rest through the auto-placement cursor.
+	fn place_automatically(&mut self, minor_tracks: usize) {
+		let (mut cursor_major, mut cursor_minor) = (0usize, 0usize);
+
+		for (index, request) in self.requests.iter().enumerate() {
+			if request.major.is_some() {
+				continue;
+			}
+
+			let area = self.auto_area(request, (cursor_major, cursor_minor), minor_tracks);
+			self.occupied.push(area);
+			self.areas[index] = area;
+
+			if !self.dense {
+				cursor_major = area.major;
+				cursor_minor = area.minor + area.minor_span;
+			}
+		}
+	}
+
+	/// The next free area for an item with no major line, searching from the
+	/// cursor unless the grid is dense.
+	fn auto_area(
+		&self,
+		request: &PlacementRequest,
+		cursor: (usize, usize),
+		minor_tracks: usize,
+	) -> Area {
+		let Some(minor) = request.minor else {
+			let from = if self.dense { (0, 0) } else { cursor };
+
+			return find_free_area(&self.occupied, from, spans_of(request), minor_tracks);
+		};
+
+		// A definite minor line: walk down the major axis from the cursor,
+		// moving to the next line when the cursor already passed it.
+		let mut area = Area {
+			major: if self.dense {
+				0
+			} else if minor < cursor.1 {
+				cursor.0 + 1
+			} else {
+				cursor.0
+			},
+
+			minor,
+			..spans_of(request)
+		};
+
+		while !self.is_free(area) {
+			area.major += 1;
+		}
+
+		area
+	}
 }
 
 /// Scans from `from` for the first position where an area of the given spans
@@ -1317,66 +1393,76 @@ fn find_free_area(
 
 /// Distributes leftover space along an axis and returns the leading offset.
 fn distribute_leftover(axis: &mut AxisTracks, inner: f32, gap: f32, align: Align) -> f32 {
-	let count = axis.bases.len();
 	let leftover = (inner - axis.used(gap)).max(0.0);
+	let count = axis.bases.len();
 
 	match align {
 		// `normal` (the default) behaves as stretch for grid: leftover space
 		// goes to intrinsic tracks, which is how `auto` fills fill the row.
 		Align::Auto | Align::Stretch => {
-			let intrinsic_count = axis.intrinsic.iter().filter(|&&flag| flag).count();
-			if intrinsic_count > 0 {
-				let share = leftover / intrinsic_count as f32;
-				let mut offset = 0.0;
-
-				for index in 0..count {
-					axis.offsets[index] = offset;
-
-					if axis.intrinsic[index] {
-						axis.bases[index] += share;
-					}
-
-					offset += axis.bases[index] + gap;
-				}
-			}
+			stretch_intrinsic(axis, leftover, gap);
 
 			0.0
 		}
+
 		Align::FlexEnd => leftover,
 		Align::Center => leftover / 2.0,
 
 		Align::SpaceBetween if count > 1 => {
-			let spacing = leftover / (count - 1) as f32;
-			let mut offset = 0.0;
-			for index in 0..count {
-				axis.offsets[index] = offset;
-				offset += axis.bases[index] + gap + spacing;
-			}
+			spread(axis, gap, leftover / (count - 1) as f32, 0.0);
 
 			0.0
 		}
 
 		Align::SpaceAround => {
 			let spacing = leftover / count.max(1) as f32;
-			let mut offset = spacing / 2.0;
-			for index in 0..count {
-				axis.offsets[index] = offset;
-				offset += axis.bases[index] + gap + spacing;
-			}
+			spread(axis, gap, spacing, spacing / 2.0);
 
 			0.0
 		}
+
 		Align::SpaceEvenly => {
 			let spacing = leftover / (count + 1) as f32;
-			let mut offset = spacing;
-			for index in 0..count {
-				axis.offsets[index] = offset;
-				offset += axis.bases[index] + gap + spacing;
-			}
+			spread(axis, gap, spacing, spacing);
 
 			0.0
 		}
+
 		_ => 0.0,
+	}
+}
+
+/// Gives each intrinsic track an equal share of the leftover space, then
+/// records where every track starts.
+fn stretch_intrinsic(axis: &mut AxisTracks, leftover: f32, gap: f32) {
+	let intrinsic_count = axis.intrinsic.iter().filter(|&&flag| flag).count();
+
+	if intrinsic_count == 0 {
+		return;
+	}
+
+	let share = leftover / intrinsic_count as f32;
+	let mut offset = 0.0;
+
+	for index in 0..axis.bases.len() {
+		axis.offsets[index] = offset;
+
+		if axis.intrinsic[index] {
+			axis.bases[index] += share;
+		}
+
+		offset += axis.bases[index] + gap;
+	}
+}
+
+/// Records where every track starts, `spacing` after each and `lead` before
+/// the first.
+fn spread(axis: &mut AxisTracks, gap: f32, spacing: f32, lead: f32) {
+	let mut offset = lead;
+
+	for index in 0..axis.bases.len() {
+		axis.offsets[index] = offset;
+		offset += axis.bases[index] + gap + spacing;
 	}
 }
 

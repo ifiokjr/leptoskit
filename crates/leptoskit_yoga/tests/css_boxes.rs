@@ -1226,62 +1226,7 @@ fn intrinsic_fractional_spans_use_the_combined_fraction_factors() {
 #[test]
 fn intrinsic_fractional_tracks_are_recomputed_for_container_minimums() {
 	for columns in [true, false] {
-		let mut tree = Yoga::new();
-		let root = tree.create_node();
-		let track = |factor| {
-			TrackSizing::MinMax(Box::new(MinMax {
-				min: TrackSizing::Points(0.0),
-				max: TrackSizing::Fraction(factor),
-			}))
-		};
-		let tracks = vec![track(1.0), track(2.0)];
-		tree.set_style(
-			root,
-			Style {
-				display: Display::Grid,
-				min_width: if columns {
-					Dimension::Points(300.0)
-				} else {
-					Dimension::Auto
-				},
-				min_height: if columns {
-					Dimension::Auto
-				} else {
-					Dimension::Points(300.0)
-				},
-				grid: Some(if columns {
-					GridStyle {
-						template_columns: tracks,
-						..GridStyle::default()
-					}
-				} else {
-					GridStyle {
-						template_rows: tracks,
-						..GridStyle::default()
-					}
-				}),
-				..Style::default()
-			},
-		);
-		let first = add(&mut tree, root, Style::default());
-		let second = add(
-			&mut tree,
-			root,
-			Style {
-				grid: Some(if columns {
-					GridStyle {
-						column: GridPlacement::line(2, 3),
-						..GridStyle::default()
-					}
-				} else {
-					GridStyle {
-						row: GridPlacement::line(2, 3),
-						..GridStyle::default()
-					}
-				}),
-				..Style::default()
-			},
-		);
+		let (mut tree, root, first, second) = fractional_grid(columns);
 
 		tree.calculate_layout(
 			root,
@@ -1301,4 +1246,68 @@ fn intrinsic_fractional_tracks_are_recomputed_for_container_minimums() {
 			"columns: {columns}"
 		);
 	}
+}
+
+/// A grid of `minmax(0, 1fr)` and `minmax(0, 2fr)` with one item in each and
+/// a 300px minimum on the chosen axis.
+fn fractional_grid(columns: bool) -> (Yoga, NodeId, NodeId, NodeId) {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	let track = |factor| {
+		TrackSizing::MinMax(Box::new(MinMax {
+			min: TrackSizing::Points(0.0),
+			max: TrackSizing::Fraction(factor),
+		}))
+	};
+	let tracks = vec![track(1.0), track(2.0)];
+
+	tree.set_style(
+		root,
+		Style {
+			display: Display::Grid,
+			min_width: if columns {
+				Dimension::Points(300.0)
+			} else {
+				Dimension::Auto
+			},
+			min_height: if columns {
+				Dimension::Auto
+			} else {
+				Dimension::Points(300.0)
+			},
+			grid: Some(if columns {
+				GridStyle {
+					template_columns: tracks,
+					..GridStyle::default()
+				}
+			} else {
+				GridStyle {
+					template_rows: tracks,
+					..GridStyle::default()
+				}
+			}),
+			..Style::default()
+		},
+	);
+	let first = add(&mut tree, root, Style::default());
+	let second = add(
+		&mut tree,
+		root,
+		Style {
+			grid: Some(if columns {
+				GridStyle {
+					column: GridPlacement::line(2, 3),
+					..GridStyle::default()
+				}
+			} else {
+				GridStyle {
+					row: GridPlacement::line(2, 3),
+					..GridStyle::default()
+				}
+			}),
+			..Style::default()
+		},
+	);
+
+	(tree, root, first, second)
 }
