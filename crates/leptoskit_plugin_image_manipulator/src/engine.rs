@@ -10,6 +10,42 @@ use image::ImageReader;
 
 use super::*;
 
+/// The PNG signature length that precedes the chunk list.
+const PNG_SIGNATURE_BYTES: usize = 8;
+
+/// A chunk's length and type fields.
+const PNG_CHUNK_HEADER_BYTES: usize = 8;
+
+/// A chunk's length and type fields, plus its trailing CRC.
+const PNG_CHUNK_OVERHEAD: usize = 12;
+
+/// The first byte of every JPEG marker.
+const MARKER_PREFIX: u8 = 0xff;
+
+/// The marker that ends a JPEG stream.
+const END_OF_IMAGE: u8 = 0xd9;
+
+/// The marker that introduces entropy-coded scan data.
+const START_OF_SCAN: u8 = 0xda;
+
+/// A segment length includes its own two bytes.
+const MIN_SEGMENT_BYTES: usize = 2;
+
+/// Worst supported decoded PNG has 8 bytes per pixel.
+const DECODED_PIXEL_BYTES: u64 = 8;
+
+/// Decoding may retain the codec buffer and the RGBA8 copy: 4 + 8 bytes per
+/// pixel.
+const DECODE_SCRATCH_PER_PIXEL: u64 = 12;
+
+/// Encoding may retain RGBA8 and the codec's worst-case scratch: 4 + 8 bytes
+/// per pixel.
+const ENCODE_SCRATCH_PER_PIXEL: u64 = 12;
+
+/// One RGB channel's full value, and the bias that rounds a division by it.
+const MAX_CHANNEL: u32 = 255;
+const ROUNDING_BIAS: u32 = 127;
+
 /// Owned RGBA8 pixels. Dimensions and byte length always agree and satisfy the
 /// public pixel limits. Color values are not color-profile converted.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,114 +88,128 @@ impl Bitmap {
 	/// Applies a preflighted operation sequence, consuming the input
 	/// allocation.
 	pub fn transform(mut self, operations: &[Operation]) -> Result<Self, Error> {
-		let plan = plan(self.width, self.height, operations)?;
-
-		for (operation, width, height) in plan {
-			if (width, height) == (self.width, self.height)
-				&& matches!(
-					operation,
-					Operation::Resize { .. } | Operation::Crop { x: 0, y: 0, .. }
-				) {
+		for (operation, width, height) in plan(self.width, self.height, operations)? {
+			if is_noop(&operation, (width, height), (self.width, self.height)) {
 				continue;
 			}
 
-			match operation {
-				Operation::Flip(axis) => self.flip(axis),
-				Operation::Resize { filter, .. } => self = self.resize(width, height, filter),
-				Operation::Crop { x, y, .. } => {
-					let mut destination =
-						vec![0; (u64::from(width) * u64::from(height) * 4) as usize];
-					let count = width as usize * 4;
-					for row in 0..height {
-						let start = self.offset(x, y + row);
-						let target = row as usize * count;
-						destination[target..target + count]
-							.copy_from_slice(&self.rgba[start..start + count]);
-					}
-
-					self = Self {
-						width,
-						height,
-						rgba: destination,
-					};
-				}
-				Operation::Rotate(Rotation::HalfTurn) => {
-					let count = self.rgba.len() / 4;
-					for index in 0..count / 2 {
-						let opposite = count - 1 - index;
-
-						for channel in 0..4 {
-							self.rgba.swap(index * 4 + channel, opposite * 4 + channel);
-						}
-					}
-				}
-				Operation::Rotate(rotation) => {
-					let mut destination = vec![0; self.rgba.len()];
-					for y in 0..self.height {
-						for x in 0..self.width {
-							let (dx, dy) = match rotation {
-								Rotation::Clockwise90 => (self.height - 1 - y, x),
-								Rotation::HalfTurn => (self.width - 1 - x, self.height - 1 - y),
-								Rotation::Counterclockwise90 => (y, self.width - 1 - x),
-							};
-
-							let source = self.offset(x, y);
-							let target = ((dy * width + dx) * 4) as usize;
-							destination[target..target + 4]
-								.copy_from_slice(&self.rgba[source..source + 4]);
-						}
-					}
-
-					self = Self {
-						width,
-						height,
-						rgba: destination,
-					};
-				}
-			}
+			self = self.apply(operation, width, height);
 		}
 
 		Ok(self)
+	}
+
+	/// Applies one preflighted operation at the size the plan computed.
+	fn apply(self, operation: Operation, width: u32, height: u32) -> Self {
+		match operation {
+			Operation::Flip(axis) => self.flipped(axis),
+			Operation::Resize { filter, .. } => self.resize(width, height, filter),
+			Operation::Crop { x, y, .. } => self.cropped(x, y, width, height),
+			Operation::Rotate(Rotation::HalfTurn) => self.half_turned(),
+			Operation::Rotate(rotation) => self.turned(rotation, width, height),
+		}
+	}
+
+	/// Copies the crop window into a fresh buffer, one row at a time.
+	fn cropped(self, x: u32, y: u32, width: u32, height: u32) -> Self {
+		let mut destination = vec![0; (u64::from(width) * u64::from(height) * 4) as usize];
+		let count = width as usize * 4;
+
+		for row in 0..height {
+			let start = self.offset(x, y + row);
+			let target = row as usize * count;
+			destination[target..target + count].copy_from_slice(&self.rgba[start..start + count]);
+		}
+
+		Self {
+			width,
+			height,
+			rgba: destination,
+		}
+	}
+
+	/// Swaps the two halves of the buffer in place.
+	fn half_turned(mut self) -> Self {
+		let count = self.rgba.len() / 4;
+
+		for index in 0..count / 2 {
+			let opposite = count - 1 - index;
+
+			for channel in 0..4 {
+				self.rgba.swap(index * 4 + channel, opposite * 4 + channel);
+			}
+		}
+
+		self
+	}
+
+	/// Copies every pixel to its rotated destination in a fresh buffer.
+	fn turned(self, rotation: Rotation, width: u32, height: u32) -> Self {
+		let mut destination = vec![0; self.rgba.len()];
+
+		for y in 0..self.height {
+			for x in 0..self.width {
+				let (dx, dy) = rotation.destination(x, y, self.width, self.height);
+				let source = self.offset(x, y);
+				let target = ((dy * width + dx) * 4) as usize;
+				destination[target..target + 4].copy_from_slice(&self.rgba[source..source + 4]);
+			}
+		}
+
+		Self {
+			width,
+			height,
+			rgba: destination,
+		}
 	}
 
 	fn offset(&self, x: u32, y: u32) -> usize {
 		((y * self.width + x) * 4) as usize
 	}
 
-	fn flip(&mut self, axis: Axis) {
-		let (width, height) = match axis {
+	/// Swaps mirrored pixel pairs in place, one channel at a time.
+	fn flipped(mut self, axis: Axis) -> Self {
+		let (span_x, span_y) = match axis {
 			Axis::Horizontal => (self.width / 2, self.height),
 			Axis::Vertical => (self.width, self.height / 2),
 		};
 
-		for y in 0..height {
-			for x in 0..width {
-				let (dx, dy) = match axis {
-					Axis::Horizontal => (self.width - 1 - x, y),
-					Axis::Vertical => (x, self.height - 1 - y),
-				};
-
+		for y in 0..span_y {
+			for x in 0..span_x {
 				let source = self.offset(x, y);
+				let (dx, dy) = self.mirror(x, y, axis);
 				let target = self.offset(dx, dy);
 
-				for channel in 0..4 {
-					self.rgba.swap(source + channel, target + channel);
-				}
+				self.swap_pixel(source, target);
 			}
+		}
+
+		self
+	}
+
+	/// Swaps one pixel's four channels with another's.
+	fn swap_pixel(&mut self, source: usize, target: usize) {
+		for channel in 0..4 {
+			self.rgba.swap(source + channel, target + channel);
 		}
 	}
 
+	/// The pixel that this one trades places with around the axis.
+	fn mirror(&self, x: u32, y: u32, axis: Axis) -> (u32, u32) {
+		match axis {
+			Axis::Horizontal => (self.width - 1 - x, y),
+			Axis::Vertical => (x, self.height - 1 - y),
+		}
+	}
+
+	/// Samples every output pixel into a fresh buffer.
 	fn resize(&self, width: u32, height: u32, filter: Filter) -> Self {
 		let mut rgba = vec![0; (u64::from(width) * u64::from(height) * 4) as usize];
 
 		for y in 0..height {
 			for x in 0..width {
 				let target = ((y * width + x) * 4) as usize;
-
-				let pixel = match filter {
-					Filter::Nearest => self.nearest(x, y, width, height),
-					Filter::Bilinear => self.bilinear(x, y, width, height),
-				};
+				let pixel = self.sample(x, y, width, height, filter);
 
 				rgba[target..target + 4].copy_from_slice(&pixel);
 			}
@@ -169,6 +219,32 @@ impl Bitmap {
 			width,
 			height,
 			rgba,
+		}
+	}
+
+	/// Composites the pixels over the caller's background, dropping alpha.
+	fn composite(&self, background: [u8; 3]) -> Vec<u8> {
+		let mut rgb = Vec::with_capacity(self.rgba.len() / 4 * 3);
+
+		for pixel in self.rgba.as_chunks::<4>().0 {
+			let alpha = u32::from(pixel[3]);
+
+			for channel in 0..3 {
+				let composite = u32::from(pixel[channel]) * alpha
+					+ u32::from(background[channel]) * (MAX_CHANNEL - alpha)
+					+ ROUNDING_BIAS;
+				rgb.push((composite / MAX_CHANNEL) as u8);
+			}
+		}
+
+		rgb
+	}
+
+	/// The sampled source pixel under one output pixel.
+	fn sample(&self, x: u32, y: u32, width: u32, height: u32, filter: Filter) -> [u8; 4] {
+		match filter {
+			Filter::Nearest => self.nearest(x, y, width, height),
+			Filter::Bilinear => self.bilinear(x, y, width, height),
 		}
 	}
 
@@ -196,15 +272,15 @@ impl Bitmap {
 		let top = sy.floor() as u32;
 		let right = (left + 1).min(self.width - 1);
 		let bottom = (top + 1).min(self.height - 1);
-		let wx = sx - f64::from(left);
-		let wy = sy - f64::from(top);
+		let left_weight = sx - f64::from(left);
+		let top_weight = sy - f64::from(top);
 
 		let mut sum = [0.0_f64; 4];
 		for (px, py, weight) in [
-			(left, top, (1.0 - wx) * (1.0 - wy)),
-			(right, top, wx * (1.0 - wy)),
-			(left, bottom, (1.0 - wx) * wy),
-			(right, bottom, wx * wy),
+			(left, top, (1.0 - left_weight) * (1.0 - top_weight)),
+			(right, top, left_weight * (1.0 - top_weight)),
+			(left, bottom, (1.0 - left_weight) * top_weight),
+			(right, bottom, left_weight * top_weight),
 		] {
 			let source = self.offset(px, py);
 			let alpha = f64::from(self.rgba[source + 3]);
@@ -227,17 +303,19 @@ impl Bitmap {
 	}
 }
 
+/// Walks the PNG chunk list, rejecting animation and a truncated stream.
+/// Every chunk length is checked before the bytes it claims are read.
 fn validate_png_chunks(input: &[u8]) -> Result<(), Error> {
-	let mut offset = 8_usize;
+	let mut offset = PNG_SIGNATURE_BYTES;
 
 	while offset < input.len() {
 		let header = input
-			.get(offset..offset + 8)
+			.get(offset..offset + PNG_CHUNK_HEADER_BYTES)
 			.ok_or(Error::InvalidArgument)?;
 		let length = u32::from_be_bytes(header[..4].try_into().map_err(|_| Error::InvalidArgument)?)
 			as usize;
 		let end = offset
-			.checked_add(12)
+			.checked_add(PNG_CHUNK_OVERHEAD)
 			.and_then(|start| start.checked_add(length))
 			.ok_or(Error::TooLarge)?;
 
@@ -252,17 +330,31 @@ fn validate_png_chunks(input: &[u8]) -> Result<(), Error> {
 		}
 
 		if kind == b"IEND" {
-			return if length == 0 && end == input.len() {
-				Ok(())
-			} else {
-				Err(Error::InvalidArgument)
-			};
+			return finished(input, length, end);
 		}
 
 		offset = end;
 	}
 
 	Err(Error::InvalidArgument)
+}
+
+/// A complete PNG ends with an empty IEND chunk and no trailing bytes.
+fn finished(input: &[u8], length: usize, end: usize) -> Result<(), Error> {
+	if length == 0 && end == input.len() {
+		Ok(())
+	} else {
+		Err(Error::InvalidArgument)
+	}
+}
+
+/// A resize or a top-left crop to the current size leaves every pixel in place.
+fn is_noop(operation: &Operation, planned: (u32, u32), current: (u32, u32)) -> bool {
+	planned == current
+		&& matches!(
+			operation,
+			Operation::Resize { .. } | Operation::Crop { x: 0, y: 0, .. }
+		)
 }
 
 /// Length of a JPEG stream through its end-of-image marker. Camera apps may
@@ -274,7 +366,7 @@ fn jpeg_length(input: &[u8]) -> Result<usize, Error> {
 	let mut scan = false;
 
 	while offset < input.len() {
-		if input[offset] != 0xff {
+		if input[offset] != MARKER_PREFIX {
 			if !scan {
 				return Err(Error::InvalidArgument);
 			}
@@ -286,9 +378,9 @@ fn jpeg_length(input: &[u8]) -> Result<usize, Error> {
 		let marker = *input.get(offset + 1).ok_or(Error::InvalidArgument)?;
 
 		match marker {
-			0xd9 => return Ok(offset + 2),
+			END_OF_IMAGE => return Ok(offset + 2),
 			// A fill byte; the next 0xff introduces the marker.
-			0xff => offset += 1,
+			MARKER_PREFIX => offset += 1,
 			// Stuffed zero bytes and restart markers belong to the scan.
 			0x00 | 0xd0..=0xd7 if scan => offset += 2,
 			0x00 => return Err(Error::InvalidArgument),
@@ -296,21 +388,27 @@ fn jpeg_length(input: &[u8]) -> Result<usize, Error> {
 			// Segment payloads, such as an EXIF thumbnail, may contain their
 			// own end-of-image bytes and are skipped by length.
 			_ => {
-				let length = input
-					.get(offset + 2..offset + 4)
-					.map(|bytes| usize::from(u16::from_be_bytes([bytes[0], bytes[1]])))
-					.ok_or(Error::InvalidArgument)?;
-				if length < 2 {
-					return Err(Error::InvalidArgument);
-				}
-
-				offset += 2 + length;
-				scan = marker == 0xda;
+				offset += 2 + segment_length(input, offset)?;
+				scan = marker == START_OF_SCAN;
 			}
 		}
 	}
 
 	Err(Error::InvalidArgument)
+}
+
+/// The declared length of the segment whose length field sits at `offset`.
+fn segment_length(input: &[u8], offset: usize) -> Result<usize, Error> {
+	let length = input
+		.get(offset + 2..offset + 4)
+		.map(|bytes| usize::from(u16::from_be_bytes([bytes[0], bytes[1]])))
+		.ok_or(Error::InvalidArgument)?;
+
+	if length < MIN_SEGMENT_BYTES {
+		return Err(Error::InvalidArgument);
+	}
+
+	Ok(length)
 }
 
 /// Decodes a bounded source into RGBA8. PNG animation is rejected; metadata and
@@ -331,7 +429,7 @@ pub fn decode(input: &[u8]) -> Result<Bitmap, Error> {
 	// Worst supported decoded PNG has 8 bytes/pixel; RGBA8 conversion may
 	// retain both buffers. JPEG also retains its own copy of the compressed
 	// source.
-	scratch(count * 12 + input.len() as u64 * 2 + MAX_CODEC_BYTES)?;
+	scratch(count * DECODE_SCRATCH_PER_PIXEL + input.len() as u64 * 2 + MAX_CODEC_BYTES)?;
 
 	let format = match info.format {
 		Format::Png => ImageFormat::Png,
@@ -347,7 +445,9 @@ pub fn decode(input: &[u8]) -> Result<Bitmap, Error> {
 	reader.limits(limits);
 	let decoder = reader.into_decoder().map_err(|error| image_error(&error))?;
 
-	if decoder.dimensions() != (info.width, info.height) || decoder.total_bytes() > count * 8 {
+	if decoder.dimensions() != (info.width, info.height)
+		|| decoder.total_bytes() > count * DECODED_PIXEL_BYTES
+	{
 		return Err(Error::InvalidArgument);
 	}
 
@@ -357,6 +457,8 @@ pub fn decode(input: &[u8]) -> Result<Bitmap, Error> {
 	Bitmap::from_rgba(info.width, info.height, bitmap.into_raw())
 }
 
+/// Computes every intermediate size before any pixel buffer is allocated, and
+/// refuses a sequence whose work exceeds the budget.
 fn plan(
 	mut width: u32,
 	mut height: u32,
@@ -371,41 +473,7 @@ fn plan(
 
 	for &operation in operations {
 		let previous = pixels(width, height)?;
-
-		let (next_width, next_height) = match operation {
-			Operation::Resize {
-				width: target_width,
-				height: target_height,
-				..
-			} => {
-				match (target_width, target_height) {
-					(None, None) | (Some(0), _) | (_, Some(0)) => {
-						return Err(Error::InvalidArgument);
-					}
-					(Some(w), Some(h)) => (w, h),
-					(Some(w), None) => (w, ratio(height, w, width)?),
-					(None, Some(h)) => (ratio(width, h, height)?, h),
-				}
-			}
-			Operation::Crop {
-				x,
-				y,
-				width: w,
-				height: h,
-			} => {
-				if x.checked_add(w).is_none_or(|end| end > width)
-					|| y.checked_add(h).is_none_or(|end| end > height)
-				{
-					return Err(Error::InvalidArgument);
-				}
-				(w, h)
-			}
-			Operation::Rotate(Rotation::Clockwise90 | Rotation::Counterclockwise90) => {
-				(height, width)
-			}
-			Operation::Rotate(Rotation::HalfTurn) | Operation::Flip(_) => (width, height),
-		};
-
+		let (next_width, next_height) = next_size(operation, width, height)?;
 		let next = pixels(next_width, next_height)?;
 		scratch((previous + next) * 4 + MAX_INPUT_BYTES as u64)?;
 		work = work.checked_add(previous + next).ok_or(Error::TooLarge)?;
@@ -420,6 +488,52 @@ fn plan(
 
 	Ok(result)
 }
+
+/// The size one operation produces from the current size.
+fn next_size(operation: Operation, width: u32, height: u32) -> Result<(u32, u32), Error> {
+	match operation {
+		Operation::Resize {
+			width: target_width,
+			height: target_height,
+			..
+		} => resized_size(target_width, target_height, width, height),
+		Operation::Crop {
+			x,
+			y,
+			width: w,
+			height: h,
+		} => {
+			if x.checked_add(w).is_none_or(|end| end > width)
+				|| y.checked_add(h).is_none_or(|end| end > height)
+			{
+				return Err(Error::InvalidArgument);
+			}
+
+			Ok((w, h))
+		}
+		Operation::Rotate(Rotation::Clockwise90 | Rotation::Counterclockwise90) => {
+			Ok((height, width))
+		}
+		Operation::Rotate(Rotation::HalfTurn) | Operation::Flip(_) => Ok((width, height)),
+	}
+}
+
+/// A resize keeps the aspect ratio when one side is omitted; zero is not a
+/// size.
+fn resized_size(
+	target_width: Option<u32>,
+	target_height: Option<u32>,
+	width: u32,
+	height: u32,
+) -> Result<(u32, u32), Error> {
+	match (target_width, target_height) {
+		(None, None) | (Some(0), _) | (_, Some(0)) => Err(Error::InvalidArgument),
+		(Some(w), Some(h)) => Ok((w, h)),
+		(Some(w), None) => Ok((w, ratio(height, w, width)?)),
+		(None, Some(h)) => Ok((ratio(width, h, height)?, h)),
+	}
+}
+
 fn ratio(value: u32, numerator: u32, denominator: u32) -> Result<u32, Error> {
 	let scaled = (u64::from(value) * u64::from(numerator) + u64::from(denominator) / 2)
 		/ u64::from(denominator);
@@ -432,11 +546,14 @@ fn ratio(value: u32, numerator: u32, denominator: u32) -> Result<u32, Error> {
 pub fn encode(bitmap: &Bitmap, output: Output) -> Result<EncodedImage, Error> {
 	encode_bounded(bitmap, output, MAX_OUTPUT_BYTES)
 }
+/// Encodes with a caller-supplied output cap, so tests can prove the bound.
 fn encode_bounded(bitmap: &Bitmap, output: Output, limit: usize) -> Result<EncodedImage, Error> {
 	output.validate()?;
 	let count = pixels(bitmap.width, bitmap.height)?;
 	// Includes RGBA, worst-case codec scratch allowance and the output buffer.
-	scratch(count * 12 + limit as u64 + MAX_INPUT_BYTES as u64 + MAX_CODEC_BYTES)?;
+	scratch(
+		count * ENCODE_SCRATCH_PER_PIXEL + limit as u64 + MAX_INPUT_BYTES as u64 + MAX_CODEC_BYTES,
+	)?;
 	let mut writer = BoundedWriter {
 		bytes: Vec::new(),
 		limit,
@@ -461,20 +578,7 @@ fn encode_bounded(bitmap: &Bitmap, output: Output, limit: usize) -> Result<Encod
 			quality,
 			background,
 		} => {
-			let mut rgb = Vec::with_capacity(count as usize * 3);
-
-			for pixel in bitmap.rgba.as_chunks::<4>().0 {
-				let alpha = u32::from(pixel[3]);
-
-				for channel in 0..3 {
-					rgb.push(
-						((u32::from(pixel[channel]) * alpha
-							+ u32::from(background[channel]) * (255 - alpha)
-							+ 127)
-							/ 255) as u8,
-					);
-				}
-			}
+			let rgb = bitmap.composite(background);
 
 			image::codecs::jpeg::JpegEncoder::new_with_quality(&mut writer, quality).encode(
 				&rgb,
@@ -561,11 +665,15 @@ pub fn manipulate(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// A budget too small for any real encoding.
+	const TINY_BUDGET: usize = 16;
+
 	#[test]
 	fn encoded_writer_stops_before_exceeding_budget() {
 		let bitmap = Bitmap::from_rgba(1, 1, vec![1, 2, 3, 255]).unwrap();
 		assert_eq!(
-			encode_bounded(&bitmap, Output::Png, 16),
+			encode_bounded(&bitmap, Output::Png, TINY_BUDGET),
 			Err(Error::TooLarge)
 		);
 		assert_eq!(
@@ -575,7 +683,7 @@ mod tests {
 					quality: 80,
 					background: [255; 3]
 				},
-				16
+				TINY_BUDGET
 			),
 			Err(Error::TooLarge)
 		);
