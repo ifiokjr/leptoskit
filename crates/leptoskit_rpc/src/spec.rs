@@ -528,8 +528,9 @@ pub fn maybe_export_from(
 	Some(write_to(options, &path).map(|_| path))
 }
 
-/// Serves the spec as OpenAPI: `GET /openapi.json` and `GET /openapi.yaml`,
-/// relative to wherever the router is nested.
+/// Serves the spec as OpenAPI: `GET /openapi.json`, `GET /openapi.yaml`, and
+/// the live operations as `AsyncAPI` at `GET /asyncapi.json`, relative to
+/// wherever the router is nested.
 ///
 /// The spec is collected once, when the router is built, with internal
 /// functions left out: this is the publicized document.
@@ -549,6 +550,22 @@ pub fn openapi_router(options: &SpecOptions) -> Result<axum::Router, SpecError> 
 		SpecError::Codegen(leptoskit_rpc_codegen::CodegenError::Serialize(source))
 	})?;
 	let yaml = spec.to_openapi_yaml();
+	let asyncapi = serde_json::to_string_pretty(&spec.to_asyncapi()).map_err(|source| {
+		SpecError::Codegen(leptoskit_rpc_codegen::CodegenError::Serialize(source))
+	})?;
+	let asyncapi_response = move || {
+		let asyncapi = asyncapi.clone();
+		async move {
+			(
+				[(
+					header::CONTENT_TYPE,
+					HeaderValue::from_static("application/json"),
+				)],
+				asyncapi,
+			)
+				.into_response()
+		}
+	};
 	let json_response = move || {
 		let json = json.clone();
 		async move {
@@ -577,7 +594,8 @@ pub fn openapi_router(options: &SpecOptions) -> Result<axum::Router, SpecError> 
 	};
 	Ok(axum::Router::new()
 		.route("/openapi.json", get(json_response))
-		.route("/openapi.yaml", get(yaml_response)))
+		.route("/openapi.yaml", get(yaml_response))
+		.route("/asyncapi.json", get(asyncapi_response)))
 }
 
 /// Failures while building or exporting the spec.
