@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
+use std::sync::mpsc;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -66,62 +67,101 @@ pub fn run(command: &mut Command, timeout: Duration) -> Result<ToolOutput, Error
 		})
 	};
 	let mut child = spawn(command)?;
-	let (raw, err, timed_out) = std::thread::scope(|scope| -> (Vec<u8>, Vec<u8>, bool) {
-		// Drain the pipes on their own threads; a full pipe would otherwise
-		// let the tool block on writing while the wait loop runs.
-		let stdout = child.stdout.take().map(|mut pipe| {
-			scope.spawn(move || {
-				let mut bytes = Vec::new();
-				std::io::Read::read_to_end(&mut pipe, &mut bytes).ok();
-				bytes
-			})
-		});
-		let stderr = child.stderr.take().map(|mut pipe| {
-			scope.spawn(move || {
-				let mut bytes = Vec::new();
-				std::io::Read::read_to_end(&mut pipe, &mut bytes).ok();
-				bytes
-			})
-		});
-		let started = Instant::now();
-		let mut timed_out = false;
-		let status = loop {
-			match child.try_wait() {
-				Ok(Some(status)) => break Some(status),
-				Ok(None) => {}
-				Err(error) => {
-					eprintln!("waiting for {name}: {error}");
-					break None;
+	// A tool sometimes leaves a process behind that inherits its output
+	// pipes, such as a device daemon started by `adb` or `devicectl`. Waiting
+	// for the pipes to close would then wait for that process to exit, which
+	// can be forever. The readers report on a channel instead, so a pipe that
+	// stays open costs one bounded grace period rather than the whole run.
+	#[derive(Clone, Copy)]
+	enum Stream {
+		Out,
+		Err,
+	}
+	// Each reader sends the bytes it has as it reads them, then `None` at
+	// end of file. A pipe the tool's own processes closed always reaches end
+	// of file; one a leftover daemon still holds yields what was read by the
+	// deadline.
+	fn capture(
+		mut pipe: impl std::io::Read,
+		stream: Stream,
+		sender: &mpsc::Sender<(Stream, Option<Vec<u8>>)>,
+	) {
+		let mut buffer = [0u8; 8192];
+		loop {
+			match std::io::Read::read(&mut pipe, &mut buffer) {
+				Ok(0) => break,
+				Ok(read) => {
+					if sender
+						.send((stream, Some(buffer[..read].to_vec())))
+						.is_err()
+					{
+						return;
+					}
 				}
+				Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+				Err(_) => break,
 			}
-			if started.elapsed() >= timeout {
-				if let Err(error) = terminate(&mut child) {
-					eprintln!("terminating timed-out {name}: {error}");
-				}
-				timed_out = true;
-				break None;
-			}
-			std::thread::sleep(Duration::from_millis(20));
-		};
-		if timed_out {
-			// Give the killed process a moment to close its pipes so the
-			// reader threads finish inside this scope.
-			let _ = child.wait();
 		}
-		let _ = status;
-		(
-			stdout.map_or_else(Vec::new, |handle| handle.join().ok().unwrap_or_default()),
-			stderr.map_or_else(Vec::new, |handle| handle.join().ok().unwrap_or_default()),
-			timed_out,
-		)
-	});
+		let _ = sender.send((stream, None));
+	}
+	let (sender, receiver) = mpsc::channel();
+	let mut readers = 0;
+	if let Some(pipe) = child.stdout.take() {
+		readers += 1;
+		let sender = sender.clone();
+		std::thread::spawn(move || capture(pipe, Stream::Out, &sender));
+	}
+	if let Some(pipe) = child.stderr.take() {
+		readers += 1;
+		std::thread::spawn(move || capture(pipe, Stream::Err, &sender));
+	}
+	let started = Instant::now();
+	let mut timed_out = false;
+	loop {
+		match child.try_wait() {
+			Ok(Some(_)) => break,
+			Ok(None) => {}
+			Err(error) => {
+				eprintln!("waiting for {name}: {error}");
+				break;
+			}
+		}
+		if started.elapsed() >= timeout {
+			if let Err(error) = terminate(&mut child) {
+				eprintln!("terminating timed-out {name}: {error}");
+			}
+			timed_out = true;
+			break;
+		}
+		std::thread::sleep(Duration::from_millis(20));
+	}
+	// Reap the child in either case. After a kill this also lets the tool's
+	// own pipe ends close, so the readers usually finish inside the grace.
+	let code = child.wait().ok().and_then(|status| status.code());
+	let mut raw = Vec::new();
+	let mut err = Vec::new();
+	let deadline = Instant::now() + Duration::from_secs(1);
+	while readers > 0 {
+		let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+			break;
+		};
+		match receiver.recv_timeout(left) {
+			Ok((stream, Some(bytes))) => {
+				match stream {
+					Stream::Out => raw.extend(bytes),
+					Stream::Err => err.extend(bytes),
+				}
+			}
+			Ok((_, None)) => readers -= 1,
+			Err(_) => break,
+		}
+	}
 	if timed_out {
 		return Err(Error::Tool {
 			name,
 			detail: format!("exceeded {} seconds", timeout.as_secs()),
 		});
 	}
-	let code = child.wait().ok().and_then(|status| status.code());
 	Ok(ToolOutput {
 		stdout: String::from_utf8_lossy(&raw).into_owned(),
 		stderr: String::from_utf8_lossy(&err).into_owned(),
@@ -314,6 +354,22 @@ mod tests {
 			.arg("0")
 			.output();
 		assert!(check.is_ok());
+	}
+
+	#[test]
+	fn a_daemon_that_keeps_the_pipe_open_does_not_hang_the_call() {
+		// The shell exits at once, but its background child inherits stdout
+		// and stderr. Joining the readers would wait for that child; the
+		// bounded grace returns the tool's own output instead.
+		let mut command = Command::new("/bin/sh");
+		command.arg("-c").arg("sleep 10 & printf started >&1");
+		let started = Instant::now();
+		let output = run(&mut command, Duration::from_secs(5)).unwrap();
+		assert_eq!(output.stdout.trim(), "started");
+		assert!(
+			started.elapsed() < Duration::from_secs(4),
+			"the call waited for the background process"
+		);
 	}
 
 	#[test]
