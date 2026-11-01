@@ -123,6 +123,10 @@ The database capture, the invalidation feed, and the policy check are described 
 - `rpc::use_live::<Query>(args)`, available with the `web` or `guest` feature.
 - `leptoskit_query`'s cache, unchanged, so every screen and devtools see the updates.
 
+## The live spec
+
+An app that publishes its RPC with `#[api]` already gets `/openapi.json` for the one-shot operations. `leptoskit_rpc::spec::openapi_router` also serves `/asyncapi.json`: an AsyncAPI 3.0 document describing the live side, where a query is a `receive` operation and a mutation or action is a `send` one, with each operation's arguments and result as message payloads. Event-driven tooling can read it the way OpenAPI tooling reads the HTTP side.
+
 A complete app — channels, presence, typing indicators, background jobs, and the same guest on the web and native — is built up in the next chapters as those primitives land.
 
 ## Channels and presence

@@ -515,6 +515,24 @@ async fn openapi_router_serves_json_and_yaml() {
 		"the router serves the public spec"
 	);
 
+	let asyncapi = router
+		.clone()
+		.oneshot(
+			Request::builder()
+				.uri("/asyncapi.json")
+				.body(axum::body::Body::empty())
+				.expect("request"),
+		)
+		.await
+		.expect("response");
+	assert_eq!(asyncapi.status(), StatusCode::OK);
+	let body = axum::body::to_bytes(asyncapi.into_body(), usize::MAX)
+		.await
+		.expect("body");
+	let document: serde_json::Value = serde_json::from_slice(&body).expect("json");
+	assert_eq!(document["asyncapi"], "3.0.0");
+	assert!(document["channels"].is_object());
+
 	let yaml = router
 		.oneshot(
 			Request::builder()

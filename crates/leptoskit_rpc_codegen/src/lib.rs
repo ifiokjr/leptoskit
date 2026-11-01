@@ -28,6 +28,7 @@
 //! assert_eq!(generated.files.len(), 2);
 //! ```
 
+pub mod asyncapi;
 pub mod openapi;
 pub mod spec;
 pub mod yaml;
