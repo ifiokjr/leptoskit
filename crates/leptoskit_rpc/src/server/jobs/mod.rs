@@ -119,11 +119,11 @@ pub enum JobVisibility {
 	index(finished_at)
 )]
 #[policy(insert, |_, _| Expr::always())]
-#[policy(select, |job, cx| job.visibility.eq(JobVisibility::Everyone) | cx.global(|actor: &Actor| {
-	let me = actor.uuid().to_string();
-	job.owner.eq(me.clone()) | job.viewer.eq(me) | job.visibility.eq(JobVisibility::SignedIn)
-}))]
-#[policy(update, |job, cx| cx.global(|actor: &Actor| job.owner.eq(actor.uuid().to_string())))]
+#[policy(select, |job, cx| job.visibility.eq(JobVisibility::Everyone) | job.owner
+	.eq(cx.setting::<Actor>()) | job.viewer.eq(cx.setting::<Actor>()) | job
+	.visibility
+	.eq(JobVisibility::SignedIn))]
+#[policy(update, |job, cx| job.owner.eq(cx.setting::<Actor>()))]
 pub struct JobRow {
 	pub id: Id<Self>,
 	/// The app's idempotency key, if it gave one: enqueuing it again returns
