@@ -387,6 +387,20 @@ jobs:
           test -s .leptoskit/macos/App.app/Contents/Resources/app.wasm
           plutil -lint .leptoskit/macos/App.app/Contents/Info.plist
 
+      # `leptoskit dev` builds the debug host with `leptoskit_bridge_ffi`'s
+      # `devtools` feature and the guest with the app's, then launches the app.
+      # A window can't open here, so this builds both the same way, checks the
+      # agent is in the host library, and stops.
+      - name: build the generated macOS application with DevTools
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/macos-app"
+          cargo build --package macos_app_macos --lib --features leptoskit_bridge_ffi/devtools
+          grep -aq 'leptoskit devtools' target/debug/libleptoskit_app.a
+          cargo build --package macos_app_app --lib --target wasm32-unknown-unknown --features macos,devtools
+
       # Commonplace is a standalone workspace in the scaffold's shape, like
       # file_routes: its API and screens are tested here, its migrations
       # checked against its tables, and its website and macOS app built
