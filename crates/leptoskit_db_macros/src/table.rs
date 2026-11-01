@@ -2150,6 +2150,39 @@ impl Table<'_> {
 		Some(quote! { table.vector(#name, #distance, #index, &[#(#sources),*], #public); })
 	}
 
+	/// `stale_embeddings()`, for a table with one vector column made from
+	/// sources: its rows whose vectors are missing or stale.
+	fn stale_embeddings(&self) -> Option<TokenStream> {
+		let krate = self.krate;
+		let mut sourced = self.columns().into_iter().filter(|column| {
+			column
+				.args
+				.vector
+				.as_ref()
+				.is_some_and(|vector| !vector.sources.is_empty())
+		});
+		let column = sourced.next()?;
+
+		if sourced.next().is_some() {
+			return None;
+		}
+
+		let handle = column.handle;
+		let doc = format!(
+			"The rows whose `{}` is missing, or was made from text that has changed since: the \
+			 work left for an `Embedder`, as `stale_embeddings().limit(100).embed_stale(|row| \
+			 row.{handle}, &model, &db)`.",
+			column.name
+		);
+
+		Some(quote! {
+			#[doc = #doc]
+			pub fn stale_embeddings() -> #krate::Query<Self> {
+				Self::query().filter(|columns| columns.#handle.is_stale())
+			}
+		})
+	}
+
 	/// A check that each `#[db(vector(…))]` column holds vectors, and that
 	/// its sources hold text.
 	fn vector_columns(&self) -> Option<TokenStream> {
@@ -2266,6 +2299,7 @@ impl Table<'_> {
 		let new = self.new_name();
 		let columns = self.columns_name();
 		let keys: Vec<&Field> = self.fields.iter().filter(|field| field.key).collect();
+		let stale = self.stale_embeddings();
 		let by_key = match keys.as_slice() {
 			[key] => {
 				let ident = &key.ident;
@@ -2301,6 +2335,8 @@ impl Table<'_> {
 				}
 
 				#by_key
+
+				#stale
 
 				/// Writes every column, matched by the key, and bumps `updated_at`.
 				#write_vis async fn save(&mut self, connection: &impl #krate::Connection) -> #krate::Result<()> {

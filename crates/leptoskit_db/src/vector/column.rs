@@ -26,7 +26,7 @@ mod sealed {
 
 /// A vector type: [`Vector`], [`HalfVector`], [`BitVector`], or
 /// [`SparseVector`].
-pub trait VectorValue: sealed::Sealed + Clone + Send + Sync + 'static {
+pub trait VectorValue: sealed::Sealed + Column + Clone + Send + Sync + 'static {
 	/// What each dimension holds.
 	#[doc(hidden)]
 	const ELEMENT: VectorElement;

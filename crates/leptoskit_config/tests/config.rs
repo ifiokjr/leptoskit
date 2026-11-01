@@ -833,6 +833,30 @@ fn geopackage_metadata_is_chosen_in_the_db_geo_table() {
 }
 
 #[test]
+fn the_exact_search_warning_is_set_in_the_db_vector_table() {
+	let config = load(
+		"db_vector",
+		"[db]\ndialect = \"sqlite\"\n\n[db.vector]\nexact_search_rows = 5000\n",
+	)
+	.expect("load");
+	let db = config.db.as_ref().expect("[db] is set");
+	assert_eq!(db.vector.exact_search_rows, 5000);
+	assert!(
+		config
+			.to_toml_string()
+			.unwrap()
+			.contains("exact_search_rows = 5000")
+	);
+	let defaults = load("db_embedding_defaults", "[db]\n").unwrap();
+	assert_eq!(
+		defaults.db.as_ref().unwrap().vector.exact_search_rows,
+		100_000
+	);
+	assert!(!defaults.to_toml_string().unwrap().contains("vector"));
+	assert!(load("db_vector_bad", "[db.vector]\nindex = \"hnsw\"\n").is_err());
+}
+
+#[test]
 fn database_settings_are_checked() {
 	for migrations in ["", "/abs/migrations", "../migrations"] {
 		let error = load(

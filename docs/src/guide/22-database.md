@@ -1141,6 +1141,116 @@ geopackage = true
 
 Migrations then keep GeoPackage's metadata tables, registering each table's geometry column, and QGIS and GDAL open the file and read the shapes. GeoPackage allows one geometry column per table, so a table with two fails the migration with a message saying which. GIS tools read the layers without the spatial index, which keys rows differently from GeoPackage's own.
 
+## Similar meaning
+
+Full-text search finds the words someone typed; it misses an article about "signing in without passwords" when they searched for "passkeys". Language models turn text into embeddings, vectors of numbers that sit close together when the texts mean similar things. Turn on the `db-vector` feature, store each row's embedding, and ask for the rows nearest a query's:
+
+```toml
+[dependencies]
+leptoskit = { version = "…", features = ["db-vector"] }
+```
+
+```rust
+use leptoskit::db::vector::Vector;
+
+#[table(name = "articles", public)]
+pub struct Article {
+	pub id: Id<Article>,
+	#[db(search(weight = A))]
+	pub title: String,
+	#[db(search(weight = B))]
+	pub body: String,
+	pub published: bool,
+	#[db(vector(distance = cosine, index = hnsw, source(title, body)))]
+	pub embedding: Option<Vector<1536>>,
+}
+
+let similar: Vec<(Article, f32)> = Article::query()
+	.filter(|article| article.published.eq(true))
+	.nearest(|article| article.embedding, &query_embedding)
+	.with_distance()
+	.limit(10)
+	.all(&db)
+	.await?;
+```
+
+This runs on the server, against Postgres or SQLite; the same code works on both. leptoskit doesn't make the embeddings: an app calls whichever model it likes, on its own machine or a provider's, and stores what comes back (see [keeping embeddings fresh](#keeping-embeddings-fresh)).
+
+**Four kinds of vector.** The number of dimensions is part of the type, so an embedding from a 768-dimension model can't be stored in, or searched against, a `Vector<1536>` column; the code doesn't compile.
+
+| Type              | Holds                                                          | Postgres (pgvector) | SQLite (sqlite-vec)    |
+| ----------------- | -------------------------------------------------------------- | ------------------- | ---------------------- |
+| `Vector<N>`       | `N` 32-bit floats                                              | `vector(N)`         | 4 bytes a float        |
+| `HalfVector<N>`   | `N` 16-bit floats: half the size, about three digits each      | `halfvec(N)`        | kept as 32-bit floats  |
+| `BitVector<N>`    | `N` bits, such as an embedding quantised with `quantize`       | `bit(N)`            | 1 byte per 8 bits      |
+| `SparseVector<N>` | `N` floats, mostly zero, kept as the index and value of others | `sparsevec(N)`      | not supported; refused |
+
+Every value must be finite; a `NaN` or infinity fails to be written. A `BitVector`'s `N` is a multiple of 8, or it fails to build. On SQLite, vectors have at most 8,192 dimensions, and a table with a `SparseVector` column fails the migration with a message saying it needs Postgres.
+
+**Column options.** `#[db(vector(…))]` takes any of:
+
+- `distance = …`: how `nearest` measures, smaller nearer. `l2` (straight-line distance), `cosine` (one minus the cosine of the angle; the usual choice for text embeddings), `inner_product` (the dot product, negated so the most similar come first; for vectors of length 1, it ranks like `cosine` and is quicker), and `l1` (the sum of the differences) measure floats; `hamming` (how many bits differ) and `jaccard` (one minus the share of set bits in common) measure bits. A column without a distance can be stored but not searched.
+- `index = hnsw` or `index = ivfflat`: Postgres keeps an approximate index for the distance (below). SQLite ignores it.
+- `source(field, …)`: the text fields the vectors are made from, so leptoskit can tell when one is stale.
+
+Vector columns are private: `PublicArticle` leaves `embedding` out, since embeddings are large and can give away the text they were made from. To send one to clients, mark it `#[db(public, vector(…))]`; `leptoskit db check` then warns about it, so the choice is deliberate. On the client, floats travel as an array of numbers, bits as a string of `0` and `1`, and sparse vectors as `{"indices": […], "values": […]}`.
+
+**Nearest first.** `query().nearest(|row| row.column, &vector)` returns rows nearest first, with ties broken by the query's own orderings and then the key, and leaves out rows without a vector. `with_distance()` returns each distance too. The table's `select` policy, the query's filters, and soft deletes choose which rows it can find, as for `query()`; `limit`, `offset`, `first`, and `with_deleted` work as they do there.
+
+**Text and meaning together.** On a table with [searched text](#search-text), `hybrid` ranks rows by both, so a row near the top of either ranking comes near the top, and one high in both comes first:
+
+```rust
+let results = Article::query()
+	.hybrid(|h| h.text("passkeys in rust").vector(|a| a.embedding, &query_embedding))
+	.limit(10)
+	.all(&db)
+	.await?;
+```
+
+The two rankings are fused by reciprocal rank fusion: each row scores `1 / (60 + rank)` in each ranking it's in, and the scores add up, so the two searches' own scores, which can't be compared, play no part. Each ranking contributes its best 50 rows, or twice the rows asked for if that's more; `candidates(n)` changes that. `hits` returns each row with its score, its place in each ranking, and its distance. Filters and policies apply to both rankings.
+
+### Keeping embeddings fresh
+
+An embedding made from an article's text is out of date as soon as someone edits the text. With `source(title, body)`, the table keeps, beside the vector, a fingerprint of the text it was made from: a column named `lk_embedding_source` that the database sets whenever a write changes the vector, raw SQL included. A write that changes only the text leaves the fingerprint as it was, so the row is stale until its vector is made again. Rows with no vector yet are stale too.
+
+`stale_embeddings()` lists them, and `embed_stale` makes and stores their vectors with any model, through the `Embedder` trait:
+
+```rust
+use leptoskit::db::vector::{Embedder, Vector};
+
+struct Model { /* a client for your model */ }
+
+impl Embedder<Vector<1536>> for Model {
+	type Error = ModelError;
+
+	async fn embed(&self, texts: &[String]) -> Result<Vec<Vector<1536>>, ModelError> {
+		// One vector for each text, in the same order.
+	}
+}
+
+// In a background job, as often as you like:
+let embedded = Article::stale_embeddings()
+	.limit(100)
+	.embed_stale(|article| article.embedding, &model, &db)
+	.await?;
+```
+
+Each row's text is its sources in the order `source(…)` lists them, joined by blank lines, leaving out empty ones. Rows are read and written as the connection's policies allow, and each write records the fingerprint of the text it was made from, so a row edited while the model was working stays stale for the next run. `stale_embeddings()` exists on a table with one vector column made from sources; with more, filter on each: `query().filter(|a| a.summary_embedding.is_stale())`. A stale row is still found by `nearest`; to leave stale rows out, filter with `!article.embedding.is_stale()`.
+
+**On each database.**
+
+- **Postgres** uses pgvector, 0.8 or later. The first migration with a vector runs `CREATE EXTENSION IF NOT EXISTS vector`. The database must have pgvector available: devenv's `services.postgres` takes `extensions = extensions: [ extensions.pgvector ];`, the `pgvector/pgvector` container image has it, and so do most managed Postgres services. The embedded development server doesn't, so set `DATABASE_URL` to one that does. `index = hnsw` and `index = ivfflat` create pgvector's index with the operator class for the column's distance. Both are approximate: they find nearly, not always exactly, the nearest rows, much faster than measuring each one. leptoskit scans them until enough rows pass the filters and policies, so a filter that keeps few rows doesn't come back short; `.exact()` measures every row instead. pgvector indexes vectors of up to 2,000 dimensions (4,000 for `HalfVector`, 64,000 for `BitVector`), and IVFFlat has no index for `l1`, `jaccard`, or sparse vectors; the migration says so. IVFFlat divides the rows into 100 lists when it's created, so create it once the table has rows.
+- **SQLite** needs nothing installed: sqlite-vec is compiled into the build, on servers and in the on-device database alike. A vector is stored as a `BLOB` in sqlite-vec's layout, checked for its length. For `l2`, `cosine`, `l1`, and `hamming`, each column also gets a sqlite-vec `vec0` table, `<table>_lk_vec_<column>`, numbered by a table that maps each entry to its row's key, with triggers that follow every write, raw SQL included; a search with a limit asks it for the nearest rows among those the filters and policies allow. sqlite-vec has no inner product or Jaccard distance, so leptoskit measures those in Rust, as pgvector does, and they and searches without a limit measure every row. Every SQLite search is exact. That's quick for thousands of rows and slow for millions: `leptoskit db check`, given the database's URL, warns when a table with a searched vector column has more than `exact_search_rows` rows (100,000 by default), and Postgres is the place for it then:
+
+```toml
+[db.vector]
+exact_search_rows = 250000
+```
+
+**Known differences.** Both databases measure the same distances, to float precision, and the same tests run on both. On Postgres, an indexed search without `.exact()` can miss a row that's nearer than the last one it returns. On SQLite, rows exactly as far as the last one returned may be chosen differently. A vector of zeros has no cosine distance on either.
+
+**Migrations.** Adding an index indexes the rows already there. Changing the distance or index, renaming the table or column, retyping the column, or changing the key recreates the index, which holds nothing that can't be recomputed. Adding `source(…)` takes the vectors already stored as made from their rows' text as it is now; changing the sources makes every vector stale. Changing a vector's dimensions or kind needs `--allow-destructive`.
+
 ## Refetch what changed
 
 A page that lists posts shows stale data the moment someone else writes one, and polling every few seconds is wasteful and still late. Mark the table `live`, and every committed write to it says which rows changed, so each client refetches exactly the queries those rows touch:

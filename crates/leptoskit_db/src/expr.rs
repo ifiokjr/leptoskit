@@ -477,6 +477,10 @@ pub enum Expr {
 	#[cfg(feature = "geo")]
 	#[doc(hidden)]
 	Spatial(Box<crate::geo::query::SpatialExpr>),
+	/// A vector column's value is stale.
+	#[cfg(feature = "vector")]
+	#[doc(hidden)]
+	Stale(Box<crate::vector::Stale>),
 	/// Every row, or none.
 	#[doc(hidden)]
 	Constant(bool),
@@ -666,6 +670,8 @@ impl Expr {
 			}
 			#[cfg(feature = "geo")]
 			Self::Spatial(spatial) => spatial.write(sql)?,
+			#[cfg(feature = "vector")]
+			Self::Stale(stale) => stale.write(sql),
 			Self::Constant(true) => {
 				sql.push("1 = 1");
 			}

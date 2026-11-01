@@ -97,10 +97,22 @@ const DISTANCE: &str = "lk_distance";
 
 impl<T: Table, V: VectorValue> Nearest<T, V> {
 	fn new(query: Query<T>, column: &'static str, target: &V) -> Self {
+		Self::stored(query, column, target.to_bytes())
+	}
+}
+
+impl<T: Table, V> Nearest<T, V> {
+	/// The search for `target`, already stored as the database layer stores
+	/// vectors.
+	pub(crate) fn stored(
+		query: Query<T>,
+		column: &'static str,
+		target: std::result::Result<Vec<u8>, String>,
+	) -> Self {
 		Self {
 			query,
 			column,
-			target: target.to_bytes(),
+			target,
 			exact: false,
 			value: PhantomData,
 		}
@@ -212,7 +224,7 @@ impl<T: Table, V: VectorValue> Nearest<T, V> {
 	}
 }
 
-impl<T: Table, V: VectorValue> NearestWithDistance<T, V> {
+impl<T: Table, V> NearestWithDistance<T, V> {
 	/// The rows, nearest first, each with its distance.
 	pub async fn all(self, connection: &impl Connection) -> Result<Vec<(T, f32)>> {
 		self.0.rows(connection).await

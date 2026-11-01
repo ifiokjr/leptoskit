@@ -213,6 +213,8 @@ impl Expr {
 			| Self::Correlated { .. }
 			| Self::Opaque(_)
 			| Self::Invalid(_) => Tri::Unknown,
+			#[cfg(feature = "vector")]
+			Self::Stale(_) => Tri::Unknown,
 		}
 	}
 }

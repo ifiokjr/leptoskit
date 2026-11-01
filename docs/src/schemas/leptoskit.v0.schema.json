@@ -970,6 +970,10 @@
 					"type": "string",
 					"default": "DATABASE_URL"
 				},
+				"vector": {
+					"description": "Vector columns' options.",
+					"$ref": "#/$defs/DbVectorConfig"
+				},
 				"watch": {
 					"description": "What `leptoskit dev` does when the tables change.",
 					"$ref": "#/$defs/DbWatch"
@@ -1042,6 +1046,20 @@
 					"const": "rls"
 				}
 			]
+		},
+		"DbVectorConfig": {
+			"description": "Vector columns' options: `[db.vector]`.",
+			"type": "object",
+			"properties": {
+				"exact_search_rows": {
+					"description": "SQLite only: how many rows a table with a searched vector column may\nhave before `leptoskit db check` warns that its searches, which\nmeasure every row, are getting slow, and that Postgres's indexes\nwould suit it better.",
+					"type": "integer",
+					"format": "uint64",
+					"default": 100000,
+					"minimum": 0
+				}
+			},
+			"additionalProperties": false
 		},
 		"DbWatch": {
 			"description": "What `leptoskit dev` does when the tables change.",
