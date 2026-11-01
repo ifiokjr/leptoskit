@@ -5,19 +5,20 @@ Build your screen from native primitives such as `View`, `Text`, `Image`, `Scrol
 ```rust
 use leptoskit::prelude::*;
 
-pub fn counter(count: usize, increment: impl Fn() + Send + Sync + 'static) -> Element {
-	View()
-		.class("w-full gap-4 p-6 bg-slate-100 dark:bg-slate-950")
-		.child(Text(format!("Count: {count}")).class("text-3xl font-bold text-indigo-500"))
-		.child(
-			Button("Increment")
-				.class("rounded-lg bg-indigo-500 px-4 py-2 text-white")
-				.on_press(increment),
-		)
+#[component]
+pub fn Counter(count: usize, on_increment: impl Fn() + Send + Sync + 'static) -> Element {
+	view! {
+		<View class="w-full gap-4 p-6 bg-slate-100 dark:bg-slate-950">
+			<Text class="text-3xl font-bold text-indigo-500">{format!("Count: {count}")}</Text>
+			<Button class="rounded-lg bg-indigo-500 px-4 py-2 text-white" on:press=on_increment>
+				"Increment"
+			</Button>
+		</View>
+	}
 }
 ```
 
-The built-in components are builder functions. Call `View()` and `Text("Hello")` directly. Your shared screen does not need HTML elements.
+Use `view!` markup for shared screens and `#[component]` with PascalCase names for reusable components. The macros build the same `Element` tree on web and native platforms. Builder calls remain useful for fallible class validation, helpers without tag support, and direct tree manipulation.
 
 ## Write the screen as markup
 
@@ -59,7 +60,8 @@ use leptoskit::prelude::*;
 
 let mut surface = NativeSurface::new(HeadlessBackend::new());
 surface.set_viewport(390.0, 844.0);
-surface.set_root(&counter(0, || println!("increment")));
+surface
+	.set_root(&leptoskit::view! { <Counter count=0 on_increment=|| println!("increment") /> });
 ```
 
 `HeadlessBackend` lays the screen out without drawing it, which is useful in tests. A real host uses a platform backend instead, such as `AppKitBackend` on macOS or `UIKitBackend` on iOS. The apps `leptoskit new` generates do all of this for you; you only need a surface when you write your own host. Rebuild and commit the screen when your application state changes: native event callbacks update your state, and the host decides when to call `set_root` again.
@@ -82,17 +84,18 @@ use leptos::prelude::IntoView;
 use leptos::prelude::RwSignal;
 use leptos::prelude::Update;
 
-pub fn browser_root() -> impl IntoView {
+#[leptos::component]
+pub fn BrowserRoot() -> impl IntoView {
 	let count = RwSignal::new(0usize);
 	move || {
-		leptoskit::web::render(counter(count.get(), move || {
-			count.update(|count| *count += 1)
-		}))
+		leptoskit::web::render(leptoskit::view! {
+			<Counter count=count.get() on_increment=move || count.update(|count| *count += 1) />
+		})
 	}
 }
 ```
 
-`counter` is the same function used by the native surface. The web renderer creates semantic DOM controls and attaches the existing event handlers. Leptos owns DOM updates, server rendering, and hydration.
+`Counter` is the same component used by the native surface. The web renderer creates semantic DOM controls and attaches the existing event handlers. Leptos owns DOM updates, server rendering, and hydration.
 
 Signals and the hooks in `leptoskit::hooks` (the `use` feature) also work in native apps on iOS, Android, macOS, Windows, and Linux. The view you pass to `leptoskit::guest::mount` runs again when it reads a signal that later changes. A value you bind, and a list or a condition you put in `For` or `Show`, updates on its own: writing the signal is enough, including from an event handler, and you do not call `leptoskit::guest::render()` afterwards. `leptoskit::prelude` carries the signal type, `For`, `Show`, and the `Get` and `Set` traits. A hook you scope yourself also needs an owner: add `reactive_graph = "0.3.0-rc0"` for `reactive_graph::owner::Owner`:
 
@@ -108,7 +111,7 @@ leptoskit::guest::mount(move || {
 	let _scope = &owner;
 	let toggle = switch.toggle.clone();
 	let label = if switch.value.get() { "On" } else { "Off" };
-	Button(label).on_press(move || toggle())
+	view! { <Button on:press=move || toggle()>{label}</Button> }
 });
 ```
 
@@ -121,10 +124,12 @@ use leptoskit::prelude::*;
 
 let count = RwSignal::new(0);
 
-View()
-	.class("flex-col gap-2 p-4")
-	.child(Text(move || format!("Count: {}", count.get())))
-	.child(Text("A row that does not change"));
+view! {
+	<View class="flex-col gap-2 p-4">
+		<Text>{move || format!("Count: {}", count.get())}</Text>
+		<Text>"A row that does not change"</Text>
+	</View>
+};
 ```
 
 `Text` takes a string or a closure. A closure is a binding: `Text` reads it while it builds the element, so the first frame is right, and the native host then reads it again after every turn — a press, the poll that runs your tasks, a plugin reply. Writing `count.set(…)` is the whole change; nothing else to call, and the same code works on every platform. `background`, and the other value props that take a closure, do the same.
@@ -139,14 +144,16 @@ use leptoskit::prelude::*;
 let items = RwSignal::new(vec!["Ada".to_owned(), "Grace".to_owned()]);
 let show_count = RwSignal::new(true);
 
-View().children([
-    Show(move || show_count.get(), || Text("People")),
-    For(
-        move || items.get(),
-        |name| name.clone(),
-        |name| Text(name),
-    ),
-])
+view! {
+	<View>
+		{Show(move || show_count.get(), || view! { <Text>"People"</Text> })}
+		{For(
+			move || items.get(),
+			|name| name.clone(),
+			|name| view! { <Text>{name}</Text> },
+		)}
+	</View>
+}
 ```
 
 `items.set(…)` replaces the rows. `show_count.set(false)` removes the heading. A press handler can do either, and the view function does not run again to make it so.
@@ -188,10 +195,13 @@ Use typed styles for values that come from application data. Classes override th
 ```rust
 use leptoskit::prelude::*;
 
-let card = View()
-	.class("w-20 p-4")
-	.with_style(|style| style.width = Dimension::Points(200.0))
-	.class("rounded-lg bg-white");
+let card = view! {
+	<View
+		class="w-20 p-4"
+		with_style=|style| style.width = Dimension::Points(200.0)
+		class="rounded-lg bg-white"
+	/>
+};
 ```
 
 The rendered width is 80 logical pixels. Each `.class(...)` call appends utilities. Duplicate tokens are removed. Class string order does not determine precedence. Broad spacing utilities precede axes and individual edges, responsive rules override base rules, and important utilities win. Avoid competing utilities for the same property and variant. Equal-rank conflicts use deterministic lexical order, which is not an upstream Tailwind compatibility guarantee.
@@ -205,7 +215,7 @@ Keep the source tree when you need responsive behavior. `NativeSurface` retains 
 Use the default `sm`, `md`, `lg`, `xl`, and `2xl` variants. `max-*` variants select widths below a breakpoint. Variants can be combined into a range:
 
 ```rust
-let panel = View().class("p-4 md:max-xl:p-8 xl:flex-row dark:bg-slate-950");
+let panel = view! { <View class="p-4 md:max-xl:p-8 xl:flex-row dark:bg-slate-950" /> };
 
 surface.set_root(&panel);
 surface.set_viewport(900.0, 600.0);
@@ -223,10 +233,16 @@ A button that looks the same while you press it feels broken. Add `active:` util
 ```rust
 use leptoskit::prelude::*;
 
-pub fn add_button(increment: impl Fn() + Send + Sync + 'static) -> Element {
-	Button("Add one")
-		.class("rounded-lg bg-indigo-500 px-6 py-3 text-white active:bg-indigo-700")
-		.on_press(increment)
+#[component]
+pub fn AddButton(increment: impl Fn() + Send + Sync + 'static) -> Element {
+	view! {
+		<Button
+			class="rounded-lg bg-indigo-500 px-6 py-3 text-white active:bg-indigo-700"
+			on:press=increment
+		>
+			"Add one"
+		</Button>
+	}
 }
 ```
 
@@ -243,9 +259,11 @@ Controls without `active:` utilities still respond. Every `Pressable`, and every
 Phones draw system UI over the edges of the screen. Padding utilities with a `safe` value pad by the inset the host reports for each edge, and `safe-offset-*` adds a spacing value to that inset. The names follow the `tailwindcss-safe-area` plugin:
 
 ```rust
-let screen = ScrollView().class("w-full h-full bg-white").child(
-	View().class("min-h-full px-6 pt-safe-offset-4 pb-safe-offset-4 gap-6"),
-);
+let screen = view! {
+	<ScrollView class="w-full h-full bg-white">
+		<View class="min-h-full px-6 pt-safe-offset-4 pb-safe-offset-4 gap-6" />
+	</ScrollView>
+};
 ```
 
 `p`, `px`, `py`, `pt`, `pr`, `pb`, and `pl` accept both forms. `UIKitHost` reads the controller view's `safeAreaInsets`. Other native hosts call `NativeSurface::set_safe_area` with the edges covered by system UI, in logical pixels; on Android, those are the window insets for system bars and display cutouts. Desktop windows report no insets, so the padding is just the offset. In a browser, the utilities emit `env(safe-area-inset-*)`, which needs `viewport-fit=cover` in the page's viewport meta tag.
@@ -272,10 +290,17 @@ The compiler validates inactive variants too. An unsupported `2xl:shadow-lg` ret
 Set text input values and accessible names with the shared builders; see the [accessibility guide](15-accessibility.md) for the full ARIA vocabulary:
 
 ```rust
-let form = View().class("gap-3 p-4").children([
-	TextInput().value("Ada").placeholder("Your name").aria_label("Name").class("border border-slate-300 rounded-md p-2"),
-	Button("Save").enabled(true).on_press(|| println!("save")),
-]);
+let form = view! {
+	<View class="gap-3 p-4">
+		<TextInput
+			value="Ada"
+			placeholder="Your name"
+			aria_label="Name"
+			class="border border-slate-300 rounded-md p-2"
+		/>
+		<Button enabled=true on:press=|| println!("save")>"Save"</Button>
+	</View>
+};
 ```
 
 Register text changes with `.on_change(handler)`. The handler receives the proposed `&str`. `PasswordInput()` has the same single-line API with masked display.
@@ -289,19 +314,20 @@ use leptoskit::components::helpers::Card;
 use leptoskit::components::helpers::ListTile;
 use leptoskit::prelude::*;
 
-pub fn preferences(checked: bool, update: impl Fn(bool) + Send + Sync + 'static) -> Element {
-	Card().class("gap-4").children([
-		Text("Preferences").class("text-xl font-semibold"),
-		ListTile(
-			None,
-			Text("Notifications"),
-			Some(
-				Switch(checked)
-					.aria_label("Notifications")
-					.on_toggle(update),
-			),
-		),
-	])
+#[component]
+pub fn Preferences(checked: bool, update: impl Fn(bool) + Send + Sync + 'static) -> Element {
+	view! {
+		<Card class="gap-4">
+			<Text class="text-xl font-semibold">"Preferences"</Text>
+			{ListTile(
+				None,
+				view! { <Text>"Notifications"</Text> },
+				Some(view! {
+					<Switch checked=checked aria_label="Notifications" on:toggle=update />
+				}),
+			)}
+		</Card>
+	}
 }
 ```
 
@@ -316,9 +342,11 @@ Use `ListView()` or `GridView(columns)` for eager collections that fill the rema
 Add `overflow-hidden` when children must clip to a rounded container on both renderers:
 
 ```rust
-let photo = View().class("size-24 rounded-lg overflow-hidden").child(
-	Image("avatar.jpg").class("size-24").aria_label("Ada's avatar"),
-);
+let photo = view! {
+	<View class="size-24 rounded-lg overflow-hidden">
+		<Image source="avatar.jpg" class="size-24" aria_label="Ada's avatar" />
+	</View>
+};
 ```
 
 Native platforms load images from local files only: a path or a `file://` URL, plus `resource://` names with the iOS backend and `android.resource://` URIs on Android. In the browser, the source is a URL. Give each platform a source it can load.
@@ -330,9 +358,8 @@ For supported utility families and their limits, use the [CSS coverage reference
 Enable the `storage` feature to use `leptoskit::hooks::use_async_storage` with persistent preferences. The browser host opens a `LocalStorage<T>` namespace. A native host opens an application-private data directory. Both implement the same `AsyncStorage<T>` contract and return the same reactive handle for shared screen code.
 
 ```rust
-let initialize = owner.with(|| {
-	leptoskit::hooks::use_async_storage(storage, "name", String::from("Guest"))
-});
+let initialize =
+	owner.with(|| leptoskit::hooks::use_async_storage(storage, "name", String::from("Guest")));
 let preferences = initialize.await?;
 ```
 

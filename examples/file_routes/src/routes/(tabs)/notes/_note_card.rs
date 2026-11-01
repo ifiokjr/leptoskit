@@ -5,7 +5,8 @@ use leptoskit::prelude::*;
 use crate::NoteId;
 
 /// A note's summary card.
-pub fn note_card(note: NoteId, highlight: Option<u32>) -> Element {
+#[component]
+pub fn NoteCard(note: NoteId, highlight: Option<u32>) -> Element {
 	let title = match highlight {
 		Some(line) => format!("Note {note}, line {line}"),
 		None => format!("Note {note}"),

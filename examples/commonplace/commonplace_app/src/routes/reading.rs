@@ -6,12 +6,15 @@ use crate::browser;
 use crate::routes::Navigation;
 use crate::ui;
 
-pub fn page(navigation: &Navigation) -> Element {
+#[component]
+pub fn Page(navigation: &Navigation) -> Element {
 	if !browser::IN_EXTENSION {
-		return ui::extension_only();
+		return view! { <ui::ExtensionOnly /> };
 	}
-	View()
-		.class("gap-2")
-		.child(Text("A new tab, and your research where you left it.").class(ui::QUIET))
-		.child(crate::routes::index::page(navigation))
+	view! {
+		<View class="gap-2">
+			<Text class=ui::QUIET>"A new tab, and your research where you left it."</Text>
+			<crate::routes::index::Page navigation=navigation />
+		</View>
+	}
 }

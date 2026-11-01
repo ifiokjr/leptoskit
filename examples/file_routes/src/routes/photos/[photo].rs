@@ -10,6 +10,7 @@ pub struct Photo {
 }
 
 /// The photo, full screen.
-pub fn page(route: &Photo) -> Element {
+#[component]
+pub fn Page(route: &Photo) -> Element {
 	view! { <Text class="p-6">{format!("Photo {}", route.photo)}</Text> }
 }

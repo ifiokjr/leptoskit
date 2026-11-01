@@ -21,7 +21,8 @@ pub struct Export {
 	pub style: Style,
 }
 
-pub fn page(route: &Export, navigation: &Navigation) -> Element {
+#[component]
+pub fn Page(route: &Export, navigation: &Navigation) -> Element {
 	let store = Store::current();
 	let id = route.project;
 	store.open_project(id);
@@ -33,43 +34,50 @@ pub fn page(route: &Export, navigation: &Navigation) -> Element {
 	});
 	let detail = match loaded {
 		Load::Ready(detail) => detail,
-		Load::Failed(message) => return ui::problem(&message),
-		Load::Idle | Load::Loading => return ui::loading("the bibliography"),
+		Load::Failed(message) => return view! { <ui::Problem message=&message /> },
+		Load::Idle | Load::Loading => return view! { <ui::Loading what="the bibliography" /> },
 	};
 
-	let styles = View()
-		.class("flex-row gap-2")
-		.children(Style::ALL.into_iter().map(|style| {
-			let label = if style == route.style {
-				format!("{} (shown)", style.label())
-			} else {
-				style.label().to_owned()
-			};
-			navigation
-				.link(Export { project: id, style }, label.clone())
-				.child(Text(label).class(if style == route.style {
-					"rounded-lg bg-amber-700 px-3 py-1 text-white"
-				} else {
-					"rounded-lg border border-stone-300 px-3 py-1 dark:border-stone-700"
-				}))
-		}));
+	let styles = view! {
+		<View class="flex-row gap-2">
+			{Style::ALL
+				.into_iter()
+				.map(|style| {
+					let label = if style == route.style {
+						format!("{} (shown)", style.label())
+					} else {
+						style.label().to_owned()
+					};
+					navigation
+						.link(Export { project: id, style }, label.clone())
+						.child(view! {
+							<Text class=if style == route.style {
+								"rounded-lg bg-amber-700 px-3 py-1 text-white"
+							} else {
+								"rounded-lg border border-stone-300 px-3 py-1 dark:border-stone-700"
+							}>
+								{label}
+							</Text>
+						})
+				})
+				.collect::<Fragment>()}
+		</View>
+	};
 	let text = bibliography(&detail.sources, route.style);
-	View()
-		.class("gap-4")
-		.child(ui::title(format!("Bibliography: {}", detail.project.title)))
-		.child(
-			navigation
+	view! {
+		<View class="gap-4">
+			<ui::Title text=format!("Bibliography: {}", detail.project.title) />
+			{navigation
 				.link(Project { project: id }, "Back to the project")
-				.child(Text("Back to the project").class("text-amber-700")),
-		)
-		.child(styles)
-		.child(if text.is_empty() {
-			Text("No sources yet.").class(ui::QUIET)
-		} else {
-			ui::card().child(
-				Text(text)
-					.class("text-sm")
-					.accessibility_label("Bibliography"),
-			)
-		})
+				.child(view! { <Text class="text-amber-700">"Back to the project"</Text> })}
+			{styles}
+			{if text.is_empty() {
+				view! { <Text class=ui::QUIET>"No sources yet."</Text> }
+			} else {
+				view! { <ui::PanelCard /> }.child(view! {
+					<Text class="text-sm" accessibility_label="Bibliography">{text}</Text>
+				})
+			}}
+		</View>
+	}
 }

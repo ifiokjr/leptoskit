@@ -23,15 +23,17 @@ pub fn SettingRow(
 		<View class="flex-row gap-3 items-center px-4 h-12">
 			<View class="flex-1">
 				<Text class="text-base">{title}</Text>
-				{detail
-					.map(|detail| view! { <Text class="text-sm text-slate-500">{detail}</Text> })}
+				{detail.map(
+					|detail| view! { <Text class="text-sm text-slate-500">{detail}</Text> },
+				)}
 			</View>
 			{children}
 		</View>
 	}
 }
 
-pub fn settings(wifi: bool, toggle: impl Fn(bool) + Send + Sync + 'static) -> Element {
+#[component]
+pub fn Settings(wifi: bool, toggle: impl Fn(bool) + Send + Sync + 'static) -> Element {
 	view! {
 		<ScrollView class="flex-1">
 			<SettingRow title="Wi-Fi" detail="Home 5G">
@@ -47,7 +49,8 @@ pub fn settings(wifi: bool, toggle: impl Fn(bool) + Send + Sync + 'static) -> El
 Every tag is a component, and every component has a type with the same name as its function. Built-in components such as `View` and `Switch` declare one, and so does `#[component]`. A tag calls that type's `builder()`, then one method per attribute, then `build()`:
 
 ```rust
-// view! { <Button class="px-4" enabled=false on:press=save>"Save"</Button> }
+// view! { <Button class="px-4" enabled=false on:press=save>"Save"</Button>
+// }
 Button::builder()
 	.class("px-4")
 	.enabled(false)
@@ -106,6 +109,10 @@ Each parameter of a `#[component]` function is a prop. `view!` sets props by nam
 | `#[prop(default = 4)] gap: u8`                      | May be left out, which gives the default expression.                        |
 | `children: Children`                                | The tag's children, as a `Fragment`.                                        |
 | `on_select: impl Fn(&Item) + Send + Sync + 'static` | A closure prop. Generic parameters and `impl Trait` work.                   |
+
+Use PascalCase names and `#[component]` for reusable UI, even when a caller could invoke a plain function directly. This keeps named props and markup available as the UI grows.
+
+Plain functions still suit host entry points with fixed signatures, methods that render an existing model, fallible factories returning `Result`, and helpers that transform or collect elements. Generated sign-in screens and the auth-page example keep the generator's output so they can validate it without hand edits. The counter example deliberately uses builders to show the underlying API. Builder snippets in API references and lint diagnostics demonstrate that API or a reported violation; they are not the recommended screen style. Some composition APIs, such as `ListTile`, `VirtualList`, and the accessible widget parts, expose functions or methods rather than tags; embed their results in `{…}`.
 
 Doc comments on parameters are listed under **Props** in the component's documentation. A component's name starts with a capital letter. It returns `impl IntoView`, an `Element`, or another `IntoView` type, and the macro rewrites `impl IntoView` to `impl leptoskit::IntoView`.
 

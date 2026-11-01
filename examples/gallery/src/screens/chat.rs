@@ -165,7 +165,7 @@ fn Thread(state: &ScreenState, colors: &Palette) -> Element {
 			<Label style=type_scale::CAPTION color=colors.muted class="self-end mt-1">
 				"Read 9:44"
 			</Label>
-			{Typing(colors).class("mt-2")}
+			{view! { <Typing colors=colors /> }.class("mt-2")}
 		</View>
 	}
 }
@@ -259,7 +259,8 @@ fn Composer(colors: &Palette) -> Element {
 }
 
 /// The chat screen.
-pub fn screen(state: &ScreenState) -> Element {
+#[component]
+pub fn Screen(state: &ScreenState) -> Element {
 	let colors = &palette();
 	view! {
 		<View class="flex-col w-full h-full" background=colors.surface>

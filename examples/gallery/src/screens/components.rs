@@ -272,7 +272,8 @@ fn Collection() -> Element {
 }
 
 /// A responsive studio rendered from native primitives on every adapter.
-pub fn screen(state: &ScreenState) -> Element {
+#[component]
+pub fn Screen(state: &ScreenState) -> Element {
 	view! {
 		<View class="overflow-scroll w-full h-full lg:overflow-hidden bg-slate-100 text-slate-900">
 			<View class="flex-row flex-wrap gap-3 items-center px-6 pb-3 bg-white pt-safe-offset-3 min-h-20">

@@ -4,10 +4,11 @@
 #![allow(unsafe_code)] // Exported C names form the native runtime's entry points.
 
 use leptoskit::leptos::prelude::Owner;
+use leptoskit::view;
 
 use crate::SERVER;
+use crate::Screen;
 use crate::provide;
-use crate::screen;
 
 /// The native runtime has no async executor of its own, so the app keeps
 /// one: tasks such as calls and socket frames run each time the host polls.
@@ -62,7 +63,7 @@ pub extern "C" fn leptoskit_main() {
 	leptoskit::auth::client::configure(leptoskit::auth::client::ClientConfig::new().origin(SERVER));
 	let owner = Owner::new();
 	let shell = owner.with(provide);
-	leptoskit::guest::mount(move || owner.with(|| screen(&shell)));
+	leptoskit::guest::mount(move || owner.with(|| view! { <Screen sign_in=&shell /> }));
 	tasks::poll();
 }
 

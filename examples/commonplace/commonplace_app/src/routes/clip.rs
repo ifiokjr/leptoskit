@@ -23,10 +23,11 @@ thread_local! {
 	static TAB: std::cell::Cell<Option<(i64, Option<i64>)>> = const { std::cell::Cell::new(None) };
 }
 
-pub fn page(navigation: &Navigation) -> Element {
+#[component]
+pub fn Page(navigation: &Navigation) -> Element {
 	let _ = navigation;
 	if !browser::IN_EXTENSION {
-		return ui::extension_only();
+		return view! { <ui::ExtensionOnly /> };
 	}
 	let store = Store::current();
 	if !READ_TAB.swap(true, Ordering::Relaxed) {
@@ -49,87 +50,114 @@ pub fn page(navigation: &Navigation) -> Element {
 		)
 	});
 	let Some(page) = page else {
-		return View()
-			.class("gap-3")
-			.child(ui::title("Clip this page"))
-			.child(Text("Open a web page to clip from it.").class(ui::QUIET));
+		return view! {
+			<View class="gap-3">
+				<ui::Title text="Clip this page" />
+				<Text class=ui::QUIET>"Open a web page to clip from it."</Text>
+			</View>
+		};
 	};
 	if matches!(
 		store.with(|state| state.library.clone()),
 		Load::Idle | Load::Loading
 	) {
-		return ui::loading("your projects");
+		return view! { <ui::Loading what="your projects" /> };
 	}
 	let ready = chosen.is_some() && !draft.quote.trim().is_empty();
 	let save_page = page.clone();
 
-	View()
-		.class("gap-3")
-		.child(ui::title("Clip this page"))
-		.child(
-			ui::card()
-				.child(Text(page.title.clone()).class("font-semibold"))
-				.child(Text(page.url.clone()).class(ui::QUIET)),
-		)
-		.child(ui::primary("Clip a passage on the page", true, || {
-			crate::tasks::spawn(async {
-				if let Some((tab, _)) = TAB.get() {
-					match browser::clip_on(tab).await {
-						Ok(()) => browser::close_window(),
-						Err(message) => {
-							Store::current().update(|state| state.extension.status = Some(message))
+	view! {
+		<View class="gap-3">
+			<ui::Title text="Clip this page" />
+			{view! { <ui::PanelCard /> }
+				.child(view! { <Text class="font-semibold">{page.title.clone()}</Text> })
+				.child(view! { <Text class=ui::QUIET>{page.url.clone()}</Text> })}
+			<ui::Primary
+				label="Clip a passage on the page"
+				enabled=true
+				on_press=|| {
+					crate::tasks::spawn(async {
+						if let Some((tab, _)) = TAB.get() {
+							match browser::clip_on(tab).await {
+								Ok(()) => browser::close_window(),
+								Err(message) => {
+									Store::current()
+										.update(|state| state.extension.status = Some(message))
+								}
+							}
 						}
-					}
+					});
 				}
-			});
-		}))
-		.child(ui::section("Or type the quote"))
-		.child(ui::project_picker(&projects, chosen, |project| {
-			Store::current().update(|state| state.extension.project = Some(project));
-			crate::tasks::spawn(browser::keep_project(project));
-		}))
-		.child(ui::field(
-			"Quote",
-			&draft.quote,
-			"The passage worth keeping",
-			|value| {
-				Store::current().update(|state| state.clip.quote = value.to_owned());
-			},
-		))
-		.child(ui::field("Your note", &draft.note, "Optional", |value| {
-			Store::current().update(|state| state.clip.note = value.to_owned());
-		}))
-		.child(ui::field("Tags", &draft.tags, "method, cities", |value| {
-			Store::current().update(|state| state.clip.tags = value.to_owned());
-		}))
-		.child(ui::primary("Save clip", ready, move || {
-			let store = Store::current();
-			let (draft, project) =
-				store.peek(|state| (state.clip.clone(), state.extension.project));
-			let input = NewClipInput {
-				project,
-				page: save_page.clone(),
-				quote: TextQuote {
-					exact: draft.quote.trim().to_owned(),
-					prefix: None,
-					suffix: None,
-				},
-				note: Some(draft.note.clone()).filter(|note| !note.trim().is_empty()),
-				tags: draft.tags.clone(),
-			};
-			crate::tasks::spawn(async move {
-				let reply = browser::ask(ExtensionMessage::Clip(Box::new(input))).await;
-				let store = Store::current();
-				store.update(|state| {
-					if matches!(reply, ExtensionReply::Saved(_) | ExtensionReply::Queued) {
-						state.clip = crate::store::ClipDraft::default();
-					}
-					state.extension.status = Some(browser::status(&reply));
-				});
-			});
-		}))
-		.child(match status {
-			Some(status) => Status(status).class("text-sm"),
-			None => View(),
-		})
+			/>
+			<ui::Section text="Or type the quote" />
+			<ui::ProjectPicker
+				projects=&projects
+				chosen=chosen
+				on_pick=|project| {
+					Store::current().update(|state| state.extension.project = Some(project));
+					crate::tasks::spawn(browser::keep_project(project));
+				}
+			/>
+			<ui::Field
+				label="Quote"
+				value=&draft.quote
+				placeholder="The passage worth keeping"
+				on_change=|value| {
+					Store::current().update(|state| state.clip.quote = value.to_owned());
+				}
+			/>
+			<ui::Field
+				label="Your note"
+				value=&draft.note
+				placeholder="Optional"
+				on_change=|value| {
+					Store::current().update(|state| state.clip.note = value.to_owned());
+				}
+			/>
+			<ui::Field
+				label="Tags"
+				value=&draft.tags
+				placeholder="method, cities"
+				on_change=|value| {
+					Store::current().update(|state| state.clip.tags = value.to_owned());
+				}
+			/>
+			<ui::Primary
+				label="Save clip"
+				enabled=ready
+				on_press=move || {
+					let store = Store::current();
+					let (draft, project) =
+						store.peek(|state| (state.clip.clone(), state.extension.project));
+					let input = NewClipInput {
+						project,
+						page: save_page.clone(),
+						quote: TextQuote {
+							exact: draft.quote.trim().to_owned(),
+							prefix: None,
+							suffix: None,
+						},
+						note: Some(draft.note.clone()).filter(|note| !note.trim().is_empty()),
+						tags: draft.tags.clone(),
+					};
+					crate::tasks::spawn(async move {
+						let reply = browser::ask(ExtensionMessage::Clip(Box::new(input))).await;
+						let store = Store::current();
+						store.update(|state| {
+							if matches!(reply, ExtensionReply::Saved(_) | ExtensionReply::Queued) {
+								state.clip = crate::store::ClipDraft::default();
+							}
+							state.extension.status = Some(browser::status(&reply));
+						});
+					});
+				}
+			/>
+			{match status {
+				Some(status) => {
+					view! { <Status class="text-sm">{status}</Status> }
+				}
+				None => view! { <View /> },
+			}}
+		</View>
+	}
 }

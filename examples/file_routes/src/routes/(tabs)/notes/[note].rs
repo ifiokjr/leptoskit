@@ -3,7 +3,7 @@
 use leptoskit::prelude::*;
 use leptoskit_router::Route;
 
-use super::_note_card::note_card;
+use super::_note_card::NoteCard;
 use crate::NoteId;
 use crate::routes::Compose;
 use crate::routes::Navigation;
@@ -18,14 +18,15 @@ pub struct Note {
 }
 
 /// The note, with a way back and a way to reply.
-pub fn page(route: &Note, navigation: &Navigation) -> Element {
+#[component]
+pub fn Page(route: &Note, navigation: &Navigation) -> Element {
 	let back = navigation.clone();
 	let reply = Compose {
 		reply_to: Some(route.note),
 	};
 	view! {
 		<View class="gap-4 p-4">
-			{note_card(route.note, route.highlight)}
+			<NoteCard note=route.note highlight=route.highlight />
 			{navigation
 				.link(reply, "Reply")
 				.class("p-3")

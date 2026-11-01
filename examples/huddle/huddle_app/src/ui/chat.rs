@@ -13,9 +13,10 @@ use leptoskit::view;
 
 use crate::huddle::Huddle;
 use crate::huddle::Pending;
-use crate::ui::avatar;
+use crate::ui::Avatar;
 
-pub fn panel(huddle: &Huddle) -> Element {
+#[component]
+pub fn Panel(huddle: &Huddle) -> Element {
 	let huddle = *huddle;
 	let messages = huddle.messages.data().unwrap_or_default();
 	let pending = huddle.pending_here(&messages);
@@ -31,7 +32,7 @@ pub fn panel(huddle: &Huddle) -> Element {
 		.map(|message| {
 			view! {
 				<View class="flex-row gap-3 items-start">
-					{avatar(&message.author)}
+					{view! { <Avatar name=&message.author /> }}
 					<View class="flex-1 min-w-0 gap-0.5">
 						<Text class="text-sm font-semibold">{message.author}</Text>
 						<Text class="text-base">{message.body}</Text>
@@ -42,7 +43,7 @@ pub fn panel(huddle: &Huddle) -> Element {
 		.collect();
 	let waiting: Fragment = pending
 		.into_iter()
-		.map(|message| pending_row(&huddle, message))
+		.map(|message| view! { <PendingRow huddle=&huddle message=message /> })
 		.collect();
 
 	view! {
@@ -88,7 +89,8 @@ pub fn panel(huddle: &Huddle) -> Element {
 }
 
 /// A message on its way, greyed: *Sending…*, or *Not sent* with Retry.
-fn pending_row(huddle: &Huddle, message: Pending) -> Element {
+#[component]
+fn PendingRow(huddle: &Huddle, message: Pending) -> Element {
 	let huddle = *huddle;
 	let key = message.client_key.clone();
 	let state = if message.failed {
@@ -99,14 +101,12 @@ fn pending_row(huddle: &Huddle, message: Pending) -> Element {
 
 	view! {
 		<View class="flex-row gap-3 items-start opacity-50" aria_busy=!message.failed>
-			{avatar(
-				&huddle
-					.me
-					.data()
-					.flatten()
-					.map(|me| me.name)
-					.unwrap_or_default(),
-			)}
+			<Avatar name=&huddle
+				.me
+				.data()
+				.flatten()
+				.map(|me| me.name)
+				.unwrap_or_default() />
 			<View class="flex-1 min-w-0 gap-0.5">
 				<Text class="text-sm font-semibold">{state}</Text>
 				<Text class="text-base">{message.body}</Text>

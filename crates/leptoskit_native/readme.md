@@ -9,12 +9,17 @@
 Apps describe their interface with shared Rust builders that return `Element` trees:
 
 ```rust
-use leptoskit_native::components::{Button, Text, View};
+use leptoskit::view;
+use leptoskit_native::components::Button;
+use leptoskit_native::components::Text;
+use leptoskit_native::components::View;
 
-let screen = View().class("gap-4 p-6 md:flex-row").children([
-	Text("Hello, leptoskit").class("text-2xl font-bold"),
-	Button("Continue").class("rounded-lg bg-indigo-500 px-4 py-2 text-white"),
-]);
+let screen = view! {
+	<View class="gap-4 p-6 md:flex-row">
+		<Text class="text-2xl font-bold">"Hello, leptoskit"</Text>
+		<Button class="rounded-lg bg-indigo-500 px-4 py-2 text-white">"Continue"</Button>
+	</View>
+};
 ```
 
 The [component catalog](https://ifiokjr.github.io/leptoskit/reference/components.html) has 16 primitive builders for containers, text, images, vector drawings, scrolling, and native controls, including controlled `Switch`, `Checkbox`, `Radio`, `Slider`, progress, `PasswordInput`, activation-only `Pressable`, and optional `Rive` vector playback. Tailwind expresses layout and visual composition. The 31 optional `components::helpers` builders include `Row`, `Column`, `Stack`, `Card`, and eager `ListView`/`GridView` compositions. Web and every native backend render real controls; AppKit is the most complete, and the UIKit, Android, GTK, and Win32 backends are younger.

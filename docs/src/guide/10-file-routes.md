@@ -67,21 +67,21 @@ When two routes could match a URL, the more specific one wins, segment by segmen
 
 ## Items are behaviour
 
-A route file exports its page as a lowercase function, or as a capitalised function annotated with `#[component]`. It returns anything that implements `IntoView`:
+Prefer a PascalCase `#[component]` function for pages and layouts. The router also accepts lowercase plain functions for compatibility. It returns anything that implements `IntoView`:
 
 ```rust
-pub fn page() -> Element {
-	Text("Notes")
+#[component]
+pub fn Page() -> Element {
+	view! { <Text>"Notes"</Text> }
 }
 ```
 
 A layout wraps every route in its directory and below. It takes `children` and places them; the router passes the page, or the layout nested inside it:
 
 ```rust
-pub fn layout(children: Children) -> Element {
-	View()
-		.class("flex-1 bg-white dark:bg-slate-950")
-		.children(children)
+#[component]
+pub fn Layout(children: Children) -> Element {
+	view! { <View class="flex-1 bg-white dark:bg-slate-950">{children}</View> }
 }
 ```
 
@@ -141,10 +141,18 @@ A static route doesn't need a struct; its name comes from its path, so `/sign-in
 ```rust
 use leptoskit_router::Routable;
 
-use crate::routes::{Compose, Note, Route};
+use crate::routes::Compose;
+use crate::routes::Note;
+use crate::routes::Route;
 
 let route = Route::parse("/notes/42?highlight=3")?;
-assert_eq!(route, Route::Note(Note { note: 42, highlight: Some(3) }));
+assert_eq!(
+	route,
+	Route::Note(Note {
+		note: 42,
+		highlight: Some(3)
+	})
+);
 
 let reply = Route::from(Compose { reply_to: Some(42) });
 assert_eq!(reply.href().as_str(), "/compose?reply_to=42");
@@ -161,20 +169,26 @@ A URL path can't hold an empty segment, `.` or `..`: browsers drop or resolve th
 `routes.rs` defines `Navigation`, the app's router. It holds the current route, and `render` returns that route's page inside its layouts:
 
 ```rust
-use crate::routes::{Navigation, Note, Route};
+use crate::routes::Navigation;
+use crate::routes::Note;
+use crate::routes::Route;
 
 let navigation = Navigation::new(Route::Notes);
 let screen = navigation.render();
 
-navigation.navigate(Note { note: 42, highlight: None }); // remembers /notes
-navigation.replace(Route::You);                         // in place
-navigation.back();                                      // returns to /notes
+navigation.navigate(Note {
+	note: 42,
+	highlight: None,
+}); // remembers /notes
+navigation.replace(Route::You); // in place
+navigation.back(); // returns to /notes
 ```
 
 A link is a pressable that navigates. On the web it renders as an `<a href>`, so it can open in a new tab and crawlers can follow it, while a plain click stays in the app:
 
 ```rust
-pub fn page(navigation: &Navigation) -> Element {
+#[component]
+pub fn Page(navigation: &Navigation) -> Element {
 	navigation
 		.link(
 			Note {
@@ -183,7 +197,7 @@ pub fn page(navigation: &Navigation) -> Element {
 			},
 			"Open note 42",
 		)
-		.child(Text("Note 42"))
+		.child(view! { <Text>"Note 42"</Text> })
 }
 ```
 

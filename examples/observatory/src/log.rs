@@ -306,7 +306,13 @@ pub fn log_list(
 			let observation = &log.observations[index];
 			let open = log.opened.contains(&index);
 			let on_event = on_event.clone();
-			row(observation, open, move || on_event(LogEvent::Toggle(index)))
+			view! {
+				<Row
+					observation=observation
+					open=open
+					on_press=move || on_event(LogEvent::Toggle(index))
+				/>
+			}
 		},
 	)
 	.map(|list| {
@@ -318,7 +324,8 @@ pub fn log_list(
 
 /// One observation: time, star, and seeing, then its note, then the star's
 /// details when open.
-fn row(
+#[component]
+fn Row(
 	observation: &Observation,
 	open: bool,
 	on_press: impl Fn() + Send + Sync + 'static,

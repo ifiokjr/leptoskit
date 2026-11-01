@@ -10,7 +10,8 @@ pub struct About {
 }
 
 /// About the app, in the requested language.
-pub fn page(route: &About) -> Element {
+#[component]
+pub fn Page(route: &About) -> Element {
 	let greeting = match route.lang.as_deref() {
 		Some("fr") => "À propos de Field",
 		_ => "About Field",

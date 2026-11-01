@@ -10,10 +10,11 @@ use crate::store::Load;
 use crate::store::Store;
 use crate::ui;
 
-pub fn page(navigation: &Navigation) -> Element {
+#[component]
+pub fn Page(navigation: &Navigation) -> Element {
 	let _ = navigation;
 	if !browser::IN_EXTENSION {
-		return ui::extension_only();
+		return view! { <ui::ExtensionOnly /> };
 	}
 	let store = Store::current();
 	let (projects, chosen) = store.with(|state| {
@@ -27,47 +28,69 @@ pub fn page(navigation: &Navigation) -> Element {
 		Some(id) => {
 			store.open_project(id);
 			match store.with(|state| state.project.clone()) {
-				Some((open, Load::Ready(detail))) if open == id => clips(&detail),
-				Some((_, Load::Failed(message))) => ui::problem(&message),
-				_ => ui::loading("the project"),
+				Some((open, Load::Ready(detail))) if open == id => {
+					view! { <Clips detail=&detail /> }
+				}
+				Some((_, Load::Failed(message))) => view! { <ui::Problem message=&message /> },
+				_ => view! { <ui::Loading what="the project" /> },
 			}
 		}
-		None => View(),
+		None => view! { <View /> },
 	};
-	View()
-		.class("gap-3")
-		.child(ui::title("Your research"))
-		.child(ui::project_picker(&projects, chosen, |project| {
-			Store::current().update(|state| state.extension.project = Some(project));
-			crate::tasks::spawn(browser::keep_project(project));
-		}))
-		.child(clips)
+	view! {
+		<View class="gap-3">
+			<ui::Title text="Your research" />
+			<ui::ProjectPicker
+				projects=&projects
+				chosen=chosen
+				on_pick=|project| {
+					Store::current().update(|state| state.extension.project = Some(project));
+					crate::tasks::spawn(browser::keep_project(project));
+				}
+			/>
+			{clips}
+		</View>
+	}
 }
 
-fn clips(detail: &ProjectDetail) -> Element {
+#[component]
+fn Clips(detail: &ProjectDetail) -> Element {
 	if detail.clips.is_empty() {
-		return Text("Nothing clipped into this project yet.").class(ui::QUIET);
+		return view! { <Text class=ui::QUIET>"Nothing clipped into this project yet."</Text> };
 	}
-	View()
-		.class("gap-2")
-		.children(detail.clips.iter().map(|clip| {
-			let source = detail.source_of(clip).cloned();
-			let url = source
-				.as_ref()
-				.map(|source| source.url.clone())
-				.unwrap_or_default();
-			Pressable(format!("Open the page for: {}", clip.quote))
-				.on_press(move || {
-					let url = url.clone();
-					crate::tasks::spawn(async move { browser::open(&url).await });
+	view! {
+		<View class="gap-2">
+			{detail
+				.clips
+				.iter()
+				.map(|clip| {
+					let source = detail.source_of(clip).cloned();
+					let url = source
+						.as_ref()
+						.map(|source| source.url.clone())
+						.unwrap_or_default();
+					view! {
+						<Pressable
+							accessibility_label=format!("Open the page for: {}", clip.quote)
+							on:press=move || {
+								let url = url.clone();
+								crate::tasks::spawn(async move { browser::open(&url).await });
+							}
+						>
+							{view! { <ui::PanelCard /> }
+								.child(view! {
+									<Text>{format!("\u{201c}{}\u{201d}", clip.quote)}</Text>
+								})
+								.child(match source {
+									Some(source) => {
+										view! { <Text class=ui::QUIET>{source.title}</Text> }
+									}
+									None => view! { <View /> },
+								})}
+						</Pressable>
+					}
 				})
-				.child(
-					ui::card()
-						.child(Text(format!("\u{201c}{}\u{201d}", clip.quote)))
-						.child(match source {
-							Some(source) => Text(source.title).class(ui::QUIET),
-							None => View(),
-						}),
-				)
-		}))
+				.collect::<Fragment>()}
+		</View>
+	}
 }

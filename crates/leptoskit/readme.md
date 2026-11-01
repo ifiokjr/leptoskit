@@ -18,15 +18,18 @@ Build shared screens with the built-in Rust components and Tailwind classes:
 ```rust
 use leptoskit::prelude::*;
 
-fn screen() -> Element {
-	View().class("gap-4 p-6 md:flex-row").children([
-		Text("Hello, leptoskit").class("text-2xl font-bold"),
-		Button("Continue").class("rounded-lg bg-indigo-500 px-4 py-2 text-white"),
-	])
+#[component]
+fn Screen() -> Element {
+	view! {
+		<View class="gap-4 p-6 md:flex-row">
+			<Text class="text-2xl font-bold">"Hello, leptoskit"</Text>
+			<Button class="rounded-lg bg-indigo-500 px-4 py-2 text-white">"Continue"</Button>
+		</View>
+	}
 }
 ```
 
-The [component catalog](https://ifiokjr.github.io/leptoskit/reference/components.html) has 14 primitive builders for containers, text, images, scrolling, and native controls. Tailwind expresses layout and visual composition. Another 31 composition helpers remain available through an explicit `components::helpers` import. Every builder returns the same `Element` vocabulary for native and web. They are functions, not `#[component]` functions or `<View>` tags.
+The [component catalog](https://ifiokjr.github.io/leptoskit/reference/components.html) has 14 primitive builders for containers, text, images, scrolling, and native controls. Tailwind expresses layout and visual composition. Another 31 composition helpers remain available through an explicit `components::helpers` import. Every builder returns the same `Element` vocabulary for native and web. Use them as PascalCase tags in `view!`; builders remain available for direct tree manipulation.
 
 Commit the tree to a `NativeSurface`, or enable the optional `web` feature and pass the same tree to `leptoskit::web::render`. The web adapter creates Leptos views and emits CSS. Native rendering applies the same utility declarations to Yoga and widget props. No Tailwind installation or Node build is needed.
 

@@ -417,7 +417,8 @@ fn RangePicker(colors: &Palette) -> Element {
 }
 
 /// The dashboard screen.
-pub fn screen(state: &ScreenState) -> Element {
+#[component]
+pub fn Screen(state: &ScreenState) -> Element {
 	let colors = &palette();
 
 	view! {

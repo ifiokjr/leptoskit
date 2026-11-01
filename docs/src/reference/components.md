@@ -6,6 +6,8 @@ The primary API has 15 primitive builders. Another 31 layout and presentation bu
 
 `View()` is a column container, `Text(content)` displays inherited system-font text, `Image(source)` displays a host-resolvable image, `Vector(view_box)` draws filled and stroked paths, and `ScrollView()` contains scrolling children. The controls section lists the other primitives.
 
+Write screens with PascalCase tags in `view!`, and mark reusable UI functions with `#[component]`. The tables below list the underlying builder signatures as an API reference; the [markup reference](view.md) shows their tag syntax.
+
 ## Optional layout and presentation helpers
 
 Use `View` plus Tailwind for rows, grids, and layered content. Helpers remain available through an explicit import such as `use leptoskit::components::helpers::Stack;`. The table includes the basic primitives for comparison; all other builders in this section belong to `helpers`.
@@ -138,9 +140,8 @@ use std::sync::LazyLock;
 
 use leptoskit::prelude::*;
 
-static CHECK: LazyLock<Drawing> = LazyLock::new(|| {
-	Drawing::parse_svg(include_str!("check.svg")).expect("the icon imports")
-});
+static CHECK: LazyLock<Drawing> =
+	LazyLock::new(|| Drawing::parse_svg(include_str!("check.svg")).expect("the icon imports"));
 
 #[component]
 fn Check() -> Element {

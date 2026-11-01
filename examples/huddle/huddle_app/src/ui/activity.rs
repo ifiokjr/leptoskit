@@ -19,7 +19,8 @@ use crate::huddle::Huddle;
 
 const BUTTON: &str = "rounded-lg bg-slate-700 px-3 py-2 text-sm font-semibold";
 
-fn section(title: &'static str, body: Element) -> Element {
+#[component]
+fn Section(title: &'static str, body: Element) -> Element {
 	view! {
 		<View class="gap-2 rounded-xl bg-slate-900 p-4" accessibility_label=title>
 			<Text class="text-sm font-semibold text-slate-300">{title}</Text>
@@ -28,20 +29,23 @@ fn section(title: &'static str, body: Element) -> Element {
 	}
 }
 
-pub fn panel(huddle: &Huddle) -> Element {
+#[component]
+pub fn Panel(huddle: &Huddle) -> Element {
 	let huddle = *huddle;
 	view! {
 		<ScrollView class="flex-1">
 			<View class="gap-3">
-				{section("Invite by email", invites(&huddle))}
-				{section("Remind me", reminder(&huddle))} {section("Tip a teammate", tips(&huddle))}
-				{section("People in this channel", people(&huddle))}
+				<Section title="Invite by email" body=view! { <Invites huddle=&huddle /> } />
+				<Section title="Remind me" body=view! { <Reminder huddle=&huddle /> } />
+				<Section title="Tip a teammate" body=view! { <Tips huddle=&huddle /> } />
+				<Section title="People in this channel" body=view! { <People huddle=&huddle /> } />
 			</View>
 		</ScrollView>
 	}
 }
 
-fn invites(huddle: &Huddle) -> Element {
+#[component]
+fn Invites(huddle: &Huddle) -> Element {
 	let huddle = *huddle;
 	let email = huddle.invite_email.get();
 	let rows: Fragment = huddle
@@ -99,7 +103,8 @@ fn invites(huddle: &Huddle) -> Element {
 	}
 }
 
-fn reminder(huddle: &Huddle) -> Element {
+#[component]
+fn Reminder(huddle: &Huddle) -> Element {
 	let huddle = *huddle;
 	let pending = huddle.reminder.is_pending();
 	let set = huddle.reminder.data().is_some();
@@ -141,7 +146,8 @@ fn tip_status(tip: &TipView) -> String {
 	}
 }
 
-fn tips(huddle: &Huddle) -> Element {
+#[component]
+fn Tips(huddle: &Huddle) -> Element {
 	let huddle = *huddle;
 	let me = huddle.my_id();
 	let amount = huddle.tip_amount.get();
@@ -221,7 +227,8 @@ fn tips(huddle: &Huddle) -> Element {
 	}
 }
 
-fn people(huddle: &Huddle) -> Element {
+#[component]
+fn People(huddle: &Huddle) -> Element {
 	let huddle = *huddle;
 	let owned = huddle.open_channel().is_some_and(|card| card.owned);
 	let me = huddle.me.data().flatten();
@@ -277,7 +284,7 @@ fn people(huddle: &Huddle) -> Element {
 			});
 			view! {
 				<View class="flex-row gap-2 items-center flex-wrap">
-					{crate::ui::avatar(&person.name)}
+					<crate::ui::Avatar name=&person.name />
 					<Text class="flex-1 text-sm">
 						{if member {
 							person.name.clone()
@@ -285,7 +292,8 @@ fn people(huddle: &Huddle) -> Element {
 							format!("{} (not in this channel)", person.name)
 						}}
 					</Text>
-					{membership} {sign_out}
+					{membership}
+					{sign_out}
 				</View>
 			}
 		})

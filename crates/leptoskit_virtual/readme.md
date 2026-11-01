@@ -3,6 +3,7 @@
 Headless list virtualization for the leptoskit element tree, ported from [TanStack Virtual](https://tanstack.com/virtual): a `Virtualizer` computes exactly the items a scrolled viewport intersects — never the whole list — and `VirtualList` renders that window inside a `ScrollView` sized to the real total.
 
 ```rust
+use leptoskit::view;
 use leptoskit_native::components::Text;
 use leptoskit_native::components::View;
 use leptoskit_virtual::Axis;
@@ -14,9 +15,18 @@ let mut virtualizer = Virtualizer::new(VirtualOptions::fixed(10_000, 56.0));
 virtualizer.set_viewport(644.0);
 virtualizer.scroll_to(0.0);
 
-let list = VirtualList(&virtualizer, Axis::Vertical, |_offset| (), |item| {
-	View().child(Text(format!("Contact {}", item.index)))
-})
+let list = VirtualList(
+	&virtualizer,
+	Axis::Vertical,
+	|_offset| (),
+	|item| {
+		view! {
+			<View>
+				<Text>{format!("Contact {}", item.index)}</Text>
+			</View>
+		}
+	},
+)
 .expect("a fixed estimate is valid");
 ```
 

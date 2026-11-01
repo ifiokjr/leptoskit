@@ -3,13 +3,17 @@
 Headless accessible components for the leptoskit element tree, in the spirit of [react-aria](https://react-spectrum.adobe.com/react-aria/) and [leptos_aria](https://github.com/ifiokjr/leptos_aria): the component owns the semantics — roles, states, relationships, and live regions — and the app owns the styling, through the same Tailwind classes every leptoskit component takes.
 
 ```rust
+use leptoskit::view;
 use leptoskit_aria::DisclosureButton;
 use leptoskit_aria::DisclosurePanel;
 use leptoskit_native::components::View;
 
-let screen = View()
-	.child(DisclosureButton("faq", "Frequently asked questions", false, |_| ()))
-	.child(DisclosurePanel("faq", false));
+let screen = view! {
+	<View>
+		{DisclosureButton("faq", "Frequently asked questions", false, |_| ())}
+		{DisclosurePanel("faq", false)}
+	</View>
+};
 ```
 
 Every component emits the shared `Element` tree, so one widget works on the web renderer and on every native backend: VoiceOver on iOS and macOS, TalkBack on Android, UI Automation on Windows, and AT-SPI through GTK. Compound parts share a stable id prefix, and the renderer's own validation enforces the wiring: a tree that references a missing label or panel id fails to commit.

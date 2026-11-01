@@ -12,8 +12,10 @@ pub mod huddle;
 pub mod room;
 pub mod ui;
 
+use leptoskit::component;
 use leptoskit::leptos::prelude::*;
 use leptoskit::prelude::Element;
+use leptoskit::view;
 
 use crate::auth::SignIn;
 use crate::huddle::Huddle;
@@ -97,11 +99,13 @@ pub fn provide() -> Shell {
 }
 
 /// The whole interface, for whoever is (or isn't) signed in.
-pub fn screen(shell: &Shell) -> Element {
+#[component]
+pub fn Screen(shell: &Shell) -> Element {
 	let shell = *shell;
-	match shell.huddle.get().filter(|_| shell.sign_in.is_signed_in()) {
-		Some(huddle) => ui::screen(&shell, &huddle),
-		None => auth::screen(shell.sign_in),
+	if let Some(huddle) = shell.huddle.get().filter(|_| shell.sign_in.is_signed_in()) {
+		leptoskit::view! { <ui::Screen shell=&shell huddle=&huddle /> }
+	} else {
+		view! { <auth::Screen sign_in=shell.sign_in /> }
 	}
 }
 
@@ -110,7 +114,7 @@ pub fn screen(shell: &Shell) -> Element {
 #[leptos::component]
 pub fn App() -> impl IntoView {
 	let shell = provide();
-	move || leptoskit::web::render(screen(&shell))
+	move || leptoskit::web::render(view! { <Screen shell=&shell /> })
 }
 
 /// Mounts the app when the browser loads its Wasm module.

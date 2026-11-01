@@ -18,7 +18,8 @@ pub struct Search {
 }
 
 /// The results so far: the query, its tags, and the page.
-pub fn page(route: &Search) -> Element {
+#[component]
+pub fn Page(route: &Search) -> Element {
 	let title = if route.q.is_empty() {
 		"Search notes".to_owned()
 	} else {

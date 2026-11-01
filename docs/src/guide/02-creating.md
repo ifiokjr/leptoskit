@@ -41,8 +41,6 @@ Most of your work happens in `water_app`. The platform folders hold what only th
 The starter counter is deliberately plain. Here is a screen that shows what leptoskit is for: one function, drawn by six different toolkits, that tells you which one is drawing it. Replace `water_app/src/routes/home.rs` with:
 
 ```rust
-//! The home screen, shared across every platform.
-
 use leptoskit::prelude::*;
 
 use crate::Counter;
@@ -56,23 +54,31 @@ pub fn screen(state: &Counter) -> Element {
 	let filled = glasses.clamp(0, GOAL) as f32 / GOAL as f32;
 	let counter = state.clone();
 
-	View()
-		.class("min-h-screen items-center justify-center gap-6 p-6 bg-sky-950 text-white")
-		.children([
-			Text("Water today").class("text-3xl font-bold"),
-			Text(format!("{glasses} of {GOAL} glasses")).class("text-xl"),
-			// A progress bar made of two boxes: the inner one is a fraction
-			// of the outer one's width.
-			View().class("h-3 w-64 rounded-[6px] bg-sky-800").child(
-				View()
-					.class("h-full rounded-[6px] bg-sky-400")
-					.with_style(move |style| style.width = Dimension::Percent(filled)),
-			),
-			Button("Drink a glass")
-				.class("rounded-lg bg-sky-400 px-6 py-3 font-semibold text-sky-950")
-				.on_press(move || counter.increment()),
-			Text(format!("Drawn with {}", toolkit())).class("text-sm text-sky-200"),
-		])
+	view! {
+		<View class="min-h-screen items-center justify-center gap-6 p-6 bg-sky-950 text-white">
+			<Text class="text-3xl font-bold">"Water today"</Text>
+			<Text class="text-xl">{format!("{glasses} of {GOAL} glasses")}</Text>
+			{
+				// A progress bar made of two boxes: the inner one is a
+				// fraction of the outer one's width.
+				view! {
+					<View class="h-3 w-64 rounded-[6px] bg-sky-800">
+						<View
+							class="h-full rounded-[6px] bg-sky-400"
+							with_style=move |style| style.width = Dimension::Percent(filled)
+						/>
+					</View>
+				}
+			}
+			<Button
+				class="rounded-lg bg-sky-400 px-6 py-3 font-semibold text-sky-950"
+				on:press=move || counter.increment()
+			>
+				"Drink a glass"
+			</Button>
+			<Text class="text-sm text-sky-200">{format!("Drawn with {}", toolkit())}</Text>
+		</View>
+	}
 }
 
 /// The toolkit that draws this build. Each build turns on exactly one
@@ -152,11 +158,11 @@ water_app/src/routes/
 └── home.ios.rs   used by iOS builds only
 ```
 
+The starter calls `screen` directly, so this entry point keeps its name; reusable components should use `#[component]` and PascalCase.
+
 `home.ios.rs` must provide everything callers use from `home.rs`. Here, that is `pub fn screen(state: &Counter) -> Element`:
 
 ```rust
-//! The home screen on iOS.
-
 use leptoskit::prelude::*;
 
 use crate::Counter;
@@ -164,13 +170,15 @@ use crate::Counter;
 pub fn screen(state: &Counter) -> Element {
 	let counter = state.clone();
 
-	View()
-		.class("min-h-screen gap-4 px-4 pt-safe-offset-4 bg-white")
-		.children([
-			Text("Water").class("text-3xl font-bold text-slate-900"),
-			Text(format!("{} glasses today", state.value())).class("text-lg text-slate-500"),
-			Button("Drink a glass").on_press(move || counter.increment()),
-		])
+	view! {
+		<View class="min-h-screen gap-4 px-4 pt-safe-offset-4 bg-white">
+			<Text class="text-3xl font-bold text-slate-900">"Water"</Text>
+			<Text class="text-lg text-slate-500">
+				{format!("{} glasses today", state.value())}
+			</Text>
+			<Button on:press=move || counter.increment()>"Drink a glass"</Button>
+		</View>
+	}
 }
 ```
 

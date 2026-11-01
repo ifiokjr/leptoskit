@@ -9,7 +9,8 @@ use crate::routes::Route;
 use crate::routes::Today;
 
 /// The tab bar under the selected tab.
-pub fn layout(children: Children, navigation: &Navigation) -> Element {
+#[component]
+pub fn Layout(children: Children, navigation: &Navigation) -> Element {
 	let tab = |to: Route, label: &str| {
 		navigation
 			.link(to, label)

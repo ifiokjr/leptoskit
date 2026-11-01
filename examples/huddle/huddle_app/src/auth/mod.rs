@@ -14,7 +14,8 @@ use leptoskit::view;
 pub use sign_in::SignIn;
 
 /// The sign-in screen, centred, with the development shortcuts under it.
-pub fn screen(sign_in: SignIn) -> Element {
+#[component]
+pub fn Screen(sign_in: SignIn) -> Element {
 	view! {
 		<ScrollView class="min-h-screen bg-slate-950 text-white">
 			<View class="items-center gap-6 p-6">

@@ -23,7 +23,8 @@ use crate::huddle::Huddle;
 use crate::huddle::Tab;
 
 /// A small round badge with someone's initials.
-pub fn avatar(name: &str) -> Element {
+#[component]
+pub fn Avatar(name: &str) -> Element {
 	let initials: String = name
 		.split_whitespace()
 		.filter_map(|word| word.chars().next())
@@ -42,21 +43,29 @@ pub fn avatar(name: &str) -> Element {
 }
 
 /// The whole signed-in interface.
-pub fn screen(shell: &Shell, huddle: &Huddle) -> Element {
+#[component]
+pub fn Screen(shell: &Shell, huddle: &Huddle) -> Element {
 	let huddle = *huddle;
 	let shell = *shell;
 	let body = match huddle.tab.get() {
-		Tab::Chat => chat::panel(&huddle),
-		Tab::Board => board::panel(&huddle),
-		Tab::Activity => activity::panel(&huddle),
+		Tab::Chat => view! { <chat::Panel huddle=&huddle /> },
+		Tab::Board => view! { <board::Panel huddle=&huddle /> },
+		Tab::Activity => view! { <activity::Panel huddle=&huddle /> },
 	};
 
 	view! {
 		<View class="min-h-screen bg-slate-950 text-white">
-			{top_bar(&shell, &huddle)} {huddle.show_inbox.get().then(|| bell::panel(&huddle))}
+			<TopBar shell=&shell huddle=&huddle />
+			{huddle
+				.show_inbox
+				.get()
+				.then(|| view! { <bell::Panel huddle=&huddle /> })}
 			<View class="flex-1 flex-col lg:flex-row">
-				{sidebar::panel(&huddle)}
-				<View class="flex-1 min-w-0 p-4 gap-3">{channel_header(&huddle)} {body}</View>
+				<sidebar::Panel huddle=&huddle />
+				<View class="flex-1 min-w-0 p-4 gap-3">
+					<ChannelHeader huddle=&huddle />
+					{body}
+				</View>
 			</View>
 		</View>
 	}
@@ -64,7 +73,8 @@ pub fn screen(shell: &Shell, huddle: &Huddle) -> Element {
 
 /// The app's name, who's in the open channel right now, the bell, and the
 /// signed-in person.
-fn top_bar(shell: &Shell, huddle: &Huddle) -> Element {
+#[component]
+fn TopBar(shell: &Shell, huddle: &Huddle) -> Element {
 	let huddle = *huddle;
 	let shell = *shell;
 	let here = huddle.room.here();
@@ -94,7 +104,7 @@ fn top_bar(shell: &Shell, huddle: &Huddle) -> Element {
 			>
 				{here
 					.iter()
-					.map(|person| avatar(&person.name))
+					.map(|person| view! { <Avatar name=&person.name /> })
 					.collect::<Fragment>()}
 			</View>
 			<Button
@@ -122,7 +132,8 @@ fn top_bar(shell: &Shell, huddle: &Huddle) -> Element {
 }
 
 /// `#general`, its pinned summary, and the tabs.
-fn channel_header(huddle: &Huddle) -> Element {
+#[component]
+fn ChannelHeader(huddle: &Huddle) -> Element {
 	let huddle = *huddle;
 	let Some(channel) = huddle.open_channel() else {
 		return view! {

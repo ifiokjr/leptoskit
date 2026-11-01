@@ -12,7 +12,8 @@ use crate::ui::palette;
 
 /// Wraps the current screen. Keys reach this view before the focused field,
 /// so ctrl+p opens the palette even while the prompt is focused.
-pub fn layout(children: Children, navigation: &Navigation) -> Element {
+#[component]
+pub fn Layout(children: Children, navigation: &Navigation) -> Element {
 	let store = Store::current();
 	let open = store.with(|state| state.palette.clone());
 	let keys = {
@@ -21,7 +22,10 @@ pub fn layout(children: Children, navigation: &Navigation) -> Element {
 		move |key: &KeyPress| shortcut(&store, &navigation, key)
 	};
 
-	let palette = open.map(|open| store.with(|state| palette::palette(state, &open, &store)));
+	let palette = open.map(|open| {
+		store
+			.with(|state| view! { <palette::PaletteView state=state palette=&open store=&store /> })
+	});
 
 	view! {
 		<View class="w-full h-full bg-[#0a0a0a] text-[#eeeeee]" on:key=keys>

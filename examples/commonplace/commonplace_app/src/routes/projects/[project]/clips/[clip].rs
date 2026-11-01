@@ -18,7 +18,8 @@ pub struct ClipPage {
 	pub clip: ClipId,
 }
 
-pub fn page(route: &ClipPage, navigation: &Navigation) -> Element {
+#[component]
+pub fn Page(route: &ClipPage, navigation: &Navigation) -> Element {
 	let store = Store::current();
 	let (project, clip_id) = (route.project, route.clip);
 	store.open_project(project);
@@ -30,17 +31,19 @@ pub fn page(route: &ClipPage, navigation: &Navigation) -> Element {
 	});
 	let detail = match loaded {
 		Load::Ready(detail) => detail,
-		Load::Failed(message) => return ui::problem(&message),
-		Load::Idle | Load::Loading => return ui::loading("the clip"),
+		Load::Failed(message) => return view! { <ui::Problem message=&message /> },
+		Load::Idle | Load::Loading => return view! { <ui::Loading what="the clip" /> },
 	};
 	let back = navigation
 		.link(Project { project }, "Back to the project")
-		.child(Text("Back to the project").class("text-amber-700"));
+		.child(view! { <Text class="text-amber-700">"Back to the project"</Text> });
 	let Some(clip) = detail.clips.iter().find(|clip| clip.id == clip_id) else {
-		return View()
-			.class("gap-3")
-			.child(Text("This clip was deleted."))
-			.child(back);
+		return view! {
+			<View class="gap-3">
+				<Text>"This clip was deleted."</Text>
+				{back}
+			</View>
+		};
 	};
 	let source = detail.source_of(clip);
 	let editing = store.with(|state| state.editing.clone().filter(|(id, _)| *id == clip_id));
@@ -53,55 +56,82 @@ pub fn page(route: &ClipPage, navigation: &Navigation) -> Element {
 	);
 	let note = match editing {
 		Some((_, text)) => {
-			View()
-				.class("gap-2")
-				.child(ui::field("Note", &text, "What this quote shows", |value| {
-					Store::current().update(|state| {
-						if let Some((_, text)) = &mut state.editing {
-							*text = value.to_owned();
-						}
-					});
-				}))
-				.child(ui::primary("Save note", true, move || {
-					Store::current().save_clip_note(project)
-				}))
+			view! {
+				<View class="gap-2">
+					{view! {
+						<ui::Field
+							label="Note"
+							value=&text
+							placeholder="What this quote shows"
+							on_change=|value| {
+								Store::current().update(|state| {
+									if let Some((_, text)) = &mut state.editing {
+										*text = value.to_owned();
+									}
+								});
+							}
+						/>
+					}}
+					{view! {
+						<ui::Primary
+							label="Save note"
+							enabled=true
+							on_press=move || Store::current().save_clip_note(project)
+						/>
+					}}
+				</View>
+			}
 		}
 		None => {
 			let current = clip.note.clone().unwrap_or_default();
-			View()
-				.class("gap-2")
-				.child(Text(if current.is_empty() {
-					"No note yet.".to_owned()
-				} else {
-					current.clone()
-				}))
-				.child(ui::secondary("Edit note", move || {
-					let current = current.clone();
-					Store::current().update(|state| state.editing = Some((clip_id, current)));
-				}))
+			view! {
+				<View class="gap-2">
+					<Text>
+						{if current.is_empty() {
+							"No note yet.".to_owned()
+						} else {
+							current.clone()
+						}}
+					</Text>
+					<ui::Secondary
+						label="Edit note"
+						on_press=move || {
+							let current = current.clone();
+							Store::current()
+								.update(|state| state.editing = Some((clip_id, current)));
+						}
+					/>
+				</View>
+			}
 		}
 	};
 	let to_project = navigation.clone();
 
-	View()
-		.class("gap-4")
-		.child(back)
-		.child(ui::card().child(Text(format!("\u{201c}{}\u{201d}", clip.quote)).class("text-xl")))
-		.child(match source {
-			Some(source) => {
-				ui::card()
-					.child(Text(source.title.clone()).class("font-semibold"))
-					.child(Text(source.url.clone()).class(ui::QUIET))
-					.child(Text(context).class("italic"))
-			}
-			None => View(),
-		})
-		.child(ui::section("Your note"))
-		.child(note)
-		.child(ui::secondary("Delete clip", move || {
-			let navigation = to_project.clone();
-			Store::current().delete_clip(project, clip_id, move || {
-				navigation.navigate(Project { project })
-			});
-		}))
+	view! {
+		<View class="gap-4">
+			{back}
+			{view! { <ui::PanelCard /> }.child(view! {
+				<Text class="text-xl">{format!("\u{201c}{}\u{201d}", clip.quote)}</Text>
+			})}
+			{match source {
+				Some(source) => {
+					view! { <ui::PanelCard /> }
+						.child(view! { <Text class="font-semibold">{source.title.clone()}</Text> })
+						.child(view! { <Text class=ui::QUIET>{source.url.clone()}</Text> })
+						.child(view! { <Text class="italic">{context}</Text> })
+				}
+				None => view! { <View /> },
+			}}
+			<ui::Section text="Your note" /> {note}
+			<ui::Secondary
+				label="Delete clip"
+				on_press=move || {
+					let navigation = to_project.clone();
+					Store::current().delete_clip(project, clip_id, move || {
+						navigation.navigate(Project { project })
+					});
+				}
+			/>
+		</View>
+	}
 }

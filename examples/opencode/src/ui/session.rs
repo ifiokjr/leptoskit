@@ -4,7 +4,7 @@
 use leptoskit::prelude::*;
 use leptoskit_native::TextSpan;
 
-use super::hints;
+use super::Hints;
 use crate::Change;
 use crate::DiffLine;
 use crate::Message;
@@ -22,7 +22,8 @@ const WITH_SIDEBAR: &str = "min-[968px]";
 const SPLIT_DIFF: &str = "min-[1336px]";
 
 /// The session's tab and the new-tab button.
-pub fn tabs(state: &Opencode) -> Element {
+#[component]
+pub fn Tabs(state: &Opencode) -> Element {
 	view! {
 		<View class="flex-row">
 			<View class="bg-[#1e1e1e] pl-6 pr-2">
@@ -37,7 +38,8 @@ pub fn tabs(state: &Opencode) -> Element {
 
 /// The messages, pinned to the bottom once they outgrow the space, the way
 /// a chat follows its newest message.
-pub fn conversation(state: &Opencode) -> Element {
+#[component]
+pub fn Conversation(state: &Opencode) -> Element {
 	let mut items = Vec::new();
 
 	for message in &state.session.messages {
@@ -55,13 +57,15 @@ pub fn conversation(state: &Opencode) -> Element {
 				timing,
 			} => {
 				items.extend(parts.iter().flat_map(part));
-				items.push(prose(view! {
-					<Text spans=[
-						TextSpan::new(agent.name()).color(agent.color()),
-						TextSpan::new(format!(" · {} · {timing}", state.model.name))
-							.color(theme::MUTED),
-					] />
-				}));
+				items.push(view! {
+					<Prose content=view! {
+						<Text spans=[
+							TextSpan::new(agent.name()).color(agent.color()),
+							TextSpan::new(format!(" · {} · {timing}", state.model.name))
+								.color(theme::MUTED),
+						] />
+					} />
+				});
 			}
 		}
 	}
@@ -79,43 +83,51 @@ fn part(part: &Part) -> Vec<Element> {
 		Part::Text(source) => {
 			markdown::blocks(source)
 				.into_iter()
-				.map(|lines| prose(view! { <View>{lines}</View> }))
+				.map(|lines| view! { <Prose content=view! { <View>{lines}</View> } /> })
 				.collect()
 		}
 		Part::Explored(summary) => {
-			vec![prose(
-				view! { <Text class="text-[#808080]">{format!("→ {summary}")}</Text> },
-			)]
+			vec![view! {
+				<Prose content=view! {
+					<Text class="text-[#808080]">{format!("→ {summary}")}</Text>
+				} />
+			}]
 		}
 		Part::Edit { path, lines } => {
-			vec![tool(
-				view! {
-					<Text spans=[
-						TextSpan::new("← Edit").color(theme::MUTED),
-						TextSpan::new(" "),
-						TextSpan::new(path.clone()).color(theme::MUTED),
-					] />
-				},
-				diff(lines),
-			)]
+			vec![view! {
+				<Tool
+					title=view! {
+						<Text spans=[
+							TextSpan::new("← Edit").color(theme::MUTED),
+							TextSpan::new(" "),
+							TextSpan::new(path.clone()).color(theme::MUTED),
+						] />
+					}
+					body=view! { <Diff lines=lines /> }
+				/>
+			}]
 		}
 		Part::Shell { command, output } => {
-			vec![tool(
-				view! { <Text>{format!("$ {command}")}</Text> },
-				view! { <Text class="text-[#808080]">{output.clone()}</Text> },
-			)]
+			vec![view! {
+				<Tool
+					title=view! { <Text>{format!("$ {command}")}</Text> }
+					body=view! { <Text class="text-[#808080]">{output.clone()}</Text> }
+				/>
+			}]
 		}
 	}
 }
 
 /// Agent prose, indented past the message bars.
-fn prose(content: Element) -> Element {
+#[component]
+fn Prose(content: Element) -> Element {
 	view! { <View class="pl-6">{content}</View> }
 }
 
 /// A tool call's panel. Its left border is the page color, which reads as a
 /// thin notch in the terminal.
-fn tool(title: Element, body: Element) -> Element {
+#[component]
+fn Tool(title: Element, body: Element) -> Element {
 	view! {
 		<View class="bg-[#141414] border-l-2 border-[#0a0a0a] py-4 pl-6 gap-4">{title} {body}</View>
 	}
@@ -125,7 +137,8 @@ fn tool(title: Element, body: Element) -> Element {
 /// changed lines on red or green. Wide conversations show it split, the old
 /// file on the left and the new one on the right, pairing each removed line
 /// with the added line that replaced it.
-fn diff(lines: &[DiffLine]) -> Element {
+#[component]
+fn Diff(lines: &[DiffLine]) -> Element {
 	let digits = lines
 		.iter()
 		.map(|line| line.number.to_string().len())
@@ -228,13 +241,14 @@ fn split_rows(lines: &[DiffLine]) -> Vec<(Option<&DiffLine>, Option<&DiffLine>)>
 }
 
 /// The path on the left; context use and the palette hint on the right.
-pub fn footer(state: &Opencode) -> Element {
+#[component]
+pub fn Footer(state: &Opencode) -> Element {
 	view! {
 		<View class="mt-2 flex-row justify-between">
 			<Text class="text-[#808080]">{state.directory.clone()}</Text>
 			<View class="flex-row gap-4">
 				<Text class="text-[#808080]">{context_summary(state)}</Text>
-				{hints(&[("ctrl+p", "commands")])}
+				{view! { <Hints pairs=&[("ctrl+p", "commands")] /> }}
 			</View>
 		</View>
 	}
@@ -251,7 +265,8 @@ fn context_summary(state: &Opencode) -> String {
 }
 
 /// The session title, context use, and the getting-started card.
-pub fn sidebar(state: &Opencode) -> Element {
+#[component]
+pub fn Sidebar(state: &Opencode) -> Element {
 	let tokens = state.session.tokens;
 	let used = f64::from(tokens) / f64::from(state.model.context) * 100.0;
 
@@ -264,14 +279,15 @@ pub fn sidebar(state: &Opencode) -> Element {
 				<Text class="text-[#808080]">{format!("{used:.0}% used")}</Text>
 			</View>
 			<View class="grow" />
-			{getting_started()}
+			<GettingStarted />
 			<Text class="mt-4 text-[#808080]">{state.directory.clone()}</Text>
 		</View>
 	}
 }
 
 /// The card that points a new user at more models.
-fn getting_started() -> Element {
+#[component]
+fn GettingStarted() -> Element {
 	view! {
 		<View class="bg-[#1e1e1e] p-4 gap-4">
 			<View class="flex-row justify-between">

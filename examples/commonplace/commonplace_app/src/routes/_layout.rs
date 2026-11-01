@@ -10,7 +10,8 @@ use crate::store::Session;
 use crate::store::Store;
 use crate::ui;
 
-pub fn layout(children: Children, navigation: &Navigation) -> Element {
+#[component]
+pub fn Layout(children: Children, navigation: &Navigation) -> Element {
 	let store = Store::current();
 	let session = store.with(|state| state.session);
 	// A frame on someone else's page has no room for the app's chrome.
@@ -18,38 +19,41 @@ pub fn layout(children: Children, navigation: &Navigation) -> Element {
 		navigation.current(),
 		Route::OverlayClipper | Route::OverlayHighlights
 	) {
-		return View().class(ui::PAGE).children(children);
+		return view! { <View class=ui::PAGE>{children}</View> };
 	}
 	let body = match session {
-		Session::Checking => ui::loading("your library"),
-		Session::SignedOut => crate::sign_in::form(&store),
-		Session::SignedIn => View().class("gap-4").children(children),
+		Session::Checking => view! { <ui::Loading what="your library" /> },
+		Session::SignedOut => view! { <crate::sign_in::Form store=&store /> },
+		Session::SignedIn => view! { <View class="gap-4">{children}</View> },
 	};
-	let header = View()
-		.class(
-			"flex-row items-center justify-between border-b border-stone-200 px-6 py-3 \
-			 dark:border-stone-800",
-		)
-		.child(
-			navigation
+	let header = view! {
+		<View class="flex-row items-center justify-between border-b border-stone-200 px-6 py-3 \
+			 dark:border-stone-800">
+			{navigation
 				.link(Library, "Commonplace, your library")
-				.child(Text("Commonplace").class("text-xl font-semibold text-amber-700")),
-		);
+				.child(view! {
+					<Text class="text-xl font-semibold text-amber-700">"Commonplace"</Text>
+				})}
+		</View>
+	};
 	let header = if session == Session::SignedIn {
-		header.child(ui::secondary("Sign out", move || {
-			Store::current().sign_out()
-		}))
+		header.child(view! {
+			<ui::Secondary label="Sign out" on_press=move || Store::current().sign_out() />
+		})
 	} else {
 		header
 	};
 
-	ScrollView().class(ui::PAGE).child(header).child(
-		View()
-			.class("w-full max-w-3xl self-center gap-4 p-6")
-			.child(match store.with(|state| state.notice.clone()) {
-				Some(notice) => ui::problem(&notice),
-				None => View(),
-			})
-			.child(body),
-	)
+	view! {
+		<ScrollView class=ui::PAGE>
+			{header}
+			<View class="w-full max-w-3xl self-center gap-4 p-6">
+				{match store.with(|state| state.notice.clone()) {
+					Some(notice) => view! { <ui::Problem message=&notice /> },
+					None => view! { <View /> },
+				}}
+				{body}
+			</View>
+		</ScrollView>
+	}
 }

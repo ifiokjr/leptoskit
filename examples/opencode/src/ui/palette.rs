@@ -90,7 +90,8 @@ enum Row {
 /// The scrim and the dialog. The dialog sits a quarter of the way down, and
 /// its list shows half the screen's rows less its own chrome, scrolled to
 /// keep the selection in view.
-pub fn palette(state: &Opencode, palette: &Palette, store: &Store) -> Element {
+#[component]
+pub fn PaletteView(state: &Opencode, palette: &Palette, store: &Store) -> Element {
 	let rows = state.size.1;
 	let visible = usize::from((rows / 2).saturating_sub(6)).max(1);
 	let list = rows_for(palette);
@@ -101,7 +102,7 @@ pub fn palette(state: &Opencode, palette: &Palette, store: &Store) -> Element {
 	let first = (selected_row + 1).saturating_sub(visible);
 	let search = store.clone();
 
-	let shown = list.into_iter().skip(first).take(visible).map(row);
+	let shown = list.into_iter().skip(first).take(visible).map(RowView);
 
 	view! {
 		<View class="absolute inset-0 bg-[#00000096] items-center">
@@ -155,7 +156,8 @@ fn rows_for(palette: &Palette) -> Vec<Row> {
 	rows
 }
 
-fn row(row: Row) -> Element {
+#[component]
+fn RowView(row: Row) -> Element {
 	match row {
 		Row::Group(title) => {
 			view! {

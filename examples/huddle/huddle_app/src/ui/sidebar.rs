@@ -13,7 +13,8 @@ use leptoskit::view;
 
 use crate::huddle::Huddle;
 
-pub fn panel(huddle: &Huddle) -> Element {
+#[component]
+pub fn Panel(huddle: &Huddle) -> Element {
 	let huddle = *huddle;
 	let open = huddle.selected.get();
 	let channels = huddle.channels.data().unwrap_or_default();

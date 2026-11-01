@@ -27,13 +27,13 @@ pub fn blocks(source: &str) -> Vec<Vec<Element>> {
 				if line.starts_with("```") {
 					break;
 				}
-				code.push(code_line(language, line));
+				code.push(view! { <CodeLine language=language line=line /> });
 			}
 			blocks.push(code);
 		} else if line.starts_with("- ") {
-			let mut items = vec![bullet(line)];
+			let mut items = vec![view! { <Bullet line=line /> }];
 			while let Some(next) = lines.next_if(|next| next.starts_with("- ")) {
-				items.push(bullet(next));
+				items.push(view! { <Bullet line=next /> });
 			}
 			blocks.push(items);
 		} else {
@@ -51,13 +51,15 @@ pub fn blocks(source: &str) -> Vec<Vec<Element>> {
 	blocks
 }
 
-fn bullet(line: &str) -> Element {
+#[component]
+fn Bullet(line: &str) -> Element {
 	let mut spans = vec![TextSpan::new("- ").color(theme::PRIMARY)];
 	spans.extend(inline(&line[2..]));
 	view! { <Text spans=spans /> }
 }
 
-fn code_line(language: &str, line: &str) -> Element {
+#[component]
+fn CodeLine(language: &str, line: &str) -> Element {
 	let spans = if language == "rust" {
 		highlight::rust(line)
 	} else {

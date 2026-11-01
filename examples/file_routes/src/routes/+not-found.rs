@@ -3,6 +3,7 @@
 use leptoskit::prelude::*;
 
 /// Says the page doesn't exist.
-pub fn page() -> Element {
+#[component]
+pub fn Page() -> Element {
 	view! { <Text class="p-6 text-lg">"This page doesn't exist."</Text> }
 }
