@@ -91,6 +91,7 @@ async fn serve(listener: TcpListener) -> std::io::Result<()> {
 
 /// Answers one connection: the canned greeting its path asks for, then an
 /// echo of everything the client sends.
+#[cfg(not(target_arch = "wasm32"))]
 async fn handle(stream: tokio::net::TcpStream) {
 	let Some((mut socket, path)) = accept(stream).await else {
 		return;
@@ -102,6 +103,7 @@ async fn handle(stream: tokio::net::TcpStream) {
 }
 
 /// Completes the handshake, keeping the path the client asked for.
+#[cfg(not(target_arch = "wasm32"))]
 async fn accept(
 	stream: tokio::net::TcpStream,
 ) -> Option<(
@@ -128,6 +130,7 @@ async fn accept(
 
 /// Sends the oversized message or the flood a path asks for. False when the
 /// client went away before the echo could start.
+#[cfg(not(target_arch = "wasm32"))]
 async fn greet(
 	socket: &mut tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
 	path: &str,
@@ -159,6 +162,7 @@ async fn greet(
 }
 
 /// Echoes every text or binary message until the client closes.
+#[cfg(not(target_arch = "wasm32"))]
 async fn echo(mut socket: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>) {
 	while let Some(message) = socket.next().await {
 		match message {

@@ -145,3 +145,24 @@ max-threads = 1
 [[profile.default.overrides]]
 filter = 'package(/^leptoskit_(appkit|gtk|windows)$/)'
 test-group = 'native-ui'
+
+# The trybuild suites compile their cases in a separate cargo workspace under
+# `target/tests/trybuild`, with `--cfg trybuild` in its rustflags, so none of
+# the main build's artifacts carry over: a cold run builds the database,
+# server, and facade crates again, which takes minutes. All four share that
+# directory and its cargo lock, so running them at once only leaves three
+# holding test slots while they wait. One at a time, each takes as long as
+# its own build, and the slow timeout is set to that budget so a run under
+# load passes, while a build that hangs still ends.
+[test-groups.trybuild]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = '''
+(package(leptoskit) & binary(ui))
+| (package(leptoskit_rpc) & binary(ui))
+| (package(leptoskit_db) & binary(read_only))
+| (package(leptoskit_db_pack_fixture) & test(=only_the_pack_writes_its_tables))
+'''
+test-group = 'trybuild'
+slow-timeout = { period = "180s", terminate-after = 5 }

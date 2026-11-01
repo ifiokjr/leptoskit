@@ -178,6 +178,8 @@ fn refreshing_bindings_sends_only_the_labels_that_changed() {
 	use crate::reactive::RwSignal;
 	use crate::reactive::Set as _;
 
+	let owner = reactive_graph::owner::Owner::new();
+	owner.set();
 	let marked = RwSignal::new(false);
 	let rows = |marked: RwSignal<bool>| {
 		Element::view()

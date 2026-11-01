@@ -17,8 +17,6 @@
 //! Nothing that comes back is a credential on its own: the server finishes
 //! the sign-in only together with a binding the app kept in memory.
 
-use std::time::Duration;
-
 use leptoskit_bridge::Error;
 use leptoskit_bridge::MethodId;
 
@@ -119,15 +117,6 @@ pub fn authorization_url(value: &str) -> Result<url::Url, Error> {
 	Ok(url)
 }
 
-/// How long a waiting listener sleeps between polls.
-const POLL_INTERVAL: Duration = Duration::from_millis(25);
-
-/// How long one return request may take to arrive.
-const READ_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// How much of a return request is read at a time.
-const CHUNK_BYTES: usize = 1024;
-
 /// Checks a return address: `<scheme>:/auth/native/return` for a
 /// reverse-DNS private-use scheme, `http://127.0.0.1:<port>` or
 /// `http://[::1]:<port>` with that path, or `https://<host>` with it.
@@ -224,6 +213,15 @@ pub mod desktop {
 
 	/// How long a person has to sign in: the server's flow lasts as long.
 	pub const TIMEOUT: Duration = Duration::from_mins(10);
+
+	/// How long a waiting listener sleeps between polls.
+	const POLL_INTERVAL: Duration = Duration::from_millis(25);
+
+	/// How long one return request may take to arrive.
+	const READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+	/// How much of a return request is read at a time.
+	const CHUNK_BYTES: usize = 1024;
 
 	/// The longest request the listener reads.
 	const MAX_REQUEST: usize = 8192;

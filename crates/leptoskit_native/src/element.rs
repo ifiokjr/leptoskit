@@ -126,10 +126,14 @@ impl std::fmt::Debug for Element {
 			.field("props", &self.props)
 			.field("children", &self.children)
 			.field("classes", &self.classes)
-			.field("handlers", &self.handlers)
-			.field("bindings", &self.bindings);
-		// A region is absent on almost every node. Leaving it out of the
-		// debug output keeps the digest of an unchanged node stable.
+			.field("handlers", &self.handlers);
+		// Bindings and a region are absent on almost every node. Leaving them
+		// out of the debug output when absent keeps the digest of an unchanged
+		// node stable.
+		if !self.bindings.is_empty() {
+			debug.field("bindings", &self.bindings);
+		}
+
 		if self.region.is_some() {
 			debug.field("region", &true);
 		}
