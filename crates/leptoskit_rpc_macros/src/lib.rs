@@ -1068,6 +1068,7 @@ fn params_of(function: &ItemFn, docs: &str) -> syn::Result<Vec<Param>> {
 					.collect::<Vec<_>>()
 					.join(" ")
 			},
+
 			wire_name,
 			ty: (*typed.ty).clone(),
 			required,
