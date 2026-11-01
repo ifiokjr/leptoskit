@@ -124,3 +124,29 @@ macos: Commonplace 0.1.0 is checked; an upload signs it with your Developer ID, 
      For updaters and scripts: .leptoskit/publish/macos/Commonplace.zip
      Why by hand: leptoskit doesn't host downloads; set [publish.macos].github_release to attach them to a GitHub release
      Done when: the page offers the new version
+
+play: Commonplace 0.1.0 is checked; an upload builds an App Bundle signed with your upload key, numbered one more than the highest on Google Play, and puts it on the internal track as a draft. Nothing was built or uploaded.
+
+  1. Fill in the main store listing: the app's name, short and full description, icon, feature graphic, and phone screenshots.
+     Open   https://play.google.com/console
+     Full description: Commonplace keeps the passages worth remembering from everything you read.
+         
+         Select a passage on any page and clip it into a research project, with a note and tags. Commonplace keeps the page's title, author, site, and date, so every clip can be cited, and highlights your clips when you come back to a page. Your library is the same on the web, on your phone, and in the extension.
+     Website: https://commonplace.example.com
+     Why by hand: leptoskit doesn't upload Google Play listings yet
+     Done when: Play Console's dashboard no longer lists the store listing as a task
+
+  2. Set the privacy policy, under App content.
+     Open   https://play.google.com/console
+     Privacy policy: https://commonplace.example.com/privacy
+     Why by hand: the Play Developer API has no App content endpoint
+     Done when: App content shows the privacy policy as done
+
+  3. Answer App content's declarations: data safety, the content rating questionnaire, the target audience, and ads. (you, the account holder)
+     Open   https://play.google.com/console
+     Why by hand: they are legal declarations about the app, which only the account holder can make
+     Done when: App content shows no task left
+
+  4. Decide to release it, then run `leptoskit publish play --submit`, which releases the internal track (a staged rollout on production when `rollout` is set). (you, the account holder)
+     Why by hand: releasing reaches the track's users, which is the account holder's decision
+     Done when: the track's release shows as available or in progress

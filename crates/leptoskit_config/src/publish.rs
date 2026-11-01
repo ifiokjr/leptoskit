@@ -28,6 +28,34 @@ pub struct PublishConfig {
 	/// outside the Mac App Store.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub macos: Option<MacosStore>,
+	/// Google Play, for the Android App Bundle.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub play: Option<PlayStore>,
+}
+
+/// An app in Google Play Console, created once there. Its package name is
+/// `native.package_id`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct PlayStore {
+	/// The track each upload goes to: `internal`, `alpha`, `beta`,
+	/// `production`, or a closed testing track's name.
+	pub track: String,
+	/// With `--submit` on `production`, the fraction of users who get the
+	/// release first, such as `0.1`; the rest get it when the rollout is
+	/// raised in Play Console. Without it, everyone gets it.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub rollout: Option<f64>,
+}
+
+impl Default for PlayStore {
+	fn default() -> Self {
+		Self {
+			track: "internal".to_owned(),
+			rollout: None,
+		}
+	}
 }
 
 /// How the macOS app is distributed.
@@ -128,7 +156,7 @@ pub struct FirefoxStore {
 }
 
 /// The stores `leptoskit publish` knows, as the command line names them.
-pub const STORES: [&str; 5] = ["chrome", "edge", "firefox", "app_store", "macos"];
+pub const STORES: [&str; 6] = ["chrome", "edge", "firefox", "app_store", "macos", "play"];
 
 impl PublishConfig {
 	/// Whether no store is configured.
@@ -155,6 +183,9 @@ impl PublishConfig {
 		}
 		if self.macos.is_some() {
 			stores.push("macos");
+		}
+		if self.play.is_some() {
+			stores.push("play");
 		}
 		stores
 	}
@@ -215,6 +246,22 @@ impl PublishConfig {
 						 `owner/name`"
 					));
 				}
+			}
+		}
+		if let Some(play) = &self.play {
+			if !app.platforms.contains(&crate::Platform::Android) {
+				return Some("publish.play needs `android` in app.platforms".into());
+			}
+			if play.track.trim().is_empty() {
+				return Some("publish.play.track can't be empty".into());
+			}
+			if let Some(rollout) = play.rollout
+				&& !(rollout > 0.0 && rollout < 1.0)
+			{
+				return Some(format!(
+					"publish.play.rollout {rollout} must be a fraction between 0 and 1, such as \
+					 0.1; leave it out to release to everyone"
+				));
 			}
 		}
 		None
@@ -346,6 +393,24 @@ mod tests {
 		assert!(error.contains("`macos` in app.platforms"), "{error}");
 		let error = toml("[\"web\", \"macos\"]", "github_release = \"notes\"\n").unwrap_err();
 		assert!(error.contains("owner/name"), "{error}");
+	}
+
+	#[test]
+	fn google_play_takes_a_track_and_a_rollout() {
+		let toml = |table: &str| {
+			LeptoskitConfig::from_toml(
+				&format!("[app]\nplatforms = [\"web\", \"android\"]\n[publish.play]\n{table}"),
+				Path::new("notes"),
+			)
+			.map_err(|error| error.to_string())
+		};
+		let config = toml("").unwrap();
+		assert_eq!(config.publish.stores(), ["play"]);
+		assert_eq!(config.publish.play.unwrap().track, "internal");
+		let config = toml("track = \"production\"\nrollout = 0.1\n").unwrap();
+		assert_eq!(config.publish.play.unwrap().rollout, Some(0.1));
+		let error = toml("rollout = 1.0\n").unwrap_err();
+		assert!(error.contains("between 0 and 1"), "{error}");
 	}
 
 	#[test]

@@ -88,6 +88,20 @@ When you have computer use (screenshots, clicks, and typing) or a browser automa
   - a privacy policy URL that doesn't load, or App Privacy answers that don't match what the app collects;
   - a permission's usage description (`NS…UsageDescription`) that doesn't say why the app needs it.
 
+**Google Play**
+
+- Play Console: <https://play.google.com/console>. The app is created there once (**Create app**), which needs the account holder, and its **first App Bundle is uploaded there by hand**: `leptoskit publish play` says so and prints the bundle's path. After that, uploads go through the API.
+- The service account is invited under **Users and permissions** with permission to release; the account holder does that (a person step).
+- Pages, under the app:
+  - **Main store listing:** name, short description (80 characters), full description, icon (512×512), feature graphic (1024×500), and at least two phone screenshots.
+  - **App content:** the privacy policy, then **data safety**, **content rating**, **target audience**, and **ads**, which are person steps.
+  - **Testing, Internal testing:** the testers' list, for the `internal` track.
+- Common rejections:
+  - a data safety form that doesn't match what the app or its SDKs collect;
+  - a target SDK below Google Play's minimum (the command checks it);
+  - a privacy policy URL that doesn't load;
+  - permissions the app doesn't explain in its listing.
+
 **macOS downloads (Developer ID)**
 
 - No dashboard: `leptoskit publish macos` signs, notarizes, and staples, and writes `.leptoskit/publish/macos/<Name>.dmg` and `.zip`.

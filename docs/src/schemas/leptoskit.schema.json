@@ -1800,6 +1800,26 @@
 				}
 			]
 		},
+		"PlayStore": {
+			"description": "An app in Google Play Console, created once there. Its package name is\n`native.package_id`.",
+			"type": "object",
+			"properties": {
+				"rollout": {
+					"description": "With `--submit` on `production`, the fraction of users who get the\nrelease first, such as `0.1`; the rest get it when the rollout is\nraised in Play Console. Without it, everyone gets it.",
+					"type": [
+						"number",
+						"null"
+					],
+					"format": "double"
+				},
+				"track": {
+					"description": "The track each upload goes to: `internal`, `alpha`, `beta`,\n`production`, or a closed testing track's name.",
+					"type": "string",
+					"default": "internal"
+				}
+			},
+			"additionalProperties": false
+		},
 		"PluginSpec": {
 			"description": "One activated plugin.\n\nNames without a `path` resolve against the built-in registry; a `path`\npoints at a plugin crate compiled into the tooling. Leptos plugins —\nactivated as cargo features on the app — are declared with `leptos = true`\nand forwarded to the app build.",
 			"type": "object",
@@ -1892,6 +1912,17 @@
 					"anyOf": [
 						{
 							"$ref": "#/$defs/MacosStore"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"play": {
+					"description": "Google Play, for the Android App Bundle.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/PlayStore"
 						},
 						{
 							"type": "null"
