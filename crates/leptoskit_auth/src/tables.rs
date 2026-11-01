@@ -13,7 +13,7 @@ use leptoskit_db::table;
 
 /// One per person. Everything else about them, from their emails to their
 /// sessions, points here; the app's own user table shares its key.
-#[table(name = "accounts", pack = "auth", public)]
+#[table(name = "accounts", pack = "auth", public, live)]
 #[policy(select, |account, cx| account.id.eq(cx.setting::<crate::SignedIn>()))]
 pub struct Account {
 	pub id: Id<Self>,
@@ -63,7 +63,7 @@ pub enum Aal {
 /// A browser holds one token, in a cookie. A native app holds two: a
 /// short-lived access token it sends with each request, and a refresh token
 /// that trades for a new pair and works once.
-#[table(name = "sessions", pack = "auth", public)]
+#[table(name = "sessions", pack = "auth", public, live)]
 #[policy(select, |session, cx| session.account_id.eq(cx.setting::<crate::SignedIn>()))]
 pub struct Session {
 	pub id: Id<Self>,

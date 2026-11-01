@@ -18,6 +18,7 @@ use std::sync::Mutex;
 use std::sync::PoisonError;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+use std::time::SystemTime;
 
 use leptoskit_db::Db;
 use leptoskit_db::ReadEntry;
@@ -49,6 +50,7 @@ use crate::live::SubscriptionUpdate;
 use crate::live::Transition;
 use crate::live::Update;
 use crate::live::WireError;
+use crate::server::IdentityLease;
 use crate::server::QueryCx;
 use crate::server::channel;
 use crate::server::registration;
@@ -91,6 +93,9 @@ struct Session {
 	live: Live,
 	number: u32,
 	identity: Identity,
+	/// Changes whenever this connection accepts a different authentication.
+	epoch: u64,
+	lease: IdentityLease,
 	db: Db,
 	member: String,
 	caller: CallerSlot,
@@ -136,6 +141,7 @@ struct Running {
 
 /// A mutation or action that finished, and the commit it reached.
 struct Finished {
+	epoch: u64,
 	request: u32,
 	result: Result<Value, WireError>,
 	version: Option<i64>,
@@ -202,6 +208,8 @@ impl Live {
 			number,
 			db: self.inner.db.with_context(identity.context.clone()),
 			identity,
+			epoch: 0,
+			lease: IdentityLease::default(),
 			member,
 			caller,
 			out,
@@ -260,15 +268,40 @@ impl Session {
 		let mut heartbeat = tokio::time::interval(Duration::from_secs(HEARTBEAT_SECONDS));
 		heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
+		if !self.validate_identity().await {
+			return false;
+		}
+
 		loop {
+			let deadline = self
+				.lease
+				.refresh_at
+				.into_iter()
+				.chain(self.lease.expires_at)
+				.min();
 			tokio::select! {
+				biased;
+				() = identity_deadline(deadline) => {
+					let now = SystemTime::now();
+					if self.lease.expires_at.is_some_and(|expires| expires <= now) {
+						return self.refuse_identity().await;
+					}
+					self.lease.refresh_at = None;
+					if !self.send(ServerFrame::AuthStatus { refused: false, expiring: true }).await {
+						return false;
+					}
+				}
+				() = self.out.closed() => return false,
+				_ = drained.recv() => return true,
+				Some(batch) = self.batches.recv() => {
+					if !self.apply(batch).await { return false; }
+				}
 				incoming = frames.recv() => {
 					let Some(incoming) = incoming else { return false };
 					if !self.handle(incoming).await {
 						return false;
 					}
 				}
-				Some(batch) = self.batches.recv() => self.apply(batch),
 				Some(finished) = self.finished.recv() => {
 					if !self.answer(finished).await {
 						return false;
@@ -283,25 +316,27 @@ impl Session {
 				_ = heartbeat.tick() => {
 					// An idle connection still learns how far the log has
 					// gone, so it resumes from somewhere recent.
-					self.settle(true);
+					if !self.settle(true).await { return false; }
 					if self.out.send(Outbound::Heartbeat).await.is_err() {
 						return false;
 					}
 				}
-				() = self.out.closed() => return false,
-				_ = drained.recv() => return true,
 			}
 
-			self.settle(false);
+			if !self.settle(false).await {
+				return false;
+			}
 		}
 	}
 
 	/// Sends what the hub has queued, and an empty transition when a
 	/// mutation is waiting for a commit that changed none of this
 	/// connection's results, or when `catch_up` asks for one.
-	fn settle(&mut self, catch_up: bool) {
+	async fn settle(&mut self, catch_up: bool) -> bool {
 		while let Ok(batch) = self.batches.try_recv() {
-			self.apply(batch);
+			if !self.apply(batch).await {
+				return false;
+			}
 		}
 
 		let applied = *self.applied.borrow_and_update();
@@ -317,6 +352,7 @@ impl Session {
 		{
 			self.awaiting = None;
 		}
+		true
 	}
 
 	async fn send(&self, frame: ServerFrame) -> bool {
@@ -691,6 +727,7 @@ impl Session {
 		.await;
 
 		self.answer(Finished {
+			epoch: self.epoch,
 			request,
 			result: result.map_err(|error| WireError::new(&error)),
 			version,
@@ -733,9 +770,11 @@ impl Session {
 		};
 		let handler = registration.handler;
 		let finished = self.acts.clone();
+		let epoch = self.epoch;
 		tokio::spawn(async move {
 			let (result, version) = recording_commits(handler(invocation)).await;
 			let _ = finished.send(Finished {
+				epoch,
 				request,
 				result: result.map_err(|error| WireError::new(&error)),
 				version,
@@ -747,6 +786,17 @@ impl Session {
 	/// Answers a mutation or an action with the version its writes
 	/// committed at, and waits for a transition to reach it.
 	async fn answer(&mut self, finished: Finished) -> bool {
+		if finished.epoch != self.epoch {
+			return self
+				.done(
+					finished.request,
+					Err(WireError {
+						status: 401,
+						message: "the identity changed while the action ran".to_owned(),
+					}),
+				)
+				.await;
+		}
 		let version = match finished
 			.version
 			.and_then(|version| u64::try_from(version).ok())
@@ -775,16 +825,22 @@ impl Session {
 	}
 
 	async fn authenticate(&mut self, token: String) -> bool {
-		let Ok(identity) = self.live.inner.identify.identify_token(&token).await else {
-			return self
-				.send(ServerFrame::AuthStatus {
-					refused: true,
-					expiring: false,
-				})
-				.await;
+		let identity = match self.live.inner.identify.identify_token(&token).await {
+			Ok(identity) => identity,
+			Err(error) => return self.identity_failure(&error).await,
 		};
 
+		// Detach every old group before awaiting any new identity's reads.
+		// Batches already queued belong to the old identity as well.
+		for id in self.subscriptions.keys().copied() {
+			self.live.hub().leave(self.number, id);
+		}
+		while self.batches.try_recv().is_ok() {}
+		self.epoch = self.epoch.wrapping_add(1);
 		self.identity = identity;
+		if !self.validate_identity().await {
+			return false;
+		}
 		self.db = self
 			.live
 			.inner
@@ -850,6 +906,55 @@ impl Session {
 		.await
 	}
 
+	/// Validate on the primary and install the dependencies without losing
+	/// a commit that landed while the database was being read.
+	async fn validate_identity(&mut self) -> bool {
+		for _ in 0..REGISTER_ATTEMPTS {
+			let since = self.live.hub().applied();
+			let lease = match self.live.inner.identify.lease(&self.identity).await {
+				Ok(lease) => lease,
+				Err(error) => return self.identity_failure(&error).await,
+			};
+			if lease
+				.expires_at
+				.is_some_and(|expires| expires <= SystemTime::now())
+			{
+				return self.refuse_identity().await;
+			}
+			if self
+				.live
+				.hub()
+				.watch_identity(self.number, lease.reads.clone(), since)
+			{
+				self.lease = lease;
+				return true;
+			}
+		}
+		// A busy log may prevent registration even when the identity is
+		// valid. Reconnect instead of telling the app it was signed out.
+		self.send(ServerFrame::Reconnect { after_ms: 250 }).await;
+		false
+	}
+
+	async fn identity_failure(&self, error: &crate::Error) -> bool {
+		if matches!(error.status(), 401 | 403) {
+			self.refuse_identity().await
+		} else {
+			// A failed database read doesn't mean the person signed out.
+			self.send(ServerFrame::Reconnect { after_ms: 500 }).await;
+			false
+		}
+	}
+
+	async fn refuse_identity(&self) -> bool {
+		self.send(ServerFrame::AuthStatus {
+			refused: true,
+			expiring: false,
+		})
+		.await;
+		false
+	}
+
 	/// Records who may post frames to this connection.
 	fn note_caller(&self) {
 		self.caller
@@ -859,7 +964,17 @@ impl Session {
 	}
 
 	/// Turns one of the hub's batches into a transition.
-	fn apply(&mut self, batch: Batch) {
+	async fn apply(&mut self, batch: Batch) -> bool {
+		if self
+			.lease
+			.expires_at
+			.is_some_and(|expires| expires <= SystemTime::now())
+		{
+			return self.refuse_identity().await;
+		}
+		if batch.revalidate && !self.validate_identity().await {
+			return false;
+		}
 		let mut updates = Vec::new();
 
 		for (id, changed) in batch.changes {
@@ -878,6 +993,7 @@ impl Session {
 
 		let to = batch.to.max(self.last_sent);
 		self.send_transition(self.last_sent, updates, to, batch.full);
+		true
 	}
 
 	/// Sends one transition to `to`, split into frames under the size
@@ -1129,5 +1245,20 @@ impl Session {
 			err,
 		})
 		.await
+	}
+}
+
+/// Sleep until a lease deadline, or stay pending for an unlimited identity.
+async fn identity_deadline(deadline: Option<SystemTime>) {
+	match deadline {
+		Some(deadline) => {
+			tokio::time::sleep(
+				deadline
+					.duration_since(SystemTime::now())
+					.unwrap_or_default(),
+			)
+			.await
+		}
+		None => std::future::pending().await,
 	}
 }

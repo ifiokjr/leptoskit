@@ -2110,8 +2110,8 @@ impl leptoskit_rpc::Identify for Auth {
 		Box<dyn Future<Output = Result<leptoskit_rpc::Identity, leptoskit_rpc::Error>> + Send + 'a>,
 	> {
 		Box::pin(async move {
-			let signed_in = if let Some(current) = request.extensions.get::<CurrentSession>() {
-				current.signed_in.clone()
+			let current = if let Some(current) = request.extensions.get::<CurrentSession>() {
+				current.clone()
 			} else {
 				let peer = request
 					.extensions
@@ -2120,16 +2120,57 @@ impl leptoskit_rpc::Identify for Auth {
 				self.current_session(&request.headers, peer)
 					.await
 					.map_err(|error| rpc_error(&error))?
-					.signed_in
 			};
-
-			let caller = signed_in.as_ref().map(|me| me.session.to_string());
-			let identity = leptoskit_rpc::Identity::new(crate::context(signed_in));
+			let caller = current.signed_in.as_ref().map(|me| me.session.to_string());
+			let mut context = crate::context(current.signed_in);
+			if caller.is_some()
+				&& let Some(token) = current.token
+			{
+				context = context.with(crate::live_identity::Credential(token.hash()));
+			}
+			let identity = leptoskit_rpc::Identity::new(context);
 			Ok(match caller {
 				Some(session) => identity.with_caller(session),
 				None => identity,
 			})
 		})
+	}
+
+	fn identify_token<'a>(
+		&'a self,
+		token: &'a str,
+	) -> Pin<
+		Box<dyn Future<Output = Result<leptoskit_rpc::Identity, leptoskit_rpc::Error>> + Send + 'a>,
+	> {
+		Box::pin(async move {
+			let value = HeaderValue::from_str(&format!("Bearer {token}"))
+				.map_err(|_| leptoskit_rpc::Error::unauthorized("the token is invalid"))?;
+			let mut request = Request::new(());
+			request.headers_mut().insert(header::AUTHORIZATION, value);
+			let (parts, ()) = request.into_parts();
+			let identity = leptoskit_rpc::Identify::identify(self, &parts).await?;
+			if identity
+				.context
+				.get::<crate::live_identity::Credential>()
+				.is_none()
+			{
+				return Err(leptoskit_rpc::Error::unauthorized("the session has ended"));
+			}
+			Ok(identity)
+		})
+	}
+
+	fn lease<'a>(
+		&'a self,
+		identity: &'a leptoskit_rpc::Identity,
+	) -> Pin<
+		Box<
+			dyn Future<Output = Result<leptoskit_rpc::server::IdentityLease, leptoskit_rpc::Error>>
+				+ Send
+				+ 'a,
+		>,
+	> {
+		Box::pin(crate::live_identity::lease(self, identity))
 	}
 }
 

@@ -57,10 +57,9 @@ pub async fn people(cx: &rpc::QueryCx) -> rpc::Result<Vec<Person>> {
 
 /// Whether this session still holds.
 ///
-/// The session table isn't live, so the query reads the person's own row,
-/// which is: when an admin signs them out everywhere, that row changes, this
-/// query runs again on every socket they have open, and now finds the
-/// session ended.
+/// The live server watches the auth session itself and refuses a revoked
+/// connection. This query also lets the screen check its state on first
+/// load and after reconnecting.
 #[rpc::query]
 pub async fn my_session(cx: &rpc::QueryCx) -> rpc::Result<SessionState> {
 	let Some(me) = cx.get::<leptoskit_auth::SignedIn>() else {

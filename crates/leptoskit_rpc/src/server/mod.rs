@@ -66,6 +66,8 @@ pub use identity::HasContext;
 pub use identity::Identify;
 #[cfg(feature = "db")]
 pub use identity::Identity;
+#[cfg(feature = "db")]
+pub use identity::IdentityLease;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use jobs::JobCx;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
