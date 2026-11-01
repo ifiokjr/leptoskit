@@ -1237,6 +1237,7 @@ fn clis_whose_functions_need_scopes_can_sign_in() {
 	);
 	assert!(generated["Cargo.toml"].contains("features = [\"rt\", \"time\"]"));
 	assert!(generated["README.md"].contains("## Signing in"));
+
 	assert!(generated["README.md"].contains("TODOS_CLI_CLIENT_ID"));
 
 	// A function already called `login` keeps its name; signing in moves.

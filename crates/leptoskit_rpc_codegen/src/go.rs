@@ -31,6 +31,7 @@ use crate::schema::analyze;
 use crate::schema::description;
 use crate::schema::has_default;
 use crate::spec::ApiFunction;
+use crate::spec::ApiParam;
 use crate::spec::ApiSpec;
 use crate::spec::HttpInput;
 
@@ -488,76 +489,13 @@ fn client_file(
 
 	for (function, name) in context.functions().zip(names) {
 		let method = method(function, types, context.spec);
-		let mut docs: Vec<String> = function
-			.docs
-			.lines()
-			.map(str::trim)
-			.map(str::to_owned)
-			.collect();
-
-		if docs.is_empty() {
-			docs.push(name.clone());
-		} else {
-			docs[0] = format!("{name} {}", docs[0].to_lowercase());
-		}
-
-		let documented: Vec<(&crate::spec::ApiParam, String)> = function
-			.params
-			.iter()
-			.zip(parameter_names(function))
-			.filter(|(param, _)| !param.docs.is_empty())
-			.collect();
-
-		if !documented.is_empty() {
-			docs.push(String::new());
-
-			for (param, identifier) in documented {
-				docs.push(format!("{identifier} is {}", param.docs.trim()));
-			}
-		}
-
-		if function.kind.is_idempotent_with_key() {
-			docs.push(String::new());
-			docs.push(
-				"Pass a context from WithIdempotencyKey to make a retried call run once."
-					.to_owned(),
-			);
-		}
-
-		if function.deprecated {
-			docs.push(String::new());
-			docs.push("Deprecated: this function is going away.".to_owned());
-		}
+		let docs = method_docs(name, function);
 
 		for line in &docs {
 			methods.push_str(&format!("// {line}\n"));
 		}
-		let decode = if method.returns == "error" {
-			format!(
-				"\treturn c.call(ctx, {}, {}, \"{}\", {})\n",
-				go_string(&function.method),
-				go_string(&function.path),
-				method.encoding,
-				method.payload
-			)
-		} else {
-			// A declared zero works for every result type, where a composite
-			// literal would not compile for named strings or numbers.
-			format!(
-				"\tvar result {result}\n\tif err := c.callInto(ctx, {method_}, {path}, \
-				 \"{encoding}\", {payload}, &result); err != nil {{\n\t\tvar zero \
-				 {result}\n\t\treturn zero, err\n\t}}\n\treturn result, nil\n",
-				result = method
-					.returns
-					.trim_matches(|c| c == '(' || c == ')')
-					.trim_end_matches(", error"),
-				method_ = go_string(&function.method),
-				path = go_string(&function.path),
-				encoding = method.encoding,
-				payload = method.payload,
-			)
-		};
 
+		let decode = decode_call(&method, function);
 		methods.push_str(&format!(
 			"func (c *Client) {name}({}) {} {{\n{}}}\n\n",
 			method.parameters.join(", "),
@@ -584,6 +522,81 @@ fn client_file(
 	));
 	out = out.replace("class_placeholder", &methods);
 	out
+}
+
+/// A method's docs: its name, parameter docs, idempotency, and deprecation.
+fn method_docs(name: &str, function: &ApiFunction) -> Vec<String> {
+	let mut docs: Vec<String> = function
+		.docs
+		.lines()
+		.map(str::trim)
+		.map(str::to_owned)
+		.collect();
+
+	if docs.is_empty() {
+		docs.push(name.to_owned());
+	} else {
+		docs[0] = format!("{name} {}", docs[0].to_lowercase());
+	}
+
+	let documented: Vec<(&ApiParam, String)> = function
+		.params
+		.iter()
+		.zip(parameter_names(function))
+		.filter(|(param, _)| !param.docs.is_empty())
+		.collect();
+
+	if !documented.is_empty() {
+		docs.push(String::new());
+
+		for (param, identifier) in documented {
+			docs.push(format!("{identifier} is {}", param.docs.trim()));
+		}
+	}
+
+	if function.kind.is_idempotent_with_key() {
+		docs.push(String::new());
+		docs.push(
+			"Pass a context from WithIdempotencyKey to make a retried call run once.".to_owned(),
+		);
+	}
+
+	if function.deprecated {
+		docs.push(String::new());
+		docs.push("Deprecated: this function is going away.".to_owned());
+	}
+
+	docs
+}
+
+/// The call a method makes: the shared helper for a plain error, or a
+/// declared result.
+fn decode_call(method: &Method, function: &ApiFunction) -> String {
+	if method.returns == "error" {
+		return format!(
+			"\treturn c.call(ctx, {}, {}, \"{}\", {})\n",
+			go_string(&function.method),
+			go_string(&function.path),
+			method.encoding,
+			method.payload
+		);
+	}
+
+	// A declared zero works for every result type, where a composite literal
+	// would not compile for named strings or numbers.
+	format!(
+		"\tvar result {result}\n\tif err := c.callInto(ctx, {method_}, {path}, \"{encoding}\", \
+		 {payload}, &result); err != nil {{\n\t\tvar zero {result}\n\t\treturn zero, \
+		 err\n\t}}\n\treturn result, nil\n",
+		result = method
+			.returns
+			.trim_matches(|c| c == '(' || c == ')')
+			.trim_end_matches(", error"),
+		method_ = go_string(&function.method),
+		path = go_string(&function.path),
+		encoding = method.encoding,
+		payload = method.payload,
+	)
 }
 
 fn go_mod(context: &Context<'_>) -> String {

@@ -41,6 +41,7 @@ impl ApiSpec {
 		}
 
 		let components = self.components();
+
 		if !components.is_empty() {
 			document.insert("components".to_owned(), Value::Object(components));
 		}
@@ -97,7 +98,10 @@ impl ApiSpec {
 			.collect();
 		Some(Value::Array(tags))
 	}
+}
 
+/// The document's components.
+impl ApiSpec {
 	/// The document's `components`: every schema, and the security scheme
 	/// when a function scopes its calls.
 	fn components(&self) -> Map<String, Value> {
@@ -122,7 +126,10 @@ impl ApiSpec {
 
 		components
 	}
+}
 
+/// The document's paths.
+impl ApiSpec {
 	/// The document's `paths`, merging every method on the same path.
 	fn paths(&self) -> Map<String, Value> {
 		let mut paths = Map::new();
@@ -137,7 +144,10 @@ impl ApiSpec {
 
 		paths
 	}
+}
 
+/// The security scheme and the YAML form.
+impl ApiSpec {
 	/// The `oauth2` security scheme, listing every scope a function asks
 	/// for, when any does: third-party apps get tokens for them through the
 	/// app's sign-in-with flow (`leptoskit_idp`), at the app's own
@@ -186,7 +196,14 @@ fn merge_operation(path_item: &mut Value, method: &str, operation: Value) {
 fn operation(function: &ApiFunction) -> Value {
 	let mut operation = Map::new();
 	operation.insert("operationId".to_owned(), json!(function.name));
+	operation_metadata(function, &mut operation);
+	operation_request(function, &mut operation);
+	operation_responses(function, &mut operation);
+	Value::Object(operation)
+}
 
+/// The operation's name, docs, tags, and the flags a client reads.
+fn operation_metadata(function: &ApiFunction, operation: &mut Map<String, Value>) {
 	if !function.docs.is_empty() {
 		let (summary, description) = split_docs(&function.docs);
 		operation.insert("summary".to_owned(), json!(summary));
@@ -232,7 +249,10 @@ fn operation(function: &ApiFunction) -> Value {
 			json!(function.output.content_type()),
 		);
 	}
+}
 
+/// The operation's parameters, or its request body.
+fn operation_request(function: &ApiFunction, operation: &mut Map<String, Value>) {
 	let params_schema = ApiSpec::params_object_schema(function);
 
 	match function.input {
@@ -267,7 +287,10 @@ fn operation(function: &ApiFunction) -> Value {
 			operation.insert("requestBody".to_owned(), Value::Object(request));
 		}
 	}
+}
 
+/// The operation's success and error responses.
+fn operation_responses(function: &ApiFunction, operation: &mut Map<String, Value>) {
 	let mut ok_content = Map::new();
 	ok_content.insert(
 		function.output.content_type().to_owned(),
@@ -305,7 +328,6 @@ fn operation(function: &ApiFunction) -> Value {
 	);
 
 	operation.insert("responses".to_owned(), Value::Object(responses));
-	Value::Object(operation)
 }
 
 /// The leptos error wire shape a client should expect, when it is the default

@@ -24,6 +24,7 @@ use crate::naming::component_names;
 use crate::naming::ts_method;
 use crate::naming::ts_property_key;
 use crate::naming::ts_string;
+use crate::schema::ObjectShape;
 use crate::schema::Shape;
 use crate::schema::analyze;
 use crate::schema::description;
@@ -129,61 +130,11 @@ fn render(schema: &Value, names: &HashMap<String, String>) -> String {
 			..
 		} => ts_string(constant),
 		Shape::String { .. } => "string".to_owned(),
-		Shape::Array { items } => {
-			let inner = items.map_or_else(|| "unknown".to_owned(), |items| render(items, names));
-			if inner.contains(' ') {
-				format!("({inner})[]")
-			} else {
-				format!("{inner}[]")
-			}
-		}
-		Shape::Tuple(items) => {
-			format!(
-				"[{}]",
-				items
-					.iter()
-					.map(|item| render(item, names))
-					.collect::<Vec<_>>()
-					.join(", ")
-			)
-		}
-		Shape::Object(object) => {
-			if object.properties.is_empty() {
-				match object.additional {
-					Some(values) => format!("Record<string, {}>", render(values, names)),
-					None => "Record<string, never>".to_owned(),
-				}
-			} else {
-				let fields: Vec<String> = object
-					.properties
-					.iter()
-					.map(|(property, property_schema)| {
-						let optional =
-							!object.is_required(property) || has_default(property_schema);
-						format!(
-							"{}{}: {}",
-							ts_property_key(property),
-							if optional { "?" } else { "" },
-							render(property_schema, names)
-						)
-					})
-					.collect();
-				format!("{{ {} }}", fields.join("; "))
-			}
-		}
-		Shape::Map { values } => {
-			format!(
-				"Record<string, {}>",
-				values.map_or_else(|| "unknown".to_owned(), |values| render(values, names))
-			)
-		}
-		Shape::Union(variants) => {
-			variants
-				.iter()
-				.map(|variant| render(variant, names))
-				.collect::<Vec<_>>()
-				.join(" | ")
-		}
+		Shape::Array { items } => render_array(items, names),
+		Shape::Tuple(items) => render_tuple(&items, names),
+		Shape::Object(object) => render_object(&object, names),
+		Shape::Map { values } => render_map(values, names),
+		Shape::Union(variants) => render_union(&variants, names),
 	};
 
 	if analyzed.nullable && base != "null" {
@@ -191,6 +142,71 @@ fn render(schema: &Value, names: &HashMap<String, String>) -> String {
 	} else {
 		base
 	}
+}
+
+/// An array's type, in parentheses when its item type holds a space.
+fn render_array(items: Option<&Value>, names: &HashMap<String, String>) -> String {
+	let inner = items.map_or_else(|| "unknown".to_owned(), |items| render(items, names));
+
+	if inner.contains(' ') {
+		format!("({inner})[]")
+	} else {
+		format!("{inner}[]")
+	}
+}
+
+/// A fixed-length tuple's type.
+fn render_tuple(items: &[&Value], names: &HashMap<String, String>) -> String {
+	format!(
+		"[{}]",
+		items
+			.iter()
+			.map(|item| render(item, names))
+			.collect::<Vec<_>>()
+			.join(", ")
+	)
+}
+
+/// An object's type: its fields, or a record when it has none.
+fn render_object(object: &ObjectShape<'_>, names: &HashMap<String, String>) -> String {
+	if object.properties.is_empty() {
+		return match object.additional {
+			Some(values) => format!("Record<string, {}>", render(values, names)),
+			None => "Record<string, never>".to_owned(),
+		};
+	}
+
+	let fields: Vec<String> = object
+		.properties
+		.iter()
+		.map(|(property, property_schema)| {
+			let optional = !object.is_required(property) || has_default(property_schema);
+			format!(
+				"{}{}: {}",
+				ts_property_key(property),
+				if optional { "?" } else { "" },
+				render(property_schema, names)
+			)
+		})
+		.collect();
+	format!("{{ {} }}", fields.join("; "))
+}
+
+/// A free-form map's type.
+fn render_map(values: Option<&Value>, names: &HashMap<String, String>) -> String {
+	format!(
+		"Record<string, {}>",
+		values.map_or_else(|| "unknown".to_owned(), |values| render(values, names))
+	)
+}
+
+/// A union's type.
+fn render_union(variants: &[&Value], names: &HashMap<String, String>) -> String {
+	variants
+		.iter()
+		.map(|variant| render(variant, names))
+		.collect::<Vec<_>>()
+		.join(" | ")
 }
 
 /// The type of a function's input object, or `None` for no arguments.

@@ -660,6 +660,7 @@ mod tests {
 		assert_eq!(rust_identifier("type"), "r#type");
 		assert_eq!(rust_identifier("self"), "self_");
 		assert_eq!(rust_identifier("created-at"), "created_at");
+
 		assert_eq!(dart_identifier("created_at"), "createdAt");
 		assert_eq!(dart_identifier("class"), "class_");
 		assert_eq!(dart_package_name("todos-api"), "todos_api");

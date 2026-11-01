@@ -276,7 +276,30 @@ fn describe(error: &OAuthError) -> String {
 /// `login`: shows a code to enter in a browser, waits for you to approve
 /// it, and keeps the tokens.
 pub async fn login(server_url: &str, client_id: Option<String>) -> Result<String, String> {
-	let client_id = client_id
+	let client_id = registered_client_id(client_id)?;
+	let http = reqwest::Client::new();
+	let discovery = discover(&http, server_url).await?;
+	let device_endpoint = discovery
+		.device_authorization_endpoint
+		.as_deref()
+		.ok_or_else(|| format!("{server_url} doesn't offer sign-in for devices"))?;
+	let device = start_device(&http, device_endpoint, &client_id).await?;
+
+	eprintln!(
+		"To sign in, open {} and enter the code {}",
+		device.verification_uri, device.user_code
+	);
+
+	if let Some(complete) = &device.verification_uri_complete {
+		eprintln!("(or open {complete})");
+	}
+
+	wait_for_approval(&http, &discovery, &client_id, &device, server_url).await
+}
+
+/// The client ID from the flag or the environment, or what to do about it.
+fn registered_client_id(client_id: Option<String>) -> Result<String, String> {
+	client_id
 		.or_else(|| std::env::var(CLIENT_ID_ENV).ok())
 		.filter(|id| !id.is_empty())
 		.ok_or_else(|| {
@@ -285,17 +308,19 @@ pub async fn login(server_url: &str, client_id: Option<String>) -> Result<String
 				 with `lk auth idp client add \"{APP}\" --public --grant device --scopes {}`",
 				SCOPES.replace(' ', ",")
 			)
-		})?;
-	let http = reqwest::Client::new();
-	let discovery = discover(&http, server_url).await?;
-	let device_endpoint = discovery
-		.device_authorization_endpoint
-		.as_deref()
-		.ok_or_else(|| format!("{server_url} doesn't offer sign-in for devices"))?;
+		})
+}
+
+/// Asks the server for a device code to show.
+async fn start_device(
+	http: &reqwest::Client,
+	endpoint: &str,
+	client_id: &str,
+) -> Result<DeviceAuthorization, String> {
 	let response = post(
-		&http,
-		device_endpoint,
-		&[("client_id", &client_id), ("scope", SCOPES)],
+		http,
+		endpoint,
+		&[("client_id", client_id), ("scope", SCOPES)],
 	)
 	.await?;
 
@@ -308,32 +333,32 @@ pub async fn login(server_url: &str, client_id: Option<String>) -> Result<String
 		return Err(describe(&error));
 	}
 
-	let device: DeviceAuthorization = response
+	response
 		.json()
 		.await
-		.map_err(|_| "the server's answer didn't make sense".to_owned())?;
+		.map_err(|_| "the server's answer didn't make sense".to_owned())
+}
 
-	eprintln!(
-		"To sign in, open {} and enter the code {}",
-		device.verification_uri, device.user_code
-	);
-
-	if let Some(complete) = &device.verification_uri_complete {
-		eprintln!("(or open {complete})");
-	}
-
+/// Waits for the person to approve the code, and keeps the tokens.
+async fn wait_for_approval(
+	http: &reqwest::Client,
+	discovery: &Discovery,
+	client_id: &str,
+	device: &DeviceAuthorization,
+	server_url: &str,
+) -> Result<String, String> {
 	let mut interval = device.interval.unwrap_or(5).max(1);
 	let deadline = now() + device.expires_in;
 
 	while now() < deadline {
 		tokio::time::sleep(Duration::from_secs(interval)).await;
 		let answer = token(
-			&http,
+			http,
 			&discovery.token_endpoint,
 			&[
 				("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
 				("device_code", &device.device_code),
-				("client_id", &client_id),
+				("client_id", client_id),
 			],
 		)
 		.await?;
@@ -342,9 +367,9 @@ pub async fn login(server_url: &str, client_id: Option<String>) -> Result<String
 			Answer::Tokens(tokens) => {
 				save(&Credentials {
 					server_url: server_url.to_owned(),
-					client_id,
-					token_endpoint: discovery.token_endpoint,
-					revocation_endpoint: discovery.revocation_endpoint,
+					client_id: client_id.to_owned(),
+					token_endpoint: discovery.token_endpoint.clone(),
+					revocation_endpoint: discovery.revocation_endpoint.clone(),
 					access_token: tokens.access_token,
 					refresh_token: tokens.refresh_token,
 					expires_at: now() + tokens.expires_in,
@@ -365,7 +390,6 @@ pub async fn login(server_url: &str, client_id: Option<String>) -> Result<String
 
 	Err(format!("the code expired; run `{APP} login` again"))
 }
-
 /// `logout`: revokes the tokens, and forgets them.
 pub async fn logout(server_url: &str) -> Result<String, String> {
 	let Some(credentials) = load()? else {
