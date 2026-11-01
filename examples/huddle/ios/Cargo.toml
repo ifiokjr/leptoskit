@@ -1,0 +1,27 @@
+# The iOS host's native side: the bridge that draws the widgets, and the
+# runtime plugins leptoskit.toml grants. `leptoskit build --platform ios`
+# generates the rest under .leptoskit/ios/, and builds this crate for the
+# device. It's a member of the repository's workspace, so its dependencies
+# come from there.
+[package]
+name = "huddle_ios"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "leptoskit_app"
+crate-type = ["staticlib"]
+
+[target.'cfg(target_os = "ios")'.dependencies]
+leptoskit_bridge_ffi = { workspace = true, features = ["app"] }
+leptoskit_plugin_crypto = { workspace = true }
+leptoskit_plugin_http = { workspace = true }
+leptoskit_plugin_passkeys = { workspace = true }
+leptoskit_plugin_secure_store = { workspace = true }
+leptoskit_plugin_web_auth = { workspace = true }
+leptoskit_plugin_websocket = { path = "../../../crates/leptoskit_plugin_websocket", version = "0.1.0", default-features = false }
+
+[lints]
+workspace = true

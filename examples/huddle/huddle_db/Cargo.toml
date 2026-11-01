@@ -1,0 +1,27 @@
+[package]
+name = "huddle_db"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "Huddle's tables: people, channels and who's in them, messages, the task board, invites and tips, each live and guarded by a policy."
+
+[dependencies]
+leptoskit_auth = { workspace = true }
+leptoskit_db = { workspace = true }
+# The server side reads `rpc.*` from the same migrations: jobs, the inbox,
+# and mutation receipts.
+leptoskit_rpc = { workspace = true, optional = true }
+
+[features]
+default = []
+# The server side of the tables: rows, queries, policies, migrations, and
+# the SQLite driver, with the auth and rpc schema packs.
+server = ["leptoskit_db/sqlite", "leptoskit_auth/sqlite", "dep:leptoskit_rpc", "leptoskit_rpc/sqlite"]
+
+[lints]
+workspace = true

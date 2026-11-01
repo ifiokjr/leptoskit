@@ -1,0 +1,29 @@
+[package]
+name = "huddle_load"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "Opens thousands of simulated Huddle clients over the live protocol, sends messages, and reports the time from commit to update."
+
+[[bin]]
+name = "huddle-load"
+path = "src/main.rs"
+
+[dependencies]
+chrono = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+futures = { workspace = true }
+# Only the wire types: the frames and the patches.
+leptoskit_rpc = { workspace = true }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect"] }
+
+[lints]
+workspace = true

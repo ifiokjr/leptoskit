@@ -10,8 +10,28 @@ members = [
 	"crates/leptoskit_db/tests/studio_fixture",
 	"crates/leptoskit_rpc/tests/guest_fixture",
 	"docs/site",
-	"examples/*",
+	# Listed one by one rather than as `examples/*`: huddle is a folder of
+	# crates with no manifest of its own, which a glob would match.
+	"examples/auth_pages",
+	"examples/counter",
+	"examples/gallery",
 	"examples/gallery/verify",
+	"examples/harbor",
+	"examples/hooks_guest",
+	"examples/huddle/huddle_api",
+	"examples/huddle/huddle_app",
+	"examples/huddle/huddle_db",
+	"examples/huddle/huddle_server",
+	"examples/huddle/ios",
+	"examples/huddle/load",
+	"examples/huddle/macos",
+	"examples/islands",
+	"examples/observatory",
+	"examples/opencode",
+	"examples/platform_probe",
+	"examples/plugin_guest",
+	"examples/plugin_replies",
+	"examples/postcard",
 	"setup/android_apk",
 	"setup/coverage_gate",
 	"setup/harmonyos_plugins",
@@ -22,7 +42,9 @@ resolver = "2"
 # shape, and opencode's terminal runner is a generated runner: all compile
 # only after `leptoskit build` generates `.leptoskit/`, so none can join this
 # repository's workspace. The DevTools interface in devtools/ is the same kind
-# of standalone project, built with `devenv shell devtools:build`.
+# of standalone project, built with `devenv shell devtools:build`. huddle's
+# crates are members one by one (see `members`), its native hosts included:
+# they build empty until `leptoskit build` generates their registrants.
 exclude = ["devtools", "examples/commonplace", "examples/file_routes", "examples/opencode/tui"]
 
 [workspace.package]
