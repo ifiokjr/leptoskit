@@ -72,6 +72,8 @@ pub(super) struct Batch {
 	/// Whether every subscription's whole value is here, because the log was
 	/// pruned past the hub.
 	pub full: bool,
+	/// The connection must validate its identity before sending these values.
+	pub revalidate: bool,
 	/// Each changed subscription, by the connection's id for it.
 	pub changes: Vec<(u32, Changed)>,
 }
@@ -107,6 +109,8 @@ pub(super) enum ShareKey {
 		query: String,
 		args: String,
 		who: Who,
+		/// The adapter's revision of policy-relevant identity context.
+		revision: Option<String>,
 	},
 	/// A caller the hub can't vouch for, such as one with globals but no
 	/// caller ID: its subscription runs alone.
@@ -148,10 +152,19 @@ impl ShareKey {
 					query: query.to_owned(),
 					args,
 					who,
+					revision: None,
 				}
 			}
 			Err(_) => Self::Alone { connection, id },
 		}
+	}
+
+	/// Keeps distinct policy revisions out of the same shared group.
+	pub(super) fn with_revision(mut self, key: Option<String>) -> Self {
+		if let Self::Shared { revision, .. } = &mut self {
+			*revision = key.filter(|key| !key.is_empty());
+		}
+		self
 	}
 }
 
@@ -225,6 +238,8 @@ struct State {
 	/// a value the hub can't vouch for.
 	forced: HashSet<u64>,
 	connections: HashMap<u32, mpsc::UnboundedSender<Batch>>,
+	/// Authentication dependencies, including connections with no queries.
+	authentication: HashMap<u32, Vec<ReadEntry>>,
 }
 
 struct Group {
@@ -374,10 +389,27 @@ impl Hub {
 		self.core.state().connections.insert(connection, events);
 	}
 
+	/// Installs a connection's authentication read set. A round that landed
+	/// during validation requires another check before any work is served.
+	pub(super) fn watch_identity(
+		&self,
+		connection: u32,
+		reads: Vec<ReadEntry>,
+		since: u64,
+	) -> bool {
+		let mut state = self.core.state();
+		if since != state.applied {
+			return false;
+		}
+		state.authentication.insert(connection, reads);
+		true
+	}
+
 	/// Forgets `connection` and its subscriptions `ids`.
 	pub(super) fn disconnect(&self, connection: u32, ids: impl IntoIterator<Item = u32>) {
 		let mut state = self.core.state();
 		state.connections.remove(&connection);
+		state.authentication.remove(&connection);
 
 		for id in ids {
 			state.leave(connection, id);
@@ -619,7 +651,7 @@ impl Core {
 				first = false;
 
 				if jobs.is_empty() {
-					state.apply(results, to, full);
+					state.apply(results, to, full, &changes, dialect);
 					self.applied.send_replace(to);
 					return;
 				}
@@ -782,7 +814,14 @@ impl State {
 
 	/// Applies a round's results, queues each connection's batch, and moves
 	/// to `to`.
-	fn apply(&mut self, results: HashMap<u64, Outcome>, to: u64, full: bool) {
+	fn apply(
+		&mut self,
+		results: HashMap<u64, Outcome>,
+		to: u64,
+		full: bool,
+		changes: &[Change],
+		dialect: Dialect,
+	) {
 		let mut batches: HashMap<u32, Vec<(u32, Changed)>> = HashMap::new();
 		let mut reindex = Vec::new();
 
@@ -848,9 +887,32 @@ impl State {
 			self.index(id, &old, &new, everywhere);
 		}
 
+		let revalidate: HashSet<u32> = self
+			.authentication
+			.iter()
+			.filter(|(_, reads)| {
+				!reads.is_empty()
+					&& (full
+						|| reads.iter().any(|read| {
+							changes
+								.iter()
+								.any(|change| read.could_change(change, dialect))
+						}))
+			})
+			.map(|(&connection, _)| connection)
+			.collect();
+		for connection in &revalidate {
+			batches.entry(*connection).or_default();
+		}
+
 		for (connection, changes) in batches {
 			if let Some(events) = self.connections.get(&connection) {
-				let _ = events.send(Batch { to, full, changes });
+				let _ = events.send(Batch {
+					to,
+					full,
+					changes,
+					revalidate: revalidate.contains(&connection),
+				});
 			}
 		}
 

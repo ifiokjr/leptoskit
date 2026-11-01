@@ -69,9 +69,19 @@ pub fn provide() -> Shell {
 		}
 	});
 
-	// Signed out everywhere by an admin: this session no longer holds, so
-	// forget it here too.
+	// A refused live session needs the auth query checked again. A network
+	// error can leave it signed in; a revoked session returns None and
+	// disposes the signed-in owner above.
+	let cache = leptoskit::query::use_query_client();
 	Effect::new(move |_| {
+		if shell
+			.huddle
+			.get()
+			.is_some_and(|huddle| huddle.session.error().is_some())
+		{
+			drop(cache.invalidate_scope(&leptoskit::auth::client::session()));
+		}
+
 		let ended = shell
 			.huddle
 			.get()

@@ -124,6 +124,8 @@ pub struct LiveClient {
 struct Inner {
 	transport: Arc<dyn Transport>,
 	credentials: Option<Arc<dyn Credentials>>,
+	/// The authorization header actually sent on this connection.
+	authorization: Mutex<Option<String>>,
 	commands: UnboundedSender<Command>,
 	subscribers: Mutex<HashMap<u32, Subscriber>>,
 	channels: Mutex<HashMap<String, JoinedChannel>>,
@@ -141,6 +143,8 @@ struct Inner {
 	/// Set when the app's sign-in changed, until the connection reads as
 	/// the new identity.
 	reauthenticate: AtomicBool,
+	/// Authentication frames sent but not yet acknowledged, in wire order.
+	auth_pending: AtomicU32,
 	/// Where the queue is kept between runs of the app, when it is.
 	offline: Option<Offline>,
 	/// Whether what the device kept is back on the queue: until then,
@@ -310,6 +314,7 @@ enum Command {
 	Credit(u32, u32),
 	Cancel(u32),
 	Reauthenticate,
+	RefreshCredentials { refused: bool },
 	Reconnect,
 }
 
@@ -331,6 +336,7 @@ impl LiveClient {
 		let inner = Arc::new(Inner {
 			transport,
 			credentials: config.credentials.clone(),
+			authorization: Mutex::new(None),
 			commands,
 			subscribers: Mutex::new(HashMap::new()),
 			channels: Mutex::new(HashMap::new()),
@@ -343,6 +349,7 @@ impl LiveClient {
 			next_id: AtomicU32::new(1),
 			version: AtomicU64::new(0),
 			reauthenticate: AtomicBool::new(false),
+			auth_pending: AtomicU32::new(0),
 			queue_offline: config.offline_queue || offline.is_some(),
 			restored: AtomicBool::new(offline.is_none()),
 			offline,
@@ -975,6 +982,24 @@ async fn run(inner: Arc<Inner>, mut commands: UnboundedReceiver<Command>) {
 
 			match futures::future::select(command, frame).await {
 				Either::Left((Some(Command::Reconnect) | None, _)) => break,
+				Either::Left((Some(Command::RefreshCredentials { refused }), _)) => {
+					let sent = lock(&inner.authorization).clone();
+					let renewed = match &inner.credentials {
+						Some(credentials) => credentials.refused(sent).await.unwrap_or(false),
+						None => false,
+					};
+					if renewed {
+						inner.reauthenticate.store(true, Ordering::SeqCst);
+						if !matches!(
+							read_as_new_identity(inner.as_ref(), connection.as_ref()).await,
+							Reauthenticated::InPlace
+						) {
+							break;
+						}
+					} else if refused {
+						break;
+					}
+				}
 				Either::Left((Some(Command::Reauthenticate), _)) => {
 					match read_as_new_identity(inner.as_ref(), connection.as_ref()).await {
 						Reauthenticated::InPlace => {}
@@ -1021,6 +1046,9 @@ async fn read_as_new_identity(inner: &Inner, connection: &dyn Connection) -> Rea
 		return Reauthenticated::InPlace;
 	}
 
+	inner.auth_pending.fetch_add(1, Ordering::SeqCst);
+	inner.forget_results();
+
 	if let Some(token) = token(inner).await {
 		if send(connection, &ClientFrame::Auth { token }).await {
 			Reauthenticated::InPlace
@@ -1040,14 +1068,17 @@ async fn read_as_new_identity(inner: &Inner, connection: &dyn Connection) -> Rea
 /// results the client holds. When the sign-in changed while the client was
 /// away, nothing resumes: every query takes a fresh first value.
 async fn handshake(inner: &Inner, connection: &dyn Connection) -> bool {
-	if inner.reauthenticate.swap(false, Ordering::SeqCst) {
+	let changed = inner.reauthenticate.swap(false, Ordering::SeqCst);
+	let unfinished = inner.auth_pending.swap(0, Ordering::SeqCst) > 0;
+	if changed || unfinished {
 		inner.forget_results();
 	}
 
-	if let Some(token) = token(inner).await
-		&& !send(connection, &ClientFrame::Auth { token }).await
-	{
-		return false;
+	if let Some(token) = token(inner).await {
+		inner.auth_pending.fetch_add(1, Ordering::SeqCst);
+		if !send(connection, &ClientFrame::Auth { token }).await {
+			return false;
+		}
 	}
 
 	let queries: Vec<ResumeQuery> = inner
@@ -1142,7 +1173,7 @@ async fn send_command(inner: &Inner, connection: &dyn Connection, command: Comma
 			ClientFrame::Credit { stream: id, n }
 		}
 		Command::Cancel(id) => ClientFrame::Cancel { stream: id },
-		Command::Reauthenticate => return true,
+		Command::Reauthenticate | Command::RefreshCredentials { .. } => return true,
 		Command::Reconnect => return false,
 	};
 
@@ -1221,7 +1252,22 @@ fn dispatch(inner: &Inner, text: &str) {
 			err,
 			version,
 		} => finish(inner, request, ok, err, version),
-		ServerFrame::AuthStatus { refused, .. } => refuse(inner, refused),
+		ServerFrame::AuthStatus { refused, expiring } => {
+			if !refused && !expiring {
+				let _ =
+					inner
+						.auth_pending
+						.try_update(Ordering::SeqCst, Ordering::SeqCst, |pending| {
+							Some(pending.saturating_sub(1))
+						});
+			}
+			refuse(inner, refused);
+			if refused || expiring {
+				let _ = inner
+					.commands
+					.unbounded_send(Command::RefreshCredentials { refused });
+			}
+		}
 		ServerFrame::Reconnect { .. } => {
 			let _ = inner.commands.unbounded_send(Command::Reconnect);
 		}
@@ -1367,6 +1413,21 @@ fn refuse(inner: &Inner, refused: bool) {
 		return;
 	}
 
+	inner.forget_results();
+	let error = WireError {
+		status: 401,
+		message: "sign in again to watch this".to_owned(),
+	};
+	inner.mutations().clear();
+	inner.actions().clear();
+	inner.queue().clear();
+	inner.queue_changed(None);
+	for (_, pending) in inner.pending().drain() {
+		let _ = pending.send(Err(error.clone()));
+	}
+	for waiting in inner.waiting().drain(..) {
+		let _ = waiting.sender.send(Err(error.clone()));
+	}
 	let subscribers = inner.subscribers();
 
 	for subscriber in subscribers.values() {
@@ -1463,6 +1524,7 @@ async fn rejoin(inner: &Inner, connection: &dyn Connection) {
 async fn token(inner: &Inner) -> Option<String> {
 	let credentials = inner.credentials.as_ref()?;
 	let header = credentials.authorization().await.ok().flatten()?;
+	*lock(&inner.authorization) = Some(header.clone());
 	header.strip_prefix("Bearer ").map(str::to_owned)
 }
 
@@ -2946,5 +3008,186 @@ mod tests {
 		assert!(transport.connect().await.is_ok());
 		assert_eq!(events.connects.load(Ordering::Relaxed), 1);
 		assert_eq!(socket.attempts.load(Ordering::Relaxed), 2);
+	}
+	#[derive(Clone, Default)]
+	struct Refreshing(Arc<Mutex<bool>>);
+
+	impl Credentials for Refreshing {
+		fn authorization(&self) -> BoxFuture<'_, Result<Option<String>, FnError>> {
+			let refreshed = *lock(&self.0);
+			Box::pin(async move {
+				Ok(Some(format!(
+					"Bearer {}",
+					if refreshed { "new" } else { "old" }
+				)))
+			})
+		}
+
+		fn refused(&self, sent: Option<String>) -> BoxFuture<'_, Result<bool, FnError>> {
+			assert_eq!(sent.as_deref(), Some("Bearer old"));
+			*lock(&self.0) = true;
+			Box::pin(std::future::ready(Ok(true)))
+		}
+	}
+
+	#[tokio::test]
+	async fn expiring_credentials_are_refreshed_on_the_open_connection() {
+		start();
+		tokio::task::LocalSet::new()
+			.run_until(async {
+				let socket = Memory::default();
+				let _client = LiveClient::new(
+					&ClientConfig::new().credentials(Refreshing::default()),
+					Arc::new(socket.clone()),
+				);
+				assert!(
+					matches!(socket.next_sent().await, ClientFrame::Auth { token } if token == "old")
+				);
+				assert!(matches!(
+					socket.next_sent().await,
+					ClientFrame::Hello { .. }
+				));
+				socket.server_says(&ServerFrame::AuthStatus {
+					refused: false,
+					expiring: true,
+				});
+				assert!(
+					matches!(socket.next_sent().await, ClientFrame::Auth { token } if token == "new")
+				);
+				assert_eq!(socket.connects.load(Ordering::Relaxed), 1);
+			})
+			.await;
+	}
+
+	#[tokio::test]
+	async fn refused_credentials_fail_pending_calls_and_forget_resume_values() {
+		start();
+		tokio::task::LocalSet::new()
+			.run_until(async {
+				let socket = Memory::default();
+				let client = LiveClient::new(&ClientConfig::new(), Arc::new(socket.clone()));
+				let _ = socket.next_sent().await;
+				let (id, mut values) = client.subscribe("private_notes", json!({}));
+				let _ = socket.next_sent().await;
+				socket.server_says(&ServerFrame::Done {
+					request: id,
+					ok: Some(json!(["private"])),
+					err: None,
+					version: 0,
+				});
+				assert_eq!(values.next().await, Some(Update::Ok(json!(["private"]))));
+				let answer = tokio::task::spawn_local(client.mutate(
+					"post",
+					json!({}),
+					Some("key".to_owned()),
+				));
+				assert!(matches!(
+					socket.next_sent().await,
+					ClientFrame::Mutate { .. }
+				));
+				socket.server_says(&ServerFrame::AuthStatus {
+					refused: true,
+					expiring: false,
+				});
+				assert!(matches!(
+					values.next().await,
+					Some(Update::Err(WireError { status: 401, .. }))
+				));
+				assert!(
+					tokio::time::timeout(Duration::from_secs(2), answer)
+						.await
+						.unwrap()
+						.unwrap()
+						.is_err()
+				);
+				assert_eq!(client.status().queued, 0);
+				let ClientFrame::Hello {
+					resume: Some(resume),
+				} = socket.next_sent().await
+				else {
+					panic!("a fresh handshake");
+				};
+				assert!(
+					resume.queries.is_empty(),
+					"old private values must not resume under another identity"
+				);
+			})
+			.await;
+	}
+	#[tokio::test]
+	async fn reconnecting_during_reauthentication_does_not_resume_the_previous_identity() {
+		start();
+		tokio::task::LocalSet::new()
+			.run_until(async {
+				let socket = Memory::default();
+				let credentials = Refreshing::default();
+				let client = LiveClient::new(
+					&ClientConfig::new().credentials(credentials.clone()),
+					Arc::new(socket.clone()),
+				);
+				let _ = socket.next_sent().await;
+				let _ = socket.next_sent().await;
+				socket.server_says(&ServerFrame::AuthStatus {
+					refused: false,
+					expiring: false,
+				});
+				let (id, mut values) = client.subscribe("private_notes", json!({}));
+				let _ = socket.next_sent().await;
+				socket.server_says(&ServerFrame::Done {
+					request: id,
+					ok: Some(json!(["old"])),
+					err: None,
+					version: 0,
+				});
+				let _ = values.next().await;
+				*lock(&credentials.0) = true;
+				client.reauthenticate();
+				assert!(
+					matches!(socket.next_sent().await, ClientFrame::Auth { token } if token == "new")
+				);
+				client.reauthenticate();
+				assert!(
+					matches!(socket.next_sent().await, ClientFrame::Auth { token } if token == "new")
+				);
+				// Only the first of these two auth frames has been
+				// acknowledged.
+				dispatch(
+					&client.inner,
+					&serde_json::to_string(&ServerFrame::AuthStatus {
+						refused: false,
+						expiring: false,
+					})
+					.unwrap(),
+				);
+				// A frame queued before the server received auth still belongs
+				// to the previous identity, even if it arrives after we sent
+				// it.
+				dispatch(
+					&client.inner,
+					&serde_json::to_string(&ServerFrame::Transition(Transition {
+						from: 0,
+						to: 1,
+						full: true,
+						updates: vec![crate::live::SubscriptionUpdate {
+							id,
+							update: Update::Ok(json!(["old queued result"])),
+						}],
+					}))
+					.unwrap(),
+				);
+				socket.drop_connection();
+				socket.wake.notify_waiters();
+				assert!(
+					matches!(socket.next_sent().await, ClientFrame::Auth { token } if token == "new")
+				);
+				let ClientFrame::Hello {
+					resume: Some(resume),
+				} = socket.next_sent().await
+				else {
+					panic!("a fresh hello");
+				};
+				assert_eq!(resume.queries.len(), 0);
+			})
+			.await;
 	}
 }

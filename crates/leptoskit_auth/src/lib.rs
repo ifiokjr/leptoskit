@@ -55,6 +55,12 @@ mod tables;
 mod guards;
 #[cfg(all(feature = "axum", any(feature = "postgres", feature = "sqlite")))]
 mod http;
+#[cfg(all(
+	feature = "axum",
+	feature = "rpc",
+	any(feature = "postgres", feature = "sqlite")
+))]
+mod live_identity;
 
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod auth;

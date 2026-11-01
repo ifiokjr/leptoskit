@@ -8,6 +8,25 @@ use leptoskit_query::BoxFuture;
 
 use crate::Error;
 
+/// When a live connection must check its identity again.
+///
+/// Reads are matched against the hub's commits, including relay commits. A
+/// deadline also ends an idle connection when no database writes occur.
+#[derive(Clone, Debug, Default)]
+pub struct IdentityLease {
+	/// A stable revision of the caller and all policy-relevant context.
+	/// Equal, nonempty keys allow shared query results and let an in-flight
+	/// action answer after a credential refresh. Leave unset when that
+	/// equivalence is unknown.
+	pub continuity: Option<String>,
+	/// The rows whose changes require another call to [`Identify::lease`].
+	pub reads: Vec<leptoskit_db::ReadEntry>,
+	/// The latest time the connection may keep this identity.
+	pub expires_at: Option<std::time::SystemTime>,
+	/// When to ask a bearer client to refresh its credentials.
+	pub refresh_at: Option<std::time::SystemTime>,
+}
+
 /// Who an operation runs as.
 #[derive(Clone, Default)]
 pub struct Identity {
@@ -108,6 +127,22 @@ pub trait Identify: Send + Sync + 'static {
 		request: &'a http::request::Parts,
 	) -> BoxFuture<'a, Result<Identity, Error>>;
 
+	/// Checks whether a live connection may keep its current identity.
+	///
+	/// Called before the connection serves operations, and again when the
+	/// returned read set changes. Read from the primary: a lagging replica
+	/// must not keep a revoked identity alive. The default leaves custom
+	/// identities valid until the client authenticates again.
+	///
+	/// # Errors
+	///
+	/// Unauthorized or forbidden credentials close the connection with a
+	/// refusal. Other failures request a reconnect. Neither sends values
+	/// queued by the triggering batch.
+	fn lease<'a>(&'a self, _identity: &'a Identity) -> BoxFuture<'a, Result<IdentityLease, Error>> {
+		Box::pin(std::future::ready(Ok(IdentityLease::default())))
+	}
+
 	/// Who a bearer token belongs to: how a connection that isn't one HTTP
 	/// request, such as a socket, says who it is. By default it asks
 	/// [`identify`](Self::identify) about a request carrying `Authorization:
@@ -136,6 +171,10 @@ impl<I: Identify> Identify for Arc<I> {
 		request: &'a http::request::Parts,
 	) -> BoxFuture<'a, Result<Identity, Error>> {
 		(**self).identify(request)
+	}
+
+	fn lease<'a>(&'a self, identity: &'a Identity) -> BoxFuture<'a, Result<IdentityLease, Error>> {
+		(**self).lease(identity)
 	}
 
 	fn identify_token<'a>(&'a self, token: &'a str) -> BoxFuture<'a, Result<Identity, Error>> {
