@@ -310,6 +310,14 @@ async fn mark(db: &Db, cutoff: crate::Timestamp) -> Result<Option<i64>> {
 			return Ok(None);
 		};
 
+		// The marker keeps no changes of its own.
+		tx.execute(Statement {
+			sql: "DELETE FROM live.changes WHERE txid = (SELECT txid FROM live.commits WHERE \
+			      version = $1)"
+				.to_string(),
+			args: vec![Value::Int(through)],
+		})
+		.await?;
 		tx.execute(Statement {
 			sql: "UPDATE live.commits SET origin = $1, actor = NULL, txid = NULL WHERE version = \
 			      $2"
