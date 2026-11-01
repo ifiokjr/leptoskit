@@ -74,6 +74,7 @@ pub enum Axis {
 /// // The content holds the five rows the 200-unit viewport shows.
 /// assert_eq!(list.children[0].children.len(), 5);
 /// ```
+#[track_caller]
 pub fn VirtualList(
 	virtualizer: &Virtualizer,
 	axis: Axis,

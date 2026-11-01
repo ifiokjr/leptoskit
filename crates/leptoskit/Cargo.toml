@@ -26,6 +26,7 @@ leptoskit_bridge = { workspace = true, optional = true }
 leptoskit_codepush = { workspace = true, optional = true }
 leptoskit_config = { workspace = true }
 leptoskit_db = { workspace = true, optional = true }
+leptoskit_devtools = { workspace = true, optional = true, default-features = false }
 leptoskit_extension = { workspace = true, optional = true }
 leptoskit_form = { workspace = true, optional = true }
 leptoskit_idp = { workspace = true, optional = true }
@@ -199,8 +200,13 @@ storage = ["use", "leptoskit_use/local-storage"]
 # Import SVG documents into `Vector` drawings with `Drawing::parse_svg`.
 svg = ["leptoskit_native/svg"]
 wasm = ["dep:leptoskit_wasm", "leptoskit_native/serde"]
+# The DevTools agents: `leptoskit dev` turns this on in development builds of
+# apps that declare `devtools = ["leptoskit/devtools"]`, and never in
+# `leptoskit build`. See `leptoskit::devtools::install`.
+devtools = ["dep:leptoskit_devtools", "leptoskit_native/devtools"]
 web = [
 	"leptoskit_native/web",
+	"leptoskit_devtools?/web",
 	"leptoskit_l10n?/web",
 	"leptoskit_rive?/web",
 	"leptoskit_auth?/web",

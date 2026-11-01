@@ -11,6 +11,8 @@ use leptoskit_yoga::NodeId;
 
 use super::NativeSurface;
 use crate::backend::NativeBackend;
+use crate::devtools as keys;
+use crate::devtools::Origin;
 use crate::tailwind::StyleContext;
 use crate::tailwind::Tailwind;
 
@@ -25,21 +27,15 @@ impl<B: NativeBackend> NativeSurface<B> {
 			};
 		};
 		let mut nodes = Vec::new();
-		self.collect_devtools(root, &mut nodes);
+		self.collect_devtools(root, keys::ROOT, &mut nodes);
 		Tree {
 			root: NodeRef::Native(root.index() as u64),
 			nodes,
 		}
 	}
 
-	fn collect_devtools(&self, id: NodeId, nodes: &mut Vec<Node>) {
+	fn collect_devtools(&self, id: NodeId, key: u64, nodes: &mut Vec<Node>) {
 		let shadow = &self.shadows[id.index()];
-		let key = shadow
-			.props
-			.test_id()
-			.map(str::to_owned)
-			.or_else(|| shadow.props.id.clone())
-			.unwrap_or_else(|| format!("/{}", id.index()));
 		let frame = self.frames[id.index()].map(|frame| {
 			ProtocolFrame {
 				x: frame.x,
@@ -63,7 +59,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 
 		nodes.push(Node {
 			id: NodeRef::Native(id.index() as u64),
-			key: MatchKey::new(key),
+			key: MatchKey::new(keys::format(key)),
 			parent: shadow
 				.parent
 				.map(|parent| NodeRef::Native(parent.index() as u64)),
@@ -76,8 +72,18 @@ impl<B: NativeBackend> NativeSurface<B> {
 			styles: self.explain(id, &shadow.classes),
 		});
 
-		for child in &shadow.children {
-			self.collect_devtools(*child, nodes);
+		let origins: Vec<Origin> = shadow
+			.children
+			.iter()
+			.map(|child| {
+				let child = &self.shadows[child.index()];
+				Origin::of(child.source, child.kind)
+			})
+			.collect();
+		let ordinals = keys::ordinals(origins.iter().copied());
+
+		for ((child, origin), ordinal) in shadow.children.iter().zip(origins).zip(ordinals) {
+			self.collect_devtools(*child, keys::child(key, origin, ordinal), nodes);
 		}
 	}
 }

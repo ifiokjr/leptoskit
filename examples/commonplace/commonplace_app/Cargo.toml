@@ -33,6 +33,8 @@ native = [
 	"dep:leptoskit_plugin_secure_store",
 	"dep:futures-executor",
 ]
+# The DevTools agents, which `leptoskit dev` turns on.
+devtools = ["leptoskit/devtools"]
 ios = ["native", "leptoskit/ios"]
 android = ["native", "leptoskit/android"]
 macos = ["native", "leptoskit/macos"]

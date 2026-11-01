@@ -124,6 +124,7 @@ impl fmt::Debug for TableLabels {
 /// assert_eq!(table.children.len(), 2);
 /// assert_eq!(table.children[1].children.len(), 3);
 /// ```
+#[track_caller]
 pub fn DataTable<T>(
 	columns: &[Column<T>],
 	data: &[T],

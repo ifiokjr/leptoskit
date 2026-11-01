@@ -17,6 +17,7 @@ use leptoskit_native::Tristate;
 /// let muted = ToggleButton("Mute", Tristate::Mixed, |_| ());
 /// assert_eq!(muted.props.aria().pressed, Some(Tristate::Mixed));
 /// ```
+#[track_caller]
 pub fn ToggleButton(
 	label: impl Into<String>,
 	pressed: impl Into<Tristate>,

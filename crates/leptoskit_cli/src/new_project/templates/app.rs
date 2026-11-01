@@ -54,6 +54,8 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl leptos::prelude::In
 #[cfg(all(target_arch = "wasm32", feature = "hydrate"))]
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn hydrate() {
+	#[cfg(feature = "devtools")]
+	leptoskit::devtools::install(env!("CARGO_PKG_NAME"));
 	leptos::mount::hydrate_body(App);
 }
 
@@ -61,6 +63,8 @@ pub fn hydrate() {
 #[cfg(all(target_arch = "wasm32", feature = "web", not(feature = "hydrate")))]
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn start() {
+	#[cfg(feature = "devtools")]
+	leptoskit::devtools::install(env!("CARGO_PKG_NAME"));
 	leptos::mount::mount_to_body(App);
 }
 

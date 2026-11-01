@@ -8,12 +8,81 @@ use leptoskit_native::NativeKind;
 use leptoskit_native::components::Pressable;
 use leptoskit_native::components::Text;
 use leptoskit_native::components::View;
-use leptoskit_native::web::render;
 use leptoskit_yoga::Dimension;
 
 #[path = "support/href.rs"]
 mod href_targets;
 
+/// Server markup, without the `DevTools` attributes: those name where each
+/// element was created, so they change with every edit, and these tests are
+/// about what renders.
+struct Markup(leptos::prelude::AnyView);
+
+impl Markup {
+	#[expect(
+		clippy::wrong_self_convention,
+		reason = "it stands in for `RenderHtml::to_html`, which the tests call"
+	)]
+	fn to_html(self) -> String {
+		let html = self.0.to_html();
+		if cfg!(feature = "devtools") {
+			without_devtools_attributes(&html)
+		} else {
+			html
+		}
+	}
+}
+
+fn render(element: Element) -> Markup {
+	Markup(leptoskit_native::web::render(element))
+}
+
+fn without_devtools_attributes(html: &str) -> String {
+	let mut out = String::with_capacity(html.len());
+	let mut rest = html;
+	while let Some(start) = rest.find(" data-lk-") {
+		let name_end = rest[start + 1..]
+			.find('=')
+			.map_or(rest.len(), |at| start + 1 + at);
+		let name = &rest[start + 1..name_end];
+		if !matches!(
+			name,
+			"data-lk-node" | "data-lk-key" | "data-lk-kind" | "data-lk-source"
+		) {
+			out.push_str(&rest[..name_end]);
+			rest = &rest[name_end..];
+			continue;
+		}
+		out.push_str(&rest[..start]);
+		// Skip `="value"`.
+		let value_end = rest[name_end + 2..]
+			.find('"')
+			.map_or(rest.len(), |at| name_end + 2 + at + 1);
+		rest = &rest[value_end..];
+	}
+	out.push_str(rest);
+	out
+}
+
+#[test]
+fn devtools_builds_mark_nodes_for_picking() {
+	let html = leptoskit_native::web::render(View().child(Text("Hi"))).to_html();
+	assert_eq!(html.contains(" data-lk-key=\""), cfg!(feature = "devtools"));
+	assert_eq!(
+		html.contains(" data-lk-node=\""),
+		cfg!(feature = "devtools")
+	);
+}
+
+#[test]
+fn devtools_attributes_are_stripped_and_others_kept() {
+	assert_eq!(
+		without_devtools_attributes(
+			r#"<div data-lk-style="a" data-lk-node=".0" data-lk-key="00ff" class="x"></div>"#
+		),
+		r#"<div data-lk-style="a" class="x"></div>"#
+	);
+}
 #[cfg(feature = "rive")]
 #[test]
 fn rive_server_markup_names_the_canvas_without_serializing_its_asset() {
@@ -147,32 +216,10 @@ fn rejects_children_of_void_controls() {
 }
 
 /// The server's markup as an app without devtools gets it, which is what
-/// the fixtures hold: with the `devtools` feature, each node also carries a
-/// `data-lk-node` path for picking, which this checks and removes.
+/// the fixtures hold. [`render`] already removes the `DevTools` attributes.
 fn as_without_devtools(html: String) -> String {
-	const MARK: &str = " data-lk-node=\"";
-
-	if !cfg!(feature = "devtools") {
-		assert!(!html.contains(MARK), "only devtools builds mark nodes");
-		return html;
-	}
-
-	assert!(
-		html.contains(MARK),
-		"devtools builds mark nodes for picking"
-	);
-	let mut rest = html.as_str();
-	let mut plain = String::with_capacity(html.len());
-
-	while let Some(start) = rest.find(MARK) {
-		plain.push_str(&rest[..start]);
-		let value = &rest[start + MARK.len()..];
-		let end = value.find('"').expect("the mark's value is quoted");
-		rest = &value[end + 1..];
-	}
-
-	plain.push_str(rest);
-	plain
+	assert!(!html.contains(" data-lk-node=\""));
+	html
 }
 
 #[test]

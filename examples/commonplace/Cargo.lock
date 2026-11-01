@@ -2289,6 +2289,7 @@ dependencies = [
  "leptoskit_bridge",
  "leptoskit_config",
  "leptoskit_db",
+ "leptoskit_devtools",
  "leptoskit_extension",
  "leptoskit_idp",
  "leptoskit_l10n",
@@ -2483,6 +2484,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_devtools"
+version = "0.1.0"
+dependencies = [
+ "gloo-net",
+ "gloo-timers",
+ "js-sys",
+ "leptoskit_devtools_protocol",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "leptoskit_devtools_protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "leptoskit_extension"
 version = "0.1.0"
 dependencies = [
@@ -2552,6 +2577,7 @@ name = "leptoskit_native"
 version = "0.1.0"
 dependencies = [
  "leptos",
+ "leptoskit_devtools_protocol",
  "leptoskit_rive",
  "leptoskit_yoga",
  "serde",

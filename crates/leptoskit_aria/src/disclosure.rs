@@ -29,6 +29,7 @@ fn button_id(id: &str) -> String {
 /// assert_eq!(button.props.aria().expanded, Some(false));
 /// assert_eq!(button.props.aria().controls, ["faq-panel"]);
 /// ```
+#[track_caller]
 pub fn DisclosureButton(
 	id: &str,
 	label: impl Into<String>,
@@ -58,6 +59,7 @@ pub fn DisclosureButton(
 /// assert_eq!(panel.props.aria().labelled_by, ["faq-button"]);
 /// assert!(panel.children.len() == 1);
 /// ```
+#[track_caller]
 pub fn DisclosurePanel(id: &str, open: bool) -> Element {
 	let mut panel = Element::view()
 		.id(panel_id(id))

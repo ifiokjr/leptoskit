@@ -131,6 +131,14 @@ pub mod guest {
 	pub use leptoskit_native::guest::*;
 }
 
+#[cfg(feature = "devtools")]
+pub mod devtools {
+	//! The `DevTools` agents. `leptoskit dev` compiles them into development
+	//! builds of apps that declare `devtools = ["leptoskit/devtools"]`;
+	//! `leptoskit build` never does.
+	pub use leptoskit_devtools::*;
+}
+
 #[cfg(feature = "web")]
 pub mod web {
 	//! Leptos rendering for the shared component tree.

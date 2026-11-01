@@ -210,12 +210,14 @@ impl Started {
 		let devtools = if no_devtools {
 			None
 		} else {
-			Some(crate::devtools::start(
+			let hub = crate::devtools::start(
 				root,
 				runtime,
 				devtools_port,
 				port.unwrap_or(config.serve.port),
-			)?)
+			)?;
+			crate::build::devtools::set_hub(hub.url());
+			Some(hub)
 		};
 
 		let database = start_database(config, root)?;

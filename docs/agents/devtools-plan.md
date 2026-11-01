@@ -1,6 +1,6 @@
 # Plan: leptoskit devtools
 
-Status: **approved** (revision 3). Nothing is implemented yet.
+Status: **approved** (revision 3), being implemented. Phases 0 and 1 are on `main`; "Progress" at the end records what each pull request delivered and what differs from the text above.
 
 Revision 2 added the implementation detail: the protocol, every instrumentation point with its file, the hub, the transports, the tests, and the pull requests. It also simplified the transport: every app talks to one hub that `leptoskit dev` runs, instead of relaying through the browser extension.
 
@@ -327,3 +327,11 @@ Each pull request carries a changeset. Dependent layers go in a `gh stack`.
 - **Q3, a per-run token:** none while the hub listens only on loopback. `Host`, `Origin`, and `Sec-Fetch-Site` checks stop web pages instead, and a token becomes mandatory if the hub ever listens on a network address (D7).
 - **Q4, shipping the interface:** downloaded on first use from the GitHub release for the exact CLI version, and checked against a hash compiled into the CLI ("Distributing the interface").
 - **Q5, physical phones:** USB and simulators first: `adb reverse` on Android, and the simulator on iOS. A network listener, with the mandatory token, is later work.
+
+## Progress
+
+- **Phase 0:** the protocol, the hub, source locations, commit observation, highlight rectangles, `Tailwind::explain`, the host agent, and an interim hub page (#344–#354).
+- **Phase 1:** `data-lk-node` and the web agent, picking, and the route on the hub page (#356–#358).
+- **Turning it on:** the facade's `devtools` feature and `leptoskit::devtools::install(app)`, which every platform can call. `leptoskit dev` adds the app's `devtools` feature and `LEPTOSKIT_DEVTOOLS_HUB` to web client builds; `leptoskit build` never does and refuses a release build whose `build.features` names it; `leptoskit doctor` points out a client crate without the feature; the scaffold and Commonplace declare it. Cargo tracks `option_env!` itself, so no build-script re-emit is needed.
+  - **Match keys** are chained FNV-1a hashes of the parent's key, the creating source location (or the kind, without one), and the index among siblings created there (`crates/leptoskit_native/src/devtools.rs`). Chaining keeps keys unique when one component renders in several places; hashing keeps them 16 characters at any depth. A test checks that the web renderer and the native surface compute identical keys for one tree.
+  - The web renderer also writes `data-lk-key`, `data-lk-kind`, and `data-lk-source`; the web agent reads them, sends a snapshot only when a `MutationObserver` sees a change and the tree differs from the last one sent, picks in the capture phase so the click never reaches the app, and opens a new session when the hub forgets it.
