@@ -3,6 +3,73 @@ import LeptosKitBridge
 @testable import LeptosKitScreenCapture
 import Testing
 
+/// Sample bytes the stale and current waits must not confuse.
+private enum Sample {
+    static let stale: UInt8 = 9
+    static let current: UInt8 = 7
+}
+
+/// How many scheduler turns a registration gets before the test gives up.
+private let attempts = 100
+
+/// Shared state one observation test mutates from its callbacks.
+@MainActor
+private final class Recorder {
+    var removals = 0
+    var deliveries: [CaptureObservation.Delivery] = []
+}
+
+/// Starts a wait that records its delivery and counts the removal it hands back.
+@MainActor
+private func startWait(_ observation: CaptureObservation, _ recorder: Recorder) -> Task<Data, any Error> {
+    return Task {
+        try await observation.wait { delivery in
+            recorder.deliveries.append(delivery)
+
+            return { recorder.removals += 1 }
+        }
+    }
+}
+
+/// Yields until the wait at this index has registered its delivery.
+@MainActor
+private func awaitDelivery(
+    _ recorder: Recorder,
+    at index: Int
+) async throws -> CaptureObservation.Delivery {
+    for _ in 0..<attempts where recorder.deliveries.count <= index {
+        await Task.yield()
+    }
+
+    return try #require(recorder.deliveries.count > index ? recorder.deliveries[index] : nil)
+}
+
+/// Expects a second wait to be refused while the first one owns the observation.
+@MainActor
+private func expectBusy(_ observation: CaptureObservation) async {
+    do {
+        _ = try await observation.wait { _ in
+            Issue.record("Overlapping observer installed")
+
+            return {}
+        }
+        Issue.record("Overlapping waiter accepted")
+    } catch {
+        #expect(error as? PluginError == .busy)
+    }
+}
+
+/// Expects a wait to end with the cancelled error.
+@MainActor
+private func expectCancelled(_ task: Task<Data, any Error>) async {
+    do {
+        _ = try await task.value
+        Issue.record("Cancelled wait completed")
+    } catch {
+        #expect(error as? PluginError == .cancelled)
+    }
+}
+
 @Test
 func watchDecoderRejectsMalformedEvents() throws {
     for values: [UInt32] in [[0, 3], [1, 1], [2, 0], [0], [1, 0, 0]] {
@@ -18,44 +85,24 @@ func watchDecoderRejectsMalformedEvents() throws {
 @MainActor
 func cancellationRemovesObserversAndLateCallbacksCannotCompleteReplacement() async throws {
     let observation = CaptureObservation()
-    var first: CaptureObservation.Delivery?
-    var removals = 0
-    let cancelled = Task {
-        try await observation.wait { delivery in
-            first = delivery
-
-            return { removals += 1 }
-        }
-    }
+    let recorder = Recorder()
+    let cancelled = startWait(observation, recorder)
     defer { cancelled.cancel() }
+    let stale = try await awaitDelivery(recorder, at: 0)
 
-    for _ in 0..<100 where first == nil { await Task.yield() }
-    let stale = try #require(first)
-    do {
-        _ = try await observation.wait { _ in Issue.record("Overlapping observer installed"); return {} }
-        Issue.record("Overlapping waiter accepted")
-    } catch { #expect(error as? PluginError == .busy) }
-
+    await expectBusy(observation)
     cancelled.cancel()
+    await expectCancelled(cancelled)
+    #expect(recorder.removals == 1)
 
-    do { _ = try await cancelled.value; Issue.record("Cancelled wait completed") } catch {
-        #expect(error as? PluginError == .cancelled)
-    }
-
-    #expect(removals == 1)
-    var second: CaptureObservation.Delivery?
-    let replacement = Task {
-        try await observation.wait { delivery in second = delivery; return { removals += 1 } }
-    }
+    let replacement = startWait(observation, recorder)
     defer { replacement.cancel() }
+    let current = try await awaitDelivery(recorder, at: 1)
+    stale(.success(Data([Sample.stale])))
+    current(.success(Data([Sample.current])))
 
-    for _ in 0..<100 where second == nil { await Task.yield() }
-    let current = try #require(second)
-    stale(.success(Data([9])))
-    current(.success(Data([7])))
-
-    #expect(try await replacement.value == Data([7]))
-    #expect(removals == 2)
+    #expect(try await replacement.value == Data([Sample.current]))
+    #expect(recorder.removals == 2)
 }
 
 @Test
@@ -70,6 +117,7 @@ func synchronousDeliveryFailureAndCloseReleaseSubscription() async throws {
     }
     #expect(result == Data([1]))
     #expect(removals == 1)
+
     do {
         _ = try await observation.wait { _ in throw PluginError.unavailable }
         Issue.record("Failed observer registration succeeded")
@@ -81,14 +129,10 @@ func synchronousDeliveryFailureAndCloseReleaseSubscription() async throws {
 
     defer { pending.cancel() }
 
-    for _ in 0..<100 where !installed { await Task.yield() }
+    for _ in 0..<attempts where !installed { await Task.yield() }
     #expect(installed)
     observation.cancel()
-
-    do { _ = try await pending.value; Issue.record("Close left an observation live") } catch {
-        #expect(error as? PluginError == .cancelled)
-    }
-
+    await expectCancelled(pending)
     observation.cancel()
     #expect(removals == 2)
 }
@@ -105,10 +149,5 @@ func preCancelledRequestNeverInstallsObserver() async throws {
         }
     }
     pending.cancel()
-    do {
-        _ = try await pending.value
-        Issue.record("Cancelled request succeeded")
-    } catch {
-        #expect(error as? PluginError == .cancelled)
-    }
+    await expectCancelled(pending)
 }

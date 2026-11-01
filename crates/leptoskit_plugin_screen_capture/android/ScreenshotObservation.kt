@@ -3,8 +3,11 @@ package dev.leptoskit.plugins.screencapture
 import android.annotation.TargetApi
 import android.app.Activity
 
+/** The first API level with a screen-capture callback. */
+private const val DETECT_CAPTURE_API = 34
+
 /** No photo-library access: the OS reports capture of this Activity after it occurs. */
-@TargetApi(34)
+@TargetApi(DETECT_CAPTURE_API)
 internal class ScreenshotObservation(
     activity: Activity,
     captured: () -> Unit,
