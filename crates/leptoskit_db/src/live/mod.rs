@@ -47,6 +47,7 @@ pub(crate) use feed::Hub;
 pub(crate) use images::image_count;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) use images::logged_values;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) use images::visible_images;
 #[cfg(feature = "server")]
 pub use log::Change;

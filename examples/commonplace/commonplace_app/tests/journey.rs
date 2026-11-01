@@ -43,7 +43,7 @@ impl Transport for InProcess {
 			let response = router
 				.oneshot(builder.body(body).map_err(|error| error.to_string())?)
 				.await
-				.map_err(|error| error.to_string())?;
+				.unwrap_or_else(|never| match never {});
 			let status = response.status().as_u16();
 			let body = response
 				.into_body()
@@ -112,9 +112,19 @@ async fn sign_in_start_a_project_clip_and_cite() {
 			tester.tap(&Finder::text("Sign in")).unwrap();
 			until(&mut tester, &Finder::text("Your projects")).await;
 			assert!(
-				store::api().token().is_some(),
+				store::api().session().is_some(),
 				"the app keeps its bearer token"
 			);
+			// An access token that stopped working is renewed with the
+			// refresh token, and the request goes through.
+			let kept = store::api().session().unwrap();
+			let mut tokens: serde_json::Value = serde_json::from_str(&kept).unwrap();
+			tokens["access_token"] = "expired".into();
+			store::api().set_session(Some(tokens.to_string()));
+			store::api().projects().await.unwrap();
+			let renewed = store::api().session().unwrap();
+			assert_ne!(renewed, kept, "the refresh replaced both tokens");
+			assert!(!renewed.contains("expired"));
 			until(&mut tester, &Finder::text("Start a project")).await;
 
 			tester
@@ -175,7 +185,7 @@ async fn sign_in_start_a_project_clip_and_cite() {
 			until(&mut tester, &Finder::text("Clip a quote by hand")).await;
 			tester.tap(&Finder::text("Sign out")).unwrap();
 			until(&mut tester, &Finder::text("Sign in to Commonplace")).await;
-			assert_eq!(store::api().token(), None);
+			assert_eq!(store::api().session(), None);
 		})
 		.await;
 }

@@ -51,17 +51,44 @@ struct SessionAnswer {
 	session: Option<serde_json::Value>,
 }
 
-/// The answer of `POST /auth/email/verify`.
+/// The answer of `POST /auth/email/verify`: a native app's tokens, or
+/// nothing when the browser got a cookie instead.
 #[derive(Deserialize)]
 struct Verified {
-	token: Option<String>,
+	tokens: Option<Tokens>,
+}
+
+/// A bearer host's tokens: a short-lived access token sent with each
+/// request, and a refresh token that trades for new ones, once.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Tokens {
+	access_token: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	refresh_token: Option<String>,
+}
+
+impl Tokens {
+	/// Tokens as they were kept: the pair as JSON, or a single token kept
+	/// before access tokens expired, which works until it does.
+	fn parse(kept: &str) -> Self {
+		serde_json::from_str(kept).unwrap_or_else(|_| {
+			Self {
+				access_token: kept.to_owned(),
+				refresh_token: None,
+			}
+		})
+	}
+
+	fn kept(&self) -> String {
+		serde_json::to_string(self).unwrap_or_default()
+	}
 }
 
 /// The API client.
 #[derive(Clone)]
 pub struct Api {
 	transport: Rc<dyn Transport>,
-	token: Rc<RefCell<Option<String>>>,
+	tokens: Rc<RefCell<Option<Tokens>>>,
 }
 
 impl Api {
@@ -69,7 +96,7 @@ impl Api {
 	pub fn new(transport: impl Transport + 'static) -> Self {
 		Self {
 			transport: Rc::new(transport),
-			token: Rc::default(),
+			tokens: Rc::default(),
 		}
 	}
 
@@ -79,15 +106,30 @@ impl Api {
 		self.transport.uses_bearer()
 	}
 
-	/// The session token this client sends, on hosts that use one.
+	/// The session to keep between launches, on hosts that keep one: the
+	/// tokens, as one string for the secure store.
 	#[must_use]
-	pub fn token(&self) -> Option<String> {
-		self.token.borrow().clone()
+	pub fn session(&self) -> Option<String> {
+		self.tokens.borrow().as_ref().map(Tokens::kept)
 	}
 
-	/// Uses a token kept from an earlier sign-in.
-	pub fn set_token(&self, token: Option<String>) {
-		*self.token.borrow_mut() = token;
+	/// Uses a session kept from an earlier launch.
+	pub fn set_session(&self, kept: Option<String>) {
+		*self.tokens.borrow_mut() = kept.as_deref().map(Tokens::parse);
+	}
+
+	fn bearer(&self) -> Option<String> {
+		self.tokens
+			.borrow()
+			.as_ref()
+			.map(|tokens| tokens.access_token.clone())
+	}
+
+	fn refresh_token(&self) -> Option<String> {
+		self.tokens
+			.borrow()
+			.as_ref()
+			.and_then(|tokens| tokens.refresh_token.clone())
 	}
 
 	async fn call<T: DeserializeOwned>(
@@ -117,21 +159,13 @@ impl Api {
 			.map(serde_json::to_vec)
 			.transpose()
 			.map_err(|_| Problem::new("That couldn't be sent."))?;
-		let response = self
-			.transport
-			.send(Request {
-				method,
-				path: path.into(),
-				body,
-				bearer: self.token(),
-			})
-			.await
-			.map_err(|message| {
-				Problem {
-					unreachable: true,
-					..Problem::new(message)
-				}
-			})?;
+		let path = path.into();
+		let mut response = self.request(method, &path, body.clone()).await?;
+		// An expired access token: trade the refresh token once, then try
+		// again with the new access token.
+		if response.status == 401 && self.refresh().await {
+			response = self.request(method, &path, body).await?;
+		}
 		if (200..300).contains(&response.status) {
 			return Ok(response.body);
 		}
@@ -143,6 +177,50 @@ impl Api {
 			signed_out: response.status == 401,
 			unreachable: false,
 		})
+	}
+
+	async fn request(
+		&self,
+		method: &'static str,
+		path: &str,
+		body: Option<Vec<u8>>,
+	) -> Result<crate::transport::Response, Problem> {
+		self.transport
+			.send(Request {
+				method,
+				path: path.to_owned(),
+				body,
+				bearer: self.bearer(),
+			})
+			.await
+			.map_err(|message| {
+				Problem {
+					unreachable: true,
+					..Problem::new(message)
+				}
+			})
+	}
+
+	/// Trades the refresh token for new tokens, and keeps them. Returns
+	/// whether there are new tokens to try again with.
+	async fn refresh(&self) -> bool {
+		let Some(refresh_token) = self.refresh_token() else {
+			return false;
+		};
+		let body = serde_json::to_vec(&serde_json::json!({ "refresh_token": refresh_token })).ok();
+		let Ok(response) = self.request("POST", "/auth/refresh", body).await else {
+			return false;
+		};
+		let tokens = (200..300)
+			.contains(&response.status)
+			.then(|| serde_json::from_slice::<Tokens>(&response.body).ok())
+			.flatten();
+		let renewed = tokens.is_some();
+		// A refused refresh token is spent: forget it, so the app signs in
+		// again rather than retrying it.
+		*self.tokens.borrow_mut() = tokens;
+		crate::session::keep(self.session()).await;
+		renewed
 	}
 
 	/// Whether the current session is still signed in.
@@ -178,15 +256,15 @@ impl Api {
 			)
 			.await?;
 		if self.uses_bearer() {
-			self.set_token(verified.token.clone());
+			*self.tokens.borrow_mut() = verified.tokens;
 		}
-		Ok(verified.token)
+		Ok(self.session())
 	}
 
-	/// Ends the session on the server, and forgets the token.
+	/// Ends the session on the server, and forgets the tokens.
 	pub async fn sign_out(&self) -> Result<(), Problem> {
 		let result = self.send("POST", "/auth/sign-out", None::<&()>).await;
-		self.set_token(None);
+		self.set_session(None);
 		result.map(|_| ())
 	}
 
@@ -269,6 +347,25 @@ fn encode(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+	use super::Tokens;
+
+	#[test]
+	fn kept_sessions_load_in_either_shape() {
+		let tokens = Tokens {
+			access_token: "access".into(),
+			refresh_token: Some("refresh".into()),
+		};
+		assert_eq!(Tokens::parse(&tokens.kept()), tokens);
+		// A token kept before access tokens expired still loads.
+		assert_eq!(
+			Tokens::parse("legacy"),
+			Tokens {
+				access_token: "legacy".into(),
+				refresh_token: None,
+			}
+		);
+	}
+
 	#[test]
 	fn query_values_are_encoded() {
 		assert_eq!(

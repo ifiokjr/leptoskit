@@ -1,2 +1,3 @@
 # The migrations, in the order they apply. `leptoskit db migration create` adds to it.
 20261030T070558_init
+20261101T013112_auth_pack_update

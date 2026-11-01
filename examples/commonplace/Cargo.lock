@@ -2741,6 +2741,7 @@ dependencies = [
  "inventory",
  "leptos",
  "leptoskit_bridge",
+ "leptoskit_config",
  "leptoskit_db",
  "leptoskit_plugin_crypto",
  "leptoskit_plugin_http",
