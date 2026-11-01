@@ -22,6 +22,14 @@ Open the hub's address in any browser. It needs no extension and no account, whi
 
 The hub listens only on this machine, and refuses requests from other websites open in your browser, so a page you visit can't read your app's state or send it commands.
 
+## In the browser's developer tools
+
+When you work on the web, the browser's developer tools are already open beside your page. The DevTools panel puts this page there too, as a **leptoskit** tab next to Elements and Console, in Chrome, Edge, and Firefox. It shows the session of the tab you're inspecting, follows it when you reload, and still lists your app's other platforms, so you can switch to the iOS Simulator from the same tab. Safari has no developer tools API for extensions, so there is no panel for it.
+
+The panel doesn't carry its own copy of DevTools. It shows the page of the hub that `leptoskit dev` runs, so it always matches your leptoskit version. When no hub is running, it says how to start one. If you run the hub with `--devtools-port`, enter that port in the panel's bar; the panel remembers it.
+
+The panel isn't in the browsers' extension stores yet. Until it is, open the hub's address in a tab.
+
 ## What it shows
 
 The left column lists every running app, grouped by name, with its platform and device: `web`, `iOS · iPhone 17`, `Android · Pixel 9`, `macOS`. When you reload a web page, it becomes a new session, and DevTools switches to it on its own. An older page that hasn't closed yet is marked "earlier".
@@ -73,7 +81,7 @@ It is kept in your cache folder: `~/.cache/leptoskit/devtools/<version>/`, or un
 
 ## Where it stands
 
-The hub, the page, and `leptoskit devtools fetch` work today. Apps report to the hub once `leptoskit dev` builds them with DevTools turned on, which is still being connected: until then the hub lists no sessions. Release builds never include DevTools. Once connected, each platform reports:
+The hub, the page, and `leptoskit devtools fetch` work today. The panel for Chrome, Edge, and Firefox is built, and isn't in their extension stores yet. Apps report to the hub once `leptoskit dev` builds them with DevTools turned on, which is still being connected: until then the hub lists no sessions. Release builds never include DevTools. Once connected, each platform reports:
 
 - **Web:** the element tree, frames, classes, picking, and highlighting.
 - **macOS, iOS, and Android:** the element tree, frames, source locations, and each class's CSS. Picking and highlighting inside the native apps come later.

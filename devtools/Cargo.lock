@@ -1078,6 +1078,8 @@ version = "0.1.0"
 dependencies = [
  "leptoskit_auth",
  "leptoskit_config",
+ "leptoskit_devtools",
+ "leptoskit_extension",
  "leptoskit_idp",
  "leptoskit_l10n",
  "leptoskit_macros",
@@ -1156,6 +1158,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_devtools"
+version = "0.1.0"
+dependencies = [
+ "gloo-net",
+ "gloo-timers",
+ "js-sys",
+ "leptoskit_devtools_protocol",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "leptoskit_devtools_protocol"
 version = "0.1.0"
 dependencies = [
@@ -1172,10 +1189,27 @@ dependencies = [
  "leptos",
  "leptoskit",
  "leptoskit_devtools_protocol",
+ "leptoskit_extension",
  "leptoskit_testing",
  "reactive_graph",
  "serde",
  "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "leptoskit_extension"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "js-sys",
+ "leptos",
+ "leptoskit_native",
+ "serde",
+ "serde_json",
+ "thiserror",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

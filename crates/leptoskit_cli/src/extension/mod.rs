@@ -223,22 +223,17 @@ fn write_package(
 	manifest.push('\n');
 	write("manifest.json", &manifest)?;
 
-	for (name, page) in extension.pages() {
-		let included = if name == "side_panel" {
-			extension.has_side_panel(browser)
-		} else {
-			extension.includes(page.browsers.as_deref(), browser)
-		};
-		if !included {
+	for page in extension.pages() {
+		if !extension.has_page(&page, browser) {
 			continue;
 		}
 		write(
-			&format!("{name}.html"),
-			&pages::page_html(name, &title, stylesheet),
+			&format!("{}.html", page.name),
+			&pages::page_html(page.name, &title, stylesheet),
 		)?;
 		write(
-			&format!("{name}.js"),
-			&pages::page_js(module, name, &page.route),
+			&format!("{}.js", page.name),
+			&pages::page_js(module, page.name, page.route),
 		)?;
 	}
 	if extension.background.is_some() || input.dev.is_some() {
@@ -391,7 +386,12 @@ fn check_routes(root: &Path, config: &LeptoskitConfig, extension: &ExtensionConf
 		.collect();
 	let configured = extension
 		.pages()
-		.map(|(name, page)| (format!("extension.{name}"), page.route.clone()))
+		.map(|page| {
+			// `extension.popup`, or `extension.devtools_page.panel` for the
+			// setting that isn't the table's `route`.
+			let surface = page.setting.strip_suffix(".route").unwrap_or(page.setting);
+			(surface.to_owned(), page.route.to_owned())
+		})
 		.chain(extension.content_scripts.iter().map(|script| {
 			(
 				format!("content script `{}`", script.name),

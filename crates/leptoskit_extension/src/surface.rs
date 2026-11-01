@@ -11,6 +11,12 @@ pub enum PageName {
 	Options,
 	/// The new tab page.
 	NewTab,
+	/// The page the browser's developer tools open out of sight, which adds
+	/// the extension's panel with
+	/// [`devtools::create_panel`](crate::devtools::create_panel).
+	Devtools,
+	/// The extension's panel in the developer tools.
+	DevtoolsPanel,
 }
 
 impl PageName {
@@ -22,6 +28,8 @@ impl PageName {
 			Self::SidePanel => "side_panel",
 			Self::Options => "options",
 			Self::NewTab => "new_tab",
+			Self::Devtools => "devtools",
+			Self::DevtoolsPanel => "devtools_panel",
 		}
 	}
 }
@@ -48,7 +56,8 @@ pub enum Surface {
 
 impl Surface {
 	/// Reads the surface the generated page names: `popup`, `side_panel`,
-	/// `options`, `new_tab`, or `content:<name>`.
+	/// `options`, `new_tab`, `devtools`, `devtools_panel`, or
+	/// `content:<name>`.
 	#[must_use]
 	pub fn parse(surface: &str, route: &str) -> Option<Self> {
 		let route = route.to_owned();
@@ -63,6 +72,8 @@ impl Surface {
 			"side_panel" => PageName::SidePanel,
 			"options" => PageName::Options,
 			"new_tab" => PageName::NewTab,
+			"devtools" => PageName::Devtools,
+			"devtools_panel" => PageName::DevtoolsPanel,
 			_ => return None,
 		};
 		Some(Self::Page { name, route })
@@ -113,7 +124,24 @@ mod tests {
 				route: "/overlay".into()
 			})
 		);
-		assert_eq!(Surface::parse("devtools", "/"), None);
+		assert_eq!(Surface::parse("sidebar", "/"), None);
 		assert_eq!(Surface::parse("popup", "/clip").unwrap().route(), "/clip");
+	}
+
+	#[test]
+	fn the_developer_tools_pages_parse_and_name_themselves() {
+		for (name, page) in [
+			("devtools", PageName::Devtools),
+			("devtools_panel", PageName::DevtoolsPanel),
+		] {
+			assert_eq!(page.name(), name);
+			assert_eq!(
+				Surface::parse(name, "/devtools"),
+				Some(Surface::Page {
+					name: page,
+					route: "/devtools".into()
+				})
+			);
+		}
 	}
 }

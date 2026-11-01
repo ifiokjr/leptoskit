@@ -6,6 +6,7 @@ The page `leptoskit dev`'s DevTools hub serves at `/`, and the browser DevTools 
 - `src/view.rs`: the screens.
 - `src/store.rs`: the actions the controls run.
 - `src/hub.rs`: the hub API, the change stream, and the panel's `postMessage` contract.
+- `src/panel.rs`: the browser DevTools panel, which this app becomes when it's built as an extension. It is a small shell: it frames the hub's interface at `http://127.0.0.1:<port>/?embed=panel` rather than bundling it, and passes it the inspected tab's session.
 
 Build it, then run any app's `leptoskit dev` with the build:
 
@@ -13,6 +14,16 @@ Build it, then run any app's `leptoskit dev` with the build:
 devenv shell devtools:build
 LEPTOSKIT_DEVTOOLS_UI=$PWD/target/devtools/ui leptoskit dev
 ```
+
+Build the panel for Chromium and Firefox, and check it in Chrome for Testing:
+
+```sh
+cd devtools
+cargo run --manifest-path ../Cargo.toml --package leptoskit_cli --bin leptoskit -- build --platform extension
+cargo run --manifest-path ../Cargo.toml --package leptoskit_cli --bin leptoskit -- test extension
+```
+
+Load `.leptoskit/extension/chromium` unpacked at `chrome://extensions`, or `.leptoskit/extension/firefox/manifest.json` from `about:debugging`, then open the developer tools on a page `leptoskit dev` serves and choose the **leptoskit** panel.
 
 The tests render every screen on the headless backend and drive its controls:
 

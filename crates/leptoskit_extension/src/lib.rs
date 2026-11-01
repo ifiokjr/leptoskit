@@ -3,10 +3,10 @@
 //! Browser extensions for leptoskit apps.
 //!
 //! An extension is the app's own routes in a few new places: the toolbar
-//! popup, the side panel, the options page, the new tab page, and frames on
-//! other sites' pages. `leptoskit build --platform extension` builds one wasm
-//! client and packages it for Chromium, Firefox, and Safari. The app names
-//! its entry points once:
+//! popup, the side panel, the options page, the new tab page, a panel in the
+//! browser's developer tools, and frames on other sites' pages. `leptoskit
+//! build --platform extension` builds one wasm client and packages it for
+//! Chromium, Firefox, and Safari. The app names its entry points once:
 //!
 //! ```ignore
 //! leptoskit::extension::entry!(main: extension, background: background);
@@ -35,6 +35,7 @@ pub mod alarms;
 pub mod background;
 pub mod commands;
 pub mod context_menus;
+pub mod devtools;
 pub mod notifications;
 pub mod page;
 pub mod permissions;

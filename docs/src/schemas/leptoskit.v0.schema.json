@@ -1061,6 +1061,35 @@
 				}
 			]
 		},
+		"DevtoolsPage": {
+			"description": "A panel in the browser's developer tools. The developer tools open\n`route` out of sight each time they open for a tab, and that page adds the\npanel, which shows `panel`.",
+			"type": "object",
+			"properties": {
+				"browsers": {
+					"description": "The families that get the panel; every configured family but Safari,\nwhich has no developer tools API, when omitted.",
+					"type": [
+						"array",
+						"null"
+					],
+					"items": {
+						"$ref": "#/$defs/Browser"
+					}
+				},
+				"panel": {
+					"description": "The app route the panel shows, such as `/devtools/panel`.",
+					"type": "string"
+				},
+				"route": {
+					"description": "The app route the developer tools open out of sight, such as\n`/devtools`. It adds the panel with\n`leptoskit::extension::devtools::create_panel` and shows nothing.",
+					"type": "string"
+				}
+			},
+			"additionalProperties": false,
+			"required": [
+				"route",
+				"panel"
+			]
+		},
 		"EdgeStore": {
 			"description": "A product in Microsoft Partner Center, created once there.",
 			"type": "object",
@@ -1156,6 +1185,17 @@
 					"type": [
 						"string",
 						"null"
+					]
+				},
+				"devtools_page": {
+					"description": "A panel in the browser's developer tools. Safari has no developer\ntools API, so its package leaves it out.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/DevtoolsPage"
+						},
+						{
+							"type": "null"
+						}
 					]
 				},
 				"firefox": {

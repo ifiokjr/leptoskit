@@ -136,6 +136,12 @@ fn insert_surfaces(manifest: &mut Map<String, Value>, input: &ManifestInput<'_>,
 			json!({ "newtab": "new_tab.html" }),
 		);
 	}
+	// The developer tools open this page out of sight for every tab they
+	// inspect; it adds the panel, `devtools_panel.html`. It needs no
+	// permission.
+	if extension.has_devtools_page(browser) {
+		manifest.insert("devtools_page".into(), json!("devtools.html"));
+	}
 	if extension.has_side_panel(browser) {
 		match browser {
 			Browser::Chromium => {

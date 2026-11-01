@@ -98,6 +98,35 @@ mod imp {
 		}
 	}
 
+	/// Calls the API function at `path` with `args` and a callback, and
+	/// waits for the callback's first two arguments. Chromium's developer
+	/// tools APIs answer only through a callback; Firefox calls it too.
+	pub(crate) async fn call_back(
+		path: &str,
+		args: &[JsValue],
+	) -> Result<(JsValue, JsValue), Error> {
+		let (this, function) = function(path)?;
+		let promise = Promise::new(&mut |resolve, reject| {
+			let answered = Closure::once_into_js(move |first: JsValue, second: JsValue| {
+				let _ = resolve.call1(&JsValue::NULL, &Array::of2(&first, &second));
+			});
+			let args: Array = args.iter().chain([&answered]).collect();
+			if let Err(error) = function.apply(&this, &args) {
+				let _ = reject.call1(&JsValue::NULL, &error);
+			}
+		});
+		let answer: Array = JsFuture::from(promise)
+			.await
+			.map_err(|error| Error::Browser(message(&error)))?
+			.unchecked_into();
+		Ok((answer.get(0), answer.get(1)))
+	}
+
+	/// The value at `path` under the namespace, as a serde value.
+	pub(crate) fn property<T: DeserializeOwned>(path: &str) -> Result<T, Error> {
+		from_js(&object(path)?)
+	}
+
 	/// A serde value as a JavaScript value.
 	pub(crate) fn to_js(value: &impl Serialize) -> Result<JsValue, Error> {
 		let json = serde_json::to_string(value).map_err(|error| Error::Json(error.to_string()))?;
@@ -203,6 +232,12 @@ pub(crate) async fn call<T: DeserializeOwned>(
 #[must_use]
 pub(crate) fn has(_path: &str) -> bool {
 	false
+}
+
+/// Outside a browser there's no value to read.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn property<T: DeserializeOwned>(path: &str) -> Result<T, Error> {
+	Err(Error::Unavailable(path.to_owned()))
 }
 
 /// Outside a browser, listening fails as unavailable.
