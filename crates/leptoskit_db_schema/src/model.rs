@@ -11,6 +11,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::Function;
+use crate::Publication;
 use crate::SchemaError;
 use crate::Sequence;
 use crate::Trigger;
@@ -66,6 +67,10 @@ pub struct Schema {
 	/// The triggers, sorted by table and name.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub triggers: Vec<Trigger>,
+	/// Postgres only: the publications logical replication reads, sorted by
+	/// name.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub publications: Vec<Publication>,
 }
 
 impl Schema {
@@ -80,6 +85,7 @@ impl Schema {
 			sequences: Vec::new(),
 			functions: Vec::new(),
 			triggers: Vec::new(),
+			publications: Vec::new(),
 		}
 	}
 
@@ -97,6 +103,7 @@ impl Schema {
 			sequences: Vec::new(),
 			functions: Vec::new(),
 			triggers: Vec::new(),
+			publications: Vec::new(),
 		}
 	}
 
@@ -173,6 +180,21 @@ impl Schema {
 		self.triggers
 			.sort_by(|left, right| (&left.table, &left.name).cmp(&(&right.table, &right.name)));
 		self
+	}
+
+	/// The same schema with these publications, sorted by name.
+	#[must_use]
+	pub fn with_publications(mut self, mut publications: Vec<Publication>) -> Self {
+		publications.sort_by(|left, right| left.name.cmp(&right.name));
+		self.publications = publications;
+		self
+	}
+
+	/// The publication with this name, if there is one.
+	pub fn publication(&self, name: &str) -> Option<&Publication> {
+		self.publications
+			.iter()
+			.find(|publication| publication.name == name)
 	}
 
 	/// The triggers on `table`, in name order.
@@ -331,6 +353,15 @@ impl TableName {
 		}
 	}
 
+	/// A name as [`Display`](fmt::Display) writes it: `posts`, or
+	/// `billing.invoices` with a namespace.
+	pub fn parse(name: &str) -> Self {
+		match name.split_once('.') {
+			Some((namespace, name)) => Self::namespaced(namespace, name),
+			None => Self::new(name),
+		}
+	}
+
 	/// The name with its namespace joined by `_`: the SQLite table name, and
 	/// the stem of every constraint and index name in both dialects.
 	pub fn flat(&self) -> String {
@@ -397,6 +428,31 @@ pub struct Table {
 	/// it.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub on_account_merge: Option<MergeStrategy>,
+	/// Postgres only: the table is split into partitions by ranges of one
+	/// column. The migration creates it with a default partition, which
+	/// holds rows no range covers; the ranges themselves are made and
+	/// dropped as the table runs, by whatever maintains it, and aren't part
+	/// of the schema.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partition: Option<Partitioning>,
+}
+
+/// How a table is partitioned: by ranges of one column's values.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Partitioning {
+	/// The column the ranges cover. The primary key and every unique index
+	/// include it, as Postgres requires.
+	pub column: String,
+}
+
+impl Partitioning {
+	/// Ranges of `column`.
+	pub fn range(column: impl Into<String>) -> Self {
+		Self {
+			column: column.into(),
+		}
+	}
 }
 
 /// How a table's rows move when one account is merged into another, for
@@ -450,6 +506,7 @@ impl Table {
 			geo_indexes: Vec::new(),
 			vectors: Vec::new(),
 			on_account_merge: None,
+			partition: None,
 		}
 	}
 
@@ -468,6 +525,23 @@ impl Table {
 	/// The name of the primary key constraint.
 	pub fn primary_key_name(&self) -> String {
 		crate::constraint_name(&self.name, &[], "pkey")
+	}
+
+	/// The same table, partitioned by ranges of `column`.
+	#[must_use]
+	pub fn partitioned_by(mut self, column: impl Into<String>) -> Self {
+		self.partition = Some(Partitioning::range(column));
+		self
+	}
+
+	/// The name of a partitioned table's default partition, which holds the
+	/// rows no range covers: the table's name followed by `_default`, in the
+	/// same namespace.
+	pub fn default_partition(&self) -> TableName {
+		TableName {
+			namespace: self.name.namespace.clone(),
+			name: crate::shorten_identifier(&format!("{}_default", self.name.name)),
+		}
 	}
 }
 

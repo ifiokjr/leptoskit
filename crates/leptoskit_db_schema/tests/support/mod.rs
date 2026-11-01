@@ -922,6 +922,64 @@ pub fn scenarios() -> Vec<Scenario> {
 			expected_rows: &[("posts", 3), ("live_changes", 5)],
 		},
 		Scenario {
+			name: "capture_by_replication",
+			before: blog,
+			after: replicated_blog,
+			no_renames: false,
+			only: Some(Dialect::Postgres),
+			seed: SEED,
+			expected_rows: &[("posts", 3), ("live_changes", 0)],
+		},
+		Scenario {
+			name: "switch_capture_to_replication",
+			before: live_blog,
+			after: replicated_blog,
+			no_renames: false,
+			only: Some(Dialect::Postgres),
+			seed: SEED,
+			expected_rows: &[("posts", 3), ("live_changes", 5)],
+		},
+		Scenario {
+			name: "switch_capture_to_triggers",
+			before: replicated_blog,
+			after: live_blog,
+			no_renames: false,
+			only: Some(Dialect::Postgres),
+			seed: SEED,
+			expected_rows: &[("posts", 3), ("live_changes", 0)],
+		},
+		// `users` stops being live, and `posts` is renamed and copies fewer
+		// columns: the publication follows.
+		Scenario {
+			name: "change_what_replication_publishes",
+			before: replicated_blog,
+			after: |dialect| {
+				let mut schema = blog(dialect);
+				let posts = table_mut(&mut schema, "posts");
+				posts.name = TableName::new("articles");
+				posts.renamed_from = Some(TableName::new("posts"));
+				table_mut(&mut schema, "tags").foreign_keys[0].references =
+					TableName::new("articles");
+				live::with_capture(
+					live(&schema, &[("articles", &["id", "title"])]),
+					live::Capture::Replication,
+				)
+			},
+			no_renames: false,
+			only: Some(Dialect::Postgres),
+			seed: SEED,
+			expected_rows: &[("articles", 3), ("live_changes", 0)],
+		},
+		Scenario {
+			name: "partition_the_change_log",
+			before: unpartitioned_live_blog,
+			after: live_blog,
+			no_renames: false,
+			only: Some(Dialect::Postgres),
+			seed: SEED,
+			expected_rows: &[("posts", 3), ("live_changes", 5), ("live_commits", 5)],
+		},
+		Scenario {
 			name: "remove_the_live_pack",
 			before: live_blog,
 			after: blog,
@@ -1052,14 +1110,38 @@ pub fn live(schema: &Schema, tables: &[(&str, &[&str])]) -> Schema {
 	let (sequences, functions, pack_triggers) = live::pack(dialect);
 	triggers.extend(pack_triggers);
 	let mut tables = schema.tables.clone();
-	tables.extend(live_tables());
+	tables.extend(live_tables(dialect));
 	Schema::new(dialect, tables)
 		.with_views(schema.views.clone())
 		.with_routines(sequences, functions, triggers)
 }
 
-/// The `live` pack's tables, as `leptoskit_db` declares them.
-pub fn live_tables() -> Vec<Table> {
+/// [`live_blog`], captured by logical replication: Postgres only.
+pub fn replicated_blog(dialect: Dialect) -> Schema {
+	live::with_capture(live_blog(dialect), live::Capture::Replication)
+}
+
+/// [`live_blog`] as it was before the change log was partitioned and
+/// recorded commits' write-ahead log positions.
+pub fn unpartitioned_live_blog(dialect: Dialect) -> Schema {
+	let mut schema = live_blog(dialect);
+
+	for table in &mut schema.tables {
+		if table.name == live::table(live::COMMITS) {
+			table.columns.retain(|column| column.name != "lsn");
+			table.indexes = vec![Index::unique(&table.name, &["txid"])];
+		}
+
+		table.partition = None;
+	}
+
+	schema
+}
+
+/// The `live` pack's tables, as `leptoskit_db` declares them for `dialect`:
+/// on Postgres, the commits partitioned by version and the changes by
+/// their order.
+pub fn live_tables(dialect: Dialect) -> Vec<Table> {
 	let commits_name = live::table(live::COMMITS);
 	let mut commits = Table::new(
 		commits_name.clone(),
@@ -1069,12 +1151,11 @@ pub fn live_tables() -> Vec<Table> {
 			Column::new("committed_at", ColumnType::Timestamp),
 			Column::new("actor", ColumnType::Uuid).nullable(),
 			Column::new("origin", ColumnType::TEXT),
+			Column::new("lsn", ColumnType::Int64).nullable(),
 		],
 		vec!["version".into()],
 	);
-	commits
-		.indexes
-		.push(Index::unique(&commits_name, &["txid"]));
+	commits.indexes.push(Index::new(&commits_name, &["txid"]));
 
 	let changes_name = live::table(live::CHANGES);
 	let mut changes = Table::new(
@@ -1109,6 +1190,11 @@ pub fn live_tables() -> Vec<Table> {
 		vec![Column::new("txid", ColumnType::Int64)],
 		vec!["txid".into()],
 	);
+
+	if dialect == Dialect::Postgres {
+		commits = commits.partitioned_by("version");
+		changes = changes.partitioned_by("seq");
+	}
 
 	vec![commits, changes, pending]
 }

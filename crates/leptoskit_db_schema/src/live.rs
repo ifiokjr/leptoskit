@@ -18,12 +18,20 @@
 //!   leave `version` empty, and `leptoskit_db` stamps the next version on every
 //!   unversioned change just before it commits.
 //!
+//! On Postgres, writes can instead be captured by logical replication
+//! ([`Capture::Replication`]): migrations then leave out the capture triggers
+//! and the seal, and publish every live table instead, and `leptoskit_db`'s
+//! capture task decodes the write-ahead log into the same tables, after the
+//! writers have committed.
+//!
 //! The pack's tables are declared in `leptoskit_db`, which reads them; this
 //! module renders what runs inside the database.
 
 use crate::ColumnType;
 use crate::Dialect;
 use crate::Function;
+use crate::Publication;
+use crate::PublishedTable;
 use crate::Schema;
 use crate::Sequence;
 use crate::Table;
@@ -76,6 +84,119 @@ pub const DEFAULT_ORIGIN: &str = "sql";
 
 /// The name of the Postgres trigger on each live table.
 pub const POSTGRES_TRIGGER: &str = "live_capture";
+
+/// The publication replication capture reads, over every live table.
+pub const PUBLICATION: &str = "leptoskit_live";
+
+/// The prefix of the logical replication slot replication capture holds,
+/// which the database's name follows, since a cluster's slots share one
+/// namespace.
+pub const SLOT_PREFIX: &str = "leptoskit_live";
+
+/// The prefix of the logical message a writing transaction emits with its
+/// actor and origin, which replication capture records with its commit.
+pub const MESSAGE_PREFIX: &str = "leptoskit_live";
+
+/// The session-scoped advisory lock the one server capturing by replication
+/// holds, while the others wait to take over (`lkdbcapt` in ASCII).
+pub const CAPTURE_LOCK: i64 = 0x6c6b_6462_6361_7074;
+
+/// How writes to live tables reach the change log: `[db] live_capture`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Capture {
+	/// Triggers on every live table, in the writing transaction, with a
+	/// version taken at commit under a lock. Both databases.
+	#[default]
+	Triggers,
+	/// Logical replication, Postgres only: a publication over every live
+	/// table, which one server decodes into the change log after the
+	/// writers commit, so writers pay nothing extra.
+	Replication,
+}
+
+impl Capture {
+	/// The mode's name, as `[db] live_capture` spells it.
+	pub const fn as_str(self) -> &'static str {
+		match self {
+			Self::Triggers => "triggers",
+			Self::Replication => "replication",
+		}
+	}
+
+	/// The mode `[db] live_capture` names.
+	pub fn from_name(name: &str) -> Option<Self> {
+		match name {
+			"triggers" => Some(Self::Triggers),
+			"replication" => Some(Self::Replication),
+			_ => None,
+		}
+	}
+}
+
+/// `schema`, whose live tables have capture triggers, captured by `capture`
+/// instead: unchanged for triggers; for replication, without the capture
+/// triggers and the seal, and with [`PUBLICATION`] over every table that
+/// had them, recording the columns they copied.
+pub fn with_capture(schema: Schema, capture: Capture) -> Schema {
+	if capture == Capture::Triggers {
+		return schema;
+	}
+
+	let tables: Vec<PublishedTable> = schema
+		.triggers
+		.iter()
+		.filter(|trigger| is_capture(trigger))
+		.filter_map(|trigger| {
+			let table = schema.table(&trigger.table)?;
+			Some(PublishedTable {
+				table: table.name.clone(),
+				key: table.primary_key.clone(),
+				columns: trigger.columns.clone(),
+			})
+		})
+		.collect();
+	let mut tables = tables;
+	tables.dedup_by(|left, right| left.table == right.table);
+
+	let mut schema = schema;
+	schema
+		.triggers
+		.retain(|trigger| !is_capture(trigger) && !is_seal(trigger));
+	let publications = vec![Publication::new(PUBLICATION, tables)];
+	schema.with_publications(publications)
+}
+
+/// Whether `trigger` is the deferred trigger that seals a commit.
+fn is_seal(trigger: &Trigger) -> bool {
+	matches!(&trigger.action, TriggerAction::Function { function, .. } if *function == seal_function())
+}
+
+/// How `schema` captures writes to live tables: by replication when it has
+/// the live publication.
+pub fn capture_of(schema: &Schema) -> Capture {
+	if schema.publication(PUBLICATION).is_some() {
+		Capture::Replication
+	} else {
+		Capture::Triggers
+	}
+}
+
+/// The replication slot capture holds for the database named `database`:
+/// [`SLOT_PREFIX`], then the name with anything a slot name can't hold
+/// replaced by `_`, within Postgres's 63 bytes.
+pub fn slot_name(database: &str) -> String {
+	let cleaned: String = database
+		.chars()
+		.map(|character| {
+			match character {
+				'a'..='z' | '0'..='9' | '_' => character,
+				'A'..='Z' => character.to_ascii_lowercase(),
+				_ => '_',
+			}
+		})
+		.collect();
+	shorten_identifier(&format!("{SLOT_PREFIX}_{cleaned}")).to_ascii_lowercase()
+}
 
 /// A table of the pack, by its own name.
 pub fn table(name: &str) -> TableName {

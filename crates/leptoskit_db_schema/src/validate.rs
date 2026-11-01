@@ -398,6 +398,80 @@ impl Schema {
 		self.validate_sequences(postgres, &mut names, problems);
 		self.validate_functions(postgres, &mut names, problems);
 		self.validate_triggers(postgres, problems);
+		self.validate_publications(postgres, problems);
+	}
+
+	/// A partitioned table is on Postgres, and its key and unique indexes
+	/// include the column its ranges cover, as Postgres requires.
+	fn validate_partition(&self, table: &Table, problems: &mut Problems) {
+		let Some(partition) = &table.partition else {
+			return;
+		};
+		let location = table.name.to_string();
+
+		if self.dialect != Dialect::Postgres {
+			problems.push(&location, "only Postgres partitions tables");
+
+			return;
+		}
+
+		problems.column_exists(table, &location, "the partitioning", &partition.column);
+
+		if !table.primary_key.contains(&partition.column) {
+			problems.push(
+				&location,
+				format!(
+					"the primary key must include `{}`, which the partitions cover",
+					partition.column
+				),
+			);
+		}
+
+		for index in table.indexes.iter().filter(|index| index.unique) {
+			if !index.columns.contains(&partition.column) {
+				problems.push(
+					&location,
+					format!(
+						"unique index `{}` must include `{}`, which the partitions cover",
+						index.name, partition.column
+					),
+				);
+			}
+		}
+	}
+
+	/// Publications exist only on Postgres, once each, over tables of the
+	/// schema and their columns.
+	fn validate_publications(&self, postgres: bool, problems: &mut Problems) {
+		let mut names = HashSet::new();
+
+		for publication in &self.publications {
+			let location = format!("publication {}", publication.name);
+			problems.identifier(&location, "publication name", &publication.name);
+
+			if !postgres {
+				problems.push(&location, "SQLite has no publications");
+			}
+
+			if !names.insert(publication.name.as_str()) {
+				problems.push(&location, "the publication is declared twice");
+			}
+
+			for published in &publication.tables {
+				let Some(table) = self.table(&published.table) else {
+					problems.push(
+						&location,
+						format!("publishes `{}`, which isn't a table", published.table),
+					);
+
+					continue;
+				};
+
+				for column in published.key.iter().chain(&published.columns) {
+					problems.column_exists(table, &location, &publication.name, column);
+				}
+			}
+		}
 	}
 
 	/// Sequences exist only on Postgres, and no other object shares their
@@ -681,6 +755,7 @@ impl Schema {
 
 		validate_geo_indexes(table, problems);
 		validate_vectors(self.dialect, table, problems);
+		self.validate_partition(table, problems);
 
 		self.validate_row_security(table, problems);
 
