@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["alloc"] }
 commonplace_db = { path = "../commonplace_db" }
-leptoskit_db = { version = "=0.1.0", default-features = false, path = "../../../crates/leptoskit_db" }
+leptoskit_db = { version = "=0.1.1", default-features = false, path = "../../../crates/leptoskit_db" }
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]

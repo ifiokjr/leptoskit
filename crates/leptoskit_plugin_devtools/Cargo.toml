@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_plugin_devtools"
-version.workspace = true
+version = "0.1.1"
 authors.workspace = true
 categories = ["development-tools::debugging", "gui"]
 edition.workspace = true

@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 commonplace_db = { path = "../commonplace_db", features = ["server"] }
 commonplace_shared = { path = "../commonplace_shared" }
-leptoskit = { version = "=0.1.0", default-features = false, path = "../../../crates/leptoskit", features = ["server", "db-sqlite", "auth"] }
+leptoskit = { version = "=0.1.1", default-features = false, path = "../../../crates/leptoskit", features = ["server", "db-sqlite", "auth"] }
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]

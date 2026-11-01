@@ -5,8 +5,8 @@ edition = "2024"
 publish = false
 
 [dependencies]
-leptoskit_auth = { version = "=0.1.0", default-features = false, path = "../../../crates/leptoskit_auth" }
-leptoskit_db = { version = "=0.1.0", default-features = false, path = "../../../crates/leptoskit_db" }
+leptoskit_auth = { version = "=0.1.1", default-features = false, path = "../../../crates/leptoskit_auth" }
+leptoskit_db = { version = "=0.1.1", default-features = false, path = "../../../crates/leptoskit_db" }
 
 [features]
 # The server side of the tables: rows, queries, policies, migrations, and the
