@@ -16,7 +16,7 @@ leptoskit build --platform macos
 open .leptoskit/macos/App.app
 ```
 
-The build compiles your app to WebAssembly, builds the AppKit host for your Mac's architecture, and assembles `.leptoskit/macos/App.app`. It signs the app ad hoc, which is enough to run it on your own Mac. To distribute it, sign it with your Developer ID and notarize it.
+The build compiles your app to WebAssembly, builds the AppKit host for your Mac's architecture, and assembles `.leptoskit/macos/App.app`. It signs the app ad hoc, which is enough to run it on your own Mac. To distribute it, `leptoskit publish macos` signs it with your Developer ID, notarizes it, and makes a `.dmg` and a `.zip`; see [Publishing to the stores](../guide/24-publishing.md#a-notarized-macos-download).
 
 While you work, `leptoskit dev --platform macos` builds and opens the app, and replaces its interface in the same window each time you save. See [building and serving](../guide/04-building.md#leptoskit-dev).
 

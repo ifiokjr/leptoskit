@@ -150,6 +150,17 @@ pub struct KeyFile {
 }
 
 impl KeyFile {
+	/// A key file at `path`, for tests of the tools that read it.
+	#[cfg(test)]
+	pub fn at(path: PathBuf, id: Secret, issuer: Secret) -> Self {
+		Self {
+			path,
+			_temporary: None,
+			id,
+			issuer,
+		}
+	}
+
 	/// `xcodebuild`'s arguments for signing in with the key.
 	#[must_use]
 	pub fn xcodebuild_args(&self) -> Vec<String> {

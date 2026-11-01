@@ -1556,6 +1556,35 @@
 			},
 			"additionalProperties": false
 		},
+		"MacosDistribution": {
+			"description": "How the macOS app is distributed.",
+			"oneOf": [
+				{
+					"description": "Signed with a Developer ID certificate and notarized by Apple, so\nGatekeeper opens it on any Mac.",
+					"type": "string",
+					"const": "developer_id"
+				}
+			]
+		},
+		"MacosStore": {
+			"description": "The notarized macOS download.",
+			"type": "object",
+			"properties": {
+				"distribution": {
+					"description": "`developer_id`.",
+					"$ref": "#/$defs/MacosDistribution",
+					"default": "developer_id"
+				},
+				"github_release": {
+					"description": "A GitHub repository, `owner/name`, whose release `v<app.version>`\ngets the `.dmg` and `.zip` with `--submit`.",
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"additionalProperties": false
+		},
 		"MarkupStyle": {
 			"description": "How a project writes its component trees.",
 			"oneOf": [
@@ -1852,6 +1881,17 @@
 					"anyOf": [
 						{
 							"$ref": "#/$defs/FirefoxStore"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"macos": {
+					"description": "The macOS app, signed with a Developer ID and notarized, for download\noutside the Mac App Store.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/MacosStore"
 						},
 						{
 							"type": "null"

@@ -2,7 +2,7 @@
 
 Getting an app into a store is where a release usually loses a day. Every store has its own upload API, its own version rules, its own review form, and pages that can only be filled in by hand. `leptoskit publish` does the uploading, and finishes by telling you exactly what is left in each store's dashboard, with the text to paste.
 
-Today it publishes [browser extensions](../platforms/extension.md) to the Chrome Web Store, Microsoft Edge Add-ons, and addons.mozilla.org, and [iOS apps](../platforms/ios.md) to TestFlight and the App Store.
+Today it publishes [browser extensions](../platforms/extension.md) to the Chrome Web Store, Microsoft Edge Add-ons, and addons.mozilla.org, [iOS apps](../platforms/ios.md) to TestFlight and the App Store, and [macOS apps](../platforms/macos.md) as notarized downloads.
 
 ## An example
 
@@ -37,7 +37,8 @@ Every store has two steps:
   - in the Chrome Web Store, the item's draft;
   - in Edge Add-ons, the product's draft submission;
   - on addons.mozilla.org, a validated upload;
-  - in App Store Connect, a build in TestFlight, for the testers in the groups you name.
+  - in App Store Connect, a build in TestFlight, for the testers in the groups you name;
+  - for macOS, a notarized `.dmg` and `.zip` in `.leptoskit/publish/macos/`.
 
   Nobody else sees it yet.
 - **Submit.** `--submit` sends it for review, and then to users. In a terminal, it asks once more first; `--yes` skips the question for scripts, and CI never asks. `--staged` keeps an approved Chrome Web Store version until you publish it by hand.
@@ -46,12 +47,13 @@ Each run builds what it uploads in release mode, so a stale build is never uploa
 
 ## Credentials
 
-| Store                  | Environment variables                                                                                                                            | Where to get them                                                                                       |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| Chrome Web Store       | `LEPTOSKIT_PUBLISH_CHROME_SERVICE_ACCOUNT`: the JSON key, or its path                                                                            | A Google Cloud service account, added in the developer dashboard under **Account**, **API access**      |
-| Microsoft Edge Add-ons | `LEPTOSKIT_PUBLISH_EDGE_CLIENT_ID` and `LEPTOSKIT_PUBLISH_EDGE_API_KEY`                                                                          | Partner Center's **Publish API** page. Keys expire after 72 days.                                       |
-| addons.mozilla.org     | `LEPTOSKIT_PUBLISH_FIREFOX_JWT_ISSUER` and `LEPTOSKIT_PUBLISH_FIREFOX_JWT_SECRET`                                                                | The add-on developer hub's **API keys** page                                                            |
-| App Store Connect      | `LEPTOSKIT_PUBLISH_APPLE_ISSUER_ID`, `LEPTOSKIT_PUBLISH_APPLE_KEY_ID`, and `LEPTOSKIT_PUBLISH_APPLE_KEY`: the `.p8` file's path, or its contents | **Users and Access**, **Integrations**, **App Store Connect API**: a team key with the App Manager role |
+| Store                  | Environment variables                                                                                                                            | Where to get them                                                                                                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Chrome Web Store       | `LEPTOSKIT_PUBLISH_CHROME_SERVICE_ACCOUNT`: the JSON key, or its path                                                                            | A Google Cloud service account, added in the developer dashboard under **Account**, **API access**                                                                             |
+| Microsoft Edge Add-ons | `LEPTOSKIT_PUBLISH_EDGE_CLIENT_ID` and `LEPTOSKIT_PUBLISH_EDGE_API_KEY`                                                                          | Partner Center's **Publish API** page. Keys expire after 72 days.                                                                                                              |
+| addons.mozilla.org     | `LEPTOSKIT_PUBLISH_FIREFOX_JWT_ISSUER` and `LEPTOSKIT_PUBLISH_FIREFOX_JWT_SECRET`                                                                | The add-on developer hub's **API keys** page                                                                                                                                   |
+| App Store Connect      | `LEPTOSKIT_PUBLISH_APPLE_ISSUER_ID`, `LEPTOSKIT_PUBLISH_APPLE_KEY_ID`, and `LEPTOSKIT_PUBLISH_APPLE_KEY`: the `.p8` file's path, or its contents | **Users and Access**, **Integrations**, **App Store Connect API**: a team key with the App Manager role                                                                        |
+| Developer ID (macOS)   | `LEPTOSKIT_PUBLISH_MACOS_IDENTITY`: the certificate's name, plus the three App Store Connect variables, which notarize the app                   | A **Developer ID Application** certificate, made in Xcode under **Settings**, **Accounts**, **Manage Certificates**; `security find-identity -v -p codesigning` shows its name |
 
 Set them in the environment, or put them in a TOML file outside the project and pass `--credentials <file>`. A file inside the project is refused unless git ignores it. Values are never printed, in output or in errors. (Xcode prints its own command line, which shows the App Store key's ID and issuer ID, but never the key.)
 
@@ -90,6 +92,32 @@ These stay in App Store Connect's own pages, and the steps after each run list t
 - App Review's contact details, and a demo account if the app needs signing in.
 
 `--dry-run` checks the configuration and writes `.leptoskit/publish/ios/ExportOptions.plist`, but doesn't build the app, since an archive needs your signing team.
+
+## A notarized macOS download
+
+A Mac opens an app downloaded from the web only if it is signed with a Developer ID and notarized by Apple. `leptoskit publish macos` does both, for download from your own site or a GitHub release:
+
+```toml
+[publish.macos]
+distribution = "developer_id"
+github_release = "you/notes" # optional: attach the files to a release with --submit
+```
+
+```bash
+leptoskit publish macos          # build, sign, notarize, and staple
+leptoskit publish macos --submit # also attach them to the release v<app.version>
+```
+
+This runs on a Mac with Xcode and the Developer ID certificate in its keychain. It builds the app in release mode, and then, on a copy in `.leptoskit/publish/macos/`:
+
+1. sets its version to `app.version` (and its build number, with `--build-number <n>`);
+2. signs the Safari extension inside it, then the app, with the hardened runtime and a secure timestamp;
+3. makes a `.dmg`, signs it, and sends it to Apple's notary service, which takes a few minutes. If Apple refuses it, the error gives the `xcrun notarytool log` command that shows why;
+4. staples Apple's ticket to the `.dmg` and the app, so they open without a network connection, and zips the app.
+
+With `github_release` and `--submit`, the `.dmg` and `.zip` are attached to the GitHub release `v<app.version>`, which is made if it's missing; this uses the `gh` command, signed in. Without `github_release`, put the `.dmg` wherever people download your app; the steps after each run remind you.
+
+The Mac App Store isn't supported: it needs the app sandboxed, which the macOS host isn't yet.
 
 ## What to do next
 
@@ -139,6 +167,6 @@ leptoskit skill                  # print it, to paste into any agent
 
 ## What doesn't work yet
 
-- **Google Play and notarized macOS downloads** aren't uploaded yet. Safari's extension ships inside your iOS app, so it goes through the App Store with the app.
+- **Google Play** isn't uploaded yet, and neither is the Mac App Store. Safari's extension ships inside your iOS app, so it goes through the App Store with the app.
 - **Listing text and screenshots** aren't uploaded; they appear in the steps instead.
 - **A brand new Firefox add-on** needs its first version submitted on the site. After that, `leptoskit publish firefox --submit` adds versions.

@@ -83,7 +83,7 @@ final class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
 
 /// The app extension's `Info.plist`.
 #[must_use]
-pub fn info_plist(config: &LeptoskitConfig, macos: bool, build_number: u64) -> String {
+pub fn info_plist(config: &LeptoskitConfig, macos: bool) -> String {
 	let name = config
 		.extension
 		.as_ref()
@@ -97,11 +97,12 @@ pub fn info_plist(config: &LeptoskitConfig, macos: bool, build_number: u64) -> S
 	};
 	// The App Store requires an extension's versions to match its app's: on
 	// iOS both come from the Xcode project's build settings, which
-	// `leptoskit publish` sets; the macOS app is assembled with them.
+	// `leptoskit publish` sets, and `leptoskit publish macos` sets them in
+	// the macOS copy it signs.
 	let (short, build) = if macos {
 		(
 			format!("{}.{}.{}", version.major, version.minor, version.patch),
-			build_number.to_string(),
+			"1".to_owned(),
 		)
 	} else {
 		(
@@ -204,7 +205,7 @@ pub fn assemble_macos(
 	}
 	let contents = appex.join("Contents");
 	copy(&binary, &contents.join("MacOS").join(NAME))?;
-	write(&contents.join("Info.plist"), &info_plist(config, true, 1))?;
+	write(&contents.join("Info.plist"), &info_plist(config, true))?;
 	// Safari reads the extension from the app extension's resources.
 	copy_tree(package, &contents.join("Resources"))?;
 	super::run_tool(
@@ -265,12 +266,12 @@ mod tests {
 	fn the_extension_s_identity_derives_from_the_app_s() {
 		let config = config("[\"safari\"]");
 		assert_eq!(bundle_id(&config), "com.example.notes.SafariExtension");
-		let plist = info_plist(&config, true, 1);
+		let plist = info_plist(&config, true);
 		assert!(plist.contains("<string>com.apple.Safari.web-extension</string>"));
 		assert!(plist.contains("<string>Notes &amp; more</string>"));
 		assert!(plist.contains("<string>1.2.3</string>"));
 		assert!(plist.contains("LSMinimumSystemVersion"));
-		let ios = info_plist(&config, false, 1);
+		let ios = info_plist(&config, false);
 		assert!(ios.contains("MinimumOSVersion"));
 		assert!(ios.contains("<string>$(CURRENT_PROJECT_VERSION)</string>"));
 	}

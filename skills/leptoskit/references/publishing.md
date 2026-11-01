@@ -88,6 +88,13 @@ When you have computer use (screenshots, clicks, and typing) or a browser automa
   - a privacy policy URL that doesn't load, or App Privacy answers that don't match what the app collects;
   - a permission's usage description (`NS…UsageDescription`) that doesn't say why the app needs it.
 
+**macOS downloads (Developer ID)**
+
+- No dashboard: `leptoskit publish macos` signs, notarizes, and staples, and writes `.leptoskit/publish/macos/<Name>.dmg` and `.zip`.
+- It needs the **Developer ID Application** certificate in the Mac's keychain, which only the account holder can create (a person step), and the App Store Connect API key for notarization.
+- If notarization fails, run the `xcrun notarytool log <id>` command the error prints, with the same key, and fix what it lists; usually an unsigned binary or a missing secure timestamp.
+- With `[publish.macos].github_release`, `--submit` attaches the files to the GitHub release `v<version>` with `gh`. Ask before it: a release reaches everyone who downloads from it.
+
 ## After a release
 
 - `leptoskit publish` writes `.leptoskit/publish/next-steps.md` every run; it's the place to see what's left.

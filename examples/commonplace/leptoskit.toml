@@ -148,3 +148,8 @@ channel = "listed"
 app_id = "1234567890"
 team_id = "ABCDE12345"
 testflight_groups = ["Internal"]
+
+# The macOS app, signed with a Developer ID and notarized, as a .dmg and a
+# .zip in .leptoskit/publish/macos/.
+[publish.macos]
+distribution = "developer_id"
