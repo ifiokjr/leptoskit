@@ -160,7 +160,7 @@ public final class NetworkPlugin: NativePlugin {
             path.isConstrained ? Wire.flagTrue : Wire.flagFalse,
             Wire.unknown,
             Wire.unknown,
-            Wire.flagUnknown,
+            Wire.flagUnknown
         ]
 
         return fields.reduce(into: Data(capacity: Wire.snapshotBytes)) { result, field in

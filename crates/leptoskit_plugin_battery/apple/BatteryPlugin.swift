@@ -176,7 +176,7 @@ public final class BatteryPlugin: NativePlugin {
             present,
             charge,
             state,
-            ProcessInfo.processInfo.isLowPowerModeEnabled ? Wire.flagTrue : Wire.flagFalse,
+            ProcessInfo.processInfo.isLowPowerModeEnabled ? Wire.flagTrue : Wire.flagFalse
         ]
 
         return fields.reduce(into: Data(capacity: Wire.snapshotBytes)) { result, field in
@@ -232,7 +232,7 @@ public final class BatteryPlugin: NativePlugin {
         [
             Notification.Name.NSProcessInfoPowerStateDidChange,
             UIDevice.batteryLevelDidChangeNotification,
-            UIDevice.batteryStateDidChangeNotification,
+            UIDevice.batteryStateDidChangeNotification
         ]
     }
     #elseif os(macOS)
