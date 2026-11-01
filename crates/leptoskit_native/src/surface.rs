@@ -117,6 +117,9 @@ struct ShadowNode {
 	/// Where the element that built this node was created.
 	#[cfg(feature = "devtools")]
 	source: Option<&'static std::panic::Location<'static>>,
+	/// The `#[component]` whose body created that element.
+	#[cfg(feature = "devtools")]
+	component: Option<&'static str>,
 	/// The element's active Tailwind classes.
 	#[cfg(feature = "devtools")]
 	classes: Vec<String>,

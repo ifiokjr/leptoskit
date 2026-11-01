@@ -289,6 +289,9 @@ pub struct Node {
 	/// Where the node was created, when source locations are on.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<SourceLocation>,
+	/// The `#[component]` whose body created the node, when it has one.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub component: Option<String>,
 	/// The node's frame, when it has one.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub frame: Option<Frame>,
@@ -686,6 +689,7 @@ mod tests {
 			classes: vec!["gap-2".into()],
 			text: None,
 			children: Vec::new(),
+			component: None,
 			styles: vec![StyleRule {
 				class: "gap-2".into(),
 				declarations: "gap:0.5rem;".into(),

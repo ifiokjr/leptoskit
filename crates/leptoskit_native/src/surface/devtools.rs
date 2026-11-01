@@ -65,6 +65,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 				.map(|parent| NodeRef::Native(parent.index() as u64)),
 			kind: format!("{:?}", shadow.kind),
 			source,
+			component: shadow.component.map(str::to_owned),
 			frame,
 			classes: shadow.classes.clone(),
 			text: shadow.props.text.clone(),

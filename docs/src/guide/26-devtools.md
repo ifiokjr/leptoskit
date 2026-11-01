@@ -34,21 +34,23 @@ The panel isn't in the browsers' extension stores yet. Until it is, open the hub
 
 The left column lists every running app, grouped by name, with its platform and device: `web`, `iOS · iPhone 17`, `Android · Pixel 9`, `macOS`. When you reload a web page, it becomes a new session, and DevTools switches to it on its own. An older page that hasn't closed yet is marked "earlier".
 
-The middle column is the **element tree**: every `View`, `Text`, `Button`, and the rest, with their first classes and text. Collapse and expand branches, or search by kind, class, or text, such as `Button`, `gap-4`, or `Sign in`. Selecting an element highlights it in the app. **Pick** does the reverse: choose an element in the running app, and the tree selects it.
+The middle column is the **element tree**: every `View`, `Text`, `Button`, and the rest, with their first classes and text. Where a `#[component]`'s output starts, the row names it, as in `<ClipCard> View .gap-2`, so the tree reads like your code. Collapse and expand branches, or search by component, kind, class, or text, such as `ClipCard`, `Button`, `gap-4`, or `Sign in`. Selecting an element highlights it in the app. **Pick** does the reverse: choose an element in the running app, and the tree selects it.
+
+Components are the functions you mark with `#[component]`, leptoskit's or your own. Elements built by a plain function that returns an `Element` belong to the component that called it, and elements built outside every component, such as in `main`, have none.
 
 The right column shows one panel at a time:
 
-| Panel     | What you see and do                                                                                                                                                        |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Node      | The element's kind, its frame, its text, and the file, line, and column that built it, with **Open in editor** (Visual Studio Code). Edit its classes and apply them live. |
-| Styles    | Each active class and the CSS it resolved to, such as `p-4` → `padding:1rem;`, and the classes that don't apply at this size or appearance, such as `md:` or `dark:` ones. |
-| Route     | The current route, and a field that navigates the app anywhere.                                                                                                            |
-| Queries   | The query cache: each key, its status and data. Refetch it, invalidate it, or replace its data to see how the screen handles it.                                           |
-| Mutations | Each mutation and its state.                                                                                                                                               |
-| Forms     | Each tracked form's values. Read only.                                                                                                                                     |
-| State     | The values your app names for DevTools. Edit them as JSON. Values over 64 KiB are shown truncated and can't be edited.                                                     |
-| Calls     | Calls to native plugins and to your server, newest first, with their status, duration, and size.                                                                           |
-| Commits   | Each render: how many changes it made and, while you profile, how long layout and drawing took.                                                                            |
+| Panel     | What you see and do                                                                                                                                                                                     |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node      | The element's kind, the component that built it, its frame, its text, and the file, line, and column that built it, with **Open in editor** (Visual Studio Code). Edit its classes and apply them live. |
+| Styles    | Each active class and the CSS it resolved to, such as `p-4` → `padding:1rem;`, and the classes that don't apply at this size or appearance, such as `md:` or `dark:` ones.                              |
+| Route     | The current route, and a field that navigates the app anywhere.                                                                                                                                         |
+| Queries   | The query cache: each key, its status and data. Refetch it, invalidate it, or replace its data to see how the screen handles it.                                                                        |
+| Mutations | Each mutation and its state.                                                                                                                                                                            |
+| Forms     | Each tracked form's values. Read only.                                                                                                                                                                  |
+| State     | The values your app names for DevTools. Edit them as JSON. Values over 64 KiB are shown truncated and can't be edited.                                                                                  |
+| Calls     | Calls to native plugins and to your server, newest first, with their status, duration, and size.                                                                                                        |
+| Commits   | Each render: how many changes it made and, while you profile, how long layout and drawing took.                                                                                                         |
 
 A panel that a platform can't feed says so. A web page has no native plugin calls, for example, so its Calls panel reads "This session doesn't report plugin or server calls."
 
@@ -123,7 +125,7 @@ It is kept in your cache folder: `~/.cache/leptoskit/devtools/<version>/`, or un
 
 The hub, the page, and `leptoskit devtools fetch` work today. The panel for Chrome, Edge, and Firefox is built, and isn't in their extension stores yet. `leptoskit dev` builds your web page and your macOS, iOS, and Android apps with DevTools turned on, so each one it runs reports itself to the hub. Release builds never include DevTools. Each platform reports:
 
-- **Web:** the element tree, frames, classes, picking, and highlighting, and the route, queries, mutations, forms, and state your app hands over.
-- **macOS, iOS, and Android:** the element tree, with each element's kind, classes, text, frame, and the line that built it, and every render in the Commits panel, timed while you profile. **Pick** takes your next tap on a button or another control, and the app never receives that tap; elements that don't respond to taps can't be picked yet. Selecting an element doesn't draw a highlight inside the app yet, and the Styles panel lists a native element's classes without the CSS they resolved to. The route, queries, forms, and state come later. On Android, `leptoskit dev` forwards the hub's port to the emulator or USB device, so it reaches the hub on your machine.
+- **Web:** the element tree with each element's component, frames, classes, picking, and highlighting, and the route, queries, mutations, forms, and state your app hands over.
+- **macOS, iOS, and Android:** the element tree, with each element's kind, classes, text, frame, and the line that built it (but not yet its component), and every render in the Commits panel, timed while you profile. **Pick** takes your next tap on a button or another control, and the app never receives that tap; elements that don't respond to taps can't be picked yet. Selecting an element doesn't draw a highlight inside the app yet, and the Styles panel lists a native element's classes without the CSS they resolved to. The route, queries, forms, and state come later. On Android, `leptoskit dev` forwards the hub's port to the emulator or USB device, so it reaches the hub on your machine.
 - **Windows, Linux, the terminal, and HarmonyOS (experimental):** not yet.
 - **Calls** appear as each part of leptoskit starts reporting them; until then the Calls panel says the app doesn't report them.

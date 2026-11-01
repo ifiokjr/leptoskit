@@ -55,6 +55,10 @@ pub struct Element {
 	/// Where the element was created, when the `devtools` feature is on.
 	#[cfg(feature = "devtools")]
 	source: Option<&'static std::panic::Location<'static>>,
+	/// The `#[component]` whose body created the element, when the
+	/// `devtools` feature is on.
+	#[cfg(feature = "devtools")]
+	component: Option<&'static str>,
 	/// The classes a resolved element was built from, which `DevTools`
 	/// reports; empty on an element that is not resolved.
 	#[cfg(feature = "devtools")]
@@ -357,6 +361,8 @@ impl Element {
 			#[cfg(feature = "devtools")]
 			source: Some(std::panic::Location::caller()),
 			#[cfg(feature = "devtools")]
+			component: crate::devtools::current_component(),
+			#[cfg(feature = "devtools")]
 			applied: Tailwind::default(),
 			classes: Tailwind::default(),
 			handlers: Vec::new(),
@@ -368,6 +374,14 @@ impl Element {
 	#[must_use]
 	pub fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
 		self.source
+	}
+
+	/// The `#[component]` whose body created the element, when the
+	/// `devtools` feature is on.
+	#[cfg(feature = "devtools")]
+	#[must_use]
+	pub fn component_name(&self) -> Option<&'static str> {
+		self.component
 	}
 
 	/// The classes a resolved element was built from, when the `devtools`
@@ -555,6 +569,8 @@ impl Element {
 			children: Vec::new(),
 			#[cfg(feature = "devtools")]
 			source: self.source,
+			#[cfg(feature = "devtools")]
+			component: self.component,
 			#[cfg(feature = "devtools")]
 			applied: self.classes.clone(),
 			classes: Tailwind::default(),

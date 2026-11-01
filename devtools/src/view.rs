@@ -211,7 +211,7 @@ fn tree_toolbar(model: &Model, live: &Live) -> Element {
 				.class(FIELD)
 				.class("flex-1")
 				.accessibility_label("Search the tree")
-				.placeholder("Search kind, class, or text")
+				.placeholder("Search component, kind, class, or text")
 				.value(model.search.clone())
 				.on_change(store::search),
 		)
@@ -285,16 +285,18 @@ fn tree_row(row: &Row<'_>, selected: bool) -> Element {
 		.class(format!("flex-row items-center rounded {indent} {tone}"))
 		.child(disclosure)
 		.child(
-			Button(row_label(node))
+			Button(row_label(node, row.component))
 				.class("flex-1 px-1 text-start text-xs")
 				.aria_pressed(selected)
 				.on_press(move || store::select(id.clone(), key.clone())),
 		)
 }
 
-/// A tree row's text: the kind, its first classes, and its text.
-fn row_label(node: &Node) -> String {
-	let mut label = node.kind.clone();
+/// A tree row's text: the component whose output starts here, the kind,
+/// its first classes, and its text.
+fn row_label(node: &Node, component: Option<&str>) -> String {
+	let mut label = component.map_or_else(String::new, |component| format!("<{component}> "));
+	label.push_str(&node.kind);
 
 	for class in node.classes.iter().take(3) {
 		label.push_str(" .");
@@ -377,6 +379,12 @@ fn node_panel(model: &Model, live: &Live) -> Vec<Element> {
 	let mut sections = vec![
 		Heading(2, node.kind.clone()).class("text-base font-semibold"),
 		facts(&[
+			(
+				"Component",
+				node.component
+					.clone()
+					.unwrap_or_else(|| "none: built outside a #[component]".to_owned()),
+			),
 			("Key", node.key.as_str().to_owned()),
 			("Id", node_ref_text(&node.id)),
 			(

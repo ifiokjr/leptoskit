@@ -313,6 +313,7 @@ impl Mirror {
 					.iter()
 					.map(|child| NodeRef::Native(*child))
 					.collect(),
+				component: None,
 				styles: Vec::new(),
 			});
 		}

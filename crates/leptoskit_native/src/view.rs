@@ -224,6 +224,32 @@ impl<C: IntoChildren> Extend<C> for Fragment {
 pub mod __private {
 	use crate::Element;
 
+	/// Marks a `#[component]`'s body as running, so the elements it creates
+	/// carry the component's name in `DevTools`. Without the `devtools`
+	/// feature it is empty and does nothing.
+	#[must_use = "the scope ends when the guard drops"]
+	pub struct ComponentScope(());
+
+	impl ComponentScope {
+		/// Enters the component `name` until the guard drops.
+		#[inline]
+		pub fn enter(name: &'static str) -> Self {
+			#[cfg(feature = "devtools")]
+			crate::devtools::enter_component(name);
+			#[cfg(not(feature = "devtools"))]
+			let _ = name;
+			Self(())
+		}
+	}
+
+	impl Drop for ComponentScope {
+		#[inline]
+		fn drop(&mut self) {
+			#[cfg(feature = "devtools")]
+			crate::devtools::leave_component();
+		}
+	}
+
 	/// Finishes a `view!` tag. A built-in's builder is its element, so it
 	/// finishes as itself; `#[component]` builders have an inherent `build`
 	/// that takes precedence.

@@ -26,6 +26,9 @@ pub fn NoteCard<'a, T: Display + 'a>(
 where
     T: Clone,
 {
+    let __leptoskit_component_scope = ::leptoskit::__private::ComponentScope::enter(
+        "NoteCard",
+    );
     View().children(children)
 }
 ///The `view!` tag for [`NoteCard`](fn@NoteCard): `<NoteCard …/>` sets its props by name through [`NoteCard::builder`].
@@ -314,6 +317,9 @@ impl<
         __S5: __NoteCard_requires_on_select<__Prop1>,
         __S6: __NoteCard_requires_children<Children>,
     {
+        let __leptoskit_component_scope = ::leptoskit::__private::ComponentScope::enter(
+            "NoteCard",
+        );
         ::leptoskit::IntoView::into_view(
             NoteCard(
                 __NoteCard_requires_note::value(self.note),
