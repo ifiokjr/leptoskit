@@ -813,6 +813,55 @@ panel = "/devtools/panel"
 id = "inspector@example.com"
 "#;
 
+	#[test]
+	fn extension_problems_name_what_is_wrong() {
+		let platform =
+			"[app]\nplatforms = [\"extension\"]\ndefault_platform = \"extension\"\n[extension]\n";
+
+		let error = extension(&format!("{platform}browsers = []\n")).unwrap_err();
+		assert!(error.contains("at least one browser"), "{error}");
+
+		let error = extension(&format!(
+			"{platform}browsers = [\"chromium\", \"chromium\"]\n"
+		))
+		.unwrap_err();
+		assert!(error.contains("more than once"), "{error}");
+
+		let error = extension(&format!("{platform}browsers = [\"chromium\"]\n")).unwrap_err();
+		assert!(error.contains("at least one surface"), "{error}");
+
+		let error = extension(&format!(
+			"{platform}browsers = [\"chromium\"]\n[extension.popup]\nroute = \"popup\"\n"
+		))
+		.unwrap_err();
+		assert!(error.contains("starting with /"), "{error}");
+	}
+
+	#[test]
+	fn browser_settings_are_checked() {
+		let base =
+			"[app]\nplatforms = [\"extension\"]\ndefault_platform = \"extension\"\n		            \
+			 [native]\npackage_id = \"com.example.notes\"\n[extension]\n";
+		let surface = "[extension.popup]\nroute = \"/popup\"\n";
+
+		// Firefox needs its add-on ID, and it must look like an email.
+		let firefox = format!("{base}browsers = [\"firefox\"]\n{surface}");
+		let error = extension(&firefox).unwrap_err();
+		assert!(error.contains("Firefox needs an add-on ID"), "{error}");
+
+		let firefox = format!("{firefox}[extension.firefox]\nid = \"not-an-email\"\n");
+		let error = extension(&firefox).unwrap_err();
+		assert!(error.contains("look like an email"), "{error}");
+
+		// Safari's bundle ID suffix takes letters, digits, and dashes.
+		let safari = format!(
+			"{base}browsers = [\"safari\"]\n{surface}[extension.safari]\nbundle_id_suffix = \"bad \
+			 suffix\"\n"
+		);
+		let error = extension(&safari).unwrap_err();
+		assert!(error.contains("letters, digits, and dashes"), "{error}");
+	}
+
 	/// The validated `[extension]`, or the error and every cause under it.
 	fn extension(toml: &str) -> Result<ExtensionConfig, String> {
 		fn text(error: &dyn std::error::Error) -> String {
