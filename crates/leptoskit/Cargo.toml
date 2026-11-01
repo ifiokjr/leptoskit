@@ -96,7 +96,7 @@ server = [
 ## the client that calls them. `web` and `guest` pick how the client reaches
 ## the server; `server` serves them and calls them in process while rendering,
 ## and `db-server`, `db-postgres`, and `db-sqlite` run them on the database.
-rpc = ["dep:leptoskit_rpc", "leptoskit_rpc/client", "leptoskit_auth?/rpc"]
+rpc = ["dep:leptoskit_rpc", "leptoskit_rpc/client", "leptoskit_auth?/rpc", "leptoskit_devtools?/rpc"]
 # The server side of `#[api]` through `leptoskit::rpc` (with `crate =
 # "leptoskit::rpc"`): registers the function descriptions and adds the `spec`
 # module. Enable it from the app's own `ssr` feature, next to `leptos/ssr`.
@@ -215,6 +215,7 @@ devtools = [
 	"leptoskit_native/devtools",
 	"leptoskit_query?/devtools",
 	"leptoskit_form?/devtools",
+	"leptoskit_rpc?/devtools",
 ]
 web = [
 	"leptoskit_native/web",

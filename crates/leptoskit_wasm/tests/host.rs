@@ -492,6 +492,75 @@ fn a_committed_node_names_the_wire_node_it_was_built_from() {
 	assert_eq!((wire.class.as_str(), wire.source.as_deref()), ("", None));
 }
 
+/// A guest that sets the root's props twice before committing: `first`
+/// as a full render, then `second` as a bound value changing in place.
+fn twice_props_guest(first: &serde_json::Value, second: &serde_json::Value) -> String {
+	use std::fmt::Write;
+
+	let escape = |value: &serde_json::Value| {
+		let mut escaped = String::new();
+		for byte in value.to_string().bytes() {
+			write!(escaped, "\\{byte:02x}").expect("write to String");
+		}
+		escaped
+	};
+	let (first_len, second_len) = (first.to_string().len(), second.to_string().len());
+	format!(
+		r#"(module
+  (import "leptoskit" "node_create" (func $create (param i64 i32)))
+  (import "leptoskit" "node_set_props" (func $props (param i64 i32 i32)))
+  (import "leptoskit" "commit" (func $commit))
+  (memory (export "memory") 1)
+  (data (i32.const 0) "{first}")
+  (data (i32.const 4096) "{second}")
+  (func (export "leptoskit_main")
+    (call $create (i64.const 1) (i32.const 0))
+    (call $props (i64.const 1) (i32.const 0) (i32.const {first_len}))
+    (call $props (i64.const 1) (i32.const 4096) (i32.const {second_len}))
+    (call $commit))
+  (func (export "leptoskit_event")
+    (param i64 i32 i32 i32) (result i32)
+    (i32.const 0)))"#,
+		first = escape(first),
+		second = escape(second),
+	)
+}
+
+#[test]
+fn a_bound_value_changing_in_place_keeps_the_source_and_component() {
+	let guest = twice_props_guest(
+		&serde_json::json!({
+			"class": "p-2",
+			"source": "src/screens/home.rs:12:5",
+			"component": "ClipCard",
+		}),
+		&serde_json::json!({ "class": "p-2", "props": { "text": "updated" } }),
+	);
+	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile guest");
+	host.start(VIEWPORT_WIDTH, COMPACT_VIEWPORT_HEIGHT)
+		.expect("start");
+	let root = host.surface().root().expect("root");
+	let wire = host.wire_node(root).expect("the root's wire node");
+	assert_eq!(wire.source.as_deref(), Some("src/screens/home.rs:12:5"));
+	assert_eq!(wire.component.as_deref(), Some("ClipCard"));
+
+	// A full render names its own source and component, which replace the
+	// old ones, even when it has no component.
+	let guest = twice_props_guest(
+		&serde_json::json!({ "source": "a.rs:1:1", "component": "Old" }),
+		&serde_json::json!({ "source": "b.rs:2:2" }),
+	);
+	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile guest");
+	host.start(VIEWPORT_WIDTH, COMPACT_VIEWPORT_HEIGHT)
+		.expect("start");
+	let root = host.surface().root().expect("root");
+	let wire = host.wire_node(root).expect("the root's wire node");
+	assert_eq!(
+		(wire.source.as_deref(), wire.component.as_deref()),
+		(Some("b.rs:2:2"), None)
+	);
+}
+
 #[test]
 fn invalid_wire_classes_trap_before_committing_native_widgets() {
 	let guest = class_guest("md:unsupported-utility");

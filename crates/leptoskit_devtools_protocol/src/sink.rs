@@ -9,6 +9,7 @@
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
+use std::sync::RwLock;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
@@ -32,6 +33,9 @@ pub const CAPACITY: usize = 256;
 pub struct Sink<T> {
 	records: Mutex<VecDeque<T>>,
 	dropped: AtomicU64,
+	/// Called after each record, so an agent that reports on its own schedule
+	/// can flush soon after something happened.
+	waker: RwLock<Option<fn()>>,
 }
 
 impl<T> Default for Sink<T> {
@@ -47,18 +51,37 @@ impl<T> Sink<T> {
 		Self {
 			records: Mutex::new(VecDeque::new()),
 			dropped: AtomicU64::new(0),
+			waker: RwLock::new(None),
 		}
+	}
+
+	/// Calls `wake` after every record from now on, or stops with `None`.
+	/// It runs on the thread that recorded, outside the sink's lock.
+	pub fn set_waker(&self, wake: Option<fn()>) {
+		*self
+			.waker
+			.write()
+			.unwrap_or_else(std::sync::PoisonError::into_inner) = wake;
 	}
 
 	/// Records one value, dropping the oldest when the sink holds
 	/// [`CAPACITY`] already.
 	pub fn record(&self, value: T) {
-		let mut records = self.lock();
-		if records.len() >= CAPACITY {
-			records.pop_front();
-			self.dropped.fetch_add(1, Ordering::Relaxed);
+		{
+			let mut records = self.lock();
+			if records.len() >= CAPACITY {
+				records.pop_front();
+				self.dropped.fetch_add(1, Ordering::Relaxed);
+			}
+			records.push_back(value);
 		}
-		records.push_back(value);
+		let wake = *self
+			.waker
+			.read()
+			.unwrap_or_else(std::sync::PoisonError::into_inner);
+		if let Some(wake) = wake {
+			wake();
+		}
 	}
 
 	/// Allocates room for [`CAPACITY`] records now, so recording never
@@ -104,5 +127,23 @@ mod tests {
 		assert_eq!(records.last(), Some(&(CAPACITY + 2)));
 		assert_eq!(sink.dropped(), 3);
 		assert_eq!(sink.drain(), Vec::<usize>::new());
+	}
+
+	#[test]
+	fn the_waker_runs_after_each_record() {
+		static WOKEN: AtomicU64 = AtomicU64::new(0);
+		fn wake() {
+			WOKEN.fetch_add(1, Ordering::Relaxed);
+		}
+
+		let sink = Sink::new();
+		sink.record(1);
+		sink.set_waker(Some(wake));
+		sink.record(2);
+		sink.record(3);
+		sink.set_waker(None);
+		sink.record(4);
+		assert_eq!(WOKEN.load(Ordering::Relaxed), 2);
+		assert_eq!(sink.drain(), vec![1, 2, 3, 4]);
 	}
 }

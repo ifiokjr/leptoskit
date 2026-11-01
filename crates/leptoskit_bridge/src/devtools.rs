@@ -40,6 +40,13 @@ pub fn drain() -> Vec<CallRecord> {
 	CALLS.drain().into_iter().map(Trace::into_record).collect()
 }
 
+/// Calls `wake` after each recorded call change, so an agent that sleeps
+/// between reports can send it soon after; `None` stops. It runs on the
+/// thread that made the change.
+pub fn set_waker(wake: Option<fn()>) {
+	CALLS.set_waker(wake);
+}
+
 /// How many call changes were dropped because nothing drained them in time,
 /// since the process started.
 pub fn dropped() -> u64 {

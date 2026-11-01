@@ -23,6 +23,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 use std::time::Instant;
 
+use leptoskit_devtools_protocol::CallRecord;
 use leptoskit_devtools_protocol::Capability;
 use leptoskit_devtools_protocol::Command;
 use leptoskit_devtools_protocol::Commit;
@@ -32,6 +33,7 @@ use leptoskit_devtools_protocol::HISTORY;
 use leptoskit_devtools_protocol::Hello;
 use leptoskit_devtools_protocol::MatchKey;
 use leptoskit_devtools_protocol::NodeRef;
+use leptoskit_devtools_protocol::RpcAttempt;
 use leptoskit_devtools_protocol::SessionId;
 use leptoskit_devtools_protocol::Tree;
 use leptoskit_devtools_protocol::TreePatch;
@@ -152,6 +154,8 @@ impl Reporter {
 		std::thread::Builder::new()
 			.name("leptoskit-devtools".to_owned())
 			.spawn(move || worker.run(&receiver))?;
+		*CALLS_WAKE.lock().unwrap_or_else(PoisonError::into_inner) = Some(sender.clone());
+		leptoskit_bridge::devtools::set_waker(Some(call_recorded));
 		let poller = Poller {
 			shared: Arc::clone(&shared),
 			sender: sender.clone(),
@@ -359,7 +363,23 @@ enum Message {
 	GuestReport(u64, bool, Vec<Event>),
 	/// Where a guest's commands go.
 	GuestCommands(u64, Box<dyn Fn(Command) + Send>),
+	/// A plugin call changed; the next report drains the timeline.
+	Calls,
 	Stop,
+}
+
+/// Where a recorded plugin call wakes the reporter: the newest reporter's
+/// channel. The bridge's timeline is process-wide, as the reporter is.
+static CALLS_WAKE: Mutex<Option<mpsc::Sender<Message>>> = Mutex::new(None);
+
+fn call_recorded() {
+	let sender = CALLS_WAKE
+		.lock()
+		.unwrap_or_else(PoisonError::into_inner)
+		.clone();
+	if let Some(sender) = sender {
+		let _ = sender.send(Message::Calls);
+	}
 }
 
 /// What the guests feed, as far as the reporter knows.
@@ -401,6 +421,14 @@ struct Worker {
 	picked: Vec<Event>,
 	/// The session's next commit number.
 	seq: u64,
+	/// Plugin calls waiting to be sent, the newest [`HISTORY`] of them.
+	calls: VecDeque<CallRecord>,
+	/// The bridge's clock when the session opened, which call times count
+	/// from.
+	calls_epoch: u64,
+	/// The shown guest's server calls waiting to be sent, the newest
+	/// [`HISTORY`] of them.
+	rpc: VecDeque<RpcAttempt>,
 	/// When the session opened.
 	opened: Instant,
 	next_report: Instant,
@@ -435,6 +463,9 @@ impl Worker {
 			commits: VecDeque::new(),
 			picked: Vec::new(),
 			seq: 0,
+			calls: VecDeque::new(),
+			calls_epoch: leptoskit_bridge::devtools::now_ms(),
+			rpc: VecDeque::new(),
 			opened: now,
 			next_report: now,
 			next_connect: now,
@@ -463,8 +494,23 @@ impl Worker {
 				}
 			}
 
+			self.take_calls();
 			self.connect();
 			self.report();
+		}
+	}
+
+	/// Moves the plugin calls the bridge recorded into the next report,
+	/// leaving out the `DevTools` plugin's own, which carry these reports.
+	fn take_calls(&mut self) {
+		for call in leptoskit_bridge::devtools::drain() {
+			if call.plugin == leptoskit_plugin_devtools::NAME {
+				continue;
+			}
+			if self.calls.len() == HISTORY {
+				self.calls.pop_front();
+			}
+			self.calls.push_back(call);
 		}
 	}
 
@@ -484,6 +530,8 @@ impl Worker {
 		(self.snapshot && self.current.is_some())
 			|| self.changed
 			|| !self.commits.is_empty()
+			|| !self.calls.is_empty()
+			|| !self.rpc.is_empty()
 			|| !self.picked.is_empty()
 			|| (self.current.is_some() && !self.dirty.is_empty())
 	}
@@ -538,6 +586,7 @@ impl Worker {
 			Message::GuestCommands(id, deliver) => {
 				self.guests.entry(id).or_default().deliver = Some(deliver);
 			}
+			Message::Calls => {}
 			Message::Stop => return false,
 		}
 
@@ -553,6 +602,17 @@ impl Worker {
 		let previous = reset.then(|| std::mem::take(&mut guest.values));
 
 		for event in events {
+			// The guest's server calls go straight to the Calls panel; only
+			// the shown guest's, as with its values.
+			if let Event::RpcAttempt { attempt } = event {
+				if shown {
+					if self.rpc.len() == HISTORY {
+						self.rpc.pop_front();
+					}
+					self.rpc.push_back(attempt);
+				}
+				continue;
+			}
 			let Some((slot, value)) = registry::slot_of(event) else {
 				continue;
 			};
@@ -734,6 +794,7 @@ impl Worker {
 			Ok(agent) => {
 				self.unreachable = false;
 				self.opened = Instant::now();
+				self.calls_epoch = leptoskit_bridge::devtools::now_ms();
 				self.seq = 0;
 				self.sent = None;
 				self.snapshot = true;
@@ -831,6 +892,22 @@ impl Worker {
 			});
 			self.seq += 1;
 		}
+
+		for mut call in self.calls.drain(..) {
+			call.started_ms = call.started_ms.saturating_sub(self.calls_epoch);
+			call.finished_ms = call
+				.finished_ms
+				.map(|finished| finished.saturating_sub(self.calls_epoch));
+			events.push(Event::Call { call });
+		}
+
+		// A guest's clock starts at its first server call, so these times
+		// count from there rather than from the session opening.
+		events.extend(
+			self.rpc
+				.drain(..)
+				.map(|attempt| Event::RpcAttempt { attempt }),
+		);
 
 		events.append(&mut self.picked);
 

@@ -4,13 +4,7 @@
 
 #![cfg(all(feature = "host", not(target_arch = "wasm32")))]
 
-use std::collections::HashMap;
-use std::io::Read;
-use std::io::Write;
-use std::net::TcpListener;
-use std::net::TcpStream;
 use std::sync::Arc;
-use std::sync::Condvar;
 use std::sync::Mutex;
 use std::time::Duration;
 use std::time::Instant;
@@ -28,209 +22,17 @@ use leptoskit_devtools_protocol::Hello;
 use leptoskit_devtools_protocol::MatchKey;
 use leptoskit_devtools_protocol::NodeRef;
 use leptoskit_devtools_protocol::Platform;
-use leptoskit_devtools_protocol::Snapshot;
 use leptoskit_devtools_protocol::SourceLocation;
 use leptoskit_devtools_protocol::TreeOp;
 use leptoskit_devtools_protocol::Value;
 use leptoskit_native::NativeKind;
 use serde_json::json;
 
-/// How long a test waits for the reporter before failing.
-const PATIENCE: Duration = Duration::from_secs(10);
+#[path = "support/hub.rs"]
+mod hub;
 
-/// A hub that records what agents send and holds a command long-poll for
-/// half a second.
-struct Hub {
-	url: String,
-	shared: Arc<Shared>,
-}
-
-#[derive(Default)]
-struct Shared {
-	state: Mutex<State>,
-	changed: Condvar,
-}
-
-#[derive(Default)]
-struct State {
-	hellos: Vec<Hello>,
-	/// The sessions the hub knows.
-	open: Vec<String>,
-	/// Every event, with its session.
-	events: Vec<(String, Event)>,
-	commands: HashMap<String, Vec<Command>>,
-}
-
-impl Hub {
-	fn start() -> Self {
-		let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-		let url = format!("http://{}", listener.local_addr().unwrap());
-		let shared = Arc::new(Shared::default());
-		let serving = Arc::clone(&shared);
-		std::thread::spawn(move || {
-			for stream in listener.incoming().flatten() {
-				let shared = Arc::clone(&serving);
-				std::thread::spawn(move || serve(&shared, stream));
-			}
-		});
-		Self { url, shared }
-	}
-
-	fn send(&self, session: &str, command: Command) {
-		let mut state = self.shared.state.lock().unwrap();
-		state
-			.commands
-			.entry(session.to_owned())
-			.or_default()
-			.push(command);
-		self.shared.changed.notify_all();
-	}
-
-	/// Forgets a session, as a restarted hub would.
-	fn forget(&self, session: &str) {
-		let mut state = self.shared.state.lock().unwrap();
-		state.open.retain(|open| open != session);
-		self.shared.changed.notify_all();
-	}
-
-	/// Waits until `found` finds something in what the hub has heard.
-	fn wait<T>(&self, what: &str, mut found: impl FnMut(&State) -> Option<T>) -> T {
-		let deadline = Instant::now() + PATIENCE;
-		let mut state = self.shared.state.lock().unwrap();
-
-		loop {
-			if let Some(value) = found(&state) {
-				return value;
-			}
-
-			let left = deadline.saturating_duration_since(Instant::now());
-			assert!(!left.is_zero(), "timed out waiting for {what}");
-			state = self.shared.changed.wait_timeout(state, left).unwrap().0;
-		}
-	}
-
-	/// The `index`th snapshot the hub received, with its session.
-	fn snapshot(&self, index: usize) -> (String, Snapshot) {
-		self.wait(&format!("snapshot {index}"), |state| {
-			state
-				.events
-				.iter()
-				.filter_map(|(session, event)| {
-					match event {
-						Event::Snapshot { snapshot } => Some((session.clone(), snapshot.clone())),
-						_ => None,
-					}
-				})
-				.nth(index)
-		})
-	}
-}
-
-fn serve(shared: &Shared, mut stream: TcpStream) {
-	let Some((head, body)) = request(&mut stream) else {
-		return;
-	};
-	let mut line = head.split_whitespace();
-	let (method, path) = (line.next().unwrap_or(""), line.next().unwrap_or(""));
-	let (status, body) = route(shared, method, path, &body);
-	let response = format!(
-		"HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: \
-		 close\r\n\r\n{body}",
-		body.len()
-	);
-	let _ = stream.write_all(response.as_bytes());
-}
-
-fn route(shared: &Shared, method: &str, path: &str, body: &str) -> (&'static str, String) {
-	let (path, query) = path.split_once('?').unwrap_or((path, ""));
-	let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-	let mut state = shared.state.lock().unwrap();
-
-	match (method, parts.as_slice()) {
-		("POST", ["agent", "sessions"]) => {
-			let id = format!("session-{}", state.hellos.len() + 1);
-			state.hellos.push(serde_json::from_str(body).unwrap());
-			state.open.push(id.clone());
-			shared.changed.notify_all();
-			("200 OK", format!("{id:?}"))
-		}
-		("POST", ["agent", "sessions", id, "events"]) => {
-			if !state.open.iter().any(|open| open == id) {
-				return ("404 Not Found", "\"no such session\"".to_owned());
-			}
-
-			let events: Vec<Event> = serde_json::from_str(body).unwrap();
-			state
-				.events
-				.extend(events.into_iter().map(|event| ((*id).to_owned(), event)));
-			shared.changed.notify_all();
-			("204 No Content", String::new())
-		}
-		("GET", ["agent", "sessions", id, "commands"]) => {
-			let after: usize = query
-				.strip_prefix("after=")
-				.and_then(|after| after.parse().ok())
-				.unwrap_or(0);
-			let deadline = Instant::now() + Duration::from_millis(500);
-
-			loop {
-				if !state.open.iter().any(|open| open == id) {
-					return ("404 Not Found", "\"no such session\"".to_owned());
-				}
-
-				let queued = state.commands.get(*id).map_or(&[][..], Vec::as_slice);
-
-				if queued.len() > after {
-					return ("200 OK", serde_json::to_string(&queued[after..]).unwrap());
-				}
-
-				let left = deadline.saturating_duration_since(Instant::now());
-
-				if left.is_zero() {
-					return ("200 OK", "[]".to_owned());
-				}
-
-				state = shared.changed.wait_timeout(state, left).unwrap().0;
-			}
-		}
-		_ => ("404 Not Found", "\"no such route\"".to_owned()),
-	}
-}
-
-/// One request's head and body.
-fn request(stream: &mut TcpStream) -> Option<(String, String)> {
-	let mut buffer = Vec::new();
-	let mut chunk = [0_u8; 4096];
-
-	loop {
-		let read = stream.read(&mut chunk).ok()?;
-
-		if read == 0 {
-			return None;
-		}
-
-		buffer.extend_from_slice(&chunk[..read]);
-		let text = String::from_utf8_lossy(&buffer);
-
-		if let Some(end) = text.find("\r\n\r\n") {
-			let head = &text[..end];
-			let length = head
-				.lines()
-				.find_map(|line| {
-					let (name, value) = line.split_once(':')?;
-					name.eq_ignore_ascii_case("content-length")
-						.then(|| value.trim().parse::<usize>().ok())
-						.flatten()
-				})
-				.unwrap_or(0);
-
-			if buffer.len() >= end + 4 + length {
-				let body = String::from_utf8_lossy(&buffer[end + 4..end + 4 + length]);
-				return Some((head.to_owned(), body.into_owned()));
-			}
-		}
-	}
-}
+use hub::Hub;
+use hub::PATIENCE;
 
 fn hello() -> Hello {
 	Hello::new(
@@ -293,11 +95,13 @@ fn screen(root: u64, heading: &str) -> Batch {
 				id: root,
 				classes: "flex-col p-4".to_owned(),
 				source: Some("src/app.rs:10:5".to_owned()),
+				component: Some("Screen".to_owned()),
 			},
 			Change::Details {
 				id: text,
 				classes: "text-lg".to_owned(),
 				source: Some("src/app.rs:11:9".to_owned()),
+				component: Some("Title".to_owned()),
 			},
 		],
 		commits: vec![commit(7)],
@@ -773,4 +577,41 @@ fn a_guest_that_never_says_hello_still_gets_a_session() {
 	);
 	let hello = hub.shared.state.lock().unwrap().hellos[0].clone();
 	assert!(!hello.capabilities.contains(&Capability::State));
+}
+
+#[test]
+fn a_guests_server_calls_reach_the_calls_panel() {
+	let hub = Hub::start();
+	let reporter = Reporter::with_guests(&hub.url, hello()).unwrap();
+	let source = reporter.source();
+	let guest = source.guest();
+	guest.hello([Capability::Rpc].into());
+	source.send(screen(1, "Clips"));
+	hub.snapshot(0);
+
+	let attempt = leptoskit_devtools_protocol::RpcAttempt {
+		id: 7,
+		function: "commonplace_app::api::projects".to_owned(),
+		attempt: 1,
+		started_ms: 10,
+		finished_ms: Some(42),
+		error: None,
+	};
+	guest.report(
+		false,
+		vec![Event::RpcAttempt {
+			attempt: attempt.clone(),
+		}],
+	);
+	let sent = hub.wait("the guest's server call", |state| {
+		state.events.iter().find_map(|(_, event)| {
+			match event {
+				Event::RpcAttempt { attempt } => Some(attempt.clone()),
+				_ => None,
+			}
+		})
+	});
+	assert_eq!(sent, attempt);
+	// A call is not one of the guest's values.
+	assert_eq!(values(&hub), Vec::<Event>::new());
 }

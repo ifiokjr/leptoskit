@@ -35,6 +35,14 @@ use leptoskit_plugin_devtools::Report;
 use leptoskit_wasm::WasmHost;
 use leptoskit_yoga::NodeId;
 
+/// What the guest said about a node, as last sent to the reporter.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Described {
+	classes: String,
+	source: Option<String>,
+	component: Option<String>,
+}
+
 /// One app's report.
 pub(super) struct Devtools {
 	source: Source,
@@ -43,7 +51,7 @@ pub(super) struct Devtools {
 	/// The guest's commit count when its wire nodes were last read.
 	guest_commits: Option<u32>,
 	/// The classes and source last sent for each node.
-	details: HashMap<usize, (String, Option<String>)>,
+	details: HashMap<usize, Described>,
 	/// What classes resolved against when last sent, and the control held.
 	styling: Option<(StyleContext, Option<u64>)>,
 	profiling: bool,
@@ -177,27 +185,26 @@ impl Devtools {
 
 		while let Some(node) = stack.pop() {
 			stack.extend_from_slice(surface.children(node));
-			let (classes, source) = host.wire_node(node).map_or(("", None), |wire| {
-				(wire.class.as_str(), wire.source.as_deref())
-			});
-			let unchanged = self
-				.details
-				.get(&node.index())
-				.is_some_and(|(sent, sent_source)| {
-					sent == classes && sent_source.as_deref() == source
+			let described = host
+				.wire_node(node)
+				.map_or_else(Described::default, |wire| {
+					Described {
+						classes: wire.class.clone(),
+						source: wire.source.clone(),
+						component: wire.component.clone(),
+					}
 				});
 
-			if unchanged {
+			if self.details.get(&node.index()) == Some(&described) {
 				continue;
 			}
 
-			let source = source.map(str::to_owned);
-			self.details
-				.insert(node.index(), (classes.to_owned(), source.clone()));
+			self.details.insert(node.index(), described.clone());
 			changes.push(Change::Details {
 				id: node.index() as u64,
-				classes: classes.to_owned(),
-				source,
+				classes: described.classes,
+				source: described.source,
+				component: described.component,
 			});
 		}
 	}

@@ -78,6 +78,9 @@ pub enum Change {
 		/// Where the guest created it, as `file:line:column`, when the guest
 		/// was built with `devtools`.
 		source: Option<String>,
+		/// The `#[component]` whose body created it, when the guest was built
+		/// with `devtools`.
+		component: Option<String>,
 	},
 	/// The platform draws the widget with a view of its own, rather than
 	/// leaving it out as a layout-only container. The root always has one.
@@ -168,6 +171,7 @@ struct Entry {
 	children: Vec<u64>,
 	classes: String,
 	source: Option<String>,
+	component: Option<String>,
 	/// Whether the platform draws a view for it.
 	drawn: bool,
 	/// Its active classes and their declarations, explained when its
@@ -207,6 +211,7 @@ impl Mirror {
 						children: Vec::new(),
 						classes: String::new(),
 						source: None,
+						component: None,
 						drawn: false,
 						styles: Vec::new(),
 					},
@@ -233,6 +238,7 @@ impl Mirror {
 				id,
 				classes,
 				source,
+				component,
 			} => {
 				let context = self.context_of(id);
 
@@ -243,6 +249,7 @@ impl Mirror {
 					}
 
 					entry.source = source;
+					entry.component = component;
 				}
 			}
 			Change::Drawn { id } => {
@@ -391,7 +398,7 @@ impl Mirror {
 					.iter()
 					.map(|child| NodeRef::Native(*child))
 					.collect(),
-				component: None,
+				component: entry.component.clone(),
 				styles: entry.styles.clone(),
 			});
 		}
@@ -697,6 +704,7 @@ mod tests {
 				source: node
 					.source
 					.map(|source| format!("{}:{}:{}", source.file, source.line, source.column)),
+				component: node.component,
 			});
 		}
 
@@ -812,6 +820,7 @@ mod tests {
 			id: mirrored.surface.root().unwrap().index() as u64,
 			classes: "p-4 not-a-class".to_owned(),
 			source: None,
+			component: None,
 		});
 		assert_eq!(classes(&mirrored.mirror), ["p-4"]);
 	}

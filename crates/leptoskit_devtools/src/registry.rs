@@ -169,6 +169,10 @@ thread_local! {
 /// changed before it arrived.
 pub(crate) fn install(sink: Rc<dyn Sink>) {
 	SINK.with_borrow_mut(|installed| *installed = Some(sink));
+	// A server call wakes the agent too, so the Calls panel shows it soon
+	// after it starts and ends.
+	#[cfg(feature = "rpc")]
+	leptoskit_rpc::devtools::set_waker(Some(wake));
 	if DIRTY.with_borrow(|dirty| !dirty.is_empty()) {
 		wake();
 	}
@@ -199,6 +203,9 @@ pub(crate) fn capabilities() -> Vec<Capability> {
 	}
 	if cfg!(feature = "query") {
 		capabilities.extend([Capability::Queries, Capability::Mutations]);
+	}
+	if cfg!(feature = "rpc") {
+		capabilities.push(Capability::Rpc);
 	}
 	capabilities
 }
@@ -357,7 +364,11 @@ pub(crate) fn fill(snapshot: &mut Snapshot, values: &BTreeMap<Slot, Reported>) {
 }
 
 /// The events that report every value in `snapshot`, the inverse of
-/// [`fill`].
+/// [`fill`]. Only a native guest resends its values this way.
+#[cfg_attr(
+	not(any(test, all(feature = "guest", target_arch = "wasm32"))),
+	allow(dead_code)
+)]
 pub(crate) fn values(snapshot: Snapshot) -> Vec<Event> {
 	let named = |values: Vec<NamedValue>, slot: fn(String) -> Slot| {
 		values

@@ -45,8 +45,13 @@ impl Outbox {
 		read_tree: impl FnOnce() -> Tree,
 	) -> Option<Batch> {
 		let changes = registry::collect();
-		let deltas =
-			|events: Vec<Event>| (!events.is_empty()).then_some(Batch { events, tree: None });
+		// Server calls ride after whatever else the batch carries, so a
+		// snapshot never replaces them.
+		let calls = calls();
+		let deltas = |mut events: Vec<Event>| {
+			events.extend(calls.iter().cloned());
+			(!events.is_empty()).then_some(Batch { events, tree: None })
+		};
 
 		if self.sent_tree.is_some() && !dom_changed && !changes.removed {
 			return deltas(changes.events);
@@ -62,10 +67,12 @@ impl Outbox {
 		}
 
 		// A snapshot carries every value, so the changes ride along in it.
+		let mut events = vec![Event::Snapshot {
+			snapshot: registry::snapshot(tree),
+		}];
+		events.extend(calls);
 		Some(Batch {
-			events: vec![Event::Snapshot {
-				snapshot: registry::snapshot(tree),
-			}],
+			events,
 			tree: Some(json),
 		})
 	}
@@ -76,4 +83,28 @@ impl Outbox {
 			self.sent_tree = Some(tree);
 		}
 	}
+}
+
+#[cfg(all(test, feature = "rpc"))]
+std::thread_local! {
+	/// The rpc timeline is process-wide and tests run in parallel, so only a
+	/// test that opts in drains it; the rest never see its attempts.
+	pub(crate) static DRAINS_CALLS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The server call attempts recorded since the last flush.
+fn calls() -> Vec<Event> {
+	#[cfg(feature = "rpc")]
+	{
+		#[cfg(test)]
+		if !DRAINS_CALLS.get() {
+			return Vec::new();
+		}
+		leptoskit_rpc::devtools::drain()
+			.into_iter()
+			.map(|attempt| Event::RpcAttempt { attempt })
+			.collect()
+	}
+	#[cfg(not(feature = "rpc"))]
+	Vec::new()
 }
