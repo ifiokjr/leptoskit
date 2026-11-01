@@ -8,10 +8,14 @@ The asset API works on native, browser Wasm, and WASI. Native widgets use AppKit
 
 ```rust,ignore
 use leptoskit::components::Rive;
-use leptoskit::rive::{Asset, Playback};
+use leptoskit::rive::Asset;
+use leptoskit::rive::Playback;
+use leptoskit::view;
 
 let playback = Playback::new(Asset::new(include_bytes!("status.riv"))?);
-let element = Rive(playback).class("w-32 h-32").aria_label("Upload status").running(true);
+let element = view! {
+	<Rive rive_playback=playback class="w-32 h-32" aria_label="Upload status" running=true />
+};
 ```
 
 Scenes start paused. Give the element a definite size and a direct accessible label, or use `aria_hidden(true)` for decoration. Reconciliation retains the scene until the asset, artboard, or selection changes. `Playback::set_input` validates typed updates; a fresh sequence repeats a trigger, while an unchanged sequence prevents unrelated renders from firing it again. Removing a binding preserves its last applied value.
@@ -31,16 +35,22 @@ Native builds need a C++17 compiler and the target SDK. Sources are pinned and c
 Pin an official runtime such as `@rive-app/canvas@2.45.0`, bundle its JavaScript with your app, and serve its matching Wasm file from your origin. The crate neither injects a script nor fetches a runtime from a CDN. Pass the imported namespace to `Runtime::new` once, before another part of the app initializes that namespace. Reuse it across players. WebGL2 runtime namespaces use the same high-level API, but the integration tests exercise Canvas2D.
 
 ```rust,ignore
-use leptoskit::rive::{Asset, Input, Name, Scene};
-use leptoskit::rive::web::{Options, Player, Runtime};
+use leptoskit::rive::Asset;
+use leptoskit::rive::Input;
+use leptoskit::rive::Name;
+use leptoskit::rive::Scene;
+use leptoskit::rive::web::Options;
+use leptoskit::rive::web::Player;
+use leptoskit::rive::web::Runtime;
 
-// The page has already loaded the matching self-hosted /assets/rive.js script.
+// The page has already loaded the matching self-hosted /assets/rive.js
+// script.
 let runtime = Runtime::from_global("/assets/rive.wasm")?;
 let asset = Asset::new(include_bytes!("../public/status.riv"))?;
 let options = Options {
-    scene: Scene::StateMachine(Name::new("Status")?),
-    autoplay: true,
-    ..Options::default()
+	scene: Scene::StateMachine(Name::new("Status")?),
+	autoplay: true,
+	..Options::default()
 };
 // Attach and give the canvas a CSS width and height before mounting.
 canvas.set_attribute("aria-label", "Upload status")?;

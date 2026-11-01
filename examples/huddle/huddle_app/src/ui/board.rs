@@ -24,7 +24,8 @@ fn title(column: &str) -> &'static str {
 	}
 }
 
-pub fn panel(huddle: &Huddle) -> Element {
+#[component]
+pub fn Panel(huddle: &Huddle) -> Element {
 	let huddle = *huddle;
 	let cards = huddle.board.data().unwrap_or_default();
 	let columns: Fragment = COLUMNS
@@ -36,7 +37,7 @@ pub fn panel(huddle: &Huddle) -> Element {
 				.filter(|card| card.column == *column)
 				.cloned()
 				.collect();
-			column_view(&huddle, index, &here)
+			view! { <ColumnView huddle=&huddle index=index cards=&here /> }
 		})
 		.collect();
 	let new_task = huddle.new_task.get();
@@ -71,14 +72,17 @@ pub fn panel(huddle: &Huddle) -> Element {
 	}
 }
 
-fn column_view(huddle: &Huddle, index: usize, cards: &[TaskCard]) -> Element {
+#[component]
+fn ColumnView(huddle: &Huddle, index: usize, cards: &[TaskCard]) -> Element {
 	let huddle = *huddle;
 	let column = COLUMNS[index];
 	let count = cards.len();
 	let rows: Fragment = cards
 		.iter()
 		.enumerate()
-		.map(|(at, card)| card_view(&huddle, index, at, count, card))
+		.map(|(at, card)| {
+			view! { <CardView huddle=&huddle column=index at=at count=count card=card /> }
+		})
 		.collect();
 
 	view! {
@@ -91,7 +95,8 @@ fn column_view(huddle: &Huddle, index: usize, cards: &[TaskCard]) -> Element {
 	}
 }
 
-fn card_view(huddle: &Huddle, column: usize, at: usize, count: usize, card: &TaskCard) -> Element {
+#[component]
+fn CardView(huddle: &Huddle, column: usize, at: usize, count: usize, card: &TaskCard) -> Element {
 	let huddle = *huddle;
 	let task = card.id;
 	let to = move |column: usize, index: usize| {

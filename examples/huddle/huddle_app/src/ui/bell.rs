@@ -13,7 +13,8 @@ use leptoskit_rpc::InboxNotice;
 
 use crate::huddle::Huddle;
 
-pub fn panel(huddle: &Huddle) -> Element {
+#[component]
+pub fn Panel(huddle: &Huddle) -> Element {
 	let huddle = *huddle;
 	let notices = huddle
 		.inbox
@@ -23,7 +24,7 @@ pub fn panel(huddle: &Huddle) -> Element {
 	let empty = notices.is_empty();
 	let rows: Fragment = notices
 		.into_iter()
-		.map(|notice| row(&huddle, &notice))
+		.map(|notice| view! { <Row huddle=&huddle notice=&notice /> })
 		.collect();
 
 	view! {
@@ -53,7 +54,8 @@ pub fn panel(huddle: &Huddle) -> Element {
 	}
 }
 
-fn row(huddle: &Huddle, notice: &InboxNotice) -> Element {
+#[component]
+fn Row(huddle: &Huddle, notice: &InboxNotice) -> Element {
 	let huddle = *huddle;
 	let id = notice.id.clone();
 	let action = notice.notice.action.clone().and_then(|action| {

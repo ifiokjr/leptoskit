@@ -33,10 +33,9 @@ split = true
 wasm_opt = true
 precompress = true
 
-# The example is written with builder calls, the style the agent skill
-# recommends.
+# Screens use view! markup, matching the other examples and public guides.
 [lint]
-markup = "builder"
+markup = "view"
 
 # The file router: `leptoskit dev`, `build`, and `native` regenerate
 # `commonplace_app/src/routes.rs` from `commonplace_app/src/routes/`.

@@ -7,19 +7,20 @@ A shared screen returns an `Element` tree built with leptoskit components. Nativ
 ```rust
 use leptoskit::prelude::*;
 
-pub fn counter(count: usize, increment: impl Fn() + Send + Sync + 'static) -> Element {
-	View()
-		.class("w-full gap-4 p-6 md:flex-row")
-		.child(Text(format!("Count: {count}")).class("text-3xl font-bold"))
-		.child(
-			Button("Increment")
-				.class("rounded-lg bg-indigo-500 px-4 py-2 text-white")
-				.on_press(increment),
-		)
+#[component]
+pub fn Counter(count: usize, increment: impl Fn() + Send + Sync + 'static) -> Element {
+	view! {
+		<View class="w-full gap-4 p-6 md:flex-row">
+			<Text class="text-3xl font-bold">{format!("Count: {count}")}</Text>
+			<Button class="rounded-lg bg-indigo-500 px-4 py-2 text-white" on:press=increment>
+				"Increment"
+			</Button>
+		</View>
+	}
 }
 ```
 
-The [built-in primitives](../reference/components.md) are Rust builder functions. They are not `#[component]` functions or `<View>` tags. Each returns an `Element` with the common layout, props, and event vocabulary. Use `View` plus Tailwind for visual composition. Optional layout and presentation functions live under `components::helpers`. Interactive builders become real platform controls, or DOM controls on the web, and your app owns their values.
+The [built-in primitives](../reference/components.md) are Rust builder functions. Use them as PascalCase tags in `view!`; builder calls remain available when manipulating a tree directly. Each returns an `Element` with the common layout, props, and event vocabulary. Use `View` plus Tailwind for visual composition. Optional layout and presentation functions live under `components::helpers`. Interactive builders become real platform controls, or DOM controls on the web, and your app owns their values.
 
 The built-in class compiler interprets the supported Tailwind subset. Native resolution produces Yoga styles and widget props. Web rendering generates CSS for the same declarations. [CSS coverage](../reference/css-coverage.md) records the supported behavior and limits.
 
@@ -33,7 +34,7 @@ use leptoskit::prelude::*;
 
 let mut surface = NativeSurface::new(HeadlessBackend::new());
 surface.set_viewport(390.0, 844.0);
-surface.set_root(&counter(0, || println!("increment")));
+surface.set_root(&leptoskit::view! { <Counter count=0 increment=|| println!("increment") /> });
 ```
 
 Swap `HeadlessBackend` for a platform backend to draw real widgets: `AppKitBackend`, `UIKitBackend`, `AndroidBackend`, `GtkBackend`, or `WindowsBackend`. The headless backend checks the tree, layout, and widget changes without drawing anything, which is what tests use. The apps `leptoskit new` generates create the surface for you.
@@ -50,12 +51,13 @@ use leptos::prelude::IntoView;
 use leptos::prelude::RwSignal;
 use leptos::prelude::Update;
 
-pub fn browser_root() -> impl IntoView {
+#[leptos::component]
+pub fn BrowserRoot() -> impl IntoView {
 	let count = RwSignal::new(0usize);
 	move || {
-		leptoskit::web::render(counter(count.get(), move || {
-			count.update(|count| *count += 1)
-		}))
+		leptoskit::web::render(leptoskit::view! {
+			<Counter count=count.get() increment=move || count.update(|count| *count += 1) />
+		})
 	}
 }
 ```

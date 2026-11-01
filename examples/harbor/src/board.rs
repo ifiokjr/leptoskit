@@ -238,20 +238,23 @@ impl Board {
 
 	/// The board for the current state.
 	pub fn render(&self) -> Element {
-		self.owner.with(|| screen(self))
+		self.owner.with(|| view! { <Screen board=self /> })
 	}
 }
 
-fn screen(board: &Board) -> Element {
+#[component]
+fn Screen(board: &Board) -> Element {
 	view! {
 		<View class="gap-4 p-6 w-full h-full bg-slate-50">
-			{header(board)} {controls(board)} {departures(board)} {harbour_log(board)}
+			{view! { <Header board=board /> }} {view! { <Controls board=board /> }}
+			{view! { <Departures board=board /> }} {view! { <HarbourLog board=board /> }}
 		</View>
 	}
 }
 
 /// The title, the harbour clock, and whether anything is loading.
-fn header(board: &Board) -> Element {
+#[component]
+fn Header(board: &Board) -> Element {
 	let seconds = board.clock.get().as_secs();
 	let clock = format!(
 		"{:02}:{:02}:{:02}",
@@ -260,9 +263,8 @@ fn header(board: &Board) -> Element {
 		seconds % 60
 	);
 	// Announced while anything loads, and gone when nothing does.
-	let updating = (use_is_fetching().get() > 0).then(|| {
-		view! { <Status class="text-sm text-slate-500">"Updating…"</Status> }
-	});
+	let updating = (use_is_fetching().get() > 0)
+		.then(|| view! { <Status class="text-sm text-slate-500">"Updating…"</Status> });
 
 	view! {
 		<View class="flex-row items-center gap-4">
@@ -276,7 +278,8 @@ fn header(board: &Board) -> Element {
 }
 
 /// The day picker, the route search, and the departed toggle.
-fn controls(board: &Board) -> Element {
+#[component]
+fn Controls(board: &Board) -> Element {
 	let day = board.days.state.get().unwrap_or(1);
 	let previous = board.days.prev.clone();
 	let next = board.days.next.clone();
@@ -312,7 +315,8 @@ const DEPARTURES_CLASS: &str = "gap-2 rounded-xl bg-white p-4";
 
 /// The day's sailings: the pinned route first, filtered by the settled
 /// search, each with a book and a pin button.
-fn departures(board: &Board) -> Element {
+#[component]
+fn Departures(board: &Board) -> Element {
 	if board.departures.is_loading() {
 		return view! {
 			<View class=DEPARTURES_CLASS>
@@ -343,14 +347,23 @@ fn departures(board: &Board) -> Element {
 
 	let rows = sailings
 		.iter()
-		.map(|sailing| departure(board, sailing, pinned.as_deref() == Some(&sailing.route)))
+		.map(|sailing| {
+			view! {
+				<Departure
+					board=board
+					sailing=sailing
+					pinned=pinned.as_deref() == Some(&sailing.route)
+				/>
+			}
+		})
 		.collect::<Fragment>();
-	let none_match = sailings.is_empty().then(|| {
-		view! { <Text class="text-slate-500">"No sailings match."</Text> }
-	});
-	let booking_failed = board.book.error().map(|error| {
-		view! { <Alert>{format!("Booking failed: {}", error.message())}</Alert> }
-	});
+	let none_match = sailings
+		.is_empty()
+		.then(|| view! { <Text class="text-slate-500">"No sailings match."</Text> });
+	let booking_failed = board
+		.book
+		.error()
+		.map(|error| view! { <Alert>{format!("Booking failed: {}", error.message())}</Alert> });
 
 	view! {
 		<View class=DEPARTURES_CLASS>
@@ -362,7 +375,8 @@ fn departures(board: &Board) -> Element {
 }
 
 /// One sailing's row.
-fn departure(board: &Board, sailing: &Sailing, pinned: bool) -> Element {
+#[component]
+fn Departure(board: &Board, sailing: &Sailing, pinned: bool) -> Element {
 	let status = match sailing.status {
 		SailingStatus::OnTime => "On time".to_owned(),
 		SailingStatus::Delayed { minutes } => format!("Delayed {minutes} min"),
@@ -411,7 +425,8 @@ fn departure(board: &Board, sailing: &Sailing, pinned: bool) -> Element {
 }
 
 /// The harbour master's log, with older pages on request.
-fn harbour_log(board: &Board) -> Element {
+#[component]
+fn HarbourLog(board: &Board) -> Element {
 	let log = board.log;
 	let entries = log
 		.items_with(|page| &page.entries)

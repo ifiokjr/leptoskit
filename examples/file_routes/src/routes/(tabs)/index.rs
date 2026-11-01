@@ -8,6 +8,7 @@ use leptoskit_router::Route;
 pub struct Today;
 
 /// The first tab.
-pub fn page() -> Element {
+#[component]
+pub fn Page() -> Element {
 	view! { <Text class="p-6 text-3xl font-bold">"Today"</Text> }
 }

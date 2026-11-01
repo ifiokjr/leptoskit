@@ -10,6 +10,7 @@ pub struct Map {
 }
 
 /// The second tab.
-pub fn page() -> Element {
+#[component]
+pub fn Page() -> Element {
 	view! { <Text class="p-6 text-3xl font-bold">"Map"</Text> }
 }

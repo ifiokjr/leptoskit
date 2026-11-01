@@ -9,7 +9,8 @@ leptoskit's live queries close that gap without a second API. The database says 
 A table opts in, once:
 
 ```rust
-use leptoskit_db::{Id, table};
+use leptoskit_db::Id;
+use leptoskit_db::table;
 
 #[table(name = "messages", live)]
 pub struct Message {
@@ -56,9 +57,7 @@ use leptoskit_rpc as rpc;
 let rpc = rpc::server::Server::new(db.clone()).identify(auth.clone());
 let live = rpc.live().origin("https://chat.example.com");
 
-let app = Router::new()
-	.merge(rpc.router())
-	.merge(live.router());
+let app = Router::new().merge(rpc.router()).merge(live.router());
 ```
 
 `GET /live` is a WebSocket, speaking the `leptoskit.live.v1.json` subprotocol. Browsers authenticate with the session cookie that rides the upgrade request; the `Origin` check refuses a page from another site. Native apps, which can't set headers on a socket, send `auth { token }` as their first frame and are identified by the same `Identify` implementation the HTTP routes use.
@@ -80,14 +79,24 @@ use leptoskit::rpc::use_live;
 
 #[component]
 pub fn Channel(channel: ChannelId) -> impl IntoView {
-	let messages = use_live::<messages>(move || messages {
-		channel,
-		limit: 100,
+	let messages = use_live::<messages>(move || {
+		messages {
+			channel,
+			limit: 100,
+		}
 	});
 
-	View().class("flex-col gap-2 p-4").children(
-		move || messages.data().unwrap_or_default().into_iter().map(MessageRow),
-	)
+	view! {
+		<View class="flex-col gap-2 p-4">
+			{move || {
+				messages
+					.data()
+					.unwrap_or_default()
+					.into_iter()
+					.map(MessageRow)
+			}}
+		</View>
+	}
 }
 ```
 
@@ -148,7 +157,14 @@ pub async fn history(
 	page: rpc::PageArgs,
 ) -> rpc::Result<rpc::Page<Message>> {
 	let messages = Message::query().filter(|message| message.channel.eq(channel));
-	rpc::paginate(cx.db(), messages, &page, |message| message.id.desc(), |message| message.id).await
+	rpc::paginate(
+		cx.db(),
+		messages,
+		&page,
+		|message| message.id.desc(),
+		|message| message.id,
+	)
+	.await
 }
 ```
 
@@ -163,7 +179,11 @@ let rows = move || history.items();
 let older = move || {
 	history.has_more().then(|| {
 		view! {
-			<Button on_press=move || { history.load_more(); }>"Older messages"</Button>
+			<Button on_press=move || {
+				history.load_more();
+			}>
+				"Older messages"
+			</Button>
 		}
 	})
 };
@@ -185,7 +205,10 @@ Some server output isn't a query over rows: a model's answer arriving a token at
 
 ```rust
 #[rpc::stream]
-pub async fn answer(cx: &rpc::QueryCx, prompt: String) -> rpc::Result<impl Stream<Item = String>> {
+pub async fn answer(
+	cx: &rpc::QueryCx,
+	prompt: String,
+) -> rpc::Result<impl Stream<Item = String>> {
 	let me = cx.require_user::<User>()?;
 	Ok(my_model::tokens(me, prompt))
 }
@@ -194,7 +217,11 @@ pub async fn answer(cx: &rpc::QueryCx, prompt: String) -> rpc::Result<impl Strea
 The body runs as the caller, like a query. An item type of `rpc::Result<T>` ends the stream as failed at the first error. On a screen:
 
 ```rust
-let answer = use_stream(move || Answer { prompt: prompt.get() });
+let answer = use_stream(move || {
+	Answer {
+		prompt: prompt.get(),
+	}
+});
 
 let text = move || answer.items().get().concat();
 let thinking = move || !answer.state().get().is_finished();
@@ -216,7 +243,11 @@ impl rpc::Resumable for LogLine {
 }
 
 #[rpc::stream(resumable)]
-pub async fn tail(cx: &rpc::QueryCx, file: String, cursor: Option<u64>) -> rpc::Result<impl Stream<Item = LogLine>> {
+pub async fn tail(
+	cx: &rpc::QueryCx,
+	file: String,
+	cursor: Option<u64>,
+) -> rpc::Result<impl Stream<Item = LogLine>> {
 	Ok(read_from(file, cursor.map_or(0, |offset| offset + 1)))
 }
 ```
@@ -264,7 +295,9 @@ let status = use_live_status();
 let banner = move || {
 	let status = status.get();
 	match status.state {
-		LiveState::Reconnecting { .. } if status.queued > 0 => Some(format!("{} changes waiting", status.queued)),
+		LiveState::Reconnecting { .. } if status.queued > 0 => {
+			Some(format!("{} changes waiting", status.queued))
+		}
 		LiveState::Reconnecting { .. } => Some("Reconnecting…".to_owned()),
 		_ => None,
 	}

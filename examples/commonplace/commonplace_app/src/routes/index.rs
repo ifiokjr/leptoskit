@@ -13,7 +13,8 @@ use crate::ui;
 #[derive(Route, Clone, Debug, PartialEq)]
 pub struct Library;
 
-pub fn page(navigation: &Navigation) -> Element {
+#[component]
+pub fn Page(navigation: &Navigation) -> Element {
 	let store = Store::current();
 	let library = store.with(|state| state.library.clone());
 	let (title, question, busy) = store.with(|state| {
@@ -25,68 +26,102 @@ pub fn page(navigation: &Navigation) -> Element {
 	});
 
 	let projects = match library {
-		Load::Idle | Load::Loading => ui::loading("your projects"),
-		Load::Failed(message) => ui::problem(&message),
+		Load::Idle | Load::Loading => view! { <ui::Loading what="your projects" /> },
+		Load::Failed(message) => view! { <ui::Problem message=&message /> },
 		Load::Ready(projects) if projects.is_empty() => {
-			Text(
-				"No projects yet. Start one below, then clip quotes into it from anything you \
-				 read.",
-			)
-			.class(ui::QUIET)
+			view! {
+				<Text class=ui::QUIET>
+					"No projects yet. Start one below, then clip quotes into it from anything you \
+				 read."
+				</Text>
+			}
 		}
 		Load::Ready(projects) => {
-			View()
-				.class("gap-3")
-				.children(projects.into_iter().map(|summary| {
-					let counts = format!("{} sources · {} clips", summary.sources, summary.clips);
-					navigation
-						.link(
-							Project {
-								project: summary.project.id,
-							},
-							summary.project.title.clone(),
-						)
-						.child(
-							ui::card()
-								.child(Text(summary.project.title).class("text-lg font-semibold"))
-								.child(match summary.project.question {
-									Some(question) => Text(question),
-									None => View(),
-								})
-								.child(Text(counts).class(ui::QUIET)),
-						)
-				}))
+			view! {
+				<View class="gap-3">
+					{projects
+						.into_iter()
+						.map(|summary| {
+							let counts =
+								format!("{} sources · {} clips", summary.sources, summary.clips);
+							navigation
+								.link(
+									Project {
+										project: summary.project.id,
+									},
+									summary.project.title.clone(),
+								)
+								.child(
+									view! { <ui::PanelCard /> }
+										.child(view! {
+											<Text class="text-lg font-semibold">
+												{summary.project.title}
+											</Text>
+										})
+										.child(match summary.project.question {
+											Some(question) => {
+												view! { <Text>{question}</Text> }
+											}
+											None => view! { <View /> },
+										})
+										.child(view! { <Text class=ui::QUIET>{counts}</Text> }),
+								)
+						})
+						.collect::<Fragment>()}
+				</View>
+			}
 		}
 	};
 
 	let navigation = navigation.clone();
-	View()
-		.class("gap-4")
-		.child(ui::title("Your projects"))
-		.child(match crate::browser::SAFARI {
-			Some(steps) => ui::card().child(Text(steps).class(ui::QUIET)),
-			None => View(),
-		})
-		.child(projects)
-		.child(
-			ui::card()
-				.child(ui::section("Start a project"))
-				.child(ui::field("Title", &title, "Urban heat islands", |value| {
-					Store::current().update(|state| state.new_project.title = value.to_owned())
-				}))
-				.child(ui::field(
-					"Question",
-					&question,
-					"Why are cities hotter than the country around them?",
-					|value| {
-						Store::current()
-							.update(|state| state.new_project.question = Some(value.to_owned()));
-					},
-				))
-				.child(ui::primary("Create project", !busy, move || {
-					let navigation = navigation.clone();
-					Store::current()
-						.create_project(move |project| navigation.navigate(Project { project }));
-				})),
-		)
+	view! {
+		<View class="gap-4">
+			<ui::Title text="Your projects" />
+			{match crate::browser::SAFARI {
+				Some(steps) => {
+					view! { <ui::PanelCard /> }
+						.child(view! { <Text class=ui::QUIET>{steps}</Text> })
+				}
+				None => view! { <View /> },
+			}}
+			{projects}
+			{view! { <ui::PanelCard /> }
+				.child(view! { <ui::Section text="Start a project" /> })
+				.child(view! {
+					<ui::Field
+						label="Title"
+						value=&title
+						placeholder="Urban heat islands"
+						on_change=|value| {
+							Store::current()
+								.update(|state| state.new_project.title = value.to_owned())
+						}
+					/>
+				})
+				.child(view! {
+					<ui::Field
+						label="Question"
+						value=&question
+						placeholder="Why are cities hotter than the country around them?"
+						on_change=|value| {
+							Store::current().update(|state| {
+								state.new_project.question = Some(value.to_owned())
+							});
+						}
+					/>
+				})
+				.child(view! {
+					<ui::Primary
+						label="Create project"
+						enabled=!busy
+						on_press=move || {
+							let navigation = navigation.clone();
+							Store::current().create_project(move |project| {
+								navigation.navigate(Project { project })
+							});
+						}
+					/>
+				})}
+		</View>
+	}
 }

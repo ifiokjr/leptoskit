@@ -10,6 +10,7 @@ pub struct Help {
 }
 
 /// The help page.
-pub fn page(route: &Help) -> Element {
+#[component]
+pub fn Page(route: &Help) -> Element {
 	view! { <Text class="p-6">{route.topic.join(" › ")}</Text> }
 }

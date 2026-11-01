@@ -213,7 +213,7 @@ fn tester(owner: &Owner, shell: &Shell, width: f32, height: f32) -> WidgetTester
 		move || {
 			owner.with(|| {
 				let huddle = shell.huddle.get_untracked().expect("signed in");
-				huddle_app::ui::screen(&shell, &huddle)
+				leptoskit::view! { <huddle_app::ui::Screen shell=&shell huddle=&huddle /> }
 			})
 		},
 		width,

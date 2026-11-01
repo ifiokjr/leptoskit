@@ -61,7 +61,8 @@ pub fn labels() -> TableLabels {
 
 /// The catalogue section: its heading, a hint built from the columns that
 /// sort, the table, and the brightest three.
-pub fn catalogue(
+#[component]
+pub fn Catalogue(
 	state: &TableState,
 	on_change: impl Fn(TableState) + Send + Sync + 'static,
 ) -> Element {
@@ -85,14 +86,15 @@ pub fn catalogue(
 			</Text>
 			{DataTable(&columns, &STARS, state, &labels(), on_change)
 				.class("rounded-xl bg-slate-900 p-3 text-slate-100")}
-			{brightest()}
+			<Brightest />
 		</View>
 	}
 }
 
 /// The three brightest stars, whatever the catalogue's own sort: a custom
 /// grid built from the same pipeline and roles the table uses.
-pub fn brightest() -> Element {
+#[component]
+pub fn Brightest() -> Element {
 	let columns = columns();
 	let podium = TableState {
 		sorting: Some(SortSpec {

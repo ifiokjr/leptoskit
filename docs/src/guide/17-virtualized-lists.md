@@ -20,6 +20,8 @@ The virtualizer is pure windowing math; the screen owns the loop around it:
 3. when the renderer measures a real item size, hand it back with `measure`.
 
 ```rust,ignore
+use leptoskit::component;
+use leptoskit::view;
 use leptoskit_native::components::Text;
 use leptoskit_native::components::View;
 use leptoskit_virtual::Axis;
@@ -27,15 +29,23 @@ use leptoskit_virtual::VirtualList;
 use leptoskit_virtual::VirtualOptions;
 use leptoskit_virtual::Virtualizer;
 
-fn contacts(offset: f64, on_scroll: impl Fn(f64) + Send + Sync + 'static) -> leptoskit_native::Element {
-    let mut virtualizer = Virtualizer::new(VirtualOptions::fixed(10_000, 56.0));
-    virtualizer.set_viewport(644.0);
-    virtualizer.scroll_to(offset);
+#[component]
+fn Contacts(
+	offset: f64,
+	on_scroll: impl Fn(f64) + Send + Sync + 'static,
+) -> leptoskit_native::Element {
+	let mut virtualizer = Virtualizer::new(VirtualOptions::fixed(10_000, 56.0));
+	virtualizer.set_viewport(644.0);
+	virtualizer.scroll_to(offset);
 
-    VirtualList(&virtualizer, Axis::Vertical, on_scroll, |item| {
-        View().child(Text(format!("Contact {}", item.index)))
-    })
-    .expect("a fixed estimate is valid")
+	VirtualList(&virtualizer, Axis::Vertical, on_scroll, |item| {
+		view! {
+			<View>
+				<Text>{format!("Contact {}", item.index)}</Text>
+			</View>
+		}
+	})
+	.expect("a fixed estimate is valid")
 }
 ```
 
@@ -62,16 +72,19 @@ use leptoskit_native::ScrollOffset;
 use leptoskit_virtual::Align;
 
 fn jump_to(state: &mut Contacts, index: usize) {
-    let target = state.virtualizer.offset_for_index(index, Align::Start).expect("the index is in the list");
-    state.virtualizer.scroll_to(target);
-    state.target = Some(ScrollOffset::new(0.0, target as f32).animated());
+	let target = state
+		.virtualizer
+		.offset_for_index(index, Align::Start)
+		.expect("the index is in the list");
+	state.virtualizer.scroll_to(target);
+	state.target = Some(ScrollOffset::new(0.0, target as f32).animated());
 }
 
 // In the screen:
 let list = VirtualList(&state.virtualizer, Axis::Vertical, on_scroll, item)?;
 let list = match state.target {
-    Some(target) => list.scroll_offset(target),
-    None => list,
+	Some(target) => list.scroll_offset(target),
+	None => list,
 };
 ```
 

@@ -30,13 +30,14 @@ Each of these screens is built the same way as this card, which is a column on p
 ```rust
 use leptoskit::prelude::*;
 
-pub fn card() -> Element {
-	View()
-		.class("gap-3 rounded-xl bg-slate-100 p-4 md:flex-row")
-		.children([
-			Text("Built once").class("text-xl font-semibold"),
-			Button("Continue").class("rounded-lg bg-indigo-500 px-4 py-2 text-white"),
-		])
+#[component]
+pub fn Card() -> Element {
+	view! {
+		<View class="gap-3 rounded-xl bg-slate-100 p-4 md:flex-row">
+			<Text class="text-xl font-semibold">"Built once"</Text>
+			<Button class="rounded-lg bg-indigo-500 px-4 py-2 text-white">"Continue"</Button>
+		</View>
+	}
 }
 ```
 

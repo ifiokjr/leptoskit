@@ -13,30 +13,32 @@ use crate::ui;
 
 static CONNECTED: AtomicBool = AtomicBool::new(false);
 
-pub fn page(navigation: &Navigation) -> Element {
+#[component]
+pub fn Page(navigation: &Navigation) -> Element {
 	let _ = navigation;
 	if !browser::IN_EXTENSION {
-		return ui::extension_only();
+		return view! { <ui::ExtensionOnly /> };
 	}
 	if !CONNECTED.swap(true, Ordering::Relaxed) {
 		crate::tasks::spawn(frame::connect());
 	}
 	let pressed = Store::current().with(|state| state.extension.pressed.clone());
 	let Some(pressed) = pressed else {
-		return View();
+		return view! { <View /> };
 	};
-	View()
-		.class("gap-2 p-3 bg-white dark:bg-stone-900")
-		.child(Text(format!("From {}", pressed.project.title)).class(ui::QUIET))
-		.child(Text(format!("\u{201c}{}\u{201d}", pressed.clip.quote)).class("italic"))
-		.child(match pressed.clip.note {
-			Some(note) => Text(note),
-			None => View(),
-		})
-		.child(ui::secondary(
-			"Close",
-			|| crate::tasks::spawn(frame::hide()),
-		))
+	view! {
+		<View class="gap-2 p-3 bg-white dark:bg-stone-900">
+			<Text class=ui::QUIET>{format!("From {}", pressed.project.title)}</Text>
+			<Text class="italic">{format!("\u{201c}{}\u{201d}", pressed.clip.quote)}</Text>
+			{match pressed.clip.note {
+				Some(note) => {
+					view! { <Text>{note}</Text> }
+				}
+				None => view! { <View /> },
+			}}
+			<ui::Secondary label="Close" on_press=|| crate::tasks::spawn(frame::hide()) />
+		</View>
+	}
 }
 
 mod frame {

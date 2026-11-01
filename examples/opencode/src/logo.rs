@@ -25,7 +25,8 @@ const CODE: [&str; 4] = [
 ];
 
 /// The logo: four rows, each a `Text` of styled runs.
-pub fn logo() -> Element {
+#[component]
+pub fn Logo() -> Element {
 	let rows = (0..OPEN.len()).map(|row| {
 		let mut spans = half(OPEN[row], theme::MUTED, theme::LOGO_OPEN_SHADE, false);
 		spans.push(TextSpan::new(NBSP.to_string()));

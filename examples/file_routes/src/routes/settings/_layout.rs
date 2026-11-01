@@ -6,7 +6,8 @@ use leptoskit::prelude::*;
 use crate::routes::Route;
 
 /// A heading that follows the route: `Settings`, or `Settings › privacy`.
-pub fn layout(children: Children, route: &Route) -> Element {
+#[component]
+pub fn Layout(children: Children, route: &Route) -> Element {
 	let heading = match route {
 		Route::Section(section) => format!("Settings › {}", section.section),
 		_ => "Settings".to_owned(),

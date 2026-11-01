@@ -8,8 +8,8 @@ use crate::Store;
 use crate::VERSION;
 use crate::routes::Navigation;
 use crate::routes::Session;
-use crate::ui::hints;
-use crate::ui::prompt;
+use crate::ui::Hints;
+use crate::ui::Prompt;
 
 /// Names the route `Home` instead of `Index`.
 #[derive(Route, Clone, Debug, PartialEq)]
@@ -22,7 +22,8 @@ const SUGGESTION: &str = "Ask anything… \"Fix a TODO in the codebase\"";
 const PROMPT_WIDTH: &str = "w-[600px] max-w-full";
 
 /// Submitting a prompt starts the scripted session and opens it.
-pub fn page(navigation: &Navigation) -> Element {
+#[component]
+pub fn Page(navigation: &Navigation) -> Element {
 	let store = Store::current();
 	let directory = store.with(|state| state.directory.clone());
 	let submit = {
@@ -36,11 +37,13 @@ pub fn page(navigation: &Navigation) -> Element {
 
 	view! {
 		<View class="flex-1 items-center justify-center">
-			{crate::logo::logo()}
-			<View class=format!("mt-8 {PROMPT_WIDTH}")>{prompt(&store, SUGGESTION, submit)}</View>
+			<crate::logo::Logo />
+			<View class=format!("mt-8 {PROMPT_WIDTH}")>
+				<Prompt store=&store placeholder=SUGGESTION submit=submit />
+			</View>
 			<View class=format!("mt-2 {PROMPT_WIDTH} flex-row justify-between")>
 				<Text class="text-[#808080]">{directory}</Text>
-				{hints(&[("shift+tab", "agents"), ("ctrl+p", "commands")])}
+				<Hints pairs=&[("shift+tab", "agents"), ("ctrl+p", "commands")] />
 			</View>
 			<Text class="absolute bottom-4 right-4 text-[#808080]">{VERSION}</Text>
 		</View>

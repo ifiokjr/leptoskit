@@ -99,23 +99,29 @@ pub fn Controls(trip: Trip) -> impl IntoView {
 	let l10n = use_l10n();
 	view! {
 		<View class="gap-3">
-			{counter(l10n.days_label(), trip.days.get(), 60.0, move |days| {
-				trip.days.set(days);
-			})}
-			{counter(
-				l10n.photos_label(),
-				trip.photos.get(),
-				120.0,
-				move |photos| {
+			<Counter
+				label=l10n.days_label()
+				value=trip.days.get()
+				max=60.0
+				on_change=move |days| {
+					trip.days.set(days);
+				}
+			/>
+			<Counter
+				label=l10n.photos_label()
+				value=trip.photos.get()
+				max=120.0
+				on_change=move |photos| {
 					trip.photos.set(photos);
-				},
-			)}
+				}
+			/>
 		</View>
 	}
 }
 
 /// One labelled slider over whole numbers from zero to `max`.
-fn counter(
+#[component]
+fn Counter(
 	label: &str,
 	value: i64,
 	max: f64,

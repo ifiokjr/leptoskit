@@ -20,7 +20,8 @@ pub mod session;
 /// the agent and model. The panel ends half a row down, so the terminal
 /// closes it with a row of `▀` and the bar with `╹`. The field holds focus
 /// whenever the palette is closed.
-pub fn prompt(
+#[component]
+pub fn Prompt(
 	store: &Store,
 	placeholder: &str,
 	submit: impl Fn() + Send + Sync + 'static,
@@ -69,7 +70,8 @@ pub fn prompt(
 }
 
 /// Key hints: each key bright, its action muted, two blanks apart.
-pub fn hints(pairs: &[(&str, &str)]) -> Element {
+#[component]
+pub fn Hints<'a>(pairs: &'a [(&'a str, &'a str)]) -> Element {
 	let mut spans = Vec::new();
 
 	for (index, (key, action)) in pairs.iter().enumerate() {

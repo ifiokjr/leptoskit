@@ -36,16 +36,17 @@ A screen is a function returning an `Element`. Tailwind classes style it on ever
 ```rust
 use leptoskit::prelude::*;
 
-pub fn welcome(name: &str, on_start: impl Fn() + Send + Sync + 'static) -> Element {
-	View()
-		.class("gap-4 rounded-2xl bg-white p-6 dark:bg-slate-900")
-		.children([
-			Text(format!("Hello, {name}")).class("text-2xl font-bold"),
-			Text("Your interface, everywhere.").class("text-slate-500"),
-			Button("Start")
-				.class("rounded-lg bg-rose-500 px-4 py-2 text-white")
-				.on_press(on_start),
-		])
+#[component]
+pub fn Welcome(name: &str, on_start: impl Fn() + Send + Sync + 'static) -> Element {
+	view! {
+		<View class="gap-4 rounded-2xl bg-white p-6 dark:bg-slate-900">
+			<Text class="text-2xl font-bold">{format!("Hello, {name}")}</Text>
+			<Text class="text-slate-500">"Your interface, everywhere."</Text>
+			<Button class="rounded-lg bg-rose-500 px-4 py-2 text-white" on:press=on_start>
+				"Start"
+			</Button>
+		</View>
+	}
 }
 ```
 

@@ -80,15 +80,15 @@ impl ::leptoskit_router::Render for Route {
 		match self {
 			Self::Home => {
 				let view =
-					::leptoskit_router::__private::IntoView::into_view(index::page(navigation));
-				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+					::leptoskit_router::__private::IntoView::into_view(index::Page(navigation));
+				::leptoskit_router::__private::IntoView::into_view(layout::Layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 					navigation,
 				))
 			}
 			Self::Session => {
-				let view = ::leptoskit_router::__private::IntoView::into_view(session::page());
-				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+				let view = ::leptoskit_router::__private::IntoView::into_view(session::Page());
+				::leptoskit_router::__private::IntoView::into_view(layout::Layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 					navigation,
 				))

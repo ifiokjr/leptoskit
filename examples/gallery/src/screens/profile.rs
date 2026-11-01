@@ -67,7 +67,8 @@ fn Action(colors: &Palette, #[prop(optional)] filled: bool, children: Children) 
 }
 
 /// The profile screen.
-pub fn screen(state: &ScreenState) -> Element {
+#[component]
+pub fn Screen(state: &ScreenState) -> Element {
 	let colors = palette();
 	let assets = &state.assets;
 	let colors = &colors;

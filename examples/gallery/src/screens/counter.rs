@@ -35,7 +35,8 @@ fn palette() -> Palette {
 }
 
 /// The counter screen.
-pub fn screen(state: &ScreenState) -> Element {
+#[component]
+pub fn Screen(state: &ScreenState) -> Element {
 	let colors = palette();
 	let count = state.count();
 	let progress = (count as f32 / GOAL as f32).clamp(0.0, 1.0);

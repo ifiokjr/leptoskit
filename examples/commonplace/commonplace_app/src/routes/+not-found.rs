@@ -6,14 +6,15 @@ use crate::routes::Library;
 use crate::routes::Navigation;
 use crate::ui;
 
-pub fn page(navigation: &Navigation) -> Element {
-	View()
-		.class("gap-3")
-		.child(ui::title("Nothing here"))
-		.child(Text("This page doesn't exist, or it moved."))
-		.child(
-			navigation
+#[component]
+pub fn Page(navigation: &Navigation) -> Element {
+	view! {
+		<View class="gap-3">
+			{view! { <ui::Title text="Nothing here" /> }}
+			<Text>"This page doesn't exist, or it moved."</Text>
+			{navigation
 				.link(Library, "Back to your library")
-				.child(Text("Back to your library").class("text-amber-700")),
-		)
+				.child(view! { <Text class="text-amber-700">"Back to your library"</Text> })}
+		</View>
+	}
 }

@@ -95,19 +95,20 @@ impl Observatory {
 
 		view! {
 			<View class="flex-col gap-4 p-6 w-full h-full bg-slate-950">
-				{header()}
+				<Header />
 				// Top-aligned, so the catalogue keeps its own height beside
 				// the taller log.
 				<View class="flex-row items-start gap-6">
-					{catalogue::catalogue(&state.catalogue, on_catalogue)}
-					{sky_log(&state.log, on_log)}
+					<catalogue::Catalogue state=&state.catalogue on_change=on_catalogue />
+					<SkyLogView log=&state.log on_event=on_log />
 				</View>
 			</View>
 		}
 	}
 }
 
-fn header() -> Element {
+#[component]
+fn Header() -> Element {
 	view! {
 		<View class="gap-1">
 			<Heading aria_level=1 class="text-[34px] font-bold text-slate-100">
@@ -122,7 +123,11 @@ fn header() -> Element {
 
 /// The log section: where the log is, the ribbon of nights, the log, and
 /// the live record button.
-fn sky_log(log: &SkyLog, on_event: impl Fn(LogEvent) + Clone + Send + Sync + 'static) -> Element {
+#[component]
+fn SkyLogView(
+	log: &SkyLog,
+	on_event: impl Fn(LogEvent) + Clone + Send + Sync + 'static,
+) -> Element {
 	let count = grouped(log.shown_count());
 	let showing = match log.night() {
 		Some(night) => format!("Night {night} · {count} observations"),

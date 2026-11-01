@@ -13,10 +13,11 @@ use crate::ui;
 
 static READ_SITES: AtomicBool = AtomicBool::new(false);
 
-pub fn page(navigation: &Navigation) -> Element {
+#[component]
+pub fn Page(navigation: &Navigation) -> Element {
 	let _ = navigation;
 	if !browser::IN_EXTENSION {
-		return ui::extension_only();
+		return view! { <ui::ExtensionOnly /> };
 	}
 	let store = Store::current();
 	if !READ_SITES.swap(true, Ordering::Relaxed) {
@@ -35,77 +36,93 @@ pub fn page(navigation: &Navigation) -> Element {
 		)
 	});
 
-	View()
-		.class("gap-4")
-		.child(ui::title("Commonplace settings"))
-		.child(
-			ui::card()
-				.child(ui::section("Clip into"))
-				.child(Text("The project the clipper picks first.").class(ui::QUIET))
-				.child(ui::project_picker(&projects, chosen, |project| {
-					Store::current().update(|state| state.extension.project = Some(project));
-					crate::tasks::spawn(browser::keep_project(project));
-				})),
-		)
-		.child(
-			ui::card()
-				.child(ui::section("Highlights"))
-				.child(
-					Text(
+	view! {
+		<View class="gap-4">
+			<ui::Title text="Commonplace settings" />
+			{view! { <ui::PanelCard /> }
+				.child(view! { <ui::Section text="Clip into" /> })
+				.child(view! {
+					<Text class=ui::QUIET>"The project the clipper picks first."</Text>
+				})
+				.child(view! {
+					<ui::ProjectPicker
+						projects=&projects
+						chosen=chosen
+						on_pick=|project| {
+							Store::current()
+								.update(|state| state.extension.project = Some(project));
+							crate::tasks::spawn(browser::keep_project(project));
+						}
+					/>
+				})}
+			{view! { <ui::PanelCard /> }
+				.child(view! { <ui::Section text="Highlights" /> })
+				.child(view! {
+					<Text class=ui::QUIET>
 						"Commonplace highlights what you've clipped on the sites you choose. Each \
-						 site asks for your permission once.",
-					)
-					.class(ui::QUIET),
-				)
+						 site asks for your permission once."
+					</Text>
+				})
 				.children(sites.iter().map(|pattern| {
 					let remove = pattern.clone();
-					View()
-						.class("flex-row items-center justify-between gap-2")
-						.child(Text(pattern.clone()))
-						.child(ui::secondary(
-							&format!("Stop highlighting {pattern}"),
-							move || {
-								let pattern = remove.clone();
-								crate::tasks::spawn(async move {
-									let sites = highlights::remove(&pattern).await;
-									Store::current().update(|state| state.extension.sites = sites);
-								});
-							},
-						))
-				}))
-				.child(ui::field(
-					"Site address",
-					&site,
-					"https://www.theguardian.com",
-					|value| {
-						Store::current().update(|state| state.extension.site = value.to_owned());
-					},
-				))
-				.child(ui::primary(
-					"Highlight on this site",
-					!site.trim().is_empty(),
-					|| {
-						let site = Store::current().peek(|state| state.extension.site.clone());
-						crate::tasks::spawn(async move {
-							let result = highlights::add(&site).await;
-							Store::current().update(|state| {
-								match result {
-									Ok(sites) => {
-										state.extension.sites = sites;
-										state.extension.site.clear();
-										state.extension.status = None;
-									}
-									Err(message) => state.extension.status = Some(message),
+					view! {
+						<View class="flex-row items-center justify-between gap-2">
+							<Text>{pattern.clone()}</Text>
+							<ui::Secondary
+								label=&format!("Stop highlighting {pattern}")
+								on_press=move || {
+									let pattern = remove.clone();
+									crate::tasks::spawn(async move {
+										let sites = highlights::remove(&pattern).await;
+										Store::current()
+											.update(|state| state.extension.sites = sites);
+									});
 								}
+							/>
+						</View>
+					}
+				}))
+				.child(view! {
+					<ui::Field
+						label="Site address"
+						value=&site
+						placeholder="https://www.theguardian.com"
+						on_change=|value| {
+							Store::current()
+								.update(|state| state.extension.site = value.to_owned());
+						}
+					/>
+				})
+				.child(view! {
+					<ui::Primary
+						label="Highlight on this site"
+						enabled=!site.trim().is_empty()
+						on_press=|| {
+							let site = Store::current().peek(|state| state.extension.site.clone());
+							crate::tasks::spawn(async move {
+								let result = highlights::add(&site).await;
+								Store::current().update(|state| {
+									match result {
+										Ok(sites) => {
+											state.extension.sites = sites;
+											state.extension.site.clear();
+											state.extension.status = None;
+										}
+										Err(message) => state.extension.status = Some(message),
+									}
+								});
 							});
-						});
-					},
-				))
+						}
+					/>
+				})
 				.child(match status {
-					Some(status) => Status(status).class("text-sm"),
-					None => View(),
-				}),
-		)
+					Some(status) => {
+						view! { <Status class="text-sm">{status}</Status> }
+					}
+					None => view! { <View /> },
+				})}
+		</View>
+	}
 }
 
 /// The `highlights` content script's sites: asking for each one's

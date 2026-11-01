@@ -64,14 +64,17 @@ A label often needs more than one style: syntax-highlighted code, a bold word in
 use leptoskit::native::Color;
 use leptoskit::native::TextSpan;
 use leptoskit::prelude::Text;
+use leptoskit::view;
 
 let key = Color::hex("#eeeeee").unwrap();
 let hint = Color::hex("#808080").unwrap();
 
-let label = Text("").spans([
-	TextSpan::new("ctrl+p ").color(key),
-	TextSpan::new("commands").color(hint),
-]);
+let label = view! {
+	<Text spans=[
+		TextSpan::new("ctrl+p ").color(key),
+		TextSpan::new("commands").color(hint),
+	] />
+};
 ```
 
 The terminal paints each run in its own color, background, weight, and slant, and the browser renders each as an inline `<span>`. The other platforms draw the runs joined together in the `Text`'s own style, so the words are always there.
@@ -84,16 +87,18 @@ Terminal apps live on the keyboard. Two shared features keep that in the same el
 use leptoskit::native::KeyPress;
 use leptoskit::prelude::*;
 
-let screen = View()
-	.on_key(|key: &KeyPress| {
+let screen = view! {
+	<View on:key={|key: &KeyPress| {
 		if key.is("p", true, false, false) {
 			// open the command palette
 			EventOutcome::Handled
 		} else {
 			EventOutcome::Unhandled
 		}
-	})
-	.child(TextInput().aria_label("Prompt").focused(true));
+	}}>
+		<TextInput aria_label="Prompt" focused=true />
+	</View>
+};
 ```
 
 - `on_key` hears every key pressed while focus is inside the element, before the focused field acts on it, so a screen can take `Ctrl+P` while a text field has focus. Return `EventOutcome::Handled` to keep the key from the field. Keys are named the way the web names them: `"p"`, `"Enter"`, `"Escape"`, `"Tab"`, `"ArrowUp"`.

@@ -16,6 +16,7 @@ When a feature is limited, say so on the page, specifically: which platform, whi
 ## Writing a page
 
 - Start a feature with the problem it solves, then a concrete example, then the details. Name the platforms an example targets and say what happens on each.
+- Write UI trees with `view!` and reusable UI functions as PascalCase `#[component]` functions. Use leptos macros for web HTML and leptoskit macros for shared widgets; import explicitly when both preludes are present. Keep plain functions for fixed host entry points, model methods, fallible factories, and element transforms. Builder API explanations and intentional lint violations may show builders; name the reason. `examples/counter` is the deliberate builder example.
 - Prefer one complete example that builds over several fragments. Examples on guide pages should compile against the current CLI scaffold.
 - Use the current CLI: `leptoskit build --platform <platform>` for apps, `leptoskit native build <target>` only for simulator and architecture variants such as `ios-simulator` or `android-x86_64`.
 - List every platform when listing platforms: web, iOS, Android, macOS, Windows, Linux, the terminal, and HarmonyOS (experimental).

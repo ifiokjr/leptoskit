@@ -48,23 +48,20 @@ Every element carries the same builder methods:
 The first rule of ARIA is to prefer native HTML, and the web renderer does: structural roles upgrade the element instead of adding a redundant `role` attribute.
 
 ```rust,ignore
-Text("Profile").role(Role::Heading).aria_level(2)   // <h2>Profile</h2>
-Heading(2, "Profile")                                // the same, as a component
-View().role(Role::List)                              // <ul>
-View().role(Role::Navigation)                        // <nav>
-View().role(Role::Banner)                            // <header>
-View().role(Role::Main)                              // <main>
-View().role(Role::Separator)                         // <hr> without children
-Divider()                                            // a separator with orientation
+view! { <Text role=Role::Heading aria_level=2>"Profile"</Text> } // <h2>Profile</h2>
+view! { <Heading aria_level=2>"Profile"</Heading> } // the same, as a component
+view! { <View role=Role::List /> } // <ul>
+view! { <View role=Role::Navigation /> } // <nav>
+view! { <View role=Role::Banner /> } // <header>
+view! { <View role=Role::Main /> } // <main>
+view! { <View role=Role::Separator /> } // <hr> without children
+view! { <Divider /> } // a separator with orientation
 ```
 
 Every `NativeKind` implies a role — a `Button` is a `button`, a `TextInput` a `textbox`, a `Switch` a `switch` — and an explicit `role` overrides it. A container that declares a control role joins the tab order and activates from Enter and Space, because no native element does it for it:
 
 ```rust,ignore
-View()
-    .role(Role::Button)
-    .aria_label("Archive order")
-    .on_press(archive)
+view! { <View role=Role::Button aria_label="Archive order" on:press=archive /> }
 ```
 
 On native platforms, the same declarations map onto VoiceOver traits, TalkBack class names, NSAccessibility roles, UIA control types, and GTK accessible roles. Unmapped roles read as a group with the ARIA name as the role description.
@@ -85,7 +82,11 @@ Some contracts are checked before any tree commits, like radio groups and pressa
 A plain container with a `role` or an `aria_label` becomes one accessibility element, merging its content the way React Native's `accessible` does — VoiceOver and TalkBack read the card below as a single item:
 
 ```rust,ignore
-View().aria_label("Order card").child(Text("Order #42"))
+view! {
+	<View aria_label="Order card">
+		<Text>"Order #42"</Text>
+	</View>
+}
 ```
 
 ## Live regions
@@ -93,8 +94,8 @@ View().aria_label("Order card").child(Text("Order #42"))
 Live regions announce their changing text: politely once the reader is idle, assertively by interrupting.
 
 ```rust,ignore
-Status("3 items in your cart")   // role=status: polite, atomic
-Alert("Connection lost")         // role=alert: assertive
+view! { <Status>"3 items in your cart"</Status> } // role=status: polite, atomic
+view! { <Alert>"Connection lost"</Alert> } // role=alert: assertive
 ```
 
 The web emits the attributes and the browser announces changes. Android uses its native live region. iOS, macOS, and Windows announce when the resolved region text changes, at high priority for assertive regions. GTK exposes the text through the label; announcements need GTK 4.14, above this crate's current 4.6 minimum.

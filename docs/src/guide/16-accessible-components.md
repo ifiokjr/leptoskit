@@ -16,15 +16,23 @@ Components are plain functions, or small values like `Field`, `Tabs`, and `Dialo
 The renderer's validation enforces the wiring these components declare. A field whose input is labelled by an id no element carries, or a dialog without its title, is a tree that fails to commit. Wrong accessibility is a visible error, not a screen-reader-only surprise.
 
 ```rust,ignore
+use leptoskit::component;
+use leptoskit::view;
 use leptoskit_aria::DisclosureButton;
 use leptoskit_aria::DisclosurePanel;
 use leptoskit_native::components::Text;
 use leptoskit_native::components::View;
 
-fn faq(open: bool, toggle: impl Fn(bool) + Send + Sync + 'static) -> leptoskit_native::Element {
-	View()
-		.child(DisclosureButton("faq", "Frequently asked questions", open, toggle))
-		.child(DisclosurePanel("faq", open).child(Text("Only visible once expanded")))
+#[component]
+fn Faq(open: bool, toggle: impl Fn(bool) + Send + Sync + 'static) -> leptoskit_native::Element {
+	view! {
+		<View>
+			{DisclosureButton("faq", "Frequently asked questions", open, toggle)}
+			{DisclosurePanel("faq", open).child(view! {
+				<Text>"Only visible once expanded"</Text>
+			})}
+		</View>
+	}
 }
 ```
 

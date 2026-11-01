@@ -293,93 +293,93 @@ impl ::leptoskit_router::Render for Route {
 		match self {
 			Self::Library => {
 				let view =
-					::leptoskit_router::__private::IntoView::into_view(index::page(navigation));
-				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+					::leptoskit_router::__private::IntoView::into_view(index::Page(navigation));
+				::leptoskit_router::__private::IntoView::into_view(layout::Layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 					navigation,
 				))
 			}
 			Self::Clip => {
 				let view =
-					::leptoskit_router::__private::IntoView::into_view(clip::page(navigation));
-				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+					::leptoskit_router::__private::IntoView::into_view(clip::Page(navigation));
+				::leptoskit_router::__private::IntoView::into_view(layout::Layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 					navigation,
 				))
 			}
 			Self::Panel => {
 				let view =
-					::leptoskit_router::__private::IntoView::into_view(panel::page(navigation));
-				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+					::leptoskit_router::__private::IntoView::into_view(panel::Page(navigation));
+				::leptoskit_router::__private::IntoView::into_view(layout::Layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 					navigation,
 				))
 			}
 			Self::Reading => {
 				let view =
-					::leptoskit_router::__private::IntoView::into_view(reading::page(navigation));
-				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+					::leptoskit_router::__private::IntoView::into_view(reading::Page(navigation));
+				::leptoskit_router::__private::IntoView::into_view(layout::Layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 					navigation,
 				))
 			}
 			Self::Settings => {
 				let view =
-					::leptoskit_router::__private::IntoView::into_view(settings::page(navigation));
-				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+					::leptoskit_router::__private::IntoView::into_view(settings::Page(navigation));
+				::leptoskit_router::__private::IntoView::into_view(layout::Layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 					navigation,
 				))
 			}
 			Self::OverlayClipper => {
 				let view = ::leptoskit_router::__private::IntoView::into_view(
-					overlay::clipper::page(navigation),
+					overlay::clipper::Page(navigation),
 				);
-				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+				::leptoskit_router::__private::IntoView::into_view(layout::Layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 					navigation,
 				))
 			}
 			Self::OverlayHighlights => {
 				let view = ::leptoskit_router::__private::IntoView::into_view(
-					overlay::highlights::page(navigation),
+					overlay::highlights::Page(navigation),
 				);
-				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+				::leptoskit_router::__private::IntoView::into_view(layout::Layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 					navigation,
 				))
 			}
 			Self::Project(route) => {
 				let view = ::leptoskit_router::__private::IntoView::into_view(
-					projects::project::index::page(route, navigation),
+					projects::project::index::Page(route, navigation),
 				);
-				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+				::leptoskit_router::__private::IntoView::into_view(layout::Layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 					navigation,
 				))
 			}
 			Self::Export(route) => {
 				let view = ::leptoskit_router::__private::IntoView::into_view(
-					projects::project::export::page(route, navigation),
+					projects::project::export::Page(route, navigation),
 				);
-				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+				::leptoskit_router::__private::IntoView::into_view(layout::Layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 					navigation,
 				))
 			}
 			Self::ClipPage(route) => {
 				let view = ::leptoskit_router::__private::IntoView::into_view(
-					projects::project::clips::clip::page(route, navigation),
+					projects::project::clips::clip::Page(route, navigation),
 				);
-				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+				::leptoskit_router::__private::IntoView::into_view(layout::Layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 					navigation,
 				))
 			}
 			Self::NotFound(_) => {
 				let view =
-					::leptoskit_router::__private::IntoView::into_view(not_found::page(navigation));
-				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+					::leptoskit_router::__private::IntoView::into_view(not_found::Page(navigation));
+				::leptoskit_router::__private::IntoView::into_view(layout::Layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 					navigation,
 				))

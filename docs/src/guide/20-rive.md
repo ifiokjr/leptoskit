@@ -7,16 +7,26 @@ Add `rive` to your app crate's `leptoskit` features. This example assumes a vect
 ```rust,ignore
 use leptoskit::components::Rive;
 use leptoskit::native::Element;
-use leptoskit::rive::{Asset, Error, Input, Name, Playback, Scene};
+use leptoskit::rive::Asset;
+use leptoskit::rive::Error;
+use leptoskit::rive::Input;
+use leptoskit::rive::Name;
+use leptoskit::rive::Playback;
+use leptoskit::rive::Scene;
+use leptoskit::view;
 
 fn upload_status(asset: &Asset, progress: f64) -> Result<Element, Error> {
-    let mut playback = Playback::new(asset.clone())
-        .scene(Scene::StateMachine(Name::new("Status")?));
-    playback.set_input(Name::new("progress")?, Input::Number(progress), 0)?;
-    Ok(Rive(playback)
-        .class("w-40 h-40")
-        .aria_label("Upload progress")
-        .running(true))
+	let mut playback =
+		Playback::new(asset.clone()).scene(Scene::StateMachine(Name::new("Status")?));
+	playback.set_input(Name::new("progress")?, Input::Number(progress), 0)?;
+	Ok(view! {
+		<Rive
+			rive_playback=playback
+			class="w-40 h-40"
+			aria_label="Upload progress"
+			running=true
+		/>
+	})
 }
 ```
 
@@ -48,15 +58,20 @@ For an upload illustration whose state machine is named `Status` and whose numbe
 ```
 
 ```rust,ignore
-use leptoskit::rive::{Asset, Input, Name, Scene};
-use leptoskit::rive::web::{Options, Player, Runtime};
+use leptoskit::rive::Asset;
+use leptoskit::rive::Input;
+use leptoskit::rive::Name;
+use leptoskit::rive::Scene;
+use leptoskit::rive::web::Options;
+use leptoskit::rive::web::Player;
+use leptoskit::rive::web::Runtime;
 
 let runtime = Runtime::from_global("/assets/rive.wasm")?;
 let asset = Asset::new(include_bytes!("../assets/upload.riv"))?;
 let options = Options {
-    scene: Scene::StateMachine(Name::new("Status")?),
-    autoplay: true,
-    ..Options::default()
+	scene: Scene::StateMachine(Name::new("Status")?),
+	autoplay: true,
+	..Options::default()
 };
 
 canvas.set_attribute("aria-label", "Upload progress")?;

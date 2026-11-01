@@ -146,7 +146,8 @@ fn WithFootnote(text: &'static str, colors: &Palette, children: Children) -> Ele
 }
 
 /// The settings screen.
-pub fn screen(state: &ScreenState) -> Element {
+#[component]
+pub fn Screen(state: &ScreenState) -> Element {
 	let colors = &palette();
 
 	view! {
@@ -194,28 +195,28 @@ pub fn screen(state: &ScreenState) -> Element {
 				<Group colors=colors>
 					<Row
 						state=state
-						icon=Tile(hex("#ff9500"), Glyph::Square)
+						icon=view! { <Tile color=hex("#ff9500") glyph=Glyph::Square /> }
 						title="Airplane Mode"
 						accessory=Accessory::Switch("Airplane Mode")
 						colors=colors
 					/>
 					<Row
 						state=state
-						icon=Tile(hex("#007aff"), Glyph::Ring)
+						icon=view! { <Tile color=hex("#007aff") glyph=Glyph::Ring /> }
 						title="Wi-Fi"
 						accessory=Accessory::Value("Home 5G")
 						colors=colors
 					/>
 					<Row
 						state=state
-						icon=Tile(hex("#007aff"), Glyph::Dot)
+						icon=view! { <Tile color=hex("#007aff") glyph=Glyph::Dot /> }
 						title="Bluetooth"
 						accessory=Accessory::Value("On")
 						colors=colors
 					/>
 					<Row
 						state=state
-						icon=Tile(hex("#34c759"), Glyph::Bar)
+						icon=view! { <Tile color=hex("#34c759") glyph=Glyph::Bar /> }
 						title="Mobile Data"
 						accessory=Accessory::Disclosure
 						colors=colors
@@ -229,28 +230,28 @@ pub fn screen(state: &ScreenState) -> Element {
 					<Group colors=colors>
 						<Row
 							state=state
-							icon=Tile(hex("#ff3b30"), Glyph::Dot)
+							icon=view! { <Tile color=hex("#ff3b30") glyph=Glyph::Dot /> }
 							title="Notifications"
 							accessory=Accessory::Disclosure
 							colors=colors
 						/>
 						<Row
 							state=state
-							icon=Tile(hex("#5856d6"), Glyph::Ring)
+							icon=view! { <Tile color=hex("#5856d6") glyph=Glyph::Ring /> }
 							title="Focus"
 							accessory=Accessory::Value("Off")
 							colors=colors
 						/>
 						<Row
 							state=state
-							icon=Tile(hex("#ff2d55"), Glyph::Bar)
+							icon=view! { <Tile color=hex("#ff2d55") glyph=Glyph::Bar /> }
 							title="Haptics"
 							accessory=Accessory::Switch("Haptics")
 							colors=colors
 						/>
 						<Row
 							state=state
-							icon=Tile(hex("#ffcc00"), Glyph::Square)
+							icon=view! { <Tile color=hex("#ffcc00") glyph=Glyph::Square /> }
 							title="Low Power Mode"
 							accessory=Accessory::Switch("Low Power Mode")
 							colors=colors

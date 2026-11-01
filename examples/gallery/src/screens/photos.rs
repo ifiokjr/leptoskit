@@ -193,7 +193,8 @@ fn TabBar(colors: &Palette) -> Element {
 }
 
 /// The photos screen.
-pub fn screen(state: &ScreenState) -> Element {
+#[component]
+pub fn Screen(state: &ScreenState) -> Element {
 	let colors = &palette();
 
 	view! {

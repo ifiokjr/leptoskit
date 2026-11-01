@@ -6,7 +6,8 @@ use crate::routes::Navigation;
 use crate::routes::Note;
 
 /// The third tab's first screen: a link to each note.
-pub fn page(navigation: &Navigation) -> Element {
+#[component]
+pub fn Page(navigation: &Navigation) -> Element {
 	let notes = [1, 2, 3].map(|note| {
 		navigation
 			.link(

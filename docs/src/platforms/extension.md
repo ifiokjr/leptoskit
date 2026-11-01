@@ -81,7 +81,9 @@ extension = ["csr", "leptoskit/extension"]
 leptoskit::extension::entry!(main: extension::main, background: extension::background);
 
 /// Every surface opens at its configured route, with an in-memory router.
-pub fn main(surface: leptoskit::extension::Surface) -> impl Fn() -> Element + Send + Sync + 'static {
+pub fn main(
+	surface: leptoskit::extension::Surface,
+) -> impl Fn() -> Element + Send + Sync + 'static {
 	let route = Route::parse(surface.route()).unwrap_or(Route::Library);
 	let navigation = Navigation::new(route);
 	move || navigation.render()
@@ -112,7 +114,11 @@ A content script shows part of your app on another site's page. Most large sites
 let page = leptoskit::extension::page::connect().await?;
 let info = page.info().await?; // the address, title, author, site, and publication date
 let selection = page.selection().await?; // the selected text, and some text on each side
-page.place(Placement::NearSelection { width: 380.0, height: 360.0 }).await?;
+page.place(Placement::NearSelection {
+	width: 380.0,
+	height: 360.0,
+})
+.await?;
 page.highlight(&quotes).await?; // marks each quote where it appears
 ```
 
@@ -140,11 +146,13 @@ The developer tools open `route` out of sight each time they open for a tab. Tha
 
 ```rust,ignore
 /// The `/devtools` route: adds the panel, and shows nothing.
-fn add_panel() -> Element {
+#[component]
+fn AddPanel() -> Element {
 	wasm_bindgen_futures::spawn_local(async {
-		let _ = leptoskit::extension::devtools::create_panel("Inspector", "assets/icon-32.png").await;
+		let _ = leptoskit::extension::devtools::create_panel("Inspector", "assets/icon-32.png")
+			.await;
 	});
-	View()
+	view! { <View /> }
 }
 ```
 

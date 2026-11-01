@@ -17,7 +17,8 @@ Keep the posture in a signal and hand it to `use_posture`, from `leptoskit::hook
 
 ```rust
 use leptos::prelude::*;
-use leptoskit::hooks::{use_posture, Posture};
+use leptoskit::hooks::Posture;
+use leptoskit::hooks::use_posture;
 
 let posture = RwSignal::new(Posture::default());
 let fold = use_posture(posture);
@@ -51,17 +52,20 @@ Each hinge has an `angle` in degrees where the platform measures it, from 0 shut
 This screen shows a video in the top half and its controls in the bottom half when a flip phone stands on a table, and the two stacked normally otherwise:
 
 ```rust
-fn screen(posture: &Posture) -> Element {
+#[component]
+fn Screen(posture: &Posture) -> Element {
 	let panes = posture.panes();
 	if posture.is_tabletop() && panes.len() == 2 {
 		let fold = 1.0 - panes[0].height - panes[1].height;
-		View()
-			.class("h-screen")
-			.child(player().class(format!("h-[{}%]", panes[0].height * 100.0)))
-			.child(View().class(format!("h-[{}%]", fold * 100.0)))
-			.child(controls().class(format!("h-[{}%]", panes[1].height * 100.0)))
+		view! {
+			<View class="h-screen">
+				{player().class(format!("h-[{}%]", panes[0].height * 100.0))}
+				<View class=format!("h-[{}%]", fold * 100.0) />
+				{controls().class(format!("h-[{}%]", panes[1].height * 100.0))}
+			</View>
+		}
 	} else {
-		View().class("h-screen").child(player()).child(controls())
+		view! { <View class="h-screen">{player()} {controls()}</View> }
 	}
 }
 ```
