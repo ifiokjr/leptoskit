@@ -6,10 +6,20 @@ import UIKit
 import AppKit
 #endif
 
+/// The request and reply framing this host reads and writes.
+private enum Wire {
+    /// The request carries one u32 byte limit.
+    static let limitBytes = 4
+
+    /// The only method: present the picker and read one document.
+    static let open: UInt32 = 0
+}
+
+/// Imports one document, retaining no bookmark and requesting no storage permission.
 @MainActor
 public final class DocumentPickerPlugin: NSObject, NativePlugin {
     public let name = "document-picker"
-    public let methods: [UInt32] = [0]
+    public let methods: [UInt32] = [Wire.open]
     private let context: NativePluginContext
     private var closed = false
     private var busy = false
@@ -31,20 +41,16 @@ public final class DocumentPickerPlugin: NSObject, NativePlugin {
         reader?.cancel()
     }
 
+    /// Chooses one document, then reads it within the caller's byte limit.
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
         guard !closed else { throw PluginError.cancelled }
 
-        guard method == 0 else { throw PluginError.unavailable }
-        let limit = try payload.withUnsafeBytes { bytes -> Int in
+        guard method == Wire.open else { throw PluginError.unavailable }
 
-            guard bytes.count == 4 else { throw PluginError.invalidArgument }
-
-            return Int(UInt32(littleEndian: bytes.loadUnaligned(as: UInt32.self)))
-        }
-
-        guard limit <= DocumentReader.maximum else { throw PluginError.tooLarge }
+        let limit = try limit(from: payload)
 
         guard !busy else { throw PluginError.busy }
+
         try Task.checkCancellation()
         busy = true
         let identifier = UUID()
@@ -55,16 +61,28 @@ public final class DocumentPickerPlugin: NSObject, NativePlugin {
             selectionID = nil
             reader = nil
         }
-        let url = try await withTaskCancellationHandler {
-            try await choose()
-        } onCancel: {
-            Task { @MainActor [weak self] in
-
-                guard self?.selectionID == identifier else { return }
-                self?.cancelSelection()
-            }
-        }
+        let url = try await choose(identifier: identifier)
         try Task.checkCancellation()
+
+        return try await read(url, limit: limit)
+    }
+
+    /// Reads the caller's byte limit, refusing one this reader cannot honour.
+    private func limit(from payload: NativeBuffer) throws -> Int {
+        let limit = try payload.withUnsafeBytes { bytes -> Int in
+
+            guard bytes.count == Wire.limitBytes else { throw PluginError.invalidArgument }
+
+            return Int(UInt32(littleEndian: bytes.loadUnaligned(as: UInt32.self)))
+        }
+
+        guard limit <= DocumentReader.maximum else { throw PluginError.tooLarge }
+
+        return limit
+    }
+
+    /// Reads the chosen document off the presenter's thread.
+    private func read(_ url: URL, limit: Int) async throws -> Data {
         let reader = DocumentReadJob(url: url, limit: limit)
         self.reader = reader
         let result = try await reader.run()
@@ -75,12 +93,41 @@ public final class DocumentPickerPlugin: NSObject, NativePlugin {
         return result
     }
 
-    private func choose() async throws -> URL {
+    /// Abandons the chooser when this call is cancelled before it answers.
+    private func choose(identifier: UUID) async throws -> URL {
+        try await withTaskCancellationHandler {
+            try await present()
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancel(identifier: identifier)
+            }
+        }
+    }
+
+    /// Abandons the chooser only while this call still owns the selection.
+    private func cancel(identifier: UUID) {
+        guard selectionID == identifier else { return }
+
+        cancelSelection()
+    }
+
+    private func cancelSelection() {
+        dismissChooser()
+        finish(.failure(PluginError.cancelled))
+    }
+
+    private func finish(_ result: Result<URL, Error>) {
+        releaseChooser()
+        selection.finish(result)
+    }
+
+    #if canImport(UIKit)
+    /// Presents the document picker, then waits for the delegate to answer.
+    private func present() async throws -> URL {
         let owner = try context.requirePresentationOwner()
 
-        #if canImport(UIKit)
-
         guard owner.presentedViewController == nil else { throw PluginError.busy }
+
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: false)
         picker.allowsMultipleSelection = false
         picker.delegate = self
@@ -91,12 +138,24 @@ public final class DocumentPickerPlugin: NSObject, NativePlugin {
             owner.present(picker, animated: true)
             picker.presentationController?.delegate = self
         }
+    }
 
-        #elseif canImport(AppKit)
+    private func dismissChooser() {
+        picker?.dismiss(animated: false)
+    }
 
-        guard let window = owner.view.window else { throw PluginError.unavailable }
+    private func releaseChooser() {
+        picker?.delegate = nil
+        picker = nil
+    }
+    #elseif canImport(AppKit)
+    /// Presents the open panel as a sheet, then waits for the user to answer.
+    private func present() async throws -> URL {
+        let owner = try context.requirePresentationOwner()
+        let window = try window(of: owner)
 
         guard window.attachedSheet == nil else { throw PluginError.busy }
+
         let panel = NSOpenPanel()
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
@@ -107,41 +166,45 @@ public final class DocumentPickerPlugin: NSObject, NativePlugin {
             let identifier = selection.begin(continuation)
 
             panel.beginSheetModal(for: window) { [weak self, weak panel] result in
-
-                guard let self, let panel, self.panel === panel,
-
-                      self.selection.identifier == identifier else { return }
-
-                if result == .OK, let url = panel.url {
-                    self.finish(.success(url))
-                } else {
-                    self.finish(.failure(PluginError.cancelled))
-                }
+                self?.panelResponded(result, panel: panel, identifier: identifier)
             }
         }
-        #else
-        throw PluginError.unavailable
-        #endif
     }
 
-    private func cancelSelection() {
-        #if canImport(UIKit)
-        picker?.dismiss(animated: false)
-        #elseif canImport(AppKit)
+    /// The window the sheet must attach to; a host without one cannot present.
+    private func window(of owner: NativePresentationOwner) throws -> NSWindow {
+        guard let window = owner.view.window else { throw PluginError.unavailable }
+
+        return window
+    }
+
+    /// Answers the sheet once; a callback for a replaced panel is ignored.
+    private func panelResponded(_ result: NSApplication.ModalResponse, panel: NSOpenPanel?, identifier: UUID) {
+        guard let panel, self.panel === panel, selection.identifier == identifier else { return }
+
+        if result == .OK, let url = panel.url {
+            finish(.success(url))
+        } else {
+            finish(.failure(PluginError.cancelled))
+        }
+    }
+
+    private func dismissChooser() {
         panel?.cancel(nil)
-        #endif
-        finish(.failure(PluginError.cancelled))
     }
 
-    private func finish(_ result: Result<URL, Error>) {
-        #if canImport(UIKit)
-        picker?.delegate = nil
-        picker = nil
-        #elseif canImport(AppKit)
+    private func releaseChooser() {
         panel = nil
-        #endif
-        selection.finish(result)
     }
+    #else
+    private func present() async throws -> URL {
+        throw PluginError.unavailable
+    }
+
+    private func dismissChooser() {}
+
+    private func releaseChooser() {}
+    #endif
 }
 
 #if canImport(UIKit)

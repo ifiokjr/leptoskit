@@ -17,6 +17,8 @@ pub const PICK: u32 = 0;
 pub const MAX_BYTES: u32 = 4 * 1024 * 1024;
 /// Maximum UTF-8 bytes in each metadata field.
 pub const MAX_METADATA_BYTES: usize = 4096;
+/// Three u32 lengths prefix the reply body.
+const FRAMING_BYTES: usize = 12;
 
 /// Validated content limit; zero allows only empty documents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,7 +82,7 @@ impl Document {
 			return Err(Error::TooLarge);
 		}
 
-		let offset = 12 + name.len() + mime_type.len();
+		let offset = FRAMING_BYTES + name.len() + mime_type.len();
 		let length = bytes.len();
 		decoder.finish()?;
 		let name = name.to_owned();

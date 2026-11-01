@@ -7,6 +7,15 @@ import UniformTypeIdentifiers
 enum DocumentReader {
     static let maximum = 4 * 1024 * 1024
 
+    /// The largest display name or media type a reply can carry.
+    private static let metadataBytes = 4096
+
+    /// One read never allocates more than this, however large the limit.
+    private static let chunkBytes = 65536
+
+    /// Three u32 lengths prefix the reply body.
+    private static let headerBytes = 12
+
     static func read(
         _ url: URL,
         limit: Int,
@@ -31,6 +40,8 @@ enum DocumentReader {
         return try result.get()
     }
 
+    /// Reads inside a file-coordination block, so another process cannot change
+    /// the file between the resource check and the copy.
     static func readCoordinated(
         _ url: URL,
         limit: Int,
@@ -47,11 +58,14 @@ enum DocumentReader {
         let name = Data(url.lastPathComponent.utf8)
         let mime = Data((values.contentType?.preferredMIMEType ?? "").utf8)
 
-        guard !name.isEmpty, name.count <= 4096, mime.count <= 4096 else { throw PluginError.tooLarge }
+        guard !name.isEmpty, name.count <= metadataBytes, mime.count <= metadataBytes else {
+            throw PluginError.tooLarge
+        }
+
         let handle = try openRegularFile(url, limit: limit)
         defer { try? handle.close() }
         let content = try readContent(handle, limit: limit, checkCancellation: checkCancellation)
-        var reply = Data(capacity: name.count + mime.count + content.count + 12)
+        var reply = Data(capacity: name.count + mime.count + content.count + headerBytes)
 
         for field in [name, mime, content] {
             var count = UInt32(field.count).littleEndian
@@ -62,6 +76,8 @@ enum DocumentReader {
         return reply
     }
 
+    /// Opens the file without following a link and validates the descriptor
+    /// itself, so a path swapped after the resource check cannot be read.
     private static func openRegularFile(_ url: URL, limit: Int) throws -> FileHandle {
         let descriptor = url.withUnsafeFileSystemRepresentation { path in
 
@@ -85,6 +101,8 @@ enum DocumentReader {
         return handle
     }
 
+    /// Copies the descriptor in bounded chunks, checking cancellation between
+    /// them so a cancelled job stops without waiting for the rest of the file.
     private static func readContent(
         _ handle: FileHandle,
         limit: Int,
@@ -94,7 +112,7 @@ enum DocumentReader {
 
         while true {
             try checkCancellation()
-            let chunk = try handle.read(upToCount: min(65536, limit - content.count + 1)) ?? Data()
+            let chunk = try handle.read(upToCount: min(chunkBytes, limit - content.count + 1)) ?? Data()
 
             if chunk.isEmpty { break }
 

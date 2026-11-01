@@ -5,9 +5,13 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import java.io.ByteArrayInputStream
 
+private const val NUL = 0.toByte()
+private const val DELETE = 127.toByte()
+private const val MAX_BYTE = (-1).toByte()
+
 fun main() =
     runBlocking {
-        val bytes = byteArrayOf(0, 127, -1)
+        val bytes = byteArrayOf(NUL, DELETE, MAX_BYTE)
         check(DocumentEncoding.readBounded(ByteArrayInputStream(bytes), 3) {}.contentEquals(bytes))
         check(DocumentEncoding.readBounded(ByteArrayInputStream(byteArrayOf()), 0) {}.isEmpty())
         try {
