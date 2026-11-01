@@ -110,21 +110,31 @@ struct Guest {
 }
 
 impl Guest {
-	/// A started agent over a fresh registry.
-	fn start(host: Host, hooks: impl FnOnce()) -> Self {
+	/// An agent over a fresh registry, under a root owner for the test's
+	/// signals.
+	///
+	/// Create signals after this: once workspace feature unification turns
+	/// on `reactive_graph`'s `sandboxed-arenas`, as `cargo test --workspace`
+	/// and nextest do, a signal created before any owner is set has no arena
+	/// to live in.
+	fn new(host: Host) -> Self {
 		registry::reset();
 		let owner = Owner::new();
 		owner.set();
 		let host = Rc::new(host);
 		let agent = Rc::new(Agent::new(Rc::clone(&host), Waker::noop().clone()));
 		registry::install(Rc::new(Wake(Rc::clone(&agent))));
-		hooks();
-		agent.start();
 		Self {
 			host,
 			agent,
 			_owner: owner,
 		}
+	}
+
+	/// Runs the app's `hooks`, then starts the agent.
+	fn start(&self, hooks: impl FnOnce()) {
+		hooks();
+		self.agent.start();
 	}
 
 	/// The host's clock passes the debounce, if the agent is waiting it out.
@@ -182,8 +192,9 @@ fn set_count(value: usize) -> Command {
 
 #[test]
 fn a_guest_says_what_it_feeds_then_reports_every_value_after_the_debounce() {
+	let guest = Guest::new(Host::default());
 	let signal = RwSignal::new(1_usize);
-	let guest = Guest::start(Host::default(), || expose("count", signal));
+	guest.start(|| expose("count", signal));
 
 	assert_eq!(
 		*guest.host.hellos.borrow(),
@@ -210,8 +221,9 @@ fn a_guest_says_what_it_feeds_then_reports_every_value_after_the_debounce() {
 
 #[test]
 fn a_burst_of_changes_costs_one_report_of_the_latest_value() {
+	let guest = Guest::new(Host::default());
 	let signal = RwSignal::new(1_usize);
-	let guest = Guest::start(Host::default(), || expose("count", signal));
+	guest.start(|| expose("count", signal));
 	guest.settle();
 	guest.answer_report(Ok(()));
 
@@ -235,8 +247,9 @@ fn a_burst_of_changes_costs_one_report_of_the_latest_value() {
 
 #[test]
 fn one_report_posts_at_a_time() {
+	let guest = Guest::new(Host::default());
 	let signal = RwSignal::new(1_usize);
-	let guest = Guest::start(Host::default(), || expose("count", signal));
+	guest.start(|| expose("count", signal));
 	guest.settle();
 
 	// The first report hasn't been answered: the next change waits for it.
@@ -250,8 +263,9 @@ fn one_report_posts_at_a_time() {
 
 #[test]
 fn set_state_from_the_hub_sets_the_signal_renders_and_reports_it() {
+	let guest = Guest::new(Host::default());
 	let signal = RwSignal::new(1_usize);
-	let guest = Guest::start(Host::default(), || expose("count", signal));
+	guest.start(|| expose("count", signal));
 	guest.settle();
 	guest.answer_report(Ok(()));
 
@@ -279,7 +293,8 @@ fn set_state_from_the_hub_sets_the_signal_renders_and_reports_it() {
 fn navigate_from_the_hub_moves_the_tracked_router() {
 	let router = Router::<Page>::new(Page::Home);
 	let tracked = router.clone();
-	let guest = Guest::start(Host::default(), move || track_router(&tracked));
+	let guest = Guest::new(Host::default());
+	guest.start(move || track_router(&tracked));
 	guest.settle();
 	assert_eq!(
 		guest.last_report().events,
@@ -308,8 +323,9 @@ fn navigate_from_the_hub_moves_the_tracked_router() {
 
 #[test]
 fn a_snapshot_request_resends_every_value_even_while_a_report_posts() {
+	let guest = Guest::new(Host::default());
 	let signal = RwSignal::new(1_usize);
-	let guest = Guest::start(Host::default(), || expose("count", signal));
+	guest.start(|| expose("count", signal));
 	guest.settle();
 
 	// The request arrives while the first report is still posting.
@@ -327,8 +343,9 @@ fn a_snapshot_request_resends_every_value_even_while_a_report_posts() {
 
 #[test]
 fn a_refused_report_resends_every_value() {
+	let guest = Guest::new(Host::default());
 	let signal = RwSignal::new(1_usize);
-	let guest = Guest::start(Host::default(), || expose("count", signal));
+	guest.start(|| expose("count", signal));
 	guest.settle();
 	guest.answer_report(Ok(()));
 	signal.set(2);
@@ -349,14 +366,16 @@ fn a_refused_report_resends_every_value() {
 fn a_wait_the_host_refuses_flushes_at_once() {
 	let host = Host::default();
 	host.no_waits.set(true);
+	let guest = Guest::new(host);
 	let signal = RwSignal::new(1_usize);
-	let guest = Guest::start(host, || expose("count", signal));
+	guest.start(|| expose("count", signal));
 	assert_eq!(guest.last_report().events, [count(1)]);
 }
 
 #[test]
 fn a_closed_host_ends_the_commands_call() {
-	let guest = Guest::start(Host::default(), || {});
+	let guest = Guest::new(Host::default());
+	guest.start(|| {});
 	let waiting = guest.host.waiting_commands.borrow_mut().pop_front();
 	*waiting.unwrap().borrow_mut() = Some(Err(Error::Cancelled));
 	guest.agent.poll();
