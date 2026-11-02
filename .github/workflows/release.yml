@@ -40,11 +40,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      # The release commit and branch are pushed with the job token, and the pull request is opened
-      # or updated through the API. Labels are attached through the issues API.
+      # Upload the release files as git blobs and a tree. This pushes no branch; the monochange
+      # GitHub App writes the release commit and pull request, and this run proves its repository
+      # with an OIDC token.
       contents: write
-      pull-requests: write
-      issues: write
+      pull-requests: read
+      id-token: write
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -104,39 +105,20 @@ jobs:
           echo "count=$count" >> "$GITHUB_OUTPUT"
           echo "Pending changesets: $count"
 
-      - name: authenticate the release push
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          # The checkout keeps credentials out of .git/config, so the release commit gets push
-          # access only here. The header is the same one actions/checkout would have written.
-          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
-          git config --local "http.https://github.com/.extraheader" "AUTHORIZATION: basic ${auth}"
-
       - name: open or update the release pull request
         env:
           # monochange reads both names: GH_TOKEN for git and the GitHub API, GITHUB_TOKEN for the
-          # verified-commit path.
+          # blob and tree uploads.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Write the release commit and branch locally, then open the pull request with the job
-          # token. The hosted backend depended on monochange.dev being reachable, which failed every
-          # main run for days; this path has no external release service.
-          MONOCHANGE_RELEASE_BACKEND: local
-          # A commit created with the job token does not trigger workflows on its own, so the
-          # release commit is unsigned unless monochange replaces it through the Git Database API.
-          # That replacement is attempted automatically when `verified_commits` is on.
-          #
+          # monochange.dev's GitHub App creates a verified release commit and opens the pull
+          # request as the monochange bot, so the release pull request triggers its own checks
+          # without a personal access token or an external service on the hot path.
+          MONOCHANGE_RELEASE_BACKEND: hosted
           # Passed through the environment rather than interpolated into the script: a `${{ }}`
           # expression is substituted as text, so a shell comparison against it is a comparison
           # against a literal that shellcheck cannot type-check.
           PENDING: ${{ steps.pending.outputs.count }}
-          GIT_AUTHOR_NAME: github-actions[bot]
-          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
-          GIT_COMMITTER_NAME: github-actions[bot]
-          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
         run: |
           set -euo pipefail
 
