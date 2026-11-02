@@ -63,7 +63,7 @@ pub extern "C" fn leptoskit_main() {
 	leptoskit::auth::client::configure(leptoskit::auth::client::ClientConfig::new().origin(SERVER));
 	let owner = Owner::new();
 	let shell = owner.with(provide);
-	leptoskit::guest::mount(move || owner.with(|| view! { <Screen sign_in=&shell /> }));
+	leptoskit::guest::mount(move || owner.with(|| view! { <Screen shell=&shell /> }));
 	tasks::poll();
 }
 
