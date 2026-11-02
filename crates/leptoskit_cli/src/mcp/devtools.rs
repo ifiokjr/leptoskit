@@ -425,8 +425,9 @@ fn process_alive(pid: u32) -> bool {
 		std::process::Command::new("tasklist")
 			.args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
 			.output()
-			.map(|output| String::from_utf8_lossy(&output.stdout).contains(&format!("\"{pid}\"")))
-			.unwrap_or(true)
+			.map_or(true, |output| {
+				String::from_utf8_lossy(&output.stdout).contains(&format!("\"{pid}\""))
+			})
 	}
 	#[cfg(not(any(unix, windows)))]
 	{
