@@ -29,7 +29,13 @@ class NotificationsPlugin(
     override val name = "notifications"
     override val methods = intArrayOf(STATE, REQUEST, SHOW, CANCEL, CHANNEL, DELETE, ACTIVE)
 
-    private companion object {
+    companion object {
+        /** The notification tag and channel prefix the plugin owns. */
+        internal const val PREFIX = "leptoskit.notifications."
+
+        /** The permission value that means notifications may be posted. */
+        internal const val GRANTED = 3
+
         /** Reports the current permission, without asking for it. */
         const val STATE = 0
 
@@ -250,13 +256,6 @@ class NotificationsPlugin(
 
     private fun empty(payload: ByteBuffer) {
         if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
-    }
-
-    companion object {
-        internal const val PREFIX = "leptoskit.notifications."
-
-        /** The permission value that means notifications may be posted. */
-        internal const val GRANTED = 3
     }
 }
 

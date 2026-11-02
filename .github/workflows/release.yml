@@ -53,8 +53,8 @@ jobs:
           # monochange reads history to build the changelog, so a shallow clone would produce a
           # release PR with an incomplete entry list.
           fetch-depth: 0
-          # Credential persistence stays off until the release step, which authenticates only the
-          # push it needs. Nothing else in the job can write to the repository.
+          # Credential persistence stays off: blobs and trees are uploaded with the job token, and
+          # only the monochange app writes the commit.
           persist-credentials: false
 
       - uses: ./.github/actions/rust
@@ -204,7 +204,8 @@ jobs:
           # The rehearsal only reads, so the built-in token is enough.
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
-          # No external release service is involved, which is also how the real release now runs.
+          # The rehearsal stays local: it commits and opens nothing, and a pull request from a
+          # fork must not need the monochange app or an OIDC token.
           MONOCHANGE_RELEASE_BACKEND: local
           # Passed through the environment rather than interpolated into the script: a `${{ }}`
           # expression is substituted as text, so a shell comparison against it is a comparison

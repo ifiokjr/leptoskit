@@ -119,7 +119,7 @@ Releases run through [monochange](https://crates.io/crates/monochange) changeset
 
 1. A feature branch carries a changeset: `monochange run change --package leptoskit --bump patch --reason "..."`.
 2. Every pull request runs `release pr (simulated)`, which performs the release planning, lockfile refreshes, and formatting without committing or opening a pull request, so release problems fail on the change that caused them.
-3. The `release` workflow keeps one release pull request open that summarises the pending changesets. Merging it cuts the release.
+3. The `release` workflow keeps one release pull request open that summarises the pending changesets. The monochange GitHub App writes the verified release commit and opens the pull request as the monochange bot, so the release PR runs its own workflows without a personal access token. Merging it cuts the release.
 4. The merge pushes the tag, drafts the GitHub release, and dispatches the `publish` workflow, which publishes every crate to crates.io in dependency order. It uses trusted publishing when the OIDC identity verifies, and falls back to `CARGO_REGISTRY_TOKEN` for a crate's first publish, before its trusted publisher exists.
 
 Every crate releases in lockstep as one version group under a single tag. Each keeps its own `changelog.md`, and the root carries the combined summary.
