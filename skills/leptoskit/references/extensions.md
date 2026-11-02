@@ -50,3 +50,7 @@ leptoskit test extension                           # every page, the worker, and
 - Safari's package goes inside the macOS and iOS apps, built with `leptoskit build --platform macos` and `ios`. People turn it on in Safari's settings.
 - Extension permissions come from `[extension].permissions`, from what the surfaces need, and from the plugins the app depends on (`extension-permissions` in their metadata).
 - Explain each permission in `store/permissions.toml`; `leptoskit publish` pastes those sentences into the store steps.
+
+## Firefox development and tests
+
+Use `leptoskit dev --platform extension --browser firefox` or `leptoskit test extension --browser firefox`. Install Firefox and geckodriver; set `LEPTOSKIT_FIREFOX` and `LEPTOSKIT_GECKODRIVER` when they are not in the usual locations or on PATH. Doctor reports both tools. Include Firefox in `extension.browsers` and configure its add-on ID. Development replaces the temporary add-on after successful builds; tests run headless.

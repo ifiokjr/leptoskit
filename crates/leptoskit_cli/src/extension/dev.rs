@@ -1,5 +1,5 @@
 //! `leptoskit dev` for extensions: an unpacked Chromium build, loaded into
-//! Chrome for Testing, and reloaded after every rebuild.
+//! Chrome for Testing or Firefox, and reloaded after every rebuild.
 //!
 //! Chrome 137 and later ignore `--load-extension`; Chrome for Testing, the
 //! build of Chrome meant for automation, still honours it. The development
@@ -23,7 +23,9 @@ use serde::Deserialize;
 use sha2::Digest;
 use tokio::sync::watch;
 
+use super::browser::ExtensionBrowser;
 use super::manifest::DevManifest;
+use super::webdriver::Driver;
 
 /// The environment variable that names a Chrome for Testing executable.
 pub const CHROME_ENV: &str = "LEPTOSKIT_CHROME";
@@ -128,18 +130,25 @@ pub struct ExtensionDev {
 	server: String,
 	dir: PathBuf,
 	chrome: Option<Child>,
+	firefox: Option<Driver>,
+	browser: ExtensionBrowser,
 	generation: u64,
 }
 
 impl ExtensionDev {
 	/// Starts the reload server, builds the extension, and opens it in
-	/// Chrome for Testing.
+	/// Chrome for Testing or Firefox.
 	///
 	/// # Errors
 	///
-	/// When Chrome for Testing is missing, or the first build fails.
-	pub fn start(root: &Path, runtime: &tokio::runtime::Runtime) -> Result<Self> {
-		let chrome = chrome().context(support().err().unwrap_or_default())?;
+	/// When the selected browser or driver is missing, startup fails, or the
+	/// first build fails.
+	pub fn start(
+		root: &Path,
+		runtime: &tokio::runtime::Runtime,
+		browser: ExtensionBrowser,
+	) -> Result<Self> {
+		browser.support().map_err(anyhow::Error::msg)?;
 		let (builds, receiver) = watch::channel(String::new());
 		let listener = std::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
 			.context("could not start the extension's reload server")?;
@@ -163,11 +172,34 @@ impl ExtensionDev {
 			server,
 			dir: PathBuf::new(),
 			chrome: None,
+			firefox: None,
+			browser,
 			generation: 0,
 		};
 		dev.rebuild_or_fail()?;
 		let profile = root.join(super::OUTPUT).join("profile");
 		std::fs::create_dir_all(&profile)?;
+		if browser == ExtensionBrowser::Firefox {
+			let driver = Driver::launch(browser, &dev.dir, &profile, false)?;
+			let page = [
+				"popup.html",
+				"options.html",
+				"new_tab.html",
+				"side_panel.html",
+				"devtools_panel.html",
+			]
+			.into_iter()
+			.find(|page| dev.dir.join(page).is_file())
+			.unwrap_or("__leptoskit_probe.html");
+			driver.open(&format!("{}/{page}", driver.extension_base))?;
+			dev.firefox = Some(driver);
+			println!(
+				"[extension] loaded {} into Firefox; it reloads after each rebuild",
+				dev.dir.display()
+			);
+			return Ok(dev);
+		}
+		let chrome = chrome().context("Chrome for Testing is missing")?;
 		let child = Command::new(&chrome)
 			.arg(format!("--user-data-dir={}", profile.display()))
 			.arg(format!("--load-extension={}", dev.dir.display()))
@@ -193,13 +225,16 @@ impl ExtensionDev {
 			key: None,
 			server: self.server.clone(),
 		};
-		let built = super::build(false, Some(&manifest))?;
+		let built = super::build_for(false, Some(&manifest), &[self.browser.config()])?;
 		let package = built
 			.packages
 			.into_iter()
 			.next()
 			.context("the development build made no package")?;
 		self.dir = package.dir.canonicalize().unwrap_or(package.dir);
+		if let Some(driver) = &mut self.firefox {
+			driver.reinstall(&self.dir)?;
+		}
 		self.generation += 1;
 		let _ = self.builds.send(self.generation.to_string());
 		Ok(())

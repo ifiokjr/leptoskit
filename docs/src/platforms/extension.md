@@ -211,7 +211,7 @@ Safari has no side panel or developer tools panel, and can't replace the new tab
 npx @puppeteer/browsers install chrome@stable chromedriver@stable --path ~/.cache/puppeteer
 ```
 
-Or set `LEPTOSKIT_CHROME`, and `LEPTOSKIT_CHROMEDRIVER`, to the executables you have. `leptoskit doctor` says which one it found.
+Or set `LEPTOSKIT_CHROME`, and `LEPTOSKIT_CHROMEDRIVER`, to the executables you have. `leptoskit doctor` reports the browser tools it finds.
 
 ```bash
 leptoskit dev --platform extension
@@ -229,6 +229,15 @@ That builds the extension and checks it in Chrome for Testing, through chromedri
 - the background worker is running;
 - each content script puts its frame on a page whose content security policy forbids scripts and WebAssembly, as most large sites' do.
 
+To develop or test the Firefox package, install Firefox 138 or newer and [geckodriver](https://firefox-source-docs.mozilla.org/testing/geckodriver/). Put geckodriver on `PATH`; Firefox is found on `PATH` or in its usual application folder. Set `LEPTOSKIT_FIREFOX` and `LEPTOSKIT_GECKODRIVER` to use specific executables:
+
+```bash
+leptoskit dev --platform extension --browser firefox
+leptoskit test extension --browser firefox
+```
+
+Include `firefox` in `[extension].browsers` and set `[extension.firefox].id`. The development command opens Firefox with a temporary add-on, replaces it after each successful rebuild, and removes the browser session when you stop. The test command runs headless and checks the Firefox page surfaces, background page, and content script injection. Firefox uses a background page rather than Chromium's service worker. Startup and browser commands have timeouts, so a browser that cannot start fails the command.
+
 To try a release build by hand, load the unpacked folder: in Chrome, turn on developer mode at `chrome://extensions` and choose **Load unpacked**; in Firefox, open `about:debugging`, choose **This Firefox**, and **Load Temporary Add-on**, picking the folder's `manifest.json`.
 
 ## Start a new one
@@ -239,7 +248,6 @@ To try a release build by hand, load the unpacked folder: in Chrome, turn on dev
 
 A runtime plugin whose browser side needs an extension permission declares it, and the build adds it to the manifest: the notifications plugin adds `notifications`, and the clipboard plugin adds `clipboardRead` and `clipboardWrite`. A plugin crate declares its own in `[package.metadata.leptoskit.runtime]`, with `extension-permissions = ["…"]`.
 
-## What doesn't work yet
+## Icons
 
-- **Firefox in development:** `leptoskit dev` and `leptoskit test extension` use Chrome for Testing. Load the Firefox package from `about:debugging` to try it.
-- **Icons:** with `app.icon` set, the build makes the 16, 32, 48, and 128 pixel icons from it. Without it, the build uses `assets/icon-16.png`, `icon-32.png`, `icon-48.png`, and `icon-128.png` when they exist.
+With `app.icon` set, the build makes the 16, 32, 48, and 128 pixel icons from it. Without it, the build uses `assets/icon-16.png`, `icon-32.png`, `icon-48.png`, and `icon-128.png` when they exist.

@@ -252,6 +252,9 @@ pub enum Command {
 	/// The terminal app needs this terminal to itself, so it runs alone, with
 	/// `--platform tui` or as the app's default platform.
 	Dev {
+		/// Browser used for the extension platform.
+		#[arg(long, value_enum, default_value = "chromium")]
+		browser: crate::extension::browser::ExtensionBrowser,
 		/// Open the browser after the web server starts.
 		#[arg(long)]
 		open: bool,
@@ -723,6 +726,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 			})
 		}
 		Command::Dev {
+			browser,
 			open,
 			port,
 			platforms,
@@ -731,15 +735,16 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 			devtools_port,
 			studio,
 		} => {
-			dev::run(
+			dev::run(dev::Options {
 				open,
 				port,
-				&platforms,
-				&devices,
+				platforms: &platforms,
+				devices: &devices,
 				no_devtools,
 				devtools_port,
 				studio,
-			)
+				browser,
+			})
 		}
 		Command::Build {
 			release,

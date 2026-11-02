@@ -1,7 +1,8 @@
 //! `leptoskit test extension`: the extension in a real browser.
 //!
 //! Builds the development package, loads it into Chrome for Testing through
-//! chromedriver, and checks what every extension needs to work:
+//! chromedriver or Firefox through geckodriver, and checks what every extension
+//! needs to work:
 //!
 //! - each page surface mounts the app and shows something, except the page the
 //!   developer tools open out of sight, which only has to start it;
@@ -11,26 +12,16 @@
 //!   mounts the app.
 
 use std::net::SocketAddr;
-use std::path::Path;
-use std::path::PathBuf;
-use std::process::Child;
-use std::process::Command;
-use std::process::Stdio;
 use std::time::Duration;
-use std::time::Instant;
 
 use anyhow::Context;
 use anyhow::Result;
-use leptoskit_config::Browser;
 use leptoskit_config::LeptoskitConfig;
-use serde_json::Value;
 use serde_json::json;
 
-use super::dev::unpacked_id;
+use super::browser::ExtensionBrowser;
 use super::manifest::DevManifest;
-
-/// The environment variable that names a chromedriver executable.
-pub const CHROMEDRIVER_ENV: &str = "LEPTOSKIT_CHROMEDRIVER";
+use super::webdriver::Driver;
 
 /// The page content scripts are tried on: a strict policy, like
 /// github.com's.
@@ -39,195 +30,6 @@ const FIXTURE: &str = "<!doctype html><html><head><title>A strict page</title></
                        day's heat.</p></body></html>";
 const FIXTURE_POLICY: &str =
 	"default-src 'self'; script-src 'self'; object-src 'none'; frame-src 'self'";
-
-/// chromedriver: `LEPTOSKIT_CHROMEDRIVER`, the newest one in the Chrome for
-/// Testing installer's cache, or `chromedriver` on the `PATH`.
-fn chromedriver() -> PathBuf {
-	if let Some(path) = std::env::var_os(CHROMEDRIVER_ENV) {
-		return PathBuf::from(path);
-	}
-
-	let cached = std::env::var_os("HOME")
-		.or_else(|| std::env::var_os("USERPROFILE"))
-		.map(|home| PathBuf::from(home).join(".cache/puppeteer/chromedriver"))
-		.and_then(|cache| std::fs::read_dir(cache).ok())
-		.and_then(|installs| {
-			let mut installs: Vec<PathBuf> = installs
-				.filter_map(Result::ok)
-				.map(|entry| entry.path())
-				.collect();
-			installs.sort();
-			installs.into_iter().rev().find_map(|install| {
-				[
-					"chromedriver-mac-arm64",
-					"chromedriver-mac-x64",
-					"chromedriver-linux64",
-					"chromedriver-win64",
-				]
-				.into_iter()
-				.map(|dir| {
-					install.join(dir).join(if cfg!(windows) {
-						"chromedriver.exe"
-					} else {
-						"chromedriver"
-					})
-				})
-				.find(|path| path.is_file())
-			})
-		});
-	cached.unwrap_or_else(|| PathBuf::from("chromedriver"))
-}
-
-/// One W3C `WebDriver` session.
-struct Driver {
-	process: Child,
-	base: String,
-	session: String,
-	agent: ureq::Agent,
-}
-
-impl Driver {
-	fn start(chrome: &Path, extension: &Path, profile: &Path) -> Result<Self> {
-		let port = {
-			let listener = std::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))?;
-			listener.local_addr()?.port()
-		};
-		let driver = chromedriver();
-		let process = Command::new(&driver)
-			.arg(format!("--port={port}"))
-			.stdout(Stdio::null())
-			.stderr(Stdio::null())
-			.spawn()
-			.with_context(|| {
-				format!(
-					"could not start {}: install chromedriver for your Chrome for Testing with \
-					 `npx @puppeteer/browsers install chromedriver@stable --path \
-					 ~/.cache/puppeteer`, or set {CHROMEDRIVER_ENV}",
-					driver.display()
-				)
-			})?;
-		let agent: ureq::Agent = ureq::Agent::config_builder()
-			.timeout_global(Some(Duration::from_mins(1)))
-			.http_status_as_error(false)
-			.build()
-			.into();
-		let base = format!("http://127.0.0.1:{port}");
-		let mut driver = Self {
-			process,
-			base,
-			session: String::new(),
-			agent,
-		};
-		let deadline = Instant::now() + Duration::from_secs(20);
-
-		loop {
-			if driver.call("GET", "/status", None).is_ok() {
-				break;
-			}
-
-			anyhow::ensure!(Instant::now() < deadline, "chromedriver didn't start");
-			std::thread::sleep(Duration::from_millis(200));
-		}
-
-		let session = driver.call(
-			"POST",
-			"/session",
-			Some(json!({
-				"capabilities": { "alwaysMatch": { "browserName": "chrome", "goog:chromeOptions": {
-					"binary": chrome,
-					"args": [
-						format!("--load-extension={}", extension.display()),
-						format!("--disable-extensions-except={}", extension.display()),
-						format!("--user-data-dir={}", profile.display()),
-						"--headless=new",
-						"--no-first-run",
-						"--no-default-browser-check",
-					],
-				}}}
-			})),
-		)?;
-		session["sessionId"]
-			.as_str()
-			.context("chromedriver started no session")?
-			.clone_into(&mut driver.session);
-		Ok(driver)
-	}
-
-	fn call(&self, method: &str, path: &str, body: Option<Value>) -> Result<Value> {
-		let url = format!("{}{path}", self.base);
-
-		let mut response = match (method, body) {
-			("GET", _) => self.agent.get(&url).call()?,
-			("DELETE", _) => self.agent.delete(&url).call()?,
-			(_, body) => {
-				self.agent
-					.post(&url)
-					.header("content-type", "application/json")
-					.send(serde_json::to_vec(&body.unwrap_or_else(|| json!({})))?)?
-			}
-		};
-
-		let value: Value = serde_json::from_str(&response.body_mut().read_to_string()?)?;
-
-		if let Some(error) = value["value"]["error"].as_str() {
-			anyhow::bail!(
-				"{error}: {}",
-				value["value"]["message"].as_str().unwrap_or_default()
-			);
-		}
-
-		Ok(value["value"].clone())
-	}
-
-	fn session(&self, method: &str, tail: &str, body: Option<Value>) -> Result<Value> {
-		self.call(method, &format!("/session/{}{tail}", self.session), body)
-	}
-
-	fn open(&self, url: &str) -> Result<()> {
-		self.session("POST", "/url", Some(json!({ "url": url })))
-			.map(drop)
-	}
-
-	fn script(&self, script: &str) -> Result<Value> {
-		self.session(
-			"POST",
-			"/execute/async",
-			Some(json!({ "script": script, "args": [] })),
-		)
-	}
-
-	/// Waits until `condition`, a JavaScript expression, is truthy.
-	fn wait(&self, condition: &str, timeout: Duration) -> Result<()> {
-		let deadline = Instant::now() + timeout;
-		let script = format!(
-			"const done = arguments[arguments.length - 1]; Promise.resolve().then(() => \
-			 ({condition})).then((value) => done(Boolean(value)), () => done(false));"
-		);
-
-		loop {
-			if self.script(&script).ok().and_then(|value| value.as_bool()) == Some(true) {
-				return Ok(());
-			}
-
-			anyhow::ensure!(
-				Instant::now() < deadline,
-				"timed out waiting for {condition}"
-			);
-			std::thread::sleep(Duration::from_millis(250));
-		}
-	}
-}
-
-impl Drop for Driver {
-	fn drop(&mut self) {
-		if !self.session.is_empty() {
-			let _ = self.call("DELETE", &format!("/session/{}", self.session), None);
-		}
-
-		let _ = self.process.kill();
-		let _ = self.process.wait();
-	}
-}
 
 /// Serves the strict fixture page on loopback, and returns its address.
 fn serve_fixture(runtime: &tokio::runtime::Runtime) -> Result<String> {
@@ -259,23 +61,28 @@ fn serve_fixture(runtime: &tokio::runtime::Runtime) -> Result<String> {
 ///
 /// # Errors
 ///
-/// When Chrome for Testing or chromedriver is missing, the build fails, or a
+/// When the selected browser or its driver is missing, the build fails, or a
 /// check fails.
-pub fn run() -> Result<()> {
+pub fn run(browser: ExtensionBrowser) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
 	let extension = config
 		.extension
 		.clone()
 		.context("add an [extension] table to leptoskit.toml to test an extension")?;
-	let chrome = super::dev::chrome().context(super::dev::support().err().unwrap_or_default())?;
+	browser.support().map_err(anyhow::Error::msg)?;
+	anyhow::ensure!(
+		extension.browsers.contains(&browser.config()),
+		"{browser:?} is not in extension.browsers"
+	);
 	let runtime = tokio::runtime::Runtime::new()?;
 	let fixture = serve_fixture(&runtime)?;
-	let built = super::build(
+	let built = super::build_for(
 		false,
 		Some(&DevManifest {
 			key: None,
 			server: fixture.trim_end_matches("/article").to_owned(),
 		}),
+		&[browser.config()],
 	)?;
 	let dir = built
 		.packages
@@ -289,9 +96,8 @@ pub fn run() -> Result<()> {
 		.context("the build made no package")?;
 	let profile = tempfile::tempdir()?;
 
-	let driver = Driver::start(&chrome, &dir, profile.path())?;
-	let id = unpacked_id(&dir);
-	let base = format!("chrome-extension://{id}");
+	let driver = Driver::launch(browser, &dir, profile.path(), true)?;
+	let base = driver.extension_base.clone();
 	let mut failures = Vec::new();
 	let mut check = |name: String, result: Result<()>| {
 		match result {
@@ -304,7 +110,7 @@ pub fn run() -> Result<()> {
 	};
 
 	for page in extension.pages() {
-		if !extension.has_page(&page, Browser::Chromium) {
+		if !extension.has_page(&page, browser.config()) {
 			continue;
 		}
 
@@ -334,18 +140,12 @@ pub fn run() -> Result<()> {
 	check(
 		"the background worker runs".to_owned(),
 		driver
-			.open(&format!("{base}/manifest.json"))
-			.and_then(|()| {
-				driver.wait(
-					"navigator.serviceWorker.getRegistration().then((registration) => \
-					 Boolean(registration?.active))",
-					Duration::from_secs(30),
-				)
-			}),
+			.open(&format!("{base}/__leptoskit_probe.html"))
+			.and_then(|()| driver.wait(background_condition(browser), Duration::from_secs(30))),
 	);
 
 	for script in &extension.content_scripts {
-		if !extension.includes(script.browsers.as_deref(), Browser::Chromium) {
+		if !extension.includes(script.browsers.as_deref(), browser.config()) {
 			continue;
 		}
 
@@ -360,15 +160,19 @@ pub fn run() -> Result<()> {
 				let tab = driver.session("POST", "/window/new", Some(json!({ "type": "tab" })))?;
 				let tab = tab["handle"].as_str().context("no new tab")?.to_owned();
 				driver.session("POST", "/window", Some(json!({ "handle": tab })))?;
-				driver.open(&format!("{base}/manifest.json"))?;
-				driver.script(&format!(
-					"const done = arguments[arguments.length - 1]; chrome.tabs.query({{ url: \
-					 {url} }}).then(([tab]) => chrome.scripting.executeScript({{ target: {{ \
-					 tabId: tab.id }}, files: [{file}] }})).then(() => done(true), (error) => \
-					 done(String(error)))",
+				driver.open(&format!("{base}/__leptoskit_probe.html"))?;
+				let injected = driver.script(&format!(
+					"const done = arguments[arguments.length - 1]; (globalThis.browser ?? \
+					 chrome).tabs.query({{ url: {url} }}).then(([tab]) => (globalThis.browser ?? \
+					 chrome).scripting.executeScript({{ target: {{ tabId: tab.id }}, files: \
+					 [{file}] }})).then(() => done(true), (error) => done(String(error)))",
 					url = serde_json::to_string(&fixture)?,
 					file = serde_json::to_string(&file)?,
 				))?;
+				anyhow::ensure!(
+					injected == true,
+					"content script injection failed: {injected}"
+				);
 				driver.session("DELETE", "/window", None)?;
 				driver.session("POST", "/window", Some(json!({ "handle": page })))?;
 				driver.wait(
@@ -395,4 +199,16 @@ pub fn run() -> Result<()> {
 	);
 	println!("every check passed");
 	Ok(())
+}
+
+fn background_condition(browser: ExtensionBrowser) -> &'static str {
+	match browser {
+		ExtensionBrowser::Chromium => {
+			"navigator.serviceWorker.getRegistration().then(r => Boolean(r?.active))"
+		}
+		ExtensionBrowser::Firefox => {
+			"browser.runtime.getBackgroundPage().then(page => \
+			 Boolean(page?.__leptoskit_background_ready))"
+		}
+	}
 }

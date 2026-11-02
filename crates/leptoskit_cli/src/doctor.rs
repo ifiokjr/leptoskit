@@ -61,6 +61,33 @@ pub fn run() -> Result<()> {
 		checks.push(check);
 	}
 
+	if LeptoskitConfig::load()
+		.ok()
+		.and_then(|(config, _)| config.extension)
+		.is_some()
+	{
+		for (name, path, hint) in [
+			(
+				"Firefox",
+				crate::extension::browser::firefox(),
+				"install Firefox or set LEPTOSKIT_FIREFOX",
+			),
+			(
+				"geckodriver",
+				crate::extension::browser::geckodriver(),
+				"install geckodriver on PATH or set LEPTOSKIT_GECKODRIVER",
+			),
+		] {
+			checks.push(Check {
+				name,
+				required: false,
+				outcome: path
+					.map(|path| path.display().to_string())
+					.ok_or_else(|| hint.to_owned()),
+			});
+		}
+	}
+
 	if let Some(check) = devtools_check() {
 		checks.push(check);
 	}

@@ -364,3 +364,71 @@ fn invalid_extensions_are_refused_with_the_reason() {
 		assert!(error.contains(reason), "{toml}\n→ {error}");
 	}
 }
+
+#[test]
+fn firefox_dev_manifest_uses_an_event_page_and_loopback_permissions() {
+	let config = config(COMMONPLACE);
+	let dev = DevManifest {
+		key: None,
+		server: "http://127.0.0.1:7341".into(),
+	};
+	let manifest = manifest(&ManifestInput {
+		browser: Browser::Firefox,
+		config: &config,
+		extension: config.extension.as_ref().unwrap(),
+		plugin_permissions: &[],
+		icons: &[],
+		dev: Some(&dev),
+	});
+	assert_eq!(
+		manifest["background"],
+		serde_json::json!({"scripts":["background.js"], "type":"module"})
+	);
+	assert!(
+		manifest["host_permissions"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.any(|p| p == "http://127.0.0.1/*")
+	);
+	assert!(manifest.get("key").is_none());
+	assert_eq!(
+		manifest["browser_specific_settings"]["gecko"]["id"],
+		"commonplace@leptoskit.dev"
+	);
+}
+
+#[test]
+fn extension_browser_flags_are_parsed_and_invalid_browsers_are_rejected() {
+	use clap::Parser as _;
+
+	use super::browser::ExtensionBrowser;
+	use crate::cli::Cli;
+	use crate::cli::Command;
+	let dev = Cli::try_parse_from([
+		"lk",
+		"dev",
+		"--platform",
+		"extension",
+		"--browser",
+		"firefox",
+	])
+	.unwrap();
+	assert!(matches!(
+		dev.command,
+		Command::Dev {
+			browser: ExtensionBrowser::Firefox,
+			..
+		}
+	));
+	let test = Cli::try_parse_from(["lk", "test", "extension", "--browser", "firefox"]).unwrap();
+	assert!(matches!(
+		test.command,
+		Command::Test {
+			command: crate::testing::TestCommand::Extension {
+				browser: ExtensionBrowser::Firefox
+			}
+		}
+	));
+	assert!(Cli::try_parse_from(["lk", "test", "extension", "--browser", "safari"]).is_err());
+}

@@ -380,8 +380,8 @@ impl Live {
 		not(feature = "relay"),
 		expect(
 			unused_variables,
-			unused_self,
-			needless_pass_by_value,
+			clippy::unused_self,
+			clippy::needless_pass_by_value,
 			reason = "only a relay reaches other servers"
 		)
 	)]

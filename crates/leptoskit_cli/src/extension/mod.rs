@@ -12,10 +12,13 @@
 //! └── safari/              copied into the Apple apps' Safari extension
 //! ```
 
+mod bidi;
+pub mod browser;
 pub mod dev;
 pub mod manifest;
 pub mod pages;
 pub mod test;
+mod webdriver;
 pub mod zip;
 
 use std::path::Path;
@@ -120,6 +123,12 @@ pub fn build_for(release: bool, dev: Option<&DevManifest>, browsers: &[Browser])
 		.extension
 		.clone()
 		.context("add an [extension] table to leptoskit.toml to build an extension")?;
+	for browser in browsers {
+		anyhow::ensure!(
+			extension.browsers.contains(browser),
+			"{browser} is not in extension.browsers"
+		);
+	}
 	check_routes(&root, &config, &extension)?;
 	anyhow::ensure!(
 		!config.codepush.enabled,
@@ -165,7 +174,7 @@ pub fn build_for(release: bool, dev: Option<&DevManifest>, browsers: &[Browser])
 	let generated_icons = generated.then_some(generated_icons.as_path());
 
 	let plugin_permissions = plugin_permissions(&root, &client.name)?;
-	let browsers: Vec<Browser> = if dev.is_some() {
+	let browsers: Vec<Browser> = if dev.is_some() && browsers.is_empty() {
 		vec![Browser::Chromium]
 	} else if browsers.is_empty() {
 		extension.browsers.clone()
@@ -177,7 +186,7 @@ pub fn build_for(release: bool, dev: Option<&DevManifest>, browsers: &[Browser])
 
 	for &browser in &browsers {
 		let dir = output_dir.join(if dev.is_some() {
-			"dev/chromium".to_owned()
+			format!("dev/{}", browser.name())
 		} else {
 			browser.name().to_owned()
 		});
@@ -191,6 +200,12 @@ pub fn build_for(release: bool, dev: Option<&DevManifest>, browsers: &[Browser])
 			dev,
 		};
 		write_package(&dir, &input, &module, &pkg, &assets, generated_icons)?;
+		if dev.is_some() {
+			std::fs::write(
+				dir.join("__leptoskit_probe.html"),
+				"<!doctype html><title>Extension smoke test</title>",
+			)?;
+		}
 		let zip = if dev.is_none() && browser != Browser::Safari {
 			let zip = output_dir.join(format!("{}.zip", browser.name()));
 			std::fs::write(&zip, zip::archive(&zip::files_under(&dir)?)?)
@@ -264,9 +279,15 @@ fn write_package(
 			.background
 			.as_ref()
 			.map(|background| background.events.as_slice());
+		// Chromium reloads itself through the worker's poll. Firefox is
+		// reinstalled by the host over BiDi after each successful build.
+		let reload = input
+			.dev
+			.filter(|_| browser == Browser::Chromium)
+			.map(|dev| dev.server.as_str());
 		write(
 			"background.js",
-			&pages::background_js(module, events, input.dev.map(|dev| dev.server.as_str())),
+			&pages::background_js(module, events, reload),
 		)?;
 	}
 

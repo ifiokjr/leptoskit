@@ -96,6 +96,8 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
 toml = { workspace = true }
 toml_edit = { workspace = true }
+# WebDriver BiDi uses a loopback WebSocket; no TLS backend is needed.
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 ureq = { workspace = true, features = ["rustls"] }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
