@@ -301,6 +301,7 @@ fn parse_adb_devices(output: &str) -> Vec<String> {
 /// once, so every device and rebuild uses the same ones.
 #[derive(Debug, Clone)]
 pub struct Tools {
+	pub(crate) extension_browser: crate::extension::browser::ExtensionBrowser,
 	xcrun: PathBuf,
 	adb: PathBuf,
 	emulator: PathBuf,
@@ -348,6 +349,7 @@ impl Tools {
 	/// the builds `leptoskit native build` runs.
 	pub fn from_environment() -> Self {
 		Self {
+			extension_browser: crate::extension::browser::ExtensionBrowser::default(),
 			xcrun: PathBuf::from("xcrun"),
 			adb: android_tool("adb"),
 			emulator: android_tool("emulator"),
@@ -407,7 +409,7 @@ impl Tools {
 						.to_owned(),
 				)
 			}
-			Platform::Extension => crate::extension::dev::support(),
+			Platform::Extension => self.extension_browser.support(),
 			_ => Ok(()),
 		}
 	}
@@ -1184,6 +1186,7 @@ mod tests {
 	fn tools(dir: &Path) -> Tools {
 		let missing = dir.join("missing");
 		Tools {
+			extension_browser: crate::extension::browser::ExtensionBrowser::default(),
 			xcrun: missing.clone(),
 			adb: missing.clone(),
 			emulator: missing.clone(),

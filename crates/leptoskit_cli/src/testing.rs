@@ -38,10 +38,15 @@ pub enum TestCommand {
 	},
 	/// Runs a compiled test executable and retains its logs and JSON report.
 	Run(RunArgs),
-	/// Builds the browser extension and checks it in Chrome for Testing:
-	/// every page shows something, the worker runs, and each content script
-	/// puts its frame on a page with a strict content security policy.
-	Extension,
+	/// Builds the browser extension and checks it in Chrome for Testing or
+	/// Firefox: every page shows something, the worker runs, and each
+	/// content script puts its frame on a page with a strict content
+	/// security policy.
+	Extension {
+		/// Browser family to run.
+		#[arg(long, value_enum, default_value = "chromium")]
+		browser: crate::extension::browser::ExtensionBrowser,
+	},
 	/// Runs browser component tests through wasm-bindgen-test.
 	Web {
 		/// Cargo package containing browser tests.
@@ -263,7 +268,7 @@ pub(crate) fn isolate(command: &mut Command) {
 	let _ = command;
 }
 
-fn terminate(child: &mut std::process::Child) -> anyhow::Result<()> {
+pub(crate) fn terminate(child: &mut std::process::Child) -> anyhow::Result<()> {
 	#[cfg(unix)]
 	{
 		use rustix::process::Pid;
@@ -312,7 +317,7 @@ pub fn run(command: TestCommand) -> anyhow::Result<()> {
 			Ok(())
 		}
 		TestCommand::Run(args) => run_binary(&args),
-		TestCommand::Extension => crate::extension::test::run(),
+		TestCommand::Extension { browser } => crate::extension::test::run(browser),
 		TestCommand::Web {
 			package,
 			browser,

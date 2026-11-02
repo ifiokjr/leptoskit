@@ -32,5 +32,6 @@ api.contextMenus.onClicked.addListener((info, tab) => deliver("context_menus", (
 init({ module_or_path: new URL("./pkg/app_bg.wasm", import.meta.url) }).then(() => {
   leptoskit_extension_background();
   ready = true;
+  globalThis.__leptoskit_background_ready = true;
   for (const run of queue.splice(0)) run();
 });

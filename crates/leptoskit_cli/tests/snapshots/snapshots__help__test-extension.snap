@@ -1,0 +1,24 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+assertion_line: 185
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Builds the browser extension and checks it in Chrome for Testing or Firefox: every page shows something, the worker runs, and each content script puts its frame on a page with a strict content security policy
+
+Usage: leptoskit test extension [OPTIONS]
+
+Options:
+      --browser <BROWSER>
+          Browser family to run
+
+          Possible values:
+          - chromium: Chrome for Testing
+          - firefox:  Firefox through geckodriver
+          
+          [default: chromium]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

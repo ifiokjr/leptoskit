@@ -87,22 +87,48 @@ fn start_studio(
 /// The terminal app needs this terminal to itself, so it runs alone: when it
 /// is the one platform named, or when nothing is named and it is the app's
 /// default platform.
-pub fn run(
-	open: bool,
-	port: Option<u16>,
-	platforms: &[Platform],
-	devices: &[String],
-	no_devtools: bool,
-	devtools_port: Option<u16>,
-	studio: bool,
-) -> Result<()> {
+#[derive(Debug, Clone, Copy)]
+pub struct Options<'a> {
+	/// Open the web app after it starts.
+	pub open: bool,
+	/// Override the configured web port.
+	pub port: Option<u16>,
+	/// Requested platforms, or empty for enabled platforms.
+	pub platforms: &'a [Platform],
+	/// Devices to run native apps on.
+	pub devices: &'a [String],
+	/// Disable the developer tools hub.
+	pub no_devtools: bool,
+	/// Override the developer tools port.
+	pub devtools_port: Option<u16>,
+	/// Serve the database studio beside the app.
+	pub studio: bool,
+	/// Browser used by the extension platform.
+	pub browser: crate::extension::browser::ExtensionBrowser,
+}
+
+/// Starts the selected platforms and watches the app for changes.
+/// # Errors
+/// When a selected platform cannot start or the initial build fails.
+pub fn run(options: Options<'_>) -> Result<()> {
+	let Options {
+		open,
+		port,
+		platforms,
+		devices,
+		no_devtools,
+		devtools_port,
+		studio,
+		browser,
+	} = options;
 	let (config, root) = LeptoskitConfig::load()?;
 
 	if terminal_only(&config, &root, platforms, open, port, devices, studio)? {
 		return Ok(());
 	}
 
-	let tools = native::Tools::from_environment();
+	let mut tools = native::Tools::from_environment();
+	tools.extension_browser = browser;
 	let selection = native::select(&config, platforms, &tools)?;
 	report_skipped(&selection);
 	anyhow::ensure!(
@@ -228,7 +254,9 @@ impl Started {
 			.transpose()?;
 		let extension = selection
 			.extension
-			.then(|| crate::extension::dev::ExtensionDev::start(root, runtime))
+			.then(|| {
+				crate::extension::dev::ExtensionDev::start(root, runtime, tools.extension_browser)
+			})
 			.transpose()?;
 		let native = if selection.native.is_empty() {
 			None
