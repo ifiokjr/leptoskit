@@ -2,7 +2,7 @@
 "release": patch
 ---
 
-# A release tag must name a reviewed commit; the live socket has a budget
+# A release tag must name a reviewed commit
 
 The scaffold's release workflow checked a pushed tag against `app.version` read from the tagged tree itself, so a tag over any commit passed its own check and reached every store credential and a write token. The workflow now checks out the whole history and refuses a tag whose commit the default branch does not carry, and drops the upload keystore and the unlocked keychain when publishing ends. The report it appends to the run summary escapes the text the stores and the project sent, so nothing can mark up the page maintainers read.
 
