@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_db_pack_fixture"
-version = "0.0.0"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false

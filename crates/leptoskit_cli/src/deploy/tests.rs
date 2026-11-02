@@ -82,7 +82,13 @@ fn project(root: &Path, db: Db) -> LeptoskitConfig {
 
 fn with_version_masked() -> insta::Settings {
 	let mut settings = insta::Settings::clone_current();
-	settings.add_filter(&regex_escape(env!("CARGO_PKG_VERSION")), "[version]");
+	settings.add_filter(
+		&format!(
+			"LEPTOSKIT_VERSION={}",
+			regex_escape(env!("CARGO_PKG_VERSION"))
+		),
+		"LEPTOSKIT_VERSION=[version]",
+	);
 	settings
 }
 

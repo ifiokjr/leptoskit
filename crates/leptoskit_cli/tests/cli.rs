@@ -804,9 +804,10 @@ fn new_project_builds_caches_and_restores_outputs() {
 /// `leptoskit dev` on a new project's web app. Server-rendered, it builds the
 /// app and runs its server, reports a broken edit and keeps running, rebuilds
 /// and restarts the server once the edit is fixed, and on `SIGTERM` stops the
-/// server and exits cleanly. Client-rendered, it serves `dist/` itself and
-/// skips the enabled platforms this machine cannot run. Ignored with the
-/// other end-to-end builds; the `coverage` CI job runs it.
+/// server and exits cleanly. Client-rendered, it still runs the generated
+/// server, which serves `dist/` and answers the app's API, and skips the
+/// enabled platforms this machine cannot run. Ignored with the other
+/// end-to-end builds; the `coverage` CI job runs it.
 #[cfg(unix)]
 #[test]
 #[ignore = "builds for wasm32 and fetches dependencies; run by the `coverage` CI job"]
@@ -869,9 +870,12 @@ fn dev_serves_the_web_app_rebuilds_it_on_change_and_stops_on_sigterm() {
 	let mut dev = DevSession::start(&project, &["dev", "--port", &port]);
 	dev.expect("[windows] skipped", Duration::from_mins(1));
 
-	dev.expect("[web] serving", Duration::from_mins(15));
+	dev.expect("[web] app server at", Duration::from_mins(15));
 	dev.expect("watching", Duration::from_mins(1));
-	assert!(page(&port).contains("<html"), "dev serves web/index.html");
+	assert!(
+		page(&port).contains("<html"),
+		"the server serves web/index.html"
+	);
 	dev.stop();
 }
 
