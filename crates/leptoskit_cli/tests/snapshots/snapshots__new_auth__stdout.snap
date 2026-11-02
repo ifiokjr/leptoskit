@@ -6,4 +6,4 @@ expression: "normalize(&stdout(&output), &scratch.path)"
   next: cd [ROOT]/snapshotted && leptoskit build
   then: leptoskit db migration create init
 working with a coding agent? give it leptoskit's skill: leptoskit skill install
-before starting the server, set AUTH_ENCRYPTION_KEYS: export AUTH_ENCRYPTION_KEYS="$(date +%Y-%m):$(openssl rand 32 | basenc --base64url | tr -d =)"
+before starting the server, store AUTH_ENCRYPTION_KEYS with Monosecret: monosecret set AUTH_ENCRYPTION_KEYS --provider keyring "$(date +%Y-%m):$(openssl rand 32 | basenc --base64url | tr -d =)"

@@ -4,6 +4,8 @@ expression: contents
 ---
 /target
 /dist
+/.env
+/.env.*
 /.leptoskit
 /android/.gradle
 /android/**/build

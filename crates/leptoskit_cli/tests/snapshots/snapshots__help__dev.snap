@@ -21,6 +21,9 @@ Options:
           
           [default: chromium]
 
+      --no-secrets
+          Use the existing environment instead of resolving monosecret.toml
+
       --open
           Open the browser after the web server starts
 

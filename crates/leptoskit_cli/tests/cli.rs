@@ -687,6 +687,7 @@ fn scaffold_files_are_the_promised_set() {
 		new_project::template_files(),
 		&[
 			leptoskit_config::CONFIG_FILE,
+			"monosecret.toml",
 			".gitignore",
 			"Cargo.toml",
 			"src/main.rs",
@@ -2718,4 +2719,36 @@ fn native_bundle_without_wasm_opt_ships_the_guest_unoptimized() {
 		stderr(&output)
 	);
 	assert!(scratch.path.join("bundle/app.wasm").is_file());
+}
+
+#[cfg(unix)]
+#[test]
+fn dev_resolves_the_project_manifest_and_preserves_failure_status() {
+	use std::os::unix::fs::PermissionsExt as _;
+	let scratch = fixture_project("feature_probe");
+	std::fs::write(
+		scratch.path.join("monosecret.toml"),
+		"[project]\nname = 'test'\n",
+	)
+	.unwrap();
+	let bin = scratch.path.join("bin");
+	std::fs::create_dir(&bin).unwrap();
+	let resolver = bin.join("monosecret");
+	std::fs::write(
+		&resolver,
+		"#!/bin/sh\n[ \"$1\" = --file ] || exit 91\n[ \"$2\" = \"$PWD/monosecret.toml\" ] || exit \
+		 92\n[ \"$3\" = run ] || exit 93\n[ \"$4\" = -- ] || exit 94\n[ -x \"$5\" ] || exit 95\n[ \
+		 \"$6\" = dev ] || exit 96\n[ \"$7\" = --no-devtools ] || exit 97\n[ \
+		 \"$LEPTOSKIT_SECRETS_RESOLVED\" = 1 ] || exit 98\nexit 42\n",
+	)
+	.unwrap();
+	std::fs::set_permissions(&resolver, std::fs::Permissions::from_mode(0o755)).unwrap();
+	let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.args(["dev", "--no-devtools"])
+		.current_dir(&scratch.path)
+		.env("PATH", &bin)
+		.env_remove("LEPTOSKIT_SECRETS_RESOLVED")
+		.output()
+		.unwrap();
+	assert_eq!(output.status.code(), Some(42), "{}", stderr(&output));
 }
