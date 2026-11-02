@@ -21,7 +21,7 @@ leptoskit_plugin_http = { workspace = true }
 leptoskit_plugin_passkeys = { workspace = true }
 leptoskit_plugin_secure_store = { workspace = true }
 leptoskit_plugin_web_auth = { workspace = true }
-leptoskit_plugin_websocket = { path = "../../../crates/leptoskit_plugin_websocket", version = "0.1.0", default-features = false }
+leptoskit_plugin_websocket = { workspace = true, default-features = false }
 
 [lints]
 workspace = true
