@@ -7,6 +7,11 @@
 //! inside their own subscription, so a list changing does not make the screen
 //! one of these reads.
 
+#![allow(
+	clippy::missing_const_for_thread_local,
+	reason = "the initializer is already const; Clippy reports a false positive on Linux"
+)]
+
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::Weak;

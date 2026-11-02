@@ -15,6 +15,11 @@
 //! changed, and commits once. The change is proportional to the nodes that
 //! changed, and the application writes its state the way it does on the web.
 
+#![allow(
+	clippy::missing_const_for_thread_local,
+	reason = "the initializer is already const; Clippy reports a false positive on Linux"
+)]
+
 use std::cell::Cell;
 use std::fmt;
 use std::hash::Hash;

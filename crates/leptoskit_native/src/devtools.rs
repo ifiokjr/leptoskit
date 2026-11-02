@@ -11,6 +11,11 @@
 //! computes the same keys with [`Origin::Source`], [`ordinals`], and
 //! [`child`].
 
+#![allow(
+	clippy::missing_const_for_thread_local,
+	reason = "the initializer is already const; Clippy reports a false positive on Linux"
+)]
+
 use std::collections::HashMap;
 use std::panic::Location;
 

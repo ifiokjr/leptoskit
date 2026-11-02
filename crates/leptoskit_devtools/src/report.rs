@@ -8,6 +8,11 @@
 //! event for that), and after anything that may have lost a batch: a new
 //! session, a `RequestSnapshot`, or a post that failed.
 
+#![allow(
+	clippy::missing_const_for_thread_local,
+	reason = "the initializer is already const; Clippy reports a false positive on Linux"
+)]
+
 use leptoskit_devtools_protocol::Event;
 use leptoskit_devtools_protocol::Tree;
 
