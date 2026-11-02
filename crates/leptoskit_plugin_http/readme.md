@@ -1,15 +1,35 @@
-# LeptosKit HTTP
+<h1 align="center">leptoskit_plugin_http</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_http</strong> is the leptoskit plugin for scoped asynchronous HTTP clients with bounded request and response bodies, a total timeout, and cancellation by dropping the request.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_http"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_http"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_http.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_http"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_http/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Reusable asynchronous HTTP for Rust hosts (including native mobile/desktop) and browser apps. Native requests use reqwest with rustls; browsers use fetch with incremental body reading. A Tokio runtime is required on native targets.
-
-```rust,no_run
-# async fn example() -> Result<(), leptoskit_plugin_http::Error> {
-use leptoskit_plugin_http::{Client, Config, Request};
-let client = Client::new(Config::new(["https://api.example.com"])? )?;
-let response = client.execute(Request::get("https://api.example.com/data")).await?;
-assert_eq!(response.status, 200);
-# Ok(()) }
-```
 
 The host configures exact allowed origins, body/header limits, and a total request deadline. There is no wildcard or allow-all default. HTTP requires an explicit `http://` entry; credentials in URLs and non-HTTP schemes are rejected. Scopes cover every path on the selected origin. They are application policy, not an IP firewall or a defense against DNS rebinding by an allowed host.
 
@@ -32,3 +52,25 @@ CHROMEDRIVER=/path/to/chromedriver cargo test -p leptoskit_plugin_http \
 ```
 
 References: [Tauri HTTP plugin](https://v2.tauri.app/plugin/http/), [reqwest](https://docs.rs/reqwest/0.12.28/reqwest/), [Fetch API](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API), and [ReadableStream reader](https://developer.mozilla.org/en-US/docs/Web/API/ReadableStreamDefaultReader/read).
+
+## How it fits
+
+Add `leptoskit_plugin_http` as a direct dependency and select the `http` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Native requests use reqwest with rustls and need a Tokio runtime; the browser uses fetch with incremental body reading. Redirects are not followed, and every destination origin is explicit.
+
+## Use it
+
+```rust,no_run
+# async fn example() -> Result<(), leptoskit_plugin_http::Error> {
+use leptoskit_plugin_http::{Client, Config, Request};
+let client = Client::new(Config::new(["https://api.example.com"])? )?;
+let response = client.execute(Request::get("https://api.example.com/data")).await?;
+assert_eq!(response.status, 200);
+# Ok(()) }
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_http)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)

@@ -1,4 +1,33 @@
-# leptoskit_plugin_screen_orientation
+<h1 align="center">leptoskit_plugin_screen_orientation</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_screen_orientation</strong> is the leptoskit plugin for scoped activity, scene, and browser-document orientation requests with explicit restoration.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_screen_orientation"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_screen_orientation"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_screen_orientation.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_screen_orientation"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_screen_orientation/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Requests a scoped orientation policy for an app's owning iOS scene, Android activity, or browser document. Snapshot reports the presented interface; it does not read accelerometer orientation. Register `screen-orientation` in `native.plugins` and add this crate to the app's dependencies.
 
@@ -27,3 +56,22 @@ All integers are little-endian u32. Method 0 takes no payload and returns orient
 - [Apple requestGeometryUpdate](https://developer.apple.com/documentation/uikit/uiwindowscene/requestgeometryupdate(_:errorhandler:))
 - [Android orientation and resizability](https://developer.android.com/develop/adaptive-apps/guides/app-orientation-aspect-ratio-resizability)
 - [W3C Screen Orientation](https://w3c.github.io/screen-orientation/)
+
+## How it fits
+
+Add `leptoskit_plugin_screen_orientation` as a direct dependency and select the `screen-orientation` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::ScreenOrientation` rather than resolving the plugin on every call. A pending hold is not an acknowledgement that the OS rotated; the snapshot reports the presented interface, not accelerometer orientation.
+
+## Use it
+
+```toml
+# In a native host, select `screen-orientation` in `native.plugins`.
+[dependencies]
+leptoskit_plugin_screen_orientation = { version = "0.1", features = ["guest"] }
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_screen_orientation)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)

@@ -1,16 +1,39 @@
+<h1 align="center">leptoskit_auth</h1>
+
 <p align="center">
   <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
-# leptoskit_auth
+<p align="center">
+  <strong>leptoskit_auth</strong> is sign-in for leptoskit apps: the auth schema pack, sessions, email codes, recovery, passkeys, providers, and the signed-in user that access policies read.
+</p>
 
-> Sign-in for leptoskit apps: the auth schema pack, sessions, email codes, and the signed-in user that access policies read.
+<br>
 
-Sign-in lives in your app's own database, as the `auth` schema pack. Add it next to your tables:
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_auth"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
 
-```rust,ignore
-leptoskit::db::packs!(leptoskit_auth);
-```
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_auth"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_auth.svg"></a>
+  <a href="https://docs.rs/leptoskit_auth"><img alt="docs.rs" src="https://docs.rs/leptoskit_auth/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
+
+Sign-in lives in your app's own database, as the `auth` schema pack. Add it next to your tables.
 
 Key your user table by the account, and create its row when an account is created:
 
@@ -69,3 +92,20 @@ With the `password` feature and `[auth.passwords] enabled`, people may also sign
 Two accounts can be merged, moving only the sign-in methods or bringing the other account's data along, as each table's `on_account_merge` says.
 
 The tables, `SignedIn`, and the `Public*` row types build everywhere, including the browser. `Auth` needs the `server` feature and a database: `postgres` or `sqlite`.
+
+## How it fits
+
+It owns the server-side session and the shared client, and uses the passkey and web-auth plugins for native sign-in. `leptoskit_idp` turns the same accounts into an OIDC provider.
+
+## Use it
+
+```rust,ignore
+leptoskit::db::packs!(leptoskit_auth);
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_auth)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Sign in](https://ifiokjr.github.io/leptoskit/guide/23-sign-in.html)

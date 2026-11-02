@@ -1,4 +1,33 @@
-# Native desktop tray
+<h1 align="center">leptoskit_plugin_tray</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_tray</strong> is the native-host plugin for explicitly owned native desktop tray icons with bounded events.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_tray"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_tray"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_tray.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_tray"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_tray/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 `leptoskit_plugin_tray` uses maintained `tray-icon` 0.26 and `muda` 0.21 through `leptoskit_plugin_menu`; Linux uses the GTK-free KSNI backend, with no GTK3/AppIndicator fallback or advisory exemptions. There is no Tauri application dependency.
 
@@ -22,3 +51,22 @@ Platform contracts:
 Unit tests cover RGBA/text bounds, queue ordering/overflow/coalescing, removed-ID rejection, closed queues, and caught callback panic. `tests/native.rs` runs in the 3-OS test matrix. On macOS (a temporary AppKit status item) and Windows (a hidden Shell notification icon) it creates real icons, updates every property, fills capacity, removes them and tears down an owner holding a live icon. On Linux it checks that a refused session D-Bus returns an error without retaining an icon. Whether a desktop actually displays an icon is not observed.
 
 Design references: [Electron Tray](https://www.electronjs.org/docs/latest/api/tray), [Tauri system tray](https://v2.tauri.app/learn/system-tray/), [tray-icon native requirements](https://docs.rs/tray-icon/latest/tray_icon/), [KSNI](https://docs.rs/ksni/latest/ksni/).
+
+## How it fits
+
+Native hosts construct it explicitly; it is not a guest plugin and installs nothing by default. The host calls `TrayHost::install` after its event loop starts and owns removal; Linux uses the GTK-free KSNI backend, and mobile and the browser have no tray.
+
+## Use it
+
+```toml
+# Host-only: construct it explicitly; there is no `native.plugins` entry.
+[dependencies]
+leptoskit_plugin_tray = "0.1"
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_tray)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)

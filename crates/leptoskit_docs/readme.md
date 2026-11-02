@@ -1,30 +1,35 @@
-# leptoskit_docs
+<h1 align="center">leptoskit_docs</h1>
 
-> Markdown with leptos components, in the style of MDX, and the static documentation site generator built on it.
+<p align="center">
+  <strong>leptoskit_docs</strong> turns Markdown with leptos components into a static site with navigation, search, highlighting, and checked links.
+</p>
 
-Write documentation in Markdown and drop leptos components straight into it. A capitalised tag is a component; the Markdown between its tags is the component's children:
+<br>
 
-```markdown
-# Installing
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_docs"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
 
-<Callout kind="tip">
+<br>
 
-Install the CLI once and every project can use it.
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_docs"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_docs.svg"></a>
+  <a href="https://docs.rs/leptoskit_docs"><img alt="docs.rs" src="https://docs.rs/leptoskit_docs/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
 
-</Callout>
+<br>
 
-<Steps>
+## Overview
 
-### Install the CLI
-
-Run `cargo install leptoskit_cli --locked`.
-
-### Create a project
-
-Run `lk new my_app`.
-
-</Steps>
-```
+Write documentation in Markdown and drop leptos components straight into it. A capitalised tag is a component; the Markdown between its tags is the component's children.
 
 Lowercase tags (`<figure>`, `<kbd>`) are plain HTML, and GitHub alerts (`> [!WARNING]`) render as callouts too.
 
@@ -83,3 +88,38 @@ GitHub-flavoured Markdown with MDX's JSX: tables, task lists, strikethrough, foo
 ## Why markdown-rs
 
 The parser is [`markdown`](https://crates.io/crates/markdown) (markdown-rs), the Rust port of micromark, which MDX itself is built on. It parses MDX's JSX natively, with positions on every node, so components arrive as typed elements with their attributes instead of raw HTML strings to re-parse. `pulldown-cmark` and `comrak` are faster and both excellent CommonMark parsers, but neither understands JSX; on either, a component with Markdown children would mean pairing up raw HTML fragments by hand.
+
+## How it fits
+
+The leptoskit book is built with it, and apps can use the same generator for their own docs. It is MDX-shaped but Rust-native: components are leptos components, and mistakes fail the build with a location.
+
+## Use it
+
+```markdown
+# Installing
+
+<Callout kind="tip">
+
+Install the CLI once and every project can use it.
+
+</Callout>
+
+<Steps>
+
+### Install the CLI
+
+Run `cargo install leptoskit_cli --locked`.
+
+### Create a project
+
+Run `lk new my_app`.
+
+</Steps>
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_docs)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Writing docs](https://ifiokjr.github.io/leptoskit/guide/14-writing-docs.html)

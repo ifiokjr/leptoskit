@@ -1,22 +1,39 @@
-# leptoskit_plugin_logging
+<h1 align="center">leptoskit_plugin_logging</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_logging</strong> is the leptoskit plugin for structured, bounded application logging with explicit sinks and rotation.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_logging"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_logging"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_logging.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_logging"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_logging/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Bounded structured application logging inspired by [Tauri's severity, sink, and rotation controls](https://v2.tauri.app/plugin/logging/) and [Electron's application log directory](https://www.electronjs.org/docs/latest/api/app#appsetapplogspathpath). There is no global logger installation or remote logging backend dependency.
 
 Select `"logging"` in `native.plugins` and add this crate to the host. Cargo metadata selects the app-directory factory and Rust worker. Registration does no I/O; the first accepted record opens `<app data>/logs` on the worker.
 
 Logging takes the standard library's file locks where they are implemented. Android uses Bionic's nonblocking `flock` because the standard library does not implement `File::try_lock` there. Both paths keep an exclusive advisory lock until the owning file descriptor closes; unsupported locking is an error, never permission to write without a lock.
-
-```rust,ignore
-use leptoskit_plugin_logging::{Level, Record, guest::Logger};
-let logger = Logger::new()?;
-logger.write(&Record {
-    level: Level::Info,
-    target: "sync".into(),
-    message: "Synchronization completed".into(),
-    fields: [("items".into(), "12".into())].into(),
-}).await?;
-logger.flush().await?;
-```
 
 Records have severity, a component target, a message, and ordered string fields. Native output adds a host timestamp in Unix milliseconds and writes escaped JSON lines. Targets and fields are data, never paths or format strings. Native hosts configure sinks and minimum severity; guests cannot change destinations.
 
@@ -31,3 +48,28 @@ The browser adapter emits structured objects through console debug/info/warn/err
 Each record permits a 128-byte target, a 16 KiB message, and 32 fields with 64-byte names and 1 KiB values. Complete binary input is capped at 64 KiB. Control characters in labels and duplicate field names are rejected. Messages may contain newlines; file output escapes them, preserving one event per line. No automatic redaction is performed; applications must avoid logging credentials.
 
 Wire methods: `0` writes a binary record and returns a `u32` accepted flag (`0` filtered, `1` written); `1` flushes; `2` closes. Record input contains the severity `u32` (`trace=0` through `error=4`), length-prefixed UTF-8 target/message, field count, and length-prefixed key/value pairs. All decoding is strict.
+
+## How it fits
+
+Add `leptoskit_plugin_logging` as a direct dependency and select the `logging` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. There is no global logger or remote backend; the host chooses the log directory and limits, and the guest protocol stays bounded independently of JSON-lines output.
+
+## Use it
+
+```rust,ignore
+use leptoskit_plugin_logging::{Level, Record, guest::Logger};
+let logger = Logger::new()?;
+logger.write(&Record {
+    level: Level::Info,
+    target: "sync".into(),
+    message: "Synchronization completed".into(),
+    fields: [("items".into(), "12".into())].into(),
+}).await?;
+logger.flush().await?;
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_logging)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)
