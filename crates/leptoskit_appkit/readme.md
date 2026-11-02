@@ -1,10 +1,37 @@
+<h1 align="center">leptoskit_appkit</h1>
+
 <p align="center">
   <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
-# leptoskit_appkit
+<p align="center">
+  <strong>leptoskit_appkit</strong> is the macOS backend: it applies leptoskit mutation batches to real `NSView`s and measures text with AppKit's own fonts.
+</p>
 
-> The leptoskit AppKit backend: renders leptoskit element trees as real macOS views.
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_appkit"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_appkit"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_appkit.svg"></a>
+  <a href="https://docs.rs/leptoskit_appkit"><img alt="docs.rs" src="https://docs.rs/leptoskit_appkit/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 `AppKitBackend` implements the [`leptoskit_native`] `NativeBackend` contract over AppKit. A `NativeSurface` built on it diffs element trees, lays them out with [`leptoskit_yoga`], and commits the result straight into `NSView`s — there is no web view anywhere.
 
@@ -27,7 +54,29 @@ Backgrounds, rounded corners (clipping their content), borders, and opacity are 
 
 Switches, checkboxes, radios, sliders, and text fields remain controlled: a callback proposes a value, and the widget restores the latest application-owned value when the callback finishes. Callbacks can synchronously update or delete the firing widget. Radio arrow keys move focus and propose selection within the explicit group across layout wrappers, skipping hidden and disabled options. Slider arrows advance by the declared step, or one percent of the range for a continuous slider. Native progress animations stop when hidden, stopped, deleted, or when their backend is dropped.
 
-## Usage
+## Events
+
+Controls report interaction through one listener installed with `set_event_listener`. It receives the committed node id and the event, runs on the main thread from inside the AppKit event loop (never during a mutation batch), and usually forwards to `NativeSurface::dispatch_event` before re-rendering. The [`gallery`](https://github.com/ifiokjr/leptoskit/tree/main/examples/gallery) example's `window` command shows the whole loop.
+
+## Limits
+
+- Text is drawn at the top of its frame and ignores the yoga padding of the `Text` node itself; put padding on a wrapping `View`.
+- `Image` sources other than file paths and `file://` URLs are left empty, as are files that are missing or not images.
+- Windows opened by `open_window` are fixed-size, matching the surface's viewport.
+- Without an explicit color, text uses AppKit's dynamic label colors, which follow the light or dark appearance.
+
+## Other platforms
+
+AppKit exists only on macOS. On every other target the crate compiles to an empty library, so workspaces that depend on it still build and test on Linux and Windows.
+
+[`leptoskit_native`]: https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native
+[`leptoskit_yoga`]: https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga
+
+## How it fits
+
+A `NativeSurface` built on it renders the same tree the web build renders as DOM. AppKit is the reference backend, used by the gallery and the generated macOS app; the other backends follow its contract.
+
+## Use it
 
 ```rust
 use leptoskit_appkit::AppKitBackend;
@@ -49,20 +98,9 @@ let _window = surface.backend().open_window(root, "Hello");
 leptoskit_appkit::run_application(mtm);
 ```
 
-## Events
+## Learn more
 
-Controls report interaction through one listener installed with `set_event_listener`. It receives the committed node id and the event, runs on the main thread from inside the AppKit event loop (never during a mutation batch), and usually forwards to `NativeSurface::dispatch_event` before re-rendering. The [`gallery`](https://github.com/ifiokjr/leptoskit/tree/main/examples/gallery) example's `window` command shows the whole loop.
-
-## Limits
-
-- Text is drawn at the top of its frame and ignores the yoga padding of the `Text` node itself; put padding on a wrapping `View`.
-- `Image` sources other than file paths and `file://` URLs are left empty, as are files that are missing or not images.
-- Windows opened by `open_window` are fixed-size, matching the surface's viewport.
-- Without an explicit color, text uses AppKit's dynamic label colors, which follow the light or dark appearance.
-
-## Other platforms
-
-AppKit exists only on macOS. On every other target the crate compiles to an empty library, so workspaces that depend on it still build and test on Linux and Windows.
-
-[`leptoskit_native`]: https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native
-[`leptoskit_yoga`]: https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga
+- [Crate documentation](https://docs.rs/leptoskit_appkit)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [macOS](https://ifiokjr.github.io/leptoskit/platforms/macos.html)

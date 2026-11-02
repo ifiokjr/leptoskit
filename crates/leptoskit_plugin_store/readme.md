@@ -1,17 +1,37 @@
-# leptoskit_plugin_store
+<h1 align="center">leptoskit_plugin_store</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_store</strong> is the leptoskit plugin for bounded JSON application settings with explicit persistence and atomic ordered batches.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_store"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_store"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_store.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_store"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_store/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Application settings inspired by [Tauri Store](https://v2.tauri.app/plugin/store/): JSON values, explicit save/load, and atomic ordered batches. Each application gets one store; guests cannot select filesystem paths.
 
 Select `"store"` in `native.plugins` and depend on this crate in the native host. Cargo metadata registers `from_app_dirs` with `rust-worker = true`. The factory only captures the app data directory; directory creation, initial loading, and all later disk I/O happen on the registered Rust worker.
-
-```rust,ignore
-use leptoskit_plugin_store::{Change, Save, Value};
-let store = leptoskit_plugin_store::guest::Store::new()?;
-store.apply(&[
-    Change::Set("theme".into(), Value::from("dark")),
-    Change::Set("launches".into(), Value::from(7)),
-], Save::Commit).await?;
-```
 
 `set`, `remove`, and `clear` stage changes in memory. `save` writes all staged entries once; there is no autosave timer or implicit save on drop/shutdown. `load` reloads the saved document and discards staged edits only after the full document passes validation. A missing document loads as an empty store.
 
@@ -31,3 +51,25 @@ Bounds apply before changes are published:
 - 256 changes and 512 KiB per binary batch envelope.
 
 The wire protocol uses little-endian `u32` and length-prefixed UTF-8/JSON bytes. Method `0` gets one key; `1` returns the current versioned document; `2` applies a batch; `3` saves; `4` reloads. Batch input is save mode (`0` deferred, `1` commit), change count, then tagged changes (`0` set with key/value, `1` remove with key, `2` clear). Get replies carry a presence flag and a JSON value only when present. All decoders reject malformed and trailing input.
+
+## How it fits
+
+Add `leptoskit_plugin_store` as a direct dependency and select the `store` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::Store` rather than resolving the plugin on every call. Each application gets one store, values are JSON over a binary envelope, and guests cannot choose filesystem paths.
+
+## Use it
+
+```rust,ignore
+use leptoskit_plugin_store::{Change, Save, Value};
+let store = leptoskit_plugin_store::guest::Store::new()?;
+store.apply(&[
+    Change::Set("theme".into(), Value::from("dark")),
+    Change::Set("launches".into(), Value::from(7)),
+], Save::Commit).await?;
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_store)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)

@@ -18,6 +18,10 @@
 //! and wasm has only that one. A callback that fires on another thread finds
 //! that thread's registry, which no agent drains.
 
+#![allow(
+	clippy::missing_const_for_thread_local,
+	reason = "the initializer is already const; Clippy reports a false positive on Linux"
+)]
 // The agents that drain the registry run in the browser and in native
 // guests; the host's reporter reuses its slots and events.
 #![cfg_attr(

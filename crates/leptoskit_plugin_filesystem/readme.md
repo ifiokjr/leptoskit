@@ -1,13 +1,35 @@
-# leptoskit_plugin_filesystem
+<h1 align="center">leptoskit_plugin_filesystem</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_filesystem</strong> is the leptoskit plugin for application-private binary files on native and OPFS in the browser, with bounded messages.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_filesystem"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_filesystem"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_filesystem.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_filesystem"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_filesystem/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Application-private binary files for native LeptosKit apps and browser OPFS.
-
-```rust,ignore
-let files = leptoskit_plugin_filesystem::guest::Filesystem::new()?;
-files.mkdir("notes").await?;
-files.write("notes/draft", b"hello").await?;
-let contents = files.read("notes/draft").await?;
-```
 
 Add the crate to the generated native library's dependencies and select `filesystem` in `native.plugins`. The generated registrant uses `rust-factory` and `rust-worker` metadata. iOS supplies its Application Support directory; Android supplies `Context.filesDir`. The plugin owns a `files` subdirectory and opens it as a `cap-std` directory capability. Hosts embedding Rust directly can use `Filesystem::open` with a trusted, existing application-private directory. Unix factory-created storage has mode `0700`.
 
@@ -33,3 +55,23 @@ let files = Filesystem::open(app_files_dir)?.with_quota(Quota {
 The `web` module uses the browser's origin-private filesystem and a `leptoskit` subdirectory, requiring a secure context and OPFS support. Browser writes commit through `createWritable`/`close`; quota failures return `TooLarge`. A failed new file write may leave an empty file entry. Browser rename requires `FileSystemFileHandle.move`; directory moves and missing browser implementations return `Unavailable` without a non-atomic copy/delete fallback. Origin storage can be cleared or evicted by the browser. No browser storage-persistence grant is requested automatically.
 
 This ports a focused application-file surface, informed by [Expo FileSystem](https://docs.expo.dev/versions/latest/sdk/filesystem/) and [Tauri file-system](https://v2.tauri.app/plugin/file-system/). It does not yet provide arbitrary user-selected files, external storage, assets, downloads, watchers, recursive removal, streaming/chunked large files, or full Expo/Tauri API compatibility. Browser access follows the [OPFS API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API/Origin_private_file_system).
+
+## How it fits
+
+Add `leptoskit_plugin_filesystem` as a direct dependency and select the `filesystem` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::Filesystem` rather than resolving the plugin on every call. Every native path stays inside the application-owned data directory; guests cannot select an arbitrary filesystem root.
+
+## Use it
+
+```rust,ignore
+let files = leptoskit_plugin_filesystem::guest::Filesystem::new()?;
+files.mkdir("notes").await?;
+files.write("notes/draft", b"hello").await?;
+let contents = files.read("notes/draft").await?;
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_filesystem)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)

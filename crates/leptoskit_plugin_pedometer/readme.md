@@ -1,4 +1,33 @@
-# Pedometer
+<h1 align="center">leptoskit_plugin_pedometer</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_pedometer</strong> is the leptoskit plugin for bounded, demand-driven step-counter readings with explicit platform count domains.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_pedometer"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_pedometer"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_pedometer.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_pedometer"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_pedometer/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 A bounded, demand-driven CoreMotion/Android step-counter API. Select Cargo crate `leptoskit_plugin_pedometer` and runtime `pedometer`; native registration is automatic.
 
@@ -16,3 +45,23 @@ Count scopes deliberately remain distinct:
 Physical hardware, real permission dialogs, and activity history have not been read or validated in this implementation session. Tests are synthetic protocol/lifecycle fixtures.
 
 References: [Expo Pedometer](https://docs.expo.dev/versions/latest/sdk/pedometer/), [Android motion sensors](https://developer.android.com/develop/sensors-and-location/sensors/sensors_motion), [Apple CMPedometer](https://developer.apple.com/documentation/coremotion/cmpedometer).
+
+## How it fits
+
+Add `leptoskit_plugin_pedometer` as a direct dependency and select the `pedometer` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::Pedometer` rather than resolving the plugin on every call. iOS uses CoreMotion and Android uses its step counter; the app supplies the motion usage description or activity-recognition permission.
+
+## Use it
+
+```rust,ignore
+use leptoskit_plugin_pedometer::guest::Pedometer;
+
+let sensor = Pedometer::new()?;
+let sample = sensor.next(5000).await?;
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_pedometer)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)

@@ -1,10 +1,37 @@
+<h1 align="center">leptoskit_rpc</h1>
+
 <p align="center">
   <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
-# leptoskit_rpc
+<p align="center">
+  <strong>leptoskit_rpc</strong> is the app's operations layer: leptos server functions with retries and error classification, plus queries and mutations that run on the database and publish typed clients for other languages.
+</p>
 
-> An ergonomic API over leptos server functions.
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_rpc"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_rpc"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_rpc.svg"></a>
+  <a href="https://docs.rs/leptoskit_rpc"><img alt="docs.rs" src="https://docs.rs/leptoskit_rpc/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Leptos server functions are already typed, isomorphic RPC. This crate adds the layer around the call:
 
@@ -21,3 +48,24 @@ Leptos server functions are already typed, isomorphic RPC. This crate adds the l
 ## Publishing the RPC to any language
 
 `#[api]` above `#[server]` publishes a function: a stable `/api/<name>` route, a JSON Schema description of its arguments and result (through `schemars`), and its doc comment — including the `# Arguments` section — as documentation for every argument. `#[api(internal)]` keeps a function callable but unpublishes it, and websockets, streams, and other shapes no client could call are compile errors. With `ssr` enabled next to `leptos/ssr` (`rpc-ssr` through the `leptoskit` crate) and `leptoskit_rpc::spec::export_if_requested()` first in `main`, which also refuses to start a server where two functions share a route, `leptoskit rpc generate` writes typed clients that speak the RPC's own protocol for TypeScript, Python, Go, Rust, Dart, and the command line, plus the OpenAPI 3.1 document. See the book's "Sharing the RPC" chapter for the walkthrough.
+
+## How it fits
+
+It is the boundary between shared screens and the server. The same call runs during SSR, in the browser, and in a native guest; `leptoskit_rpc_codegen` turns the specification into TypeScript, Python, Go, Rust, Dart, and CLI clients.
+
+## Use it
+
+```rust,ignore
+#[leptoskit_rpc::api]
+async fn list_notes() -> Result<Vec<Note>, ServerFnError> {
+    leptos::server::list_notes().await
+}
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_rpc)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Server functions](https://ifiokjr.github.io/leptoskit/guide/06-server-functions.html)
+- [Sharing the RPC](https://ifiokjr.github.io/leptoskit/guide/13-sharing-the-rpc.html)

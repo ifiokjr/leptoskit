@@ -1,10 +1,37 @@
+<h1 align="center">leptoskit_bridge_ffi</h1>
+
 <p align="center">
   <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
-# leptoskit_bridge_ffi
+<p align="center">
+  <strong>leptoskit_bridge_ffi</strong> is the C ABI and the Swift, Kotlin, and C++ glue that let a native app shell host a leptoskit Wasm guest and forward its plugin calls.
+</p>
 
-> The C ABI, and the Swift, Kotlin, and C++ code, that generated leptoskit apps link to run a Wasm guest and draw it with native widgets.
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_bridge_ffi"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_bridge_ffi"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_bridge_ffi.svg"></a>
+  <a href="https://docs.rs/leptoskit_bridge_ffi"><img alt="docs.rs" src="https://docs.rs/leptoskit_bridge_ffi/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 A generated macOS, iOS, Android, or HarmonyOS app is a small native shell around Rust. The shell is Swift, Kotlin, or ArkTS, and it has to do three things the Rust code cannot do for it: draw the guest's widget tree with the platform's own views, run native plugin work (clipboard, notifications, file pickers) on the platform's threads, and keep ownership of every buffer that crosses the language boundary unambiguous. This crate is that boundary. `leptoskit native prepare` and `leptoskit build` copy its sources into the generated project, and its static library is what the shell links.
 
@@ -26,20 +53,7 @@ The Swift and Kotlin renderers in `desktop/` and `mobile/` are what generated ap
 
 ## How a call crosses
 
-The ABI is single-threaded and non-reentrant. A host creates a bridge, registers plugins, and pumps requests:
-
-```c
-lk_bridge *bridge = lk_bridge_create();
-int64_t plugin = lk_bridge_register(bridge, (const uint8_t *)"clipboard", 9, methods, 3);
-lk_bridge_grant(bridge, (uint32_t)plugin, 0, true);
-
-lk_request request;
-if (lk_bridge_next_request(bridge, &request) == 1) {
-    // ... do the native work, then hand the reply back:
-    lk_bridge_complete(bridge, request.id, 0, reply, reply_len);
-    lk_buffer_release(request.payload);
-}
-```
+The ABI is single-threaded and non-reentrant. A host creates a bridge, registers plugins, and pumps requests.
 
 Every `lk_buffer` is Rust-owned memory that must be released exactly once, and `lk_bridge_complete_owned` hands a buffer back without copying. Native work may keep a buffer on a worker thread until it releases it. Statuses are the negative codes of `leptoskit_bridge::Error`; these differ from the Wasm-side statuses, which reserve `-1` for "pending". In practice Swift and Kotlin code does not call these functions by hand: the `NativePlugin` protocol/interface in `apple/` and `android/` does, and a plugin crate only supplies `invoke(method:payload:)`.
 
@@ -80,3 +94,20 @@ The `native_roundtrip` benchmark measures the transport only. It excludes initia
 - Every function is a trusted embedding interface; C pointers are not a boundary for untrusted guest pointers. The guest only ever sees the Wasm imports in `leptoskit_wasm`.
 - The `app` feature builds the AppKit backend on macOS and the UIKit backend on iOS only; on Android the Kotlin renderer in `mobile/` draws the tree instead.
 - HarmonyOS is experimental: the `harmonyos` workflow builds `harmonyos/bridge.cpp` into the app with the public SDK, but nothing runs on a device or emulator.
+
+## How it fits
+
+Generated macOS, iOS, Android, and HarmonyOS shells link against it; the Rust backends are used by tests and by hosts that embed leptoskit directly. It is the boundary between the platform's UI thread and the guest.
+
+## Use it
+
+```c
+#include "leptoskit_bridge.h"
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_bridge_ffi)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Host projects](https://ifiokjr.github.io/leptoskit/platforms/host-projects.html)

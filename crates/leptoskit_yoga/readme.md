@@ -1,10 +1,37 @@
+<h1 align="center">leptoskit_yoga</h1>
+
 <p align="center">
   <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
-# leptoskit_yoga
+<p align="center">
+  <strong>leptoskit_yoga</strong> is a from-scratch layout engine that turns one `Style` into flexbox or CSS grid geometry, with no C dependencies and no platform lock-in.
+</p>
 
-> A from-scratch flexbox and CSS grid layout engine for the leptoskit native renderer.
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_yoga"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_yoga"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_yoga.svg"></a>
+  <a href="https://docs.rs/leptoskit_yoga"><img alt="docs.rs" src="https://docs.rs/leptoskit_yoga/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 A React Native-style layout engine, fully rewritten in Rust with no C dependencies. One `Style` struct drives both flexbox (the React Native layout system) and CSS grid, so a stylesheet maps onto any node without a second system to learn.
 
@@ -16,7 +43,24 @@ A React Native-style layout engine, fully rewritten in Rust with no C dependenci
 - **Modern CSS where it matters.** `gap`, `aspect_ratio`, `min`/`max` constraints, `display: contents`, RTL row directions, signed margins and insets, relative positioning in flex and grid, and main-axis auto margins that absorb free space.
 - **No platform lock-in.** The crate has no dependencies by default; backends for any platform consume the plain `Layout` output.
 
-## Usage
+## Documented divergences from CSS
+
+- Defaults follow React Native: `flex_direction: column`, `align_items:
+  stretch`, `flex_shrink: 0`.
+- Baseline alignment falls back to flex-start.
+- `position: fixed` is laid out exactly like `position: absolute`, against the parent's padding box rather than the viewport.
+- Grid auto-track stretching applies on the block axis; the inline axis packs at the start unless tracks use `fr`.
+- Layout supports flex and grid containers; block/inline flow, tables, floats, multicolumn layout, and writing modes beyond horizontal rows are not implemented.
+- Intrinsic sizing keywords, named grid lines/areas, subgrid, sticky positioning, CSS `order`, and cross-axis auto margins are not implemented.
+- Overflow is computed for layout extents; clipping and scrolling require a platform backend to consume that behavior.
+- With `grid_auto_flow: column` and no rows at all, auto-placed items stack down the first column instead of filling a single implicit row.
+- Grid line numbers and spans are clamped to 10 000, bounding the implicit grid.
+
+## How it fits
+
+`leptoskit_native` calls it for every commit; backends only apply the frames it returns. It is also usable on its own when a Rust tool needs React Native-style layout or a CSS grid implementation without a browser.
+
+## Use it
 
 ```no_run
 use leptoskit_yoga::{AvailableSpace, Dimension, Size, Style, Yoga};
@@ -41,15 +85,9 @@ tree.calculate_layout(root, Size {
 assert_eq!(tree.layout(child).height, 240.0);
 ```
 
-## Documented divergences from CSS
+## Learn more
 
-- Defaults follow React Native: `flex_direction: column`, `align_items:
-  stretch`, `flex_shrink: 0`.
-- Baseline alignment falls back to flex-start.
-- `position: fixed` is laid out exactly like `position: absolute`, against the parent's padding box rather than the viewport.
-- Grid auto-track stretching applies on the block axis; the inline axis packs at the start unless tracks use `fr`.
-- Layout supports flex and grid containers; block/inline flow, tables, floats, multicolumn layout, and writing modes beyond horizontal rows are not implemented.
-- Intrinsic sizing keywords, named grid lines/areas, subgrid, sticky positioning, CSS `order`, and cross-axis auto margins are not implemented.
-- Overflow is computed for layout extents; clipping and scrolling require a platform backend to consume that behavior.
-- With `grid_auto_flow: column` and no rows at all, auto-placed items stack down the first column instead of filling a single implicit row.
-- Grid line numbers and spans are clamped to 10 000, bounding the implicit grid.
+- [Crate documentation](https://docs.rs/leptoskit_yoga)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [CSS coverage](https://ifiokjr.github.io/leptoskit/reference/css-coverage.html)

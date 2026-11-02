@@ -1,11 +1,35 @@
-# Sharing
+<h1 align="center">leptoskit_plugin_sharing</h1>
+
+<p align="center">
+  <strong>leptoskit_plugin_sharing</strong> is the leptoskit plugin for bounded text and HTTP(S) URL sharing through the user-selected native share UI.
+</p>
+
+<br>
+
+<p align="center">
+  <a href="#overview"><strong>Overview</strong></a> ·
+  <a href="#how-it-fits"><strong>How it fits</strong></a> ·
+  <a href="#use-it"><strong>Use it</strong></a> ·
+  <a href="#learn-more"><strong>Learn more</strong></a> ·
+  <a href="https://docs.rs/leptoskit_plugin_sharing"><strong>Docs</strong></a> ·
+  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://crates.io/crates/leptoskit_plugin_sharing"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_sharing.svg"></a>
+  <a href="https://docs.rs/leptoskit_plugin_sharing"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_sharing/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
+</p>
+
+<br>
+
+## Overview
 
 Shares one UTF-8 text value (up to 64 KiB) or an explicitly validated HTTP(S) URL (up to 8192 bytes). The application supplies content; the user chooses the destination through iOS `UIActivityViewController`, macOS `NSSharingServicePicker`, Android's system chooser, or the browser Web Share API. No direct recipient or automatic sending API is exposed.
-
-```rust,ignore
-let content = leptoskit_plugin_sharing::Content::text("Hello from my app")?;
-leptoskit_plugin_sharing::share(&content).await?;
-```
 
 Enable `guest` for native bridge calls. Select `sharing` in native configuration; Apple registration injects the owning `NativePluginContext`, and Android requires the generated activity's `NativeActivityResultHost`. No permissions, FileProvider, or entitlements are added. Custom hosts must provide these same presentation capabilities.
 
@@ -20,3 +44,21 @@ Native URL parsers can reject a stricter subset than the Rust constructor. For e
 This port does not share files, arbitrary filesystem paths, custom URL schemes, recipient addresses, or incoming share extensions. Windows/Linux native share integrations are not implemented; supported browsers on those platforms may expose Web Share. All automated tests use synthetic data and mocked completion. They never open a share destination or send content.
 
 References: [Expo Sharing](https://docs.expo.dev/versions/latest/sdk/sharing/), [Android sharing](https://developer.android.com/training/sharing/send), [Apple activity UI](https://developer.apple.com/documentation/uikit/uiactivityviewcontroller), [Apple sharing picker](https://developer.apple.com/documentation/appkit/nssharingservicepicker), [Web Share](https://developer.mozilla.org/en-US/docs/Web/API/Navigator/share).
+
+## How it fits
+
+Add `leptoskit_plugin_sharing` as a direct dependency and select the `sharing` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. The app supplies the content, the user picks the destination, and completion only means the platform finished its API callback.
+
+## Use it
+
+```rust,ignore
+let content = leptoskit_plugin_sharing::Content::text("Hello from my app")?;
+leptoskit_plugin_sharing::share(&content).await?;
+```
+
+## Learn more
+
+- [Crate documentation](https://docs.rs/leptoskit_plugin_sharing)
+- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)

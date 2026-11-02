@@ -19,6 +19,7 @@ export type MetricClass =
 	| "bytes"
 	| "memory"
 	| "throughput"
+	| "count"
 	| "build";
 
 export interface Metric {
