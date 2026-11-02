@@ -479,7 +479,8 @@ export function locationError(code) { failure({code}); }
 		drop(newer);
 		expect_watches(3);
 
-		// A timed-out permission request must not issue an unbounded query.
+		// A timed-out permission request issues one bounded prompt watch, and
+		// clears it when the timeout drops the acquisition.
 		set_permission("pending");
 		let result = future::select(
 			Box::pin(request_permission_with_options(
@@ -489,6 +490,6 @@ export function locationError(code) { failure({code}); }
 		)
 		.await;
 		assert!(matches!(result, Either::Left((Err(Error::Unavailable), _))));
-		expect_watches(3);
+		expect_watches(4);
 	}
 }
