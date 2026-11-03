@@ -298,7 +298,10 @@ mod tests {
 		let artifacts = distribute(&runner, &plan, &key()).unwrap();
 		assert_eq!(artifacts.dmg, out.join("Notes.dmg"));
 
-		let relative = |text: &str| text.replace(&root.path().display().to_string(), "<root>");
+		let relative = |text: &str| {
+			text.replace(&root.path().display().to_string(), "<root>")
+				.replace('\\', "/")
+		};
 		let seen: Vec<String> = runner
 			.inner
 			.seen

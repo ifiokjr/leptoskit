@@ -980,3 +980,125 @@ fn sqlite_connections_check_spatial_and_vector_columns() {
 		})
 		.unwrap();
 }
+
+#[test]
+fn postgres_live_check_reports_changed_and_missing_catalog_objects() {
+	use leptoskit_db_schema::Function;
+	use leptoskit_db_schema::Sequence;
+	use leptoskit_db_schema::Trigger;
+	use leptoskit_db_schema::TriggerAction;
+	use leptoskit_db_schema::TriggerEvent;
+	use leptoskit_db_schema::TriggerTiming;
+	let root = tempfile::tempdir().unwrap();
+	let Some((project, url, _server)) = push_databases(root.path())
+		.into_iter()
+		.find(|(project, ..)| project.dialect() == Dialect::Postgres)
+	else {
+		assert!(
+			std::env::var_os("LEPTOSKIT_REQUIRE_POSTGRES").is_none(),
+			"Postgres is required for this test"
+		);
+		return;
+	};
+	let runtime = super::runtime().unwrap();
+	let execute = |sql: &str| {
+		runtime.block_on(async {
+			let db = super::Db::connect(&url).await.unwrap();
+			db.run_script(sql).await.unwrap();
+		});
+	};
+	execute(
+		"CREATE SCHEMA live; CREATE TABLE notes (id uuid PRIMARY KEY); CREATE TABLE live.other \
+		 (id uuid PRIMARY KEY); CREATE SEQUENCE live.fixture_sequence; CREATE FUNCTION \
+		 live.fixture_observe() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RETURN NEW; END;$$; \
+		 CREATE TRIGGER live_notes_insert AFTER INSERT ON notes FOR EACH ROW EXECUTE FUNCTION \
+		 live.fixture_observe(); CREATE TRIGGER live_other_insert AFTER INSERT ON live.other FOR \
+		 EACH ROW EXECUTE FUNCTION live.fixture_observe();",
+	);
+	let function = Function::new(
+		TableName::namespaced("live", "fixture_observe"),
+		"trigger",
+		"plpgsql",
+		"BEGIN RETURN NEW; END;",
+	);
+	let trigger = |table: TableName, name: &str| {
+		Trigger {
+			name: name.into(),
+			table,
+			timing: TriggerTiming::After,
+			events: vec![TriggerEvent::Insert],
+			deferred: false,
+			columns: vec!["id".into()],
+			action: TriggerAction::Function {
+				function: function.name.clone(),
+				arguments: Vec::new(),
+			},
+		}
+	};
+	let mut schema = users(Dialect::Postgres, Vec::new()).with_routines(
+		vec![Sequence::new(TableName::namespaced(
+			"live",
+			"fixture_sequence",
+		))],
+		vec![function.clone()],
+		vec![
+			trigger(TableName::new("notes"), "live_notes_insert"),
+			trigger(TableName::namespaced("live", "other"), "live_other_insert"),
+		],
+	);
+	let check = |schema: &Schema| super::check_live(&project, schema, Some(url.clone()));
+	check(&schema).unwrap();
+	let mut changed = schema.clone();
+	changed.functions[0] = Function::new(
+		function.name.clone(),
+		"trigger",
+		"plpgsql",
+		"BEGIN RETURN NULL; END;",
+	);
+	assert!(
+		check(&changed)
+			.unwrap_err()
+			.to_string()
+			.contains("has changed")
+	);
+	execute("DROP TRIGGER live_notes_insert ON notes;");
+	assert!(
+		check(&schema)
+			.unwrap_err()
+			.to_string()
+			.contains("missing live triggers")
+	);
+	execute(
+		"CREATE TRIGGER live_notes_insert AFTER INSERT ON notes FOR EACH ROW EXECUTE FUNCTION \
+		 live.fixture_observe(); CREATE TRIGGER extra_live_insert AFTER INSERT ON notes FOR EACH \
+		 ROW EXECUTE FUNCTION live.fixture_observe();",
+	);
+	assert!(
+		check(&schema)
+			.unwrap_err()
+			.to_string()
+			.contains("live triggers the schema doesn't")
+	);
+	execute(
+		"DROP TRIGGER extra_live_insert ON notes; DROP FUNCTION live.fixture_observe() CASCADE;",
+	);
+	schema.triggers.clear();
+	assert!(
+		check(&schema)
+			.unwrap_err()
+			.to_string()
+			.contains("missing live functions")
+	);
+	execute(
+		"CREATE FUNCTION live.fixture_observe() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN \
+		 RETURN NEW; END;$$; DROP SEQUENCE live.fixture_sequence;",
+	);
+	assert!(
+		check(&schema)
+			.unwrap_err()
+			.to_string()
+			.contains("missing live sequences")
+	);
+	execute("CREATE SEQUENCE live.fixture_sequence;");
+	check(&schema).unwrap();
+}

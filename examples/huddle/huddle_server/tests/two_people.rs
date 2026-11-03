@@ -291,6 +291,94 @@ async fn two_people_huddle() {
 	assert_eq!(messages[0]["author"], "Ada");
 	assert_eq!(grace_live.results[&2][0]["unread"], 1);
 
+	// --- Both people move cards; every column keeps contiguous positions. ---
+	assert_eq!(
+		grace_live
+			.subscribe(3, "board", json!({ "channel": general }))
+			.await,
+		json!([])
+	);
+	assert!(
+		ada.call("add_task", json!({ "channel": general, "title": " " }))
+			.await
+			.unwrap_err()
+			.contains("a card needs a title")
+	);
+	let first = ada
+		.ok(
+			"add_task",
+			json!({ "channel": general, "title": "  First card  " }),
+		)
+		.await;
+	let second = grace
+		.ok(
+			"add_task",
+			json!({ "channel": general, "title": "Second card" }),
+		)
+		.await;
+	let third = ada
+		.ok(
+			"add_task",
+			json!({ "channel": general, "title": "Third card" }),
+		)
+		.await;
+	grace_live
+		.until(3, |cards| {
+			cards.as_array().is_some_and(|cards| cards.len() == 3)
+		})
+		.await;
+	ada.ok(
+		"move_task",
+		json!({ "task": third, "column": "todo", "index": 0 }),
+	)
+	.await;
+	let reordered = grace.ok("board", json!({ "channel": general })).await;
+	assert_eq!(reordered[0]["id"], third);
+	assert_eq!(reordered[1]["title"], "First card");
+	assert_eq!(reordered[2]["id"], second);
+	for index in 0..3 {
+		assert_eq!(reordered[index]["position"], index);
+	}
+	ada.ok(
+		"move_task",
+		json!({ "task": first, "column": "doing", "index": 99 }),
+	)
+	.await;
+	grace
+		.ok(
+			"move_task",
+			json!({ "task": second, "column": "doing", "index": 0 }),
+		)
+		.await;
+	// Repeating an already-satisfied move leaves the same order.
+	grace
+		.ok(
+			"move_task",
+			json!({ "task": second, "column": "doing", "index": 0 }),
+		)
+		.await;
+	let board = ada.ok("board", json!({ "channel": general })).await;
+	assert_eq!(board[0]["id"], third);
+	assert_eq!(board[0]["column"], "todo");
+	assert_eq!(board[0]["position"], 0);
+	assert_eq!(board[1]["id"], second);
+	assert_eq!(board[1]["column"], "doing");
+	assert_eq!(board[1]["position"], 0);
+	assert_eq!(board[2]["id"], first);
+	assert_eq!(board[2]["column"], "doing");
+	assert_eq!(board[2]["position"], 1);
+	assert!(
+		ada.call(
+			"move_task",
+			json!({ "task": first, "column": "unknown", "index": 0 })
+		)
+		.await
+		.unwrap_err()
+		.contains("there's no `unknown` column")
+	);
+	assert_eq!(ada.ok("board", json!({ "channel": general })).await, board);
+	grace_live.until(3, |cards| cards == &board).await;
+
 	// --- A private channel appears with a membership, and vanishes. ---
 	let launch = ada
 		.ok(

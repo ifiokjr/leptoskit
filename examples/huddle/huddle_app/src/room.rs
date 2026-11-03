@@ -217,3 +217,147 @@ impl UntrackedData for QueryHandle<Option<Person>, FnError> {
 		untrack(|| self.data().flatten())
 	}
 }
+
+#[cfg(test)]
+#[cfg(not(target_arch = "wasm32"))]
+mod tests {
+	use leptoskit::query::QueryClient;
+	use leptoskit::query::QueryDefaults;
+	use leptoskit::query::QueryScope;
+	use leptoskit::query::StaleTime;
+	use leptoskit::query::use_query;
+	use leptoskit_rpc::live::PresenceMember;
+	use leptoskit_rpc::live::WireError;
+	use serde_json::json;
+
+	use super::*;
+
+	#[tokio::test]
+	async fn presence_and_typing_follow_events_without_showing_stale_or_duplicate_people() {
+		let _ = any_spawner::Executor::init_tokio();
+		tokio::task::LocalSet::new()
+			.run_until(async {
+				let owner = Owner::new();
+				let person = Person {
+					id: Id::parse("00000000-0000-4000-8000-000000000001").unwrap(),
+					name: "Me".into(),
+					is_admin: false,
+				};
+				let me_id = person.id.to_string();
+				let (room, cache, scope) = owner.with(|| {
+					let cache = QueryClient::new()
+						.with_defaults(QueryDefaults::new().with_stale_time(StaleTime::Static));
+					cache.provide();
+					let scope =
+						QueryScope::<(), Option<Person>, FnError>::new(|()| async { Ok(None) });
+					cache.set_query_data(&scope, (), Some(person));
+					let me = use_query(scope.clone(), || ());
+					(Room::new(RwSignal::new(no_channel()), me), cache, scope)
+				});
+				let (events, received) = futures::channel::mpsc::unbounded();
+				let following = tokio::task::spawn_local(room.follow(received));
+				events
+					.unbounded_send(ChannelEvent::Presence(vec![
+						PresenceMember {
+							id: "phone".into(),
+							state: json!({"user":"grace","name":"Grace"}),
+						},
+						PresenceMember {
+							id: "laptop".into(),
+							state: json!({"user":"ada","name":"Ada"}),
+						},
+						PresenceMember {
+							id: "tablet".into(),
+							state: json!({"user":"grace","name":"Grace"}),
+						},
+						PresenceMember {
+							id: "invalid".into(),
+							state: json!({"unrelated": true}),
+						},
+					]))
+					.unwrap();
+				events
+					.unbounded_send(ChannelEvent::Signal {
+						from: None,
+						message: json!({"invalid":true}),
+					})
+					.unwrap();
+				events
+					.unbounded_send(ChannelEvent::Signal {
+						from: None,
+						message: serde_json::to_value(Signal::Typing {
+							user: "grace".into(),
+							name: "Grace".into(),
+						})
+						.unwrap(),
+					})
+					.unwrap();
+				events
+					.unbounded_send(ChannelEvent::Error(WireError {
+						status: 403,
+						message: "fixture refusal".into(),
+					}))
+					.unwrap();
+				drop(events);
+				following.await.unwrap();
+				assert_eq!(
+					room.here()
+						.iter()
+						.map(|who| who.name.as_str())
+						.collect::<Vec<_>>(),
+					["Ada", "Grace"]
+				);
+				assert_eq!(room.typing_line().as_deref(), Some("Grace is typing…"));
+				room.heard(Signal::Typing {
+					user: "grace".into(),
+					name: "Grace".into(),
+				});
+				room.heard(Signal::Typing {
+					user: me_id,
+					name: "Me".into(),
+				});
+				assert_eq!(room.typing_line().as_deref(), Some("Grace is typing…"));
+				assert_eq!(room.typing.get_untracked().len(), 2);
+				room.heard(Signal::Typing {
+					user: "lin".into(),
+					name: "Lin".into(),
+				});
+				assert_eq!(
+					room.typing_line().as_deref(),
+					Some("Grace and Lin are typing…")
+				);
+				room.heard(Signal::Typing {
+					user: "pat".into(),
+					name: "Pat".into(),
+				});
+				assert_eq!(
+					room.typing_line().as_deref(),
+					Some("Several people are typing…")
+				);
+				room.heard(Signal::Stopped {
+					user: "grace".into(),
+				});
+				room.typing.update(|people| {
+					people
+						.iter_mut()
+						.filter(|who| who.user == "lin")
+						.for_each(|who| who.until_ms = 0);
+				});
+				assert_eq!(room.typing_line().as_deref(), Some("Pat is typing…"));
+				room.heard(Signal::Stopped { user: "pat".into() });
+				assert_eq!(room.typing_line(), None);
+				room.typing();
+				let sent = room.last_sent.get_value();
+				room.typing();
+				assert_eq!(room.last_sent.get_value(), sent);
+				room.stopped_typing();
+				assert_eq!(room.last_sent.get_value(), 0);
+				room.key.set_value(Some("fixture".into()));
+				room.stopped_typing();
+				cache.set_query_data(&scope, (), None);
+				room.stopped_typing();
+				owner.cleanup();
+			})
+			.await;
+	}
+}

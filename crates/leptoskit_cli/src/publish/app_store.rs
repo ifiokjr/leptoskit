@@ -1014,6 +1014,9 @@ mod tests {
 
 	#[test]
 	fn xcode_archives_and_uploads_with_the_api_key() {
+		let mut settings = insta::Settings::clone_current();
+		settings.add_filter(r"\\", "/");
+		let _guard = settings.bind_to_scope();
 		let archive = archive(
 			Path::new("/app"),
 			Path::new("/app/.leptoskit/publish/ios"),

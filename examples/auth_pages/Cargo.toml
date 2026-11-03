@@ -15,12 +15,25 @@ leptoskit = { workspace = true, features = ["auth", "idp", "leptos", "query"] }
 leptoskit_router = { workspace = true }
 
 [dev-dependencies]
-any_spawner = { workspace = true, features = ["tokio"] }
 chrono = { workspace = true }
 leptoskit_testing = { workspace = true }
 reactive_graph = { workspace = true, features = ["effects"] }
 serde_json = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+any_spawner = { workspace = true, features = ["tokio"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+huddle_app = { path = "../huddle/huddle_app", features = ["web"] }
+any_spawner = { workspace = true, features = ["wasm-bindgen"] }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-test = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+gloo-timers = { version = "0.3", features = ["futures"] }
+
+[features]
+web = ["leptoskit/web", "leptoskit/csr"]
 
 [lints]
 workspace = true

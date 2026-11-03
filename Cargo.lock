@@ -756,12 +756,17 @@ version = "0.0.0"
 dependencies = [
  "any_spawner",
  "chrono",
+ "gloo-timers",
+ "huddle_app",
  "leptoskit",
  "leptoskit_router",
  "leptoskit_testing",
  "reactive_graph",
  "serde_json",
  "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
 ]
 
 [[package]]
@@ -3599,6 +3604,7 @@ dependencies = [
  "leptoskit_rpc",
  "leptoskit_testing",
  "serde_json",
+ "tokio",
  "wasm-bindgen",
 ]
 
@@ -3628,9 +3634,14 @@ dependencies = [
 name = "huddle_load"
 version = "0.0.0"
 dependencies = [
+ "axum",
  "chrono",
  "clap",
  "futures",
+ "huddle",
+ "huddle_db",
+ "leptoskit_auth",
+ "leptoskit_db",
  "leptoskit_rpc",
  "reqwest 0.12.28",
  "serde_json",

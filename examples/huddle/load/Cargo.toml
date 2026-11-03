@@ -25,5 +25,13 @@ serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect"] }
 
+[dev-dependencies]
+axum = { workspace = true }
+huddle = { path = "../huddle_server" }
+huddle_db = { path = "../huddle_db", features = ["server"] }
+leptoskit_auth = { workspace = true, features = ["axum", "sqlite"] }
+leptoskit_db = { workspace = true, features = ["sqlite"] }
+tokio = { workspace = true, features = ["process"] }
+
 [lints]
 workspace = true
