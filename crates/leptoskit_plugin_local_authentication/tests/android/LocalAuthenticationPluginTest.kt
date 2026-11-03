@@ -54,7 +54,7 @@ class LocalAuthenticationPluginTest {
 
     @Test
     fun missingPermissionAndCancellationNeverPrompt() =
-        withPlugin(NoBiometricPermission(context)) { plugin ->
+        withPlugin({ NoBiometricPermission(context) }) { plugin ->
             val report = ByteBuffer.wrap(plugin.invoke(CAPABILITIES, policy())).order(ByteOrder.LITTLE_ENDIAN)
             val readiness = if (evaluatesPolicy) READINESS_PERMISSION_DENIED else READINESS_UNAVAILABLE
 
@@ -71,7 +71,7 @@ class LocalAuthenticationPluginTest {
 
     @Test
     fun closedPluginRejectsNewWork() =
-        withPlugin(NoBiometricPermission(context)) { plugin ->
+        withPlugin({ NoBiometricPermission(context) }) { plugin ->
             plugin.close()
 
             assertRejects(PluginException.CANCELLED, "Closed plugin accepted work") {
@@ -81,7 +81,7 @@ class LocalAuthenticationPluginTest {
 
     @Test
     fun invisibleActivityCannotStartAuthentication() =
-        withPlugin(InvisibleActivity()) { plugin ->
+        withPlugin({ InvisibleActivity() }) { plugin ->
             assertRejects(PluginException.UNAVAILABLE, "Invisible activity accepted authentication") {
                 plugin.invoke(AUTHENTICATE, request())
             }
@@ -129,13 +129,13 @@ class LocalAuthenticationPluginTest {
             }
         }
 
-    /** Runs the body on the UI thread against a plugin over the given context, then closes it. */
+    /** Creates the context and plugin on the UI thread, runs the body, then closes the plugin. */
     private fun withPlugin(
-        base: Context,
+        base: () -> Context,
         body: suspend CoroutineScope.(LocalAuthenticationPlugin) -> Unit,
     ) = runBlocking {
         withContext(Dispatchers.Main) {
-            val plugin = LocalAuthenticationPlugin(base)
+            val plugin = LocalAuthenticationPlugin(base())
 
             try {
                 body(plugin)
@@ -191,6 +191,11 @@ class LocalAuthenticationPluginTest {
     }
 
     private companion object {
+        /** Method ids the plugin exposes. */
+        const val CAPABILITIES = 0
+        const val AUTHENTICATE = 1
+        const val CANCEL = 2
+
         /** The first API level that answers readiness for a policy at all. */
         const val BIOMETRIC_API = 30
 

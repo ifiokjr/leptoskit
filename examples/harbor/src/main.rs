@@ -18,7 +18,9 @@ use leptoskit_testing::Finder;
 use leptoskit_testing::TestError;
 use leptoskit_testing::WidgetTester;
 
-#[tokio::main]
+// Keep query updates and headless rendering on one UI event loop. Signal
+// reads can fail while another thread holds their write lock.
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), TestError> {
 	// Writes the spec and exits when `leptoskit rpc` asks for it, and refuses
 	// to start when two functions share a route.

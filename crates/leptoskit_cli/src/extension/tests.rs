@@ -432,3 +432,164 @@ fn extension_browser_flags_are_parsed_and_invalid_browsers_are_rejected() {
 	));
 	assert!(Cli::try_parse_from(["lk", "test", "extension", "--browser", "safari"]).is_err());
 }
+
+#[test]
+fn firefox_source_archives_keep_rebuild_inputs_and_exclude_even_tracked_secrets() {
+	for tracked in [false, true] {
+		let root = tempfile::tempdir().unwrap();
+		let write = |name: &str, contents: &str| {
+			let path = root.path().join(name);
+			std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+			std::fs::write(path, contents).unwrap();
+		};
+		write("src/lib.rs", "pub fn source_marker() {}\n");
+		write(
+			"Cargo.toml",
+			"[package]\nname = 'fixture'\nversion = '0.1.0'\n",
+		);
+		write(
+			"monosecret.toml",
+			"[secrets.DATABASE_URL]\nprovider = 'env'\n",
+		);
+		write("BUILD.md", "obsolete instructions");
+		write(".env", "SECRET_ENV_MARKER");
+		write("keys/signing.key", "SECRET_KEY_MARKER");
+		write("keys/apple.p8", "SECRET_APPLE_MARKER");
+		write("keys/certificate.pem", "SECRET_PEM_MARKER");
+		write("target/cache", "BUILD_OUTPUT_MARKER");
+		write(".gitignore", "/target/\n");
+		if tracked {
+			assert!(
+				crate::git::command(root.path())
+					.arg("init")
+					.output()
+					.unwrap()
+					.status
+					.success()
+			);
+			assert!(
+				crate::git::command(root.path())
+					.args([
+						"add",
+						"--force",
+						"src",
+						"Cargo.toml",
+						"monosecret.toml",
+						"BUILD.md",
+						".env",
+						"keys"
+					])
+					.output()
+					.unwrap()
+					.status
+					.success()
+			);
+		}
+		let archive = super::source_archive(root.path(), &config(COMMONPLACE), tracked).unwrap();
+		let entries = unzip_for_test(&archive);
+		let contents = entries
+			.iter()
+			.map(|(name, contents)| format!("{name}\n{}", String::from_utf8_lossy(contents)))
+			.collect::<Vec<_>>()
+			.join("\n");
+		for kept in [
+			"source_marker",
+			"Cargo.toml",
+			"monosecret.toml",
+			"Building commonplace for Firefox",
+			"rustup target add wasm32-unknown-unknown",
+		] {
+			assert!(contents.contains(kept), "missing {kept}");
+		}
+		for excluded in [
+			"SECRET_ENV_MARKER",
+			"SECRET_KEY_MARKER",
+			"SECRET_APPLE_MARKER",
+			"SECRET_PEM_MARKER",
+			"BUILD_OUTPUT_MARKER",
+			"obsolete instructions",
+		] {
+			assert!(
+				!contents.contains(excluded),
+				"source archive leaked {excluded}"
+			);
+		}
+		assert_eq!(contents.contains("extension --release"), tracked);
+	}
+}
+
+#[test]
+fn extension_routes_are_checked_before_packaging_every_surface() {
+	let root = tempfile::tempdir().unwrap();
+	let routes = root.path().join("pages");
+	for page in [
+		"clip",
+		"panel",
+		"settings",
+		"reading",
+		"overlay/clipper",
+		"overlay/highlights",
+		"overlay/docs",
+	] {
+		let path = routes.join(format!("{page}.rs"));
+		std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+		std::fs::write(path, "pub fn page() {}\n").unwrap();
+	}
+	let mut config = config(COMMONPLACE);
+	config.router = Some(leptoskit_config::RouterConfig {
+		dir: "pages".into(),
+	});
+	let mut extension = config.extension.clone().unwrap();
+	extension.popup.as_mut().unwrap().route = "/clip?tab=saved#first".into();
+	super::check_routes(root.path(), &config, &extension).unwrap();
+	extension.side_panel.as_mut().unwrap().route = "/missing".into();
+	let error = super::check_routes(root.path(), &config, &extension)
+		.unwrap_err()
+		.to_string();
+	assert!(
+		error.contains("extension.side_panel")
+			&& error.contains("/missing")
+			&& error.contains("pages"),
+		"{error}"
+	);
+	// An app without a file router owns routing itself.
+	config.router = None;
+	super::check_routes(root.path(), &config, &extension).unwrap();
+}
+
+/// Reads the ZIP local records so assertions inspect decompressed source,
+/// rather than depending on whether a particular entry compresses well.
+fn unzip_for_test(archive: &[u8]) -> std::collections::BTreeMap<String, Vec<u8>> {
+	use std::io::Read as _;
+	let mut entries = std::collections::BTreeMap::new();
+	let mut offset = 0;
+	while archive.get(offset..offset + 4) == Some(b"PK\x03\x04") {
+		let u16_at = |at| usize::from(u16::from_le_bytes(archive[at..at + 2].try_into().unwrap()));
+		let method = u16_at(offset + 8);
+		let compressed = usize::try_from(u32::from_le_bytes(
+			archive[offset + 18..offset + 22].try_into().unwrap(),
+		))
+		.unwrap();
+		let name_len = u16_at(offset + 26);
+		let extra_len = u16_at(offset + 28);
+		let name =
+			String::from_utf8(archive[offset + 30..offset + 30 + name_len].to_vec()).unwrap();
+		let start = offset + 30 + name_len + extra_len;
+		let data = &archive[start..start + compressed];
+		let contents = match method {
+			0 => data.to_vec(),
+			8 => {
+				let mut contents = Vec::new();
+				flate2::read::DeflateDecoder::new(data)
+					.read_to_end(&mut contents)
+					.unwrap();
+				contents
+			}
+			other => panic!("unsupported ZIP method {other}"),
+		};
+		assert!(entries.insert(name, contents).is_none());
+		offset = start + compressed;
+	}
+	assert!(!entries.is_empty());
+	entries
+}

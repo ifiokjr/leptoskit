@@ -183,7 +183,18 @@ async fn commits_carry_a_position_replicas_must_reach(capture: LiveCapture) {
 		return;
 	};
 	let system = db.system("the test reads the change log");
-	let _capture = (capture == LiveCapture::Replication).then(|| db.capture_changes());
+	let capture = (capture == LiveCapture::Replication).then(|| db.capture_changes());
+	if let Some(capture) = &capture {
+		// The slot captures only commits made after it exists. Starting the
+		// background task alone does not guarantee the slot is ready.
+		tokio::time::timeout(Duration::from_secs(30), async {
+			while !capture.stats().capturing {
+				tokio::time::sleep(Duration::from_millis(10)).await;
+			}
+		})
+		.await
+		.expect("replication capture creates its slot before the write");
+	}
 	let mut log = system.change_log(None).await.unwrap();
 
 	standby.pause_replay();

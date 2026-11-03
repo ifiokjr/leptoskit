@@ -495,13 +495,20 @@ async fn the_publisher_fails_over_when_it_crashes() {
 
 	crash.send(()).unwrap();
 	first.join().unwrap();
+	// Shutting down the old runtime starts cancellation on its workers. Wait
+	// for the successor's lease before giving it the post-crash commits.
+	eventually("the second took over", || second.stats().leading).await;
 
 	for count in 0..5 {
 		note(&db, &format!("after-{count}")).await;
 	}
 	assert_eq!(until_count(&mut watcher, 10).await.len(), 10);
-	assert!(second.stats().leading, "the second took over");
-	assert!(second.stats().commits >= 1);
+	// A subscriber can receive the batch before the publish acknowledgment
+	// updates the publisher's statistics.
+	eventually("the second published a commit", || {
+		second.stats().commits >= 1
+	})
+	.await;
 	assert_eq!(server.live.stats().relay_fills, 0, "the stream had it all");
 
 	let batches = stream_batches(

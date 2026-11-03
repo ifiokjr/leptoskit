@@ -6,7 +6,6 @@
 
 use std::time::Duration;
 
-use futures::FutureExt;
 use futures::SinkExt;
 use futures::StreamExt;
 use leptoskit_db::Db;
@@ -454,36 +453,46 @@ async fn a_socket_that_sends_faster_than_the_server_serves_is_closed() {
 	let (mut socket, _) = connect_async(&url).await.unwrap();
 	let _ = next(&mut socket).await;
 
-	// The burst covers a reconnecting client's whole subscription set, and
-	// the budget refills as the sends take time, so this keeps sending
-	// past what any window refills: one frame past the budget ends the
-	// connection with a reason instead of more database work.
-	let mut why = None;
-	for _ in 0..1600 {
+	// Read independently of the burst: the server's reason and close may
+	// arrive after the final send completes, especially under coverage.
+	let (mut outgoing, mut incoming) = socket.split();
+	let sender = tokio::spawn(async move {
 		let frame = serde_json::to_string(&ClientFrame::Hello { resume: None }).unwrap();
-		if socket.send(Message::Text(frame.into())).await.is_err() {
-			break;
-		}
-		while let Some(Some(Ok(message))) = socket.next().now_or_never() {
-			let Message::Text(text) = message else {
-				continue;
-			};
-			if let Ok(ServerFrame::Done {
-				err: Some(error), ..
-			}) = serde_json::from_str(&text)
-				&& error.message.contains("faster")
+		for _ in 0..1600 {
+			if outgoing
+				.send(Message::Text(frame.clone().into()))
+				.await
+				.is_err()
 			{
-				why = Some(error.message);
+				break;
 			}
 		}
-		if why.is_some() {
-			break;
+	});
+	let why = tokio::time::timeout(Duration::from_secs(20), async {
+		let mut why = None;
+		while let Some(message) = incoming.next().await {
+			match message {
+				Ok(Message::Text(text)) => {
+					if let Ok(ServerFrame::Done {
+						err: Some(error), ..
+					}) = serde_json::from_str(&text)
+					{
+						why = Some(error.message);
+					}
+				}
+				// A peer still sending its burst may observe a TCP reset.
+				// Either ending must follow the rate-limit error, checked below.
+				Ok(Message::Close(_)) | Err(_) => return why,
+				_ => {}
+			}
 		}
-	}
+		why
+	})
+	.await;
+	sender.abort();
+	server.abort();
 	assert_eq!(
-		why,
+		why.expect("the server closes an over-budget connection"),
 		Some("this connection is sending frames faster than the server serves them".to_owned())
 	);
-
-	server.abort();
 }

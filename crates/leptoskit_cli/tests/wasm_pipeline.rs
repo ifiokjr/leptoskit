@@ -284,6 +284,119 @@ fn full_pipeline_compiles_binds_and_caches() {
 	)));
 }
 
+/// Packaging must use the real compiler and bindgen outputs and leave the
+/// source manifest, rather than secrets, in Firefox's review archive.
+#[test]
+#[ignore = "builds for wasm32 and fetches dependencies; run by the `coverage` CI job"]
+fn extension_build_packages_each_browser_and_replaces_stale_outputs() {
+	let scratch = fixture_project("wasm_workspace");
+	let manifest = scratch.path.join("crates/fixture_client/Cargo.toml");
+	let source = std::fs::read_to_string(&manifest).unwrap();
+	std::fs::write(manifest, source + "\n[features]\nextension = []\n").unwrap();
+	std::fs::write(
+		scratch.path.join("leptoskit.toml"),
+		r#"
+[app]
+name = "extension_fixture"
+version = "1.2.3"
+platforms = ["extension"]
+default_platform = "extension"
+render = "csr"
+[build]
+client_package = "fixture_client"
+[extension]
+name = "Fixture extension"
+browsers = ["chromium", "firefox", "safari"]
+[extension.popup]
+route = "/popup"
+[extension.firefox]
+id = "fixture@example.test"
+[publish.chrome]
+publisher_id = "fixture"
+item_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+[publish.edge]
+product_id = "00000000-0000-0000-0000-000000000000"
+[publish.firefox]
+channel = "unlisted"
+"#,
+	)
+	.unwrap();
+	std::fs::create_dir_all(scratch.path.join("assets/nested")).unwrap();
+	std::fs::write(scratch.path.join("assets/app.css"), "body { color: blue; }").unwrap();
+	std::fs::write(
+		scratch.path.join("assets/nested/data.txt"),
+		"packaged asset",
+	)
+	.unwrap();
+	std::fs::write(scratch.path.join("monosecret.toml"), "[secrets]\n").unwrap();
+	std::fs::write(scratch.path.join(".env"), "FIXTURE_SECRET=private\n").unwrap();
+	let build = || {
+		let output = std::process::Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+			.current_dir(&scratch.path)
+			.args(["build", "--platform", "extension"])
+			.output()
+			.unwrap();
+		assert!(
+			output.status.success(),
+			"{}\n{}",
+			String::from_utf8_lossy(&output.stdout),
+			String::from_utf8_lossy(&output.stderr)
+		);
+		String::from_utf8(output.stdout).unwrap()
+	};
+	let output = build();
+	assert!(output.contains("firefox-source.zip"), "{output}");
+	let directory = scratch.path.join(".leptoskit/extension");
+	for browser in ["chromium", "firefox", "safari"] {
+		let package = directory.join(browser);
+		let manifest: serde_json::Value =
+			serde_json::from_slice(&std::fs::read(package.join("manifest.json")).unwrap()).unwrap();
+		assert_eq!(manifest["name"], "Fixture extension");
+		assert_eq!(manifest["version"], "1.2.3");
+		for file in [
+			"popup.html",
+			"popup.js",
+			"pkg/fixture_client.js",
+			"pkg/fixture_client_bg.wasm",
+			"assets/nested/data.txt",
+		] {
+			assert!(package.join(file).is_file(), "{browser}: {file}");
+		}
+		assert_eq!(
+			directory.join(format!("{browser}.zip")).is_file(),
+			browser != "safari"
+		);
+	}
+	assert!(directory.join("firefox-source.zip").is_file());
+	std::fs::write(directory.join("chromium/stale.txt"), "old output").unwrap();
+	build();
+	assert!(!directory.join("chromium/stale.txt").exists());
+	let output = std::process::Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.current_dir(&scratch.path)
+		.args(["publish", "--dry-run", "--json"])
+		.output()
+		.unwrap();
+	assert!(
+		output.status.success(),
+		"{}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	let report: serde_json::Value = serde_json::from_slice(
+		&std::fs::read(scratch.path.join(".leptoskit/publish/next-steps.json")).unwrap(),
+	)
+	.unwrap();
+	let stores = report["stores"].as_array().unwrap();
+	assert_eq!(stores.len(), 3);
+	for store in stores {
+		assert!(
+			store["summary"]
+				.as_str()
+				.unwrap()
+				.contains("Fixture extension 1.2.3 is built and checked")
+		);
+	}
+}
+
 /// Exercise the generated guest through the same interpreter the ArkUI host
 /// embeds.
 #[test]

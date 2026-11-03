@@ -195,3 +195,169 @@ fn fixture_timeout() {
 	println!("fixture output before timeout");
 	std::thread::sleep(std::time::Duration::from_secs(30));
 }
+
+#[cfg(unix)]
+fn fake_tool(path: &std::path::Path, script: &str) {
+	use std::os::unix::fs::PermissionsExt;
+	std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+	std::fs::write(path, format!("#!/bin/sh\nset -eu\n{script}\n")).unwrap();
+	std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn android_runner_cleans_up_its_fixture_after_success_and_failure() {
+	for failure in ["none", "test", "both", "wait", "exited"] {
+		let directory = Scratch::new();
+		let sdk = directory.0.join("sdk");
+		let log = directory.0.join("commands.txt");
+		fake_tool(
+			&sdk.join("platform-tools/adb"),
+			r#"
+if [ "$1" = devices ]; then printf 'List of devices attached\n'; exit 0; fi
+[ "$1" = -s ] && [ "$2" = emulator-5554 ]
+shift 2
+printf '%s\n' "$*" >> "$LK_TEST_LOG"
+case "$1" in
+  wait-for-device)
+    if [ "$LK_FAIL" = exited ]; then sleep 3; fi
+    if [ "$LK_FAIL" = wait ]; then exit 7; fi;;
+  shell)
+    case "$2" in
+      'timeout -s KILL '*)
+        printf 'fixture device output\n'
+        if [ "$LK_FAIL" = test ] || [ "$LK_FAIL" = both ]; then exit 13; fi;;
+      'rm -rf '*) if [ "$LK_FAIL" = both ]; then exit 14; fi;;
+    esac;;
+esac
+"#,
+		);
+		fake_tool(
+			&sdk.join("emulator/emulator"),
+			r#"
+printf '%s\n' "$*" > "$LK_EMULATOR_ARGS"
+if [ "$LK_FAIL" = exited ]; then exit 23; fi
+exec sleep 60
+"#,
+		);
+		let output = std::process::Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+			.args(["test", "run", "--binary"])
+			.arg(std::env::current_exe().unwrap())
+			.args([
+				"--platform",
+				"android",
+				"--device",
+				"emulator-5554",
+				"--avd",
+				"fixture",
+				"--timeout",
+				"5",
+				"--artifacts",
+			])
+			.arg(directory.0.join("reports"))
+			.args(["--", "two words", "a 'quote'"])
+			.env("ANDROID_HOME", &sdk)
+			.env("LK_TEST_LOG", &log)
+			.env("LK_EMULATOR_ARGS", directory.0.join("emulator-args.txt"))
+			.env("LK_FAIL", failure)
+			.output()
+			.unwrap();
+		let reports = Scratch(directory.0.join("reports"));
+		let report = reports.report();
+		assert_eq!(output.status.success(), failure == "none", "{report}");
+		assert_eq!(report["passed"], failure == "none", "{report}");
+		let recorded = std::fs::read_to_string(&log).unwrap();
+		assert!(
+			!recorded.contains("emu kill"),
+			"the runner must reap its own process, not kill by reusable serial"
+		);
+		if failure == "none" || failure == "test" || failure == "both" {
+			assert!(
+				recorded.contains("'two words' 'a '\\''quote'\\'''"),
+				"{recorded}"
+			);
+			assert_eq!(
+				report["steps"].as_array().unwrap().last().unwrap()["name"],
+				"remove-test"
+			);
+		}
+		if failure == "both" {
+			let error = report["error"].as_str().unwrap();
+			assert!(
+				error.contains("cleanup also failed") && error.contains("test failed"),
+				"{error}"
+			);
+		}
+		if failure == "exited" {
+			assert!(
+				report["error"]
+					.as_str()
+					.unwrap()
+					.contains("emulator exited during"),
+				"{report}"
+			);
+		}
+		assert!(
+			std::fs::read_to_string(directory.0.join("emulator-args.txt"))
+				.unwrap()
+				.contains("-avd fixture -port 5554 -no-window")
+		);
+	}
+}
+
+#[cfg(unix)]
+#[test]
+fn browser_runner_selects_only_the_requested_driver() {
+	for browser in ["chrome", "firefox"] {
+		let directory = Scratch::new();
+		let bin = directory.0.join("bin");
+		fake_tool(
+			&bin.join("cargo"),
+			r#"
+[ "$*" = 'test --target wasm32-unknown-unknown --package fixture_widgets' ]
+[ "$WASM_BINDGEN_USE_BROWSER" = 1 ]
+[ "$WASM_BINDGEN_TEST_ONLY_WEB" = 1 ]
+[ "${NO_HEADLESS-unset}" = unset ]
+[ "${SAFARIDRIVER-unset}" = unset ]
+case "$LK_BROWSER" in
+  chrome) [ "$CHROMEDRIVER" = fixture-chrome ]; [ "${GECKODRIVER-unset}" = unset ];;
+  firefox) [ "$GECKODRIVER" = fixture-firefox ]; [ "${CHROMEDRIVER-unset}" = unset ];;
+esac
+printf 'fixture browser output\n'
+"#,
+		);
+		let mut paths = vec![bin];
+		paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap()));
+		let output = std::process::Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+			.args([
+				"test",
+				"web",
+				"--package",
+				"fixture_widgets",
+				"--browser",
+				browser,
+				"--timeout",
+				"5",
+				"--artifacts",
+			])
+			.arg(directory.0.join("reports"))
+			.env("PATH", std::env::join_paths(paths).unwrap())
+			.env("CHROMEDRIVER", "fixture-chrome")
+			.env("GECKODRIVER", "fixture-firefox")
+			.env("SAFARIDRIVER", "fixture-safari")
+			.env("NO_HEADLESS", "1")
+			.env("LK_BROWSER", browser)
+			.output()
+			.unwrap();
+		let reports = Scratch(directory.0.join("reports"));
+		let report = reports.report();
+		assert!(
+			output.status.success(),
+			"{report}: {}",
+			String::from_utf8_lossy(&output.stderr)
+		);
+		assert_eq!(report["platform"], "web");
+		assert_eq!(report["passed"], true);
+		assert_eq!(report["steps"][0]["name"], "browser");
+	}
+}

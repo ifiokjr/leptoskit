@@ -1,5 +1,7 @@
 # Publishing to the stores
 
+Use [Monosecret](secrets.md) to manage the server and deployment credentials in this guide. New projects resolve their secret manifest automatically during development.
+
 Getting an app into a store is where a release usually loses a day. Every store has its own upload API, its own version rules, its own review form, and pages that can only be filled in by hand. `leptoskit publish` does the uploading, and finishes by telling you exactly what is left in each store's dashboard, with the text to paste.
 
 Today it publishes [browser extensions](../platforms/extension.md) to the Chrome Web Store, Microsoft Edge Add-ons, and addons.mozilla.org, [iOS apps](../platforms/ios.md) to TestFlight and the App Store, [Android apps](../platforms/android.md) to Google Play, and [macOS apps](../platforms/macos.md) as notarized downloads.

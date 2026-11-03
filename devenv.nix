@@ -603,6 +603,8 @@ in
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package leptoskit_query
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --target wasm32-unknown-unknown --package auth_pages_example --features web --test browser
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web --test web_browser
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
@@ -730,8 +732,16 @@ in
         # (`__llvm_profile_runtime`). The gallery suite runs uninstrumented in
         # test:browser; leptoskit_native's own suite measures the web adapter.
         instrument=()
-        for package in leptoskit_testing_library leptoskit_native leptoskit_use leptoskit_rive; do
-          instrument+=(--config "profile.dev.package.$package.rustflags=[\"-Cinstrument-coverage\",\"-Zno-profiler-runtime\",\"--emit=llvm-ir\"]")
+        for package in leptoskit_testing_library leptoskit_native leptoskit_use leptoskit_rive auth_pages_example huddle_app leptoskit_auth; do
+          flags='["-Cinstrument-coverage","-Zno-profiler-runtime","--emit=llvm-ir"]'
+          if [ "$package" = huddle_app ]; then
+            # Cargo also emits this dependency's standalone cdylib. It is
+            # never executed here and has no test profiler runtime; the
+            # actual wasm-bindgen test links the instrumented rlib strictly
+            # against its own coverage runtime.
+            flags="[\"-Cinstrument-coverage\",\"-Zno-profiler-runtime\",\"--emit=llvm-ir\",\"-Clink-arg=--allow-undefined-file=$root/setup/coverage_gate/wasm-runtime-symbols.txt\"]"
+          fi
+          instrument+=(--config "profile.dev.package.$package.rustflags=$flags")
         done
         # Build first to collect the test modules from cargo's JSON messages
         # (compiler errors still print readably), then run the same build with
@@ -747,6 +757,7 @@ in
         suite --package leptoskit_native --features web,rive --test web_rive
         suite --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
         suite --package leptoskit_rive --features web --test browser
+        suite --package auth_pages_example --features web --test browser
 
         mapfile -t objects < <(
           jq -Rr 'fromjson? | select(.reason == "compiler-artifact" and .profile.test and .executable != null) | .executable' \

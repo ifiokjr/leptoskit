@@ -47,12 +47,14 @@ public final class PedometerPlugin: NativePlugin {
         return try await awaitSample(request)
     }
     #else
-    /// Every call is unavailable without CoreMotion.
+    /// Reports no sensor without CoreMotion; reading requests stay unavailable.
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
         guard !closed else { throw PluginError.cancelled }
 
         guard methods.contains(method) else { throw PluginError.unavailable }
-        _ = payload
+        _ = try Request(method: method, payload: payload)
+
+        if method == 0 { return Data([0, 0, 0, 0]) }
 
         throw PluginError.unavailable
     }

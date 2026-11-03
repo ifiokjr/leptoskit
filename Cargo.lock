@@ -756,12 +756,17 @@ version = "0.0.0"
 dependencies = [
  "any_spawner",
  "chrono",
+ "gloo-timers",
+ "huddle_app",
  "leptoskit",
  "leptoskit_router",
  "leptoskit_testing",
  "reactive_graph",
  "serde_json",
  "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
 ]
 
 [[package]]
@@ -3599,6 +3604,7 @@ dependencies = [
  "leptoskit_rpc",
  "leptoskit_testing",
  "serde_json",
+ "tokio",
  "wasm-bindgen",
 ]
 
@@ -3628,9 +3634,14 @@ dependencies = [
 name = "huddle_load"
 version = "0.0.0"
 dependencies = [
+ "axum",
  "chrono",
  "clap",
  "futures",
+ "huddle",
+ "huddle_db",
+ "leptoskit_auth",
+ "leptoskit_db",
  "leptoskit_rpc",
  "reqwest 0.12.28",
  "serde_json",
@@ -4715,6 +4726,7 @@ dependencies = [
  "leptoskit_wasm",
  "leptoskit_windows",
  "leptoskit_yoga",
+ "monosecret",
  "trybuild",
 ]
 
@@ -6584,6 +6596,15 @@ dependencies = [
  "log",
  "wasi 0.11.1+wasi-snapshot-preview1",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "monosecret"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a0b7700d756860c697fbea8e4bd8e7cea6c55853f3af01b51b5c1ea5789c281"
+dependencies = [
+ "secrecy",
 ]
 
 [[package]]
@@ -8826,6 +8847,15 @@ dependencies = [
  "der 0.8.3",
  "hybrid-array",
  "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "secrecy"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e891af845473308773346dc847b2c23ee78fe442e0472ac50e22a18a93d3ae5a"
+dependencies = [
  "zeroize",
 ]
 

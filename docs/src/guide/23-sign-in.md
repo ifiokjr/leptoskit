@@ -1,5 +1,7 @@
 # Sign-in
 
+Use [Monosecret](secrets.md) to manage the server and deployment credentials in this guide. New projects resolve their secret manifest automatically during development.
+
 Sign-in is the part of an app where small mistakes are the most expensive. Session tokens get stored as they are, so a leaked database backup signs everyone in. A form says "no account with that email", which tells an attacker whose accounts exist. A code can be guessed because nothing counts the guesses. And one server function forgets to check who is asking.
 
 `leptoskit::auth` handles all of these in one place, in your app's own database. It keeps only hashes of tokens and codes, gives the same answer for every address, and limits every attempt. It also tells your access policies who is signed in, so each table's rules apply on every query.

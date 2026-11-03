@@ -31,6 +31,12 @@ func unavailableAndClosedAreExplicit() async throws {
 
     #if os(macOS)
     #expect(try await plugin.invoke(method: 0, payload: payload([])) == Data([0, 0, 0, 0]))
+    await #expect(throws: PluginError.unavailable) {
+        try await plugin.invoke(method: 1, payload: payload([]))
+    }
+    await #expect(throws: PluginError.unavailable) {
+        try await plugin.invoke(method: 3, payload: payload([1, 0, 0, 0]))
+    }
     #endif
     await #expect(throws: PluginError.invalidArgument) { try await plugin.invoke(method: 0, payload: payload([1])) }
     plugin.close()

@@ -255,6 +255,9 @@ pub enum Command {
 		/// Browser used for the extension platform.
 		#[arg(long, value_enum, default_value = "chromium")]
 		browser: crate::extension::browser::ExtensionBrowser,
+		/// Use the existing environment instead of resolving monosecret.toml.
+		#[arg(long)]
+		no_secrets: bool,
 		/// Open the browser after the web server starts.
 		#[arg(long)]
 		open: bool,
@@ -617,6 +620,17 @@ pub fn main() {
 	}
 	let cli = Cli::from_arg_matches(&command.get_matches()).expect("clap derive matches");
 
+	if let Command::Dev { no_secrets, .. } = &cli.command {
+		match crate::secrets::development(&arguments, *no_secrets) {
+			Ok(Some(code)) => std::process::exit(code),
+			Ok(None) => {}
+			Err(error) => {
+				crate::ui::error(&error);
+				std::process::exit(1);
+			}
+		}
+	}
+
 	if let Err(error) = run(cli) {
 		crate::ui::error(&error);
 		std::process::exit(1);
@@ -727,6 +741,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		}
 		Command::Dev {
 			browser,
+			no_secrets: _,
 			open,
 			port,
 			platforms,
@@ -774,14 +789,18 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		}
 		Command::Lint(args) => crate::lint::run(&args),
 		Command::Completions { shell } => {
-			let mut command = Cli::command();
-			// Completions follow the invoked name, so `lk completions zsh`
-			// completes `lk` rather than the canonical command.
-			let name = invoked_name().to_owned();
-			clap_complete::generate(shell, &mut command, name, &mut std::io::stdout());
+			completions(shell);
 			Ok(())
 		}
 	}
+}
+
+fn completions(shell: Shell) {
+	let mut command = Cli::command();
+	// Completions follow the invoked name, so `lk completions zsh`
+	// completes `lk` rather than the canonical command.
+	let name = invoked_name().to_owned();
+	clap_complete::generate(shell, &mut command, name, &mut std::io::stdout());
 }
 
 /// The name the user invoked the binary as: `lk` when run through the alias

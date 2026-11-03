@@ -45,3 +45,7 @@ devtools = ["leptoskit/devtools"]
 
 [lints]
 workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+any_spawner = { workspace = true, features = ["tokio"] }
+tokio = { workspace = true, features = ["macros", "rt", "time"] }

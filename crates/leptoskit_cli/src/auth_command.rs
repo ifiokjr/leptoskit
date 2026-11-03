@@ -531,7 +531,7 @@ fn recipe(id: &str, issuer: Option<&str>, redirects: &str) -> Result<Recipe> {
 			.map(|(_, name)| name.as_str())
 			.collect();
 		format!(
-			"Set the environment variables (for example through Monosecret): {}",
+			"Declare these names in monosecret.toml and store their values with Monosecret: {}",
 			names.join(", ")
 		)
 	};

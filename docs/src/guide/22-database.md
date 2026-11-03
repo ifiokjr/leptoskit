@@ -1,5 +1,7 @@
 # The database
 
+Use [Monosecret](secrets.md) to manage the server and deployment credentials in this guide. New projects resolve their secret manifest automatically during development.
+
 Most apps keep their data in a database, and three things go wrong with it again and again. The tables in the code drift from the tables in the database. Migrations get written by hand and break on the one machine that had different data. And a row with a password hash or an email address ends up serialized straight into a response.
 
 leptoskit's database layer answers each one. You declare the tables as Rust structs. `leptoskit db` generates the migrations by comparing those structs with the last migration. Every table also gets a `Public…` type, which leaves out the private columns and is the only form of a row a client ever receives. Postgres is the default; SQLite works the same way.

@@ -35,6 +35,12 @@ int32_t lk_dev_next(lk_dev *development, lk_buffer *wasm) { abort(); }
 lk_buffer lk_dev_error(lk_dev *development) { abort(); }
 void lk_dev_destroy(lk_dev *development) { abort(); }
 
+/* These lifecycle fixtures have no DevTools hub. Overlay calls are unexpected. */
+int32_t lk_devtools_active(void) { return 0; }
+int32_t lk_devtools_highlight(lk_devtools_frame *out) { abort(); }
+int32_t lk_devtools_picking(void) { abort(); }
+int32_t lk_devtools_pick(size_t view, float x, float y) { abort(); }
+
 /* These lifecycle fixtures contain no Rive scenes. Unexpected drawing aborts. */
 int32_t lk_app_has_rive(const lk_app *app) { return 0; }
 int32_t lk_app_rive_tick(lk_app *app, double elapsed, float scale, uint32_t flags,

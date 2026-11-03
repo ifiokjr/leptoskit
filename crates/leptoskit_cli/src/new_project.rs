@@ -204,9 +204,9 @@ pub fn run_with_options(
 
 	if auth {
 		println!(
-			"before starting the server, set AUTH_ENCRYPTION_KEYS: export \
-			 AUTH_ENCRYPTION_KEYS=\"$(date +%Y-%m):$(openssl rand 32 | basenc --base64url | tr -d \
-			 =)\""
+			"before starting the server, store AUTH_ENCRYPTION_KEYS with Monosecret: monosecret \
+			 set AUTH_ENCRYPTION_KEYS --provider keyring \"$(date +%Y-%m):$(openssl rand 32 | \
+			 basenc --base64url | tr -d =)\""
 		);
 	}
 
@@ -372,10 +372,11 @@ fn template(config: &LeptoskitConfig, sdk: Option<&Utf8Path>) -> Result<Vec<(Str
 			leptoskit_config::CONFIG_FILE.to_owned(),
 			config.to_toml_string().context("serialize config")?,
 		),
+		("monosecret.toml".into(), secrets_manifest(config)?),
 		(
 			".gitignore".into(),
-			"/target\n/dist\n/.leptoskit\n/android/.gradle\n/android/**/build\n/android/local.\
-			 properties\n"
+			"/target\n/dist\n/.env\n/.env.*\n/.leptoskit\n/android/.gradle\n/android/**/build\n/\
+			 android/local.properties\n"
 				.into(),
 		),
 		(
@@ -735,10 +736,10 @@ fn auth_readme(name: &str) -> String {
 
 The app starts on a sign-in screen: an email address, then a code emailed to it. The same two steps create an account for a new address, and each new account gets a row in `{name}_db`'s `User` table. Once signed in, the bar at the top shows where you're signed in and signs you out.
 
-The server needs its keys before it starts. Keep them in your secret store:
+The server needs its keys before it starts. Store them with Monosecret; `leptoskit dev` resolves them from the generated manifest:
 
 ```sh
-export AUTH_ENCRYPTION_KEYS="$(date +%Y-%m):$(openssl rand 32 | basenc --base64url | tr -d =)"
+monosecret set AUTH_ENCRYPTION_KEYS --provider keyring "$(date +%Y-%m):$(openssl rand 32 | basenc --base64url | tr -d =)"
 ```
 
 Before you deploy, set `origin` in `[auth]` to your site's URL, such as `https://myapp.com`, and say how to send email in `[auth.mail]`. In a debug build, emails aren't sent: open `/_leptoskit/mail` to read them, or sign in to any address without a code by posting `{{ "email": "ada@example.com" }}` to `/auth/dev/sign-in`. Release builds have neither, and refuse to start without `[auth.mail]`.
@@ -1188,6 +1189,8 @@ The module path is relative to the app crate's `src/` directory. Add `routes/hom
 
 `ios/`, `android/`, `macos/`, `windows/`, and `linux/` are app-owned platform runners. Install the matching SDK when building a destination. All generated registrants, SDK integration files, and build intermediates stay under `.leptoskit/<platform>/`, which is ignored by Git. Prepare a native target before opening its generated Xcode project or the app-owned `android/` Gradle project.
 
+`leptoskit dev` resolves `monosecret.toml` through Monosecret before starting. Install Monosecret, then store credentials in its keyring or your team's provider. The manifest declares names; keep secret values out of Git. Use `leptoskit dev --no-secrets` when your host supplies the environment. In production, run `monosecret run -- ./target/release/{name}`. See [secret management](https://ifiokjr.github.io/leptoskit/guide/secrets.html).
+
 The starter requests no native plugin capabilities. Add native plugins to the runner's direct Cargo dependencies and grant them explicitly in `native.plugins`.
 "#
 	)
@@ -1208,6 +1211,7 @@ pub fn release_workflow() -> String {
 pub fn template_files() -> &'static [&'static str] {
 	&[
 		leptoskit_config::CONFIG_FILE,
+		"monosecret.toml",
 		".gitignore",
 		"Cargo.toml",
 		"src/main.rs",
@@ -1246,6 +1250,53 @@ pub fn verify_scaffold(dir: &Path) -> Result<()> {
 	}
 
 	Ok(())
+}
+
+/// A value-free secret contract. SQLite's local URL is a non-secret default.
+fn secrets_manifest(config: &LeptoskitConfig) -> Result<String> {
+	let mut secrets = toml::Table::new();
+	let mut database = toml::Table::new();
+	database.insert("description".into(), "Database connection URL".into());
+	database.insert("required".into(), false.into());
+	if let Some(db) = &config.db {
+		// Match the generated server's local SQLite fallback.
+		if db.dialect == DbDialect::Sqlite {
+			database.insert(
+				"default".into(),
+				format!("sqlite://{}.sqlite3", config.app.name).into(),
+			);
+		}
+	}
+	let database_name = config
+		.db
+		.as_ref()
+		.map_or("DATABASE_URL", |db| db.url_env.as_str());
+	secrets.insert(database_name.into(), database.into());
+	if let Some(auth) = &config.auth {
+		let mut keys = toml::Table::new();
+		keys.insert("description".into(), "Sign-in encryption key ring".into());
+		keys.insert("required".into(), true.into());
+		secrets.insert(auth.keys_env.clone(), keys.into());
+	}
+	let mut project = toml::Table::new();
+	project.insert("name".into(), config.app.name.clone().into());
+	project.insert("revision".into(), "1.0".into());
+	let mut defaults = toml::Table::new();
+	defaults.insert(
+		"providers".into(),
+		vec![toml::Value::from("env"), toml::Value::from("keyring")].into(),
+	);
+	let mut profiles = toml::Table::new();
+	profiles.insert("default".into(), secrets.into());
+	let mut manifest = toml::Table::new();
+	manifest.insert("project".into(), project.into());
+	manifest.insert("defaults".into(), defaults.into());
+	manifest.insert("profiles".into(), profiles.into());
+	Ok(format!(
+		"# Monosecret resolves these names before leptoskit dev starts.\n# Commit declarations; \
+		 store values in a provider, never in this file.\n{}",
+		toml::to_string_pretty(&manifest)?
+	))
 }
 
 #[cfg(test)]

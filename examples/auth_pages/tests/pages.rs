@@ -1,3 +1,5 @@
+#![cfg(not(target_arch = "wasm32"))]
+
 //! Every generated `--idp` screen and route renders headlessly. With no
 //! server to reach, every change answers the client's error (`config`
 //! alone, or `server` when another crate turns on server rendering), so the
@@ -44,6 +46,7 @@ struct Shown {
 	screens: Screens,
 	cache: QueryClient,
 	visited: Arc<Mutex<Vec<String>>>,
+	owner: Owner,
 }
 
 impl Shown {
@@ -56,7 +59,7 @@ impl Shown {
 	}
 
 	async fn tap(&mut self, finder: &Finder) {
-		self.tester.tap(finder).unwrap();
+		self.owner.with(|| self.tester.tap(finder)).unwrap();
 		self.settle().await;
 	}
 
@@ -150,6 +153,7 @@ async fn show(
 		screens,
 		cache,
 		visited,
+		owner,
 	};
 	shown.settle().await;
 	shown
@@ -592,6 +596,285 @@ async fn the_other_routes_show_their_screens() {
 
 			let shown = show(Some(false), |_| {}, true, |_| route_sign_in::page()).await;
 			assert!(shown.has("Email address"), "{}", shown.text());
+		}
+	})
+	.await;
+}
+
+fn seed_security(cache: &QueryClient) {
+	use leptoskit::auth::client as auth_client;
+	cache.set_query_data(
+		&auth_client::mfa(),
+		(),
+		leptoskit::auth::MfaStatus::default(),
+	);
+	cache.set_query_data(&auth_client::passkeys(), (), Vec::new());
+	cache.set_query_data(&auth_client::identities(), (), Vec::new());
+	cache.set_query_data(&auth_client::providers(), (), Vec::new());
+	cache.set_query_data(&auth_client::merge_offer(), (), None);
+	cache.set_query_data(&auth_client::wallets(), (), Vec::new());
+	cache.set_query_data(
+		&auth_client::wallet_settings(),
+		(),
+		leptoskit::auth::WalletSettings {
+			enabled: false,
+			sign_in: false,
+			chain_id: "mainnet".into(),
+		},
+	);
+	cache.set_query_data(&auth_client::wallet_apps(), (), Vec::new());
+}
+
+#[tokio::test]
+async fn security_lists_sign_in_methods_and_preserves_them_when_changes_fail() {
+	local(|| async {
+		use leptoskit::auth::client as auth_client;
+		let now = chrono::Utc::now();
+		let mut shown = show(Some(true), |cache| {
+			seed_security(cache);
+			cache.set_query_data(&auth_client::mfa(), (), leptoskit::auth::MfaStatus {
+				totp: true, recovery_codes: 3, passkeys: 2, ..Default::default()
+			});
+			cache.set_query_data(&auth_client::passkeys(), (), vec![
+				leptoskit::auth::PasskeyInfo {
+					id: leptoskit::db::Id::parse("00000000-0000-4000-8000-000000000011").unwrap(),
+					name: "Laptop".into(), backed_up: true, created_at: now, last_used_at: Some(now),
+				},
+				leptoskit::auth::PasskeyInfo {
+					id: leptoskit::db::Id::parse("00000000-0000-4000-8000-000000000012").unwrap(),
+					name: "Security key".into(), backed_up: false, created_at: now, last_used_at: None,
+				},
+			]);
+			cache.set_query_data(&auth_client::providers(), (), serde_json::from_value(serde_json::json!([
+				{"id":"github", "name":"GitHub"}, {"id":"google", "name":"Google"}
+			])).unwrap());
+			cache.set_query_data(&auth_client::identities(), (), serde_json::from_value(serde_json::json!([
+				{"id":"00000000-0000-4000-8000-000000000021", "provider":"github", "provider_name":"GitHub", "name":"Ada", "email":"ada@example.com", "created_at":now}
+			])).unwrap());
+		}, true, |screens| screens.security.screen()).await;
+		for expected in ["Synced to your other devices", "On one device", "Not used yet", "Last used", "You have 3 recovery codes left.", "Ada"] {
+			assert!(shown.has(expected), "missing {expected}: {}", shown.text());
+		}
+		for button in ["Remove Laptop", "Remove Security key", "Disconnect GitHub"] {
+			shown.tap(&Finder::label(button)).await;
+			assert!(shown.has(ALERT), "{}", shown.text());
+		}
+		for button in ["Connect Google", "Add a passkey", "Make new recovery codes", "Turn off the authenticator app"] {
+			shown.tap(&Finder::text(button)).await;
+			assert!(shown.has(ALERT), "{}", shown.text());
+		}
+		assert!(shown.has("Laptop") && shown.has("Security key") && shown.has("Ada"));
+	}).await;
+}
+
+#[tokio::test]
+async fn security_explains_required_factors_and_recovery_code_counts() {
+	local(|| {
+		async {
+			use leptoskit::auth::client as auth_client;
+			let mut shown = show(
+				Some(true),
+				|cache| {
+					seed_security(cache);
+					cache.set_query_data(
+						&auth_client::mfa(),
+						(),
+						leptoskit::auth::MfaStatus {
+							required: true,
+							..Default::default()
+						},
+					);
+				},
+				true,
+				|screens| screens.security.screen(),
+			)
+			.await;
+			assert!(shown.has("Your account must use two-step verification."));
+			shown
+				.tap(&Finder::text("Set up an authenticator app"))
+				.await;
+			assert!(shown.has(ALERT));
+			assert!(shown.has("No authenticator app is set up."));
+			for (recovery_codes, expected) in [
+				(0, "You have no recovery codes left."),
+				(1, "You have 1 recovery code left."),
+			] {
+				shown.cache.set_query_data(
+					&auth_client::mfa(),
+					(),
+					leptoskit::auth::MfaStatus {
+						totp: true,
+						recovery_codes,
+						..Default::default()
+					},
+				);
+				shown.settle().await;
+				assert!(shown.has(expected), "{}", shown.text());
+			}
+		}
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn security_merge_preview_explains_data_choices_before_confirmation() {
+	local(|| {
+		async {
+			use leptoskit::auth::Factor;
+			use leptoskit::auth::MergeData;
+			use leptoskit::auth::MergeFate;
+			use leptoskit::auth::MergeMode;
+			use leptoskit::auth::MergeOffer;
+			use leptoskit::auth::client as auth_client;
+			for provider in ["github", "solana"] {
+				let mut shown = show(
+					Some(true),
+					|cache| {
+						seed_security(cache);
+						cache.set_query_data(
+							&auth_client::merge_offer(),
+							(),
+							Some(MergeOffer {
+								provider: provider.into(),
+								created_at: chrono::Utc::now(),
+								emails: vec!["other@example.com".into()],
+								identities: vec!["GitHub".into()],
+								passkeys: 1,
+								wallets: vec![],
+								data: vec![
+									MergeData {
+										label: "posts".into(),
+										count: 12,
+										fate: MergeFate::Moves,
+									},
+									MergeData {
+										label: "drafts".into(),
+										count: 1,
+										fate: MergeFate::Dropped,
+									},
+								],
+								second_factor: vec![Factor::Totp, Factor::Passkey],
+								modes: vec![MergeMode::BringData, MergeMode::MoveLogin],
+								expires_in: 300,
+							}),
+						);
+					},
+					true,
+					|screens| screens.security.screen(),
+				)
+				.await;
+				assert!(shown.has("already has its own account"));
+				assert!(
+					shown.has("Moves 12 posts. Drops 1 drafts, since yours stay."),
+					"{}",
+					shown.text()
+				);
+				assert!(shown.has("other@example.com") && shown.has("1 passkey"));
+				shown
+					.tap(&Finder::text(
+						"○ Move only the sign-in methods, and delete its data",
+					))
+					.await;
+				assert!(shown.has("Its data is deleted with it."));
+				shown.tap(&Finder::text("Merge accounts")).await;
+				assert!(shown.has(ALERT), "{}", shown.text());
+				shown.tap(&Finder::text("Use its passkey")).await;
+				assert!(shown.has(ALERT));
+				shown.tap(&Finder::text("Cancel")).await;
+				assert!(shown.has("already has its own account"));
+			}
+		}
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn linked_wallet_controls_explain_visibility_and_report_refused_changes() {
+	local(|| async {
+		use leptoskit::auth::client as auth_client;
+		let now = chrono::Utc::now();
+		let mut shown = show(Some(true), |cache| {
+			seed_security(cache);
+			cache.set_query_data(&auth_client::wallet_settings(), (), leptoskit::auth::WalletSettings {
+				enabled: true, sign_in: true, chain_id: "mainnet".into(),
+			});
+			cache.set_query_data(&auth_client::wallets(), (), serde_json::from_value(serde_json::json!([
+				{"id":"00000000-0000-4000-8000-000000000031", "chain":"solana", "address":"11111111111111111111111111111111", "label":"Treasury", "can_sign_in":true, "is_public":true, "verified_at":now, "last_proved_at":now},
+				{"id":"00000000-0000-4000-8000-000000000032", "chain":"solana", "address":"11111111111111111111111111111112", "label":null, "can_sign_in":false, "is_public":false, "verified_at":now, "last_proved_at":now}
+			])).unwrap());
+			cache.set_query_data(&auth_client::wallet_apps(), (), vec![auth_client::WalletApp {
+				name: "Phantom".into(), icon: String::new(), sign_in: true,
+			}]);
+		}, true, |screens| screens.security.screen()).await;
+		for expected in ["Treasury", "Public", "Private", "Can sign in", "1111…1112"] {
+			assert!(shown.has(expected), "{}", shown.text());
+		}
+		for label in ["Hide Treasury on your profile", "Show 1111…1112 on your profile", "Stop signing in with Treasury", "Allow signing in with 1111…1112", "Unlink Treasury", "Unlink 1111…1112"] {
+			shown.tap(&Finder::label(label)).await;
+		}
+		shown.tap(&Finder::text("Link a wallet with Phantom")).await;
+		assert!(shown.has(ALERT), "{}", shown.text());
+		assert!(shown.has("Treasury"));
+		shown.cache.set_query_data(&auth_client::wallet_apps(), (), Vec::new());
+		shown.settle().await;
+		assert!(shown.has("Install a Solana wallet"), "{}", shown.text());
+	}).await;
+}
+
+#[tokio::test]
+async fn the_device_list_marks_this_device_and_reports_failed_sign_outs() {
+	local(|| {
+		async {
+			use leptoskit::auth::client as auth_client;
+			let mut current = session();
+			current.device = "This laptop".into();
+			let mut other = current.clone();
+			other.id = leptoskit::db::Id::parse("00000000-0000-4000-8000-000000000041").unwrap();
+			other.device = "Lost phone".into();
+			let mut unknown = other.clone();
+			unknown.id = leptoskit::db::Id::parse("00000000-0000-4000-8000-000000000042").unwrap();
+			unknown.device = " ".into();
+			let mut shown = show(
+				Some(true),
+				|cache| {
+					cache.set_query_data(
+						&auth_client::devices(),
+						(),
+						vec![
+							leptoskit::auth::Device {
+								session: current,
+								current: true,
+							},
+							leptoskit::auth::Device {
+								session: other,
+								current: false,
+							},
+							leptoskit::auth::Device {
+								session: unknown,
+								current: false,
+							},
+						],
+					);
+				},
+				true,
+				|screens| screens.devices.screen(),
+			)
+			.await;
+			for expected in [
+				"This device",
+				"This laptop",
+				"Lost phone",
+				"An unknown device",
+			] {
+				assert!(shown.has(expected), "{}", shown.text());
+			}
+			shown.tap(&Finder::label("Sign out Lost phone")).await;
+			assert!(shown.has(ALERT), "{}", shown.text());
+			for button in ["Sign out of every other device", "Sign out everywhere"] {
+				shown.tap(&Finder::text(button)).await;
+				assert!(shown.has(ALERT));
+			}
+			assert!(shown.has("Lost phone"));
 		}
 	})
 	.await;

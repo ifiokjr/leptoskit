@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use crate::Enum;
 use crate::Json;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 use crate::Read;
 use crate::Table;
 use crate::Timestamp;
@@ -834,7 +835,6 @@ pub(crate) use reading::read;
 
 /// RFC 3339, as Postgres and SQLite both write timestamps into JSON, with or
 /// without an offset (read as UTC).
-#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) fn parse_timestamp(text: &str) -> Option<Timestamp> {
 	chrono::DateTime::parse_from_rfc3339(text)
 		.map(|at| at.to_utc())

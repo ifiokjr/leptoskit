@@ -3,21 +3,29 @@
 
 use leptoskit_db_schema::Dialect;
 
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 use crate::Action;
 use crate::Result;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 use crate::Table;
 use crate::Value;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 use crate::policy::Access;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 use crate::sql::Sql;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 use crate::sql::Statement;
 
 /// The column that numbers each image in [`visible_images`]'s statements.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 const IMAGE: &str = "lk_live_image";
 
 /// The alias the images take, as rows of `T`.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 const IMAGES: &str = "lk_live";
 
 /// The most values one statement binds, well inside both databases' limits.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 const MAX_VALUES: usize = 20_000;
 
 /// How many of the rows `images` stands for meet `condition`: `SELECT
@@ -41,6 +49,7 @@ pub(crate) fn image_count<T: Table>(
 }
 
 /// Each column's Postgres type, which an image's values are cast to.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 fn column_types<T: Table>() -> Vec<Option<String>> {
 	let definition = T::definition();
 	T::COLUMNS
@@ -54,6 +63,7 @@ fn column_types<T: Table>() -> Vec<Option<String>> {
 }
 
 /// `value AS column, …` for one image, cast on Postgres.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 fn write_image<T: Table>(sql: &mut Sql, image: &[Value], types: &[Option<String>]) {
 	let dialect = sql.dialect();
 
@@ -84,6 +94,7 @@ fn write_image<T: Table>(sql: &mut Sql, image: &[Value], types: &[Option<String>
 /// …) AS lk_live WHERE policy`. `None` when nothing restricts reading `T`,
 /// so every image is readable. Images are checked against the policy
 /// alone: a soft-deleted row is one its readers could ask for.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) fn visible_images<T: Table>(
 	access: &Access,
 	dialect: Dialect,
@@ -143,6 +154,7 @@ pub(crate) fn logged_values(
 }
 
 /// A logged key's values, in the table's key column order.
+#[cfg(any(feature = "postgres", feature = "sqlite", test))]
 pub(crate) fn logged_key(
 	definition: &leptoskit_db_schema::Table,
 	key: &[serde_json::Value],

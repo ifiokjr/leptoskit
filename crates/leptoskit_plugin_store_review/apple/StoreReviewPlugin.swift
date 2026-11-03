@@ -36,8 +36,8 @@ public final class StoreReviewPlugin: NativePlugin {
     private var closed = false
 
     /// Readiness is a wire status: the app can present, it cannot, or it is busy.
-    private static let ready = 1
-    private static let inactive = 2
+    private static let ready: UInt8 = 1
+    private static let inactive: UInt8 = 2
 
     public init(context: NativePluginContext) {
         self.context = context
@@ -54,7 +54,7 @@ public final class StoreReviewPlugin: NativePlugin {
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
         try checkRequest(method: method, payload: payload)
 
-        if method == 0 { return availability() }
+        if method == 0 { return try availability() }
 
         return try request()
     }
@@ -71,7 +71,7 @@ public final class StoreReviewPlugin: NativePlugin {
     }
 
     /// Reports whether this app has an owner that can present store UI.
-    private func availability() -> Data {
+    private func availability() throws -> Data {
         do {
             _ = try context.requirePresentationOwner()
 

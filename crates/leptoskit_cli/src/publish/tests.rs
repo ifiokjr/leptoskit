@@ -708,6 +708,9 @@ fn no_credential_value_reaches_any_output() {
 /// the packages standing in for a build.
 #[test]
 fn commonplace_dry_run() {
+	let mut settings = insta::Settings::clone_current();
+	settings.add_filter(r"\\", "/");
+	let _guard = settings.bind_to_scope();
 	let out = tempfile::tempdir().unwrap();
 	let report = commonplace(out.path(), &[], true).unwrap();
 	assert!(

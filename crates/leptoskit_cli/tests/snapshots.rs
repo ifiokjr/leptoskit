@@ -277,6 +277,7 @@ fn database_scaffold_is_pinned() {
 	let project = scratch.path.join("snapshotted");
 	for file in [
 		leptoskit_config::CONFIG_FILE,
+		"monosecret.toml",
 		".gitignore",
 		"Cargo.toml",
 		"README.md",
@@ -360,6 +361,7 @@ fn auth_scaffold_is_pinned() {
 	let project = scratch.path.join("snapshotted");
 	for file in [
 		leptoskit_config::CONFIG_FILE,
+		"monosecret.toml",
 		"Cargo.toml",
 		"README.md",
 		"src/main.rs",

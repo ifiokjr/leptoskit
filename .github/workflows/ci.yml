@@ -46,6 +46,9 @@ jobs:
       - name: check generated schemas
         run: cargo run --quiet --locked --package leptoskit_config --features schema --example schema -- --check
 
+      - name: check database schema export without a driver
+        run: cargo check --locked --package leptoskit_db --no-default-features --features server --config 'build.warnings="deny"'
+
       - name: test configuration contracts and migrations
         run: cargo test --locked --package leptoskit_config --all-features
 
@@ -73,6 +76,17 @@ jobs:
 
       - name: check browser wasm without default features
         run: cargo check --locked --package leptoskit_use --no-default-features --target wasm32-unknown-unknown
+
+      - name: check the facade uses only the small Monosecret client on Wasm
+        run: |
+          set -euo pipefail
+          cargo check --locked --package leptoskit --no-default-features --target wasm32-unknown-unknown
+          cargo tree --locked --package monosecret --target wasm32-unknown-unknown \
+            --edges normal --prefix none --format '{p}' > /tmp/monosecret-client-dependencies
+          if grep -Ev '^(monosecret |secrecy |zeroize )' /tmp/monosecret-client-dependencies; then
+            echo "unexpected dependency in the small secrets client" >&2
+            exit 1
+          fi
 
       # The client side of the database layer: `#[db::table]` without the
       # `server` feature, built for the browser. Nothing that talks to a
@@ -221,7 +235,9 @@ jobs:
 
       - name: lint the targets this runner also checks
         if: matrix.targets != ''
-        run: bash setup/scripts/clippy.sh $TARGETS
+        run: |
+          read -r -a targets <<< "$TARGETS"
+          bash setup/scripts/clippy.sh "${targets[@]}"
         shell: bash
         env:
           TARGETS: ${{ matrix.targets }}
@@ -260,9 +276,10 @@ jobs:
     # Database drivers and real Postgres clusters make the workspace suite
     # expensive. Generated applications compile optimized host dependencies in
     # separate targets, so their builds run in the applications job below.
-    # Windows takes 50 to 70 minutes with a warm build cache and needs the
-    # headroom when the cache is cold, as on a new toolchain.
-    timeout-minutes: 90
+    # Cold desktop builds also compile separate dependency graphs for the
+    # compile-error fixtures. Windows exhausted 90 minutes while those checks
+    # were still progressing, before the remaining tests and docs could run.
+    timeout-minutes: 150
 
     strategy:
       fail-fast: false
@@ -564,15 +581,19 @@ jobs:
   coverage:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Cold application builds reached 90 minutes after uploading coverage,
+    # then timed out while saving their build cache.
+    timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - suite: workspace
             name: coverage (ubuntu-latest)
+            timeout: 90
           - suite: applications
             name: application coverage (ubuntu-latest)
+            timeout: 120
     env:
       LLVM_COV_ENV: ${{ github.workspace }}/target/llvm-cov.env
       BINARYEN_VERSION: "132"
@@ -581,6 +602,12 @@ jobs:
       # of them at once on a four-core runner has killed `ld` with SIGBUS, so
       # build and link two at a time; the job has the time budget for it.
       CARGO_BUILD_JOBS: 2
+      # Full type/local debug information in every instrumented test binary
+      # exhausts hosted-runner disk. Keep source lines for diagnostics and
+      # coverage, including in the nested fixture workspaces.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_TEST_DEBUG: line-tables-only
+      CARGO_INCREMENTAL: "0"
     steps:
       # The instrumented workspace, its test binaries, and the release builds
       # below outgrow the runner's free disk, which fails the job or stalls it
@@ -603,7 +630,7 @@ jobs:
       - name: cache rust artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: ${{ matrix.suite }}
+          key: ${{ matrix.suite }}-line-tables
 
       - name: install cargo-llvm-cov
         uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2.87.24
@@ -630,6 +657,21 @@ jobs:
           major="$(find /usr/lib/postgresql -mindepth 1 -maxdepth 1 -printf '%f\n' | sort -n | tail -n 1)"
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y "postgresql-${major}-postgis-3" "postgresql-${major}-pgvector"
+
+      # Match devenv's NATS version. Without the server, the relay tests
+      # return early and leave the distributed live-query paths unmeasured.
+      - name: install NATS for the relay tests
+        if: matrix.suite == 'workspace'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/nats-server.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/nats-io/nats-server/releases/download/v2.14.7/nats-server-v2.14.7-linux-amd64.tar.gz \
+            -o "$archive"
+          echo "e5c20b1cb2c0566b54c544312e91e011f9e130c5c80f16a14f4cf28ef30b8be2  $archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/nats-server-v2.14.7-linux-amd64" >> "$GITHUB_PATH"
 
       # Release builds optimize with `wasm-opt`; this is the binaryen release
       # devenv provides.
@@ -671,6 +713,8 @@ jobs:
           # The database migration tests apply real migrations to a
           # throwaway cluster from the runner's preinstalled Postgres.
           LEPTOSKIT_REQUIRE_POSTGRES: "1"
+          # A missing NATS server must fail rather than skip relay coverage.
+          LEPTOSKIT_REQUIRE_NATS: "1"
           # The geospatial and vector tests need PostGIS and pgvector,
           # installed above.
           LEPTOSKIT_REQUIRE_POSTGRES_EXTENSIONS: postgis,vector
