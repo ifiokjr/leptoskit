@@ -191,6 +191,11 @@ class LocalAuthenticationPluginTest {
     }
 
     private companion object {
+        /** Method ids the plugin exposes. */
+        const val CAPABILITIES = 0
+        const val AUTHENTICATE = 1
+        const val CANCEL = 2
+
         /** The first API level that answers readiness for a policy at all. */
         const val BIOMETRIC_API = 30
 

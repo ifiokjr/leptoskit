@@ -240,6 +240,7 @@ class StoreReviewPluginTest {
         /** Availability statuses from the wire format. */
         const val STATUS_READY = 1
         const val STATUS_INACTIVE = 2
+        const val STATUS_BUSY = 3
 
         /** The accepted request reply. */
         val ACCEPTED_REPLY = listOf<Byte>(1, 0, 0, 0)

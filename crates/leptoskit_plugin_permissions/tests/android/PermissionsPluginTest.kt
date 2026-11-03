@@ -101,10 +101,10 @@ class PermissionsPluginTest {
     }
 
     /** Expects the broker to reject the call with the given code. */
-    private fun assertRejected(
+    private suspend fun assertRejected(
         message: String,
         code: Int,
-        call: () -> Unit,
+        call: suspend () -> Unit,
     ) {
         try {
             call()
