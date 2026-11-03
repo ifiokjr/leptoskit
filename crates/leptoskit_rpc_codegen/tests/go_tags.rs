@@ -97,7 +97,6 @@ fn go_wire_names_cannot_escape_struct_tags() {
 	let output = Command::new("go")
 		.args(["test", "./..."])
 		.env("GOWORK", "off")
-		.env("GOPROXY", "off")
 		.env("GOTOOLCHAIN", "local")
 		.env("GOTELEMETRY", "off")
 		.current_dir(scratch.path())
