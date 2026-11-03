@@ -118,7 +118,9 @@ class StoreReviewPluginTest {
 
         awaitCondition { manager.requests == 1 }
         assertEquals(STATUS_BUSY, availability(plugin))
-        expectError(PluginException.BUSY) { plugin.invoke(REQUEST, empty()) }
+        withContext(Dispatchers.Main) {
+            expectError(PluginException.BUSY) { plugin.invoke(REQUEST, empty()) }
+        }
 
         preparing.cancel()
         preparing.join()

@@ -42,8 +42,10 @@ class PermissionsPluginTest {
 
             assertArrayEquals(GRANTED_RESPONSE, withTimeout(PROMPT_TIMEOUT_MS) { result.await() })
             assertArrayEquals(GRANTED_RESPONSE, withContext(Dispatchers.Main) { plugin.invoke(QUERY, camera()) })
-            withContext(Dispatchers.Main) { plugin.close() }
-            assertCancelled { plugin.invoke(REQUEST, camera()) }
+            withContext(Dispatchers.Main) {
+                plugin.close()
+                assertCancelled { plugin.invoke(REQUEST, camera()) }
+            }
         }
 
     @Test
