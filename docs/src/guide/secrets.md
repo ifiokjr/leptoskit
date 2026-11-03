@@ -45,8 +45,33 @@ monosecret run --profile production -- ./target/release/my_app
 
 Declare `[profiles.production]` with the names and provider configuration for your deployment. Required values fail before the server starts. A platform that already injects secrets can run the binary directly.
 
+## Read resolved values in Rust
+
+The small Monosecret client is available through `leptoskit::secrets`. On the server, snapshot only the names your code needs from the resolved environment:
+
+```rust
+use leptoskit::secrets::{Client, ExposeSecret};
+
+let secrets = Client::from_env(["DATABASE_URL"])?;
+let database_url = secrets.get("DATABASE_URL")?.expose_secret();
+```
+
+This server example works for apps targeting every platform. Values stay wrapped until explicitly exposed and are wiped from the client's owned storage when it is dropped. Errors name the missing entry without including its value.
+
+Browser Wasm and native Wasm guests receive values explicitly from their trusted host instead of reading a process environment:
+
+```rust
+use leptoskit::secrets::{Client, ExposeSecret};
+
+// Use the signed-in person's token supplied by your host here.
+let secrets = Client::from_values([("SESSION_TOKEN".into(), "example-token".into())]);
+let token = secrets.get("SESSION_TOKEN")?.expose_secret();
+```
+
+Give the client only values it is authorized to hold. A browser can inspect every value supplied to it. The value-access client works without provider, network, process, or async-runtime dependencies; it does not fetch secrets itself.
+
 ## What reaches each platform
 
-The same server-side workflow applies to web, iOS, Android, macOS, Windows, Linux, terminal, and experimental HarmonyOS apps. Their clients call the server; database credentials and sign-in encryption keys stay on that server. Monosecret adds no dependency to their application or Wasm bundles. Builds do not invoke secret resolution.
+The same server-side workflow applies to web, iOS, Android, macOS, Windows, Linux, terminal, and experimental HarmonyOS apps. Their clients call the server; database credentials and sign-in encryption keys stay on that server. Application and Wasm builds include only Monosecret's small value-access client, whose normal dependencies are secrecy and zeroize. The native resolver and secret providers are excluded. Builds do not invoke secret resolution.
 
 For tokens acquired after someone signs in, use the [secure-storage plugin](../platforms/plugins.md#reactive-settings-and-secrets) on supported native hosts. Browser applications cannot hide a value from the person running the browser. Give clients only credentials they are authorized to hold, such as their own session tokens.

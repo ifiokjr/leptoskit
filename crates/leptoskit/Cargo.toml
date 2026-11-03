@@ -43,6 +43,7 @@ leptoskit_use = { workspace = true, optional = true }
 leptoskit_virtual = { workspace = true, optional = true }
 leptoskit_wasm = { workspace = true, optional = true }
 leptoskit_yoga = { workspace = true }
+monosecret = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 leptoskit_android = { workspace = true, optional = true }

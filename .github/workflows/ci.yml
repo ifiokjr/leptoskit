@@ -74,6 +74,17 @@ jobs:
       - name: check browser wasm without default features
         run: cargo check --locked --package leptoskit_use --no-default-features --target wasm32-unknown-unknown
 
+      - name: check the facade uses only the small Monosecret client on Wasm
+        run: |
+          set -euo pipefail
+          cargo check --locked --package leptoskit --no-default-features --target wasm32-unknown-unknown
+          cargo tree --locked --package monosecret --target wasm32-unknown-unknown \
+            --edges normal --prefix none --format '{p}' > /tmp/monosecret-client-dependencies
+          if grep -Ev '^(monosecret |secrecy |zeroize )' /tmp/monosecret-client-dependencies; then
+            echo "unexpected dependency in the small secrets client" >&2
+            exit 1
+          fi
+
       # The client side of the database layer: `#[db::table]` without the
       # `server` feature, built for the browser. Nothing that talks to a
       # database may be in its dependency tree.
@@ -221,7 +232,9 @@ jobs:
 
       - name: lint the targets this runner also checks
         if: matrix.targets != ''
-        run: bash setup/scripts/clippy.sh $TARGETS
+        run: |
+          read -r -a targets <<< "$TARGETS"
+          bash setup/scripts/clippy.sh "${targets[@]}"
         shell: bash
         env:
           TARGETS: ${{ matrix.targets }}

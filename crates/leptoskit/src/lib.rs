@@ -5,6 +5,8 @@
 //! `leptoskit` alone:
 //!
 //! - [`config`] — the `leptoskit.toml` project configuration;
+//! - [`secrets`] — values supplied by Monosecret or a trusted host, including
+//!   native Wasm guests, without linking secret providers or a resolver;
 //! - [`plugin`] — the plugin system, including full leptos plugin support;
 //! - `hooks` — cross-platform reactive primitives, behind the `use` feature;
 //! - [`yoga`] — the from-scratch flexbox and CSS grid layout engine;
@@ -100,6 +102,30 @@ pub mod __private {
 pub mod config {
 	//! Project configuration.
 	pub use leptoskit_config::*;
+}
+
+pub mod secrets {
+	//! Access values resolved by Monosecret or supplied by a trusted host.
+	//!
+	//! Native servers read named environment values with `Client::from_env`.
+	//! Browser and native Wasm hosts supply only values the client is
+	//! authorized to hold through [`Client::from_values`]. Database
+	//! credentials and server encryption keys stay on the server. Provider
+	//! resolution runs outside the application; this client adds only
+	//! secrecy and zeroize as dependencies.
+	//!
+	//! ```
+	//! use leptoskit::secrets::Client;
+	//! use leptoskit::secrets::ExposeSecret;
+	//!
+	//! let secrets = Client::from_values([("SESSION_TOKEN".into(), "example-token".into())]);
+	//! assert_eq!(
+	//! 	secrets.get("SESSION_TOKEN")?.expose_secret(),
+	//! 	"example-token"
+	//! );
+	//! # Ok::<(), leptoskit::secrets::MissingSecret>(())
+	//! ```
+	pub use monosecret::client::*;
 }
 
 pub mod plugin {
