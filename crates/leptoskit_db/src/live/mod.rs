@@ -39,7 +39,7 @@
 mod capture;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod feed;
-#[cfg(any(feature = "postgres", feature = "sqlite"))]
+#[cfg(feature = "server")]
 mod images;
 #[cfg(feature = "server")]
 mod log;
@@ -68,7 +68,7 @@ pub use feed::Feed;
 pub(crate) use feed::Hub;
 #[cfg(feature = "postgres")]
 pub(crate) use images::image_count;
-#[cfg(any(feature = "postgres", feature = "sqlite"))]
+#[cfg(feature = "server")]
 pub(crate) use images::logged_values;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) use images::visible_images;

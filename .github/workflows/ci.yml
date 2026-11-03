@@ -46,6 +46,9 @@ jobs:
       - name: check generated schemas
         run: cargo run --quiet --locked --package leptoskit_config --features schema --example schema -- --check
 
+      - name: check database schema export without a driver
+        run: cargo check --locked --package leptoskit_db --no-default-features --features server --config 'build.warnings="deny"'
+
       - name: test configuration contracts and migrations
         run: cargo test --locked --package leptoskit_config --all-features
 
