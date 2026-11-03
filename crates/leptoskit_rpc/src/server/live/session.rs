@@ -402,14 +402,14 @@ impl Session {
 		};
 
 		if !self.spend_frame() {
-			return self
-				.done(
-					0,
-					Err(WireError::invalid(
-						"this connection is sending frames faster than the server serves them",
-					)),
-				)
-				.await;
+			self.done(
+				0,
+				Err(WireError::invalid(
+					"this connection is sending frames faster than the server serves them",
+				)),
+			)
+			.await;
+			return false;
 		}
 
 		match frame {
