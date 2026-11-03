@@ -42,6 +42,8 @@ Count scopes deliberately remain distinct:
 
 `history(range, timeout)` is iOS-only. Requests must fall entirely within the past seven days. The OS can only return available stored data. The CMPedometer historical query cannot itself be canceled: timeout/cancel releases the caller but retains the plugin's Busy slot until the native callback returns, preventing unbounded native queries. Android history, browser pedometers and desktop pedometers return Unavailable; no accelerometer-derived counts or invented zero readings substitute for missing support. Genuine reported zero counts are valid.
 
+On macOS, `available()` reports `false`; permission and step-reading requests remain unavailable. Malformed requests are rejected, and a closed plugin cancels later calls.
+
 Physical hardware, real permission dialogs, and activity history have not been read or validated in this implementation session. Tests are synthetic protocol/lifecycle fixtures.
 
 References: [Expo Pedometer](https://docs.expo.dev/versions/latest/sdk/pedometer/), [Android motion sensors](https://developer.android.com/develop/sensors-and-location/sensors/sensors_motion), [Apple CMPedometer](https://developer.apple.com/documentation/coremotion/cmpedometer).
