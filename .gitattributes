@@ -11,6 +11,10 @@ crates/leptoskit_fmt/benches/fixtures/** text eol=lf
 # what the generator writes, so it stays LF as well.
 examples/harbor/clients/** text eol=lf
 
+# RPC generators embed these templates with include_str!, so checkout line
+# endings become generated client bytes. Keep them LF on Windows too.
+crates/leptoskit_rpc_codegen/src/templates/** text eol=lf
+
 # The bridge's tests compare the shared render transaction fixtures with what
 # the encoder writes, byte for byte: the binary form stays as written and the
 # Kotlin and JSON forms stay LF.
