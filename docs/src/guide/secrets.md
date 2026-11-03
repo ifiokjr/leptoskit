@@ -2,7 +2,7 @@
 
 Database passwords, sign-in keys, and service credentials need a home outside your source code. Monosecret is leptoskit's default and recommended secret manager. It resolves the names in `monosecret.toml` from your environment, OS keyring, or a team provider before starting your server.
 
-New projects include a manifest. Install [Monosecret](https://monosecret.dev), then start development as usual:
+New projects include a manifest. Install [Monosecret](https://ifiokjr.github.io/monosecret/quick-start/#installation), then start development as usual:
 
 ```sh
 leptoskit dev
