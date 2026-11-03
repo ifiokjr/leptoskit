@@ -897,6 +897,7 @@ impl DevSession {
 		let mut child = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
 			.current_dir(project)
 			.args(args)
+			.arg("--no-secrets")
 			.stdin(Stdio::null())
 			.stdout(Stdio::piped())
 			.stderr(Stdio::piped())

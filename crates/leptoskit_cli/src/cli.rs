@@ -789,14 +789,18 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		}
 		Command::Lint(args) => crate::lint::run(&args),
 		Command::Completions { shell } => {
-			let mut command = Cli::command();
-			// Completions follow the invoked name, so `lk completions zsh`
-			// completes `lk` rather than the canonical command.
-			let name = invoked_name().to_owned();
-			clap_complete::generate(shell, &mut command, name, &mut std::io::stdout());
+			completions(shell);
 			Ok(())
 		}
 	}
+}
+
+fn completions(shell: Shell) {
+	let mut command = Cli::command();
+	// Completions follow the invoked name, so `lk completions zsh`
+	// completes `lk` rather than the canonical command.
+	let name = invoked_name().to_owned();
+	clap_complete::generate(shell, &mut command, name, &mut std::io::stdout());
 }
 
 /// The name the user invoked the binary as: `lk` when run through the alias
