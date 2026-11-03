@@ -658,6 +658,21 @@ jobs:
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y "postgresql-${major}-postgis-3" "postgresql-${major}-pgvector"
 
+      # Match devenv's NATS version. Without the server, the relay tests
+      # return early and leave the distributed live-query paths unmeasured.
+      - name: install NATS for the relay tests
+        if: matrix.suite == 'workspace'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/nats-server.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/nats-io/nats-server/releases/download/v2.14.7/nats-server-v2.14.7-linux-amd64.tar.gz \
+            -o "$archive"
+          echo "e5c20b1cb2c0566b54c544312e91e011f9e130c5c80f16a14f4cf28ef30b8be2  $archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/nats-server-v2.14.7-linux-amd64" >> "$GITHUB_PATH"
+
       # Release builds optimize with `wasm-opt`; this is the binaryen release
       # devenv provides.
       - name: install binaryen
@@ -698,6 +713,8 @@ jobs:
           # The database migration tests apply real migrations to a
           # throwaway cluster from the runner's preinstalled Postgres.
           LEPTOSKIT_REQUIRE_POSTGRES: "1"
+          # A missing NATS server must fail rather than skip relay coverage.
+          LEPTOSKIT_REQUIRE_NATS: "1"
           # The geospatial and vector tests need PostGIS and pgvector,
           # installed above.
           LEPTOSKIT_REQUIRE_POSTGRES_EXTENSIONS: postgis,vector

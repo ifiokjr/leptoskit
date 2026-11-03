@@ -21,6 +21,8 @@ Desktop workspace jobs have a 150-minute budget for cold builds and the separate
 
 Linux coverage builds use `line-tables-only` debug information for the dev and test profiles, with incremental compilation disabled. This keeps source locations for diagnostics and LLVM coverage while reducing the disk footprint of instrumented binaries and nested fixture builds. Their cache keys include the debug profile so they cannot restore the previous full-debug artifacts.
 
+The Linux workspace coverage job installs NATS at the version provided by devenv and sets `LEPTOSKIT_REQUIRE_NATS=1`. Relay and session-revocation tests must run against a real server; a missing binary fails the job instead of silently skipping them.
+
 The iOS matrix separates widget verification, generated application journeys, and code push. Each job boots its own simulator, and the coverage gate waits for all three jobs to succeed.
 
 The coverage gate merges only the Linux, browser, iOS, and Android reports; see [CONTRIBUTING.md](../../CONTRIBUTING.md#coverage).
