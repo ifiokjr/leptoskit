@@ -594,6 +594,12 @@ jobs:
       # of them at once on a four-core runner has killed `ld` with SIGBUS, so
       # build and link two at a time; the job has the time budget for it.
       CARGO_BUILD_JOBS: 2
+      # Full type/local debug information in every instrumented test binary
+      # exhausts hosted-runner disk. Keep source lines for diagnostics and
+      # coverage, including in the nested fixture workspaces.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_TEST_DEBUG: line-tables-only
+      CARGO_INCREMENTAL: "0"
     steps:
       # The instrumented workspace, its test binaries, and the release builds
       # below outgrow the runner's free disk, which fails the job or stalls it
@@ -616,7 +622,7 @@ jobs:
       - name: cache rust artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: ${{ matrix.suite }}
+          key: ${{ matrix.suite }}-line-tables
 
       - name: install cargo-llvm-cov
         uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2.87.24
