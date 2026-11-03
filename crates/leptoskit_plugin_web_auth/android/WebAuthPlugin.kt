@@ -12,6 +12,7 @@ import dev.leptoskit.bridge.NativePlugin
 import dev.leptoskit.bridge.PluginException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import java.net.URI
 import java.nio.ByteBuffer
 
 /**

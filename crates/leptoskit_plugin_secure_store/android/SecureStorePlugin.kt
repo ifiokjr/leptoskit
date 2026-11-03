@@ -154,6 +154,44 @@ class SecureStorePlugin(
         return byteArrayOf()
     }
 
+    private fun writeCiphertext(
+        file: AtomicFile,
+        identity: ByteArray,
+        value: ByteArray,
+    ) {
+        if (value.size == 4) {
+            file.delete()
+            if (file.baseFile.exists() || File(directory, "entries-v2.bak").exists() ||
+                File(directory, "entries-v2.new").exists()
+            ) {
+                throw IOException("Cannot delete secure-store archive")
+            }
+
+            return
+        }
+
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, encryptionKey(create = true))
+
+        if (cipher.iv.size != 12) throw GeneralSecurityException("Unexpected GCM IV size")
+
+        cipher.updateAAD(identity)
+        val ciphertext = byteArrayOf(1) + cipher.iv + cipher.doFinal(value)
+        val stream = file.startWrite()
+        try {
+            stream.write(ciphertext)
+            stream.fd.sync()
+            file.finishWrite(stream)
+        } catch (error: Exception) {
+            file.failWrite(stream)
+            throw error
+        }
+
+        if (!MessageDigest.isEqual(ciphertext, readCiphertext(file, 2560))) {
+            throw IOException("Secure-store write did not commit")
+        }
+    }
+
     private fun executeLegacy(request: Request): ByteArray {
         val identity = "leptoskit.secure-store:$application:${request.service}/${request.key}".toByteArray(Charsets.UTF_8)
         val digest = MessageDigest.getInstance("SHA-256").digest(identity)
