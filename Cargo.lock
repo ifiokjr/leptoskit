@@ -96,7 +96,7 @@ checksum = "e9d4ee0d472d1cd2e28c97dfa124b3d8d992e10eb0a035f33f5d12e3a177ba3b"
 
 [[package]]
 name = "android_apk"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "sha2 0.10.9",
  "tempfile",
@@ -752,7 +752,7 @@ dependencies = [
 
 [[package]]
 name = "auth_pages_example"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "any_spawner",
  "chrono",
@@ -1524,7 +1524,7 @@ checksum = "7f8f80099a98041a3d1622845c271458a2d73e688351bf3cb999266764b81d48"
 
 [[package]]
 name = "counter_example"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit",
  "leptoskit_codepush",
@@ -1534,7 +1534,7 @@ dependencies = [
 
 [[package]]
 name = "coverage_gate"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "cpubits"
@@ -2646,7 +2646,7 @@ dependencies = [
 
 [[package]]
 name = "gallery"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "gallery_verify",
@@ -2671,7 +2671,7 @@ dependencies = [
 
 [[package]]
 name = "gallery_verify"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "android_apk",
  "anyhow",
@@ -3274,7 +3274,7 @@ dependencies = [
 
 [[package]]
 name = "harbor_example"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "any_spawner",
  "leptos",
@@ -3290,7 +3290,7 @@ dependencies = [
 
 [[package]]
 name = "harmonyos_plugins"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_plugin_accelerometer",
  "leptoskit_plugin_application",
@@ -3512,7 +3512,7 @@ dependencies = [
 
 [[package]]
 name = "hooks_guest_probe"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit",
  "leptoskit_router",
@@ -3589,7 +3589,7 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "huddle"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "huddle_api",
@@ -3608,7 +3608,7 @@ dependencies = [
 
 [[package]]
 name = "huddle_api"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "huddle_db",
  "leptoskit_auth",
@@ -3622,7 +3622,7 @@ dependencies = [
 
 [[package]]
 name = "huddle_app"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "any_spawner",
  "futures",
@@ -3639,7 +3639,7 @@ dependencies = [
 
 [[package]]
 name = "huddle_db"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_auth",
  "leptoskit_db",
@@ -3648,7 +3648,7 @@ dependencies = [
 
 [[package]]
 name = "huddle_ios"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge_ffi",
  "leptoskit_plugin_crypto",
@@ -3661,7 +3661,7 @@ dependencies = [
 
 [[package]]
 name = "huddle_load"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "axum",
  "chrono",
@@ -3680,7 +3680,7 @@ dependencies = [
 
 [[package]]
 name = "huddle_macos"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge_ffi",
  "leptoskit_plugin_crypto",
@@ -4164,7 +4164,7 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "islands_example"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "http-body-util",
@@ -4720,7 +4720,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptos",
  "leptos_axum",
@@ -4762,7 +4762,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_analytics"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "axum",
  "getrandom 0.4.3",
@@ -4780,7 +4780,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_android"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "android_apk",
  "anyhow",
@@ -4793,7 +4793,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_app"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "any_spawner",
  "anyhow",
@@ -4825,7 +4825,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_appkit"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_native",
  "leptoskit_rive",
@@ -4843,7 +4843,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_aria"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_native",
  "leptoskit_testing",
@@ -4852,7 +4852,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_auth"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "aes-gcm-siv",
  "any_spawner",
@@ -4905,7 +4905,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_axum"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "axum",
  "http-body-util",
@@ -4922,7 +4922,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_bench"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_native",
  "leptoskit_wasm",
@@ -4934,18 +4934,18 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_bench_counter"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit",
 ]
 
 [[package]]
 name = "leptoskit_bench_guest"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "leptoskit_bench_screen"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_native",
  "leptoskit_yoga",
@@ -4953,7 +4953,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_bridge"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bytes",
  "leptoskit_devtools_protocol",
@@ -4963,7 +4963,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_bridge_ffi"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "futures",
@@ -4986,11 +4986,11 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_build"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "leptoskit_cli"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "anstream",
  "anstyle",
@@ -5068,7 +5068,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_codepush"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -5093,7 +5093,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_config"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "insta",
  "jsonschema",
@@ -5109,7 +5109,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_db"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -5149,7 +5149,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_db_client_fixture"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_db",
  "serde",
@@ -5157,7 +5157,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_db_macros"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "convert_case 0.11.0",
  "insta",
@@ -5173,7 +5173,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_db_pack_fixture"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_db",
  "leptoskit_db_schema",
@@ -5183,7 +5183,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_db_schema"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "insta",
  "rusqlite",
@@ -5197,14 +5197,14 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_db_studio_fixture"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_db",
 ]
 
 [[package]]
 name = "leptoskit_deploy_console"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "aes-gcm-siv",
  "anyhow",
@@ -5233,7 +5233,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_devtools"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "any_spawner",
  "anyhow",
@@ -5260,7 +5260,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_devtools_protocol"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5269,7 +5269,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_docs"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "arborium",
  "insta",
@@ -5285,7 +5285,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_docs_site"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "clap",
  "leptos",
@@ -5296,7 +5296,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_extension"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "js-sys",
@@ -5313,7 +5313,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_fmt"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "clap",
  "divan",
@@ -5334,7 +5334,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_form"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_aria",
  "leptoskit_native",
@@ -5344,7 +5344,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_gtk"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "gtk4",
  "leptoskit_native",
@@ -5356,7 +5356,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_idp"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "any_spawner",
  "axum",
@@ -5387,7 +5387,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_l10n"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "intl_pluralrules",
  "js-sys",
@@ -5400,7 +5400,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_l10n_codegen"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "heck",
  "insta",
@@ -5416,7 +5416,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_lint"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "anstream",
  "anstyle",
@@ -5435,7 +5435,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_macros"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "insta",
  "prettyplease 0.3.0",
@@ -5449,7 +5449,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_native"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "divan",
  "flate2",
@@ -5473,7 +5473,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_config",
  "serde",
@@ -5484,7 +5484,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_accelerometer"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_sensor",
@@ -5492,14 +5492,14 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_application"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
 ]
 
 [[package]]
 name = "leptoskit_plugin_arguments"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "clap",
  "leptoskit_bridge",
@@ -5508,7 +5508,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_autostart"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dirs",
  "leptoskit_bridge",
@@ -5521,7 +5521,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_barometer"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_sensor",
@@ -5529,7 +5529,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_battery"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "js-sys",
@@ -5544,14 +5544,14 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_brightness"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
 ]
 
 [[package]]
 name = "leptoskit_plugin_clipboard"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "arboard",
  "futures",
@@ -5568,7 +5568,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_crypto"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
@@ -5581,7 +5581,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_device"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "js-sys",
  "leptoskit_bridge",
@@ -5592,7 +5592,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_devtools"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_devtools_protocol",
@@ -5603,7 +5603,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_dialog"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dispatch2",
  "futures",
@@ -5626,7 +5626,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_document_picker"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "js-sys",
@@ -5641,7 +5641,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_filesystem"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "cap-std",
  "fs4",
@@ -5658,7 +5658,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_global_shortcut"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "global-hotkey",
  "leptoskit_bridge",
@@ -5669,7 +5669,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_gyroscope"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_sensor",
@@ -5677,7 +5677,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_haptics"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "jni 0.21.1",
  "js-sys",
@@ -5692,7 +5692,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_http"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "gloo-timers",
@@ -5712,7 +5712,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_image_manipulator"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "image",
  "leptoskit_bridge",
@@ -5722,7 +5722,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_keep_awake"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dbus",
  "futures",
@@ -5741,7 +5741,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_light_sensor"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_sensor",
@@ -5749,7 +5749,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_linking"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
  "objc2-app-kit",
@@ -5761,14 +5761,14 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_local_authentication"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
 ]
 
 [[package]]
 name = "leptoskit_plugin_localization"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "iana-time-zone",
  "js-sys",
@@ -5781,7 +5781,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_location"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "gloo-events",
@@ -5797,7 +5797,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_logging"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "cap-std",
  "js-sys",
@@ -5813,7 +5813,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_magnetometer"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_sensor",
@@ -5821,7 +5821,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_menu"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "libtest-mimic",
  "muda",
@@ -5834,7 +5834,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_network"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "gloo-events",
@@ -5849,7 +5849,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_notifications"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dbus",
  "js-sys",
@@ -5863,14 +5863,14 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_os"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
 ]
 
 [[package]]
 name = "leptoskit_plugin_passkeys"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
  "serde",
@@ -5879,7 +5879,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_pedometer"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_sensor",
@@ -5887,7 +5887,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_permissions"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "js-sys",
  "leptoskit_bridge",
@@ -5898,7 +5898,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_posture"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "gloo-events",
@@ -5911,7 +5911,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_router"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_config",
  "leptoskit_plugin",
@@ -5923,14 +5923,14 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_screen_capture"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
 ]
 
 [[package]]
 name = "leptoskit_plugin_screen_orientation"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "gloo-events",
@@ -5944,7 +5944,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_secure_store"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dirs",
  "fs4",
@@ -5962,7 +5962,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_sharing"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "js-sys",
@@ -5976,7 +5976,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_shell"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
  "libc",
@@ -5993,7 +5993,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_single_instance"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "fs4",
  "rustix",
@@ -6003,7 +6003,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_speech"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "gloo-events",
@@ -6016,7 +6016,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_sqlite"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "cap-std",
  "leptoskit_bridge",
@@ -6028,7 +6028,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_store"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "cap-std",
  "futures",
@@ -6049,21 +6049,21 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_store_review"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
 ]
 
 [[package]]
 name = "leptoskit_plugin_tracking_transparency"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
 ]
 
 [[package]]
 name = "leptoskit_plugin_tray"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dbus",
  "dispatch2",
@@ -6081,7 +6081,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_web_auth"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
  "open",
@@ -6090,7 +6090,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_websocket"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "gloo-timers",
@@ -6109,7 +6109,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_window_state"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "libtest-mimic",
  "objc2",
@@ -6122,7 +6122,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_query"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "any_spawner",
  "console_error_panic_hook",
@@ -6142,7 +6142,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rive"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "cc",
@@ -6161,7 +6161,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rive_runtime"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "cc",
  "flate2",
@@ -6171,7 +6171,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_router"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_native",
  "leptoskit_router_macros",
@@ -6184,7 +6184,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_router_codegen"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "insta",
  "leptoskit_router",
@@ -6198,7 +6198,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_router_macros"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6207,7 +6207,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rpc"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "any_spawner",
  "async-nats",
@@ -6251,7 +6251,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rpc_codegen"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "heck",
  "indexmap",
@@ -6266,7 +6266,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rpc_guest_fixture"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_db",
  "leptoskit_rpc",
@@ -6277,7 +6277,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rpc_macros"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "convert_case 0.11.0",
  "insta",
@@ -6289,7 +6289,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_sensor"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "gloo-events",
@@ -6304,7 +6304,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_table"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_native",
  "leptoskit_testing",
@@ -6312,7 +6312,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_testing"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "leptoskit_native",
@@ -6328,7 +6328,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_testing_library"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "js-sys",
  "leptos",
@@ -6343,7 +6343,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_tui"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "crossterm",
  "insta",
@@ -6355,7 +6355,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_uikit"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_native",
  "leptoskit_yoga",
@@ -6370,7 +6370,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_use"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "blocking",
  "futures",
@@ -6392,7 +6392,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_virtual"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_native",
  "leptoskit_testing",
@@ -6402,7 +6402,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_wasm"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_native",
@@ -6417,7 +6417,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_windows"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "image",
  "leptoskit_native",
@@ -6429,7 +6429,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_yoga"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "approx",
  "insta",
@@ -7125,7 +7125,7 @@ dependencies = [
 
 [[package]]
 name = "observatory_example"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit",
  "leptoskit_testing",
@@ -7187,7 +7187,7 @@ dependencies = [
 
 [[package]]
 name = "opencode_example"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "insta",
  "leptos",
@@ -7540,7 +7540,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "platform_probe"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "axum",
  "http-body-util",
@@ -7570,14 +7570,14 @@ dependencies = [
 
 [[package]]
 name = "plugin_guest_probe"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
 ]
 
 [[package]]
 name = "plugin_replies_probe"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_plugin_filesystem",
@@ -7669,7 +7669,7 @@ dependencies = [
 
 [[package]]
 name = "postcard_example"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptoskit",
  "leptoskit_l10n",
