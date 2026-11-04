@@ -5,7 +5,9 @@ import LeptosKitBridge
 /// Creates the native owner after resolving platform-specific application directories.
 @MainActor
 enum NativeAppFactory {
-    static func create(wasm: Data, identifier: String?) throws -> NativeAppLifecycle {
+    static func create(
+        wasm: Data, identifier: String?, pluginContext: NativePluginContext? = nil
+    ) throws -> NativeAppLifecycle {
         let dataDirectory = try directory(.applicationSupportDirectory, identifier: identifier)
         let cacheDirectory = try directory(.cachesDirectory, identifier: identifier)
         let dataPath = Array(dataDirectory.path.utf8)
@@ -15,8 +17,10 @@ enum NativeAppFactory {
             cachePath.withUnsafeBufferPointer { cache in
                 var context = lk_app_context(
                     data_dir: data.baseAddress, data_dir_len: data.count,
-                    cache_dir: cache.baseAddress, cache_dir_len: cache.count
+                    cache_dir: cache.baseAddress, cache_dir_len: cache.count,
+                    platform_vm: nil, platform_context: nil, release_platform_context: nil
                 )
+                pluginContext?.retainForAppContext(&context)
 
                 return wasm.withUnsafeBytes {
                     leptoskit_app_create_with_context(

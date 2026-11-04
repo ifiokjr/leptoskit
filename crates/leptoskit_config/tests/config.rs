@@ -209,6 +209,26 @@ fn missing_plugins_warn_by_default_and_can_stop_the_build() {
 }
 
 #[test]
+fn experimental_rust_plugins_are_off_by_default_and_round_trip_when_enabled() {
+	let config: LeptoskitConfig = toml::from_str("").unwrap();
+	assert!(!config.native.experimental_rust_plugins);
+	assert!(
+		!toml::to_string(&config)
+			.unwrap()
+			.contains("experimental-rust-plugins")
+	);
+
+	let config: LeptoskitConfig =
+		toml::from_str("[native]\nexperimental-rust-plugins = true").unwrap();
+	assert!(config.native.experimental_rust_plugins);
+	assert!(
+		toml::to_string(&config)
+			.unwrap()
+			.contains("experimental-rust-plugins = true")
+	);
+}
+
+#[test]
 fn unknown_fields_are_rejected() {
 	let scratch = Scratch::new("unknown");
 	std::fs::write(

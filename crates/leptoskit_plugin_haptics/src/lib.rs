@@ -6,7 +6,9 @@
 //! without needing the VIBRATE permission. Browser vibration requires supported
 //! hardware and user activation. macOS maps effects to its trackpad's available
 //! patterns.
+#![cfg_attr(target_os = "android", allow(unsafe_code))]
 
+use leptoskit_bridge::AppContext;
 use leptoskit_bridge::Bytes;
 use leptoskit_bridge::Error;
 use leptoskit_bridge::MethodId;
@@ -95,10 +97,35 @@ pub fn decode(method: MethodId, payload: &[u8]) -> Result<Effect, Error> {
 	}
 }
 
-/// Desktop bridge adapter. macOS uses the trackpad; other desktops currently
-/// report `Unavailable` because no portable system actuator API exists.
+/// Native bridge adapter. macOS uses the trackpad, iOS uses UIKit feedback
+/// generators, and Android uses `View.performHapticFeedback` on the host
+/// `Activity` window's decor view. Other desktops report `Unavailable` because
+/// no portable system actuator API exists.
 #[derive(Debug, Default)]
-pub struct Haptics;
+pub struct Haptics {
+	#[cfg(target_os = "android")]
+	platform: Option<leptoskit_bridge::PlatformContext>,
+}
+
+/// Constructs the haptics plugin from the host [`AppContext`]. Android needs
+/// the host's `JavaVM` and `Context`; other platforms don't use the context.
+pub fn from_context(context: &AppContext) -> Result<Haptics, Error> {
+	#[cfg(target_os = "android")]
+	{
+		let platform = context
+			.platform()
+			.filter(|platform| platform.android_handles().is_some())
+			.ok_or(Error::Unavailable)?;
+		Ok(Haptics {
+			platform: Some(platform.clone()),
+		})
+	}
+	#[cfg(not(target_os = "android"))]
+	{
+		let _ = context;
+		Ok(Haptics::default())
+	}
+}
 
 impl Plugin for Haptics {
 	fn name(&self) -> &'static str {
@@ -110,12 +137,19 @@ impl Plugin for Haptics {
 	}
 
 	fn invoke(&mut self, method: MethodId, payload: Bytes) -> Result<Bytes, Error> {
+		#[cfg(target_os = "android")]
+		android::invoke(
+			self.platform.as_ref().ok_or(Error::Unavailable)?,
+			method,
+			&payload,
+		)?;
+		#[cfg(not(target_os = "android"))]
 		perform(decode(method, &payload)?)?;
 		Ok(Bytes::new())
 	}
 }
 
-/// Requests desktop feedback. Call on the application's main thread.
+/// Requests feedback on macOS. Call on the application's main thread.
 #[cfg(target_os = "macos")]
 pub fn perform(effect: Effect) -> Result<(), Error> {
 	use objc2_app_kit::NSHapticFeedbackManager;
@@ -135,10 +169,241 @@ pub fn perform(effect: Effect) -> Result<(), Error> {
 	Ok(())
 }
 
+/// Requests feedback on iOS using UIKit feedback generators. Call on the
+/// application's main thread.
+#[cfg(target_os = "ios")]
+pub fn perform(effect: Effect) -> Result<(), Error> {
+	use objc2_ui_kit::UIImpactFeedbackGenerator;
+	use objc2_ui_kit::UIImpactFeedbackStyle;
+	use objc2_ui_kit::UINotificationFeedbackGenerator;
+	use objc2_ui_kit::UINotificationFeedbackType;
+	use objc2_ui_kit::UISelectionFeedbackGenerator;
+
+	let main = objc2::MainThreadMarker::new().ok_or(Error::InvalidArgument)?;
+
+	match effect {
+		Effect::Selection => {
+			let generator = UISelectionFeedbackGenerator::new(main);
+			generator.selectionChanged();
+		}
+		Effect::Impact(style) => {
+			let ui_style = match style {
+				Impact::Light => UIImpactFeedbackStyle::Light,
+				Impact::Medium => UIImpactFeedbackStyle::Medium,
+				Impact::Heavy => UIImpactFeedbackStyle::Heavy,
+				Impact::Rigid => UIImpactFeedbackStyle::Rigid,
+				Impact::Soft => UIImpactFeedbackStyle::Soft,
+			};
+			// `initWithStyle:` is the view-independent initializer available on
+			// iOS 10+ before `feedbackGeneratorWithStyle:forView:` (iOS 17.5+).
+			#[allow(deprecated)]
+			let generator = UIImpactFeedbackGenerator::initWithStyle(main.alloc(), ui_style);
+			generator.impactOccurred();
+		}
+		Effect::Notification(kind) => {
+			let feedback = match kind {
+				Notification::Success => UINotificationFeedbackType::Success,
+				Notification::Warning => UINotificationFeedbackType::Warning,
+				Notification::Error => UINotificationFeedbackType::Error,
+			};
+			let generator = UINotificationFeedbackGenerator::new(main);
+			generator.notificationOccurred(feedback);
+		}
+	}
+
+	Ok(())
+}
+
 /// No portable desktop haptic actuator is available on this platform.
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
 pub fn perform(_effect: Effect) -> Result<(), Error> {
 	Err(Error::Unavailable)
+}
+
+#[cfg(target_os = "android")]
+mod android {
+	use std::sync::OnceLock;
+
+	use jni::JNIEnv;
+	use jni::JavaVM;
+	use jni::objects::JObject;
+	use jni::objects::JValue;
+	use jni::objects::JValueGen;
+	use leptoskit_bridge::PlatformContext;
+
+	use super::*;
+
+	const LONG_PRESS: i32 = 0;
+	const VIRTUAL_KEY: i32 = 1;
+	const KEYBOARD_TAP: i32 = 3;
+	const CLOCK_TICK: i32 = 4;
+	const CONTEXT_CLICK: i32 = 6;
+	const KEYBOARD_RELEASE: i32 = 7;
+	const VIRTUAL_KEY_RELEASE: i32 = 8;
+	const TEXT_HANDLE_MOVE: i32 = 9;
+	const GESTURE_START: i32 = 12;
+	const GESTURE_END: i32 = 13;
+	const CONFIRM: i32 = 16;
+	const REJECT: i32 = 17;
+	const TOGGLE_ON: i32 = 21;
+	const TOGGLE_OFF: i32 = 22;
+	const GESTURE_THRESHOLD_ACTIVATE: i32 = 23;
+	const GESTURE_THRESHOLD_DEACTIVATE: i32 = 24;
+	const DRAG_START: i32 = 25;
+	const SEGMENT_TICK: i32 = 26;
+	const SEGMENT_FREQUENT_TICK: i32 = 27;
+	const NO_HAPTICS: i32 = -1;
+
+	pub fn invoke(
+		platform: &PlatformContext,
+		method: MethodId,
+		payload: &[u8],
+	) -> Result<(), Error> {
+		let (vm, context) = platform.android_handles().ok_or(Error::Unavailable)?;
+		// SAFETY: The Android host lends its process `JavaVM*` for the
+		// lifetime of `PlatformContext`.
+		let vm = unsafe { JavaVM::from_raw(vm.cast()) }.map_err(|_| Error::Unavailable)?;
+		// The UI thread is always attached; any other thread is rejected rather
+		// than attached to the VM for the rest of its life.
+		let mut env = vm.get_env().map_err(|_| Error::Native)?;
+		let constant = resolve_constant(method, payload, sdk_int(&mut env))?;
+
+		env.with_local_frame(16, |env| -> jni::errors::Result<Result<(), Error>> {
+			Ok(perform_feedback(env, context.cast(), constant))
+		})
+		.map_err(|_| Error::Native)?
+	}
+
+	/// Calls `performHapticFeedback` on the host `Activity`'s decor view.
+	fn perform_feedback(
+		env: &mut JNIEnv<'_>,
+		context: jni::sys::jobject,
+		constant: i32,
+	) -> Result<(), Error> {
+		ensure_main_thread(env)?;
+		// SAFETY: `context` is the host's JNI global reference, kept alive by
+		// `PlatformContext`; `JObject` borrows it without deleting it.
+		let context = unsafe { JObject::from_raw(context) };
+
+		if !env
+			.is_instance_of(&context, "android/app/Activity")
+			.unwrap_or(false)
+		{
+			return Err(Error::Unavailable);
+		}
+
+		let window = env
+			.call_method(&context, "getWindow", "()Landroid/view/Window;", &[])
+			.map_err(|_| clear_and_fail(env))?
+			.l()
+			.map_err(|_| Error::Native)?;
+
+		if window.is_null() {
+			return Err(Error::Unavailable);
+		}
+
+		let decor = env
+			.call_method(&window, "getDecorView", "()Landroid/view/View;", &[])
+			.map_err(|_| clear_and_fail(env))?
+			.l()
+			.map_err(|_| Error::Native)?;
+
+		if decor.is_null() {
+			return Err(Error::Unavailable);
+		}
+
+		env.call_method(
+			&decor,
+			"performHapticFeedback",
+			"(I)Z",
+			&[JValue::Int(constant)],
+		)
+		.map_err(|_| clear_and_fail(env))?;
+		Ok(())
+	}
+
+	/// `Build.VERSION.SDK_INT`, read once per process.
+	fn sdk_int(env: &mut JNIEnv<'_>) -> i32 {
+		static SDK_INT: OnceLock<i32> = OnceLock::new();
+
+		*SDK_INT.get_or_init(|| {
+			env.get_static_field("android/os/Build$VERSION", "SDK_INT", "I")
+				.and_then(JValueGen::i)
+				.unwrap_or_else(|_| {
+					clear_and_fail(env);
+					26
+				})
+		})
+	}
+
+	/// Rejects calls off the UI thread, which owns the decor view.
+	fn ensure_main_thread(env: &mut JNIEnv<'_>) -> Result<(), Error> {
+		let main = env
+			.call_static_method(
+				"android/os/Looper",
+				"getMainLooper",
+				"()Landroid/os/Looper;",
+				&[],
+			)
+			.and_then(JValueGen::l)
+			.map_err(|_| clear_and_fail(env))?;
+		let current = env
+			.call_method(&main, "isCurrentThread", "()Z", &[])
+			.and_then(JValueGen::z)
+			.map_err(|_| clear_and_fail(env))?;
+
+		if current { Ok(()) } else { Err(Error::Native) }
+	}
+
+	fn resolve_constant(method: MethodId, payload: &[u8], sdk_int: i32) -> Result<i32, Error> {
+		if method == ANDROID_FEEDBACK {
+			let raw = i32::from_le_bytes(payload.try_into().map_err(|_| Error::InvalidArgument)?);
+			let minimum = match raw {
+				LONG_PRESS | VIRTUAL_KEY | KEYBOARD_TAP | CLOCK_TICK | CONTEXT_CLICK => 26,
+				KEYBOARD_RELEASE | VIRTUAL_KEY_RELEASE | TEXT_HANDLE_MOVE => 27,
+				GESTURE_START | GESTURE_END | CONFIRM | REJECT => 30,
+				TOGGLE_ON
+				| TOGGLE_OFF
+				| GESTURE_THRESHOLD_ACTIVATE
+				| GESTURE_THRESHOLD_DEACTIVATE
+				| DRAG_START
+				| SEGMENT_TICK
+				| SEGMENT_FREQUENT_TICK
+				| NO_HAPTICS => 34,
+				_ => return Err(Error::InvalidArgument),
+			};
+
+			return if sdk_int >= minimum {
+				Ok(raw)
+			} else {
+				Err(Error::Unavailable)
+			};
+		}
+
+		match decode(method, payload)? {
+			Effect::Selection | Effect::Impact(Impact::Soft) => Ok(CLOCK_TICK),
+			Effect::Impact(Impact::Light) => Ok(KEYBOARD_TAP),
+			Effect::Impact(Impact::Medium) => Ok(VIRTUAL_KEY),
+			Effect::Impact(Impact::Heavy) | Effect::Notification(Notification::Warning) => {
+				Ok(LONG_PRESS)
+			}
+			Effect::Impact(Impact::Rigid) => Ok(CONTEXT_CLICK),
+			Effect::Notification(Notification::Success) => {
+				Ok(if sdk_int >= 30 { CONFIRM } else { VIRTUAL_KEY })
+			}
+			Effect::Notification(Notification::Error) => {
+				Ok(if sdk_int >= 30 { REJECT } else { LONG_PRESS })
+			}
+		}
+	}
+
+	fn clear_and_fail(env: &mut JNIEnv<'_>) -> Error {
+		if env.exception_check().unwrap_or(false) {
+			let _ = env.exception_clear();
+		}
+
+		Error::Native
+	}
 }
 
 /// Browser vibration approximations. Browser/device policy may reject them.
@@ -294,7 +559,11 @@ mod tests {
 
 	#[test]
 	fn desktop_adapter_validates_before_requesting_feedback() {
-		let mut haptics = Haptics;
+		let context = AppContext::new(
+			std::path::PathBuf::from("/tmp"),
+			std::path::PathBuf::from("/tmp"),
+		);
+		let mut haptics = from_context(&context).unwrap_or_default();
 		assert_eq!(haptics.name(), NAME);
 		assert_eq!(haptics.methods(), METHODS);
 		assert_eq!(
@@ -303,7 +572,7 @@ mod tests {
 		);
 		// Test threads are not AppKit's main thread, and other desktops have no
 		// actuator: a valid effect is rejected without touching hardware.
-		let expected = if cfg!(target_os = "macos") {
+		let expected = if cfg!(any(target_os = "macos", target_os = "ios")) {
 			Error::InvalidArgument
 		} else {
 			Error::Unavailable

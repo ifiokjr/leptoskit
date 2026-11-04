@@ -428,10 +428,10 @@ fn register_rust_plugin(
 	else {
 		return Ok(());
 	};
-	let install = if flavour == Flavour::Worker {
-		"install_worker"
-	} else {
-		"install"
+	let install = match flavour {
+		Flavour::Worker => "install_worker",
+		Flavour::MainThread => "install_main",
+		Flavour::Sync | Flavour::Async => "install",
 	};
 
 	match constructor {
@@ -456,11 +456,32 @@ fn register_rust_plugin(
 			)?;
 		}
 
+		Constructor::ContextFactory(factory) if flavour == Flavour::Async => {
+			let options = plugin
+				.options_json
+				.as_ref()
+				.context("validated async plugin options missing")?;
+			writeln!(
+				rust,
+				"                app.install_async(std::sync::Arc::new({}::{factory}(_context, \
+				 {options:?})?))?;",
+				plugin.crate_name
+			)?;
+		}
+
 		Constructor::Factory(factory) => {
 			writeln!(
 				rust,
 				"                app.{install}(Box::new({}::{factory}(&_context.data_dir, \
 				 &_context.cache_dir)?))?;",
+				plugin.crate_name
+			)?;
+		}
+
+		Constructor::ContextFactory(factory) => {
+			writeln!(
+				rust,
+				"                app.{install}(Box::new({}::{factory}(_context)?))?;",
 				plugin.crate_name
 			)?;
 		}

@@ -334,3 +334,47 @@ fn cancelled_work_never_enters_its_plugin() {
 	}
 	assert_eq!(drops.load(Ordering::SeqCst), 1);
 }
+
+#[test]
+fn main_thread_workers_report_their_execution_affinity() {
+	let drops = Arc::new(AtomicUsize::new(0));
+	// SAFETY: Each worker handle is inspected before execution and consumed
+	// once.
+	unsafe {
+		let (app, request, background_worker) = queued(Arc::clone(&drops));
+		assert!(!lk_worker_is_main_thread(background_worker));
+		assert!(!lk_worker_is_main_thread(ptr::null()));
+		lk_buffer_release(request.payload);
+		lk_worker_release(background_worker);
+		lk_app_destroy(app);
+
+		let mut app = Box::new(App::new(GUEST).unwrap());
+		let id = app
+			.install_main(Box::new(Echo(Arc::clone(&drops))))
+			.unwrap();
+		let app = Box::into_raw(app);
+		let call = lk_bridge_submit(lk_app_plugins(app), id.0, 0, b"ui".as_ptr(), 2);
+		assert!(call > 0);
+		let mut request = MaybeUninit::uninit();
+		assert_eq!(lk_app_next_request(app, request.as_mut_ptr()), 1);
+		let request = request.assume_init();
+		let main_worker = lk_app_worker(app, &raw const request);
+		assert!(!main_worker.is_null());
+		assert!(lk_worker_is_main_thread(main_worker));
+		lk_buffer_release(request.payload);
+		let reply = lk_worker_execute(main_worker);
+		assert_eq!(
+			lk_worker_complete(lk_app_plugins(app), request.id, reply),
+			0
+		);
+		let mut result = MaybeUninit::uninit();
+		assert_eq!(
+			lk_bridge_take_result(lk_app_plugins(app), request.id, result.as_mut_ptr()),
+			1
+		);
+		let result = result.assume_init();
+		assert_eq!(std::slice::from_raw_parts(result.data, result.len), b"ui");
+		lk_buffer_release(result);
+		lk_app_destroy(app);
+	}
+}

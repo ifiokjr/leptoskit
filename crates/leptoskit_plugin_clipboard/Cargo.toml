@@ -18,6 +18,32 @@ android-type = "dev.leptoskit.plugins.clipboard.ClipboardPlugin"
 android-context = true
 extension-permissions = ["clipboardRead", "clipboardWrite"]
 
+[package.metadata.leptoskit.runtime.macos]
+rust-factory = "from_context"
+rust-context = true
+rust-main-thread = true
+experimental = true
+
+[package.metadata.leptoskit.runtime.ios]
+rust-factory = "from_context"
+rust-context = true
+rust-main-thread = true
+experimental = true
+
+[package.metadata.leptoskit.runtime.android]
+rust-factory = "from_context"
+rust-context = true
+rust-main-thread = true
+experimental = true
+
+[package.metadata.leptoskit.runtime.windows]
+rust-factory = "from_context"
+rust-context = true
+
+[package.metadata.leptoskit.runtime.linux]
+rust-factory = "from_context"
+rust-context = true
+
 [features]
 guest = ["leptoskit_bridge/guest"]
 hooks = ["dep:reactive_graph"]
@@ -31,6 +57,14 @@ futures = { workspace = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))'.dependencies]
 arboard = { version = "3.6", default-features = false }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true, features = ["std", "NSArray", "NSDictionary", "NSString"] }
+objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["std", "UIPasteboard"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21.1"
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { workspace = true }

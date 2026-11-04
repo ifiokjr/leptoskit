@@ -17,6 +17,24 @@ apple-type = "HapticsPlugin"
 android-type = "dev.leptoskit.plugins.haptics.HapticsPlugin"
 android-context = true
 
+[package.metadata.leptoskit.runtime.macos]
+rust-factory = "from_context"
+rust-context = true
+rust-main-thread = true
+experimental = true
+
+[package.metadata.leptoskit.runtime.ios]
+rust-factory = "from_context"
+rust-context = true
+rust-main-thread = true
+experimental = true
+
+[package.metadata.leptoskit.runtime.android]
+rust-factory = "from_context"
+rust-context = true
+rust-main-thread = true
+experimental = true
+
 [features]
 guest = ["leptoskit_bridge/guest"]
 
@@ -26,6 +44,13 @@ leptoskit_bridge = { workspace = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { workspace = true }
 objc2-app-kit = { workspace = true, features = ["NSHapticFeedback"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = { workspace = true }
+objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["std", "UIFeedbackGenerator", "UIImpactFeedbackGenerator", "UINotificationFeedbackGenerator", "UISelectionFeedbackGenerator"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21.1"
 
 [dev-dependencies]
 libtest-mimic = { workspace = true }

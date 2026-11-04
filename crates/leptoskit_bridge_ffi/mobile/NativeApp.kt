@@ -12,6 +12,7 @@ object NativeApp {
         wasm: ByteArray,
         dataPath: ByteArray,
         cachePath: ByteArray,
+        context: Any? = null,
     ): Long
 
     @JvmStatic external fun destroy(app: Long)
@@ -132,6 +133,8 @@ object NativeApp {
     @JvmStatic external fun guestError(guest: Long): ByteArray
 
     @JvmStatic external fun executeWorker(worker: Long): Long
+
+    @JvmStatic external fun isMainThreadWorker(worker: Long): Boolean
 
     @JvmStatic external fun releaseWorker(worker: Long)
 

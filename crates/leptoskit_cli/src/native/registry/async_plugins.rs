@@ -5,8 +5,10 @@ const MAX_OPTIONS_BYTES: usize = 65_536;
 
 pub(super) fn validate_async(plugin: &Plugin) -> Result<()> {
 	anyhow::ensure!(
-		!plugin.rust_async || (plugin.rust_factory.is_some() && !plugin.rust_worker),
-		"rust-async requires rust-factory and cannot be combined with rust-worker"
+		!plugin.rust_async
+			|| (plugin.rust_factory.is_some() && !plugin.rust_worker && !plugin.rust_main_thread),
+		"rust-async requires rust-factory and cannot be combined with rust-worker or \
+		 rust-main-thread"
 	);
 	Ok(())
 }
@@ -16,6 +18,8 @@ pub(super) fn configure_plugin(
 	config: &leptoskit_config::LeptoskitConfig,
 	name: &str,
 ) -> Result<()> {
+	plugin.experimental_rust_plugins = config.native.experimental_rust_plugins;
+
 	if plugin.declares_async() {
 		let options = config.native.plugin_options.get(name).with_context(|| {
 			format!(

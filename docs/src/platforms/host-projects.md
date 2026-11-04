@@ -163,7 +163,9 @@ rust-factory = "desktop::from_context"
 rust-factory = "desktop::from_context"
 ```
 
-The tables are `ios`, `macos`, `android`, `harmonyos`, `windows`, `linux`, and `tui` (the terminal). Each takes `rust-type` or `rust-factory`, with `rust-worker` or `rust-async` as in the shared fields, or only `unavailable = true`, which says the platform doesn't have the service at all: the plugin is left out there without a warning. Any other key or table name is an error.
+The tables are `ios`, `macos`, `android`, `harmonyos`, `windows`, `linux`, and `tui` (the terminal). Each takes `rust-type` or `rust-factory`, with `rust-worker`, `rust-main-thread`, `rust-async`, `rust-context`, or `experimental` as in the shared fields, or only `unavailable = true`, which says the platform doesn't have the service at all: the plugin is left out there without a warning. Any other key or table name is an error.
+
+With `rust-context = true`, the factory receives `&leptoskit_bridge::AppContext` instead of the two directory paths. Besides `data_dir` and `cache_dir`, its `platform()` lends the host's native handle: on Android, `android_handles()` returns the `JavaVM` and the app's `Context`; on iOS and macOS, `apple_presentation_owner()` and `apple_attached_owner()` return the app's view controller while it's on screen. With `rust-main-thread = true`, calls run on the platform's UI thread instead of a background worker, which UIKit, AppKit, and most Android UI APIs require. With `experimental = true`, the registration is used only when `leptoskit.toml` sets `native.experimental-rust-plugins = true`; otherwise the build uses the plugin's Swift or Kotlin implementation on that platform.
 
 For each platform, the CLI uses the first of these that the plugin declares:
 

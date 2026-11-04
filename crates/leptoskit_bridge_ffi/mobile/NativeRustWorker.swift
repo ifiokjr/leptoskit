@@ -14,11 +14,13 @@ final class NativeRustWorker: @unchecked Sendable {
     private let lock = NSLock()
     private var handle: OpaquePointer?
     private let cancellation: OpaquePointer?
+    private let mainThread: Bool
     private var cancelled = false
 
     init(taking handle: OpaquePointer) {
         self.handle = handle
         cancellation = lk_worker_cancellation(handle)
+        mainThread = lk_worker_is_main_thread(handle)
     }
 
     deinit {
@@ -49,8 +51,16 @@ final class NativeRustWorker: @unchecked Sendable {
     /// Blocking work never occupies Swift's cooperative executor. At most four
     /// operations execute concurrently; the host budgets queued jobs before
     /// calling this method. Cancellation still awaits actual completion.
+    /// UI-thread workers (`install_main`) run directly on the main actor.
+    @MainActor
     func run() async -> NativeRustReply {
-        await withTaskCancellationHandler {
+        if mainThread {
+            if Task.isCancelled { cancel() }
+
+            return execute()
+        }
+
+        return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 Self.executor.addOperation { [self] in
                     continuation.resume(returning: execute())

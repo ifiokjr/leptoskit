@@ -79,13 +79,25 @@ pub struct Plugin {
 	pub name: String,
 	pub rust_type: Option<String>,
 	pub rust_factory: Option<String>,
+	/// Passes `&AppContext` (including platform host handles) instead of
+	/// `(&Path, &Path)` to `rust-factory`.
+	#[serde(default)]
+	pub rust_context: bool,
 	/// Factory taking app data/cache paths and returning an inert
 	/// `ServiceInstaller`.
 	pub rust_service_factory: Option<String>,
 	#[serde(default)]
 	pub rust_worker: bool,
 	#[serde(default)]
+	pub rust_main_thread: bool,
+	#[serde(default)]
 	pub rust_async: bool,
+	/// Marks the top-level Rust registration as experimental; it is used only
+	/// when `native.experimental-rust-plugins = true` in `leptoskit.toml`.
+	#[serde(default)]
+	pub experimental: bool,
+	#[serde(skip)]
+	pub experimental_rust_plugins: bool,
 	#[serde(skip)]
 	pub options_json: Option<String>,
 	pub apple_module: Option<String>,
@@ -189,10 +201,13 @@ impl Plugin {
 		anyhow::ensure!(
 			self.rust_type.is_none()
 				&& self.rust_factory.is_none()
+				&& !self.rust_context
 				&& !self.rust_worker
-				&& !self.rust_async,
-			"rust-service-factory cannot be combined with rust-type, rust-factory, rust-worker or \
-			 rust-async"
+				&& !self.rust_main_thread
+				&& !self.rust_async
+				&& !self.experimental,
+			"rust-service-factory cannot be combined with rust-type, rust-factory, rust-context, \
+			 rust-worker, rust-main-thread, rust-async or experimental"
 		);
 		anyhow::ensure!(
 			self.platform_tables().all(|(_, table)| table.unavailable),
@@ -525,8 +540,24 @@ fn validate_plugin(plugin: &Plugin, alias: &str) -> Result<()> {
 		"plugin cannot declare both rust-type and rust-factory"
 	);
 	anyhow::ensure!(
+		!plugin.rust_context || plugin.rust_factory.is_some(),
+		"rust-context requires rust-factory"
+	);
+	anyhow::ensure!(
 		!plugin.rust_worker || plugin.rust_type.is_some() || plugin.rust_factory.is_some(),
 		"rust-worker requires rust-type or rust-factory"
+	);
+	anyhow::ensure!(
+		!plugin.rust_main_thread || plugin.rust_type.is_some() || plugin.rust_factory.is_some(),
+		"rust-main-thread requires rust-type or rust-factory"
+	);
+	anyhow::ensure!(
+		!(plugin.rust_worker && plugin.rust_main_thread),
+		"plugin cannot declare both rust-worker and rust-main-thread"
+	);
+	anyhow::ensure!(
+		!plugin.experimental || plugin.rust_type.is_some() || plugin.rust_factory.is_some(),
+		"experimental requires rust-type or rust-factory"
 	);
 	anyhow::ensure!(
 		!plugin.apple_context || (plugin.apple_type.is_some() && plugin.apple_module.is_some()),

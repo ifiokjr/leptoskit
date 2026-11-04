@@ -154,12 +154,21 @@ jbyteArray array(JNIEnv* env, lk_buffer buffer) {
 
     return env->ExceptionCheck() ? nullptr : result;
 }
+
+void release_platform_context(void* vm, void* context) {
+    if (!vm || !context) return;
+    CallbackEnv env(static_cast<JavaVM*>(vm));
+    env.get()->DeleteGlobalRef(static_cast<jobject>(context));
+}
 }
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_dev_leptoskit_mobile_NativeApp_create(JNIEnv* env, jclass, jbyteArray wasm,
-    jbyteArray data_path, jbyteArray cache_path) {
+    jbyteArray data_path, jbyteArray cache_path, jobject host_context) {
     if (!wasm || !data_path || !cache_path) return 0;
+    JavaVM* java_vm = nullptr;
+
+    if (env->GetJavaVM(&java_vm) != JNI_OK) return 0;
     const auto size = env->GetArrayLength(wasm);
     auto* bytes = env->GetByteArrayElements(wasm, nullptr);
 
@@ -185,9 +194,24 @@ Java_dev_leptoskit_mobile_NativeApp_create(JNIEnv* env, jclass, jbyteArray wasm,
         return 0;
     }
 
+    jobject retained_context = nullptr;
+
+    if (host_context) {
+        retained_context = env->NewGlobalRef(host_context);
+
+        if (!retained_context) {
+            env->ReleaseByteArrayElements(wasm, bytes, JNI_ABORT);
+
+            return 0;
+        }
+    }
+
     lk_app_context context{
         reinterpret_cast<const uint8_t*>(data.data()), data.size(),
-        reinterpret_cast<const uint8_t*>(cache.data()), cache.size()
+        reinterpret_cast<const uint8_t*>(cache.data()), cache.size(),
+        java_vm,
+        retained_context,
+        retained_context ? release_platform_context : nullptr,
     };
     lk_buffer error{};
     auto* result = leptoskit_app_create_with_context(
@@ -486,6 +510,13 @@ Java_dev_leptoskit_mobile_NativeApp_executeWorker(JNIEnv*, jclass, jlong handle)
     auto* worker = reinterpret_cast<lk_rust_worker*>(static_cast<uintptr_t>(handle));
 
     return static_cast<jlong>(reinterpret_cast<uintptr_t>(lk_worker_execute(worker)));
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_leptoskit_mobile_NativeApp_isMainThreadWorker(JNIEnv*, jclass, jlong handle) {
+    auto* worker = reinterpret_cast<const lk_rust_worker*>(static_cast<uintptr_t>(handle));
+
+    return lk_worker_is_main_thread(worker) ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL

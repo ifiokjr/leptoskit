@@ -11,13 +11,22 @@ use super::*;
 /// the shared Rust fields and the platform's native type.
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct PlatformRegistration {
 	pub rust_type: Option<String>,
 	pub rust_factory: Option<String>,
 	#[serde(default)]
+	pub rust_context: bool,
+	#[serde(default)]
 	pub rust_worker: bool,
 	#[serde(default)]
+	pub rust_main_thread: bool,
+	#[serde(default)]
 	pub rust_async: bool,
+	/// Marks this Rust registration as experimental; it is used only when
+	/// `native.experimental-rust-plugins = true` in `leptoskit.toml`.
+	#[serde(default)]
+	pub experimental: bool,
 	/// Explicitly opts the platform out: calls fail with `Unavailable` and the
 	/// build doesn't warn.
 	#[serde(default)]
@@ -29,8 +38,8 @@ impl PlatformRegistration {
 		rust_registration(
 			self.rust_type.as_deref(),
 			self.rust_factory.as_deref(),
-			self.rust_worker,
-			self.rust_async,
+			self.rust_context,
+			Flavour::select(self.rust_worker, self.rust_main_thread, self.rust_async),
 		)
 	}
 
@@ -39,7 +48,12 @@ impl PlatformRegistration {
 
 		if self.unavailable {
 			anyhow::ensure!(
-				!rust && !self.rust_worker && !self.rust_async,
+				!rust
+					&& !self.rust_context
+					&& !self.rust_worker
+					&& !self.rust_main_thread
+					&& !self.rust_async
+					&& !self.experimental,
 				"runtime.{platform}: unavailable = true cannot be combined with Rust registration"
 			);
 
@@ -55,9 +69,18 @@ impl PlatformRegistration {
 			"runtime.{platform} cannot declare both rust-type and rust-factory"
 		);
 		anyhow::ensure!(
-			!self.rust_async || (self.rust_factory.is_some() && !self.rust_worker),
+			!self.rust_context || self.rust_factory.is_some(),
+			"runtime.{platform}: rust-context requires rust-factory"
+		);
+		anyhow::ensure!(
+			!(self.rust_worker && self.rust_main_thread),
+			"runtime.{platform} cannot declare both rust-worker and rust-main-thread"
+		);
+		anyhow::ensure!(
+			!self.rust_async
+				|| (self.rust_factory.is_some() && !self.rust_worker && !self.rust_main_thread),
 			"runtime.{platform}: rust-async requires rust-factory and cannot be combined with \
-			 rust-worker"
+			 rust-worker or rust-main-thread"
 		);
 
 		for path in [&self.rust_type, &self.rust_factory].into_iter().flatten() {
@@ -75,12 +98,28 @@ impl PlatformRegistration {
 /// How the host calls a Rust plugin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Flavour {
-	/// On the UI thread, inside the guest's call.
+	/// Inline on the interpreter thread, inside the guest's call.
 	Sync,
-	/// On a worker thread.
+	/// Routed to the platform UI thread (`@MainActor` / `Dispatchers.Main`).
+	MainThread,
+	/// On a background worker thread.
 	Worker,
 	/// On the host's async runtime.
 	Async,
+}
+
+impl Flavour {
+	fn select(worker: bool, main_thread: bool, asynchronous: bool) -> Self {
+		if asynchronous {
+			Self::Async
+		} else if main_thread {
+			Self::MainThread
+		} else if worker {
+			Self::Worker
+		} else {
+			Self::Sync
+		}
+	}
 }
 
 /// How the generated registrant constructs a Rust plugin.
@@ -88,8 +127,12 @@ pub enum Flavour {
 pub enum Constructor<'a> {
 	/// `Type::default()`.
 	Type(&'a str),
-	/// A factory function.
+	/// A factory function taking `(&Path, &Path)` (or `&str` options for
+	/// async).
 	Factory(&'a str),
+	/// A factory function taking `&AppContext` (or `(&AppContext, &str)` for
+	/// async).
+	ContextFactory(&'a str),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,19 +144,18 @@ pub struct RustRegistration<'a> {
 fn rust_registration<'a>(
 	rust_type: Option<&'a str>,
 	rust_factory: Option<&'a str>,
-	worker: bool,
-	asynchronous: bool,
+	rust_context: bool,
+	flavour: Flavour,
 ) -> Option<RustRegistration<'a>> {
-	let constructor = rust_type
-		.map(Constructor::Type)
-		.or(rust_factory.map(Constructor::Factory))?;
-	let flavour = if asynchronous {
-		Flavour::Async
-	} else if worker {
-		Flavour::Worker
-	} else {
-		Flavour::Sync
-	};
+	let constructor = rust_type.map(Constructor::Type).or_else(|| {
+		rust_factory.map(|factory| {
+			if rust_context {
+				Constructor::ContextFactory(factory)
+			} else {
+				Constructor::Factory(factory)
+			}
+		})
+	})?;
 
 	Some(RustRegistration {
 		constructor,
@@ -189,6 +231,9 @@ impl<'a> Implementation<'a> {
 pub enum Missing {
 	/// The plugin has nothing for this platform.
 	NoImplementation,
+	/// The plugin has an experimental Rust implementation for this platform,
+	/// and `native.experimental-rust-plugins` is not enabled.
+	ExperimentalRustPlugin,
 	/// The plugin has an implementation the generated host can't run yet.
 	HostCannotRun(Capability),
 	/// The plugin opts this platform out with `unavailable = true`.
@@ -279,8 +324,9 @@ impl Plugin {
 	/// What runs `self` on `target`, or why nothing does.
 	///
 	/// A platform table wins, then the shared Rust fields, then the platform's
-	/// native type. When the host can't run the Rust flavour, the native type
-	/// is used instead if there is one.
+	/// native type. Experimental Rust registrations are considered only when
+	/// `native.experimental-rust-plugins = true`. When the host can't run the
+	/// Rust flavour, the native type is used instead if there is one.
 	pub fn implementation(
 		&self,
 		target: Target,
@@ -296,13 +342,21 @@ impl Plugin {
 			.native_implementation(target)
 			.filter(|native| native.native_kind() == host.native);
 
-		if let Some(rust) = table
-			.and_then(PlatformRegistration::rust)
-			.or_else(|| self.shared_rust())
-		{
+		// The table's Rust registration, then the shared one, each with whether
+		// it is experimental.
+		let declared = [
+			table.and_then(|table| Some((table.rust()?, table.experimental))),
+			self.shared_rust().map(|rust| (rust, self.experimental)),
+		];
+		let enabled = declared
+			.iter()
+			.flatten()
+			.find(|&&(_, experimental)| self.rust_enabled(experimental));
+
+		if let Some(&(rust, _)) = enabled {
 			let capability = match rust.flavour {
 				Flavour::Sync => Capability::Sync,
-				Flavour::Worker => Capability::Worker,
+				Flavour::MainThread | Flavour::Worker => Capability::Worker,
 				Flavour::Async => Capability::Async,
 			};
 
@@ -328,13 +382,27 @@ impl Plugin {
 			});
 		}
 
-		native.ok_or(Missing::NoImplementation)
+		// Every declared Rust registration here is experimental and disabled.
+		native.ok_or(if declared.iter().any(Option::is_some) {
+			Missing::ExperimentalRustPlugin
+		} else {
+			Missing::NoImplementation
+		})
 	}
 
-	/// Whether any registration of the plugin runs on the async host, which
-	/// needs host-owned options.
+	/// Whether a Rust registration is used: experimental ones need
+	/// `native.experimental-rust-plugins = true`.
+	fn rust_enabled(&self, experimental: bool) -> bool {
+		!experimental || self.experimental_rust_plugins
+	}
+
+	/// Whether any active registration of the plugin runs on the async host,
+	/// which needs host-owned options.
 	pub(super) fn declares_async(&self) -> bool {
-		self.rust_async || self.platform_tables().any(|(_, table)| table.rust_async)
+		(self.rust_async && self.rust_enabled(self.experimental))
+			|| self
+				.platform_tables()
+				.any(|(_, table)| table.rust_async && self.rust_enabled(table.experimental))
 	}
 
 	pub(super) fn platform_tables(
@@ -369,8 +437,8 @@ impl Plugin {
 		rust_registration(
 			self.rust_type.as_deref(),
 			self.rust_factory.as_deref(),
-			self.rust_worker,
-			self.rust_async,
+			self.rust_context,
+			Flavour::select(self.rust_worker, self.rust_main_thread, self.rust_async),
 		)
 	}
 
@@ -428,6 +496,9 @@ impl MissingPlugin {
 
 		match self.reason {
 			Missing::NoImplementation => format!("{name} has no {adjective} implementation"),
+			Missing::ExperimentalRustPlugin => {
+				format!("{name} requires native.experimental-rust-plugins = true on {platform}")
+			}
 			Missing::Unavailable => format!("{name} is unavailable on {platform}"),
 
 			Missing::HostCannotRun(_) if HostCapabilities::of(self.target).runs_nothing() => {
