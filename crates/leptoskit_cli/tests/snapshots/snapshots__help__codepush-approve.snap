@@ -1,0 +1,50 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Signs a source approval for a release you rebuilt yourself from a public commit, after checking that every file matches.
+
+Unpacks the release and compares it with the directory you built from `--repository` at `--commit`: the same file paths, byte for byte. Nothing is signed when any file differs, is missing, or is extra. An approval says you rebuilt identical files from that commit; it is not a review of the code.
+
+Usage: leptoskit codepush approve [OPTIONS] --rebuilt <DIR> --repository <URL> --commit <SHA> --out <PATH> <--release <PATH>|--version <VERSION>>
+
+Options:
+      --release <PATH>
+          The release container to approve, such as a downloaded `release.lkb`
+
+      --store <STORE>
+          The release store holding the release named by `--version` and `--build`; defaults to `releases/`
+          
+          [default: releases]
+
+      --channel <CHANNEL>
+          The release channel, with `--version`
+          
+          [default: production]
+
+      --platform <PLATFORM>
+          Application platform, with `--version`; native releases use a platform-specific channel
+
+      --version <VERSION>
+          The version of the release in the store to approve
+
+      --build <BUILD>
+          The build of the release in the store to approve
+
+      --rebuilt <DIR>
+          The directory you built yourself, such as the `--out` of `leptoskit native bundle`
+
+      --repository <URL>
+          The public GitHub repository you built from, `https://github.com/<owner>/<repo>`
+
+      --commit <SHA>
+          The full Git commit id you built
+
+      --approver-key <PATH>
+          The file holding your approver key. Without it, the key is read from the `LEPTOSKIT_CODEPUSH_APPROVER_KEY` environment variable
+
+      --out <PATH>
+          Where to write the signed approval
+
+  -h, --help
+          Print help (see a summary with '-h')

@@ -13,6 +13,7 @@ use std::sync::Mutex;
 
 use leptoskit_cli::cache::BuildCache;
 use leptoskit_cli::cache::Fingerprint;
+use leptoskit_cli::codepush::APPROVER_KEY_ENV;
 use leptoskit_cli::codepush::SIGNING_KEY_ENV;
 use leptoskit_cli::new_project;
 use leptoskit_cli::s3::ACCESS_KEY_ID_ENV;
@@ -80,6 +81,7 @@ fn leptoskit_with_env(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Output
 	command.args(args).current_dir(dir);
 	for secret in [
 		SIGNING_KEY_ENV,
+		APPROVER_KEY_ENV,
 		ACCESS_KEY_ID_ENV,
 		SECRET_ACCESS_KEY_ENV,
 		SESSION_TOKEN_ENV,
@@ -1082,6 +1084,334 @@ fn printed_public_key(keygen: &Output) -> String {
 	line.trim_start_matches("public_keys = [\"")
 		.trim_end_matches("\"]")
 		.to_owned()
+}
+
+/// The public key `keygen --approver` printed for
+/// `codepush.provenance.approvers`.
+fn printed_approver_key(keygen: &Output) -> String {
+	let out = stdout(keygen);
+	let line = out
+		.lines()
+		.find(|line| line.starts_with("approvers = "))
+		.unwrap_or_else(|| panic!("keygen --approver prints the approvers line:\n{out}"));
+	line.trim_start_matches("approvers = [\"")
+		.trim_end_matches("\"]")
+		.to_owned()
+}
+
+const APPROVED_REPOSITORY: &str = "https://github.com/example/pushed";
+const APPROVED_COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+
+/// Copies the files under `from` to `to`, as an approver's own build of
+/// the same source would lay them out.
+fn copy_tree(from: &Path, to: &Path) {
+	std::fs::create_dir_all(to).expect("create rebuild");
+
+	for entry in std::fs::read_dir(from).expect("read build") {
+		let entry = entry.expect("entry");
+		let target = to.join(entry.file_name());
+
+		if entry.file_type().expect("type").is_dir() {
+			copy_tree(&entry.path(), &target);
+		} else {
+			std::fs::copy(entry.path(), target).expect("copy");
+		}
+	}
+}
+
+/// A change to a rebuilt directory: what it is, how to make it, and what
+/// `approve` says about it.
+type RebuildChange = (&'static str, fn(&Path), &'static str);
+
+/// Approves the fixture's first release, `0.2.0+1`, as rebuilt into
+/// `rebuilt`, with the key in `key`, writing `out`.
+fn approve_release(dir: &Path, rebuilt: &str, key: &str, out: &str) -> Output {
+	leptoskit(
+		dir,
+		&[
+			"codepush",
+			"approve",
+			"--release",
+			"releases/pushed/production/0.2.0+1/release.lkb",
+			"--rebuilt",
+			rebuilt,
+			"--repository",
+			APPROVED_REPOSITORY,
+			"--commit",
+			APPROVED_COMMIT,
+			"--approver-key",
+			key,
+			"--out",
+			out,
+		],
+	)
+}
+
+#[test]
+fn codepush_approve_signs_only_a_byte_identical_rebuild() {
+	let scratch = fixture_project("codepush");
+	for args in [
+		&["codepush", "keygen", "--out", "publisher.key"][..],
+		&["codepush", "keygen", "--out", "approver.key", "--approver"][..],
+		&["codepush", "release", "--signing-key", "publisher.key"][..],
+	] {
+		let output = leptoskit(&scratch.path, args);
+		assert!(output.status.success(), "{args:?}: {}", stderr(&output));
+	}
+	let approver_key = leptoskit_codepush::ReleaseSigningKey::from_hex(
+		&std::fs::read_to_string(scratch.path.join("approver.key")).expect("approver key"),
+	)
+	.expect("key");
+
+	copy_tree(&scratch.path.join("dist"), &scratch.path.join("rebuilt"));
+	let approved = approve_release(&scratch.path, "rebuilt", "approver.key", "approval.json");
+	assert!(approved.status.success(), "{}", stderr(&approved));
+	assert!(
+		stdout(&approved).contains("approved pushed 0.2.0+1 on production"),
+		"{}",
+		stdout(&approved)
+	);
+	assert!(!stdout(&approved).contains(approver_key.to_hex().as_str()));
+	let approval = leptoskit_codepush::SignedApproval::from_slice(
+		&std::fs::read(scratch.path.join("approval.json")).expect("approval"),
+	)
+	.expect("parse");
+	let (signer, statement) = approval.open().expect("verifies");
+	assert_eq!(signer, approver_key.public_key());
+	assert_eq!(statement.app, "pushed");
+	assert_eq!(statement.channel, "production");
+	assert_eq!(statement.version.to_string(), "0.2.0");
+	assert_eq!(statement.build, 1);
+	assert_eq!(statement.repository, APPROVED_REPOSITORY);
+	assert_eq!(statement.commit, APPROVED_COMMIT);
+
+	// The same release named in the store.
+	let from_store = leptoskit(
+		&scratch.path,
+		&[
+			"codepush",
+			"approve",
+			"--version",
+			"0.2.0",
+			"--build",
+			"1",
+			"--rebuilt",
+			"rebuilt",
+			"--repository",
+			APPROVED_REPOSITORY,
+			"--commit",
+			APPROVED_COMMIT,
+			"--approver-key",
+			"approver.key",
+			"--out",
+			"from-store.json",
+		],
+	);
+	assert!(from_store.status.success(), "{}", stderr(&from_store));
+	assert_eq!(
+		leptoskit_codepush::SignedApproval::from_slice(
+			&std::fs::read(scratch.path.join("from-store.json")).expect("approval"),
+		)
+		.expect("parse")
+		.open()
+		.expect("verifies")
+		.1,
+		statement
+	);
+
+	let changes: [RebuildChange; 3] = [
+		(
+			"one differing byte",
+			|rebuilt| {
+				let path = rebuilt.join("index.html");
+				let mut bytes = std::fs::read(&path).expect("read");
+				bytes[0] ^= 1;
+				std::fs::write(path, bytes).expect("write");
+			},
+			"index.html differs",
+		),
+		(
+			"an extra file",
+			|rebuilt| std::fs::write(rebuilt.join("extra.txt"), "extra").expect("write"),
+			"extra.txt is in the rebuilt directory but not in the release",
+		),
+		(
+			"a missing file",
+			|rebuilt| std::fs::remove_file(rebuilt.join("index.html")).expect("remove"),
+			"index.html is in the release but not in the rebuilt directory",
+		),
+	];
+
+	for (index, (what, change, reason)) in changes.into_iter().enumerate() {
+		let rebuilt = format!("rebuilt-{index}");
+		copy_tree(&scratch.path.join("dist"), &scratch.path.join(&rebuilt));
+		change(&scratch.path.join(&rebuilt));
+		let refused = approve_release(&scratch.path, &rebuilt, "approver.key", "refused.json");
+		assert!(!refused.status.success(), "{what} must not be approved");
+		assert!(
+			stderr(&refused).contains("not approving pushed 0.2.0+1")
+				&& stderr(&refused).contains(reason),
+			"{what}: {}",
+			stderr(&refused)
+		);
+		assert!(
+			!scratch.path.join("refused.json").exists(),
+			"{what}: nothing is signed"
+		);
+	}
+
+	// A bad statement fails before anything is read or signed.
+	let bad = leptoskit(
+		&scratch.path,
+		&[
+			"codepush",
+			"approve",
+			"--release",
+			"releases/pushed/production/0.2.0+1/release.lkb",
+			"--rebuilt",
+			"rebuilt",
+			"--repository",
+			"https://github.com/example/pushed.git",
+			"--commit",
+			APPROVED_COMMIT,
+			"--approver-key",
+			"approver.key",
+			"--out",
+			"refused.json",
+		],
+	);
+	assert!(!bad.status.success());
+	assert!(stderr(&bad).contains("--repository"), "{}", stderr(&bad));
+	assert!(!scratch.path.join("refused.json").exists());
+}
+
+#[test]
+fn codepush_attach_adds_approvals_that_the_project_policy_counts() {
+	let scratch = fixture_project("codepush");
+	let mut keys = Vec::new();
+
+	for (name, approver) in [
+		("publisher", false),
+		("alice", true),
+		("bob", true),
+		("stranger", true),
+	] {
+		let file = format!("{name}.key");
+		let mut args = vec!["codepush", "keygen", "--out", file.as_str()];
+
+		if approver {
+			args.push("--approver");
+		}
+
+		let keygen = leptoskit(&scratch.path, &args);
+		assert!(keygen.status.success(), "{}", stderr(&keygen));
+		keys.push(if approver {
+			printed_approver_key(&keygen)
+		} else {
+			printed_public_key(&keygen)
+		});
+	}
+
+	std::fs::write(
+		scratch.path.join(leptoskit_config::CONFIG_FILE),
+		format!(
+			"[app]\nname = \"pushed\"\nversion = \"0.2.0\"\n\n[codepush]\npublic_keys = \
+			 [\"{}\"]\n\n[codepush.provenance]\nrepository = \"{APPROVED_REPOSITORY}\"\napprovers \
+			 = [\"{}\", \"{}\"]\nthreshold = 2\n",
+			keys[0], keys[1], keys[2]
+		),
+	)
+	.expect("config");
+	let release = leptoskit(
+		&scratch.path,
+		&["codepush", "release", "--signing-key", "publisher.key"],
+	);
+	assert!(release.status.success(), "{}", stderr(&release));
+	let release_dir = scratch.path.join("releases/pushed/production/0.2.0+1");
+	let signature = std::fs::read(release_dir.join("release.sig")).expect("signature");
+	copy_tree(&scratch.path.join("dist"), &scratch.path.join("rebuilt"));
+
+	for name in ["alice", "bob", "stranger"] {
+		let approved = approve_release(
+			&scratch.path,
+			"rebuilt",
+			&format!("{name}.key"),
+			&format!("{name}.json"),
+		);
+		assert!(approved.status.success(), "{name}: {}", stderr(&approved));
+	}
+
+	// The publisher can't approve its own release.
+	let own = approve_release(&scratch.path, "rebuilt", "publisher.key", "own.json");
+	assert!(!own.status.success());
+	assert!(
+		stderr(&own).contains("is a publisher key"),
+		"{}",
+		stderr(&own)
+	);
+	assert!(!scratch.path.join("own.json").exists());
+
+	let attach = |files: &[&str]| {
+		let mut args = vec!["codepush", "attach"];
+		args.extend_from_slice(files);
+		leptoskit(&scratch.path, &args)
+	};
+	let first = attach(&["alice.json"]);
+	assert!(first.status.success(), "{}", stderr(&first));
+	assert!(
+		stdout(&first)
+			.contains("attached 1 new approval(s) to pushed/production/0.2.0+1; it has 1"),
+		"{}",
+		stdout(&first)
+	);
+	assert!(
+		stdout(&first).contains("has 1 of the 2 approvals"),
+		"{}",
+		stdout(&first)
+	);
+
+	let stranger = attach(&["stranger.json"]);
+	assert!(!stranger.status.success());
+	assert!(
+		stderr(&stranger).contains("doesn't list"),
+		"{}",
+		stderr(&stranger)
+	);
+
+	let mut tampered = std::fs::read_to_string(scratch.path.join("bob.json")).expect("approval");
+	tampered = tampered.replace("0.2.0", "0.2.1");
+	std::fs::write(scratch.path.join("tampered.json"), tampered).expect("tamper");
+	let rejected = attach(&["bob.json", "tampered.json"]);
+	assert!(
+		!rejected.status.success(),
+		"a tampered approval attaches nothing"
+	);
+
+	let second = attach(&["alice.json", "bob.json"]);
+	assert!(second.status.success(), "{}", stderr(&second));
+	assert!(
+		stdout(&second)
+			.contains("attached 1 new approval(s) to pushed/production/0.2.0+1; it has 2"),
+		"{}",
+		stdout(&second)
+	);
+	assert!(
+		stdout(&second).contains(&format!(
+			"meets codepush.provenance: 2 of 2 approvers, commit {APPROVED_COMMIT}"
+		)),
+		"{}",
+		stdout(&second)
+	);
+	assert_eq!(
+		std::fs::read(release_dir.join("release.sig")).expect("signature"),
+		signature,
+		"the publisher signature is untouched"
+	);
+	let approvals: Vec<_> = std::fs::read_dir(release_dir.join("approvals"))
+		.expect("approvals directory")
+		.map(|entry| entry.expect("entry").file_name())
+		.collect();
+	assert_eq!(approvals.len(), 1, "one approvals file per release");
 }
 
 #[test]
