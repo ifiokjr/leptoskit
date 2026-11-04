@@ -159,8 +159,8 @@ pub enum Command {
 	/// rolls back.
 	#[command(disable_version_flag = true)]
 	Deploy(crate::infra::ReleaseArgs),
-	/// Builds, records, checks, and reproduces backend bundles from public
-	/// commits; does not verify a live server.
+	/// Builds and reproduces backends from public commits and checks signed
+	/// deployment policies; does not show what a live server runs.
 	Verify {
 		#[command(subcommand)]
 		command: crate::verify::VerifyCommand,

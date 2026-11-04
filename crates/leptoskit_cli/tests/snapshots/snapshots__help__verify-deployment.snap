@@ -1,0 +1,16 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Checks an origin's signed deployment policy against a key you trust. Does not show what its server runs
+
+Usage: leptoskit verify deployment [OPTIONS] --origin <ORIGIN> --key <HEX>
+
+Options:
+      --origin <ORIGIN>          The website or API origin to check, such as `https://example.com`
+      --key <HEX>                A deployment public key you trust, in hex; repeat for each. Get it from the project, never from the website being checked
+      --repository <REPOSITORY>  The repository the policy must name
+      --policy <POLICY>          Read the signed policy from this file instead of the origin
+      --state <STATE>            A file remembering the newest policy seen, so an older one is refused
+  -h, --help                     Print help
+  -V, --version                  Print version

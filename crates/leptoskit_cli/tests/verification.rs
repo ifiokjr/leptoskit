@@ -408,3 +408,110 @@ fn a_commit_builds_reproducibly_and_tampering_fails_the_rebuild() {
 		);
 	}
 }
+
+#[test]
+fn a_signed_policy_vouches_only_for_its_own_origins_and_never_goes_backwards() {
+	let scratch = tempfile::tempdir().unwrap();
+	let scratch = scratch.path();
+	let key = scratch.join("deployment.key");
+	let (ok, text) = run(
+		scratch,
+		&[
+			"verify".as_ref(),
+			"keygen".as_ref(),
+			"--out".as_ref(),
+			key.as_os_str(),
+		],
+	);
+	assert!(ok, "{text}");
+	let public = text
+		.lines()
+		.find_map(|line| line.strip_prefix("public key: "))
+		.unwrap()
+		.to_owned();
+	assert!(!text.contains(std::fs::read_to_string(&key).unwrap().trim()));
+
+	let sign = |sequence: u64| {
+		let policy = scratch.join(format!("policy-{sequence}.json"));
+		let signed = scratch.join(format!("signed-{sequence}.json"));
+		std::fs::write(
+			&policy,
+			serde_json::to_vec(&serde_json::json!({
+				"format_version": 1,
+				"kind": "leptoskit-deployment-policy",
+				"repository": "https://github.com/example/app",
+				"deployment": "production",
+				"origins": ["https://example.com"],
+				"sequence": sequence,
+				"issued_at": 1_700_000_000_u64,
+				"expires_at": 4_000_000_000_u64,
+				"releases": [{
+					"commit": "a".repeat(40),
+					"inventory_sha256": "b".repeat(64),
+					"executable_sha256": "c".repeat(64),
+				}],
+			}))
+			.unwrap(),
+		)
+		.unwrap();
+		let (ok, text) = run(
+			scratch,
+			&[
+				"verify".as_ref(),
+				"sign".as_ref(),
+				"--policy".as_ref(),
+				policy.as_os_str(),
+				"--key".as_ref(),
+				key.as_os_str(),
+				"--out".as_ref(),
+				signed.as_os_str(),
+			],
+		);
+		assert!(ok, "{text}");
+		signed
+	};
+	let state = scratch.join("state.json");
+	let check = |signed: &Path, origin: &str| {
+		run(
+			scratch,
+			&[
+				"verify".as_ref(),
+				"deployment".as_ref(),
+				"--origin".as_ref(),
+				origin.as_ref(),
+				"--key".as_ref(),
+				public.as_ref(),
+				"--repository".as_ref(),
+				"https://github.com/example/app".as_ref(),
+				"--policy".as_ref(),
+				signed.as_os_str(),
+				"--state".as_ref(),
+				state.as_os_str(),
+			],
+		)
+	};
+
+	let older = sign(1);
+	let newer = sign(2);
+	let (ok, text) = check(&newer, "https://example.com");
+	assert!(ok, "{text}");
+	assert!(
+		text.contains(&format!("inventory SHA-256 {}", "b".repeat(64))),
+		"{text}"
+	);
+	assert!(
+		text.contains("Not verified: that the server at https://example.com runs"),
+		"{text}"
+	);
+
+	let (ok, text) = check(&newer, "https://copy-of-example.test");
+	assert!(!ok);
+	assert!(
+		text.contains("not one of this deployment's origins"),
+		"{text}"
+	);
+
+	let (ok, text) = check(&older, "https://example.com");
+	assert!(!ok);
+	assert!(text.contains("refusing a rollback"), "{text}");
+}
