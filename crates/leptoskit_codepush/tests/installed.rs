@@ -401,6 +401,50 @@ fn incompatible_or_missing_native_contract_and_entry_never_become_ready() {
 }
 
 #[test]
+fn an_incompatible_release_is_downloaded_once() {
+	let directory = tempfile::tempdir().expect("installed");
+	let baseline = native_bundle(0, BASELINE);
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("open");
+	let mut incompatible = contract();
+	incompatible.shell = "other-shell".to_owned();
+	let runtime = serde_json::to_vec(&incompatible).expect("runtime");
+	let mut registry = Registry::new(bundle(1, Some(REPLACEMENT), Some(&runtime)));
+
+	assert!(installed.sync_with(&mut registry).is_err());
+	// The signed container fails the same way every time, so later checks
+	// read only the index instead of downloading it again.
+	for _ in 0..2 {
+		let report = installed.sync_with(&mut registry).expect("current");
+		assert_eq!(report.status, UpdateStatus::Current);
+	}
+	drop(installed);
+	let mut reopened =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("reopen");
+	reopened.sync_with(&mut registry).expect("current");
+	let downloads = registry
+		.fetched
+		.iter()
+		.filter(|url| url.ends_with("/release.lkb"))
+		.count();
+	assert_eq!(downloads, 1, "{:?}", registry.fetched);
+
+	// A new store build may support it, so the record does not outlive the
+	// build that rejected it.
+	let upgraded = native_bundle(0, b"\0asm\x01\0\0\0\0\x03\x01v0");
+	drop(reopened);
+	let mut upgraded =
+		InstalledBundles::open(directory.path(), &upgraded, configuration()).expect("upgrade");
+	assert!(upgraded.sync_with(&mut registry).is_err());
+	let downloads = registry
+		.fetched
+		.iter()
+		.filter(|url| url.ends_with("/release.lkb"))
+		.count();
+	assert_eq!(downloads, 2, "{:?}", registry.fetched);
+}
+
+#[test]
 fn interrupted_download_and_invalid_signature_leave_no_trial() {
 	let directory = tempfile::tempdir().expect("installed");
 	let baseline = native_bundle(0, BASELINE);
@@ -1092,6 +1136,41 @@ async fn http_statuses_classify_missing_failed_and_redirected_responses() {
 
 #[cfg(all(feature = "http", feature = "server"))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn http_reads_stop_at_the_requested_bound() {
+	use axum::routing::get;
+	use leptoskit_codepush::installed::HttpTransport;
+
+	let router = axum::Router::new().route("/big", get(|| async { vec![b'x'; 3 * 1024 * 1024] }));
+	let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+		.await
+		.expect("bind");
+	let base = format!("http://{}", listener.local_addr().expect("address"));
+	let server = tokio::spawn(async move { axum::serve(listener, router).await });
+	let (bounded, unbounded) = tokio::task::spawn_blocking(move || {
+		let mut transport = HttpTransport::new(true);
+		let url = format!("{base}/big");
+		(
+			transport.fetch_within(&url, 2 * 1024 * 1024),
+			transport.fetch(&url),
+		)
+	})
+	.await
+	.expect("worker");
+	server.abort();
+
+	assert!(
+		matches!(&bounded, Err(CodePushError::Transport(_))),
+		"{:?}",
+		bounded.as_ref().map(Vec::len)
+	);
+	assert_eq!(
+		unbounded.expect("within the bundle limit").len(),
+		3 * 1024 * 1024
+	);
+}
+
+#[cfg(all(feature = "http", feature = "server"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_channel_without_releases_is_up_to_date_over_real_http() {
 	let temporary = tempfile::tempdir().expect("fixture");
 	let store =
@@ -1257,6 +1336,73 @@ fn deltas_cannot_rebuild_more_than_the_client_allows() {
 		matches!(&result, Err(CodePushError::Malformed(message)) if message.contains("limit")),
 		"{result:?}"
 	);
+}
+
+#[test]
+fn every_download_is_bounded_by_its_own_object_limit() {
+	struct Bounded {
+		index: ChannelIndex,
+		delta: Vec<u8>,
+		container: Vec<u8>,
+		bounds: Vec<(String, u64)>,
+	}
+	impl Transport for Bounded {
+		fn fetch(&mut self, url: &str) -> Result<Vec<u8>, CodePushError> {
+			self.fetch_within(url, u64::MAX)
+		}
+
+		fn fetch_within(&mut self, url: &str, max_bytes: u64) -> Result<Vec<u8>, CodePushError> {
+			self.bounds.push((url.to_owned(), max_bytes));
+
+			if url.ends_with("/index.json") {
+				return Ok(serde_json::to_vec(&self.index)?);
+			}
+
+			if url.contains("/deltas/") {
+				return Ok(self.delta.clone());
+			}
+
+			Ok(self.container.clone())
+		}
+	}
+
+	let running = native_bundle(0, BASELINE);
+	let target = native_bundle(1, REPLACEMENT);
+	let mut transport = Bounded {
+		index: Registry::new(target.clone()).index,
+		delta: b"not a delta".to_vec(),
+		container: target.clone(),
+		bounds: Vec::new(),
+	};
+	let mut client = CodePushClient::new(
+		&mut transport,
+		"https://updates.example",
+		"counter",
+		"production",
+		Version::new(1, 0, 0),
+		0,
+		running,
+		TrustedKeys::new([publisher().public_key()]).expect("keys"),
+	);
+	let download = client
+		.download_verified()
+		.expect("download")
+		.expect("offer");
+	assert_eq!(download.container, target);
+	drop(client);
+	// The unsigned index is read on every check and has the tightest bound;
+	// without a configured cap, a delta or release can never be larger than
+	// the biggest container a client reads.
+	let bounds = &transport.bounds;
+	assert_eq!(bounds.len(), 3, "{bounds:?}");
+	for (url, max_bytes) in bounds {
+		let expected = if url.ends_with("/index.json") {
+			2 * 1024 * 1024
+		} else {
+			MAX_BUNDLE_BYTES
+		};
+		assert_eq!(*max_bytes, expected, "{url}");
+	}
 }
 
 #[test]

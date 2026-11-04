@@ -23,6 +23,7 @@ use wasmi::Caller;
 use wasmi::Linker;
 use wasmi::Module;
 use wasmi::Val;
+use wasmi::ValType;
 
 use super::HostState;
 use super::host_trap;
@@ -44,6 +45,13 @@ enum Behavior {
 /// What reaching any other wasm-bindgen import means.
 const BROWSER_WORK: &str = "the guest called browser-only wasm-bindgen glue, which the native \
                             runtime has no JavaScript for";
+
+/// Reporting shim calls logged per host before the rest go unreported.
+const MAX_REPORTED_SHIMS: u32 = 16;
+
+/// What calling the externref grow shim with another signature means.
+const GROW_SIGNATURE: &str = "the guest imported the externref table grow shim with a signature \
+                              other than wasm-bindgen's `(i32) -> i32`";
 
 /// Maps one wasm-bindgen import to its host behavior. `None` for imports
 /// from other modules, which stay unresolved.
@@ -98,9 +106,16 @@ pub(super) fn link(
 
 		let module_name = import.module().to_owned();
 		let name = import.name().to_owned();
-		let Some(behavior) = behavior(&module_name, &name) else {
+		let Some(mut behavior) = behavior(&module_name, &name) else {
 			continue;
 		};
+		// The counter is an `i32` table index; any other signature would hand
+		// the guest a forged value, such as a funcref naming no function.
+		if behavior == Behavior::Grow
+			&& (function.params() != [ValType::I32] || function.results() != [ValType::I32])
+		{
+			behavior = Behavior::Trap(GROW_SIGNATURE);
+		}
 		let shim_name = name.clone();
 		linker.func_new(&module_name, &name, function, move |caller, _, results| {
 			shim(caller, behavior, &shim_name, results)
@@ -120,7 +135,11 @@ fn shim(
 	match behavior {
 		Behavior::Discard => {}
 		Behavior::Report => {
-			eprintln!("guest called {name}; the value lives in the browser-only ABI");
+			let reported = caller.data().reported_shims;
+			if reported < MAX_REPORTED_SHIMS {
+				caller.data_mut().reported_shims = reported + 1;
+				eprintln!("guest called {name}; the value lives in the browser-only ABI");
+			}
 		}
 		Behavior::Grow => {
 			let previous = caller.data().externref_table;
@@ -142,14 +161,10 @@ fn shim(
 	Ok(())
 }
 
-/// The zero value of one result slot's own type.
+/// The zero value of one result slot's own type: null for references, so a
+/// shim never produces a reference the guest could call through.
 fn zero(slot: &Val) -> Val {
-	match slot {
-		Val::I64(_) => Val::I64(0),
-		Val::F32(_) => Val::F32(0f32.into()),
-		Val::F64(_) => Val::F64(0f64.into()),
-		_ => Val::I32(0),
-	}
+	Val::default_for_ty(slot.ty())
 }
 
 #[cfg(test)]

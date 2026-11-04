@@ -327,3 +327,70 @@ fn the_frame_clock_rejects_a_missing_app() {
 		assert_eq!(lk_app_frame(ptr::null_mut(), 0, 16_666_667), -1);
 	}
 }
+
+/// Calls the `echo` plugin twice and keeps whatever it answers.
+const CALLS_TWICE: &str = r#"(module
+ (import "leptoskit" "node_create" (func $create (param i64 i32)))
+ (import "leptoskit" "commit" (func $commit))
+ (import "leptoskit_plugins_v1" "resolve" (func $resolve (param i32 i32) (result i64)))
+ (import "leptoskit_plugins_v1" "submit" (func $submit (param i32 i32 i32 i32) (result i64)))
+ (import "leptoskit_plugins_v1" "take_result" (func $take (param i64 i32 i32) (result i64)))
+ (memory (export "memory") 1)
+ (data (i32.const 16) "echo")
+ (global $first (mut i64) (i64.const 0))
+ (global $second (mut i64) (i64.const 0))
+ (global $replies (mut i64) (i64.const 0))
+ (func $call (result i64)
+   (call $submit (i32.wrap_i64 (call $resolve (i32.const 16) (i32.const 4))) (i32.const 7) (i32.const 0) (i32.const 0)))
+ (func (export "leptoskit_main")
+   (call $create (i64.const 1) (i32.const 0)) (call $commit)
+   (global.set $first (call $call))
+   (global.set $second (call $call)))
+ (func (export "leptoskit_event") (param i64 i32 i32 i32) (result i32) i32.const 0)
+ (func (export "leptoskit_plugins_ready"))
+ (func (export "leptoskit_poll")
+   (drop (call $take (global.get $first) (i32.const 0) (i32.const 0)))
+   (drop (call $take (global.get $second) (i32.const 0) (i32.const 0))))
+)"#;
+
+struct Panics(usize);
+impl Plugin for Panics {
+	fn name(&self) -> &'static str {
+		"echo"
+	}
+
+	fn methods(&self) -> &'static [MethodId] {
+		&[MethodId(7)]
+	}
+
+	fn invoke(&mut self, _: MethodId, _: Bytes) -> Result<Bytes, Error> {
+		self.0 += 1;
+		panic!("a plugin bug on call {}", self.0);
+	}
+}
+
+#[test]
+fn a_panicking_inline_plugin_fails_its_calls_instead_of_aborting() {
+	let mut diagnostic = MaybeUninit::uninit();
+	// SAFETY: All app accesses are exclusive and the input lives for the call.
+	unsafe {
+		let app = create(
+			CALLS_TWICE.as_ptr(),
+			CALLS_TWICE.len(),
+			diagnostic.as_mut_ptr(),
+			|app| app.install(Box::new(Panics(0))).map(|_| ()),
+		);
+		assert!(!app.is_null());
+		assert_eq!(lk_app_start(app, 100.0, 100.0), 0);
+		let mut request = MaybeUninit::<NativeRequest>::uninit();
+		// Unwinding out of this `extern "C"` call used to abort the process.
+		assert_eq!(
+			lk_app_next_request(app, request.as_mut_ptr()),
+			0,
+			"{}",
+			String::from_utf8_lossy(&take(lk_app_error(app)))
+		);
+		assert_eq!((*lk_app_plugins(app)).buffered_bytes(), 0);
+		lk_app_destroy(app);
+	}
+}

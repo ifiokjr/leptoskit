@@ -2,6 +2,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicI64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -79,6 +80,30 @@ pub struct Database {
 	connection: Option<Connection>,
 	allow_transaction: Arc<AtomicBool>,
 	remaining_steps: Arc<AtomicUsize>,
+	/// `SQLite`'s heap use when the current call started.
+	memory_baseline: Arc<AtomicI64>,
+}
+
+/// Progress checks per call; with [`STEPS_PER_CHECK`], bounds the virtual
+/// machine instructions one call may run.
+const CHECKS_PER_CALL: usize = 10_000;
+/// Virtual machine instructions between progress checks.
+const STEPS_PER_CHECK: i32 = 100;
+/// Heap `SQLite` may grow by during one call. Row and value limits bound
+/// what a call returns, not what it holds while running: a `DISTINCT` or
+/// `ORDER BY` over generated megabyte values would otherwise build its whole
+/// working set in memory. One check interval can overshoot by roughly
+/// [`STEPS_PER_CHECK`] values of up to [`MAX_BYTES`] each.
+const MAX_CALL_MEMORY: i64 = 64 * 1024 * 1024;
+
+/// Bytes the process's `SQLite` heap currently holds. The count covers every
+/// connection in the process, so a call can also stop because another one
+/// grew at the same time.
+#[allow(unsafe_code)]
+fn sqlite_memory_used() -> i64 {
+	// SAFETY: takes no arguments and only reads SQLite's thread-safe
+	// allocation counter.
+	unsafe { rusqlite::ffi::sqlite3_memory_used() }
 }
 
 /// Factory used by generated native hosts. The cache directory is unused.
@@ -111,6 +136,7 @@ impl Database {
 			connection: None,
 			allow_transaction: Arc::default(),
 			remaining_steps: Arc::default(),
+			memory_baseline: Arc::default(),
 		})
 	}
 
@@ -239,7 +265,10 @@ impl Database {
 	}
 
 	fn reset_budget(&self) {
-		self.remaining_steps.store(1000, Ordering::Relaxed);
+		self.remaining_steps
+			.store(CHECKS_PER_CALL, Ordering::Relaxed);
+		self.memory_baseline
+			.store(sqlite_memory_used(), Ordering::Relaxed);
 	}
 
 	fn control(&self, sql: &str) -> Result<(), DatabaseError> {
@@ -357,7 +386,26 @@ impl Database {
 				| AuthAction::Pragma { .. }
 				| AuthAction::CreateVtable { .. }
 				| AuthAction::DropVtable { .. }
+				// The temporary schema lives in memory outside the page
+				// budget and outlasts the call, so a guest could fill it
+				// one bounded call at a time.
+				| AuthAction::CreateTempTable { .. }
+				| AuthAction::CreateTempIndex { .. }
+				| AuthAction::CreateTempView { .. }
+				| AuthAction::CreateTempTrigger { .. }
 				| AuthAction::Unknown { .. } => Authorization::Deny,
+				// `CREATE TABLE temp.name` names the schema instead of using
+				// the TEMP keyword.
+				AuthAction::CreateTable { .. }
+				| AuthAction::CreateIndex { .. }
+				| AuthAction::CreateView { .. }
+				| AuthAction::CreateTrigger { .. }
+					if context
+						.database_name
+						.is_some_and(|name| name.eq_ignore_ascii_case("temp")) =>
+				{
+					Authorization::Deny
+				}
 				AuthAction::Transaction { .. } | AuthAction::Savepoint { .. }
 					if !allowed.load(Ordering::Relaxed) =>
 				{
@@ -377,17 +425,22 @@ impl Database {
 		Ok(())
 	}
 
-	/// Stops a call that runs for too many steps.
+	/// Stops a call that runs for too many steps or grows `SQLite`'s heap by
+	/// more than [`MAX_CALL_MEMORY`].
 	fn guard_steps(&self, connection: &Connection) -> Result<(), DatabaseError> {
 		let steps = Arc::clone(&self.remaining_steps);
+		let baseline = Arc::clone(&self.memory_baseline);
 		connection.progress_handler(
-			1000,
+			STEPS_PER_CHECK,
 			Some(move || {
-				steps
+				let exhausted = steps
 					.try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
 						value.checked_sub(1)
 					})
-					.is_err()
+					.is_err();
+				let grown = sqlite_memory_used().saturating_sub(baseline.load(Ordering::Relaxed));
+
+				exhausted || grown > MAX_CALL_MEMORY
 			}),
 		)?;
 

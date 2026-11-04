@@ -228,6 +228,10 @@ fn denies_external_files_extensions_and_guest_transaction_control() {
 		"SAVEPOINT guest".into(),
 		"SELECT load_extension('/tmp/library')".into(),
 		"CREATE VIRTUAL TABLE external USING csv(filename='/tmp/file')".into(),
+		"CREATE TEMP TABLE scratch(x)".into(),
+		"CREATE TABLE temp.scratch(x)".into(),
+		"CREATE TEMP VIEW scratch AS SELECT 1".into(),
+		"CREATE TRIGGER temp.watch AFTER INSERT ON main.items BEGIN SELECT 1; END".into(),
 	] {
 		assert!(db.execute(&statement(&sql)).is_err(), "{sql}");
 	}
@@ -243,6 +247,22 @@ fn denies_external_files_extensions_and_guest_transaction_control() {
 	assert_eq!(
 		db.query(&statement("SELECT 42")).unwrap().rows,
 		[vec![Value::Integer(42)]]
+	);
+}
+
+#[test]
+fn calls_cannot_grow_sqlite_memory_without_bound() {
+	let (_root, mut db) = database();
+	// One row comes back, but the DISTINCT set holds every generated value
+	// in memory while the query runs: about 200 MB without a memory budget.
+	let distinct = statement(
+		"WITH RECURSIVE c(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM c LIMIT 10000) SELECT \
+		 count(*) FROM (SELECT DISTINCT zeroblob(20000) || i FROM c)",
+	);
+	assert!(db.query(&distinct).is_err());
+	assert_eq!(
+		db.query(&statement("SELECT 7")).unwrap().rows,
+		[vec![Value::Integer(7)]]
 	);
 }
 

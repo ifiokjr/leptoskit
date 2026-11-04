@@ -431,3 +431,28 @@ fn complete_guest_calls(
 
 	cancelled
 }
+
+/// Copying a payload is host work the interpreter doesn't meter, so a guest
+/// looping over submit and cancel must still exhaust its fuel instead of
+/// copying megabytes per instruction for as long as the budget allows.
+#[test]
+fn plugin_payload_copies_consume_fuel() {
+	let module = r#"(module
+		(import "leptoskit_plugins_v1" "submit" (func $submit (param i32 i32 i32 i32) (result i64)))
+		(import "leptoskit_plugins_v1" "cancel" (func $cancel (param i64) (result i32)))
+		(memory (export "memory") 17)
+		(func (export "leptoskit_main") (local $i i32)
+			(loop $more
+				(drop (call $cancel
+					(call $submit (i32.const 0) (i32.const 7) (i32.const 0) (i32.const 1048576))))
+				(local.set $i (i32.add (local.get $i) (i32.const 1)))
+				(br_if $more (i32.lt_u (local.get $i) (i32.const 512)))))
+		(func (export "leptoskit_event") (param i64 i32 i32 i32) (result i32) i32.const 0))"#;
+	let mut host = WasmHost::headless(module.as_bytes()).unwrap();
+	let plugin = host.plugins().register("echo", [ECHO_METHOD]).unwrap();
+	host.plugins().grant(plugin, ECHO_METHOD, true).unwrap();
+	// Ample for the loop's own instructions, but not for 512 MiB of copies.
+	host.set_fuel_budget(1_000_000);
+	let error = host.start(100.0, 100.0).unwrap_err();
+	assert!(matches!(error, WasmError::OutOfFuel), "{error}");
+}

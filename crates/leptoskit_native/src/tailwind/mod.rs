@@ -95,6 +95,10 @@ pub struct StyleContext {
 
 /// The most distinct class strings [`Tailwind::parse`] keeps parsed.
 const PARSED_LIMIT: usize = 4096;
+/// The longest class string [`Tailwind::parse`] keeps parsed. A native guest
+/// controls class strings up to its property limit, so caching any length
+/// would let it pin `PARSED_LIMIT` times that much host memory.
+const PARSED_MAX_BYTES: usize = 4096;
 
 thread_local! {
 	/// Parsed class strings, by their exact text.
@@ -167,6 +171,10 @@ impl Tailwind {
 		}
 
 		let parsed = Self::parse_uncached(classes)?;
+		if classes.len() > PARSED_MAX_BYTES {
+			return Ok(parsed);
+		}
+
 		PARSED.with_borrow_mut(|cache| {
 			// Generated class strings could grow without bound; starting over
 			// keeps the cache small, and the next render refills it.
@@ -526,6 +534,25 @@ fn variant(conditions: &Conditions) -> Option<String> {
 	}
 
 	(!parts.is_empty()).then(|| parts.join(", "))
+}
+
+#[cfg(test)]
+mod cache_tests {
+	use super::PARSED;
+	use super::PARSED_MAX_BYTES;
+	use super::Tailwind;
+
+	#[test]
+	fn long_class_strings_parse_without_being_retained() {
+		let long = "p-1 ".repeat(PARSED_MAX_BYTES);
+		let short = "p-1 m-2";
+		assert!(Tailwind::parse(&long).is_ok());
+		assert!(Tailwind::parse(short).is_ok());
+		PARSED.with_borrow(|cache| {
+			assert!(!cache.contains_key(long.as_str()));
+			assert!(cache.contains_key(short));
+		});
+	}
 }
 
 #[cfg(all(test, feature = "devtools"))]

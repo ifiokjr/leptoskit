@@ -19,12 +19,19 @@ use leptoskit_bridge::PluginId;
 use wasmi::Caller;
 use wasmi::Linker;
 use wasmi::Memory;
+use wasmi::TrapCode;
 
 use crate::HostState;
 use crate::caller_memory;
 use crate::host_trap;
 
 const MODULE: &str = "leptoskit_plugins_v1";
+
+/// Fuel charged for each host call that copies guest or reply bytes.
+const COPY_CALL_FUEL: u64 = 64;
+/// Bytes a host copy may move per unit of fuel, roughly matching what one
+/// interpreted instruction costs in time.
+const BYTES_PER_FUEL: u64 = 8;
 
 pub(super) fn link(linker: &mut Linker<HostState>) -> Result<(), wasmi::errors::LinkerError> {
 	linker.func_wrap(MODULE, "version", || leptoskit_bridge::VERSION as i32)?;
@@ -41,6 +48,19 @@ pub(super) fn link(linker: &mut Linker<HostState>) -> Result<(), wasmi::errors::
 
 fn status(error: Error) -> i64 {
 	-i64::from(error as i32) - 1
+}
+
+/// Charges host copies against the entry point's fuel. The interpreter only
+/// meters guest instructions, so without this a guest looping over `submit`
+/// and `cancel` could copy megabytes per instruction until the budget ran
+/// out, hanging the thread it runs on.
+fn charge_copy(caller: &mut Caller<'_, HostState>, bytes: usize) -> Result<(), wasmi::Error> {
+	let cost = COPY_CALL_FUEL.saturating_add(bytes as u64 / BYTES_PER_FUEL);
+	let fuel = caller.get_fuel()?;
+	let remaining = fuel
+		.checked_sub(cost)
+		.ok_or_else(|| wasmi::Error::from(TrapCode::OutOfFuel))?;
+	caller.set_fuel(remaining)
 }
 
 fn memory(caller: &mut Caller<'_, HostState>) -> Result<Memory, wasmi::Error> {
@@ -84,6 +104,7 @@ fn submit(
 		return Ok(status(error));
 	}
 
+	charge_copy(&mut caller, len)?;
 	let memory = memory(&mut caller)?;
 	let start = ptr as u32 as usize;
 	let input = memory
@@ -116,6 +137,11 @@ fn take_result(
 	capacity: i32,
 ) -> Result<i64, wasmi::Error> {
 	let id = CallId(id as u64);
+	let reply = match caller.data().plugins.result(id) {
+		Ok(Some(Ok(bytes))) if bytes.len() <= capacity as u32 as usize => bytes.len(),
+		_ => 0,
+	};
+	charge_copy(&mut caller, reply)?;
 	let memory = memory(&mut caller)?;
 	// Split the interpreter's memory and host state so output can borrow the
 	// original Bytes without cloning a handle or promoting its shared owner.
@@ -176,6 +202,14 @@ fn take_event(
 	ptr: i32,
 	capacity: i32,
 ) -> Result<i64, wasmi::Error> {
+	let pending = caller
+		.data()
+		.plugins
+		.event()
+		.map(|event| event.payload.len())
+		.filter(|len| *len <= capacity as u32 as usize)
+		.unwrap_or(0);
+	charge_copy(&mut caller, pending)?;
 	let memory = memory(&mut caller)?;
 	let (memory, state) = memory.data_and_store_mut(&mut caller);
 	let Some(event) = state.plugins.event() else {

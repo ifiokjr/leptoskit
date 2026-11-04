@@ -72,6 +72,10 @@ enum WidgetTextStyle {
     /// screen uses only a few.
     private static var fonts: [FontKey: UIFont] = [:]
 
+    /// The most fonts kept: an animated arbitrary size makes a new one every
+    /// frame, and the cache outlives every app the process runs.
+    private static let fontLimit = 64
+
     private struct FontKey: Hashable {
         let size: CGFloat
         let weight: CGFloat
@@ -91,6 +95,9 @@ enum WidgetTextStyle {
         if let cached = fonts[key] { return cached }
 
         let font = UIFont.systemFont(ofSize: size, weight: weight)
+
+        if fonts.count >= fontLimit { fonts.removeAll(keepingCapacity: true) }
+
         fonts[key] = font
 
         return font

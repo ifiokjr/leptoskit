@@ -667,7 +667,21 @@ impl App {
 			let Some(plugin) = self.plugins.get_mut(&request.plugin.0) else {
 				return Ok(NextRequest::Platform(request));
 			};
-			let reply = plugin.invoke(request.method, request.payload);
+			let (name, methods) = (plugin.name(), plugin.methods());
+			let reply = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+				plugin.invoke(request.method, request.payload)
+			}))
+			.unwrap_or_else(|_| {
+				// This runs on the platform's UI thread under an `extern "C"`
+				// entry point, where unwinding would abort the app. The
+				// plugin's state is unknown, so it answers no more calls,
+				// like a worker plugin whose mutex a panic poisoned.
+				let failed = self
+					.plugins
+					.insert(request.plugin.0, Box::new(FailedPlugin { name, methods }));
+				let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(failed)));
+				Err(Error::Native)
+			});
 
 			if let Err(error) = self.host_mut().plugins().complete(request.id, reply) {
 				self.error = format!("complete Rust plugin: {error:?}");
@@ -683,6 +697,26 @@ impl App {
 		}
 
 		Ok(NextRequest::Yield)
+	}
+}
+
+/// Stands in for an inline Rust plugin that panicked, failing its calls.
+struct FailedPlugin {
+	name: &'static str,
+	methods: &'static [MethodId],
+}
+
+impl Plugin for FailedPlugin {
+	fn name(&self) -> &'static str {
+		self.name
+	}
+
+	fn methods(&self) -> &'static [MethodId] {
+		self.methods
+	}
+
+	fn invoke(&mut self, _: MethodId, _: Bytes) -> Result<Bytes, Error> {
+		Err(Error::Native)
 	}
 }
 

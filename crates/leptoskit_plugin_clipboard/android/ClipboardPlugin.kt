@@ -74,7 +74,12 @@ class ClipboardPlugin(
             }
         }
 
-    /** The first item's text, or empty when the clipboard holds nothing. */
+    /**
+     * The first item's text, or empty when the clipboard holds nothing or no
+     * text. A content URI is never opened: coercing one reads another app's
+     * provider on the UI thread with no size limit, so an endless stream
+     * would freeze or exhaust the app.
+     */
     private fun readText(clipboard: ClipboardManager): String {
         val clip = clipboard.primaryClip ?: return ""
 
@@ -82,7 +87,7 @@ class ClipboardPlugin(
 
         return clip
             .getItemAt(0)
-            .coerceToText(context)
+            .text
             ?.toString()
             .orEmpty()
     }

@@ -197,20 +197,30 @@ impl<T, S: Backend> SecureStorage<T, S> {
 
 	/// Returns the credential service and name for a storage key: readable
 	/// identifiers pass through; everything else is stored under its SHA-256
-	/// hex digest.
+	/// hex digest behind [`HASHED_PREFIX`].
+	///
+	/// No readable name starts with the prefix, so two keys can never share
+	/// an entry: without it, the digest of `a/b` was itself a readable key
+	/// that read and wrote the same secret.
 	fn credential_names<'a>(
 		&'a self,
 		key: &'a str,
 	) -> (std::borrow::Cow<'a, str>, std::borrow::Cow<'a, str>) {
-		let name = if is_credential_name(key) {
+		let name = if is_credential_name(key) && !key.starts_with(HASHED_PREFIX) {
 			std::borrow::Cow::Borrowed(key)
 		} else {
-			std::borrow::Cow::Owned(format!("{:x}", sha2::Sha256::digest(key.as_bytes())))
+			std::borrow::Cow::Owned(format!(
+				"{HASHED_PREFIX}{:x}",
+				sha2::Sha256::digest(key.as_bytes())
+			))
 		};
 
 		(std::borrow::Cow::Borrowed(self.service.as_str()), name)
 	}
 }
+
+/// Starts every credential name derived from a key's digest.
+const HASHED_PREFIX: &str = "sha256-";
 
 /// Whether a storage key can serve verbatim as a credential name.
 fn is_credential_name(key: &str) -> bool {
@@ -468,8 +478,17 @@ mod tests {
 				.lock()
 				.unwrap()
 				.keys()
-				.any(|(service, key)| service == "login" && key.len() == 64 && key != "auth/token")
+				.any(|(service, key)| service == "login" && key.len() == 71 && key != "auth/token")
 		);
+		// Neither the digest nor the stored name of `auth/token` is another
+		// key's entry.
+		let digest = format!(
+			"{:x}",
+			<sha2::Sha256 as sha2::Digest>::digest(b"auth/token")
+		);
+		for alias in [digest.clone(), format!("sha256-{digest}")] {
+			assert_eq!(block_on(storage.get_async(alias)).unwrap(), None);
+		}
 		assert_eq!(
 			block_on(storage.get_async("auth/token".into())).unwrap(),
 			Some(Session {

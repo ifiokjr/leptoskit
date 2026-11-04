@@ -273,6 +273,9 @@ struct HostState {
 	/// The notional length of the wasm-bindgen externref table, grown by
 	/// [`shims`] when a guest links wasm-bindgen's runtime.
 	externref_table: i32,
+	/// How many reporting shim calls [`shims`] has logged, so a guest calling
+	/// one in a loop cannot flood the device log.
+	reported_shims: u32,
 	/// Wire id by committed node, resynced after commits and environment
 	/// changes.
 	wire_by_node: BTreeMap<usize, i64>,
