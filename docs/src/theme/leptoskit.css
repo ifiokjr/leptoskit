@@ -3,6 +3,30 @@
  * the home page hero, the gallery of rendered screens, and the brand page.
  */
 
+@font-face {
+	font-family: "Bricolage Grotesque";
+	src: url("../assets/fonts/bricolage-grotesque.woff2") format("woff2");
+	font-style: normal;
+	font-weight: 400 800;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "Instrument Sans";
+	src: url("../assets/fonts/instrument-sans.woff2") format("woff2");
+	font-style: normal;
+	font-weight: 400 700;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "JetBrains Mono";
+	src: url("../assets/fonts/jetbrains-mono.woff2") format("woff2");
+	font-style: normal;
+	font-weight: 400 600;
+	font-display: swap;
+}
+
 /* Hero --------------------------------------------------------------------- */
 
 .lk-hero {

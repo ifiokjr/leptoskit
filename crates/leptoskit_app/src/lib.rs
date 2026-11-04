@@ -1,6 +1,10 @@
 //! One management app for the web and native Wasm hosts.
 pub mod client;
+pub mod landing;
+pub mod motion;
 pub mod screen;
+#[cfg(feature = "server")]
+pub mod site;
 use leptoskit_deploy_console::hosted_protocol::AccountView;
 use reactive_graph::prelude::*;
 use reactive_graph::signal::RwSignal;
@@ -155,13 +159,31 @@ static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0
 #[cfg(all(target_arch = "wasm32", feature = "web"))]
 #[leptos::component]
 pub fn App() -> impl leptos::prelude::IntoView {
+	motion::provide_runtime();
 	let shell = Shell::new();
 	move || leptoskit::web::render(screen::screen(shell))
 }
 #[cfg(all(target_arch = "wasm32", feature = "web"))]
+#[leptos::component]
+pub fn DemoApp() -> impl leptos::prelude::IntoView {
+	motion::provide_runtime();
+	let count = RwSignal::new(0);
+	move || leptoskit::web::render(landing::demo(count))
+}
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn start() {
-	leptos::mount::mount_to_body(App);
+	use wasm_bindgen::JsCast as _;
+	let target = web_sys::window()
+		.and_then(|window| window.document())
+		.and_then(|document| document.get_element_by_id("live-demo"))
+		.and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok());
+	if let Some(target) = target {
+		target.set_text_content(None);
+		leptos::mount::mount_to(target, DemoApp).forget();
+	} else {
+		leptos::mount::mount_to_body(App);
+	}
 }
 #[cfg(all(target_arch = "wasm32", feature = "native"))]
 mod guest;

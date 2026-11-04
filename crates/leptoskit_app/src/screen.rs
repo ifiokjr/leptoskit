@@ -12,8 +12,23 @@ const QUIET: &str = "text-sm text-slate-500 dark:text-slate-400";
 pub fn screen(shell: Shell) -> Element {
 	let mut page = ScrollView()
 		.class("p-4 gap-5 bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100")
+		.child(crate::motion::mark().id("app-mark"))
 		.child(Heading(1, "LeptosKit").class("text-3xl font-semibold"))
-		.child(Text("Your applications. Your choice of cloud.").class(QUIET));
+		.child(Text("Your applications. Your choice of cloud.").class(QUIET))
+		.child(
+			Pressable("Documentation")
+				.href("/docs/")
+				.test_id("documentation")
+				.class("px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700")
+				.child(Text("Documentation ↗"))
+				.on_press(move || {
+					any_spawner::Executor::spawn_local(async move {
+						if let Err(error) = crate::client::open_documentation().await {
+							shell.notice.set(error);
+						}
+					});
+				}),
+		);
 	let Some(account) = shell.account.get() else {
 		return page
 			.child(

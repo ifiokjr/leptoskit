@@ -4,6 +4,8 @@ Use a hosted LeptosKit account to keep deployment requests, application measurem
 
 This release supports operator-enrolled accounts. Your service operator supplies the URL and initial account key. It does not create an account on a public LeptosKit service automatically.
 
+Open your service's `/console/` page to manage installations. Its public homepage links to the complete documentation at `/docs/`. Choose **Documentation** in the management app to open the same book; on iOS and Android it opens in the system browser. Guides, platform support details, search and the configuration schema are packaged with the website.
+
 ## Connect your own infrastructure
 
 For example, register a production app named `notes-production` in the management app. Choose the subscription shown in Checkout, then add an installation with that project ID. The ID must match your app's `infra.name`.

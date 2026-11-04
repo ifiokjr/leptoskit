@@ -1,0 +1,117 @@
+//! The broker serves the public site, real documentation, console and API.
+use std::path::Path;
+use std::sync::Arc;
+
+use anyhow::Result;
+use anyhow::ensure;
+use axum::Router;
+use axum::http::HeaderValue;
+use axum::http::header::CONTENT_SECURITY_POLICY;
+use axum::response::Html;
+use axum::response::Redirect;
+use axum::routing::get;
+use leptoskit::leptos::html;
+use leptoskit::leptos::prelude::*;
+use tower_http::services::ServeDir;
+use tower_http::services::ServeFile;
+use tower_http::set_header::SetResponseHeaderLayer;
+
+/// Assemble one same-origin site. Missing docs fail before accepting traffic.
+pub fn router(api: Router, assets: &Path, docs: &Path, origin: &str) -> Result<Router> {
+	for file in [
+		"index.html",
+		"console/index.html",
+		"bootstrap.js",
+		"pkg/leptoskit_app.js",
+		"pkg/leptoskit_app_bg.wasm",
+		"landing.css",
+		"landing.mjs",
+		"console.css",
+		"rive/rive.js",
+		"rive/rive.wasm",
+		"rive/brand.riv",
+	] {
+		ensure!(
+			assets.join(file).is_file(),
+			"missing website asset {file}; build the complete site first"
+		);
+	}
+	for file in [
+		"index.html",
+		"guide/01-installation.html",
+		"guide/29-hosted-deployments.html",
+		"schema.json",
+		"_leptoskit/theme.js",
+		"_leptoskit/site.js",
+		"_leptoskit/site.css",
+		"_leptoskit/search.json",
+		"assets/fonts/bricolage-grotesque.woff2",
+		"assets/fonts/instrument-sans.woff2",
+		"assets/fonts/jetbrains-mono.woff2",
+	] {
+		ensure!(
+			docs.join(file).is_file(),
+			"missing documentation {file}; package the docs before serving"
+		);
+	}
+	let landing: Arc<str> = landing_html(origin).into();
+	let console = ServeFile::new(assets.join("console/index.html"));
+	Ok(api
+		.route(
+			"/",
+			get(move || {
+				let html = Arc::clone(&landing);
+				async move { Html(html.to_string()) }
+			}),
+		)
+		.route(
+			"/console",
+			get(|| async { Redirect::permanent("/console/") }),
+		)
+		.route_service("/console/", console)
+		.route("/docs", get(|| async { Redirect::permanent("/docs/") }))
+		.nest_service("/docs/", ServeDir::new(docs))
+		.fallback_service(ServeDir::new(assets))
+		.layer(SetResponseHeaderLayer::if_not_present(
+			CONTENT_SECURITY_POLICY,
+			HeaderValue::from_static(
+				"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' \
+				 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
+			),
+		)))
+}
+
+/// Server-rendered builder components remain readable without JavaScript.
+pub fn landing_html(origin: &str) -> String {
+	let owner = Owner::new();
+	owner.with(|| {
+		let title = "LeptosKit — One tree. Every screen. Your cloud.";
+		let description = "Build interfaces, typed backends, databases and deployments in one \
+		                   Rust codebase. Real native widgets. Your choice of cloud.";
+		let page = html::html().lang("en").child((
+			html::head().child((
+				html::meta().charset("utf-8"),
+				html::meta()
+					.name("viewport")
+					.content("width=device-width, initial-scale=1"),
+				html::meta().name("description").content(description),
+				html::meta().name("color-scheme").content("light"),
+				html::title().child(title),
+				html::link()
+					.rel("canonical")
+					.href(format!("{}/", origin.trim_end_matches('/'))),
+				html::link().rel("icon").href("/docs/assets/mark.svg"),
+				html::link().rel("stylesheet").href("/landing.css"),
+				html::script().r#type("module").src("/landing.mjs"),
+			)),
+			html::body().child((
+				leptoskit::web::render(crate::landing::screen()),
+				html::noscript().child(
+					"The documentation and links work without JavaScript. Enable JavaScript to \
+					 try the interactive component example.",
+				),
+			)),
+		));
+		format!("<!doctype html>{}", page.to_html())
+	})
+}

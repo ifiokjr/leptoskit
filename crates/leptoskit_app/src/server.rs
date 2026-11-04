@@ -41,6 +41,9 @@ enum Command {
 		bind: std::net::SocketAddr,
 		#[arg(long)]
 		assets: PathBuf,
+		/// The documentation book; defaults to the docs directory in --assets.
+		#[arg(long)]
+		docs: Option<PathBuf>,
 	},
 	/// Enroll a private-pilot account using an existing Stripe customer ID.
 	Account {
@@ -124,7 +127,7 @@ async fn main() -> Result<()> {
 	}
 
 	match args.command {
-		Command::Serve { bind, assets } => {
+		Command::Serve { bind, assets, docs } => {
 			let serving = std::fs::OpenOptions::new()
 				.create(true)
 				.truncate(false)
@@ -133,29 +136,8 @@ async fn main() -> Result<()> {
 			serving
 				.try_lock()
 				.context("hosted broker already running")?;
-			ensure!(
-				[
-					"index.html",
-					"bootstrap.js",
-					"pkg/leptoskit_app.js",
-					"pkg/leptoskit_app_bg.wasm"
-				]
-				.iter()
-				.all(|file| assets.join(file).is_file()),
-				"build the web app first; --assets needs the HTML, bootstrap module and pkg files"
-			);
-			let files = tower_http::services::ServeDir::new(&assets).not_found_service(
-				tower_http::services::ServeFile::new(assets.join("index.html")),
-			);
-			let app = host.router().fallback_service(files).layer(
-				tower_http::set_header::SetResponseHeaderLayer::if_not_present(
-					axum::http::header::CONTENT_SECURITY_POLICY,
-					axum::http::HeaderValue::from_static(
-						"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src \
-						 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
-					),
-				),
-			);
+			let docs = docs.unwrap_or_else(|| assets.join("docs"));
+			let app = leptoskit_app::site::router(host.router(), &assets, &docs, &args.url)?;
 			let listener = tokio::net::TcpListener::bind(bind).await?;
 			println!("LeptosKit hosted broker: {}", args.url);
 			axum::serve(listener, app).await?;

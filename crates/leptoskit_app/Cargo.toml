@@ -18,6 +18,11 @@ name = "leptoskit-cloud"
 path = "src/server.rs"
 required-features = ["server"]
 
+[[bin]]
+name = "leptoskit-site"
+path = "src/package.rs"
+required-features = ["site"]
+
 [features]
 default = []
 web = [
@@ -36,19 +41,31 @@ native = [
 	"leptoskit_plugin_http/guest",
 	"leptoskit_plugin_secure_store/guest",
 	"leptoskit_plugin_clipboard/guest",
+	"leptoskit_plugin_linking/guest",
 ]
 ios = ["native"]
 android = ["native"]
-server = ["leptoskit_deploy_console/server", "dep:anyhow", "dep:axum", "dep:clap", "dep:tokio", "dep:tower-http"]
+server = [
+	"leptoskit/server",
+	"leptoskit_deploy_console/server",
+	"dep:anyhow",
+	"dep:axum",
+	"dep:clap",
+	"dep:tokio",
+	"dep:tower-http",
+]
+site = ["server", "dep:flate2", "dep:leptoskit_docs_site"]
 
 [dependencies]
 any_spawner = { workspace = true }
 anyhow = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
 clap = { workspace = true, optional = true, features = ["derive"] }
+flate2 = { workspace = true, optional = true }
 futures = { workspace = true, features = ["executor"] }
-leptoskit = { workspace = true }
+leptoskit = { workspace = true, features = ["rive"] }
 leptoskit_deploy_console = { workspace = true }
+leptoskit_docs_site = { workspace = true, optional = true }
 reactive_graph = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -59,14 +76,17 @@ tower-http = { workspace = true, optional = true, features = ["fs", "set-header"
 leptos = { workspace = true, optional = true }
 leptoskit_plugin_clipboard = { workspace = true, optional = true }
 leptoskit_plugin_http = { workspace = true, default-features = false, optional = true }
+leptoskit_plugin_linking = { workspace = true, optional = true }
 leptoskit_plugin_secure_store = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
-web-sys = { workspace = true, optional = true, features = ["Window", "Location"] }
+web-sys = { workspace = true, optional = true, features = ["Window", "Location", "Document", "Element", "HtmlElement", "Node"] }
 
 [dev-dependencies]
 leptoskit_testing = { workspace = true }
+tempfile = { workspace = true }
+tower = { workspace = true, features = ["util"] }
 
 [lints]
 workspace = true

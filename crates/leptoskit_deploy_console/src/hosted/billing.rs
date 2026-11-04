@@ -126,8 +126,8 @@ impl Billing {
 			("customer", customer),
 			("line_items[0][price]", price.clone()),
 			("line_items[0][quantity]", "1".into()),
-			("success_url", format!("{}/", host.0.origin)),
-			("cancel_url", format!("{}/", host.0.origin)),
+			("success_url", format!("{}/console/", host.0.origin)),
+			("cancel_url", format!("{}/console/", host.0.origin)),
 			(
 				"subscription_data[metadata][leptoskit_account]",
 				account.into(),
@@ -166,7 +166,7 @@ impl Billing {
 			.header("Stripe-Version", "2026-10-28.endive")
 			.form(&[
 				("customer", host.accounts().customer(account)?),
-				("return_url", format!("{}/", host.0.origin)),
+				("return_url", format!("{}/console/", host.0.origin)),
 			])
 			.send()
 			.await?;
@@ -434,18 +434,36 @@ mod tests {
 		let (_dir, host, mut billing) = fixture();
 		let calls = Arc::new(AtomicUsize::new(0));
 		let count = calls.clone();
-		let app = Router::new().route(
-			"/v1/checkout/sessions",
-			post(move || {
-				let count = count.clone();
-				async move {
-					count.fetch_add(1, Ordering::Relaxed);
-					Json(
-						serde_json::json!({"url":"https://checkout.stripe.com/c/test","expires_at":sql_now()+3600}),
-					)
-				}
-			}),
-		);
+		let app = Router::new()
+			.route(
+				"/v1/checkout/sessions",
+				post(
+					move |axum::Form(form): axum::Form<
+						std::collections::HashMap<String, String>,
+					>| {
+						let count = count.clone();
+						async move {
+							assert_eq!(form["success_url"], "http://localhost:4701/console/");
+							assert_eq!(form["cancel_url"], "http://localhost:4701/console/");
+							count.fetch_add(1, Ordering::Relaxed);
+							Json(
+								serde_json::json!({"url":"https://checkout.stripe.com/c/test","expires_at":sql_now()+3600}),
+							)
+						}
+					},
+				),
+			)
+			.route(
+				"/v1/billing_portal/sessions",
+				post(
+					|axum::Form(form): axum::Form<std::collections::HashMap<String, String>>| {
+						async move {
+							assert_eq!(form["return_url"], "http://localhost:4701/console/");
+							Json(serde_json::json!({"url":"https://billing.stripe.com/p/test"}))
+						}
+					},
+				),
+			);
 		let server = serve(&mut billing, app).await;
 		let first = billing.checkout(&host, "alice", "control").await.unwrap();
 		assert_eq!(
@@ -454,6 +472,10 @@ mod tests {
 		);
 		assert!(billing.checkout(&host, "alice", "team").await.is_err());
 		assert_eq!(calls.load(Ordering::Relaxed), 1);
+		assert_eq!(
+			billing.portal(&host, "alice").await.unwrap(),
+			"https://billing.stripe.com/p/test"
+		);
 		server.abort();
 	}
 	#[tokio::test]

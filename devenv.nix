@@ -510,6 +510,7 @@ in
         test:harmonyos
         test:docs
         deno test crates/leptoskit_rive/tests/lifecycle.mjs
+        deno test crates/leptoskit_app/tests/landing.mjs
       '';
       description = "Run all tests.";
       binary = "bash";

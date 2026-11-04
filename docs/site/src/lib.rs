@@ -37,6 +37,7 @@ pub fn site(root: impl Into<PathBuf>) -> Site {
 		.favicon("assets/mark.svg")
 		.social_image("assets/social.png")
 		.stylesheet("theme/leptoskit.css")
+		.external_fonts(false)
 		.components(components())
 }
 

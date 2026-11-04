@@ -59,6 +59,7 @@ pub struct Site {
 	pub(crate) favicon: Option<String>,
 	pub(crate) social_image: Option<String>,
 	pub(crate) stylesheets: Vec<String>,
+	pub(crate) external_fonts: bool,
 	pub(crate) components: Components,
 	pub(crate) live_reload: bool,
 }
@@ -87,6 +88,7 @@ impl Site {
 			favicon: None,
 			social_image: None,
 			stylesheets: Vec::new(),
+			external_fonts: true,
 			components: Components::new(),
 			live_reload: false,
 		}
@@ -166,6 +168,14 @@ impl Site {
 	#[must_use]
 	pub fn stylesheet(mut self, path: impl Into<String>) -> Self {
 		self.stylesheets.push(path.into());
+		self
+	}
+
+	/// Load the default font families from Google Fonts. Disable this when a
+	/// stylesheet supplies local fonts, or when the site must work offline.
+	#[must_use]
+	pub fn external_fonts(mut self, enabled: bool) -> Self {
+		self.external_fonts = enabled;
 		self
 	}
 
@@ -286,6 +296,10 @@ impl Site {
 		write(
 			&out.join(ASSETS).join("site.js"),
 			include_bytes!("../assets/site.js"),
+		)?;
+		write(
+			&out.join(ASSETS).join("theme.js"),
+			include_bytes!("../assets/theme.js"),
 		)?;
 		write(
 			&out.join(ASSETS).join("search.json"),

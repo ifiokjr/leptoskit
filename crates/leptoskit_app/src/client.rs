@@ -134,3 +134,33 @@ pub async fn copy(value: &str) -> Result<(), String> {
 pub fn copy(_value: &str) -> impl Future<Output = Result<(), String>> {
 	std::future::ready(Err("Run in the browser or native app".into()))
 }
+
+#[cfg(all(target_arch = "wasm32", feature = "native"))]
+pub async fn open_documentation() -> Result<(), String> {
+	let address = format!("{}/docs/", origin()?);
+	let link = leptoskit_plugin_linking::Link::parse(&address)
+		.map_err(|_| "Invalid documentation address")?;
+	leptoskit_plugin_linking::guest::Linking::new()
+		.map_err(|_| "Linking plugin unavailable")?
+		.open(&link)
+		.await
+		.map_err(|_| "Could not open documentation".into())
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "web", not(feature = "native")))]
+pub fn open_documentation() -> impl Future<Output = Result<(), String>> {
+	std::future::ready(origin().and_then(|origin| {
+		web_sys::window()
+			.ok_or("Browser unavailable")?
+			.location()
+			.set_href(&format!("{origin}/docs/"))
+			.map_err(|_| "Could not open documentation".into())
+	}))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn open_documentation() -> impl Future<Output = Result<(), String>> {
+	std::future::ready(Err(
+		"Open the documentation in the browser or native app".into()
+	))
+}
