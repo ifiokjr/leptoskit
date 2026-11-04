@@ -220,6 +220,7 @@ fn configuration(server: &str, publisher: &ReleaseSigningKey) -> UpdateConfigura
 		public_keys: vec![publisher.public_key().to_hex()],
 		runtime: contract(),
 		allow_http: false,
+		provenance: None,
 	}
 }
 

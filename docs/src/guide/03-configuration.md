@@ -139,6 +139,19 @@ Each package id segment starts with an ASCII letter and contains only ASCII lett
 | `staging_dir` | `"codepush"`   | Where `CodePushClient::sync` stages updates. The generated mobile hosts keep releases in their own private, non-backed-up app directory instead.        |
 | `public_keys` | `[]`           | The hex-encoded ed25519 publisher keys whose signed releases the app installs. At least one is required when `enabled = true`. List two to rotate keys. |
 | `allow_http`  | `false`        | Lets debug native builds reach a plaintext `http://` registry, for local development. Release builds always require HTTPS.                              |
+| `provenance`  | —              | A table requiring independent source approvals before the native app installs a release. See below.                                                     |
+
+### `[codepush.provenance]`
+
+Set it to make the iOS and Android apps install only code push releases that enough independent approvers rebuilt from your public GitHub source. [Requiring source approvals](05-code-push.md#requiring-source-approvals) walks through it.
+
+| Key          | Meaning                                                                                                                              |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `repository` | The public GitHub repository releases are built from, written as `https://github.com/<owner>/<repo>`.                                |
+| `approvers`  | The approvers' hex-encoded public keys, as `leptoskit codepush keygen --approver` prints them. None of them may be in `public_keys`. |
+| `threshold`  | How many different approvers must approve each release: at least 1, and at most the number of approvers.                             |
+
+All three keys are required. The app ships the policy, so changing it takes a store release.
 
 ## `[router]`
 

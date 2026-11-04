@@ -40,6 +40,7 @@ A release is a `BundleManifest` — content-hashed, gzip-compressed files packed
 - `publish_channel` / `pull_channel` / `Bucket` — upload a channel to an object store, `index.json` last, and seed a store from one after verifying the newest release;
 - `codepush_router` (feature `server`) — Axum routes serving the same static files, plus the older check/download/delta endpoints;
 - `ReleaseSigningKey` / `TrustedKeys` — publisher signing and the key set an app shell pins, with room to rotate;
+- `ProvenancePolicy` / `SignedApproval` — source approvals: a second, host-owned trust root of independent rebuilders who sign that a release's files came from a public GitHub commit;
 - `CodePushClient` — the updater, transport-agnostic so each platform shell brings its own HTTP stack.
 
 ## How it fits

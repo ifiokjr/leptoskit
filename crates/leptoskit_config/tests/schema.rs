@@ -34,6 +34,13 @@ fn validates_defaults_and_every_project_configuration() {
 			"[[rpc.targets]]\nlanguage = 'typescript'\nscaffold = 'full'\n",
 		))
 		.expect("supported RPC client target");
+	validator
+		.validate(&document(&format!(
+			"[codepush.provenance]\nrepository = 'https://github.com/example/app'\napprovers = \
+			 ['{}']\nthreshold = 1\n",
+			"b".repeat(64)
+		)))
+		.expect("provenance policy");
 
 	fn visit(path: &Path, validator: &jsonschema::Validator) -> usize {
 		let mut count = 0;
@@ -82,6 +89,13 @@ fn rejects_unknown_keys_enums_versions_and_out_of_range_numbers() {
 		"[native]\npackage_id = 'bad'",
 		"[codepush]\nenabled = true",
 		"[codepush]\npublic_keys = ['bad']",
+		"[codepush.provenance]\nrepository = 'https://github.com/example/app'",
+		"[codepush.provenance]\nrepository = 'https://gitlab.com/a/b'\napprovers = \
+		 ['bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb']\nthreshold = 1",
+		"[codepush.provenance]\nrepository = 'https://github.com/a/b'\napprovers = []\nthreshold \
+		 = 1",
+		"[codepush.provenance]\nrepository = 'https://github.com/a/b'\napprovers = \
+		 ['bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb']\nthreshold = 0",
 		"[format]\nattribute_braces = 'sometimes'",
 		"[[plugins]]\nunknown = true",
 		"[[rpc.targets]]",

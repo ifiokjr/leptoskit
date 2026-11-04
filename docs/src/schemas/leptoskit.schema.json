@@ -832,6 +832,17 @@
 					"type": "boolean",
 					"default": false
 				},
+				"provenance": {
+					"description": "Independent source approvals every code push release must carry\nbefore the native app installs it. Without this table, the publisher\nsignature is enough.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/CodePushProvenance"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
 				"public_keys": {
 					"description": "The ed25519 public keys, hex encoded, whose signed releases the app\ninstalls. List the next key alongside the current one to rotate.",
 					"type": "array",
@@ -880,6 +891,39 @@
 						]
 					}
 				}
+			]
+		},
+		"CodePushProvenance": {
+			"description": "Who must approve a code push release as rebuilt from public source before\nthe native app installs it.\n\nAn approver checks out a commit of `repository`, rebuilds the release,\nchecks that every file is byte-identical, and signs an approval naming\nthat commit. The app ships this policy, so a download cannot change it.",
+			"type": "object",
+			"properties": {
+				"approvers": {
+					"description": "The approvers' ed25519 public keys, hex encoded, as `leptoskit\ncodepush keygen --approver` prints them. None may also be in\n`public_keys`.",
+					"type": "array",
+					"items": {
+						"type": "string",
+						"pattern": "^[0-9a-fA-F]{64}$"
+					},
+					"minItems": 1,
+					"uniqueItems": true
+				},
+				"repository": {
+					"description": "The public GitHub repository releases are built from, written as\n`https://github.com/<owner>/<repo>`.",
+					"type": "string",
+					"pattern": "^https://github\\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"
+				},
+				"threshold": {
+					"description": "How many different approvers must approve each release: at least 1,\nand at most the number of approvers.",
+					"type": "integer",
+					"format": "uint32",
+					"minimum": 1
+				}
+			},
+			"additionalProperties": false,
+			"required": [
+				"repository",
+				"approvers",
+				"threshold"
 			]
 		},
 		"ComputeProvider": {

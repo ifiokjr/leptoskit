@@ -1,5 +1,5 @@
 //! `leptoskit codepush`: releases, publishes, pulls, and serves
-//! over-the-air updates.
+//! over-the-air updates, and approves and attaches source approvals.
 
 use std::io::Write;
 use std::path::Path;
@@ -18,6 +18,7 @@ use crate::native::config as native_config;
 use crate::s3::S3Bucket;
 use crate::s3::S3Location;
 
+mod approvals;
 #[cfg(windows)]
 mod private_key_windows;
 
@@ -31,6 +32,10 @@ pub const DEFAULT_CODEPUSH_PORT: u16 = 4100;
 /// The environment variable `leptoskit codepush release` reads the hex
 /// signing key from when `--signing-key` is not given, for CI secrets.
 pub const SIGNING_KEY_ENV: &str = "LEPTOSKIT_CODEPUSH_SIGNING_KEY";
+
+/// The environment variable `leptoskit codepush approve` reads the hex
+/// approver key from when `--approver-key` is not given.
+pub const APPROVER_KEY_ENV: &str = "LEPTOSKIT_CODEPUSH_APPROVER_KEY";
 
 /// Runs a code push subcommand.
 pub fn run(command: CodepushCommand) -> Result<()> {
@@ -52,7 +57,43 @@ pub fn run(command: CodepushCommand) -> Result<()> {
 				signing_key.as_deref(),
 			)
 		}
-		CodepushCommand::Keygen { out } => keygen(&out),
+		CodepushCommand::Keygen { out, approver } => keygen(&out, approver),
+		CodepushCommand::Approve {
+			release,
+			store,
+			channel,
+			platform,
+			version,
+			build,
+			rebuilt,
+			repository,
+			commit,
+			approver_key,
+			out,
+		} => {
+			let target = match (release, version, build) {
+				(Some(path), ..) => approvals::Target::Container(path),
+				(None, Some(version), Some(build)) => {
+					approvals::Target::Store {
+						store,
+						channel,
+						platform,
+						version,
+						build,
+					}
+				}
+				_ => anyhow::bail!("pass --release <PATH>, or --version and --build"),
+			};
+			approvals::approve(
+				&target,
+				Path::new(&rebuilt),
+				&repository,
+				&commit,
+				approver_key.as_deref(),
+				Path::new(&out),
+			)
+		}
+		CodepushCommand::Attach { store, approvals } => approvals::attach(&store, &approvals),
 		CodepushCommand::Publish {
 			store,
 			channel,
@@ -228,28 +269,37 @@ fn publish(
 /// Reads the signing key from `path`, or from [`SIGNING_KEY_ENV`] without
 /// one. Errors never quote the key.
 fn load_signing_key(path: Option<&str>) -> Result<ReleaseSigningKey> {
+	load_key(path, SIGNING_KEY_ENV, "signing key", || {
+		format!(
+			"releases must be signed: pass --signing-key <PATH> or set {SIGNING_KEY_ENV}; create \
+			 a key with `leptoskit codepush keygen --out <PATH>`"
+		)
+	})
+}
+
+/// Reads a hex secret key from `path`, or from `variable` without one.
+/// Errors never quote the key.
+fn load_key(
+	path: Option<&str>,
+	variable: &str,
+	what: &str,
+	missing: impl FnOnce() -> String,
+) -> Result<ReleaseSigningKey> {
 	let encoded = match path {
 		Some(path) => {
 			std::fs::read_to_string(path)
-				.with_context(|| format!("could not read the signing key {path}"))?
+				.with_context(|| format!("could not read the {what} {path}"))?
 		}
-		None => {
-			std::env::var(SIGNING_KEY_ENV).map_err(|_| {
-				anyhow::anyhow!(
-					"releases must be signed: pass --signing-key <PATH> or set {SIGNING_KEY_ENV}; \
-					 create a key with `leptoskit codepush keygen --out <PATH>`"
-				)
-			})?
-		}
+		None => std::env::var(variable).map_err(|_| anyhow::anyhow!(missing()))?,
 	};
 
 	ReleaseSigningKey::from_hex(&encoded)
-		.map_err(|error| anyhow::anyhow!("could not load the signing key: {error}"))
+		.map_err(|error| anyhow::anyhow!("could not load the {what}: {error}"))
 }
 
 /// Creates a signing key at `out`, readable only by its owner, and prints the
 /// public key. The secret is never printed.
-fn keygen(out: &str) -> Result<()> {
+fn keygen(out: &str, approver: bool) -> Result<()> {
 	let mut seed = [0u8; 32];
 	getrandom::fill(&mut seed)
 		.map_err(|error| anyhow::anyhow!("could not gather randomness: {error}"))?;
@@ -260,6 +310,18 @@ fn keygen(out: &str) -> Result<()> {
 	file.write_all(format!("{}\n", key.to_hex()).as_bytes())
 		.and_then(|()| file.sync_all())
 		.with_context(|| format!("could not write {out}"))?;
+
+	if approver {
+		println!(
+			"wrote a code push approver key to {out}; keep it secret and out of version control"
+		);
+		println!(
+			"\napps that require your approval list it in \
+			 leptoskit.toml:\n\n[codepush.provenance]\napprovers = [\"{}\"]",
+			key.public_key().to_hex()
+		);
+		return Ok(());
+	}
 
 	println!("wrote a code push signing key to {out}; keep it secret and out of version control");
 	println!(

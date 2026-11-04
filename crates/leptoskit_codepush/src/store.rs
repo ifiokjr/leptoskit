@@ -33,6 +33,8 @@ use crate::manifest::container_bytes;
 use crate::manifest::hash_bytes;
 use crate::manifest::pack_directory;
 use crate::manifest::read_container;
+use crate::provenance::ReleaseApprovals;
+use crate::provenance::SignedApproval;
 use crate::signing::ReleaseSignature;
 use crate::signing::ReleaseSigningKey;
 
@@ -80,10 +82,22 @@ pub struct IngestedRelease {
 	pub delta_from_previous: Option<Delta>,
 }
 
+/// What attaching approvals did to one release.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttachedApprovals {
+	/// The release, as `app/channel/version+build`.
+	pub release: String,
+	/// How many of the approvals were new to it.
+	pub added: usize,
+	/// How many approvals it holds now.
+	pub total: usize,
+}
+
 /// An on-disk registry of releases, kept in the static [`crate::layout`]:
 /// `<root>/<app>/<channel>/index.json`, and per release
-/// `<version>+<build>/release.lkb`, `release.sig`, and
-/// `deltas/<base hash>.jsondelta`. The directory is the whole registry state:
+/// `<version>+<build>/release.lkb`, `release.sig`,
+/// `deltas/<base hash>.jsondelta`, and, once approvers have approved it,
+/// `approvals/<bundle hash>.json`. The directory is the whole registry state:
 /// the axum routes in [`crate::routes`] are a thin reader over it, and any
 /// static file server or bucket holding a copy serves the same thing.
 ///
@@ -321,6 +335,90 @@ impl ReleaseStore {
 			Some(key) => read_optional_json(&self.path_of(&key)),
 			None => Ok(None),
 		}
+	}
+
+	/// The approvals attached to the release `manifest` describes, when it
+	/// has any. Nothing in them is verified.
+	pub fn approvals(
+		&self,
+		manifest: &BundleManifest,
+	) -> Result<Option<ReleaseApprovals>, StoreError> {
+		match read_optional(&self.path_of(&ObjectKey::approvals_of(manifest)))? {
+			Some(bytes) => Ok(Some(ReleaseApprovals::from_slice(&bytes)?)),
+			None => Ok(None),
+		}
+	}
+
+	/// Attaches signed approvals to the releases they approve, without
+	/// touching the releases or their publisher signatures.
+	///
+	/// Each approval's signature must verify against its own key, and its
+	/// statement must name a release in the store by app, channel, version,
+	/// build, and bundle hash. Which approvers count is each host's decision,
+	/// so no approver is checked against a policy here. Approvals already
+	/// attached are skipped. When any approval is invalid or names a release
+	/// the store lacks, nothing is attached.
+	///
+	/// One writer at a time: the read, merge, and write of a release's
+	/// approvals is not atomic against another attach to the same release.
+	pub fn attach_approvals(
+		&self,
+		approvals: &[SignedApproval],
+	) -> Result<Vec<AttachedApprovals>, CodePushError> {
+		let mut releases: Vec<(BundleManifest, Vec<SignedApproval>)> = Vec::new();
+
+		for approval in approvals {
+			let (_, statement) = approval.open()?;
+			let release = statement.release();
+			let (app, channel) = (statement.app.as_str(), statement.channel.as_str());
+			let manifest = self
+				.find(app, channel, &statement.version, statement.build)?
+				.ok_or_else(|| CodePushError::UnknownRelease(release.clone()))?
+				.manifest;
+			let bundle_hash = manifest.bundle_hash();
+
+			if bundle_hash != statement.bundle_hash {
+				return Err(CodePushError::HashMismatch {
+					path: release,
+					expected: bundle_hash,
+					actual: statement.bundle_hash,
+				});
+			}
+
+			match releases
+				.iter_mut()
+				.find(|(attached, _)| attached.bundle_hash() == bundle_hash)
+			{
+				Some((_, pending)) => pending.push(approval.clone()),
+				None => releases.push((manifest, vec![approval.clone()])),
+			}
+		}
+
+		let mut attached = Vec::with_capacity(releases.len());
+
+		for (manifest, pending) in releases {
+			let mut approvals = self
+				.approvals(&manifest)?
+				.unwrap_or_else(ReleaseApprovals::empty);
+			let added = approvals.merge(pending)?;
+
+			if added > 0 {
+				let path = self.path_of(&ObjectKey::approvals_of(&manifest));
+				fs::create_dir_all(durable::parent_of(&path))?;
+				write_atomically(&path, &approvals.to_vec()?)?;
+			}
+
+			attached.push(AttachedApprovals {
+				release: format!(
+					"{}/{}/{}+{}",
+					manifest.app, manifest.channel, manifest.version, manifest.build
+				),
+				added,
+				total: approvals.approvals.len(),
+			});
+		}
+
+		Ok(attached)
 	}
 
 	/// The bytes of a file in the layout, or `None` when it does not exist.

@@ -213,6 +213,8 @@ The store build carries a first copy of your app, `app.lkb`, with the trusted ke
 3. If the trial crashes, the host keeps the current release and refuses that release from then on. If the app is killed during a trial, or the trial never draws, the next launch goes back to the last good release.
 4. Every launch verifies the release's signature again, and works offline. If the downloaded release can't be read any more, the host runs the copy it shipped with, but still refuses any release at or below the newest one it confirmed. A new store build replaces every earlier download.
 
+With [`codepush.provenance`](../guide/05-code-push.md#requiring-source-approvals) set, `codepush.json` carries that policy too. **Check for update** then also requires enough independent source approvals before it downloads anything, and every launch checks the stored approvals again.
+
 Release builds only reach `https://` servers; debug builds can use a local `http://` server with `codepush.allow_http = true`. Downloads follow no redirects, are capped at 32 MiB, and time out after 15 seconds to connect, 30 seconds to respond, and 10 minutes in total. If the update store fails, the host runs the copy it shipped with and says updates are unavailable.
 
 Code push protects startup only: a release that draws its first screen and fails later is not rolled back automatically. Updates are checked only when the user taps the button, and `codepush.mandatory` isn't read yet. A release that needs a new plugin, permission, or host interface needs a store release with a new `update_contract`. Store review rules still apply to what a download changes.

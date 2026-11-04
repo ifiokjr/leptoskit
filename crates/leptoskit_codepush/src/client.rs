@@ -9,6 +9,11 @@
 //! hash in it. A registry or proxy can therefore withhold updates, but not
 //! ship its own code or roll a device back to an older release.
 //!
+//! A client given a [`ProvenancePolicy`] also requires the release's [source
+//! approvals](crate::provenance) before it downloads the container: enough
+//! distinct approvers it trusts, all naming one commit of the policy's
+//! repository. A release without them is an error, never staged.
+//!
 //! The client speaks the static [`crate::layout`]: it reads the channel's
 //! `index.json`, asks for the delta from its exact container by hash, and
 //! falls back to the full container on a miss. Every request is a plain GET
@@ -36,6 +41,9 @@ use crate::layout::encode_component;
 use crate::manifest::BundleManifest;
 use crate::manifest::hash_bytes;
 use crate::manifest::read_container;
+use crate::provenance::ProvenancePolicy;
+use crate::provenance::ReleaseApprovals;
+use crate::provenance::VerifiedSource;
 use crate::signing::ReleaseSignature;
 use crate::signing::TrustedKeys;
 use crate::store::ReleaseStore;
@@ -95,6 +103,11 @@ pub struct VerifiedDownload {
 	pub signature: ReleaseSignature,
 	/// Whether the container was reconstructed from a delta.
 	pub used_delta: bool,
+	/// The release's approvals, when the client has a [`ProvenancePolicy`]:
+	/// kept so the host can check them again before every launch.
+	pub approvals: Option<ReleaseApprovals>,
+	/// What the policy verified, when the client has one.
+	pub source: Option<VerifiedSource>,
 }
 
 // Containers run to megabytes; a debug print names them by size.
@@ -105,6 +118,8 @@ impl std::fmt::Debug for VerifiedDownload {
 			.field("manifest", &self.manifest)
 			.field("signature", &self.signature)
 			.field("used_delta", &self.used_delta)
+			.field("approvals", &self.approvals)
+			.field("source", &self.source)
 			.finish()
 	}
 }
@@ -209,6 +224,8 @@ pub struct CodePushClient<T: Transport> {
 	trusted_keys: TrustedKeys,
 	/// The largest container the client accepts, downloaded or rebuilt.
 	max_container_bytes: u64,
+	/// The source approvals releases must carry, when the host requires them.
+	provenance: Option<ProvenancePolicy>,
 }
 
 impl<T: Transport> CodePushClient<T> {
@@ -243,7 +260,20 @@ impl<T: Transport> CodePushClient<T> {
 			current_container,
 			trusted_keys,
 			max_container_bytes: crate::manifest::MAX_CONTAINER_BYTES,
+			provenance: None,
 		}
+	}
+
+	/// Requires every release to carry source approvals that satisfy
+	/// `policy`, checked before the container is downloaded.
+	///
+	/// The policy is the host's, like the trusted keys: pass the one compiled
+	/// into or shipped with the store build, never one that came with a
+	/// download. Without one, releases need only the publisher signature.
+	#[must_use]
+	pub fn with_provenance(mut self, policy: ProvenancePolicy) -> Self {
+		self.provenance = Some(policy);
+		self
 	}
 
 	/// Caps the size of a container the client accepts, whether downloaded
@@ -427,12 +457,44 @@ impl<T: Transport> CodePushClient<T> {
 		}
 	}
 
+	/// Fetches the approvals file of the release `manifest` describes. A
+	/// registry without one, a 404, has no approvals for it yet.
+	///
+	/// The file is bounded by [`ObjectKind::Approvals`]'s size before it is
+	/// parsed, and nothing in it is verified: that is
+	/// [`ProvenancePolicy::verify`]'s job.
+	pub fn fetch_approvals(
+		&mut self,
+		manifest: &BundleManifest,
+	) -> Result<ReleaseApprovals, CodePushError> {
+		let url = self.url(&ObjectKey::approvals_of(manifest));
+
+		match self.transport.fetch(&url) {
+			Ok(body) => ReleaseApprovals::from_slice(&body),
+			Err(CodePushError::NotFound(_)) => Ok(ReleaseApprovals::empty()),
+			Err(error) => Err(error),
+		}
+	}
+
 	/// Downloads and authenticates the container of an offer [`Self::check`]
 	/// returned, so already verified.
+	///
+	/// With a [`ProvenancePolicy`], the release's approvals are fetched and
+	/// verified first, so an unapproved release is refused before its
+	/// container is downloaded.
 	pub(crate) fn download_offer(
 		&mut self,
 		offer: UpdateOffer,
 	) -> Result<VerifiedDownload, CodePushError> {
+		let (approvals, source) = if self.provenance.is_some() {
+			let approvals = self.fetch_approvals(&offer.manifest)?;
+			let policy = self.provenance.as_ref().expect("checked above");
+			let source = policy.verify(&offer.manifest, &approvals.approvals)?;
+			(Some(approvals), Some(source))
+		} else {
+			(None, None)
+		};
+
 		let delta_bytes = match (offer.delta_url.as_ref(), offer.delta_base_hash.as_ref()) {
 			(Some(delta_url), Some(base_hash)) => self.fetch_delta(delta_url, base_hash).ok(),
 			_ => None,
@@ -470,6 +532,8 @@ impl<T: Transport> CodePushClient<T> {
 			manifest: parsed.manifest,
 			signature,
 			used_delta,
+			approvals,
+			source,
 		})
 	}
 

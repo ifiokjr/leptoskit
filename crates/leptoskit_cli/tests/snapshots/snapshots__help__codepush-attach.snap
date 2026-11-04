@@ -1,0 +1,25 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Attaches signed source approvals to the releases they approve, so `publish` and `serve` hand them to devices.
+
+The releases and their publisher signatures don't change. Each approval must verify and name a release in the store. When `codepush.provenance` is set, an approval from a key it doesn't list, or for another repository, is refused, since no app would count it.
+
+Usage: leptoskit codepush attach [OPTIONS] <APPROVAL>...
+
+Arguments:
+  <APPROVAL>...
+          The approval files `leptoskit codepush approve` wrote
+
+Options:
+      --store <STORE>
+          The release store directory; defaults to `releases/`
+          
+          [default: releases]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

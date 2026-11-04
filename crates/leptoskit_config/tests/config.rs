@@ -335,6 +335,110 @@ fn enabled_codepush_requires_valid_public_keys() {
 }
 
 #[test]
+fn codepush_provenance_policies_are_validated() {
+	let approver = "b".repeat(64);
+	let other = "c".repeat(64);
+	let publisher = "a".repeat(64);
+	let policy = |body: &str| {
+		format!("[codepush]\npublic_keys = [\"{publisher}\"]\n\n[codepush.provenance]\n{body}")
+	};
+	let valid = policy(&format!(
+		"repository = \"https://github.com/example/app\"\napprovers = [\"{approver}\", \
+		 \"{other}\"]\nthreshold = 2\n"
+	));
+	let config = load("provenance", &valid).expect("valid policy");
+	let provenance = config.codepush.provenance.expect("policy");
+	assert_eq!(provenance.repository, "https://github.com/example/app");
+	assert_eq!(provenance.approvers, [approver.clone(), other.clone()]);
+	assert_eq!(provenance.threshold, 2);
+	assert!(
+		load("no_provenance", "[codepush]\n")
+			.expect("load")
+			.codepush
+			.provenance
+			.is_none()
+	);
+
+	for (what, body) in [
+		(
+			"not GitHub",
+			format!(
+				"repository = \"https://gitlab.com/example/app\"\napprovers = \
+				 [\"{approver}\"]\nthreshold = 1\n"
+			),
+		),
+		(
+			"trailing slash",
+			format!(
+				"repository = \"https://github.com/example/app/\"\napprovers = \
+				 [\"{approver}\"]\nthreshold = 1\n"
+			),
+		),
+		(
+			"credentials",
+			format!(
+				"repository = \"https://token@github.com/example/app\"\napprovers = \
+				 [\"{approver}\"]\nthreshold = 1\n"
+			),
+		),
+		(
+			"no approvers",
+			"repository = \"https://github.com/example/app\"\napprovers = []\nthreshold = 1\n"
+				.to_owned(),
+		),
+		(
+			"malformed approver",
+			"repository = \"https://github.com/example/app\"\napprovers = [\"abc\"]\nthreshold = \
+			 1\n"
+			.to_owned(),
+		),
+		(
+			"repeated approver",
+			format!(
+				"repository = \"https://github.com/example/app\"\napprovers = [\"{approver}\", \
+				 \"{}\"]\nthreshold = 1\n",
+				approver.to_uppercase()
+			),
+		),
+		(
+			"publisher as approver",
+			format!(
+				"repository = \"https://github.com/example/app\"\napprovers = \
+				 [\"{publisher}\"]\nthreshold = 1\n"
+			),
+		),
+		(
+			"zero threshold",
+			format!(
+				"repository = \"https://github.com/example/app\"\napprovers = \
+				 [\"{approver}\"]\nthreshold = 0\n"
+			),
+		),
+		(
+			"unreachable threshold",
+			format!(
+				"repository = \"https://github.com/example/app\"\napprovers = \
+				 [\"{approver}\"]\nthreshold = 2\n"
+			),
+		),
+	] {
+		let error = load("bad_provenance", &policy(&body)).unwrap_err();
+		assert!(
+			matches!(error, ConfigError::InvalidCodePushProvenance(_)),
+			"{what}: got {error:?}"
+		);
+	}
+
+	// Every field is required: a policy that leaves one out is a typo.
+	let error = load(
+		"partial_provenance",
+		&policy("repository = \"https://github.com/example/app\"\n"),
+	)
+	.unwrap_err();
+	assert!(matches!(error, ConfigError::Parse { .. }), "got {error:?}");
+}
+
+#[test]
 fn explicit_package_ids_are_validated() {
 	for valid in ["com.example.counter", "com.Example.App2", "io.app"] {
 		let toml = format!("[native]\npackage_id = \"{valid}\"\n");

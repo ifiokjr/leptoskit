@@ -90,7 +90,7 @@ Native filesystem, SQLite, and secure-store plugins enforce aggregate storage bu
 
 <Callout kind="note" title="Works now">
 
-The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum serving. The layout engine and the renderer. Native backends for macOS, iOS, Android, Linux, Windows, and the terminal that draw every built-in component, checked in CI on a real Mac, an iOS simulator, an Android emulator, a Linux desktop, a Windows desktop, and headless terminal sessions. Generated apps for all of those platforms. The Wasm runtime and code push, from a signed release to a verified, staged update on iOS and Android. File routes, server functions, queries, translations, and the testing tools.
+The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum serving. The layout engine and the renderer. Native backends for macOS, iOS, Android, Linux, Windows, and the terminal that draw every built-in component, checked in CI on a real Mac, an iOS simulator, an Android emulator, a Linux desktop, a Windows desktop, and headless terminal sessions. Generated apps for all of those platforms. The Wasm runtime and code push, from a signed release to a verified, staged update on iOS and Android, optionally gated on independent source approvals. File routes, server functions, queries, translations, and the testing tools.
 
 </Callout>
 

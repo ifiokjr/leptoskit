@@ -11,6 +11,8 @@ use axum::http::header;
 use leptoskit_codepush::ObjectKey;
 use leptoskit_codepush::ReleaseSigningKey;
 use leptoskit_codepush::ReleaseStore;
+use leptoskit_codepush::SignedApproval;
+use leptoskit_codepush::SourceApproval;
 use leptoskit_codepush::codepush_router;
 use leptoskit_codepush::hash_bytes;
 use semver::Version;
@@ -466,5 +468,51 @@ async fn mutable_urls_do_not_cache_stale_offers_using_file_dates() {
 		assert_eq!(response.status(), StatusCode::OK);
 		assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
 		assert!(!response.headers().contains_key(header::LAST_MODIFIED));
+	}
+}
+
+#[tokio::test]
+async fn approvals_are_served_like_the_index() {
+	let scratch = Scratch::new("approvals");
+	let (store, _) = store(&scratch);
+	let manifest = store
+		.latest("app", "production")
+		.expect("latest")
+		.expect("release")
+		.manifest;
+	let key = ObjectKey::approvals_of(&manifest);
+	let path = format!("/{}", key.url_path());
+	assert_eq!(get(&store, &path).await.0, StatusCode::NOT_FOUND);
+
+	let statement = SourceApproval::new(
+		&manifest,
+		"https://github.com/example/app",
+		"0123456789abcdef0123456789abcdef01234567",
+	)
+	.expect("statement");
+	let approval =
+		SignedApproval::sign(&statement, &ReleaseSigningKey::from_seed(&[0x21; 32])).expect("sign");
+	store.attach_approvals(&[approval]).expect("attach");
+	let (status, cache_control, body) = get(&store, &path).await;
+	assert_eq!(status, StatusCode::OK);
+	assert_eq!(cache_control.as_deref(), Some("no-cache"));
+	assert_eq!(
+		body,
+		std::fs::read(scratch.0.join("releases").join(key.as_str())).expect("file")
+	);
+
+	for missing in [
+		"/app/production/1.1.0%2B2/approvals/not-a-hash.json".to_owned(),
+		"/app/production/1.1.0%2B2/approvals/..%2F..%2Findex.json".to_owned(),
+		format!(
+			"/app/production/1.1.0%2B2/approvals/{}.json",
+			"0".repeat(64)
+		),
+	] {
+		assert_eq!(
+			get(&store, &missing).await.0,
+			StatusCode::NOT_FOUND,
+			"{missing}"
+		);
 	}
 }

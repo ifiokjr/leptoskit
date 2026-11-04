@@ -532,13 +532,85 @@ pub enum CodepushCommand {
 		#[arg(long, value_name = "PATH")]
 		signing_key: Option<String>,
 	},
-	/// Creates a publisher signing key and prints its public key for
-	/// `codepush.public_keys`.
+	/// Creates a publisher signing key for `codepush.public_keys`, or an
+	/// approver key with `--approver`, and prints its public key.
 	Keygen {
 		/// Where to write the secret key; never overwritten. Keep it out of
 		/// version control.
 		#[arg(long, value_name = "PATH")]
 		out: String,
+		/// Creates an approver key instead, whose public key goes in
+		/// `codepush.provenance.approvers`.
+		#[arg(long)]
+		approver: bool,
+	},
+	/// Signs a source approval for a release you rebuilt yourself from a
+	/// public commit, after checking that every file matches.
+	///
+	/// Unpacks the release and compares it with the directory you built from
+	/// `--repository` at `--commit`: the same file paths, byte for byte.
+	/// Nothing is signed when any file differs, is missing, or is extra. An
+	/// approval says you rebuilt identical files from that commit; it is not
+	/// a review of the code.
+	// `--version` names the release here, so the auto-generated `--version`
+	// flag that `propagate_version` adds must step aside.
+	#[command(disable_version_flag = true)]
+	#[command(group(clap::ArgGroup::new("target").required(true).args(["release", "version"])))]
+	Approve {
+		/// The release container to approve, such as a downloaded
+		/// `release.lkb`.
+		#[arg(long, value_name = "PATH")]
+		release: Option<String>,
+		/// The release store holding the release named by `--version` and
+		/// `--build`; defaults to `releases/`.
+		#[arg(long, default_value = "releases")]
+		store: String,
+		/// The release channel, with `--version`.
+		#[arg(long, default_value = "production")]
+		channel: String,
+		/// Application platform, with `--version`; native releases use a
+		/// platform-specific channel.
+		#[arg(long)]
+		platform: Option<leptoskit_config::Platform>,
+		/// The version of the release in the store to approve.
+		#[arg(long, requires = "build")]
+		version: Option<String>,
+		/// The build of the release in the store to approve.
+		#[arg(long, requires = "version")]
+		build: Option<u64>,
+		/// The directory you built yourself, such as the `--out` of
+		/// `leptoskit native bundle`.
+		#[arg(long, value_name = "DIR")]
+		rebuilt: String,
+		/// The public GitHub repository you built from,
+		/// `https://github.com/<owner>/<repo>`.
+		#[arg(long, value_name = "URL")]
+		repository: String,
+		/// The full Git commit id you built.
+		#[arg(long, value_name = "SHA")]
+		commit: String,
+		/// The file holding your approver key. Without it, the key is read
+		/// from the `LEPTOSKIT_CODEPUSH_APPROVER_KEY` environment variable.
+		#[arg(long, value_name = "PATH")]
+		approver_key: Option<String>,
+		/// Where to write the signed approval.
+		#[arg(long, value_name = "PATH")]
+		out: String,
+	},
+	/// Attaches signed source approvals to the releases they approve, so
+	/// `publish` and `serve` hand them to devices.
+	///
+	/// The releases and their publisher signatures don't change. Each
+	/// approval must verify and name a release in the store. When
+	/// `codepush.provenance` is set, an approval from a key it doesn't list,
+	/// or for another repository, is refused, since no app would count it.
+	Attach {
+		/// The release store directory; defaults to `releases/`.
+		#[arg(long, default_value = "releases")]
+		store: String,
+		/// The approval files `leptoskit codepush approve` wrote.
+		#[arg(required = true, value_name = "APPROVAL")]
+		approvals: Vec<String>,
 	},
 	/// Uploads a channel's releases to an S3-compatible bucket (Backblaze
 	/// B2, Cloudflare R2, AWS S3), so a CDN can serve updates with no server.

@@ -23,6 +23,13 @@
 //! runs, so a compromised registry can neither ship its own code nor roll a
 //! device back to an older release.
 //!
+//! A host can also require [source approvals](provenance): independent
+//! rebuilders who built the bundle from a public `repository@commit`, got the
+//! same files, and signed to say so. With a [`ProvenancePolicy`], a client
+//! stages and launches only releases that enough of those approvers vouch
+//! for, so a publisher key alone can no longer ship code that was not built
+//! from public source.
+//!
 //! [`ReleaseSigningKey`] and [`TrustedKeys`] cover signing and verification,
 //! and [`semver::Version`] names every release, so a deployment needs neither
 //! crate as a dependency of its own: both are re-exported as [`ed25519_dalek`]
@@ -44,6 +51,7 @@ mod durable;
 pub mod installed;
 pub mod layout;
 pub mod manifest;
+pub mod provenance;
 pub mod publish;
 
 #[cfg(feature = "server")]
@@ -71,6 +79,12 @@ pub use manifest::bundle_directory;
 pub use manifest::bundle_directory_as;
 pub use manifest::hash_bytes;
 pub use manifest::read_container;
+pub use provenance::ProvenanceConfiguration;
+pub use provenance::ProvenancePolicy;
+pub use provenance::ReleaseApprovals;
+pub use provenance::SignedApproval;
+pub use provenance::SourceApproval;
+pub use provenance::VerifiedSource;
 pub use publish::Bucket;
 pub use publish::PublishReport;
 pub use publish::PullReport;
@@ -82,6 +96,7 @@ pub use signing::ReleasePublicKey;
 pub use signing::ReleaseSignature;
 pub use signing::ReleaseSigningKey;
 pub use signing::TrustedKeys;
+pub use store::AttachedApprovals;
 pub use store::IngestedRelease;
 pub use store::ReleaseRecord;
 pub use store::ReleaseStore;
@@ -151,6 +166,37 @@ pub enum CodePushError {
 	/// A release signature does not verify against its manifest.
 	#[error("release {0} has an invalid signature")]
 	BadSignature(String),
+	/// A source approval, or a file of them, is malformed or its signature
+	/// does not verify.
+	#[error("invalid source approval: {0}")]
+	InvalidApproval(String),
+	/// A provenance policy is invalid: a repository that is not a GitHub HTTPS
+	/// URL, a repeated approver, or an unreachable threshold.
+	#[error("invalid provenance policy: {0}")]
+	InvalidProvenance(String),
+	/// A release has fewer source approvals than the host's provenance policy
+	/// requires.
+	#[error(
+		"release {release} has {approvals} of the {threshold} source approvals this app requires"
+	)]
+	Unapproved {
+		/// The `app/channel/version+build` of the release.
+		release: String,
+		/// How many distinct trusted approvers approved it.
+		approvals: usize,
+		/// How many the policy requires.
+		threshold: usize,
+	},
+	/// Trusted approvers named different source commits for one release.
+	#[error("approvers disagree on the source of release {release}: {first} and {second}")]
+	ConflictingApprovals {
+		/// The `app/channel/version+build` of the release.
+		release: String,
+		/// The commit the first counted approval names.
+		first: String,
+		/// A different commit another counted approval names.
+		second: String,
+	},
 	/// An offer is for a different app or channel than the client tracks.
 	#[error("offer is for {offered}, but the client tracks {tracked}")]
 	WrongTarget {

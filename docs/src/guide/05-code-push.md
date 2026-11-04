@@ -30,13 +30,15 @@ A release never changes once it's published, and every file in it is addressed b
 <app>/<channel>/<version>+<build>/release.lkb              the container
 <app>/<channel>/<version>+<build>/release.sig              the publisher signature
 <app>/<channel>/<version>+<build>/deltas/<hash>.jsondelta  the delta from the container with that SHA-256
+<app>/<channel>/<version>+<build>/approvals/<hash>.json    source approvals of the release with that bundle hash
 ```
 
 A device makes plain GET requests and nothing else:
 
 1. `index.json`. A 404 means the channel has no releases yet.
-2. `deltas/<sha256 of my container>.jsondelta`. A 404 means there's no delta from what the device runs, so it moves on.
-3. `release.lkb`, only when there was no usable delta.
+2. `approvals/<bundle hash>.json`, only when the app [requires source approvals](#requiring-source-approvals). A 404 means the release has none yet.
+3. `deltas/<sha256 of my container>.jsondelta`. A 404 means there's no delta from what the device runs, so it moves on.
+4. `release.lkb`, only when there was no usable delta.
 
 A delta carries only what changed. The container compresses each file in chunks of about 64 KiB, and a chunk whose bytes didn't change compresses to exactly what it did in the previous release, so the delta copies it from the container the device already has. An update that rebuilds one part of your wasm module ships as the few chunks around that part. An update that changes most of the module has no delta worth keeping, and neither does a device still running the bundle that shipped in the store build, since no release was ever computed against it: those devices download the full container.
 
@@ -63,9 +65,10 @@ Each platform gets its own update channel. In a project created with `leptoskit 
 
 ### `leptoskit codepush keygen`
 
-| Flag           | Default | Meaning                                                  |
-| -------------- | ------- | -------------------------------------------------------- |
-| `--out <PATH>` | —       | Where to write the secret key. An existing file is kept. |
+| Flag           | Default | Meaning                                                                                                          |
+| -------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
+| `--out <PATH>` | —       | Where to write the secret key. An existing file is kept.                                                         |
+| `--approver`   | off     | Creates an approver key, and prints its public key for `codepush.provenance.approvers` instead of `public_keys`. |
 
 The secret key is 64 hex characters. Keep it out of version control, and never paste it into logs or issues.
 
@@ -147,6 +150,37 @@ Asks the store what a device on a given release would be offered:
 | `--version <SEMVER>`    | `0.1.0`      | The version the device runs.       |
 | `--build <N>`           | `1`          | The build number the device runs.  |
 
+### `leptoskit codepush approve`
+
+Run by an approver, not the publisher. It unpacks a release, compares it with a directory the approver built themselves, and signs an approval only when both hold exactly the same files with exactly the same bytes. Otherwise it names the first file that differs, is missing, or is extra, and writes nothing.
+
+| Flag                    | Default      | Meaning                                                                                 |
+| ----------------------- | ------------ | --------------------------------------------------------------------------------------- |
+| `--release <PATH>`      | —            | The release container to approve, such as a `release.lkb` downloaded from the registry. |
+| `--version <SEMVER>`    | —            | Instead of `--release`, the version of a release in the store. Needs `--build`.         |
+| `--build <N>`           | —            | The build of that release.                                                              |
+| `--store <DIR>`         | `releases`   | The release store, with `--version`.                                                    |
+| `--channel <NAME>`      | `production` | The channel, with `--version`.                                                          |
+| `--platform <PLATFORM>` | —            | The application platform, with `--version`.                                             |
+| `--rebuilt <DIR>`       | —            | The directory you built yourself, such as the `--out` of `leptoskit native bundle`.     |
+| `--repository <URL>`    | —            | The public GitHub repository you built from, `https://github.com/<owner>/<repo>`.       |
+| `--commit <SHA>`        | —            | The full commit id you built, as `git rev-parse HEAD` prints it.                        |
+| `--approver-key <PATH>` | —            | The file holding your approver key.                                                     |
+| `--out <PATH>`          | —            | Where to write the signed approval.                                                     |
+
+Without `--approver-key`, the key is read from the `LEPTOSKIT_CODEPUSH_APPROVER_KEY` environment variable. Run inside a leptoskit project, `approve` refuses a key that's in the project's `codepush.public_keys`: an approver has to be someone other than the publisher.
+
+### `leptoskit codepush attach`
+
+Attaches approval files to the releases they approve in the store, so `publish` uploads them and `serve` serves them. The releases and their signatures don't change.
+
+| Flag            | Default    | Meaning                                                |
+| --------------- | ---------- | ------------------------------------------------------ |
+| `--store <DIR>` | `releases` | The release store.                                     |
+| `<APPROVAL>...` | —          | The approval files `leptoskit codepush approve` wrote. |
+
+Every approval has to verify and name a release in the store, or nothing is attached. When `codepush.provenance` is set, an approval signed by a key it doesn't list, or for another repository, is refused too, since no app would count it, and `attach` says whether each release now has enough approvals.
+
 ## What the client checks
 
 Everything a device downloads is untrusted until it has been verified:
@@ -161,6 +195,7 @@ Everything a device downloads is untrusted until it has been verified:
 - A container has to fit the client's size limit, whether it's downloaded whole or rebuilt from a delta. The limit is 32 MiB, the largest container a client can read. A delta's output size is checked against it before any memory is allocated.
 - If a delta can't be fetched, doesn't parse, or doesn't apply, the client falls back to the full download.
 - `CodePushClient::sync` replaces its staging directory whole, so no file of the previous release survives the update, and a failed sync leaves the previous staging as it was.
+- When the app [requires source approvals](#requiring-source-approvals), enough of its approvers have to approve the release, all naming the same commit, before the container is downloaded.
 
 A release that fails these checks is an error, never a silent "up to date", and nothing is staged. In the apps leptoskit generates, a validly signed release that the installed app can't run, because it needs a newer shell, ABI, or plugin, is remembered and isn't downloaded again on later checks. A new store build of the app forgets that list.
 
@@ -174,7 +209,7 @@ The registry, whether that's a server, a bucket, or a CDN, can still withhold up
 
 The client compares offers against the release you tell it is running. Pass the release the shell actually loads, whether that's the bundle from the store build or the last staged update. Otherwise an older signed release can look new.
 
-Anyone who holds the secret key can ship code to your users. Keep it in a secret store, not in the repository.
+Anyone who holds the secret key can ship code to your users. Keep it in a secret store, not in the repository. A signature also says nothing about what a release was built from; to have devices check that, [require source approvals](#requiring-source-approvals).
 
 ### Rotating keys
 
@@ -184,6 +219,92 @@ Anyone who holds the secret key can ship code to your users. Keep it in a secret
 2. Ship that shell through the store and wait for it to reach your users.
 3. Sign releases with the new key.
 4. Remove the old public key in a later store release.
+
+## Requiring source approvals
+
+A publisher signature tells a device who shipped a release. It doesn't tell anyone what the release was built from: whoever holds your publisher key can sign a bundle built from code that was never pushed anywhere. If your app's source is public on GitHub, you can ask independent people, called approvers, to rebuild each release from a commit and vouch that they got the same files. Your app then installs only releases that enough of them vouched for.
+
+The iOS and Android apps `leptoskit new` generates check approvals before they download a release and again every time they launch one. The generated macOS, Windows, and Linux apps don't install code push releases yet, so there is nothing for them to check. HarmonyOS has no code push, and web apps don't use it.
+
+### An example
+
+The maintainers of a notes app ask two people, Alice and Bob, to approve every release, and require both. Each of them creates an approver key once and sends the maintainers the public key it prints:
+
+```bash
+leptoskit codepush keygen --approver --out ~/.config/leptoskit/approver.key
+```
+
+The app ships with those keys in `leptoskit.toml`:
+
+```toml
+[codepush]
+enabled = true
+server = "https://updates.example.com"
+public_keys = ["<your publisher key>"]
+
+[codepush.provenance]
+repository = "https://github.com/example/notes"
+approvers = ["<Alice's approver key>", "<Bob's approver key>"]
+threshold = 2
+```
+
+You release from a commit you've pushed, and tell the approvers the version, the build, and the commit:
+
+```bash
+git push origin main
+leptoskit native bundle --target ios --out dist/ios
+leptoskit codepush release --from dist/ios --platform ios --channel production
+leptoskit codepush publish --platform ios --endpoint https://s3.us-west-004.backblazeb2.com --bucket notes-updates --region us-west-004
+```
+
+Alice checks out that commit, builds it on their own machine, downloads the release from your registry (for iOS, the channel is `production-ios`), and approves it:
+
+```bash
+git clone https://github.com/example/notes && cd notes
+git checkout 3f2c1b0e9d8a7c6b5a4f3e2d1c0b9a8f7e6d5c4b
+leptoskit native bundle --target ios --out rebuilt/ios
+curl -o release.lkb "https://updates.example.com/notes/production-ios/1.4.0%2B2/release.lkb"
+leptoskit codepush approve --release release.lkb --rebuilt rebuilt/ios --repository https://github.com/example/notes --commit 3f2c1b0e9d8a7c6b5a4f3e2d1c0b9a8f7e6d5c4b --approver-key ~/.config/leptoskit/approver.key --out alice.json
+```
+
+Bob does the same. They send you `alice.json` and `bob.json`, and you attach them and publish again:
+
+```bash
+leptoskit codepush attach alice.json bob.json
+leptoskit codepush publish --platform ios --endpoint https://s3.us-west-004.backblazeb2.com --bucket notes-updates --region us-west-004
+```
+
+Until both approvals are published, a device that checks for an update gets an error saying the release has 1 of the 2 source approvals the app requires, and downloads nothing. Once they are, it installs the release as usual.
+
+### What an approval means
+
+An approval says: "I built this commit of this repository myself, and got exactly the files in this release." It names the app, channel, version, build, and the release's bundle hash, which covers every file, and it is signed with the approver's key.
+
+It doesn't say the code is safe, or that anyone reviewed it. It also says nothing about the installed app itself: the host, the trusted keys, and this policy came from the App Store or Google Play, and are trusted because of that.
+
+### What a device checks
+
+A device counts an approval only when:
+
+- it's signed by one of `approvers`. An approval signed by any other key, your publisher key included, counts for nothing. A key can't be in both `public_keys` and `approvers`;
+- its signature covers the exact statement it came with, so an edited statement counts for nothing;
+- it names this exact release and the `repository` in the policy.
+
+Each approver counts once, however many approvals they signed. Every approval that counts has to name the same commit: if two approvers name different commits, the device refuses the release, whatever the threshold.
+
+The approvals are checked after `index.json` and before anything else of the release is downloaded. The device keeps them next to the release and checks them again every time it loads it. If they no longer verify, because the stored file was changed or deleted, the release doesn't run, and the device falls back to its last working release.
+
+The bundle that shipped in the store build needs no approvals: it's part of the installed app. Files inside a release are only ever bundle files, so a file named `approvals.json` in your `dist/` approves nothing. When a store update adds a policy, releases downloaded before it don't run any more, and devices go back to the store build's bundle until an approved release arrives.
+
+The policy lives in the app the store installed, so a release can't change it: approvers change only with a store release. Without `codepush.provenance`, a publisher signature is enough, as before.
+
+### Rebuilding the same bytes
+
+Approvals only work when building the same commit gives the same bytes on someone else's machine. Pin the Rust toolchain in `rust-toolchain.toml`, commit `Cargo.lock`, and don't put timestamps, absolute paths, or machine names into your bundle. When something differs, `approve` names the first file that does, so the approver can tell you what to fix.
+
+### Approvals in the registry
+
+A release's approvals live at `<app>/<channel>/<version>+<build>/approvals/<bundle hash>.json`. Unlike every other release file, it grows after the release is published, so it is cached for 60 seconds like `index.json`, and `serve` sends it with `Cache-Control: no-cache`. `publish` uploads the store's approvals for every release, keeping any approvals the bucket already has. A bucket or CDN can withhold approvals, but it can't forge one.
 
 ## Delivering updates safely
 
