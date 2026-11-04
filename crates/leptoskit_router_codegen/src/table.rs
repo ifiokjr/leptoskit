@@ -797,8 +797,14 @@ fn shapes(segments: &[Segment]) -> Vec<Shape> {
 
 /// What decides which URLs a shape matches: each segment's rank and static
 /// text. Parameter names do not count.
+///
+/// A shape with a catch-all also matches the URLs of longer shapes it is a
+/// prefix of, so its ranks end in a marker that ranks below every segment:
+/// `[...path]/edit` is tried before `[...path]`, which would otherwise take
+/// `/a/edit` as `path = [a, edit]`. Shapes without one match a fixed number
+/// of segments and keep their order.
 fn shape_key(segments: &[Segment]) -> (Vec<u8>, Vec<String>) {
-	segments
+	let (mut ranks, texts): (Vec<u8>, Vec<String>) = segments
 		.iter()
 		.map(|segment| {
 			match segment {
@@ -806,7 +812,15 @@ fn shape_key(segments: &[Segment]) -> (Vec<u8>, Vec<String>) {
 				_ => (segment.rank(), String::new()),
 			}
 		})
-		.unzip()
+		.unzip();
+	if segments
+		.iter()
+		.any(|segment| matches!(segment, Segment::Rest(_) | Segment::OptionalRest(_)))
+	{
+		ranks.push(u8::MAX);
+	}
+
+	(ranks, texts)
 }
 
 /// Most specific first: segment by segment, a static segment beats a
@@ -982,6 +996,42 @@ mod tests {
 			.collect();
 		assert_eq!(names, ["About", "French", "Section"]);
 		assert_eq!(table.routes[0].shapes[1].absent, ["lang"]);
+	}
+
+	#[test]
+	fn a_catch_all_comes_after_the_longer_routes_it_prefixes() {
+		let (table, messages) = table(&[
+			(
+				"[...path]/index.rs",
+				"#[derive(Route)]\npub struct Tree { pub path: Vec<String> }\npub fn page() {}",
+			),
+			(
+				"[...path]/edit.rs",
+				"#[derive(Route)]\npub struct Edit { pub path: Vec<String> }\npub fn page() {}",
+			),
+			(
+				"docs/[[...slug]]/index.rs",
+				"#[derive(Route)]\npub struct Docs { pub slug: Vec<String> }\npub fn page() {}",
+			),
+			(
+				"docs/[[...slug]]/history.rs",
+				"#[derive(Route)]\npub struct History { pub slug: Vec<String> }\npub fn page() {}",
+			),
+		]);
+		assert!(messages.is_empty(), "{messages:?}");
+
+		// `/a/edit` reaches `Edit`, and `/docs/a/history` reaches `History`.
+		assert_eq!(
+			order(&table),
+			[
+				"Docs /docs",
+				"History /docs/history",
+				"History /docs/*slug/history",
+				"Docs /docs/*slug",
+				"Edit /*path/edit",
+				"Tree /*path",
+			]
+		);
 	}
 
 	#[test]

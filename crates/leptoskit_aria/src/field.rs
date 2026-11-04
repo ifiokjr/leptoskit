@@ -107,14 +107,20 @@ impl Field {
 	/// already carries, so a description the app set first survives.
 	#[must_use]
 	pub fn wire(&self, input: Element) -> Element {
+		let help = format!("{}-help", self.id);
+		let error = format!("{}-error", self.id);
+		// The field's own descriptions are replaced rather than repeated, so
+		// wiring an input twice does not read its help twice, nor keep an
+		// error the field no longer shows.
 		let described: Vec<String> = input
 			.props
 			.aria()
 			.described_by
 			.iter()
+			.filter(|id| **id != help && **id != error)
 			.cloned()
-			.chain(self.help.is_some().then(|| format!("{}-help", self.id)))
-			.chain(self.error.is_some().then(|| format!("{}-error", self.id)))
+			.chain(self.help.is_some().then_some(help.clone()))
+			.chain(self.error.is_some().then_some(error.clone()))
 			.collect();
 
 		let wired = input

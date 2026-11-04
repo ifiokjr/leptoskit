@@ -307,3 +307,19 @@ fn dialog_without_title_fails_validation() {
 		"a dialog must be named by its title"
 	);
 }
+
+#[test]
+fn wiring_an_input_twice_keeps_one_of_each_description() {
+	let field = Field::new("email", "Email address").help("We never share it.");
+	let failing = field.clone().error("That address has no @.");
+
+	let twice = field.wire(field.wire(TextInput().aria_described_by(["email-note"])));
+	assert_eq!(
+		twice.props.aria().described_by,
+		["email-note", "email-help"]
+	);
+
+	// An error the field no longer shows leaves the description too.
+	let fixed = field.wire(failing.wire(TextInput()));
+	assert_eq!(fixed.props.aria().described_by, ["email-help"]);
+}
