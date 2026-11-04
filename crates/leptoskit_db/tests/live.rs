@@ -381,6 +381,35 @@ async fn subscribers_hear_only_of_rows_they_could_read_before_or_after() {
 	.await;
 }
 
+/// A commit with more images than SQLite allows terms in one compound
+/// `SELECT` still reaches a subscriber whose policy checks them.
+#[tokio::test]
+async fn a_large_commit_reaches_subscribers_with_a_policy() {
+	on_both(async |db, _| {
+		let system = db.system("a live test");
+		let mut owner = as_viewer(&db, 1).changes().await.unwrap();
+		let notes = system
+			.transaction(async |tx| {
+				let mut notes = Vec::new();
+
+				for _ in 0..501 {
+					notes.push(note_in(tx, 1).await?);
+				}
+
+				Ok::<_, DbError>(notes)
+			})
+			.await
+			.unwrap();
+
+		let Invalidation::Rows(changes) = next(&mut owner).await else {
+			panic!("the rows that changed");
+		};
+		let heard: usize = changes.iter().map(|rows| rows.keys.len()).sum();
+		assert_eq!(heard, notes.len());
+	})
+	.await;
+}
+
 #[tokio::test]
 async fn policies_never_see_secret_columns() {
 	/// Readable only by its token, which is secret.

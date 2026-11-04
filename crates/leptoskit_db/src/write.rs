@@ -446,7 +446,16 @@ async fn checked_upsert<T: Table>(
 	update: &Expr,
 ) -> Result<T> {
 	let conflict = conflict_condition::<T>(&row.to_values()?, target);
-	let overwrites = policy::count::<T>(connection, &conflict).await? > 0;
+	// The row it would overwrite is read and locked first, as
+	// `effected_upsert` does, so the update policy is checked against the
+	// row the write changes. Without one it inserts plainly: a row another
+	// transaction inserts meanwhile makes it fail as a conflict, rather than
+	// be overwritten by a write only the insert policy was checked for.
+	let existing = select_for_update::<T>(connection, &conflict)
+		.await?
+		.into_iter()
+		.next();
+	let overwrites = existing.is_some();
 
 	if overwrites
 		&& policy::count::<T>(connection, &(conflict.clone() & update.clone())).await? == 0
@@ -463,23 +472,19 @@ async fn checked_upsert<T: Table>(
 	#[cfg(feature = "postgres")]
 	if connection.row_security() {
 		let values = row.to_values()?;
-		let result = if overwrites {
-			let old = select_for_update::<T>(connection, &conflict)
-				.await?
-				.into_iter()
-				.next()
-				.map(|old| old.to_values())
-				.transpose()?
-				.unwrap_or_else(|| values.clone());
-			upserted::<T>(&old, &values, target)
-		} else {
-			values
+		let result = match &existing {
+			Some(old) => upserted::<T>(&old.to_values()?, &values, target),
+			None => values,
 		};
 
 		refuse_result_before_row_security::<T>(connection, &result, action, check).await?;
 	}
 
-	let stored = write_upsert(connection, row, target).await?;
+	let stored = if overwrites {
+		write_upsert(connection, row, target).await?
+	} else {
+		write_insert(connection, row).await?
+	};
 	let key = policy::key_of::<T>(&stored.to_values()?);
 	policy::verify::<T>(connection, &[key], action, check).await?;
 	Ok(stored)

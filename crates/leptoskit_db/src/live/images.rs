@@ -28,6 +28,11 @@ const IMAGES: &str = "lk_live";
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 const MAX_VALUES: usize = 20_000;
 
+/// SQLite's limit on the terms of one compound `SELECT`
+/// (`SQLITE_MAX_COMPOUND_SELECT`): each image is one.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+const MAX_SQLITE_TERMS: usize = 500;
+
 /// How many of the rows `images` stands for meet `condition`: `SELECT
 /// count(*) FROM (SELECT … AS col, …) AS lk_live WHERE condition`. Checks a
 /// row that isn't stored, such as one about to be inserted.
@@ -104,7 +109,12 @@ pub(crate) fn visible_images<T: Table>(
 		return Ok(None);
 	};
 	let types = column_types::<T>();
-	let per_statement = (MAX_VALUES / T::COLUMNS.len().max(1)).max(1);
+	let mut per_statement = (MAX_VALUES / T::COLUMNS.len().max(1)).max(1);
+
+	if dialect == Dialect::Sqlite {
+		per_statement = per_statement.min(MAX_SQLITE_TERMS);
+	}
+
 	let mut statements = Vec::new();
 
 	for (chunk, batch) in images.chunks(per_statement).enumerate() {

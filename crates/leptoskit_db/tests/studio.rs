@@ -393,6 +393,18 @@ async fn each_viewer_reads_what_its_policies_allow() {
 		assert!(system.body.contains("‹secret›"));
 		assert!(!system.body.contains("hunter2"));
 
+		// Nor can a filter or a sort read one back a character at a time.
+		for pairs in [
+			&[("column", "token"), ("op", "eq"), ("value", "hunter2")][..],
+			&[("order", "token")][..],
+		] {
+			let mut pairs = pairs.to_vec();
+			pairs.extend([("as", "system"), ("reason", "debugging a ticket")]);
+			let guessed = studio.get("/table/notes", &pairs).await;
+			assert!(guessed.body.contains("is secret"), "{pairs:?}");
+			assert!(!guessed.body.contains("Rows 1–1 of 1"), "{pairs:?}");
+		}
+
 		// What each viewer may do, as SQL.
 		let policies = studio
 			.get("/policies", &[("as", "writer"), ("who", &ada)])

@@ -751,23 +751,45 @@ pub(crate) fn keys_condition<T: Table>(keys: &[Vec<Value>]) -> Expr {
 		};
 	}
 
-	keys.iter()
-		.map(|key| {
-			T::KEY
-				.iter()
-				.zip(key)
-				.map(|(column, value)| {
-					Expr::Compare {
-						column,
-						comparison: Comparison::Equal,
-						value: value.clone(),
-					}
-				})
-				.reduce(|left, right| left & right)
-				.unwrap_or_else(Expr::never)
-		})
-		.reduce(|left, right| left | right)
-		.unwrap_or_else(Expr::never)
+	any_of(
+		keys.iter()
+			.map(|key| {
+				T::KEY
+					.iter()
+					.zip(key)
+					.map(|(column, value)| {
+						Expr::Compare {
+							column,
+							comparison: Comparison::Equal,
+							value: value.clone(),
+						}
+					})
+					.reduce(|left, right| left & right)
+					.unwrap_or_else(Expr::never)
+			})
+			.collect(),
+	)
+}
+
+/// `terms` joined by `OR` as a balanced tree, so many keys nest
+/// logarithmically deep: a chain as long as the keys would pass SQLite's
+/// expression depth, and the stack of everything that walks an `Expr`.
+fn any_of(mut terms: Vec<Expr>) -> Expr {
+	while terms.len() > 1 {
+		let mut pairs = Vec::with_capacity(terms.len().div_ceil(2));
+		let mut rest = terms.into_iter();
+
+		while let Some(left) = rest.next() {
+			pairs.push(match rest.next() {
+				Some(right) => left | right,
+				None => left,
+			});
+		}
+
+		terms = pairs;
+	}
+
+	terms.pop().unwrap_or_else(Expr::never)
 }
 
 /// A row's key values, from its values in [`Table::COLUMNS`] order.
@@ -805,19 +827,23 @@ pub(crate) async fn verify<T: Table>(
 	action: Action,
 	condition: &Expr,
 ) -> Result<()> {
-	if keys.is_empty() {
-		return Ok(());
+	// In batches: a bulk write's keys would otherwise pass the databases'
+	// bind limits, or nest a composite key's `OR`s past SQLite's depth.
+	for batch in keys.chunks(KEYS_PER_STATEMENT) {
+		let rows = keys_condition::<T>(batch);
+		let allowed = count::<T>(connection, &(rows.clone() & condition.clone())).await?;
+
+		if allowed != batch.len() as u64 {
+			return Err(refuse::<T>(connection, &rows, action).await?);
+		}
 	}
 
-	let rows = keys_condition::<T>(keys);
-	let allowed = count::<T>(connection, &(rows.clone() & condition.clone())).await?;
-
-	if allowed == keys.len() as u64 {
-		Ok(())
-	} else {
-		Err(refuse::<T>(connection, &rows, action).await?)
-	}
+	Ok(())
 }
+
+/// The most keys one statement names: well inside every database's bind
+/// limit, and SQLite's expression depth for a composite key's `OR`s.
+pub(crate) const KEYS_PER_STATEMENT: usize = 500;
 
 /// The refusal of `action` on the rows `rows` matches: the message of the
 /// first `deny` that matched, else of the first `allow` that has one, else a
