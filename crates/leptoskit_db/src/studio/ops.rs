@@ -180,6 +180,21 @@ fn column_of<T: Table>(name: &str) -> Result<&'static str> {
 		})
 }
 
+/// [`column_of`] for filtering or sorting, which read a column's values: a
+/// `secret` one shows as `‹secret›`, so comparing against it or ordering by
+/// it would give the value away a character at a time.
+fn readable_column_of<T: Table>(name: &str) -> Result<&'static str> {
+	let column = column_of::<T>(name)?;
+
+	if T::SECRET.contains(&column) {
+		return Err(invalid(format!(
+			"`{column}` is secret: the studio can't filter or sort by it"
+		)));
+	}
+
+	Ok(column)
+}
+
 /// A column's type and whether it takes `NULL`.
 fn column_type<T: Table>(column: &str) -> Result<(ColumnType, bool)> {
 	T::definition()
@@ -319,7 +334,7 @@ pub(crate) fn display(value: &Value) -> Cell {
 
 /// The condition a filter makes on `T`.
 fn filter_expr<T: Table>(filter: &Filter) -> Result<Expr> {
-	let column = column_of::<T>(&filter.column)?;
+	let column = readable_column_of::<T>(&filter.column)?;
 
 	let comparison = match filter.op {
 		Op::IsNull | Op::IsNotNull => {
@@ -372,7 +387,7 @@ fn read<'a, T: Table>(db: &'a Db, browse: &'a Browse) -> Boxed<'a, Rows> {
 		let total = browse_query::<T>(browse)?.count(db).await?;
 		let mut query = browse_query::<T>(browse)?;
 		let order = match &browse.order {
-			Some((column, descending)) => Order::by(column_of::<T>(column)?, *descending),
+			Some((column, descending)) => Order::by(readable_column_of::<T>(column)?, *descending),
 			None => Order::by(T::KEY[0], false),
 		};
 

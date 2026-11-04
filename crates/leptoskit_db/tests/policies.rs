@@ -53,6 +53,18 @@ pub struct Article {
 	pub version: Versioned,
 }
 
+/// Keyed by two columns, under a policy: a bulk write checks its rows by
+/// both.
+#[table(name = "policy_pairs")]
+#[policy(select, insert, update, delete, |pair, _| pair.left.gte(0))]
+pub struct Pair {
+	#[db(key)]
+	pub left: i64,
+	#[db(key)]
+	pub right: i64,
+	pub note: String,
+}
+
 async fn create_schema(db: &Db) {
 	let dialect = db.dialect();
 	let schema = leptoskit_db::schema(dialect).unwrap();
@@ -415,6 +427,81 @@ async fn upserts_cannot_take_over_rows() {
 		.unwrap();
 		assert_eq!(again.id, fresh.id);
 		assert!(again.published);
+	})
+	.await;
+}
+
+/// A bulk update checks every row it changed, however many: in batches,
+/// rather than one condition past the databases' limits.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_bulk_update_checks_thousands_of_rows() {
+	on_both(async |db| {
+		let world = world(db).await;
+		let rows = 3_000;
+		world
+			.system
+			.transaction(async |tx| {
+				for left in 0..rows {
+					NewPair {
+						left,
+						right: left,
+						note: String::new(),
+					}
+					.insert(tx)
+					.await?;
+				}
+
+				Ok::<_, DbError>(())
+			})
+			.await
+			.unwrap();
+
+		let changed = Pair::update()
+			.set(|pair| pair.note, "seen".to_owned())
+			.run(&world.ada)
+			.await
+			.unwrap();
+		assert_eq!(changed, rows as u64);
+	})
+	.await;
+}
+
+/// An upsert that finds nothing to overwrite inserts: a row another
+/// transaction is inserting meanwhile makes it fail, rather than be
+/// overwritten by a write only the insert policy was checked for.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_upsert_racing_an_insert_does_not_take_it_over() {
+	on_both(async |db| {
+		let world = world(db).await;
+		let graces = world.grace.begin().await.unwrap();
+		NewArticle {
+			author_id: world.grace_id,
+			slug: "racing".into(),
+			published: true,
+			locked: false,
+		}
+		.insert(&graces)
+		.await
+		.unwrap();
+
+		let ada = world.ada.clone();
+		let ada_id = world.ada_id;
+		let takeover = tokio::spawn(async move {
+			NewArticle {
+				author_id: ada_id,
+				slug: "racing".into(),
+				published: true,
+				locked: false,
+			}
+			.upsert(&ada, |article| article.slug)
+			.await
+		});
+		// Long enough for the upsert to wait on Grace's transaction.
+		tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+		graces.commit().await.unwrap();
+
+		assert!(takeover.await.unwrap().is_err());
+		assert_eq!(article(&world, "racing").await.author_id, world.grace_id);
 	})
 	.await;
 }

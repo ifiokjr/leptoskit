@@ -396,26 +396,24 @@ pub async fn remove_supertypes<V: Variant<Of = P>, P: Polymorphic>(
 	connection: &impl Connection,
 	keys: Vec<Value>,
 ) -> Result<()> {
-	if keys.is_empty() {
-		return Ok(());
+	for batch in keys.chunks(crate::policy::KEYS_PER_STATEMENT) {
+		let expected = batch.len() as u64;
+		let rows = Expr::In {
+			column: P::Row::KEY[0],
+			values: batch.to_vec(),
+		};
+		let filter = rows.clone();
+		let removed = Query::<P::Row>::new()
+			.filter(|_| filter)
+			.destroy(connection)
+			.await?;
+
+		if removed != expected {
+			return Err(crate::policy::refuse::<P::Row>(connection, &rows, Action::Delete).await?);
+		}
 	}
 
-	let expected = keys.len() as u64;
-	let rows = Expr::In {
-		column: P::Row::KEY[0],
-		values: keys,
-	};
-	let filter = rows.clone();
-	let removed = Query::<P::Row>::new()
-		.filter(|_| filter)
-		.destroy(connection)
-		.await?;
-
-	if removed == expected {
-		Ok(())
-	} else {
-		Err(crate::policy::refuse::<P::Row>(connection, &rows, Action::Delete).await?)
-	}
+	Ok(())
 }
 
 /// What a variant table knows of its supertype, as plain functions, so

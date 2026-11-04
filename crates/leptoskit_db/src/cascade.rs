@@ -113,8 +113,13 @@ pub(crate) async fn soft_delete_linked(
 			inventory::iter::<SoftCascade>().filter(|cascade| (cascade.target)() == table)
 		{
 			let source = (cascade.source)();
-			let sql = soft_delete_statement(connection, cascade, &keys, now);
-			let linked = apply_soft_delete(connection, cascade, sql, &keys).await?;
+			let mut linked = Vec::new();
+
+			for batch in keys.chunks(crate::policy::KEYS_PER_STATEMENT) {
+				let sql = soft_delete_statement(connection, cascade, batch, now);
+				linked.extend(apply_soft_delete(connection, cascade, sql, batch).await?);
+			}
+
 			pending.push((source, linked));
 		}
 	}
