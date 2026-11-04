@@ -1,0 +1,72 @@
+[package]
+name = "leptoskit_app"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "The LeptosKit hosted infrastructure app for web, iOS and Android."
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "leptoskit-cloud"
+path = "src/server.rs"
+required-features = ["server"]
+
+[features]
+default = []
+web = [
+	"leptoskit/web",
+	"dep:leptos",
+	"dep:wasm-bindgen",
+	"leptoskit_plugin_http/browser",
+	"dep:web-sys",
+	"dep:leptoskit_plugin_clipboard",
+]
+csr = ["web", "leptos/csr"]
+native = [
+	"dep:sha2",
+	"dep:url",
+	"leptoskit/guest",
+	"leptoskit_plugin_http/guest",
+	"leptoskit_plugin_secure_store/guest",
+	"leptoskit_plugin_clipboard/guest",
+]
+ios = ["native"]
+android = ["native"]
+server = ["leptoskit_deploy_console/server", "dep:anyhow", "dep:axum", "dep:clap", "dep:tokio", "dep:tower-http"]
+
+[dependencies]
+any_spawner = { workspace = true }
+anyhow = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
+clap = { workspace = true, optional = true, features = ["derive"] }
+futures = { workspace = true, features = ["executor"] }
+leptoskit = { workspace = true }
+leptoskit_deploy_console = { workspace = true }
+reactive_graph = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, optional = true, features = ["macros", "rt-multi-thread", "net"] }
+tower-http = { workspace = true, optional = true, features = ["fs", "set-header"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+leptos = { workspace = true, optional = true }
+leptoskit_plugin_clipboard = { workspace = true, optional = true }
+leptoskit_plugin_http = { workspace = true, default-features = false, optional = true }
+leptoskit_plugin_secure_store = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true, features = ["Window", "Location"] }
+
+[dev-dependencies]
+leptoskit_testing = { workspace = true }
+
+[lints]
+workspace = true

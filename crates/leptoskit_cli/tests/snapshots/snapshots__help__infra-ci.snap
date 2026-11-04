@@ -1,0 +1,13 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+assertion_line: 199
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Writes a push-to-deploy GitHub Actions workflow for a prepared Linux runner with Docker, Rust, lk, `OpenTofu`, Kamal, and an SSH agent
+
+Usage: leptoskit infra ci [OPTIONS]
+
+Options:
+      --force    
+  -h, --help     Print help
+  -V, --version  Print version

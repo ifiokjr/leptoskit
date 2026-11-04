@@ -12,8 +12,13 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Axum server toolkit for leptoskit apps: static assets, code push endpoints, and the dev server."
 
+[features]
+default = []
+analytics = ["dep:leptoskit_analytics"]
+
 [dependencies]
 axum = { workspace = true }
+leptoskit_analytics = { workspace = true, optional = true, features = ["server"] }
 leptoskit_codepush = { workspace = true, features = ["server"] }
 # `[native]` describes the apps whose associations the site publishes.
 leptoskit_config = { workspace = true }

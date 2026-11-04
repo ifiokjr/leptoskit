@@ -367,13 +367,16 @@ fn what_is_missing_is_named() {
 	let mut config = project(root.path(), Db::None);
 
 	config.app.render = leptoskit_config::RenderMode::Csr;
+	assert!(Project::read(root.path(), &config).is_ok());
+	let client = config.build.client_package.take();
 	let error = Project::read(root.path(), &config).unwrap_err().to_string();
 	assert!(
-		error.starts_with("app.render is `csr`, so the app is the static files in dist/"),
+		error.starts_with("app.render is `csr` without a separate build.client_package"),
 		"{error}"
 	);
 
 	config.app.render = leptoskit_config::RenderMode::Islands;
+	config.build.client_package = client;
 	config.build.client_package = Some("missing_app".into());
 	let error = Project::read(root.path(), &config).unwrap_err().to_string();
 	assert_eq!(

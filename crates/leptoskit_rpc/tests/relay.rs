@@ -47,6 +47,21 @@ use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 
+#[tokio::test]
+async fn managed_relay_decodes_url_tokens_and_authenticates() {
+	let Some(nats) = NatsServer::start_with_token("fixture/token@+") else {
+		return;
+	};
+	let url = nats
+		.url()
+		.replacen("nats://", "nats://fixture%2Ftoken%40%2B@", 1);
+	let relay = tokio::time::timeout(Duration::from_secs(5), Relay::connect(&url))
+		.await
+		.unwrap()
+		.unwrap();
+	drop(relay);
+}
+
 /// A note everyone may read.
 #[table(name = "relay_notes", live)]
 pub struct Note {

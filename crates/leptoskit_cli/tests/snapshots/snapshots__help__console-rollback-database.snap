@@ -1,0 +1,14 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Reverses the management schema offline, after making a new backup. Deletes its history
+
+Usage: leptoskit console rollback-database [OPTIONS] --backup <BACKUP>
+
+Options:
+      --data <DATA>      
+      --backup <BACKUP>  
+      --yes              
+  -h, --help             Print help
+  -V, --version          Print version

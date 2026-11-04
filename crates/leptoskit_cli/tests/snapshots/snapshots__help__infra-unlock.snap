@@ -1,0 +1,14 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+assertion_line: 199
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Releases a stale operation lock after checking that its runner has stopped
+
+Usage: leptoskit infra unlock [OPTIONS] --owner <OWNER>
+
+Options:
+      --owner <OWNER>  
+      --yes            
+  -h, --help           Print help
+  -V, --version        Print version

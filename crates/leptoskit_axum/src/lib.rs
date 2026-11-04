@@ -389,6 +389,17 @@ pub async fn serve_listener_with(
 	router: Router,
 	shutdown: GracefulShutdown,
 ) -> Result<(), ServeError> {
+	#[cfg(feature = "analytics")]
+	let router = match leptoskit_analytics::server::from_env()
+		.map_err(|error| ServeError::Serve(error.to_string()))?
+	{
+		Some(config) => {
+			leptoskit_analytics::server::mount(router, config)
+				.map_err(|error| ServeError::Serve(error.to_string()))?
+				.0
+		}
+		None => router,
+	};
 	let GracefulShutdown {
 		readiness,
 		drain_delay,

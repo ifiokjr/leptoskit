@@ -128,6 +128,12 @@ pub mod secrets {
 	pub use monosecret::client::*;
 }
 
+/// Application observability and agent-readable evidence.
+#[cfg(feature = "analytics")]
+pub mod analytics {
+	pub use leptoskit_analytics::*;
+}
+
 pub mod plugin {
 	//! The plugin system.
 	pub use leptoskit_plugin::*;

@@ -180,6 +180,7 @@ wkb = "0.9"
 # internal: every publishable crate, so members depend on them with
 # `workspace = true` instead of their own relative paths
 leptoskit = { path = "crates/leptoskit", version = "0.0.0" }
+leptoskit_analytics = { path = "crates/leptoskit_analytics", version = "0.0.0" }
 leptoskit_android = { path = "crates/leptoskit_android", version = "0.0.0" }
 leptoskit_appkit = { path = "crates/leptoskit_appkit", version = "0.0.0" }
 leptoskit_aria = { path = "crates/leptoskit_aria", version = "0.0.0" }
@@ -194,6 +195,7 @@ leptoskit_config = { path = "crates/leptoskit_config", version = "0.0.0" }
 leptoskit_db = { path = "crates/leptoskit_db", version = "0.0.0" }
 leptoskit_db_macros = { path = "crates/leptoskit_db_macros", version = "0.0.0" }
 leptoskit_db_schema = { path = "crates/leptoskit_db_schema", version = "0.0.0" }
+leptoskit_deploy_console = { path = "crates/leptoskit_deploy_console", version = "0.0.0" }
 leptoskit_devtools = { path = "crates/leptoskit_devtools", version = "0.0.0", default-features = false }
 leptoskit_devtools_protocol = { path = "crates/leptoskit_devtools_protocol", version = "0.0.0" }
 leptoskit_docs = { path = "crates/leptoskit_docs", version = "0.0.0" }

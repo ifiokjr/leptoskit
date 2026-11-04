@@ -1462,6 +1462,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "cookie"
+version = "0.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a373e3602691c3cdea496d2f0ee5935151e6168fe87739483c463db1b2f2f87"
+dependencies = [
+ "percent-encoding",
+ "time",
+ "version_check",
+]
+
+[[package]]
+name = "cookie_store"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15b2c103cf610ec6cae3da84a766285b42fd16aad564758459e6ecf128c75206"
+dependencies = [
+ "cookie",
+ "document-features",
+ "idna",
+ "indexmap",
+ "log",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "time",
+ "url",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4697,6 +4726,7 @@ dependencies = [
  "leptos_axum",
  "leptos_meta",
  "leptos_router",
+ "leptoskit_analytics",
  "leptoskit_android",
  "leptoskit_appkit",
  "leptoskit_aria",
@@ -4731,6 +4761,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_analytics"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "getrandom 0.4.3",
+ "reqwest 0.12.28",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "thiserror 2.0.21",
+ "tokio",
+ "tower",
+ "url",
+]
+
+[[package]]
 name = "leptoskit_android"
 version = "0.0.0"
 dependencies = [
@@ -4741,6 +4789,33 @@ dependencies = [
  "leptoskit_yoga",
  "serde_json",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "leptoskit_app"
+version = "0.0.0"
+dependencies = [
+ "any_spawner",
+ "anyhow",
+ "axum",
+ "clap",
+ "futures",
+ "leptos",
+ "leptoskit",
+ "leptoskit_deploy_console",
+ "leptoskit_plugin_clipboard",
+ "leptoskit_plugin_http",
+ "leptoskit_plugin_secure_store",
+ "leptoskit_testing",
+ "reactive_graph",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tower-http 0.6.11",
+ "url",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
@@ -4829,6 +4904,7 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "http-body-util",
+ "leptoskit_analytics",
  "leptoskit_codepush",
  "leptoskit_config",
  "semver",
@@ -4930,12 +5006,14 @@ dependencies = [
  "ignore",
  "image",
  "insta",
+ "leptoskit_analytics",
  "leptoskit_auth",
  "leptoskit_axum",
  "leptoskit_codepush",
  "leptoskit_config",
  "leptoskit_db",
  "leptoskit_db_schema",
+ "leptoskit_deploy_console",
  "leptoskit_devtools_protocol",
  "leptoskit_fmt",
  "leptoskit_idp",
@@ -5021,6 +5099,7 @@ dependencies = [
  "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
  "toml_edit",
+ "url",
 ]
 
 [[package]]
@@ -5116,6 +5195,35 @@ name = "leptoskit_db_studio_fixture"
 version = "0.0.0"
 dependencies = [
  "leptoskit_db",
+]
+
+[[package]]
+name = "leptoskit_deploy_console"
+version = "0.0.0"
+dependencies = [
+ "aes-gcm-siv",
+ "anyhow",
+ "axum",
+ "base64 0.22.1",
+ "flate2",
+ "getrandom 0.4.3",
+ "hmac 0.12.1",
+ "leptos",
+ "leptoskit",
+ "leptoskit_analytics",
+ "leptoskit_testing",
+ "reactive_graph",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "tempfile",
+ "tokio",
+ "tower",
+ "url",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -6112,6 +6220,7 @@ dependencies = [
  "leptoskit_rpc_codegen",
  "leptoskit_rpc_macros",
  "parking_lot",
+ "percent-encoding",
  "schemars",
  "send_wrapper",
  "serde",
@@ -10515,10 +10624,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a7ac20be9b7726e0bbdbf974c059676d9acb1cd414961f570a4e8231cacd7fc"
 dependencies = [
  "base64 0.23.1",
+ "cookie_store",
  "log",
  "percent-encoding",
  "rustls",
  "rustls-pki-types",
+ "serde",
+ "serde_json",
  "ureq-proto",
  "utf8-zero",
  "webpki-roots 1.0.10",

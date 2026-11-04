@@ -466,6 +466,35 @@ impl Pool {
 			.await
 	}
 
+	pub(crate) async fn rollback(
+		&self,
+		migrations: Vec<Migration>,
+		steps: usize,
+	) -> std::result::Result<Vec<String>, MigrationError> {
+		self.with_connection(move |connection| {
+			prepare(connection)?;
+			let applied = connection
+				.prepare("SELECT name, checksum FROM _leptoskit_migrations")
+				.and_then(|mut statement| {
+					statement
+						.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+						.collect::<rusqlite::Result<Vec<_>>>()
+				})
+				.map_err(error)?;
+			let reverse = crate::migrate::reversing(&applied, &migrations, steps)?;
+			if has_pushes(connection)? {
+				return Err(MigrationError::RollbackHistory);
+			}
+			let mut names = Vec::new();
+			for migration in reverse {
+				apply_with_foreign_keys(connection, &migration, &Record::Reverted)?;
+				names.push(migration.name.to_string());
+			}
+			Ok(names)
+		})
+		.await
+	}
+
 	/// Applies a change without a migration, and records the schema it
 	/// leaves.
 	pub(crate) async fn push(
@@ -634,6 +663,25 @@ fn apply_migration(
 
 	match record {
 		Record::Applied => {}
+		Record::Reverted => {
+			let removed = transaction
+				.execute(
+					"DELETE FROM _leptoskit_migrations WHERE name = ?1",
+					[migration.name.as_ref()],
+				)
+				.map_err(error)?;
+			if removed != 1 {
+				return Err(MigrationError::RollbackHistory);
+			}
+			transaction
+				.execute_batch(&migration.sql)
+				.map_err(|source| failed(error(source)))?;
+			check_foreign_keys(&transaction, migration, foreign_keys_off)?;
+			transaction
+				.commit()
+				.map_err(|source| failed(error(source)))?;
+			return Ok(true);
+		}
 		Record::Pushed(schema) => {
 			transaction
 				.execute_batch(&migration.sql)

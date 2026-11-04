@@ -197,10 +197,14 @@ impl Relay {
 	///
 	/// As [`Relay::connect`].
 	pub async fn connect_with(url: &str, settings: RelaySettings) -> Result<Self, RelayError> {
-		let client = async_nats::ConnectOptions::new()
+		// async-nats does not bind URL userinfo to ConnectOptions. Extract it
+		// explicitly, decode credentials once, and remove it from addresses
+		// used by connector diagnostics and reconnect discovery.
+		let (address, options) = connection(url)?;
+		let client = options
 			.name("leptoskit live relay")
 			.retry_on_initial_connect()
-			.connect(url)
+			.connect(address)
 			.await
 			.map_err(RelayError::new)?;
 
@@ -276,6 +280,36 @@ impl Relay {
 			.await
 			.map_err(RelayError::new)
 	}
+}
+
+fn connection(input: &str) -> Result<(String, async_nats::ConnectOptions), RelayError> {
+	let mut address = input
+		.parse::<async_nats::ServerAddr>()
+		.map_err(|_| RelayError::new("invalid relay address"))?
+		.into_inner();
+	let decode = |value: &str| {
+		percent_encoding::percent_decode_str(value)
+			.decode_utf8()
+			.map(std::borrow::Cow::into_owned)
+			.map_err(|_| RelayError::new("relay credentials must be valid UTF-8"))
+	};
+	let options = if address.username().is_empty() {
+		async_nats::ConnectOptions::new()
+	} else if let Some(password) = address.password() {
+		async_nats::ConnectOptions::with_user_and_password(
+			decode(address.username())?,
+			decode(password)?,
+		)
+	} else {
+		async_nats::ConnectOptions::with_token(decode(address.username())?)
+	};
+	address
+		.set_username("")
+		.map_err(|()| RelayError::new("invalid relay address"))?;
+	address
+		.set_password(None)
+		.map_err(|()| RelayError::new("invalid relay address"))?;
+	Ok((address.to_string(), options))
 }
 
 impl std::fmt::Debug for Relay {

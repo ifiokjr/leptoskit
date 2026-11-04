@@ -1,5 +1,9 @@
 # Agent and maintainer notes
 
+The [management service implementation](management-service.md) records the operational single-owner service, queue, analytics storage and validation limits.
+
+The [analytics and infrastructure plugins investigation](analytics-and-infra-plugins.md) records the product research, implemented embedded tier, plugin contract and remaining observability adapters.
+
 Notes for people and coding agents working on leptoskit itself. The public site in `docs/src` is for app authors; anything about how this repository is built, tested, or planned lives here or in [`CONTRIBUTING.md`](../../CONTRIBUTING.md). Start with [`AGENTS.md`](../../AGENTS.md).
 
 | File                                                             | What it covers                                                                                                                                                                                               |
@@ -17,6 +21,7 @@ Notes for people and coding agents working on leptoskit itself. The public site 
 | [arena-findings.md](arena-findings.md)                           | Gaps and slow paths the cross-framework arena found in leptoskit: the performance work list.                                                                                                                 |
 | [guest-thread.md](guest-thread.md)                               | The design for running the iOS and Android guest off the UI thread: what moves, the ownership handoff, frames, plugin calls, and Rive.                                                                       |
 | [preview-sandbox.md](preview-sandbox.md)                         | The proposed preview sandbox: real environments for every platform on one page, and examples.                                                                                                                |
+| [deployment-control-plane.md](deployment-control-plane.md)       | Proposed hosted/self-hosted deployment control plane, agent API, LeptosKit console prototype, scaling boundaries, and delivery sequence.                                                                     |
 | [database-plan.md](database-plan.md)                             | The approved plan for `leptoskit_db`: schema as Rust structs, generated migrations, policies, shapes, geospatial and vectors.                                                                                |
 | [auth-plan.md](auth-plan.md)                                     | The approved plan for `leptoskit_auth` and `leptoskit_idp`: passkeys, MFA, third-party login, account merging, and acting as an identity provider.                                                           |
 | [realtime-plan.md](realtime-plan.md)                             | The approved plan for real time and background work in `leptoskit_rpc`: live queries and mutations, channels and presence, durable jobs and the inbox, change capture in migrations, scaling and deployment. |
@@ -29,3 +34,5 @@ Notes for people and coding agents working on leptoskit itself. The public site 
 | [publishing-plan.md](publishing-plan.md)                         | The approved plan for `leptoskit publish` and `leptoskit skill`: the extension stores, App Store Connect, notarized macOS apps, Google Play, and agent-driven releases.                                      |
 
 The Flutter widget audit behind the component catalog's Flutter table is [`.audit/component-catalog/flutter-widgets.tsv`](../../.audit/component-catalog/flutter-widgets.tsv): all 229 entries in the published Flutter index as of 20 October 2026, each with its mapping or missing foundation.
+
+- [Hosted deployment service](hosted-deployment-service.md): account isolation, dedicated workers, billing, state and operator recovery.

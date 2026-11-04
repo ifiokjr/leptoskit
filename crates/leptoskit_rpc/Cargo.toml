@@ -32,6 +32,7 @@ leptoskit_devtools_protocol = { workspace = true, optional = true }
 leptoskit_query = { workspace = true }
 leptoskit_rpc_codegen = { workspace = true, optional = true, features = [] }
 leptoskit_rpc_macros = { workspace = true }
+percent-encoding = { version = "2", optional = true }
 # Operations' argument structs serialize and describe themselves on every
 # target, so these are always on.
 schemars = { workspace = true }
@@ -138,7 +139,7 @@ live = ["server", "db", "dep:futures", "dep:getrandom"]
 # change log to a stream, and every `Live` takes commits from it instead of
 # reading the database, with channel signals and presence crossing between
 # servers too.
-relay = ["live", "dep:async-nats", "tokio/macros"]
+relay = ["live", "dep:async-nats", "dep:percent-encoding", "tokio/macros"]
 
 [lints]
 workspace = true

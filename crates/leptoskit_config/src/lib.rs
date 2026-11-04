@@ -15,6 +15,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 pub mod extension;
+pub mod infra;
 pub mod migration;
 pub mod publish;
 #[cfg(feature = "schema")]
@@ -79,6 +80,9 @@ pub struct LeptoskitConfig {
 	/// empty.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub db: Option<DbConfig>,
+	/// Managed infrastructure and container release settings.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub infra: Option<infra::InfraConfig>,
 	/// Sign-in. Present when the app uses `leptoskit::auth`.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub auth: Option<AuthConfig>,
@@ -116,6 +120,7 @@ impl Default for LeptoskitConfig {
 			router: None,
 			l10n: None,
 			db: None,
+			infra: None,
 			auth: None,
 			extension: None,
 			publish: PublishConfig::default(),
@@ -2362,6 +2367,9 @@ impl LeptoskitConfig {
 		self.validate_rpc()?;
 		self.validate_paths()?;
 		self.validate_db()?;
+		if let Some(problem) = self.infra.as_ref().and_then(infra::InfraConfig::problem) {
+			return Err(ConfigError::InvalidInfra(problem));
+		}
 
 		if let Some(problem) = self.auth.as_ref().and_then(AuthConfig::problem) {
 			return Err(ConfigError::InvalidAuth(problem));
@@ -2667,6 +2675,9 @@ impl LeptoskitConfig {
 /// Errors raised while loading configuration.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
+	/// Managed infrastructure settings cannot produce a safe deployment.
+	#[error("invalid infrastructure configuration: {0}")]
+	InvalidInfra(String),
 	/// The configuration needs migration or a newer CLI.
 	#[error(
 		"unsupported configuration schema_version {0}; this CLI supports {SCHEMA_VERSION}; run \

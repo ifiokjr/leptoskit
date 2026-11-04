@@ -1,0 +1,142 @@
+---
+source: crates/leptoskit_cli/src/infra/tests.rs
+assertion_line: 113
+expression: text
+---
+{
+  "accessories": {
+    "cache": {
+      "cmd": "sh -ec 'exec valkey-server --requirepass \"$VALKEY_PASSWORD\" --maxmemory 128mb --maxmemory-policy allkeys-lru --save \"\"'",
+      "env": {
+        "secret": [
+          "VALKEY_PASSWORD"
+        ]
+      },
+      "host": "192.0.2.10",
+      "image": "valkey/valkey:8-alpine",
+      "options": {
+        "network": "kamal"
+      },
+      "port": "10.42.0.10:6379:6379"
+    },
+    "db": {
+      "directories": [
+        "/var/lib/leptoskit/notes-production/postgres:/var/lib/postgresql/data"
+      ],
+      "env": {
+        "clear": {
+          "POSTGRES_DB": "leptoskit",
+          "POSTGRES_USER": "leptoskit_admin"
+        },
+        "secret": [
+          "POSTGRES_PASSWORD",
+          "DATABASE_PASSWORD"
+        ]
+      },
+      "files": [
+        "db-init.sh:/docker-entrypoint-initdb.d/01-leptoskit.sh:ro"
+      ],
+      "host": "192.0.2.10",
+      "image": "postgres:17",
+      "options": {
+        "network": "kamal"
+      },
+      "port": "10.42.0.10:5432:5432"
+    },
+    "relay": {
+      "cmd": "-c /etc/nats/leptoskit.conf",
+      "directories": [
+        "/var/lib/leptoskit/notes-production/nats:/data"
+      ],
+      "env": {
+        "secret": [
+          "NATS_TOKEN"
+        ]
+      },
+      "files": [
+        "nats.conf:/etc/nats/leptoskit.conf:ro"
+      ],
+      "host": "192.0.2.10",
+      "image": "nats:2-alpine",
+      "options": {
+        "network": "kamal",
+        "user": "1000:1000"
+      },
+      "port": "10.42.0.10:4222:4222"
+    },
+    "tunnel": {
+      "cmd": "tunnel --no-autoupdate run",
+      "env": {
+        "secret": [
+          "TUNNEL_TOKEN"
+        ]
+      },
+      "hosts": [
+        "192.0.2.10",
+        "192.0.2.11"
+      ],
+      "image": "cloudflare/cloudflared:latest",
+      "options": {
+        "network": "kamal"
+      }
+    }
+  },
+  "boot": {
+    "limit": 1,
+    "wait": 2
+  },
+  "builder": {
+    "arch": "amd64"
+  },
+  "deploy_timeout": 90,
+  "drain_timeout": 30,
+  "env": {
+    "clear": {
+      "LEPTOS_ENV": "PROD",
+      "LEPTOS_OUTPUT_NAME": "notes",
+      "LEPTOS_SITE_ADDR": "0.0.0.0:3000",
+      "LEPTOS_SITE_ROOT": "/app/dist"
+    },
+    "secret": [
+      "AUTH_KEY",
+      "DATABASE_URL",
+      "NATS_URL",
+      "VALKEY_URL"
+    ]
+  },
+  "image": "team/notes",
+  "proxy": {
+    "app_port": 3000,
+    "forward_headers": true,
+    "healthcheck": {
+      "interval": 2,
+      "path": "/readyz",
+      "timeout": 5
+    },
+    "host": "app.example.com",
+    "ssl": false
+  },
+  "registry": {
+    "password": [
+      "KAMAL_REGISTRY_PASSWORD"
+    ],
+    "server": "ghcr.io",
+    "username": "team"
+  },
+  "retain_containers": 5,
+  "servers": {
+    "web": {
+      "hosts": [
+        "192.0.2.10",
+        "192.0.2.11"
+      ],
+      "options": {
+        "cap-drop": "ALL",
+        "read-only": true,
+        "security-opt": "no-new-privileges:true",
+        "tmpfs": "/tmp:rw,nosuid,nodev,size=64m"
+      }
+    }
+  },
+  "service": "notes-production"
+}

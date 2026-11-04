@@ -1,0 +1,14 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+assertion_line: 201
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Applies the saved plan, refusing configuration changes since planning
+
+Usage: leptoskit infra apply [OPTIONS]
+
+Options:
+      --offline  Recover infrastructure when the old primary is lost. Skips its application reservation; the provider state lock still applies
+      --yes      Confirm the old primary and its deployment runners are stopped
+  -h, --help     Print help
+  -V, --version  Print version

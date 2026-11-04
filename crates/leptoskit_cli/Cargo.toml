@@ -59,12 +59,14 @@ ignore = { workspace = true }
 # App icons: one source image, resized for every platform; and the store
 # screenshots, checked before they are uploaded.
 image = { version = "0.25.8", default-features = false, features = ["jpeg", "png"] }
+leptoskit_analytics = { workspace = true }
 leptoskit_auth = { workspace = true, features = ["oauth", "postgres", "sqlite"] }
 leptoskit_axum = { workspace = true }
 leptoskit_codepush = { workspace = true }
 leptoskit_config = { workspace = true }
 leptoskit_db = { workspace = true, features = ["postgres", "sqlite", "geo", "vector"] }
 leptoskit_db_schema = { workspace = true }
+leptoskit_deploy_console = { workspace = true, features = ["server"] }
 leptoskit_devtools_protocol = { workspace = true }
 leptoskit_fmt = { workspace = true, features = ["cli"] }
 leptoskit_idp = { workspace = true }
@@ -93,12 +95,12 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 tar = { workspace = true }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "sync", "time", "process", "io-util"] }
 toml = { workspace = true }
 toml_edit = { workspace = true }
 # WebDriver BiDi uses a loopback WebSocket; no TLS backend is needed.
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
-ureq = { workspace = true, features = ["rustls"] }
+ureq = { workspace = true, features = ["rustls", "json"] }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 walkdir = { workspace = true }

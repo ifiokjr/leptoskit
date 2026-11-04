@@ -1,0 +1,20 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+assertion_line: 199
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Encrypted scheduled backups and isolated restore checks
+
+Usage: leptoskit infra backups <COMMAND>
+
+Commands:
+  install  Installs or updates the worker, credentials, schedule, and retention
+  run      Takes, encrypts, uploads, restores for verification, and retains a backup
+  list     Lists remote encrypted snapshots
+  verify   Restores a snapshot into an isolated temporary Postgres container
+  status   Reports verification, age, and the last backup failure
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

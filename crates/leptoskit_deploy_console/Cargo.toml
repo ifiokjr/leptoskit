@@ -1,0 +1,83 @@
+[package]
+name = "leptoskit_deploy_console"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "A self-hosted LeptosKit deployment service and dashboard."
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+web = ["leptoskit/web", "dep:leptos"]
+csr = ["web"]
+server = [
+	"web",
+	"dep:anyhow",
+	"dep:aes-gcm-siv",
+	"dep:base64",
+	"dep:reqwest",
+	"dep:tower",
+	"dep:axum",
+	"dep:getrandom",
+	"dep:hmac",
+	"dep:rusqlite",
+	"dep:sha2",
+	"dep:subtle",
+	"dep:tempfile",
+	"dep:tokio",
+	"dep:url",
+	"leptoskit/analytics",
+]
+
+[dependencies]
+aes-gcm-siv = { version = "0.11", optional = true }
+anyhow = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
+getrandom = { workspace = true, optional = true }
+hmac = { workspace = true, optional = true }
+leptoskit = { workspace = true }
+reactive_graph = { workspace = true }
+reqwest = { workspace = true, optional = true, features = ["json", "rustls-tls"] }
+rusqlite = { workspace = true, optional = true, features = ["bundled", "backup"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true, optional = true }
+subtle = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["fs", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
+tower = { workspace = true, optional = true, features = ["util"] }
+url = { workspace = true, optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+leptos = { workspace = true, optional = true, features = ["ssr"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+leptos = { workspace = true, optional = true, features = ["csr"] }
+wasm-bindgen = { workspace = true }
+
+[dev-dependencies]
+base64 = { workspace = true }
+flate2 = { workspace = true }
+leptoskit_analytics = { workspace = true, features = ["server"] }
+leptoskit_testing = { workspace = true }
+tempfile = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+
+[[example]]
+name = "preview"
+required-features = ["web"]
+
+[[example]]
+name = "dashboard_preview"
+required-features = ["server"]
+
+[lints]
+workspace = true

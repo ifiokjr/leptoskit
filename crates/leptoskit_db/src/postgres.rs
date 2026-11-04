@@ -651,6 +651,35 @@ impl Pool {
 			.await
 	}
 
+	pub(crate) async fn rollback(
+		&self,
+		migrations: &[Migration],
+		steps: usize,
+	) -> std::result::Result<Vec<String>, MigrationError> {
+		self.locked(async |client| {
+			prepare(client).await?;
+			let rows = client
+				.query("SELECT name, checksum FROM _leptoskit_migrations", &[])
+				.await
+				.map_err(error)?;
+			let applied = rows
+				.iter()
+				.map(|row| (row.get(0), row.get(1)))
+				.collect::<Vec<_>>();
+			let reverse = crate::migrate::reversing(&applied, migrations, steps)?;
+			if has_pushes(client).await? {
+				return Err(MigrationError::RollbackHistory);
+			}
+			let mut names = Vec::new();
+			for migration in reverse {
+				apply_one(client, &migration, &Record::Reverted).await?;
+				names.push(migration.name.to_string());
+			}
+			Ok(names)
+		})
+		.await
+	}
+
 	/// Applies a change without a migration, and records the schema it
 	/// leaves.
 	pub(crate) async fn push(
@@ -789,6 +818,23 @@ async fn apply_one(
 		.map_err(error)?;
 	let result = async {
 		match record {
+			Record::Reverted => {
+				client.batch_execute(&migration.sql).await.map_err(error)?;
+				let removed = client
+					.execute(
+						"DELETE FROM _leptoskit_migrations WHERE name = $1",
+						&[&migration.name.as_ref()],
+					)
+					.await
+					.map_err(error)?;
+				if removed != 1 {
+					return Err(DbError::query(std::io::Error::other(
+						"migration history changed during rollback",
+					)));
+				}
+				client.batch_execute("COMMIT").await.map_err(error)?;
+				return Ok(false);
+			}
 			Record::Applied => {
 				client.batch_execute(&migration.sql).await.map_err(error)?;
 			}

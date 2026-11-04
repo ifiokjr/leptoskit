@@ -20,12 +20,22 @@ pub struct NatsServer {
 	store: TempDir,
 	port: u16,
 	child: Option<Child>,
+	token: Option<String>,
 }
 
 impl NatsServer {
 	/// Starts one on a free port, with `JetStream` storing into a temporary
 	/// directory.
 	pub fn start() -> Option<Self> {
+		Self::configured(None)
+	}
+
+	#[allow(dead_code, reason = "the auth suite also imports this shared fixture")]
+	pub fn start_with_token(token: &str) -> Option<Self> {
+		Self::configured(Some(token.into()))
+	}
+
+	fn configured(token: Option<String>) -> Option<Self> {
 		let Some(binary) = find() else {
 			assert!(
 				env::var_os("LEPTOSKIT_REQUIRE_NATS").is_none(),
@@ -49,6 +59,7 @@ impl NatsServer {
 			store: tempfile::tempdir().unwrap(),
 			port,
 			child: None,
+			token,
 		};
 		server.restart();
 		Some(server)
@@ -71,7 +82,11 @@ impl NatsServer {
 	/// accepts connections.
 	pub fn restart(&mut self) {
 		self.stop();
-		let child = Command::new(&self.binary)
+		let mut command = Command::new(&self.binary);
+		if let Some(token) = &self.token {
+			command.args(["--auth", token]);
+		}
+		let child = command
 			.args(["-js", "-a", "127.0.0.1", "-p"])
 			.arg(self.port.to_string())
 			.arg("-sd")

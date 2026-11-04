@@ -291,6 +291,25 @@ impl Db {
 		}
 	}
 
+	/// Reverts the newest `steps` migrations, in reverse registry order.
+	///
+	/// Stop application writers and take a verified backup first. Reverse SQL
+	/// can delete data. Every selected migration is preflighted before work
+	/// starts; each reverse and its history deletion commit together. A later
+	/// failure leaves earlier successful reversals committed.
+	pub async fn rollback(
+		&self,
+		migrations: &[Migration],
+		steps: usize,
+	) -> std::result::Result<Vec<String>, MigrationError> {
+		match &*self.pool {
+			#[cfg(feature = "postgres")]
+			Pool::Postgres(pool) => pool.rollback(migrations, steps).await,
+			#[cfg(feature = "sqlite")]
+			Pool::Sqlite(pool) => pool.rollback(migrations.to_vec(), steps).await,
+		}
+	}
+
 	/// Applies `migration` to a development database without recording it as
 	/// a migration, and records `schema`, a `schema.json` snapshot, as the
 	/// schema the database now has. For `leptoskit dev`'s push mode: once a

@@ -1,0 +1,13 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+assertion_line: 199
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Lists current x86 offers from providers with configured credentials, sorted by currency and base monthly price. Never provisions resources
+
+Usage: leptoskit infra offers [OPTIONS]
+
+Options:
+      --min-memory-gb <MIN_MEMORY_GB>  [default: 2]
+  -h, --help                           Print help
+  -V, --version                        Print version

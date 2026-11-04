@@ -1,0 +1,12 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+assertion_line: 201
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Prepares private services and the backup worker without starting an app or taking an initial backup. Use before disaster recovery
+
+Usage: leptoskit infra prepare
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

@@ -59,9 +59,16 @@ pub(crate) fn expand(
 		})?;
 		let checksum = checksum(&sql);
 		let file = file.to_string_lossy().to_string();
-		migrations.push(
-			quote! { #krate::Migration::embedded(#name, ::core::include_str!(#file), #checksum) },
-		);
+		let down = directory.join(name).join("down.sql");
+		if down.is_file() {
+			let down = down.to_string_lossy().to_string();
+			migrations.push(quote! { #krate::Migration::embedded_reversible(
+			#name, ::core::include_str!(#file), #checksum, ::core::include_str!(#down)) });
+		} else {
+			migrations.push(
+				quote! { #krate::Migration::embedded(#name, ::core::include_str!(#file), #checksum) },
+			);
+		}
 	}
 
 	let registry_path = registry_path.to_string_lossy().to_string();

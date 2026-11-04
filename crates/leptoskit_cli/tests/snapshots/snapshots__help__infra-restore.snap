@@ -1,0 +1,14 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+assertion_line: 199
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Restores a verified snapshot, retaining the previous database and leaving all app containers stopped. Recover its recorded image afterward
+
+Usage: leptoskit infra restore [OPTIONS]
+
+Options:
+      --snapshot <SNAPSHOT>  [default: latest]
+      --yes                  
+  -h, --help                 Print help
+  -V, --version              Print version

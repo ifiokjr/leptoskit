@@ -50,8 +50,11 @@ in
       nats-server
       nixfmt-rfc-style
       openssl
+      python3
+      restic
       rustup
       shfmt
+      sql-formatter
       taplo
       unzip
       xpkgs.monochange

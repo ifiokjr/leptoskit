@@ -1,0 +1,14 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Runs reviewed down.sql files, newest first. Stop application writers and back up the database before using this command
+
+Usage: leptoskit db rollback [OPTIONS]
+
+Options:
+      --url <URL>      Database URL; defaults to `db.url_env`
+      --steps <STEPS>  Number of applied migrations to reverse [default: 1]
+      --yes            Confirm reverse SQL may delete data
+  -h, --help           Print help
+  -V, --version        Print version

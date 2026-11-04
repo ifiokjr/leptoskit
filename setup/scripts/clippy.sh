@@ -99,6 +99,10 @@ wasm() {
 	# its `web` and `native` features pick different clients.
 	wasm_group "huddle in the browser" --package=huddle_app --features csr --lib
 	wasm_group "huddle in a guest" --package=huddle_app --features native --lib
+	# The deployment app shares screens, with separate browser and guest clients.
+	wasm_group "the deployment app in the browser" --package=leptoskit_app --features csr --lib
+	wasm_group "the deployment app in a guest" --package=leptoskit_app --features native --lib
+	wasm_group "the deployment console" --package=leptoskit_deploy_console --features csr --lib
 	wasm_group "the generated auth pages" --package=auth_pages_example --features web --all-targets
 }
 

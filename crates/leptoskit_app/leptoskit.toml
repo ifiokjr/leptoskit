@@ -1,0 +1,23 @@
+schema_version = 0
+[app]
+name = "leptoskit-app"
+version = "0.1.0"
+default_platform = "web"
+platforms = ["web", "ios", "android"]
+render = "csr"
+[build]
+client_package = "leptoskit_app"
+features = []
+[bundle]
+split = false
+precompress = false
+[native]
+package_id = "dev.leptoskit.cloud"
+update_contract = "mobile-v1"
+viewport_width = 390.0
+viewport_height = 844.0
+plugins = ["http", "secure-store", "clipboard"]
+[native.plugin-options.http]
+origins = ["http://127.0.0.1:4701", "http://localhost:4701"]
+[lint]
+markup = "builder"
