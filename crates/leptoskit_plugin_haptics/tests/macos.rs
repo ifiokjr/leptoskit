@@ -46,7 +46,7 @@ mod macos {
 		] {
 			assert_eq!(leptoskit_plugin_haptics::perform(effect), Ok(()));
 		}
-		let mut haptics = Haptics;
+		let mut haptics = Haptics::default();
 		assert_eq!(haptics.invoke(SELECTION, Bytes::new()), Ok(Bytes::new()));
 		assert_eq!(
 			haptics.invoke(IMPACT, Bytes::from(1_u32.to_le_bytes().to_vec())),

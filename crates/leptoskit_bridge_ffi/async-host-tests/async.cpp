@@ -109,6 +109,7 @@ extern "C" int32_t lk_guest_complete_worker(const lk_guest*, uint64_t, lk_worker
 // Unrelated entry points are not invoked by these callback ownership tests.
 extern "C" lk_rust_worker* lk_app_worker(lk_app*, const lk_request*) { return nullptr; }
 extern "C" lk_worker_cancellation_token* lk_worker_cancellation(const lk_rust_worker*) { return nullptr; }
+extern "C" bool lk_worker_is_main_thread(const lk_rust_worker*) { return false; }
 extern "C" void lk_worker_cancel(const lk_worker_cancellation_token*) {}
 extern "C" void lk_worker_cancellation_release(lk_worker_cancellation_token*) {}
 

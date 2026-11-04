@@ -69,13 +69,22 @@ typedef struct {
     void (*close)(void *context, lk_closing_app *owner);
     void (*release)(void *context);
 } lk_service_callbacks;
-/* Existing application-private directories, borrowed for this call only.
- * Paths are UTF-8 bytes, not NUL-terminated strings. */
+/* Existing application-private directories, borrowed for this call only, plus
+ * an optional retained platform handle (`JavaVM *` and global `Context` on
+ * Android; main-thread presentation-owner resolver and retained
+ * `NativePluginContext` on Apple). Paths are UTF-8 bytes, not NUL-terminated
+ * strings. When `release_platform_context` is nonnull,
+ * `leptoskit_app_create_with_context` takes ownership of `platform_context` on
+ * every return path and calls `release_platform_context(platform_vm,
+ * platform_context)` when the last `PlatformContext` clone drops. */
 typedef struct lk_app_context {
     const uint8_t *data_dir;
     size_t data_dir_len;
     const uint8_t *cache_dir;
     size_t cache_dir_len;
+    void *platform_vm;
+    void *platform_context;
+    void (*release_platform_context)(void *platform_vm, void *platform_context);
 } lk_app_context;
 lk_app *leptoskit_app_create_with_context(const uint8_t *wasm, size_t len,
                                         const lk_app_context *context, lk_buffer *error);
@@ -153,6 +162,9 @@ typedef struct lk_worker_cancellation lk_worker_cancellation_token;
 lk_rust_worker *lk_app_worker(lk_app *app, const lk_request *request);
 /* Borrow before execution; returned token has independent ownership. */
 lk_worker_cancellation_token *lk_worker_cancellation(const lk_rust_worker *worker);
+/* True when the worker must execute on the platform UI thread rather than a
+ * background worker pool. Borrow before execution. */
+bool lk_worker_is_main_thread(const lk_rust_worker *worker);
 /* Thread-safe; suppresses invocation even while waiting for the plugin mutex.
  * Running plugin I/O is not interrupted. Token must remain live for the call. */
 void lk_worker_cancel(const lk_worker_cancellation_token *token);

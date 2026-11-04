@@ -721,6 +721,14 @@ pub struct NativeConfig {
 		skip_serializing_if = "MissingPlugins::is_default"
 	)]
 	pub missing_plugins: MissingPlugins,
+	/// Enables experimental pure-Rust native plugin backends (`objc2` on
+	/// iOS/macOS and `jni` on Android) for plugins that declare an
+	/// experimental Rust implementation. Off by default.
+	#[serde(
+		rename = "experimental-rust-plugins",
+		skip_serializing_if = "std::ops::Not::not"
+	)]
+	pub experimental_rust_plugins: bool,
 	/// The reverse-domain application id used by platform shells, such as
 	/// `com.example.counter`.
 	///
@@ -763,6 +771,7 @@ impl Default for NativeConfig {
 			plugins: Vec::new(),
 			plugin_options: BTreeMap::new(),
 			missing_plugins: MissingPlugins::default(),
+			experimental_rust_plugins: false,
 			package_id: String::new(),
 			apple_team_id: None,
 			android_certificates: Vec::new(),

@@ -18,6 +18,7 @@ extern "C" lk_rust_worker *test_worker_create() { return new lk_rust_worker; }
 extern "C" lk_worker_cancellation_token *lk_worker_cancellation(const lk_rust_worker *) {
     return new lk_worker_cancellation_token;
 }
+extern "C" bool lk_worker_is_main_thread(const lk_rust_worker *) { return false; }
 extern "C" void lk_worker_cancel(const lk_worker_cancellation_token *token) {
     // The scheduler test exercises the Swift pre-execution cancellation gate.
     // Rust integration tests exercise cancellation while waiting on its mutex.

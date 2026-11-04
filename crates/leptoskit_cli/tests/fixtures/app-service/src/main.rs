@@ -49,12 +49,7 @@ fn empty_buffer() -> Buffer {
 fn create(error: &mut Buffer) -> *mut App {
 	let directory = std::env::temp_dir();
 	let path = directory.to_str().unwrap().as_bytes();
-	let context = NativeAppContext {
-		data_dir: path.as_ptr(),
-		data_dir_len: path.len(),
-		cache_dir: path.as_ptr(),
-		cache_dir_len: path.len(),
-	};
+	let context = NativeAppContext::from_dirs(path.as_ptr(), path.len(), path.as_ptr(), path.len());
 
 	// SAFETY: Module, path buffers and unique error output outlive this call.
 	unsafe {

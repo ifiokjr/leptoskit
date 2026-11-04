@@ -42,7 +42,9 @@ final class NativeAppRuntime {
         register: (OpaquePointer, NativeDispatcher, NativePluginContext) throws -> Void
     ) throws {
         pluginContext = NativePluginContext(owner: owner)
-        let app = try NativeAppFactory.create(wasm: wasm, identifier: identifier)
+        let app = try NativeAppFactory.create(
+            wasm: wasm, identifier: identifier, pluginContext: pluginContext
+        )
         self.app = app
         // This runtime drives the guest's frame clock from the display link.
         guard lk_app_enable_frames(app.raw) == 0 else { throw PluginError.native }

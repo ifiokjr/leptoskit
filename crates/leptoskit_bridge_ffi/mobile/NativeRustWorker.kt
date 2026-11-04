@@ -15,6 +15,7 @@ internal class NativeRustWorker private constructor(
     private val reply = AtomicLong(0)
     private val cancellationLock = Any()
     private var cancellation = NativeApp.workerCancellation(handle)
+    private val mainThread = NativeApp.isMainThreadWorker(handle)
 
     companion object {
         /** At most four blocking Rust operations at once, matching the Apple host. */
@@ -25,13 +26,23 @@ internal class NativeRustWorker private constructor(
     }
 
     override suspend fun execute() {
-        withContext(executor) {
-            val handle = worker.getAndSet(0)
-            check(handle != 0L) { "Worker already consumed" }
-            // Store before returning from IO: prompt coroutine cancellation can
-            // discard a withContext return value, but completion still closes us.
-            reply.set(NativeApp.executeWorker(handle))
+        if (mainThread) {
+            runNow()
+
+            return
         }
+
+        withContext(executor) {
+            runNow()
+        }
+    }
+
+    private fun runNow() {
+        val handle = worker.getAndSet(0)
+        check(handle != 0L) { "Worker already consumed" }
+        // Store before returning from IO: prompt coroutine cancellation can
+        // discard a withContext return value, but completion still closes us.
+        reply.set(NativeApp.executeWorker(handle))
     }
 
     override fun complete(

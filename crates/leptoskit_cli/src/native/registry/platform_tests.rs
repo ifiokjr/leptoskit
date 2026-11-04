@@ -227,3 +227,106 @@ fn async_host_features_follow_the_destinations_that_register_the_plugin() {
 		resolve_for_target(runtime_metadata(&table), &config, Some(Target::Android)).unwrap();
 	assert_eq!(registry.host_features, [] as [String; 0]);
 }
+
+#[test]
+fn experimental_rust_plugins_fall_back_to_native_unless_opted_in() {
+	let runtime = json!({
+		"name": "echo",
+		"apple-module": "Echo",
+		"apple-type": "EchoPlugin",
+		"android-type": "dev.example.EchoPlugin",
+		"ios": {"rust-factory": "from_context", "rust-context": true, "rust-main-thread": true, "experimental": true},
+		"android": {"rust-factory": "from_context", "rust-context": true, "rust-main-thread": true, "experimental": true},
+		"macos": {"rust-factory": "from_context", "rust-context": true, "rust-main-thread": true, "experimental": true}
+	});
+	let default_config = echo_config();
+
+	// By default `experimental-rust-plugins` is false, so stable Swift/Kotlin
+	// implementations are selected.
+	for (target, expected) in [
+		(
+			Target::Ios,
+			Implementation::Apple {
+				module: "Echo",
+				ty: "EchoPlugin",
+			},
+		),
+		(
+			Target::Macos,
+			Implementation::Apple {
+				module: "Echo",
+				ty: "EchoPlugin",
+			},
+		),
+		(
+			Target::Android,
+			Implementation::Android {
+				ty: "dev.example.EchoPlugin",
+			},
+		),
+	] {
+		let registry =
+			resolve_for_target(runtime_metadata(&runtime), &default_config, Some(target)).unwrap();
+		assert_eq!(
+			registry.plugins[0].implementation(target, HostCapabilities::of(target)),
+			Ok(expected),
+			"{target:?}"
+		);
+	}
+
+	// Opting into `native.experimental-rust-plugins = true` selects the pure
+	// Rust `ContextFactory` implementation on each target.
+	let mut opted_in = echo_config();
+	opted_in.native.experimental_rust_plugins = true;
+
+	for target in [Target::Ios, Target::Macos, Target::Android] {
+		let registry =
+			resolve_for_target(runtime_metadata(&runtime), &opted_in, Some(target)).unwrap();
+		assert_eq!(
+			registry.plugins[0].implementation(target, HostCapabilities::of(target)),
+			Ok(Implementation::Rust(RustRegistration {
+				constructor: Constructor::ContextFactory("from_context"),
+				flavour: Flavour::MainThread,
+			})),
+			"{target:?}"
+		);
+	}
+}
+
+#[test]
+fn experimental_only_rust_plugin_reports_missing_flag_when_not_opted_in() {
+	let runtime = json!({
+		"name": "echo",
+		"ios": {"rust-factory": "from_context", "rust-context": true, "experimental": true}
+	});
+	let config = echo_config();
+	let registry =
+		resolve_for_target(runtime_metadata(&runtime), &config, Some(Target::Ios)).unwrap();
+	assert!(registry.plugins.is_empty());
+	assert_eq!(registry.missing[0].reason, Missing::ExperimentalRustPlugin);
+	assert_eq!(
+		registry.warnings().collect::<Vec<_>>(),
+		[
+			"warning: echo requires native.experimental-rust-plugins = true on iOS; calls fail \
+			 with Unavailable"
+		]
+	);
+
+	// Rejects `rust-context`, `rust-main-thread`, or `experimental` without a
+	// valid Rust constructor or with conflicting flavours.
+	for invalid in [
+		json!({"name": "echo", "rust-type": "Echo", "rust-context": true}),
+		json!({"name": "echo", "apple-module": "Echo", "apple-type": "EchoPlugin", "experimental": true}),
+		json!({"name": "echo", "apple-module": "Echo", "apple-type": "EchoPlugin", "rust-main-thread": true}),
+		json!({"name": "echo", "rust-type": "Echo", "rust-worker": true, "rust-main-thread": true}),
+		json!({"name": "echo", "rust-factory": "new", "rust-async": true, "rust-main-thread": true}),
+		json!({"name": "echo", "ios": {"rust-type": "Echo", "rust-context": true}}),
+		json!({"name": "echo", "ios": {"rust-type": "Echo", "rust-worker": true, "rust-main-thread": true}}),
+		json!({"name": "echo", "ios": {"rust-factory": "new", "rust-async": true, "rust-main-thread": true}}),
+	] {
+		assert!(
+			resolve_metadata(runtime_metadata(&invalid), &echo_config()).is_err(),
+			"{invalid}"
+		);
+	}
+}

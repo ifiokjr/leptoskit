@@ -5555,7 +5555,11 @@ version = "0.0.0"
 dependencies = [
  "arboard",
  "futures",
+ "jni 0.21.1",
  "leptoskit_bridge",
+ "objc2",
+ "objc2-foundation",
+ "objc2-ui-kit",
  "reactive_graph",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -5675,11 +5679,13 @@ dependencies = [
 name = "leptoskit_plugin_haptics"
 version = "0.0.0"
 dependencies = [
+ "jni 0.21.1",
  "js-sys",
  "leptoskit_bridge",
  "libtest-mimic",
  "objc2",
  "objc2-app-kit",
+ "objc2-ui-kit",
  "wasm-bindgen",
  "web-sys",
 ]

@@ -551,3 +551,66 @@ fn an_android_build_skips_an_apple_only_plugin_with_a_warning() {
 		"native.missing-plugins = \"error\" stops the build: haptics has no Android implementation"
 	);
 }
+
+#[test]
+fn experimental_rust_plugin_installs_in_rust_and_skips_native_wrappers() {
+	let directory = tempfile::tempdir().unwrap();
+	let root = directory.path().canonicalize().unwrap();
+	let mut registry = host_registry(&root);
+	let clipboard = root.join("plugins/clipboard");
+	fixture(
+		&clipboard.join("android/ClipboardPlugin.kt"),
+		"// clipboard kt",
+	);
+	fixture(&clipboard.join("Package.swift"), "// clipboard swift");
+	let mut clipboard_plugin = plugin(
+		serde_json::json!({
+			"name": "clipboard",
+			"apple-module": "LeptosKitClipboard",
+			"apple-type": "ClipboardPlugin",
+			"android-type": "dev.leptoskit.plugins.clipboard.ClipboardPlugin",
+			"android-context": true,
+			"ios": {"rust-factory": "from_context", "rust-context": true, "rust-main-thread": true, "experimental": true},
+			"android": {"rust-factory": "from_context", "rust-context": true, "rust-main-thread": true, "experimental": true}
+		}),
+		&clipboard,
+		"clipboard_crate",
+	);
+	clipboard_plugin.experimental_rust_plugins = true;
+	registry.plugins.push(clipboard_plugin);
+
+	let mut config = leptoskit_config::LeptoskitConfig::default();
+	config.native.experimental_rust_plugins = true;
+
+	generate(&root, &config, &registry, Target::Android, false).unwrap();
+	let registrant = std::fs::read_to_string(root.join(".leptoskit/registrant.rs")).unwrap();
+	assert!(
+		registrant
+			.contains("app.install_main(Box::new(clipboard_crate::from_context(_context)?))?;")
+	);
+	let kotlin =
+		std::fs::read_to_string(root.join(".leptoskit/android/sources/GeneratedPlugins.kt"))
+			.unwrap();
+	assert!(!kotlin.contains("ClipboardPlugin"));
+	assert!(
+		!root
+			.join(".leptoskit/android/sources/plugin_3_ClipboardPlugin.kt")
+			.exists()
+	);
+
+	generate(&root, &config, &registry, Target::IosSimulator, false).unwrap();
+	let registrant = std::fs::read_to_string(root.join(".leptoskit/registrant.rs")).unwrap();
+	assert!(
+		registrant
+			.contains("app.install_main(Box::new(clipboard_crate::from_context(_context)?))?;")
+	);
+	let swift =
+		std::fs::read_to_string(root.join(".leptoskit/ios/GeneratedPlugins.swift")).unwrap();
+	assert!(!swift.contains("LeptosKitClipboard"));
+	assert!(!swift.contains("ClipboardPlugin"));
+	assert!(
+		!root
+			.join(".leptoskit/ios/packages/clipboard_crate")
+			.exists()
+	);
+}

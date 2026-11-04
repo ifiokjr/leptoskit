@@ -1,3 +1,5 @@
+import CLeptosKitBridge
+import Foundation
 #if canImport(UIKit)
     import UIKit
     public typealias NativePresentationOwner = UIViewController
@@ -59,6 +61,57 @@
         /// Called after plugin close callbacks, before the app runtime is destroyed.
         public func invalidate() {
             owner = nil
+        }
+
+        /// Installs a retained weak-owner bridge into `context` so Rust plugins
+        /// can resolve the live presentation or attached owner on the main
+        /// thread without extending the controller's lifetime.
+        public func retainForAppContext(_ context: inout lk_app_context) {
+            typealias OwnerResolver = @convention(c) (UnsafeMutableRawPointer?, Int32) -> UnsafeMutableRawPointer?
+            let resolver: OwnerResolver = { rawContext, kind in
+                guard let rawContext, Thread.isMainThread else { return nil }
+                let contextAddress = UInt(bitPattern: rawContext)
+                let ownerAddress: UInt = MainActor.assumeIsolated {
+                    guard let ptr = UnsafeMutableRawPointer(bitPattern: contextAddress) else {
+                        return 0
+                    }
+                    let pluginContext = Unmanaged<NativePluginContext>.fromOpaque(ptr)
+                        .takeUnretainedValue()
+                    let controller: NativePresentationOwner?
+                    switch kind {
+                    case 0:
+                        controller = try? pluginContext.requireAttachedOwner()
+                    case 1:
+                        controller = try? pluginContext.requirePresentationOwner()
+                    default:
+                        controller = nil
+                    }
+                    guard let controller else { return 0 }
+                    return UInt(bitPattern: Unmanaged.passUnretained(controller).toOpaque())
+                }
+                return UnsafeMutableRawPointer(bitPattern: ownerAddress)
+            }
+            context.platform_vm = unsafeBitCast(resolver, to: UnsafeMutableRawPointer.self)
+            context.platform_context = Unmanaged.passRetained(self).toOpaque()
+            context.release_platform_context = { _, rawContext in
+                guard let rawContext else { return }
+                let address = UInt(bitPattern: rawContext)
+                if Thread.isMainThread {
+                    MainActor.assumeIsolated {
+                        if let ptr = UnsafeMutableRawPointer(bitPattern: address) {
+                            Unmanaged<NativePluginContext>.fromOpaque(ptr).release()
+                        }
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        if let ptr = UnsafeMutableRawPointer(bitPattern: address) {
+                            MainActor.assumeIsolated {
+                                Unmanaged<NativePluginContext>.fromOpaque(ptr).release()
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 #endif

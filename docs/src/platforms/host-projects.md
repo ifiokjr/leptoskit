@@ -163,7 +163,9 @@ rust-factory = "desktop::from_context"
 rust-factory = "desktop::from_context"
 ```
 
-The tables are `ios`, `macos`, `android`, `harmonyos`, `windows`, `linux`, and `tui` (the terminal). Each takes `rust-type` or `rust-factory`, with `rust-worker` or `rust-async` as in the shared fields, or only `unavailable = true`, which says the platform doesn't have the service at all: the plugin is left out there without a warning. Any other key or table name is an error.
+The tables are `ios`, `macos`, `android`, `harmonyos`, `windows`, `linux`, and `tui` (the terminal). Each takes `rust-type` or `rust-factory`, with `rust-worker`, `rust-main-thread`, `rust-async`, `rust-context`, or `experimental` as in the shared fields, or only `unavailable = true`, which says the platform doesn't have the service at all: the plugin is left out there without a warning. Any other key or table name is an error.
+
+When `rust-context = true` is set alongside `rust-factory`, the generated registrant calls the factory with `&leptoskit_bridge::AppContext` instead of `(&Path, &Path)`. In addition to `data_dir` and `cache_dir`, `AppContext` lends the platform's retained native host handle (`PlatformContext`): the process `JavaVM*` and Android `Context` global reference on Android (`context.android_handles()`), or the main-thread `NativePluginContext` view-controller resolver on iOS and macOS (`context.apple_presentation_owner()` and `context.apple_attached_owner()`). When `rust-main-thread = true` is set, the host routes calls from the guest interpreter thread to the platform's UI thread (`@MainActor` on iOS and macOS, `Dispatchers.Main` on Android) via `app.install_main(...)`, so pure-Rust plugins using `objc2-ui-kit`, `objc2-app-kit`, or UI-thread Android JNI APIs run on the main thread without blocking a background worker pool. Setting `experimental = true` on a Rust registration gates it behind `native.experimental-rust-plugins = true` in `leptoskit.toml`; when that flag is `false` (the default), the CLI falls back to the plugin's Swift or Kotlin implementation on that target.
 
 For each platform, the CLI uses the first of these that the plugin declares:
 

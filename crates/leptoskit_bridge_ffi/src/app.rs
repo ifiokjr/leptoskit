@@ -73,26 +73,46 @@ pub use async_jobs::*;
 mod async_stub;
 #[cfg(not(feature = "async-host"))]
 pub use async_stub::*;
+pub use leptoskit_bridge::AppContext;
+pub use leptoskit_bridge::AppleOwnerKind;
+pub use leptoskit_bridge::AppleOwnerResolver;
+pub use leptoskit_bridge::PlatformContext;
+pub use leptoskit_bridge::ReleasePlatformContext;
 
-/// Native application directories supplied by the trusted platform host.
-#[derive(Debug)]
-pub struct AppContext {
-	/// Existing, application-private persistent data directory.
-	pub data_dir: PathBuf,
-	/// Existing, application-private cache directory.
-	pub cache_dir: PathBuf,
-}
-
-/// Borrowed UTF-8 directory paths used only during app creation.
+/// Borrowed UTF-8 directory paths and optional platform host handles used
+/// during app creation.
 #[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct NativeAppContext {
 	pub data_dir: *const u8,
 	pub data_dir_len: usize,
 	pub cache_dir: *const u8,
 	pub cache_dir_len: usize,
+	pub platform_vm: *mut std::ffi::c_void,
+	pub platform_context: *mut std::ffi::c_void,
+	pub release_platform_context: Option<ReleasePlatformContext>,
 }
 
 impl NativeAppContext {
+	/// Creates a directory-only context with no platform handle.
+	#[must_use]
+	pub const fn from_dirs(
+		data_dir: *const u8,
+		data_dir_len: usize,
+		cache_dir: *const u8,
+		cache_dir_len: usize,
+	) -> Self {
+		Self {
+			data_dir,
+			data_dir_len,
+			cache_dir,
+			cache_dir_len,
+			platform_vm: ptr::null_mut(),
+			platform_context: ptr::null_mut(),
+			release_platform_context: None,
+		}
+	}
+
 	unsafe fn decode(&self) -> Result<AppContext, Error> {
 		unsafe fn path(bytes: *const u8, len: usize) -> Result<PathBuf, Error> {
 			if bytes.is_null() || len == 0 || len > 32 * 1024 {
@@ -115,24 +135,37 @@ impl NativeAppContext {
 
 			Ok(path)
 		}
+		// Adopt any platform handle first so failed path validation or plugin
+		// installation still invokes `release_platform_context`.
+		// SAFETY: The host transfers ownership of any platform handle for this
+		// call on every return path.
+		let platform = unsafe {
+			PlatformContext::from_raw(
+				self.platform_vm,
+				self.platform_context,
+				self.release_platform_context,
+			)
+		};
 		// SAFETY: The host lends both path buffers for app creation.
 		unsafe {
 			Ok(AppContext {
 				data_dir: path(self.data_dir, self.data_dir_len)?,
 				cache_dir: path(self.cache_dir, self.cache_dir_len)?,
+				platform,
 			})
 		}
 	}
 }
 
-/// Creates an application with OS-owned storage directories for plugin
-/// factories.
+/// Creates an application with OS-owned storage directories and optional
+/// platform host handles for plugin factories.
 ///
 /// # Safety
 /// `wasm` and `error` obey [`create`]'s contract. `context` points to a
 /// readable structure whose path pointers remain readable for their declared
 /// lengths until this function returns. Paths are borrowed and copied before
-/// installation.
+/// installation. When `release_platform_context` is `Some`, ownership of
+/// `platform_context` is transferred on every return path.
 pub unsafe fn create_with_context(
 	wasm: *const u8,
 	len: usize,
@@ -148,19 +181,26 @@ pub unsafe fn create_with_context(
 			.and_then(|context| context.decode())
 	};
 	// SAFETY: Input/output buffers obey the same contract as create.
-	unsafe { create(wasm, len, error, |app| install(app, &context?)) }
+	unsafe {
+		create(wasm, len, error, |app| {
+			let context = context?;
+			app.platform.clone_from(&context.platform);
+			install(app, &context)
+		})
+	}
 }
 
 /// One loaded guest and its installed immediate and worker Rust plugins.
 pub struct App {
 	host: Option<WasmHost<HeadlessBackend>>,
+	platform: Option<PlatformContext>,
 	service: Option<ServiceState>,
 	close_scheduler: Option<CloseScheduler>,
 	close_wake: Option<ServiceWake>,
 	routed_requests: VecDeque<leptoskit_bridge::Request>,
 	routed_cancelled: VecDeque<CallId>,
 	plugins: BTreeMap<u32, Box<dyn Plugin>>,
-	workers: BTreeMap<u32, Arc<Mutex<Box<dyn Plugin + Send>>>>,
+	workers: BTreeMap<u32, WorkerPlugin>,
 	/// The frame clock's reserved plugin, answered here rather than by the
 	/// platform: see [`leptoskit_bridge::frame`]. Registered only by a host
 	/// that delivers frames ([`Self::enable_frames`]); elsewhere the guest's
@@ -210,6 +250,7 @@ impl App {
 		)]
 		let mut app = Self {
 			host: Some(host),
+			platform: None,
 			service: None,
 			close_scheduler: None,
 			close_wake: None,
@@ -270,6 +311,12 @@ impl App {
 		operation: impl FnOnce(&mut WasmHost<HeadlessBackend>) -> T,
 	) -> T {
 		operation(self.host_mut())
+	}
+
+	/// Optional platform host handle retained for the lifetime of this app.
+	#[must_use]
+	pub fn platform(&self) -> Option<&PlatformContext> {
+		self.platform.as_ref()
 	}
 
 	fn host_mut(&mut self) -> &mut WasmHost<HeadlessBackend> {
@@ -461,6 +508,24 @@ impl App {
 	/// by guest cancellation. Cancellation discards its reply while retaining
 	/// the job's capacity until it actually finishes.
 	pub fn install_worker(&mut self, plugin: Box<dyn Plugin + Send>) -> Result<PluginId, Error> {
+		self.install_routed_worker(plugin, false)
+	}
+
+	/// Installs Rust work that must execute on the platform UI thread
+	/// (`@MainActor` on Apple, `Dispatchers.Main` on Android).
+	///
+	/// When the guest interpreter runs on its dedicated background thread, the
+	/// request is handed to the platform's UI-thread job executor and runs in
+	/// place on the UI thread without hopping to the background worker pool.
+	pub fn install_main(&mut self, plugin: Box<dyn Plugin + Send>) -> Result<PluginId, Error> {
+		self.install_routed_worker(plugin, true)
+	}
+
+	fn install_routed_worker(
+		&mut self,
+		plugin: Box<dyn Plugin + Send>,
+		main_thread: bool,
+	) -> Result<PluginId, Error> {
 		let bridge = self.host_mut().plugins();
 		let id = bridge.register(plugin.name(), plugin.methods().iter().copied())?;
 
@@ -468,7 +533,13 @@ impl App {
 			bridge.grant(id, *method, true)?;
 		}
 
-		self.workers.insert(id.0, Arc::new(Mutex::new(plugin)));
+		self.workers.insert(
+			id.0,
+			WorkerPlugin {
+				plugin: Arc::new(Mutex::new(plugin)),
+				main_thread,
+			},
+		);
 		Ok(id)
 	}
 
@@ -645,12 +716,19 @@ impl Drop for App {
 	}
 }
 
+#[derive(Clone)]
+struct WorkerPlugin {
+	plugin: Arc<Mutex<Box<dyn Plugin + Send>>>,
+	main_thread: bool,
+}
+
 /// Independently owned work; contains no app, bridge, or interpreter reference.
 pub struct RustWorker {
 	plugin: Arc<Mutex<Box<dyn Plugin + Send>>>,
 	method: MethodId,
 	payload: Bytes,
 	cancelled: Arc<AtomicBool>,
+	main_thread: bool,
 }
 
 /// Thread-safe cancellation flag retained independently of the worker handle.
@@ -679,7 +757,7 @@ pub unsafe extern "C" fn lk_app_worker(
 	let (Some(app), Some(request)) = (unsafe { app.as_ref() }, unsafe { request.as_ref() }) else {
 		return ptr::null_mut();
 	};
-	let Some(plugin) = app.workers.get(&request.plugin) else {
+	let Some(worker) = app.workers.get(&request.plugin) else {
 		return ptr::null_mut();
 	};
 	// SAFETY: The request contract lends its live Bytes owner.
@@ -687,10 +765,11 @@ pub unsafe extern "C" fn lk_app_worker(
 		return ptr::null_mut();
 	};
 	Box::into_raw(Box::new(RustWorker {
-		plugin: Arc::clone(plugin),
+		plugin: Arc::clone(&worker.plugin),
 		method: MethodId(request.method),
 		payload: payload.clone(),
 		cancelled: Arc::new(AtomicBool::new(false)),
+		main_thread: worker.main_thread,
 	}))
 }
 
@@ -707,6 +786,17 @@ pub unsafe extern "C" fn lk_worker_cancellation(
 	unsafe { worker.as_ref() }.map_or(ptr::null_mut(), |worker| {
 		Box::into_raw(Box::new(WorkerCancellation(Arc::clone(&worker.cancelled))))
 	})
+}
+
+/// Whether `worker` was installed via [`App::install_main`] and must execute
+/// on the platform UI thread rather than a background worker pool.
+///
+/// # Safety
+/// `worker` is null or a live unexecuted worker borrowed for this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_worker_is_main_thread(worker: *const RustWorker) -> bool {
+	// SAFETY: The caller lends a live worker before execution takes ownership.
+	unsafe { worker.as_ref() }.is_some_and(|worker| worker.main_thread)
 }
 
 /// Cancels work that has not entered its plugin, including work waiting for

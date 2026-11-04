@@ -90,6 +90,7 @@ class LeptosKitView(
                     wasm,
                     context.filesDir.absolutePath.toByteArray(Charsets.UTF_8),
                     context.cacheDir.absolutePath.toByteArray(Charsets.UTF_8),
+                    context,
                 )
             check(app != 0L) { "Cannot create application" }
             checkStatus(NativeApp.setTextMeasurer(app, NativeTextMeasurer(resources.displayMetrics)))

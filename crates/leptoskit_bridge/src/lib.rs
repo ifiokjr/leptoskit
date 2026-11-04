@@ -19,8 +19,14 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 pub use bytes::Bytes;
+pub use context::AppContext;
+pub use context::AppleOwnerKind;
+pub use context::AppleOwnerResolver;
+pub use context::PlatformContext;
+pub use context::ReleasePlatformContext;
 
 pub mod codec;
+pub mod context;
 pub mod frame;
 mod reply;
 pub use reply::Reply;
