@@ -153,15 +153,19 @@ impl Idp {
 	/// With an ID token from this provider, the app's sign-in ends: its
 	/// refresh-token family is revoked. If the browser is still signed in as
 	/// the same person, its session ends too. Without one, nobody is signed
-	/// out, since anyone can link here. Either way the browser goes to the
-	/// app's registered `post_logout_redirect_uri`, with `state`, or to your
-	/// signed-out page.
+	/// out, since anyone can link here.
+	///
+	/// The browser goes to `post_logout_redirect_uri`, with `state`, only when
+	/// it is registered, character for character, for the app the ID token
+	/// names, or without one for the app `client_id` names. Otherwise,
+	/// including when `client_id` names a different app than the ID token, it
+	/// goes to your signed-out page without `state`, so a link here can't send
+	/// people anywhere another app registered.
 	///
 	/// # Errors
 	///
 	/// [`IdpError::OAuth`] (`invalid_request`) when the ID token isn't one
-	/// this provider issued, or the redirect isn't registered for the app;
-	/// or when the database fails.
+	/// this provider issued; or when the database fails.
 	pub async fn end_session(
 		&self,
 		request: &EndSessionRequest,
@@ -177,20 +181,17 @@ impl Idp {
 			None => None,
 		};
 
+		// The app that may receive the browser: the ID token's, or without one
+		// the app `client_id` names. Neither, or both disagreeing, means none.
 		let client_id = match (&hint, request.client_id.as_deref()) {
-			(Some(hint), Some(client_id)) if hint.client_id != client_id => {
-				return Err(IdpError::invalid_request(
-					"client_id doesn't match the ID token",
-				));
-			}
-
-			(Some(hint), _) => Some(hint.client_id.clone()),
-			(None, client_id) => client_id.map(str::to_owned),
+			(Some(hint), Some(client_id)) if hint.client_id != client_id => None,
+			(Some(hint), _) => Some(hint.client_id.as_str()),
+			(None, client_id) => client_id,
 		};
 
-		let client = match &client_id {
-			Some(client_id) => self.client(client_id).await?,
-			None => None,
+		let client = match (client_id, &request.post_logout_redirect_uri) {
+			(Some(client_id), Some(_)) => self.client(client_id).await?,
+			_ => None,
 		};
 
 		let redirect_to = match (&request.post_logout_redirect_uri, &client) {
@@ -201,12 +202,7 @@ impl Idp {
 				}
 			}
 
-			(Some(_), _) => {
-				return Err(IdpError::invalid_request(
-					"post_logout_redirect_uri isn't registered for this app",
-				));
-			}
-			(None, _) => self.inner.signed_out_page.clone(),
+			_ => self.inner.signed_out_page.clone(),
 		};
 
 		let mut signed_out = false;

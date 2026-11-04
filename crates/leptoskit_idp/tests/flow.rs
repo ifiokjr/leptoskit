@@ -498,15 +498,16 @@ async fn a_public_app_signs_in_with_pkce_and_signs_out() {
 		);
 		assert_eq!(param(&to, "error").as_deref(), Some("login_required"));
 
-		// An unregistered post-logout address is refused, not followed.
+		// An unregistered post-logout address isn't followed, nor is state.
 		let query = url::form_urlencoded::Serializer::new(String::new())
 			.extend_pairs([
 				("id_token_hint", id_token.as_str()),
 				("post_logout_redirect_uri", "https://evil.example/"),
+				("state", "bye"),
 			])
 			.finish();
-		let refused = app.get(&format!("/oauth/end_session?{query}"), None).await;
-		assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+		let ended = app.get(&format!("/oauth/end_session?{query}"), None).await;
+		assert_eq!(location(&ended), "/");
 
 		// Without a hint, nobody is signed out.
 		let cookie = app.sign_in("ada@example.com").await;
@@ -1021,22 +1022,22 @@ async fn edges_of_signing_in_and_out_are_refused_or_handled() {
 		.await;
 	assert_eq!(repeated.status(), StatusCode::BAD_REQUEST);
 
-	// Signing out: a forged hint, a hint for another app, and a registered
-	// address without state.
+	// Signing out: a forged hint is refused, a hint for another app goes to
+	// the signed-out page, and a registered address goes without state.
 	let id_token = tokens.id_token.unwrap();
-	for query in [
-		vec![("id_token_hint", "a.b.c")],
-		vec![
+	let refused = app
+		.get("/oauth/end_session?id_token_hint=a.b.c", None)
+		.await;
+	assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+	let query = url::form_urlencoded::Serializer::new(String::new())
+		.extend_pairs([
 			("id_token_hint", id_token.as_str()),
 			("client_id", other.as_str()),
-		],
-	] {
-		let query = url::form_urlencoded::Serializer::new(String::new())
-			.extend_pairs(query)
-			.finish();
-		let refused = app.get(&format!("/oauth/end_session?{query}"), None).await;
-		assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
-	}
+			("post_logout_redirect_uri", SIGNED_OUT),
+		])
+		.finish();
+	let ended = app.get(&format!("/oauth/end_session?{query}"), None).await;
+	assert_eq!(location(&ended), "/");
 	let query = url::form_urlencoded::Serializer::new(String::new())
 		.extend_pairs([
 			("client_id", client_id.as_str()),
@@ -1102,6 +1103,104 @@ async fn edges_of_signing_in_and_out_are_refused_or_handled() {
 		App::error(refused, StatusCode::BAD_REQUEST).await,
 		"invalid_grant"
 	);
+}
+
+/// Any app can register a post-logout address, so signing out only returns
+/// to one registered by the app the ID token, or else `client_id`, names.
+/// Anything else lands on the signed-out page, and a valid ID token still
+/// signs the person out.
+#[tokio::test]
+async fn signing_out_only_returns_to_the_app_that_asked() {
+	const OTHER_SIGNED_OUT: &str = "https://other.example/signed-out";
+	let db = Db::connect("sqlite::memory:").await.unwrap();
+	let app = app(db).await;
+	let (partner, secret) = app.register(ClientAuth::SecretBasic, &["openid"]).await;
+	let secret = secret.unwrap();
+	let (other, _) = app
+		.register_spec(NewClientSpec {
+			post_logout_redirect_uris: vec![OTHER_SIGNED_OUT.into()],
+			..spec(ClientAuth::SecretBasic, &["openid"])
+		})
+		.await;
+	let end_session = async |pairs: &[(&str, &str)], cookie: Option<&str>| {
+		let query = url::form_urlencoded::Serializer::new(String::new())
+			.extend_pairs(pairs)
+			.finish();
+		app.get(&format!("/oauth/end_session?{query}"), cookie)
+			.await
+	};
+	let signed_out = |response: &axum::response::Response| {
+		response
+			.headers()
+			.get(header::SET_COOKIE)
+			.is_some_and(|cookie| cookie.to_str().unwrap().contains("Max-Age=0"))
+	};
+	let id_token = async |cookie: &str| {
+		let code = app.code(&partner, "openid", cookie).await;
+		let tokens: TokenResponse =
+			body(app.exchange(&partner, Some(&secret), &code, VERIFIER).await).await;
+		tokens.id_token.unwrap()
+	};
+
+	// Without a hint or `client_id`, another app's address isn't followed.
+	let cookie = app.sign_in("ada@example.com").await;
+	let ended = end_session(
+		&[
+			("post_logout_redirect_uri", OTHER_SIGNED_OUT),
+			("state", "bye"),
+		],
+		Some(&cookie),
+	)
+	.await;
+	assert_eq!(location(&ended), "/");
+	assert!(!signed_out(&ended));
+
+	// Nor when `client_id` names an app that didn't register it.
+	let ended = end_session(
+		&[
+			("client_id", partner.as_str()),
+			("post_logout_redirect_uri", OTHER_SIGNED_OUT),
+			("state", "bye"),
+		],
+		Some(&cookie),
+	)
+	.await;
+	assert_eq!(location(&ended), "/");
+	assert!(!signed_out(&ended));
+
+	// The app's own ID token and address: back to the app, with its state.
+	let hint = id_token(&cookie).await;
+	let ended = end_session(
+		&[
+			("id_token_hint", hint.as_str()),
+			("post_logout_redirect_uri", SIGNED_OUT),
+			("state", "bye"),
+		],
+		Some(&cookie),
+	)
+	.await;
+	assert_eq!(location(&ended), format!("{SIGNED_OUT}?state=bye"));
+	assert!(signed_out(&ended));
+
+	// A `client_id` naming another app than the ID token: signed out all the
+	// same, but not sent anywhere either app registered.
+	let cookie = app.sign_in("ada@example.com").await;
+	let hint = id_token(&cookie).await;
+	for uri in [SIGNED_OUT, OTHER_SIGNED_OUT] {
+		let ended = end_session(
+			&[
+				("id_token_hint", hint.as_str()),
+				("client_id", other.as_str()),
+				("post_logout_redirect_uri", uri),
+				("state", "bye"),
+			],
+			Some(&cookie),
+		)
+		.await;
+		assert_eq!(location(&ended), "/");
+	}
+	let session: Value = body(app.get("/auth/session", Some(&cookie)).await).await;
+	assert_eq!(session["session"], Value::Null);
 }
 
 #[tokio::test]
