@@ -480,19 +480,23 @@ async fn a_socket_that_sends_faster_than_the_server_serves_is_closed() {
 						why = Some(error.message);
 					}
 				}
-				// A peer still sending its burst may observe a TCP reset.
-				// Either ending must follow the rate-limit error, checked below.
-				Ok(Message::Close(_)) | Err(_) => return why,
+				// The server reads the rest of the burst before it drops the
+				// socket, so the close arrives rather than a reset that would
+				// discard the error before it is read.
+				Ok(Message::Close(_)) => return Ok(why),
+				Err(error) => return Err(error.to_string()),
 				_ => {}
 			}
 		}
-		why
+		Err("the socket ended without a close".to_owned())
 	})
 	.await;
 	sender.abort();
 	server.abort();
 	assert_eq!(
 		why.expect("the server closes an over-budget connection"),
-		Some("this connection is sending frames faster than the server serves them".to_owned())
+		Ok(Some(
+			"this connection is sending frames faster than the server serves them".to_owned()
+		))
 	);
 }
