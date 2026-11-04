@@ -4762,7 +4762,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_analytics"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "axum",
  "getrandom 0.4.3",
@@ -4793,7 +4793,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_app"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "any_spawner",
  "anyhow",
@@ -5204,7 +5204,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_deploy_console"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "aes-gcm-siv",
  "anyhow",
