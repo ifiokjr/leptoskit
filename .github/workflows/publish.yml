@@ -422,9 +422,9 @@ jobs:
     needs: [validate, attest-assets, devtools-ui]
     if: inputs.dry_run != true
     runs-on: ubuntu-latest
-    # Building every crate before its upload, then waiting for each to reach the index, takes
-    # well over the forty minutes the old dozen crates needed.
-    timeout-minutes: 120
+    # Verifying that every crate builds from its package, cold, takes well over the forty minutes
+    # the old dozen crates needed.
+    timeout-minutes: 180
     # The registry-side trusted-publisher enrollment names this environment, so the OIDC identity
     # the job presents has to carry it: crates.io rejects a claim from a workflow that matches
     # everything except the environment.
@@ -442,6 +442,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # A publishing job never restores a cache that pull requests could have written, so the
+          # package verification below builds cold.
           lookup-only: true
 
       - name: embed the interface hash for `cargo install`
@@ -456,6 +458,21 @@ jobs:
           set -euo pipefail
           test -n "$SHA256"
           echo "$SHA256" > crates/leptoskit_cli/devtools-ui.sha256
+
+      - name: install the libraries the crates link
+        # Verifying a package builds it, and leptoskit_gtk links GTK 4 on Linux, as the coverage
+        # job's build does.
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev pkg-config
+
+      - name: verify every crate builds from its package
+        # Packaging builds each crate from exactly the files it ships, so a file the crate reads but
+        # does not include fails here. It runs before the crates.io credential is requested: a
+        # trusted-publishing token lasts thirty minutes, and building a hundred crates takes longer,
+        # so the publish below only uploads.
+        run: cargo package --workspace --locked --allow-dirty
 
       - name: request a crates.io credential via OIDC
         id: oidc
@@ -490,17 +507,10 @@ jobs:
           echo "::error::No crates.io credential: the OIDC exchange failed and CARGO_REGISTRY_TOKEN is unset."
           exit 1
 
-      - name: install the libraries the crates link
-        # `cargo publish` builds every crate before uploading it, and leptoskit_gtk links GTK 4
-        # on Linux, as the coverage job's build does.
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev pkg-config
-
       - name: publish in dependency order
         # `cargo publish --workspace` publishes every crate that is not `publish = false`, each
         # after the crates it depends on, and waits for each to reach the index before the next.
+        # `--no-verify` skips a second build: the step above already built every package.
         # A hand-written list here fell behind the workspace: crates depended on crates it never
         # published, and crates.io refuses those.
         env:
@@ -541,7 +551,7 @@ jobs:
           fi
 
           echo "Publishing $remaining crates at $VERSION."
-          cargo publish --workspace --locked --allow-dirty "${excluded[@]}"
+          cargo publish --workspace --locked --allow-dirty --no-verify "${excluded[@]}"
 
   # The release was created as a draft by the release workflow so a half-published release is
   # never visible. Every target's binaries are now attached and attested, and the registry has
