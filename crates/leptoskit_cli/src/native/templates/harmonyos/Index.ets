@@ -1,7 +1,7 @@
 import { NativeRequest, Runtime, RenderBatch, RiveFrame } from 'libleptoskit.so';
 import { NativePlugin, NativePlugins } from '../leptoskit/plugins';
 import { nativePlugins } from '../leptoskit/registrant';
-import { Widget, Scene, color } from '../scene';
+import { Widget, Scene, color, textContent } from '../scene';
 import { displaySync } from '@kit.ArkGraphics2D';
 
 class RiveTarget {
@@ -65,6 +65,18 @@ struct NativeWidget {
     return this.node.props.text_align === 'end' ? TextAlign.End : TextAlign.Start;
   }
 
+  // The password vault fills and saves fields by these types.
+  inputType(): InputType {
+    const content = textContent(this.node.props.autocomplete);
+    if (this.node.kind === 'password_input') {
+      return content === 'new-password' ? InputType.NEW_PASSWORD : InputType.Password;
+    }
+    if (content === 'username') {
+      return InputType.USER_NAME;
+    }
+    return content === 'email' ? InputType.Email : InputType.Normal;
+  }
+
   fontWeight(): FontWeight {
     if (this.node.props.font_weight === 'bold') {
       return FontWeight.Bold;
@@ -92,7 +104,7 @@ struct NativeWidget {
           .onClick(() => this.onEvent(this.node.id, 0, ''))
       } else if (this.node.kind === 'text_input' || this.node.kind === 'password_input') {
         TextInput({ text: this.node.props.value ?? this.node.props.text ?? '', placeholder: this.node.props.placeholder ?? '' })
-          .type(this.node.kind === 'password_input' ? InputType.Password : InputType.Normal)
+          .type(this.inputType())
           .width('100%').height('100%').padding(0).borderRadius(0)
           .backgroundColor(Color.Transparent)
           .fontSize(this.node.props.font_size ?? 14).fontWeight(this.fontWeight())

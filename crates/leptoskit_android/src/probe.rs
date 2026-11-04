@@ -155,6 +155,7 @@ fn fixture(state: &State) -> Element {
 			.child(
 				PasswordInput()
 					.accessibility_label("Secure editor")
+					.autocomplete("new-password")
 					.with_props(|props| props.text = Some("fixture-only".into()))
 					.class("w-full h-10"),
 			)

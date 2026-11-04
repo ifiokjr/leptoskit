@@ -50,10 +50,21 @@ enum WidgetTextStyle {
         if field.text != value { field.text = value }
 
         field.placeholder = props.placeholder
+        field.textContentType = contentType(props.textContent)
         field.font = font
         field.textColor = textColor(props)
         field.textAlignment = alignment
         field.isEnabled = props.enabled ?? true
+    }
+
+    private static func contentType(_ content: TextContent?) -> UITextContentType? {
+        switch content {
+        case .username: .username
+        case .email: .emailAddress
+        case .currentPassword: .password
+        case .newPassword: .newPassword
+        case nil: nil
+        }
     }
 
     private static func textColor(_ props: WidgetProps) -> UIColor {

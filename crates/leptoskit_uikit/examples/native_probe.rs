@@ -88,6 +88,7 @@ mod probe {
 	use objc2_ui_kit::UIScrollView;
 	use objc2_ui_kit::UISlider;
 	use objc2_ui_kit::UISwitch;
+	use objc2_ui_kit::UITextContentTypeNewPassword;
 	use objc2_ui_kit::UITextField;
 	use objc2_ui_kit::UIUserInterfaceStyle;
 	use objc2_ui_kit::UIView;
@@ -283,6 +284,7 @@ mod probe {
 						.with_props(|props| {
 							props.value = Some("dummy-fixture".into());
 							props.placeholder = Some("Secure text".into());
+							props.autocomplete = Some("new-password".into());
 						})
 						.class("h-11 border border-slate-300 rounded-lg bg-white"),
 					"password",
@@ -893,6 +895,31 @@ mod probe {
 					.expect("boolean property")
 					.boolValue()
 			);
+			// The hint reaches autofill, and the keyboard neither corrects
+			// nor learns what is typed.
+			let trait_value = |name: &str| {
+				password
+					.valueForKey(&NSString::from_str(name))
+					.expect("text input trait")
+			};
+			assert_eq!(
+				trait_value("textContentType")
+					.downcast_ref::<NSString>()
+					.expect("content type")
+					.to_string(),
+				// SAFETY: UIKit exports immutable content-type strings.
+				unsafe { UITextContentTypeNewPassword }.to_string()
+			);
+			for (name, no) in [("autocorrectionType", 1), ("spellCheckingType", 1)] {
+				assert_eq!(
+					trait_value(name)
+						.downcast_ref::<NSNumber>()
+						.expect("enumerated trait")
+						.integerValue(),
+					no,
+					"{name}"
+				);
+			}
 			let before = events.borrow().len();
 			password.setText(Some(&NSString::from_str("dummy-proposal")));
 

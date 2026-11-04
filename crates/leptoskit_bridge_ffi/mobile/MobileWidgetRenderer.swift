@@ -213,6 +213,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         case "button", "Button": widget = makeButton(item.id)
         case "pressable", "Pressable": widget = makePressable(item.id)
         case "text_input", "TextInput": widget = makeTextField(item.id)
+        case "password_input", "PasswordInput": widget = makeTextField(item.id, secure: true)
         case "scroll_view", "ScrollView":
             let scroll = UIScrollView()
             scroll.delegate = self
@@ -265,9 +266,18 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         return press
     }
 
-    private func makeTextField(_ id: Int) -> UITextField {
+    /// A secure field masks its text, and the keyboard neither corrects nor learns it.
+    private func makeTextField(_ id: Int, secure: Bool = false) -> UITextField {
         let field = UITextField()
         field.delegate = self
+
+        if secure {
+            field.isSecureTextEntry = true
+            field.autocorrectionType = .no
+            field.spellCheckingType = .no
+            field.autocapitalizationType = .none
+        }
+
         field.addAction(
             UIAction { [weak self, weak field] _ in
                 self?.event(id, 1, field?.text ?? "")

@@ -152,7 +152,7 @@ fn decode(bytes: &[u8]) -> Value {
 /// mutation.
 fn sample() -> (Option<usize>, Vec<Mutation>) {
 	let mut yoga = Yoga::new();
-	let ids: Vec<NodeId> = (0..4).map(|_| yoga.create_node()).collect();
+	let ids: Vec<NodeId> = (0..5).map(|_| yoga.create_node()).collect();
 	let full = NativeProps {
 		text: Some("Card 7 — ✓".into()),
 		source: Some("file:///image.png".into()),
@@ -192,6 +192,15 @@ fn sample() -> (Option<usize>, Vec<Mutation>) {
 			id: ids[2],
 			kind: NativeKind::Custom("map_view"),
 			props: NativeProps::text("only text"),
+		},
+		Mutation::Create {
+			id: ids[4],
+			kind: NativeKind::PasswordInput,
+			props: NativeProps {
+				placeholder: Some("Password".into()),
+				autocomplete: Some("new-password".into()),
+				..NativeProps::default()
+			},
 		},
 		Mutation::UpdateProps {
 			id: ids[2],

@@ -305,6 +305,26 @@ let form = view! {
 
 Register text changes with `.on_change(handler)`. The handler receives the proposed `&str`. `PasswordInput()` has the same single-line API with masked display.
 
+### Help password managers fill a form
+
+A password manager can only fill or save a password when it knows which field holds the account name and which holds the password. Say so with `autocomplete`, using the same words as HTML: `username` or `email` for the account, `current-password` to sign in, and `new-password` when the person picks a password, so the manager can suggest a strong one and save it.
+
+```rust
+view! {
+	<View class="gap-3">
+		<TextInput value=email autocomplete="username" aria_label="Email" on:change=set_email />
+		<PasswordInput
+			value=password
+			autocomplete="current-password"
+			aria_label="Password"
+			on:change=set_password
+		/>
+	</View>
+}
+```
+
+The web gets an `<input type="password" autocomplete="current-password">`. macOS and iOS set the field's content type, Android its autofill hint, and HarmonyOS its input type, which each system's password manager reads. Windows and Linux mask the field, but have no hint to pass on. Everywhere, a `PasswordInput` turns off autocorrection and suggestions.
+
 An unstyled text input keeps the platform's text-field border, and its height leaves room for it: 28 units at the default font size. Once it has its own background, border, or corner radius, as above, it is as tall as its text plus its padding. A height class such as `h-10` always wins.
 
 Use typed handlers for boolean and numeric controls. Keep the accepted value in your application state, then rebuild the screen after a change:

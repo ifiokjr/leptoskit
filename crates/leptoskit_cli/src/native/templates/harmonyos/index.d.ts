@@ -5,6 +5,7 @@ export interface WidgetProps {
 	text?: string | null;
 	source?: string | null;
 	placeholder?: string | null;
+	autocomplete?: string | null;
 	value?: string | null;
 	color?: number | null;
 	background?: number | null;

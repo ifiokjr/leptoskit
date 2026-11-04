@@ -12,6 +12,7 @@ use leptoskit_native::NativeProps;
 use leptoskit_native::Progress;
 use leptoskit_native::SharedTextMeasurer;
 use leptoskit_native::TextAlign;
+use leptoskit_native::TextContent;
 use leptoskit_native::TextStyle;
 use leptoskit_yoga::NodeId;
 use objc2::AnyThread;
@@ -41,6 +42,12 @@ use objc2_app_kit::NSScrollView;
 use objc2_app_kit::NSSecureTextField;
 use objc2_app_kit::NSSlider;
 use objc2_app_kit::NSSwitch;
+use objc2_app_kit::NSTextContent;
+use objc2_app_kit::NSTextContentType;
+use objc2_app_kit::NSTextContentTypeEmailAddress;
+use objc2_app_kit::NSTextContentTypeNewPassword;
+use objc2_app_kit::NSTextContentTypePassword;
+use objc2_app_kit::NSTextContentTypeUsername;
 use objc2_app_kit::NSTextField;
 use objc2_app_kit::NSTextFieldBezelStyle;
 use objc2_app_kit::NSView;
@@ -672,6 +679,20 @@ fn build_input(
 	(label_view(&field), Control::Input { field, target })
 }
 
+/// The content type that tells autofill and password managers what a field
+/// holds, from its `autocomplete` hint.
+fn content_type(content: Option<TextContent>) -> Option<&'static NSTextContentType> {
+	// SAFETY: AppKit exports immutable content-type strings.
+	content.map(|content| unsafe {
+		match content {
+			TextContent::Username => NSTextContentTypeUsername,
+			TextContent::Email => NSTextContentTypeEmailAddress,
+			TextContent::CurrentPassword => NSTextContentTypePassword,
+			TextContent::NewPassword => NSTextContentTypeNewPassword,
+		}
+	})
+}
+
 /// An image view that scales its image to fit, with nothing loaded yet.
 fn build_image(mtm: MainThreadMarker) -> (Retained<NSView>, Control) {
 	let image_view = NSImageView::initWithFrame(NSImageView::alloc(mtm), NSRect::ZERO);
@@ -879,6 +900,7 @@ fn apply_control(control: &mut Control, props: &NativeProps) {
 				attributed_string(placeholder, props.text_style(), &placeholder_color)
 			});
 			field.setPlaceholderAttributedString(placeholder.as_deref());
+			field.setContentType(content_type(props.text_content()));
 			let value = props
 				.value
 				.as_deref()

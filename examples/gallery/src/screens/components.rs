@@ -102,6 +102,7 @@ fn Controls(state: &ScreenState) -> Element {
 						class="w-full h-full border-0 text-slate-900"
 						value=state.password()
 						placeholder="Try a masked value"
+						autocomplete="new-password"
 						accessibility_label="Demo password"
 						on:change=state.set_password()
 					/>

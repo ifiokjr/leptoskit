@@ -38,6 +38,42 @@ struct MacRendererTests {
         #expect(events.first?.text == "after")
     }
 
+    /// A password field is a secure AppKit field whose `autocomplete` hint becomes its content type.
+    @Test func passwordFieldsAreSecureAndNameTheirContent() throws {
+        let view = NSView()
+        let renderer = MacWidgetRenderer(view: view)
+        var events: [Event] = []
+        renderer.onEvent = { events.append(Event(node: $0, kind: $1, text: $2)) }
+        try renderer.render(decode("""
+        {"version":1,"root":1,"mutations":[
+          {"Create":{"id":1,"kind":"view","props":{}}},
+          {"Create":{"id":2,"kind":"text_input","props":{"autocomplete":"username webauthn"}}},
+          {"Create":{"id":3,"kind":"password_input","props":{"value":"secret","autocomplete":"new-password"}}},
+          {"InsertChild":{"parent":1,"child":2}},
+          {"InsertChild":{"parent":1,"child":3}}
+        ]}
+        """))
+        let root = try #require(view.subviews.first)
+        let username = try #require(root.subviews.first as? NSTextField)
+        let password = try #require(root.subviews.last as? NSSecureTextField)
+        #expect(!(username is NSSecureTextField))
+        #expect(username.contentType == .username)
+        #expect(password.stringValue == "secret")
+        #expect(password.contentType == .newPassword)
+        renderer.controlTextDidChange(Notification(name: NSText.didChangeNotification, object: password))
+        #expect(events.map(\.node) == [3])
+        #expect(events.first?.text == "secret")
+
+        try renderer.render(decode("""
+        {"version":1,"root":1,"mutations":[
+          {"UpdateProps":{"id":3,"props":{"value":"secret","autocomplete":"current-password"}}},
+          {"UpdateProps":{"id":2,"props":{}}}
+        ]}
+        """))
+        #expect(password.contentType == .password)
+        #expect(username.contentType == nil)
+    }
+
     /// Delete removes native ownership; invalid transactions cannot mutate a valid tree.
     @Test func removalAndUnsupportedVersion() throws {
         let view = NSView()

@@ -36,7 +36,7 @@ View [bg-slate-100 h-full lg:overflow-hidden overflow-scroll text-slate-900 w-fu
       View [gap-2] #7d8e4e1960f9
         Text "Password" [font-semibold text-slate-500 text-xs] #8a1ebc24ba30
         View [border border-slate-300 h-10 p-2 rounded-lg w-full] #afbffd16c83e
-          PasswordInput [border-0 h-full text-slate-900 w-full] #ffedc26cae8b
+          PasswordInput [border-0 h-full text-slate-900 w-full] #520a441b4a9d
       View [flex-1 min-h-0] #076f2a5c6407
       View [flex-row gap-3 items-center] #2bd4e4477757
         ActivityIndicator #5cfe3516d6d9

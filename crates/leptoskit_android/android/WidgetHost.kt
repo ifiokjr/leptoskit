@@ -386,11 +386,14 @@ class WidgetHost(
                         inputType =
                             InputType.TYPE_CLASS_TEXT or
 
-                            if (kind == "password_input") InputType.TYPE_TEXT_VARIATION_PASSWORD else InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                            if (kind == "password_input") {
+                                InputType.TYPE_TEXT_VARIATION_PASSWORD or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                            } else {
+                                InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                            }
                         imeOptions = EditorInfo.IME_ACTION_DONE
                         setPadding(0, 0, 0, 0)
                         includeFontPadding = false
-                        importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
                     }
                 }
 
@@ -807,6 +810,7 @@ class WidgetHost(
 
                 control.hint = props.string("placeholder")
 
+                autofill(control, node.kind, props.string("autocomplete"))
                 control.setHintTextColor(if (dark) 0xffa0a0a0.toInt() else 0xff707070.toInt())
             } else if (control !is CompoundButton) {
                 control.text = props.string("text") ?: ""
@@ -1545,6 +1549,39 @@ class WidgetHost(
         }
     }
 }
+
+/**
+ * Tells autofill services what a field holds, from its `autocomplete`
+ * hint. A password field without one holds the person's password; other
+ * fields without one stay out of autofill.
+ */
+private fun autofill(
+    field: EditText,
+    kind: String,
+    autocomplete: String?,
+) {
+    val hint =
+        autocomplete?.lowercase()?.split(Regex("\\s+"))?.firstNotNullOfOrNull(::autofillHint)
+            ?: View.AUTOFILL_HINT_PASSWORD.takeIf { kind == "password_input" }
+    val hints = listOfNotNull(hint).toTypedArray()
+    if (field.autofillHints?.toList().orEmpty() != hints.toList()) field.setAutofillHints(*hints)
+    field.importantForAutofill = if (hint == null) View.IMPORTANT_FOR_AUTOFILL_NO else View.IMPORTANT_FOR_AUTOFILL_YES
+}
+
+/** The autofill hint for an HTML `autocomplete` token password managers read. */
+private fun autofillHint(token: String): String? =
+    when (token) {
+        "username" -> View.AUTOFILL_HINT_USERNAME
+
+        "email" -> View.AUTOFILL_HINT_EMAIL_ADDRESS
+
+        "current-password" -> View.AUTOFILL_HINT_PASSWORD
+
+        // AndroidX's `HintConstants.AUTOFILL_HINT_NEW_PASSWORD`.
+        "new-password" -> "newPassword"
+
+        else -> null
+    }
 
 private fun JSONObject.string(name: String): String? = if (isNull(name)) null else getString(name)
 

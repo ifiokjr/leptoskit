@@ -13,6 +13,7 @@ use leptoskit_native::NativeProps;
 use leptoskit_native::Progress;
 use leptoskit_native::Role;
 use leptoskit_native::SharedTextMeasurer;
+use leptoskit_native::TextContent;
 use leptoskit_yoga::NodeId;
 use objc2::MainThreadMarker;
 use objc2::MainThreadOnly;
@@ -50,9 +51,17 @@ use objc2_ui_kit::UIScrollView;
 use objc2_ui_kit::UIScrollViewContentInsetAdjustmentBehavior;
 use objc2_ui_kit::UISlider;
 use objc2_ui_kit::UISwitch;
+use objc2_ui_kit::UITextAutocapitalizationType;
+use objc2_ui_kit::UITextAutocorrectionType;
+use objc2_ui_kit::UITextContentType;
+use objc2_ui_kit::UITextContentTypeEmailAddress;
+use objc2_ui_kit::UITextContentTypeNewPassword;
+use objc2_ui_kit::UITextContentTypePassword;
+use objc2_ui_kit::UITextContentTypeUsername;
 use objc2_ui_kit::UITextField;
 use objc2_ui_kit::UITextInput;
 use objc2_ui_kit::UITextInputTraits;
+use objc2_ui_kit::UITextSpellCheckingType;
 use objc2_ui_kit::UIUserInterfaceStyle;
 use objc2_ui_kit::UIView;
 use objc2_ui_kit::UIViewContentMode;
@@ -323,7 +332,12 @@ impl UIKitBackend {
 			}
 			NativeKind::TextInput | NativeKind::PasswordInput => {
 				let field = UITextField::initWithFrame(UITextField::alloc(self.mtm), frame);
-				field.setSecureTextEntry(kind == NativeKind::PasswordInput);
+				if kind == NativeKind::PasswordInput {
+					field.setSecureTextEntry(true);
+					field.setAutocorrectionType(UITextAutocorrectionType::No);
+					field.setSpellCheckingType(UITextSpellCheckingType::No);
+					field.setAutocapitalizationType(UITextAutocapitalizationType::None);
+				}
 				let target = target();
 				field.setDelegate(Some(ProtocolObject::from_ref(&*target)));
 				connect(
@@ -949,6 +963,7 @@ fn apply_input_props(
 			.map(|text| NSString::from_str(text))
 			.as_deref(),
 	);
+	field.setTextContentType(content_type(props.text_content()));
 	field.setFont(Some(font));
 	field.setTextColor(Some(foreground));
 
@@ -966,6 +981,20 @@ fn apply_input_props(
 			&range,
 		);
 	}
+}
+
+/// The content type that tells autofill and password managers what a field
+/// holds, from its `autocomplete` hint.
+fn content_type(content: Option<TextContent>) -> Option<&'static UITextContentType> {
+	// SAFETY: UIKit exports immutable content-type strings.
+	content.map(|content| unsafe {
+		match content {
+			TextContent::Username => UITextContentTypeUsername,
+			TextContent::Email => UITextContentTypeEmailAddress,
+			TextContent::CurrentPassword => UITextContentTypePassword,
+			TextContent::NewPassword => UITextContentTypeNewPassword,
+		}
+	})
 }
 
 /// Loads an image from a bundle `resource://` name, a local `file:` URL, or a

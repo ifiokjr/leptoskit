@@ -186,12 +186,8 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
                 NSClickGestureRecognizer(
                     target: self, action: #selector(clicked(_:))))
             widget = press
-        case "text_input", "TextInput":
-            let field = NSTextField()
-            field.delegate = self
-            field.target = self
-            field.action = #selector(submitted(_:))
-            widget = field
+        case "text_input", "TextInput": widget = editable(NSTextField())
+        case "password_input", "PasswordInput": widget = editable(NSSecureTextField())
         case "scroll_view", "ScrollView":
             let scroll = MacScrollView()
             scroll.onScroll = { [weak self] in self?.scrolled(item.id) }
@@ -211,6 +207,15 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
         widgets[item.id] = widget
         try MacWidgetStyle.apply(item.props, to: widget)
         scrolls.receive(item.props.scrollOffset, for: item.id)
+    }
+
+    /// Sends the field's edits, submission, focus and blur to the guest.
+    private func editable(_ field: NSTextField) -> NSTextField {
+        field.delegate = self
+        field.target = self
+        field.action = #selector(submitted(_:))
+
+        return field
     }
 
     private func apply(_ change: Change) throws {
@@ -386,10 +391,21 @@ enum MacWidgetStyle {
 
         if field.stringValue != value { field.stringValue = value }
         field.placeholderString = props.placeholder
+        field.contentType = contentType(props.textContent)
         field.font = font(props)
         field.textColor = props.color.map(color) ?? .labelColor
         field.alignment = alignment(props.textAlign)
         field.isEnabled = props.enabled ?? true
+    }
+
+    private static func contentType(_ content: TextContent?) -> NSTextContentType? {
+        switch content {
+        case .username: .username
+        case .email: .emailAddress
+        case .currentPassword: .password
+        case .newPassword: .newPassword
+        case nil: nil
+        }
     }
 
     private static func text(_ props: WidgetProps, editable: Bool) -> String {
