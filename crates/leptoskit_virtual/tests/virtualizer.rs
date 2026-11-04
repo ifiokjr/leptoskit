@@ -423,3 +423,32 @@ fn per_item_estimates_resolve_exact_boundaries() {
 	assert_eq!(items[0].start, 150.0);
 	assert_eq!(items[1].start + items[1].size, 280.0);
 }
+
+#[test]
+fn a_measurement_equal_to_its_estimate_resolves_nothing_again() {
+	let calls = Arc::new(AtomicUsize::new(0));
+	let counted = Arc::clone(&calls);
+	let estimate = Estimate::PerItem(Arc::new(move |_| {
+		counted.fetch_add(1, Ordering::Relaxed);
+		50.0
+	}));
+	let mut options = VirtualOptions::fixed(100_000, 50.0);
+	options.estimate = estimate;
+	let mut virtualizer = Virtualizer::new(options);
+	virtualizer.set_viewport(400.0);
+	virtualizer.items().unwrap();
+	assert_eq!(calls.load(Ordering::Relaxed), 100_000);
+
+	// Scrolling to the middle measures the rows that come into view.
+	virtualizer.scroll_to(2_500_000.0);
+	for index in 50_000..50_008 {
+		virtualizer.measure(index, 50.0).unwrap();
+	}
+	virtualizer.items().unwrap();
+	assert_eq!(calls.load(Ordering::Relaxed), 100_000, "no item moved");
+
+	// A size that differs re-resolves only the items after it.
+	virtualizer.measure(99_990, 60.0).unwrap();
+	assert_eq!(virtualizer.total_size().unwrap(), 100_000.0 * 50.0 + 10.0);
+	assert_eq!(calls.load(Ordering::Relaxed), 100_009);
+}

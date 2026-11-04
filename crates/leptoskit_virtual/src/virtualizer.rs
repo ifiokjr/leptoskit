@@ -338,8 +338,19 @@ impl Virtualizer {
 			return Err(MeasureError::InvalidSize { index, value: size });
 		}
 
-		if self.measured[index].replace(size) != Some(size) {
-			self.measurements.get_mut().truncate(index);
+		self.measured[index] = Some(size);
+		let table = self.measurements.get_mut();
+
+		// Only a size that differs from the one the table resolved moves the
+		// items after it. A first measurement usually matches its estimate,
+		// and re-resolving every later item for it would make scrolling into
+		// unmeasured rows cost the whole list.
+		// Sizes are finite and positive, so equal bits are equal sizes.
+		if table
+			.get(index)
+			.is_some_and(|resolved| resolved.size.to_bits() != size.to_bits())
+		{
+			table.truncate(index);
 		}
 
 		Ok(())

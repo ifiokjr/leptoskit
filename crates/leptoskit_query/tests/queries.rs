@@ -1398,3 +1398,50 @@ async fn hydrated_data_shows_at_once_and_a_zero_stale_time_refetches_it() {
 
 	owner.cleanup();
 }
+
+/// A watcher that reacts to a fetch starting, synchronously, by cancelling
+/// it, as `watch` and `whenever` in `leptoskit_use` do, must not deadlock on
+/// the fetch that is still being started.
+#[test]
+fn a_watcher_may_cancel_a_fetch_as_it_starts() {
+	let (done, finished) = std::sync::mpsc::channel();
+	std::thread::spawn(move || {
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+		runtime.block_on(async {
+			let client = quiet_client();
+			let scope = doubler(Counter::new()).with_stale_time(Duration::from_secs(60));
+			let (owner, query) = owned(|| {
+				use_query_in(
+					client.clone(),
+					scope.clone(),
+					|| 1,
+					QueryObserverOptions::new(),
+				)
+			});
+			wait_for("loaded", || query.data().is_some()).await;
+			let watcher = owner.with(|| {
+				let client = client.clone();
+				let scope = scope.clone();
+				ImmediateEffect::new_isomorphic(move || {
+					if query.is_fetching() {
+						client.cancel_queries(QueryFilter::scope(&scope));
+					}
+				})
+			});
+
+			drop(query.refetch());
+			wait_for("cancelled", || !query.is_fetching()).await;
+			assert_eq!(query.data(), Some(2));
+			drop(watcher);
+			owner.cleanup();
+		});
+		done.send(()).unwrap();
+	});
+
+	finished
+		.recv_timeout(Duration::from_secs(10))
+		.expect("the fetch deadlocked against its own watcher");
+}

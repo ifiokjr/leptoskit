@@ -101,3 +101,26 @@ fn state_variants_clone_and_format() {
 	assert_eq!(format!("{success:?}"), r#"Success("value")"#);
 	assert_eq!(format!("{error:?}"), r#"Error("boom")"#);
 }
+
+#[test]
+fn an_older_execution_settling_last_does_not_overwrite_a_newer_one() {
+	let owner = Owner::new();
+	let (first_sender, first_receiver) = oneshot::channel();
+	let (second_sender, second_receiver) = oneshot::channel();
+	let queue: Scripted = Arc::new(Mutex::new(vec![first_receiver, second_receiver]));
+	let hook = block_on(owner.with(|| use_async_state(0_u32, scripted_fetch(queue))));
+	let waker = noop_waker();
+	let mut context = Context::from_waker(&waker);
+
+	// Both start, in order, before either answers.
+	let mut first = (hook.execute)();
+	assert_eq!(first.as_mut().poll(&mut context), Poll::Pending);
+	let second = (hook.execute)();
+	second_sender.send(Ok(2)).unwrap();
+	block_on(second);
+	assert_eq!(hook.state.get_untracked(), AsyncState::Success(2));
+
+	first_sender.send(Ok(1)).unwrap();
+	block_on(first);
+	assert_eq!(hook.state.get_untracked(), AsyncState::Success(2));
+}

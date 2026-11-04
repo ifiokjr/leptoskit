@@ -4,6 +4,8 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use reactive_graph::prelude::*;
 use reactive_graph::signal::RwSignal;
@@ -39,7 +41,10 @@ pub struct UseAsyncStateReturn<T: Send + Sync + 'static, E> {
 /// the handle; the signal is allocated before the first await, preserving
 /// owner scope. Await each `execute` future on the host executor. The
 /// state starts as `Success(initial)`. Every execution sets `Pending` before
-/// awaiting and publishes `Success` or `Error` after. Dropping an execution
+/// awaiting and publishes `Success` or `Error` after. Only the latest
+/// execution publishes: one that settles after a later one started is
+/// ignored, so a slow first request cannot overwrite a newer result. Dropping
+/// an execution
 /// future leaves the state at `Pending`; if the owner is disposed while an
 /// operation is in flight, the fetch still runs but the signal update is
 /// skipped.
@@ -59,15 +64,26 @@ where
 	let state = RwSignal::new(AsyncState::Success(initial));
 	async move {
 		let fetch = Arc::new(fetch);
+		let latest = Arc::new(AtomicU64::new(0));
 		UseAsyncStateReturn {
 			state,
 			execute: Arc::new(move || {
 				let fetch = Arc::clone(&fetch);
+				let latest = Arc::clone(&latest);
 				Box::pin(async move {
+					let execution = latest.fetch_add(1, Ordering::Relaxed) + 1;
+
 					if state.try_set(AsyncState::Pending).is_some() {
 						return;
 					}
-					match fetch().await {
+
+					let outcome = fetch().await;
+
+					if latest.load(Ordering::Relaxed) != execution {
+						return;
+					}
+
+					match outcome {
 						Ok(value) => {
 							state.try_set(AsyncState::Success(value));
 						}

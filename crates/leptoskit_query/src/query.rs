@@ -161,6 +161,14 @@ struct Revert<E> {
 	failure_count: u32,
 }
 
+/// The state a fetch starts from, read before it is published.
+#[derive(Clone, Copy)]
+struct FetchStart {
+	had_data: bool,
+	/// Whether the network mode forbids fetching offline.
+	paused: bool,
+}
+
 /// A debugging snapshot of one cached query, for devtools and logging.
 #[derive(Clone, Debug)]
 pub struct QueryInfo {
@@ -388,7 +396,9 @@ where
 
 		let token = CancelToken::new();
 		let generation = self.fetch_generation.fetch_add(1, Ordering::SeqCst) + 1;
-		let (revert, paused) = self.begin_fetch(options.direction);
+		let (revert, start) = self.fetch_start();
+		let paused = start.paused;
+		let direction = options.direction;
 
 		let boxed: BoxFuture<'static, ()> = Box::pin(Self::run_fetch(
 			this,
@@ -404,7 +414,11 @@ where
 			token,
 			generation,
 		});
+		// The start is published only once the lock is released: writing a
+		// signal runs its immediate effects, and one that refetches, cancels,
+		// or invalidates this query takes the lock again.
 		drop(in_flight);
+		self.begin_fetch(start, direction);
 		spawn(future.clone());
 		future
 	}
@@ -417,38 +431,43 @@ where
 			.map(|current| current.future.clone())
 	}
 
-	/// Applies the start transition synchronously — before the spawned task
-	/// first runs — so `is_loading()` is true the instant a fetch is requested
-	/// and a query with no data goes back to pending at once.
-	///
-	/// Returns what a cancelled fetch should restore, and whether the fetch
-	/// starts paused because the network mode forbids fetching offline.
-	fn begin_fetch(&self, direction: Option<FetchDirection>) -> (Revert<E>, bool) {
-		let had_data = self.has_data_untracked();
+	/// Reads what a fetch starts from without writing anything: what a
+	/// cancelled fetch should restore, and whether the fetch starts paused
+	/// because the network mode forbids fetching offline.
+	fn fetch_start(&self) -> (Revert<E>, FetchStart) {
 		let revert = Revert {
 			error: self.signals.error.get_untracked(),
 			failure_reason: self.signals.failure_reason.get_untracked(),
 			failure_count: self.signals.meta.get_untracked().failure_count,
 		};
+		let start = FetchStart {
+			had_data: self.has_data_untracked(),
+			paused: self.options.network_mode == NetworkMode::Online
+				&& !OnlineManager::is_online_untracked(),
+		};
+
+		(revert, start)
+	}
+
+	/// Applies the start transition synchronously — before the spawned task
+	/// first runs — so `is_loading()` is true the instant a fetch is requested
+	/// and a query with no data goes back to pending at once.
+	fn begin_fetch(&self, start: FetchStart, direction: Option<FetchDirection>) {
 		self.update_meta(|meta| {
 			meta.failure_count = 0;
 			meta.fetch_direction = direction;
 		});
 		Self::set_signal(&self.signals.failure_reason, None);
 
-		if !had_data {
+		if !start.had_data {
 			Self::set_signal(&self.signals.error, None);
 		}
 
-		let paused = self.options.network_mode == NetworkMode::Online
-			&& !OnlineManager::is_online_untracked();
-		self.set_fetch_status(if paused {
+		self.set_fetch_status(if start.paused {
 			FetchStatus::Paused
 		} else {
 			FetchStatus::Fetching
 		});
-
-		(revert, paused)
 	}
 
 	async fn run_fetch(

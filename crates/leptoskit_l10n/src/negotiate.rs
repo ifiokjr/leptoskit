@@ -12,10 +12,10 @@ use crate::Locale;
 /// is taken to have the one CLDR expects for its region, so `zh-TW` matches
 /// `zh-Hant`, `zh-SG` matches `zh-Hans`, and `sr` matches `sr-Cyrl`.
 ///
-/// A language-only match is held back only while the next preferred locale
-/// has the same language, since that one might match a region exactly:
-/// `[en-GB, en-US]` picks `en-US` from `[en, en-US]`, while `[en-GB, fr]`
-/// picks `en`.
+/// A language-only match is held back only while the preferred locales that
+/// follow it have the same language, since one of them might match a region
+/// exactly: `[en-GB, en-AU, en-US]` picks `en-US` from `[en, en-US]`, while
+/// `[en-GB, fr]` picks `en`.
 ///
 /// When several supported locales match at one step, the one with the
 /// preferred locale's region comes first, then one without a region, which
@@ -98,15 +98,21 @@ pub fn negotiate<'a>(preferred: &[Locale], supported: &'a [Locale]) -> Option<&'
 			return Some(found);
 		}
 
+		let next_shares_language = preferred
+			.get(index + 1)
+			.is_some_and(|next| next.language() == want.language());
+
+		// A held match waits through every following preference of its
+		// language, any of which might match a region exactly.
 		if language_match.is_some() {
+			if next_shares_language {
+				continue;
+			}
+
 			return language_match;
 		}
 
 		if let Some(found) = supported.iter().filter(same_language).min_by_key(rank) {
-			let next_shares_language = preferred
-				.get(index + 1)
-				.is_some_and(|next| next.language() == want.language());
-
 			if !next_shares_language {
 				return Some(found);
 			}
@@ -357,6 +363,15 @@ mod tests {
 		assert_eq!(best(&["en-GB", "fr"], &["en", "fr"]), Some("en".into()));
 		assert_eq!(
 			best(&["en-GB", "en-AU", "fr"], &["fr", "en"]),
+			Some("en".into())
+		);
+		// The exact match two places on still beats the held one.
+		assert_eq!(
+			best(&["en-GB", "en-AU", "en-US"], &["en", "en-US"]),
+			Some("en-US".into())
+		);
+		assert_eq!(
+			best(&["en-GB", "en-AU", "en-NZ", "fr"], &["fr", "en"]),
 			Some("en".into())
 		);
 	}
