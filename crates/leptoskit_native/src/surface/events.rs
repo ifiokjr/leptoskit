@@ -147,8 +147,11 @@ impl<B: NativeBackend> NativeSurface<B> {
 			.unwrap_or_default()
 			.max(0.0)
 			.min(width.min(height) * 0.5);
-		let dx = x - x.clamp(left + radius, left + width - radius);
-		let dy = y - y.clamp(top + radius, top + height - radius);
+		// `max` then `min` rather than `clamp`: for a fully rounded corner the
+		// two bounds meet in the middle, and rounding can leave the lower one
+		// an ulp above the upper, which `clamp` panics on.
+		let dx = x - x.max(left + radius).min(left + width - radius);
+		let dy = y - y.max(top + radius).min(top + height - radius);
 
 		dx * dx + dy * dy <= radius * radius
 	}

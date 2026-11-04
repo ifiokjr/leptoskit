@@ -259,17 +259,23 @@ impl<B: NativeBackend> NativeSurface<B> {
 	/// The shadow slot stays allocated (ids are never reused), but it is left
 	/// inert: no handlers, no parent, no children, and no measure function, so
 	/// a stale id can neither receive events nor keep closures alive.
+	///
+	/// Children go last to first, as [`Self::reconcile_children`] removes
+	/// them, so each removal finds its child at the end of the parent's list
+	/// and clearing a long list costs its length rather than its square.
 	pub(super) fn teardown(&mut self, id: NodeId, out: &mut MutationList) {
 		let children = std::mem::take(&mut self.shadows[id.index()].children);
 
-		for child in children {
+		for &child in children.iter().rev() {
 			self.teardown(child, out);
 		}
 
 		if let Some(parent) = self.shadows[id.index()].parent.take() {
-			self.shadows[parent.index()]
-				.children
-				.retain(|&child| child != id);
+			let siblings = &mut self.shadows[parent.index()].children;
+
+			if let Some(index) = siblings.iter().rposition(|&child| child == id) {
+				siblings.remove(index);
+			}
 			self.yoga.detach(id);
 			out.push(Mutation::RemoveChild { parent, child: id });
 		}

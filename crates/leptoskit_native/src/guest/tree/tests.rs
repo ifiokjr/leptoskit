@@ -543,6 +543,21 @@ fn render_phases() {
 	time("identical render", &mut || {
 		warm.update(cards(true), &mut NullHost);
 	});
+	let owner = reactive_graph::owner::Owner::new();
+	owner.set();
+	let open = crate::reactive::RwSignal::new(true);
+	let mut screen = Tree::default();
+	screen.update(
+		Element::view().children([
+			cards(false),
+			crate::reactive::Show(move || open.get(), || Element::text("open")),
+		]),
+		&mut NullHost,
+	);
+	time("toggle a Show by 1,000 cards", &mut || {
+		open.set(!open.get());
+		screen.settle(&mut NullHost);
+	});
 }
 
 #[test]
@@ -758,4 +773,117 @@ fn show_drops_its_child_without_touching_the_sibling() {
 	assert!(!host.updated.contains(&static_id));
 	assert!(!texts(&host).iter().any(|text| text == "open"));
 	assert!(texts(&host).iter().any(|text| text == "static"));
+}
+
+/// A region's rebuild names exactly the nodes it replaced, reused, and
+/// created, in build order, and touches nothing outside the region.
+#[test]
+fn a_region_splice_sends_only_its_own_subtree() {
+	#[derive(Default)]
+	struct Log(Vec<String>);
+	impl Host for Log {
+		fn create(&mut self, id: i64, kind: i32) {
+			self.0.push(format!("create {id} {kind}"));
+		}
+
+		fn props(&mut self, id: i64, _: &[u8]) {
+			self.0.push(format!("props {id}"));
+		}
+
+		fn insert(&mut self, parent: i64, child: i64, index: i32) {
+			self.0.push(format!("insert {parent} {child} {index}"));
+		}
+
+		fn delete(&mut self, id: i64) {
+			self.0.push(format!("delete {id}"));
+		}
+
+		fn commit(&mut self) {
+			self.0.push("commit".into());
+		}
+	}
+	let owner = reactive_graph::owner::Owner::new();
+	owner.set();
+	let items = crate::reactive::RwSignal::new(vec![1_u32, 2, 3]);
+	let open = crate::reactive::RwSignal::new(true);
+	let mut tree = Tree::default();
+	let mut log = Log::default();
+	tree.update(
+		Element::view().children([
+			Element::text("before"),
+			crate::reactive::For(
+				move || items.get(),
+				|item| *item,
+				move |item| {
+					Element::view().children([
+						Element::text(format!("row {item}")),
+						crate::reactive::Show(
+							move || open.get(),
+							move || Element::text(format!("detail {item}")),
+						),
+					])
+				},
+			),
+			Element::text("after"),
+		]),
+		&mut log,
+	);
+	log.0.clear();
+
+	items.set(vec![3, 1, 4]);
+	tree.settle(&mut log);
+	log.0.push("--".into());
+	open.set(false);
+	tree.settle(&mut log);
+	log.0.push("--".into());
+	items.set(Vec::new());
+	tree.settle(&mut log);
+
+	assert_eq!(
+		log.0,
+		[
+			// Reordering keeps rows 3 and 1, deletes row 2's four nodes, and
+			// builds row 4.
+			"delete 8",
+			"delete 9",
+			"delete 10",
+			"delete 11",
+			"create 17 0",
+			"props 17",
+			"create 18 1",
+			"props 18",
+			"create 19 0",
+			"props 19",
+			"create 20 1",
+			"props 20",
+			"insert 3 12 0",
+			"insert 3 4 1",
+			"insert 3 17 2",
+			"insert 17 18 0",
+			"insert 17 19 1",
+			"insert 19 20 0",
+			"commit",
+			"--",
+			// Each row's `Show` drops its own detail.
+			"delete 15",
+			"commit",
+			"delete 7",
+			"commit",
+			"delete 20",
+			"commit",
+			"--",
+			// Emptying the list deletes every row, parents first.
+			"delete 12",
+			"delete 13",
+			"delete 14",
+			"delete 4",
+			"delete 5",
+			"delete 6",
+			"delete 17",
+			"delete 18",
+			"delete 19",
+			"commit",
+		]
+	);
+	assert_eq!(tree.nodes.len(), tree.order.len());
 }

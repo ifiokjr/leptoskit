@@ -121,8 +121,10 @@ impl ContentButton {
 		let right = bounds.origin.x + bounds.size.width;
 		let bottom = bounds.origin.y + bounds.size.height;
 
-		let dx = local.x - local.x.clamp(bounds.origin.x + radius, right - radius);
-		let dy = local.y - local.y.clamp(bounds.origin.y + radius, bottom - radius);
+		// `max` then `min`: a fully rounded corner's bounds can cross by an
+		// ulp, which `clamp` panics on.
+		let dx = local.x - local.x.max(bounds.origin.x + radius).min(right - radius);
+		let dy = local.y - local.y.max(bounds.origin.y + radius).min(bottom - radius);
 
 		if dx * dx + dy * dy > radius * radius {
 			return None;
