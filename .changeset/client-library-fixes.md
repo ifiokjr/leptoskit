@@ -11,3 +11,4 @@ Fixes in the client libraries:
 - `leptoskit_router`: a route under a catch-all, such as `[...path]/edit.rs`, is now reachable. `[...path]/index.rs` used to match `/a/edit` first.
 - `leptoskit_l10n`: `negotiate` keeps looking through every following preference in the same language before settling for a language-only match. `[en-GB, en-AU, en-US]` now gets `en-US` from `[en, en-US]` instead of `en`.
 - `leptoskit_virtual`: measuring an item at its estimated size no longer recomputes the position of every item after it. Measuring the rows that scroll into view in the middle of a 100,000-item list used to recompute 50,000 positions; now it recomputes none.
+- `leptoskit_aria`: `Field::wire` replaces the field's own help and error references instead of adding them again, so wiring an input twice no longer makes a screen reader read its help twice, and an error the field no longer shows is no longer referenced.
