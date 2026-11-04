@@ -606,11 +606,7 @@ async fn the_other_routes_show_their_screens() {
 
 fn seed_security(cache: &QueryClient) {
 	use leptoskit::auth::client as auth_client;
-	cache.set_query_data(
-		&auth_client::mfa(),
-		(),
-		leptoskit::auth::MfaStatus::default(),
-	);
+	cache.set_query_data(&auth_client::mfa(), (), MfaStatus::default());
 	cache.set_query_data(&auth_client::passkeys(), (), Vec::new());
 	cache.set_query_data(&auth_client::identities(), (), Vec::new());
 	cache.set_query_data(&auth_client::providers(), (), Vec::new());
@@ -635,7 +631,7 @@ async fn security_lists_sign_in_methods_and_preserves_them_when_changes_fail() {
 		let now = chrono::Utc::now();
 		let mut shown = show(Some(true), |cache| {
 			seed_security(cache);
-			cache.set_query_data(&auth_client::mfa(), (), leptoskit::auth::MfaStatus {
+			cache.set_query_data(&auth_client::mfa(), (), MfaStatus {
 				totp: true, recovery_codes: 3, passkeys: 2, ..Default::default()
 			});
 			cache.set_query_data(&auth_client::passkeys(), (), vec![
@@ -682,7 +678,7 @@ async fn security_explains_required_factors_and_recovery_code_counts() {
 					cache.set_query_data(
 						&auth_client::mfa(),
 						(),
-						leptoskit::auth::MfaStatus {
+						MfaStatus {
 							required: true,
 							..Default::default()
 						},
@@ -705,7 +701,7 @@ async fn security_explains_required_factors_and_recovery_code_counts() {
 				shown.cache.set_query_data(
 					&auth_client::mfa(),
 					(),
-					leptoskit::auth::MfaStatus {
+					MfaStatus {
 						totp: true,
 						recovery_codes,
 						..Default::default()
