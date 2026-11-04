@@ -2,7 +2,9 @@ use std::cell::Cell;
 
 use leptoskit_analytics::*;
 
-thread_local! { static NOW: Cell<u64> = const { Cell::new(120) }; }
+std::thread_local! {
+	static NOW: Cell<u64> = const { Cell::new(120) };
+}
 fn clock() -> u64 {
 	NOW.get()
 }
