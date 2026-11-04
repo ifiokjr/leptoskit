@@ -88,6 +88,47 @@ pub async fn hook_count(cx: &rpc::QueryCx, upto: u32) -> rpc::Result<impl Stream
 	Ok(futures::stream::iter(0..upto))
 }
 
+/// One number, then a failure.
+#[rpc::stream]
+pub async fn hook_broken(cx: &rpc::QueryCx) -> rpc::Result<impl Stream<Item = rpc::Result<u32>>> {
+	let _ = cx;
+	Ok(futures::stream::iter([
+		Ok(1),
+		Err(rpc::Error::conflict("the stream broke")),
+	]))
+}
+
+/// What members of a hook room send each other.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Wave {
+	pub from: String,
+}
+
+/// What a member of a hook room shows the others.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct Seat {
+	pub name: String,
+}
+
+/// A room anyone may join.
+#[rpc::channel(message = Wave, presence = Seat, authorize = may_sit)]
+pub struct HookRoom {
+	pub room: String,
+}
+
+#[allow(clippy::unused_async, reason = "the signature the macro expects")]
+async fn may_sit(cx: &rpc::QueryCx, room: &HookRoom) -> rpc::Result<()> {
+	let _ = (cx, room);
+	Ok(())
+}
+
+/// Shouts `body` back.
+#[rpc::action]
+pub async fn hook_shout(cx: &rpc::ActionCx, body: String) -> rpc::Result<String> {
+	let _ = cx;
+	Ok(body.to_uppercase())
+}
+
 /// Waits for `read` to return `Some`.
 async fn eventually<T>(what: &str, read: impl Fn() -> Option<T>) -> T {
 	for _ in 0..1_000 {
@@ -143,6 +184,9 @@ pub async fn hooks(db: Db) {
 			the_default_mutation_hook_reads_its_writes(&db, &clients).await;
 			pages_load_more_and_stay_live(&db).await;
 			a_stream_on_screen().await;
+			the_status_follows_the_connection(&clients).await;
+			mutations_and_actions_over_the_connection(&db).await;
+			a_channel_on_screen(&clients).await;
 		})
 		.await;
 }
@@ -240,4 +284,112 @@ async fn a_stream_on_screen() {
 	})
 	.await;
 	assert_eq!(count.items().get(), [0, 1, 2]);
+	assert!(count.state().get().is_finished());
+
+	// Every copy of the handle shows the same items.
+	let copy = count;
+	copy.clear();
+	assert_eq!(count.items().get(), Vec::<u32>::new());
+
+	let broken = rpc::use_stream(|| HookBroken {});
+	eventually("the stream's failure", || {
+		matches!(broken.state().get(), StreamState::Failed(_)).then_some(())
+	})
+	.await;
+	assert!(broken.state().get().is_finished());
+	assert_eq!(broken.items().get(), [1]);
+	assert!(!StreamState::Opening.is_finished());
+}
+
+/// The status hook follows the connection down and back up.
+async fn the_status_follows_the_connection(clients: &LiveClients) {
+	let status = rpc::use_live_status();
+	eventually("live", || status.get().is_live().then_some(())).await;
+
+	clients.outage(true);
+	eventually("the outage", || (!status.get().is_live()).then_some(())).await;
+	clients.outage(false);
+	eventually("the reconnect", || status.get().is_live().then_some(())).await;
+}
+
+/// The live mutation and action hooks send over the connection.
+async fn mutations_and_actions_over_the_connection(db: &Db) {
+	let write = rpc::use_live_mutation::<HookWrite>();
+	write
+		.mutate_async(HookWrite {
+			body: "live".into(),
+		})
+		.await
+		.unwrap();
+	assert!(
+		Message::query()
+			.all(db)
+			.await
+			.unwrap()
+			.iter()
+			.any(|message| message.body == "live")
+	);
+
+	let shout = rpc::use_live_action::<HookShout>();
+	assert_eq!(
+		shout
+			.mutate_async(HookShout { body: "hi".into() })
+			.await
+			.unwrap(),
+		"HI"
+	);
+}
+
+/// A channel's members and the others' signals reach the hook, and its
+/// own signals reach the others.
+async fn a_channel_on_screen(clients: &LiveClients) {
+	let lobby = || {
+		HookRoom {
+			room: "lobby".into(),
+		}
+	};
+	let room = rpc::use_channel(lobby);
+	eventually("joined", || (room.members().get().len() == 1).then_some(())).await;
+
+	let other = clients.client(&ClientConfig::new());
+	let (key, mut events) = other.join(
+		lobby(),
+		Some(Seat {
+			name: "grace".into(),
+		}),
+	);
+	eventually("two members", || {
+		(room.members().get().len() == 2).then_some(())
+	})
+	.await;
+
+	other.signal::<HookRoom>(
+		&key,
+		&Wave {
+			from: "grace".into(),
+		},
+	);
+	eventually("grace's wave", || {
+		(room.signals().get()
+			== [Wave {
+				from: "grace".into(),
+			}])
+		.then_some(())
+	})
+	.await;
+	room.clear_signals();
+	assert_eq!(room.signals().get(), Vec::<Wave>::new());
+
+	room.signal(Wave { from: "me".into() });
+	let received = tokio::time::timeout(Duration::from_secs(20), async {
+		while let Some(event) = futures::StreamExt::next(&mut events).await {
+			if let rpc::client::ChannelEvent::Signal { message, .. } = event {
+				return message;
+			}
+		}
+		panic!("the channel closed");
+	})
+	.await
+	.expect("the wave arrives");
+	assert_eq!(received, serde_json::json!({ "from": "me" }));
 }

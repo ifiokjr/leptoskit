@@ -134,8 +134,28 @@ async fn add_pair(cx: &rpc::MutationCx, first: String, second: String) -> rpc::R
 /// How many runs `bump` has started, retries included.
 static BUMP_RUNS: AtomicU32 = AtomicU32::new(0);
 
-/// Reads a counter, waits, and writes it back one higher: two of these at
-/// once conflict, and serializable isolation makes one run again.
+/// The counter two bumps race over, and how many runs of `bump` and of
+/// `bump_once` have read it.
+const RACED: &str = "raced";
+static BUMP_READS: AtomicU32 = AtomicU32::new(0);
+static BUMP_ONCE_READS: AtomicU32 = AtomicU32::new(0);
+
+/// On the raced counter, waits until two runs have read, so the bumps always
+/// overlap however slowly the runner starts them. A retry has already passed.
+async fn after_both_read(name: &str, reads: &AtomicU32) {
+	if name != RACED {
+		return;
+	}
+	reads.fetch_add(1, Ordering::SeqCst);
+	let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+	while reads.load(Ordering::SeqCst) < 2 && tokio::time::Instant::now() < deadline {
+		tokio::time::sleep(Duration::from_millis(5)).await;
+	}
+}
+
+/// Reads a counter, waits for the other run to read, and writes it back one
+/// higher: two of these at once conflict, and serializable isolation makes one
+/// run again.
 #[rpc::mutation]
 async fn bump(cx: &rpc::MutationCx, name: String) -> rpc::Result<i64> {
 	BUMP_RUNS.fetch_add(1, Ordering::SeqCst);
@@ -143,7 +163,7 @@ async fn bump(cx: &rpc::MutationCx, name: String) -> rpc::Result<i64> {
 		.filter(|counter| counter.name.eq(name.clone()))
 		.one(cx.tx())
 		.await?;
-	tokio::time::sleep(Duration::from_millis(100)).await;
+	after_both_read(&name, &BUMP_READS).await;
 	counter.value += 1;
 	counter.save(cx.tx()).await?;
 	Ok(counter.value)
@@ -156,7 +176,7 @@ async fn bump_once(cx: &rpc::MutationCx, name: String) -> rpc::Result<i64> {
 		.filter(|counter| counter.name.eq(name.clone()))
 		.one(cx.tx())
 		.await?;
-	tokio::time::sleep(Duration::from_millis(100)).await;
+	after_both_read(&name, &BUMP_ONCE_READS).await;
 	counter.value += 1;
 	counter.save(cx.tx()).await?;
 	Ok(counter.value)
@@ -635,18 +655,20 @@ async fn postgres_routes_receipts_retries_and_calls() {
 	// one run again, so neither increment is lost.
 	let db = postgres(&cluster).await;
 	NewCounter {
-		name: "c".to_owned(),
+		name: RACED.to_owned(),
 		value: 0,
 	}
 	.insert(&db)
 	.await
 	.unwrap();
 	BUMP_RUNS.store(0, Ordering::SeqCst);
+	BUMP_READS.store(0, Ordering::SeqCst);
+	BUMP_ONCE_READS.store(0, Ordering::SeqCst);
 	let bump = || {
 		rpc::call(
 			&db,
 			Bump {
-				name: "c".to_owned(),
+				name: RACED.to_owned(),
 			},
 		)
 	};
@@ -662,7 +684,7 @@ async fn postgres_routes_receipts_retries_and_calls() {
 		rpc::call(
 			&db,
 			BumpOnce {
-				name: "c".to_owned(),
+				name: RACED.to_owned(),
 			},
 		)
 	};

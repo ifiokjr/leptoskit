@@ -489,7 +489,9 @@ mod tests {
 	fn commit(version: i64, body: usize) -> LogEntry {
 		LogEntry::Commit(Commit {
 			version,
-			committed_at: chrono::Utc::now(),
+			// A fixed time: `now()` serializes with 3, 6, or 9 fractional
+			// digits, so entries of equal body would differ in size.
+			committed_at: chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("in range"),
 			actor: None,
 			origin: "x".repeat(body),
 			changes: Vec::new(),

@@ -875,6 +875,145 @@ id = "inspector@example.com"
 		assert!(error.contains("letters, digits, and dashes"), "{error}");
 	}
 
+	#[test]
+	fn content_script_problems_name_the_script() {
+		let base = "[app]\nplatforms = [\"extension\"]\ndefault_platform = \
+		            \"extension\"\n[extension]\nbrowsers = [\"chromium\", \
+		            \"firefox\"]\n[extension.firefox]\nid = \"clipper@example.com\"\n";
+		let script = |body: &str| format!("{base}[[extension.content_scripts]]\n{body}\n");
+		let clipper = "name = \"clipper\"\nroute = \"/clip\"\nmatches = [\"https://*/*\"]\n";
+
+		for (toml, reason) in [
+			(
+				script("name = \"Clipper\"\nroute = \"/clip\"\nmatches = [\"https://*/*\"]"),
+				"extension.content_scripts[0].name `Clipper` must be lowercase letters, digits, \
+				 and dashes",
+			),
+			(
+				format!(
+					"{}[[extension.content_scripts]]\n{clipper}",
+					script(clipper)
+				),
+				"two content scripts are named `clipper`",
+			),
+			(
+				script("name = \"clipper\"\nroute = \"clip\"\nmatches = [\"https://*/*\"]"),
+				"extension.content_scripts[0].route `clip` must be an app route starting with /",
+			),
+			(
+				script("name = \"clipper\"\nroute = \"/clip\""),
+				"extension.content_scripts[0] needs `matches`, the pages it runs on, or `inject = \
+				 \"on_request\"`",
+			),
+			(
+				script("name = \"clipper\"\nroute = \"/clip\"\nmatches = [\"example.com\"]"),
+				"extension.content_scripts[0].matches has `example.com`, which isn't a match \
+				 pattern",
+			),
+			(
+				format!("{}browsers = []", script(clipper)),
+				"extension.content_scripts[0].browsers can't be empty; leave it out instead",
+			),
+		] {
+			let error = extension(&toml).unwrap_err();
+			assert!(error.contains(reason), "{error}\n{toml}");
+		}
+
+		// Injected on request, a script needs no pages of its own.
+		let extension = extension(&script(
+			"name = \"clipper\"\nroute = \"/clip\"\ninject = \"on_request\"",
+		))
+		.unwrap();
+		assert_eq!(extension.content_scripts[0].inject, Inject::OnRequest);
+	}
+
+	#[test]
+	fn access_problems_name_the_setting() {
+		let base = "[app]\nplatforms = [\"extension\"]\ndefault_platform = \
+		            \"extension\"\n[extension]\nbrowsers = [\"chromium\"]\n";
+		let popup = "[extension.popup]\nroute = \"/popup\"\n";
+
+		for (settings, tables, reason) in [
+			(
+				"host_permissions = [\"example.com\"]\n",
+				"",
+				"`example.com` in the extension's host permissions isn't a match pattern",
+			),
+			(
+				"optional_host_permissions = [\"https://ex*ample.com/*\"]\n",
+				"",
+				"`https://ex*ample.com/*` in the extension's host permissions isn't a match \
+				 pattern",
+			),
+			(
+				"server = \"ftp://api.example.com\"\n",
+				"",
+				"extension.server `ftp://api.example.com` must be an http or https origin",
+			),
+			(
+				"",
+				"[extension.background]\nevents = [\"tabs.removed\"]\n",
+				"extension.background.events has `tabs.removed`; expected one of runtime.message",
+			),
+			(
+				"",
+				"[extension.commands._execute]\ndescription = \"Clip\"\n",
+				"extension.commands has an invalid name `_execute`",
+			),
+		] {
+			let toml = format!("{base}{settings}{popup}{tables}");
+			let error = extension(&toml).unwrap_err();
+			assert!(error.contains(reason), "{error}\n{toml}");
+		}
+	}
+
+	#[test]
+	fn firefox_data_collection_is_none_or_the_categories_sent() {
+		let base = "[app]\nplatforms = [\"extension\"]\ndefault_platform = \
+		            \"extension\"\n[extension]\nbrowsers = \
+		            [\"firefox\"]\n[extension.popup]\nroute = \"/popup\"\n[extension.firefox]\nid \
+		            = \"clipper@example.com\"\n";
+
+		let error = extension(&format!("{base}data_collection = [\"shoeSize\"]\n")).unwrap_err();
+		assert!(
+			error
+				.contains("extension.firefox.data_collection has `shoeSize`; expected one of none"),
+			"{error}"
+		);
+
+		for categories in ["[]", "[\"none\", \"websiteContent\"]"] {
+			let error = extension(&format!("{base}data_collection = {categories}\n")).unwrap_err();
+			assert!(
+				error.contains("must be [\"none\"] or the categories the extension sends"),
+				"{error}"
+			);
+		}
+
+		let extension =
+			extension(&format!("{base}data_collection = [\"websiteContent\"]\n")).unwrap();
+		assert_eq!(
+			extension.firefox.unwrap().data_collection,
+			["websiteContent"]
+		);
+	}
+
+	#[test]
+	fn safari_lives_in_the_native_app() {
+		let extension = ExtensionConfig {
+			browsers: vec![Browser::Safari],
+			popup: Some(ExtensionPage {
+				route: "/popup".into(),
+				browsers: None,
+			}),
+			..ExtensionConfig::default()
+		};
+		assert_eq!(
+			extension.problem("").as_deref(),
+			Some("Safari's extension lives in the native app, so native.package_id must be set")
+		);
+		assert_eq!(extension.problem("com.example.notes"), None);
+	}
+
 	/// The validated `[extension]`, or the error and every cause under it.
 	fn extension(toml: &str) -> Result<ExtensionConfig, String> {
 		fn text(error: &dyn std::error::Error) -> String {

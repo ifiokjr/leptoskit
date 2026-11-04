@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use axum::extract::FromRequestParts;
 use axum::extract::State;
@@ -27,6 +28,10 @@ use crate::live::ClientFrame;
 use crate::live::MAX_FRAME_BYTES;
 use crate::live::SUBPROTOCOL;
 use crate::live::WireError;
+
+/// How long a closed socket keeps reading for the client's close before
+/// it is dropped anyway.
+const LINGER: Duration = Duration::from_secs(5);
 
 pub(super) async fn upgrade(State(live): State<Live>, request: axum::extract::Request) -> Response {
 	let (mut parts, _body) = request.into_parts();
@@ -73,7 +78,18 @@ impl Live {
 		});
 
 		let reader = tokio::spawn(async move {
+			let mut frames = Some(frames);
+
 			while let Some(Ok(message)) = stream.next().await {
+				// Once the session has ended, what the client still sends is
+				// read and dropped until its close arrives (see [`LINGER`]).
+				let Some(open) = &frames else {
+					if matches!(message, Message::Close(_)) {
+						break;
+					}
+
+					continue;
+				};
 				let incoming = match message {
 					Message::Text(text) => read(text.as_str()),
 					Message::Binary(bytes) => {
@@ -86,8 +102,8 @@ impl Live {
 					Message::Ping(_) | Message::Pong(_) => continue,
 				};
 
-				if frames.send(incoming).await.is_err() {
-					break;
+				if open.send(incoming).await.is_err() {
+					frames = None;
 				}
 			}
 		});
@@ -103,8 +119,18 @@ impl Live {
 		})
 		.await;
 
-		reader.abort();
+		// The writer ends with the server's close. Dropping the socket while
+		// the client's frames sit unread makes the kernel reset the
+		// connection, and a reset discards what the client hasn't read yet,
+		// on Windows its last frames and the close with them. So the reader
+		// keeps draining until the client answers the close, or for
+		// [`LINGER`] if it never does.
 		let _ = writer.await;
+		let draining = reader.abort_handle();
+
+		if tokio::time::timeout(LINGER, reader).await.is_err() {
+			draining.abort();
+		}
 	}
 }
 

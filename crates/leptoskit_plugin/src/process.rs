@@ -441,6 +441,101 @@ mod tests {
 		assert!(error.to_string().contains("not valid JSON"), "{error}");
 	}
 
+	/// A plugin program that keeps each envelope it receives beside itself
+	/// and answers every hook with `body`, on stdout, then exits with `status`.
+	fn recording_plugin(tag: &str, body: &str, status: i32) -> (String, PathBuf) {
+		let directory =
+			std::env::temp_dir().join(format!("leptoskit-plugin-{tag}-{}", std::process::id()));
+		std::fs::create_dir_all(&directory).expect("the plugin's directory");
+		let envelope = directory.join("envelope.json");
+		let script = format!(
+			"#!/bin/sh\ncat > '{}'\nprintf '%s' '{body}'\necho 'from stderr' >&2\nexit {status}\n",
+			envelope.display()
+		);
+		let path = directory.join("plugin.sh");
+		std::fs::write(&path, script).expect("write the plugin script");
+		use std::os::unix::fs::PermissionsExt as _;
+		std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+			.expect("make the plugin executable");
+		(path.display().to_string(), envelope)
+	}
+
+	fn received(envelope: &Path) -> Value {
+		serde_json::from_slice(&std::fs::read(envelope).expect("an envelope")).expect("JSON")
+	}
+
+	#[test]
+	fn the_post_build_and_serve_hooks_receive_their_context() {
+		let (command, envelope) = recording_plugin(
+			"hooks",
+			r#"{"ok":true,"protocol":1,"commands":[{"name":"lint","about":"Checks","flags":[{"name":"fix","help":"Fixes"}]}]}"#,
+			0,
+		);
+		let plugin = ProcessPlugin::probe("demo", &command, json!({ "level": 2 })).expect("probe");
+		assert_eq!(plugin.name(), "demo");
+		let flags = &plugin.commands()[0].flags;
+		assert_eq!(
+			(flags[0].name.as_str(), flags[0].help.as_str()),
+			("fix", "Fixes")
+		);
+
+		let mut built = PluginPostBuildContext {
+			config: LeptoskitConfig::default(),
+			platform: Platform::Web,
+			release: true,
+			output_dir: PathBuf::from("/tmp/dist"),
+			wasm_bundle: Some(PathBuf::from("/tmp/dist/app.wasm")),
+		};
+		plugin.after_build(&mut built).expect("the hook runs");
+		let sent = received(&envelope);
+		assert_eq!(sent["protocol"], PROTOCOL);
+		assert_eq!(sent["plugin"], "demo");
+		assert_eq!(sent["hook"], "after_build");
+		assert_eq!(sent["context"]["output_dir"], "/tmp/dist");
+		assert_eq!(sent["context"]["wasm_bundle"], "/tmp/dist/app.wasm");
+		assert_eq!(sent["context"]["release"], true);
+		assert_eq!(sent["context"]["options"]["level"], 2);
+
+		let serving = PluginBuildContext::new(LeptoskitConfig::default(), Platform::Web, false);
+		plugin.before_serve(&serving).expect("the hook runs");
+		let sent = received(&envelope);
+		assert_eq!(sent["hook"], "before_serve");
+		assert_eq!(sent["context"]["release"], false);
+	}
+
+	#[test]
+	fn a_failing_or_refusing_plugin_says_why() {
+		let (command, _) = recording_plugin("exits", "", 3);
+		let error = ProcessPlugin::probe("demo", &command, Value::Null)
+			.expect_err("the program fails")
+			.to_string();
+		assert!(error.contains("exited with"), "{error}");
+		assert!(error.contains("from stderr"), "{error}");
+
+		let (command, _) = recording_plugin("silent", r#"{"ok":false}"#, 0);
+		let error = ProcessPlugin::probe("demo", &command, Value::Null)
+			.expect_err("the plugin refuses")
+			.to_string();
+		assert!(
+			error.contains("replied not ok without a message"),
+			"{error}"
+		);
+
+		let (command, _) = recording_plugin("refuses", r#"{"ok":false,"message":"no license"}"#, 0);
+		let error = ProcessPlugin::probe("demo", &command, Value::Null)
+			.expect_err("the plugin refuses")
+			.to_string();
+		assert!(error.contains("no license"), "{error}");
+
+		let error = ProcessPlugin::probe("demo", "/nonexistent/leptoskit-plugin", Value::Null)
+			.expect_err("there is no such program")
+			.to_string();
+		assert!(
+			error.contains("could not run /nonexistent/leptoskit-plugin"),
+			"{error}"
+		);
+	}
+
 	#[test]
 	fn default_commands_are_discovered_on_path() {
 		assert_eq!(default_command("tailwind"), "leptoskit-plugin-tailwind");

@@ -279,7 +279,10 @@ jobs:
     # Cold desktop builds also compile separate dependency graphs for the
     # compile-error fixtures. Windows exhausted 90 minutes while those checks
     # were still progressing, before the remaining tests and docs could run.
-    timeout-minutes: 150
+    # A cold Windows run now takes 130 to 150 minutes on a busy runner (main
+    # took 132; a PR was cancelled at 150 in the last minute-long step), so
+    # the limit leaves room above that rather than sitting on it.
+    timeout-minutes: 210
 
     strategy:
       fail-fast: false
@@ -893,6 +896,11 @@ jobs:
       # under it; cargo-run-bin ignores a failed install, so verify the binary
       # landed instead of surfacing "Process failed to start" mid-suite.
       - name: install the file routes example's pinned binaries
+        env:
+          # cargo-binstall looks up release artifacts through the GitHub API;
+          # unauthenticated, a shared runner IP hits the 60-an-hour limit and
+          # binstall falls back to a source build it cannot do here.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           cd examples/file_routes
@@ -1215,6 +1223,15 @@ jobs:
       KOTLIN_VERSION: 2.1.21
       KOTLIN_SHA256: 1ba08a8b45da99339a0601134cc037b54cf85e9bc0edbe76dcbd27c2d684a977
     steps:
+      # The NDK builds, the generated applications, and the emulator image
+      # outgrow the runner's free disk, which kills the runner mid-step. Drop
+      # toolchains this job never uses; the Android SDK under
+      # /usr/local/lib/android stays, since the job installs into it.
+      - name: free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
