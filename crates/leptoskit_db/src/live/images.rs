@@ -30,6 +30,7 @@ const MAX_VALUES: usize = 20_000;
 
 /// SQLite's limit on the terms of one compound `SELECT`
 /// (`SQLITE_MAX_COMPOUND_SELECT`): each image is one.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 const MAX_SQLITE_TERMS: usize = 500;
 
 /// How many of the rows `images` stands for meet `condition`: `SELECT
