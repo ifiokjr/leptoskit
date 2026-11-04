@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_application: breaking
+leptoskit_plugin_application: major
 ---
 
 # leptoskit_plugin_application: app identity

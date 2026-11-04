@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_linking: breaking
+leptoskit_plugin_linking: major
 ---
 
 # leptoskit_plugin_linking: external links and settings

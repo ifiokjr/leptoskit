@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_tray: breaking
+leptoskit_plugin_tray: major
 ---
 
 # leptoskit_plugin_tray: tray icons

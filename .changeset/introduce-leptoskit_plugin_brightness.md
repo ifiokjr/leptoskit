@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_brightness: breaking
+leptoskit_plugin_brightness: major
 ---
 
 # leptoskit_plugin_brightness: screen brightness

@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_arguments: breaking
+leptoskit_plugin_arguments: major
 ---
 
 # leptoskit_plugin_arguments: launch arguments

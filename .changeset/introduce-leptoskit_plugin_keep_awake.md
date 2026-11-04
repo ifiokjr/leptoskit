@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_keep_awake: breaking
+leptoskit_plugin_keep_awake: major
 ---
 
 # leptoskit_plugin_keep_awake: display wake locks

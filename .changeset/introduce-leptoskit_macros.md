@@ -1,5 +1,5 @@
 ---
-leptoskit_macros: breaking
+leptoskit_macros: major
 ---
 
 # leptoskit_macros: view! and #[component]

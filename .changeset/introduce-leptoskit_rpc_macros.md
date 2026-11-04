@@ -1,9 +1,9 @@
 ---
-leptoskit_rpc_macros: breaking
+leptoskit_rpc_macros: major
 ---
 
 # leptoskit_rpc_macros: RPC attributes
 
-`leptoskit_rpc_macros` provides the `#[api]`, `#[query]`, and `#[mutation]` attributes behind `leptoskit_rpc`.
+`leptoskit_rpc_macros` provides the attributes behind `leptoskit_rpc`: `#[query]`, `#[mutation]`, and `#[action]` declare operations; `#[stream]`, `#[channel]`, `#[job]`, and `#[cron]` declare live streams, channels, background jobs, and scheduled jobs; and `#[api]` publishes a leptos server function to generated clients.
 
-Use them through `leptoskit_rpc`; an `#[api]` publishes a leptos server function to generated clients, while queries and mutations add the client-side retry and cache behavior.
+Use them through `leptoskit_rpc`, which re-exports them. Every target gets the operation's typed argument struct so any client can call it; only a server build keeps the function body and registers its route.

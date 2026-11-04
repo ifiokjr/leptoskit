@@ -1,5 +1,5 @@
 ---
-leptoskit_devtools_protocol: breaking
+leptoskit_devtools_protocol: major
 ---
 
 # leptoskit_devtools_protocol: the DevTools wire format

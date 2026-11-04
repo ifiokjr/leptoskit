@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_battery: breaking
+leptoskit_plugin_battery: major
 ---
 
 # leptoskit_plugin_battery: battery and power state

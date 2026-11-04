@@ -1,5 +1,5 @@
 ---
-leptoskit_devtools: breaking
+leptoskit_devtools: major
 ---
 
 # leptoskit_devtools: the DevTools agents

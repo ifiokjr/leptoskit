@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_tracking_transparency: breaking
+leptoskit_plugin_tracking_transparency: major
 ---
 
 # leptoskit_plugin_tracking_transparency: tracking consent

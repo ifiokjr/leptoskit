@@ -4,4 +4,4 @@
 
 # Close live connections that exceed their frame budget
 
-Live WebSocket connections now close after sending the rate-limit error when their frame budget is exhausted. The regression test waits for both the error and connection termination, avoiding a race with the server's response under coverage instrumentation.
+A live WebSocket connection that sends frames faster than the server serves them now receives the rate-limit error and is then closed. Before, it got the error but stayed open.

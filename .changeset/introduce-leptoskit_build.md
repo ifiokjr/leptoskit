@@ -1,5 +1,5 @@
 ---
-leptoskit_build: breaking
+leptoskit_build: major
 ---
 
 # leptoskit_build: one app, platform modules

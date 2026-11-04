@@ -1,5 +1,5 @@
 ---
-leptoskit_lint: breaking
+leptoskit_lint: major
 ---
 
 # leptoskit_lint: project conventions

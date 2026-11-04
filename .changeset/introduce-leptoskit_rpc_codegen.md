@@ -1,5 +1,5 @@
 ---
-leptoskit_rpc_codegen: breaking
+leptoskit_rpc_codegen: major
 ---
 
 # leptoskit_rpc_codegen: the RPC specification and clients

@@ -1,5 +1,5 @@
 ---
-leptoskit_docs: breaking
+leptoskit_docs: major
 ---
 
 # leptoskit_docs: documentation sites

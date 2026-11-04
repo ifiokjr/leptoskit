@@ -1,5 +1,5 @@
 ---
-leptoskit_testing_library: breaking
+leptoskit_testing_library: major
 ---
 
 # leptoskit_testing_library: browser component tests

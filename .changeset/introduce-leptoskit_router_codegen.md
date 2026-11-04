@@ -1,5 +1,5 @@
 ---
-leptoskit_router_codegen: breaking
+leptoskit_router_codegen: major
 ---
 
 # leptoskit_router_codegen: the routes generator

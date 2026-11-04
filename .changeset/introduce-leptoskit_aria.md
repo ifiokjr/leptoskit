@@ -1,5 +1,5 @@
 ---
-leptoskit_aria: breaking
+leptoskit_aria: major
 ---
 
 # leptoskit_aria: accessible primitives

@@ -1,5 +1,5 @@
 ---
-leptoskit_yoga: breaking
+leptoskit_yoga: major
 ---
 
 # leptoskit_yoga: flexbox and CSS grid layout

@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_network: breaking
+leptoskit_plugin_network: major
 ---
 
 # leptoskit_plugin_network: network state
