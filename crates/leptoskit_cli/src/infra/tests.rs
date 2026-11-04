@@ -4,6 +4,7 @@ use crate::jobs::postgres;
 
 fn config() -> InfraConfig {
 	InfraConfig {
+		external: None,
 		control_url: None,
 		hosted_state: false,
 		compute: leptoskit_config::infra::ComputeProvider::default(),
@@ -30,6 +31,122 @@ fn config() -> InfraConfig {
 		secrets: vec!["AUTH_KEY".into()],
 		state: None,
 	}
+}
+
+fn external_config() -> InfraConfig {
+	let mut config = config();
+	config.external = Some(leptoskit_config::infra::InfraExternal { origin_port: 4701 });
+	config.compute = leptoskit_config::infra::ComputeProvider::Digitalocean;
+	config.location = "lon1".into();
+	config.server_type = "s-1vcpu-1gb".into();
+	config.backups.enabled = false;
+	config.updates_domain.clear();
+	config.updates_bucket.clear();
+	config.backup_bucket.clear();
+	config.image.clear();
+	config.registry.clear();
+	config.registry_username.clear();
+	config.secrets.clear();
+	config
+}
+
+#[test]
+fn external_hosts_reuse_the_provider_and_edge_resources_without_a_managed_database() {
+	let infra = external_config();
+	assert!(infra.problem().is_none());
+	let value = resources(&infra);
+	assert_eq!(
+		value["resource"]["digitalocean_droplet"]["app"]["lifecycle"]["prevent_destroy"],
+		true
+	);
+	assert_eq!(
+		value["resource"]["digitalocean_droplet"]["app"]["size"],
+		"s-1vcpu-1gb"
+	);
+	assert!(
+		!value["resource"]
+			.as_object()
+			.unwrap()
+			.contains_key("hcloud_server")
+	);
+	assert!(value["resource"]["cloudflare_r2_bucket"].is_null());
+	assert!(value["resource"]["cloudflare_r2_custom_domain"].is_null());
+	assert!(value["output"]["updates_bucket"].is_null());
+	assert!(value["output"]["backup_bucket"].is_null());
+	assert_eq!(
+		value["resource"]["cloudflare_zero_trust_tunnel_cloudflared_config"]["app"]["config"]
+			["ingress"][0]["service"],
+		"http://127.0.0.1:4701"
+	);
+	assert_eq!(value["output"]["tunnel_token"]["sensitive"], true);
+	assert_eq!(
+		value["resource"]["digitalocean_firewall"]["app"]["inbound_rule"]
+			.as_array()
+			.unwrap()
+			.len(),
+		1
+	);
+	let cloud_init = value["resource"]["digitalocean_droplet"]["app"]["user_data"]
+		.as_str()
+		.unwrap();
+	assert!(cloud_init.contains("PermitRootLogin prohibit-password"));
+	assert!(!cloud_init.contains("docker"));
+	assert!(cloud_init.contains("  - python3\n"));
+	let config = LeptoskitConfig {
+		infra: Some(infra),
+		..LeptoskitConfig::default()
+	};
+	assert!(settings(&config).is_ok());
+	assert!(managed_settings(&config).is_err());
+	assert!(InfraCommand::Plan.supports_external());
+	assert!(!InfraCommand::Prepare.supports_external());
+}
+
+#[test]
+fn external_hosts_reject_runtime_features_instead_of_silently_ignoring_them() {
+	let mut config = external_config();
+	config.external.as_mut().unwrap().origin_port = 0;
+	assert!(config.problem().is_some());
+	config.external.as_mut().unwrap().origin_port = 4701;
+	config.backups.enabled = true;
+	assert!(config.problem().is_some());
+	config.backups.enabled = false;
+	config.services.cache = true;
+	assert!(config.problem().is_some());
+	config.services.cache = false;
+	config.image = "ghcr.io/team/app".into();
+	assert!(config.problem().is_some());
+	config.image.clear();
+	config.hosted_state = true;
+	assert!(config.problem().is_some());
+	config.hosted_state = false;
+	config.backup_bucket = "pilot-backups".into();
+	assert!(config.problem().is_none());
+	let value = resources(&config);
+	assert_eq!(
+		value["resource"]["cloudflare_r2_bucket"]["backups"]["name"],
+		"pilot-backups"
+	);
+	assert!(value["resource"]["cloudflare_r2_bucket"]["updates"].is_null());
+	assert!(value["output"]["backup_endpoint"].is_object());
+}
+
+#[test]
+fn external_hetzner_hosts_do_not_emit_empty_digitalocean_resource_blocks() {
+	let mut config = external_config();
+	config.compute = leptoskit_config::infra::ComputeProvider::Hetzner;
+	config.location = "hel1".into();
+	config.server_type = "cx23".into();
+	assert!(config.problem().is_none());
+	let value = resources(&config);
+	let resources = value["resource"].as_object().unwrap();
+	assert!(!resources.contains_key("digitalocean_firewall"));
+	assert!(!resources.contains_key("digitalocean_droplet"));
+	assert!(resources.values().all(serde_json::Value::is_object));
+	assert_eq!(
+		resources["hcloud_server"]["app"]["lifecycle"]["prevent_destroy"],
+		true
+	);
 }
 
 #[test]

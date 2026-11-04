@@ -18,12 +18,12 @@ use super::directory;
 use super::generate;
 use super::history_fingerprint;
 use super::lock;
+use super::managed_settings;
 use super::output;
 use super::remote::Reservation;
 use super::remote::{self};
 use super::remote_history;
 use super::runtime;
-use super::settings;
 
 pub(super) fn history(ip: &str, c: &InfraConfig) -> Result<Vec<Release>> {
 	serde_json::from_slice(&remote::read(ip, &c.name, "releases.json")?)
@@ -510,7 +510,7 @@ fn target_release(
 
 pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
-	let c = settings(&config)?;
+	let c = managed_settings(&config)?;
 	let version = release_version(args)?;
 	let dir = directory(&root, c);
 	generate(&dir, c, false)?;
@@ -656,7 +656,7 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 
 pub(super) fn prepare() -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
-	let c = settings(&config)?;
+	let c = managed_settings(&config)?;
 	let dir = directory(&root, c);
 	generate(&dir, c, false)?;
 	let _local = lock(&dir)?;

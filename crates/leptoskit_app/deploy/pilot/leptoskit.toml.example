@@ -1,0 +1,31 @@
+# Copy to leptoskit.toml in this directory and fill the approved target.
+# No provider credentials belong here. Zero/empty fields deliberately fail.
+schema_version = 0
+
+[app]
+name = "leptoskit-pilot"
+default_platform = "server"
+platforms = ["server"]
+render = "csr"
+
+[infra]
+compute = "digitalocean"
+name = "leptoskit-pilot"
+domain = "pilot.example.com"
+location = "lon1"
+server_type = "s-1vcpu-1gb"
+ssh_key_ids = []
+ssh_cidrs = []
+account_id = "00000000000000000000000000000000"
+zone_id = "00000000000000000000000000000000"
+
+[infra.external]
+origin_port = 4701
+
+[infra.backups]
+# Broker backups use leptoskit-cloud, rather than the Postgres release worker.
+enabled = false
+
+[infra.budget]
+currency = "USD"
+monthly_compute = 0

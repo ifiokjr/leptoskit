@@ -5,6 +5,8 @@ on:
     paths:
       - "crates/leptoskit_app/**"
       - "crates/leptoskit_deploy_console/**"
+      - "crates/leptoskit_cli/**"
+      - "crates/leptoskit_config/**"
       - "docs/**"
       - "setup/scripts/*hosted_pilot*"
       - "Cargo.toml"
@@ -65,8 +67,23 @@ jobs:
           tar -xzf "$RUNNER_TEMP/binaryen.tar.gz" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/binaryen-version_132/bin" >> "$GITHUB_PATH"
 
+      - name: install pinned OpenTofu
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/tofu.zip" \
+            https://github.com/opentofu/opentofu/releases/download/v1.13.1/tofu_1.13.1_linux_amd64.zip
+          echo "8ccbc6f8ee21d2827715f3c6e08a9b3e0209b1e62057c05067ef117e047c1a80  $RUNNER_TEMP/tofu.zip" | sha256sum --check --strict
+          mkdir "$RUNNER_TEMP/pilot-tofu"
+          unzip -q "$RUNNER_TEMP/tofu.zip" -d "$RUNNER_TEMP/pilot-tofu"
+
       - name: package the Linux broker and complete website
         run: bash setup/scripts/package_hosted_pilot.sh "$PUBLIC_ORIGIN" target/hosted-pilot
+
+      - name: validate the implemented DigitalOcean OpenTofu integration
+        run: |
+          python3 setup/scripts/check_hosted_pilot_infra.py \
+            --cli target/x86_64-unknown-linux-gnu/release/leptoskit \
+            --tofu "$RUNNER_TEMP/pilot-tofu/tofu" > target/hosted-pilot-infra.json
 
       - name: verify archive and run recovery acceptance
         run: |
@@ -96,5 +113,6 @@ jobs:
           path: |
             target/hosted-pilot.tar.gz
             target/hosted-pilot-acceptance.json
+            target/hosted-pilot-infra.json
           retention-days: 7
           if-no-files-found: error

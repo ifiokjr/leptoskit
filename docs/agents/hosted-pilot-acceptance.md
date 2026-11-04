@@ -24,7 +24,26 @@ bash setup/scripts/package_hosted_pilot.sh https://pilot.example.com target/host
 
 The builder refuses existing output, non-Linux hosts, invalid HTTPS origins, dirty source trees and a broker linked to the Nix store. `release.json` records the commit, origin, native target and build OS. The archive contains `leptoskit-cloud`, `site/`, `systemd/`, the environment example and checksums. It contains no database or configured credentials. Verify that its target matches the destination host. The supplied workflow produces x86-64 GNU/Linux artifacts for Ubuntu 24.04; it does not claim compatibility with older glibc hosts.
 
-## Install on the approved host
+## Provision with the existing LeptosKit/OpenTofu integration
+
+Use `crates/leptoskit_app/deploy/pilot/leptoskit.toml.example` as the pilot's infrastructure specification. Copy it to `leptoskit.toml` in that directory, set the approved hostname, Cloudflare account/zone, DigitalOcean region/size, existing provider SSH key IDs, administrator source CIDRs and compute ceiling, then commit that non-secret configuration. Empty SSH lists and the zero budget deliberately fail validation. Provider tokens stay in the operator environment as `DIGITALOCEAN_TOKEN` and `CLOUDFLARE_API_TOKEN`.
+
+The broker uses SQLite and its own supervisor, so the template selects `[infra.external] origin_port = 4701` and disables the managed Postgres backup worker. This reuses the implemented provider resources, price guard, saved plan, state locking and deletion protection. It does not create a second infrastructure backend. The external mode provisions a single DigitalOcean host, administrator-only SSH firewall, Cloudflare tunnel and proxied DNS. It omits Docker/Kamal and code-push resources. An optional `backup_bucket` provisions private R2 storage; native broker backup scheduling remains a separate operator task.
+
+From the pilot specification's directory:
+
+```sh
+lk infra generate
+lk infra plan
+lk infra apply
+lk infra output
+```
+
+Review and commit the generated `infra/leptoskit-pilot/main.tf.json`, `plugins.json` and `.terraform.lock.hcl`. Keep state, saved plans and runtime files in the generated private, gitignored directory. Verify the actual provider quote against the authorized ceiling; it covers compute rather than all possible charges. Apply consumes the exact saved plan. Provisioning never installs broker credentials.
+
+Use the reported `server_ip` for the approved SSH route. Verify the host fingerprint through the provider before the first connection. Keep bootstrap state outside the broker: it cannot host its own initial state backend. Use local private state with a recovery copy or a separately bootstrapped `[infra.state]` bucket.
+
+## Install on the provisioned host
 
 Transfer the archive over the approved SSH route. Extract it into a new root-owned release directory, for example `/opt/leptoskit-cloud/releases/COMMIT`, and run `sha256sum --check --strict SHA256SUMS` there. Verify `release.json` against the approved commit and origin. Install `ca-certificates` and `libstdc++6` on the host.
 
@@ -46,9 +65,9 @@ For an update, stop the service, take an offline backup into a new private direc
 
 ## Route the hostname through Cloudflare
 
-Create a dedicated remotely managed tunnel and route only the approved hostname to `http://127.0.0.1:4701`, with a final catch-all returning 404. Create the proxied DNS record for that tunnel. The host needs outbound tunnel connectivity; the broker needs no public inbound application port. Retain only the approved administrator SSH access.
+Use the tunnel, ingress and proxied DNS already provisioned by `lk infra apply`. Its approved hostname routes to `http://127.0.0.1:4701`, with a final catch-all returning 404. Do not create duplicate dashboard or ad hoc API resources. The host needs outbound tunnel connectivity; the broker needs no public inbound application port. Retain only the approved administrator SSH access.
 
-Run `cloudflared` under its own service identity. Store its tunnel token in a private file outside releases and use `cloudflared tunnel run --token-file PATH`, supported since cloudflared 2025.4.0. Follow the current [Cloudflare tunnel setup](https://developers.cloudflare.com/tunnel/get-started/) and [run parameters](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/run-parameters/). Keep Cloudflare account management tokens off the broker host. Use the intended edge rate limits, and keep the signed Stripe webhook route reachable without an interactive login challenge.
+Run `cloudflared` under its own service identity. Capture `tofu output -raw tunnel_token` from the generated state directory directly into a private file rather than printing it, transfer that file through the approved SSH route, and use `cloudflared tunnel run --token-file PATH`, supported since cloudflared 2025.4.0. Follow the current [Cloudflare tunnel setup](https://developers.cloudflare.com/tunnel/get-started/) and [run parameters](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/run-parameters/). Keep Cloudflare account management tokens off the broker host. Use the intended edge rate limits, and keep the signed Stripe webhook route reachable without an interactive login challenge.
 
 Probe the deployed hostname from outside the host:
 
