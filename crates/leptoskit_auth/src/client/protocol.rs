@@ -636,7 +636,7 @@ impl<H: Http, C: Credentials> Api for Remote<H, C> {
 		})
 	}
 
-	fn sign_in_with_password(&self, input: super::PasswordInput) -> Pending<'_, SignInStep> {
+	fn sign_in_with_password(&self, input: super::EmailPassword) -> Pending<'_, SignInStep> {
 		Box::pin(async move {
 			let body = json(&crate::PasswordSignIn {
 				email: input.email,

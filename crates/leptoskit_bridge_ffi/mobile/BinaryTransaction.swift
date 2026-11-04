@@ -39,6 +39,7 @@ private extension Change {
 
 /// The properties sent in the JSON form, decoded as the JSON transaction decodes them.
 private struct WidgetExtras: Decodable {
+    let autocomplete: String?
     let drawing: VectorDrawing?
     let aria: WidgetAria?
     let scrollOffset: ScrollOffset?
@@ -143,7 +144,7 @@ private struct BinaryReader {
         let extras = has(31) ? try extras() : nil
 
         return WidgetProps(
-            text: text, source: source, placeholder: placeholder, value: value,
+            text: text, source: source, placeholder: placeholder, autocomplete: extras?.autocomplete, value: value,
             accessibilityLabel: accessibilityLabel, color: color, background: background,
             enabled: enabled, hidden: hidden, clip: clip, cornerRadius: cornerRadius,
             borderWidth: borderWidth, borderColor: borderColor, opacity: opacity,

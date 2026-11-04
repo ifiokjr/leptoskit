@@ -1318,10 +1318,11 @@ impl Element {
 		self
 	}
 
-	/// What a browser may suggest for a `TextInput`, as HTML's
-	/// `autocomplete`: `email`, or `username webauthn` to offer saved
-	/// passkeys in the field's suggestions. Native platforms don't use it
-	/// yet.
+	/// What a browser may suggest for a `TextInput` or `PasswordInput`, as
+	/// HTML's `autocomplete`: `email`, `current-password`, `new-password`,
+	/// or `username webauthn` to offer saved passkeys in the field's
+	/// suggestions. Native platforms give password managers the same hint
+	/// for `username`, `email`, `current-password`, and `new-password`.
 	#[must_use]
 	pub fn autocomplete(mut self, hint: impl Into<String>) -> Self {
 		self.props.autocomplete = Some(hint.into());

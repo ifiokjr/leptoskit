@@ -160,19 +160,20 @@ impl std::fmt::Debug for EmailCode {
 	}
 }
 
-/// What a person types to sign in with a password. Its `Debug` leaves the
-/// password out.
+/// What a person types to sign in with a password: an email address and
+/// its password, as [`EmailCode`] holds an address and its code. Its
+/// `Debug` leaves the password out.
 #[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PasswordInput {
+pub struct EmailPassword {
 	/// The account's email address.
 	pub email: String,
 	/// The password, as typed.
 	pub password: String,
 }
 
-impl std::fmt::Debug for PasswordInput {
+impl std::fmt::Debug for EmailPassword {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("PasswordInput")
+		f.debug_struct("EmailPassword")
 			.field("email", &self.email)
 			.finish_non_exhaustive()
 	}
@@ -332,7 +333,7 @@ pub(crate) trait Api: Send + Sync + 'static {
 	fn disable_totp(&self) -> Pending<'_, ()>;
 	fn regenerate_recovery_codes(&self) -> Pending<'_, RecoveryCodes>;
 	fn password_settings(&self) -> Pending<'_, PasswordSettings>;
-	fn sign_in_with_password(&self, input: PasswordInput) -> Pending<'_, SignInStep>;
+	fn sign_in_with_password(&self, input: EmailPassword) -> Pending<'_, SignInStep>;
 	fn set_password(&self, password: String) -> Pending<'_, ()>;
 	fn remove_password(&self) -> Pending<'_, ()>;
 	fn reset_password(&self, input: PasswordReset) -> Pending<'_, SignInStep>;
@@ -653,9 +654,9 @@ pub fn use_password_settings() -> QueryHandle<PasswordSettings, ErrorResponse> {
 /// without saying which), `rate_limited` (too many tries, or password
 /// sign-in for the address is paused for a while; an emailed code still
 /// works), `disabled`, `locked`, or `unsupported` when passwords are off.
-pub fn sign_in_with_password() -> MutationScope<PasswordInput, SignInStep, ErrorResponse> {
+pub fn sign_in_with_password() -> MutationScope<EmailPassword, SignInStep, ErrorResponse> {
 	MutationScope::new(
-		|input: PasswordInput| async move { api().sign_in_with_password(input).await },
+		|input: EmailPassword| async move { api().sign_in_with_password(input).await },
 	)
 	.with_on_success(|args| {
 		if let SignInStep::SignedIn(signed_in) = args.data {

@@ -6,6 +6,7 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
@@ -157,6 +158,7 @@ internal class NativeWidgetProps(
         val hint = props.placeholder
 
         if (widget.hint?.toString() != hint) widget.hint = hint
+        if (widget is EditText) applyAutofill(widget, props)
 
         val weight =
             if (props.fontWeight == "bold" || props.fontWeight == "semibold") Typeface.BOLD else Typeface.NORMAL
@@ -184,6 +186,41 @@ internal class NativeWidgetProps(
         widget.setTypeface(null, style.weight)
         widget.gravity = style.gravity
     }
+
+    /**
+     * Tells autofill services what a field holds, from its `autocomplete`
+     * hint. A password field without one holds the person's password.
+     */
+    private fun applyAutofill(
+        widget: EditText,
+        props: WidgetProps,
+    ) {
+        val secure = widget.inputType and InputType.TYPE_MASK_VARIATION == InputType.TYPE_TEXT_VARIATION_PASSWORD
+        val hint =
+            props.autocomplete
+                ?.lowercase()
+                ?.split(Regex("\\s+"))
+                ?.firstNotNullOfOrNull(::autofillHint)
+                ?: View.AUTOFILL_HINT_PASSWORD.takeIf { secure }
+        // Android appends hints of its own, such as `passwordAuto` on a
+        // password field, so only the leading hint is ours to compare.
+        if (widget.autofillHints?.firstOrNull() != hint) widget.setAutofillHints(*listOfNotNull(hint).toTypedArray())
+    }
+
+    /** The autofill hint for an HTML `autocomplete` token password managers read. */
+    private fun autofillHint(token: String): String? =
+        when (token) {
+            "username" -> View.AUTOFILL_HINT_USERNAME
+
+            "email" -> View.AUTOFILL_HINT_EMAIL_ADDRESS
+
+            "current-password" -> View.AUTOFILL_HINT_PASSWORD
+
+            // AndroidX's `HintConstants.AUTOFILL_HINT_NEW_PASSWORD`.
+            "new-password" -> "newPassword"
+
+            else -> null
+        }
 
     private fun applyImage(
         widget: ImageView,

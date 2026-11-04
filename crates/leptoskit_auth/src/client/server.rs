@@ -79,7 +79,7 @@ impl Api for Server {
 		Box::pin(reads::password_settings())
 	}
 
-	fn sign_in_with_password(&self, _input: super::PasswordInput) -> Pending<'_, SignInStep> {
+	fn sign_in_with_password(&self, _input: super::EmailPassword) -> Pending<'_, SignInStep> {
 		in_the_browser()
 	}
 

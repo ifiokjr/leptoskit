@@ -645,7 +645,7 @@ async fn signs_in_with_a_password(device: &impl Fn() -> Device) -> Device {
 	let phone = device();
 	let wrong = phone
 		.api
-		.sign_in_with_password(PasswordInput {
+		.sign_in_with_password(EmailPassword {
 			email: ADA.to_owned(),
 			password: "a wrong and long password".to_owned(),
 		})
@@ -653,7 +653,7 @@ async fn signs_in_with_a_password(device: &impl Fn() -> Device) -> Device {
 		.unwrap_err();
 	assert_eq!(wrong.error, "invalid_password");
 	assert!(!(phone.held)());
-	let input = PasswordInput {
+	let input = EmailPassword {
 		email: ADA.to_owned(),
 		password: GOOD_PASSWORD.to_owned(),
 	};

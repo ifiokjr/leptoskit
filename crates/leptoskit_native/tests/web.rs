@@ -273,6 +273,7 @@ fn new_controls_render_semantic_state_without_browser_only_radio_names() {
 	assert!(html.contains("role=\"progressbar\" aria-busy=\"true\""));
 	assert!(html.contains("type=\"password\""));
 
+	assert!(html.contains("autocomplete=\"new-password\""));
 	assert!(html.contains("appearance:auto;"));
 	assert!(html.contains("@keyframes lk-spinner"));
 	assert_eq!(html, render(control_fixture()).to_html());
@@ -323,6 +324,7 @@ fn control_fixture() -> Element {
 		.child(
 			PasswordInput()
 				.value("secret")
+				.autocomplete("new-password")
 				.accessibility_label("Password"),
 		)
 }

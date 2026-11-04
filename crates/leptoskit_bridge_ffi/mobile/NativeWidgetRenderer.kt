@@ -13,6 +13,7 @@ import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.text.Editable
+import android.text.InputType
 import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.MotionEvent
@@ -279,7 +280,11 @@ internal class NativeWidgetRenderer(
                 }
 
                 "text_input", "TextInput" -> {
-                    textInput(id)
+                    textInput(id, secure = false)
+                }
+
+                "password_input", "PasswordInput" -> {
+                    textInput(id, secure = true)
                 }
 
                 "scroll_view", "ScrollView" -> {
@@ -314,9 +319,18 @@ internal class NativeWidgetRenderer(
         retarget(widget, item.props.scrollOffset)
     }
 
-    private fun textInput(id: Long): EditText {
+    /** A secure field masks its text, and the keyboard neither suggests nor learns it. */
+    private fun textInput(
+        id: Long,
+        secure: Boolean,
+    ): EditText {
         val input = EditText(context)
         input.isSingleLine = true
+        // After single-line mode, which would replace the password masking.
+        if (secure) {
+            input.inputType =
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        }
         input.addTextChangedListener(InputWatcher(id, event))
         input.setOnEditorActionListener { _, _, _ ->
             event(id, SUBMIT, input.text.toString())

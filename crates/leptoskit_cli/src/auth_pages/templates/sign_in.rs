@@ -11,18 +11,33 @@
 //! browser gets a "Sign in with …" button. Native apps answer `unsupported`
 //! to passkeys and providers for now, and the screen says so only when the
 //! person asked; it shows no wallet buttons where there are no wallet apps.
+// leptoskit: passwords
+//! When the server takes passwords, an address can sign in with its password
+//! instead of a code, and a forgotten password is reset with an emailed code.
+//! The password fields mask what's typed and tell password managers what they
+//! hold, so they can fill a saved password or save a new one.
+// leptoskit: end passwords
 
 use std::time::Duration;
 
 use leptoskit::auth::ErrorResponse;
 use leptoskit::auth::Factor;
+// leptoskit: passwords
+use leptoskit::auth::PasswordSettings;
+// leptoskit: end passwords
 use leptoskit::auth::ProviderInfo;
 use leptoskit::auth::ProviderOutcome;
 use leptoskit::auth::PublicSession;
 use leptoskit::auth::StartProvider;
 use leptoskit::auth::WalletSettings;
 use leptoskit::auth::client::EmailCode;
+// leptoskit: passwords
+use leptoskit::auth::client::EmailPassword;
+// leptoskit: end passwords
 use leptoskit::auth::client::PasskeyMode;
+// leptoskit: passwords
+use leptoskit::auth::client::PasswordReset;
+// leptoskit: end passwords
 use leptoskit::auth::client::SecondFactorPrompt;
 use leptoskit::auth::client::SignInStep;
 use leptoskit::auth::client::WalletApp;
@@ -32,10 +47,19 @@ use leptoskit::auth::client::complete_sign_in_with_passkey;
 use leptoskit::auth::client::continue_provider_sign_up;
 use leptoskit::auth::client::passkey_sign_in;
 use leptoskit::auth::client::provider_outcome;
+// leptoskit: passwords
+use leptoskit::auth::client::reset_password;
+// leptoskit: end passwords
 use leptoskit::auth::client::send_code;
+// leptoskit: passwords
+use leptoskit::auth::client::sign_in_with_password;
+// leptoskit: end passwords
 use leptoskit::auth::client::sign_in_with_provider;
 use leptoskit::auth::client::sign_out_mutation;
 use leptoskit::auth::client::use_auth;
+// leptoskit: passwords
+use leptoskit::auth::client::use_password_settings;
+// leptoskit: end passwords
 use leptoskit::auth::client::use_providers;
 use leptoskit::auth::client::use_wallet_settings;
 use leptoskit::auth::client::verify_code;
@@ -95,6 +119,17 @@ pub struct SignIn {
 	wallet_settings: QueryHandle<WalletSettings, ErrorResponse>,
 	wallet_apps: QueryHandle<Vec<WalletApp>, ErrorResponse>,
 	wallet: MutationHandle<String, SignInStep, ErrorResponse>,
+	// leptoskit: passwords
+	/// The password, as typed: to sign in, or the new one in a reset.
+	password: RwSignal<String>,
+	/// Whether the person chose to sign in with a password.
+	using_password: RwSignal<bool>,
+	/// Whether the code the screen asks for resets a forgotten password.
+	resetting: RwSignal<bool>,
+	password_settings: QueryHandle<PasswordSettings, ErrorResponse>,
+	with_password: MutationHandle<EmailPassword, SignInStep, ErrorResponse>,
+	reset: MutationHandle<PasswordReset, SignInStep, ErrorResponse>,
+	// leptoskit: end passwords
 }
 
 impl SignIn {
@@ -150,6 +185,14 @@ impl SignIn {
 				QueryObserverOptions::default().with_enabled(wallets_sign_in),
 			),
 			wallet: use_mutation(wallet_sign_in()),
+			// leptoskit: passwords
+			password: RwSignal::new(String::new()),
+			using_password: RwSignal::new(false),
+			resetting: RwSignal::new(false),
+			password_settings: use_password_settings(),
+			with_password: use_mutation(sign_in_with_password()),
+			reset: use_mutation(reset_password()),
+			// leptoskit: end passwords
 		}
 	}
 
@@ -185,8 +228,14 @@ impl SignIn {
 			Some(None) => {
 				match (self.second.get(), self.sent_to.get(), self.outcome.get()) {
 					(Some(prompt), ..) => self.second_step(&prompt),
+					// leptoskit: passwords
+					(None, Some(email), _) if self.resetting.get() => self.reset_step(&email),
+					// leptoskit: end passwords
 					(None, Some(email), _) => self.code_step(&email),
 					(None, None, Some(ProviderOutcome::EmailInUse)) => self.email_in_use(),
+					// leptoskit: passwords
+					(None, None, _) if self.using_password.get() => self.password_step(),
+					// leptoskit: end passwords
 					(None, None, _) => self.email_step(),
 				}
 			}
@@ -251,6 +300,13 @@ impl SignIn {
 					.on_press(move || this.send_code())
 					.class("rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
 			)
+			// leptoskit: passwords
+			.children(self.passwords_on().then(|| {
+				Button("Sign in with a password")
+					.on_press(move || this.use_password(true))
+					.class("rounded-lg bg-slate-700 px-4 py-3 font-semibold")
+			}))
+			// leptoskit: end passwords
 			.child(self.other_ways())
 	}
 
@@ -699,8 +755,278 @@ impl SignIn {
 
 		self.finish.reset();
 		self.passkey_second.reset();
+		// leptoskit: passwords
+		self.password.set(String::new());
+		self.resetting.set(false);
+		self.with_password.reset();
+		self.reset.reset();
+		// leptoskit: end passwords
 	}
 }
+// leptoskit: passwords
+
+impl SignIn {
+	/// Whether the server takes passwords.
+	fn passwords_on(&self) -> bool {
+		self.password_settings
+			.data()
+			.is_some_and(|settings| settings.enabled)
+	}
+
+	/// Switches between signing in with a password and with an emailed
+	/// code.
+	fn use_password(&self, on: bool) {
+		self.start_over();
+		self.using_password.set(on);
+	}
+
+	/// Signing in with an address and its password.
+	fn password_step(&self) -> Element {
+		let this = *self;
+		let email = self.email;
+		let password = self.password;
+		let signing_in = self.with_password.is_pending();
+		let label = match self.wait.get() {
+			0 if signing_in => "Signing in…".to_owned(),
+			0 => "Sign in".to_owned(),
+			seconds => format!("Try again in {seconds} s"),
+		};
+
+		View()
+			.class("gap-3")
+			.child(Text("Email address").class("text-sm font-semibold"))
+			.child(
+				TextInput()
+					.id("sign-in-email")
+					.aria_label("Email address")
+					.aria_required(true)
+					.autocomplete("username")
+					.placeholder("you@example.com")
+					.value(email.get_untracked())
+					.on_change(move |text| email.set(text.to_owned()))
+					.class("h-11 rounded-lg px-3 bg-white text-slate-900"),
+			)
+			.child(Text("Password").class("text-sm font-semibold"))
+			.child(
+				PasswordInput()
+					.id("sign-in-password")
+					.aria_label("Password")
+					.aria_required(true)
+					.autocomplete("current-password")
+					.value(password.get_untracked())
+					.on_change(move |text| password.set(text.to_owned()))
+					.class("h-11 rounded-lg px-3 bg-white text-slate-900"),
+			)
+			.children(self.message(self.with_password.error().or_else(|| self.send.error())))
+			.child(
+				Button(label)
+					.enabled(!signing_in && self.wait.get() == 0)
+					.aria_busy(signing_in)
+					.on_press(move || this.sign_in_with_password())
+					.class("rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
+			)
+			.child(
+				View()
+					.class("flex-row gap-3")
+					.child(
+						Button("Forgot your password?")
+							.enabled(!self.send.is_pending() && self.wait.get() == 0)
+							.on_press(move || this.forgot_password())
+							.class("flex-1 rounded-lg px-4 py-2 text-sm text-indigo-300"),
+					)
+					.child(
+						Button("Email me a code instead")
+							.on_press(move || this.use_password(false))
+							.class("flex-1 rounded-lg px-4 py-2 text-sm text-indigo-300"),
+					),
+			)
+	}
+
+	/// A forgotten password: the code from the email, and a new password.
+	fn reset_step(&self, email: &str) -> Element {
+		let this = *self;
+		let code = self.code;
+		let password = self.password;
+		let saving = self.reset.is_pending();
+		let rules = password_rules(self.password_settings.data());
+		let label = match self.wait.get() {
+			0 if saving => "Saving…".to_owned(),
+			0 => "Save and sign in".to_owned(),
+			seconds => format!("Try again in {seconds} s"),
+		};
+
+		View()
+			.class("gap-3")
+			.child(
+				Status(format!(
+					"Check {email} for a code. It works for 10 minutes. Enter it with a new \
+					 password."
+				))
+				.class("text-sm text-slate-300"),
+			)
+			.child(Text("Code").class("text-sm font-semibold"))
+			.child(
+				TextInput()
+					.id("sign-in-reset-code")
+					.aria_label("Code")
+					.aria_required(true)
+					.placeholder("ABCD-EFGH")
+					.value(code.get_untracked())
+					.on_change(move |text| code.set(text.to_owned()))
+					.class("h-11 rounded-lg px-3 bg-white text-slate-900"),
+			)
+			.child(Text("New password").class("text-sm font-semibold"))
+			.child(
+				PasswordInput()
+					.id("sign-in-new-password")
+					.aria_label("New password")
+					.aria_required(true)
+					.aria_description(rules.clone())
+					.autocomplete("new-password")
+					.value(password.get_untracked())
+					.on_change(move |text| password.set(text.to_owned()))
+					.class("h-11 rounded-lg px-3 bg-white text-slate-900"),
+			)
+			.child(Text(rules).class("text-xs text-slate-400"))
+			.children(self.message(self.reset.error().or_else(|| self.send.error())))
+			.child(
+				Button(label)
+					.enabled(!saving && self.wait.get() == 0)
+					.aria_busy(saving)
+					.on_press(move || this.reset_password())
+					.class("rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
+			)
+			.child(
+				View()
+					.class("flex-row gap-3")
+					.child(
+						Button("Send a new code")
+							.enabled(!self.send.is_pending() && self.wait.get() == 0)
+							.on_press(move || this.send_code())
+							.class("flex-1 rounded-lg px-4 py-2 text-sm text-indigo-300"),
+					)
+					.child(
+						Button("Back to signing in")
+							.on_press(move || this.use_password(true))
+							.class("flex-1 rounded-lg px-4 py-2 text-sm text-indigo-300"),
+					),
+			)
+	}
+
+	fn sign_in_with_password(&self) {
+		cancel_passkey_sign_in();
+		let email = self.email.get_untracked().trim().to_owned();
+		let password = self.password.get_untracked();
+
+		if !looks_like_email(&email) {
+			self.problem.set(Some(
+				"Enter an email address, such as ada@example.com.".into(),
+			));
+			return;
+		}
+
+		if password.is_empty() {
+			self.problem.set(Some("Enter your password.".into()));
+			return;
+		}
+
+		self.problem.set(None);
+		self.send.reset();
+		let this = *self;
+		self.with_password.mutate_with(
+			EmailPassword { email, password },
+			MutateCallbacks::new()
+				// Signed in, the session query holds the new session, so the
+				// screen moves on by itself; otherwise it asks for the second
+				// factor.
+				.on_success(move |success| {
+					this.password.set(String::new());
+
+					if let SignInStep::SecondFactor(prompt) = &success.data {
+						this.second.set(Some(prompt.clone()));
+					}
+				})
+				.on_error(move |failed| hold_off(this.wait, &failed.error)),
+		);
+	}
+
+	/// Emails a code to reset a forgotten password with.
+	fn forgot_password(&self) {
+		self.with_password.reset();
+		self.resetting.set(true);
+		self.send_code();
+	}
+
+	fn reset_password(&self) {
+		let Some(email) = self.sent_to.get_untracked() else {
+			return;
+		};
+		let code = self.code.get_untracked().trim().to_owned();
+		let password = self.password.get_untracked();
+
+		if code.is_empty() {
+			self.problem
+				.set(Some("Enter the code from the email.".into()));
+			return;
+		}
+
+		if let Some(problem) = new_password_problem(&password, self.password_settings.data()) {
+			self.problem.set(Some(problem));
+			return;
+		}
+
+		self.problem.set(None);
+		let this = *self;
+		self.reset.mutate_with(
+			PasswordReset {
+				email,
+				code,
+				password,
+			},
+			MutateCallbacks::new()
+				.on_success(move |success| {
+					this.code.set(String::new());
+					this.password.set(String::new());
+					this.sent_to.set(None);
+					this.resetting.set(false);
+
+					if let SignInStep::SecondFactor(prompt) = &success.data {
+						this.second.set(Some(prompt.clone()));
+					}
+				})
+				.on_error(move |failed| hold_off(this.wait, &failed.error)),
+		);
+	}
+}
+
+/// The rules for a new password, from the server's settings. The server
+/// also refuses the most common passwords and ones close to the address.
+pub fn password_rules(settings: Option<PasswordSettings>) -> String {
+	let advice = "A few unrelated words make a strong password that's easy to remember.";
+
+	match settings {
+		Some(settings) => format!("Use at least {} characters. {advice}", settings.min_length),
+		None => advice.to_owned(),
+	}
+}
+
+/// What's wrong with a new password, found before it's sent. The server
+/// checks the rest.
+pub fn new_password_problem(password: &str, settings: Option<PasswordSettings>) -> Option<String> {
+	let length = u32::try_from(password.chars().count()).unwrap_or(u32::MAX);
+
+	match settings {
+		_ if length == 0 => Some("Enter a new password.".to_owned()),
+		Some(settings) if length < settings.min_length => {
+			Some(format!("Use at least {} characters.", settings.min_length))
+		}
+		Some(settings) if length > settings.max_length => {
+			Some(format!("Use at most {} characters.", settings.max_length))
+		}
+		_ => None,
+	}
+}
+// leptoskit: end passwords
 
 impl Default for SignIn {
 	fn default() -> Self {
@@ -879,6 +1205,34 @@ mod tests {
 		}
 	}
 
+	// leptoskit: passwords
+	#[test]
+	fn new_passwords_follow_the_servers_rules() {
+		let settings = PasswordSettings {
+			enabled: true,
+			min_length: 8,
+			max_length: 64,
+		};
+		assert_eq!(
+			new_password_problem("", Some(settings)).as_deref(),
+			Some("Enter a new password.")
+		);
+		assert_eq!(
+			new_password_problem("short", Some(settings)).as_deref(),
+			Some("Use at least 8 characters.")
+		);
+		assert_eq!(
+			new_password_problem(&"x".repeat(65), Some(settings)).as_deref(),
+			Some("Use at most 64 characters.")
+		);
+		// Characters, not bytes: eight accented letters are long enough.
+		assert_eq!(new_password_problem("éééééééé", Some(settings)), None);
+		assert_eq!(new_password_problem("short", None), None);
+		assert!(password_rules(Some(settings)).starts_with("Use at least 8 characters."));
+		assert!(!password_rules(None).contains("at least"));
+	}
+
+	// leptoskit: end passwords
 	#[test]
 	fn messages_read_as_sentences() {
 		assert_eq!(

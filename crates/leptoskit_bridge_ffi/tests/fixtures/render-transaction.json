@@ -50,6 +50,16 @@
       }
     },
     {
+      "Create": {
+        "id": 4,
+        "kind": "password_input",
+        "props": {
+          "autocomplete": "new-password",
+          "placeholder": "Password"
+        }
+      }
+    },
+    {
       "UpdateProps": {
         "id": 2,
         "props": {

@@ -7,6 +7,24 @@ use super::*;
 
 const LIB: &str = "//! The app.\n\npub mod routes;\n";
 
+/// Neither `--idp` nor passwords.
+const PLAIN: Mode = Mode {
+	idp: false,
+	passwords: false,
+};
+
+/// `--idp`, without passwords.
+const IDP: Mode = Mode {
+	idp: true,
+	passwords: false,
+};
+
+/// Passwords, without `--idp`.
+const PASSWORDS: Mode = Mode {
+	idp: false,
+	passwords: true,
+};
+
 /// A workspace like the scaffold's: a server at the root and the client in
 /// `app_app`, with `leptoskit.toml` saying so. `db` adds a `[db]` table.
 fn workspace(db: bool) -> tempfile::TempDir {
@@ -75,7 +93,7 @@ fn the_screens_and_config_land_in_the_client_crate() {
 	assert_eq!(report.kept, [] as [String; 0]);
 	assert_eq!(
 		read(root.path(), "app_app/src/auth/sign_in.rs"),
-		pages(false)[1].1
+		pages(PLAIN)[1].1
 	);
 	assert!(read(root.path(), "app_app/src/lib.rs").ends_with(
 		"pub mod routes;\n\n/// Written by `leptoskit generate auth`.\npub mod auth;\n"
@@ -244,7 +262,7 @@ fn edited_screens_are_kept_unless_forced() {
 
 	let report = run(root.path(), true);
 	assert_eq!(report.changed, ["replaced app_app/src/auth/devices.rs"]);
-	assert_eq!(fs::read_to_string(&page).unwrap(), pages(false)[2].1);
+	assert_eq!(fs::read_to_string(&page).unwrap(), pages(PLAIN)[2].1);
 }
 
 #[test]
@@ -308,7 +326,7 @@ fn the_file_router_gets_both_routes() {
 	);
 	assert_eq!(
 		read(path, "app_app/src/routes/sign-in.rs"),
-		routes(false)[0].1
+		routes(PLAIN)[0].1
 	);
 	let module = read(path, "app_app/src/routes.rs");
 	assert!(module.contains("SignIn"), "{module}");
@@ -734,24 +752,24 @@ fn with_router(db: bool) -> tempfile::TempDir {
 fn templates_keep_their_idp_lines_only_for_idp() {
 	let template = "a\n// leptoskit: idp\nb\n\t// leptoskit: end idp\nc\n";
 
-	assert_eq!(render(template, false), "a\nc\n");
-	assert_eq!(render(template, true), "a\nb\nc\n");
+	assert_eq!(render(template, PLAIN), "a\nc\n");
+	assert_eq!(render(template, IDP), "a\nb\nc\n");
 
-	for (file, contents) in pages(false).into_iter().chain(routes(false)) {
+	for (file, contents) in pages(PLAIN).into_iter().chain(routes(PLAIN)) {
 		assert!(!contents.contains("leptoskit: "), "{file}");
 		assert!(!contents.contains("idp"), "{file} mentions the idp");
 	}
 
-	for (file, contents) in pages(true).into_iter().chain(routes(true)) {
+	for (file, contents) in pages(IDP).into_iter().chain(routes(IDP)) {
 		assert!(!contents.contains("// leptoskit: "), "{file}");
 	}
 
 	assert!(!server_module("x", false).contains("idp"));
 	assert!(server_module("x", true).contains("pub fn provider("));
-	assert_eq!(pages(false).len(), 4);
-	assert_eq!(pages(true).len(), 8);
-	assert_eq!(routes(false).len(), 3);
-	assert_eq!(routes(true).len(), 7);
+	assert_eq!(pages(PLAIN).len(), 4);
+	assert_eq!(pages(IDP).len(), 8);
+	assert_eq!(routes(PLAIN).len(), 3);
+	assert_eq!(routes(IDP).len(), 7);
 }
 
 #[test]
@@ -777,10 +795,10 @@ fn idp_adds_its_screens_routes_config_and_features() {
 		);
 	}
 
-	assert_eq!(read(path, "app_app/src/auth/mod.rs"), pages(true)[0].1);
+	assert_eq!(read(path, "app_app/src/auth/mod.rs"), pages(IDP)[0].1);
 	assert_eq!(
 		read(path, "app_app/src/routes/sign-in.rs"),
-		routes(true)[0].1
+		routes(IDP)[0].1
 	);
 	assert_eq!(
 		read(path, "src/sign_in.rs"),
@@ -854,7 +872,7 @@ fn idp_brings_untouched_files_up_to_date_and_a_plain_run_keeps_them() {
 			report.changed
 		);
 	}
-	assert_eq!(read(path, "app_app/src/auth/mod.rs"), pages(true)[0].1);
+	assert_eq!(read(path, "app_app/src/auth/mod.rs"), pages(IDP)[0].1);
 	assert_eq!(fs::read_to_string(&edited).unwrap(), "// mine\n");
 	assert_eq!(
 		report.kept,
@@ -864,10 +882,10 @@ fn idp_brings_untouched_files_up_to_date_and_a_plain_run_keeps_them() {
 	// Without --idp, the --idp versions stay: a run never takes screens away.
 	let plain = run(path, false);
 	assert!(plain.changed.is_empty(), "{:?}", plain.changed);
-	assert_eq!(read(path, "app_app/src/auth/mod.rs"), pages(true)[0].1);
+	assert_eq!(read(path, "app_app/src/auth/mod.rs"), pages(IDP)[0].1);
 	assert_eq!(
 		read(path, "app_app/src/routes/sign-in.rs"),
-		routes(true)[0].1
+		routes(IDP)[0].1
 	);
 
 	// An --idp file someone edited is theirs, either way.
@@ -883,7 +901,7 @@ fn idp_brings_untouched_files_up_to_date_and_a_plain_run_keeps_them() {
 		report.kept
 	);
 	run_idp(path, true);
-	assert_eq!(read(path, "app_app/src/auth/mod.rs"), pages(true)[0].1);
+	assert_eq!(read(path, "app_app/src/auth/mod.rs"), pages(IDP)[0].1);
 }
 
 #[test]
@@ -921,4 +939,135 @@ fn an_auth_table_without_the_idp_gains_one() {
 			.iter()
 			.any(|step| step.contains("sign_in::provider"))
 	);
+}
+
+#[test]
+fn templates_keep_their_password_lines_only_with_passwords() {
+	let template = "a\n// leptoskit: passwords\nb\n// leptoskit: idp\nc\n// leptoskit: end \
+	                idp\n\t// leptoskit: end passwords\nd\n";
+
+	assert_eq!(render(template, PLAIN), "a\nd\n");
+	assert_eq!(render(template, PASSWORDS), "a\nb\nd\n");
+	assert_eq!(render(template, IDP), "a\nd\n");
+	assert_eq!(
+		render(
+			template,
+			Mode {
+				idp: true,
+				passwords: true,
+			}
+		),
+		"a\nb\nc\nd\n"
+	);
+
+	for (file, contents) in pages(PLAIN) {
+		assert!(
+			!contents.contains("PasswordInput") && !contents.contains("_password"),
+			"{file} has password fields"
+		);
+	}
+
+	let screens = pages(PASSWORDS);
+	let screen = |file: &str| &screens.iter().find(|(path, _)| *path == file).unwrap().1;
+	for (file, calls) in [
+		(
+			"auth/sign_in.rs",
+			&[
+				"sign_in_with_password()",
+				"reset_password()",
+				"use_password_settings()",
+			][..],
+		),
+		(
+			"auth/security.rs",
+			&["set_password()", "remove_password()"][..],
+		),
+	] {
+		let contents = screen(file);
+		assert!(!contents.contains("// leptoskit: "), "{file}");
+		assert!(!contents.contains("idp"), "{file} mentions the idp");
+		assert!(contents.contains("PasswordInput()"), "{file} masks nothing");
+
+		for call in calls {
+			assert!(contents.contains(call), "{file} doesn't call {call}");
+		}
+	}
+	assert!(screen("auth/sign_in.rs").contains(".autocomplete(\"current-password\")"));
+	assert!(screen("auth/security.rs").contains(".autocomplete(\"new-password\")"));
+}
+
+/// Turns on `[auth.passwords]` in the project at `root`.
+fn turn_on_passwords(root: &Path) {
+	let text = read(root, "leptoskit.toml");
+	fs::write(
+		root.join("leptoskit.toml"),
+		format!("{text}\n[auth.passwords]\nenabled = true\n"),
+	)
+	.unwrap();
+}
+
+#[test]
+fn passwords_bring_untouched_screens_up_to_date_and_turning_them_off_keeps_them() {
+	let root = workspace(false);
+	let path = root.path();
+	run(path, false);
+	turn_on_passwords(path);
+
+	let report = run(path, false);
+	for file in [
+		"app_app/src/auth/sign_in.rs",
+		"app_app/src/auth/security.rs",
+	] {
+		assert!(
+			report
+				.changed
+				.contains(&format!("updated {file}: added the password fields")),
+			"{file}: {:?}",
+			report.changed
+		);
+	}
+	assert_eq!(
+		read(path, "app_app/src/auth/sign_in.rs"),
+		pages(PASSWORDS)[1].1
+	);
+	assert_eq!(run(path, false).changed, Vec::<String>::new());
+
+	// `--idp` on top adds its screens and lines, keeping the password fields.
+	let report = run_idp(path, false);
+	assert!(
+		report
+			.changed
+			.contains(&"updated app_app/src/auth/mod.rs: added what --idp needs".to_owned()),
+		"{:?}",
+		report.changed
+	);
+	let both = Mode {
+		idp: true,
+		passwords: true,
+	};
+	assert_eq!(read(path, "app_app/src/auth/sign_in.rs"), pages(both)[1].1);
+
+	// With passwords off again, the screens stay as they are.
+	let text = read(path, "leptoskit.toml").replace("enabled = true", "enabled = false");
+	fs::write(path.join("leptoskit.toml"), text).unwrap();
+	assert_eq!(run_idp(path, false).changed, Vec::<String>::new());
+	assert_eq!(read(path, "app_app/src/auth/sign_in.rs"), pages(both)[1].1);
+}
+
+#[test]
+fn modes_cover_the_parts_they_write() {
+	let both = Mode {
+		idp: true,
+		passwords: true,
+	};
+
+	assert!(both.covers(IDP) && both.covers(PASSWORDS) && both.covers(PLAIN));
+	assert!(!IDP.covers(PASSWORDS) && !PASSWORDS.covers(IDP));
+	assert!(!PLAIN.covers(IDP));
+	assert_eq!(
+		both.added_to(PLAIN),
+		"what --idp needs and the password fields"
+	);
+	assert_eq!(both.added_to(PASSWORDS), "what --idp needs");
+	assert_eq!(both.added_to(IDP), "the password fields");
 }

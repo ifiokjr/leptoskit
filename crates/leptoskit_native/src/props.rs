@@ -305,7 +305,8 @@ pub struct NativeProps {
 	pub placeholder: Option<String>,
 	/// What a browser may suggest for `TextInput`, as HTML's `autocomplete`,
 	/// such as `email`, or `username webauthn`, which offers saved
-	/// passkeys. Native platforms don't use it yet.
+	/// passkeys. Native platforms read the account and password tokens
+	/// through [`text_content`](Self::text_content).
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub autocomplete: Option<String>,
 	/// The current value of `TextInput`.
@@ -515,6 +516,25 @@ impl NativeProps {
 			text_align: self.text_align.unwrap_or_default(),
 			direction: self.direction.unwrap_or_default(),
 		}
+	}
+
+	/// What a text field holds, read from the first
+	/// [`autocomplete`](Self::autocomplete) token a password manager
+	/// understands on every platform, so a native field can say what to fill.
+	#[must_use]
+	pub fn text_content(&self) -> Option<TextContent> {
+		self.autocomplete
+			.as_deref()?
+			.split_ascii_whitespace()
+			.find_map(|token| {
+				match token.to_ascii_lowercase().as_str() {
+					"username" => Some(TextContent::Username),
+					"email" => Some(TextContent::Email),
+					"current-password" => Some(TextContent::CurrentPassword),
+					"new-password" => Some(TextContent::NewPassword),
+					_ => None,
+				}
+			})
 	}
 
 	/// The ARIA group, allocated only once a property is set; `None` is the
@@ -761,6 +781,26 @@ pub enum TextAlign {
 	Center,
 	/// Aligned to the trailing edge.
 	End,
+}
+
+/// What a text field holds, as password managers and the platforms'
+/// content types describe it: iOS's and macOS's `textContentType`,
+/// Android's autofill hints, and HTML's `autocomplete`.
+///
+/// Read with [`NativeProps::text_content`], from the `autocomplete` hint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TextContent {
+	/// The account name a password belongs to (`username`).
+	Username,
+	/// An email address, which is also the account name on many sites
+	/// (`email`).
+	Email,
+	/// The password the person already has, to sign in
+	/// (`current-password`).
+	CurrentPassword,
+	/// A password the person is choosing, which a password manager may
+	/// generate and save (`new-password`).
+	NewPassword,
 }
 
 /// How a text node is set: everything about its props that can change the

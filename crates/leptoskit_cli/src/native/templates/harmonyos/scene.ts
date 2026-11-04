@@ -132,3 +132,26 @@ export function color(
 		? fallback
 		: ((rgba >>> 8) | ((rgba & 255) << 24)) >>> 0;
 }
+
+/** The `autocomplete` tokens password managers read on every platform. */
+const TEXT_CONTENT: string[] = [
+	"username",
+	"email",
+	"current-password",
+	"new-password",
+];
+
+/** What a text field holds: the first `autocomplete` token password managers read. */
+export function textContent(
+	autocomplete: string | null | undefined,
+): string | undefined {
+	if (autocomplete === undefined || autocomplete === null) {
+		return undefined;
+	}
+	for (const token of autocomplete.toLowerCase().split(" ")) {
+		if (TEXT_CONTENT.includes(token)) {
+			return token;
+		}
+	}
+	return undefined;
+}

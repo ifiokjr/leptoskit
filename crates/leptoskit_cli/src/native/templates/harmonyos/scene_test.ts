@@ -1,5 +1,5 @@
 import { deepStrictEqual, equal, throws } from "node:assert/strict";
-import { color, Scene } from "./scene.ts";
+import { color, Scene, textContent } from "./scene.ts";
 
 Deno.test("native mutations preserve layout, child order, and controlled text", () => {
 	const scene = new Scene();
@@ -111,4 +111,14 @@ Deno.test("packed RGBA becomes unsigned ArkUI ARGB, including transparent colors
 	equal(color(0x12345678, 0), 0x78123456);
 	equal(color(0, 0xffffffff), 0);
 	equal(color(undefined, 0xff112233), 0xff112233);
+});
+
+Deno.test("text fields name their content from the first autocomplete token password managers read", () => {
+	equal(textContent("username webauthn"), "username");
+	equal(textContent("section-login Email"), "email");
+	equal(textContent("current-password"), "current-password");
+	equal(textContent("new-password"), "new-password");
+	equal(textContent("one-time-code"), undefined);
+	equal(textContent(null), undefined);
+	equal(textContent(undefined), undefined);
 });

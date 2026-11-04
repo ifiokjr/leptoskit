@@ -5,6 +5,8 @@ struct WidgetProps: Decodable {
     let text: String?
     let source: String?
     let placeholder: String?
+    /// What the field holds, as HTML's `autocomplete`; read it through `textContent`.
+    let autocomplete: String?
     let value: String?
     let accessibilityLabel: String?
     let color: UInt32?
@@ -22,6 +24,21 @@ struct WidgetProps: Decodable {
     let drawing: VectorDrawing?
     let aria: WidgetAria?
     let scrollOffset: ScrollOffset?
+}
+
+extension WidgetProps {
+    /// The first `autocomplete` token password managers read on every platform.
+    var textContent: TextContent? {
+        autocomplete?.lowercased().split(whereSeparator: \.isWhitespace)
+            .lazy.compactMap { TextContent(rawValue: String($0)) }.first
+    }
+}
+
+/// What a text field holds, which the platform's content type tells AutoFill and password managers.
+enum TextContent: String {
+    case username, email
+    case currentPassword = "current-password"
+    case newPassword = "new-password"
 }
 
 struct WidgetAria: Decodable {

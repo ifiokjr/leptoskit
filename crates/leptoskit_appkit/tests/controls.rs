@@ -43,6 +43,11 @@ mod macos {
 	use objc2_app_kit::NSSecureTextField;
 	use objc2_app_kit::NSSlider;
 	use objc2_app_kit::NSSwitch;
+	use objc2_app_kit::NSTextContent;
+	use objc2_app_kit::NSTextContentType;
+	use objc2_app_kit::NSTextContentTypeNewPassword;
+	use objc2_app_kit::NSTextContentTypePassword;
+	use objc2_app_kit::NSTextContentTypeUsername;
 	use objc2_app_kit::NSTextField;
 	use objc2_foundation::NSNotification;
 	use objc2_foundation::NSPoint;
@@ -81,6 +86,10 @@ mod macos {
 			(
 				"password_fields_are_secure_and_controlled",
 				password_fields_are_secure_and_controlled,
+			),
+			(
+				"fields_tell_autofill_what_they_hold",
+				fields_tell_autofill_what_they_hold,
 			),
 			(
 				"unstyled_fields_fit_their_rounded_bezel",
@@ -732,6 +741,44 @@ mod macos {
 		});
 		edit(&secure, "delete while editing");
 		assert!(surface.borrow().backend().view(id).is_none());
+	}
+
+	/// The `autocomplete` hint becomes the field's content type, which
+	/// autofill and password managers read, and follows later commits.
+	fn fields_tell_autofill_what_they_hold() {
+		let content = |field: &NSTextField| field.contentType().map(|kind| kind.to_string());
+		let named = |kind: &NSTextContentType| Some(kind.to_string());
+		let mut surface = mounted(
+			&View().children([
+				TextInput()
+					.aria_label("Email")
+					.autocomplete("username webauthn"),
+				PasswordInput()
+					.aria_label("Password")
+					.autocomplete("current-password"),
+			]),
+		);
+		let username = native::<NSTextField>(&surface, child(&surface, 0));
+		let password = native::<NSSecureTextField>(&surface, child(&surface, 1));
+		// SAFETY: AppKit exports immutable content-type strings.
+		unsafe {
+			assert_eq!(content(&username), named(NSTextContentTypeUsername));
+			assert_eq!(content(&password), named(NSTextContentTypePassword));
+		}
+
+		surface.set_root(
+			&View().children([
+				TextInput().aria_label("Email"),
+				PasswordInput()
+					.aria_label("Password")
+					.autocomplete("new-password"),
+			]),
+		);
+		assert_eq!(content(&username), None);
+		// SAFETY: as above.
+		assert_eq!(content(&password), unsafe {
+			named(NSTextContentTypeNewPassword)
+		});
 	}
 
 	/// An unstyled field keeps the rounded bezel, so its frame must be at

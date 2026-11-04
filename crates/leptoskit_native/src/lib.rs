@@ -80,6 +80,7 @@ pub use props::PropValue;
 pub use props::ScrollOffset;
 pub use props::SharedTextMeasurer;
 pub use props::TextAlign;
+pub use props::TextContent;
 pub use props::TextMeasurer;
 pub use props::TextSpan;
 pub use props::TextStyle;

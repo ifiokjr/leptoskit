@@ -105,3 +105,29 @@ fn test_ids_ride_in_extra_under_the_documented_key() {
 	);
 	assert_eq!(Element::button("+").props.test_id(), None);
 }
+
+#[test]
+fn text_content_reads_the_account_and_password_autocomplete_tokens() {
+	use leptoskit_native::TextContent;
+	use leptoskit_native::components::PasswordInput;
+	use leptoskit_native::components::TextInput;
+
+	for (hint, content) in [
+		("username", Some(TextContent::Username)),
+		("username webauthn", Some(TextContent::Username)),
+		("email", Some(TextContent::Email)),
+		("section-login Email", Some(TextContent::Email)),
+		("current-password", Some(TextContent::CurrentPassword)),
+		("new-password", Some(TextContent::NewPassword)),
+		("one-time-code", None),
+		("off", None),
+		("", None),
+	] {
+		assert_eq!(
+			PasswordInput().autocomplete(hint).props.text_content(),
+			content,
+			"{hint}"
+		);
+	}
+	assert_eq!(TextInput().props.text_content(), None);
+}

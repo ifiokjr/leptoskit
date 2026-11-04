@@ -132,7 +132,7 @@ The same screen appears in a native window, and the last line reads **Drawn with
 
 <Callout kind="important" title="Components in the generated apps">
 
-The macOS, iOS, and Android apps that `leptoskit new` generates draw `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and `Image`. Any other component, such as `Switch`, `Slider`, or `PasswordInput`, stops those apps with an "unsupported widget" error for now. The Windows and Linux apps, and the web, draw every component. [Platforms](../platforms/readme.md#what-each-platform-doesnt-do-yet) has the details.
+The macOS, iOS, and Android apps that `leptoskit new` generates draw `View`, `Text`, `Button`, `Pressable`, `TextInput`, `PasswordInput`, `ScrollView`, `Image`, `Vector`, and `Rive`. Any other component, such as `Switch`, `Slider`, or `Checkbox`, stops those apps with an "unsupported widget" error for now. The Windows and Linux apps, and the web, draw every component. [Platforms](../platforms/readme.md#what-each-platform-doesnt-do-yet) has the details.
 
 </Callout>
 

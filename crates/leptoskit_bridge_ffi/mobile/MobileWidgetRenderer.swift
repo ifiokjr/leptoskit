@@ -212,7 +212,8 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         case "text", "text_run", "Text", "TextRun": widget = makeLabel()
         case "button", "Button": widget = makeButton(item.id)
         case "pressable", "Pressable": widget = makePressable(item.id)
-        case "text_input", "TextInput": widget = makeTextField(item.id)
+        case "text_input", "TextInput", "password_input", "PasswordInput":
+            widget = makeTextField(item.id, secure: ["password_input", "PasswordInput"].contains(item.kind))
         case "scroll_view", "ScrollView":
             let scroll = UIScrollView()
             scroll.delegate = self
@@ -265,9 +266,10 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         return press
     }
 
-    private func makeTextField(_ id: Int) -> UITextField {
+    private func makeTextField(_ id: Int, secure: Bool) -> UITextField {
         let field = UITextField()
         field.delegate = self
+        if secure { field.maskEntry() }
         field.addAction(
             UIAction { [weak self, weak field] _ in
                 self?.event(id, 1, field?.text ?? "")

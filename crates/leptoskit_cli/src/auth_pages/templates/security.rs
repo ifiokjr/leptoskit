@@ -7,6 +7,10 @@
 //! Changing these asks the person to prove it's them again. With a passkey
 //! or an authenticator on, the screen asks for one and then tries the change
 //! again; without either, signing in again is the only proof left.
+// leptoskit: passwords
+//! When the server takes passwords, the screen also sets, changes, or removes
+//! the account's password.
+// leptoskit: end passwords
 
 use leptoskit::auth::ErrorResponse;
 use leptoskit::auth::Factor;
@@ -19,6 +23,9 @@ use leptoskit::auth::MergeOffer;
 use leptoskit::auth::MfaStatus;
 use leptoskit::auth::Passkey;
 use leptoskit::auth::PasskeyInfo;
+// leptoskit: passwords
+use leptoskit::auth::PasswordSettings;
+// leptoskit: end passwords
 use leptoskit::auth::ProviderInfo;
 use leptoskit::auth::ProviderOutcome;
 use leptoskit::auth::PublicSession;
@@ -51,12 +58,19 @@ use leptoskit::auth::client::provider_outcome;
 use leptoskit::auth::client::qr_code;
 use leptoskit::auth::client::regenerate_recovery_codes;
 use leptoskit::auth::client::remove_passkey;
+// leptoskit: passwords
+use leptoskit::auth::client::remove_password;
+use leptoskit::auth::client::set_password;
+// leptoskit: end passwords
 use leptoskit::auth::client::sign_out_mutation;
 use leptoskit::auth::client::step_up;
 use leptoskit::auth::client::step_up_with_passkey;
 use leptoskit::auth::client::unlink_identity;
 use leptoskit::auth::client::unlink_wallet;
 use leptoskit::auth::client::update_wallet;
+// leptoskit: passwords
+use leptoskit::auth::client::use_password_settings;
+// leptoskit: end passwords
 use leptoskit::auth::client::use_providers;
 use leptoskit::auth::client::use_wallet_settings;
 use leptoskit::auth::client::wallet_apps;
@@ -82,7 +96,13 @@ use leptoskit::query::use_mutation;
 use leptoskit::query::use_query_with;
 
 use super::devices::day;
+// leptoskit: passwords
+use super::sign_in::new_password_problem;
+// leptoskit: end passwords
 use super::sign_in::passkey_problem;
+// leptoskit: passwords
+use super::sign_in::password_rules;
+// leptoskit: end passwords
 use super::sign_in::provider_failure;
 use super::sign_in::sentence;
 
@@ -111,6 +131,12 @@ pub enum Change {
 	WalletSignIn(Id<Wallet>, bool),
 	/// Unlinking a wallet.
 	UnlinkWallet(Id<Wallet>),
+	// leptoskit: passwords
+	/// Setting the password typed in the password field, or changing to it.
+	SetPassword,
+	/// Removing the password.
+	RemovePassword,
+	// leptoskit: end passwords
 }
 
 /// The security screen's state. It's `Copy`, so handlers capture it freely.
@@ -157,6 +183,13 @@ pub struct Security {
 	notice: RwSignal<Option<String>>,
 	/// Whether the person must sign in again before changing anything.
 	reauthenticate: RwSignal<bool>,
+	// leptoskit: passwords
+	password_settings: QueryHandle<PasswordSettings, ErrorResponse>,
+	set_password: MutationHandle<String, (), ErrorResponse>,
+	remove_password: MutationHandle<(), (), ErrorResponse>,
+	/// The new password, as typed.
+	new_password: RwSignal<String>,
+	// leptoskit: end passwords
 }
 
 impl Security {
@@ -224,6 +257,12 @@ impl Security {
 			problem: RwSignal::new(None),
 			notice,
 			reauthenticate: RwSignal::new(false),
+			// leptoskit: passwords
+			password_settings: use_password_settings(),
+			set_password: use_mutation(set_password()),
+			remove_password: use_mutation(remove_password()),
+			new_password: RwSignal::new(String::new()),
+			// leptoskit: end passwords
 		}
 	}
 
@@ -284,6 +323,9 @@ impl Security {
 				.class("text-sm text-amber-300")
 			}))
 			.child(self.passkeys())
+			// leptoskit: passwords
+			.child(self.password(&status))
+			// leptoskit: end passwords
 			.child(Heading(2, "Authenticator app").class("text-lg font-semibold"))
 			.child(authenticator)
 			.child(self.connected_accounts())
@@ -1003,6 +1045,10 @@ impl Security {
 					MutateCallbacks::new().on_error(move |args| failed(&args.error)),
 				);
 			}
+			// leptoskit: passwords
+			Change::SetPassword => self.save_password(),
+			Change::RemovePassword => self.unset_password(),
+			// leptoskit: end passwords
 		}
 	}
 
@@ -1128,6 +1174,115 @@ impl Security {
 		self.problem.set(None);
 	}
 
+	// leptoskit: passwords
+	/// The account's password: setting one, changing it, or removing it.
+	fn password(&self, status: &MfaStatus) -> Element {
+		let this = *self;
+		let settings = self.password_settings.data();
+
+		if !settings.is_some_and(|settings| settings.enabled) {
+			return View();
+		}
+
+		let new_password = self.new_password;
+		let saving = self.set_password.is_pending();
+		let busy = saving || self.remove_password.is_pending();
+		let rules = password_rules(settings);
+		let (about, field, save) = if status.password {
+			(
+				"You can sign in with your email address and your password.",
+				"New password",
+				"Change password",
+			)
+		} else {
+			(
+				"Set a password to sign in with your email address and it, instead of an emailed \
+				 code.",
+				"Password",
+				"Set a password",
+			)
+		};
+
+		View()
+			.class("gap-3")
+			.child(Heading(2, "Password").class("text-lg font-semibold"))
+			.child(Text(about).class("text-sm text-slate-300"))
+			.child(Text(field).class("text-sm font-semibold"))
+			.child(
+				PasswordInput()
+					.id("security-new-password")
+					.aria_label(field)
+					.aria_description(rules.clone())
+					.autocomplete("new-password")
+					.value(new_password.get_untracked())
+					.on_change(move |text| new_password.set(text.to_owned()))
+					.class("h-11 rounded-lg px-3 bg-white text-slate-900"),
+			)
+			.child(Text(rules).class("text-xs text-slate-400"))
+			.child(
+				Button(if saving { "Saving…" } else { save })
+					.enabled(!busy)
+					.aria_busy(saving)
+					.on_press(move || this.run(Change::SetPassword))
+					.class("rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
+			)
+			.children(status.password.then(|| {
+				Button("Remove password")
+					.enabled(!busy)
+					.aria_description("You can still sign in with an emailed code")
+					.on_press(move || this.run(Change::RemovePassword))
+					.class("rounded-lg bg-rose-600 px-4 py-3 font-semibold")
+			}))
+	}
+
+	/// Sets the password typed in the field, or changes to it, which signs
+	/// out every other device.
+	fn save_password(&self) {
+		let password = self.new_password.get_untracked();
+
+		if let Some(problem) = new_password_problem(&password, self.password_settings.data()) {
+			self.problem.set(Some(problem));
+			return;
+		}
+
+		let this = *self;
+		let changing = self.status.data().is_some_and(|status| status.password);
+		self.set_password.mutate_with(
+			password,
+			MutateCallbacks::new()
+				.on_success(move |_| {
+					this.new_password.set(String::new());
+					this.notice.set(Some(
+						if changing {
+							"Your password is changed, and your other devices are signed out."
+						} else {
+							"Your password is set."
+						}
+						.to_owned(),
+					));
+				})
+				.on_error(move |args: ErrorArgs<ErrorResponse, String, ()>| {
+					this.refused(Change::SetPassword, &args.error);
+				}),
+		);
+	}
+
+	fn unset_password(&self) {
+		let this = *self;
+		self.remove_password.mutate_with(
+			(),
+			MutateCallbacks::new()
+				.on_success(move |_| {
+					this.notice
+						.set(Some("Your password is removed.".to_owned()));
+				})
+				.on_error(move |args: ErrorArgs<ErrorResponse, (), ()>| {
+					this.refused(Change::RemovePassword, &args.error);
+				}),
+		);
+	}
+
+	// leptoskit: end passwords
 	/// What to do when the server refuses `change`.
 	fn refused(&self, change: Change, error: &ErrorResponse) {
 		match error.error.as_str() {

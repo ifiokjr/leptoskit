@@ -304,6 +304,13 @@ class ProbeActivity : Activity() {
                 password.inputType and 0x80 != 0 && password.transformationMethod is android.text.method.PasswordTransformationMethod,
                 "PasswordInput uses secure Android editing",
             )
+            assertion(
+                // Android appends `passwordAuto` after the hint the field sets.
+                password.autofillHints?.firstOrNull() == "newPassword" &&
+                    password.importantForAutofill == View.IMPORTANT_FOR_AUTOFILL_YES &&
+                    password.inputType and android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS != 0,
+                "PasswordInput offers its new-password hint to autofill without suggestions",
+            )
             assertion(image.drawable != null, "Image loads a real local bitmap")
             verifyVectors()
             assertion(
