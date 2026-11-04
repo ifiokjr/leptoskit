@@ -50,11 +50,35 @@ impl Plan<'_> {
 	/// The files it writes.
 	#[must_use]
 	pub fn artifacts(&self) -> Artifacts {
+		let stem = file_stem(self.name);
 		Artifacts {
-			app: self.out.join(format!("{}.app", self.name)),
-			zip: self.out.join(format!("{}.zip", self.name)),
-			dmg: self.out.join(format!("{}.dmg", self.name)),
+			app: self.out.join(format!("{stem}.app")),
+			zip: self.out.join(format!("{stem}.zip")),
+			dmg: self.out.join(format!("{stem}.dmg")),
 		}
+	}
+}
+
+/// `name` as one file name in the output folder. A display name such as
+/// `AC/DC`, or `../../Applications/Xcode`, must not name a path elsewhere:
+/// the distribution deletes what it is about to replace.
+fn file_stem(name: &str) -> String {
+	let stem: String = name
+		.chars()
+		.map(|character| {
+			if matches!(character, '/' | '\\' | ':') || character.is_control() {
+				'-'
+			} else {
+				character
+			}
+		})
+		.collect();
+	let stem = stem.trim_start_matches('.').trim();
+
+	if stem.is_empty() {
+		"App".to_owned()
+	} else {
+		stem.to_owned()
 	}
 }
 
@@ -262,6 +286,34 @@ mod tests {
 		std::fs::create_dir_all(&appex).unwrap();
 		std::fs::write(appex.join("Info.plist"), &info).unwrap();
 		app
+	}
+
+	#[test]
+	fn the_artifacts_stay_in_the_output_folder_whatever_the_name() {
+		let out = Path::new("/project/out");
+		let plan = |name| {
+			Plan {
+				built: Path::new("/project/App.app"),
+				out,
+				name,
+				version: "1.0.0",
+				build: None,
+				identity: "",
+				safari_entitlements: None,
+			}
+			.artifacts()
+		};
+
+		for name in ["AC/DC", "../../../../Applications/Xcode", "..\\up", "a:b"] {
+			let artifacts = plan(name);
+			for path in [&artifacts.app, &artifacts.zip, &artifacts.dmg] {
+				assert_eq!(path.parent(), Some(out), "{name}: {}", path.display());
+			}
+		}
+
+		assert_eq!(plan("Notes").app, out.join("Notes.app"));
+		assert_eq!(plan("Café Notes").dmg, out.join("Café Notes.dmg"));
+		assert_eq!(plan("..").app, out.join("App.app"));
 	}
 
 	#[test]

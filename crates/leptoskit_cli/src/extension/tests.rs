@@ -456,6 +456,17 @@ fn firefox_source_archives_keep_rebuild_inputs_and_exclude_even_tracked_secrets(
 		write("keys/signing.key", "SECRET_KEY_MARKER");
 		write("keys/apple.p8", "SECRET_APPLE_MARKER");
 		write("keys/certificate.pem", "SECRET_PEM_MARKER");
+		write("android/upload.jks", "SECRET_KEYSTORE_MARKER");
+		let outside = tempfile::tempdir().unwrap();
+		std::fs::write(outside.path().join("credentials"), "SECRET_LINKED_MARKER").unwrap();
+		#[cfg(unix)]
+		std::os::unix::fs::symlink(
+			outside.path().join("credentials"),
+			root.path().join("notes.md"),
+		)
+		.unwrap();
+		#[cfg(not(unix))]
+		write("notes.md", "notes");
 		write("target/cache", "BUILD_OUTPUT_MARKER");
 		write(".gitignore", "/target/\n");
 		if tracked {
@@ -477,7 +488,9 @@ fn firefox_source_archives_keep_rebuild_inputs_and_exclude_even_tracked_secrets(
 						"monosecret.toml",
 						"BUILD.md",
 						".env",
-						"keys"
+						"keys",
+						"android",
+						"notes.md"
 					])
 					.output()
 					.unwrap()
@@ -506,6 +519,8 @@ fn firefox_source_archives_keep_rebuild_inputs_and_exclude_even_tracked_secrets(
 			"SECRET_KEY_MARKER",
 			"SECRET_APPLE_MARKER",
 			"SECRET_PEM_MARKER",
+			"SECRET_KEYSTORE_MARKER",
+			"SECRET_LINKED_MARKER",
 			"BUILD_OUTPUT_MARKER",
 			"obsolete instructions",
 		] {

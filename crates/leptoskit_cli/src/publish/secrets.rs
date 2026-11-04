@@ -88,7 +88,14 @@ impl Credentials {
 			.with_context(|| format!("could not read {}", file.display()))?;
 
 		let table: BTreeMap<String, toml::Value> =
-			toml::from_str(&text).with_context(|| format!("could not parse {}", file.display()))?;
+			// toml's errors quote the offending line, which here is a secret.
+			toml::from_str(&text).map_err(|error| {
+				let at = error
+					.span()
+					.map(|span| text[..span.start].lines().count().max(1))
+					.map_or_else(String::new, |line| format!(" at line {line}"));
+				anyhow::anyhow!("could not parse {}{at}: it isn't valid TOML", file.display())
+			})?;
 		let file = table
 			.into_iter()
 			.map(|(name, value)| {
@@ -255,6 +262,25 @@ pub(crate) mod tests {
 		let secret = Secret("hunter2".into());
 		assert_eq!(format!("{secret} {secret:?}"), "[redacted] [redacted]");
 		assert_eq!(secret.expose(), "hunter2");
+	}
+
+	#[test]
+	fn a_malformed_credentials_file_never_prints_its_values() {
+		let outside = tempfile::tempdir().unwrap();
+		let project = tempfile::tempdir().unwrap();
+		let file = outside.path().join("credentials.toml");
+		std::fs::write(
+			&file,
+			"LEPTOSKIT_PUBLISH_A = \"fine\"\nLEPTOSKIT_PUBLISH_FIREFOX_JWT_SECRET = \"hunter2\n",
+		)
+		.unwrap();
+
+		let error = format!(
+			"{:#}",
+			Credentials::load(Some(&file), project.path()).unwrap_err()
+		);
+		assert!(!error.contains("hunter2"), "{error}");
+		assert!(error.contains("line 2"), "{error}");
 	}
 
 	#[test]

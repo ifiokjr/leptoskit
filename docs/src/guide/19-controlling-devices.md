@@ -105,10 +105,12 @@ Three tools cover the surface: `list_devices` reports the inventory, `control` r
 `leptoskit mcp http --port 7331` accepts the identical JSON-RPC messages as POST bodies on loopback — no MCP client required:
 
 ```sh
-curl -s http://127.0.0.1:7331/ -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
+curl -s http://127.0.0.1:7331/ -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
   "params":{"name":"control","arguments":{"target":{"kind":"web","url":"https://example.com"},
   "steps":[{"action":"screenshot","label":"landing"}]}}}'
 ```
+
+Send every message with `content-type: application/json`. The server refuses anything a web page could send, so a site open in your browser cannot drive your devices: requests that carry an `Origin` header, other content types, and `Host` names other than the address it listens on. It listens on loopback by default; `--address` can expose it to the network, but it has no authentication, so only do that on a network you trust.
 
 The same document reaches all three surfaces: flags build one for a single command, `device run` takes the file, and the MCP tools take it as tool arguments.
 
