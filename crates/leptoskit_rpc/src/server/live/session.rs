@@ -13,6 +13,7 @@
 //! change to it.
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
@@ -42,7 +43,11 @@ use crate::Kind;
 use crate::live::ClientFrame;
 use crate::live::EndReason;
 use crate::live::HEARTBEAT_SECONDS;
+use crate::live::MAX_ACTIONS;
+use crate::live::MAX_CHANNEL_KEY_BYTES;
+use crate::live::MAX_CHANNELS;
 use crate::live::MAX_FRAME_BYTES;
+use crate::live::MAX_PRESENCE_BYTES;
 use crate::live::MAX_STREAMS;
 use crate::live::MAX_SUBSCRIPTIONS;
 use crate::live::PresenceMember;
@@ -105,6 +110,8 @@ struct Session {
 	batches: mpsc::UnboundedReceiver<Batch>,
 	finished: mpsc::UnboundedReceiver<Finished>,
 	acts: mpsc::UnboundedSender<Finished>,
+	/// One permit per action that may run at once.
+	actions: Arc<tokio::sync::Semaphore>,
 	applied: watch::Receiver<u64>,
 	subscriptions: HashMap<u32, Subscription>,
 	joined: HashMap<String, Joined>,
@@ -137,6 +144,8 @@ struct Joined {
 	name: String,
 	args: Value,
 	state: Value,
+	/// The room it shares with the others: see [`super::room_key`].
+	room: String,
 }
 
 /// A stream the connection opened, and the room its client has left.
@@ -222,6 +231,7 @@ impl Live {
 			batches,
 			finished,
 			acts,
+			actions: Arc::new(tokio::sync::Semaphore::new(MAX_ACTIONS)),
 			applied: self.hub().watch(),
 			subscriptions: HashMap::new(),
 			joined: HashMap::new(),
@@ -309,7 +319,7 @@ impl Session {
 					}
 				}
 				Some(text) = self.stream_frames.recv() => {
-					if self.out.send(Outbound::Frame { text, version: None }).await.is_err() {
+					if !self.deliver(Outbound::Frame { text, version: None }).await {
 						return false;
 					}
 				}
@@ -318,7 +328,7 @@ impl Session {
 					// An idle connection still learns how far the log has
 					// gone, so it resumes from somewhere recent.
 					if !self.settle(true).await { return false; }
-					if self.out.send(Outbound::Heartbeat).await.is_err() {
+					if !self.deliver(Outbound::Heartbeat).await {
 						return false;
 					}
 				}
@@ -360,7 +370,17 @@ impl Session {
 		let Some(outbound) = Outbound::frame(&frame, None) else {
 			return true;
 		};
-		self.out.send(outbound).await.is_ok()
+		self.deliver(outbound).await
+	}
+
+	/// Queues `outbound` for the transport. A client that stops reading
+	/// fills the queue; past the stall timeout the connection closes,
+	/// rather than holding everything the hub sends it meanwhile.
+	async fn deliver(&self, outbound: Outbound) -> bool {
+		matches!(
+			tokio::time::timeout(self.live.stall(), self.out.send(outbound)).await,
+			Ok(Ok(()))
+		)
 	}
 
 	async fn done(&self, request: u32, result: Result<Value, WireError>) -> bool {
@@ -396,11 +416,8 @@ impl Session {
 
 	/// Handles one frame. Returns whether the connection stays open.
 	async fn handle(&mut self, incoming: Incoming) -> bool {
-		let frame = match incoming {
-			Incoming::Frame(frame) => frame,
-			Incoming::Invalid(error) => return self.done(0, Err(error)).await,
-		};
-
+		// A frame that doesn't parse is answered too, so it pays like any
+		// other.
 		if !self.spend_frame() {
 			self.done(
 				0,
@@ -411,6 +428,11 @@ impl Session {
 			.await;
 			return false;
 		}
+
+		let frame = match incoming {
+			Incoming::Frame(frame) => frame,
+			Incoming::Invalid(error) => return self.done(0, Err(error)).await,
+		};
 
 		match frame {
 			ClientFrame::Hello { resume } => {
@@ -595,7 +617,11 @@ impl Session {
 		let key = ShareKey::new(query, args, &self.identity, self.number, id)
 			.with_revision(self.lease.continuity.clone());
 
-		if let Some((_, reads)) = hub.peek(&key) {
+		// A group of its own is only ever this subscription's earlier one,
+		// which may have been to another query: run it again.
+		if !matches!(key, ShareKey::Alone { .. })
+			&& let Some((_, reads)) = hub.peek(&key)
+		{
 			let at = hub.applied();
 
 			if let Some(value) = hub.join(self.number, id, &key, known) {
@@ -656,8 +682,16 @@ impl Session {
 		}
 
 		let mut updates = Vec::new();
+		// One subscription per ID, as the client holds them: repeats would
+		// each run a query for the price of one frame, past the
+		// subscription limit, which counts IDs.
+		let mut ids = HashSet::new();
+		let mut queries = resume.queries;
+		queries.reverse();
+		queries.retain(|query| ids.insert(query.id));
+		queries.reverse();
 
-		for query in resume.queries {
+		for query in queries {
 			if let Some(error) = self.over_limit(query.id) {
 				updates.push(SubscriptionUpdate {
 					id: query.id,
@@ -790,6 +824,22 @@ impl Session {
 				.await;
 		}
 
+		// Actions run beside the connection, so each frame could otherwise
+		// start one more.
+		let Ok(permit) = Arc::clone(&self.actions).try_acquire_owned() else {
+			return self
+				.done(
+					request,
+					Err(WireError {
+						status: 429,
+						message: format!(
+							"a connection may run {MAX_ACTIONS} actions at once; wait for one to \
+							 finish"
+						),
+					}),
+				)
+				.await;
+		};
 		let invocation = Invocation {
 			db: self.db.clone(),
 			identity: self.identity.clone(),
@@ -802,6 +852,7 @@ impl Session {
 		let epoch = self.epoch;
 		tokio::spawn(async move {
 			let (result, version) = recording_commits(handler(invocation)).await;
+			drop(permit);
 			let _ = finished.send(Finished {
 				epoch,
 				request,
@@ -1132,11 +1183,12 @@ impl Session {
 		let keys: Vec<String> = self.joined.keys().cloned().collect();
 
 		for key in keys {
-			let Some((name, args, state)) = self.joined.get(&key).map(|joined| {
+			let Some((name, args, state, room)) = self.joined.get(&key).map(|joined| {
 				(
 					joined.name.clone(),
 					joined.args.clone(),
 					joined.state.clone(),
+					joined.room.clone(),
 				)
 			}) else {
 				continue;
@@ -1149,8 +1201,8 @@ impl Session {
 
 			match (registration.authorize)(args, cx).await {
 				Ok(()) => {
-					self.refresh_member(&key, state);
-					self.broadcast_presence(&key);
+					self.refresh_member(&room, state);
+					self.broadcast_presence(&room);
 				}
 				Err(error) => {
 					self.leave(&key);
@@ -1186,15 +1238,61 @@ impl Session {
 				.await;
 		};
 
+		// The key names the room, so it must be the arguments that are
+		// authorized: anything else would let a member of one instance into
+		// another by naming it.
+		if serde_json::from_str::<Value>(&channel).ok().as_ref() != Some(&args) {
+			return self
+				.channel_error(
+					&channel,
+					WireError::invalid("a channel's key must be its join arguments, serialized"),
+				)
+				.await;
+		}
+
+		if channel.len() > MAX_CHANNEL_KEY_BYTES {
+			return self
+				.channel_error(
+					&channel,
+					WireError::invalid(format!(
+						"a channel's join arguments may be at most {MAX_CHANNEL_KEY_BYTES} bytes \
+						 of JSON"
+					)),
+				)
+				.await;
+		}
+
+		if self.joined.len() >= MAX_CHANNELS {
+			return self
+				.channel_error(
+					&channel,
+					WireError::invalid(format!("a connection may be in {MAX_CHANNELS} channels")),
+				)
+				.await;
+		}
+
+		if serde_json::to_vec(&state).map_or(true, |bytes| bytes.len() > MAX_PRESENCE_BYTES) {
+			return self
+				.channel_error(
+					&channel,
+					WireError::invalid(format!(
+						"a presence state may be at most {MAX_PRESENCE_BYTES} bytes of JSON"
+					)),
+				)
+				.await;
+		}
+
 		let cx = QueryCx::new(self.db.clone(), self.identity.clone());
 
 		if let Err(error) = (registration.authorize)(args.clone(), cx).await {
 			return self.channel_error(&channel, WireError::new(&error)).await;
 		}
 
+		let room_key = super::room_key(name, &channel);
+
 		{
 			let mut rooms = self.live.rooms();
-			let room = rooms.entry(channel.clone()).or_default();
+			let room = rooms.entry(room_key.clone()).or_default();
 			room.members.insert(
 				self.number,
 				PresenceMember {
@@ -1210,33 +1308,32 @@ impl Session {
 				name: name.to_owned(),
 				args,
 				state,
+				room: room_key.clone(),
 			},
 		);
-		self.broadcast_presence(&channel);
+		self.broadcast_presence(&room_key);
 		true
 	}
 
 	fn leave(&mut self, channel: &str) {
-		if self.joined.remove(channel).is_none() {
+		let Some(Joined { room: key, .. }) = self.joined.remove(channel) else {
 			return;
-		}
+		};
 
 		let empty = {
 			let mut rooms = self.live.rooms();
-			if let Some(room) = rooms.get_mut(channel) {
+			if let Some(room) = rooms.get_mut(&key) {
 				room.members.remove(&self.number);
 			}
 
-			rooms
-				.get(channel)
-				.is_none_or(|room| room.members.is_empty())
+			rooms.get(&key).is_none_or(|room| room.members.is_empty())
 		};
 
 		if empty {
-			self.live.rooms().remove(channel);
+			self.live.rooms().remove(&key);
 		}
 
-		self.broadcast_presence(channel);
+		self.broadcast_presence(&key);
 	}
 
 	fn leave_all(&mut self) {
@@ -1248,13 +1345,13 @@ impl Session {
 	}
 
 	fn signal(&self, channel: &str, message: Value) {
-		if !self.joined.contains_key(channel) {
+		let Some(Joined { room: key, .. }) = self.joined.get(channel) else {
 			return;
-		}
+		};
 
 		let (senders, from) = {
 			let rooms = self.live.rooms();
-			let Some(room) = rooms.get(channel) else {
+			let Some(room) = rooms.get(key) else {
 				return;
 			};
 			let connections = self.live.connections();
@@ -1270,7 +1367,7 @@ impl Session {
 				.map(|member| member.id.clone());
 			(senders, from)
 		};
-		self.live.signal_elsewhere(channel, from.clone(), &message);
+		self.live.signal_elsewhere(key, from.clone(), &message);
 		let frame = ServerFrame::Signal {
 			channel: channel.to_owned(),
 			from,

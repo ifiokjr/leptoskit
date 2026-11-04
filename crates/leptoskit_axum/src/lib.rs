@@ -43,7 +43,6 @@
 )]
 
 use std::future::Future;
-use std::future::IntoFuture as _;
 use std::net::AddrParseError;
 use std::net::IpAddr;
 use std::net::SocketAddr;
@@ -417,15 +416,7 @@ pub async fn serve_listener_with(
 		tokio::time::sleep(drain_delay).await;
 		let _ = closing.send(());
 	};
-	// `ConnectInfo` is attached so handlers can see the peer address: the
-	// auth layer's per-IP rate limits read it, and they silently do nothing
-	// when it is absent.
-	let server = axum::serve(
-		listener,
-		router.into_make_service_with_connect_info::<SocketAddr>(),
-	)
-	.with_graceful_shutdown(stop)
-	.into_future();
+	let server = serve_connections(listener, router, stop);
 	// The grace period starts when the listener closes. The sender only
 	// drops unsent when the server has already finished, which wins the
 	// race below anyway.
@@ -436,13 +427,99 @@ pub async fn serve_listener_with(
 		}
 	};
 	tokio::select! {
-		result = server => result.map_err(|source| ServeError::Serve(source.to_string())),
+		() = server => Ok(()),
 		() = deadline => {
 			Err(ServeError::GracePeriodElapsed {
 				grace_period: grace_period.unwrap_or_default(),
 			})
 		}
 	}
+}
+
+/// How long a client has to send a request's headers once it starts one.
+///
+/// A connection that trickles its headers more slowly than this is closed,
+/// so a handful of clients can't hold every socket and file descriptor the
+/// server has by never finishing a request.
+pub const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Accepts and serves connections until `stop` resolves, then stops
+/// accepting and waits for the connections in flight to finish.
+///
+/// This is `axum::serve` with a timer: hyper only enforces
+/// [`HEADER_READ_TIMEOUT`] with one, and `axum::serve` sets none.
+async fn serve_connections(
+	listener: tokio::net::TcpListener,
+	router: Router,
+	stop: impl Future<Output = ()>,
+) {
+	use hyper_util::rt::TokioExecutor;
+	use hyper_util::rt::TokioIo;
+	use hyper_util::rt::TokioTimer;
+	use hyper_util::server::conn::auto::Builder;
+	use hyper_util::server::graceful::GracefulShutdown as Connections;
+	use hyper_util::service::TowerToHyperService;
+	use tower::ServiceExt as _;
+
+	let mut builder = Builder::new(TokioExecutor::new());
+	builder
+		.http1()
+		.timer(TokioTimer::new())
+		.header_read_timeout(HEADER_READ_TIMEOUT);
+	// The CONNECT protocol carries WebSockets over HTTP/2.
+	builder
+		.http2()
+		.timer(TokioTimer::new())
+		.enable_connect_protocol();
+	let connections = Connections::new();
+	let mut stop = std::pin::pin!(stop);
+
+	loop {
+		let (stream, peer) = tokio::select! {
+			accepted = listener.accept() => {
+				match accepted {
+					Ok(accepted) => accepted,
+					Err(error) => {
+						// A peer that gave up before the accept is not the
+						// listener's fault; anything else (out of file
+						// descriptors) is retried after a pause.
+						if !matches!(
+							error.kind(),
+							std::io::ErrorKind::ConnectionRefused
+								| std::io::ErrorKind::ConnectionAborted
+								| std::io::ErrorKind::ConnectionReset
+						) {
+							tokio::time::sleep(Duration::from_secs(1)).await;
+						}
+
+						continue;
+					}
+				}
+			}
+			() = &mut stop => break,
+		};
+		let _ = stream.set_nodelay(true);
+		let router = router.clone();
+		// `ConnectInfo` is attached so handlers can see the peer address:
+		// the auth layer's per-IP rate limits read it, and they silently do
+		// nothing when it is absent.
+		let service = tower::service_fn(move |mut request: Request<hyper::body::Incoming>| {
+			request
+				.extensions_mut()
+				.insert(axum::extract::ConnectInfo(peer));
+			router.clone().oneshot(request.map(Body::new))
+		});
+		let connection = builder
+			.serve_connection_with_upgrades(TokioIo::new(stream), TowerToHyperService::new(service))
+			.into_owned();
+		let connection = connections.watch(connection);
+		tokio::spawn(async move {
+			let _ = connection.await;
+		});
+	}
+
+	drop(listener);
+	connections.shutdown().await;
 }
 
 /// Errors from the server.

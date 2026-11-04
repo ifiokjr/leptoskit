@@ -662,11 +662,14 @@ async fn a_gap_in_the_stream_is_read_from_the_database() {
 	);
 }
 
+/// The lobby's instance key: its join arguments, serialized.
+const LOBBY: &str = r#"{"room":"1"}"#;
+
 async fn join(socket: &mut Socket, name: &str) {
 	send(
 		socket,
 		ClientFrame::Join {
-			channel: "lobby-1".into(),
+			channel: LOBBY.into(),
 			name: "lobby".into(),
 			args: json!({ "room": "1" }),
 			state: json!({ "name": name }),
@@ -715,7 +718,7 @@ async fn channels_cross_servers() {
 	send(
 		&mut ada,
 		ClientFrame::Signal {
-			channel: "lobby-1".into(),
+			channel: LOBBY.into(),
 			message: json!({ "from": "ada" }),
 		},
 	)

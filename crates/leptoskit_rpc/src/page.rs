@@ -31,6 +31,15 @@ use serde::Serialize;
 
 use crate::Operation;
 
+/// The most rows a page reads, whatever its `limit` asks for: the arguments
+/// come from the client.
+pub const MAX_PAGE_ROWS: u32 = 1_000;
+
+/// The most rows a pinned page reads. It grows as rows are inserted into its
+/// range, so it gets room beyond [`MAX_PAGE_ROWS`]; past this, its oldest
+/// rows in page order are left off.
+pub const MAX_PINNED_ROWS: u32 = 10 * MAX_PAGE_ROWS;
+
 /// Which rows one page of a paginated query reads.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct PageArgs {
@@ -43,7 +52,7 @@ pub struct PageArgs {
 	/// last page, which reads `limit` rows.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub until: Option<String>,
-	/// How many rows the last page reads.
+	/// How many rows the last page reads, at most [`MAX_PAGE_ROWS`].
 	pub limit: u32,
 }
 
@@ -124,9 +133,10 @@ pub trait Paginated: Operation<Output = Page<Self::Item>> {
 /// ```
 ///
 /// Leave `query` unordered: `order` is the page's order, and a row's place
-/// in it is its cursor. The last page reads `limit` rows and one more, to
-/// tell whether more follow; a pinned page reads everything up to its end,
-/// and says more follow.
+/// in it is its cursor. The last page reads `limit` rows (at most
+/// [`MAX_PAGE_ROWS`]) and one more, to tell whether more follow; a pinned
+/// page reads everything up to its end (at most [`MAX_PINNED_ROWS`]), and
+/// says more follow.
 ///
 /// # Errors
 ///
@@ -173,7 +183,7 @@ where
 				column.lte(until_value)
 			}
 		});
-		let items = query.all(db).await?;
+		let items = query.limit(u64::from(MAX_PINNED_ROWS)).all(db).await?;
 		return Ok(Page {
 			items,
 			end: Some(until.to_owned()),
@@ -181,11 +191,9 @@ where
 		});
 	}
 
-	let limit = usize::try_from(page.limit.max(1)).unwrap_or(usize::MAX);
-	let mut items = query
-		.limit(u64::from(page.limit.max(1)) + 1)
-		.all(db)
-		.await?;
+	let rows = page.limit.clamp(1, MAX_PAGE_ROWS);
+	let limit = usize::try_from(rows).unwrap_or(usize::MAX);
+	let mut items = query.limit(u64::from(rows) + 1).all(db).await?;
 	let has_more = items.len() > limit;
 	items.truncate(limit);
 	let end = match items.last() {

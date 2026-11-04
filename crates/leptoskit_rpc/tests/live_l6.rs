@@ -1212,6 +1212,37 @@ async fn a_connection_holds_a_bounded_number_of_streams() {
 	assert_eq!(error.message, "a connection may hold 64 streams open");
 }
 
+/// A page's `limit` is the client's to choose, so it is capped: asking for
+/// every row reads no more than a page's worth.
+async fn a_page_reads_at_most_so_many_rows(db: Db) {
+	let rows = rpc::MAX_PAGE_ROWS + 1;
+	db.transaction(async |tx| {
+		for index in 0..rows {
+			NewPost {
+				channel: "big".into(),
+				body: index.to_string(),
+			}
+			.insert(tx)
+			.await?;
+		}
+		Ok::<_, leptoskit_db::DbError>(())
+	})
+	.await
+	.unwrap();
+
+	let page = rpc::paginate(
+		&db,
+		Post::query(),
+		&rpc::PageArgs::first(u32::MAX),
+		|post| post.id.desc(),
+		|post| post.id,
+	)
+	.await
+	.unwrap();
+	assert_eq!(page.items.len(), rpc::MAX_PAGE_ROWS as usize);
+	assert!(page.has_more);
+}
+
 macro_rules! on_sqlite {
 	($($name:ident),* $(,)?) => {
 		mod sqlite {
@@ -1226,6 +1257,7 @@ macro_rules! on_sqlite {
 }
 
 on_sqlite!(
+	a_page_reads_at_most_so_many_rows,
 	streams_wait_for_credits,
 	streams_fail,
 	streams_over_server_sent_events,

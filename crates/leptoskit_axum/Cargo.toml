@@ -18,6 +18,11 @@ analytics = ["dep:leptoskit_analytics"]
 
 [dependencies]
 axum = { workspace = true }
+# Serves connections directly, so it can time out a client that never
+# finishes its request headers; `axum::serve` sets no timer, which turns
+# hyper's header read timeout off.
+hyper = { workspace = true, features = ["http1", "http2", "server"] }
+hyper-util = { workspace = true, features = ["http1", "http2", "server-auto", "server-graceful", "service", "tokio"] }
 leptoskit_analytics = { workspace = true, optional = true, features = ["server"] }
 leptoskit_codepush = { workspace = true, features = ["server"] }
 # `[native]` describes the apps whose associations the site publishes.
@@ -35,6 +40,8 @@ tower-http = { workspace = true, features = ["fs", "limit", "set-header", "timeo
 [dev-dependencies]
 http-body-util = "0.1"
 semver = { workspace = true }
+# Paused time, for the header read timeout.
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

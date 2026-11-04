@@ -4909,6 +4909,8 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "http-body-util",
+ "hyper",
+ "hyper-util",
  "leptoskit_analytics",
  "leptoskit_codepush",
  "leptoskit_config",
