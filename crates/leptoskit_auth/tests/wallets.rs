@@ -773,6 +773,13 @@ async fn a_wallet_signs_in_as_one_factor() {
 			serde_json::from_value(json_body(started).await["input"].clone()).unwrap();
 		let proof = wallet.sign_in(&input);
 
+		// A stranger starting their own sign-in meanwhile leaves this one
+		// running.
+		let started = Browser::default()
+			.post(&app, "/auth/wallets/sign-in/options", json!({}))
+			.await;
+		assert_eq!(started.status(), StatusCode::OK);
+
 		// Without the browser's cookie the answer goes nowhere: a page on
 		// another site can't finish a sign-in it didn't start here.
 		let mut elsewhere = Browser::default();

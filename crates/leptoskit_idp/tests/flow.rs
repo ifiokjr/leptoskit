@@ -551,11 +551,20 @@ async fn bad_requests_are_refused_where_its_safe_to_say_so() {
 		assert!(text(response).await.contains("doesn't work"));
 	}
 
-	// Everything else goes back to the app.
+	// Everything else goes back to the app. Scope lists are checked in
+	// linear time, and nothing is longer than a real request needs.
+	let long_scope = "openid ".repeat(1_000);
+	let long_prompt = "x ".repeat(3_000);
 	for (extra, drop, error) in [
 		(
-			&[("response_type", "token")][..],
+			&[("scope", long_scope.as_str())][..],
 			&[][..],
+			"invalid_request",
+		),
+		(&[("prompt", long_prompt.as_str())], &[], "invalid_request"),
+		(
+			&[("response_type", "token")],
+			&[],
 			"unsupported_response_type",
 		),
 		(
@@ -1176,4 +1185,40 @@ async fn the_provider_is_configured_carefully() {
 		..leptoskit_idp::EndSessionRequest::default()
 	};
 	assert!(!format!("{hint:?}").contains("secret"));
+}
+
+/// Two requests redeeming one code at once: one wins, and the other is a
+/// replay all the same, so the tokens the winner got end too, as they would
+/// had it come a moment later.
+#[tokio::test]
+async fn a_code_redeemed_twice_at_once_ends_what_it_started() {
+	let cluster = PostgresCluster::start();
+
+	for db in databases(cluster.as_ref()).await {
+		let app = app(db).await;
+		let (client_id, secret) = app.register(ClientAuth::SecretBasic, &["openid"]).await;
+		let secret = secret.unwrap();
+		let cookie = app.sign_in("ada@example.com").await;
+		let code = app.code(&client_id, "openid", &cookie).await;
+
+		let (first, second) = tokio::join!(
+			app.exchange(&client_id, Some(&secret), &code, VERIFIER),
+			app.exchange(&client_id, Some(&secret), &code, VERIFIER),
+		);
+		let (won, lost) = if first.status() == StatusCode::OK {
+			(first, second)
+		} else {
+			(second, first)
+		};
+		assert_eq!(
+			App::error(lost, StatusCode::BAD_REQUEST).await,
+			"invalid_grant"
+		);
+		let tokens: TokenResponse = body(won).await;
+		assert!(
+			!app.introspect(&client_id, &secret, &tokens.access_token)
+				.await
+				.active
+		);
+	}
 }

@@ -842,6 +842,11 @@ impl Auth {
 		offer: &PendingMerge,
 		request: &RequestInfo,
 	) -> Result<()> {
+		// An account that can't sign in can't be merged away either: a
+		// disabled one would shed its ban, and a locked one would take
+		// guesses at its factor that the lock was there to stop.
+		refuse_unusable(&Account::get(&self.inner.db, offer.absorbed).await?)?;
+
 		let factors = self.factors(&self.inner.db, offer.absorbed).await?;
 
 		if factors.is_empty() {

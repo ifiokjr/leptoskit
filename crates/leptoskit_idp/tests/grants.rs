@@ -565,6 +565,15 @@ async fn an_app_pushes_its_request_before_sending_the_browser() {
 		);
 		assert_eq!(pushed.expires_in, 600);
 
+		// Nothing it stores is longer than a real request needs.
+		let long_prompt = "x ".repeat(100_000);
+		let mut padded = request("openid notes:read");
+		padded.push(("prompt", long_prompt.as_str()));
+		let too_long = app
+			.post_form("/oauth/par", &padded, Some(&basic(&client_id, &secret)))
+			.await;
+		assert_eq!(too_long.status(), StatusCode::BAD_REQUEST);
+
 		// The browser carries only the handle. Signed out, it goes to sign in
 		// and comes back with the handle alone.
 		let query = url::form_urlencoded::Serializer::new(String::new())
@@ -832,6 +841,12 @@ async fn an_app_authenticates_with_its_own_key() {
 				&key,
 				None,
 				&assertion("four", token_endpoint.clone(), now + 7200),
+			),
+			// So far out that adding the clock's slack overflows.
+			es256_jwt(
+				&key,
+				None,
+				&assertion("four-max", token_endpoint.clone(), i64::MAX),
 			),
 			es256_jwt(
 				&stranger,

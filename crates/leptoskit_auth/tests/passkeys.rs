@@ -645,6 +645,26 @@ async fn passkeys_need_an_origin_and_a_fresh_session() {
 	));
 }
 
+/// Every sign-in before anyone is known shares one subject, so a visitor
+/// starting one mustn't end anyone else's: the first still finishes after a
+/// stranger starts theirs.
+#[tokio::test]
+async fn starting_a_sign_in_leaves_everyone_elses_running() {
+	let db = Db::connect("sqlite::memory:").await.unwrap();
+	leptoskit_db::testing::create_tables(&db).await.unwrap();
+	let mailbox = Mailbox::new();
+	let auth = auth(&db, &mailbox);
+	let mut device = SoftPasskey::new(ORIGIN);
+	let (..) = with_passkey(&auth, &mailbox, "ada@example.com", &mut device).await;
+
+	let mine = auth.begin_passkey_sign_in(&request()).await.unwrap();
+	let _theirs = auth.begin_passkey_sign_in(&request()).await.unwrap();
+	let assertion = device.sign(&mine.options);
+	auth.finish_passkey_sign_in(&mine.token, &assertion, &request())
+		.await
+		.unwrap();
+}
+
 #[tokio::test]
 async fn rotating_keys_re_encrypts_ceremonies_in_flight() {
 	use base64::Engine;

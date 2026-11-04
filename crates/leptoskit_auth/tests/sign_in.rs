@@ -532,16 +532,17 @@ async fn native_apps_refresh_their_tokens_and_list_their_devices() {
 			.await
 			.unwrap();
 		assert_eq!(auth.resolve(&first.token).await.unwrap(), None);
-		// A retry of a refresh whose response was lost still works.
+		// A retry of a refresh whose response was lost still works, once.
 		let retried = auth
 			.refresh(first.refresh.as_ref().unwrap(), &phone)
 			.await
 			.unwrap();
 		assert!(matches!(
-			auth.refresh(second.refresh.as_ref().unwrap(), &phone).await,
+			auth.refresh(first.refresh.as_ref().unwrap(), &phone).await,
 			Err(AuthError::SignedOut)
 		));
 		assert!(auth.resolve(&retried.token).await.unwrap().is_some());
+		assert_eq!(auth.resolve(&second.token).await.unwrap(), None);
 
 		// A browser signs in too; each sees both devices.
 		auth.send_email_code("ada@example.com", &request())

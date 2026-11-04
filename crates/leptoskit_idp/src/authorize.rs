@@ -31,6 +31,11 @@ use crate::secrets;
 /// The longest `state` or `nonce` kept.
 const MAX_ECHOED: usize = 2048;
 
+/// The longest any other parameter of a request may be, in bytes: far past
+/// any real scope list or prompt, and short enough that what a pushed request
+/// stores stays small.
+const MAX_PARAMETER: usize = 4096;
+
 /// The longest `claims` parameter read.
 const MAX_CLAIMS: usize = 4096;
 
@@ -560,13 +565,7 @@ impl Idp {
 	/// The scopes asked for, each one the app registered and this server
 	/// knows.
 	fn checked_scopes(&self, request: &AuthorizeRequest, client: &Client) -> Result<Vec<String>> {
-		let mut scopes: Vec<String> = Vec::new();
-
-		for scope in request.scope.as_deref().unwrap_or_default().split(' ') {
-			if !scope.is_empty() && !scopes.iter().any(|known| known == scope) {
-				scopes.push(scope.to_owned());
-			}
-		}
+		let scopes = crate::tokens::split_scopes(request.scope.as_deref().unwrap_or_default());
 
 		if scopes.is_empty() {
 			return Err(IdpError::invalid_scope("ask for at least one scope"));
@@ -775,6 +774,28 @@ fn check_request_shape(
 		.any(|value| value.len() > MAX_ECHOED)
 	{
 		return Err(IdpError::invalid_request("state and nonce are too long"));
+	}
+
+	// `claims` has its own limit; `request` is refused above.
+	if [
+		&request.response_type,
+		&request.client_id,
+		&request.redirect_uri,
+		&request.scope,
+		&request.code_challenge,
+		&request.code_challenge_method,
+		&request.prompt,
+		&request.max_age,
+		&request.response_mode,
+		&request.request_uri,
+	]
+	.into_iter()
+	.flatten()
+	.any(|value| value.len() > MAX_PARAMETER)
+	{
+		return Err(IdpError::invalid_request(format!(
+			"a parameter is longer than {MAX_PARAMETER} bytes"
+		)));
 	}
 
 	Ok(())

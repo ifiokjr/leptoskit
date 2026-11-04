@@ -335,6 +335,7 @@ impl Idp {
 				&authorization.id_token_claims,
 			)
 			.await?;
+		let raced = std::sync::atomic::AtomicBool::new(false);
 		let tx = self.inner.db.begin().await?;
 		let result = async {
 			let now = leptoskit_db::now();
@@ -345,6 +346,7 @@ impl Idp {
 				.await?;
 
 			if used == 0 {
+				raced.store(true, std::sync::atomic::Ordering::Relaxed);
 				return Err(IdpError::invalid_grant("that code was already used"));
 			}
 
@@ -385,8 +387,27 @@ impl Idp {
 			.await
 		}
 		.await;
+		let outcome = finish(tx, result).await;
 
-		finish(tx, result).await
+		// Another request redeemed the code while this one checked it: a
+		// replay all the same, so the tokens the other got end too, as they
+		// would had this one come a moment later.
+		if raced.load(std::sync::atomic::Ordering::Relaxed)
+			&& let Some(family) = Authorization::find(&self.inner.db, authorization.id)
+				.await?
+				.and_then(|row| row.family_id)
+		{
+			self.end_reused(
+				&self.inner.db,
+				family,
+				Some(authorization.account_id),
+				client,
+				info,
+			)
+			.await?;
+		}
+
+		outcome
 	}
 }
 
@@ -1071,17 +1092,16 @@ fn sign(signer: &Signer, typ: &str, claims: &Value) -> Result<String> {
 		.map_err(|_| IdpError::Config("the RSA key couldn't sign a token".into()))
 }
 
-/// Space-separated scopes, without empties.
+/// Space-separated scopes, without empties or repeats, in the order given.
+/// Linear in the input: a client sends the list, so a long one can't make
+/// it quadratic.
 pub(crate) fn split_scopes(scopes: &str) -> Vec<String> {
-	let mut unique: Vec<String> = Vec::new();
-
-	for scope in scopes.split(' ').filter(|scope| !scope.is_empty()) {
-		if !unique.iter().any(|known| known == scope) {
-			unique.push(scope.to_owned());
-		}
-	}
-
-	unique
+	let mut seen = std::collections::HashSet::new();
+	scopes
+		.split(' ')
+		.filter(|scope| !scope.is_empty() && seen.insert(*scope))
+		.map(str::to_owned)
+		.collect()
 }
 
 /// The `sub` `client` sees for `account`: the account ID for one of your own

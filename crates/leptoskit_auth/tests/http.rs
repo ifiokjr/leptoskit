@@ -358,11 +358,13 @@ async fn a_native_app_signs_in_with_tokens_and_refreshes_them() {
 	assert_eq!(app.me(&first.access_token).await, StatusCode::UNAUTHORIZED);
 
 	// The response was lost, so the app tries its old refresh token again.
-	// Within the grace it still works, and the pair it never got stops.
+	// Within the grace it still works, once, and the pair it never got stops.
+	// (Whoever used that pair's refresh token would end the session: only
+	// a copy of the old token could have overtaken it.)
 	let retried: Tokens = body(app.refresh(&first.refresh_token).await).await;
 	assert_eq!(app.me(&second.access_token).await, StatusCode::UNAUTHORIZED);
-	let unused = app.refresh(&second.refresh_token).await;
-	assert_eq!(unused.status(), StatusCode::UNAUTHORIZED);
+	let again = app.refresh(&first.refresh_token).await;
+	assert_eq!(again.status(), StatusCode::UNAUTHORIZED);
 	let third: Tokens = body(app.refresh(&retried.refresh_token).await).await;
 	assert_eq!(app.me(&third.access_token).await, StatusCode::OK);
 

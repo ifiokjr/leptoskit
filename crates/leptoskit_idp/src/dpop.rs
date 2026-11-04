@@ -100,7 +100,8 @@ impl Idp {
 			.map(|iat| iat.floor() as i64)
 			.ok_or_else(|| invalid("it must say when it was made, as `iat`"))?;
 
-		if (issued - now).abs() > SKEW {
+		// `iat` is the client's: `abs_diff` can't overflow on `-1e300`.
+		if issued.abs_diff(now) > SKEW.unsigned_abs() {
 			return Err(invalid(
 				"it must be made just now: check the app's clock, and make one per request",
 			));

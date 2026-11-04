@@ -470,6 +470,9 @@ async fn malformed_proofs_are_refused_at_the_token_endpoint() {
 		old["iat"] = json!(leptoskit_db::now().timestamp() - 600);
 		let mut future = token_claims();
 		future["iat"] = json!(leptoskit_db::now().timestamp() + 600);
+		// Far enough out that subtracting the clock overflows.
+		let mut ancient = token_claims();
+		ancient["iat"] = json!(-1e300);
 		let mut elsewhere = token_claims();
 		elsewhere["htu"] = json!("https://other.example/oauth/token");
 
@@ -504,6 +507,7 @@ async fn malformed_proofs_are_refused_at_the_token_endpoint() {
 			signed(&mine, &header("dpop+jwt"), &without("iat")),
 			signed(&mine, &header("dpop+jwt"), &old),
 			signed(&mine, &header("dpop+jwt"), &future),
+			signed(&mine, &header("dpop+jwt"), &ancient),
 			signed(&mine, &header("dpop+jwt"), &without("jti")),
 			signed(&mine, &header("dpop+jwt"), &long_jti),
 		];
