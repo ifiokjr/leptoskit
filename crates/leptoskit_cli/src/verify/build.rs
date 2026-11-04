@@ -285,7 +285,10 @@ impl<'a> Builder<'a> {
 			network,
 			mounts: vec![mount(work, WORK_MOUNT, false)?],
 			env,
+			#[cfg(unix)]
 			user: self.user(work)?,
+			#[cfg(not(unix))]
+			user: None,
 			command,
 		})
 	}
@@ -303,11 +306,6 @@ impl<'a> Builder<'a> {
 
 		let metadata = fs::metadata(work)?;
 		Ok(Some(format!("{}:{}", metadata.uid(), metadata.gid())))
-	}
-
-	#[cfg(not(unix))]
-	fn user(&self, _work: &Path) -> Result<Option<String>> {
-		Ok(None)
 	}
 
 	/// Runs a container. A captured run returns its standard output and shows
@@ -587,7 +585,10 @@ pub(crate) fn export_tree(
 		ensure!(copied == size, "git ended {relative} early");
 		let mut newline = [0_u8];
 		output.read_exact(&mut newline)?;
+		#[cfg(unix)]
 		set_mode(&path, if *executable { 0o755 } else { 0o644 })?;
+		#[cfg(not(unix))]
+		let _ = executable;
 	}
 
 	writer
@@ -602,11 +603,6 @@ fn set_mode(path: &Path, mode: u32) -> Result<()> {
 	use std::os::unix::fs::PermissionsExt as _;
 
 	fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
-	Ok(())
-}
-
-#[cfg(not(unix))]
-fn set_mode(_path: &Path, _mode: u32) -> Result<()> {
 	Ok(())
 }
 
@@ -754,6 +750,7 @@ pub(super) fn build(args: &BuildArgs) -> Result<()> {
 	let artifacts = bundle.join("artifacts");
 	fs::create_dir(&artifacts)?;
 	fs::copy(&executable, artifacts.join("backend"))?;
+	#[cfg(unix)]
 	set_mode(&artifacts.join("backend"), 0o755)?;
 	fs::write(
 		bundle.join("build.json"),
