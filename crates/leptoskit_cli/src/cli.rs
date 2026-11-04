@@ -159,6 +159,12 @@ pub enum Command {
 	/// rolls back.
 	#[command(disable_version_flag = true)]
 	Deploy(crate::infra::ReleaseArgs),
+	/// Records and checks offline backend bundles; does not verify a live
+	/// server.
+	Verify {
+		#[command(subcommand)]
+		command: crate::verify::VerifyCommand,
+	},
 	/// Upgrades leptoskit.toml to the current configuration schema.
 	Migrate {
 		/// A specific file; otherwise finds the nearest leptoskit.toml.
@@ -628,7 +634,12 @@ pub fn main() {
 	}
 	let mut command = Cli::command();
 
-	if let Some(root) = std::env::current_dir().ok()
+	// An offline verifier must not execute the current project's plugin
+	// programs merely to add their commands to its help text.
+	if arguments
+		.first()
+		.is_none_or(|argument| argument != "verify")
+		&& let Some(root) = std::env::current_dir().ok()
 		&& let Some(plugins) = crate::plugin_command::help_section(&root)
 	{
 		command = command.after_help(plugins);
@@ -662,6 +673,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		Command::Console { command } => crate::console::run(command),
 		Command::Infra { command } => crate::console::infra(command),
 		Command::Deploy(args) => crate::console::deploy(&args),
+		Command::Verify { command } => crate::verify::run(command),
 		Command::Migrate {
 			file,
 			dry_run,

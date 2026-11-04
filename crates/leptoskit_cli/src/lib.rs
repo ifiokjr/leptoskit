@@ -50,6 +50,7 @@ pub mod skill;
 pub mod split;
 pub mod testing;
 pub mod ui;
+pub mod verify;
 pub mod wasm;
 
 mod secrets;

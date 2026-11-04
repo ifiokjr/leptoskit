@@ -69,6 +69,8 @@ The client crate is detected automatically — the workspace member producing a 
 
 ## How it fits
 
+`leptoskit verify record` inventories a prepared backend bundle; `leptoskit verify check` compares it with an inventory pinned by an independently trusted SHA-256. This checks offline files, not build provenance or a running backend. See [checking a backend bundle](../../docs/src/guide/30-verifying-releases.md).
+
 Every workflow starts here. The binary is a thin wrapper over the library, so the same code drives `leptoskit dev`, CI builds, native host preparation, and release checks. Generated projects call it by name; tooling calls the library directly.
 
 ## Use it

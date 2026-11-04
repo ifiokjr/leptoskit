@@ -1,0 +1,13 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Records the files in a prepared backend bundle. This does not build, sign, or attest the bundle
+
+Usage: leptoskit verify record --bundle <BUNDLE> --out <OUT>
+
+Options:
+      --bundle <BUNDLE>  The prepared bundle directory; see the backend bundle guide
+      --out <OUT>        A new inventory file outside the bundle. Prints its SHA-256
+  -h, --help             Print help
+  -V, --version          Print version
