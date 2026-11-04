@@ -82,7 +82,7 @@ device_page = "/device" # where people enter a CLI's or a TV's code
 | `audience`               | the issuer | What access tokens name as their audience: your API's origin, if it isn't the issuer.              |
 | `sign_in_page`           | `/sign-in` | Where signed-out people sign in first.                                                             |
 | `consent_page`           | `/consent` | Where people answer an app.                                                                        |
-| `signed_out_page`        | `/`        | Where people land after an app signs them out, if it named nowhere.                                |
+| `signed_out_page`        | `/`        | Where people land after an app signs them out, if it named nowhere it registered.                  |
 | `device_page`            | `/device`  | Where people enter a device's code.                                                                |
 | `rsa_key_env`            | none       | The environment variable holding an RSA key, for apps that need RS256 ID tokens.                   |
 | `access_minutes`         | 10         | How long an access token lasts, at most 60.                                                        |
@@ -234,6 +234,8 @@ The other app sees a standard OpenID Connect provider, so any OAuth 2.1 or OIDC 
 | `POST /oauth/par`                       | Pushes a sign-in request from the app's server ahead of the browser (RFC 9126).                |
 | `POST /oauth/device_authorization`      | Starts a sign-in for a CLI or a TV (RFC 8628).                                                 |
 | `POST /oauth/register`                  | An app registers itself, with `dynamic_registration` on (RFC 7591).                            |
+
+When an app signs someone out, it can name where to send them next with `post_logout_redirect_uri`, plus a `state` to get back. The browser goes there only if that address is one the app registered with `--post-logout-redirect`, compared character for character. The app is the one the ID token in `id_token_hint` was issued to, or, without one, the app named by `client_id`. If the address isn't that app's, if neither names an app, or if `client_id` names a different app than the ID token, people land on your `signed_out_page` instead, without `state`. They're still signed out when the ID token is valid. This stops a sign-out link from sending people to an address some other app registered.
 
 The token endpoints answer requests from any site, since they read no cookies, so single-page apps can call them directly. `/oauth/authorize` and `/oauth/end_session` also take a form `POST`, as OpenID Connect allows: the browser is sent on to the same page with the same parameters.
 

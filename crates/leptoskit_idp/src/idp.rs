@@ -307,7 +307,7 @@ impl IdpBuilder {
 	}
 
 	/// Where `/oauth/end_session` sends people when the app that signed them
-	/// out named nowhere to go. Defaults to `/`.
+	/// out named nowhere it registered to go. Defaults to `/`.
 	pub fn signed_out_page(mut self, path: impl Into<String>) -> Self {
 		self.signed_out_page = path.into();
 		self
