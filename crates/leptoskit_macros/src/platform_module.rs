@@ -278,6 +278,94 @@ mod tests {
 	}
 
 	#[test]
+	fn selects_the_platform_override_and_the_shared_file_otherwise() {
+		let directory = fixture();
+		let module = syn::parse2::<Module>(quote!(mod profile = "routes/profile";)).unwrap();
+		std::fs::write(directory.path().join("src/routes/profile.ios.rs"), "").unwrap();
+
+		let ios = expand_in(&module, directory.path(), "ios")
+			.unwrap()
+			.to_string();
+		assert!(ios.contains("profile.ios.rs"), "{ios}");
+
+		let android = expand_in(&module, directory.path(), "android")
+			.unwrap()
+			.to_string();
+		assert!(
+			android.contains("profile.rs") && !android.contains("profile.ios.rs"),
+			"{android}"
+		);
+
+		// A file named for the shared build is never an override.
+		std::fs::write(directory.path().join("src/routes/profile.shared.rs"), "").unwrap();
+		let shared = expand_in(&module, directory.path(), "shared")
+			.unwrap()
+			.to_string();
+		assert!(!shared.contains("profile.shared.rs"), "{shared}");
+	}
+
+	#[test]
+	fn rejects_a_platform_the_build_did_not_set() {
+		let directory = fixture();
+		let module = syn::parse2::<Module>(quote!(mod profile = "routes/profile";)).unwrap();
+
+		for platform in ["", "iOS", "web-extension"] {
+			let error = expand_in(&module, directory.path(), platform)
+				.unwrap_err()
+				.to_string();
+			assert!(
+				error.contains("invalid LEPTOSKIT_PLATFORM"),
+				"{platform}: {error}"
+			);
+		}
+	}
+
+	#[test]
+	fn reports_an_application_without_a_source_directory() {
+		let directory = tempfile::tempdir().unwrap();
+		let module = syn::parse2::<Module>(quote!(mod profile = "routes/profile";)).unwrap();
+		let error = expand_in(&module, directory.path(), "ios")
+			.unwrap_err()
+			.to_string();
+
+		assert!(error.contains("could not resolve"), "{error}");
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn reports_an_override_it_cannot_inspect() {
+		let directory = fixture();
+		let module = syn::parse2::<Module>(quote!(mod profile = "routes/profile";)).unwrap();
+		// No file system accepts a name this long, so looking for the
+		// override fails for a reason other than its absence.
+		let platform = "a".repeat(300);
+		let error = expand_in(&module, directory.path(), &platform)
+			.unwrap_err()
+			.to_string();
+
+		assert!(error.contains("could not inspect"), "{error}");
+	}
+
+	#[test]
+	fn expansion_needs_the_platform_from_the_build_script() {
+		// Tests run without `leptoskit_build::platforms()`, so the platform
+		// is unset and the macro says where to set it.
+		assert!(std::env::var_os("LEPTOSKIT_PLATFORM").is_none());
+		let expanded = expand(quote!(mod profile = "routes/profile";)).to_string();
+		assert!(expanded.contains("compile_error"), "{expanded}");
+		assert!(
+			expanded.contains("leptoskit_build::platforms() in the application's build.rs"),
+			"{expanded}"
+		);
+
+		let expanded = expand(quote!(
+			mod profile;
+		))
+		.to_string();
+		assert!(expanded.contains("compile_error"), "{expanded}");
+	}
+
+	#[test]
 	fn rejects_a_second_module_path_attribute() {
 		let directory = fixture();
 		let module = syn::parse2::<Module>(quote!(

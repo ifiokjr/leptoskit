@@ -336,6 +336,65 @@ fn collisions_are_reported() {
 	);
 }
 
+/// A hand-built channel descriptor.
+fn channel(name: &'static str, module_path: &'static str) -> spec::ApiChannelDescriptor {
+	spec::ApiChannelDescriptor {
+		name,
+		module_path,
+		struct_name: "Room",
+		docs: "Who is in a room, and what they say.",
+		fields: &["room"],
+		args_schema: |generator| generator.subschema_for::<Todo>(),
+		message_schema: |generator| generator.subschema_for::<String>(),
+		presence_schema: |generator| generator.subschema_for::<Option<u32>>(),
+		internal: false,
+		deprecated: true,
+		tags: &["rooms"],
+	}
+}
+
+#[test]
+fn channels_are_collected_with_their_schemas_and_live_path() {
+	let options = SpecOptions::new("x", "0").with_live_path("/realtime/live");
+	let room = channel("room", "hand::rooms");
+	let spec = spec::collect_with_channels(&[], &[&room], &options).unwrap();
+
+	assert_eq!(spec.live_path, "/realtime/live");
+	let [collected] = spec.channels.as_slice() else {
+		panic!("{:?}", spec.channels);
+	};
+	assert_eq!(collected.name, "room");
+	assert_eq!(collected.module_path, "hand::rooms");
+	assert_eq!(collected.struct_name, "Room");
+	assert_eq!(collected.docs, "Who is in a room, and what they say.");
+	assert_eq!(collected.fields, ["room"]);
+	assert_eq!(collected.message_schema["type"], "string");
+	assert!(collected.deprecated);
+	assert!(!collected.internal);
+	assert_eq!(collected.tags, ["rooms"]);
+	// The join arguments' type is shared through the components.
+	assert!(
+		spec.schemas.contains_key("Todo"),
+		"{:?}",
+		spec.schemas.keys()
+	);
+
+	let error =
+		spec::collect_with_channels(&[], &[&room, &channel("room", "hand::lobby")], &options)
+			.expect_err("two channels named room");
+	assert!(
+		matches!(
+			&error,
+			spec::SpecError::DuplicateName { name, first, second }
+				if name == "room" && first == "hand::rooms" && second == "hand::lobby"
+		),
+		"{error}"
+	);
+
+	// Only `#[api]` channels register, and this binary declares none.
+	assert!(spec::channel_descriptors().is_empty());
+}
+
 #[test]
 fn encodings_classify_by_method_and_content_type() {
 	let options = SpecOptions::new("x", "0");

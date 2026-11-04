@@ -299,4 +299,32 @@ mod tests {
 			[Role::Web, Role::Live].into_iter().collect()
 		);
 	}
+
+	#[test]
+	fn without_the_flag_the_environment_decides() {
+		// The test runner sets no role, so a process runs every one.
+		assert!(std::env::var_os(ROLE_ENV).is_none());
+		assert!(Roles::from_args(["--port", "3000"]).unwrap().is_all());
+		assert!(Roles::from_env_and_args().unwrap().is_all());
+		assert!(!Roles::only([Role::Live]).is_all());
+	}
+
+	#[test]
+	fn roles_read_and_print_by_name() {
+		for role in Role::ALL {
+			assert_eq!(role.to_string().parse::<Role>(), Ok(role));
+		}
+		assert_eq!(" Worker ".parse::<Role>(), Ok(Role::Worker));
+		assert_eq!(
+			"cron".parse::<Role>().unwrap_err().to_string(),
+			"`cron` isn't a role: use web, live, worker, capture, or all"
+		);
+
+		let roles: Roles = "capture,web".parse().unwrap();
+		assert_eq!(format!("{roles:?}"), "Roles(web,capture)");
+		assert_eq!(
+			Roles::from_args(["--role="]).unwrap_err().to_string(),
+			"no roles given: use web, live, worker, capture, or all"
+		);
+	}
 }
