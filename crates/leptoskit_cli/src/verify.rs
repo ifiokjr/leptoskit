@@ -19,6 +19,7 @@ use sha2::Digest as _;
 use sha2::Sha256;
 
 mod build;
+mod deployment;
 
 const FORMAT_VERSION: u32 = 1;
 const KIND: &str = "leptoskit-backend-bundle-inventory";
@@ -34,6 +35,14 @@ pub enum VerifyCommand {
 	/// Rebuilds a pinned bundle from its own source and dependencies and
 	/// compares the executable; also compares the source with its Git commit.
 	Reproduce(build::ReproduceArgs),
+	/// Writes a new deployment signing key and prints its public key.
+	Keygen(deployment::KeygenArgs),
+	/// Signs a deployment policy naming the origins and releases a
+	/// deployment serves.
+	Sign(deployment::SignArgs),
+	/// Checks an origin's signed deployment policy against a key you trust.
+	/// Does not show what its server runs.
+	Deployment(deployment::DeploymentArgs),
 	/// Records the files in a prepared backend bundle. This does not build,
 	/// sign, or attest the bundle.
 	Record {
@@ -105,6 +114,9 @@ pub fn run(command: VerifyCommand) -> Result<()> {
 	match command {
 		VerifyCommand::Build(args) => build::build(&args)?,
 		VerifyCommand::Reproduce(args) => build::reproduce(&args)?,
+		VerifyCommand::Keygen(args) => deployment::keygen(&args)?,
+		VerifyCommand::Sign(args) => deployment::sign_file(&args)?,
+		VerifyCommand::Deployment(args) => deployment::deployment(&args)?,
 		VerifyCommand::Record { bundle, out } => {
 			let root = bundle
 				.canonicalize()
@@ -194,34 +206,40 @@ fn is_name(value: &str, extra: &[u8]) -> bool {
 			.all(|byte| byte.is_ascii_alphanumeric() || extra.contains(&byte))
 }
 
+/// A full lowercase Git object ID, SHA-1 or SHA-256.
+fn is_commit(value: &str) -> bool {
+	matches!(value.len(), 40 | 64)
+		&& value
+			.bytes()
+			.all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// Exactly `https://github.com/<owner>/<repository>`, so two spellings of
+/// one repository cannot compare unequal.
+pub(crate) fn validate_repository(value: &str) -> Result<()> {
+	let canonical = value
+		.strip_prefix("https://github.com/")
+		.and_then(|path| path.split_once('/'))
+		.is_some_and(|(owner, repository)| {
+			is_name(owner, b"-")
+				&& is_name(repository, b"-_.")
+				&& !matches!(repository, "." | "..")
+				&& repository
+					.rsplit_once('.')
+					.is_none_or(|(_, extension)| !extension.eq_ignore_ascii_case("git"))
+		});
+	anyhow::ensure!(
+		canonical,
+		"{value:?} must be a GitHub repository written as https://github.com/<owner>/<repository>"
+	);
+	Ok(())
+}
+
 /// Checks a recipe's declared values. This validates their form only.
 pub(crate) fn validate(recipe: &BuildRecipe) -> Result<()> {
-	let repository = url::Url::parse(&recipe.repository)
-		.context("build.json must name a GitHub HTTPS repository")?;
-	let segments: Vec<_> = repository.path().trim_matches('/').split('/').collect();
+	validate_repository(&recipe.repository)?;
 	anyhow::ensure!(
-		repository.scheme() == "https"
-			&& repository.host_str() == Some("github.com")
-			&& repository.username().is_empty()
-			&& repository.password().is_none()
-			&& repository.port().is_none()
-			&& repository.query().is_none()
-			&& repository.fragment().is_none()
-			&& segments.len() == 2
-			&& segments.iter().all(|segment| {
-				!segment.is_empty()
-					&& segment
-						.bytes()
-						.all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
-			}),
-		"build.json must name a GitHub HTTPS repository, without credentials or query parameters"
-	);
-	anyhow::ensure!(
-		matches!(recipe.commit.len(), 40 | 64)
-			&& recipe
-				.commit
-				.bytes()
-				.all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+		is_commit(&recipe.commit),
 		"build.json must name a full lowercase Git commit ID"
 	);
 	let pinned = recipe

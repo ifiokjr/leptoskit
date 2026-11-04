@@ -2,16 +2,19 @@
 source: crates/leptoskit_cli/tests/snapshots.rs
 expression: "normalize(&stdout(&output), &scratch.path)"
 ---
-Builds, records, checks, and reproduces backend bundles from public commits; does not verify a live server
+Builds and reproduces backends from public commits and checks signed deployment policies; does not show what a live server runs
 
 Usage: leptoskit verify <COMMAND>
 
 Commands:
-  build      Builds a backend bundle from a Git commit in a container without network access, twice, and requires identical executables
-  reproduce  Rebuilds a pinned bundle from its own source and dependencies and compares the executable; also compares the source with its Git commit
-  record     Records the files in a prepared backend bundle. This does not build, sign, or attest the bundle
-  check      Checks every bundle entry against an inventory with a separately trusted SHA-256. Does not contact or verify a running server
-  help       Print this message or the help of the given subcommand(s)
+  build       Builds a backend bundle from a Git commit in a container without network access, twice, and requires identical executables
+  reproduce   Rebuilds a pinned bundle from its own source and dependencies and compares the executable; also compares the source with its Git commit
+  keygen      Writes a new deployment signing key and prints its public key
+  sign        Signs a deployment policy naming the origins and releases a deployment serves
+  deployment  Checks an origin's signed deployment policy against a key you trust. Does not show what its server runs
+  record      Records the files in a prepared backend bundle. This does not build, sign, or attest the bundle
+  check       Checks every bundle entry against an inventory with a separately trusted SHA-256. Does not contact or verify a running server
+  help        Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help     Print help

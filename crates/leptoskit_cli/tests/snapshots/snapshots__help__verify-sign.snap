@@ -1,0 +1,14 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Signs a deployment policy naming the origins and releases a deployment serves
+
+Usage: leptoskit verify sign --policy <POLICY> --key <KEY> --out <OUT>
+
+Options:
+      --policy <POLICY>  The policy JSON; see the verifying releases guide
+      --key <KEY>        The private key written by `verify keygen`
+      --out <OUT>        A new file for the signed policy, served at `/.well-known/leptoskit/deployment.json` on each origin
+  -h, --help             Print help
+  -V, --version          Print version

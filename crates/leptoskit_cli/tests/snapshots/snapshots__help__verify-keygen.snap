@@ -1,0 +1,12 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Writes a new deployment signing key and prints its public key
+
+Usage: leptoskit verify keygen --out <OUT>
+
+Options:
+      --out <OUT>  A new file for the private key, readable only by you
+  -h, --help       Print help
+  -V, --version    Print version
