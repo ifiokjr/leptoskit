@@ -52,9 +52,17 @@ runs:
         name: devenv
 
     - name: install devenv.sh
+      # `nixpkgs#devenv` resolves through the flake registry on
+      # channels.nixos.org; a runner's DNS sometimes fails that lookup for a
+      # few seconds, so the install retries before failing the job.
       run: |
         cachix use devenv
-        nix profile install --accept-flake-config nixpkgs#devenv
+        for attempt in 1 2 3; do
+          nix profile install --accept-flake-config nixpkgs#devenv && exit 0
+          echo "devenv install attempt $attempt failed; retrying in 20s" >&2
+          sleep 20
+        done
+        exit 1
       shell: bash
 
     - name: build developer environment
