@@ -265,42 +265,31 @@ jobs:
       - name: audit GitHub Actions workflows and composite actions
         run: security:zizmor
 
-  # Windows and macOS run the workspace tests through a plain rust toolchain
-  # because devenv needs nix, which the hosted Windows runner does not
-  # provide; Linux runs the same suite instrumented in `coverage` below. The
-  # desktop platform probe — the end-to-end suite for the layout, renderer,
-  # wasm runtime, and code push — runs as an ordinary test on every OS.
-  test:
-    name: test (${{ matrix.os }})
+  # The workspace suite runs once, on Linux, in the `coverage` shards below.
+  # Windows and macOS run only the packages whose code or tests depend on the
+  # OS: the widget backend, the gallery's native conformance scenario and
+  # snapshots, the desktop platform probe (the end-to-end suite for the
+  # layout, renderer, wasm runtime, and code push), and the plugins with a
+  # per-OS implementation. `setup/scripts/test-shard.sh` lists them. These
+  # jobs use a plain rust toolchain because devenv needs nix, which the
+  # hosted Windows runner does not provide.
+  desktop:
+    name: desktop tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Database drivers and real Postgres clusters make the workspace suite
-    # expensive. Generated applications compile optimized host dependencies in
-    # separate targets, so their builds run in the applications job below.
-    # Cold desktop builds also compile separate dependency graphs for the
-    # compile-error fixtures. Windows exhausted 90 minutes while those checks
-    # were still progressing, before the remaining tests and docs could run.
-    # A cold Windows run now takes 130 to 150 minutes on a busy runner (main
-    # took 132; a PR was cancelled at 150 in the last minute-long step), so
-    # the limit leaves room above that rather than sitting on it.
-    timeout-minutes: 210
-
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
-
+        include:
+          - os: windows-latest
+            shard: windows
+          - os: macos-latest
+            shard: macos
     steps:
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-
-      # RPC generator regressions compile the generated Go clients.
-      - name: install Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: "1.26.8"
-          cache: false
 
       - name: install rust
         uses: ./.github/actions/rust
@@ -309,45 +298,18 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: build
-        run: cargo build --workspace --all-features --locked
+        shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: bash setup/scripts/test-shard.sh "$SHARD" --no-run
 
       # A panic inside a Win32 window procedure aborts the process and loses
-      # libtest's captured output, so run the native suite uncaptured first.
-      # Match the workspace feature graph so this check reuses the Rive C++
-      # runtime instead of compiling a package-only dependency variant.
-      - name: test native Windows widgets
-        if: runner.os == 'Windows'
-        run: cargo test --locked --workspace --all-features --test widgets -- --test-threads=1 --nocapture
-
+      # libtest's captured output, so the suite runs uncaptured.
       - name: test
-        env:
-          LEPTOSKIT_HYBRID_FIXTURE_OUTPUT: ${{ runner.temp }}/hybrid-service
-
-        run: cargo test --locked --workspace --all-features -- --test-threads=1
-
-      - name: run the generated hybrid service constructor
         shell: bash
         env:
-          SERVICE_REGISTRANT_DIR: ${{ runner.temp }}/hybrid-service
-
-        run: |
-          set -euo pipefail
-          test -s "$SERVICE_REGISTRANT_DIR/registrant.rs"
-          cargo run --locked --manifest-path crates/leptoskit_cli/tests/fixtures/app-service/Cargo.toml \
-            --target-dir "$PWD/target"
-
-      - name: test docs
-        run: cargo test --doc --workspace --all-features
-
-      - name: run the portable widget journey through the test runner
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo build --locked -p leptoskit_testing --example widget_suite
-          suffix=""
-          if [ "$RUNNER_OS" = "Windows" ]; then suffix=".exe"; fi
-          cargo run --locked -p leptoskit_cli --bin leptoskit -- test run \
-            --binary "target/debug/examples/widget_suite$suffix"
+          SHARD: ${{ matrix.shard }}
+        run: bash setup/scripts/test-shard.sh "$SHARD" -- --test-threads=1 --nocapture
 
       # target/tmp/gallery-snapshot holds every gallery screen as captured by the
       # test step; gallery's tests/cli.rs fails it when one is missing or blank.
@@ -362,20 +324,29 @@ jobs:
             target/tmp/gallery-snapshot
           if-no-files-found: ignore
 
-  # Generated hosts each keep their own build target. Run these cold builds
-  # separately from the workspace suite so neither workload consumes the
-  # other's execution budget.
+  # Generated hosts each keep their own build target, so every build here is a
+  # cold compile of its own. Each OS splits them into legs that run in
+  # parallel; every leg builds only the CLI it drives.
   applications:
-    name: applications (${{ matrix.os }})
+    name: applications (${{ matrix.os }}, ${{ matrix.suite }})
     runs-on: ${{ matrix.os }}
-    # The macOS leg takes 68–71 minutes when it succeeds, so 75 left no room for a slow runner.
-    # A timed-out job never saves its build cache, so one timeout makes the next run start cold
-    # and time out too.
-    timeout-minutes: 100
+    # A timed-out job never saves its build cache, so one timeout makes the
+    # next run start cold and time out too: leave room above a cold build.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        include:
+          - os: windows-latest
+            suite: generated
+          - os: windows-latest
+            suite: file-routes
+            file-routes: true
+          - os: macos-latest
+            suite: generated
+            file-routes: true
+          - os: macos-latest
+            suite: commonplace
     steps:
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -388,11 +359,11 @@ jobs:
       - name: cache rust artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
-      - name: build
-        run: cargo build --workspace --all-features --locked
+      - name: build the CLI
+        run: cargo build --locked --package leptoskit_cli
 
       - name: build generated macOS application
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.suite == 'generated'
         shell: bash
 
         run: |
@@ -415,7 +386,7 @@ jobs:
       # A window can't open here, so this builds both the same way, checks the
       # agent is in the host library, and stops.
       - name: build the generated macOS application with DevTools
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.suite == 'generated'
         shell: bash
         run: |
           set -euo pipefail
@@ -429,7 +400,7 @@ jobs:
       # checked against its tables, and its website and macOS app built
       # through the CLI.
       - name: test and build the commonplace example
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.suite == 'commonplace'
         shell: bash
         run: |
           set -euo pipefail
@@ -445,7 +416,7 @@ jobs:
       # Safari installs extensions only from inside an app, so Commonplace's
       # macOS app carries its Safari extension, sandboxed as Safari requires.
       - name: check commonplace's Safari extension
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.suite == 'commonplace'
         shell: bash
         working-directory: examples/commonplace/.leptoskit/macos/App.app
         run: |
@@ -462,7 +433,7 @@ jobs:
       # a page with a strict content security policy: Commonplace's, the
       # DevTools panel's, and a freshly scaffolded one's.
       - name: test the extensions in Chrome for Testing
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.suite == 'commonplace'
         shell: bash
         run: |
           set -euo pipefail
@@ -497,7 +468,7 @@ jobs:
       # checked for any trace of them. The string check catches both the agents
       # and the hub address, whether or not symbols survive optimization.
       - name: refuse DevTools in release builds
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.suite == 'generated'
         shell: bash
         run: |
           set -euo pipefail
@@ -519,7 +490,7 @@ jobs:
       # Every store's checks and remaining steps, on a real extension, with no
       # credentials and no store contacted.
       - name: dry-run publishing commonplace
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.suite == 'commonplace'
         shell: bash
         run: |
           set -euo pipefail
@@ -535,7 +506,7 @@ jobs:
       # no credentials and no store contacted; both packages must declare the
       # developer tools page and carry the panel's pages.
       - name: dry-run publishing the DevTools panel
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.suite == 'commonplace'
         shell: bash
         run: |
           set -euo pipefail
@@ -554,7 +525,7 @@ jobs:
           test -s .leptoskit/publish/next-steps.json
 
       - name: build generated Windows application
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && matrix.suite == 'generated'
         shell: bash
         run: |
           set -euo pipefail
@@ -569,6 +540,7 @@ jobs:
       # The file-routes example is a standalone workspace in the scaffold's
       # shape; build it through the same pipeline as a generated app.
       - name: build the file routes example for this desktop
+        if: matrix.file-routes
         shell: bash
         run: |
           set -euo pipefail
@@ -577,37 +549,86 @@ jobs:
           cd examples/file_routes
           "$cli" native build "$target"
 
-  # The Linux leg of the desktop suite, instrumented: the workspace tests, the
-  # GTK widget suite under Xvfb, the doc tests, and the portable widget
-  # journey run once with `-C instrument-coverage`, so the integration runs
-  # count toward coverage alongside the unit tests. A second matrix leg runs
-  # the CLI's wasm end-to-end tests and application builds with the same
-  # instrumentation. Both reports reach the coverage gate, and the cold
-  # application builds do not consume the workspace tests' execution budget.
+      # The same widget journey, compiled for this OS and run through
+      # `leptoskit test run`.
+      - name: run the portable widget journey through the test runner
+        if: matrix.suite == 'generated'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked -p leptoskit_testing --example widget_suite
+          suffix=""
+          if [ "$RUNNER_OS" = "Windows" ]; then suffix=".exe"; fi
+          cargo run --locked -p leptoskit_cli --bin leptoskit -- test run \
+            --binary "target/debug/examples/widget_suite$suffix"
+
+      - name: retain the widget journey's report
+        if: always() && matrix.suite == 'generated'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: testing-${{ matrix.os }}-journey
+          path: target/leptoskit-tests
+          if-no-files-found: ignore
+
+  # The workspace suite, on Linux only, instrumented with
+  # `-C instrument-coverage`: the unit, integration, and doc tests, with the
+  # GTK widget suite under Xvfb, so the integration runs count toward coverage
+  # alongside the unit tests. It runs as parallel shards, each compiling only
+  # its own packages (`setup/scripts/test-shard.sh`). The application legs run
+  # the CLI's wasm end-to-end tests and build applications through the
+  # instrumented CLI. Every leg hands its own report to the coverage gate,
+  # which merges them.
   coverage:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
-    # Cold application builds reached 90 minutes after uploading coverage,
-    # then timed out while saving their build cache.
-    timeout-minutes: ${{ matrix.timeout }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
+          - suite: compile-errors
+            name: coverage (compile errors)
+            jobs: 4
+          - suite: database
+            name: coverage (database)
+            services: true
+            jobs: 4
+          - suite: cli
+            name: coverage (cli)
+            services: true
+            jobs: 2
           - suite: workspace
-            name: coverage (ubuntu-latest)
-            timeout: 90
-          - suite: applications
-            name: application coverage (ubuntu-latest)
-            timeout: 120
+            name: coverage (workspace)
+            services: true
+            jobs: 4
+          # The ignored tests of the CLI's end-to-end targets compile real
+          # projects for wasm32: a fresh scaffold built against this
+          # repository, SSR with each side's feature, the compile-and-bind
+          # pipeline and its cache, and release builds that precompress,
+          # report, and fail over their budget. They are the only ignored
+          # tests in those targets, so `--ignored` selects exactly them.
+          - suite: wasm-cli
+            name: application coverage (wasm, cli and db)
+            wasm-tests: --test cli --test db
+            jobs: 2
+          - suite: wasm-builds
+            name: application coverage (wasm builds)
+            wasm-tests: --test render --test wasm_pipeline --test universal --test size --test split --test native_split
+            jobs: 2
+          - suite: native-apps
+            name: application coverage (native apps)
+            jobs: 4
+          - suite: web-apps
+            name: application coverage (web apps)
+            jobs: 4
     env:
       LLVM_COV_ENV: ${{ github.workspace }}/target/llvm-cov.env
       BINARYEN_VERSION: "132"
       BINARYEN_SHA256: 195ddc94f9bc89f45abdabb0b9eea86023d727ba90eac8b35b80f2544fc30572
-      # The instrumented `leptoskit_cli` test binaries are large. Linking all
-      # of them at once on a four-core runner has killed `ld` with SIGBUS, so
-      # build and link two at a time; the job has the time budget for it.
-      CARGO_BUILD_JOBS: 2
+      # The instrumented `leptoskit_cli` test binaries are large. Linking
+      # several at once on a four-core runner has killed `ld` with SIGBUS, so
+      # the legs that link them build two at a time.
+      CARGO_BUILD_JOBS: ${{ matrix.jobs }}
       # Full type/local debug information in every instrumented test binary
       # exhausts hosted-runner disk. Keep source lines for diagnostics and
       # coverage, including in the nested fixture workspaces.
@@ -656,7 +677,7 @@ jobs:
       # installing Postgres, and Ubuntu's own pgvector is too old (0.6; the
       # vector columns need 0.8), so the repository is added back first.
       - name: install PostGIS and pgvector for the runner's Postgres
-        if: matrix.suite == 'workspace'
+        if: matrix.services
         shell: bash
         run: |
           set -euo pipefail
@@ -667,7 +688,7 @@ jobs:
       # Match devenv's NATS version. Without the server, the relay tests
       # return early and leave the distributed live-query paths unmeasured.
       - name: install NATS for the relay tests
-        if: matrix.suite == 'workspace'
+        if: matrix.services
         shell: bash
         run: |
           set -euo pipefail
@@ -705,31 +726,54 @@ jobs:
           # fail to link instrumented code.
           cargo-llvm-cov llvm-cov show-env --sh --coverage-host-only > "$LLVM_COV_ENV"
 
-      - name: build
+      # The shard's tests, and the doc tests `cargo test` runs with them.
+      - name: build the shard's tests
+        if: ${{ contains(fromJSON('["compile-errors","database","cli","workspace"]'), matrix.suite) }}
         shell: bash
+        env:
+          SHARD: ${{ matrix.suite }}
         run: |
           # shellcheck source=/dev/null
           source "$LLVM_COV_ENV"
-          cargo build --workspace --all-features --locked
+          bash setup/scripts/test-shard.sh "$SHARD" --no-run
 
       - name: test
-        if: matrix.suite == 'workspace'
+        if: ${{ contains(fromJSON('["compile-errors","database","cli","workspace"]'), matrix.suite) }}
         shell: bash
         env:
+          SHARD: ${{ matrix.suite }}
           # The database migration tests apply real migrations to a
-          # throwaway cluster from the runner's preinstalled Postgres.
+          # throwaway cluster from the runner's preinstalled Postgres. The
+          # compile-errors shard installs none of these services and runs
+          # none of the tests that need them.
           LEPTOSKIT_REQUIRE_POSTGRES: "1"
           # A missing NATS server must fail rather than skip relay coverage.
           LEPTOSKIT_REQUIRE_NATS: "1"
           # The geospatial and vector tests need PostGIS and pgvector,
           # installed above.
           LEPTOSKIT_REQUIRE_POSTGRES_EXTENSIONS: postgis,vector
+          # The CLI's hybrid generation test writes the registrants the next
+          # step runs.
+          LEPTOSKIT_HYBRID_FIXTURE_OUTPUT: ${{ runner.temp }}/hybrid-service
         run: |
           set -euo pipefail
           # shellcheck source=/dev/null
           source "$LLVM_COV_ENV"
           dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
-            cargo test --locked --workspace --all-features -- --test-threads=1
+            bash setup/scripts/test-shard.sh "$SHARD" -- --test-threads=1
+
+      - name: run the generated hybrid service constructor
+        if: matrix.suite == 'cli'
+        shell: bash
+        env:
+          SERVICE_REGISTRANT_DIR: ${{ runner.temp }}/hybrid-service
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source "$LLVM_COV_ENV"
+          test -s "$SERVICE_REGISTRANT_DIR/registrant.rs"
+          cargo run --locked --manifest-path crates/leptoskit_cli/tests/fixtures/app-service/Cargo.toml \
+            --target-dir "$PWD/target"
 
       - name: reject Rive widgets when the host feature is disabled
         if: matrix.suite == 'workspace'
@@ -739,16 +783,8 @@ jobs:
           source "$LLVM_COV_ENV"
           cargo test --locked --package leptoskit_native --no-default-features --test controls
 
-      - name: test docs
-        if: matrix.suite == 'workspace'
-        shell: bash
-        run: |
-          # shellcheck source=/dev/null
-          source "$LLVM_COV_ENV"
-          cargo test --doc --workspace --all-features
-
       - name: run the portable widget journey through the test runner
-        if: matrix.suite == 'workspace'
+        if: matrix.suite == 'cli'
         shell: bash
         run: |
           set -euo pipefail
@@ -758,23 +794,28 @@ jobs:
           cargo run --locked -p leptoskit_cli --bin leptoskit -- test run \
             --binary target/debug/examples/widget_suite
 
-      # The ignored tests of the CLI's end-to-end targets compile real projects
-      # for wasm32: a fresh scaffold built against this repository, SSR with
-      # each side's feature, the compile-and-bind pipeline and its cache, and
-      # release builds that precompress, report, and fail over their budget.
-      # They are the only ignored tests in those targets, so `--ignored`
-      # selects exactly them.
-      - name: run the wasm end-to-end tests
-        if: matrix.suite == 'applications'
+      - name: build the CLI
+        if: matrix.suite == 'native-apps' || matrix.suite == 'web-apps'
         shell: bash
+        run: |
+          # shellcheck source=/dev/null
+          source "$LLVM_COV_ENV"
+          cargo build --locked --package leptoskit_cli
+
+      - name: run the wasm end-to-end tests
+        if: matrix.wasm-tests
+        shell: bash
+        env:
+          TESTS: ${{ matrix.wasm-tests }}
         run: |
           set -euo pipefail
           # shellcheck source=/dev/null
           source "$LLVM_COV_ENV"
-          cargo test --locked --package leptoskit_cli --test cli --test render --test wasm_pipeline --test universal --test size --test split --test native_split --test db -- --ignored
+          read -r -a tests <<< "$TESTS"
+          cargo test --locked --package leptoskit_cli "${tests[@]}" -- --ignored
 
       - name: build generated Linux application
-        if: matrix.suite == 'applications'
+        if: matrix.suite == 'native-apps'
         shell: bash
         run: |
           set -euo pipefail
@@ -789,7 +830,7 @@ jobs:
           test -s .leptoskit/linux/app/assets/app.wasm
 
       - name: build generated terminal application
-        if: matrix.suite == 'applications'
+        if: matrix.suite == 'native-apps'
         shell: bash
         run: |
           set -euo pipefail
@@ -804,7 +845,7 @@ jobs:
           test -s .leptoskit/tui/app/assets/app.wasm
 
       - name: build the opencode example for the browser and the terminal
-        if: matrix.suite == 'applications'
+        if: matrix.suite == 'web-apps'
         shell: bash
         working-directory: examples/opencode
         run: |
@@ -820,7 +861,7 @@ jobs:
           test -s .leptoskit/tui/app/assets/app.wasm
 
       - name: build the islands example for release
-        if: matrix.suite == 'applications'
+        if: matrix.suite == 'web-apps'
         shell: bash
         working-directory: examples/islands
         run: |
@@ -830,7 +871,7 @@ jobs:
           cargo run --locked --package leptoskit_cli --bin leptoskit -- build --release
 
       - name: build the file routes example for linux
-        if: matrix.suite == 'applications'
+        if: matrix.suite == 'native-apps'
         shell: bash
         run: |
           set -euo pipefail
@@ -1451,7 +1492,10 @@ jobs:
           args=(--markdown "$GITHUB_STEP_SUMMARY" --annotate \
             --exclude-from setup/coverage_gate/exclusions.txt)
           floor=setup/coverage_gate/floor.txt
-          for platform in linux-workspace linux-applications browser ios android; do
+          # One report per Linux leg of the coverage job, then the devices.
+          for platform in linux-compile-errors linux-database linux-cli linux-workspace \
+            linux-wasm-cli linux-wasm-builds linux-native-apps linux-web-apps \
+            browser ios android; do
             report="target/coverage/coverage-$platform/lcov.info"
             if [ -f "$report" ]; then
               args+=(--lcov "$report")
