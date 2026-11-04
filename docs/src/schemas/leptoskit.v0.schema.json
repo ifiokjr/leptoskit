@@ -1740,6 +1740,17 @@
 					"description": "Public application hostname on the selected Cloudflare zone.",
 					"type": "string"
 				},
+				"external": {
+					"description": "Provision hosts and edge routing for an independently supervised\nservice. Omitting this keeps the managed Postgres/Kamal release preset.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/InfraExternal"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
 				"hosted_state": {
 					"description": "Use the hosted service's locking HTTP state backend. Credentials stay on\nthe worker.",
 					"type": "boolean"
@@ -1849,13 +1860,24 @@
 				"ssh_key_ids",
 				"ssh_cidrs",
 				"account_id",
-				"zone_id",
-				"updates_domain",
-				"backup_bucket",
-				"updates_bucket",
-				"image",
-				"registry",
-				"registry_username"
+				"zone_id"
+			]
+		},
+		"InfraExternal": {
+			"description": "A single host whose application lifecycle is managed outside Kamal.",
+			"type": "object",
+			"properties": {
+				"origin_port": {
+					"description": "Cloudflare Tunnel connects to this port on the host's loopback address.",
+					"type": "integer",
+					"format": "uint16",
+					"maximum": 65535,
+					"minimum": 1
+				}
+			},
+			"additionalProperties": false,
+			"required": [
+				"origin_port"
 			]
 		},
 		"InfraPlugins": {

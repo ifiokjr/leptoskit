@@ -2,6 +2,60 @@ use leptoskit_config::infra::InfraConfig;
 use serde_json::Value;
 use serde_json::json;
 
+const EXTERNAL_CLOUD_INIT: &str =
+	"#cloud-config\nssh_pwauth: false\ndisable_root: false\npackage_update: true\npackages:\n  - \
+	 ca-certificates\n  - libstdc++6\n  - unattended-upgrades\n  - restic\n  - \
+	 python3\nwrite_files:\n  - path: /etc/ssh/sshd_config.d/00-leptoskit.conf\n    content: |\n      \
+	 PasswordAuthentication no\n      PermitRootLogin prohibit-password\nruncmd:\n  - sshd -t\n  \
+	 - systemctl restart ssh\n";
+
+fn external(value: &mut Value, c: &InfraConfig) {
+	let Some(external) = &c.external else { return };
+	for kind in ["hcloud_server", "digitalocean_droplet"] {
+		if let Some(servers) = value["resource"]
+			.get_mut(kind)
+			.and_then(Value::as_object_mut)
+		{
+			for server in servers.values_mut() {
+				server["user_data"] = json!(EXTERNAL_CLOUD_INIT);
+			}
+		}
+	}
+	if let Some(rules) = value["resource"]
+		.get_mut("digitalocean_firewall")
+		.and_then(|firewall| firewall.get_mut("app"))
+		.and_then(|app| app.get_mut("inbound_rule"))
+		.and_then(Value::as_array_mut)
+	{
+		rules.retain(|rule| rule["port_range"] == "22");
+	}
+	value["resource"]["cloudflare_zero_trust_tunnel_cloudflared_config"]["app"]["config"]
+		["ingress"][0]["service"] = json!(format!("http://127.0.0.1:{}", external.origin_port));
+	let resources = value["resource"].as_object_mut().unwrap();
+	resources.remove("cloudflare_r2_custom_domain");
+	let buckets = resources
+		.get_mut("cloudflare_r2_bucket")
+		.unwrap()
+		.as_object_mut()
+		.unwrap();
+	buckets.remove("updates");
+	if c.backup_bucket.is_empty() {
+		buckets.remove("backups");
+	}
+	if buckets.is_empty() {
+		resources.remove("cloudflare_r2_bucket");
+	}
+	let outputs = value["output"].as_object_mut().unwrap();
+	for name in ["updates_url", "updates_bucket"] {
+		outputs.remove(name);
+	}
+	if c.backup_bucket.is_empty() {
+		for name in ["backup_bucket", "backup_endpoint", "s3_endpoint"] {
+			outputs.remove(name);
+		}
+	}
+}
+
 fn extend(value: &mut Value, c: &InfraConfig) {
 	use leptoskit_config::infra::ComputeProvider;
 	let replicas: serde_json::Map<String, Value> = (1..c.instances)
@@ -147,5 +201,6 @@ pub(super) fn resources(c: &InfraConfig) -> Value {
 		value["terraform"]["backend"] = json!({"http":{}});
 	}
 	extend(&mut value, c);
+	external(&mut value, c);
 	value
 }

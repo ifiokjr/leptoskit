@@ -1,4 +1,5 @@
-//! Managed Linux application hosts behind Cloudflare, with private services.
+//! Linux hosts behind Cloudflare, with managed or independently supervised
+//! services.
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -9,6 +10,10 @@ use serde::Serialize;
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct InfraConfig {
+	/// Provision hosts and edge routing for an independently supervised
+	/// service. Omitting this keeps the managed Postgres/Kamal release preset.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub external: Option<InfraExternal>,
 	/// Optional self-hosted deployment service. Credentials are kept outside
 	/// the repository; ordinary `lk deploy` uses its durable operation queue.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -60,16 +65,22 @@ pub struct InfraConfig {
 	/// Cloudflare DNS zone ID, not a credential.
 	pub zone_id: String,
 	/// Public hostname for signed code-push artifacts in R2.
+	#[serde(default, skip_serializing_if = "String::is_empty")]
 	pub updates_domain: String,
 	/// Private R2 or B2 bucket for encrypted database backups.
+	#[serde(default, skip_serializing_if = "String::is_empty")]
 	pub backup_bucket: String,
 	/// R2 bucket exposed only for signed release artifacts.
+	#[serde(default, skip_serializing_if = "String::is_empty")]
 	pub updates_bucket: String,
 	/// Image repository without a tag, for example `ghcr.io/team/app`.
+	#[serde(default, skip_serializing_if = "String::is_empty")]
 	pub image: String,
 	/// Registry hostname, for example `ghcr.io`.
+	#[serde(default, skip_serializing_if = "String::is_empty")]
 	pub registry: String,
 	/// Registry login name; password is `KAMAL_REGISTRY_PASSWORD`.
+	#[serde(default, skip_serializing_if = "String::is_empty")]
 	pub registry_username: String,
 	/// Additional application secret environment names.
 	#[serde(default)]
@@ -77,6 +88,16 @@ pub struct InfraConfig {
 	/// Optional S3 remote-state backend. Local state is private and gitignored.
 	#[serde(default)]
 	pub state: Option<InfraState>,
+}
+
+/// A single host whose application lifecycle is managed outside Kamal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct InfraExternal {
+	/// Cloudflare Tunnel connects to this port on the host's loopback address.
+	#[cfg_attr(feature = "schema", schemars(range(min = 1, max = 65535)))]
+	pub origin_port: u16,
 }
 
 const fn one() -> u8 {
@@ -263,6 +284,66 @@ pub struct InfraState {
 }
 
 impl InfraConfig {
+	fn ssh_problem(&self) -> Option<String> {
+		if self.ssh_key_ids.is_empty() || self.ssh_cidrs.is_empty() {
+			return Some("infra requires existing ssh_key_ids and administrator ssh_cidrs".into());
+		}
+		for cidr in &self.ssh_cidrs {
+			let valid = cidr.split_once('/').is_some_and(|(ip, bits)| {
+				match (ip.parse::<std::net::IpAddr>(), bits.parse::<u8>()) {
+					(Ok(ip), Ok(bits)) => bits > 0 && bits <= if ip.is_ipv4() { 32 } else { 128 },
+					_ => false,
+				}
+			});
+			if !valid {
+				return Some("infra.ssh_cidrs requires valid CIDRs with nonzero prefixes".into());
+			}
+		}
+		None
+	}
+
+	fn external_problem(&self) -> Option<String> {
+		if let Some(external) = &self.external {
+			if external.origin_port == 0 {
+				return Some("infra.external.origin_port must be between 1 and 65535".into());
+			}
+			if self.instances != 1
+				|| self.services.cache
+				|| self.services.relay
+				|| self.plugins.analytics.is_some()
+				|| self.backups.enabled
+				|| self.control_url.is_some()
+				|| self.hosted_state
+				|| !self.secrets.is_empty()
+			{
+				return Some(
+					"infra.external provisions one host; manage its services, application \
+					 secrets, backups and releases separately, without a hosted worker or runtime \
+					 plugins"
+						.into(),
+				);
+			}
+			if [
+				&self.updates_domain,
+				&self.updates_bucket,
+				&self.image,
+				&self.registry,
+				&self.registry_username,
+			]
+			.iter()
+			.any(|value| !value.is_empty())
+			{
+				return Some(
+					"infra.external does not use image, registry or code-push settings".into(),
+				);
+			}
+			if self.b2.is_some() && self.backup_bucket.is_empty() {
+				return Some("infra.b2 requires a backup_bucket".into());
+			}
+		}
+		None
+	}
+
 	fn plugins_problem(&self) -> Option<String> {
 		if self
 			.control_url
@@ -279,6 +360,9 @@ impl InfraConfig {
 
 	/// A configuration problem, before generation or external commands run.
 	pub fn problem(&self) -> Option<String> {
+		if let Some(problem) = self.external_problem() {
+			return Some(problem);
+		}
 		if self.hosted_state && self.state.is_some() {
 			return Some("choose hosted_state or infra.state, not both".into());
 		}
@@ -352,6 +436,10 @@ impl InfraConfig {
 			("registry", &self.registry),
 			("registry_username", &self.registry_username),
 		] {
+			if self.external.is_some() && matches!(key, "image" | "registry" | "registry_username")
+			{
+				continue;
+			}
 			if !safe(value) {
 				return Some(format!("infra.{key} contains unsupported characters"));
 			}
@@ -360,6 +448,9 @@ impl InfraConfig {
 			("domain", &self.domain),
 			("updates_domain", &self.updates_domain),
 		] {
+			if self.external.is_some() && key == "updates_domain" {
+				continue;
+			}
 			if !value.contains('.')
 				|| value.split('.').any(|label| {
 					label.is_empty()
@@ -372,7 +463,9 @@ impl InfraConfig {
 				return Some(format!("infra.{key} must be a DNS hostname"));
 			}
 		}
-		if self.domain == self.updates_domain || self.backup_bucket == self.updates_bucket {
+		if self.external.is_none()
+			&& (self.domain == self.updates_domain || self.backup_bucket == self.updates_bucket)
+		{
 			return Some(
 				"application/update hostnames and backup/update buckets must be distinct".into(),
 			);
@@ -385,6 +478,9 @@ impl InfraConfig {
 			}
 		}
 		for value in [&self.backup_bucket, &self.updates_bucket] {
+			if self.external.is_some() && value.is_empty() {
+				continue;
+			}
 			if !(3..=63).contains(&value.len())
 				|| !value
 					.bytes()
@@ -395,20 +491,10 @@ impl InfraConfig {
 				);
 			}
 		}
-		if self.ssh_key_ids.is_empty() || self.ssh_cidrs.is_empty() {
-			return Some("infra requires existing ssh_key_ids and administrator ssh_cidrs".into());
+		if let Some(problem) = self.ssh_problem() {
+			return Some(problem);
 		}
-		for cidr in &self.ssh_cidrs {
-			let valid = cidr.split_once('/').is_some_and(|(ip, bits)| {
-				match (ip.parse::<std::net::IpAddr>(), bits.parse::<u8>()) {
-					(Ok(ip), Ok(bits)) => bits > 0 && bits <= if ip.is_ipv4() { 32 } else { 128 },
-					_ => false,
-				}
-			});
-			if !valid {
-				return Some("infra.ssh_cidrs requires valid CIDRs with nonzero prefixes".into());
-			}
-		}
+
 		if self.secrets.iter().any(|name| !env_name(name)) {
 			return Some("infra.secrets entries must be environment variable names".into());
 		}

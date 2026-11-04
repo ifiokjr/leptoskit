@@ -148,6 +148,22 @@ pub enum InfraCommand {
 	},
 }
 
+impl InfraCommand {
+	fn supports_external(&self) -> bool {
+		matches!(
+			self,
+			Self::Generate { .. }
+				| Self::Plan
+				| Self::Apply { .. }
+				| Self::Output
+				| Self::Status
+				| Self::Unlock { .. }
+				| Self::Plugins
+				| Self::Offers { .. }
+		)
+	}
+}
+
 /// Host-side encrypted backup operations.
 #[derive(Debug, clap::Subcommand)]
 pub enum BackupCommand {
@@ -207,6 +223,11 @@ pub fn run(command: InfraCommand) -> Result<()> {
 	}
 	let (config, root) = LeptoskitConfig::load()?;
 	let infra = settings(&config)?;
+	ensure!(
+		infra.external.is_none() || command.supports_external(),
+		"infra.external manages provisioning only; use the service's own build, release and \
+		 backup procedures"
+	);
 	let dir = directory(&root, infra);
 	match command {
 		InfraCommand::Analytics => analytics::query(infra),
@@ -217,23 +238,7 @@ pub fn run(command: InfraCommand) -> Result<()> {
 			);
 			Ok(())
 		}
-		InfraCommand::Generate { force } => {
-			generate(&dir, infra, force)?;
-			// Reuse the existing container recipe rather than another build
-			// system.
-			let report =
-				crate::deploy::generate(&root, &config, crate::deploy::Target::Docker, false)?;
-			let ignore = root.join(".dockerignore");
-			let mut text = fs::read_to_string(&ignore)?;
-			if !text.lines().any(|line| line.trim() == "/infra") {
-				text.push_str(
-					"\n# Managed state, plans, and runtime secret bindings\n/infra\n/.kamal\n",
-				);
-				fs::write(ignore, text)?;
-			}
-			println!("{report}\nInfrastructure written to {}", dir.display());
-			Ok(())
-		}
+		InfraCommand::Generate { force } => generate_project(&root, &config, infra, &dir, force),
 		InfraCommand::Build {
 			version,
 			push,
@@ -288,15 +293,7 @@ pub fn run(command: InfraCommand) -> Result<()> {
 			run_tool("tofu", &dir, &["apply", "-input=false", "leptoskit.plan"])
 		}
 		InfraCommand::Prepare => releases::prepare(),
-		InfraCommand::Output => {
-			let output = json!({"server_ip": server_ip(&dir)?,
-				"server_ips": releases::hosts(&dir)?,
-				"app_url": output(&dir, "app_url")?, "updates_url": output(&dir, "updates_url")?,
-				"updates_bucket": output(&dir, "updates_bucket")?, "backup_bucket": output(&dir, "backup_bucket")?,
-				"s3_endpoint": output(&dir, "s3_endpoint")?, "backup_endpoint": output(&dir, "backup_endpoint")?});
-			println!("{}", serde_json::to_string_pretty(&output)?);
-			Ok(())
-		}
+		InfraCommand::Output => print_output(&dir, infra),
 		InfraCommand::Releases => {
 			println!(
 				"{}",
@@ -304,7 +301,7 @@ pub fn run(command: InfraCommand) -> Result<()> {
 			);
 			Ok(())
 		}
-		InfraCommand::Status => operations::status(&dir, infra),
+		InfraCommand::Status => status(&dir, infra),
 		InfraCommand::Offers { min_memory_gb } => pricing::print(min_memory_gb),
 		InfraCommand::Ci { force } => ci::generate(&root, &config, force),
 		InfraCommand::Backups { command } => operations::backups(&dir, infra, command),
@@ -356,6 +353,72 @@ pub fn run(command: InfraCommand) -> Result<()> {
 			})
 		}
 		InfraCommand::Backup { out, upload } => backup(&dir, infra, &out, upload),
+	}
+}
+
+fn generate_project(
+	root: &Path,
+	config: &LeptoskitConfig,
+	infra: &InfraConfig,
+	dir: &Path,
+	force: bool,
+) -> Result<()> {
+	generate(dir, infra, force)?;
+	if infra.external.is_some() {
+		println!(
+			"Infrastructure written to {}; run `lk infra plan`.",
+			dir.display()
+		);
+		return Ok(());
+	}
+	// Reuse the existing container recipe rather than another build
+	// system.
+	let report = crate::deploy::generate(root, config, crate::deploy::Target::Docker, false)?;
+	let ignore = root.join(".dockerignore");
+	let mut text = fs::read_to_string(&ignore)?;
+	if !text.lines().any(|line| line.trim() == "/infra") {
+		text.push_str("\n# Managed state, plans, and runtime secret bindings\n/infra\n/.kamal\n");
+		fs::write(ignore, text)?;
+	}
+	println!("{report}\nInfrastructure written to {}", dir.display());
+	Ok(())
+}
+
+fn print_output(dir: &Path, infra: &InfraConfig) -> Result<()> {
+	if infra.external.is_some() {
+		let mut value = json!({"server_ip": server_ip(dir)?,
+			"server_ips": releases::hosts(dir)?, "app_url": output(dir, "app_url")?,
+			"runtime": "external"});
+		if !infra.backup_bucket.is_empty() {
+			value["backup_bucket"] = json!(output(dir, "backup_bucket")?);
+			value["backup_endpoint"] = json!(output(dir, "backup_endpoint")?);
+		}
+		println!("{}", serde_json::to_string_pretty(&value)?);
+		return Ok(());
+	}
+	let output = json!({"server_ip": server_ip(dir)?,
+		"server_ips": releases::hosts(dir)?,
+		"app_url": output(dir, "app_url")?, "updates_url": output(dir, "updates_url")?,
+		"updates_bucket": output(dir, "updates_bucket")?, "backup_bucket": output(dir, "backup_bucket")?,
+		"s3_endpoint": output(dir, "s3_endpoint")?, "backup_endpoint": output(dir, "backup_endpoint")?});
+	println!("{}", serde_json::to_string_pretty(&output)?);
+	Ok(())
+}
+
+fn status(dir: &Path, infra: &InfraConfig) -> Result<()> {
+	if infra.external.is_some() {
+		let ip = server_ip(dir)?;
+		let path = remote::quote(&format!("{}/operation.lock", remote::base(&infra.name)));
+		let owner = remote::execute(&ip, &format!("if [ -f {path} ]; then cat {path}; fi"), None)?;
+		println!(
+			"{}",
+			serde_json::to_string_pretty(&json!({"runtime": "external", "server_ip": ip,
+				"reservation_owner": String::from_utf8(owner)?,
+				"application_health": "inspect through the service supervisor"}))?
+		);
+		Ok(())
+	} else {
+		operations::status(dir, infra)
 	}
 }
 
@@ -437,6 +500,9 @@ fn settings(config: &LeptoskitConfig) -> Result<&InfraConfig> {
 	if let Some(problem) = infra.problem() {
 		anyhow::bail!(problem);
 	}
+	if infra.external.is_some() {
+		return Ok(infra);
+	}
 	ensure!(
 		config
 			.db
@@ -449,6 +515,15 @@ fn settings(config: &LeptoskitConfig) -> Result<&InfraConfig> {
 		infra.services.relay == config.rpc.live.relay_url_env.is_some(),
 		"configure rpc.live.relay_url_env together with infra.services.relay; build the app with \
 		 rpc-relay when enabled"
+	);
+	Ok(infra)
+}
+
+fn managed_settings(config: &LeptoskitConfig) -> Result<&InfraConfig> {
+	let infra = settings(config)?;
+	ensure!(
+		infra.external.is_none(),
+		"infra.external manages provisioning only; deploy through the service supervisor"
 	);
 	Ok(infra)
 }

@@ -318,6 +318,11 @@ fn only_vendoring_reaches_the_network_and_it_cannot_write_the_source() {
 		joined.contains("--user "),
 		"docker builds as the caller: {joined}"
 	);
+	#[cfg(not(unix))]
+	assert!(
+		!joined.contains("--user "),
+		"docker uses its default user without Unix ownership: {joined}"
+	);
 
 	let comma = directories.path().join("a,b");
 	fs::create_dir(&comma).unwrap();

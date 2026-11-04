@@ -123,6 +123,7 @@ impl Billing {
 		};
 		let fields = [
 			("mode", "subscription".to_owned()),
+			("client_reference_id", nonce.clone()),
 			("customer", customer),
 			("line_items[0][price]", price.clone()),
 			("line_items[0][quantity]", "1".into()),
@@ -251,8 +252,10 @@ impl Billing {
 			.unwrap_or(0);
 		host.accounts().meta.db()?.execute(
 			"UPDATE hosted_accounts SET \
-			 subscription=?1,status=?2,plan=?3,valid_until=?4,synced_at=?5,checkout_nonce=NULL,\
-			 checkout_url=NULL,checkout_plan=NULL WHERE id=?6",
+			 subscription=?1,status=?2,plan=?3,valid_until=?4,synced_at=?5,checkout_nonce=CASE \
+			 WHEN ?2 IN ('active','trialing') THEN NULL ELSE checkout_nonce END,checkout_url=CASE \
+			 WHEN ?2 IN ('active','trialing') THEN NULL ELSE checkout_url END,checkout_plan=CASE \
+			 WHEN ?2 IN ('active','trialing') THEN NULL ELSE checkout_plan END WHERE id=?6",
 			params![
 				subscription,
 				status,
@@ -340,18 +343,25 @@ impl Billing {
 					object["id"].as_str()
 				}
 				.context("missing subscription")?;
-				let current: Option<String> = host.accounts().meta.db()?.query_row(
-					"SELECT subscription FROM hosted_accounts WHERE id=?1",
-					[&account],
-					|r| r.get(0),
-				)?;
-				ensure!(
-					current.as_deref().is_none_or(|s| s == subscription),
-					"subscription mismatch"
-				);
-				// Retrieve current provider state: delayed events cannot
-				// restore an old status.
-				self.sync_subscription(host, &account, subscription).await?;
+				let (current, status, pending): (Option<String>, String, Option<String>) =
+					host.accounts().meta.db()?.query_row(
+						"SELECT subscription,status,checkout_nonce FROM hosted_accounts WHERE \
+						 id=?1",
+						[&account],
+						|r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+					)?;
+				let replacement = kind == "checkout.session.completed"
+					&& status == "canceled"
+					&& pending
+						.as_deref()
+						.is_some_and(|nonce| object["client_reference_id"].as_str() == Some(nonce));
+				if current.as_deref().is_none_or(|s| s == subscription) || replacement {
+					// Only the matching new Checkout can replace a canceled
+					// subscription. Other old deliveries are acknowledged
+					// below. Provider retrieval prevents
+					// stale payloads restoring access.
+					self.sync_subscription(host, &account, subscription).await?;
+				}
 			}
 		}
 		host.accounts().meta.db()?.execute(
@@ -445,6 +455,7 @@ mod tests {
 						async move {
 							assert_eq!(form["success_url"], "http://localhost:4701/console/");
 							assert_eq!(form["cancel_url"], "http://localhost:4701/console/");
+							assert_ne!(form["client_reference_id"], "");
 							count.fetch_add(1, Ordering::Relaxed);
 							Json(
 								serde_json::json!({"url":"https://checkout.stripe.com/c/test","expires_at":sql_now()+3600}),
@@ -504,6 +515,114 @@ mod tests {
 				.unwrap(),
 		);
 		assert!(billing.verify(&unicode, &bytes).is_err());
+		server.abort();
+	}
+
+	fn subscription(id: &str, status: &str) -> serde_json::Value {
+		serde_json::json!({"id":id,"customer":"cus_alice","status":status,
+			"items":{"data":[{"quantity":1,"price":{"id":"price_control"},
+				"current_period_end":control::now()+3600}]}})
+	}
+
+	async fn deliver(billing: &Billing, host: &Hosted, event: serde_json::Value) {
+		let (headers, bytes) = signed(billing, &event);
+		billing.webhook(host, &headers, &bytes).await.unwrap();
+	}
+
+	#[tokio::test]
+	async fn a_new_checkout_can_replace_a_canceled_subscription_despite_delayed_events() {
+		let (_dir, host, mut billing) = fixture();
+		billing
+			.apply_subscription(&host, "alice", &subscription("sub_old", "canceled"))
+			.unwrap();
+		let app = Router::new()
+			.route(
+				"/v1/checkout/sessions",
+				post(|| {
+					async {
+						Json(
+							serde_json::json!({"url":"https://checkout.stripe.com/c/rejoin",
+					"expires_at":sql_now()+3600}),
+						)
+					}
+				}),
+			)
+			.route(
+				"/v1/subscriptions/sub_old",
+				get(|| async { Json(subscription("sub_old", "canceled")) }),
+			)
+			.route(
+				"/v1/subscriptions/sub_new",
+				get(|| async { Json(subscription("sub_new", "active")) }),
+			);
+		let server = serve(&mut billing, app).await;
+		billing.checkout(&host, "alice", "control").await.unwrap();
+		let nonce: String = host
+			.accounts()
+			.meta
+			.db()
+			.unwrap()
+			.query_row(
+				"SELECT checkout_nonce FROM hosted_accounts WHERE id='alice'",
+				[],
+				|row| row.get(0),
+			)
+			.unwrap();
+		// Stripe may deliver subscription creation before the matching Checkout
+		// completion, and old cancellation notifications while it is pending.
+		deliver(
+			&billing,
+			&host,
+			serde_json::json!({"id":"evt_new_created",
+			"type":"customer.subscription.created","data":{"object":{
+				"id":"sub_new","customer":"cus_alice"}}}),
+		)
+		.await;
+		deliver(
+			&billing,
+			&host,
+			serde_json::json!({"id":"evt_old_before",
+			"type":"customer.subscription.deleted","data":{"object":{
+				"id":"sub_old","customer":"cus_alice"}}}),
+		)
+		.await;
+		assert_eq!(host.accounts().view("alice").unwrap().status, "canceled");
+		let pending: Option<String> = host
+			.accounts()
+			.meta
+			.db()
+			.unwrap()
+			.query_row(
+				"SELECT checkout_nonce FROM hosted_accounts WHERE id='alice'",
+				[],
+				|row| row.get(0),
+			)
+			.unwrap();
+		assert_eq!(pending.as_deref(), Some(nonce.as_str()));
+		deliver(
+			&billing,
+			&host,
+			serde_json::json!({"id":"evt_unrelated_checkout",
+			"type":"checkout.session.completed","data":{"object":{
+				"subscription":"sub_new","customer":"cus_alice","client_reference_id":"other"}}}),
+		)
+		.await;
+		assert!(host.accounts().entitled("alice").is_err());
+		let completed = serde_json::json!({"id":"evt_rejoined",
+			"type":"checkout.session.completed","data":{"object":{
+				"subscription":"sub_new","customer":"cus_alice","client_reference_id":nonce}}});
+		deliver(&billing, &host, completed.clone()).await;
+		deliver(&billing, &host, completed).await;
+		deliver(
+			&billing,
+			&host,
+			serde_json::json!({"id":"evt_old_after",
+			"type":"customer.subscription.deleted","data":{"object":{
+				"id":"sub_old","customer":"cus_alice"}}}),
+		)
+		.await;
+		assert_eq!(host.accounts().view("alice").unwrap().status, "active");
+		assert!(host.accounts().entitled("alice").is_ok());
 		server.abort();
 	}
 }

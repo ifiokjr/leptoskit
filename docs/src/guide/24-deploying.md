@@ -221,6 +221,50 @@ lk infra publish --platform android --channel production
 
 Upload signed releases from their platform build jobs after deploying a compatible backend. Configure update-host cache rules to respect `Cache-Control`. The public updates bucket contains signed artifacts; backups stay private. Native code-push signatures, anti-downgrade checks, host-binary signing, developer accounts, and store review still apply. Direct `lk codepush publish` also supports B2 and other S3-compatible stores.
 
+## Provision a host for your own service
+
+If your service has its own supervisor or uses SQLite, use `[infra.external]` to provision its host and edge without the managed Postgres/Kamal runtime. For example, this creates one DigitalOcean Linux host and routes a Cloudflare hostname to a service listening on port 4701. Web and native clients can reach that service through its public HTTPS origin; the service controls its own application protocol.
+
+Replace the example hostname, account IDs, SSH key, administrator CIDR and compute budget with your approved settings:
+
+```toml
+[infra]
+compute = "digitalocean"
+name = "service-production"
+domain = "service.example.com"
+location = "lon1"
+server_type = "s-1vcpu-1gb"
+ssh_key_ids = [123]
+ssh_cidrs = ["192.0.2.1/32"]
+account_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+zone_id = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+[infra.external]
+origin_port = 4701
+
+[infra.backups]
+enabled = false
+
+[infra.budget]
+currency = "USD"
+monthly_compute = 6
+```
+
+Supply `DIGITALOCEAN_TOKEN` and `CLOUDFLARE_API_TOKEN` through the operator environment, then run:
+
+```sh
+lk infra generate
+lk infra plan
+lk infra apply
+lk infra output
+```
+
+These commands use the same OpenTofu generator, live-price guard, saved-plan fingerprint and protected primary host as managed deployment. Generation needs no application binary, Dockerfile or `[db]` section. The single host receives SSH hardening, unattended updates, Python, Restic and the native runtime prerequisites. The tunnel routes to `http://127.0.0.1:4701`; install and supervise `cloudflared` on the host using the generated tunnel's token. Keep that token private. It is sensitive in OpenTofu state and is omitted from `lk infra output`.
+
+Install the service with your own build and supervisor, and keep its data outside replaceable releases. This mode does not run Kamal, create code-push storage, provision Postgres, or install the managed backup worker. Configure and verify service-specific backups before relying on the host. An optional `backup_bucket` still provisions a private R2 bucket; `[infra.b2]` can choose B2 instead. Application secrets, caching, live relays and runtime plugins belong to the separately supervised service. `lk infra status` reports the infrastructure reservation owner; check application health through its supervisor and public endpoint.
+
+Use local private OpenTofu state or an independently bootstrapped `[infra.state]` backend. This mode cannot use a hosted worker or its hosted state for bootstrap. Image building, deployment, rollback and database recovery commands remain part of the managed runtime and are rejected for an external service.
+
 ## Exporting deployment files
 
 A server-rendered app works on your machine with `leptoskit serve`, but a host somewhere else needs more than the binary. It needs a container that builds the same way every time, the `LEPTOS_*` environment `leptoskit serve` sets for you, somewhere to keep the database, and a way to tell the load balancer when an instance can take traffic and when it's about to stop. Get the last part wrong and every deploy drops the requests in flight.

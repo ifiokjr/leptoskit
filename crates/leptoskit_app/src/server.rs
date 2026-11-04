@@ -140,7 +140,9 @@ async fn main() -> Result<()> {
 			let app = leptoskit_app::site::router(host.router(), &assets, &docs, &args.url)?;
 			let listener = tokio::net::TcpListener::bind(bind).await?;
 			println!("LeptosKit hosted broker: {}", args.url);
-			axum::serve(listener, app).await?;
+			axum::serve(listener, app)
+				.with_graceful_shutdown(shutdown_signal())
+				.await?;
 		}
 		Command::Account { id, customer } => {
 			println!("{}", host.accounts().create(&id, &customer)?);
@@ -181,4 +183,19 @@ async fn main() -> Result<()> {
 	}
 	drop(lock);
 	Ok(())
+}
+
+async fn shutdown_signal() {
+	#[cfg(unix)]
+	{
+		let mut terminate =
+			tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+				.expect("install the broker termination handler");
+		tokio::select! {
+			_ = tokio::signal::ctrl_c() => {},
+			_ = terminate.recv() => {},
+		}
+	}
+	#[cfg(not(unix))]
+	let _ = tokio::signal::ctrl_c().await;
 }
