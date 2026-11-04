@@ -1,0 +1,100 @@
+name: hosted pilot
+
+on:
+  pull_request:
+    paths:
+      - "crates/leptoskit_app/**"
+      - "crates/leptoskit_deploy_console/**"
+      - "docs/**"
+      - "setup/scripts/*hosted_pilot*"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/actions/rust/**"
+      - ".github/workflows/hosted-pilot.yml"
+  workflow_dispatch:
+    inputs:
+      public_origin:
+        description: Public HTTPS origin for the pilot artifact
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-pilot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Linux bundle and recovery drill
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: 4
+      CARGO_INCREMENTAL: 0
+      PUBLIC_ORIGIN: ${{ inputs.public_origin || 'https://pilot.example.test' }}
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # Native packages use Ubuntu's compiler and loader. A Nix-linked broker
+      # would not run on the pilot's ordinary Ubuntu host.
+      - name: install rust
+        uses: ./.github/actions/rust
+
+      - name: cache rust artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          prefix-key: hosted-pilot
+
+      - name: install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends build-essential cmake pkg-config libssl-dev
+
+      - name: install pinned browser optimizer
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/binaryen.tar.gz" \
+            https://github.com/WebAssembly/binaryen/releases/download/version_132/binaryen-version_132-x86_64-linux.tar.gz
+          echo "195ddc94f9bc89f45abdabb0b9eea86023d727ba90eac8b35b80f2544fc30572  $RUNNER_TEMP/binaryen.tar.gz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/binaryen.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/binaryen-version_132/bin" >> "$GITHUB_PATH"
+
+      - name: package the Linux broker and complete website
+        run: bash setup/scripts/package_hosted_pilot.sh "$PUBLIC_ORIGIN" target/hosted-pilot
+
+      - name: verify archive and run recovery acceptance
+        run: |
+          set -euo pipefail
+          mkdir -p target/hosted-pilot-unpacked
+          tar -xzf target/hosted-pilot.tar.gz -C target/hosted-pilot-unpacked
+          (cd target/hosted-pilot-unpacked && sha256sum --check --strict SHA256SUMS)
+          mkdir -p target/hosted-pilot-smoke/checks
+          cp -a target/hosted-pilot-unpacked target/hosted-pilot-smoke/bundle
+          cp setup/scripts/hosted_pilot_local.py setup/scripts/hosted_pilot_smoke.py target/hosted-pilot-smoke/checks/
+          cp crates/leptoskit_app/deploy/Smoke.Dockerfile target/hosted-pilot-smoke/Dockerfile
+          docker build --tag leptoskit-hosted-pilot-smoke target/hosted-pilot-smoke
+          docker run --rm --network none --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,noexec,size=128m,mode=1777 \
+            leptoskit-hosted-pilot-smoke > target/hosted-pilot-acceptance.json
+          # Verify systemd syntax against the actual installed layout in this
+          # disposable runner; no service is started and no credentials exist.
+          sudo install -d /opt/leptoskit-cloud/current
+          sudo install -m 0755 target/hosted-pilot-unpacked/leptoskit-cloud /opt/leptoskit-cloud/current/
+          sudo systemd-sysusers target/hosted-pilot-unpacked/systemd/leptoskit-cloud.sysusers
+          sudo systemd-analyze verify target/hosted-pilot-unpacked/systemd/leptoskit-cloud.service
+
+      - name: upload the candidate and acceptance evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hosted-pilot-linux-${{ github.sha }}
+          path: |
+            target/hosted-pilot.tar.gz
+            target/hosted-pilot-acceptance.json
+          retention-days: 7
+          if-no-files-found: error

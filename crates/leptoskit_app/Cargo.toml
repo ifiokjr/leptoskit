@@ -69,7 +69,7 @@ leptoskit_docs_site = { workspace = true, optional = true }
 reactive_graph = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-tokio = { workspace = true, optional = true, features = ["macros", "rt-multi-thread", "net"] }
+tokio = { workspace = true, optional = true, features = ["macros", "rt-multi-thread", "net", "signal"] }
 tower-http = { workspace = true, optional = true, features = ["fs", "set-header"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

@@ -37,3 +37,4 @@ Notes for people and coding agents working on leptoskit itself. The public site 
 The Flutter widget audit behind the component catalog's Flutter table is [`.audit/component-catalog/flutter-widgets.tsv`](../../.audit/component-catalog/flutter-widgets.tsv): all 229 entries in the published Flutter index as of 20 October 2026, each with its mapping or missing foundation.
 
 - [Hosted deployment service](hosted-deployment-service.md): account isolation, dedicated workers, billing, state and operator recovery.
+- [Hosted pilot deployment and acceptance](hosted-pilot-acceptance.md): Linux release bundles, systemd installation, Cloudflare routing and credentialed cloud/payment acceptance.

@@ -31,5 +31,6 @@ rules:
       - benchmarks.yml
       - ci.yml
       - docs.yml
+      - hosted-pilot.yml
       - publish.yml
       - release.yml

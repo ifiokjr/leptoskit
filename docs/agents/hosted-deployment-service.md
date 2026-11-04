@@ -12,6 +12,8 @@ DigitalOcean's [partner terms](https://www.digitalocean.com/legal/partner-networ
 
 ## Operator setup
 
+For a packaged Linux release and the pilot's cloud/payment acceptance sequence, follow [hosted pilot deployment and acceptance](hosted-pilot-acceptance.md). The steps below also support a manual build.
+
 1. Package the public site, console client and documentation from the repository root with `cargo run -p leptoskit_app --features site --bin leptoskit-site -- --url https://deploy.example.com --release` (requires an installed `lk`; `--cli` selects another executable). Build the backend with `cargo build -p leptoskit_app --features server --bin leptoskit-cloud`. Copy the complete `crates/leptoskit_app/dist` artifact to the assets directory, including its `docs`, `console`, `pkg` and `rive` directories. Production binaries must be built for their deployment OS.
 2. Supply `LEPTOSKIT_HOSTED_KEY` as a persistent random 32+ character key. It derives tenant API keys and state encryption. Back it up separately. The database records a key verifier and refuses a different key at startup. This V0 does not support online encryption-key rotation; changing the variable is not a rotation procedure.
 3. Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONTROL_PRICE` and `STRIPE_TEAM_PRICE`. Configure recurring prices and a billing portal with the intended upgrade/cancellation policy. The backend pins `2026-10-28.endive`. Register snapshot webhooks at `/api/v1/webhooks/stripe` for `checkout.session.completed` and `customer.subscription.created/updated/deleted`.
