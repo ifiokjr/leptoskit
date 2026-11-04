@@ -308,7 +308,9 @@ class ProbeActivity : Activity() {
                 password.autofillHints?.toList() == listOf("newPassword") &&
                     password.importantForAutofill == View.IMPORTANT_FOR_AUTOFILL_YES &&
                     password.inputType and android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS != 0,
-                "PasswordInput offers its new-password hint to autofill without suggestions",
+                "PasswordInput offers its new-password hint to autofill without suggestions " +
+                    "(hints ${password.autofillHints?.toList()}, autofill ${password.importantForAutofill}, " +
+                    "input type 0x${Integer.toHexString(password.inputType)})",
             )
             assertion(image.drawable != null, "Image loads a real local bitmap")
             verifyVectors()
