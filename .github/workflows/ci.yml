@@ -893,6 +893,11 @@ jobs:
       # under it; cargo-run-bin ignores a failed install, so verify the binary
       # landed instead of surfacing "Process failed to start" mid-suite.
       - name: install the file routes example's pinned binaries
+        env:
+          # cargo-binstall looks up release artifacts through the GitHub API;
+          # unauthenticated, a shared runner IP hits the 60-an-hour limit and
+          # binstall falls back to a source build it cannot do here.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           cd examples/file_routes
