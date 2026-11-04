@@ -174,6 +174,9 @@ pub(crate) struct Node {
 	pub(crate) measure_cache: MeasureCache,
 	pub(crate) layout_cache: LayoutCache,
 	pub(crate) dirty: bool,
+	/// Whether the node waits in [`Yoga::pending`] to be laid out on its own,
+	/// as a relayout boundary something inside it dirtied.
+	pub(crate) queued: bool,
 }
 
 impl Node {
@@ -187,6 +190,7 @@ impl Node {
 			measure_cache: MeasureCache::default(),
 			layout_cache: LayoutCache::default(),
 			dirty: true,
+			queued: false,
 		}
 	}
 }
@@ -434,7 +438,11 @@ impl Yoga {
 	/// Removes a child from its parent.
 	pub fn remove_child(&mut self, parent: NodeId, child: NodeId) {
 		let entry = &mut self.nodes[parent.0];
-		entry.children.retain(|&c| c != child);
+
+		// Children are removed last to first, so the search starts at the end.
+		if let Some(index) = entry.children.iter().rposition(|&c| c == child) {
+			entry.children.remove(index);
+		}
 
 		if self.nodes[child.0].parent == Some(parent) {
 			self.nodes[child.0].parent = None;
@@ -503,6 +511,12 @@ impl Yoga {
 		let mut current = Some(node);
 
 		while let Some(id) = current {
+			// A boundary an earlier change already queued stops this walk
+			// too: its ancestors were left clean then, and still are.
+			if id != node && self.nodes[id.0].queued {
+				return;
+			}
+
 			// `node` itself always reaches its parent: a change to its own
 			// style can change how the parent sizes it.
 			let boundary = (id != node).then(|| self.relayout_boundary(id)).flatten();
@@ -512,6 +526,7 @@ impl Yoga {
 			entry.layout_cache.clear();
 
 			if let Some(ctx) = boundary {
+				entry.queued = true;
 				self.pending.push((id, ctx));
 
 				return;
@@ -607,6 +622,8 @@ impl Yoga {
 		// Boundaries dirtied from inside: their ancestors stayed clean, so the
 		// pass above did not reach them. One the pass did reach is clean now.
 		for (node, ctx) in std::mem::take(&mut self.pending) {
+			self.nodes[node.0].queued = false;
+
 			if self.nodes[node.0].dirty {
 				self.layout_node(node, ctx, RunMode::Commit);
 			}
@@ -1141,6 +1158,60 @@ mod boundary_tests {
 		assert_eq!(yoga.layout(tiles[1]).width, 100.0);
 		assert_eq!(yoga.layout(labels[1].node).x, 20.0);
 		assert_eq!(yoga.layout(labels[1].node).width, 60.0);
+	}
+
+	#[test]
+	fn two_changes_inside_one_fixed_tile_still_lay_out_only_that_tile() {
+		let mut yoga = Yoga::new();
+		let row = yoga.create_node();
+		yoga.set_style(
+			row,
+			Style {
+				flex_direction: FlexDirection::Row,
+				height: Dimension::Points(32.0),
+				..Style::default()
+			},
+		);
+		let tile = yoga.create_node();
+		yoga.set_style(
+			tile,
+			Style {
+				flex_grow: 1.0,
+				flex_basis: Dimension::Points(0.0),
+				flex_direction: FlexDirection::Column,
+				align_items: Align::Center,
+				..Style::default()
+			},
+		);
+		let (first, second) = (label(&mut yoga, 20), label(&mut yoga, 30));
+		yoga.set_children(tile, [first.node, second.node]);
+		yoga.set_children(row, [tile]);
+		yoga.calculate_layout(row, SPACE);
+
+		relabel(&mut yoga, &first, 40);
+		relabel(&mut yoga, &second, 80);
+		// The same label again, as a commit that changes its text and its
+		// style does.
+		relabel(&mut yoga, &second, 100);
+		assert!(!yoga.is_dirty(row), "both changes stay inside the tile");
+		assert!(yoga.is_dirty(tile));
+		yoga.calculate_layout(row, SPACE);
+		assert!(!yoga.is_dirty(tile));
+		assert_eq!(yoga.layout(first.node).width, 40.0);
+		assert_eq!(yoga.layout(first.node).x, 130.0);
+		assert_eq!(yoga.layout(second.node).width, 100.0);
+		assert_eq!(yoga.layout(second.node).x, 100.0);
+
+		// Once laid out, the tile is no longer queued: a change to its own
+		// style reaches the row again.
+		yoga.set_style(
+			tile,
+			Style {
+				flex_grow: 2.0,
+				..yoga.style(tile).clone()
+			},
+		);
+		assert!(yoga.is_dirty(row));
 	}
 
 	/// A small, fixed-seed generator, so a failure reproduces.

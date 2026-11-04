@@ -168,75 +168,110 @@ impl Tree {
 
 	/// Replaces the children of `parent` with `children`, reusing a child that
 	/// keeps its key and its kind.
+	///
+	/// Only the region's own subtree is moved out and rebuilt; the rest of the
+	/// tree stays where it is, so a list that changes costs its own rows
+	/// rather than the size of the screen around it.
 	fn splice(&mut self, parent: i64, children: Vec<(u64, Element)>, host: &mut impl Host) {
-		if !self.nodes.contains_key(&parent) {
+		let Some(previous_children) = self.nodes.get(&parent).map(|node| node.children.clone())
+		else {
 			return;
+		};
+
+		// The replaced subtree, parents before children, moved rather than
+		// copied into a tree of its own for the rebuild to reuse nodes from.
+		let replaced = descendants(self, parent);
+		let mut old = Self {
+			nodes: HashMap::with_capacity_and_hasher(replaced.len(), FastHash::default()),
+			..Self::default()
+		};
+
+		for &id in &replaced {
+			if let Some(node) = self.nodes.remove(&id) {
+				old.nodes.insert(id, node);
+			}
+
+			// A reused node subscribes again if it is still a region, and a
+			// dropped slot unsubscribes.
+			self.regions.remove(&id);
 		}
 
-		let replaced: HashSet<i64, FastHash> = descendants(self, parent).into_iter().collect();
-		let old_keys: HashMap<u64, i64, FastHash> = self.nodes[&parent]
-			.children
+		if !replaced.is_empty() {
+			let gone: HashSet<i64, FastHash> = replaced.iter().copied().collect();
+			self.order.retain(|id| !gone.contains(id));
+			self.bound.retain(|id| !gone.contains(id));
+		}
+
+		let old_keys: HashMap<u64, i64, FastHash> = previous_children
 			.iter()
 			.filter_map(|id| {
-				self.nodes
+				old.nodes
 					.get(id)
 					.and_then(|node| node.key.map(|key| (key, *id)))
 			})
 			.collect();
 		let child_depth = depth_of(self, parent) + 1;
-		let kept = std::mem::take(&mut self.regions);
-		let mut next = Self {
-			nodes: HashMap::with_capacity_and_hasher(self.nodes.len(), FastHash::default()),
-			order: Vec::with_capacity(self.order.len()),
-			bound: Vec::new(),
-			root: self.root,
-			next_id: self.next_id,
-			regions: HashMap::with_capacity_and_hasher(kept.len(), FastHash::default()),
-		};
-
-		for &id in &self.order {
-			if replaced.contains(&id) {
-				continue;
-			}
-
-			let node = self.nodes[&id].clone();
-
-			if !node.element.bindings().is_empty() {
-				next.bound.push(id);
-			}
-
-			next.order.push(id);
-			next.nodes.insert(id, node);
-		}
-
+		let built_from = self.order.len();
 		let mut child_ids = Vec::with_capacity(children.len());
 
 		for (key, child) in children {
 			let previous = old_keys.get(&key).copied().filter(|id| {
-				self.nodes
+				old.nodes
 					.get(id)
 					.is_some_and(|node| node.element.kind == child.kind)
 			});
-			let id = next.build(child, Some(parent), previous, self, child_depth);
+			let id = self.build(child, Some(parent), previous, &old, child_depth);
 
-			if let Some(node) = next.nodes.get_mut(&id) {
+			if let Some(node) = self.nodes.get_mut(&id) {
 				node.key = Some(key);
 			}
 
 			child_ids.push(id);
 		}
 
-		if let Some(node) = next.nodes.get_mut(&parent) {
+		for id in replaced.iter().filter(|id| !self.nodes.contains_key(id)) {
+			host.delete(*id);
+		}
+
+		for &id in &self.order[built_from..] {
+			let node = self.nodes.get_mut(&id).expect("every built id has a node");
+
+			if !old.nodes.contains_key(&id) {
+				host.create(id, kind_code(node.element.kind));
+			}
+
+			if let Some(wire) = node.wire.take() {
+				host.props(id, &wire);
+			}
+		}
+
+		if previous_children != child_ids {
+			for (index, &child) in child_ids.iter().enumerate() {
+				host.insert(parent, child, index as i32);
+			}
+		}
+
+		if let Some(node) = self.nodes.get_mut(&parent) {
 			node.children = child_ids;
 		}
 
-		let fresh = std::mem::take(&mut next.regions);
-		let mut kept = kept;
-		kept.retain(|id, _| next.nodes.contains_key(id) && !fresh.contains_key(id));
-		next.regions = fresh;
-		next.regions.extend(kept);
-		Self::publish(self, &mut next, host);
-		*self = next;
+		for &id in &self.order[built_from..] {
+			let node = &self.nodes[&id];
+
+			if old
+				.nodes
+				.get(&id)
+				.is_some_and(|previous| previous.children == node.children)
+			{
+				continue;
+			}
+
+			for (index, &child) in node.children.iter().enumerate() {
+				host.insert(id, child, index as i32);
+			}
+		}
+
+		host.commit();
 	}
 
 	/// Sends the difference between `old` and `next`, then commits.
@@ -587,19 +622,20 @@ fn normalize_event(element: &Element, event: NativeEvent) -> Option<NativeEvent>
 	}
 }
 
-/// Every node under `parent`, not including it. The list is the subtree a
-/// region replaces.
+/// Every node under `parent`, not including it, in the order a build visits
+/// them: each node before its children, siblings first to last. The list is
+/// the subtree a region replaces, and the order its nodes are deleted in.
 fn descendants(tree: &Tree, parent: i64) -> Vec<i64> {
 	let mut out = Vec::new();
-	let mut stack = tree
+	let mut stack: Vec<i64> = tree
 		.nodes
 		.get(&parent)
-		.map(|node| node.children.clone())
+		.map(|node| node.children.iter().rev().copied().collect())
 		.unwrap_or_default();
 
 	while let Some(id) = stack.pop() {
 		if let Some(node) = tree.nodes.get(&id) {
-			stack.extend(node.children.iter().copied());
+			stack.extend(node.children.iter().rev().copied());
 		}
 
 		out.push(id);

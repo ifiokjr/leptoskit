@@ -46,8 +46,8 @@ fn exhaustive_hit_test(surface: &NativeSurface<HeadlessBackend>, x: f32, y: f32)
 				.unwrap_or_default()
 				.max(0.0)
 				.min(layout.width.min(layout.height) * 0.5);
-			let dx = x - x.clamp(left + radius, left + layout.width - radius);
-			let dy = y - y.clamp(top + radius, top + layout.height - radius);
+			let dx = x - x.max(left + radius).min(left + layout.width - radius);
+			let dy = y - y.max(top + radius).min(top + layout.height - radius);
 			contains = dx * dx + dy * dy <= radius * radius;
 		}
 
@@ -371,4 +371,31 @@ fn queries_outside_the_tree_find_nothing() {
 	assert_eq!(surface.hit_test(f32::NAN, 10.0), None);
 	assert_eq!(surface.hit_test(10.0, f32::INFINITY), None);
 	assert!(surface.hit_test(10.0, 10.0).is_some());
+}
+
+/// A fully rounded clipped node's corner centres meet in the middle, and at
+/// some offsets rounding puts the left one an ulp past the right one. Hit
+/// testing there must still answer rather than panic.
+#[test]
+fn a_rounded_clip_at_a_fractional_offset_is_hit() {
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.set_viewport(VIEWPORT.0, VIEWPORT.1);
+	surface.set_root(&View().class("w-full h-full").child(
+		View().class(
+			"absolute left-[0.1px] top-[0.1px] w-[2px] h-[2px] rounded-full overflow-hidden",
+		),
+	));
+	let root = surface.root().expect("root");
+	let dot = surface.children(root)[0];
+	let layout = surface.layout(dot);
+	assert_eq!((layout.x, layout.width), (0.1, 2.0));
+	let left = std::hint::black_box(layout.x);
+	assert!(
+		left + 1.0 > left + 2.0 - 1.0,
+		"the bounds this test needs to cross"
+	);
+
+	assert_eq!(surface.hit_test(1.1, 1.1), Some(dot));
+	assert_eq!(surface.hit_test(0.15, 0.15), Some(root));
+	assert_matches_exhaustive(&surface);
 }

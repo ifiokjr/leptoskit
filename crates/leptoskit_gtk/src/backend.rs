@@ -67,6 +67,10 @@ struct Host {
 /// layout updates.
 pub struct GtkBackend {
 	state: Rc<RefCell<State>>,
+	/// Whether a batch is being applied. Its mutations leave reconfiguring
+	/// the tree and the scroll extents to the end of the batch, so a batch
+	/// costs the tree once rather than once per mutation.
+	applying: bool,
 }
 
 impl std::fmt::Debug for GtkBackend {
@@ -95,6 +99,7 @@ impl GtkBackend {
 		);
 		Self {
 			state: Rc::new(RefCell::new(State::default())),
+			applying: false,
 		}
 	}
 
@@ -237,6 +242,20 @@ impl GtkBackend {
 
 	fn refresh(&self) {
 		Self::refresh_state(&self.state);
+	}
+
+	/// Refreshes after a mutation applied on its own; a batch refreshes once
+	/// at its end.
+	fn refresh_if_unbatched(&self) {
+		if !self.applying {
+			self.refresh();
+		}
+	}
+
+	fn update_scroll_extents_if_unbatched(&self, state: &State) {
+		if !self.applying {
+			update_scroll_extents(state);
+		}
 	}
 
 	fn refresh_state(shared: &Rc<RefCell<State>>) {
@@ -482,11 +501,14 @@ impl NativeBackend for GtkBackend {
 
 	fn apply(&mut self, mutations: &MutationList) {
 		let guard = Suppression::new(&self.state);
+		self.applying = true;
 
 		for mutation in mutations.mutations() {
 			self.apply_one(mutation);
 		}
 
+		self.applying = false;
+		update_scroll_extents(&self.state.borrow());
 		sync_hosts(&mut self.state.borrow_mut());
 		self.refresh();
 		drop(guard);
@@ -605,7 +627,7 @@ impl NativeBackend for GtkBackend {
 		};
 		connect(&self.state, id, &widget);
 		self.state.borrow_mut().widgets.insert(id, widget);
-		self.refresh();
+		self.refresh_if_unbatched();
 	}
 
 	fn update_props(&mut self, id: NodeId, props: &NativeProps) {
@@ -617,7 +639,7 @@ impl NativeBackend for GtkBackend {
 			}
 		}
 
-		self.refresh();
+		self.refresh_if_unbatched();
 	}
 
 	fn update_layout(&mut self, id: NodeId, x: f32, y: f32, width: f32, height: f32) {
@@ -636,7 +658,7 @@ impl NativeBackend for GtkBackend {
 			host.position(&frame, rect);
 		}
 
-		update_scroll_extents(&state);
+		self.update_scroll_extents_if_unbatched(&state);
 	}
 
 	fn insert_child(&mut self, parent: NodeId, child: NodeId, index: usize) {
@@ -654,9 +676,9 @@ impl NativeBackend for GtkBackend {
 		let index = index.min(parent.children.len());
 		parent.children.insert(index, child);
 		parent.content.put(&frame, rect, index, false);
-		update_scroll_extents(&state);
+		self.update_scroll_extents_if_unbatched(&state);
 		drop(state);
-		self.refresh();
+		self.refresh_if_unbatched();
 	}
 
 	fn remove_child(&mut self, parent: NodeId, child: NodeId) {
@@ -673,9 +695,9 @@ impl NativeBackend for GtkBackend {
 			parent.content.remove(&frame);
 		}
 
-		update_scroll_extents(&state);
+		self.update_scroll_extents_if_unbatched(&state);
 		drop(state);
-		self.refresh();
+		self.refresh_if_unbatched();
 		drop(guard);
 	}
 
