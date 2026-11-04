@@ -100,4 +100,4 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # `leptos-use` tracks an unreleased commit of the 0.8 beta line.
-allow-git = ["https://github.com/Synphonyte/leptos-use"]
+allow-git = ["https://github.com/Synphonyte/leptos-use", "https://github.com/openbudgetfun/skribble"]

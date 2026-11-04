@@ -45,9 +45,12 @@ pub fn router(api: Router, assets: &Path, docs: &Path, origin: &str) -> Result<R
 		"_leptoskit/site.js",
 		"_leptoskit/site.css",
 		"_leptoskit/search.json",
-		"assets/fonts/bricolage-grotesque.woff2",
-		"assets/fonts/instrument-sans.woff2",
-		"assets/fonts/jetbrains-mono.woff2",
+		"theme/skribble.css",
+		"assets/fonts/skribble/SkribbleNotoSketch-Regular.woff2",
+		"assets/fonts/skribble/SkribbleMonoPlayful-Regular.woff2",
+		"assets/fonts/skribble/SkribbleMonoPlayful-Bold.woff2",
+		"_leptoskit/generated/card-1.svg",
+		"_leptoskit/generated/brand-mint.svg",
 	] {
 		ensure!(
 			docs.join(file).is_file(),
@@ -95,12 +98,16 @@ pub fn landing_html(origin: &str) -> String {
 					.name("viewport")
 					.content("width=device-width, initial-scale=1"),
 				html::meta().name("description").content(description),
-				html::meta().name("color-scheme").content("light"),
+				html::meta().name("color-scheme").content("light dark"),
+				html::script().src("/docs/_leptoskit/theme.js"),
 				html::title().child(title),
 				html::link()
 					.rel("canonical")
 					.href(format!("{}/", origin.trim_end_matches('/'))),
 				html::link().rel("icon").href("/docs/assets/mark.svg"),
+				html::link()
+					.rel("stylesheet")
+					.href("/docs/theme/skribble.css"),
 				html::link().rel("stylesheet").href("/landing.css"),
 				html::script().r#type("module").src("/landing.mjs"),
 			)),

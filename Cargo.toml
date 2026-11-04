@@ -143,6 +143,7 @@ send_wrapper = "0.6"
 serde = "1"
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
+skribble_rough = { git = "https://github.com/openbudgetfun/skribble", rev = "00845d0d2a1c07a126079453de342811ee1cff64" }
 sqlite-vec = "0.1.9"
 subtle = "2"
 syn = "3"

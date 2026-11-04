@@ -1,33 +1,15 @@
-@font-face {
-	font-family: "Bricolage Grotesque";
-	src: url("/docs/assets/fonts/bricolage-grotesque.woff2") format("woff2");
-	font-weight: 400 800;
-	font-display: swap;
-}
-@font-face {
-	font-family: "Instrument Sans";
-	src: url("/docs/assets/fonts/instrument-sans.woff2") format("woff2");
-	font-weight: 400 700;
-	font-display: swap;
-}
-@font-face {
-	font-family: "JetBrains Mono";
-	src: url("/docs/assets/fonts/jetbrains-mono.woff2") format("woff2");
-	font-weight: 400 600;
-	font-display: swap;
-}
+/* Layout uses LeptosKit builders; the ink comes from the shared Skribble theme. */
 :root {
-	color-scheme: light;
-	--paper: #faf6f0;
-	--ink: #16111f;
-	--quiet: #665c63;
-	--ember: #e5304f;
-	--warm: #ff7a45;
-	--mint: #5ef2c2;
-	--line: #ded6d1;
-	--display: "Bricolage Grotesque", ui-sans-serif, sans-serif;
-	--body: "Instrument Sans", ui-sans-serif, sans-serif;
-	--code: "JetBrains Mono", ui-monospace, monospace;
+	--paper: var(--sk-paper);
+	--ink: var(--sk-ink);
+	--quiet: var(--sk-quiet);
+	--ember: var(--sk-coral);
+	--warm: var(--sk-sun);
+	--mint: var(--sk-mint);
+	--line: var(--sk-rule);
+	--display: var(--sk-font);
+	--body: var(--sk-font);
+	--code: var(--sk-mono);
 }
 * {
 	box-sizing: border-box;
@@ -38,7 +20,6 @@ html {
 }
 body {
 	margin: 0;
-	background: var(--paper);
 	color: var(--ink);
 	font-family: var(--body);
 }
@@ -70,7 +51,7 @@ a:focus-visible, button:focus-visible {
 #site h1, #site h2, #site h3 {
 	margin: 0;
 	font-family: var(--display);
-	font-weight: 600;
+	font-weight: 400;
 	letter-spacing: -0.055em;
 }
 #skip {
@@ -280,7 +261,7 @@ a:focus-visible, button:focus-visible {
 	left: 3%;
 	bottom: 0;
 	white-space: pre;
-	background: #fffdf8;
+	background: var(--paper);
 	border: 1px solid var(--line);
 	padding: 1.1rem 1.4rem;
 	border-radius: 6px;
@@ -318,8 +299,8 @@ a:focus-visible, button:focus-visible {
 }
 #toolkit {
 	margin-top: 3rem;
-	background: var(--ink);
-	color: var(--paper);
+	background: var(--sk-paper-2);
+	color: var(--ink);
 	padding: 6rem max(5vw, calc((100vw - 1320px) / 2));
 }
 #studio-intro {
@@ -341,7 +322,7 @@ a:focus-visible, button:focus-visible {
 	line-height: 1.05;
 }
 #studio-intro-description {
-	color: #c0b5c4;
+	color: var(--quiet);
 	max-width: 390px;
 	line-height: 1.7;
 	font-size: 1rem;
@@ -358,15 +339,15 @@ a:focus-visible, button:focus-visible {
 #source-panel {
 	padding: 2.2rem;
 	gap: 1.75rem;
-	background: #201a29;
+	background: var(--sk-paper-3);
 }
 #source-caption {
-	color: #baafc0;
+	color: var(--quiet);
 }
 #source-code {
 	white-space: pre-wrap;
 	font: 0.85rem/1.9 var(--code);
-	color: #b8eedc;
+	color: var(--ink);
 }
 #source-guide {
 	align-self: flex-start;
@@ -374,13 +355,13 @@ a:focus-visible, button:focus-visible {
 	border: 0;
 	background: transparent;
 	padding: 0;
-	color: #e9dfe8;
+	color: var(--quiet);
 	font-size: 0.8rem;
 	text-decoration: underline;
 	text-underline-offset: 0.3em;
 }
 #preview-panel {
-	background: #eee7de;
+	background: var(--sk-paper);
 	color: var(--ink);
 	padding: 2rem;
 	gap: 1.5rem;
@@ -397,7 +378,7 @@ a:focus-visible, button:focus-visible {
 #demo-card {
 	width: min(100%, 320px);
 	min-height: 340px;
-	background: #fffdf8;
+	background: var(--paper);
 	border: 1px solid #d6cdc9;
 	box-shadow: 8px 9px 0 #d8ccc3;
 }
@@ -415,7 +396,7 @@ a:focus-visible, button:focus-visible {
 }
 #demo-count {
 	font-size: 1rem;
-	font-weight: 600;
+	font-weight: 400;
 }
 #demo-description {
 	color: var(--quiet);
@@ -532,10 +513,10 @@ a:focus-visible, button:focus-visible {
 	text-underline-offset: 0.3em;
 }
 #feature-motion {
-	background: #f3ddd5;
+	background: color-mix(in srgb, var(--sk-coral) 9%, var(--paper));
 }
 #feature-live {
-	background: #e6ede4;
+	background: color-mix(in srgb, var(--sk-mint) 10%, var(--paper));
 }
 #cloud {
 	background: var(--mint);
@@ -547,7 +528,7 @@ a:focus-visible, button:focus-visible {
 	gap: 1.5rem;
 }
 #cloud-intro-description {
-	color: #264e40;
+	color: var(--quiet);
 }
 #ownership {
 	display: grid;
@@ -566,7 +547,7 @@ a:focus-visible, button:focus-visible {
 	line-height: 1.08;
 }
 #ownership > div > span:not([id$="-label"]) {
-	color: #264e40;
+	color: var(--quiet);
 	max-width: 440px;
 	font-size: 0.9rem;
 	line-height: 1.75;
@@ -582,7 +563,7 @@ a:focus-visible, button:focus-visible {
 	text-underline-offset: 0.3em;
 }
 #cloud-note {
-	color: #264e40;
+	color: var(--quiet);
 	font-size: 0.7rem;
 	line-height: 1.75;
 	max-width: 740px;
@@ -618,7 +599,7 @@ a:focus-visible, button:focus-visible {
 	font-size: 1.4rem;
 	letter-spacing: -0.065em;
 	color: var(--ink);
-	font-weight: 600;
+	font-weight: 400;
 }
 #footer-links {
 	display: flex;
@@ -832,5 +813,230 @@ noscript {
 @media (prefers-reduced-motion: reduce) {
 	html {
 		scroll-behavior: auto;
+	}
+}
+
+/* The same seeded SVG masks as the documentation. */
+#header, #platforms, #footer {
+	position: relative;
+	border-color: transparent;
+}
+#header::after, #platforms::before, #footer::before {
+	content: "";
+	position: absolute;
+	pointer-events: none;
+	left: 0;
+	right: 0;
+	height: 12px;
+	background: var(--ink);
+	mask: url("/docs/_leptoskit/generated/rule-1.svg") center / 100% 100%
+		no-repeat;
+}
+#header::after {
+	bottom: -6px;
+}
+#platforms::before, #footer::before {
+	top: -6px;
+	opacity: 0.4;
+}
+#hero-title {
+	font-size: clamp(2.5rem, 5.8vw, 5.4rem);
+	line-height: 1.08;
+}
+#site h1, #site h2, #site h3 {
+	font-weight: 400;
+	letter-spacing: 0;
+}
+#hero-copy {
+	gap: 1.5rem;
+}
+#hero-eyebrow,
+[id$="-eyebrow"],
+[id$="-caption"],
+#platforms-label,
+[id$="-label"] {
+	font-size: 0.65rem;
+	letter-spacing: 0.06em;
+}
+#hero-description {
+	font-size: 1.15rem;
+}
+#hero-title::after {
+	content: "";
+	display: block;
+	width: 68%;
+	height: 20px;
+	margin-top: -0.25rem;
+	background: var(--sk-sun);
+	mask: url("/docs/_leptoskit/generated/underline-2.svg") center / 100% 100%
+		no-repeat;
+}
+#art-tall, #art-square, #art-mint {
+	border-radius: 0;
+	box-shadow: none;
+	background-repeat: no-repeat;
+	background-size: 100% 100%;
+}
+#art-tall {
+	background-image: url("/docs/_leptoskit/generated/brand-tall.svg");
+}
+#art-square {
+	background-image: url("/docs/_leptoskit/generated/brand-square.svg");
+}
+#art-mint {
+	background-image: url("/docs/_leptoskit/generated/brand-mint.svg");
+}
+#art-grid {
+	background-image: radial-gradient(var(--sk-rule) 1px, transparent 1px);
+}
+#art-code {
+	box-shadow: none;
+	border: 0;
+	border-radius: var(--sk-wobbly-small);
+	background: var(--paper);
+}
+#hero-primary, #start-primary, #demo-increment, #nav-console {
+	position: relative;
+	border: 0;
+	border-radius: var(--sk-wobbly-small);
+	background: var(--sk-sun);
+	color: var(--sk-on-accent);
+}
+#hero-primary:hover,
+#start-primary:hover,
+#demo-increment:hover,
+#nav-console:hover {
+	background: var(--sk-coral);
+	color: var(--sk-on-accent);
+}
+#hero-primary::after,
+#start-primary::after,
+#demo-increment::after,
+#nav-console::after,
+#art-code::after {
+	content: "";
+	position: absolute;
+	pointer-events: none;
+	inset: var(--sk-box-inset);
+	background: var(--ink);
+	mask: url("/docs/_leptoskit/generated/box-4.svg") center / 100% 100%
+		no-repeat;
+}
+#studio-board,
+#demo-card,
+[id^="feature-"]:not([id$="-icon"]):not([id$="-link"]),
+#ownership {
+	position: relative;
+	border: 0;
+	border-radius: var(--sk-wobbly-small);
+	box-shadow: none;
+}
+#studio-board::after,
+#demo-card::after,
+[id^="feature-"]:not([id$="-icon"]):not([id$="-link"])::after,
+#ownership::after {
+	content: "";
+	position: absolute;
+	pointer-events: none;
+	inset: var(--sk-card-inset);
+	background: var(--ink);
+	opacity: 0.8;
+	mask: url("/docs/_leptoskit/generated/card-1.svg") center / 100% 100%
+		no-repeat;
+}
+#studio-board {
+	overflow: visible;
+	gap: 1px;
+}
+#source-panel, #preview-panel {
+	border-radius: var(--sk-wobbly-small);
+}
+#source-caption, #studio-intro-description, #source-guide {
+	color: var(--quiet);
+}
+#studio-intro-eyebrow {
+	color: var(--ember);
+}
+#capability-grid {
+	border: 0;
+	gap: 1.5rem;
+}
+[id^="feature-"]:not([id$="-icon"]):not([id$="-link"]) {
+	background-color: var(--sk-paper-2);
+}
+#feature-motion {
+	background: color-mix(in srgb, var(--sk-coral) 10%, var(--paper));
+}
+#feature-live {
+	background: color-mix(in srgb, var(--sk-mint) 12%, var(--paper));
+}
+#feature-native, #feature-confidence {
+	transform: rotate(0.4deg);
+}
+#feature-identity {
+	transform: rotate(-0.5deg);
+}
+#ownership {
+	background: var(--paper);
+}
+#ownership-customer {
+	border-color: var(--sk-rule);
+}
+#cloud {
+	background: color-mix(in srgb, var(--sk-mint) 13%, var(--paper));
+}
+#demo-title {
+	font-size: 2rem;
+}
+#demo-count {
+	font-weight: 400;
+}
+#demo-mark {
+	background: transparent;
+	border-radius: 0;
+}
+#hero-note,
+#hero-actions,
+#source-guide,
+#preview-note,
+[id^="feature-"] > span:not([id$="-icon"]),
+#ownership > div > span:not([id$="-label"]),
+#cloud-note,
+#footer {
+	font-size: 0.95rem;
+}
+[id^="step-0"]:not([id$="-link"]) {
+	position: relative;
+	border: 0;
+}
+[id^="step-0"]:not([id$="-link"])::before {
+	content: "";
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: 8px;
+	background: var(--sk-coral);
+	mask: url("/docs/_leptoskit/generated/rule-3.svg") center / 100% 100%
+		no-repeat;
+}
+@media (max-width: 700px) {
+	#hero-title {
+		font-size: clamp(2.5rem, 12.5vw, 3.5rem);
+	}
+	#hero-description {
+		font-size: 1.1rem;
+	}
+	#capability-grid {
+		gap: 1.25rem;
+	}
+	#site h2 {
+		font-size: clamp(2.3rem, 10vw, 3.6rem);
+	}
+	#hero-note {
+		font-size: 0.85rem;
+	}
+	#art-label-two {
+		right: 0;
 	}
 }

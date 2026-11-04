@@ -49,7 +49,9 @@ async fn one_origin_serves_the_landing_real_docs_console_and_api() {
 		"/docs/guide/29-hosted-deployments.html",
 		"/docs/_leptoskit/theme.js",
 		"/docs/_leptoskit/search.json",
-		"/docs/assets/fonts/instrument-sans.woff2",
+		"/docs/assets/fonts/skribble/SkribbleNotoSketch-Regular.woff2",
+		"/docs/theme/skribble.css",
+		"/docs/_leptoskit/generated/brand-mint.svg",
 		"/rive/rive.js",
 		"/rive/rive.wasm",
 		"/healthz",
@@ -112,6 +114,18 @@ async fn one_origin_serves_the_landing_real_docs_console_and_api() {
 		"the strict CSP permits only external scripts"
 	);
 	assert!(html.contains("https://deploy.example.test/docs/"));
+	for url in include_str!("../web/landing.css").split("url(\"").skip(1) {
+		let path = url
+			.split('"')
+			.next()
+			.unwrap()
+			.strip_prefix("/docs/")
+			.unwrap();
+		assert!(
+			docs.join(path).is_file(),
+			"the landing page's {path} must be packaged"
+		);
+	}
 }
 
 fn check_documentation_links(element: &leptoskit::prelude::Element, docs: &Path) {

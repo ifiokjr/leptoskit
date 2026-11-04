@@ -5290,6 +5290,7 @@ dependencies = [
  "clap",
  "leptos",
  "leptoskit_docs",
+ "skribble_rough",
  "tempfile",
 ]
 
@@ -9403,6 +9404,11 @@ name = "siphasher"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
+
+[[package]]
+name = "skribble_rough"
+version = "0.0.1"
+source = "git+https://github.com/openbudgetfun/skribble?rev=00845d0d2a1c07a126079453de342811ee1cff64#00845d0d2a1c07a126079453de342811ee1cff64"
 
 [[package]]
 name = "slab"
