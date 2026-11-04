@@ -164,6 +164,8 @@ Everything a device downloads is untrusted until it has been verified:
 
 A release that fails these checks is an error, never a silent "up to date", and nothing is staged. In the apps leptoskit generates, a validly signed release that the installed app can't run, because it needs a newer shell, ABI, or plugin, is remembered and isn't downloaded again on later checks. A new store build of the app forgets that list.
 
+The generated iOS and Android apps also refuse a release older than the newest one the device has confirmed, even after losing that release. Say a device confirmed build 5 and later can't read it, because the file was damaged or the disk returned an error. It goes back to running the bundle from the store build, but a stale or hostile index that offers build 4 is still reported as up to date. The device records the newest confirmed release in a small file of its own, apart from the releases it downloaded, and keeps a second copy with its other update state, so either one is enough. If both are damaged, it uses the newest release it can still read. A new store build starts over from the bundle it ships.
+
 Your platform's `Transport` has to report a 404 as `CodePushError::NotFound`. That's how the client tells "no releases yet" and "no delta from here" apart from a network failure.
 
 ### What signing doesn't cover

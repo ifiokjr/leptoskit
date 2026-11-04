@@ -108,6 +108,10 @@ pub enum UpdateStatus {
 /// rejection names a release the device will never be offered again.
 const MAX_REJECTED: usize = 64;
 
+/// The version floor's file, kept apart from `state.json` and the releases so
+/// that losing either never lowers it.
+const FLOOR_FILE: &str = "floor.json";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct State {
@@ -118,6 +122,39 @@ struct State {
 	generation: u64,
 	rejected: Vec<String>,
 	launch: Option<Receipt>,
+	/// A copy of `floor.json`, so damage to either file keeps the floor.
+	#[serde(default)]
+	floor: Option<Floor>,
+}
+
+/// The newest release ever confirmed on this store build, or the store
+/// baseline. Nothing at or below it is installed, even when the confirmed
+/// release can no longer be read: an older release stays validly signed
+/// forever, so a stale or hostile index could otherwise roll the device back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Floor {
+	format: u32,
+	/// The store baseline it applies to. A new store build ships its own
+	/// baseline and starts a new floor.
+	embedded: String,
+	version: Version,
+	build: u64,
+}
+
+impl Floor {
+	fn of(manifest: &BundleManifest, embedded: &str) -> Self {
+		Self {
+			format: 1,
+			embedded: embedded.to_owned(),
+			version: manifest.version.clone(),
+			build: manifest.build,
+		}
+	}
+
+	fn order(&self) -> (&Version, u64) {
+		(&self.version, self.build)
+	}
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -160,6 +197,7 @@ pub struct InstalledBundles {
 	config: UpdateConfiguration,
 	keys: Option<TrustedKeys>,
 	state: State,
+	floor: Floor,
 	recovery: Option<String>,
 	// The old native screen remains alive until the confirmation result
 	// returns. Permit that one live handoff to reject even if its disk commit
@@ -200,6 +238,7 @@ impl InstalledBundles {
 				generation: 0,
 				rejected: Vec::new(),
 				launch: None,
+				floor: None,
 			}
 		};
 		let mut recovery = None;
@@ -220,12 +259,38 @@ impl InstalledBundles {
 			Err(error) => return Err(error.into()),
 		};
 
+		// A floor that can't be read is unknown, not absent: opening fails
+		// rather than accept a release below it. A damaged one falls back to
+		// the copy in the selector and the confirmed release.
+		let stored_floor = match fs::read(directory.join(FLOOR_FILE)) {
+			Ok(bytes) => {
+				match serde_json::from_slice::<Floor>(&bytes) {
+					Ok(floor) if floor.format == 1 => Some(floor),
+					parsed => {
+						recovery = Some(format!("discarded invalid version floor: {parsed:?}"));
+						None
+					}
+				}
+			}
+
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+			Err(error) => return Err(error.into()),
+		};
+		// Floors recorded for another store build no longer apply.
+		let recorded: Vec<Floor> = stored_floor
+			.iter()
+			.chain(&state.floor)
+			.filter(|floor| floor.embedded == baseline_hash)
+			.cloned()
+			.collect();
+
 		let mut installed = Self {
 			directory: directory.to_owned(),
 			embedded: embedded.to_vec(),
 			config,
 			keys,
 			state,
+			floor: Floor::of(&baseline.manifest, &baseline_hash),
 			recovery,
 			just_confirmed: None,
 			_directory_lock: directory_lock,
@@ -241,8 +306,13 @@ impl InstalledBundles {
 			installed.state.rejected.clear();
 		}
 
-		installed.recover(&baseline.manifest);
+		installed.recover(&baseline.manifest, recorded);
 		installed.state.embedded = baseline_hash;
+
+		if stored_floor.as_ref() != Some(&installed.floor) {
+			installed.write_floor()?;
+		}
+
 		installed.persist()?;
 		installed.prune()?;
 
@@ -331,7 +401,7 @@ impl InstalledBundles {
 			return Ok(());
 		}
 
-		self.load(launch.release.as_deref())?;
+		let (_, parsed) = self.load(launch.release.as_deref())?;
 		let release = launch.release.clone();
 		let confirms_trial = self.state.candidate.as_ref().is_some_and(|candidate| {
 			matches!(candidate, Candidate::Trying { .. })
@@ -339,6 +409,9 @@ impl InstalledBundles {
 		});
 
 		if confirms_trial {
+			// Raised before the selection, so a crash in between leaves a
+			// floor that is too high, never one that is too low.
+			self.raise_floor(&parsed.manifest)?;
 			self.just_confirmed = Some((receipt.to_owned(), self.state.confirmed.clone()));
 			self.state.confirmed = release;
 			self.state.candidate = None;
@@ -470,6 +543,11 @@ impl InstalledBundles {
 		let UpdatePlan::Available(offer) = client.check()? else {
 			return Ok(report(UpdateStatus::Current, current.manifest));
 		};
+		// The client compared the offer with the release that runs, which is
+		// the store baseline when the confirmed release couldn't be read.
+		if release_order(&offer.manifest) <= self.floor.order() {
+			return Ok(report(UpdateStatus::Current, current.manifest));
+		}
 		// The container must carry exactly the offered manifest, so its hash
 		// is the release's identifier before a byte of it is downloaded.
 		if self.state.rejected.contains(&offer.manifest.bundle_hash()) {
@@ -553,7 +631,9 @@ impl InstalledBundles {
 		}
 	}
 
-	fn recover(&mut self, baseline: &BundleManifest) {
+	/// Selects the releases to run and the version floor: the highest of the
+	/// `recorded` floors, the confirmed release, and the store baseline.
+	fn recover(&mut self, baseline: &BundleManifest, recorded: Vec<Floor>) {
 		if let Some(Candidate::Trying { release }) = self.state.candidate.clone() {
 			self.recovery = Some("unconfirmed trial recovered to working release".to_owned());
 			self.reject_release(release);
@@ -581,9 +661,21 @@ impl InstalledBundles {
 			}
 		}
 
+		// The confirmed release may have failed to read for a reason that
+		// passes, so it never lowers the floor.
+		self.floor = Floor::of(&working, &self.floor.embedded);
+
+		for floor in recorded {
+			if floor.order() > self.floor.order() {
+				self.floor = floor;
+			}
+		}
+
+		self.state.floor = Some(self.floor.clone());
+
 		if let Some(candidate) = self.state.candidate.clone() {
 			match self.load(Some(candidate.release())) {
-				Ok((_, parsed)) if release_order(&parsed.manifest) > release_order(&working) => {}
+				Ok((_, parsed)) if release_order(&parsed.manifest) > self.floor.order() => {}
 				Ok(_) => self.state.candidate = None,
 				Err(error) => {
 					self.recovery = Some(format!("staged release rejected: {error}"));
@@ -663,6 +755,33 @@ impl InstalledBundles {
 			}
 		}
 
+		Ok(())
+	}
+
+	/// Raises the floor to `manifest` if it is newer; the floor never falls on
+	/// the same store build.
+	fn raise_floor(&mut self, manifest: &BundleManifest) -> Result<(), CodePushError> {
+		if release_order(manifest) <= self.floor.order() {
+			return Ok(());
+		}
+
+		let raised = Floor::of(manifest, &self.floor.embedded);
+		let previous = std::mem::replace(&mut self.floor, raised);
+
+		if let Err(error) = self.write_floor() {
+			self.floor = previous;
+			return Err(error);
+		}
+
+		self.state.floor = Some(self.floor.clone());
+		Ok(())
+	}
+
+	fn write_floor(&self) -> Result<(), CodePushError> {
+		write_atomically(
+			&self.directory.join(FLOOR_FILE),
+			&serde_json::to_vec(&self.floor)?,
+		)?;
 		Ok(())
 	}
 

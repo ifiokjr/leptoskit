@@ -211,7 +211,7 @@ The store build carries a first copy of your app, `app.lkb`, with the trusted ke
 1. **Check for update** downloads the newest release in the background. The host checks its signature, app, channel, and version, and checks that `runtime.json` matches its own interface and plugins. Nothing runs yet.
 2. **Activate update** starts the new release next to the current one. It is a trial until it has drawn its first screen and survived a moment on the UI thread; then the host switches to it.
 3. If the trial crashes, the host keeps the current release and refuses that release from then on. If the app is killed during a trial, or the trial never draws, the next launch goes back to the last good release.
-4. Every launch verifies the release's signature again, and works offline. A new store build replaces every earlier download.
+4. Every launch verifies the release's signature again, and works offline. If the downloaded release can't be read any more, the host runs the copy it shipped with, but still refuses any release at or below the newest one it confirmed. A new store build replaces every earlier download.
 
 Release builds only reach `https://` servers; debug builds can use a local `http://` server with `codepush.allow_http = true`. Downloads follow no redirects, are capped at 32 MiB, and time out after 15 seconds to connect, 30 seconds to respond, and 10 minutes in total. If the update store fails, the host runs the copy it shipped with and says updates are unavailable.
 
