@@ -227,13 +227,29 @@ impl Auth {
 		state: &[u8],
 		lifetime: TimeDelta,
 	) -> Result<SessionToken> {
-		let now = leptoskit_db::now();
-		let token = SessionToken::generate()?;
 		Challenge::update()
 			.filter(|row| row.purpose.eq(purpose) & row.subject.eq(subject) & row.used_at.is_null())
-			.set(|row| row.used_at, Some(now))
+			.set(|row| row.used_at, Some(leptoskit_db::now()))
 			.run(connection)
 			.await?;
+		self.store_shared_ceremony(connection, purpose, subject, state, lifetime)
+			.await
+	}
+
+	/// Starts a ceremony under a subject everyone shares, such as a sign-in
+	/// before anyone is known, leaving the others running: only its token
+	/// finds it. Retiring the rest would let each visitor cancel every other
+	/// visitor's sign-in.
+	pub(crate) async fn store_shared_ceremony(
+		&self,
+		connection: &impl Connection,
+		purpose: Purpose,
+		subject: &str,
+		state: &[u8],
+		lifetime: TimeDelta,
+	) -> Result<SessionToken> {
+		let now = leptoskit_db::now();
+		let token = SessionToken::generate()?;
 		let hash = token.hash();
 		let sealed = self
 			.inner
@@ -674,11 +690,12 @@ mod ceremonies {
 			let state = serde_json::to_vec(&state)
 				.map_err(|_| AuthError::Config("a passkey couldn't be started".into()))?;
 			let token = self
-				.store_ceremony(
+				.store_shared_ceremony(
 					&self.inner.db,
 					Purpose::PasskeyAuthentication,
 					SIGN_IN_SUBJECT,
 					&state,
+					super::CEREMONY_LIFETIME,
 				)
 				.await?;
 			Ok(PasskeyChallenge { token, options })

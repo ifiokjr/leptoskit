@@ -315,6 +315,14 @@ impl Auth {
 			.ok_or(AuthError::Unsupported(
 				"a password signs in with the account's email address, and this account has none",
 			))?;
+		// Each new password costs a breach check and an Argon2 hash: a fresh
+		// session is cheap to get for an address of one's own, so it pays
+		// per account, as sign-in pays per address.
+		self.limit(
+			&[b"password-set", me.account.uuid().as_bytes()],
+			self.inner.limits.password_per_address,
+		)
+		.await?;
 		let password = self.check_new_password(password, Some(&address)).await?;
 		let hash = hashing::hash(&password).await?;
 		let tx = db.begin().await?;
@@ -407,6 +415,18 @@ impl Auth {
 	) -> Result<SignInStep> {
 		self.password_options()?;
 		let address = Email::parse(address).map_err(|_| AuthError::InvalidEmail)?;
+
+		// The breach check below asks another service: the code check's own
+		// limit comes after it, so this one stops a stranger making the
+		// server ask on every request.
+		if let Some(ip) = request.ip_text() {
+			self.limit(
+				&[b"password-reset-ip", ip.as_bytes()],
+				self.inner.limits.verify_per_ip,
+			)
+			.await?;
+		}
+
 		let password = self.check_new_password(password, Some(&address)).await?;
 		let challenge = self.check_email_code(&address, code, request).await?;
 		// Argon2 runs only after the code check's rate limits have passed:
@@ -713,7 +733,22 @@ mod hashing {
 		Argon2::default()
 	}
 
+	/// Argon2 runs at most this many at once, two per core: each takes
+	/// 19 MiB and two passes, so the rate limits bound how many a client
+	/// starts, and this bounds what all of them cost at once.
+	fn running() -> &'static tokio::sync::Semaphore {
+		static RUNNING: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
+		RUNNING.get_or_init(|| {
+			let cores = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+			tokio::sync::Semaphore::new(2 * cores)
+		})
+	}
+
 	async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T> {
+		let _permit = running()
+			.acquire()
+			.await
+			.map_err(|_| AuthError::Config("hashing a password failed".into()))?;
 		tokio::task::spawn_blocking(work)
 			.await
 			.map_err(|_| AuthError::Config("hashing a password failed".into()))

@@ -546,11 +546,12 @@ impl Auth {
 		let state = serde_json::to_vec(&input)
 			.map_err(|_| AuthError::Config("a challenge couldn't be stored".into()))?;
 		let token = self
-			.store_ceremony(
+			.store_shared_ceremony(
 				&self.inner.db,
 				Purpose::WalletSignIn,
 				SIGN_IN_SUBJECT,
 				&state,
+				CEREMONY_LIFETIME,
 			)
 			.await?;
 		Ok(WalletSignInChallenge { token, input })

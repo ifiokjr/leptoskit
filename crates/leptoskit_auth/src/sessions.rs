@@ -229,6 +229,17 @@ impl Auth {
 			update = update
 				.set(|row| row.previous_refresh_hash, Some(presented.to_vec()))
 				.set(|row| row.refreshed_at, Some(now));
+		} else {
+			// A retry within the grace works once: the presented token stops
+			// working, and the replacement it overtakes becomes the previous
+			// token with no grace left, so whoever holds that (the app, when
+			// the retry was a thief's) ends the session by using it.
+			update = update
+				.set(
+					|row| row.previous_refresh_hash,
+					session.refresh_hash.clone(),
+				)
+				.set(|row| row.refreshed_at, None);
 		}
 
 		if update.run(tx).await? == 0 {
@@ -706,6 +717,53 @@ mod tests {
 			events.last().map(|event| event.kind),
 			Some(EventKind::RefreshReused)
 		);
+	}
+
+	/// The grace lets an app retry a refresh whose answer it lost, once. A
+	/// thief who trades the old token inside the grace doesn't get away with
+	/// it: the app's token, which the trade overtook, ends the session when
+	/// the app uses it.
+	#[tokio::test]
+	async fn a_refresh_token_reused_within_the_grace_ends_the_session_when_the_app_returns() {
+		let (auth, db, sign_in) = native().await;
+		let request = RequestInfo::default();
+		let first = refresh_token(&sign_in);
+		let app = auth.refresh(first, &request).await.unwrap();
+		let thief = auth.refresh(first, &request).await.unwrap();
+
+		assert!(matches!(
+			auth.refresh(refresh_token(&app), &request).await,
+			Err(AuthError::SignedOut)
+		));
+		assert_eq!(auth.resolve(&thief.token).await.unwrap(), None);
+		let session = Session::get(&db.system("test"), sign_in.session.id)
+			.await
+			.unwrap();
+		assert!(session.revoked_at.is_some());
+		let events = crate::Event::query().all(&db.system("test")).await.unwrap();
+		assert_eq!(
+			events.last().map(|event| event.kind),
+			Some(EventKind::RefreshReused)
+		);
+	}
+
+	/// A retry within the grace works once, and the session carries on.
+	#[tokio::test]
+	async fn the_grace_trades_the_old_token_once() {
+		let (auth, _db, sign_in) = native().await;
+		let request = RequestInfo::default();
+		let first = refresh_token(&sign_in);
+		let _lost = auth.refresh(first, &request).await.unwrap();
+		let retried = auth.refresh(first, &request).await.unwrap();
+
+		assert!(matches!(
+			auth.refresh(first, &request).await,
+			Err(AuthError::SignedOut)
+		));
+		assert!(auth.resolve(&retried.token).await.unwrap().is_some());
+		auth.refresh(refresh_token(&retried), &request)
+			.await
+			.unwrap();
 	}
 
 	#[tokio::test]

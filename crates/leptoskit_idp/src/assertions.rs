@@ -77,7 +77,9 @@ impl Idp {
 
 		let exp = number("exp").ok_or_else(IdpError::invalid_client)?;
 
-		if exp + SKEW <= now
+		// `exp` is the client's: saturating, so `i64::MAX` is refused rather
+		// than overflowing.
+		if exp.saturating_add(SKEW) <= now
 			|| exp > now + MAX_LIFETIME.num_seconds() + SKEW
 			|| number("nbf").is_some_and(|nbf| nbf > now + SKEW)
 		{
@@ -125,8 +127,8 @@ impl Idp {
 			.delete(&self.inner.db)
 			.await?;
 
-		let expires_at =
-			chrono::DateTime::from_timestamp(exp + SKEW, 0).ok_or_else(IdpError::invalid_client)?;
+		let expires_at = chrono::DateTime::from_timestamp(exp.saturating_add(SKEW), 0)
+			.ok_or_else(IdpError::invalid_client)?;
 		let inserted = NewAssertion {
 			client_id: client.id,
 			jti_hash: crate::secrets::digest(&[client.client_id.as_bytes(), jti.as_bytes()]),

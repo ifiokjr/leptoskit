@@ -706,6 +706,22 @@ async fn connecting_disconnecting_and_merging_accounts() {
 		assert_eq!(offer.identities, ["GitHub"]);
 		assert_eq!(offer.second_factor, [] as [Factor; 0]);
 
+		// Not while the other account is disabled: merging it away would
+		// shed the ban.
+		app.auth
+			.disable(absorbed, &leptoskit_auth::RequestInfo::default())
+			.await
+			.unwrap();
+		let refused = browser
+			.post(
+				&app,
+				"/auth/merge",
+				json!({ "mode": "move_login", "confirm": true }),
+			)
+			.await;
+		assert_eq!(json_body(refused).await["error"], "disabled");
+		app.auth.enable(absorbed).await.unwrap();
+
 		// Not without an explicit go-ahead.
 		let refused = browser
 			.post(

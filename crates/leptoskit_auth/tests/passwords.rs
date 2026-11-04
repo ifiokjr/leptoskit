@@ -519,6 +519,68 @@ async fn the_breach_check_sends_five_characters_of_a_hash() {
 	down.set_password(&me, GOOD, &request()).await.unwrap();
 }
 
+/// Each new password costs a breach check and an Argon2 hash, so a session
+/// can only ask for so many, refused or not.
+#[tokio::test]
+async fn setting_passwords_is_rate_limited_per_account() {
+	let db = leptoskit_db::testing::sqlite().await;
+	let mailbox = Mailbox::new();
+	let auth = Auth::builder(&db, Keys::single("test", [7; 32]))
+		.mailer(mailbox.clone())
+		.passwords(PasswordOptions::default())
+		.limits(Limits {
+			password_per_address: Limit::new(2, Duration::from_mins(15)),
+			..Limits::default()
+		})
+		.build()
+		.unwrap();
+	let me = sign_in(&auth, &mailbox, "ada@example.com")
+		.await
+		.signed_in();
+
+	for _ in 0..2 {
+		assert!(matches!(
+			auth.set_password(&me, "short", &request()).await,
+			Err(AuthError::WeakPassword(_))
+		));
+	}
+
+	assert!(matches!(
+		auth.set_password(&me, GOOD, &request()).await,
+		Err(AuthError::RateLimited { .. })
+	));
+}
+
+/// A reset with a wrong code asks the breach service nothing past the
+/// per-IP limit: a stranger can't make the server ask on every request.
+#[tokio::test]
+async fn resets_reach_the_breach_check_only_within_the_ip_limit() {
+	let db = leptoskit_db::testing::sqlite().await;
+	let mailbox = Mailbox::new();
+	let pwned = Pwned::default();
+	let auth = Auth::builder(&db, Keys::single("test", [7; 32]))
+		.mailer(mailbox.clone())
+		.passwords(PasswordOptions {
+			breach_check: true,
+			..PasswordOptions::default()
+		})
+		.breached_passwords(pwned.clone())
+		.limits(Limits {
+			verify_per_ip: Limit::new(3, Duration::from_mins(15)),
+			..Limits::default()
+		})
+		.build()
+		.unwrap();
+
+	for _ in 0..10 {
+		let _ = auth
+			.reset_password("ada@example.com", "000000", BETTER, &request())
+			.await;
+	}
+
+	assert!(pwned.asked.lock().unwrap().len() <= 3);
+}
+
 #[cfg(feature = "axum")]
 #[tokio::test]
 async fn the_routes_sign_in_with_a_cookie_and_name_what_went_wrong() {
