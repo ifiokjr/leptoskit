@@ -155,11 +155,14 @@ impl Painter<'_> {
 			self.clip = self.clip.intersect(rect);
 		}
 
-		if scroll {
-			let offset = self.backend.scroll(id).unwrap_or_default();
-			self.scrolled_children(id, x, y, offset.x, offset.y, dim, underline);
-		} else {
-			self.children(id, x, y, dim, underline);
+		// A clipped subtree wholly off screen paints nothing.
+		if !self.clip.is_empty() {
+			if scroll {
+				let offset = self.backend.scroll(id).unwrap_or_default();
+				self.scrolled_children(id, x, y, offset.x, offset.y, dim, underline);
+			} else {
+				self.children(id, x, y, dim, underline);
+			}
 		}
 
 		self.clip = outer;
@@ -408,6 +411,12 @@ impl Painter<'_> {
 		let Some(node) = self.backend.node(id) else {
 			return;
 		};
+
+		// A label scrolled or clipped out of view is not wrapped at all.
+		if rect.intersect(self.clip).is_empty() {
+			return;
+		}
+
 		let content = node.props.text.as_deref().unwrap_or_default();
 		let max_cols = usize::from(rect.width);
 		let lines = wrap_ranges(content, max_cols);
@@ -777,11 +786,17 @@ impl Painter<'_> {
 }
 
 /// The cells a pixel rect covers, snapping each edge to the grid.
-fn cell_rect(x: f32, y: f32, width: f32, height: f32) -> Rect {
-	let left = (x / CELL_WIDTH).round() as i16;
-	let top = (y / CELL_HEIGHT).round() as i16;
-	let right = ((x + width) / CELL_WIDTH).round() as i16;
-	let bottom = ((y + height) / CELL_HEIGHT).round() as i16;
+///
+/// Edges are held within half the `i16` range, far past any terminal, so a
+/// scroll view's content taller than 32,767 rows keeps a valid rect whose
+/// right and bottom edges still fit.
+pub(crate) fn cell_rect(x: f32, y: f32, width: f32, height: f32) -> Rect {
+	const LIMIT: f32 = (i16::MAX / 2) as f32;
+	let edge = |pixels: f32, cell: f32| (pixels / cell).round().clamp(-LIMIT, LIMIT) as i16;
+	let left = edge(x, CELL_WIDTH);
+	let top = edge(y, CELL_HEIGHT);
+	let right = edge(x + width, CELL_WIDTH);
+	let bottom = edge(y + height, CELL_HEIGHT);
 
 	Rect::new(
 		left,
@@ -843,5 +858,27 @@ impl Rows {
 			(_, true) => Some(self.full_bottom()),
 			(_, false) => Some(self.full_bottom() - 1),
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::cell_rect;
+	use crate::text::CELL_HEIGHT;
+
+	#[test]
+	fn content_taller_than_the_cell_range_keeps_its_rect() {
+		// Fifty thousand rows, scrolled by one.
+		let rect = cell_rect(0.0, -CELL_HEIGHT, 8.0, 50_000.0 * CELL_HEIGHT);
+
+		assert_eq!(rect.top, -1);
+		assert!(!rect.is_empty());
+		assert!(rect.bottom() > 1000);
+	}
+
+	#[test]
+	fn non_finite_frames_are_empty_rather_than_a_panic() {
+		assert!(cell_rect(f32::NAN, 0.0, f32::NAN, 10.0).is_empty());
+		assert!(!cell_rect(0.0, 0.0, f32::INFINITY, CELL_HEIGHT).is_empty());
 	}
 }

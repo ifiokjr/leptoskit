@@ -111,9 +111,16 @@ pub fn diff(
 		written: false,
 	};
 
-	if previous.width() != next.width() || previous.height() != next.height() {
+	// A cleared screen is blank, so after a resize every cell that is not
+	// blank is written, including those the old frame also showed.
+	let cleared;
+	let previous = if previous.width() != next.width() || previous.height() != next.height() {
 		painter.clear()?;
-	}
+		cleared = Buffer::new(next.width(), next.height());
+		&cleared
+	} else {
+		previous
+	};
 
 	for row in 0..next.height() {
 		painter.row(previous, next, row)?;
@@ -151,7 +158,9 @@ impl<W: Write> Painter<'_, W> {
 				break;
 			};
 
-			if same_cell(previous, next, col, row) {
+			// A wide glyph's trailing half is written with the glyph, never
+			// on its own.
+			if cell.wide || same_cell(previous, next, col, row) {
 				col += 1;
 				continue;
 			}
@@ -175,12 +184,14 @@ impl<W: Write> Painter<'_, W> {
 		let run_style = Style::of(cell, self.depth);
 		let mut col = start;
 
+		// A wide glyph's trailing half belongs to the run that wrote the
+		// glyph, whatever its own colors.
 		while col < next.width()
-			&& !same_cell(previous, next, col, row)
-			&& next
-				.cell(col, row)
-				.is_some_and(|cell| Style::of(cell, self.depth) == run_style)
-		{
+			&& next.cell(col, row).is_some_and(|cell| {
+				(col > start && cell.wide)
+					|| (!same_cell(previous, next, col, row)
+						&& Style::of(cell, self.depth) == run_style)
+			}) {
 			col += 1;
 		}
 
@@ -208,12 +219,8 @@ impl<W: Write> Painter<'_, W> {
 		};
 
 		if cell.wide {
-			// The wide glyph before this cell already advanced the cursor
-			// over it.
-			if let Some(position) = self.cursor.as_mut() {
-				position.0 += 1;
-			}
-
+			// Writing the wide glyph before this cell already advanced the
+			// cursor over it.
 			return Ok(());
 		}
 
