@@ -186,8 +186,9 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
                 NSClickGestureRecognizer(
                     target: self, action: #selector(clicked(_:))))
             widget = press
-        case "text_input", "TextInput": widget = editable(NSTextField())
-        case "password_input", "PasswordInput": widget = editable(NSSecureTextField())
+        case "text_input", "TextInput", "password_input", "PasswordInput":
+            let secure = ["password_input", "PasswordInput"].contains(item.kind)
+            widget = editable(secure ? NSSecureTextField() : NSTextField())
         case "scroll_view", "ScrollView":
             let scroll = MacScrollView()
             scroll.onScroll = { [weak self] in self?.scrolled(item.id) }

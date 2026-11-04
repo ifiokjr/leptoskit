@@ -114,3 +114,13 @@ enum WidgetTextStyle {
         return font
     }
 }
+
+extension UITextField {
+    /// Masks the field's text, and keeps the keyboard from correcting or learning it.
+    func maskEntry() {
+        isSecureTextEntry = true
+        autocorrectionType = .no
+        spellCheckingType = .no
+        autocapitalizationType = .none
+    }
+}
