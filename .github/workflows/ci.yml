@@ -1223,6 +1223,15 @@ jobs:
       KOTLIN_VERSION: 2.1.21
       KOTLIN_SHA256: 1ba08a8b45da99339a0601134cc037b54cf85e9bc0edbe76dcbd27c2d684a977
     steps:
+      # The NDK builds, the generated applications, and the emulator image
+      # outgrow the runner's free disk, which kills the runner mid-step. Drop
+      # toolchains this job never uses; the Android SDK under
+      # /usr/local/lib/android stays, since the job installs into it.
+      - name: free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
