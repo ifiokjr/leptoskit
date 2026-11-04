@@ -502,6 +502,45 @@ fn generate_auth_is_pinned() {
 	);
 }
 
+/// `generate auth` with `[auth.passwords]` on: the screens with their
+/// password fields, and the server's `auth-passwords` feature.
+#[test]
+fn generate_auth_with_passwords_is_pinned() {
+	let _version = with_cli_version_masked().bind_to_scope();
+	let scratch = Scratch::new("snap-generate-auth-passwords");
+	let output = leptoskit(&scratch.path, &["new", "snapshotted", "--db", "sqlite"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let project = scratch.path.join("snapshotted");
+	let config = project.join(leptoskit_config::CONFIG_FILE);
+	let text = std::fs::read_to_string(&config).unwrap();
+	std::fs::write(
+		&config,
+		format!("{text}\n[auth]\n\n[auth.passwords]\nenabled = true\n"),
+	)
+	.unwrap();
+
+	let output = leptoskit(&project, &["generate", "auth"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	insta::assert_snapshot!(
+		"generate_auth_passwords__stdout",
+		normalize(&stdout(&output), &project)
+	);
+	for file in [
+		"snapshotted_app/src/auth/sign_in.rs",
+		"snapshotted_app/src/auth/security.rs",
+	] {
+		let contents = std::fs::read_to_string(project.join(file))
+			.unwrap_or_else(|error| panic!("read {file}: {error}"));
+		insta::assert_snapshot!(
+			format!(
+				"generate_auth_passwords__{}",
+				file.replace(['/', '\\'], "_")
+			),
+			contents
+		);
+	}
+}
+
 /// `generate deploy` on a fresh database scaffold: the server already
 /// serves its probes, so the next steps are only the platform's, and a
 /// second run changes nothing.

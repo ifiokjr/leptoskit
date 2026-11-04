@@ -16,8 +16,8 @@ use anyhow::Result;
 use leptoskit_config::LeptoskitConfig;
 
 /// The screens, relative to the client crate's `src/`, and whether each is
-/// only for `--idp`. The templates hold the `--idp` version: lines between
-/// `// leptoskit: idp` and `// leptoskit: end idp` are left out without it.
+/// only for `--idp`. The templates hold every optional part; [`render`]
+/// leaves out the ones a [`Mode`] doesn't write.
 const PAGES: [(&str, &str, bool); 8] = [
 	(
 		"auth/mod.rs",
@@ -119,18 +119,71 @@ const IDP_TABLE: &str = "
 [auth.idp]
 ";
 
-/// A template with its `--idp` lines kept or left out. The marker lines
-/// themselves never are.
-pub(crate) fn render(template: &str, idp: bool) -> String {
+/// The optional parts of the screens a run writes. A template holds each
+/// part's lines between `// leptoskit: <part>` and `// leptoskit: end
+/// <part>`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Mode {
+	/// The "Sign in with your app" screens, for `--idp`.
+	pub(crate) idp: bool,
+	/// Password sign-in, reset, and settings, for `[auth.passwords]
+	/// enabled`.
+	pub(crate) passwords: bool,
+}
+
+impl Mode {
+	/// Every mode, to recognise a file as another one wrote it.
+	const ALL: [Self; 4] = [
+		Self {
+			idp: false,
+			passwords: false,
+		},
+		Self {
+			idp: true,
+			passwords: false,
+		},
+		Self {
+			idp: false,
+			passwords: true,
+		},
+		Self {
+			idp: true,
+			passwords: true,
+		},
+	];
+
+	/// Whether this mode writes every part `other` does.
+	fn covers(self, other: Self) -> bool {
+		(self.idp || !other.idp) && (self.passwords || !other.passwords)
+	}
+
+	/// What this mode writes that `earlier` didn't, for the report.
+	fn added_to(self, earlier: Self) -> &'static str {
+		match (
+			self.idp && !earlier.idp,
+			self.passwords && !earlier.passwords,
+		) {
+			(true, true) => "what --idp needs and the password fields",
+			(true, false) => "what --idp needs",
+			_ => "the password fields",
+		}
+	}
+}
+
+/// A template with the parts `mode` doesn't write left out. The marker
+/// lines themselves always are.
+pub(crate) fn render(template: &str, mode: Mode) -> String {
 	let mut out = String::with_capacity(template.len());
 	let mut in_idp = false;
+	let mut in_passwords = false;
 
 	for line in template.split_inclusive('\n') {
 		match line.trim() {
 			"// leptoskit: idp" => in_idp = true,
 			"// leptoskit: end idp" => in_idp = false,
-
-			_ if in_idp && !idp => {}
+			"// leptoskit: passwords" => in_passwords = true,
+			"// leptoskit: end passwords" => in_passwords = false,
+			_ if (in_idp && !mode.idp) || (in_passwords && !mode.passwords) => {}
 			_ => out.push_str(line),
 		}
 	}
@@ -139,23 +192,22 @@ pub(crate) fn render(template: &str, idp: bool) -> String {
 }
 
 /// The screens, relative to the client crate's `src/`, as `generate auth`
-/// writes them, with `idp` for `--idp`.
-pub(crate) fn pages(idp: bool) -> Vec<(&'static str, String)> {
+/// writes them in `mode`.
+pub(crate) fn pages(mode: Mode) -> Vec<(&'static str, String)> {
 	PAGES
 		.iter()
-		.filter(|(_, _, only_idp)| idp || !only_idp)
-		.map(|(path, template, _)| (*path, render(template, idp)))
+		.filter(|(_, _, only_idp)| mode.idp || !only_idp)
+		.map(|(path, template, _)| (*path, render(template, mode)))
 		.collect()
 }
 
-/// The route files, relative to the routes directory, with `idp` for
-/// `--idp`.
-fn routes(idp: bool) -> Vec<(&'static str, String)> {
+/// The route files, relative to the routes directory, in `mode`.
+fn routes(mode: Mode) -> Vec<(&'static str, String)> {
 	ROUTES
 		.iter()
 		.filter_map(|(file, base, with_idp)| {
-			let template = if idp { with_idp.or(*base) } else { *base };
-			template.map(|template| (*file, render(template, idp)))
+			let template = if mode.idp { with_idp.or(*base) } else { *base };
+			template.map(|template| (*file, render(template, mode)))
 		})
 		.collect()
 }
@@ -163,21 +215,31 @@ fn routes(idp: bool) -> Vec<(&'static str, String)> {
 /// The server's sign-in module, reading the configuration at `config`,
 /// relative to the module, with the provider's builder for `idp`.
 pub(crate) fn server_module(config: &str, idp: bool) -> String {
-	render(include_str!("auth_pages/templates/server.rs"), idp).replace("__CONFIG_PATH__", config)
+	let mode = Mode {
+		idp,
+		..Mode::default()
+	};
+	render(include_str!("auth_pages/templates/server.rs"), mode).replace("__CONFIG_PATH__", config)
 }
 
-/// The same file as the other mode writes it, when that differs: a page
-/// written without `--idp` that `--idp` brings up to date, or one written
-/// with it that a run without it leaves alone.
-fn other_mode(
+/// The same file as every other mode writes it, where it differs: a page
+/// written without `--idp` or passwords that a run with them brings up to
+/// date, or one written with them that a run without them leaves alone.
+fn other_modes(
 	file: &str,
-	idp: bool,
-	all: fn(bool) -> Vec<(&'static str, String)>,
-) -> Option<String> {
-	all(!idp)
+	mode: Mode,
+	all: fn(Mode) -> Vec<(&'static str, String)>,
+) -> Vec<(Mode, String)> {
+	Mode::ALL
 		.into_iter()
-		.find(|(path, _)| *path == file)
-		.map(|(_, contents)| contents)
+		.filter(|other| *other != mode)
+		.filter_map(|other| {
+			all(other)
+				.into_iter()
+				.find(|(path, _)| *path == file)
+				.map(|(_, contents)| (other, contents))
+		})
+		.collect()
 }
 
 /// Runs `leptoskit generate auth` in the project around the current
@@ -244,6 +306,13 @@ impl fmt::Display for Report {
 /// As [`run`].
 pub fn generate(root: &Path, config: &LeptoskitConfig, idp: bool, force: bool) -> Result<Report> {
 	let mut report = Report::default();
+	let mode = Mode {
+		idp,
+		passwords: config
+			.auth
+			.as_ref()
+			.is_some_and(|auth| auth.passwords.enabled),
+	};
 	let client = client_dir(root, config)?;
 	let source = client.join("src");
 	let entry = ["lib.rs", "main.rs"]
@@ -262,12 +331,11 @@ pub fn generate(root: &Path, config: &LeptoskitConfig, idp: bool, force: bool) -
 		relative(root, &source.join("auth.rs"))
 	);
 
-	for (path, contents) in pages(idp) {
-		let earlier = other_mode(path, idp, pages);
+	for (path, contents) in pages(mode) {
 		let file = Template {
 			contents: &contents,
-			other: earlier.as_deref(),
-			idp,
+			others: &other_modes(path, mode, pages),
+			mode,
 		};
 		write_template(root, &source.join(path), &file, force, &mut report)?;
 	}
@@ -280,7 +348,7 @@ pub fn generate(root: &Path, config: &LeptoskitConfig, idp: bool, force: bool) -
 	add_features(root, &client.join("Cargo.toml"), &features, &mut report)?;
 
 	if let Some(routes) = routes_dir(root, config) {
-		add_routes(root, config, &routes, idp, force, &mut report)?;
+		add_routes(root, config, &routes, mode, force, &mut report)?;
 	}
 
 	if config.auth.is_none() {
@@ -358,11 +426,17 @@ fn server(
 	// server's module takes another name.
 	let module = root.join("src/sign_in.rs");
 	let contents = server_module("../leptoskit.toml", idp);
-	let other = server_module("../leptoskit.toml", !idp);
+	let other = Mode {
+		idp: !idp,
+		..Mode::default()
+	};
 	let file = Template {
 		contents: &contents,
-		other: Some(&other),
-		idp,
+		others: &[(other, server_module("../leptoskit.toml", !idp))],
+		mode: Mode {
+			idp,
+			..Mode::default()
+		},
 	};
 	write_template(root, &module, &file, force, report)?;
 	declare_module(root, &main, "sign_in", report)?;
@@ -477,20 +551,20 @@ fn routes_dir(root: &Path, config: &LeptoskitConfig) -> Option<PathBuf> {
 }
 
 /// Adds `/sign-in`, `/devices`, and `/security` to the file router, and for
-/// `idp` `/consent`, `/device`, `/connected-apps`, and `/developer-apps`,
+/// `--idp` `/consent`, `/device`, `/connected-apps`, and `/developer-apps`,
 /// unless the app already has routes by those names, then brings the
 /// generated module up to date.
 fn add_routes(
 	root: &Path,
 	config: &LeptoskitConfig,
 	dir: &Path,
-	idp: bool,
+	mode: Mode,
 	force: bool,
 	report: &mut Report,
 ) -> Result<()> {
 	let mut wrote = false;
 
-	for (file, contents) in routes(idp) {
+	for (file, contents) in routes(mode) {
 		let target = dir.join(file);
 		let existing = walkdir::WalkDir::new(dir)
 			.into_iter()
@@ -505,11 +579,10 @@ fn add_routes(
 			continue;
 		}
 
-		let earlier = other_mode(file, idp, routes);
 		let template = Template {
 			contents: &contents,
-			other: earlier.as_deref(),
-			idp,
+			others: &other_modes(file, mode, routes),
+			mode,
 		};
 		wrote |= write_template(root, &target, &template, force, report)?;
 	}
@@ -754,18 +827,18 @@ fn add_auth_table(root: &Path, table: &str, name: &str, report: &mut Report) -> 
 	Ok(())
 }
 
-/// A file to write, and how the same file reads when written in the other
-/// mode, with or without `--idp`.
+/// A file to write in `mode`, and how the same file reads in the other
+/// modes.
 struct Template<'a> {
 	contents: &'a str,
-	other: Option<&'a str>,
-	idp: bool,
+	others: &'a [(Mode, String)],
+	mode: Mode,
 }
 
 /// Writes a template like [`write_owned`], except that a file still exactly
-/// as the other mode wrote it isn't the app's own: `--idp` brings one written
-/// without it up to date, and a run without `--idp` leaves one written with
-/// it alone. Returns whether it wrote.
+/// as another mode wrote it isn't the app's own: a run that adds parts, such
+/// as `--idp`, brings it up to date, and a run without them leaves it alone,
+/// so a run never takes screens away. Returns whether it wrote.
 fn write_template(
 	root: &Path,
 	path: &Path,
@@ -773,25 +846,37 @@ fn write_template(
 	force: bool,
 	report: &mut Report,
 ) -> Result<bool> {
-	let earlier = template
-		.other
-		.filter(|other| *other != template.contents)
-		.filter(|_| path.is_file())
-		.is_some_and(|other| std::fs::read_to_string(path).is_ok_and(|existing| existing == other));
+	let existing = if path.is_file() {
+		std::fs::read_to_string(path).ok()
+	} else {
+		None
+	};
+	let earlier: Vec<Mode> = template
+		.others
+		.iter()
+		.filter(|(_, other)| other != template.contents && existing.as_ref() == Some(other))
+		.map(|(mode, _)| *mode)
+		.collect();
 
-	if !earlier {
+	if earlier.is_empty() {
 		return write_owned(root, path, template.contents, force, report);
 	}
 
-	if !template.idp {
+	// A file without one part's lines reads the same with or without it, so
+	// the mode it matches with the most parts says what this run adds.
+	let Some(earlier) = earlier
+		.into_iter()
+		.filter(|earlier| template.mode.covers(*earlier))
+		.max_by_key(|earlier| u8::from(earlier.idp) + u8::from(earlier.passwords))
+	else {
 		return Ok(false);
-	}
-
+	};
 	let shown = relative(root, path);
 	std::fs::write(path, template.contents).with_context(|| format!("could not write {shown}"))?;
-	report
-		.changed
-		.push(format!("updated {shown}: added what --idp needs"));
+	report.changed.push(format!(
+		"updated {shown}: added {}",
+		template.mode.added_to(earlier)
+	));
 	Ok(true)
 }
 

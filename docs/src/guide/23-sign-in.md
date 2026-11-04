@@ -539,13 +539,13 @@ let step = auth.sign_in_with_password("ada@example.com", "correct horse battery 
 The client has the same functions on every platform:
 
 ```rust
-use leptoskit::auth::client::PasswordInput;
+use leptoskit::auth::client::EmailPassword;
 use leptoskit::auth::client::sign_in_with_password;
 use leptoskit::auth::client::use_password_settings;
 
 let settings = use_password_settings();              // PasswordSettings { enabled, min_length, max_length }
 let sign_in = use_mutation(sign_in_with_password());
-sign_in.mutate(PasswordInput { email, password });   // SignInStep, as `verify_code()` answers
+sign_in.mutate(EmailPassword { email, password });   // SignInStep, as `verify_code()` answers
 ```
 
 `set_password()` and `remove_password()` change the signed-in person's password, answering `step_up_required` or `reauthenticate` when their sign-in isn't fresh, as turning on an authenticator does; `reset_password()` takes a `PasswordReset { email, code, password }`, with the code from `send_code()`. Errors are `invalid_password`, `weak_password` (its message says what's wrong), and `rate_limited`.
@@ -558,7 +558,7 @@ sign_in.mutate(PasswordInput { email, password });   // SignInStep, as `verify_c
 | HarmonyOS (experimental) | Everything above, as for emailed codes                                                                                                              |
 | Server rendering         | `password_settings()` reads in process; the others run in the browser and answer `server`                                                           |
 
-`leptoskit generate auth` turns on `auth-passwords` for your server when `[auth.passwords] enabled` is set, but its screens don't have password fields yet: leptoskit's `TextInput` can't hide what's typed in native apps, and a password field that shows the password isn't one to ship. Build your own field for the web, where an `<input type="password">` does, until it can.
+When `[auth.passwords] enabled` is set, `leptoskit generate auth` turns on `auth-passwords` for your server and gives its screens password fields. The sign-in screen offers **Sign in with a password**, and **Forgot your password?** resets one with an emailed code. The security screen sets, changes, and removes the password, with the server's minimum length beside the field. The fields are `PasswordInput`s, which hide what's typed on the web and in every native app, marked `current-password` or `new-password` so the browser's or the system's password manager fills and saves them. If you turn passwords on after generating the screens, run `leptoskit generate auth` again: it adds the fields to screens you haven't changed, and leaves the ones you have alone unless you pass `--force`.
 
 ### The rules
 

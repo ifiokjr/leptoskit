@@ -21,8 +21,11 @@ use auth_pages_example::route_devices;
 use auth_pages_example::route_security;
 use auth_pages_example::route_sign_in;
 use auth_pages_example::route_sign_in_idp;
+use leptoskit::auth::MfaStatus;
+use leptoskit::auth::PasswordSettings;
 use leptoskit::auth::PublicSession;
 use leptoskit::idp::client;
+use leptoskit::native::NativeKind;
 use leptoskit::prelude::Element;
 use leptoskit::prelude::Text;
 use leptoskit::query::NetworkMode;
@@ -875,6 +878,181 @@ async fn the_device_list_marks_this_device_and_reports_failed_sign_outs() {
 				assert!(shown.has(ALERT));
 			}
 			assert!(shown.has("Lost phone"));
+		}
+	})
+	.await;
+}
+
+/// A server that takes passwords of 8 to 64 characters, or doesn't.
+fn passwords(cache: &QueryClient, enabled: bool) {
+	cache.set_query_data(
+		&leptoskit::auth::client::password_settings(),
+		(),
+		PasswordSettings {
+			enabled,
+			min_length: 8,
+			max_length: 64,
+		},
+	);
+}
+
+/// The security screen's status for an account with or without a password.
+fn status(password: bool) -> MfaStatus {
+	serde_json::from_value(serde_json::json!({
+		"totp": false,
+		"recovery_codes": 0,
+		"passkeys": 0,
+		"required": false,
+		"password": password,
+	}))
+	.unwrap()
+}
+
+/// A field's kind and `autocomplete` hint, found by its accessible name.
+fn field(shown: &Shown, label: &str) -> (NativeKind, Option<String>) {
+	let widget = shown.tester.find(&Finder::label(label)).unwrap();
+	(widget.kind, widget.props.autocomplete)
+}
+
+#[tokio::test]
+async fn a_server_with_passwords_offers_password_sign_in_in_masked_fields() {
+	local(|| {
+		async {
+			let mut shown = show(
+				Some(false),
+				|cache| passwords(cache, true),
+				true,
+				|screens| screens.sign_in.screen(),
+			)
+			.await;
+			shown.tap(&Finder::text("Sign in with a password")).await;
+			assert_eq!(
+				field(&shown, "Email address"),
+				(NativeKind::TextInput, Some("username".into()))
+			);
+			assert_eq!(
+				field(&shown, "Password"),
+				(NativeKind::PasswordInput, Some("current-password".into()))
+			);
+
+			// What's missing is said before anything is sent.
+			shown
+				.tap(&Finder::role(NativeKind::Button, "Sign in"))
+				.await;
+			assert!(shown.has("Enter an email address"), "{}", shown.text());
+			shown
+				.tester
+				.enter_text(&Finder::label("Email address"), "ada@example.com")
+				.unwrap();
+			shown
+				.tap(&Finder::role(NativeKind::Button, "Sign in"))
+				.await;
+			assert!(shown.has("Enter your password."), "{}", shown.text());
+
+			// Without a server, the sign-in is refused, and the screen says so.
+			shown
+				.tester
+				.enter_text(&Finder::label("Password"), "correct horse battery")
+				.unwrap();
+			shown
+				.tap(&Finder::role(NativeKind::Button, "Sign in"))
+				.await;
+			assert!(shown.has(ALERT), "{}", shown.text());
+			assert!(
+				!shown.tester.tree().contains("correct horse battery"),
+				"{}",
+				shown.tester.tree()
+			);
+
+			// A forgotten password needs a code, which can't be sent here.
+			shown.tap(&Finder::text("Forgot your password?")).await;
+			assert!(shown.has(ALERT), "{}", shown.text());
+			assert!(shown.has("Password"), "{}", shown.text());
+
+			shown.tap(&Finder::text("Email me a code instead")).await;
+			assert!(shown.has("Email me a code"), "{}", shown.text());
+			assert!(shown.tester.find(&Finder::label("Password")).is_err());
+
+			// A server without passwords offers none.
+			let shown = show(
+				Some(false),
+				|cache| passwords(cache, false),
+				true,
+				|screens| screens.sign_in.screen(),
+			)
+			.await;
+			assert!(shown.has("Email me a code"), "{}", shown.text());
+			assert!(!shown.has("Sign in with a password"), "{}", shown.text());
+		}
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn the_security_screen_sets_changes_and_removes_a_password() {
+	local(|| {
+		async {
+			let mut shown = show(
+				Some(true),
+				|cache| {
+					passwords(cache, true);
+					cache.set_query_data(&leptoskit::auth::client::mfa(), (), status(false));
+				},
+				true,
+				|screens| screens.security.screen(),
+			)
+			.await;
+			assert!(shown.has("Use at least 8 characters."), "{}", shown.text());
+			assert_eq!(
+				field(&shown, "Password"),
+				(NativeKind::PasswordInput, Some("new-password".into()))
+			);
+			assert!(shown.tester.find(&Finder::text("Remove password")).is_err());
+
+			// Too short is caught here; the server checks the rest.
+			shown
+				.tester
+				.enter_text(&Finder::label("Password"), "short")
+				.unwrap();
+			shown.tap(&Finder::text("Set a password")).await;
+			assert!(
+				shown.has("alert \"Use at least 8 characters."),
+				"{}",
+				shown.text()
+			);
+			shown
+				.tester
+				.enter_text(&Finder::label("Password"), "a long enough phrase")
+				.unwrap();
+			shown.tap(&Finder::text("Set a password")).await;
+			assert!(shown.has(ALERT), "{}", shown.text());
+
+			// An account with a password changes or removes it.
+			shown
+				.cache
+				.set_query_data(&leptoskit::auth::client::mfa(), (), status(true));
+			shown.settle().await;
+			assert_eq!(
+				field(&shown, "New password"),
+				(NativeKind::PasswordInput, Some("new-password".into()))
+			);
+			assert!(shown.has("Change password"), "{}", shown.text());
+			shown.tap(&Finder::text("Remove password")).await;
+			assert!(shown.has(ALERT), "{}", shown.text());
+
+			// Without passwords on the server, there's no password section.
+			let shown = show(
+				Some(true),
+				|cache| {
+					passwords(cache, false);
+					cache.set_query_data(&leptoskit::auth::client::mfa(), (), status(false));
+				},
+				true,
+				|screens| screens.security.screen(),
+			)
+			.await;
+			assert!(shown.has("Passkeys"), "{}", shown.text());
+			assert!(!shown.has("Set a password"), "{}", shown.text());
 		}
 	})
 	.await;

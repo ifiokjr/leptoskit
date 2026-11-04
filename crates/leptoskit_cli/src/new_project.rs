@@ -715,7 +715,7 @@ fn auth_files(files: &mut Vec<(String, String)>, name: &str) {
 		None => files.push((lib, source)),
 	}
 
-	for (path, contents) in crate::auth_pages::pages(false) {
+	for (path, contents) in crate::auth_pages::pages(crate::auth_pages::Mode::default()) {
 		files.push((format!("{app}/src/{path}"), contents));
 	}
 
