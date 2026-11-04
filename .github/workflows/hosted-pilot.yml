@@ -103,8 +103,9 @@ jobs:
           # disposable runner; no service is started and no credentials exist.
           sudo install -d /opt/leptoskit-cloud/current
           sudo install -m 0755 target/hosted-pilot-unpacked/leptoskit-cloud /opt/leptoskit-cloud/current/
-          sudo systemd-sysusers target/hosted-pilot-unpacked/systemd/leptoskit-cloud.sysusers
-          sudo systemd-analyze verify target/hosted-pilot-unpacked/systemd/leptoskit-cloud.service
+          sudo install -m 0644 target/hosted-pilot-unpacked/systemd/leptoskit-cloud.sysusers /usr/lib/sysusers.d/leptoskit-cloud.conf
+          sudo systemd-sysusers /usr/lib/sysusers.d/leptoskit-cloud.conf
+          sudo systemd-analyze verify "$PWD/target/hosted-pilot-unpacked/systemd/leptoskit-cloud.service"
 
       - name: upload the candidate and acceptance evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
