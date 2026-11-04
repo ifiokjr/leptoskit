@@ -157,11 +157,12 @@ Everything a device downloads is untrusted until it has been verified:
 - The container's manifest has to be exactly the signed one, which is checked before anything is decompressed, and every file has to match its hash in the manifest.
 - Each file has to decompress to exactly its declared size, which stops decompression bombs. A container with anything after its last file, or after a file's compressed data, is rejected.
 - Manifest paths have to be relative and stay inside the bundle. Absolute paths and `..` are rejected before anything touches the disk.
-- A container has to fit the client's size limit, whether it's downloaded whole or rebuilt from a delta. The limit is 512 MiB by default and 32 MiB in the generated iOS and Android apps. A delta's output size is checked against it before any memory is allocated.
+- `index.json` is read on every check, so the client stops reading it after 2 MiB.
+- A container has to fit the client's size limit, whether it's downloaded whole or rebuilt from a delta. The limit is 32 MiB, the largest container a client can read. A delta's output size is checked against it before any memory is allocated.
 - If a delta can't be fetched, doesn't parse, or doesn't apply, the client falls back to the full download.
 - `CodePushClient::sync` replaces its staging directory whole, so no file of the previous release survives the update, and a failed sync leaves the previous staging as it was.
 
-A release that fails these checks is an error, never a silent "up to date", and nothing is staged.
+A release that fails these checks is an error, never a silent "up to date", and nothing is staged. In the apps leptoskit generates, a validly signed release that the installed app can't run, because it needs a newer shell, ABI, or plugin, is remembered and isn't downloaded again on later checks. A new store build of the app forgets that list.
 
 Your platform's `Transport` has to report a 404 as `CodePushError::NotFound`. That's how the client tells "no releases yet" and "no delta from here" apart from a network failure.
 

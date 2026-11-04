@@ -51,11 +51,36 @@ pub trait Transport {
 	/// misconfigured registry is an error rather than a silent "up to date";
 	/// serve the registry publicly, so that missing files are 404s.
 	fn fetch(&mut self, url: &str) -> Result<Vec<u8>, CodePushError>;
+
+	/// Fetches `url` like [`Self::fetch`], failing when the body is over
+	/// `max_bytes`.
+	///
+	/// The client calls this with each object's own bound, such as the 2 MiB
+	/// channel index it reads on every check. The default reads the whole
+	/// body before measuring it; a transport that can stop reading at the
+	/// limit should override it, as the built-in `HttpTransport` does, so an
+	/// unsigned oversized response is never buffered in full.
+	fn fetch_within(&mut self, url: &str, max_bytes: u64) -> Result<Vec<u8>, CodePushError> {
+		let body = self.fetch(url)?;
+
+		if body.len() as u64 > max_bytes {
+			return Err(CodePushError::Malformed(format!(
+				"{url} is {} bytes, over the {max_bytes} byte limit",
+				body.len()
+			)));
+		}
+
+		Ok(body)
+	}
 }
 
 impl<T: Transport + ?Sized> Transport for &mut T {
 	fn fetch(&mut self, url: &str) -> Result<Vec<u8>, CodePushError> {
 		(**self).fetch(url)
+	}
+
+	fn fetch_within(&mut self, url: &str, max_bytes: u64) -> Result<Vec<u8>, CodePushError> {
+		(**self).fetch_within(url, max_bytes)
 	}
 }
 
@@ -217,13 +242,15 @@ impl<T: Transport> CodePushClient<T> {
 			current_build,
 			current_container,
 			trusted_keys,
-			max_container_bytes: crate::delta::MAX_DELTA_OUTPUT,
+			max_container_bytes: crate::manifest::MAX_CONTAINER_BYTES,
 		}
 	}
 
 	/// Caps the size of a container the client accepts, whether downloaded
 	/// in full or rebuilt from a delta. Defaults to
-	/// [`MAX_DELTA_OUTPUT`](crate::delta::MAX_DELTA_OUTPUT).
+	/// [`MAX_CONTAINER_BYTES`](crate::manifest::MAX_CONTAINER_BYTES), the
+	/// largest container a client can read, so a delta can never make it
+	/// allocate more than that.
 	///
 	/// A delta whose output would exceed the cap, or whose own body does, is
 	/// refused before anything is allocated for it, and the client falls back
@@ -251,14 +278,18 @@ impl<T: Transport> CodePushClient<T> {
 	pub fn check(&mut self) -> Result<UpdatePlan, CodePushError> {
 		let index_url = self.url(&ObjectKey::index(&self.app, &self.channel));
 
-		let body = match self.transport.fetch(&index_url) {
+		// The index has a tighter bound than releases, and it is read on
+		// every check, so the transport stops reading at that bound.
+		let body = match self
+			.transport
+			.fetch_within(&index_url, ObjectKind::Index.max_bytes())
+		{
 			Ok(body) => body,
 			Err(CodePushError::NotFound(_)) => return Ok(UpdatePlan::UpToDate),
 			Err(error) => return Err(error),
 		};
 
-		// The transport bounds the wire for every kind at once; the index
-		// has the tighter bound of its own, and it is parsed on every check.
+		// A custom transport may not apply the bound itself.
 		if body.len() as u64 > ObjectKind::Index.max_bytes() {
 			return Err(CodePushError::Malformed(format!(
 				"channel index exceeds {} bytes",
@@ -411,7 +442,10 @@ impl<T: Transport> CodePushClient<T> {
 		let container_bytes = if let Some(bytes) = delta_bytes {
 			bytes
 		} else {
-			let bytes = self.transport.fetch(&self.resolve(&offer.download_url))?;
+			let url = self.resolve(&offer.download_url);
+			let bytes = self
+				.transport
+				.fetch_within(&url, self.max_container_bytes)?;
 			self.within_limit("container", bytes.len())?;
 			bytes
 		};
@@ -454,7 +488,10 @@ impl<T: Transport> CodePushClient<T> {
 	/// Fetches the offered delta and applies it to the running container,
 	/// returning the patched container bytes.
 	fn fetch_delta(&mut self, delta_url: &str, base_hash: &str) -> Result<Vec<u8>, CodePushError> {
-		let delta_bytes = self.transport.fetch(&self.resolve(delta_url))?;
+		let url = self.resolve(delta_url);
+		let delta_bytes = self
+			.transport
+			.fetch_within(&url, self.max_container_bytes)?;
 		self.within_limit("delta", delta_bytes.len())?;
 		let delta: crate::delta::Delta = serde_json::from_slice(&delta_bytes)?;
 		let current_hash = hash_bytes(&self.current_container);

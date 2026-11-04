@@ -236,6 +236,9 @@ impl InstalledBundles {
 			installed.state.confirmed = None;
 			installed.state.candidate = None;
 			installed.state.launch = None;
+			// The new build may support releases the previous one could not
+			// run; one that still fails is rejected again.
+			installed.state.rejected.clear();
 		}
 
 		installed.recover(&baseline.manifest);
@@ -473,8 +476,19 @@ impl InstalledBundles {
 			return Ok(report(UpdateStatus::Current, current.manifest));
 		}
 
+		let offered = offer.manifest.bundle_hash();
 		let download = client.download_offer(*offer)?;
-		let parsed = validate_container(&download.container, &self.config)?;
+		let parsed = match validate_container(&download.container, &self.config) {
+			Ok(parsed) => parsed,
+			Err(error) => {
+				// The signed container fails the same way on every check, and
+				// would be downloaded again each time while it stays the
+				// channel's newest release.
+				self.reject_release(offered);
+				self.persist()?;
+				return Err(error);
+			}
+		};
 		let id = parsed.manifest.bundle_hash();
 
 		let release_dir = self.release_directory(&id)?;
@@ -797,6 +811,10 @@ impl HttpTransport {
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 impl Transport for HttpTransport {
 	fn fetch(&mut self, url: &str) -> Result<Vec<u8>, CodePushError> {
+		self.fetch_within(url, MAX_BUNDLE_BYTES)
+	}
+
+	fn fetch_within(&mut self, url: &str, max_bytes: u64) -> Result<Vec<u8>, CodePushError> {
 		let secure = url.starts_with("https://");
 		let development = self.allow_http && url.starts_with("http://");
 
@@ -825,7 +843,7 @@ impl Transport for HttpTransport {
 		response
 			.body_mut()
 			.with_config()
-			.limit(MAX_BUNDLE_BYTES)
+			.limit(max_bytes.min(MAX_BUNDLE_BYTES))
 			.read_to_vec()
 			.map_err(|error| CodePushError::Transport(error.to_string()))
 	}

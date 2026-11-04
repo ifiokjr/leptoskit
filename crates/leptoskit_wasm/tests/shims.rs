@@ -148,3 +148,33 @@ fn non_function_imports_from_the_placeholder_module_are_ignored() {
 		"{error}"
 	);
 }
+
+#[test]
+fn shims_imported_with_reference_results_cannot_forge_references() {
+	// The externref counter must never land in a funcref slot: growing it
+	// past the store's functions and calling through the forged reference
+	// used to panic inside the interpreter instead of trapping.
+	let guest = r#"(module
+  (import "__wbindgen_externref_xform__" "__wbindgen_externref_table_grow"
+    (func $grow (result funcref)))
+  (import "__wbindgen_placeholder__" "__wbindgen_describe" (func $describe (result funcref)))
+  (type $nothing (func))
+  (table 1 funcref)
+  (memory (export "memory") 1)
+  (func (export "leptoskit_main") (local $i i32)
+    (loop $more
+      (table.set (i32.const 0) (call $grow))
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br_if $more (i32.lt_u (local.get $i) (i32.const 4096))))
+    (call_indirect (type $nothing) (i32.const 0))
+    (table.set (i32.const 0) (call $describe))
+    (call_indirect (type $nothing) (i32.const 0)))
+  (func (export "leptoskit_event") (param i64 i32 i32 i32) (result i32) (i32.const 0)))"#;
+
+	if let Ok(mut host) = WasmHost::headless(guest.as_bytes()) {
+		let error = host
+			.start(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+			.expect_err("a shim with the wrong signature cannot produce a callable reference");
+		assert!(matches!(error, WasmError::Trap(_)), "{error}");
+	}
+}

@@ -13,6 +13,10 @@ enum WidgetStyle {
     /// many views, and creating each again costs an allocation.
     private static var colors: [UInt32: UIColor] = [:]
 
+    /// The most colors kept: an animated arbitrary color makes a new one
+    /// every frame, and the cache outlives every app the process runs.
+    private static let colorLimit = 256
+
     /// Sets each property only when it differs from the view's own value: a
     /// new view already holds the defaults, and UIKit setters do work even
     /// for an unchanged value, which added up across a screen of views.
@@ -79,6 +83,9 @@ enum WidgetStyle {
             blue: CGFloat((rgba >> blueShift) & channelMask) / channelMaximum,
             alpha: CGFloat(rgba & channelMask) / channelMaximum
         )
+
+        if colors.count >= colorLimit { colors.removeAll(keepingCapacity: true) }
+
         colors[rgba] = created
 
         return created
