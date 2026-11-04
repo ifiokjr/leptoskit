@@ -1,0 +1,33 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Builds a backend bundle from a Git commit in a container without network access, twice, and requires identical executables
+
+Usage: leptoskit verify build [OPTIONS] --recipe <RECIPE> --out <OUT>
+
+Options:
+      --recipe <RECIPE>
+          The build recipe: the JSON a bundle keeps as build.json
+
+      --checkout <CHECKOUT>
+          A local clone holding the recipe's commit. Without it, the commit is fetched from the recipe's repository without credentials
+
+      --secret <NAME>
+          The name of an environment variable the backend reads a secret from; repeat for each. Values are never read
+
+      --out <OUT>
+          A new directory for `bundle/`, `inventory.json`, and `provenance.json`
+
+      --engine <ENGINE>
+          The container engine. Defaults to docker, then podman, whichever responds
+
+          Possible values:
+          - docker: Docker
+          - podman: Podman
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

@@ -1,12 +1,81 @@
 # Verifying a release
 
-Anyone using your app has to trust that the code running it is the code you published. When your repository is public, leptoskit lets them check that for themselves: the backend files you release can be compared byte for byte with an inventory you published, so a reviewer, or a coding agent they point at the bundle, reads exactly the files you released.
+Anyone using your app has to trust that the code running it is the code you published. When your repository is public, leptoskit lets them check that for themselves. You build your backend from a commit on GitHub with `leptoskit verify build`; anyone else runs `leptoskit verify reproduce` to fetch that commit, rebuild it, and compare the result with your executable byte for byte. A reviewer, or a coding agent they point at your repository, then knows the code they read is the code you shipped.
 
-This page covers the backend. Each check says exactly what it proves and what it leaves out.
+This page covers backend executables built for Linux. The commands run on macOS and Linux and need Docker or Podman. They prove what a release contains; they do not prove which executable a live server is running, and they say nothing about whether the code is safe.
+
+## Building a backend people can verify
+
+Your repository must be public on GitHub, with `Cargo.lock` committed. Write a recipe naming the commit and how to build it:
+
+```json
+{
+	"repository": "https://github.com/example/backend",
+	"commit": "1234567890123456789012345678901234567890",
+	"builder_image": "docker.io/library/rust@sha256:ed2c95ca377d6571b124b05e75e01207973ded639dce7d5542eb7bcd797e32aa",
+	"target": "aarch64-unknown-linux-gnu",
+	"package": "backend",
+	"binary": "server",
+	"features": [],
+	"no_default_features": false,
+	"rustflags": [],
+	"infra": "deploy"
+}
+```
+
+Use your own repository, the full 40-character commit ID, and your package and binary names. Every field except `infra` is required, including empty lists and `false`, so nothing is left to a default:
+
+- `builder_image` is the container that compiles your code, pinned by its digest. The example is the official Rust 1.99.1 image. A tag such as `rust:latest` is refused, because it can point to a different compiler tomorrow. If your repository has a `rust-toolchain.toml`, the image must already contain that toolchain: nothing is downloaded while compiling.
+- `target` is `x86_64-unknown-linux-gnu` or `aarch64-unknown-linux-gnu` (or their `-musl` variants), and must match your machine's processor, since the compiler runs natively in the container. Use an x86-64 machine for an x86-64 server.
+- `features` and `no_default_features` are passed to Cargo as written. `rustflags` is the complete list of compiler flags: rustflags in your repository's Cargo configuration are not used.
+- `infra` optionally names a directory in the commit, such as your deployment configuration, to publish alongside the source.
+
+Then build:
+
+```sh
+leptoskit verify build \
+  --recipe recipe.json \
+  --secret DATABASE_URL --secret API_KEY \
+  --out release
+```
+
+The command:
+
+1. fetches the commit from your public repository without credentials (pass `--checkout <clone>` to read it from a local clone instead), and writes its exact files, executable bits included, to `release/bundle/source/`. Submodules and symbolic links are refused, so every source is in the commit;
+2. downloads every dependency `Cargo.lock` names into `release/bundle/dependencies/`. This is the only step with network access, and your source is read-only during it;
+3. compiles the binary twice in fresh containers with networking disabled, the source and dependencies read-only, and a fixed environment, then requires the two executables to be identical. A difference fails the build, because nobody else could reproduce it;
+4. writes `release/inventory.json`, which pins every file in the bundle, and `release/provenance.json`, a standard [SLSA provenance](https://slsa.dev/spec/v1.0/provenance) statement naming the commit, builder image, lockfile, compiler version, and executable digest.
+
+`--secret` records the names of the environment variables your server reads secrets from, in `bundle/secrets.json`; their values are never read. The command prints the executable's and the inventory's SHA-256. Publish the bundle and inventory with your release, and publish the inventory SHA-256 somewhere people can authenticate it, such as your release notes or a signed tag. The files themselves are not signed.
+
+## Reproducing a release
+
+Anyone with the bundle, its inventory, and the inventory SHA-256 from a source they trust can check the release:
+
+```sh
+leptoskit verify reproduce \
+  --bundle release/bundle \
+  --manifest release/inventory.json \
+  --sha256 <trusted-inventory-sha256>
+```
+
+Each line of the output is one claim that held:
+
+```text
+bundle matches the pinned inventory (4238 entries)
+source/ and infra/ are exactly https://github.com/example/backend at commit 1234567…
+dependencies/ is exactly what source/Cargo.lock resolves to
+artifacts/backend was rebuilt byte for byte from source/ and dependencies/ in docker.io/library/rust@sha256:…
+Not verified: which executable a live server runs, or whether the code is safe.
+```
+
+The command fetches the commit from the repository named in the recipe, downloads the dependencies the lockfile names, and compiles the binary once with networking disabled. Any difference fails it and names the first file that differs: changed source, a modified dependency, or an executable that the published source does not produce.
+
+`--checkout <clone>` compares the source with a local clone instead of fetching it, and says so in its output. `--offline` skips both network steps and only rebuilds the executable from the bundle's own files; the skipped claims are reported as not checked. Rebuilding needs a machine with the same processor architecture as the recipe's target.
 
 ## Checking a backend bundle
 
-Before comparing or reviewing a backend release, check that its source files, dependency sources, build declaration, infrastructure definitions and executable match the inventory you trust:
+`leptoskit verify check` is the first step of `reproduce` on its own: it needs no container or network. Before comparing or reviewing a backend release, check that its source files, dependency sources, build declaration, infrastructure definitions and executable match the inventory you trust:
 
 ```sh
 leptoskit verify check \
@@ -19,9 +88,9 @@ This is an offline file check for a prepared backend bundle, not a connection to
 
 Obtain the expected SHA-256 from independently authenticated release evidence or a previously trusted record. A checksum supplied alongside an untrusted download cannot establish who produced it. A successful check means the local files match that inventory; it does not prove that the executable was built from the included sources, that dependencies are complete, that a server runs it, or that its code is safe.
 
-### Preparing an inventory
+### Preparing an inventory by hand
 
-Prepare a directory containing only public materials:
+`verify build` writes the bundle and its inventory for you. To inventory a backend built some other way, prepare a directory containing only public materials:
 
 ```text
 backend-bundle/
@@ -55,7 +124,7 @@ Include the complete application source in `source/`, dependency sources in `dep
 }
 ```
 
-Replace the illustrative repository, full commit ID and builder digest with your release's values. The checker validates the declaration's format but does not contact the repository or builder, execute this recipe, or confirm that it produced the executable. Unknown recipe fields are rejected.
+Replace the illustrative repository, full commit ID and builder digest with your release's values. `record` and `check` validate the declaration's format but do not contact the repository or builder, execute this recipe, or confirm that it produced the executable; `reproduce` does. Unknown recipe fields are rejected.
 
 `secrets.json` contains names only:
 

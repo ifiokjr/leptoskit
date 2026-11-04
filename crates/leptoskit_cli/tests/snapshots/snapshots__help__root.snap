@@ -10,7 +10,7 @@ Commands:
   console      Hosts or connects to the deployment dashboard and durable agent API
   infra        Generates and manages the app's `OpenTofu` infrastructure
   deploy       Deploys a Git commit through its service, releases a prebuilt image, or rolls back
-  verify       Records and checks offline backend bundles; does not verify a live server
+  verify       Builds, records, checks, and reproduces backend bundles from public commits; does not verify a live server
   migrate      Upgrades leptoskit.toml to the current configuration schema
   native       Builds native application hosts and generates plugin registration
   test         Runs component and device tests with retained failure artifacts

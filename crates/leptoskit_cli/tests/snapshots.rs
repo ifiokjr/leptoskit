@@ -156,6 +156,8 @@ fn help_text_is_pinned() {
 		&["verify", "--help"][..],
 		&["verify", "record", "--help"][..],
 		&["verify", "check", "--help"][..],
+		&["verify", "build", "--help"][..],
+		&["verify", "reproduce", "--help"][..],
 		&["generate", "--help"][..],
 		&["generate", "app", "--help"][..],
 		&["generate", "auth", "--help"][..],
