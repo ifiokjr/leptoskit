@@ -2,7 +2,7 @@
 "release": patch
 ---
 
-# Harden sign-in, merging, passwords, and the identity provider
+# Harden sign-in, merges, passwords, and the provider
 
 `leptoskit_auth`:
 
