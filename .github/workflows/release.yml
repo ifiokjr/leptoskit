@@ -38,7 +38,7 @@ jobs:
     # create a second release PR describing the first. Pull requests run the rehearsal job instead.
     if: "github.event_name != 'pull_request' && !startsWith(github.event.head_commit.message, 'chore(release)')"
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       # Upload the release files as git blobs and a tree. This pushes no branch; the monochange
       # GitHub App writes the release commit and pull request, and this run proves its repository
@@ -65,16 +65,15 @@ jobs:
         with:
           tool: dprint
 
-      - name: install cargo-binstall
-        uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2.87.24
-        with:
-          tool: cargo-binstall
-
+      # Built from monochange/monochange#861 until it ships in a release: 0.21.0 uploads one git
+      # blob per release file, and this repository's 110-file release trips GitHub's secondary
+      # rate limit, so the release PR never opens. #861 sends the files inline in one tree request.
+      # Return to the binstall install the other jobs use once a release includes the fix.
       - name: install monochange
         run: |
           set -euo pipefail
-          cargo binstall --no-confirm --disable-strategies compile monochange@0.21.0 \
-            || cargo install --locked --version 0.21.0 monochange
+          cargo install --locked --git https://github.com/monochange/monochange \
+            --rev 34f09de69578d4d873f5bb27d5b002a8cc3206ad monochange
 
       - name: validate the release configuration
         run: monochange step validate
