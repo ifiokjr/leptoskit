@@ -252,7 +252,7 @@ impl Hosted {
 		store.register(&Project {
 			id: project.into(),
 			environment: environment.into(),
-			root: Path::new("/hosted-no-execution").join(project),
+			root: std::path::absolute("/hosted-no-execution")?.join(project),
 			revision: 0,
 		})?;
 		Ok(installation)
