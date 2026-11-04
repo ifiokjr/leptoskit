@@ -320,7 +320,7 @@ fn deliver_signal(shared: &Shared, channel: &str, from: Option<String>, message:
 			.collect()
 	};
 	let frame = ServerFrame::Signal {
-		channel: channel.to_owned(),
+		channel: super::wire_channel(channel).to_owned(),
 		from,
 		message,
 	};
@@ -353,7 +353,7 @@ fn send_presence(shared: &Shared, cluster: &Cluster, channel: &str) {
 	};
 	members.extend(cluster.members(channel));
 	let frame = ServerFrame::Presence {
-		channel: channel.to_owned(),
+		channel: super::wire_channel(channel).to_owned(),
 		members,
 	};
 	let Some(outbound) = Outbound::frame(&frame, None) else {

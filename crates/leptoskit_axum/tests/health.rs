@@ -294,3 +294,49 @@ async fn an_idle_server_stops_at_once_without_a_grace_period() {
 		.expect("join")
 		.expect("a clean stop");
 }
+
+/// A client that starts a request and never finishes its headers is cut
+/// off, rather than holding a socket (and a task) for as long as it likes.
+#[tokio::test(start_paused = true)]
+async fn a_client_that_never_finishes_its_headers_is_disconnected() {
+	let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+	let address = listener.local_addr().expect("address");
+	let shutdown = GracefulShutdown::new().signal(std::future::pending());
+	tokio::spawn(serve_listener_with(listener, Router::new(), shutdown));
+
+	let mut stream = TcpStream::connect(address).await.expect("connect");
+	stream
+		.write_all(b"GET / HTTP/1.1\r\nhost: test\r\n")
+		.await
+		.expect("write");
+	let mut buffer = Vec::new();
+	let closed = tokio::time::timeout(
+		leptoskit_axum::HEADER_READ_TIMEOUT * 2,
+		stream.read_to_end(&mut buffer),
+	)
+	.await;
+
+	assert!(
+		closed.is_ok(),
+		"the connection stayed open past the header read timeout"
+	);
+}
+
+/// Handlers see the peer's address: the auth layer's per-IP rate limits
+/// read it, and do nothing without it.
+#[tokio::test]
+async fn handlers_see_the_peer_address() {
+	use axum::extract::ConnectInfo;
+
+	let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+	let address = listener.local_addr().expect("address");
+	let router = Router::new().route(
+		"/peer",
+		get(|ConnectInfo(peer): ConnectInfo<SocketAddr>| async move { peer.ip().to_string() }),
+	);
+	let shutdown = GracefulShutdown::new().signal(std::future::pending());
+	tokio::spawn(serve_listener_with(listener, router, shutdown));
+
+	let (status, body) = get_once(address, "/peer").await.expect("request");
+	assert_eq!((status, body.as_str()), (200, "127.0.0.1"));
+}

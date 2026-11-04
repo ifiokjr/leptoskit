@@ -124,8 +124,14 @@ struct Inner {
 	db: Db,
 	identify: Arc<dyn Identify>,
 	origin: Option<String>,
+	/// How long a frame may wait to be sent before the connection closes.
+	stall: std::time::Duration,
 	shared: Arc<Shared>,
 }
+
+/// How long a connection's client may leave a frame unread before the
+/// connection closes: the heartbeat's interval.
+const STALL: std::time::Duration = std::time::Duration::from_secs(crate::live::HEARTBEAT_SECONDS);
 
 /// What every copy of a [`Live`] shares, whatever its settings.
 struct Shared {
@@ -147,6 +153,18 @@ struct Shared {
 #[derive(Default)]
 struct Room {
 	members: BTreeMap<u32, PresenceMember>,
+}
+
+/// The room a channel instance's members share: the channel's name and the
+/// instance's key, so two channels whose arguments look alike (`Chat {
+/// room }` and `Doc { room }`) never meet.
+fn room_key(name: &str, channel: &str) -> String {
+	format!("{name}\0{channel}")
+}
+
+/// The instance key a room's frames carry: the client's, without the name.
+fn wire_channel(room: &str) -> &str {
+	room.split_once('\0').map_or(room, |(_, channel)| channel)
 }
 
 #[derive(Default)]
@@ -213,6 +231,7 @@ impl Live {
 				db,
 				identify: Arc::new(super::Anonymous),
 				origin: None,
+				stall: STALL,
 				shared: Arc::new(Shared {
 					drain: broadcast::channel(8).0,
 					stats: Stats::default(),
@@ -284,6 +303,20 @@ impl Live {
 	pub fn rerun_on_replicas(self, enabled: bool) -> Self {
 		self.hub().use_replicas(enabled, hub::REPLICA_WAIT);
 		self
+	}
+
+	/// How long a connection may go without taking the next frame (its
+	/// client has stopped reading) before it is closed: 30 seconds unless
+	/// set. Until then, what the server would send it waits in memory.
+	#[must_use]
+	pub fn stall_timeout(self, timeout: std::time::Duration) -> Self {
+		self.with(|inner| inner.stall = timeout)
+	}
+
+	/// How long a frame may wait to be sent: see
+	/// [`stall_timeout`](Self::stall_timeout).
+	pub(crate) fn stall(&self) -> std::time::Duration {
+		self.inner.stall
 	}
 
 	/// How long a round of re-runs waits for a replica to catch up before it
@@ -363,7 +396,7 @@ impl Live {
 				.collect()
 		};
 		let frame = crate::live::ServerFrame::Presence {
-			channel: channel.to_owned(),
+			channel: wire_channel(channel).to_owned(),
 			members: self.presence_members(channel),
 		};
 		let Some(outbound) = Outbound::frame(&frame, None) else {
@@ -397,6 +430,7 @@ impl Live {
 			db: self.inner.db.clone(),
 			identify: Arc::clone(&self.inner.identify),
 			origin: self.inner.origin.clone(),
+			stall: self.inner.stall,
 			shared: Arc::clone(&self.inner.shared),
 		};
 		change(&mut inner);

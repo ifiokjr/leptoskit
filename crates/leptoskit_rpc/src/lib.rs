@@ -132,6 +132,8 @@ pub use operation::Error;
 pub use operation::Kind;
 pub use operation::Operation;
 pub use operation::Result;
+pub use page::MAX_PAGE_ROWS;
+pub use page::MAX_PINNED_ROWS;
 pub use page::Page;
 pub use page::PageArgs;
 pub use page::Paginated;

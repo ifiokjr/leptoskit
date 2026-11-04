@@ -324,14 +324,20 @@ On Postgres, run as many copies of the server as you like behind a load balancer
 
 ## Limits
 
-| Limit                  | Default | What happens                                                 |
-| ---------------------- | ------- | ------------------------------------------------------------ |
-| Queries per connection | 256     | The subscription is refused                                  |
-| Streams per connection | 64      | The stream ends as failed                                    |
-| One result             | 512 KiB | The subscription fails with a message pointing at pagination |
-| One frame              | 1 MiB   | The frame is refused                                         |
+| Limit                        | Default                        | What happens                                                 |
+| ---------------------------- | ------------------------------ | ------------------------------------------------------------ |
+| Queries per connection       | 256                            | The subscription is refused                                  |
+| Streams per connection       | 64                             | The stream ends as failed                                    |
+| Channels per connection      | 64                             | The join is refused                                          |
+| Actions running at once      | 16                             | The action is refused with `429`                             |
+| One channel's join arguments | 4 KiB                          | The join is refused                                          |
+| One member's presence        | 16 KiB                         | The join is refused                                          |
+| One result                   | 512 KiB                        | The subscription fails with a message pointing at pagination |
+| One page                     | 1,000 rows                     | The page holds the first 1,000, and says more follow         |
+| One frame                    | 1 MiB                          | The frame is refused                                         |
+| Frames                       | 256 a second, in bursts of 512 | The connection closes                                        |
 
-A slow connection doesn't cost the server memory without bound: `OUTGOING` transitions queue, and past that the connection gets whole values rather than every step.
+A slow connection doesn't cost the server memory without bound: `OUTGOING` transitions queue, and past that the connection gets whole values rather than every step. A client that stops reading altogether is disconnected after 30 seconds (`Live::stall_timeout`), and its client reconnects and resumes.
 
 ## End to end
 

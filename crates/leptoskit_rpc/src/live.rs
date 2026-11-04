@@ -88,6 +88,20 @@ pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 /// How many streams one connection may hold open at once.
 pub const MAX_STREAMS: usize = 64;
 
+/// How many actions one connection may have running at once.
+pub const MAX_ACTIONS: usize = 16;
+
+/// How many channels one connection may be in at once.
+pub const MAX_CHANNELS: usize = 64;
+
+/// The longest channel instance key, its join arguments serialized, in
+/// bytes. Each instance is a room the server keeps while anyone is in it.
+pub const MAX_CHANNEL_KEY_BYTES: usize = 4 * 1024;
+
+/// The largest presence state one member may show, in bytes of JSON. Every
+/// join and leave sends every member's state to every member.
+pub const MAX_PRESENCE_BYTES: usize = 16 * 1024;
+
 /// Where a server-sent events connection reads server frames, next to the
 /// WebSocket's `/live`.
 pub const EVENTS_PATH: &str = "/live/events";

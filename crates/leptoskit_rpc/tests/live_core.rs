@@ -104,6 +104,9 @@ pub async fn note_as_caller(cx: &rpc::ActionCx, body: String) -> rpc::Result<Str
 	Ok(caller)
 }
 
+/// A policy global, for a context with no caller.
+struct Global;
+
 /// Tells callers apart by an `x-caller` header, or a bearer token.
 struct Header;
 
@@ -127,6 +130,12 @@ impl rpc::server::Identify for Header {
 
 			Ok(match caller {
 				Some(caller) => Identity::anonymous().with_caller(caller),
+				// A context the hub can't vouch for: no caller, but a global.
+				None if header("x-global").is_some() => {
+					let mut identity = Identity::anonymous();
+					identity.context = leptoskit_db::Context::new().with(Global);
+					identity
+				}
 				None => Identity::anonymous(),
 			})
 		})
@@ -534,6 +543,53 @@ async fn resuming(db: Db) {
 	resuming_after_pruning(&server, reached).await;
 }
 
+/// A subscription whose context the hub can't vouch for runs alone; using
+/// its ID again for another query gets that query's result, not the old
+/// one's.
+async fn an_id_used_again_runs_its_new_query(db: Db) {
+	tag(&db, "a tag").await;
+	let server = serve(db).await;
+	let mut request = server.url.as_str().into_client_request().unwrap();
+	request
+		.headers_mut()
+		.insert("x-global", "yes".parse().unwrap());
+	let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+	let _ = next(&mut socket).await;
+
+	assert_eq!(subscribe(&mut socket, 1, "core_titles").await, json!([]));
+	assert_eq!(
+		subscribe(&mut socket, 1, "core_tags").await,
+		json!(["a tag"])
+	);
+}
+
+/// A resume holds one subscription per ID, as the client does: repeating
+/// an ID doesn't run its query again, for the price of one frame, past the
+/// subscription limit.
+async fn resuming_repeats_an_id_once(db: Db) {
+	let server = serve(db).await;
+	let (mut socket, _) = connect(&server, None).await;
+	let before = server.live.stats();
+	let repeated = ResumeQuery {
+		id: 1,
+		query: "core_titles".into(),
+		args: json!({}),
+	};
+	send(
+		&mut socket,
+		ClientFrame::Hello {
+			resume: Some(Resume {
+				version: 0,
+				queries: vec![repeated; 2 * rpc::live::MAX_SUBSCRIPTIONS],
+			}),
+		},
+	)
+	.await;
+	let caught_up = transition(&mut socket).await;
+	assert!(caught_up.updates.len() <= 1, "{caught_up:?}");
+	assert_eq!(server.live.stats().subscriptions - before.subscriptions, 1);
+}
+
 async fn resuming_after_pruning(server: &Server, reached: u64) {
 	// Pruned past where the client was: every result again.
 	server
@@ -883,6 +939,8 @@ on_sqlite!(
 	read_your_writes,
 	actions_over_the_connection,
 	resuming,
+	resuming_repeats_an_id_once,
+	an_id_used_again_runs_its_new_query,
 	server_sent_events,
 	posts_belong_to_the_streams_caller,
 	draining,

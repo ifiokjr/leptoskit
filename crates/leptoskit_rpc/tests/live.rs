@@ -79,6 +79,13 @@ pub async fn add_live_note(cx: &rpc::MutationCx, body: String) -> rpc::Result<St
 	Ok(note.id.to_string())
 }
 
+/// An action that never finishes.
+#[rpc::action]
+pub async fn live_forever(cx: &rpc::ActionCx) -> rpc::Result<()> {
+	let _ = cx;
+	std::future::pending().await
+}
+
 type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
 async fn start() -> (Db, String, Live, JoinHandle<()>) {
@@ -294,6 +301,18 @@ pub struct Chat {
 	pub channel: String,
 }
 
+/// Another channel whose arguments look like `Chat`'s.
+#[rpc::channel(message = Typing, presence = Present, authorize = may_board)]
+pub struct Board {
+	pub channel: String,
+}
+
+#[allow(clippy::unused_async, reason = "the signature the macro expects")]
+async fn may_board(cx: &rpc::QueryCx, board: &Board) -> rpc::Result<()> {
+	let _ = (cx, board);
+	Ok(())
+}
+
 #[allow(clippy::unused_async, reason = "the signature the macro expects")]
 async fn may_join(cx: &rpc::QueryCx, chat: &Chat) -> rpc::Result<()> {
 	if chat.channel == "secret" {
@@ -304,11 +323,16 @@ async fn may_join(cx: &rpc::QueryCx, chat: &Chat) -> rpc::Result<()> {
 	Ok(())
 }
 
+/// A chat room's instance key: its join arguments, serialized.
+fn key(channel: &str) -> String {
+	json!({ "channel": channel }).to_string()
+}
+
 async fn join(socket: &mut Socket, channel: &str, member: &str) {
 	send(
 		socket,
 		ClientFrame::Join {
-			channel: channel.to_owned(),
+			channel: key(channel),
 			name: "chat".into(),
 			args: json!({ "channel": channel }),
 			state: json!({ "name": member }),
@@ -342,7 +366,7 @@ async fn channels_carry_signals_and_presence() {
 	send(
 		&mut ada,
 		ClientFrame::Signal {
-			channel: "room-1".into(),
+			channel: key("room-1"),
 			message: json!({ "who": "ada" }),
 		},
 	)
@@ -355,7 +379,7 @@ async fn channels_carry_signals_and_presence() {
 	else {
 		panic!("a signal");
 	};
-	assert_eq!(channel, "room-1");
+	assert_eq!(channel, key("room-1"));
 	assert_eq!(from.as_deref(), Some("live-1"));
 	assert_eq!(message, json!({ "who": "ada" }));
 
@@ -376,8 +400,137 @@ async fn a_refused_channel_says_why() {
 	let ServerFrame::ChannelError { channel, err } = next(&mut socket).await else {
 		panic!("a refusal");
 	};
-	assert_eq!(channel, "secret");
+	assert_eq!(channel, key("secret"));
 	assert!(err.message.contains("private"));
+
+	server.abort();
+}
+
+/// The key names the room, so a member allowed into one instance can't
+/// name another's key and land in it: they'd see its presence and signals.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_join_names_the_room_its_arguments_were_authorized_for() {
+	let (_db, url, _live, server) = start().await;
+	let (mut ada, _) = connect_async(&url).await.unwrap();
+	let (mut mallory, _) = connect_async(&url).await.unwrap();
+	let _ = next(&mut ada).await;
+	let _ = next(&mut mallory).await;
+
+	join(&mut ada, "room-1", "ada").await;
+	assert_eq!(presence(&mut ada).await, ["live-1"]);
+
+	// Authorized for `room-2`, filed under `room-1`'s key.
+	send(
+		&mut mallory,
+		ClientFrame::Join {
+			channel: key("room-1"),
+			name: "chat".into(),
+			args: json!({ "channel": "room-2" }),
+			state: json!({ "name": "mallory" }),
+		},
+	)
+	.await;
+	let ServerFrame::ChannelError { channel, err } = next(&mut mallory).await else {
+		panic!("a refusal");
+	};
+	assert_eq!(channel, key("room-1"));
+	assert!(err.message.contains("join arguments"), "{}", err.message);
+
+	// Ada's room never heard of mallory, and a signal there doesn't reach
+	// them.
+	send(
+		&mut mallory,
+		ClientFrame::Signal {
+			channel: key("room-1"),
+			message: json!({ "who": "mallory" }),
+		},
+	)
+	.await;
+	send(
+		&mut ada,
+		ClientFrame::Signal {
+			channel: key("room-1"),
+			message: json!({ "who": "ada" }),
+		},
+	)
+	.await;
+	assert!(
+		tokio::time::timeout(Duration::from_millis(200), next(&mut mallory))
+			.await
+			.is_err(),
+		"mallory heard from the room"
+	);
+	assert!(
+		tokio::time::timeout(Duration::from_millis(200), next(&mut ada))
+			.await
+			.is_err(),
+		"ada heard from mallory"
+	);
+
+	server.abort();
+}
+
+/// A different channel whose arguments look the same is a different room.
+#[tokio::test(flavor = "multi_thread")]
+async fn channels_with_alike_arguments_do_not_share_a_room() {
+	let (_db, url, _live, server) = start().await;
+	let (mut ada, _) = connect_async(&url).await.unwrap();
+	let (mut grace, _) = connect_async(&url).await.unwrap();
+	let _ = next(&mut ada).await;
+	let _ = next(&mut grace).await;
+
+	join(&mut ada, "room-1", "ada").await;
+	assert_eq!(presence(&mut ada).await, ["live-1"]);
+	send(
+		&mut grace,
+		ClientFrame::Join {
+			channel: key("room-1"),
+			name: "board".into(),
+			args: json!({ "channel": "room-1" }),
+			state: serde_json::Value::Null,
+		},
+	)
+	.await;
+	let ServerFrame::Presence { channel, members } = next(&mut grace).await else {
+		panic!("presence");
+	};
+	assert_eq!(channel, key("room-1"));
+	assert_eq!(
+		members
+			.into_iter()
+			.map(|member| member.id)
+			.collect::<Vec<_>>(),
+		["live-2"]
+	);
+	assert!(
+		tokio::time::timeout(Duration::from_millis(200), next(&mut ada))
+			.await
+			.is_err(),
+		"ada saw a member of another channel"
+	);
+
+	server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connection_may_be_in_only_so_many_channels() {
+	let (_db, url, _live, server) = start().await;
+	let (mut socket, _) = connect_async(&url).await.unwrap();
+	let _ = next(&mut socket).await;
+
+	for room in 0..rpc::live::MAX_CHANNELS {
+		join(&mut socket, &format!("room-{room}"), "ada").await;
+		assert!(matches!(
+			next(&mut socket).await,
+			ServerFrame::Presence { .. }
+		));
+	}
+
+	join(&mut socket, "one-too-many", "ada").await;
+	let ServerFrame::ChannelError { err, .. } = next(&mut socket).await else {
+		panic!("a refusal");
+	};
+	assert!(err.message.contains("channels"), "{}", err.message);
 
 	server.abort();
 }
@@ -449,6 +602,33 @@ async fn a_socket_whose_token_is_refused_is_closed() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_socket_that_sends_faster_than_the_server_serves_is_closed() {
+	let frame = serde_json::to_string(&ClientFrame::Hello { resume: None }).unwrap();
+	let why = flood(frame).await;
+	assert_eq!(
+		why.expect("the server closes an over-budget connection"),
+		Ok(Some(
+			"this connection is sending frames faster than the server serves them".to_owned()
+		))
+	);
+}
+
+/// A frame that doesn't parse is answered too, so it pays the same. Each
+/// is answered with an error, so the reset of the close can overtake the
+/// last of them: only the close is certain.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_socket_flooding_frames_that_dont_parse_is_closed() {
+	let why = flood("x".to_owned()).await;
+	assert!(
+		matches!(why, Ok(Ok(_))),
+		"the server closes an over-budget connection: {why:?}"
+	);
+}
+
+/// Sends `frame` far faster than the frame budget allows, and returns the
+/// last error the server answered with before the connection ended.
+async fn flood(
+	frame: String,
+) -> Result<Result<Option<String>, String>, tokio::time::error::Elapsed> {
 	let (_db, url, _live, server) = start().await;
 	let (mut socket, _) = connect_async(&url).await.unwrap();
 	let _ = next(&mut socket).await;
@@ -457,7 +637,6 @@ async fn a_socket_that_sends_faster_than_the_server_serves_is_closed() {
 	// arrive after the final send completes, especially under coverage.
 	let (mut outgoing, mut incoming) = socket.split();
 	let sender = tokio::spawn(async move {
-		let frame = serde_json::to_string(&ClientFrame::Hello { resume: None }).unwrap();
 		for _ in 0..1600 {
 			if outgoing
 				.send(Message::Text(frame.clone().into()))
@@ -493,11 +672,61 @@ async fn a_socket_that_sends_faster_than_the_server_serves_is_closed() {
 	.await;
 	sender.abort();
 	server.abort();
-	assert_eq!(
-		why.expect("the server closes an over-budget connection"),
-		Ok(Some(
-			"this connection is sending frames faster than the server serves them".to_owned()
-		))
+	why
+}
+
+/// A client that stops reading can't make the server hold what it would
+/// send it: past the stall timeout, the connection closes.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_that_stops_reading_is_disconnected() {
+	let db = leptoskit_db::testing::sqlite().await;
+	NewNote {
+		body: "x".repeat(256 * 1024),
+	}
+	.insert(&db)
+	.await
+	.unwrap();
+	let live = Live::new(db.clone()).stall_timeout(Duration::from_millis(200));
+	let app = live.clone().router::<()>();
+	let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+	let address = listener.local_addr().unwrap();
+	let server = tokio::spawn(async move {
+		axum::serve(listener, app).await.unwrap();
+	});
+	let (mut socket, _) = connect_async(format!("ws://{address}/live")).await.unwrap();
+	let _ = next(&mut socket).await;
+
+	// Far more than the sockets' buffers hold, sent without reading any.
+	let subscriptions: u32 = 200;
+	for id in 1..=subscriptions {
+		send(
+			&mut socket,
+			ClientFrame::Sub {
+				id,
+				query: "live_titles".into(),
+				args: json!({}),
+			},
+		)
+		.await;
+	}
+	tokio::time::sleep(Duration::from_secs(2)).await;
+
+	let mut answered = 0;
+	let ended = tokio::time::timeout(Duration::from_secs(20), async {
+		while let Some(Ok(message)) = socket.next().await {
+			match message {
+				Message::Text(_) => answered += 1,
+				Message::Close(_) => break,
+				_ => {}
+			}
+		}
+	})
+	.await;
+	server.abort();
+	assert!(ended.is_ok(), "the connection stayed open");
+	assert!(
+		answered < subscriptions,
+		"the server waited for the client to read"
 	);
 }
 
@@ -611,6 +840,39 @@ async fn frames_the_server_cannot_serve_are_answered_and_the_socket_stays_open()
 	)
 	.await;
 	still_open(&mut socket).await;
+
+	server.abort();
+}
+
+/// Actions run beside the connection, so only so many at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connection_runs_only_so_many_actions_at_once() {
+	let (_db, url, _live, server) = start().await;
+	let (mut socket, _) = connect_async(&url).await.unwrap();
+	let _ = next(&mut socket).await;
+
+	let running = u32::try_from(rpc::live::MAX_ACTIONS).unwrap();
+	for request in 1..=running + 1 {
+		send(
+			&mut socket,
+			ClientFrame::Act {
+				request,
+				name: "live_forever".into(),
+				args: json!({}),
+			},
+		)
+		.await;
+	}
+
+	let ServerFrame::Done {
+		request,
+		err: Some(error),
+		..
+	} = next(&mut socket).await
+	else {
+		panic!("a refusal");
+	};
+	assert_eq!((request, error.status), (running + 1, 429));
 
 	server.abort();
 }

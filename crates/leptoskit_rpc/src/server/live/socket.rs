@@ -50,8 +50,13 @@ pub(super) async fn upgrade(State(live): State<Live>, request: axum::extract::Re
 		Err(rejection) => return rejection.into_response(),
 	};
 
+	// A message just over the frame limit is read and answered with why;
+	// one far over it ends the connection before it is buffered, rather than
+	// at axum's 64 MiB default.
 	websocket
 		.protocols([SUBPROTOCOL])
+		.max_message_size(2 * MAX_FRAME_BYTES)
+		.max_frame_size(2 * MAX_FRAME_BYTES)
 		.on_upgrade(move |socket| async move { live.socket(socket, identity).await })
 }
 
@@ -62,6 +67,7 @@ impl Live {
 		let (frames, incoming) = mpsc::channel::<Incoming>(INCOMING);
 		let (mut sink, mut stream) = socket.split();
 
+		let stall = self.stall();
 		let writer = tokio::spawn(async move {
 			while let Some(outbound) = outgoing.recv().await {
 				let message = match outbound {
@@ -69,12 +75,16 @@ impl Live {
 					Outbound::Heartbeat => Message::Ping(Vec::new().into()),
 				};
 
-				if sink.send(message).await.is_err() {
-					break;
+				// A client that stops reading can't hold the writer forever.
+				if !matches!(
+					tokio::time::timeout(stall, sink.send(message)).await,
+					Ok(Ok(()))
+				) {
+					return;
 				}
 			}
 
-			let _ = sink.close().await;
+			let _ = tokio::time::timeout(stall, sink.close()).await;
 		});
 
 		let reader = tokio::spawn(async move {
