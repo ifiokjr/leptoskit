@@ -812,6 +812,203 @@ fn signed_downgrades_and_replays_are_up_to_date() {
 	assert!(!launch.metadata.candidate);
 }
 
+/// The stored release's id and directory.
+fn release_directory(directory: &std::path::Path, container: &[u8]) -> std::path::PathBuf {
+	let id = read_container(container)
+		.expect("parse")
+		.manifest
+		.bundle_hash();
+	directory.join("releases").join(id)
+}
+
+/// Makes the stored container unreadable, as an I/O error rather than
+/// damaged bytes: reading a directory fails on every platform.
+fn make_unreadable(release: &std::path::Path) {
+	let container = release.join("release.lkb");
+	fs::remove_file(&container).expect("container");
+	fs::create_dir(&container).expect("unreadable container");
+}
+
+fn assert_refused(installed: &mut InstalledBundles, older: Vec<u8>) {
+	let report = installed
+		.sync_with(&mut Registry::new(older))
+		.expect("validly signed older release");
+	assert_eq!(
+		(report.status, report.build),
+		(UpdateStatus::Current, 0),
+		"an older release must not be staged"
+	);
+}
+
+#[test]
+fn an_unreadable_confirmed_release_keeps_the_version_floor() {
+	let directory = tempfile::tempdir().expect("installed");
+	let baseline = native_bundle(0, BASELINE);
+	let confirmed = native_bundle(2, REPLACEMENT);
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("open");
+	install(&mut installed, confirmed.clone());
+	drop(installed);
+
+	make_unreadable(&release_directory(directory.path(), &confirmed));
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("reopen");
+	assert_eq!(installed.launch().expect("store baseline").wasm, BASELINE);
+	// Still validly signed, and newer than the store baseline that runs now.
+	assert_refused(&mut installed, native_bundle(1, BASELINE));
+	assert_eq!(
+		installed
+			.sync_with(&mut Registry::new(native_bundle(3, REPLACEMENT)))
+			.expect("a newer release")
+			.status,
+		UpdateStatus::Staged
+	);
+}
+
+#[test]
+fn the_version_floor_survives_restarts_without_the_confirmed_release() {
+	let directory = tempfile::tempdir().expect("installed");
+	let baseline = native_bundle(0, BASELINE);
+	let confirmed = native_bundle(2, REPLACEMENT);
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("open");
+	install(&mut installed, confirmed.clone());
+	drop(installed);
+
+	// A damaged release is dropped and removed at the next open, so later
+	// restarts have no confirmed release left to read.
+	fs::write(
+		release_directory(directory.path(), &confirmed).join("release.lkb"),
+		b"damaged",
+	)
+	.expect("damage");
+
+	for restart in 0..3 {
+		let mut installed =
+			InstalledBundles::open(directory.path(), &baseline, configuration()).expect("reopen");
+		assert_eq!(release_entries(directory.path()), 0, "restart {restart}");
+		assert_eq!(installed.launch().expect("store baseline").wasm, BASELINE);
+		assert_refused(&mut installed, native_bundle(1, BASELINE));
+	}
+
+	// Either copy alone keeps the floor.
+	edit_state(directory.path(), |state| {
+		state["floor"] = serde_json::Value::Null;
+	});
+	let mut installed = InstalledBundles::open(directory.path(), &baseline, configuration())
+		.expect("floor file only");
+	assert_refused(&mut installed, native_bundle(1, BASELINE));
+	drop(installed);
+	fs::remove_file(directory.path().join("floor.json")).expect("floor file");
+	let mut installed = InstalledBundles::open(directory.path(), &baseline, configuration())
+		.expect("selector copy only");
+	assert_refused(&mut installed, native_bundle(1, BASELINE));
+}
+
+#[test]
+fn an_older_layout_derives_its_floor_from_the_confirmed_release() {
+	let directory = tempfile::tempdir().expect("installed");
+	let baseline = native_bundle(0, BASELINE);
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("open");
+	install(&mut installed, native_bundle(2, REPLACEMENT));
+	drop(installed);
+
+	// Stores written before the floor existed have neither copy.
+	fs::remove_file(directory.path().join("floor.json")).expect("floor file");
+	edit_state(directory.path(), |state| {
+		state.as_object_mut().expect("selector").remove("floor");
+	});
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("upgrade");
+	assert!(installed.recovery_diagnostic().is_none());
+	let floor: serde_json::Value =
+		serde_json::from_slice(&fs::read(directory.path().join("floor.json")).expect("floor"))
+			.expect("floor json");
+	assert_eq!(floor["build"], 2);
+	let report = installed
+		.sync_with(&mut Registry::new(native_bundle(1, BASELINE)))
+		.expect("validly signed older release");
+	assert_eq!((report.status, report.build), (UpdateStatus::Current, 2));
+}
+
+#[test]
+fn a_new_store_build_starts_a_new_version_floor() {
+	let directory = tempfile::tempdir().expect("installed");
+	let baseline = native_bundle(0, BASELINE);
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("open");
+	install(&mut installed, native_bundle(5, REPLACEMENT));
+	drop(installed);
+
+	// The new store build ships at build 1, below the release confirmed on
+	// the previous one; releases made for it start above its own baseline.
+	let store_build = native_bundle(1, REPLACEMENT);
+	let mut upgraded =
+		InstalledBundles::open(directory.path(), &store_build, configuration()).expect("upgrade");
+	assert_eq!(upgraded.launch().expect("store build").metadata.build, 1);
+	assert_eq!(
+		upgraded
+			.sync_with(&mut Registry::new(native_bundle(3, BASELINE)))
+			.expect("a release for the new store build")
+			.status,
+		UpdateStatus::Staged
+	);
+}
+
+#[test]
+fn a_corrupt_version_floor_still_refuses_downgrades() {
+	let directory = tempfile::tempdir().expect("installed");
+	let baseline = native_bundle(0, BASELINE);
+	let confirmed = native_bundle(2, REPLACEMENT);
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("open");
+	install(&mut installed, confirmed.clone());
+	drop(installed);
+	let floor = directory.path().join("floor.json");
+
+	// The floor file is torn and the confirmed release can't be read: the
+	// copy in the selector still holds the floor.
+	fs::write(&floor, b"{\"format\":1,\"emb").expect("torn floor");
+	make_unreadable(&release_directory(directory.path(), &confirmed));
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("reopen");
+	assert!(
+		installed
+			.recovery_diagnostic()
+			.expect("diagnostic")
+			.contains("installed release rejected")
+	);
+	assert_refused(&mut installed, native_bundle(1, BASELINE));
+	drop(installed);
+	let repaired: serde_json::Value =
+		serde_json::from_slice(&fs::read(&floor).expect("floor")).expect("rewritten floor");
+	assert_eq!(repaired["build"], 2);
+
+	// A floor from an unknown format is no floor to trust either, and the
+	// confirmed release still bounds what installs.
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("reopen");
+	install(&mut installed, native_bundle(3, BASELINE));
+	drop(installed);
+	fs::write(&floor, br#"{"format":2}"#).expect("unknown floor");
+	edit_state(directory.path(), |state| {
+		state["floor"] = serde_json::Value::Null;
+	});
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("reopen");
+	assert!(
+		installed
+			.recovery_diagnostic()
+			.expect("diagnostic")
+			.contains("invalid version floor")
+	);
+	let report = installed
+		.sync_with(&mut Registry::new(native_bundle(2, REPLACEMENT)))
+		.expect("validly signed older release");
+	assert_eq!((report.status, report.build), (UpdateStatus::Current, 3));
+}
+
 #[cfg(unix)]
 #[test]
 fn disk_full_while_staging_keeps_the_working_release() {
@@ -1423,7 +1620,10 @@ fn a_failed_selector_write_leaves_no_temporary_file() {
 		.map(|entry| entry.expect("entry").file_name())
 		.collect();
 	entries.sort();
-	assert_eq!(entries, ["installed.lock", "releases", "state.json"]);
+	assert_eq!(
+		entries,
+		["floor.json", "installed.lock", "releases", "state.json"]
+	);
 }
 
 #[test]
