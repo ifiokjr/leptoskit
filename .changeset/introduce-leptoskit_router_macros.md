@@ -1,5 +1,5 @@
 ---
-leptoskit_router_macros: breaking
+leptoskit_router_macros: major
 ---
 
 # leptoskit_router_macros: the Route derive

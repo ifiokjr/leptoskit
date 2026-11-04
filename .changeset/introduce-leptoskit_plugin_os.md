@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_os: breaking
+leptoskit_plugin_os: major
 ---
 
 # leptoskit_plugin_os: host platform identity

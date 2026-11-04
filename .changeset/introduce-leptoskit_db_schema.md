@@ -1,5 +1,5 @@
 ---
-leptoskit_db_schema: breaking
+leptoskit_db_schema: major
 ---
 
 # leptoskit_db_schema: schema diff and migrations

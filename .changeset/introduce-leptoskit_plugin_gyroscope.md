@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_gyroscope: breaking
+leptoskit_plugin_gyroscope: major
 ---
 
 # leptoskit_plugin_gyroscope: gyroscope readings

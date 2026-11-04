@@ -8,4 +8,4 @@ With `[auth.passwords] enabled = true`, `leptoskit generate auth` now writes pas
 
 Turning passwords on later and running `leptoskit generate auth` again adds the fields to screens you haven't changed, and leaves the ones you have alone unless you pass `--force`. Turning them off never takes fields away.
 
-`leptoskit::auth::client::PasswordInput`, the address and password `sign_in_with_password()` takes, is now `EmailPassword`, beside `EmailCode`, so it no longer shares a name with the `PasswordInput` text field.
+In app code, `leptoskit::auth::client::sign_in_with_password()` takes an `EmailPassword` (the address and password), alongside `EmailCode` for emailed codes.

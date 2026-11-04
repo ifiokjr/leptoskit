@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_light_sensor: breaking
+leptoskit_plugin_light_sensor: major
 ---
 
 # leptoskit_plugin_light_sensor: ambient light

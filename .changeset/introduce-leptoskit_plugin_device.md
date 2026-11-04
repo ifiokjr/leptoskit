@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_device: breaking
+leptoskit_plugin_device: major
 ---
 
 # leptoskit_plugin_device: device information

@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_web_auth: breaking
+leptoskit_plugin_web_auth: major
 ---
 
 # leptoskit_plugin_web_auth: system-browser sign-in

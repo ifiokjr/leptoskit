@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_filesystem: breaking
+leptoskit_plugin_filesystem: major
 ---
 
 # leptoskit_plugin_filesystem: application files

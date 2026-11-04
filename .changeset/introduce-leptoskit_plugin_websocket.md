@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_websocket: breaking
+leptoskit_plugin_websocket: major
 ---
 
 # leptoskit_plugin_websocket: WebSocket connections

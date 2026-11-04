@@ -2,10 +2,24 @@
 "release": minor
 ---
 
-# Manage deployments, backups, and schema rollback
+# Deploy, back up, and roll back on your own servers
 
-Add `[infra]`, `lk infra` (`lk tofu`), and `lk deploy` for Hetzner or DigitalOcean hosts behind Cloudflare Tunnel, R2 signed-update delivery, private R2 or Backblaze backups, and Postgres/Kamal container releases. Optional NATS relay and bounded Valkey cache use private networking; application hosts roll one at a time. Saved plans are checked before apply, image builds carry migration metadata checked before application startup, live prices can guard a compute budget, and a generated GitHub workflow builds and deploys tagged images. Shared reservations coordinate operators, releases, and backup jobs. Release history records registry digests and migration fingerprints on the primary host and in encrypted backups.
+Describe your servers in an `[infra]` table in `leptoskit.toml`, and `lk infra` (also `lk tofu`) and `lk deploy` take the app from there to running Linux hosts. They provision Hetzner or DigitalOcean servers behind a Cloudflare Tunnel, an R2 bucket that serves signed code push updates, and a private R2 or Backblaze bucket for backups, then run the app and Postgres in containers with Kamal:
 
-Install encrypted scheduled Restic backups with isolated restore checks, retention, health status, and explicit recovery that preserves the previous database. Image rollback checks the recorded digest and actual database history; schema-changing rollback requires reviewed reverse migrations, stopped writers, and explicit confirmation. Failed schema changes require recovery rather than an unsafe automatic image rollback. Persistent services remain on a single primary host.
+```sh
+lk infra generate
+lk infra plan
+lk infra apply
+lk infra build --version release-001 --push
+lk deploy --setup --version release-001
+```
 
-Generate `down.sql` beside each new upward `migration.sql`, preserving existing migration directories and checksums. `Db::rollback` and `lk db rollback` reverse an applied prefix newest first, transactionally per migration. Missing reverses and unresolved destructive/data recovery stubs fail before work starts. SQLite rebuilds retain foreign-key checks and Postgres uses the migration advisory lock. Deployment file generation also accepts a client-rendered app with a separate backend and client package. Bind percent-decoded relay URL credentials explicitly to the NATS client and strip them from connector addresses.
+- `lk infra apply` applies only the plan you saved and reviewed, and refuses a configuration that changed since. `lk infra offers` lists current prices, and `[infra.budget]` stops a plan whose compute would cost more per month than you allow.
+- Several app hosts update one at a time. An optional NATS relay for live connections and a bounded Valkey cache run on the private network; Postgres, NATS, and Valkey stay on one primary host.
+- Scheduled backups are encrypted with Restic, restored into a throwaway database to check them, and pruned by your retention settings. `lk infra restore` keeps the previous database beside the restored one.
+- Each image carries its migration history, which is checked before the app starts, and each release records its image digest. `lk deploy --rollback <tag>` checks both against the live database. Rolling back a schema change needs reviewed `down.sql` files, stopped writers, and `--rollback-schema --yes`; a failed schema change is never reversed automatically.
+- `lk infra ci` writes a GitHub Actions workflow that builds an image for each push to `main`, tagged with its commit, and deploys it.
+
+`lk db migration create` now writes a `down.sql` beside each new `migration.sql`; existing migrations and their checksums are left alone. `lk db rollback` and `Db::rollback` reverse applied migrations newest first, each in its own transaction, and refuse to start when a reverse is missing or still marked `-- leptoskit: irreversible`.
+
+`leptoskit generate deploy` also deploys a client-rendered app whose backend and browser client are separate packages (`build.client_package`). A NATS relay URL that carries a user name and password now passes them to the client instead of to the connection address.

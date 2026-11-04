@@ -2,8 +2,11 @@
 "release": minor
 ---
 
-# Package the public website, console and documentation
+# Serve the docs book under a strict CSP
 
-The unpublished `leptoskit_app` serves a responsive LeptosKit landing page, a working shared component example, the console at `/console/`, and the full documentation book at `/docs/`. The website packager bundles the book, local fonts and the pinned Rive runtime. The app opens its deployment's documentation on web and native hosts. Billing returns to the console.
+Two `leptoskit_docs::Site` changes let you serve the book from your own site:
 
-The original brand timeline uses existing Rive support with reduced-motion and visibility policies. Browser entrances progressively enhance visible content; general native Tailwind keyframe support is unchanged. `leptoskit_docs::Site::external_fonts(false)` supports local font stylesheets, and theme initialization uses an external same-origin script so the hosted book works under the broker's content security policy.
+- `Site::external_fonts(false)` stops the book loading its fonts from Google Fonts, for a site that supplies local fonts in its own stylesheet or has to work offline.
+- The script that applies a reader's saved light or dark theme is now a same-origin file instead of an inline script, so the book works under a content security policy that forbids inline scripts.
+
+The LeptosKit website is built this way: it serves the landing page, a live shared component example, the deployment console at `/console/`, and the whole book at `/docs/`, with local fonts and the Rive runtime packaged alongside. The management app's **Documentation** button opens that book on the web, iOS, and Android.

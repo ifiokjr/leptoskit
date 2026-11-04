@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_window_state: breaking
+leptoskit_plugin_window_state: major
 ---
 
 # leptoskit_plugin_window_state: window state

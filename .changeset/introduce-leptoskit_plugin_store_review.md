@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_store_review: breaking
+leptoskit_plugin_store_review: major
 ---
 
 # leptoskit_plugin_store_review: store review requests

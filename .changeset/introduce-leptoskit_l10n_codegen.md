@@ -1,5 +1,5 @@
 ---
-leptoskit_l10n_codegen: breaking
+leptoskit_l10n_codegen: major
 ---
 
 # leptoskit_l10n_codegen: the translations generator

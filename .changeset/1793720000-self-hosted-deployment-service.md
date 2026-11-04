@@ -2,8 +2,18 @@
 "release": minor
 ---
 
-# Ship a self-hosted deployment service
+# Run your own deployment service
 
-Add one optional service for the LeptosKit dashboard, durable deployment jobs, scoped agent API, and fleet analytics history. Reuse the existing OpenTofu and release engine, bind apply requests to reviewed plans, and retain uncertain runs for explicit reconciliation after interruption. Connect ordinary CLI commands without storing credentials in application repositories.
+`lk console serve` runs one service, on a trusted Linux or macOS worker, that holds the deployment dashboard, a queue of deployment jobs, an API for agents, and the analytics history of every instance of your app. Connect an app once, and the ordinary commands run through it, so a deployment keeps going after you close your terminal:
 
-Add paired management database migrations, consistent backups, offline restore with token revocation, bounded retention, automatic app ingestion credentials, platform-scoped host samples and optional OTLP/HTTP metrics export. Build Git commit releases in temporary checkouts while preserving registered infra policy.
+```sh
+lk console serve --project /srv/notes --url https://deploy.example.com   # on the worker
+lk console connect --url https://deploy.example.com                       # in your checkout
+lk infra plan
+lk infra apply
+lk deploy
+```
+
+It reuses the `lk infra` and `lk deploy` engine. Credentials stay on the worker and in a private file outside your repository. `apply` runs only the plan this checkout reviewed, and `lk deploy` builds the current Git commit in a temporary checkout on the worker. An operation interrupted by a restart is marked as such and waits for you to reconcile it, rather than being retried blind. `lk console token` issues project-scoped `read`, `deploy`, and `ingest` keys for agents and apps.
+
+Apps with the analytics plugin get their ingestion key and endpoint automatically. The service keeps up to seven days of measurements per project, alongside process, cgroup, and filesystem samples from each host, and can export metrics to an OTLP/HTTP backend instead. `lk console backup` and `lk console restore` back up and restore the service's own database; a restore revokes the keys it brings back.

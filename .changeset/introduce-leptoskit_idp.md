@@ -1,5 +1,5 @@
 ---
-leptoskit_idp: breaking
+leptoskit_idp: major
 ---
 
 # leptoskit_idp: an OIDC provider for your app

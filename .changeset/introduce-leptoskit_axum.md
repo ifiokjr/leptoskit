@@ -1,9 +1,9 @@
 ---
-leptoskit_axum: breaking
+leptoskit_axum: major
 ---
 
 # leptoskit_axum: the server toolkit
 
-`leptoskit_axum` is the Axum server toolkit every leptoskit deployment shares: static files with precompressed copies, SPA fallback, health checks, and code push routes.
+`leptoskit_axum` is the Axum server toolkit every leptoskit deployment shares: static files with precompressed copies and an `index.html` fallback, `/healthz` and `/readyz` probes with graceful shutdown, code push routes, and the association files that let the native apps use the site's passkeys and sign-in links.
 
-The generated server mounts it beside `leptos_axum`; apps that serve their own assets use the same functions. It stays leptos-free so the server binary only pays for what it uses.
+Apps reach it as `leptoskit::server` through the `server` feature, and mount it beside `leptos_axum`; the `analytics` feature adds request measurements. It re-exports `axum`, `tokio`, `tower`, and `tower_http`, so a deployment depends on one crate, and it stays leptos-free so the toolkit composes with any router.

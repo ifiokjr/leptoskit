@@ -1,5 +1,5 @@
 ---
-leptoskit_extension: breaking
+leptoskit_extension: major
 ---
 
 # leptoskit_extension: browser extensions

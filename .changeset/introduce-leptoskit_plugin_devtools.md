@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_devtools: breaking
+leptoskit_plugin_devtools: major
 ---
 
 # leptoskit_plugin_devtools: the guest-to-host DevTools bridge

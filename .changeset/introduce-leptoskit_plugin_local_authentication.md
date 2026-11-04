@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_local_authentication: breaking
+leptoskit_plugin_local_authentication: major
 ---
 
 # leptoskit_plugin_local_authentication: biometrics

@@ -1,5 +1,5 @@
 ---
-leptoskit_l10n: breaking
+leptoskit_l10n: major
 ---
 
 # leptoskit_l10n: typed translations

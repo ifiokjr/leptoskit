@@ -2,8 +2,6 @@
 "release": patch
 ---
 
-# Explore a simpler deployment control plane
+# Preview the deployment dashboard with example data
 
-Add a LeptosKit deployment-console design prototype, a draft agent request model, and an interactive HTML export built from the actual component tree. Explore deployment history, rollback/schema constraints, target capabilities, and hosted/self-hosted connection concepts. The prototype uses fixture data and cannot execute cloud operations or accept credentials.
-
-Document the proposed control API and runner architecture, cost/availability boundaries, Kubernetes autoscaling ownership, and the staged work needed to turn the existing deployment engine into a hosted or self-hosted product.
+`leptoskit_deploy_console` keeps the dashboard's original design study beside the working deployment service. Its `model`, `store`, and `view` modules and its `preview` example render the dashboard's screens (deployment history, rollback and schema checks, deployment targets) from built-in example data, and export them as an interactive HTML page. The preview needs no server or credentials and never touches your cloud accounts; to deploy, run the service with `lk console serve`.

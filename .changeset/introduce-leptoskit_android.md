@@ -1,5 +1,5 @@
 ---
-leptoskit_android: breaking
+leptoskit_android: major
 ---
 
 # leptoskit_android: the Android backend

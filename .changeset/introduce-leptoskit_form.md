@@ -1,5 +1,5 @@
 ---
-leptoskit_form: breaking
+leptoskit_form: major
 ---
 
 # leptoskit_form: headless form state

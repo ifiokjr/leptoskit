@@ -1,5 +1,5 @@
 ---
-leptoskit_rive_runtime: breaking
+leptoskit_rive_runtime: major
 ---
 
 # leptoskit_rive_runtime: the pinned Rive runtime

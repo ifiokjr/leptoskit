@@ -1,5 +1,5 @@
 ---
-leptoskit_plugin_accelerometer: breaking
+leptoskit_plugin_accelerometer: major
 ---
 
 # leptoskit_plugin_accelerometer: accelerometer readings
