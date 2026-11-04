@@ -181,19 +181,12 @@ pub unsafe fn create_with_context(
 			.and_then(|context| context.decode())
 	};
 	// SAFETY: Input/output buffers obey the same contract as create.
-	unsafe {
-		create(wasm, len, error, |app| {
-			let context = context?;
-			app.platform.clone_from(&context.platform);
-			install(app, &context)
-		})
-	}
+	unsafe { create(wasm, len, error, |app| install(app, &context?)) }
 }
 
 /// One loaded guest and its installed immediate and worker Rust plugins.
 pub struct App {
 	host: Option<WasmHost<HeadlessBackend>>,
-	platform: Option<PlatformContext>,
 	service: Option<ServiceState>,
 	close_scheduler: Option<CloseScheduler>,
 	close_wake: Option<ServiceWake>,
@@ -250,7 +243,6 @@ impl App {
 		)]
 		let mut app = Self {
 			host: Some(host),
-			platform: None,
 			service: None,
 			close_scheduler: None,
 			close_wake: None,
@@ -311,12 +303,6 @@ impl App {
 		operation: impl FnOnce(&mut WasmHost<HeadlessBackend>) -> T,
 	) -> T {
 		operation(self.host_mut())
-	}
-
-	/// Optional platform host handle retained for the lifetime of this app.
-	#[must_use]
-	pub fn platform(&self) -> Option<&PlatformContext> {
-		self.platform.as_ref()
 	}
 
 	fn host_mut(&mut self) -> &mut WasmHost<HeadlessBackend> {

@@ -22,6 +22,60 @@ pub const NAME: &str = "clipboard";
 /// Supported text operations.
 pub const METHODS: &[MethodId] = &[READ_TEXT, WRITE_TEXT, CLEAR];
 
+/// Implements [`Plugin`](leptoskit_bridge::Plugin) for a native backend's
+/// `read_text`, `write_text`, and `clear`, mapping their errors with
+/// `$map_error`.
+#[cfg(any(
+	target_os = "macos",
+	target_os = "windows",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "ios",
+	target_os = "android"
+))]
+macro_rules! text_plugin {
+	($clipboard:ty, $map_error:expr) => {
+		impl leptoskit_bridge::Plugin for $clipboard {
+			fn name(&self) -> &'static str {
+				NAME
+			}
+
+			fn methods(&self) -> &'static [MethodId] {
+				METHODS
+			}
+
+			fn invoke(
+				&mut self,
+				method: MethodId,
+				payload: leptoskit_bridge::Bytes,
+			) -> Result<leptoskit_bridge::Bytes, leptoskit_bridge::Error> {
+				use leptoskit_bridge::Bytes;
+				use leptoskit_bridge::Error;
+
+				match method {
+					READ_TEXT if payload.is_empty() => {
+						self.read_text().map(Bytes::from).map_err($map_error)
+					}
+
+					WRITE_TEXT => {
+						let text =
+							std::str::from_utf8(&payload).map_err(|_| Error::InvalidArgument)?;
+						self.write_text(text).map_err($map_error)?;
+						Ok(Bytes::new())
+					}
+
+					CLEAR if payload.is_empty() => {
+						self.clear().map_err($map_error)?;
+						Ok(Bytes::new())
+					}
+
+					READ_TEXT | CLEAR => Err(Error::InvalidArgument),
+					_ => Err(Error::Unavailable),
+				}
+			}
+		}
+	};
+}
+
 #[cfg(any(
 	target_os = "macos",
 	target_os = "windows",
@@ -29,9 +83,7 @@ pub const METHODS: &[MethodId] = &[READ_TEXT, WRITE_TEXT, CLEAR];
 ))]
 mod desktop {
 	use leptoskit_bridge::AppContext;
-	use leptoskit_bridge::Bytes;
 	use leptoskit_bridge::Error;
-	use leptoskit_bridge::Plugin;
 
 	use super::*;
 
@@ -77,43 +129,14 @@ mod desktop {
 		}
 	}
 
-	impl Plugin for Clipboard {
-		fn name(&self) -> &'static str {
-			NAME
-		}
-
-		fn methods(&self) -> &'static [MethodId] {
-			METHODS
-		}
-
-		fn invoke(&mut self, method: MethodId, payload: Bytes) -> Result<Bytes, Error> {
-			match method {
-				READ_TEXT if payload.is_empty() => {
-					self.read_text()
-						.map(Bytes::from)
-						.map_err(|error| map_error(&error))
-				}
-
-				WRITE_TEXT => {
-					let text = std::str::from_utf8(&payload).map_err(|_| Error::InvalidArgument)?;
-					self.write_text(text).map_err(|error| map_error(&error))?;
-					Ok(Bytes::new())
-				}
-
-				CLEAR if payload.is_empty() => {
-					self.clear().map_err(|error| map_error(&error))?;
-					Ok(Bytes::new())
-				}
-
-				READ_TEXT | CLEAR => Err(Error::InvalidArgument),
-				_ => Err(Error::Unavailable),
-			}
-		}
-	}
+	text_plugin!(Clipboard, |error| map_error(&error));
 
 	#[cfg(test)]
 	mod tests {
 		use std::path::PathBuf;
+
+		use leptoskit_bridge::Bytes;
+		use leptoskit_bridge::Plugin;
 
 		use super::*;
 
@@ -215,9 +238,7 @@ pub use desktop::from_context;
 #[cfg(target_os = "ios")]
 mod ios {
 	use leptoskit_bridge::AppContext;
-	use leptoskit_bridge::Bytes;
 	use leptoskit_bridge::Error;
-	use leptoskit_bridge::Plugin;
 	use objc2_foundation::NSArray;
 	use objc2_foundation::NSDictionary;
 	use objc2_foundation::NSString;
@@ -239,35 +260,26 @@ mod ios {
 		/// Reads UTF-8 text from the general pasteboard, returning an empty
 		/// string when no text is present.
 		pub fn read_text(&mut self) -> Result<String, Error> {
-			let pasteboard = UIPasteboard::generalPasteboard();
 			// SAFETY: `UIPasteboard.generalPasteboard.string` returns an
 			// optional retained `NSString` from the system pasteboard.
-			let text = unsafe { pasteboard.string() };
+			let text = unsafe { UIPasteboard::generalPasteboard().string() };
 			Ok(text.map(|value| value.to_string()).unwrap_or_default())
 		}
 
 		/// Replaces the general pasteboard's string.
 		pub fn write_text(&mut self, text: &str) -> Result<(), Error> {
-			let pasteboard = UIPasteboard::generalPasteboard();
 			let value = NSString::from_str(text);
 			// SAFETY: `value` is a valid `NSString` copied by `UIPasteboard`.
-			unsafe {
-				pasteboard.setString(Some(&value));
-			}
+			unsafe { UIPasteboard::generalPasteboard().setString(Some(&value)) };
 			Ok(())
 		}
 
 		/// Clears all items on the general pasteboard.
 		pub fn clear(&mut self) -> Result<(), Error> {
-			let pasteboard = UIPasteboard::generalPasteboard();
-			let empty: objc2::rc::Retained<
-				NSArray<NSDictionary<NSString, objc2::runtime::AnyObject>>,
-			> = NSArray::new();
+			let empty = NSArray::<NSDictionary<NSString, objc2::runtime::AnyObject>>::new();
 			// SAFETY: Setting an empty item array clears the pasteboard just as
 			// `UIPasteboard.general.items = []` does in Swift.
-			unsafe {
-				pasteboard.setItems(&empty);
-			}
+			unsafe { UIPasteboard::generalPasteboard().setItems(&empty) };
 			Ok(())
 		}
 	}
@@ -277,32 +289,7 @@ mod ios {
 		Ok(Clipboard::new())
 	}
 
-	impl Plugin for Clipboard {
-		fn name(&self) -> &'static str {
-			NAME
-		}
-
-		fn methods(&self) -> &'static [MethodId] {
-			METHODS
-		}
-
-		fn invoke(&mut self, method: MethodId, payload: Bytes) -> Result<Bytes, Error> {
-			match method {
-				READ_TEXT if payload.is_empty() => self.read_text().map(Bytes::from),
-				WRITE_TEXT => {
-					let text = std::str::from_utf8(&payload).map_err(|_| Error::InvalidArgument)?;
-					self.write_text(text)?;
-					Ok(Bytes::new())
-				}
-				CLEAR if payload.is_empty() => {
-					self.clear()?;
-					Ok(Bytes::new())
-				}
-				READ_TEXT | CLEAR => Err(Error::InvalidArgument),
-				_ => Err(Error::Unavailable),
-			}
-		}
-	}
+	text_plugin!(Clipboard, std::convert::identity);
 }
 
 #[cfg(target_os = "ios")]
@@ -312,21 +299,25 @@ pub use ios::from_context;
 
 #[cfg(target_os = "android")]
 mod android {
+	use std::sync::OnceLock;
+
 	use jni::JNIEnv;
 	use jni::JavaVM;
 	use jni::objects::JObject;
 	use jni::objects::JString;
 	use jni::objects::JValue;
+	use jni::objects::JValueGen;
 	use leptoskit_bridge::AppContext;
-	use leptoskit_bridge::Bytes;
 	use leptoskit_bridge::Error;
 	use leptoskit_bridge::PlatformContext;
-	use leptoskit_bridge::Plugin;
 
 	use super::*;
 
+	const NEW_PLAIN_TEXT: &str =
+		"(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Landroid/content/ClipData;";
+
 	/// Pure-Rust Android clipboard backed by `android.content.ClipboardManager`
-	/// over JNI.
+	/// over JNI. Like `ClipboardPlugin.kt`, it only runs on the UI thread.
 	#[derive(Debug, Clone)]
 	pub struct Clipboard {
 		platform: PlatformContext,
@@ -346,16 +337,13 @@ mod android {
 		/// the clipboard holds nothing.
 		pub fn read_text(&mut self) -> Result<String, Error> {
 			self.with_clipboard(|env, context, manager| {
-				let clip = env
-					.call_method(
-						&manager,
-						"getPrimaryClip",
-						"()Landroid/content/ClipData;",
-						&[],
-					)
-					.map_err(|error| map_jni_error(env, &error))?
-					.l()
-					.map_err(|_| Error::Native)?;
+				let clip = object(
+					env,
+					manager,
+					"getPrimaryClip",
+					"()Landroid/content/ClipData;",
+					&[],
+				)?;
 
 				if clip.is_null() {
 					return Ok(String::new());
@@ -363,256 +351,223 @@ mod android {
 
 				let count = env
 					.call_method(&clip, "getItemCount", "()I", &[])
-					.map_err(|error| map_jni_error(env, &error))?
-					.i()
-					.map_err(|_| Error::Native)?;
+					.and_then(JValueGen::i)
+					.map_err(|_| failure(env))?;
 
 				if count <= 0 {
 					return Ok(String::new());
 				}
 
-				let item = env
-					.call_method(
-						&clip,
-						"getItemAt",
-						"(I)Landroid/content/ClipData$Item;",
-						&[JValue::Int(0)],
-					)
-					.map_err(|error| map_jni_error(env, &error))?
-					.l()
-					.map_err(|_| Error::Native)?;
+				let item = object(
+					env,
+					&clip,
+					"getItemAt",
+					"(I)Landroid/content/ClipData$Item;",
+					&[JValue::Int(0)],
+				)?;
 
 				if item.is_null() {
 					return Ok(String::new());
 				}
 
-				let sequence = env
-					.call_method(
-						&item,
-						"coerceToText",
-						"(Landroid/content/Context;)Ljava/lang/CharSequence;",
-						&[JValue::Object(&context)],
-					)
-					.map_err(|error| map_jni_error(env, &error))?
-					.l()
-					.map_err(|_| Error::Native)?;
+				let sequence = object(
+					env,
+					&item,
+					"coerceToText",
+					"(Landroid/content/Context;)Ljava/lang/CharSequence;",
+					&[JValue::Object(context)],
+				)?;
 
 				if sequence.is_null() {
 					return Ok(String::new());
 				}
 
-				let text = env
-					.call_method(&sequence, "toString", "()Ljava/lang/String;", &[])
-					.map_err(|error| map_jni_error(env, &error))?
-					.l()
-					.map_err(|_| Error::Native)?;
+				let text = JString::from(object(
+					env,
+					&sequence,
+					"toString",
+					"()Ljava/lang/String;",
+					&[],
+				)?);
 
 				if text.is_null() {
 					return Ok(String::new());
 				}
 
-				let jstring = JString::from(text);
-				let utf = env.get_string(&jstring).map_err(|_| Error::Native)?;
-				Ok(utf.into())
+				Ok(env.get_string(&text).map_err(|_| Error::Native)?.into())
 			})
 		}
 
 		/// Replaces the primary clip with plain UTF-8 text.
 		pub fn write_text(&mut self, text: &str) -> Result<(), Error> {
-			self.with_clipboard(|env, _context, manager| {
-				let label = env.new_string("").map_err(|_| Error::Native)?;
-				let value = env.new_string(text).map_err(|_| Error::Native)?;
-				let clip = env
-					.call_static_method(
-						"android/content/ClipData",
-						"newPlainText",
-						"(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Landroid/content/\
-						 ClipData;",
-						&[JValue::Object(&label), JValue::Object(&value)],
-					)
-					.map_err(|error| map_jni_error(env, &error))?
-					.l()
-					.map_err(|_| Error::Native)?;
-
-				env.call_method(
-					&manager,
-					"setPrimaryClip",
-					"(Landroid/content/ClipData;)V",
-					&[JValue::Object(&clip)],
-				)
-				.map_err(|error| map_jni_error(env, &error))?;
-				Ok(())
-			})
+			self.with_clipboard(|env, _, manager| set_plain_text(env, manager, text))
 		}
 
 		/// Clears the primary clip on Android P (API 28+) or replaces it with
 		/// an empty plain-text clip on older API levels.
 		pub fn clear(&mut self) -> Result<(), Error> {
-			self.with_clipboard(|env, _context, manager| {
-				let sdk_int = env
-					.get_static_field("android/os/Build$VERSION", "SDK_INT", "I")
-					.and_then(jni::objects::JValueOwned::i)
-					.unwrap_or(28);
-
-				if sdk_int >= 28 {
-					env.call_method(&manager, "clearPrimaryClip", "()V", &[])
-						.map_err(|error| map_jni_error(env, &error))?;
-				} else {
-					let empty = env.new_string("").map_err(|_| Error::Native)?;
-					let clip = env
-						.call_static_method(
-							"android/content/ClipData",
-							"newPlainText",
-							"(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Landroid/content/\
-							 ClipData;",
-							&[JValue::Object(&empty), JValue::Object(&empty)],
-						)
-						.map_err(|error| map_jni_error(env, &error))?
-						.l()
-						.map_err(|_| Error::Native)?;
-
-					env.call_method(
-						&manager,
-						"setPrimaryClip",
-						"(Landroid/content/ClipData;)V",
-						&[JValue::Object(&clip)],
-					)
-					.map_err(|error| map_jni_error(env, &error))?;
+			self.with_clipboard(|env, _, manager| {
+				if sdk_int(env) < 28 {
+					return set_plain_text(env, manager, "");
 				}
 
+				env.call_method(manager, "clearPrimaryClip", "()V", &[])
+					.map_err(|_| failure(env))?;
 				Ok(())
 			})
 		}
 
 		fn with_clipboard<T>(
 			&self,
-			operation: impl FnOnce(&mut JNIEnv<'_>, JObject<'_>, JObject<'_>) -> Result<T, Error>,
+			operation: impl FnOnce(&mut JNIEnv<'_>, &JObject<'_>, &JObject<'_>) -> Result<T, Error>,
 		) -> Result<T, Error> {
-			let (vm_ptr, context_ptr) =
-				self.platform.android_handles().ok_or(Error::Unavailable)?;
+			let (vm, context) = self.platform.android_handles().ok_or(Error::Unavailable)?;
 			// SAFETY: The Android host lends its process `JavaVM*` for the
 			// lifetime of `PlatformContext`.
-			let vm = unsafe { JavaVM::from_raw(vm_ptr.cast()).map_err(|_| Error::Unavailable)? };
-			let mut env = vm
-				.attach_current_thread_as_daemon()
-				.map_err(|_| Error::Native)?;
+			let vm = unsafe { JavaVM::from_raw(vm.cast()) }.map_err(|_| Error::Unavailable)?;
+			// The UI thread is always attached; any other thread is rejected
+			// rather than attached to the VM for the rest of its life.
+			let mut env = vm.get_env().map_err(|_| Error::Native)?;
 
 			env.with_local_frame(16, |env| -> jni::errors::Result<Result<T, Error>> {
-				Ok((|| {
-					// Enforce UI-thread execution just like
-					// `ClipboardPlugin.kt`.
-					let my_looper = env
-						.call_static_method(
-							"android/os/Looper",
-							"myLooper",
-							"()Landroid/os/Looper;",
-							&[],
-						)
-						.map_err(|error| map_jni_error(env, &error))?
-						.l()
-						.map_err(|_| Error::Native)?;
-					let main_looper = env
-						.call_static_method(
-							"android/os/Looper",
-							"getMainLooper",
-							"()Landroid/os/Looper;",
-							&[],
-						)
-						.map_err(|error| map_jni_error(env, &error))?
-						.l()
-						.map_err(|_| Error::Native)?;
-
-					if my_looper.is_null()
-						|| !env
-							.is_same_object(&my_looper, &main_looper)
-							.unwrap_or(false)
-					{
-						return Err(Error::Native);
-					}
-
-					// SAFETY: `context_ptr` is a valid JNI global reference
-					// retained by `PlatformContext`;
-					// `new_local_ref` creates a frame-scoped
-					// reference without consuming the global reference.
-					let borrowed = unsafe { JObject::from_raw(context_ptr.cast()) };
-					let context = env.new_local_ref(&borrowed).map_err(|_| Error::Native)?;
-
-					let service_name = env.new_string("clipboard").map_err(|_| Error::Native)?;
-					let service = env
-						.call_method(
-							&context,
-							"getSystemService",
-							"(Ljava/lang/String;)Ljava/lang/Object;",
-							&[JValue::Object(&service_name)],
-						)
-						.map_err(|error| map_jni_error(env, &error))?
-						.l()
-						.map_err(|_| Error::Native)?;
-
-					if service.is_null()
-						|| !env
-							.is_instance_of(&service, "android/content/ClipboardManager")
-							.unwrap_or(false)
-					{
-						return Err(Error::Unavailable);
-					}
-
-					operation(env, context, service)
-				})())
+				Ok(in_frame(env, context.cast(), operation))
 			})
 			.map_err(|_| Error::Native)?
 		}
 	}
 
-	fn map_jni_error(env: &mut JNIEnv<'_>, _error: &jni::errors::Error) -> Error {
-		if env.exception_check().unwrap_or(false) {
-			let thrown = env.exception_occurred().ok();
-			let _ = env.exception_clear();
+	fn in_frame<T>(
+		env: &mut JNIEnv<'_>,
+		context: jni::sys::jobject,
+		operation: impl FnOnce(&mut JNIEnv<'_>, &JObject<'_>, &JObject<'_>) -> Result<T, Error>,
+	) -> Result<T, Error> {
+		ensure_main_thread(env)?;
+		// SAFETY: `context` is the host's JNI global reference, kept alive by
+		// `PlatformContext`; `JObject` borrows it without deleting it.
+		let context = unsafe { JObject::from_raw(context) };
+		let name = env.new_string("clipboard").map_err(|_| Error::Native)?;
+		let manager = object(
+			env,
+			&context,
+			"getSystemService",
+			"(Ljava/lang/String;)Ljava/lang/Object;",
+			&[JValue::Object(&name)],
+		)?;
 
-			if let Some(exception) = thrown
-				&& env
-					.is_instance_of(&exception, "java/lang/SecurityException")
-					.unwrap_or(false)
-			{
-				return Error::PermissionDenied;
-			}
+		if manager.is_null()
+			|| !env
+				.is_instance_of(&manager, "android/content/ClipboardManager")
+				.unwrap_or(false)
+		{
+			return Err(Error::Unavailable);
 		}
 
-		Error::Native
+		operation(env, &context, &manager)
+	}
+
+	/// Replaces the primary clip with an unlabeled plain-text clip.
+	fn set_plain_text(
+		env: &mut JNIEnv<'_>,
+		manager: &JObject<'_>,
+		text: &str,
+	) -> Result<(), Error> {
+		let label = env.new_string("").map_err(|_| Error::Native)?;
+		let text = env.new_string(text).map_err(|_| Error::Native)?;
+		let clip = env
+			.call_static_method(
+				"android/content/ClipData",
+				"newPlainText",
+				NEW_PLAIN_TEXT,
+				&[JValue::Object(&label), JValue::Object(&text)],
+			)
+			.and_then(JValueGen::l)
+			.map_err(|_| failure(env))?;
+
+		env.call_method(
+			manager,
+			"setPrimaryClip",
+			"(Landroid/content/ClipData;)V",
+			&[JValue::Object(&clip)],
+		)
+		.map_err(|_| failure(env))?;
+		Ok(())
+	}
+
+	/// Calls a method returning an object, mapping a thrown exception.
+	fn object<'local>(
+		env: &mut JNIEnv<'local>,
+		target: &JObject<'_>,
+		name: &str,
+		signature: &str,
+		arguments: &[JValue<'_, '_>],
+	) -> Result<JObject<'local>, Error> {
+		env.call_method(target, name, signature, arguments)
+			.and_then(JValueGen::l)
+			.map_err(|_| failure(env))
+	}
+
+	/// Rejects calls off the UI thread, whose clipboard access Android limits.
+	fn ensure_main_thread(env: &mut JNIEnv<'_>) -> Result<(), Error> {
+		let main = env
+			.call_static_method(
+				"android/os/Looper",
+				"getMainLooper",
+				"()Landroid/os/Looper;",
+				&[],
+			)
+			.and_then(JValueGen::l)
+			.map_err(|_| failure(env))?;
+		let current = env
+			.call_method(&main, "isCurrentThread", "()Z", &[])
+			.and_then(JValueGen::z)
+			.map_err(|_| failure(env))?;
+
+		if current { Ok(()) } else { Err(Error::Native) }
+	}
+
+	/// `Build.VERSION.SDK_INT`, read once per process.
+	fn sdk_int(env: &mut JNIEnv<'_>) -> i32 {
+		static SDK_INT: OnceLock<i32> = OnceLock::new();
+
+		*SDK_INT.get_or_init(|| {
+			env.get_static_field("android/os/Build$VERSION", "SDK_INT", "I")
+				.and_then(JValueGen::i)
+				.unwrap_or_else(|_| {
+					failure(env);
+					28
+				})
+		})
+	}
+
+	/// Clears a pending Java exception, reporting a `SecurityException` as
+	/// [`Error::PermissionDenied`].
+	fn failure(env: &mut JNIEnv<'_>) -> Error {
+		let Ok(exception) = env.exception_occurred() else {
+			return Error::Native;
+		};
+
+		if exception.is_null() {
+			return Error::Native;
+		}
+
+		let _ = env.exception_clear();
+
+		if env
+			.is_instance_of(&exception, "java/lang/SecurityException")
+			.unwrap_or(false)
+		{
+			Error::PermissionDenied
+		} else {
+			Error::Native
+		}
 	}
 
 	/// Constructs the Android clipboard plugin from the host [`AppContext`].
 	pub fn from_context(context: &AppContext) -> Result<Clipboard, Error> {
-		let platform = context.platform().cloned().ok_or(Error::Unavailable)?;
-		Clipboard::new(platform)
+		Clipboard::new(context.platform().cloned().ok_or(Error::Unavailable)?)
 	}
 
-	impl Plugin for Clipboard {
-		fn name(&self) -> &'static str {
-			NAME
-		}
-
-		fn methods(&self) -> &'static [MethodId] {
-			METHODS
-		}
-
-		fn invoke(&mut self, method: MethodId, payload: Bytes) -> Result<Bytes, Error> {
-			match method {
-				READ_TEXT if payload.is_empty() => self.read_text().map(Bytes::from),
-				WRITE_TEXT => {
-					let text = std::str::from_utf8(&payload).map_err(|_| Error::InvalidArgument)?;
-					self.write_text(text)?;
-					Ok(Bytes::new())
-				}
-				CLEAR if payload.is_empty() => {
-					self.clear()?;
-					Ok(Bytes::new())
-				}
-				READ_TEXT | CLEAR => Err(Error::InvalidArgument),
-				_ => Err(Error::Unavailable),
-			}
-		}
-	}
+	text_plugin!(Clipboard, std::convert::identity);
 }
 
 #[cfg(target_os = "android")]

@@ -342,17 +342,18 @@ impl Plugin {
 			.native_implementation(target)
 			.filter(|native| native.native_kind() == host.native);
 
-		let table_rust = table
-			.filter(|table| !table.experimental || self.experimental_rust_plugins)
-			.and_then(PlatformRegistration::rust);
-		let shared_rust = (!self.experimental || self.experimental_rust_plugins)
-			.then(|| self.shared_rust())
-			.flatten();
-		let skipped_experimental = !self.experimental_rust_plugins
-			&& (table.is_some_and(|table| table.experimental && table.rust().is_some())
-				|| (self.experimental && self.shared_rust().is_some()));
+		// The table's Rust registration, then the shared one, each with whether
+		// it is experimental.
+		let declared = [
+			table.and_then(|table| Some((table.rust()?, table.experimental))),
+			self.shared_rust().map(|rust| (rust, self.experimental)),
+		];
+		let enabled = declared
+			.iter()
+			.flatten()
+			.find(|&&(_, experimental)| self.rust_enabled(experimental));
 
-		if let Some(rust) = table_rust.or(shared_rust) {
+		if let Some(&(rust, _)) = enabled {
 			let capability = match rust.flavour {
 				Flavour::Sync => Capability::Sync,
 				Flavour::MainThread | Flavour::Worker => Capability::Worker,
@@ -381,20 +382,27 @@ impl Plugin {
 			});
 		}
 
-		native.ok_or(if skipped_experimental {
+		// Every declared Rust registration here is experimental and disabled.
+		native.ok_or(if declared.iter().any(Option::is_some) {
 			Missing::ExperimentalRustPlugin
 		} else {
 			Missing::NoImplementation
 		})
 	}
 
+	/// Whether a Rust registration is used: experimental ones need
+	/// `native.experimental-rust-plugins = true`.
+	fn rust_enabled(&self, experimental: bool) -> bool {
+		!experimental || self.experimental_rust_plugins
+	}
+
 	/// Whether any active registration of the plugin runs on the async host,
 	/// which needs host-owned options.
 	pub(super) fn declares_async(&self) -> bool {
-		((!self.experimental || self.experimental_rust_plugins) && self.rust_async)
-			|| self.platform_tables().any(|(_, table)| {
-				(!table.experimental || self.experimental_rust_plugins) && table.rust_async
-			})
+		(self.rust_async && self.rust_enabled(self.experimental))
+			|| self
+				.platform_tables()
+				.any(|(_, table)| table.rust_async && self.rust_enabled(table.experimental))
 	}
 
 	pub(super) fn platform_tables(

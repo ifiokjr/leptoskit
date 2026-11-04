@@ -101,39 +101,30 @@ pub fn decode(method: MethodId, payload: &[u8]) -> Result<Effect, Error> {
 /// generators, and Android uses `View.performHapticFeedback` on the host
 /// `Activity` window's decor view. Other desktops report `Unavailable` because
 /// no portable system actuator API exists.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Haptics {
 	#[cfg(target_os = "android")]
 	platform: Option<leptoskit_bridge::PlatformContext>,
 }
 
-#[allow(clippy::derivable_impls)]
-impl Default for Haptics {
-	fn default() -> Self {
-		Self {
-			#[cfg(target_os = "android")]
-			platform: None,
-		}
-	}
-}
-
-/// Constructs the haptics plugin from the host [`AppContext`].
+/// Constructs the haptics plugin from the host [`AppContext`]. Android needs
+/// the host's `JavaVM` and `Context`; other platforms don't use the context.
 pub fn from_context(context: &AppContext) -> Result<Haptics, Error> {
-	#[cfg(not(target_os = "android"))]
-	let _ = context;
 	#[cfg(target_os = "android")]
-	if context
-		.platform()
-		.and_then(leptoskit_bridge::PlatformContext::android_handles)
-		.is_none()
 	{
-		return Err(Error::Unavailable);
+		let platform = context
+			.platform()
+			.filter(|platform| platform.android_handles().is_some())
+			.ok_or(Error::Unavailable)?;
+		Ok(Haptics {
+			platform: Some(platform.clone()),
+		})
 	}
-
-	Ok(Haptics {
-		#[cfg(target_os = "android")]
-		platform: context.platform().cloned(),
-	})
+	#[cfg(not(target_os = "android"))]
+	{
+		let _ = context;
+		Ok(Haptics::default())
+	}
 }
 
 impl Plugin for Haptics {
@@ -147,16 +138,14 @@ impl Plugin for Haptics {
 
 	fn invoke(&mut self, method: MethodId, payload: Bytes) -> Result<Bytes, Error> {
 		#[cfg(target_os = "android")]
-		{
-			let platform = self.platform.as_ref().ok_or(Error::Unavailable)?;
-			android::invoke(platform, method, &payload)?;
-			Ok(Bytes::new())
-		}
+		android::invoke(
+			self.platform.as_ref().ok_or(Error::Unavailable)?,
+			method,
+			&payload,
+		)?;
 		#[cfg(not(target_os = "android"))]
-		{
-			perform(decode(method, &payload)?)?;
-			Ok(Bytes::new())
-		}
+		perform(decode(method, &payload)?)?;
+		Ok(Bytes::new())
 	}
 }
 
@@ -233,10 +222,13 @@ pub fn perform(_effect: Effect) -> Result<(), Error> {
 
 #[cfg(target_os = "android")]
 mod android {
+	use std::sync::OnceLock;
+
 	use jni::JNIEnv;
 	use jni::JavaVM;
 	use jni::objects::JObject;
 	use jni::objects::JValue;
+	use jni::objects::JValueGen;
 	use leptoskit_bridge::PlatformContext;
 
 	use super::*;
@@ -267,101 +259,100 @@ mod android {
 		method: MethodId,
 		payload: &[u8],
 	) -> Result<(), Error> {
-		let (vm_ptr, context_ptr) = platform.android_handles().ok_or(Error::Unavailable)?;
+		let (vm, context) = platform.android_handles().ok_or(Error::Unavailable)?;
 		// SAFETY: The Android host lends its process `JavaVM*` for the
 		// lifetime of `PlatformContext`.
-		let vm = unsafe { JavaVM::from_raw(vm_ptr.cast()).map_err(|_| Error::Unavailable)? };
-		let mut env = vm
-			.attach_current_thread_as_daemon()
-			.map_err(|_| Error::Native)?;
+		let vm = unsafe { JavaVM::from_raw(vm.cast()) }.map_err(|_| Error::Unavailable)?;
+		// The UI thread is always attached; any other thread is rejected rather
+		// than attached to the VM for the rest of its life.
+		let mut env = vm.get_env().map_err(|_| Error::Native)?;
+		let constant = resolve_constant(method, payload, sdk_int(&mut env))?;
 
 		env.with_local_frame(16, |env| -> jni::errors::Result<Result<(), Error>> {
-			Ok((|| {
-				ensure_main_looper(env)?;
-				let sdk_int = env
-					.get_static_field("android/os/Build$VERSION", "SDK_INT", "I")
-					.and_then(jni::objects::JValueOwned::i)
-					.unwrap_or(26);
-				let constant = resolve_constant(method, payload, sdk_int)?;
-
-				// SAFETY: `context_ptr` is a valid JNI global reference
-				// retained by `PlatformContext`;
-				// `new_local_ref` creates a frame-scoped
-				// reference without consuming the global reference.
-				let borrowed = unsafe { JObject::from_raw(context_ptr.cast()) };
-				let context = env.new_local_ref(&borrowed).map_err(|_| Error::Native)?;
-
-				if !env
-					.is_instance_of(&context, "android/app/Activity")
-					.unwrap_or(false)
-				{
-					return Err(Error::Unavailable);
-				}
-
-				let window = env
-					.call_method(&context, "getWindow", "()Landroid/view/Window;", &[])
-					.map_err(|_| clear_and_fail(env))?
-					.l()
-					.map_err(|_| Error::Native)?;
-
-				if window.is_null() {
-					return Err(Error::Unavailable);
-				}
-
-				let decor = env
-					.call_method(&window, "getDecorView", "()Landroid/view/View;", &[])
-					.map_err(|_| clear_and_fail(env))?
-					.l()
-					.map_err(|_| Error::Native)?;
-
-				if decor.is_null() {
-					return Err(Error::Unavailable);
-				}
-
-				env.call_method(
-					&decor,
-					"performHapticFeedback",
-					"(I)Z",
-					&[JValue::Int(constant)],
-				)
-				.map_err(|_| clear_and_fail(env))?;
-				Ok(())
-			})())
+			Ok(perform_feedback(env, context.cast(), constant))
 		})
 		.map_err(|_| Error::Native)?
 	}
 
-	fn ensure_main_looper(env: &mut JNIEnv<'_>) -> Result<(), Error> {
-		let my_looper = env
-			.call_static_method(
-				"android/os/Looper",
-				"myLooper",
-				"()Landroid/os/Looper;",
-				&[],
-			)
+	/// Calls `performHapticFeedback` on the host `Activity`'s decor view.
+	fn perform_feedback(
+		env: &mut JNIEnv<'_>,
+		context: jni::sys::jobject,
+		constant: i32,
+	) -> Result<(), Error> {
+		ensure_main_thread(env)?;
+		// SAFETY: `context` is the host's JNI global reference, kept alive by
+		// `PlatformContext`; `JObject` borrows it without deleting it.
+		let context = unsafe { JObject::from_raw(context) };
+
+		if !env
+			.is_instance_of(&context, "android/app/Activity")
+			.unwrap_or(false)
+		{
+			return Err(Error::Unavailable);
+		}
+
+		let window = env
+			.call_method(&context, "getWindow", "()Landroid/view/Window;", &[])
 			.map_err(|_| clear_and_fail(env))?
 			.l()
 			.map_err(|_| Error::Native)?;
-		let main_looper = env
+
+		if window.is_null() {
+			return Err(Error::Unavailable);
+		}
+
+		let decor = env
+			.call_method(&window, "getDecorView", "()Landroid/view/View;", &[])
+			.map_err(|_| clear_and_fail(env))?
+			.l()
+			.map_err(|_| Error::Native)?;
+
+		if decor.is_null() {
+			return Err(Error::Unavailable);
+		}
+
+		env.call_method(
+			&decor,
+			"performHapticFeedback",
+			"(I)Z",
+			&[JValue::Int(constant)],
+		)
+		.map_err(|_| clear_and_fail(env))?;
+		Ok(())
+	}
+
+	/// `Build.VERSION.SDK_INT`, read once per process.
+	fn sdk_int(env: &mut JNIEnv<'_>) -> i32 {
+		static SDK_INT: OnceLock<i32> = OnceLock::new();
+
+		*SDK_INT.get_or_init(|| {
+			env.get_static_field("android/os/Build$VERSION", "SDK_INT", "I")
+				.and_then(JValueGen::i)
+				.unwrap_or_else(|_| {
+					clear_and_fail(env);
+					26
+				})
+		})
+	}
+
+	/// Rejects calls off the UI thread, which owns the decor view.
+	fn ensure_main_thread(env: &mut JNIEnv<'_>) -> Result<(), Error> {
+		let main = env
 			.call_static_method(
 				"android/os/Looper",
 				"getMainLooper",
 				"()Landroid/os/Looper;",
 				&[],
 			)
-			.map_err(|_| clear_and_fail(env))?
-			.l()
-			.map_err(|_| Error::Native)?;
+			.and_then(JValueGen::l)
+			.map_err(|_| clear_and_fail(env))?;
+		let current = env
+			.call_method(&main, "isCurrentThread", "()Z", &[])
+			.and_then(JValueGen::z)
+			.map_err(|_| clear_and_fail(env))?;
 
-		if my_looper.is_null()
-			|| !env
-				.is_same_object(&my_looper, &main_looper)
-				.unwrap_or(false)
-		{
-			return Err(Error::Native);
-		}
-
-		Ok(())
+		if current { Ok(()) } else { Err(Error::Native) }
 	}
 
 	fn resolve_constant(method: MethodId, payload: &[u8], sdk_int: i32) -> Result<i32, Error> {

@@ -109,18 +109,6 @@ impl PlatformContext {
 		})))
 	}
 
-	/// Raw platform VM or resolver pointer supplied by the host.
-	#[must_use]
-	pub fn vm(&self) -> *mut c_void {
-		self.0.vm
-	}
-
-	/// Raw platform context pointer supplied by the host.
-	#[must_use]
-	pub fn context(&self) -> *mut c_void {
-		self.0.context
-	}
-
 	/// Returns `(java_vm, android_context_global_ref)` when both pointers were
 	/// supplied by the Android JNI host.
 	#[must_use]
@@ -134,7 +122,9 @@ impl PlatformContext {
 	///
 	/// Returns `None` when called off the main thread, when the view is not in
 	/// a qualifying window/scene, or after the host runtime invalidates its
-	/// plugin context on close.
+	/// plugin context on close. Only Apple hosts install a resolver, so this is
+	/// unavailable elsewhere rather than calling another platform's handle.
+	#[cfg(target_vendor = "apple")]
 	#[must_use]
 	pub fn apple_owner(&self, kind: AppleOwnerKind) -> Option<*mut c_void> {
 		if self.0.vm.is_null() || self.0.context.is_null() {
@@ -153,6 +143,7 @@ impl PlatformContext {
 
 	/// Resolves the attached `UIViewController` or `NSViewController` on the
 	/// main thread ([`AppleOwnerKind::Attached`]).
+	#[cfg(target_vendor = "apple")]
 	#[must_use]
 	pub fn apple_attached_owner(&self) -> Option<*mut c_void> {
 		self.apple_owner(AppleOwnerKind::Attached)
@@ -161,6 +152,7 @@ impl PlatformContext {
 	/// Resolves the foreground-active presentation `UIViewController` or
 	/// `NSViewController` on the main thread
 	/// ([`AppleOwnerKind::Presentation`]).
+	#[cfg(target_vendor = "apple")]
 	#[must_use]
 	pub fn apple_presentation_owner(&self) -> Option<*mut c_void> {
 		self.apple_owner(AppleOwnerKind::Presentation)
@@ -192,39 +184,10 @@ impl AppContext {
 		}
 	}
 
-	/// Attaches an optional [`PlatformContext`] to this [`AppContext`].
-	#[must_use]
-	pub fn with_platform(mut self, platform: Option<PlatformContext>) -> Self {
-		self.platform = platform;
-		self
-	}
-
 	/// Optional platform host handle (`JavaVM`/`Context` on Android,
 	/// `NativePluginContext` owner resolver on Apple).
 	#[must_use]
 	pub fn platform(&self) -> Option<&PlatformContext> {
 		self.platform.as_ref()
-	}
-
-	/// Returns `(java_vm, android_context_global_ref)` when running in an
-	/// Android host that supplied its `Context`.
-	#[must_use]
-	pub fn android_handles(&self) -> Option<(*mut c_void, *mut c_void)> {
-		self.platform.as_ref()?.android_handles()
-	}
-
-	/// Resolves the attached `UIViewController` or `NSViewController` on the
-	/// main thread ([`AppleOwnerKind::Attached`]).
-	#[must_use]
-	pub fn apple_attached_owner(&self) -> Option<*mut c_void> {
-		self.platform.as_ref()?.apple_attached_owner()
-	}
-
-	/// Resolves the foreground-active presentation `UIViewController` or
-	/// `NSViewController` on the main thread
-	/// ([`AppleOwnerKind::Presentation`]).
-	#[must_use]
-	pub fn apple_presentation_owner(&self) -> Option<*mut c_void> {
-		self.platform.as_ref()?.apple_presentation_owner()
 	}
 }

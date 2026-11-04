@@ -93,24 +93,15 @@ import Foundation
             }
             context.platform_vm = unsafeBitCast(resolver, to: UnsafeMutableRawPointer.self)
             context.platform_context = Unmanaged.passRetained(self).toOpaque()
+            // The last reference may drop on any thread; the context's
+            // deinit belongs on the main actor.
             context.release_platform_context = { _, rawContext in
-                guard let rawContext else { return }
                 let address = UInt(bitPattern: rawContext)
-                if Thread.isMainThread {
-                    MainActor.assumeIsolated {
-                        if let ptr = UnsafeMutableRawPointer(bitPattern: address) {
-                            Unmanaged<NativePluginContext>.fromOpaque(ptr).release()
-                        }
-                    }
-                } else {
-                    DispatchQueue.main.async {
-                        if let ptr = UnsafeMutableRawPointer(bitPattern: address) {
-                            MainActor.assumeIsolated {
-                                Unmanaged<NativePluginContext>.fromOpaque(ptr).release()
-                            }
-                        }
-                    }
+                let release: @Sendable () -> Void = {
+                    guard let pointer = UnsafeMutableRawPointer(bitPattern: address) else { return }
+                    Unmanaged<NativePluginContext>.fromOpaque(pointer).release()
                 }
+                if Thread.isMainThread { release() } else { DispatchQueue.main.async(execute: release) }
             }
         }
     }

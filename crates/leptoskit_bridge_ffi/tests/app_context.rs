@@ -8,8 +8,10 @@ use std::sync::atomic::Ordering;
 
 use leptoskit_bridge::Error;
 use leptoskit_bridge_ffi::Buffer;
+#[cfg(target_vendor = "apple")]
 use leptoskit_bridge_ffi::app::AppleOwnerKind;
 use leptoskit_bridge_ffi::app::NativeAppContext;
+use leptoskit_bridge_ffi::app::PlatformContext;
 use leptoskit_bridge_ffi::app::create_with_context;
 
 // The minimal module is enough to load a host; these tests do not start a
@@ -191,8 +193,7 @@ fn platform_context_is_retained_across_plugin_clones_and_released_on_failure() {
 	// SAFETY: Error allocation is uniquely owned.
 	unsafe { leptoskit_bridge_ffi::lk_buffer_release(error) };
 
-	// 3. Successful creation retains the handle until both App and any plugin
-	// clone have dropped.
+	// 3. A plugin clone keeps the handle alive after the App drops.
 	let mut retained_clone = None;
 	let mut error = empty_buffer();
 	// SAFETY: Pointers are valid for this call.
@@ -203,7 +204,12 @@ fn platform_context_is_retained_across_plugin_clones_and_released_on_failure() {
 			&raw const valid,
 			&raw mut error,
 			|_, context| {
-				assert_eq!(context.android_handles(), Some((vm, host_ctx)));
+				assert_eq!(
+					context
+						.platform()
+						.and_then(PlatformContext::android_handles),
+					Some((vm, host_ctx))
+				);
 				retained_clone = context.platform().cloned();
 				Ok(())
 			},
@@ -212,7 +218,7 @@ fn platform_context_is_retained_across_plugin_clones_and_released_on_failure() {
 	assert!(!app.is_null());
 	assert_eq!(RELEASES.load(Ordering::SeqCst), 2);
 
-	// Dropping the App while the plugin clone is still alive must not release.
+	// Dropping the App while the plugin clone is still alive does not release.
 	// SAFETY: The create call returned the unique app handle.
 	unsafe { leptoskit_bridge_ffi::app::lk_app_destroy(app) };
 	assert_eq!(RELEASES.load(Ordering::SeqCst), 2);
@@ -221,6 +227,7 @@ fn platform_context_is_retained_across_plugin_clones_and_released_on_failure() {
 	assert_eq!(RELEASES.load(Ordering::SeqCst), 3);
 }
 
+#[cfg(target_vendor = "apple")]
 unsafe extern "C" fn fake_apple_resolver(context: *mut c_void, kind: i32) -> *mut c_void {
 	match kind {
 		0 => context,
@@ -229,6 +236,7 @@ unsafe extern "C" fn fake_apple_resolver(context: *mut c_void, kind: i32) -> *mu
 	}
 }
 
+#[cfg(target_vendor = "apple")]
 #[test]
 fn apple_owner_resolver_dispatches_attached_and_presentation_queries() {
 	let directory = std::env::temp_dir();
@@ -253,18 +261,13 @@ fn apple_owner_resolver_dispatches_attached_and_presentation_queries() {
 			&raw const context,
 			&raw mut error,
 			|_, context| {
-				assert_eq!(context.apple_attached_owner(), Some(owner));
+				let platform = context.platform().unwrap();
+				assert_eq!(platform.apple_attached_owner(), Some(owner));
 				assert_eq!(
-					context.apple_presentation_owner(),
+					platform.apple_presentation_owner(),
 					Some(ptr::without_provenance_mut(0x4001))
 				);
-				assert_eq!(
-					context
-						.platform()
-						.unwrap()
-						.apple_owner(AppleOwnerKind::Attached),
-					Some(owner)
-				);
+				assert_eq!(platform.apple_owner(AppleOwnerKind::Attached), Some(owner));
 				Ok(())
 			},
 		)

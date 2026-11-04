@@ -25,16 +25,9 @@ internal class NativeRustWorker private constructor(
         fun adopt(handle: Long): NativeRustWorker? = handle.takeIf { it != 0L }?.let(::NativeRustWorker)
     }
 
+    /** UI-thread workers (`install_main`) run in place on the jobs' main dispatcher. */
     override suspend fun execute() {
-        if (mainThread) {
-            runNow()
-
-            return
-        }
-
-        withContext(executor) {
-            runNow()
-        }
+        if (mainThread) runNow() else withContext(executor) { runNow() }
     }
 
     private fun runNow() {
