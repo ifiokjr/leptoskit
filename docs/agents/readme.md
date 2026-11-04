@@ -32,6 +32,7 @@ Notes for people and coding agents working on leptoskit itself. The public site 
 | [devtools-plan.md](devtools-plan.md)                             | The approved plan for the leptoskit debugger: one hub for every platform, the hub page, the DevTools panel, and MCP tools.                                                                                   |
 | [leptos-reactive-graph-hooks.md](leptos-reactive-graph-hooks.md) | A draft upstream proposal for observer hooks in `reactive_graph`, which the DevTools signal graph waits for.                                                                                                 |
 | [publishing-plan.md](publishing-plan.md)                         | The approved plan for `leptoskit publish` and `leptoskit skill`: the extension stores, App Store Connect, notarized macOS apps, Google Play, and agent-driven releases.                                      |
+| [verification-plan.md](verification-plan.md)                     | Backend bundle integrity, reproducible builds, attested execution, verified frontend delivery, and the scope of zkTLS and signed receipts.                                                                   |
 
 The Flutter widget audit behind the component catalog's Flutter table is [`.audit/component-catalog/flutter-widgets.tsv`](../../.audit/component-catalog/flutter-widgets.tsv): all 229 entries in the published Flutter index as of 20 October 2026, each with its mapping or missing foundation.
 

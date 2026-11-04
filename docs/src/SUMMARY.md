@@ -31,6 +31,7 @@
 - [Forms](guide/19-forms.md)
 - [Security and scale](guide/16-security-and-scale.md)
 - [Deploying a server](guide/24-deploying.md)
+- [Verifying a release](guide/30-verifying-releases.md)
 - [Virtualized lists](guide/17-virtualized-lists.md)
 - [Tables](guide/18-tables.md)
 - [Controlling devices, apps, and browsers](guide/19-controlling-devices.md)

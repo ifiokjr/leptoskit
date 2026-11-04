@@ -1,0 +1,14 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Checks every bundle entry against an inventory with a separately trusted SHA-256. Does not contact or verify a running server
+
+Usage: leptoskit verify check --bundle <BUNDLE> --manifest <MANIFEST> --sha256 <SHA256>
+
+Options:
+      --bundle <BUNDLE>      The extracted backend bundle directory
+      --manifest <MANIFEST>  The inventory written by `verify record`
+      --sha256 <SHA256>      The expected inventory digest, obtained independently of the bundle
+  -h, --help                 Print help
+  -V, --version              Print version
