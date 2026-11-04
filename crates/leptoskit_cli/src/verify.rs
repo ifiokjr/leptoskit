@@ -1,6 +1,7 @@
-//! Offline backend bundle inventories. Matching an inventory proves local
-//! file integrity against a separately trusted digest, not build provenance
-//! or what a remote server is running.
+//! Backend bundle verification. An inventory pinned by a separately trusted
+//! digest proves local file integrity; [`build`] rebuilds a bundle from a
+//! public commit in a container without network access and compares the
+//! executable byte for byte. Neither proves what a remote server is running.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -17,14 +18,22 @@ use serde::Serialize;
 use sha2::Digest as _;
 use sha2::Sha256;
 
+mod build;
+
 const FORMAT_VERSION: u32 = 1;
 const KIND: &str = "leptoskit-backend-bundle-inventory";
 const MAX_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ENTRIES: usize = 100_000;
 
-/// Offline bundle checks, with no claim about a live deployment.
+/// Backend bundle checks, with no claim about a live deployment.
 #[derive(Debug, clap::Subcommand)]
 pub enum VerifyCommand {
+	/// Builds a backend bundle from a Git commit in a container without network
+	/// access, twice, and requires identical executables.
+	Build(build::BuildArgs),
+	/// Rebuilds a pinned bundle from its own source and dependencies and
+	/// compares the executable; also compares the source with its Git commit.
+	Reproduce(build::ReproduceArgs),
 	/// Records the files in a prepared backend bundle. This does not build,
 	/// sign, or attest the bundle.
 	Record {
@@ -51,31 +60,36 @@ pub enum VerifyCommand {
 }
 
 /// A declared build recipe. Recording it does not execute or attest it.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct BuildRecipe {
-	repository: String,
-	commit: String,
-	builder_image: String,
-	target: String,
-	package: String,
-	binary: String,
-	features: Vec<String>,
-	no_default_features: bool,
-	rustflags: Vec<String>,
+pub(crate) struct BuildRecipe {
+	pub(crate) repository: String,
+	pub(crate) commit: String,
+	pub(crate) builder_image: String,
+	pub(crate) target: String,
+	pub(crate) package: String,
+	pub(crate) binary: String,
+	pub(crate) features: Vec<String>,
+	pub(crate) no_default_features: bool,
+	/// The complete rustflags list; Cargo configuration rustflags in the
+	/// source do not apply to a verified build.
+	pub(crate) rustflags: Vec<String>,
+	/// A directory in the commit copied into `infra/`, if any.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub(crate) infra: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Inventory {
+pub(crate) struct Inventory {
 	format_version: u32,
 	kind: String,
-	entries: BTreeMap<String, Entry>,
+	pub(crate) entries: BTreeMap<String, Entry>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-enum Entry {
+pub(crate) enum Entry {
 	Directory,
 	File {
 		sha256: String,
@@ -89,6 +103,8 @@ enum Entry {
 /// Runs an offline inventory command.
 pub fn run(command: VerifyCommand) -> Result<()> {
 	match command {
+		VerifyCommand::Build(args) => build::build(&args)?,
+		VerifyCommand::Reproduce(args) => build::reproduce(&args)?,
 		VerifyCommand::Record { bundle, out } => {
 			let root = bundle
 				.canonicalize()
@@ -104,20 +120,8 @@ pub fn run(command: VerifyCommand) -> Result<()> {
 				!parent.starts_with(&root),
 				"write the inventory outside the bundle so it cannot inventory itself"
 			);
-			let bytes = serde_json::to_vec_pretty(&inventory(&root)?)?;
-			anyhow::ensure!(
-				bytes.len() as u64 <= MAX_MANIFEST_BYTES,
-				"the bundle inventory is too large"
-			);
-			let mut file = File::options()
-				.write(true)
-				.create_new(true)
-				.open(&out)
-				.with_context(|| {
-					format!("could not create a new inventory at {}", out.display())
-				})?;
-			file.write_all(&bytes)?;
-			println!("inventory SHA-256: {}", hex::encode(Sha256::digest(&bytes)));
+			let digest = record(&root, &out)?;
+			println!("inventory SHA-256: {digest}");
 			println!(
 				"Recorded local files only; build provenance and live deployment were not \
 				 verified."
@@ -134,6 +138,22 @@ pub fn run(command: VerifyCommand) -> Result<()> {
 		}
 	}
 	Ok(())
+}
+
+/// Writes a new inventory of `root` at `out`, returning its SHA-256.
+fn record(root: &Path, out: &Path) -> Result<String> {
+	let bytes = serde_json::to_vec_pretty(&inventory(root)?)?;
+	anyhow::ensure!(
+		bytes.len() as u64 <= MAX_MANIFEST_BYTES,
+		"the bundle inventory is too large"
+	);
+	let mut file = File::options()
+		.write(true)
+		.create_new(true)
+		.open(out)
+		.with_context(|| format!("could not create a new inventory at {}", out.display()))?;
+	file.write_all(&bytes)?;
+	Ok(hex::encode(Sha256::digest(&bytes)))
 }
 
 fn digest_is_valid(value: &str) -> bool {
@@ -164,8 +184,18 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
 	})
 }
 
-fn validate_recipe(root: &Path) -> Result<()> {
-	let recipe: BuildRecipe = read_json(&root.join("build.json"))?;
+/// A non-empty word of ASCII letters, digits, and `extra`, which cannot be
+/// read as a command-line option.
+fn is_name(value: &str, extra: &[u8]) -> bool {
+	!value.is_empty()
+		&& !value.starts_with('-')
+		&& value
+			.bytes()
+			.all(|byte| byte.is_ascii_alphanumeric() || extra.contains(&byte))
+}
+
+/// Checks a recipe's declared values. This validates their form only.
+pub(crate) fn validate(recipe: &BuildRecipe) -> Result<()> {
 	let repository = url::Url::parse(&recipe.repository)
 		.context("build.json must name a GitHub HTTPS repository")?;
 	let segments: Vec<_> = repository.path().trim_matches('/').split('/').collect();
@@ -209,19 +239,49 @@ fn validate_recipe(root: &Path) -> Result<()> {
 		"build.json builder_image must be pinned by @sha256:<64 lowercase hex digits>"
 	);
 	anyhow::ensure!(
-		!recipe.target.is_empty() && !recipe.package.is_empty() && !recipe.binary.is_empty(),
+		is_name(&recipe.target, b"-_.")
+			&& is_name(&recipe.package, b"-_")
+			&& is_name(&recipe.binary, b"-_"),
 		"build.json must name a target, package, and binary"
 	);
-	// These fields are deliberately required, including empty lists/false:
-	// omitting a build input must not silently select a different default.
-	let _ = (
-		recipe.features,
-		recipe.no_default_features,
-		recipe.rustflags,
+	// Features, no_default_features, and rustflags are deliberately required,
+	// including empty lists and false: omitting a build input must not
+	// silently select a different default.
+	anyhow::ensure!(
+		recipe
+			.features
+			.iter()
+			.all(|feature| is_name(feature, b"-_/+.")),
+		"build.json features must be plain feature names"
 	);
-	let names: Vec<String> = read_json(&root.join("secrets.json"))?;
+	anyhow::ensure!(
+		recipe
+			.rustflags
+			.iter()
+			.all(|flag| !flag.is_empty() && !flag.contains('\u{1f}')),
+		"build.json rustflags cannot contain empty or unit-separator entries"
+	);
+	if let Some(infra) = &recipe.infra {
+		anyhow::ensure!(
+			is_name(infra, b"-_./")
+				&& infra
+					.split('/')
+					.all(|part| !matches!(part, "" | "." | "..")),
+			"build.json infra must be a relative directory in the repository"
+		);
+	}
+	Ok(())
+}
+
+fn validate_recipe(root: &Path) -> Result<()> {
+	validate(&read_json(&root.join("build.json"))?)?;
+	validate_secrets(&read_json::<Vec<String>>(&root.join("secrets.json"))?)
+}
+
+/// Secret declarations are unique environment variable names, never values.
+pub(crate) fn validate_secrets(names: &[String]) -> Result<()> {
 	let mut unique = BTreeSet::new();
-	for name in &names {
+	for name in names {
 		anyhow::ensure!(
 			!name.is_empty()
 				&& name.bytes().enumerate().all(|(index, byte)| {
@@ -237,8 +297,10 @@ fn validate_recipe(root: &Path) -> Result<()> {
 	Ok(())
 }
 
-fn inventory(root: &Path) -> Result<Inventory> {
-	anyhow::ensure!(root.is_dir(), "the bundle must be a directory");
+/// Every directory and regular file under `root`, by `/`-separated path.
+/// Links and special files are rejected.
+pub(crate) fn walk(root: &Path) -> Result<BTreeMap<String, Entry>> {
+	anyhow::ensure!(root.is_dir(), "{} must be a directory", root.display());
 	let mut entries = BTreeMap::new();
 	for entry in walkdir::WalkDir::new(root).min_depth(1).follow_links(false) {
 		let entry = entry?;
@@ -250,14 +312,6 @@ fn inventory(root: &Path) -> Result<Inventory> {
 		anyhow::ensure!(
 			!name.contains('\\') && !name.chars().any(char::is_control),
 			"bundle paths cannot contain backslashes or control characters"
-		);
-		let top = name.split('/').next().unwrap_or_default();
-		anyhow::ensure!(
-			matches!(
-				top,
-				"source" | "dependencies" | "infra" | "artifacts" | "build.json" | "secrets.json"
-			),
-			"unexpected top-level bundle entry {top:?}"
 		);
 		let kind = entry.file_type();
 		let value = if kind.is_dir() {
@@ -294,6 +348,22 @@ fn inventory(root: &Path) -> Result<Inventory> {
 			"the bundle contains too many entries"
 		);
 	}
+	Ok(entries)
+}
+
+fn inventory(root: &Path) -> Result<Inventory> {
+	anyhow::ensure!(root.is_dir(), "the bundle must be a directory");
+	let entries = walk(root)?;
+	for name in entries.keys() {
+		let top = name.split('/').next().unwrap_or_default();
+		anyhow::ensure!(
+			matches!(
+				top,
+				"source" | "dependencies" | "infra" | "artifacts" | "build.json" | "secrets.json"
+			),
+			"unexpected top-level bundle entry {top:?}"
+		);
+	}
 	for name in ["source", "dependencies", "infra", "artifacts"] {
 		anyhow::ensure!(
 			entries.get(name) == Some(&Entry::Directory),
@@ -320,7 +390,7 @@ fn inventory(root: &Path) -> Result<Inventory> {
 	})
 }
 
-fn check(root: &Path, manifest: &Path, expected_digest: &str) -> Result<usize> {
+pub(crate) fn check(root: &Path, manifest: &Path, expected_digest: &str) -> Result<usize> {
 	anyhow::ensure!(
 		digest_is_valid(expected_digest),
 		"--sha256 must be 64 lowercase hex digits from a separately trusted source"

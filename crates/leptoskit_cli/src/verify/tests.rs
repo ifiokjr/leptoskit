@@ -241,3 +241,34 @@ fn symlinks_and_changed_permissions_cannot_escape_the_inventory() {
 	std::fs::set_permissions(binary, std::fs::Permissions::from_mode(mode ^ 0o100)).unwrap();
 	assert!(check(root.path(), manifest.path(), &digest).is_err());
 }
+
+#[test]
+fn recipe_inputs_cannot_smuggle_arguments_or_escape_the_repository() {
+	let root = bundle();
+	for (field, value) in [
+		("features", serde_json::json!(["tls,--config=evil"])),
+		("features", serde_json::json!(["--locked"])),
+		("rustflags", serde_json::json!(["-C\u{1f}link-arg=evil"])),
+		("rustflags", serde_json::json!([""])),
+		("package", serde_json::json!("--manifest-path=/etc")),
+		("binary", serde_json::json!("server bin")),
+		("infra", serde_json::json!("../outside")),
+		("infra", serde_json::json!("/etc")),
+		("infra", serde_json::json!("deploy/")),
+		("infra", serde_json::json!(":(glob)*")),
+	] {
+		let mut recipe = recipe();
+		recipe[field] = value;
+		write_recipe(root.path(), &recipe);
+		assert!(
+			inventory(root.path()).is_err(),
+			"{field}: {}",
+			recipe[field]
+		);
+	}
+	let mut recipe = recipe();
+	recipe["infra"] = "deploy/kubernetes".into();
+	recipe["features"] = serde_json::json!(["serde/derive", "tls"]);
+	write_recipe(root.path(), &recipe);
+	inventory(root.path()).unwrap();
+}

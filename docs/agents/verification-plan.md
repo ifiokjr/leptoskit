@@ -2,7 +2,7 @@
 
 The goal is to let an independently installed verifier connect a public source revision to the frontend it runs and to the backend serving its actual connection. A copied badge, a version endpoint, an image tag, or a successful cluster scan must not qualify as verified execution.
 
-Status: approved direction, staged implementation. The first implementation is an **offline backend bundle inventory**, described below. Reproducible build orchestration, authenticated build provenance, runtime attestation, response receipts, and verified frontend execution are not implemented by that command. The proposed runtime reference is Contrast confidential containers; no hosting provider has been selected or provisioned.
+Status: approved direction, staged implementation. Implemented: the **offline backend bundle inventory** (`verify record`/`check`) and the **reproducible backend builder** (`verify build`/`reproduce`), both described below. Signed build provenance, runtime images, runtime attestation, response receipts, and verified frontend execution in browsers are not implemented. The proposed runtime reference is Contrast confidential containers; no hosting provider has been selected or provisioned.
 
 ## Claims and trust boundaries
 
@@ -47,6 +47,21 @@ The inventory is format version 1, kind `leptoskit-backend-bundle-inventory`, wi
 The caller prepares public input files explicitly. The command does not read process environment values, discover secret files, bundle a working checkout, execute a repository, or upload data. It cannot determine whether a file under `source/` contains a hardcoded secret; publishers must supply public materials only.
 
 ## Reproducible backend builder
+
+**Implemented** in `crates/leptoskit_cli/src/verify/build.rs`. `verify build --recipe R --out DIR` writes `DIR/bundle`, `DIR/inventory.json` and an unsigned in-toto statement with a SLSA provenance v1 predicate at `DIR/provenance.json`; `verify reproduce` checks the pinned inventory, compares `source/` and `infra/` with the commit, re-vendors `dependencies/` from the lockfile and compares them, then rebuilds once and compares the executable. What it does, and where it departs from the original sketch below:
+
+- Source is the exact Git tree (`git ls-tree` + `git cat-file --batch`, not `git archive`, so `export-ignore`/`export-subst` cannot change it), with modes 0644/0755 written explicitly. Submodules and symlinks are refused. Git runs with no global/system config, no credential helper and no prompts, so fetching without `--checkout` only works for public repositories and URL rewrites cannot redirect it.
+- `cargo vendor --locked --versioned-dirs` is the only networked step; its source mount is read-only. Its printed source replacement is stored as `dependencies/.leptoskit-vendor.toml` (Cargo skips dot-files in a directory source) and passed with `--config`, so the build has no hidden configuration.
+- Compilation runs with `--network none`, `--read-only`, `--cap-drop ALL`, `no-new-privileges`, read-only source and dependency mounts, one writable scratch mount, `--pull=never`, and an explicit environment. Nothing from the host environment is passed in. `CARGO_ENCODED_RUSTFLAGS` is always set from the recipe, so repository Cargo configuration rustflags never apply. `RUSTUP_AUTO_INSTALL=0` makes a missing toolchain fail rather than download.
+- `SOURCE_DATE_EPOCH` is the constant `315532800` (1980-01-01) rather than the commit time: `reproduce --offline` has no Git history, and the value must be the same everywhere.
+- The container platform is the target's native one (`linux/amd64` or `linux/arm64`); emulated cross-architecture builds are not supported.
+- Docker builds run as the scratch directory's owner; rootless Podman maps root to the caller.
+
+Tests: unit tests cover the Git export (attributes, modes, submodules, symlinks, prefixes), the exact container arguments, comparisons and provenance determinism. `tests/verification.rs` has an ignored end-to-end test (`--run-ignored only`; needs Docker or Podman and network) that builds a crate whose `build.rs` panics if the network is reachable, reproduces it, and shows that republishing a consistent inventory over changed source, a changed vendored dependency, or a changed executable fails `reproduce`. It passed with Podman 6.1 on arm64 macOS. A manual run built `sharkdp/hexyl` v0.16.0 from GitHub twice to identical bytes and reproduced it from the published inventory.
+
+Not implemented: runtime image builds and their reproducibility, signed provenance (publishers can sign `provenance.json`'s predicate with GitHub artifact attestations; no reusable workflow is provided), and reproduction on a second operator's machine as part of CI.
+
+The original sketch:
 
 Implement one narrow initial profile: a Linux Rust backend targeting `x86_64-unknown-linux-gnu`, with a fixed package, binary, feature list and build flags. Use an immutable builder image digest and fixed platform, and include its Dockerfile/toolchain provenance. A tag such as `rust:latest` cannot identify a build environment. Pin package repositories/snapshots and tool downloads as well as the container's base image.
 
@@ -117,7 +132,7 @@ Decision: keep zkTLS, DKIM and a custom ZK system out of the core implementation
 ## Delivery gates
 
 1. **Offline bundle inventory — implemented foundation.** Check pinned inventory before parsing it; reject mutation in every role, absent/extra files and directories, mutable builder identifiers, malformed secret declarations, links and unsupported metadata formats. Require a separately trusted expected digest. Show that replacing both the artifact and inventory fails against the original pin. This is not source completeness or reproducible builds.
-2. **Hermetic backend builder — next.** Generate materials from a clean public commit, handle the dependency/source closure, produce two equal builds and runtime artifacts, publish standard provenance, and reproduce from another operator's machine. Changing a lockfile, feature, native library or builder must change recorded material or fail comparison. Test undeclared network fetches and absent inputs.
+2. **Hermetic backend builder — implemented, except runtime images and signed provenance.** Generate materials from a clean public commit, handle the dependency/source closure, produce two equal builds and runtime artifacts, publish standard provenance, and reproduce from another operator's machine. Changing a lockfile, feature, native library or builder must change recorded material or fail comparison. Test undeclared network fetches and absent inputs.
 3. **Attested backend prototype.** Pick one stack, authorize protected workload keys and enforce policy. Change one replica, mount a replacement binary, attempt administrative execution, change a behavior-relevant environment value, replay evidence, relay another deployment and route a connection through an unverified gateway. Each prohibited path must fail before user secrets are sent. Also test the accepted direct and rolling-update paths. Document persistent-state rollback/data-integrity boundaries.
 4. **Verified desktop guest.** Verify installed host and active guest/source provenance; reject altered entry modules/lazy chunks, downgraded releases, unapproved plugins and changed backend identities. Demonstrate that guest UI cannot grant verifier approval and guest networking cannot bypass the trusted transport.
 5. **Optional web launcher and receipts.** Implement the constrained web profile, then expand supported render modes only with concrete compatibility and adversarial evidence. Add portable signed/selectively disclosed receipts only for a real use case.

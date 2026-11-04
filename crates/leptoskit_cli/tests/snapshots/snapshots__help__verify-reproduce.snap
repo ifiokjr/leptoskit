@@ -1,0 +1,36 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Rebuilds a pinned bundle from its own source and dependencies and compares the executable; also compares the source with its Git commit
+
+Usage: leptoskit verify reproduce [OPTIONS] --bundle <BUNDLE> --manifest <MANIFEST> --sha256 <SHA256>
+
+Options:
+      --bundle <BUNDLE>
+          The extracted backend bundle directory
+
+      --manifest <MANIFEST>
+          The inventory written with the bundle
+
+      --sha256 <SHA256>
+          The expected inventory digest, obtained independently of the bundle
+
+      --checkout <CHECKOUT>
+          Compare the source with this local clone instead of fetching the recipe's commit from its repository
+
+      --offline
+          Skip the steps that need the network: fetching the commit and re-resolving dependencies. Only the executable is rebuilt
+
+      --engine <ENGINE>
+          The container engine. Defaults to docker, then podman, whichever responds
+
+          Possible values:
+          - docker: Docker
+          - podman: Podman
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
