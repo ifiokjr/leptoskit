@@ -6,7 +6,11 @@ use std::fs;
 use leptoskit_codepush::ChannelIndex;
 use leptoskit_codepush::CodePushClient;
 use leptoskit_codepush::CodePushError;
+use leptoskit_codepush::ProvenanceConfiguration;
+use leptoskit_codepush::ReleaseApprovals;
 use leptoskit_codepush::ReleaseSigningKey;
+use leptoskit_codepush::SignedApproval;
+use leptoskit_codepush::SourceApproval;
 use leptoskit_codepush::Transport;
 use leptoskit_codepush::TrustedKeys;
 use leptoskit_codepush::bundle_directory_as;
@@ -44,6 +48,7 @@ fn configuration() -> UpdateConfiguration {
 		public_keys: vec![publisher().public_key().to_hex()],
 		runtime: contract(),
 		allow_http: false,
+		provenance: None,
 	}
 }
 
@@ -84,6 +89,8 @@ fn native_bundle(build: u64, wasm: &[u8]) -> Vec<u8> {
 struct Registry {
 	index: ChannelIndex,
 	container: Vec<u8>,
+	/// The release's approvals file; a 404 without one.
+	approvals: Option<Vec<u8>>,
 	interrupt: bool,
 	/// Every URL fetched, in order.
 	fetched: Vec<String>,
@@ -100,6 +107,7 @@ impl Registry {
 				signature: Some(signature),
 			},
 			container,
+			approvals: None,
 			interrupt: false,
 			fetched: Vec::new(),
 		}
@@ -112,6 +120,13 @@ impl Transport for Registry {
 
 		if url.ends_with("/index.json") {
 			return Ok(serde_json::to_vec(&self.index)?);
+		}
+
+		if url.contains("/approvals/") {
+			return self
+				.approvals
+				.clone()
+				.ok_or_else(|| CodePushError::NotFound(url.to_owned()));
 		}
 
 		if self.interrupt {
@@ -1731,5 +1746,428 @@ fn a_second_launch_abandons_an_unconfirmed_trial() {
 			.expect("abandoned release replay")
 			.status,
 		UpdateStatus::Current
+	);
+}
+
+// Source approvals: with a provenance policy, a host installs only releases
+// that enough of its approvers rebuilt, file for file, from one commit of the
+// policy's repository.
+
+const REPOSITORY: &str = "https://github.com/example/counter";
+const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+const OTHER_COMMIT: &str = "89abcdef0123456789abcdef0123456789abcdef";
+
+fn approver(seed: u8) -> ReleaseSigningKey {
+	ReleaseSigningKey::from_seed(&[seed; 32])
+}
+
+/// The app's configuration, requiring `threshold` of two approvers.
+fn approving_configuration(threshold: usize) -> UpdateConfiguration {
+	UpdateConfiguration {
+		provenance: Some(ProvenanceConfiguration {
+			repository: REPOSITORY.to_owned(),
+			approvers: vec![
+				approver(31).public_key().to_hex(),
+				approver(32).public_key().to_hex(),
+			],
+			threshold,
+		}),
+		..configuration()
+	}
+}
+
+fn approval(
+	signer: &ReleaseSigningKey,
+	container: &[u8],
+	repository: &str,
+	commit: &str,
+) -> SignedApproval {
+	let manifest = read_container(container).expect("container").manifest;
+	let statement = SourceApproval::new(&manifest, repository, commit).expect("statement");
+	SignedApproval::sign(&statement, signer).expect("sign")
+}
+
+fn approvals_file(approvals: Vec<SignedApproval>) -> Vec<u8> {
+	let mut file = ReleaseApprovals::empty();
+	file.approvals = approvals;
+	file.to_vec().expect("approvals file")
+}
+
+/// A registry serving `container` with approvals from the approvers seeded
+/// `signers`, all naming [`COMMIT`].
+fn approved_registry(container: Vec<u8>, signers: &[u8]) -> Registry {
+	let approvals = signers
+		.iter()
+		.map(|seed| approval(&approver(*seed), &container, REPOSITORY, COMMIT))
+		.collect();
+	let mut registry = Registry::new(container);
+	registry.approvals = Some(approvals_file(approvals));
+	registry
+}
+
+fn stored_approvals(directory: &std::path::Path, container: &[u8]) -> std::path::PathBuf {
+	let id = read_container(container)
+		.expect("container")
+		.manifest
+		.bundle_hash();
+	directory.join("releases").join(id).join("approvals.json")
+}
+
+#[test]
+fn approved_releases_install_and_the_store_baseline_needs_no_approvals() {
+	let directory = tempfile::tempdir().expect("installed");
+	let baseline = native_bundle(0, BASELINE);
+	let replacement = native_bundle(1, REPLACEMENT);
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, approving_configuration(2))
+			.expect("open");
+	// The store build is part of the installed host: nothing approves it.
+	let original = installed.launch().expect("baseline");
+	assert_eq!(original.wasm, BASELINE);
+	installed.confirm(&original.metadata.receipt).expect("ok");
+
+	let report = installed
+		.sync_with(&mut approved_registry(replacement.clone(), &[31, 32]))
+		.expect("approved release");
+	assert_eq!(report.status, UpdateStatus::Staged);
+	assert!(stored_approvals(directory.path(), &replacement).is_file());
+	let trial = installed.launch().expect("trial");
+	assert_eq!(trial.wasm, REPLACEMENT);
+	installed.confirm(&trial.metadata.receipt).expect("healthy");
+	drop(installed);
+
+	// Offline, the stored approvals verify again.
+	let mut offline =
+		InstalledBundles::open(directory.path(), &baseline, approving_configuration(2))
+			.expect("offline open");
+	assert_eq!(offline.recovery_diagnostic(), None);
+	assert_eq!(offline.launch().expect("offline").wasm, REPLACEMENT);
+}
+
+/// Syncs `registry` under a policy of two approvers, threshold `threshold`,
+/// and checks that it fails without downloading or storing the container.
+fn refused(threshold: usize, mut registry: Registry) -> CodePushError {
+	let directory = tempfile::tempdir().expect("installed");
+	let baseline = native_bundle(0, BASELINE);
+	let mut installed = InstalledBundles::open(
+		directory.path(),
+		&baseline,
+		approving_configuration(threshold),
+	)
+	.expect("open");
+	let error = installed
+		.sync_with(&mut registry)
+		.expect_err("an unapproved release must not stage");
+	assert!(
+		registry
+			.fetched
+			.iter()
+			.all(|url| !url.ends_with("release.lkb") && !url.contains("/deltas/")),
+		"nothing is downloaded before approvals verify: {:?}",
+		registry.fetched
+	);
+	assert_eq!(release_entries(directory.path()), 0, "nothing is stored");
+	assert_eq!(installed.launch().expect("working").wasm, BASELINE);
+	error
+}
+
+fn assert_unapproved(error: &CodePushError, approvals: usize, threshold: usize) {
+	assert!(
+		matches!(
+			error,
+			CodePushError::Unapproved { approvals: counted, threshold: required, .. }
+				if *counted == approvals && *required == threshold
+		),
+		"expected {approvals} of {threshold} approvals, got {error}"
+	);
+}
+
+#[test]
+fn releases_without_enough_trusted_approvals_never_download() {
+	let release = native_bundle(1, REPLACEMENT);
+
+	// No approvals file at all.
+	assert_unapproved(&refused(1, Registry::new(release.clone())), 0, 1);
+	// One of the two required.
+	assert_unapproved(&refused(2, approved_registry(release.clone(), &[31])), 1, 2);
+	// One approver, twice, is still one approver.
+	assert_unapproved(
+		&refused(2, approved_registry(release.clone(), &[31, 31])),
+		1,
+		2,
+	);
+
+	let with = |approvals: Vec<SignedApproval>| {
+		let mut registry = Registry::new(release.clone());
+		registry.approvals = Some(approvals_file(approvals));
+		registry
+	};
+	// The publisher can sign an approval, but it is not an approver.
+	let by_publisher = approval(&publisher(), &release, REPOSITORY, COMMIT);
+	assert_unapproved(&refused(1, with(vec![by_publisher])), 0, 1);
+	// Built from somewhere else.
+	let fork = approval(
+		&approver(31),
+		&release,
+		"https://github.com/example/fork",
+		COMMIT,
+	);
+	assert_unapproved(&refused(1, with(vec![fork])), 0, 1);
+	// Approvals of another build, and of a release with other files.
+	let other_build = approval(
+		&approver(31),
+		&native_bundle(2, REPLACEMENT),
+		REPOSITORY,
+		COMMIT,
+	);
+	let other_files = approval(
+		&approver(32),
+		&native_bundle(1, BASELINE),
+		REPOSITORY,
+		COMMIT,
+	);
+	assert_unapproved(&refused(1, with(vec![other_build, other_files])), 0, 1);
+	// Statement bytes changed after signing.
+	let mut tampered = approval(&approver(31), &release, REPOSITORY, COMMIT);
+	tampered.statement = tampered.statement.replace(COMMIT, OTHER_COMMIT);
+	assert_unapproved(&refused(1, with(vec![tampered])), 0, 1);
+	// The publisher's release signature presented as an approval.
+	let manifest = read_container(&release).expect("container").manifest;
+	let release_signature = approver(31).sign(&manifest);
+	let replayed = SignedApproval {
+		statement: serde_json::to_string(
+			&SourceApproval::new(&manifest, REPOSITORY, COMMIT).expect("statement"),
+		)
+		.expect("statement"),
+		public_key: release_signature.public_key,
+		signature: release_signature.signature,
+	};
+	assert_unapproved(&refused(1, with(vec![replayed])), 0, 1);
+	// An approvals file that does not parse is an error too.
+	let mut garbage = Registry::new(release);
+	garbage.approvals = Some(b"not json".to_vec());
+	refused(1, garbage);
+}
+
+#[test]
+fn approvers_naming_different_commits_refuse_the_release() {
+	let release = native_bundle(1, REPLACEMENT);
+	let mut registry = Registry::new(release.clone());
+	registry.approvals = Some(approvals_file(vec![
+		approval(&approver(31), &release, REPOSITORY, COMMIT),
+		approval(&approver(32), &release, REPOSITORY, OTHER_COMMIT),
+	]));
+	let error = refused(1, registry);
+	assert!(
+		matches!(&error, CodePushError::ConflictingApprovals { .. }),
+		"{error}"
+	);
+}
+
+#[test]
+fn approval_files_inside_the_bundle_count_for_nothing() {
+	let temporary = tempfile::tempdir().expect("bundle directory");
+	let source = temporary.path().join("source");
+	fs::create_dir_all(source.join("approvals")).expect("source");
+	fs::write(source.join("app.wasm"), REPLACEMENT).expect("module");
+	fs::write(
+		source.join("runtime.json"),
+		serde_json::to_vec(&contract()).expect("runtime"),
+	)
+	.expect("descriptor");
+	// Real approvals of another release, under the names a host might look
+	// for. Only the registry's approvals file counts.
+	let approved = native_bundle(1, REPLACEMENT);
+	let inside = approvals_file(vec![
+		approval(&approver(31), &approved, REPOSITORY, COMMIT),
+		approval(&approver(32), &approved, REPOSITORY, COMMIT),
+	]);
+	fs::write(source.join("approvals.json"), &inside).expect("approvals");
+	fs::write(source.join("approvals/release.json"), &inside).expect("approvals");
+	let output = temporary.path().join("app.lkb");
+	bundle_directory_as(
+		&source,
+		&output,
+		"counter",
+		"production",
+		Version::new(1, 0, 0),
+		1,
+	)
+	.expect("bundle");
+	let release = fs::read(output).expect("container");
+
+	assert_unapproved(&refused(1, Registry::new(release.clone())), 0, 1);
+	let mut registry = Registry::new(release);
+	registry.approvals = Some(inside);
+	assert_unapproved(&refused(1, registry), 0, 1);
+}
+
+/// A change to a staged release's stored approvals, and its name.
+type StoredEdit = (&'static str, fn(&std::path::Path));
+
+#[test]
+fn a_staged_release_whose_stored_approvals_change_never_launches() {
+	let baseline = native_bundle(0, BASELINE);
+	let release = native_bundle(1, REPLACEMENT);
+	let edits: [StoredEdit; 3] = [
+		("altered", |path| {
+			let altered = String::from_utf8(fs::read(path).expect("approvals"))
+				.expect("utf-8")
+				.replace(COMMIT, OTHER_COMMIT);
+			fs::write(path, altered).expect("alter");
+		}),
+		("removed", |path| fs::remove_file(path).expect("remove")),
+		("oversized", |path| {
+			fs::write(path, vec![b' '; 2 * 1024 * 1024]).expect("grow");
+		}),
+	];
+
+	for (edit, apply) in edits {
+		let directory = tempfile::tempdir().expect("installed");
+		let mut installed =
+			InstalledBundles::open(directory.path(), &baseline, approving_configuration(2))
+				.expect("open");
+		installed
+			.sync_with(&mut approved_registry(release.clone(), &[31, 32]))
+			.expect("stage");
+		apply(&stored_approvals(directory.path(), &release));
+
+		// On this run, and on the next.
+		let launch = installed.launch().expect("working release");
+		assert_eq!(launch.wasm, BASELINE, "{edit}");
+		assert!(!launch.metadata.candidate, "{edit}");
+		assert!(installed.recovery_diagnostic().is_some(), "{edit}");
+		drop(installed);
+		let mut reopened =
+			InstalledBundles::open(directory.path(), &baseline, approving_configuration(2))
+				.expect("reopen");
+		assert_eq!(
+			reopened.launch().expect("baseline").wasm,
+			BASELINE,
+			"{edit}"
+		);
+	}
+
+	// A confirmed release whose approvals change falls back to the baseline
+	// at the next open.
+	let directory = tempfile::tempdir().expect("installed");
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, approving_configuration(2))
+			.expect("open");
+	installed
+		.sync_with(&mut approved_registry(release.clone(), &[31, 32]))
+		.expect("stage");
+	let trial = installed.launch().expect("trial");
+	installed.confirm(&trial.metadata.receipt).expect("confirm");
+	drop(installed);
+	let path = stored_approvals(directory.path(), &release);
+	let mut approvals =
+		ReleaseApprovals::from_slice(&fs::read(&path).expect("approvals")).expect("parse");
+	approvals.approvals.pop();
+	fs::write(&path, approvals.to_vec().expect("bytes")).expect("drop one approval");
+	let mut reopened =
+		InstalledBundles::open(directory.path(), &baseline, approving_configuration(2))
+			.expect("reopen");
+	assert!(
+		reopened
+			.recovery_diagnostic()
+			.expect("diagnostic")
+			.contains("source approvals")
+	);
+	assert_eq!(reopened.launch().expect("baseline").wasm, BASELINE);
+}
+
+#[test]
+fn a_store_build_that_adds_a_policy_drops_unapproved_downloads() {
+	let directory = tempfile::tempdir().expect("installed");
+	let baseline = native_bundle(0, BASELINE);
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("open");
+	install(&mut installed, native_bundle(1, REPLACEMENT));
+	drop(installed);
+
+	let mut approving =
+		InstalledBundles::open(directory.path(), &baseline, approving_configuration(1))
+			.expect("open with a policy");
+	assert!(approving.recovery_diagnostic().is_some());
+	assert_eq!(approving.launch().expect("baseline").wasm, BASELINE);
+}
+
+#[test]
+fn without_a_policy_no_approvals_are_fetched_or_stored() {
+	let directory = tempfile::tempdir().expect("installed");
+	let baseline = native_bundle(0, BASELINE);
+	let release = native_bundle(1, REPLACEMENT);
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("open");
+	let mut registry = Registry::new(release.clone());
+	assert_eq!(
+		installed.sync_with(&mut registry).expect("stage").status,
+		UpdateStatus::Staged
+	);
+	assert!(
+		registry
+			.fetched
+			.iter()
+			.all(|url| !url.contains("/approvals/")),
+		"{:?}",
+		registry.fetched
+	);
+	assert!(!stored_approvals(directory.path(), &release).exists());
+	assert_eq!(installed.launch().expect("trial").wasm, REPLACEMENT);
+}
+
+#[test]
+fn policies_must_be_valid_and_independent_of_the_publisher() {
+	let directory = tempfile::tempdir().expect("installed");
+	let baseline = native_bundle(0, BASELINE);
+	let invalid = |edit: fn(&mut ProvenanceConfiguration)| {
+		let mut config = approving_configuration(1);
+		edit(config.provenance.as_mut().expect("policy"));
+		config
+	};
+
+	for (what, config) in [
+		("zero threshold", invalid(|policy| policy.threshold = 0)),
+		(
+			"unreachable threshold",
+			invalid(|policy| policy.threshold = 3),
+		),
+		("no approvers", invalid(|policy| policy.approvers.clear())),
+		(
+			"bad approver",
+			invalid(|policy| policy.approvers.push("zz".to_owned())),
+		),
+		(
+			"repeated approver",
+			invalid(|policy| policy.approvers.push(policy.approvers[0].clone())),
+		),
+		(
+			"not GitHub",
+			invalid(|policy| policy.repository = "https://example.com/a/b".to_owned()),
+		),
+		(
+			"publisher as approver",
+			invalid(|policy| policy.approvers.push(publisher().public_key().to_hex())),
+		),
+	] {
+		assert!(
+			InstalledBundles::open(directory.path(), &baseline, config).is_err(),
+			"{what} must not open"
+		);
+	}
+
+	// Hosts get the policy as JSON, which rejects unknown fields.
+	let mut json = serde_json::to_value(approving_configuration(1)).expect("json");
+	json["provenance"]["threshold_hint"] = 1.into();
+	assert!(serde_json::from_value::<UpdateConfiguration>(json).is_err());
+	let mut json = serde_json::to_value(configuration()).expect("json");
+	assert!(json.get("provenance").is_none(), "absent, not null");
+	json["provenance"] = serde_json::Value::Null;
+	assert!(
+		serde_json::from_value::<UpdateConfiguration>(json)
+			.expect("null policy")
+			.provenance
+			.is_none()
 	);
 }

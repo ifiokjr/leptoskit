@@ -405,3 +405,52 @@ fn bundle_entry_copies_the_verified_guest_or_reports_why_not() {
 		);
 	}
 }
+
+#[test]
+fn a_provenance_policy_reaches_the_update_store_and_must_be_valid() {
+	let (_temporary, configuration, embedded, directory) = fixture();
+	let mut configuration: Value = serde_json::from_slice(&configuration).unwrap();
+	configuration["provenance"] = serde_json::json!({
+		"repository": "https://github.com/example/demo",
+		"approvers": ["b".repeat(64)],
+		"threshold": 1
+	});
+	let valid = serde_json::to_vec(&configuration).unwrap();
+	configuration["provenance"]["threshold"] = 2.into();
+	let unreachable = serde_json::to_vec(&configuration).unwrap();
+	let mut wasm = MaybeUninit::uninit();
+	let mut metadata = MaybeUninit::uninit();
+	let mut error = MaybeUninit::uninit();
+
+	// SAFETY: Inputs outlive the calls, the owner stays on this thread, and
+	// every output allocation is released once.
+	unsafe {
+		// The store-shipped bundle needs no approvals.
+		let updates = open_fixture(&valid, &embedded, &directory);
+		assert_eq!(
+			lk_updates_launch(updates, wasm.as_mut_ptr(), metadata.as_mut_ptr()),
+			0
+		);
+		take(wasm.assume_init());
+		take(metadata.assume_init());
+		lk_updates_destroy(updates);
+
+		assert!(
+			lk_updates_open(
+				unreachable.as_ptr(),
+				unreachable.len(),
+				embedded.as_ptr(),
+				embedded.len(),
+				directory.as_ptr(),
+				directory.len(),
+				error.as_mut_ptr(),
+			)
+			.is_null()
+		);
+		assert!(
+			String::from_utf8(take(error.assume_init()))
+				.unwrap()
+				.contains("provenance")
+		);
+	}
+}

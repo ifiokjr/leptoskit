@@ -14,9 +14,13 @@ use leptoskit_codepush::CodePushError;
 use leptoskit_codepush::FileTransport;
 use leptoskit_codepush::ObjectKey;
 use leptoskit_codepush::ObjectKind;
+use leptoskit_codepush::ProvenancePolicy;
 use leptoskit_codepush::PullReport;
+use leptoskit_codepush::ReleaseApprovals;
 use leptoskit_codepush::ReleaseSigningKey;
 use leptoskit_codepush::ReleaseStore;
+use leptoskit_codepush::SignedApproval;
+use leptoskit_codepush::SourceApproval;
 use leptoskit_codepush::StaticObject;
 use leptoskit_codepush::Transport;
 use leptoskit_codepush::TrustedKeys;
@@ -2025,4 +2029,262 @@ fn pulling_rejects_an_oversized_index_before_deserializing() {
 		matches!(result, Err(CodePushError::Malformed(message)) if message == "index exceeds 2 MiB")
 	);
 	assert_eq!(stored, 0);
+}
+
+// Source approvals in the store, the bucket, and the client.
+
+const REPOSITORY: &str = "https://github.com/example/app";
+const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn approver(seed: u8) -> ReleaseSigningKey {
+	ReleaseSigningKey::from_seed(&[seed; 32])
+}
+
+fn approve(seed: u8, manifest: &leptoskit_codepush::BundleManifest) -> SignedApproval {
+	let statement = SourceApproval::new(manifest, REPOSITORY, COMMIT).expect("statement");
+	SignedApproval::sign(&statement, &approver(seed)).expect("sign")
+}
+
+/// The newest `staging` release of [`staging_history`].
+fn newest(store: &ReleaseStore) -> leptoskit_codepush::BundleManifest {
+	store
+		.latest("app", "staging")
+		.expect("latest")
+		.expect("a release")
+		.manifest
+}
+
+fn policy(threshold: usize) -> ProvenancePolicy {
+	let approvers =
+		TrustedKeys::new([approver(0x21).public_key(), approver(0x22).public_key()]).expect("keys");
+	ProvenancePolicy::new(REPOSITORY, approvers, threshold).expect("policy")
+}
+
+/// Every file of a release directory and the channel index, by path.
+fn release_files(
+	store: &ReleaseStore,
+	manifest: &leptoskit_codepush::BundleManifest,
+) -> Vec<Vec<u8>> {
+	let (version, build) = (&manifest.version, manifest.build);
+	[
+		ObjectKey::index("app", "staging"),
+		ObjectKey::release("app", "staging", version, build),
+		ObjectKey::signature("app", "staging", version, build),
+	]
+	.iter()
+	.map(|key| store.read_object(key).expect("read").expect("present"))
+	.collect()
+}
+
+#[test]
+fn approvals_attach_to_a_stored_release_without_changing_it() {
+	let scratch = Scratch::new("attach");
+	let (store, _) = staging_history(&scratch);
+	let manifest = newest(&store);
+	let before = release_files(&store, &manifest);
+	assert_eq!(store.approvals(&manifest).expect("read"), None);
+
+	let attached = store
+		.attach_approvals(&[approve(0x21, &manifest)])
+		.expect("attach");
+	assert_eq!(attached.len(), 1);
+	assert_eq!(attached[0].release, "app/staging/1.0.0+2");
+	assert_eq!((attached[0].added, attached[0].total), (1, 1));
+	assert_eq!(
+		release_files(&store, &manifest),
+		before,
+		"the release is untouched"
+	);
+
+	// Attaching again adds nothing; another approver adds one.
+	let attached = store
+		.attach_approvals(&[approve(0x21, &manifest), approve(0x22, &manifest)])
+		.expect("attach");
+	assert_eq!((attached[0].added, attached[0].total), (1, 2));
+	let stored = store
+		.approvals(&manifest)
+		.expect("read")
+		.expect("approvals");
+	assert_eq!(stored.approvals.len(), 2);
+	assert_eq!(
+		policy(2)
+			.verify(&manifest, &stored.approvals)
+			.expect("verified")
+			.commit,
+		COMMIT
+	);
+	assert!(
+		scratch
+			.path
+			.join("releases")
+			.join(ObjectKey::approvals_of(&manifest).as_str())
+			.is_file()
+	);
+}
+
+#[test]
+fn approvals_that_name_no_stored_release_attach_nothing() {
+	let scratch = Scratch::new("attach-mismatch");
+	let (store, _) = staging_history(&scratch);
+	let manifest = newest(&store);
+
+	let mut unreleased = manifest.clone();
+	unreleased.build = 9;
+	let mut other_files = manifest.clone();
+	other_files.mandatory = true;
+	let mut tampered = approve(0x21, &manifest);
+	tampered.statement = tampered.statement.replace("staging", "staginh");
+
+	for (what, invalid) in [
+		("an unreleased build", approve(0x21, &unreleased)),
+		("another bundle hash", approve(0x21, &other_files)),
+		("a tampered statement", tampered),
+	] {
+		// Alongside a valid approval, which must not be attached either.
+		let result = store.attach_approvals(&[approve(0x22, &manifest), invalid]);
+		assert!(result.is_err(), "{what}");
+		assert_eq!(store.approvals(&manifest).expect("read"), None, "{what}");
+	}
+}
+
+#[test]
+fn publishing_uploads_approvals_attached_after_the_release() {
+	let scratch = Scratch::new("publish-approvals");
+	let (store, _) = staging_history(&scratch);
+	let manifest = newest(&store);
+	let mut bucket = published(&store, "staging");
+	let key = ObjectKey::approvals_of(&manifest);
+	assert!(!bucket.objects.contains_key(key.as_str()));
+	let index = bucket.objects[ObjectKey::index("app", "staging").as_str()].clone();
+
+	store
+		.attach_approvals(&[approve(0x21, &manifest)])
+		.expect("attach");
+	let report = publish_channel(&store, "app", "staging", &mut bucket).expect("publish");
+	assert_eq!(report.approvals, ["1.0.0+2"]);
+	assert!(report.releases.is_empty(), "the release was already there");
+	assert_eq!(bucket.puts.last().map(String::as_str), Some(key.as_str()));
+	assert_eq!(
+		bucket.objects[ObjectKey::index("app", "staging").as_str()],
+		index,
+		"the index is unchanged"
+	);
+	assert_eq!(
+		bucket.objects[key.as_str()].key.kind(),
+		ObjectKind::Approvals
+	);
+
+	// Nothing new: nothing written.
+	let writes = bucket.puts.len();
+	let report = publish_channel(&store, "app", "staging", &mut bucket).expect("republish");
+	assert_eq!(report.approvals, Vec::<String>::new());
+	assert_eq!(bucket.puts.len(), writes);
+
+	// A runner that starts empty pulls, attaches another approval, and
+	// publishes: the bucket keeps both.
+	let runner = ReleaseStore::open(scratch.path.join("runner")).expect("runner store");
+	pull_channel(&runner, "app", "staging", &mut bucket, &trusted()).expect("pull");
+	runner
+		.attach_approvals(&[approve(0x22, &manifest)])
+		.expect("attach on the runner");
+	publish_channel(&runner, "app", "staging", &mut bucket).expect("publish from the runner");
+	let published =
+		ReleaseApprovals::from_slice(&bucket.objects[key.as_str()].bytes).expect("parse");
+	assert_eq!(published.approvals.len(), 2);
+	policy(2)
+		.verify(&manifest, &published.approvals)
+		.expect("both approvals published");
+
+	// A client requiring both stages the release from the bucket.
+	let staging = scratch.path.join("client");
+	let mut client = CodePushClient::new(
+		MemoryTransport {
+			responses: bucket.responses(),
+		},
+		REGISTRY,
+		"app",
+		"staging",
+		Version::new(0, 1, 0),
+		1,
+		Vec::new(),
+		trusted(),
+	)
+	.with_provenance(policy(2));
+	assert!(client.sync(&staging).expect("sync").updated);
+	assert!(
+		walkdir::WalkDir::new(&staging)
+			.into_iter()
+			.filter_map(Result::ok)
+			.all(|entry| {
+				!entry
+					.path()
+					.strip_prefix(&staging)
+					.expect("under staging")
+					.to_string_lossy()
+					.contains("approval")
+			}),
+		"approvals are not staged as bundle files"
+	);
+}
+
+#[test]
+fn a_bucket_approvals_file_that_does_not_parse_is_a_conflict() {
+	let scratch = Scratch::new("publish-bad-approvals");
+	let (store, _) = staging_history(&scratch);
+	let manifest = newest(&store);
+	let mut bucket = published(&store, "staging");
+	let key = ObjectKey::approvals_of(&manifest);
+	bucket
+		.put(&StaticObject {
+			key: key.clone(),
+			bytes: b"not json".to_vec(),
+		})
+		.expect("plant");
+	store
+		.attach_approvals(&[approve(0x21, &manifest)])
+		.expect("attach");
+	assert!(matches!(
+		publish_channel(&store, "app", "staging", &mut bucket),
+		Err(CodePushError::RegistryConflict(conflict)) if conflict == key.as_str()
+	));
+	assert_eq!(bucket.objects[key.as_str()].bytes, b"not json");
+}
+
+#[test]
+fn a_client_with_a_policy_refuses_releases_without_approvals_before_downloading() {
+	let scratch = Scratch::new("client-unapproved");
+	let (store, _) = staging_history(&scratch);
+	let manifest = newest(&store);
+	let bucket = published(&store, "staging");
+	let mut responses = bucket.responses();
+	let release = registry_url(&ObjectKey::release(
+		"app",
+		"staging",
+		&manifest.version,
+		manifest.build,
+	));
+	// Without the container the download could not succeed anyway; the
+	// error shows the approvals were checked first.
+	responses.remove(&release);
+	let mut client = CodePushClient::new(
+		MemoryTransport { responses },
+		REGISTRY,
+		"app",
+		"staging",
+		Version::new(0, 1, 0),
+		1,
+		Vec::new(),
+		trusted(),
+	)
+	.with_provenance(policy(1));
+	let staging = scratch.path.join("client");
+	assert!(matches!(
+		client.sync(&staging),
+		Err(CodePushError::Unapproved {
+			approvals: 0,
+			threshold: 1,
+			..
+		})
+	));
+	assert!(!staging.exists());
 }

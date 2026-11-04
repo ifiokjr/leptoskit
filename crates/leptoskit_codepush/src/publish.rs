@@ -15,7 +15,9 @@
 //!
 //! The bucket needs no trust. Clients verify the signed manifest in
 //! `index.json` before downloading anything, so whoever controls the bucket
-//! can withhold updates but cannot ship code or roll devices back.
+//! can withhold updates but cannot ship code or roll devices back. The same
+//! goes for [source approvals](crate::provenance): each is signed by its
+//! approver, so the bucket can drop them but not forge them.
 
 use semver::Version;
 
@@ -26,8 +28,11 @@ use crate::layout::ObjectKey;
 use crate::layout::ObjectKind;
 use crate::layout::StaticObject;
 use crate::layout::release_name;
+use crate::manifest::BundleManifest;
 use crate::manifest::container_manifest;
+use crate::provenance::ReleaseApprovals;
 use crate::signing::TrustedKeys;
+use crate::store::ReleaseRecord;
 use crate::store::ReleaseStore;
 
 /// An object store a channel is published to, such as an S3-compatible
@@ -52,6 +57,9 @@ pub struct PublishReport {
 	pub build: u64,
 	/// The releases uploaded, oldest first, as `version+build`.
 	pub releases: Vec<String>,
+	/// The releases whose approvals gained approvals from the store, as
+	/// `version+build`.
+	pub approvals: Vec<String>,
 	/// How many objects were written, the index included.
 	pub written: usize,
 	/// How many release files were already in the bucket with the same
@@ -67,6 +75,12 @@ pub struct PublishReport {
 /// writes nothing.
 /// Optional deltas above [`ObjectKind::max_bytes`] are omitted, so clients
 /// download the full release instead.
+///
+/// Approvals are the one release file that grows after publishing, so they
+/// are reconciled for every release in the store, before the index: the
+/// bucket keeps every approval it already holds and gains the store's. A
+/// bucket approvals file that does not parse is a
+/// [`CodePushError::RegistryConflict`] rather than something to overwrite.
 ///
 /// Releases are immutable, so a release file that already exists in the
 /// bucket must match the store's copy byte for byte, and the release the
@@ -134,6 +148,7 @@ pub fn publish_channel(
 		version: latest.manifest.version.clone(),
 		build: latest.manifest.build,
 		releases: Vec::new(),
+		approvals: Vec::new(),
 		written: 0,
 		already_present: 0,
 	};
@@ -170,6 +185,8 @@ pub fn publish_channel(
 		));
 	}
 
+	publish_approvals(store, &records, bucket, &mut report)?;
+
 	let index = latest.channel_index();
 
 	if remote.as_ref() != Some(&index) {
@@ -181,6 +198,61 @@ pub fn publish_channel(
 	}
 
 	Ok(report)
+}
+
+/// Uploads the store's approvals of every release in `records`, merged into
+/// the bucket's, counting what it wrote and what was already there.
+fn publish_approvals(
+	store: &ReleaseStore,
+	records: &[ReleaseRecord],
+	bucket: &mut impl Bucket,
+	report: &mut PublishReport,
+) -> Result<(), CodePushError> {
+	for record in records.iter().rev() {
+		let Some(local) = store.approvals(&record.manifest)? else {
+			continue;
+		};
+
+		if merge_approvals(bucket, &record.manifest, local)? {
+			report.written += 1;
+			report.approvals.push(release_name(
+				&record.manifest.version,
+				record.manifest.build,
+			));
+		} else {
+			report.already_present += 1;
+		}
+	}
+
+	Ok(())
+}
+
+/// Adds `local` to the bucket's approvals of the release `manifest`
+/// describes, keeping every approval the bucket already has. Returns whether
+/// anything was written.
+fn merge_approvals(
+	bucket: &mut impl Bucket,
+	manifest: &BundleManifest,
+	local: ReleaseApprovals,
+) -> Result<bool, CodePushError> {
+	let key = ObjectKey::approvals_of(manifest);
+	let conflict = || CodePushError::RegistryConflict(key.as_str().to_owned());
+	let remote = match bucket.get(&key)? {
+		Some(bytes) => Some(ReleaseApprovals::from_slice(&bytes).map_err(|_| conflict())?),
+		None => None,
+	};
+	let present = remote.is_some();
+	let mut merged = remote.unwrap_or_else(ReleaseApprovals::empty);
+
+	if merged.merge(local.approvals)? == 0 && present {
+		return Ok(false);
+	}
+
+	bucket.put(&StaticObject {
+		key,
+		bytes: merged.to_vec()?,
+	})?;
+	Ok(true)
 }
 
 /// What a pull did.

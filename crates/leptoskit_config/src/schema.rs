@@ -57,6 +57,15 @@ pub(crate) fn public_keys(_: &mut schemars::SchemaGenerator) -> Schema {
 	})
 }
 
+pub(crate) fn approvers(_: &mut schemars::SchemaGenerator) -> Schema {
+	schemars::json_schema!({
+		"type": "array",
+		"minItems": 1,
+		"uniqueItems": true,
+		"items": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" }
+	})
+}
+
 /// Each selected plugin defines and validates its own options table.
 pub(crate) fn plugin_options(_: &mut schemars::SchemaGenerator) -> Schema {
 	schemars::json_schema!({

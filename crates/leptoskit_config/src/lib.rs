@@ -902,6 +902,119 @@ pub struct CodePushConfig {
 	/// installs. List the next key alongside the current one to rotate.
 	#[cfg_attr(feature = "schema", schemars(schema_with = "schema::public_keys"))]
 	pub public_keys: Vec<String>,
+	/// Independent source approvals every code push release must carry
+	/// before the native app installs it. Without this table, the publisher
+	/// signature is enough.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub provenance: Option<CodePushProvenance>,
+}
+
+/// Who must approve a code push release as rebuilt from public source before
+/// the native app installs it.
+///
+/// An approver checks out a commit of `repository`, rebuilds the release,
+/// checks that every file is byte-identical, and signs an approval naming
+/// that commit. The app ships this policy, so a download cannot change it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct CodePushProvenance {
+	/// The public GitHub repository releases are built from, written as
+	/// `https://github.com/<owner>/<repo>`.
+	#[cfg_attr(
+		feature = "schema",
+		schemars(regex(pattern = r"^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"))
+	)]
+	pub repository: String,
+	/// The approvers' ed25519 public keys, hex encoded, as `leptoskit
+	/// codepush keygen --approver` prints them. None may also be in
+	/// `public_keys`.
+	#[cfg_attr(feature = "schema", schemars(schema_with = "schema::approvers"))]
+	pub approvers: Vec<String>,
+	/// How many different approvers must approve each release: at least 1,
+	/// and at most the number of approvers.
+	#[cfg_attr(feature = "schema", schemars(range(min = 1)))]
+	pub threshold: u32,
+}
+
+impl CodePushProvenance {
+	/// What is wrong with the policy, or `None` when it can work:
+	/// `publishers` are the publisher keys, which no approver may share.
+	pub fn problem(&self, publishers: &[String]) -> Option<String> {
+		if !is_github_repository(&self.repository) {
+			return Some(
+				"repository must be a GitHub HTTPS URL, https://github.com/<owner>/<repo>, \
+				 without credentials, a query, a fragment, a trailing slash, or .git"
+					.to_owned(),
+			);
+		}
+
+		if self.approvers.is_empty() {
+			return Some("approvers must list at least one public key".to_owned());
+		}
+
+		for (index, key) in self.approvers.iter().enumerate() {
+			if !is_public_key(key) {
+				return Some(format!("approvers entry `{key}` is not 64 hex characters"));
+			}
+
+			if self.approvers[..index]
+				.iter()
+				.any(|other| other.eq_ignore_ascii_case(key))
+			{
+				return Some(format!("approver `{key}` is listed more than once"));
+			}
+
+			if publishers
+				.iter()
+				.any(|publisher| publisher.eq_ignore_ascii_case(key))
+			{
+				return Some(format!(
+					"approver `{key}` is also in codepush.public_keys; approvers must be \
+					 independent of the publisher"
+				));
+			}
+		}
+
+		let approvers = self.approvers.len();
+
+		if self.threshold == 0 || self.threshold as usize > approvers {
+			return Some(format!(
+				"threshold {} must be between 1 and the number of approvers, {approvers}",
+				self.threshold
+			));
+		}
+
+		None
+	}
+}
+
+/// Whether a repository name ends in `.git`, in any case: GitHub drops it, so
+/// the canonical URL never has it.
+fn is_git_suffixed(name: &str) -> bool {
+	name.rsplit_once('.')
+		.is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("git"))
+}
+
+/// Whether `key` is 64 hex characters, an encoded ed25519 public key.
+fn is_public_key(key: &str) -> bool {
+	key.len() == 64 && key.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// Whether `repository` is exactly `https://github.com/<owner>/<repo>`.
+fn is_github_repository(repository: &str) -> bool {
+	let segment = |segment: &str| {
+		!segment.is_empty()
+			&& segment != "."
+			&& segment != ".."
+			&& segment
+				.bytes()
+				.all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
+	};
+	repository
+		.strip_prefix("https://github.com/")
+		.and_then(|path| path.split_once('/'))
+		.is_some_and(|(owner, name)| segment(owner) && segment(name) && !is_git_suffixed(name))
 }
 
 /// The published RPC, as `leptoskit rpc` describes it and generates clients
@@ -1059,6 +1172,7 @@ impl Default for CodePushConfig {
 			mandatory: false,
 			staging_dir: "codepush".to_owned(),
 			public_keys: Vec::new(),
+			provenance: None,
 		}
 	}
 }
@@ -2340,6 +2454,10 @@ impl LeptoskitConfig {
 	///   without any `public_keys`.
 	/// - [`ConfigError::InvalidCodePushPublicKey`] when a public key is not 64
 	///   hex characters.
+	/// - [`ConfigError::InvalidCodePushProvenance`] when `codepush.provenance`
+	///   names a repository that is not a GitHub HTTPS URL, no approvers, an
+	///   approver that is malformed, repeated, or also a publisher key, or a
+	///   threshold outside 1 to the number of approvers.
 	/// - [`ConfigError::InvalidPackageId`] when `native.package_id` is set but
 	///   is not a valid reverse-domain id.
 	/// - [`ConfigError::InvalidRouterDir`] when `router.dir` is absolute,
@@ -2417,8 +2535,18 @@ impl LeptoskitConfig {
 		self.ensure_platform_enabled(self.app.default_platform)
 	}
 
-	/// Code push's server and signing keys.
+	/// Code push's server, signing keys, and provenance policy.
 	fn validate_codepush(&self) -> Result<(), ConfigError> {
+		// A security policy with a typo is caught even while code push is off.
+		if let Some(problem) = self
+			.codepush
+			.provenance
+			.as_ref()
+			.and_then(|provenance| provenance.problem(&self.codepush.public_keys))
+		{
+			return Err(ConfigError::InvalidCodePushProvenance(problem));
+		}
+
 		if !self.codepush.enabled {
 			return Ok(());
 		}
@@ -2435,7 +2563,7 @@ impl LeptoskitConfig {
 			.codepush
 			.public_keys
 			.iter()
-			.find(|key| key.len() != 64 || !key.bytes().all(|byte| byte.is_ascii_hexdigit()))
+			.find(|key| !is_public_key(key))
 		{
 			return Err(ConfigError::InvalidCodePushPublicKey(key.clone()));
 		}
@@ -2762,6 +2890,9 @@ pub enum ConfigError {
 	/// A `codepush.public_keys` entry is not a hex-encoded ed25519 key.
 	#[error("invalid codepush.public_keys entry `{0}`: expected 64 hex characters")]
 	InvalidCodePushPublicKey(String),
+	/// `codepush.provenance` cannot work as a policy.
+	#[error("invalid codepush.provenance: {0}")]
+	InvalidCodePushProvenance(String),
 	/// `native.package_id` is not a valid reverse-domain id.
 	#[error("invalid native.package_id `{package_id}`: {reason}")]
 	InvalidPackageId {

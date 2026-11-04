@@ -37,6 +37,7 @@ use tower_http::services::ServeFile;
 use crate::client::UpdatePlan;
 use crate::layout::ObjectKey;
 use crate::layout::ObjectKind;
+use crate::layout::parse_approvals_file_name;
 use crate::layout::parse_delta_file_name;
 use crate::layout::parse_release_name;
 use crate::store::ReleaseStore;
@@ -70,8 +71,9 @@ pub struct CheckQuery {
 /// The router.
 ///
 /// The static layout: `GET /{app}/{channel}/index.json`,
-/// `.../{version}+{build}/release.lkb`, `.../release.sig`, and
-/// `.../deltas/{base hash}.jsondelta`.
+/// `.../{version}+{build}/release.lkb`, `.../release.sig`,
+/// `.../deltas/{base hash}.jsondelta`, and
+/// `.../approvals/{bundle hash}.json`.
 ///
 /// The dynamic endpoints: `GET /{app}/{channel}/check`,
 /// `.../download/{version}/{build}`, and
@@ -91,6 +93,10 @@ pub fn codepush_router(store: ReleaseStore) -> Router {
 			get(signature_file),
 		)
 		.route("/{app}/{channel}/{release}/deltas/{delta}", get(delta_file))
+		.route(
+			"/{app}/{channel}/{release}/approvals/{approvals}",
+			get(approvals_file),
+		)
 		.route("/{app}/{channel}/check", get(check))
 		.route("/{app}/{channel}/download/{version}/{build}", get(download))
 		.route(
@@ -181,6 +187,20 @@ async fn delta_file(
 	object_response(&state.store, &key, request).await
 }
 
+/// A release's approvals change as approvers attach them, so they are served
+/// like `index.json`.
+async fn approvals_file(
+	State(state): State<CodePushState>,
+	Path((app, channel, release, approvals)): Path<(String, String, String, String)>,
+	request: Request,
+) -> Result<Response, ApiError> {
+	let (version, build) = release_id(&release)?;
+	let key = parse_approvals_file_name(&approvals)
+		.and_then(|bundle_hash| ObjectKey::approvals(&app, &channel, &version, build, bundle_hash))
+		.ok_or_else(|| ApiError::not_found("no such approvals"))?;
+	mutable_object_response(&state.store, &key, request).await
+}
+
 /// Parses a release directory name from a request path. Anything but the
 /// canonical `<version>+<build>` names no release, so it is a 404.
 fn release_id(release: &str) -> Result<(Version, u64), ApiError> {
@@ -215,7 +235,7 @@ async fn object_response(
 	let kind = key.kind();
 
 	let cache_control = match kind {
-		ObjectKind::Index => INDEX_CACHE_CONTROL,
+		ObjectKind::Index | ObjectKind::Approvals => INDEX_CACHE_CONTROL,
 		ObjectKind::Release | ObjectKind::Signature | ObjectKind::Delta => kind.cache_control(),
 	};
 

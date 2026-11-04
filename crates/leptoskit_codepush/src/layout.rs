@@ -7,6 +7,8 @@
 //! <app>/<channel>/<version>+<build>/release.sig              the publisher signature
 //! <app>/<channel>/<version>+<build>/deltas/<base>.jsondelta  a delta from the release
 //!                                                            whose container hashes to <base>
+//! <app>/<channel>/<version>+<build>/approvals/<bundle>.json  source approvals of the release
+//!                                                            whose manifest hashes to <bundle>
 //! ```
 //!
 //! Releases are immutable and content addressed, so the only file that ever
@@ -14,6 +16,13 @@
 //! reads it, verifies it, and asks for the delta from the exact container it
 //! runs by that container's hash. A miss is a plain 404 and the client
 //! downloads the full container instead.
+//!
+//! The one other file that changes is a release's approvals, which grows as
+//! approvers rebuild the release and sign [source
+//! approvals](crate::provenance) for it. Each approval is signed by its
+//! approver, so attaching one never touches the release or its signature. A
+//! missing approvals file is a 404, which a host that requires approvals
+//! treats as none.
 //!
 //! Writers publish every release file before `index.json`, so a reader never
 //! learns of a release whose files are not there yet.
@@ -39,6 +48,12 @@ pub const DELTAS_DIR: &str = "deltas";
 
 /// The file extension of a delta.
 pub const DELTA_EXTENSION: &str = "jsondelta";
+
+/// The directory of approvals inside a release directory.
+pub const APPROVALS_DIR: &str = "approvals";
+
+/// The file extension of a release's approvals.
+pub const APPROVALS_EXTENSION: &str = "json";
 
 /// The `index.json` format version.
 pub const INDEX_FORMAT_VERSION: u32 = 1;
@@ -78,6 +93,8 @@ pub enum ObjectKind {
 	Signature,
 	/// A delta between two containers.
 	Delta,
+	/// The source approvals of a release, which grow after it is published.
+	Approvals,
 }
 
 impl ObjectKind {
@@ -87,6 +104,7 @@ impl ObjectKind {
 		match self {
 			Self::Index => 2 * crate::manifest::MAX_MANIFEST_BYTES,
 			Self::Signature => 4096,
+			Self::Approvals => crate::provenance::MAX_APPROVALS_BYTES,
 			Self::Release | Self::Delta => crate::manifest::MAX_CONTAINER_BYTES,
 		}
 	}
@@ -95,14 +113,15 @@ impl ObjectKind {
 	pub fn content_type(self) -> &'static str {
 		match self {
 			Self::Release => "application/octet-stream",
-			Self::Index | Self::Signature | Self::Delta => "application/json",
+			Self::Index | Self::Signature | Self::Delta | Self::Approvals => "application/json",
 		}
 	}
 
-	/// The `Cache-Control` to serve the file with.
+	/// The `Cache-Control` to serve the file with: approvals change as they
+	/// are attached, so caches revalidate them as often as `index.json`.
 	pub fn cache_control(self) -> &'static str {
 		match self {
-			Self::Index => INDEX_CACHE_CONTROL,
+			Self::Index | Self::Approvals => INDEX_CACHE_CONTROL,
 			Self::Release | Self::Signature | Self::Delta => IMMUTABLE_CACHE_CONTROL,
 		}
 	}
@@ -175,6 +194,42 @@ impl ObjectKey {
 		})
 	}
 
+	/// The key of the source approvals of the release whose manifest hashes
+	/// to `bundle_hash`.
+	///
+	/// Returns `None` unless `bundle_hash` is a lowercase hex SHA-256, as
+	/// [`BundleManifest::bundle_hash`] produces.
+	pub fn approvals(
+		app: &str,
+		channel: &str,
+		version: &Version,
+		build: u64,
+		bundle_hash: &str,
+	) -> Option<Self> {
+		is_sha256_hex(bundle_hash).then(|| {
+			Self {
+				path: format!(
+					"{}/{APPROVALS_DIR}/{}",
+					release_path(app, channel, version, build),
+					approvals_file_name(bundle_hash)
+				),
+				kind: ObjectKind::Approvals,
+			}
+		})
+	}
+
+	/// The key of the source approvals of the release `manifest` describes.
+	pub fn approvals_of(manifest: &BundleManifest) -> Self {
+		Self::approvals(
+			&manifest.app,
+			&manifest.channel,
+			&manifest.version,
+			manifest.build,
+			&manifest.bundle_hash(),
+		)
+		.expect("a bundle hash is a lowercase hex SHA-256")
+	}
+
 	/// The key as a relative path.
 	pub fn as_str(&self) -> &str {
 		&self.path
@@ -232,6 +287,17 @@ pub(crate) fn delta_file_name(base_hash: &str) -> String {
 pub fn parse_delta_file_name(name: &str) -> Option<&str> {
 	let base_hash = name.strip_suffix(DELTA_EXTENSION)?.strip_suffix('.')?;
 	is_sha256_hex(base_hash).then_some(base_hash)
+}
+
+/// The file name of a release's approvals: `<bundle hash>.json`.
+pub(crate) fn approvals_file_name(bundle_hash: &str) -> String {
+	format!("{bundle_hash}.{APPROVALS_EXTENSION}")
+}
+
+/// Parses an approvals file name, `<bundle hash>.json`, into the bundle hash.
+pub fn parse_approvals_file_name(name: &str) -> Option<&str> {
+	let bundle_hash = name.strip_suffix(APPROVALS_EXTENSION)?.strip_suffix('.')?;
+	is_sha256_hex(bundle_hash).then_some(bundle_hash)
 }
 
 /// The directory of a channel: `<app>/<channel>`, both sanitized.
@@ -323,6 +389,30 @@ mod tests {
 				.expect("valid hash")
 				.as_str(),
 			format!("app/production/1.2.0-beta.1+abc+3/deltas/{HASH}.jsondelta")
+		);
+		let approvals =
+			ObjectKey::approvals("app", "production", &version, 3, HASH).expect("valid hash");
+		assert_eq!(
+			approvals.as_str(),
+			format!("app/production/1.2.0-beta.1+abc+3/approvals/{HASH}.json")
+		);
+		assert_eq!(approvals.kind(), ObjectKind::Approvals);
+		assert_eq!(approvals.kind().cache_control(), INDEX_CACHE_CONTROL);
+	}
+
+	#[test]
+	fn approvals_file_names_carry_a_bundle_hash() {
+		assert_eq!(
+			parse_approvals_file_name(&format!("{HASH}.json")),
+			Some(HASH)
+		);
+		assert_eq!(
+			parse_approvals_file_name(&format!("{HASH}.jsondelta")),
+			None
+		);
+		assert_eq!(parse_approvals_file_name("x.json"), None);
+		assert!(
+			ObjectKey::approvals("app", "production", &Version::new(1, 0, 0), 1, "../x").is_none()
 		);
 	}
 

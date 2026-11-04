@@ -1,6 +1,15 @@
 //! Durable native bundle selection. A downloaded release is a trial until the
 //! host confirms its first attached frame. Use one owner on a serialized worker
 //! per directory; no UI/interpreter pointer belongs on that worker.
+//!
+//! An [`UpdateConfiguration`] with a `provenance` policy also requires [source
+//! approvals](crate::provenance): a release is staged only with enough of
+//! them, they are stored next to it, and they are verified again every time
+//! the release is loaded, so a release whose stored approvals no longer
+//! verify never launches. The store-shipped baseline is part of the installed
+//! host, trusted through its store distribution like the policy itself, and
+//! needs no approvals. Only the registry's approvals file counts; a file in
+//! the bundle, whatever its name, is just a bundle file.
 
 mod ownership;
 
@@ -23,10 +32,18 @@ use crate::durable::is_temporary;
 use crate::durable::sync_directory;
 use crate::durable::write_atomically;
 use crate::manifest::Container;
+use crate::provenance::MAX_APPROVALS_BYTES;
+use crate::provenance::ProvenanceConfiguration;
+use crate::provenance::ProvenancePolicy;
+use crate::provenance::ReleaseApprovals;
 use crate::read_container;
 
 /// Maximum HTTP response and decompressed native bundle size (32 MiB).
 pub const MAX_BUNDLE_BYTES: u64 = crate::manifest::MAX_CONTAINER_BYTES;
+
+/// The approvals stored next to an installed release, under a provenance
+/// policy. It lives outside the bundle's files, which are never consulted.
+const APPROVALS_FILE: &str = "approvals.json";
 
 /// Authenticated native requirements in the bundle's `runtime.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,6 +75,11 @@ pub struct UpdateConfiguration {
 	pub runtime: RuntimeContract,
 	/// Explicit development-only permission to use cleartext HTTP.
 	pub allow_http: bool,
+	/// Independent source approvals every downloaded release must carry. When
+	/// absent, a publisher signature is enough. The store-shipped baseline
+	/// never needs approvals.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub provenance: Option<ProvenanceConfiguration>,
 }
 
 /// Executable bytes and a generation-bound activation receipt.
@@ -196,6 +218,7 @@ pub struct InstalledBundles {
 	embedded: Vec<u8>,
 	config: UpdateConfiguration,
 	keys: Option<TrustedKeys>,
+	provenance: Option<ProvenancePolicy>,
 	state: State,
 	floor: Floor,
 	recovery: Option<String>,
@@ -224,6 +247,7 @@ impl InstalledBundles {
 		} else {
 			None
 		};
+		let provenance = provenance_policy(&config, keys.as_ref())?;
 
 		let baseline = validate_container(embedded, &config)?;
 		let baseline_hash = baseline.manifest.bundle_hash();
@@ -289,6 +313,7 @@ impl InstalledBundles {
 			embedded: embedded.to_vec(),
 			config,
 			keys,
+			provenance,
 			state,
 			floor: Floor::of(&baseline.manifest, &baseline_hash),
 			recovery,
@@ -540,6 +565,11 @@ impl InstalledBundles {
 			keys,
 		)
 		.with_max_container_bytes(MAX_BUNDLE_BYTES);
+
+		if let Some(policy) = &self.provenance {
+			client = client.with_provenance(policy.clone());
+		}
+
 		let UpdatePlan::Available(offer) = client.check()? else {
 			return Ok(report(UpdateStatus::Current, current.manifest));
 		};
@@ -576,6 +606,11 @@ impl InstalledBundles {
 			&release_dir.join("release.sig"),
 			&serde_json::to_vec(&download.signature)?,
 		)?;
+
+		if let Some(approvals) = &download.approvals {
+			write_atomically(&release_dir.join(APPROVALS_FILE), &approvals.to_vec()?)?;
+		}
+
 		sync_directory(&self.directory.join("releases"))?;
 		self.state.candidate = Some(Candidate::Ready { release: id });
 		self.persist()?;
@@ -716,6 +751,14 @@ impl InstalledBundles {
 			));
 		}
 
+		if let Some(policy) = &self.provenance {
+			let approvals = ReleaseApprovals::from_slice(&read_bounded(
+				&directory.join(APPROVALS_FILE),
+				MAX_APPROVALS_BYTES,
+			)?)?;
+			policy.verify(&parsed.manifest, &approvals.approvals)?;
+		}
+
 		Ok((bytes, parsed))
 	}
 
@@ -792,6 +835,46 @@ impl InstalledBundles {
 		)?;
 		Ok(())
 	}
+}
+
+/// Reads at most `limit + 1` bytes of `path`, so an oversized file is
+/// refused by its parser rather than read whole.
+fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>, CodePushError> {
+	use std::io::Read;
+
+	let mut bytes = Vec::new();
+	fs::File::open(path)?
+		.take(limit.saturating_add(1))
+		.read_to_end(&mut bytes)?;
+	Ok(bytes)
+}
+
+/// The configuration's provenance policy. Approvers are a second trust
+/// root, so a key that is also a publisher key, which could approve its own
+/// releases, is refused.
+fn provenance_policy(
+	config: &UpdateConfiguration,
+	publishers: Option<&TrustedKeys>,
+) -> Result<Option<ProvenancePolicy>, CodePushError> {
+	let Some(configuration) = &config.provenance else {
+		return Ok(None);
+	};
+	let policy = ProvenancePolicy::from_configuration(configuration)?;
+	let shared = publishers.and_then(|publishers| {
+		policy
+			.approvers()
+			.iter()
+			.find(|key| publishers.contains(key))
+	});
+
+	if let Some(shared) = shared {
+		return Err(CodePushError::InvalidProvenance(format!(
+			"{} is both a publisher key and an approver key",
+			shared.to_hex()
+		)));
+	}
+
+	Ok(Some(policy))
 }
 
 fn release_order(manifest: &BundleManifest) -> (&Version, u64) {

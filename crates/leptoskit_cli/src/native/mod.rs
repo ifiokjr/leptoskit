@@ -688,12 +688,17 @@ fn write_assets(
 		config.app.version.clone(),
 		0,
 	)?;
-	let update_config = serde_json::json!({
+	let mut update_config = serde_json::json!({
 		"enabled": config.codepush.enabled, "app": config.app.name,
 		"channel": channel, "server": config.codepush.server,
 		"public_keys": config.codepush.public_keys, "runtime": runtime_descriptor(root, config, target),
 		"allow_http": config.codepush.allow_http && !release,
 	});
+	// The host's own trust policy: shipped with the store build, never with a
+	// download.
+	if let Some(provenance) = &config.codepush.provenance {
+		update_config["provenance"] = serde_json::to_value(provenance)?;
+	}
 	std::fs::write(
 		assets.join("codepush.json"),
 		serde_json::to_vec_pretty(&update_config)?,
@@ -1476,6 +1481,7 @@ mod tests {
 			serde_json::from_slice(&std::fs::read(mobile.join("codepush.json")).unwrap()).unwrap();
 		assert_eq!(updates["enabled"], true);
 		assert_eq!(updates["app"], "demo");
+		assert!(updates.get("provenance").is_none(), "no policy, no table");
 
 		assert_eq!(updates["channel"], "production");
 		assert_eq!(
@@ -1488,6 +1494,25 @@ mod tests {
 		assert_eq!(
 			std::fs::read(root.join(".leptoskit/assets/app.wasm")).unwrap(),
 			wasm
+		);
+
+		// A provenance policy ships with the store build, in the host's own
+		// update configuration.
+		config.codepush.provenance = Some(leptoskit_config::CodePushProvenance {
+			repository: "https://github.com/example/demo".into(),
+			approvers: vec!["b".repeat(64)],
+			threshold: 1,
+		});
+		write_assets(&root, &config, Target::Android, &bundle, true).unwrap();
+		let updates: leptoskit_codepush::installed::UpdateConfiguration =
+			serde_json::from_slice(&std::fs::read(mobile.join("codepush.json")).unwrap()).unwrap();
+		assert_eq!(
+			updates.provenance,
+			Some(leptoskit_codepush::ProvenanceConfiguration {
+				repository: "https://github.com/example/demo".into(),
+				approvers: vec!["b".repeat(64)],
+				threshold: 1,
+			})
 		);
 		std::fs::remove_dir_all(root).unwrap();
 	}

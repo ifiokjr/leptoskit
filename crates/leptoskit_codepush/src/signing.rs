@@ -11,6 +11,10 @@
 //! or the 32-byte secret seed. App shells pin a [`TrustedKeys`] set; more
 //! than one key lets a publisher rotate by shipping the new public key in a
 //! store release before signing with it.
+//!
+//! Approvers sign [source approvals](crate::provenance) with the same kind of
+//! key, under a different signing context, so a release signature and an
+//! approval can never stand in for each other.
 
 use std::fmt;
 
@@ -40,7 +44,10 @@ fn signed_message(manifest: &BundleManifest) -> Vec<u8> {
 
 /// Decodes exactly `N` bytes from a hex string, ignoring surrounding
 /// whitespace.
-fn decode_hex<const N: usize>(what: &str, encoded: &str) -> Result<[u8; N], CodePushError> {
+pub(crate) fn decode_hex<const N: usize>(
+	what: &str,
+	encoded: &str,
+) -> Result<[u8; N], CodePushError> {
 	let mut bytes = [0u8; N];
 	// The decoding error is not passed on: it quotes characters of the input,
 	// which may be a secret key.
@@ -50,7 +57,8 @@ fn decode_hex<const N: usize>(what: &str, encoded: &str) -> Result<[u8; N], Code
 	Ok(bytes)
 }
 
-/// A publisher's secret signing key.
+/// A secret ed25519 signing key: a publisher's, which signs releases, or an
+/// approver's, which signs [source approvals](crate::provenance).
 ///
 /// Its `Debug` output names only the public key, and the secret bytes are
 /// zeroed when it drops.
@@ -89,6 +97,11 @@ impl ReleaseSigningKey {
 			signature: hex::encode(signature.to_bytes()),
 		}
 	}
+
+	/// Signs `message` as given. Callers prepend their own signing context.
+	pub(crate) fn sign_message(&self, message: &[u8]) -> [u8; 64] {
+		self.0.sign(message).to_bytes()
+	}
 }
 
 impl fmt::Debug for ReleaseSigningKey {
@@ -124,6 +137,13 @@ impl ReleasePublicKey {
 	/// The hex encoding of the key.
 	pub fn to_hex(&self) -> String {
 		hex::encode(self.0.as_bytes())
+	}
+
+	/// Whether `signature` is a strict signature over `message` as given.
+	pub(crate) fn verifies(&self, message: &[u8], signature: &[u8; 64]) -> bool {
+		self.0
+			.verify_strict(message, &Signature::from_bytes(signature))
+			.is_ok()
 	}
 }
 
@@ -181,6 +201,11 @@ impl TrustedKeys {
 	/// Whether `key` is in the set.
 	pub fn contains(&self, key: &ReleasePublicKey) -> bool {
 		self.0.contains(key)
+	}
+
+	/// The keys in the set, in the order they were given.
+	pub fn iter(&self) -> impl Iterator<Item = &ReleasePublicKey> {
+		self.0.iter()
 	}
 
 	/// Checks that `signature` is a valid signature over `manifest` by one of
