@@ -365,7 +365,10 @@ jobs:
   applications:
     name: applications (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 75
+    # The macOS leg takes 68–71 minutes when it succeeds, so 75 left no room for a slow runner.
+    # A timed-out job never saves its build cache, so one timeout makes the next run start cold
+    # and time out too.
+    timeout-minutes: 100
     strategy:
       fail-fast: false
       matrix:
