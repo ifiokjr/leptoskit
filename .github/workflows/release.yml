@@ -65,7 +65,7 @@ jobs:
         with:
           tool: dprint
 
-      # Built from monochange/monochange#861 until it ships in a release: 0.21.0 uploads one git
+      # Built from monochange main at the #861 merge until it ships in a release: 0.21.0 uploads one git
       # blob per release file, and this repository's 110-file release trips GitHub's secondary
       # rate limit, so the release PR never opens. #861 sends the files inline in one tree request.
       # Return to the binstall install the other jobs use once a release includes the fix.
@@ -73,7 +73,7 @@ jobs:
         run: |
           set -euo pipefail
           cargo install --locked --git https://github.com/monochange/monochange \
-            --rev 34f09de69578d4d873f5bb27d5b002a8cc3206ad monochange
+            --rev 4a1f2e77f28b817f04296590e9059990e6144c85 monochange
 
       - name: validate the release configuration
         run: monochange step validate
