@@ -279,7 +279,10 @@ jobs:
     # Cold desktop builds also compile separate dependency graphs for the
     # compile-error fixtures. Windows exhausted 90 minutes while those checks
     # were still progressing, before the remaining tests and docs could run.
-    timeout-minutes: 150
+    # A cold Windows run now takes 130 to 150 minutes on a busy runner (main
+    # took 132; a PR was cancelled at 150 in the last minute-long step), so
+    # the limit leaves room above that rather than sitting on it.
+    timeout-minutes: 210
 
     strategy:
       fail-fast: false
