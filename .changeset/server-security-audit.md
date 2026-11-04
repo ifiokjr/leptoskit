@@ -2,7 +2,7 @@
 "release": patch
 ---
 
-# Close a channel authorization bypass and bound live connections
+# Close a channel bypass and bound live connections
 
 A live connection could join any channel instance by naming its key, even though the server only checked whether the caller could join the instance its arguments described. Members of one room could then see another room's presence and signals and send signals into it, including across servers through the relay. The server now requires the key to be the join arguments it authorized. Two channels whose arguments look alike (`Chat { room }` and `Doc { room }`) no longer share a room.
 
