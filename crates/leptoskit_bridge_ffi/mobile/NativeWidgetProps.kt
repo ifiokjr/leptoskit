@@ -202,8 +202,9 @@ internal class NativeWidgetProps(
                 ?.split(Regex("\\s+"))
                 ?.firstNotNullOfOrNull(::autofillHint)
                 ?: View.AUTOFILL_HINT_PASSWORD.takeIf { secure }
-        val hints = listOfNotNull(hint)
-        if (widget.autofillHints?.toList().orEmpty() != hints) widget.setAutofillHints(*hints.toTypedArray())
+        // Android appends hints of its own, such as `passwordAuto` on a
+        // password field, so only the leading hint is ours to compare.
+        if (widget.autofillHints?.firstOrNull() != hint) widget.setAutofillHints(*listOfNotNull(hint).toTypedArray())
     }
 
     /** The autofill hint for an HTML `autocomplete` token password managers read. */

@@ -1563,8 +1563,9 @@ private fun autofill(
     val hint =
         autocomplete?.lowercase()?.split(Regex("\\s+"))?.firstNotNullOfOrNull(::autofillHint)
             ?: View.AUTOFILL_HINT_PASSWORD.takeIf { kind == "password_input" }
-    val hints = listOfNotNull(hint).toTypedArray()
-    if (field.autofillHints?.toList().orEmpty() != hints.toList()) field.setAutofillHints(*hints)
+    // Android appends hints of its own, such as `passwordAuto` on a password
+    // field, so only the leading hint is ours to compare.
+    if (field.autofillHints?.firstOrNull() != hint) field.setAutofillHints(*listOfNotNull(hint).toTypedArray())
     field.importantForAutofill = if (hint == null) View.IMPORTANT_FOR_AUTOFILL_NO else View.IMPORTANT_FOR_AUTOFILL_YES
 }
 
