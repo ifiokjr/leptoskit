@@ -297,8 +297,12 @@ async fn a_mutation_on_one_server_reaches_the_other(first: Db, second: Db, nats:
 	));
 
 	assert_eq!(until_count(&mut watcher, 1).await, ["across"]);
-	assert!(b.live.stats().commits >= 1);
-	assert!(publisher.stats().commits >= 1);
+	// Delivery can precede the publisher receiving its JetStream
+	// acknowledgement.
+	eventually("both servers record the relayed commit", || {
+		b.live.stats().commits >= 1 && publisher.stats().commits >= 1
+	})
+	.await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

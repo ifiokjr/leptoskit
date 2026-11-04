@@ -220,6 +220,8 @@ shift 2
 printf '%s\n' "$*" >> "$LK_TEST_LOG"
 case "$1" in
   wait-for-device)
+    # Observe completed startup before the readiness fixture can fail.
+    while [ ! -f "$LK_EMULATOR_ARGS" ]; do sleep 0.01; done
     if [ "$LK_FAIL" = exited ]; then sleep 3; fi
     if [ "$LK_FAIL" = wait ]; then exit 7; fi;;
   shell)
@@ -235,7 +237,8 @@ esac
 		fake_tool(
 			&sdk.join("emulator/emulator"),
 			r#"
-printf '%s\n' "$*" > "$LK_EMULATOR_ARGS"
+printf '%s\n' "$*" > "$LK_EMULATOR_ARGS.pending"
+mv "$LK_EMULATOR_ARGS.pending" "$LK_EMULATOR_ARGS"
 if [ "$LK_FAIL" = exited ]; then exit 23; fi
 exec sleep 60
 "#,
