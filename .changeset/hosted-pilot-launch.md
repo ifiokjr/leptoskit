@@ -1,5 +1,5 @@
 ---
-"release": patch
+"release": minor
 ---
 
 # Package the hosted pilot for a Linux server
