@@ -68,12 +68,15 @@ impl Shown {
 
 	async fn settle(&mut self) {
 		// A few rounds at least: a key set while drawing rebinds its query in
-		// an effect, which then fetches.
-		for round in 0..50 {
+		// an effect, which then fetches. Idle ends it; the deadline only
+		// bounds a busy machine, where a fetch can outlast a fixed count.
+		let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+		for round in 0.. {
 			any_spawner::Executor::tick().await;
 			tokio::time::sleep(Duration::from_millis(2)).await;
 			self.tester.pump();
-			if round >= 5 && self.cache.fetching_count() == 0 && self.cache.mutating_count() == 0 {
+			let idle = self.cache.fetching_count() == 0 && self.cache.mutating_count() == 0;
+			if (round >= 5 && idle) || tokio::time::Instant::now() >= deadline {
 				break;
 			}
 		}
