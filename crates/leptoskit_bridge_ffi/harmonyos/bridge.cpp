@@ -312,7 +312,8 @@ napi_value Create(napi_env env, napi_callback_info info) {
         const auto cache = String(env, args[2]);
         const lk_app_context context{
             reinterpret_cast<const uint8_t *>(data.data()), data.size(),
-            reinterpret_cast<const uint8_t *>(cache.data()), cache.size()
+            reinterpret_cast<const uint8_t *>(cache.data()), cache.size(),
+            nullptr, nullptr, nullptr
         };
         auto runtime = std::make_unique<Runtime>();
         lk_buffer error{};

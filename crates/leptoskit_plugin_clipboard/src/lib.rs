@@ -497,67 +497,70 @@ mod android {
 				.attach_current_thread_as_daemon()
 				.map_err(|_| Error::Native)?;
 
-			env.with_local_frame(16, |env| {
-				// Enforce UI-thread execution just like `ClipboardPlugin.kt`.
-				let my_looper = env
-					.call_static_method(
-						"android/os/Looper",
-						"myLooper",
-						"()Landroid/os/Looper;",
-						&[],
-					)
-					.map_err(|error| map_jni_error(env, &error))?
-					.l()
-					.map_err(|_| Error::Native)?;
-				let main_looper = env
-					.call_static_method(
-						"android/os/Looper",
-						"getMainLooper",
-						"()Landroid/os/Looper;",
-						&[],
-					)
-					.map_err(|error| map_jni_error(env, &error))?
-					.l()
-					.map_err(|_| Error::Native)?;
+			env.with_local_frame(16, |env| -> jni::errors::Result<Result<T, Error>> {
+				Ok((|| {
+					// Enforce UI-thread execution just like
+					// `ClipboardPlugin.kt`.
+					let my_looper = env
+						.call_static_method(
+							"android/os/Looper",
+							"myLooper",
+							"()Landroid/os/Looper;",
+							&[],
+						)
+						.map_err(|error| map_jni_error(env, &error))?
+						.l()
+						.map_err(|_| Error::Native)?;
+					let main_looper = env
+						.call_static_method(
+							"android/os/Looper",
+							"getMainLooper",
+							"()Landroid/os/Looper;",
+							&[],
+						)
+						.map_err(|error| map_jni_error(env, &error))?
+						.l()
+						.map_err(|_| Error::Native)?;
 
-				if my_looper.is_null()
-					|| !env
-						.is_same_object(&my_looper, &main_looper)
-						.unwrap_or(false)
-				{
-					return Err(Error::Native);
-				}
+					if my_looper.is_null()
+						|| !env
+							.is_same_object(&my_looper, &main_looper)
+							.unwrap_or(false)
+					{
+						return Err(Error::Native);
+					}
 
-				// SAFETY: `context_ptr` is a valid JNI global reference
-				// retained by `PlatformContext`;
-				// `new_local_ref` creates a frame-scoped
-				// reference without consuming the global reference.
-				let borrowed = unsafe { JObject::from_raw(context_ptr.cast()) };
-				let context = env.new_local_ref(&borrowed).map_err(|_| Error::Native)?;
-				std::mem::forget(borrowed);
+					// SAFETY: `context_ptr` is a valid JNI global reference
+					// retained by `PlatformContext`;
+					// `new_local_ref` creates a frame-scoped
+					// reference without consuming the global reference.
+					let borrowed = unsafe { JObject::from_raw(context_ptr.cast()) };
+					let context = env.new_local_ref(&borrowed).map_err(|_| Error::Native)?;
 
-				let service_name = env.new_string("clipboard").map_err(|_| Error::Native)?;
-				let service = env
-					.call_method(
-						&context,
-						"getSystemService",
-						"(Ljava/lang/String;)Ljava/lang/Object;",
-						&[JValue::Object(&service_name)],
-					)
-					.map_err(|error| map_jni_error(env, &error))?
-					.l()
-					.map_err(|_| Error::Native)?;
+					let service_name = env.new_string("clipboard").map_err(|_| Error::Native)?;
+					let service = env
+						.call_method(
+							&context,
+							"getSystemService",
+							"(Ljava/lang/String;)Ljava/lang/Object;",
+							&[JValue::Object(&service_name)],
+						)
+						.map_err(|error| map_jni_error(env, &error))?
+						.l()
+						.map_err(|_| Error::Native)?;
 
-				if service.is_null()
-					|| !env
-						.is_instance_of(&service, "android/content/ClipboardManager")
-						.unwrap_or(false)
-				{
-					return Err(Error::Unavailable);
-				}
+					if service.is_null()
+						|| !env
+							.is_instance_of(&service, "android/content/ClipboardManager")
+							.unwrap_or(false)
+					{
+						return Err(Error::Unavailable);
+					}
 
-				operation(env, context, service)
+					operation(env, context, service)
+				})())
 			})
+			.map_err(|_| Error::Native)?
 		}
 	}
 

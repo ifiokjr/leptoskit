@@ -275,57 +275,60 @@ mod android {
 			.attach_current_thread_as_daemon()
 			.map_err(|_| Error::Native)?;
 
-		env.with_local_frame(16, |env| {
-			ensure_main_looper(env)?;
-			let sdk_int = env
-				.get_static_field("android/os/Build$VERSION", "SDK_INT", "I")
-				.and_then(jni::objects::JValueOwned::i)
-				.unwrap_or(26);
-			let constant = resolve_constant(method, payload, sdk_int)?;
+		env.with_local_frame(16, |env| -> jni::errors::Result<Result<(), Error>> {
+			Ok((|| {
+				ensure_main_looper(env)?;
+				let sdk_int = env
+					.get_static_field("android/os/Build$VERSION", "SDK_INT", "I")
+					.and_then(jni::objects::JValueOwned::i)
+					.unwrap_or(26);
+				let constant = resolve_constant(method, payload, sdk_int)?;
 
-			// SAFETY: `context_ptr` is a valid JNI global reference retained
-			// by `PlatformContext`; `new_local_ref` creates a frame-scoped
-			// reference without consuming the global reference.
-			let borrowed = unsafe { JObject::from_raw(context_ptr.cast()) };
-			let context = env.new_local_ref(&borrowed).map_err(|_| Error::Native)?;
-			std::mem::forget(borrowed);
+				// SAFETY: `context_ptr` is a valid JNI global reference
+				// retained by `PlatformContext`;
+				// `new_local_ref` creates a frame-scoped
+				// reference without consuming the global reference.
+				let borrowed = unsafe { JObject::from_raw(context_ptr.cast()) };
+				let context = env.new_local_ref(&borrowed).map_err(|_| Error::Native)?;
 
-			if !env
-				.is_instance_of(&context, "android/app/Activity")
-				.unwrap_or(false)
-			{
-				return Err(Error::Unavailable);
-			}
+				if !env
+					.is_instance_of(&context, "android/app/Activity")
+					.unwrap_or(false)
+				{
+					return Err(Error::Unavailable);
+				}
 
-			let window = env
-				.call_method(&context, "getWindow", "()Landroid/view/Window;", &[])
-				.map_err(|_| clear_and_fail(env))?
-				.l()
-				.map_err(|_| Error::Native)?;
+				let window = env
+					.call_method(&context, "getWindow", "()Landroid/view/Window;", &[])
+					.map_err(|_| clear_and_fail(env))?
+					.l()
+					.map_err(|_| Error::Native)?;
 
-			if window.is_null() {
-				return Err(Error::Unavailable);
-			}
+				if window.is_null() {
+					return Err(Error::Unavailable);
+				}
 
-			let decor = env
-				.call_method(&window, "getDecorView", "()Landroid/view/View;", &[])
-				.map_err(|_| clear_and_fail(env))?
-				.l()
-				.map_err(|_| Error::Native)?;
+				let decor = env
+					.call_method(&window, "getDecorView", "()Landroid/view/View;", &[])
+					.map_err(|_| clear_and_fail(env))?
+					.l()
+					.map_err(|_| Error::Native)?;
 
-			if decor.is_null() {
-				return Err(Error::Unavailable);
-			}
+				if decor.is_null() {
+					return Err(Error::Unavailable);
+				}
 
-			env.call_method(
-				&decor,
-				"performHapticFeedback",
-				"(I)Z",
-				&[JValue::Int(constant)],
-			)
-			.map_err(|_| clear_and_fail(env))?;
-			Ok(())
+				env.call_method(
+					&decor,
+					"performHapticFeedback",
+					"(I)Z",
+					&[JValue::Int(constant)],
+				)
+				.map_err(|_| clear_and_fail(env))?;
+				Ok(())
+			})())
 		})
+		.map_err(|_| Error::Native)?
 	}
 
 	fn ensure_main_looper(env: &mut JNIEnv<'_>) -> Result<(), Error> {
