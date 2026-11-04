@@ -28,7 +28,6 @@ server = [
 axum = { workspace = true, optional = true }
 getrandom = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true, features = ["json", "rustls-tls"] }
-rustix = { workspace = true, optional = true, features = ["fs"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
@@ -36,6 +35,9 @@ subtle = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true, features = ["rt", "time"] }
 url = { workspace = true, optional = true }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, optional = true, features = ["fs"] }
 
 [dev-dependencies]
 serde_json = { workspace = true }

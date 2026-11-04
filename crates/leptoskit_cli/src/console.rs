@@ -213,6 +213,7 @@ fn data_directory(explicit: Option<PathBuf>) -> Result<PathBuf> {
 }
 
 fn directory_lock(path: &Path) -> Result<std::fs::File> {
+	#[cfg(unix)]
 	let existed = path.exists();
 	std::fs::create_dir_all(path)?;
 	#[cfg(unix)]

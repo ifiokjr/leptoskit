@@ -346,13 +346,15 @@ async fn checkout(
 		std::fs::remove_dir_all(&destination)?;
 	}
 	#[cfg(unix)]
-	std::os::unix::fs::symlink(shared, destination)?;
+	{
+		std::os::unix::fs::symlink(shared, destination)?;
+		Ok(Some(Project {
+			root: path,
+			..project.clone()
+		}))
+	}
 	#[cfg(not(unix))]
 	anyhow::bail!("managed source workspaces currently require a Unix worker");
-	Ok(Some(Project {
-		root: path,
-		..project.clone()
-	}))
 }
 
 fn arguments(action: &Action) -> Vec<String> {

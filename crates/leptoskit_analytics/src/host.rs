@@ -3,13 +3,20 @@ use crate::HostSample;
 
 #[must_use]
 pub fn sample() -> HostSample {
-	let mut sample = HostSample {
+	let sample = HostSample {
 		at_unix_seconds: std::time::SystemTime::now()
 			.duration_since(std::time::UNIX_EPOCH)
 			.unwrap_or_default()
 			.as_secs(),
 		..HostSample::default()
 	};
+	#[cfg(unix)]
+	let sample = sample_unix(sample);
+	sample
+}
+
+#[cfg(unix)]
+fn sample_unix(mut sample: HostSample) -> HostSample {
 	#[cfg(target_os = "linux")]
 	{
 		sample.process_resident_bytes =
@@ -61,7 +68,6 @@ pub fn sample() -> HostSample {
 				});
 		}
 	}
-	#[cfg(unix)]
 	if let Ok(stats) = rustix::fs::statvfs("/") {
 		sample.filesystem_available_bytes = stats.f_bavail.checked_mul(stats.f_frsize);
 		sample.filesystem_capacity_bytes = stats.f_blocks.checked_mul(stats.f_frsize);

@@ -26,6 +26,7 @@ pub struct Store(Arc<Mutex<rusqlite::Connection>>);
 impl Store {
 	pub fn open(path: &Path) -> Result<Self> {
 		let parent = path.parent().context("database needs a parent directory")?;
+		#[cfg(unix)]
 		let existed = parent.exists();
 		std::fs::create_dir_all(parent)?;
 		#[cfg(unix)]
