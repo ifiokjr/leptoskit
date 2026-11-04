@@ -350,3 +350,42 @@ fn wide_characters_occupy_two_cells() {
 	assert!(buffer.cell(1, 0).unwrap().wide);
 	assert_eq!(buffer.to_plain_lines()[0].trim(), "日本語");
 }
+
+/// A long scrolled list paints only the rows in view: rows past the end of
+/// the screen are neither drawn nor wrapped. Run with `cargo test -p
+/// leptoskit_tui --release --test render -- --ignored --nocapture
+/// long_list_render`.
+#[test]
+#[ignore = "a timing probe, not a check"]
+fn long_list_render() {
+	let list = ScrollView()
+		.class("h-full")
+		.child(Column().children((0..10_000).map(|row| {
+			Text(format!(
+				"Row {row}: a label long enough to wrap across the width"
+			))
+		})));
+	let surface = surface(&list, 40, 20);
+	let start = std::time::Instant::now();
+
+	for _ in 0..20 {
+		std::hint::black_box(surface.backend().render(40, 20));
+	}
+
+	println!(
+		"render 10,000 rows into 40x20: {:.3} ms",
+		start.elapsed().as_secs_f64() * 1000.0 / 20.0
+	);
+}
+
+#[test]
+fn a_long_scrolled_list_shows_its_first_rows() {
+	let list = ScrollView()
+		.class("h-full")
+		.child(Column().children((0..2_000).map(|row| Text(format!("Row {row}")))));
+
+	let rows = lines(&list, 12, 3);
+
+	assert_eq!(rows[0].trim_end(), "Row 0");
+	assert_eq!(rows[2].trim_end(), "Row 2");
+}

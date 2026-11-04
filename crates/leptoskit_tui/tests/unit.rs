@@ -974,3 +974,177 @@ fn caret_keys_move_without_dispatching_through_fields() {
 	let draft = surface.backend().draft(field).unwrap();
 	assert_eq!(draft.caret, 2, "right from the end clamps");
 }
+
+/// A minimal terminal: applies a diff's clears, cursor moves, and glyphs to
+/// a grid of `(glyph, colored)` cells, ignoring nothing a picture depends on.
+/// A wide glyph fills its cell and blanks the next, as terminals do.
+struct Screen {
+	width: usize,
+	cells: Vec<Vec<(char, bool)>>,
+}
+
+impl Screen {
+	fn new(width: u16, height: u16) -> Self {
+		Self {
+			width: width.into(),
+			cells: vec![vec![(' ', false); width.into()]; height.into()],
+		}
+	}
+
+	fn apply(&mut self, escapes: &str) {
+		let (mut row, mut col, mut colored) = (0, 0, false);
+		let mut chars = escapes.chars().peekable();
+
+		while let Some(char) = chars.next() {
+			if char != '\x1b' {
+				let width = display_width(&char.to_string());
+				self.cells[row][col] = (char, colored);
+
+				if width == 2 && col + 1 < self.width {
+					self.cells[row][col + 1] = ('\0', colored);
+				}
+
+				col += width;
+				continue;
+			}
+
+			assert_eq!(chars.next(), Some('['));
+			let mut parameters = String::new();
+
+			while let Some(&next) = chars.peek()
+				&& !next.is_ascii_alphabetic()
+			{
+				parameters.push(next);
+				chars.next();
+			}
+
+			match chars.next() {
+				Some('H') if parameters.is_empty() => (row, col) = (0, 0),
+				Some('H') => {
+					let (line, column) = parameters.split_once(';').unwrap();
+					row = line.parse::<usize>().unwrap() - 1;
+					col = column.parse::<usize>().unwrap() - 1;
+				}
+				Some('J') => {
+					for line in &mut self.cells {
+						line.fill((' ', false));
+					}
+				}
+				Some('m') => colored = parameters.split(';').any(|code| code.starts_with("38")),
+				other => panic!("unexpected escape {other:?}"),
+			}
+		}
+	}
+
+	fn lines(&self) -> Vec<String> {
+		self.cells
+			.iter()
+			.map(|line| {
+				line.iter()
+					.map(|&(char, _)| char)
+					.filter(|&char| char != '\0')
+					.collect()
+			})
+			.collect()
+	}
+}
+
+fn replayed(screen: &mut Screen, previous: &Buffer, next: &Buffer) {
+	let mut out = Vec::new();
+	diff(previous, next, ColorDepth::TrueColor, &mut out).unwrap();
+	screen.apply(&String::from_utf8(out).unwrap());
+}
+
+#[test]
+fn colored_wide_glyphs_land_where_the_buffer_puts_them() {
+	let red = TuiColor::Rgb(255, 0, 0);
+	let blank = Buffer::new(6, 1);
+	let mut next = Buffer::new(6, 1);
+	next.set_glyph(0, 0, '日', red, TuiColor::Default, Attributes::EMPTY);
+	next.set_glyph(2, 0, '本', red, TuiColor::Default, Attributes::EMPTY);
+	next.set_glyph(
+		4,
+		0,
+		'x',
+		TuiColor::Default,
+		TuiColor::Default,
+		Attributes::EMPTY,
+	);
+	let mut screen = Screen::new(6, 1);
+
+	replayed(&mut screen, &blank, &next);
+
+	assert_eq!(screen.lines(), next.to_plain_lines());
+	assert_eq!(screen.cells[0][2], ('本', true));
+}
+
+#[test]
+fn a_changed_neighbor_after_an_unchanged_wide_glyph_is_written_in_place() {
+	let red = TuiColor::Rgb(255, 0, 0);
+	let mut previous = Buffer::new(5, 1);
+	previous.set_glyph(0, 0, '日', red, TuiColor::Default, Attributes::EMPTY);
+	let mut next = previous.clone();
+	next.set_glyph(2, 0, 'a', red, TuiColor::Default, Attributes::EMPTY);
+	next.set_glyph(
+		3,
+		0,
+		'b',
+		TuiColor::Default,
+		TuiColor::Default,
+		Attributes::EMPTY,
+	);
+	let mut screen = Screen::new(5, 1);
+	replayed(&mut screen, &Buffer::new(5, 1), &previous);
+
+	replayed(&mut screen, &previous, &next);
+
+	assert_eq!(screen.lines(), next.to_plain_lines());
+}
+
+#[test]
+fn a_resize_redraws_what_the_old_frame_also_showed() {
+	let mut small = Buffer::new(2, 1);
+	small.set_glyph(
+		0,
+		0,
+		'h',
+		TuiColor::Default,
+		TuiColor::Default,
+		Attributes::EMPTY,
+	);
+	small.set_glyph(
+		1,
+		0,
+		'i',
+		TuiColor::Default,
+		TuiColor::Default,
+		Attributes::EMPTY,
+	);
+	let mut large = Buffer::new(4, 1);
+	large.set_glyph(
+		0,
+		0,
+		'h',
+		TuiColor::Default,
+		TuiColor::Default,
+		Attributes::EMPTY,
+	);
+	large.set_glyph(
+		1,
+		0,
+		'i',
+		TuiColor::Default,
+		TuiColor::Default,
+		Attributes::EMPTY,
+	);
+	let mut screen = Screen::new(2, 1);
+	replayed(&mut screen, &Buffer::new(2, 1), &small);
+	let mut screen = Screen {
+		width: 4,
+		cells: vec![[screen.cells[0].clone(), vec![(' ', false); 2]].concat()],
+	};
+
+	replayed(&mut screen, &small, &large);
+
+	assert_eq!(screen.lines(), large.to_plain_lines());
+}
