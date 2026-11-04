@@ -1,4 +1,12 @@
-//! Explicitly owned desktop global shortcuts.
+//! <!-- {=p_global_shortcutSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Native hosts construct `GlobalShortcuts` after event-loop startup and may
+//! expose `ShortcutPlugin` to the typed guest client. There is no automatic
+//! `native.plugins` registration. macOS, Windows, and X11 are supported; native
+//! Wayland, browsers, and mobile return `Unavailable`, with no `XWayland`
+//! fallback or fake browser shortcut.
+//!
+//! <!-- {/p_global_shortcutSummary} -->
 //!
 //! Native hosts construct [`GlobalShortcuts`] on their event-loop thread after
 //! application startup. Registration is fallible and scoped by a

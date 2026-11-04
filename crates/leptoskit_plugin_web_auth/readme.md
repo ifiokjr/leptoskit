@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_web_auth"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_web_auth"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_web_auth.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_web_auth"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_web_auth/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -50,7 +54,11 @@ API references: [Expo AuthSession](https://docs.expo.dev/versions/latest/sdk/aut
 
 ## How it fits
 
-Add `leptoskit_plugin_web_auth` as a direct dependency and select the `web-auth` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::WebAuth` rather than resolving the plugin on every call. It follows RFC 8252: the provider page never loads in a web view inside the app.
+<!-- {=p_web_authSummary} -->
+
+Add `leptoskit_plugin_web_auth` as a direct dependency and select the `web-auth` plugin in `native.plugins`; supported generated hosts discover it from Cargo metadata. Generated Windows, Linux, and terminal hosts currently omit runtime plugins; use explicit registration in a custom host there. Guests enable the `guest` feature and reuse `guest::WebAuth` rather than resolving the plugin on every call. It follows RFC 8252: the provider page never loads in a web view inside the app.
+
+<!-- {/p_web_authSummary} -->
 
 ## Use it
 

@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_uikit"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_uikit"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_uikit.svg"></a>
   <a href="https://docs.rs/leptoskit_uikit"><img alt="docs.rs" src="https://docs.rs/leptoskit_uikit/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -55,9 +59,21 @@ CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/leptoskit-uikit-target \
 
 It builds and signs the probe, creates its own simulator, installs an actual UIApplication, exercises native classes/actions/editors/layout/lifecycle, writes `native-report.tsv` and `native-widgets.png`, and removes that simulator. It never selects an existing device. A cross-build alone is not a renderer verification result.
 
+## Generated host limits
+
+<!-- {=generatedHostLimits} -->
+
+Generated macOS, iOS, and Android apps use the Swift or Kotlin renderers in `leptoskit_bridge_ffi`. They support `View`, `Text`, `Button`, `Pressable`, `TextInput`, `PasswordInput`, `ScrollView`, `Image`, `Vector`, and `Rive`. Other control kinds fail with an unsupported-widget error. Accessible names are forwarded; a labelled `Vector` is an accessible image and `Rive` can be decorative. Most other roles and states are not forwarded. The Rust backend crates support a wider control set. Generated Windows and Linux apps use the full Rust backends, but currently omit runtime plugin registration. Automatic code push update checks currently run only in generated iOS and Android hosts.
+
+<!-- {/generatedHostLimits} -->
+
 ## How it fits
 
-It consumes the same Yoga mutation stream as every other backend. The generated iOS app hosts it through `UIKitHost`; the backend crate draws a wider component set than the Swift renderer used by the generated app.
+<!-- {=uikitSummary} -->
+
+It consumes the same Yoga mutation stream as every other backend. Custom Rust hosts embed it through `UIKitHost`. Generated iOS apps use the smaller Swift renderer in `leptoskit_bridge_ffi`.
+
+<!-- {/uikitSummary} -->
 
 ## Use it
 

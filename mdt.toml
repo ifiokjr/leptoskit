@@ -1,0 +1,62 @@
+[padding]
+before = 1
+after = 1
+
+# Cargo is the source of truth for the MSRV badge.
+[data]
+cargo = "Cargo.toml"
+plugin_accelerometer = "crates/leptoskit_plugin_accelerometer/Cargo.toml"
+plugin_application = "crates/leptoskit_plugin_application/Cargo.toml"
+plugin_barometer = "crates/leptoskit_plugin_barometer/Cargo.toml"
+plugin_battery = "crates/leptoskit_plugin_battery/Cargo.toml"
+plugin_brightness = "crates/leptoskit_plugin_brightness/Cargo.toml"
+plugin_clipboard = "crates/leptoskit_plugin_clipboard/Cargo.toml"
+plugin_crypto = "crates/leptoskit_plugin_crypto/Cargo.toml"
+plugin_device = "crates/leptoskit_plugin_device/Cargo.toml"
+plugin_document_picker = "crates/leptoskit_plugin_document_picker/Cargo.toml"
+plugin_filesystem = "crates/leptoskit_plugin_filesystem/Cargo.toml"
+plugin_gyroscope = "crates/leptoskit_plugin_gyroscope/Cargo.toml"
+plugin_haptics = "crates/leptoskit_plugin_haptics/Cargo.toml"
+plugin_http = "crates/leptoskit_plugin_http/Cargo.toml"
+plugin_image_manipulator = "crates/leptoskit_plugin_image_manipulator/Cargo.toml"
+plugin_keep_awake = "crates/leptoskit_plugin_keep_awake/Cargo.toml"
+plugin_light_sensor = "crates/leptoskit_plugin_light_sensor/Cargo.toml"
+plugin_linking = "crates/leptoskit_plugin_linking/Cargo.toml"
+plugin_local_authentication = "crates/leptoskit_plugin_local_authentication/Cargo.toml"
+plugin_localization = "crates/leptoskit_plugin_localization/Cargo.toml"
+plugin_location = "crates/leptoskit_plugin_location/Cargo.toml"
+plugin_logging = "crates/leptoskit_plugin_logging/Cargo.toml"
+plugin_magnetometer = "crates/leptoskit_plugin_magnetometer/Cargo.toml"
+plugin_network = "crates/leptoskit_plugin_network/Cargo.toml"
+plugin_notifications = "crates/leptoskit_plugin_notifications/Cargo.toml"
+plugin_os = "crates/leptoskit_plugin_os/Cargo.toml"
+plugin_passkeys = "crates/leptoskit_plugin_passkeys/Cargo.toml"
+plugin_pedometer = "crates/leptoskit_plugin_pedometer/Cargo.toml"
+plugin_permissions = "crates/leptoskit_plugin_permissions/Cargo.toml"
+plugin_posture = "crates/leptoskit_plugin_posture/Cargo.toml"
+plugin_screen_capture = "crates/leptoskit_plugin_screen_capture/Cargo.toml"
+plugin_screen_orientation = "crates/leptoskit_plugin_screen_orientation/Cargo.toml"
+plugin_secure_store = "crates/leptoskit_plugin_secure_store/Cargo.toml"
+plugin_sharing = "crates/leptoskit_plugin_sharing/Cargo.toml"
+plugin_shell = "crates/leptoskit_plugin_shell/Cargo.toml"
+plugin_speech = "crates/leptoskit_plugin_speech/Cargo.toml"
+plugin_sqlite = "crates/leptoskit_plugin_sqlite/Cargo.toml"
+plugin_store = "crates/leptoskit_plugin_store/Cargo.toml"
+plugin_store_review = "crates/leptoskit_plugin_store_review/Cargo.toml"
+plugin_tracking_transparency = "crates/leptoskit_plugin_tracking_transparency/Cargo.toml"
+plugin_web_auth = "crates/leptoskit_plugin_web_auth/Cargo.toml"
+plugin_websocket = "crates/leptoskit_plugin_websocket/Cargo.toml"
+
+[exclude]
+patterns = ["**/snapshots/", "**/vendor/", "**/fixtures/", "**/changelog.md"]
+markdown_codeblocks = true
+
+[[formatters]]
+command = 'dprint fmt --stdin "{{ filePath }}"'
+patterns = ["**/*.md"]
+ignore = ["**/*.t.md"]
+
+# Use the workspace Rust formatter after adding doc-comment prefixes.
+[[formatters]]
+command = 'rustfmt --edition 2024 --config-path "{{ rootDirectory }}/rustfmt.toml"'
+patterns = ["**/*.rs"]

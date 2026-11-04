@@ -21,6 +21,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_lint"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_lint"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_lint.svg"></a>
   <a href="https://docs.rs/leptoskit_lint"><img alt="docs.rs" src="https://docs.rs/leptoskit_lint/badge.svg"></a>
@@ -28,6 +30,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -75,7 +79,11 @@ See the [linting guide](https://ifiokjr.github.io/leptoskit/guide/23-linting.htm
 
 ## How it fits
 
+<!-- {=lintSummary} -->
+
 rustc and clippy check Rust; these rules check the conventions a leptoskit project relies on, with diagnostics that name the file, line, and fix.
+
+<!-- {/lintSummary} -->
 
 ## Use it
 

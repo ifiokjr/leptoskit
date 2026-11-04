@@ -1,4 +1,15 @@
-//! Bounded ambient light acquisition, in lux. See README for platform limits.
+//! <!-- {=p_light_sensorSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_light_sensor` as a direct dependency and select the
+//! `light_sensor` plugin in `native.plugins`; supported generated hosts
+//! discover it from Cargo metadata. Generated Windows, Linux, and terminal
+//! hosts currently omit runtime plugins; use explicit registration in a custom
+//! host there. Guests enable the `guest` feature and reuse `guest::LightSensor`
+//! rather than resolving the plugin on every call. iOS, macOS, and desktop have
+//! no supported public ambient-light API and return `Unavailable`; display
+//! brightness is never substituted for illumination.
+//!
+//! <!-- {/p_light_sensorSummary} -->
 #[cfg(any(not(target_arch = "wasm32"), feature = "guest"))]
 use leptoskit_bridge::Error;
 pub use leptoskit_sensor::AVAILABLE;

@@ -21,6 +21,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit.svg"></a>
   <a href="https://docs.rs/leptoskit"><img alt="docs.rs" src="https://docs.rs/leptoskit/badge.svg"></a>
@@ -28,6 +30,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -42,7 +46,7 @@ One dependency, one CLI, every target:
 
 Build shared screens with the built-in Rust components and Tailwind classes.
 
-The [component catalog](https://ifiokjr.github.io/leptoskit/reference/components.html) has 14 primitive builders for containers, text, images, scrolling, and native controls. Tailwind expresses layout and visual composition. Another 31 composition helpers remain available through an explicit `components::helpers` import. Every builder returns the same `Element` vocabulary for native and web. Use them as PascalCase tags in `view!`; builders remain available for direct tree manipulation.
+The [component catalog](https://ifiokjr.github.io/leptoskit/reference/components.html) has 16 primitive builders (including optional `Rive`) for containers, text, images, scrolling, and native controls. Tailwind expresses layout and visual composition. Another 31 composition helpers remain available through an explicit `components::helpers` import. Every builder returns the same `Element` vocabulary for native and web. Use them as PascalCase tags in `view!`; builders remain available for direct tree manipulation.
 
 Commit the tree to a `NativeSurface`, or enable the optional `web` feature and pass the same tree to `leptoskit::web::render`. The web adapter creates Leptos views and emits CSS. Native rendering applies the same utility declarations to Yoga and widget props. No Tailwind installation or Node build is needed.
 
@@ -72,9 +76,21 @@ The path is relative to the app's `src` directory. Keep `routes/home.rs` as the 
 
 See [`leptoskit_build`](../leptoskit_build/readme.md) for build-script setup and [creating a project](https://ifiokjr.github.io/leptoskit/guide/02-creating.html) for the workspace and build commands.
 
+## Generated host limits
+
+<!-- {=generatedHostLimits} -->
+
+Generated macOS, iOS, and Android apps use the Swift or Kotlin renderers in `leptoskit_bridge_ffi`. They support `View`, `Text`, `Button`, `Pressable`, `TextInput`, `PasswordInput`, `ScrollView`, `Image`, `Vector`, and `Rive`. Other control kinds fail with an unsupported-widget error. Accessible names are forwarded; a labelled `Vector` is an accessible image and `Rive` can be decorative. Most other roles and states are not forwarded. The Rust backend crates support a wider control set. Generated Windows and Linux apps use the full Rust backends, but currently omit runtime plugin registration. Automatic code push update checks currently run only in generated iOS and Android hosts.
+
+<!-- {/generatedHostLimits} -->
+
 ## How it fits
 
-Start here. A web build enables `web` and renders through leptos; a native build enables a platform backend and commits the same tree as real widgets. Features add routing, queries, forms, localization, database, auth, extensions, and DevTools only when the app asks for them, so the meta crate stays a front door rather than a bundle of everything.
+<!-- {=kitSummary} -->
+
+Start here. A web build enables `web` and renders through leptos; a native build enables a platform backend and commits the same tree as real widgets. Features add routing, queries, forms, localization, database, auth, extensions, and `DevTools` only when the app asks for them, so the meta crate stays a front door rather than a bundle of everything.
+
+<!-- {/kitSummary} -->
 
 ## Use it
 

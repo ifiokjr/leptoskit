@@ -1,5 +1,10 @@
-//! Reads a leptoskit `locales/` directory of ARB files and writes its typed
-//! translations module.
+//! <!-- {=l10n_codegenSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! The `leptoskit l10n` command and the CLI's build pipeline use it; apps never
+//! depend on it. It checks every translation against the template and reports
+//! placeholder, plural, and naming problems with a file and line.
+//!
+//! <!-- {/l10n_codegenSummary} -->
 //!
 //! The `leptoskit l10n` command and the build pipeline call this crate; apps
 //! never depend on it. Each `<tag>.arb` file holds one locale's messages,

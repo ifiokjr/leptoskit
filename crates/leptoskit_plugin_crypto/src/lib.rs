@@ -1,4 +1,13 @@
-//! Digests, secure randomness and UUID v4 for native, browser and guest apps.
+//! <!-- {=p_cryptoSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_crypto` as a direct dependency and select the `crypto`
+//! plugin in `native.plugins`; supported generated hosts discover it from Cargo
+//! metadata. Generated Windows, Linux, and terminal hosts currently omit
+//! runtime plugins; use explicit registration in a custom host there. Native
+//! hashing and entropy run on the Rust worker, and browsers use the same Rust
+//! implementation compiled to Wasm.
+//!
+//! <!-- {/p_cryptoSummary} -->
 //!
 //! Direct Rust calls borrow input and return fixed-size digest arrays. Native
 //! hosts can also register [`Crypto`] on the binary bridge. No text encoding or

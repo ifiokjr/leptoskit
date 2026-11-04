@@ -21,6 +21,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_l10n_codegen"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_l10n_codegen"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_l10n_codegen.svg"></a>
   <a href="https://docs.rs/leptoskit_l10n_codegen"><img alt="docs.rs" src="https://docs.rs/leptoskit_l10n_codegen/badge.svg"></a>
@@ -28,6 +30,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -43,7 +47,11 @@ Messages are the subset of ICU MessageFormat that ARB files use: text, `{placeho
 
 ## How it fits
 
+<!-- {=l10n_codegenSummary} -->
+
 The `leptoskit l10n` command and the CLI's build pipeline use it; apps never depend on it. It checks every translation against the template and reports placeholder, plural, and naming problems with a file and line.
+
+<!-- {/l10n_codegenSummary} -->
 
 ## Use it
 

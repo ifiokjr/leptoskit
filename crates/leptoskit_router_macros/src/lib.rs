@@ -1,4 +1,10 @@
-//! The `#[derive(Route)]` macro for leptoskit file routes.
+//! <!-- {=router_macrosSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! It is an implementation detail of `leptoskit_router`, which re-exports the
+//! derive. `Option<T>` may be absent, `Vec<T>` takes every value, and other
+//! types are required unless the field is `#[route(default)]`.
+//!
+//! <!-- {/router_macrosSummary} -->
 //!
 //! This crate is an implementation detail of `leptoskit_router`; use the
 //! derive through that crate.

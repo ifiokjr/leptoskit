@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_windows"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_windows"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_windows.svg"></a>
   <a href="https://docs.rs/leptoskit_windows"><img alt="docs.rs" src="https://docs.rs/leptoskit_windows/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -47,9 +51,21 @@ The probe writes `widgets.png` with only its own client area and `report.json` w
 
 Native execution is required to validate this backend. A cross-target Cargo check is supplemental evidence. On a machine without Windows, the renderer verdict remains **NOT VERIFIED** until the Windows tests and screenshot inspection succeed.
 
+## Generated host limits
+
+<!-- {=generatedHostLimits} -->
+
+Generated macOS, iOS, and Android apps use the Swift or Kotlin renderers in `leptoskit_bridge_ffi`. They support `View`, `Text`, `Button`, `Pressable`, `TextInput`, `PasswordInput`, `ScrollView`, `Image`, `Vector`, and `Rive`. Other control kinds fail with an unsupported-widget error. Accessible names are forwarded; a labelled `Vector` is an accessible image and `Rive` can be decorative. Most other roles and states are not forwarded. The Rust backend crates support a wider control set. Generated Windows and Linux apps use the full Rust backends, but currently omit runtime plugin registration. Automatic code push update checks currently run only in generated iOS and Android hosts.
+
+<!-- {/generatedHostLimits} -->
+
 ## How it fits
 
+<!-- {=windowsSummary} -->
+
 The backend owns its HWNDs on one UI thread and consumes the existing Yoga mutation stream; it never embeds a browser or creates a second layout tree. The executable includes the provided manifest for version 6 common controls and layered-window support.
+
+<!-- {/windowsSummary} -->
 
 ## Use it
 

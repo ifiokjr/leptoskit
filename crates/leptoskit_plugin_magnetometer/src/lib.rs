@@ -1,6 +1,15 @@
-//! Demand-driven magnetometer readings with bounded native acquisition.
-//! See the crate readme for units, permission requirements, and platform
-//! limits.
+//! <!-- {=p_magnetometerSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_magnetometer` as a direct dependency and select the
+//! `magnetometer` plugin in `native.plugins`; supported generated hosts
+//! discover it from Cargo metadata. Generated Windows, Linux, and terminal
+//! hosts currently omit runtime plugins; use explicit registration in a custom
+//! host there. Guests enable the `guest` feature and reuse
+//! `guest::Magnetometer` rather than resolving the plugin on every call. This
+//! is a magnetic sensor measurement, not a compass heading; platform
+//! calibration differs, and desktop has no sensor.
+//!
+//! <!-- {/p_magnetometerSummary} -->
 
 use leptoskit_bridge::Error;
 pub use leptoskit_sensor::AVAILABLE;

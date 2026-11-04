@@ -1,4 +1,10 @@
-//! Configuration for leptoskit projects, loaded from `leptoskit.toml`.
+//! <!-- {=configSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! The CLI, build pipeline, dev server, and native hosts all parse the same
+//! configuration, so they agree on what the app is. Unknown keys and invalid
+//! combinations fail with the file and field before a build starts.
+//!
+//! <!-- {/configSummary} -->
 #![doc(
 	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
 )]

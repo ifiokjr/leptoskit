@@ -1,5 +1,10 @@
-//! Markdown with leptos components, in the style of MDX, and the static
-//! documentation site generator built on it.
+//! <!-- {=docsSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! The leptoskit book is built with it, and apps can use the same generator for
+//! their own docs. It is MDX-shaped but Rust-native: components are leptos
+//! components, and mistakes fail the build with a location.
+//!
+//! <!-- {/docsSummary} -->
 //!
 //! A document is GitHub-flavoured Markdown where a capitalised tag is a leptos
 //! component:

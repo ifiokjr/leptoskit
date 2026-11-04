@@ -1,4 +1,10 @@
-//! C ABI for native plugin hosts; see `include/leptoskit_bridge.h`.
+//! <!-- {=bridge_ffiSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Generated macOS, iOS, Android, and HarmonyOS shells link against it; the
+//! Rust backends are used by tests and by hosts that embed leptoskit directly.
+//! It is the boundary between the platform's UI thread and the guest.
+//!
+//! <!-- {/bridge_ffiSummary} -->
 //!
 //! All bridge access must occur on its owning thread, without reentrancy.
 //! Returned payloads have independent ownership and may be moved to workers.

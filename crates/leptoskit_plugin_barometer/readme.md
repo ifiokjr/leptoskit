@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_barometer"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_barometer"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_barometer.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_barometer"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_barometer/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -39,7 +43,11 @@ See the [shared sensor contract](../leptoskit_sensor/readme.md) for exact binary
 
 ## How it fits
 
-Add `leptoskit_plugin_barometer` as a direct dependency and select the `barometer` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::Barometer` rather than resolving the plugin on every call. iOS and Android use real pressure sensors, desktop has no sensor, and no relative altitude estimate is fabricated.
+<!-- {=p_barometerSummary} -->
+
+Add `leptoskit_plugin_barometer` as a direct dependency and select the `barometer` plugin in `native.plugins`; supported generated hosts discover it from Cargo metadata. Generated Windows, Linux, and terminal hosts currently omit runtime plugins; use explicit registration in a custom host there. Guests enable the `guest` feature and reuse `guest::Barometer` rather than resolving the plugin on every call. iOS and Android use real pressure sensors, desktop has no sensor, and no relative altitude estimate is fabricated.
+
+<!-- {/p_barometerSummary} -->
 
 ## Use it
 

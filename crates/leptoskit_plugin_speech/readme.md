@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_speech"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_speech"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_speech.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_speech"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_speech/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -51,7 +55,11 @@ Verification includes binary/error tests, non-audible native lifecycle checks, a
 
 ## How it fits
 
-Add `leptoskit_plugin_speech` as a direct dependency and select the `speech` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::Speech` rather than resolving the plugin on every call. iOS and macOS use `AVSpeechSynthesizer`, Android uses `TextToSpeech`, and the browser uses `speechSynthesis`; overlapping speech returns `Busy`.
+<!-- {=p_speechSummary} -->
+
+Add `leptoskit_plugin_speech` as a direct dependency and select the `speech` plugin in `native.plugins`; supported generated hosts discover it from Cargo metadata. Generated Windows, Linux, and terminal hosts currently omit runtime plugins; use explicit registration in a custom host there. Guests enable the `guest` feature and reuse `guest::Speech` rather than resolving the plugin on every call. iOS and macOS use `AVSpeechSynthesizer`, Android uses `TextToSpeech`, and the browser uses `speechSynthesis`; overlapping speech returns `Busy`.
+
+<!-- {/p_speechSummary} -->
 
 ## Use it
 

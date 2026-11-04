@@ -2,7 +2,7 @@
 
 Leptoskit's primary components are native primitive builders exported by `leptoskit::components` and `leptoskit::prelude`. Each returns an `Element` and understands Tailwind. `View`, `Text`, `Image`, `ScrollView`, editable inputs, buttons, and native controls provide the building blocks for shared screens.
 
-The primary API has 15 primitive builders. Another 31 layout and presentation builders are optional helpers under `leptoskit::components::helpers`. Import them explicitly when useful. They compose the same primitives and introduce no native widget kinds. New primitive behavior follows React Native and Lynx; the contracts below do not reproduce every upstream property.
+The primary API has 16 primitive builders, including optional `Rive`. Another 31 layout and presentation builders are optional helpers under `leptoskit::components::helpers`. Import them explicitly when useful. They compose the same primitives and introduce no native widget kinds. New primitive behavior follows React Native and Lynx; the contracts below do not reproduce every upstream property.
 
 `View()` is a column container, `Text(content)` displays inherited system-font text, `Image(source)` displays a host-resolvable image, `Vector(view_box)` draws filled and stroked paths, and `ScrollView()` contains scrolling children. The controls section lists the other primitives.
 

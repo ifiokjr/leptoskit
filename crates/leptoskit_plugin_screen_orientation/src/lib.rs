@@ -1,5 +1,15 @@
-//! Requests scoped orientation policies for the owning native window or browser
-//! document. A pending hold is not an acknowledgement that the OS rotated.
+//! <!-- {=p_screen_orientationSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_screen_orientation` as a direct dependency and select
+//! the `screen-orientation` plugin in `native.plugins`; supported generated
+//! hosts discover it from Cargo metadata. Generated Windows, Linux, and
+//! terminal hosts currently omit runtime plugins; use explicit registration in
+//! a custom host there. Guests enable the `guest` feature and reuse
+//! `guest::ScreenOrientation` rather than resolving the plugin on every call. A
+//! pending hold is not an acknowledgement that the OS rotated; the snapshot
+//! reports the presented interface, not accelerometer orientation.
+//!
+//! <!-- {/p_screen_orientationSummary} -->
 
 use leptoskit_bridge::Bytes;
 use leptoskit_bridge::Error;

@@ -1,4 +1,10 @@
-//! The agents that report a running leptoskit app to the local `DevTools` hub.
+//! <!-- {=devtoolsSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Under `leptoskit dev`, the CLI starts the hub and these agents open
+//! sessions, mirror trees, and carry commands back. Hooks expose the route,
+//! named state, forms, and query caches that only the app knows.
+//!
+//! <!-- {/devtoolsSummary} -->
 //!
 //! Apps call [`install`] once at startup, behind their `devtools` feature:
 //!

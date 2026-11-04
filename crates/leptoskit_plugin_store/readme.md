@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_store"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_store"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_store.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_store"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_store/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -54,7 +58,11 @@ The wire protocol uses little-endian `u32` and length-prefixed UTF-8/JSON bytes.
 
 ## How it fits
 
-Add `leptoskit_plugin_store` as a direct dependency and select the `store` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::Store` rather than resolving the plugin on every call. Each application gets one store, values are JSON over a binary envelope, and guests cannot choose filesystem paths.
+<!-- {=p_storeSummary} -->
+
+Add `leptoskit_plugin_store` as a direct dependency and select the `store` plugin in `native.plugins`; supported generated hosts discover it from Cargo metadata. Generated Windows, Linux, and terminal hosts currently omit runtime plugins; use explicit registration in a custom host there. Guests enable the `guest` feature and reuse `guest::Store` rather than resolving the plugin on every call. Each application gets one store, values are JSON over a binary envelope, and guests cannot choose filesystem paths.
+
+<!-- {/p_storeSummary} -->
 
 ## Use it
 

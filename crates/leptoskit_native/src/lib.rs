@@ -1,4 +1,12 @@
-//! The leptoskit native renderer.
+//! <!-- {=nativeSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Every native backend implements `NativeBackend` and consumes the mutations
+//! this crate produces; the web build uses its optional `web` feature to render
+//! the same builders through leptos. App code normally reaches it through
+//! `leptoskit::prelude`, not as a direct dependency, so one screen works on
+//! every target.
+//!
+//! <!-- {/nativeSummary} -->
 //!
 //! A React Native-style renderer, fully rewritten in Rust: apps describe their
 //! interface as a tree of [`Element`]s, and the renderer turns successive

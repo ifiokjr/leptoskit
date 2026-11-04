@@ -1,4 +1,10 @@
-//! Typed file routes for leptoskit.
+//! <!-- {=routerSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! The CLI's `leptoskit routes` runs the codegen; `leptoskit_plugin_router`
+//! runs it before cargo; this crate is what app code imports. A route file is
+//! the only place a URL shape is declared, so links and parsing cannot drift.
+//!
+//! <!-- {/routerSummary} -->
 //!
 //! Routes are files. `leptoskit routes` reads `src/routes/` and writes
 //! `src/routes.rs`: a module for every route file, and one `Route` enum with a

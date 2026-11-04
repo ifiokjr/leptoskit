@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_devtools_protocol"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_devtools_protocol"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_devtools_protocol.svg"></a>
   <a href="https://docs.rs/leptoskit_devtools_protocol"><img alt="docs.rs" src="https://docs.rs/leptoskit_devtools_protocol/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -35,7 +39,11 @@ Every message carries [`PROTOCOL_VERSION`]. A hub refuses a session that speaks 
 
 ## How it fits
 
+<!-- {=devtools_protocolSummary} -->
+
 It has no platform code: the browser, native host, guest, and front end all speak the same protocol. A version mismatch is refused and both versions are named.
+
+<!-- {/devtools_protocolSummary} -->
 
 ## Use it
 

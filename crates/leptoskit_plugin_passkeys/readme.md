@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_passkeys"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_passkeys"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_passkeys.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_passkeys"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_passkeys/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -47,7 +51,11 @@ API references: [Expo AppleAuthentication](https://docs.expo.dev/versions/latest
 
 ## How it fits
 
-Add `leptoskit_plugin_passkeys` as a direct dependency and select the `passkeys` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::Passkeys` rather than resolving the plugin on every call. Apple platforms use `ASAuthorization` and Android uses Credential Manager; WebAuthn JSON crosses the bridge unchanged.
+<!-- {=p_passkeysSummary} -->
+
+Add `leptoskit_plugin_passkeys` as a direct dependency and select the `passkeys` plugin in `native.plugins`; supported generated hosts discover it from Cargo metadata. Generated Windows, Linux, and terminal hosts currently omit runtime plugins; use explicit registration in a custom host there. Guests enable the `guest` feature and reuse `guest::Passkeys` rather than resolving the plugin on every call. Apple platforms use `ASAuthorization` and Android uses Credential Manager; WebAuthn JSON crosses the bridge unchanged.
+
+<!-- {/p_passkeysSummary} -->
 
 ## Use it
 

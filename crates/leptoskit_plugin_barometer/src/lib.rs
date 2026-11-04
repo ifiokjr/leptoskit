@@ -1,6 +1,15 @@
-//! Demand-driven barometer readings with bounded native acquisition.
-//! See the crate readme for units, permission requirements, and platform
-//! limits.
+//! <!-- {=p_barometerSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_barometer` as a direct dependency and select the
+//! `barometer` plugin in `native.plugins`; supported generated hosts discover
+//! it from Cargo metadata. Generated Windows, Linux, and terminal hosts
+//! currently omit runtime plugins; use explicit registration in a custom host
+//! there. Guests enable the `guest` feature and reuse `guest::Barometer` rather
+//! than resolving the plugin on every call. iOS and Android use real pressure
+//! sensors, desktop has no sensor, and no relative altitude estimate is
+//! fabricated.
+//!
+//! <!-- {/p_barometerSummary} -->
 
 use leptoskit_bridge::Error;
 pub use leptoskit_sensor::AVAILABLE;

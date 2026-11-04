@@ -1,6 +1,10 @@
 # LeptosKit app
 
-One LeptosKit component tree manages hosted installations from the web and native iOS/Android clients. The accompanying `leptoskit-cloud` binary hosts accounts, Stripe billing, per-account deployment journals, encrypted OpenTofu state and the worker API. Customer code runs on a dedicated outbound worker, using the existing CLI engine.
+<!-- {=appSummary} -->
+
+One `LeptosKit` component tree manages hosted installations from the web and native iOS/Android clients. The accompanying `leptoskit-cloud` binary hosts accounts, Stripe billing, per-account deployment journals, encrypted `OpenTofu` state and the worker API. Customer code runs on a dedicated outbound worker, using the existing CLI engine.
+
+<!-- {/appSummary} -->
 
 This is an operator-enrolled pilot. Customer-owned infrastructure works through a paired worker, hosted by the customer or LeptosKit. Managed DigitalOcean capacity uses an operator-provisioned installation with a reviewed quote, dedicated credentials and a separate worker. Cloud usage is separate from the management subscription. Provider account vending, automated usage invoicing and public self-service signup are not implemented.
 

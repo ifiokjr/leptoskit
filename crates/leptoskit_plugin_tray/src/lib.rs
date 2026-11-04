@@ -1,6 +1,11 @@
-//! Host-owned desktop tray icons. Nothing installs a process callback or
-//! creates system UI until the native host explicitly calls
-//! [`TrayHost::install`].
+//! <!-- {=p_traySummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Native hosts construct it explicitly; it is not a guest plugin and installs
+//! nothing by default. The host calls `TrayHost::install` after its event loop
+//! starts and owns removal; Linux uses the GTK-free KSNI backend, and mobile
+//! and the browser have no tray.
+//!
+//! <!-- {/p_traySummary} -->
 //!
 //! Windows and macOS hosts must pump their native event loop; Linux uses a
 //! GTK-free `StatusNotifierItem` service over the session D-Bus. There is no

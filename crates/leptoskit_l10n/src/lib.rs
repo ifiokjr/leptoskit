@@ -1,4 +1,10 @@
-//! Typed translations for leptoskit, in the style of Flutter's `gen_l10n`.
+//! <!-- {=l10nSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Messages live in one ARB file per locale; `leptoskit l10n` writes the typed
+//! module, and app code calls getters instead of parsing ARB at runtime. It
+//! works in SSR, the browser, and native guests.
+//!
+//! <!-- {/l10nSummary} -->
 //!
 //! Messages live in one ARB file per locale (`locales/en.arb`,
 //! `locales/pt-BR.arb`), and `leptoskit l10n` writes `src/l10n.rs` from

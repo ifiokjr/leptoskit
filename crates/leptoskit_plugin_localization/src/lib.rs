@@ -1,6 +1,15 @@
-//! User locale and calendar preferences, sampled afresh for each request.
-//! No global locale is mutated. Re-query after the application resumes to pick
-//! up native settings changes; this crate does not yet publish change events.
+//! <!-- {=p_localizationSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_localization` as a direct dependency and select the
+//! `localization` plugin in `native.plugins`; supported generated hosts
+//! discover it from Cargo metadata. Generated Windows, Linux, and terminal
+//! hosts currently omit runtime plugins; use explicit registration in a custom
+//! host there. Guests enable the `guest` feature and reuse
+//! `guest::Localization` rather than resolving the plugin on every call. Each
+//! snapshot reflects current platform state, no global locale is mutated, and a
+//! host should re-query after the application resumes.
+//!
+//! <!-- {/p_localizationSummary} -->
 //!
 //! Binary v1: u32 version, u32 locale count, then each locale's tag/language/
 //! region as length-prefixed UTF-8. Calendar identifier and timezone follow as

@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_local_authentication"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_local_authentication"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_local_authentication.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_local_authentication"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_local_authentication/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -56,7 +60,11 @@ Tests cover malformed wire messages, credential-downgrade rejection, capability 
 
 ## How it fits
 
-Add `leptoskit_plugin_local_authentication` as a direct dependency and select the `local-authentication` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::LocalAuthentication` rather than resolving the plugin on every call. This is not account identity or server authorization; the plugin reports explicit terminal outcomes and never invents a success.
+<!-- {=p_local_authenticationSummary} -->
+
+Add `leptoskit_plugin_local_authentication` as a direct dependency and select the `local-authentication` plugin in `native.plugins`; supported generated hosts discover it from Cargo metadata. Generated Windows, Linux, and terminal hosts currently omit runtime plugins; use explicit registration in a custom host there. Guests enable the `guest` feature and reuse `guest::LocalAuthentication` rather than resolving the plugin on every call. This is not account identity or server authorization; the plugin reports explicit terminal outcomes and never invents a success.
+
+<!-- {/p_local_authenticationSummary} -->
 
 ## Use it
 

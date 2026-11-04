@@ -21,6 +21,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_native"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_native"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_native.svg"></a>
   <a href="https://docs.rs/leptoskit_native"><img alt="docs.rs" src="https://docs.rs/leptoskit_native/badge.svg"></a>
@@ -28,6 +30,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -68,7 +72,11 @@ See the [shared component guide](https://ifiokjr.github.io/leptoskit/guide/07-sh
 
 ## How it fits
 
+<!-- {=nativeSummary} -->
+
 Every native backend implements `NativeBackend` and consumes the mutations this crate produces; the web build uses its optional `web` feature to render the same builders through leptos. App code normally reaches it through `leptoskit::prelude`, not as a direct dependency, so one screen works on every target.
+
+<!-- {/nativeSummary} -->
 
 ## Use it
 

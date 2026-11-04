@@ -49,6 +49,7 @@
 		"**/*.{ts,tsx,js,jsx,cjs,mjs,json,jsonc,md,toml,Dockerfile,yml,yaml,css,sh,bash,sql}"
 	],
 	"excludes": [
+		"**/*.t.md",
 		"deno.lock",
 		"**/dist",
 		".devenv/**",

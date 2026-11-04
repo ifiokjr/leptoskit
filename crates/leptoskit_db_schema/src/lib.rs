@@ -1,5 +1,11 @@
-//! The schema model, snapshot format, diff, and SQL renderers behind
-//! leptoskit's generated database migrations.
+//! <!-- {=db_schemaSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! `leptoskit db` and the `leptoskit_db` runtime use it; apps never depend on
+//! it. It uses no database connection or files, and renders Postgres and SQLite
+//! SQL from the same plan, with each step's risk assessed against existing
+//! rows.
+//!
+//! <!-- {/db_schemaSummary} -->
 //!
 //! An app declares its tables as Rust structs. `leptoskit db` exports them as
 //! a [`Schema`], compares that with the snapshot committed beside the latest

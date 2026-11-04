@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_screen_orientation"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_screen_orientation"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_screen_orientation.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_screen_orientation"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_screen_orientation/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -59,7 +63,11 @@ All integers are little-endian u32. Method 0 takes no payload and returns orient
 
 ## How it fits
 
-Add `leptoskit_plugin_screen_orientation` as a direct dependency and select the `screen-orientation` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::ScreenOrientation` rather than resolving the plugin on every call. A pending hold is not an acknowledgement that the OS rotated; the snapshot reports the presented interface, not accelerometer orientation.
+<!-- {=p_screen_orientationSummary} -->
+
+Add `leptoskit_plugin_screen_orientation` as a direct dependency and select the `screen-orientation` plugin in `native.plugins`; supported generated hosts discover it from Cargo metadata. Generated Windows, Linux, and terminal hosts currently omit runtime plugins; use explicit registration in a custom host there. Guests enable the `guest` feature and reuse `guest::ScreenOrientation` rather than resolving the plugin on every call. A pending hold is not an acknowledgement that the OS rotated; the snapshot reports the presented interface, not accelerometer orientation.
+
+<!-- {/p_screen_orientationSummary} -->
 
 ## Use it
 

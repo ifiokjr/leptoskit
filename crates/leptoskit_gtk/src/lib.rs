@@ -1,4 +1,11 @@
-//! GTK4 widgets consuming the shared Yoga mutation stream.
+//! <!-- {=gtkSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Initialize GTK on the application thread, construct `GtkBackend`, and hand
+//! it to `NativeSurface`. `open_window` hosts a committed root and
+//! `run_application` drives the loop; GTK objects stay on their creating
+//! thread.
+//!
+//! <!-- {/gtkSummary} -->
 //!
 //! GTK objects stay on their creating thread. The backend is consequently
 //! neither `Send` nor `Sync`; its stateless Pango measurer can cross threads.

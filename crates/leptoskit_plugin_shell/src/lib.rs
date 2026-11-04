@@ -1,4 +1,14 @@
-//! Scoped desktop child processes with bounded capture and owned cancellation.
+//! <!-- {=p_shellSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Generated desktop hosts select `shell` in `native.plugins` with explicit
+//! command policies; guests enable `guest` and use `guest::ShellClient`. Custom
+//! hosts can construct and expose it explicitly. Generated Windows, Linux, and
+//! terminal hosts currently omit runtime plugins, so they require custom
+//! registration. macOS, Linux, and Windows run only absolute executables with
+//! fixed argument slots and an explicit environment; the host never accepts
+//! a shell command string from a guest.
+//!
+//! <!-- {/p_shellSummary} -->
 //!
 //! Commands are host-defined capabilities, never shell command strings. Native
 //! dispatch is asynchronous. The optional `async-host` adapter forwards bridge

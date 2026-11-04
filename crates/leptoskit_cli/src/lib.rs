@@ -1,4 +1,16 @@
-//! The leptoskit CLI implementation library.
+//! <!-- {=cliSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! `leptoskit verify build` builds a backend from a public Git commit in a
+//! container without network access, twice, and records a bundle, its
+//! inventory, and SLSA provenance; `leptoskit verify reproduce` lets anyone
+//! rebuild that bundle and compare the source, dependencies, and executable
+//! byte for byte. `verify record` and `verify check` inventory and check a
+//! bundle offline. None of them verifies a running backend. See [checking a backend bundle](https://ifiokjr.github.io/leptoskit/guide/30-verifying-releases.html). Every workflow starts
+//! here. The binary is a thin wrapper over the library, so the same code drives
+//! `leptoskit dev`, CI builds, native host preparation, and release checks.
+//! Generated projects call it by name; tooling calls the library directly.
+//!
+//! <!-- {/cliSummary} -->
 //!
 //! The binary is a thin wrapper over [`cli::run`]; everything lives here so
 //! tests can drive the command surface directly.

@@ -2,7 +2,7 @@
 
 The arena compares four ways of shipping one interface to many platforms: **leptoskit**, **React Native**, **Lynx**, and **Flutter**. They run the same workloads on iOS, Android, macOS, Windows, Linux, and the web. Each framework gets one app that drives itself through a fixed set of scenarios and reports the result in one shared format. The operating system, not the framework, decides how many frames reached the screen.
 
-There is no open, reproducible benchmark that compares React Native's New Architecture, Lynx, and Flutter, as of October 2026. Published comparisons have three recurring problems:
+The arena aims to make these comparisons reproducible within this repository. Its methodology addresses three common sources of misleading results:
 
 - They are run by a vendor, on one flagship phone per platform.
 - Their headline is average FPS.

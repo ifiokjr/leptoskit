@@ -1,6 +1,15 @@
-//! Bounded step-counter readings with explicit platform count domains.
-//! Android reports its cumulative boot counter while active. iOS reports steps
-//! for the requested observation/history interval. These are not daily totals.
+//! <!-- {=p_pedometerSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_pedometer` as a direct dependency and select the
+//! `pedometer` plugin in `native.plugins`; supported generated hosts discover
+//! it from Cargo metadata. Generated Windows, Linux, and terminal hosts
+//! currently omit runtime plugins; use explicit registration in a custom host
+//! there. Guests enable the `guest` feature and reuse `guest::Pedometer` rather
+//! than resolving the plugin on every call. iOS uses `CoreMotion` and
+//! Android uses its step counter; the app supplies the motion usage description
+//! or activity-recognition permission.
+//!
+//! <!-- {/p_pedometerSummary} -->
 use leptoskit_bridge::Error;
 use leptoskit_bridge::MethodId;
 pub use leptoskit_sensor::SensorError;

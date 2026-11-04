@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_document_picker"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_document_picker"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_document_picker.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_document_picker"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_document_picker/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -45,7 +49,11 @@ Windows and Linux desktop hosts can call `desktop::pick(&parent_window, options)
 
 ## How it fits
 
-Add `leptoskit_plugin_document_picker` as a direct dependency and select the `document-picker` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. The user picks the document; the app receives owned bytes under a size limit and never gets a reusable path into the document provider.
+<!-- {=p_document_pickerSummary} -->
+
+Add `leptoskit_plugin_document_picker` as a direct dependency and select the `document-picker` plugin in `native.plugins`; supported generated hosts discover it from Cargo metadata. Generated Windows, Linux, and terminal hosts currently omit runtime plugins; use explicit registration in a custom host there. The user picks the document; the app receives owned bytes under a size limit and never gets a reusable path into the document provider.
+
+<!-- {/p_document_pickerSummary} -->
 
 ## Use it
 

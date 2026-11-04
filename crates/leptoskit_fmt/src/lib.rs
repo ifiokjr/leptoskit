@@ -1,4 +1,10 @@
-//! The formatter behind `leptoskit format`.
+//! <!-- {=fmtSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! rustfmt leaves `view!` markup alone, so this fills the gap without a second
+//! Rust formatter. It runs in editor integrations, pre-commit, and CI, and
+//! agrees with the lint rules.
+//!
+//! <!-- {/fmtSummary} -->
 //!
 //! Rust is formatted by rustfmt, nightly by default, with the project's own
 //! `rustfmt.toml`. The markup inside `view!` macros, which rustfmt leaves

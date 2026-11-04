@@ -1,10 +1,16 @@
-//! The on-device wasm runtime host.
+//! <!-- {=wasmSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! This is what makes the shipped app a shell: the interface arrives as Wasm,
+//! renders through the same renderer, and can be replaced without a store
+//! update. The generated iOS, Android, macOS, Windows, and Linux hosts embed
+//! it.
+//!
+//! <!-- {/wasmSummary} -->
 //!
 //! This is the piece that makes code push work like React Native's: the app
 //! shipped through the store is a thin native shell, and the *interface* is a
 //! wasm module fetched over the air. The host runs that module in
-//! [`wasmi`] — a pure interpreter, so it is legal on iOS where JIT
-//! compilation is not — and drives a
+//! [`wasmi`] — a pure interpreter that needs no JIT compilation — and drives a
 //! [`NativeSurface`] through a versioned ABI.
 //!
 //! # The ABI
@@ -48,8 +54,9 @@
 //!   `leptoskit_query`'s `guest` feature exports it. Hosts and modules that
 //!   predate it skip it.
 //!
-//! Each entry point is fuel-metered, so a bad bundle cannot hang the device;
-//! running out surfaces as [`WasmError::OutOfFuel`].
+//! Each guest entry point is fuel-metered; exhausting the instruction budget
+//! surfaces as [`WasmError::OutOfFuel`]. Host calls and rendering have separate
+//! costs and are not a frame-time guarantee.
 //! Each host also permits one linear memory up to [`MAX_MEMORY_BYTES`] and
 //! two tables up to [`MAX_TABLE_ELEMENTS`] each. Oversized initial allocations
 //! and growth beyond those budgets trap with

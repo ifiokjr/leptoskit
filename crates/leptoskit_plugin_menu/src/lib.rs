@@ -1,4 +1,11 @@
-//! Native desktop menus with explicit host ownership.
+//! <!-- {=p_menuSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Native hosts construct it explicitly; it is not a guest plugin and installs
+//! nothing by default. The desktop host owns the menu and installs it on its
+//! own windows; definitions are validated before any native allocation, and
+//! mobile and the browser expose no menu.
+//!
+//! <!-- {/p_menuSummary} -->
 //!
 //! Definitions are bounded before native allocation. The desktop host owns the
 //! UI thread, event callback, and window; this crate never discovers a window

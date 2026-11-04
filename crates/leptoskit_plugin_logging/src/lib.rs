@@ -1,5 +1,14 @@
-//! Structured logging without a global logger or remote backend dependency.
-//! The binary guest protocol is bounded independently from JSON-lines output.
+//! <!-- {=p_loggingSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_logging` as a direct dependency and select the
+//! `logging` plugin in `native.plugins`; supported generated hosts discover it
+//! from Cargo metadata. Generated Windows, Linux, and terminal hosts currently
+//! omit runtime plugins; use explicit registration in a custom host there.
+//! There is no global logger or remote backend; the host chooses the log
+//! directory and limits, and the guest protocol stays bounded independently
+//! of JSON-lines output.
+//!
+//! <!-- {/p_loggingSummary} -->
 use std::collections::BTreeMap;
 
 use leptoskit_bridge::Bytes;

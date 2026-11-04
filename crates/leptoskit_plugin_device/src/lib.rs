@@ -1,4 +1,15 @@
-//! Device information without persistent identifiers or user-assigned names.
+//! <!-- {=p_deviceSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_device` as a direct dependency and select the `device`
+//! plugin in `native.plugins`; supported generated hosts discover it from Cargo
+//! metadata. Generated Windows, Linux, and terminal hosts currently omit
+//! runtime plugins; use explicit registration in a custom host there. Guests
+//! enable the `guest` feature and reuse `guest::Device` rather than resolving
+//! the plugin on every call. Native guests, Rust desktop hosts, and browsers
+//! each return a validated binary snapshot with the fields that platform can
+//! actually provide.
+//!
+//! <!-- {/p_deviceSummary} -->
 //!
 //! Wire version 1 consists of five little-endian u32 fields: version, device
 //! kind, simulator flag (unknown/no/yes = 0/1/2), memory low word, memory high

@@ -1,5 +1,10 @@
-//! Sign in with your app: an OAuth 2.1 and OpenID Connect provider for
-//! leptoskit apps.
+//! <!-- {=idpSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! It turns the accounts `leptoskit_auth` already manages into an identity
+//! provider, without a second user store. Authorization, consent, and token
+//! issuance stay in the app.
+//!
+//! <!-- {/idpSummary} -->
 //!
 //! Other apps, including other leptoskit apps, send people to your app to
 //! sign in, ask them for consent, and get tokens that call your `#[api]`

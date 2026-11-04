@@ -1,4 +1,9 @@
-//! The project rules behind `leptoskit lint`.
+//! <!-- {=lintSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! rustc and clippy check Rust; these rules check the conventions a leptoskit
+//! project relies on, with diagnostics that name the file, line, and fix.
+//!
+//! <!-- {/lintSummary} -->
 //!
 //! rustc and clippy check Rust; these rules check the conventions a
 //! leptoskit project adds on top, reading the `[lint]` table of the nearest

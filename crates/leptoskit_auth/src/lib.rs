@@ -1,4 +1,10 @@
-//! Sign-in for leptoskit apps.
+//! <!-- {=authSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! It owns the server-side session and the shared client, and uses the passkey
+//! and web-auth plugins for native sign-in. `leptoskit_idp` turns the same
+//! accounts into an OIDC provider.
+//!
+//! <!-- {/authSummary} -->
 //!
 //! - **The `auth` schema pack:** accounts, verified emails, sessions,
 //!   short-lived challenges, rate limits, and an audit trail, as tables in the

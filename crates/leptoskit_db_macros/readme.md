@@ -21,6 +21,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_db_macros"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_db_macros"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_db_macros.svg"></a>
   <a href="https://docs.rs/leptoskit_db_macros"><img alt="docs.rs" src="https://docs.rs/leptoskit_db_macros/badge.svg"></a>
@@ -28,6 +30,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -37,7 +41,11 @@ Apps use these through `leptoskit::db` (or `leptoskit_db`); see that crate for w
 
 ## How it fits
 
+<!-- {=db_macrosSummary} -->
+
 Apps use them through `leptoskit::db` or `leptoskit_db`; this crate is the macro implementation. Every mistake it can catch is a compile error that says what to write instead.
+
+<!-- {/db_macrosSummary} -->
 
 ## Use it
 

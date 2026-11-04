@@ -1,4 +1,14 @@
-//! External HTTP(S), email, phone and SMS links, without executing shell text.
+//! <!-- {=p_linkingSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_linking` as a direct dependency and select the
+//! `linking` plugin in `native.plugins`; supported generated hosts discover it
+//! from Cargo metadata. Generated Windows, Linux, and terminal hosts currently
+//! omit runtime plugins; use explicit registration in a custom host there.
+//! Guests enable the `guest` feature and reuse `guest::Linking` rather than
+//! resolving the plugin on every call. Incoming deep links need host lifecycle
+//! integration and are not handled by this crate.
+//!
+//! <!-- {/p_linkingSummary} -->
 //!
 //! Incoming deep links require host lifecycle integration and are not handled
 //! by this crate. Application-specific schemes and file URLs are intentionally

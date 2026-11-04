@@ -1,7 +1,14 @@
-//! Explicitly scoped HTTP clients with bounded request/response bodies, a total
-//! timeout, and cancellation by dropping the request future. Redirects are not
-//! followed: native callers receive the 3xx response, while browsers reject
-//! redirecting fetches because their target cannot be inspected safely first.
+//! <!-- {=p_httpSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_http` as a direct dependency and select the `http`
+//! plugin in `native.plugins`; supported generated hosts discover it from Cargo
+//! metadata. Generated Windows, Linux, and terminal hosts currently omit
+//! runtime plugins; use explicit registration in a custom host there. Native
+//! requests use reqwest with rustls and need a Tokio runtime; the browser uses
+//! fetch with incremental body reading. Redirects are not followed, and every
+//! destination origin is explicit.
+//!
+//! <!-- {/p_httpSummary} -->
 //!
 //! Native registrants enable `async-host` and install a scoped HTTP handler.
 //! Wasm apps enable `guest` and use the cached `guest::HttpClient`.

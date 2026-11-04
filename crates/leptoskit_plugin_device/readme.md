@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_device"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_device"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_device.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_device"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_device/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -48,7 +52,11 @@ This ports the basic information surface of [Expo Device](https://docs.expo.dev/
 
 ## How it fits
 
-Add `leptoskit_plugin_device` as a direct dependency and select the `device` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::Device` rather than resolving the plugin on every call. Native guests, Rust desktop hosts, and browsers each return a validated binary snapshot with the fields that platform can actually provide.
+<!-- {=p_deviceSummary} -->
+
+Add `leptoskit_plugin_device` as a direct dependency and select the `device` plugin in `native.plugins`; supported generated hosts discover it from Cargo metadata. Generated Windows, Linux, and terminal hosts currently omit runtime plugins; use explicit registration in a custom host there. Guests enable the `guest` feature and reuse `guest::Device` rather than resolving the plugin on every call. Native guests, Rust desktop hosts, and browsers each return a validated binary snapshot with the fields that platform can actually provide.
+
+<!-- {/p_deviceSummary} -->
 
 ## Use it
 

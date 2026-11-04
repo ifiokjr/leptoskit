@@ -57,6 +57,7 @@ in
       sql-formatter
       taplo
       unzip
+      xpkgs.mdt
       xpkgs.monochange
       xpkgs.monostyle
       zip
@@ -851,6 +852,7 @@ in
         # Addressed absolutely: the pre-commit hook runs this outside
         # `devenv shell`, where the profile bin dir is not on PATH.
         ${currentDir}/.devenv/profile/bin/leptoskit:format
+        ${currentDir}/.devenv/profile/bin/docs:update
         dprint fmt --config "$repo_root/dprint.json"
       '';
       description = "Format Rust with leptoskit_fmt and everything else with dprint.";
@@ -882,6 +884,7 @@ in
         run_step "lint:clippy:wasm" lint:clippy:wasm
         run_step "lint:monostyle" lint:monostyle
         run_step "lint:leptoskit" lint:leptoskit
+        run_step "lint:docs" lint:docs
         run_step "lint:format" lint:format
         run_step "lint:kotlin" lint:kotlin
         run_step "lint:releases" lint:releases
@@ -908,6 +911,7 @@ in
         run_step "lint:clippy" ${currentDir}/.devenv/profile/bin/lint:clippy
         run_step "lint:monostyle" ${currentDir}/.devenv/profile/bin/lint:monostyle
         run_step "lint:leptoskit" ${currentDir}/.devenv/profile/bin/lint:leptoskit
+        run_step "lint:docs" ${currentDir}/.devenv/profile/bin/lint:docs
         run_step "lint:format" ${currentDir}/.devenv/profile/bin/lint:format
         run_step "lint:kotlin" ${currentDir}/.devenv/profile/bin/lint:kotlin
         run_step "test:cargo" ${currentDir}/.devenv/profile/bin/test:cargo
@@ -1136,6 +1140,24 @@ in
         cargo run --release --package leptoskit_bridge --example roundtrip
       '';
       description = "Measure binary transport roundtrips, excluding native operations and scheduling.";
+      binary = "bash";
+    };
+    "docs:update" = {
+      exec = ''
+        set -euo pipefail
+        cd "$(git rev-parse --show-toplevel)"
+        mdt update
+      '';
+      description = "Sync README and Rust documentation from MDT templates.";
+      binary = "bash";
+    };
+    "lint:docs" = {
+      exec = ''
+        set -euo pipefail
+        cd "$(git rev-parse --show-toplevel)"
+        mdt check
+      '';
+      description = "Reject drift between MDT templates and documentation.";
       binary = "bash";
     };
     "lint:format" = {

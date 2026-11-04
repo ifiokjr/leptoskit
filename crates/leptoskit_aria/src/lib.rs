@@ -1,4 +1,11 @@
-//! Headless accessible components for the shared leptoskit element tree.
+//! <!-- {=ariaSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! It owns behavior, not pixels: app code styles the pieces with Tailwind and
+//! gets shared focus, keyboard, and ARIA metadata. Platform renderers determine
+//! which semantics reach assistive technology. `leptoskit_form` builds its
+//! fields on top of it.
+//!
+//! <!-- {/ariaSummary} -->
 //!
 //! The [declarative ARIA model](leptoskit_native::aria) gives every element
 //! roles, states, relationships, and live regions, and every backend maps them

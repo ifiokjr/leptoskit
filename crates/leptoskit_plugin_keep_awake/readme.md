@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_keep_awake"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_keep_awake"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_keep_awake.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_keep_awake"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_keep_awake/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -45,7 +49,11 @@ References: [Expo KeepAwake](https://docs.expo.dev/versions/latest/sdk/keep-awak
 
 ## How it fits
 
-Add `leptoskit_plugin_keep_awake` as a direct dependency and select the `keep-awake` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::KeepAwake` rather than resolving the plugin on every call. iOS preserves and restores the idle timer, Android uses the activity's keep-screen-on flag, desktop uses OS assertions, and the browser uses the Screen Wake Lock API; none of them promise background execution.
+<!-- {=p_keep_awakeSummary} -->
+
+Add `leptoskit_plugin_keep_awake` as a direct dependency and select the `keep-awake` plugin in `native.plugins`; supported generated hosts discover it from Cargo metadata. Generated Windows, Linux, and terminal hosts currently omit runtime plugins; use explicit registration in a custom host there. Guests enable the `guest` feature and reuse `guest::KeepAwake` rather than resolving the plugin on every call. iOS preserves and restores the idle timer, Android uses the activity's keep-screen-on flag, desktop uses OS assertions, and the browser uses the Screen Wake Lock API; none of them promise background execution.
+
+<!-- {/p_keep_awakeSummary} -->
 
 ## Use it
 

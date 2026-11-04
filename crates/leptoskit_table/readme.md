@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_table"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_table"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_table.svg"></a>
   <a href="https://docs.rs/leptoskit_table"><img alt="docs.rs" src="https://docs.rs/leptoskit_table/badge.svg"></a>
@@ -25,11 +27,13 @@
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
 
+<!-- {/crateBadges} -->
+
 <br>
 
 ## Overview
 
-Headless tables for the leptoskit element tree, ported from [TanStack Table](https://tanstack.com/table) at its core: typed `Column`s describe how a row's cells read, sort, and filter; `TableState` holds what the screen did to the rows; pure reducers (`for_header_press`, `for_filter`, `for_page`) propose the next state; and `DataTable` renders the whole grid — header buttons, `aria-sort`, cells, a filter field, pagination, in words `TableLabels` lets you translate — as ARIA roles over the shared tree.
+Headless tables for the leptoskit element tree, ported from [TanStack Table](https://tanstack.com/table) at its core: typed `Column`s describe how a row's cells read, sort, and filter; `TableState` holds what the screen did to the rows; pure reducers (`for_header_press`, `for_filter`, `for_page`) propose the next state; and `DataTable` renders the whole grid — header buttons, `aria-sort`, cells, a filter field, pagination, in words `TableLabels` lets you translate — as ARIA roles over the shared tree. Generated Apple and Android hosts do not yet forward most roles and states to assistive technology.
 
 ## Columns
 
@@ -45,7 +49,11 @@ Use the crate directly or enable `leptoskit`'s `table` feature and import `lepto
 
 ## How it fits
 
+<!-- {=tableSummary} -->
+
 It computes the model; the app renders rows with leptoskit components and keeps the same behavior on web and native. It pairs with `leptoskit_virtual` for long lists.
+
+<!-- {/tableSummary} -->
 
 ## Use it
 

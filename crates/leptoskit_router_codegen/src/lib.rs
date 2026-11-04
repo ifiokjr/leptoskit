@@ -1,4 +1,10 @@
-//! Reads a leptoskit routes directory and writes its typed `routes.rs`.
+//! <!-- {=router_codegenSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! The `leptoskit routes` command and the CLI's build pipeline use it; apps
+//! never depend on it. It reports every problem with its file and line, and
+//! never overwrites a file leptoskit did not write.
+//!
+//! <!-- {/router_codegenSummary} -->
 //!
 //! The `leptoskit routes` command and the build pipeline call this crate; apps
 //! never depend on it. Names in the directory are URLs, and items in each file

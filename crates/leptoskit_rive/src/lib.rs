@@ -1,4 +1,10 @@
-//! Reuse app-owned Rive assets without implicit network access.
+//! <!-- {=riveSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! The shared `Rive` component uses it on every backend that supports vector
+//! playback; the runtime crate pins the offline C++ build behind it. Apps bring
+//! their own assets and keep playback out of the network path.
+//!
+//! <!-- {/riveSummary} -->
 //!
 //! [`Asset`] performs bounded header checks, not full file validation or
 //! authentication. Only load files you trust: Rive's upstream parser decodes

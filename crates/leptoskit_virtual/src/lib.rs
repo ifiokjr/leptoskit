@@ -1,4 +1,10 @@
-//! Headless list virtualization for the shared leptoskit element tree.
+//! <!-- {=virtualSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! It decides which items a viewport intersects so a long list only builds the
+//! visible rows, on web and native alike. Infinite queries and tables use the
+//! same model.
+//!
+//! <!-- {/virtualSummary} -->
 //!
 //! This is `TanStack Virtual`'s model, ported to leptoskit: a
 //! [`Virtualizer`] holds the windowing math over a count, a size estimate

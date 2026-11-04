@@ -1,6 +1,12 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-//! Browser extensions for leptoskit apps.
+//! <!-- {=extensionSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Apps enable the `extension` feature, name entry points with `entry!`, and
+//! build with `--platform extension`. APIs return `Unavailable` instead of
+//! throwing, and listeners are removed when their handle drops.
+//!
+//! <!-- {/extensionSummary} -->
 //!
 //! An extension is the app's own routes in a few new places: the toolbar
 //! popup, the side panel, the options page, the new tab page, a panel in the

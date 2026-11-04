@@ -1,4 +1,13 @@
-//! Platform information about the executing host.
+//! <!-- {=p_osSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_os` as a direct dependency and select the `os` plugin
+//! in `native.plugins`; supported generated hosts discover it from Cargo
+//! metadata. Generated Windows, Linux, and terminal hosts currently omit
+//! runtime plugins; use explicit registration in a custom host there. The
+//! values come from compile-time constants of the host build, so the guest sees
+//! the real platform even though its own target is wasm32.
+//!
+//! <!-- {/p_osSummary} -->
 //!
 //! Register this on the native side to report the actual OS to an interpreted
 //! guest. Direct calls in a browser correctly report `web` and `wasm32`;

@@ -1,5 +1,12 @@
-//! The leptoskit toolkit: one dependency for building, deploying, and
-//! shipping leptos apps to the web and to native platforms.
+//! <!-- {=kitSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Start here. A web build enables `web` and renders through leptos; a native
+//! build enables a platform backend and commits the same tree as real widgets.
+//! Features add routing, queries, forms, localization, database, auth,
+//! extensions, and `DevTools` only when the app asks for them, so the meta
+//! crate stays a front door rather than a bundle of everything.
+//!
+//! <!-- {/kitSummary} -->
 //!
 //! Each layer is its own crate, re-exported here so apps depend on
 //! `leptoskit` alone:

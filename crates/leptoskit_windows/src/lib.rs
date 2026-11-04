@@ -1,4 +1,11 @@
-//! Windows rendering for leptoskit's platform-neutral primitive tree.
+//! <!-- {=windowsSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! The backend owns its HWNDs on one UI thread and consumes the existing Yoga
+//! mutation stream; it never embeds a browser or creates a second layout tree.
+//! The executable includes the provided manifest for version 6 common controls
+//! and layered-window support.
+//!
+//! <!-- {/windowsSummary} -->
 //!
 //! Each element owns a Win32 child window. Interactive elements additionally
 //! own a standard Windows control, preserving native keyboard and accessibility

@@ -1,4 +1,11 @@
-//! The terminal backend: the same shared tree, drawn in a cell grid.
+//! <!-- {=tuiSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Every cell is 8×16 logical pixels, so Yoga layout, Tailwind spacing, and
+//! text measurement land on the monospace grid. `leptoskit dev/build --platform
+//! tui` drives it, and `examples/opencode` is a full coding-agent interface
+//! built with it.
+//!
+//! <!-- {/tuiSummary} -->
 //!
 //! Apps describe their interface once, as [`Element`] trees with Tailwind
 //! classes, and every platform commits that tree through a

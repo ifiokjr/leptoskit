@@ -122,3 +122,11 @@ Releases go through [monochange](https://crates.io/crates/monochange) changesets
 4. The merge pushes the tag, drafts the GitHub release, and dispatches the `publish` workflow. That workflow publishes every crate to crates.io in dependency order.
 
 Every published crate releases together as one version group under a single tag.
+
+## Shared documentation
+
+Crate summaries in `.templates/crates.t.md` feed both each crate's README and its opening Rust doc comment. `.templates/native-hosts.t.md` owns the limits of generated native hosts; `.templates/badges.t.md` reads the MSRV from `Cargo.toml`. Edit the provider rather than a generated consumer.
+
+Run `devenv shell docs:update` after changing templates or their Cargo data, then `devenv shell lint:docs`. The latter runs `mdt check` and is part of `lint:all` and the pre-push checks. `fix:format` also synchronizes templates. MDT runs dprint on Markdown consumers; provider files are excluded from dprint so formatting cannot rewrite template syntax. Rust consumers use MDT's `linePrefix` transformer to retain doc-comment prefixes.
+
+For a new shared fact, add a named provider to a `*.t.md` file and consumers where that fact is repeated. Keep API-specific item docs next to their code. Do not infer platform support from a shared API: check runtime metadata, registration paths, and the renderer actually used by generated apps.

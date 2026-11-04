@@ -20,7 +20,11 @@ macOS and iOS apps build on a Mac, the Windows app on Windows, and the Linux app
 
 leptoskit draws native widgets in two places, and today they don't cover the same components.
 
-**The apps `leptoskit new` generates** run your screens as WebAssembly, which is what lets [code push](../guide/05-code-push.md) update them. On Windows and Linux they use leptoskit's full Win32 and GTK backends, so every component works. On macOS, iOS, and Android they use a smaller Swift or Kotlin renderer that draws ten components: `View`, `Text`, `Button`, `Pressable`, `TextInput`, `PasswordInput`, `ScrollView`, `Image`, `Vector`, and `Rive`. Any other component, such as `Switch`, `Checkbox`, `Radio`, `Slider`, `LinearProgressIndicator`, or `ActivityIndicator`, stops the app with an "unsupported widget" error. They pass on accessible names (`aria_label`), and Rive's decorative hidden state; a labelled `Vector` is announced as an image. Other roles and states are not passed on.
+<!-- {=generatedHostLimits} -->
+
+Generated macOS, iOS, and Android apps use the Swift or Kotlin renderers in `leptoskit_bridge_ffi`. They support `View`, `Text`, `Button`, `Pressable`, `TextInput`, `PasswordInput`, `ScrollView`, `Image`, `Vector`, and `Rive`. Other control kinds fail with an unsupported-widget error. Accessible names are forwarded; a labelled `Vector` is an accessible image and `Rive` can be decorative. Most other roles and states are not forwarded. The Rust backend crates support a wider control set. Generated Windows and Linux apps use the full Rust backends, but currently omit runtime plugin registration. Automatic code push update checks currently run only in generated iOS and Android hosts.
+
+<!-- {/generatedHostLimits} -->
 
 **The backend crates**, `leptoskit_appkit`, `leptoskit_uikit`, `leptoskit_android`, `leptoskit_gtk`, and `leptoskit_windows`, draw every built-in component. They are what the screenshots on this site, the [examples](../examples.md), and leptoskit's own widget tests use. You use them directly when you put a `NativeSurface` in your own native Rust app, for example with `UIKitHost` on iOS. Your screens are then compiled into the app rather than run as WebAssembly, so code push doesn't apply.
 
@@ -59,7 +63,7 @@ platform backend: AppKit, UIKit, Android views, GTK 4, Win32, or ArkUI
 the platform's real widgets
 ```
 
-Your screens run as WebAssembly inside a small interpreter that ships in the app. That is what lets [code push](../guide/05-code-push.md) replace them without an app store release: the interpreter, the renderer, and the widgets stay in the installed app, and only the WebAssembly changes. The interpreter is `wasmi`, which does not generate machine code, so it is allowed on iOS.
+Your screens run as WebAssembly inside a small interpreter that ships in the app. That is what lets [code push](../guide/05-code-push.md) replace them without an app store release: the interpreter, the renderer, and the widgets stay in the installed app, and only the WebAssembly changes. The interpreter is `wasmi`, which does not generate machine code at runtime. Distributing an interpreter or an interface update still requires compliance with the target store’s policies.
 
 ## Pages in this section
 

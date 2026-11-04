@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_shell"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_shell"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_shell.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_shell"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_shell/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -59,7 +63,11 @@ References: [Tauri shell scopes](https://v2.tauri.app/plugin/shell/), [Electron 
 
 ## How it fits
 
-Native hosts construct it explicitly; it is not a guest plugin and installs nothing by default. macOS, Linux, and Windows run only absolute executables with fixed argument slots and an explicit environment; the host never accepts a shell command string from a guest.
+<!-- {=p_shellSummary} -->
+
+Generated desktop hosts select `shell` in `native.plugins` with explicit command policies; guests enable `guest` and use `guest::ShellClient`. Custom hosts can construct and expose it explicitly. Generated Windows, Linux, and terminal hosts currently omit runtime plugins, so they require custom registration. macOS, Linux, and Windows run only absolute executables with fixed argument slots and an explicit environment; the host never accepts a shell command string from a guest.
+
+<!-- {/p_shellSummary} -->
 
 ## Use it
 

@@ -1,4 +1,13 @@
-//! Imports one user-selected document as bounded owned bytes.
+//! <!-- {=p_document_pickerSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_document_picker` as a direct dependency and select the
+//! `document-picker` plugin in `native.plugins`; supported generated hosts
+//! discover it from Cargo metadata. Generated Windows, Linux, and terminal
+//! hosts currently omit runtime plugins; use explicit registration in a custom
+//! host there. The user picks the document; the app receives owned bytes under
+//! a size limit and never gets a reusable path into the document provider.
+//!
+//! <!-- {/p_document_pickerSummary} -->
 //!
 //! Native hosts install the Swift/Kotlin adapter with their owning presenter.
 //! The guest receives no filesystem path, persistent URI grant, or bookmark.

@@ -1,5 +1,10 @@
-//! The bridge plugin that carries a native guest's `DevTools` data to its
-//! host.
+//! <!-- {=p_devtoolsSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Apps never select it. The shared runtime installs it in `leptoskit dev`
+//! builds, and the host merges the guest's route, state, forms, and queries
+//! into the session it reports.
+//!
+//! <!-- {/p_devtoolsSummary} -->
 //!
 //! A native app's host reports the element tree to the hub itself, but only
 //! the guest knows its route, queries, forms, and named state. The guest's

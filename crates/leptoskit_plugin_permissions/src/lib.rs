@@ -1,4 +1,16 @@
-//! Explicit camera and microphone permission status and requests.
+//! <!-- {=p_permissionsSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_permissions` as a direct dependency and select the
+//! `permissions` plugin in `native.plugins`; supported generated hosts discover
+//! it from Cargo metadata. Generated Windows, Linux, and terminal hosts
+//! currently omit runtime plugins; use explicit registration in a custom host
+//! there. Guests enable the `guest` feature and reuse `guest::Permissions`
+//! rather than resolving the plugin on every call. Querying status never
+//! shows a prompt; request only after the user chooses, and use the dedicated
+//! location, notification, and photo APIs for permissions with different OS
+//! flows.
+//!
+//! <!-- {/p_permissionsSummary} -->
 //!
 //! Querying status never displays a prompt. Request only after the user chooses
 //! a feature requiring access. Platform permission and hardware availability

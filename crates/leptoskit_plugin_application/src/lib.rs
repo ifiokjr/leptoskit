@@ -1,6 +1,16 @@
-//! Installed app identity. Native hosts read the actual running bundle/package;
-//! Rust hosts supply their own packaged identity explicitly. No device IDs,
-//! install referrers, or distribution-channel guesses are collected.
+//! <!-- {=p_applicationSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_application` as a direct dependency and select the
+//! `application` plugin in `native.plugins`; supported generated hosts discover
+//! it from Cargo metadata. Generated Windows, Linux, and terminal hosts
+//! currently omit runtime plugins; use explicit registration in a custom host
+//! there. Guests enable the `guest` feature and reuse `guest::Application`
+//! rather than resolving the plugin on every call. Apple reads `Bundle.main`,
+//! Android reads the running package record, and a Rust desktop host supplies
+//! its own packaging metadata; browsers have no equivalent installed-app
+//! identity.
+//!
+//! <!-- {/p_applicationSummary} -->
 //!
 //! Binary snapshot: version u32 (1), then four length-prefixed UTF-8 fields
 //! (application ID, name, version, build). Empty fields mean unknown. Each

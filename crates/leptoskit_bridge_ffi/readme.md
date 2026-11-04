@@ -21,6 +21,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_bridge_ffi"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_bridge_ffi"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_bridge_ffi.svg"></a>
   <a href="https://docs.rs/leptoskit_bridge_ffi"><img alt="docs.rs" src="https://docs.rs/leptoskit_bridge_ffi/badge.svg"></a>
@@ -28,6 +30,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -95,9 +99,21 @@ The `native_roundtrip` benchmark measures the transport only. It excludes initia
 - The `app` feature builds the AppKit backend on macOS and the UIKit backend on iOS only; on Android the Kotlin renderer in `mobile/` draws the tree instead.
 - HarmonyOS is experimental: the `harmonyos` workflow builds `harmonyos/bridge.cpp` into the app with the public SDK, but nothing runs on a device or emulator.
 
+## Generated host limits
+
+<!-- {=generatedHostLimits} -->
+
+Generated macOS, iOS, and Android apps use the Swift or Kotlin renderers in `leptoskit_bridge_ffi`. They support `View`, `Text`, `Button`, `Pressable`, `TextInput`, `PasswordInput`, `ScrollView`, `Image`, `Vector`, and `Rive`. Other control kinds fail with an unsupported-widget error. Accessible names are forwarded; a labelled `Vector` is an accessible image and `Rive` can be decorative. Most other roles and states are not forwarded. The Rust backend crates support a wider control set. Generated Windows and Linux apps use the full Rust backends, but currently omit runtime plugin registration. Automatic code push update checks currently run only in generated iOS and Android hosts.
+
+<!-- {/generatedHostLimits} -->
+
 ## How it fits
 
+<!-- {=bridge_ffiSummary} -->
+
 Generated macOS, iOS, Android, and HarmonyOS shells link against it; the Rust backends are used by tests and by hosts that embed leptoskit directly. It is the boundary between the platform's UI thread and the guest.
+
+<!-- {/bridge_ffiSummary} -->
 
 ## Use it
 

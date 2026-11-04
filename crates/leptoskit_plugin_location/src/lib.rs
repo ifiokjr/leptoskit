@@ -1,6 +1,15 @@
-//! Foreground location permission and bounded, cancellable acquisition.
-//! Native reads never prompt. Call the separate permission request from an
-//! intentional user action. No background tracking or geofence registration.
+//! <!-- {=p_locationSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_location` as a direct dependency and select the
+//! `location` plugin in `native.plugins`; supported generated hosts discover it
+//! from Cargo metadata. Generated Windows, Linux, and terminal hosts currently
+//! omit runtime plugins; use explicit registration in a custom host there.
+//! Guests enable the `guest` feature and reuse `guest::Location` rather than
+//! resolving the plugin on every call. Native reads never prompt; request
+//! permission as a separate, intentional action, and the app supplies its usage
+//! description and manifest permissions.
+//!
+//! <!-- {/p_locationSummary} -->
 
 use leptoskit_bridge::Error;
 use leptoskit_bridge::MethodId;
