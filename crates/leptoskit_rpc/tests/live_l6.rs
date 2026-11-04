@@ -1135,6 +1135,83 @@ async fn tick(ticks: &mut rpc::client::LiveStream) -> u32 {
 	}
 }
 
+/// Draining tells each open stream it was interrupted, then the client to
+/// come back, so a resumable stream picks up where it was on another server.
+#[tokio::test(flavor = "multi_thread")]
+async fn draining_interrupts_open_streams() {
+	let db = leptoskit_db::testing::sqlite().await;
+	let live = Live::new(db.clone()).identify(Header);
+	let app = live.clone().router::<()>();
+	let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+	let url = format!("ws://{}/live", listener.local_addr().unwrap());
+	let task = tokio::spawn(async move {
+		axum::serve(listener, app).await.unwrap();
+	});
+	let server = Server {
+		db,
+		app: live.clone().router::<()>(),
+		url,
+		task,
+	};
+	let mut socket = connect(&server).await;
+
+	let run = run_name("drained");
+	send(
+		&mut socket,
+		open(1, "l6_ticks", json!({ "run": run }), 1_000),
+	)
+	.await;
+	assert_eq!(
+		item(&next(&mut socket).await).map(|(stream, _)| stream),
+		Some(1)
+	);
+
+	live.drain();
+	let mut interrupted = false;
+	loop {
+		let frame = next(&mut socket).await;
+
+		if let Some((stream, reason)) = end(&frame) {
+			assert_eq!((stream, reason), (1, EndReason::Interrupted));
+			interrupted = true;
+		} else if let ServerFrame::Reconnect { after_ms } = frame {
+			assert!(
+				interrupted,
+				"the stream ends before the client is sent away"
+			);
+			assert!((250..2_250).contains(&after_ms), "{after_ms}");
+			break;
+		} else {
+			assert_eq!(item(&frame).map(|(stream, _)| stream), Some(1), "{frame:?}");
+		}
+	}
+}
+
+/// A connection holds at most 64 streams; reopening an id replaces its
+/// stream rather than counting twice.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connection_holds_a_bounded_number_of_streams() {
+	let server = serve(leptoskit_db::testing::sqlite().await).await;
+	let mut socket = connect(&server).await;
+	let run = run_name("bounded");
+
+	for stream in 1..=64 {
+		send(
+			&mut socket,
+			open(stream, "l6_ticks", json!({ "run": run }), 0),
+		)
+		.await;
+	}
+	send(&mut socket, open(64, "l6_ticks", json!({ "run": run }), 0)).await;
+	send(&mut socket, open(65, "l6_ticks", json!({ "run": run }), 0)).await;
+
+	let frame = next(&mut socket).await;
+	let Some((65, EndReason::Failed(error))) = end(&frame) else {
+		panic!("the 65th stream is refused: {frame:?}");
+	};
+	assert_eq!(error.message, "a connection may hold 64 streams open");
+}
+
 macro_rules! on_sqlite {
 	($($name:ident),* $(,)?) => {
 		mod sqlite {

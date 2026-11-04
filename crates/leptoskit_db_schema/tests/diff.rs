@@ -1639,3 +1639,92 @@ fn vector_indexes_and_sources_are_recreated_only_when_what_they_read_changes() {
 		]
 	);
 }
+
+/// Every problem `schema.validate()` reports, in words.
+fn problems(schema: &Schema) -> Vec<String> {
+	let SchemaError::Invalid(problems) = schema.validate().unwrap_err() else {
+		panic!("the schema should be invalid");
+	};
+	problems.iter().map(ToString::to_string).collect()
+}
+
+fn assert_reports(messages: &[String], expected: &[&str]) {
+	for expected in expected {
+		assert!(
+			messages.iter().any(|message| message == expected),
+			"{expected}\n{messages:#?}"
+		);
+	}
+}
+
+#[test]
+fn a_partitioned_table_keeps_its_partition_column_in_every_key() {
+	let mut schema = blog(Dialect::Postgres);
+	let users = table_mut(&mut schema, "users");
+	users.partition = Some(Partitioning::range("created_at"));
+
+	assert_reports(
+		&problems(&schema),
+		&[
+			"users: the primary key must include `created_at`, which the partitions cover",
+			"users: unique index `users_handle_key` must include `created_at`, which the \
+			 partitions cover",
+		],
+	);
+
+	let users = table_mut(&mut schema, "users");
+	users.partition = Some(Partitioning::range("joined_at"));
+	assert_reports(
+		&problems(&schema),
+		&["users: `the partitioning` names `joined_at`, which isn't a column"],
+	);
+
+	let mut sqlite = blog(Dialect::Sqlite);
+	table_mut(&mut sqlite, "users").partition = Some(Partitioning::range("id"));
+	assert_reports(
+		&problems(&sqlite),
+		&["users: only Postgres partitions tables"],
+	);
+}
+
+#[test]
+fn publications_name_tables_and_columns_of_the_schema() {
+	let published = |table: &str, key: &[&str], columns: &[&str]| {
+		PublishedTable {
+			table: TableName::new(table),
+			key: key.iter().map(|column| (*column).to_owned()).collect(),
+			columns: columns.iter().map(|column| (*column).to_owned()).collect(),
+		}
+	};
+	let mut schema = blog(Dialect::Postgres);
+	schema.publications = vec![
+		Publication::new(
+			"feed",
+			vec![
+				published("posts", &["id"], &["title", "headline"]),
+				published("drafts", &["id"], &[]),
+			],
+		),
+		Publication::new("feed", vec![published("users", &["uuid"], &["handle"])]),
+	];
+
+	assert_reports(
+		&problems(&schema),
+		&[
+			"publication feed: `feed` names `headline`, which isn't a column",
+			"publication feed: publishes `drafts`, which isn't a table",
+			"publication feed: the publication is declared twice",
+			"publication feed: `feed` names `uuid`, which isn't a column",
+		],
+	);
+
+	let mut sqlite = blog(Dialect::Sqlite);
+	sqlite.publications = vec![Publication::new(
+		"feed",
+		vec![published("posts", &["id"], &["title"])],
+	)];
+	assert_reports(
+		&problems(&sqlite),
+		&["publication feed: SQLite has no publications"],
+	);
+}

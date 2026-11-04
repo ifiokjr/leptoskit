@@ -31,9 +31,7 @@ fn unavailable(path: &str) -> Error {
 }
 
 #[test]
-fn every_call_names_the_browser_api_it_needs() {
-	let origins = vec!["https://example.org/*".to_owned()];
-
+fn the_toolbar_alarms_shortcuts_and_menus_name_their_apis() {
 	assert_eq!(
 		block_on(action::set_badge("3", Some(7))),
 		Err(unavailable("action.setBadgeText"))
@@ -90,6 +88,11 @@ fn every_call_names_the_browser_api_it_needs() {
 		block_on(context_menus::remove_all()),
 		Err(unavailable("contextMenus.removeAll"))
 	);
+}
+
+#[test]
+fn notifications_permissions_and_the_runtime_name_their_apis() {
+	let origins = vec!["https://example.org/*".to_owned()];
 
 	// The icon's address is looked up first, and its absence doesn't stop
 	// the notification: only the notification's own API does.
@@ -128,6 +131,11 @@ fn every_call_names_the_browser_api_it_needs() {
 		block_on(runtime::reload()),
 		Err(unavailable("runtime.reload"))
 	);
+}
+
+#[test]
+fn scripts_and_tabs_name_their_apis() {
+	let origins = vec!["https://example.org/*".to_owned()];
 
 	assert_eq!(
 		block_on(scripting::inject(4, "clipper")),

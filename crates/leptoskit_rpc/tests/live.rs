@@ -500,3 +500,117 @@ async fn a_socket_that_sends_faster_than_the_server_serves_is_closed() {
 		))
 	);
 }
+
+/// The error a `done` frame for `request` carries.
+async fn refused(socket: &mut Socket, request: u32) -> String {
+	match next(socket).await {
+		ServerFrame::Done {
+			request: answered,
+			ok: None,
+			err: Some(error),
+			..
+		} if answered == request => error.message,
+		other => panic!("expected request {request} refused, got {other:?}"),
+	}
+}
+
+/// Pings, and waits for the pong: the socket is still open, and every
+/// earlier frame was answered or ignored.
+async fn still_open(socket: &mut Socket) {
+	send(socket, ClientFrame::Ping).await;
+	assert_eq!(next(socket).await, ServerFrame::Pong);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn frames_the_server_cannot_serve_are_answered_and_the_socket_stays_open() {
+	let (_db, url, _live, server) = start().await;
+	let (mut socket, _) = connect_async(&url).await.unwrap();
+	let _ = next(&mut socket).await;
+
+	socket.send(Message::Text("not json".into())).await.unwrap();
+	let error = refused(&mut socket, 0).await;
+	assert!(error.starts_with("the frame doesn't parse"), "{error}");
+
+	// A frame from a newer client is ignored rather than refused.
+	socket
+		.send(Message::Text(r#"{"type":"from_the_future"}"#.into()))
+		.await
+		.unwrap();
+	still_open(&mut socket).await;
+
+	send(
+		&mut socket,
+		ClientFrame::Mutate {
+			request: 1,
+			name: "add_live_nothing".into(),
+			args: json!({}),
+			key: None,
+		},
+	)
+	.await;
+	assert_eq!(
+		refused(&mut socket, 1).await,
+		"no operation is named `add_live_nothing`"
+	);
+
+	send(
+		&mut socket,
+		ClientFrame::Mutate {
+			request: 2,
+			name: "live_titles".into(),
+			args: json!({}),
+			key: None,
+		},
+	)
+	.await;
+	let error = refused(&mut socket, 2).await;
+	assert!(
+		error.starts_with("`live_titles` is a query")
+			&& error.ends_with("a live connection sends only a mutation with `mutate`"),
+		"{error}"
+	);
+
+	send(
+		&mut socket,
+		ClientFrame::Act {
+			request: 3,
+			name: "summarize_nothing".into(),
+			args: json!({}),
+		},
+	)
+	.await;
+	assert_eq!(
+		refused(&mut socket, 3).await,
+		"no operation is named `summarize_nothing`"
+	);
+
+	send(
+		&mut socket,
+		ClientFrame::Join {
+			channel: "lobby".into(),
+			name: "no_such_channel".into(),
+			args: json!({}),
+			state: json!(null),
+		},
+	)
+	.await;
+	match next(&mut socket).await {
+		ServerFrame::ChannelError { channel, err } => {
+			assert_eq!(channel, "lobby");
+			assert_eq!(err.message, "no channel is named `no_such_channel`");
+		}
+		other => panic!("expected the join refused, got {other:?}"),
+	}
+
+	// Leaving a channel the connection never joined changes nothing.
+	send(
+		&mut socket,
+		ClientFrame::Leave {
+			channel: "lobby".into(),
+		},
+	)
+	.await;
+	still_open(&mut socket).await;
+
+	server.abort();
+}
