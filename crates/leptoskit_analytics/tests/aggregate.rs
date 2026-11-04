@@ -1,16 +1,23 @@
-use std::cell::Cell;
+use std::sync::Mutex;
+use std::sync::MutexGuard;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use leptoskit_analytics::*;
 
-std::thread_local! {
-	static NOW: Cell<u64> = const { Cell::new(120) };
-}
+static NOW: AtomicU64 = AtomicU64::new(120);
+// The collector accepts a function pointer, so its test clock is shared.
+// Hold this guard throughout each clock-dependent test, including assertions.
+static CLOCK_TEST: Mutex<()> = Mutex::new(());
 fn clock() -> u64 {
-	NOW.get()
+	NOW.load(Ordering::Relaxed)
 }
-fn collector(limits: Limits) -> Analytics {
-	NOW.set(120);
-	Analytics::new(
+fn collector(limits: Limits) -> (MutexGuard<'static, ()>, Analytics) {
+	let guard = CLOCK_TEST
+		.lock()
+		.unwrap_or_else(std::sync::PoisonError::into_inner);
+	NOW.store(120, Ordering::Relaxed);
+	let analytics = Analytics::new(
 		Resource {
 			service: "notes".into(),
 			environment: "test".into(),
@@ -20,7 +27,8 @@ fn collector(limits: Limits) -> Analytics {
 		limits,
 		clock,
 	)
-	.unwrap()
+	.unwrap();
+	(guard, analytics)
 }
 fn key(source: Source, operation: &str, outcome: Outcome) -> SeriesKey {
 	SeriesKey {
@@ -33,7 +41,7 @@ fn key(source: Source, operation: &str, outcome: Outcome) -> SeriesKey {
 
 #[test]
 fn fixed_histograms_expire_and_handle_clock_steps() {
-	let analytics = collector(Limits {
+	let (_clock, analytics) = collector(Limits {
 		retained_windows: 2,
 		..Limits::default()
 	});
@@ -48,24 +56,24 @@ fn fixed_histograms_expire_and_handle_clock_steps() {
 	assert_eq!(window.latency[10], 1);
 	assert_eq!(window.latency[11], 1);
 	assert_eq!(window.p95_upper_ms(), None);
-	NOW.set(180);
+	NOW.store(180, Ordering::Relaxed);
 	analytics.record(key.clone(), 50.0, None);
 	assert_eq!(analytics.snapshot().series[0].windows.len(), 2);
-	NOW.set(100); // Clock cannot reopen old windows.
+	NOW.store(100, Ordering::Relaxed); // Clock cannot reopen old windows.
 	analytics.record(key.clone(), 50.0, None);
 	assert_eq!(analytics.snapshot().observed_unix_seconds, 180);
-	NOW.set(240);
+	NOW.store(240, Ordering::Relaxed);
 	assert_eq!(
 		analytics.snapshot().series[0].windows[0].start_unix_seconds,
 		180
 	);
-	NOW.set(300);
+	NOW.store(300, Ordering::Relaxed);
 	assert!(analytics.snapshot().series.is_empty());
 }
 
 #[test]
 fn browsers_cannot_exhaust_backend_capacity_or_create_backend_findings() {
-	let analytics = collector(Limits {
+	let (_clock, analytics) = collector(Limits {
 		max_series: 2,
 		..Limits::default()
 	});
@@ -92,7 +100,7 @@ fn browsers_cannot_exhaust_backend_capacity_or_create_backend_findings() {
 			.all(|s| s.key.source == Source::Backend)
 	);
 	assert!(!analytics.record(key(Source::Backend, "/third", Outcome::Ok), 1.0, None));
-	NOW.set(180);
+	NOW.store(180, Ordering::Relaxed);
 	assert!(analytics.evidence().findings.is_empty());
 	assert!(!analytics.evidence().infrastructure_changes_authorized);
 	assert_eq!(analytics.snapshot().dropped_series_observations, 2);
@@ -101,7 +109,7 @@ fn browsers_cannot_exhaust_backend_capacity_or_create_backend_findings() {
 
 #[test]
 fn findings_use_completed_backend_windows_and_actual_sample_counts() {
-	let analytics = collector(Limits::default());
+	let (_clock, analytics) = collector(Limits::default());
 	for i in 0..100 {
 		analytics.record(
 			key(
@@ -118,7 +126,7 @@ fn findings_use_completed_backend_windows_and_actual_sample_counts() {
 		);
 	}
 	assert!(analytics.evidence().findings.is_empty()); // current window
-	NOW.set(180);
+	NOW.store(180, Ordering::Relaxed);
 	let evidence = analytics.evidence();
 	assert_eq!(evidence.findings.len(), 1);
 	assert_eq!(evidence.findings[0].samples, 100);
@@ -135,7 +143,7 @@ fn findings_use_completed_backend_windows_and_actual_sample_counts() {
 
 #[test]
 fn invalid_records_and_correlations_are_bounded_and_validated() {
-	let analytics = collector(Limits {
+	let (_clock, analytics) = collector(Limits {
 		max_recent: 2,
 		..Limits::default()
 	});
@@ -159,7 +167,7 @@ fn invalid_records_and_correlations_are_bounded_and_validated() {
 			.unwrap()
 			.contains("private@")
 	);
-	NOW.set(1200);
+	NOW.store(1200, Ordering::Relaxed);
 	assert!(analytics.snapshot().recent.is_empty());
 }
 
