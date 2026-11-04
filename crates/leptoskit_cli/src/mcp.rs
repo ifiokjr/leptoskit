@@ -91,8 +91,13 @@ fn serve(input: impl BufRead, mut output: impl Write) -> Result<()> {
 	Ok(())
 }
 
-/// The HTTP transport's app: one route, the dispatcher behind it.
-fn http_router() -> axum::Router {
+/// The HTTP transport's app: one route, the dispatcher behind it, and a
+/// guard that keeps web pages out.
+///
+/// `hosts` lists the `Host` headers the server answers. With `None` (a
+/// server bound to every interface) any host is accepted, since anything on
+/// the network can reach it already.
+fn http_router(hosts: Option<Vec<String>>) -> axum::Router {
 	use axum::Router;
 	use axum::extract::State;
 	use axum::http::StatusCode;
@@ -140,19 +145,107 @@ fn http_router() -> axum::Router {
 			}),
 		)
 		.with_state(Dispatcher(dispatch))
+		.layer(axum::middleware::from_fn_with_state(
+			std::sync::Arc::new(hosts),
+			refuse_web_pages,
+		))
+}
+
+/// Refuses requests a web page could make. The `control` tool can launch
+/// browsers with chosen capabilities and read pages, so a page the developer
+/// visits must not reach it. MCP clients send no `Origin`, a page's `fetch`
+/// always does; requiring a JSON body makes any cross-origin page preflight,
+/// which this server never answers; and the `Host` check stops a rebound DNS
+/// name from reading the replies.
+async fn refuse_web_pages(
+	axum::extract::State(hosts): axum::extract::State<std::sync::Arc<Option<Vec<String>>>>,
+	request: axum::extract::Request,
+	next: axum::middleware::Next,
+) -> axum::response::Response {
+	use axum::http::Method;
+	use axum::http::StatusCode;
+	use axum::response::IntoResponse;
+
+	let headers = request.headers();
+	let value = |name: &str| headers.get(name).and_then(|value| value.to_str().ok());
+
+	if let Some(hosts) = hosts.as_ref()
+		&& !hosts
+			.iter()
+			.any(|host| Some(host.as_str()) == value("host"))
+	{
+		return (StatusCode::FORBIDDEN, "the Host header is not this server").into_response();
+	}
+
+	if headers.contains_key("origin") || headers.contains_key("sec-fetch-site") {
+		return (StatusCode::FORBIDDEN, "browser requests are refused").into_response();
+	}
+
+	let json = value("content-type").is_some_and(|kind| {
+		kind.split(';')
+			.next()
+			.is_some_and(|kind| kind.trim().eq_ignore_ascii_case("application/json"))
+	});
+
+	if request.method() == Method::POST && !json {
+		return (
+			StatusCode::UNSUPPORTED_MEDIA_TYPE,
+			"POST JSON-RPC messages with content-type: application/json",
+		)
+			.into_response();
+	}
+
+	next.run(request).await
+}
+
+/// The `Host` headers a server bound to `address` answers: the loopback
+/// names, plus the address itself. A server on every interface answers any.
+fn allowed_hosts(address: &str, port: u16) -> Option<Vec<String>> {
+	let ip = address.parse::<std::net::IpAddr>().ok();
+
+	if ip.is_some_and(|ip| ip.is_unspecified()) {
+		return None;
+	}
+
+	let shown = match ip {
+		Some(std::net::IpAddr::V6(ip)) => format!("[{ip}]:{port}"),
+		_ => format!("{address}:{port}"),
+	};
+
+	let mut hosts = vec![
+		format!("127.0.0.1:{port}"),
+		format!("localhost:{port}"),
+		format!("[::1]:{port}"),
+	];
+
+	if !hosts.contains(&shown) {
+		hosts.push(shown);
+	}
+
+	Some(hosts)
 }
 
 /// Answers HTTP `POSTed` JSON-RPC bodies on one loopback listener.
 fn http(address: &str, port: u16) -> Result<()> {
-	let router = http_router();
-
 	let runtime = tokio::runtime::Builder::new_multi_thread()
 		.enable_all()
 		.build()?;
 	let address = address.to_owned();
 	let bound = runtime
 		.block_on(async { tokio::net::TcpListener::bind((address.as_str(), port)).await })?;
+	let port = bound.local_addr()?.port();
+	let router = http_router(allowed_hosts(&address, port));
 	println!("leptoskit mcp listening on http://{address}:{port}");
+
+	if address
+		.parse::<std::net::IpAddr>()
+		.map_or(address != "localhost", |ip| !ip.is_loopback())
+	{
+		eprintln!(
+			"warning: {address} is not a loopback address; anything that can reach it can run the \
+			 control tool, with no authentication"
+		);
+	}
 	runtime.block_on(async { axum::serve(bound, router).await })?;
 	Ok(())
 }
@@ -589,11 +682,12 @@ mod tests {
 		use axum::http::StatusCode;
 		use tower::ServiceExt;
 
-		let app = http_router();
+		let app = http_router(allowed_hosts("127.0.0.1", 7331));
 		let ping = app
 			.clone()
 			.oneshot(
 				Request::post("/")
+					.header("host", "127.0.0.1:7331")
 					.header("content-type", "application/json")
 					.body(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#.to_owned())
 					.unwrap(),
@@ -612,6 +706,7 @@ mod tests {
 			.clone()
 			.oneshot(
 				Request::post("/")
+					.header("host", "localhost:7331")
 					.header("content-type", "application/json")
 					.body(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#.to_owned())
 					.unwrap(),
@@ -624,6 +719,7 @@ mod tests {
 			.clone()
 			.oneshot(
 				Request::post("/")
+					.header("host", "[::1]:7331")
 					.header("content-type", "application/json")
 					.body("not json".to_owned())
 					.unwrap(),
@@ -633,10 +729,80 @@ mod tests {
 		assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
 
 		let get = app
-			.oneshot(Request::get("/").body(axum::body::Body::empty()).unwrap())
+			.oneshot(
+				Request::get("/")
+					.header("host", "127.0.0.1:7331")
+					.body(axum::body::Body::empty())
+					.unwrap(),
+			)
 			.await
 			.unwrap();
 		assert_eq!(get.status(), StatusCode::METHOD_NOT_ALLOWED);
+	}
+
+	#[tokio::test]
+	async fn the_http_transport_refuses_what_a_web_page_can_send() {
+		use axum::http::Request;
+		use axum::http::StatusCode;
+		use tower::ServiceExt;
+
+		let app = http_router(allowed_hosts("127.0.0.1", 7331));
+		let ping = r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#;
+		let send = |request: Request<String>| {
+			let app = app.clone();
+			async move { app.oneshot(request).await.unwrap().status() }
+		};
+
+		// A page's `fetch(..., {mode: "no-cors"})` carries its Origin.
+		let cross_origin = Request::post("/")
+			.header("host", "127.0.0.1:7331")
+			.header("origin", "https://attacker.example")
+			.header("content-type", "application/json")
+			.body(ping.to_owned())
+			.unwrap();
+		assert_eq!(send(cross_origin).await, StatusCode::FORBIDDEN);
+
+		// A form post, or a text/plain body: the requests a browser sends
+		// without asking first.
+		for kind in ["text/plain", "application/x-www-form-urlencoded"] {
+			let simple = Request::post("/")
+				.header("host", "127.0.0.1:7331")
+				.header("content-type", kind)
+				.body(ping.to_owned())
+				.unwrap();
+			assert_eq!(send(simple).await, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+		}
+
+		// A DNS name rebound to loopback still names itself in Host.
+		let rebound = Request::post("/")
+			.header("host", "attacker.example:7331")
+			.header("content-type", "application/json")
+			.body(ping.to_owned())
+			.unwrap();
+		assert_eq!(send(rebound).await, StatusCode::FORBIDDEN);
+
+		let fetch_metadata = Request::post("/")
+			.header("host", "127.0.0.1:7331")
+			.header("sec-fetch-site", "cross-site")
+			.header("content-type", "application/json")
+			.body(ping.to_owned())
+			.unwrap();
+		assert_eq!(send(fetch_metadata).await, StatusCode::FORBIDDEN);
+	}
+
+	#[test]
+	fn the_http_transport_answers_the_hosts_it_is_bound_to() {
+		let loopback = allowed_hosts("127.0.0.1", 7331).unwrap();
+		assert!(loopback.contains(&"localhost:7331".to_owned()));
+		assert!(!loopback.iter().any(|host| host.contains("example")));
+
+		let lan = allowed_hosts("192.168.1.20", 7331).unwrap();
+		assert!(lan.contains(&"192.168.1.20:7331".to_owned()));
+		assert_eq!(
+			allowed_hosts("::1", 9000).unwrap().last().unwrap(),
+			"[::1]:9000"
+		);
+		assert_eq!(allowed_hosts("0.0.0.0", 7331), None);
 	}
 
 	#[test]

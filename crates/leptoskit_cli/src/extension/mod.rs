@@ -565,6 +565,13 @@ fn tool_version(tool: &str) -> String {
 
 /// The project's source files, relative to the root.
 fn source_files(root: &Path) -> Vec<String> {
+	// A symlink git tracks is read through, so one pointing out of the
+	// project (at `~/.aws/credentials`, say) would upload what it names.
+	let canonical = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+	let inside = |name: &[u8]| {
+		std::fs::canonicalize(root.join(String::from_utf8_lossy(name).as_ref()))
+			.is_ok_and(|path| path.starts_with(&canonical) && path.is_file())
+	};
 	let listed = crate::git::command(root)
 		.args([
 			"ls-files",
@@ -583,9 +590,8 @@ fn source_files(root: &Path) -> Vec<String> {
 			output
 				.stdout
 				.split(|byte| *byte == 0)
-				.filter(|name| !name.is_empty())
+				.filter(|name| !name.is_empty() && inside(name))
 				.map(|name| String::from_utf8_lossy(name).into_owned())
-				.filter(|name| root.join(name).is_file())
 				.collect()
 		}
 		None => {
@@ -617,7 +623,11 @@ fn source_files(root: &Path) -> Vec<String> {
 		let extension = Path::new(&file)
 			.extension()
 			.and_then(|extension| extension.to_str());
-		!file.starts_with(".env") && !matches!(extension, Some("pem" | "p8" | "p12" | "key"))
+		!file.starts_with(".env")
+			&& !matches!(
+				extension,
+				Some("pem" | "p8" | "p12" | "pfx" | "key" | "jks" | "keystore")
+			)
 	});
 	files.sort();
 	files

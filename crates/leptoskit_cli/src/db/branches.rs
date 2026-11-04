@@ -120,13 +120,13 @@ pub(crate) fn database_for(main_database: &str, branches: &Branches) -> String {
 	}
 
 	let hash = &leptoskit_db::checksum(branch)[..8];
-	let mut short = name[..MAX_NAME - hash.len() - 1].to_owned();
+	let mut end = MAX_NAME - hash.len() - 1;
 
-	while !short.is_char_boundary(short.len()) {
-		short.pop();
+	while !name.is_char_boundary(end) {
+		end -= 1;
 	}
 
-	format!("{short}_{hash}")
+	format!("{}_{hash}", &name[..end])
 }
 
 /// The database the project uses on the development server at `url`, which
@@ -395,6 +395,15 @@ mod tests {
 		assert!(name.starts_with("my_app__feat_very_long"), "{name}");
 		let other = database_for("my_app", &on(Some(&(long.clone() + "2"))));
 		assert_ne!(name, other, "a hash keeps long names apart");
+
+		// The app's name can be anything; a multi-byte character across the
+		// cut must not panic.
+		// After the leading `a`, each `é` starts on an odd byte, so the cut
+		// at byte 54 falls inside one.
+		let unicode = format!("a{}", "é".repeat(40));
+		let name = database_for(&unicode, &on(Some("feature")));
+		assert!(name.len() <= MAX_NAME, "{name}");
+		assert!(name.starts_with("aéé"), "{name}");
 	}
 
 	#[test]
