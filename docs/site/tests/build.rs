@@ -179,3 +179,23 @@ fn the_binary_builds_the_site_and_reports_failures() {
 		String::from_utf8_lossy(&refused.stderr)
 	);
 }
+#[test]
+fn skribble_art_is_repeatable_and_every_theme_resource_is_packaged() {
+	assert_eq!(
+		leptoskit_docs_site::ink::files(),
+		leptoskit_docs_site::ink::files()
+	);
+	let out = tempfile::tempdir().unwrap();
+	site(book()).build(out.path()).unwrap();
+	let css = fs::read_to_string(out.path().join("theme/skribble.css")).unwrap();
+	for url in css.split("url(\"").skip(1) {
+		let relative = url.split('"').next().unwrap();
+		assert!(
+			out.path().join("theme").join(relative).is_file(),
+			"missing theme resource {relative}"
+		);
+	}
+	let mask = fs::read_to_string(out.path().join("_leptoskit/generated/card-1.svg")).unwrap();
+	assert!(mask.contains("non-scaling-stroke"));
+	assert!(mask.contains("<path"));
+}

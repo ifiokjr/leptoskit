@@ -1,0 +1,11 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Reads projects and recent operations from the connected service
+
+Usage: leptoskit console status
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

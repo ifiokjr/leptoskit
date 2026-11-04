@@ -513,6 +513,7 @@ async fn migrations_change_every_row_whatever_the_policies() {
 		name: Cow::Borrowed("20261030T0000_shout"),
 		sql: Cow::Borrowed(sql),
 		checksum: Cow::Owned(leptoskit_db::checksum(sql)),
+		down: None,
 	};
 	let applied = db.migrate(&[migration]).await.unwrap();
 	assert_eq!(applied, ["20261030T0000_shout"]);

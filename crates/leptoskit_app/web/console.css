@@ -1,0 +1,22 @@
+html {
+	background: var(--sk-paper);
+}
+body {
+	max-width: 1120px;
+	margin: 0 auto;
+	padding: 1.5rem 1rem 3rem;
+	font: 16px/1.6 var(--sk-font);
+}
+#console-home {
+	display: inline-block;
+	margin: 0 0 1rem 1rem;
+	color: var(--sk-quiet);
+	text-underline-offset: 0.25em;
+}
+#app-mark {
+	margin-bottom: 0.25rem;
+}
+:focus-visible {
+	outline: 3px dashed var(--sk-coral);
+	outline-offset: 4px;
+}

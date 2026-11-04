@@ -48,6 +48,38 @@ fn options() -> CreateOptions {
 }
 
 #[test]
+fn reverse_generation_preserves_renames_and_marks_data_loss() {
+	for dialect in [Dialect::Sqlite, Dialect::Postgres] {
+		let before = users(dialect, vec![Column::new("handle", ColumnType::TEXT)]);
+		let mut after = before.clone();
+		after.tables[0].name = TableName::new("people");
+		after.tables[0].renamed_from = Some(TableName::new("users"));
+		after.tables[0].columns[1].name = "username".into();
+		after.tables[0].columns[1].renamed_from = Some("handle".into());
+		let forward = leptoskit_db_schema::diff(&before, &after, &mut RequireHints).unwrap();
+		let down = super::reverse_sql(&before, &after, &forward, false).unwrap();
+		assert!(down.contains("RENAME TO \"users\""), "{down}");
+		assert!(
+			down.contains("RENAME COLUMN \"username\" TO \"handle\""),
+			"{down}"
+		);
+		assert!(!down.contains("irreversible"));
+		assert!(
+			super::reverse_sql(&before, &after, &forward, true)
+				.unwrap()
+				.contains("-- leptoskit: irreversible")
+		);
+		let removed = users(dialect, vec![]);
+		let forward = leptoskit_db_schema::diff(&before, &removed, &mut NoRenames).unwrap();
+		assert!(
+			super::reverse_sql(&before, &removed, &forward, false)
+				.unwrap()
+				.contains("-- leptoskit: irreversible")
+		);
+	}
+}
+
+#[test]
 fn migrations_build_on_the_latest_snapshot() {
 	let root = tempfile::tempdir().unwrap();
 	let project = project(root.path(), leptoskit_config::DbDialect::Sqlite);

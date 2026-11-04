@@ -331,7 +331,7 @@ async fn missing_or(db: &Db, id: &str, otherwise: &str) -> Result<String> {
 
 #[cfg(test)]
 #[path = "../../leptoskit_db/tests/support/postgres.rs"]
-mod postgres;
+pub(crate) mod postgres;
 
 #[cfg(test)]
 mod tests {

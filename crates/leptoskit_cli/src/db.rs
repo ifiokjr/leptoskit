@@ -89,6 +89,19 @@ pub enum DbCommand {
 		#[arg(long)]
 		url: Option<String>,
 	},
+	/// Runs reviewed down.sql files, newest first. Stop application writers
+	/// and back up the database before using this command.
+	Rollback {
+		/// Database URL; defaults to `db.url_env`.
+		#[arg(long)]
+		url: Option<String>,
+		/// Number of applied migrations to reverse.
+		#[arg(long, default_value_t = 1)]
+		steps: usize,
+		/// Confirm reverse SQL may delete data.
+		#[arg(long)]
+		yes: bool,
+	},
 	/// Brings the development database to the tables without writing a
 	/// migration, as `leptoskit dev` does with `db.watch = "push"`.
 	/// `leptoskit db migration create` later turns every push into one
@@ -282,6 +295,24 @@ pub fn run(command: DbCommand) -> Result<()> {
 				}
 			}
 
+			Ok(())
+		}
+		DbCommand::Rollback { url, steps, yes } => {
+			ensure!(
+				yes,
+				"rollback can delete data; stop application writers, verify a backup, then pass \
+				 --yes"
+			);
+			ensure!(steps > 0, "--steps must be positive");
+			let (url, _server) = project.database(url)?;
+			let migrations = leptoskit_db::load_migrations(&project.migrations_dir())?;
+			let reverted = runtime()?.block_on(async {
+				let db = Db::connect(&url).await?;
+				anyhow::Ok(db.rollback(&migrations, steps).await?)
+			})?;
+			for name in reverted {
+				println!("reverted {name}");
+			}
 			Ok(())
 		}
 		DbCommand::Push {
@@ -682,7 +713,7 @@ impl Created {
 		);
 		let _ = writeln!(
 			summary,
-			"review migration.sql, then commit it with schema.json and registry.txt"
+			"review migration.sql and down.sql, then commit them with schema.json and registry.txt"
 		);
 		summary
 	}
@@ -750,9 +781,11 @@ pub(crate) fn create(
 		"{} already exists",
 		migration_dir.display()
 	);
+	let down = reverse_sql(&history.latest, target, &plan, options.empty)?;
 	fs::create_dir_all(&migration_dir)
 		.with_context(|| format!("couldn't create {}", migration_dir.display()))?;
 	fs::write(migration_dir.join("migration.sql"), sql)?;
+	fs::write(migration_dir.join("down.sql"), down)?;
 	fs::write(
 		migration_dir.join("schema.json"),
 		target.without_rename_hints().to_json(),
@@ -778,6 +811,58 @@ pub(crate) fn create(
 		notes: migration.notes,
 		name,
 	})
+}
+
+/// Re-diffs snapshots with inverse rename hints rather than reversing SQL
+/// statements, so dependencies, triggers, and SQLite rebuilds stay valid.
+fn reverse_sql(
+	previous: &Schema,
+	target: &Schema,
+	forward: &leptoskit_db_schema::Plan,
+	data: bool,
+) -> Result<String> {
+	use leptoskit_db_schema::Step;
+	let current = target.without_rename_hints();
+	let mut desired = previous.without_rename_hints();
+	for step in &forward.steps {
+		if let Step::RenameTable { from, to } = step
+			&& let Some(table) = desired.tables.iter_mut().find(|table| &table.name == from)
+		{
+			table.renamed_from = Some(to.clone());
+		}
+	}
+	for step in &forward.steps {
+		if let Step::RenameColumn { table, from, to } = step
+			&& let Some(table) = desired
+				.tables
+				.iter_mut()
+				.find(|old| &old.name == table || old.renamed_from.as_ref() == Some(table))
+			&& let Some(column) = table.columns.iter_mut().find(|column| &column.name == from)
+		{
+			column.renamed_from = Some(to.clone());
+		}
+	}
+	let reverse = match leptoskit_db_schema::diff(&current, &desired, &mut NoRenames) {
+		Ok(reverse) => reverse,
+		Err(error) if data || forward.destructive_steps().next().is_some() => {
+			return Ok(format!(
+				"-- leptoskit: irreversible\n-- Write and review reverse SQL and data recovery \
+				 before removing this marker.\n-- {}\n",
+				error.to_string().replace('\n', "\n-- ")
+			));
+		}
+		Err(error) => return Err(error.into()),
+	};
+	let sql = leptoskit_db_schema::render(&reverse, &current, &desired).sql();
+	if data || forward.destructive_steps().next().is_some() {
+		Ok(format!(
+			"-- leptoskit: irreversible\n-- Implement and review data recovery before removing \
+			 the marker above.\n-- Schema reversal alone cannot recover deleted or transformed \
+			 data.\n{sql}"
+		))
+	} else {
+		Ok(sql)
+	}
 }
 
 /// Writes a migration from the latest snapshot to `target`, as [`create`]

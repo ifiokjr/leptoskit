@@ -19,6 +19,7 @@ leptos = { workspace = true, optional = true }
 leptos_axum = { workspace = true, optional = true }
 leptos_meta = { workspace = true, optional = true }
 leptos_router = { workspace = true, optional = true }
+leptoskit_analytics = { workspace = true, optional = true }
 leptoskit_aria = { workspace = true, optional = true }
 leptoskit_auth = { workspace = true, optional = true }
 leptoskit_axum = { workspace = true, optional = true }
@@ -65,6 +66,7 @@ trybuild = { workspace = true }
 
 [features]
 default = []
+analytics = ["dep:leptoskit_analytics", "leptoskit_axum?/analytics"]
 android = ["dep:leptoskit_android"]
 appkit = ["dep:leptoskit_appkit"]
 aria = ["dep:leptoskit_aria"]
@@ -85,6 +87,7 @@ ssr = ["leptos", "leptos/ssr", "leptos_meta/ssr", "leptos_router/ssr"]
 # The server toolkit with the crates every deployment links: axum, tokio,
 # tower, tower-http, and leptos_axum. A server renders, so this implies `ssr`.
 server = [
+	"leptoskit_analytics?/server",
 	"dep:leptoskit_axum",
 	"dep:leptos_axum",
 	"ssr",

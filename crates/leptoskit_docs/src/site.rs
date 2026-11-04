@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
@@ -59,6 +60,8 @@ pub struct Site {
 	pub(crate) favicon: Option<String>,
 	pub(crate) social_image: Option<String>,
 	pub(crate) stylesheets: Vec<String>,
+	pub(crate) external_fonts: bool,
+	generated_assets: BTreeMap<String, Vec<u8>>,
 	pub(crate) components: Components,
 	pub(crate) live_reload: bool,
 }
@@ -87,6 +90,8 @@ impl Site {
 			favicon: None,
 			social_image: None,
 			stylesheets: Vec::new(),
+			external_fonts: true,
+			generated_assets: BTreeMap::new(),
 			components: Components::new(),
 			live_reload: false,
 		}
@@ -169,6 +174,29 @@ impl Site {
 		self
 	}
 
+	/// Load the default font families from Google Fonts. Disable this when a
+	/// stylesheet supplies local fonts, or when the site must work offline.
+	#[must_use]
+	pub fn external_fonts(mut self, enabled: bool) -> Self {
+		self.external_fonts = enabled;
+		self
+	}
+
+	/// Include generated artwork or styles without writing into the book's
+	/// sources. Files appear under `_leptoskit/generated/` on every build and
+	/// development-server rebuild. Names use ASCII letters, digits, dots,
+	/// hyphens and underscores, with a letter or digit first; invalid names
+	/// fail the build before its output changes. Reusing a name replaces it.
+	#[must_use]
+	pub fn generated_asset(
+		mut self,
+		name: impl Into<String>,
+		contents: impl Into<Vec<u8>>,
+	) -> Self {
+		self.generated_assets.insert(name.into(), contents.into());
+		self
+	}
+
 	/// The components documents can use, replacing the built-in set. Start
 	/// from [`Components::new`] to keep the built-in components.
 	#[must_use]
@@ -183,6 +211,25 @@ impl Site {
 	/// `out` must be missing, empty, or an earlier build.
 	pub fn build(&self, out: impl AsRef<Path>) -> Result<Build, Error> {
 		let out = out.as_ref();
+		for name in self.generated_assets.keys() {
+			if !name
+				.as_bytes()
+				.first()
+				.is_some_and(u8::is_ascii_alphanumeric)
+				|| !name
+					.bytes()
+					.all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+			{
+				return Err(Error::Io {
+					action: "name generated asset",
+					path: PathBuf::from(name),
+					source: io::Error::new(
+						io::ErrorKind::InvalidInput,
+						"generated asset names must be plain filenames",
+					),
+				});
+			}
+		}
 		let root = fs::canonicalize(&self.root).map_err(Error::io("read", &self.root))?;
 		let summary_path = self.root.join("SUMMARY.md");
 		let summary_source =
@@ -278,7 +325,11 @@ impl Site {
 			layout::not_found(self, &summary, not_found_root).as_bytes(),
 		)?;
 
-		let files = self.copy_files(out)?;
+		let mut files = self.copy_files(out)?;
+		for (name, contents) in &self.generated_assets {
+			write(&out.join(ASSETS).join("generated").join(name), contents)?;
+			files += 1;
+		}
 		write(
 			&out.join(ASSETS).join("site.css"),
 			include_bytes!("../assets/site.css"),
@@ -286,6 +337,10 @@ impl Site {
 		write(
 			&out.join(ASSETS).join("site.js"),
 			include_bytes!("../assets/site.js"),
+		)?;
+		write(
+			&out.join(ASSETS).join("theme.js"),
+			include_bytes!("../assets/theme.js"),
 		)?;
 		write(
 			&out.join(ASSETS).join("search.json"),
@@ -396,6 +451,12 @@ impl Site {
 					return Some("points outside the book".to_owned());
 				};
 				if markdown_stem(&target).is_none() {
+					if target
+						.strip_prefix("_leptoskit/generated/")
+						.is_some_and(|name| self.generated_assets.contains_key(name))
+					{
+						return None;
+					}
 					return (!self.root.join(&target).is_file())
 						.then(|| format!("`{target}` does not exist in the book"));
 				}

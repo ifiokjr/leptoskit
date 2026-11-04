@@ -1,0 +1,12 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Writes inspectable main.tf.json and deployment instructions
+
+Usage: leptoskit infra generate [OPTIONS]
+
+Options:
+      --force    Replace an edited generated configuration
+  -h, --help     Print help
+  -V, --version  Print version

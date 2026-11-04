@@ -144,14 +144,13 @@ impl Project {
 	///
 	/// # Errors
 	///
-	/// Returns an error when the app renders in the browser only, or the
+	/// Returns an error when the app has no configured backend, or the
 	/// server package or its binary can't be found.
 	pub fn read(root: &Path, config: &LeptoskitConfig) -> Result<Self> {
 		anyhow::ensure!(
-			config.app.render.renders_on_server(),
-			"app.render is `{}`, so the app is the static files in {DIST_DIR}/ and has no server \
-			 to deploy; upload {DIST_DIR}/ to a CDN or bucket instead, or set app.render to `ssr` \
-			 or `islands`",
+			config.app.render.renders_on_server() || config.build.client_package.is_some(),
+			"app.render is `{}` without a separate build.client_package; upload {DIST_DIR}/ to a \
+			 CDN, or name the backend in app.name and the client in build.client_package",
 			config.app.render
 		);
 		let app = config.app.name.clone();
@@ -584,9 +583,12 @@ const DOCKERIGNORE: &str = "\
 **/target
 /dist
 /.leptoskit
+/infra
+/.kamal
 /android/.gradle
 /android/**/build
 *.sqlite3*
+*.dump
 .env
 .env.*
 ";

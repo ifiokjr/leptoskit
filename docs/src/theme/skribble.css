@@ -1,0 +1,1040 @@
+/* Paper-and-ink chrome adapted from pina-rs/solana_kit at
+ * df8619ae6290747f69d4c53aa7705bd7470aa9c5 (Unlicense).
+ * Artwork is generated with the pinned skribble_rough library; see
+ * docs/site/src/ink.rs and docs/agents/website-design.md.
+ */
+
+/* Lettering ---------------------------------------------------------------- */
+
+@font-face {
+	font-family: "SkribbleNotoSketch";
+	src: url("../assets/fonts/skribble/SkribbleNotoSketch-Regular.woff2")
+		format("woff2");
+	font-weight: 400;
+	font-style: normal;
+	font-display: block;
+}
+
+@font-face {
+	font-family: "SkribbleMonoPlayful";
+	src: url("../assets/fonts/skribble/SkribbleMonoPlayful-Regular.woff2")
+		format("woff2");
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "SkribbleMonoPlayful";
+	src: url("../assets/fonts/skribble/SkribbleMonoPlayful-Bold.woff2")
+		format("woff2");
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
+
+/* Palette ------------------------------------------------------------------ */
+
+:root {
+	--sk-paper: #fffaf0;
+	--sk-paper-2: #fdf3e4;
+	--sk-paper-3: #f6e6d8;
+	--sk-ink: #34283f;
+	--sk-quiet: #6f6273;
+	--sk-coral: #e2674d;
+	--sk-sun: #ffcc4d;
+	--sk-lilac: #9c7bd4;
+	--sk-mint: #3fb3a4;
+	--sk-sky: #4e8fda;
+	--sk-pink: #e57aa0;
+	--sk-rule: #d9cdc1;
+	--sk-on-accent: #2a2033;
+	--sk-dots: color-mix(in srgb, var(--sk-ink) 13%, transparent);
+	--sk-frame: url("../_leptoskit/generated/frame-1-light.svg");
+	--sk-frame-2: url("../_leptoskit/generated/frame-2-light.svg");
+
+	--sk-tok-k: #784175;
+	--sk-tok-s: #35634b;
+	--sk-tok-t: #315c83;
+	--sk-tok-f: #9c482b;
+	--sk-tok-n: #9a5d0f;
+	--sk-tok-c: #877a89;
+	--sk-tok-a: #b0457a;
+
+	--sk-font:
+		"SkribbleNotoSketch", "Segoe Print", "Bradley Hand", "Comic Sans MS",
+		cursive;
+	--sk-mono:
+		"SkribbleMonoPlayful", ui-monospace, "SFMono-Regular", Menlo, monospace;
+	--sk-wobbly: 255px 15px 225px 15px / 15px 225px 15px 255px;
+	--sk-wobbly-small: 14px 4px 12px 5px / 4px 12px 5px 14px;
+	/* The ink is drawn inset on its canvas, and the inset stretches with it.
+	 * These outsets put the stretched outline back on the element's edge. */
+	--sk-box-inset: -3.57% -1.72%;
+	--sk-card-inset: -2.08% -1.28%;
+	--sk-hatch-tone: var(--sk-sun);
+	--sk-marker-opacity: 0.85;
+
+	/* leptoskit_docs' own properties, mapped onto the paper. */
+	--lk-font-display: var(--sk-font);
+	--lk-font-body: var(--sk-font);
+	--lk-font-mono: var(--sk-mono);
+	--lk-header: 4.25rem;
+	--lk-bg: var(--sk-paper);
+	--lk-surface: var(--sk-paper-2);
+	--lk-surface-strong: var(--sk-paper-3);
+	--lk-line: var(--sk-rule);
+	--lk-text: var(--sk-ink);
+	--lk-muted: var(--sk-quiet);
+	--lk-heading: var(--sk-ink);
+	--lk-link: var(--sk-ink);
+	--lk-link-hover: var(--sk-coral);
+	--lk-mint-text: var(--sk-mint);
+	--lk-inline-code: var(--sk-ink);
+	--lk-inline-code-bg: var(--sk-paper-3);
+	--lk-selection: color-mix(in srgb, var(--sk-sun) 55%, transparent);
+	--lk-shadow: none;
+	--lk-code-bg: var(--sk-paper-2);
+	--lk-code-line: var(--sk-rule);
+	--lk-code-text: var(--sk-ink);
+	--lk-header-bg: color-mix(in srgb, var(--sk-paper) 88%, transparent);
+	--lk-ember: var(--sk-coral);
+	--lk-ember-warm: var(--sk-coral);
+	--lk-mint: var(--sk-mint);
+	--lk-mint-bright: var(--sk-mint);
+
+	color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--sk-paper: #1b1720;
+		--sk-paper-2: #241e2b;
+		--sk-paper-3: #32283a;
+		--sk-ink: #f3ebdf;
+		--sk-quiet: #b9adbd;
+		--sk-coral: #f08e76;
+		--sk-sun: #f2c14e;
+		--sk-lilac: #b89ce6;
+		--sk-mint: #5cc8b8;
+		--sk-sky: #79aef0;
+		--sk-pink: #f09bbb;
+		--sk-rule: #463c4d;
+		--sk-on-accent: #1d1722;
+		--sk-dots: color-mix(in srgb, var(--sk-ink) 8%, transparent);
+		--sk-frame: url("../_leptoskit/generated/frame-1-dark.svg");
+		--sk-frame-2: url("../_leptoskit/generated/frame-2-dark.svg");
+		--sk-tok-k: #d7a6d3;
+		--sk-tok-s: #9fd1a8;
+		--sk-tok-t: #9cc1ea;
+		--sk-tok-f: #f0a785;
+		--sk-tok-n: #f2c14e;
+		--sk-tok-c: #8f8494;
+		--sk-tok-a: #f09bbb;
+		--lk-code-bg: #141017;
+		--sk-hatch-tone: color-mix(in srgb, var(--sk-sun) 45%, transparent);
+		--sk-marker-opacity: 0.5;
+
+		color-scheme: dark;
+	}
+}
+
+:root[data-theme="dark"] {
+	--sk-paper: #1b1720;
+	--sk-paper-2: #241e2b;
+	--sk-paper-3: #32283a;
+	--sk-ink: #f3ebdf;
+	--sk-quiet: #b9adbd;
+	--sk-coral: #f08e76;
+	--sk-sun: #f2c14e;
+	--sk-lilac: #b89ce6;
+	--sk-mint: #5cc8b8;
+	--sk-sky: #79aef0;
+	--sk-pink: #f09bbb;
+	--sk-rule: #463c4d;
+	--sk-on-accent: #1d1722;
+	--sk-dots: color-mix(in srgb, var(--sk-ink) 8%, transparent);
+	--sk-frame: url("../_leptoskit/generated/frame-1-dark.svg");
+	--sk-frame-2: url("../_leptoskit/generated/frame-2-dark.svg");
+	--sk-tok-k: #d7a6d3;
+	--sk-tok-s: #9fd1a8;
+	--sk-tok-t: #9cc1ea;
+	--sk-tok-f: #f0a785;
+	--sk-tok-n: #f2c14e;
+	--sk-tok-c: #8f8494;
+	--sk-tok-a: #f09bbb;
+	--lk-code-bg: #141017;
+	--sk-hatch-tone: color-mix(in srgb, var(--sk-sun) 45%, transparent);
+	--sk-marker-opacity: 0.5;
+
+	color-scheme: dark;
+}
+
+/* Ink ---------------------------------------------------------------------- */
+
+/*
+ * A pseudo-element painted in `--sk-ink-tone` and cut to a rough shape by a
+ * mask. Set `--sk-mask` to choose the shape.
+ */
+.lk-header::after,
+.lk-main::before,
+.lk-article h2::before,
+.lk-article hr,
+.lk-code::after,
+.lk-callout::before,
+.lk-card::after,
+.lk-pager a::after,
+.lk-search-button::after,
+.lk-search-field::after,
+.lk-tab-button[aria-selected="true"]::after,
+.lk-sidebar a[aria-current="page"]::before,
+.lk-toc a[aria-current="true"]::after,
+.lk-article blockquote::before,
+.lk-edit::after,
+.sk-button::after,
+.sk-button-primary::before,
+.lk-article h1::after {
+	content: "";
+	position: absolute;
+	pointer-events: none;
+	background: var(--sk-ink-tone, var(--sk-ink));
+	-webkit-mask: var(--sk-mask) center / 100% 100% no-repeat;
+	mask: var(--sk-mask) center / 100% 100% no-repeat;
+}
+
+.sk-ink {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	overflow: visible;
+	pointer-events: none;
+}
+
+/* Base --------------------------------------------------------------------- */
+
+body {
+	background:
+		radial-gradient(var(--sk-dots) 1px, transparent 1.5px) 0 0 / 24px 24px,
+		var(--sk-paper);
+	font-size: 1.125rem;
+	line-height: 1.65;
+	font-synthesis: none;
+	transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+a {
+	text-decoration-color: var(--sk-coral);
+	text-decoration-thickness: 2px;
+	text-decoration-style: wavy;
+	text-underline-offset: 0.22em;
+	text-decoration-skip-ink: none;
+}
+
+a:hover {
+	text-decoration-color: var(--sk-sun);
+}
+
+:focus-visible {
+	outline: 2.5px dashed var(--sk-coral);
+	outline-offset: 3px;
+	border-radius: var(--sk-wobbly-small);
+}
+
+kbd {
+	border: 1.5px solid var(--sk-ink);
+	border-bottom-width: 3px;
+	border-radius: var(--sk-wobbly-small);
+	background: var(--sk-paper);
+	color: var(--sk-ink);
+}
+
+/* Header ------------------------------------------------------------------- */
+
+.lk-header {
+	border-bottom: 0;
+}
+
+.lk-header::after {
+	--sk-mask: url("../_leptoskit/generated/rule-1.svg");
+	left: 0.5rem;
+	right: 0.5rem;
+	bottom: -6px;
+	height: 12px;
+}
+
+.lk-brand {
+	gap: 0.6rem;
+}
+
+.lk-brand::before {
+	content: "";
+	width: 1.9rem;
+	height: 2.05rem;
+	background: url("../assets/mark.svg") center / contain no-repeat;
+	transform: rotate(-4deg);
+	transition: transform 0.3s ease;
+}
+
+.lk-brand:hover::before {
+	transform: rotate(4deg) scale(1.06);
+}
+
+:root[data-theme="dark"] .lk-brand::before {
+	background-image: url("../assets/mark.svg");
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) .lk-brand::before {
+		background-image: url("../assets/mark.svg");
+	}
+}
+
+.lk-brand-name {
+	font-size: 1.55rem;
+	font-weight: 400;
+	letter-spacing: 0;
+}
+
+.lk-icon-button {
+	color: var(--sk-ink);
+	border-radius: var(--sk-wobbly-small);
+}
+
+.lk-icon-button:hover {
+	background: color-mix(in srgb, var(--sk-sun) 35%, transparent);
+	transform: rotate(-4deg);
+}
+
+.lk-search-button {
+	position: relative;
+	border: 0;
+	border-radius: var(--sk-wobbly-small);
+	background: var(--sk-paper);
+	color: var(--sk-quiet);
+}
+
+.lk-search-button::after {
+	--sk-mask: url("../_leptoskit/generated/box-2.svg");
+	inset: var(--sk-box-inset);
+}
+
+.lk-search-button:hover {
+	box-shadow: none;
+	color: var(--sk-ink);
+	transform: rotate(-0.6deg);
+}
+
+/* Layout and chapter navigation -------------------------------------------- */
+
+.lk-main {
+	position: relative;
+}
+
+/* A hand-ruled margin between the chapters and the page. */
+.lk-main::before {
+	--sk-mask: url("../_leptoskit/generated/edge-2.svg");
+	--sk-ink-tone: var(--sk-rule);
+	top: 2rem;
+	left: -1.9rem;
+	bottom: 2rem;
+	width: 12px;
+}
+
+.lk-sidebar ul ul {
+	border-left: 1.5px dashed var(--sk-rule);
+}
+
+.lk-sidebar a {
+	isolation: isolate;
+	color: var(--sk-ink);
+	font-size: 1rem;
+	border-radius: var(--sk-wobbly-small);
+}
+
+.lk-sidebar a:hover {
+	background: color-mix(in srgb, var(--sk-sun) 22%, transparent);
+	color: var(--sk-ink);
+}
+
+.lk-sidebar a[aria-current="page"] {
+	padding-right: 0.75rem;
+	background: none;
+	font-weight: 400;
+}
+
+/* The current chapter is coloured in with a marker. */
+.lk-sidebar a[aria-current="page"]::before {
+	--sk-mask: url("../_leptoskit/generated/hatch-1.svg");
+	--sk-ink-tone: var(--sk-hatch-tone);
+	inset: 2px 0;
+	z-index: -1;
+}
+
+.lk-sidebar a[aria-current="page"]::after {
+	content: none;
+}
+
+.lk-nav-part {
+	margin-top: 1.8rem;
+	color: var(--sk-coral);
+	font-size: 1.05rem;
+	font-weight: 400;
+	letter-spacing: 0.02em;
+	text-transform: none;
+	transform: rotate(-1.5deg);
+	transform-origin: left;
+}
+
+.lk-nav-separator {
+	border-top: 1.5px dashed var(--sk-rule);
+}
+
+/* On this page ------------------------------------------------------------- */
+
+.lk-toc {
+	font-size: 0.95rem;
+}
+
+.lk-toc-title {
+	color: var(--sk-coral);
+	font-size: 1rem;
+	font-weight: 400;
+	letter-spacing: 0.02em;
+	text-transform: none;
+}
+
+.lk-toc ul {
+	border-left: 1.5px dashed var(--sk-rule);
+}
+
+.lk-toc a {
+	position: relative;
+	border-left: 0;
+	color: var(--sk-quiet);
+}
+
+.lk-toc a[aria-current="true"] {
+	color: var(--sk-ink);
+}
+
+.lk-toc a[aria-current="true"]::after {
+	--sk-mask: url("../_leptoskit/generated/underline-2.svg");
+	--sk-ink-tone: var(--sk-coral);
+	left: 0.6rem;
+	right: 15%;
+	bottom: -0.15rem;
+	height: 0.7rem;
+}
+
+/* Article ------------------------------------------------------------------ */
+
+.lk-article h1,
+.lk-article h2,
+.lk-article h3,
+.lk-article h4,
+.lk-article h5,
+.lk-article h6 {
+	font-weight: 400;
+	letter-spacing: 0;
+}
+
+.lk-article h1 {
+	display: inline-block;
+	margin-bottom: 1.6rem;
+	font-size: clamp(2.4rem, 1.7rem + 2.6vw, 3.5rem);
+	letter-spacing: 0;
+}
+
+/* A loose underline swept under each page's title. */
+.lk-article h1::after {
+	--sk-mask: url("../_leptoskit/generated/underline-1.svg");
+	--sk-ink-tone: var(--sk-coral);
+	left: -2%;
+	right: -4%;
+	bottom: -0.55rem;
+	height: 1rem;
+}
+
+.lk-article h2 {
+	border-top: 0;
+	font-size: 2rem;
+}
+
+.lk-article h2::before {
+	--sk-mask: url("../_leptoskit/generated/rule-3.svg");
+	--sk-ink-tone: var(--sk-rule);
+	top: -6px;
+	left: 0;
+	right: 0;
+	height: 12px;
+}
+
+.lk-article h3 {
+	font-size: 1.5rem;
+}
+
+.lk-article h4 {
+	font-size: 1.2rem;
+}
+
+.lk-anchor {
+	color: var(--sk-coral);
+}
+
+.lk-article > p:first-of-type {
+	font-size: 1.22rem;
+}
+
+.lk-article li::marker {
+	color: var(--sk-coral);
+}
+
+.lk-article strong {
+	font-weight: 400;
+	background: linear-gradient(
+		transparent 55%,
+		color-mix(in srgb, var(--sk-sun) 55%, transparent) 55%,
+		color-mix(in srgb, var(--sk-sun) 55%, transparent) 90%,
+		transparent 90%
+	);
+}
+
+.lk-article hr {
+	--sk-mask: url("../_leptoskit/generated/rule-2.svg");
+	--sk-ink-tone: var(--sk-quiet);
+	position: relative;
+	display: block;
+	height: 12px;
+	margin: 2.75rem 15%;
+	border: 0;
+}
+
+.lk-article blockquote {
+	position: relative;
+	padding: 0.85rem 1.1rem 0.85rem 1.6rem;
+	border: 0;
+	border-radius: var(--sk-wobbly);
+	background: color-mix(in srgb, var(--sk-sun) 16%, transparent);
+	color: var(--sk-ink);
+}
+
+.lk-article blockquote::before {
+	--sk-mask: url("../_leptoskit/generated/edge-1.svg");
+	--sk-ink-tone: var(--sk-sun);
+	top: 0.3rem;
+	bottom: 0.3rem;
+	left: 0;
+	width: 12px;
+}
+
+.lk-article img {
+	border-radius: var(--sk-wobbly);
+}
+
+.lk-task input {
+	accent-color: var(--sk-coral);
+}
+
+/* Code --------------------------------------------------------------------- */
+
+:not(pre) > code {
+	border-radius: var(--sk-wobbly-small);
+	background: var(--sk-paper-3);
+	color: var(--sk-ink);
+	font-size: 0.84em;
+}
+
+.lk-code {
+	overflow: visible;
+	margin: 0.4rem 0 1.6rem;
+	border: 0;
+	border-radius: var(--sk-wobbly-small);
+	background: var(--lk-code-bg);
+	box-shadow: none;
+}
+
+.lk-code::after {
+	--sk-mask: url("../_leptoskit/generated/box-1.svg");
+	inset: var(--sk-box-inset);
+}
+
+.lk-article .lk-code:nth-of-type(3n+2)::after {
+	--sk-mask: url("../_leptoskit/generated/box-3.svg");
+}
+
+.lk-article .lk-code:nth-of-type(3n)::after {
+	--sk-mask: url("../_leptoskit/generated/box-4.svg");
+}
+
+.lk-code-title {
+	border-bottom: 1.5px dashed var(--sk-rule);
+	color: var(--sk-quiet);
+	font-size: 0.85rem;
+}
+
+.lk-code-title::before {
+	border-radius: 50%;
+	background: var(--sk-coral);
+}
+
+.lk-code pre {
+	color: var(--sk-ink);
+	font-size: 0.9rem;
+	scrollbar-color: var(--sk-rule) transparent;
+}
+
+.lk-copy {
+	border: 1.5px solid var(--sk-ink);
+	border-radius: var(--sk-wobbly-small);
+	background: var(--sk-paper);
+	color: var(--sk-ink);
+	font: 400 0.85rem var(--sk-font);
+}
+
+.lk-copy[data-copied] {
+	background: var(--sk-mint);
+	color: var(--sk-on-accent);
+}
+
+.hl-comment {
+	color: var(--sk-tok-c);
+}
+
+.hl-keyword {
+	color: var(--sk-tok-k);
+}
+
+.hl-string,
+.hl-literal {
+	color: var(--sk-tok-s);
+}
+
+.hl-number,
+.hl-constant {
+	color: var(--sk-tok-n);
+}
+
+.hl-function,
+.hl-constructor {
+	color: var(--sk-tok-f);
+}
+
+.hl-type,
+.hl-tag,
+.hl-namespace {
+	color: var(--sk-tok-t);
+}
+
+.hl-macro,
+.hl-attribute,
+.hl-label,
+.hl-property {
+	color: var(--sk-tok-a);
+}
+
+.hl-operator,
+.hl-punctuation {
+	color: var(--sk-quiet);
+}
+
+.hl-title,
+.hl-strong {
+	color: var(--sk-ink);
+}
+
+.hl-link {
+	color: var(--sk-tok-t);
+}
+
+.hl-diff-add {
+	color: var(--sk-tok-s);
+}
+
+.hl-diff-delete,
+.hl-error {
+	color: var(--sk-coral);
+}
+
+/* Tables ------------------------------------------------------------------- */
+
+/* Wide tables scroll, so their frame is a background that stays put rather
+ * than a pseudo-element that would scroll with the rows. */
+.lk-table {
+	margin-top: 0.4rem !important;
+	padding: 4px;
+	border: 0;
+	border-radius: 0;
+	background: var(--sk-frame) center / 100% 100% no-repeat;
+}
+
+.lk-article .lk-table:nth-of-type(2n) {
+	background-image: var(--sk-frame-2);
+}
+
+.lk-table table {
+	font-size: 0.98rem;
+}
+
+.lk-table th,
+.lk-table td {
+	border-bottom: 1.5px dashed var(--sk-rule);
+}
+
+.lk-table th {
+	background: none;
+	font-weight: 400;
+	font-size: 1.05rem;
+	border-bottom: 2px solid color-mix(in srgb, var(--sk-ink) 70%, transparent);
+}
+
+.lk-table tbody tr:hover {
+	background: color-mix(in srgb, var(--sk-sun) 14%, transparent);
+}
+
+/* Callouts: a sticky note with a circled glyph ------------------------------ */
+
+.lk-callout {
+	--lk-callout: var(--sk-sky);
+	--sk-glyph: "i";
+	overflow: visible;
+	margin: 1.75rem 0;
+	padding: 1rem 1.2rem 1rem 3.4rem;
+	border: 0;
+	border-radius: var(--sk-wobbly);
+	background: color-mix(in srgb, var(--lk-callout) 16%, transparent);
+}
+
+.lk-callout::before {
+	--sk-mask: url("../_leptoskit/generated/card-1.svg");
+	inset: var(--sk-card-inset);
+	width: auto;
+}
+
+.lk-callout[data-kind="note"] {
+	--lk-callout: var(--sk-lilac);
+	--sk-glyph: "✎";
+}
+
+.lk-callout[data-kind="tip"] {
+	--lk-callout: var(--sk-mint);
+	--sk-glyph: "✓";
+}
+
+.lk-callout[data-kind="tip"]::before {
+	--sk-mask: url("../_leptoskit/generated/card-2.svg");
+}
+
+.lk-callout[data-kind="important"] {
+	--lk-callout: var(--sk-sky);
+	--sk-glyph: "i";
+}
+
+.lk-callout[data-kind="warning"] {
+	--lk-callout: var(--sk-sun);
+	--sk-glyph: "!";
+}
+
+.lk-callout[data-kind="warning"]::before {
+	--sk-mask: url("../_leptoskit/generated/card-3.svg");
+}
+
+.lk-callout[data-kind="caution"] {
+	--lk-callout: var(--sk-coral);
+	--sk-glyph: "×";
+}
+
+.lk-callout[data-kind="caution"]::before {
+	--sk-mask: url("../_leptoskit/generated/card-4.svg");
+}
+
+.lk-callout-title {
+	position: relative;
+	color: var(--sk-ink) !important;
+	font-size: 1.15rem;
+	font-weight: 400;
+	letter-spacing: 0.01em;
+	text-transform: none;
+}
+
+.lk-callout-title::before {
+	content: var(--sk-glyph);
+	position: absolute;
+	top: -0.15rem;
+	left: -2.45rem;
+	display: grid;
+	place-items: center;
+	width: 1.85rem;
+	height: 1.85rem;
+	border: 2px solid var(--sk-ink);
+	border-radius: 58% 42% 55% 45% / 45% 55% 45% 55%;
+	background: var(--lk-callout);
+	color: var(--sk-on-accent);
+	font-size: 1.05rem;
+	line-height: 1;
+	transform: rotate(-6deg);
+}
+
+/* Steps: numbers circled by hand ------------------------------------------- */
+
+.lk-steps {
+	border-left: 2px dashed var(--sk-rule);
+}
+
+.lk-steps > h3::before {
+	border: 2px solid var(--sk-ink);
+	border-radius: 58% 42% 55% 45% / 45% 55% 45% 55%;
+	background: var(--sk-sun);
+	box-shadow: none;
+	color: var(--sk-on-accent);
+	font-size: 1.15rem;
+	font-weight: 400;
+	transform: rotate(-5deg);
+}
+
+.lk-steps > h3:nth-of-type(2n)::before {
+	background: var(--sk-mint);
+	transform: rotate(4deg);
+}
+
+.lk-steps > h3:nth-of-type(3n)::before {
+	background: var(--sk-pink);
+}
+
+/* Cards -------------------------------------------------------------------- */
+
+.lk-cards {
+	gap: 1.4rem;
+}
+
+.lk-card {
+	border: 0;
+	border-radius: var(--sk-wobbly);
+	background: color-mix(in srgb, var(--sk-paper) 70%, transparent);
+}
+
+.lk-card::after {
+	--sk-mask: url("../_leptoskit/generated/card-1.svg");
+	inset: var(--sk-card-inset);
+}
+
+.lk-card:nth-child(4n+2)::after {
+	--sk-mask: url("../_leptoskit/generated/card-2.svg");
+}
+
+.lk-card:nth-child(4n+3)::after {
+	--sk-mask: url("../_leptoskit/generated/card-3.svg");
+}
+
+.lk-card:nth-child(4n)::after {
+	--sk-mask: url("../_leptoskit/generated/card-4.svg");
+}
+
+a.lk-card:hover {
+	background: color-mix(in srgb, var(--sk-sun) 18%, var(--sk-paper));
+	box-shadow: none;
+	transform: rotate(-0.8deg) translateY(-3px);
+}
+
+a.lk-card:nth-child(2n):hover {
+	transform: rotate(0.8deg) translateY(-3px);
+}
+
+.lk-card-title {
+	font-size: 1.3rem;
+	font-weight: 400;
+}
+
+a.lk-card .lk-card-title::after {
+	color: var(--sk-coral);
+}
+
+.lk-card-body {
+	color: var(--sk-quiet);
+	font-size: 1rem;
+}
+
+/* Tabs --------------------------------------------------------------------- */
+
+.lk-tab-list {
+	border-bottom: 1.5px dashed var(--sk-rule);
+}
+
+.lk-tab-button {
+	position: relative;
+	border: 0 !important;
+	background: none;
+	color: var(--sk-quiet);
+	font: 400 1.05rem var(--sk-font);
+}
+
+.lk-tab-button[aria-selected="true"] {
+	color: var(--sk-ink);
+}
+
+.lk-tab-button[aria-selected="true"]::after {
+	--sk-mask: url("../_leptoskit/generated/underline-3.svg");
+	--sk-ink-tone: var(--sk-coral);
+	left: 0.3rem;
+	right: 0.3rem;
+	bottom: -0.25rem;
+	height: 0.75rem;
+}
+
+/* Footer and pager --------------------------------------------------------- */
+
+.lk-page-footer {
+	border-top: 0;
+}
+
+.lk-edit {
+	position: relative;
+	color: var(--sk-quiet);
+	text-decoration: none;
+}
+
+.lk-edit:hover::after {
+	--sk-mask: url("../_leptoskit/generated/underline-4.svg");
+	--sk-ink-tone: var(--sk-coral);
+	left: 0;
+	right: 0;
+	bottom: -0.35rem;
+	height: 0.7rem;
+}
+
+.lk-pager a {
+	position: relative;
+	border: 0;
+	border-radius: var(--sk-wobbly);
+	background: none;
+	color: var(--sk-ink);
+	text-decoration: none;
+	transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.lk-pager a::after {
+	--sk-mask: url("../_leptoskit/generated/box-2.svg");
+	inset: var(--sk-box-inset);
+}
+
+.lk-pager-next::after {
+	--sk-mask: url("../_leptoskit/generated/box-3.svg") !important;
+}
+
+.lk-pager a:hover {
+	background: color-mix(in srgb, var(--sk-sun) 20%, transparent);
+	border-color: transparent;
+	box-shadow: none;
+	transform: rotate(-0.8deg);
+}
+
+.lk-pager-label {
+	color: var(--sk-coral);
+	font-size: 0.95rem;
+	letter-spacing: 0.02em;
+	text-transform: none;
+}
+
+.lk-pager-title {
+	font-size: 1.25rem;
+	font-weight: 400;
+}
+
+/* Search ------------------------------------------------------------------- */
+
+.lk-search {
+	border: 0;
+	border-radius: var(--sk-wobbly);
+	background: var(--sk-paper);
+	box-shadow: 8px 10px 0 -2px
+		color-mix(in srgb, var(--sk-ink) 18%, transparent);
+}
+
+.lk-search-field {
+	position: relative;
+	border-bottom: 0;
+}
+
+.lk-search-field::after {
+	--sk-mask: url("../_leptoskit/generated/rule-4.svg");
+	--sk-ink-tone: var(--sk-rule);
+	left: 0.5rem;
+	right: 0.5rem;
+	bottom: -6px;
+	height: 12px;
+}
+
+.lk-search-field input {
+	font: 400 1.2rem var(--sk-font);
+}
+
+.lk-search-results a {
+	border-radius: var(--sk-wobbly-small);
+}
+
+.lk-search-results [aria-selected="true"] a {
+	background: color-mix(in srgb, var(--sk-sun) 30%, transparent);
+}
+
+.lk-result-title {
+	font-weight: 400;
+}
+
+.lk-search-results mark {
+	background: color-mix(in srgb, var(--sk-sun) 60%, transparent);
+}
+
+/* Buttons ------------------------------------------------------------------ */
+
+/* Narrow screens ----------------------------------------------------------- */
+
+@media (max-width: 54rem) {
+	body {
+		font-size: 1.05rem;
+	}
+
+	.lk-sidebar {
+		position: fixed;
+		border-right: 0;
+		background: var(--sk-paper);
+	}
+
+	.lk-main::before {
+		content: none;
+	}
+
+	.lk-code {
+		margin-left: 0;
+		margin-right: 0;
+	}
+
+	.sk-hero {
+		grid-template-columns: 1fr;
+	}
+
+	.sk-hero-art {
+		order: -1;
+		min-height: 10rem;
+	}
+
+	.sk-hero-note,
+	.sk-hero-arrow {
+		display: none;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.sk-hero-mark-wrap svg {
+		animation: none;
+	}
+}
+
+.lk-brand::before {
+	display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+	body, .lk-brand, .lk-icon-button, .lk-search-button, .lk-card, .lk-pager a {
+		transition: none;
+		animation: none;
+	}
+}

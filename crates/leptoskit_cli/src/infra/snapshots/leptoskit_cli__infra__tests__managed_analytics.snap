@@ -1,0 +1,112 @@
+---
+source: crates/leptoskit_cli/src/infra/tests.rs
+assertion_line: 246
+expression: analytics_yaml
+---
+{
+  "accessories": {
+    "db": {
+      "directories": [
+        "/var/lib/leptoskit/notes-production/postgres:/var/lib/postgresql/data"
+      ],
+      "env": {
+        "clear": {
+          "POSTGRES_DB": "leptoskit",
+          "POSTGRES_USER": "leptoskit_admin"
+        },
+        "secret": [
+          "POSTGRES_PASSWORD",
+          "DATABASE_PASSWORD"
+        ]
+      },
+      "files": [
+        "db-init.sh:/docker-entrypoint-initdb.d/01-leptoskit.sh:ro"
+      ],
+      "host": "192.0.2.10",
+      "image": "postgres:17",
+      "options": {
+        "network": "kamal"
+      },
+      "port": "10.42.0.10:5432:5432"
+    },
+    "tunnel": {
+      "cmd": "tunnel --no-autoupdate run",
+      "env": {
+        "secret": [
+          "TUNNEL_TOKEN"
+        ]
+      },
+      "hosts": [
+        "192.0.2.10"
+      ],
+      "image": "cloudflare/cloudflared:latest",
+      "options": {
+        "network": "kamal"
+      }
+    }
+  },
+  "boot": {
+    "limit": 1,
+    "wait": 2
+  },
+  "builder": {
+    "arch": "amd64"
+  },
+  "deploy_timeout": 90,
+  "drain_timeout": 30,
+  "env": {
+    "clear": {
+      "LEPTOSKIT_ANALYTICS": "1",
+      "LEPTOSKIT_ANALYTICS_ENVIRONMENT": "production",
+      "LEPTOSKIT_ANALYTICS_MAX_SERIES": "128",
+      "LEPTOSKIT_ANALYTICS_ORIGIN": "https://app.example.com",
+      "LEPTOSKIT_ANALYTICS_ROUTES": "/notes/{id}",
+      "LEPTOSKIT_ANALYTICS_SERVICE": "notes-production",
+      "LEPTOSKIT_ANALYTICS_WINDOWS": "15",
+      "LEPTOS_ENV": "PROD",
+      "LEPTOS_OUTPUT_NAME": "notes",
+      "LEPTOS_SITE_ADDR": "0.0.0.0:3000",
+      "LEPTOS_SITE_ROOT": "/app/dist"
+    },
+    "secret": [
+      "AUTH_KEY",
+      "DATABASE_URL",
+      "LEPTOSKIT_ANALYTICS_READ_KEY",
+      "LEPTOSKIT_RELEASE"
+    ]
+  },
+  "image": "team/notes",
+  "proxy": {
+    "app_port": 3000,
+    "forward_headers": true,
+    "healthcheck": {
+      "interval": 2,
+      "path": "/readyz",
+      "timeout": 5
+    },
+    "host": "app.example.com",
+    "ssl": false
+  },
+  "registry": {
+    "password": [
+      "KAMAL_REGISTRY_PASSWORD"
+    ],
+    "server": "ghcr.io",
+    "username": "team"
+  },
+  "retain_containers": 5,
+  "servers": {
+    "web": {
+      "hosts": [
+        "192.0.2.10"
+      ],
+      "options": {
+        "cap-drop": "ALL",
+        "read-only": true,
+        "security-opt": "no-new-privileges:true",
+        "tmpfs": "/tmp:rw,nosuid,nodev,size=64m"
+      }
+    }
+  },
+  "service": "notes-production"
+}

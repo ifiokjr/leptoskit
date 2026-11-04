@@ -1,0 +1,11 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Queries read-only JSON evidence from one app instance, not a fleet total
+
+Usage: leptoskit infra analytics
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

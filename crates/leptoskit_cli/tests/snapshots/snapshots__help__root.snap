@@ -7,6 +7,9 @@ The command line interface for building, serving, and shipping leptos apps.
 Usage: leptoskit <COMMAND>
 
 Commands:
+  console      Hosts or connects to the deployment dashboard and durable agent API
+  infra        Generates and manages the app's `OpenTofu` infrastructure
+  deploy       Deploys a Git commit through its service, releases a prebuilt image, or rolls back
   migrate      Upgrades leptoskit.toml to the current configuration schema
   native       Builds native application hosts and generates plugin registration
   test         Runs component and device tests with retained failure artifacts

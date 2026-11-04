@@ -8,6 +8,8 @@ leptoskit's database layer answers each one. You declare the tables as Rust stru
 
 ## Start with a database
 
+To undo a schema release, see [rolling back a migration](#rolling-back-a-migration).
+
 ```sh
 leptoskit new my_app --db          # Postgres
 leptoskit new my_app --db sqlite   # SQLite
@@ -1528,3 +1530,19 @@ geopackage = false # SQLite: keep GeoPackage metadata for GIS tools
 ```
 
 An empty `[db]` table uses every default. `dev_server` picks the development database when `DATABASE_URL` isn't set: `auto` uses devenv's `services.postgres` when `devenv.nix` turns it on and the embedded server otherwise, `devenv` and `embedded` choose one, and `off` starts none. `watch` says what `leptoskit dev` does when the tables change.
+
+## Rolling back a migration
+
+If a release changed the schema, restarting its previous image can fail because that image does not know the newer migrations. New `lk db migration create` migrations include `migration.sql` (up), `down.sql` (reverse), and `schema.json`. Existing migration directories remain valid; they need an authored, reviewed `down.sql` before they can be reversed.
+
+For SQLite and Postgres, stop every application instance and job worker using the database, take and verify a backup, then run from the checkout that still contains the newer migrations:
+
+```sh
+lk db rollback --steps 1 --yes
+```
+
+The database comes from `db.url_env`, or `--url`. This command reverses the newest applied migration. Increase `--steps` to reverse several, newest first. It checks the applied forward SQL checksums and requires an intact registry prefix before running. Every selected reverse must be available before work begins. Schema changes and the corresponding history deletion commit together for each migration. If a later reverse fails, earlier successful reversals stay committed: inspect database status before retrying. On Postgres the operation shares the forward migration advisory lock. On SQLite each reverse uses an immediate transaction and checks foreign keys after table rebuilds.
+
+For a rename or an added index, the generator can usually write a direct reverse. For data migrations and destructive changes, it writes `-- leptoskit: irreversible` into `down.sql`. A schema reverse cannot recreate deleted rows or reconstruct a dropped required column's values. Implement and review the missing recovery SQL before removing the marker; rollback refuses unresolved markers. Even an automatic down migration can delete data written since the up migration, such as rows in a newly added table. `--yes` acknowledges that risk; it does not restore data.
+
+After reversal, check out the matching earlier application and start it against that schema. Restarting the newer build instead reapplies its pending up migrations. Forward checksums remain enforced; do not edit applied `migration.sql`. Rollback never automatically restores a backup or treats an unknown newer schema as compatible.

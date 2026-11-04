@@ -28,6 +28,14 @@ The `leptoskit` command (or `lk`) does the work. Run it from the project root. `
 - Generated output lives in `.leptoskit/` and `dist/`; never edit it.
 - Secrets never go in `leptoskit.toml`. Credentials come from the environment or a file outside the project.
 
+## Infrastructure and analytics
+
+- `.tf`/`.tofu` files are Terraform/OpenTofu infrastructure configuration. Keep app-owned resource additions next to the generated configuration; never silently overwrite edited generated files. Review `lk infra plan` before applying. Preserve remote-state locks and protected data resources.
+- `lk infra plugins` returns a versioned built-in capability catalog with app features, runtime bindings, secret names and data ownership. Native runtime bridge plugins are a separate extension mechanism.
+- To add embedded observability, enable the app's `analytics` and `server` features and configure `[infra.plugins.analytics]`. Managed server entrypoints mount it from deployment bindings. Install the browser module explicitly after the app's consent decision, using allowlisted route templates.
+- `lk infra analytics` returns read-only JSON evidence from one running instance. Read the release/instance identity, time coverage, collection loss and limitations before drawing conclusions. Browser reports are untrusted; HTTP latency alone does not establish host or database saturation. Request correlation is not a complete distributed trace, and snapshots reset on restart.
+- Use static operation/route names. Never include raw URLs, SQL, request bodies, exception messages or user identifiers. The analytics read key stays out of browser code, source control, logs and agent reports. Analytics findings never authorize provider writes; propose changes with their evidence and cost.
+
 ## Agents write builder calls
 
 When you write leptoskit code, write builder calls, not `view!` markup:
@@ -121,3 +129,19 @@ Read the one the task needs:
 - Linting rules and configuration: https://ifiokjr.github.io/leptoskit/guide/23-linting.html
 - How markup maps to builder calls: https://ifiokjr.github.io/leptoskit/reference/view.html
 - The components: https://ifiokjr.github.io/leptoskit/reference/components.html
+
+## Managed deployment service
+
+- For a trusted self-hosted worker, use `lk console serve --project PATH`. The same service hosts the LeptosKit dashboard, durable jobs and fleet analytics.
+- Link an app with `lk console connect --url URL`, using a credential supplied through its secret store. The URL goes in `infra.control_url`; credentials are kept outside the repository. Normal `lk deploy`, `lk infra plan`, `lk infra apply` and `lk infra analytics` then use the service.
+- A Git-commit deploy is built in a temporary checkout. Push the commit to the registered origin first. Infra intent must match registered policy; change that policy and re-plan before introducing new resources or bindings.
+- Preserve the returned operation and plan IDs. Retrying an identical pending request reconnects; a different plan cannot reuse the original approval. Investigate interrupted operations before retrying provider or data changes.
+- Connected releases receive scoped analytics credentials automatically. Read fleet coverage, retained time range, source provenance and export health. Reporting instance counts do not prove the whole deployment is reporting.
+- The service is single-owner. Register only trusted repositories, keep worker credentials private, and use separate read/deploy/ingest keys for agents.
+
+## Hosted deployment accounts
+
+- The hosted LeptosKit app uses the same `lk console connect` and deployment API as the self-hosted service. Account/scoped keys include their account prefix; keep that prefix when storing credentials. Never put credentials in TOML.
+- Select `infra.hosted_state = true` for the hosted locking HTTP backend. It conflicts with `infra.state`; migrate an existing backend explicitly before changing it. A dedicated `lk console worker` receives state credentials through child environments and must not share provider credentials or a Docker daemon across unrelated customers.
+- Pair a worker with a ten-minute single-use grant supplied by its secret store. Preserve its private pending journal. Lost responses and interrupted execution require reconciliation, not automatic resubmission under a new intent.
+- Customer-owned and LeptosKit-managed DigitalOcean installations share the CLI flow. Managed capacity is operator-provisioned with a reviewed budget; subscription checkout does not provision arbitrary paid resources or imply bundled cloud usage.

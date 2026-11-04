@@ -16,6 +16,7 @@ pub mod cache;
 pub mod cli;
 pub mod codepush;
 pub mod compress;
+pub mod console;
 pub mod db;
 
 pub mod deploy;
@@ -26,6 +27,7 @@ pub mod doctor;
 pub mod extension;
 pub mod generate;
 mod git;
+pub mod infra;
 
 pub mod icons;
 pub mod jobs;

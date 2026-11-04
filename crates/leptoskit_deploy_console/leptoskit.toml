@@ -1,0 +1,23 @@
+schema_version = 0
+
+[app]
+name = "leptoskit_deploy_console"
+version = "0.1.0"
+default_platform = "web"
+platforms = ["web"]
+render = "csr"
+
+[build]
+client_package = "leptoskit_deploy_console"
+features = []
+
+[bundle]
+split = false
+precompress = false
+
+[lint]
+markup = "builder"
+
+[lint.rules]
+markup_style = "deny"
+component_attribute = "deny"

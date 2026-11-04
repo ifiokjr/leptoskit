@@ -1,0 +1,23 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+assertion_line: 212
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Hosts or connects to the deployment dashboard and durable agent API
+
+Usage: leptoskit console <COMMAND>
+
+Commands:
+  serve              Serves the dashboard, durable jobs and analytics history for trusted repositories
+  connect            Links this app to a service. Reads `LEPTOSKIT_CONTROL_KEY`; stores it outside the repository
+  status             Reads projects and recent operations from the connected service
+  worker             Runs a dedicated outbound worker paired with the hosted `LeptosKit` app
+  token              Issues a project-scoped key; prints its value once. Store it as a secret
+  backup             Makes a consistent local backup of the management database
+  restore            Restores a verified management backup offline and revokes restored tokens
+  rollback-database  Reverses the management schema offline, after making a new backup. Deletes its history
+  help               Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

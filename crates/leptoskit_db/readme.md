@@ -100,6 +100,8 @@ Each migration runs in its own transaction and is recorded, with a SHA-256 of it
 
 For tests, `db::testing::sqlite()` is an in-memory database with every table created from the code, and `db::testing::sqlite_migrated(MIGRATIONS)` applies the real migrations instead.
 
+New migrations also have a `down.sql`; `migrations!` embeds it when present. With all writers stopped and a verified backup, `db.rollback(MIGRATIONS, 1).await?` or `lk db rollback --steps 1 --yes` reverses the newest migration. Each reverse and its history deletion share a transaction. All selected reverses are checked first; failed later reverses leave earlier successful ones committed. Old migrations without a reverse and generated data-loss stubs are refused. A reverse schema does not restore deleted data: destructive and data migrations need authored recovery SQL before their `-- leptoskit: irreversible` marker can be removed.
+
 ## How it fits
 
 It gives shared code a typed database without hand-written SQL; `leptoskit db` diffs the schema and writes migrations. Auth and IDP build their schema packs on it.

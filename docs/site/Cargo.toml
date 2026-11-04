@@ -14,6 +14,7 @@ description = "The leptoskit documentation site: the book in docs/src, built wit
 clap = { workspace = true, features = ["derive"] }
 leptos = { workspace = true }
 leptoskit_docs = { workspace = true }
+skribble_rough = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

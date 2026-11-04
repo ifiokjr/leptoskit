@@ -40,7 +40,7 @@ Ember boxes use a gradient from ember warm at the top to ember at the bottom. Th
 
 ## Typography
 
-The wordmark is custom monoline lettering drawn as SVG strokes, so it needs no font. The docs set headings in [Bricolage Grotesque](https://fonts.google.com/specimen/Bricolage+Grotesque), body text in [Instrument Sans](https://fonts.google.com/specimen/Instrument+Sans), and code in [JetBrains Mono](https://fonts.google.com/specimen/JetBrains+Mono).
+The wordmark is custom monoline lettering drawn as SVG strokes, so it needs no font. The website and docs use [skribble](https://github.com/openbudgetfun/skribble) lettering: Skribble Noto Sketch for headings and body text, and Skribble Mono Playful for code. These fonts are served locally under the SIL Open Font License. The paper-and-ink theme uses seeded sketches, while the LeptosKit mark keeps its ember and mint identity.
 
 ## Using the mark
 

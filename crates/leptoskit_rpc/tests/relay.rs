@@ -47,6 +47,21 @@ use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 
+#[tokio::test]
+async fn managed_relay_decodes_url_tokens_and_authenticates() {
+	let Some(nats) = NatsServer::start_with_token("fixture/token@+") else {
+		return;
+	};
+	let url = nats
+		.url()
+		.replacen("nats://", "nats://fixture%2Ftoken%40%2B@", 1);
+	let relay = tokio::time::timeout(Duration::from_secs(5), Relay::connect(&url))
+		.await
+		.unwrap()
+		.unwrap();
+	drop(relay);
+}
+
 /// A note everyone may read.
 #[table(name = "relay_notes", live)]
 pub struct Note {
@@ -282,8 +297,12 @@ async fn a_mutation_on_one_server_reaches_the_other(first: Db, second: Db, nats:
 	));
 
 	assert_eq!(until_count(&mut watcher, 1).await, ["across"]);
-	assert!(b.live.stats().commits >= 1);
-	assert!(publisher.stats().commits >= 1);
+	// Delivery can precede the publisher receiving its JetStream
+	// acknowledgement.
+	eventually("both servers record the relayed commit", || {
+		b.live.stats().commits >= 1 && publisher.stats().commits >= 1
+	})
+	.await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

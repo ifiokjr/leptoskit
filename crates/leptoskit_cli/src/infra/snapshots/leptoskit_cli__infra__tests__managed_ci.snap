@@ -1,0 +1,108 @@
+---
+source: crates/leptoskit_cli/src/infra/tests.rs
+assertion_line: 146
+expression: "ci::workflow(&config, &project).unwrap()"
+---
+{
+  "concurrency": {
+    "cancel-in-progress": false,
+    "group": "leptoskit-image-eb0163fd69e5da3fe1091325df8efca7d1d5afde1e317af19223617361c99e14"
+  },
+  "jobs": {
+    "build": {
+      "permissions": {
+        "contents": "read",
+        "packages": "write"
+      },
+      "runs-on": [
+        "self-hosted",
+        "linux",
+        "leptoskit"
+      ],
+      "steps": [
+        {
+          "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "env": {
+            "KAMAL_REGISTRY_PASSWORD": "",
+            "REGISTRY_PASSWORD": "${{ secrets.GITHUB_TOKEN }}",
+            "REGISTRY_USER": "${{ github.actor }}"
+          },
+          "name": "Build and push immutable server and website image",
+          "run": "set -eu\nDOCKER_CONFIG=$(mktemp -d)\nexport DOCKER_CONFIG\ntrap 'rm -rf \"$DOCKER_CONFIG\"' EXIT\nprintf '%s' \"$REGISTRY_PASSWORD\" | docker login ghcr.io -u \"$REGISTRY_USER\" --password-stdin\nlk infra build --version \"$GITHUB_SHA\" --push --reuse-existing\n"
+        }
+      ]
+    },
+    "deploy": {
+      "environment": "notes-production",
+      "needs": "build",
+      "permissions": {
+        "contents": "read",
+        "packages": "read"
+      },
+      "runs-on": [
+        "self-hosted",
+        "linux",
+        "leptoskit"
+      ],
+      "steps": [
+        {
+          "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "env": {
+            "AUTH_KEY": "${{ secrets.AUTH_KEY }}",
+            "AWS_ACCESS_KEY_ID": "${{ secrets.AWS_ACCESS_KEY_ID }}",
+            "AWS_SECRET_ACCESS_KEY": "${{ secrets.AWS_SECRET_ACCESS_KEY }}",
+            "AWS_SESSION_TOKEN": "${{ secrets.AWS_SESSION_TOKEN }}",
+            "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
+            "DATABASE_PASSWORD": "${{ secrets.DATABASE_PASSWORD }}",
+            "HCLOUD_TOKEN": "${{ secrets.HCLOUD_TOKEN }}",
+            "KAMAL_REGISTRY_PASSWORD": "${{ secrets.KAMAL_REGISTRY_PASSWORD }}",
+            "LEPTOSKIT_BACKUP_ACCESS_KEY_ID": "${{ secrets.LEPTOSKIT_BACKUP_ACCESS_KEY_ID }}",
+            "LEPTOSKIT_BACKUP_PASSWORD": "${{ secrets.LEPTOSKIT_BACKUP_PASSWORD }}",
+            "LEPTOSKIT_BACKUP_SECRET_ACCESS_KEY": "${{ secrets.LEPTOSKIT_BACKUP_SECRET_ACCESS_KEY }}",
+            "MAINTENANCE": "${{ inputs.maintenance || false }}",
+            "POSTGRES_PASSWORD": "${{ secrets.POSTGRES_PASSWORD }}",
+            "SETUP": "${{ inputs.setup || false }}"
+          },
+          "name": "Release through private origin and verify health",
+          "run": "set -eu\ntofu -chdir=infra/notes-production init -input=false\nargs=()\nif [ \"$SETUP\" = true ]; then args+=(--setup); fi\nif [ \"$MAINTENANCE\" = true ]; then args+=(--maintenance); fi\nlk deploy --version \"$GITHUB_SHA\" \"${args[@]}\"\nlk infra status\n",
+          "shell": "bash"
+        }
+      ]
+    }
+  },
+  "name": "Deploy notes-production",
+  "on": {
+    "push": {
+      "branches": [
+        "main"
+      ]
+    },
+    "workflow_dispatch": {
+      "inputs": {
+        "maintenance": {
+          "default": false,
+          "description": "Stop writers for a reviewed schema-changing release",
+          "type": "boolean"
+        },
+        "setup": {
+          "default": false,
+          "description": "First release: bootstrap accessories and verified backups",
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "permissions": {
+    "contents": "read"
+  }
+}

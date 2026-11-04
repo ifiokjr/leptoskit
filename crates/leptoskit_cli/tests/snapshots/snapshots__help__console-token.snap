@@ -1,0 +1,13 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Issues a project-scoped key; prints its value once. Store it as a secret
+
+Usage: leptoskit console token --project <PROJECT> --scope <SCOPE>
+
+Options:
+      --project <PROJECT>  
+      --scope <SCOPE>      [possible values: read, deploy, ingest]
+  -h, --help               Print help
+  -V, --version            Print version

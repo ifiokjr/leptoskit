@@ -144,6 +144,21 @@ pub enum DevtoolsCommand {
 /// The subcommands.
 #[derive(Debug, Subcommand)]
 pub enum Command {
+	/// Hosts or connects to the deployment dashboard and durable agent API.
+	Console {
+		#[command(subcommand)]
+		command: crate::console::ConsoleCommand,
+	},
+	/// Generates and manages the app's `OpenTofu` infrastructure.
+	#[command(alias = "tofu")]
+	Infra {
+		#[command(subcommand)]
+		command: crate::infra::InfraCommand,
+	},
+	/// Deploys a Git commit through its service, releases a prebuilt image, or
+	/// rolls back.
+	#[command(disable_version_flag = true)]
+	Deploy(crate::infra::ReleaseArgs),
 	/// Upgrades leptoskit.toml to the current configuration schema.
 	Migrate {
 		/// A specific file; otherwise finds the nearest leptoskit.toml.
@@ -644,6 +659,9 @@ pub fn main() {
 /// Returns an error when any step of the command fails.
 pub fn run(cli: Cli) -> anyhow::Result<()> {
 	match cli.command {
+		Command::Console { command } => crate::console::run(command),
+		Command::Infra { command } => crate::console::infra(command),
+		Command::Deploy(args) => crate::console::deploy(&args),
 		Command::Migrate {
 			file,
 			dry_run,
@@ -659,61 +677,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		Command::Rpc { command } => rpc::run(command),
 		Command::Publish(args) => crate::publish::run(&args),
 		Command::Skill(args) => crate::skill::run(&args),
-		Command::Generate { kind } => {
-			match kind {
-				GenerateCommand::App {
-					path,
-					platform,
-					native_target,
-					name,
-					sdk_path,
-					db,
-					extension,
-					auth,
-				} => {
-					if let Some(target) = native_target {
-						anyhow::ensure!(
-							platform == leptoskit_config::Platform::Native,
-							"--native-target requires --platform native"
-						);
-						anyhow::ensure!(
-							db.is_none() && !auth,
-							"--db and --auth need the standard project; leave out --native-target"
-						);
-						anyhow::ensure!(
-							!extension,
-							"--extension needs the standard project; leave out --native-target"
-						);
-						return crate::native::scaffold::run_for_target(
-							&path,
-							name.as_deref(),
-							sdk_path.as_deref(),
-							Some(target),
-						);
-					}
-
-					new_project::run_with_options(
-						&path,
-						platform,
-						name.as_deref(),
-						sdk_path.as_deref(),
-						db,
-						extension,
-						auth,
-					)
-				}
-				GenerateCommand::Auth { idp, force } => crate::auth_pages::run(idp, force),
-				GenerateCommand::Plugin {
-					path,
-					name,
-					bridge_path,
-				} => generate::plugin(&path, name.as_deref(), bridge_path.as_deref()),
-				GenerateCommand::ToolPlugin { path, name } => {
-					generate::tool_plugin(&path, name.as_deref())
-				}
-				GenerateCommand::Deploy(args) => crate::deploy::run(&args),
-			}
-		}
+		Command::Generate { kind } => generate_command(kind),
 		Command::New {
 			path,
 			platform,
@@ -792,6 +756,60 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 			completions(shell);
 			Ok(())
 		}
+	}
+}
+
+fn generate_command(kind: GenerateCommand) -> anyhow::Result<()> {
+	match kind {
+		GenerateCommand::App {
+			path,
+			platform,
+			native_target,
+			name,
+			sdk_path,
+			db,
+			extension,
+			auth,
+		} => {
+			if let Some(target) = native_target {
+				anyhow::ensure!(
+					platform == leptoskit_config::Platform::Native,
+					"--native-target requires --platform native"
+				);
+				anyhow::ensure!(
+					db.is_none() && !auth,
+					"--db and --auth need the standard project; leave out --native-target"
+				);
+				anyhow::ensure!(
+					!extension,
+					"--extension needs the standard project; leave out --native-target"
+				);
+				return crate::native::scaffold::run_for_target(
+					&path,
+					name.as_deref(),
+					sdk_path.as_deref(),
+					Some(target),
+				);
+			}
+
+			new_project::run_with_options(
+				&path,
+				platform,
+				name.as_deref(),
+				sdk_path.as_deref(),
+				db,
+				extension,
+				auth,
+			)
+		}
+		GenerateCommand::Auth { idp, force } => crate::auth_pages::run(idp, force),
+		GenerateCommand::Plugin {
+			path,
+			name,
+			bridge_path,
+		} => generate::plugin(&path, name.as_deref(), bridge_path.as_deref()),
+		GenerateCommand::ToolPlugin { path, name } => generate::tool_plugin(&path, name.as_deref()),
+		GenerateCommand::Deploy(args) => crate::deploy::run(&args),
 	}
 }
 

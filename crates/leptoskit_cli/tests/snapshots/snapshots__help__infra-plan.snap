@@ -1,0 +1,11 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Initializes `OpenTofu` and saves an infrastructure plan. Does not apply it
+
+Usage: leptoskit infra plan
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

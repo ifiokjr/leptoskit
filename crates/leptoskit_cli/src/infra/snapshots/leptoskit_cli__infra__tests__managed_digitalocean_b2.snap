@@ -1,0 +1,228 @@
+---
+source: crates/leptoskit_cli/src/infra/tests.rs
+assertion_line: 66
+expression: value
+---
+{
+  "data": {
+    "cloudflare_zero_trust_tunnel_cloudflared_token": {
+      "app": {
+        "account_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "tunnel_id": "${cloudflare_zero_trust_tunnel_cloudflared.app.id}"
+      }
+    }
+  },
+  "output": {
+    "app_url": {
+      "value": "https://app.example.com"
+    },
+    "backup_bucket": {
+      "value": "${b2_bucket.backups.bucket_name}"
+    },
+    "backup_endpoint": {
+      "value": "https://s3.us-west-004.backblazeb2.com"
+    },
+    "private_ip": {
+      "value": "${digitalocean_droplet.app.ipv4_address_private}"
+    },
+    "s3_endpoint": {
+      "value": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com"
+    },
+    "server_ip": {
+      "value": "${digitalocean_droplet.app.ipv4_address}"
+    },
+    "server_ips": {
+      "value": "${concat([digitalocean_droplet.app.ipv4_address], [for s in values(digitalocean_droplet.replica) : s.ipv4_address])}"
+    },
+    "tunnel_token": {
+      "sensitive": true,
+      "value": "${data.cloudflare_zero_trust_tunnel_cloudflared_token.app.token}"
+    },
+    "updates_bucket": {
+      "value": "${cloudflare_r2_bucket.updates.name}"
+    },
+    "updates_url": {
+      "value": "https://updates.example.com"
+    }
+  },
+  "provider": {
+    "b2": {},
+    "cloudflare": {},
+    "digitalocean": {}
+  },
+  "resource": {
+    "b2_bucket": {
+      "backups": {
+        "bucket_name": "notes-backups",
+        "bucket_type": "allPrivate",
+        "lifecycle": {
+          "prevent_destroy": true
+        },
+        "lifecycle_rules": [
+          {
+            "days_from_hiding_to_deleting": 1,
+            "days_from_starting_to_canceling_unfinished_large_files": 7,
+            "file_name_prefix": ""
+          }
+        ]
+      }
+    },
+    "cloudflare_dns_record": {
+      "app": {
+        "content": "${cloudflare_zero_trust_tunnel_cloudflared.app.id}.cfargotunnel.com",
+        "name": "app.example.com",
+        "proxied": true,
+        "ttl": 1,
+        "type": "CNAME",
+        "zone_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    },
+    "cloudflare_r2_bucket": {
+      "updates": {
+        "account_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "lifecycle": {
+          "prevent_destroy": true
+        },
+        "name": "notes-releases"
+      }
+    },
+    "cloudflare_r2_custom_domain": {
+      "updates": {
+        "account_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "bucket_name": "${cloudflare_r2_bucket.updates.name}",
+        "domain": "updates.example.com",
+        "enabled": true,
+        "min_tls": "1.2",
+        "zone_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    },
+    "cloudflare_zero_trust_tunnel_cloudflared": {
+      "app": {
+        "account_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_src": "cloudflare",
+        "name": "notes-production"
+      }
+    },
+    "cloudflare_zero_trust_tunnel_cloudflared_config": {
+      "app": {
+        "account_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config": {
+          "ingress": [
+            {
+              "hostname": "app.example.com",
+              "service": "http://kamal-proxy:80"
+            },
+            {
+              "service": "http_status:404"
+            }
+          ]
+        },
+        "tunnel_id": "${cloudflare_zero_trust_tunnel_cloudflared.app.id}"
+      }
+    },
+    "digitalocean_droplet": {
+      "app": {
+        "image": "ubuntu-24-04-x64",
+        "ipv6": true,
+        "lifecycle": {
+          "prevent_destroy": true
+        },
+        "monitoring": true,
+        "name": "notes-production",
+        "region": "ams3",
+        "size": "s-1vcpu-2gb",
+        "ssh_keys": [
+          "123"
+        ],
+        "user_data": "#cloud-config\nssh_pwauth: false\ndisable_root: false\npackage_update: true\npackages:\n  - docker.io\n  - unattended-upgrades\n  - restic\n  - python3\nwrite_files:\n  - path: /etc/ssh/sshd_config.d/00-leptoskit.conf\n    content: |\n      PasswordAuthentication no\n      PermitRootLogin prohibit-password\n  - path: /etc/docker/daemon.json\n    content: '{\"log-driver\":\"local\",\"log-opts\":{\"max-size\":\"10m\",\"max-file\":\"3\"}}'\nruncmd:\n  - systemctl enable --now docker\n  - sshd -t\n  - systemctl restart ssh\n"
+      },
+      "replica": {
+        "for_each": {
+          "1": "10.42.0.11"
+        },
+        "image": "ubuntu-24-04-x64",
+        "ipv6": true,
+        "monitoring": true,
+        "name": "notes-production-${each.key}",
+        "region": "ams3",
+        "size": "s-1vcpu-2gb",
+        "ssh_keys": [
+          "123"
+        ],
+        "user_data": "#cloud-config\nssh_pwauth: false\ndisable_root: false\npackage_update: true\npackages:\n  - docker.io\n  - unattended-upgrades\n  - restic\n  - python3\nwrite_files:\n  - path: /etc/ssh/sshd_config.d/00-leptoskit.conf\n    content: |\n      PasswordAuthentication no\n      PermitRootLogin prohibit-password\n  - path: /etc/docker/daemon.json\n    content: '{\"log-driver\":\"local\",\"log-opts\":{\"max-size\":\"10m\",\"max-file\":\"3\"}}'\nruncmd:\n  - systemctl enable --now docker\n  - sshd -t\n  - systemctl restart ssh\n"
+      }
+    },
+    "digitalocean_firewall": {
+      "app": {
+        "droplet_ids": "${concat([digitalocean_droplet.app.id], [for s in values(digitalocean_droplet.replica) : s.id])}",
+        "inbound_rule": [
+          {
+            "port_range": "22",
+            "protocol": "tcp",
+            "source_addresses": [
+              "192.0.2.1/32"
+            ]
+          },
+          {
+            "port_range": "5432",
+            "protocol": "tcp",
+            "source_droplet_ids": "${concat([digitalocean_droplet.app.id], [for s in values(digitalocean_droplet.replica) : s.id])}"
+          },
+          {
+            "port_range": "4222",
+            "protocol": "tcp",
+            "source_droplet_ids": "${concat([digitalocean_droplet.app.id], [for s in values(digitalocean_droplet.replica) : s.id])}"
+          },
+          {
+            "port_range": "6379",
+            "protocol": "tcp",
+            "source_droplet_ids": "${concat([digitalocean_droplet.app.id], [for s in values(digitalocean_droplet.replica) : s.id])}"
+          }
+        ],
+        "name": "notes-production-origin",
+        "outbound_rule": [
+          {
+            "destination_addresses": [
+              "0.0.0.0/0",
+              "::/0"
+            ],
+            "port_range": "1-65535",
+            "protocol": "tcp"
+          },
+          {
+            "destination_addresses": [
+              "0.0.0.0/0",
+              "::/0"
+            ],
+            "port_range": "1-65535",
+            "protocol": "udp"
+          },
+          {
+            "destination_addresses": [
+              "0.0.0.0/0",
+              "::/0"
+            ],
+            "protocol": "icmp"
+          }
+        ]
+      }
+    }
+  },
+  "terraform": {
+    "required_providers": {
+      "b2": {
+        "source": "Backblaze/b2",
+        "version": ">= 0.10, < 1.0"
+      },
+      "cloudflare": {
+        "source": "cloudflare/cloudflare",
+        "version": "~> 5.0"
+      },
+      "digitalocean": {
+        "source": "digitalocean/digitalocean",
+        "version": "~> 2.0"
+      }
+    },
+    "required_version": ">= 1.10, < 2.0"
+  }
+}

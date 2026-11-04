@@ -1,0 +1,13 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Writes a consistent Postgres custom-format backup. Copy it off-site
+
+Usage: leptoskit infra backup [OPTIONS] --out <OUT>
+
+Options:
+      --out <OUT>  New output file; never overwrites an existing backup
+      --upload     Also upload the completed archive to the private backup bucket. Uses `AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY` scoped to that bucket
+  -h, --help       Print help
+  -V, --version    Print version

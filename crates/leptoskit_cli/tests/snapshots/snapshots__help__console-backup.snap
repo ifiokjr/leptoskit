@@ -1,0 +1,13 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Makes a consistent local backup of the management database
+
+Usage: leptoskit console backup [OPTIONS] --out <OUT>
+
+Options:
+      --data <DATA>  
+      --out <OUT>    
+  -h, --help         Print help
+  -V, --version      Print version

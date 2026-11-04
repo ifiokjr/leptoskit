@@ -48,6 +48,8 @@ pub(crate) enum Record<'a> {
 	/// That the migration was applied, without running it, because pushes
 	/// already made its changes; the pushes are forgotten.
 	Adopted,
+	/// Runs a reverse migration and removes its history entry.
+	Reverted,
 }
 
 /// One migration: its name, its SQL, and a checksum of that SQL.
@@ -59,6 +61,8 @@ pub struct Migration {
 	pub sql: Cow<'static, str>,
 	/// The SHA-256 of `sql`, in hex.
 	pub checksum: Cow<'static, str>,
+	/// Reviewed reverse SQL, when this migration supports rollback.
+	pub down: Option<Cow<'static, str>>,
 }
 
 impl Migration {
@@ -69,6 +73,7 @@ impl Migration {
 			name: Cow::Borrowed(name),
 			sql: Cow::Borrowed(sql),
 			checksum: Cow::Borrowed(checksum),
+			down: None,
 		}
 	}
 
@@ -79,6 +84,31 @@ impl Migration {
 			name: Cow::Owned(name.into()),
 			checksum: Cow::Owned(checksum(&sql)),
 			sql: Cow::Owned(sql),
+			down: None,
+		}
+	}
+
+	/// Attaches reverse SQL. A generated irreversible marker must be resolved
+	/// by the author before this SQL can be used for rollback.
+	#[must_use]
+	pub fn with_down(mut self, sql: impl Into<String>) -> Self {
+		self.down = Some(Cow::Owned(sql.into()));
+		self
+	}
+
+	/// Embeds a reverse migration alongside its forward SQL.
+	#[doc(hidden)]
+	pub const fn embedded_reversible(
+		name: &'static str,
+		sql: &'static str,
+		checksum: &'static str,
+		down: &'static str,
+	) -> Self {
+		Self {
+			name: Cow::Borrowed(name),
+			sql: Cow::Borrowed(sql),
+			checksum: Cow::Borrowed(checksum),
+			down: Some(Cow::Borrowed(down)),
 		}
 	}
 
@@ -112,7 +142,14 @@ pub fn load(directory: &Path) -> Result<Vec<Migration>, MigrationError> {
 	registry_names(&registry)
 		.map(|name| {
 			let sql = read(&directory.join(name).join("migration.sql"))?;
-			Ok(Migration::new(name, sql))
+			let mut migration = Migration::new(name, sql);
+			let path = directory.join(name).join("down.sql");
+			match std::fs::read_to_string(&path) {
+				Ok(down) => migration = migration.with_down(down),
+				Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+				Err(source) => return Err(MigrationError::Read { path, source }),
+			}
+			Ok(migration)
 		})
 		.collect()
 }
@@ -159,9 +196,63 @@ pub(crate) fn pending<'a>(
 		.collect())
 }
 
+/// Preflights the entire rollback before any reverse SQL executes. Only an
+/// applied registry prefix can be rolled back, newest first.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub(crate) fn reversing(
+	applied: &[(String, String)],
+	migrations: &[Migration],
+	steps: usize,
+) -> Result<Vec<Migration>, MigrationError> {
+	let _ = pending(applied, migrations)?;
+	if steps == 0
+		|| steps > applied.len()
+		|| migrations
+			.iter()
+			.take(applied.len())
+			.any(|m| !applied.iter().any(|(n, _)| n == &m.name))
+	{
+		return Err(MigrationError::RollbackHistory);
+	}
+	migrations[..applied.len()]
+		.iter()
+		.rev()
+		.take(steps)
+		.map(|migration| {
+			let down = migration
+				.down
+				.as_deref()
+				.filter(|sql| {
+					!sql.trim().is_empty()
+						&& !sql
+							.lines()
+							.any(|line| line.trim() == "-- leptoskit: irreversible")
+				})
+				.ok_or_else(|| {
+					MigrationError::Irreversible {
+						name: migration.name.to_string(),
+					}
+				})?;
+			Ok(Migration::new(migration.name.to_string(), down))
+		})
+		.collect()
+}
+
 /// Why migrating stopped.
 #[derive(Debug, thiserror::Error)]
 pub enum MigrationError {
+	/// A reverse migration is missing or needs manual implementation.
+	#[error("migration `{name}` has no reviewed down.sql; rollback stopped before making changes")]
+	Irreversible {
+		/// The migration.
+		name: String,
+	},
+	/// Rollback needs a positive count and an intact applied prefix.
+	#[error(
+		"rollback needs an applied registry prefix and a positive step count no larger than its \
+		 length"
+	)]
+	RollbackHistory,
 	/// A migration file couldn't be read.
 	#[error("couldn't read {}: {source}", path.display())]
 	Read {

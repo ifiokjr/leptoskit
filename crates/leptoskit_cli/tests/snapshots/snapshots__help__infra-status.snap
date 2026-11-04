@@ -1,0 +1,12 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+assertion_line: 199
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Reports application containers, the database, backups, and operation owner
+
+Usage: leptoskit infra status
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

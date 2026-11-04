@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_cli/src/deploy/tests.rs
+assertion_line: 124
 expression: pinned
 ---
 $ leptoskit generate deploy --target docker
@@ -89,8 +90,11 @@ CMD ["/app/server"]
 **/target
 /dist
 /.leptoskit
+/infra
+/.kamal
 /android/.gradle
 /android/**/build
 *.sqlite3*
+*.dump
 .env
 .env.*

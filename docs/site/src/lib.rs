@@ -1,6 +1,8 @@
 //! The leptoskit documentation site: the book in `docs/src`, built with
 //! `leptoskit_docs`, plus the handful of components only these docs use.
 
+pub mod ink;
+
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -24,7 +26,7 @@ pub fn book() -> PathBuf {
 
 /// The leptoskit site for the book in `root`.
 pub fn site(root: impl Into<PathBuf>) -> Site {
-	Site::new(root)
+	let mut site = Site::new(root)
 		.title("leptoskit")
 		.description(
 			"One leptos tree for the web and real native widgets on every platform, updated over \
@@ -37,7 +39,13 @@ pub fn site(root: impl Into<PathBuf>) -> Site {
 		.favicon("assets/mark.svg")
 		.social_image("assets/social.png")
 		.stylesheet("theme/leptoskit.css")
-		.components(components())
+		.stylesheet("theme/skribble.css")
+		.external_fonts(false)
+		.components(components());
+	for (name, bytes) in ink::files() {
+		site = site.generated_asset(name, bytes);
+	}
+	site
 }
 
 /// The built-in components and the ones only these docs use:

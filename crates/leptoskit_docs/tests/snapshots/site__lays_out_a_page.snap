@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_docs/tests/site.rs
+assertion_line: 241
 expression: "page.replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
@@ -22,9 +23,10 @@ expression: "page.replace(\"><\", \">\\n<\")"
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&amp;family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<script src="../_leptoskit/theme.js">
+</script>
 <link rel="stylesheet" href="../_leptoskit/site.css">
 <link rel="stylesheet" href="../assets/extra.css">
-<script>try{var t=localStorage.getItem("lk-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}</script>
 <script src="../_leptoskit/site.js" defer>
 </script>
 </head>

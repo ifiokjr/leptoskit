@@ -50,8 +50,11 @@ in
       nats-server
       nixfmt-rfc-style
       openssl
+      python3
+      restic
       rustup
       shfmt
+      sql-formatter
       taplo
       unzip
       xpkgs.monochange
@@ -507,6 +510,7 @@ in
         test:harmonyos
         test:docs
         deno test crates/leptoskit_rive/tests/lifecycle.mjs
+        deno test crates/leptoskit_app/tests/landing.mjs
       '';
       description = "Run all tests.";
       binary = "bash";

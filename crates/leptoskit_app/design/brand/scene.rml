@@ -1,0 +1,34 @@
+<Rive version="1" kind="fragment">
+    <Artboard width="64" height="64" name="LeptosKit" id="0:1" styleId="0:5">
+        <LayoutComponentStyle name="Artboard Style" id="0:5"/>
+        <Shape x="19" y="32" name="Ember tall" id="0:2">
+            <Rectangle width="22" height="48" cornerRadiusTL="6"/>
+            <Fill><LinearGradient startX="0" startY="-24" endX="8" endY="24">
+                <GradientStop colorValue="FFFF7A45" position="0"/>
+                <GradientStop colorValue="FFE5304F" position="1"/>
+            </LinearGradient></Fill>
+        </Shape>
+        <Shape x="45" y="45" name="Ember square" id="0:3">
+            <Rectangle width="22" height="22" cornerRadiusTL="6"/>
+            <Fill><LinearGradient startX="0" startY="-11" endX="4" endY="11">
+                <GradientStop colorValue="FFFF7A45" position="0"/>
+                <GradientStop colorValue="FFE5304F" position="1"/>
+            </LinearGradient></Fill>
+        </Shape>
+        <Shape x="48" y="16" rotation="-0.20943951" name="Mint arrival" id="0:4">
+            <Rectangle width="22" height="22" cornerRadiusTL="6"/>
+            <Fill><LinearGradient startX="-11" startY="-11" endX="11" endY="11">
+                <GradientStop colorValue="FF5EF2C2" position="0"/>
+                <GradientStop colorValue="FF14BF9B" position="1"/>
+            </LinearGradient></Fill>
+        </Shape>
+        <LinearAnimation fps="60" duration="45" loopValue="oneShot" name="Settle" id="0:6">
+            <KeyedObject objectId="0:4"><KeyedProperty propertyKey="15">
+                <KeyFrameDouble value="-0.20943951" interpolationType="linear"/>
+                <KeyFrameDouble value="-0.10471976" interpolationType="linear" frame="12"/>
+                <KeyFrameDouble value="-0.24434610" interpolationType="linear" frame="27"/>
+                <KeyFrameDouble value="-0.20943951" interpolationType="linear" frame="45"/>
+            </KeyedProperty></KeyedObject>
+        </LinearAnimation>
+    </Artboard>
+</Rive>

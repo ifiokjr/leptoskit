@@ -1,0 +1,12 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Links this app to a service. Reads `LEPTOSKIT_CONTROL_KEY`; stores it outside the repository
+
+Usage: leptoskit console connect --url <URL>
+
+Options:
+      --url <URL>  
+  -h, --help       Print help
+  -V, --version    Print version

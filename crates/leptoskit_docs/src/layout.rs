@@ -14,10 +14,6 @@ use crate::summary::Chapter;
 
 const FONTS: &str = "https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap";
 
-/// Applies a saved theme before the first paint, so a dark page never
-/// flashes light.
-const THEME: &str = r#"try{var t=localStorage.getItem("lk-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}"#;
-
 const MENU_ICON: &str = r#"<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>"#;
 const SEARCH_ICON: &str = r#"<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16 16 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>"#;
 const THEME_ICON: &str = r#"<svg class="lk-sun" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><svg class="lk-moon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>"#;
@@ -148,16 +144,20 @@ fn head(
 			.favicon
 			.as_ref()
 			.map(|icon| view! { <link rel="icon" href=at(icon) /> })}
-		<link rel="preconnect" href="https://fonts.googleapis.com" />
-		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
-		<link rel="stylesheet" href=FONTS />
+		{site.external_fonts.then(|| {
+			view! {
+				<link rel="preconnect" href="https://fonts.googleapis.com" />
+				<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+				<link rel="stylesheet" href=FONTS />
+			}
+		})}
+		<script src=at(&format!("{ASSETS}/theme.js")) />
 		<link rel="stylesheet" href=at(&format!("{ASSETS}/site.css")) />
 		{site
 			.stylesheets
 			.iter()
 			.map(|sheet| view! { <link rel="stylesheet" href=at(sheet) /> })
 			.collect::<Vec<_>>()}
-		<script inner_html=THEME />
 		<script src=at(&format!("{ASSETS}/site.js")) defer=true />
 	}
 }

@@ -1,0 +1,14 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Publishes an already signed code-push release to the provisioned bucket
+
+Usage: leptoskit infra publish [OPTIONS] --platform <PLATFORM>
+
+Options:
+      --platform <PLATFORM>  Platform whose signed release to publish
+      --store <STORE>        Local release store [default: releases]
+      --channel <CHANNEL>    Release channel [default: production]
+  -h, --help                 Print help
+  -V, --version              Print version

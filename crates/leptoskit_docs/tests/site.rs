@@ -217,6 +217,7 @@ fn builds_every_chapter_beside_its_source() {
 		"assets/extra.css",
 		"_leptoskit/site.css",
 		"_leptoskit/site.js",
+		"_leptoskit/theme.js",
 		"_leptoskit/search.json",
 	] {
 		assert!(out.path().join(page).is_file(), "{page} was not written");
@@ -238,6 +239,66 @@ fn lays_out_a_page() {
 	let page = read(out.path().join("guide/install.html"));
 
 	insta::assert_snapshot!(page.replace("><", ">\n<"));
+}
+
+#[test]
+fn chapters_can_use_local_fonts_and_external_scripts_under_a_same_origin_csp() {
+	let out = tempfile::tempdir().unwrap();
+	site(fixture())
+		.external_fonts(false)
+		.build(out.path())
+		.unwrap();
+	for path in ["index.html", "guide/install.html", "404.html"] {
+		let html = read(out.path().join(path));
+		assert!(!html.contains("fonts.googleapis.com"), "{path}");
+		assert!(!html.contains("fonts.gstatic.com"), "{path}");
+		assert!(!html.contains("<script>"), "{path}");
+		let theme = html.find("_leptoskit/theme.js").unwrap();
+		let stylesheet = html.find("_leptoskit/site.css").unwrap();
+		assert!(
+			theme < stylesheet,
+			"choose the theme before the first styled paint"
+		);
+	}
+	assert!(read(out.path().join("_leptoskit/theme.js")).contains("localStorage"));
+}
+
+#[test]
+fn generated_artwork_is_built_and_linked_without_mutating_sources() {
+	let root = book(&[
+		("SUMMARY.md", "[Home](readme.md)\n"),
+		(
+			"readme.md",
+			"# Home\n\n[Ink](_leptoskit/generated/frame.svg)\n",
+		),
+	]);
+	let out = tempfile::tempdir().unwrap();
+	let site = Site::new(root.path()).generated_asset("frame.svg", b"<svg/>".to_vec());
+	assert_eq!(site.build(out.path()).unwrap().files, 1);
+	assert_eq!(
+		read(out.path().join("_leptoskit/generated/frame.svg")),
+		"<svg/>"
+	);
+	assert!(!root.path().join("_leptoskit").exists());
+	for name in [
+		"",
+		"../outside.svg",
+		"/outside.svg",
+		"dir/file.svg",
+		"dir\\file.svg",
+		".hidden.svg",
+	] {
+		assert!(
+			site.clone()
+				.generated_asset(name, vec![])
+				.build(out.path())
+				.is_err()
+		);
+		assert_eq!(
+			read(out.path().join("_leptoskit/generated/frame.svg")),
+			"<svg/>"
+		);
+	}
 }
 
 #[test]

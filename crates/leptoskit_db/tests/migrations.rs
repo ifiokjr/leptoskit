@@ -4,6 +4,7 @@
 
 mod support;
 
+use leptoskit_db::Connection;
 use leptoskit_db::Db;
 use leptoskit_db::DbError;
 use leptoskit_db::Id;
@@ -31,6 +32,106 @@ pub struct Label {
 /// Three SQLite migrations: create the tables, add a column, and rebuild
 /// `notes` while `labels` references it.
 static MIGRATIONS: &[Migration] = leptoskit_db::migrations!("tests/fixtures/migrations");
+
+async fn reversible_history(db: &Db) {
+	use leptoskit_db::Statement;
+	let mut migrations = vec![
+		Migration::new(
+			"first",
+			"CREATE TABLE reversible (id INTEGER PRIMARY KEY, body TEXT NOT NULL);",
+		)
+		.with_down("DROP TABLE reversible;"),
+		Migration::new("second", "ALTER TABLE reversible ADD COLUMN extra TEXT;")
+			.with_down("ALTER TABLE reversible DROP COLUMN extra;"),
+	];
+	db.migrate(&migrations).await.unwrap();
+	db.execute(Statement {
+		sql: "INSERT INTO reversible (id, body) VALUES (1, 'kept')".into(),
+		args: vec![],
+	})
+	.await
+	.unwrap();
+	rejected_reversals(db, &mut migrations).await;
+	assert_eq!(db.rollback(&migrations, 1).await.unwrap(), ["second"]);
+	let rows = db
+		.fetch(Statement {
+			sql: "SELECT body FROM reversible".into(),
+			args: vec![],
+		})
+		.await
+		.unwrap();
+	assert_eq!(rows[0][0], leptoskit_db::Value::Text("kept".into()));
+	assert_eq!(db.migrate(&migrations).await.unwrap(), ["second"]);
+	assert_eq!(
+		db.rollback(&migrations, 2).await.unwrap(),
+		["second", "first"]
+	);
+	assert_eq!(db.applied_migrations().await.unwrap(), [] as [String; 0]);
+}
+
+async fn rejected_reversals(db: &Db, migrations: &mut [Migration]) {
+	use leptoskit_db::Statement;
+	assert!(db.rollback(migrations, 0).await.is_err());
+	assert!(db.rollback(migrations, 3).await.is_err());
+	migrations[1].down = None;
+	assert!(matches!(
+		db.rollback(migrations, 2).await,
+		Err(MigrationError::Irreversible { .. })
+	));
+	assert_eq!(db.applied_migrations().await.unwrap().len(), 2);
+	migrations[1] = migrations[1]
+		.clone()
+		.with_down("ALTER TABLE reversible DROP COLUMN extra; SELECT * FROM nonexistent;");
+	assert!(db.rollback(migrations, 1).await.is_err());
+	// Both schema mutation and history removal must roll back on failure.
+	db.fetch(Statement {
+		sql: "SELECT extra FROM reversible".into(),
+		args: vec![],
+	})
+	.await
+	.unwrap();
+	assert_eq!(db.applied_migrations().await.unwrap().len(), 2);
+	migrations[1] = migrations[1]
+		.clone()
+		.with_down("-- leptoskit: irreversible\nDROP TABLE reversible;");
+	assert!(matches!(
+		db.rollback(migrations, 1).await,
+		Err(MigrationError::Irreversible { .. })
+	));
+	migrations[1] = migrations[1]
+		.clone()
+		.with_down("ALTER TABLE reversible DROP COLUMN extra;");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sqlite_reverse_migrations_are_transactional() {
+	reversible_history(&Db::connect("sqlite::memory:").await.unwrap()).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reversing_an_embedded_rebuild_allows_the_previous_build_to_start() {
+	let db = leptoskit_db::testing::sqlite_migrated(MIGRATIONS).await;
+	let kept = note(&db, "survives down").await;
+	assert!(MIGRATIONS[2].down.is_some());
+	assert_eq!(
+		db.rollback(MIGRATIONS, 1).await.unwrap(),
+		["20261030T0900_check_note_bodies"]
+	);
+	assert_eq!(Note::get(&db, kept.id).await.unwrap().body, "survives down");
+	assert_eq!(Label::query().count(&db).await.unwrap(), 1);
+	assert_eq!(
+		db.migrate(&MIGRATIONS[..2]).await.unwrap(),
+		[] as [String; 0]
+	);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn postgres_reverse_migrations_are_transactional() {
+	let Some(cluster) = support::postgres::PostgresCluster::start() else {
+		return;
+	};
+	reversible_history(&Db::connect(&cluster.database()).await.unwrap()).await;
+}
 
 fn names(migrations: &[Migration]) -> Vec<&str> {
 	migrations

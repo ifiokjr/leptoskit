@@ -72,6 +72,38 @@ pub struct S3Bucket {
 }
 
 impl S3Bucket {
+	/// Streams an operator backup into a private bucket. This deliberately
+	/// does not expose arbitrary object keys through the code-push API.
+	pub fn upload_backup(&self, name: &str, path: &std::path::Path) -> Result<()> {
+		anyhow::ensure!(
+			!name.is_empty()
+				&& name
+					.bytes()
+					.all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b)),
+			"invalid backup name"
+		);
+		let key = format!("backups/{name}");
+		let mut action = self.bucket.put_object(Some(&self.credentials), &key);
+		action
+			.headers_mut()
+			.insert("content-type", "application/octet-stream");
+		action.headers_mut().insert("cache-control", "no-store");
+		let file = std::fs::File::open(path)?;
+		let response = self
+			.agent
+			.put(action.sign(PRESIGN_DURATION).as_str())
+			.header("content-type", "application/octet-stream")
+			.header("cache-control", "no-store")
+			.send(file)
+			.map_err(|error| request_error("PUT", &key, &error))?;
+		anyhow::ensure!(
+			response.status().is_success(),
+			"backup upload failed: HTTP {}",
+			response.status()
+		);
+		Ok(())
+	}
+
 	/// A bucket at `location`, signing with credentials from
 	/// [`ACCESS_KEY_ID_ENV`], [`SECRET_ACCESS_KEY_ENV`], and optionally
 	/// [`SESSION_TOKEN_ENV`].
