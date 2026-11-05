@@ -18,6 +18,10 @@
 
 pub mod routes;
 
+/// An application-owned draft survives leaving and returning to the editor.
+#[derive(Clone, Default)]
+struct Draft(reactive_graph::signal::ArcRwSignal<String>);
+
 /// A note's identifier in the URL.
 pub type NoteId = u64;
 
@@ -26,6 +30,7 @@ pub type NoteId = u64;
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
 #[leptos::component]
 pub fn App() -> impl leptos::prelude::IntoView {
+	reactive_graph::owner::provide_context(Draft::default());
 	let navigation = routes::Navigation::from_browser()
 		.unwrap_or_else(|_| routes::Navigation::new(routes::Route::Today));
 	move || leptoskit::web::render(navigation.render())
@@ -42,8 +47,12 @@ pub fn start() {
 #[cfg(all(target_arch = "wasm32", feature = "native"))]
 #[unsafe(no_mangle)]
 pub extern "C" fn leptoskit_main() {
+	let draft = Draft::default();
 	let navigation = routes::Navigation::new(routes::Route::Today);
-	leptoskit::guest::mount(move || navigation.render());
+	leptoskit::guest::mount(move || {
+		reactive_graph::owner::provide_context(draft.clone());
+		navigation.render()
+	});
 }
 
 /// Forwards platform-neutral events to the shared tree's handlers.

@@ -141,3 +141,59 @@ async fn a_url_with_a_stray_percent_sign_still_mounts() {
 		.replace_state_with_url(&JsValue::NULL, "", Some("/"))
 		.expect("restore the page");
 }
+
+#[wasm_bindgen_test]
+async fn compose_accepts_edits_and_keeps_the_draft_across_history() {
+	let history = window().history().unwrap();
+	history
+		.replace_state_with_url(&JsValue::NULL, "", Some("/notes/2"))
+		.unwrap();
+	let parent = container();
+	let mount = mount_to(parent.clone(), file_routes_example::App);
+	tick().await;
+	let reply = parent
+		.query_selector("a[aria-label=Reply]")
+		.unwrap()
+		.unwrap()
+		.dyn_into::<web_sys::HtmlElement>()
+		.unwrap();
+	reply.click();
+	tick().await;
+	let input = parent
+		.query_selector("input")
+		.unwrap()
+		.unwrap()
+		.dyn_into::<web_sys::HtmlInputElement>()
+		.unwrap();
+	input.set_value("A retained field note");
+	input
+		.dispatch_event(&web_sys::Event::new("input").unwrap())
+		.unwrap();
+	tick().await;
+	assert_eq!(input.value(), "A retained field note");
+	parent
+		.query_selector("button")
+		.unwrap()
+		.unwrap()
+		.dyn_into::<web_sys::HtmlElement>()
+		.unwrap()
+		.click();
+	settle().await;
+	tick().await;
+	assert_eq!(path(), "/notes/2");
+	history.forward().unwrap();
+	settle().await;
+	tick().await;
+	let input = parent
+		.query_selector("input")
+		.unwrap()
+		.unwrap()
+		.dyn_into::<web_sys::HtmlInputElement>()
+		.unwrap();
+	assert_eq!(input.value(), "A retained field note");
+	drop(mount);
+	parent.remove();
+	history
+		.replace_state_with_url(&JsValue::NULL, "", Some("/"))
+		.unwrap();
+}
