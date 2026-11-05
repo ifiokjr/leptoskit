@@ -60,6 +60,7 @@ pub struct ScreenState {
 	volume: Arc<RwLock<f64>>,
 	density: Arc<AtomicI32>,
 	password: Arc<RwLock<String>>,
+	search: Arc<RwLock<String>>,
 	on_change: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
@@ -91,6 +92,7 @@ impl ScreenState {
 			volume: Arc::new(RwLock::new(64.0)),
 			density: Arc::new(AtomicI32::new(0)),
 			password: Arc::new(RwLock::new(String::new())),
+			search: Arc::new(RwLock::new(String::new())),
 			on_change: None,
 		}
 	}
@@ -227,6 +229,23 @@ impl ScreenState {
 					.write()
 					.unwrap_or_else(PoisonError::into_inner),
 			);
+			state.notify();
+		}
+	}
+
+	/// The settings screen's application-owned search value.
+	pub fn search(&self) -> String {
+		self.search
+			.read()
+			.unwrap_or_else(PoisonError::into_inner)
+			.clone()
+	}
+
+	/// Accepts a search edit into application state.
+	pub fn set_search(&self) -> impl Fn(&str) + Send + Sync + 'static {
+		let state = self.clone();
+		move |value| {
+			value.clone_into(&mut state.search.write().unwrap_or_else(PoisonError::into_inner));
 			state.notify();
 		}
 	}

@@ -385,3 +385,31 @@ fn browser_assets_embed_the_same_bitmap_format() {
 		assert_eq!(declared as usize, bytes.len());
 	}
 }
+
+#[test]
+fn settings_search_retains_typed_text_after_rerender() {
+	use leptoskit_testing::Finder;
+	let screen = gallery::find_screen("settings").unwrap();
+	let state = ScreenState::new(Assets::at("assets"));
+	let rendered = state.clone();
+	let mut tester = leptoskit_testing::WidgetTester::new(
+		move || screen.render(&rendered),
+		screen.viewport.0,
+		screen.viewport.1,
+	)
+	.unwrap();
+	tester
+		.enter_text(&Finder::label("Search settings"), "Keyboard test")
+		.unwrap();
+	tester.tap(&Finder::label("Haptics")).unwrap();
+	assert_eq!(state.search(), "Keyboard test");
+	assert_eq!(
+		tester
+			.find(&Finder::label("Search settings"))
+			.unwrap()
+			.props
+			.value
+			.as_deref(),
+		Some("Keyboard test")
+	);
+}

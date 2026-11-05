@@ -166,6 +166,8 @@ pub fn Screen(state: &ScreenState) -> Element {
 						/>
 						<TextInput
 							placeholder="Search"
+							value=state.search()
+							on:change=state.set_search()
 							accessibility_label="Search settings"
 							font=(type_scale::BODY.size, type_scale::BODY.weight)
 							color=colors.ink

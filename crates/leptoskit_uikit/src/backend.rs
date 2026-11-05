@@ -333,10 +333,7 @@ impl UIKitBackend {
 			NativeKind::TextInput | NativeKind::PasswordInput => {
 				let field = UITextField::initWithFrame(UITextField::alloc(self.mtm), frame);
 				if kind == NativeKind::PasswordInput {
-					field.setSecureTextEntry(true);
-					field.setAutocorrectionType(UITextAutocorrectionType::No);
-					field.setSpellCheckingType(UITextSpellCheckingType::No);
-					field.setAutocapitalizationType(UITextAutocapitalizationType::None);
+					configure_password_field(&field);
 				}
 				let target = target();
 				field.setDelegate(Some(ProtocolObject::from_ref(&*target)));
@@ -963,7 +960,20 @@ fn apply_input_props(
 			.map(|text| NSString::from_str(text))
 			.as_deref(),
 	);
-	field.setTextContentType(content_type(props.text_content()));
+	// UITextField forwards this optional UITextInputTraits setter as well.
+	// SAFETY: the public setter accepts a nullable NSString and returns void.
+	unsafe {
+		let send: unsafe extern "C-unwind" fn(
+			&UITextField,
+			objc2::runtime::Sel,
+			Option<&UITextContentType>,
+		) = std::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn());
+		send(
+			field,
+			objc2::sel!(setTextContentType:),
+			content_type(props.text_content()),
+		);
+	}
 	field.setFont(Some(font));
 	field.setTextColor(Some(foreground));
 
@@ -1293,6 +1303,35 @@ impl Drop for UIKitBackend {
 
 		for widget in self.widgets.iter().flatten() {
 			widget.deactivate();
+		}
+	}
+}
+
+fn configure_password_field(field: &UITextField) {
+	field.setSecureTextEntry(true);
+	// UITextField forwards these optional protocol setters. Send them through
+	// the runtime so forwarding can run even when class method lookup fails.
+	for (selector, value) in [
+		(
+			objc2::sel!(setAutocorrectionType:),
+			UITextAutocorrectionType::No.0,
+		),
+		(
+			objc2::sel!(setSpellCheckingType:),
+			UITextSpellCheckingType::No.0,
+		),
+		(
+			objc2::sel!(setAutocapitalizationType:),
+			UITextAutocapitalizationType::None.0,
+		),
+	] {
+		// SAFETY: UITextInputTraits declares each setter as (NSInteger) ->
+		// void. objc_msgSend must be cast to that exact ABI before
+		// calling it.
+		unsafe {
+			let send: unsafe extern "C-unwind" fn(&UITextField, objc2::runtime::Sel, isize) =
+				std::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn());
+			send(field, selector, value);
 		}
 	}
 }

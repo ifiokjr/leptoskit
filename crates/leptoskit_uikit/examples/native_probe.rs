@@ -910,7 +910,11 @@ mod probe {
 				// SAFETY: UIKit exports immutable content-type strings.
 				unsafe { UITextContentTypeNewPassword }.to_string()
 			);
-			for (name, no) in [("autocorrectionType", 1), ("spellCheckingType", 1)] {
+			for (name, no) in [
+				("autocorrectionType", 1),
+				("spellCheckingType", 1),
+				("autocapitalizationType", 0),
+			] {
 				assert_eq!(
 					trait_value(name)
 						.downcast_ref::<NSNumber>()

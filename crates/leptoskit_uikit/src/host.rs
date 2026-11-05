@@ -250,6 +250,33 @@ define_class!(
 	#[ivars = ControllerState]
 	struct SurfaceController;
 	impl SurfaceController {
+		#[unsafe(method(viewDidLoad))]
+		fn loaded(&self) {
+			// SAFETY: UIViewController implements this lifecycle method; the
+			// recognizer targets this controller's recognizer action.
+			unsafe {
+				let _: () = msg_send![super(self), viewDidLoad];
+				let tap = objc2_ui_kit::UITapGestureRecognizer::initWithTarget_action(
+					objc2_ui_kit::UITapGestureRecognizer::alloc(self.mtm()),
+					Some(self), Some(objc2::sel!(dismissKeyboard:)),
+				);
+				tap.setCancelsTouchesInView(false);
+				self.view().unwrap().addGestureRecognizer(&tap);
+			}
+		}
+
+		#[unsafe(method(dismissKeyboard:))]
+		fn dismiss_keyboard(&self, tap: &objc2_ui_kit::UITapGestureRecognizer) {
+			let view = self.view().unwrap();
+			let mut hit = view.hitTest_withEvent(tap.locationInView(Some(&view)), None);
+			while let Some(node) = hit {
+				// Let text fields retain focus and their normal selection taps.
+				if node.isKindOfClass(objc2_ui_kit::UITextField::class()) { return; }
+				hit = node.superview();
+			}
+			view.endEditing(true);
+		}
+
 		#[unsafe(method(viewDidLayoutSubviews))]
 		fn layout(&self) {
 			let _keep_alive = self.retain();
