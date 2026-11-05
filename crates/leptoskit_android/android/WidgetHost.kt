@@ -1342,6 +1342,23 @@ class WidgetHost(
             clipToPadding = false
         }
 
+        override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
+            if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+                val editor = findFocus() as? EditText
+                if (editor != null) {
+                    val bounds = Rect()
+                    if (!editor.getGlobalVisibleRect(bounds) || !bounds.contains(event.rawX.toInt(), event.rawY.toInt())) {
+                        isFocusableInTouchMode = true
+                        requestFocus()
+                        editor.clearFocus()
+                        (context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                            .hideSoftInputFromWindow(editor.windowToken, 0)
+                    }
+                }
+            }
+            return super.dispatchTouchEvent(event)
+        }
+
         // Like FrameLayout, a container that never scrolls shows a child's
         // pressed state on touch down; scroll views still delay it.
         override fun shouldDelayChildPressedState(): Boolean = false

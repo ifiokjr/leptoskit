@@ -19,11 +19,19 @@ import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
+import android.widget.CheckBox
+import android.widget.CompoundButton
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.ProgressBar
+import android.widget.RadioButton
 import android.widget.ScrollView
+import android.widget.SeekBar
+import android.widget.Switch
 import android.widget.TextView
 import org.json.JSONObject
 import java.nio.ByteBuffer
@@ -43,6 +51,7 @@ internal class NativeWidgetRenderer(
     private val context get() = root.context
     private val density get() = root.resources.displayMetrics.density
     private val widgets = mutableMapOf<Long, View>()
+    private val controlProps = mutableMapOf<Long, WidgetProps>()
 
     /**
      * Deleted plain containers and labels, kept for the next screen to reuse
@@ -95,6 +104,7 @@ internal class NativeWidgetRenderer(
         movedScrolls.clear()
         retargeted.clear()
         widgets.clear()
+        controlProps.clear()
 
         recycledViews.clear()
         recycledTexts.clear()
@@ -149,6 +159,7 @@ internal class NativeWidgetRenderer(
             installRoot(batch.root)
             retargeted.forEach(NativeScrollView::scrollToTarget)
             updateCanvas(batch.root)
+            configureEditors()
         } finally {
             retargeted.clear()
 
@@ -209,6 +220,7 @@ internal class NativeWidgetRenderer(
 
             is RenderMutation.UpdateProps -> {
                 val view = widget(change.id)
+                rememberControl(change.id, view, change.props)
                 props.apply(view, change.props)
                 retarget(view, change.props.scrollOffset)
             }
@@ -227,6 +239,7 @@ internal class NativeWidgetRenderer(
 
             is RenderMutation.Delete -> {
                 riveBitmaps.remove(change.id)
+                controlProps.remove(change.id)
 
                 val view = widgets.remove(change.id) ?: return
                 if (view is NativeRiveImage) view.setImageDrawable(null)
@@ -279,6 +292,50 @@ internal class NativeWidgetRenderer(
                     }
                 }
 
+                "switch", "Switch" -> {
+                    toggle(id, Switch(context))
+                }
+
+                "checkbox", "Checkbox" -> {
+                    toggle(id, CheckBox(context))
+                }
+
+                "radio", "Radio" -> {
+                    toggle(id, RadioButton(context))
+                }
+
+                "slider", "Slider" -> {
+                    NativeSlider(context).apply {
+                        setOnSeekBarChangeListener(
+                            object : SeekBar.OnSeekBarChangeListener {
+                                override fun onProgressChanged(
+                                    bar: SeekBar,
+                                    progress: Int,
+                                    fromUser: Boolean,
+                                ) {
+                                    if (fromUser && !applying && isEnabled) {
+                                        val value = proposedValue(progress)
+                                        restoreControl(id, this@apply)
+                                        event(id, 7, "{\"value\":$value}")
+                                    }
+                                }
+
+                                override fun onStartTrackingTouch(bar: SeekBar) {}
+
+                                override fun onStopTrackingTouch(bar: SeekBar) {}
+                            },
+                        )
+                    }
+                }
+
+                "linear_progress_indicator", "LinearProgressIndicator" -> {
+                    ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal)
+                }
+
+                "activity_indicator", "ActivityIndicator" -> {
+                    ProgressBar(context)
+                }
+
                 "text_input", "TextInput" -> {
                     textInput(id, secure = false)
                 }
@@ -315,8 +372,81 @@ internal class NativeWidgetRenderer(
             }
         widget.tag = id
         widgets[id] = widget
+        rememberControl(id, widget, item.props)
         props.apply(widget, item.props)
         retarget(widget, item.props.scrollOffset)
+    }
+
+    private fun rememberControl(
+        id: Long,
+        view: View,
+        value: WidgetProps,
+    ) {
+        if (view is CompoundButton || view is NativeSlider) controlProps[id] = value
+    }
+
+    // Events are proposals. A guest may reject them without sending another prop update.
+    private fun restoreControl(
+        id: Long,
+        view: View,
+    ) {
+        val value = controlProps[id] ?: return
+        applying = true
+        try {
+            props.apply(view, value)
+        } finally {
+            applying = false
+        }
+    }
+
+    private fun configureEditors() {
+        val editors = mutableListOf<EditText>()
+
+        fun visit(view: View) {
+            if (!view.isEnabled || view.visibility != View.VISIBLE) return
+            if (view is EditText) editors.add(view)
+            if (view is ViewGroup) for (index in 0 until view.childCount) visit(view.getChildAt(index))
+        }
+        visit(root)
+        editors.forEachIndexed { index, editor ->
+            val next = editors.getOrNull(index + 1)
+            editor.imeOptions = if (next == null) EditorInfo.IME_ACTION_DONE else EditorInfo.IME_ACTION_NEXT
+            editor.nextFocusForwardId = next?.id ?: View.NO_ID
+        }
+    }
+
+    private fun toggle(
+        id: Long,
+        control: CompoundButton,
+    ): CompoundButton {
+        control.setPadding(0, 0, 0, 0)
+        control.minimumWidth = 0
+        control.minimumHeight = 0
+        val original = control.buttonDrawable
+        if (control !is Switch && original != null) {
+            // Android's themed glyph can be wider than Yoga's 20dp checkbox/radio frame.
+            // Let the native stateful drawable scale into that frame rather than clipping it.
+            control.buttonDrawable =
+                object : android.graphics.drawable.InsetDrawable(original, 0) {
+                    private fun extent(): Int =
+                        minOf(
+                            original.intrinsicWidth,
+                            control.width.takeIf { it > 0 } ?: original.intrinsicWidth,
+                            control.height.takeIf { it > 0 } ?: original.intrinsicHeight,
+                        )
+
+                    override fun getIntrinsicWidth(): Int = extent()
+
+                    override fun getIntrinsicHeight(): Int = extent()
+                }
+        }
+        control.setOnCheckedChangeListener { _, checked ->
+            if (!applying && control.isEnabled && (control !is RadioButton || checked)) {
+                restoreControl(id, control)
+                event(id, 6, "{\"checked\":$checked}")
+            }
+        }
+        return control
     }
 
     /** A secure field masks its text, and the keyboard neither suggests nor learns it. */
@@ -325,6 +455,7 @@ internal class NativeWidgetRenderer(
         secure: Boolean,
     ): EditText {
         val input = EditText(context)
+        input.id = View.generateViewId()
         input.isSingleLine = true
         // After single-line mode, which would replace the password masking.
         if (secure) {
@@ -332,9 +463,27 @@ internal class NativeWidgetRenderer(
                 InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         }
         input.addTextChangedListener(InputWatcher(id, event))
-        input.setOnEditorActionListener { _, _, _ ->
-            event(id, SUBMIT, input.text.toString())
-            true
+        input.imeOptions = EditorInfo.IME_ACTION_DONE
+        input.setOnEditorActionListener { _, action, key ->
+            val enter = action == EditorInfo.IME_NULL && key?.keyCode == android.view.KeyEvent.KEYCODE_ENTER
+            // Consume the down as well: EditText otherwise performs its own focus search first.
+            if (enter && key?.action == android.view.KeyEvent.ACTION_DOWN) return@setOnEditorActionListener true
+            val requested = if (enter) input.imeOptions and EditorInfo.IME_MASK_ACTION else action
+            when (requested) {
+                EditorInfo.IME_ACTION_NEXT -> {
+                    root.findViewById<EditText>(input.nextFocusForwardId)?.requestFocus() == true
+                }
+
+                EditorInfo.IME_ACTION_DONE, EditorInfo.IME_ACTION_GO, EditorInfo.IME_ACTION_SEND, EditorInfo.IME_ACTION_SEARCH -> {
+                    dismissEditor(root, input)
+                    event(id, SUBMIT, input.text.toString())
+                    true
+                }
+
+                else -> {
+                    false
+                }
+            }
         }
 
         input.setOnFocusChangeListener { _, focused -> event(id, if (focused) FOCUS else BLUR, "") }
@@ -786,5 +935,51 @@ internal class NativeDevtoolsOverlay(
         const val INTERVAL_MS = 100L
         const val STROKE = 0xFFE500FF.toInt()
         const val FILL = 0x22E500FF
+    }
+}
+
+/** A finite slider range mapped to Android's integer track without truncating its values. */
+internal class NativeSlider(
+    context: Context,
+) : SeekBar(context) {
+    var minimum = 0.0
+    var maximum = 1.0
+    var step: Double? = null
+
+    init {
+        max = 10000
+    }
+
+    fun proposedValue(progress: Int): Double {
+        val value = minimum + progress.toDouble() / max * (maximum - minimum)
+        val increment = step ?: return value.coerceIn(minimum, maximum)
+        val last = floor((maximum - minimum) / increment + 1e-10)
+        val index = floor((value - minimum) / increment + 0.5).coerceIn(0.0, last)
+        return (minimum + index * increment).coerceIn(minimum, maximum)
+    }
+}
+
+/** Clear focus without letting Android immediately give it back to the first editor. */
+internal fun dismissEditor(
+    root: ViewGroup,
+    editor: EditText,
+) {
+    root.isFocusableInTouchMode = true
+    root.requestFocus()
+    editor.clearFocus()
+    (root.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+        .hideSoftInputFromWindow(editor.windowToken, 0)
+}
+
+/** Observe the down event; let its original target still receive the entire gesture. */
+internal fun dismissEditorOutside(
+    root: ViewGroup,
+    event: MotionEvent,
+) {
+    if (event.actionMasked != MotionEvent.ACTION_DOWN) return
+    val editor = root.findFocus() as? EditText ?: return
+    val bounds = Rect()
+    if (!editor.getGlobalVisibleRect(bounds) || !bounds.contains(event.rawX.toInt(), event.rawY.toInt())) {
+        dismissEditor(root, editor)
     }
 }

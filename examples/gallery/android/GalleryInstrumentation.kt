@@ -175,6 +175,14 @@ class GalleryInstrumentation : Instrumentation() {
             check(editor.width * 2 > root.width) {
                 "The phone studio editor is ${editor.width}px wide in a ${root.width}px screen, so it is not one column"
             }
+            editor.isFocusableInTouchMode = true
+            check(editor.requestFocus())
+        }
+        val heading = views(activity).filterIsInstance<TextView>().first { it.text.toString() == "Shared by design" }
+        tap(heading)
+        painted(activity)
+        onMain {
+            check(!editor.hasFocus()) { "Tapping outside the password field retained focus" }
             editor.setText("Gallery value")
             check(editor.text.toString() == "Gallery value")
             check(root.canScrollVertically(1)) { "Phone studio has no vertical document overflow" }
