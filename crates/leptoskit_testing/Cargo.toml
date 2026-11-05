@@ -31,7 +31,7 @@ serde_json = { workspace = true, optional = true }
 rustix = { workspace = true, optional = true, features = ["process"] }
 
 [[example]]
-name = "schema"
+name = "testing_schema"
 required-features = ["schema"]
 
 [lints]

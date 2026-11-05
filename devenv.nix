@@ -1281,7 +1281,7 @@ in
       exec = ''
         set -euo pipefail
         cargo run --quiet --locked --package leptoskit_config --features schema --example schema
-        cargo run --quiet --locked --package leptoskit_testing --features schema --example schema
+        cargo run --quiet --locked --package leptoskit_testing --features schema --example testing_schema
       '';
       description = "Generate public configuration and control schemas from Rust types.";
       binary = "bash";
@@ -1290,7 +1290,7 @@ in
       exec = ''
         set -euo pipefail
         cargo run --quiet --locked --package leptoskit_config --features schema --example schema -- --check
-        cargo run --quiet --locked --package leptoskit_testing --features schema --example schema -- --check
+        cargo run --quiet --locked --package leptoskit_testing --features schema --example testing_schema -- --check
       '';
       description = "Check public configuration and control schemas for drift.";
       binary = "bash";
