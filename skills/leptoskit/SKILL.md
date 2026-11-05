@@ -9,16 +9,16 @@ A leptoskit app is one tree of components (`View`, `Text`, `Button`, …) styled
 
 The `leptoskit` command (or `lk`) does the work. Run it from the project root. `leptoskit --help` and `leptoskit <command> --help` describe every flag.
 
-| Task                        | Command                                                      |
-| --------------------------- | ------------------------------------------------------------ |
-| Start a project             | `leptoskit new my_app` (`--db sqlite`, `--extension`)        |
-| Check the machine           | `leptoskit doctor`                                           |
-| Run every platform, live    | `leptoskit dev` (`--platform web`, `ios`, `extension`, …)    |
-| Build one platform          | `leptoskit build --platform <platform> [--release]`          |
-| Test a browser extension    | `leptoskit test extension`                                   |
-| Database migrations         | `leptoskit db migration create <name>`, `leptoskit db check` |
-| Release to the stores       | `leptoskit publish [stores] [--dry-run] [--submit]`          |
-| Update screens over the air | `leptoskit codepush release --platform ios`                  |
+| Task                        | Command                                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------------------ |
+| Start a project             | `leptoskit new my_app` (`--db sqlite`, `--extension`)                                      |
+| Check the machine           | `leptoskit doctor` (per-platform tools; `--all` for every platform this machine can build) |
+| Run every platform, live    | `leptoskit dev` (`--platform web`, `ios`, `extension`, …)                                  |
+| Build one platform          | `leptoskit build --platform <platform> [--release]`                                        |
+| Test a browser extension    | `leptoskit test extension`                                                                 |
+| Database migrations         | `leptoskit db migration create <name>`, `leptoskit db check`                               |
+| Release to the stores       | `leptoskit publish [stores] [--dry-run] [--submit]`                                        |
+| Update screens over the air | `leptoskit codepush release --platform ios`                                                |
 
 ## Working rules
 

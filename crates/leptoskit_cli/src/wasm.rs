@@ -425,43 +425,33 @@ pub fn rustflags_config_arg(rustflags: &[String]) -> String {
 	format!("target.{WASM_TARGET}.rustflags={array}")
 }
 
-/// The cargo messages `--message-format=json` prints that [`compile_wasm`]
-/// reads: compiled artifacts and the files they wrote.
-#[derive(Debug, Deserialize)]
-struct ArtifactMessage {
-	reason: String,
-	target: Option<ArtifactTarget>,
-	#[serde(default)]
-	filenames: Vec<PathBuf>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ArtifactTarget {
-	kind: Vec<String>,
-}
-
 /// The `.wasm` a cdylib artifact in cargo's JSON message stream wrote: the
-/// compiled client, wherever the profile and target directory put it.
+/// compiled client, wherever the profile and target directory put it. The
+/// compiler's diagnostics print along the way; with
+/// `--message-format=json-render-diagnostics` they exist only in this
+/// stream, so a reader that dropped them hid warnings and errors.
 pub fn wasm_in_messages(messages: impl BufRead) -> Result<Option<PathBuf>> {
 	let mut wasm = None;
 
-	for line in messages.lines() {
-		let line = line.context("could not read cargo's output")?;
-		let Ok(message) = serde_json::from_str::<ArtifactMessage>(&line) else {
-			continue;
-		};
+	crate::cargo_messages::stream(messages, |message| {
 		let is_cdylib = message
 			.target
+			.as_ref()
 			.is_some_and(|target| target.kind.iter().any(|kind| kind == "cdylib"));
 
-		if message.reason == "compiler-artifact" && is_cdylib {
-			let file = message.filenames.into_iter().find(|file| {
+		if message.reason != "compiler-artifact" || !is_cdylib || wasm.is_some() {
+			return;
+		}
+
+		wasm = message
+			.filenames
+			.iter()
+			.find(|file| {
 				file.extension()
 					.is_some_and(|extension| extension == "wasm")
-			});
-			wasm = file.or(wasm);
-		}
-	}
+			})
+			.cloned();
+	})?;
 
 	Ok(wasm)
 }
@@ -473,8 +463,8 @@ pub fn wasm_in_messages(messages: impl BufRead) -> Result<Option<PathBuf>> {
 ///
 /// The artifact's path comes from cargo's JSON messages rather than from
 /// cargo's directory naming, so any profile (`bundle.cargo_profile` included)
-/// and any target directory resolve exactly. Diagnostics still render to the
-/// terminal as usual.
+/// and any target directory resolve exactly. Diagnostics reach the terminal
+/// through the same stream; see [`wasm_in_messages`].
 pub fn compile_wasm(root: &Path, client: &ClientInfo, options: &CargoOptions) -> Result<PathBuf> {
 	let mut child = cargo_build_command(root, &client.name, options)
 		.arg("--lib")

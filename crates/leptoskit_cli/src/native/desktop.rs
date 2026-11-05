@@ -222,6 +222,17 @@ fn plugin_packages(
 	registrations: &mut String,
 ) -> Result<()> {
 	for (plugin, module, kind) in super::project::apple_plugins(registry, Target::Macos)? {
+		// CocoaPods integrates into Xcode projects, not Swift packages: the
+		// macOS host builds without the plugin's pods, so its Swift must not
+		// import them here.
+		if plugin.uses_pods() {
+			crate::ui::warning(format!(
+				"{} declares apple-pods, which the macOS host cannot install: it builds without \
+				 them; use a Swift package for macOS or mark the plugin unavailable there",
+				plugin.name
+			));
+		}
+
 		copy_package(&plugin.directory, &packages.join(&plugin.package_name))?;
 		writeln!(
 			dependencies,
