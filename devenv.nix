@@ -154,7 +154,7 @@ in
       "secrets:commit" = {
         enable = true;
         verbose = true;
-        pass_filenames = true;
+        pass_filenames = false;
         name = "secrets";
         description = "Scan staged changes for leaked secrets with gitleaks.";
         entry = "${pkgs.gitleaks}/bin/gitleaks protect --staged --verbose --redact";
@@ -163,7 +163,7 @@ in
       "lint:format" = {
         enable = true;
         verbose = true;
-        pass_filenames = true;
+        pass_filenames = false;
         name = "lint:format";
         description = "Run workspace autofixes before commit and restage the results.";
         entry = "${config.env.DEVENV_PROFILE}/bin/fix:format";
