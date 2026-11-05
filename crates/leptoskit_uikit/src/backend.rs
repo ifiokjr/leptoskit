@@ -25,6 +25,7 @@ use objc2_core_foundation::CGPoint;
 use objc2_core_foundation::CGRect;
 use objc2_core_foundation::CGSize;
 use objc2_foundation::NSNumber;
+use objc2_foundation::NSObjectNSKeyValueCoding;
 use objc2_foundation::NSString;
 use objc2_foundation::NSURL;
 use objc2_quartz_core::CABasicAnimation;
@@ -60,7 +61,6 @@ use objc2_ui_kit::UITextContentTypePassword;
 use objc2_ui_kit::UITextContentTypeUsername;
 use objc2_ui_kit::UITextField;
 use objc2_ui_kit::UITextInput;
-use objc2_ui_kit::UITextInputTraits;
 use objc2_ui_kit::UITextSpellCheckingType;
 use objc2_ui_kit::UIUserInterfaceStyle;
 use objc2_ui_kit::UIView;
@@ -333,10 +333,7 @@ impl UIKitBackend {
 			NativeKind::TextInput | NativeKind::PasswordInput => {
 				let field = UITextField::initWithFrame(UITextField::alloc(self.mtm), frame);
 				if kind == NativeKind::PasswordInput {
-					field.setSecureTextEntry(true);
-					field.setAutocorrectionType(UITextAutocorrectionType::No);
-					field.setSpellCheckingType(UITextSpellCheckingType::No);
-					field.setAutocapitalizationType(UITextAutocapitalizationType::None);
+					apply_password_traits(&field);
 				}
 				let target = target();
 				field.setDelegate(Some(ProtocolObject::from_ref(&*target)));
@@ -940,6 +937,29 @@ fn apply_button_props(
 	}
 }
 
+/// Masks passwords and prevents keyboard correction or capitalization.
+fn apply_password_traits(field: &UITextField) {
+	// UIKit forwards these optional traits. KVC supports that forwarding.
+	// SAFETY: these public UITextField properties receive their documented
+	// boolean and integer types, boxed as NSNumber.
+	unsafe {
+		field.setValue_forKey(
+			Some(&NSNumber::new_bool(true)),
+			&NSString::from_str("secureTextEntry"),
+		);
+		for (key, value) in [
+			("autocorrectionType", UITextAutocorrectionType::No.0),
+			("spellCheckingType", UITextSpellCheckingType::No.0),
+			(
+				"autocapitalizationType",
+				UITextAutocapitalizationType::None.0,
+			),
+		] {
+			field.setValue_forKey(Some(&NSNumber::new_isize(value)), &NSString::from_str(key));
+		}
+	}
+}
+
 fn apply_input_props(
 	field: &UITextField,
 	props: &NativeProps,
@@ -963,7 +983,14 @@ fn apply_input_props(
 			.map(|text| NSString::from_str(text))
 			.as_deref(),
 	);
-	field.setTextContentType(content_type(props.text_content()));
+	// SAFETY: textContentType is a public optional NSString property. KVC
+	// supports UIKit's forwarding of UITextInputTraits methods.
+	unsafe {
+		field.setValue_forKey(
+			content_type(props.text_content()).map(AsRef::as_ref),
+			&NSString::from_str("textContentType"),
+		);
+	}
 	field.setFont(Some(font));
 	field.setTextColor(Some(foreground));
 
