@@ -79,14 +79,15 @@ extern "C" void lk_async_release(lk_async_job* job) {
 }
 extern "C" void lk_async_start(
     lk_async_job* job, void* context, void (*completed)(void*, lk_worker_reply*)) {
-    started.fetch_add(1);
     Pending item{job, context, completed};
 
     if (job->mode == 0) {
+        started.fetch_add(1);
         complete(item); // Exercise callback before start returns.
     } else {
         std::lock_guard<std::mutex> lock(pending_mutex);
         pending.push_back(item);
+        started.fetch_add(1);
     }
 }
 extern "C" void lk_worker_reply_release(lk_worker_reply* reply) {
