@@ -103,7 +103,7 @@ fn build_kotlin_jar(root: &Path, directory: &Path, coroutines: &Path) -> PathBuf
 }
 
 #[test]
-#[ignore = "run by test:plugins:jni, which provides the Kotlin/JDK and C++ toolchains; https://github.com/ifiokjr/leptoskit/issues/86"]
+#[ignore = "run by test:plugins:jni, which provides the Kotlin/JDK and C++ toolchains; https://github.com/leptoskit/leptoskit/issues/86"]
 fn jni_async_callbacks_release_cancelled_capacity_after_cleanup() {
 	let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 	let unique = SystemTime::now()

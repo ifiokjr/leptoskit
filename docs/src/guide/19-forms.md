@@ -49,5 +49,5 @@ Build custom inputs from `field_wiring` when `TextInput` is not the control; eve
 
 Async validators, form-level rules across fields, and dirty tracking follow the same reducer pattern; server-side validation results merge through the same `errors` map.
 
-[readme-form]: https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_form
-[readme-field]: https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_form#fields-and-state
+[readme-form]: https://github.com/leptoskit/leptoskit/tree/main/crates/leptoskit_form
+[readme-field]: https://github.com/leptoskit/leptoskit/tree/main/crates/leptoskit_form#fields-and-state

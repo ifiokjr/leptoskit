@@ -67,10 +67,10 @@
 //! `leptoskit rpc generate` writes typed clients for any language that speak
 //! the RPC's own protocol. See the book's "Sharing the RPC" chapter.
 #![doc(
-	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
+	html_logo_url = "https://raw.githubusercontent.com/leptoskit/leptoskit/main/docs/src/assets/icon.svg"
 )]
 #![doc(
-	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
+	html_favicon_url = "https://raw.githubusercontent.com/leptoskit/leptoskit/main/docs/src/assets/mark.svg"
 )]
 
 use std::future::Future;

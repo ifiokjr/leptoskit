@@ -39,7 +39,7 @@ pub(crate) const ASSETS: &str = "_leptoskit";
 ///
 /// let build = Site::new("docs/src")
 /// 	.title("leptoskit")
-/// 	.repository("https://github.com/ifiokjr/leptoskit")
+/// 	.repository("https://github.com/leptoskit/leptoskit")
 /// 	.build("docs/dist")?;
 /// println!("built {} pages", build.pages);
 /// # Ok::<(), leptoskit_docs::Error>(())

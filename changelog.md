@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-11-05)
+## [0.2.0](https://github.com/leptoskit/leptoskit/releases/tag/v0.2.0) (2026-11-05)
 
 Grouped release for `release`.
 
@@ -14,7 +14,7 @@ Grouped release for `release`.
 
 _Packages:_ 🔴 _leptoskit_testing_library_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_testing_library` provides Testing Library queries and widget-test actions for leptoskit components mounted in a real browser.
 
@@ -22,7 +22,7 @@ It mounts through the web renderer and shares finders with `leptoskit_testing`, 
 
 #### Start the first release at 0.2.0
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #486](https://github.com/ifiokjr/leptoskit/pull/486)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #486](https://github.com/leptoskit/leptoskit/pull/486)
 
 This is leptoskit's first public release, and every crate in it is `0.2.0`. The workspace, its internal crate dependencies, and the example apps that pin them all start from `0.1.0`, and a breaking (`major`) change before 1.0 raises the minor version, so the release lands on `0.2.0`. Several of the crate names already have a `0.1.0` on crates.io, which never accepts the same version twice, so the first release has to sit above it.
 
@@ -32,7 +32,7 @@ Apps that `leptoskit new` creates pin the exact version of the CLI that made the
 
 _Packages:_ 🔴 _leptoskit_yoga_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_yoga` is a from-scratch layout engine that turns one `Style` into flexbox or CSS grid geometry, with no C dependencies and no platform lock-in.
 
@@ -42,7 +42,7 @@ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://g
 
 _Packages:_ 🔴 _leptoskit_use_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_use` provides cross-platform reactive primitives inspired by leptos-use: state, derived values, watchers, timers, storage, and viewport breakpoints without a DOM or executor.
 
@@ -52,7 +52,7 @@ The hooks read leptos signals and accept host services explicitly, so the same c
 
 _Packages:_ 🔴 _leptoskit_native_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_native` is the native side of the shared tree: builders for every component, from `View`, `Text`, and `Button` to `TextInput`, `PasswordInput`, `Slider`, and `ScrollView`, the Tailwind compiler, the retained element tree, and the diff that turns a commit into a mutation batch.
 
@@ -62,7 +62,7 @@ Every native backend implements `NativeBackend` and consumes the mutations this 
 
 _Packages:_ 🔴 _leptoskit_testing_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_testing` runs Flutter-style widget tests over the production renderer and Yoga layout, so a screen can be tested without a device or simulator.
 
@@ -72,7 +72,7 @@ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://g
 
 _Packages:_ 🔴 _leptoskit_tui_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_tui` draws the same shared element tree in the terminal, for long-lived interactive apps such as editors, dashboards, and chat clients, with keyboard focus, the cursor, mouse input, and scrolling handled by the backend.
 
@@ -82,7 +82,7 @@ Every cell is 8×16 logical pixels, so Yoga layout, Tailwind spacing, and text m
 
 _Packages:_ 🔴 _leptoskit_appkit_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_appkit` is the macOS backend: it applies leptoskit mutation batches to real `NSView`s, from labels and buttons to `NSSecureTextField` password fields, sliders, and scroll views, and measures text with AppKit's own fonts.
 
@@ -92,7 +92,7 @@ A `NativeSurface` built on `AppKitBackend` renders the same tree the web build r
 
 _Packages:_ 🔴 _leptoskit_uikit_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_uikit` is the iOS backend: it renders shared leptoskit components as real UIKit views and controls, such as `UISwitch`, `UISlider`, `UIProgressView`, and secure text fields for password inputs, and measures text with Core Text.
 
@@ -102,7 +102,7 @@ It draws every component when you host screens with `UIKitHost` in your own app,
 
 _Packages:_ 🔴 _leptoskit_android_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_android` is the Android Views backend: it applies the shared mutation stream to real Android views, with Yoga owning exact outer frames and Android owning each control's interior.
 
@@ -112,7 +112,7 @@ Compile `android/WidgetHost.kt` into an Android app and construct `AndroidBacken
 
 _Packages:_ 🔴 _leptoskit_gtk_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_gtk` renders the shared element tree as real GTK 4 Linux widgets, consuming the same Yoga mutation stream as every other backend, and draws every built-in component. It needs GTK 4.6 or newer.
 
@@ -122,7 +122,7 @@ The Linux app `leptoskit new` generates uses it through the `linux` feature. A h
 
 _Packages:_ 🔴 _leptoskit_windows_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_windows` renders shared leptoskit elements as Win32 windows and native controls: every element owns a child window, and interactive elements, password fields included, use real Windows controls so keyboard and accessibility behave natively.
 
@@ -132,7 +132,7 @@ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://g
 
 _Packages:_ 🔴 _leptoskit_aria_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_aria` provides headless accessible components for the shared element tree: disclosure, toggle buttons, tabs, labeled fields, and dialogs with roles and state wired for web and native.
 
@@ -142,7 +142,7 @@ It owns behavior, not pixels: app code styles the pieces with Tailwind and gets 
 
 _Packages:_ 🔴 _leptoskit_analytics_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #513](https://github.com/ifiokjr/leptoskit/pull/513)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #513](https://github.com/leptoskit/leptoskit/pull/513)
 
 `leptoskit_analytics` keeps bounded, in-memory request and browser measurements for a leptoskit app, so you can see which routes fail or slow down without running a separate observability service.
 
@@ -152,7 +152,7 @@ Enable `analytics` alongside `server` on the `leptoskit` dependency. The `server
 
 _Packages:_ 🔴 _leptoskit_deploy_console_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #513](https://github.com/ifiokjr/leptoskit/pull/513)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #513](https://github.com/leptoskit/leptoskit/pull/513)
 
 `leptoskit_deploy_console` is the optional service behind `lk console`: one process that hosts the deployment dashboard, a durable operation queue, a scoped API for agents, and analytics history, backed by SQLite.
 
@@ -162,7 +162,7 @@ Run `lk console serve` on a trusted worker with Docker, OpenTofu, Kamal 2, Git, 
 
 _Packages:_ 🔴 _leptoskit_form_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_form` is headless form state in the style of TanStack Form: typed fields, sync validation, touch and submit tracking, and inputs wired through the aria fields.
 
@@ -172,7 +172,7 @@ A form declares `FieldSpec`s once; the same state drives web inputs and native c
 
 _Packages:_ 🔴 _leptoskit_config_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_config` loads and validates `leptoskit.toml`: app identity and platforms, server and build settings, native targets and plugin grants, code push channels, routes, translations, the database, sign-in, infrastructure, browser extensions, store publishing, plugins, formatting, and lint settings.
 
@@ -182,7 +182,7 @@ The CLI, build pipeline, dev server, and native hosts all read the same typed co
 
 _Packages:_ 🔴 _leptoskit_plugin_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin` is the build-hook system shared by leptoskit plugins and leptos plugins: generated code, feature flags, environment variables, asset directories, post-build reports, and a plugin's own `plugin:<name>` commands.
 
@@ -192,7 +192,7 @@ Plugins are declared in `leptoskit.toml`. A Rust plugin crate implements `Leptos
 
 _Packages:_ 🔴 _leptoskit_bridge_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_bridge` is the bounded binary transport between a Wasm guest and the native plugins it is allowed to call.
 
@@ -202,7 +202,7 @@ The host registers each plugin and grants its methods, so an over-the-air bundle
 
 _Packages:_ 🔴 _leptoskit_bridge_ffi_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_bridge_ffi` is the C ABI, plus the Swift, Kotlin, and C++ code, that lets a native app shell host a leptoskit Wasm guest: it runs the guest, forwards its plugin calls, and draws its tree with the platform's own views.
 
@@ -212,7 +212,7 @@ The macOS, iOS, and Android apps `leptoskit new` generates link it, and HarmonyO
 
 _Packages:_ 🔴 _leptoskit_build_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_build` is the build-script helper behind `platform_module!`: it records which platform-specific modules exist and cfg-selects them while one app keeps a single module tree.
 
@@ -222,7 +222,7 @@ Generated apps call it from `build.rs`. It lets a shared module be replaced by a
 
 _Packages:_ 🔴 _leptoskit_plugin_crypto_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_crypto` is the leptoskit plugin for portable SHA-256, SHA-512, secure random bytes, and UUID v4 with a binary native bridge.
 
@@ -232,7 +232,7 @@ Add `leptoskit_plugin_crypto` as a direct dependency and select the `crypto` plu
 
 _Packages:_ 🔴 _leptoskit_plugin_os_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_os` is the leptoskit plugin for the host operating system and CPU architecture as seen from inside a Wasm guest.
 
@@ -242,7 +242,7 @@ Add `leptoskit_plugin_os` as a direct dependency and select the `os` plugin in `
 
 _Packages:_ 🔴 _leptoskit_plugin_clipboard_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_clipboard` is the leptoskit plugin for system text clipboard access - read, write, and clear - on iOS, Android, macOS, Windows, Linux, and in the browser.
 
@@ -252,7 +252,7 @@ Add `leptoskit_plugin_clipboard` as a direct dependency and select the `clipboar
 
 _Packages:_ 🔴 _leptoskit_plugin_haptics_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_haptics` is the leptoskit plugin for selection, impact, and notification feedback on native actuators.
 
@@ -262,7 +262,7 @@ Add `leptoskit_plugin_haptics` as a direct dependency and select the `haptics` p
 
 _Packages:_ 🔴 _leptoskit_plugin_battery_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_battery` is the leptoskit plugin for battery charge, charging state, and system power-saving snapshots with cancellable change observation.
 
@@ -272,7 +272,7 @@ Add `leptoskit_plugin_battery` as a direct dependency and select the `battery` p
 
 _Packages:_ 🔴 _leptoskit_plugin_device_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_device` is the leptoskit plugin for device and operating system information without persistent identifiers or user-assigned names.
 
@@ -282,7 +282,7 @@ Add `leptoskit_plugin_device` as a direct dependency and select the `device` plu
 
 _Packages:_ 🔴 _leptoskit_plugin_secure_store_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_secure_store` is the leptoskit plugin for small binary secrets, such as a refresh token, kept in the platform credential store and scoped to one application.
 
@@ -292,7 +292,7 @@ Add `leptoskit_plugin_secure_store` as a direct dependency and select the `secur
 
 _Packages:_ 🔴 _leptoskit_plugin_linking_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_linking` is the leptoskit plugin for validated external HTTP(S), email, phone, and SMS links plus application settings, without executing shell text.
 
@@ -302,7 +302,7 @@ Add `leptoskit_plugin_linking` as a direct dependency and select the `linking` p
 
 _Packages:_ 🔴 _leptoskit_plugin_passkeys_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_passkeys` is the leptoskit plugin for passkeys and Sign in with Apple through the platform's own credential sheet. The sign-in client in `leptoskit_auth` uses it, so apps rarely call it directly.
 
@@ -312,7 +312,7 @@ Add `leptoskit_plugin_passkeys` as a direct dependency and select the `passkeys`
 
 _Packages:_ 🔴 _leptoskit_plugin_web_auth_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_web_auth` is the leptoskit plugin for sign-in sessions in the system browser - ASWebAuthenticationSession on Apple platforms, Auth Tab on Android, and a loopback redirect on desktop.
 
@@ -322,7 +322,7 @@ Add `leptoskit_plugin_web_auth` as a direct dependency and select the `web-auth`
 
 _Packages:_ 🔴 _leptoskit_plugin_filesystem_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_filesystem` is the leptoskit plugin for application-private binary files on native and OPFS in the browser, with bounded messages.
 
@@ -332,7 +332,7 @@ Add `leptoskit_plugin_filesystem` as a direct dependency and select the `filesys
 
 _Packages:_ 🔴 _leptoskit_plugin_network_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_network` is the leptoskit plugin for network state and demand-driven change observation.
 
@@ -342,7 +342,7 @@ Add `leptoskit_plugin_network` as a direct dependency and select the `network` p
 
 _Packages:_ 🔴 _leptoskit_plugin_posture_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_posture` is the leptoskit plugin for fold state, hinge geometry, and hinge angles, so a layout can put content on either side of a fold.
 
@@ -352,7 +352,7 @@ Add `leptoskit_plugin_posture` as a direct dependency and select the `posture` p
 
 _Packages:_ 🔴 _leptoskit_plugin_dialog_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_dialog` is the leptoskit library for asynchronous native file, directory, save, and message dialogs on macOS, Windows, and Linux, plus browser file selection.
 
@@ -362,7 +362,7 @@ Rust desktop hosts and browser apps call it directly: it has no `native.plugins`
 
 _Packages:_ 🔴 _leptoskit_plugin_document_picker_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_document_picker` is the leptoskit plugin for bounded document import through the iOS document picker, macOS open panel, Android Storage Access Framework, or an HTML file input.
 
@@ -372,7 +372,7 @@ Add `leptoskit_plugin_document_picker` as a direct dependency and select the `do
 
 _Packages:_ 🔴 _leptoskit_plugin_screen_orientation_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_screen_orientation` is the leptoskit plugin for scoped activity, scene, and browser-document orientation requests with explicit restoration.
 
@@ -382,7 +382,7 @@ Add `leptoskit_plugin_screen_orientation` as a direct dependency and select the 
 
 _Packages:_ 🔴 _leptoskit_plugin_light_sensor_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_light_sensor` is the leptoskit plugin for ambient illuminance in lux from Android's light sensor or the browser's AmbientLightSensor.
 
@@ -392,7 +392,7 @@ Add `leptoskit_plugin_light_sensor` as a direct dependency and select the `light
 
 _Packages:_ 🔴 _leptoskit_plugin_pedometer_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_pedometer` is the leptoskit plugin for bounded, demand-driven step-counter readings with explicit platform count domains.
 
@@ -402,7 +402,7 @@ Add `leptoskit_plugin_pedometer` as a direct dependency and select the `pedomete
 
 _Packages:_ 🔴 _leptoskit_plugin_accelerometer_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_accelerometer` is the leptoskit plugin for cancellable acceleration readings including gravity, in metres per second squared, along native device axes.
 
@@ -412,7 +412,7 @@ Add `leptoskit_plugin_accelerometer` as a direct dependency and select the `acce
 
 _Packages:_ 🔴 _leptoskit_plugin_application_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_application` is the leptoskit plugin for installed host application identity: ID, localized display name, release version, and build number.
 
@@ -422,7 +422,7 @@ Add `leptoskit_plugin_application` as a direct dependency and select the `applic
 
 _Packages:_ 🔴 _leptoskit_plugin_autostart_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_autostart` is the leptoskit plugin for explicit per-user desktop login registration with a validated identity and command: a LaunchAgent on macOS, an XDG autostart entry on Linux, and the current user's Run key on Windows.
 
@@ -432,7 +432,7 @@ The native host constructs `Autostart` itself with the app's identity, executabl
 
 _Packages:_ 🔴 _leptoskit_plugin_barometer_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_barometer` is the leptoskit plugin for cancellable atmospheric pressure readings in hectopascals.
 
@@ -442,7 +442,7 @@ Add `leptoskit_plugin_barometer` as a direct dependency and select the `baromete
 
 _Packages:_ 🔴 _leptoskit_plugin_brightness_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_brightness` is the leptoskit plugin for scoped mobile screen brightness overrides with explicit restoration.
 
@@ -452,7 +452,7 @@ Add `leptoskit_plugin_brightness` as a direct dependency and select the `brightn
 
 _Packages:_ 🔴 _leptoskit_plugin_gyroscope_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_gyroscope` is the leptoskit plugin for cancellable angular velocity readings in radians per second around native device axes.
 
@@ -462,7 +462,7 @@ Add `leptoskit_plugin_gyroscope` as a direct dependency and select the `gyroscop
 
 _Packages:_ 🔴 _leptoskit_plugin_http_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_http` is the leptoskit plugin for scoped asynchronous HTTP clients with bounded request and response bodies, a total timeout, and cancellation by dropping the request.
 
@@ -472,7 +472,7 @@ Add `leptoskit_plugin_http` as a direct dependency, select the `http` plugin in 
 
 _Packages:_ 🔴 _leptoskit_plugin_keep_awake_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_keep_awake` is the leptoskit plugin for scoped display wake locks with cancellation-safe ownership.
 
@@ -482,7 +482,7 @@ Add `leptoskit_plugin_keep_awake` as a direct dependency and select the `keep-aw
 
 _Packages:_ 🔴 _leptoskit_plugin_localization_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_localization` is the leptoskit plugin for ordered preferred locales, language and region codes, calendar, timezone, first weekday, and clock preference.
 
@@ -492,7 +492,7 @@ Add `leptoskit_plugin_localization` as a direct dependency and select the `local
 
 _Packages:_ 🔴 _leptoskit_plugin_magnetometer_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_magnetometer` is the leptoskit plugin for cancellable magnetic-field readings in microteslas along native device axes.
 
@@ -502,7 +502,7 @@ Add `leptoskit_plugin_magnetometer` as a direct dependency and select the `magne
 
 _Packages:_ 🔴 _leptoskit_plugin_permissions_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_permissions` is the leptoskit plugin for explicit camera and microphone permission queries and requests.
 
@@ -512,7 +512,7 @@ Add `leptoskit_plugin_permissions` as a direct dependency and select the `permis
 
 _Packages:_ 🔴 _leptoskit_plugin_single_instance_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_single_instance` is the native-host plugin for explicit process-lifetime instance locks.
 
@@ -522,7 +522,7 @@ Native hosts construct it explicitly; it is not a guest plugin and installs noth
 
 _Packages:_ 🔴 _leptoskit_plugin_menu_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_menu` is the native-host plugin for bounded native menu definitions with explicit desktop ownership: commands, checkboxes, separators, submenus, and accelerators such as `CmdOrCtrl+S`.
 
@@ -532,7 +532,7 @@ Native hosts construct it explicitly on their UI thread; it is not a guest plugi
 
 _Packages:_ 🔴 _leptoskit_plugin_tray_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_tray` is the native-host plugin for explicitly owned native desktop tray icons with bounded events.
 
@@ -542,7 +542,7 @@ Native hosts construct it explicitly; it is not a guest plugin and installs noth
 
 _Packages:_ 🔴 _leptoskit_plugin_speech_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_speech` is the leptoskit plugin for bounded, cancellable text-to-speech with one active utterance per plugin.
 
@@ -552,7 +552,7 @@ Add `leptoskit_plugin_speech` as a direct dependency and select the `speech` plu
 
 _Packages:_ 🔴 _leptoskit_plugin_sqlite_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_sqlite` is the leptoskit plugin for bounded, application-private SQLite databases with typed bindings and the same bundled engine on every native platform.
 
@@ -562,7 +562,7 @@ Add `leptoskit_plugin_sqlite` as a direct dependency and select the `sqlite` plu
 
 _Packages:_ 🔴 _leptoskit_plugin_store_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_store` is the leptoskit plugin for bounded JSON application settings with explicit persistence and atomic ordered batches.
 
@@ -572,7 +572,7 @@ Add `leptoskit_plugin_store` as a direct dependency and select the `store` plugi
 
 _Packages:_ 🔴 _leptoskit_plugin_image_manipulator_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_image_manipulator` is the leptoskit plugin for bounded JPEG and PNG decode, resize, crop, rotate, flip, and encode using one Rust implementation.
 
@@ -582,7 +582,7 @@ Add `leptoskit_plugin_image_manipulator` as a direct dependency and select the `
 
 _Packages:_ 🔴 _leptoskit_plugin_screen_capture_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_screen_capture` is the leptoskit plugin for window-scoped capture prevention and capture observation as separate capabilities.
 
@@ -592,7 +592,7 @@ Add `leptoskit_plugin_screen_capture` as a direct dependency and select the `scr
 
 _Packages:_ 🔴 _leptoskit_plugin_store_review_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_store_review` is the leptoskit plugin for owned-window in-app store review requests through StoreKit and Google Play.
 
@@ -602,7 +602,7 @@ Add `leptoskit_plugin_store_review` as a direct dependency and select the `store
 
 _Packages:_ 🔴 _leptoskit_plugin_sharing_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_sharing` is the leptoskit plugin for bounded text and HTTP(S) URL sharing through the user-selected native share UI.
 
@@ -612,7 +612,7 @@ Add `leptoskit_plugin_sharing` as a direct dependency and select the `sharing` p
 
 _Packages:_ 🔴 _leptoskit_plugin_tracking_transparency_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_tracking_transparency` is the leptoskit plugin for explicit iOS App Tracking Transparency status and authorization requests.
 
@@ -622,7 +622,7 @@ Add `leptoskit_plugin_tracking_transparency` as a direct dependency and select t
 
 _Packages:_ 🔴 _leptoskit_plugin_websocket_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_websocket` is the leptoskit plugin for scoped WebSocket connections with bounded messages and explicit lifecycle.
 
@@ -632,7 +632,7 @@ Add `leptoskit_plugin_websocket` as a direct dependency and select the `websocke
 
 _Packages:_ 🔴 _leptoskit_plugin_arguments_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_arguments` is the leptoskit plugin for immutable launch-argument snapshots with typed, non-exiting clap parsing.
 
@@ -642,7 +642,7 @@ Add `leptoskit_plugin_arguments` as a direct dependency and expose the plugin ex
 
 _Packages:_ 🔴 _leptoskit_plugin_shell_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_shell` is the leptoskit plugin for scoped, bounded, cancellable desktop child processes built from host-defined command capabilities, such as running a bundled tool with `--version`.
 
@@ -652,7 +652,7 @@ Add `leptoskit_plugin_shell` as a direct dependency, select the `shell` plugin i
 
 _Packages:_ 🔴 _leptoskit_plugin_logging_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_logging` is the leptoskit plugin for structured, bounded application logging: records with a severity, a target, a message, and named fields, written as JSON lines to rotated files.
 
@@ -662,7 +662,7 @@ Add `leptoskit_plugin_logging` as a direct dependency and select the `logging` p
 
 _Packages:_ 🔴 _leptoskit_plugin_notifications_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_notifications` is the leptoskit plugin for immediate local system notifications with explicit permission requests, bounded messages, and cancellation.
 
@@ -672,7 +672,7 @@ Add `leptoskit_plugin_notifications` as a direct dependency and select the `noti
 
 _Packages:_ 🔴 _leptoskit_plugin_local_authentication_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_local_authentication` is the leptoskit plugin for local device-owner authentication through Apple `LAContext` and Android `BiometricPrompt`.
 
@@ -682,7 +682,7 @@ Add `leptoskit_plugin_local_authentication` as a direct dependency and select th
 
 _Packages:_ 🔴 _leptoskit_plugin_location_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_location` is the leptoskit plugin for foreground location permission and cancellable bounded fixes through CoreLocation, Android LocationManager, or browser Geolocation.
 
@@ -692,7 +692,7 @@ Add `leptoskit_plugin_location` as a direct dependency and select the `location`
 
 _Packages:_ 🔴 _leptoskit_plugin_global_shortcut_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_global_shortcut` is the leptoskit plugin for scoped desktop global shortcuts with explicit registration conflicts and bounded events.
 
@@ -702,7 +702,7 @@ The native host creates `GlobalShortcuts` on its event-loop thread after startup
 
 _Packages:_ 🔴 _leptoskit_plugin_window_state_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_window_state` is the native-host plugin for validated window placement and explicit native window restoration.
 
@@ -712,7 +712,7 @@ Native hosts construct it explicitly; it is not a guest plugin and installs noth
 
 _Packages:_ 🔴 _leptoskit_sensor_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_sensor` is the shared protocol and native lifecycle behind the accelerometer, gyroscope, magnetometer, barometer, light sensor, and pedometer plugins.
 
@@ -722,7 +722,7 @@ Each request takes one fresh reading and then releases the sensor, so repeated c
 
 _Packages:_ 🔴 _leptoskit_codepush_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_codepush` ships interface changes to native apps without a store review: signed, content-hashed releases of the Wasm bundle, packed into one file, with binary deltas so a device downloads only the chunks that changed.
 
@@ -732,7 +732,7 @@ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://g
 
 _Packages:_ 🔴 _leptoskit_wasm_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_wasm` runs the app's interface bundle on the device in `wasmi`, an interpreter that is allowed on iOS where compiling code at runtime is not, and drives a native backend through a versioned ABI.
 
@@ -742,7 +742,7 @@ This is what makes the shipped app a shell: the interface arrives as Wasm, rende
 
 _Packages:_ 🔴 _leptoskit_axum_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_axum` is the Axum server toolkit every leptoskit deployment shares: static files with precompressed copies and an `index.html` fallback, `/healthz` and `/readyz` probes with graceful shutdown, code push routes, and the association files that let the native apps use the site's passkeys and sign-in links.
 
@@ -752,7 +752,7 @@ Apps reach it as `leptoskit::server` through the `server` feature, and mount it 
 
 _Packages:_ 🔴 _leptoskit_rpc_codegen_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_rpc_codegen` holds the RPC specification behind leptoskit server functions and generates typed clients from it for TypeScript, Python, Go, Rust, Dart, and the command line.
 
@@ -762,7 +762,7 @@ The server writes the specification; the CLI reads it back and generates clients
 
 _Packages:_ 🔴 _leptoskit_rpc_macros_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_rpc_macros` provides the attributes behind `leptoskit_rpc`: `#[query]`, `#[mutation]`, and `#[action]` declare operations; `#[stream]`, `#[channel]`, `#[job]`, and `#[cron]` declare live streams, channels, background jobs, and scheduled jobs; and `#[api]` publishes a leptos server function to generated clients.
 
@@ -772,7 +772,7 @@ Use them through `leptoskit_rpc`, which re-exports them. Every target gets the o
 
 _Packages:_ 🔴 _leptoskit_rpc_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_rpc` is the boundary between an app's shared screens and its server. It adds retries and error classification to leptos server functions, and declares operations (`#[query]`, `#[mutation]`, `#[action]`) that run on the database as the signed-in caller and are called the same way from SSR, the browser, and a native guest through `client::call`.
 
@@ -782,7 +782,7 @@ The `live` feature serves queries over a WebSocket, with a server-sent events fa
 
 _Packages:_ 🔴 _leptoskit_query_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_query` is TanStack Query for leptos: screens that load data get caching, deduplication, retries, background refetching, infinite queries, and optimistic mutations, all exposed as fine-grained signals so a view re-renders only when the value it reads changes.
 
@@ -792,7 +792,7 @@ Declare a `QueryScope` or `MutationScope` and read it with `use_query` or `use_m
 
 _Packages:_ 🔴 _leptoskit_virtual_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_virtual` is headless list virtualization in the style of TanStack Virtual: fixed or measured sizes, overscan, aligned scroll targets, and a window over the shared renderer.
 
@@ -802,7 +802,7 @@ It decides which items a viewport intersects so a ten-thousand-row list only bui
 
 _Packages:_ 🔴 _leptoskit_table_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_table` is headless tables in the style of TanStack Table: typed columns, sorting, filtering, pagination, and a renderable grid of ARIA roles.
 
@@ -812,7 +812,7 @@ It computes the model, filtering, then sorting, then paginating, while the scree
 
 _Packages:_ 🔴 _leptoskit_rive_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_rive` plays Rive animations that ship inside the app: it checks a `.riv` file before loading it, picks one animation or state machine to run, and sends typed state-machine inputs (booleans, numbers, and triggers) so an animation can react to the interface.
 
@@ -822,7 +822,7 @@ The shared `Rive` component uses it on the web through the `web` feature and on 
 
 _Packages:_ 🔴 _leptoskit_rive_runtime_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_rive_runtime` is the pinned, offline C++ dependency used by `leptoskit_rive` native playback.
 
@@ -832,7 +832,7 @@ Applications use `leptoskit_rive`; this crate exposes no application API. Its se
 
 _Packages:_ 🔴 _leptoskit_docs_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_docs` turns Markdown with leptos components into a static site with navigation, search, highlighting, and checked links.
 
@@ -844,7 +844,7 @@ and #[component]
 
 _Packages:_ 🔴 _leptoskit_macros_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_macros` provides the `view!` markup macro and `#[component]` attribute that expand into the same builders a hand-written tree uses.
 
@@ -854,7 +854,7 @@ Use them through `leptoskit::prelude`. The macro parses rstml markup and emits b
 
 _Packages:_ 🔴 _leptoskit_router_macros_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_router_macros` provides the `#[derive(Route)]` macro that reads a route struct's fields from the URL by name.
 
@@ -864,7 +864,7 @@ It is an implementation detail of `leptoskit_router`, which re-exports the deriv
 
 _Packages:_ 🔴 _leptoskit_router_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_router` is the runtime behind leptoskit file routes: each file in `src/routes/` becomes a variant of one generated `Route` enum, so URLs are parsed into typed values and links are written from them, and the two cannot drift apart.
 
@@ -874,7 +874,7 @@ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://g
 
 _Packages:_ 🔴 _leptoskit_plugin_router_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_router` is the file router as a leptoskit plugin: it generates the typed `Route` module from the files under `src/routes/` before cargo runs, and answers `plugin:router routes`.
 
@@ -884,7 +884,7 @@ Turn it on with a `[[plugins]]` entry named `router` in `leptoskit.toml`; `lepto
 
 _Packages:_ 🔴 _leptoskit_router_codegen_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_router_codegen` reads a leptoskit `src/routes/` directory and writes its typed `routes.rs`.
 
@@ -894,7 +894,7 @@ The `leptoskit routes` command and the CLI's build pipeline use it; apps never d
 
 _Packages:_ 🔴 _leptoskit_db_schema_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_db_schema` holds the schema model, snapshot format, diff, and SQL renderers behind leptoskit's generated database migrations.
 
@@ -904,7 +904,7 @@ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://g
 
 _Packages:_ 🔴 _leptoskit_db_macros_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_db_macros` provides the macros behind leptoskit's database layer: `#[db::table]`, `#[db::link]`, `#[db::view]`, `#[db::policy]`, `#[db::mixin]`, `#[db::polymorphic]`, `db::migrations!`, and the `Shape`, `Enum`, and `Scalar` derives.
 
@@ -914,7 +914,7 @@ Apps use them through `leptoskit::db` or `leptoskit_db`; this crate is the macro
 
 _Packages:_ 🔴 _leptoskit_db_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_db` is leptoskit's database layer: tables declared as Rust structs, typed IDs, client-safe public projections that leave out private and secret columns, typed queries and writes, links, access policies, and migrations.
 
@@ -924,7 +924,7 @@ Enable `db` on `leptoskit` for the client side, which has no database code, and 
 
 _Packages:_ 🔴 _leptoskit_auth_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_auth` is sign-in for leptoskit apps, stored in the app's own database: the `auth` schema pack, revocable sessions, email codes, authenticator apps with recovery codes and step-up, passkeys, third-party providers, opt-in passwords, Solana wallets, account merging, and the signed-in user that access policies read.
 
@@ -934,7 +934,7 @@ Enable `auth` on `leptoskit`, plus `auth-passkeys`, `auth-providers`, `auth-pass
 
 _Packages:_ 🔴 _leptoskit_idp_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_idp` lets other apps sign in with your app: an OAuth 2.1 and OpenID Connect provider built on the app's own database, sessions, and access policies.
 
@@ -944,7 +944,7 @@ It turns the accounts `leptoskit_auth` already manages into an identity provider
 
 _Packages:_ 🔴 _leptoskit_extension_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_extension` is the runtime and typed WebExtensions bindings behind leptoskit browser extensions for Chromium, Firefox, and Safari.
 
@@ -954,7 +954,7 @@ Apps enable the `extension` feature, name entry points with `entry!`, and build 
 
 _Packages:_ 🔴 _leptoskit_devtools_protocol_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_devtools_protocol` holds the versioned serde messages shared by the DevTools agents, hub, interface, and MCP tools.
 
@@ -964,7 +964,7 @@ It has no platform code: the browser, native host, guest, and front end all spea
 
 _Packages:_ 🔴 _leptoskit_plugin_devtools_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_plugin_devtools` is the bridge plugin that carries a native guest's DevTools data to the host that already reports the tree.
 
@@ -974,7 +974,7 @@ Apps never select it. The shared runtime installs it in `leptoskit dev` builds, 
 
 _Packages:_ 🔴 _leptoskit_devtools_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_devtools` contains the agents that report a running app to the local DevTools hub: the web page, the native host, and the Wasm guest.
 
@@ -984,7 +984,7 @@ Under `leptoskit dev`, the CLI starts the hub and these agents open sessions, mi
 
 _Packages:_ 🔴 _leptoskit_l10n_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_l10n` provides typed translations in the style of Flutter's `gen_l10n`: locales, negotiation, and plural rules behind a generated messages module.
 
@@ -994,7 +994,7 @@ Messages live in one ARB file per locale; `leptoskit l10n` writes the typed modu
 
 _Packages:_ 🔴 _leptoskit_l10n_codegen_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_l10n_codegen` reads a leptoskit `locales/` directory of ARB files and writes its typed translations module.
 
@@ -1004,7 +1004,7 @@ The `leptoskit l10n` command and the CLI's build pipeline use it; apps never dep
 
 _Packages:_ 🔴 _leptoskit_cli_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_cli` is the `leptoskit` and `lk` command: scaffold a project with `new`, run every platform at once with `dev`, then `build`, `serve`, and `test`. It also writes routes, translations, and database migrations, generates sign-in screens and plugins, ships code push releases, uploads to the app and extension stores with `publish`, drives devices and simulators (also over MCP), and lints and formats the code.
 
@@ -1016,7 +1016,7 @@ formatter
 
 _Packages:_ 🔴 _leptoskit_fmt_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_fmt` is the formatter behind `leptoskit format`: rustfmt for Rust and a layout engine for the markup inside `view!`.
 
@@ -1026,7 +1026,7 @@ rustfmt leaves `view!` markup alone, so this fills the gap without a second Rust
 
 _Packages:_ 🔴 _leptoskit_lint_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit_lint` contains the rules behind `leptoskit lint`: components carry `#[component]`, and component trees follow the markup style `leptoskit.toml` selects.
 
@@ -1036,7 +1036,7 @@ rustc and clippy check Rust; these rules check the conventions a leptoskit proje
 
 _Packages:_ 🔴 _leptoskit_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/ifiokjr/leptoskit/pull/429)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #429](https://github.com/leptoskit/leptoskit/pull/429)
 
 `leptoskit` is the crate an app depends on. It re-exports the components, Tailwind styles, layout engine, renderer, and Wasm runtime, with one feature per optional part, so an app names `leptoskit` alone and never keeps the versions of its parts in step by hand.
 
@@ -1046,7 +1046,7 @@ Pick how the interface runs: `web` with `csr`, `hydrate`, `ssr`, or `islands` re
 
 #### Deploy, back up, and roll back on your own servers
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #505](https://github.com/ifiokjr/leptoskit/pull/505)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #505](https://github.com/leptoskit/leptoskit/pull/505)
 
 Describe your servers in an `[infra]` table in `leptoskit.toml`, and `lk infra` (also `lk tofu`) and `lk deploy` take the app from there to running Linux hosts. They provision Hetzner or DigitalOcean servers behind a Cloudflare Tunnel, an R2 bucket that serves signed code push updates, and a private R2 or Backblaze bucket for backups, then run the app and Postgres in containers with Kamal:
 
@@ -1070,7 +1070,7 @@ lk deploy --setup --version release-001
 
 #### Measure your deployed app with the analytics package
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #505](https://github.com/ifiokjr/leptoskit/pull/505)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #505](https://github.com/leptoskit/leptoskit/pull/505)
 
 When a deployed route starts failing, you need its error counts, latency, and release in one place. Turn on the `analytics` feature of `leptoskit` on your server and add `[infra.plugins.analytics]` to `leptoskit.toml`:
 
@@ -1087,7 +1087,7 @@ To keep history across instances, connect the app to a deployment service, or se
 
 #### Run your own deployment service
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #505](https://github.com/ifiokjr/leptoskit/pull/505)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #505](https://github.com/leptoskit/leptoskit/pull/505)
 
 `lk console serve` runs one service, on a trusted Linux or macOS worker, that holds the deployment dashboard, a queue of deployment jobs, an API for agents, and the analytics history of every instance of your app. Connect an app once, and the ordinary commands run through it, so a deployment keeps going after you close your terminal:
 
@@ -1105,7 +1105,7 @@ Apps with the analytics plugin get their ingestion key and endpoint automaticall
 
 #### Manage deployments from a hosted account
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #505](https://github.com/ifiokjr/leptoskit/pull/505)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #505](https://github.com/leptoskit/leptoskit/pull/505)
 
 A hosted LeptosKit account keeps deployment requests, application measurements, and OpenTofu state in one place, managed from one app that runs on the web, iOS, and Android. Accounts are created by the service's operator, and subscriptions go through Stripe Checkout and the Stripe customer portal.
 
@@ -1121,7 +1121,7 @@ Each account's data and keys are kept apart, and no two customers share a worker
 
 #### Native packages and a per-platform doctor
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #521](https://github.com/ifiokjr/leptoskit/pull/521)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #521](https://github.com/leptoskit/leptoskit/pull/521)
 
 Plugins can now wrap third-party native SDKs the way the platform expects, and apps never run a package manager by hand.
 
@@ -1141,22 +1141,22 @@ Native builds are also quieter where the tools shout and clearer where they were
 
 `android-dependencies`, the equivalent Maven mechanism for Android plugins, is now documented alongside.
 
-- **Record and check offline backend bundles.** Add `leptoskit verify record` and `leptoskit verify check` to inventory prepared backend source, dependencies, infrastructure, build declarations, secret names and executable files. Checks require an independently trusted inventory SHA-256 and reject changed, missing or extra entries and symbolic links. These commands check local bundle integrity; they do not attest the build or verify a live backend. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #508](https://github.com/ifiokjr/leptoskit/pull/508)
+- **Record and check offline backend bundles.** Add `leptoskit verify record` and `leptoskit verify check` to inventory prepared backend source, dependencies, infrastructure, build declarations, secret names and executable files. Checks require an independently trusted inventory SHA-256 and reject changed, missing or extra entries and symbolic links. These commands check local bundle integrity; they do not attest the build or verify a live backend. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #508](https://github.com/leptoskit/leptoskit/pull/508)
 
 #### Require independent source approvals for code push releases
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #511](https://github.com/ifiokjr/leptoskit/pull/511)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #511](https://github.com/leptoskit/leptoskit/pull/511)
 
 Add `[codepush.provenance]` so native apps install a code push release only when enough independent approvers say they rebuilt it from one commit of a public GitHub repository and got byte-identical files. Approvals are a second trust root, separate from the publisher keys: each is signed by an approver over its exact statement, under its own signing context, so a publisher signature can't stand in for one. Devices check approvals before downloading a release and again before every launch, refuse approvers that name different commits, count each approver once, and ignore approvals from any other key, including the publisher's. The bundle shipped in the store build needs none, and without the table nothing changes.
 
 Add `leptoskit codepush approve`, which signs an approval only when a rebuilt directory holds exactly the release's files, `leptoskit codepush attach`, which adds approvals to stored releases without re-signing them, and `leptoskit codepush keygen --approver`. `publish` and `serve` carry each release's approvals at `approvals/<bundle hash>.json`. An approval says who rebuilt identical files from a commit; it is not a security review.
 
-- **Sign which origins serve a deployment.** Add `leptoskit verify keygen`, `leptoskit verify sign`, and `leptoskit verify deployment`. A project signs a deployment policy listing its origins and the verified releases they may serve, and serves it at `/.well-known/leptoskit/deployment.json`. Anyone can check an origin against the project's published key: a copied website fails because its origin is not listed, a forged policy fails its signature, and `--state` refuses an older or conflicting policy. The check does not show what a server actually runs. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #510](https://github.com/ifiokjr/leptoskit/pull/510)
-- **Develop and test extensions in Firefox.** Select Firefox with `--browser firefox` when running `leptoskit dev` or `leptoskit test extension`. Development builds use a temporary add-on installed through WebDriver BiDi, reload it after a rebuild, and check page surfaces, background startup, and content script injection. `leptoskit doctor` reports Firefox and geckodriver. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #488](https://github.com/ifiokjr/leptoskit/pull/488)
+- **Sign which origins serve a deployment.** Add `leptoskit verify keygen`, `leptoskit verify sign`, and `leptoskit verify deployment`. A project signs a deployment policy listing its origins and the verified releases they may serve, and serves it at `/.well-known/leptoskit/deployment.json`. Anyone can check an origin against the project's published key: a copied website fails because its origin is not listed, a forged policy fails its signature, and `--state` refuses an older or conflicting policy. The check does not show what a server actually runs. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #510](https://github.com/leptoskit/leptoskit/pull/510)
+- **Develop and test extensions in Firefox.** Select Firefox with `--browser firefox` when running `leptoskit dev` or `leptoskit test extension`. Development builds use a temporary add-on installed through WebDriver BiDi, reload it after a rebuild, and check page surfaces, background startup, and content script injection. `leptoskit doctor` reports Firefox and geckodriver. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #488](https://github.com/leptoskit/leptoskit/pull/488)
 
 #### Add password fields to the generated sign-in screens
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #494](https://github.com/ifiokjr/leptoskit/pull/494)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #494](https://github.com/leptoskit/leptoskit/pull/494)
 
 With `[auth.passwords] enabled = true`, `leptoskit generate auth` now writes password fields into the screens. The sign-in screen offers "Sign in with a password" and resets a forgotten password with an emailed code; the security screen sets, changes, and removes the password, with the server's minimum length beside the field. The fields are `PasswordInput`s marked `current-password` or `new-password`, so password managers fill and save them on the web and in native apps.
 
@@ -1166,7 +1166,7 @@ In app code, `leptoskit::auth::client::sign_in_with_password()` takes an `EmailP
 
 #### Package the hosted pilot for a Linux server
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #507](https://github.com/ifiokjr/leptoskit/pull/507)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #507](https://github.com/leptoskit/leptoskit/pull/507)
 
 Build the broker, public site, console and documentation as one checksummed Linux release, with a systemd service that keeps persistent data separate from releases. Drain broker requests on termination so service restarts can finish active requests.
 
@@ -1174,7 +1174,7 @@ Use `[infra.external]` to provision a separately supervised service with the exi
 
 #### Serve the docs book under a strict CSP
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #505](https://github.com/ifiokjr/leptoskit/pull/505)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #505](https://github.com/leptoskit/leptoskit/pull/505)
 
 Two `leptoskit_docs::Site` changes let you serve the book from your own site:
 
@@ -1185,7 +1185,7 @@ The LeptosKit website is built this way: it serves the landing page, a live shar
 
 #### Use Monosecret for development secrets
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #487](https://github.com/ifiokjr/leptoskit/pull/487)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #487](https://github.com/leptoskit/leptoskit/pull/487)
 
 New projects declare their database and sign-in secret names in `monosecret.toml`. `leptoskit dev` resolves that manifest through Monosecret before starting, with `--no-secrets` for hosts that supply the environment. Existing projects without a manifest keep their current startup. The secret management guide recommends Monosecret for server and deployment credentials.
 
@@ -1193,17 +1193,17 @@ New projects declare their database and sign-in secret names in `monosecret.toml
 
 #### Draw password fields in generated apps
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #494](https://github.com/ifiokjr/leptoskit/pull/494)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #494](https://github.com/leptoskit/leptoskit/pull/494)
 
 The macOS, iOS, and Android apps `leptoskit new` generates now draw `PasswordInput`, as an `NSSecureTextField`, a secure `UITextField`, and a password `EditText`. Before, a password field stopped those apps with an "unsupported widget" error.
 
 `autocomplete` hints now reach native password managers too. `username`, `email`, `current-password`, and `new-password` set the field's content type on macOS and iOS, its autofill hint on Android, and its input type on HarmonyOS, in the generated apps and in the AppKit, UIKit, and Android backends. `NativeProps::text_content` reads the hint as a `TextContent`. A `PasswordInput` turns off autocorrection, spell checking, and suggestions on iOS and Android, and an Android password field without a hint is offered to autofill as a password.
 
-- **Build and reproduce backends from public commits.** Add `leptoskit verify build`, which builds a backend from a public GitHub commit in a digest-pinned container: the commit's exact files, its locked dependencies, and two compilations with networking disabled that must produce identical executables. It writes the bundle, its inventory, and a SLSA provenance statement. `leptoskit verify reproduce` lets anyone fetch the same commit and dependencies, rebuild, and confirm the published executable byte for byte. Neither command shows what a live server runs. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #509](https://github.com/ifiokjr/leptoskit/pull/509)
+- **Build and reproduce backends from public commits.** Add `leptoskit verify build`, which builds a backend from a public GitHub commit in a digest-pinned container: the commit's exact files, its locked dependencies, and two compilations with networking disabled that must produce identical executables. It writes the bundle, its inventory, and a SLSA provenance statement. `leptoskit verify reproduce` lets anyone fetch the same commit and dependencies, rebuild, and confirm the published executable byte for byte. Neither command shows what a live server runs. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #509](https://github.com/leptoskit/leptoskit/pull/509)
 
 #### Add generated artwork to the documentation book
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #505](https://github.com/ifiokjr/leptoskit/pull/505)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #505](https://github.com/leptoskit/leptoskit/pull/505)
 
 `leptoskit_docs::Site::generated_asset` adds a file your build generates, such as SVG artwork or a stylesheet, to the book under `_leptoskit/generated/`, without writing it into the book's sources. The file is kept through development-server rebuilds, and an invalid file name fails the build before any output changes.
 
@@ -1213,7 +1213,7 @@ The LeptosKit website and book use it for their hand-drawn look: borders, hatchi
 
 _Packages:_ 🟠 _leptoskit_config_, 🟠 _leptoskit_bridge_, 🟠 _leptoskit_bridge_ffi_, 🟠 _leptoskit_plugin_clipboard_, 🟠 _leptoskit_plugin_haptics_, 🟠 _leptoskit_cli_
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #506](https://github.com/ifiokjr/leptoskit/pull/506)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #506](https://github.com/leptoskit/leptoskit/pull/506)
 
 Set `native.experimental-rust-plugins = true` in `leptoskit.toml` to use the experimental pure-Rust `clipboard` and `haptics` plugins on iOS, macOS, and Android in place of their Swift and Kotlin versions. Without the setting, builds keep the Swift and Kotlin versions.
 
@@ -1221,12 +1221,12 @@ A plugin of your own can do the same in its `[package.metadata.leptoskit.runtime
 
 ### Fixes
 
-- **Preview the deployment dashboard with example data.** `leptoskit_deploy_console` keeps the dashboard's original design study beside the working deployment service. Its `model`, `store`, and `view` modules and its `preview` example render the dashboard's screens (deployment history, rollback and schema checks, deployment targets) from built-in example data, and export them as an interactive HTML page. The preview needs no server or credentials and never touches your cloud accounts; to deploy, run the service with `lk console serve`. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #505](https://github.com/ifiokjr/leptoskit/pull/505)
-- **Render Android form controls and dismiss the keyboard.** Generated Android apps now render Switch, Checkbox, Radio, Slider, and progress indicators using native Android widgets. The shared native event bridge accepts checked-state and numeric-value events. Tapping outside an editor clears focus and hides the keyboard in both Android renderers. Generated apps move between inputs with the keyboard Next action and dismiss the keyboard on Done. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #519](https://github.com/ifiokjr/leptoskit/pull/519)
+- **Preview the deployment dashboard with example data.** `leptoskit_deploy_console` keeps the dashboard's original design study beside the working deployment service. Its `model`, `store`, and `view` modules and its `preview` example render the dashboard's screens (deployment history, rollback and schema checks, deployment targets) from built-in example data, and export them as an interactive HTML page. The preview needs no server or credentials and never touches your cloud accounts; to deploy, run the service with `lk console serve`. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #505](https://github.com/leptoskit/leptoskit/pull/505)
+- **Render Android form controls and dismiss the keyboard.** Generated Android apps now render Switch, Checkbox, Radio, Slider, and progress indicators using native Android widgets. The shared native event bridge accepts checked-state and numeric-value events. Tapping outside an editor clears focus and hides the keyboard in both Android renderers. Generated apps move between inputs with the keyboard Next action and dismiss the keyboard on Done. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #519](https://github.com/leptoskit/leptoskit/pull/519)
 
 #### Render common controls in generated Apple apps
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #520](https://github.com/ifiokjr/leptoskit/pull/520)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #520](https://github.com/leptoskit/leptoskit/pull/520)
 
 Generated iOS and macOS apps now render switches, checkboxes, radio options, sliders, progress bars, and activity indicators. Preserve their state through binary transactions, send toggle and value-change proposals to the guest, and expose native selection and value accessibility.
 
@@ -1234,11 +1234,11 @@ Tapping outside an input dismisses the keyboard while preserving button actions.
 
 Focus requests on iOS no longer reopen the keyboard after dismissal on an unrelated render. macOS controls restore the state accepted by the guest after each proposal.
 
-- **Field keeps its draft, and the gallery fits a phone.** Typing in Field's compose screen no longer clears each keystroke: the screen now owns its draft, keeps it when you leave the editor and come back, and has a Back button. The gallery's browser preview now fits the available width, so its controls stay reachable on phone-sized screens. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #518](https://github.com/ifiokjr/leptoskit/pull/518)
+- **Field keeps its draft, and the gallery fits a phone.** Typing in Field's compose screen no longer clears each keystroke: the screen now owns its draft, keeps it when you leave the editor and come back, and has a Back button. The gallery's browser preview now fits the available width, so its controls stay reachable on phone-sized screens. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #518](https://github.com/leptoskit/leptoskit/pull/518)
 
 #### Harden sign-in, merges, passwords, and the provider
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #498](https://github.com/ifiokjr/leptoskit/pull/498)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #498](https://github.com/leptoskit/leptoskit/pull/498)
 
 `leptoskit_auth`:
 
@@ -1256,7 +1256,7 @@ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #498](https://g
 
 #### Harden the CLI against web pages and leaked secrets
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #489](https://github.com/ifiokjr/leptoskit/pull/489)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #489](https://github.com/leptoskit/leptoskit/pull/489)
 
 - `leptoskit mcp http` now refuses requests a web page could send: any request with an `Origin` or `Sec-Fetch-Site` header, a `POST` whose content type isn't `application/json`, and a `Host` other than the address it listens on. Before, a site open in your browser could post to it and run the `control` tool. Send `content-type: application/json` with every message. Binding it to a non-loopback `--address` now prints a warning, since it has no authentication.
 - The Firefox source archive leaves out symlinks that point outside the project, and `.jks`, `.keystore`, and `.pfx` files, so `leptoskit publish firefox` can't upload a linked credential or an Android keystore.
@@ -1267,7 +1267,7 @@ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #489](https://g
 
 #### Fix a query deadlock, stale async results, and routing
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #493](https://github.com/ifiokjr/leptoskit/pull/493)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #493](https://github.com/leptoskit/leptoskit/pull/493)
 
 Fixes in the client libraries:
 
@@ -1278,26 +1278,26 @@ Fixes in the client libraries:
 - `leptoskit_virtual`: measuring an item at its estimated size no longer recomputes the position of every item after it. Measuring the rows that scroll into view in the middle of a 100,000-item list used to recompute 50,000 positions; now it recomputes none.
 - `leptoskit_aria`: `Field::wire` replaces the field's own help and error references instead of adding them again, so wiring an input twice no longer makes a screen reader read its help twice, and an error the field no longer shows is no longer referenced.
 
-- **Refuse older code push releases after losing the newest.** In the generated iOS and Android apps, a device remembers the newest update it has confirmed in a file of its own. Before this change, a damaged update file or a disk error made the device forget it had ever updated, so a stale or hostile `index.json` could install an older release that was still validly signed. The device now refuses anything at or below the newest release it confirmed, until a new store build of the app ships its own bundle. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #500](https://github.com/ifiokjr/leptoskit/pull/500)
+- **Refuse older code push releases after losing the newest.** In the generated iOS and Android apps, a device remembers the newest update it has confirmed in a file of its own. Before this change, a damaged update file or a disk error made the device forget it had ever updated, so a stale or hostile `index.json` could install an older release that was still validly signed. The device now refuses anything at or below the newest release it confirmed, until a new store build of the app ships its own bundle. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #500](https://github.com/leptoskit/leptoskit/pull/500)
 
 #### Close an upsert race and keep large writes working
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #501](https://github.com/ifiokjr/leptoskit/pull/501)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #501](https://github.com/leptoskit/leptoskit/pull/501)
 
 - An upsert under row policies now locks the row it would overwrite before checking the update policy, and inserts plainly when there is none. Before, on Postgres, an upsert racing another transaction's insert of the same unique value could overwrite that row, `author_id` included, when only the insert policy had been checked.
 - A commit of more than 500 rows to a SQLite table with a read policy no longer breaks every live feed that checks that policy. SQLite allows at most 500 terms in one compound `SELECT`.
 - Bulk updates, soft-delete cascades, and supertype removals check and change their rows in batches of 500. They no longer fail past the databases' bind limits, or overflow the stack on tables keyed by two columns.
 - The studio no longer filters or sorts by `secret` columns, which could read a secret back one character at a time.
 
-- **Allow hosted accounts to subscribe again after cancellation.** Bind replacement Checkout completion to the pending reservation before selecting the new subscription. Delayed events from the old subscription no longer reject the new one or clear its pending checkout, and repeated deliveries remain idempotent. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #507](https://github.com/ifiokjr/leptoskit/pull/507)
-- **Return from signing out only to the app that asked.** `leptoskit_idp`: `/oauth/end_session` follows `post_logout_redirect_uri` only when the app named by the ID token in `id_token_hint` registered it, or, without an ID token, the app named by `client_id`. In every other case people land on your signed-out page, and `state` is dropped. That covers an unregistered address, a request that names no app, and a `client_id` that names a different app than the ID token. These requests used to get an error page. Now a valid ID token signs the person out in these cases too, where the error used to leave them signed in. A forged ID token is still refused. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #502](https://github.com/ifiokjr/leptoskit/pull/502)
-- **Close live connections that exceed their frame budget.** A live WebSocket connection that sends frames faster than the server serves them now receives the rate-limit error and is then closed. Before, it got the error but stayed open. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #487](https://github.com/ifiokjr/leptoskit/pull/487)
-- **Deliver a live socket's last frames before it closes.** When the server closes a live WebSocket, such as one sending frames faster than it serves them, it now reads what the client is still sending until the client answers the close, for up to five seconds, before dropping the connection. Previously the connection could end in a reset that discarded the server's last frames, so on Windows a client lost the reason it was closed along with the close itself. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #497](https://github.com/ifiokjr/leptoskit/pull/497)
-- **Report missing desktop pedometer hardware.** The Apple pedometer plugin now answers a valid availability query with `false` on macOS and validates malformed requests. Permission and step-reading calls remain unavailable, and closing the plugin still cancels later calls. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #487](https://github.com/ifiokjr/leptoskit/pull/487)
+- **Allow hosted accounts to subscribe again after cancellation.** Bind replacement Checkout completion to the pending reservation before selecting the new subscription. Delayed events from the old subscription no longer reject the new one or clear its pending checkout, and repeated deliveries remain idempotent. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #507](https://github.com/leptoskit/leptoskit/pull/507)
+- **Return from signing out only to the app that asked.** `leptoskit_idp`: `/oauth/end_session` follows `post_logout_redirect_uri` only when the app named by the ID token in `id_token_hint` registered it, or, without an ID token, the app named by `client_id`. In every other case people land on your signed-out page, and `state` is dropped. That covers an unregistered address, a request that names no app, and a `client_id` that names a different app than the ID token. These requests used to get an error page. Now a valid ID token signs the person out in these cases too, where the error used to leave them signed in. A forged ID token is still refused. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #502](https://github.com/leptoskit/leptoskit/pull/502)
+- **Close live connections that exceed their frame budget.** A live WebSocket connection that sends frames faster than the server serves them now receives the rate-limit error and is then closed. Before, it got the error but stayed open. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #487](https://github.com/leptoskit/leptoskit/pull/487)
+- **Deliver a live socket's last frames before it closes.** When the server closes a live WebSocket, such as one sending frames faster than it serves them, it now reads what the client is still sending until the client answers the close, for up to five seconds, before dropping the connection. Previously the connection could end in a reset that discarded the server's last frames, so on Windows a client lost the reason it was closed along with the close itself. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #497](https://github.com/leptoskit/leptoskit/pull/497)
+- **Report missing desktop pedometer hardware.** The Apple pedometer plugin now answers a valid availability query with `false` on macOS and validates malformed requests. Permission and step-reading calls remain unavailable, and closing the plugin still cancels later calls. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #487](https://github.com/leptoskit/leptoskit/pull/487)
 
 #### Bound SQLite memory and fix secure storage and clipboard
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #495](https://github.com/ifiokjr/leptoskit/pull/495)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #495](https://github.com/leptoskit/leptoskit/pull/495)
 
 - The SQLite plugin stops a statement whose working memory grows by more than 64 MiB, and refuses temporary tables, views, indexes and triggers. Before, a `DISTINCT` over generated values, or temporary tables filled one call at a time, could exhaust the app's memory, because neither counted against the page quota.
 - `SecureStorage` stores keys it hashes under a `sha256-` prefix. Before, the hex digest of a key such as `auth/token` was itself a readable key, so the two read and wrote the same secret.
@@ -1305,7 +1305,7 @@ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #495](https://g
 
 #### Launch the public website
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #523](https://github.com/ifiokjr/leptoskit/pull/523)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #523](https://github.com/leptoskit/leptoskit/pull/523)
 
 `leptoskit-site` gains `--public-only`, the packaging mode behind <https://leptoskit.dev>. It produces the same polished landing page with its live Wasm component example, the complete documentation book under `/docs/`, and the configuration schema aliases at their stable `/schema.json` and `/schemas/` paths — as plain static files, with no console entrypoint, account API, or billing backend. The public page renders in a new public mode: navigation and calls to action lead to documentation and source, and the cloud section explains the CLI's deployment engine instead of offering the operator-enrolled pilot. The default packaging keeps building the complete hosted artifact with the console, so the pilot scripts and broker are unchanged; a reused output directory drops the previous console entrypoint when you switch to public-only.
 
@@ -1313,11 +1313,11 @@ The documentation book and the workspace now publish under the custom domain: th
 
 The live example's static button waits for the Wasm client to mount before accepting clicks, so the first interaction is not lost during loading.
 
-- **Correct README claims about generated renderers, accessibility, runtime plugin registration, password screens, RPC macros, and interpreter updates.** Share crate summaries with Rust documentation and derive MSRV badges from Cargo through MDT templates, with a documentation drift check. _Packages:_ 🟢 _leptoskit_testing_library_, 🟢 _leptoskit_yoga_, 🟢 _leptoskit_use_, 🟢 _leptoskit_native_, 🟢 _leptoskit_testing_, 🟢 _leptoskit_tui_, 🟢 _leptoskit_appkit_, 🟢 _leptoskit_uikit_, 🟢 _leptoskit_android_, 🟢 _leptoskit_gtk_, 🟢 _leptoskit_windows_, 🟢 _leptoskit_aria_, 🟢 _leptoskit_analytics_, 🟢 _leptoskit_deploy_console_, 🟢 _leptoskit_form_, 🟢 _leptoskit_config_, 🟢 _leptoskit_plugin_, 🟢 _leptoskit_bridge_, 🟢 _leptoskit_bridge_ffi_, 🟢 _leptoskit_build_, 🟢 _leptoskit_plugin_crypto_, 🟢 _leptoskit_plugin_os_, 🟢 _leptoskit_plugin_clipboard_, 🟢 _leptoskit_plugin_haptics_, 🟢 _leptoskit_plugin_battery_, 🟢 _leptoskit_plugin_device_, 🟢 _leptoskit_plugin_secure_store_, 🟢 _leptoskit_plugin_linking_, 🟢 _leptoskit_plugin_passkeys_, 🟢 _leptoskit_plugin_web_auth_, 🟢 _leptoskit_plugin_filesystem_, 🟢 _leptoskit_plugin_network_, 🟢 _leptoskit_plugin_posture_, 🟢 _leptoskit_plugin_dialog_, 🟢 _leptoskit_plugin_document_picker_, 🟢 _leptoskit_plugin_screen_orientation_, 🟢 _leptoskit_plugin_light_sensor_, 🟢 _leptoskit_plugin_pedometer_, 🟢 _leptoskit_plugin_accelerometer_, 🟢 _leptoskit_plugin_application_, 🟢 _leptoskit_plugin_autostart_, 🟢 _leptoskit_plugin_barometer_, 🟢 _leptoskit_plugin_brightness_, 🟢 _leptoskit_plugin_gyroscope_, 🟢 _leptoskit_plugin_http_, 🟢 _leptoskit_plugin_keep_awake_, 🟢 _leptoskit_plugin_localization_, 🟢 _leptoskit_plugin_magnetometer_, 🟢 _leptoskit_plugin_permissions_, 🟢 _leptoskit_plugin_single_instance_, 🟢 _leptoskit_plugin_menu_, 🟢 _leptoskit_plugin_tray_, 🟢 _leptoskit_plugin_speech_, 🟢 _leptoskit_plugin_sqlite_, 🟢 _leptoskit_plugin_store_, 🟢 _leptoskit_plugin_image_manipulator_, 🟢 _leptoskit_plugin_screen_capture_, 🟢 _leptoskit_plugin_store_review_, 🟢 _leptoskit_plugin_sharing_, 🟢 _leptoskit_plugin_tracking_transparency_, 🟢 _leptoskit_plugin_websocket_, 🟢 _leptoskit_plugin_arguments_, 🟢 _leptoskit_plugin_shell_, 🟢 _leptoskit_plugin_logging_, 🟢 _leptoskit_plugin_notifications_, 🟢 _leptoskit_plugin_local_authentication_, 🟢 _leptoskit_plugin_location_, 🟢 _leptoskit_plugin_global_shortcut_, 🟢 _leptoskit_plugin_window_state_, 🟢 _leptoskit_sensor_, 🟢 _leptoskit_codepush_, 🟢 _leptoskit_wasm_, 🟢 _leptoskit_axum_, 🟢 _leptoskit_rpc_codegen_, 🟢 _leptoskit_rpc_macros_, 🟢 _leptoskit_rpc_, 🟢 _leptoskit_query_, 🟢 _leptoskit_virtual_, 🟢 _leptoskit_table_, 🟢 _leptoskit_rive_, 🟢 _leptoskit_rive_runtime_, 🟢 _leptoskit_docs_, 🟢 _leptoskit_macros_, 🟢 _leptoskit_router_macros_, 🟢 _leptoskit_router_, 🟢 _leptoskit_plugin_router_, 🟢 _leptoskit_router_codegen_, 🟢 _leptoskit_db_schema_, 🟢 _leptoskit_db_macros_, 🟢 _leptoskit_db_, 🟢 _leptoskit_auth_, 🟢 _leptoskit_idp_, 🟢 _leptoskit_extension_, 🟢 _leptoskit_devtools_protocol_, 🟢 _leptoskit_plugin_devtools_, 🟢 _leptoskit_devtools_, 🟢 _leptoskit_l10n_, 🟢 _leptoskit_l10n_codegen_, 🟢 _leptoskit_cli_, 🟢 _leptoskit_fmt_, 🟢 _leptoskit_lint_, 🟢 _leptoskit_ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #515](https://github.com/ifiokjr/leptoskit/pull/515)
+- **Correct README claims about generated renderers, accessibility, runtime plugin registration, password screens, RPC macros, and interpreter updates.** Share crate summaries with Rust documentation and derive MSRV badges from Cargo through MDT templates, with a documentation drift check. _Packages:_ 🟢 _leptoskit_testing_library_, 🟢 _leptoskit_yoga_, 🟢 _leptoskit_use_, 🟢 _leptoskit_native_, 🟢 _leptoskit_testing_, 🟢 _leptoskit_tui_, 🟢 _leptoskit_appkit_, 🟢 _leptoskit_uikit_, 🟢 _leptoskit_android_, 🟢 _leptoskit_gtk_, 🟢 _leptoskit_windows_, 🟢 _leptoskit_aria_, 🟢 _leptoskit_analytics_, 🟢 _leptoskit_deploy_console_, 🟢 _leptoskit_form_, 🟢 _leptoskit_config_, 🟢 _leptoskit_plugin_, 🟢 _leptoskit_bridge_, 🟢 _leptoskit_bridge_ffi_, 🟢 _leptoskit_build_, 🟢 _leptoskit_plugin_crypto_, 🟢 _leptoskit_plugin_os_, 🟢 _leptoskit_plugin_clipboard_, 🟢 _leptoskit_plugin_haptics_, 🟢 _leptoskit_plugin_battery_, 🟢 _leptoskit_plugin_device_, 🟢 _leptoskit_plugin_secure_store_, 🟢 _leptoskit_plugin_linking_, 🟢 _leptoskit_plugin_passkeys_, 🟢 _leptoskit_plugin_web_auth_, 🟢 _leptoskit_plugin_filesystem_, 🟢 _leptoskit_plugin_network_, 🟢 _leptoskit_plugin_posture_, 🟢 _leptoskit_plugin_dialog_, 🟢 _leptoskit_plugin_document_picker_, 🟢 _leptoskit_plugin_screen_orientation_, 🟢 _leptoskit_plugin_light_sensor_, 🟢 _leptoskit_plugin_pedometer_, 🟢 _leptoskit_plugin_accelerometer_, 🟢 _leptoskit_plugin_application_, 🟢 _leptoskit_plugin_autostart_, 🟢 _leptoskit_plugin_barometer_, 🟢 _leptoskit_plugin_brightness_, 🟢 _leptoskit_plugin_gyroscope_, 🟢 _leptoskit_plugin_http_, 🟢 _leptoskit_plugin_keep_awake_, 🟢 _leptoskit_plugin_localization_, 🟢 _leptoskit_plugin_magnetometer_, 🟢 _leptoskit_plugin_permissions_, 🟢 _leptoskit_plugin_single_instance_, 🟢 _leptoskit_plugin_menu_, 🟢 _leptoskit_plugin_tray_, 🟢 _leptoskit_plugin_speech_, 🟢 _leptoskit_plugin_sqlite_, 🟢 _leptoskit_plugin_store_, 🟢 _leptoskit_plugin_image_manipulator_, 🟢 _leptoskit_plugin_screen_capture_, 🟢 _leptoskit_plugin_store_review_, 🟢 _leptoskit_plugin_sharing_, 🟢 _leptoskit_plugin_tracking_transparency_, 🟢 _leptoskit_plugin_websocket_, 🟢 _leptoskit_plugin_arguments_, 🟢 _leptoskit_plugin_shell_, 🟢 _leptoskit_plugin_logging_, 🟢 _leptoskit_plugin_notifications_, 🟢 _leptoskit_plugin_local_authentication_, 🟢 _leptoskit_plugin_location_, 🟢 _leptoskit_plugin_global_shortcut_, 🟢 _leptoskit_plugin_window_state_, 🟢 _leptoskit_sensor_, 🟢 _leptoskit_codepush_, 🟢 _leptoskit_wasm_, 🟢 _leptoskit_axum_, 🟢 _leptoskit_rpc_codegen_, 🟢 _leptoskit_rpc_macros_, 🟢 _leptoskit_rpc_, 🟢 _leptoskit_query_, 🟢 _leptoskit_virtual_, 🟢 _leptoskit_table_, 🟢 _leptoskit_rive_, 🟢 _leptoskit_rive_runtime_, 🟢 _leptoskit_docs_, 🟢 _leptoskit_macros_, 🟢 _leptoskit_router_macros_, 🟢 _leptoskit_router_, 🟢 _leptoskit_plugin_router_, 🟢 _leptoskit_router_codegen_, 🟢 _leptoskit_db_schema_, 🟢 _leptoskit_db_macros_, 🟢 _leptoskit_db_, 🟢 _leptoskit_auth_, 🟢 _leptoskit_idp_, 🟢 _leptoskit_extension_, 🟢 _leptoskit_devtools_protocol_, 🟢 _leptoskit_plugin_devtools_, 🟢 _leptoskit_devtools_, 🟢 _leptoskit_l10n_, 🟢 _leptoskit_l10n_codegen_, 🟢 _leptoskit_cli_, 🟢 _leptoskit_fmt_, 🟢 _leptoskit_lint_, 🟢 _leptoskit_ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #515](https://github.com/leptoskit/leptoskit/pull/515)
 
 #### Fix a rounded-view tap crash; speed up list updates
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #490](https://github.com/ifiokjr/leptoskit/pull/490)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #490](https://github.com/leptoskit/leptoskit/pull/490)
 
 Tapping a fully rounded view that clips its content, such as a `rounded-full overflow-hidden` avatar, could crash the app when the view sat at a fractional position. Hit testing on every platform, and the macOS `Pressable`, now handles that corner.
 
@@ -1330,7 +1330,7 @@ Lists and conditional views update faster in native apps:
 
 #### Harden the Wasm runtime and code push against abuse
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #495](https://github.com/ifiokjr/leptoskit/pull/495)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #495](https://github.com/leptoskit/leptoskit/pull/495)
 
 - A guest that imports the wasm-bindgen externref table shim with a reference-typed signature can no longer forge a function reference. Calling through one used to panic the interpreter, which aborted the macOS app.
 - Plugin payload copies now cost fuel, so a guest looping over `submit` and `cancel` runs out of fuel instead of copying megabytes per instruction and freezing the app.
@@ -1343,7 +1343,7 @@ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #495](https://g
 
 #### Close a channel bypass and bound live connections
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #496](https://github.com/ifiokjr/leptoskit/pull/496)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #496](https://github.com/leptoskit/leptoskit/pull/496)
 
 A live connection could join any channel instance by naming its key, even though the server only checked whether the caller could join the instance its arguments described. Members of one room could then see another room's presence and signals and send signals into it, including across servers through the relay. The server now requires the key to be the join arguments it authorized. Two channels whose arguments look alike (`Chat { room }` and `Doc { room }`) no longer share a room.
 
@@ -1365,7 +1365,7 @@ Reusing a subscription ID for another query no longer returns the earlier query'
 
 #### Fix terminal wide text, resizes, and long lists
 
-_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #491](https://github.com/ifiokjr/leptoskit/pull/491)
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #491](https://github.com/leptoskit/leptoskit/pull/491)
 
 Terminal apps draw correctly in three cases they used to get wrong:
 
@@ -1375,8 +1375,8 @@ Terminal apps draw correctly in three cases they used to get wrong:
 
 A long scrolled list also renders faster: rows outside the screen are no longer wrapped or drawn. Rendering 10,000 rows into a 40×20 terminal takes 0.1 ms instead of 3 ms.
 
-- **Use Objective-C message forwarding for UIKit text input traits so debug builds can create text and password fields without crashing.** _Packages:_ 🟢 _leptoskit_uikit_ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #516](https://github.com/ifiokjr/leptoskit/pull/516)
-- **Reserve private operation logs before launching the deployment command so a repeated operation cannot execute again when its logs already exist.** _Packages:_ 🟢 _leptoskit_cli_ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #516](https://github.com/ifiokjr/leptoskit/pull/516)
-- **Resolve deployment Git operations against the registered repository even when the CLI runs from a Git hook.** _Packages:_ 🟢 _leptoskit_cli_ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #516](https://github.com/ifiokjr/leptoskit/pull/516)
-- **Explain how to connect to the deployment service when its saved credential is missing on Unix.** _Packages:_ 🟢 _leptoskit_cli_ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #516](https://github.com/ifiokjr/leptoskit/pull/516)
-- **Run recovery SQL without reading psql startup files, so local formatting settings cannot break backup verification.** _Packages:_ 🟢 _leptoskit_cli_ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #516](https://github.com/ifiokjr/leptoskit/pull/516)
+- **Use Objective-C message forwarding for UIKit text input traits so debug builds can create text and password fields without crashing.** _Packages:_ 🟢 _leptoskit_uikit_ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #516](https://github.com/leptoskit/leptoskit/pull/516)
+- **Reserve private operation logs before launching the deployment command so a repeated operation cannot execute again when its logs already exist.** _Packages:_ 🟢 _leptoskit_cli_ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #516](https://github.com/leptoskit/leptoskit/pull/516)
+- **Resolve deployment Git operations against the registered repository even when the CLI runs from a Git hook.** _Packages:_ 🟢 _leptoskit_cli_ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #516](https://github.com/leptoskit/leptoskit/pull/516)
+- **Explain how to connect to the deployment service when its saved credential is missing on Unix.** _Packages:_ 🟢 _leptoskit_cli_ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #516](https://github.com/leptoskit/leptoskit/pull/516)
+- **Run recovery SQL without reading psql startup files, so local formatting settings cannot break backup verification.** _Packages:_ 🟢 _leptoskit_cli_ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #516](https://github.com/leptoskit/leptoskit/pull/516)

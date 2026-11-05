@@ -12,7 +12,7 @@
   <a href="#use-it"><strong>Use it</strong></a> ·
   <a href="#learn-more"><strong>Learn more</strong></a> ·
   <a href="https://docs.rs/leptoskit_plugin_os"><strong>Docs</strong></a> ·
-  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+  <a href="https://github.com/leptoskit/leptoskit"><strong>Repository</strong></a>
 </p>
 
 <br>
@@ -22,8 +22,8 @@
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_os"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_os.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_os"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_os/badge.svg"></a>
-  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://github.com/leptoskit/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/leptoskit/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/leptoskit/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
 
@@ -42,7 +42,7 @@ The values come from compile-time constants of the host build, so a call needs n
 | `platform`     | `ios`, `android`, `macos`, `windows`, `linux`, or `web`                                  |
 | `architecture` | Rust's `std::env::consts::ARCH`, such as `aarch64`, `x86_64`, or `wasm32` in the browser |
 
-Rust code can read them directly with `leptoskit_plugin_os::info()`. In a browser build the plugin reports `web` and `wasm32` honestly; it never parses a user-agent string, which is spoofable and says nothing reliable about the device. For model, OS version, and memory, use [`leptoskit_plugin_device`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_plugin_device).
+Rust code can read them directly with `leptoskit_plugin_os::info()`. In a browser build the plugin reports `web` and `wasm32` honestly; it never parses a user-agent string, which is spoofable and says nothing reliable about the device. For model, OS version, and memory, use [`leptoskit_plugin_device`](https://github.com/leptoskit/leptoskit/tree/main/crates/leptoskit_plugin_device).
 
 Add the crate as a direct app dependency and select `"os"` in `native.plugins`. The plugin is implemented in Rust (`Os`, declared with `rust-type` in the crate's Cargo metadata), so there are no Swift or Kotlin handlers and the host registers it on every native target. A guest has no typed wrapper; it calls the one method through the bridge client and decodes the reply with the bridge codec.
 
@@ -75,5 +75,5 @@ decoder.finish()?;
 
 - [Crate documentation](https://docs.rs/leptoskit_plugin_os)
 - [leptoskit documentation](https://leptoskit.dev/docs/)
-- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Repository](https://github.com/leptoskit/leptoskit)
 - [Plugin inventory](https://leptoskit.dev/docs/platforms/plugin-inventory.html)

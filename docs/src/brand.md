@@ -15,7 +15,7 @@ In the wordmark, the dot on the `i` is that same mint piece.
 
 ## Files
 
-Every file lives in [`docs/src/assets`](https://github.com/ifiokjr/leptoskit/tree/main/docs/src/assets).
+Every file lives in [`docs/src/assets`](https://github.com/leptoskit/leptoskit/tree/main/docs/src/assets).
 
 | File             | Use it for                                                          |
 | ---------------- | ------------------------------------------------------------------- |

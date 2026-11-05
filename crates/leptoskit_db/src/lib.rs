@@ -33,10 +33,10 @@
 //! a server function can return. On the client, `User` is an empty marker, so
 //! `Id<User>` still works but no row can be built or read there.
 #![doc(
-	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
+	html_logo_url = "https://raw.githubusercontent.com/leptoskit/leptoskit/main/docs/src/assets/icon.svg"
 )]
 #![doc(
-	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
+	html_favicon_url = "https://raw.githubusercontent.com/leptoskit/leptoskit/main/docs/src/assets/mark.svg"
 )]
 
 // Lets `#[derive(Scalar)]` name this crate from inside it, as it names it in

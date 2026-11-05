@@ -33,10 +33,10 @@
 //! the build pipeline, and [`LeptoskitPlugin::native_integration`] declares
 //! the native dependencies a plugin needs installed into a generated host.
 #![doc(
-	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
+	html_logo_url = "https://raw.githubusercontent.com/leptoskit/leptoskit/main/docs/src/assets/icon.svg"
 )]
 #![doc(
-	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
+	html_favicon_url = "https://raw.githubusercontent.com/leptoskit/leptoskit/main/docs/src/assets/mark.svg"
 )]
 
 pub mod process;

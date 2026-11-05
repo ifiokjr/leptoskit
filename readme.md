@@ -15,7 +15,7 @@
   <a href="https://leptoskit.dev/docs/">Documentation</a> ·
   <a href="https://crates.io/crates/leptoskit">crates.io</a> ·
   <a href="https://docs.rs/leptoskit">docs.rs</a> ·
-  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml">CI</a>
+  <a href="https://github.com/leptoskit/leptoskit/actions/workflows/ci.yml">CI</a>
 </p>
 
 ---

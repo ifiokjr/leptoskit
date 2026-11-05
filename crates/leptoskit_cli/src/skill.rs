@@ -14,7 +14,7 @@ use anyhow::Context;
 use anyhow::Result;
 
 /// Where tagged files are fetched from.
-const RAW: &str = "https://raw.githubusercontent.com/ifiokjr/leptoskit";
+const RAW: &str = "https://raw.githubusercontent.com/leptoskit/leptoskit";
 /// The skill's folder in the repository.
 const FOLDER: &str = "skills/leptoskit";
 /// The file an install leaves, naming the version and the files it wrote.

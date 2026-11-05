@@ -4,7 +4,7 @@ An app shell that went through store review is mostly the same every release: th
 
 The iOS and Android apps that `leptoskit new` generates can install code push releases. The generated macOS, Windows, Linux, and HarmonyOS apps can't yet.
 
-To see a release's whole life in one process — signing, serving, staging on a device, a delta, refusing a release that crashes, and mirroring a channel to a bucket — run the `release_lifecycle` example in [`leptoskit_codepush`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_codepush/examples/release_lifecycle.rs): `cargo run -p leptoskit_codepush --example release_lifecycle`.
+To see a release's whole life in one process — signing, serving, staging on a device, a delta, refusing a release that crashes, and mirroring a channel to a bucket — run the `release_lifecycle` example in [`leptoskit_codepush`](https://github.com/leptoskit/leptoskit/tree/main/crates/leptoskit_codepush/examples/release_lifecycle.rs): `cargo run -p leptoskit_codepush --example release_lifecycle`.
 
 ## The release flow
 

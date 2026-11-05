@@ -17,7 +17,7 @@ use leptoskit_docs::Site;
 pub const URL: &str = "https://leptoskit.dev/docs/";
 
 /// The repository the docs live in.
-pub const REPOSITORY: &str = "https://github.com/ifiokjr/leptoskit";
+pub const REPOSITORY: &str = "https://github.com/leptoskit/leptoskit";
 
 /// The book: `docs/src`, beside this crate.
 pub fn book() -> PathBuf {

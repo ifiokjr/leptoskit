@@ -74,10 +74,10 @@
 //! [`NativeEvent::Press`]: leptoskit_native::NativeEvent::Press
 //! [`NativeEvent::Scroll`]: leptoskit_native::NativeEvent::Scroll
 #![doc(
-	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
+	html_logo_url = "https://raw.githubusercontent.com/leptoskit/leptoskit/main/docs/src/assets/icon.svg"
 )]
 #![doc(
-	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
+	html_favicon_url = "https://raw.githubusercontent.com/leptoskit/leptoskit/main/docs/src/assets/mark.svg"
 )]
 // The workspace denies `unsafe_code`; this crate is the one exception. AppKit
 // is an Objective-C framework, and every call into it goes through `objc2`,

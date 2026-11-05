@@ -6,7 +6,7 @@ A leptoskit extension is the app you already have, shown in a few more places. E
 
 ## An example: clipping quotes
 
-[Commonplace](https://github.com/ifiokjr/leptoskit/tree/main/examples/commonplace) is a research notebook with a website, native apps, and an extension that clips quotes from the pages you read. Its extension has every surface:
+[Commonplace](https://github.com/leptoskit/leptoskit/tree/main/examples/commonplace) is a research notebook with a website, native apps, and an extension that clips quotes from the pages you read. Its extension has every surface:
 
 | Surface      | Route                 | What it does                                                                                 |
 | ------------ | --------------------- | -------------------------------------------------------------------------------------------- |

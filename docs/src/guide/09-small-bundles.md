@@ -19,7 +19,7 @@ render = "islands"
 
 ## An islands app
 
-The [`islands` example](https://github.com/ifiokjr/leptoskit/tree/main/examples/islands) is a complete app in one crate: the library is the wasm client and the binary is the server.
+The [`islands` example](https://github.com/leptoskit/leptoskit/tree/main/examples/islands) is a complete app in one crate: the library is the wasm client and the binary is the server.
 
 ```toml
 [lib]

@@ -534,7 +534,7 @@ fn source_archive(root: &Path, config: &LeptoskitConfig, release: bool) -> Resul
 		"# Building {name} for Firefox\n\nThis archive is the source of the extension's \
 		 `firefox.zip`. Its WebAssembly is compiled from the Rust in this archive.\n\n## \
 		 Tools\n\n- rustc: {rustc}\n- cargo: {cargo}\n- leptoskit: {leptoskit}, from \
-		 <https://github.com/ifiokjr/leptoskit>\n- The `wasm32-unknown-unknown` Rust target: \
+		 <https://github.com/leptoskit/leptoskit>\n- The `wasm32-unknown-unknown` Rust target: \
 		 `rustup target add wasm32-unknown-unknown`\n\n## Build\n\n```sh\ncargo install \
 		 leptoskit_cli --version {leptoskit} --locked\nleptoskit build --platform \
 		 extension{release}\n```\n\nThe package is written to \
