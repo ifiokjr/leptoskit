@@ -2,16 +2,16 @@
 
 The JSON Schema for `leptoskit.toml` is generated from the Rust configuration types, including field documentation, defaults, enum choices, and unknown-field checks. It uses JSON Schema draft 2020-12. The documentation build copies the JSON files unchanged and publishes them with the book.
 
-| Contract             | Public URL                                                                                       |
-| -------------------- | ------------------------------------------------------------------------------------------------ |
-| Latest alias         | [schema.json](https://ifiokjr.github.io/leptoskit/schema.json)                                   |
-| Latest named alias   | [leptoskit.schema.json](https://ifiokjr.github.io/leptoskit/schemas/leptoskit.schema.json)       |
-| Version 0 (unstable) | [leptoskit.v0.schema.json](https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json) |
+| Contract             | Public URL                                                                         |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| Latest alias         | [schema.json](https://leptoskit.dev/schema.json)                                   |
+| Latest named alias   | [leptoskit.schema.json](https://leptoskit.dev/schemas/leptoskit.schema.json)       |
+| Version 0 (unstable) | [leptoskit.v0.schema.json](https://leptoskit.dev/schemas/leptoskit.v0.schema.json) |
 
 For autocomplete and diagnostics in schema-aware TOML editors such as Taplo, put this directive at the top of the file. Generated projects already include it:
 
 ```toml
-#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
+#:schema https://leptoskit.dev/schemas/leptoskit.v0.schema.json
 
 schema_version = 0
 

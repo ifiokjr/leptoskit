@@ -135,7 +135,7 @@ fn TodoView(id: RwSignal<u32>) -> impl IntoView {
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_query)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Fetching data](https://ifiokjr.github.io/leptoskit/guide/11-fetching-data.html)
-- [Real-time](https://ifiokjr.github.io/leptoskit/guide/24-real-time.html)
+- [Fetching data](https://leptoskit.dev/docs/guide/11-fetching-data.html)
+- [Real-time](https://leptoskit.dev/docs/guide/24-real-time.html)

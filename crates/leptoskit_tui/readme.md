@@ -64,6 +64,6 @@ let surface = NativeSurface::new(TuiBackend::new());
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_tui)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Terminal](https://ifiokjr.github.io/leptoskit/platforms/tui.html)
+- [Terminal](https://leptoskit.dev/docs/platforms/tui.html)

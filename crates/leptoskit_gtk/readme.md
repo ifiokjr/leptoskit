@@ -77,6 +77,6 @@ GDK_BACKEND=x11 GSK_RENDERER=cairo dbus-run-session -- xvfb-run -a \
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_gtk)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Linux](https://ifiokjr.github.io/leptoskit/platforms/windows-linux.html)
+- [Linux](https://leptoskit.dev/docs/platforms/windows-linux.html)

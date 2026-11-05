@@ -13,8 +13,8 @@ use leptoskit_docs::Props;
 use leptoskit_docs::Server;
 use leptoskit_docs::Site;
 
-/// Where the site is published.
-pub const URL: &str = "https://ifiokjr.github.io/leptoskit/";
+/// Where the site is published: the public domain's documentation root.
+pub const URL: &str = "https://leptoskit.dev/docs/";
 
 /// The repository the docs live in.
 pub const REPOSITORY: &str = "https://github.com/ifiokjr/leptoskit";

@@ -16,6 +16,8 @@ use tower_http::services::ServeDir;
 use tower_http::services::ServeFile;
 use tower_http::set_header::SetResponseHeaderLayer;
 
+use crate::landing::Mode;
+
 /// Assemble one same-origin site. Missing docs fail before accepting traffic.
 pub fn router(api: Router, assets: &Path, docs: &Path, origin: &str) -> Result<Router> {
 	for file in [
@@ -57,7 +59,7 @@ pub fn router(api: Router, assets: &Path, docs: &Path, origin: &str) -> Result<R
 			"missing documentation {file}; package the docs before serving"
 		);
 	}
-	let landing: Arc<str> = landing_html(origin).into();
+	let landing: Arc<str> = landing_html(origin, Mode::Hosted).into();
 	let console = ServeFile::new(assets.join("console/index.html"));
 	Ok(api
 		.route(
@@ -85,7 +87,10 @@ pub fn router(api: Router, assets: &Path, docs: &Path, origin: &str) -> Result<R
 }
 
 /// Server-rendered builder components remain readable without JavaScript.
-pub fn landing_html(origin: &str) -> String {
+/// The hosted broker renders the pilot page; the public-only packager renders
+/// [`Mode::Public`] so the static artifact offers no console or account
+/// action its absent backend could not honor.
+pub fn landing_html(origin: &str, mode: Mode) -> String {
 	let owner = Owner::new();
 	owner.with(|| {
 		let title = "LeptosKit — One tree. Every screen. Your cloud.";
@@ -112,7 +117,7 @@ pub fn landing_html(origin: &str) -> String {
 				html::script().r#type("module").src("/landing.mjs"),
 			)),
 			html::body().child((
-				leptoskit::web::render(crate::landing::screen()),
+				leptoskit::web::render(crate::landing::screen(mode)),
 				html::noscript().child(
 					"The documentation and links work without JavaScript. Enable JavaScript to \
 					 try the interactive component example.",

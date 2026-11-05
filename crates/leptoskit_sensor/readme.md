@@ -81,6 +81,6 @@ use leptoskit_sensor::Interval;
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_sensor)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Controlling devices](https://ifiokjr.github.io/leptoskit/guide/19-controlling-devices.html)
+- [Controlling devices](https://leptoskit.dev/docs/guide/19-controlling-devices.html)

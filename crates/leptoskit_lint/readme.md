@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_lint</h1>
 
 <p align="center">
-  <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -75,7 +75,7 @@ for diagnostic in &report.diagnostics {
 
 The rules know the built-in components that have a `view!` tag (`View`, `Text`, `Button`, …) and every function marked `#[component]` in the files they check. Only calls to those count as builder trees. Helpers that take elements as arguments, such as `ListTile`, have no tag and stay builder calls inside markup, and a capitalized tuple-struct constructor such as `Meters(3.0)` is never flagged.
 
-See the [linting guide](https://ifiokjr.github.io/leptoskit/guide/23-linting.html).
+See the [linting guide](https://leptoskit.dev/docs/guide/23-linting.html).
 
 ## How it fits
 
@@ -96,6 +96,6 @@ cargo run -p leptoskit_lint --features cli --bin leptoskit-lint -- examples   # 
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_lint)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Linting](https://ifiokjr.github.io/leptoskit/guide/23-linting.html)
+- [Linting](https://leptoskit.dev/docs/guide/23-linting.html)

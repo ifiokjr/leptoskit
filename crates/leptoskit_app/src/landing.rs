@@ -5,6 +5,20 @@ use reactive_graph::prelude::*;
 
 pub const REPOSITORY: &str = "https://github.com/ifiokjr/leptoskit";
 
+/// Which site renders. Both share the landing page's design, sections, and
+/// live component example; only console entry points and hosted-service copy
+/// differ.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+	/// The public website: documentation and source links only. It offers no
+	/// console, account, or checkout action because the public artifact has
+	/// no backend to sign into.
+	Public,
+	/// The operator-hosted pilot, which also serves the management console
+	/// and its API from the same origin.
+	Hosted,
+}
+
 fn text(id: &str, content: &str) -> Element {
 	Text(content).id(id)
 }
@@ -22,11 +36,11 @@ fn intro(id: &str, eyebrow: &str, title: &str, description: &str) -> Element {
 		.child(text(&format!("{id}-description"), description))
 }
 
-pub fn screen() -> Element {
+pub fn screen(mode: Mode) -> Element {
 	View()
 		.id("site")
 		.child(link("skip", "Skip to content", "#main"))
-		.child(header())
+		.child(header(mode))
 		.child(
 			View()
 				.role(Role::Main)
@@ -36,13 +50,13 @@ pub fn screen() -> Element {
 				.child(studio())
 				.child(workflow())
 				.child(capabilities())
-				.child(cloud())
+				.child(cloud(mode))
 				.child(start()),
 		)
-		.child(footer())
+		.child(footer(mode))
 }
 
-fn header() -> Element {
+fn header(mode: Mode) -> Element {
 	View()
 		.role(Role::Banner)
 		.id("header")
@@ -66,7 +80,10 @@ fn header() -> Element {
 				.child(link("nav-cloud", "Your cloud", "#cloud"))
 				.child(link("nav-docs", "Docs ↗", "/docs/")),
 		)
-		.child(link("nav-console", "Open console ↗", "/console/"))
+		.children(match mode {
+			Mode::Hosted => Some(link("nav-console", "Open console ↗", "/console/")),
+			Mode::Public => None,
+		})
 }
 
 fn hero() -> Element {
@@ -175,7 +192,12 @@ fn studio() -> Element {
 							"preview-caption",
 							"A REAL LEPTOSKIT COMPONENT · TRY IT",
 						))
-						.child(View().id("live-demo").child(demo(RwSignal::new(0))))
+						// The static preview waits for the Wasm event handlers.
+						.child(
+							View()
+								.id("live-demo")
+								.child(demo(RwSignal::new(0)).enabled(false)),
+						)
 						.child(text(
 							"preview-note",
 							"This interactive browser example changes local state. Native builds \
@@ -333,15 +355,78 @@ fn capabilities() -> Element {
 		.child(grid)
 }
 
-fn cloud() -> Element {
+fn cloud(mode: Mode) -> Element {
+	let (description, customer, managed) = match mode {
+		Mode::Public => {
+			(
+				"Deploy from your own machine or pipeline with the CLI. The engine plans, \
+				 applies, and rolls back infrastructure described in leptoskit.toml. Manage \
+				 provider credentials in your own environment.",
+				(
+					"The CLI plans and applies real infrastructure.",
+					"Describe compute, storage, live services, and backups in TOML. Review the \
+					 OpenTofu plan before anything runs, and keep the deployment history in your \
+					 own hands.",
+					"Read about deploying ↗",
+					"/docs/guide/24-deploying.html",
+				),
+				(
+					"Ship, then keep building.",
+					"Publish container releases and signed native code pushes from your own \
+					 workflow. Keep migration history and a route back when a release needs to be \
+					 reversed.",
+					"Explore code push ↗",
+					"/docs/guide/05-code-push.html",
+				),
+			)
+		}
+		Mode::Hosted => {
+			(
+				"Run the deployment engine yourself, or connect a dedicated worker to the hosted \
+				 console. Your infrastructure stays explicit.",
+				(
+					"Your account.\nYour infrastructure.",
+					"Connect your cloud credentials to a dedicated worker. Use the console for \
+					 reviewed plans, releases, encrypted state, and deployment history.",
+					"Connect your infrastructure ↗",
+					"/docs/guide/29-hosted-deployments.html",
+				),
+				(
+					"A dedicated place\nto get started.",
+					"LeptosKit-managed DigitalOcean capacity starts with an operator-approved \
+					 quote and an isolated worker. Cloud usage is separate from the management \
+					 subscription.",
+					"Read about the hosted pilot ↗",
+					"/docs/guide/29-hosted-deployments.html",
+				),
+			)
+		}
+	};
+	let (customer_title, customer_body, customer_link, customer_href) = customer;
+	let (managed_title, managed_body, managed_link, managed_href) = managed;
+	let (managed_label, note) = match mode {
+		Mode::Public => {
+			(
+				"RELEASE ON YOUR TERMS",
+				"Use the deployment guides to choose the services and release workflow your app \
+				 needs.",
+			)
+		}
+		Mode::Hosted => {
+			(
+				"LET US HELP YOU LAUNCH",
+				"Hosted access is an operator-enrolled pilot. Contact your service operator for \
+				 availability, pricing, and a reviewed infrastructure quote.",
+			)
+		}
+	};
 	View()
 		.id("cloud")
 		.child(intro(
 			"cloud-intro",
 			"04 / YOUR NEXT PLACE TO LAUNCH",
 			"Your app.\nYour choice of cloud.",
-			"Run the deployment engine yourself, or connect a dedicated worker to the hosted \
-			 console. Your infrastructure stays explicit.",
+			description,
 		))
 		.child(
 			View()
@@ -351,41 +436,25 @@ fn cloud() -> Element {
 						.id("ownership-customer")
 						.class("gap-5")
 						.child(text("ownership-customer-label", "BRING YOUR OWN"))
-						.child(Heading(3, "Your account.\nYour infrastructure."))
-						.child(Text(
-							"Connect your cloud credentials to a dedicated worker. Use the \
-							 console for reviewed plans, releases, encrypted state, and \
-							 deployment history.",
-						))
+						.child(Heading(3, customer_title))
+						.child(Text(customer_body))
 						.child(link(
 							"ownership-customer-link",
-							"Connect your infrastructure ↗",
-							"/docs/guide/29-hosted-deployments.html",
+							customer_link,
+							customer_href,
 						)),
 				)
 				.child(
 					View()
 						.id("ownership-managed")
 						.class("gap-5")
-						.child(text("ownership-managed-label", "LET US HELP YOU LAUNCH"))
-						.child(Heading(3, "A dedicated place\nto get started."))
-						.child(Text(
-							"LeptosKit-managed DigitalOcean capacity starts with an \
-							 operator-approved quote and an isolated worker. Cloud usage is \
-							 separate from the management subscription.",
-						))
-						.child(link(
-							"ownership-managed-link",
-							"Read about the hosted pilot ↗",
-							"/docs/guide/29-hosted-deployments.html",
-						)),
+						.child(text("ownership-managed-label", managed_label))
+						.child(Heading(3, managed_title))
+						.child(Text(managed_body))
+						.child(link("ownership-managed-link", managed_link, managed_href)),
 				),
 		)
-		.child(text(
-			"cloud-note",
-			"Hosted access is an operator-enrolled pilot. Contact your service operator for \
-			 availability, pricing, and a reviewed infrastructure quote.",
-		))
+		.child(text("cloud-note", note))
 }
 
 fn start() -> Element {
@@ -405,7 +474,7 @@ fn start() -> Element {
 		)
 }
 
-fn footer() -> Element {
+fn footer(mode: Mode) -> Element {
 	View()
 		.role(Role::ContentInfo)
 		.id("footer")
@@ -419,6 +488,9 @@ fn footer() -> Element {
 				.child(link("footer-docs", "Documentation", "/docs/"))
 				.child(link("footer-examples", "Examples", "/docs/examples.html"))
 				.child(link("footer-github", "GitHub", REPOSITORY))
-				.child(link("footer-console", "Console", "/console/")),
+				.children(match mode {
+					Mode::Hosted => Some(link("footer-console", "Console", "/console/")),
+					Mode::Public => None,
+				}),
 		)
 }

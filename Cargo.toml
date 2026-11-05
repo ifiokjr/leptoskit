@@ -52,7 +52,7 @@ exclude = ["devtools", "examples/commonplace", "examples/file_routes", "examples
 version = "0.1.0"
 authors = ["Ifiok Jr. <ifiokotung@gmail.com>"]
 edition = "2024"
-homepage = "https://ifiokjr.github.io/leptoskit/"
+homepage = "https://leptoskit.dev/"
 license = "Unlicense"
 repository = "https://github.com/ifiokjr/leptoskit"
 # Rust 1.95 stabilized the atomics' `try_update` and `if let` match guards,

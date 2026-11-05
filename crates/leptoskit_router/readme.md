@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_router</h1>
 
 <p align="center">
-  <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -45,7 +45,7 @@ Routes are files. `leptoskit routes` reads `src/routes/` and writes `src/routes.
 - `NotFound` — the unmatched path, for a `+not-found.rs` route;
 - `Router` and `Render` — the app's current route and its history, rendered as the route's page inside its layouts, with links that render as `<a href>` on the web. The `web` feature keeps a browser router in step with the address bar and the back button.
 
-The [file routes guide](https://ifiokjr.github.io/leptoskit/guide/10-file-routes.html) covers the naming conventions, and [`examples/file_routes`](https://github.com/ifiokjr/leptoskit/tree/main/examples/file_routes) is a complete app.
+The [file routes guide](https://leptoskit.dev/docs/guide/10-file-routes.html) covers the naming conventions, and [`examples/file_routes`](https://github.com/ifiokjr/leptoskit/tree/main/examples/file_routes) is a complete app.
 
 ## How it fits
 
@@ -71,6 +71,6 @@ pub struct Note {
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_router)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [File routes](https://ifiokjr.github.io/leptoskit/guide/10-file-routes.html)
+- [File routes](https://leptoskit.dev/docs/guide/10-file-routes.html)

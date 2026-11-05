@@ -1,6 +1,6 @@
 # leptoskit_docs_site
 
-The binary that builds and serves the leptoskit documentation site at <https://ifiokjr.github.io/leptoskit/>.
+The binary that builds and serves the leptoskit documentation site at <https://leptoskit.dev/docs/>.
 
 The book itself is Markdown in [`docs/src`](../src), listed by `SUMMARY.md`. [`leptoskit_docs`](../../crates/leptoskit_docs) is the generic generator: it turns MDX-style Markdown (leptos components inside Markdown) into a static site. This crate is the leptoskit-specific part: the site's title, logo, favicon, social image, edit links, and stylesheet (`site()`), and the few components only these docs use (`components()`): `<Hero>` for the home page, `<Gallery>` with `<Shot>` for rendered screens, `<Swatches>` with `<Swatch>` for the brand colours, and `<Logos>` with `<Logo>`. The generator's built-in components, such as `<Callout>` and `<Steps>`, are available too.
 

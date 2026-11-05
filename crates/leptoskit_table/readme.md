@@ -87,6 +87,6 @@ assert_eq!(page.rows.iter().map(|p| p.name).collect::<Vec<_>>(), ["Mars", "Jupit
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_table)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Tables](https://ifiokjr.github.io/leptoskit/guide/18-tables.html)
+- [Tables](https://leptoskit.dev/docs/guide/18-tables.html)

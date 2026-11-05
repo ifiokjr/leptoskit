@@ -2,7 +2,7 @@
 source: crates/leptoskit_cli/tests/snapshots.rs
 expression: contents
 ---
-#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
+#:schema https://leptoskit.dev/schemas/leptoskit.v0.schema.json
 
 schema_version = 0
 plugins = []

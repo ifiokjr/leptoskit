@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_rpc_macros</h1>
 
 <p align="center">
-  <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -68,6 +68,6 @@ async fn note(cx: &leptoskit_rpc::QueryCx, id: u64) -> leptoskit_rpc::Result<Not
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_rpc_macros)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Server functions](https://ifiokjr.github.io/leptoskit/guide/06-server-functions.html)
+- [Server functions](https://leptoskit.dev/docs/guide/06-server-functions.html)

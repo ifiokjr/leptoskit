@@ -76,6 +76,6 @@ assert_eq!(values.get("email").map(String::as_str), Some("ifiok@example.com"));
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_form)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Forms](https://ifiokjr.github.io/leptoskit/guide/19-forms.html)
+- [Forms](https://leptoskit.dev/docs/guide/19-forms.html)

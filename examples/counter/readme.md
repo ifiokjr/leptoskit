@@ -17,4 +17,4 @@ Every other example writes markup, which `leptoskit lint` asks for by default. T
 markup = "any" # builder calls and `view!` side by side; "builder" asks for builders everywhere
 ```
 
-See the [linting guide](https://ifiokjr.github.io/leptoskit/guide/23-linting.html) for the rules and the [`view!` reference](https://ifiokjr.github.io/leptoskit/reference/view.html) for how markup maps to builder calls.
+See the [linting guide](https://leptoskit.dev/docs/guide/23-linting.html) for the rules and the [`view!` reference](https://leptoskit.dev/docs/reference/view.html) for how markup maps to builder calls.

@@ -13,4 +13,4 @@ leptoskit serve    # run the release server over dist/
 
 The colour mixer on `/lab` is `#[island(lazy)]`, which moves it into a wasm chunk of its own by default: the notes page never downloads it. The example also builds with `optimize = "smallest"`, and `budget_kib = 80` fails a release build whose initial load outgrows 80 KiB brotli-compressed. CI builds the example for release on every pull request.
 
-The [small bundles guide](https://ifiokjr.github.io/leptoskit/guide/09-small-bundles.html) walks through it.
+The [small bundles guide](https://leptoskit.dev/docs/guide/09-small-bundles.html) walks through it.

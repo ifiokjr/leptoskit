@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_config</h1>
 
 <p align="center">
-  <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -41,7 +41,7 @@ One `leptoskit.toml` at the project root describes the app: identity and version
 
 Unknown fields are rejected, so typos fail at load time instead of silently doing nothing. The version 0 schema is unstable; breaking changes are expected until the first version 1 schema.
 
-The [schema and migration guide](https://ifiokjr.github.io/leptoskit/reference/schemas.html) lists public schema URLs and the major-version policy. Run `leptoskit migrate --dry-run` to preview upgrades of an existing file, then `leptoskit migrate` to apply them. Unversioned files remain readable; migration stamps the contract and preserves comments. Enable this crate's `schema` feature to generate JSON Schema from the same Rust types.
+The [schema and migration guide](https://leptoskit.dev/docs/reference/schemas.html) lists public schema URLs and the major-version policy. Run `leptoskit migrate --dry-run` to preview upgrades of an existing file, then `leptoskit migrate` to apply them. Unversioned files remain readable; migration stamps the contract and preserves comments. Enable this crate's `schema` feature to generate JSON Schema from the same Rust types.
 
 ## How it fits
 
@@ -54,7 +54,7 @@ The CLI, build pipeline, dev server, and native hosts all parse the same configu
 ## Use it
 
 ```toml
-#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
+#:schema https://leptoskit.dev/schemas/leptoskit.v0.schema.json
 
 schema_version = 0
 
@@ -79,7 +79,7 @@ leptos = true
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_config)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Configuration](https://ifiokjr.github.io/leptoskit/guide/03-configuration.html)
-- [Schema](https://ifiokjr.github.io/leptoskit/reference/schemas.html)
+- [Configuration](https://leptoskit.dev/docs/guide/03-configuration.html)
+- [Schema](https://leptoskit.dev/docs/reference/schemas.html)

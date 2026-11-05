@@ -84,6 +84,6 @@ let list = VirtualList(
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_virtual)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Virtualized lists](https://ifiokjr.github.io/leptoskit/guide/17-virtualized-lists.html)
+- [Virtualized lists](https://leptoskit.dev/docs/guide/17-virtualized-lists.html)

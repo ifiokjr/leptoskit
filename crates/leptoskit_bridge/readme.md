@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_bridge</h1>
 
 <p align="center">
-  <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -113,6 +113,6 @@ assert_eq!(reply.as_ref(), b"hello");
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_bridge)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Plugins](https://ifiokjr.github.io/leptoskit/platforms/plugins.html)
+- [Plugins](https://leptoskit.dev/docs/platforms/plugins.html)

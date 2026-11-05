@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_native</h1>
 
 <p align="center">
-  <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -39,7 +39,7 @@
 
 Apps describe their interface with shared Rust builders that return `Element` trees.
 
-The [component catalog](https://ifiokjr.github.io/leptoskit/reference/components.html) has 16 primitive builders for containers, text, images, vector drawings, scrolling, and native controls, including controlled `Switch`, `Checkbox`, `Radio`, `Slider`, progress, `PasswordInput`, activation-only `Pressable`, and optional `Rive` vector playback. Tailwind expresses layout and visual composition. The 31 optional `components::helpers` builders include `Row`, `Column`, `Stack`, `Card`, and eager `ListView`/`GridView` compositions. Web and every native backend render real controls; AppKit is the most complete, and the UIKit, Android, GTK, and Win32 backends are younger.
+The [component catalog](https://leptoskit.dev/docs/reference/components.html) has 16 primitive builders for containers, text, images, vector drawings, scrolling, and native controls, including controlled `Switch`, `Checkbox`, `Radio`, `Slider`, progress, `PasswordInput`, activation-only `Pressable`, and optional `Rive` vector playback. Tailwind expresses layout and visual composition. The 31 optional `components::helpers` builders include `Row`, `Column`, `Stack`, `Card`, and eager `ListView`/`GridView` compositions. Web and every native backend render real controls; AppKit is the most complete, and the UIKit, Android, GTK, and Win32 backends are younger.
 
 The builders are plain functions. The `leptoskit` crate's `view!` macro expands rstml markup such as `<View class="p-6"><Text>"Hello"</Text></View>` into the same calls, through the `IntoView` and `Fragment` types in `leptoskit_native::view`. Each builder accepts built-in Tailwind through `.class` and `.try_class`. Classes append and override typed base styles regardless of builder order. `.class` panics with a diagnostic for unsupported input. `.try_class` returns `ClassError`. Control events propose typed values; application state owns the committed value. `Element::validate` and `NativeSurface::try_set_root` reject invalid control trees before replacing the UI.
 
@@ -68,7 +68,7 @@ The optional `web` feature provides `leptoskit_native::web::render(Element)`, wh
 
 The `leptoskit` crate re-exports the builders, renderer types, and optional web adapter. The wasm host drives a native surface from a code-pushed bundle.
 
-See the [shared component guide](https://ifiokjr.github.io/leptoskit/guide/07-shared-components.html) and [CSS coverage reference](https://ifiokjr.github.io/leptoskit/reference/css-coverage.html) for defaults, supported utilities, and platform limits. Text size utilities set font size only. Native fonts expose four weights, and CSS features outside the supported subset return class diagnostics.
+See the [shared component guide](https://leptoskit.dev/docs/guide/07-shared-components.html) and [CSS coverage reference](https://leptoskit.dev/docs/reference/css-coverage.html) for defaults, supported utilities, and platform limits. Text size utilities set font size only. Native fonts expose four weights, and CSS features outside the supported subset return class diagnostics.
 
 ## How it fits
 
@@ -97,7 +97,7 @@ let screen = view! {
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_native)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Shared components](https://ifiokjr.github.io/leptoskit/guide/07-shared-components.html)
-- [CSS coverage](https://ifiokjr.github.io/leptoskit/reference/css-coverage.html)
+- [Shared components](https://leptoskit.dev/docs/guide/07-shared-components.html)
+- [CSS coverage](https://leptoskit.dev/docs/reference/css-coverage.html)

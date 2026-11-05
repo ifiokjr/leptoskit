@@ -1,6 +1,6 @@
 # Writing the public docs
 
-The site at <https://ifiokjr.github.io/leptoskit/> is built from `docs/src` by `docs/site`, a small binary over the [`leptoskit_docs`](../../crates/leptoskit_docs) crate. `devenv shell docs:serve` serves it on port 4400 and reloads on every edit; `devenv shell docs:build` builds `docs/dist` exactly as the `docs` workflow publishes it.
+The site at <https://leptoskit.dev/docs/> is built from `docs/src` by `docs/site`, a small binary over the [`leptoskit_docs`](../../crates/leptoskit_docs) crate. `devenv shell docs:serve` serves it on port 4400 and reloads on every edit; `devenv shell docs:build` builds the book into `docs/dist` as a preview. The `docs` workflow publishes more: it runs the app's `leptoskit-site --public-only` packager, which wraps the book in the public website — landing page and live example at the root, the book under `/docs/`, and the schema aliases at their stable root paths.
 
 ## Who the site is for
 

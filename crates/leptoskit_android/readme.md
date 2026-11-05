@@ -72,6 +72,6 @@ let surface = NativeSurface::new(backend);
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_android)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Android](https://ifiokjr.github.io/leptoskit/platforms/android.html)
+- [Android](https://leptoskit.dev/docs/platforms/android.html)

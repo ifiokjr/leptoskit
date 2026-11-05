@@ -96,6 +96,6 @@ run_application(mtm, |mtm, scene| {
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_uikit)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [iOS](https://ifiokjr.github.io/leptoskit/platforms/ios.html)
+- [iOS](https://leptoskit.dev/docs/platforms/ios.html)

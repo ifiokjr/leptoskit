@@ -56,6 +56,6 @@ leptoskit rpc generate    # write clients for the configured targets
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_rpc_codegen)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Sharing the RPC](https://ifiokjr.github.io/leptoskit/guide/13-sharing-the-rpc.html)
+- [Sharing the RPC](https://leptoskit.dev/docs/guide/13-sharing-the-rpc.html)

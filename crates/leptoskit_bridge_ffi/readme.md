@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_bridge_ffi</h1>
 
 <p align="center">
-  <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -124,6 +124,6 @@ Generated macOS, iOS, Android, and HarmonyOS shells link against it; the Rust ba
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_bridge_ffi)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Host projects](https://ifiokjr.github.io/leptoskit/platforms/host-projects.html)
+- [Host projects](https://leptoskit.dev/docs/platforms/host-projects.html)

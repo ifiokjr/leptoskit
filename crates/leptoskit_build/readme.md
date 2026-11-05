@@ -80,6 +80,6 @@ leptoskit_build = "0.1.0"
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_build)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Creating a project](https://ifiokjr.github.io/leptoskit/guide/02-creating.html)
+- [Creating a project](https://leptoskit.dev/docs/guide/02-creating.html)

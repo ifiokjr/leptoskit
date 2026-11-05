@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_cli</h1>
 
 <p align="center">
-  <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -75,7 +75,7 @@ The client crate is detected automatically — the workspace member producing a 
 
 <!-- {=cliSummary} -->
 
-`leptoskit verify build` builds a backend from a public Git commit in a container without network access, twice, and records a bundle, its inventory, and SLSA provenance; `leptoskit verify reproduce` lets anyone rebuild that bundle and compare the source, dependencies, and executable byte for byte. `verify record` and `verify check` inventory and check a bundle offline. None of them verifies a running backend. See [checking a backend bundle](https://ifiokjr.github.io/leptoskit/guide/30-verifying-releases.html). Every workflow starts here. The binary is a thin wrapper over the library, so the same code drives `leptoskit dev`, CI builds, native host preparation, and release checks. Generated projects call it by name; tooling calls the library directly.
+`leptoskit verify build` builds a backend from a public Git commit in a container without network access, twice, and records a bundle, its inventory, and SLSA provenance; `leptoskit verify reproduce` lets anyone rebuild that bundle and compare the source, dependencies, and executable byte for byte. `verify record` and `verify check` inventory and check a bundle offline. None of them verifies a running backend. See [checking a backend bundle](https://leptoskit.dev/docs/guide/30-verifying-releases.html). Every workflow starts here. The binary is a thin wrapper over the library, so the same code drives `leptoskit dev`, CI builds, native host preparation, and release checks. Generated projects call it by name; tooling calls the library directly.
 
 <!-- {/cliSummary} -->
 
@@ -103,7 +103,7 @@ leptoskit completions zsh
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_cli)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Creating a project](https://ifiokjr.github.io/leptoskit/guide/02-creating.html)
-- [Building](https://ifiokjr.github.io/leptoskit/guide/04-building.html)
+- [Creating a project](https://leptoskit.dev/docs/guide/02-creating.html)
+- [Building](https://leptoskit.dev/docs/guide/04-building.html)

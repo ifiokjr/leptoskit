@@ -30,7 +30,7 @@ leptoskit device logs --device SM02E4060324957 --tail 100
 
 ## One document for whole journeys
 
-The unit of composition is the [control document](https://ifiokjr.github.io/leptoskit/schemas/control.schema.json): a target and ordered steps, stopping at the first failure. `device run` reads it from a file or standard input:
+The unit of composition is the [control document](https://leptoskit.dev/schemas/control.schema.json): a target and ordered steps, stopping at the first failure. `device run` reads it from a file or standard input:
 
 ```json
 {
