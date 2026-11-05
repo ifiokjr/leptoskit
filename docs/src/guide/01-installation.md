@@ -29,7 +29,7 @@ sudo apt install binaryen  # Debian and Ubuntu
 leptoskit doctor
 ```
 
-Run it inside a project and it also checks that the project's `wasm-bindgen` version matches the one built into the CLI. A mismatch there is the most common cause of confusing bindgen failures.
+Inside a project it checks the tools for each native platform the app ships — Xcode and its simulator runtimes, Swift, Java and the Android SDK, GTK 4 on Linux, CocoaPods while a plugin needs it, and the Rust target each platform compiles for — reporting only the platforms you build. `leptoskit doctor --all` checks every platform this machine could build. It also checks that the project's `wasm-bindgen` version matches the one built into the CLI; a mismatch there is the most common cause of confusing bindgen failures.
 
 ## Shell completions
 

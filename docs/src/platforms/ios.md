@@ -15,6 +15,8 @@ rustup target add aarch64-apple-ios-sim aarch64-apple-ios wasm32-unknown-unknown
 
 On an Intel Mac, the simulator target is `x86_64-apple-ios`.
 
+You don't need CocoaPods. A plugin's Swift Package Manager dependencies resolve automatically, and CocoaPods is needed only when a plugin declares `apple-pods` — leptoskit then writes the Podfile and runs `pod install` itself before every build. `leptoskit doctor` says when CocoaPods is required.
+
 ## Develop with live reload
 
 ```bash

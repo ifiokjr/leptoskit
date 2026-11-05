@@ -28,11 +28,11 @@ Projects created before this layout, with `guest/`, a root `src/lib.rs`, and `ho
 | -------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | iOS      | A Mac with Xcode and a simulator runtime                                                        | `aarch64-apple-ios-sim` (`x86_64-apple-ios` on Intel), `aarch64-apple-ios` |
 | macOS    | A Mac with Xcode or its command line tools                                                      | Your Mac's architecture                                                    |
-| Android  | Java 17+, Android SDK 35, CMake, an NDK, and `ANDROID_HOME` (`ANDROID_NDK_HOME` to pick an NDK) | `aarch64-linux-android` or `x86_64-linux-android`                          |
+| Android  | Java 17+, Android SDK 36, CMake, an NDK, and `ANDROID_HOME` (`ANDROID_NDK_HOME` to pick an NDK) | `aarch64-linux-android` or `x86_64-linux-android`                          |
 | Windows  | Windows with the MSVC toolchain and the Windows SDK                                             | Your machine's architecture                                                |
 | Linux    | Linux with GTK 4.6+ development files and `pkg-config`                                          | Your machine's architecture                                                |
 
-Every platform also needs `wasm32-unknown-unknown` for your app. The CLI configures the NDK's compilers for Android itself, so plugins with bundled C or C++ libraries build for the same target.
+Every platform also needs `wasm32-unknown-unknown` for your app. The CLI configures the NDK's compilers for Android itself, so plugins with bundled C or C++ libraries build for the same target. Run `leptoskit doctor` inside the project to check every tool the platforms you ship build with — it reports each platform's own requirements, and only those, and `leptoskit doctor --all` checks every platform this machine could build.
 
 iOS simulator builds are signed ad hoc, so Keychain access works without a development certificate. iOS device builds aren't signed: set your development team in Xcode. Android debug APKs use Gradle's debug key; configure release signing in `android/app/build.gradle.kts` before distributing.
 
@@ -143,6 +143,45 @@ android-query-intents = [
 ```
 
 The generated manifest adds the action and scheme together in one `<intent>`. An existing action-only query does not replace this declaration. Your own queries remain in place, including queries for particular hosts or categories.
+
+### Third-party dependencies
+
+A plugin often wraps a library the platform's package managers ship: Firebase on iOS, Google Play's review library on Android. Declare the dependency in the plugin's crate and leptoskit installs it with the platform's own tools; the app never runs a package manager by hand.
+
+On Apple platforms, a Swift Package Manager dependency is declared where Swift expects it: the crate's `Package.swift`. leptoskit copies the package into the app and Swift Package Manager resolves the rest, on both iOS and macOS:
+
+```swift
+dependencies: [
+    .package(path: "../leptoskit_bridge_ffi"),
+    .package(url: "https://github.com/firebase/firebase-ios-sdk.git", from: "12.0.0"),
+],
+targets: [
+    .target(
+        name: "LeptosKitMessaging",
+        dependencies: [
+            .product(name: "LeptosKitBridge", package: "leptoskit_bridge_ffi"),
+            .product(name: "FirebaseMessaging", package: "firebase-ios-sdk"),
+        ],
+        path: "apple"
+    )
+]
+```
+
+A library that ships only as a pod is declared as `apple-pods` instead. leptoskit writes the Podfile, runs `pod install` before every iOS build, and compiles the plugin's Swift into the app target, where the pods are linked, so the plugin's Swift imports them directly. `version` is a CocoaPods requirement and may be omitted:
+
+```toml
+apple-pods = [
+	{ name = "FirebaseCore", version = "~> 12.0" },
+]
+```
+
+CocoaPods is needed only while a selected plugin declares pods; `leptoskit doctor` says when it is. Pods are iOS-only — the macOS host builds with Swift Package Manager, which cannot integrate them — so a pods plugin that also runs on macOS must not import its pods there: mark the platform `unavailable` or guard the import with `#if os(iOS)`. And because a pods plugin compiles into the app target rather than its own Swift package, its Swift can import its pods and the bridge but not other Swift packages; split a plugin that needs both.
+
+On Android, `android-dependencies` names Maven libraries the generated Gradle build adds. Each entry is an exact `group:artifact:version` coordinate, never an expression or a range:
+
+```toml
+android-dependencies = ["com.google.android.play:review:2.0.2"]
+```
 
 ### Per-platform registration
 

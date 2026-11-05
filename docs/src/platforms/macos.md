@@ -20,7 +20,7 @@ The build compiles your app to WebAssembly, builds the AppKit host for your Mac'
 
 While you work, `leptoskit dev --platform macos` builds and opens the app, and replaces its interface in the same window each time you save. See [building and serving](../guide/04-building.md#leptoskit-dev).
 
-The `macos/` folder is yours: `App.swift` starts the app and owns its window, `Info.plist` holds its name and version, and `Cargo.toml` lists native Rust dependencies such as [runtime plugins](plugins.md).
+The `macos/` folder is yours: `App.swift` starts the app and owns its window, `Info.plist` holds its name and version, and `Cargo.toml` lists native Rust dependencies such as [runtime plugins](plugins.md). A plugin's third-party Swift dependencies come through Swift Package Manager and resolve automatically; CocoaPods libraries are iOS-only, because the macOS host builds with Swift packages.
 
 ## How it differs from the other platforms
 

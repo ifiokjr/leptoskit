@@ -2,7 +2,7 @@
 "release": minor
 ---
 
-# Native dependencies without managing a package manager, and a doctor that checks each platform
+# Native packages and a per-platform doctor
 
 Plugins can now wrap third-party native SDKs the way the platform expects, and apps never run a package manager by hand.
 
