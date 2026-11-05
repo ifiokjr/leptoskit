@@ -78,6 +78,6 @@ assert_eq!(id.to_string().len(), 36);
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_plugin_crypto)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)
+- [Plugin inventory](https://leptoskit.dev/docs/platforms/plugin-inventory.html)

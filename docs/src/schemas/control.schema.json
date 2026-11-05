@@ -1,5 +1,5 @@
 {
-	"$id": "https://ifiokjr.github.io/leptoskit/schemas/control.schema.json",
+	"$id": "https://leptoskit.dev/schemas/control.schema.json",
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
 	"title": "leptoskit control document",
 	"description": "An ordered control journey.",

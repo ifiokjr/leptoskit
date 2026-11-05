@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://ifiokjr.github.io/leptoskit/">
+  <a href="https://leptoskit.dev/">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/src/assets/logo-dark.svg">
       <img src="docs/src/assets/logo-light.svg" alt="leptoskit" width="360">
@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://ifiokjr.github.io/leptoskit/">Documentation</a> ·
+  <a href="https://leptoskit.dev/docs/">Documentation</a> ·
   <a href="https://crates.io/crates/leptoskit">crates.io</a> ·
   <a href="https://docs.rs/leptoskit">docs.rs</a> ·
   <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml">CI</a>
@@ -24,7 +24,7 @@ Write shared LeptosKit components for web SSR and hydration, browser extensions,
 
 ## Examples
 
-Every screen here is a leptoskit element tree committed as real AppKit views by [`leptoskit_appkit`](crates/leptoskit_appkit), then rendered offscreen at 2x. The phone screens are drawn on macOS at a phone-sized viewport. Captions and the dashboard are on the [examples page](https://ifiokjr.github.io/leptoskit/examples.html), and `cargo run -p gallery -- snapshot <dir>` regenerates them.
+Every screen here is a leptoskit element tree committed as real AppKit views by [`leptoskit_appkit`](crates/leptoskit_appkit), then rendered offscreen at 2x. The phone screens are drawn on macOS at a phone-sized viewport. Captions and the dashboard are on the [examples page](https://leptoskit.dev/docs/examples.html), and `cargo run -p gallery -- snapshot <dir>` regenerates them.
 
 <p align="center">
   <img src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/profile.png" alt="A profile screen" width="200">
@@ -34,7 +34,7 @@ Every screen here is a leptoskit element tree committed as real AppKit views by 
 
 ## The platforms
 
-Every platform has a guide in [the documentation](https://ifiokjr.github.io/leptoskit/platforms/readme.html): [web](docs/src/platforms/web.md), [iOS](docs/src/platforms/ios.md), [Android](docs/src/platforms/android.md), [macOS](docs/src/platforms/macos.md), and [Windows/Linux](docs/src/platforms/windows-linux.md), plus [code reuse across platforms](docs/src/platforms/code-reuse.md).
+Every platform has a guide in [the documentation](https://leptoskit.dev/docs/platforms/index.html): [web](docs/src/platforms/web.md), [iOS](docs/src/platforms/ios.md), [Android](docs/src/platforms/android.md), [macOS](docs/src/platforms/macos.md), and [Windows/Linux](docs/src/platforms/windows-linux.md), plus [code reuse across platforms](docs/src/platforms/code-reuse.md).
 
 The [`platform_probe`](examples/platform_probe) suite tests the whole stack: yoga layout, renderer diffing, the wasm ABI runtime, and a code push delta update over the real HTTP surface. CI runs it on Linux, macOS, Windows, and the iOS simulator, and cross-compiles it for Android. Locally, run it with `test:all`, `ios_sim_run`, or `android_emulator_run`.
 

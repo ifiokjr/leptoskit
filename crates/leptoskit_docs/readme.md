@@ -128,6 +128,6 @@ Run `lk new my_app`.
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_docs)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Writing docs](https://ifiokjr.github.io/leptoskit/guide/14-writing-docs.html)
+- [Writing docs](https://leptoskit.dev/docs/guide/14-writing-docs.html)

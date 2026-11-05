@@ -121,6 +121,6 @@ let element = view! {
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_rive)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Rive](https://ifiokjr.github.io/leptoskit/guide/20-rive.html)
+- [Rive](https://leptoskit.dev/docs/guide/20-rive.html)

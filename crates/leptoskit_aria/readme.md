@@ -78,7 +78,7 @@ let screen = view! {
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_aria)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Accessible components](https://ifiokjr.github.io/leptoskit/guide/16-accessible-components.html)
-- [Accessibility](https://ifiokjr.github.io/leptoskit/guide/15-accessibility.html)
+- [Accessible components](https://leptoskit.dev/docs/guide/16-accessible-components.html)
+- [Accessibility](https://leptoskit.dev/docs/guide/15-accessibility.html)

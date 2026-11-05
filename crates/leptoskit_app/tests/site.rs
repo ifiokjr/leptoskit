@@ -6,6 +6,7 @@ use axum::body::Body;
 use axum::body::to_bytes;
 use axum::http::Request;
 use axum::http::StatusCode;
+use leptoskit_app::landing::Mode;
 use tower::ServiceExt as _;
 
 fn web_assets(root: &Path) {
@@ -106,7 +107,11 @@ async fn one_origin_serves_the_landing_real_docs_console_and_api() {
 		assert_eq!(response.headers()["location"], format!("{path}/"));
 	}
 	let owner = reactive_graph::owner::Owner::new();
-	owner.with(|| check_documentation_links(&leptoskit_app::landing::screen(), &docs));
+	owner.with(|| check_documentation_links(&leptoskit_app::landing::screen(Mode::Hosted), &docs));
+	// The public tree offers the same sections, and its documentation links
+	// reach the real book too.
+	let owner = reactive_graph::owner::Owner::new();
+	owner.with(|| check_documentation_links(&leptoskit_app::landing::screen(Mode::Public), &docs));
 	let html = std::fs::read_to_string(docs.join("index.html")).unwrap();
 	assert!(!html.contains("fonts.googleapis.com"));
 	assert!(
@@ -143,6 +148,63 @@ fn check_documentation_links(element: &leptoskit::prelude::Element, docs: &Path)
 	for child in &element.children {
 		check_documentation_links(child, docs);
 	}
+}
+
+#[test]
+fn the_public_landing_html_offers_documentation_without_account_actions() {
+	let html = leptoskit_app::site::landing_html("https://leptoskit.dev", Mode::Public);
+	assert!(
+		html.contains("<link rel=\"canonical\" href=\"https://leptoskit.dev/\""),
+		"the public page's canonical origin is the public domain"
+	);
+	assert!(
+		!html.contains("/console"),
+		"the public page must not link to the console"
+	);
+	for offered in [
+		"Open console",
+		"Connect your infrastructure",
+		"billing",
+		"checkout",
+		"LET US HELP YOU LAUNCH",
+		"Contact your service operator",
+	] {
+		assert!(
+			!html.contains(offered),
+			"the public page must not offer {offered}"
+		);
+	}
+	assert!(html.contains("href=\"/docs/\""));
+	assert!(html.contains(leptoskit_app::landing::REPOSITORY));
+	let demo_button = html
+		.split("<button")
+		.find(|button| button.split('>').next().unwrap().contains("demo-increment"))
+		.expect("the static demo includes its button")
+		.split('>')
+		.next()
+		.unwrap();
+	assert!(
+		demo_button.contains("disabled"),
+		"the static button waits for its interactive Wasm replacement"
+	);
+	// The polished page keeps its drawing style, responsive assets, and the
+	// real interactive example's mount point.
+	for kept in [
+		"id=\"live-demo\"",
+		"/landing.mjs",
+		"/docs/theme/skribble.css",
+		"/docs/_leptoskit/theme.js",
+	] {
+		assert!(html.contains(kept), "the public page must keep {kept}");
+	}
+	// The hosted page keeps rendering its console and hosted-service offers.
+	let hosted = leptoskit_app::site::landing_html("https://deploy.example.test", Mode::Hosted);
+	assert!(hosted.contains("href=\"/console/\""));
+	assert!(hosted.contains("Connect your infrastructure"));
+	assert!(
+		hosted.contains("<link rel=\"canonical\" href=\"https://deploy.example.test/\""),
+		"the packager's explicit origin stays the canonical origin"
+	);
 }
 
 #[test]

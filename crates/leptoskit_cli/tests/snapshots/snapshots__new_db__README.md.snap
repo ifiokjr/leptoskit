@@ -32,7 +32,7 @@ The module path is relative to the app crate's `src/` directory. Add `routes/hom
 
 `ios/`, `android/`, `macos/`, `windows/`, and `linux/` are app-owned platform runners. Install the matching SDK when building a destination. All generated registrants, SDK integration files, and build intermediates stay under `.leptoskit/<platform>/`, which is ignored by Git. Prepare a native target before opening its generated Xcode project or the app-owned `android/` Gradle project.
 
-`leptoskit dev` resolves `monosecret.toml` through Monosecret before starting. Install Monosecret, then store credentials in its keyring or your team's provider. The manifest declares names; keep secret values out of Git. Use `leptoskit dev --no-secrets` when your host supplies the environment. In production, run `monosecret run -- ./target/release/snapshotted`. See [secret management](https://ifiokjr.github.io/leptoskit/guide/secrets.html).
+`leptoskit dev` resolves `monosecret.toml` through Monosecret before starting. Install Monosecret, then store credentials in its keyring or your team's provider. The manifest declares names; keep secret values out of Git. Use `leptoskit dev --no-secrets` when your host supplies the environment. In production, run `monosecret run -- ./target/release/snapshotted`. See [secret management](https://leptoskit.dev/docs/guide/secrets.html).
 
 The starter requests no native plugin capabilities. Add native plugins to the runner's direct Cargo dependencies and grant them explicitly in `native.plugins`.
 

@@ -58,6 +58,6 @@ Apps never select it. The shared runtime installs it in `leptoskit dev` builds, 
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_plugin_devtools)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [DevTools](https://ifiokjr.github.io/leptoskit/guide/26-devtools.html)
+- [DevTools](https://leptoskit.dev/docs/guide/26-devtools.html)

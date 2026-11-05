@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_db_macros</h1>
 
 <p align="center">
-  <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -61,6 +61,6 @@ pub struct Note {
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_db_macros)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Database](https://ifiokjr.github.io/leptoskit/guide/22-database.html)
+- [Database](https://leptoskit.dev/docs/guide/22-database.html)

@@ -78,6 +78,6 @@ logger.flush().await?;
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_plugin_logging)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Plugin inventory](https://ifiokjr.github.io/leptoskit/platforms/plugin-inventory.html)
+- [Plugin inventory](https://leptoskit.dev/docs/platforms/plugin-inventory.html)

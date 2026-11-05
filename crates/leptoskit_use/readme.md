@@ -154,6 +154,6 @@ assert!(value.get());
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_use)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Hooks](https://ifiokjr.github.io/leptoskit/guide/07-shared-components.html)
+- [Hooks](https://leptoskit.dev/docs/guide/07-shared-components.html)

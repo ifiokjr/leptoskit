@@ -1,15 +1,20 @@
 name: docs
 
-# Builds the documentation site on every pull request that could change it,
-# and deploys it to GitHub Pages from main. The site is the book in docs/src,
-# built by docs/site with leptoskit_docs, so a broken link, an unknown
-# component, or a bad prop fails this check before it can ship.
+# Builds the public website on every pull request that could change it, and
+# deploys it to GitHub Pages from main. The artifact is the real public-only
+# packager output: the landing page with its live Wasm example at the root,
+# the book from docs/src under /docs/, and the schema aliases at their stable
+# root paths — with no console entrypoint. The same packaging runs in the
+# hosted pilot workflow with the console for operators, so a broken link, an
+# unknown component, or a bad prop fails this check before it can ship.
 
 on:
   push:
     branches: [main]
     paths:
       - "docs/**"
+      - "crates/leptoskit_app/**"
+      - "crates/leptoskit_cli/**"
       - "crates/leptoskit_docs/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -20,6 +25,8 @@ on:
   pull_request:
     paths:
       - "docs/**"
+      - "crates/leptoskit_app/**"
+      - "crates/leptoskit_cli/**"
       - "crates/leptoskit_docs/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -39,8 +46,10 @@ concurrency:
 jobs:
   build:
     name: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      CARGO_BUILD_JOBS: 4
     steps:
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -55,14 +64,59 @@ jobs:
         with:
           prefix-key: docs
 
-      - name: build the site
-        run: cargo run --locked --release --package leptoskit_docs_site -- build --out docs/dist
+      - name: install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends build-essential cmake pkg-config libssl-dev
+
+      # Release builds optimize the browser client with `wasm-opt`; this is
+      # the binaryen release devenv provides and the release job pins.
+      - name: install binaryen
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/binaryen.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/WebAssembly/binaryen/releases/download/version_132/binaryen-version_132-x86_64-linux.tar.gz \
+            -o "$archive"
+          echo "195ddc94f9bc89f45abdabb0b9eea86023d727ba90eac8b35b80f2544fc30572  $archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/binaryen-version_132/bin" >> "$GITHUB_PATH"
+
+      # The packaging tools are native and run once, so a debug build is
+      # enough for them; `--release` below applies to the shipped browser
+      # client instead.
+      - name: build the packaging tools
+        run: |
+          cargo build --locked -p leptoskit_cli --bin leptoskit
+          cargo build --locked -p leptoskit_app --features site --bin leptoskit-site
+
+      - name: package the public website
+        run: |
+          set -euo pipefail
+          target/debug/leptoskit-site --public-only --url https://leptoskit.dev \
+            --cli target/debug/leptoskit --out "$PWD/docs/dist" --release
+
+      - name: verify the public artifact
+        run: |
+          set -euo pipefail
+          test -f docs/dist/index.html
+          test -f docs/dist/docs/index.html
+          test -f docs/dist/docs/_leptoskit/search.json
+          test -f docs/dist/pkg/leptoskit_app_bg.wasm
+          test ! -e docs/dist/console
+          grep -q 'id="live-demo"' docs/dist/index.html
+          if grep -q '/console' docs/dist/index.html; then
+            echo "the public landing page must not offer the console" >&2
+            exit 1
+          fi
 
       - name: verify public schema assets
         run: |
           cmp docs/src/schema.json docs/dist/schema.json
+          cmp docs/src/schema.json docs/dist/docs/schema.json
           for schema in docs/src/schemas/leptoskit*.schema.json; do
             cmp "$schema" "docs/dist/schemas/$(basename "$schema")"
+            cmp "$schema" "docs/dist/docs/schemas/$(basename "$schema")"
           done
 
       - name: upload the site

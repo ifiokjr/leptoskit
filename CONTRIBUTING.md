@@ -1,6 +1,6 @@
 # Contributing to leptoskit
 
-This file is for people working on leptoskit itself. The [public docs](https://ifiokjr.github.io/leptoskit/) are for people building apps with it, so repository workflows, CI details, and maintenance steps live here and in [`docs/agents/`](docs/agents/readme.md) instead. Coding agents should also read [`AGENTS.md`](AGENTS.md).
+This file is for people working on leptoskit itself. The [public docs](https://leptoskit.dev/docs/) are for people building apps with it, so repository workflows, CI details, and maintenance steps live here and in [`docs/agents/`](docs/agents/readme.md) instead. Coding agents should also read [`AGENTS.md`](AGENTS.md).
 
 ## Development environment
 

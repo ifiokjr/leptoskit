@@ -55,6 +55,6 @@ leptoskit = { version = "0.1", features = ["extension"] }
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_extension)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Browser extensions](https://ifiokjr.github.io/leptoskit/platforms/extension.html)
+- [Browser extensions](https://leptoskit.dev/docs/platforms/extension.html)

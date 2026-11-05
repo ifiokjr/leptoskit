@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_idp</h1>
 
 <p align="center">
-  <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -93,6 +93,6 @@ leptoskit::db::packs!(leptoskit_auth, leptoskit_idp);
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_idp)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Sign in with your app](https://ifiokjr.github.io/leptoskit/guide/25-sign-in-with-your-app.html)
+- [Sign in with your app](https://leptoskit.dev/docs/guide/25-sign-in-with-your-app.html)

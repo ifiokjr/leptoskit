@@ -126,9 +126,9 @@ Read the one the task needs:
 
 ## More
 
-- Linting rules and configuration: https://ifiokjr.github.io/leptoskit/guide/23-linting.html
-- How markup maps to builder calls: https://ifiokjr.github.io/leptoskit/reference/view.html
-- The components: https://ifiokjr.github.io/leptoskit/reference/components.html
+- Linting rules and configuration: https://leptoskit.dev/docs/guide/23-linting.html
+- How markup maps to builder calls: https://leptoskit.dev/docs/reference/view.html
+- The components: https://leptoskit.dev/docs/reference/components.html
 
 ## Managed deployment service
 

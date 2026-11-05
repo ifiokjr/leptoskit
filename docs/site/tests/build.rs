@@ -55,9 +55,7 @@ fn renders_the_leptoskit_components() {
 	assert!(
 		home.contains("href=\"guide/01-installation.html\" class=\"lk-button lk-button-primary\"")
 	);
-	assert!(
-		home.contains("<link rel=\"canonical\" href=\"https://ifiokjr.github.io/leptoskit/\">")
-	);
+	assert!(home.contains("<link rel=\"canonical\" href=\"https://leptoskit.dev/docs/\">"));
 	assert!(home.contains("<link rel=\"stylesheet\" href=\"theme/leptoskit.css\">"));
 
 	let examples = read(out.path().join("examples.html"));

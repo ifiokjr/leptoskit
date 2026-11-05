@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut stale = Vec::new();
 
 	for asset in assets {
-		let id = format!("https://ifiokjr.github.io/leptoskit/{asset}");
+		let id = format!("https://leptoskit.dev/{asset}");
 		let schema = schema::configuration(&id);
 		// Match the repository's dprint JSON format for deterministic checks.
 		let formatter = serde_json::ser::PrettyFormatter::with_indent(b"\t");

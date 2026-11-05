@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_router_codegen</h1>
 
 <p align="center">
-  <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -63,6 +63,6 @@ leptoskit routes --check   # fail if it is stale
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_router_codegen)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [File routes](https://ifiokjr.github.io/leptoskit/guide/10-file-routes.html)
+- [File routes](https://leptoskit.dev/docs/guide/10-file-routes.html)

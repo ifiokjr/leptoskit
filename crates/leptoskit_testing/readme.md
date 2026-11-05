@@ -76,6 +76,6 @@ tester.find(&Finder::text("Hello"))?;
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_testing)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Testing](https://ifiokjr.github.io/leptoskit/guide/08-testing.html)
+- [Testing](https://leptoskit.dev/docs/guide/08-testing.html)

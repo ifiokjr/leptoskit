@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_yoga</h1>
 
 <p align="center">
-  <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -96,6 +96,6 @@ assert_eq!(tree.layout(child).height, 240.0);
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_yoga)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [CSS coverage](https://ifiokjr.github.io/leptoskit/reference/css-coverage.html)
+- [CSS coverage](https://leptoskit.dev/docs/reference/css-coverage.html)

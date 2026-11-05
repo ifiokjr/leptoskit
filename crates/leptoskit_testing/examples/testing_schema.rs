@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 	let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/src");
 	let asset = "schemas/control.schema.json";
-	let id = format!("https://ifiokjr.github.io/leptoskit/{asset}");
+	let id = format!("https://leptoskit.dev/{asset}");
 	let schema = control::document_schema(&id);
 	// Match the repository's dprint JSON format for deterministic checks.
 	let formatter = serde_json::ser::PrettyFormatter::with_indent(b"\t");

@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_rpc</h1>
 
 <p align="center">
-  <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -73,7 +73,7 @@ async fn list_notes() -> Result<Vec<Note>, ServerFnError> {
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_rpc)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Server functions](https://ifiokjr.github.io/leptoskit/guide/06-server-functions.html)
-- [Sharing the RPC](https://ifiokjr.github.io/leptoskit/guide/13-sharing-the-rpc.html)
+- [Server functions](https://leptoskit.dev/docs/guide/06-server-functions.html)
+- [Sharing the RPC](https://leptoskit.dev/docs/guide/13-sharing-the-rpc.html)

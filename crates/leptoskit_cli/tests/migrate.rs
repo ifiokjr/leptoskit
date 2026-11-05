@@ -28,9 +28,9 @@ fn previews_checks_and_migrates_from_a_nested_directory() {
 	let proposed = String::from_utf8(preview.stdout).expect("preview TOML");
 	let config: LeptoskitConfig = toml::from_str(&proposed).expect("valid preview");
 	assert_eq!(config.schema_version, 0);
-	assert!(proposed.starts_with(
-		"#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json\n"
-	));
+	assert!(
+		proposed.starts_with("#:schema https://leptoskit.dev/schemas/leptoskit.v0.schema.json\n")
+	);
 	assert!(!config.bundle.wasm_opt);
 	assert!(proposed.contains("# keep"));
 

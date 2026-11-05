@@ -41,7 +41,7 @@ pub const SCHEMA_VERSION: u32 = 0;
 
 /// Public editor schema pinned to the current configuration contract.
 pub fn schema_url() -> String {
-	format!("https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v{SCHEMA_VERSION}.schema.json")
+	format!("https://leptoskit.dev/schemas/leptoskit.v{SCHEMA_VERSION}.schema.json")
 }
 
 const fn default_schema_version() -> u32 {

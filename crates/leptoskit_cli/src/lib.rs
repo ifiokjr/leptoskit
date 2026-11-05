@@ -5,7 +5,7 @@
 //! inventory, and SLSA provenance; `leptoskit verify reproduce` lets anyone
 //! rebuild that bundle and compare the source, dependencies, and executable
 //! byte for byte. `verify record` and `verify check` inventory and check a
-//! bundle offline. None of them verifies a running backend. See [checking a backend bundle](https://ifiokjr.github.io/leptoskit/guide/30-verifying-releases.html). Every workflow starts
+//! bundle offline. None of them verifies a running backend. See [checking a backend bundle](https://leptoskit.dev/docs/guide/30-verifying-releases.html). Every workflow starts
 //! here. The binary is a thin wrapper over the library, so the same code drives
 //! `leptoskit dev`, CI builds, native host preparation, and release checks.
 //! Generated projects call it by name; tooling calls the library directly.

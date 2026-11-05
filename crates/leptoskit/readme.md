@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit</h1>
 
 <p align="center">
-  <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -46,13 +46,13 @@ One dependency, one CLI, every target:
 
 Build shared screens with the built-in Rust components and Tailwind classes.
 
-The [component catalog](https://ifiokjr.github.io/leptoskit/reference/components.html) has 16 primitive builders (including optional `Rive`) for containers, text, images, scrolling, and native controls. Tailwind expresses layout and visual composition. Another 31 composition helpers remain available through an explicit `components::helpers` import. Every builder returns the same `Element` vocabulary for native and web. Use them as PascalCase tags in `view!`; builders remain available for direct tree manipulation.
+The [component catalog](https://leptoskit.dev/docs/reference/components.html) has 16 primitive builders (including optional `Rive`) for containers, text, images, scrolling, and native controls. Tailwind expresses layout and visual composition. Another 31 composition helpers remain available through an explicit `components::helpers` import. Every builder returns the same `Element` vocabulary for native and web. Use them as PascalCase tags in `view!`; builders remain available for direct tree manipulation.
 
 Commit the tree to a `NativeSurface`, or enable the optional `web` feature and pass the same tree to `leptoskit::web::render`. The web adapter creates Leptos views and emits CSS. Native rendering applies the same utility declarations to Yoga and widget props. No Tailwind installation or Node build is needed.
 
 `.class` appends validated utilities and panics on invalid input. `.try_class` returns a `ClassError` for dynamic input. Classes override typed base styles regardless of builder call order. Native surfaces reapply responsive and dark rules when the host updates the viewport or calls `set_dark_mode`.
 
-Read the [shared component guide](https://ifiokjr.github.io/leptoskit/guide/07-shared-components.html) and [CSS coverage reference](https://ifiokjr.github.io/leptoskit/reference/css-coverage.html). CSS support is a defined subset. Unsupported utilities and variants return diagnostics.
+Read the [shared component guide](https://leptoskit.dev/docs/guide/07-shared-components.html) and [CSS coverage reference](https://leptoskit.dev/docs/reference/css-coverage.html). CSS support is a defined subset. Unsupported utilities and variants return diagnostics.
 
 Enable `use` for platform-neutral reactive hooks under `leptoskit::hooks`. Enable `storage` for persistent JSON preferences as well: the host supplies an application directory on native or a namespace in browser local storage. Shared screens use the same `use_async_storage` model and callbacks; the host chooses their task scheduler. See [`leptoskit_use`](../leptoskit_use/readme.md) for storage contracts, error handling, and examples.
 
@@ -74,7 +74,7 @@ leptoskit::platform_module!(pub mod home = "routes/home");
 
 The path is relative to the app's `src` directory. Keep `routes/home.rs` as the shared implementation. Add `routes/home.ios.rs` to replace that module on iOS, or use the corresponding suffix for another platform. Callers keep importing `crate::routes::home`. Ordinary `mod` declarations keep Rust's standard module resolution.
 
-See [`leptoskit_build`](../leptoskit_build/readme.md) for build-script setup and [creating a project](https://ifiokjr.github.io/leptoskit/guide/02-creating.html) for the workspace and build commands.
+See [`leptoskit_build`](../leptoskit_build/readme.md) for build-script setup and [creating a project](https://leptoskit.dev/docs/guide/02-creating.html) for the workspace and build commands.
 
 ## Generated host limits
 
@@ -111,7 +111,7 @@ fn Screen() -> Element {
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Getting started](https://ifiokjr.github.io/leptoskit/guide/01-installation.html)
-- [Component catalog](https://ifiokjr.github.io/leptoskit/reference/components.html)
+- [Getting started](https://leptoskit.dev/docs/guide/01-installation.html)
+- [Component catalog](https://leptoskit.dev/docs/reference/components.html)

@@ -1,5 +1,5 @@
 {
-	"$id": "https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json",
+	"$id": "https://leptoskit.dev/schemas/leptoskit.v0.schema.json",
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
 	"title": "leptoskit.toml",
 	"description": "Everything leptoskit needs to build, serve, and ship a project.",

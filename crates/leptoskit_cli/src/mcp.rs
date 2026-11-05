@@ -351,7 +351,7 @@ fn control_tools() -> Value {
 /// The published control document schema, as plain JSON.
 fn document_schema_value() -> Value {
 	serde_json::to_value(leptoskit_testing::control::document_schema(
-		"https://ifiokjr.github.io/leptoskit/schemas/control.schema.json",
+		"https://leptoskit.dev/schemas/control.schema.json",
 	))
 	.expect("schemas serialize")
 }

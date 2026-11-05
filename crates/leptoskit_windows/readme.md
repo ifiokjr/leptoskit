@@ -77,6 +77,6 @@ cargo run -p leptoskit_windows --example probe -- native-artifacts/windows
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_windows)
-- [leptoskit documentation](https://ifiokjr.github.io/leptoskit/)
+- [leptoskit documentation](https://leptoskit.dev/docs/)
 - [Repository](https://github.com/ifiokjr/leptoskit)
-- [Windows](https://ifiokjr.github.io/leptoskit/platforms/windows-linux.html)
+- [Windows](https://leptoskit.dev/docs/platforms/windows-linux.html)

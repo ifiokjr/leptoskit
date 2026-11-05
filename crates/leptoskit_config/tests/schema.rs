@@ -115,7 +115,7 @@ fn all_published_aliases_match_the_generated_contract() {
 		"schemas/leptoskit.schema.json",
 		"schemas/leptoskit.v0.schema.json",
 	] {
-		let id = format!("https://ifiokjr.github.io/leptoskit/{asset}");
+		let id = format!("https://leptoskit.dev/{asset}");
 		let expected = serde_json::to_value(schema::configuration(&id)).expect("schema");
 		let raw = std::fs::read_to_string(root.join(asset)).expect("committed schema");
 		let actual: Value = serde_json::from_str(&raw).expect("JSON schema");
