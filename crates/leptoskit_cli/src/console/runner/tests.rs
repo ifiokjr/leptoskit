@@ -475,9 +475,8 @@ async fn a_failed_build_stops_before_the_deploy() {
 #[tokio::test]
 async fn an_unavailable_commit_fails_before_a_workspace_is_created() {
 	let root = tempfile::tempdir().unwrap();
-	let status = std::process::Command::new("git")
+	let status = crate::git::command(root.path())
 		.args(["init", "--quiet"])
-		.current_dir(root.path())
 		.status()
 		.unwrap();
 	assert!(status.success(), "git init failed");
@@ -505,13 +504,61 @@ async fn an_unavailable_commit_fails_before_a_workspace_is_created() {
 	);
 }
 
+#[test]
+fn hook_repository_settings_do_not_escape_into_deployment_git_commands() {
+	let root = tempfile::tempdir().unwrap();
+	let outer = root.path().join("outer");
+	std::fs::create_dir(&outer).unwrap();
+	assert!(
+		crate::git::command(&outer)
+			.args(["init", "--quiet"])
+			.status()
+			.unwrap()
+			.success()
+	);
+	// Linked worktrees use an administrative directory whose name is not
+	// `.git`. An inherited GIT_DIR makes `git init` reinitialize that
+	// directory as bare instead of initializing the intended repository.
+	let admin = root.path().join("hook-admin");
+	std::fs::rename(outer.join(".git"), &admin).unwrap();
+	let output = std::process::Command::new(std::env::current_exe().unwrap())
+		.args([
+			"--exact",
+			"console::runner::tests::an_unavailable_commit_fails_before_a_workspace_is_created",
+			"console::client::tests::deploy_requires_an_explicit_version_outside_git",
+			"--test-threads=1",
+		])
+		.env("GIT_DIR", &admin)
+		.env("GIT_COMMON_DIR", &admin)
+		.env("GIT_INDEX_FILE", admin.join("index"))
+		.env_remove("GIT_WORK_TREE")
+		.output()
+		.unwrap();
+	let stdout = String::from_utf8_lossy(&output.stdout);
+	assert!(
+		output.status.success() && stdout.contains("2 passed;"),
+		"{stdout}\n{}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	let config = crate::git::command(root.path())
+		.arg("--git-dir")
+		.arg(&admin)
+		.args(["config", "--get", "core.bare"])
+		.output()
+		.unwrap();
+	assert!(config.status.success());
+	assert_eq!(
+		config.stdout, b"false\n",
+		"the hook's repository was reinitialized"
+	);
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn a_failed_checkout_returns_the_generic_worker_failure() {
 	let root = tempfile::tempdir().unwrap();
-	let status = std::process::Command::new("git")
+	let status = crate::git::command(root.path())
 		.args(["init", "--quiet"])
-		.current_dir(root.path())
 		.status()
 		.unwrap();
 	assert!(status.success(), "git init failed");

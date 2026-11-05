@@ -263,9 +263,8 @@ pub fn deploy(connection: &Connection, args: &crate::infra::ReleaseArgs) -> Resu
 		let version = if let Some(version) = &args.version {
 			version.clone()
 		} else {
-			let output = std::process::Command::new("git")
+			let output = crate::git::command(&connection.root)
 				.args(["rev-parse", "--verify", "HEAD"])
-				.current_dir(&connection.root)
 				.output()?;
 			ensure!(
 				output.status.success(),

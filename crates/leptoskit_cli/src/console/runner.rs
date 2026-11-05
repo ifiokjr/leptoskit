@@ -60,10 +60,9 @@ impl Executor for CommandRunner {
 			};
 			let workspace = data.join("workspaces").join(&operation.id);
 			if workspace.exists() {
-				let _ = tokio::process::Command::new("git")
+				let _ = tokio::process::Command::from(crate::git::command(&project.root))
 					.args(["worktree", "remove", "--force"])
 					.arg(&workspace)
-					.current_dir(&project.root)
 					.stdout(std::process::Stdio::null())
 					.stderr(std::process::Stdio::null())
 					.status()
@@ -278,17 +277,15 @@ async fn checkout(
 	if !git_commit(version) {
 		return Ok(None);
 	}
-	let exists = tokio::process::Command::new("git")
+	let exists = tokio::process::Command::from(crate::git::command(&project.root))
 		.args(["cat-file", "-e", &format!("{version}^{{commit}}")])
-		.current_dir(&project.root)
 		.stdout(std::process::Stdio::null())
 		.stderr(std::process::Stdio::null())
 		.status()
 		.await?;
 	if !exists.success() {
-		let fetched = tokio::process::Command::new("git")
+		let fetched = tokio::process::Command::from(crate::git::command(&project.root))
 			.args(["fetch", "--no-tags", "origin", version])
-			.current_dir(&project.root)
 			.stdout(std::process::Stdio::null())
 			.stderr(std::process::Stdio::null())
 			.status()
@@ -301,11 +298,10 @@ async fn checkout(
 	let workspaces = data.join("workspaces");
 	std::fs::create_dir_all(&workspaces)?;
 	let path = workspaces.join(&operation.id);
-	let added = tokio::process::Command::new("git")
+	let added = tokio::process::Command::from(crate::git::command(&project.root))
 		.args(["worktree", "add", "--detach"])
 		.arg(&path)
 		.arg(version)
-		.current_dir(&project.root)
 		.stdout(std::process::Stdio::null())
 		.stderr(std::process::Stdio::null())
 		.status()
