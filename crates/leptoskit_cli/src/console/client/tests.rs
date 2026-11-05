@@ -9,6 +9,9 @@ use crate::console::tests::loopback::Server;
 
 /// A valid-looking scoped credential; the loopback server never validates it.
 const KEY: &str = "0123456789abcdef0123456789abcdef";
+/// A second, equally valid credential, for the explicit-key-wins test.
+#[cfg(unix)]
+const OTHER_KEY: &str = "fedcba9876543210fedcba9876543210";
 
 fn connection(server: &Server, root: &Path) -> Connection {
 	Connection {
@@ -589,4 +592,526 @@ fn deploy_requires_an_explicit_version_outside_git() {
 	let error = deploy(&connection, &release_args()).unwrap_err();
 
 	assert_eq!(error.to_string(), "pass --version for an app outside Git");
+}
+
+/// An `[infra]` configuration for a linked or unlinked project.
+#[cfg(unix)]
+fn infra_config(name: &str, control_url: Option<&str>) -> String {
+	let mut text = format!(
+		"\
+[infra]
+name = '{name}'
+domain = 'app.example.com'
+location = 'hel1'
+server_type = 'cx23'
+ssh_key_ids = [123]
+ssh_cidrs = ['192.0.2.1/32']
+account_id = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+zone_id = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+updates_domain = 'updates.example.com'
+backup_bucket = 'demo-backups'
+updates_bucket = 'demo-releases'
+image = 'ghcr.io/team/demo'
+registry = 'ghcr.io'
+registry_username = 'team'
+"
+	);
+	if let Some(url) = control_url {
+		use std::fmt::Write as _;
+		let _ = writeln!(text, "control_url = '{url}'");
+	}
+	text
+}
+
+/// `for_project`, `connect`, `status` and `token` resolve the project from
+/// the process-wide working directory and the credential from the
+/// environment or the user's configuration home, so each discovery scenario
+/// runs in an isolated child test process. The parent holds the loopback
+/// server, prepares the project files, and reads back what the scenario
+/// stored.
+#[cfg(unix)]
+mod child {
+	use std::path::Path;
+	use std::path::PathBuf;
+	use std::process::Command;
+	use std::process::Output;
+
+	use super::*;
+
+	/// The child test that runs one discovery scenario.
+	const HELPER: &str = "console::client::tests::child::helper";
+	/// A `PATH` with only system tools; the child runs no programs of its own.
+	const SYSTEM_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
+
+	pub(super) struct Fixture {
+		directory: tempfile::TempDir,
+	}
+
+	impl Fixture {
+		pub(super) fn new() -> Self {
+			Self {
+				directory: tempfile::tempdir().unwrap(),
+			}
+		}
+
+		/// A project directory whose `leptoskit.toml` is `config`.
+		pub(super) fn project(&self, name: &str, config: &str) -> PathBuf {
+			let root = self.directory.path().join(name);
+			std::fs::create_dir(&root).unwrap();
+			std::fs::write(root.join(leptoskit_config::CONFIG_FILE), config).unwrap();
+			root
+		}
+
+		/// The XDG configuration home the child resolves credentials in;
+		/// the parent reads it back afterwards.
+		pub(super) fn config_home(&self, name: &str) -> PathBuf {
+			let home = self.directory.path().join(name);
+			std::fs::create_dir(&home).unwrap();
+			home
+		}
+
+		fn run(
+			&self,
+			scenario: &str,
+			project: &Path,
+			config_home: &Path,
+			environment: &[(&str, &str)],
+		) -> Output {
+			let mut command = Command::new(std::env::current_exe().unwrap());
+			command
+				.args(["--exact", HELPER, "--nocapture", "--test-threads=1"])
+				.env_clear()
+				.env("PATH", SYSTEM_PATH)
+				.env("TMPDIR", self.directory.path())
+				.env("LEPTOSKIT_TEST_CONSOLE_SCENARIO", scenario)
+				.env("XDG_CONFIG_HOME", config_home)
+				.current_dir(project);
+
+			for (name, value) in environment {
+				command.env(name, value);
+			}
+
+			// Windows networking needs the system root in the child's
+			// environment; the parent's value is passed through without
+			// reading anything else.
+			if let Some(system_root) = std::env::var_os("SystemRoot") {
+				command.env("SystemRoot", system_root);
+			}
+
+			if let Some(profile) = std::env::var_os("LLVM_PROFILE_FILE") {
+				command.env("LLVM_PROFILE_FILE", profile);
+			}
+
+			command.output().unwrap()
+		}
+
+		/// Runs `scenario`, asserting the child passed, and returns what it
+		/// printed.
+		pub(super) fn run_ok(
+			&self,
+			scenario: &str,
+			project: &Path,
+			config_home: &Path,
+			environment: &[(&str, &str)],
+		) -> String {
+			let output = self.run(scenario, project, config_home, environment);
+			assert!(
+				output.status.success(),
+				"{scenario} failed\nstdout:\n{}\nstderr:\n{}",
+				String::from_utf8_lossy(&output.stdout),
+				String::from_utf8_lossy(&output.stderr),
+			);
+			String::from_utf8(output.stdout).unwrap()
+		}
+	}
+
+	/// One discovery scenario against the parent's scripted server.
+	#[test]
+	fn helper() {
+		let Ok(scenario) = std::env::var("LEPTOSKIT_TEST_CONSOLE_SCENARIO") else {
+			return;
+		};
+		let origin = || std::env::var("LEPTOSKIT_TEST_ORIGIN").unwrap();
+		let refused = |result: Result<()>| {
+			let error = result.expect_err("the command should have been refused");
+			let expected = std::env::var("LEPTOSKIT_TEST_EXPECT").unwrap();
+			assert!(
+				error.to_string().contains(&expected),
+				"expected {expected:?} in {error}"
+			);
+		};
+
+		match scenario.as_str() {
+			"for-project-none" => assert!(Connection::for_project().unwrap().is_none()),
+			"connect" => connect(&origin()).unwrap(),
+			"connect-refused" => refused(connect(&origin())),
+			"status" => status().unwrap(),
+			"status-refused" => refused(status()),
+			"status-other-project" => {
+				// The service issued a credential for `demo`; this project
+				// is a different one, so it must not be found.
+				let path = credential_path(&origin(), "demo").unwrap();
+				private_write(
+					&path,
+					&serde_json::to_vec(&Credential {
+						key: KEY.to_owned(),
+					})
+					.unwrap(),
+				)
+				.unwrap();
+				refused(status());
+			}
+			#[cfg(unix)]
+			"status-store-private" => {
+				let path = credential_path(&origin(), "demo").unwrap();
+				private_write(
+					&path,
+					&serde_json::to_vec(&Credential {
+						key: std::env::var("LEPTOSKIT_TEST_CREDENTIAL_KEY").unwrap(),
+					})
+					.unwrap(),
+				)
+				.unwrap();
+				{
+					use std::os::unix::fs::PermissionsExt as _;
+					let mode = u32::from_str_radix(
+						&std::env::var("LEPTOSKIT_TEST_CREDENTIAL_MODE").unwrap(),
+						8,
+					)
+					.unwrap();
+					std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+				}
+				refused(status());
+			}
+			"token" => token("demo", Scope::Deploy).unwrap(),
+			"token-refused" => refused(token("demo", Scope::Deploy)),
+			other => panic!("unknown scenario {other}"),
+		}
+	}
+}
+
+#[cfg(unix)]
+#[test]
+fn for_project_ignores_projects_without_a_connection() {
+	let server = Server::start(Vec::new());
+	let fixture = child::Fixture::new();
+	let config = fixture.config_home("config");
+
+	// An app without managed infrastructure has no connection to find.
+	let bare = fixture.project("bare", "");
+	fixture.run_ok("for-project-none", &bare, &config, &[]);
+
+	// Neither has one with infrastructure that isn't linked to a service.
+	let unlinked = fixture.project("unlinked", &infra_config("demo", None));
+	fixture.run_ok("for-project-none", &unlinked, &config, &[]);
+
+	// A local opt-out wins even when everything else is configured.
+	let local = fixture.project("local", &infra_config("demo", Some(server.origin())));
+	fixture.run_ok(
+		"for-project-none",
+		&local,
+		&config,
+		&[("LEPTOSKIT_CONTROL_LOCAL", "1")],
+	);
+
+	assert!(server.requests().is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn connect_stores_a_private_credential_and_records_the_url() {
+	let server = Server::start(vec![Reply::json(overview(0))]);
+	let fixture = child::Fixture::new();
+	let config = fixture.config_home("config");
+	let project = fixture.project("demo", &infra_config("demo", Some(server.origin())));
+
+	let stdout = fixture.run_ok(
+		"connect",
+		&project,
+		&config,
+		&[
+			("LEPTOSKIT_TEST_ORIGIN", server.origin()),
+			("LEPTOSKIT_CONTROL_KEY", KEY),
+		],
+	);
+	assert!(stdout.contains("Connected to"), "{stdout}");
+
+	// The credential is stored once, outside the repository, and private.
+	let stored = config.join("leptoskit/control");
+	let mut entries: Vec<_> = std::fs::read_dir(&stored)
+		.unwrap()
+		.filter_map(Result::ok)
+		.map(|entry| entry.path())
+		.collect();
+	assert_eq!(entries.len(), 1);
+	let path = entries.pop().unwrap();
+	assert_eq!(
+		path.extension().and_then(std::ffi::OsStr::to_str),
+		Some("json")
+	);
+	{
+		use std::os::unix::fs::PermissionsExt as _;
+		assert_eq!(
+			std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+			0o600
+		);
+	}
+	let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+	assert_eq!(saved, serde_json::json!({ "key": KEY }));
+
+	// The project configuration now names the service, and still parses.
+	let text = std::fs::read_to_string(project.join(leptoskit_config::CONFIG_FILE)).unwrap();
+	assert!(
+		text.contains(&format!("control_url = \"{}\"", server.origin())),
+		"{text}"
+	);
+	LeptoskitConfig::load_from(&project).unwrap();
+
+	let requests = server.requests();
+	assert_eq!(requests.len(), 1);
+	assert_eq!(requests[0].path, "/api/v1/overview");
+	let authorization = format!("Bearer {KEY}");
+	assert_eq!(
+		requests[0].header("authorization"),
+		Some(authorization.as_str())
+	);
+
+	// A service that doesn't know the repository refuses the connection and
+	// stores nothing.
+	let unregistered = Server::start(vec![Reply::json(
+		r#"{"format_version":1,"projects":[],"operations":[]}"#,
+	)]);
+	let refused = child::Fixture::new();
+	let refused_config = refused.config_home("config");
+	let refused_project = refused.project("demo", &infra_config("demo", None));
+	refused.run_ok(
+		"connect-refused",
+		&refused_project,
+		&refused_config,
+		&[
+			("LEPTOSKIT_TEST_ORIGIN", unregistered.origin()),
+			("LEPTOSKIT_CONTROL_KEY", KEY),
+			(
+				"LEPTOSKIT_TEST_EXPECT",
+				"this repository is not registered on the deployment service",
+			),
+		],
+	);
+	let text =
+		std::fs::read_to_string(refused_project.join(leptoskit_config::CONFIG_FILE)).unwrap();
+	assert!(!text.contains("control_url"), "{text}");
+	assert!(!refused_config.join("leptoskit").exists());
+	assert_eq!(unregistered.requests().len(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn the_stored_connection_is_discovered_and_the_explicit_key_wins() {
+	let server = Server::start(vec![
+		Reply::json(overview(0)),
+		Reply::json(overview(1)),
+		Reply::json(overview(2)),
+	]);
+	let fixture = child::Fixture::new();
+	let config = fixture.config_home("config");
+	let project = fixture.project("demo", &infra_config("demo", Some(server.origin())));
+
+	// A connect run stores the credential the discovery runs read back.
+	fixture.run_ok(
+		"connect",
+		&project,
+		&config,
+		&[
+			("LEPTOSKIT_TEST_ORIGIN", server.origin()),
+			("LEPTOSKIT_CONTROL_KEY", KEY),
+		],
+	);
+
+	// Discovery without the explicit key uses the stored credential.
+	fixture.run_ok("status", &project, &config, &[]);
+	// The explicit key wins over the stored one.
+	fixture.run_ok(
+		"status",
+		&project,
+		&config,
+		&[("LEPTOSKIT_CONTROL_KEY", OTHER_KEY)],
+	);
+
+	let requests = server.requests();
+	assert_eq!(requests.len(), 3);
+	let stored_authorization = format!("Bearer {KEY}");
+	let explicit_authorization = format!("Bearer {OTHER_KEY}");
+	assert_eq!(
+		requests[1].header("authorization"),
+		Some(stored_authorization.as_str())
+	);
+	assert_eq!(
+		requests[2].header("authorization"),
+		Some(explicit_authorization.as_str())
+	);
+
+	// Nothing stored and nothing explicit: there is no connection. The
+	// lookup fails before any request is made.
+	let missing = child::Fixture::new();
+	let missing_config = missing.config_home("config");
+	let missing_project = missing.project("demo", &infra_config("demo", Some(server.origin())));
+	missing.run_ok(
+		"status-refused",
+		&missing_project,
+		&missing_config,
+		&[
+			("LEPTOSKIT_TEST_ORIGIN", server.origin()),
+			(
+				"LEPTOSKIT_TEST_EXPECT",
+				"run lk console connect with LEPTOSKIT_CONTROL_KEY set",
+			),
+		],
+	);
+	assert_eq!(server.requests().len(), 3);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_stored_credential_must_be_private_and_well_formed() {
+	let server = Server::start(Vec::new());
+	let fixture = child::Fixture::new();
+
+	for (key, mode, expected) in [
+		(KEY, "644", "deployment credential file must be private"),
+		("too short", "600", "invalid deployment service credential"),
+	] {
+		let config = fixture.config_home(&format!("config-{mode}"));
+		let project = fixture.project(
+			&format!("project-{mode}"),
+			&infra_config("demo", Some(server.origin())),
+		);
+		fixture.run_ok(
+			"status-store-private",
+			&project,
+			&config,
+			&[
+				("LEPTOSKIT_TEST_ORIGIN", server.origin()),
+				("LEPTOSKIT_TEST_CREDENTIAL_KEY", key),
+				("LEPTOSKIT_TEST_CREDENTIAL_MODE", mode),
+				("LEPTOSKIT_TEST_EXPECT", expected),
+			],
+		);
+	}
+
+	assert!(
+		server.requests().is_empty(),
+		"a rejected credential must not reach the service"
+	);
+}
+
+#[cfg(unix)]
+#[test]
+fn the_stored_credential_follows_the_project() {
+	let server = Server::start(Vec::new());
+	let fixture = child::Fixture::new();
+	let config = fixture.config_home("config");
+	let project = fixture.project("other", &infra_config("other", Some(server.origin())));
+
+	fixture.run_ok(
+		"status-other-project",
+		&project,
+		&config,
+		&[
+			("LEPTOSKIT_TEST_ORIGIN", server.origin()),
+			// The credential for `demo` is stored under a name derived from
+			// `demo`, so the lookup for this project finds no file at all.
+			(
+				"LEPTOSKIT_TEST_EXPECT",
+				"run lk console connect with LEPTOSKIT_CONTROL_KEY set",
+			),
+		],
+	);
+
+	assert!(
+		server.requests().is_empty(),
+		"a missing credential must not reach the service"
+	);
+}
+
+#[cfg(unix)]
+#[test]
+fn token_requests_a_scoped_credential_and_prints_it_once() {
+	let server = Server::start(vec![
+		Reply::json(r#"{"key":"scoped-token-value"}"#),
+		Reply::json(r#"{"unexpected":true}"#),
+	]);
+	let fixture = child::Fixture::new();
+	let project = fixture.project("demo", &infra_config("demo", Some(server.origin())));
+
+	let stdout = fixture.run_ok(
+		"token",
+		&project,
+		&fixture.config_home("config"),
+		&[("LEPTOSKIT_CONTROL_KEY", KEY)],
+	);
+	assert!(stdout.contains("scoped-token-value"), "{stdout}");
+
+	fixture.run_ok(
+		"token-refused",
+		&project,
+		&fixture.config_home("refused"),
+		&[
+			("LEPTOSKIT_CONTROL_KEY", KEY),
+			("LEPTOSKIT_TEST_EXPECT", "service did not issue a key"),
+		],
+	);
+
+	let requests = server.requests();
+	assert_eq!(requests.len(), 2);
+	assert_eq!(requests[0].method, "POST");
+	assert_eq!(requests[0].path, "/api/v1/tokens");
+	let authorization = format!("Bearer {KEY}");
+	assert_eq!(
+		requests[0].header("authorization"),
+		Some(authorization.as_str())
+	);
+	assert_eq!(
+		requests[0].json(),
+		serde_json::json!({ "scope": "deploy", "project": "demo" })
+	);
+}
+
+#[test]
+fn analytics_reads_the_project_history() {
+	let server = Server::start(vec![Reply::json(r#"{"series":[]}"#)]);
+	let root = tempfile::tempdir().unwrap();
+	let connection = connection(&server, root.path());
+
+	analytics(&connection).unwrap();
+
+	let requests = server.requests();
+	assert_eq!(requests.len(), 1);
+	assert_eq!(requests[0].method, "GET");
+	assert_eq!(requests[0].path, "/api/v1/projects/demo/analytics");
+	let authorization = format!("Bearer {KEY}");
+	assert_eq!(
+		requests[0].header("authorization"),
+		Some(authorization.as_str())
+	);
+}
+
+#[test]
+fn submit_waits_through_a_running_operation_and_recovers() {
+	let server = Server::start(vec![
+		Reply::json(overview(4)),
+		Reply::json(operation("op-1", "running")),
+		Reply::json(operation("op-1", "succeeded")),
+	]);
+	let root = tempfile::tempdir().unwrap();
+	let connection = connection(&server, root.path());
+
+	let finished = submit(&connection, Action::Status).unwrap();
+
+	assert_eq!(finished.phase, Phase::Succeeded);
+	assert!(!pending_path(root.path()).exists());
+	let requests = server.requests();
+	assert_eq!(requests.len(), 3);
+	assert_eq!(requests[1].path, "/api/v1/projects/demo/operations");
+	assert_eq!(requests[2].method, "GET");
+	assert_eq!(requests[2].path, "/api/v1/operations/op-1");
 }

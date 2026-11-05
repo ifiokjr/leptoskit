@@ -145,7 +145,8 @@ fn key(url: &str, project: &str) -> Result<String> {
 		{
 			use std::os::unix::fs::PermissionsExt as _;
 			ensure!(
-				std::fs::metadata(&path)?
+				std::fs::metadata(&path)
+					.context("run lk console connect with LEPTOSKIT_CONTROL_KEY set")?
 					.permissions()
 					.mode()
 					.trailing_zeros()

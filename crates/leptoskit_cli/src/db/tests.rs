@@ -1134,3 +1134,676 @@ fn postgres_live_check_reports_changed_and_missing_catalog_objects() {
 	execute("CREATE SEQUENCE live.fixture_sequence;");
 	check(&schema).unwrap();
 }
+
+/// A fresh connection to the SQLite file at `url`.
+fn db(url: &str) -> leptoskit_db::Db {
+	super::runtime()
+		.unwrap()
+		.block_on(async { super::Db::connect(url).await })
+		.unwrap()
+}
+
+/// The migration names the database at `url` records.
+fn applied(url: &str) -> Vec<String> {
+	let database = db(url);
+	super::runtime()
+		.unwrap()
+		.block_on(async { database.applied_migrations().await })
+		.unwrap()
+}
+
+/// The first integer `sql` returns, opening `url` again.
+fn scalar(url: &str, sql: &str) -> i64 {
+	let database = db(url);
+	let rows = super::runtime()
+		.unwrap()
+		.block_on(async {
+			use leptoskit_db::Read as _;
+			database
+				.fetch(leptoskit_db::Statement {
+					sql: sql.to_owned(),
+					args: Vec::new(),
+				})
+				.await
+		})
+		.unwrap();
+	match rows.first().and_then(|row| row.first()) {
+		Some(leptoskit_db::Value::Int(count)) => *count,
+		other => panic!("{sql} returned {other:?}; expected one integer"),
+	}
+}
+
+/// Whether the `users` table still has the `bio` column.
+fn bio_column(url: &str) -> i64 {
+	scalar(
+		url,
+		"SELECT count(*) FROM pragma_table_info('users') WHERE name = 'bio'",
+	)
+}
+
+/// Whether the `users` table itself still exists.
+fn users_table(url: &str) -> i64 {
+	scalar(
+		url,
+		"SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'users'",
+	)
+}
+
+/// The one row the durable-state assertions count.
+fn insert_kept_row(url: &str) {
+	let database = db(url);
+	super::runtime()
+		.unwrap()
+		.block_on(async {
+			database
+				.run_script(
+					"INSERT INTO \"users\" (\"id\", \"handle\") VALUES \
+					 (x'00000000000000000000000000000001', 'kept')",
+				)
+				.await
+		})
+		.unwrap();
+}
+
+/// Applies the first `count` migrations from the project, as the commands
+/// themselves would, on whatever the database already has.
+fn apply_migrations(project: &std::path::Path, url: &str, count: usize) {
+	let already = applied(url).len();
+	let migrations = leptoskit_db::load_migrations(&project.join("migrations")).unwrap();
+	let database = db(url);
+	let applied = super::runtime()
+		.unwrap()
+		.block_on(async { database.migrate(&migrations[..count]).await })
+		.unwrap();
+	assert_eq!(applied.len(), count - already);
+}
+
+/// `run()` resolves the project from the process-wide working directory and
+/// the database URL from the environment, so each public command executes in
+/// an isolated child test process. The parent prepares the project, checks
+/// what the command printed, and then opens the database file itself to prove
+/// what the command left behind.
+mod child {
+	use std::path::PathBuf;
+	use std::process::Command;
+	use std::process::Output;
+
+	use leptoskit_db_schema::Column;
+	use leptoskit_db_schema::ColumnType;
+	use leptoskit_db_schema::Dialect;
+
+	use super::users;
+	use crate::db::DbCommand;
+	use crate::db::run;
+
+	/// The child test that executes one command; `LEPTOSKIT_TEST_DB_COMMAND`
+	/// names it, and `LEPTOSKIT_TEST_DB_EXPECT` marks a refused one.
+	const HELPER: &str = "db::tests::child::helper";
+	/// A `PATH` with only system tools, for the schema-export fixture.
+	const SYSTEM_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
+
+	/// A harmless `cargo` that hands over a prepared schema, or fails the
+	/// way a scenario needs.
+	#[cfg(unix)]
+	fn export_script() -> &'static str {
+		r#"#!/bin/sh
+set -eu
+case "${LEPTOSKIT_TEST_DB_EXPORT:-ok}" in
+	ok) cp "$LEPTOSKIT_TEST_DB_SCHEMA_FILE" "$LEPTOSKIT_DB_SCHEMA_OUT" ;;
+	missing) ;;
+	invalid) printf 'not a schema at all' > "$LEPTOSKIT_DB_SCHEMA_OUT" ;;
+	fail) printf 'the db crate failed to build\n' >&2
+		exit 1 ;;
+esac
+"#
+	}
+
+	/// A project with two real migrations, and the SQLite URL they apply to.
+	pub(super) struct Fixture {
+		directory: tempfile::TempDir,
+	}
+
+	impl Fixture {
+		pub(super) fn new() -> Self {
+			let directory = tempfile::tempdir().unwrap();
+			let project = directory.path().join("project");
+			std::fs::create_dir_all(project.join("migrations")).unwrap();
+			std::fs::write(
+				project.join("leptoskit.toml"),
+				"[db]\ndialect = \"sqlite\"\n",
+			)
+			.unwrap();
+
+			let migrations = [
+				(
+					"20260101T000100_create_users",
+					"CREATE TABLE \"users\" (\"id\" BLOB NOT NULL PRIMARY KEY, \"handle\" TEXT);\n",
+					"DROP TABLE \"users\";\n",
+					users(
+						Dialect::Sqlite,
+						vec![Column::new("handle", ColumnType::TEXT)],
+					),
+				),
+				(
+					"20260101T000200_add_bio",
+					"ALTER TABLE \"users\" ADD COLUMN \"bio\" TEXT;\n",
+					"ALTER TABLE \"users\" DROP COLUMN \"bio\";\n",
+					users(
+						Dialect::Sqlite,
+						vec![
+							Column::new("handle", ColumnType::TEXT),
+							Column::new("bio", ColumnType::TEXT).nullable(),
+						],
+					),
+				),
+			];
+			let mut registry = String::from("# The migrations, in the order they apply.\n");
+
+			for (name, up, down, schema) in migrations {
+				let directory = project.join("migrations").join(name);
+				std::fs::create_dir(&directory).unwrap();
+				std::fs::write(directory.join("migration.sql"), up).unwrap();
+				std::fs::write(directory.join("down.sql"), down).unwrap();
+				std::fs::write(directory.join("schema.json"), schema.to_json()).unwrap();
+				registry.push_str(name);
+				registry.push('\n');
+			}
+
+			std::fs::write(project.join("migrations").join("registry.txt"), registry).unwrap();
+			Self { directory }
+		}
+
+		pub(super) fn project(&self) -> PathBuf {
+			self.directory.path().join("project")
+		}
+
+		/// Where the fixture keeps its files, for byte-level assertions.
+		pub(super) fn path(&self) -> &std::path::Path {
+			self.directory.path()
+		}
+
+		pub(super) fn migrations(&self) -> PathBuf {
+			self.project().join("migrations")
+		}
+
+		/// The database URL the commands work on: a real SQLite file.
+		pub(super) fn url(&self) -> String {
+			format!(
+				"sqlite://{}",
+				self.directory.path().join("dev.sqlite3").display()
+			)
+		}
+
+		/// A `cargo` that exports the schema the migrations leave behind.
+		#[cfg(unix)]
+		pub(super) fn export_environment(&self) -> Vec<(&'static str, String)> {
+			use std::os::unix::fs::PermissionsExt as _;
+
+			let bin = self.directory.path().join("bin");
+			std::fs::create_dir(&bin).unwrap();
+			let cargo = bin.join("cargo");
+			std::fs::write(&cargo, export_script()).unwrap();
+			std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+			let schema = self.directory.path().join("exported-schema.json");
+			std::fs::write(
+				&schema,
+				users(
+					Dialect::Sqlite,
+					vec![
+						Column::new("handle", ColumnType::TEXT),
+						Column::new("bio", ColumnType::TEXT).nullable(),
+					],
+				)
+				.to_json(),
+			)
+			.unwrap();
+			vec![
+				("CARGO", cargo.display().to_string()),
+				(
+					"LEPTOSKIT_TEST_DB_SCHEMA_FILE",
+					schema.display().to_string(),
+				),
+			]
+		}
+
+		/// Runs one command in the child, with `environment` layered on top
+		/// of the clean process it gets.
+		fn run(&self, command: &str, environment: &[(&str, &str)]) -> Output {
+			let mut child = Command::new(std::env::current_exe().unwrap());
+			child
+				.args(["--exact", HELPER, "--nocapture", "--test-threads=1"])
+				.env_clear()
+				.env("PATH", SYSTEM_PATH)
+				.env("TMPDIR", self.directory.path())
+				.env("LEPTOSKIT_TEST_DB_COMMAND", command)
+				.current_dir(self.project());
+
+			for (name, value) in environment {
+				child.env(name, value);
+			}
+
+			// Windows networking needs the system root in the child's
+			// environment; the parent's value is passed through without
+			// reading anything else.
+			if let Some(system_root) = std::env::var_os("SystemRoot") {
+				child.env("SystemRoot", system_root);
+			}
+
+			if let Some(profile) = std::env::var_os("LLVM_PROFILE_FILE") {
+				child.env("LLVM_PROFILE_FILE", profile);
+			}
+
+			child.output().unwrap()
+		}
+
+		/// Runs `command`, asserting the child passed, and returns what the
+		/// command printed.
+		pub(super) fn run_ok(&self, command: &str, environment: &[(&str, &str)]) -> String {
+			let output = self.run(command, environment);
+			assert!(
+				output.status.success(),
+				"{command} failed\nstdout:\n{}\nstderr:\n{}",
+				String::from_utf8_lossy(&output.stdout),
+				String::from_utf8_lossy(&output.stderr),
+			);
+			String::from_utf8(output.stdout).unwrap()
+		}
+
+		/// Runs `command`, asserting the child passed and that the command
+		/// was refused with `expected`.
+		pub(super) fn run_refused(
+			&self,
+			command: &str,
+			environment: &[(&str, &str)],
+			expected: &str,
+		) {
+			let mut environment = environment.to_vec();
+			environment.push(("LEPTOSKIT_TEST_DB_EXPECT", expected));
+			self.run_ok(command, &environment);
+		}
+	}
+
+	/// One command in a prepared project; see [`Fixture`].
+	#[test]
+	fn helper() {
+		let Ok(command) = std::env::var("LEPTOSKIT_TEST_DB_COMMAND") else {
+			return;
+		};
+		let url = || std::env::var("LEPTOSKIT_TEST_DB_URL").ok();
+		let yes = std::env::var("LEPTOSKIT_TEST_DB_YES").as_deref() == Ok("1");
+		let command = match command.as_str() {
+			"migrate" => DbCommand::Migrate { url: url() },
+			"rollback" => {
+				DbCommand::Rollback {
+					url: url(),
+					steps: std::env::var("LEPTOSKIT_TEST_DB_STEPS")
+						.ok()
+						.and_then(|steps| steps.parse().ok())
+						.unwrap_or(1),
+					yes,
+				}
+			}
+			"reset" => DbCommand::Reset { url: url(), yes },
+			"status" => DbCommand::Status { url: url() },
+			other => panic!("unknown command {other}"),
+		};
+
+		let result = run(command);
+
+		if let Ok(expected) = std::env::var("LEPTOSKIT_TEST_DB_EXPECT") {
+			let error = result.expect_err("the command should have been refused");
+			assert!(
+				error.to_string().contains(&expected),
+				"expected {expected:?} in {error}"
+			);
+		} else {
+			result.expect("the command should have succeeded");
+		}
+	}
+}
+
+#[test]
+fn migrate_applies_the_pending_migrations_and_stops_when_current() {
+	let fixture = child::Fixture::new();
+	let url = fixture.url();
+
+	// The first run takes the URL from the variable `db.url_env` names.
+	let stdout = fixture.run_ok("migrate", &[("DATABASE_URL", &url)]);
+	assert!(
+		stdout.contains("applied 20260101T000100_create_users"),
+		"{stdout}"
+	);
+	assert!(
+		stdout.contains("applied 20260101T000200_add_bio"),
+		"{stdout}"
+	);
+	assert_eq!(
+		applied(&url),
+		["20260101T000100_create_users", "20260101T000200_add_bio"]
+	);
+	insert_kept_row(&url);
+
+	// A second run, this time with `--url`, has nothing to do, and the
+	// row written in between stays.
+	let stdout = fixture.run_ok("migrate", &[("LEPTOSKIT_TEST_DB_URL", &url)]);
+	assert!(stdout.contains("the database is up to date"), "{stdout}");
+	assert_eq!(scalar(&url, "SELECT count(*) FROM \"users\""), 1);
+	assert_eq!(applied(&url).len(), 2);
+}
+
+#[test]
+fn migrate_says_where_the_database_url_must_come_from() {
+	let fixture = child::Fixture::new();
+	fixture.run_refused(
+		"migrate",
+		&[],
+		"set DATABASE_URL to the database URL, or pass --url",
+	);
+	assert_eq!(users_table(&fixture.url()), 0, "nothing was created");
+}
+
+#[test]
+fn rollback_needs_consent_and_a_positive_step_count() {
+	let fixture = child::Fixture::new();
+	let url = fixture.url();
+	apply_migrations(&fixture.project(), &url, 2);
+	insert_kept_row(&url);
+
+	fixture.run_refused(
+		"rollback",
+		&[
+			("LEPTOSKIT_TEST_DB_URL", &url),
+			("LEPTOSKIT_TEST_DB_YES", "0"),
+		],
+		"rollback can delete data; stop application writers",
+	);
+	fixture.run_refused(
+		"rollback",
+		&[
+			("LEPTOSKIT_TEST_DB_URL", &url),
+			("LEPTOSKIT_TEST_DB_YES", "1"),
+			("LEPTOSKIT_TEST_DB_STEPS", "0"),
+		],
+		"--steps must be positive",
+	);
+
+	// Both refusals left the migrations, the column, and the row alone.
+	assert_eq!(applied(&url).len(), 2);
+	assert_eq!(bio_column(&url), 1);
+	assert_eq!(scalar(&url, "SELECT count(*) FROM \"users\""), 1);
+}
+
+#[test]
+fn rollback_reverts_newest_first_until_the_registry_is_empty() {
+	let fixture = child::Fixture::new();
+	let url = fixture.url();
+	apply_migrations(&fixture.project(), &url, 2);
+	insert_kept_row(&url);
+
+	// One step reverses only the newest migration, and the data the
+	// earlier migration brought stays.
+	let stdout = fixture.run_ok(
+		"rollback",
+		&[
+			("LEPTOSKIT_TEST_DB_URL", &url),
+			("LEPTOSKIT_TEST_DB_YES", "1"),
+			("LEPTOSKIT_TEST_DB_STEPS", "1"),
+		],
+	);
+	assert!(
+		stdout.contains("reverted 20260101T000200_add_bio"),
+		"{stdout}"
+	);
+	assert_eq!(applied(&url), ["20260101T000100_create_users"]);
+	assert_eq!(bio_column(&url), 0);
+	assert_eq!(scalar(&url, "SELECT count(*) FROM \"users\""), 1);
+
+	// Two steps now ask for more than the one migration still applied.
+	fixture.run_refused(
+		"rollback",
+		&[
+			("LEPTOSKIT_TEST_DB_URL", &url),
+			("LEPTOSKIT_TEST_DB_YES", "1"),
+			("LEPTOSKIT_TEST_DB_STEPS", "2"),
+		],
+		"rollback needs an applied registry prefix and a positive step count",
+	);
+	assert_eq!(applied(&url), ["20260101T000100_create_users"]);
+
+	let stdout = fixture.run_ok(
+		"rollback",
+		&[
+			("LEPTOSKIT_TEST_DB_URL", &url),
+			("LEPTOSKIT_TEST_DB_YES", "1"),
+			("LEPTOSKIT_TEST_DB_STEPS", "1"),
+		],
+	);
+	assert!(
+		stdout.contains("reverted 20260101T000100_create_users"),
+		"{stdout}"
+	);
+	assert_eq!(applied(&url), Vec::<String>::new());
+	assert_eq!(users_table(&url), 0);
+
+	// More steps than the applied history stops before touching
+	// anything, and the refusal left nothing to revert.
+	fixture.run_refused(
+		"rollback",
+		&[
+			("LEPTOSKIT_TEST_DB_URL", &url),
+			("LEPTOSKIT_TEST_DB_YES", "1"),
+			("LEPTOSKIT_TEST_DB_STEPS", "3"),
+		],
+		"rollback needs an applied registry prefix and a positive step count",
+	);
+	assert_eq!(applied(&url), Vec::<String>::new());
+}
+
+#[test]
+fn a_failed_reverse_leaves_the_durable_state_alone() {
+	let fixture = child::Fixture::new();
+	let url = fixture.url();
+	apply_migrations(&fixture.project(), &url, 2);
+	insert_kept_row(&url);
+
+	// A reviewed-looking down.sql whose SQL fails halfway through.
+	std::fs::write(
+		fixture
+			.migrations()
+			.join("20260101T000200_add_bio")
+			.join("down.sql"),
+		"DELETE FROM \"users\";\nALTER TABLE \"users\" DROP COLUMN \"bio\";\nTHIS IS NOT SQL;\n",
+	)
+	.unwrap();
+
+	fixture.run_refused(
+		"rollback",
+		&[
+			("LEPTOSKIT_TEST_DB_URL", &url),
+			("LEPTOSKIT_TEST_DB_YES", "1"),
+		],
+		"migration `20260101T000200_add_bio` failed and was rolled back",
+	);
+
+	// The reverse runs in one transaction with the history deletion, so
+	// the migration and everything it added survive the failure.
+	assert_eq!(applied(&url).len(), 2);
+	assert_eq!(bio_column(&url), 1);
+	assert_eq!(scalar(&url, "SELECT count(*) FROM \"users\""), 1);
+}
+
+#[test]
+fn an_unreviewed_reverse_is_refused_before_any_changes() {
+	let fixture = child::Fixture::new();
+	let url = fixture.url();
+	apply_migrations(&fixture.project(), &url, 2);
+	insert_kept_row(&url);
+
+	std::fs::write(
+		fixture
+			.migrations()
+			.join("20260101T000200_add_bio")
+			.join("down.sql"),
+		"-- leptoskit: irreversible\n-- Implement and review data recovery before removing the \
+		 marker above.\n",
+	)
+	.unwrap();
+
+	fixture.run_refused(
+		"rollback",
+		&[
+			("LEPTOSKIT_TEST_DB_URL", &url),
+			("LEPTOSKIT_TEST_DB_YES", "1"),
+		],
+		"migration `20260101T000200_add_bio` has no reviewed down.sql; rollback stopped before \
+		 making changes",
+	);
+
+	assert_eq!(applied(&url).len(), 2);
+	assert_eq!(bio_column(&url), 1);
+	assert_eq!(scalar(&url, "SELECT count(*) FROM \"users\""), 1);
+}
+
+#[test]
+fn reset_refuses_without_consent_and_keeps_every_byte() {
+	let fixture = child::Fixture::new();
+	let url = fixture.url();
+	apply_migrations(&fixture.project(), &url, 2);
+	insert_kept_row(&url);
+	let database = fixture.path().join("dev.sqlite3");
+	let before = std::fs::read(&database).unwrap();
+
+	fixture.run_refused(
+		"reset",
+		&[
+			("LEPTOSKIT_TEST_DB_URL", &url),
+			("LEPTOSKIT_TEST_DB_YES", "0"),
+		],
+		"this deletes every row in the database; pass --yes to confirm",
+	);
+
+	// The refusal happens before the command touches the database.
+	assert_eq!(std::fs::read(&database).unwrap(), before);
+	assert_eq!(scalar(&url, "SELECT count(*) FROM \"users\""), 1);
+	assert_eq!(applied(&url).len(), 2);
+}
+
+#[test]
+fn reset_rebuilds_a_local_database_and_refuses_other_targets() {
+	let fixture = child::Fixture::new();
+	let url = fixture.url();
+	apply_migrations(&fixture.project(), &url, 2);
+	insert_kept_row(&url);
+
+	let stdout = fixture.run_ok(
+		"reset",
+		&[
+			("LEPTOSKIT_TEST_DB_URL", &url),
+			("LEPTOSKIT_TEST_DB_YES", "1"),
+		],
+	);
+	assert!(
+		stdout.contains("reset the database and applied 2 migration(s)"),
+		"{stdout}"
+	);
+	assert_eq!(scalar(&url, "SELECT count(*) FROM \"users\""), 0);
+	assert_eq!(users_table(&url), 1);
+	assert_eq!(applied(&url).len(), 2);
+
+	// A database on another host is never deleted from here.
+	fixture.run_refused(
+		"reset",
+		&[
+			(
+				"LEPTOSKIT_TEST_DB_URL",
+				"postgres://demo@db.example.com/app",
+			),
+			("LEPTOSKIT_TEST_DB_YES", "1"),
+		],
+		"reset only deletes local databases; db.example.com isn't local",
+	);
+
+	// Neither is something that isn't a URL at all.
+	fixture.run_refused(
+		"reset",
+		&[
+			("LEPTOSKIT_TEST_DB_URL", "not a database url"),
+			("LEPTOSKIT_TEST_DB_YES", "1"),
+		],
+		"the database URL isn't a URL",
+	);
+
+	assert_eq!(applied(&url).len(), 2);
+	assert_eq!(scalar(&url, "SELECT count(*) FROM \"users\""), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn status_reports_the_history_and_what_the_database_needs() {
+	let fixture = child::Fixture::new();
+	let url = fixture.url();
+	apply_migrations(&fixture.project(), &url, 1);
+
+	let export = fixture.export_environment();
+	let environment: Vec<(&str, &str)> = export
+		.iter()
+		.map(|(name, value)| (*name, value.as_str()))
+		.chain(std::iter::once(("LEPTOSKIT_TEST_DB_URL", url.as_str())))
+		.collect();
+	let stdout = fixture.run_ok("status", &environment);
+	assert!(
+		stdout.contains("2 migration(s); the latest is 20260101T000200_add_bio"),
+		"{stdout}"
+	);
+	assert!(
+		stdout.contains("the tables match the latest migration"),
+		"{stdout}"
+	);
+	assert!(stdout.contains("the database needs:"), "{stdout}");
+	assert!(stdout.contains("  20260101T000200_add_bio"), "{stdout}");
+
+	// Without a database URL, status still reports what it can.
+	let environment: Vec<(&str, &str)> = export
+		.iter()
+		.map(|(name, value)| (*name, value.as_str()))
+		.collect();
+	let stdout = fixture.run_ok("status", &environment);
+	assert!(
+		stdout.contains("to see which migrations the database needs"),
+		"{stdout}"
+	);
+
+	// Fully migrated: nothing is pending any more.
+	apply_migrations(&fixture.project(), &url, 2);
+	let environment: Vec<(&str, &str)> = export
+		.iter()
+		.map(|(name, value)| (*name, value.as_str()))
+		.chain(std::iter::once(("LEPTOSKIT_TEST_DB_URL", url.as_str())))
+		.collect();
+	let stdout = fixture.run_ok("status", &environment);
+	assert!(
+		stdout.contains("the database has every migration"),
+		"{stdout}"
+	);
+}
+
+#[cfg(unix)]
+#[test]
+fn status_reports_what_is_wrong_with_the_schema_export() {
+	let fixture = child::Fixture::new();
+	let export = fixture.export_environment();
+
+	for (mode, expected) in [
+		("fail", "couldn't read the tables in"),
+		("missing", "doesn't export its tables"),
+		("invalid", "the schema snapshot isn't valid"),
+	] {
+		let mut environment: Vec<(&str, &str)> = export
+			.iter()
+			.map(|(name, value)| (*name, value.as_str()))
+			.collect();
+		environment.push(("LEPTOSKIT_TEST_DB_EXPORT", mode));
+		fixture.run_refused("status", &environment, expected);
+	}
+}

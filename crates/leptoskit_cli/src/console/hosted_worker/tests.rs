@@ -537,3 +537,200 @@ fn a_claimed_operation_for_another_project_is_refused() {
 	assert!(!data.path().join("pending.json").exists());
 	assert_eq!(server.requests().len(), 1);
 }
+
+/// `run()` reads `LEPTOSKIT_PAIRING_CODE` from the process-wide environment,
+/// so each pairing scenario executes in an isolated child test process. The
+/// parent holds the loopback server and reads back the files the scenario
+/// wrote.
+#[cfg(unix)]
+mod child {
+	use std::path::Path;
+	use std::path::PathBuf;
+	use std::process::Command;
+	use std::process::Output;
+
+	use super::*;
+
+	/// The child test that pairs one worker.
+	const HELPER: &str = "console::hosted_worker::tests::child::helper";
+
+	pub(super) struct Fixture {
+		directory: TempDir,
+		root: PathBuf,
+		data: PathBuf,
+	}
+
+	impl Fixture {
+		pub(super) fn new() -> Self {
+			let directory = tempfile::tempdir().unwrap();
+			let root = directory.path().join("repository");
+			std::fs::create_dir(&root).unwrap();
+			std::fs::write(root.join("leptoskit.toml"), config(true)).unwrap();
+			let data = directory.path().join("data");
+			Self {
+				directory,
+				root,
+				data,
+			}
+		}
+
+		pub(super) fn credential(&self) -> PathBuf {
+			self.data.join("worker.json")
+		}
+
+		/// Runs `run()` in the child against the parent's server, expecting
+		/// an error that contains `expected`.
+		fn run(&self, expected: &str, origin: &str, pairing_code: Option<&str>) -> Output {
+			let mut command = Command::new(std::env::current_exe().unwrap());
+			command
+				.args(["--exact", HELPER, "--nocapture", "--test-threads=1"])
+				.env_clear()
+				.env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+				.env("TMPDIR", self.directory.path())
+				.env("LEPTOSKIT_TEST_WORKER_EXPECT", expected)
+				.env("LEPTOSKIT_TEST_WORKER_ORIGIN", origin)
+				.env("LEPTOSKIT_TEST_WORKER_ROOT", &self.root)
+				.env("LEPTOSKIT_TEST_WORKER_DATA", &self.data)
+				.current_dir(self.directory.path());
+
+			if let Some(code) = pairing_code {
+				command.env("LEPTOSKIT_PAIRING_CODE", code);
+			}
+
+			if let Some(profile) = std::env::var_os("LLVM_PROFILE_FILE") {
+				command.env("LLVM_PROFILE_FILE", profile);
+			}
+
+			command.output().unwrap()
+		}
+
+		/// Runs `run()`, asserting the child passed, and returns what it
+		/// printed.
+		pub(super) fn run_refused(
+			&self,
+			expected: &str,
+			origin: &str,
+			pairing_code: Option<&str>,
+		) -> String {
+			let output = self.run(expected, origin, pairing_code);
+			assert!(
+				output.status.success(),
+				"pairing failed\nstdout:\n{}\nstderr:\n{}",
+				String::from_utf8_lossy(&output.stdout),
+				String::from_utf8_lossy(&output.stderr),
+			);
+			String::from_utf8(output.stdout).unwrap()
+		}
+	}
+
+	/// One pairing scenario; see [`Fixture`].
+	#[test]
+	fn helper() {
+		let Ok(expected) = std::env::var("LEPTOSKIT_TEST_WORKER_EXPECT") else {
+			return;
+		};
+		let origin = std::env::var("LEPTOSKIT_TEST_WORKER_ORIGIN").unwrap();
+		let root = std::env::var("LEPTOSKIT_TEST_WORKER_ROOT").unwrap();
+		let data = std::env::var("LEPTOSKIT_TEST_WORKER_DATA").unwrap();
+
+		let error = run(&origin, Path::new(&root), Path::new(&data)).unwrap_err();
+		assert!(
+			error.to_string().contains(&expected),
+			"expected {expected:?} in {error}"
+		);
+	}
+}
+
+#[cfg(unix)]
+#[test]
+fn pairing_stores_a_private_credential_bound_to_this_installation() {
+	let server = Server::start(vec![
+		Reply::json(
+			r#"{"installation":{"project":"demo","ownership":"customer"},"key":"paired-key"}"#,
+		),
+		Reply::json(r#"{"unexpected":true}"#),
+	]);
+	let fixture = child::Fixture::new();
+
+	// The pairing completes, the claim afterwards carries the paired key,
+	// and an unusable reply stops the worker.
+	let stdout = fixture.run_refused("missing field", server.origin(), Some("pair-code-123"));
+	assert!(
+		stdout.contains("Dedicated worker connected for demo"),
+		"{stdout}"
+	);
+
+	// The paired credential names this installation and stays private.
+	let saved: Value =
+		serde_json::from_slice(&std::fs::read(fixture.credential()).unwrap()).unwrap();
+	assert_eq!(
+		saved,
+		serde_json::json!({
+			"url": server.origin(),
+			"project": "demo",
+			"key": "paired-key",
+			"ownership": "customer",
+		})
+	);
+	assert_eq!(
+		std::fs::metadata(fixture.credential())
+			.unwrap()
+			.permissions()
+			.mode()
+			& 0o777,
+		0o600
+	);
+
+	let requests = server.requests();
+	assert_eq!(requests.len(), 2);
+	assert_eq!(requests[0].path, "/api/v1/worker/pair");
+	assert_eq!(requests[0].header("authorization"), None);
+	assert_eq!(
+		requests[0].json(),
+		serde_json::json!({ "code": "pair-code-123" })
+	);
+	assert_eq!(requests[1].path, "/api/v1/worker/claim");
+	assert_eq!(
+		requests[1].header("authorization"),
+		Some("Bearer paired-key")
+	);
+}
+
+#[cfg(unix)]
+#[test]
+fn pairing_refusals_store_nothing_and_never_claim() {
+	for (installation, expected) in [
+		(
+			r#"{"installation":{"project":"other","ownership":"customer"},"key":"paired-key"}"#,
+			"paired project differs from registered repository",
+		),
+		(
+			r#"{"installation":{"project":"demo","ownership":"customer"}}"#,
+			"invalid worker key",
+		),
+		(
+			r#"{"installation":{"project":"demo","ownership":"leptoskit_digitalocean"},"key":"paired-key"}"#,
+			"requires DigitalOcean and an explicit reviewed compute budget",
+		),
+	] {
+		let server = Server::start(vec![Reply::json(installation)]);
+		let fixture = child::Fixture::new();
+		fixture.run_refused(expected, server.origin(), Some("pair-code-123"));
+		assert!(
+			!fixture.credential().exists(),
+			"{expected}: nothing may be stored"
+		);
+		assert_eq!(
+			server.requests().len(),
+			1,
+			"{expected}: only the pairing may be sent"
+		);
+	}
+
+	// Without a pairing grant nothing is contacted at all.
+	let server = Server::start(Vec::new());
+	let fixture = child::Fixture::new();
+	fixture.run_refused("set LEPTOSKIT_PAIRING_CODE", server.origin(), None);
+	assert!(!fixture.credential().exists());
+	assert!(server.requests().is_empty());
+}

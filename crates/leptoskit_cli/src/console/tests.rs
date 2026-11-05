@@ -487,6 +487,7 @@ fn restore_keeps_the_previous_database_and_replaces_the_journal() {
 			revision: 0,
 		})
 		.unwrap();
+	drop(store);
 	let previous = fixture.out.path().join("previous.sqlite3");
 
 	run(ConsoleCommand::Restore {

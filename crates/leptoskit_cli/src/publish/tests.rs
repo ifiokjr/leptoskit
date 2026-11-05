@@ -1635,6 +1635,11 @@ fn spawn_publish(scenario: &str, environment: &[(String, String)], cwd: Option<&
 		.env("LEPTOSKIT_TEST_SCENARIO", scenario)
 		.env("PATH", std::env::var_os("PATH").unwrap_or_default());
 
+	// Winsock loads its providers relative to SystemRoot on Windows.
+	if let Some(system_root) = std::env::var_os("SystemRoot") {
+		command.env("SystemRoot", system_root);
+	}
+
 	if let Some(profile) = std::env::var_os("LLVM_PROFILE_FILE") {
 		command.env("LLVM_PROFILE_FILE", profile);
 	}
