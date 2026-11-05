@@ -4757,7 +4757,6 @@ dependencies = [
  "leptoskit_windows",
  "leptoskit_yoga",
  "monosecret",
- "trybuild",
 ]
 
 [[package]]
@@ -5450,6 +5449,14 @@ dependencies = [
  "rstml",
  "syn 3.0.9",
  "tempfile",
+]
+
+[[package]]
+name = "leptoskit_markup_ui_tests"
+version = "0.1.0"
+dependencies = [
+ "leptoskit",
+ "trybuild",
 ]
 
 [[package]]

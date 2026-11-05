@@ -1,0 +1,12 @@
+[package]
+name = "leptoskit_markup_ui_tests"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dev-dependencies]
+leptoskit = { workspace = true }
+trybuild = { workspace = true }
+
+[lints]
+workspace = true

@@ -159,7 +159,7 @@ max-threads = 1
 
 [[profile.default.overrides]]
 filter = '''
-(package(leptoskit) & binary(ui))
+(package(leptoskit_markup_ui_tests) & binary(ui))
 | (package(leptoskit_rpc) & binary(ui))
 | (package(leptoskit_db) & binary(read_only))
 | (package(leptoskit_db_pack_fixture) & test(=only_the_pack_writes_its_tables))
