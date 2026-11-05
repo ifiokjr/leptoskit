@@ -24,7 +24,7 @@ The `macos/` folder is yours: `App.swift` starts the app and owns its window, `I
 
 ## How it differs from the other platforms
 
-- The generated app draws ten components: `View`, `Text`, `Button`, `Pressable`, `TextInput`, `PasswordInput`, `ScrollView`, `Image`, `Vector`, and `Rive`. Others stop it with an "unsupported widget" error. The `leptoskit_appkit` backend crate draws every component, including `NSSwitch`, `NSSlider`, and `NSProgressIndicator`; the [examples](../examples.md) use it. See [generated apps and backend crates](readme.md#generated-apps-and-backend-crates).
+- The generated app draws the common controls: `View`, `Text`, `Button`, `Pressable`, `TextInput`, `PasswordInput`, `ScrollView`, `Image`, `Vector`, and `Rive`, plus `Switch`, `Checkbox`, `Radio`, `Slider`, `LinearProgressIndicator`, and `ActivityIndicator`. Switches use `NSSwitch`, choices use `NSButton`, sliders use `NSSlider`, and indicators use `NSProgressIndicator`. Update checked or slider state in your handler to accept a change; otherwise the control restores the previous value. Custom widgets remain unsupported. See [generated apps and backend crates](readme.md#generated-apps-and-backend-crates).
 - [Rive](../guide/20-rive.md) displays native vector frames in an `NSImageView`. The generated host uses a display link and follows the system reduced-motion preference. Native Rive rejects text, image, layout, script, and audio assets.
 - Pressing a button with the keyboard (Space, with Full Keyboard Access on) or through VoiceOver activates it without showing its [pressed style](../guide/07-shared-components.md#style-the-pressed-state). A mouse press shows it.
 - `Image` loads local paths and `file://` URLs, not web URLs.

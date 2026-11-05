@@ -56,8 +56,48 @@ enum WidgetStyle {
 
         applyClipping(props, to: widget)
         WidgetTextStyle.apply(props, to: widget)
+        applyControl(props, to: widget)
         try WidgetImageStyle.apply(props, to: widget)
         (widget as? VectorView)?.apply(props)
+    }
+
+    private static func applyControl(_ props: WidgetProps, to widget: UIView) {
+        let tint = props.color.map(color) ?? .systemBlue
+        (widget as? UIControl)?.isEnabled = props.enabled ?? true
+        if let control = widget as? UISwitch {
+            control.isOn = props.checked ?? false
+            control.onTintColor = tint
+        }
+        if let button = widget as? ChoiceButton {
+            button.isSelected = props.checked ?? false
+            button.tintColor = tint
+            button.setImage(UIImage(systemName: button.radio ? "circle" : "square"), for: .normal)
+            button.setImage(UIImage(systemName: button.radio ? "largecircle.fill.circle" : "checkmark.square.fill"),
+                for: .selected)
+            button.accessibilityValue = button.isSelected ? "1" : "0"
+            button.accessibilityTraits = [.button]
+            if button.isSelected { button.accessibilityTraits.insert(.selected) }
+            if !button.isEnabled { button.accessibilityTraits.insert(.notEnabled) }
+        }
+        if let slider = widget as? UISlider {
+            let state = props.slider ?? .initial
+            slider.value = state.coordinate
+            slider.minimumTrackTintColor = tint
+            slider.accessibilityValue = props.aria?.valueText ?? String(state.value)
+        }
+        if let progress = widget as? LinearProgressView { progress.apply(props) }
+        if let spinner = widget as? UIActivityIndicatorView {
+            spinner.color = tint
+            spinner.hidesWhenStopped = false
+            if props.running != false && props.hidden != true {
+                spinner.startAnimating()
+            } else { spinner.stopAnimating() }
+            spinner.isAccessibilityElement = props.accessibilityLabel != nil
+        }
+        if widget is UISwitch || widget is ChoiceButton || widget is UISlider
+            || widget is LinearProgressView || widget is UIActivityIndicatorView {
+            widget.accessibilityElementsHidden = props.aria?.ariaHidden ?? false
+        }
     }
 
     @MainActor
@@ -90,4 +130,78 @@ enum WidgetStyle {
 
         return created
     }
+}
+
+/// UIKit has no checkbox/radio control; system-symbol buttons match the Rust backend.
+final class ChoiceButton: UIButton {
+    var radio = false
+}
+
+/// A determinate native bar or an indeterminate sweep, within the guest's frame.
+final class LinearProgressView: UIView {
+    private let bar = UIProgressView(progressViewStyle: .bar)
+    private let sweep = CALayer()
+    private var indeterminate = true
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        addSubview(bar)
+        layer.addSublayer(sweep)
+        isAccessibilityElement = true
+        bar.isAccessibilityElement = false
+        clipsToBounds = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func apply(_ props: WidgetProps) {
+        let tint = props.color.map(WidgetStyle.color) ?? .systemBlue
+        bar.progressTintColor = tint
+        bar.trackTintColor = props.background.map(WidgetStyle.color)
+        sweep.backgroundColor = tint.cgColor
+        switch props.progress ?? .indeterminate {
+        case .indeterminate:
+            indeterminate = true
+            accessibilityValue = props.aria?.valueText ?? "Loading"
+        case .determinate(let value):
+            indeterminate = false
+            bar.progress = value
+            accessibilityValue = props.aria?.valueText ?? "\(Int((value * 100).rounded()))%"
+        }
+        bar.isHidden = indeterminate
+        sweep.isHidden = !indeterminate
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        bar.transform = .identity
+        bar.frame = bounds
+        let height = bar.bounds.height
+        if height > 0 { bar.transform = CGAffineTransform(scaleX: 1, y: bounds.height / height) }
+        bar.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        sweep.frame = CGRect(x: -bounds.width / 3, y: 0, width: bounds.width / 3, height: bounds.height)
+        sweep.removeAnimation(forKey: "progress")
+        if indeterminate && window != nil && !isHidden && bounds.width > 0 {
+            let animation = CABasicAnimation(keyPath: "transform.translation.x")
+            animation.fromValue = 0
+            animation.toValue = bounds.width * 4 / 3
+            animation.duration = 1
+            animation.repeatCount = .infinity
+            sweep.add(animation, forKey: "progress")
+        }
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        setNeedsLayout()
+        if window == nil { sweep.removeAllAnimations() }
+    }
+}
+
+/// VoiceOver adjusts by the guest's step, rather than UIKit's normalized 10%.
+final class ValueSlider: UISlider {
+    var onStep: ((Bool) -> Void)?
+    override func accessibilityIncrement() { onStep?(true) }
+    override func accessibilityDecrement() { onStep?(false) }
 }
