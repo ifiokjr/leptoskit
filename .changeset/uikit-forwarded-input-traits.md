@@ -2,4 +2,4 @@
 leptoskit_uikit: patch
 ---
 
-Set forwarded UIKit text input traits through key-value coding so debug builds can create text and password fields without crashing.
+Use Objective-C message forwarding for UIKit text input traits so debug builds can create text and password fields without crashing.
