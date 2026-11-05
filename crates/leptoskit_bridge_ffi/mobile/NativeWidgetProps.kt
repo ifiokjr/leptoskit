@@ -1,5 +1,6 @@
 package dev.leptoskit.mobile
 
+import android.content.res.ColorStateList
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
@@ -10,8 +11,11 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.CompoundButton
 import android.widget.EditText
 import android.widget.ImageView
+import android.widget.ProgressBar
+import android.widget.Switch
 import android.widget.TextView
 import org.json.JSONArray
 import org.json.JSONObject
@@ -63,6 +67,7 @@ internal class NativeWidgetProps(
         }
 
         if (widget is TextView) applyText(widget, props)
+        applyControl(widget, props)
 
         if (widget is NativeRiveImage) {
             widget.scaleType = ImageView.ScaleType.FIT_CENTER
@@ -77,6 +82,56 @@ internal class NativeWidgetProps(
         }
 
         if (widget is NativeVectorView) applyVector(widget, props)
+    }
+
+    private fun applyControl(
+        widget: View,
+        props: WidgetProps,
+    ) {
+        val rest = props.rest
+        val tint = ColorStateList.valueOf(props.color?.let(NativeWidgetColor::argb) ?: 0xff2563eb.toInt())
+        when (widget) {
+            is CompoundButton -> {
+                widget.isChecked = rest?.optBoolean("checked") ?: false
+                val dark =
+                    widget.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+                        android.content.res.Configuration.UI_MODE_NIGHT_YES
+                val checkedTint =
+                    ColorStateList(
+                        arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                        intArrayOf(tint.defaultColor, if (dark) 0xffbbbbbb.toInt() else 0xff616161.toInt()),
+                    )
+                if (widget is Switch) {
+                    widget.thumbTintList = checkedTint
+                    widget.trackTintList = checkedTint
+                } else {
+                    widget.buttonTintList = checkedTint
+                }
+            }
+
+            is NativeSlider -> {
+                rest?.optJSONObject("slider")?.let { slider ->
+                    widget.minimum = slider.getDouble("min")
+                    widget.maximum = slider.getDouble("max")
+                    widget.step = if (slider.isNull("step")) null else slider.getDouble("step")
+                    val value = slider.getDouble("value")
+                    widget.progress = (((value - widget.minimum) / (widget.maximum - widget.minimum)) * widget.max).toInt()
+                    if (android.os.Build.VERSION.SDK_INT >= 30) widget.stateDescription = value.toString()
+                }
+                widget.progressTintList = tint
+                widget.thumbTintList = tint
+            }
+
+            is ProgressBar -> {
+                val progress = rest?.optJSONObject("progress")
+                widget.isIndeterminate = progress == null || !progress.has("determinate")
+                widget.max = 10000
+                if (!widget.isIndeterminate) widget.progress = (progress!!.getDouble("determinate") * widget.max).toInt()
+                widget.progressTintList = tint
+                widget.indeterminateTintList = tint
+                if (rest?.optBoolean("running", true) == false) widget.visibility = View.INVISIBLE
+            }
+        }
     }
 
     /**

@@ -162,6 +162,11 @@ class LeptosKitView(
         closeFailure?.let { throw it }
     }
 
+    override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
+        dismissEditorOutside(this, event)
+        return super.dispatchTouchEvent(event)
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         riveAnimator?.requestFrame()

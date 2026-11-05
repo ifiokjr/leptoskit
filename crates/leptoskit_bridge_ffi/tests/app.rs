@@ -113,6 +113,7 @@ fn generated_runtime_starts_renders_and_polls_rust_plugin_completions() {
 		);
 		assert_eq!((*lk_app_plugins(app)).buffered_bytes(), 0);
 		assert_eq!(lk_app_event(app, usize::MAX, 0, ptr::null(), 0), 0);
+		control_events(&mut *app);
 		let scroll = br#"{"x":0,"y":120.5}"#;
 		assert_eq!(
 			lk_app_event(app, usize::MAX, 5, scroll.as_ptr(), scroll.len()),
@@ -392,5 +393,33 @@ fn a_panicking_inline_plugin_fails_its_calls_instead_of_aborting() {
 		);
 		assert_eq!((*lk_app_plugins(app)).buffered_bytes(), 0);
 		lk_app_destroy(app);
+	}
+}
+
+fn control_events(app: &mut App) {
+	// SAFETY: The app is exclusively borrowed and each payload lives for the
+	// call.
+	unsafe {
+		for (kind, payload) in [
+			(6, r#"{"checked":true}"#),
+			(6, r#"{"checked":false}"#),
+			(7, r#"{"value":12.5}"#),
+		] {
+			assert_eq!(
+				lk_app_event(app, usize::MAX, kind, payload.as_ptr(), payload.len()),
+				0
+			);
+		}
+		for (kind, payload) in [
+			(6, "{}"),
+			(6, r#"{"checked":1}"#),
+			(7, r#"{"value":"NaN"}"#),
+			(7, r#"{"value":1e999}"#),
+		] {
+			assert_eq!(
+				lk_app_event(app, usize::MAX, kind, payload.as_ptr(), payload.len()),
+				-1
+			);
+		}
 	}
 }
