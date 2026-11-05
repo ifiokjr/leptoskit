@@ -74,7 +74,7 @@ def reservation(existing):
 
 
 def sql(container, database, query, user="postgres"):
-    return run(["docker", "exec", container, "psql", "-U", user, "-d", database, "-v", "ON_ERROR_STOP=1", "-At", "-c", query])
+    return run(["docker", "exec", container, "psql", "-X", "-U", user, "-d", database, "-v", "ON_ERROR_STOP=1", "-At", "-c", query])
 
 
 def schema(container, database, user="postgres"):
