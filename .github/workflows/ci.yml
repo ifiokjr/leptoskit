@@ -319,6 +319,15 @@ jobs:
         if: runner.os == 'Windows'
         run: cargo test --locked --workspace --all-features --test widgets -- --test-threads=1 --nocapture
 
+      - name: locate Windows test key generator
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $gitRoot = Split-Path (Split-Path (Get-Command git).Source)
+          $openssl = Join-Path $gitRoot 'usr\bin\openssl.exe'
+          if (!(Test-Path $openssl)) { throw 'Git for Windows must provide openssl.exe for publishing tests' }
+          "LEPTOSKIT_TEST_OPENSSL=$openssl" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: test
         env:
           LEPTOSKIT_HYBRID_FIXTURE_OUTPUT: ${{ runner.temp }}/hybrid-service

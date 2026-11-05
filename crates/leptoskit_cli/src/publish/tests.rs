@@ -33,16 +33,41 @@ struct Seen {
 
 type Answer = Box<dyn Fn(&Seen, usize) -> Response + Send + Sync>;
 
+struct StoreServer {
+	requests: Arc<Mutex<Vec<Seen>>>,
+	shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+	thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl std::ops::Deref for StoreServer {
+	type Target = Mutex<Vec<Seen>>;
+
+	fn deref(&self) -> &Self::Target {
+		&self.requests
+	}
+}
+
+impl Drop for StoreServer {
+	fn drop(&mut self) {
+		let _ = self.shutdown.take().unwrap().send(());
+		let result = self.thread.take().unwrap().join();
+		if !std::thread::panicking() {
+			result.unwrap();
+		}
+	}
+}
+
 /// A store on loopback: `answer` gets each request and how many came
-/// before it.
-fn store(answer: Answer) -> (String, Arc<Mutex<Vec<Seen>>>) {
+/// before it. Dropping the server stops and joins its thread.
+fn store(answer: Answer) -> (String, StoreServer) {
 	let seen: Arc<Mutex<Vec<Seen>>> = Arc::default();
 	let recorded = Arc::clone(&seen);
 	let answer = Arc::new(answer);
 	let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
 	let address = listener.local_addr().unwrap();
 	listener.set_nonblocking(true).unwrap();
-	std::thread::spawn(move || {
+	let (shutdown, stopped) = tokio::sync::oneshot::channel();
+	let thread = std::thread::spawn(move || {
 		let runtime = tokio::runtime::Builder::new_current_thread()
 			.enable_all()
 			.build()
@@ -78,10 +103,20 @@ fn store(answer: Answer) -> (String, Arc<Mutex<Vec<Seen>>>) {
 					}
 				},
 			);
-			axum::serve(listener, router).await.unwrap();
+			tokio::select! {
+				() = async { axum::serve(listener, router).await.unwrap(); } => {},
+				_ = stopped => {},
+			}
 		});
 	});
-	(format!("http://{address}"), seen)
+	(
+		format!("http://{address}"),
+		StoreServer {
+			requests: seen,
+			shutdown: Some(shutdown),
+			thread: Some(thread),
+		},
+	)
 }
 
 fn json(value: serde_json::Value) -> Response {
@@ -89,8 +124,9 @@ fn json(value: serde_json::Value) -> Response {
 }
 
 /// A fresh RSA key in PKCS#8 PEM, so no private key is ever committed.
-fn rsa_key() -> Option<String> {
-	let output = std::process::Command::new("openssl")
+fn rsa_key() -> String {
+	let program = std::env::var_os("LEPTOSKIT_TEST_OPENSSL").unwrap_or_else(|| "openssl".into());
+	let output = std::process::Command::new(program)
 		.args([
 			"genpkey",
 			"-algorithm",
@@ -99,16 +135,18 @@ fn rsa_key() -> Option<String> {
 			"rsa_keygen_bits:2048",
 		])
 		.output()
-		.ok()?;
-	output
-		.status
-		.success()
-		.then(|| String::from_utf8(output.stdout).unwrap())
+		.expect("publish tests require OpenSSL; set LEPTOSKIT_TEST_OPENSSL to its executable");
+	assert!(
+		output.status.success(),
+		"test RSA key generation failed: {}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	String::from_utf8(output.stdout).unwrap()
 }
 
 #[test]
 fn chrome_signs_in_uploads_and_submits() {
-	let Some(key) = rsa_key() else { return };
+	let key = rsa_key();
 	let (base, seen) = store(Box::new(|request, _| {
 		match request.path.as_str() {
 			"/token" => json(serde_json::json!({ "access_token": "token-1", "expires_in": 3600 })),
@@ -161,8 +199,8 @@ fn chrome_signs_in_uploads_and_submits() {
 
 #[test]
 fn chrome_reports_a_refused_package() {
-	let Some(key) = rsa_key() else { return };
-	let (base, _) = store(Box::new(|request, _| {
+	let key = rsa_key();
+	let (base, _server) = store(Box::new(|request, _| {
 		match request.path.as_str() {
 			"/token" => json(serde_json::json!({ "access_token": "t" })),
 			_ => (StatusCode::BAD_REQUEST, "manifest version must be newer").into_response(),
@@ -241,7 +279,7 @@ fn edge_uploads_waits_for_its_operations_and_submits() {
 
 #[test]
 fn edge_explains_an_expired_key() {
-	let (base, _) = store(Box::new(|_, _| StatusCode::UNAUTHORIZED.into_response()));
+	let (base, _server) = store(Box::new(|_, _| StatusCode::UNAUTHORIZED.into_response()));
 	let http = Http::default();
 	let edge = Edge::new(
 		&http,
@@ -302,7 +340,7 @@ fn firefox_validates_then_submits_with_the_source() {
 
 #[test]
 fn firefox_reports_failed_validation_and_a_missing_add_on() {
-	let (base, _) = store(Box::new(|request, _| {
+	let (base, _server) = store(Box::new(|request, _| {
 		match (request.method.as_str(), request.path.as_str()) {
 			("POST", "/addons/upload/") => json(serde_json::json!({ "uuid": "u-2" })),
 			("GET", "/addons/upload/u-2/") => {
@@ -416,7 +454,7 @@ fn app_store_numbers_the_next_build_and_waits_for_processing() {
 #[test]
 fn app_store_reports_a_build_that_failed_processing() {
 	let Some(key) = apple_key() else { return };
-	let (base, _) = store(Box::new(|_, _| {
+	let (base, _server) = store(Box::new(|_, _| {
 		json(serde_json::json!({ "data": [
 			{ "id": "b4", "attributes": { "processingState": "INVALID" } },
 		]}))
@@ -605,7 +643,7 @@ fn app_store_creates_a_first_version_and_refuses_a_released_one() {
 #[test]
 fn app_store_explains_a_refused_key() {
 	let Some(key) = apple_key() else { return };
-	let (base, _) = store(Box::new(|_, _| StatusCode::UNAUTHORIZED.into_response()));
+	let (base, _server) = store(Box::new(|_, _| StatusCode::UNAUTHORIZED.into_response()));
 	let http = Http::default();
 	let error = AppStore::new(&http, &base, &key)
 		.highest_build("1")
@@ -647,7 +685,7 @@ fn no_credential_value_reaches_any_output() {
 	}
 
 	// The stores' refusals, and keys that can't be used.
-	let (base, _) = store(Box::new(|_, _| StatusCode::UNAUTHORIZED.into_response()));
+	let (base, _server) = store(Box::new(|_, _| StatusCode::UNAUTHORIZED.into_response()));
 	let http = Http::default();
 	let get = |name: &str| credentials.get(name).unwrap();
 	let edge = Edge::new(
@@ -834,12 +872,12 @@ fn commonplace(
 	published.map(|()| report)
 }
 
-fn google_account() -> Option<Secret> {
-	let key = rsa_key()?;
-	Some(Secret::new(
+fn google_account() -> Secret {
+	let key = rsa_key();
+	Secret::new(
 		serde_json::json!({ "client_email": "ci@project.iam.gserviceaccount.com", "private_key": key })
 			.to_string(),
-	))
+	)
 }
 
 #[test]
@@ -847,9 +885,7 @@ fn play_numbers_uploads_and_releases_through_an_edit() {
 	use super::play::Play;
 	use super::play::Rollout;
 
-	let Some(account) = google_account() else {
-		return;
-	};
+	let account = google_account();
 	let app = "/androidpublisher/v3/applications/com.example.notes";
 	let (base, seen) = store(Box::new(move |request, count| {
 		let path = request.path.as_str();
@@ -942,10 +978,8 @@ fn play_numbers_uploads_and_releases_through_an_edit() {
 
 #[test]
 fn play_reports_a_missing_app_and_a_service_account_without_access() {
-	let Some(account) = google_account() else {
-		return;
-	};
-	let (base, _) = store(Box::new(|request, _| {
+	let account = google_account();
+	let (base, _server) = store(Box::new(|request, _| {
 		match request.path.as_str() {
 			"/token" => json(serde_json::json!({ "access_token": "t" })),
 			path if path.contains("com.example.new") => StatusCode::NOT_FOUND.into_response(),
@@ -1003,9 +1037,7 @@ fn app_store_sets_the_privacy_policy_on_app_information() {
 
 #[test]
 fn play_sets_the_store_listing() {
-	let Some(account) = google_account() else {
-		return;
-	};
+	let account = google_account();
 	let (base, seen) = store(Box::new(|request, _| {
 		match (request.method.as_str(), request.path.as_str()) {
 			("POST", "/token") => json(serde_json::json!({ "access_token": "t" })),
@@ -1306,7 +1338,7 @@ fn app_store_replaces_a_screenshot_set_in_parts() {
 #[test]
 fn app_store_reports_a_screenshot_apple_could_not_process() {
 	let Some(key) = apple_key() else { return };
-	let (base, _) = store(Box::new(|request, _| {
+	let (base, _server) = store(Box::new(|request, _| {
 		match (request.method.as_str(), request.path.as_str()) {
 			("GET", path) if path.ends_with("/appScreenshotSets") => {
 				json(serde_json::json!({ "data": [
@@ -1350,9 +1382,7 @@ fn app_store_reports_a_screenshot_apple_could_not_process() {
 
 #[test]
 fn play_replaces_the_listing_images_inside_the_edit() {
-	let Some(account) = google_account() else {
-		return;
-	};
+	let account = google_account();
 	let (base, seen) = store(Box::new(|request, _| {
 		match (request.method.as_str(), request.path.as_str()) {
 			("POST", "/token") => json(serde_json::json!({ "access_token": "t" })),
@@ -1539,5 +1569,529 @@ fn a_dry_run_checks_the_screenshots_and_refuses_a_wrong_size() {
 			"{error}"
 		);
 		assert!(error.contains("nothing was uploaded"), "{error}");
+	}
+}
+
+/// A minimal extension project with the three browser stores, so a
+/// [`super::Session`] can be built from packages and a manifest without
+/// compiling or packaging anything.
+const EXTENSION_PROJECT: &str = r#"
+[app]
+name = "Notes"
+version = "1.4.0"
+platforms = ["web", "extension"]
+icon = "icon.png"
+
+[extension]
+name = "Notes"
+browsers = ["chromium", "firefox"]
+
+[extension.popup]
+route = "/popup"
+
+[extension.firefox]
+id = "notes@example.com"
+
+[publish.chrome]
+publisher_id = "pub-1"
+item_id = "abcdefghijklmnopabcdefghijklmnop"
+
+[publish.edge]
+product_id = "prod-1"
+
+[publish.firefox]
+channel = "listed"
+"#;
+
+const NO_STORE_PROJECT: &str = r#"
+[app]
+name = "Notes"
+version = "1.4.0"
+platforms = ["web"]
+"#;
+
+fn browser_credentials() -> Vec<(String, String)> {
+	[
+		("LEPTOSKIT_PUBLISH_EDGE_CLIENT_ID", "client"),
+		("LEPTOSKIT_PUBLISH_EDGE_API_KEY", "key"),
+		("LEPTOSKIT_PUBLISH_FIREFOX_JWT_ISSUER", "issuer"),
+		("LEPTOSKIT_PUBLISH_FIREFOX_JWT_SECRET", "secret"),
+	]
+	.into_iter()
+	.map(|(name, value)| (name.to_owned(), value.to_owned()))
+	.collect()
+}
+
+const HELPER: &str = "publish::tests::subprocess_helper";
+
+/// Runs one helper test in a child process with only the environment the
+/// scenario needs, so `LEPTOSKIT_PUBLISH_*` overrides never leak into the
+/// test process.
+fn spawn_publish(scenario: &str, environment: &[(String, String)], cwd: Option<&std::path::Path>) {
+	let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+	command
+		.args(["--exact", HELPER, "--nocapture", "--test-threads=1"])
+		.env_clear()
+		.env("LEPTOSKIT_TEST_SCENARIO", scenario)
+		.env("PATH", std::env::var_os("PATH").unwrap_or_default());
+
+	if let Some(profile) = std::env::var_os("LLVM_PROFILE_FILE") {
+		command.env("LLVM_PROFILE_FILE", profile);
+	}
+
+	for (name, value) in environment {
+		command.env(name, value);
+	}
+
+	if let Some(cwd) = cwd {
+		command.current_dir(cwd);
+	}
+
+	let output = command.output().unwrap();
+	assert!(
+		output.status.success(),
+		"scenario {scenario} failed\nstdout:\n{}\nstderr:\n{}",
+		String::from_utf8_lossy(&output.stdout),
+		String::from_utf8_lossy(&output.stderr)
+	);
+}
+
+fn chrome_session(scenario: &str, answer: Answer, account: &Secret) -> Vec<Seen> {
+	let (base, seen) = store(answer);
+	let environment = vec![
+		("LEPTOSKIT_PUBLISH_CHROME_API".to_owned(), base.clone()),
+		(
+			"LEPTOSKIT_PUBLISH_GOOGLE_OAUTH".to_owned(),
+			format!("{base}/token"),
+		),
+		(
+			"LEPTOSKIT_PUBLISH_CHROME_SERVICE_ACCOUNT".to_owned(),
+			account.expose().to_owned(),
+		),
+	];
+	spawn_publish(scenario, &environment, None);
+	seen.lock().unwrap().clone()
+}
+
+fn firefox_session(scenario: &str, answer: Answer) -> Vec<Seen> {
+	let (base, seen) = store(answer);
+	let mut environment = browser_credentials();
+	environment.push(("LEPTOSKIT_PUBLISH_FIREFOX_API".to_owned(), base));
+	spawn_publish(scenario, &environment, None);
+	seen.lock().unwrap().clone()
+}
+
+/// Edge Add-ons answers `202 Accepted` with a `Location` header, so these
+/// scenarios use the existing `store` fixture, which can carry headers.
+fn edge_session(scenario: &str, answer: Answer) -> Vec<Seen> {
+	let (base, seen) = store(answer);
+	let mut environment = browser_credentials();
+	environment.push(("LEPTOSKIT_PUBLISH_EDGE_API".to_owned(), base));
+	spawn_publish(scenario, &environment, None);
+	seen.lock().unwrap().clone()
+}
+
+fn accepted(location: &str) -> Response {
+	let mut response = StatusCode::ACCEPTED.into_response();
+	response
+		.headers_mut()
+		.insert("location", location.parse().unwrap());
+	response
+}
+
+fn edge_answer(submit: bool) -> Answer {
+	Box::new(move |request, count| {
+		match (request.method.as_str(), request.path.as_str()) {
+			("POST", "/v1/products/prod-1/submissions/draft/package") => accepted("op-upload"),
+			("GET", "/v1/products/prod-1/submissions/draft/package/operations/op-upload") => {
+				json(
+					serde_json::json!({ "status": if count < 2 { "InProgress" } else { "Succeeded" } }),
+				)
+			}
+			("POST", "/v1/products/prod-1/submissions") if submit => {
+				accepted("/v1/products/prod-1/submissions/operations/op-submit")
+			}
+			("GET", "/v1/products/prod-1/submissions/operations/op-submit") if submit => {
+				json(serde_json::json!({ "status": "Succeeded" }))
+			}
+			_ => StatusCode::NOT_FOUND.into_response(),
+		}
+	})
+}
+
+fn project(config: &str) -> tempfile::TempDir {
+	let directory = tempfile::tempdir().unwrap();
+	std::fs::write(directory.path().join("leptoskit.toml"), config).unwrap();
+	directory
+}
+
+fn run_scenario(scenario: &str, root: &std::path::Path, environment: &[(String, String)]) {
+	spawn_publish(scenario, environment, Some(root));
+}
+
+#[test]
+fn chrome_session_uploads_a_draft_and_submits_only_when_asked() {
+	let account = google_account();
+	let answer = || {
+		Box::new(|request: &Seen, _: usize| {
+			match request.path.as_str() {
+				"/token" => {
+					json(serde_json::json!({ "access_token": "token-1", "expires_in": 3600 }))
+				}
+				path if path.ends_with(":upload") => {
+					json(serde_json::json!({ "uploadState": "SUCCEEDED", "crxVersion": "1.4.0" }))
+				}
+				path if path.ends_with(":publish") => {
+					json(serde_json::json!({ "state": "PENDING_REVIEW" }))
+				}
+				_ => StatusCode::NOT_FOUND.into_response(),
+			}
+		})
+	};
+
+	let draft = chrome_session("chrome-draft", answer(), &account);
+	assert_eq!(draft.len(), 2);
+	assert_eq!(draft[0].path, "/token");
+	assert_eq!(
+		draft[1].path,
+		"/upload/v2/publishers/pub-1/items/abcdefghijklmnopabcdefghijklmnop:upload"
+	);
+	assert_eq!(draft[1].authorization, "Bearer token-1");
+	assert_eq!(draft[1].body, b"PK chromium");
+
+	let submitted = chrome_session("chrome-submit", answer(), &account);
+	assert_eq!(submitted.len(), 3);
+	assert_eq!(
+		submitted[2].path,
+		"/v2/publishers/pub-1/items/abcdefghijklmnopabcdefghijklmnop:publish"
+	);
+	let publish: serde_json::Value = serde_json::from_slice(&submitted[2].body).unwrap();
+	assert_eq!(publish["publishType"], "DEFAULT_PUBLISH");
+}
+
+#[test]
+fn chrome_session_reports_a_refused_package() {
+	let account = google_account();
+	let requests = chrome_session(
+		"chrome-error",
+		Box::new(|request, _| {
+			match request.path.as_str() {
+				"/token" => json(serde_json::json!({ "access_token": "token-1" })),
+				_ => (StatusCode::BAD_REQUEST, "manifest version must be newer").into_response(),
+			}
+		}),
+		&account,
+	);
+	assert_eq!(requests.len(), 2);
+	assert_eq!(
+		requests[1].path,
+		"/upload/v2/publishers/pub-1/items/abcdefghijklmnopabcdefghijklmnop:upload"
+	);
+}
+
+#[test]
+fn edge_session_uploads_a_draft_and_submits_only_when_asked() {
+	let draft = edge_session("edge-draft", edge_answer(false));
+	assert_eq!(draft.len(), 3);
+	assert_eq!(
+		draft[0].path,
+		"/v1/products/prod-1/submissions/draft/package"
+	);
+	assert_eq!(draft[0].authorization, "ApiKey key");
+	assert_eq!(draft[0].body, b"PK chromium");
+
+	let submitted = edge_session("edge-submit", edge_answer(true));
+	assert_eq!(submitted.len(), 5);
+	assert_eq!(submitted[3].path, "/v1/products/prod-1/submissions");
+	let notes: serde_json::Value = serde_json::from_slice(&submitted[3].body).unwrap();
+	assert_eq!(notes["notes"], "Version 1.4.0.");
+}
+
+#[test]
+fn edge_session_explains_an_expired_key() {
+	let seen = edge_session(
+		"edge-error",
+		Box::new(|_, _| StatusCode::UNAUTHORIZED.into_response()),
+	);
+	assert_eq!(seen.len(), 1);
+	assert_eq!(
+		seen[0].path,
+		"/v1/products/prod-1/submissions/draft/package"
+	);
+}
+
+#[test]
+fn firefox_session_validates_a_draft_and_submits_the_source_only_when_asked() {
+	let answer = || {
+		Box::new(|request: &Seen, count: usize| {
+			match (request.method.as_str(), request.path.as_str()) {
+				("POST", "/addons/upload/") => {
+					json(serde_json::json!({ "uuid": "u-1", "processed": false }))
+				}
+				("GET", "/addons/upload/u-1/") => {
+					json(
+						serde_json::json!({ "uuid": "u-1", "processed": count > 1, "valid": true }),
+					)
+				}
+				("POST", "/addons/addon/notes@example.com/versions/") => {
+					json(serde_json::json!({ "id": 7, "version": "1.4.0" }))
+				}
+				_ => StatusCode::NOT_FOUND.into_response(),
+			}
+		})
+	};
+
+	let draft = firefox_session("firefox-draft", answer());
+	assert_eq!(draft.len(), 3);
+	assert_eq!(draft[0].path, "/addons/upload/");
+	assert!(draft[0].authorization.starts_with("JWT "));
+	assert!(
+		draft[0]
+			.content_type
+			.starts_with("multipart/form-data; boundary=")
+	);
+	assert!(String::from_utf8_lossy(&draft[0].body).contains("PK firefox"));
+	assert!(String::from_utf8_lossy(&draft[0].body).contains("name=\"channel\"\r\n\r\nlisted"));
+	assert_eq!(draft[2].path, "/addons/upload/u-1/");
+
+	let submitted = firefox_session("firefox-submit", answer());
+	assert_eq!(submitted.len(), 4);
+	assert_eq!(
+		submitted[3].path,
+		"/addons/addon/notes@example.com/versions/"
+	);
+	let body = String::from_utf8_lossy(&submitted[3].body);
+	assert!(body.contains("name=\"upload\"\r\n\r\nu-1"));
+	assert!(body.contains("filename=\"firefox-source.zip\""));
+	assert!(body.contains("PK source"));
+}
+
+#[test]
+fn firefox_session_reports_failed_validation() {
+	let requests = firefox_session(
+		"firefox-error",
+		Box::new(|request, _| {
+			match (request.method.as_str(), request.path.as_str()) {
+				("POST", "/addons/upload/") => json(serde_json::json!({ "uuid": "u-1" })),
+				("GET", "/addons/upload/u-1/") => {
+					json(serde_json::json!({
+						"processed": true,
+						"valid": false,
+						"validation": {
+							"messages": [{ "type": "error", "message": "manifest.json is invalid" }]
+						}
+					}))
+				}
+				_ => StatusCode::NOT_FOUND.into_response(),
+			}
+		}),
+	);
+	assert_eq!(requests.len(), 2);
+	assert_eq!(requests[1].path, "/addons/upload/u-1/");
+}
+
+#[test]
+fn publish_run_rejects_no_store_and_an_unknown_store() {
+	let no_store = project(NO_STORE_PROJECT);
+	run_scenario("run-no-store", no_store.path(), &[]);
+
+	let configured = project(EXTENSION_PROJECT);
+	run_scenario("run-unknown-store", configured.path(), &[]);
+}
+
+#[test]
+fn publish_run_names_a_missing_credential() {
+	let configured = project(EXTENSION_PROJECT);
+	run_scenario("run-missing-credential", configured.path(), &[]);
+}
+
+#[test]
+fn publish_run_refuses_credentials_inside_the_project() {
+	let configured = project(EXTENSION_PROJECT);
+	let credentials = configured.path().join("credentials.toml");
+	std::fs::write(
+		&credentials,
+		"LEPTOSKIT_PUBLISH_CHROME_SERVICE_ACCOUNT = \"value\"\n",
+	)
+	.unwrap();
+	run_scenario(
+		"run-credentials-inside",
+		configured.path(),
+		&[(
+			"LEPTOSKIT_TEST_CREDENTIALS".to_owned(),
+			credentials.display().to_string(),
+		)],
+	);
+}
+
+#[test]
+fn publish_run_refuses_to_replace_an_existing_workflow() {
+	let configured = project(EXTENSION_PROJECT);
+	let workflow = configured.path().join(crate::new_project::RELEASE_WORKFLOW);
+	std::fs::create_dir_all(workflow.parent().unwrap()).unwrap();
+	std::fs::write(&workflow, "name: existing\n").unwrap();
+	run_scenario("run-existing-workflow", configured.path(), &[]);
+}
+
+/// The child side of [`spawn_publish`]: builds a [`super::Session`] from
+/// packages and a manifest, or calls [`super::run`] in the project the
+/// parent made the current directory. A normal test run has no scenario and
+/// does nothing.
+fn session_child(scenario: &str) {
+	let (store_name, submit) = match scenario {
+		"chrome-draft" | "chrome-error" => ("chrome", false),
+		"chrome-submit" => ("chrome", true),
+		"edge-draft" | "edge-error" => ("edge", false),
+		"edge-submit" => ("edge", true),
+		"firefox-draft" | "firefox-error" => ("firefox", false),
+		"firefox-submit" => ("firefox", true),
+		other => panic!("unknown session scenario {other}"),
+	};
+
+	let root = tempfile::tempdir().unwrap();
+
+	for (name, bytes) in [
+		("chromium.zip", b"PK chromium".as_slice()),
+		("firefox.zip", b"PK firefox".as_slice()),
+		("firefox-source.zip", b"PK source".as_slice()),
+	] {
+		std::fs::write(root.path().join(name), bytes).unwrap();
+	}
+
+	let config =
+		leptoskit_config::LeptoskitConfig::from_toml(EXTENSION_PROJECT, root.path()).unwrap();
+	let store = super::listing::Store::load(root.path()).unwrap();
+	let credentials = super::Credentials::default();
+	let http = Http::default();
+	let runner = super::tools::Recorder::default();
+	let package = |browser: leptoskit_config::Browser, zip: &str| {
+		crate::extension::Package {
+			browser,
+			dir: root.path().join(browser.name()),
+			zip: Some(root.path().join(zip)),
+		}
+	};
+	let extension = super::Extension {
+		built: crate::extension::Built {
+			packages: vec![
+				package(leptoskit_config::Browser::Chromium, "chromium.zip"),
+				package(leptoskit_config::Browser::Firefox, "firefox.zip"),
+			],
+			source: Some(root.path().join("firefox-source.zip")),
+		},
+		manifest: serde_json::json!({ "permissions": [] }),
+	};
+	let args = super::PublishArgs {
+		stores: vec![store_name.to_owned()],
+		dry_run: false,
+		submit,
+		staged: false,
+		yes: true,
+		json: false,
+		credentials: None,
+		build_number: super::BuildNumber::Auto,
+	};
+	let session = super::Session {
+		args: &args,
+		root: root.path(),
+		config: &config,
+		credentials: &credentials,
+		store: &store,
+		http: &http,
+		runner: &runner,
+		extension: Some(&extension),
+		name: "Notes".to_owned(),
+		version: "1.4.0".to_owned(),
+		submit,
+	};
+	let result = session.publish(store_name);
+
+	if scenario.ends_with("-error") {
+		let error = result.unwrap_err().to_string();
+		let expected = match store_name {
+			"chrome" => "manifest version must be newer",
+			"edge" => "72 days",
+			"firefox" => "manifest.json is invalid",
+			other => panic!("no expected error for {other}"),
+		};
+		assert!(error.contains(expected), "{error}");
+		return;
+	}
+
+	let (summary, steps) = result.unwrap();
+	let expected = match scenario {
+		"chrome-draft" | "edge-draft" => "Notes 1.4.0 is uploaded as a draft.",
+		"chrome-submit" => "Notes 1.4.0 is submitted for review (PENDING_REVIEW).",
+		"edge-submit" => "Notes 1.4.0 is submitted for certification.",
+		"firefox-draft" => {
+			"Notes 1.4.0 passed addons.mozilla.org's validation; nothing is submitted yet."
+		}
+		"firefox-submit" => "Notes 1.4.0 is submitted (listed channel).",
+		other => panic!("no expected summary for {other}"),
+	};
+	assert_eq!(summary, expected);
+	assert!(steps.iter().all(|step| step.store == store_name));
+	assert_eq!(
+		steps
+			.iter()
+			.any(|step| step.what.contains("Decide to release it")),
+		!submit
+	);
+}
+
+/// The child side of [`run_scenario`]: `super::run` must reject each bad
+/// configuration before it builds the extension or contacts a store.
+fn run_child(scenario: &str) {
+	let args = |stores: Vec<String>, credentials: Option<std::path::PathBuf>| {
+		super::PublishArgs {
+			stores,
+			dry_run: false,
+			submit: false,
+			staged: false,
+			yes: true,
+			json: false,
+			credentials,
+			build_number: super::BuildNumber::Auto,
+		}
+	};
+	let error = match scenario {
+		"run-no-store" => super::run(&args(Vec::new(), None)).unwrap_err(),
+		"run-unknown-store" => super::run(&args(vec!["play".to_owned()], None)).unwrap_err(),
+		"run-missing-credential" => super::run(&args(vec!["chrome".to_owned()], None)).unwrap_err(),
+		"run-credentials-inside" => {
+			let credentials = std::env::var("LEPTOSKIT_TEST_CREDENTIALS").unwrap();
+			super::run(&args(
+				vec!["credentials".to_owned()],
+				Some(std::path::PathBuf::from(credentials)),
+			))
+			.unwrap_err()
+		}
+		"run-existing-workflow" => {
+			super::run(&args(vec!["workflow".to_owned()], None)).unwrap_err()
+		}
+		other => panic!("unknown run scenario {other}"),
+	};
+	let text = format!("{error:#}");
+	let expected = match scenario {
+		"run-no-store" => "no store is configured",
+		"run-unknown-store" => "`play` isn't configured",
+		"run-missing-credential" => "LEPTOSKIT_PUBLISH_CHROME_SERVICE_ACCOUNT isn't set",
+		"run-credentials-inside" => "inside the project and git doesn't ignore it",
+		"run-existing-workflow" => "remove it first",
+		other => panic!("no expected error for {other}"),
+	};
+	assert!(text.contains(expected), "{text}");
+}
+
+#[test]
+fn subprocess_helper() {
+	let Ok(scenario) = std::env::var("LEPTOSKIT_TEST_SCENARIO") else {
+		return;
+	};
+
+	if scenario.starts_with("run-") {
+		run_child(&scenario);
+	} else {
+		session_child(&scenario);
 	}
 }
