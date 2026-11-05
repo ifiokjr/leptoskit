@@ -198,8 +198,13 @@ mod host {
 			device,
 			bundle.to_str().ok_or("bundle path must be Unicode")?,
 		])?;
+		let stdout = output.join("native-probe.stdout.log");
+		let stderr = output.join("native-probe.stderr.log");
 		let mut launch = Command::new("xcrun");
-		launch.args(["simctl", "launch", device, BUNDLE]);
+		launch.args(["simctl", "launch"]);
+		launch.arg(format!("--stdout={}", stdout.display()));
+		launch.arg(format!("--stderr={}", stderr.display()));
+		launch.args([device, BUNDLE]);
 
 		if coverage {
 			// simctl forwards SIMCTL_CHILD_-prefixed variables to the app.
@@ -226,7 +231,13 @@ mod host {
 
 		while !report.exists() {
 			if Instant::now() >= deadline {
-				return Err("native UIKit probe did not produce a report within 60 seconds".into());
+				let stderr = std::fs::read_to_string(&stderr)?;
+				return Err(format!(
+					"native UIKit probe did not produce a report within 60 seconds\napp \
+					 stderr:\n{stderr}\napp stdout: {}",
+					stdout.display()
+				)
+				.into());
 			}
 
 			std::thread::sleep(Duration::from_millis(200));

@@ -273,3 +273,6 @@ pub fn infra(command: crate::infra::InfraCommand) -> Result<()> {
 	}
 	crate::infra::run(command)
 }
+
+#[cfg(test)]
+mod tests;

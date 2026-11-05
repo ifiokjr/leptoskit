@@ -196,6 +196,10 @@ fn source_build_tools(root: &Path) {
 		"git",
 		r#"#!/bin/sh
 set -eu
+if [ "$1" = -C ]; then
+  cd "$2"
+  shift 2
+fi
 if [ "$1" = cat-file ]; then exit 0; fi
 if [ "$1" = worktree ] && [ "$2" = add ]; then
   mkdir -p "$4"

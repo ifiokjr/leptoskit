@@ -35,6 +35,7 @@ members = [
 	"setup/android_apk",
 	"setup/coverage_gate",
 	"setup/harmonyos_plugins",
+	"setup/markup_ui_tests",
 ]
 default-members = ["crates/*"]
 resolver = "2"

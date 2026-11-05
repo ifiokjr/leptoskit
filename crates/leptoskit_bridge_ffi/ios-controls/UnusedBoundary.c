@@ -21,6 +21,7 @@ int32_t lk_bridge_emit(lk_bridge *bridge, uint32_t plugin, uint32_t kind,
                        const uint8_t *data, size_t len) { abort(); }
 bool lk_worker_is_main_thread(const lk_rust_worker *worker) { abort(); }
 lk_worker_cancellation_token *lk_worker_cancellation(const lk_rust_worker *worker) { abort(); }
+bool lk_worker_is_main_thread(const lk_rust_worker *worker) { abort(); }
 void lk_worker_cancel(const lk_worker_cancellation_token *token) { abort(); }
 void lk_worker_cancellation_release(lk_worker_cancellation_token *token) { abort(); }
 

@@ -360,7 +360,7 @@ fn find_binaries() -> Option<(PathBuf, PathBuf)> {
 		return Some((directory.clone(), directory.join("postgres.exe")));
 	}
 
-	let server = directory.join("postgres");
+	let server = fs::canonicalize(directory.join("postgres")).ok()?;
 	let binaries = fs::canonicalize(directory.join("initdb"))
 		.ok()?
 		.parent()

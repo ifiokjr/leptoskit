@@ -154,7 +154,7 @@ in
       "secrets:commit" = {
         enable = true;
         verbose = true;
-        pass_filenames = true;
+        pass_filenames = false;
         name = "secrets";
         description = "Scan staged changes for leaked secrets with gitleaks.";
         entry = "${pkgs.gitleaks}/bin/gitleaks protect --staged --verbose --redact";
@@ -163,7 +163,7 @@ in
       "lint:format" = {
         enable = true;
         verbose = true;
-        pass_filenames = true;
+        pass_filenames = false;
         name = "lint:format";
         description = "Run workspace autofixes before commit and restage the results.";
         entry = "${config.env.DEVENV_PROFILE}/bin/fix:format";
@@ -1281,7 +1281,7 @@ in
       exec = ''
         set -euo pipefail
         cargo run --quiet --locked --package leptoskit_config --features schema --example schema
-        cargo run --quiet --locked --package leptoskit_testing --features schema --example schema
+        cargo run --quiet --locked --package leptoskit_testing --features schema --example testing_schema
       '';
       description = "Generate public configuration and control schemas from Rust types.";
       binary = "bash";
@@ -1290,7 +1290,7 @@ in
       exec = ''
         set -euo pipefail
         cargo run --quiet --locked --package leptoskit_config --features schema --example schema -- --check
-        cargo run --quiet --locked --package leptoskit_testing --features schema --example schema -- --check
+        cargo run --quiet --locked --package leptoskit_testing --features schema --example testing_schema -- --check
       '';
       description = "Check public configuration and control schemas for drift.";
       binary = "bash";

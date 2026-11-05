@@ -61,9 +61,6 @@ leptoskit_uikit = { workspace = true, optional = true }
 [target.'cfg(target_os = "windows")'.dependencies]
 leptoskit_windows = { workspace = true, optional = true }
 
-[dev-dependencies]
-trybuild = { workspace = true }
-
 [features]
 default = []
 analytics = ["dep:leptoskit_analytics", "leptoskit_axum?/analytics"]

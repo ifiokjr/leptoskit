@@ -145,7 +145,8 @@ fn key(url: &str, project: &str) -> Result<String> {
 		{
 			use std::os::unix::fs::PermissionsExt as _;
 			ensure!(
-				std::fs::metadata(&path)?
+				std::fs::metadata(&path)
+					.context("run lk console connect with LEPTOSKIT_CONTROL_KEY set")?
 					.permissions()
 					.mode()
 					.trailing_zeros()
@@ -263,9 +264,8 @@ pub fn deploy(connection: &Connection, args: &crate::infra::ReleaseArgs) -> Resu
 		let version = if let Some(version) = &args.version {
 			version.clone()
 		} else {
-			let output = std::process::Command::new("git")
+			let output = crate::git::command(&connection.root)
 				.args(["rev-parse", "--verify", "HEAD"])
-				.current_dir(&connection.root)
 				.output()?;
 			ensure!(
 				output.status.success(),
@@ -368,3 +368,6 @@ fn submit(connection: &Connection, action: Action) -> Result<Operation> {
 	);
 	Ok(operation)
 }
+
+#[cfg(test)]
+mod tests;

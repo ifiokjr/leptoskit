@@ -700,11 +700,11 @@ impl PostgresCluster {
 			.chain(from_path)
 			.chain(debian)
 			.find(|directory| has_initdb(directory))?;
-		let server = initdb.join(if cfg!(windows) {
-			"postgres.exe"
+		let server = if cfg!(windows) {
+			initdb.join("postgres.exe")
 		} else {
-			"postgres"
-		});
+			fs::canonicalize(initdb.join("postgres")).ok()?
+		};
 
 		Some((resolve_symlinks(&initdb)?, server))
 	}

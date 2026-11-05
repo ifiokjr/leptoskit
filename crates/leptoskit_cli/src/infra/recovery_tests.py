@@ -15,10 +15,13 @@ bin_path = root / "bin"
 bin_path.mkdir()
 os.environ["PATH"] = str(bin_path) + os.pathsep + os.environ["PATH"]
 os.environ["LK_TEST_ROOT"] = str(root)
+psqlrc = root / "psqlrc"
+psqlrc.write_text("\\o /dev/null\n")
+os.environ["PSQLRC"] = str(psqlrc)
 
 
 def psql(query, db=database):
-    return subprocess.check_output(["psql", db, "-v", "ON_ERROR_STOP=1", "-At", "-c", query]).decode().strip()
+    return subprocess.check_output(["psql", "-X", db, "-v", "ON_ERROR_STOP=1", "-At", "-c", query]).decode().strip()
 
 
 # The fixture's trust-only listener is local and ephemeral.
@@ -40,7 +43,7 @@ state = root / "containers.json"
 mapping = json.loads(state.read_text()) if state.exists() else {}
 args = sys.argv[1:]
 def sql(query):
-    subprocess.run(["psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", query], stdout=subprocess.DEVNULL, check=True)
+    subprocess.run(["psql", "-X", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", query], stdout=subprocess.DEVNULL, check=True)
 if args[0] == "run":
     container = args[args.index("--name") + 1]
     name = "verify_" + container.replace("-", "_")[-24:]
