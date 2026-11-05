@@ -2,6 +2,7 @@
 name = "leptoskit_markup_ui_tests"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 publish = false
 
 [dev-dependencies]
