@@ -38,6 +38,8 @@ use leptoskit_db_schema::Risk;
 use leptoskit_db_schema::Schema;
 use leptoskit_db_schema::Table;
 use leptoskit_db_schema::TableName;
+use sha2::Digest as _;
+use sha2::Sha256;
 
 use crate::cli::invoked_name;
 
@@ -56,6 +58,12 @@ pub enum DbCommand {
 	Migration {
 		#[command(subcommand)]
 		command: MigrationCommand,
+	},
+	/// Manages release markers: the lines in `registry.txt` that say which
+	/// migrations have shipped, so they can no longer change.
+	Release {
+		#[command(subcommand)]
+		command: ReleaseCommand,
 	},
 	/// Fails when the tables changed without a migration, the migrations
 	/// directory is inconsistent, or, with sign-in, a table that holds an
@@ -183,6 +191,22 @@ pub enum MigrationCommand {
 	},
 }
 
+/// The `leptoskit db release` subcommands.
+#[derive(Debug, clap::Subcommand)]
+pub enum ReleaseCommand {
+	/// Records that the migrations above the marker shipped in a release,
+	/// freezing them: they can no longer change, and the next release's
+	/// `migration consolidate` folds everything after them into one migration.
+	Record {
+		/// The release's version, such as `1.4.0`.
+		#[arg(id = "release_version", value_name = "VERSION")]
+		version: String,
+		/// Where the release came from, such as a monochange release id.
+		#[arg(long)]
+		id: Option<String>,
+	},
+}
+
 /// Runs a `leptoskit db` subcommand.
 pub fn run(command: DbCommand) -> Result<()> {
 	let project = Project::load()?;
@@ -235,6 +259,9 @@ pub fn run(command: DbCommand) -> Result<()> {
 			print!("{}", created.summary());
 			Ok(())
 		}
+		DbCommand::Release {
+			command: ReleaseCommand::Record { version, id },
+		} => record_release(&project, &version, id.as_deref()),
 		DbCommand::Check { live, url } => {
 			let history = History::read(&project.migrations_dir(), project.dialect())?;
 			let target = project.export()?;
@@ -613,11 +640,26 @@ fn studio_features(manifest: &toml::Table, dialect: DbDialect) -> Result<Vec<Str
 pub(crate) struct History {
 	pub names: Vec<String>,
 	pub latest: Schema,
+	/// The release markers, in the order they appear in `registry.txt`.
+	pub releases: Vec<ReleaseMarker>,
+	/// How many migrations the latest release froze. Everything before that
+	/// point has shipped and can no longer change; everything after it is
+	/// still a draft the next release will consolidate.
+	pub published: usize,
+}
+
+/// A release marker from `registry.txt`, freezing every migration above it.
+#[derive(Debug, Clone)]
+pub(crate) struct ReleaseMarker {
+	pub version: String,
+	pub source: Option<String>,
+	pub snapshot: String,
 }
 
 impl History {
 	/// Reads `registry.txt` and the latest snapshot, checking that every
-	/// listed migration exists and every migration is listed.
+	/// listed migration exists, every migration is listed, and every release
+	/// marker still pins the schema the release ended at.
 	pub(crate) fn read(directory: &Path, dialect: Dialect) -> Result<Self> {
 		let registry = directory.join("registry.txt");
 
@@ -625,14 +667,71 @@ impl History {
 			return Ok(Self {
 				names: Vec::new(),
 				latest: Schema::empty(dialect),
+				releases: Vec::new(),
+				published: 0,
 			});
 		}
 
 		let text = fs::read_to_string(&registry)
 			.with_context(|| format!("couldn't read {}", registry.display()))?;
-		let names: Vec<String> = leptoskit_db::registry_names(&text)
-			.map(ToString::to_string)
-			.collect();
+
+		let mut names: Vec<String> = Vec::new();
+		let mut releases: Vec<ReleaseMarker> = Vec::new();
+		let mut published = 0;
+
+		for line in text.lines().map(str::trim) {
+			if !line.starts_with("# release ") {
+				if !line.is_empty() && !line.starts_with('#') {
+					names.push(line.to_owned());
+				}
+				continue;
+			}
+
+			let Some(release) = leptoskit_db::parse_release(line) else {
+				bail!(
+					"registry.txt has a release marker that isn't `# release <version> \
+					 [(<source>)] snapshot <sha256>`:\n  {line}"
+				);
+			};
+
+			let Some(above) = names.last() else {
+				bail!(
+					"the release marker for {} has no migration above it; a release freezes the \
+					 migrations that shipped in it",
+					release.version
+				);
+			};
+
+			// The marker pins the schema the release ended at, so editing a
+			// published migration's snapshot is caught here, before the
+			// checksums of applied databases ever see it.
+			let path = directory.join(above).join("schema.json");
+			let snapshot = Sha256::digest(
+				fs::read(&path)
+					.with_context(|| format!("couldn't read {}", path.display()))?
+					.as_slice(),
+			);
+			let pinned = snapshot
+				.iter()
+				.fold(String::with_capacity(64), |mut hex, byte| {
+					let _ = write!(hex, "{byte:02x}");
+					hex
+				});
+			ensure!(
+				pinned == release.snapshot,
+				"the release marker for {} pins the wrong schema: `{above}` now hashes to \
+				 {pinned}. Restore the marker and the migration from git if it changed, or \
+				 rerecord the release",
+				release.version
+			);
+
+			published = names.len();
+			releases.push(ReleaseMarker {
+				version: release.version.to_owned(),
+				source: release.source.map(str::to_owned),
+				snapshot: release.snapshot.to_owned(),
+			});
+		}
 
 		for name in &names {
 			for file in ["migration.sql", "schema.json"] {
@@ -670,7 +769,12 @@ impl History {
 			"the migrations are for {}, but leptoskit.toml's db.dialect is {dialect}",
 			latest.dialect
 		);
-		Ok(Self { names, latest })
+		Ok(Self {
+			names,
+			latest,
+			releases,
+			published,
+		})
 	}
 
 	pub(crate) fn latest_name(&self) -> Option<&str> {
@@ -1365,6 +1469,75 @@ fn check_replication(url: &str, target: &Schema) -> Result<()> {
 	Ok(())
 }
 
+/// Writes a release marker after the latest migration, pinning the schema the
+/// release ends at. Everything above the marker has shipped; the next release
+/// consolidates everything below it into one migration.
+fn record_release(project: &Project, version: &str, id: Option<&str>) -> Result<()> {
+	ensure!(
+		!version.is_empty()
+			&& !version
+				.chars()
+				.any(|character| character.is_whitespace() || "()<#".contains(character)),
+		"a version can't be empty or contain whitespace, parentheses, or a `#`"
+	);
+	if let Some(id) = id {
+		ensure!(
+			!id.is_empty() && !id.chars().any(|character| "()<#\n".contains(character)),
+			"a release id can't be empty or contain parentheses, a `#`, or a newline"
+		);
+	}
+
+	let directory = project.migrations_dir();
+	let history = History::read(&directory, project.dialect())?;
+	ensure!(
+		!history.names.is_empty(),
+		"there are no migrations to release; create one first"
+	);
+	ensure!(
+		!history
+			.releases
+			.iter()
+			.any(|release| release.version == version),
+		"release {version} is already recorded"
+	);
+
+	let latest = history.latest_name().expect("checked for names above");
+	let schema = fs::read(directory.join(latest).join("schema.json"))?;
+	let snapshot =
+		Sha256::digest(&schema)
+			.iter()
+			.fold(String::with_capacity(64), |mut hex, byte| {
+				let _ = write!(hex, "{byte:02x}");
+				hex
+			});
+	let marker = match id {
+		Some(id) => format!("# release {version} ({id}) snapshot {snapshot}"),
+		None => format!("# release {version} snapshot {snapshot}"),
+	};
+
+	let registry = directory.join("registry.txt");
+	let mut text = fs::read_to_string(&registry).unwrap_or_else(|_| {
+		"# The migrations, in the order they apply. `leptoskit db migration create` adds to it.\n"
+			.to_owned()
+	});
+
+	if !text.ends_with('\n') {
+		text.push('\n');
+	}
+
+	text.push_str(&marker);
+	text.push('\n');
+	fs::write(&registry, &text)?;
+
+	println!("{marker}");
+	println!(
+		"{} migration(s) are frozen through {version}; `db migration consolidate` at the next \
+		 release folds everything after them into one migration",
+		history.names.len()
+	);
+	Ok(())
+}
+
 fn status(project: &Project, url: Option<String>) -> Result<()> {
 	let history = History::read(&project.migrations_dir(), project.dialect())?;
 	println!(
@@ -1372,6 +1545,22 @@ fn status(project: &Project, url: Option<String>) -> Result<()> {
 		history.names.len(),
 		history.latest_name().unwrap_or("none")
 	);
+
+	if let Some(release) = history.releases.last() {
+		let since = history.names.len() - history.published;
+		let source = release
+			.source
+			.as_ref()
+			.map(|source| format!(" ({source})"))
+			.unwrap_or_default();
+		println!(
+			"release {}{source} froze {} migration(s); {} came after it",
+			release.version, history.published, since
+		);
+		println!("it pins snapshot {}", release.snapshot);
+	} else {
+		println!("no release has been recorded; `db release record <version>` freezes them");
+	}
 
 	match check(&history, &project.export()?) {
 		Ok(()) => println!("the tables match the latest migration"),
