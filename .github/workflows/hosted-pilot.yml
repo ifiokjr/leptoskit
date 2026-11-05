@@ -77,43 +77,45 @@ jobs:
           unzip -q "$RUNNER_TEMP/tofu.zip" -d "$RUNNER_TEMP/pilot-tofu"
 
       - name: package the Linux broker and complete website
-        run: bash setup/scripts/package_hosted_pilot.sh "$PUBLIC_ORIGIN" target/hosted-pilot
+        # Rust's cache may restore target/hosted-pilot from a previous run.
+        # Package into the fresh runner directory to preserve the no-overwrite guard.
+        run: bash setup/scripts/package_hosted_pilot.sh "$PUBLIC_ORIGIN" "$RUNNER_TEMP/hosted-pilot"
 
       - name: validate the implemented DigitalOcean OpenTofu integration
         run: |
           python3 setup/scripts/check_hosted_pilot_infra.py \
             --cli target/x86_64-unknown-linux-gnu/release/leptoskit \
-            --tofu "$RUNNER_TEMP/pilot-tofu/tofu" > target/hosted-pilot-infra.json
+            --tofu "$RUNNER_TEMP/pilot-tofu/tofu" > "$RUNNER_TEMP/hosted-pilot-infra.json"
 
       - name: verify archive and run recovery acceptance
         run: |
           set -euo pipefail
-          mkdir -p target/hosted-pilot-unpacked
-          tar -xzf target/hosted-pilot.tar.gz -C target/hosted-pilot-unpacked
-          (cd target/hosted-pilot-unpacked && sha256sum --check --strict SHA256SUMS)
-          mkdir -p target/hosted-pilot-smoke/checks
-          cp -a target/hosted-pilot-unpacked target/hosted-pilot-smoke/bundle
-          cp setup/scripts/hosted_pilot_local.py setup/scripts/hosted_pilot_smoke.py target/hosted-pilot-smoke/checks/
-          cp crates/leptoskit_app/deploy/Smoke.Dockerfile target/hosted-pilot-smoke/Dockerfile
-          docker build --tag leptoskit-hosted-pilot-smoke target/hosted-pilot-smoke
+          mkdir "$RUNNER_TEMP/hosted-pilot-unpacked"
+          tar -xzf "$RUNNER_TEMP/hosted-pilot.tar.gz" -C "$RUNNER_TEMP/hosted-pilot-unpacked"
+          (cd "$RUNNER_TEMP/hosted-pilot-unpacked" && sha256sum --check --strict SHA256SUMS)
+          mkdir -p "$RUNNER_TEMP/hosted-pilot-smoke/checks"
+          cp -a "$RUNNER_TEMP/hosted-pilot-unpacked" "$RUNNER_TEMP/hosted-pilot-smoke/bundle"
+          cp setup/scripts/hosted_pilot_local.py setup/scripts/hosted_pilot_smoke.py "$RUNNER_TEMP/hosted-pilot-smoke/checks/"
+          cp crates/leptoskit_app/deploy/Smoke.Dockerfile "$RUNNER_TEMP/hosted-pilot-smoke/Dockerfile"
+          docker build --tag leptoskit-hosted-pilot-smoke "$RUNNER_TEMP/hosted-pilot-smoke"
           docker run --rm --network none --read-only \
             --tmpfs /tmp:rw,nosuid,nodev,noexec,size=128m,mode=1777 \
-            leptoskit-hosted-pilot-smoke > target/hosted-pilot-acceptance.json
+            leptoskit-hosted-pilot-smoke > "$RUNNER_TEMP/hosted-pilot-acceptance.json"
           # Verify systemd syntax against the actual installed layout in this
           # disposable runner; no service is started and no credentials exist.
           sudo install -d /opt/leptoskit-cloud/current
-          sudo install -m 0755 target/hosted-pilot-unpacked/leptoskit-cloud /opt/leptoskit-cloud/current/
-          sudo install -m 0644 target/hosted-pilot-unpacked/systemd/leptoskit-cloud.sysusers /usr/lib/sysusers.d/leptoskit-cloud.conf
+          sudo install -m 0755 "$RUNNER_TEMP/hosted-pilot-unpacked/leptoskit-cloud" /opt/leptoskit-cloud/current/
+          sudo install -m 0644 "$RUNNER_TEMP/hosted-pilot-unpacked/systemd/leptoskit-cloud.sysusers" /usr/lib/sysusers.d/leptoskit-cloud.conf
           sudo systemd-sysusers /usr/lib/sysusers.d/leptoskit-cloud.conf
-          sudo systemd-analyze verify "$PWD/target/hosted-pilot-unpacked/systemd/leptoskit-cloud.service"
+          sudo systemd-analyze verify "$RUNNER_TEMP/hosted-pilot-unpacked/systemd/leptoskit-cloud.service"
 
       - name: upload the candidate and acceptance evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: hosted-pilot-linux-${{ github.sha }}
           path: |
-            target/hosted-pilot.tar.gz
-            target/hosted-pilot-acceptance.json
-            target/hosted-pilot-infra.json
+            ${{ runner.temp }}/hosted-pilot.tar.gz
+            ${{ runner.temp }}/hosted-pilot-acceptance.json
+            ${{ runner.temp }}/hosted-pilot-infra.json
           retention-days: 7
           if-no-files-found: error
