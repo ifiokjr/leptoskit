@@ -24,11 +24,14 @@ final class PressView: UIView {
 
 /// Owns the UIKit tree, mutation suppression and readiness after a visible UI turn.
 @MainActor
-final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDelegate, NativeRiveSink {
-    private static let pressIn: UInt32 = 8
-    private static let pressOut: UInt32 = 9
-    private let view: UIView
+final class MobileWidgetRenderer: NSObject, UIScrollViewDelegate, NativeRiveSink {
+    static let pressIn: UInt32 = 8
+    static let pressOut: UInt32 = 9
+    let view: UIView
     private var widgets: [Int: UIView] = [:]
+    var properties: [Int: WidgetProps] = [:]
+    private var focusRequests: [Int: Bool] = [:]
+    private var dismissTap: UITapGestureRecognizer?
     /// Requested corner radii, fitted to each frame as layout changes it.
     private var radii: [Int: CGFloat] = [:]
     /// How many children the renderer has inserted into each widget. Reading
@@ -61,6 +64,12 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         self.view = view
         super.init()
 
+        let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+        tap.cancelsTouchesInView = false
+        tap.delegate = self
+        view.addGestureRecognizer(tap)
+        dismissTap = tap
+
         guard let link else { return }
         let overlay = DevtoolsOverlay(
             link: link, widget: { [weak self] in self?.widgets[$0] },
@@ -70,6 +79,11 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
     }
     func close() {
         open = false
+        if let dismissTap { view.removeGestureRecognizer(dismissTap) }
+        dismissTap = nil
+        view.endEditing(true)
+        properties.removeAll()
+        focusRequests.removeAll()
         devtools?.close()
         devtools = nil
         onRiveViewportChange = nil
@@ -148,6 +162,11 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         updateScrollSizes()
         scrollToTargets()
         updateCanvas(transaction.root)
+        let requests = focusRequests
+        focusRequests.removeAll()
+        for (id, focused) in requests {
+            if focused { widgets[id]?.becomeFirstResponder() } else { widgets[id]?.resignFirstResponder() }
+        }
     }
 
     private func updateCanvas(_ named: Int?) {
@@ -217,16 +236,17 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         case "scroll_view", "ScrollView":
             let scroll = UIScrollView()
             scroll.delegate = self
+            scroll.keyboardDismissMode = .interactive
             widget = scroll
         case "image", "Image": widget = UIImageView()
         case "vector", "Vector": widget = VectorView()
         case "rive", "Rive": widget = NativeRiveImageView()
-        default:
-            throw NativeAppError(
-                message: "Unsupported native widget: \(item.kind ?? "missing kind")")
+        default: widget = try makeControl(item)
         }
         widget.tag = item.id
         widgets[item.id] = widget
+        focusRequests[item.id] = item.props.focused
+        properties[item.id] = item.props
         radii[item.id] = item.props.cornerRadius
         try WidgetStyle.apply(item.props, to: widget)
         scrolls.receive(item.props.scrollOffset, for: item.id)
@@ -241,46 +261,14 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         return label
     }
 
-    /// Press in and out follow the events on which UIKit sets and clears the
-    /// button's highlight, so `active:` styles track it.
-    private func makeButton(_ id: Int) -> UIButton {
-        let button = UIButton(type: .system)
-        button.addAction(UIAction { [weak self] _ in self?.event(id, 0) }, for: .touchUpInside)
-        button.addAction(
-            UIAction { [weak self] _ in self?.event(id, Self.pressIn) }, for: [.touchDown, .touchDragEnter])
-        button.addAction(
-            UIAction { [weak self] _ in self?.event(id, Self.pressOut) },
-            for: [.touchDragExit, .touchUpInside, .touchUpOutside, .touchCancel])
-
-        return button
-    }
-
-    private func makePressable(_ id: Int) -> UIView {
-        let press = PressView()
-        press.onHold = { [weak self] held in self?.event(id, held ? Self.pressIn : Self.pressOut) }
-        press.isUserInteractionEnabled = true
-        press.addGestureRecognizer(
-            UITapGestureRecognizer(
-                target: self, action: #selector(pressedWidget(_:))))
-
-        return press
-    }
-
-    private func makeTextField(_ id: Int, secure: Bool) -> UITextField {
-        let field = UITextField()
-        field.delegate = self
-        if secure { field.maskEntry() }
-        field.addAction(
-            UIAction { [weak self, weak field] _ in
-                self?.event(id, 1, field?.text ?? "")
-            }, for: .editingChanged)
-
-        return field
-    }
     private func apply(_ change: Change) throws {
         if let item = change.create { try create(item) }
 
         if let item = change.updateProps, let widget = widgets[item.id] {
+            if item.props.focused != properties[item.id]?.focused {
+                focusRequests[item.id] = item.props.focused
+            }
+            properties[item.id] = item.props
             radii[item.id] = item.props.cornerRadius
             try WidgetStyle.apply(item.props, to: widget)
             scrolls.receive(item.props.scrollOffset, for: item.id)
@@ -308,6 +296,8 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         if let edge = change.removeChild, let child = widgets[edge.child] { detach(child) }
 
         if let item = change.delete {
+            properties[item.id] = nil
+            focusRequests[item.id] = nil
             radii[item.id] = nil
             scrolls.forget(item.id)
             // A view still holding children cannot be handed out again.
@@ -332,23 +322,22 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         child.removeFromSuperview()
     }
 
-    private func event(_ node: Int, _ kind: UInt32, _ text: String = "") {
-        guard open, !applying else { return }
+    func event(_ node: Int, _ kind: UInt32, _ text: String = "") {
+        guard open, !applying, let widget = widgets[node] else { return }
+        if kind != 4 {
+            var ancestor: UIView? = widget
+            while let current = ancestor {
+                if current.isHidden || !current.isUserInteractionEnabled { return }
+                ancestor = current.superview
+            }
+        }
         onEvent?(node, kind, text)
     }
 
-    @objc private func pressedWidget(_ sender: UITapGestureRecognizer) {
+    @objc func pressedWidget(_ sender: UITapGestureRecognizer) {
         if let view = sender.view { event(view.tag, 0) }
     }
 
-    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        event(textField.tag, 2, textField.text ?? "")
-
-        return true
-    }
-
-    func textFieldDidBeginEditing(_ textField: UITextField) { event(textField.tag, 3) }
-    func textFieldDidEndEditing(_ textField: UITextField) { event(textField.tag, 4) }
 }
 
 /// Draws a `Vector` in shape layers, repainted only when its drawing, size or screen scale changes.

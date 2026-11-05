@@ -286,6 +286,7 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
             try "".write(to: output, atomically: true, encoding: .utf8)
             initialErrorBeforeLayout()
             try labelledTextAccessibility()
+            try interactionControls()
             try await nativeRiveImage()
             try await coldCandidate()
             try await replacement()

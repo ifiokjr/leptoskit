@@ -14,7 +14,8 @@ let controllerTargets: [Target] = [
             "mobile/LeptosKitView.kt", "mobile/WidgetStyle.swift", "mobile/NativeReleases.kt",
             "mobile/WidgetTextStyle.swift", "mobile/WidgetImageStyle.swift",
             "mobile/NativeReleases.swift", "mobile/LeptosKitApplicationView.kt",
-            "mobile/MobileWidgetRenderer.swift", "mobile/LeptosKitViewController.swift",
+            "mobile/MobileWidgetRenderer.swift", "mobile/MobileWidgetControls.swift",
+            "mobile/LeptosKitViewController.swift",
             "mobile/MobileApplicationChrome.swift", "desktop/LeptosKitMacViewController.swift",
             "mobile/NativeAppFactory.swift", "mobile/NativeAppRuntime.swift", "mobile/NativeGuestRuntime.swift",
             "mobile/NativeRustWorker.kt", "mobile/NativeRustAsync.kt", "mobile/NativeApp.kt",
@@ -28,7 +29,8 @@ let controllerTargets: [Target] = [
         ],
         sources: [
             "mobile/NativeRive.swift", "mobile/DevtoolsOverlay.swift",
-            "desktop/MacWidgetRenderer.swift", "desktop/MacTextLabel.swift", "desktop/MacScrollView.swift",
+            "desktop/MacWidgetRenderer.swift", "desktop/MacWidgetControls.swift",
+            "desktop/MacTextLabel.swift", "desktop/MacScrollView.swift",
             "mobile/RenderTransaction.swift", "mobile/BinaryTransaction.swift",
             "mobile/WidgetProps.swift", "mobile/ScrollTracker.swift",
             "mobile/NativeRequestExecutor.swift", "mobile/NativeRustWorker.swift", "mobile/NativeRustAsync.swift"

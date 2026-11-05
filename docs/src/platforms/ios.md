@@ -54,9 +54,10 @@ xcodebuild -project .leptoskit/ios/Host.xcodeproj -scheme App \
 
 ## How it differs from macOS
 
-- The generated app draws ten components: `View`, `Text`, `Button`, `Pressable`, `TextInput`, `PasswordInput`, `ScrollView`, `Image`, `Vector`, and `Rive`. Others, such as `Switch` or `Slider`, stop it with an "unsupported widget" error. The `leptoskit_uikit` backend crate draws every component, including a `UISwitch`, `UISlider`, and `UIProgressView`, when you host screens with `UIKitHost` in your own app; see [generated apps and backend crates](readme.md#generated-apps-and-backend-crates).
+- Generated apps also draw `Switch`, `Checkbox`, `Radio`, `Slider`, `LinearProgressIndicator`, and `ActivityIndicator`, alongside `View`, `Text`, `Button`, `Pressable`, `TextInput`, `PasswordInput`, `ScrollView`, `Image`, `Vector`, and `Rive`. Switches and sliders use UIKit controls; checkboxes and radio options use system-symbol buttons. Control callbacks propose state changes: update the component's controlled value in the callback to keep the new selection or value.
+- In generated apps, tapping outside a text field ends editing without consuming the tapped button's action. Return ends editing and sends the field's submit event; a submit handler can move focus to another field with `.focused(...)`. Dragging a scroll view can dismiss the keyboard interactively.
 - [Rive](../guide/20-rive.md) displays native vector frames in a `UIImageView`. The generated host uses a display link, pauses when backgrounded or clipped offscreen, and follows Reduce Motion. Text, image, layout, script, and audio assets are rejected by the native renderer.
-- In the backend crate, iOS has no native checkbox or radio button, so `Checkbox` and `Radio` are drawn with `UIButton`.
+- iOS has no native checkbox or radio button, so `Checkbox` and `Radio` are drawn with `UIButton`.
 - VoiceOver gets fewer roles than macOS's accessibility API, and no expanded or collapsed state.
 - [Sign-in](../guide/23-sign-in.md#native-apps) uses the system's passkey sheet, and Sign in with Apple's own sheet for Apple, once your site vouches for the app and the app has the associated domain `webcredentials:` your site, which you add in Xcode; the generated project doesn't yet. Other providers open in an `ASWebAuthenticationSession`, never a web view in the app. Passkeys aren't offered in a text field's suggestions.
 - A hardware keyboard or VoiceOver activates a button without showing its [pressed style](../guide/07-shared-components.md#style-the-pressed-state). A touch shows it.
@@ -73,3 +74,5 @@ leptoskit codepush release --from dist/ios --platform ios --channel production
 ```
 
 The app downloads the release when the user asks for an update, tries it, and keeps it only if it renders. Anything that needs new native code, such as a new plugin or permission, still needs an App Store release. [Code push](../guide/05-code-push.md) covers signing, publishing, and rollback, and [host projects](host-projects.md#code-push-in-the-generated-apps) the update flow inside the app.
+
+A `focused(true)` request takes effect when the property changes. After the user dismisses the keyboard, unrelated renders do not focus the field again. Set focus to false and then true to request focus again.

@@ -76,7 +76,8 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
     private static let pressIn: UInt32 = 8
     private static let pressOut: UInt32 = 9
     private let view: NSView
-    private var widgets: [Int: NSView] = [:]
+    var widgets: [Int: NSView] = [:]
+    var properties: [Int: WidgetProps] = [:]
     private let scrolls = ScrollTracker()
     private var applying = false
     /// The DevTools highlight and picking, in apps `leptoskit dev` reports to a hub.
@@ -98,6 +99,7 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
 
         for widget in widgets.values { (widget as? NSImageView)?.image = nil }
         widgets.removeAll()
+        properties.removeAll()
         scrolls.removeAll()
     }
 
@@ -201,11 +203,11 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
         case "image", "Image": widget = NSImageView()
         case "vector", "Vector": widget = MacVectorView()
         case "rive", "Rive": widget = NativeRiveImageView()
-        default:
-            throw NativeAppError(message: "Unsupported native widget: \(item.kind ?? "missing kind")")
+        default: widget = try makeControl(item)
         }
         widget.identifier = NSUserInterfaceItemIdentifier(String(item.id))
         widgets[item.id] = widget
+        properties[item.id] = item.props
         try MacWidgetStyle.apply(item.props, to: widget)
         scrolls.receive(item.props.scrollOffset, for: item.id)
     }
@@ -223,6 +225,7 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
         if let item = change.create { try create(item) }
 
         if let item = change.updateProps, let widget = widgets[item.id] {
+            properties[item.id] = item.props
             try MacWidgetStyle.apply(item.props, to: widget)
             scrolls.receive(item.props.scrollOffset, for: item.id)
         }
@@ -243,6 +246,7 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
 
         if let item = change.delete {
             scrolls.forget(item.id)
+            properties[item.id] = nil
             widgets.removeValue(forKey: item.id)?.removeFromSuperview()
         }
     }
@@ -260,7 +264,7 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
         }
     }
 
-    private func node(_ widget: NSView) -> Int? {
+    func node(_ widget: NSView) -> Int? {
         widget.identifier.flatMap { Int($0.rawValue) }.flatMap { widgets[$0] === widget ? $0 : nil }
     }
 
@@ -290,8 +294,8 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
         if let field = notification.object as? NSTextField, let id = node(field) { event(id, 4) }
     }
 
-    private func event(_ node: Int, _ kind: UInt32, _ text: String = "") {
-        guard !applying else { return }
+    func event(_ node: Int, _ kind: UInt32, _ text: String = "") {
+        guard !applying, properties[node]?.enabled != false, widgets[node] != nil else { return }
         onEvent?(node, kind, text)
     }
 }
@@ -311,6 +315,7 @@ enum MacWidgetStyle {
         widget.isHidden = props.hidden ?? false
         widget.alphaValue = props.opacity ?? 1
         applyText(props, to: widget)
+        MacControlStyle.apply(props, to: widget)
 
         if let image = widget as? NativeRiveImageView {
             image.imageScaling = .scaleProportionallyUpOrDown
