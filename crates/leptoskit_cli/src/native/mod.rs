@@ -477,11 +477,57 @@ fn build_application(
 		Target::Macos => desktop::build(root, config, release),
 		Target::Windows | Target::Linux | Target::Tui => unreachable!("desktop hosts built above"),
 		Target::Harmonyos | Target::HarmonyosX86_64 => harmonyos::build(root, release),
-		Target::Ios | Target::IosSimulator => run_tool(&mut ios_build(root, target, release)),
+		Target::Ios | Target::IosSimulator => {
+			install_ios_pods(root)?;
+			run_tool(&mut ios_build(root, target, release))
+		}
 		Target::Android | Target::AndroidX86_64 => {
 			run_tool(&mut gradle_build(root, target, release))
 		}
 	}
+}
+
+/// The generated Podfile, present while a selected plugin declares pods.
+pub(crate) fn ios_podfile(root: &Path) -> Option<PathBuf> {
+	let podfile = root.join(".leptoskit/ios/Podfile");
+	podfile.is_file().then_some(podfile)
+}
+
+/// Whether the project's selected iOS plugins install `CocoaPods`, which makes
+/// `pod` a required tool. Resolution problems surface in the build itself,
+/// so callers treat them as "no pods".
+pub(crate) fn ios_plugins_use_pods(root: &Path, config: &LeptoskitConfig) -> bool {
+	registry::resolve(root, config, Target::Ios)
+		.is_ok_and(|registry| registry.apple_pods().is_ok_and(|pods| !pods.is_empty()))
+}
+
+/// Runs `pod install` on the generated Podfile, so apps never manage
+/// `CocoaPods` by hand. A no-op without pods: `CocoaPods` is needed only when a
+/// plugin uses it, which `leptoskit doctor` reports.
+pub(crate) fn install_ios_pods(root: &Path) -> Result<()> {
+	let Some(podfile) = ios_podfile(root) else {
+		return Ok(());
+	};
+	let directory = podfile
+		.parent()
+		.context("the generated Podfile has no directory")?;
+	let mut install = Command::new("pod");
+	install.current_dir(directory).arg("install");
+
+	match install.status() {
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+			anyhow::bail!(
+			"CocoaPods is required while a selected plugin declares apple-pods; install it from \
+			 https://cocoapods.org and run `leptoskit doctor`"
+		)
+		}
+		Err(error) => {
+			return Err(error).context("could not run `pod install`");
+		}
+		Ok(status) => anyhow::ensure!(status.success(), "`pod install` failed: {status}"),
+	}
+
+	Ok(())
 }
 
 /// The Gradle wrapper invocation that assembles the generated Android host,
@@ -494,7 +540,9 @@ fn gradle_build(root: &Path, target: Target, release: bool) -> Command {
 		"gradlew"
 	}));
 
-	command.current_dir(&android).arg("--no-daemon");
+	command
+		.current_dir(&android)
+		.args(["--no-daemon", "--console=plain", "--quiet"]);
 
 	if release {
 		// The APK installs directly; Google Play takes the App Bundle.
@@ -507,16 +555,26 @@ fn gradle_build(root: &Path, target: Target, release: bool) -> Command {
 }
 
 /// The `xcodebuild` invocation that builds the generated iOS host project.
+/// `-quiet` leaves warnings and errors only; the rest is build chatter.
 fn ios_build(root: &Path, target: Target, release: bool) -> Command {
-	let sdk = if matches!(target, Target::Ios) {
-		"iphoneos"
-	} else {
-		"iphonesimulator"
-	};
 	let architecture = if matches!(target, Target::IosSimulator) && cfg!(target_arch = "x86_64") {
 		"ARCHS=x86_64"
 	} else {
 		"ARCHS=arm64"
+	};
+	// Pods integrate the project into a workspace, which the build uses
+	// instead of the project itself.
+	let container: [&str; 2] = if ios_podfile(root).is_some() {
+		["-workspace", ".leptoskit/ios/Host.xcworkspace"]
+	} else {
+		["-project", ".leptoskit/ios/Host.xcodeproj"]
+	};
+	// Naming the destination keeps xcodebuild from printing every one it
+	// knows when the scheme leaves the choice open.
+	let destination = if matches!(target, Target::Ios) {
+		"generic/platform=iOS"
+	} else {
+		"generic/platform=iOS Simulator"
 	};
 
 	let mut command = Command::new("xcodebuild");
@@ -524,20 +582,22 @@ fn ios_build(root: &Path, target: Target, release: bool) -> Command {
 	// drivers. A nix or devenv shell sets `LD=ld`, which rejects the
 	// clang-style flags Xcode passes it.
 	command.env_remove("LD").env_remove("LDPLUSPLUS");
-	command.current_dir(root).args([
-		"-project",
-		".leptoskit/ios/Host.xcodeproj",
-		"-scheme",
-		"App",
-		"-sdk",
-		sdk,
-		"-configuration",
-		if release { "Release" } else { "Debug" },
-		"-derivedDataPath",
-		".leptoskit/ios/build",
-		architecture,
-		"build",
-	]);
+	command
+		.current_dir(root)
+		.arg("-quiet")
+		.args(container)
+		.args([
+			"-scheme",
+			"App",
+			"-destination",
+			destination,
+			"-configuration",
+			if release { "Release" } else { "Debug" },
+			"-derivedDataPath",
+			".leptoskit/ios/build",
+			architecture,
+			"build",
+		]);
 
 	if matches!(target, Target::IosSimulator) {
 		// Simulator Keychain access needs an ad-hoc signed app.
@@ -979,7 +1039,9 @@ fn xcrun_find_in(search: &std::ffi::OsStr, sdk: &str, tool: &str) -> Option<Path
 	path.is_file().then_some(path)
 }
 
-fn android_ndk() -> Result<PathBuf> {
+/// The NDK Gradle and the host build use: `ANDROID_NDK_HOME`, or the newest
+/// under the SDK `ANDROID_HOME` names.
+pub(crate) fn android_ndk() -> Result<PathBuf> {
 	if let Some(path) = std::env::var_os("ANDROID_NDK_HOME") {
 		return checked_ndk(Path::new(&path));
 	}
@@ -1627,11 +1689,20 @@ mod tests {
 		assert_eq!(release.get_current_dir(), Some(android.as_path()));
 		assert_eq!(
 			arguments(&release),
-			["--no-daemon", "assembleRelease", "bundleRelease"]
+			[
+				"--no-daemon",
+				"--console=plain",
+				"--quiet",
+				"assembleRelease",
+				"bundleRelease"
+			]
 		);
 
 		let debug = gradle_build(root, Target::AndroidX86_64, false);
-		assert_eq!(arguments(&debug), ["--no-daemon", "assembleDebug"]);
+		assert_eq!(
+			arguments(&debug),
+			["--no-daemon", "--console=plain", "--quiet", "assembleDebug"]
+		);
 	}
 
 	#[test]
@@ -1698,7 +1769,10 @@ mod tests {
 		assert_eq!(simulator.get_program(), "xcodebuild");
 		assert_eq!(simulator.get_current_dir(), Some(root));
 		let simulator = arguments(&simulator);
-		assert_eq!(pair(&simulator, "-sdk").as_deref(), Some("iphonesimulator"));
+		assert_eq!(
+			pair(&simulator, "-destination").as_deref(),
+			Some("generic/platform=iOS Simulator")
+		);
 		assert_eq!(pair(&simulator, "-configuration").as_deref(), Some("Debug"));
 		assert!(
 			simulator.ends_with(&[
@@ -1710,9 +1784,30 @@ mod tests {
 		);
 
 		let device = arguments(&ios_build(root, Target::Ios, true));
-		assert_eq!(pair(&device, "-sdk").as_deref(), Some("iphoneos"));
+		assert_eq!(
+			pair(&device, "-destination").as_deref(),
+			Some("generic/platform=iOS")
+		);
 		assert_eq!(pair(&device, "-configuration").as_deref(), Some("Release"));
 		assert!(device.contains(&"ARCHS=arm64".to_owned()));
 		assert!(device.ends_with(&["build".to_owned(), "CODE_SIGNING_ALLOWED=NO".to_owned()]));
+	}
+
+	#[test]
+	fn ios_builds_stay_quiet_and_use_the_pods_workspace_only_with_pods() {
+		let temporary = tempfile::tempdir().unwrap();
+		let root = temporary.path();
+		std::fs::create_dir_all(root.join(".leptoskit/ios")).unwrap();
+
+		let plain = arguments(&ios_build(root, Target::IosSimulator, false));
+		assert!(plain.contains(&"-quiet".to_owned()));
+		assert!(plain.contains(&"-project".to_owned()));
+		assert!(!plain.contains(&"-workspace".to_owned()));
+
+		std::fs::write(root.join(".leptoskit/ios/Podfile"), "# pods").unwrap();
+		let pods = arguments(&ios_build(root, Target::IosSimulator, false));
+		assert!(pods.contains(&"-quiet".to_owned()));
+		assert!(pods.contains(&"-workspace".to_owned()));
+		assert!(!pods.contains(&"-project".to_owned()));
 	}
 }

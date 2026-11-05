@@ -190,6 +190,14 @@ pub fn run_with_options(
 		crate::ui::hint("then", format_args!("{name} db migration create init"));
 	}
 
+	crate::ui::hint(
+		"then",
+		format_args!(
+			"{} doctor checks every tool your platforms build with",
+			crate::cli::invoked_name()
+		),
+	);
+
 	if extension {
 		println!(
 			"build the extension with: {} build --platform extension",

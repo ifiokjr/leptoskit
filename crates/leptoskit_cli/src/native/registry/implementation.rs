@@ -594,6 +594,35 @@ impl Registry {
 		self.missing.iter().filter_map(MissingPlugin::warning)
 	}
 
+	/// The `CocoaPods` the selected plugins install on iOS, merged by name.
+	/// Requirements must agree where more than one plugin pins a pod; a
+	/// plugin that pins nothing leaves another's requirement in place.
+	pub fn apple_pods(&self) -> Result<BTreeMap<String, Option<String>>> {
+		let mut pods: BTreeMap<String, Option<String>> = BTreeMap::new();
+
+		for plugin in &self.plugins {
+			for pod in &plugin.apple_pods {
+				let declared = pod.version.clone();
+
+				match pods.get_mut(&pod.name) {
+					None => {
+						pods.insert(pod.name.clone(), declared);
+					}
+					Some(pin @ None) => *pin = declared,
+					Some(pin @ Some(_)) => {
+						anyhow::ensure!(
+							declared.is_none() || pin.as_deref() == declared.as_deref(),
+							"plugins declare different requirements for the {} pod; pick one",
+							pod.name
+						);
+					}
+				}
+			}
+		}
+
+		Ok(pods)
+	}
+
 	/// Remove the plugins `target` can't run, as resolving a registry does.
 	#[cfg(test)]
 	pub fn select(&mut self, target: Target, policy: MissingPlugins) -> Result<()> {

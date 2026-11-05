@@ -648,6 +648,9 @@ impl Session<'_> {
 				target: crate::native::Target::Ios,
 				release: true,
 			})?;
+			// Installing the pods generation wrote turns the project into the
+			// workspace the archive below builds.
+			crate::native::install_ios_pods(self.root)?;
 
 			for stale in ["App.xcarchive", "export"] {
 				let stale = out.join(stale);

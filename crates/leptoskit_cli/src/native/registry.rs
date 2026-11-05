@@ -107,6 +107,10 @@ pub struct Plugin {
 	/// Required key names only; the app owns the corresponding consent text.
 	#[serde(default)]
 	pub apple_usage_descriptions: Vec<String>,
+	/// `CocoaPods` the app's iOS target installs. iOS only: the macOS host
+	/// builds with Swift Package Manager, which cannot integrate pods.
+	#[serde(default)]
+	pub apple_pods: Vec<ApplePod>,
 	pub android_type: Option<String>,
 	#[serde(default)]
 	pub android_context: bool,
@@ -159,6 +163,16 @@ pub struct AndroidIntentQuery {
 	pub scheme: String,
 }
 
+/// A `CocoaPod` the generated iOS Podfile installs, with an optional
+/// requirement such as `~> 12.0`. Both fields are written into generated
+/// Ruby, so both are validated down to the characters `CocoaPods` uses.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApplePod {
+	pub name: String,
+	pub version: Option<String>,
+}
+
 /// Native code needed by a selected plugin, without a registered capability.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
@@ -189,6 +203,12 @@ pub struct Registry {
 }
 
 impl Plugin {
+	/// Whether `CocoaPods` installs this plugin's native dependencies, which
+	/// only the iOS host can integrate.
+	pub fn uses_pods(&self) -> bool {
+		!self.apple_pods.is_empty()
+	}
+
 	fn validate_service(&self) -> Result<()> {
 		let Some(factory) = &self.rust_service_factory else {
 			return Ok(());
@@ -585,6 +605,8 @@ fn validate_plugin(plugin: &Plugin, alias: &str) -> Result<()> {
 
 	validate_apple_paths(plugin)?;
 
+	validate_apple_pods(plugin)?;
+
 	validate_android_paths(plugin)?;
 
 	if let Some(name) = &plugin.harmonyos_type {
@@ -620,6 +642,48 @@ fn validate_apple_paths(plugin: &Plugin) -> Result<()> {
 	}
 
 	Ok(())
+}
+
+fn validate_apple_pods(plugin: &Plugin) -> Result<()> {
+	for pod in &plugin.apple_pods {
+		anyhow::ensure!(
+			pod_name(&pod.name),
+			"invalid CocoaPods name in plugin {}: {}",
+			plugin.name,
+			pod.name
+		);
+
+		if let Some(version) = &pod.version {
+			anyhow::ensure!(
+				pod_requirement(version),
+				"invalid CocoaPods requirement in plugin {}: {version}",
+				plugin.name
+			);
+		}
+	}
+
+	Ok(())
+}
+
+/// A pod name is an identifier per `/`-separated subspec segment; the name
+/// lands inside a generated Podfile's Ruby string, so it carries nothing
+/// beyond `CocoaPods` itself allows.
+fn pod_name(name: &str) -> bool {
+	!name.is_empty()
+		&& name.split('/').all(|segment| {
+			let mut bytes = segment.bytes();
+			bytes.next().is_some_and(|byte| byte.is_ascii_alphabetic())
+				&& bytes.all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+		})
+}
+
+/// A requirement is `CocoaPods` operators, digits, and separators, such as
+/// `~> 12.0` or `>= 1.0, < 2.0`.
+fn pod_requirement(version: &str) -> bool {
+	!version.is_empty()
+		&& version
+			.bytes()
+			.all(|byte| byte.is_ascii_digit() || b"~><=,. +".contains(&byte))
 }
 
 fn validate_android_paths(plugin: &Plugin) -> Result<()> {

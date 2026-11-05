@@ -381,9 +381,15 @@ pub enum Command {
 		#[command(subcommand)]
 		command: CodepushCommand,
 	},
-	/// Checks the local environment for missing tooling; exits non-zero when
-	/// a required check fails.
-	Doctor,
+	/// Checks the local environment for missing tooling: the tools every
+	/// build uses, then each native platform the project targets; exits
+	/// non-zero when a required check fails.
+	Doctor {
+		/// Checks every native platform this machine can build, not just the
+		/// project's.
+		#[arg(long)]
+		all: bool,
+	},
 	/// Formats Rust, and the markup in `view!` macros, with the project's
 	/// `rustfmt.toml`.
 	Format(leptoskit_fmt::cli::FormatArgs),
@@ -822,7 +828,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		Command::Jobs { command } => crate::jobs::run(command),
 		Command::Auth { command } => crate::auth_command::run(command),
 		Command::Codepush { command } => codepush::run(command),
-		Command::Doctor => doctor::run(),
+		Command::Doctor { all } => doctor::run(all),
 		Command::Format(args) => {
 			match leptoskit_fmt::cli::execute(&args) {
 				Outcome::Formatted => Ok(()),

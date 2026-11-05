@@ -31,7 +31,7 @@ Commands:
   jobs         Lists, retries, and cancels background jobs in a database: `jobs list`, `jobs retry <id>`, and `jobs cancel <id>`
   auth         Checks sign-in's configuration, rotates its keys, adds third-party providers, and registers the apps that may sign people in with yours
   codepush     Manages code push releases
-  doctor       Checks the local environment for missing tooling; exits non-zero when a required check fails
+  doctor       Checks the local environment for missing tooling: the tools every build uses, then each native platform the project targets; exits non-zero when a required check fails
   format       Formats Rust, and the markup in `view!` macros, with the project's `rustfmt.toml`
   lint         Checks the project with the leptoskit rules and clippy, side by side
   completions  Generates shell completions

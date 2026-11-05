@@ -5,4 +5,5 @@ expression: "normalize(&stdout(&output), &scratch.path)"
 ✔ created [ROOT]/snapshotted (all platforms; default: web)
   next: cd [ROOT]/snapshotted && leptoskit build
   then: leptoskit db migration create init
+  then: leptoskit doctor checks every tool your platforms build with
 working with a coding agent? give it leptoskit's skill: leptoskit skill install

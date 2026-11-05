@@ -195,6 +195,20 @@ impl KeyFile {
 /// The generated Xcode project, relative to the app's root.
 pub const PROJECT: &str = ".leptoskit/ios/Host.xcodeproj";
 
+/// The workspace `CocoaPods` makes while a selected plugin declares pods.
+pub const WORKSPACE: &str = ".leptoskit/ios/Host.xcworkspace";
+
+/// The Xcode container `xcodebuild` builds through: the workspace `CocoaPods`
+/// made while a plugin declares pods, or the project itself.
+#[must_use]
+pub fn container(root: &Path) -> (&'static str, &'static str) {
+	if root.join(".leptoskit/ios/Podfile").is_file() {
+		("-workspace", WORKSPACE)
+	} else {
+		("-project", PROJECT)
+	}
+}
+
 /// `xcodebuild archive` for the generated project: signed automatically for
 /// `team`, as `version` (`CFBundleShortVersionString`) build `build`
 /// (`CFBundleVersion`), into `out/App.xcarchive`.
@@ -207,13 +221,14 @@ pub fn archive(
 	build: u64,
 	key: &KeyFile,
 ) -> Tool {
+	let (flag, container) = container(root);
 	Tool::new("xcodebuild")
 		.dir(root)
 		// Xcode reads these as its linker drivers; a nix or devenv shell sets
 		// `LD=ld`, which rejects the flags Xcode passes it.
 		.unset("LD")
 		.unset("LDPLUSPLUS")
-		.args(["archive", "-project", PROJECT, "-scheme", "App"])
+		.args(["archive", flag, container, "-scheme", "App"])
 		.args(["-configuration", "Release"])
 		.args(["-destination", "generic/platform=iOS"])
 		.arg("-archivePath")
@@ -1031,6 +1046,24 @@ mod tests {
 		insta::assert_snapshot!(archive.args.join(" "), @"archive -project .leptoskit/ios/Host.xcodeproj -scheme App -configuration Release -destination generic/platform=iOS -archivePath /app/.leptoskit/publish/ios/App.xcarchive -derivedDataPath .leptoskit/ios/build -allowProvisioningUpdates -authenticationKeyPath /keys/AuthKey_KEY123.p8 -authenticationKeyID KEY123 -authenticationKeyIssuerID issuer-1 DEVELOPMENT_TEAM=ABCDE12345 CODE_SIGN_STYLE=Automatic MARKETING_VERSION=1.4.0 CURRENT_PROJECT_VERSION=42");
 		let export = export(Path::new("/app/.leptoskit/publish/ios"), &key());
 		insta::assert_snapshot!(export.args.join(" "), @"-exportArchive -archivePath /app/.leptoskit/publish/ios/App.xcarchive -exportPath /app/.leptoskit/publish/ios/export -exportOptionsPlist /app/.leptoskit/publish/ios/ExportOptions.plist -allowProvisioningUpdates -authenticationKeyPath /keys/AuthKey_KEY123.p8 -authenticationKeyID KEY123 -authenticationKeyIssuerID issuer-1");
+	}
+
+	#[test]
+	fn an_app_with_pods_archives_through_the_cocoapods_workspace() {
+		let temporary = tempfile::tempdir().unwrap();
+		let root = temporary.path();
+		std::fs::create_dir_all(root.join(".leptoskit/ios")).unwrap();
+		std::fs::write(root.join(".leptoskit/ios/Podfile"), "# pods").unwrap();
+		let with_pods = archive(root, &root.join("out"), "ABCDE12345", "1.4.0", 42, &key());
+		let arguments = with_pods.args.join(" ");
+		assert!(arguments.contains("-workspace .leptoskit/ios/Host.xcworkspace"));
+		assert!(!arguments.contains("-project"));
+
+		std::fs::remove_file(root.join(".leptoskit/ios/Podfile")).unwrap();
+		let without_pods = archive(root, &root.join("out"), "ABCDE12345", "1.4.0", 42, &key());
+		let arguments = without_pods.args.join(" ");
+		assert!(arguments.contains("-project .leptoskit/ios/Host.xcodeproj"));
+		assert!(!arguments.contains("-workspace"));
 	}
 
 	#[test]

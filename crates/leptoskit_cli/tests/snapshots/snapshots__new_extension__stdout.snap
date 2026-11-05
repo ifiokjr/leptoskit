@@ -4,5 +4,6 @@ expression: "normalize(&stdout(&output), &scratch.path)"
 ---
 ✔ created [ROOT]/snapshotted (all platforms; default: web)
   next: cd [ROOT]/snapshotted && leptoskit build
+  then: leptoskit doctor checks every tool your platforms build with
 build the extension with: leptoskit build --platform extension
 working with a coding agent? give it leptoskit's skill: leptoskit skill install

@@ -25,6 +25,7 @@ pub mod auth_command;
 pub mod auth_pages;
 pub mod build;
 pub mod cache;
+pub mod cargo_messages;
 pub mod cli;
 pub mod codepush;
 pub mod compress;

@@ -10,7 +10,6 @@ use std::process::Stdio;
 use anyhow::Context;
 use anyhow::Result;
 use leptoskit_config::LeptoskitConfig;
-use serde::Deserialize;
 
 use super::Target;
 use super::generated_dir;
@@ -63,12 +62,6 @@ pub fn generate(
 		 configure<B: leptoskit::native::NativeBackend>(\n_host: &mut \
 		 leptoskit::wasm::WasmHost<B>,\n) {}\n",
 	)
-}
-
-#[derive(Deserialize)]
-struct CargoMessage {
-	reason: String,
-	executable: Option<PathBuf>,
 }
 
 /// Compiles the app-owned runner and packages its guest beside the executable.
@@ -124,24 +117,22 @@ pub(crate) fn application(root: &Path, config: &LeptoskitConfig, target: Target)
 	generated_dir(root, target).join("app").join(name)
 }
 
-/// Reads Cargo's artifact path rather than guessing its target/profile layout.
+/// Reads Cargo's artifact path rather than guessing its target/profile
+/// layout. The compiler's diagnostics print along the way; with
+/// `--message-format=json-render-diagnostics` they exist only in this
+/// stream, so a reader that dropped them hid warnings and the errors that
+/// explain a failed build.
 fn executable_in_messages(messages: impl BufRead) -> Result<Option<PathBuf>> {
 	let mut executable = None;
+	let mut multiple = false;
 
-	for line in messages.lines() {
-		let line = line.context("read Cargo output")?;
-		let message: CargoMessage = serde_json::from_str(&line).context("parse Cargo output")?;
-
-		if message.reason == "compiler-artifact"
-			&& let Some(path) = message.executable
-		{
-			anyhow::ensure!(
-				executable.is_none(),
-				"Cargo produced multiple desktop executables"
-			);
-			executable = Some(path);
+	crate::cargo_messages::stream(messages, |message| {
+		if message.reason == "compiler-artifact" && message.executable.is_some() {
+			multiple |= executable.is_some();
+			executable.clone_from(&message.executable);
 		}
-	}
+	})?;
+	anyhow::ensure!(!multiple, "Cargo produced multiple desktop executables");
 
 	Ok(executable)
 }
@@ -251,6 +242,7 @@ mod tests {
 	#[test]
 	fn follows_cargos_executable_and_rejects_ambiguous_artifacts() {
 		let messages = concat!(
+			"{\"reason\":\"compiler-message\",\"rendered\":\"warning: unused import\\n\"}\n",
 			"{\"reason\":\"compiler-artifact\",\"executable\":null}\n",
 			"{\"reason\":\"compiler-artifact\",\"executable\":\"/custom/runner.exe\"}\n",
 			"{\"reason\":\"build-finished\",\"success\":true}\n"
@@ -261,7 +253,10 @@ mod tests {
 		);
 		let multiple = format!("{messages}{messages}");
 		assert!(executable_in_messages(multiple.as_bytes()).is_err());
-		assert!(executable_in_messages(b"not Cargo JSON\n".as_slice()).is_err());
+		assert_eq!(
+			executable_in_messages(b"not Cargo JSON\n".as_slice()).unwrap(),
+			None
+		);
 	}
 
 	#[test]

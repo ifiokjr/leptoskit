@@ -467,3 +467,91 @@ fn desktop_runners_build_without_the_plugins_they_cannot_host() {
 	config.native.plugins.clear();
 	assert!(without_plugins(&config, Target::Linux).is_none());
 }
+
+/// A registry with `plugins` and nothing else, for helpers that only read
+/// plugin fields.
+fn pod_registry(plugins: Vec<Plugin>) -> Registry {
+	Registry {
+		package: "app".into(),
+		plugins,
+		support: Vec::new(),
+		bridge: PathBuf::from("/sdk/ffi"),
+		target: PathBuf::from("/target"),
+		host_features: Vec::new(),
+		devtools_feature: None,
+		missing: Vec::new(),
+	}
+}
+
+#[test]
+fn validates_plugin_cocoa_pods_before_generation() {
+	let mut config = LeptoskitConfig::default();
+	config.app.name = "app".into();
+	config.native.plugins = vec!["echo".into()];
+
+	let mut valid = metadata("Plugin");
+	valid.packages[2]
+		.metadata
+		.pointer_mut("/leptoskit/runtime")
+		.unwrap()
+		.as_object_mut()
+		.unwrap()
+		.insert(
+			"apple-pods".into(),
+			json!([
+				{"name": "FirebaseCore"},
+				{"name": "GoogleUtilities/UserDefaults", "version": "~> 8.0"},
+			]),
+		);
+	let registry = resolve_metadata(valid, &config).unwrap();
+	let pods = registry.apple_pods().unwrap();
+	assert_eq!(pods["FirebaseCore"].as_deref(), None);
+	assert_eq!(
+		pods["GoogleUtilities/UserDefaults"].as_deref(),
+		Some("~> 8.0")
+	);
+
+	for (name, version) in [
+		("", None),
+		("../Escape", None),
+		("FirebaseCore'; system('rm')", None),
+		("FirebaseCore", Some("~> 12.0'")),
+		("FirebaseCore", Some("")),
+	] {
+		let mut invalid = metadata("Plugin");
+		invalid.packages[2]
+			.metadata
+			.pointer_mut("/leptoskit/runtime")
+			.unwrap()
+			.as_object_mut()
+			.unwrap()
+			.insert(
+				"apple-pods".into(),
+				json!([{"name": name, "version": version}]),
+			);
+		assert!(
+			resolve_metadata(invalid, &config).is_err(),
+			"accepted {name:?} {version:?}"
+		);
+	}
+}
+
+#[test]
+fn merged_pods_agree_or_reject_conflicting_requirements() {
+	let plugin = |pods: serde_json::Value| {
+		serde_json::from_value::<Plugin>(json!({"name": "pods", "apple-pods": pods})).unwrap()
+	};
+	let agreeing = pod_registry(vec![
+		plugin(json!([{"name": "FirebaseCore", "version": "~> 12.0"}])),
+		plugin(json!([{"name": "FirebaseCore"}, {"name": "FirebaseMessaging"}])),
+	]);
+	let merged = agreeing.apple_pods().unwrap();
+	assert_eq!(merged["FirebaseCore"].as_deref(), Some("~> 12.0"));
+	assert_eq!(merged["FirebaseMessaging"].as_deref(), None);
+
+	let conflicting = pod_registry(vec![
+		plugin(json!([{"name": "FirebaseCore", "version": "~> 12.0"}])),
+		plugin(json!([{"name": "FirebaseCore", "version": "13.0"}])),
+	]);
+	assert!(conflicting.apple_pods().is_err());
+}
