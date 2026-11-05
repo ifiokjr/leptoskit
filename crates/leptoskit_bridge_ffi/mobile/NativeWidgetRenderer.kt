@@ -80,6 +80,16 @@ internal class NativeWidgetRenderer(
     var canvas: Int? = null
         private set
     private var rootId: Long? = null
+    private val backNodes = mutableSetOf<Long>()
+
+    val canGoBack: Boolean get() = rootId in backNodes
+
+    fun back(): Boolean {
+        val id = rootId ?: return false
+        if (!canGoBack || applying) return false
+        event(id, 10, """{"key":"BrowserBack","ctrl":false,"alt":false,"shift":false}""")
+        return true
+    }
 
     /** The DevTools highlight and picking, in apps `leptoskit dev` reports to a hub. */
     private var devtools: NativeDevtoolsOverlay? = null
@@ -105,6 +115,8 @@ internal class NativeWidgetRenderer(
         retargeted.clear()
         widgets.clear()
         controlProps.clear()
+        backNodes.clear()
+        rootId = null
 
         recycledViews.clear()
         recycledTexts.clear()
@@ -240,6 +252,7 @@ internal class NativeWidgetRenderer(
             is RenderMutation.Delete -> {
                 riveBitmaps.remove(change.id)
                 controlProps.remove(change.id)
+                backNodes.remove(change.id)
 
                 val view = widgets.remove(change.id) ?: return
                 if (view is NativeRiveImage) view.setImageDrawable(null)
@@ -382,6 +395,7 @@ internal class NativeWidgetRenderer(
         view: View,
         value: WidgetProps,
     ) {
+        if (value.rest?.optBoolean("can_go_back", false) == true) backNodes.add(id) else backNodes.remove(id)
         if (view is CompoundButton || view is NativeSlider) controlProps[id] = value
     }
 

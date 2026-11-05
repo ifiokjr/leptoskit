@@ -47,10 +47,16 @@ class LeptosKitApplicationView(
     private val action = Button(context)
     private var releases: NativeReleases? = null
     private var development: NativeDevelopmentGuests? = null
+    var onBackAvailabilityChanged: (() -> Unit)? = null
+    val canGoBack: Boolean get() = !closed && current?.canGoBack == true
+
+    fun back(): Boolean = !closed && current?.back() == true
+
     private var current: LeptosKitView? = null
         set(value) {
             field = value
             paintCanvas()
+            onBackAvailabilityChanged?.invoke()
         }
     private val window = (context as? Activity)?.window
 
@@ -273,6 +279,7 @@ class LeptosKitApplicationView(
 
     private fun adopt(view: LeptosKitView): LeptosKitView {
         view.onCanvasChanged = { if (it === current) paintCanvas() }
+        view.onBackAvailabilityChanged = { if (view === current) onBackAvailabilityChanged?.invoke() }
 
         return view
     }

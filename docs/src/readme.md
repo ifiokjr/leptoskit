@@ -84,6 +84,8 @@ The logo is the architecture. The ember boxes are layout: elements placed by the
 
 ## Where things stand
 
+Generated Android apps connect system Back to router history and leave the app at the first route; in-app predictive gesture previews are not yet supported.
+
 leptoskit is young, and these docs say plainly what works today.
 
 Native filesystem, SQLite, and secure-store plugins enforce aggregate storage budgets in addition to operation limits. See [storage and networking](platforms/plugin-inventory.md#storage-and-networking) for defaults and upgrade behavior.

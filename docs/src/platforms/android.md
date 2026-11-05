@@ -39,6 +39,12 @@ You can also open the `android/` folder in Android Studio and run it from there.
 
 The `android/` folder is yours: the activity, the manifest, the Gradle files, and `Cargo.toml` for native Rust dependencies such as [runtime plugins](plugins.md). The CLI keeps its generated files in `.leptoskit/android/`, including the R8 keep rules that release builds need for the native library; put rules for your own code in `android/app/proguard-rules.pro`.
 
+## System Back
+
+When you render a `Router`, Android's Back button and completed back gesture return to the previous route. For example, opening a note from a list and pressing Back returns to the list. At the first route, Back leaves the app. The gesture does not preview the previous route while dragging.
+
+Newly generated activities include this behavior. Existing apps need the updated activity Back callbacks as well as the updated guest and native runtime.
+
 ## Test it
 
 Each project includes an instrumented test that taps **Add one** and waits for **Count: 1**. Update it when you change the home screen, then run it with an emulator running:

@@ -313,3 +313,17 @@ fn the_platform_decoders_fixture_matches_the_encoder() {
 		json_transaction(root, &mutations)
 	);
 }
+
+#[test]
+fn router_back_availability_survives_binary_transactions() {
+	let (root, mut mutations) = sample();
+	for value in [Some(true), None] {
+		if let Mutation::Create { props, .. } = &mut mutations[0] {
+			props.can_go_back = value;
+		} else {
+			panic!("sample begins with Create");
+		}
+		let bytes = encode(root, &mutations, usize::MAX).unwrap();
+		assert_eq!(decode(&bytes), json_transaction(root, &mutations));
+	}
+}

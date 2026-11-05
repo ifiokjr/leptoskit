@@ -291,6 +291,9 @@ impl From<Color> for PropValue {
 	serde(default)
 )]
 pub struct NativeProps {
+	/// The root router has a previous route for the host's system Back action.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub can_go_back: Option<bool>,
 	/// Rive content and controlled input updates. Rendering stays in the host.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub rive: Option<Box<leptoskit_rive::Playback>>,

@@ -404,6 +404,10 @@ fn control_events(app: &mut App) {
 			(6, r#"{"checked":true}"#),
 			(6, r#"{"checked":false}"#),
 			(7, r#"{"value":12.5}"#),
+			(
+				10,
+				r#"{"key":"BrowserBack","ctrl":false,"alt":false,"shift":false}"#,
+			),
 		] {
 			assert_eq!(
 				lk_app_event(app, usize::MAX, kind, payload.as_ptr(), payload.len()),
@@ -412,6 +416,7 @@ fn control_events(app: &mut App) {
 		}
 		for (kind, payload) in [
 			(6, "{}"),
+			(10, "{}"),
 			(6, r#"{"checked":1}"#),
 			(7, r#"{"value":"NaN"}"#),
 			(7, r#"{"value":1e999}"#),

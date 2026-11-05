@@ -61,6 +61,7 @@ pub fn is_layout_only(kind: NativeKind, props: &NativeProps) -> bool {
 	// listed — including a newly added field — disqualifies flattening,
 	// which is the safe default.
 	let NativeProps {
+		can_go_back,
 		rive,
 		text,
 		source,
@@ -98,7 +99,8 @@ pub fn is_layout_only(kind: NativeKind, props: &NativeProps) -> bool {
 		extra,
 	} = props;
 
-	rive.is_none()
+	can_go_back.is_none()
+		&& rive.is_none()
 		&& text.is_none()
 		&& source.is_none()
 		&& placeholder.is_none()

@@ -147,3 +147,36 @@ fn the_router_renders_the_current_route() {
 	router.navigate(note(3));
 	assert_eq!(router.render().text_content(), "Note 3");
 }
+
+#[test]
+fn system_back_follows_guest_history_and_root_availability() {
+	let router = Router::<Screen>::new(Screen::Home);
+	assert_eq!(router.render().props.can_go_back, None);
+	router.navigate(note(7));
+	router.navigate(Screen::Settings);
+	let mut surface = NativeSurface::new(HeadlessBackend::default());
+	for previous in [note(7), Screen::Home] {
+		let screen = router.render();
+		assert_eq!(screen.props.can_go_back, Some(true));
+		surface.set_root(&screen);
+		let root = surface.root().unwrap();
+		surface.dispatch_event(
+			root,
+			&NativeEvent::Key(leptoskit_native::KeyPress::new("BrowserBack").alt()),
+		);
+		assert_ne!(router.current(), previous);
+		surface.dispatch_event(
+			root,
+			&NativeEvent::Key(leptoskit_native::KeyPress::new("BrowserBack")),
+		);
+		assert_eq!(router.current(), previous);
+	}
+	let screen = router.render();
+	assert_eq!(screen.props.can_go_back, None);
+	surface.set_root(&screen);
+	surface.dispatch_event(
+		surface.root().unwrap(),
+		&NativeEvent::Key(leptoskit_native::KeyPress::new("BrowserBack")),
+	);
+	assert_eq!(router.current(), Screen::Home);
+}

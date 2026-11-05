@@ -22,6 +22,27 @@ class NativeControlsTest {
     }
 
     @Test
+    fun backAvailabilityFollowsRootAndEmitsGuestKey() =
+        onMain {
+            val root = FrameLayout(InstrumentationRegistry.getInstrumentation().targetContext)
+            val events = mutableListOf<Triple<Long, Int, String>>()
+            val renderer = NativeWidgetRenderer(root, { id, kind, payload -> events.add(Triple(id, kind, payload)) })
+            renderer.render(RenderBatch(1, listOf(RenderMutation.Create(1, "view", props("{}")))))
+            assertFalse(renderer.canGoBack)
+            assertFalse(renderer.back())
+            renderer.render(RenderBatch(null, listOf(RenderMutation.UpdateProps(1, props("{\"can_go_back\":true}")))))
+            assertTrue(renderer.canGoBack)
+            assertTrue(renderer.back())
+            assertEquals(1L, events.single().first)
+            assertEquals(10, events.single().second)
+            assertEquals("BrowserBack", JSONObject(events.single().third).getString("key"))
+            renderer.render(RenderBatch(null, listOf(RenderMutation.UpdateProps(1, props("{}")))))
+            assertFalse(renderer.back())
+            renderer.clear()
+            assertFalse(renderer.canGoBack)
+        }
+
+    @Test
     fun togglesEmitGuestPayloadsAndReconciliationIsSilent() =
         onMain {
             for (kind in listOf("switch", "checkbox", "radio")) {

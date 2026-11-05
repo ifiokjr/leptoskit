@@ -1019,11 +1019,12 @@ pub unsafe extern "C" fn lk_app_resize(app: *mut App, width: f32, height: f32, d
 /// Dispatches an event using the rendered node ID. Text is borrowed UTF-8.
 /// Kinds: press 0, change 1, submit 2, focus 3, blur 4, scroll 5, toggle 6,
 /// value change 7, press in 8,
-/// and press out 9. Press in and out bracket a button's platform pressed
-/// state; they restyle it with its `active:` utilities without running the
-/// guest. A scroll's text is its content offset in layout units, as
-/// `{"x": 0, "y": 120.5}`. Toggle text is `{"checked": true}`; value change
-/// text is `{"value": 12.5}` with a finite number.
+/// press out 9, and key 10. Key payloads contain key, ctrl, alt, and shift;
+/// `BrowserBack` requests router navigation. Press in and out bracket a
+/// button's platform pressed state; they restyle it with its `active:`
+/// utilities without running the guest. A scroll's text is its content offset
+/// in layout units, as `{"x": 0, "y": 120.5}`. Toggle text is `{"checked":
+/// true}`; value change text is `{"value": 12.5}` with a finite number.
 ///
 /// # Safety
 /// `app` is exclusive; `text` addresses `len` bytes (null only when empty).
@@ -1114,6 +1115,12 @@ unsafe fn decode_event(
 		}
 		8 => NativeEvent::PressIn,
 		9 => NativeEvent::PressOut,
+		10 => {
+			NativeEvent::Key(
+				serde_json::from_str(value)
+					.map_err(|_| "a key event requires key and modifiers")?,
+			)
+		}
 		_ => return Err("unknown event kind"),
 	})
 }

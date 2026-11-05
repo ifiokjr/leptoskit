@@ -2,7 +2,10 @@ package dev.leptoskit.field
 
 import android.app.Activity
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import dev.leptoskit.bridge.NativeActivityResult
 import dev.leptoskit.bridge.NativeActivityResultBroker
 import dev.leptoskit.bridge.NativeActivityResultHost
@@ -17,6 +20,25 @@ class MainActivity :
     NativeActivityResultHost {
     private var content: LeptosKitApplicationView? = null
     private val requests = NativeRequests(this)
+    private var backCallback: OnBackInvokedCallback? = null
+
+    private fun updateBackCallback() {
+        if (Build.VERSION.SDK_INT < 33) return
+        val enabled = content?.canGoBack == true
+        if (enabled && backCallback == null) {
+            val callback = OnBackInvokedCallback { content?.back() }
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback)
+            backCallback = callback
+        } else if (!enabled) {
+            backCallback?.let { onBackInvokedDispatcher.unregisterOnBackInvokedCallback(it) }
+            backCallback = null
+        }
+    }
+
+    @Deprecated("Legacy system Back; Android 13+ uses OnBackInvokedDispatcher")
+    override fun onBackPressed() {
+        if (content?.back() != true) super.onBackPressed()
+    }
 
     override suspend fun requestNativePermissions(permissions: Array<String>): IntArray = requests.permissions.request(permissions)
 
@@ -45,7 +67,9 @@ class MainActivity :
         super.onCreate(state)
         requests.restoreState(state)
         content = applicationView(this)
+        content?.onBackAvailabilityChanged = ::updateBackCallback
         setContentView(content)
+        updateBackCallback()
     }
 
     override fun onSaveInstanceState(state: Bundle) {
@@ -67,6 +91,7 @@ class MainActivity :
         requests.close()
         content?.close()
         content = null
+        updateBackCallback()
         super.onDestroy()
     }
 }

@@ -73,6 +73,16 @@ class LeptosKitView(
 
     /** The root's opaque background, for the host to paint behind system bars. */
     val canvas: Int? get() = renderer.canvas
+    val canGoBack: Boolean get() = guest != 0L && renderer.canGoBack
+    var onBackAvailabilityChanged: (() -> Unit)? = null
+    private var backPending = false
+
+    fun back(): Boolean {
+        if (!canGoBack) return false
+        if (backPending) return true
+        backPending = renderer.back()
+        return backPending
+    }
 
     /** Called on the UI thread when [canvas] changes. */
     var onCanvasChanged: ((LeptosKitView) -> Unit)? = null
@@ -289,6 +299,8 @@ class LeptosKitView(
 
             if (transaction.isEmpty()) break
             renderer.render(RenderBatch.fromBinary(transaction))
+            backPending = false
+            onBackAvailabilityChanged?.invoke()
         }
 
         presentRiveFrames()

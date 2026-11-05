@@ -190,6 +190,15 @@ where
 	where
 		R: Render,
 	{
-		self.current().render(self)
+		let mut screen = self.current().render(self);
+		screen.props.can_go_back = self.can_go_back().then_some(true);
+		let router = self.clone();
+		screen.on_key(move |key| {
+			if key.is("BrowserBack", false, false, false) && router.back() {
+				leptoskit_native::EventOutcome::Handled
+			} else {
+				leptoskit_native::EventOutcome::Unhandled
+			}
+		})
 	}
 }
