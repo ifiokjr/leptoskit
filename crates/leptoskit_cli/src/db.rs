@@ -23,6 +23,7 @@ use anyhow::bail;
 use anyhow::ensure;
 use leptoskit_config::DbConfig;
 use leptoskit_config::DbDialect;
+use leptoskit_config::DbDraft;
 use leptoskit_config::DbWatch;
 use leptoskit_config::LeptoskitConfig;
 use leptoskit_db::Db;
@@ -855,6 +856,16 @@ pub(crate) fn create(
 ) -> Result<Created> {
 	let directory = project.migrations_dir();
 	let history = History::read(&directory, project.dialect())?;
+
+	// In amend mode the drafts since the latest release are one migration
+	// that keeps up with the tables, except data migrations, which stack.
+	if project.config.draft == DbDraft::Amend
+		&& !options.empty
+		&& history.names.len() > history.published
+	{
+		return amend_latest(project, &history, target, options, renames);
+	}
+
 	let slug = slug(name)?;
 	let plan = leptoskit_db_schema::diff(&history.latest, target, renames)?;
 
@@ -872,23 +883,7 @@ pub(crate) fn create(
 		);
 	}
 
-	let destructive: Vec<String> = plan
-		.destructive_steps()
-		.map(|step| {
-			match step.risk() {
-				Risk::LosesData(reason) => format!("  {step}: {reason}"),
-				_ => format!("  {step}"),
-			}
-		})
-		.collect();
-
-	if !destructive.is_empty() && !options.allow_destructive {
-		bail!(
-			"this migration deletes data:\n{}\npass --allow-destructive if that's intended; if a \
-			 column or table was renamed, mark it with #[db(renamed_from = \"...\")]",
-			destructive.join("\n")
-		);
-	}
+	refuse_destructive(&plan, options.allow_destructive)?;
 
 	let migration = leptoskit_db_schema::render(&plan, &history.latest, target);
 	let sql = if options.empty {
@@ -1489,6 +1484,86 @@ fn check_replication(url: &str, target: &Schema) -> Result<()> {
 	}
 
 	Ok(())
+}
+
+/// Stops a plan that deletes data, unless `allow_destructive` says it was
+/// meant to.
+fn refuse_destructive(plan: &leptoskit_db_schema::Plan, allow_destructive: bool) -> Result<()> {
+	let destructive: Vec<String> = plan
+		.destructive_steps()
+		.map(|step| {
+			match step.risk() {
+				Risk::LosesData(reason) => format!("  {step}: {reason}"),
+				_ => format!("  {step}"),
+			}
+		})
+		.collect();
+
+	if !destructive.is_empty() && !allow_destructive {
+		bail!(
+			"this migration deletes data:\n{}\npass --allow-destructive if that's intended; if a \
+			 column or table was renamed, mark it with #[db(renamed_from = \"...\")]",
+			destructive.join("\n")
+		);
+	}
+
+	Ok(())
+}
+
+/// Rewrites the newest unreleased migration from the snapshot before it, so
+/// drafting between releases leaves one migration rather than a stack.
+fn amend_latest(
+	project: &Project,
+	history: &History,
+	target: &Schema,
+	options: &CreateOptions,
+	renames: &mut dyn RenameResolver,
+) -> Result<Created> {
+	let name = history
+		.names
+		.last()
+		.expect("the caller checked for drafts")
+		.clone();
+	let previous = if history.names.len() == 1 {
+		Schema::empty(project.dialect())
+	} else {
+		let path = project
+			.migrations_dir()
+			.join(&history.names[history.names.len() - 2])
+			.join("schema.json");
+		let json = fs::read_to_string(&path)
+			.with_context(|| format!("couldn't read {}", path.display()))?;
+		Schema::from_json(&json)
+			.with_context(|| format!("{} isn't a valid snapshot", path.display()))?
+	};
+
+	let plan = leptoskit_db_schema::diff(&previous, target, renames)?;
+	ensure!(
+		!plan.is_empty(),
+		"the tables haven't changed since {name}; pass --empty to write a data migration"
+	);
+	refuse_destructive(&plan, options.allow_destructive)?;
+
+	let migration = leptoskit_db_schema::render(&plan, &previous, target);
+	let down = reverse_sql(&previous, target, &plan, false)?;
+	let directory = project.migrations_dir().join(&name);
+	fs::write(directory.join("migration.sql"), migration.sql())?;
+	fs::write(directory.join("down.sql"), down)?;
+	fs::write(
+		directory.join("schema.json"),
+		target.without_rename_hints().to_json(),
+	)?;
+
+	Ok(Created {
+		name,
+		directory,
+		steps: plan.steps.iter().map(ToString::to_string).collect(),
+		notes: vec![
+			"a development database that applied this draft's earlier shape needs `db reset \
+			 --yes` to come back in line"
+				.to_owned(),
+		],
+	})
 }
 
 /// Runs `migration consolidate` with the tables the app exports now.
