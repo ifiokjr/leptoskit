@@ -1,4 +1,16 @@
-//! Selection, impact and notification feedback on native actuators.
+//! <!-- {=p_hapticsSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_haptics` as a direct dependency and select the
+//! `haptics` plugin in `native.plugins`; supported generated hosts discover it
+//! from Cargo metadata. Generated Windows, Linux, and terminal hosts currently
+//! omit runtime plugins; use explicit registration in a custom host there.
+//! Guests enable the `guest` feature and reuse `guest::Haptics` rather than
+//! resolving the plugin on every call. iOS uses UIKit feedback generators,
+//! Android uses platform haptic feedback, and macOS approximates the mobile
+//! styles with its trackpad performer; browsers use the Vibration API where
+//! allowed.
+//!
+//! <!-- {/p_hapticsSummary} -->
 //!
 //! Success means the OS accepted the request, not that hardware vibrated.
 //! Accessibility/user settings, low-power mode and absent actuators can

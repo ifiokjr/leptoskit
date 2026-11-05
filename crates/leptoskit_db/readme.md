@@ -21,6 +21,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_db"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_db"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_db.svg"></a>
   <a href="https://docs.rs/leptoskit_db"><img alt="docs.rs" src="https://docs.rs/leptoskit_db/badge.svg"></a>
@@ -28,6 +30,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -104,7 +108,11 @@ New migrations also have a `down.sql`; `migrations!` embeds it when present. Wit
 
 ## How it fits
 
+<!-- {=dbSummary} -->
+
 It gives shared code a typed database without hand-written SQL; `leptoskit db` diffs the schema and writes migrations. Auth and IDP build their schema packs on it.
+
+<!-- {/dbSummary} -->
 
 ## Use it
 

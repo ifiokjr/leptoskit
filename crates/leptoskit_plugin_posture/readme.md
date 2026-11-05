@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_posture"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_posture"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_posture.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_posture"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_posture/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -60,7 +64,11 @@ All words are little-endian u32. A posture is a foldable flag, the fold, and the
 
 ## How it fits
 
-Add `leptoskit_plugin_posture` as a direct dependency and select the `posture` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::DevicePosture` rather than resolving the plugin on every call. A posture describes the device the app is running on and every hinge that crosses its window; desktop and the browser report a flat, non-foldable device.
+<!-- {=p_postureSummary} -->
+
+Add `leptoskit_plugin_posture` as a direct dependency and select the `posture` plugin in `native.plugins`; supported generated hosts discover it from Cargo metadata. Generated Windows, Linux, and terminal hosts currently omit runtime plugins; use explicit registration in a custom host there. Guests enable the `guest` feature and reuse `guest::DevicePosture` rather than resolving the plugin on every call. A posture describes the device the app is running on and every hinge that crosses its window; desktop reports a rigid device; supporting browsers use Device Posture and Viewport Segments, with a rigid fallback when those APIs are absent.
+
+<!-- {/p_postureSummary} -->
 
 ## Use it
 

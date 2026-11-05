@@ -1,4 +1,10 @@
-//! Cargo build-script support for platform-specific application modules.
+//! <!-- {=buildSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Generated apps call it from `build.rs`. It lets a shared module be replaced
+//! by a `.macos.rs`, `.ios.rs`, or `.web.rs` file without changing the imports
+//! in the rest of the app.
+//!
+//! <!-- {/buildSummary} -->
 //!
 //! Call [`platforms`] from the application's `build.rs`. It records the
 //! selected platform for `leptoskit::platform_module!` and watches the source

@@ -1,4 +1,10 @@
-//! Runtime plugin transport, independent of build hooks and UI frameworks.
+//! <!-- {=bridgeSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Plugins define methods, payload limits, cancellation, and error codes once;
+//! the guest and the Swift, Kotlin, or C++ host then speak the same protocol.
+//! Most apps never name it directly, but every runtime plugin does.
+//!
+//! <!-- {/bridgeSummary} -->
 //!
 //! A host owns a [`Bridge`] on its event-loop thread. Guests submit calls;
 //! the host drains requests and completes them after native work finishes.

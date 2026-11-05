@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_aria"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_aria"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_aria.svg"></a>
   <a href="https://docs.rs/leptoskit_aria"><img alt="docs.rs" src="https://docs.rs/leptoskit_aria/badge.svg"></a>
@@ -25,13 +27,15 @@
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
 
+<!-- {/crateBadges} -->
+
 <br>
 
 ## Overview
 
 Headless accessible components for the leptoskit element tree, in the spirit of [react-aria](https://react-spectrum.adobe.com/react-aria/) and [leptos_aria](https://github.com/ifiokjr/leptos_aria): the component owns the semantics — roles, states, relationships, and live regions — and the app owns the styling, through the same Tailwind classes every leptoskit component takes.
 
-Every component emits the shared `Element` tree, so one widget works on the web renderer and on every native backend: VoiceOver on iOS and macOS, TalkBack on Android, UI Automation on Windows, and AT-SPI through GTK. Compound parts share a stable id prefix, and the renderer's own validation enforces the wiring: a tree that references a missing label or panel id fails to commit.
+Every component emits roles, states, and relationships in the shared `Element` tree. The web renderer and native backend crates consume this model with platform-specific limits. Generated macOS, iOS, and Android apps currently forward accessible names but do not forward most roles and states; emitting ARIA metadata alone does not provide complete accessibility on those hosts. Compound parts share a stable id prefix, and the renderer's own validation enforces the wiring: a tree that references a missing label or panel id fails to commit.
 
 Use the crate directly or enable `leptoskit`'s `aria` feature and import `leptoskit::aria::*`.
 
@@ -49,7 +53,11 @@ Components are plain functions, or small values like `Field`, `Tabs`, and `Dialo
 
 ## How it fits
 
-It owns behavior, not pixels: app code styles the pieces with Tailwind and gets consistent focus, keyboard, and ARIA semantics on every backend. `leptoskit_form` builds its fields on top of it.
+<!-- {=ariaSummary} -->
+
+It owns behavior, not pixels: app code styles the pieces with Tailwind and gets shared focus, keyboard, and ARIA metadata. Platform renderers determine which semantics reach assistive technology. `leptoskit_form` builds its fields on top of it.
+
+<!-- {/ariaSummary} -->
 
 ## Use it
 

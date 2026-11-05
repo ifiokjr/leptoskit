@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_devtools"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_devtools"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_devtools.svg"></a>
   <a href="https://docs.rs/leptoskit_devtools"><img alt="docs.rs" src="https://docs.rs/leptoskit_devtools/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -35,7 +39,11 @@ The hooks hand over what only the app knows: `track_router` for the route, `expo
 
 ## How it fits
 
+<!-- {=devtoolsSummary} -->
+
 Under `leptoskit dev`, the CLI starts the hub and these agents open sessions, mirror trees, and carry commands back. Hooks expose the route, named state, forms, and query caches that only the app knows.
+
+<!-- {/devtoolsSummary} -->
 
 ## Use it
 

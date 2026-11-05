@@ -1,4 +1,10 @@
-//! Native UIKit rendering for shared leptoskit component trees.
+//! <!-- {=uikitSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! It consumes the same Yoga mutation stream as every other backend. Custom
+//! Rust hosts embed it through `UIKitHost`. Generated iOS apps use the smaller
+//! Swift renderer in `leptoskit_bridge_ffi`.
+//!
+//! <!-- {/uikitSummary} -->
 //!
 //! Widgets and callback state remain on the main thread. The text measurer
 //! creates independent Core Text values for every measurement.

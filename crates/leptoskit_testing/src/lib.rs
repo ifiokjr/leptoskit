@@ -1,4 +1,10 @@
-//! Deterministic widget tests over the production renderer and layout engine.
+//! <!-- {=testingSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! It tests element trees without a device, using semantic finders,
+//! interactions, bounded pumping, and diagnostic trees. The CLI can run the
+//! same journeys against a real native app.
+//!
+//! <!-- {/testingSummary} -->
 //!
 //! [`WidgetTester`] owns a render closure and a surface. Actions dispatch
 //! through the renderer's event handlers and pump the resulting tree. They

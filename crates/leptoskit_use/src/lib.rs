@@ -2,7 +2,13 @@
 // `MaybeRwSignal` call syntax the way leptos gives its signals.
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
-//! Cross-platform Leptos utilities with explicit host services.
+//! <!-- {=useSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! The hooks read leptos signals and accept host services explicitly, so the
+//! same code runs in a browser and in a native guest. It is the utility layer
+//! beneath app screens, not a UI framework.
+//!
+//! <!-- {/useSummary} -->
 //!
 //! Pure hooks use the same signals as `leptos::prelude`. Host-dependent hooks
 //! take explicit inputs: a monotonic time signal, a viewport signal, or a

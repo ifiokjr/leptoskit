@@ -1,4 +1,11 @@
-//! An ergonomic API over leptos server functions.
+//! <!-- {=rpcSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! It is the boundary between shared screens and the server. The same call runs
+//! during SSR, in the browser, and in a native guest; `leptoskit_rpc_codegen`
+//! turns the specification into TypeScript, Python, Go, Rust, Dart, and CLI
+//! clients.
+//!
+//! <!-- {/rpcSummary} -->
 //!
 //! A leptos server function is already a typed, isomorphic RPC: `#[server]`
 //! generates a struct whose `FromArg`/`await` call handles serialization,

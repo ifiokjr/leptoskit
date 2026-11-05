@@ -1,4 +1,12 @@
-//! Per-user login registration with an explicit app identity and command.
+//! <!-- {=p_autostartSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Native hosts construct it explicitly and may expose it through the bridge to
+//! `guest::AutostartClient`. There is no automatic `native.plugins`
+//! registration. Constructing the manager never enables login startup;
+//! registration is an explicit call, and mobile, browser, and unsupported
+//! desktops return `Unavailable`.
+//!
+//! <!-- {/p_autostartSummary} -->
 //!
 //! Constructing an [`Autostart`] never enables login startup. Registration is
 //! host-configured, so guests cannot choose arbitrary executables or arguments.

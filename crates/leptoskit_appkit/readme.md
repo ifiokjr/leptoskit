@@ -21,6 +21,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_appkit"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_appkit"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_appkit.svg"></a>
   <a href="https://docs.rs/leptoskit_appkit"><img alt="docs.rs" src="https://docs.rs/leptoskit_appkit/badge.svg"></a>
@@ -28,6 +30,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -72,9 +76,21 @@ AppKit exists only on macOS. On every other target the crate compiles to an empt
 [`leptoskit_native`]: https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native
 [`leptoskit_yoga`]: https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga
 
+## Generated host limits
+
+<!-- {=generatedHostLimits} -->
+
+Generated macOS, iOS, and Android apps use the Swift or Kotlin renderers in `leptoskit_bridge_ffi`. They support `View`, `Text`, `Button`, `Pressable`, `TextInput`, `PasswordInput`, `ScrollView`, `Image`, `Vector`, and `Rive`. Other control kinds fail with an unsupported-widget error. Accessible names are forwarded; a labelled `Vector` is an accessible image and `Rive` can be decorative. Most other roles and states are not forwarded. The Rust backend crates support a wider control set. Generated Windows and Linux apps use the full Rust backends, but currently omit runtime plugin registration. Automatic code push update checks currently run only in generated iOS and Android hosts.
+
+<!-- {/generatedHostLimits} -->
+
 ## How it fits
 
-A `NativeSurface` built on it renders the same tree the web build renders as DOM. AppKit is the reference backend, used by the gallery and the generated macOS app; the other backends follow its contract.
+<!-- {=appkitSummary} -->
+
+A `NativeSurface` built on it renders the same tree the web build renders as DOM. AppKit is the reference backend, used by the gallery and custom Rust hosts. Generated macOS apps use the smaller Swift renderer in `leptoskit_bridge_ffi`.
+
+<!-- {/appkitSummary} -->
 
 ## Use it
 

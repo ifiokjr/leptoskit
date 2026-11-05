@@ -1,4 +1,15 @@
-//! Application-private file storage with bounded binary messages.
+//! <!-- {=p_filesystemSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_filesystem` as a direct dependency and select the
+//! `filesystem` plugin in `native.plugins`; supported generated hosts discover
+//! it from Cargo metadata. Generated Windows, Linux, and terminal hosts
+//! currently omit runtime plugins; use explicit registration in a custom host
+//! there. Guests enable the `guest` feature and reuse `guest::Filesystem`
+//! rather than resolving the plugin on every call. Every native path
+//! stays inside the application-owned data directory; guests cannot select an
+//! arbitrary filesystem root.
+//!
+//! <!-- {/p_filesystemSummary} -->
 //!
 //! Native hosts supply an application-owned data directory. Every native
 //! operation resolves relative to an open directory capability; symlinks cannot

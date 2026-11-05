@@ -1,4 +1,12 @@
-//! Bounded observability for an application, without a separate service.
+//! <!-- {=analyticsSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! See which application routes are failing or slow. The app keeps bounded
+//! minute aggregates and a small correlation buffer in memory. Connect the
+//! optional deployment service for durable fleet history, or use the
+//! per-process endpoint without an extra observability service. Unexported
+//! in-memory data resets on restart.
+//!
+//! <!-- {/analyticsSummary} -->
 //!
 //! [`Analytics`] retains aggregate windows and a small correlation buffer.
 //! With `server`, [`server::mount`] instruments Axum and provides protected

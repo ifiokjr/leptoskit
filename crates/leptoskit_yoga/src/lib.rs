@@ -1,4 +1,10 @@
-//! A from-scratch layout engine for the leptoskit native renderer.
+//! <!-- {=yogaSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! `leptoskit_native` calls it for every commit; backends only apply the frames
+//! it returns. It is also usable on its own when a Rust tool needs React
+//! Native-style layout or a CSS grid implementation without a browser.
+//!
+//! <!-- {/yogaSummary} -->
 //!
 //! The engine implements the CSS box model that native apps actually use:
 //! flexbox (the React Native layout system) and CSS grid, sharing one style

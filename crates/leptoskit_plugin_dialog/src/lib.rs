@@ -1,4 +1,13 @@
-//! Asynchronous desktop dialogs and browser file selection.
+//! <!-- {=p_dialogSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Use this crate directly from a Rust desktop host or its browser adapter. It
+//! has no runtime plugin metadata, guest client, or `native.plugins`
+//! registration; mobile document import
+//! uses `leptoskit_plugin_document_picker`. Desktop calls need an initialized
+//! application event loop and a parent window; the browser adapter uses the
+//! File System Access API with an explicit byte limit.
+//!
+//! <!-- {/p_dialogSummary} -->
 //!
 //! Desktop calls need an initialized application event loop. Keep the parent
 //! window alive until the dialog completes, and start dialogs on its UI thread.

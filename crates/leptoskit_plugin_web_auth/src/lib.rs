@@ -1,5 +1,14 @@
-//! Sign-in sessions in the system browser, never a web view inside the app,
-//! as RFC 8252 (OAuth 2.0 for native apps) asks.
+//! <!-- {=p_web_authSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_web_auth` as a direct dependency and select the
+//! `web-auth` plugin in `native.plugins`; supported generated hosts discover it
+//! from Cargo metadata. Generated Windows, Linux, and terminal hosts currently
+//! omit runtime plugins; use explicit registration in a custom host there.
+//! Guests enable the `guest` feature and reuse `guest::WebAuth` rather than
+//! resolving the plugin on every call. It follows RFC 8252: the provider page
+//! never loads in a web view inside the app.
+//!
+//! <!-- {/p_web_authSummary} -->
 //!
 //! A session has two steps. [`BEGIN`] says where the browser will come back
 //! to the app: a private-use scheme named after the app's ID on iOS, macOS,

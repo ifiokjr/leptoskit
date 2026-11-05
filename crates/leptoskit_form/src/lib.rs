@@ -1,4 +1,10 @@
-//! Headless form state for the shared leptoskit element tree.
+//! <!-- {=formSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! A form declares `FieldSpec` s once; the same state drives web inputs and
+//! native controls, and `leptoskit_aria` supplies the accessible field wiring.
+//! Validation and submission logic stay out of the view layer.
+//!
+//! <!-- {/formSummary} -->
 //!
 //! This is `TanStack Form`'s core loop, ported to leptoskit's grain: a
 //! [`Form`] declares its [`FieldSpec`]s — labels, initial values, `required`,

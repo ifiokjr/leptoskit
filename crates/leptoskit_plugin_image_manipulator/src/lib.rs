@@ -1,4 +1,14 @@
-//! Bounded JPEG/PNG transforms in Rust, with a native worker bridge.
+//! <!-- {=p_image_manipulatorSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_image_manipulator` as a direct dependency and select
+//! the `image_manipulator` plugin in `native.plugins`; supported generated
+//! hosts discover it from Cargo metadata. Generated Windows, Linux, and
+//! terminal hosts currently omit runtime plugins; use explicit registration in
+//! a custom host there. Native calls run on the Rust worker so a batch takes
+//! one bridge round trip; browser calls use the same engine compiled
+//! to Wasm, and large jobs belong in a Web Worker.
+//!
+//! <!-- {/p_image_manipulatorSummary} -->
 //!
 //! Browser calls use the same synchronous engine. Schedule large jobs in a Web
 //! Worker; an async wrapper alone would not move CPU work off the browser UI.

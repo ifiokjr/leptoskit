@@ -1,7 +1,16 @@
-//! Capture prevention and observation are distinct capabilities. Android can
-//! protect its owned window; iOS can observe scene capture and app screenshots.
-//! No API in this crate captures pixels or reads photos. Notifications are
-//! demand-driven: one pending waiter, no event queue, and no historical replay.
+//! <!-- {=p_screen_captureSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_screen_capture` as a direct dependency and select the
+//! `screen-capture` plugin in `native.plugins`; supported generated hosts
+//! discover it from Cargo metadata. Generated Windows, Linux, and terminal
+//! hosts currently omit runtime plugins; use explicit registration in a custom
+//! host there. Guests enable the `guest` feature and reuse
+//! `guest::ScreenCapture` rather than resolving the plugin on every call.
+//! The plugin never captures pixels or reads screenshots; Android can protect
+//! its owned window, while iOS can observe scene capture and app screenshots
+//! without prevention.
+//!
+//! <!-- {/p_screen_captureSummary} -->
 
 use leptoskit_bridge::Bytes;
 use leptoskit_bridge::Error;

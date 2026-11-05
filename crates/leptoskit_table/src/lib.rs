@@ -1,4 +1,10 @@
-//! Headless tables for the shared leptoskit element tree.
+//! <!-- {=tableSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! It computes the model; the app renders rows with leptoskit components and
+//! keeps the same behavior on web and native. It pairs with `leptoskit_virtual`
+//! for long lists.
+//!
+//! <!-- {/tableSummary} -->
 //!
 //! This is `TanStack Table`'s model at its core, ported to leptoskit's grain:
 //! typed [`Column`]s describe how a row's cells read, sort, and filter;

@@ -1,5 +1,10 @@
-//! The wire protocol shared by leptoskit's `DevTools` agents, hub, interface,
-//! and MCP tools.
+//! <!-- {=devtools_protocolSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! It has no platform code: the browser, native host, guest, and front end all
+//! speak the same protocol. A version mismatch is refused and both versions are
+//! named.
+//!
+//! <!-- {/devtools_protocolSummary} -->
 //!
 //! The types here are serde only, with no platform code. A web agent, a native
 //! host, a native guest, the local hub, the hub page, and the MCP tools all

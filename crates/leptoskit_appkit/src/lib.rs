@@ -1,5 +1,11 @@
-//! The leptoskit AppKit backend: renders leptoskit element trees as real
-//! macOS views.
+//! <!-- {=appkitSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! A `NativeSurface` built on it renders the same tree the web build renders as
+//! DOM. AppKit is the reference backend, used by the gallery and custom Rust
+//! hosts. Generated macOS apps use the smaller Swift renderer in
+//! `leptoskit_bridge_ffi`.
+//!
+//! <!-- {/appkitSummary} -->
 //!
 //! [`AppKitBackend`] implements
 //! [`NativeBackend`](leptoskit_native::NativeBackend),

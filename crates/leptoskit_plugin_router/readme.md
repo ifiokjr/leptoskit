@@ -21,6 +21,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_router"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_router"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_router.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_router"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_router/badge.svg"></a>
@@ -28,6 +30,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -52,7 +56,11 @@ leptoskit plugin:router routes --check    # fail instead of writing when the com
 
 ## How it fits
 
+<!-- {=p_routerSummary} -->
+
 Generated apps enable it by default, so `src/routes/` is always in step with the build. The runtime and derive live in `leptoskit_router`; this crate only owns the build hook.
+
+<!-- {/p_routerSummary} -->
 
 ## Use it
 

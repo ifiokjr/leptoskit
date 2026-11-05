@@ -1,6 +1,15 @@
-//! Explicit iOS App Tracking Transparency status and authorization requests.
-//! This crate never reads advertising identifiers or starts tracking. A status
-//! is a current OS observation, not a permanent grant or a promise of a prompt.
+//! <!-- {=p_tracking_transparencySummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_tracking_transparency` as a direct dependency and
+//! select the `tracking-transparency` plugin in `native.plugins`; supported
+//! generated hosts discover it from Cargo metadata. Generated Windows, Linux,
+//! and terminal hosts currently omit runtime plugins; use explicit registration
+//! in a custom host there. Guests enable the `guest` feature and reuse
+//! `guest::TrackingTransparency` rather than resolving the plugin on every
+//! call. It never reads advertising identifiers or starts tracking; iOS returns
+//! the system status, and other platforms return `Unavailable`.
+//!
+//! <!-- {/p_tracking_transparencySummary} -->
 
 use leptoskit_bridge::Error;
 use leptoskit_bridge::MethodId;

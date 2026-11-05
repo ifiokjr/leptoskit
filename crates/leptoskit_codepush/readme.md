@@ -21,6 +21,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_codepush"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_codepush"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_codepush.svg"></a>
   <a href="https://docs.rs/leptoskit_codepush"><img alt="docs.rs" src="https://docs.rs/leptoskit_codepush/badge.svg"></a>
@@ -28,6 +30,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -45,7 +49,11 @@ A release is a `BundleManifest` — content-hashed, gzip-compressed files packed
 
 ## How it fits
 
+<!-- {=codepushSummary} -->
+
 `leptoskit codepush` uses it to pack and publish, `leptoskit_axum` serves it, and `leptoskit_wasm` consumes it on the device. It is the React Native update model applied to the interface bundle.
+
+<!-- {/codepushSummary} -->
 
 ## Use it
 

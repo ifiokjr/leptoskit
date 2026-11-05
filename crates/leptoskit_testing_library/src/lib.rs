@@ -1,5 +1,10 @@
-//! Testing Library queries and widget-test actions for leptoskit components
-//! in a real browser.
+//! <!-- {=testing_librarySummary|trim|linePrefix:"//! ":true} -->
+//!
+//! It mounts through the web renderer and shares finders with
+//! `leptoskit_testing`, so a team can test the browser build with the same
+//! vocabulary it uses for native widget tests.
+//!
+//! <!-- {/testing_librarySummary} -->
 //!
 //! [`render`] mounts a component with the leptoskit web renderer, the same
 //! way a leptoskit web app does, and returns a [`Screen`]. Find what a user

@@ -21,6 +21,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_rpc"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_rpc"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_rpc.svg"></a>
   <a href="https://docs.rs/leptoskit_rpc"><img alt="docs.rs" src="https://docs.rs/leptoskit_rpc/badge.svg"></a>
@@ -28,6 +30,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -51,7 +55,11 @@ Leptos server functions are already typed, isomorphic RPC. This crate adds the l
 
 ## How it fits
 
+<!-- {=rpcSummary} -->
+
 It is the boundary between shared screens and the server. The same call runs during SSR, in the browser, and in a native guest; `leptoskit_rpc_codegen` turns the specification into TypeScript, Python, Go, Rust, Dart, and CLI clients.
+
+<!-- {/rpcSummary} -->
 
 ## Use it
 

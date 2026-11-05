@@ -1,8 +1,14 @@
-//! Bounded WebSocket messages over native Tokio/tungstenite or browser
-//! WebSocket. Explicit destination origins are required. Browser receive queues
-//! have byte and item limits; overflow closes the socket rather than losing
-//! messages or accumulating indefinitely. Native receives apply socket
-//! backpressure.
+//! <!-- {=p_websocketSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_websocket` as a direct dependency and select the
+//! `websocket` plugin in `native.plugins`; supported generated hosts discover
+//! it from Cargo metadata. Generated Windows, Linux, and terminal hosts
+//! currently omit runtime plugins; use explicit registration in a custom host
+//! there. Native connections use tokio-tungstenite with rustls and need a Tokio
+//! runtime; browser connections own their socket and event callbacks. Every
+//! destination origin is explicit.
+//!
+//! <!-- {/p_websocketSummary} -->
 //!
 //! Native registrants enable `async-host`; Wasm apps enable `guest` to use the
 //! cached native client. Browser clients use the default `browser` feature.

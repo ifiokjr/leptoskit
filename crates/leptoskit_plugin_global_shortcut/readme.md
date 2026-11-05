@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_global_shortcut"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_global_shortcut"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_global_shortcut.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_global_shortcut"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_global_shortcut/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -45,12 +49,16 @@ Tests use an injected backend to verify guards, conflicts and overflow without s
 
 ## How it fits
 
-Native hosts construct it explicitly; it is not a guest plugin and installs nothing by default. macOS, Windows, and X11 are supported; native Wayland, browsers, and mobile return `Unavailable`, with no XWayland fallback or fake browser shortcut.
+<!-- {=p_global_shortcutSummary} -->
+
+Native hosts construct `GlobalShortcuts` after event-loop startup and may expose `ShortcutPlugin` to the typed guest client. There is no automatic `native.plugins` registration. macOS, Windows, and X11 are supported; native Wayland, browsers, and mobile return `Unavailable`, with no `XWayland` fallback or fake browser shortcut.
+
+<!-- {/p_global_shortcutSummary} -->
 
 ## Use it
 
 ```toml
-# Host-only: construct it explicitly; there is no `native.plugins` entry.
+# Construct the host explicitly; there is no automatic `native.plugins` entry.
 [dependencies]
 leptoskit_plugin_global_shortcut = "0.1"
 ```

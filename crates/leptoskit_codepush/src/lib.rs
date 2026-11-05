@@ -1,5 +1,10 @@
-//! Code push for wasm app bundles: the React Native over-the-air update
-//! model, applied to the bundle that runs the native interface.
+//! <!-- {=codepushSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! `leptoskit codepush` uses it to pack and publish, `leptoskit_axum` serves
+//! it, and `leptoskit_wasm` consumes it on the device. It is the React Native
+//! update model applied to the interface bundle.
+//!
+//! <!-- {/codepushSummary} -->
 //!
 //! The app shell ships with a wasm bundle through the store; every later
 //! change ships as a release on a channel. A release is a

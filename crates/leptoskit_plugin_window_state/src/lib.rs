@@ -1,4 +1,11 @@
-//! Persist a window's normal bounds and restore them onto available displays.
+//! <!-- {=p_window_stateSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Native hosts construct it explicitly; it is not a guest plugin and installs
+//! nothing by default. The portable state and placement API works everywhere;
+//! native capture and restore adapters currently ship for macOS, and the host
+//! owns persistence and which window is restored.
+//!
+//! <!-- {/p_window_stateSummary} -->
 //!
 //! Coordinates use the host's logical screen coordinate system, never physical
 //! pixels. Persist [`WindowState`] with the application's store; restore

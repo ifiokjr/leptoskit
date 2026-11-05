@@ -1,4 +1,10 @@
-//! The Axum server toolkit for leptoskit projects.
+//! <!-- {=axumSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! The generated server mounts it beside `leptos_axum`; apps that serve their
+//! own assets use the same functions. It stays leptos-free so the server binary
+//! only pays for what it uses.
+//!
+//! <!-- {/axumSummary} -->
 //!
 //! Axum is the one supported server. This crate assembles the pieces every
 //! leptoskit deployment needs around it:

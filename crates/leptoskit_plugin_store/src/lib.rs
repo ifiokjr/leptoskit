@@ -1,4 +1,14 @@
-//! Bounded JSON settings with explicit persistence and atomic batches.
+//! <!-- {=p_storeSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_store` as a direct dependency and select the `store`
+//! plugin in `native.plugins`; supported generated hosts discover it from Cargo
+//! metadata. Generated Windows, Linux, and terminal hosts currently omit
+//! runtime plugins; use explicit registration in a custom host there. Guests
+//! enable the `guest` feature and reuse `guest::Store` rather than resolving
+//! the plugin on every call. Each application gets one store, values are JSON
+//! over a binary envelope, and guests cannot choose filesystem paths.
+//!
+//! <!-- {/p_storeSummary} -->
 //!
 //! Values are JSON; the RPC envelope is binary. Native storage is confined to
 //! one app-owned file. Generated hosts run all operations on a Rust worker.

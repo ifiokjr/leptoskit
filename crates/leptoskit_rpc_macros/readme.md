@@ -21,6 +21,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_rpc_macros"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_rpc_macros"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_rpc_macros.svg"></a>
   <a href="https://docs.rs/leptoskit_rpc_macros"><img alt="docs.rs" src="https://docs.rs/leptoskit_rpc_macros/badge.svg"></a>
@@ -28,6 +30,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -45,14 +49,19 @@ Options: `internal` (callable, just not publicized), `name = "..."`, `tag = "...
 
 ## How it fits
 
-Use them through `leptoskit_rpc`; an `#[api]` publishes a leptos server function to generated clients, while queries and mutations add the client-side retry and cache behavior.
+<!-- {=rpc_macrosSummary} -->
+
+Use them through `leptoskit_rpc`; an `#[api]` publishes a leptos server function to generated clients, while query and mutation attributes generate operation arguments and server registration. Retry and cache behavior belongs to `leptoskit_rpc` and `leptoskit_query`.
+
+<!-- {/rpc_macrosSummary} -->
 
 ## Use it
 
 ```rust,ignore
 #[leptoskit_rpc::query]
-async fn note(id: u64) -> Result<Note, ServerFnError> {
-    leptos::server::note(id).await
+async fn note(cx: &leptoskit_rpc::QueryCx, id: u64) -> leptoskit_rpc::Result<Note> {
+    // Read through the application database using cx.db().
+    todo!()
 }
 ```
 

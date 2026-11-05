@@ -1,4 +1,11 @@
-//! Async state management for leptos in the style of TanStack Query.
+//! <!-- {=querySummary|trim|linePrefix:"//! ":true} -->
+//!
+//! It is the data layer for screens that read server functions: queries share a
+//! cache across components, refetch on focus and reconnect, persist across tabs
+//! or native windows, and pause offline. `leptoskit_rpc` supplies the calls it
+//! wraps.
+//!
+//! <!-- {/querySummary} -->
 //!
 //! Queries are cached, deduplicated, retried, refetched when stale, and
 //! garbage collected when nobody is looking. Mutations get lifecycle

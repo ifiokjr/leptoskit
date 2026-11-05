@@ -21,6 +21,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_fmt"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_fmt"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_fmt.svg"></a>
   <a href="https://docs.rs/leptoskit_fmt"><img alt="docs.rs" src="https://docs.rs/leptoskit_fmt/badge.svg"></a>
@@ -28,6 +30,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -62,7 +66,11 @@ See the [formatter guide](https://ifiokjr.github.io/leptoskit/guide/12-formattin
 
 ## How it fits
 
+<!-- {=fmtSummary} -->
+
 rustfmt leaves `view!` markup alone, so this fills the gap without a second Rust formatter. It runs in editor integrations, pre-commit, and CI, and agrees with the lint rules.
+
+<!-- {/fmtSummary} -->
 
 ## Use it
 

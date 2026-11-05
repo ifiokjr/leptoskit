@@ -1,4 +1,14 @@
-//! Text clipboard access through native OS APIs or the browser Clipboard API.
+//! <!-- {=p_clipboardSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_clipboard` as a direct dependency and select the
+//! `clipboard` plugin in `native.plugins`; supported generated hosts discover
+//! it from Cargo metadata. Generated Windows, Linux, and terminal hosts
+//! currently omit runtime plugins; use explicit registration in a custom host
+//! there. Guests enable the `guest` feature and reuse `guest::Clipboard` rather
+//! than resolving the plugin on every call. Only plain text is supported;
+//! browser operations need a secure context and may need a user gesture.
+//!
+//! <!-- {/p_clipboardSummary} -->
 //!
 //! Browser operations require a secure context and may require a user gesture.
 //! Apple and Android native implementations are shipped alongside this crate,

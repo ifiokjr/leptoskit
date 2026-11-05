@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_android"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_android"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_android.svg"></a>
   <a href="https://docs.rs/leptoskit_android"><img alt="docs.rs" src="https://docs.rs/leptoskit_android/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -39,9 +43,21 @@ Run `cargo run -p leptoskit_android --example verify_device` with `ANDROID_SERIA
 
 The verifier requires SDK API 35, build-tools 36.0.0, NDK 27.1.12297006, `kotlinc`, Java 17 or newer, `curl`, and `zip`. The Activity requires Android 9 (API 28). Both `arm64-v8a` and `x86_64` test ABIs are supported. The verifier pins Kotlin stdlib 2.1.21 by SHA-256 to match D8 metadata support, and aligns the native library and APK for 16 KiB pages. It checks actual Android controls, controlled rejection and replacement, native accessibility, logical viewport changes, RTL text, background state, scroll extents, and animation teardown. `widgets.png` captures the hardware-rendered Activity with PixelCopy.
 
+## Generated host limits
+
+<!-- {=generatedHostLimits} -->
+
+Generated macOS, iOS, and Android apps use the Swift or Kotlin renderers in `leptoskit_bridge_ffi`. They support `View`, `Text`, `Button`, `Pressable`, `TextInput`, `PasswordInput`, `ScrollView`, `Image`, `Vector`, and `Rive`. Other control kinds fail with an unsupported-widget error. Accessible names are forwarded; a labelled `Vector` is an accessible image and `Rive` can be decorative. Most other roles and states are not forwarded. The Rust backend crates support a wider control set. Generated Windows and Linux apps use the full Rust backends, but currently omit runtime plugin registration. Automatic code push update checks currently run only in generated iOS and Android hosts.
+
+<!-- {/generatedHostLimits} -->
+
 ## How it fits
 
+<!-- {=androidSummary} -->
+
 Compile `android/WidgetHost.kt` into an Android app and construct `AndroidBackend::new` on the UI thread. Every built-in primitive renders a real view; callbacks propose typed events that the app commits through `NativeSurface`.
+
+<!-- {/androidSummary} -->
 
 ## Use it
 

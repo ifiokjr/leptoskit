@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_devtools"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_devtools"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_devtools.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_devtools"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_devtools/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -39,7 +43,11 @@ The `guest` feature has the guest's client; `async-host` has the host's half, an
 
 ## How it fits
 
+<!-- {=p_devtoolsSummary} -->
+
 Apps never select it. The shared runtime installs it in `leptoskit dev` builds, and the host merges the guest's route, state, forms, and queries into the session it reports.
+
+<!-- {/p_devtoolsSummary} -->
 
 ## Use it
 

@@ -1,5 +1,17 @@
-//! Application-private `SQLite` with typed bindings and bounded binary
-//! messages.
+//! <!-- {=p_sqliteSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_sqlite` as a direct dependency and select the `sqlite`
+//! plugin in `native.plugins`; supported generated hosts discover it from Cargo
+//! metadata. Generated Windows, Linux, and terminal hosts currently omit
+//! runtime plugins; use explicit registration in a custom host there. Guests
+//! enable the `guest` feature and reuse `guest::Sqlite` rather than resolving
+//! the plugin on every call. The database lives in Rust, not a platform channel
+//! or JavaScript engine, with native implementations for iOS, Android, macOS,
+//! Windows, and Linux. Generated Windows and Linux hosts do not yet register
+//! runtime plugins; custom hosts must register it themselves. The browser has
+//! no SQLite plugin.
+//!
+//! <!-- {/p_sqliteSummary} -->
 //!
 //! Native calls run on the host's Rust worker. Each statement or explicit batch
 //! is atomic. Browser builds expose the types, but have no `SQLite`/OPFS

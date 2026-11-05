@@ -1,4 +1,16 @@
-//! Fold state, hinge geometry, and hinge angles for foldable phones.
+//! <!-- {=p_postureSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_posture` as a direct dependency and select the
+//! `posture` plugin in `native.plugins`; supported generated hosts discover it
+//! from Cargo metadata. Generated Windows, Linux, and terminal hosts currently
+//! omit runtime plugins; use explicit registration in a custom host there.
+//! Guests enable the `guest` feature and reuse `guest::DevicePosture` rather
+//! than resolving the plugin on every call. A posture describes the device the
+//! app is running on and every hinge that crosses its window; desktop reports a
+//! rigid device; supporting browsers use Device Posture and Viewport Segments,
+//! with a rigid fallback when those APIs are absent.
+//!
+//! <!-- {/p_postureSummary} -->
 //!
 //! A [`Posture`] describes how the device the app runs on is folded right now:
 //! closed on its cover screen, half open like a laptop or a book, or open

@@ -1,5 +1,11 @@
-//! The `#[api]` attribute: publishes a leptos server function to generated
-//! clients.
+//! <!-- {=rpc_macrosSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Use them through `leptoskit_rpc`; an `#[api]` publishes a leptos server
+//! function to generated clients, while query and mutation attributes generate
+//! operation arguments and server registration. Retry and cache behavior
+//! belongs to `leptoskit_rpc` and `leptoskit_query`.
+//!
+//! <!-- {/rpc_macrosSummary} -->
 //!
 //! This crate is an implementation detail of `leptoskit_rpc`; use the
 //! attribute through `leptoskit_rpc::api`.

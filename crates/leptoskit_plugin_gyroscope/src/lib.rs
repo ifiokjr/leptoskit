@@ -1,6 +1,15 @@
-//! Demand-driven gyroscope readings with bounded native acquisition.
-//! See the crate readme for units, permission requirements, and platform
-//! limits.
+//! <!-- {=p_gyroscopeSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_gyroscope` as a direct dependency and select the
+//! `gyroscope` plugin in `native.plugins`; supported generated hosts discover
+//! it from Cargo metadata. Generated Windows, Linux, and terminal hosts
+//! currently omit runtime plugins; use explicit registration in a custom host
+//! there. Guests enable the `guest` feature and reuse `guest::Gyroscope` rather
+//! than resolving the plugin on every call. iOS and Android use real system
+//! sensors, desktop has no sensor, and the browser converts `DeviceMotion`
+//! degrees to radians.
+//!
+//! <!-- {/p_gyroscopeSummary} -->
 
 use leptoskit_bridge::Error;
 pub use leptoskit_sensor::AVAILABLE;

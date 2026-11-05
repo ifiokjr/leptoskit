@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_rive"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_rive"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_rive.svg"></a>
   <a href="https://docs.rs/leptoskit_rive"><img alt="docs.rs" src="https://docs.rs/leptoskit_rive/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -94,7 +98,11 @@ The canvas must have an `aria-label`, or `aria-hidden="true"` when decorative. I
 
 ## How it fits
 
+<!-- {=riveSummary} -->
+
 The shared `Rive` component uses it on every backend that supports vector playback; the runtime crate pins the offline C++ build behind it. Apps bring their own assets and keep playback out of the network path.
+
+<!-- {/riveSummary} -->
 
 ## Use it
 

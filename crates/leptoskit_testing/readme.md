@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_testing"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_testing"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_testing.svg"></a>
   <a href="https://docs.rs/leptoskit_testing"><img alt="docs.rs" src="https://docs.rs/leptoskit_testing/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -52,7 +56,11 @@ For native controls, system permission dialogs, real screenshots, and optional c
 
 ## How it fits
 
+<!-- {=testingSummary} -->
+
 It tests element trees without a device, using semantic finders, interactions, bounded pumping, and diagnostic trees. The CLI can run the same journeys against a real native app.
+
+<!-- {/testingSummary} -->
 
 ## Use it
 

@@ -1,6 +1,15 @@
-//! Mobile brightness overrides with explicit restoration. Android changes only
-//! the activity window. iOS changes its screen and restores the previous value
-//! on explicit restore or plugin close. This is not a system settings writer.
+//! <!-- {=p_brightnessSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_brightness` as a direct dependency and select the
+//! `brightness` plugin in `native.plugins`; supported generated hosts discover
+//! it from Cargo metadata. Generated Windows, Linux, and terminal hosts
+//! currently omit runtime plugins; use explicit registration in a custom host
+//! there. Guests enable the `guest` feature and reuse `guest::Brightness`
+//! rather than resolving the plugin on every call. Android changes only
+//! the activity window, iOS changes the screen and restores the previous value,
+//! and desktop and the browser return `Unavailable`.
+//!
+//! <!-- {/p_brightnessSummary} -->
 
 use leptoskit_bridge::Error;
 use leptoskit_bridge::MethodId;

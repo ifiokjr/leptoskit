@@ -1,6 +1,11 @@
-//! The self-hosted deployment service and `LeptosKit` dashboard. The `server`
-//! feature enables its durable API/worker; the older design prototype remains
-//! available as an independent example.
+//! <!-- {=deploy_consoleSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! One optional service hosts the dashboard, durable operation queue, scoped
+//! agent API and analytics history. It uses SQLite and reuses the existing
+//! `OpenTofu`/Kamal engine through fixed CLI operations. No Redis or separate
+//! monitoring database is required.
+//!
+//! <!-- {/deploy_consoleSummary} -->
 
 #[cfg(feature = "server")]
 pub mod control;

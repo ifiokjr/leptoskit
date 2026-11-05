@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_application"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_application"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_application.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_application"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_application/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -39,7 +43,11 @@ The initial port covers the four identity constants from [Expo Application](http
 
 ## How it fits
 
-Add `leptoskit_plugin_application` as a direct dependency and select the `application` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::Application` rather than resolving the plugin on every call. Apple reads `Bundle.main`, Android reads the running package record, and a Rust desktop host supplies its own packaging metadata; browsers have no equivalent installed-app identity.
+<!-- {=p_applicationSummary} -->
+
+Add `leptoskit_plugin_application` as a direct dependency and select the `application` plugin in `native.plugins`; supported generated hosts discover it from Cargo metadata. Generated Windows, Linux, and terminal hosts currently omit runtime plugins; use explicit registration in a custom host there. Guests enable the `guest` feature and reuse `guest::Application` rather than resolving the plugin on every call. Apple reads `Bundle.main`, Android reads the running package record, and a Rust desktop host supplies its own packaging metadata; browsers have no equivalent installed-app identity.
+
+<!-- {/p_applicationSummary} -->
 
 ## Use it
 

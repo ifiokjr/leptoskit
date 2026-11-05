@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_arguments"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_arguments"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_arguments.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_arguments"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_arguments/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -43,7 +47,11 @@ References: [Tauri CLI](https://v2.tauri.app/plugin/cli/), [Electron process arg
 
 ## How it fits
 
+<!-- {=p_argumentsSummary} -->
+
 Add `leptoskit_plugin_arguments` as a direct dependency and expose the plugin explicitly from the native host; it has no `native.plugins` entry. Guests enable the `guest` feature and reuse `guest::ArgumentsClient` rather than resolving the plugin on every call. The host chooses which arguments to disclose; mobile and browser process capture returns `Unavailable`, while explicit snapshots and parsing still work.
+
+<!-- {/p_argumentsSummary} -->
 
 ## Use it
 

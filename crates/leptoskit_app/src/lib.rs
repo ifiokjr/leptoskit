@@ -1,4 +1,12 @@
-//! One management app for the web and native Wasm hosts.
+//! <!-- {=appSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! One `LeptosKit` component tree manages hosted installations from the web and
+//! native iOS/Android clients. The accompanying `leptoskit-cloud` binary hosts
+//! accounts, Stripe billing, per-account deployment journals, encrypted
+//! `OpenTofu` state and the worker API. Customer code runs on a dedicated
+//! outbound worker, using the existing CLI engine.
+//!
+//! <!-- {/appSummary} -->
 pub mod client;
 pub mod landing;
 pub mod motion;

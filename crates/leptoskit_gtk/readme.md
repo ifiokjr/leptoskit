@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_gtk"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_gtk"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_gtk.svg"></a>
   <a href="https://docs.rs/leptoskit_gtk"><img alt="docs.rs" src="https://docs.rs/leptoskit_gtk/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -43,13 +47,25 @@ The backend renders containers, labels and text runs, images, vector drawings, s
 
 GTK sliders use a normalized numeric accessibility range of `0..1`, matching GTK4's native accessibility setters; their accessible value text and spoken description expose the shared numeric value and bounds. The description also reaches older GTK4 AT-SPI implementations that omit value text from their numeric interface. Typed events always use the shared `f64` range and canonical step grid. Radios publish group position relations and a spoken position description because GTK4.8 does not export those relations as AT-SPI attributes. Pressable descendants remain decorative in the accessibility tree.
 
-Requires GTK 4.6 or newer; verified on GTK 4.8.3. On Debian/Ubuntu, install `libgtk-4-dev`, `pkg-config`, `xvfb`, `xauth`, `dbus-x11`, `at-spi2-core`, `fonts-dejavu-core`, and `xdotool`. Run the native harness with.
+Requires GTK 4.6 or newer; verified on GTK 4.8.3. On Debian/Ubuntu, install `libgtk-4-dev`, `pkg-config`, `xvfb`, `xauth`, `dbus-x11`, `at-spi2-core`, `fonts-dejavu-core`, and `xdotool`. Run the native harness with the command under "Use it" below.
 
 The harness opens actual GTK windows, sends pointer and keyboard input, queries and sets AT-SPI values, and compares allocations, text metrics, focus, scrolling, and rendered pixels. Generated fixture images and snapshots go under `target/native-widgets/gtk/<process-id>/`; set `LEPTOSKIT_GTK_ARTIFACTS` to change the parent directory. Each run includes a readable `catalog.png` plus geometry, clipping, paint, rounded-control, and writing-direction artifacts.
 
+## Generated host limits
+
+<!-- {=generatedHostLimits} -->
+
+Generated macOS, iOS, and Android apps use the Swift or Kotlin renderers in `leptoskit_bridge_ffi`. They support `View`, `Text`, `Button`, `Pressable`, `TextInput`, `PasswordInput`, `ScrollView`, `Image`, `Vector`, and `Rive`. Other control kinds fail with an unsupported-widget error. Accessible names are forwarded; a labelled `Vector` is an accessible image and `Rive` can be decorative. Most other roles and states are not forwarded. The Rust backend crates support a wider control set. Generated Windows and Linux apps use the full Rust backends, but currently omit runtime plugin registration. Automatic code push update checks currently run only in generated iOS and Android hosts.
+
+<!-- {/generatedHostLimits} -->
+
 ## How it fits
 
-Initialize GTK on the application thread, construct `GtkBackend`, and hand it to `NativeSurface`. `open_window` hosts a committed root and `run_app` drives the loop; GTK objects stay on their creating thread.
+<!-- {=gtkSummary} -->
+
+Initialize GTK on the application thread, construct `GtkBackend`, and hand it to `NativeSurface`. `open_window` hosts a committed root and `run_application` drives the loop; GTK objects stay on their creating thread.
+
+<!-- {/gtkSummary} -->
 
 ## Use it
 

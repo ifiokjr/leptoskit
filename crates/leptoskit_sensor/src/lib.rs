@@ -1,4 +1,11 @@
-//! Shared binary protocol for demand-driven sensor samples.
+//! <!-- {=sensorSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! The sensor plugins share its request/reply layout, cancellation rules,
+//! timestamps, and browser fallbacks, so an app can switch sensors without
+//! relearning the contract. Apps depend on the individual sensor crate; this
+//! crate is the common floor.
+//!
+//! <!-- {/sensorSummary} -->
 //!
 //! Each request acquires one fresh reading and releases the native
 //! subscription. Repeated calls are intentionally not a fixed-rate lossless

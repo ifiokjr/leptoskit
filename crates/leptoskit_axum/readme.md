@@ -21,6 +21,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_axum"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_axum"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_axum.svg"></a>
   <a href="https://docs.rs/leptoskit_axum"><img alt="docs.rs" src="https://docs.rs/leptoskit_axum/badge.svg"></a>
@@ -28,6 +30,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -37,7 +41,11 @@ Axum is the one supported server. This crate wraps the pieces every deployment n
 
 ## How it fits
 
+<!-- {=axumSummary} -->
+
 The generated server mounts it beside `leptos_axum`; apps that serve their own assets use the same functions. It stays leptos-free so the server binary only pays for what it uses.
+
+<!-- {/axumSummary} -->
 
 ## Use it
 

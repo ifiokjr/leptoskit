@@ -1,6 +1,15 @@
-//! Text-to-speech with one active utterance per plugin. Overlap returns `Busy`;
-//! successful completion means the engine finished, not merely queued text.
-//! Dropping a guest call cancels its host job; `stop` cancels active speech.
+//! <!-- {=p_speechSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_speech` as a direct dependency and select the `speech`
+//! plugin in `native.plugins`; supported generated hosts discover it from Cargo
+//! metadata. Generated Windows, Linux, and terminal hosts currently omit
+//! runtime plugins; use explicit registration in a custom host there. Guests
+//! enable the `guest` feature and reuse `guest::Speech` rather than resolving
+//! the plugin on every call. iOS and macOS use `AVSpeechSynthesizer`, Android
+//! uses `TextToSpeech`, and the browser uses `speechSynthesis`; overlapping
+//! speech returns `Busy`.
+//!
+//! <!-- {/p_speechSummary} -->
 //!
 //! Speak wire v1: u32 version, rate/pitch/volume in thousandths, then bounded
 //! length-prefixed UTF-8 text, language and voice ID. Voice replies: u32

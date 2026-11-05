@@ -1,5 +1,15 @@
-//! Requests an OS-controlled store review flow. Acceptance never proves that a
-//! dialog appeared, a review was submitted, or a rating was selected.
+//! <!-- {=p_store_reviewSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_store_review` as a direct dependency and select the
+//! `store-review` plugin in `native.plugins`; supported generated hosts
+//! discover it from Cargo metadata. Generated Windows, Linux, and terminal
+//! hosts currently omit runtime plugins; use explicit registration in a custom
+//! host there. Guests enable the `guest` feature and reuse `guest::StoreReview`
+//! rather than resolving the plugin on every call. Acceptance never
+//! proves a dialog appeared or a review was submitted, and the plugin never
+//! substitutes another application's scene.
+//!
+//! <!-- {/p_store_reviewSummary} -->
 
 use leptoskit_bridge::Error;
 use leptoskit_bridge::MethodId;

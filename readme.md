@@ -20,7 +20,7 @@
 
 ---
 
-leptoskit brings write once deploy everywhere to the leptos ecosystem. Write leptos components and ship them to the browser with SSR and hydration. Ship the same interface as **real native widgets** on iOS, Android, browser extensions, and desktop apps, with no web view, and over the air updates which can bypass the app stores for non-native changes.
+Write shared LeptosKit components for web SSR and hydration, browser extensions, and native apps. Web and extensions render HTML and CSS; native apps render platform widgets without a web view. Generated iOS and Android hosts can download signed WebAssembly interface updates, subject to host capabilities and store policies.
 
 ## Examples
 
@@ -38,7 +38,13 @@ Every platform has a guide in [the documentation](https://ifiokjr.github.io/lept
 
 The [`platform_probe`](examples/platform_probe) suite tests the whole stack: yoga layout, renderer diffing, the wasm ABI runtime, and a code push delta update over the real HTTP surface. CI runs it on Linux, macOS, Windows, and the iOS simulator, and cross-compiles it for Android. Locally, run it with `test:all`, `ios_sim_run`, or `android_emulator_run`.
 
-Platform backends apply mutation batches to UIKit, AppKit, Android, Win32, and GTK widgets. AppKit is the most complete; the others render every built-in primitive and run in CI on a simulator, an emulator, or a desktop runner. The renderer also has a headless backend for portable tests.
+Platform backend crates apply mutation batches to UIKit, AppKit, Android, Win32, and GTK widgets. AppKit is the reference backend. Generated Apple and Android apps use smaller Swift or Kotlin renderers; the backend crates cover more controls. The renderer also has a headless backend for portable tests.
+
+<!-- {=generatedHostLimits} -->
+
+Generated macOS, iOS, and Android apps use the Swift or Kotlin renderers in `leptoskit_bridge_ffi`. They support `View`, `Text`, `Button`, `Pressable`, `TextInput`, `PasswordInput`, `ScrollView`, `Image`, `Vector`, and `Rive`. Other control kinds fail with an unsupported-widget error. Accessible names are forwarded; a labelled `Vector` is an accessible image and `Rive` can be decorative. Most other roles and states are not forwarded. The Rust backend crates support a wider control set. Generated Windows and Linux apps use the full Rust backends, but currently omit runtime plugin registration. Automatic code push update checks currently run only in generated iOS and Android hosts.
+
+<!-- {/generatedHostLimits} -->
 
 ## The architecture
 
@@ -47,16 +53,16 @@ Platform backends apply mutation batches to UIKit, AppKit, Android, Win32, and G
 | [`leptoskit_yoga`](crates/leptoskit_yoga)                       | A from-scratch layout engine: flexbox **and** CSS grid (`fr`, `minmax`, spans, dense auto-placement), gaps, `aspect_ratio`, RTL, `display: contents`.                                                       |
 | [`leptoskit_native`](crates/leptoskit_native)                   | The native renderer, built on the React Native renderer's design: element trees diff into mutation batches that a platform backend applies to real widgets.                                                 |
 | [`leptoskit_appkit`](crates/leptoskit_appkit)                   | The macOS backend: commits mutation batches into real AppKit views, measures text with AppKit's own font metrics, and renders view trees to PNG offscreen.                                                  |
-| [`leptoskit_wasm`](crates/leptoskit_wasm)                       | The on-device runtime: runs the app's wasm bundle in `wasmi`, an interpreter, so it is allowed on iOS, and drives the renderer through a versioned, fuel-metered ABI.                                       |
+| [`leptoskit_wasm`](crates/leptoskit_wasm)                       | The on-device runtime: runs the app's wasm bundle in `wasmi`, an interpreter that needs no JIT, and drives the renderer through a versioned, fuel-metered ABI.                                              |
 | [`leptoskit_codepush`](crates/leptoskit_codepush)               | Over-the-air updates: content-hashed manifests, a single-file bundle container, binary deltas, an update protocol, Axum routes, and a client that verifies every hash.                                      |
 | [`leptoskit_axum`](crates/leptoskit_axum)                       | The Axum server toolkit: static files with precompressed gzip, SPA fallback, health checks, and the code push registry. Axum is the one supported server.                                                   |
 | [`leptoskit_rpc`](crates/leptoskit_rpc)                         | Retrying queries and mutations over leptos server functions, with errors classified so "offline" and "invalid input" stop looking the same.                                                                 |
 | [`leptoskit_router`](crates/leptoskit_router)                   | Typed file routes: `src/routes/` becomes one `Route` enum that parses URLs and writes hrefs, generated by `leptoskit routes` with `leptoskit_router_codegen`.                                               |
 | [`leptoskit_query`](crates/leptoskit_query)                     | Async state in the style of TanStack Query: cached, deduplicated, retrying queries, infinite queries, and mutations on fine-grained signals, synced across tabs and windows.                                |
 | [`leptoskit_virtual`](crates/leptoskit_virtual)                 | Headless list virtualization in the style of TanStack Virtual: a windowing core over fixed or measured sizes, overscan, aligned scroll targets, and a scroll container that renders only the visible items. |
-| [`leptoskit_table`](crates/leptoskit_table)                     | Headless tables in the style of TanStack Table: typed columns, sortable and filterable rows, pagination, and a rendered grid of ARIA roles on every platform.                                               |
+| [`leptoskit_table`](crates/leptoskit_table)                     | Headless tables in the style of TanStack Table: typed columns, sortable and filterable rows, pagination, and shared grid semantics consumed according to each renderer’s accessibility support.             |
 | [`leptoskit_use`](crates/leptoskit_use)                         | Cross-platform reactive hooks: state, derived values, watchers, timers, storage, and viewport breakpoints without a DOM or executor.                                                                        |
-| [`leptoskit_aria`](crates/leptoskit_aria)                       | Headless accessible components: disclosure, toggle buttons, tabs, labeled fields, and dialogs wired for the web and every native backend.                                                                   |
+| [`leptoskit_aria`](crates/leptoskit_aria)                       | Headless accessible components: disclosure, toggle buttons, tabs, labeled fields, and dialogs expressed in shared metadata, with platform-specific accessibility limits.                                    |
 | [`leptoskit_form`](crates/leptoskit_form)                       | Headless form state in the style of TanStack Form: typed fields, sync validation, touch and submit tracking, and inputs wired through the aria fields.                                                      |
 | [`leptoskit_config`](crates/leptoskit_config)                   | `leptoskit.toml`: app identity, platforms, servers, native targets, code push channels, and plugin declarations.                                                                                            |
 | [`leptoskit_plugin`](crates/leptoskit_plugin)                   | The plugin system: build hooks for leptoskit plugins, and leptos plugins forwarded as app cargo features.                                                                                                   |
@@ -83,7 +89,7 @@ leptoskit codepush serve                 # or serve updates to devices yourself
 leptoskit doctor                         # check the toolchain
 ```
 
-Both installs include `lk`, a shorter alias for the same CLI: `lk new my_app`, `lk dev`, `lk build`. Help and completions answer to whichever name you type.
+The install includes `lk`, a shorter alias for the same CLI: `lk new my_app`, `lk dev`, `lk build`. Help and completions answer to whichever name you type.
 
 `leptoskit new amazing` creates `amazing_app`, `amazing_backend`, and `amazing_shared` crates, with the SSR server in root `src/main.rs`. The app owns routes, components, and state for every platform. Backend implementation stays server-only, and shared contracts live in the shared crate. App-owned `web/`, `ios/`, `android/`, `macos/`, `windows/`, and `linux/` folders contain platform integration. Generated state stays in ignored `.leptoskit/` directories.
 
@@ -93,7 +99,7 @@ Speed is a feature. cargo stays in charge of compiling, and leptoskit fingerprin
 
 ## Native is really native
 
-A leptos component tree maps one-to-one onto native widgets: every `Element` becomes a `UIView`, an Android view, or an `NSView` through the platform backend, never a web view. The wasm bundle running that interface is the same artifact code push delivers, so an app shell that went through store review can run any interface version the server has.
+Native renderers translate the shared element tree into platform widgets. An element can use several native views or layers, and supported component kinds differ by host. Code push can replace a compatible guest bundle on hosts that implement update checks. Updates must satisfy the installed host’s ABI, signing and version policy, and the distribution platform’s rules.
 
 ## Server functions
 

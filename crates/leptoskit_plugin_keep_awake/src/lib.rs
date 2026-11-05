@@ -1,7 +1,16 @@
-//! Scoped display wake locks. A native HOLD request remains pending for the
-//! lease's entire lifetime; dropping its guest future cancels and releases it.
-//! There is no separate acquire response that can race cancellation and leak a
-//! token. Poll a holding future alongside work to observe failures promptly.
+//! <!-- {=p_keep_awakeSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_keep_awake` as a direct dependency and select the
+//! `keep-awake` plugin in `native.plugins`; supported generated hosts discover
+//! it from Cargo metadata. Generated Windows, Linux, and terminal hosts
+//! currently omit runtime plugins; use explicit registration in a custom host
+//! there. Guests enable the `guest` feature and reuse `guest::KeepAwake` rather
+//! than resolving the plugin on every call. iOS preserves and restores the idle
+//! timer, Android uses the activity's keep-screen-on flag, desktop uses OS
+//! assertions, and the browser uses the Screen Wake Lock API; none of them
+//! promise background execution.
+//!
+//! <!-- {/p_keep_awakeSummary} -->
 
 use leptoskit_bridge::Error;
 use leptoskit_bridge::MethodId;

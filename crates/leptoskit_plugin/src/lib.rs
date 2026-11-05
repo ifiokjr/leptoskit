@@ -1,5 +1,11 @@
-//! The plugin system: one trait, a registry, and the build hooks plugins can
-//! intercept.
+//! <!-- {=pluginSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! A plugin crate implements `LeptoskitPlugin` and is declared in
+//! `leptoskit.toml`; leptos plugins are forwarded to the app build as cargo
+//! features. Runtime native plugins use the bridge instead; this is the
+//! build-time half.
+//!
+//! <!-- {/pluginSummary} -->
 //!
 //! Two kinds of plugins ride the same declaration in `leptoskit.toml`:
 //!

@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_screen_capture"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_screen_capture"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_screen_capture.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_screen_capture"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_screen_capture/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -60,7 +64,11 @@ The implementation follows the capability areas exposed by [Expo ScreenCapture](
 
 ## How it fits
 
-Add `leptoskit_plugin_screen_capture` as a direct dependency and select the `screen-capture` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::ScreenCapture` rather than resolving the plugin on every call. The plugin never captures pixels or reads screenshots; Android can protect its owned window, while iOS can observe scene capture and app screenshots without prevention.
+<!-- {=p_screen_captureSummary} -->
+
+Add `leptoskit_plugin_screen_capture` as a direct dependency and select the `screen-capture` plugin in `native.plugins`; supported generated hosts discover it from Cargo metadata. Generated Windows, Linux, and terminal hosts currently omit runtime plugins; use explicit registration in a custom host there. Guests enable the `guest` feature and reuse `guest::ScreenCapture` rather than resolving the plugin on every call. The plugin never captures pixels or reads screenshots; Android can protect its owned window, while iOS can observe scene capture and app screenshots without prevention.
+
+<!-- {/p_screen_captureSummary} -->
 
 ## Use it
 

@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_websocket"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_websocket"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_websocket.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_websocket"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_websocket/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -60,7 +64,11 @@ References: [Tauri WebSocket plugin](https://v2.tauri.app/plugin/websocket/), [t
 
 ## How it fits
 
-Add `leptoskit_plugin_websocket` as a direct dependency and select the `websocket` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Native connections use tokio-tungstenite with rustls and need a Tokio runtime; browser connections own their socket and event callbacks. Every destination origin is explicit.
+<!-- {=p_websocketSummary} -->
+
+Add `leptoskit_plugin_websocket` as a direct dependency and select the `websocket` plugin in `native.plugins`; supported generated hosts discover it from Cargo metadata. Generated Windows, Linux, and terminal hosts currently omit runtime plugins; use explicit registration in a custom host there. Native connections use tokio-tungstenite with rustls and need a Tokio runtime; browser connections own their socket and event callbacks. Every destination origin is explicit.
+
+<!-- {/p_websocketSummary} -->
 
 ## Use it
 

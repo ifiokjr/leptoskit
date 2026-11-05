@@ -1,6 +1,10 @@
 # LeptosKit deployment service
 
-One optional service hosts the dashboard, durable operation queue, scoped agent API and analytics history. It uses SQLite and reuses the existing OpenTofu/Kamal engine through fixed CLI operations. No Redis or separate monitoring database is required.
+<!-- {=deploy_consoleSummary} -->
+
+One optional service hosts the dashboard, durable operation queue, scoped agent API and analytics history. It uses SQLite and reuses the existing `OpenTofu`/Kamal engine through fixed CLI operations. No Redis or separate monitoring database is required.
+
+<!-- {/deploy_consoleSummary} -->
 
 ```sh
 # On a trusted worker, with LEPTOSKIT_CONTROL_KEY and provider secrets configured:

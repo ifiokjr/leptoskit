@@ -21,6 +21,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_yoga"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_yoga"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_yoga.svg"></a>
   <a href="https://docs.rs/leptoskit_yoga"><img alt="docs.rs" src="https://docs.rs/leptoskit_yoga/badge.svg"></a>
@@ -28,6 +30,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -58,7 +62,11 @@ A React Native-style layout engine, fully rewritten in Rust with no C dependenci
 
 ## How it fits
 
+<!-- {=yogaSummary} -->
+
 `leptoskit_native` calls it for every commit; backends only apply the frames it returns. It is also usable on its own when a Rust tool needs React Native-style layout or a CSS grid implementation without a browser.
+
+<!-- {/yogaSummary} -->
 
 ## Use it
 

@@ -1,4 +1,10 @@
-//! Markup and component macros for leptoskit's cross-platform components.
+//! <!-- {=macrosSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Use them through `leptoskit::prelude`. The macro parses rstml markup and
+//! emits builder calls, so markup and builder code produce one element tree and
+//! neither is a second-class path.
+//!
+//! <!-- {/macrosSummary} -->
 //!
 //! Use these through `leptoskit::prelude`, which also exports the traits the
 //! expansions name. See the `leptoskit` crate for the guide.

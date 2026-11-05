@@ -1,4 +1,10 @@
-//! The file router as a leptoskit plugin.
+//! <!-- {=p_routerSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Generated apps enable it by default, so `src/routes/` is always in step with
+//! the build. The runtime and derive live in `leptoskit_router`; this crate
+//! only owns the build hook.
+//!
+//! <!-- {/p_routerSummary} -->
 //!
 //! Apps depend on [`leptoskit_router`] for the runtime — the `Route` derive,
 //! `Routable`, `Router`, and the web integration — and this crate is the

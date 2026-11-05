@@ -1,6 +1,15 @@
-//! Battery snapshots and cancellable change observation. Unknown values stay
-//! unknown; a simulator or unavailable browser API never masquerades as a fully
-//! charged physical battery.
+//! <!-- {=p_batterySummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_battery` as a direct dependency and select the
+//! `battery` plugin in `native.plugins`; supported generated hosts discover it
+//! from Cargo metadata. Generated Windows, Linux, and terminal hosts currently
+//! omit runtime plugins; use explicit registration in a custom host there.
+//! Guests enable the `guest` feature and reuse `guest::Battery` rather than
+//! resolving the plugin on every call. Unknown readings stay unknown instead of
+//! being reported as a full battery, and a simulator is never presented as
+//! physical hardware.
+//!
+//! <!-- {/p_batterySummary} -->
 //!
 //! Snapshot messages are exactly four little-endian u32 fields (16 bytes):
 //! presence (unknown/absent/present = 0/1/2), charge in thousandths (`u32::MAX`

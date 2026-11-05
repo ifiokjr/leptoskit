@@ -55,3 +55,6 @@ benchmarks/scripts/vendor/package-lock.json
 
 # LLVM coverage profiles written by instrumented test runs
 *.profraw
+
+# MDT data-source cache
+.mdt/

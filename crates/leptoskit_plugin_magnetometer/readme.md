@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_magnetometer"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_magnetometer"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_magnetometer.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_magnetometer"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_magnetometer/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -39,7 +43,11 @@ See the [shared sensor contract](../leptoskit_sensor/readme.md) for exact binary
 
 ## How it fits
 
-Add `leptoskit_plugin_magnetometer` as a direct dependency and select the `magnetometer` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Guests enable the `guest` feature and reuse `guest::Magnetometer` rather than resolving the plugin on every call. This is a magnetic sensor measurement, not a compass heading; platform calibration differs, and desktop has no sensor.
+<!-- {=p_magnetometerSummary} -->
+
+Add `leptoskit_plugin_magnetometer` as a direct dependency and select the `magnetometer` plugin in `native.plugins`; supported generated hosts discover it from Cargo metadata. Generated Windows, Linux, and terminal hosts currently omit runtime plugins; use explicit registration in a custom host there. Guests enable the `guest` feature and reuse `guest::Magnetometer` rather than resolving the plugin on every call. This is a magnetic sensor measurement, not a compass heading; platform calibration differs, and desktop has no sensor.
+
+<!-- {/p_magnetometerSummary} -->
 
 ## Use it
 

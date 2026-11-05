@@ -1,5 +1,11 @@
-//! The leptoskit server-function RPC specification, and the typed clients
-//! generated from it.
+//! <!-- {=rpc_codegenSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! The server writes the specification; the CLI reads it back and generates
+//! clients that speak the RPC's own protocol, plus an OpenAPI 3.1 document. The
+//! generators sit behind a default feature, so the server binary can depend on
+//! the types alone.
+//!
+//! <!-- {/rpc_codegenSummary} -->
 //!
 //! The specification is the contract between the two halves of
 //! `leptoskit_rpc`:

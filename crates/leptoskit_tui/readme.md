@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_tui"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_tui"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_tui.svg"></a>
   <a href="https://docs.rs/leptoskit_tui"><img alt="docs.rs" src="https://docs.rs/leptoskit_tui/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -42,7 +46,11 @@ Terminal apps are for long-lived interfaces — editors, dashboards, chat client
 
 ## How it fits
 
+<!-- {=tuiSummary} -->
+
 Every cell is 8×16 logical pixels, so Yoga layout, Tailwind spacing, and text measurement land on the monospace grid. `leptoskit dev/build --platform tui` drives it, and `examples/opencode` is a full coding-agent interface built with it.
+
+<!-- {/tuiSummary} -->
 
 ## Use it
 

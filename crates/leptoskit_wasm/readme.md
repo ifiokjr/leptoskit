@@ -21,6 +21,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_wasm"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_wasm"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_wasm.svg"></a>
   <a href="https://docs.rs/leptoskit_wasm"><img alt="docs.rs" src="https://docs.rs/leptoskit_wasm/badge.svg"></a>
@@ -29,11 +31,13 @@
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
 
+<!-- {/crateBadges} -->
+
 <br>
 
 ## Overview
 
-The app shipped through the store is a thin platform shell; the _interface_ is a wasm module fetched over the air. This crate runs that module in [`wasmi`](https://crates.io/crates/wasmi) — a pure interpreter, which is legal on iOS where JIT compilation is not — and drives a `leptoskit_native::NativeSurface` through a small, versioned ABI.
+The app shipped through the store is a thin platform shell; the _interface_ is a wasm module fetched over the air. This crate runs that module in [`wasmi`](https://crates.io/crates/wasmi) — a pure interpreter that does not generate machine code at runtime — and drives a `leptoskit_native::NativeSurface` through a small, versioned ABI.
 
 ## The ABI
 
@@ -58,7 +62,7 @@ The module exports:
 | `leptoskit_alloc(len) -> ptr`         | for payload events | returns a non-zero pointer to `len` writable bytes for the event payload |
 | `leptoskit_abi_version() -> i32`      | no                 | checked against `ABI_VERSION` on load; a mismatch is refused             |
 
-Every entry point is fuel-metered, so a bad bundle cannot hang the device (it fails with `WasmError::OutOfFuel`), and every commit is diffed by the renderer, so a rebuild is cheap.
+Every entry point is fuel-metered, so guest instruction execution is bounded (exhaustion returns `WasmError::OutOfFuel`). Host calls and rendering have separate costs; diffing commits avoids recreating unchanged widgets but does not guarantee a frame-time budget.
 
 Each host permits one instance, one linear memory of at most 64 MiB (`MAX_MEMORY_BYTES`), and two tables with at most 65,536 elements each (`MAX_TABLE_ELEMENTS`). This accommodates Rust's indirect-function and externref tables while keeping the total bounded. Limits cover unexported resources, initial allocations, the module's start function, and all later callbacks. Oversized allocations, excess resource counts, and growth beyond these budgets return `WasmError::ResourceLimitExceeded`. Growth within the host budget retains normal WebAssembly failure behavior, including `-1` for guest-declared maxima and `WasmError::OutOfFuel` for exhausted fuel. These budgets cover guest linear memory and tables; interpreter metadata and host-side allocations are separate.
 
@@ -80,11 +84,15 @@ The host keeps the wire tree a tree and traps the offending call otherwise:
 
 The module owns its memory. `node_set_props` copies the bytes during the call, so the module may reuse them immediately. Event payloads are written into a buffer from `leptoskit_alloc`; the host never frees it, so the module reclaims it once `leptoskit_event` returns.
 
-Because updates are just new wasm bundles on a channel, shipping a fix works exactly like React Native's code push: no store review, instant rollback, and the same `leptoskit_codepush` manifests and deltas as every other artifact.
+Code push distributes compatible Wasm bundles using signed manifests and deltas. Generated iOS and Android hosts check for updates; generated desktop hosts do not yet. Startup validation and rollback behavior belong to the host update lifecycle. A bundle must satisfy the configured trust and version policy; this does not guarantee store approval or permit unrestricted changes to an installed app.
 
 ## How it fits
 
+<!-- {=wasmSummary} -->
+
 This is what makes the shipped app a shell: the interface arrives as Wasm, renders through the same renderer, and can be replaced without a store update. The generated iOS, Android, macOS, Windows, and Linux hosts embed it.
+
+<!-- {/wasmSummary} -->
 
 ## Use it
 

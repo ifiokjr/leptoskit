@@ -1,4 +1,11 @@
-//! Real Android Views for the shared leptoskit native tree.
+//! <!-- {=androidSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Compile `android/WidgetHost.kt` into an Android app and construct
+//! `AndroidBackend::new` on the UI thread. Every built-in primitive renders a
+//! real view; callbacks propose typed events that the app commits through
+//! `NativeSurface`.
+//!
+//! <!-- {/androidSummary} -->
 //!
 //! Compile `android/WidgetHost.kt` into the application and construct an
 //! `AndroidBackend` from its instance on the Activity's UI thread. The host

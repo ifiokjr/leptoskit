@@ -1,6 +1,10 @@
-//! The `#[db::table]` attribute, and `#[derive(db::Enum)]` and
-//! `#[derive(db::Scalar)]`, behind leptoskit's
-//! database layer.
+//! <!-- {=db_macrosSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Apps use them through `leptoskit::db` or `leptoskit_db`; this crate is the
+//! macro implementation. Every mistake it can catch is a compile error that
+//! says what to write instead.
+//!
+//! <!-- {/db_macrosSummary} -->
 //!
 //! Apps use these through `leptoskit::db`; the documentation lives there.
 #![doc(

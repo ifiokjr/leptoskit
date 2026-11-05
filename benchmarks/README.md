@@ -1,6 +1,6 @@
 # leptoskit benchmarks
 
-Two kinds of benchmarks live here, with different jobs:
+Three kinds of benchmarks live here, with different jobs:
 
 - **The self comparison** runs on every pull request. It builds the fixture app with the base and head builds of the CLI, measures both in headless Chromium, hyperfines the build pipeline for both binaries, and posts a sticky PR comment flagging regressions against `benchmarks/policy.json`. Base and head are measured in the same job, on the same runner, with the same browser — the comparison is always apples to apples.
 - **The arena** measures leptoskit against React Native, Lynx, and Flutter on device, with one self-driving app per framework, on iOS, Android, macOS, Windows, Linux, and the web: launch, rendering, native-call round trips, presented frames from screen recordings, and the size of the same app at three sizes. Its design and app contract are in [`arena/README.md`](arena/README.md). Run it on demand with `devenv shell -- benchmark:arena`; `benchmark:arena:update` first moves every framework to its latest stable release.

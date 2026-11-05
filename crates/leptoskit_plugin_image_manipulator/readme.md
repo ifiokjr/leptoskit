@@ -17,6 +17,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_plugin_image_manipulator"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_image_manipulator"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_image_manipulator.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_image_manipulator"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_image_manipulator/badge.svg"></a>
@@ -24,6 +26,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -75,7 +79,11 @@ The reply contains length-prefixed INSPECT information followed by length-prefix
 
 ## How it fits
 
-Add `leptoskit_plugin_image_manipulator` as a direct dependency and select the `image-manipulator` plugin in `native.plugins`; the generated host discovers it from Cargo metadata, so registration is automatic. Native calls run on the Rust worker so a batch takes one bridge round trip; browser calls use the same engine compiled to Wasm, and large jobs belong in a Web Worker.
+<!-- {=p_image_manipulatorSummary} -->
+
+Add `leptoskit_plugin_image_manipulator` as a direct dependency and select the `image_manipulator` plugin in `native.plugins`; supported generated hosts discover it from Cargo metadata. Generated Windows, Linux, and terminal hosts currently omit runtime plugins; use explicit registration in a custom host there. Native calls run on the Rust worker so a batch takes one bridge round trip; browser calls use the same engine compiled to Wasm, and large jobs belong in a Web Worker.
+
+<!-- {/p_image_manipulatorSummary} -->
 
 ## Use it
 

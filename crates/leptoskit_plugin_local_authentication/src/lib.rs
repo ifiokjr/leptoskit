@@ -1,7 +1,15 @@
-//! Local device-owner authentication, not account identity or server
-//! authorization. Success is emitted only by the platform's
-//! authentication-success callback. Android requires API 30 and Class 3
-//! biometrics; credential fallback is explicit.
+//! <!-- {=p_local_authenticationSummary|trim|linePrefix:"//! ":true} -->
+//!
+//! Add `leptoskit_plugin_local_authentication` as a direct dependency and
+//! select the `local-authentication` plugin in `native.plugins`; supported
+//! generated hosts discover it from Cargo metadata. Generated Windows, Linux,
+//! and terminal hosts currently omit runtime plugins; use explicit registration
+//! in a custom host there. Guests enable the `guest` feature and reuse
+//! `guest::LocalAuthentication` rather than resolving the plugin on every call.
+//! This is not account identity or server authorization; the plugin reports
+//! explicit terminal outcomes and never invents a success.
+//!
+//! <!-- {/p_local_authenticationSummary} -->
 //!
 //! Wire integers are little-endian u32. Capability request: policy.
 //! Authentication request: version=1, policy, then length-prefixed UTF-8 reason

@@ -21,6 +21,8 @@
 
 <br>
 
+<!-- {=crateBadges|replace:"CRATE_NAME":"leptoskit_cli"} -->
+
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_cli"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_cli.svg"></a>
   <a href="https://docs.rs/leptoskit_cli"><img alt="docs.rs" src="https://docs.rs/leptoskit_cli/badge.svg"></a>
@@ -28,6 +30,8 @@
   <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
+
+<!-- {/crateBadges} -->
 
 <br>
 
@@ -39,11 +43,11 @@ The experimental [HarmonyOS target](../../docs/src/platforms/harmonyos.md) build
 
 `test run` executes a prebuilt native test binary on the host, a selected iOS simulator, or an Android device/emulator. `test web` runs browser component tests through wasm-bindgen-test. Both retain output and JSON reports. See the [testing guide](https://github.com/ifiokjr/leptoskit/blob/main/docs/src/guide/07-testing.md) for device startup, deadlines, artifacts, and current platform limits.
 
-`leptoskit new <dir>` writes a small cargo workspace that `leptoskit build` compiles straight away: a server binary named after the app at the root, a `cdylib` wasm client in `client/` pinned to the wasm-bindgen this CLI embeds, and a `public/index.html` that loads the bound client. It never overwrites an existing file.
+`leptoskit new <dir>` writes a shared application workspace: `<name>_app` owns the screens and the browser/native Wasm client, `<name>_backend` owns server-only implementations, and `<name>_shared` owns contracts. The root `src/main.rs` starts the SSR server. Platform folders hold web and native host integration. The generated wasm-bindgen dependency matches the CLI’s embedded version. Existing files are not overwritten.
 
 `generate app` shares the `new` scaffold. `generate plugin` writes an independent runtime plugin crate with an echo method and a behavior test. Before SDK publication, use `--bridge-path /absolute/path/to/crates/leptoskit_bridge`. `native prepare` generates native host projects and Swift/Kotlin registrants from selected direct plugin dependencies; see the [runtime plugin inventory](../../docs/src/platforms/plugins.md).
 
-Plugin runtime metadata may declare `apple-usage-descriptions = ["NSUserTrackingUsageDescription"]`. These are required key names, never generated consent text. iOS preparation and builds validate nonempty app-owned strings in `hosts/ios/Info.plist` before generating or compiling native code.
+Plugin runtime metadata may declare `apple-usage-descriptions = ["NSUserTrackingUsageDescription"]`. These are required key names, never generated consent text. iOS preparation and builds validate nonempty app-owned strings in `ios/Info.plist` (or `hosts/ios/Info.plist` for legacy host layouts) before generating or compiling native code.
 
 `android-dependencies = ["com.google.android.play:review:2.0.2"]` declares explicit Maven coordinates. Groups, artifacts and numeric-leading versions accept only restricted ASCII identifiers and version punctuation; dynamic selectors, Gradle expressions, classifiers and extensions are rejected. Selected dependencies are sorted and deduplicated in `.leptoskit/android/plugin-dependencies.txt`. New Android scaffolds read this data file inside their `dependencies` block. Existing custom hosts selecting such plugins must add the same reader:
 
@@ -57,8 +61,8 @@ file("../../../.leptoskit/android/plugin-dependencies.txt").readLines().forEach 
 
 `leptoskit build` runs the whole web pipeline cargo-leptos runs — server compile, wasm client compile, wasm-bindgen glue, optional `wasm-opt`, asset layout:
 
-- **Cargo always runs.** Server first, then the wasm client. Both share cargo's target directory (and its lock), and cargo's own incremental cache makes an unchanged build a sub-second no-op — and it is the only thing that sees a changed dependency, build script, or environment variable.
-- **In-process wasm-bindgen.** The glue generation runs as a library call, not a CLI subprocess, and is keyed on the compiled wasm's _content hash_ plus the output directory and flags, recorded in `<target dir>/leptoskit/cache.json`. An unchanged compile into the same place skips bindgen entirely; deleted outputs or a new `--out` directory rebind.
+- **Cargo always runs.** Server first, then the wasm client. Both share cargo's target directory (and its lock), and cargo's own incremental cache can reuse unchanged compilation outputs — and it is the only thing that sees a changed dependency, build script, or environment variable.
+- **In-process wasm-bindgen.** The glue generation runs as a library call, not a CLI subprocess, and is keyed on the compiled wasm's _content hash_ plus the output directory and flags, recorded in `<target dir>/leptoskit/cache/`. An unchanged compile into the same place skips bindgen entirely; deleted outputs or a new `--out` directory rebind.
 - **A version check before binding.** wasm-bindgen only accepts wasm built against its own version, so `build` (and `doctor`) compare the project's locked `wasm-bindgen` with the embedded one and fail with the `cargo update` command that fixes a mismatch.
 - **No optimizer in dev.** `wasm-opt` only ever runs in release (unless `bundle.wasm_opt = false`), as part of the cached bindgen phase.
 - **Content-compared assets.** The `public/` tree hashes with rayon and copies only files whose content differs from the copy already in the output.
@@ -69,9 +73,11 @@ The client crate is detected automatically — the workspace member producing a 
 
 ## How it fits
 
-`leptoskit verify build` builds a backend from a public Git commit in a container without network access, twice, and records a bundle, its inventory, and SLSA provenance; `leptoskit verify reproduce` lets anyone rebuild that bundle and compare the source, dependencies, and executable byte for byte. `verify record` and `verify check` inventory and check a bundle offline. None of them verifies a running backend. See [checking a backend bundle](../../docs/src/guide/30-verifying-releases.md).
+<!-- {=cliSummary} -->
 
-Every workflow starts here. The binary is a thin wrapper over the library, so the same code drives `leptoskit dev`, CI builds, native host preparation, and release checks. Generated projects call it by name; tooling calls the library directly.
+`leptoskit verify build` builds a backend from a public Git commit in a container without network access, twice, and records a bundle, its inventory, and SLSA provenance; `leptoskit verify reproduce` lets anyone rebuild that bundle and compare the source, dependencies, and executable byte for byte. `verify record` and `verify check` inventory and check a bundle offline. None of them verifies a running backend. See [checking a backend bundle](https://ifiokjr.github.io/leptoskit/guide/30-verifying-releases.html). Every workflow starts here. The binary is a thin wrapper over the library, so the same code drives `leptoskit dev`, CI builds, native host preparation, and release checks. Generated projects call it by name; tooling calls the library directly.
+
+<!-- {/cliSummary} -->
 
 ## Use it
 
