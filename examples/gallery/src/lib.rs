@@ -319,7 +319,6 @@ pub fn start() {
 	use leptoskit::prelude::Text;
 	use leptoskit::prelude::View;
 	use leptoskit::view;
-	use leptoskit::yoga::Dimension;
 
 	use crate::Assets;
 	use crate::SCREENS;
@@ -358,14 +357,7 @@ pub fn start() {
 						.collect::<Fragment>()}
 				</View>
 			};
-			let preview = view! {
-				<View with_style=|style| {
-					style.width = Dimension::Points(screen.viewport.0);
-					style.height = Dimension::Points(screen.viewport.1);
-				}>
-					{screen.render(&state)}
-				</View>
-			};
+			let preview = web_preview(screen, &state);
 			leptoskit::web::render(view! {
 				<View class="min-h-screen bg-[#e8e7ec] p-3 md:p-6 gap-6 flex-col items-center">
 					<Text class="text-[24px] font-bold text-[#16111f]">"leptoskit gallery"</Text>
@@ -375,4 +367,23 @@ pub fn start() {
 			})
 		}
 	});
+}
+
+/// Constrains the browser preview to its host so phone-sized controls remain
+/// reachable.
+#[cfg(feature = "web")]
+pub fn web_preview(screen: &Screen, state: &ScreenState) -> Element {
+	use leptoskit::prelude::*;
+	use leptoskit::yoga::Dimension;
+	view! {
+		<View
+			class="max-w-full"
+			with_style=|style| {
+				style.width = Dimension::Points(screen.viewport.0);
+				style.height = Dimension::Points(screen.viewport.1);
+			}
+		>
+			{screen.render(state)}
+		</View>
+	}
 }

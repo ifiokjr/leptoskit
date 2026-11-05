@@ -39,6 +39,7 @@ crate-type = ["rlib", "cdylib"]
 leptos = { workspace = true, features = ["csr"], optional = true }
 leptoskit = { workspace = true }
 leptoskit_router = { workspace = true }
+reactive_graph = "0.3.0-rc0"
 wasm-bindgen = { workspace = true, optional = true }
 
 [features]

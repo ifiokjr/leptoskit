@@ -1001,6 +1001,7 @@ dependencies = [
  "leptoskit_testing",
  "leptoskit_wasm",
  "leptoskit_yoga",
+ "reactive_graph",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",

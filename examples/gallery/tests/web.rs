@@ -117,3 +117,23 @@ async fn clicking_the_counter_updates_the_shared_count() {
 	drop(handle);
 	parent.remove();
 }
+
+#[wasm_bindgen_test]
+async fn phone_preview_keeps_controls_inside_the_available_width() {
+	let parent = container();
+	parent.set_attribute("style", "width:390px").unwrap();
+	let screen = gallery::find_screen("components").unwrap();
+	let state = ScreenState::new(Assets::for_browser().unwrap());
+	let handle = mount_to(parent.clone(), move || {
+		render(gallery::web_preview(screen, &state))
+	});
+	tick().await;
+	let preview = parent.first_element_child().unwrap();
+	assert!(preview.get_bounding_client_rect().width() <= 390.0);
+	let input = parent.query_selector("[role=switch]").unwrap().unwrap();
+	let bounds = input.get_bounding_client_rect();
+	let host = parent.get_bounding_client_rect();
+	assert!(bounds.left() >= host.left() && bounds.right() <= host.right());
+	drop(handle);
+	parent.remove();
+}

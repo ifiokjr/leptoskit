@@ -447,7 +447,8 @@ impl ::leptoskit_router::Render for Route {
 				))
 			}
 			Self::Compose(_) => {
-				let view = ::leptoskit_router::__private::IntoView::into_view(compose::Page());
+				let view =
+					::leptoskit_router::__private::IntoView::into_view(compose::Page(navigation));
 				::leptoskit_router::__private::IntoView::into_view(layout::Layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 				))
