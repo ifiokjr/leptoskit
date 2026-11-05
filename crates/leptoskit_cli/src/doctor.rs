@@ -181,12 +181,17 @@ fn selected_platforms(all: bool, config: Option<&LeptoskitConfig>) -> Vec<Platfo
 	];
 
 	if all {
+		// Hoisted out of the arms: clippy reads a match whose arms are all
+		// literal booleans as a `matches!`, and `cfg!` collapses to literals
+		// on every platform but this one.
+		let apple = cfg!(target_os = "macos");
+		let linux = cfg!(target_os = "linux");
 		return ORDER
 			.into_iter()
 			.filter(|platform| {
 				match platform {
-					Platform::Ios | Platform::Macos => cfg!(target_os = "macos"),
-					Platform::Linux => cfg!(target_os = "linux"),
+					Platform::Ios | Platform::Macos => apple,
+					Platform::Linux => linux,
 					Platform::Harmonyos => false,
 					_ => true,
 				}
