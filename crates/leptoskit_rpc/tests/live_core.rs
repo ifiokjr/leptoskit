@@ -439,20 +439,32 @@ async fn actions_over_the_connection(db: Db) {
 		},
 	)
 	.await;
-	let ServerFrame::Done {
-		request,
-		ok,
-		err,
-		version,
-	} = next(&mut socket).await
-	else {
-		panic!("the action answers");
+	// Actions run beside the session, so its commit can reach the subscription
+	// before the action's answer arrives.
+	let mut seen = None;
+	let (request, ok, err, version) = loop {
+		match next(&mut socket).await {
+			ServerFrame::Transition(transition) => {
+				assert!(seen.replace(transition).is_none(), "one action commit");
+			}
+			ServerFrame::Done {
+				request,
+				ok,
+				err,
+				version,
+			} => break (request, ok, err, version),
+			other => panic!("expected the action answer or transition, got {other:?}"),
+		}
 	};
 	assert_eq!((request, err), (2, None));
 	assert_eq!(ok, Some(json!("ada")));
 	assert_eq!(version, newest(&server.db).await);
-	let seen = transition(&mut socket).await;
+	let seen = match seen {
+		Some(transition) => transition,
+		None => transition(&mut socket).await,
+	};
 	assert!(seen.to >= version);
+	assert_eq!(whole(&seen, 1), Some(&json!(["ada: hello"])));
 
 	// The same refusals as over HTTP.
 	let (mut nobody, _) = connect(&server, None).await;
