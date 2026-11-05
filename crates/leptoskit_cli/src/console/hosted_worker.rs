@@ -194,3 +194,6 @@ fn check_managed_policy(
 	}
 	Ok(())
 }
+
+#[cfg(test)]
+mod tests;

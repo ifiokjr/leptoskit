@@ -196,6 +196,8 @@ async fn run(
 	command
 		.env_remove("LEPTOSKIT_PAIRING_CODE")
 		.env_remove("LEPTOSKIT_HOSTED_KEY");
+	let stdout_file = log_file(directory.join(format!("{}.{stage}.out", operation.id)))?;
+	let stderr_file = log_file(directory.join(format!("{}.{stage}.err", operation.id)))?;
 	let mut child = command
 		.env_remove("LEPTOSKIT_CONTROL_KEY")
 		.env("LEPTOSKIT_CONTROL_LOCAL", "1")
@@ -213,14 +215,8 @@ async fn run(
 		.take()
 		.ok_or_else(|| anyhow::anyhow!("missing runner error stream"))?;
 	let (out, err, status) = tokio::join!(
-		capture(
-			stdout,
-			directory.join(format!("{}.{stage}.out", operation.id))
-		),
-		capture(
-			stderr,
-			directory.join(format!("{}.{stage}.err", operation.id))
-		),
+		capture(stdout, stdout_file),
+		capture(stderr, stderr_file),
 		child.wait()
 	);
 	out?;
@@ -382,10 +378,7 @@ fn arguments(action: &Action) -> Vec<String> {
 	text.into_iter().map(str::to_owned).collect()
 }
 
-async fn capture(
-	mut stream: impl tokio::io::AsyncRead + Unpin,
-	path: PathBuf,
-) -> anyhow::Result<()> {
+fn log_file(path: PathBuf) -> std::io::Result<tokio::fs::File> {
 	let mut options = std::fs::OpenOptions::new();
 	options.write(true).create_new(true);
 	#[cfg(unix)]
@@ -393,7 +386,13 @@ async fn capture(
 		use std::os::unix::fs::OpenOptionsExt as _;
 		options.mode(0o600);
 	}
-	let mut file = tokio::fs::File::from_std(options.open(path)?);
+	Ok(tokio::fs::File::from_std(options.open(path)?))
+}
+
+async fn capture(
+	mut stream: impl tokio::io::AsyncRead + Unpin,
+	mut file: tokio::fs::File,
+) -> anyhow::Result<()> {
 	let mut remaining = 4 * 1024 * 1024;
 	let mut truncated = false;
 	let mut buffer = vec![0; 8192];
@@ -431,3 +430,6 @@ fn prune_logs(directory: &std::path::Path) -> anyhow::Result<()> {
 	}
 	Ok(())
 }
+
+#[cfg(test)]
+mod tests;

@@ -368,3 +368,6 @@ fn submit(connection: &Connection, action: Action) -> Result<Operation> {
 	);
 	Ok(operation)
 }
+
+#[cfg(test)]
+mod tests;
