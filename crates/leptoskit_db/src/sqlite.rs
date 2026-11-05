@@ -579,15 +579,20 @@ fn apply_migrations(
 		&& has_pushes(connection)?
 	{
 		return Err(MigrationError::Pushed {
-			name: first.name.to_string(),
+			name: first.migration.name.to_string(),
 		});
 	}
 
 	let mut names = Vec::new();
 
-	for migration in pending {
-		if apply_with_foreign_keys(connection, migration, &Record::Applied)? {
-			names.push(migration.name.to_string());
+	for still in pending {
+		let record = if still.adopted {
+			&Record::Consolidated
+		} else {
+			&Record::Applied
+		};
+		if apply_with_foreign_keys(connection, still.migration, record)? {
+			names.push(still.migration.name.to_string());
 		}
 	}
 
@@ -695,6 +700,13 @@ fn apply_migration(
 					[schema, &now.as_str()],
 				)
 				.map_err(|source| failed(error(source)))?;
+			transaction
+				.commit()
+				.map_err(|source| failed(error(source)))?;
+			return Ok(true);
+		}
+		Record::Consolidated => {
+			record_applied(&transaction, migration, &now).map_err(failed)?;
 			transaction
 				.commit()
 				.map_err(|source| failed(error(source)))?;

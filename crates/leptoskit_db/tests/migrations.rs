@@ -490,3 +490,67 @@ async fn pushes_change_a_database_until_a_migration_adopts_them() {
 	})
 	.await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_consolidated_migration_is_adopted_not_run() {
+	let db = Db::connect("sqlite::memory:").await.unwrap();
+	db.migrate(MIGRATIONS).await.unwrap();
+
+	// The registry after a release consolidation: the first migration
+	// stayed, the other two were folded into one that would fail if it ran.
+	let consolidated = Migration::new(
+		"20261105T0900_release_1_4_0",
+		"SELECT would_fail_if_it_ran();",
+	)
+	.with_replaces([
+		"20261029T0900_pin_notes".to_owned(),
+		"20261030T0900_check_note_bodies".to_owned(),
+	]);
+	let registry = [MIGRATIONS[0].clone(), consolidated];
+
+	let applied = db.migrate(&registry).await.unwrap();
+	assert_eq!(
+		applied,
+		["20261105T0900_release_1_4_0"],
+		"the consolidated migration was recorded, not run"
+	);
+	let history = db.applied_migrations().await.unwrap();
+	assert!(
+		history
+			.iter()
+			.any(|name| name == "20261105T0900_release_1_4_0")
+	);
+	assert!(
+		history.iter().any(|name| name == "20261029T0900_pin_notes")
+			&& history
+				.iter()
+				.any(|name| name == "20261030T0900_check_note_bodies"),
+		"the folded migrations keep their rows: {history:?}"
+	);
+
+	// Migrating again finds nothing pending.
+	assert_eq!(db.migrate(&registry).await.unwrap().len(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_partly_replaced_set_is_refused() {
+	// The database applied the first two migrations only.
+	let db = Db::connect("sqlite::memory:").await.unwrap();
+	db.migrate(&MIGRATIONS[..2]).await.unwrap();
+
+	let consolidated = Migration::new(
+		"20261105T0900_release_1_4_0",
+		"SELECT would_fail_if_it_ran();",
+	)
+	.with_replaces([
+		"20261029T0900_pin_notes".to_owned(),
+		"20261030T0900_check_note_bodies".to_owned(),
+	]);
+	let registry = [MIGRATIONS[0].clone(), consolidated];
+	let error = db.migrate(&registry).await.unwrap_err();
+	let MigrationError::PartiallyReplaced { name, missing } = &error else {
+		panic!("expected a partially replaced set, got {error:?}");
+	};
+	assert_eq!(name, "20261105T0900_release_1_4_0");
+	assert_eq!(missing, "20261030T0900_check_note_bodies");
+}
