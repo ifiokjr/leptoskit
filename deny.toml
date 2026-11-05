@@ -33,6 +33,12 @@ ignore = [
 	{ id = "RUSTSEC-2026-0370", reason = "zvariant via ksni 0.3 / zbus 5; merged into zbus 6, which ksni has not adopted" },
 	{ id = "RUSTSEC-2026-0371", reason = "zbus_names via ksni 0.3 / zbus 5; merged into zbus 6, which ksni has not adopted" },
 	{ id = "RUSTSEC-2026-0372", reason = "zvariant_derive via ksni 0.3 / zbus 5; merged into zbus 6, which ksni has not adopted" },
+	# `pin-utils` is unmaintained, not vulnerable. It arrives only through
+	# wasmtimer, which reqwest-retry uses on wasm targets, under
+	# postgresql_embedded in the CLI; the CLI never builds for wasm. The
+	# latest postgresql_embedded, reqwest-retry and wasmtimer all still
+	# depend on it. Drop this once wasmtimer replaces it.
+	{ id = "RUSTSEC-2026-0441", reason = "pin-utils via wasmtimer (wasm only) under postgresql_embedded; never compiled for the CLI's targets" },
 ]
 
 [licenses]
