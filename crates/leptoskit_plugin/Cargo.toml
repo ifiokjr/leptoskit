@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_plugin"
-version.workspace = true
+version = "0.2.0"
 authors.workspace = true
 categories = ["development-tools"]
 edition.workspace = true
