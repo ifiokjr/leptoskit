@@ -184,6 +184,17 @@
 				"address": "127.0.0.1",
 				"port": 3000
 			}
+		},
+		"theme": {
+			"description": "Design tokens for Tailwind `var(--name)` utilities. Present when the\napp sets `[theme]`; install at startup with\n`Theme::install_maps`.",
+			"anyOf": [
+				{
+					"$ref": "#/$defs/ThemeConfig"
+				},
+				{
+					"type": "null"
+				}
+			]
 		}
 	},
 	"additionalProperties": false,
@@ -2755,6 +2766,27 @@
 					"default": 3000,
 					"maximum": 65535,
 					"minimum": 0
+				}
+			},
+			"additionalProperties": false
+		},
+		"ThemeConfig": {
+			"description": "Design tokens from the `[theme]` table, matching CSS custom properties\nthat Tailwind `var(--name)` utilities and the process-wide `Theme` map\nresolve.\n\n```toml\n[theme.colors]\nbrand = \"#3b82f6\"\nink = \"black\"\n\n[theme.lengths]\ngap = \"1rem\"\npad = \"16px\"\n```\n\nCall `Theme::install_maps(&theme.colors, &theme.lengths)` once at app\nstartup so native paint and the web `:root` sheet see the same names.",
+			"type": "object",
+			"properties": {
+				"colors": {
+					"description": "Color tokens as hex (`#rgb`, `#rrggbb`, `#rrggbbaa`), `black`,\n`white`, or `transparent`. Keys may omit the leading `--`.",
+					"type": "object",
+					"additionalProperties": {
+						"type": "string"
+					}
+				},
+				"lengths": {
+					"description": "Length tokens as `px`, `rem`, `%`, `vw`, or `vh`. Keys may omit the\nleading `--`.",
+					"type": "object",
+					"additionalProperties": {
+						"type": "string"
+					}
 				}
 			},
 			"additionalProperties": false

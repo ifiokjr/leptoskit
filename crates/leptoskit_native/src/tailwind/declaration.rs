@@ -174,7 +174,7 @@ impl Declaration {
 		props: &mut NativeProps,
 		context: &StyleContext,
 	) -> bool {
-		match *self {
+		match self {
 			Self::Size(field, length) => {
 				let value = match field {
 					SizeField::Width => &mut style.width,
@@ -216,39 +216,39 @@ impl Declaration {
 				}
 			}
 			Self::Display(value) => {
-				style.display = value;
-				props.hidden = Some(value == Display::None);
+				style.display = *value;
+				props.hidden = Some(*value == Display::None);
 			}
-			Self::Position(value) => style.position = value,
-			Self::BoxSizing(value) => style.box_sizing = value,
+			Self::Position(value) => style.position = *value,
+			Self::BoxSizing(value) => style.box_sizing = *value,
 			Self::Overflow(value) => {
-				style.overflow = value;
-				props.clip = Some(value != Overflow::Visible);
+				style.overflow = *value;
+				props.clip = Some(*value != Overflow::Visible);
 			}
-			Self::FlexDirection(value) => style.flex_direction = value,
-			Self::FlexWrap(value) => style.flex_wrap = value,
+			Self::FlexDirection(value) => style.flex_direction = *value,
+			Self::FlexWrap(value) => style.flex_wrap = *value,
 			Self::Flex(grow, shrink, basis) => {
-				style.flex_grow = grow;
-				style.flex_shrink = shrink;
+				style.flex_grow = *grow;
+				style.flex_shrink = *shrink;
 				style.flex_basis = basis.dimension(context);
 			}
-			Self::Grow(value) => style.flex_grow = value,
-			Self::Shrink(value) => style.flex_shrink = value,
-			Self::Justify(value) => style.justify_content = value,
+			Self::Grow(value) => style.flex_grow = *value,
+			Self::Shrink(value) => style.flex_shrink = *value,
+			Self::Justify(value) => style.justify_content = *value,
 			Self::Align(field, align) => {
 				match field {
-					AlignField::Items => style.align_items = align,
-					AlignField::SelfItem => style.align_self = align,
-					AlignField::Content => style.align_content = align,
+					AlignField::Items => style.align_items = *align,
+					AlignField::SelfItem => style.align_self = *align,
+					AlignField::Content => style.align_content = *align,
 					AlignField::JustifyItems => {
-						style.grid.get_or_insert_default().justify_items = align;
+						style.grid.get_or_insert_default().justify_items = *align;
 					}
 					AlignField::JustifySelf => {
-						style.grid.get_or_insert_default().justify_self = align;
+						style.grid.get_or_insert_default().justify_self = *align;
 					}
 				}
 			}
-			Self::GridTracks(axis, ref tracks) => {
+			Self::GridTracks(axis, tracks) => {
 				let tracks = tracks.iter().map(|track| track.resolve(context)).collect();
 				let grid = style.grid.get_or_insert_default();
 
@@ -257,7 +257,7 @@ impl Declaration {
 					Axis::Y => grid.template_rows = tracks,
 				}
 			}
-			Self::GridAutoTrack(axis, ref track) => {
+			Self::GridAutoTrack(axis, track) => {
 				let track = track.resolve(context);
 				let grid = style.grid.get_or_insert_default();
 
@@ -266,7 +266,7 @@ impl Declaration {
 					Axis::Y => grid.auto_rows = track,
 				}
 			}
-			Self::GridAutoFlow(flow) => style.grid.get_or_insert_default().auto_flow = flow,
+			Self::GridAutoFlow(flow) => style.grid.get_or_insert_default().auto_flow = *flow,
 			Self::GridLine(axis, start, line) => {
 				let grid = style.grid.get_or_insert_default();
 				let placement = match axis {
@@ -274,21 +274,21 @@ impl Declaration {
 					Axis::Y => &mut grid.row,
 				};
 
-				if start {
-					placement.start = line;
+				if *start {
+					placement.start = *line;
 				} else {
-					placement.end = line;
+					placement.end = *line;
 				}
 			}
 			Self::GridPlacement(axis, value) => {
 				let grid = style.grid.get_or_insert_default();
 
 				match axis {
-					Axis::X => grid.column = value,
-					Axis::Y => grid.row = value,
+					Axis::X => grid.column = *value,
+					Axis::Y => grid.row = *value,
 				}
 			}
-			Self::Aspect(value) => style.aspect_ratio = value,
+			Self::Aspect(value) => style.aspect_ratio = *value,
 			_ => return false,
 		}
 
@@ -357,11 +357,13 @@ impl Declaration {
 			return true;
 		}
 
-		match *self {
-			Self::Display(value) => write(output, important, "display", keyword::display(value)),
-			Self::Position(value) => write(output, important, "position", keyword::position(value)),
+		match self {
+			Self::Display(value) => write(output, important, "display", keyword::display(*value)),
+			Self::Position(value) => {
+				write(output, important, "position", keyword::position(*value));
+			}
 			Self::BoxSizing(value) => {
-				write(output, important, "box-sizing", keyword::box_sizing(value));
+				write(output, important, "box-sizing", keyword::box_sizing(*value));
 			}
 			Self::Overflow(value) => {
 				write(
@@ -381,11 +383,11 @@ impl Declaration {
 					output,
 					important,
 					"flex-direction",
-					keyword::flex_direction(value),
+					keyword::flex_direction(*value),
 				);
 			}
 			Self::FlexWrap(value) => {
-				write(output, important, "flex-wrap", keyword::flex_wrap(value));
+				write(output, important, "flex-wrap", keyword::flex_wrap(*value));
 			}
 			Self::Flex(grow, shrink, basis) => {
 				write(output, important, "flex-grow", &grow.to_string());
@@ -399,13 +401,13 @@ impl Declaration {
 					output,
 					important,
 					"justify-content",
-					keyword::justify_content(value),
+					keyword::justify_content(*value),
 				);
 			}
 			Self::Align(field, value) => {
-				write(output, important, field.css(), align_css(value, field));
+				write(output, important, field.css(), align_css(*value, *field));
 			}
-			Self::GridTracks(axis, ref tracks) => {
+			Self::GridTracks(axis, tracks) => {
 				write(
 					output,
 					important,
@@ -418,7 +420,7 @@ impl Declaration {
 				);
 			}
 
-			Self::GridAutoTrack(axis, ref track) => {
+			Self::GridAutoTrack(axis, track) => {
 				write(
 					output,
 					important,
@@ -431,20 +433,20 @@ impl Declaration {
 					output,
 					important,
 					"grid-auto-flow",
-					keyword::grid_auto_flow(value),
+					keyword::grid_auto_flow(*value),
 				);
 			}
 			Self::GridLine(axis, start, line) => {
 				write(
 					output,
 					important,
-					match (axis, start) {
+					match (*axis, *start) {
 						(Axis::X, true) => "grid-column-start",
 						(Axis::X, false) => "grid-column-end",
 						(Axis::Y, true) => "grid-row-start",
 						(Axis::Y, false) => "grid-row-end",
 					},
-					&keyword::grid_line(line),
+					&keyword::grid_line(*line),
 				);
 			}
 
@@ -476,9 +478,9 @@ impl Declaration {
 
 	/// The size and spacing declarations. Says whether this was one.
 	fn css_spacing(&self, output: &mut String, important: bool) -> bool {
-		match *self {
+		match self {
 			Self::Size(field, Length::Auto)
-				if matches!(field, SizeField::MaxWidth | SizeField::MaxHeight) =>
+				if matches!(*field, SizeField::MaxWidth | SizeField::MaxHeight) =>
 			{
 				write(output, important, field.css(), "none");
 			}
@@ -649,12 +651,12 @@ impl SizeField {
 
 impl Track {
 	fn resolve(&self, context: &StyleContext) -> TrackSizing {
-		match *self {
+		match self {
 			Self::Auto => TrackSizing::Auto,
-			Self::Length(Length::Percent(value)) => TrackSizing::Percent(value),
+			Self::Length(Length::Percent(value)) => TrackSizing::Percent(*value),
 			Self::Length(length) => TrackSizing::Points(length.points(context)),
-			Self::Fraction(value) => TrackSizing::Fraction(value),
-			Self::MinMax(ref min, ref max) => {
+			Self::Fraction(value) => TrackSizing::Fraction(*value),
+			Self::MinMax(min, max) => {
 				TrackSizing::MinMax(Box::new(MinMax {
 					min: min.resolve(context),
 					max: max.resolve(context),
@@ -664,11 +666,11 @@ impl Track {
 	}
 
 	fn css(&self) -> String {
-		match *self {
+		match self {
 			Self::Auto => "auto".to_owned(),
 			Self::Length(length) => length.css(),
 			Self::Fraction(value) => format!("{value}fr"),
-			Self::MinMax(ref min, ref max) => format!("minmax({},{})", min.css(), max.css()),
+			Self::MinMax(min, max) => format!("minmax({},{})", min.css(), max.css()),
 		}
 	}
 }

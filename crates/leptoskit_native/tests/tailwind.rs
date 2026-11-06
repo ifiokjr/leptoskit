@@ -470,6 +470,56 @@ fn css_var_colors_emit_var_and_resolve_through_theme_or_fallback() {
 }
 
 #[test]
+fn css_var_opacity_nested_fallback_and_length_tokens() {
+	use leptoskit_native::ThemeLength;
+	use leptoskit_yoga::Dimension;
+
+	Theme::clear();
+	let opacity = Tailwind::parse("bg-[var(--brand)]/50").expect("opacity on var");
+	assert!(
+		opacity
+			.css()
+			.contains("background-color:color-mix(in srgb,var(--brand) 50%,transparent);"),
+		"{}",
+		opacity.css()
+	);
+	Theme::set_color("--brand", Color::rgba(0xaa, 0xbb, 0xcc, 0xff));
+	assert_eq!(
+		resolve("bg-[var(--brand)]/50").1.background,
+		Some(Color::rgba(0xaa, 0xbb, 0xcc, 0x80))
+	);
+
+	let nested = Tailwind::parse("bg-[var(--brand,var(--ink,#112233))]").expect("nested var");
+	assert!(
+		nested
+			.css()
+			.contains("background-color:var(--brand,var(--ink,#112233ff));"),
+		"{}",
+		nested.css()
+	);
+	Theme::clear();
+	assert_eq!(
+		resolve("bg-[var(--brand,var(--ink,#112233))]")
+			.1
+			.background,
+		Some(Color::rgba(0x11, 0x22, 0x33, 0xff))
+	);
+
+	Theme::set_length("gap", ThemeLength::Px(16.0));
+	let length = Tailwind::parse("w-[var(--gap)] p-[var(--pad,8px)]").expect("length var");
+	assert!(length.css().contains("width:var(--gap);"), "{}", length.css());
+	assert!(
+		length.css().contains("padding-top:var(--pad,8px);"),
+		"{}",
+		length.css()
+	);
+	let (style, _) = resolve("w-[var(--gap)] p-[var(--pad,8px)]");
+	assert_eq!(style.width, Dimension::Points(16.0));
+	assert_eq!(style.padding.top, Dimension::Points(8.0));
+	Theme::clear();
+}
+
+#[test]
 fn full_default_palette_is_available_including_v43_neutrals() {
 	for family in [
 		"red", "orange", "amber", "yellow", "lime", "green", "emerald", "teal", "cyan", "sky",
@@ -518,8 +568,7 @@ fn unsupported_syntax_and_inactive_utilities_are_errors() {
 		"2xl:shadow-lg",
 		"w-[calc(100%-1px)]",
 		"bg-[url(https://example.com/a.png)]",
-		"bg-[var(--brand)]/50",
-		"bg-[var(--brand,var(--other))]",
+		"bg-[var(--brand,var(--mid,var(--deep)))]",
 		"[color:red]",
 		"md:max-sm:p-4",
 		"p-[10px",
