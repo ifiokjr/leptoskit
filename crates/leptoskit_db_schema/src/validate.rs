@@ -1047,6 +1047,14 @@ fn validate_column_type(
 		);
 	}
 
+	if dialect == Dialect::Sqlite && matches!(column.ty, ColumnType::Sequence) {
+		problems.push(
+			location,
+			"SQLite can't generate numbers in order; key the table by an `Id`, or keep a counter \
+			 of your own",
+		);
+	}
+
 	if let ColumnType::Array { element } = &column.ty
 		&& matches!(**element, ColumnType::Array { .. })
 	{

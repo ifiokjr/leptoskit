@@ -1989,6 +1989,10 @@ impl Table<'_> {
 			calls.push(quote! { table.index(&[#name]); });
 		}
 
+		if args.sequence {
+			calls.push(quote! { table.sequence(#name); });
+		}
+
 		if args.min_len.is_some() || args.max_len.is_some() {
 			let min = option_u32(args.min_len.as_ref());
 			let max = option_u32(args.max_len.as_ref());
@@ -3098,6 +3102,7 @@ pub(crate) fn is_provided_args(args: &FieldArgs) -> bool {
 		&& args.generated.is_none()
 		&& args.actor.is_none()
 		&& args.slug.is_none()
+		&& !args.sequence
 }
 
 /// The value the ORM gives a column of type `ty` on insert, until the write
@@ -3105,6 +3110,10 @@ pub(crate) fn is_provided_args(args: &FieldArgs) -> bool {
 fn automatic(krate: &TokenStream, ty: &TokenStream, args: &FieldArgs) -> TokenStream {
 	if args.actor.is_some() {
 		quote! { <#ty as #krate::ActorColumn>::unset() }
+	} else if args.sequence {
+		// A placeholder: the database generates the number, and every write
+		// returns the row as stored.
+		quote! { ::core::default::Default::default() }
 	} else if args.generated.is_some() {
 		// A placeholder: the database computes the value, and every write
 		// returns the row as stored.

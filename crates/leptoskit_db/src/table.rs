@@ -611,6 +611,23 @@ impl TableBuilder {
 
 	/// Makes the column just added one the database computes, with an
 	/// expression for each dialect.
+	/// Marks an `i64` column as one the database fills, in order, one number
+	/// per row: `#[db(sequence)]`.
+	pub fn sequence(&mut self, column: &str) {
+		if let Some(candidate) = self
+			.table
+			.columns
+			.iter_mut()
+			.find(|candidate| candidate.name == column)
+		{
+			assert!(
+				candidate.ty == leptoskit_db_schema::ColumnType::Int64,
+				"`sequence` marks an i64 column"
+			);
+			candidate.ty = leptoskit_db_schema::ColumnType::Sequence;
+		}
+	}
+
 	pub fn generated(&mut self, column: &str, postgres: &str, sqlite: &str) {
 		if let Some(column) = self
 			.table

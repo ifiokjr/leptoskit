@@ -342,6 +342,9 @@ fn text(value: &Value) -> String {
 		Value::Uuid(value) => value.to_string(),
 		Value::Timestamp(value) => value.to_rfc3339(),
 		Value::Date(value) => value.to_string(),
+		Value::LocalTimestamp(value) => value.to_string(),
+		Value::LocalTime(value) => value.to_string(),
+		Value::Duration(value) => crate::value::write_iso_duration(value),
 		Value::Json(value) => value.to_string(),
 	}
 }
@@ -393,6 +396,11 @@ pub(crate) fn postgres_literal(value: &Value) -> String {
 		Value::Bytes(value) => format!("{}::bytea", quoted(&format!("\\x{}", hex(value)))),
 		Value::Uuid(value) => format!("'{value}'::uuid"),
 		Value::Timestamp(value) => format!("'{}'::timestamptz", value.to_rfc3339()),
+		Value::LocalTimestamp(value) => format!("'{value}'::timestamp"),
+		Value::LocalTime(value) => format!("'{value}'::time"),
+		Value::Duration(value) => {
+			format!("{}::text", quoted(&crate::value::write_iso_duration(value)))
+		}
 		Value::Date(value) => format!("'{value}'::date"),
 		Value::Json(value) => format!("{}::jsonb", quoted(&value.to_string())),
 	}

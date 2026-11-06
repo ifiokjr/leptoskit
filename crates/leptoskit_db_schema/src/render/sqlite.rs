@@ -1454,6 +1454,9 @@ fn storage_type(ty: &ColumnType) -> &'static str {
 		| ColumnType::Text { .. }
 		| ColumnType::Timestamp
 		| ColumnType::Date
+		| ColumnType::LocalTimestamp
+		| ColumnType::LocalTime
+		| ColumnType::Duration
 		| ColumnType::Json => "TEXT",
 		ColumnType::Bytes
 		| ColumnType::Uuid
@@ -1461,6 +1464,7 @@ fn storage_type(ty: &ColumnType) -> &'static str {
 		| ColumnType::Geography { .. }
 		| ColumnType::Vector { .. } => "BLOB",
 		ColumnType::Array { .. } => unreachable!("validation rejects arrays on SQLite"),
+		ColumnType::Sequence => unreachable!("validation refuses sequences on SQLite"),
 	}
 }
 

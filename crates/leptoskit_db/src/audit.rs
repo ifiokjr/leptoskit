@@ -395,6 +395,9 @@ pub(crate) fn json(value: &Value) -> serde_json::Value {
 			Json::String(at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
 		}
 		Value::Date(date) => Json::String(date.to_string()),
+		Value::LocalTimestamp(at) => Json::String(at.to_string()),
+		Value::LocalTime(at) => Json::String(at.to_string()),
+		Value::Duration(duration) => Json::String(crate::value::write_iso_duration(duration)),
 		Value::Json(value) => value.clone(),
 	}
 }
