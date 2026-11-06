@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_rpc_macros"
-version = "0.2.0"
+version.workspace = true
 authors.workspace = true
 categories = ["web-programming", "development-tools::procedural-macro-helpers"]
 edition.workspace = true

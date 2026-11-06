@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_config"
-version = "0.2.0"
+version.workspace = true
 authors.workspace = true
 categories = ["config", "development-tools"]
 edition.workspace = true

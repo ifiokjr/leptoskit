@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_auth"
-version = "0.2.0"
+version.workspace = true
 authors.workspace = true
 categories = ["authentication", "web-programming"]
 edition.workspace = true

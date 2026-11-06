@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_use"
-version = "0.2.0"
+version.workspace = true
 authors.workspace = true
 categories = ["gui", "web-programming"]
 documentation = "https://docs.rs/leptoskit_use"

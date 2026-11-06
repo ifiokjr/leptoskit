@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_virtual"
-version = "0.2.0"
+version.workspace = true
 authors.workspace = true
 categories = ["gui", "web-programming"]
 edition.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_docs"
-version = "0.2.0"
+version.workspace = true
 authors.workspace = true
 categories = ["web-programming", "template-engine", "text-processing"]
 edition.workspace = true

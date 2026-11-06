@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_db"
-version = "0.2.0"
+version.workspace = true
 authors.workspace = true
 categories = ["database", "web-programming"]
 edition.workspace = true

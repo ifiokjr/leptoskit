@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_extension"
-version = "0.2.0"
+version.workspace = true
 authors.workspace = true
 categories = ["web-programming", "wasm", "gui"]
 edition.workspace = true

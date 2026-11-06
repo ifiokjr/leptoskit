@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_rpc"
-version = "0.2.0"
+version.workspace = true
 authors.workspace = true
 categories = ["web-programming", "gui"]
 edition.workspace = true

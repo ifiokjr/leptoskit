@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_windows"
-version = "0.2.0"
+version.workspace = true
 authors.workspace = true
 categories = ["gui", "os::windows-apis", "rendering"]
 edition.workspace = true
