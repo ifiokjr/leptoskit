@@ -1,0 +1,18 @@
+[package]
+name = "agent_ui_guest_probe"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+# The guest compiles only for wasm32; the host build is an empty crate.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+leptoskit = { workspace = true, features = ["guest"] }
+leptoskit_agent_ui = { workspace = true }
+reactive_graph = { workspace = true }
+
+[lints]
+workspace = true

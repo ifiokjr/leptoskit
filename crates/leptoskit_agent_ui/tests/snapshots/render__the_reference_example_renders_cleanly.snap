@@ -1,0 +1,22 @@
+---
+source: crates/leptoskit_agent_ui/tests/render.rs
+expression: tester.semantics()
+---
+text "Here is where your month stands. Change the rent to see what is left."
+text "Spent"
+text "$2,400"
+text "Left"
+text "$1,800"
+text "▲ +$300"
+slider "Rent" value=1800 "$1,800"
+img "Chart. Rent $1,800, Groceries $600, Left $1,800"
+  text "Rent"
+  text "$1,800"
+  text "43%"
+  text "Groceries"
+  text "$600"
+  text "14%"
+  text "Left"
+  text "$1,800"
+  text "43%"
+button "Use this rent"

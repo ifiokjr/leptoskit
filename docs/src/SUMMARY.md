@@ -34,6 +34,7 @@
 - [Verifying a release](guide/30-verifying-releases.md)
 - [Virtualized lists](guide/17-virtualized-lists.md)
 - [Tables](guide/18-tables.md)
+- [Interfaces from agents](guide/31-agent-interfaces.md)
 - [Controlling devices, apps, and browsers](guide/19-controlling-devices.md)
 - [Localization](guide/19-localization.md)
 - [Rive animations](guide/20-rive.md)

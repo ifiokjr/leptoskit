@@ -19,6 +19,7 @@ leptos = { workspace = true, optional = true }
 leptos_axum = { workspace = true, optional = true }
 leptos_meta = { workspace = true, optional = true }
 leptos_router = { workspace = true, optional = true }
+leptoskit_agent_ui = { workspace = true, optional = true }
 leptoskit_analytics = { workspace = true, optional = true }
 leptoskit_aria = { workspace = true, optional = true }
 leptoskit_auth = { workspace = true, optional = true }
@@ -111,6 +112,8 @@ rpc-live = ["rpc", "leptoskit_rpc/live"]
 ## several servers: `leptoskit::rpc::server::Relay`.
 rpc-relay = ["rpc-live", "leptoskit_rpc/relay"]
 table = ["dep:leptoskit_table"]
+# Interfaces an agent writes as text at runtime: `leptoskit::agent_ui`.
+agent-ui = ["dep:leptoskit_agent_ui"]
 # A native Wasm guest: the host reports the time to the query cache, and
 # nothing browser-only is linked.
 guest = [

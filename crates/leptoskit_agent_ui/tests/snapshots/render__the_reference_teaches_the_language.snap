@@ -1,0 +1,419 @@
+---
+source: crates/leptoskit_agent_ui/tests/render.rs
+expression: ui.reference()
+---
+# Writing interfaces
+
+You can answer with an interface the user can read and use, not only with text. Write Markdown, and put components in it as tags, the way MDX does. The application shows your answer as native interface on the user's device as you write it. Use an interface when it helps the user see or decide something: figures, a chart, a what-if they can adjust, or a choice to make.
+
+## Syntax
+
+- Markdown: headings, paragraphs, **bold**, *italic*, `code`, lists, task lists, tables, quotes, and rules. There is no HTML.
+- A component is a tag that starts with a capital letter. Close it with `/>` when it has no content: `<Stat label="Spent" value={412} />`. Put a blank line after the opening tag and before the closing tag when the content is Markdown.
+- Attributes are text in quotes, `title="May"`, or a formula in braces, `value={rent * 12}`. An attribute written alone, `equal`, is `true`.
+- `{formula}` in text shows its value: `Rent is {money(rent)} a month.`
+- Links show as text and cannot be opened; to offer the user a next step, use a `<Button>`.
+- Images are not shown; describe what you would have shown.
+
+## Variables
+
+- `<Var name="rent" value={1800} />` declares an input: a value the user changes with a `<Slider>`, `<Stepper>`, `<NumberField>`, `<TextField>`, `<Choice>`, `<Toggle>`, or a `<Button set="…">`. Sending the document again keeps what the user set, unless you change the starting value.
+- `<Let name="left" value={income - rent} />` declares a formula, recomputed whenever what it reads changes.
+- Text, figures, charts, and `<Show>` that read a variable update as soon as it changes, without a new message from you.
+- Variables are declared before anything shows, so declare them anywhere; by convention, near the top.
+- The application shares this data, which you can read and cannot change:
+  - `income`: a number
+  - `transactions`: a list of 1 record with fields `amount`, `payee`
+
+## Formulas
+
+Formulas are small expressions, not code. They have numbers (`1800`, `0.05`), text (`"May"`), `true`, `false`, `null`, lists (`[1, 2, 3]`), arithmetic (`+ - * / %`), comparisons (`== != < <= > >=`), `&&`, `||`, `!`, and `condition ? a : b`. Read a record's field with `budget.rent`, and a list's item with `months[0]`. Arithmetic on lists works item by item: `[100, 200] * 12` is `[1200, 2400]`, and `cumsum(repeat(saving, 12)) + balance` is a year of balances. `+` joins text. Dividing by zero gives `null`, which shows as nothing.
+
+| Function | What it does |
+| --- | --- |
+| `sum(list)` | The total of a list of numbers. |
+| `avg(list)` | The mean of a list of numbers. |
+| `min(list) or min(a, b, …)` | The smallest number. |
+| `max(list) or max(a, b, …)` | The largest number. |
+| `len(list or text)` | How many items, or characters. |
+| `round(x, digits = 0)` | Rounds to a number of decimal places. |
+| `floor(x)` | Rounds down. |
+| `ceil(x)` | Rounds up. |
+| `abs(x)` | The value without its sign. |
+| `clamp(x, low, high)` | Keeps `x` between `low` and `high`. |
+| `pow(x, power)` | `x` raised to a power. |
+| `if(condition, then, otherwise)` | `then` when the condition holds, else `otherwise`; the same as `condition ? then : otherwise`. |
+| `money(x, symbol = "$")` | Formats an amount: `money(1800)` is `$1,800`, `money(42.5, "€")` is `€42.50`. |
+| `percent(fraction, digits = 0)` | Formats a fraction as a percentage: `percent(0.25)` is `25%`. |
+| `format(x, digits = 0)` | Formats a number with thousands separators: `format(1234.5, 1)` is `1,234.5`. |
+| `text(value)` | The value as text. |
+| `number(value)` | Reads a number from text such as `"1,800"`. |
+| `range(count) or range(start, end)` | Whole numbers: `range(3)` is `[0, 1, 2]`. |
+| `repeat(value, count)` | A list of `count` copies of `value`. |
+| `cumsum(list)` | Running totals: `cumsum([1, 2, 3])` is `[1, 3, 6]`. |
+| `growth(start, rate, count)` | Compounding values: `growth(1000, 0.05, 3)` is `[1000, 1050, 1102.5]`. |
+| `get(list or record, index or key)` | One item, the same as `list[index]` or `record.key`. |
+| `pluck(list of records, "field")` | One field from every record. |
+| `contains(list or text, value)` | Whether the list holds the value, or the text includes it. |
+| `join(list, separator = ", ")` | The items as one text. |
+| `reverse(list)` | The list back to front. |
+| `slice(list, start, end)` | The items from `start` up to, not including, `end`. |
+
+## Actions
+
+A `<Button action="…">` sends the application an action: its name, its `value` evaluated when pressed, its label, and every variable's value. The application decides what happens next, such as sending you the user's choice as their next message or asking them to confirm. Nothing happens on its own, so say what a button does in its label.
+
+## Components
+
+### `<Button>`
+
+A button. It can set a variable (`set` and `to`), send an action to the application (`action` and `value`), or both. Actions reach the application, which decides what happens, such as sending you the user's choice.
+
+- `label` (text): The label, when it is not written between the tags.
+- `action` (text): The action to send the application, such as `apply` or `ask`.
+- `value` (any): Sent with the action, evaluated when pressed.
+- `set` (variable name): An input variable to set when pressed.
+- `to` (any): The value `set` receives.
+- `variant` (text), default `primary`: `primary` or `secondary`.
+- Content: The label.
+
+```mdx
+<Button action="apply" value={rent}>Use this rent</Button>
+```
+
+### `<Callout>`
+
+An aside that stands out from the text around it.
+
+- `kind` (text), default `note`: `note`, `tip`, `warning`, or `danger`.
+- `title` (text): Replaces the title the kind gives it.
+- Content: What the callout says.
+
+### `<Card>`
+
+A panel that groups related content.
+
+- `title` (text): A heading for the card.
+- `subtitle` (text): A quieter line under the title.
+- Content: The card's content.
+
+```mdx
+<Card title="This month">
+
+You are on track.
+
+</Card>
+```
+
+### `<Chart>`
+
+A chart. `bar` compares amounts across categories, `line` and `area` show change over time, `pie` and `donut` show parts of a whole. Give one series with `values`, or several with <Series> tags inside it.
+
+- `type` (text), default `bar`: `bar`, `line`, `area`, `pie`, or `donut`.
+- `labels` (list): The category or period of each value, such as months.
+- `values` (list): The numbers, for a chart with one series.
+- `name` (text): The name of that one series.
+- `title` (text): A title above the chart.
+- `format` (text), default `number`: How values show: `number`, `money`, or `percent` (of a fraction).
+- `height` (number), default `180`: The plot's height, from 80 to 480.
+- Content: Any number of <Series> tags, up to 8.
+
+```mdx
+<Chart type="line" labels={["Jan", "Feb", "Mar"]} format="money">
+  <Series name="Savings" values={cumsum([400, 450, 500])} />
+  <Series name="Goal" values={[500, 1000, 1500]} />
+</Chart>
+```
+
+### `<Choice>`
+
+Picks one of a few options into a variable, as a row of buttons or, with `kind="radio"`, a list of radio options.
+
+- `bind` (variable name), required: The variable it sets.
+- `options` (list), required: The values to choose between.
+- `labels` (list): What each option says, in the same order; the values when left out.
+- `label` (text): What is being chosen.
+- `kind` (text), default `buttons`: `buttons`, a row for two to four short options, or `radio`, a list for longer ones.
+
+```mdx
+<Choice bind="plan" options={["steady", "aggressive"]} labels={["Steady", "Aggressive"]} />
+```
+
+### `<DataTable>`
+
+A table of records, such as transactions from the application's data. For a table you write out yourself, use a Markdown table.
+
+- `rows` (list), required: A list of records.
+- `columns` (list): The fields to show, in order; every field of the first row when left out.
+- `headers` (list): Column titles, in the same order; the field names when left out.
+- `money` (list): Fields to show as amounts.
+
+```mdx
+<DataTable rows={transactions} columns={["date", "payee", "amount"]} money={["amount"]} />
+```
+
+### `<Divider>`
+
+A horizontal rule between sections.
+
+- No props.
+
+### `<Let>`
+
+Declares a formula variable, recomputed whenever the variables it reads change. It shows nothing.
+
+- `name` (text), required: The variable's name.
+- `value` (any), required: The formula.
+
+```mdx
+<Let name="yearly" value={rent * 12} />
+```
+
+### `<NumberField>`
+
+A field where the user types a number into a variable, such as an amount.
+
+- `bind` (variable name), required: The number variable it writes.
+- `label` (text): What to type.
+- `placeholder` (text): Shown while the field is empty.
+
+### `<Pressable>`
+
+Content the user presses as a whole, such as a card for each option: text, figures, and layout inside, styled with `class`. It takes the same `action`, `value`, `set`, and `to` as a `<Button>`. It cannot hold buttons or inputs.
+
+- `label` (text), required: What pressing it does, for screen readers and for hosts that show a plain button instead.
+- `action` (text): The action to send the application, such as `apply` or `ask`.
+- `value` (any): Sent with the action, evaluated when pressed.
+- `set` (variable name): An input variable to set when pressed.
+- `to` (any): The value `set` receives.
+- Content: What it shows: text, figures, and layout, without buttons or inputs.
+
+```mdx
+<Pressable label="Choose the steady plan" action="choose" value="steady" class="rounded-xl p-4 gap-1 bg-surface">
+  <Text class="font-semibold">Steady</Text>
+  <Text class="text-sm text-muted">{money(saving)} a month</Text>
+</Pressable>
+```
+
+### `<Progress>`
+
+A meter: how much of a total is used, such as a category's budget. It turns red past the total.
+
+- `value` (number), required: How much is used.
+- `max` (number), default `100`: The total.
+- `label` (text): What is measured.
+- `format` (text), default `number`: How numbers show: `number`, `money`, or `percent` (of a fraction).
+- `tone` (text), default `accent`: The fill: `accent`, `positive`, `warning`, or `negative`.
+
+```mdx
+<Progress label="Groceries" value={412} max={600} format="money" />
+```
+
+### `<Row>`
+
+Content side by side, wrapping onto more lines on narrow screens.
+
+- `gap` (number), default `3`: Space between items, from 0 to 8.
+- `equal` (boolean), default `false`: Gives every item the same width, as for a row of stats.
+- `wrap` (boolean), default `true`: Wraps items onto more lines when they do not fit.
+- `align` (text), default `center`: Cross-axis alignment: `start`, `center`, `end`, or `stretch`.
+- `justify` (text), default `start`: Spacing along the row: `start`, `center`, `end`, or `between`.
+- Content: The items, left to right.
+
+### `<Series>`
+
+One named run of values inside a <Chart>.
+
+- `name` (text), required: What the values are, for the legend.
+- `values` (list), required: The numbers, one per label.
+
+### `<Show>`
+
+Content shown only while a condition holds; it follows the variables the condition reads.
+
+- `when` (any), required: The condition, such as `{left < 0}`.
+- Content: What to show.
+
+```mdx
+<Show when={left < 0}>
+
+You are over budget.
+
+</Show>
+```
+
+### `<Slider>`
+
+Drags a number variable between `min` and `max`, and shows its value. Use it for a what-if the user explores, such as a monthly saving.
+
+- `bind` (variable name), required: The number variable it changes.
+- `min` (number), required: The lowest value.
+- `max` (number), required: The highest value.
+- `step` (number): The smallest change; any value between `min` and `max` when left out.
+- `label` (text): What it changes.
+- `format` (text), default `number`: How numbers show: `number`, `money`, or `percent` (of a fraction).
+
+```mdx
+<Slider bind="saving" min={0} max={2000} step={50} label="Monthly saving" format="money" />
+```
+
+### `<Spinner>`
+
+Shows that something is still being worked out, such as while you wait for the application.
+
+- `label` (text), default `Loading`: What is happening.
+
+### `<Stack>`
+
+Content in a column.
+
+- `gap` (number), default `3`: Space between items, from 0 to 8.
+- Content: The items, top to bottom.
+
+### `<Stat>`
+
+A headline number with a label, and optionally its change.
+
+- `label` (text), required: What the number is.
+- `value` (any), required: The number, or text such as `{money(left)}`.
+- `format` (text), default `number`: How numbers show: `number`, `money`, or `percent` (of a fraction).
+- `delta` (any): The change, such as `{-120}` or `"+4% vs May"`; it shows an arrow.
+- `good` (text), default `up`: Which direction is good news: `up` or `down`.
+- `caption` (text): A quieter line under the number.
+
+```mdx
+<Stat label="Left to spend" value={left} format="money" delta={-120} />
+```
+
+### `<Stepper>`
+
+Changes a number variable in steps with − and + buttons, for small counts or exact amounts; use a `<Slider>` to explore a range.
+
+- `bind` (variable name), required: The number variable it changes.
+- `step` (number), default `1`: How much one press changes it.
+- `min` (number): The lowest value.
+- `max` (number): The highest value.
+- `label` (text): What it changes.
+- `format` (text), default `number`: How numbers show: `number`, `money`, or `percent` (of a fraction).
+
+```mdx
+<Stepper bind="rent" step={50} min={0} label="Rent" format="money" />
+```
+
+### `<Text>`
+
+Text styled with `class`, such as `text-xs text-muted` or `text-3xl font-bold text-positive`. Formulas inside it follow their variables.
+
+- Content: The text, with Markdown and `{formulas}`.
+
+```mdx
+<Text class="text-3xl font-bold">{money(left)}</Text>
+```
+
+### `<TextField>`
+
+A field where the user types text into a variable, such as a note.
+
+- `bind` (variable name), required: The text variable it writes.
+- `label` (text): What to type.
+- `placeholder` (text): Shown while the field is empty.
+
+### `<Toggle>`
+
+Turns a true-or-false variable on and off, as a switch or, with `kind="checkbox"`, a checkbox.
+
+- `bind` (variable name), required: The variable it turns on and off.
+- `label` (text), required: What it turns on.
+- `kind` (text), default `switch`: `switch` or `checkbox`.
+
+```mdx
+<Toggle bind="round_up" label="Round purchases up to save" />
+```
+
+### `<Var>`
+
+Declares an input variable the user can change, with its starting value. Inputs and buttons write it; formulas, text, and charts that read it follow it. It shows nothing.
+
+- `name` (text), required: The variable's name: letters, digits, and underscores.
+- `value` (any), required: The starting value.
+
+```mdx
+<Var name="rent" value={1800} />
+```
+
+### `<View>`
+
+A box for layouts the other components do not cover. Style it with `class`: flex direction, gaps, padding, sizes, rounded corners, borders, and colour roles. It lays its content out in a column unless `class` says `flex-row`.
+
+- Content: Anything: text, figures, inputs, and other views.
+
+```mdx
+<View class="flex-row items-center gap-3 rounded-xl p-4 bg-surface">
+  <Text class="flex-1 font-semibold">Rent</Text>
+  <Text class="text-muted">{money(rent)}</Text>
+</View>
+```
+
+## Styling
+
+The built-in components already match the application, so style only what they do not cover. Every component takes a `class` of Tailwind utilities: layout (`flex-row`, `items-center`, `gap-3`, `grid grid-cols-2`), spacing (`p-4`, `mt-2`), size (`w-full`, `min-h-24`), type (`text-sm`, `font-semibold`, `text-center`), and shape (`rounded-xl`, `border`). With `<View>`, `<Text>`, and `<Pressable>` you can build layouts the other components do not have.
+
+- Colours are roles, never values: `bg-surface`, `text-muted`, `border-line`, `bg-accent/20` for 20% opacity. Each role takes the application's own colour and follows light and dark appearance, so do not write hex colours or palette names such as `bg-blue-500`.
+- A `class` can be a formula: `class={left < 0 ? "text-negative" : "text-positive"}`.
+- Positioning (`absolute`, `fixed`, `z-…`, offsets, negative margins) and scrolling (`overflow-auto`, `overflow-scroll`) are refused, so your content stays in its own box.
+
+| Role | For |
+| --- | --- |
+| `accent` | Primary buttons, selected options, links, and meters. |
+| `on-accent` | Text and icons on an accent background. |
+| `positive` | Good news, such as money left over. |
+| `warning` | Something to watch, such as a budget nearly spent. |
+| `negative` | Bad news, such as an overspent budget. |
+| `surface` | Behind cards, stats, fields, and secondary buttons. |
+| `line` | Hairlines: dividers, chart baselines, meter tracks. |
+| `muted` | Secondary text: labels, captions, and axis values. |
+| `series-1` | The first chart series. |
+| `series-2` | The second chart series. |
+| `series-3` | The third chart series. |
+| `series-4` | The fourth chart series. |
+| `series-5` | The fifth chart series. |
+| `series-6` | The sixth chart series. |
+| `series-7` | The seventh chart series. |
+| `series-8` | The eighth chart series. |
+
+## Rules
+
+- Keep it small: one or two ideas per answer. A document is limited to 65536 bytes, 1500 elements, and 128 variables, and a chart to 500 points.
+- Label everything: a chart's title or the sentence before it says what it shows, and every number says what it is.
+- Choose the chart by its job: `bar` to compare categories, `line` or `area` for change over time, `pie` or `donut` for parts of a whole with at most 8 slices.
+- Use `format="money"` or `money()` for amounts.
+- Pick inputs by their job: `<Slider>` to explore a range, `<Stepper>` for small counts or exact steps, `<Choice>` for one of a few options, `<Toggle>` for on and off, and fields for typed values.
+- When something is wrong in a document, the application may send you the problems, each with its line and column. Fix them and send the whole document again.
+
+## Example
+
+```mdx
+Here is where your month stands. Change the rent to see what is left.
+
+<Var name="rent" value={1800} />
+<Var name="groceries" value={600} />
+<Let name="spent" value={rent + groceries} />
+<Let name="left" value={4200 - spent} />
+
+<Row equal>
+  <Stat label="Spent" value={spent} format="money" />
+  <Stat label="Left" value={left} format="money" delta={left - 1500} />
+</Row>
+
+<Slider bind="rent" min={1000} max={2500} step={50} label="Rent" format="money" />
+
+<Chart type="donut" labels={["Rent", "Groceries", "Left"]} values={[rent, groceries, max(left, 0)]} format="money" />
+
+<Show when={left < 0}>
+
+<Callout kind="warning">You would overspend by **{money(-left)}**.</Callout>
+
+</Show>
+
+<Button action="apply" value={rent}>Use this rent</Button>
+```

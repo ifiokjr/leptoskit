@@ -12,6 +12,7 @@ members = [
 	"docs/site",
 	# Listed one by one rather than as `examples/*`: huddle is a folder of
 	# crates with no manifest of its own, which a glob would match.
+	"examples/agent_ui_guest",
 	"examples/auth_pages",
 	"examples/counter",
 	"examples/gallery",
@@ -188,6 +189,7 @@ wkb = "0.9"
 # internal: every publishable crate, so members depend on them with
 # `workspace = true` instead of their own relative paths
 leptoskit = { path = "crates/leptoskit", version = "0.3.0" }
+leptoskit_agent_ui = { path = "crates/leptoskit_agent_ui", version = "0.3.0" }
 leptoskit_analytics = { path = "crates/leptoskit_analytics", version = "0.3.0" }
 leptoskit_android = { path = "crates/leptoskit_android", version = "0.3.0" }
 leptoskit_appkit = { path = "crates/leptoskit_appkit", version = "0.3.0" }
