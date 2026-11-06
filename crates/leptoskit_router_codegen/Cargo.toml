@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_router_codegen"
-version = "0.2.0"
+version.workspace = true
 authors.workspace = true
 categories = ["web-programming", "development-tools"]
 edition.workspace = true

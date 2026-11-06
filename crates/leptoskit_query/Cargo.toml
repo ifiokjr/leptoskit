@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_query"
-version = "0.2.0"
+version.workspace = true
 authors.workspace = true
 categories = ["web-programming", "gui", "asynchronous", "caching"]
 edition.workspace = true

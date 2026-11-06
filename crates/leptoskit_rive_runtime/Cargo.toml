@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_rive_runtime"
-version = "0.2.0"
+version.workspace = true
 authors.workspace = true
 categories = ["gui", "rendering", "external-ffi-bindings"]
 edition.workspace = true
