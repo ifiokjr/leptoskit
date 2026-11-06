@@ -83,6 +83,18 @@ adb shell /data/local/tmp/platform_probe
 
 The probe binary needs no JNI, Gradle, or AndroidX: it is pure Rust linking against bionic. Real apps render through the Kotlin `WidgetHost` and build with Gradle and the NDK.
 
+## Tailwind / Yoga grid parity
+
+The shared layout fixtures live in `crates/leptoskit_native/examples/grid_parity_probe.rs`. Yoga frames are compared to Chrome `getBoundingClientRect` (parent-relative). On Linux the same trees mount on real GTK 4 widgets:
+
+```sh
+cargo run -p leptoskit_native --example grid_parity_probe --features web -- /tmp/grid-parity
+dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
+  cargo run -p leptoskit_gtk --example grid_parity_gtk -- /tmp/grid-parity-gtk
+```
+
+`grid_parity_gtk` fails unless every widget allocation matches Yoga (exact rounded size; origin within 0.5 CSS px). Gallery screenshots on GTK (`gallery snapshot`) and Android (`gallery_verify` / `verify_mobile` on an emulator, including a Pixel Fold AVD) are the paint-side cross-check; Android `WidgetHost` already asserts Yoga owns outer control allocation in `verify_device`.
+
 ## The portable widget journey
 
 The SDK's `widget_suite` example is the journey CI runs on every OS through `leptoskit test run`:
