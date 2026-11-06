@@ -1,7 +1,7 @@
 import { NativeRequest, Runtime, RenderBatch, RiveFrame } from 'libleptoskit.so';
 import { NativePlugin, NativePlugins } from '../leptoskit/plugins';
 import { nativePlugins } from '../leptoskit/registrant';
-import { Widget, Scene, color, textContent } from '../scene';
+import { Widget, Scene, BorderEdges, borderEdges, color, isItalic, textContent } from '../scene';
 import { displaySync } from '@kit.ArkGraphics2D';
 
 class RiveTarget {
@@ -87,27 +87,36 @@ struct NativeWidget {
     return this.node.props.font_weight === 'medium' ? FontWeight.Medium : FontWeight.Normal;
   }
 
+  fontStyle(): FontStyle {
+    return isItalic(this.node.props.italic) ? FontStyle.Italic : FontStyle.Normal;
+  }
+
+  /** Per-edge stroke widths so `border-t` / `border-l-2` paint like web and Android. */
+  strokeWidths(): BorderEdges {
+    return borderEdges(this.node.props);
+  }
+
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
       if (this.node.kind === 'text') {
         Text(this.node.props.text ?? '')
           .width('100%').height('100%')
           .fontSize(this.node.props.font_size ?? 14)
-          .fontWeight(this.fontWeight()).textAlign(this.textAlign())
+          .fontWeight(this.fontWeight()).fontStyle(this.fontStyle()).textAlign(this.textAlign())
           .fontColor(color(this.node.props.color, 0xff111827))
       } else if (this.node.kind === 'button') {
         Button(this.node.props.text ?? '', { type: ButtonType.Normal })
           .width('100%').height('100%').borderRadius(0).padding(0)
           .backgroundColor(color(this.node.props.background, 0x00000000))
           .fontColor(color(this.node.props.color, 0xff007dff))
-          .fontSize(this.node.props.font_size ?? 14).fontWeight(this.fontWeight())
+          .fontSize(this.node.props.font_size ?? 14).fontWeight(this.fontWeight()).fontStyle(this.fontStyle())
           .onClick(() => this.onEvent(this.node.id, 0, ''))
       } else if (this.node.kind === 'text_input' || this.node.kind === 'password_input') {
         TextInput({ text: this.node.props.value ?? this.node.props.text ?? '', placeholder: this.node.props.placeholder ?? '' })
           .type(this.inputType())
           .width('100%').height('100%').padding(0).borderRadius(0)
           .backgroundColor(Color.Transparent)
-          .fontSize(this.node.props.font_size ?? 14).fontWeight(this.fontWeight())
+          .fontSize(this.node.props.font_size ?? 14).fontWeight(this.fontWeight()).fontStyle(this.fontStyle())
           .fontColor(color(this.node.props.color, 0xff111827)).textAlign(this.textAlign())
           .onChange((text: string) => this.onEvent(this.node.id, 1, text))
           .onSubmit(() => this.onEvent(this.node.id, 2, this.node.props.value ?? this.node.props.text ?? ''))
@@ -131,7 +140,7 @@ struct NativeWidget {
     .position({ x: this.node.frame.x, y: this.node.frame.y })
     .backgroundColor(color(this.node.props.background, 0x00000000))
     .borderRadius(this.node.props.corner_radius ?? 0)
-    .borderWidth(this.node.props.border_width ?? 0)
+    .borderWidth(this.strokeWidths())
     .borderColor(color(this.node.props.border_color, 0x00000000))
     .opacity(this.node.props.opacity ?? 1)
     .enabled(this.node.props.enabled ?? true)
