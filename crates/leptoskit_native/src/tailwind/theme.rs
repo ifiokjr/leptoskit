@@ -118,9 +118,7 @@ impl Theme {
 	}
 
 	/// Replaces every color with `entries`, leaving lengths alone.
-	pub fn replace_colors(
-		entries: impl IntoIterator<Item = (impl AsRef<str>, Color)>,
-	) {
+	pub fn replace_colors(entries: impl IntoIterator<Item = (impl AsRef<str>, Color)>) {
 		COLORS.with(|colors| {
 			let mut colors = colors.borrow_mut();
 			colors.clear();
@@ -131,9 +129,7 @@ impl Theme {
 	}
 
 	/// Replaces every length with `entries`, leaving colors alone.
-	pub fn replace_lengths(
-		entries: impl IntoIterator<Item = (impl AsRef<str>, ThemeLength)>,
-	) {
+	pub fn replace_lengths(entries: impl IntoIterator<Item = (impl AsRef<str>, ThemeLength)>) {
 		LENGTHS.with(|lengths| {
 			let mut lengths = lengths.borrow_mut();
 			lengths.clear();
@@ -232,9 +228,11 @@ fn parse_theme_color(value: &str) -> Result<Color, String> {
 			let hex = expand_hex(value);
 			Color::hex(&hex).ok_or_else(|| format!("invalid hex color `{value}`"))
 		}
-		value => Err(format!(
-			"unsupported color `{value}`; use hex, black, white, or transparent"
-		)),
+		value => {
+			Err(format!(
+				"unsupported color `{value}`; use hex, black, white, or transparent"
+			))
+		}
 	}
 }
 
@@ -253,10 +251,11 @@ fn expand_hex(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+	use std::collections::BTreeMap;
+
 	use super::Theme;
 	use super::ThemeLength;
 	use crate::Color;
-	use std::collections::BTreeMap;
 
 	#[test]
 	fn theme_round_trips_and_emits_root_css() {

@@ -29,7 +29,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 			.pressed
 			.filter(|&id| self.is_committed(id))
 			.map(|id| self.path_to(id));
-		let element = source.resolved_holding(
+		let (element, relationships) = source.resolved_tracking(
 			&StyleContext {
 				viewport: self.viewport,
 				dark: self.dark,
@@ -38,6 +38,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 			},
 			held.as_deref(),
 		);
+		self.relationships = relationships;
 		let mut mutations = MutationList::new();
 
 		let new_root = match self.root {
@@ -46,15 +47,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 		};
 
 		self.root = Some(new_root);
-		#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
-		let mutations = self.sync_rive(mutations);
-		#[cfg(feature = "devtools")]
-		let source_start = std::time::Instant::now();
-		self.backend.apply(&mutations);
-		#[cfg(feature = "devtools")]
-		self.devtools.source(mutations.len(), source_start);
-
-		self.commit_layout();
+		self.apply_and_lay_out(mutations);
 
 		// A held control that was replaced, removed, disabled, or hidden by
 		// this commit is no longer pressed, and no release will arrive for a
@@ -65,6 +58,27 @@ impl<B: NativeBackend> NativeSurface<B> {
 			self.pressed = None;
 			self.commit_source();
 		}
+	}
+
+	/// Hands a reconciled batch to the backend, then lays out and pushes the
+	/// changed frames.
+	#[cfg_attr(
+		not(all(feature = "rive", not(target_arch = "wasm32"))),
+		expect(
+			clippy::needless_pass_by_value,
+			reason = "Rive synchronization consumes the batch when the feature is on"
+		)
+	)]
+	pub(super) fn apply_and_lay_out(&mut self, mutations: MutationList) {
+		#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
+		let mutations = self.sync_rive(mutations);
+		#[cfg(feature = "devtools")]
+		let source_start = std::time::Instant::now();
+		self.backend.apply(&mutations);
+		#[cfg(feature = "devtools")]
+		self.devtools.source(mutations.len(), source_start);
+
+		self.commit_layout();
 	}
 
 	pub(super) fn allocate(&mut self, kind: NativeKind) -> NodeId {
@@ -178,10 +192,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 		// created (GTK's accessible role is construct-only), so a role change
 		// tears the old subtree down and builds the replacement in the same
 		// slot.
-		let identity_changed = self.shadows[id.index()].kind != element.kind
-			|| self.shadows[id.index()].props.aria().role != element.props.aria().role;
-
-		if identity_changed {
+		if !self.keeps_identity(id, element) {
 			let slot = self.shadows[id.index()].parent.map(|parent| {
 				let index = self.shadows[parent.index()]
 					.children
@@ -195,6 +206,26 @@ impl<B: NativeBackend> NativeSurface<B> {
 			return self.build_subtree(slot, element, out);
 		}
 
+		self.update_own(id, element, out);
+
+		// The snapshot lives in scratch space reused across commits, so
+		// walking an unchanged tree allocates nothing.
+		let mut old_children = std::mem::take(&mut self.scratch_children);
+		old_children.clone_from(&self.shadows[id.index()].children);
+		self.reconcile_children(id, &old_children, &element.children, out);
+		self.scratch_children = old_children;
+		id
+	}
+
+	/// Whether `element` keeps the identity of committed node `id`: the same
+	/// widget kind and accessibility role.
+	pub(super) fn keeps_identity(&self, id: NodeId, element: &Element) -> bool {
+		self.shadows[id.index()].kind == element.kind
+			&& self.shadows[id.index()].props.aria().role == element.props.aria().role
+	}
+
+	/// Updates a node that keeps its identity, leaving its children alone.
+	pub(super) fn update_own(&mut self, id: NodeId, element: &Element, out: &mut MutationList) {
 		if self.shadows[id.index()].props != element.props {
 			self.shadows[id.index()].props = element.props.clone();
 			self.update_text_measure(id, element);
@@ -217,14 +248,6 @@ impl<B: NativeBackend> NativeSurface<B> {
 				.collect();
 		}
 		self.yoga.set_style(id, element.style.clone());
-
-		// The snapshot lives in scratch space reused across commits, so
-		// walking an unchanged tree allocates nothing.
-		let mut old_children = std::mem::take(&mut self.scratch_children);
-		old_children.clone_from(&self.shadows[id.index()].children);
-		self.reconcile_children(id, &old_children, &element.children, out);
-		self.scratch_children = old_children;
-		id
 	}
 
 	pub(super) fn reconcile_children(

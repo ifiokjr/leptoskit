@@ -844,8 +844,9 @@ impl AxisTracks {
 			TrackSizing::Points(value) => self.bases[index] = value.max(0.0),
 
 			TrackSizing::Percent(fraction) => {
-				self.bases[index] = container
-					.map_or(0.0, |total| crate::layout_unit::percent_of(total, *fraction).max(0.0));
+				self.bases[index] = container.map_or(0.0, |total| {
+					crate::layout_unit::percent_of(total, *fraction).max(0.0)
+				});
 				self.intrinsic[index] = container.is_none();
 			}
 

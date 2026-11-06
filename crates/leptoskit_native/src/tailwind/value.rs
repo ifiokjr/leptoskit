@@ -349,11 +349,7 @@ pub(super) fn color(value: &str) -> Result<PaintColor, String> {
 	if let Some(mut variable) = parse_var(value, MAX_VAR_DEPTH)? {
 		if let Some(alpha) = alpha {
 			let alpha = parse_opacity(alpha)?;
-			if let PaintColor::Var {
-				alpha: slot,
-				..
-			} = &mut variable
-			{
+			if let PaintColor::Var { alpha: slot, .. } = &mut variable {
 				*slot = Some(alpha);
 			}
 		}
@@ -432,9 +428,9 @@ fn parse_var(value: &str, depth: u8) -> Result<Option<PaintColor>, String> {
 	let fallback = match fallback {
 		None => None,
 		Some(fallback) if fallback.starts_with("var(") => {
-			Some(Box::new(parse_var(fallback, depth - 1)?.ok_or_else(|| {
-				"malformed nested var() fallback".to_owned()
-			})?))
+			Some(Box::new(parse_var(fallback, depth - 1)?.ok_or_else(
+				|| "malformed nested var() fallback".to_owned(),
+			)?))
 		}
 		Some(fallback) => Some(Box::new(PaintColor::Solid(solid_color(fallback)?))),
 	};
@@ -475,13 +471,12 @@ fn parse_length_var(value: &str, depth: u8) -> Result<Option<Length>, String> {
 	let fallback = match fallback {
 		None => None,
 		Some(fallback) if fallback.starts_with("var(") => {
-			Some(Box::new(parse_length_var(fallback, depth - 1)?.ok_or_else(
-				|| "malformed nested var() fallback".to_owned(),
-			)?))
+			Some(Box::new(
+				parse_length_var(fallback, depth - 1)?
+					.ok_or_else(|| "malformed nested var() fallback".to_owned())?,
+			))
 		}
-		Some(fallback) => {
-			Some(Box::new(Length::parse(fallback, false, false)?))
-		}
+		Some(fallback) => Some(Box::new(Length::parse(fallback, false, false)?)),
 	};
 
 	Ok(Some(Length::Var {

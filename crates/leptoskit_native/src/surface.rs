@@ -25,6 +25,7 @@ mod devtools;
 mod events;
 mod layout;
 mod measurement;
+mod patch;
 mod reconcile;
 #[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
 mod rive;
@@ -33,6 +34,8 @@ mod rive;
 pub use rive::RiveEnvironment;
 #[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
 pub use rive::RivePresenter;
+
+pub use self::patch::SourcePatch;
 
 /// A committed widget frame, relative to the parent.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -312,6 +315,9 @@ pub struct NativeSurface<B: NativeBackend> {
 	/// steady state allocates nothing to snapshot them.
 	scratch_children: Vec<NodeId>,
 	source: Option<Element>,
+	/// Whether the last full resolution found accessibility relationships,
+	/// which resolve across the whole tree and so rule out patching.
+	relationships: bool,
 	dark: bool,
 	safe_area: Rect<f32>,
 	/// The control the user is holding down, resolved with its `active:`
@@ -336,6 +342,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 			hit_areas: Vec::new(),
 			scratch_children: Vec::new(),
 			source: None,
+			relationships: false,
 			dark: false,
 			safe_area: Rect::default(),
 			pressed: None,
@@ -461,6 +468,13 @@ impl<B: NativeBackend> NativeSurface<B> {
 
 		path.reverse();
 		path
+	}
+
+	/// Whether the committed tree declares accessibility relationships (ids,
+	/// id references, radio groups, live regions), which resolve across the
+	/// whole tree, so [`Self::try_patch`] declines to patch it.
+	pub fn resolves_relationships(&self) -> bool {
+		self.relationships
 	}
 
 	/// The committed frame of a node.

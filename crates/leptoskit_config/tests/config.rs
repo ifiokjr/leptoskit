@@ -1351,11 +1351,8 @@ fn theme_rejects_bad_colors_and_lengths() {
 	assert!(matches!(error, ConfigError::InvalidTheme(_)), "{error}");
 	assert!(error.to_string().contains("hex"));
 
-	let error = load(
-		"theme_bad_length",
-		"[theme.lengths]\ngap = \"1em\"\n",
-	)
-	.expect_err("bad length");
+	let error =
+		load("theme_bad_length", "[theme.lengths]\ngap = \"1em\"\n").expect_err("bad length");
 	assert!(matches!(error, ConfigError::InvalidTheme(_)), "{error}");
 	assert!(error.to_string().contains("px"));
 }

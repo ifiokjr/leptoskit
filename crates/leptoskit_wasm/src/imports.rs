@@ -9,6 +9,7 @@ use super::HostState;
 use super::MAX_NODE_PROPERTY_BYTES;
 use super::MAX_RENDER_PROPERTY_BYTES;
 use super::MAX_TREE_DEPTH;
+use super::PendingCommit;
 use super::WireNode;
 use super::caller_memory;
 use super::host_trap;
@@ -51,8 +52,17 @@ fn node_create(mut caller: Caller<'_, HostState>, id: i64, kind: i32) -> Result<
 		.get(kind as u32 as usize)
 		.copied()
 		.unwrap_or(NativeKind::View);
-	state.nodes.entry(id).or_default();
-	state.kinds.insert(id, kind);
+	state.ensure_node(id);
+
+	// A different widget kind replaces the node and everything below it.
+	if state
+		.kinds
+		.insert(id, kind)
+		.is_some_and(|previous| previous != kind)
+	{
+		state.dirty_structure.insert(id);
+	}
+
 	Ok(())
 }
 
@@ -158,6 +168,7 @@ fn node_set_props(
 		wire.source.clone_from(&previous.wire.source);
 		wire.component.clone_from(&previous.wire.component);
 	}
+	state.ensure_node(id);
 	state.nodes.insert(
 		id,
 		HostNode {
@@ -166,6 +177,7 @@ fn node_set_props(
 			rive_bytes,
 		},
 	);
+	state.dirty_props.insert(id);
 	state.budget.property_bytes = property_bytes + retained_bytes - len;
 	Ok(())
 }
@@ -212,12 +224,14 @@ fn node_insert(
 		+ usize::from(!state.nodes.contains_key(&child));
 	state.check_nodes(additional)?;
 	state.detach(child);
-	state.nodes.entry(parent).or_default();
-	state.nodes.entry(child).or_default();
+	state.ensure_node(parent);
+	state.ensure_node(child);
 	let siblings = state.children.entry(parent).or_default();
 	let index = (index as u32 as usize).min(siblings.len());
 	siblings.insert(index, child);
 	state.parents.insert(child, parent);
+	state.roots.remove(&child);
+	state.dirty_structure.insert(parent);
 	Ok(())
 }
 
@@ -245,7 +259,12 @@ fn node_delete(mut caller: Caller<'_, HostState>, id: i64) -> Result<(), wasmi::
 
 	for child in state.children.remove(&id).into_iter().flatten() {
 		state.parents.remove(&child);
+		state.roots.insert(child);
 	}
+
+	state.roots.remove(&id);
+	state.dirty_props.remove(&id);
+	state.dirty_structure.remove(&id);
 
 	if let Some(node) = state.nodes.remove(&id) {
 		state.budget.property_bytes -= node.property_bytes;
@@ -257,47 +276,43 @@ fn node_delete(mut caller: Caller<'_, HostState>, id: i64) -> Result<(), wasmi::
 
 fn commit(mut caller: Caller<'_, HostState>) -> Result<(), wasmi::Error> {
 	let state = caller.data_mut();
-	state
-		.budget
-		.charge(256 + state.nodes.len() * 256 + state.budget.property_bytes)?;
-	let parentless: Vec<i64> = state
-		.nodes
-		.keys()
-		.copied()
-		.filter(|id| !state.parents.contains_key(id))
-		.collect();
+	state.budget.charge(256)?;
 
-	let root = match parentless.as_slice() {
-		[] => return Ok(()),
-		[root] => *root,
-		many => return Err(excess_roots(many)),
+	let root = match state.roots.len() {
+		0 => return Ok(()),
+		1 => *state.roots.first().expect("one root"),
+		_ => {
+			let many: Vec<i64> = state.roots.iter().take(9).copied().collect();
+			return Err(excess_roots(&many, state.roots.len()));
+		}
 	};
 
-	let pending = state.assemble(root)?;
-	let bytes = super::budget::commit_bytes(&pending.tree, state.budget.property_bytes)
-		.ok_or_else(|| {
-			state
-				.budget
-				.reject("render commit byte limit exceeded; reload the guest")
-		})?;
-	state.budget.charge(bytes)?;
+	// Only the nodes changed since the last commit are rebuilt, unless a
+	// commit is already waiting or the root itself changed.
+	if state.pending.is_none()
+		&& let Some(patches) = state.plan_patches(root)?
+	{
+		state.pending = Some(PendingCommit::Patch(patches));
+		state.commits = state.commits.saturating_add(1);
+		state.clear_dirty();
+		return Ok(());
+	}
+
+	let pending = state.assemble_checked(root)?;
 	state.pending = Some(pending);
 	state.commits = state.commits.saturating_add(1);
+	state.clear_dirty();
 	Ok(())
 }
 
-fn excess_roots(roots: &[i64]) -> wasmi::Error {
+fn excess_roots(roots: &[i64], count: usize) -> wasmi::Error {
 	let shown: Vec<String> = roots.iter().take(8).map(i64::to_string).collect();
-	let more = if roots.len() > shown.len() {
-		", …"
-	} else {
-		""
-	};
+	let more = if count > shown.len() { ", …" } else { "" };
 
 	host_trap(format!(
 		"commit found {} parentless nodes ({}{more}); exactly one root may be committed, so \
 		 attach or delete the others first",
-		roots.len(),
+		count,
 		shown.join(", ")
 	))
 }

@@ -98,6 +98,7 @@ pub use surface::NativeSurface;
 pub use surface::RiveEnvironment;
 #[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
 pub use surface::RivePresenter;
+pub use surface::SourcePatch;
 pub use tailwind::ClassError;
 pub use tailwind::StyleContext;
 pub use tailwind::Tailwind;

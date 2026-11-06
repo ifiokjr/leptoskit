@@ -130,6 +130,7 @@ use wasmi::errors::TableError;
 
 mod budget;
 mod imports;
+mod incremental;
 mod plugins;
 mod resource_limits;
 mod shims;
@@ -245,12 +246,18 @@ pub const MAX_MEMORY_BYTES: usize = 64 * 1024 * 1024;
 /// Rust guests can use both an indirect-function table and an externref table.
 pub const MAX_TABLE_ELEMENTS: usize = 65_536;
 
-/// A tree the module committed, waiting for the host loop to render it.
+/// A commit waiting for the host loop to render it.
 #[derive(Debug)]
-struct PendingCommit {
-	tree: Element,
-	/// The wire id of every node in `tree`, in pre-order.
-	wire_ids: Vec<i64>,
+enum PendingCommit {
+	/// The whole tree, assembled because nothing usable was committed
+	/// before, the root changed, or the tree resolves relationships.
+	Full {
+		tree: Box<Element>,
+		root: i64,
+		structure: incremental::Structure,
+	},
+	/// Only the regions changed since the last commit.
+	Patch(Vec<incremental::WirePatch>),
 }
 
 #[derive(Debug, Default)]
@@ -275,6 +282,17 @@ struct HostState {
 	kinds: BTreeMap<i64, NativeKind>,
 	children: BTreeMap<i64, Vec<i64>>,
 	parents: BTreeMap<i64, i64>,
+	/// Every node without a parent; a commit renders the only one.
+	roots: std::collections::BTreeSet<i64>,
+	/// Nodes whose kind or props changed since the last commit.
+	dirty_props: std::collections::BTreeSet<i64>,
+	/// Nodes whose kind or child list changed since the last commit.
+	dirty_structure: std::collections::BTreeSet<i64>,
+	/// The tree the surface last committed.
+	committed: incremental::Committed,
+	/// Whether the committed tree declares accessibility relationships, so
+	/// the next commit must be complete.
+	relationships: bool,
 	pending: Option<PendingCommit>,
 	commits: u32,
 	/// The notional length of the wasm-bindgen externref table, grown by
@@ -291,9 +309,13 @@ struct HostState {
 impl HostState {
 	/// Detaches `child` from its parent, if it has one.
 	fn detach(&mut self, child: i64) {
-		if let Some(parent) = self.parents.remove(&child)
-			&& let Some(siblings) = self.children.get_mut(&parent)
-		{
+		let Some(parent) = self.parents.remove(&child) else {
+			return;
+		};
+		self.roots.insert(child);
+		self.dirty_structure.insert(parent);
+
+		if let Some(siblings) = self.children.get_mut(&parent) {
 			siblings.retain(|&existing| existing != child);
 
 			// Moving a wide subtree between parents must not retain every
@@ -323,57 +345,32 @@ impl HostState {
 			.map_or(0, Vec::len)
 	}
 
-	/// Validates a pre-order traversal before building nested elements from
-	/// the leaves upward. Both traversals use heap storage so even an invalid
-	/// tree is rejected without recursing through its untrusted depth.
-	fn assemble(&self, root: i64) -> Result<PendingCommit, wasmi::Error> {
-		let mut stack = vec![(root, 1)];
-		let mut wire_ids = Vec::new();
-		let mut elements = Vec::new();
+	/// [`Self::assemble`] with the same budget a guest's `commit` pays.
+	fn assemble_checked(&mut self, root: i64) -> Result<PendingCommit, wasmi::Error> {
+		self.budget
+			.charge(self.nodes.len() * 256 + self.budget.property_bytes)?;
+		let pending = self.assemble(root)?;
+		let PendingCommit::Full { tree, .. } = &pending else {
+			unreachable!("assembly builds the whole tree");
+		};
+		let bytes = budget::commit_bytes(tree, self.budget.property_bytes).ok_or_else(|| {
+			self.budget
+				.reject("render commit byte limit exceeded; reload the guest")
+		})?;
+		self.budget.charge(bytes)?;
+		Ok(pending)
+	}
 
-		while let Some((id, depth)) = stack.pop() {
-			if depth > MAX_TREE_DEPTH {
-				return Err(host_trap(format!(
-					"the committed tree is deeper than {MAX_TREE_DEPTH} levels"
-				)));
-			}
-
-			let wire = self
-				.nodes
-				.get(&id)
-				.map(|node| node.wire.clone())
-				.unwrap_or_default();
-			let mut element =
-				Element::new(self.kinds.get(&id).copied().unwrap_or(NativeKind::View));
-			element.props = wire.props;
-			element.style = wire.style;
-			element = element
-				.try_class(&wire.class)
-				.map_err(|error| host_trap(format!("node {id}: {error}")))?;
-			let children = self.children.get(&id).map_or(&[][..], Vec::as_slice);
-			wire_ids.push(id);
-
-			elements.push((element, children.len()));
-			stack.extend(children.iter().rev().map(|&child| (child, depth + 1)));
-		}
-
-		let mut assembled = Vec::new();
-
-		for (mut element, child_count) in elements.into_iter().rev() {
-			for _ in 0..child_count {
-				element
-					.children
-					.push(assembled.pop().expect("children precede their parent"));
-			}
-
-			assembled.push(element);
-		}
-
-		let tree = assembled.pop().expect("the traversal includes its root");
-		debug_assert!(assembled.is_empty(), "the traversal describes one tree");
+	/// Assembles and validates the whole tree under `root`.
+	fn assemble(&mut self, root: i64) -> Result<PendingCommit, wasmi::Error> {
+		let (tree, structure) = self.assemble_subtree(root, false)?;
 		tree.validate()
 			.map_err(|error| host_trap(error.to_string()))?;
-		Ok(PendingCommit { tree, wire_ids })
+		Ok(PendingCommit::Full {
+			tree: Box::new(tree),
+			root,
+			structure,
+		})
 	}
 }
 
@@ -452,9 +449,6 @@ fn host_trap(message: impl Into<String>) -> wasmi::Error {
 pub struct WasmHost<B: NativeBackend> {
 	identity: HostIdentity,
 	surface: NativeSurface<B>,
-	/// The last committed wire tree's ids in pre-order, independent of the
-	/// guest's mutable forest and of nodes recreated by responsive styles.
-	wire_ids: Vec<i64>,
 	store: Store<HostState>,
 	main_fn: wasmi::Func,
 	event_fn: wasmi::Func,
@@ -625,7 +619,6 @@ impl<B: NativeBackend> WasmHost<B> {
 		Ok(Self {
 			identity: HostIdentity(std::sync::Arc::new(())),
 			surface: NativeSurface::new(backend),
-			wire_ids: Vec::new(),
 			store: guest.store,
 			main_fn: guest.main_fn,
 			event_fn: guest.event_fn,
@@ -655,7 +648,6 @@ impl<B: NativeBackend> WasmHost<B> {
 	pub fn replace_guest(&mut self, wasm: &[u8]) -> Result<(), WasmError> {
 		let guest = Guest::instantiate(wasm)?;
 		self.identity = HostIdentity(std::sync::Arc::new(()));
-		self.wire_ids = Vec::new();
 		self.store = guest.store;
 		self.main_fn = guest.main_fn;
 		self.event_fn = guest.event_fn;
@@ -756,7 +748,7 @@ impl<B: NativeBackend> WasmHost<B> {
 	/// as it was, and the next [`Self::start`] or [`Self::dispatch`] returns
 	/// the error.
 	pub fn set_viewport(&mut self, width: f32, height: f32) {
-		if !self.allow_render(self.wire_ids.len()) {
+		if !self.allow_render(self.committed_nodes()) {
 			return;
 		}
 
@@ -782,7 +774,7 @@ impl<B: NativeBackend> WasmHost<B> {
 	/// Updates the host appearance and re-evaluates retained `dark:` utilities.
 	/// Any replacement widgets keep their original guest event targets.
 	pub fn set_dark_mode(&mut self, dark: bool) {
-		if !self.allow_render(self.wire_ids.len()) {
+		if !self.allow_render(self.committed_nodes()) {
 			return;
 		}
 
@@ -793,7 +785,7 @@ impl<B: NativeBackend> WasmHost<B> {
 	/// Refreshes native font metrics after the host's font or DPI changes.
 	/// Any replacement widgets retain their original guest event targets.
 	pub fn refresh_text_measurer(&mut self) {
-		if !self.allow_render(self.wire_ids.len()) {
+		if !self.allow_render(self.committed_nodes()) {
 			return;
 		}
 
@@ -804,7 +796,7 @@ impl<B: NativeBackend> WasmHost<B> {
 	/// Changes native backend settings and refreshes layout and event targets.
 	/// Hosts use this when a window moves to a display with a different DPI.
 	pub fn update_backend(&mut self, update: impl FnOnce(&mut B)) {
-		if !self.allow_render(self.wire_ids.len()) {
+		if !self.allow_render(self.committed_nodes()) {
 			return;
 		}
 
@@ -926,7 +918,7 @@ impl<B: NativeBackend> WasmHost<B> {
 			return Err(error);
 		}
 
-		if !self.allow_render(self.wire_ids.len()) {
+		if !self.allow_render(self.committed_nodes()) {
 			return Err(host_trap(self.render_error().expect("rendering was rejected")).into());
 		}
 
@@ -1124,23 +1116,76 @@ impl<B: NativeBackend> WasmHost<B> {
 		Ok((ptr, len))
 	}
 
-	/// Hands a pending committed tree to the surface and resyncs the id map.
-	fn drain_commit(&mut self) -> Result<(), WasmError> {
-		if let Some(pending) = self.store.data_mut().pending.take() {
-			// Replacing a held widget can trigger a second reconciliation to
-			// release its active styles. Reserve both complete trees before
-			// the renderer allocates any widgets.
-			if !self.allow_render(pending.wire_ids.len()) {
-				return Err(host_trap(self.render_error().expect("rendering was rejected")).into());
-			}
+	/// The number of wire nodes in the committed tree.
+	fn committed_nodes(&self) -> usize {
+		self.store.data().committed.node_by_wire.len()
+	}
 
-			self.surface.set_owned_root(pending.tree);
-			self.wire_ids = pending.wire_ids;
-			self.resync_map();
-			self.check_backend()?;
+	/// Hands a pending commit to the surface and resyncs the id map.
+	fn drain_commit(&mut self) -> Result<(), WasmError> {
+		let Some(pending) = self.store.data_mut().pending.take() else {
+			return Ok(());
+		};
+
+		let pending = match pending {
+			PendingCommit::Patch(patches) => {
+				let nodes = patches.iter().map(incremental::WirePatch::nodes).sum();
+
+				if !self.allow_render(nodes) {
+					return Err(
+						host_trap(self.render_error().expect("rendering was rejected")).into(),
+					);
+				}
+
+				let state = self.store.data_mut();
+
+				match incremental::apply(&mut self.surface, state, patches) {
+					Ok(true) => {
+						state.relationships = self.surface.resolves_relationships();
+						return self.check_backend();
+					}
+					// The surface found something that resolves across the
+					// whole tree; commit all of it.
+					Ok(false) => {
+						let root = state.committed.root.expect("patches follow a commit");
+						let assembled = state.assemble_checked(root);
+						assembled.map_err(|error| self.reject_patch(error))?
+					}
+					Err(error) => return Err(self.reject_patch(error)),
+				}
+			}
+			full @ PendingCommit::Full { .. } => full,
+		};
+
+		let PendingCommit::Full {
+			tree,
+			root,
+			structure,
+		} = pending
+		else {
+			unreachable!("patches were applied above");
+		};
+
+		// Replacing a held widget can trigger a second reconciliation to
+		// release its active styles. Reserve both complete trees before the
+		// renderer allocates any widgets.
+		if !self.allow_render(structure.len()) {
+			return Err(host_trap(self.render_error().expect("rendering was rejected")).into());
 		}
 
-		Ok(())
+		self.surface.set_owned_root(*tree);
+		let state = self.store.data_mut();
+		state.committed.reset(root, structure);
+		state.relationships = self.surface.resolves_relationships();
+		self.resync_map();
+		self.check_backend()
+	}
+
+	/// Forgets the committed tree after a rejected patch, so the next commit
+	/// renders every node again instead of losing the rejected changes.
+	fn reject_patch(&mut self, error: wasmi::Error) -> WasmError {
+		self.store.data_mut().committed.root = None;
+		error.into()
 	}
 
 	fn allow_render(&mut self, nodes: usize) -> bool {
@@ -1174,32 +1219,42 @@ impl<B: NativeBackend> WasmHost<B> {
 	}
 
 	/// Pairs the committed surface nodes with the wire ids they were built
-	/// from. The surface mirrors the committed element tree exactly, so a
-	/// pre-order walk of each lines up one to one.
+	/// from, after a change that may have rebuilt widgets anywhere.
 	fn resync_map(&mut self) {
-		// Every committed tree has a root and so at least one wire id. No ids
-		// over a committed surface means a replacement guest has not
-		// committed yet, and the widgets it inherited target no guest.
-		if self.wire_ids.is_empty() {
-			self.store.data_mut().wire_by_node = BTreeMap::new();
-
-			return;
-		}
-
-		let mut map = BTreeMap::new();
-		let mut wire_ids = self.wire_ids.iter().copied();
-		let mut stack: Vec<NodeId> = self.surface.root().into_iter().collect();
-
-		while let Some(node) = stack.pop() {
-			let wire_id = wire_ids.next().expect("surface and wire tree diverged");
-			map.insert(node.index(), wire_id);
-			stack.extend(self.surface.children(node).iter().rev());
-		}
-
-		debug_assert!(wire_ids.next().is_none(), "surface and wire tree diverged");
-
-		self.store.data_mut().wire_by_node = map;
+		resync(&self.surface, self.store.data_mut());
 	}
+}
+
+/// Pairs every committed surface node with the wire id it was built from.
+/// The surface mirrors the committed element tree exactly, so a pre-order
+/// walk of each lines up one to one.
+fn resync<B: NativeBackend>(surface: &NativeSurface<B>, state: &mut HostState) {
+	// No committed root over a committed surface means a replacement guest
+	// has not committed yet, and the widgets it inherited target no guest.
+	let Some(root) = state.committed.root else {
+		state.wire_by_node = BTreeMap::new();
+		state.committed.node_by_wire = BTreeMap::new();
+
+		return;
+	};
+
+	let mut by_node = BTreeMap::new();
+	let mut by_wire = BTreeMap::new();
+	let order = state.committed.pre_order(root);
+	let mut wire_ids = order.iter().copied();
+	let mut stack: Vec<NodeId> = surface.root().into_iter().collect();
+
+	while let Some(node) = stack.pop() {
+		let wire_id = wire_ids.next().expect("surface and wire tree diverged");
+		by_node.insert(node.index(), wire_id);
+		by_wire.insert(wire_id, node);
+		stack.extend(surface.children(node).iter().rev());
+	}
+
+	debug_assert!(wire_ids.next().is_none(), "surface and wire tree diverged");
+
+	state.wire_by_node = by_node;
+	state.committed.node_by_wire = by_wire;
 }
 
 fn export_func(

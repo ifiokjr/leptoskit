@@ -269,11 +269,7 @@ fn edge_value(field: EdgeField, edges: &[Edge], rank: u16, value: &str, negative
 		allow_negative,
 		field == EdgeField::Inset,
 	)?;
-	let length = if negative {
-		length.negated()?
-	} else {
-		length
-	};
+	let length = if negative { length.negated()? } else { length };
 	Ok((
 		rank,
 		edges
