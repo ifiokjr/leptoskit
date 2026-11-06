@@ -306,6 +306,18 @@ jobs:
         with:
           tool: cross
 
+      - name: configure sqlite-vec compatibility for musl
+        # sqlite-vec 0.1.9 uses BSD integer type names that musl does not provide
+        # (asg017/sqlite-vec#314). Alias them to the standard fixed-width types
+        # while building this tagged source. cross needs explicit passthrough
+        # for the cc crate's TARGET_CFLAGS inside its container.
+        if: contains(matrix.target, '-musl')
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "TARGET_CFLAGS=-Du_int8_t=uint8_t -Du_int16_t=uint16_t -Du_int64_t=uint64_t" >> "$GITHUB_ENV"
+          echo "CROSS_BUILD_ENV_PASSTHROUGH=TARGET_CFLAGS" >> "$GITHUB_ENV"
+
       - name: set static crt linkage
         # A windows binary that depends on runtime DLLs present on the build runner is not
         # runnable on a machine that lacks them, so the C runtime is linked in statically.
