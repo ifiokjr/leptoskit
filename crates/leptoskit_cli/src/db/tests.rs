@@ -2072,3 +2072,59 @@ fn consolidation_refuses_hand_edits_and_keeps_the_newest() {
 	assert_eq!(history.names.len(), 3, "released, consolidated, kept");
 	assert_eq!(history.names[2], kept.name, "the kept migration runs last");
 }
+
+#[test]
+fn amend_mode_rewrites_the_draft_since_the_release() {
+	let root = tempfile::tempdir().unwrap();
+	let mut project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+	project.config.draft = leptoskit_config::DbDraft::Amend;
+
+	let first = users(
+		Dialect::Sqlite,
+		vec![Column::new("handle", ColumnType::TEXT)],
+	);
+	create(
+		&project,
+		"create users",
+		&first,
+		&options(),
+		&mut RequireHints,
+	)
+	.unwrap();
+	super::record_release(&project, "1.4.0", None).unwrap();
+
+	let mut second = first.clone();
+	second.tables[0]
+		.columns
+		.push(Column::new("bio", ColumnType::TEXT).nullable());
+	std::thread::sleep(std::time::Duration::from_secs(1));
+	let draft = create(&project, "add bio", &second, &options(), &mut RequireHints).unwrap();
+
+	// The next change amends the draft in place: one name, one migration,
+	// both columns.
+	let mut third = second.clone();
+	third.tables[0]
+		.columns
+		.push(Column::new("karma", ColumnType::Int32).nullable());
+	let amended = create(&project, "add karma", &third, &options(), &mut RequireHints).unwrap();
+	assert_eq!(amended.name, draft.name, "the draft keeps its name");
+
+	let history = History::read(&project.migrations_dir(), project.dialect()).unwrap();
+	assert_eq!(history.names.len(), 2, "released and the one draft");
+	let sql = std::fs::read_to_string(
+		project
+			.migrations_dir()
+			.join(&draft.name)
+			.join("migration.sql"),
+	)
+	.unwrap();
+	assert!(
+		sql.contains("\"bio\"") && sql.contains("\"karma\""),
+		"{sql}"
+	);
+	assert!(
+		amended.notes.iter().any(|note| note.contains("db reset")),
+		"{:?}",
+		amended.notes
+	);
+}

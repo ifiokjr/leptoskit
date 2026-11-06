@@ -1012,6 +1012,10 @@
 					"$ref": "#/$defs/DbDialect",
 					"default": "postgres"
 				},
+				"draft": {
+					"description": "How `leptoskit db migration create` treats the drafts since the\nlatest release marker.",
+					"$ref": "#/$defs/DbDraft"
+				},
 				"features": {
 					"description": "The package features that compile its server side, so that its tables\nexport.",
 					"type": "array",
@@ -1105,6 +1109,21 @@
 					"description": "SQLite.",
 					"type": "string",
 					"const": "sqlite"
+				}
+			]
+		},
+		"DbDraft": {
+			"description": "How `leptoskit db migration create` treats the migrations since the\nlatest release marker: one per change, or one draft that keeps up with\nthe tables until the next release consolidates it.",
+			"oneOf": [
+				{
+					"description": "Writes a new migration for every change.",
+					"type": "string",
+					"const": "stack"
+				},
+				{
+					"description": "Rewrites the newest unreleased migration from the snapshot before it,\nso between releases there is one draft rather than a stack. A\ndevelopment database that applied the earlier draft needs `db reset\n--yes`, or push mode, to come back in line.",
+					"type": "string",
+					"const": "amend"
 				}
 			]
 		},

@@ -1268,6 +1268,10 @@ pub struct DbConfig {
 	/// What `leptoskit dev` does when the tables change.
 	#[serde(skip_serializing_if = "DbWatch::is_default")]
 	pub watch: DbWatch,
+	/// How `leptoskit db migration create` treats the drafts since the
+	/// latest release marker.
+	#[serde(skip_serializing_if = "DbDraft::is_default")]
+	pub draft: DbDraft,
 	/// Whether each git branch gets its own database on the development
 	/// Postgres, copied from the main branch's the first time it's used, so
 	/// switching branches never mixes their tables or rows. Off, every branch
@@ -1373,6 +1377,7 @@ impl Default for DbConfig {
 			url_env: "DATABASE_URL".to_owned(),
 			dev_server: DbDevServer::default(),
 			watch: DbWatch::default(),
+			draft: DbDraft::default(),
 			branch_databases: true,
 			policies: DbPolicies::default(),
 			live_capture: DbLiveCapture::default(),
@@ -1434,6 +1439,33 @@ pub enum DbWatch {
 	Report,
 	/// Ignores the tables.
 	Off,
+}
+
+/// How `leptoskit db migration create` treats the migrations since the
+/// latest release marker: one per change, or one draft that keeps up with
+/// the tables until the next release consolidates it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum DbDraft {
+	/// Writes a new migration for every change.
+	#[default]
+	Stack,
+	/// Rewrites the newest unreleased migration from the snapshot before it,
+	/// so between releases there is one draft rather than a stack. A
+	/// development database that applied the earlier draft needs `db reset
+	/// --yes`, or push mode, to come back in line.
+	Amend,
+}
+
+impl DbDraft {
+	#[expect(
+		clippy::trivially_copy_pass_by_ref,
+		reason = "serde's `skip_serializing_if` passes a reference"
+	)]
+	fn is_default(&self) -> bool {
+		matches!(self, Self::Stack)
+	}
 }
 
 /// How long the change log is kept unless `[db] live_retention_minutes`
