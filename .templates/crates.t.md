@@ -11,6 +11,14 @@ them, so the meta crate stays a front door rather than a bundle of everything.
 
 <!-- {/kitSummary} -->
 
+<!-- {@agentUiSummary} -->
+
+It interprets interfaces an agent writes as text while the app runs: Markdown with
+components, variables, formulas, charts, and actions. The documents are data, never
+code, so a published app shows new interfaces without a new build.
+
+<!-- {/agentUiSummary} -->
+
 <!-- {@analyticsSummary} -->
 
 See which application routes are failing or slow. The app keeps bounded minute aggregates

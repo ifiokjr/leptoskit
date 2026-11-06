@@ -136,6 +136,7 @@ packages = [
 	"leptoskit_query",
 	"leptoskit_virtual",
 	"leptoskit_table",
+	"leptoskit_agent_ui",
 	"leptoskit_rive",
 	"leptoskit_rive_runtime",
 	"leptoskit_docs",
@@ -449,6 +450,10 @@ path = "crates/leptoskit_virtual"
 
 [package.leptoskit_table]
 path = "crates/leptoskit_table"
+type = "cargo"
+
+[package.leptoskit_agent_ui]
+path = "crates/leptoskit_agent_ui"
 type = "cargo"
 
 [package.leptoskit_rive]

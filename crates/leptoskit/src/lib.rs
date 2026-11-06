@@ -41,6 +41,9 @@
 //!   Virtual` (the `virtual` feature).
 //! - `table` — headless tables in the style of `TanStack Table`: typed columns,
 //!   sorting, filtering, and pagination (the `table` feature).
+//! - `agent_ui` — interfaces an AI agent writes as text while the app runs:
+//!   Markdown with components, formulas, charts, and actions (the `agent-ui`
+//!   feature).
 //! - `rive` — bounded assets and native/browser Rive playback (the `rive`
 //!   feature; rendering also needs `web`).
 //! - `l10n` — typed translations in the style of Flutter's `gen_l10n`: the
@@ -319,6 +322,13 @@ pub mod table {
 	//! Headless tables: typed columns, sorting, filtering, pagination, and a
 	//! rendered grid of ARIA roles.
 	pub use leptoskit_table::*;
+}
+
+#[cfg(feature = "agent-ui")]
+pub mod agent_ui {
+	//! Interfaces an AI agent writes as text while the app runs: Markdown with
+	//! components, variables, formulas, charts, and actions.
+	pub use leptoskit_agent_ui::*;
 }
 
 #[cfg(feature = "rive")]

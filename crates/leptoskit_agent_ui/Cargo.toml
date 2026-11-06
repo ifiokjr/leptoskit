@@ -1,0 +1,26 @@
+[package]
+name = "leptoskit_agent_ui"
+version.workspace = true
+authors.workspace = true
+categories = ["gui", "parser-implementations"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptoskit", "agent", "generative-ui", "markdown", "mdx"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Interfaces an AI agent writes at runtime: Markdown with components, variables, formulas, charts, and actions, interpreted safely into the leptoskit element tree."
+
+[dependencies]
+leptoskit_native = { workspace = true }
+leptoskit_yoga = { workspace = true }
+markdown = { workspace = true }
+reactive_graph = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+leptoskit_testing = { workspace = true }
+
+[lints]
+workspace = true

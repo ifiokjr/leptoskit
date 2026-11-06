@@ -999,6 +999,11 @@ in
         cargo build --locked --target wasm32-unknown-unknown --package hooks_guest_probe
         LEPTOSKIT_HOOKS_GUEST="$(pwd)/target/wasm32-unknown-unknown/debug/hooks_guest_probe.wasm" \
           cargo test --locked --package leptoskit_wasm --test hooks_guest -- --ignored
+        # An agent's document, interpreted by an ordinary guest: what a
+        # published app runs when an agent sends it interface as text.
+        cargo build --locked --target wasm32-unknown-unknown --package agent_ui_guest_probe
+        LEPTOSKIT_AGENT_UI_GUEST="$(pwd)/target/wasm32-unknown-unknown/debug/agent_ui_guest_probe.wasm" \
+          cargo test --locked --package leptoskit_wasm --test agent_ui_guest -- --ignored
         # The same guest with DevTools, in a real app reporting to a fake
         # hub. Its own target directory keeps the build above as it is.
         cargo build --locked --target wasm32-unknown-unknown --package hooks_guest_probe \
@@ -1006,7 +1011,7 @@ in
         LEPTOSKIT_DEVTOOLS_GUEST="$(pwd)/target/devtools-guest/wasm32-unknown-unknown/debug/hooks_guest_probe.wasm" \
           cargo test --locked --package leptoskit_bridge_ffi --features devtools --test devtools_guest -- --ignored
       '';
-      description = "Run compiled Rust plugin and hooks guests through the interpreter.";
+      description = "Run compiled Rust plugin, hooks, and agent UI guests through the interpreter.";
       binary = "bash";
     };
     "test:plugins:guest-isolation" = {
