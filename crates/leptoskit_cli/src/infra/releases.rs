@@ -399,7 +399,7 @@ fn runtime_files(
 	config: &LeptoskitConfig,
 	hosts: &[String],
 	private: &str,
-) -> Result<BTreeMap<String, String>> {
+) -> Result<(BTreeMap<String, String>, crate::deploy::Project)> {
 	let project = crate::deploy::Project::read(root, config)?;
 	ensure!(
 		project.has_probes,
@@ -418,8 +418,9 @@ fn runtime_files(
 			"set required application secret {name}"
 		);
 	}
+	env.extend(super::services::values(&project, private)?);
 	env.insert("TUNNEL_TOKEN".into(), output(dir, "tunnel_token")?);
-	Ok(env)
+	Ok((env, project))
 }
 
 fn recover_previous(
@@ -539,7 +540,7 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 	let local_schema = schema(&root, &config)?;
 	let local_hash = history_fingerprint(local_schema.clone())?;
 	let target = target_release(args, &history, version, &local_hash)?;
-	let env = runtime_files(&dir, c, &root, &config, &hosts, &private)?;
+	let (env, project) = runtime_files(&dir, c, &root, &config, &hosts, &private)?;
 	if c.backups.enabled && args.setup {
 		super::recovery::credentials()?;
 	}
@@ -591,6 +592,7 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 			 files, or recover explicitly"
 		);
 	}
+	super::services::prepare(ip, c, &project)?;
 	let result = execute(
 		&dir,
 		&["app", "boot", "--version", version],
@@ -673,7 +675,7 @@ pub(super) fn prepare() -> Result<()> {
 	);
 	let ip = &hosts[0];
 	let reservation = Reservation::acquire(ip, &c.name)?;
-	let env = runtime_files(&dir, c, &root, &config, &hosts, &private)?;
+	let (env, project) = runtime_files(&dir, c, &root, &config, &hosts, &private)?;
 	record(ip, c, &reservation.owner, "preparing-services", "services")?;
 	let mut flight = Flight {
 		ip,
@@ -683,6 +685,7 @@ pub(super) fn prepare() -> Result<()> {
 		finished: false,
 	};
 	bootstrap(&dir, c, &hosts, &env, &reservation)?;
+	super::services::prepare(ip, c, &project)?;
 	execute(&dir, &["proxy", "boot"], &env, &reservation)?;
 	if c.backups.enabled {
 		super::recovery::install(ip, c, &output(&dir, "backup_endpoint")?, &reservation)?;

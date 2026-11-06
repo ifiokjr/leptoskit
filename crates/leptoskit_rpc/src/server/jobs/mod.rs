@@ -231,14 +231,27 @@ pub struct JobRegistration {
 	/// Runs its `on_failure` mutation.
 	#[doc(hidden)]
 	pub on_failure: Option<FailureHandler>,
+	/// The service whose workers run it; `None` for the app's own. Workers
+	/// run only their own service's jobs: see [`Jobs::service`].
+	pub service: Option<&'static str>,
 }
 
 inventory::collect!(JobRegistration);
 
-/// The job called `name`.
+/// The app's job called `name`: never a service's. See
+/// [`job_registration_in`].
 #[must_use]
 pub fn job_registration(name: &str) -> Option<&'static JobRegistration> {
-	inventory::iter::<JobRegistration>().find(|registration| registration.name == name)
+	job_registration_in(None, name)
+}
+
+/// The job called `name` that workers for `service` run (`None` for the
+/// app's own). A service's job linked into the app's build, as in a
+/// workspace-wide build, is never the app's to run.
+#[must_use]
+pub fn job_registration_in(service: Option<&str>, name: &str) -> Option<&'static JobRegistration> {
+	inventory::iter::<JobRegistration>()
+		.find(|registration| registration.service == service && registration.name == name)
 }
 
 /// A mutation that can be a job's `on_failure`: it takes one argument,
@@ -375,11 +388,45 @@ impl<'a, J: Job> Enqueue<'a, J> {
 	}
 
 	async fn insert(self) -> Result<Id<JobRow>> {
+		check_scope::<J>(crate::server::installed().as_ref())?;
+
 		match &self.place {
 			Place::Db(db) => insert(db, &self.job, self.owner, self.settings, false).await,
 			Place::Tx(tx) => insert(*tx, &self.job, self.owner, self.settings, true).await,
 		}
 	}
+}
+
+/// Refuses a job of another service than this process's, as the installed
+/// server says: its row would go into this process's database, where no
+/// worker runs it, or worse, where a unified build's worker would run it
+/// against the wrong data. Enqueueing another service's job means calling
+/// one of that service's operations.
+fn check_scope<J: Job>(installed: Option<&super::Server>) -> Result<()> {
+	let Some(server) = installed else {
+		// No server installed, as in a test with only workers: nothing to
+		// compare against.
+		return Ok(());
+	};
+	let here = server.service_name();
+
+	if J::SERVICE == here {
+		return Ok(());
+	}
+
+	let owner = J::SERVICE.map_or_else(
+		|| "the app".to_owned(),
+		|service| format!("the `{service}` service"),
+	);
+	let this = here.map_or_else(
+		|| "the app's".to_owned(),
+		|service| format!("the `{service}` service's"),
+	);
+	Err(Error::server(format!(
+		"`{}` is {owner}'s job, and this is {this} process: only {owner} enqueues it. Call one of \
+		 its operations that enqueues it instead",
+		J::NAME
+	)))
 }
 
 impl<'a, J: Job> IntoFuture for Enqueue<'a, J> {
@@ -682,6 +729,7 @@ const _: () = {
 			name: <crate::jobs::JobStatusArgs as Operation>::NAME,
 			kind: <crate::jobs::JobStatusArgs as Operation>::KIND,
 			module_path: module_path!(),
+			service: None,
 			handler: handle::<crate::jobs::JobStatusArgs>,
 		}
 	}
@@ -690,6 +738,7 @@ const _: () = {
 			name: <crate::jobs::CancelJob as Operation>::NAME,
 			kind: <crate::jobs::CancelJob as Operation>::KIND,
 			module_path: module_path!(),
+			service: None,
 			handler: handle::<crate::jobs::CancelJob>,
 		}
 	}

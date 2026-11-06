@@ -1538,9 +1538,40 @@ pub(crate) fn install(config: &ClientConfig) {
 		return;
 	}
 
-	if let Some(transport) = transport(config) {
+	if let Some(transport) = transport(config, None) {
 		let _ = CLIENT.set(LiveClient::new(config, transport));
 	}
+}
+
+/// Each service's live client, made the first time a screen watches one of
+/// its queries. They live as long as the app, as the app's own does.
+static SERVICE_CLIENTS: Mutex<Option<HashMap<&'static str, &'static LiveClient>>> =
+	Mutex::new(None);
+
+/// The live client for operations `service` runs, or the app's own for
+/// `None`. A service's client connects to
+/// `{origin}/_leptoskit/services/<service>/live`, once
+/// [`configure`](super::configure) has been called, with only the
+/// credentials [`ClientConfig::service_credentials`] names for it, and no
+/// offline queue: its mutations go over HTTP while its socket is down.
+pub(crate) fn client_for(service: Option<&'static str>) -> Option<&'static LiveClient> {
+	let Some(service) = service else {
+		return CLIENT.get();
+	};
+	// Only an app that configured its client holds live connections.
+	CLIENT.get()?;
+	let mut clients = lock(&SERVICE_CLIENTS);
+	let clients = clients.get_or_insert_with(HashMap::new);
+
+	if let Some(client) = clients.get(service) {
+		return Some(client);
+	}
+
+	let config = super::services::for_service(&super::services::config(), service);
+	let transport = transport(&config, Some(service))?;
+	let client: &'static LiveClient = Box::leak(Box::new(LiveClient::new(&config, transport)));
+	clients.insert(service, client);
+	Some(client)
 }
 
 /// The app's live client.
@@ -1553,11 +1584,6 @@ pub fn client() -> &'static LiveClient {
 	CLIENT
 		.get()
 		.expect("call rpc::client::configure before using a live query")
-}
-
-/// The app's live client, when it has one.
-pub(crate) fn client_if_any() -> Option<&'static LiveClient> {
-	CLIENT.get()
 }
 
 /// Whether this build can hold a live connection.
@@ -1581,6 +1607,12 @@ pub(crate) fn install_client(client: LiveClient) -> bool {
 pub fn reauthenticate() {
 	if let Some(live) = CLIENT.get() {
 		live.reauthenticate();
+	}
+
+	if let Some(clients) = lock(&SERVICE_CLIENTS).as_ref() {
+		for live in clients.values() {
+			live.reauthenticate();
+		}
 	}
 }
 
@@ -1626,8 +1658,13 @@ pub fn use_live_status() -> ReadSignal<LiveStatus> {
 	),
 	all(feature = "guest", target_arch = "wasm32", target_os = "unknown"),
 ))]
-fn transport(config: &ClientConfig) -> Option<Arc<dyn Transport>> {
+fn transport(config: &ClientConfig, service: Option<&str>) -> Option<Arc<dyn Transport>> {
 	let origin = config.origin.clone().or_else(page_origin)?;
+	// A service's routes live under its prefix on the same origin.
+	let origin = match service {
+		Some(service) => super::services::service_origin(Some(&origin), service),
+		None => origin,
+	};
 	let socket = Arc::new(Socket {
 		url: socket_url(&origin),
 	});
@@ -1663,19 +1700,22 @@ fn transport(config: &ClientConfig) -> Option<Arc<dyn Transport>> {
 	),
 	all(feature = "guest", target_arch = "wasm32", target_os = "unknown"),
 )))]
-fn transport(_config: &ClientConfig) -> Option<Arc<dyn Transport>> {
+fn transport(_config: &ClientConfig, _service: Option<&str>) -> Option<Arc<dyn Transport>> {
 	None
 }
 
-#[cfg(any(
-	all(
-		feature = "web",
-		not(feature = "guest"),
-		target_arch = "wasm32",
-		target_os = "unknown"
-	),
-	all(feature = "guest", target_arch = "wasm32", target_os = "unknown"),
-))]
+#[cfg_attr(
+	not(any(
+		all(
+			feature = "web",
+			not(feature = "guest"),
+			target_arch = "wasm32",
+			target_os = "unknown"
+		),
+		all(feature = "guest", target_arch = "wasm32", target_os = "unknown"),
+	)),
+	allow(dead_code, reason = "only the browser and native apps open sockets")
+)]
 fn socket_url(origin: &str) -> String {
 	let origin = origin.trim_end_matches('/');
 
@@ -1686,6 +1726,25 @@ fn socket_url(origin: &str) -> String {
 	} else {
 		format!("{origin}/live")
 	}
+}
+
+/// The scheme and authority of `url`, without its path:
+/// `wss://example.com` for `wss://example.com/_leptoskit/services/a/live`.
+#[cfg_attr(
+	not(all(
+		feature = "web",
+		not(feature = "guest"),
+		target_arch = "wasm32",
+		target_os = "unknown"
+	)),
+	allow(dead_code, reason = "only the browser's socket plugin allows origins")
+)]
+fn url_origin(url: &str) -> Option<&str> {
+	let start = url.find("://")? + 3;
+	let end = url[start..]
+		.find('/')
+		.map_or(url.len(), |path| start + path);
+	(end > start).then(|| &url[..end])
 }
 
 #[cfg(all(
@@ -1750,9 +1809,9 @@ impl Transport for Socket {
 	target_os = "unknown"
 ))]
 async fn connect(url: &str) -> Result<Box<dyn Connection>, String> {
-	let origin = url
-		.strip_suffix("/live")
-		.ok_or_else(|| "the live URL has no path".to_owned())?;
+	// The socket may live under a service's prefix; the plugin allows
+	// whole origins.
+	let origin = url_origin(url).ok_or_else(|| "the live URL has no origin".to_owned())?;
 	let config =
 		leptoskit_plugin_websocket::Config::new([origin]).map_err(|error| error.to_string())?;
 	let client =
@@ -2193,7 +2252,7 @@ impl<C: Channel> ChannelHandle<C> {
 			return;
 		};
 
-		if let Some(live) = CLIENT.get() {
+		if let Some(live) = client_for(C::SERVICE) {
 			live.signal::<C>(&key, &message);
 		}
 	}
@@ -2229,7 +2288,8 @@ where
 		let args = Arc::new(args);
 		Effect::new_isomorphic(move |_| {
 			let args = args();
-			let Some(live) = CLIENT.get() else {
+			// A service's channel is joined over that service's connection.
+			let Some(live) = client_for(C::SERVICE) else {
 				return;
 			};
 			if let Some(previous) = key.get_value() {
@@ -2302,7 +2362,8 @@ where
 
 	Effect::new_isomorphic(move |_| {
 		let key = key.get();
-		let Some(live) = CLIENT.get() else {
+		// A service's query is watched over that service's connection.
+		let Some(live) = client_for(Q::SERVICE) else {
 			return;
 		};
 		if let Some(previous) = subscription.get_value() {
@@ -2359,7 +2420,7 @@ where
 	M: Operation,
 	M::Output: Clone,
 {
-	MutationScope::new(|op: M| send_live(op)).with_name(&format!("rpc:{}", M::NAME))
+	MutationScope::new(|op: M| send_live(op)).with_name(&super::scope_name(M::SERVICE, M::NAME))
 }
 
 /// A mutation, ready to run from a screen over the live connection: the
@@ -2395,7 +2456,7 @@ where
 /// as an ordinary call otherwise: what
 /// [`mutation_scope`](super::mutation_scope) runs.
 pub(crate) fn send_or_call<M: Operation>(op: M) -> BoxFuture<'static, Result<M::Output, FnError>> {
-	match CLIENT.get() {
+	match client_for(M::SERVICE) {
 		Some(live) if live.carries_calls() => send_live(op),
 		_ => Box::pin(super::call(op)),
 	}
@@ -2403,7 +2464,7 @@ pub(crate) fn send_or_call<M: Operation>(op: M) -> BoxFuture<'static, Result<M::
 
 /// Sends `op` over the live connection, or as an ordinary call without one.
 fn send_live<M: Operation>(op: M) -> BoxFuture<'static, Result<M::Output, FnError>> {
-	let Some(live) = CLIENT.get() else {
+	let Some(live) = client_for(M::SERVICE) else {
 		return Box::pin(super::call(op));
 	};
 	let arguments = match serde_json::to_value(&op) {
@@ -3189,5 +3250,32 @@ mod tests {
 				assert_eq!(resume.queries.len(), 0);
 			})
 			.await;
+	}
+}
+
+#[cfg(test)]
+mod service_urls {
+	use super::socket_url;
+	use super::url_origin;
+	use crate::client::services::service_origin;
+
+	#[test]
+	fn a_services_socket_lives_under_its_prefix_on_the_apps_origin() {
+		let origin = service_origin(Some("https://app.example/"), "analytics");
+		assert_eq!(origin, "https://app.example/_leptoskit/services/analytics");
+		let url = socket_url(&origin);
+		assert_eq!(url, "wss://app.example/_leptoskit/services/analytics/live");
+		assert_eq!(url_origin(&url), Some("wss://app.example"));
+		assert_eq!(
+			socket_url(&service_origin(Some("http://127.0.0.1:3000"), "a")),
+			"ws://127.0.0.1:3000/_leptoskit/services/a/live"
+		);
+		assert_eq!(
+			url_origin("ws://127.0.0.1:3000/live"),
+			Some("ws://127.0.0.1:3000")
+		);
+		assert_eq!(url_origin("wss://app.example"), Some("wss://app.example"));
+		assert_eq!(url_origin("/live"), None);
+		assert_eq!(url_origin("wss:///live"), None);
 	}
 }

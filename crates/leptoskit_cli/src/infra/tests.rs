@@ -10,6 +10,7 @@ fn config() -> InfraConfig {
 		compute: leptoskit_config::infra::ComputeProvider::default(),
 		instances: 1,
 		services: leptoskit_config::infra::InfraServices::default(),
+		postgres: leptoskit_config::infra::InfraPostgres::default(),
 		plugins: leptoskit_config::infra::InfraPlugins::default(),
 		backups: leptoskit_config::infra::InfraBackups::default(),
 		b2: None,
@@ -476,5 +477,328 @@ fn encrypted_archives_restore_real_postgres_and_preserve_the_previous_database()
 		"{}\n{}",
 		String::from_utf8_lossy(&output.stdout),
 		String::from_utf8_lossy(&output.stderr)
+	);
+}
+
+/// The services fixture with a server that answers the probes.
+fn services_project(root: &Path, trust: &str) -> crate::deploy::Project {
+	let config = crate::deploy::tests::project_with_services(
+		root,
+		crate::deploy::tests::Db::Postgres,
+		trust,
+	);
+	crate::deploy::Project::read(root, &config).unwrap()
+}
+
+#[test]
+fn managed_services_run_as_roles_with_their_own_secrets() {
+	let root = tempfile::tempdir().unwrap();
+	let project = services_project(root.path(), "first-party");
+	let (yaml, secrets) =
+		runtime::kamal(&config(), &project, &["192.0.2.10".into()], "10.42.0.10").unwrap();
+	insta::assert_snapshot!("managed_services", yaml);
+	insta::assert_snapshot!("managed_services_secret_references", secrets);
+	let value: serde_json::Value = serde_json::from_str(&yaml).unwrap();
+
+	// No service inherits the app's environment: it's the web role's alone.
+	assert!(value.get("env").is_none());
+	let web = &value["servers"]["web"];
+	assert_eq!(web["options"]["network-alias"], "notes-production-app");
+	let web_secrets = web["env"]["secret"].as_array().unwrap();
+	assert!(web_secrets.contains(&serde_json::json!("DATABASE_URL")));
+	assert!(web_secrets.contains(&serde_json::json!("LEPTOSKIT_SERVICE_ANALYTICS_TOKEN")));
+	assert!(web_secrets.contains(&serde_json::json!("ANALYTICS_AUTHORIZATION")));
+	assert_eq!(
+		web["env"]["clear"]["LEPTOSKIT_SERVICE_ANALYTICS_URL"],
+		"http://notes-production-analytics:3100"
+	);
+
+	// Each service gets its own token and database under the contract's
+	// names, and nothing of the app's.
+	let analytics = &value["servers"]["service-analytics"];
+	assert_eq!(analytics["cmd"], "/app/services/analytics");
+	assert_eq!(analytics["hosts"], serde_json::json!(["192.0.2.10"]));
+	assert_eq!(
+		analytics["env"]["secret"],
+		serde_json::json!([
+			"LEPTOSKIT_SERVICE_TOKEN:LEPTOSKIT_SERVICE_ANALYTICS_TOKEN",
+			"DATABASE_URL:LEPTOSKIT_SERVICE_ANALYTICS_DATABASE_URL",
+			"ANALYTICS_GEOIP_KEY"
+		])
+	);
+	assert_eq!(
+		analytics["proxy"]["path_prefix"],
+		"/_leptoskit/services/analytics,/_analytics"
+	);
+	assert_eq!(analytics["proxy"]["strip_path_prefix"], false);
+	assert_eq!(
+		analytics["options"]["volume"],
+		serde_json::json!([
+			"/var/lib/leptoskit/notes-production/services/analytics/exports:/volumes/exports"
+		])
+	);
+	let cards = &value["servers"]["service-cards"];
+	assert!(cards.get("proxy").is_none());
+	assert_eq!(cards["options"]["network-alias"], "notes-production-cards");
+
+	// The app's token-bearing binding is written in terms of the token, and
+	// every secret is listed once.
+	assert!(
+		secrets.contains("ANALYTICS_AUTHORIZATION=Bearer ${LEPTOSKIT_SERVICE_ANALYTICS_TOKEN}\n")
+	);
+	assert!(!secrets.contains("ANALYTICS_AUTHORIZATION=$ANALYTICS_AUTHORIZATION"));
+	assert!(secrets.contains(
+		"LEPTOSKIT_SERVICE_ANALYTICS_DATABASE_URL=$LEPTOSKIT_SERVICE_ANALYTICS_DATABASE_URL"
+	));
+	let lines: Vec<&str> = secrets.lines().collect();
+	let unique: std::collections::BTreeSet<&str> = lines
+		.iter()
+		.map(|line| line.split('=').next().unwrap())
+		.collect();
+	assert_eq!(lines.len(), unique.len(), "{secrets}");
+}
+
+#[test]
+fn managed_services_refuse_what_the_hosts_cannot_do() {
+	let root = tempfile::tempdir().unwrap();
+
+	let isolated = services_project(root.path(), "isolated");
+	let error = services::check(&config(), &isolated).unwrap_err();
+	assert!(error.to_string().contains("services.analytics"), "{error}");
+	assert!(error.to_string().contains("first-party"), "{error}");
+
+	let project = services_project(root.path(), "first-party");
+	let mut several = config();
+	several.instances = 2;
+	let error = services::check(&several, &project).unwrap_err();
+	assert!(error.to_string().contains("instances = 1"), "{error}");
+
+	let mut tight = config();
+	tight.postgres.max_connections = 30;
+	let error = services::check(&tight, &project).unwrap_err();
+	assert!(
+		error.to_string().contains("max_connections = 30"),
+		"{error}"
+	);
+	assert!(error.to_string().contains("services.analytics"), "{error}");
+
+	services::check(&config(), &project).unwrap();
+}
+
+#[test]
+fn a_raised_connection_limit_starts_postgres_with_it() {
+	let root = tempfile::tempdir().unwrap();
+	let project = services_project(root.path(), "first-party");
+	let mut c = config();
+	c.postgres.max_connections = 200;
+	let (yaml, _) = runtime::kamal(&c, &project, &["192.0.2.10".into()], "10.42.0.10").unwrap();
+	let value: serde_json::Value = serde_json::from_str(&yaml).unwrap();
+	assert_eq!(
+		value["accessories"]["db"]["cmd"],
+		"postgres -c max_connections=200"
+	);
+}
+
+#[test]
+fn service_database_urls_bind_their_passwords_on_the_private_address() {
+	let root = tempfile::tempdir().unwrap();
+	let project = services_project(root.path(), "first-party");
+	let environment = |name: &str| {
+		match name {
+			"LEPTOSKIT_SERVICE_ANALYTICS_DATABASE_PASSWORD" => Some("p@ss word".to_owned()),
+			"LEPTOSKIT_SERVICE_ANALYTICS_TOKEN"
+			| "LEPTOSKIT_SERVICE_BILLING_TOKEN"
+			| "LEPTOSKIT_SERVICE_CARDS_TOKEN"
+			| "ANALYTICS_GEOIP_KEY" => Some("fixture".to_owned()),
+			_ => None,
+		}
+	};
+	let values = services::values_with(&project, "10.42.0.10", environment).unwrap();
+	assert_eq!(
+		values["LEPTOSKIT_SERVICE_ANALYTICS_DATABASE_URL"],
+		"postgres://leptoskit_service_analytics:p%40ss%20word@10.42.0.10:5432/\
+		 leptoskit_service_analytics?sslmode=disable"
+	);
+	assert_eq!(values.len(), 1);
+	let error = services::values_with(&project, "10.42.0.10", |_| None).unwrap_err();
+	assert!(
+		error
+			.to_string()
+			.contains("LEPTOSKIT_SERVICE_ANALYTICS_TOKEN"),
+		"{error}"
+	);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[cfg(unix)]
+async fn service_databases_are_their_roles_alone() {
+	use leptoskit_db::Read as _;
+	let Some(cluster) = postgres::PostgresCluster::start() else {
+		return;
+	};
+	let root = tempfile::tempdir().unwrap();
+	let project = services_project(root.path(), "first-party");
+	let url = url::Url::parse(&cluster.database()).unwrap();
+	let mut admin = url.clone();
+	admin.set_path("/postgres");
+	let admin_sql = |sql: &str| {
+		let output = Command::new("psql")
+			.arg("-X")
+			.arg(admin.as_str())
+			.args(["-v", "ON_ERROR_STOP=1", "-q", "-c", sql])
+			.output()
+			.unwrap();
+		assert!(
+			output.status.success(),
+			"{}",
+			String::from_utf8_lossy(&output.stderr)
+		);
+	};
+	admin_sql("CREATE ROLE leptoskit LOGIN PASSWORD 'app'");
+	admin_sql("CREATE DATABASE leptoskit OWNER leptoskit");
+	let sql = crate::deploy::services::postgres_setup_sql(&project.services, "leptoskit");
+
+	// Twice: a release runs it every time, and the second run changes only
+	// the password.
+	for password in ["first", "second's"] {
+		// The setup holds `\\gexec` meta-commands, so it goes in on standard
+		// input, as a release sends it.
+		let mut child = Command::new("psql")
+			.arg("-X")
+			.arg(admin.as_str())
+			.args(["-v", "ON_ERROR_STOP=1", "-q"])
+			.arg(format!(
+				"--set=LEPTOSKIT_SERVICE_ANALYTICS_DATABASE_PASSWORD={password}"
+			))
+			.stdin(Stdio::piped())
+			.stdout(Stdio::piped())
+			.stderr(Stdio::piped())
+			.spawn()
+			.unwrap();
+		std::io::Write::write_all(&mut child.stdin.take().unwrap(), sql.as_bytes()).unwrap();
+		let output = child.wait_with_output().unwrap();
+		assert!(
+			output.status.success(),
+			"{}",
+			String::from_utf8_lossy(&output.stderr)
+		);
+	}
+
+	// A pool connects on its first query, so reaching a database means
+	// running one there.
+	let reaches = |user: &str, database: &str| {
+		let mut url = url.clone();
+		url.set_username(user).unwrap();
+		url.set_path(&format!("/{database}"));
+		let url = url.to_string();
+		async move {
+			let Ok(db) = leptoskit_db::Db::connect(&url).await else {
+				return None;
+			};
+			db.fetch(leptoskit_db::Statement {
+				sql: "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = \
+				      current_database()"
+					.into(),
+				args: vec![],
+			})
+			.await
+			.ok()
+			.map(|rows| rows[0][0].clone())
+		}
+	};
+	assert_eq!(
+		reaches("leptoskit_service_analytics", "leptoskit_service_analytics").await,
+		Some(leptoskit_db::Value::Text(
+			"leptoskit_service_analytics".into()
+		)),
+		"the service reaches its own database, which its role owns"
+	);
+	assert_eq!(
+		reaches("leptoskit_service_analytics", "leptoskit").await,
+		None,
+		"a service's role must not reach the app's database"
+	);
+	assert_eq!(
+		reaches("leptoskit", "leptoskit_service_analytics").await,
+		None,
+		"the app's role must not reach a service's database"
+	);
+	assert_eq!(
+		reaches("leptoskit", "leptoskit").await,
+		Some(leptoskit_db::Value::Text("leptoskit".into())),
+		"the app still reaches its own database"
+	);
+	// The second run set the role's current password.
+	let output = Command::new("psql")
+		.arg("-X")
+		.arg(admin.as_str())
+		.args([
+			"-At",
+			"-c",
+			"SELECT rolpassword IS NOT NULL FROM pg_authid WHERE rolname = \
+			 'leptoskit_service_analytics'",
+		])
+		.output()
+		.unwrap();
+	assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "t");
+}
+
+/// The script Compose's Postgres runs on its first start, as the image's
+/// entrypoint would: as the superuser, with the passwords in its
+/// environment.
+#[test]
+#[cfg(unix)]
+fn the_compose_database_script_gives_each_service_its_database() {
+	let Some(cluster) = postgres::PostgresCluster::start() else {
+		return;
+	};
+	let root = tempfile::tempdir().unwrap();
+	let project = services_project(root.path(), "first-party");
+	let url = cluster.database();
+	let database = url::Url::parse(&url)
+		.unwrap()
+		.path()
+		.trim_start_matches('/')
+		.to_owned();
+	let script = root.path().join("10-services.sh");
+	// Compose's file doubles each `$`; the script it hands Postgres has one.
+	fs::write(
+		&script,
+		crate::deploy::postgres_services_script(&project, false)
+			.replace(&format!("\"{}\"", "notes"), &format!("\"{database}\"")),
+	)
+	.unwrap();
+	let parsed = url::Url::parse(&url).unwrap();
+	let output = Command::new("bash")
+		.arg(&script)
+		.env("POSTGRES_USER", "postgres")
+		.env("POSTGRES_DB", &database)
+		.env("PGHOST", parsed.host_str().unwrap())
+		.env("PGPORT", parsed.port().unwrap().to_string())
+		.env(
+			"LEPTOSKIT_SERVICE_ANALYTICS_DATABASE_PASSWORD",
+			"it's a secret",
+		)
+		.output()
+		.unwrap();
+	assert!(
+		output.status.success(),
+		"{}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	let check = Command::new("psql")
+		.arg("-X")
+		.arg(&url)
+		.args([
+			"-At",
+			"-c",
+			"SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = \
+			 'notes_service_analytics'",
+		])
+		.output()
+		.unwrap();
+	assert_eq!(
+		String::from_utf8_lossy(&check.stdout).trim(),
+		"notes_service_analytics"
 	);
 }

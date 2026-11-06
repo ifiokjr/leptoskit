@@ -188,6 +188,10 @@ pub struct MetadataPackage {
 	/// The package's direct dependencies.
 	#[serde(default)]
 	pub dependencies: Vec<MetadataDependency>,
+	/// The package's `[package.metadata]` table, such as a service's
+	/// `leptoskit.service`.
+	#[serde(default)]
+	pub metadata: serde_json::Value,
 }
 
 impl MetadataPackage {

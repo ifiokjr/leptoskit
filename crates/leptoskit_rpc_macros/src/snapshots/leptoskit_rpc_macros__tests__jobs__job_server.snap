@@ -87,6 +87,7 @@ const _: () = {
         ::leptoskit_rpc::Job > ::NAME, options : < SettlePayment as ::leptoskit_rpc::Job
         > ::OPTIONS, handler : ::leptoskit_rpc::__private::run_job:: < SettlePayment >,
         on_failure : ::core::option::Option::Some(::leptoskit_rpc::__private::fail_job::
-        < SettlePayment, crate ::pay::PaymentGaveUp >), }
+        < SettlePayment, crate ::pay::PaymentGaveUp >), service : < SettlePayment as
+        ::leptoskit_rpc::Job > ::SERVICE, }
     }
 };

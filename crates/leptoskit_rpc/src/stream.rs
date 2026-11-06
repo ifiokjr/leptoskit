@@ -39,6 +39,10 @@ pub trait StreamOperation: Serialize + DeserializeOwned + Clone + Send + Sync + 
 	/// Whether a reconnecting client opens it again from its last item's
 	/// cursor: `#[rpc::stream(resumable)]`.
 	const RESUMABLE: bool = false;
+	/// The service that serves it, for `#[rpc::stream(service = "...")]`;
+	/// `None` for the app's own. The client opens it over that service's
+	/// live connection, and only that service's live socket serves it.
+	const SERVICE: Option<&'static str> = None;
 	/// What each item is.
 	type Item: Serialize + DeserializeOwned + Send + 'static;
 

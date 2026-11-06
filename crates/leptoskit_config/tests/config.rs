@@ -1356,3 +1356,56 @@ fn theme_rejects_bad_colors_and_lengths() {
 	assert!(matches!(error, ConfigError::InvalidTheme(_)), "{error}");
 	assert!(error.to_string().contains("px"));
 }
+
+#[test]
+fn services_parse_with_each_source() {
+	let config = load(
+		"services",
+		"[db]\ndialect = \"sqlite\"\n\n[services.analytics]\npackage = \
+		 \"analytics_service\"\ndatabase = true\npublic = true\nroutes = \
+		 [\"/_analytics\"]\nbind = { ANALYTICS_PATH = \"{public_path}\" }\n\n[services.search]\ncrate \
+		 = \"acme-search\"\nversion = \"0.4\"\nport = 3200\n\n[services.billing]\nurl = \
+		 \"https://billing.example\"\n",
+	)
+	.expect("services");
+	assert_eq!(config.services.len(), 3);
+	assert_eq!(
+		config.services["search"].source("search"),
+		Ok(leptoskit_config::ServiceSource::Crate {
+			name: "acme-search".into(),
+			version: Some("0.4".into()),
+		})
+	);
+	let text = config.to_toml_string().expect("serialize");
+	assert!(text.contains("[services.analytics]"), "{text}");
+}
+
+#[test]
+fn services_fail_with_the_table_named() {
+	let error = load(
+		"services_bad",
+		"[services.billing]\nurl = \"https://billing.example\"\ndatabase = true\n",
+	)
+	.expect_err("remote with a database");
+	assert!(matches!(error, ConfigError::InvalidServices(_)), "{error}");
+	assert!(error.to_string().contains("services.billing"), "{error}");
+
+	// Without the app's `[db]`, a service's database is SQLite.
+	load(
+		"services_no_db",
+		"[services.analytics]\npackage = \"a\"\ndatabase = true\n",
+	)
+	.expect("a service may have a database when the app has none");
+
+	let error = load("services_volume", "[services.volume-x]\npackage = \"a\"\n")
+		.expect_err("a name the volume variables would shadow");
+	assert!(error.to_string().contains("reserved"), "{error}");
+
+	// Nothing forwards browsers to a remote origin yet.
+	let error = load(
+		"services_remote_public",
+		"[services.billing]\nurl = \"https://billing.example\"\npublic = true\n",
+	)
+	.expect_err("a public remote service");
+	assert!(error.to_string().contains("can't be public"), "{error}");
+}

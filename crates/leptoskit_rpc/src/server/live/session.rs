@@ -60,7 +60,7 @@ use crate::live::WireError;
 use crate::server::IdentityLease;
 use crate::server::QueryCx;
 use crate::server::channel;
-use crate::server::registration;
+use crate::server::registration_in;
 use crate::server::run::recording_commits;
 use crate::server::stream;
 use crate::server::stream::StreamSink;
@@ -505,7 +505,7 @@ impl Session {
 			previous.task.abort();
 		}
 
-		let Some(registration) = stream::registration(name) else {
+		let Some(registration) = stream::registration_in(self.live.service_name(), name) else {
 			let error = WireError::invalid(format!("no stream is named `{name}`"));
 			return self.send(EndReason::Failed(error).frame(stream)).await;
 		};
@@ -631,11 +631,18 @@ impl Session {
 
 		for attempt in 0..=REGISTER_ATTEMPTS {
 			let since = hub.applied();
-			let (value, reads) =
-				run_query(query, args.clone(), self.db.clone(), self.identity.clone()).await?;
+			let (value, reads) = run_query(
+				self.live.service_name(),
+				query,
+				args.clone(),
+				self.db.clone(),
+				self.identity.clone(),
+			)
+			.await?;
 			let value = Arc::new(value);
 			let registration = Registration {
 				key: key.clone(),
+				service: self.live.service_name(),
 				query: query.to_owned(),
 				args: args.clone(),
 				identity: self.identity.clone(),
@@ -756,7 +763,7 @@ impl Session {
 	}
 
 	async fn mutate(&mut self, request: u32, name: &str, args: Value, key: Option<String>) -> bool {
-		let Some(registration) = registration(name) else {
+		let Some(registration) = registration_in(self.live.service_name(), name) else {
 			return self
 				.done(
 					request,
@@ -801,7 +808,7 @@ impl Session {
 	/// Runs an action in its own task, so a slow one doesn't hold up the
 	/// connection's other frames; its answer comes back to the session.
 	async fn act(&mut self, request: u32, name: &str, args: Value) -> bool {
-		let Some(registration) = registration(name) else {
+		let Some(registration) = registration_in(self.live.service_name(), name) else {
 			return self
 				.done(
 					request,
@@ -911,6 +918,18 @@ impl Session {
 			Ok(identity) => identity,
 			Err(error) => return self.identity_failure(&error).await,
 		};
+
+		// A service reads the app's data by calling its operations, never by
+		// watching them: refused here as at the upgrade, so a connection
+		// can't open anonymously and then sign in as a service.
+		if crate::server::is_service(&identity) {
+			return self
+				.identity_failure(&crate::Error::forbidden(
+					"a service can't hold a live connection to the app: call its operations \
+					 instead",
+				))
+				.await;
+		}
 
 		// Detach every old group before awaiting any new identity's reads.
 		// Batches already queued belong to the old identity as well.
@@ -1193,7 +1212,8 @@ impl Session {
 			}) else {
 				continue;
 			};
-			let Some(registration) = channel::registration(&name) else {
+			let Some(registration) = channel::registration_in(self.live.service_name(), &name)
+			else {
 				self.leave(&key);
 				continue;
 			};
@@ -1229,7 +1249,7 @@ impl Session {
 			self.leave(&channel);
 		}
 
-		let Some(registration) = channel::registration(name) else {
+		let Some(registration) = channel::registration_in(self.live.service_name(), name) else {
 			return self
 				.channel_error(
 					&channel,

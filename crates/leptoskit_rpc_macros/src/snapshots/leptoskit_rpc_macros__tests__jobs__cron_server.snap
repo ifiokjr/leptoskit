@@ -14,6 +14,7 @@ const _: () = {
         ::leptoskit_rpc::server::jobs::cron::Schedule { minutes : 35185445863425u64,
         hours : 16777215u32, days : 4294967294u32, months : 8190u16, weekdays : 127u8,
         any_day : true, any_weekday : true, }, enqueue : | db, key, tick | {
-        ::leptoskit_rpc::__private::enqueue_tick(Tidy {}, db, key, tick) }, }
+        ::leptoskit_rpc::__private::enqueue_tick(Tidy {}, db, key, tick) }, service : <
+        Tidy as ::leptoskit_rpc::Job > ::SERVICE, }
     }
 };

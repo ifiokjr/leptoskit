@@ -25,7 +25,7 @@ use serde_json::Value;
 use super::Args;
 use super::FnError;
 use super::call;
-use super::live::client_if_any;
+use super::live::client_for;
 use crate::Page;
 use crate::PageArgs;
 use crate::Paginated;
@@ -101,7 +101,7 @@ fn scope<Q: Paginated>(page_size: u32) -> Scope<Q> {
 			.has_more
 			.then(|| PageArgs::after(context.page.end.clone(), page_size))
 	})
-	.with_name(&format!("rpc:{}:pages", Q::NAME))
+	.with_name(&format!("{}:pages", super::scope_name(Q::SERVICE, Q::NAME)))
 	.with_ssr()
 }
 
@@ -129,7 +129,7 @@ where
 {
 	let page_size = page_size.max(1);
 	let args = Arc::new(args);
-	let live = client_if_any().is_some();
+	let live = client_for(Q::SERVICE).is_some();
 	let mut scope = scope::<Q>(page_size);
 
 	if live {
@@ -190,7 +190,7 @@ fn subscribe_pages<Q: Paginated>(
 	Effect::new_isomorphic(move |_| {
 		let key = key.get();
 		let params = pages.page_params();
-		let Some(live) = client_if_any() else {
+		let Some(live) = client_for(Q::SERVICE) else {
 			return;
 		};
 		let wanted: Vec<(String, PageArgs, Value)> = params
@@ -243,7 +243,7 @@ fn subscribe_pages<Q: Paginated>(
 	});
 
 	on_cleanup(move || {
-		let Some(live) = client_if_any() else {
+		let Some(live) = client_for(Q::SERVICE) else {
 			return;
 		};
 		let _ = held.try_update_value(|held| {

@@ -181,6 +181,12 @@ pub use server::jobs::Enqueue;
 pub use server::jobs::enqueue;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use server::jobs::job_registration;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use server::jobs::job_registration_in;
+pub use service::SERVICES_PREFIX;
+pub use service::is_service_name;
+pub use service::service_env_name;
+pub use service::service_prefix;
 pub use stream::Resumable;
 pub use stream::StreamOperation;
 
@@ -198,6 +204,7 @@ mod page;
 pub mod scopes;
 #[cfg(feature = "server")]
 pub mod server;
+mod service;
 #[cfg(feature = "ssr")]
 pub mod spec;
 mod stream;
@@ -269,6 +276,68 @@ macro_rules! __require_db {
 			 `leptoskit`)"
 		);
 	};
+}
+
+/// The body a service's job has outside that service: `run`, which only
+/// says where the job runs. The workers of every other process skip it, so
+/// it never runs.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __remote_job_run {
+	() => {
+		fn run(
+			self,
+			_cx: &$crate::JobCx,
+		) -> impl ::core::future::Future<Output = $crate::Result<<Self as $crate::Job>::Output>>
+		+ ::core::marker::Send {
+			::core::future::ready(::core::result::Result::Err(
+				$crate::server::remote_named_error(
+					<Self as $crate::Job>::NAME,
+					<Self as $crate::Job>::SERVICE,
+				),
+			))
+		}
+	};
+}
+
+/// Without a database there is no `run` to give.
+#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __remote_job_run {
+	() => {};
+}
+
+/// The body a service's stream has outside that service: `pump`, which
+/// only fails with where the stream runs. Only that service's live socket
+/// serves it, so it never runs.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __remote_stream_pump {
+	() => {
+		fn pump(
+			self,
+			_cx: $crate::QueryCx,
+			sink: $crate::server::StreamSink,
+		) -> impl ::core::future::Future<Output = ()> + ::core::marker::Send {
+			async move {
+				sink.fail(&$crate::server::remote_named_error(
+					<Self as $crate::StreamOperation>::NAME,
+					<Self as $crate::StreamOperation>::SERVICE,
+				));
+			}
+		}
+	};
+}
+
+/// Without a database there is no `pump` to give.
+#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __remote_stream_pump {
+	() => {};
 }
 
 /// One classified server-fn failure.

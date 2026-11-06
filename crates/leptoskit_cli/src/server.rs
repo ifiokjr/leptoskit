@@ -12,6 +12,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
 use std::process::Command;
+use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -95,6 +97,104 @@ pub fn spawn_with(binary: &Path, site: &SiteEnv, env: &[(String, String)]) -> Re
 		.with_context(|| format!("could not start the server {}", binary.display()))
 }
 
+/// How long `leptoskit serve` gives a process between `SIGTERM` and
+/// `SIGKILL`: the runtime's default drain delay (5 s) and grace period
+/// (20 s), so a server stops the way it does in production.
+pub const SERVE_STOP_GRACE: Duration = Duration::from_secs(25);
+
+/// How long `leptoskit dev` waits instead: nothing sits behind a load
+/// balancer there, and services skip their drain delay, so a rebuild
+/// doesn't wait on it.
+pub const DEV_STOP_GRACE: Duration = Duration::from_secs(5);
+
+/// Fails when something already listens on `address`, naming `what` would
+/// have listened there. A process an earlier `leptoskit dev` or `leptoskit
+/// serve` left running would otherwise answer in its place: a stale service
+/// passes the readiness check, and the new one exits on the bind error.
+///
+/// # Errors
+///
+/// When the address is taken.
+pub fn ensure_port_free(address: SocketAddr, what: &str) -> Result<()> {
+	let hint = || {
+		format!(
+			"{what} can't listen on {address}: something is already listening there, perhaps a \
+			 process an earlier `leptoskit dev` or `leptoskit serve` left running. Stop it (for \
+			 example, find it with `lsof -i :{port}`), or give {what} another port",
+			port = address.port()
+		)
+	};
+
+	// A listener on the wildcard address can let a more specific bind
+	// through, so a connection that's answered counts as taken too.
+	if std::net::TcpStream::connect_timeout(&address, Duration::from_millis(200)).is_ok() {
+		anyhow::bail!(hint());
+	}
+
+	std::net::TcpListener::bind(address)
+		.map(drop)
+		.map_err(|error| anyhow::anyhow!("{}: {error}", hint()))
+}
+
+/// Stops `children`: `SIGTERM` to each, so they drain the way they do in a
+/// deploy, then `SIGKILL` to any still running after `grace`. Each is
+/// reaped. On Windows, which has no `SIGTERM`, they're killed at once.
+pub fn stop_gracefully(children: &mut [&mut Child], grace: Duration) {
+	for child in children.iter_mut() {
+		terminate(child);
+	}
+
+	let deadline = Instant::now() + grace;
+
+	loop {
+		let mut running = 0;
+
+		for child in children.iter_mut() {
+			if matches!(child.try_wait(), Ok(None)) {
+				running += 1;
+			}
+		}
+
+		if running == 0 {
+			break;
+		}
+
+		if Instant::now() >= deadline {
+			for child in children.iter_mut() {
+				if matches!(child.try_wait(), Ok(None)) {
+					let _ = child.kill();
+				}
+			}
+
+			break;
+		}
+
+		std::thread::sleep(Duration::from_millis(50));
+	}
+
+	for child in children.iter_mut() {
+		let _ = child.wait();
+	}
+}
+
+/// Asks `child` to stop: `SIGTERM` on Unix, a kill elsewhere.
+fn terminate(child: &mut Child) {
+	#[cfg(unix)]
+	{
+		use rustix::process::Pid;
+		use rustix::process::Signal;
+		use rustix::process::kill_process;
+
+		if let Some(pid) = i32::try_from(child.id()).ok().and_then(Pid::from_raw) {
+			let _ = kill_process(pid, Signal::TERM);
+		}
+	}
+	#[cfg(not(unix))]
+	{
+		let _ = child.kill();
+	}
+}
+
 /// The cargo messages `cargo build --message-format=json` prints that the
 /// build reads: compiled artifacts, and whether they are executables.
 #[derive(Debug, Deserialize)]
@@ -102,6 +202,8 @@ struct ArtifactMessage {
 	reason: String,
 	target: Option<ArtifactTarget>,
 	executable: Option<PathBuf>,
+	/// The `Cargo.toml` of the package the artifact belongs to.
+	manifest_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,6 +216,26 @@ struct ArtifactTarget {
 /// executable)` pairs. Lines that are not artifact messages are skipped:
 /// cargo interleaves other reasons, such as build script output.
 pub fn binaries_in_messages(messages: impl BufRead) -> Result<Vec<(String, PathBuf)>> {
+	Ok(packaged_binaries_in_messages(messages)?
+		.into_iter()
+		.map(|binary| (binary.target, binary.executable))
+		.collect())
+}
+
+/// One binary cargo built, with the package it belongs to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackagedBinary {
+	/// The `Cargo.toml` of the package that declares it.
+	pub manifest_path: PathBuf,
+	/// The binary target's name.
+	pub target: String,
+	/// The executable.
+	pub executable: PathBuf,
+}
+
+/// The binary targets in cargo's JSON message stream, with the package each
+/// belongs to, for a build of several packages at once.
+pub fn packaged_binaries_in_messages(messages: impl BufRead) -> Result<Vec<PackagedBinary>> {
 	let mut binaries = Vec::new();
 
 	for line in messages.lines() {
@@ -129,7 +251,11 @@ pub fn binaries_in_messages(messages: impl BufRead) -> Result<Vec<(String, PathB
 		if let (Some(target), Some(executable)) = (message.target, message.executable)
 			&& target.kind.iter().any(|kind| kind == "bin")
 		{
-			binaries.push((target.name, executable));
+			binaries.push(PackagedBinary {
+				manifest_path: message.manifest_path.unwrap_or_default(),
+				target: target.name,
+				executable,
+			});
 		}
 	}
 

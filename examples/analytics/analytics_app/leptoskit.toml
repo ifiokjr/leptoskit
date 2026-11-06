@@ -1,0 +1,19 @@
+#:schema https://leptoskit.dev/schemas/leptoskit.v0.schema.json
+
+schema_version = 0
+
+# `leptoskit dev` here builds the app and its analytics service together,
+# starts the service, then the app, and serves both at one address: pages
+# from the app, and `/_leptoskit/services/analytics/` from the service.
+[app]
+name = "analytics_app"
+render = "ssr"
+
+[serve]
+address = "127.0.0.1"
+port = 3000
+
+# The service is a crate in this workspace. Its own Cargo.toml says the
+# rest: its port, that browsers may reach it, and that it has a database.
+[services.analytics]
+package = "analytics_service"

@@ -276,6 +276,26 @@ pub mod server {
 	pub use leptoskit_axum::*;
 }
 
+#[cfg(feature = "server")]
+pub mod service {
+	//! The runtime of a service: a separate process the app declares in
+	//! `[services]` and runs beside its server, with its own data and
+	//! operations.
+	//!
+	//! ```ignore
+	//! use leptoskit::server::axum::Router;
+	//! use leptoskit::service::ServiceEnv;
+	//!
+	//! // In src/main.rs of the package whose library is `analytics_service`.
+	//! leptoskit::service::main!(analytics_service, run);
+	//!
+	//! async fn run(env: ServiceEnv) -> Result<Router, String> {
+	//! 	Ok(Router::new().nest(&env.public_prefix(), Router::new()))
+	//! }
+	//! ```
+	pub use leptoskit_axum::service::*;
+}
+
 #[cfg(feature = "rpc")]
 pub mod rpc {
 	//! The app's operations: server functions, queries and mutations, and the

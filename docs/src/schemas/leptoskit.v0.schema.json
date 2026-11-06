@@ -185,6 +185,13 @@
 				"port": 3000
 			}
 		},
+		"services": {
+			"description": "Services: other processes the app runs beside its server, each with\nits own port, data, and operations.",
+			"type": "object",
+			"additionalProperties": {
+				"$ref": "#/$defs/ServiceConfig"
+			}
+		},
 		"theme": {
 			"description": "Design tokens for Tailwind `var(--name)` utilities. Present when the\napp sets `[theme]`; install at startup with\n`Theme::install_maps`.",
 			"anyOf": [
@@ -1812,6 +1819,10 @@
 						"analytics": null
 					}
 				},
+				"postgres": {
+					"description": "The managed Postgres server's connection limit, and the pool size the\napp's server opens, for the connection budget `lk infra plan` and\n`lk doctor` check.",
+					"$ref": "#/$defs/InfraPostgres"
+				},
 				"registry": {
 					"description": "Registry hostname, for example `ghcr.io`.",
 					"type": "string"
@@ -1924,6 +1935,28 @@
 						}
 					],
 					"default": null
+				}
+			},
+			"additionalProperties": false
+		},
+		"InfraPostgres": {
+			"description": "The managed Postgres server's connection budget.",
+			"type": "object",
+			"properties": {
+				"app_pool": {
+					"description": "The most connections the app server's pool opens: `PoolOptions`'s\n`max_connections` in its `main`. `leptoskit_db`'s default is 8.",
+					"type": "integer",
+					"format": "uint32",
+					"default": 8,
+					"minimum": 1
+				},
+				"max_connections": {
+					"description": "Postgres's `max_connections`. The server starts with this limit, and\nthe app's and its services' pools must fit inside it.",
+					"type": "integer",
+					"format": "uint32",
+					"default": 100,
+					"maximum": 10000,
+					"minimum": 20
 				}
 			},
 			"additionalProperties": false
@@ -2769,6 +2802,196 @@
 				}
 			},
 			"additionalProperties": false
+		},
+		"ServiceConfig": {
+			"description": "One `[services.<name>]` table.",
+			"type": "object",
+			"properties": {
+				"bin": {
+					"description": "Which binary to run, when the package has several.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"bind": {
+					"description": "Variables set on the app while this service is present. Values can use\n`{url}`, `{token}`, and `{public_path}`.",
+					"type": "object",
+					"additionalProperties": {
+						"type": "string"
+					}
+				},
+				"branch": {
+					"description": "The git branch to build.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"crate": {
+					"description": "A crate from the registry, built by `leptoskit`. With `git`, the\npackage to build from the repository, which otherwise is the\nservice's name.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"database": {
+					"description": "Whether the service gets a database of its own, on the engine\n`[db] dialect` names, or SQLite when the app has no `[db]`.",
+					"type": [
+						"boolean",
+						"null"
+					]
+				},
+				"env": {
+					"description": "Plain values set on the service.",
+					"type": "object",
+					"additionalProperties": {
+						"type": "string"
+					}
+				},
+				"features": {
+					"description": "Cargo features the service binary is built with.",
+					"type": [
+						"array",
+						"null"
+					],
+					"items": {
+						"type": "string"
+					}
+				},
+				"git": {
+					"description": "A git repository holding the crate, built by `leptoskit`.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"package": {
+					"description": "A package in this Cargo workspace.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"path": {
+					"description": "A crate at this path, relative to the project, built by `leptoskit`.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"pool": {
+					"description": "The most connections the service's database pool opens. Every\nprocess's pools, across replicas, share the database server's limit.",
+					"type": [
+						"integer",
+						"null"
+					],
+					"format": "uint32",
+					"minimum": 0
+				},
+				"port": {
+					"description": "The port the service listens on.",
+					"type": [
+						"integer",
+						"null"
+					],
+					"format": "uint16",
+					"maximum": 65535,
+					"minimum": 0
+				},
+				"public": {
+					"description": "Whether browsers and native apps reach the service at\n`/_leptoskit/services/<name>/` on the app's origin.",
+					"type": [
+						"boolean",
+						"null"
+					]
+				},
+				"rev": {
+					"description": "The git commit to build.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"routes": {
+					"description": "Extra public path prefixes sent to the service, such as `/_analytics`.",
+					"type": [
+						"array",
+						"null"
+					],
+					"items": {
+						"type": "string"
+					}
+				},
+				"secrets": {
+					"description": "Variables passed through from the environment to the service only.",
+					"type": [
+						"array",
+						"null"
+					],
+					"items": {
+						"type": "string"
+					}
+				},
+				"tag": {
+					"description": "The git tag to build.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"trust": {
+					"description": "How far the app trusts the service with its origin: `first-party`\nservices get the app's cookies on their public paths, `isolated` ones\ndon't. Defaults to `first-party` for a `package` in the workspace and\n`isolated` for anything installed or remote.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/ServiceTrust"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"url": {
+					"description": "A service already running elsewhere: `leptoskit` connects the app to\nit and runs nothing.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"version": {
+					"description": "The version requirement for `crate`.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"volumes": {
+					"description": "Named persistent directories the service owns.",
+					"type": [
+						"array",
+						"null"
+					],
+					"items": {
+						"type": "string"
+					}
+				}
+			},
+			"additionalProperties": false
+		},
+		"ServiceTrust": {
+			"description": "How far the app trusts a service with its origin.",
+			"oneOf": [
+				{
+					"description": "The app's own code: its public paths get the app's cookies, and its\nresponses can set them.",
+					"type": "string",
+					"const": "first-party"
+				},
+				{
+					"description": "Someone else's code: the proxy and the edge strip `Cookie` from\nrequests to its public paths and `Set-Cookie` from its responses.",
+					"type": "string",
+					"const": "isolated"
+				}
+			]
 		},
 		"ThemeConfig": {
 			"description": "Design tokens from the `[theme]` table, matching CSS custom properties\nthat Tailwind `var(--name)` utilities and the process-wide `Theme` map\nresolve.\n\n```toml\n[theme.colors]\nbrand = \"#3b82f6\"\nink = \"black\"\n\n[theme.lengths]\ngap = \"1rem\"\npad = \"16px\"\n```\n\nCall `Theme::install_maps(&theme.colors, &theme.lengths)` once at app\nstartup so native paint and the web `:root` sheet see the same names.",

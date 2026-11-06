@@ -330,6 +330,16 @@ pub enum Command {
 		#[arg(long)]
 		port: Option<u16>,
 	},
+	/// Lists the app's services: where each comes from, its port, database,
+	/// public paths, volumes, and the variables the app receives for it.
+	///
+	/// Resolving an installed service fetches it and pins it in
+	/// `services.lock`. Tokens and credentials are never printed.
+	Services {
+		/// Print the listing as JSON.
+		#[arg(long)]
+		json: bool,
+	},
 	/// Writes the typed `Route` module from the routes directory.
 	///
 	/// Lists the routes after writing. `dev`, `build` and `native` write the
@@ -822,6 +832,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 			out,
 		} => build::command(release, platform, optimize, &out),
 		Command::Serve { dir, port } => serve_cmd::run(&dir, port),
+		Command::Services { json } => crate::services::command(json),
 		Command::Routes { check } => routes::command(check),
 		Command::L10n { check } => l10n::command(check),
 		Command::Db { command } => crate::db::run(command),

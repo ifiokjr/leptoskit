@@ -15,6 +15,8 @@ pub struct ChannelRegistration {
 	/// function as the connection's identity.
 	#[doc(hidden)]
 	pub authorize: Authorize,
+	/// The service whose live socket hosts it; `None` for the app's own.
+	pub service: Option<&'static str>,
 }
 
 /// Decides whether the caller may join, with the join arguments decoded.
@@ -24,8 +26,17 @@ pub type Authorize = fn(Value, QueryCx) -> BoxFuture<'static, Result<()>>;
 
 inventory::collect!(ChannelRegistration);
 
-/// The channel called `name`.
+/// The app's channel called `name`: never a service's. See
+/// [`registration_in`].
 #[must_use]
 pub fn registration(name: &str) -> Option<&'static ChannelRegistration> {
-	inventory::iter::<ChannelRegistration>().find(|registration| registration.name == name)
+	registration_in(None, name)
+}
+
+/// The channel called `name` that `service`'s live socket hosts (`None`
+/// for the app's own).
+#[must_use]
+pub fn registration_in(service: Option<&str>, name: &str) -> Option<&'static ChannelRegistration> {
+	inventory::iter::<ChannelRegistration>()
+		.find(|registration| registration.service == service && registration.name == name)
 }

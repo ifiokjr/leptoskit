@@ -26,11 +26,17 @@ pub mod migration;
 pub mod publish;
 #[cfg(feature = "schema")]
 pub mod schema;
+pub mod services;
 
 pub use extension::Browser;
 pub use extension::ContentScript;
 pub use extension::ExtensionConfig;
 pub use publish::PublishConfig;
+pub use services::ResolvedService;
+pub use services::ServiceConfig;
+pub use services::ServiceManifest;
+pub use services::ServiceSource;
+pub use services::ServiceTrust;
 
 /// The file leptoskit looks for at a project root.
 pub const CONFIG_FILE: &str = "leptoskit.toml";
@@ -102,6 +108,10 @@ pub struct LeptoskitConfig {
 	pub publish: PublishConfig,
 	/// The leptos and leptoskit plugins activated for this project.
 	pub plugins: Vec<PluginSpec>,
+	/// Services: other processes the app runs beside its server, each with
+	/// its own port, data, and operations.
+	#[serde(skip_serializing_if = "BTreeMap::is_empty")]
+	pub services: BTreeMap<String, ServiceConfig>,
 	/// How `leptoskit format` lays out markup. Omitted from serialized
 	/// configuration while it holds the defaults.
 	#[serde(skip_serializing_if = "FormatConfig::is_default")]
@@ -136,6 +146,7 @@ impl Default for LeptoskitConfig {
 			extension: None,
 			publish: PublishConfig::default(),
 			plugins: Vec::new(),
+			services: BTreeMap::new(),
 			format: FormatConfig::default(),
 			lint: LintConfig::default(),
 			theme: None,
@@ -2644,6 +2655,9 @@ impl LeptoskitConfig {
 	///   of order, or both or half of a mailer.
 	/// - [`ConfigError::UnselectedPluginOptions`] when native plugin options
 	///   name a plugin not granted in `native.plugins`.
+	/// - [`ConfigError::InvalidServices`] when a `[services.<name>]` table has
+	///   no source or several, a key its source can't use, a route or port that
+	///   collides, or a database without the app's `[db]`.
 	/// - [`ConfigError::InvalidExtension`] when `[extension]` is missing for
 	///   the `extension` platform, has no surface, names a route or match
 	///   pattern that can't work, lacks Firefox's add-on ID or the package ID
@@ -2665,6 +2679,10 @@ impl LeptoskitConfig {
 
 		if let Some(problem) = self.auth.as_ref().and_then(AuthConfig::problem) {
 			return Err(ConfigError::InvalidAuth(problem));
+		}
+
+		if let Some(problem) = services::problem(&self.services, self.serve.port) {
+			return Err(ConfigError::InvalidServices(problem));
 		}
 
 		if let Some(problem) = self.theme.as_ref().and_then(ThemeConfig::problem) {
@@ -3145,6 +3163,9 @@ pub enum ConfigError {
 	/// `[publish]` can't work as written.
 	#[error("invalid [publish]: {0}")]
 	InvalidPublish(String),
+	/// A `[services]` table can't work as written.
+	#[error("invalid [services]: {0}")]
+	InvalidServices(String),
 	/// An IO error.
 	#[error("io error")]
 	Io(#[from] std::io::Error),

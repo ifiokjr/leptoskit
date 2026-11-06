@@ -22,6 +22,8 @@ pub(crate) struct ChannelArgs {
 	pub(crate) authorize: Path,
 	pub(crate) name: Option<LitStr>,
 	pub(crate) krate: Option<Path>,
+	/// `service = "..."`: the service whose live socket hosts it.
+	pub(crate) service: Option<LitStr>,
 }
 
 /// Expands `#[rpc::channel(...)]`: adds the derives, implements
@@ -66,8 +68,19 @@ pub(crate) fn expand(
 	let vis = &item.vis;
 	let fields = &item.fields;
 
+	let service = args.service.as_ref().map_or_else(TokenStream::new, |service| {
+		quote!(const SERVICE: ::core::option::Option<&'static str> = ::core::option::Option::Some(#service);)
+	});
+	// A service's channel is authorized only by that service: its check is
+	// kept where the declaring crate's own `service` feature is on.
+	let gate = args
+		.service
+		.as_ref()
+		.map(|_| quote!(#[cfg(feature = "service")]));
+
 	let registration = server.then(|| {
 		quote! {
+			#gate
 			#[allow(deprecated)]
 			const _: () = {
 				#krate::__private::inventory::submit! {
@@ -85,6 +98,7 @@ pub(crate) fn expand(
 								#authorize(&cx, &channel).await
 							})
 						},
+						service: <#ident as #krate::Channel>::SERVICE,
 					}
 				}
 			};
@@ -105,6 +119,7 @@ pub(crate) fn expand(
 			const NAME: &'static str = #name;
 			type Message = #message;
 			type Presence = #presence;
+			#service
 		}
 
 		const _: () = {
@@ -155,6 +170,7 @@ fn parse(args: TokenStream) -> syn::Result<ChannelArgs> {
 		authorize,
 		name: options.name,
 		krate: options.krate,
+		service: options.service,
 	})
 }
 
@@ -166,6 +182,7 @@ struct ChannelOptions {
 	authorize: Option<Path>,
 	name: Option<LitStr>,
 	krate: Option<Path>,
+	service: Option<LitStr>,
 }
 
 /// One `#[rpc::channel(...)]` option.
@@ -192,11 +209,26 @@ fn channel_option(options: &mut ChannelOptions, pair: Meta) -> syn::Result<()> {
 			options.krate = Some(value.parse()?);
 		}
 
+		Meta::NameValue(entry) if entry.path.is_ident("service") => {
+			let value: LitStr = syn::parse2(entry.value.to_token_stream())?;
+
+			if !crate::operation::service_name_ok(&value.value()) {
+				return Err(syn::Error::new_spanned(
+					&value,
+					"`service` names a service from `[services]` in leptoskit.toml: a lowercase \
+					 letter, then lowercase letters, digits, and `-`, as in `service = \
+					 \"analytics\"`",
+				));
+			}
+
+			options.service = Some(value);
+		}
+
 		other => {
 			return Err(syn::Error::new_spanned(
 				other,
 				"a channel takes `message = Type`, `presence = Type`, `authorize = path`, `name = \
-				 \"...\"`, and `crate = \"...\"`",
+				 \"...\"`, `service = \"...\"`, and `crate = \"...\"`",
 			));
 		}
 	}
