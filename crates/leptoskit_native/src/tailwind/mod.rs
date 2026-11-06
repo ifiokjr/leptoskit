@@ -630,10 +630,8 @@ fn variant(conditions: &Conditions) -> Option<String> {
 		parts.push("active".to_owned());
 	}
 
-	if conditions.starting {
-		parts.push("starting".to_owned());
-	}
-
+	// `starting:` rules never reach here: they apply only while a widget
+	// enters, so `explain` leaves them out.
 	(!parts.is_empty()).then(|| parts.join(", "))
 }
 

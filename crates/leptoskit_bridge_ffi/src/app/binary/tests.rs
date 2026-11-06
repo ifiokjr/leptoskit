@@ -395,6 +395,46 @@ fn the_binary_transaction_carries_exactly_what_the_json_one_does() {
 }
 
 #[test]
+fn partial_animations_carry_only_their_parts() {
+	let mut yoga = Yoga::new();
+	let id = yoga.create_node();
+	// A counted sequence on a linear curve, a keyframe without its own
+	// easing, an opacity-only look, and neither a transition nor a layout
+	// curve.
+	let animation = Animation {
+		keyframes: Some(
+			Keyframes::new(
+				400.0,
+				[
+					Keyframe::at(0.5).opacity(0.2),
+					Keyframe::at(1.0)
+						.transform(Transform::rotate(90.0))
+						.easing(Easing::EASE_OUT),
+				],
+			)
+			.repeat(3.0)
+			.easing(Easing::Linear),
+		),
+		exiting: Some(Presence::fade().duration(120.0).easing(Easing::Linear)),
+		..Animation::default()
+	};
+	let mutations = vec![Mutation::Create {
+		id,
+		kind: NativeKind::View,
+		props: NativeProps {
+			animation: Some(Box::new(animation)),
+			..NativeProps::default()
+		},
+	}];
+	let bytes = encode(Some(id.index()), &mutations, usize::MAX).unwrap();
+
+	assert_eq!(
+		decode(&bytes),
+		json_transaction(Some(id.index()), &mutations)
+	);
+}
+
+#[test]
 fn the_binary_transaction_stops_at_its_byte_limit() {
 	let (root, mutations) = sample();
 	let bytes = encode(root, &mutations, usize::MAX).unwrap();

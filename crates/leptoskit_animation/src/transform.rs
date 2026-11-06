@@ -489,4 +489,63 @@ mod tests {
 		assert_eq!(visual.opacity, Some(1.0));
 		assert_eq!(visual.transform, Some(Transform::IDENTITY));
 	}
+
+	#[test]
+	fn shorthand_constructors_set_one_part() {
+		assert_eq!(
+			Transform::translate(3.0, -4.0).parts(),
+			TransformParts {
+				translate: true,
+				..TransformParts::NONE
+			}
+		);
+		assert!(Transform::default().is_identity());
+		assert!(Transform::default().parts().is_empty());
+		assert!(Visual::NONE.is_empty());
+	}
+
+	#[test]
+	fn with_parts_copies_only_the_named_parts() {
+		let own = Transform::translate(5.0, 6.0).rotated(10.0);
+		let other = Transform::IDENTITY
+			.scaled(3.0, 4.0)
+			.rotated(90.0)
+			.translated(Offset::points(1.0), Offset::points(2.0));
+
+		let scaled = own.with_parts(
+			&other,
+			TransformParts {
+				scale: true,
+				..TransformParts::NONE
+			},
+		);
+		assert_eq!(scaled, own.scaled(3.0, 4.0));
+
+		let everything = own.with_parts(&other, TransformParts::ALL);
+		assert_eq!(everything, other);
+	}
+
+	#[test]
+	fn visual_css_writes_opacity_then_the_transform() {
+		let visual = Visual {
+			opacity: Some(0.5),
+			transform: Some(Transform::rotate(30.0)),
+		};
+		assert_eq!(
+			visual.css(),
+			"opacity:0.5;translate:0px 0px;rotate:30deg;scale:1 1;"
+		);
+		assert_eq!(Visual::NONE.css(), "");
+	}
+
+	#[cfg(feature = "serde")]
+	#[test]
+	fn omitted_fields_deserialize_to_no_change() {
+		let transform: Transform = serde_json::from_str(r#"{"rotate":45.0}"#).unwrap();
+		assert_eq!(transform, Transform::rotate(45.0));
+		assert_eq!(
+			serde_json::to_string(&Transform::rotate(45.0)).unwrap(),
+			r#"{"rotate":45.0}"#
+		);
+	}
 }

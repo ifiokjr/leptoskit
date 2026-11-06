@@ -217,4 +217,44 @@ mod tests {
 		let presence = Presence::zoom().easing(Easing::Linear).duration(120.0);
 		assert_eq!(presence.curve, Curve::timing(120.0, Easing::Linear));
 	}
+
+	#[test]
+	fn every_edge_slides_along_its_own_axis() {
+		let right = Presence::slide(Edge::Right).visual.transform.unwrap();
+		assert!((right.translate_x.percent - 100.0).abs() < f32::EPSILON);
+		assert!(right.translate_y.is_zero());
+		let top = Presence::slide(Edge::Top).visual.transform.unwrap();
+		assert!((top.translate_y.percent + 100.0).abs() < f32::EPSILON);
+		assert!(top.translate_x.is_zero());
+	}
+
+	#[test]
+	fn rotation_and_springs_leave_the_rest_alone() {
+		let presence = Presence::fade().rotate(-90.0).spring(Spring::GENTLE);
+		assert_eq!(presence.visual.opacity, Some(0.0));
+		assert!((presence.visual.transform.unwrap().rotate + 90.0).abs() < f32::EPSILON);
+		assert_eq!(presence.curve, Curve::spring(Spring::GENTLE));
+	}
+
+	#[test]
+	fn leaving_a_spring_picks_a_timing_default() {
+		let eased = Presence::fade()
+			.spring(Spring::SNAPPY)
+			.easing(Easing::Linear);
+		assert_eq!(eased.curve, Curve::timing(300.0, Easing::Linear));
+		let timed = Presence::fade().spring(Spring::SNAPPY).duration(80.0);
+		assert_eq!(timed.curve, Curve::timing(80.0, Easing::EASE_IN_OUT));
+	}
+
+	#[test]
+	fn sanitizing_bounds_the_delay_and_look() {
+		let presence = Presence::new(Visual {
+			opacity: Some(-1.0),
+			transform: None,
+		})
+		.delay(f32::NAN)
+		.sanitized();
+		assert_eq!(presence.visual.opacity, Some(0.0));
+		assert!(presence.delay_ms.abs() < f32::EPSILON);
+	}
 }

@@ -526,4 +526,61 @@ mod tests {
 		assert!(css.starts_with("linear(0,"));
 		assert!(css.ends_with(",1)"));
 	}
+
+	#[test]
+	fn flat_curves_fall_back_to_bisection() {
+		// The slope is zero halfway, where Newton's method gives up.
+		let flat = Easing::CubicBezier([1.0, 0.0, 0.0, 1.0]);
+		let mut last = 0.0;
+
+		for step in 0..=100 {
+			let value = flat.sample(step as f32 / 100.0);
+			assert!(value + 1e-4 >= last, "{step}: {value} < {last}");
+			last = value;
+		}
+
+		for x in [0.3, 0.45, 0.49, 0.51, 0.7] {
+			let t = solve_bezier_x(x, 1.0, 0.0);
+			assert!((bezier(t, 1.0, 0.0) - x).abs() < 1e-3, "x {x}, t {t}");
+		}
+
+		assert_eq!(Easing::Linear.css(), "linear");
+	}
+
+	#[test]
+	fn defaults_and_builders() {
+		assert_eq!(Spring::default(), Spring::DEFAULT);
+		assert_eq!(Curve::default(), Curve::DEFAULT);
+		let heavy = Spring::DEFAULT.mass(4.0);
+		assert!((heavy.mass - 4.0).abs() < f32::EPSILON);
+		assert!(heavy.settle_ms() > Spring::DEFAULT.settle_ms());
+	}
+
+	#[test]
+	fn timing_curves_report_their_duration_and_progress() {
+		let curve = Curve::timing(200.0, Easing::Linear);
+		assert!((curve.duration_ms() - 200.0).abs() < f32::EPSILON);
+		assert!((curve.progress(50.0) - 0.25).abs() < 1e-5);
+		assert!((curve.progress(400.0) - 1.0).abs() < f32::EPSILON);
+
+		let spring = Curve::spring(Spring::SNAPPY);
+		assert!((spring.progress(10_000.0) - 1.0).abs() < 0.001);
+		assert!((spring.duration_ms() - Spring::SNAPPY.settle_ms()).abs() < f32::EPSILON);
+	}
+
+	#[test]
+	fn a_spring_too_slow_to_settle_is_capped_at_a_minute() {
+		let sluggish = Spring::new(0.01, 10_000.0);
+		assert!(sluggish.damping_ratio() > 1.0);
+		assert!((sluggish.settle_ms() - 60_000.0).abs() < f32::EPSILON);
+	}
+
+	#[test]
+	fn fractions_lose_trailing_zeros_and_negative_zero() {
+		assert_eq!(format_fraction(0.5), "0.5");
+		assert_eq!(format_fraction(1.0), "1");
+		assert_eq!(format_fraction(0.0), "0");
+		assert_eq!(format_fraction(-0.000_01), "0");
+		assert_eq!(format_fraction(-0.25), "-0.25");
+	}
 }

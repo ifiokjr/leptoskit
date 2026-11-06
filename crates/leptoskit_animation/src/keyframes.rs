@@ -523,4 +523,72 @@ mod tests {
 		);
 		assert_eq!(animation, "lk-spin 1000ms linear 0ms infinite");
 	}
+
+	#[test]
+	fn ping_grows_and_fades_then_holds() {
+		let ping = Keyframes::ping();
+		assert!(ping.animates_opacity());
+		let own = Visual {
+			opacity: Some(1.0),
+			transform: None,
+		};
+		let held = ping.sample(900.0, own);
+		assert_eq!(held.opacity, Some(0.0));
+		assert!((held.transform.unwrap().scale_x - 2.0).abs() < 1e-4);
+
+		let (rule, animation) = ping.css("lk-ping");
+		assert_eq!(
+			rule,
+			"@keyframes lk-ping{75%{opacity:0;scale:2 2;}100%{opacity:0;scale:2 2;}}"
+		);
+		assert_eq!(
+			animation,
+			"lk-ping 1000ms cubic-bezier(0,0,0.2,1) 0ms infinite"
+		);
+	}
+
+	#[test]
+	fn bounce_eases_each_step_with_its_own_curve() {
+		let (rule, _) = Keyframes::bounce().css("lk-bounce");
+		assert!(
+			rule.starts_with(
+				"@keyframes lk-bounce{0%{translate:0px \
+				 -25%;animation-timing-function:cubic-bezier(0.8,0,1,1);}"
+			),
+			"{rule}"
+		);
+		assert!(!Keyframes::bounce().animates_opacity());
+	}
+
+	#[test]
+	fn delay_duration_and_count_shape_the_timeline() {
+		let sequence = Keyframes::new(100.0, [Keyframe::at(1.0).opacity(0.0)])
+			.easing(Easing::Linear)
+			.duration(200.0)
+			.delay(50.0)
+			.repeat(3.0);
+		let own = Visual {
+			opacity: Some(1.0),
+			transform: None,
+		};
+		assert_eq!(sequence.sample(25.0, own), own);
+		assert!((sequence.sample(150.0, own).opacity.unwrap() - 0.5).abs() < 1e-4);
+		assert_eq!(sequence.css("lk-fade").1, "lk-fade 200ms linear 50ms 3");
+	}
+
+	#[test]
+	fn a_keyframe_at_the_start_applies_at_once() {
+		let sequence = Keyframes::new(
+			100.0,
+			[
+				Keyframe::at(0.0).opacity(0.3),
+				Keyframe::at(1.0).opacity(0.6),
+			],
+		);
+		let own = Visual {
+			opacity: Some(1.0),
+			transform: None,
+		};
+		assert!((sequence.sample(0.0, own).opacity.unwrap() - 0.3).abs() < 1e-5);
+	}
 }

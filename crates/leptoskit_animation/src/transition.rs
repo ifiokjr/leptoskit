@@ -192,6 +192,25 @@ mod tests {
 	}
 
 	#[test]
+	fn constructors_choose_the_curve_and_properties() {
+		let spring = Transition::spring(Spring::STIFF);
+		assert_eq!(spring.properties, Properties::ALL);
+		assert_eq!(spring.curve, Curve::spring(Spring::STIFF));
+
+		let fade = Transition::timing(300.0, Easing::EASE_OUT)
+			.properties(Properties::OPACITY)
+			.delay(20.0);
+		assert_eq!(
+			fade.css(),
+			"transition-property:opacity;transition-duration:300ms;transition-timing-function:\
+			 cubic-bezier(0,0,0.2,1);transition-delay:20ms;"
+		);
+		assert_eq!(Properties::NONE.css(), "none");
+		assert!(Properties::NONE.is_empty());
+		assert_eq!(Properties::TRANSFORM.css(), "translate,scale,rotate");
+	}
+
+	#[test]
 	fn unknown_property_bits_are_dropped() {
 		assert_eq!(Properties::from_bits(0xff), Properties::ALL);
 		assert!(Properties::ALL.contains(Properties::OPACITY | Properties::TRANSFORM));

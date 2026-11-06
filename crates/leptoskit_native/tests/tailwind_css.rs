@@ -236,4 +236,40 @@ fn animate_presets_ship_their_keyframes() {
 		],
 	);
 	assert_css("animate-none", &["animation:none;"]);
+
+	for (class, name) in [
+		("animate-ping", "lk-ping"),
+		("animate-pulse", "lk-pulse"),
+		("animate-bounce", "lk-bounce"),
+	] {
+		assert_css(
+			class,
+			&[
+				&format!("animation:{name} "),
+				&format!("@keyframes {name}{{"),
+			],
+		);
+	}
+}
+
+#[test]
+fn single_axis_scales_and_timing_variables() {
+	assert_css(
+		"scale-y-50",
+		&[
+			"--tw-scale-y:0.5;",
+			"scale:var(--tw-scale-x,1) var(--tw-scale-y,1);",
+		],
+	);
+	assert!(!css("scale-y-50").contains("--tw-scale-x:"));
+	assert_css("transition-none", &["transition-property:none;"]);
+	assert!(!css("transition-none").contains("transition-duration"));
+	assert_css(
+		"ease-linear",
+		&["--tw-ease:linear;", "transition-timing-function:linear;"],
+	);
+	assert_css(
+		"transition",
+		&["transition-timing-function:var(--tw-ease,cubic-bezier(0.4,0,0.2,1));"],
+	);
 }
