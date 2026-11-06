@@ -12,6 +12,7 @@ use leptoskit_db_schema::quote_identifier;
 use crate::Column;
 use crate::DbError;
 use crate::EncodeError;
+use crate::Id;
 use crate::Table;
 use crate::Value;
 use crate::sql::Sql;
@@ -458,6 +459,29 @@ pub enum Expr {
 		column: &'static str,
 		pattern: String,
 	},
+	/// The column's text matches a regular expression: `~` on Postgres.
+	/// SQLite has no regular expressions, so running it there is refused.
+	#[doc(hidden)]
+	Regex {
+		column: &'static str,
+		pattern: String,
+	},
+	/// The row a link points at satisfies a condition: an `EXISTS` over the
+	/// linked table, correlated on the link.
+	#[doc(hidden)]
+	Exists {
+		/// The column holding the link, in the table the condition is
+		/// about.
+		column: &'static str,
+		/// The linked table.
+		table: TableName,
+		/// The linked table's key column.
+		key: &'static str,
+		/// The table the condition is about, for the correlation.
+		outer: TableName,
+		/// The condition on the linked table's row.
+		filter: Box<Expr>,
+	},
 	#[doc(hidden)]
 	And(Box<Expr>, Box<Expr>),
 	#[doc(hidden)]
@@ -594,6 +618,31 @@ impl Expr {
 			}
 			Self::Contains { column, needle } => write_contains(sql, column, needle),
 			Self::Like { column, pattern } => write_like(sql, column, pattern),
+			Self::Regex { column, pattern } => {
+				if sql.dialect() != Dialect::Postgres {
+					return Err(invalid(
+						"regex filters run on Postgres; on SQLite, filter in Rust or use `ilike`",
+					));
+				}
+				sql.identifier(column)
+					.push(" ~ ")
+					.value(Value::Text(pattern.clone()));
+			}
+			Self::Exists {
+				column,
+				table,
+				key,
+				outer,
+				filter,
+			} => {
+				sql.push("EXISTS (SELECT 1 FROM ");
+				sql.table_name(table);
+				sql.push(" WHERE ").identifier(key).push(" = ");
+				sql.table_name(outer).push(".").identifier(column);
+				sql.push(" AND (");
+				filter.write(sql)?;
+				sql.push("))");
+			}
 			Self::And(left, right) => Self::binary(sql, left, " AND ", right)?,
 			Self::Or(left, right) => Self::binary(sql, left, " OR ", right)?,
 			Self::Not(inner) => {
@@ -756,6 +805,270 @@ fn write_like(sql: &mut Sql, column: &str, pattern: &str) {
 
 pub(crate) fn invalid(message: &str) -> DbError {
 	DbError::Encode(EncodeError::new(message))
+}
+
+impl<T: Table> Col<T, String> {
+	/// The text matches a regular expression: Postgres's `~`, anchored
+	/// nowhere. Queries on SQLite refuse it; there, filter in Rust or use
+	/// [`Col::ilike`].
+	pub fn matches_regex(&self, pattern: &str) -> Expr {
+		Expr::Regex {
+			column: self.name,
+			pattern: pattern.to_owned(),
+		}
+	}
+}
+
+impl<T: Table> Col<T, Option<String>> {
+	/// The text matches a regular expression; `NULL` never does. Postgres's
+	/// `~`; queries on SQLite refuse it.
+	pub fn matches_regex(&self, pattern: &str) -> Expr {
+		Expr::Regex {
+			column: self.name,
+			pattern: pattern.to_owned(),
+		}
+	}
+}
+
+impl<T: Table, U: Table> Col<T, Id<U>> {
+	/// The row this link points at satisfies `filter`: an `EXISTS` over the
+	/// linked table's rows. A link that is `NULL` matches nothing, so it
+	/// combines with `is_null` to cover both cases.
+	///
+	/// ```ignore
+	/// Post::query().filter(|post| post.author_id.has(|user| user.handle.eq("ada")))
+	/// ```
+	pub fn has(&self, filter: impl FnOnce(&U::Columns) -> Expr) -> Expr {
+		link_exists::<T, U>(self.name, filter)
+	}
+}
+
+impl<T: Table, U: Table> Col<T, Option<Id<U>>> {
+	/// The row this link points at satisfies `filter`: an `EXISTS` over the
+	/// linked table's rows. A link that is `NULL` matches nothing.
+	pub fn has(&self, filter: impl FnOnce(&U::Columns) -> Expr) -> Expr {
+		link_exists::<T, U>(self.name, filter)
+	}
+}
+
+/// The `EXISTS` a link's `has` builds, correlated on the link.
+fn link_exists<T: Table, U: Table>(
+	column: &'static str,
+	filter: impl FnOnce(&U::Columns) -> Expr,
+) -> Expr {
+	let [key] = U::KEY else {
+		panic!(
+			"`has` follows a link to {}, whose key is {} columns; it follows links to tables 			 \
+			 keyed by one column",
+			U::NAME,
+			U::KEY.len()
+		);
+	};
+
+	Expr::Exists {
+		column,
+		table: U::table_name(),
+		key,
+		outer: T::table_name(),
+		filter: Box::new(filter(U::columns())),
+	}
+}
+
+/// A total over a query's matching rows: what
+/// [`Query::aggregate`](crate::Query::aggregate) reads. Build one from a
+/// column: `Sum(user.karma)`, `Min(post.created_at)`. No row matching makes the
+/// total `None`, as SQL does.
+#[doc(hidden)]
+pub trait Aggregate<T: Table>: Copy {
+	/// The total's type.
+	type Output;
+	/// The SQL function.
+	fn sql(&self) -> &'static str;
+	/// The totaled column.
+	fn column(&self) -> &'static str;
+	/// The database's answer.
+	fn decode(&self, value: Option<Value>) -> crate::Result<Self::Output>;
+}
+
+/// The sum of an integer column over a query's matching rows.
+#[must_use = "a total does nothing until a query aggregates it"]
+pub struct Sum<T, V>(pub Col<T, V>);
+
+impl<T: Table, V: Column> Clone for Sum<T, V> {
+	fn clone(&self) -> Self {
+		*self
+	}
+}
+
+impl<T: Table, V: Column> Copy for Sum<T, V> {}
+
+/// The average of a numeric column over a query's matching rows.
+#[must_use = "a total does nothing until a query aggregates it"]
+pub struct Avg<T, V>(pub Col<T, V>);
+
+impl<T: Table, V: Column> Clone for Avg<T, V> {
+	fn clone(&self) -> Self {
+		*self
+	}
+}
+
+impl<T: Table, V: Column> Copy for Avg<T, V> {}
+
+/// The least value of a column over a query's matching rows.
+#[must_use = "a total does nothing until a query aggregates it"]
+pub struct Min<T, V>(pub Col<T, V>);
+
+impl<T: Table, V: Column> Clone for Min<T, V> {
+	fn clone(&self) -> Self {
+		*self
+	}
+}
+
+impl<T: Table, V: Column> Copy for Min<T, V> {}
+
+/// The greatest value of a column over a query's matching rows.
+#[must_use = "a total does nothing until a query aggregates it"]
+pub struct Max<T, V>(pub Col<T, V>);
+
+impl<T: Table, V: Column> Clone for Max<T, V> {
+	fn clone(&self) -> Self {
+		*self
+	}
+}
+
+impl<T: Table, V: Column> Copy for Max<T, V> {}
+
+macro_rules! integer_sum {
+	($($ty:ty)*) => {
+		$(
+			impl<T: Table> Aggregate<T> for Sum<T, $ty> {
+				type Output = Option<i64>;
+
+				fn sql(&self) -> &'static str {
+					"sum"
+				}
+
+				fn column(&self) -> &'static str {
+					self.0.name()
+				}
+
+				fn decode(&self, value: Option<Value>) -> crate::Result<Option<i64>> {
+					integer_total("sum", value.as_ref())
+				}
+			}
+		)*
+	};
+}
+
+integer_sum! { i16 i32 i64 }
+
+macro_rules! float_total {
+	($(($marker:ident, $fn:ident, $ty:ty))*) => {
+		$(
+			impl<T: Table> Aggregate<T> for $marker<T, $ty> {
+				type Output = Option<f64>;
+
+				fn sql(&self) -> &'static str {
+					stringify!($fn)
+				}
+
+				fn column(&self) -> &'static str {
+					self.0.name()
+				}
+
+				fn decode(&self, value: Option<Value>) -> crate::Result<Option<f64>> {
+					float_total_value(value.as_ref())
+				}
+			}
+		)*
+	};
+}
+
+float_total! { (Sum, sum, f32) (Sum, sum, f64) (Avg, avg, f32) (Avg, avg, f64) }
+
+macro_rules! integer_average {
+	($($ty:ty)*) => {
+		$(
+			impl<T: Table> Aggregate<T> for Avg<T, $ty> {
+				type Output = Option<f64>;
+
+				fn sql(&self) -> &'static str {
+					"avg"
+				}
+
+				fn column(&self) -> &'static str {
+					self.0.name()
+				}
+
+				fn decode(&self, value: Option<Value>) -> crate::Result<Option<f64>> {
+					float_total_value(value.as_ref())
+				}
+			}
+		)*
+	};
+}
+
+integer_average! { i16 i32 i64 }
+/// What `sum` of an integer column returned: an integer, or nothing when no
+/// row matched.
+fn integer_total(what: &str, value: Option<&Value>) -> crate::Result<Option<i64>> {
+	match value {
+		None | Some(Value::Null) => Ok(None),
+		Some(Value::Int(total)) => Ok(Some(*total)),
+		Some(Value::Float(total)) => Ok(Some(*total as i64)),
+		Some(_) => Err(invalid(&format!("{what}(…) didn't return a number"))),
+	}
+}
+
+/// What `sum` or `avg` of a floating column returned.
+fn float_total_value(value: Option<&Value>) -> crate::Result<Option<f64>> {
+	match value {
+		None | Some(Value::Null) => Ok(None),
+		Some(Value::Int(total)) => Ok(Some(*total as f64)),
+		Some(Value::Float(total)) => Ok(Some(*total)),
+		Some(_) => Err(invalid("the total didn't return a number")),
+	}
+}
+
+impl<T: Table, V: Column> Aggregate<T> for Min<T, V> {
+	type Output = Option<V>;
+
+	fn sql(&self) -> &'static str {
+		"min"
+	}
+
+	fn column(&self) -> &'static str {
+		self.0.name()
+	}
+
+	fn decode(&self, value: Option<Value>) -> crate::Result<Option<V>> {
+		column_value(value)
+	}
+}
+
+impl<T: Table, V: Column> Aggregate<T> for Max<T, V> {
+	type Output = Option<V>;
+
+	fn sql(&self) -> &'static str {
+		"max"
+	}
+
+	fn column(&self) -> &'static str {
+		self.0.name()
+	}
+
+	fn decode(&self, value: Option<Value>) -> crate::Result<Option<V>> {
+		column_value(value)
+	}
+}
+
+/// What `min` or `max` of a column returned: the column's type, or nothing
+/// when no row matched.
+fn column_value<V: Column>(value: Option<Value>) -> crate::Result<Option<V>> {
+	match value {
+		None | Some(Value::Null) => Ok(None),
+		Some(value) => V::from_value(value).map(Some).map_err(DbError::from),
+	}
 }
 
 /// An ordering by one column.
