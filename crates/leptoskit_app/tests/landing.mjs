@@ -2,91 +2,72 @@ function assert(value, message = "assertion failed") {
 	if (!value) throw new Error(message);
 }
 
-function environment(reducedMotion) {
-	const motion = new EventTarget();
-	motion.matches = reducedMotion;
-	globalThis.matchMedia = () => motion;
+// The module's only job is deferring the live example: it must not animate
+// anything itself, and it must import the client once, when the example
+// nears the viewport or receives focus.
+function environment({ observer = true } = {}) {
 	globalThis.window = new EventTarget();
 	globalThis.document = new EventTarget();
-	document.hidden = false;
-	const animations = [];
-	const element = () => ({
-		animate() {
-			const calls = [];
-			const animation = {
-				finished: new Promise(() => {}),
-				pause: () => calls.push("pause"),
-				play: () => calls.push("play"),
-				cancel: () => calls.push("cancel"),
-				calls,
-			};
-			animations.push(animation);
-			return animation;
-		},
-	});
-	const sections = [element(), element()];
-	document.querySelector = element;
-	document.querySelectorAll = () => sections;
-	document.getElementById = () => null;
+	const demo = new EventTarget();
+	document.getElementById = (id) => (id === "live-demo" ? demo : null);
 	const observers = [];
-	globalThis.IntersectionObserver = class {
-		constructor(callback) {
-			this.callback = callback;
-			this.observed = new Set();
-			observers.push(this);
-		}
-		observe(target) {
-			this.observed.add(target);
-		}
-		unobserve(target) {
-			this.observed.delete(target);
-		}
-		disconnect() {
-			this.observed.clear();
-		}
-	};
-	window.IntersectionObserver = globalThis.IntersectionObserver;
-	return { motion, animations, sections, observers };
+	if (observer) {
+		globalThis.IntersectionObserver = class {
+			constructor(callback, options) {
+				this.callback = callback;
+				this.options = options;
+				this.observed = new Set();
+				observers.push(this);
+			}
+			observe(target) {
+				this.observed.add(target);
+			}
+			disconnect() {
+				this.observed.clear();
+			}
+		};
+		window.IntersectionObserver = globalThis.IntersectionObserver;
+	} else {
+		delete globalThis.IntersectionObserver;
+	}
+	return { demo, observers };
 }
 
-Deno.test("reduced motion suppresses entrances and preference changes cancel active motion", async () => {
-	const env = environment(true);
-	await import("../web/landing.mjs?reduced");
-	assert(env.animations.length === 0);
-	assert(env.observers[0].observed.size === 0);
-	env.motion.matches = false;
-	env.motion.dispatchEvent(new Event("change"));
-	assert(env.observers[0].observed.size === 2);
-	env.observers[0].callback([{
-		target: env.sections[0],
-		isIntersecting: true,
-	}]);
-	assert(env.animations.length === 1);
-	env.motion.matches = true;
-	env.motion.dispatchEvent(new Event("change"));
-	assert(env.animations[0].calls.at(-1) === "cancel");
+Deno.test("the client loads once the example nears the viewport", async () => {
+	const env = environment();
+	await import("../web/landing.mjs?near");
+	assert(env.observers.length === 1, "one observer watches the example");
+	const [loader] = env.observers;
+	assert(loader.observed.has(env.demo));
+	assert(loader.options.rootMargin === "250px");
+	loader.callback([{ target: env.demo, isIntersecting: false }]);
+	assert(loader.observed.size === 1, "a distant example keeps waiting");
+	loader.callback([{ target: env.demo, isIntersecting: true }]);
+	assert(loader.observed.size === 0, "the observer lets go once it loads");
+});
+
+Deno.test("keyboard focus loads the example before it scrolls into view", async () => {
+	const env = environment();
+	await import("../web/landing.mjs?focus");
+	env.demo.dispatchEvent(new Event("focusin"));
+	// Loading twice would be harmless but wasteful: the import is shared.
+	env.observers[0].callback([{ target: env.demo, isIntersecting: true }]);
 	assert(env.observers[0].observed.size === 0);
 });
 
-Deno.test("tab visibility pauses motion and page navigation releases it", async () => {
-	const env = environment(false);
-	await import("../web/landing.mjs?visible");
-	assert(env.animations.length === 2);
-	document.hidden = true;
-	document.dispatchEvent(new Event("visibilitychange"));
+Deno.test("the module animates nothing itself", async () => {
+	const env = environment();
+	const animated = [];
+	globalThis.requestAnimationFrame = () =>
+		animated.push("requestAnimationFrame");
+	window.matchMedia = () => animated.push("matchMedia");
+	env.demo.animate = () => animated.push("animate");
+	await import("../web/landing.mjs?still");
+	env.observers[0].callback([{ target: env.demo, isIntersecting: true }]);
+	env.demo.dispatchEvent(new Event("focusin"));
+	delete globalThis.requestAnimationFrame;
 	assert(
-		env.animations.every((animation) => animation.calls.at(-1) === "pause"),
+		animated.length === 0,
+		`landing.mjs animated with ${animated.join(", ")}`,
 	);
-	document.hidden = false;
-	document.dispatchEvent(new Event("visibilitychange"));
-	assert(
-		env.animations.every((animation) => animation.calls.at(-1) === "play"),
-	);
-	window.dispatchEvent(new Event("pagehide"));
-	assert(
-		env.animations.every((animation) => animation.calls.at(-1) === "cancel"),
-	);
-	assert(env.observers[0].observed.size === 0);
-	window.dispatchEvent(new Event("pageshow"));
-	assert(env.observers[0].observed.size === 2);
 });

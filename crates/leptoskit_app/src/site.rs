@@ -86,6 +86,13 @@ pub fn router(api: Router, assets: &Path, docs: &Path, origin: &str) -> Result<R
 		)))
 }
 
+/// The ASCII subsets of the book's fonts that the landing page draws with;
+/// `landing.css` names the same files in its `@font-face` rules.
+pub const LANDING_FONTS: [&str; 2] = [
+	"/docs/assets/fonts/skribble/SkribbleNotoSketch-Latin.woff2",
+	"/docs/assets/fonts/skribble/SkribbleMonoPlayful-Latin.woff2",
+];
+
 /// Server-rendered builder components remain readable without JavaScript.
 /// The hosted broker renders the pilot page; the public-only packager renders
 /// [`Mode::Public`] so the static artifact offers no console or account
@@ -110,6 +117,17 @@ pub fn landing_html(origin: &str, mode: Mode) -> String {
 					.rel("canonical")
 					.href(format!("{}/", origin.trim_end_matches('/'))),
 				html::link().rel("icon").href("/docs/assets/mark.svg"),
+				// The page's lettering is small subsets of the book's fonts,
+				// fetched beside the stylesheets so text draws in its own
+				// hand on the first paint.
+				LANDING_FONTS.map(|font| {
+					html::link()
+						.rel("preload")
+						.href(font)
+						.r#as("font")
+						.r#type("font/woff2")
+						.crossorigin("")
+				}),
 				html::link()
 					.rel("stylesheet")
 					.href("/docs/theme/skribble.css"),

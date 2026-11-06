@@ -1553,6 +1553,55 @@ impl Element {
 		self
 	}
 
+	/// Moves the element as `motion` describes: into place when it appears,
+	/// or with scrolling. See [`crate::motion`].
+	///
+	/// ```
+	/// use leptoskit_native::components::Text;
+	/// use leptoskit_native::motion::Motion;
+	/// use leptoskit_native::motion::Pose;
+	/// use leptoskit_native::motion::ViewRange;
+	///
+	/// // Slides up into place as it scrolls into view.
+	/// let line = Text("Every screen.")
+	/// 	.motion(Motion::enter(Pose::new().y(32.0).opacity(0.0)).in_view(ViewRange::entry()));
+	/// ```
+	///
+	/// The web plays it with CSS, and shows the element at rest at once to
+	/// people who ask for reduced motion. Native platforms show the element
+	/// at rest.
+	#[must_use]
+	pub fn motion(mut self, motion: crate::motion::Motion) -> Self {
+		self.motion_props().motion = Some(motion);
+		self
+	}
+
+	/// Names this element's passage through the viewport, so descendants
+	/// can follow it with [`Motion::follow`](crate::motion::Motion::follow).
+	///
+	/// A tall container with a sticky child makes a stage: the child stays
+	/// in view while the container scrolls past, and everything following
+	/// the container's timeline moves with the scroll. Names are made of
+	/// ASCII letters, digits, `-`, and `_`; other characters become `-`.
+	#[must_use]
+	pub fn timeline(mut self, name: impl Into<String>) -> Self {
+		self.motion_props().timeline = Some(name.into());
+		self
+	}
+
+	/// Starts each child's timed motion `step` later than the one before,
+	/// so a list arrives one item after another. Motions that scrolling
+	/// drives keep their own ranges.
+	#[must_use]
+	pub fn stagger(mut self, step: std::time::Duration) -> Self {
+		self.motion_props().stagger = Some(step);
+		self
+	}
+
+	fn motion_props(&mut self) -> &mut crate::motion::MotionProps {
+		self.props.motion.get_or_insert_with(Box::default)
+	}
+
 	/// Sets the font size and weight.
 	#[must_use]
 	pub fn font(mut self, size: f32, weight: FontWeight) -> Self {
