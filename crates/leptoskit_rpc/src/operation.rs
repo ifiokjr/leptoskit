@@ -88,6 +88,12 @@ pub trait Operation: Serialize + DeserializeOwned + Clone + Send + Sync + 'stati
 	/// What a successful call returns.
 	type Output: Serialize + DeserializeOwned + Send + Sync + 'static;
 
+	/// The service that runs it, for an operation declared with
+	/// `#[rpc::query(service = "...")]` or `#[rpc::mutation(service = "...")]`.
+	/// The client sends such an operation to that service instead of the
+	/// app's own server; see [`service_prefix`](crate::service_prefix).
+	const SERVICE: Option<&'static str> = None;
+
 	/// What the body receives: [`QueryCx`](crate::QueryCx) or
 	/// [`MutationCx`](crate::MutationCx).
 	#[cfg(feature = "server")]

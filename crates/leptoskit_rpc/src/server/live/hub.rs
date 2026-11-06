@@ -171,6 +171,8 @@ impl ShareKey {
 /// What a subscription's first run read, for [`Hub::register`].
 pub(super) struct Registration {
 	pub key: ShareKey,
+	/// The service the query belongs to; `None` for the app's own.
+	pub service: Option<&'static str>,
 	pub query: String,
 	pub args: Value,
 	pub identity: Identity,
@@ -244,6 +246,7 @@ struct State {
 
 struct Group {
 	key: ShareKey,
+	service: Option<&'static str>,
 	query: String,
 	args: Value,
 	identity: Identity,
@@ -259,6 +262,7 @@ struct Group {
 /// A group to re-run.
 struct Job {
 	group: u64,
+	service: Option<&'static str>,
 	query: String,
 	args: Value,
 	identity: Identity,
@@ -502,6 +506,7 @@ impl Hub {
 				group_id,
 				Group {
 					key: registration.key,
+					service: registration.service,
 					query: registration.query,
 					args: registration.args,
 					identity: registration.identity,
@@ -700,7 +705,8 @@ impl Core {
 					async move {
 						(
 							job.group,
-							run_query(&job.query, job.args, job.db, job.identity).await,
+							run_query(job.service, &job.query, job.args, job.db, job.identity)
+								.await,
 						)
 					}
 				})
@@ -802,6 +808,7 @@ impl State {
 				dirty.then(|| {
 					Job {
 						group: id,
+						service: group.service,
 						query: group.query.clone(),
 						args: group.args.clone(),
 						identity: group.identity.clone(),

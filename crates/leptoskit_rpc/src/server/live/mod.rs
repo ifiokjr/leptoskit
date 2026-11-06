@@ -86,7 +86,7 @@ use super::Identify;
 use super::Identity;
 use super::Invocation;
 use super::ReadSink;
-use super::registration;
+use super::registration_in;
 use crate::Kind;
 use crate::live::EVENTS_PATH;
 use crate::live::FRAMES_PATH;
@@ -124,6 +124,9 @@ struct Inner {
 	db: Db,
 	identify: Arc<dyn Identify>,
 	origin: Option<String>,
+	/// The service whose queries and mutations it serves; `None` for the
+	/// app's own.
+	service: Option<&'static str>,
 	/// How long a frame may wait to be sent before the connection closes.
 	stall: std::time::Duration,
 	shared: Arc<Shared>,
@@ -231,6 +234,7 @@ impl Live {
 				db,
 				identify: Arc::new(super::Anonymous),
 				origin: None,
+				service: None,
 				stall: STALL,
 				shared: Arc::new(Shared {
 					drain: broadcast::channel(8).0,
@@ -275,6 +279,20 @@ impl Live {
 		self.with(|inner| {
 			inner.origin = Some(origin.trim_end_matches('/').to_owned());
 		})
+	}
+
+	/// Serves the live queries and mutations of the service `name`, as
+	/// [`Server::service`](super::Server::service) does for calls; `None`
+	/// serves the app's own. [`Server::live`](super::Server::live) passes
+	/// its server's service on.
+	#[must_use]
+	pub fn for_service(self, name: Option<&'static str>) -> Self {
+		self.with(|inner| inner.service = name)
+	}
+
+	/// The service whose operations this serves, or `None` for the app's.
+	pub(crate) fn service_name(&self) -> Option<&'static str> {
+		self.inner.service
 	}
 
 	/// Takes commits from `relay`'s stream instead of reading the database's
@@ -430,6 +448,7 @@ impl Live {
 			db: self.inner.db.clone(),
 			identify: Arc::clone(&self.inner.identify),
 			origin: self.inner.origin.clone(),
+			service: self.inner.service,
 			stall: self.inner.stall,
 			shared: Arc::clone(&self.inner.shared),
 		};
@@ -546,12 +565,13 @@ impl std::fmt::Debug for Live {
 /// Runs the query `name` as `identity`, and returns its result with what it
 /// read.
 async fn run_query(
+	service: Option<&str>,
 	name: &str,
 	args: Value,
 	db: Db,
 	identity: Identity,
 ) -> Result<(Value, Vec<ReadEntry>), WireError> {
-	let Some(registration) = registration(name) else {
+	let Some(registration) = registration_in(service, name) else {
 		return Err(WireError::invalid(format!(
 			"no operation is named `{name}`"
 		)));

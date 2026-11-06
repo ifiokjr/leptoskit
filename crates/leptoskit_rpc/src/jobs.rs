@@ -24,6 +24,10 @@ pub trait Job: Serialize + DeserializeOwned + Clone + Send + Sync + 'static {
 	/// How it runs: its queue, retries, backoff, and limits, from the
 	/// `#[rpc::job(...)]` options.
 	const OPTIONS: JobOptions = JobOptions::DEFAULT;
+	/// The service whose workers run it, for `#[rpc::job(service = "...")]`;
+	/// `None` for the app's own. Only that service's process may enqueue it,
+	/// and only its workers run it.
+	const SERVICE: Option<&'static str> = None;
 	/// What a successful run returns.
 	type Output: Serialize + DeserializeOwned + Send + Sync + 'static;
 

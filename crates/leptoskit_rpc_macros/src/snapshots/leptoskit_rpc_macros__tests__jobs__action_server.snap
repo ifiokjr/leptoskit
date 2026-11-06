@@ -49,6 +49,7 @@ const _: () = {
         ::leptoskit_rpc::server::Registration { name : < Summarize as
         ::leptoskit_rpc::Operation > ::NAME, kind : < Summarize as
         ::leptoskit_rpc::Operation > ::KIND, module_path : ::core::module_path!(),
-        handler : ::leptoskit_rpc::__private::handle:: < Summarize >, }
+        service : < Summarize as ::leptoskit_rpc::Operation > ::SERVICE, handler :
+        ::leptoskit_rpc::__private::handle:: < Summarize >, }
     }
 };

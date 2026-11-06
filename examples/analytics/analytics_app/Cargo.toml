@@ -1,0 +1,71 @@
+[package]
+name = "analytics_app"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "A server-rendered leptoskit app that sends events to its analytics service and watches the counts live."
+
+# One crate is both sides: the library is the wasm client (`hydrate`), and
+# the binary is the server (`ssr`). `leptoskit build` picks each side's
+# features from `app.render` in leptoskit.toml.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "analytics_app"
+path = "src/main.rs"
+required-features = ["ssr"]
+
+[dependencies]
+# The analytics service's operations, as types: calling them sends them to
+# the service. The app never turns on the service's `service` feature.
+analytics_service = { path = "../analytics_service" }
+console_error_panic_hook = { workspace = true, optional = true }
+js-sys = { workspace = true, optional = true }
+leptos = { workspace = true }
+leptos_router = { workspace = true }
+# The server stack, re-exported through `leptoskit::server`.
+leptoskit = { workspace = true, features = ["server"], optional = true }
+leptoskit_query = { workspace = true }
+leptoskit_rpc = { workspace = true, features = ["client"] }
+wasm-bindgen = { workspace = true, optional = true }
+# The visitor id, kept in `localStorage`.
+web-sys = { workspace = true, optional = true, features = ["Storage", "Window"] }
+
+[[test]]
+name = "routing"
+required-features = ["ssr"]
+
+[dev-dependencies]
+# The test builds the app with the service's bodies linked in, as
+# `cargo test --workspace` and `lk build` do, and checks they stay the
+# service's.
+analytics_service = { path = "../analytics_service", features = ["service"] }
+leptoskit = { workspace = true, features = ["server"] }
+leptoskit_db = { workspace = true, features = ["sqlite"] }
+reqwest = { workspace = true, features = ["json", "rustls-tls"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[features]
+# The server: renders every page, and calls the service over HTTP while it
+# does (`leptoskit_rpc/services`).
+ssr = ["dep:leptoskit", "leptos/ssr", "leptos_router/ssr", "leptoskit_rpc/services"]
+# The browser: hydrates the page, and calls and watches the service through
+# the app's origin.
+hydrate = [
+	"dep:console_error_panic_hook",
+	"dep:js-sys",
+	"dep:wasm-bindgen",
+	"dep:web-sys",
+	"leptos/hydrate",
+	"leptoskit_rpc/web",
+]
+
+[lints]
+workspace = true

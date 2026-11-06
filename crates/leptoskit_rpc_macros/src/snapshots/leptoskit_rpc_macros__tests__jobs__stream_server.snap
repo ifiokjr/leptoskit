@@ -61,6 +61,7 @@ const _: () = {
         ::leptoskit_rpc::server::StreamRegistration { name : < Answer as
         ::leptoskit_rpc::StreamOperation > ::NAME, resumable : < Answer as
         ::leptoskit_rpc::StreamOperation > ::RESUMABLE, open :
-        ::leptoskit_rpc::__private::open_stream:: < Answer >, }
+        ::leptoskit_rpc::__private::open_stream:: < Answer >, service : < Answer as
+        ::leptoskit_rpc::StreamOperation > ::SERVICE, }
     }
 };

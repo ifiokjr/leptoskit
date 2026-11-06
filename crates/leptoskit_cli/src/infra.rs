@@ -31,6 +31,7 @@ mod releases;
 mod remote;
 mod resources;
 mod runtime;
+mod services;
 mod verified;
 use resources::resources;
 
@@ -258,6 +259,9 @@ pub fn run(command: InfraCommand) -> Result<()> {
 			reuse_existing,
 		} => build::run(&root, &config, &version, push, reuse_existing),
 		InfraCommand::Plan => {
+			if infra.external.is_none() {
+				services::check(infra, &crate::deploy::Project::read(&root, &config)?)?;
+			}
 			generate(&dir, infra, false)?;
 			let _lock = lock(&dir)?;
 			// A failed new plan must never leave an older plan applyable.

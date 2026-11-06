@@ -42,6 +42,10 @@ sha2 = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = ["rt", "sync", "time"] }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Calls to other services from a server; see the `services` feature.
+reqwest = { workspace = true, optional = true, features = ["rustls-tls"] }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # Only the browser and guest clients open sockets, and both are wasm-only.
 leptoskit_plugin_websocket = { workspace = true, optional = true, default-features = false }
@@ -120,7 +124,12 @@ guest = [
 # The server: the bodies of `#[rpc::query]` and `#[rpc::mutation]`, the
 # registry of operations, and the `POST /api/<name>` routes. The client calls
 # operations in process while the server renders.
-server = ["axum", "client", "leptoskit_rpc_macros/server", "dep:tokio"]
+server = ["axum", "client", "leptoskit_rpc_macros/server", "dep:tokio", "services"]
+# Calls operations another service runs (`#[rpc::query(service = "...")]`)
+# from a Rust server, such as the app's while it renders: over HTTP to
+# `$LEPTOSKIT_SERVICE_<NAME>_URL`, signed with its token. The browser and
+# native clients reach services through `web` and `guest` instead.
+services = ["client", "dep:reqwest"]
 # Queries and mutations over `leptoskit_db`: their contexts, `Identify`, and
 # the `rpc` schema pack's receipts. Pick a driver with `postgres` or `sqlite`.
 db = ["server", "dep:chrono", "dep:leptoskit_config", "dep:leptoskit_db", "leptoskit_db/server", "dep:sha2"]
