@@ -93,6 +93,6 @@ mod tests {
 		);
 		assert_eq!(Theme::css(), ":root{--brand:#112233ff;}");
 		Theme::clear();
-		assert!(Theme::css().is_empty());
+		assert_eq!(Theme::css(), "");
 	}
 }

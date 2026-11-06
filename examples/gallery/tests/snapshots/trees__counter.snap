@@ -21,6 +21,6 @@ ScrollView [h-full w-full] #73dec43d1547
     View [flex-1] #61db3111f621
     View [flex-row gap-3 items-center] #2bd4e4477757
       Button "−" [font-medium h-16 rounded-[32px] text-[28px] w-16] #3617b10ffc21
-      Button "Add one" [flex-1 font-semibold h-16 rounded-[32px] text-[#ffffff] text-[17px]] #f31cbf537d14
+      Button "Add one" [flex-1 font-semibold h-16 rounded-[32px] text-[#ffffff] text-[17px]] #536a9fbc2fe6
     Button "Reset" [h-11] #1ef8c04387fd
     Text "One leptoskit screen, on every platform" [text-center] #26090f41230d

@@ -45,5 +45,5 @@ View [flex-col h-full w-full] #fb041e382049
     View [flex-row gap-2 items-center pb-safe-offset-2 pt-2 px-3] #1250a801cf00
       Button "+" [font-normal h-9 rounded-[18px] text-[22px] w-9] #4e902e45dafa
       View [flex-1 flex-row h-9 items-center px-3.5 py-0 rounded-[18px]] #3f75e7379c7c
-        TextInput [bg-[#00000000] flex-1 h-5] #0a0215ac6108
+        TextInput [bg-[#00000000] flex-1 h-5] #3f22beb4a079
       Button "↑" [font-bold h-9 rounded-[18px] text-[18px] w-9] #ff607105c170

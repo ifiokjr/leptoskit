@@ -8,6 +8,7 @@
 
 #![allow(clippy::print_stdout)]
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
 
@@ -131,11 +132,12 @@ fn write_frames(
 	let frame = surface.frame(id).expect("frame");
 	let indent = "  ".repeat(depth);
 	let test_id = surface.props(id).test_id().unwrap_or("");
-	out.push_str(&format!(
+	let _ = writeln!(
+		out,
 		"{indent}{{\"test_id\":{test_id:?},\"x\":{},\"y\":{},\"width\":{},\"height\":{},\"\
-		 children\":[\n",
+		 children\":[",
 		frame.x, frame.y, frame.width, frame.height
-	));
+	);
 	let children = surface.children(id);
 	for (index, child) in children.iter().enumerate() {
 		write_frames(out, surface, *child, depth + 1);
@@ -144,7 +146,7 @@ fn write_frames(
 		}
 		out.push('\n');
 	}
-	out.push_str(&format!("{indent}]}}"));
+	let _ = write!(out, "{indent}]}}");
 }
 
 fn main() {
@@ -177,18 +179,19 @@ h2{margin:0 0 12px;font-size:16px;}
 		if fixture_index > 0 {
 			native.push_str(",\n");
 		}
-		native.push_str(&format!("  {:?}: ", fixture.name));
+		let _ = write!(native, "  {:?}: ", fixture.name);
 		write_frames(&mut native, &surface, root, 1);
 
 		let html = render(fixture.tree).to_html();
-		index.push_str(&format!(
+		let _ = writeln!(
+			index,
 			"<section data-fixture=\"{name}\"><h2>{name} ({w}×{h})</h2><div class=\"probe\" \
-			 style=\"width:{w}px;height:{h}px\">{html}</div></section>\n",
+			 style=\"width:{w}px;height:{h}px\">{html}</div></section>",
 			name = fixture.name,
 			w = fixture.width,
 			h = fixture.height,
 			html = html,
-		));
+		);
 		let frame = surface.frame(root).unwrap();
 		println!(
 			"fixture {} native root {}x{} at {},{}",
