@@ -89,7 +89,9 @@ impl Dimension {
 	pub fn resolve(self, containing: Option<f32>) -> Option<f32> {
 		match (self, containing) {
 			(Self::Points(points), _) => Some(points),
-			(Self::Percent(fraction), Some(total)) => Some(fraction * total),
+			(Self::Percent(fraction), Some(total)) => {
+				Some(crate::layout_unit::percent_of(total, fraction))
+			}
 			_ => None,
 		}
 	}
@@ -353,7 +355,9 @@ impl TrackSizing {
 	pub fn resolve_base(&self, container: Option<f32>) -> Option<f32> {
 		match *self {
 			Self::Points(points) => Some(points),
-			Self::Percent(fraction) => container.map(|total| fraction * total),
+			Self::Percent(fraction) => {
+				container.map(|total| crate::layout_unit::percent_of(total, fraction))
+			}
 			Self::MinMax(ref inner) => inner.max.resolve_base(container),
 			_ => None,
 		}

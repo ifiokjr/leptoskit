@@ -844,7 +844,8 @@ impl AxisTracks {
 			TrackSizing::Points(value) => self.bases[index] = value.max(0.0),
 
 			TrackSizing::Percent(fraction) => {
-				self.bases[index] = container.map_or(0.0, |total| (fraction * total).max(0.0));
+				self.bases[index] = container
+					.map_or(0.0, |total| crate::layout_unit::percent_of(total, *fraction).max(0.0));
 				self.intrinsic[index] = container.is_none();
 			}
 
@@ -975,7 +976,41 @@ impl AxisTracks {
 			}
 		}
 
+		// Snap flexible track sizes onto Blink LayoutUnits while keeping the
+		// CSS proportions `fraction_unit` already chose (including freezing
+		// and `fr` totals below one).
+		self.quantize_flexible_tracks();
+
 		self.place_offsets(gap);
+	}
+
+	/// Re-distributes the flexible tracks' combined size with `LayoutUnit`
+	/// remainder placement so Chrome's `getBoundingClientRect` matches.
+	fn quantize_flexible_tracks(&mut self) {
+		let flexible: Vec<usize> = self
+			.fractions
+			.iter()
+			.enumerate()
+			.filter(|(_, factor)| **factor > 0.0)
+			.map(|(index, _)| index)
+			.collect();
+
+		if flexible.len() < 2 {
+			return;
+		}
+
+		let sizes: Vec<f32> = flexible.iter().map(|&index| self.bases[index]).collect();
+		let total: f32 = sizes.iter().sum();
+
+		if total <= EPSILON {
+			return;
+		}
+
+		let quantized = crate::layout_unit::distribute_weighted(total, &sizes);
+
+		for (index, size) in flexible.into_iter().zip(quantized) {
+			self.bases[index] = size;
+		}
 	}
 
 	/// Shares a definite total equally among the tracks that can still grow,
@@ -993,9 +1028,9 @@ impl AxisTracks {
 				break;
 			}
 
-			let share = free / growable.len() as f32;
+			let shares = crate::layout_unit::distribute_weighted(free, &vec![1.0; growable.len()]);
 
-			for index in growable {
+			for (index, share) in growable.into_iter().zip(shares) {
 				let limit = self.limits[index].unwrap_or(self.bases[index]);
 				self.bases[index] = (self.bases[index] + share).min(limit);
 			}
@@ -1435,20 +1470,28 @@ fn distribute_leftover(axis: &mut AxisTracks, inner: f32, gap: f32, align: Align
 /// Gives each intrinsic track an equal share of the leftover space, then
 /// records where every track starts.
 fn stretch_intrinsic(axis: &mut AxisTracks, leftover: f32, gap: f32) {
-	let intrinsic_count = axis.intrinsic.iter().filter(|&&flag| flag).count();
+	let intrinsic: Vec<usize> = axis
+		.intrinsic
+		.iter()
+		.enumerate()
+		.filter(|(_, flag)| **flag)
+		.map(|(index, _)| index)
+		.collect();
 
-	if intrinsic_count == 0 {
+	if intrinsic.is_empty() {
 		return;
 	}
 
-	let share = leftover / intrinsic_count as f32;
+	let shares = crate::layout_unit::distribute_weighted(leftover, &vec![1.0; intrinsic.len()]);
+	let mut share_index = 0;
 	let mut offset = 0.0;
 
 	for index in 0..axis.bases.len() {
 		axis.offsets[index] = offset;
 
 		if axis.intrinsic[index] {
-			axis.bases[index] += share;
+			axis.bases[index] += shares[share_index];
+			share_index += 1;
 		}
 
 		offset += axis.bases[index] + gap;

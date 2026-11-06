@@ -31,6 +31,10 @@ fn cell(id: &str, class: &str) -> Element {
 	View().class(class).test_id(id)
 }
 
+#[allow(
+	clippy::too_many_lines,
+	reason = "parity fixtures are intentionally exhaustive class trees"
+)]
 fn fixtures() -> Vec<Fixture> {
 	vec![
 		Fixture {
@@ -118,6 +122,182 @@ fn fixtures() -> Vec<Fixture> {
 							cell("nest-2", "bg-indigo-100"),
 							cell("nest-3", "bg-indigo-100"),
 						]),
+				]),
+		},
+		Fixture {
+			name: "nested-grids-deep",
+			width: 480.0,
+			height: 320.0,
+			tree: View()
+				.class("grid grid-cols-2 gap-3 w-[480px] h-[320px] p-3 bg-slate-50")
+				.children([
+					View()
+						.class("grid grid-cols-2 grid-rows-2 gap-2 bg-white")
+						.test_id("left")
+						.children([
+							cell("l0", "bg-indigo-200"),
+							cell("l1", "bg-indigo-300"),
+							View()
+								.class("col-span-2 grid grid-cols-3 gap-1")
+								.test_id("l-inner")
+								.children([
+									cell("li0", "bg-sky-200"),
+									cell("li1", "bg-sky-300"),
+									cell("li2", "bg-sky-400"),
+								]),
+						]),
+					View()
+						.class("grid grid-rows-3 gap-2")
+						.test_id("right")
+						.children([
+							cell("r0", "bg-amber-200"),
+							cell("r1", "bg-amber-300"),
+							cell("r2", "bg-amber-400"),
+						]),
+				]),
+		},
+		Fixture {
+			name: "grid-flow-dense",
+			width: 360.0,
+			height: 240.0,
+			tree: View()
+				.class(
+					"grid grid-cols-3 grid-rows-3 grid-flow-dense gap-2 w-[360px] h-[240px] p-2 \
+					 bg-slate-100",
+				)
+				.children([
+					cell("big", "col-span-2 row-span-2 bg-indigo-300"),
+					cell("a", "bg-rose-200"),
+					cell("b", "bg-rose-300"),
+					cell("c", "bg-rose-400"),
+					cell("d", "bg-emerald-200"),
+				]),
+		},
+		Fixture {
+			name: "grid-flow-col",
+			width: 300.0,
+			height: 240.0,
+			tree: View()
+				.class(
+					"grid grid-rows-2 grid-flow-col auto-cols-fr gap-3 w-[300px] h-[240px] p-3",
+				)
+				.children([
+					cell("c0", "bg-violet-200"),
+					cell("c1", "bg-violet-300"),
+					cell("c2", "bg-violet-400"),
+					cell("c3", "bg-violet-500"),
+					cell("c4", "bg-violet-600"),
+				]),
+		},
+		Fixture {
+			name: "grid-minmax-tracks",
+			width: 480.0,
+			height: 160.0,
+			tree: View()
+				.class(
+					"grid grid-cols-[minmax(80px,1fr)_minmax(40px,2fr)_100px] grid-rows-1 \
+					 gap-x-4 gap-y-2 w-[480px] h-[160px] p-4 bg-slate-50",
+				)
+				.children([
+					cell("min", "bg-teal-200"),
+					cell("flexy", "bg-teal-300"),
+					cell("fixed", "bg-teal-400"),
+				]),
+		},
+		Fixture {
+			name: "flex-shrink-basis-edges",
+			width: 400.0,
+			height: 96.0,
+			tree: View()
+				.class("flex-row w-[400px] h-24 p-2 gap-2 items-center bg-slate-100")
+				.children([
+					cell("basis", "basis-32 shrink grow-0 bg-orange-200 h-16"),
+					cell("noshrink", "w-40 shrink-0 bg-orange-300 h-12"),
+					cell("grow2", "grow-[2] shrink basis-0 bg-orange-400 h-20"),
+					cell("grow1", "grow shrink basis-0 bg-orange-500 h-10"),
+				]),
+		},
+		Fixture {
+			name: "flex-wrap-justify-between",
+			width: 320.0,
+			height: 200.0,
+			tree: View()
+				.class(
+					"flex-row flex-wrap justify-between content-start gap-x-3 gap-y-4 \
+					 w-[320px] h-[200px] p-3 bg-slate-50",
+				)
+				.children([
+					cell("a", "w-28 h-12 bg-fuchsia-200"),
+					cell("b", "w-28 h-12 bg-fuchsia-300"),
+					cell("c", "w-28 h-12 bg-fuchsia-400"),
+					cell("d", "w-28 h-12 bg-fuchsia-500"),
+					cell("e", "w-28 h-12 bg-fuchsia-600"),
+				]),
+		},
+		Fixture {
+			name: "absolute-inset-in-relative",
+			width: 320.0,
+			height: 200.0,
+			tree: View()
+				.class("relative w-[320px] h-[200px] p-6 bg-slate-200")
+				.children([
+					cell("bg", "w-full h-full bg-slate-100"),
+					cell(
+						"abs",
+						"absolute top-4 right-4 bottom-8 left-8 bg-indigo-400",
+					),
+					cell("badge", "absolute top-2 left-2 w-10 h-10 bg-rose-500"),
+				]),
+		},
+		Fixture {
+			name: "percent-sizes-and-margins",
+			width: 400.0,
+			height: 240.0,
+			tree: View()
+				.class("flex-col w-[400px] h-[240px] p-[10%] gap-2 bg-slate-50")
+				.children([
+					cell("half", "w-1/2 h-1/4 bg-lime-300"),
+					cell("third", "w-1/3 h-[30%] ml-[10%] bg-lime-400"),
+					cell("full", "w-full h-8 bg-lime-500"),
+				]),
+		},
+		Fixture {
+			name: "padding-margin-gap-mix",
+			width: 360.0,
+			height: 200.0,
+			tree: View()
+				.class(
+					"flex-row items-stretch w-[360px] h-[200px] pt-3 pb-5 px-4 gap-x-5 \
+					 bg-slate-100",
+				)
+				.children([
+					cell("a", "w-16 m-2 bg-cyan-200"),
+					cell("b", "flex-1 mx-3 my-1 bg-cyan-300"),
+					cell("c", "w-20 mt-4 mb-2 bg-cyan-400"),
+				]),
+		},
+		Fixture {
+			name: "overflow-hidden-child",
+			width: 280.0,
+			height: 160.0,
+			tree: View()
+				.class("relative w-[280px] h-[160px] p-4 overflow-hidden bg-slate-200")
+				.children([
+					cell("inner", "w-[400px] h-[200px] bg-yellow-300"),
+					cell("abs", "absolute -left-6 top-8 w-24 h-24 bg-yellow-500"),
+				]),
+		},
+		Fixture {
+			name: "percent-in-grid",
+			width: 420.0,
+			height: 210.0,
+			tree: View()
+				.class("grid grid-cols-2 grid-rows-2 gap-[5%] w-[420px] h-[210px] p-[5%]")
+				.children([
+					cell("a", "w-full h-full bg-pink-200"),
+					cell("b", "w-3/4 h-1/2 self-center justify-self-end bg-pink-300"),
+					cell("c", "w-1/2 h-full bg-pink-400"),
+					cell("d", "w-full h-3/4 self-end bg-pink-500"),
 				]),
 		},
 	]

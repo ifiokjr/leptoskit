@@ -61,6 +61,7 @@
 
 mod flexbox;
 mod grid;
+mod layout_unit;
 mod style;
 
 use std::sync::Arc;
@@ -727,7 +728,9 @@ pub(crate) fn resolve(dimension: Dimension, basis: Option<f32>) -> Option<f32> {
 pub(crate) fn resolve_signed(dimension: Dimension, basis: Option<f32>) -> Option<f32> {
 	match dimension {
 		Dimension::Points(points) => Some(finite(points)),
-		Dimension::Percent(fraction) => basis.map(|total| finite(fraction) * total),
+		Dimension::Percent(fraction) => {
+			basis.map(|total| layout_unit::percent_of(total, finite(fraction)))
+		}
 		Dimension::Auto => None,
 	}
 }
