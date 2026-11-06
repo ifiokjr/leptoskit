@@ -430,6 +430,15 @@ pub struct NativeProps {
 	/// scrolling alone while it stays the same.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub scroll_offset: Option<ScrollOffset>,
+	/// How the element moves, set by
+	/// [`Element::motion`](crate::Element::motion),
+	/// [`Element::timeline`](crate::Element::timeline), and
+	/// [`Element::stagger`](crate::Element::stagger). Motion is a web feature
+	/// today: native hosts show the resting pose, so it is never serialized
+	/// for them. Boxed, as [`aria`](Self::aria) is, so trees without motion
+	/// stay small.
+	#[cfg_attr(feature = "serde", serde(skip))]
+	pub motion: Option<Box<crate::motion::MotionProps>>,
 	/// Platform-specific properties, keyed by name.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "BTreeMap::is_empty"))]
 	pub extra: BTreeMap<String, PropValue>,

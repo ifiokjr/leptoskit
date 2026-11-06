@@ -14,6 +14,7 @@
 //! control role join the tab order and activate from Enter and Space.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use leptos::ev;
@@ -36,6 +37,7 @@ use crate::Progress;
 use crate::element::HandlerEntry;
 
 mod controls;
+mod motion;
 #[cfg(feature = "rive")]
 mod rive;
 mod semantics;
@@ -73,9 +75,7 @@ pub fn render(element: Element) -> AnyView {
 	let mut sheets = BTreeMap::new();
 	let root = render_node(
 		element,
-		true,
-		true,
-		false,
+		Inherited::ROOT,
 		&[],
 		&mut sheets,
 		&NodePath::root(),
@@ -210,16 +210,42 @@ struct NodeParts {
 	chain: Vec<Handlers>,
 }
 
+/// What a node takes from its parent while rendering.
+#[derive(Debug, Clone, Copy)]
+struct Inherited {
+	/// Whether this is the render root.
+	root: bool,
+	/// Whether every ancestor is enabled.
+	enabled: bool,
+	/// Whether an ancestor hides its subtree from assistive technology.
+	hidden: bool,
+	/// How much later a staggering parent starts this node's timed motion.
+	stagger: std::time::Duration,
+}
+
+impl Inherited {
+	const ROOT: Self = Self {
+		root: true,
+		enabled: true,
+		hidden: false,
+		stagger: std::time::Duration::ZERO,
+	};
+}
+
 /// Builds each typed DOM control before adding attributes common to all kinds.
 fn render_node(
 	mut element: Element,
-	root: bool,
-	parent_enabled: bool,
-	parent_hidden: bool,
+	inherited: Inherited,
 	ancestors: &[Handlers],
 	sheets: &mut BTreeMap<String, String>,
 	path: &NodePath,
 ) -> AnyView {
+	let Inherited {
+		root,
+		enabled: parent_enabled,
+		hidden: parent_hidden,
+		stagger,
+	} = inherited;
 	// A `For` or `Show` keeps its children in the region. Reading it here is
 	// what subscribes the leptos view that called `render`, so the web rebuilds
 	// this container when the list or the condition changes.
@@ -235,6 +261,12 @@ fn render_node(
 	let base = styles::base(&element, root);
 	let styles_active = element.classes().active_class().is_some();
 	let control = styles::control("", element.kind, styles_active);
+	let motion = element
+		.props
+		.motion
+		.as_deref()
+		.map(|props| motion::css(props, stagger))
+		.unwrap_or_default();
 	let scope = style_scope(&base, element.classes().classes(), &control);
 	sheets.entry(scope.clone()).or_insert_with(|| {
 		scoped_sheet(
@@ -245,6 +277,24 @@ fn render_node(
 			styles_active,
 		)
 	});
+	// Motion has a scope of its own, so moving elements still share their
+	// style scope's sheet with the elements that look like them.
+	let motion_scope = (!motion.rules.is_empty()).then(|| motion_scope(&motion.rules));
+	if let Some(motion_scope) = &motion_scope {
+		sheets.entry(motion_scope.clone()).or_insert_with(|| {
+			let selector = format!("[data-lk-motion=\"{motion_scope}\"]");
+			motion.rules.replace(motion::SELECTOR, &selector)
+		});
+	}
+	if let Some((name, keyframes)) = motion.keyframes {
+		sheets.entry(name).or_insert(keyframes);
+	}
+	let child_stagger = element
+		.props
+		.motion
+		.as_deref()
+		.and_then(|props| props.stagger)
+		.unwrap_or_default();
 	let handlers: Handlers = element.handlers().to_vec().into();
 	let mut chain = ancestors.to_vec();
 	chain.push(Arc::clone(&handlers));
@@ -286,8 +336,15 @@ fn render_node(
 		.children
 		.into_iter()
 		.zip(child_paths)
-		.map(|(child, child_path)| {
-			render_node(child, false, enabled, hidden, &chain, sheets, &child_path)
+		.enumerate()
+		.map(|(index, (child, child_path))| {
+			let inherited = Inherited {
+				root: false,
+				enabled,
+				hidden,
+				stagger: child_stagger.saturating_mul(u32::try_from(index).unwrap_or(u32::MAX)),
+			};
+			render_node(child, inherited, &chain, sheets, &child_path)
 		})
 		.collect::<Vec<_>>();
 	let focused = props.focused == Some(true);
@@ -295,6 +352,7 @@ fn render_node(
 
 	let attrs = (
 		custom_attribute("data-lk-style", scope),
+		custom_attribute("data-lk-motion", motion_scope),
 		custom_attribute("data-lk-focus", focused.then_some("true")),
 		custom_attribute("data-lk-scroll", scroll),
 		custom_attribute("class", classes),
@@ -362,6 +420,18 @@ fn style_scope(base: &str, classes: &str, control: &str) -> String {
 	hasher.update(b"\0");
 	hasher.update(control);
 	format!("lk-{:x}", hasher.finalize())
+}
+
+/// The motion scope a node's motion rules hash to, so equal motions share
+/// one sheet. Motion rules differ by delay as well as by movement, so a
+/// short hash keeps the many scopes of a staggered list small.
+fn motion_scope(rules: &str) -> String {
+	let digest = Sha256::digest(rules.as_bytes());
+	let mut scope = String::from("lk-m");
+	for byte in &digest[..8] {
+		write!(scope, "{byte:02x}").expect("write to String");
+	}
+	scope
 }
 
 /// The node's stylesheet: typed base styles, utility classes, and control

@@ -395,6 +395,13 @@ pub mod prelude {
 	pub use leptoskit_native::NativeProps;
 	pub use leptoskit_native::NativeSurface;
 	pub use leptoskit_native::components::*;
+	pub use leptoskit_native::motion::Easing;
+	pub use leptoskit_native::motion::Inset;
+	pub use leptoskit_native::motion::Motion;
+	pub use leptoskit_native::motion::Pose;
+	pub use leptoskit_native::motion::Spring;
+	pub use leptoskit_native::motion::ViewPhase;
+	pub use leptoskit_native::motion::ViewRange;
 	pub use leptoskit_native::reactive::Get;
 	pub use leptoskit_native::reactive::RwSignal;
 	pub use leptoskit_native::reactive::Set;

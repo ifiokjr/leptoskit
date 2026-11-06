@@ -95,6 +95,10 @@ pub fn is_layout_only(kind: NativeKind, props: &NativeProps) -> bool {
 		direction: _,
 		focused,
 		scroll_offset,
+		// Motion is web-only: native hosts show the resting pose, so it
+		// never needs a native view, and adding motion leaves the native
+		// tree as it was.
+		motion: _,
 		extra,
 	} = props;
 
