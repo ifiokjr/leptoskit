@@ -1,14 +1,14 @@
 //! View flattening: layout-only containers get no native view.
 //!
 //! A `View` that only arranges its children (no background, border, corner
-//! radius, opacity, clipping, hiding, accessibility, or id) draws nothing,
-//! yet each one costs a native view: creation, layout, and a layer the
-//! system compositor draws every frame. React Native's Fabric flattens such
-//! views into their parents, and so does [`Flattener`]: it translates the
-//! surface's mutation stream, which describes every element, into one for a
-//! native tree without the layout-only containers. Their children join the
-//! nearest native ancestor at the right index, with frames offset by the
-//! flattened containers' positions.
+//! radius, opacity, transform, animation, clipping, hiding, accessibility,
+//! or id) draws nothing, yet each one costs a native view: creation, layout,
+//! and a layer the system compositor draws every frame. React Native's Fabric
+//! flattens such views into their parents, and so does [`Flattener`]: it
+//! translates the surface's mutation stream, which describes every element,
+//! into one for a native tree without the layout-only containers. Their
+//! children join the nearest native ancestor at the right index, with frames
+//! offset by the flattened containers' positions.
 //!
 //! A container placed straight inside a `ScrollView` keeps its view, as
 //! React Native's scroll content container does: platforms size the
@@ -85,6 +85,8 @@ pub fn is_layout_only(kind: NativeKind, props: &NativeProps) -> bool {
 		border_widths,
 		border_color,
 		opacity,
+		transform,
+		animation,
 		hidden,
 		clip,
 		font_size: _,
@@ -122,6 +124,8 @@ pub fn is_layout_only(kind: NativeKind, props: &NativeProps) -> bool {
 		&& border_widths.is_none()
 		&& border_color.is_none()
 		&& opacity.is_none()
+		&& transform.is_none()
+		&& animation.is_none()
 		&& hidden.is_none()
 		&& clip.is_none()
 		&& italic.is_none()

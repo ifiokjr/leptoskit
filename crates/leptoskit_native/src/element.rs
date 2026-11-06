@@ -842,6 +842,7 @@ impl Element {
 			element.kind = NativeKind::View;
 		}
 
+		element.props.sanitize_motion();
 		element.props.hidden = (element.style.display == leptoskit_yoga::Display::None)
 			.then_some(true)
 			.or(element.props.hidden);
@@ -1550,6 +1551,77 @@ impl Element {
 	#[must_use]
 	pub fn opacity(mut self, opacity: f32) -> Self {
 		self.props.opacity = Some(opacity);
+		self
+	}
+
+	/// Moves, scales, or rotates the widget's drawing around its center,
+	/// without moving anything else. Combine it with
+	/// [`transition`](Self::transition) to animate the change.
+	///
+	/// ```
+	/// use leptoskit_native::Transform;
+	/// use leptoskit_native::components::View;
+	///
+	/// let tilted = View().transform(Transform::rotate(-3.0).scaled(1.05, 1.05));
+	/// # let _ = tilted;
+	/// ```
+	#[must_use]
+	pub fn transform(mut self, transform: crate::Transform) -> Self {
+		self.props.transform = Some(transform);
+		self
+	}
+
+	/// Animates changes to this widget's opacity, transform, and colors
+	/// instead of jumping, as Tailwind's `transition` class does. The
+	/// platform runs the animation; the app commits the new value once.
+	///
+	/// ```
+	/// use leptoskit_native::animation::Spring;
+	/// use leptoskit_native::animation::Transition;
+	/// use leptoskit_native::components::View;
+	///
+	/// let open = true;
+	/// let panel = View()
+	/// 	.opacity(if open { 1.0 } else { 0.0 })
+	/// 	.transition(Transition::spring(Spring::SNAPPY));
+	/// # let _ = panel;
+	/// ```
+	#[must_use]
+	pub fn transition(mut self, transition: crate::animation::Transition) -> Self {
+		self.props.animation_mut().transition = Some(transition);
+		self
+	}
+
+	/// Plays a keyframe sequence while the widget is shown, such as
+	/// [`Keyframes::spin`](crate::animation::Keyframes::spin).
+	#[must_use]
+	pub fn keyframes(mut self, keyframes: crate::animation::Keyframes) -> Self {
+		self.props.animation_mut().keyframes = Some(keyframes);
+		self
+	}
+
+	/// Animates the widget in when it is added, from the look `presence`
+	/// describes to its own.
+	#[must_use]
+	pub fn entering(mut self, presence: crate::animation::Presence) -> Self {
+		self.props.animation_mut().entering = Some(presence);
+		self
+	}
+
+	/// Animates the widget out when it is removed, from its own look to the
+	/// one `presence` describes. The platform keeps drawing it until the
+	/// animation ends.
+	#[must_use]
+	pub fn exiting(mut self, presence: crate::animation::Presence) -> Self {
+		self.props.animation_mut().exiting = Some(presence);
+		self
+	}
+
+	/// Animates the widget to its new position and size when layout moves
+	/// or resizes it, instead of jumping.
+	#[must_use]
+	pub fn layout_transition(mut self, curve: crate::animation::Curve) -> Self {
+		self.props.animation_mut().layout = Some(curve);
 		self
 	}
 

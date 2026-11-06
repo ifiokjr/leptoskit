@@ -385,6 +385,17 @@ pub struct NativeProps {
 	/// applied to the widget and everything inside it.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub opacity: Option<f32>,
+	/// Moves, scales, and rotates the widget's drawing around its center,
+	/// without changing its layout. Platforms apply it on their compositor.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub transform: Option<crate::Transform>,
+	/// How the widget animates: transitions between property values,
+	/// keyframes, entering and exiting, and layout changes. The platform
+	/// runs every animation itself, so the guest does no work per frame.
+	/// Boxed, like [`aria`](Self::aria), so widgets without animation stay
+	/// small.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub animation: Option<Box<crate::Animation>>,
 	/// Whether the widget and its descendants are hidden. Unset means visible.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub hidden: Option<bool>,
@@ -479,6 +490,26 @@ impl NativeProps {
 	pub const HREF: &'static str = "href";
 	/// The key in [`extra`](Self::extra) that holds a test identifier.
 	pub const TEST_ID: &'static str = "test_id";
+
+	/// The widget's animation, created empty if it has none.
+	pub fn animation_mut(&mut self) -> &mut crate::Animation {
+		self.animation.get_or_insert_default()
+	}
+
+	/// Keeps a guest's transform and animation within what platforms can
+	/// run: finite values, bounded durations, and a capped keyframe count.
+	/// An animation that animates nothing is dropped.
+	pub(crate) fn sanitize_motion(&mut self) {
+		self.transform = self
+			.transform
+			.map(|transform| transform.sanitized())
+			.filter(|transform| !transform.is_identity());
+
+		if let Some(animation) = self.animation.as_deref() {
+			let animation = animation.sanitized();
+			self.animation = (!animation.is_empty()).then(|| Box::new(animation));
+		}
+	}
 
 	/// Builds a `Text` value's props with the given content.
 	#[must_use]

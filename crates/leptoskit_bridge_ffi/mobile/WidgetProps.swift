@@ -29,6 +29,8 @@ struct WidgetProps: Decodable {
     let drawing: VectorDrawing?
     let aria: WidgetAria?
     let scrollOffset: ScrollOffset?
+    let transform: WidgetTransform?
+    let animation: WidgetAnimation?
 }
 
 extension WidgetProps {

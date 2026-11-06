@@ -1093,6 +1093,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_animation"
+version = "0.3.0"
+
+[[package]]
 name = "leptoskit_auth"
 version = "0.3.0"
 dependencies = [
@@ -1261,6 +1265,7 @@ name = "leptoskit_native"
 version = "0.3.0"
 dependencies = [
  "leptos",
+ "leptoskit_animation",
  "leptoskit_rive",
  "leptoskit_yoga",
  "reactive_graph",

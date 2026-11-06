@@ -79,6 +79,10 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
     var widgets: [Int: NSView] = [:]
     var properties: [Int: WidgetProps] = [:]
     private let scrolls = ScrollTracker()
+    private let motion = LayerMotion()
+    /// Removed widgets still on screen while they animate out, after the children the renderer places.
+    private let exits = ExitingViews<NSView>(
+        superview: { $0.superview }, layer: { $0.layer }, remove: { $0.removeFromSuperview() })
     private var applying = false
     /// The DevTools highlight and picking, in apps `leptoskit dev` reports to a hub.
     private(set) var devtools: DevtoolsOverlay?
@@ -101,6 +105,8 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
         widgets.removeAll()
         properties.removeAll()
         scrolls.removeAll()
+        motion.removeAll()
+        exits.removeAll()
     }
 
     func riveVisible(_ node: Int) -> Bool {
@@ -140,6 +146,8 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
             }
         }
 
+        motion.finish(layer: { self.widgets[$0]?.layer }, props: { self.properties[$0] })
+        exits.start(motion)
         updateScrollSizes()
         scrollToTargets()
     }
@@ -163,7 +171,9 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
             guard let document = scroll.documentView else { continue }
 
             document.setFrameSize(document.subviews.reduce(scroll.contentSize) { size, child in
-                CGSize(
+                guard !exits.contains(child) else { return size }
+
+                return CGSize(
                     width: max(size.width, child.frame.maxX),
                     height: max(size.height, child.frame.maxY)
                 )
@@ -210,6 +220,7 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
         properties[item.id] = item.props
         try MacWidgetStyle.apply(item.props, to: widget)
         scrolls.receive(item.props.scrollOffset, for: item.id)
+        motion.created(item.id, item.props)
     }
 
     /// Sends the field's edits, submission, focus and blur to the guest.
@@ -225,12 +236,16 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
         if let item = change.create { try create(item) }
 
         if let item = change.updateProps, let widget = widgets[item.id] {
+            if let layer = widget.layer { motion.willChange(item.id, layer, from: properties[item.id], to: item.props) }
             properties[item.id] = item.props
             try MacWidgetStyle.apply(item.props, to: widget)
             scrolls.receive(item.props.scrollOffset, for: item.id)
         }
 
         if let item = change.updateLayout, let widget = widgets[item.id] {
+            if let layer = widget.layer {
+                motion.willChange(item.id, layer, from: properties[item.id], to: properties[item.id])
+            }
             widget.frame = CGRect(
                 x: item.offsetX, y: item.offsetY, width: item.width, height: item.height
             )
@@ -242,19 +257,47 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
     private func applyTree(_ change: Change) {
         if let edge = change.insertChild { insertChild(edge) }
 
-        if let edge = change.removeChild { widgets[edge.child]?.removeFromSuperview() }
+        if let edge = change.removeChild, let child = widgets[edge.child] { remove(child, edge.child) }
 
         if let item = change.delete {
             scrolls.forget(item.id)
             properties[item.id] = nil
-            widgets.removeValue(forKey: item.id)?.removeFromSuperview()
+            motion.forget(item.id)
+
+            // A view animating out, or inside one, goes when its animation ends.
+            if let widget = widgets.removeValue(forKey: item.id), !exits.holds(widget) {
+                detach(widget)
+                exits.drop(in: widget)
+            }
         }
+    }
+
+    /// Removes a widget from its parent; one with an exiting animation moves after its former siblings,
+    /// where it stays until the animation, started after the transaction, ends.
+    private func remove(_ child: NSView, _ id: Int) {
+        let props = properties[id]
+        guard props?.animation?.exiting != nil, child.window != nil, let parent = child.superview,
+              !exits.contains(child)
+        else {
+            detach(child)
+
+            return
+        }
+        child.removeFromSuperview()
+        parent.addSubview(child)
+        exits.keep(child, props)
+    }
+
+    /// Takes a widget off screen, cancelling its exit if it was animating out.
+    private func detach(_ child: NSView) {
+        _ = exits.release(child)
+        child.removeFromSuperview()
     }
 
     private func insertChild(_ edge: Change.Edge) {
         if let parent = widgets[edge.parent], let child = widgets[edge.child] {
             let container = (parent as? NSScrollView)?.documentView ?? parent
-            child.removeFromSuperview()
+            detach(child)
             let index = min(edge.index ?? container.subviews.count, container.subviews.count)
 
             let sibling = index < container.subviews.count ? container.subviews[index] : nil

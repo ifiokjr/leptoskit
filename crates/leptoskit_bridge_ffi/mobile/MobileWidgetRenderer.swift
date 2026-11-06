@@ -44,6 +44,10 @@ final class MobileWidgetRenderer: NSObject, UIScrollViewDelegate, NativeRiveSink
     /// restyling one, and `WidgetStyle.apply` sets every property it owns.
     private var recycled = RecycledViews()
     private let scrolls = ScrollTracker()
+    private let motion = LayerMotion()
+    /// Removed widgets still on screen while they animate out, above the children the renderer counts.
+    private let exits = ExitingViews<UIView>(
+        superview: { $0.superview }, layer: { $0.layer }, remove: { $0.removeFromSuperview() })
     private var applying = false
     private var readinessScheduled = false
     private var readinessDelivered = false
@@ -95,33 +99,8 @@ final class MobileWidgetRenderer: NSObject, UIScrollViewDelegate, NativeRiveSink
 
         scrolls.removeAll()
         recycled = RecycledViews()
-    }
-
-    /// The Rive views on screen now, for the guest thread to advance.
-    func visibleRiveNodes() -> [Int] {
-        widgets.compactMap { node, widget in widget is NativeRiveImageView && riveVisible(node) ? node : nil }
-    }
-
-    func riveVisible(_ node: Int) -> Bool {
-        guard let widget = widgets[node], let window = widget.window, !widget.isHidden,
-
-            widget.alpha > 0 else { return false }
-        var visible = widget.convert(widget.bounds, to: window)
-        var ancestor = widget.superview
-
-        while let parent = ancestor {
-            if parent.isHidden || parent.alpha == 0 { return false }
-
-            if parent.clipsToBounds { visible = visible.intersection(parent.convert(parent.bounds, to: window)) }
-            ancestor = parent.superview
-        }
-
-        return !visible.isEmpty && visible.intersects(window.bounds)
-    }
-
-    func presentRive(_ node: Int, width: Int, height: Int, pixels: UnsafeBufferPointer<UInt8>) throws {
-        guard let image = widgets[node] as? UIImageView else { throw PluginError.native }
-        image.image = UIImage(cgImage: try nativeRiveImage(width: width, height: height, pixels: pixels))
+        motion.removeAll()
+        exits.removeAll()
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -157,6 +136,8 @@ final class MobileWidgetRenderer: NSObject, UIScrollViewDelegate, NativeRiveSink
             }
         }
 
+        motion.finish(layer: { self.widgets[$0]?.layer }, props: { self.properties[$0] })
+        exits.start(motion)
         scheduleReadiness(transaction.root)
 
         updateScrollSizes()
@@ -198,32 +179,6 @@ final class MobileWidgetRenderer: NSObject, UIScrollViewDelegate, NativeRiveSink
         readinessDelivered = true
         onReady?()
     }
-    private func updateScrollSizes() {
-        for scroll in widgets.values.compactMap({ $0 as? UIScrollView }) {
-            let size = scroll.subviews.reduce(CGSize.zero) { size, child in
-                CGSize(
-                    width: max(size.width, child.frame.maxX),
-                    height: max(size.height, child.frame.maxY))
-            }
-
-            if scroll.contentSize != size { scroll.contentSize = size }
-        }
-    }
-
-    /// Scrolls each view whose target changed, once its frame and content size are current.
-    private func scrollToTargets() {
-        for (id, target) in scrolls.takeChanged() {
-            guard let scroll = widgets[id] as? UIScrollView else { continue }
-            let inset = scroll.adjustedContentInset
-            let offset = ScrollTracker.clamp(
-                target, least: CGPoint(x: -inset.left, y: -inset.top),
-                most: CGPoint(
-                    x: scroll.contentSize.width + inset.right - scroll.bounds.width,
-                    y: scroll.contentSize.height + inset.bottom - scroll.bounds.height))
-            scroll.setContentOffset(offset, animated: target.animated == true)
-        }
-    }
-
     private func create(_ item: Change.Widget) throws {
         let widget: UIView
         switch item.kind {
@@ -250,6 +205,7 @@ final class MobileWidgetRenderer: NSObject, UIScrollViewDelegate, NativeRiveSink
         radii[item.id] = item.props.cornerRadius
         try WidgetStyle.apply(item.props, to: widget)
         scrolls.receive(item.props.scrollOffset, for: item.id)
+        motion.created(item.id, item.props)
     }
 
     private func makeLabel() -> UILabel {
@@ -268,6 +224,7 @@ final class MobileWidgetRenderer: NSObject, UIScrollViewDelegate, NativeRiveSink
             if item.props.focused != properties[item.id]?.focused {
                 focusRequests[item.id] = item.props.focused
             }
+            motion.willChange(item.id, widget.layer, from: properties[item.id], to: item.props)
             properties[item.id] = item.props
             radii[item.id] = item.props.cornerRadius
             try WidgetStyle.apply(item.props, to: widget)
@@ -275,8 +232,8 @@ final class MobileWidgetRenderer: NSObject, UIScrollViewDelegate, NativeRiveSink
         }
 
         if let item = change.updateLayout, let widget = widgets[item.id] {
-            widget.frame = CGRect(
-                x: item.offsetX, y: item.offsetY, width: item.width, height: item.height)
+            motion.willChange(item.id, widget.layer, from: properties[item.id], to: properties[item.id])
+            WidgetStyle.place(widget, CGRect(x: item.offsetX, y: item.offsetY, width: item.width, height: item.height))
             widget.layer.cornerRadius = WidgetStyle.fitRadius(radii[item.id] ?? 0, to: widget.bounds.size)
         }
 
@@ -293,33 +250,54 @@ final class MobileWidgetRenderer: NSObject, UIScrollViewDelegate, NativeRiveSink
             childCounts[edge.parent] = count + 1
         }
 
-        if let edge = change.removeChild, let child = widgets[edge.child] { detach(child) }
+        if let edge = change.removeChild, let child = widgets[edge.child] {
+            detach(child, exiting: properties[edge.child])
+        }
 
         if let item = change.delete {
             properties[item.id] = nil
             focusRequests[item.id] = nil
             radii[item.id] = nil
             scrolls.forget(item.id)
+            motion.forget(item.id)
             // A view still holding children cannot be handed out again.
             let empty = childCounts.removeValue(forKey: item.id) ?? 0 == 0
 
-            if let widget = widgets.removeValue(forKey: item.id) {
+            // A view animating out, or inside one, goes when its animation ends.
+            if let widget = widgets.removeValue(forKey: item.id), !exits.holds(widget) {
                 detach(widget)
+                exits.drop(in: widget)
 
                 if empty { recycled.keep(widget) }
             }
         }
     }
 
-    /// Removes a widget from its parent, keeping the parent's child count.
-    private func detach(_ child: UIView) {
+    /// Removes a widget from its parent, keeping the parent's child count. One `exiting` with an animation
+    /// stays on screen above its former siblings until the animation, started after the transaction, ends.
+    private func detach(_ child: UIView, exiting props: WidgetProps? = nil) {
+        if exits.release(child) {
+            // Back before its exit finished: it is no longer one of the parent's counted children.
+            child.isUserInteractionEnabled = properties[child.tag]?.enabled ?? true
+            child.removeFromSuperview()
+
+            return
+        }
+
         guard let parent = child.superview else { return }
 
         if widgets[parent.tag] === parent, let count = childCounts[parent.tag] {
             childCounts[parent.tag] = count - 1
         }
 
-        child.removeFromSuperview()
+        guard props?.animation?.exiting != nil, child.window != nil else {
+            child.removeFromSuperview()
+
+            return
+        }
+        parent.bringSubviewToFront(child)
+        child.isUserInteractionEnabled = false
+        exits.keep(child, props)
     }
 
     func event(_ node: Int, _ kind: UInt32, _ text: String = "") {
@@ -340,49 +318,63 @@ final class MobileWidgetRenderer: NSObject, UIScrollViewDelegate, NativeRiveSink
 
 }
 
-/// Draws a `Vector` in shape layers, repainted only when its drawing, size or screen scale changes.
-final class VectorView: UIView {
-    private var shapes = VectorLayers()
-    var drawing: VectorDrawing? { didSet { paint() } }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        paint()
+/// The Rive views the guest thread advances, and the frames it presents.
+extension MobileWidgetRenderer {
+    /// The Rive views on screen now, for the guest thread to advance.
+    func visibleRiveNodes() -> [Int] {
+        widgets.compactMap { node, widget in widget is NativeRiveImageView && riveVisible(node) ? node : nil }
     }
 
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        paint()
+    func riveVisible(_ node: Int) -> Bool {
+        guard let widget = widgets[node], let window = widget.window, !widget.isHidden,
+
+            widget.alpha > 0 else { return false }
+        var visible = widget.convert(widget.bounds, to: window)
+        var ancestor = widget.superview
+
+        while let parent = ancestor {
+            if parent.isHidden || parent.alpha == 0 { return false }
+
+            if parent.clipsToBounds { visible = visible.intersection(parent.convert(parent.bounds, to: window)) }
+            ancestor = parent.superview
+        }
+
+        return !visible.isEmpty && visible.intersects(window.bounds)
     }
 
-    /// A labelled drawing is an image to assistive technology; an unlabelled one is decorative.
-    func apply(_ props: WidgetProps) {
-        isAccessibilityElement = !(props.accessibilityLabel ?? "").isEmpty
-        accessibilityTraits = .image
-        drawing = props.drawing
-    }
-
-    private func paint() {
-        shapes.paint(drawing, in: layer)
+    func presentRive(_ node: Int, width: Int, height: Int, pixels: UnsafeBufferPointer<UInt8>) throws {
+        guard let image = widgets[node] as? UIImageView else { throw PluginError.native }
+        image.image = UIImage(cgImage: try nativeRiveImage(width: width, height: height, pixels: pixels))
     }
 }
 
-/// Plain containers and labels waiting to be reused, by exact class so a
-/// subclass with its own behaviour is never handed out as a plain view.
-struct RecycledViews {
-    /// Enough for a screen of a few thousand views; beyond it, views go.
-    private static let limit = 4096
-    var views: [UIView] = []
-    var labels: [UILabel] = []
+/// Scroll content sizes and programmatic scrolling, once a transaction's frames are set.
+extension MobileWidgetRenderer {
+    fileprivate func updateScrollSizes() {
+        for scroll in widgets.values.compactMap({ $0 as? UIScrollView }) {
+            let size = scroll.subviews.reduce(CGSize.zero) { size, child in
+                guard !exits.contains(child) else { return size }
 
-    @MainActor
-    mutating func keep(_ widget: UIView) {
-        if type(of: widget) == UILabel.self, labels.count < Self.limit, let label = widget as? UILabel {
-            label.frame = .zero
-            labels.append(label)
-        } else if type(of: widget) == UIView.self, views.count < Self.limit {
-            widget.frame = .zero
-            views.append(widget)
+                return CGSize(
+                    width: max(size.width, child.frame.maxX),
+                    height: max(size.height, child.frame.maxY))
+            }
+
+            if scroll.contentSize != size { scroll.contentSize = size }
+        }
+    }
+
+    /// Scrolls each view whose target changed, once its frame and content size are current.
+    fileprivate func scrollToTargets() {
+        for (id, target) in scrolls.takeChanged() {
+            guard let scroll = widgets[id] as? UIScrollView else { continue }
+            let inset = scroll.adjustedContentInset
+            let offset = ScrollTracker.clamp(
+                target, least: CGPoint(x: -inset.left, y: -inset.top),
+                most: CGPoint(
+                    x: scroll.contentSize.width + inset.right - scroll.bounds.width,
+                    y: scroll.contentSize.height + inset.bottom - scroll.bounds.height))
+            scroll.setContentOffset(offset, animated: target.animated == true)
         }
     }
 }

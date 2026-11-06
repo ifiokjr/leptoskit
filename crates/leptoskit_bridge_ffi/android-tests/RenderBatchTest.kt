@@ -60,7 +60,8 @@ class RenderBatchTest {
     /**
      * Typed fields as they are; of the rest, only properties no typed field
      * carries. The scroll offset is typed, read from the rest, so its JSON,
-     * whose key order differs between the two forms, is left out.
+     * whose key order differs between the two forms, is left out. The
+     * transform and animation compare as the data classes both forms decode.
      */
     private fun describe(props: WidgetProps): String {
         val typed =
@@ -83,6 +84,8 @@ class RenderBatchTest {
                 props.fontWeight,
                 props.textAlign,
                 props.scrollOffset,
+                props.transform,
+                props.animation,
             )
         val rest = props.rest
         val others =
@@ -117,6 +120,8 @@ class RenderBatchTest {
                 "font_weight",
                 "text_align",
                 "scroll_offset",
+                "transform",
+                "animation",
             )
     }
 }

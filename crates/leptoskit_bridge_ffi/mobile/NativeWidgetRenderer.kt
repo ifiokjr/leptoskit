@@ -1,5 +1,10 @@
 package dev.leptoskit.mobile
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.TimeAnimator
+import android.animation.TimeInterpolator
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -19,6 +24,8 @@ import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.LinearInterpolator
+import android.view.animation.PathInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
@@ -69,6 +76,7 @@ internal class NativeWidgetRenderer(
     private val retargeted = ArrayList<NativeScrollView>()
     var onRiveViewportChange: (() -> Unit)? = null
     private val props = NativeWidgetProps { density }
+    private val motion = NativeMotion { density }
     var applying = false
         private set
 
@@ -103,6 +111,7 @@ internal class NativeWidgetRenderer(
         riveBitmaps.clear()
         movedScrolls.clear()
         retargeted.clear()
+        motion.clear()
         widgets.clear()
         controlProps.clear()
 
@@ -157,6 +166,7 @@ internal class NativeWidgetRenderer(
         try {
             for (mutation in batch.mutations) applyMutation(mutation)
             installRoot(batch.root)
+            motion.commit()
             retargeted.forEach(NativeScrollView::scrollToTarget)
             updateCanvas(batch.root)
             configureEditors()
@@ -221,6 +231,7 @@ internal class NativeWidgetRenderer(
             is RenderMutation.UpdateProps -> {
                 val view = widget(change.id)
                 rememberControl(change.id, view, change.props)
+                motion.touch(change.id, view, change.props)
                 props.apply(view, change.props)
                 retarget(view, change.props.scrollOffset)
             }
@@ -234,7 +245,10 @@ internal class NativeWidgetRenderer(
             }
 
             is RenderMutation.RemoveChild -> {
-                detach(widgets[change.child])
+                val child = widgets[change.child] ?: return
+                val parent = child.parent as? ViewGroup
+                // A view exiting, or inside one, stays whole until its exit ends.
+                if (!motion.exiting(child) && (parent == null || !motion.exit(change.child, child, parent))) detach(child)
             }
 
             is RenderMutation.Delete -> {
@@ -243,6 +257,10 @@ internal class NativeWidgetRenderer(
 
                 val view = widgets.remove(change.id) ?: return
                 if (view is NativeRiveImage) view.setImageDrawable(null)
+                val exiting = motion.exiting(view)
+                motion.forget(change.id, view)
+                if (exiting) return
+                motion.finishExits(view)
                 detach(view)
                 recycle(view)
             }
@@ -373,6 +391,7 @@ internal class NativeWidgetRenderer(
         widget.tag = id
         widgets[id] = widget
         rememberControl(id, widget, item.props)
+        motion.touch(id, widget, item.props, isNew = true)
         props.apply(widget, item.props)
         retarget(widget, item.props.scrollOffset)
     }
@@ -522,12 +541,14 @@ internal class NativeWidgetRenderer(
                 leftMargin = left
                 topMargin = top
             }
+        motion.touch(item.id, view, null)
     }
 
     private fun insert(item: RenderMutation.InsertChild) {
         val parent = widget(item.parent) as ViewGroup
         val container = if (parent is ScrollView) parent.getChildAt(0) as ViewGroup else parent
         val child = widget(item.child)
+        motion.cancelExit(child)
         detach(child)
         // Strokes may overhang a drawing's frame; only the drawing's own clip prop clips them.
         if (child is NativeVectorView) container.clipChildren = false
@@ -981,5 +1002,522 @@ internal fun dismissEditorOutside(
     val bounds = Rect()
     if (!editor.getGlobalVisibleRect(bounds) || !bounds.contains(event.rawX.toInt(), event.rawY.toInt())) {
         dismissEditor(root, editor)
+    }
+}
+
+/**
+ * Runs widgets' `transform` and `animation` props on Android's animators, so
+ * the guest describes a motion once and the platform plays it.
+ *
+ * The renderer [touch]es each widget a batch creates, updates, or lays out,
+ * before applying its props, then [commit]s the batch: a widget whose
+ * transition covers a changed value moves to it from where it is on screen,
+ * a new widget enters, and keyframes restart when they change.
+ */
+internal class NativeMotion(
+    private val density: () -> Float,
+) {
+    private val states = mutableMapOf<Long, State>()
+    private val touched = LinkedHashMap<Long, View>()
+    private val created = HashSet<Long>()
+
+    /** Views drawn on after their removal while they exit, with their parents. */
+    private val exits = mutableMapOf<View, Exit>()
+
+    private class State(
+        var props: WidgetProps,
+    ) {
+        /** The opacity and transform last applied, which a transition compares against. */
+        var own: MotionVisual? = null
+        var transition: Runner? = null
+        var keyframes: MotionKeyframes? = null
+        var keyframesAnimator: TimeAnimator? = null
+
+        /** The background color before this batch, for color transitions. */
+        var colorBefore: Int? = null
+        var layout: ValueAnimator? = null
+        var layoutTarget: Rect? = null
+        var listening = false
+
+        /** The properties running keyframes move, which transitions leave to them. */
+        val keyframesMask
+            get() = keyframes?.takeIf { keyframesAnimator?.isStarted == true }?.let { mask(it) } ?: 0
+    }
+
+    private class Exit(
+        val parent: ViewGroup,
+        val animator: Animator,
+    )
+
+    /** One run of a curve, moving the properties in [mask] from [from] to [to]. */
+    private class Runner(
+        val state: State,
+        val view: View,
+        val from: Look,
+        val to: Look,
+        var mask: Int,
+        val colors: Pair<Int, Int>?,
+        val curve: MotionCurve,
+        delayMs: Float,
+        done: () -> Unit = {},
+    ) {
+        val animator: ValueAnimator =
+            ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = curve.durationMs.toLong()
+                startDelay = delayMs.toLong()
+                interpolator = curveInterpolator(curve)
+                addUpdateListener { step(progress(it)) }
+                addListener(
+                    object : AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(animation: Animator) = done()
+                    },
+                )
+            }
+
+        fun step(t: Float) {
+            from.lerp(to, t).applyTo(view, mask and state.keyframesMask.inv())
+
+            if (colors != null) {
+                (view.background as? GradientDrawable)?.setColor(blend(colors.first, colors.second, t.coerceIn(0f, 1f)))
+            }
+        }
+    }
+
+    /** A widget's opacity and transform in pixels, as the view's own properties hold them. */
+    private data class Look(
+        val alpha: Float,
+        val translationX: Float,
+        val translationY: Float,
+        val scaleX: Float,
+        val scaleY: Float,
+        val rotation: Float,
+    ) {
+        fun lerp(
+            to: Look,
+            t: Float,
+        ) = Look(
+            mix(alpha, to.alpha, t).coerceIn(0f, 1f),
+            mix(translationX, to.translationX, t),
+            mix(translationY, to.translationY, t),
+            mix(scaleX, to.scaleX, t),
+            mix(scaleY, to.scaleY, t),
+            mix(rotation, to.rotation, t),
+        )
+
+        fun applyTo(
+            view: View,
+            mask: Int,
+        ) {
+            if (mask and ALPHA != 0) view.alpha = alpha
+            if (mask and parts(MotionTransform.TRANSLATE) != 0) {
+                view.translationX = translationX
+                view.translationY = translationY
+            }
+            if (mask and parts(MotionTransform.SCALE) != 0) {
+                view.scaleX = scaleX
+                view.scaleY = scaleY
+            }
+            if (mask and parts(MotionTransform.ROTATE) != 0) view.rotation = rotation
+        }
+
+        companion object {
+            fun of(view: View) = Look(view.alpha, view.translationX, view.translationY, view.scaleX, view.scaleY, view.rotation)
+        }
+    }
+
+    /** Notes a widget the batch changes, before its new [props] apply; null props for a layout change. */
+    fun touch(
+        id: Long,
+        view: View,
+        props: WidgetProps?,
+        isNew: Boolean = false,
+    ) {
+        val state = states[id]
+
+        if (state == null) {
+            if (props == null || (props.transform == null && props.animation == null)) return
+            states[id] = State(props)
+        } else if (props != null) {
+            state.props = props
+        }
+
+        val current = states.getValue(id)
+
+        if (isNew) created.add(id)
+        if (!touched.containsKey(id)) current.colorBefore = (view.background as? GradientDrawable)?.color?.defaultColor
+        touched[id] = view
+    }
+
+    /** Applies the batch's motion, once every frame and prop in it is set. */
+    fun commit() {
+        for ((id, view) in touched) {
+            val state = states[id] ?: continue
+            update(id, view, state, id in created)
+        }
+        touched.clear()
+        created.clear()
+    }
+
+    private fun update(
+        id: Long,
+        view: View,
+        state: State,
+        isNew: Boolean,
+    ) {
+        val props = state.props
+        val animation = props.animation
+        val own = MotionVisual((props.opacity ?: 1.0).toFloat(), props.transform)
+        val (width, height) = size(view)
+        val target = look(own, width, height)
+        val previous = state.own
+        state.own = own
+
+        if (props.transform == null && animation == null) {
+            stop(id, view)
+            states.remove(id)
+            target.applyTo(view, ALL)
+            return
+        }
+
+        if (animation?.layout != null && !state.listening) {
+            state.listening = true
+            view.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+                relayout(id, view, Rect(oldLeft, oldTop, oldRight, oldBottom), Rect(left, top, right, bottom))
+            }
+        }
+
+        val entering = animation?.entering
+
+        if (isNew && entering != null) {
+            state.transition?.animator?.cancel()
+            val from = look(entering.visual.over(own), width, height)
+            from.applyTo(view, ALL)
+            state.transition =
+                Runner(state, view, from, target, ALL, null, entering.curve, entering.delayMs).also { it.animator.start() }
+        } else {
+            transition(state, view, previous, own, target, animation?.transition)
+        }
+
+        keyframes(state, view, animation?.keyframes)
+    }
+
+    private fun transition(
+        state: State,
+        view: View,
+        previous: MotionVisual?,
+        own: MotionVisual,
+        target: Look,
+        transition: MotionTransition?,
+    ) {
+        val covers = transition?.properties ?: 0
+        var changed = 0
+
+        if (previous != null && previous.opacity != own.opacity) changed = changed or ALPHA
+        if (previous != null && previous.transform != own.transform) changed = changed or TRANSFORM
+        val animate =
+            changed and
+                (
+                    (if (covers and MotionTransition.OPACITY != 0) ALPHA else 0) or
+                        (if (covers and MotionTransition.TRANSFORM != 0) TRANSFORM else 0)
+                )
+        val colorAfter = (view.background as? GradientDrawable)?.color?.defaultColor
+        val colorBefore = state.colorBefore ?: Color.TRANSPARENT
+        val colors =
+            if (covers and MotionTransition.COLORS != 0 && colorAfter != null && colorBefore != colorAfter) {
+                colorBefore to colorAfter
+            } else {
+                null
+            }
+        val running = state.transition?.takeIf { it.animator.isStarted }
+        val keep = running?.mask?.and(changed.inv()) ?: 0
+        val free = ALL and state.keyframesMask.inv()
+
+        if (transition == null || (animate == 0 && colors == null)) {
+            // Values that changed without a transition jump; a running
+            // transition keeps moving the rest, toward their new targets.
+            target.applyTo(view, free and keep.inv())
+            if (running == null) return
+            running.mask = keep
+            if (keep != 0 && running.to != target) {
+                restart(state, view, target, keep, null, running.curve, 0f)
+            } else if (keep == 0) {
+                running.animator.cancel()
+            }
+            return
+        }
+
+        val mask = animate or keep
+        target.applyTo(view, free and mask.inv())
+        restart(state, view, target, mask, colors, transition.curve, transition.delayMs)
+    }
+
+    private fun restart(
+        state: State,
+        view: View,
+        target: Look,
+        mask: Int,
+        colors: Pair<Int, Int>?,
+        curve: MotionCurve,
+        delayMs: Float,
+    ) {
+        state.transition?.animator?.cancel()
+        state.transition = Runner(state, view, Look.of(view), target, mask, colors, curve, delayMs).also { it.animator.start() }
+    }
+
+    private fun keyframes(
+        state: State,
+        view: View,
+        keyframes: MotionKeyframes?,
+    ) {
+        if (keyframes == state.keyframes) return
+        state.keyframesAnimator?.cancel()
+        state.keyframesAnimator = null
+        state.keyframes = keyframes
+        if (keyframes == null) {
+            state.own?.let { look(it, size(view)).applyTo(view, ALL) }
+            return
+        }
+
+        val mask = mask(keyframes)
+        state.keyframesAnimator =
+            TimeAnimator().apply {
+                setTimeListener { animator, total, _ ->
+                    val own = state.own ?: MotionVisual()
+                    val sample = keyframes.sample(total.toFloat(), own)
+
+                    if (sample == null) {
+                        look(own, size(view)).applyTo(view, mask)
+                        animator.end()
+                    } else {
+                        look(sample, size(view)).applyTo(view, mask)
+                    }
+                }
+                start()
+            }
+    }
+
+    /** Moves [view] from its [old] frame to its [new] one, when its layout animates. */
+    private fun relayout(
+        id: Long,
+        view: View,
+        old: Rect,
+        new: Rect,
+    ) {
+        val state = states[id] ?: return
+        val curve = state.props.animation?.layout
+
+        // A layout pass that put the view at its target mid-move leaves the move running.
+        if (curve == null || old.isEmpty || old == new || (state.layout?.isRunning == true && state.layoutTarget == new)) return
+        val running = state.layout
+
+        running?.cancel()
+        state.layoutTarget = Rect(new)
+        val from = Rect(old)
+        state.layout =
+            ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = curve.durationMs.toLong()
+                interpolator = curveInterpolator(curve)
+                addUpdateListener {
+                    val t = progress(it)
+                    view.left = mix(from.left.toFloat(), new.left.toFloat(), t).toInt()
+                    view.top = mix(from.top.toFloat(), new.top.toFloat(), t).toInt()
+                    view.right = mix(from.right.toFloat(), new.right.toFloat(), t).toInt()
+                    view.bottom = mix(from.bottom.toFloat(), new.bottom.toFloat(), t).toInt()
+                }
+                start()
+            }
+        view.left = from.left
+        view.top = from.top
+        view.right = from.right
+        view.bottom = from.bottom
+    }
+
+    /**
+     * Starts [view]'s exit when its props have one: it leaves [parent]'s children,
+     * so indices stay right, but [parent] draws it until the exit ends.
+     */
+    fun exit(
+        id: Long,
+        view: View,
+        parent: ViewGroup,
+    ): Boolean {
+        val state = states[id] ?: return false
+        val exiting = state.props.animation?.exiting ?: return false
+        val own = state.own ?: return false
+        val (width, height) = size(view)
+        state.transition?.animator?.cancel()
+        parent.startViewTransition(view)
+        parent.removeView(view)
+        state.keyframesAnimator?.cancel()
+        state.keyframes = null
+        val runner =
+            Runner(state, view, Look.of(view), look(exiting.visual.over(own), width, height), ALL, null, exiting.curve, exiting.delayMs) {
+                if (exits[view]?.parent === parent) finishExit(view)
+            }
+        exits[view] = Exit(parent, runner.animator)
+        runner.animator.start()
+
+        return true
+    }
+
+    /** Whether [view] is exiting or inside a view that is. */
+    fun exiting(view: View): Boolean {
+        if (exits.isEmpty()) return false
+        var current: View? = view
+
+        while (current != null) {
+            if (current in exits) return true
+            current = current.parent as? View
+        }
+
+        return false
+    }
+
+    /** Stops [view]'s exit and puts it back as it was, when it is inserted again. */
+    fun cancelExit(view: View) {
+        val exit = exits.remove(view) ?: return
+        exit.animator.removeAllListeners()
+        exit.animator.cancel()
+        exit.parent.endViewTransition(view)
+        val id = view.tag as? Long ?: return
+        val state = states[id] ?: return
+        state.own?.let { look(it, size(view)).applyTo(view, ALL) }
+        keyframes(state, view, state.props.animation?.keyframes)
+    }
+
+    /** Ends the exits drawn inside [parent], before it is reused. */
+    fun finishExits(parent: View) {
+        exits.entries
+            .filter { it.value.parent === parent }
+            .map { it.key }
+            .forEach(::finishExit)
+    }
+
+    private fun finishExit(view: View) {
+        val exit = exits.remove(view) ?: return
+        exit.animator.removeAllListeners()
+        exit.animator.cancel()
+        exit.parent.endViewTransition(view)
+    }
+
+    /** Stops [id]'s motion and resets its view, when it is deleted. */
+    fun forget(
+        id: Long,
+        view: View,
+    ) {
+        if (view !in exits) stop(id, view)
+        states.remove(id)
+        touched.remove(id)
+    }
+
+    private fun stop(
+        id: Long,
+        view: View,
+    ) {
+        val state = states[id] ?: return
+        state.transition?.animator?.cancel()
+        state.keyframesAnimator?.cancel()
+        state.layout?.cancel()
+        state.transition = null
+        state.keyframesAnimator = null
+        state.keyframes = null
+        state.layout = null
+        view.translationX = 0f
+        view.translationY = 0f
+        view.scaleX = 1f
+        view.scaleY = 1f
+        view.rotation = 0f
+    }
+
+    fun clear() {
+        exits.keys.toList().forEach(::finishExit)
+        for (state in states.values) {
+            state.transition?.animator?.cancel()
+            state.keyframesAnimator?.cancel()
+            state.layout?.cancel()
+        }
+        states.clear()
+        touched.clear()
+        created.clear()
+    }
+
+    /** The view's size in pixels: its laid-out frame, or the one the renderer just assigned. */
+    private fun size(view: View): Pair<Float, Float> {
+        val params = view.layoutParams
+
+        return if (params != null && params.width >= 0 && params.height >= 0) {
+            params.width.toFloat() to params.height.toFloat()
+        } else {
+            view.width.toFloat() to view.height.toFloat()
+        }
+    }
+
+    private fun look(
+        visual: MotionVisual,
+        size: Pair<Float, Float>,
+    ) = look(visual, size.first, size.second)
+
+    private fun look(
+        visual: MotionVisual,
+        width: Float,
+        height: Float,
+    ): Look {
+        val transform = visual.transform ?: MotionTransform.IDENTITY
+        val density = density()
+
+        return Look(
+            visual.opacity ?: 1f,
+            transform.translateX.resolve(width, density),
+            transform.translateY.resolve(height, density),
+            transform.scaleX,
+            transform.scaleY,
+            transform.rotate,
+        )
+    }
+
+    private companion object {
+        const val ALPHA = 1
+
+        /** The transform parts, shifted past [ALPHA]. */
+        const val TRANSFORM = (MotionTransform.TRANSLATE or MotionTransform.SCALE or MotionTransform.ROTATE) shl 1
+        const val ALL = ALPHA or TRANSFORM
+
+        /** Transform [parts] as mask bits beside [ALPHA]. */
+        fun parts(parts: Int) = parts shl 1
+
+        fun mask(keyframes: MotionKeyframes) = (if (keyframes.animatesOpacity) ALPHA else 0) or parts(keyframes.animatedParts)
+
+        /** The animator's eased progress, exactly one at its end: a spring's curve stops a hair short. */
+        fun progress(animator: ValueAnimator) = if (animator.animatedFraction >= 1f) 1f else animator.animatedValue as Float
+
+        fun curveInterpolator(curve: MotionCurve): TimeInterpolator =
+            when (curve) {
+                is MotionCurve.Timing -> {
+                    val easing = curve.easing
+                    if (easing ==
+                        MotionEasing.LINEAR
+                    ) {
+                        LinearInterpolator()
+                    } else {
+                        PathInterpolator(easing.x1, easing.y1, easing.x2, easing.y2)
+                    }
+                }
+
+                is MotionCurve.Spring -> {
+                    TimeInterpolator { curve.progress(it) }
+                }
+            }
+
+        fun blend(
+            from: Int,
+            to: Int,
+            t: Float,
+        ): Int =
+            Color.argb(
+                mix(Color.alpha(from).toFloat(), Color.alpha(to).toFloat(), t).toInt(),
+                mix(Color.red(from).toFloat(), Color.red(to).toFloat(), t).toInt(),
+                mix(Color.green(from).toFloat(), Color.green(to).toFloat(), t).toInt(),
+                mix(Color.blue(from).toFloat(), Color.blue(to).toFloat(), t).toInt(),
+            )
     }
 }

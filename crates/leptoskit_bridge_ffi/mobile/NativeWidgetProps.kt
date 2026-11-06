@@ -20,6 +20,12 @@ import android.widget.TextView
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.WeakHashMap
+import kotlin.math.cos
+import kotlin.math.exp
+import kotlin.math.floor
+import kotlin.math.ln
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 internal class NativeWidgetProps(
     private val density: () -> Float,
@@ -52,7 +58,8 @@ internal class NativeWidgetProps(
         if (widget.visibility != visibility) widget.visibility = visibility
         val alpha = (props.opacity ?: 1.0).toFloat()
 
-        if (widget.alpha != alpha) widget.alpha = alpha
+        // An animated widget's opacity is the renderer's motion to set.
+        if (props.animation == null && widget.alpha != alpha) widget.alpha = alpha
 
         val clip = props.clip == true || (props.cornerRadius ?: 0.0) > 0
         backdrop(widget, props, clip)
@@ -538,3 +545,413 @@ internal data class NativeVectorStroke(
         }
     }
 }
+
+/** A translation along one axis: layout units plus a percentage of the widget's own size. */
+internal data class MotionOffset(
+    val points: Float = 0f,
+    val percent: Float = 0f,
+) {
+    /** In pixels, for a widget [size] pixels long. */
+    fun resolve(
+        size: Float,
+        density: Float,
+    ) = points * density + percent / 100f * size
+
+    fun lerp(
+        to: MotionOffset,
+        t: Float,
+    ) = MotionOffset(mix(points, to.points, t), mix(percent, to.percent, t))
+
+    companion object {
+        val ZERO = MotionOffset()
+
+        fun fromJson(offset: JSONObject?) =
+            offset?.let { MotionOffset(it.optDouble("points", 0.0).toFloat(), it.optDouble("percent", 0.0).toFloat()) } ?: ZERO
+    }
+}
+
+/** Moves, scales, and rotates a widget's drawing about its center, as `leptoskit_animation::Transform`. */
+internal data class MotionTransform(
+    val translateX: MotionOffset = MotionOffset.ZERO,
+    val translateY: MotionOffset = MotionOffset.ZERO,
+    val scaleX: Float = 1f,
+    val scaleY: Float = 1f,
+    /** Clockwise degrees. */
+    val rotate: Float = 0f,
+) {
+    /** Which of [TRANSLATE], [SCALE], and [ROTATE] differ from no transform. */
+    val parts: Int
+        get() =
+            (if (translateX != MotionOffset.ZERO || translateY != MotionOffset.ZERO) TRANSLATE else 0) or
+                (if (scaleX != 1f || scaleY != 1f) SCALE else 0) or
+                (if (rotate != 0f) ROTATE else 0)
+
+    fun lerp(
+        to: MotionTransform,
+        t: Float,
+    ) = MotionTransform(
+        translateX.lerp(to.translateX, t),
+        translateY.lerp(to.translateY, t),
+        mix(scaleX, to.scaleX, t),
+        mix(scaleY, to.scaleY, t),
+        mix(rotate, to.rotate, t),
+    )
+
+    /** This transform with [other]'s values for [parts]. */
+    fun withParts(
+        other: MotionTransform,
+        parts: Int,
+    ) = MotionTransform(
+        if (parts and TRANSLATE != 0) other.translateX else translateX,
+        if (parts and TRANSLATE != 0) other.translateY else translateY,
+        if (parts and SCALE != 0) other.scaleX else scaleX,
+        if (parts and SCALE != 0) other.scaleY else scaleY,
+        if (parts and ROTATE != 0) other.rotate else rotate,
+    )
+
+    companion object {
+        const val TRANSLATE = 1
+        const val SCALE = 2
+        const val ROTATE = 4
+        val IDENTITY = MotionTransform()
+
+        fun fromJson(transform: JSONObject) =
+            MotionTransform(
+                MotionOffset.fromJson(transform.optJSONObject("translate_x")),
+                MotionOffset.fromJson(transform.optJSONObject("translate_y")),
+                transform.optDouble("scale_x", 1.0).toFloat(),
+                transform.optDouble("scale_y", 1.0).toFloat(),
+                transform.optDouble("rotate", 0.0).toFloat(),
+            )
+    }
+}
+
+/** An opacity and a transform, either unset. */
+internal data class MotionVisual(
+    val opacity: Float? = null,
+    val transform: MotionTransform? = null,
+) {
+    /** [own] with this visual's set values over it; a transform replaces only the parts it moves. */
+    fun over(own: MotionVisual): MotionVisual {
+        val base = own.transform ?: MotionTransform.IDENTITY
+
+        return MotionVisual(
+            opacity ?: own.opacity,
+            transform?.let { base.withParts(it, it.parts) } ?: own.transform,
+        )
+    }
+
+    companion object {
+        fun fromJson(visual: JSONObject) =
+            MotionVisual(
+                if (visual.isNull("opacity")) null else visual.getDouble("opacity").toFloat(),
+                visual.optJSONObject("transform")?.let(MotionTransform::fromJson),
+            )
+    }
+}
+
+/** A cubic Bézier timing curve; linear is `(0, 0, 1, 1)`. */
+internal data class MotionEasing(
+    val x1: Float,
+    val y1: Float,
+    val x2: Float,
+    val y2: Float,
+) {
+    /** Eased progress for linear progress [t], as CSS `cubic-bezier()`. */
+    fun sample(t: Float): Float {
+        if (this == LINEAR || t <= 0f || t >= 1f) return t.coerceIn(0f, 1f)
+
+        fun bezier(
+            a: Float,
+            b: Float,
+            s: Float,
+        ) = 3 * a * s * (1 - s) * (1 - s) + 3 * b * s * s * (1 - s) + s * s * s
+        var low = 0f
+        var high = 1f
+        var s = t
+
+        repeat(SOLVE_STEPS) {
+            val x = bezier(x1, x2, s)
+            if (x < t) low = s else high = s
+            s = (low + high) / 2
+        }
+
+        return bezier(y1, y2, s)
+    }
+
+    companion object {
+        private const val SOLVE_STEPS = 24
+        val LINEAR = MotionEasing(0f, 0f, 1f, 1f)
+
+        fun fromJson(easing: Any?): MotionEasing {
+            val points = (easing as? JSONObject)?.optJSONArray("cubic_bezier") ?: return LINEAR
+
+            return MotionEasing(
+                points.getDouble(0).toFloat(),
+                points.getDouble(1).toFloat(),
+                points.getDouble(2).toFloat(),
+                points.getDouble(3).toFloat(),
+            )
+        }
+    }
+}
+
+/** How a value moves: for a fixed time along an easing, or on a damped spring until it settles. */
+internal sealed interface MotionCurve {
+    /** How long it runs, in milliseconds. */
+    val durationMs: Float
+
+    /** Progress, possibly past one for a bouncing spring, after [fraction] of [durationMs]. */
+    fun progress(fraction: Float): Float
+
+    data class Timing(
+        override val durationMs: Float,
+        val easing: MotionEasing,
+    ) : MotionCurve {
+        override fun progress(fraction: Float) = easing.sample(fraction)
+    }
+
+    /** The analytic spring `leptoskit_animation::Spring` describes. */
+    data class Spring(
+        val mass: Float,
+        val stiffness: Float,
+        val damping: Float,
+    ) : MotionCurve {
+        private val natural get() = sqrt(stiffness / mass)
+        private val ratio get() = damping / (2 * sqrt(stiffness * mass))
+
+        /** How long the spring takes to come within a thousandth of its target and stay there. */
+        override val durationMs: Float by lazy(::settleMs)
+
+        override fun progress(fraction: Float) = 1 - displacement(fraction.coerceAtLeast(0f) * durationMs / 1000f)
+
+        private fun settleMs(): Float {
+            val ratio = ratio
+
+            if (ratio < 1f) {
+                val damped = natural * sqrt(1 - ratio * ratio)
+                val amplitude = sqrt(1 + (ratio * natural / damped).let { it * it })
+                val decay = ratio * natural
+                if (decay <= 0f) return LIMIT_MS
+
+                return (ln(amplitude / THRESHOLD) / decay * 1000f).coerceIn(0f, LIMIT_MS)
+            }
+
+            var low = 0f
+            var high = LIMIT_MS / 1000f
+            if (displacement(high) > THRESHOLD) return LIMIT_MS
+
+            repeat(SETTLE_STEPS) {
+                val middle = (low + high) / 2
+                if (displacement(middle) > THRESHOLD) low = middle else high = middle
+            }
+
+            return high * 1000f
+        }
+
+        /** How far from the target the spring is after [t] seconds, released from one at rest. */
+        private fun displacement(t: Float): Float {
+            val natural = natural
+            val ratio = ratio
+
+            return when {
+                ratio < 1f -> {
+                    val damped = natural * sqrt(1 - ratio * ratio)
+                    exp(-ratio * natural * t) * (cos(damped * t) + ratio * natural / damped * sin(damped * t))
+                }
+
+                ratio - 1f < CRITICAL -> {
+                    exp(-natural * t) * (1 + natural * t)
+                }
+
+                else -> {
+                    val root = sqrt(ratio * ratio - 1)
+                    val fast = -natural * (ratio + root)
+                    val slow = -natural * (ratio - root)
+                    (slow * exp(fast * t) - fast * exp(slow * t)) / (slow - fast)
+                }
+            }
+        }
+
+        private companion object {
+            const val THRESHOLD = 0.001f
+            const val LIMIT_MS = 60_000f
+            const val CRITICAL = 1.0e-4f
+            const val SETTLE_STEPS = 48
+        }
+    }
+
+    companion object {
+        fun fromJson(curve: JSONObject): MotionCurve {
+            curve.optJSONObject("spring")?.let {
+                return Spring(it.getDouble("mass").toFloat(), it.getDouble("stiffness").toFloat(), it.getDouble("damping").toFloat())
+            }
+            val timing = curve.getJSONObject("timing")
+
+            return Timing(timing.getDouble("duration_ms").toFloat(), MotionEasing.fromJson(timing.opt("easing")))
+        }
+    }
+}
+
+/** Animates changes to the [properties] bitmask: [OPACITY], [TRANSFORM], [COLORS]. */
+internal data class MotionTransition(
+    val properties: Int,
+    val curve: MotionCurve,
+    val delayMs: Float,
+) {
+    companion object {
+        const val OPACITY = 1
+        const val TRANSFORM = 2
+        const val COLORS = 4
+
+        fun fromJson(transition: JSONObject) =
+            MotionTransition(
+                transition.getInt("properties"),
+                MotionCurve.fromJson(transition.getJSONObject("curve")),
+                transition.optDouble("delay_ms", 0.0).toFloat(),
+            )
+    }
+}
+
+internal data class MotionKeyframe(
+    val offset: Float,
+    val visual: MotionVisual,
+    val easing: MotionEasing?,
+)
+
+/** A keyframe sequence, sampled as `leptoskit_animation::Keyframes::sample` does. */
+internal data class MotionKeyframes(
+    val frames: List<MotionKeyframe>,
+    val durationMs: Float,
+    val delayMs: Float,
+    /** How many passes; infinite plays forever. */
+    val iterations: Float,
+    val alternate: Boolean,
+    val easing: MotionEasing,
+) {
+    /** The transform parts any keyframe moves. */
+    val animatedParts get() = frames.fold(0) { parts, frame -> parts or (frame.visual.transform?.parts ?: 0) }
+
+    val animatesOpacity get() = frames.any { it.visual.opacity != null }
+
+    /** The look [elapsedMs] after the sequence started over the widget's [own] look, or null once it ends. */
+    fun sample(
+        elapsedMs: Float,
+        own: MotionVisual,
+    ): MotionVisual? {
+        val elapsed = elapsedMs - delayMs
+        if (elapsed < 0f || durationMs <= 0f) return own
+        val passes = elapsed / durationMs
+        if (passes >= iterations) return null
+        val pass = floor(passes)
+        var progress = passes - pass
+        if (alternate && pass.toLong() % 2 == 1L) progress = 1 - progress
+
+        val base = own.transform ?: MotionTransform.IDENTITY
+        val parts = animatedParts
+        val transform =
+            if (parts == 0) {
+                own.transform
+            } else {
+                base.withParts(track(progress, base, { it.transform }, MotionTransform::lerp), parts)
+            }
+
+        return MotionVisual(track(progress, own.opacity ?: 1f, { it.opacity }, ::mix), transform)
+    }
+
+    private fun <T> track(
+        progress: Float,
+        own: T,
+        read: (MotionVisual) -> T?,
+        mix: (T, T, Float) -> T,
+    ): T {
+        var previousOffset = 0f
+        var previousValue = own
+        var previousEasing = easing
+
+        for (frame in frames) {
+            val value = read(frame.visual) ?: continue
+
+            if (frame.offset >= progress) {
+                val span = frame.offset - previousOffset
+                if (span <= 0f) return value
+
+                return mix(previousValue, value, previousEasing.sample((progress - previousOffset) / span))
+            }
+
+            previousOffset = frame.offset
+            previousValue = value
+            previousEasing = frame.easing ?: easing
+        }
+
+        val span = 1 - previousOffset
+        if (span <= 0f) return previousValue
+
+        return mix(previousValue, own, previousEasing.sample((progress - previousOffset) / span))
+    }
+
+    companion object {
+        fun fromJson(keyframes: JSONObject): MotionKeyframes {
+            val frames = keyframes.getJSONArray("frames")
+            val iterations = keyframes.get("iterations")
+
+            return MotionKeyframes(
+                List(frames.length()) { index ->
+                    val frame = frames.getJSONObject(index)
+                    MotionKeyframe(
+                        frame.getDouble("offset").toFloat(),
+                        MotionVisual.fromJson(frame),
+                        if (frame.isNull("easing")) null else MotionEasing.fromJson(frame.get("easing")),
+                    )
+                },
+                keyframes.getDouble("duration_ms").toFloat(),
+                keyframes.optDouble("delay_ms", 0.0).toFloat(),
+                (iterations as? JSONObject)?.getDouble("count")?.toFloat() ?: Float.POSITIVE_INFINITY,
+                keyframes.optBoolean("alternate"),
+                MotionEasing.fromJson(keyframes.opt("easing")),
+            )
+        }
+    }
+}
+
+/** How a widget enters from, or exits to, [visual]. */
+internal data class MotionPresence(
+    val visual: MotionVisual,
+    val curve: MotionCurve,
+    val delayMs: Float,
+) {
+    companion object {
+        fun fromJson(presence: JSONObject) =
+            MotionPresence(
+                MotionVisual.fromJson(presence.getJSONObject("visual")),
+                MotionCurve.fromJson(presence.getJSONObject("curve")),
+                presence.optDouble("delay_ms", 0.0).toFloat(),
+            )
+    }
+}
+
+/** Everything that animates one widget, as `leptoskit_animation::Animation`. */
+internal data class MotionAnimation(
+    val transition: MotionTransition? = null,
+    val keyframes: MotionKeyframes? = null,
+    val entering: MotionPresence? = null,
+    val exiting: MotionPresence? = null,
+    val layout: MotionCurve? = null,
+) {
+    companion object {
+        fun fromJson(animation: JSONObject) =
+            MotionAnimation(
+                animation.optJSONObject("transition")?.let(MotionTransition::fromJson),
+                animation.optJSONObject("keyframes")?.let(MotionKeyframes::fromJson),
+                animation.optJSONObject("entering")?.let(MotionPresence::fromJson),
+                animation.optJSONObject("exiting")?.let(MotionPresence::fromJson),
+                animation.optJSONObject("layout")?.let(MotionCurve::fromJson),
+            )
+    }
+}
+
+internal fun mix(
+    from: Float,
+    to: Float,
+    t: Float,
+) = from + (to - from) * t

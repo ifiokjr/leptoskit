@@ -26,6 +26,10 @@ The client crate marks itself with `crate-type = ["cdylib"]`, which is how `lept
 client_package = "my_app_client"
 ```
 
+## Transforms and animations
+
+Transforms, transitions, keyframes, and entering [animations](../guide/32-animations.md) become CSS, so the browser runs them. Springs become a `linear()` easing sampled from the spring. `exiting` and `layout_transition` don't run in the browser yet: a removed element disappears at once, and a moved one jumps.
+
 ## Rive animations
 
 [Rive animations](../guide/20-rive.md) can run on a browser canvas through `leptoskit_rive`. It uses an app-supplied official runtime, suspends hidden and offscreen rendering, and releases resources when the player is dropped. Keep its meaningful content accessible in HTML beside the canvas.

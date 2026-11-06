@@ -146,6 +146,8 @@ private struct BinaryReader {
         let fontSize = has(14) ? try float() : nil
         let fontWeight = has(15) ? try choice(Self.fontWeights) : nil
         let textAlign = has(16) ? try choice(Self.textAligns) : nil
+        let transform = has(17) ? try self.transform() : nil
+        let animation = has(18) ? try self.animation() : nil
         let extras = has(31) ? try extras() : nil
 
         return WidgetProps(
@@ -156,7 +158,82 @@ private struct BinaryReader {
             enabled: enabled, hidden: hidden, clip: clip, cornerRadius: cornerRadius,
             borderWidth: borderWidth, borderColor: borderColor, opacity: opacity,
             fontSize: fontSize, fontWeight: fontWeight, textAlign: textAlign,
-            drawing: extras?.drawing, aria: extras?.aria, scrollOffset: extras?.scrollOffset)
+            drawing: extras?.drawing, aria: extras?.aria, scrollOffset: extras?.scrollOffset,
+            transform: transform, animation: animation)
+    }
+
+    private mutating func transform() throws -> WidgetTransform {
+        WidgetTransform(
+            translateX: WidgetOffset(points: try float(), percent: try float()),
+            translateY: WidgetOffset(points: try float(), percent: try float()),
+            scaleX: try float(), scaleY: try float(), rotate: try float())
+    }
+
+    private mutating func animation() throws -> WidgetAnimation {
+        let parts = try uint8()
+        func has(_ bit: UInt8) -> Bool { parts & (1 << bit) != 0 }
+
+        return WidgetAnimation(
+            transition: has(0) ? try transition() : nil, keyframes: has(1) ? try keyframes() : nil,
+            entering: has(2) ? try presence() : nil, exiting: has(3) ? try presence() : nil,
+            layout: has(4) ? try curve() : nil)
+    }
+
+    private mutating func transition() throws -> WidgetTransition {
+        let properties = try uint8()
+        let delayMs = try float()
+
+        return WidgetTransition(properties: properties, curve: try curve(), delayMs: delayMs)
+    }
+
+    private mutating func keyframes() throws -> WidgetKeyframes {
+        let durationMs = try float()
+        let delayMs = try float()
+        let iterations = try float()
+        let alternate = try uint8() != 0
+        let easing = try self.easing()
+        var frames: [WidgetKeyframe] = []
+
+        for _ in 0..<(try uint8()) {
+            let offset = try float()
+            let visual = try self.visual()
+            let easing = try uint8() != 0 ? try self.easing() : nil
+            frames.append(WidgetKeyframe(offset: offset, visual: visual, easing: easing))
+        }
+
+        return WidgetKeyframes(
+            frames: frames, durationMs: durationMs, delayMs: delayMs,
+            iterations: iterations.isInfinite ? .infinite : .count(iterations), alternate: alternate, easing: easing)
+    }
+
+    private mutating func presence() throws -> WidgetPresence {
+        let visual = try self.visual()
+        let delayMs = try float()
+
+        return WidgetPresence(visual: visual, curve: try curve(), delayMs: delayMs)
+    }
+
+    private mutating func visual() throws -> WidgetVisual {
+        let present = try uint8()
+
+        return WidgetVisual(
+            opacity: present & 1 != 0 ? try float() : nil, transform: present & 2 != 0 ? try transform() : nil)
+    }
+
+    private mutating func curve() throws -> WidgetCurve {
+        switch try uint8() {
+        case 0: return .timing(durationMs: try float(), easing: try easing())
+        case 1: return .spring(mass: try float(), stiffness: try float(), damping: try float())
+        default: throw malformed
+        }
+    }
+
+    private mutating func easing() throws -> WidgetEasing {
+        switch try uint8() {
+        case 0: return .linear
+        case 1: return .cubicBezier(try float(), try float(), try float(), try float())
+        default: throw malformed
+        }
     }
 
     private mutating func choice(_ names: [String]) throws -> String {

@@ -183,3 +183,57 @@ fn arbitrary_breakpoints_set_media_queries() {
 	assert!(Tailwind::parse("min-[2rem]:flex").is_err());
 	assert!(Tailwind::parse("min-[0px]:flex").is_err());
 }
+
+#[test]
+fn transforms_use_the_individual_transform_properties() {
+	assert_css(
+		"translate-x-4",
+		&[
+			"--tw-translate-x:1rem;",
+			"translate:var(--tw-translate-x,0) var(--tw-translate-y,0);",
+		],
+	);
+	assert_css("-translate-y-1/2", &["--tw-translate-y:-50%;"]);
+	assert_css(
+		"scale-95",
+		&[
+			"--tw-scale-x:0.95;",
+			"--tw-scale-y:0.95;",
+			"scale:var(--tw-scale-x,1) var(--tw-scale-y,1);",
+		],
+	);
+	assert_css("rotate-45", &["rotate:45deg;"]);
+}
+
+#[test]
+fn transitions_and_timing() {
+	assert_css(
+		"transition-opacity",
+		&[
+			"transition-property:opacity;",
+			"transition-duration:var(--tw-duration,150ms);",
+		],
+	);
+	assert_css(
+		"duration-300",
+		&["--tw-duration:300ms;", "transition-duration:300ms;"],
+	);
+	assert_css("delay-75", &["transition-delay:75ms;"]);
+	assert_css(
+		"ease-out",
+		&["transition-timing-function:cubic-bezier(0,0,0.2,1);"],
+	);
+	assert_css("starting:opacity-0", &["@starting-style{", "opacity:0;"]);
+}
+
+#[test]
+fn animate_presets_ship_their_keyframes() {
+	assert_css(
+		"animate-spin",
+		&[
+			"animation:lk-spin 1000ms linear 0ms infinite;",
+			"@keyframes lk-spin{",
+		],
+	);
+	assert_css("animate-none", &["animation:none;"]);
+}

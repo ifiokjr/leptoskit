@@ -59,6 +59,7 @@ packages = [
 	"leptoskit_testing_library",
 	"leptoskit_yoga",
 	"leptoskit_canvas",
+	"leptoskit_animation",
 	"leptoskit_use",
 	"leptoskit_native",
 	"leptoskit_testing",
@@ -210,6 +211,10 @@ type = "cargo"
 
 [package.leptoskit_canvas]
 path = "crates/leptoskit_canvas"
+type = "cargo"
+
+[package.leptoskit_animation]
+path = "crates/leptoskit_animation"
 type = "cargo"
 
 [package.leptoskit_native]

@@ -32,7 +32,9 @@ let controllerTargets: [Target] = [
             "desktop/MacWidgetRenderer.swift", "desktop/MacWidgetControls.swift",
             "desktop/MacTextLabel.swift", "desktop/MacScrollView.swift",
             "mobile/RenderTransaction.swift", "mobile/BinaryTransaction.swift",
-            "mobile/WidgetProps.swift", "mobile/ScrollTracker.swift",
+            "mobile/WidgetProps.swift", "mobile/WidgetMotion.swift", "mobile/LayerMotion.swift",
+            "mobile/ExitingViews.swift",
+            "mobile/ScrollTracker.swift",
             "mobile/NativeRequestExecutor.swift", "mobile/NativeRustWorker.swift", "mobile/NativeRustAsync.swift"
         ]
     ),

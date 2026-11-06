@@ -13,6 +13,133 @@
         "kind": "text",
         "props": {
           "accessibility_label": "Seventh card",
+          "animation": {
+            "entering": {
+              "curve": {
+                "timing": {
+                  "duration_ms": 300.0,
+                  "easing": {
+                    "cubic_bezier": [
+                      0.4000000059604645,
+                      0.0,
+                      0.20000000298023224,
+                      1.0
+                    ]
+                  }
+                }
+              },
+              "delay_ms": 0.0,
+              "visual": {
+                "opacity": 0.0,
+                "transform": {
+                  "translate_y": {
+                    "points": 16.0
+                  }
+                }
+              }
+            },
+            "exiting": {
+              "curve": {
+                "spring": {
+                  "damping": 40.0,
+                  "mass": 1.0,
+                  "stiffness": 400.0
+                }
+              },
+              "delay_ms": 0.0,
+              "visual": {
+                "transform": {
+                  "translate_x": {
+                    "percent": -100.0
+                  }
+                }
+              }
+            },
+            "keyframes": {
+              "alternate": true,
+              "delay_ms": 0.0,
+              "duration_ms": 1000.0,
+              "easing": {
+                "cubic_bezier": [
+                  0.4000000059604645,
+                  0.0,
+                  0.20000000298023224,
+                  1.0
+                ]
+              },
+              "frames": [
+                {
+                  "easing": {
+                    "cubic_bezier": [
+                      0.800000011920929,
+                      0.0,
+                      1.0,
+                      1.0
+                    ]
+                  },
+                  "offset": 0.0,
+                  "transform": {
+                    "translate_y": {
+                      "percent": -25.0
+                    }
+                  }
+                },
+                {
+                  "easing": {
+                    "cubic_bezier": [
+                      0.0,
+                      0.0,
+                      0.20000000298023224,
+                      1.0
+                    ]
+                  },
+                  "offset": 0.5,
+                  "transform": {}
+                },
+                {
+                  "easing": {
+                    "cubic_bezier": [
+                      0.800000011920929,
+                      0.0,
+                      1.0,
+                      1.0
+                    ]
+                  },
+                  "offset": 1.0,
+                  "transform": {
+                    "translate_y": {
+                      "percent": -25.0
+                    }
+                  }
+                }
+              ],
+              "iterations": "infinite"
+            },
+            "layout": {
+              "spring": {
+                "damping": 10.0,
+                "mass": 1.0,
+                "stiffness": 100.0
+              }
+            },
+            "transition": {
+              "curve": {
+                "timing": {
+                  "duration_ms": 150.0,
+                  "easing": {
+                    "cubic_bezier": [
+                      0.4000000059604645,
+                      0.0,
+                      0.20000000298023224,
+                      1.0
+                    ]
+                  }
+                }
+              },
+              "delay_ms": 20.0,
+              "properties": 3
+            }
+          },
           "background": 4294967040,
           "border_color": 128,
           "border_width": 1.0,
@@ -36,6 +163,15 @@
           "source": "file:///image.png",
           "text": "Card 7 — ✓",
           "text_align": "end",
+          "transform": {
+            "rotate": 15.0,
+            "translate_x": {
+              "percent": -50.0
+            },
+            "translate_y": {
+              "points": 4.5
+            }
+          },
           "value": "typed"
         }
       }

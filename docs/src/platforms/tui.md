@@ -54,6 +54,7 @@ The terminal's font is the user's own: font sizes and weights map to attributes 
 - Borders draw with box-drawing characters: light lines for one pixel, heavy lines from two pixels up, so `border-l-2` is a heavy `┃` bar down the left edge that ends in `╹` on a half row. A border takes no cell of its own, so give the content beside it padding.
 - A translucent background, such as `bg-black/60`, dims everything painted behind it — glyphs and backgrounds alike — the way a scrim dims the screen behind a dialog. An opaque background hides what is behind it.
 - The generated app runs your screens as WebAssembly, so [code push](../guide/05-code-push.md) applies to it the same way — the terminal runner accepts code push releases once the desktop runners do (today it builds with `codepush.enabled = false`, like the Linux and Windows runners).
+- Transforms and [animations](../guide/32-animations.md) are ignored: values jump to their new state, and a removed widget disappears at once.
 - The terminal app builds on every platform, because every platform has a terminal.
 
 ## Styled text

@@ -28,6 +28,8 @@ internal class WidgetProps(
     val fontSize: Double? = null,
     val fontWeight: String? = null,
     val textAlign: String? = null,
+    val transform: MotionTransform? = null,
+    val animation: MotionAnimation? = null,
     val rest: JSONObject? = null,
 ) {
     /** What a text field holds, as HTML's `autocomplete`; it travels in [rest]. */
@@ -65,6 +67,8 @@ internal class WidgetProps(
                 fontSize = double("font_size"),
                 fontWeight = string("font_weight"),
                 textAlign = string("text_align"),
+                transform = props.optJSONObject("transform")?.let(MotionTransform::fromJson),
+                animation = props.optJSONObject("animation")?.let(MotionAnimation::fromJson),
                 rest = props,
             )
         }
@@ -281,8 +285,76 @@ internal class RenderBatch(
                 fontSize = if (has(14)) float.toDouble() else null,
                 fontWeight = if (has(15)) FONT_WEIGHTS[get().toInt()] else null,
                 textAlign = if (has(16)) TEXT_ALIGNS[get().toInt()] else null,
+                transform = if (has(17)) transform() else null,
+                animation = if (has(18)) animation() else null,
                 rest = if (has(31)) JSONObject(string(bytes)) else null,
             )
+        }
+
+        private fun ByteBuffer.flag() = get().toInt() != 0
+
+        private fun ByteBuffer.transform() = MotionTransform(MotionOffset(float, float), MotionOffset(float, float), float, float, float)
+
+        private fun ByteBuffer.easing() =
+            when (val tag = get().toInt()) {
+                0 -> MotionEasing.LINEAR
+                1 -> MotionEasing(float, float, float, float)
+                else -> error("Unknown easing: $tag")
+            }
+
+        private fun ByteBuffer.curve(): MotionCurve =
+            when (val tag = get().toInt()) {
+                0 -> MotionCurve.Timing(float, easing())
+                1 -> MotionCurve.Spring(float, float, float)
+                else -> error("Unknown curve: $tag")
+            }
+
+        private fun ByteBuffer.visual(): MotionVisual {
+            val present = get().toInt()
+
+            return MotionVisual(if (present and 1 != 0) float else null, if (present and 2 != 0) transform() else null)
+        }
+
+        private fun ByteBuffer.presence(): MotionPresence {
+            val visual = visual()
+            val delay = float
+
+            return MotionPresence(visual, curve(), delay)
+        }
+
+        private fun ByteBuffer.animation(): MotionAnimation {
+            val parts = get().toInt()
+
+            fun has(bit: Int) = parts and (1 shl bit) != 0
+
+            return MotionAnimation(
+                transition =
+                    if (has(0)) {
+                        val properties = get().toInt() and 0xff
+                        val delay = float
+                        MotionTransition(properties, curve(), delay)
+                    } else {
+                        null
+                    },
+                keyframes = if (has(1)) keyframes() else null,
+                entering = if (has(2)) presence() else null,
+                exiting = if (has(3)) presence() else null,
+                layout = if (has(4)) curve() else null,
+            )
+        }
+
+        private fun ByteBuffer.keyframes(): MotionKeyframes {
+            val duration = float
+            val delay = float
+            val iterations = float
+            val alternate = flag()
+            val easing = easing()
+            val frames =
+                List(get().toInt() and 0xff) {
+                    MotionKeyframe(float, visual(), if (flag()) easing() else null)
+                }
+
+            return MotionKeyframes(frames, duration, delay, iterations, alternate, easing)
         }
     }
 }

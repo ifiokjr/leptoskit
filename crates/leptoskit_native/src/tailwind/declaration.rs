@@ -146,10 +146,12 @@ pub(super) enum Declaration {
 	EdgeBorderWidth(&'static [Edge], Length),
 	Radius(Length),
 	Opacity(f32),
+	/// A transform or animation utility.
+	Motion(super::motion::Motion),
 }
 
 /// Writes one declaration, marked important when the utility is.
-fn write(output: &mut String, important: bool, name: &str, value: &str) {
+pub(super) fn write(output: &mut String, important: bool, name: &str, value: &str) {
 	let _ = write!(
 		output,
 		"{name}:{value}{};",
@@ -338,6 +340,7 @@ impl Declaration {
 			}
 			Self::Radius(value) => props.corner_radius = Some(value.points(context)),
 			Self::Opacity(value) => props.opacity = Some(*value),
+			Self::Motion(motion) => motion.apply(props, context),
 			_ => {}
 		}
 	}
@@ -607,6 +610,7 @@ impl Declaration {
 				write(output, important, "clip-path", &clip);
 			}
 			Self::Opacity(value) => write(output, important, "opacity", &value.to_string()),
+			Self::Motion(motion) => motion.css(output, important),
 			_ => {}
 		}
 	}

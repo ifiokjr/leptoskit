@@ -60,6 +60,9 @@ fn assert_ios_sources(
 	for name in [
 		"NativeRive.swift",
 		"WidgetProps.swift",
+		"WidgetMotion.swift",
+		"LayerMotion.swift",
+		"ExitingViews.swift",
 		"NativeAppFactory.swift",
 		"NativeAppRuntime.swift",
 		"NativeRequestExecutor.swift",

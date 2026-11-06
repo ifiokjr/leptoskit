@@ -7,14 +7,18 @@
 //! the same declarations for browser rendering without a Node build step.
 //!
 //! Supported families are flexbox, grid, sizing, spacing, positioning, gaps,
-//! aspect ratio, box sizing, and the visual properties in [`NativeProps`].
+//! aspect ratio, box sizing, and the visual properties in [`NativeProps`],
+//! including transforms (`translate-*`, `scale-*`, `rotate-*`), transitions
+//! (`transition-*`, `duration-*`, `delay-*`, `ease-*`), and Tailwind's
+//! `animate-*` presets, which platforms run on their compositors.
 //! Safe-area padding follows the `tailwindcss-safe-area` naming: `pt-safe`
 //! (and `p`, `px`, `py`, `pr`, `pb`, `pl`) pads by the host's inset on each
 //! edge, and `pt-safe-offset-4` adds a spacing value to it. The web emits
 //! `env(safe-area-inset-*)`, which needs `viewport-fit=cover`; native hosts
 //! supply [`StyleContext::safe_area`].
 //! `sm`/`md`/`lg`/`xl`/`2xl`, their `max-*` counterparts, arbitrary pixel
-//! widths (`min-[968px]`, `max-[968px]`), `dark`, `active`, and trailing `!`
+//! widths (`min-[968px]`, `max-[968px]`), `dark`, `active`, `starting` (the
+//! look a widget enters from, as CSS `@starting-style`), and trailing `!`
 //! (or the older leading `!`) are supported. Dark mode follows the system
 //! preference on the web; native hosts supply [`StyleContext::dark`]. `active`
 //! styles an enabled control while it is held down: CSS `:active` on the web,
@@ -35,7 +39,7 @@
 //! Block/inline/contents flow, fixed/sticky positioning, baseline alignment,
 //! overflow on individual axes, other pseudo states, arbitrary selectors and
 //! properties, non-color CSS functions (`calc`), deep nested `var()` beyond one
-//! fallback level, animations, filters, and shadows are rejected. Text sizes
+//! fallback level, filters, and shadows are rejected. Text sizes
 //! set font size only: line height is not yet a native text prop. Colors use
 //! the default palette converted to 8-bit sRGB, clipping colors outside its
 //! gamut, so native and web use the same color values. Arbitrary color and
@@ -61,6 +65,7 @@
 
 mod declaration;
 pub(crate) mod keyword;
+mod motion;
 mod palette;
 mod theme;
 mod utility;
@@ -158,6 +163,9 @@ struct Conditions {
 	max_width: Option<u16>,
 	dark: bool,
 	active: bool,
+	/// `starting:`, the look a widget enters from, as CSS
+	/// `@starting-style`. It never applies on its own.
+	starting: bool,
 }
 
 impl Tailwind {
@@ -264,6 +272,62 @@ impl Tailwind {
 		if props.border_color.is_none() && props.border_edges().any() {
 			props.border_color = Some(props.color.unwrap_or(Color::rgba(0, 0, 0, 255)));
 		}
+
+		self.apply_starting(style, props, context);
+		props.sanitize_motion();
+	}
+
+	/// Turns `starting:` rules into an entering animation, as CSS
+	/// `@starting-style` does: the widget enters from the look those rules
+	/// describe, for the properties its transition animates, along the
+	/// transition's curve. Natively that covers opacity and transforms.
+	fn apply_starting(&self, style: &Style, props: &mut NativeProps, context: &StyleContext) {
+		let mut starting = self
+			.rules
+			.iter()
+			.filter(|rule| {
+				rule.conditions.starting && rule.conditions.active_when_starting(context)
+			})
+			.peekable();
+
+		if starting.peek().is_none() {
+			return;
+		}
+
+		let Some(transition) = props
+			.animation
+			.as_ref()
+			.and_then(|animation| animation.transition)
+		else {
+			return;
+		};
+
+		let mut from_style = style.clone();
+		let mut from = props.clone();
+
+		for rule in starting {
+			for declaration in &rule.declarations {
+				declaration.apply(&mut from_style, &mut from, context);
+			}
+		}
+
+		let animates = |property| transition.properties.contains(property);
+		let visual = leptoskit_animation::Visual {
+			opacity: (animates(leptoskit_animation::Properties::OPACITY)
+				&& from.opacity != props.opacity)
+				.then(|| from.opacity.unwrap_or(1.0)),
+			transform: (animates(leptoskit_animation::Properties::TRANSFORM)
+				&& from.transform != props.transform)
+				.then(|| from.transform.unwrap_or_default()),
+		};
+
+		if !visual.is_empty() {
+			props.animation_mut().entering = Some(leptoskit_animation::Presence {
+				visual,
+				curve: transition.curve,
+				delay_ms: transition.delay_ms,
+			});
+		}
 	}
 
 	/// Generates escaped utility selectors and conditional CSS rules.
@@ -292,6 +356,11 @@ impl Tailwind {
 		for rule in self.rules.iter() {
 			let conditions = rule.conditions;
 			let mut wrappers = 0;
+
+			if conditions.starting {
+				css.push_str("@starting-style{");
+				wrappers += 1;
+			}
 
 			if conditions.dark {
 				css.push_str("@media (prefers-color-scheme:dark){");
@@ -333,6 +402,12 @@ impl Tailwind {
 			for _ in 0..wrappers {
 				css.push('}');
 			}
+
+			for declaration in &rule.declarations {
+				if let Declaration::Motion(motion) = declaration {
+					motion.keyframes_css(&mut css);
+				}
+			}
 		}
 
 		css
@@ -353,6 +428,11 @@ impl Rule {
 
 			if variant == "active" {
 				conditions.active = true;
+				continue;
+			}
+
+			if variant == "starting" {
+				conditions.starting = true;
 				continue;
 			}
 
@@ -400,9 +480,10 @@ impl Rule {
 		})
 	}
 
-	fn precedence(&self) -> (bool, bool, bool, u16, Reverse<u16>, u16, &str) {
+	fn precedence(&self) -> (bool, bool, bool, bool, u16, Reverse<u16>, u16, &str) {
 		(
 			self.important,
+			self.conditions.starting,
 			self.conditions.active,
 			self.conditions.dark,
 			self.conditions.min_width.unwrap_or(0),
@@ -415,6 +496,12 @@ impl Rule {
 
 impl Conditions {
 	fn active(self, context: &StyleContext) -> bool {
+		!self.starting && self.active_when_starting(context)
+	}
+
+	/// Whether the rule applies when a widget is entering: the rule's other
+	/// conditions hold, whether or not it is a `starting:` rule.
+	fn active_when_starting(self, context: &StyleContext) -> bool {
 		(!self.dark || context.dark)
 			&& (!self.active || context.active)
 			&& self
@@ -541,6 +628,10 @@ fn variant(conditions: &Conditions) -> Option<String> {
 
 	if conditions.active {
 		parts.push("active".to_owned());
+	}
+
+	if conditions.starting {
+		parts.push("starting".to_owned());
 	}
 
 	(!parts.is_empty()).then(|| parts.join(", "))

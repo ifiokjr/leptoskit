@@ -37,6 +37,7 @@
 - [Interfaces from agents](guide/31-agent-interfaces.md)
 - [Controlling devices, apps, and browsers](guide/19-controlling-devices.md)
 - [Localization](guide/19-localization.md)
+- [Animations](guide/32-animations.md)
 - [Motion](guide/32-motion.md)
 - [Rive animations](guide/20-rive.md)
 - [Foldable phones](guide/21-foldable-phones.md)
