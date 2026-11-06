@@ -759,15 +759,20 @@ async fn apply_migrations(
 		&& has_pushes(client).await?
 	{
 		return Err(MigrationError::Pushed {
-			name: first.name.to_string(),
+			name: first.migration.name.to_string(),
 		});
 	}
 
 	let mut names = Vec::new();
 
-	for migration in pending {
-		apply_one(client, migration, &Record::Applied).await?;
-		names.push(migration.name.to_string());
+	for still in pending {
+		let record = if still.adopted {
+			&Record::Consolidated
+		} else {
+			&Record::Applied
+		};
+		apply_one(client, still.migration, record).await?;
+		names.push(still.migration.name.to_string());
 	}
 
 	Ok(names)
@@ -838,6 +843,7 @@ async fn apply_one(
 			Record::Applied => {
 				client.batch_execute(&migration.sql).await.map_err(error)?;
 			}
+			Record::Consolidated => {}
 			Record::Pushed(schema) => {
 				client.batch_execute(&migration.sql).await.map_err(error)?;
 				client

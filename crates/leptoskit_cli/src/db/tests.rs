@@ -1941,3 +1941,134 @@ fn recording_a_release_twice_is_refused() {
 		.to_string();
 	assert!(error.contains("already recorded"), "{error}");
 }
+
+#[test]
+fn consolidation_folds_the_drafts_since_a_release_into_one() {
+	let root = tempfile::tempdir().unwrap();
+	let project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+	let first = users(
+		Dialect::Sqlite,
+		vec![Column::new("handle", ColumnType::TEXT)],
+	);
+	create(
+		&project,
+		"create users",
+		&first,
+		&options(),
+		&mut RequireHints,
+	)
+	.unwrap();
+	super::record_release(&project, "1.4.0", None).unwrap();
+
+	let mut second = first.clone();
+	second.tables[0]
+		.columns
+		.push(Column::new("bio", ColumnType::TEXT).nullable());
+	std::thread::sleep(std::time::Duration::from_secs(1));
+	create(&project, "add bio", &second, &options(), &mut RequireHints).unwrap();
+
+	let mut third = second.clone();
+	third.tables[0]
+		.columns
+		.push(Column::new("karma", ColumnType::Int32).nullable());
+	std::thread::sleep(std::time::Duration::from_secs(1));
+	create(&project, "add karma", &third, &options(), &mut RequireHints).unwrap();
+
+	super::consolidate(&project, &third, &[], &mut RequireHints).unwrap();
+
+	let history = History::read(&project.migrations_dir(), project.dialect()).unwrap();
+	assert_eq!(
+		history.names.len(),
+		2,
+		"the release's and the consolidated one"
+	);
+	let consolidated = history.names.last().unwrap();
+	assert!(consolidated.ends_with("_consolidated"), "{consolidated}");
+	assert!(
+		history.names[0].ends_with("_create_users"),
+		"the release's migration stays, first: {}",
+		history.names[0]
+	);
+
+	// The consolidated migration covers both drafts in one diff.
+	let sql = std::fs::read_to_string(
+		project
+			.migrations_dir()
+			.join(consolidated)
+			.join("migration.sql"),
+	)
+	.unwrap();
+	assert!(sql.contains("\"bio\""), "{sql}");
+	assert!(sql.contains("\"karma\""), "{sql}");
+
+	let replaces: Vec<String> = serde_json::from_str(
+		&std::fs::read_to_string(
+			project
+				.migrations_dir()
+				.join(consolidated)
+				.join("replaces.json"),
+		)
+		.unwrap(),
+	)
+	.unwrap();
+	assert_eq!(replaces.len(), 2, "{replaces:?}");
+	assert!(
+		!project.migrations_dir().join(&replaces[0]).exists(),
+		"the folded directories are gone"
+	);
+}
+
+#[test]
+fn consolidation_refuses_hand_edits_and_keeps_the_newest() {
+	let root = tempfile::tempdir().unwrap();
+	let project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+	let first = users(
+		Dialect::Sqlite,
+		vec![Column::new("handle", ColumnType::TEXT)],
+	);
+	create(
+		&project,
+		"create users",
+		&first,
+		&options(),
+		&mut RequireHints,
+	)
+	.unwrap();
+	super::record_release(&project, "1.4.0", None).unwrap();
+
+	let mut second = first.clone();
+	second.tables[0]
+		.columns
+		.push(Column::new("bio", ColumnType::TEXT).nullable());
+	std::thread::sleep(std::time::Duration::from_secs(1));
+	create(&project, "add bio", &second, &options(), &mut RequireHints).unwrap();
+
+	let mut third = second.clone();
+	third.tables[0]
+		.columns
+		.push(Column::new("karma", ColumnType::Int32).nullable());
+	std::thread::sleep(std::time::Duration::from_secs(1));
+	let kept = create(&project, "add karma", &third, &options(), &mut RequireHints).unwrap();
+
+	// A statement written by hand stops the fold unless the migration is
+	// kept.
+	let hand_written = project
+		.migrations_dir()
+		.join(&kept.name)
+		.join("migration.sql");
+	let sql = std::fs::read_to_string(&hand_written).unwrap();
+	std::fs::write(&hand_written, format!("{sql}\n-- hand written\n")).unwrap();
+	let error = super::consolidate(&project, &third, &[], &mut RequireHints)
+		.unwrap_err()
+		.to_string();
+	assert!(
+		error.contains(&kept.name) && error.contains("--keep"),
+		"{error}"
+	);
+
+	let keep = [kept.name.clone()];
+	super::consolidate(&project, &third, &keep, &mut RequireHints).unwrap();
+	let history = History::read(&project.migrations_dir(), project.dialect()).unwrap();
+	assert_eq!(history.names.len(), 3, "released, consolidated, kept");
+	assert_eq!(history.names[2], kept.name, "the kept migration runs last");
+}

@@ -48,6 +48,9 @@ pub(crate) enum Record<'a> {
 	/// That the migration was applied, without running it, because pushes
 	/// already made its changes; the pushes are forgotten.
 	Adopted,
+	/// Records the migration as applied without running it, because the
+	/// migrations it replaced already made its changes.
+	Consolidated,
 	/// Runs a reverse migration and removes its history entry.
 	Reverted,
 }
@@ -63,6 +66,10 @@ pub struct Migration {
 	pub checksum: Cow<'static, str>,
 	/// Reviewed reverse SQL, when this migration supports rollback.
 	pub down: Option<Cow<'static, str>>,
+	/// The migrations this one replaces, from its `replaces.json`: the names
+	/// a release consolidation folded into it. A database that already
+	/// applied them records this migration without running it.
+	pub replaces: Vec<String>,
 }
 
 impl Migration {
@@ -74,6 +81,7 @@ impl Migration {
 			sql: Cow::Borrowed(sql),
 			checksum: Cow::Borrowed(checksum),
 			down: None,
+			replaces: Vec::new(),
 		}
 	}
 
@@ -85,6 +93,7 @@ impl Migration {
 			checksum: Cow::Owned(checksum(&sql)),
 			sql: Cow::Owned(sql),
 			down: None,
+			replaces: Vec::new(),
 		}
 	}
 
@@ -93,6 +102,13 @@ impl Migration {
 	#[must_use]
 	pub fn with_down(mut self, sql: impl Into<String>) -> Self {
 		self.down = Some(Cow::Owned(sql.into()));
+		self
+	}
+
+	/// Attaches the migrations this one replaces, from its `replaces.json`.
+	#[must_use]
+	pub fn with_replaces(mut self, names: impl IntoIterator<Item: Into<String>>) -> Self {
+		self.replaces = names.into_iter().map(Into::into).collect();
 		self
 	}
 
@@ -109,6 +125,7 @@ impl Migration {
 			sql: Cow::Borrowed(sql),
 			checksum: Cow::Borrowed(checksum),
 			down: Some(Cow::Borrowed(down)),
+			replaces: Vec::new(),
 		}
 	}
 
@@ -146,6 +163,21 @@ pub fn load(directory: &Path) -> Result<Vec<Migration>, MigrationError> {
 			let path = directory.join(name).join("down.sql");
 			match std::fs::read_to_string(&path) {
 				Ok(down) => migration = migration.with_down(down),
+				Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+				Err(source) => return Err(MigrationError::Read { path, source }),
+			}
+			let path = directory.join(name).join("replaces.json");
+			match std::fs::read_to_string(&path) {
+				Ok(replaces) => {
+					migration = migration.with_replaces(
+						serde_json::from_str::<Vec<String>>(&replaces).map_err(|source| {
+							MigrationError::Read {
+								path,
+								source: std::io::Error::other(source),
+							}
+						})?,
+					);
+				}
 				Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
 				Err(source) => return Err(MigrationError::Read { path, source }),
 			}
@@ -214,28 +246,81 @@ fn read(path: &Path) -> Result<String, MigrationError> {
 	})
 }
 
+/// A migration the database still needs: run it, or, when it replaces
+/// migrations the database already applied, record it without running it.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub(crate) struct Pending<'a> {
+	pub migration: &'a Migration,
+	/// The database already applied everything this migration replaces, so
+	/// recording it as applied brings its history in line without running a
+	/// thing.
+	pub adopted: bool,
+}
+
 /// The migrations still to apply, after checking the applied ones against
 /// `migrations`: an applied migration whose SQL changed, or that this build
-/// doesn't know, stops everything.
+/// doesn't know, stops everything. An applied migration a later release
+/// consolidated away counts as known: its replacement is adopted instead of
+/// run, and one that replaced a partially applied set is refused.
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) fn pending<'a>(
 	applied: &[(String, String)],
 	migrations: &'a [Migration],
-) -> Result<Vec<&'a Migration>, MigrationError> {
+) -> Result<Vec<Pending<'a>>, MigrationError> {
 	for (name, checksum) in applied {
-		let Some(migration) = migrations.iter().find(|migration| migration.name == *name) else {
-			return Err(MigrationError::Unknown { name: name.clone() });
-		};
+		let consolidated = migrations
+			.iter()
+			.find(|migration| migration.replaces.iter().any(|replaced| replaced == name));
 
-		if migration.checksum != *checksum {
-			return Err(MigrationError::Changed { name: name.clone() });
+		match migrations.iter().find(|migration| migration.name == *name) {
+			Some(migration) => {
+				if migration.checksum != *checksum {
+					return Err(MigrationError::Changed { name: name.clone() });
+				}
+			}
+			None if consolidated.is_some() => {}
+			None => return Err(MigrationError::Unknown { name: name.clone() }),
 		}
 	}
 
-	Ok(migrations
-		.iter()
-		.filter(|migration| !applied.iter().any(|(name, _)| migration.name == *name))
-		.collect())
+	let mut still = Vec::new();
+
+	for migration in migrations {
+		if applied.iter().any(|(name, _)| migration.name == *name) {
+			continue;
+		}
+
+		let applied_replaces = migration
+			.replaces
+			.iter()
+			.filter(|replaced| applied.iter().any(|(name, _)| name == *replaced))
+			.count();
+
+		if applied_replaces == migration.replaces.len() && !migration.replaces.is_empty() {
+			still.push(Pending {
+				migration,
+				adopted: true,
+			});
+		} else if applied_replaces > 0 {
+			return Err(MigrationError::PartiallyReplaced {
+				name: migration.name.to_string(),
+				missing: migration
+					.replaces
+					.iter()
+					.filter(|replaced| !applied.iter().any(|(name, _)| name == *replaced))
+					.cloned()
+					.collect::<Vec<_>>()
+					.join(", "),
+			});
+		} else {
+			still.push(Pending {
+				migration,
+				adopted: false,
+			});
+		}
+	}
+
+	Ok(still)
 }
 
 /// Preflights the entire rollback before any reverse SQL executes. Only an
@@ -288,6 +373,18 @@ pub enum MigrationError {
 	Irreversible {
 		/// The migration.
 		name: String,
+	},
+	/// A consolidated migration replaces a set of migrations this database
+	/// only partly applied.
+	#[error(
+		"migration `{name}` replaces migrations this database only partly applied: {missing} are \
+		 missing, so it can neither run nor be adopted"
+	)]
+	PartiallyReplaced {
+		/// The consolidated migration.
+		name: String,
+		/// The replaced migrations that were never applied.
+		missing: String,
 	},
 	/// Rollback needs a positive count and an intact applied prefix.
 	#[error(

@@ -60,13 +60,34 @@ pub(crate) fn expand(
 		let checksum = checksum(&sql);
 		let file = file.to_string_lossy().to_string();
 		let down = directory.join(name).join("down.sql");
+		// The replaced set is written once, when a release consolidates, and
+		// that rewrite always touches registry.txt too, whose include below
+		// already triggers the rebuild.
+		let sidecar = directory.join(name).join("replaces.json");
+		let replaced = if sidecar.is_file() {
+			let json = fs::read_to_string(&sidecar).map_err(|source| {
+				error(format!(
+					"registry.txt lists `{name}`, but {} can't be read: {source}",
+					sidecar.display()
+				))
+			})?;
+			let folded: Vec<String> = serde_json::from_str(&json).map_err(|source| {
+				error(format!(
+					"{} isn't a JSON array of migration names: {source}",
+					sidecar.display()
+				))
+			})?;
+			quote! { .with_replaces([#(#folded),*]) }
+		} else {
+			quote! {}
+		};
 		if down.is_file() {
 			let down = down.to_string_lossy().to_string();
 			migrations.push(quote! { #krate::Migration::embedded_reversible(
-			#name, ::core::include_str!(#file), #checksum, ::core::include_str!(#down)) });
+			#name, ::core::include_str!(#file), #checksum, ::core::include_str!(#down)) #replaced });
 		} else {
 			migrations.push(
-				quote! { #krate::Migration::embedded(#name, ::core::include_str!(#file), #checksum) },
+				quote! { #krate::Migration::embedded(#name, ::core::include_str!(#file), #checksum) #replaced },
 			);
 		}
 	}

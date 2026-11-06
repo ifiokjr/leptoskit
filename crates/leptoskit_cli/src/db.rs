@@ -189,6 +189,25 @@ pub enum MigrationCommand {
 		#[arg(long)]
 		empty: bool,
 	},
+	/// Folds every migration after the latest release marker into one, written
+	/// from a fresh diff of the release's baseline to the current tables, so
+	/// the migrations directory holds one entry per release that changed the
+	/// schema. Databases that already applied the folded migrations record
+	/// the consolidated one without running it; fresh databases run it.
+	///
+	/// A migration whose SQL no longer matches what its snapshots generate —
+	/// a data migration, or one written by an older leptoskit — is refused
+	/// unless it is named in `--keep`, which leaves it and every migration
+	/// after it in place, after the consolidated one.
+	Consolidate {
+		/// Migration names to leave out, and keep, after the consolidated
+		/// one. Only the newest migrations can be kept.
+		#[arg(long = "keep")]
+		keep: Vec<String>,
+		/// Treat every disappeared table or column as dropped, never renamed.
+		#[arg(long)]
+		no_renames: bool,
+	},
 }
 
 /// The `leptoskit db release` subcommands.
@@ -259,6 +278,9 @@ pub fn run(command: DbCommand) -> Result<()> {
 			print!("{}", created.summary());
 			Ok(())
 		}
+		DbCommand::Migration {
+			command: MigrationCommand::Consolidate { keep, no_renames },
+		} => run_consolidate(&project, &keep, no_renames),
 		DbCommand::Release {
 			command: ReleaseCommand::Record { version, id },
 		} => record_release(&project, &version, id.as_deref()),
@@ -1466,6 +1488,171 @@ fn check_replication(url: &str, target: &Schema) -> Result<()> {
 		}
 	}
 
+	Ok(())
+}
+
+/// Runs `migration consolidate` with the tables the app exports now.
+fn run_consolidate(project: &Project, keep: &[String], no_renames: bool) -> Result<()> {
+	let target = project.export()?;
+	let renames: &mut dyn RenameResolver = if no_renames {
+		&mut NoRenames
+	} else if std::io::stdin().is_terminal() {
+		&mut Ask
+	} else {
+		&mut RequireHints
+	};
+	consolidate(project, &target, keep, renames)
+}
+
+/// Folds the migrations after the latest release marker into one, from a
+/// fresh diff of the release's baseline to the current tables.
+fn consolidate(
+	project: &Project,
+	target: &Schema,
+	keep: &[String],
+	renames: &mut dyn RenameResolver,
+) -> Result<()> {
+	let directory = project.migrations_dir();
+	let history = History::read(&directory, project.dialect())?;
+
+	// The tables must match the latest migration, so the consolidated
+	// migration covers exactly what the folded ones did.
+	check(&history, target)?;
+
+	let unreleased = &history.names[history.published..];
+
+	if unreleased.len() < 2 {
+		println!(
+			"{} migration(s) since {} — nothing to consolidate",
+			unreleased.len(),
+			history
+				.releases
+				.last()
+				.map_or("the start", |release| release.version.as_str()),
+		);
+		return Ok(());
+	}
+
+	// `--keep` may only hold the newest migrations: the kept ones run after
+	// the consolidated one, so anything but a suffix would reorder history.
+	let kept = if keep.is_empty() {
+		0
+	} else {
+		let suffix = &unreleased[unreleased.len() - keep.len()..];
+		ensure!(
+			suffix.iter().zip(keep).all(|(name, kept)| name == kept),
+			"--keep only applies to the newest migrations since the release; the draft is:\n{}",
+			unreleased
+				.iter()
+				.map(|name| format!("  {name}"))
+				.collect::<Vec<_>>()
+				.join("\n")
+		);
+		keep.len()
+	};
+	let folded = &unreleased[..unreleased.len() - kept];
+
+	// The baseline the release ended at: the snapshot of the last frozen
+	// migration, or the empty schema before any.
+	let baseline = match history.published {
+		0 => Schema::empty(project.dialect()),
+		published => {
+			let path = directory
+				.join(&history.names[published - 1])
+				.join("schema.json");
+			let json = fs::read_to_string(&path)
+				.with_context(|| format!("couldn't read {}", path.display()))?;
+			Schema::from_json(&json)
+				.with_context(|| format!("{} isn't a valid snapshot", path.display()))?
+		}
+	};
+
+	// A folded migration whose SQL no longer matches what the diff of its
+	// snapshots generates carries hand-written statements; folding it would
+	// silently discard them.
+	let mut previous = baseline.clone();
+	for name in folded {
+		let path = directory.join(name).join("schema.json");
+		let json = fs::read_to_string(&path)
+			.with_context(|| format!("couldn't read {}", path.display()))?;
+		let snapshot = Schema::from_json(&json)
+			.with_context(|| format!("{} isn't a valid snapshot", path.display()))?;
+		let plan = leptoskit_db_schema::diff(&previous, &snapshot, &mut NoRenames)?;
+		let generated = leptoskit_db_schema::render(&plan, &previous, &snapshot).sql();
+		let on_disk = fs::read_to_string(directory.join(name).join("migration.sql"))?;
+		ensure!(
+			on_disk == generated,
+			"migration {name} no longer matches what its snapshots generate, so it has 			 \
+			 statements written by hand, or came from an older leptoskit. Consolidating it 			 \
+			 would discard them: move them into a data migration, or pass `--keep {name}` to 			 \
+			 leave it and the migrations after it in place"
+		);
+		previous = snapshot;
+	}
+
+	let plan = leptoskit_db_schema::diff(&baseline, target, renames)?;
+	let migration = leptoskit_db_schema::render(&plan, &baseline, target);
+	let down = reverse_sql(&baseline, target, &plan, false)?;
+	let name = format!(
+		"{}_consolidated",
+		chrono::Utc::now().format("%Y%m%dT%H%M%S")
+	);
+	let migration_dir = directory.join(&name);
+	ensure!(
+		!migration_dir.exists(),
+		"{} already exists",
+		migration_dir.display()
+	);
+	fs::create_dir_all(&migration_dir)
+		.with_context(|| format!("couldn't create {}", migration_dir.display()))?;
+	fs::write(migration_dir.join("migration.sql"), migration.sql())?;
+	fs::write(migration_dir.join("down.sql"), down)?;
+	fs::write(
+		migration_dir.join("schema.json"),
+		target.without_rename_hints().to_json(),
+	)?;
+	fs::write(
+		migration_dir.join("replaces.json"),
+		serde_json::to_string_pretty(folded)?,
+	)?;
+	for name in folded {
+		fs::remove_dir_all(directory.join(name))
+			.with_context(|| format!("couldn't remove {}", directory.join(name).display()))?;
+	}
+
+	// The registry keeps its comments and markers; the folded lines become
+	// the consolidated one, and any kept migrations follow it.
+	let registry = directory.join("registry.txt");
+	let original = fs::read_to_string(&registry)?;
+	let mut text = String::new();
+	let mut placed = false;
+	for line in original.lines() {
+		if folded.iter().any(|folded| folded == line.trim()) {
+			if !placed {
+				text.push_str(&name);
+				text.push('\n');
+				placed = true;
+			}
+			continue;
+		}
+		text.push_str(line);
+		text.push('\n');
+	}
+	if !placed {
+		text.push_str(&name);
+		text.push('\n');
+	}
+	fs::write(&registry, text)?;
+
+	println!(
+		"folded {} migration(s) into {}",
+		folded.len(),
+		migration_dir.display()
+	);
+	println!(
+		"a database that already applied them records it without running it; a fresh one runs it \
+		 once"
+	);
 	Ok(())
 }
 
