@@ -133,6 +133,39 @@ export function color(
 		: ((rgba >>> 8) | ((rgba & 255) << 24)) >>> 0;
 }
 
+/** Per-edge border stroke widths in the same logical units as Yoga frames. */
+export interface BorderEdges {
+	top: number;
+	right: number;
+	bottom: number;
+	left: number;
+}
+
+/**
+ * Resolve stroke widths the way Android and GTK do: prefer `border_widths`
+ * from edge utilities, otherwise use a uniform `border_width` on every side.
+ * Leaving a missing edge at zero matches the web (no boxing a partial border).
+ */
+export function borderEdges(
+	props: { border_width?: number | null; border_widths?: BorderEdges | null },
+): BorderEdges {
+	if (props.border_widths !== undefined && props.border_widths !== null) {
+		return {
+			top: props.border_widths.top,
+			right: props.border_widths.right,
+			bottom: props.border_widths.bottom,
+			left: props.border_widths.left,
+		};
+	}
+	const width = props.border_width ?? 0;
+	return { top: width, right: width, bottom: width, left: width };
+}
+
+/** Whether text should draw in the italic slant. Unset means upright. */
+export function isItalic(italic: boolean | null | undefined): boolean {
+	return italic === true;
+}
+
 /** The `autocomplete` tokens password managers read on every platform. */
 const TEXT_CONTENT: string[] = [
 	"username",

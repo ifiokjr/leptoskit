@@ -13,12 +13,21 @@ export interface WidgetProps {
 	accessibility_label?: string | null;
 	corner_radius?: number | null;
 	border_width?: number | null;
+	/** Per-edge widths from `border-t` / `border-l-2` / …; prefer over `border_width`. */
+	border_widths?: {
+		top: number;
+		right: number;
+		bottom: number;
+		left: number;
+	} | null;
 	border_color?: number | null;
 	opacity?: number | null;
 	hidden?: boolean | null;
 	clip?: boolean | null;
 	font_size?: number | null;
 	font_weight?: string | null;
+	/** Whether text draws italic. Unset means upright. */
+	italic?: boolean | null;
 	text_align?: string | null;
 	aria?: { aria_hidden?: boolean | null } | null;
 }
