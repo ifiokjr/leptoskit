@@ -376,7 +376,9 @@ fn grid_cols_gap_and_span_match_css_grid_geometry() {
 		),
 	);
 	close(span.layout(wide).width, 196.0);
-	close(span.layout(wide).height, 157.33333);
+	// Two of three 224 px rows plus a gap: Chrome sizes tracks in 1/64 px
+	// layout units, so each row is 74 + 42/64 px rather than an exact third.
+	close(span.layout(wide).height, 157.328_13);
 	close(span.layout(start).x, 204.0);
 }
 
@@ -499,15 +501,17 @@ fn css_var_opacity_nested_fallback_and_length_tokens() {
 	);
 	Theme::clear();
 	assert_eq!(
-		resolve("bg-[var(--brand,var(--ink,#112233))]")
-			.1
-			.background,
+		resolve("bg-[var(--brand,var(--ink,#112233))]").1.background,
 		Some(Color::rgba(0x11, 0x22, 0x33, 0xff))
 	);
 
 	Theme::set_length("gap", ThemeLength::Px(16.0));
 	let length = Tailwind::parse("w-[var(--gap)] p-[var(--pad,8px)]").expect("length var");
-	assert!(length.css().contains("width:var(--gap);"), "{}", length.css());
+	assert!(
+		length.css().contains("width:var(--gap);"),
+		"{}",
+		length.css()
+	);
 	assert!(
 		length.css().contains("padding-top:var(--pad,8px);"),
 		"{}",

@@ -178,9 +178,7 @@ fn fixtures() -> Vec<Fixture> {
 			width: 300.0,
 			height: 240.0,
 			tree: View()
-				.class(
-					"grid grid-rows-2 grid-flow-col auto-cols-fr gap-3 w-[300px] h-[240px] p-3",
-				)
+				.class("grid grid-rows-2 grid-flow-col auto-cols-fr gap-3 w-[300px] h-[240px] p-3")
 				.children([
 					cell("c0", "bg-violet-200"),
 					cell("c1", "bg-violet-300"),
@@ -195,8 +193,8 @@ fn fixtures() -> Vec<Fixture> {
 			height: 160.0,
 			tree: View()
 				.class(
-					"grid grid-cols-[minmax(80px,1fr)_minmax(40px,2fr)_100px] grid-rows-1 \
-					 gap-x-4 gap-y-2 w-[480px] h-[160px] p-4 bg-slate-50",
+					"grid grid-cols-[minmax(80px,1fr)_minmax(40px,2fr)_100px] grid-rows-1 gap-x-4 \
+					 gap-y-2 w-[480px] h-[160px] p-4 bg-slate-50",
 				)
 				.children([
 					cell("min", "bg-teal-200"),
@@ -223,8 +221,8 @@ fn fixtures() -> Vec<Fixture> {
 			height: 200.0,
 			tree: View()
 				.class(
-					"flex-row flex-wrap justify-between content-start gap-x-3 gap-y-4 \
-					 w-[320px] h-[200px] p-3 bg-slate-50",
+					"flex-row flex-wrap justify-between content-start gap-x-3 gap-y-4 w-[320px] \
+					 h-[200px] p-3 bg-slate-50",
 				)
 				.children([
 					cell("a", "w-28 h-12 bg-fuchsia-200"),

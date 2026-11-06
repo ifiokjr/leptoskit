@@ -233,9 +233,11 @@ fn validate_theme_color_value(value: &str) -> Result<(), String> {
 				))
 			}
 		}
-		value => Err(format!(
-			"unsupported color `{value}`; use hex, black, white, or transparent"
-		)),
+		value => {
+			Err(format!(
+				"unsupported color `{value}`; use hex, black, white, or transparent"
+			))
+		}
 	}
 }
 
