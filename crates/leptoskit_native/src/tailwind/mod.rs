@@ -251,7 +251,9 @@ impl Tailwind {
 			}
 		}
 
-		if props.border_width.is_some_and(|width| width > 0.0) && props.border_color.is_none() {
+		// Uniform and per-edge border widths both need a stroke color. Tailwind
+		// defaults an unset border color to the current text color (or black).
+		if props.border_color.is_none() && props.border_edges().any() {
 			props.border_color = Some(props.color.unwrap_or(Color::rgba(0, 0, 0, 255)));
 		}
 	}

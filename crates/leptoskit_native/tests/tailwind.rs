@@ -730,6 +730,12 @@ fn edge_borders_and_italics_resolve_for_native() {
 	close(style.border.right, 0.0);
 	assert_eq!(props.italic, Some(true));
 	assert_eq!(props.border_edges(), edges);
+	// Per-edge widths need a stroke color the same way a uniform `border`
+	// does, so backends that paint `border_edges` can see the ink.
+	assert_eq!(
+		props.border_color,
+		Some(Color::rgba(0, 0, 0, 255))
+	);
 
 	assert!(props.is_custom_drawn());
 

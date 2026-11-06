@@ -25,7 +25,6 @@ use leptoskit_yoga::NodeId;
 
 use crate::frame::Frame;
 use crate::measure::GtkTextMeasurer;
-use crate::measure::font;
 
 /// Runs on the GTK thread, outside backend borrows. It may update the surface.
 pub type EventListener = Rc<dyn Fn(NodeId, NativeEvent)>;
@@ -919,13 +918,18 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 /// theme chrome and minimum sizes that Yoga's frame replaces.
 fn control_css(kind: NativeKind, props: &NativeProps) -> String {
 	let mut css = format!(
-		"* {{ font-family: Sans; font-size: {}px; font-weight: {}; }}",
+		"* {{ font-family: Sans; font-size: {}px; font-weight: {}; font-style: {}; }}",
 		props.text_style().font_size,
 		match props.text_style().font_weight {
 			leptoskit_native::FontWeight::Regular => 400,
 			leptoskit_native::FontWeight::Medium => 500,
 			leptoskit_native::FontWeight::Semibold => 600,
 			leptoskit_native::FontWeight::Bold => 700,
+		},
+		if props.italic.unwrap_or(false) {
+			"italic"
+		} else {
+			"normal"
 		}
 	);
 
@@ -987,7 +991,10 @@ fn configure_label(label: &gtk::Label, props: &NativeProps) {
 	});
 
 	let attrs = gtk::pango::AttrList::new();
-	attrs.insert(gtk::pango::AttrFontDesc::new(&font(props.text_style())));
+	attrs.insert(gtk::pango::AttrFontDesc::new(&crate::measure::font_with_italic(
+		props.text_style(),
+		props.italic.unwrap_or(false),
+	)));
 	label.set_attributes(Some(&attrs));
 	label.layout().set_auto_dir(false);
 }

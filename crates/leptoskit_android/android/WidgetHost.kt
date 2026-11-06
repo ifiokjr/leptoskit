@@ -342,6 +342,25 @@ class WidgetHost(
 
     private fun px(value: Double): Float = (value * density).toFloat()
 
+    /**
+     * Border stroke widths in device pixels: per-edge `border_widths` when set,
+     * otherwise the uniform `border_width` on every side.
+     */
+    private fun borderEdges(props: JSONObject): FloatArray {
+        val edges = props.optJSONObject("border_widths")
+        return if (edges != null) {
+            floatArrayOf(
+                px(edges.number("top")),
+                px(edges.number("right")),
+                px(edges.number("bottom")),
+                px(edges.number("left")),
+            )
+        } else {
+            val width = px(props.number("border_width"))
+            floatArrayOf(width, width, width, width)
+        }
+    }
+
     private fun create(
         id: Long,
         kind: String,
@@ -736,11 +755,12 @@ class WidgetHost(
         outer.radius = px(props.number("corner_radius"))
         outer.clipping = props.optBoolean("clip") || outer.radius > 0f
 
+        val borderEdges = borderEdges(props)
         outer.background =
             SurfaceDrawable(
                 props.color("background", android.graphics.Color.TRANSPARENT),
                 props.color("border_color", android.graphics.Color.TRANSPARENT),
-                px(props.number("border_width")),
+                borderEdges,
                 outer.radius,
             )
         val control = node.control
@@ -758,7 +778,11 @@ class WidgetHost(
 
         if (control is Button || control is EditText) {
             val sharedPaint =
-                !props.isNull("background") || !props.isNull("border_width") || !props.isNull("border_color") || outer.radius > 0f
+                !props.isNull("background") ||
+                    !props.isNull("border_width") ||
+                    !props.isNull("border_widths") ||
+                    !props.isNull("border_color") ||
+                    outer.radius > 0f
             control.background = if (sharedPaint) null else node.nativeBackground
 
             if (!sharedPaint) {
@@ -786,7 +810,8 @@ class WidgetHost(
                     "bold" -> 700
                     else -> 400
                 }
-            control.typeface = Typeface.create(Typeface.DEFAULT, weight, false)
+            val italic = props.optBoolean("italic")
+            control.typeface = Typeface.create(Typeface.DEFAULT, weight, italic)
             control.setTextSize(TypedValue.COMPLEX_UNIT_PX, px(props.number("font_size", 14.0)))
             control.setTextColor(foregroundColor)
             control.gravity =
@@ -1088,7 +1113,7 @@ class WidgetHost(
     private class SurfaceDrawable(
         private val background: Int,
         private val border: Int,
-        private val stroke: Float,
+        private val edges: FloatArray,
         private val radius: Float,
     ) : Drawable() {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -1099,13 +1124,46 @@ class WidgetHost(
             paint.color = background
             canvas.drawRoundRect(rect, radius, radius, paint)
 
-            if (stroke > 0f) {
-                rect.inset(stroke / 2, stroke / 2)
+            val top = edges[0]
+            val right = edges[1]
+            val bottom = edges[2]
+            val left = edges[3]
+            val uniform = top > 0f && top == right && top == bottom && top == left
+            if (uniform) {
+                // Match the previous rounded stroke for a full `border`.
+                val stroke = top
+                val strokeRect = RectF(rect)
+                strokeRect.inset(stroke / 2, stroke / 2)
                 paint.style = Paint.Style.STROKE
                 paint.strokeWidth = stroke
-
                 paint.color = border
-                canvas.drawRoundRect(rect, (radius - stroke / 2).coerceAtLeast(0f), (radius - stroke / 2).coerceAtLeast(0f), paint)
+                canvas.drawRoundRect(
+                    strokeRect,
+                    (radius - stroke / 2).coerceAtLeast(0f),
+                    (radius - stroke / 2).coerceAtLeast(0f),
+                    paint,
+                )
+            } else if (top > 0f || right > 0f || bottom > 0f || left > 0f) {
+                // Per-edge utilities paint axis-aligned inset strokes so
+                // `border-t` / `border-l-2` match the web and terminal.
+                paint.style = Paint.Style.STROKE
+                paint.color = border
+                if (top > 0f) {
+                    paint.strokeWidth = top
+                    canvas.drawLine(rect.left, rect.top + top / 2, rect.right, rect.top + top / 2, paint)
+                }
+                if (bottom > 0f) {
+                    paint.strokeWidth = bottom
+                    canvas.drawLine(rect.left, rect.bottom - bottom / 2, rect.right, rect.bottom - bottom / 2, paint)
+                }
+                if (left > 0f) {
+                    paint.strokeWidth = left
+                    canvas.drawLine(rect.left + left / 2, rect.top, rect.left + left / 2, rect.bottom, paint)
+                }
+                if (right > 0f) {
+                    paint.strokeWidth = right
+                    canvas.drawLine(rect.right - right / 2, rect.top, rect.right - right / 2, rect.bottom, paint)
+                }
             }
         }
 
@@ -1607,6 +1665,7 @@ private fun JSONObject.number(
     name: String,
     fallback: Double = 0.0,
 ): Double = if (isNull(name)) fallback else getDouble(name)
+
 
 private fun JSONObject.color(
     name: String,

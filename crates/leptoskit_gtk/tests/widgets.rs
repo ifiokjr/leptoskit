@@ -149,6 +149,10 @@ mod linux {
 				paint_animation_and_pressable,
 			),
 			(
+				"per_edge_borders_and_italic_text_paint",
+				per_edge_borders_and_italic_text_paint,
+			),
+			(
 				"held_buttons_show_their_active_styles",
 				held_buttons_show_their_active_styles,
 			),
@@ -1160,6 +1164,58 @@ mod linux {
 		.unwrap();
 
 		assert!(result.width > 0.0 && result.height > 0.0);
+	}
+
+	/// Per-edge border utilities and `italic` must paint on GTK the same way
+	/// they do on the web and in the terminal, not stay upright or undrawn.
+	fn per_edge_borders_and_italic_text_paint() {
+		let mounted = mounted(
+			&View().class("w-full h-full bg-white p-4 gap-4").children([
+				View().class("w-24 h-16 bg-white border-l-4 border-t-2 border-blue-600"),
+				Text("Slanted").class("italic text-slate-900 text-lg"),
+			]),
+		);
+		let root = mounted.surface.borrow().root().unwrap();
+		let png = mounted
+			.surface
+			.borrow()
+			.backend()
+			.snapshot_png(root)
+			.unwrap();
+		std::fs::write(artifact_path("per-edge-italic.png"), &png).unwrap();
+		let texture = gtk::gdk::Texture::from_bytes(&gtk::glib::Bytes::from_owned(png)).unwrap();
+		let mut pixels = vec![0; texture.width() as usize * texture.height() as usize * 4];
+		texture.download(&mut pixels, texture.width() as usize * 4);
+		let pixel = |x: usize, y: usize| {
+			let offset = (y * texture.width() as usize + x) * 4;
+			&pixels[offset..offset + 4]
+		};
+		// Texture.download uses native-endian Cairo ARGB32 (BGRA on Linux).
+		let left = pixel(16, 40);
+		assert!(
+			left[0] > 150 && left[2] < 80,
+			"left border paints blue: {left:?}"
+		);
+		let top = pixel(40, 16);
+		assert!(
+			top[0] > 150 && top[2] < 80,
+			"top border paints blue: {top:?}"
+		);
+		let right = pixel(100, 40);
+		assert!(
+			right[0] > 200 && right[1] > 200 && right[2] > 200,
+			"right edge stays undrawn without border-r: {right:?}"
+		);
+		let label = native::<gtk::Label>(&mounted, child(&mounted, 1));
+		let attrs = label
+			.attributes()
+			.expect("italic text sets a font attribute");
+		let (font, _, _) = attrs.iterator().font();
+		assert_eq!(
+			font.style(),
+			gtk::pango::Style::Italic,
+			"italic utility sets the Pango slant"
+		);
 	}
 
 	fn paint_animation_and_pressable() {
