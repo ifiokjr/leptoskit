@@ -2,204 +2,204 @@
 source: examples/gallery/tests/trees.rs
 expression: "lines.join(\"\\n\")"
 ---
-View [h-full lg:flex-row lg:items-stretch lg:overflow-hidden overflow-scroll w-full] #9cd0f064c2a9
-  View [flex-col gap-0.5 hidden lg:flex pb-safe-offset-6 pt-safe-offset-6 px-3 w-[236px]] #9e88bb43dcc1
-    View [flex-row gap-3 items-center pb-3 px-3] #fd39d3bc3b10
-      View [h-7 items-center justify-center rounded-[8px] w-7] #6da02ab13251
-        Text "H" [font-bold text-[15px]] #72274f87d63a
-      Text "Harmattan" [font-bold text-[17px]] #1207331231e4
-    View [pb-2 pt-4 px-3] #3a5c0fde6001
-      Text "STORE" #7ec96dc181a9
-    View [flex-row gap-3 h-9 items-center px-3 py-0 rounded-[8px]] #70ab53404069
-      View [h-4 rounded-[4px] w-4] #85c6c2099242
-      Text "Overview" #22a5b31f8d1d
-    View [flex-row gap-3 h-9 items-center px-3 py-0 rounded-[8px]] #d31dfeadd3b2
-      View [h-4 rounded-[4px] w-4] #d6ed8828e866
-      Text "Orders" #88a7b0c11d6e
-    View [flex-row gap-3 h-9 items-center px-3 py-0 rounded-[8px]] #d31dfeadd3b2
-      View [h-4 rounded-[4px] w-4] #d6ed8828e866
-      Text "Products" #f6235f492af0
-    View [flex-row gap-3 h-9 items-center px-3 py-0 rounded-[8px]] #d31dfeadd3b2
-      View [h-4 rounded-[4px] w-4] #d6ed8828e866
-      Text "Customers" #f1521fb81769
-    View [pb-2 pt-4 px-3] #3a5c0fde6001
-      Text "INSIGHTS" #29b1df2ccfad
-    View [flex-row gap-3 h-9 items-center px-3 py-0 rounded-[8px]] #d31dfeadd3b2
-      View [h-4 rounded-[4px] w-4] #d6ed8828e866
-      Text "Analytics" #441c02c6dcf1
-    View [flex-row gap-3 h-9 items-center px-3 py-0 rounded-[8px]] #d31dfeadd3b2
-      View [h-4 rounded-[4px] w-4] #d6ed8828e866
-      Text "Reports" #518818ad6925
-    View [flex-1] #61db3111f621
-    View [flex-col gap-2 p-4 rounded-[12px]] #ac33b3c5aeb0
-      Text "Free plan" #d1a35d50aa8d
-      Text "2,400 of 3,000 orders used this month." #235b108008ce
-      View [h-1.5 rounded-[3px]] #d4b49bc835be
-        View [h-full rounded-[3px] w-[80%]] #9015f8e80a16
-    View [flex-row gap-3 items-center pt-4 px-2] #908baa7f1848
-      Image [h-[34px] rounded-[17px] w-[34px]] #8cbdba911591
-      View [flex-col gap-0.5] #7b22d8bf9a09
-        Text "Efua Mensah" #655ce24f8358
-        Text "efua@harmattan.example" #2bc1c07fd155
-  View [flex-col gap-6 lg:flex-1 lg:pb-safe-offset-8 lg:pt-safe-offset-8 lg:px-10 pb-safe-offset-6 pt-safe-offset-4 px-4] #0c43a0efeffd
-    View [flex-row flex-wrap gap-3 items-center] #7dc2e188a02a
-      View [basis-64 flex-col gap-1 grow min-w-0 shrink] #bb68ad7a9f9c
-        Text "Overview" [font-bold text-[28px]] #c3e1f44e4186
-        Text "Tuesday, 20 October · Store performance across every channel" #3c385805ad0b
-      View [flex-row items-center p-0.5 rounded-[9px]] #d1c126c9dcdc
-        Button "7 days" [h-[30px] px-3 py-0 rounded-[7px]] #567d51b4bc47
-        Button "30 days" [h-[30px] px-3 py-0 rounded-[7px]] #12d20f71c8ce
-        Button "12 months" [h-[30px] px-3 py-0 rounded-[7px]] #4e30bfb5fc90
-      Button "Export" [h-9 px-4 py-0 rounded-[9px]] #9dd977464b02
-    View [gap-4 grid grid-cols-2 lg:grid-cols-4] #a2ee9f2a7cc8
-      View [flex-col gap-2 p-5 rounded-[14px]] #e7822135ee8d
-        Text "Revenue" #550be70b737a
-        Text "$92,418" [font-bold text-[28px]] #d6a6f14fed90
-        View [flex-row flex-wrap gap-2 items-center] #8ac983f85d59
-          View [px-2 py-0.5 rounded-[10px]] #5ae4fb91bc1b
-            Text "+12.4%" [font-semibold text-[12px]] #9e17ae71d4a2
-          Text "vs last week" #5a9c8946b6c5
-      View [flex-col gap-2 p-5 rounded-[14px]] #e7822135ee8d
-        Text "Orders" #d897c5d47d02
-        Text "1,864" [font-bold text-[28px]] #75e753de5bf1
-        View [flex-row flex-wrap gap-2 items-center] #8ac983f85d59
-          View [px-2 py-0.5 rounded-[10px]] #5ae4fb91bc1b
-            Text "+8.1%" [font-semibold text-[12px]] #7e3d0af6d40f
-          Text "vs last week" #5a9c8946b6c5
-      View [flex-col gap-2 p-5 rounded-[14px]] #e7822135ee8d
-        Text "Average order" #d29ef3d194c6
-        Text "$49.58" [font-bold text-[28px]] #ce0e7eb4fbdf
-        View [flex-row flex-wrap gap-2 items-center] #8ac983f85d59
-          View [px-2 py-0.5 rounded-[10px]] #5ae4fb91bc1b
-            Text "+3.9%" [font-semibold text-[12px]] #84759eb43dae
-          Text "vs last week" #5a9c8946b6c5
-      View [flex-col gap-2 p-5 rounded-[14px]] #e7822135ee8d
-        Text "Refund rate" #7a5159033869
-        Text "2.1%" [font-bold text-[28px]] #2ce4a0af3654
-        View [flex-row flex-wrap gap-2 items-center] #8ac983f85d59
-          View [px-2 py-0.5 rounded-[10px]] #9a4a8aaecf31
-            Text "−0.6%" [font-semibold text-[12px]] #6fd6794624f1
-          Text "vs last week" #5a9c8946b6c5
-    View [flex-col gap-4 items-stretch lg:flex-1 lg:flex-row] #0ea24e23d138
-      View [flex-col gap-6 h-80 lg:flex-1 lg:h-auto p-5 rounded-[14px]] #318618fa3153
-        View [flex-row flex-wrap gap-3 items-start] #b607a3ba0054
-          View [basis-48 flex-col gap-1 grow min-w-0 shrink] #02ecb327ea9b
-            Text "Revenue" #5c48b579e282
-            View [flex-row flex-wrap gap-2 items-center] #8ac983f85d59
-              Text "$735,210" [font-bold text-[22px]] #9b25cf6c12f7
-              View [px-2 py-0.5 rounded-[10px]] #5ae4fb91bc1b
-                Text "+18.2%" [font-semibold text-[12px]] #91d6191b4706
-          View [flex-row gap-4 items-center] #590936876aab
-            View [flex-row gap-1.5 items-center] #0f44c7b083ec
-              View #f148b303bc68
-              Text "This month" #3e2a22713e48
-            View [flex-row gap-1.5 items-center] #0f44c7b083ec
-              View #f4bf51b21e36
-              Text "Previous" #0c28c9735a96
-        View [flex-1 flex-row gap-1 items-stretch lg:gap-2] #dcf0a96aab8b
-          View [flex-1 flex-col gap-2 items-center] #edf788088c56
-            View [flex-1 flex-col justify-end w-full] #4c4a0de139a9
-              View [rounded-[6px]] #b0bd0bee47fc
-            Text "N" [lg:hidden] #fcdf417b6c0e
-            Text "Nov" [hidden lg:flex] #893f0068078c
-          View [flex-1 flex-col gap-2 items-center] #edf788088c56
-            View [flex-1 flex-col justify-end w-full] #4c4a0de139a9
-              View [rounded-[6px]] #b3002ea6f2d3
-            Text "D" [lg:hidden] #76a1d649b7d4
-            Text "Dec" [hidden lg:flex] #18ace41cbfe3
-          View [flex-1 flex-col gap-2 items-center] #edf788088c56
-            View [flex-1 flex-col justify-end w-full] #4c4a0de139a9
-              View [rounded-[6px]] #51d78e379852
-            Text "J" [lg:hidden] #add19da55e0a
-            Text "Jan" [hidden lg:flex] #1c42ec42fec0
-          View [flex-1 flex-col gap-2 items-center] #edf788088c56
-            View [flex-1 flex-col justify-end w-full] #4c4a0de139a9
-              View [rounded-[6px]] #50bc7c371f29
-            Text "F" [lg:hidden] #e59ecfa59048
-            Text "Feb" [hidden lg:flex] #1ecddead706c
-          View [flex-1 flex-col gap-2 items-center] #edf788088c56
-            View [flex-1 flex-col justify-end w-full] #4c4a0de139a9
-              View [rounded-[6px]] #ee7a204ac96f
-            Text "M" [lg:hidden] #ab3f446465f6
-            Text "Mar" [hidden lg:flex] #872514f6e0ed
-          View [flex-1 flex-col gap-2 items-center] #edf788088c56
-            View [flex-1 flex-col justify-end w-full] #4c4a0de139a9
-              View [rounded-[6px]] #9a1931533891
-            Text "A" [lg:hidden] #2ba7f6c44c06
-            Text "Apr" [hidden lg:flex] #776e7bb31599
-          View [flex-1 flex-col gap-2 items-center] #edf788088c56
-            View [flex-1 flex-col justify-end w-full] #4c4a0de139a9
-              View [rounded-[6px]] #fcf1ca1ec78d
-            Text "M" [lg:hidden] #ab3f446465f6
-            Text "May" [hidden lg:flex] #21834d753bc3
-          View [flex-1 flex-col gap-2 items-center] #edf788088c56
-            View [flex-1 flex-col justify-end w-full] #4c4a0de139a9
-              View [rounded-[6px]] #219b5c55a93e
-            Text "J" [lg:hidden] #add19da55e0a
-            Text "Jun" [hidden lg:flex] #a9a9aba0f2b4
-          View [flex-1 flex-col gap-2 items-center] #edf788088c56
-            View [flex-1 flex-col justify-end w-full] #4c4a0de139a9
-              View [rounded-[6px]] #200d0f7f42a1
-            Text "J" [lg:hidden] #add19da55e0a
-            Text "Jul" [hidden lg:flex] #3c681ea241a2
-          View [flex-1 flex-col gap-2 items-center] #edf788088c56
-            View [flex-1 flex-col justify-end w-full] #4c4a0de139a9
-              View [rounded-[6px]] #450b71b6aee3
-            Text "A" [lg:hidden] #2ba7f6c44c06
-            Text "Aug" [hidden lg:flex] #f0567152433f
-          View [flex-1 flex-col gap-2 items-center] #edf788088c56
-            View [flex-1 flex-col justify-end w-full] #4c4a0de139a9
-              View [rounded-[6px]] #a42e3cf27d4b
-            Text "S" [lg:hidden] #c8793b309435
-            Text "Sep" [hidden lg:flex] #6569b36881b4
-          View [flex-1 flex-col gap-2 items-center] #edf788088c56
-            View [flex-1 flex-col justify-end w-full] #4c4a0de139a9
-              View [rounded-[6px]] #afef6061c2fc
-            Text "O" [lg:hidden] #c62408a8d021
-            Text "Oct" [hidden lg:flex] #82dded321833
-      View [flex-col gap-4 lg:w-80 p-5 rounded-[14px] w-full] #a2b12cd02dba
-        View [flex-row items-center justify-between] #73cb87f137c9
-          Text "Top products" #b00f57132dda
-          Text "View all" #74637ca06748
-        View [flex-row gap-3 items-center] #2bd4e4477757
-          Image [h-10 rounded-[8px] w-10] #aee5ea1f5930
-          View [flex-1 flex-col gap-0.5] #54dd98fbe759
-            Text "Linen field jacket" #f9fad9d68d24
-            Text "Outerwear" #2b3f03c2ff2f
-          Text "$48,210" [text-end] #cbadac46aa88
-        View [flex-row gap-3 items-center] #2bd4e4477757
-          Image [h-10 rounded-[8px] w-10] #baae7c515fa0
-          View [flex-1 flex-col gap-0.5] #54dd98fbe759
-            Text "Clay pour-over set" #81ed454fc754
-            Text "Kitchen" #19dafae03d2e
-          Text "$36,940" [text-end] #694f14c532de
-        View [flex-row gap-3 items-center] #2bd4e4477757
-          Image [h-10 rounded-[8px] w-10] #8194de10b9c6
-          View [flex-1 flex-col gap-0.5] #54dd98fbe759
-            Text "Kente weekender" #dda9ba3c7b90
-            Text "Bags" #89e00dbfa796
-          Text "$29,115" [text-end] #23b960f23298
-        View [flex-row gap-3 items-center] #2bd4e4477757
-          Image [h-10 rounded-[8px] w-10] #a2d1fb693e27
-          View [flex-1 flex-col gap-0.5] #54dd98fbe759
-            Text "Shea wax candle" #c9b31a87bac3
-            Text "Home" #560418ae17ef
-          Text "$21,780" [text-end] #bd59c9f698a1
-        View [flex-row gap-3 items-center] #2bd4e4477757
-          Image [h-10 rounded-[8px] w-10] #2a1f80bd2c47
-          View [flex-1 flex-col gap-0.5] #54dd98fbe759
-            Text "Indigo throw" #0a1c7bfd1433
-            Text "Home" #560418ae17ef
-          Text "$18,402" [text-end] #a268f1ecfef4
-        View [flex-row gap-3 items-center] #2bd4e4477757
-          Image [h-10 rounded-[8px] w-10] #aaac983292c4
-          View [flex-1 flex-col gap-0.5] #54dd98fbe759
-            Text "Brass desk lamp" #3a719d7457fc
-            Text "Lighting" #ff19c6d02dfb
-          Text "$15,960" [text-end] #3d200e8b07bc
-        View [flex-row gap-3 items-center] #2bd4e4477757
-          Image [h-10 rounded-[8px] w-10] #83de4e454df7
-          View [flex-1 flex-col gap-0.5] #54dd98fbe759
-            Text "Raffia market tote" #62bb5cd733f2
-            Text "Bags" #89e00dbfa796
-          Text "$12,337" [text-end] #a41c0131f1b5
+View [h-full lg:flex-row lg:items-stretch lg:overflow-hidden overflow-scroll w-full] #b30a880e06f6
+  View [flex-col gap-0.5 hidden lg:flex pb-safe-offset-6 pt-safe-offset-6 px-3 w-[236px]] #29f2c4d9b15b
+    View [flex-row gap-3 items-center pb-3 px-3] #a8311469a330
+      View [h-7 items-center justify-center rounded-[8px] w-7] #750eeaccdb86
+        Text "H" [font-bold text-[15px]] #b5b5649543e2
+      Text "Harmattan" [font-bold text-[17px]] #87354bf2d961
+    View [pb-2 pt-4 px-3] #885fe81deec5
+      Text "STORE" #feb44c9e5eab
+    View [flex-row gap-3 h-9 items-center px-3 py-0 rounded-[8px]] #17bc8b739ab6
+      View [h-4 rounded-[4px] w-4] #308703f66df5
+      Text "Overview" #b2f9603b1b34
+    View [flex-row gap-3 h-9 items-center px-3 py-0 rounded-[8px]] #4935077e38d7
+      View [h-4 rounded-[4px] w-4] #7e19714ed920
+      Text "Orders" #c526438e0d3c
+    View [flex-row gap-3 h-9 items-center px-3 py-0 rounded-[8px]] #4935077e38d7
+      View [h-4 rounded-[4px] w-4] #7e19714ed920
+      Text "Products" #49d24e5eac17
+    View [flex-row gap-3 h-9 items-center px-3 py-0 rounded-[8px]] #4935077e38d7
+      View [h-4 rounded-[4px] w-4] #7e19714ed920
+      Text "Customers" #6688fa7f8b06
+    View [pb-2 pt-4 px-3] #885fe81deec5
+      Text "INSIGHTS" #e5c980219d05
+    View [flex-row gap-3 h-9 items-center px-3 py-0 rounded-[8px]] #4935077e38d7
+      View [h-4 rounded-[4px] w-4] #7e19714ed920
+      Text "Analytics" #c422a7153a67
+    View [flex-row gap-3 h-9 items-center px-3 py-0 rounded-[8px]] #4935077e38d7
+      View [h-4 rounded-[4px] w-4] #7e19714ed920
+      Text "Reports" #38f1edd3c00f
+    View [flex-1] #cea51a21adc4
+    View [flex-col gap-2 p-4 rounded-[12px]] #11fd519f94d0
+      Text "Free plan" #e2ff21af38d0
+      Text "2,400 of 3,000 orders used this month." #ac5c0c420472
+      View [h-1.5 rounded-[3px]] #2f33fc733509
+        View [h-full rounded-[3px] w-[80%]] #3a019bfeff7c
+    View [flex-row gap-3 items-center pt-4 px-2] #58152afa38a2
+      Image [h-[34px] rounded-[17px] w-[34px]] #4b7db9ace17b
+      View [flex-col gap-0.5] #1b23bbbdae8d
+        Text "Efua Mensah" #4bd3aa7ee89b
+        Text "efua@harmattan.example" #fbc91d0a999c
+  View [flex-col gap-6 lg:flex-1 lg:pb-safe-offset-8 lg:pt-safe-offset-8 lg:px-10 pb-safe-offset-6 pt-safe-offset-4 px-4] #1512b6b293d9
+    View [flex-row flex-wrap gap-3 items-center] #01e5bcb9836f
+      View [basis-64 flex-col gap-1 grow min-w-0 shrink] #0e3f935c730c
+        Text "Overview" [font-bold text-[28px]] #ecc3f5cf4686
+        Text "Tuesday, 20 October · Store performance across every channel" #bf8d5658aef4
+      View [flex-row items-center p-0.5 rounded-[9px]] #361e62da438e
+        Button "7 days" [h-[30px] px-3 py-0 rounded-[7px]] #e52b746fad74
+        Button "30 days" [h-[30px] px-3 py-0 rounded-[7px]] #b0227c510584
+        Button "12 months" [h-[30px] px-3 py-0 rounded-[7px]] #0faf4271c923
+      Button "Export" [h-9 px-4 py-0 rounded-[9px]] #854fb994abd9
+    View [gap-4 grid grid-cols-2 lg:grid-cols-4] #61604e802edd
+      View [flex-col gap-2 p-5 rounded-[14px]] #f0baf38e9a47
+        Text "Revenue" #3c2ab41bd7f2
+        Text "$92,418" [font-bold text-[28px]] #15ed34da458a
+        View [flex-row flex-wrap gap-2 items-center] #135b561494f9
+          View [px-2 py-0.5 rounded-[10px]] #41284b3192d1
+            Text "+12.4%" [font-semibold text-[12px]] #0415fecdac04
+          Text "vs last week" #dfad8a0f05ee
+      View [flex-col gap-2 p-5 rounded-[14px]] #f0baf38e9a47
+        Text "Orders" #69e0652560cb
+        Text "1,864" [font-bold text-[28px]] #dfaf3da70077
+        View [flex-row flex-wrap gap-2 items-center] #135b561494f9
+          View [px-2 py-0.5 rounded-[10px]] #41284b3192d1
+            Text "+8.1%" [font-semibold text-[12px]] #b979ee809312
+          Text "vs last week" #dfad8a0f05ee
+      View [flex-col gap-2 p-5 rounded-[14px]] #f0baf38e9a47
+        Text "Average order" #5e0813605d09
+        Text "$49.58" [font-bold text-[28px]] #50312dbd4a06
+        View [flex-row flex-wrap gap-2 items-center] #135b561494f9
+          View [px-2 py-0.5 rounded-[10px]] #41284b3192d1
+            Text "+3.9%" [font-semibold text-[12px]] #c0166ae14d1b
+          Text "vs last week" #dfad8a0f05ee
+      View [flex-col gap-2 p-5 rounded-[14px]] #f0baf38e9a47
+        Text "Refund rate" #772c7a7ffeb6
+        Text "2.1%" [font-bold text-[28px]] #eaf8ebc9f831
+        View [flex-row flex-wrap gap-2 items-center] #135b561494f9
+          View [px-2 py-0.5 rounded-[10px]] #f6f5cec0625b
+            Text "−0.6%" [font-semibold text-[12px]] #4816c4f443bf
+          Text "vs last week" #dfad8a0f05ee
+    View [flex-col gap-4 items-stretch lg:flex-1 lg:flex-row] #62faf8a6e69c
+      View [flex-col gap-6 h-80 lg:flex-1 lg:h-auto p-5 rounded-[14px]] #1297fc6bf7f2
+        View [flex-row flex-wrap gap-3 items-start] #f4ff8e06be20
+          View [basis-48 flex-col gap-1 grow min-w-0 shrink] #c071fde2bc4d
+            Text "Revenue" #8dcb1a07518e
+            View [flex-row flex-wrap gap-2 items-center] #135b561494f9
+              Text "$735,210" [font-bold text-[22px]] #b768a97ada83
+              View [px-2 py-0.5 rounded-[10px]] #41284b3192d1
+                Text "+18.2%" [font-semibold text-[12px]] #35fdd7dd522f
+          View [flex-row gap-4 items-center] #dfb067e675bc
+            View [flex-row gap-1.5 items-center] #5cd07c710f40
+              View #2a70d33e8639
+              Text "This month" #1e8cb4a5e7b8
+            View [flex-row gap-1.5 items-center] #5cd07c710f40
+              View #3b41795751d1
+              Text "Previous" #6e63a5202241
+        View [flex-1 flex-row gap-1 items-stretch lg:gap-2] #99461060dc9e
+          View [flex-1 flex-col gap-2 items-center] #69f2b3ba01ad
+            View [flex-1 flex-col justify-end w-full] #319be7b2056b
+              View [rounded-[6px]] #195f062d877d
+            Text "N" [lg:hidden] #9f361a37f655
+            Text "Nov" [hidden lg:flex] #9ffafb9b93fe
+          View [flex-1 flex-col gap-2 items-center] #69f2b3ba01ad
+            View [flex-1 flex-col justify-end w-full] #319be7b2056b
+              View [rounded-[6px]] #8a2b3913d31b
+            Text "D" [lg:hidden] #8d423d6d5b53
+            Text "Dec" [hidden lg:flex] #9c936c16e218
+          View [flex-1 flex-col gap-2 items-center] #69f2b3ba01ad
+            View [flex-1 flex-col justify-end w-full] #319be7b2056b
+              View [rounded-[6px]] #72c02a8b183d
+            Text "J" [lg:hidden] #08354de4876d
+            Text "Jan" [hidden lg:flex] #df464024a619
+          View [flex-1 flex-col gap-2 items-center] #69f2b3ba01ad
+            View [flex-1 flex-col justify-end w-full] #319be7b2056b
+              View [rounded-[6px]] #d14c7dc003c8
+            Text "F" [lg:hidden] #b5b55d186d43
+            Text "Feb" [hidden lg:flex] #ddfef4c0a6b6
+          View [flex-1 flex-col gap-2 items-center] #69f2b3ba01ad
+            View [flex-1 flex-col justify-end w-full] #319be7b2056b
+              View [rounded-[6px]] #90849c9127fe
+            Text "M" [lg:hidden] #45d7a02ee3cf
+            Text "Mar" [hidden lg:flex] #7b08496d6079
+          View [flex-1 flex-col gap-2 items-center] #69f2b3ba01ad
+            View [flex-1 flex-col justify-end w-full] #319be7b2056b
+              View [rounded-[6px]] #71afd8fecf89
+            Text "A" [lg:hidden] #32c33f3e8595
+            Text "Apr" [hidden lg:flex] #9f71939cda36
+          View [flex-1 flex-col gap-2 items-center] #69f2b3ba01ad
+            View [flex-1 flex-col justify-end w-full] #319be7b2056b
+              View [rounded-[6px]] #19c95a23b312
+            Text "M" [lg:hidden] #45d7a02ee3cf
+            Text "May" [hidden lg:flex] #e74b83adf6ae
+          View [flex-1 flex-col gap-2 items-center] #69f2b3ba01ad
+            View [flex-1 flex-col justify-end w-full] #319be7b2056b
+              View [rounded-[6px]] #3a2c3c95cc8f
+            Text "J" [lg:hidden] #08354de4876d
+            Text "Jun" [hidden lg:flex] #75f3fb04a16c
+          View [flex-1 flex-col gap-2 items-center] #69f2b3ba01ad
+            View [flex-1 flex-col justify-end w-full] #319be7b2056b
+              View [rounded-[6px]] #217b36930169
+            Text "J" [lg:hidden] #08354de4876d
+            Text "Jul" [hidden lg:flex] #56ce08adbc49
+          View [flex-1 flex-col gap-2 items-center] #69f2b3ba01ad
+            View [flex-1 flex-col justify-end w-full] #319be7b2056b
+              View [rounded-[6px]] #f6d942ed22ba
+            Text "A" [lg:hidden] #32c33f3e8595
+            Text "Aug" [hidden lg:flex] #e96ce05c728d
+          View [flex-1 flex-col gap-2 items-center] #69f2b3ba01ad
+            View [flex-1 flex-col justify-end w-full] #319be7b2056b
+              View [rounded-[6px]] #12fbad3e5ca1
+            Text "S" [lg:hidden] #ee6468f591be
+            Text "Sep" [hidden lg:flex] #9b405861f4fc
+          View [flex-1 flex-col gap-2 items-center] #69f2b3ba01ad
+            View [flex-1 flex-col justify-end w-full] #319be7b2056b
+              View [rounded-[6px]] #2c4ead8805d9
+            Text "O" [lg:hidden] #d89bd0a98ea6
+            Text "Oct" [hidden lg:flex] #ea67dfc1546b
+      View [flex-col gap-4 lg:w-80 p-5 rounded-[14px] w-full] #a43d9c39a610
+        View [flex-row items-center justify-between] #d63eb4119e02
+          Text "Top products" #51b119c252f4
+          Text "View all" #fc8aa4373210
+        View [flex-row gap-3 items-center] #399cfb53dc85
+          Image [h-10 rounded-[8px] w-10] #3fc53b7a177c
+          View [flex-1 flex-col gap-0.5] #21545a1ee11a
+            Text "Linen field jacket" #d31ed79c6627
+            Text "Outerwear" #45cdb7bd8bf5
+          Text "$48,210" [text-end] #a67b1a9f61f3
+        View [flex-row gap-3 items-center] #399cfb53dc85
+          Image [h-10 rounded-[8px] w-10] #32a65371e7f7
+          View [flex-1 flex-col gap-0.5] #21545a1ee11a
+            Text "Clay pour-over set" #e88fb7822147
+            Text "Kitchen" #8ada02a02f5d
+          Text "$36,940" [text-end] #9951a386fecb
+        View [flex-row gap-3 items-center] #399cfb53dc85
+          Image [h-10 rounded-[8px] w-10] #fe203c96a752
+          View [flex-1 flex-col gap-0.5] #21545a1ee11a
+            Text "Kente weekender" #b3e5f21e8c04
+            Text "Bags" #05dd00c1ca5b
+          Text "$29,115" [text-end] #cd81c5493160
+        View [flex-row gap-3 items-center] #399cfb53dc85
+          Image [h-10 rounded-[8px] w-10] #1c683a691e77
+          View [flex-1 flex-col gap-0.5] #21545a1ee11a
+            Text "Shea wax candle" #245a225167a3
+            Text "Home" #96b06c7898e3
+          Text "$21,780" [text-end] #faa2499e053f
+        View [flex-row gap-3 items-center] #399cfb53dc85
+          Image [h-10 rounded-[8px] w-10] #6d2644464bc8
+          View [flex-1 flex-col gap-0.5] #21545a1ee11a
+            Text "Indigo throw" #37a48abf3fad
+            Text "Home" #96b06c7898e3
+          Text "$18,402" [text-end] #70855efbc5f7
+        View [flex-row gap-3 items-center] #399cfb53dc85
+          Image [h-10 rounded-[8px] w-10] #e33a63908e1e
+          View [flex-1 flex-col gap-0.5] #21545a1ee11a
+            Text "Brass desk lamp" #88889e9e2ea1
+            Text "Lighting" #0e625b7d42b4
+          Text "$15,960" [text-end] #2f5b024de03b
+        View [flex-row gap-3 items-center] #399cfb53dc85
+          Image [h-10 rounded-[8px] w-10] #e561dbec3097
+          View [flex-1 flex-col gap-0.5] #21545a1ee11a
+            Text "Raffia market tote" #97fab276b9aa
+            Text "Bags" #05dd00c1ca5b
+          Text "$12,337" [text-end] #9cb808bf73f5
