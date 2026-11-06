@@ -430,6 +430,11 @@ impl ToSql for Param {
 
 			Value::Timestamp(value) => value.to_sql_checked(ty, out),
 			Value::Date(value) => value.to_sql_checked(ty, out),
+			Value::LocalTimestamp(value) => value.to_sql_checked(ty, out),
+			Value::LocalTime(value) => value.to_sql_checked(ty, out),
+			Value::Duration(value) => {
+				crate::value::write_iso_duration(value).to_sql_checked(ty, out)
+			}
 			Value::Json(value) => value.to_sql_checked(ty, out),
 		}
 	}
@@ -464,9 +469,10 @@ fn decode_column(row: &Row, index: usize) -> Result<Value> {
 		Type::TIMESTAMPTZ => {
 			get::<chrono::DateTime<chrono::Utc>>(row, index)?.map(Value::Timestamp)
 		}
-		Type::TIMESTAMP => {
-			get::<chrono::NaiveDateTime>(row, index)?.map(|value| Value::Timestamp(value.and_utc()))
-		}
+		// A `timestamp` holds no time zone, so it stays wall-clock; a
+		// `Timestamp` column's values come back through `TIMESTAMPTZ`.
+		Type::TIMESTAMP => get::<chrono::NaiveDateTime>(row, index)?.map(Value::LocalTimestamp),
+		Type::TIME => get::<chrono::NaiveTime>(row, index)?.map(Value::LocalTime),
 		Type::DATE => get::<chrono::NaiveDate>(row, index)?.map(Value::Date),
 		Type::JSON | Type::JSONB => get::<serde_json::Value>(row, index)?.map(Value::Json),
 

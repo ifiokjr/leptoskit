@@ -2,7 +2,10 @@
 
 use std::fmt;
 
+use chrono::Duration;
 use chrono::NaiveDate;
+use chrono::NaiveDateTime;
+use chrono::NaiveTime;
 use leptoskit_db_schema::ColumnType;
 use leptoskit_db_schema::TableName;
 use uuid::Uuid;
@@ -35,6 +38,12 @@ pub enum Value {
 	Timestamp(Timestamp),
 	/// A calendar date.
 	Date(NaiveDate),
+	/// A wall-clock date and time in no time zone.
+	LocalTimestamp(NaiveDateTime),
+	/// A wall-clock time of day in no time zone.
+	LocalTime(NaiveTime),
+	/// A signed length of time.
+	Duration(Duration),
 	/// A JSON document.
 	Json(serde_json::Value),
 }
@@ -52,6 +61,9 @@ impl Value {
 			Self::Uuid(_) => "uuid",
 			Self::Timestamp(_) => "timestamp",
 			Self::Date(_) => "date",
+			Self::LocalTimestamp(_) => "local_datetime",
+			Self::LocalTime(_) => "local_time",
+			Self::Duration(_) => "duration",
 			Self::Json(_) => "json",
 		}
 	}
@@ -432,6 +444,112 @@ impl Column for NaiveDate {
 	}
 }
 
+impl Column for NaiveDateTime {
+	fn column_type() -> ColumnType {
+		ColumnType::LocalTimestamp
+	}
+
+	fn to_value(&self) -> Result<Value, EncodeError> {
+		Ok(Value::LocalTimestamp(*self))
+	}
+
+	fn from_value(value: Value) -> Result<Self, DecodeError> {
+		match value {
+			Value::LocalTimestamp(value) => Ok(value),
+			Value::Text(text) => text.parse().map_err(DecodeError::custom),
+			other => Err(DecodeError::unexpected("local_datetime", &other)),
+		}
+	}
+}
+
+impl Column for NaiveTime {
+	fn column_type() -> ColumnType {
+		ColumnType::LocalTime
+	}
+
+	fn to_value(&self) -> Result<Value, EncodeError> {
+		Ok(Value::LocalTime(*self))
+	}
+
+	fn from_value(value: Value) -> Result<Self, DecodeError> {
+		match value {
+			Value::LocalTime(value) => Ok(value),
+			Value::Text(text) => text.parse().map_err(DecodeError::custom),
+			other => Err(DecodeError::unexpected("local_time", &other)),
+		}
+	}
+}
+
+impl Column for Duration {
+	fn column_type() -> ColumnType {
+		ColumnType::Duration
+	}
+
+	fn to_value(&self) -> Result<Value, EncodeError> {
+		Ok(Value::Duration(*self))
+	}
+
+	fn from_value(value: Value) -> Result<Self, DecodeError> {
+		match value {
+			Value::Duration(value) => Ok(value),
+			Value::Text(text) => parse_iso_duration(&text),
+			other => Err(DecodeError::unexpected("duration", &other)),
+		}
+	}
+}
+
+/// Reads ISO 8601 duration text, the only form the database holds: an
+/// optional `-`, `PT`, seconds, and up to nine fraction digits, such as
+/// `PT5400S` or `-PT2.5S`.
+fn parse_iso_duration(text: &str) -> Result<Duration, DecodeError> {
+	let error = || DecodeError::custom(format!("`{text}` isn't ISO 8601 duration text"));
+	let (negative, body) = match text.strip_prefix('-') {
+		Some(rest) => (true, rest),
+		None => (false, text),
+	};
+	let body = body.strip_prefix("PT").ok_or_else(error)?;
+	let body = body.strip_suffix('S').ok_or_else(error)?;
+	let (seconds, nanos) = match body.split_once('.') {
+		Some((seconds, fraction)) => {
+			let digits = fraction.len();
+			let shifted = (1..=9)
+				.contains(&digits)
+				.then(|| {
+					fraction
+						.parse::<u32>()
+						.map(|nanos| nanos * 10_u32.pow(9 - digits as u32))
+				})
+				.transpose()
+				.map_err(|_| error())?
+				.ok_or_else(error)?;
+			(seconds.parse::<i64>().map_err(|_| error())?, shifted)
+		}
+		None => (body.parse::<i64>().map_err(|_| error())?, 0),
+	};
+
+	let duration = Duration::seconds(seconds) + Duration::nanoseconds(i64::from(nanos));
+	Ok(if negative { -duration } else { duration })
+}
+
+/// Writes ISO 8601 duration text, `parse_iso_duration`'s mirror.
+pub(crate) fn write_iso_duration(duration: &Duration) -> String {
+	let sign = if *duration < Duration::zero() {
+		"-"
+	} else {
+		""
+	};
+	let magnitude = duration.abs();
+	let seconds = magnitude.num_seconds();
+	let nanos = magnitude.subsec_nanos();
+
+	if nanos == 0 {
+		format!("{sign}PT{seconds}S")
+	} else {
+		let fraction = format!("{nanos:09}");
+		format!("{sign}PT{seconds}.{}S", fraction.trim_end_matches('0'))
+	}
+}
+
 impl<T: serde::Serialize + serde::de::DeserializeOwned> Column for Json<T> {
 	fn column_type() -> ColumnType {
 		ColumnType::Json
@@ -454,5 +572,29 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Column for Json<T> {
 		serde_json::from_value(json)
 			.map(Json)
 			.map_err(DecodeError::custom)
+	}
+}
+
+#[cfg(test)]
+mod duration_tests {
+	use super::*;
+
+	#[test]
+	fn iso_duration_text_round_trips() {
+		for duration in [
+			Duration::hours(36),
+			-Duration::hours(36),
+			Duration::milliseconds(500),
+			-Duration::milliseconds(1500),
+			Duration::zero(),
+		] {
+			let text = write_iso_duration(&duration);
+			let back = <Duration as Column>::from_value(Value::Text(text.clone()))
+				.unwrap_or_else(|error| panic!("through {text}: {error}"));
+			assert_eq!(back, duration, "through {text}");
+		}
+
+		assert_eq!(write_iso_duration(&Duration::hours(36)), "PT129600S");
+		assert_eq!(write_iso_duration(&-Duration::hours(36)), "-PT129600S");
 	}
 }

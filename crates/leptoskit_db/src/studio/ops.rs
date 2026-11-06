@@ -230,7 +230,7 @@ pub(crate) fn parse_value(ty: &ColumnType, text: &str) -> std::result::Result<Va
 		}
 		ColumnType::Int16 => integer(i16::MIN.into(), i16::MAX.into()),
 		ColumnType::Int32 => integer(i32::MIN.into(), i32::MAX.into()),
-		ColumnType::Int64 => integer(i64::MIN, i64::MAX),
+		ColumnType::Int64 | ColumnType::Sequence => integer(i64::MIN, i64::MAX),
 		ColumnType::Float32 | ColumnType::Float64 => {
 			text.trim()
 				.parse::<f64>()
@@ -253,6 +253,27 @@ pub(crate) fn parse_value(ty: &ColumnType, text: &str) -> std::result::Result<Va
 				.parse()
 				.map(Value::Date)
 				.map_err(|error| format!("`{text}` isn't a date, such as 2026-10-30: {error}"))
+		}
+		ColumnType::LocalTimestamp => {
+			text.trim()
+				.parse()
+				.map(Value::LocalTimestamp)
+				.map_err(|error| format!("`{text}` isn't a local datetime: {error}"))
+		}
+		ColumnType::LocalTime => {
+			text.trim()
+				.parse()
+				.map(Value::LocalTime)
+				.map_err(|error| format!("`{text}` isn't a time of day: {error}"))
+		}
+		ColumnType::Duration => {
+			<chrono::Duration as leptoskit_db::Column>::from_value(Value::Text(
+				text.trim().to_owned(),
+			))
+			.map(Value::Duration)
+			.map_err(|error| {
+				format!("`{text}` isn't ISO 8601 duration text, such as PT90M: {error}")
+			})
 		}
 		ColumnType::Json => {
 			serde_json::from_str(text)
@@ -328,6 +349,9 @@ pub(crate) fn display(value: &Value) -> Cell {
 		Value::Uuid(uuid) => Cell::Text(uuid.to_string()),
 		Value::Timestamp(instant) => Cell::Text(instant.to_rfc3339()),
 		Value::Date(date) => Cell::Text(date.to_string()),
+		Value::LocalTimestamp(at) => Cell::Text(at.to_string()),
+		Value::LocalTime(at) => Cell::Text(at.to_string()),
+		Value::Duration(duration) => Cell::Text(crate::value::write_iso_duration(duration)),
 		Value::Json(json) => Cell::Text(json.to_string()),
 	}
 }

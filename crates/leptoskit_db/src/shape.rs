@@ -1022,7 +1022,12 @@ fn from_json(kind: &Kind, json: serde_json::Value) -> std::result::Result<Value,
 			Value::Float(text.parse().map_err(|_| mismatch(&Json::String(text)))?)
 		}
 		(
-			ColumnType::Text { .. } | ColumnType::Timestamp | ColumnType::Date,
+			ColumnType::Text { .. }
+			| ColumnType::Timestamp
+			| ColumnType::Date
+			| ColumnType::LocalTimestamp
+			| ColumnType::LocalTime
+			| ColumnType::Duration,
 			Json::String(text),
 		) => Value::Text(text),
 		(ColumnType::Uuid, Json::String(text)) => {

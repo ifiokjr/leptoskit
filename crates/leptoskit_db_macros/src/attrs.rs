@@ -635,6 +635,7 @@ pub(crate) struct FieldArgs {
 	pub unique: bool,
 	pub unique_except: Option<Ident>,
 	pub index: bool,
+	pub sequence: bool,
 	pub visibility: Visibility,
 
 	pub default: Option<DefaultSpec>,
@@ -717,6 +718,7 @@ impl FieldArgs {
 			unique: false,
 			unique_except: None,
 			index: false,
+			sequence: false,
 			visibility: Visibility::Public,
 			default: None,
 			min_len: None,
@@ -824,6 +826,15 @@ impl FieldArgs {
 	}
 
 	fn option(&mut self, meta: &ParseNestedMeta<'_>) -> syn::Result<()> {
+		if meta.path.is_ident("index") {
+			self.index = true;
+			return Ok(());
+		}
+		if meta.path.is_ident("sequence") {
+			self.sequence = true;
+			return Ok(());
+		}
+
 		if self.rule(meta)? {
 			return Ok(());
 		}
@@ -849,8 +860,6 @@ impl FieldArgs {
 					}
 				})?;
 			}
-		} else if path.is_ident("index") {
-			self.index = true;
 		} else if self.visibility_option(meta) {
 		} else if path.is_ident("created_at") {
 			self.timestamp = Some(Timestamp::Created);
@@ -927,10 +936,10 @@ impl FieldArgs {
 		} else {
 			return Err(meta.error(
 				"unknown column option; expected one of `key`, `generate`, `column`, `unique`, \
-				 `index`, `private`, `secret`, `default`, `min_len`, `max_len`, `min`, `max`, \
-				 `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `created_by`, \
-				 `updated_by`, `version`, `slug`, `search`, `geo`, `vector`, `public`, \
-				 `on_delete`, `on_soft_delete`, `backlink`, `no_foreign_key`, `live`, \
+				 `index`, `sequence`, `private`, `secret`, `default`, `min_len`, `max_len`, \
+				 `min`, `max`, `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, \
+				 `created_by`, `updated_by`, `version`, `slug`, `search`, `geo`, `vector`, \
+				 `public`, `on_delete`, `on_soft_delete`, `backlink`, `no_foreign_key`, `live`, \
 				 `renamed_from`, `flatten`, `prefix`, `in`, or `generated`",
 			));
 		}

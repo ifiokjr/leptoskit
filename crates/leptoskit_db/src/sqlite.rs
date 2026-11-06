@@ -387,6 +387,13 @@ fn to_sqlite(value: &Value) -> rusqlite::types::Value {
 		Value::Uuid(value) => Sqlite::Blob(value.as_bytes().to_vec()),
 		Value::Timestamp(value) => Sqlite::Text(value.format(TIMESTAMP_FORMAT).to_string()),
 		Value::Date(value) => Sqlite::Text(value.format("%Y-%m-%d").to_string()),
+		// `T` between date and time, which chrono's parser requires and
+		// its Display doesn't write.
+		Value::LocalTimestamp(value) => {
+			Sqlite::Text(value.format("%Y-%m-%dT%H:%M:%S%.f").to_string())
+		}
+		Value::LocalTime(value) => Sqlite::Text(value.to_string()),
+		Value::Duration(value) => Sqlite::Text(crate::value::write_iso_duration(value)),
 		Value::Json(value) => Sqlite::Text(value.to_string()),
 	}
 }
