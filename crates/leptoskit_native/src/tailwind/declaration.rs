@@ -20,8 +20,8 @@ use leptoskit_yoga::TrackSizing;
 use super::StyleContext;
 use super::keyword;
 use super::value::Length;
+use super::value::PaintColor;
 use super::value::safe_inset;
-use crate::Color;
 use crate::FontWeight;
 use crate::NativeProps;
 use crate::TextAlign;
@@ -135,7 +135,7 @@ pub(super) enum Declaration {
 	GridLine(Axis, bool, GridLine),
 	GridPlacement(Axis, GridPlacement),
 	Aspect(Option<f32>),
-	Color(ColorField, Color),
+	Color(ColorField, PaintColor),
 	FontSize(Length),
 	FontWeight(FontWeight),
 	Italic(bool),
@@ -297,18 +297,21 @@ impl Declaration {
 
 	/// The color, text, border, and radius declarations.
 	fn apply_paint(&self, style: &mut Style, props: &mut NativeProps, context: &StyleContext) {
-		match *self {
+		match self {
 			Self::Color(field, value) => {
-				match field {
-					ColorField::Text => props.color = Some(value),
-					ColorField::Background => props.background = Some(value),
-					ColorField::Border => props.border_color = Some(value),
+				let Some(resolved) = value.resolve() else {
+					return;
+				};
+				match *field {
+					ColorField::Text => props.color = Some(resolved),
+					ColorField::Background => props.background = Some(resolved),
+					ColorField::Border => props.border_color = Some(resolved),
 				}
 			}
 			Self::FontSize(value) => props.font_size = Some(value.points(context)),
-			Self::FontWeight(value) => props.font_weight = Some(value),
-			Self::Italic(value) => props.italic = Some(value),
-			Self::TextAlign(value) => props.text_align = Some(value),
+			Self::FontWeight(value) => props.font_weight = Some(*value),
+			Self::Italic(value) => props.italic = Some(*value),
+			Self::TextAlign(value) => props.text_align = Some(*value),
 			Self::BorderWidth(value) => {
 				let width = value.points(context);
 				style.border = Rect::new(|| width);
@@ -321,7 +324,7 @@ impl Declaration {
 				let width = value.points(context);
 				let mut widths = props.border_edges();
 
-				for &edge in edges {
+				for &edge in *edges {
 					*edge.of_mut(&mut style.border) = width;
 					*match edge {
 						Edge::Top => &mut widths.top,
@@ -334,7 +337,7 @@ impl Declaration {
 				props.border_widths = Some(widths);
 			}
 			Self::Radius(value) => props.corner_radius = Some(value.points(context)),
-			Self::Opacity(value) => props.opacity = Some(value),
+			Self::Opacity(value) => props.opacity = Some(*value),
 			_ => {}
 		}
 	}
@@ -525,26 +528,22 @@ impl Declaration {
 
 	/// The color, text, border, and radius declarations.
 	fn css_paint(&self, output: &mut String, important: bool) {
-		match *self {
+		match self {
 			Self::Color(field, value) => {
+				let css = value.css();
 				write(
 					output,
 					important,
-					match field {
+					match *field {
 						ColorField::Text => "color",
 						ColorField::Background => "background-color",
 						ColorField::Border => "border-color",
 					},
-					&format!("#{:08x}", value.0),
+					&css,
 				);
 
-				if field == ColorField::Border {
-					write(
-						output,
-						important,
-						"--lk-border-color",
-						&format!("#{:08x}", value.0),
-					);
+				if *field == ColorField::Border {
+					write(output, important, "--lk-border-color", &css);
 				}
 			}
 			Self::FontSize(value) => write(output, important, "font-size", &value.css()),
@@ -553,14 +552,14 @@ impl Declaration {
 					output,
 					important,
 					"font-weight",
-					keyword::font_weight(value),
+					keyword::font_weight(*value),
 				);
 			}
 			Self::Italic(value) => {
-				write(output, important, "font-style", keyword::font_style(value));
+				write(output, important, "font-style", keyword::font_style(*value));
 			}
 			Self::TextAlign(value) => {
-				let value = keyword::text_align(value);
+				let value = keyword::text_align(*value);
 				write(output, important, "text-align", value);
 				write(output, important, "--lk-text-align", value);
 			}
@@ -576,7 +575,7 @@ impl Declaration {
 				write(output, important, "box-shadow", "none");
 			}
 			Self::EdgeBorderWidth(edges, value) => {
-				for edge in edges {
+				for edge in *edges {
 					write(
 						output,
 						important,

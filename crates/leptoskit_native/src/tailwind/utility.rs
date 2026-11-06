@@ -538,7 +538,7 @@ fn text_paint(value: &str) -> Option<Parsed> {
 	if let Some(inner) = arbitrary(value) {
 		let inner = inner.strip_prefix("length:").unwrap_or(inner);
 
-		if !inner.starts_with('#') && !inner.starts_with("color:") {
+		if !inner.starts_with('#') && !inner.starts_with("color:") && !inner.starts_with("var(") {
 			return Some(
 				Length::parse(inner, false, false)
 					.and_then(Length::absolute)
@@ -570,6 +570,7 @@ fn border_paint(value: &str) -> Option<Parsed> {
 	if let Some(inner) = arbitrary(value)
 		&& !inner.starts_with('#')
 		&& !inner.starts_with("color:")
+		&& !inner.starts_with("var(")
 	{
 		return Some(
 			Length::parse(inner.strip_prefix("length:").unwrap_or(inner), false, false)

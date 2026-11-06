@@ -48,6 +48,10 @@ web-sys = { workspace = true, features = ["Blob", "BlobPropertyBag", "CanvasRend
 name = "vector"
 harness = false
 
+[[example]]
+name = "grid_parity_probe"
+required-features = ["web"]
+
 [features]
 default = []
 devtools = ["dep:leptoskit_devtools_protocol"]
