@@ -348,7 +348,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          version="$(monochange step release-record --from HEAD --format json --jq '.version')"
+          version="$(monochange step release-record --from HEAD --format json --jq '.record.version')"
           tag="v${version}"
           sha="$(git rev-parse HEAD)"
 
@@ -373,7 +373,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          version="$(monochange step release-record --from HEAD --format json --jq '.version')"
+          version="$(monochange step release-record --from HEAD --format json --jq '.record.version')"
           tag="v${version}"
 
           # The draft exists so publish.yml can attach artifacts to it and flip it public only
@@ -394,7 +394,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          version="$(monochange step release-record --from HEAD --format json --jq '.version')"
+          version="$(monochange step release-record --from HEAD --format json --jq '.record.version')"
           gh workflow run publish.yml \
             --ref "v${version}" \
             -f tag="v${version}"
