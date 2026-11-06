@@ -484,7 +484,25 @@ jobs:
         # does not include fails here. It runs before the crates.io credential is requested: a
         # trusted-publishing token lasts thirty minutes, and building a hundred crates takes longer,
         # so the publish below only uploads.
-        run: cargo package --workspace --locked --allow-dirty
+        #
+        # `cargo package --workspace` also reaches the members that set `publish = false` — the
+        # example apps, test fixtures, and setup crates — and refuses their path-only dependencies,
+        # because a packaged manifest has to name a registry version. Those packages never ship, so
+        # they are excluded here instead of carrying versions nothing would resolve.
+        run: |
+          set -euo pipefail
+
+          mapfile -t unpublished < <(
+            cargo metadata --no-deps --format-version 1 \
+              | jq -r '.packages[] | select(.publish == []) | .name'
+          )
+
+          excludes=()
+          for package in "${unpublished[@]}"; do
+            excludes+=("--exclude" "$package")
+          done
+
+          cargo package --workspace --locked --allow-dirty "${excludes[@]}"
 
       - name: request a crates.io credential via OIDC
         id: oidc
