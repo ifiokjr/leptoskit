@@ -33,13 +33,15 @@
 //! This is an explicitly supported subset, not a browser CSS engine. Unknown
 //! utilities and variants are errors even when their conditions are inactive.
 //! Block/inline/contents flow, fixed/sticky positioning, baseline alignment,
-//! overflow on individual axes, other pseudo states, custom themes, arbitrary
-//! selectors/properties, CSS variables/functions, animations, filters, and
-//! shadows are rejected. Text sizes set font size only: line height is not yet
-//! a native text prop. Colors use the default palette converted to 8-bit sRGB,
-//! clipping colors outside its gamut, so native and web use the same color
-//! values. Overflow clipping is supported. The surface lowers `overflow-scroll`
-//! containers to native scroll widgets.
+//! overflow on individual axes, other pseudo states, arbitrary selectors and
+//! properties, non-color CSS functions (`calc`, nested `var`), animations,
+//! filters, and shadows are rejected. Text sizes set font size only: line
+//! height is not yet a native text prop. Colors use the default palette
+//! converted to 8-bit sRGB, clipping colors outside its gamut, so native and
+//! web use the same color values. Arbitrary color values may also be
+//! `var(--name)` or `var(--name, fallback)`: the web keeps the CSS function,
+//! and native resolves through [`Theme`]. Overflow clipping is supported. The
+//! surface lowers `overflow-scroll` containers to native scroll widgets.
 //!
 //! Numeric inputs and computed fractions have magnitude at most 1,000,000;
 //! aspect ratios range from 0.000001 to 1,000,000. Native viewport lengths
@@ -57,6 +59,7 @@
 mod declaration;
 pub(crate) mod keyword;
 mod palette;
+mod theme;
 mod utility;
 mod value;
 
@@ -70,6 +73,7 @@ use leptoskit_yoga::Size;
 use leptoskit_yoga::Style;
 
 use self::declaration::Declaration;
+pub use self::theme::Theme;
 use crate::Color;
 use crate::NativeProps;
 

@@ -202,23 +202,61 @@ fn viewport_points(viewport: f32, value: f32) -> f64 {
 	viewport * (f64::from(value) / 100.0)
 }
 
-pub(super) fn color(value: &str) -> Result<Color, String> {
+/// A solid color or a CSS `var(--name[, fallback])` reference.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum PaintColor {
+	Solid(Color),
+	/// Kept as CSS for the web; native resolves through [`super::Theme`].
+	Var {
+		name: Box<str>,
+		fallback: Option<Color>,
+	},
+}
+
+impl PaintColor {
+	/// The color native paint uses: the theme entry, else the fallback.
+	pub(super) fn resolve(&self) -> Option<Color> {
+		match self {
+			Self::Solid(color) => Some(*color),
+			Self::Var { name, fallback } => super::Theme::color(name).or(*fallback),
+		}
+	}
+
+	/// CSS color syntax for utility sheets.
+	pub(super) fn css(&self) -> String {
+		match self {
+			Self::Solid(color) => format!("#{:08x}", color.0),
+			Self::Var {
+				name,
+				fallback: None,
+			} => format!("var({name})"),
+			Self::Var {
+				name,
+				fallback: Some(color),
+			} => format!("var({name},#{:08x})", color.0),
+		}
+	}
+}
+
+pub(super) fn color(value: &str) -> Result<PaintColor, String> {
 	let (value, alpha) = value
 		.rsplit_once('/')
 		.map_or((value, None), |(color, alpha)| (color, Some(alpha)));
 	let value = arbitrary(value).unwrap_or(value);
 	let value = value.strip_prefix("color:").unwrap_or(value);
 
-	let mut color = match value {
-		"transparent" => Color::rgba(0, 0, 0, 0),
-		"black" => Color::rgba(0, 0, 0, 255),
-		"white" => Color::rgba(255, 255, 255, 255),
-
-		value if value.starts_with('#') => hex_color(value)?,
-		value => {
-			super::palette::lookup(value).ok_or_else(|| format!("unsupported color `{value}`"))?
+	if let Some(variable) = parse_var(value)? {
+		if alpha.is_some() {
+			return Err(
+				"var() colors do not support opacity modifiers; put the alpha in the theme or \
+				 fallback"
+					.to_owned(),
+			);
 		}
-	};
+		return Ok(variable);
+	}
+
+	let mut color = solid_color(value)?;
 
 	if let Some(alpha) = alpha {
 		let alpha = if let Some(alpha) = arbitrary(alpha) {
@@ -243,7 +281,66 @@ pub(super) fn color(value: &str) -> Result<Color, String> {
 		);
 	}
 
-	Ok(color)
+	Ok(PaintColor::Solid(color))
+}
+
+fn solid_color(value: &str) -> Result<Color, String> {
+	match value {
+		"transparent" => Ok(Color::rgba(0, 0, 0, 0)),
+		"black" => Ok(Color::rgba(0, 0, 0, 255)),
+		"white" => Ok(Color::rgba(255, 255, 255, 255)),
+		value if value.starts_with('#') => hex_color(value),
+		value => {
+			super::palette::lookup(value).ok_or_else(|| format!("unsupported color `{value}`"))
+		}
+	}
+}
+
+/// `var(--name)` or `var(--name, fallback)`. Nested `var()` fallbacks are
+/// rejected; the fallback must be a solid color the palette already knows.
+fn parse_var(value: &str) -> Result<Option<PaintColor>, String> {
+	if !value.starts_with("var(") {
+		return Ok(None);
+	}
+
+	let Some(inner) = value
+		.strip_prefix("var(")
+		.and_then(|rest| rest.strip_suffix(')'))
+	else {
+		return Err(
+			"malformed var(); expected `var(--name)` or `var(--name, fallback)`".to_owned(),
+		);
+	};
+
+	if inner.contains("var(") {
+		return Err("nested var() is not supported".to_owned());
+	}
+
+	let inner = inner.trim();
+	let (name, fallback) = match inner.split_once(',') {
+		Some((name, fallback)) => (name.trim(), Some(fallback.trim())),
+		None => (inner, None),
+	};
+
+	if !name.starts_with("--") || name.len() < 3 || name.contains(char::is_whitespace) {
+		return Err(format!(
+			"var() needs a custom property name like `--brand`; got `{name}`"
+		));
+	}
+
+	if name
+		.chars()
+		.any(|ch| !(ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_')))
+	{
+		return Err(format!("unsupported custom property name `{name}`"));
+	}
+
+	let fallback = fallback.map(solid_color).transpose()?;
+
+	Ok(Some(PaintColor::Var {
+		name: name.into(),
+		fallback,
+	}))
 }
 
 fn hex_color(value: &str) -> Result<Color, String> {

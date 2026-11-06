@@ -391,6 +391,7 @@ pub mod prelude {
 	pub use leptoskit_native::tailwind::ClassError;
 	pub use leptoskit_native::tailwind::StyleContext;
 	pub use leptoskit_native::tailwind::Tailwind;
+	pub use leptoskit_native::tailwind::Theme;
 	pub use leptoskit_native::view::Children;
 	pub use leptoskit_native::view::Fragment;
 	pub use leptoskit_native::view::IntoChildren;

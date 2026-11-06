@@ -4,6 +4,7 @@ use leptoskit_native::NativeProps;
 use leptoskit_native::StyleContext;
 use leptoskit_native::Tailwind;
 use leptoskit_native::TextAlign;
+use leptoskit_native::Theme;
 use leptoskit_yoga::Align;
 use leptoskit_yoga::AvailableSpace;
 use leptoskit_yoga::BoxSizing;
@@ -325,6 +326,61 @@ fn compiled_utilities_drive_real_layout() {
 }
 
 #[test]
+fn grid_cols_gap_and_span_match_css_grid_geometry() {
+	let mut yoga = Yoga::new();
+	let root = yoga.create_node();
+	yoga.set_style(
+		root,
+		resolve("grid grid-cols-3 grid-rows-2 w-[400px] h-[200px] p-4 gap-4").0,
+	);
+	let mut cells = Vec::new();
+	for _ in 0..6 {
+		let cell = yoga.create_node();
+		yoga.set_style(cell, Style::default());
+		yoga.insert_child(root, cell, cells.len());
+		cells.push(cell);
+	}
+	yoga.calculate_layout(
+		root,
+		Size::new(
+			AvailableSpace::Definite(400.0),
+			AvailableSpace::Definite(200.0),
+		),
+	);
+	// Matches Chrome with rem=16: padding 16, gap 16, three equal columns.
+	close(yoga.layout(cells[0]).x, 16.0);
+	close(yoga.layout(cells[0]).y, 16.0);
+	close(yoga.layout(cells[0]).width, 112.0);
+	close(yoga.layout(cells[0]).height, 76.0);
+	close(yoga.layout(cells[1]).x, 144.0);
+	close(yoga.layout(cells[2]).x, 272.0);
+	close(yoga.layout(cells[3]).y, 108.0);
+
+	let mut span = Yoga::new();
+	let container = span.create_node();
+	span.set_style(
+		container,
+		resolve("grid grid-cols-4 grid-rows-3 w-[400px] h-[240px] gap-2").0,
+	);
+	let wide = span.create_node();
+	span.set_style(wide, resolve("col-span-2 row-span-2").0);
+	span.insert_child(container, wide, 0);
+	let start = span.create_node();
+	span.set_style(start, resolve("col-start-3").0);
+	span.insert_child(container, start, 1);
+	span.calculate_layout(
+		container,
+		Size::new(
+			AvailableSpace::Definite(400.0),
+			AvailableSpace::Definite(240.0),
+		),
+	);
+	close(span.layout(wide).width, 196.0);
+	close(span.layout(wide).height, 157.33333);
+	close(span.layout(start).x, 204.0);
+}
+
+#[test]
 fn typography_colors_borders_and_opacity_resolve_for_native_and_web() {
 	let (style, props) = resolve(
 		"text-2xl font-semibold text-center text-[#1234] bg-blue-500/50 border-2 border-[#abc] \
@@ -382,6 +438,38 @@ fn color_opacity_modifiers_preserve_transparent_and_existing_alpha() {
 }
 
 #[test]
+fn css_var_colors_emit_var_and_resolve_through_theme_or_fallback() {
+	Theme::clear();
+	let parsed =
+		Tailwind::parse("bg-[var(--brand)] text-[var(--ink,#112233)] border-[var(--line,black)]")
+			.expect("var colors parse");
+	let css = parsed.css();
+	assert!(css.contains("background-color:var(--brand);"), "{css}");
+	assert!(css.contains("color:var(--ink,#112233ff);"), "{css}");
+	assert!(css.contains("border-color:var(--line,#000000ff);"), "{css}");
+	assert!(
+		css.contains("--lk-border-color:var(--line,#000000ff);"),
+		"{css}"
+	);
+
+	let (_, without_theme) = resolve("bg-[var(--brand)] text-[var(--ink,#112233)]");
+	assert_eq!(without_theme.background, None);
+	assert_eq!(
+		without_theme.color,
+		Some(Color::rgba(0x11, 0x22, 0x33, 0xff))
+	);
+
+	Theme::set_color("--brand", Color::rgba(0xaa, 0xbb, 0xcc, 0xff));
+	let (_, with_theme) = resolve("bg-[var(--brand)]");
+	assert_eq!(
+		with_theme.background,
+		Some(Color::rgba(0xaa, 0xbb, 0xcc, 0xff))
+	);
+	assert_eq!(Theme::css(), ":root{--brand:#aabbccff;}");
+	Theme::clear();
+}
+
+#[test]
 fn full_default_palette_is_available_including_v43_neutrals() {
 	for family in [
 		"red", "orange", "amber", "yellow", "lime", "green", "emerald", "teal", "cyan", "sky",
@@ -430,7 +518,8 @@ fn unsupported_syntax_and_inactive_utilities_are_errors() {
 		"2xl:shadow-lg",
 		"w-[calc(100%-1px)]",
 		"bg-[url(https://example.com/a.png)]",
-		"bg-[var(--brand)]",
+		"bg-[var(--brand)]/50",
+		"bg-[var(--brand,var(--other))]",
 		"[color:red]",
 		"md:max-sm:p-4",
 		"p-[10px",
