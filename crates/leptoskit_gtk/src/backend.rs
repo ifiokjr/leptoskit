@@ -991,10 +991,9 @@ fn configure_label(label: &gtk::Label, props: &NativeProps) {
 	});
 
 	let attrs = gtk::pango::AttrList::new();
-	attrs.insert(gtk::pango::AttrFontDesc::new(&crate::measure::font_with_italic(
-		props.text_style(),
-		props.italic.unwrap_or(false),
-	)));
+	attrs.insert(gtk::pango::AttrFontDesc::new(
+		&crate::measure::font_with_italic(props.text_style(), props.italic.unwrap_or(false)),
+	));
 	label.set_attributes(Some(&attrs));
 	label.layout().set_auto_dir(false);
 }

@@ -1666,7 +1666,6 @@ private fun JSONObject.number(
     fallback: Double = 0.0,
 ): Double = if (isNull(name)) fallback else getDouble(name)
 
-
 private fun JSONObject.color(
     name: String,
     fallback: Int,

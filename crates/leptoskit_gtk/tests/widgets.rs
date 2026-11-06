@@ -1169,12 +1169,10 @@ mod linux {
 	/// Per-edge border utilities and `italic` must paint on GTK the same way
 	/// they do on the web and in the terminal, not stay upright or undrawn.
 	fn per_edge_borders_and_italic_text_paint() {
-		let mounted = mounted(
-			&View().class("w-full h-full bg-white p-4 gap-4").children([
-				View().class("w-24 h-16 bg-white border-l-4 border-t-2 border-blue-600"),
-				Text("Slanted").class("italic text-slate-900 text-lg"),
-			]),
-		);
+		let mounted = mounted(&View().class("w-full h-full bg-white p-4 gap-4").children([
+			View().class("w-24 h-16 bg-white border-l-4 border-t-2 border-blue-600"),
+			Text("Slanted").class("italic text-slate-900 text-lg"),
+		]));
 		let root = mounted.surface.borrow().root().unwrap();
 		let png = mounted
 			.surface
@@ -1210,7 +1208,7 @@ mod linux {
 		let attrs = label
 			.attributes()
 			.expect("italic text sets a font attribute");
-		let (font, _, _) = attrs.iterator().font();
+		let (font, ..) = attrs.iterator().font();
 		assert_eq!(
 			font.style(),
 			gtk::pango::Style::Italic,
