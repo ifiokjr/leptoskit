@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <strong>One leptos tree. Real native widgets. Updated over the air.</strong>
+  <strong>One leptos tree. Real native widgets.</strong>
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@
 
 ---
 
-Write shared LeptosKit components for web SSR and hydration, browser extensions, and native apps. Web and extensions render HTML and CSS; native apps render platform widgets without a web view. Generated iOS and Android hosts can download signed WebAssembly interface updates, subject to host capabilities and store policies.
+Write shared LeptosKit components for web SSR and hydration, browser extensions, and native apps. Web and extensions render HTML and CSS; native apps render platform widgets without a web view.
 
 ## Examples
 
@@ -100,7 +100,11 @@ Speed is a feature. cargo stays in charge of compiling, and leptoskit fingerprin
 
 ## Native is really native
 
-Native renderers translate the shared element tree into platform widgets. An element can use several native views or layers, and supported component kinds differ by host. Code push can replace a compatible guest bundle on hosts that implement update checks. Updates must satisfy the installed host’s ABI, signing and version policy, and the distribution platform’s rules.
+Native renderers translate the shared element tree into platform widgets. An element can use several native views or layers, and supported component kinds differ by host.
+
+## Over the air updates
+
+An installed native app is a small host that runs your interface as a WebAssembly bundle. Code push ships a new bundle over the air: signed, content-hashed releases, binary deltas, and a client that verifies every byte before it stages the update. A trial release replaces the working one only after it renders, so a release that fails to start is rejected and the app keeps running. The generated iOS and Android apps install these releases; the generated macOS, Windows, and Linux apps don't check for updates yet. Updates must satisfy the installed host's ABI, signing and version policy, and the distribution platform's rules. See [code push](docs/src/guide/05-code-push.md).
 
 ## Server functions
 

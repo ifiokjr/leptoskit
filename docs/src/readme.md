@@ -1,8 +1,8 @@
 <Hero start="guide/01-installation.md">
 
-# One leptos tree. Real native widgets. <em>Updated over the air.</em>
+# One leptos tree. Real native widgets.
 
-leptoskit is a Rust toolkit for building an app's interface once, with leptos components and built-in Tailwind styles, and shipping it to the browser and as real native widgets on the desktop and on phones. When the interface changes, it reaches installed apps through code push, without another trip through the app store.
+leptoskit is a Rust toolkit for building an app's interface once, with leptos components and built-in Tailwind styles, and shipping it to the browser and as real native widgets on the desktop and on phones.
 
 </Hero>
 
@@ -12,8 +12,6 @@ Most cross-platform toolkits make you pick: render to a web view everywhere, or 
 
 You describe a screen once, in Rust, as a tree of components: `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and the rest. On the web, the same tree renders through leptos to the DOM, with server rendering and hydration. On native platforms, leptoskit's own layout engine lays the tree out with flexbox and CSS grid, and a platform backend commits it as the platform's real controls: AppKit views on macOS, UIKit on iOS, Android views, GTK 4 on Linux, Win32 controls on Windows, and, experimentally, ArkUI on HarmonyOS. In a terminal, the same tree draws as characters in the cell grid. Nothing runs in a web view.
 
-The native interface runs as a small WebAssembly bundle inside an app shell you install once. Publish a new bundle and every installed app can download it, verify every byte against a signed manifest, and try it out. The new version only replaces the working one once it has rendered, so a release that fails to start is rejected and the app keeps running.
-
 <Cards>
 	<Card title="Get started" href="guide/01-installation.md">
 		Install the CLI, scaffold a project, and see it running in a browser in a few minutes.
@@ -21,8 +19,8 @@ The native interface runs as a small WebAssembly bundle inside an app shell you 
 	<Card title="Build a shared screen" href="guide/07-shared-components.md">
 		Write one screen with the built-in components and Tailwind, and render it on the web and natively.
 	</Card>
-	<Card title="Ship updates over the air" href="guide/05-code-push.md">
-		Pack, sign, publish, and pull new interface versions without an app store release.
+	<Card title="Test what you ship" href="guide/08-testing.md">
+		Widget tests, device journeys, and the same finders on every platform.
 	</Card>
 	<Card title="Pick your platforms" href="platforms/readme.md">
 		What each target runs, what works today, and how the host apps are put together.
@@ -81,6 +79,10 @@ The logo is the architecture. The ember boxes are layout: elements placed by the
 | [`leptoskit_l10n`](https://github.com/leptoskit/leptoskit/tree/main/crates/leptoskit_l10n)         | Typed translations in the style of Flutter's `gen_l10n`: ARB files become a `Messages` trait, with plurals for every language.                                                                                                                                                                                                                                                                                                                     |
 | [`leptoskit_testing`](https://github.com/leptoskit/leptoskit/tree/main/crates/leptoskit_testing)   | Widget tests with semantic finders, plus a driver that runs the same journeys against real native apps.                                                                                                                                                                                                                                                                                                                                            |
 | [`leptoskit_docs`](https://github.com/leptoskit/leptoskit/tree/main/crates/leptoskit_docs)         | Markdown with leptos components, and the generator that builds this site. See [writing docs](guide/14-writing-docs.md).                                                                                                                                                                                                                                                                                                                            |
+
+## Over the air updates
+
+An installed native app is a small host that runs your interface as a WebAssembly bundle. Code push ships a new bundle over the air: signed, content-hashed releases, binary deltas, and a client that verifies every byte before it stages the update. A trial release replaces the working one only after it renders, so a release that fails to start is rejected and the app keeps running. The generated iOS and Android apps install these releases today; the generated macOS, Windows, and Linux apps don't check for updates yet. A release must match the installed host's interface contract and signing policy, and store rules still apply to what a download changes. [Code push](guide/05-code-push.md) covers keys, channels, publishing, and rollback.
 
 ## Where things stand
 
