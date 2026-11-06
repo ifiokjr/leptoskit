@@ -132,6 +132,12 @@ impl DevDatabase {
 		Ok(StudioProcess(child))
 	}
 
+	/// The app's database URL, when `leptoskit dev` knows it. Services put
+	/// their own databases beside it.
+	pub(crate) fn url(&self) -> Option<&str> {
+		self.url.as_deref()
+	}
+
 	/// The variables the app server needs to find the database: the URL,
 	/// when `leptoskit dev` provides it.
 	pub(crate) fn env(&self) -> Vec<(String, String)> {

@@ -293,6 +293,7 @@ fn descriptor(
 		deprecated: false,
 		tags: &[],
 		scopes: &[],
+		service: None,
 	}
 }
 

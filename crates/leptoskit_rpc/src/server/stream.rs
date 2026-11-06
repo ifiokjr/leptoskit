@@ -31,6 +31,8 @@ pub struct StreamRegistration {
 	/// and sends its items through the sink until it ends.
 	#[doc(hidden)]
 	pub open: Open,
+	/// The service whose live socket serves it; `None` for the app's own.
+	pub service: Option<&'static str>,
 }
 
 /// What a registration runs.
@@ -38,10 +40,19 @@ pub type Open = fn(Value, QueryCx, StreamSink) -> BoxFuture<'static, ()>;
 
 inventory::collect!(StreamRegistration);
 
-/// The stream called `name`.
+/// The app's stream called `name`: never a service's. See
+/// [`registration_in`].
 #[must_use]
 pub fn registration(name: &str) -> Option<&'static StreamRegistration> {
-	inventory::iter::<StreamRegistration>().find(|registration| registration.name == name)
+	registration_in(None, name)
+}
+
+/// The stream called `name` that `service`'s live socket serves (`None`
+/// for the app's own).
+#[must_use]
+pub fn registration_in(service: Option<&str>, name: &str) -> Option<&'static StreamRegistration> {
+	inventory::iter::<StreamRegistration>()
+		.find(|registration| registration.service == service && registration.name == name)
 }
 
 /// Decodes the arguments of `S` and pumps it: the `open` a

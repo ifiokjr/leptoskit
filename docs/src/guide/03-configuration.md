@@ -231,6 +231,27 @@ name = "demo"
 command = "leptoskit-plugin-demo"
 ```
 
+## `[services.<name>]`
+
+Each table declares a [service](32-services.md): a separate program `leptoskit dev` and `leptoskit serve` run beside your app's server, with its own data and operations.
+
+```toml
+[services.analytics]
+package = "analytics_service"
+```
+
+Each table has exactly one source:
+
+| Key       | Meaning                                                                                             |
+| --------- | --------------------------------------------------------------------------------------------------- |
+| `package` | A crate in your Cargo workspace.                                                                    |
+| `path`    | A crate in a directory, outside the workspace or in it.                                             |
+| `crate`   | A crate from the registry, with an optional `version`.                                              |
+| `git`     | A crate from a git repository, with at most one of `rev`, `branch`, or `tag`.                       |
+| `url`     | A service that's already running elsewhere. Nothing is built or started; the app is only connected. |
+
+The service's own `[package.metadata.leptoskit.service]` sets its defaults, and the table can override `bin`, `features`, `port`, `public`, `routes`, `database`, `pool`, `env`, `secrets`, `volumes`, and `bind`. `trust` (`"first-party"` or `"isolated"`) is only set here. The table's name must be the `name` the service's manifest declares, and can't be `volume` or start with `volume-`. A `url` service takes only `bind` and `trust`: it can't be `public`, because browsers reach public services on your app's own address, and nothing forwards those requests to another server yet, so call it from your app's server instead. [Services](32-services.md#settings) explains each key.
+
 ## Using the configuration from Rust
 
 `leptoskit_config` is the library behind the file, so tools and build scripts read exactly what the CLI reads:

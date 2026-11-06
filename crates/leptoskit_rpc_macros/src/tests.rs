@@ -615,6 +615,209 @@ mod operations {
 	}
 
 	#[test]
+	fn a_service_operation_keeps_its_body_only_in_the_service_build() {
+		let client = query(quote!(service = "analytics"), messages(), false);
+		assert!(
+			client.contains("const SERVICE") && client.contains("\"analytics\""),
+			"{client}"
+		);
+		assert!(!client.contains("async fn messages"), "{client}");
+		insta::assert_snapshot!("service_query_client", client);
+
+		let server = query(quote!(service = "analytics"), messages(), true);
+		assert!(
+			server.contains(
+				"#[cfg(feature = \"service\")]\n/// The latest messages in a \
+				 channel.\n#[allow(clippy::unused_async)]\npub async fn messages"
+			),
+			"{server}"
+		);
+		assert!(
+			server.contains("#[cfg(not(feature = \"service\"))]"),
+			"{server}"
+		);
+		assert!(server.contains("RemoteCx"), "{server}");
+		insta::assert_snapshot!("service_query_server", server);
+
+		let mutation = mutation(
+			quote!(service = "event-store", retries = 2),
+			quote! {
+				pub async fn capture(cx: &rpc::MutationCx, event: String) -> rpc::Result<()> {
+					Ok(())
+				}
+			},
+			true,
+		);
+		assert!(mutation.contains("\"event-store\""), "{mutation}");
+		assert!(mutation.contains("const RETRIES: u32 = 2;"), "{mutation}");
+		// The service's own build registers it as the service's.
+		let compact: String = mutation.split_whitespace().collect();
+		assert!(
+			compact.contains("service:<Captureas::leptoskit_rpc::Operation>::SERVICE"),
+			"{mutation}"
+		);
+
+		let action = pretty(
+			expand(
+				OperationKind::Action,
+				quote!(service = "analytics"),
+				quote! {
+					pub async fn export(cx: &rpc::ActionCx) -> rpc::Result<()> { Ok(()) }
+				},
+				true,
+			)
+			.expect("expands"),
+		);
+		assert!(action.contains("Kind::Action"), "{action}");
+		assert!(action.contains("RemoteCx"), "{action}");
+	}
+
+	#[test]
+	fn api_publishes_a_service_operation_under_its_prefix() {
+		let published = pretty(
+			api(
+				TokenStream::new(),
+				quote! {
+					#[rpc::query(service = "analytics")]
+					pub async fn summary(cx: &rpc::QueryCx, days: u32) -> rpc::Result<u32> {
+						Ok(days)
+					}
+				},
+				true,
+			)
+			.expect("expands"),
+		);
+		// The descriptor is printed token by token: compare without spaces.
+		let compact: String = published.split_whitespace().collect();
+		assert!(
+			compact.contains(r#"path:"/_leptoskit/services/analytics/api/summary""#),
+			"{published}"
+		);
+		assert!(
+			compact.contains(r#"service:::core::option::Option::Some("analytics")"#),
+			"{published}"
+		);
+		assert!(
+			published.contains(r#"#[rpc::query(service = "analytics")]"#),
+			"{published}"
+		);
+	}
+
+	#[test]
+	fn a_service_is_named_like_a_services_table_entry() {
+		let item = "pub async fn a(cx: &rpc::QueryCx) -> rpc::Result<()> { Ok(()) }";
+		let (message, underlined) = error(OperationKind::Query, "service = \"Analytics\"", item);
+		assert!(message.contains("a lowercase letter"), "{message}");
+		assert_eq!(underlined, "\"Analytics\"");
+
+		let (message, _) = error(
+			OperationKind::Query,
+			"service = \"a\", service = \"b\"",
+			item,
+		);
+		assert!(message.contains("given twice"), "{message}");
+
+		// The toolkit's own `rpc.*` names are served by every service, so a
+		// service's operation can't take one.
+		let (message, underlined) = error(
+			OperationKind::Query,
+			"service = \"a\", name = \"rpc.inbox\"",
+			item,
+		);
+		assert!(message.contains("toolkit's own operations"), "{message}");
+		assert_eq!(underlined, "\"rpc.inbox\"");
+	}
+
+	#[test]
+	fn a_service_job_runs_only_in_the_service_build() {
+		let job = quote! {
+			/// Rolls up a day of events.
+			pub async fn roll_up(cx: &rpc::JobCx, day: String) -> rpc::Result<u32> {
+				Ok(0)
+			}
+		};
+		let client = pretty(
+			expand(
+				OperationKind::Job,
+				quote!(service = "analytics"),
+				job.clone(),
+				false,
+			)
+			.expect("expands"),
+		);
+		let compact: String = client.split_whitespace().collect();
+		assert!(
+			compact.contains("impl::leptoskit_rpc::JobforRollUp")
+				&& compact.contains(
+					r#"constSERVICE:::core::option::Option<&'staticstr>=::core::option::Option::Some("analytics""#
+				),
+			"{client}"
+		);
+
+		let server = pretty(
+			expand(OperationKind::Job, quote!(service = "analytics"), job, true).expect("expands"),
+		);
+		let compact: String = server.split_whitespace().collect();
+		// The service's build: the body, and a registration for its workers.
+		assert!(
+			compact.contains("service:<RollUpas::leptoskit_rpc::Job>::SERVICE"),
+			"{server}"
+		);
+		// Every other build, such as the app's server: a stub that never
+		// runs, and no registration.
+		assert!(
+			compact.contains("#[cfg(not(feature=\"service\"))]")
+				&& compact.contains("::leptoskit_rpc::__remote_job_run!();"),
+			"{server}"
+		);
+		insta::assert_snapshot!("service_job_server", server);
+	}
+
+	#[test]
+	fn a_service_stream_is_served_only_by_the_service() {
+		let stream = quote! {
+			pub async fn tail(
+				cx: &rpc::QueryCx,
+			) -> rpc::Result<impl Stream<Item = u32>> {
+				Ok(futures::stream::empty())
+			}
+		};
+		let client = pretty(
+			expand(
+				OperationKind::Stream,
+				quote!(service = "analytics"),
+				stream.clone(),
+				false,
+			)
+			.expect("expands"),
+		);
+		assert!(
+			client.contains("StreamOperation for Tail") && client.contains("\"analytics\""),
+			"{client}"
+		);
+
+		let server = pretty(
+			expand(
+				OperationKind::Stream,
+				quote!(service = "analytics"),
+				stream,
+				true,
+			)
+			.expect("expands"),
+		);
+		let compact: String = server.split_whitespace().collect();
+		assert!(
+			compact.contains("service:<Tailas::leptoskit_rpc::StreamOperation>::SERVICE"),
+			"{server}"
+		);
+		assert!(
+			compact.contains("::leptoskit_rpc::__remote_stream_pump!();"),
+			"{server}"
+		);
+		assert!(compact.contains("#[cfg(feature=\"service\")]"), "{server}");
+	}
+
+	#[test]
 	fn a_mutation_takes_a_name_retries_and_a_crate() {
 		let server = mutation(
 			quote!(name = "chat-send", retries = 0, crate = "leptoskit::rpc"),
@@ -1181,6 +1384,12 @@ mod jobs {
 
 		let client = pretty(crate::cron::expand(quote!("@daily"), item.clone(), false).unwrap());
 		assert!(!client.contains("CronRegistration"), "{client}");
+		// The schedule belongs to whichever service the job does.
+		let compact: String = server.split_whitespace().collect();
+		assert!(
+			compact.contains("service:<Tidyas::leptoskit_rpc::Job>::SERVICE"),
+			"{server}"
+		);
 		let named = pretty(
 			crate::cron::expand(quote!("@daily", crate = "leptoskit::rpc"), item, true).unwrap(),
 		);
@@ -1347,6 +1556,43 @@ mod channels {
 		let args: TokenStream = args.parse().expect("argument tokens");
 		let item: TokenStream = item.parse().expect("item tokens");
 		expand(args, item, true).expect_err("an error").to_string()
+	}
+
+	#[test]
+	fn a_service_channel_is_hosted_only_by_the_service() {
+		let expanded = expansion(
+			quote!(
+				message = Typing,
+				authorize = may_join,
+				service = "analytics"
+			),
+			chat(),
+		);
+		let compact: String = expanded.split_whitespace().collect();
+		assert!(
+			compact.contains(
+				r#"constSERVICE:::core::option::Option<&'staticstr>=::core::option::Option::Some("analytics""#
+			),
+			"{expanded}"
+		);
+		let gated = compact
+			.split("#[cfg(feature=\"service\")]")
+			.nth(1)
+			.unwrap_or_default();
+		assert!(
+			gated.contains("ChannelRegistration"),
+			"the registration is kept only in the service's build: {expanded}"
+		);
+		assert!(
+			compact.contains("service:<Chatas::leptoskit_rpc::Channel>::SERVICE"),
+			"{expanded}"
+		);
+
+		let message = error(
+			"message = Typing, authorize = may_join, service = \"Analytics\"",
+			"pub struct Chat { pub channel: String }",
+		);
+		assert!(message.contains("a lowercase letter"), "{message}");
 	}
 
 	#[test]

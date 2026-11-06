@@ -49,7 +49,8 @@ const _: () = {
     leptoskit::rpc::__private::inventory::submit! {
         leptoskit::rpc::server::Registration { name : < SendMessage as
         leptoskit::rpc::Operation > ::NAME, kind : < SendMessage as
-        leptoskit::rpc::Operation > ::KIND, module_path : ::core::module_path!(), handler
-        : leptoskit::rpc::__private::handle:: < SendMessage >, }
+        leptoskit::rpc::Operation > ::KIND, module_path : ::core::module_path!(), service
+        : < SendMessage as leptoskit::rpc::Operation > ::SERVICE, handler :
+        leptoskit::rpc::__private::handle:: < SendMessage >, }
     }
 };

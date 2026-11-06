@@ -1,0 +1,59 @@
+---
+source: crates/leptoskit_cli/src/services/tests.rs
+expression: listing
+---
+{
+  "services": [
+    {
+      "bindings": [
+        "LEPTOSKIT_SERVICE_ANALYTICS_URL",
+        "LEPTOSKIT_SERVICE_ANALYTICS_TOKEN",
+        "ANALYTICS_PUBLIC_PATH",
+        "ANALYTICS_URL"
+      ],
+      "database": {
+        "engine": "sqlite",
+        "location": ".leptoskit/services/analytics/analytics.sqlite3",
+        "pool": 4
+      },
+      "features": [
+        "service"
+      ],
+      "name": "analytics",
+      "port": 3100,
+      "public_paths": [
+        "/_leptoskit/services/analytics",
+        "/_analytics"
+      ],
+      "source": {
+        "detail": "analytics",
+        "kind": "package"
+      },
+      "trust": "first-party",
+      "volumes": [
+        {
+          "name": "exports",
+          "path": ".leptoskit/services/analytics/exports"
+        }
+      ]
+    },
+    {
+      "bindings": [
+        "LEPTOSKIT_SERVICE_BILLING_URL",
+        "LEPTOSKIT_SERVICE_BILLING_TOKEN",
+        "BILLING_API"
+      ],
+      "database": null,
+      "features": [],
+      "name": "billing",
+      "port": null,
+      "public_paths": [],
+      "source": {
+        "detail": "https://billing.example",
+        "kind": "remote"
+      },
+      "trust": "isolated",
+      "volumes": []
+    }
+  ]
+}

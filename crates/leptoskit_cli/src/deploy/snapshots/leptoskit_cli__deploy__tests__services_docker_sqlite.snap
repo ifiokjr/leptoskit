@@ -1,0 +1,116 @@
+---
+source: crates/leptoskit_cli/src/deploy/tests.rs
+assertion_line: 483
+expression: pinned
+---
+$ leptoskit generate deploy --target docker
+created Dockerfile
+created .dockerignore
+
+next:
+  1. Choose each service's token, a long random secret the app and the service share, and keep it the same across deploys: LEPTOSKIT_SERVICE_ANALYTICS_TOKEN, LEPTOSKIT_SERVICE_BILLING_TOKEN, LEPTOSKIT_SERVICE_CARDS_TOKEN, each from `openssl rand -hex 32`.
+  2. Build the image: `docker build -t notes .`
+  3. Set LEPTOSKIT_SERVICE_ANALYTICS_TOKEN, LEPTOSKIT_SERVICE_BILLING_TOKEN, LEPTOSKIT_SERVICE_CARDS_TOKEN, ANALYTICS_GEOIP_KEY in your shell; `-e NAME` passes each one into the container.
+  4. Create their network: `docker network create notes`
+  5. Start services.analytics first: `docker run -d --rm --read-only --tmpfs /tmp --network notes --name notes-analytics -e LEPTOSKIT_SERVICE_NAME=analytics -e LEPTOSKIT_SERVICE_ADDR=0.0.0.0:3100 -e "LEPTOSKIT_SERVICE_TOKEN=${LEPTOSKIT_SERVICE_ANALYTICS_TOKEN}" -e LEPTOSKIT_PUBLIC_ORIGIN=http://localhost:3000 -e LEPTOSKIT_APP_URL=http://notes-app:3000 -v notes-analytics-data:/data -e DATABASE_URL=sqlite:///data/analytics.sqlite3 -e LEPTOSKIT_SERVICE_DATABASE_POOL=4 -v notes-analytics-exports:/volumes/exports -e LEPTOSKIT_SERVICE_VOLUME_EXPORTS=/volumes/exports -e "ANALYTICS_RETENTION_DAYS=90" -e ANALYTICS_GEOIP_KEY notes /app/services/analytics`
+  6. Start services.cards first: `docker run -d --rm --read-only --tmpfs /tmp --network notes --name notes-cards -e LEPTOSKIT_SERVICE_NAME=cards -e LEPTOSKIT_SERVICE_ADDR=0.0.0.0:3200 -e "LEPTOSKIT_SERVICE_TOKEN=${LEPTOSKIT_SERVICE_CARDS_TOKEN}" -e LEPTOSKIT_PUBLIC_ORIGIN=http://localhost:3000 -e LEPTOSKIT_APP_URL=http://notes-app:3000 notes /app/services/cards`
+  7. Run it: `docker run --rm --read-only --tmpfs /tmp -p 127.0.0.1:3000:3000 --network notes --name notes-app -v notes-data:/data -e LEPTOSKIT_SERVICE_ANALYTICS_TOKEN -e LEPTOSKIT_SERVICE_BILLING_TOKEN -e LEPTOSKIT_SERVICE_CARDS_TOKEN -e "LEPTOSKIT_SERVICE_ANALYTICS_URL=http://notes-analytics:3100" -e "ANALYTICS_AUTHORIZATION=Bearer ${LEPTOSKIT_SERVICE_ANALYTICS_TOKEN}" -e "ANALYTICS_PUBLIC_PATH=/_leptoskit/services/analytics" -e "LEPTOSKIT_SERVICE_BILLING_URL=https://billing.internal.example" -e "LEPTOSKIT_SERVICE_CARDS_URL=http://notes-cards:3200" notes`
+  8. Browsers reach a public service at /_leptoskit/services/<name>/ on the app's origin, and nothing here forwards those paths to it: put a proxy in front that does, or use --target compose, which generates one.
+
+===== Dockerfile =====
+# syntax=docker/dockerfile:1
+#
+# The container for notes, written by `leptoskit generate deploy`. It's yours
+# to edit: running the generator again keeps your changes unless you pass
+# --force. Build it from the project root:
+#
+#   docker build -t notes .
+#
+# The first stage runs `leptoskit build --release`, as you would on your
+# machine. The second runs the server as an unprivileged user that writes
+# nothing to the image's filesystem, so it works with a read-only root
+# filesystem.
+#
+# The SQLite database is the one thing it writes, on a volume at /data.
+
+# The Rust release that builds the app. `1` is the latest stable; pin one,
+# such as 1.96, to build the same way every time.
+ARG RUST_VERSION=1
+# The leptoskit CLI that builds the app. Keep it in step with the `leptoskit`
+# version in Cargo.toml.
+ARG LEPTOSKIT_VERSION=[version]
+# binaryen's wasm-opt shrinks the release client.
+ARG BINARYEN_VERSION=132
+
+FROM rust:${RUST_VERSION}-bookworm AS build
+ARG LEPTOSKIT_VERSION
+ARG BINARYEN_VERSION
+RUN curl --fail --silent --show-error --location \
+      "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-$(uname -m)-linux.tar.gz" \
+    | tar -xz -C /opt \
+ && ln -s "/opt/binaryen-version_${BINARYEN_VERSION}/bin/wasm-opt" /usr/local/bin/wasm-opt
+RUN cargo install leptoskit_cli --version "${LEPTOSKIT_VERSION}" --locked
+WORKDIR /src
+RUN rustup target add wasm32-unknown-unknown
+COPY . .
+# The cache mounts keep downloaded crates and compiled dependencies between
+# builds. The server is copied out, since the target directory is a cache.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    --mount=type=cache,target=/src/.leptoskit \
+    leptoskit build --release --platform web \
+ && cp target/release/notes /usr/local/bin/notes \
+ && install -D target/release/analytics_service /usr/local/lib/leptoskit/services/analytics \
+ && install -D target/release/cards /usr/local/lib/leptoskit/services/cards
+
+FROM debian:bookworm-slim
+# curl answers the health check, and `app` is the unprivileged user the
+# server runs as.
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --user-group --uid 10001 --no-create-home app \
+ && mkdir -p /data /volumes/exports \
+ && chown app:app /data /volumes/exports
+WORKDIR /app
+COPY --from=build /usr/local/bin/notes /app/server
+COPY --from=build /src/dist /app/dist
+# The services: each runs this image with its own command, such as
+# /app/services/<name>.
+COPY --from=build /usr/local/lib/leptoskit/services /app/services
+# What `leptoskit serve` sets from leptoskit.toml, for a container: listen on
+# every interface, and serve the site from /app/dist.
+ENV LEPTOS_ENV=PROD \
+    LEPTOS_OUTPUT_NAME=notes_app \
+    LEPTOS_SITE_ROOT=/app/dist \
+    LEPTOS_SITE_PKG_DIR=pkg \
+    LEPTOS_SITE_ADDR=0.0.0.0:3000
+# The SQLite database lives on a volume, the one place the server writes.
+ENV DATABASE_URL=sqlite:///data/notes.sqlite3
+VOLUME /data
+# These secrets come from the environment when the container starts, never
+# from this file:
+#   LEPTOSKIT_SERVICE_ANALYTICS_TOKEN
+#   LEPTOSKIT_SERVICE_BILLING_TOKEN
+#   LEPTOSKIT_SERVICE_CARDS_TOKEN
+USER app
+EXPOSE 3000
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
+  CMD port="${LEPTOSKIT_SERVICE_ADDR##*:}"; curl --fail --silent --output /dev/null "http://127.0.0.1:${port:-3000}/healthz"
+CMD ["/app/server"]
+
+===== .dockerignore =====
+# Written by `leptoskit generate deploy`. Keeps the build context small, and
+# local builds, databases, and secrets out of the image.
+.git
+**/target
+/dist
+/.leptoskit
+/infra
+/.kamal
+/android/.gradle
+/android/**/build
+*.sqlite3*
+*.dump
+.env
+.env.*

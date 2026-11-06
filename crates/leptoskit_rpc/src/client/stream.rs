@@ -6,7 +6,7 @@ use leptos::prelude::*;
 
 use super::FnError;
 use super::live::StreamEvent;
-use super::live::client_if_any;
+use super::live::client_for;
 use crate::StreamOperation;
 use crate::live::EndReason;
 
@@ -94,7 +94,8 @@ where
 
 	Effect::new_isomorphic(move |_| {
 		let args = args();
-		let Some(live) = client_if_any() else {
+		// A service's stream is opened over that service's connection.
+		let Some(live) = client_for(S::SERVICE) else {
 			return;
 		};
 		// Closing the previous one's channel ends its task, which drops

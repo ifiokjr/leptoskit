@@ -45,6 +45,14 @@ pub(super) async fn upgrade(State(live): State<Live>, request: axum::extract::Re
 		Err(error) => return crate::server::http::failure(&error),
 	};
 
+	if crate::server::is_service(&identity) {
+		// A service reads the app's data by calling its operations, never
+		// by watching them.
+		return crate::server::http::failure(&crate::Error::forbidden(
+			"a service can't hold a live connection to the app: call its operations instead",
+		));
+	}
+
 	let websocket = match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
 		Ok(websocket) => websocket,
 		Err(rejection) => return rejection.into_response(),

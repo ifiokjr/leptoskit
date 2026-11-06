@@ -32,7 +32,6 @@ use super::cron::CronRegistration;
 use super::cx::Progress;
 use super::cx::RunState;
 use super::duration;
-use super::job_registration;
 use super::owner_actor;
 use super::owner_context;
 use crate::Error;
@@ -106,6 +105,11 @@ pub(crate) struct Settings {
 	pub queues: Arc<HashMap<String, usize>>,
 	pub clock: Clock,
 	pub faults: Option<Arc<Faults>>,
+	/// Whose jobs these workers run: the service's, or the app's for
+	/// `None`. A job registered for another scope, as a service's is when a
+	/// workspace-wide build links it into the app, is never run, retried,
+	/// or scheduled here.
+	pub service: Option<&'static str>,
 }
 
 impl Settings {
@@ -115,8 +119,23 @@ impl Settings {
 			queues: Arc::default(),
 			clock,
 			faults: None,
+			service: None,
 		}
 	}
+
+	/// The registration of the job called `name` in these workers' scope.
+	pub(crate) fn job(&self, name: &str) -> Option<&'static JobRegistration> {
+		super::job_registration_in(self.service, name)
+	}
+}
+
+/// Whose jobs a [`Jobs`] runs.
+#[derive(Clone, Copy)]
+enum Scope {
+	/// The installed server's service, read when the workers start.
+	Installed,
+	/// The one [`Jobs::service`] named, or the app's for `None`.
+	Set(Option<&'static str>),
 }
 
 /// How long writes of a job's progress are spread apart.
@@ -149,6 +168,9 @@ pub struct Jobs {
 	live_retention: Option<Duration>,
 	capture: bool,
 	settings: Settings,
+	/// The scope [`service`](Self::service) set; otherwise the installed
+	/// server's when the workers start.
+	scope: Scope,
 }
 
 impl Jobs {
@@ -165,7 +187,20 @@ impl Jobs {
 			live_retention: Some(Duration::from_mins(15)),
 			capture: true,
 			settings: Settings::new(Clock::default()),
+			scope: Scope::Installed,
 		}
+	}
+
+	/// Runs the jobs of the service `name`, or the app's own for `None`:
+	/// those declared with `#[rpc::job(service = "...")]` for that service,
+	/// and its `#[rpc::cron]` schedules. Unset, the workers take the scope of
+	/// the installed [`Server`](crate::server::Server) when they start, so
+	/// a service whose server is `Server::new(db).service("analytics")`
+	/// runs its own jobs without saying so again.
+	#[must_use]
+	pub fn service(mut self, name: Option<&'static str>) -> Self {
+		self.scope = Scope::Set(name);
+		self
 	}
 
 	/// Workers configured from `[rpc.jobs]`, keeping the change log for
@@ -281,7 +316,11 @@ impl Jobs {
 	}
 
 	/// Starts the workers, which run until the returned handle stops them.
-	pub fn start(self) -> JobsHandle {
+	pub fn start(mut self) -> JobsHandle {
+		self.settings.service = match self.scope {
+			Scope::Set(service) => service,
+			Scope::Installed => crate::server::installed().and_then(|server| server.service_name()),
+		};
 		let shutdown = Arc::new(AtomicBool::new(false));
 		let wake = Arc::new(Notify::new());
 		let mut tasks = Vec::with_capacity(self.workers + 2);
@@ -302,6 +341,7 @@ impl Jobs {
 		if self.cron {
 			tasks.push(tokio::spawn(scheduler(
 				self.db.clone(),
+				self.settings.service,
 				self.settings.clock.clone(),
 				Arc::clone(&wake),
 				Arc::clone(&shutdown),
@@ -450,7 +490,7 @@ async fn worker(
 			}
 		}
 
-		let _ = sweep_failures(&db).await;
+		let _ = sweep_failures(&db, settings.service).await;
 
 		if let Some(retention) = retention
 			&& pruned_at.is_none_or(|at| at.elapsed() >= Duration::from_hours(1))
@@ -486,7 +526,9 @@ pub(crate) async fn run_one(
 /// The lease a job of `name` gets: the workers' own, or its timeout and a
 /// margin, whichever is longer.
 fn lease_for(settings: &Settings, name: &str) -> Duration {
-	let timeout = job_registration(name).and_then(|registration| registration.options.timeout);
+	let timeout = settings
+		.job(name)
+		.and_then(|registration| registration.options.timeout);
 	timeout.map_or(settings.lease, |timeout| {
 		settings.lease.max(timeout + Duration::from_secs(30))
 	})
@@ -645,7 +687,7 @@ async fn execute(db: &Db, settings: &Settings, row: JobRow, heartbeat: bool) {
 		},
 		settings.faults.clone(),
 	));
-	let registration = job_registration(&row.name);
+	let registration = settings.job(&row.name);
 
 	let outcome = if let Some(outcome) = skip_reason(&row, now) {
 		outcome
@@ -853,7 +895,8 @@ async fn record(
 				.set(|job| job.finished_at, now)
 		}
 		Outcome::Failed { error, permanent } => {
-			let backoff = job_registration(&row.name)
+			let backoff = settings
+				.job(&row.name)
 				.map(|registration| registration.options.backoff)
 				.unwrap_or_default();
 			let random =
@@ -863,7 +906,8 @@ async fn record(
 				|| row.attempts >= row.max_attempts
 				|| row.deadline_at.is_some_and(|deadline| retry_at > deadline);
 			if gives_up {
-				let on_failure = job_registration(&row.name)
+				let on_failure = settings
+					.job(&row.name)
 					.is_some_and(|registration| registration.on_failure.is_some());
 				update
 					.set(|job| job.state, JobState::Failed)
@@ -900,7 +944,10 @@ fn truncate(mut error: String) -> String {
 /// Runs the `on_failure` mutation of jobs that gave up. Each runs once:
 /// its receipt is keyed by the job, so two sweeps at once apply it once.
 /// How many ran.
-pub(crate) async fn sweep_failures(db: &Db) -> Result<usize, DbError> {
+pub(crate) async fn sweep_failures(
+	db: &Db,
+	service: Option<&'static str>,
+) -> Result<usize, DbError> {
 	let system = db.system("run jobs' on_failure");
 	let failed = JobRow::query()
 		.filter(|job| job.state.eq(JobState::Failed) & job.failure_pending.eq(true))
@@ -911,7 +958,8 @@ pub(crate) async fn sweep_failures(db: &Db) -> Result<usize, DbError> {
 
 	for row in failed {
 		let id = row.id;
-		let handler = job_registration(&row.name).and_then(|registration| registration.on_failure);
+		let handler = super::job_registration_in(service, &row.name)
+			.and_then(|registration| registration.on_failure);
 
 		let done = match handler {
 			None => true,
@@ -984,13 +1032,14 @@ const MOST_TICKS: usize = 1_000;
 /// job is enqueued once. How many this call enqueued.
 pub(crate) async fn enqueue_cron(
 	db: &Db,
+	service: Option<&'static str>,
 	after: Timestamp,
 	until: Timestamp,
 ) -> crate::Result<usize> {
 	let system = db.system("enqueue cron jobs");
 	let mut enqueued = 0;
 
-	for registration in inventory::iter::<CronRegistration>() {
+	for registration in schedules(service) {
 		let mut from = after;
 
 		for _ in 0..MOST_TICKS {
@@ -1014,16 +1063,29 @@ pub(crate) async fn enqueue_cron(
 	Ok(enqueued)
 }
 
+/// The `#[rpc::cron]` schedules of `service`'s jobs, or the app's for
+/// `None`.
+fn schedules(service: Option<&'static str>) -> impl Iterator<Item = &'static CronRegistration> {
+	inventory::iter::<CronRegistration>()
+		.filter(move |registration| registration.service == service)
+}
+
 /// Enqueues cron jobs as their ticks come.
-async fn scheduler(db: Db, clock: Clock, wake: Arc<Notify>, shutdown: Arc<AtomicBool>) {
-	if inventory::iter::<CronRegistration>().next().is_none() {
+async fn scheduler(
+	db: Db,
+	service: Option<&'static str>,
+	clock: Clock,
+	wake: Arc<Notify>,
+	shutdown: Arc<AtomicBool>,
+) {
+	if schedules(service).next().is_none() {
 		return;
 	}
 
 	let mut last = clock.now();
 
 	while !shutdown.load(Ordering::SeqCst) {
-		let next = inventory::iter::<CronRegistration>()
+		let next = schedules(service)
 			.filter_map(|registration| registration.schedule.next_after(last))
 			.min();
 		let wait = next
@@ -1033,7 +1095,7 @@ async fn scheduler(db: Db, clock: Clock, wake: Arc<Notify>, shutdown: Arc<Atomic
 		tokio::time::sleep(wait).await;
 		let now = clock.now();
 
-		if enqueue_cron(&db, last, now).await.is_ok() {
+		if enqueue_cron(&db, service, last, now).await.is_ok() {
 			last = now;
 			wake.notify_waiters();
 		}

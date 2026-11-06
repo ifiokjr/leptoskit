@@ -28,6 +28,8 @@ leptoskit_codepush = { workspace = true, features = ["server"] }
 # `[native]` describes the apps whose associations the site publishes.
 leptoskit_config = { workspace = true }
 serde_json = { workspace = true }
+# Compares a service's token in constant time.
+subtle = { workspace = true }
 thiserror = { workspace = true }
 # Re-exported for server binaries, so `#[tokio::main]` and a multi-threaded
 # runtime work through this crate alone.

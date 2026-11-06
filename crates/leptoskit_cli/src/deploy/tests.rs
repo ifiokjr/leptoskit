@@ -20,7 +20,7 @@ fn main() {
 ";
 
 #[derive(Clone, Copy, Debug)]
-enum Db {
+pub(crate) enum Db {
 	None,
 	Sqlite,
 	Postgres,
@@ -425,4 +425,179 @@ fn probes_depend_on_the_declared_contract_not_source_spelling() {
 		"// TODO: Readiness /readyz\nfn main() {}\n",
 	);
 	assert!(!Project::read(root.path(), &config).unwrap().has_probes);
+}
+
+/// The notes project with services: `analytics`, a public workspace
+/// service with a database, a volume, and bindings; `cards`, a private one;
+/// and `billing`, which runs elsewhere. `trust` is analytics's.
+pub(crate) fn project_with_services(root: &Path, db: Db, trust: &str) -> LeptoskitConfig {
+	let dialect = match db {
+		Db::Postgres => "postgres",
+		_ => "sqlite",
+	};
+	let config = format!(
+		"schema_version = 0\n\n[app]\nname = \"notes\"\nversion = \"0.1.0\"\nrender = \
+		 \"ssr\"\n\n[serve]\naddress = \"127.0.0.1\"\nport = 3000\n\n[build]\nclient_package = \
+		 \"notes_app\"\n\n[db]\ndialect = \"{dialect}\"\n\n[services.analytics]\npackage = \
+		 \"analytics_service\"\ntrust = \"{trust}\"\n\n[services.cards]\npackage = \
+		 \"cards\"\n\n[services.billing]\nurl = \"https://billing.internal.example/\"\n"
+	);
+	write(root, "leptoskit.toml", &config);
+	write(
+		root,
+		"Cargo.toml",
+		"[package]\nname = \"notes\"\nversion = \"0.1.0\"\nedition = \
+		 \"2024\"\n\n[workspace]\nmembers = [\"notes_app\", \"analytics_service\", \"cards\"]\n",
+	);
+	write(root, "src/main.rs", SERVER);
+	write(
+		root,
+		"notes_app/Cargo.toml",
+		"[package]\nname = \"notes_app\"\nversion = \"0.1.0\"\nedition = \
+		 \"2024\"\n\n[lib]\ncrate-type = [\"rlib\", \"cdylib\"]\n",
+	);
+	write(root, "notes_app/src/lib.rs", "");
+	write(
+		root,
+		"analytics_service/Cargo.toml",
+		"[package]\nname = \"analytics_service\"\nversion = \"0.1.0\"\nedition = \
+		 \"2024\"\n\n[features]\nservice = []\n\n[package.metadata.leptoskit.service]\nname = \
+		 \"analytics\"\nport = 3100\npublic = true\nroutes = [\"/_analytics\"]\ndatabase = \
+		 true\npool = 4\nfeatures = [\"service\"]\nvolumes = [\"exports\"]\nsecrets = \
+		 [\"ANALYTICS_GEOIP_KEY\"]\nenv = { ANALYTICS_RETENTION_DAYS = \"90\" \
+		 }\n\n[package.metadata.leptoskit.service.bind]\nANALYTICS_PUBLIC_PATH = \
+		 \"{public_path}\"\nANALYTICS_AUTHORIZATION = \"Bearer {token}\"\n",
+	);
+	write(root, "analytics_service/src/lib.rs", "");
+	write(root, "analytics_service/src/main.rs", "fn main() {}\n");
+	write(
+		root,
+		"cards/Cargo.toml",
+		"[package]\nname = \"cards\"\nversion = \"0.1.0\"\nedition = \
+		 \"2024\"\n\n[package.metadata.leptoskit.service]\nname = \"cards\"\nport = 3200\n",
+	);
+	write(root, "cards/src/main.rs", "fn main() {}\n");
+	LeptoskitConfig::from_toml(&config, root).expect("config")
+}
+
+/// Docker, Compose, and Kubernetes with services, on both databases.
+#[test]
+fn services_are_pinned() {
+	let _version = with_version_masked().bind_to_scope();
+
+	for target in [Target::Docker, Target::Compose, Target::Kubernetes] {
+		for db in [Db::Sqlite, Db::Postgres] {
+			let root = tempfile::tempdir().unwrap();
+			// Kubernetes refuses an isolated public service; see below.
+			let trust = if target == Target::Kubernetes {
+				"first-party"
+			} else {
+				"isolated"
+			};
+			let config = project_with_services(root.path(), db, trust);
+			let report = generate(root.path(), &config, target, false).expect("generate");
+			let mut pinned = format!("$ leptoskit generate deploy --target {target}\n{report}");
+
+			for (file, _) in target.files(&Project::read(root.path(), &config).unwrap()) {
+				let contents = std::fs::read_to_string(root.path().join(&file)).unwrap();
+
+				write!(pinned, "\n===== {file} =====\n{contents}").unwrap();
+			}
+
+			insta::assert_snapshot!(format!("services_{target}_{}", db.name()), pinned);
+		}
+	}
+}
+
+#[test]
+fn the_services_are_read_from_their_manifests() {
+	let root = tempfile::tempdir().unwrap();
+	let config = project_with_services(root.path(), Db::Postgres, "first-party");
+	let project = Project::read(root.path(), &config).unwrap();
+	let names: Vec<&str> = project
+		.services
+		.iter()
+		.map(|service| service.name.as_str())
+		.collect();
+	assert_eq!(names, ["analytics", "billing", "cards"]);
+
+	let analytics = &project.services[0];
+	assert_eq!(
+		analytics.build_path.as_deref(),
+		Some("target/release/analytics_service")
+	);
+	assert_eq!(analytics.port, Some(3100));
+	assert_eq!(
+		analytics.public_prefixes,
+		["/_leptoskit/services/analytics", "/_analytics"]
+	);
+	assert!(analytics.database);
+	assert_eq!(analytics.pool, Some(4));
+
+	let billing = &project.services[1];
+	assert!(!billing.is_process());
+	assert_eq!(
+		billing.url.as_deref(),
+		Some("https://billing.internal.example")
+	);
+}
+
+/// Kubernetes with each role its own Deployment still sends the live paths
+/// to the live Service once there's an Ingress for the services.
+#[test]
+fn split_roles_route_the_live_paths_beside_the_services() {
+	let root = tempfile::tempdir().unwrap();
+	let config = project_with_services(root.path(), Db::Postgres, "first-party");
+	generate_with(root.path(), &config, Target::Kubernetes, false, true).unwrap();
+	let manifest = std::fs::read_to_string(root.path().join("kubernetes.yaml")).unwrap();
+	let ingress = &manifest[manifest.find("kind: Ingress").unwrap()..];
+	let analytics = ingress
+		.find("path: /_leptoskit/services/analytics")
+		.unwrap();
+	let live = ingress.find("path: /live").unwrap();
+	let root_path = ingress.find("path: /\n").unwrap();
+	assert!(analytics < live && live < root_path, "{ingress}");
+	assert!(manifest.contains("name: notes-cards"));
+}
+
+#[test]
+fn kubernetes_refuses_an_isolated_public_service() {
+	let root = tempfile::tempdir().unwrap();
+	let config = project_with_services(root.path(), Db::Postgres, "isolated");
+	let error = generate(root.path(), &config, Target::Kubernetes, false)
+		.unwrap_err()
+		.to_string();
+	assert!(
+		error.contains("services.analytics is isolated and public") && error.contains("Cookie"),
+		"{error}"
+	);
+}
+
+#[test]
+fn fly_and_systemd_refuse_services_they_cannot_run() {
+	for target in [Target::Fly, Target::Systemd] {
+		let root = tempfile::tempdir().unwrap();
+		let config = project_with_services(root.path(), Db::Postgres, "first-party");
+		let error = generate(root.path(), &config, target, false).unwrap_err();
+		assert!(
+			error.to_string().contains("services.analytics")
+				&& error.to_string().contains("--target compose"),
+			"{error}"
+		);
+	}
+}
+
+#[test]
+fn the_connection_budget_counts_every_pool() {
+	let root = tempfile::tempdir().unwrap();
+	let config = project_with_services(root.path(), Db::Postgres, "first-party");
+	let project = Project::read(root.path(), &config).unwrap();
+	// The app: (1 host + 1 during a deploy) × (8 + 1). analytics: 2 × (4 +
+	// 1). cards has no database. 5 kept back.
+	let budget = super::services::Budget::new(8, 1, &project.services, 100);
+	assert_eq!(budget.total, 18 + 10 + 5);
+	assert!(budget.fits());
+	let tight = super::services::Budget::new(8, 1, &project.services, 30);
+	assert!(!tight.fits());
+	assert!(tight.explain().contains("services.analytics"));
 }

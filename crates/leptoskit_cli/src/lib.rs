@@ -59,6 +59,7 @@ pub mod rpc;
 pub mod s3;
 pub mod serve_cmd;
 pub mod server;
+pub mod services;
 pub mod skill;
 pub mod split;
 pub mod testing;

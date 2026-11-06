@@ -57,12 +57,15 @@ mod native;
 mod offline;
 mod paginated;
 mod protocol;
+#[cfg(all(feature = "services", not(target_arch = "wasm32")))]
+mod reqwest;
 #[cfg(all(
 	feature = "server",
 	any(feature = "postgres", feature = "sqlite"),
 	not(target_arch = "wasm32")
 ))]
 mod server;
+mod services;
 mod stream;
 #[cfg(test)]
 mod tests;
@@ -111,6 +114,12 @@ pub struct ClientConfig {
 	pub offline_queue: bool,
 	/// Where the offline queue is kept, in place of the platform's own.
 	pub offline_store: Option<Arc<dyn QueueStore>>,
+	/// What signs requests to each service, by the service's name. A
+	/// service gets no credentials unless it is named here: the app's own
+	/// [`credentials`](Self::credentials), such as a native app's access
+	/// token, never go to a service by default, and a service refusing a
+	/// request never renews them.
+	pub service_credentials: std::collections::BTreeMap<String, Arc<dyn Credentials>>,
 }
 
 impl ClientConfig {
@@ -146,6 +155,22 @@ impl ClientConfig {
 		self
 	}
 
+	/// Signs requests to the service `service`, and its live connection,
+	/// with `credentials`. Without this, a service's operations go with no
+	/// credentials at all, whatever [`credentials`](Self::credentials)
+	/// says: a service that should see the app's own token is one the app
+	/// trusts with it, and says so here.
+	#[must_use]
+	pub fn service_credentials(
+		mut self,
+		service: impl Into<String>,
+		credentials: impl Credentials,
+	) -> Self {
+		self.service_credentials
+			.insert(service.into(), Arc::new(credentials));
+		self
+	}
+
 	/// Keeps the offline queue in `store`, such as a [`MemoryQueue`] in a
 	/// test, and turns it on.
 	#[must_use]
@@ -162,6 +187,10 @@ impl std::fmt::Debug for ClientConfig {
 			.field("origin", &self.origin)
 			.field("credentials", &self.credentials.is_some())
 			.field("offline_queue", &self.offline_queue)
+			.field(
+				"service_credentials",
+				&self.service_credentials.keys().collect::<Vec<_>>(),
+			)
 			.finish_non_exhaustive()
 	}
 }
@@ -230,6 +259,7 @@ static CLIENT: RwLock<Option<Arc<dyn Api>>> = RwLock::new(None);
 /// browser; a native app answers each call with a configuration error until
 /// it has an origin.
 pub fn configure(config: ClientConfig) {
+	services::remember(&config);
 	live::install(&config);
 	install(backend(config));
 }
@@ -286,6 +316,40 @@ fn backend(config: ClientConfig) -> Arc<dyn Api> {
 	Arc::new(protocol::Remote::new(config, protocol::Unreachable))
 }
 
+/// The client for an operation of `service`, or of the app for `None`.
+///
+/// A service's operation goes to that service, never in process, even when
+/// its body is linked into this build, as in a workspace-wide build: the
+/// app's server doesn't serve it. The one exception is the service's own
+/// process, whose installed server serves it, so a call it makes to one of
+/// its own operations runs in process like the app's do in the app.
+fn api_for(service: Option<&'static str>) -> Arc<dyn Api> {
+	match service {
+		None => api(),
+		Some(service) if serves_in_process(service) => api(),
+		Some(service) => services::api(service),
+	}
+}
+
+/// Whether this process's installed server serves `service`'s operations.
+#[cfg(all(
+	feature = "server",
+	any(feature = "postgres", feature = "sqlite"),
+	not(target_arch = "wasm32")
+))]
+fn serves_in_process(service: &str) -> bool {
+	crate::server::installed().is_some_and(|server| server.service_name() == Some(service))
+}
+
+#[cfg(not(all(
+	feature = "server",
+	any(feature = "postgres", feature = "sqlite"),
+	not(target_arch = "wasm32")
+)))]
+fn serves_in_process(_service: &str) -> bool {
+	false
+}
+
 /// Calls an operation and returns its result.
 ///
 /// A mutation goes with a fresh idempotency key, so the client may send it
@@ -334,12 +398,69 @@ pub fn call_with<O: Operation>(
 	send(&op, options.idempotency_key.map_or(Key::None, Key::Given))
 }
 
+/// Calls an operation another service runs, as the app: signed with the
+/// service's token (`$LEPTOSKIT_SERVICE_<NAME>_TOKEN`), so the service
+/// identifies the call with the caller `"app"`.
+///
+/// This is how the app's server reaches what only the app may: a
+/// service's admin queries, say. Nothing else calls as the app. [`call`],
+/// [`query_scope`], [`use_rpc_query`] and the live hooks call a service as
+/// an anonymous caller, also while the server renders, so a page never
+/// renders, or embeds in its HTML, anything the browser couldn't fetch
+/// itself. Keep what this returns on the server.
+///
+/// Only a server has a service's token, so this exists only outside
+/// Wasm, with the `services` feature. A service calling one of its own
+/// operations runs it in process, as [`call`] does.
+///
+/// # Errors
+///
+/// As [`call`]; [`FnError::Other`] when `O` isn't a service's operation, or
+/// the service's URL or token isn't set.
+#[cfg(all(feature = "services", not(target_arch = "wasm32")))]
+#[expect(
+	clippy::needless_pass_by_value,
+	reason = "a call is written `call_as_app(Op { … })`: the arguments are built for it"
+)]
+pub fn call_as_app<O: Operation>(
+	op: O,
+) -> impl Future<Output = Result<O::Output, FnError>> + Send + 'static {
+	let key = if O::KIND == crate::Kind::Mutation {
+		Key::Fresh
+	} else {
+		Key::None
+	};
+	let api = match O::SERVICE {
+		None => {
+			Err(FnError::Other(format!(
+				"`{}` is one of the app's own operations: `call_as_app` calls another service's; \
+				 use `call`",
+				O::NAME
+			)))
+		}
+		Some(service) if serves_in_process(service) => Ok(api()),
+		Some(service) => Ok(services::as_app(service)),
+	};
+
+	let pending = api.and_then(|api| {
+		serde_json::to_value(&op)
+			.map(|arguments| api.call(O::NAME, arguments, key))
+			.map_err(|error| FnError::Invalid(format!("the arguments aren't JSON: {error}")))
+	});
+	async move {
+		let value = pending?.await?;
+		serde_json::from_value(value)
+			.map_err(|error| FnError::Decode(format!("`{}` answered with {error}", O::NAME)))
+	}
+}
+
 fn send<O: Operation>(
 	op: &O,
 	key: Key,
 ) -> impl Future<Output = Result<O::Output, FnError>> + Send + 'static + use<O> {
+	let api = api_for(O::SERVICE);
 	let pending = serde_json::to_value(op)
-		.map(|arguments| api().call(O::NAME, arguments, key))
+		.map(|arguments| api.call(O::NAME, arguments, key))
 		.map_err(|error| FnError::Invalid(format!("the arguments aren't JSON: {error}")));
 	async move {
 		let value = pending?.await?;
@@ -418,6 +539,16 @@ impl<O> std::fmt::Debug for Args<O> {
 	}
 }
 
+/// The cache's name for an operation's queries and mutations: `rpc:<name>`,
+/// or `rpc:<service>/<name>` for one a service owns, so an app operation and
+/// a service operation with the same name never share cached results.
+pub(crate) fn scope_name(service: Option<&str>, name: &str) -> String {
+	match service {
+		Some(service) => format!("rpc:{service}/{name}"),
+		None => format!("rpc:{name}"),
+	}
+}
+
 /// The `leptoskit_query` scope of a query, named `rpc:<name>`: its results
 /// are cached by arguments and shared by every screen that reads them, and
 /// travel from the server's render to the browser.
@@ -432,7 +563,7 @@ where
 	Q::Output: Clone,
 {
 	QueryScope::new(|args: Args<Q>| call(args.into_inner()))
-		.with_name(&format!("rpc:{}", Q::NAME))
+		.with_name(&scope_name(Q::SERVICE, Q::NAME))
 		.with_ssr()
 }
 
@@ -551,7 +682,7 @@ where
 	M: Operation,
 	M::Output: Clone,
 {
-	MutationScope::new(|op: M| live::send_or_call(op)).with_name(&format!("rpc:{}", M::NAME))
+	MutationScope::new(|op: M| live::send_or_call(op)).with_name(&scope_name(M::SERVICE, M::NAME))
 }
 
 /// The `leptoskit_query` scope of an action, named `rpc:<name>`: run it with
@@ -562,7 +693,7 @@ where
 	A: Operation,
 	A::Output: Clone,
 {
-	MutationScope::new(|op: A| call(op)).with_name(&format!("rpc:{}", A::NAME))
+	MutationScope::new(|op: A| call(op)).with_name(&scope_name(A::SERVICE, A::NAME))
 }
 
 /// An action, ready to run from a screen: `.mutate(args)` runs it once, and

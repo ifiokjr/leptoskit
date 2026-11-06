@@ -46,6 +46,7 @@ pub use leptoskit_rpc_codegen::HttpOutput;
 pub use leptoskit_rpc_codegen::spec::SPEC_DESCRIPTION_ENV;
 pub use leptoskit_rpc_codegen::spec::SPEC_OUT_ENV;
 pub use leptoskit_rpc_codegen::spec::SPEC_SERVERS_ENV;
+pub use leptoskit_rpc_codegen::spec::SPEC_SERVICE_ENV;
 pub use leptoskit_rpc_codegen::spec::SPEC_TITLE_ENV;
 use leptoskit_rpc_codegen::spec::SPEC_VERSION;
 pub use leptoskit_rpc_codegen::spec::SPEC_VERSION_ENV;
@@ -96,6 +97,11 @@ pub struct ApiFnDescriptor {
 	/// must carry to call the function. Empty when only the app's own
 	/// sessions may call it.
 	pub scopes: &'static [&'static str],
+	/// The service that runs it, for `#[rpc::query(service = "...")]` and
+	/// the like; `None` for the app's own. Its [`path`](Self::path) is then
+	/// under [`service_prefix`](crate::service_prefix), and it belongs to
+	/// that service's spec, not the app's: see [`SpecOptions::service`].
+	pub service: Option<&'static str>,
 }
 
 /// One argument of an [`ApiFnDescriptor`].
@@ -217,6 +223,11 @@ pub struct SpecOptions {
 	/// Where the live socket is served, relative to each server URL;
 	/// `/live` unless the app nests `Live::router` elsewhere.
 	pub live_path: String,
+	/// Whose operations the spec describes: the app's (`None`, the default)
+	/// or one service's, from `LEPTOSKIT_RPC_SPEC_SERVICE`. An app's build
+	/// can link a service's operations, and they never appear in the app's
+	/// spec.
+	pub service: Option<String>,
 }
 
 impl SpecOptions {
@@ -228,6 +239,7 @@ impl SpecOptions {
 			description: None,
 			servers: Vec::new(),
 			live_path: leptoskit_rpc_codegen::DEFAULT_LIVE_PATH.to_owned(),
+			service: None,
 		}
 	}
 
@@ -242,7 +254,7 @@ impl SpecOptions {
 	/// as unset.
 	pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Self {
 		let read = |name: &str| lookup(name).filter(|value| !value.is_empty());
-		Self {
+		let options = Self {
 			title: read(SPEC_TITLE_ENV).unwrap_or_else(|| "RPC".to_owned()),
 			version: read(SPEC_VERSION_ENV).unwrap_or_else(|| "0.0.0".to_owned()),
 			description: read(SPEC_DESCRIPTION_ENV),
@@ -257,7 +269,27 @@ impl SpecOptions {
 				})
 				.unwrap_or_default(),
 			live_path: leptoskit_rpc_codegen::DEFAULT_LIVE_PATH.to_owned(),
+			service: None,
+		};
+
+		match read(SPEC_SERVICE_ENV) {
+			Some(service) => options.service(service),
+			None => options,
 		}
+	}
+
+	/// Describes the service `name`'s operations instead of the app's, with
+	/// its live socket under its prefix.
+	#[must_use]
+	pub fn service(mut self, name: impl Into<String>) -> Self {
+		let name = name.into();
+		self.live_path = format!(
+			"{}{}",
+			crate::service_prefix(&name),
+			leptoskit_rpc_codegen::DEFAULT_LIVE_PATH
+		);
+		self.service = Some(name);
+		self
 	}
 
 	/// Sets the description.
@@ -330,7 +362,18 @@ pub fn scopes_for(method: &http::Method, path: &str) -> Option<&'static [&'stati
 /// clients could not tell them apart, and the server would silently route one
 /// of them to the other's handler.
 pub fn collect(options: &SpecOptions) -> Result<ApiSpec, SpecError> {
-	collect_with_channels(&descriptors(), &channel_descriptors(), options)
+	let service = options.service.as_deref();
+	let descriptors: Vec<_> = descriptors()
+		.into_iter()
+		.filter(|descriptor| descriptor.service == service)
+		.collect();
+	// Channels aren't service-owned: they're the app's.
+	let channels = if service.is_none() {
+		channel_descriptors()
+	} else {
+		Vec::new()
+	};
+	collect_with_channels(&descriptors, &channels, options)
 }
 
 /// Checks that every registered `#[api]` function has its own name and its
@@ -354,10 +397,12 @@ pub fn check() -> Result<(), SpecError> {
 ///
 /// As [`collect`].
 pub fn check_from(descriptors: &[&ApiFnDescriptor]) -> Result<(), SpecError> {
-	let mut by_name: HashMap<&str, &ApiFnDescriptor> = HashMap::new();
+	// A name is unique within the app's operations and within each
+	// service's: each is served, and generated, apart.
+	let mut by_name: HashMap<(Option<&str>, &str), &ApiFnDescriptor> = HashMap::new();
 	let mut by_route: HashMap<(&str, &str), &ApiFnDescriptor> = HashMap::new();
 	for descriptor in descriptors.iter().copied() {
-		if let Some(existing) = by_name.insert(descriptor.name, descriptor) {
+		if let Some(existing) = by_name.insert((descriptor.service, descriptor.name), descriptor) {
 			return Err(SpecError::DuplicateName {
 				name: descriptor.name.to_owned(),
 				first: existing.module_path.to_owned(),

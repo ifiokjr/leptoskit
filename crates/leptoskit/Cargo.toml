@@ -112,6 +112,10 @@ rpc-live = ["rpc", "leptoskit_rpc/live"]
 ## The live relay over NATS JetStream, for live queries and channels across
 ## several servers: `leptoskit::rpc::server::Relay`.
 rpc-relay = ["rpc-live", "leptoskit_rpc/relay"]
+## Calls operations another service runs (`#[rpc::query(service = "...")]`)
+## from a Rust server that doesn't serve operations itself, over HTTP to
+## `$LEPTOSKIT_SERVICE_<NAME>_URL`. `server` with `rpc` includes it.
+rpc-services = ["rpc", "leptoskit_rpc/services"]
 table = ["dep:leptoskit_table"]
 # Interfaces an agent writes as text at runtime: `leptoskit::agent_ui`.
 agent-ui = ["dep:leptoskit_agent_ui"]

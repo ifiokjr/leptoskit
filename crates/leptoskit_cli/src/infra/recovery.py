@@ -81,6 +81,31 @@ def schema(container, database, user="postgres"):
     return sorted(json.loads(sql(container, database, MIGRATIONS, user)))
 
 
+def service_schema(container, database, user="postgres"):
+    # A service that has applied no migrations has no history table yet.
+    exists = sql(container, database, "SELECT to_regclass('public._leptoskit_migrations') IS NOT NULL", user)
+    return schema(container, database, user) if exists.strip() == b"t" else []
+
+
+def service_databases():
+    # Each database-backed service owns `leptoskit_service_<service>` under a
+    # role of the same name; restore candidates and previous copies are
+    # named lk_*, and leptoskit's own roles never start `leptoskit_service_`.
+    rows = sql(DB, "postgres", "SELECT d.datname || ',' || r.rolname FROM pg_database d JOIN pg_roles r "
+               "ON r.oid = d.datdba WHERE d.datname LIKE 'leptoskit\\_service\\_%' ORDER BY 1", "leptoskit_admin")
+    found = {}
+    for line in rows.decode().splitlines():
+        name, owner = line.split(",", 1)
+        if not re.fullmatch(r"leptoskit_service_[a-z0-9_]+", name) or not re.fullmatch(r"[a-z0-9_]+", owner):
+            raise RuntimeError("unexpected service database name")
+        found[name] = owner
+    return found
+
+
+def dump_name(database):
+    return "database-" + database + ".dump"
+
+
 def archive(snapshot, filename, destination):
     if snapshot != "latest" and not re.fullmatch(r"[a-f0-9]{8,64}", snapshot):
         raise RuntimeError("invalid snapshot id")
@@ -97,29 +122,42 @@ def restore_archive(container, database, path, user="postgres", role=None):
         run(args, stdin=stream)
 
 
+@contextlib.contextmanager
+def scratch_database():
+    container = "lk-verify-" + uuid.uuid4().hex
+    try:
+        run(["docker", "run", "-d", "--name", container, "--network", "none",
+             "-e", "POSTGRES_HOST_AUTH_METHOD=trust", "-e", "POSTGRES_DB=verify", "postgres:17"])
+        for attempt in range(60):
+            ready = subprocess.run(["docker", "exec", container, "pg_isready", "-U", "postgres"],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if ready.returncode == 0:
+                break
+            time.sleep(1)
+        else:
+            raise RuntimeError("verification database did not become ready")
+        yield container
+    finally:
+        subprocess.run(["docker", "rm", "-f", "-v", container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def verify(snapshot):
     with tempfile.TemporaryDirectory(dir=ROOT) as temporary:
         temporary = pathlib.Path(temporary)
         archive(snapshot, "database.dump", temporary / "database.dump")
         archive(snapshot, "metadata.json", temporary / "metadata.json")
         metadata = json.loads((temporary / "metadata.json").read_text())
-        container = "lk-verify-" + uuid.uuid4().hex
-        try:
-            run(["docker", "run", "-d", "--name", container, "--network", "none",
-                 "-e", "POSTGRES_HOST_AUTH_METHOD=trust", "-e", "POSTGRES_DB=verify", "postgres:17"])
-            for attempt in range(60):
-                ready = subprocess.run(["docker", "exec", container, "pg_isready", "-U", "postgres"],
-                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                if ready.returncode == 0:
-                    break
-                time.sleep(1)
-            else:
-                raise RuntimeError("verification database did not become ready")
+        with scratch_database() as container:
             restore_archive(container, "verify", temporary / "database.dump")
             if schema(container, "verify") != metadata["migrations"]:
                 raise RuntimeError("restored migration history differs from backup metadata")
-        finally:
-            subprocess.run(["docker", "rm", "-f", "-v", container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Each service's database restores in a scratch server of its own.
+        for name, info in metadata.get("databases", {}).items():
+            archive(snapshot, dump_name(name), temporary / dump_name(name))
+            with scratch_database() as container:
+                restore_archive(container, "verify", temporary / dump_name(name))
+                if service_schema(container, "verify") != info["migrations"]:
+                    raise RuntimeError("a service's restored migration history differs from backup metadata")
     return metadata
 
 
@@ -139,9 +177,13 @@ def backup():
     shutil.rmtree(STAGE, ignore_errors=True)
     STAGE.mkdir(mode=0o700)
     try:
-        metadata = {"created_at": now(), "migrations": schema(DB, "leptoskit", "leptoskit")}
+        metadata = {"created_at": now(), "migrations": schema(DB, "leptoskit", "leptoskit"), "databases": {}}
         with (STAGE / "database.dump").open("wb") as stream:
             run(["docker", "exec", DB, "pg_dump", "-U", "leptoskit", "-d", "leptoskit", "--format=custom"], stdout=stream)
+        for name, owner in service_databases().items():
+            metadata["databases"][name] = {"owner": owner, "migrations": service_schema(DB, name, "leptoskit_admin")}
+            with (STAGE / dump_name(name)).open("wb") as stream:
+                run(["docker", "exec", DB, "pg_dump", "-U", "leptoskit_admin", "-d", name, "--format=custom"], stdout=stream)
         atomic(STAGE / "metadata.json", metadata)
         (STAGE / "releases.json").write_bytes((ROOT / "releases.json").read_bytes() if (ROOT / "releases.json").exists() else b"[]")
         output = run(["restic", "backup", str(STAGE), "--json", "--tag", TAG, "--host", CONFIG["name"]])
@@ -194,22 +236,51 @@ def restore(snapshot, confirmed):
         archive(snapshot, "releases.json", temporary / "releases.json")
         metadata = json.loads((temporary / "metadata.json").read_text())
         history = json.loads((temporary / "releases.json").read_text())
-        active = sql(DB, "postgres", "SELECT count(*) FROM pg_stat_activity WHERE datname = 'leptoskit'", "leptoskit_admin")
-        if int(active) != 0:
-            raise RuntimeError("database still has clients; stop all writers before restore")
+        services = metadata.get("databases", {})
+        for name, info in services.items():
+            if not re.fullmatch(r"leptoskit_service_[a-z0-9_]+", name) or not re.fullmatch(r"[a-z0-9_]+", info["owner"]):
+                raise RuntimeError("unexpected service database name in the snapshot")
+        current = service_databases()
+        for name in ["leptoskit", *services]:
+            active = sql(DB, "postgres", "SELECT count(*) FROM pg_stat_activity WHERE datname = '" + name + "'", "leptoskit_admin")
+            if int(active) != 0:
+                raise RuntimeError("database still has clients; stop all writers before restore")
         sql(DB, "postgres", "CREATE DATABASE " + candidate + " OWNER leptoskit", "leptoskit_admin")
         restore_archive(DB, candidate, temporary / "database.dump", "leptoskit_admin", "leptoskit")
         if schema(DB, candidate, "leptoskit_admin") != metadata["migrations"]:
             raise RuntimeError("candidate schema verification failed; original database is unchanged")
-        # Both renames commit together. PostgreSQL rejects the rename if a
+        # Every service's database is restored into a candidate beside it,
+        # under the role that owns it, before anything is renamed.
+        renames = ["ALTER DATABASE leptoskit RENAME TO " + previous, "ALTER DATABASE " + candidate + " RENAME TO leptoskit"]
+        previous_databases = {}
+        for index, (name, info) in enumerate(sorted(services.items())):
+            exists = sql(DB, "postgres", "SELECT count(*) FROM pg_roles WHERE rolname = '" + info["owner"] + "'", "leptoskit_admin")
+            if int(exists) != 1:
+                raise RuntimeError("a service's role is missing; release once so its role exists, then restore")
+            service_candidate = candidate + "_" + str(index)
+            archive(snapshot, dump_name(name), temporary / dump_name(name))
+            sql(DB, "postgres", "CREATE DATABASE " + service_candidate + " OWNER " + info["owner"], "leptoskit_admin")
+            restore_archive(DB, service_candidate, temporary / dump_name(name), "leptoskit_admin", info["owner"])
+            if service_schema(DB, service_candidate, "leptoskit_admin") != info["migrations"]:
+                raise RuntimeError("a service's candidate schema verification failed; original databases are unchanged")
+            if name in current:
+                previous_databases[name] = previous + "_" + str(index)
+                renames.append("ALTER DATABASE " + name + " RENAME TO " + previous_databases[name])
+            renames.append("ALTER DATABASE " + service_candidate + " RENAME TO " + name)
+        # All renames commit together. PostgreSQL rejects the rename if a
         # racing unmanaged client connected; it does not kill client sessions.
         atomic(ROOT / "derived-reset-required.json", {"snapshot": snapshot})
-        sql(DB, "postgres", "BEGIN; ALTER DATABASE leptoskit RENAME TO " + previous +
-            "; ALTER DATABASE " + candidate + " RENAME TO leptoskit; COMMIT", "leptoskit_admin")
+        sql(DB, "postgres", "BEGIN; " + "; ".join(renames) + "; COMMIT", "leptoskit_admin")
+        # A restored database starts with PUBLIC's default CONNECT. Put back
+        # what a release's setup grants: only each database's owner connects.
+        if services:
+            lockdown = ["REVOKE CONNECT ON DATABASE " + name + " FROM PUBLIC" for name in ["leptoskit", *sorted(services)]]
+            sql(DB, "postgres", "; ".join(lockdown), "leptoskit_admin")
         atomic(ROOT / "releases.json", history)
         reset_derived_state(suffix)
         (ROOT / "derived-reset-required.json").unlink()
         result = {"restored_at": now(), "snapshot": snapshot, "previous_database": previous,
+                  "previous_databases": previous_databases,
                   "migrations": metadata["migrations"], "application_stopped": True}
         atomic(ROOT / "restore-status.json", result)
         return result

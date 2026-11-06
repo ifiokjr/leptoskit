@@ -577,6 +577,7 @@ fn follow_database(
 			Ok(Some(env)) => {
 				if let Some(web) = web {
 					web.env = env;
+					web.database_url = database.url().map(str::to_owned);
 				}
 			}
 			Ok(None) => {}
@@ -606,13 +607,32 @@ enum Wake {
 /// app without a server gets leptoskit's static server over `dist/`.
 struct Web {
 	config: LeptoskitConfig,
+	root: PathBuf,
+	/// Where browsers reach the app: `serve.port`.
 	address: SocketAddr,
+	/// Where the app (its server, or the static server) listens: `address`,
+	/// or an internal port when the services' proxy holds `address`.
+	app_address: SocketAddr,
 	/// Whether the app's own server serves the site, so it restarts after
 	/// each rebuild.
 	runs_app_server: bool,
 	app_server: Option<Child>,
 	/// Extra variables for the app server, such as the database's URL.
 	env: Vec<(String, String)>,
+	/// The app's development database URL, beside which services get theirs.
+	database_url: Option<String>,
+	/// The app's services, running beside it.
+	services: DevServices,
+}
+
+/// The services `leptoskit dev` runs, and what the app receives for them.
+#[derive(Default)]
+struct DevServices {
+	/// Each service's token, kept across rebuilds.
+	tokens: std::collections::BTreeMap<String, String>,
+	running: crate::services::run::Running,
+	/// The variables the app receives for the services.
+	app_env: Vec<(String, String)>,
 }
 
 impl Web {
@@ -645,7 +665,15 @@ impl Web {
 		// client-rendered app's server is where its API and sign-in live, and
 		// it serves the built site itself. The app's server binds the port.
 		let runs_app_server = server_rendered || output.server_binary.is_some();
-		let listener = if runs_app_server {
+		// Public services share the app's origin through a proxy on the
+		// configured port, with the app behind it on an internal one.
+		let routes = crate::services::proxy::Routes::of(&output.services);
+		let app_address = if routes.is_empty() {
+			address
+		} else {
+			free_address(ip)?
+		};
+		let listener = if runs_app_server && routes.is_empty() {
 			drop(listener);
 			None
 		} else {
@@ -657,46 +685,124 @@ impl Web {
 
 		let mut web = Self {
 			config: config.clone(),
+			root: root.to_path_buf(),
 			address,
+			app_address,
 			runs_app_server,
 			app_server: None,
 			env: database.map_or_else(Vec::new, crate::db::DevDatabase::env),
+			database_url: database.and_then(|database| database.url().map(str::to_owned)),
+			services: DevServices {
+				tokens: crate::services::run::tokens(&output.services)?,
+				..DevServices::default()
+			},
+		};
+		web.start_services(&output.services)?;
+
+		let adopt = |listener: std::net::TcpListener| {
+			let _guard = runtime.enter();
+			tokio::net::TcpListener::from_std(listener).context("could not adopt the listener")
 		};
 
-		if let Some(listener) = listener {
-			let out_dir = root.join(DEV_OUT);
-			let router = leptoskit_axum::dev_router(&leptoskit_axum::ServeOptions::new(
-				&out_dir,
-				ip.to_string(),
-				port,
-			));
-			let listener = {
-				let _guard = runtime.enter();
-				tokio::net::TcpListener::from_std(listener)
-					.context("could not adopt the listener")?
-			};
+		let proxied = !routes.is_empty();
+
+		if let Some(listener) = listener.as_ref().filter(|_| proxied) {
+			let listener = listener
+				.try_clone()
+				.context("could not share the listener")?;
+			let proxy = crate::services::proxy::router(routes, app_address);
+			let listener = adopt(listener)?;
 			runtime.spawn(async move {
-				if let Err(error) = axum::serve(listener, router).await {
-					ui::warning(format_args!("the dev server stopped: {error}"));
+				if let Err(error) = axum::serve(listener, proxy).await {
+					ui::warning(format_args!("the services' proxy stopped: {error}"));
 				}
 			});
+			ui::tagged(
+				"services",
+				format_args!("public paths proxied at {BOLD}{}{BOLD:#}", web.url()),
+			);
+		} else if let Some(listener) = listener {
+			// No services to proxy, and no app server: leptoskit's static
+			// server takes the configured port.
+			serve_static(root, ip, port, adopt(listener)?, runtime);
 			ui::tagged(
 				"web",
 				format_args!(
 					"serving {} at {BOLD}{}{BOLD:#}",
-					out_dir.display(),
+					root.join(DEV_OUT).display(),
 					web.url()
 				),
 			);
-		} else {
-			web.app_server = Some(start_app_server(config, &output, address, &web.env)?);
+		}
+
+		if runs_app_server {
+			web.app_server = Some(start_app_server(
+				config,
+				&output,
+				app_address,
+				&web.app_env(),
+			)?);
 			ui::tagged(
 				"web",
 				format_args!("app server at {BOLD}{}{BOLD:#}", web.url()),
 			);
+		} else if app_address != address {
+			let listener = std::net::TcpListener::bind(app_address)
+				.with_context(|| format!("could not bind {app_address}"))?;
+			listener
+				.set_nonblocking(true)
+				.context("could not configure the listener")?;
+			serve_static(root, ip, app_address.port(), adopt(listener)?, runtime);
+			ui::tagged(
+				"web",
+				format_args!(
+					"serving {} at {BOLD}{}{BOLD:#}",
+					root.join(DEV_OUT).display(),
+					web.url()
+				),
+			);
 		}
 
 		Ok(web)
+	}
+
+	/// The app server's variables: the database's and the services'.
+	fn app_env(&self) -> Vec<(String, String)> {
+		self.env
+			.iter()
+			.chain(&self.services.app_env)
+			.cloned()
+			.collect()
+	}
+
+	/// Starts the services a build made, each ready before the next, with
+	/// the tokens this session made for them.
+	fn start_services(&mut self, built: &[crate::services::BuiltService]) -> Result<()> {
+		if built.is_empty() {
+			return Ok(());
+		}
+
+		// A service added since the session started gets a token too.
+		for (name, token) in crate::services::run::tokens(built)? {
+			self.services.tokens.entry(name).or_insert(token);
+		}
+
+		let session = crate::services::run::Session {
+			config: &self.config,
+			root: &self.root,
+			public_origin: self.url(),
+			app_url: format!("http://{}", self.app_address),
+			app_database_url: self.database_url.clone(),
+			tokens: &self.services.tokens,
+		};
+		let prepared = crate::services::run::prepare(built, &session)?;
+		self.services.running = crate::services::run::start(
+			&prepared,
+			&[(crate::services::env::DRAIN_MS.to_owned(), "0".to_owned())],
+			crate::server::DEV_STOP_GRACE,
+		)?;
+		self.services.app_env = prepared.app_env;
+		Ok(())
 	}
 
 	fn url(&self) -> String {
@@ -711,9 +817,10 @@ impl Web {
 	}
 
 	fn rebuild(&mut self) {
-		// Stop the app server before cargo replaces its binary: Windows
-		// refuses to overwrite a running executable.
+		// Stop the app server and the services before cargo replaces their
+		// binaries: Windows refuses to overwrite a running executable.
 		self.stop_app_server();
+		self.services.running.stop();
 		let started = Instant::now();
 
 		match crate::build::run(false, None, None, DEV_OUT) {
@@ -725,8 +832,17 @@ impl Web {
 						ui::seconds(started.elapsed())
 					),
 				);
+
+				if let Err(error) = self.start_services(&output.services) {
+					ui::tagged_error(
+						"services",
+						format_args!("{BAD}could not restart the services:{BAD:#} {error:#}"),
+					);
+				}
+
 				if self.runs_app_server {
-					match start_app_server(&self.config, &output, self.address, &self.env) {
+					match start_app_server(&self.config, &output, self.app_address, &self.app_env())
+					{
 						Ok(child) => self.app_server = Some(child),
 						Err(error) => {
 							ui::tagged_error(
@@ -754,6 +870,36 @@ impl Drop for Web {
 	}
 }
 
+/// An address on `ip` with a port the OS says is free.
+fn free_address(ip: IpAddr) -> Result<SocketAddr> {
+	let listener = std::net::TcpListener::bind(SocketAddr::new(ip, 0))
+		.context("could not find a free port for the app behind the services' proxy")?;
+	listener
+		.local_addr()
+		.context("could not read the free port's address")
+}
+
+/// Serves `dist/` with leptoskit's static server on `listener`.
+fn serve_static(
+	root: &Path,
+	ip: IpAddr,
+	port: u16,
+	listener: tokio::net::TcpListener,
+	runtime: &tokio::runtime::Runtime,
+) {
+	let out_dir = root.join(DEV_OUT);
+	let router = leptoskit_axum::dev_router(&leptoskit_axum::ServeOptions::new(
+		&out_dir,
+		ip.to_string(),
+		port,
+	));
+	runtime.spawn(async move {
+		if let Err(error) = axum::serve(listener, router).await {
+			ui::warning(format_args!("the dev server stopped: {error}"));
+		}
+	});
+}
+
 /// Starts the server binary a build produced, in the leptos `DEV`
 /// environment.
 fn start_app_server(
@@ -775,13 +921,15 @@ fn start_app_server(
 		address,
 		env: LeptosEnv::Dev,
 	};
+	crate::server::ensure_port_free(address, "the app server")?;
 	crate::server::spawn_with(binary, &site, env)
 }
 
-/// Stops a child process and reaps it. A child that already exited is fine.
+/// Stops a child process (`SIGTERM`, then `SIGKILL` after
+/// [`DEV_STOP_GRACE`](crate::server::DEV_STOP_GRACE)) and reaps it. A child
+/// that already exited is fine.
 fn stop(child: &mut Child) {
-	let _ = child.kill();
-	let _ = child.wait();
+	crate::server::stop_gracefully(&mut [child], crate::server::DEV_STOP_GRACE);
 }
 
 /// Decides which watched paths trigger a rebuild.

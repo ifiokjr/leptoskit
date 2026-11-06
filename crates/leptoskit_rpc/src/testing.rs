@@ -69,6 +69,16 @@ impl TestJobs {
 		self
 	}
 
+	/// Runs the jobs and cron schedules of the service `name` (`None`, the
+	/// default, for the app's own), as [`Jobs::service`] does.
+	///
+	/// [`Jobs::service`]: crate::server::Jobs::service
+	#[must_use]
+	pub fn service(mut self, name: Option<&'static str>) -> Self {
+		self.settings.service = name;
+		self
+	}
+
 	/// The test's time now.
 	pub fn now(&self) -> Timestamp {
 		self.settings.clock.now()
@@ -87,7 +97,7 @@ impl TestJobs {
 			.cron_from
 			.lock()
 			.unwrap_or_else(PoisonError::into_inner);
-		crate::server::jobs::enqueue_cron(&self.db, from, until)
+		crate::server::jobs::enqueue_cron(&self.db, self.settings.service, from, until)
 			.await
 			.expect("cron jobs enqueue");
 		*self
@@ -114,7 +124,7 @@ impl TestJobs {
 				runs += 1;
 				continue;
 			}
-			let swept = crate::server::jobs::sweep_failures(&self.db)
+			let swept = crate::server::jobs::sweep_failures(&self.db, self.settings.service)
 				.await
 				.expect("on_failure runs");
 

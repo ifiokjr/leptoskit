@@ -45,6 +45,8 @@ pub struct Server {
 struct Inner {
 	db: Db,
 	identify: Arc<dyn Identify>,
+	/// The service these operations belong to; `None` for the app's own.
+	service: Option<&'static str>,
 }
 
 impl Server {
@@ -55,6 +57,7 @@ impl Server {
 			inner: Arc::new(Inner {
 				db,
 				identify: Arc::new(Anonymous),
+				service: None,
 			}),
 		}
 	}
@@ -67,8 +70,53 @@ impl Server {
 			inner: Arc::new(Inner {
 				db: self.inner.db.clone(),
 				identify: Arc::new(identify),
+				service: self.inner.service,
 			}),
 		}
+	}
+
+	/// Serves the operations of the service `name`, declared with
+	/// `#[rpc::query(service = "name")]` and the like, instead of the app's
+	/// own: what a service's binary builds. Every server also serves the
+	/// built-in `rpc.*` operations for its own jobs and inbox.
+	///
+	/// Nest its [`router`](Self::router) (and its live server's) under
+	/// [`service_prefix(name)`](crate::service_prefix), where the app's
+	/// clients send the service's operations:
+	///
+	/// ```ignore
+	/// let rpc = Server::new(db).service("analytics").identify(ServiceCallers::for_service(Anonymous));
+	/// let live = rpc.live().origin(public_origin);
+	/// let app = Router::new().nest(&rpc::service_prefix("analytics"), rpc.router().merge(live.router()));
+	/// ```
+	///
+	/// In this process, a call to one of the service's own operations runs
+	/// in process, as the app's do in the app's server.
+	///
+	/// # Panics
+	///
+	/// When `name` isn't a service name: see
+	/// [`is_service_name`](crate::is_service_name).
+	#[must_use]
+	pub fn service(self, name: &'static str) -> Self {
+		assert!(
+			crate::is_service_name(name),
+			"`{name}` isn't a service name: a lowercase letter, then lowercase letters, digits, \
+			 and `-`"
+		);
+		Self {
+			inner: Arc::new(Inner {
+				db: self.inner.db.clone(),
+				identify: Arc::clone(&self.inner.identify),
+				service: Some(name),
+			}),
+		}
+	}
+
+	/// The service these operations belong to, or `None` for the app's.
+	#[must_use]
+	pub fn service_name(&self) -> Option<&'static str> {
+		self.inner.service
 	}
 
 	/// The database operations run on, before it acts for anyone.
@@ -81,7 +129,9 @@ impl Server {
 	/// [`router`](super::Live::router).
 	#[cfg(feature = "live")]
 	pub fn live(&self) -> super::Live {
-		super::Live::new(self.inner.db.clone()).identify_arc(Arc::clone(&self.inner.identify))
+		super::Live::new(self.inner.db.clone())
+			.identify_arc(Arc::clone(&self.inner.identify))
+			.for_service(self.inner.service)
 	}
 
 	/// Makes this the server that in-process calls use, such as
@@ -106,11 +156,17 @@ impl Server {
 	///
 	/// When two operations share a name; see
 	/// [`registrations`](super::registrations).
+	///
+	/// Only this server's own operations get routes: the app's for a
+	/// default server, or one service's after [`service`](Self::service).
+	/// A service's operation linked into the app's build, as in a
+	/// workspace-wide build, is never served by the app.
 	pub fn router<S>(&self) -> Router<S>
 	where
 		S: Clone + Send + Sync + 'static,
 	{
-		let registrations = super::registrations().unwrap_or_else(|error| panic!("{error}"));
+		let registrations =
+			super::registrations_in(self.inner.service).unwrap_or_else(|error| panic!("{error}"));
 		self.install();
 		let mut router = Router::new();
 

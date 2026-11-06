@@ -53,6 +53,14 @@ pub(super) async fn events(State(live): State<Live>, request: axum::extract::Req
 		Ok(identity) => identity,
 		Err(error) => return crate::server::http::failure(&error),
 	};
+
+	if crate::server::is_service(&identity) {
+		// A service reads the app's data by calling its operations, never
+		// by watching them.
+		return crate::server::http::failure(&crate::Error::forbidden(
+			"a service can't hold a live connection to the app: call its operations instead",
+		));
+	}
 	let Some(secret) = secret() else {
 		return StatusCode::SERVICE_UNAVAILABLE.into_response();
 	};
@@ -157,6 +165,14 @@ pub(super) async fn frames(State(live): State<Live>, request: axum::extract::Req
 		Ok(identity) => identity,
 		Err(error) => return crate::server::http::failure(&error),
 	};
+
+	if crate::server::is_service(&identity) {
+		// A service reads the app's data by calling its operations, never
+		// by watching them.
+		return crate::server::http::failure(&crate::Error::forbidden(
+			"a service can't hold a live connection to the app: call its operations instead",
+		));
+	}
 
 	let (sender, bound) = {
 		let streams = live.event_streams();
