@@ -1807,3 +1807,137 @@ fn status_reports_what_is_wrong_with_the_schema_export() {
 		fixture.run_refused("status", &environment, expected);
 	}
 }
+
+#[test]
+fn release_markers_freeze_the_migrations_above_them() {
+	let root = tempfile::tempdir().unwrap();
+	let project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+	let first = users(
+		Dialect::Sqlite,
+		vec![Column::new("handle", ColumnType::TEXT)],
+	);
+	create(
+		&project,
+		"create users",
+		&first,
+		&options(),
+		&mut RequireHints,
+	)
+	.unwrap();
+
+	super::record_release(&project, "1.4.0", Some("monochange:rel_1_4_0")).unwrap();
+	let history = History::read(&project.migrations_dir(), project.dialect()).unwrap();
+	assert_eq!(history.names.len(), 1);
+	assert_eq!(history.published, 1);
+	assert_eq!(history.releases.len(), 1);
+	assert_eq!(history.releases[0].version, "1.4.0");
+	assert_eq!(
+		history.releases[0].source.as_deref(),
+		Some("monochange:rel_1_4_0")
+	);
+
+	// A migration created after the release stays a draft below the marker,
+	// and the marker still freezes exactly the one above it.
+	let mut second = first.clone();
+	second.tables[0]
+		.columns
+		.push(Column::new("bio", ColumnType::TEXT).nullable());
+	std::thread::sleep(std::time::Duration::from_secs(1));
+	create(&project, "add bio", &second, &options(), &mut RequireHints).unwrap();
+	let history = History::read(&project.migrations_dir(), project.dialect()).unwrap();
+	assert_eq!(history.names.len(), 2);
+	assert_eq!(history.published, 1, "the marker froze the first only");
+
+	let registry = std::fs::read_to_string(project.migrations_dir().join("registry.txt")).unwrap();
+	let marker = registry
+		.lines()
+		.position(|line| line.starts_with("# release 1.4.0"))
+		.unwrap();
+	let draft = registry
+		.lines()
+		.position(|line| line == history.names[1])
+		.unwrap();
+	assert!(
+		marker < draft,
+		"the draft lands below the marker:\n{registry}"
+	);
+}
+
+#[test]
+fn a_release_marker_refuses_a_drifted_snapshot() {
+	let root = tempfile::tempdir().unwrap();
+	let project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+	let first = users(
+		Dialect::Sqlite,
+		vec![Column::new("handle", ColumnType::TEXT)],
+	);
+	create(
+		&project,
+		"create users",
+		&first,
+		&options(),
+		&mut RequireHints,
+	)
+	.unwrap();
+	super::record_release(&project, "1.4.0", None).unwrap();
+
+	// Editing a frozen migration's snapshot no longer matches the pin.
+	let name = History::read(&project.migrations_dir(), project.dialect())
+		.unwrap()
+		.names[0]
+		.clone();
+	let snapshot = project.migrations_dir().join(name).join("schema.json");
+	let json = std::fs::read_to_string(&snapshot).unwrap();
+	std::fs::write(&snapshot, format!("{json}\n")).unwrap();
+	let error = History::read(&project.migrations_dir(), project.dialect())
+		.err()
+		.expect("the drifted pin is refused")
+		.to_string();
+	assert!(error.contains("pins the wrong schema"), "{error}");
+}
+
+#[test]
+fn release_markers_are_validated_when_read() {
+	let root = tempfile::tempdir().unwrap();
+	let project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+	let directory = project.migrations_dir();
+	std::fs::create_dir_all(&directory).unwrap();
+
+	for (registry, expected) in [
+		(
+			"# release 1.0.0 snapshot 0123456789abcdef\n",
+			"no migration above it".to_owned(),
+		),
+		("# release 1.0.0 snapshot\n", "isn't `# release".to_owned()),
+	] {
+		std::fs::write(directory.join("registry.txt"), registry).unwrap();
+		let error = History::read(&project.migrations_dir(), project.dialect())
+			.err()
+			.expect("the marker is refused")
+			.to_string();
+		assert!(error.contains(&expected), "{error} for {registry}");
+	}
+}
+
+#[test]
+fn recording_a_release_twice_is_refused() {
+	let root = tempfile::tempdir().unwrap();
+	let project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+	let first = users(
+		Dialect::Sqlite,
+		vec![Column::new("handle", ColumnType::TEXT)],
+	);
+	create(
+		&project,
+		"create users",
+		&first,
+		&options(),
+		&mut RequireHints,
+	)
+	.unwrap();
+	super::record_release(&project, "1.4.0", None).unwrap();
+	let error = super::record_release(&project, "1.4.0", None)
+		.unwrap_err()
+		.to_string();
+	assert!(error.contains("already recorded"), "{error}");
+}

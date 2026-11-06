@@ -163,6 +163,48 @@ pub fn registry_names(registry: &str) -> impl Iterator<Item = &str> {
 		.filter(|line| !line.is_empty() && !line.starts_with('#'))
 }
 
+/// A release marker from a `registry.txt`: `# release <version>
+/// [(<source>)] snapshot <sha256>`, recording that every migration above it
+/// shipped, so it can no longer change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Release<'a> {
+	/// The release's version, such as `1.4.0`.
+	pub version: &'a str,
+	/// Where the release came from, such as a monochange release id.
+	pub source: Option<&'a str>,
+	/// The SHA-256 of the `schema.json` the release ends at, which pins the
+	/// migrations above the marker.
+	pub snapshot: &'a str,
+}
+
+/// Parses one release marker line, trimmed. Any line that starts with
+/// `# release ` but fails to parse is a marker with a typo in it, which the
+/// caller should refuse rather than silently unfreeze a release.
+pub fn parse_release(line: &str) -> Option<Release<'_>> {
+	let rest = line.strip_prefix("# release ")?;
+	let (rest, snapshot) = rest.split_once(" snapshot ")?;
+	let (version, source) = match rest.split_once(" (") {
+		Some((version, source)) if source.ends_with(')') => {
+			(version, Some(&source[..source.len() - 1]))
+		}
+		_ => (rest, None),
+	};
+	(!version.is_empty() && !snapshot.is_empty()).then_some(Release {
+		version,
+		source,
+		snapshot,
+	})
+}
+
+/// The release markers in a `registry.txt`, in the order they appear.
+pub fn registry_releases(registry: &str) -> impl Iterator<Item = Release<'_>> {
+	registry
+		.lines()
+		.map(str::trim)
+		.filter(|line| line.starts_with("# release "))
+		.filter_map(parse_release)
+}
+
 fn read(path: &Path) -> Result<String, MigrationError> {
 	std::fs::read_to_string(path).map_err(|source| {
 		MigrationError::Read {

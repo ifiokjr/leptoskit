@@ -365,11 +365,17 @@ pub use migrate::MigrationError;
 #[cfg(feature = "server")]
 pub use migrate::PUSH_TABLE;
 #[cfg(feature = "server")]
+pub use migrate::Release;
+#[cfg(feature = "server")]
 pub use migrate::checksum;
 #[cfg(feature = "server")]
 pub use migrate::load as load_migrations;
 #[cfg(feature = "server")]
+pub use migrate::parse_release;
+#[cfg(feature = "server")]
 pub use migrate::registry_names;
+#[cfg(feature = "server")]
+pub use migrate::registry_releases;
 pub use mixins::HasMixin;
 pub use mixins::Mixin;
 #[doc(hidden)]
