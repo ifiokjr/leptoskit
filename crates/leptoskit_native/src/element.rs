@@ -209,11 +209,47 @@ impl Element {
 	/// and pressables and text inputs carry an accessible name.
 	pub fn validate(&self) -> Result<(), crate::controls::ControlTreeError> {
 		let ids = self.collect_ids()?;
-		let mut pending = vec![(self, None)];
+		self.validate_under(None, &ids)
+	}
+
+	/// Validates this subtree where it sits inside a larger tree, below its
+	/// nearest `Button` or `Pressable` ancestor. Only sound for a subtree
+	/// that passes [`Self::is_self_contained`], since ids and radio groups
+	/// are scoped to the complete tree.
+	pub fn validate_within(
+		&self,
+		button_ancestor: Option<NativeKind>,
+	) -> Result<(), crate::controls::ControlTreeError> {
+		self.validate_under(button_ancestor, &BTreeSet::new())
+	}
+
+	/// Whether nothing in this subtree depends on the rest of the tree for
+	/// validation or resolution: no ids, id references, radio options, or
+	/// live regions.
+	pub fn is_self_contained(&self) -> bool {
+		let mut pending = vec![self];
+
+		while let Some(element) = pending.pop() {
+			if element.declares_relationships() || !element.props.aria().controls.is_empty() {
+				return false;
+			}
+
+			pending.extend(&element.children);
+		}
+
+		true
+	}
+
+	fn validate_under(
+		&self,
+		button_ancestor: Option<NativeKind>,
+		ids: &BTreeSet<&str>,
+	) -> Result<(), crate::controls::ControlTreeError> {
+		let mut pending = vec![(self, button_ancestor)];
 		let mut selected_groups = BTreeSet::new();
 
 		while let Some((element, button_ancestor)) = pending.pop() {
-			element.check(button_ancestor, &ids, &mut selected_groups)?;
+			element.check(button_ancestor, ids, &mut selected_groups)?;
 
 			let button_ancestor =
 				if matches!(element.kind, NativeKind::Button | NativeKind::Pressable) {
@@ -640,6 +676,16 @@ impl Element {
 	/// Resolves with the control at child-index path `held` pressed, the
 	/// empty path naming this element.
 	pub(crate) fn resolved_holding(&self, context: &StyleContext, held: Option<&[usize]>) -> Self {
+		self.resolved_tracking(context, held).0
+	}
+
+	/// [`Self::resolved_holding`], also reporting whether the tree declares
+	/// accessibility relationships that resolve across nodes.
+	pub(crate) fn resolved_tracking(
+		&self,
+		context: &StyleContext,
+		held: Option<&[usize]>,
+	) -> (Self, bool) {
 		let (mut element, uses_aria) =
 			self.resolve_inherited(context, &NativeProps::default(), held);
 		// Nothing resolves relationships, set positions, or live text in a
@@ -648,15 +694,63 @@ impl Element {
 			element.resolve_accessibility();
 		}
 
-		element
+		(element, uses_aria)
 	}
 
-	fn resolve_inherited(
+	/// Resolves this subtree under its parent's resolved props, without the
+	/// tree-wide accessibility pass. Callers check
+	/// [`Self::declares_relationships`] first.
+	pub(crate) fn resolve_inherited(
 		&self,
 		context: &StyleContext,
 		parent: &NativeProps,
 		held: Option<&[usize]>,
 	) -> (Self, bool) {
+		let mut element = self.resolve_own(context, parent, held);
+		let uses_aria = element.declares_relationships();
+		let mut children_uses_aria = false;
+		element.children = self
+			.children
+			.iter()
+			.enumerate()
+			.map(|(index, child)| {
+				let held = match held {
+					Some([first, rest @ ..]) if *first == index => Some(rest),
+					_ => None,
+				};
+
+				let (child, uses) = child.resolve_inherited(context, &element.props, held);
+				children_uses_aria |= uses;
+				child
+			})
+			.collect();
+		(element, uses_aria || children_uses_aria)
+	}
+
+	/// Whether this element takes part in the tree-wide accessibility pass:
+	/// it has an id, references other ids, is a radio option, or announces
+	/// live changes.
+	pub(crate) fn declares_relationships(&self) -> bool {
+		self.props.id.is_some()
+			|| !self.props.aria().labelled_by.is_empty()
+			|| !self.props.aria().described_by.is_empty()
+			|| self.kind == NativeKind::Radio
+			|| self.props.aria().live.is_some()
+			|| self
+				.props
+				.aria()
+				.role
+				.is_some_and(|role| role.implicit_live().is_some())
+	}
+
+	/// Resolves this element alone under its parent's resolved props. The
+	/// result has no children.
+	pub(crate) fn resolve_own(
+		&self,
+		context: &StyleContext,
+		parent: &NativeProps,
+		held: Option<&[usize]>,
+	) -> Self {
 		// Resolve each node once. Cloning its descendants here would repeat
 		// the entire subtree clone at every level of a nested component tree.
 		let mut element = Self {
@@ -711,35 +805,26 @@ impl Element {
 			drawing.resolve_current_color(element.props.color.unwrap_or(Color::rgba(0, 0, 0, 255)));
 		}
 
-		let mut element = Self::settle(element, self, parent, pressed);
+		Self::settle(element, self, parent, pressed)
+	}
 
-		let uses_aria = element.props.id.is_some()
-			|| !element.props.aria().labelled_by.is_empty()
-			|| !element.props.aria().described_by.is_empty()
-			|| element.kind == NativeKind::Radio
-			|| element.props.aria().live.is_some()
-			|| element
-				.props
-				.aria()
-				.role
-				.is_some_and(|role| role.implicit_live().is_some());
-		let mut children_uses_aria = false;
-		element.children = self
-			.children
-			.iter()
-			.enumerate()
-			.map(|(index, child)| {
-				let held = match held {
-					Some([first, rest @ ..]) if *first == index => Some(rest),
-					_ => None,
-				};
+	/// Whether resolving a child under `next` could differ from resolving it
+	/// under `previous`: the props children inherit changed.
+	pub(crate) fn inherited_differs(previous: &NativeProps, next: &NativeProps) -> bool {
+		previous.color != next.color
+			|| previous.font_size != next.font_size
+			|| previous.font_weight != next.font_weight
+			|| previous.italic != next.italic
+			|| previous.text_align != next.text_align
+			|| (previous.enabled == Some(false)) != (next.enabled == Some(false))
+			|| (previous.aria().hidden == Some(true)) != (next.aria().hidden == Some(true))
+			|| (previous.hidden == Some(true)) != (next.hidden == Some(true))
+	}
 
-				let (child, uses) = child.resolve_inherited(context, &element.props, held);
-				children_uses_aria |= uses;
-				child
-			})
-			.collect();
-		(element, uses_aria || children_uses_aria)
+	/// Replaces everything about this element but its children.
+	pub(crate) fn replace_own(&mut self, mut next: Self) {
+		next.children = std::mem::take(&mut self.children);
+		*self = next;
 	}
 
 	/// The kind, hidden, clip, and pressed opacity the element resolves to.

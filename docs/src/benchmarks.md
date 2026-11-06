@@ -193,7 +193,7 @@ Three layers, one workload — a 1,000-row list, the same shape the browser benc
 - **wasm** — the shipped path: a Rust guest compiled to `wasm32-unknown-unknown` (`benchmarks/native/guest`) builds the list, handles presses, and re-renders through the real rendering ABI, interpreted by wasmi, with the host decoding JSON props and committing to the surface.
 - **js** — the same guest written in JavaScript, call for call, run in [QuickJS](https://bellard.org/quickjs/): a bytecode interpreter, the same execution class as the Hermes and JavaScriptCore engines a React Native app runs on where JIT is unavailable. It drives the same ABI into the same surface, so the only variable is the layer running the app logic. QuickJS is a stand-in for that class, not a Hermes measurement.
 
-Every scenario verifies the surface afterwards (row counts, label text), and the host side is identical for the wasm and JavaScript columns, so differences between them are guest-layer differences. One finding worth knowing before reading the numbers: a `commit()` reassembles the whole tree on the host, so an event round trip costs about the same whichever layer sent it — the per-commit assembly, not the interpreter, dominates.
+Every scenario verifies the surface afterwards (row counts, label text), and the host side is identical for the wasm and JavaScript columns, so differences between them are guest-layer differences. A `commit()` rebuilds only the nodes the guest changed since its last commit, so a round trip that updates one label costs little more than the guest's own work.
 
 <!-- BEGIN GENERATED: benchmarks-native -->
 
