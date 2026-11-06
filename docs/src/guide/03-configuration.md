@@ -111,6 +111,38 @@ What a release build ships: how hard the wasm client is optimized, how the outpu
 | `precompress`   | `true`   | Whether release web builds write brotli (`.br`) and gzip (`.gz`) copies next to every compressible file.                                                                                   |
 | `budget_kib`    | none     | The most the initial load may weigh, in KiB, brotli-compressed. Release builds over it fail.                                                                                               |
 
+## `[theme]`
+
+Design tokens for Tailwind `var(--name)` utilities. Omit the table when you don't use custom properties. Keys may be written with or without the leading `--`; both become `--name` at runtime.
+
+```toml
+[theme.colors]
+brand = "#3b82f6"
+ink = "black"
+
+[theme.lengths]
+gap = "1rem"
+pad = "16px"
+```
+
+| Key       | Default | Meaning                                                                                   |
+| --------- | ------- | ----------------------------------------------------------------------------------------- |
+| `colors`  | `{}`    | Color tokens as hex (`#rgb`, `#rrggbb`, `#rrggbbaa`), `black`, `white`, or `transparent`. |
+| `lengths` | `{}`    | Length tokens as `px`, `rem`, `%`, `vw`, or `vh`.                                         |
+
+Install them once at app startup so native paint and the web `:root` sheet agree:
+
+```rust,no_run
+use leptoskit::prelude::*;
+
+let (config, _) = LeptoskitConfig::load()?;
+if let Some(theme) = &config.theme {
+	Theme::install_maps(&theme.colors, &theme.lengths)?;
+}
+```
+
+`Theme::css()` emits the same names as a `:root` rule; the web adapter prepends it automatically when anything is set. See [CSS coverage](../reference/css-coverage.md).
+
 ## `[native]`
 
 | Key                         | Default                       | Meaning                                                                                                           |

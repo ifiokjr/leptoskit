@@ -110,6 +110,11 @@ pub struct LeptoskitConfig {
 	/// while it holds the defaults.
 	#[serde(skip_serializing_if = "LintConfig::is_default")]
 	pub lint: LintConfig,
+	/// Design tokens for Tailwind `var(--name)` utilities. Present when the
+	/// app sets `[theme]`; install at startup with
+	/// `Theme::install_maps`.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub theme: Option<ThemeConfig>,
 }
 
 impl Default for LeptoskitConfig {
@@ -133,8 +138,128 @@ impl Default for LeptoskitConfig {
 			plugins: Vec::new(),
 			format: FormatConfig::default(),
 			lint: LintConfig::default(),
+			theme: None,
 		}
 	}
+}
+
+/// Design tokens from the `[theme]` table, matching CSS custom properties
+/// that Tailwind `var(--name)` utilities and the process-wide `Theme` map
+/// resolve.
+///
+/// ```toml
+/// [theme.colors]
+/// brand = "#3b82f6"
+/// ink = "black"
+///
+/// [theme.lengths]
+/// gap = "1rem"
+/// pad = "16px"
+/// ```
+///
+/// Call `Theme::install_maps(&theme.colors, &theme.lengths)` once at app
+/// startup so native paint and the web `:root` sheet see the same names.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct ThemeConfig {
+	/// Color tokens as hex (`#rgb`, `#rrggbb`, `#rrggbbaa`), `black`,
+	/// `white`, or `transparent`. Keys may omit the leading `--`.
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub colors: BTreeMap<String, String>,
+	/// Length tokens as `px`, `rem`, `%`, `vw`, or `vh`. Keys may omit the
+	/// leading `--`.
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub lengths: BTreeMap<String, String>,
+}
+
+impl ThemeConfig {
+	/// Whether both maps are empty.
+	#[must_use]
+	pub fn is_empty(&self) -> bool {
+		self.colors.is_empty() && self.lengths.is_empty()
+	}
+
+	/// A human-readable problem with a color or length entry, if any.
+	#[must_use]
+	pub fn problem(&self) -> Option<String> {
+		for (name, value) in &self.colors {
+			if let Err(reason) = validate_theme_color_name(name) {
+				return Some(format!("colors.{name}: {reason}"));
+			}
+			if let Err(reason) = validate_theme_color_value(value) {
+				return Some(format!("colors.{name}: {reason}"));
+			}
+		}
+		for (name, value) in &self.lengths {
+			if let Err(reason) = validate_theme_color_name(name) {
+				return Some(format!("lengths.{name}: {reason}"));
+			}
+			if let Err(reason) = validate_theme_length_value(value) {
+				return Some(format!("lengths.{name}: {reason}"));
+			}
+		}
+		None
+	}
+}
+
+fn validate_theme_color_name(name: &str) -> Result<(), String> {
+	let name = name.trim().trim_start_matches('-');
+	if name.is_empty() {
+		return Err("name a custom property such as `brand` or `--brand`".to_owned());
+	}
+	if name
+		.chars()
+		.any(|ch| !(ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_')))
+	{
+		return Err(format!("unsupported custom property name `{name}`"));
+	}
+	Ok(())
+}
+
+fn validate_theme_color_value(value: &str) -> Result<(), String> {
+	let value = value.trim();
+	match value {
+		"transparent" | "black" | "white" => Ok(()),
+		value if value.starts_with('#') => {
+			let digits = &value[1..];
+			let hex = matches!(digits.len(), 3 | 4 | 6 | 8)
+				&& digits.chars().all(|ch| ch.is_ascii_hexdigit());
+			if hex {
+				Ok(())
+			} else {
+				Err(format!(
+					"unsupported color `{value}`; use hex, black, white, or transparent"
+				))
+			}
+		}
+		value => Err(format!(
+			"unsupported color `{value}`; use hex, black, white, or transparent"
+		)),
+	}
+}
+
+fn validate_theme_length_value(value: &str) -> Result<(), String> {
+	let value = value.trim();
+	let Some((number, unit)) = ["rem", "px", "%", "vw", "vh"]
+		.into_iter()
+		.find_map(|unit| value.strip_suffix(unit).map(|number| (number, unit)))
+	else {
+		return Err(format!(
+			"unsupported length `{value}`; use px, rem, %, vw, or vh"
+		));
+	};
+	let number: f32 = number
+		.trim()
+		.parse()
+		.map_err(|_| format!("invalid number in length `{value}`"))?;
+	if !number.is_finite() || number.abs() > 1_000_000.0 {
+		return Err(format!(
+			"length `{value}` must be finite with magnitude at most 1000000"
+		));
+	}
+	let _ = unit;
+	Ok(())
 }
 
 /// The application identity.
@@ -2540,6 +2665,10 @@ impl LeptoskitConfig {
 			return Err(ConfigError::InvalidAuth(problem));
 		}
 
+		if let Some(problem) = self.theme.as_ref().and_then(ThemeConfig::problem) {
+			return Err(ConfigError::InvalidTheme(problem));
+		}
+
 		let builds_extension = self.validate_extension()?;
 
 		if let Some(problem) = self.publish_problem(builds_extension) {
@@ -3005,6 +3134,9 @@ pub enum ConfigError {
 	/// `[auth]` can't work as written.
 	#[error("invalid [auth]: {0}")]
 	InvalidAuth(String),
+	/// `[theme]` can't work as written.
+	#[error("invalid [theme]: {0}")]
+	InvalidTheme(String),
 	/// `[extension]` can't work as written.
 	#[error("invalid [extension]: {0}")]
 	InvalidExtension(String),

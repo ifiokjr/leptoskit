@@ -102,6 +102,7 @@ pub use tailwind::ClassError;
 pub use tailwind::StyleContext;
 pub use tailwind::Tailwind;
 pub use tailwind::Theme;
+pub use tailwind::ThemeLength;
 pub use vector::Affine;
 pub use vector::Drawing;
 pub use vector::FillRule;

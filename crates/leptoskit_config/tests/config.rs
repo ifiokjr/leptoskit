@@ -1320,3 +1320,42 @@ fn passwords_are_off_unless_turned_on() {
 
 	assert_eq!(passwords.min_length, 8);
 }
+
+#[test]
+fn theme_colors_and_lengths_parse_and_validate() {
+	let config = load(
+		"theme_ok",
+		r##"
+[theme.colors]
+brand = "#3b82f6"
+ink = "black"
+
+[theme.lengths]
+gap = "1rem"
+pad = "16px"
+"##,
+	)
+	.expect("theme");
+	let theme = config.theme.expect("theme table");
+	assert_eq!(theme.colors["brand"], "#3b82f6");
+	assert_eq!(theme.lengths["gap"], "1rem");
+}
+
+#[test]
+fn theme_rejects_bad_colors_and_lengths() {
+	let error = load(
+		"theme_bad_color",
+		"[theme.colors]\nbrand = \"not-a-color\"\n",
+	)
+	.expect_err("bad color");
+	assert!(matches!(error, ConfigError::InvalidTheme(_)), "{error}");
+	assert!(error.to_string().contains("hex"));
+
+	let error = load(
+		"theme_bad_length",
+		"[theme.lengths]\ngap = \"1em\"\n",
+	)
+	.expect_err("bad length");
+	assert!(matches!(error, ConfigError::InvalidTheme(_)), "{error}");
+	assert!(error.to_string().contains("px"));
+}

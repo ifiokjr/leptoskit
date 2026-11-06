@@ -34,14 +34,17 @@
 //! utilities and variants are errors even when their conditions are inactive.
 //! Block/inline/contents flow, fixed/sticky positioning, baseline alignment,
 //! overflow on individual axes, other pseudo states, arbitrary selectors and
-//! properties, non-color CSS functions (`calc`, nested `var`), animations,
-//! filters, and shadows are rejected. Text sizes set font size only: line
-//! height is not yet a native text prop. Colors use the default palette
-//! converted to 8-bit sRGB, clipping colors outside its gamut, so native and
-//! web use the same color values. Arbitrary color values may also be
-//! `var(--name)` or `var(--name, fallback)`: the web keeps the CSS function,
-//! and native resolves through [`Theme`]. Overflow clipping is supported. The
-//! surface lowers `overflow-scroll` containers to native scroll widgets.
+//! properties, non-color CSS functions (`calc`), deep nested `var()` beyond one
+//! fallback level, animations, filters, and shadows are rejected. Text sizes
+//! set font size only: line height is not yet a native text prop. Colors use
+//! the default palette converted to 8-bit sRGB, clipping colors outside its
+//! gamut, so native and web use the same color values. Arbitrary color and
+//! length values may be `var(--name)` or `var(--name, fallback)` (one nested
+//! `var()` fallback, and `/opacity` on color vars): the web keeps the CSS
+//! function (or `color-mix` for opacity), and native resolves through
+//! [`Theme`]. `[theme]` colors and lengths in `leptoskit.toml` install with
+//! [`Theme::install_maps`]. Overflow clipping is supported. The surface
+//! lowers `overflow-scroll` containers to native scroll widgets.
 //!
 //! Numeric inputs and computed fractions have magnitude at most 1,000,000;
 //! aspect ratios range from 0.000001 to 1,000,000. Native viewport lengths
@@ -74,6 +77,7 @@ use leptoskit_yoga::Style;
 
 use self::declaration::Declaration;
 pub use self::theme::Theme;
+pub use self::theme::ThemeLength;
 use crate::Color;
 use crate::NativeProps;
 

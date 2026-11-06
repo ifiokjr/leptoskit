@@ -257,7 +257,7 @@ fn edge_value(field: EdgeField, edges: &[Edge], rank: u16, value: &str, negative
 			rank,
 			edges
 				.iter()
-				.map(|edge| Declaration::SafePadding(*edge, offset))
+				.map(|edge| Declaration::SafePadding(*edge, offset.clone()))
 				.collect(),
 		));
 	}
@@ -269,12 +269,16 @@ fn edge_value(field: EdgeField, edges: &[Edge], rank: u16, value: &str, negative
 		allow_negative,
 		field == EdgeField::Inset,
 	)?;
-	let length = if negative { length.negated() } else { length };
+	let length = if negative {
+		length.negated()?
+	} else {
+		length
+	};
 	Ok((
 		rank,
 		edges
 			.iter()
-			.map(|edge| Declaration::Edge(field, *edge, length))
+			.map(|edge| Declaration::Edge(field, *edge, length.clone()))
 			.collect(),
 	))
 }
@@ -296,7 +300,7 @@ fn gap(value: &str, negative: bool) -> Parsed {
 	Ok((
 		rank,
 		axes.iter()
-			.map(|axis| Declaration::Gap(*axis, length))
+			.map(|axis| Declaration::Gap(*axis, length.clone()))
 			.collect(),
 	))
 }
@@ -325,7 +329,7 @@ fn sizing(utility: &str) -> Option<Parsed> {
 			(
 				120,
 				vec![
-					Declaration::Size(SizeField::Width, length),
+					Declaration::Size(SizeField::Width, length.clone()),
 					Declaration::Size(SizeField::Height, length),
 				],
 			)

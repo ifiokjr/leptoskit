@@ -80,7 +80,8 @@ pub fn render(element: Element) -> AnyView {
 		&mut sheets,
 		&NodePath::root(),
 	);
-	let css = sheets.into_values().collect::<String>();
+	let mut css = crate::Theme::css();
+	css.push_str(&sheets.into_values().collect::<String>());
 
 	if wants_focus {
 		focus_after_render();
