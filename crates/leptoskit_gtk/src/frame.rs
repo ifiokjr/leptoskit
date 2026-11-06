@@ -160,9 +160,17 @@ mod imp {
 				}
 			}
 
+			// Paint each edge independently so `border-t` / `border-l-2` match
+			// the web and terminal. Uniform `border` still fills every side.
 			if let Some(color) = props.border_color {
-				let width = props.border_width.unwrap_or(0.0);
-				snapshot.append_border(&rounded, &[width; 4], &[rgba(color); 4]);
+				let edges = props.border_edges();
+				if edges.any() {
+					snapshot.append_border(
+						&rounded,
+						&[edges.top, edges.right, edges.bottom, edges.left],
+						&[rgba(color); 4],
+					);
+				}
 			}
 
 			if clip {

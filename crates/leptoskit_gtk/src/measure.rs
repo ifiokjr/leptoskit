@@ -39,6 +39,12 @@ impl GtkTextMeasurer {
 }
 
 pub(crate) fn font(style: TextStyle) -> pango::FontDescription {
+	font_with_italic(style, false)
+}
+
+/// The system Sans face for `style`, optionally in the italic slant so
+/// measurement and drawing agree when a node sets `italic`.
+pub(crate) fn font_with_italic(style: TextStyle, italic: bool) -> pango::FontDescription {
 	let mut font = pango::FontDescription::new();
 	font.set_family("Sans");
 	font.set_absolute_size(f64::from(style.font_size) * f64::from(pango::SCALE));
@@ -47,6 +53,11 @@ pub(crate) fn font(style: TextStyle) -> pango::FontDescription {
 		FontWeight::Medium => pango::Weight::Medium,
 		FontWeight::Semibold => pango::Weight::Semibold,
 		FontWeight::Bold => pango::Weight::Bold,
+	});
+	font.set_style(if italic {
+		pango::Style::Italic
+	} else {
+		pango::Style::Normal
 	});
 
 	font
