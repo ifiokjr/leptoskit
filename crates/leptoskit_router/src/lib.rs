@@ -33,10 +33,10 @@
 //! URLs through types: `Route::parse("/notes/42")` and
 //! `Route::from(Note { note: 42, highlight: None }).href()`.
 #![doc(
-	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
+	html_logo_url = "https://raw.githubusercontent.com/leptoskit/leptoskit/main/docs/src/assets/icon.svg"
 )]
 #![doc(
-	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
+	html_favicon_url = "https://raw.githubusercontent.com/leptoskit/leptoskit/main/docs/src/assets/mark.svg"
 )]
 
 mod params;

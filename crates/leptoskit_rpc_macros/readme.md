@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_rpc_macros</h1>
 
 <p align="center">
-  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/leptoskit/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
   <a href="#use-it"><strong>Use it</strong></a> ·
   <a href="#learn-more"><strong>Learn more</strong></a> ·
   <a href="https://docs.rs/leptoskit_rpc_macros"><strong>Docs</strong></a> ·
-  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+  <a href="https://github.com/leptoskit/leptoskit"><strong>Repository</strong></a>
 </p>
 
 <br>
@@ -26,8 +26,8 @@
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_rpc_macros"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_rpc_macros.svg"></a>
   <a href="https://docs.rs/leptoskit_rpc_macros"><img alt="docs.rs" src="https://docs.rs/leptoskit_rpc_macros/badge.svg"></a>
-  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://github.com/leptoskit/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/leptoskit/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/leptoskit/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
 
@@ -41,7 +41,7 @@ A leptos `#[server]` function is already typed RPC between your app and its serv
 
 Placed above `#[server]`, it leaves the RPC itself alone and adds a stable route and a description.
 
-This function is served at `/api/list_todos`, and its doc comment and `# Arguments` section become the documentation of the generated client's method and parameters. Every argument type, and the `Ok` type of the return value, must implement `schemars::JsonSchema` (one derive next to `Serialize` and `Deserialize`). Reach the macro through `leptoskit_rpc::api`, or `leptoskit::rpc::api` with `#[api(crate = "leptoskit::rpc")]`. The book's "Sharing the RPC" chapter is the full walkthrough, and [`examples/harbor`](https://github.com/ifiokjr/leptoskit/tree/main/examples/harbor) is a working app.
+This function is served at `/api/list_todos`, and its doc comment and `# Arguments` section become the documentation of the generated client's method and parameters. Every argument type, and the `Ok` type of the return value, must implement `schemars::JsonSchema` (one derive next to `Serialize` and `Deserialize`). Reach the macro through `leptoskit_rpc::api`, or `leptoskit::rpc::api` with `#[api(crate = "leptoskit::rpc")]`. The book's "Sharing the RPC" chapter is the full walkthrough, and [`examples/harbor`](https://github.com/leptoskit/leptoskit/tree/main/examples/harbor) is a working app.
 
 The route is pinned to a stable `/api/<name>`, the function name or `#[api(name = "...")]`, unless `#[server]` sets an `endpoint`. What no generated client could call is a compile error that points at its cause: websocket protocols, streaming and multipart encodings, `#[server(flatten)]` arguments, the positional `#[server]` form without an endpoint, and raw-identifier function names. Under the `ssr` feature, enabled through `leptoskit_rpc/ssr`, a description is registered with the route, encodings, doc comment, argument docs (from each argument's doc comment or the `# Arguments` section), and a JSON Schema thunk for every argument and the return type, which `leptoskit_rpc::spec::collect` exports. `#[server(skip)]` arguments are left out.
 
@@ -69,5 +69,5 @@ async fn note(cx: &leptoskit_rpc::QueryCx, id: u64) -> leptoskit_rpc::Result<Not
 
 - [Crate documentation](https://docs.rs/leptoskit_rpc_macros)
 - [leptoskit documentation](https://leptoskit.dev/docs/)
-- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Repository](https://github.com/leptoskit/leptoskit)
 - [Server functions](https://leptoskit.dev/docs/guide/06-server-functions.html)

@@ -9,7 +9,7 @@ leptoskit_table = "0.1"
 
 Or enable `leptoskit`'s `table` feature and import `leptoskit::table::*`.
 
-[`examples/observatory`](https://github.com/ifiokjr/leptoskit/tree/main/examples/observatory) is a complete app built this way: a sortable, searchable star catalogue with its own page labels.
+[`examples/observatory`](https://github.com/leptoskit/leptoskit/tree/main/examples/observatory) is a complete app built this way: a sortable, searchable star catalogue with its own page labels.
 
 ## Columns
 

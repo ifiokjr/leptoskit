@@ -137,4 +137,4 @@ markup = "builder"
 markup_style = "deny"
 ```
 
-leptoskit ships an agent skill that says the same and walks through the builder API. Install it with `gh skill install ifiokjr/leptoskit leptoskit`, or copy `skills/leptoskit` from the repository into your agent's skills directory.
+leptoskit ships an agent skill that says the same and walks through the builder API. Install it with `gh skill install leptoskit/leptoskit leptoskit`, or copy `skills/leptoskit` from the repository into your agent's skills directory.

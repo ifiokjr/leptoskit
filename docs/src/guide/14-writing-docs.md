@@ -1,12 +1,12 @@
 # Writing docs
 
-[`leptoskit_docs`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_docs) turns a folder of Markdown into a documentation site like this one. It works the way [MDX](https://mdxjs.com) does, with leptos where MDX has React: a capitalised tag in a Markdown file renders a leptos component, and the Markdown between its tags becomes the component's children.
+[`leptoskit_docs`](https://github.com/leptoskit/leptoskit/tree/main/crates/leptoskit_docs) turns a folder of Markdown into a documentation site like this one. It works the way [MDX](https://mdxjs.com) does, with leptos where MDX has React: a capitalised tag in a Markdown file renders a leptos component, and the Markdown between its tags becomes the component's children.
 
 This page is built that way. The callout below is a `<Callout>`, the numbered steps are a `<Steps>`, and the tabs are `<Tabs>`.
 
 <Callout kind="tip" title="Try it on this site">
 
-Every page has an "Edit this page" link at the bottom. The source of this page is [`docs/src/guide/14-writing-docs.md`](https://github.com/ifiokjr/leptoskit/blob/main/docs/src/guide/14-writing-docs.md).
+Every page has an "Edit this page" link at the bottom. The source of this page is [`docs/src/guide/14-writing-docs.md`](https://github.com/leptoskit/leptoskit/blob/main/docs/src/guide/14-writing-docs.md).
 
 </Callout>
 
@@ -166,7 +166,7 @@ Then write `<Badge tone="mint">New</Badge>` in any page. The component reads its
 | `props.parse("name")`   | The text parsed with `FromStr`, so `count={3}` can become a `u32`.                           |
 | `props.url("name")`     | A link target, rewritten from `.md` to the built page and checked like any other link.       |
 
-The home page's hero, the screens in [examples](../examples.md), and the swatches on the [brand page](../brand.md) are components written this way. Their source is in [`docs/site`](https://github.com/ifiokjr/leptoskit/tree/main/docs/site).
+The home page's hero, the screens in [examples](../examples.md), and the swatches on the [brand page](../brand.md) are components written this way. Their source is in [`docs/site`](https://github.com/leptoskit/leptoskit/tree/main/docs/site).
 
 ## What a build checks
 

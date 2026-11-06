@@ -108,7 +108,7 @@ rustfmt does most of the work, and starting it costs tens of milliseconds, so th
 
 ## Benchmarks
 
-On an Apple M2 Max, a 4,178-line file (115 KB) holding 176 `view!` macros, built from [`benches/fixtures/dashboard.rs`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_fmt/benches/fixtures/dashboard.rs), against [leptosfmt](https://github.com/bram209/leptosfmt) 0.1.33 with this repository's former configuration (`hyperfine`, mean of 30 runs):
+On an Apple M2 Max, a 4,178-line file (115 KB) holding 176 `view!` macros, built from [`benches/fixtures/dashboard.rs`](https://github.com/leptoskit/leptoskit/tree/main/crates/leptoskit_fmt/benches/fixtures/dashboard.rs), against [leptosfmt](https://github.com/bram209/leptosfmt) 0.1.33 with this repository's former configuration (`hyperfine`, mean of 30 runs):
 
 | Formatting the large file                         |     Time |
 | ------------------------------------------------- | -------: |

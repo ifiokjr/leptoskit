@@ -578,7 +578,7 @@ versioned_files = ["Cargo.toml"]
 # two have to stay in lockstep or the registry rejects a claim that matches
 # everything except the environment.
 [ecosystems.cargo.publish]
-trusted_publishing = { enabled = true, mode = "preferred", repository = "ifiokjr/leptoskit", workflow = "publish.yml", environment = "publisher" }
+trusted_publishing = { enabled = true, mode = "preferred", repository = "leptoskit/leptoskit", workflow = "publish.yml", environment = "publisher" }
 
 # The registry can attest that a published artifact came from this workflow.
 # Requiring it means a package that loses provenance fails the release rather
@@ -592,7 +592,7 @@ require_registry_provenance = true
 
 [source]
 provider = "github"
-owner = "ifiokjr"
+owner = "leptoskit"
 repo = "leptoskit"
 
 # The release is created as a draft and flipped public only after the registry

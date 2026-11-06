@@ -251,5 +251,5 @@ The host code column is the linked binary (the Rust runtime: wasmi, the view lay
 
 `leptoskit format` has its own benchmarks, compared against leptosfmt in the [formatting guide](guide/12-formatting.md#benchmarks): a formatted 4,178-line file in 84 ms, where rustfmt alone takes 67 ms, and an unchanged workspace of 335 files checked in 30 ms.
 
-[readme]: https://github.com/ifiokjr/leptoskit/blob/main/benchmarks/README.md
-[arena]: https://github.com/ifiokjr/leptoskit/blob/main/benchmarks/arena/README.md
+[readme]: https://github.com/leptoskit/leptoskit/blob/main/benchmarks/README.md
+[arena]: https://github.com/leptoskit/leptoskit/blob/main/benchmarks/arena/README.md

@@ -43,7 +43,7 @@ Then declare the generated module in `lib.rs`:
 mod routes;
 ```
 
-[`examples/file_routes`](https://github.com/ifiokjr/leptoskit/tree/main/examples/file_routes) is a complete app built this way.
+[`examples/file_routes`](https://github.com/leptoskit/leptoskit/tree/main/examples/file_routes) is a complete app built this way.
 
 ## Names are URLs
 

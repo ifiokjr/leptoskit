@@ -54,7 +54,7 @@ authors = ["Ifiok Jr. <ifiokotung@gmail.com>"]
 edition = "2024"
 homepage = "https://leptoskit.dev/"
 license = "Unlicense"
-repository = "https://github.com/ifiokjr/leptoskit"
+repository = "https://github.com/leptoskit/leptoskit"
 # Rust 1.95 stabilized the atomics' `try_update` and `if let` match guards,
 # which wasm-split needs inside the CLI.
 rust-version = "1.95.0"

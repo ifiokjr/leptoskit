@@ -9,10 +9,10 @@
 //! This crate is an implementation detail of `leptoskit_router`; use the
 //! derive through that crate.
 #![doc(
-	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
+	html_logo_url = "https://raw.githubusercontent.com/leptoskit/leptoskit/main/docs/src/assets/icon.svg"
 )]
 #![doc(
-	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
+	html_favicon_url = "https://raw.githubusercontent.com/leptoskit/leptoskit/main/docs/src/assets/mark.svg"
 )]
 
 use proc_macro::TokenStream;

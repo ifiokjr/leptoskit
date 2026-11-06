@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_bridge</h1>
 
 <p align="center">
-  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/leptoskit/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
   <a href="#use-it"><strong>Use it</strong></a> ·
   <a href="#learn-more"><strong>Learn more</strong></a> ·
   <a href="https://docs.rs/leptoskit_bridge"><strong>Docs</strong></a> ·
-  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+  <a href="https://github.com/leptoskit/leptoskit"><strong>Repository</strong></a>
 </p>
 
 <br>
@@ -26,8 +26,8 @@
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_bridge"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_bridge.svg"></a>
   <a href="https://docs.rs/leptoskit_bridge"><img alt="docs.rs" src="https://docs.rs/leptoskit_bridge/badge.svg"></a>
-  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://github.com/leptoskit/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/leptoskit/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/leptoskit/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
 
@@ -59,7 +59,7 @@ The guest talks to the host through the `leptoskit_plugins_v1` import module and
 
 ## Limits
 
-`Limits` bounds everything before it is accepted: outstanding calls (128 by default), buffered events (256), bytes per request, reply, or event (8 MiB), and total retained bytes (32 MiB). Exceeding one returns `Error::Busy` or `Error::TooLarge` instead of growing. Errors (`Unavailable`, `PermissionDenied`, `InvalidArgument`, `Busy`, `TooLarge`, `Cancelled`, `Native`, `InvalidCall`, `Exhausted`) have stable wire codes, shared with the Swift, Kotlin, and C++ hosts in [`leptoskit_bridge_ffi`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_bridge_ffi).
+`Limits` bounds everything before it is accepted: outstanding calls (128 by default), buffered events (256), bytes per request, reply, or event (8 MiB), and total retained bytes (32 MiB). Exceeding one returns `Error::Busy` or `Error::TooLarge` instead of growing. Errors (`Unavailable`, `PermissionDenied`, `InvalidArgument`, `Busy`, `TooLarge`, `Cancelled`, `Native`, `InvalidCall`, `Exhausted`) have stable wire codes, shared with the Swift, Kotlin, and C++ hosts in [`leptoskit_bridge_ffi`](https://github.com/leptoskit/leptoskit/tree/main/crates/leptoskit_bridge_ffi).
 
 Payloads are `Bytes`, so Rust-to-Rust handoff moves ownership without copying; only crossing a Wasm linear-memory boundary copies. A `Bridge` is thread-confined and belongs to one application: drop it when the guest unloads, and late completions then return `InvalidCall`.
 
@@ -114,5 +114,5 @@ assert_eq!(reply.as_ref(), b"hello");
 
 - [Crate documentation](https://docs.rs/leptoskit_bridge)
 - [leptoskit documentation](https://leptoskit.dev/docs/)
-- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Repository](https://github.com/leptoskit/leptoskit)
 - [Plugins](https://leptoskit.dev/docs/platforms/plugins.html)

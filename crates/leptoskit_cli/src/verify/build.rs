@@ -27,10 +27,10 @@ use super::BuildRecipe;
 use super::Entry;
 
 /// Identifies the build steps in provenance; bump it when they change.
-const BUILD_TYPE: &str = "https://ifiokjr.github.io/leptoskit/verify/backend-build/v1";
+const BUILD_TYPE: &str = "https://leptoskit.dev/verify/backend-build/v1";
 
 /// Identifies this builder in provenance.
-const BUILDER_ID: &str = "https://ifiokjr.github.io/leptoskit/verify/container-builder/v1";
+const BUILDER_ID: &str = "https://leptoskit.dev/verify/container-builder/v1";
 
 /// `cargo vendor`'s source replacement, kept in `dependencies/`. Cargo skips
 /// dot-files in a vendored directory, so it is never read as a crate.

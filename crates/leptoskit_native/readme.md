@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_native</h1>
 
 <p align="center">
-  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/leptoskit/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
   <a href="#use-it"><strong>Use it</strong></a> ·
   <a href="#learn-more"><strong>Learn more</strong></a> ·
   <a href="https://docs.rs/leptoskit_native"><strong>Docs</strong></a> ·
-  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+  <a href="https://github.com/leptoskit/leptoskit"><strong>Repository</strong></a>
 </p>
 
 <br>
@@ -26,8 +26,8 @@
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_native"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_native.svg"></a>
   <a href="https://docs.rs/leptoskit_native"><img alt="docs.rs" src="https://docs.rs/leptoskit_native/badge.svg"></a>
-  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://github.com/leptoskit/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/leptoskit/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/leptoskit/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
 
@@ -43,7 +43,7 @@ The [component catalog](https://leptoskit.dev/docs/reference/components.html) ha
 
 The builders are plain functions. The `leptoskit` crate's `view!` macro expands rstml markup such as `<View class="p-6"><Text>"Hello"</Text></View>` into the same calls, through the `IntoView` and `Fragment` types in `leptoskit_native::view`. Each builder accepts built-in Tailwind through `.class` and `.try_class`. Classes append and override typed base styles regardless of builder order. `.class` panics with a diagnostic for unsupported input. `.try_class` returns `ClassError`. Control events propose typed values; application state owns the committed value. `Element::validate` and `NativeSurface::try_set_root` reject invalid control trees before replacing the UI.
 
-Each commit resolves utility declarations, inherits text styles, diffs the tree against the committed tree, and emits a batch of mutations. A platform `NativeBackend` applies those mutations to widgets. [Yoga](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga) computes layout, and the surface pushes changed frames. Events bubble from widgets through handlers.
+Each commit resolves utility declarations, inherits text styles, diffs the tree against the committed tree, and emits a batch of mutations. A platform `NativeBackend` applies those mutations to widgets. [Yoga](https://github.com/leptoskit/leptoskit/tree/main/crates/leptoskit_yoga) computes layout, and the surface pushes changed frames. Events bubble from widgets through handlers.
 
 Native backends render platform widgets without a web view. AppKit implements the macOS backend. Other platforms need their own `NativeBackend` implementation. The headless backend records mutations for tests and runtime integration.
 
@@ -98,6 +98,6 @@ let screen = view! {
 
 - [Crate documentation](https://docs.rs/leptoskit_native)
 - [leptoskit documentation](https://leptoskit.dev/docs/)
-- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Repository](https://github.com/leptoskit/leptoskit)
 - [Shared components](https://leptoskit.dev/docs/guide/07-shared-components.html)
 - [CSS coverage](https://leptoskit.dev/docs/reference/css-coverage.html)

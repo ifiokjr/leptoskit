@@ -3,7 +3,7 @@ use leptoskit::native::Role;
 use leptoskit::prelude::*;
 use reactive_graph::prelude::*;
 
-pub const REPOSITORY: &str = "https://github.com/ifiokjr/leptoskit";
+pub const REPOSITORY: &str = "https://github.com/leptoskit/leptoskit";
 
 /// Which site renders. Both share the landing page's design, sections, and
 /// live component example; only console entry points and hosted-service copy

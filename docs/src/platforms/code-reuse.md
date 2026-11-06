@@ -83,4 +83,4 @@ The screen tree is shared. The host still owns its window, run loop, viewport, a
 | Native wasm runtime and updates   | `leptoskit_wasm` and `leptoskit_codepush` |
 | Configuration                     | `leptoskit_config`                        |
 
-The [shared component guide](../guide/07-shared-components.md) covers class validation, typed base styles, controls, and scrolling. The [platform probe](https://github.com/ifiokjr/leptoskit/tree/main/examples/platform_probe) exercises native runtime and update contracts. It does not substitute for a platform widget backend or CSS conformance tests.
+The [shared component guide](../guide/07-shared-components.md) covers class validation, typed base styles, controls, and scrolling. The [platform probe](https://github.com/leptoskit/leptoskit/tree/main/examples/platform_probe) exercises native runtime and update contracts. It does not substitute for a platform widget backend or CSS conformance tests.

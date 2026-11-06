@@ -12,7 +12,7 @@
   <a href="#use-it"><strong>Use it</strong></a> ·
   <a href="#learn-more"><strong>Learn more</strong></a> ·
   <a href="https://docs.rs/leptoskit_plugin_network"><strong>Docs</strong></a> ·
-  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+  <a href="https://github.com/leptoskit/leptoskit"><strong>Repository</strong></a>
 </p>
 
 <br>
@@ -22,8 +22,8 @@
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_network"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_network.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_network"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_network/badge.svg"></a>
-  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://github.com/leptoskit/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/leptoskit/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/leptoskit/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
 
@@ -66,5 +66,5 @@ leptoskit_plugin_network = { version = "0.1", features = ["guest"] }
 
 - [Crate documentation](https://docs.rs/leptoskit_plugin_network)
 - [leptoskit documentation](https://leptoskit.dev/docs/)
-- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Repository](https://github.com/leptoskit/leptoskit)
 - [Plugin inventory](https://leptoskit.dev/docs/platforms/plugin-inventory.html)

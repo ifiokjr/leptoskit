@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_plugin_router</h1>
 
 <p align="center">
-  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/leptoskit/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
   <a href="#use-it"><strong>Use it</strong></a> ·
   <a href="#learn-more"><strong>Learn more</strong></a> ·
   <a href="https://docs.rs/leptoskit_plugin_router"><strong>Docs</strong></a> ·
-  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+  <a href="https://github.com/leptoskit/leptoskit"><strong>Repository</strong></a>
 </p>
 
 <br>
@@ -26,8 +26,8 @@
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_plugin_router"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_plugin_router.svg"></a>
   <a href="https://docs.rs/leptoskit_plugin_router"><img alt="docs.rs" src="https://docs.rs/leptoskit_plugin_router/badge.svg"></a>
-  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://github.com/leptoskit/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/leptoskit/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/leptoskit/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
 
@@ -39,7 +39,7 @@
 
 Routes are files under `src/routes/`, and the app needs a typed `Route` enum with a variant for each. Something has to write that enum before cargo compiles the app. That is this crate: a build-tool plugin that runs the generator in `leptoskit_router_codegen` when `leptoskit dev`, `leptoskit build`, or `leptoskit native` starts, and writes `src/routes.rs` only when the routes changed.
 
-It is the tooling half of file routing. Apps depend on [`leptoskit_router`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_router) for the runtime (`Route`, `Routable`, `Router`), which this crate re-exports as `leptoskit_plugin_router::router`, with the generator as `leptoskit_plugin_router::codegen`, so tooling has one import point. You do not add this crate to an app's dependencies; the `leptoskit` CLI links it.
+It is the tooling half of file routing. Apps depend on [`leptoskit_router`](https://github.com/leptoskit/leptoskit/tree/main/crates/leptoskit_router) for the runtime (`Route`, `Routable`, `Router`), which this crate re-exports as `leptoskit_plugin_router::router`, with the generator as `leptoskit_plugin_router::codegen`, so tooling has one import point. You do not add this crate to an app's dependencies; the `leptoskit` CLI links it.
 
 Turn it on in `leptoskit.toml`.
 
@@ -52,7 +52,7 @@ leptoskit plugin:router routes --check    # fail instead of writing when the com
 
 `leptoskit routes` still works as an alias that forwards here. Formatting does not count as a change, so rustfmt can format the generated file, and leptoskit never overwrites a `routes.rs` it did not write. The directory and output paths are validated to stay inside the project.
 
-[`examples/file_routes`](https://github.com/ifiokjr/leptoskit/tree/main/examples/file_routes) is a complete app, and the book's file routes guide covers the naming conventions (`[note].rs`, layouts, `+not-found.rs`).
+[`examples/file_routes`](https://github.com/leptoskit/leptoskit/tree/main/examples/file_routes) is a complete app, and the book's file routes guide covers the naming conventions (`[note].rs`, layouts, `+not-found.rs`).
 
 ## How it fits
 
@@ -78,5 +78,5 @@ output = "src/routes.rs"
 
 - [Crate documentation](https://docs.rs/leptoskit_plugin_router)
 - [leptoskit documentation](https://leptoskit.dev/docs/)
-- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Repository](https://github.com/leptoskit/leptoskit)
 - [File routes](https://leptoskit.dev/docs/guide/10-file-routes.html)

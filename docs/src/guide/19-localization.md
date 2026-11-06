@@ -25,7 +25,7 @@ my_app/
     └── l10n.rs             generated, committed
 ```
 
-[`examples/postcard`](https://github.com/ifiokjr/leptoskit/tree/main/examples/postcard) is a complete app built this way: a postcard in English, Polish, Arabic laid out right to left, Japanese, and a half-translated Brazilian Portuguese, with a gauge that shows the plural form each language picks for the same number.
+[`examples/postcard`](https://github.com/leptoskit/leptoskit/tree/main/examples/postcard) is a complete app built this way: a postcard in English, Polish, Arabic laid out right to left, Japanese, and a half-translated Brazilian Portuguese, with a gauge that shows the plural form each language picks for the same number.
 
 ## Set up translations
 

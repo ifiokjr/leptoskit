@@ -110,7 +110,7 @@ A screen that needs the terminal's size, such as a list that shows half the rows
 
 ## A whole app
 
-The opencode example in [`examples/opencode`](https://github.com/ifiokjr/leptoskit/tree/main/examples/opencode) is a whole coding-agent interface — a logo, a prompt, a conversation with a diff and shell output, a sidebar, and a command palette over a dimmed screen — written once as [file routes](../guide/10-file-routes.md) and run in both your terminal and your browser. Every reply is scripted, so it runs offline:
+The opencode example in [`examples/opencode`](https://github.com/leptoskit/leptoskit/tree/main/examples/opencode) is a whole coding-agent interface — a logo, a prompt, a conversation with a diff and shell output, a sidebar, and a command palette over a dimmed screen — written once as [file routes](../guide/10-file-routes.md) and run in both your terminal and your browser. Every reply is scripted, so it runs offline:
 
 ```bash
 cd examples/opencode

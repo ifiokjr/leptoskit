@@ -24,7 +24,7 @@ use sha2::Sha256;
 use super::ui;
 
 /// Where releases are downloaded from.
-pub const RELEASES: &str = "https://github.com/ifiokjr/leptoskit/releases/download";
+pub const RELEASES: &str = "https://github.com/leptoskit/leptoskit/releases/download";
 
 /// Replaces [`RELEASES`], for a mirror. The archive is still checked against
 /// the hash built into the CLI, so a mirror can't change what is served.

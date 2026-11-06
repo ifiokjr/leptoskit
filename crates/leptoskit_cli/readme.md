@@ -1,7 +1,7 @@
 <h1 align="center">leptoskit_cli</h1>
 
 <p align="center">
-  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+  <a href="https://leptoskit.dev/"><img src="https://raw.githubusercontent.com/leptoskit/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
   <a href="#use-it"><strong>Use it</strong></a> ·
   <a href="#learn-more"><strong>Learn more</strong></a> ·
   <a href="https://docs.rs/leptoskit_cli"><strong>Docs</strong></a> ·
-  <a href="https://github.com/ifiokjr/leptoskit"><strong>Repository</strong></a>
+  <a href="https://github.com/leptoskit/leptoskit"><strong>Repository</strong></a>
 </p>
 
 <br>
@@ -26,8 +26,8 @@
 <p align="center">
   <a href="https://crates.io/crates/leptoskit_cli"><img alt="crates.io" src="https://img.shields.io/crates/v/leptoskit_cli.svg"></a>
   <a href="https://docs.rs/leptoskit_cli"><img alt="docs.rs" src="https://docs.rs/leptoskit_cli/badge.svg"></a>
-  <a href="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ifiokjr/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/ifiokjr/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
+  <a href="https://github.com/leptoskit/leptoskit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/leptoskit/leptoskit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/leptoskit/leptoskit/blob/main/Cargo.toml"><img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.95.0-blue.svg"></a>
   <a href="https://opensource.org/license/unlicense"><img alt="License: Unlicense" src="https://img.shields.io/badge/license-Unlicense-blue.svg"></a>
 </p>
 
@@ -41,7 +41,7 @@
 
 The experimental [HarmonyOS target](../../docs/src/platforms/harmonyos.md) builds native ArkUI applications with `leptoskit native build harmonyos` (arm64) or `harmonyos-x86_64`. It requires DevEco's native SDK and Hvigor. Device signing and installation remain in DevEco Studio.
 
-`test run` executes a prebuilt native test binary on the host, a selected iOS simulator, or an Android device/emulator. `test web` runs browser component tests through wasm-bindgen-test. Both retain output and JSON reports. See the [testing guide](https://github.com/ifiokjr/leptoskit/blob/main/docs/src/guide/07-testing.md) for device startup, deadlines, artifacts, and current platform limits.
+`test run` executes a prebuilt native test binary on the host, a selected iOS simulator, or an Android device/emulator. `test web` runs browser component tests through wasm-bindgen-test. Both retain output and JSON reports. See the [testing guide](https://github.com/leptoskit/leptoskit/blob/main/docs/src/guide/07-testing.md) for device startup, deadlines, artifacts, and current platform limits.
 
 `leptoskit new <dir>` writes a shared application workspace: `<name>_app` owns the screens and the browser/native Wasm client, `<name>_backend` owns server-only implementations, and `<name>_shared` owns contracts. The root `src/main.rs` starts the SSR server. Platform folders hold web and native host integration. The generated wasm-bindgen dependency matches the CLI’s embedded version. Existing files are not overwritten.
 
@@ -104,6 +104,6 @@ leptoskit completions zsh
 
 - [Crate documentation](https://docs.rs/leptoskit_cli)
 - [leptoskit documentation](https://leptoskit.dev/docs/)
-- [Repository](https://github.com/ifiokjr/leptoskit)
+- [Repository](https://github.com/leptoskit/leptoskit)
 - [Creating a project](https://leptoskit.dev/docs/guide/02-creating.html)
 - [Building](https://leptoskit.dev/docs/guide/04-building.html)
