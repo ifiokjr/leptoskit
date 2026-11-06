@@ -91,6 +91,15 @@ the app.
 
 <!-- {/buildSummary} -->
 
+<!-- {@canvasSummary} -->
+
+It is the drawing model for custom graphics that native widgets cannot express: a
+`Scene` lists shapes, paths, gradients, shadows, clips, and layers in order, and the
+wgpu renderer draws it on the GPU. It is standalone for now; later work hosts it in
+native surfaces and the browser.
+
+<!-- {/canvasSummary} -->
+
 <!-- {@cliSummary} -->
 
 `leptoskit verify build` builds a backend from a public Git commit in a container without

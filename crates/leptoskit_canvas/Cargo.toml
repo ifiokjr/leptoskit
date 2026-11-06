@@ -1,0 +1,50 @@
+[package]
+name = "leptoskit_canvas"
+version = "0.2.0"
+authors.workspace = true
+categories = ["gui", "graphics", "rendering"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["canvas", "wgpu", "vector", "gpu", "skia"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "A GPU canvas for leptoskit: a 2D display list of shapes, paths, gradients, and shadows drawn with wgpu."
+
+[dependencies]
+bytemuck = { workspace = true, optional = true, features = ["derive"] }
+lyon_tessellation = { workspace = true, optional = true }
+serde = { workspace = true, optional = true, features = ["derive"] }
+thiserror = { workspace = true, optional = true }
+
+# Each platform compiles only the graphics backend it has: Metal on Apple
+# platforms, Direct3D 12 on Windows, Vulkan on Linux and Android, and WebGPU
+# in the browser.
+[target.'cfg(target_vendor = "apple")'.dependencies]
+wgpu = { workspace = true, optional = true, features = ["metal", "std", "wgsl"] }
+
+[target.'cfg(windows)'.dependencies]
+wgpu = { workspace = true, optional = true, features = ["dx12", "std", "wgsl"] }
+
+[target.'cfg(all(unix, not(target_vendor = "apple"), not(target_arch = "wasm32")))'.dependencies]
+wgpu = { workspace = true, optional = true, features = ["std", "vulkan", "wgsl"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { workspace = true, optional = true, features = ["std", "webgpu", "wgsl"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[features]
+default = ["renderer"]
+# The wgpu renderer. Without it the crate is only the display list, which a
+# Wasm guest builds and sends to its host.
+renderer = ["dep:bytemuck", "dep:lyon_tessellation", "dep:pollster", "dep:thiserror", "dep:wgpu"]
+serde = ["dep:serde"]
+
+[lints]
+workspace = true

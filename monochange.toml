@@ -58,6 +58,7 @@ directory = ".changeset"
 packages = [
 	"leptoskit_testing_library",
 	"leptoskit_yoga",
+	"leptoskit_canvas",
 	"leptoskit_use",
 	"leptoskit_native",
 	"leptoskit_testing",
@@ -204,6 +205,10 @@ type = "cargo"
 
 [package.leptoskit_yoga]
 path = "crates/leptoskit_yoga"
+type = "cargo"
+
+[package.leptoskit_canvas]
+path = "crates/leptoskit_canvas"
 type = "cargo"
 
 [package.leptoskit_native]

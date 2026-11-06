@@ -70,6 +70,7 @@ axum = "0.8"
 base64 = "0.22"
 blocking = "1.6"
 brotli = "8"
+bytemuck = "1"
 bytes = "1"
 camino = "1"
 cc = { version = "1", features = ["parallel"] }
@@ -109,6 +110,7 @@ leptos_axum = "0.9.0-rc0"
 leptos_meta = "0.9.0-rc0"
 leptos_router = "0.9.0-rc0"
 libtest-mimic = "0.8"
+lyon_tessellation = "1"
 markdown = "1"
 monosecret = { version = "0.5.0", default-features = false, features = ["client"] }
 notify = "8"
@@ -120,6 +122,7 @@ objc2-foundation = { version = "0.3", default-features = false }
 objc2-quartz-core = { version = "0.3", default-features = false }
 parking_lot = "0.12"
 png = "0.17"
+pollster = "0.4"
 postgresql_embedded = { version = "0.22", default-features = false, features = ["blocking", "theseus", "tls-rustls-ring"] }
 prettyplease = "0.3"
 proc-macro-crate = "3"
@@ -179,6 +182,7 @@ wasmi_core = "2"
 wasmparser = "0.261"
 web-sys = "0.3"
 webpki-roots = "1"
+wgpu = { version = "30", default-features = false }
 wkb = "0.9"
 
 # internal: every publishable crate, so members depend on them with
@@ -193,6 +197,7 @@ leptoskit_axum = { path = "crates/leptoskit_axum", version = "0.2.0" }
 leptoskit_bridge = { path = "crates/leptoskit_bridge", version = "0.2.0" }
 leptoskit_bridge_ffi = { path = "crates/leptoskit_bridge_ffi", version = "0.2.0" }
 leptoskit_build = { path = "crates/leptoskit_build", version = "0.2.0" }
+leptoskit_canvas = { path = "crates/leptoskit_canvas", version = "0.2.0" }
 leptoskit_cli = { path = "crates/leptoskit_cli", version = "0.2.0" }
 leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.2.0" }
 leptoskit_config = { path = "crates/leptoskit_config", version = "0.2.0" }
