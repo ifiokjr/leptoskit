@@ -4,6 +4,7 @@ use std::borrow::Cow;
 use std::marker::PhantomData;
 
 use crate::Action;
+use crate::Aggregate;
 use crate::Col;
 use crate::Column;
 use crate::Connection;
@@ -29,12 +30,17 @@ use crate::tracked::Reads;
 /// Rows soft-deleted through a `#[db(deleted_at)]` column are left out unless
 /// the query asks for them with [`Query::with_deleted`].
 #[must_use = "a query does nothing until it runs"]
+#[expect(
+	clippy::struct_excessive_bools,
+	reason = "each flag answers a different question a query can be asked"
+)]
 pub struct Query<T> {
 	pub(crate) filter: Option<Expr>,
 	pub(crate) order: Vec<Order>,
 	pub(crate) limit: Option<u64>,
 	pub(crate) offset: Option<u64>,
 	pub(crate) with_deleted: bool,
+	pub(crate) distinct: bool,
 	skip_hooks: bool,
 	/// Whether it reads one row by its key, for a read set.
 	point: bool,
@@ -46,6 +52,7 @@ impl<T> Clone for Query<T> {
 		Self {
 			filter: self.filter.clone(),
 			order: self.order.clone(),
+			distinct: self.distinct,
 			limit: self.limit,
 			offset: self.offset,
 			with_deleted: self.with_deleted,
@@ -71,6 +78,7 @@ impl<T: Table> Query<T> {
 			limit: None,
 			offset: None,
 			with_deleted: false,
+			distinct: false,
 			skip_hooks: false,
 			point: false,
 			table: PhantomData,
@@ -124,6 +132,15 @@ impl<T: Table> Query<T> {
 	}
 
 	/// Includes soft-deleted rows.
+	/// Reads each row only once, however many times its combination of
+	/// columns repeats: `SELECT DISTINCT`. Whole rows repeat only, so it
+	/// reads every column.
+	pub fn distinct(mut self) -> Self {
+		self.distinct = true;
+		self
+	}
+
+	/// Includes the rows a soft delete removed.
 	pub fn with_deleted(mut self) -> Self {
 		self.with_deleted = true;
 		self
@@ -174,11 +191,57 @@ impl<T: Table> Query<T> {
 		})
 	}
 
+	/// A total over the matching rows: [`Sum`](crate::Sum),
+	/// [`Avg`](crate::Avg), [`Min`](crate::Min), or [`Max`](crate::Max) of a
+	/// column. `None` when no row matches, as SQL returns.
+	///
+	/// ```ignore
+	/// let karma: Option<i64> = User::query()
+	///     .filter(|user| user.role.eq(Role::Member))
+	///     .aggregate(|user| Sum(user.karma), &db)
+	///     .await?;
+	/// ```
+	pub async fn aggregate<A: Aggregate<T>>(
+		self,
+		total: impl FnOnce(&T::Columns) -> A,
+		connection: &impl Read,
+	) -> Result<A::Output> {
+		let aggregate = total(T::columns());
+		let mut sql = Sql::new(connection.dialect());
+		sql.push("SELECT ")
+			.push(aggregate.sql())
+			.push("(")
+			.identifier(aggregate.column())
+			.push(")");
+		// Postgres averages into `numeric`, which nothing here reads; a
+		// fraction is what the callers of `avg` want anyway.
+		if connection.dialect() == leptoskit_db_schema::Dialect::Postgres
+			&& aggregate.sql() == "avg"
+		{
+			sql.push("::float8");
+		}
+		sql.push(" FROM ").table::<T>();
+		self.write_filter(&mut sql, connection, Action::Select)?;
+
+		let rows = connection
+			.read(sql.finish(), || self.reads(connection, ReadKind::Count))
+			.await?;
+		aggregate.decode(rows.first().and_then(|row| row.first().cloned()))
+	}
+
 	/// How many rows match.
 	pub async fn count(self, connection: &impl Read) -> Result<u64> {
 		let mut sql = Sql::new(connection.dialect());
-		sql.push("SELECT count(*) FROM ").table::<T>();
-		self.write_filter(&mut sql, connection, Action::Select)?;
+		if self.distinct {
+			// Counting the rows after `distinct` read them once each.
+			sql.push("SELECT count(*) FROM (SELECT DISTINCT ");
+			sql.columns(T::COLUMNS).push(" FROM ").table::<T>();
+			self.write_filter(&mut sql, connection, Action::Select)?;
+			sql.push(")");
+		} else {
+			sql.push("SELECT count(*) FROM ").table::<T>();
+			self.write_filter(&mut sql, connection, Action::Select)?;
+		}
 
 		let rows = connection
 			.read(sql.finish(), || self.reads(connection, ReadKind::Count))
@@ -198,10 +261,14 @@ impl<T: Table> Query<T> {
 	/// The matching rows, read as `kind`.
 	async fn rows(self, connection: &impl Read, kind: ReadKind) -> Result<Vec<T>> {
 		let mut sql = Sql::new(connection.dialect());
-		sql.push("SELECT ")
-			.columns(T::COLUMNS)
-			.push(" FROM ")
-			.table::<T>();
+		sql.push(if self.distinct {
+			"SELECT DISTINCT "
+		} else {
+			"SELECT "
+		})
+		.columns(T::COLUMNS)
+		.push(" FROM ")
+		.table::<T>();
 		self.write_filter(&mut sql, connection, Action::Select)?;
 		write_order(&mut sql, &self.order, self.limit, self.offset);
 
@@ -400,6 +467,7 @@ impl<T: Table> Update<T> {
 	}
 
 	/// Includes soft-deleted rows.
+	/// Includes the rows a soft delete removed.
 	pub fn with_deleted(mut self) -> Self {
 		self.with_deleted = true;
 		self

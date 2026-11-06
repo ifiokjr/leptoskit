@@ -185,6 +185,9 @@ impl Expr {
 			Self::Constant(value) => Tri::from(*value),
 			#[cfg(feature = "geo")]
 			Self::Spatial(_) => Tri::Unknown,
+			// A regular expression can be run by neither this matcher nor
+			// SQLite, and the linked row's own condition isn't at hand.
+			Self::Regex { .. } | Self::Exists { .. } => Tri::Unknown,
 			Self::SettingPresent { setting } => {
 				match &setting.value {
 					Some(_) => Tri::True,

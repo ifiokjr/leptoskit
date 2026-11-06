@@ -156,6 +156,10 @@ pub use eval::Row;
 #[cfg(feature = "server")]
 pub use eval::Tri;
 #[cfg(feature = "server")]
+pub use expr::Aggregate;
+#[cfg(feature = "server")]
+pub use expr::Avg;
+#[cfg(feature = "server")]
 pub use expr::Col;
 #[cfg(feature = "server")]
 #[doc(hidden)]
@@ -167,9 +171,15 @@ pub use expr::Contained;
 #[cfg(feature = "server")]
 pub use expr::Expr;
 #[cfg(feature = "server")]
+pub use expr::Max;
+#[cfg(feature = "server")]
+pub use expr::Min;
+#[cfg(feature = "server")]
 pub use expr::Operand;
 #[cfg(feature = "server")]
 pub use expr::Order;
+#[cfg(feature = "server")]
+pub use expr::Sum;
 #[cfg(feature = "server")]
 pub use expr::TextColumn;
 #[cfg(feature = "server")]
