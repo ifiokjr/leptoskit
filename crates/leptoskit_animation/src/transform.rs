@@ -43,9 +43,13 @@ fn is_one(value: &f32) -> bool {
 }
 
 #[cfg(feature = "serde")]
-#[expect(
-	clippy::trivially_copy_pass_by_ref,
-	reason = "serde passes skipped fields by reference"
+#[cfg_attr(
+	target_pointer_width = "64",
+	expect(
+		clippy::trivially_copy_pass_by_ref,
+		reason = "serde passes skipped fields by reference; an offset is larger than a 32-bit \
+		          pointer"
+	)
 )]
 fn offset_is_zero(offset: &Offset) -> bool {
 	offset.is_zero()
