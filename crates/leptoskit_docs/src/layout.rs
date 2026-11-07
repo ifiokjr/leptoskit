@@ -178,6 +178,8 @@ fn header(site: &Site, root: &str) -> impl IntoView {
 		None => view! { <span class="lk-brand-name">{site.title.clone()}</span> }.into_any(),
 	};
 
+	let home = site.home.clone().unwrap_or_else(|| at("index.html"));
+
 	let repository = site.repository.as_ref().map(|repository| {
 		view! {
 			<a
@@ -200,7 +202,7 @@ fn header(site: &Site, root: &str) -> impl IntoView {
 				data-lk-menu=""
 				inner_html=MENU_ICON
 			/>
-			<a class="lk-brand" href=at("index.html")>{brand}</a>
+			<a class="lk-brand" href=home>{brand}</a>
 			<div class="lk-header-actions">
 				<button class="lk-search-button" type="button" data-lk-search-open="" hidden=true>
 					<span class="lk-search-icon" inner_html=SEARCH_ICON />

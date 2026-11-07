@@ -54,6 +54,7 @@ pub struct Site {
 	pub(crate) title: String,
 	pub(crate) description: Option<String>,
 	pub(crate) url: Option<String>,
+	pub(crate) home: Option<String>,
 	pub(crate) repository: Option<String>,
 	pub(crate) edit_url: Option<String>,
 	pub(crate) logo: Option<(String, String)>,
@@ -84,6 +85,7 @@ impl Site {
 			title: "Documentation".to_owned(),
 			description: None,
 			url: None,
+			home: None,
 			repository: None,
 			edit_url: None,
 			logo: None,
@@ -124,6 +126,15 @@ impl Site {
 		}
 
 		self.url = Some(url);
+		self
+	}
+
+	/// Where the header's logo leads, when the book sits inside a larger
+	/// site, such as `/` for a landing page at the domain's root. Without
+	/// it, the logo leads to the book's first page.
+	#[must_use]
+	pub fn home(mut self, home: impl Into<String>) -> Self {
+		self.home = Some(home.into());
 		self
 	}
 

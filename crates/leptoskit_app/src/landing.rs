@@ -250,6 +250,11 @@ fn link(id: &str, label: &str, href: &str) -> Element {
 	Pressable(label).id(id).href(href).child(Text(label))
 }
 
+/// A section's eyebrow, title, and description. Each `\n`-separated line of
+/// the title is a block of its own, so a line too long for the column wraps
+/// evenly rather than leaving one word behind. Its id keeps it an element of
+/// its own rather than text joined into the heading's, and the space after
+/// it keeps the lines apart for assistive technology.
 fn intro(id: &str, eyebrow: &str, title: &str, description: &str) -> Element {
 	View()
 		.id(id)
@@ -259,8 +264,13 @@ fn intro(id: &str, eyebrow: &str, title: &str, description: &str) -> Element {
 				.motion(arrive(Pose::new().x(-16.0).clip(Inset::from_left(0.0)), 0)),
 		)
 		.child(
-			Heading(2, title)
+			Heading(2, "")
 				.id(format!("{id}-title"))
+				.children(
+					title.split('\n').enumerate().map(|(index, line)| {
+						text(&format!("{id}-title-{index}"), &format!("{line} "))
+					}),
+				)
 				.motion(arrive(Pose::new().y(48.0).clip(Inset::from_bottom(0.0)), 1)),
 		)
 		.child(

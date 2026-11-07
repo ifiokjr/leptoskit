@@ -353,6 +353,28 @@ fn links_between_pages_relative_to_each_page() {
 }
 
 #[test]
+fn the_logo_leads_to_the_books_first_page_or_the_sites_home() {
+	let out = tempfile::tempdir().unwrap();
+	site(fixture()).build(out.path()).unwrap();
+	let install = read(out.path().join("guide/install.html"));
+	assert!(
+		install.contains("<a href=\"../index.html\" class=\"lk-brand\">"),
+		"{install}"
+	);
+
+	// A book inside a larger site leads back to that site's own home.
+	let nested = tempfile::tempdir().unwrap();
+	site(fixture()).home("/").build(nested.path()).unwrap();
+	for page in ["index.html", "guide/install.html", "404.html"] {
+		let html = read(nested.path().join(page));
+		assert!(
+			html.contains("<a href=\"/\" class=\"lk-brand\">"),
+			"{page}: {html}"
+		);
+	}
+}
+
+#[test]
 fn serves_not_found_from_the_absolute_root() {
 	let out = tempfile::tempdir().unwrap();
 	site(fixture()).build(out.path()).unwrap();

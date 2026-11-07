@@ -42,6 +42,8 @@
 	--sk-ink: #34283f;
 	--sk-quiet: #6f6273;
 	--sk-coral: #e2674d;
+	/* Coral deep enough for small text on the paper (4.9:1 and up). */
+	--sk-coral-text: #b8432b;
 	--sk-sun: #ffcc4d;
 	--sk-lilac: #9c7bd4;
 	--sk-mint: #3fb3a4;
@@ -66,6 +68,15 @@
 		cursive;
 	--sk-mono:
 		"SkribbleMonoPlayful", ui-monospace, "SFMono-Regular", Menlo, monospace;
+	/* Leading for the sketch lettering. Its ascenders reach 0.77em above the
+	 * baseline and its descenders 0.26em below, so a line needs more room
+	 * than most fonts' to keep a "g" off the capital beneath it. */
+	--sk-leading-display: 1.15; /* hero and section titles, 2.4rem and up */
+	--sk-leading-title: 1.2; /* card, step, and chapter titles */
+	--sk-leading-heading: 1.3; /* small headings */
+	/* At these leadings a descender still hangs ~0.07em below the line box.
+	 * Headings that clip their box, or draw under it, pad it by this much. */
+	--sk-descender-room: 0.12em;
 	--sk-wobbly: 255px 15px 225px 15px / 15px 225px 15px 255px;
 	--sk-wobbly-small: 14px 4px 12px 5px / 4px 12px 5px 14px;
 	/* The ink is drawn inset on its canvas, and the inset stretches with it.
@@ -100,6 +111,8 @@
 	--lk-header-bg: color-mix(in srgb, var(--sk-paper) 88%, transparent);
 	--lk-ember: var(--sk-coral);
 	--lk-ember-warm: var(--sk-coral);
+	/* White on the coral reads at only 3.4:1, and 2.4:1 in the dark. */
+	--lk-on-ember: var(--sk-on-accent);
 	--lk-mint: var(--sk-mint);
 	--lk-mint-bright: var(--sk-mint);
 
@@ -114,6 +127,7 @@
 		--sk-ink: #f3ebdf;
 		--sk-quiet: #b9adbd;
 		--sk-coral: #f08e76;
+		--sk-coral-text: var(--sk-coral);
 		--sk-sun: #f2c14e;
 		--sk-lilac: #b89ce6;
 		--sk-mint: #5cc8b8;
@@ -146,6 +160,7 @@
 	--sk-ink: #f3ebdf;
 	--sk-quiet: #b9adbd;
 	--sk-coral: #f08e76;
+	--sk-coral-text: var(--sk-coral);
 	--sk-sun: #f2c14e;
 	--sk-lilac: #b89ce6;
 	--sk-mint: #5cc8b8;
@@ -377,7 +392,7 @@ kbd {
 
 .lk-nav-part {
 	margin-top: 1.8rem;
-	color: var(--sk-coral);
+	color: var(--sk-coral-text);
 	font-size: 1.05rem;
 	font-weight: 400;
 	letter-spacing: 0.02em;
@@ -397,7 +412,7 @@ kbd {
 }
 
 .lk-toc-title {
-	color: var(--sk-coral);
+	color: var(--sk-coral-text);
 	font-size: 1rem;
 	font-weight: 400;
 	letter-spacing: 0.02em;
@@ -437,21 +452,26 @@ kbd {
 .lk-article h6 {
 	font-weight: 400;
 	letter-spacing: 0;
+	line-height: var(--sk-leading-heading);
 }
 
 .lk-article h1 {
 	display: inline-block;
 	margin-bottom: 1.6rem;
+	/* Room for the last line's descenders above the underline. */
+	padding-bottom: var(--sk-descender-room);
 	font-size: clamp(2.4rem, 1.7rem + 2.6vw, 3.5rem);
+	line-height: var(--sk-leading-display);
 	letter-spacing: 0;
 }
 
-/* A loose underline swept under each page's title. */
+/* A loose underline swept under each page's title. It overhangs the title
+ * by less than the page's gutter, so it never widens the page. */
 .lk-article h1::after {
 	--sk-mask: url("../_leptoskit/generated/underline-1.svg");
 	--sk-ink-tone: var(--sk-coral);
-	left: -2%;
-	right: -4%;
+	left: -0.5rem;
+	right: -0.5rem;
 	bottom: -0.55rem;
 	height: 1rem;
 }
@@ -459,6 +479,7 @@ kbd {
 .lk-article h2 {
 	border-top: 0;
 	font-size: 2rem;
+	line-height: var(--sk-leading-title);
 }
 
 .lk-article h2::before {
@@ -472,6 +493,7 @@ kbd {
 
 .lk-article h3 {
 	font-size: 1.5rem;
+	line-height: var(--sk-leading-title);
 }
 
 .lk-article h4 {
@@ -479,7 +501,7 @@ kbd {
 }
 
 .lk-anchor {
-	color: var(--sk-coral);
+	color: var(--sk-coral-text);
 }
 
 .lk-article > p:first-of-type {
@@ -659,13 +681,17 @@ kbd {
 /* Tables ------------------------------------------------------------------- */
 
 /* Wide tables scroll, so their frame is a background that stays put rather
- * than a pseudo-element that would scroll with the rows. */
+ * than a pseudo-element that would scroll with the rows. The outline is
+ * drawn 1.25% and 2% inside its canvas, and those insets stretch with a long
+ * table, so the canvas is oversized by them: the outline then runs 3px
+ * inside the table's edge however tall it grows, around the header too. */
 .lk-table {
 	margin-top: 0.4rem !important;
 	padding: 4px;
 	border: 0;
 	border-radius: 0;
-	background: var(--sk-frame) center / 100% 100% no-repeat;
+	background: var(--sk-frame) center / calc((100% - 6px) / 0.975)
+		calc((100% - 6px) / 0.96) no-repeat;
 }
 
 .lk-article .lk-table:nth-of-type(2n) {
@@ -929,7 +955,7 @@ a.lk-card .lk-card-title::after {
 }
 
 .lk-pager-label {
-	color: var(--sk-coral);
+	color: var(--sk-coral-text);
 	font-size: 0.95rem;
 	letter-spacing: 0.02em;
 	text-transform: none;
