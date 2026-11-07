@@ -595,6 +595,17 @@ fn release_evidence(
 	Ok(evidence)
 }
 
+fn ensure_restore_ready(ip: &str, name: &str) -> Result<()> {
+	let reset: serde_json::Value =
+		serde_json::from_slice(&remote::read(ip, name, "derived-reset-required.json")?)?;
+	ensure!(
+		reset.is_array(),
+		"database restore has unfinished relay/cache recovery; retry `lk infra restore --snapshot \
+		 <id> --yes` before starting applications"
+	);
+	Ok(())
+}
+
 pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
 	let c = managed_settings(&config)?;
@@ -615,13 +626,7 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 		"invalid primary private address"
 	);
 	let reservation = Reservation::acquire(ip, &c.name)?;
-	let reset: serde_json::Value =
-		serde_json::from_slice(&remote::read(ip, &c.name, "derived-reset-required.json")?)?;
-	ensure!(
-		reset.is_array(),
-		"database restore has unfinished relay/cache recovery; retry `lk infra restore --snapshot \
-		 <id> --yes` before starting applications"
-	);
+	ensure_restore_ready(ip, &c.name)?;
 	let mut history = history(ip, c)?;
 	let local_schema = schema(&root, &config)?;
 	let local_hash = history_fingerprint(local_schema.clone())?;
