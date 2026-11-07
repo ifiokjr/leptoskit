@@ -26,8 +26,26 @@ use super::remote_history;
 use super::runtime;
 
 pub(super) fn history(ip: &str, c: &InfraConfig) -> Result<Vec<Release>> {
-	serde_json::from_slice(&remote::read(ip, &c.name, "releases.json")?)
-		.context("invalid shared release history; refusing to overwrite")
+	let history: Vec<Release> =
+		serde_json::from_slice(&remote::read(ip, &c.name, "releases.json")?)
+			.context("invalid shared release history; refusing to overwrite")?;
+	let mut verified = false;
+	for release in &history {
+		if let Some(evidence) = &release.evidence {
+			evidence.validate()?;
+			ensure!(
+				evidence.migrations == release.migrations,
+				"history evidence schema differs"
+			);
+			verified = true;
+		} else {
+			ensure!(
+				!verified,
+				"shared history discarded verified evidence; refusing to overwrite"
+			);
+		}
+	}
+	Ok(history)
 }
 
 pub(super) fn stop(hosts: &[String], c: &InfraConfig) -> Result<()> {
@@ -469,6 +487,10 @@ fn recover_previous(
 	if let Some(previous) = history.last()
 		&& actual == previous.migrations
 	{
+		ensure!(
+			!history.iter().any(|r| r.evidence.is_some()) || previous.evidence.is_some(),
+			"automatic recovery cannot downgrade verified evidence"
+		);
 		prepare_recorded(dir, c, hosts, previous, env, reservation)?;
 		execute(
 			dir,
@@ -564,6 +586,7 @@ fn release_evidence(
 		"verified release history cannot downgrade to legacy evidence"
 	);
 	if let Some(evidence) = &evidence {
+		evidence.validate()?;
 		ensure!(
 			evidence.migrations == *target.map_or(local_hash, |r| &r.migrations),
 			"verified source schema differs from release schema"
@@ -604,6 +627,9 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 	let local_hash = history_fingerprint(local_schema.clone())?;
 	let target = target_release(args, &history, version, &local_hash)?;
 	let evidence = release_evidence(args, target.as_ref(), &history, &local_hash)?;
+	if evidence.is_some() {
+		super::verified::backend_only(&root, &config)?;
+	}
 	let env = runtime_files(&dir, c, &root, &config, &hosts, &private)?;
 	if c.backups.enabled && args.setup {
 		super::recovery::credentials()?;
@@ -674,6 +700,7 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 	if let Err(error) = result {
 		record(ip, c, &reservation.owner, "failed", version)?;
 		if recover_previous(&dir, c, &hosts, &history, &env, &reservation).is_err() {
+			stop(&hosts, c).context("automatic recovery failed and application stop failed")?;
 			eprintln!(
 				"Automatic recovery did not complete; inspect shared status and recover \
 				 explicitly."
@@ -897,16 +924,16 @@ mod tests {
 				"target": "aarch64-unknown-linux-musl", "package": "backend", "binary": "backend",
 				"features": [], "no_default_features": false, "rustflags": []},
 			"executable_sha256": "b".repeat(64), "executable_mode": 493,
-			"migrations": "schema", "runtime_image": format!("runtime@sha256:{}", "a".repeat(64)),
+			"migrations": &"a".repeat(64), "runtime_image": format!("runtime@sha256:{}", "a".repeat(64)),
 			"runtime_config_sha256": "c".repeat(64), "engine_image_id": format!("sha256:{}", "d".repeat(64)),
 			"image_config_sha256": "e".repeat(64), "platform": "linux/arm64",
 			"assets": "not_applicable", "services": "unsupported",
 			"rpc_contract": {"state": "not_applicable", "declaration": "operator_declares_no_rpc"},
 			"native_guest_compatibility": "not_applicable", "runtime_attestation": "absent"
 		});
-		let mut verified = recorded("verified", "schema");
+		let mut verified = recorded("verified", &"a".repeat(64));
 		verified.evidence = Some(serde_json::from_value(descriptor).unwrap());
-		let legacy = recorded("legacy", "schema");
+		let legacy = recorded("legacy", &"a".repeat(64));
 		for recover in [false, true] {
 			let mut options = args();
 			options.recover = recover;
@@ -915,7 +942,7 @@ mod tests {
 					&options,
 					Some(&legacy),
 					std::slice::from_ref(&verified),
-					"schema"
+					&"a".repeat(64)
 				)
 				.is_err()
 			);
@@ -924,14 +951,19 @@ mod tests {
 					&options,
 					Some(&verified),
 					std::slice::from_ref(&legacy),
-					"schema"
+					&"a".repeat(64)
 				)
 				.unwrap()
 				.is_some()
 			);
 			assert!(
-				release_evidence(&options, None, std::slice::from_ref(&verified), "schema")
-					.is_err()
+				release_evidence(
+					&options,
+					None,
+					std::slice::from_ref(&verified),
+					&"a".repeat(64)
+				)
+				.is_err()
 			);
 		}
 		assert!(
@@ -939,7 +971,7 @@ mod tests {
 				&args(),
 				Some(&legacy),
 				std::slice::from_ref(&legacy),
-				"schema"
+				&"a".repeat(64)
 			)
 			.unwrap()
 			.is_none()

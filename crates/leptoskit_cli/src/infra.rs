@@ -762,6 +762,7 @@ pub fn generate(dir: &Path, config: &InfraConfig, force: bool) -> Result<()> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Release {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	evidence: Option<verified::Descriptor>,

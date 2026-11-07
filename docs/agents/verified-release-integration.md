@@ -60,3 +60,13 @@ Passed with Podman 6.1.4, a disposable libkrun VM (2 CPUs, 2 GiB RAM, 10 GiB spa
 The final output was `REAL ENGINE ACCEPTANCE PASSED; local fixture transport, no public provenance claim`. The false-label substitution failed with `image executable bytes differ`. No registry push or deployment occurred. This accepts the local backend packaging slice; it does not complete A04 across websites, services, and approvals.
 
 The final CLI library run passed 560 tests (5 ignored). Full-workspace validation also exposed two pre-existing RPC test setup issues: the offline status test needed a reactive owner with sandboxed arenas, and the slow-reader test relied on a fixed sleep instead of observing each transition. The follow-up scopes the owner and synchronizes backpressure generation against the server counter; it preserves the full-transition assertion.
+
+## Post-rebase command acceptance
+
+Rebased onto `7fa1b202bb1004e7a49035f21f7f86fb38737efc`, retaining backend configuration, readiness declarations, and auth readiness. Main already contains the offline live-client Owner repair, so the duplicate commit was dropped.
+
+The fake remote command suite now exercises independently pinned descriptors through `lk deploy`: image mismatches before proxy/app boot, postboot mismatches stopping applications without advancing history, recorded rollback and explicit recovery, automatic recovery verification failure, and successful recovery retaining the descriptor. Invalid digest fields, source recipes, runtime pins, and inconsistent target/platform pairs are rejected before boot. Shared history rejects unknown fields, malformed descriptors, and legacy records after verified records rather than rewriting away evidence. Automatic recovery failure stops applications.
+
+These are local command tests with fake SSH and container observations, not real deployments or runtime attestations. The real Podman packaging evidence above predates this rebase; container build, extraction, and RPC execution are unchanged. No additional VM or registry publication is required for these release-boundary and descriptor-validation changes.
+
+Post-rebase focused validation passed: 561 CLI library tests (5 ignored), 45 infrastructure command tests, and 14 help/scaffold snapshot tests. The final three verified-release command tests passed again after strengthening the automatic-recovery stop assertion. The full normal pre-push gate was attempted twice; external removal of this clone’s build output and the shared Rust toolchain interrupted Clippy (exit 255, then SIGTERM/143). A completed gate remains required before republishing.

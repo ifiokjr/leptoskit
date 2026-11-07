@@ -142,6 +142,9 @@ elif "json .RepoDigests" in script:
     else:
         digest = os.environ.get("MOCK_CONTAINER_SECONDARY_DIGEST") if target.endswith("192.0.2.11") else os.environ.get("MOCK_CONTAINER_DIGEST")
     print(json.dumps(["ghcr.io/team/notes@sha256:" + (digest or os.environ.get("MOCK_DIGEST", "a" * 64))]))
+elif script.startswith("docker image inspect") and "--format" not in script:
+    changed = os.environ.get("MOCK_IMAGE_MISMATCH") == "all" or (os.environ.get("MOCK_IMAGE_MISMATCH") == "postboot" and "@sha256:" in script)
+    print(json.dumps([{"Id": "sha256:" + ("b" if changed else "a") * 64, "Config": {}, "Os": "linux", "Architecture": "arm64"}]))
 elif script.startswith("docker exec") and "_leptoskit_migrations" in script:
     if os.environ.get("MOCK_HISTORY_FAIL"):
         sys.exit(1)
@@ -2031,4 +2034,266 @@ fn a_backup_transport_failure_never_publishes_a_file() {
 		"backup failed; no backup file was published",
 	);
 	assert!(!root.path().join("broken.dump").exists());
+}
+
+fn verified_descriptor(root: &Path) -> (String, String) {
+	fs::write(
+		root.join("leptoskit.toml"),
+		CONFIG.replace(
+			"render = \"ssr\"",
+			"render = \"ssr\"\nplatforms = [\"server\"]\ndefault_platform = \"server\"",
+		),
+	)
+	.unwrap();
+	let descriptor = serde_json::json!({
+		"format_version": 1, "kind": "leptoskit-verified-backend-image",
+		"inventory_sha256": "a".repeat(64),
+		"recipe": {"repository": "https://github.com/example/backend", "commit": "a".repeat(40),
+			"builder_image": format!("builder@sha256:{}", "a".repeat(64)),
+			"target": "aarch64-unknown-linux-musl", "package": "notes", "binary": "notes",
+			"features": [], "no_default_features": false, "rustflags": []},
+		"executable_sha256": "b".repeat(64), "executable_mode": 493,
+		"migrations": leptoskit_db::checksum("[]"),
+		"runtime_image": format!("runtime@sha256:{}", "a".repeat(64)),
+		"runtime_config_sha256": "c".repeat(64), "engine_image_id": format!("sha256:{}", "a".repeat(64)),
+		"image_config_sha256": leptoskit_db::checksum("{}"), "platform": "linux/arm64",
+		"assets": "not_applicable", "services": "unsupported",
+		"rpc_contract": {"state": "not_applicable", "declaration": "operator_declares_no_rpc"},
+		"native_guest_compatibility": "not_applicable", "runtime_attestation": "absent"
+	});
+	let text = serde_json::to_string(&descriptor).unwrap();
+	let path = root.join("descriptor.json");
+	fs::write(&path, &text).unwrap();
+	(path.to_str().unwrap().into(), leptoskit_db::checksum(&text))
+}
+
+#[test]
+fn verified_release_command_enforces_evidence_before_and_after_boot() {
+	let root = project();
+	let (path, pin) = verified_descriptor(root.path());
+	let args = [
+		"deploy",
+		"--setup",
+		"--version",
+		"v1",
+		"--verified-descriptor",
+		&path,
+		"--descriptor-sha256",
+		&pin,
+	];
+	fails_with(
+		&cli(root.path(), &args, &[("MOCK_IMAGE_MISMATCH", "all")]),
+		"remote image differs",
+	);
+	let calls = fs::read_to_string(root.path().join("infra/notes-production/kamal-calls")).unwrap();
+	assert!(!calls.contains("proxy boot"));
+	assert!(!calls.contains("app boot"));
+	assert!(
+		!root
+			.path()
+			.join("remote/state/notes-production/control/releases.json")
+			.exists()
+	);
+	fails_with(
+		&cli(root.path(), &args, &[("MOCK_IMAGE_MISMATCH", "postboot")]),
+		"remote image differs",
+	);
+	assert_eq!(
+		operation(root.path())["phase"],
+		"verification-failed-app-stopped"
+	);
+	assert!(
+		!root
+			.path()
+			.join("remote/state/notes-production/control/releases.json")
+			.exists()
+	);
+	succeeds(&cli(root.path(), &args, &[]));
+	for flags in [
+		vec!["deploy", "--rollback", "v1"],
+		vec!["deploy", "--recover", "--version", "v1"],
+	] {
+		fails_with(
+			&cli(root.path(), &flags, &[("MOCK_IMAGE_MISMATCH", "all")]),
+			"remote image differs",
+		);
+		assert_eq!(release_count(root.path()), 1);
+		fails_with(
+			&cli(root.path(), &flags, &[("MOCK_IMAGE_MISMATCH", "postboot")]),
+			"remote image differs",
+		);
+		assert_eq!(
+			operation(root.path())["phase"],
+			"verification-failed-app-stopped"
+		);
+		assert_eq!(release_count(root.path()), 1);
+	}
+	fails_with(
+		&cli(root.path(), &["deploy", "--version", "v2"], &[]),
+		"cannot downgrade",
+	);
+	fs::write(root.path().join("remote/ssh-calls"), "").unwrap();
+	let next = [
+		"deploy",
+		"--version",
+		"v2",
+		"--verified-descriptor",
+		&path,
+		"--descriptor-sha256",
+		&pin,
+	];
+	fails_with(
+		&cli(
+			root.path(),
+			&next,
+			&[
+				("MOCK_KAMAL_FAIL_VERSION", "v2"),
+				("MOCK_IMAGE_MISMATCH", "postboot"),
+			],
+		),
+		"Automatic recovery did not complete",
+	);
+	assert_eq!(release_count(root.path()), 1);
+	let calls = fs::read_to_string(root.path().join("remote/ssh-calls")).unwrap();
+	assert!(calls.contains("docker stop"));
+	succeeds(&cli(
+		root.path(),
+		&["deploy", "--recover", "--version", "v1"],
+		&[],
+	));
+	let history: serde_json::Value = serde_json::from_slice(
+		&fs::read(
+			root.path()
+				.join("remote/state/notes-production/control/releases.json"),
+		)
+		.unwrap(),
+	)
+	.unwrap();
+	assert_eq!(history[0]["evidence"], history[1]["evidence"]);
+	assert!(history[1]["evidence"].is_object());
+	let history_path = root
+		.path()
+		.join("remote/state/notes-production/control/releases.json");
+	let mut legacy = history[0].clone();
+	legacy["version"] = "legacy".into();
+	legacy.as_object_mut().unwrap().remove("evidence");
+	let mixed = serde_json::json!([legacy, history[0]]);
+	fs::write(&history_path, serde_json::to_vec(&mixed).unwrap()).unwrap();
+	for flags in [
+		vec!["deploy", "--rollback", "legacy"],
+		vec!["deploy", "--recover", "--version", "legacy"],
+	] {
+		fails_with(&cli(root.path(), &flags, &[]), "cannot downgrade");
+		assert_eq!(
+			fs::read(&history_path).unwrap(),
+			serde_json::to_vec(&mixed).unwrap()
+		);
+	}
+	let mut discarded = history.clone();
+	discarded[1].as_object_mut().unwrap().remove("evidence");
+	fs::write(&history_path, serde_json::to_vec(&discarded).unwrap()).unwrap();
+	fails_with(
+		&cli(
+			root.path(),
+			&["deploy", "--recover", "--version", "v1"],
+			&[],
+		),
+		"discarded verified evidence",
+	);
+	let mut unknown = history.clone();
+	unknown[0]["future_evidence"] = serde_json::json!({"verified": true});
+	fs::write(&history_path, serde_json::to_vec(&unknown).unwrap()).unwrap();
+	fails_with(
+		&cli(
+			root.path(),
+			&["deploy", "--recover", "--version", "v1"],
+			&[],
+		),
+		"invalid shared release history",
+	);
+	assert_eq!(
+		fs::read(&history_path).unwrap(),
+		serde_json::to_vec(&unknown).unwrap()
+	);
+}
+
+#[test]
+fn verified_descriptor_structure_is_rejected_at_command_boundary() {
+	let root = project();
+	let (path, _) = verified_descriptor(root.path());
+	let valid: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+	for (pointer, bad) in [
+		("/inventory_sha256", "bad"),
+		("/executable_sha256", "bad"),
+		("/migrations", "bad"),
+		("/runtime_config_sha256", "bad"),
+		("/image_config_sha256", "bad"),
+		("/engine_image_id", "sha256:no"),
+		("/runtime_image", "runtime:latest"),
+		("/platform", "linux/amd64"),
+		("/recipe/commit", "main"),
+		("/recipe/repository", "file:///tmp/source"),
+		("/recipe/builder_image", "builder:latest"),
+		("/recipe/target", "unknown"),
+	] {
+		let mut value = valid.clone();
+		*value.pointer_mut(pointer).unwrap() = bad.into();
+		let text = serde_json::to_string(&value).unwrap();
+		fs::write(&path, &text).unwrap();
+		let output = cli(
+			root.path(),
+			&[
+				"deploy",
+				"--setup",
+				"--version",
+				"v1",
+				"--verified-descriptor",
+				&path,
+				"--descriptor-sha256",
+				&leptoskit_db::checksum(&text),
+			],
+			&[],
+		);
+		assert!(!output.status.success(), "accepted {pointer}");
+		assert!(
+			!root
+				.path()
+				.join("infra/notes-production/kamal-calls")
+				.exists()
+		);
+	}
+}
+
+#[test]
+fn verified_deploy_rejects_websites_and_services() {
+	let root = project();
+	let (path, pin) = verified_descriptor(root.path());
+	let backend = fs::read_to_string(root.path().join("leptoskit.toml")).unwrap();
+	for config in [
+		CONFIG.to_owned(),
+		format!("{backend}\n[infra.services]\ncache = true\n"),
+	] {
+		fs::write(root.path().join("leptoskit.toml"), config).unwrap();
+		let output = cli(
+			root.path(),
+			&[
+				"deploy",
+				"--setup",
+				"--version",
+				"v1",
+				"--verified-descriptor",
+				&path,
+				"--descriptor-sha256",
+				&pin,
+			],
+			&[],
+		);
+		assert!(!output.status.success());
+		assert!(
+			!root
+				.path()
+				.join("infra/notes-production/kamal-calls")
+				.exists()
+		);
+	}
 }

@@ -197,6 +197,13 @@ fn inspect(engine: Engine, image: &str) -> Result<Value> {
 		.context("image inspection returned no image")
 }
 
+fn valid_digest(value: &str) -> bool {
+	value.len() == 64
+		&& value
+			.bytes()
+			.all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
 fn pinned(image: &str) -> bool {
 	image.rsplit_once("@sha256:").is_some_and(|(name, hash)| {
 		!name.is_empty()
@@ -210,9 +217,11 @@ fn pinned(image: &str) -> bool {
 	})
 }
 
-fn backend_only(source: &Path, config: &LeptoskitConfig) -> Result<()> {
+pub(super) fn backend_only(source: &Path, config: &LeptoskitConfig) -> Result<()> {
 	ensure!(
-		config.app.platforms == [Platform::Server] && config.build.client_package.is_none(),
+		config.app.platforms == [Platform::Server]
+			&& config.build.client_package.is_none()
+			&& config.build.backend != Some(false),
 		"verified packaging supports backend-only projects; website assets evidence is unsupported"
 	);
 	let raw: toml::Value = toml::from_str(&fs::read_to_string(source.join("leptoskit.toml"))?)?;
@@ -475,16 +484,31 @@ pub(super) fn read(path: &Path, pin: &str) -> Result<Descriptor> {
 }
 
 impl Descriptor {
-	fn validate(&self) -> Result<()> {
+	pub(super) fn validate(&self) -> Result<()> {
+		crate::verify::validate(&self.recipe)?;
+		ensure!(
+			pinned(&self.runtime_image),
+			"runtime image must be digest-pinned"
+		);
+		ensure!(
+			build::platform(&self.recipe.target)? == self.platform,
+			"recipe target and image platform differ"
+		);
+		for value in [
+			&self.inventory_sha256,
+			&self.executable_sha256,
+			&self.migrations,
+			&self.runtime_config_sha256,
+			&self.image_config_sha256,
+		] {
+			ensure!(valid_digest(value), "invalid descriptor SHA-256");
+		}
 		ensure!(
 			match &self.rpc_contract {
 				RpcContract::Exported {
 					sha256,
 					compatibility,
-				} =>
-					sha256.len() == 64
-						&& sha256.bytes().all(|b| b.is_ascii_hexdigit())
-						&& *compatibility == CheckState::NotChecked,
+				} => valid_digest(sha256) && *compatibility == CheckState::NotChecked,
 				RpcContract::NotApplicable { declaration } =>
 					declaration == "operator_declares_no_rpc",
 			},
@@ -503,7 +527,7 @@ impl Descriptor {
 		ensure!(
 			self.engine_image_id
 				.strip_prefix("sha256:")
-				.is_some_and(|v| v.len() == 64 && v.bytes().all(|b| b.is_ascii_hexdigit())),
+				.is_some_and(valid_digest),
 			"invalid engine image ID"
 		);
 		Ok(())
