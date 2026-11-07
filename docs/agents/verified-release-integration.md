@@ -43,3 +43,18 @@ The follow-up rebases on `23e5a1df`. The CLI library suite passed: 559 tests, 5 
 RPC descriptors are still unsigned operator evidence. The independent descriptor pin authenticates the operator claim; no guest signature, approval, or runtime attestation is implied. Website and service evidence, and approval integration, remain outside this slice.
 
 Review found the initial packaging implementation reused a text checksum for executable bytes. The follow-up uses raw-byte SHA-256 and tests invalid-UTF-8 substitutions. It also normalizes Podman image IDs and validates a descriptor before writing it.
+
+## Real container acceptance, 7 November 2026
+
+Passed with Podman 6.1.4, a disposable libkrun VM (2 CPUs, 2 GiB RAM, 10 GiB sparse disk), and the committed dependency-free fixture. Two identical builds, full local-source reproduction, packaging, confined RPC export, independent image executable extraction/hash, and reuse passed. Executable/source/migration/config/recipe substitution, an incorrect runtime-config pin, and a replacement image executable retaining the schema label were rejected without writing a descriptor.
+
+- Signed fixture commit: `661142d0b3efe3f7554185f494be64310c136782` (local synthetic commit, not published).
+- Builder: `docker.io/library/rust@sha256:4333721398de61f53ccbe53b0b855bcc4bb49e55828e8f652d7a8ac33dd0c118`.
+- Runtime: `docker.io/library/alpine@sha256:87a4361f6c819618a6bafa2ed5228714cb0bb22195d2b49c95eb26799990128a`.
+- Inventory SHA-256: `dc788ff2da6b8f19ec0856f69fcc3b05aa2280970ba2400213dcc51b2df92060`.
+- Built, packaged, and independently extracted executable SHA-256: `4678f8fcf4ac326bf75c0b200415444699fa29076ba4cde4b9d287b4da1b3517`.
+- RPC spec SHA-256: `c34d10e5266c0f17b0b1a06fce68bdbd5a2cddab8fae213c0d1ea87c7121029d`; compatibility `not_checked`.
+- Engine image ID: `sha256:0cbb253ba208b8c13d74657da2b882b9064bb15c58867ba9009e615e6a6ba0ad`.
+- Descriptor SHA-256: `c72a5752f11ae8971e200015913e1feaf87195add5161b88bea89fdd4a04b690`.
+
+The final output was `REAL ENGINE ACCEPTANCE PASSED; local fixture transport, no public provenance claim`. The false-label substitution failed with `image executable bytes differ`. No registry push or deployment occurred. This accepts the local backend packaging slice; it does not complete A04 across websites, services, and approvals.
