@@ -390,6 +390,9 @@ async fn on_failure_sweeps_finish_permanent_and_missing_handlers() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_retrying_on_failure_stays_pending() {
 	let db = leptoskit_db::testing::sqlite().await;
+	// Queue before starting workers: this tests callback retries, not waker
+	// startup.
+	let id = rpc::enqueue(&db, WorkerGivesUpAgain {}).await.unwrap();
 	let jobs = Jobs::new(db.clone())
 		.workers(1)
 		.poll(Duration::from_secs(60))
@@ -397,7 +400,6 @@ async fn a_retrying_on_failure_stays_pending() {
 		.retention(None)
 		.live_retention(None)
 		.start();
-	let id = rpc::enqueue(&db, WorkerGivesUpAgain {}).await.unwrap();
 
 	wait_row("the job to fail", &db, id, |row| {
 		row.state == JobState::Failed
