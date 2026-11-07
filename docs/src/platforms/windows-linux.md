@@ -2,7 +2,7 @@
 
 On Windows, your screens are drawn with Win32 common controls: `BUTTON`, `EDIT`, `STATIC`, trackbar, and progress bar windows. On Linux, they are drawn with GTK 4 widgets. Both use leptoskit's layout engine and the platform's own font measurement, and neither embeds a browser.
 
-The [shell plugin](plugin-inventory.md) cleans up command descendants before another invocation can take their capacity slot. Windows uses a Job Object attached before execution starts and retains capacity if any member's termination cannot be confirmed. Linux uses a process group; commands that deliberately leave it need additional containment from the host, such as a cgroup.
+The [shell plugin](plugin-inventory.md) cleans up command descendants before another invocation can take their capacity slot. Windows uses a Job Object attached before execution starts and retains capacity if any member's termination cannot be confirmed. Linux uses a process group; commands that deliberately leave it need additional containment from the host, such as a cgroup. Hosts that register plugins themselves can also use `power_monitor`, `deep_link`, `updater`, and single-instance handoff; see [Electron concepts](electron.md).
 
 [Rive vector animations](../guide/20-rive.md) use a reusable Win32 bitmap or a GTK memory texture. Generated hosts stop frame work when idle or inactive and follow Windows client-area animation settings or GTK's animation preference. Native playback rejects text, images, layout, scripts, audio, view models, and drawing features it cannot reproduce. Native builds require a C++17 compiler in addition to the platform tools.
 

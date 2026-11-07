@@ -4,7 +4,15 @@ All notable changes to this project are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0](https://github.com/leptoskit/leptoskit/releases/tag/v0.3.0) (2026-11-06)
+## [0.3.0](https://github.com/leptoskit/leptoskit/releases/tag/v0.3.0) (2026-11-07)
+
+### Features
+
+#### leptoskit_plugin_single_instance: second-launch handoff
+
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr)
+
+When `acquire` returns `None`, `notify_running` can leave a bounded UTF-8 activation mailbox for the owner to `poll_activation`. Window focus remains host-owned.
 
 ### Breaking changes
 

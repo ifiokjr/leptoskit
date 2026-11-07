@@ -233,6 +233,7 @@ leptoskit_plugin_battery = { path = "crates/leptoskit_plugin_battery", version =
 leptoskit_plugin_brightness = { path = "crates/leptoskit_plugin_brightness", version = "0.3.0" }
 leptoskit_plugin_clipboard = { path = "crates/leptoskit_plugin_clipboard", version = "0.3.0" }
 leptoskit_plugin_crypto = { path = "crates/leptoskit_plugin_crypto", version = "0.3.0" }
+leptoskit_plugin_deep_link = { path = "crates/leptoskit_plugin_deep_link", version = "0.3.0" }
 leptoskit_plugin_device = { path = "crates/leptoskit_plugin_device", version = "0.3.0" }
 leptoskit_plugin_device_policy = { path = "crates/leptoskit_plugin_device_policy", version = "0.3.0" }
 leptoskit_plugin_devtools = { path = "crates/leptoskit_plugin_devtools", version = "0.3.0" }
@@ -264,6 +265,7 @@ leptoskit_plugin_pedometer = { path = "crates/leptoskit_plugin_pedometer", versi
 leptoskit_plugin_permissions = { path = "crates/leptoskit_plugin_permissions", version = "0.3.0" }
 leptoskit_plugin_picture_in_picture = { path = "crates/leptoskit_plugin_picture_in_picture", version = "0.3.0" }
 leptoskit_plugin_posture = { path = "crates/leptoskit_plugin_posture", version = "0.3.0" }
+leptoskit_plugin_power_monitor = { path = "crates/leptoskit_plugin_power_monitor", version = "0.3.0" }
 leptoskit_plugin_router = { path = "crates/leptoskit_plugin_router", version = "0.3.0" }
 leptoskit_plugin_screen_capture = { path = "crates/leptoskit_plugin_screen_capture", version = "0.3.0" }
 leptoskit_plugin_screen_orientation = { path = "crates/leptoskit_plugin_screen_orientation", version = "0.3.0" }
@@ -277,6 +279,7 @@ leptoskit_plugin_store = { path = "crates/leptoskit_plugin_store", version = "0.
 leptoskit_plugin_store_review = { path = "crates/leptoskit_plugin_store_review", version = "0.3.0" }
 leptoskit_plugin_tracking_transparency = { path = "crates/leptoskit_plugin_tracking_transparency", version = "0.3.0" }
 leptoskit_plugin_tray = { path = "crates/leptoskit_plugin_tray", version = "0.3.0" }
+leptoskit_plugin_updater = { path = "crates/leptoskit_plugin_updater", version = "0.3.0" }
 leptoskit_plugin_web_auth = { path = "crates/leptoskit_plugin_web_auth", version = "0.3.0" }
 leptoskit_plugin_websocket = { path = "crates/leptoskit_plugin_websocket", version = "0.3.0", default-features = false }
 leptoskit_plugin_window_state = { path = "crates/leptoskit_plugin_window_state", version = "0.3.0" }

@@ -1,0 +1,22 @@
+[package]
+name = "leptoskit_plugin_deep_link"
+version = "0.3.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Inbound URL and file activation queues for LeptosKit desktop hosts."
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge.workspace = true
+thiserror.workspace = true
+url = "2"
+
+[lints]
+workspace = true

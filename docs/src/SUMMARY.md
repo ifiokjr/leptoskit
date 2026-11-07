@@ -94,6 +94,7 @@
   - [Host projects](platforms/host-projects.md)
   - [Runtime plugins](platforms/plugins.md)
   - [Plugin support matrix](platforms/plugin-inventory.md)
+  - [Electron concepts](platforms/electron.md)
 
 # Project
 
