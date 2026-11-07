@@ -790,6 +790,7 @@ mod tests {
 		assert_eq!(ramp_color(&stops, 0.0), [1.0, 0.0, 0.0, 1.0]);
 		assert_eq!(ramp_color(&stops, 1.0), [0.0, 0.0, 0.0, 0.0]);
 		assert_eq!(ramp_color(&stops, 0.5), [0.5, 0.0, 0.0, 0.5]);
+		assert_eq!(ramp_color(&[], 0.5), [0.0; 4], "no stops, no colour");
 	}
 
 	#[test]
@@ -808,5 +809,467 @@ mod tests {
 			"{}",
 			frame.mesh.vertices.len()
 		);
+	}
+
+	#[test]
+	fn an_empty_scene_still_produces_a_default_paint() {
+		let frame = encode(&Scene::new(), 10, 10, 1.0);
+		assert!(frame.instances.is_empty());
+		assert!(frame.mesh.vertices.is_empty());
+		assert_eq!(frame.paints.len(), 1, "the shader needs one paint to bind");
+		assert_eq!(frame.paints[0].kind, 0);
+		assert_eq!(frame.paints[0].color, [0.0; 4]);
+		assert_eq!(frame.ramp_rows(), 0);
+		assert_eq!(frame.steps, [] as [Step; 0]);
+		assert_eq!(
+			frame.segments,
+			[Segment {
+				level: 0,
+				clear: true,
+				steps: 0..0,
+			}],
+		);
+		assert_eq!(frame.levels, 1);
+	}
+
+	#[test]
+	fn fill_instances_carry_geometry_border_and_paint() {
+		let scene = Scene::new()
+			.with(Command::FillRect {
+				rect: Rect::new(0.0, 0.0, 20.0, 10.0),
+				radii: CornerRadii {
+					top_left: 4.0,
+					top_right: 3.0,
+					bottom_right: 2.0,
+					bottom_left: 1.0,
+				},
+				paint: Color::rgba(1.0, 0.0, 0.0, 0.5).into(),
+				border: Some(Border {
+					width: 2.0,
+					color: Color::BLACK,
+				}),
+			})
+			.sanitized();
+		let frame = encode(&scene, 20, 10, 1.0);
+		assert_eq!(frame.steps.len(), 1);
+		assert_eq!(frame.instances.len(), 1);
+		let quad = &frame.instances[0];
+		assert_eq!(quad.rect, [0.0, 0.0, 20.0, 10.0]);
+		assert_eq!(quad.radii, [4.0, 3.0, 2.0, 1.0]);
+		// One pixel per point: the device matrix is the identity, padded by
+		// the one-pixel anti-aliasing margin.
+		assert_eq!(quad.m0, [1.0, 0.0, 0.0, 1.0]);
+		assert_eq!(quad.m1, [0.0, 0.0, 1.0, 1.0]);
+		assert_eq!(quad.params[0], KIND_FILL);
+		assert_eq!(quad.params[1], 2.0, "the border width rides in params");
+		assert_eq!(
+			quad.color,
+			[0.0, 0.0, 0.0, 1.0],
+			"the border colour rides in color"
+		);
+		assert_eq!(quad.paint, [0, 0, 0, 0]);
+		assert_eq!(
+			frame.paints[0].color,
+			[0.5, 0.0, 0.0, 0.5],
+			"the fill colour is premultiplied"
+		);
+	}
+
+	#[test]
+	fn box_shadows_move_grow_and_skip_the_invisible() {
+		let scene = Scene::new()
+			.box_shadow(
+				Rect::new(10.0, 10.0, 20.0, 20.0),
+				4.0,
+				BoxShadow {
+					offset_x: 5.0,
+					offset_y: 3.0,
+					blur: 6.0,
+					spread: 2.0,
+					color: Color::rgba(0.0, 0.0, 0.0, 0.5),
+				},
+			)
+			// A fully transparent shadow draws nothing.
+			.box_shadow(
+				Rect::new(0.0, 0.0, 10.0, 10.0),
+				0.0,
+				BoxShadow {
+					color: Color::TRANSPARENT,
+					..BoxShadow::default()
+				},
+			)
+			// A negative spread can shrink the shadow past its corners and
+			// a corner with no radius stays square.
+			.box_shadow(
+				Rect::new(10.0, 10.0, 4.0, 4.0),
+				0.0,
+				BoxShadow {
+					spread: -1.0,
+					color: Color::BLACK,
+					..BoxShadow::default()
+				},
+			)
+			.sanitized();
+		let frame = encode(&scene, 50, 50, 1.0);
+		assert_eq!(frame.instances.len(), 2);
+		let shadow = &frame.instances[0];
+		assert_eq!(
+			shadow.rect,
+			[13.0, 11.0, 24.0, 24.0],
+			"the offset moves it and the spread grows it twice"
+		);
+		assert_eq!(shadow.radii, [6.0; 4], "the spread grows the corners too");
+		assert_eq!(shadow.params[0], KIND_SHADOW);
+		assert_eq!(shadow.params[2], 3.0, "sigma is half the blur");
+		assert_eq!(shadow.color, [0.0, 0.0, 0.0, 0.5]);
+		assert_eq!(shadow.paint, [0, 0, 0, 0], "shadows need no paint");
+		let shrunk = &frame.instances[1];
+		assert_eq!(shrunk.rect, [11.0, 11.0, 2.0, 2.0]);
+		assert_eq!(
+			shrunk.radii, [0.0; 4],
+			"a corner with no radius stays square"
+		);
+		assert_eq!(frame.steps.len(), 1, "the two shadow quads merge");
+	}
+
+	#[test]
+	fn strokes_encode_every_cap_and_join() {
+		let line = || Path::new().move_to(5.0, 5.0).line_to(35.0, 5.0);
+		for cap in [LineCap::Butt, LineCap::Round, LineCap::Square] {
+			for join in [LineJoin::Miter, LineJoin::Round, LineJoin::Bevel] {
+				let scene = Scene::new()
+					.stroke_path(line(), Stroke::new(4.0).cap(cap).join(join), Color::BLACK)
+					.sanitized();
+				let frame = encode(&scene, 40, 10, 1.0);
+				assert_eq!(frame.steps.len(), 1, "{cap:?} {join:?}");
+				let Draw::Mesh(range) = &frame.steps[0].draw else {
+					panic!("a mesh draw");
+				};
+				assert!(!range.is_empty(), "{cap:?} {join:?}");
+			}
+		}
+	}
+
+	#[test]
+	fn strokes_that_cannot_draw_are_dropped() {
+		// A zero width draws nothing; a stroke whose outline, padded by how
+		// far its miter could reach, lands off the target never tessellates.
+		let scene = Scene::new()
+			.stroke_path(
+				Path::new().move_to(0.0, 0.0).line_to(5.0, 0.0),
+				Stroke::new(0.0),
+				Color::BLACK,
+			)
+			.stroke_path(
+				Path::new().move_to(-100.0, 0.0).line_to(-60.0, 0.0),
+				Stroke::new(2.0),
+				Color::BLACK,
+			)
+			.sanitized();
+		let frame = encode(&scene, 40, 10, 1.0);
+		assert_eq!(frame.steps, [] as [Step; 0]);
+		assert!(frame.mesh.vertices.is_empty());
+	}
+
+	#[test]
+	fn paths_without_leading_moves_and_inner_moves_fill() {
+		// A line with no outline open starts one where the last outline
+		// began, as SVG does after a close: here at the origin.
+		let scene = Scene::new()
+			.fill_path(
+				Path::new().line_to(20.0, 0.0).line_to(20.0, 20.0).close(),
+				FillRule::NonZero,
+				Color::BLACK,
+			)
+			.sanitized();
+		let frame = encode(&scene, 40, 40, 1.0);
+		assert_eq!(frame.steps.len(), 1);
+
+		// A MoveTo inside an open outline ends it and starts another; the
+		// outline still open at the end is finished for the tessellator.
+		let twin = Path::new()
+			.move_to(0.0, 0.0)
+			.line_to(8.0, 0.0)
+			.line_to(8.0, 8.0)
+			.move_to(16.0, 0.0)
+			.line_to(24.0, 0.0)
+			.line_to(24.0, 8.0)
+			.line_to(16.0, 8.0);
+		let scene = Scene::new()
+			.fill_path(twin, FillRule::NonZero, Color::BLACK)
+			.sanitized();
+		let frame = encode(&scene, 40, 40, 1.0);
+		assert_eq!(frame.steps.len(), 1);
+	}
+
+	#[test]
+	fn quadratic_and_cubic_commands_fill() {
+		let curve = Path::new()
+			.move_to(0.0, 30.0)
+			.quad_to(20.0, 0.0, 40.0, 30.0)
+			.cubic_to(
+				Point::new(60.0, 0.0),
+				Point::new(80.0, 60.0),
+				Point::new(100.0, 30.0),
+			)
+			.line_to(100.0, 40.0)
+			.line_to(0.0, 40.0)
+			.close();
+		let scene = Scene::new()
+			.fill_path(curve, FillRule::EvenOdd, Color::BLACK)
+			.sanitized();
+		let frame = encode(&scene, 100, 40, 1.0);
+		assert_eq!(frame.steps.len(), 1);
+		let Draw::Mesh(range) = &frame.steps[0].draw else {
+			panic!("a mesh draw");
+		};
+		assert!(!range.is_empty());
+	}
+
+	#[test]
+	fn clip_paths_push_and_their_pops_restore_the_stencil() {
+		let rings = Path::new()
+			.rect(Rect::new(0.0, 0.0, 20.0, 20.0))
+			.rect(Rect::new(4.0, 4.0, 12.0, 12.0));
+		let scene = Scene::new()
+			.push_clip_path(rings, FillRule::EvenOdd)
+			.fill_rect(Rect::new(0.0, 0.0, 20.0, 20.0), Color::BLACK)
+			.pop_clip()
+			.sanitized();
+		let frame = encode(&scene, 20, 20, 1.0);
+		assert_eq!(frame.steps.len(), 3);
+		let Draw::ClipPush(push) = &frame.steps[0].draw else {
+			panic!("a clip push");
+		};
+		assert!(!push.is_empty(), "the rings tessellate to real geometry");
+		assert_eq!(frame.steps[0].stencil, 0);
+		assert!(matches!(&frame.steps[1].draw, Draw::Quads(_)));
+		assert_eq!(frame.steps[1].stencil, 1);
+		assert_eq!(frame.steps[2].draw, Draw::ClipPop(push.clone()));
+		assert_eq!(frame.steps[2].stencil, 1);
+	}
+
+	#[test]
+	fn rounded_clips_round_trip_through_lyon() {
+		let scene = Scene::new()
+			.push_clip(Rect::new(0.0, 0.0, 20.0, 20.0), CornerRadii::all(10.0))
+			.fill_rect(Rect::new(0.0, 0.0, 20.0, 20.0), Color::BLACK)
+			.pop_clip()
+			.sanitized();
+		let frame = encode(&scene, 20, 20, 1.0);
+		let Draw::ClipPush(range) = &frame.steps[0].draw else {
+			panic!("a clip push");
+		};
+		assert!(
+			range.len() >= 16,
+			"four cubic corners tessellate to real geometry: {range:?}"
+		);
+	}
+
+	#[test]
+	fn an_off_target_clip_pushes_an_empty_shape() {
+		let scene = Scene::new()
+			.push_clip(Rect::new(-40.0, 0.0, 10.0, 10.0), 0.0)
+			.fill_rect(Rect::new(0.0, 0.0, 20.0, 20.0), Color::BLACK)
+			.pop_clip()
+			.sanitized();
+		let frame = encode(&scene, 20, 20, 1.0);
+		// The empty clip still pushes and pops so the stencil stays
+		// balanced; what it clips draws on, unhindered.
+		assert_eq!(
+			frame.steps,
+			[
+				Step {
+					draw: Draw::ClipPush(0..0),
+					stencil: 0,
+				},
+				Step {
+					draw: Draw::Quads(0..1),
+					stencil: 1,
+				},
+				Step {
+					draw: Draw::ClipPop(0..0),
+					stencil: 1,
+				},
+			],
+		);
+	}
+
+	#[test]
+	fn empty_rects_and_off_target_geometry_are_dropped() {
+		let scene = Scene::new()
+			.fill_rect(Rect::new(0.0, 0.0, 0.0, 10.0), Color::BLACK)
+			.fill_rect(Rect::new(0.0, 0.0, 10.0, -0.0), Color::BLACK)
+			.fill_rect(Rect::new(-30.0, 0.0, 10.0, 10.0), Color::BLACK)
+			.fill_rect(Rect::new(0.0, 50.0, 10.0, 10.0), Color::BLACK)
+			.fill_path(
+				Path::new().circle(-100.0, 5.0, 4.0),
+				FillRule::NonZero,
+				Color::BLACK,
+			)
+			// A point has no inside: the tessellation succeeds with no
+			// triangles and nothing is drawn.
+			.fill_path(
+				Path::new().move_to(5.0, 5.0).close(),
+				FillRule::NonZero,
+				Color::BLACK,
+			)
+			.stroke_path(
+				Path::new().move_to(5.0, 5.0).close(),
+				Stroke::new(2.0),
+				Color::BLACK,
+			)
+			.sanitized();
+		let frame = encode(&scene, 10, 10, 1.0);
+		assert!(frame.instances.is_empty());
+		assert_eq!(frame.steps, [] as [Step; 0]);
+		assert!(frame.mesh.vertices.is_empty());
+	}
+
+	#[test]
+	fn gradients_register_paints_and_bake_ramps() {
+		let linear = Paint::LinearGradient {
+			start: Point::new(0.0, 0.0),
+			end: Point::new(100.0, 0.0),
+			stops: vec![
+				GradientStop::new(0.0, Color::rgba(1.0, 0.0, 0.0, 1.0)),
+				GradientStop::new(1.0, Color::rgba(0.0, 0.0, 1.0, 1.0)),
+			],
+		};
+		let radial = Paint::RadialGradient {
+			center: Point::new(50.0, 5.0),
+			radius: 5.0,
+			stops: vec![
+				GradientStop::new(0.0, Color::WHITE),
+				GradientStop::new(1.0, Color::BLACK),
+			],
+		};
+		let scene = Scene::new()
+			.fill_rect(Rect::new(0.0, 0.0, 100.0, 10.0), linear)
+			.fill_rect(Rect::new(0.0, 0.0, 100.0, 10.0), radial)
+			.fill_rect(Rect::new(0.0, 0.0, 100.0, 10.0), Color::BLACK)
+			.sanitized();
+		let frame = encode(&scene, 100, 10, 1.0);
+		assert_eq!(frame.paints.len(), 3);
+		assert_eq!(frame.paints[0].kind, 1, "linear");
+		assert_eq!(frame.paints[0].row, 0);
+		assert_eq!(frame.paints[1].kind, 2, "radial");
+		assert_eq!(frame.paints[1].row, 1);
+		assert_eq!(frame.paints[2].kind, 0, "solid");
+		assert_eq!(frame.paints[2].color, [0.0, 0.0, 0.0, 1.0]);
+		assert_eq!(frame.ramp_rows(), 2);
+		assert_eq!(frame.ramps.len(), 2 * RAMP_WIDTH * 4);
+		assert_eq!(&frame.ramps[..4], &[255, 0, 0, 255], "the first stop");
+		assert_eq!(
+			&frame.ramps[(RAMP_WIDTH - 1) * 4..RAMP_WIDTH * 4],
+			&[0, 0, 255, 255],
+			"the last stop"
+		);
+	}
+
+	#[test]
+	fn degenerate_gradients_fall_back_to_solids() {
+		let scene = Scene::new()
+			.fill_rect(
+				Rect::new(0.0, 0.0, 10.0, 10.0),
+				Paint::LinearGradient {
+					start: Point::new(3.0, 3.0),
+					end: Point::new(3.0, 3.0),
+					stops: vec![
+						GradientStop::new(0.0, Color::WHITE),
+						GradientStop::new(1.0, Color::BLACK),
+					],
+				},
+			)
+			.fill_rect(
+				Rect::new(0.0, 0.0, 10.0, 10.0),
+				Paint::RadialGradient {
+					center: Point::new(5.0, 5.0),
+					radius: 0.0,
+					stops: vec![
+						GradientStop::new(0.0, Color::WHITE),
+						GradientStop::new(0.5, Color::BLACK),
+					],
+				},
+			)
+			.sanitized();
+		let frame = encode(&scene, 10, 10, 1.0);
+		assert_eq!(frame.paints.len(), 2);
+		assert!(
+			frame.paints.iter().all(|paint| paint.kind == 0),
+			"both gradients collapsed to solids"
+		);
+		assert_eq!(frame.paints[0].color, [0.0, 0.0, 0.0, 1.0]);
+		assert_eq!(frame.paints[1].color, [0.0, 0.0, 0.0, 1.0]);
+		assert!(frame.ramps.is_empty(), "no ramps were baked");
+	}
+
+	#[test]
+	fn raw_scenes_encode_defensively() {
+		// encode draws a scene as given: an empty gradient paints nothing
+		// and a pop with nothing open is ignored.
+		let scene = Scene::new()
+			.pop_clip()
+			.pop_layer()
+			.pop_transform()
+			.with(Command::FillRect {
+				rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+				radii: CornerRadii::default(),
+				paint: Paint::LinearGradient {
+					start: Point::new(0.0, 0.0),
+					end: Point::new(0.0, 0.0),
+					stops: Vec::new(),
+				},
+				border: None,
+			});
+		let frame = encode(&scene, 10, 10, 1.0);
+		assert_eq!(frame.paints.len(), 1);
+		assert_eq!(frame.paints[0].color, [0.0; 4]);
+		assert_eq!(frame.steps.len(), 1);
+	}
+
+	#[test]
+	fn transforms_compose_and_a_flat_transform_drops_geometry() {
+		let scene = Scene::new()
+			.push_transform(Affine::translate(10.0, 0.0))
+			.fill_rect(Rect::new(0.0, 0.0, 10.0, 10.0), Color::BLACK)
+			.push_transform(Affine::rotate(std::f32::consts::FRAC_PI_2))
+			.fill_rect(Rect::new(0.0, 0.0, 10.0, 10.0), Color::BLACK)
+			.fill_path(
+				Path::new().rect(Rect::new(0.0, 0.0, 8.0, 8.0)),
+				FillRule::NonZero,
+				Color::BLACK,
+			)
+			.stroke_path(
+				Path::new().move_to(0.0, 0.0).line_to(6.0, 0.0),
+				Stroke::new(1.0),
+				Color::BLACK,
+			)
+			.pop_transform()
+			.pop_transform()
+			.push_transform(Affine::scale(0.0, 0.0))
+			.fill_rect(Rect::new(0.0, 0.0, 10.0, 10.0), Color::BLACK)
+			.fill_path(
+				Path::new().circle(5.0, 5.0, 4.0),
+				FillRule::NonZero,
+				Color::BLACK,
+			)
+			.stroke_path(
+				Path::new().move_to(0.0, 0.0).line_to(6.0, 0.0),
+				Stroke::new(1.0),
+				Color::BLACK,
+			)
+			.pop_transform()
+			.sanitized();
+		let frame = encode(&scene, 100, 100, 1.0);
+		// The two translated rects, then one merged mesh for the rotated
+		// fill and stroke; everything under the flat transform collapses.
+		assert_eq!(frame.instances.len(), 2);
+		assert_eq!(frame.steps.len(), 2);
+		assert_eq!(frame.steps[0].draw, Draw::Quads(0..2));
+		let Draw::Mesh(range) = &frame.steps[1].draw else {
+			panic!("a mesh draw");
+		};
+		assert!(!range.is_empty());
 	}
 }
