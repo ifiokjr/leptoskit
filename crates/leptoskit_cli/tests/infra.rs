@@ -54,18 +54,26 @@ fn project() -> tempfile::TempDir {
 set -eu
 printf '%s\n' "$*" >> tofu-calls
 case "$1" in
-init) printf lock > .terraform.lock.hcl ;;
+init) if [ -n "${MOCK_TOFU_INIT_EXIT:-}" ]; then exit 1; fi; printf lock > .terraform.lock.hcl ;;
 plan) printf plan > leptoskit.plan ;;
 show)
+  if [ -n "${MOCK_SHOW_EXIT:-}" ]; then exit 1; fi
   if [ -n "${MOCK_PLAN_JSON:-}" ]; then printf '%s' "$MOCK_PLAN_JSON";
   else printf '%s' '{"format_version":"1.2","resource_changes":[]}'; fi ;;
 output)
-  if [ "$#" -eq 2 ]; then printf '{"server_ip":{"value":"192.0.2.10"}}'; exit 0; fi
+  if [ -n "${MOCK_OUTPUT_FAIL:-}" ]; then exit 1; fi
+  if [ "$#" -eq 2 ]; then
+    if [ -n "${MOCK_OUTPUT_JSON:-}" ]; then printf '%s' "$MOCK_OUTPUT_JSON";
+    else printf '{"server_ip":{"value":"192.0.2.10"}}'; fi
+    exit 0
+  fi
+  if [ -n "${MOCK_OUTPUT_RAW_FAIL:-}" ]; then exit 1; fi
   case "$3" in
-  server_ip) printf '192.0.2.10' ;;
+  server_ip) if [ -n "${MOCK_SERVER_IP:-}" ]; then printf '%s' "$MOCK_SERVER_IP"; else printf '192.0.2.10'; fi ;;
   server_ips) if [ -n "${MOCK_HOSTS:-}" ]; then printf '%s' "$MOCK_HOSTS"; else printf '["192.0.2.10"]'; fi ;;
-  private_ip) printf '10.42.0.10' ;;
-  backup_endpoint) printf 'https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com' ;;
+  private_ip) if [ -n "${MOCK_PRIVATE_IP:-}" ]; then printf '%s' "$MOCK_PRIVATE_IP"; else printf '10.42.0.10'; fi ;;
+  backup_endpoint) if [ -n "${MOCK_BACKUP_ENDPOINT:-}" ]; then printf '%s' "$MOCK_BACKUP_ENDPOINT";
+    else printf 'https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com'; fi ;;
   app_url) printf 'https://app.example.com' ;;
   updates_url) printf 'https://updates.example.com' ;;
   updates_bucket) printf 'notes-releases' ;;
@@ -84,6 +92,7 @@ set -eu
 printf '%s\n' "$*" >> kamal-calls
 if [ "$1" = app ] && [ "$2" = boot ]; then
   printf '%s\n' "${LEPTOSKIT_RELEASE:-missing}" >> boot-versions
+  if [ -n "${MOCK_KAMAL_FAIL_VERSION:-}" ] && [ "${LEPTOSKIT_RELEASE:-}" = "$MOCK_KAMAL_FAIL_VERSION" ]; then exit 1; fi
 fi
 exit "${MOCK_KAMAL_EXIT:-0}"
 "#,
@@ -113,19 +122,41 @@ script = sys.argv[-1]
 target = sys.argv[-2]
 root = pathlib.Path(os.environ["MOCK_REMOTE_ROOT"])
 (root / "etc/systemd/system").mkdir(parents=True, exist_ok=True)
+with open(root / "ssh-calls", "a") as log:
+    log.write(script + "\n")
 if os.environ.get("MOCK_SSH_EXIT"):
     sys.exit(1)
 if "pg_dump" in script:
-    print("PGDMPfixture", end="")
+    if os.environ.get("MOCK_PG_DUMP_EXIT"):
+        sys.exit(1)
+    print(os.environ.get("MOCK_PG_DUMP", "PGDMPfixture"), end="")
 elif "io.leptoskit.migrations" in script:
     print(os.environ["MOCK_SCHEMA_LABEL"])
 elif "json .RepoDigests" in script:
-    digest = os.environ.get("MOCK_SECONDARY_DIGEST") if target.endswith("192.0.2.11") else None
+    # A running container's digest (`docker inspect` first) can diverge from
+    # the pulled image's (`docker image inspect`), as it does mid-rollout.
+    if script.startswith("docker image inspect"):
+        digest = os.environ.get("MOCK_SECONDARY_DIGEST") if target.endswith("192.0.2.11") else None
+    else:
+        digest = os.environ.get("MOCK_CONTAINER_SECONDARY_DIGEST") if target.endswith("192.0.2.11") else os.environ.get("MOCK_CONTAINER_DIGEST")
     print(json.dumps(["ghcr.io/team/notes@sha256:" + (digest or os.environ.get("MOCK_DIGEST", "a" * 64))]))
 elif script.startswith("docker exec") and "_leptoskit_migrations" in script:
-    print(os.environ.get("MOCK_HISTORY", "[]"))
+    if os.environ.get("MOCK_HISTORY_FAIL"):
+        sys.exit(1)
+    count_path = root / "history-count"
+    count = int(count_path.read_text()) if count_path.exists() else 0
+    count_path.write_text(str(count + 1))
+    after = os.environ.get("MOCK_HISTORY_AFTER")
+    print(after if after and count >= 1 else os.environ.get("MOCK_HISTORY", "[]"))
 elif script.startswith("python3 "):
     print(json.dumps({"healthy": True, "verified": True, "snapshot": "a" * 64}))
+elif "docker inspect --format" in script and ".State.Status" in script:
+    status = os.environ.get("MOCK_ACCESSORY_STATUS")
+    if status is None:
+        sys.exit(1)
+    print(status)
+elif "pg_stat_activity" in script:
+    print(os.environ.get("MOCK_DB_CLIENTS", "0"), end="")
 elif ".State.Status" in script:
     sys.exit(1)
 elif "install -d" in script:
@@ -169,6 +200,13 @@ fn cli(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Output {
 		.env("POSTGRES_PASSWORD", "fixture-password")
 		.env("DATABASE_PASSWORD", "fixture-app-password")
 		.env("KAMAL_REGISTRY_PASSWORD", "fixture-registry-password")
+		// Provider price APIs are never called: no token leaks in from the
+		// machine running the tests, and a test that needs one sets it below.
+		.env_remove("HCLOUD_TOKEN")
+		.env_remove("DIGITALOCEAN_TOKEN")
+		.env_remove("AWS_ACCESS_KEY_ID")
+		.env_remove("AWS_SECRET_ACCESS_KEY")
+		.env_remove("LEPTOSKIT_ANALYTICS_READ_KEY")
 		.envs(env.iter().copied())
 		.output()
 		.unwrap()
@@ -180,6 +218,57 @@ fn succeeds(output: &Output) {
 		"{}",
 		String::from_utf8_lossy(&output.stderr)
 	);
+}
+
+fn fails_with(output: &Output, expected: &str) {
+	assert!(
+		!output.status.success(),
+		"the command unexpectedly succeeded"
+	);
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(
+		stderr.contains(expected),
+		"missing {expected:?} in:\n{stderr}"
+	);
+}
+
+/// A fresh project whose `leptoskit.toml` is `config`, keeping the fixture
+/// tools.
+fn configured(config: &str) -> tempfile::TempDir {
+	let root = project();
+	fs::write(root.path().join("leptoskit.toml"), config).unwrap();
+	root
+}
+
+/// Adds a migration after a project has already generated its configuration.
+fn add_migration(root: &Path, name: &str) -> String {
+	let sql = "SELECT 1;";
+	fs::create_dir_all(root.join("migrations").join(name)).unwrap();
+	fs::write(
+		root.join("migrations").join(name).join("migration.sql"),
+		sql,
+	)
+	.unwrap();
+	let mut registry = fs::read_to_string(root.join("migrations/registry.txt")).unwrap();
+	registry.push_str(name);
+	registry.push('\n');
+	fs::write(root.join("migrations/registry.txt"), registry).unwrap();
+	leptoskit_db::checksum(sql)
+}
+
+fn operation(root: &Path) -> serde_json::Value {
+	serde_json::from_slice(
+		&fs::read(root.join("remote/state/notes-production/control/operation.json")).unwrap(),
+	)
+	.unwrap()
+}
+
+fn release_count(root: &Path) -> usize {
+	serde_json::from_slice::<Vec<serde_json::Value>>(
+		&fs::read(root.join("remote/state/notes-production/control/releases.json")).unwrap(),
+	)
+	.unwrap()
+	.len()
 }
 
 struct ConsoleProcess<'a>(&'a mut std::process::Child);
@@ -1030,4 +1119,914 @@ async fn a_paired_outbound_worker_executes_a_hosted_plan_with_private_state_bind
 	succeeds(&status);
 	assert!(String::from_utf8_lossy(&status.stdout).contains("succeeded"));
 	server.abort();
+}
+
+#[test]
+fn releases_validate_shared_history_and_hosts_before_mutating_anything() {
+	let root = project();
+	succeeds(&cli(root.path(), &["infra", "generate"], &[]));
+	let too_many = serde_json::to_string(&vec!["192.0.2.1"; 17]).unwrap();
+	for hosts in ["[]", "[\"not-an-ip\"]", too_many.as_str()] {
+		fails_with(
+			&cli(
+				root.path(),
+				&["deploy", "--setup", "--version", "v1"],
+				&[("MOCK_HOSTS", hosts)],
+			),
+			"invalid applied application hosts",
+		);
+	}
+	fails_with(
+		&cli(
+			root.path(),
+			&["deploy", "--setup", "--version", "v1"],
+			&[("MOCK_OUTPUT_FAIL", "1")],
+		),
+		"couldn't read application hosts from applied infrastructure",
+	);
+	fails_with(
+		&cli(
+			root.path(),
+			&["infra", "releases"],
+			&[("MOCK_OUTPUT_RAW_FAIL", "1")],
+		),
+		"couldn't read infrastructure output `server_ip`",
+	);
+	fails_with(
+		&cli(
+			root.path(),
+			&["infra", "releases"],
+			&[("MOCK_SERVER_IP", "not-an-address")],
+		),
+		"invalid server_ip output",
+	);
+	succeeds(&cli(
+		root.path(),
+		&["deploy", "--setup", "--version", "v1"],
+		&[],
+	));
+	let history = root
+		.path()
+		.join("remote/state/notes-production/control/releases.json");
+	fs::write(&history, "not json").unwrap();
+	fails_with(
+		&cli(root.path(), &["infra", "releases"], &[]),
+		"invalid shared release history",
+	);
+	fails_with(
+		&cli(root.path(), &["deploy", "--version", "v2"], &[]),
+		"invalid shared release history",
+	);
+}
+
+#[test]
+fn release_tags_require_setup_recorded_versions_and_maintenance_for_new_schema() {
+	let root = project();
+	succeeds(&cli(root.path(), &["infra", "generate"], &[]));
+	fails_with(
+		&cli(root.path(), &["deploy", "--version", "v1"], &[]),
+		"first release requires --setup",
+	);
+	fails_with(
+		&cli(root.path(), &["deploy"], &[]),
+		"pass --version or --rollback",
+	);
+	fails_with(
+		&cli(root.path(), &["deploy", "--version", "latest"], &[]),
+		"use a unique immutable image tag",
+	);
+	fails_with(
+		&cli(root.path(), &["deploy", "--version", "v/1"], &[]),
+		"use a unique immutable image tag",
+	);
+	fails_with(
+		&cli(root.path(), &["deploy", "--rollback", "v1"], &[]),
+		"version is absent from shared release history",
+	);
+	succeeds(&cli(
+		root.path(),
+		&["deploy", "--setup", "--version", "v1"],
+		&[],
+	));
+	fails_with(
+		&cli(root.path(), &["deploy", "--version", "v1"], &[]),
+		"tag already recorded",
+	);
+	let checksum = add_migration(root.path(), "new_schema");
+	fails_with(
+		&cli(root.path(), &["deploy", "--version", "v2"], &[]),
+		"schema changes require --maintenance",
+	);
+	let pairs = serde_json::to_string(&vec![("new_schema".to_owned(), checksum.clone())]).unwrap();
+	let label = leptoskit_db::checksum(&pairs);
+	let remote_history = format!("[[\"new_schema\",\"{checksum}\"]]");
+	succeeds(&cli(
+		root.path(),
+		&["deploy", "--version", "v2", "--maintenance"],
+		&[
+			("MOCK_SCHEMA_LABEL", &label),
+			("MOCK_HISTORY", &remote_history),
+		],
+	));
+	assert_eq!(release_count(root.path()), 2);
+}
+
+#[test]
+fn missing_secrets_and_database_drift_stop_before_any_application_boot() {
+	let root = project();
+	succeeds(&cli(root.path(), &["infra", "generate"], &[]));
+	for (variable, value, expected) in [
+		(
+			"POSTGRES_PASSWORD",
+			"",
+			"set required secret POSTGRES_PASSWORD",
+		),
+		(
+			"DATABASE_PASSWORD",
+			"fixture-password",
+			"administrator and application database passwords must differ",
+		),
+		(
+			"DATABASE_PASSWORD",
+			"",
+			"set required secret DATABASE_PASSWORD",
+		),
+		(
+			"KAMAL_REGISTRY_PASSWORD",
+			"",
+			"set required secret KAMAL_REGISTRY_PASSWORD",
+		),
+	] {
+		fails_with(
+			&cli(
+				root.path(),
+				&["deploy", "--setup", "--version", "v1"],
+				&[(variable, value)],
+			),
+			expected,
+		);
+	}
+
+	let custom = configured(&CONFIG.replace("[infra]", "[infra]\nsecrets = [\"EXTRA_SECRET\"]"));
+	succeeds(&cli(custom.path(), &["infra", "generate"], &[]));
+	fails_with(
+		&cli(
+			custom.path(),
+			&["deploy", "--setup", "--version", "v1"],
+			&[],
+		),
+		"set required secret EXTRA_SECRET",
+	);
+
+	let analytics = configured(&format!("{CONFIG}\n[infra.plugins.analytics]\n"));
+	succeeds(&cli(analytics.path(), &["infra", "generate"], &[]));
+	fails_with(
+		&cli(
+			analytics.path(),
+			&["deploy", "--setup", "--version", "v1"],
+			&[("LEPTOSKIT_ANALYTICS_READ_KEY", "")],
+		),
+		"set required secret LEPTOSKIT_ANALYTICS_READ_KEY",
+	);
+	fails_with(
+		&cli(
+			analytics.path(),
+			&["deploy", "--setup", "--version", "v1"],
+			&[("LEPTOSKIT_ANALYTICS_READ_KEY", "short")],
+		),
+		"LEPTOSKIT_ANALYTICS_READ_KEY needs 32..=256 printable non-space ASCII characters",
+	);
+
+	let services = configured(&format!(
+		"{CONFIG}\n[infra.services]\ncache = true\nrelay = true\n[rpc.live]\nrelay_url_env = \
+		 'NATS_URL'\n"
+	));
+	succeeds(&cli(services.path(), &["infra", "generate"], &[]));
+	fails_with(
+		&cli(
+			services.path(),
+			&["deploy", "--setup", "--version", "v1"],
+			&[("VALKEY_PASSWORD", "")],
+		),
+		"set required secret VALKEY_PASSWORD",
+	);
+	fails_with(
+		&cli(
+			services.path(),
+			&["deploy", "--setup", "--version", "v1"],
+			&[("NATS_TOKEN", "")],
+		),
+		"set required secret NATS_TOKEN",
+	);
+
+	let drift = project();
+	succeeds(&cli(drift.path(), &["infra", "generate"], &[]));
+	succeeds(&cli(
+		drift.path(),
+		&["deploy", "--setup", "--version", "v1"],
+		&[],
+	));
+	fails_with(
+		&cli(
+			drift.path(),
+			&["deploy", "--version", "v2"],
+			&[("MOCK_HISTORY", "[[\"unknown\",\"checksum\"]]")],
+		),
+		"database drifted from shared history",
+	);
+	fails_with(
+		&cli(
+			drift.path(),
+			&["deploy", "--version", "v2"],
+			&[("MOCK_HISTORY_FAIL", "1")],
+		),
+		"couldn't verify remote migration history; rollback is blocked",
+	);
+}
+
+#[test]
+fn a_failed_boot_restores_the_previous_release_or_reports_that_it_could_not() {
+	let root = project();
+	succeeds(&cli(root.path(), &["infra", "generate"], &[]));
+	succeeds(&cli(
+		root.path(),
+		&["deploy", "--setup", "--version", "v1"],
+		&[],
+	));
+	fails_with(
+		&cli(
+			root.path(),
+			&["deploy", "--version", "v2"],
+			&[("MOCK_KAMAL_FAIL_VERSION", "v2")],
+		),
+		"Kamal operation failed",
+	);
+	assert_eq!(
+		fs::read_to_string(root.path().join("infra/notes-production/boot-versions")).unwrap(),
+		"v1\nv2\nv1\n"
+	);
+	assert_eq!(operation(root.path())["phase"], "previous-restored");
+	assert_eq!(release_count(root.path()), 1);
+
+	let abandoned = project();
+	succeeds(&cli(abandoned.path(), &["infra", "generate"], &[]));
+	succeeds(&cli(
+		abandoned.path(),
+		&["deploy", "--setup", "--version", "v1"],
+		&[],
+	));
+	let changed = "b".repeat(64);
+	fails_with(
+		&cli(
+			abandoned.path(),
+			&["deploy", "--version", "v2"],
+			&[
+				("MOCK_KAMAL_FAIL_VERSION", "v2"),
+				("MOCK_DIGEST", changed.as_str()),
+			],
+		),
+		"Automatic recovery did not complete",
+	);
+	assert_eq!(release_count(abandoned.path()), 1);
+}
+
+#[test]
+fn verification_failures_stop_the_app_and_keep_the_recorded_history() {
+	let root = project();
+	let two_hosts = format!(
+		"{}\n[infra.services]\nrelay = true\n[rpc.live]\nrelay_url_env = 'NATS_URL'\n",
+		CONFIG.replace(
+			"name = \"notes-production\"",
+			"name = \"notes-production\"\ninstances = 2",
+		)
+	);
+	fs::write(root.path().join("leptoskit.toml"), two_hosts).unwrap();
+	let hosts = "[\"192.0.2.10\",\"192.0.2.11\"]";
+	succeeds(&cli(
+		root.path(),
+		&["deploy", "--setup", "--version", "v1"],
+		&[("MOCK_HOSTS", hosts)],
+	));
+	let secondary = "b".repeat(64);
+	fails_with(
+		&cli(
+			root.path(),
+			&["deploy", "--version", "v2"],
+			&[
+				("MOCK_HOSTS", hosts),
+				("MOCK_CONTAINER_SECONDARY_DIGEST", secondary.as_str()),
+			],
+		),
+		"hosts are running different image digests",
+	);
+	assert_eq!(
+		operation(root.path())["phase"],
+		"verification-failed-app-stopped"
+	);
+	assert_eq!(release_count(root.path()), 1);
+
+	let rollback = project();
+	succeeds(&cli(rollback.path(), &["infra", "generate"], &[]));
+	succeeds(&cli(
+		rollback.path(),
+		&["deploy", "--setup", "--version", "v1"],
+		&[],
+	));
+	let container = "b".repeat(64);
+	fails_with(
+		&cli(
+			rollback.path(),
+			&["deploy", "--rollback", "v1"],
+			&[("MOCK_CONTAINER_DIGEST", container.as_str())],
+		),
+		"running image differs from recorded digest",
+	);
+	assert_eq!(release_count(rollback.path()), 1);
+}
+
+#[test]
+fn preparing_services_validates_hosts_and_reuses_running_accessories() {
+	let single = project();
+	succeeds(&cli(single.path(), &["infra", "generate"], &[]));
+	fails_with(
+		&cli(
+			single.path(),
+			&["infra", "prepare"],
+			&[("MOCK_PRIVATE_IP", "not-an-address")],
+		),
+		"invalid private IP",
+	);
+
+	let paired = configured(&format!(
+		"{}\n[infra.services]\nrelay = true\n[rpc.live]\nrelay_url_env = 'NATS_URL'\n",
+		CONFIG.replace(
+			"name = \"notes-production\"",
+			"name = \"notes-production\"\ninstances = 2",
+		)
+	));
+	succeeds(&cli(paired.path(), &["infra", "generate"], &[]));
+	fails_with(
+		&cli(paired.path(), &["infra", "prepare"], &[]),
+		"apply the configured hosts before preparing services",
+	);
+	succeeds(&cli(
+		paired.path(),
+		&["infra", "prepare"],
+		&[
+			("MOCK_HOSTS", "[\"192.0.2.10\",\"192.0.2.11\"]"),
+			("MOCK_ACCESSORY_STATUS", "running"),
+		],
+	));
+	let calls =
+		fs::read_to_string(paired.path().join("infra/notes-production/kamal-calls")).unwrap();
+	assert!(calls.contains("server bootstrap"));
+	assert!(
+		!calls.contains("accessory boot") && !calls.contains("accessory start"),
+		"running accessories are left alone: {calls}"
+	);
+	assert!(!calls.contains("app boot"));
+}
+
+#[test]
+fn external_infrastructure_is_generated_inspected_and_never_deployed() {
+	let root = configured(&format!(
+		r#"
+[app]
+name = "notes"
+render = "ssr"
+[db]
+dialect = "postgres"
+[infra]
+name = "notes-production"
+domain = "app.example.com"
+compute = "digitalocean"
+location = "ams3"
+server_type = "s-1vcpu-1gb"
+ssh_key_ids = [123]
+ssh_cidrs = ["192.0.2.1/32"]
+account_id = "{}"
+zone_id = "{}"
+backup_bucket = "notes-backups"
+[infra.external]
+origin_port = 4701
+[infra.backups]
+enabled = false
+"#,
+		"a".repeat(32),
+		"b".repeat(32)
+	));
+	let generated = cli(root.path(), &["infra", "generate"], &[]);
+	succeeds(&generated);
+	assert!(
+		String::from_utf8_lossy(&generated.stdout).contains("run `lk infra plan`"),
+		"{}",
+		String::from_utf8_lossy(&generated.stdout)
+	);
+	assert!(!root.path().join("Dockerfile").exists());
+	succeeds(&cli(root.path(), &["infra", "plugins"], &[]));
+	let output = cli(root.path(), &["infra", "output"], &[]);
+	succeeds(&output);
+	let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+	assert_eq!(value["runtime"], "external");
+	assert_eq!(value["backup_bucket"], "notes-backups");
+	assert!(value["updates_bucket"].is_null());
+	let status = cli(root.path(), &["infra", "status"], &[]);
+	succeeds(&status);
+	let value: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+	assert_eq!(value["runtime"], "external");
+	assert_eq!(
+		value["application_health"],
+		"inspect through the service supervisor"
+	);
+	succeeds(&cli(root.path(), &["infra", "plan"], &[]));
+	succeeds(&cli(root.path(), &["infra", "apply"], &[]));
+	fails_with(
+		&cli(root.path(), &["deploy", "--version", "v1"], &[]),
+		"deploy through the service supervisor",
+	);
+	fails_with(
+		&cli(root.path(), &["infra", "prepare"], &[]),
+		"infra.external manages provisioning only",
+	);
+	fails_with(
+		&cli(root.path(), &["infra", "releases"], &[]),
+		"infra.external manages provisioning only",
+	);
+}
+
+#[test]
+fn code_push_publishing_requires_a_native_platform_and_the_provisioned_host() {
+	let root = project();
+	succeeds(&cli(root.path(), &["infra", "generate"], &[]));
+	fails_with(
+		&cli(root.path(), &["infra", "publish", "--platform", "web"], &[]),
+		"the managed publisher supports iOS and Android code push",
+	);
+	fails_with(
+		&cli(root.path(), &["infra", "publish", "--platform", "ios"], &[]),
+		"codepush.server must match the provisioned updates hostname",
+	);
+	fs::write(
+		root.path().join("leptoskit.toml"),
+		format!("{CONFIG}\n[codepush]\nserver = \"https://updates.example.com\"\n"),
+	)
+	.unwrap();
+	succeeds(&cli(root.path(), &["infra", "generate", "--force"], &[]));
+	let published = cli(root.path(), &["infra", "publish", "--platform", "ios"], &[]);
+	fails_with(&published, "publishing needs the bucket's S3 credentials");
+}
+
+#[test]
+fn backups_validate_uploads_and_require_a_postgres_archive() {
+	let root = project();
+	succeeds(&cli(root.path(), &["infra", "generate"], &[]));
+	fails_with(
+		&cli(
+			root.path(),
+			&["infra", "backup", "--out", "upload.dump", "--upload"],
+			&[],
+		),
+		"publishing needs the bucket's S3 credentials",
+	);
+	fails_with(
+		&cli(
+			root.path(),
+			&["infra", "backup", "--out", "archive.dump"],
+			&[("MOCK_PG_DUMP", "NOPEs")],
+		),
+		"backup did not produce a Postgres custom archive",
+	);
+	assert!(!root.path().join("archive.dump").exists());
+	let artifacts = root.path().join("artifacts");
+	fs::create_dir(&artifacts).unwrap();
+	succeeds(&cli(
+		root.path(),
+		&["infra", "backup", "--out", "artifacts/db.dump"],
+		&[],
+	));
+	assert!(artifacts.join("db.dump").is_file());
+
+	// A B2 backup endpoint is the region's S3 host, not R2's.
+	let endpoint = "https://s3.us-west-004.backblazeb2.com";
+	let b2 = configured(&format!("{CONFIG}\n[infra.b2]\nregion = \"us-west-004\"\n"));
+	succeeds(&cli(b2.path(), &["infra", "generate"], &[]));
+	fails_with(
+		&cli(
+			b2.path(),
+			&["infra", "backup", "--out", "upload.dump", "--upload"],
+			&[("MOCK_BACKUP_ENDPOINT", endpoint)],
+		),
+		"publishing needs the bucket's S3 credentials",
+	);
+}
+
+#[test]
+fn saved_plans_reject_untrusted_metadata_and_never_apply_it() {
+	let root = project();
+	fails_with(
+		&cli(root.path(), &["infra", "plan"], &[("MOCK_SHOW_EXIT", "1")]),
+		"couldn't inspect the saved plan for protected data resources",
+	);
+	for (plan, expected) in [
+		(
+			r#"{"format_version":"2.0","resource_changes":[]}"#,
+			"unsupported plan JSON format",
+		),
+		(
+			r#"{"format_version":"1.2","resource_changes":[{"name":"app","change":{"actions":["delete"]}}]}"#,
+			"invalid planned resource type",
+		),
+		(
+			r#"{"format_version":"1.2","resource_changes":[{"type":"hcloud_server","change":{"actions":["delete"]}}]}"#,
+			"invalid planned resource name",
+		),
+		(
+			r#"{"format_version":"1.2","resource_changes":[{"type":"hcloud_server","name":"app"}]}"#,
+			"invalid planned resource actions",
+		),
+	] {
+		fails_with(
+			&cli(root.path(), &["infra", "plan"], &[("MOCK_PLAN_JSON", plan)]),
+			expected,
+		);
+	}
+	let directory = root.path().join("infra/notes-production");
+	fs::create_dir_all(directory.join("plan.sha256")).unwrap();
+	fails_with(
+		&cli(root.path(), &["infra", "plan"], &[]),
+		"couldn't invalidate the previous plan",
+	);
+	fs::remove_dir(directory.join("plan.sha256")).unwrap();
+	succeeds(&cli(root.path(), &["infra", "plan"], &[]));
+	fails_with(
+		&cli(
+			root.path(),
+			&["infra", "apply"],
+			&[("MOCK_OUTPUT_FAIL", "1")],
+		),
+		"couldn't inspect applied state before reserving the environment",
+	);
+	for (json, expected) in [
+		(
+			r#"{"server_ip":{"value":"not-an-address"}}"#,
+			"invalid primary IP in applied state",
+		),
+		(r#"{"server_ip":{"value":7}}"#, "invalid primary output"),
+	] {
+		fails_with(
+			&cli(
+				root.path(),
+				&["infra", "apply"],
+				&[("MOCK_OUTPUT_JSON", json)],
+			),
+			expected,
+		);
+	}
+	succeeds(&cli(root.path(), &["infra", "apply"], &[]));
+}
+
+#[test]
+fn offers_require_tokens_and_a_positive_minimum_and_budgets_never_guess_prices() {
+	let root = configured(&format!(
+		"{CONFIG}\n[infra.budget]\ncurrency = \"EUR\"\nmonthly_compute = 10.0\n"
+	));
+	fails_with(
+		&cli(root.path(), &["infra", "offers"], &[]),
+		"set HCLOUD_TOKEN and/or DIGITALOCEAN_TOKEN to compare current offers",
+	);
+	fails_with(
+		&cli(
+			root.path(),
+			&["infra", "offers", "--min-memory-gb", "0"],
+			&[],
+		),
+		"minimum memory must be positive",
+	);
+	fails_with(
+		&cli(root.path(), &["infra", "plan"], &[]),
+		"set HCLOUD_TOKEN to read current provider offers",
+	);
+	let digitalocean = configured(&format!(
+		"{}\n[infra.budget]\ncurrency = \"USD\"\nmonthly_compute = 10.0\n",
+		CONFIG
+			.replace(
+				"location = \"hel1\"",
+				"compute = \"digitalocean\"\nlocation = \"ams3\""
+			)
+			.replace("server_type = \"cx23\"", "server_type = \"s-1vcpu-1gb\"")
+	));
+	fails_with(
+		&cli(digitalocean.path(), &["infra", "plan"], &[]),
+		"set DIGITALOCEAN_TOKEN to read current provider offers",
+	);
+}
+
+#[test]
+fn analytics_requires_an_enabled_plugin_and_a_read_key() {
+	let plain = project();
+	fails_with(
+		&cli(plain.path(), &["infra", "analytics"], &[]),
+		"enable [infra.plugins.analytics] first",
+	);
+	let enabled = configured(&format!("{CONFIG}\n[infra.plugins.analytics]\n"));
+	fails_with(
+		&cli(enabled.path(), &["infra", "analytics"], &[]),
+		"set LEPTOSKIT_ANALYTICS_READ_KEY",
+	);
+	fails_with(
+		&cli(
+			enabled.path(),
+			&["infra", "analytics"],
+			&[("LEPTOSKIT_ANALYTICS_READ_KEY", "short")],
+		),
+		"invalid analytics read key",
+	);
+}
+
+#[test]
+fn generated_dockerignore_keeps_managed_state_out_of_images() {
+	let root = project();
+	fs::write(root.path().join(".dockerignore"), "target\n").unwrap();
+	succeeds(&cli(root.path(), &["infra", "generate"], &[]));
+	let ignore = fs::read_to_string(root.path().join(".dockerignore")).unwrap();
+	assert!(ignore.starts_with("target\n"), "{ignore}");
+	assert_eq!(ignore.matches("\n/infra\n").count(), 1, "{ignore}");
+	assert!(ignore.contains("/.kamal"), "{ignore}");
+}
+
+#[test]
+fn releases_refuse_projects_without_readiness_probes() {
+	let root = project();
+	fs::write(root.path().join("src/main.rs"), "fn main() {}").unwrap();
+	succeeds(&cli(root.path(), &["infra", "generate"], &[]));
+	fails_with(
+		&cli(root.path(), &["deploy", "--setup", "--version", "v1"], &[]),
+		"managed releases require readiness probes",
+	);
+}
+
+#[test]
+fn releases_prefix_the_configured_registry_once() {
+	let root =
+		configured(&CONFIG.replace("image = \"ghcr.io/team/notes\"", "image = \"team/notes\""));
+	succeeds(&cli(root.path(), &["infra", "generate"], &[]));
+	succeeds(&cli(
+		root.path(),
+		&["deploy", "--setup", "--version", "v1"],
+		&[],
+	));
+	let calls = fs::read_to_string(root.path().join("infra/notes-production/kamal-calls")).unwrap();
+	assert!(calls.contains("build pull --version v1"));
+	let remote = fs::read_to_string(root.path().join("remote/ssh-calls")).unwrap();
+	assert!(remote.contains("ghcr.io/team/notes:v1"), "{remote}");
+	assert!(!remote.contains("ghcr.io/ghcr.io/"), "{remote}");
+}
+
+#[test]
+fn restores_refuse_unfinished_relay_recovery_before_starting_applications() {
+	let root = project();
+	succeeds(&cli(root.path(), &["infra", "generate"], &[]));
+	succeeds(&cli(
+		root.path(),
+		&["deploy", "--setup", "--version", "v1"],
+		&[],
+	));
+	let reset = root
+		.path()
+		.join("remote/state/notes-production/control/derived-reset-required.json");
+	fs::write(&reset, "{}").unwrap();
+	fails_with(
+		&cli(root.path(), &["deploy", "--version", "v2"], &[]),
+		"database restore has unfinished relay/cache recovery",
+	);
+}
+
+#[test]
+fn verification_rechecks_the_database_history_after_boot() {
+	let root = project();
+	succeeds(&cli(root.path(), &["infra", "generate"], &[]));
+	succeeds(&cli(
+		root.path(),
+		&["deploy", "--setup", "--version", "v1"],
+		&[],
+	));
+	fs::remove_file(root.path().join("remote/history-count")).unwrap();
+	fails_with(
+		&cli(
+			root.path(),
+			&["deploy", "--version", "v2"],
+			&[("MOCK_HISTORY_AFTER", "[[\"unknown\",\"checksum\"]]")],
+		),
+		"database does not match release; shared history was not advanced",
+	);
+	assert_eq!(
+		operation(root.path())["phase"],
+		"verification-failed-app-stopped"
+	);
+	assert_eq!(release_count(root.path()), 1);
+}
+
+#[test]
+fn recovery_stops_the_app_when_the_history_no_longer_matches() {
+	let root = project();
+	succeeds(&cli(root.path(), &["infra", "generate"], &[]));
+	succeeds(&cli(
+		root.path(),
+		&["deploy", "--setup", "--version", "v1"],
+		&[],
+	));
+	fs::remove_file(root.path().join("remote/history-count")).unwrap();
+	fs::write(root.path().join("infra/notes-production/kamal-calls"), "").unwrap();
+	fails_with(
+		&cli(
+			root.path(),
+			&["deploy", "--version", "v2"],
+			&[
+				("MOCK_KAMAL_FAIL_VERSION", "v2"),
+				("MOCK_HISTORY_AFTER", "[[\"unknown\",\"checksum\"]]"),
+			],
+		),
+		"Kamal operation failed",
+	);
+	let calls = fs::read_to_string(root.path().join("infra/notes-production/kamal-calls")).unwrap();
+	assert!(
+		!calls.contains("app boot --version v1"),
+		"a drifted database must not be handed the previous release: {calls}"
+	);
+	assert_eq!(release_count(root.path()), 1);
+}
+
+#[test]
+fn releases_check_the_host_count_and_private_address_before_boot() {
+	let paired = configured(&format!(
+		"{}\n[infra.services]\nrelay = true\n[rpc.live]\nrelay_url_env = 'NATS_URL'\n",
+		CONFIG.replace(
+			"name = \"notes-production\"",
+			"name = \"notes-production\"\ninstances = 2",
+		)
+	));
+	succeeds(&cli(paired.path(), &["infra", "generate"], &[]));
+	fails_with(
+		&cli(
+			paired.path(),
+			&["deploy", "--setup", "--version", "v1"],
+			&[],
+		),
+		"apply the configured host count before release",
+	);
+	let single = project();
+	succeeds(&cli(single.path(), &["infra", "generate"], &[]));
+	fails_with(
+		&cli(
+			single.path(),
+			&["deploy", "--setup", "--version", "v1"],
+			&[("MOCK_PRIVATE_IP", "not-an-address")],
+		),
+		"invalid primary private address",
+	);
+}
+
+#[test]
+fn rollback_schema_refuses_live_clients_and_stale_prefixes() {
+	let busy = project();
+	succeeds(&cli(busy.path(), &["infra", "generate"], &[]));
+	succeeds(&cli(
+		busy.path(),
+		&["deploy", "--setup", "--version", "v1"],
+		&[],
+	));
+	fails_with(
+		&cli(
+			busy.path(),
+			&["deploy", "--rollback", "v1", "--rollback-schema", "--yes"],
+			&[("MOCK_DB_CLIENTS", "1")],
+		),
+		"database still has clients; stop external writers before down migrations",
+	);
+
+	let stale = project();
+	let checksum = add_migration(stale.path(), "first");
+	let pairs = serde_json::to_string(&vec![("first".to_owned(), checksum.clone())]).unwrap();
+	let label = leptoskit_db::checksum(&pairs);
+	let history = format!("[[\"first\",\"{checksum}\"]]");
+	succeeds(&cli(
+		stale.path(),
+		&["deploy", "--setup", "--version", "v1"],
+		&[("MOCK_SCHEMA_LABEL", &label), ("MOCK_HISTORY", &history)],
+	));
+	fs::write(
+		stale.path().join("migrations/first/migration.sql"),
+		"SELECT 2;",
+	)
+	.unwrap();
+	fails_with(
+		&cli(
+			stale.path(),
+			&["deploy", "--rollback", "v1", "--rollback-schema", "--yes"],
+			&[("MOCK_SCHEMA_LABEL", &label)],
+		),
+		"target migration prefix is not present in this checkout",
+	);
+}
+
+#[test]
+fn a_schema_rollback_without_a_reachable_database_reports_the_tunnel() {
+	let root = project();
+	succeeds(&cli(root.path(), &["infra", "generate"], &[]));
+	succeeds(&cli(
+		root.path(),
+		&["deploy", "--setup", "--version", "v1"],
+		&[],
+	));
+	fails_with(
+		&cli(
+			root.path(),
+			&["deploy", "--rollback", "v1", "--rollback-schema", "--yes"],
+			&[],
+		),
+		"the database can't be reached",
+	);
+}
+
+#[test]
+fn managed_settings_require_postgres_and_a_matching_relay_url() {
+	let sqlite = configured(&CONFIG.replace("dialect = \"postgres\"", "dialect = \"sqlite\""));
+	fails_with(
+		&cli(sqlite.path(), &["infra", "plan"], &[]),
+		"the managed release preset requires [db] dialect = 'postgres'",
+	);
+	let relay = configured(&format!("{CONFIG}\n[infra.services]\nrelay = true\n"));
+	fails_with(
+		&cli(relay.path(), &["infra", "plan"], &[]),
+		"configure rpc.live.relay_url_env together with infra.services.relay",
+	);
+}
+
+#[test]
+fn tofu_must_exist_and_succeed_before_a_plan_is_saved() {
+	let missing = project();
+	succeeds(&cli(missing.path(), &["infra", "generate"], &[]));
+	fs::remove_file(missing.path().join("bin/tofu")).unwrap();
+	fails_with(
+		&cli(missing.path(), &["infra", "plan"], &[]),
+		"couldn't run tofu; install it on the operator/CI machine",
+	);
+	let failing = project();
+	succeeds(&cli(failing.path(), &["infra", "generate"], &[]));
+	fails_with(
+		&cli(
+			failing.path(),
+			&["infra", "plan"],
+			&[("MOCK_TOFU_INIT_EXIT", "1")],
+		),
+		"tofu failed",
+	);
+}
+
+#[test]
+fn applied_bindings_must_match_the_configuration() {
+	let root = project();
+	succeeds(&cli(root.path(), &["infra", "generate"], &[]));
+	fs::write(
+		root.path().join("leptoskit.toml"),
+		CONFIG.replace(
+			"domain = \"app.example.com\"",
+			"domain = \"other.example.com\"",
+		),
+	)
+	.unwrap();
+	succeeds(&cli(root.path(), &["infra", "generate", "--force"], &[]));
+	fails_with(
+		&cli(root.path(), &["deploy", "--setup", "--version", "v1"], &[]),
+		"app_url differs from applied infrastructure",
+	);
+}
+
+#[test]
+fn extra_tofu_files_change_the_saved_plan_fingerprint() {
+	let root = project();
+	succeeds(&cli(root.path(), &["infra", "generate"], &[]));
+	let extra = root.path().join("infra/notes-production/extra.tfvars");
+	fs::write(&extra, "servers = 1\n").unwrap();
+	succeeds(&cli(root.path(), &["infra", "plan"], &[]));
+	fs::write(&extra, "servers = 2\n").unwrap();
+	fails_with(
+		&cli(root.path(), &["infra", "apply"], &[]),
+		"the configuration or plan changed; run `lk infra plan` again",
+	);
+}
+
+#[test]
+fn a_backup_transport_failure_never_publishes_a_file() {
+	let root = project();
+	succeeds(&cli(root.path(), &["infra", "generate"], &[]));
+	fails_with(
+		&cli(
+			root.path(),
+			&["infra", "backup", "--out", "broken.dump"],
+			&[("MOCK_PG_DUMP_EXIT", "1")],
+		),
+		"backup failed; no backup file was published",
+	);
+	assert!(!root.path().join("broken.dump").exists());
 }

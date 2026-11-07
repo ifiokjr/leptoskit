@@ -233,4 +233,171 @@ mod tests {
 		assert_eq!(offers[0].memory_gb, 2.0);
 		assert_eq!(offers[0].currency, "USD");
 	}
+
+	fn prices() -> Value {
+		json!({"currency":"EUR", "primary_ips":[{"type":"ipv4", "prices":[{"location":"hel1", "price_monthly":{"net":"0.50"}}]}]})
+	}
+
+	fn size() -> Value {
+		json!({"name":"cx23", "architecture":"x86", "memory":4, "locations":[{"name":"hel1", "available":true}], "prices":[{"location":"hel1", "price_monthly":{"net":"3.49"}}]})
+	}
+
+	#[test]
+	fn provider_arrays_and_amounts_are_validated_instead_of_defaulting() {
+		assert!(
+			array(&json!({}), "server_types")
+				.unwrap_err()
+				.to_string()
+				.contains("provider response lacks server_types")
+		);
+		assert!(array(&json!({"server_types": 7}), "server_types").is_err());
+		assert_eq!(number(&json!(4)).unwrap(), 4.0);
+		assert_eq!(number(&json!("3.49")).unwrap(), 3.49);
+		assert!(
+			number(&json!("not-a-price"))
+				.unwrap_err()
+				.to_string()
+				.contains("missing provider price")
+		);
+		assert!(
+			number(&json!(-1.0))
+				.unwrap_err()
+				.to_string()
+				.contains("invalid provider price")
+		);
+		assert!(number(&json!(null)).is_err());
+	}
+
+	#[test]
+	fn hetzner_rejects_incomplete_catalogs_and_skips_undeprecatable_rows() {
+		assert!(
+			hetzner(&[], &json!({}))
+				.unwrap_err()
+				.to_string()
+				.contains("missing provider currency")
+		);
+		assert!(hetzner(&[], &json!({"currency": "EUR"})).is_err());
+		assert!(
+			hetzner(&[], &json!({"currency": "EUR", "primary_ips": []}))
+				.unwrap_err()
+				.to_string()
+				.contains("missing primary IPv4 prices")
+		);
+		let deprecated = json!({
+			"name": "cx22", "architecture": "x86", "memory": 4, "deprecated": true,
+			"prices": [{"location": "hel1", "price_monthly": {"net": "3.49"}}],
+		});
+		assert!(hetzner(&[deprecated], &prices()).unwrap().is_empty());
+
+		let mut missing_location = size();
+		missing_location["prices"][0]
+			.as_object_mut()
+			.unwrap()
+			.remove("location");
+		assert!(
+			hetzner(&[missing_location], &prices())
+				.unwrap_err()
+				.to_string()
+				.contains("missing location")
+		);
+		let mut unlisted = size();
+		unlisted.as_object_mut().unwrap().remove("locations");
+		unlisted["prices"][0]["location"] = json!("fsn1");
+		assert!(
+			hetzner(&[unlisted], &prices())
+				.unwrap_err()
+				.to_string()
+				.contains("missing regional IPv4 price")
+		);
+		let mut unnamed = size();
+		unnamed.as_object_mut().unwrap().remove("name");
+		assert!(
+			hetzner(&[unnamed], &prices())
+				.unwrap_err()
+				.to_string()
+				.contains("missing size")
+		);
+		let mut unpriced = size();
+		unpriced["prices"][0]["price_monthly"] = json!({});
+		assert!(hetzner(&[unpriced], &prices()).is_err());
+	}
+
+	#[test]
+	fn digitalocean_skips_unavailable_sizes_and_validates_each_row() {
+		let unavailable = json!({
+			"slug": "s-1vcpu-1gb", "memory": 1024, "available": false,
+			"regions": ["ams3"], "price_monthly": 6,
+		});
+		assert!(digitalocean(&[unavailable]).unwrap().is_empty());
+
+		let no_regions = json!({
+			"slug": "s-1vcpu-1gb", "memory": 1024, "available": true, "price_monthly": 6,
+		});
+		assert!(
+			digitalocean(&[no_regions])
+				.unwrap_err()
+				.to_string()
+				.contains("lacks regions")
+		);
+		let no_slug = json!({
+			"memory": 1024, "available": true, "regions": ["ams3"], "price_monthly": 6,
+		});
+		assert!(
+			digitalocean(&[no_slug])
+				.unwrap_err()
+				.to_string()
+				.contains("missing size")
+		);
+		let bad_region = json!({
+			"slug": "s-1vcpu-1gb", "memory": 1024, "available": true,
+			"regions": [7], "price_monthly": 6,
+		});
+		assert!(
+			digitalocean(&[bad_region])
+				.unwrap_err()
+				.to_string()
+				.contains("missing region")
+		);
+		let no_price = json!({
+			"slug": "s-1vcpu-1gb", "memory": 1024, "available": true, "regions": ["ams3"],
+		});
+		assert!(digitalocean(&[no_price]).is_err());
+	}
+
+	#[test]
+	fn offer_queries_require_a_positive_minimum_memory() {
+		for minimum in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+			assert!(
+				print(minimum)
+					.unwrap_err()
+					.to_string()
+					.contains("minimum memory must be positive")
+			);
+		}
+	}
+
+	#[test]
+	fn a_missing_budget_never_contacts_a_provider() {
+		let infra = config(None);
+		guard(&infra).unwrap();
+	}
+
+	fn config(budget: Option<&str>) -> InfraConfig {
+		let budget = budget.unwrap_or_default();
+		let raw = format!(
+			"[app]\nname = 'notes'\n[db]\ndialect = 'postgres'\n[infra]\nname = \
+			 'notes-production'\ndomain = 'app.example.com'\nlocation = 'hel1'\nserver_type = \
+			 'cx23'\nssh_key_ids = [123]\nssh_cidrs = ['192.0.2.1/32']\naccount_id = \
+			 '{}'\nzone_id = '{}'\nimage = 'ghcr.io/team/notes'\nregistry = \
+			 'ghcr.io'\nregistry_username = 'team'\nupdates_domain = \
+			 'updates.example.com'\nupdates_bucket = 'notes-releases'\nbackup_bucket = \
+			 'notes-backups'\n{budget}",
+			"a".repeat(32),
+			"b".repeat(32)
+		);
+		leptoskit_config::LeptoskitConfig::from_toml(&raw, std::path::Path::new("."))
+			.unwrap()
+			.infra
+			.unwrap()
+	}
 }
