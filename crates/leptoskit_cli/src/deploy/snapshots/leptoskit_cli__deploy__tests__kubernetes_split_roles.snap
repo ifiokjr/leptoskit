@@ -1,6 +1,6 @@
 ---
 source: crates/leptoskit_cli/src/deploy/tests.rs
-assertion_line: 147
+assertion_line: 153
 expression: "format!(\"$ leptoskit generate deploy --target kubernetes --split-roles\\n{report}\\n===== \\\n\t\t\t kubernetes.yaml =====\\n{manifest}\")"
 ---
 $ leptoskit generate deploy --target kubernetes --split-roles
@@ -60,6 +60,12 @@ spec:
         app: notes-web
     spec:
       terminationGracePeriodSeconds: 30
+      # The image's `app` user by number, which the kubelet needs to check
+      # it isn't root; volumes are made writable to its group.
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
       containers:
         - name: notes
           image: notes
@@ -109,6 +115,12 @@ spec:
         app: notes-live
     spec:
       terminationGracePeriodSeconds: 30
+      # The image's `app` user by number, which the kubelet needs to check
+      # it isn't root; volumes are made writable to its group.
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
       containers:
         - name: notes
           image: notes
@@ -158,6 +170,12 @@ spec:
         app: notes-worker
     spec:
       terminationGracePeriodSeconds: 30
+      # The image's `app` user by number, which the kubelet needs to check
+      # it isn't root; volumes are made writable to its group.
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
       containers:
         - name: notes
           image: notes
@@ -207,6 +225,12 @@ spec:
         app: notes-capture
     spec:
       terminationGracePeriodSeconds: 30
+      # The image's `app` user by number, which the kubelet needs to check
+      # it isn't root; volumes are made writable to its group.
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
       containers:
         - name: notes
           image: notes

@@ -1,0 +1,11 @@
+# The kind cluster services_deploy_kubernetes.sh deploys to: one node, whose
+# port 80, where ingress-nginx listens, is 127.0.0.1:8080 on the host.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 8080
+        listenAddress: 127.0.0.1
+        protocol: TCP

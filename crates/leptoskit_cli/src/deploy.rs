@@ -91,6 +91,9 @@ impl fmt::Display for Target {
 /// defaults stop it within 25 seconds, so this leaves it a margin.
 const STOP_TIMEOUT_SECONDS: u64 = 30;
 
+/// The uid and gid of the image's unprivileged `app` user.
+const APP_UID: u32 = 10001;
+
 /// Where the container keeps a SQLite database: the one writable path.
 const DATA_DIR: &str = "/data";
 
@@ -250,6 +253,12 @@ impl Project {
 		self.app.to_ascii_lowercase()
 	}
 
+	/// The name of the app's Kubernetes resources: the image name with `_`
+	/// as `-`, since a Service's name is also its DNS name.
+	fn kubernetes_name(&self) -> String {
+		self.image().replace('_', "-")
+	}
+
 	/// The secrets the server reads at run time: the database URL on
 	/// Postgres, which holds a password, then `[auth]`'s.
 	fn runtime_secrets(&self) -> Vec<String> {
@@ -297,6 +306,12 @@ impl Project {
 	/// The Postgres user and database Compose gives the app.
 	fn postgres_user(&self) -> String {
 		self.app.replace('-', "_")
+	}
+
+	/// Whether a service's database is a SQLite file: it has one, and the
+	/// app isn't on Postgres, including when the app has no `[db]` at all.
+	fn service_sqlite(&self, service: &DeployService) -> bool {
+		service.database && self.postgres().is_none()
 	}
 
 	/// What a service's database URL is inside a container: on SQLite, a
@@ -828,7 +843,9 @@ RUN apt-get update \\
 	let mut writable = Vec::new();
 
 	if project.sqlite().is_some()
-		|| (project.postgres().is_none() && project.processes().any(|service| service.database))
+		|| project
+			.processes()
+			.any(|service| project.service_sqlite(service))
 	{
 		writable.push(DATA_DIR.to_owned());
 	}
@@ -1153,7 +1170,7 @@ services:
 	}
 
 	for service in &processes {
-		if service.database && project.sqlite().is_some() {
+		if project.service_sqlite(service) {
 			volumes.push(format!("{}-data", service.name));
 		}
 
@@ -1312,7 +1329,7 @@ fn compose_service(out: &mut String, project: &Project, service: &DeployService)
 "
 	);
 
-	let sqlite_database = service.database && project.sqlite().is_some();
+	let sqlite_database = project.service_sqlite(service);
 
 	if sqlite_database || !service.volumes.is_empty() {
 		out.push_str("    volumes:\n");
@@ -1761,6 +1778,7 @@ fn kubernetes(project: &Project) -> String {
 	}
 
 	let image = project.image();
+	let resource = project.kubernetes_name();
 	let port = project.port;
 	let replicas = if project.sqlite().is_some() { 1 } else { 2 };
 	let mut out = format!(
@@ -1788,8 +1806,8 @@ fn kubernetes(project: &Project) -> String {
 	if !project.runtime_secrets().is_empty() {
 		let _ = write!(
 			out,
-			"#\n# The container reads these from the Secret `{image}`, which you create\n# with \
-			 `kubectl create secret generic {image} --from-literal=...`:\n",
+			"#\n# The container reads these from the Secret `{resource}`, which you create\n# \
+			 with `kubectl create secret generic {resource} --from-literal=...`:\n",
 		);
 
 		for secret in project.runtime_secrets() {
@@ -1803,7 +1821,7 @@ fn kubernetes(project: &Project) -> String {
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {image}
+  name: {resource}
 spec:
   replicas: {replicas}
 "
@@ -1821,15 +1839,21 @@ spec:
 		out,
 		"  selector:
     matchLabels:
-      app: {image}
+      app: {resource}
   template:
     metadata:
       labels:
-        app: {image}
+        app: {resource}
     spec:
       terminationGracePeriodSeconds: {STOP_TIMEOUT_SECONDS}
+      # The image's `app` user by number, which the kubelet needs to check
+      # it isn't root; volumes are made writable to its group.
+      securityContext:
+        runAsUser: {APP_UID}
+        runAsGroup: {APP_UID}
+        fsGroup: {APP_UID}
       containers:
-        - name: {image}
+        - name: {resource}
           image: {image}
           ports:
             - containerPort: {port}
@@ -1845,7 +1869,7 @@ spec:
 			out,
 			"          envFrom:
             - secretRef:
-                name: {image}
+                name: {resource}
 "
 		);
 	}
@@ -1884,12 +1908,12 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: {image}-data
+            claimName: {resource}-data
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {image}-data
+  name: {resource}-data
 spec:
   accessModes: [ReadWriteOnce]
   resources:
@@ -1905,10 +1929,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {image}
+  name: {resource}
 spec:
   selector:
-    app: {image}
+    app: {resource}
   ports:
     - port: 80
       targetPort: {port}
@@ -1916,12 +1940,12 @@ spec:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {image}
+  name: {resource}
 spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: {image}
+      app: {resource}
 "
 	);
 	out.push_str(&kubernetes_services(project));
@@ -1954,6 +1978,7 @@ const SPLIT_ROLES: [(&str, u32, &str); 4] = [
 /// traffic.
 fn kubernetes_split(project: &Project) -> String {
 	let image = project.image();
+	let resource = project.kubernetes_name();
 	let port = project.port;
 	let mut out = format!(
 		"# {app} on Kubernetes, one Deployment per role, written by `leptoskit generate
@@ -1970,13 +1995,13 @@ fn kubernetes_split(project: &Project) -> String {
 
 	for (role, replicas, what) in SPLIT_ROLES {
 		let service = match role {
-			"web" => format!(" `{image}`"),
-			"live" => format!(" `{image}-live`"),
+			"web" => format!(" `{resource}`"),
+			"live" => format!(" `{resource}-live`"),
 			_ => String::new(),
 		};
 		let _ = writeln!(
 			out,
-			"#   {image}-{role}: {replicas} replica{plural}, {what}{service}",
+			"#   {resource}-{role}: {replicas} replica{plural}, {what}{service}",
 			plural = if replicas == 1 { "" } else { "s" },
 		);
 	}
@@ -1984,8 +2009,8 @@ fn kubernetes_split(project: &Project) -> String {
 	let _ = write!(
 		out,
 		"#
-# Send /live, /live/events and /live/frames to the Service `{image}-live` in
-# your ingress, and everything else to `{image}`. With more than one live
+# Send /live, /live/events and /live/frames to the Service `{resource}-live` in
+# your ingress, and everything else to `{resource}`. With more than one live
 # replica, give them the live relay ([rpc.live] relay_url_env, such as
 # NATS_URL, naming a NATS server with JetStream), so they take each commit
 # from it rather than each reading the database; the capture role publishes
@@ -1998,8 +2023,8 @@ fn kubernetes_split(project: &Project) -> String {
 		let _ = write!(
 			out,
 			"#
-# The containers read these from the Secret `{image}`, which you create
-# with `kubectl create secret generic {image} --from-literal=...`:
+# The containers read these from the Secret `{resource}`, which you create
+# with `kubectl create secret generic {resource} --from-literal=...`:
 ",
 		);
 
@@ -2009,7 +2034,7 @@ fn kubernetes_split(project: &Project) -> String {
 	}
 
 	for (role, replicas, _) in SPLIT_ROLES {
-		let name = format!("{image}-{role}");
+		let name = format!("{resource}-{role}");
 		let _ = write!(
 			out,
 			"---
@@ -2028,8 +2053,14 @@ spec:
         app: {name}
     spec:
       terminationGracePeriodSeconds: {STOP_TIMEOUT_SECONDS}
+      # The image's `app` user by number, which the kubelet needs to check
+      # it isn't root; volumes are made writable to its group.
+      securityContext:
+        runAsUser: {APP_UID}
+        runAsGroup: {APP_UID}
+        fsGroup: {APP_UID}
       containers:
-        - name: {image}
+        - name: {resource}
           image: {image}
           ports:
             - containerPort: {port}
@@ -2047,7 +2078,7 @@ spec:
 				out,
 				"          envFrom:
             - secretRef:
-                name: {image}
+                name: {resource}
 "
 			);
 		}
@@ -2078,7 +2109,10 @@ spec:
 		);
 	}
 
-	for (service, role) in [(image.clone(), "web"), (format!("{image}-live"), "live")] {
+	for (service, role) in [
+		(resource.clone(), "web"),
+		(format!("{resource}-live"), "live"),
+	] {
 		let _ = write!(
 			out,
 			"---
@@ -2088,7 +2122,7 @@ metadata:
   name: {service}
 spec:
   selector:
-    app: {image}-{role}
+    app: {resource}-{role}
   ports:
     - port: 80
       targetPort: {port}
@@ -2096,12 +2130,12 @@ spec:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {image}-{role}
+  name: {resource}-{role}
 spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: {image}-{role}
+      app: {resource}-{role}
 "
 		);
 	}
@@ -2113,13 +2147,13 @@ spec:
 /// cluster, and its `bind` entries. A token arrives from the app's Secret,
 /// and a `bind` entry that holds it refers to it with `$(…)`.
 fn kubernetes_app_env(project: &Project) -> String {
-	let image = project.image();
+	let resource = project.kubernetes_name();
 	let mut out = String::new();
 
 	for service in &project.services {
 		let url = match (&service.url, service.port) {
 			(Some(url), _) => url.clone(),
-			(None, Some(port)) => format!("http://{image}-{}:{port}", service.name),
+			(None, Some(port)) => format!("http://{resource}-{}:{port}", service.name),
 			(None, None) => continue,
 		};
 
@@ -2148,12 +2182,13 @@ fn kubernetes_app_env(project: &Project) -> String {
 )]
 fn kubernetes_services(project: &Project) -> String {
 	let image = project.image();
+	let resource = project.kubernetes_name();
 	let mut out = String::new();
 
 	for service in project.processes() {
-		let name = format!("{image}-{}", service.name);
+		let name = format!("{resource}-{}", service.name);
 		let port = service.port.unwrap_or_default();
-		let sqlite_database = service.database && project.sqlite().is_some();
+		let sqlite_database = project.service_sqlite(service);
 		let stateful = sqlite_database || !service.volumes.is_empty();
 		let replicas = if stateful { 1 } else { 2 };
 		let _ = write!(
@@ -2202,6 +2237,12 @@ spec:
 			format!("        app: {name}"),
 			"    spec:".to_owned(),
 			format!("      terminationGracePeriodSeconds: {STOP_TIMEOUT_SECONDS}"),
+			"      # The image's `app` user by number, which the kubelet needs to check".to_owned(),
+			"      # it isn't root; volumes are made writable to its group.".to_owned(),
+			"      securityContext:".to_owned(),
+			format!("        runAsUser: {APP_UID}"),
+			format!("        runAsGroup: {APP_UID}"),
+			format!("        fsGroup: {APP_UID}"),
 			"      containers:".to_owned(),
 			format!("        - name: {service_name}"),
 			format!("          image: {image}"),
@@ -2214,7 +2255,7 @@ spec:
 			"            - name: LEPTOSKIT_SERVICE_ADDR".to_owned(),
 			format!("              value: \"0.0.0.0:{port}\""),
 			"            - name: LEPTOSKIT_APP_URL".to_owned(),
-			format!("              value: \"http://{image}:80\""),
+			format!("              value: \"http://{resource}:80\""),
 		];
 
 		for line in lines {
@@ -2355,7 +2396,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {image}
+  name: {resource}
 spec:
   rules:
     - http:
@@ -2368,17 +2409,17 @@ spec:
 			for prefix in &service.public_prefixes {
 				routes.push((
 					prefix.clone(),
-					format!("{image}-{}", service.name),
+					format!("{resource}-{}", service.name),
 					service.port.unwrap_or_default(),
 				));
 			}
 		}
 
 		if project.split_roles {
-			routes.push(("/live".to_owned(), format!("{image}-live"), 80));
+			routes.push(("/live".to_owned(), format!("{resource}-live"), 80));
 		}
 
-		routes.push(("/".to_owned(), image.clone(), 80));
+		routes.push(("/".to_owned(), resource.clone(), 80));
 
 		for (path, backend, port) in routes {
 			let _ = write!(
@@ -2485,6 +2526,7 @@ WantedBy=multi-user.target
 
 fn kubernetes_next(project: &Project) -> Vec<String> {
 	let image = project.image();
+	let resource = project.kubernetes_name();
 	let mut steps = vec![
 		format!(
 			"Build and push the image: `docker build -t {image} .` then push it to your registry."
@@ -2494,14 +2536,15 @@ fn kubernetes_next(project: &Project) -> Vec<String> {
 
 	if !project.runtime_secrets().is_empty() {
 		steps.push(format!(
-			"Create the Secret: `kubectl create secret generic {image} --from-literal=NAME=...`."
+			"Create the Secret: `kubectl create secret generic {resource} \
+			 --from-literal=NAME=...`."
 		));
 	}
 
 	if project.split_roles && project.public_processes().next().is_none() {
 		steps.push(format!(
-			"Route /live, /live/events and /live/frames to the Service `{image}-live` in your \
-			 ingress, and everything else to `{image}`."
+			"Route /live, /live/events and /live/frames to the Service `{resource}-live` in your \
+			 ingress, and everything else to `{resource}`."
 		));
 	}
 
@@ -2522,7 +2565,7 @@ fn kubernetes_next(project: &Project) -> Vec<String> {
 
 		steps.push(format!(
 			"Create services.{}'s Secret, with the same token the app's Secret holds: `kubectl \
-			 create secret generic {image}-{} {literals}`.",
+			 create secret generic {resource}-{} {literals}`.",
 			service.name, service.name
 		));
 	}
@@ -2542,7 +2585,7 @@ fn kubernetes_next(project: &Project) -> Vec<String> {
 	if project.public_processes().next().is_some() {
 		steps.push(
 			"Set ingressClassName and a host on the Ingress `".to_owned()
-				+ &image
+				+ &resource
 				+ "` for your cluster.",
 		);
 	}
