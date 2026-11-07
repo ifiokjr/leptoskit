@@ -144,6 +144,8 @@ lk deploy --rollback release-001 --rollback-schema --yes
 
 This checks the recorded image, stops all app hosts, backs up the database, verifies there are no remaining database clients, and runs the reviewed `down.sql` files newest first. Each migration is transactional. Missing reverses, checksum mismatches, and unresolved data-recovery stubs block reversal. Successful reversals remain committed if a later reverse fails; the app stays stopped for repair. [Database rollback](22-database.md#rolling-back-a-migration) explains data-loss limits and how to review generated reverses. A down migration cannot reconstruct deleted user data without a deliberate recovery procedure.
 
+With [services](32-services.md#deploying) that have databases of their own, each release records their migrations too, and both commands cover them: a change to a service's tables also needs `--maintenance`, and `--rollback-schema` also stops the services and runs their `down.sql` files, logged in as each service's role with `LEPTOSKIT_SERVICE_<NAME>_DATABASE_PASSWORD`.
+
 On failed deployment, LeptosKit attempts the previous recorded image only if the actual schema still matches it. It does not automatically reverse migrations. After repairing or restoring data, `lk deploy --recover --version <recorded-tag>` starts a compatible recorded image. A mismatch discovered after deployment stops app containers and leaves shared history unchanged.
 
 ### Back up, verify, and restore

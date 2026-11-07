@@ -439,6 +439,7 @@ mod tests {
 			},
 			package: "app_db".into(),
 			name: "app".into(),
+			service: None,
 		}
 	}
 
@@ -746,6 +747,7 @@ mod push_tests {
 			},
 			package: "app_db".into(),
 			name: "app".into(),
+			service: None,
 		};
 		let mut without_server = DevDatabase::open(project, None, None).unwrap();
 		assert_eq!(without_server.switch_branch().unwrap(), None);
@@ -768,6 +770,7 @@ mod push_tests {
 			},
 			package: "app_db".into(),
 			name: "app".into(),
+			service: None,
 		};
 		let mut database = DevDatabase::open(project, None, Some(&binaries)).unwrap();
 		assert!(database.env()[0].1.contains("/app?"));
@@ -795,6 +798,7 @@ mod push_tests {
 			},
 			package: "app_db".into(),
 			name: "app".into(),
+			service: None,
 		};
 		let url = format!("sqlite://{}", root.path().join("dev.sqlite3").display());
 		let mut database = DevDatabase {

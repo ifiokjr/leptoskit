@@ -681,3 +681,155 @@ fn stopping_sends_sigterm_then_sigkill() {
 	assert!(polite.try_wait().unwrap().is_some());
 	assert!(stubborn.try_wait().unwrap().is_some());
 }
+
+/// What `leptoskit dev` does for `examples/analytics` on Postgres, for real:
+/// builds the service with its `postgres` feature, gives it its own role and
+/// database on the development server, starts it, and sends captures through
+/// the proxy, which land in the service's database and nowhere else.
+///
+/// Ignored by default: it builds the example's service, and needs Postgres
+/// binaries (`LEPTOSKIT_POSTGRES_BIN`, `PGBIN`, or the path). Run it with
+/// `cargo test -p leptoskit_cli --all-features analytics_runs_on_postgres --
+/// --ignored`.
+#[test]
+#[ignore = "builds examples/analytics and runs Postgres"]
+fn analytics_runs_on_postgres_in_a_database_of_its_own() {
+	use leptoskit_db::Db;
+	use leptoskit_db::Read as _;
+	use leptoskit_db::Statement;
+	use leptoskit_db::Value;
+
+	let Some(binaries) = crate::db::dev_server::test_binaries() else {
+		return;
+	};
+	let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+	let workspace = workspace.canonicalize().unwrap();
+	let port = std::net::TcpListener::bind("127.0.0.1:0")
+		.unwrap()
+		.local_addr()
+		.unwrap()
+		.port();
+	// The app's project: a git repository on its main branch, holding the
+	// development Postgres and the service's files, apart from the example.
+	let project = tempfile::tempdir().unwrap();
+	let root = project.path();
+	let status = crate::git::command(root)
+		.args(["init", "--quiet", "--initial-branch=main"])
+		.env("GIT_CONFIG_GLOBAL", root.join("no-global-config"))
+		.env("GIT_CONFIG_NOSYSTEM", "1")
+		.status()
+		.unwrap();
+	assert!(status.success());
+	let config = LeptoskitConfig::from_toml(
+		&format!(
+			"[app]\nname = \"analytics-app\"\n\n[db]\ndialect = \"postgres\"\ndev_server = \
+			 \"embedded\"\n\n[services.analytics]\npackage = \"analytics_service\"\nfeatures = \
+			 [\"service\", \"postgres\"]\nport = {port}\n"
+		),
+		root,
+	)
+	.unwrap();
+
+	let metadata = crate::wasm::cargo_metadata(&workspace).unwrap();
+	let services = resolve(&config, &workspace, &metadata, false).unwrap();
+	let built = build(&workspace, &metadata, None, &services, false).unwrap();
+	let app = crate::db::Project::of(&config, root.to_path_buf()).unwrap();
+	let server = crate::db::dev_server::start(
+		&app,
+		crate::db::dev_server::Source::Embedded,
+		Some(&binaries),
+	)
+	.unwrap();
+	assert!(server.url.contains("/analytics_app?"), "{}", server.url);
+
+	let tokens = run::tokens(&built.services).unwrap();
+	let session = run::Session {
+		config: &config,
+		root,
+		public_origin: "http://127.0.0.1:3000".into(),
+		app_url: "http://127.0.0.1:9".into(),
+		app_database_url: Some(server.url.clone()),
+		tokens: &tokens,
+	};
+	let prepared = run::prepare(&built.services, &session).unwrap();
+	let launch = &prepared.launches[0];
+	let service_url = launch
+		.env
+		.iter()
+		.find(|(name, _)| name == env::DATABASE_URL)
+		.map(|(_, url)| url.clone())
+		.unwrap();
+	let parsed = url::Url::parse(&service_url).unwrap();
+	assert_eq!(parsed.username(), "analytics_app_service_analytics");
+	assert_eq!(parsed.path(), "/analytics_app_service_analytics");
+	let mut running = run::start(
+		&prepared,
+		&[(env::DRAIN_MS.to_owned(), "0".to_owned())],
+		Duration::from_secs(5),
+	)
+	.unwrap();
+
+	let runtime = tokio::runtime::Runtime::new().unwrap();
+	let statuses = runtime.block_on(async {
+		let app = serve(Router::new().fallback(|| async { "the app" })).await;
+		let proxy = serve(proxy::router(
+			proxy::Routes::of(&built.services),
+			std::net::SocketAddr::from(([127, 0, 0, 1], app)),
+		))
+		.await;
+		let client =
+			hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+				.build_http::<axum::body::Body>();
+		let mut statuses = Vec::new();
+
+		for event in ["signup", "clicked_buy", "clicked_buy"] {
+			let request = axum::http::Request::post(format!(
+				"http://127.0.0.1:{proxy}/_leptoskit/services/analytics/api/capture"
+			))
+			.header(header::CONTENT_TYPE, "application/json")
+			.body(axum::body::Body::from(
+				serde_json::json!({"event": event, "distinct_id": "visitor-1", "properties": {}})
+					.to_string(),
+			))
+			.unwrap();
+			statuses.push(client.request(request).await.unwrap().status().as_u16());
+		}
+
+		statuses
+	});
+	running.stop();
+	assert_eq!(statuses, [200, 200, 200]);
+
+	let first = |url: &str, sql: &str| -> Option<Value> {
+		crate::db::runtime().unwrap().block_on(async {
+			let db = Db::connect(url).await.ok()?;
+			let rows = db
+				.fetch(Statement {
+					sql: sql.to_owned(),
+					args: vec![],
+				})
+				.await
+				.ok()?;
+			rows.into_iter().next()?.into_iter().next()
+		})
+	};
+	let as_admin =
+		crate::db::dev_server::with_database(&server.url, "analytics_app_service_analytics")
+			.unwrap();
+	assert_eq!(
+		first(&as_admin, "SELECT count(*) FROM events"),
+		Some(Value::Int(3)),
+		"the captures land in the service's database"
+	);
+	assert_eq!(
+		first(&server.url, "SELECT to_regclass('events') IS NULL"),
+		Some(Value::Bool(true)),
+		"and not in the app's"
+	);
+	let reach_app = crate::db::dev_server::with_database(&service_url, "analytics_app").unwrap();
+	assert_eq!(
+		first(&reach_app, "SELECT 1"),
+		None,
+		"the service's role can't connect to the app's database"
+	);
+}

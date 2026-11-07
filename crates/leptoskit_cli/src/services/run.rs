@@ -211,28 +211,14 @@ fn service_env(
 }
 
 /// The service's own database: a SQLite file under `.leptoskit/services/`,
-/// or a database of its own on the app's Postgres server, created when
-/// missing. The service applies its own migrations.
+/// or a database and role of its own on the app's Postgres server, created
+/// when missing (see [`super::database`]). The service applies its own
+/// migrations.
 fn database_url(built: &BuiltService, session: &Session<'_>) -> Result<String> {
 	let name = built.service.name();
-	// The app's engine, or SQLite when the app has no database of its own.
-	let dialect = session
-		.config
-		.db
-		.as_ref()
-		.map_or(DbDialect::Sqlite, |db| db.dialect);
 
-	match dialect {
-		DbDialect::Sqlite => {
-			let path = super::sqlite_path(session.root, name);
-
-			if let Some(parent) = path.parent() {
-				std::fs::create_dir_all(parent)
-					.with_context(|| format!("could not create {}", parent.display()))?;
-			}
-
-			Ok(format!("sqlite://{}", path.display()))
-		}
+	match super::dialect(session.config) {
+		DbDialect::Sqlite => super::database::sqlite_url(session.root, name),
 
 		DbDialect::Postgres => {
 			let app = session.app_database_url.as_deref().with_context(|| {
@@ -246,25 +232,16 @@ fn database_url(built: &BuiltService, session: &Session<'_>) -> Result<String> {
 						.map_or("DATABASE_URL", |db| db.url_env.as_str())
 				)
 			})?;
-			let app_database = app_database_name(app)?;
-			let database = super::postgres_database(&app_database, name);
-			let server = crate::db::dev_server::with_database(app, "postgres")?;
-
-			if crate::db::branches::ensure_database(&server, &database, None)? {
-				crate::ui::tagged(name, format_args!("created the database `{database}`"));
-			}
-
-			crate::db::dev_server::with_database(app, &database)
+			let project = crate::db::Project::of(session.config, session.root.to_path_buf());
+			super::database::postgres_url(
+				project.as_ref(),
+				session.root,
+				app,
+				name,
+				super::database::Existing::Keep,
+			)
 		}
 	}
-}
-
-/// The database a Postgres URL names.
-fn app_database_name(url: &str) -> Result<String> {
-	let parsed = url::Url::parse(url).context("the app's database URL isn't a URL")?;
-	let name = parsed.path().trim_start_matches('/');
-	anyhow::ensure!(!name.is_empty(), "the app's database URL names no database");
-	Ok(name.to_owned())
 }
 
 /// What a service inherits from `leptoskit`'s own environment: what a

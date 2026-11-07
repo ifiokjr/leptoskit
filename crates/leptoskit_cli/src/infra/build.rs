@@ -12,6 +12,20 @@ use leptoskit_config::LeptoskitConfig;
 
 pub(super) const SCHEMA_LABEL: &str = "io.leptoskit.migrations";
 
+/// The label holding the fingerprint of every database-backed service's
+/// migrations, which images without such services don't carry.
+pub(super) const SERVICES_SCHEMA_LABEL: &str = "io.leptoskit.services.migrations";
+
+/// The fingerprint of the services' migrations in this checkout, for
+/// [`SERVICES_SCHEMA_LABEL`].
+pub(super) fn services_fingerprint(
+	root: &Path,
+	config: &LeptoskitConfig,
+) -> Result<Option<String>> {
+	let services = crate::deploy::services::read(root, config)?;
+	super::services_fingerprint(&super::service_schemas(&services)?)
+}
+
 pub(super) fn fingerprint(root: &Path, config: &LeptoskitConfig) -> Result<String> {
 	let db = config
 		.db
@@ -118,6 +132,7 @@ pub(super) fn run(
 	};
 	let tag = format!("{image}:{version}");
 	let schema = fingerprint(root, config)?;
+	let services = services_fingerprint(root, config)?;
 	let private = if push { credentials(root, c)? } else { None };
 	if push && exists(root, private.as_ref(), &tag)? {
 		ensure!(
@@ -145,26 +160,40 @@ pub(super) fn run(
 			result.status.success() && String::from_utf8_lossy(&result.stdout).trim() == schema,
 			"existing artifact has different migration metadata; refusing reuse"
 		);
+		if let Some(services) = &services {
+			let result = docker(root, private.as_ref())
+				.args([
+					"image",
+					"inspect",
+					"--format",
+					&format!("{{{{index .Config.Labels \"{SERVICES_SCHEMA_LABEL}\"}}}}"),
+					&tag,
+				])
+				.output()?;
+			ensure!(
+				result.status.success()
+					&& String::from_utf8_lossy(&result.stdout).trim() == services,
+				"existing artifact has different service migration metadata; refusing reuse"
+			);
+		}
 		println!("Reused existing artifact {tag}; no image was rebuilt or overwritten");
 		return Ok(());
 	}
 	let label = format!("{SCHEMA_LABEL}={schema}");
-	let status = docker(root, private.as_ref())
-		.args([
-			"build",
-			"--platform",
-			"linux/amd64",
-			"--label",
-			&label,
-			"--tag",
-			&tag,
-			".",
-		])
+	let mut build = docker(root, private.as_ref());
+	build.args(["build", "--platform", "linux/amd64", "--label", &label]);
+	if let Some(services) = &services {
+		build
+			.arg("--label")
+			.arg(format!("{SERVICES_SCHEMA_LABEL}={services}"));
+	}
+	let status = build
+		.args(["--tag", &tag, "."])
 		.status()
 		.context("couldn't build the managed image")?;
 	ensure!(status.success(), "managed image build failed");
 	ensure!(
-		fingerprint(root, config)? == schema,
+		fingerprint(root, config)? == schema && services_fingerprint(root, config)? == services,
 		"migration files changed during the build; rebuild before pushing"
 	);
 	if push {

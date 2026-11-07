@@ -9,6 +9,7 @@
 //! starts them with the runtime contract's environment, and [`proxy`] puts
 //! their public paths on the app's origin.
 
+pub mod database;
 pub mod env;
 pub mod proxy;
 pub mod run;
@@ -806,6 +807,16 @@ impl BuiltServices {
 	}
 }
 
+/// The engine services' databases use: the app's `[db] dialect`, or SQLite
+/// when the app has no database of its own.
+#[must_use]
+pub fn dialect(config: &LeptoskitConfig) -> DbDialect {
+	config
+		.db
+		.as_ref()
+		.map_or(DbDialect::Sqlite, |db| db.dialect)
+}
+
 /// Where a service's dev files live: `.leptoskit/services/<name>/`.
 #[must_use]
 pub fn dev_dir(root: &Path, service: &str) -> PathBuf {
@@ -1006,8 +1017,8 @@ pub fn listing(services: &[Service], config: &LeptoskitConfig, root: &Path) -> L
 				ServiceSource::Remote { url } => url.clone(),
 			};
 			let database = settings.database.then(|| {
-				match config.db.as_ref().map(|db| db.dialect) {
-					Some(DbDialect::Postgres) => {
+				match dialect(config) {
+					DbDialect::Postgres => {
 						EntryDatabase {
 							engine: "postgres",
 							location: format!(
@@ -1017,7 +1028,7 @@ pub fn listing(services: &[Service], config: &LeptoskitConfig, root: &Path) -> L
 							pool: settings.pool,
 						}
 					}
-					Some(DbDialect::Sqlite) | None => {
+					DbDialect::Sqlite => {
 						EntryDatabase {
 							engine: "sqlite",
 							location: relative(sqlite_path(root, &name)),

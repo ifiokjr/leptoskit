@@ -29,6 +29,7 @@ fn project(root: &std::path::Path, dialect: leptoskit_config::DbDialect) -> Proj
 		},
 		package: "app_db".into(),
 		name: "app".into(),
+		service: None,
 	}
 }
 
@@ -1463,7 +1464,10 @@ esac
 			other => panic!("unknown command {other}"),
 		};
 
-		let result = run(command);
+		let result = run(
+			command,
+			std::env::var("LEPTOSKIT_TEST_DB_SERVICE").ok().as_deref(),
+		);
 
 		if let Ok(expected) = std::env::var("LEPTOSKIT_TEST_DB_EXPECT") {
 			let error = result.expect_err("the command should have been refused");
@@ -2676,4 +2680,136 @@ fn watch_detects_membership_loss_even_when_tables_stay_the_same() {
 		super::watch::classify(&history, &target),
 		super::watch::Change::MissingPacks(vec!["sample".into()])
 	);
+}
+
+/// `leptoskit db --service`: which database and migrations a service's
+/// commands work on.
+mod services {
+	use std::path::Path;
+
+	use leptoskit_config::DbDialect;
+	use leptoskit_config::LeptoskitConfig;
+
+	use crate::db::DbCommand;
+	use crate::db::Project;
+
+	fn write(root: &Path, path: &str, contents: &str) {
+		let path = root.join(path);
+		std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+		std::fs::write(path, contents).unwrap();
+	}
+
+	/// A workspace with an app, a service with a database, one without, and
+	/// a remote one, on `dialect`.
+	fn workspace(dialect: Option<&str>) -> (tempfile::TempDir, LeptoskitConfig) {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path();
+		write(
+			root,
+			"Cargo.toml",
+			"[workspace]\nmembers = [\"app\", \"analytics\", \"cards\"]\nresolver = \"2\"\n",
+		);
+		write(
+			root,
+			"app/Cargo.toml",
+			"[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+		);
+		write(root, "app/src/main.rs", "fn main() {}\n");
+		write(
+			root,
+			"analytics/Cargo.toml",
+			"[package]\nname = \"analytics\"\nversion = \"0.1.0\"\nedition = \
+			 \"2021\"\n\n[features]\nservice = []\n\n[package.metadata.leptoskit.service]\nname = \
+			 \"analytics\"\nport = 3100\nfeatures = [\"service\"]\ndatabase = true\n",
+		);
+		write(root, "analytics/src/main.rs", "fn main() {}\n");
+		write(
+			root,
+			"cards/Cargo.toml",
+			"[package]\nname = \"cards\"\nversion = \"0.1.0\"\nedition = \
+			 \"2021\"\n\n[package.metadata.leptoskit.service]\nname = \"cards\"\nport = 3200\n",
+		);
+		write(root, "cards/src/main.rs", "fn main() {}\n");
+		let db = dialect.map_or_else(String::new, |dialect| {
+			format!("[db]\ndialect = \"{dialect}\"\ncrate = \"app\"\n\n")
+		});
+		let config = format!(
+			"[app]\nname = \"app\"\n\n{db}[services.analytics]\npackage = \
+			 \"analytics\"\n\n[services.cards]\npackage = \"cards\"\n\n[services.billing]\nurl = \
+			 \"https://billing.example\"\n"
+		);
+		write(root, "leptoskit.toml", &config);
+		let config = LeptoskitConfig::load_from(root).unwrap();
+		(dir, config)
+	}
+
+	#[test]
+	fn a_service_has_its_own_tables_migrations_and_database_variable() {
+		let (dir, config) = workspace(None);
+		let project = Project::service(&config, dir.path().to_path_buf(), "analytics").unwrap();
+		assert_eq!(project.package, "analytics");
+		assert_eq!(project.config.dialect, DbDialect::Sqlite);
+		assert_eq!(project.config.features, ["service"]);
+		assert_eq!(
+			project.config.url_env,
+			"LEPTOSKIT_SERVICE_ANALYTICS_DATABASE_URL"
+		);
+		assert!(
+			project
+				.migrations_dir()
+				.ends_with(Path::new("analytics").join("migrations")),
+			"{}",
+			project.migrations_dir().display()
+		);
+
+		// Without a URL, the SQLite file `leptoskit dev` gives the service.
+		let (url, server) = project.database(None).unwrap();
+		assert!(server.is_none());
+		let expected = crate::services::sqlite_path(dir.path(), "analytics");
+		assert_eq!(url, format!("sqlite://{}", expected.display()));
+		assert!(expected.parent().unwrap().is_dir());
+		let (url, _) = project
+			.database(Some("sqlite://elsewhere.sqlite3".into()))
+			.unwrap();
+		assert_eq!(url, "sqlite://elsewhere.sqlite3");
+
+		// On a Postgres app, the Postgres migrations.
+		let (dir, config) = workspace(Some("postgres"));
+		let project = Project::service(&config, dir.path().to_path_buf(), "analytics").unwrap();
+		assert_eq!(project.config.dialect, DbDialect::Postgres);
+		assert!(
+			project
+				.migrations_dir()
+				.ends_with(Path::new("analytics").join("migrations-postgres"))
+		);
+		assert!(project.service.as_ref().unwrap().app.is_some());
+	}
+
+	#[test]
+	fn services_without_a_database_here_are_refused_by_name() {
+		let (dir, config) = workspace(Some("sqlite"));
+		let root = dir.path().to_path_buf();
+		let error = |name: &str| {
+			Project::service(&config, root.clone(), name)
+				.err()
+				.unwrap()
+				.to_string()
+		};
+		assert_eq!(
+			error("search"),
+			"there's no [services.search] in leptoskit.toml; its services are analytics, billing, \
+			 cards"
+		);
+		assert!(error("cards").starts_with("[services.cards] has no database"));
+		assert!(error("billing").starts_with("[services.billing] is remote"));
+
+		let branch = crate::db::run(
+			DbCommand::Branch {
+				command: crate::db::BranchCommand::List,
+			},
+			Some("analytics"),
+		)
+		.unwrap_err();
+		assert!(branch.to_string().contains("follow the app's"), "{branch}");
+	}
 }

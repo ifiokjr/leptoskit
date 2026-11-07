@@ -373,6 +373,10 @@ pub enum Command {
 	/// since the latest one; `check` fails CI when they changed without one;
 	/// `migrate` applies what the database still needs.
 	Db {
+		/// Work on the database of the service `[services.<name>]` declares,
+		/// with its crate's tables and migrations, rather than the app's.
+		#[arg(long, global = true, value_name = "NAME")]
+		service: Option<String>,
 		#[command(subcommand)]
 		command: crate::db::DbCommand,
 	},
@@ -840,7 +844,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		Command::Services { json } => crate::services::command(json),
 		Command::Routes { check } => routes::command(check),
 		Command::L10n { check } => l10n::command(check),
-		Command::Db { command } => crate::db::run(command),
+		Command::Db { service, command } => crate::db::run(command, service.as_deref()),
 		Command::Jobs { command } => crate::jobs::run(command),
 		Command::Auth { command } => crate::auth_command::run(command),
 		Command::Codepush { command } => codepush::run(command),

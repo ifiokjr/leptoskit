@@ -7,8 +7,9 @@ Runs reviewed down.sql files, newest first. Stop application writers and back up
 Usage: leptoskit db rollback [OPTIONS]
 
 Options:
-      --url <URL>      Database URL; defaults to `db.url_env`
-      --steps <STEPS>  Number of applied migrations to reverse [default: 1]
-      --yes            Confirm reverse SQL may delete data
-  -h, --help           Print help
-  -V, --version        Print version
+      --service <NAME>  Work on the database of the service `[services.<name>]` declares, with its crate's tables and migrations, rather than the app's
+      --url <URL>       Database URL; defaults to `db.url_env`
+      --steps <STEPS>   Number of applied migrations to reverse [default: 1]
+      --yes             Confirm reverse SQL may delete data
+  -h, --help            Print help
+  -V, --version         Print version

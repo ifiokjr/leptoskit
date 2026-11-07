@@ -319,7 +319,7 @@ fn embedded(directory: &Path, cache: &Path, binaries: Option<&Path>) -> Result<D
 
 /// The contents of `file`, made with `make` and kept there, readable only
 /// by its owner, on the first call.
-fn remembered(file: &Path, make: impl FnOnce() -> Result<String>) -> Result<String> {
+pub(crate) fn remembered(file: &Path, make: impl FnOnce() -> Result<String>) -> Result<String> {
 	if let Ok(existing) = fs::read_to_string(file) {
 		return Ok(existing.trim().to_owned());
 	}
@@ -375,6 +375,41 @@ fn installation_of(binaries: &Path) -> Result<PathBuf> {
 pub(crate) fn with_database(url: &str, database: &str) -> Result<String> {
 	let mut url = url::Url::parse(url).context("the database URL isn't a URL")?;
 	url.set_path(database);
+	Ok(url.to_string())
+}
+
+/// `url` logging in as `user` with `password`: in the URL's own user and
+/// password, or in its query when the query names the user, as a URL over a
+/// socket directory does.
+pub(crate) fn with_login(url: &str, user: &str, password: &str) -> Result<String> {
+	let mut url = url::Url::parse(url).context("the database URL isn't a URL")?;
+	let pairs: Vec<(String, String)> = url.query_pairs().into_owned().collect();
+
+	if pairs.iter().any(|(key, _)| key == "user") {
+		let mut query = url.query_pairs_mut();
+		query.clear();
+
+		for (key, value) in &pairs {
+			match key.as_str() {
+				"user" => {
+					query.append_pair("user", user);
+				}
+				"password" => {}
+				_ => {
+					query.append_pair(key, value);
+				}
+			}
+		}
+
+		query.append_pair("password", password);
+		drop(query);
+		return Ok(url.to_string());
+	}
+
+	url.set_username(user)
+		.map_err(|()| anyhow::anyhow!("couldn't put a user in the database URL"))?;
+	url.set_password(Some(password))
+		.map_err(|()| anyhow::anyhow!("couldn't put a password in the database URL"))?;
 	Ok(url.to_string())
 }
 
@@ -599,6 +634,25 @@ mod tests {
 		assert_eq!(
 			with_database(&socket, "app").unwrap(),
 			"postgres:///app?host=%2Frun%2Fpg&port=5432&user=ada&sslmode=disable"
+		);
+	}
+
+	#[test]
+	fn urls_can_log_in_as_another_role() {
+		assert_eq!(
+			with_login(
+				"postgres://u:p@localhost:5/app?sslmode=disable",
+				"app_service_analytics",
+				"secret"
+			)
+			.unwrap(),
+			"postgres://app_service_analytics:secret@localhost:5/app?sslmode=disable"
+		);
+		let socket = devenv_url("/run/pg", "5432", "ada", "app").unwrap();
+		assert_eq!(
+			with_login(&socket, "app_service_analytics", "secret").unwrap(),
+			"postgres:///app?host=%2Frun%2Fpg&port=5432&user=app_service_analytics&\
+			 sslmode=disable&password=secret"
 		);
 	}
 }
