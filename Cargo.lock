@@ -9586,6 +9586,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "services_echo"
+version = "0.3.0"
+dependencies = [
+ "leptoskit_axum",
+ "tokio",
+]
+
+[[package]]
 name = "sha1"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

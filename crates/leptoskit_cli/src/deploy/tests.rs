@@ -407,14 +407,15 @@ fn what_is_missing_is_named() {
 /// service with a database, a volume, and bindings; `cards`, a private one;
 /// and `billing`, which runs elsewhere. `trust` is analytics's.
 pub(crate) fn project_with_services(root: &Path, db: Db, trust: &str) -> LeptoskitConfig {
-	let dialect = match db {
-		Db::Postgres => "postgres",
-		_ => "sqlite",
+	let db = match db {
+		Db::None => String::new(),
+		Db::Sqlite => "[db]\ndialect = \"sqlite\"\n\n".to_owned(),
+		Db::Postgres => "[db]\ndialect = \"postgres\"\n\n".to_owned(),
 	};
 	let config = format!(
 		"schema_version = 0\n\n[app]\nname = \"notes\"\nversion = \"0.1.0\"\nrender = \
 		 \"ssr\"\n\n[serve]\naddress = \"127.0.0.1\"\nport = 3000\n\n[build]\nclient_package = \
-		 \"notes_app\"\n\n[db]\ndialect = \"{dialect}\"\n\n[services.analytics]\npackage = \
+		 \"notes_app\"\n\n{db}[services.analytics]\npackage = \
 		 \"analytics_service\"\ntrust = \"{trust}\"\n\n[services.cards]\npackage = \
 		 \"cards\"\n\n[services.billing]\nurl = \"https://billing.internal.example/\"\n"
 	);
@@ -483,6 +484,116 @@ fn services_are_pinned() {
 			insta::assert_snapshot!(format!("services_{target}_{}", db.name()), pinned);
 		}
 	}
+}
+
+/// A service's database is a SQLite file on a volume of its own when the
+/// app has no `[db]` at all, as `examples/analytics` does: the containers'
+/// root filesystems are read-only.
+#[test]
+fn a_service_database_without_an_app_database_is_on_a_volume() {
+	let root = tempfile::tempdir().unwrap();
+	let config = project_with_services(root.path(), Db::None, "first-party");
+	generate(root.path(), &config, Target::Compose, false).expect("compose");
+	let compose = std::fs::read_to_string(root.path().join("compose.yaml")).unwrap();
+	assert!(
+		compose.contains("      DATABASE_URL: sqlite:///data/analytics.sqlite3\n"),
+		"{compose}"
+	);
+	assert!(
+		compose.contains("      - analytics-data:/data\n"),
+		"{compose}"
+	);
+	assert!(
+		compose.contains("\nvolumes:\n  analytics-data:\n"),
+		"{compose}"
+	);
+	let dockerfile = std::fs::read_to_string(root.path().join("Dockerfile")).unwrap();
+	assert!(
+		dockerfile.contains("mkdir -p /data /volumes/exports"),
+		"{dockerfile}"
+	);
+
+	generate(root.path(), &config, Target::Kubernetes, false).expect("kubernetes");
+	let kubernetes = std::fs::read_to_string(root.path().join("kubernetes.yaml")).unwrap();
+	let analytics = kubernetes
+		.split("\n---\n")
+		.find(|manifest| manifest.contains("name: notes-analytics\nspec:\n  replicas:"))
+		.expect("the analytics Deployment");
+	assert!(
+		analytics.contains("  replicas: 1\n  strategy:\n    type: Recreate\n"),
+		"{analytics}"
+	);
+	assert!(
+		analytics.contains(
+			"            - name: DATABASE_URL\n              value: \
+			 \"sqlite:///data/analytics.sqlite3\""
+		),
+		"{analytics}"
+	);
+	assert!(
+		kubernetes.contains("  name: notes-analytics-data\n"),
+		"{kubernetes}"
+	);
+}
+
+/// Kubernetes names can't hold `_`, which Cargo package names often do, and
+/// the kubelet can only check a numeric user isn't root.
+#[test]
+fn kubernetes_names_and_users_suit_the_kubelet() {
+	let root = tempfile::tempdir().unwrap();
+	project_with_services(root.path(), Db::Sqlite, "first-party");
+	let toml = std::fs::read_to_string(root.path().join("leptoskit.toml"))
+		.unwrap()
+		.replace("name = \"notes\"", "name = \"my_notes\"");
+	write(root.path(), "leptoskit.toml", &toml);
+	let cargo = std::fs::read_to_string(root.path().join("Cargo.toml"))
+		.unwrap()
+		.replace("name = \"notes\"", "name = \"my_notes\"");
+	write(root.path(), "Cargo.toml", &cargo);
+	let config = LeptoskitConfig::from_toml(&toml, root.path()).expect("config");
+	generate(root.path(), &config, Target::Kubernetes, false).expect("kubernetes");
+	let kubernetes = std::fs::read_to_string(root.path().join("kubernetes.yaml")).unwrap();
+
+	// Resource names, container names, labels, claims, and the Ingress's
+	// backends; environment variables keep their `_`.
+	for line in kubernetes.lines() {
+		let name = [
+			"  name: ",
+			"        - name: ",
+			"                name: ",
+			"            claimName: ",
+			"      app: ",
+			"    app: ",
+			"        app: ",
+		]
+		.into_iter()
+		.find_map(|prefix| line.strip_prefix(prefix));
+
+		if let Some(name) = name {
+			assert!(!name.contains('_'), "{line}");
+		}
+	}
+
+	assert!(
+		kubernetes.contains("          image: my_notes\n"),
+		"{kubernetes}"
+	);
+	assert!(
+		kubernetes.contains("\"http://my-notes-analytics:3100\""),
+		"{kubernetes}"
+	);
+	assert!(
+		kubernetes.contains("\"http://my-notes:80\""),
+		"{kubernetes}"
+	);
+	let pods = kubernetes
+		.matches("      terminationGracePeriodSeconds: 30\n")
+		.count();
+	assert_eq!(
+		kubernetes.matches("      securityContext:\n        runAsUser: 10001\n        runAsGroup: 10001\n        fsGroup: 10001\n").count(),
+		pods,
+		"{kubernetes}"
+	);
 }
 
 #[test]

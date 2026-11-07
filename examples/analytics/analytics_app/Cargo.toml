@@ -41,6 +41,10 @@ web-sys = { workspace = true, optional = true, features = ["Storage", "Window"] 
 name = "routing"
 required-features = ["ssr"]
 
+[[test]]
+name = "binary"
+required-features = ["ssr"]
+
 [dev-dependencies]
 # The test builds the app with the service's bodies linked in, as
 # `cargo test --workspace` and `lk build` do, and checks they stay the

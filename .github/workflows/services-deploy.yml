@@ -1,0 +1,230 @@
+name: services deploy
+
+# Runs what `leptoskit generate deploy` and `lk infra` write for an app with
+# services, for real: examples/analytics, with the echo service from
+# setup/services_echo, built with the generated Dockerfile, then started by
+# the generated Compose project and Kubernetes manifests, and checked end to
+# end through their edges. Kamal loads the configuration `lk infra` releases
+# with. docs/agents/platform-validation.md says what each job proves.
+
+# The same paths on pull requests and on main, and weekly for what changes
+# outside the repository: the base images, Caddy, Postgres, kind, and
+# ingress-nginx.
+on:
+  pull_request:
+    paths:
+      - "Cargo.lock"
+      - "crates/leptoskit_axum/src/health.rs"
+      - "crates/leptoskit_axum/src/service.rs"
+      - "crates/leptoskit_cli/src/build.rs"
+      - "crates/leptoskit_cli/src/deploy.rs"
+      - "crates/leptoskit_cli/src/deploy/**"
+      - "crates/leptoskit_cli/src/infra.rs"
+      - "crates/leptoskit_cli/src/infra/**"
+      - "crates/leptoskit_cli/src/services.rs"
+      - "crates/leptoskit_cli/src/services/**"
+      - "crates/leptoskit_config/src/services.rs"
+      - "crates/leptoskit_config/src/services/**"
+      - "crates/leptoskit_rpc/src/server/live/socket.rs"
+      - "examples/analytics/**"
+      - "setup/services_echo/**"
+      - "setup/scripts/services_deploy*"
+      - "rust-toolchain.toml"
+      - ".github/actions/rust/**"
+      - ".github/workflows/services-deploy.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "Cargo.lock"
+      - "crates/leptoskit_axum/src/health.rs"
+      - "crates/leptoskit_axum/src/service.rs"
+      - "crates/leptoskit_cli/src/build.rs"
+      - "crates/leptoskit_cli/src/deploy.rs"
+      - "crates/leptoskit_cli/src/deploy/**"
+      - "crates/leptoskit_cli/src/infra.rs"
+      - "crates/leptoskit_cli/src/infra/**"
+      - "crates/leptoskit_cli/src/services.rs"
+      - "crates/leptoskit_cli/src/services/**"
+      - "crates/leptoskit_config/src/services.rs"
+      - "crates/leptoskit_config/src/services/**"
+      - "crates/leptoskit_rpc/src/server/live/socket.rs"
+      - "examples/analytics/**"
+      - "setup/services_echo/**"
+      - "setup/scripts/services_deploy*"
+      - "rust-toolchain.toml"
+      - ".github/actions/rust/**"
+      - ".github/workflows/services-deploy.yml"
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: services-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: 10
+  # The image the generated Dockerfile builds, tagged so a cluster uses the
+  # loaded copy rather than pulling.
+  IMAGE: analytics_app:services-deploy
+
+jobs:
+  compose:
+    name: image and Compose (SQLite, Postgres)
+    # The CLI is built on the runner and copied into the image's build stage,
+    # which is Debian bookworm: Ubuntu 22.04's glibc is older than bookworm's,
+    # so the binary runs there.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      CARGO_BUILD_JOBS: 4
+      CARGO_INCREMENTAL: 0
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: install rust
+        uses: ./.github/actions/rust
+
+      - name: cache rust artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          prefix-key: services-deploy
+
+      - name: install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends build-essential cmake pkg-config libssl-dev
+
+      - name: build the CLI from this checkout
+        run: |
+          set -euo pipefail
+          cargo build --locked --package leptoskit_cli --bin leptoskit
+          mkdir -p "$RUNNER_TEMP/cli"
+          cp target/debug/leptoskit "$RUNNER_TEMP/cli/leptoskit"
+
+      # Outside target/, which rust-cache keeps.
+      - name: write the projects and their deployment files
+        run: |
+          set -euo pipefail
+          cli="$RUNNER_TEMP/cli/leptoskit"
+          bash setup/scripts/services_deploy_fixture.sh "$cli" "$RUNNER_TEMP/sqlite" sqlite isolated
+          bash setup/scripts/services_deploy_fixture.sh "$cli" "$RUNNER_TEMP/postgres" postgres isolated
+          bash setup/scripts/services_deploy_fixture.sh "$cli" "$RUNNER_TEMP/kubernetes" sqlite first-party
+          # Trust changes the edge, never the image, so the Kubernetes run
+          # uses the SQLite image.
+          cmp "$RUNNER_TEMP/sqlite/Dockerfile" "$RUNNER_TEMP/kubernetes/Dockerfile"
+
+      - name: build the SQLite image with the generated Dockerfile
+        run: |
+          docker build --build-context leptoskit-cli="$RUNNER_TEMP/cli" \
+            --tag "$IMAGE" --tag analytics_app "$RUNNER_TEMP/sqlite"
+
+      - name: check the image's user
+        run: |
+          set -euo pipefail
+          user="$(docker run --rm --entrypoint id "$IMAGE")"
+          echo "$user"
+          [ "$user" = "uid=10001(app) gid=10001(app) groups=10001(app)" ]
+
+      - name: save the image for the Kubernetes job
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/image"
+          docker save "$IMAGE" | gzip -1 > "$RUNNER_TEMP/image/image.tar.gz"
+          cp "$RUNNER_TEMP/kubernetes/kubernetes.yaml" "$RUNNER_TEMP/image/"
+
+      - name: upload the image
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: services-deploy-image
+          path: ${{ runner.temp }}/image
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: run and check the SQLite Compose project
+        run: bash setup/scripts/services_deploy_compose.sh "$RUNNER_TEMP/sqlite" sqlite
+
+      # The same build stage, so the cache mounts make it incremental.
+      - name: build the Postgres image with the generated Dockerfile
+        run: |
+          docker build --build-context leptoskit-cli="$RUNNER_TEMP/cli" \
+            --tag analytics_app "$RUNNER_TEMP/postgres"
+
+      - name: run and check the Postgres Compose project
+        run: bash setup/scripts/services_deploy_compose.sh "$RUNNER_TEMP/postgres" postgres
+
+  kubernetes:
+    name: Kubernetes (kind, ingress-nginx)
+    needs: compose
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: download the image
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: services-deploy-image
+          path: ${{ runner.temp }}/image
+
+      - name: install pinned kubeconform
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/kubeconform.tar.gz" \
+            https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
+          echo "9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883  $RUNNER_TEMP/kubeconform.tar.gz" | sha256sum --check --strict
+          mkdir "$RUNNER_TEMP/kubeconform"
+          tar -xzf "$RUNNER_TEMP/kubeconform.tar.gz" -C "$RUNNER_TEMP/kubeconform"
+          echo "$RUNNER_TEMP/kubeconform" >> "$GITHUB_PATH"
+
+      - name: create a kind cluster
+        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        with:
+          cluster_name: services-deploy
+          config: setup/scripts/services_deploy_kind.yaml
+
+      - name: load the image into the cluster
+        run: |
+          set -euo pipefail
+          gunzip --stdout "$RUNNER_TEMP/image/image.tar.gz" > "$RUNNER_TEMP/image/image.tar"
+          kind load image-archive "$RUNNER_TEMP/image/image.tar" --name services-deploy
+
+      - name: apply and check the generated manifests
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/project"
+          cp "$RUNNER_TEMP/image/kubernetes.yaml" "$RUNNER_TEMP/project/"
+          bash setup/scripts/services_deploy_kubernetes.sh "$RUNNER_TEMP/project" "$IMAGE"
+
+  kamal:
+    name: Kamal configuration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: install Ruby
+        uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
+        with:
+          ruby-version: "3.4"
+
+      # The version docs/agents/services.md checks its Kamal claims against.
+      - name: install Kamal 2.10.1
+        run: gem install kamal --version 2.10.1 --no-document
+
+      - name: load and check the release configurations
+        run: bash setup/scripts/services_deploy_kamal.sh
