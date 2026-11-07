@@ -395,6 +395,10 @@ async fn waker(db: Db, wake: Arc<Notify>, shutdown: Arc<AtomicBool>) {
 		// Without a feed the workers poll, which is slower but complete.
 		return;
 	};
+	// Workers can finish their first queue scan while this subscription is
+	// still opening. Recheck once it is listening, covering enqueues between
+	// that scan and subscription; later enqueues arrive through the feed.
+	wake.notify_waiters();
 
 	let table = match JobRow::NAMESPACE {
 		Some(namespace) => format!("{namespace}.{}", JobRow::NAME),
@@ -1033,5 +1037,30 @@ async fn scheduler(db: Db, clock: Clock, wake: Arc<Notify>, shutdown: Arc<Atomic
 			last = now;
 			wake.notify_waiters();
 		}
+	}
+}
+
+#[cfg(all(test, feature = "sqlite"))]
+mod tests {
+	use super::*;
+
+	#[tokio::test]
+	async fn opening_the_change_feed_wakes_workers_that_already_scanned() {
+		let db = leptoskit_db::testing::sqlite().await;
+		let wake = Arc::new(Notify::new());
+		let shutdown = Arc::new(AtomicBool::new(false));
+		// Model a worker that registered its waiter and finished its initial
+		// queue scan before the independently spawned change listener ran.
+		let waiting = wake.notified();
+		tokio::pin!(waiting);
+		waiting.as_mut().enable();
+		let task = tokio::spawn(waker(db, Arc::clone(&wake), Arc::clone(&shutdown)));
+		let result = tokio::time::timeout(Duration::from_secs(2), waiting).await;
+		shutdown.store(true, Ordering::SeqCst);
+		task.await.unwrap();
+		assert!(
+			result.is_ok(),
+			"listener startup must trigger a fresh queue scan"
+		);
 	}
 }
