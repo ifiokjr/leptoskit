@@ -62,6 +62,10 @@ cd android
 - With the backend crate, the host reports the window insets for the system bars and display cutouts, and the [safe-area utilities](../guide/07-shared-components.md#clear-the-status-bar-and-home-indicator) pad by them.
 - The [`picture-in-picture`](plugins.md) plugin can enter activity picture-in-picture when the hosting activity declares `android:supportsPictureInPicture="true"`, and can hold a system overlay after the user grants `SYSTEM_ALERT_WINDOW` in settings. Declaring the permission in the manifest never grants it; `request_overlay` opens the system grant screen.
 
+## Home-screen widgets
+
+The [`home-widgets`](plugin-inventory.md) plugin publishes a bounded text snapshot into app-private preferences and asks `AppWidgetManager` to refresh the app's own App Widget providers. Your app still owns each `AppWidgetProvider` and its layout. Kind-to-provider matching is best-effort by class name; name providers after their kinds when you need a precise reload. `installed` reports whether any matching provider currently has pinned instances.
+
 ## Ship an update without the Play Store
 
 The Play Store build carries the Kotlin activity, the interpreter, and a copy of your screens. To change the screens afterwards, publish a code push release for Android:
