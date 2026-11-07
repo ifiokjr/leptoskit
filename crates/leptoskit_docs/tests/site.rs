@@ -264,6 +264,32 @@ fn chapters_can_use_local_fonts_and_external_scripts_under_a_same_origin_csp() {
 }
 
 #[test]
+fn scripts_load_after_the_built_in_one_from_every_page() {
+	let out = tempfile::tempdir().unwrap();
+	site(fixture())
+		.script("assets/extra.js")
+		.build(out.path())
+		.unwrap();
+	for (path, script) in [
+		(
+			"index.html",
+			"<script src=\"assets/extra.js\" defer></script>",
+		),
+		(
+			"guide/install.html",
+			"<script src=\"../assets/extra.js\" defer></script>",
+		),
+	] {
+		let html = read(out.path().join(path));
+		let built_in = html.find("_leptoskit/site.js").unwrap();
+		let extra = html
+			.find(script)
+			.unwrap_or_else(|| panic!("{path} loads {script}"));
+		assert!(built_in < extra, "{path} loads the site's script first");
+	}
+}
+
+#[test]
 fn generated_artwork_is_built_and_linked_without_mutating_sources() {
 	let root = book(&[
 		("SUMMARY.md", "[Home](readme.md)\n"),

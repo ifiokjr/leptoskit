@@ -47,9 +47,9 @@ View [h-full lg:flex-row lg:items-stretch lg:overflow-hidden overflow-scroll w-f
         Text "Overview" [font-bold text-[28px]] #8fef9cf3a993
         Text "Tuesday, 20 October · Store performance across every channel" #ab48e28444c8
       View [flex-row items-center p-0.5 rounded-[9px]] #1a496d61f447
-        Button "7 days" [h-[30px] px-3 py-0 rounded-[7px]] #c9eca1365618
-        Button "30 days" [h-[30px] px-3 py-0 rounded-[7px]] #be7181c4d76f
-        Button "12 months" [h-[30px] px-3 py-0 rounded-[7px]] #fd696158273e
+        Button "7 days" [h-[30px] px-3 py-0 rounded-[7px]] #2999b3804057
+        Button "30 days" [h-[30px] px-3 py-0 rounded-[7px]] #284be7192499
+        Button "12 months" [h-[30px] px-3 py-0 rounded-[7px]] #b659075f533c
       Button "Export" [h-9 px-4 py-0 rounded-[9px]] #d4c0b9476a05
     View [gap-4 grid grid-cols-2 lg:grid-cols-4] #cb710392d9bd
       View [flex-col gap-2 p-5 rounded-[14px]] #23c83303419d

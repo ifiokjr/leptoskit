@@ -178,11 +178,21 @@ where
 	/// a new tab. Add its content with `child`.
 	pub fn link(&self, to: impl Into<R>, label: impl Into<String>) -> Element {
 		let to = to.into();
-		let href = to.href();
+		let href = self.page_url(&to.href());
 		let router = self.clone();
 		Pressable(label)
-			.href(href.as_str())
+			.href(href)
 			.on_press(move || router.navigate(to.clone()))
+	}
+
+	/// Where `href` is on the page: under the browser's base path, or as it
+	/// is natively.
+	fn page_url(&self, href: &crate::Href) -> String {
+		match &self.inner.history {
+			History::Memory(_) => href.as_str().to_owned(),
+			#[cfg(all(feature = "web", target_arch = "wasm32"))]
+			History::Browser(browser) => browser.page_url(href),
+		}
 	}
 
 	/// The current route's page inside its layouts.

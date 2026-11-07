@@ -8,7 +8,7 @@ ScrollView [h-full w-full] #abcef5c2ff7b
       Text "Settings" #c54d334bc753
       View [bg-[#e3e3e8] flex-row gap-2 h-9 items-center px-3 py-0 rounded-[10px]] #bb6b11f902fd
         View [h-[13px] rounded-[6.5px] w-[13px]] #911bb1bc4a23
-        TextInput [bg-[#00000000] flex-1 h-5] #8ee630915e83
+        TextInput [bg-[#00000000] flex-1 h-5] #ccf0ea51167c
     View [flex-row gap-3 items-center px-4 py-3 rounded-[12px]] #f73e64a7ac90
       Image [h-[60px] rounded-[30px] w-[60px]] #86037fa19156
       View [flex-1 flex-col gap-0.5] #98fc3b7bd6ee

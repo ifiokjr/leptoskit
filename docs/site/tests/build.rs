@@ -58,9 +58,19 @@ fn renders_the_leptoskit_components() {
 	assert!(home.contains("<link rel=\"canonical\" href=\"https://leptoskit.dev/docs/\">"));
 	assert!(home.contains("<link rel=\"stylesheet\" href=\"theme/leptoskit.css\">"));
 
+	// The examples play in sandboxed frames; only a routed one keeps its
+	// origin, and the players' script loads after the site's.
 	let examples = read(out.path().join("examples.html"));
-	assert!(examples.contains("<figure class=\"lk-shot lk-shot-wide\">"));
-	assert!(examples.contains("width=\"390\" height=\"844\""));
+	assert!(examples.contains("class=\"lk-play lk-play-wide\""));
+	assert!(examples.contains(
+		"data-src=\"play/gallery/?screen=dashboard\" sandbox=\"allow-scripts\" \
+		 referrerpolicy=\"no-referrer\" width=\"1200\" height=\"800\""
+	));
+	assert!(examples.contains(
+		"data-src=\"play/field/\" sandbox=\"allow-scripts allow-same-origin\" \
+		 referrerpolicy=\"no-referrer\" width=\"390\" height=\"844\""
+	));
+	assert!(examples.contains("<script src=\"theme/play.js\" defer></script>"));
 
 	let brand = read(out.path().join("brand.html"));
 	assert!(brand.contains("<figure class=\"lk-logo-tile lk-on-ink\">"));
@@ -77,7 +87,10 @@ fn reports_bad_props_on_the_leptoskit_components() {
 	fs::write(
 		root.path().join("readme.md"),
 		"<Hero>Hi</Hero>\n\n<Shot alt=\"a\" title=\"t\" />\n\n<Logo label=\"l\" />\n\n<Swatch \
-		 name=\"n\" />\n\n<Shot src=\"a.png\" alt=\"a\" title=\"t\" wide=\"maybe\" />\n",
+		 name=\"n\" />\n\n<Shot src=\"a.png\" alt=\"a\" title=\"t\" wide=\"maybe\" />\n\n<Play \
+		 app=\"nope\" title=\"t\" description=\"d\" />\n\n<Play app=\"gallery\" \
+		 start=\"screen=chat\" title=\"t\" description=\"d\" />\n\n<Play app=\"gallery\" \
+		 title=\"t\" />\n",
 	)
 	.unwrap();
 	fs::write(root.path().join("a.png"), []).unwrap();
@@ -93,6 +106,9 @@ fn reports_bad_props_on_the_leptoskit_components() {
 		"readme.md:5:1: <Logo> needs a `src` image",
 		"readme.md:7:1: <Swatch> needs a `color` attribute",
 		"readme.md:9:1: `wide=\"maybe\"` on <Shot> is invalid",
+		"readme.md:11:1: <Play app=\"nope\"> is not an example the docs build",
+		"readme.md:13:1: `start=\"screen=chat\"` on <Play> must be a query string",
+		"readme.md:15:1: <Play> needs a `description`",
 	] {
 		assert!(message.contains(expected), "{expected}\n\n{message}");
 	}

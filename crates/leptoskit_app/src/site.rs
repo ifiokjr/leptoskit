@@ -7,10 +7,14 @@ use anyhow::Context as _;
 use anyhow::Result;
 use anyhow::ensure;
 use axum::Router;
+use axum::extract::Request;
 use axum::http::HeaderValue;
+use axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN;
 use axum::http::header::CONTENT_SECURITY_POLICY;
+use axum::middleware::Next;
 use axum::response::Html;
 use axum::response::Redirect;
+use axum::response::Response;
 use axum::routing::get;
 use leptoskit::leptos::html;
 use leptoskit::leptos::prelude::*;
@@ -87,6 +91,7 @@ pub fn router(api: Router, assets: &Path, docs: &Path, origin: &str) -> Result<R
 		.route("/docs", get(|| async { Redirect::permanent("/docs/") }))
 		.nest_service("/docs/", ServeDir::new(docs))
 		.fallback_service(ServeDir::new(assets))
+		.layer(axum::middleware::from_fn(played_example_headers))
 		.layer(SetResponseHeaderLayer::if_not_present(
 			CONTENT_SECURITY_POLICY,
 			HeaderValue::from_static(
@@ -94,6 +99,35 @@ pub fn router(api: Router, assets: &Path, docs: &Path, origin: &str) -> Result<R
 				 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
 			),
 		)))
+}
+
+/// Where the book's players load the examples' web builds from.
+const PLAYED_EXAMPLES: &str = "/docs/play/";
+
+/// The policy for a played example, which runs in a sandboxed frame on the
+/// book's pages: this origin may frame it, it names where it is served with
+/// `<base href>`, and the gallery draws its generated images from `data:`
+/// URLs. Everything else matches the rest of the site.
+const PLAYED_EXAMPLE_POLICY: &str =
+	"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; \
+	 img-src 'self' data: blob:; frame-ancestors 'self'; base-uri 'self'; object-src 'none'";
+
+/// Gives played examples their own policy. A frame without
+/// `allow-same-origin` has an opaque origin, so its scripts and module load
+/// from this one as cross-origin requests, which need CORS; the files are the
+/// public build, so any origin may read them.
+async fn played_example_headers(request: Request, next: Next) -> Response {
+	let played = request.uri().path().starts_with(PLAYED_EXAMPLES);
+	let mut response = next.run(request).await;
+	if played {
+		let headers = response.headers_mut();
+		headers.insert(
+			CONTENT_SECURITY_POLICY,
+			HeaderValue::from_static(PLAYED_EXAMPLE_POLICY),
+		);
+		headers.insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+	}
+	response
 }
 
 /// The chunk loader `leptoskit build` writes beside a split client. The

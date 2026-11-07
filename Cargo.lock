@@ -7490,9 +7490,12 @@ dependencies = [
 name = "observatory_example"
 version = "0.3.0"
 dependencies = [
+ "leptos",
  "leptoskit",
  "leptoskit_testing",
  "parking_lot",
+ "reactive_graph",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -8046,11 +8049,14 @@ dependencies = [
 name = "postcard_example"
 version = "0.3.0"
 dependencies = [
+ "leptos",
  "leptoskit",
  "leptoskit_l10n",
  "leptoskit_l10n_codegen",
  "leptoskit_testing",
  "reactive_graph",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

@@ -14,6 +14,14 @@ const CONTENT_SECURITY_POLICY =
 	"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; " +
 	"style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'";
 
+// The broker's policy for the examples the book plays, under `/docs/play/`:
+// the book's pages may frame them, they name where they are served with
+// `<base href>`, and the gallery draws its images from `data:` URLs.
+const PLAYED_EXAMPLE_POLICY =
+	"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; " +
+	"style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; " +
+	"frame-ancestors 'self'; base-uri 'self'; object-src 'none'";
+
 const CONTENT_TYPES = {
 	css: "text/css; charset=utf-8",
 	html: "text/html; charset=utf-8",
@@ -48,7 +56,7 @@ function compress(body, encoding) {
 
 /**
  * Serves `root` as static files, the way the public host does: a directory
- * resolves to its `index.html`. With `encoding` (`"gzip"` or `"br"`), text
+ * resolves to its `index.html`, and any origin may read a file. With `encoding` (`"gzip"` or `"br"`), text
  * and Wasm responses are compressed with it whenever the browser accepts it,
  * as GitHub Pages (gzip) and Cloudflare (brotli) send them.
  */
@@ -73,9 +81,15 @@ export function serve(root, { encoding } = {}) {
 				throw error;
 			}
 			const extension = file.slice(file.lastIndexOf(".") + 1);
+			const played = path.startsWith("/docs/play/");
 			const headers = {
 				"content-type": CONTENT_TYPES[extension] ?? "application/octet-stream",
-				"content-security-policy": CONTENT_SECURITY_POLICY,
+				"content-security-policy": played
+					? PLAYED_EXAMPLE_POLICY
+					: CONTENT_SECURITY_POLICY,
+				// The public host lets any origin read its files, which a
+				// sandboxed frame's opaque origin needs to load an example.
+				"access-control-allow-origin": "*",
 			};
 			const accepted = (request.headers.get("accept-encoding") ?? "")
 				.split(",")
@@ -183,7 +197,7 @@ export class Page {
 			const message = JSON.parse(data);
 			if (message.id === undefined) {
 				for (const listener of this.#listeners.get(message.method) ?? []) {
-					listener(message.params);
+					listener(message.params, message.sessionId);
 				}
 				return;
 			}
@@ -194,14 +208,19 @@ export class Page {
 		};
 	}
 
-	send(method, params = {}) {
+	// Sends `method` to the page, or to the target attached as `sessionId`
+	// (with `Target.setAutoAttach`'s `flatten`), such as a frame that runs in
+	// a process of its own.
+	send(method, params = {}, sessionId) {
 		const id = ++this.#next;
-		this.#socket.send(JSON.stringify({ id, method, params }));
+		this.#socket.send(JSON.stringify({ id, method, params, sessionId }));
 		return new Promise((resolve, reject) =>
 			this.#pending.set(id, { resolve, reject })
 		);
 	}
 
+	// Calls `listener` with each event's parameters and the session it came
+	// from, which is undefined for the page's own.
 	on(method, listener) {
 		const listeners = this.#listeners.get(method) ?? [];
 		listeners.push(listener);

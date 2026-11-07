@@ -213,7 +213,15 @@ leptos::mount::mount_to_body(move || {
 });
 ```
 
-`from_browser` fails only when the page's URL matches no route, which can't happen with a root `+not-found.rs`. The router assumes the app is served from the root of its site: hrefs start with `/`, and the whole path is matched against the routes, so serving the app under a sub-path such as `/app/` isn't supported yet.
+`from_browser` fails only when the page's URL matches no route, which can't happen with a root `+not-found.rs`.
+
+To serve the app under a sub-path, such as `/app/` on a shared domain, name it with a `<base href>` in the page's `<head>`, ending in `/`:
+
+```html
+<base href="/app/" />
+```
+
+The router then matches the part of the path after it, so `/app/notes/42` is the `Note` route, and every link it renders and every history entry it adds starts with `/app/`. Load your own files with relative URLs, such as `pkg/app.js`, so they resolve against the base too. Without a `<base>`, the app is at the root of its site. This only applies in a browser: native apps have no URL.
 
 ## Generating `routes.rs`
 

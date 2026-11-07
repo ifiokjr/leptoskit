@@ -61,6 +61,7 @@ pub struct Site {
 	pub(crate) favicon: Option<String>,
 	pub(crate) social_image: Option<String>,
 	pub(crate) stylesheets: Vec<String>,
+	pub(crate) scripts: Vec<String>,
 	pub(crate) external_fonts: bool,
 	generated_assets: BTreeMap<String, Vec<u8>>,
 	pub(crate) components: Components,
@@ -92,6 +93,7 @@ impl Site {
 			favicon: None,
 			social_image: None,
 			stylesheets: Vec::new(),
+			scripts: Vec::new(),
 			external_fonts: true,
 			generated_assets: BTreeMap::new(),
 			components: Components::new(),
@@ -182,6 +184,15 @@ impl Site {
 	#[must_use]
 	pub fn stylesheet(mut self, path: impl Into<String>) -> Self {
 		self.stylesheets.push(path.into());
+		self
+	}
+
+	/// A script in the book, loaded with `defer` after the built-in one, to
+	/// add behaviour to your own components. Pages read in full without it,
+	/// so keep it to progressive enhancement.
+	#[must_use]
+	pub fn script(mut self, path: impl Into<String>) -> Self {
+		self.scripts.push(path.into());
 		self
 	}
 

@@ -2,8 +2,15 @@
 
 schema_version = 0
 
+# `leptoskit dev` here serves the postcard in the browser: the library's
+# Wasm client, built with `csr`, mounted by `web/index.html`. The macOS
+# window and the summary run with cargo.
 [app]
-name = "postcard_example"
+name = "postcard_web"
+
+[build]
+client_package = "postcard_example"
+features = ["csr"]
 
 # `[l10n]` turns typed translations on: `leptoskit dev`, `build`, and
 # `l10n` regenerate `src/l10n.rs` from `locales/*.arb`.
@@ -11,3 +18,11 @@ name = "postcard_example"
 dir = "locales"
 output = "src/l10n.rs"
 template = "en"
+
+# The documentation plays this example's release build, served by a static
+# host that compresses files itself. The budget keeps what a reader
+# downloads for it in check.
+[bundle]
+optimize = "smallest"
+precompress = false
+budget_kib = 250

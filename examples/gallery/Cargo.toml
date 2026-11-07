@@ -31,6 +31,7 @@ leptoskit_native = { workspace = true }
 leptoskit_tui = { workspace = true }
 leptoskit_yoga = { workspace = true }
 wasm-bindgen = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true, features = ["Location", "Window"] }
 
 # Each platform renders the shared screens with its native widget backend.
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -56,7 +57,7 @@ objc2-ui-kit = { version = "0.3", default-features = false, features = ["std", "
 [features]
 web = ["dep:base64", "dep:leptos", "leptoskit/web"]
 # Mount the gallery when the browser loads the wasm client.
-csr = ["web", "dep:wasm-bindgen"]
+csr = ["web", "dep:wasm-bindgen", "dep:web-sys"]
 
 # AppKit and GTK only run on the thread that started them, so the desktop
 # conformance test brings its own harness and runs on the main thread.

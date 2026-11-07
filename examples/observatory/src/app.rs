@@ -5,6 +5,9 @@ use std::sync::Arc;
 use leptoskit::prelude::*;
 use leptoskit::table::TableState;
 use parking_lot::RwLock;
+use reactive_graph::signal::ArcTrigger;
+use reactive_graph::traits::Notify;
+use reactive_graph::traits::Track;
 
 use crate::catalogue;
 use crate::log;
@@ -25,7 +28,10 @@ struct State {
 /// The observatory: a star catalogue beside a year's sky log.
 ///
 /// It is a handle — cloning it shares the state — so the screen's event
-/// handlers can hold it and a host can render it again after each event:
+/// handlers can hold it and a host can render it again after each event. A
+/// reactive closure that renders it, such as `move ||
+/// leptoskit::web::render(observatory.render())` in the browser, renders
+/// again on its own:
 ///
 /// ```
 /// use observatory_example::Observatory;
@@ -38,6 +44,7 @@ struct State {
 #[derive(Debug, Clone)]
 pub struct Observatory {
 	state: Arc<RwLock<State>>,
+	changed: ArcTrigger,
 }
 
 impl Default for Observatory {
@@ -54,6 +61,7 @@ impl Observatory {
 				catalogue: catalogue::initial_state(),
 				log: SkyLog::new(sky::observations()),
 			})),
+			changed: ArcTrigger::new(),
 		}
 	}
 
@@ -75,6 +83,7 @@ impl Observatory {
 	/// Applies an event to the log, as its controls do.
 	pub fn log_event(&self, event: LogEvent) {
 		self.state.write().log.apply(event);
+		self.changed.notify();
 	}
 
 	/// The whole screen for the current state.
@@ -83,10 +92,14 @@ impl Observatory {
 	/// Panics if a log row's size estimate is not positive, which the fixed
 	/// row heights rule out.
 	pub fn render(&self) -> Element {
+		self.changed.track();
 		let state = self.state.read();
 		let on_catalogue = {
 			let observatory = self.clone();
-			move |next| observatory.state.write().catalogue = next
+			move |next| {
+				observatory.state.write().catalogue = next;
+				observatory.changed.notify();
+			}
 		};
 		let on_log = {
 			let observatory = self.clone();

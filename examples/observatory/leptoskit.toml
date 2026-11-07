@@ -1,0 +1,21 @@
+#:schema https://leptoskit.dev/schemas/leptoskit.v0.schema.json
+
+schema_version = 0
+
+# `leptoskit dev` here serves the observatory in the browser: the library's
+# Wasm client, built with `csr`, mounted by `web/index.html`. The macOS
+# window and the summary run with cargo.
+[app]
+name = "observatory_web"
+
+[build]
+client_package = "observatory_example"
+features = ["csr"]
+
+# The documentation plays this example's release build, served by a static
+# host that compresses files itself. The budget keeps what a reader
+# downloads for it in check.
+[bundle]
+optimize = "smallest"
+precompress = false
+budget_kib = 250

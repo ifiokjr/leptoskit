@@ -1,0 +1,277 @@
+/*
+ * Players: an example's real web build in a frame, from `<Play>`. The
+ * toolbar and frame follow the site's palette in light and dark; the app
+ * inside keeps its own colours. `play.js` scales the app, which is laid out
+ * at its own size, to the width of the column.
+ */
+
+.lk-gallery:has(> .lk-play) {
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+	align-items: start;
+}
+
+.lk-play {
+	min-width: 0;
+	margin: 2rem 0;
+}
+
+.lk-gallery > .lk-play {
+	margin: 0;
+}
+
+.lk-play-wide {
+	grid-column: 1 / -1;
+}
+
+.lk-play-device {
+	container-type: inline-size;
+	max-width: var(--lk-play-width);
+	margin-inline: auto;
+	overflow: hidden;
+	border: 1px solid var(--lk-line);
+	border-radius: 1.5rem;
+	background: var(--lk-surface);
+	box-shadow: var(--lk-shadow);
+}
+
+.lk-play-wide .lk-play-device {
+	border-radius: 0.9rem;
+}
+
+/* Toolbar ------------------------------------------------------------------ */
+
+.lk-play-bar {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 0.15rem;
+	min-height: 2.75rem;
+	padding: 0.25rem 0.4rem;
+	border-bottom: 1px solid var(--lk-line);
+	font-size: 0.78rem;
+	line-height: 1.2;
+}
+
+.lk-play-bar .lk-icon-button {
+	flex: none;
+	width: 2.25rem;
+	height: 2.25rem;
+	color: var(--lk-heading);
+}
+
+.lk-play-bar svg {
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.lk-play-bar .lk-icon-button:disabled,
+.lk-play-bar a.lk-icon-button:not([href]) {
+	opacity: 0.35;
+	cursor: default;
+	transform: none;
+	background: transparent;
+}
+
+.lk-play-label {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	padding-inline: 0.25rem;
+	color: var(--lk-muted);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.lk-play-switch {
+	display: inline-flex;
+	flex: none;
+	padding: 2px;
+	border: 1px solid var(--lk-line);
+	border-radius: 999px;
+	background: var(--lk-bg);
+}
+
+.lk-play-switch button {
+	padding: 0.2rem 0.6rem;
+	border: 0;
+	border-radius: 999px;
+	background: transparent;
+	color: var(--lk-muted);
+	font: inherit;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.lk-play-switch button[aria-pressed="true"] {
+	background: var(--lk-heading);
+	color: var(--lk-bg);
+}
+
+.lk-play-switch button:disabled {
+	cursor: default;
+}
+
+/* A phone-sized player has no room to name its renderer beside the switch,
+ * which names it already; screen readers still hear the label. */
+@container (max-width: 28rem) {
+	.lk-play-bar:has(.lk-play-switch) .lk-play-label {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		clip-path: inset(50%);
+	}
+
+	.lk-play-switch {
+		margin-inline-start: auto;
+	}
+}
+
+/* Stage -------------------------------------------------------------------- */
+
+.lk-play-stage {
+	position: relative;
+	overflow: hidden;
+	background: var(--lk-bg);
+}
+
+.lk-play-frame {
+	position: absolute;
+	top: 0;
+	left: 0;
+	border: 0;
+	transform: scale(var(--lk-play-scale, 1));
+	transform-origin: 0 0;
+	visibility: hidden;
+}
+
+.lk-play[data-state="ready"][data-view="web"] .lk-play-frame {
+	visibility: visible;
+}
+
+.lk-article .lk-play-native {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	border-radius: 0;
+	object-fit: contain;
+	background: var(--lk-bg);
+}
+
+/* The status says why; the browser's broken-image marker would not. */
+.lk-article .lk-play-native[data-failed] {
+	visibility: hidden;
+}
+
+/* Until the app starts, a sketch of a screen stands in its place. */
+.lk-play-skeleton {
+	position: absolute;
+	inset: 0;
+	display: grid;
+	grid-template-rows: 2.75rem 38% 1fr 1fr;
+	gap: 0.9rem;
+	padding: 1.1rem;
+}
+
+.lk-play-wide .lk-play-skeleton {
+	grid-template-columns: 22% 1fr 1fr;
+	grid-template-rows: 2.75rem 1fr 1fr;
+}
+
+.lk-play-wide .lk-play-skeleton span:first-child {
+	grid-row: 1 / -1;
+}
+
+.lk-play-skeleton span {
+	border-radius: 0.8rem;
+	background: var(--lk-surface-strong);
+	animation: lk-play-pulse 1.6s var(--lk-ease) infinite alternate;
+}
+
+.lk-play-skeleton span:nth-child(2) {
+	animation-delay: 0.2s;
+}
+
+.lk-play-skeleton span:nth-child(3) {
+	animation-delay: 0.4s;
+}
+
+.lk-play-skeleton span:nth-child(4) {
+	animation-delay: 0.6s;
+}
+
+.lk-play[data-state="ready"] .lk-play-skeleton,
+.lk-play[data-view="native"] .lk-play-skeleton,
+.lk-play[data-state="failed"] .lk-play-skeleton span,
+.lk-play[data-state="missing"] .lk-play-skeleton span {
+	visibility: hidden;
+	animation: none;
+}
+
+@keyframes lk-play-pulse {
+	to {
+		opacity: 0.45;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.lk-play-skeleton span {
+		animation: none;
+	}
+}
+
+.lk-play-status,
+.lk-play-message {
+	position: absolute;
+	inset: auto 0.75rem 0.75rem;
+	margin: 0;
+	padding: 0.5rem 0.75rem;
+	border-radius: 0.6rem;
+	background: var(--lk-surface);
+	color: var(--lk-text);
+	font-size: 0.85rem;
+	line-height: 1.4;
+	text-align: center;
+	box-shadow: var(--lk-shadow);
+}
+
+.lk-play-status:empty,
+.lk-play[data-state="loading"] .lk-play-status {
+	/* Loading speaks to screen readers only; the sketch shows it. */
+	clip-path: inset(50%);
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	overflow: hidden;
+	white-space: nowrap;
+}
+
+/* Caption ------------------------------------------------------------------ */
+
+.lk-play figcaption {
+	max-width: var(--lk-play-width);
+	margin: 0.75rem auto 0;
+	color: var(--lk-muted);
+	font-size: 0.9rem;
+	line-height: 1.5;
+}
+
+.lk-play-wide figcaption {
+	max-width: none;
+}
+
+.lk-play figcaption > strong:first-child {
+	display: block;
+	color: var(--lk-heading);
+	font-family: var(--lk-font-display);
+	font-size: 1rem;
+}
+
+.lk-play figcaption p {
+	display: inline;
+	margin: 0;
+}

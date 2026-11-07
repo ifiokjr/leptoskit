@@ -3,8 +3,9 @@ name: docs
 # Builds the public website on every pull request that could change it, and
 # deploys it to GitHub Pages from main. The artifact is the real public-only
 # packager output: the landing page with its live Wasm example at the root,
-# the book from docs/src under /docs/, and the schema aliases at their stable
-# root paths — with no console entrypoint. The same packaging runs in the
+# the book from docs/src under /docs/ with the web builds of the examples it
+# plays under /docs/play/, and the schema aliases at their stable root paths
+# — with no console entrypoint. The same packaging runs in the
 # hosted pilot workflow with the console for operators, so a broken link, an
 # unknown component, or a bad prop fails this check before it can ship.
 
@@ -16,6 +17,11 @@ on:
       - "crates/leptoskit_app/**"
       - "crates/leptoskit_cli/**"
       - "crates/leptoskit_docs/**"
+      - "crates/leptoskit_router/**"
+      - "examples/file_routes/**"
+      - "examples/gallery/**"
+      - "examples/observatory/**"
+      - "examples/postcard/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -28,6 +34,11 @@ on:
       - "crates/leptoskit_app/**"
       - "crates/leptoskit_cli/**"
       - "crates/leptoskit_docs/**"
+      - "crates/leptoskit_router/**"
+      - "examples/file_routes/**"
+      - "examples/gallery/**"
+      - "examples/observatory/**"
+      - "examples/postcard/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -59,10 +70,15 @@ jobs:
       - name: install rust
         uses: ./.github/actions/rust
 
+      # Field, a played example, is a workspace of its own whose browser
+      # client builds into its own target directory.
       - name: cache rust artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           prefix-key: docs
+          workspaces: |
+            . -> target
+            examples/file_routes -> .leptoskit/web/target
 
       - name: install build dependencies
         run: |
@@ -105,6 +121,11 @@ jobs:
           test -f docs/dist/pkg/leptoskit_app_bg.wasm
           test ! -e docs/dist/console
           grep -q 'id="live-demo"' docs/dist/index.html
+          for example in gallery observatory postcard field; do
+            test -f "docs/dist/docs/play/$example/index.html"
+            grep -q "<base href=\"/docs/play/$example/\"" "docs/dist/docs/play/$example/index.html"
+          done
+          test -f docs/dist/docs/theme/play-frame.js
           if grep -q '/console' docs/dist/index.html; then
             echo "the public landing page must not offer the console" >&2
             exit 1
@@ -122,6 +143,14 @@ jobs:
         run: |
           LEPTOSKIT_SITE=docs/dist deno test --allow-env --allow-read --allow-net \
             --allow-run --allow-write crates/leptoskit_app/tests/live_example.mjs
+
+      # Every player on the examples and home pages, played: each app must
+      # mount inside its frame and answer a press, a keystroke, or a scroll,
+      # and Field must navigate and come back with the toolbar's button.
+      - name: play the examples in chrome
+        run: |
+          LEPTOSKIT_SITE=docs/dist deno test --allow-env --allow-read --allow-net \
+            --allow-run --allow-write docs/site/tests/playable_examples.mjs
 
       - name: verify public schema assets
         run: |

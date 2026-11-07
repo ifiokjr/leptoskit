@@ -28,3 +28,59 @@ mod app;
 
 pub use app::PostcardApp;
 pub use app::VIEWPORT;
+
+/// The language a page's query string names with `lang`, as in `?lang=ar`.
+///
+/// ```
+/// assert_eq!(
+/// 	postcard_example::language_in_query("?lang=ar").as_deref(),
+/// 	Some("ar")
+/// );
+/// assert_eq!(
+/// 	postcard_example::language_in_query("?a=1&lang=pt-BR").as_deref(),
+/// 	Some("pt-BR")
+/// );
+/// assert!(postcard_example::language_in_query("").is_none());
+/// ```
+pub fn language_in_query(query: &str) -> Option<String> {
+	query
+		.trim_start_matches('?')
+		.split('&')
+		.find_map(|pair| pair.strip_prefix("lang="))
+		.filter(|tag| !tag.is_empty())
+		.map(str::to_owned)
+}
+
+/// Mounts the postcard when the browser loads the Wasm module, at the size
+/// it is laid out for, in the language the page's query string names (such
+/// as `?lang=ar`) or else the browser's own. `leptoskit dev` builds it with
+/// the `csr` feature and serves it from `web/index.html`.
+#[cfg(all(target_arch = "wasm32", feature = "csr"))]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn start() {
+	use leptoskit::prelude::*;
+	use leptoskit::yoga::Dimension;
+
+	let named = web_sys::window()
+		.and_then(|window| window.location().search().ok())
+		.and_then(|query| language_in_query(&query))
+		.and_then(|tag| leptoskit_l10n::Locale::new(&tag).ok());
+	let preferred = match named {
+		Some(locale) => vec![locale],
+		None => leptoskit_l10n::browser_locales(),
+	};
+
+	leptos::mount::mount_to_body(move || {
+		let app = PostcardApp::new(&preferred);
+		move || {
+			leptoskit::web::render(view! {
+				<View with_style=|style| {
+					style.width = Dimension::Points(VIEWPORT.0);
+					style.height = Dimension::Points(VIEWPORT.1);
+				}>
+					{app.render()}
+				</View>
+			})
+		}
+	});
+}

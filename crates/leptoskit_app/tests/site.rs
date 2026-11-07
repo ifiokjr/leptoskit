@@ -106,6 +106,54 @@ async fn one_origin_serves_the_landing_real_docs_console_and_api() {
 			"{path} must not become a console page"
 		);
 	}
+	// The book's players frame the examples' builds from under `/docs/play/`,
+	// which alone may be framed, by this origin only, and read from the
+	// opaque origin of a sandboxed frame.
+	let played = docs.join("play/gallery");
+	std::fs::create_dir_all(played.join("pkg")).unwrap();
+	std::fs::write(played.join("index.html"), "<!doctype html>").unwrap();
+	std::fs::write(played.join("pkg/gallery_bg.wasm"), "fixture wasm").unwrap();
+	for path in [
+		"/docs/play/gallery/",
+		"/docs/play/gallery/pkg/gallery_bg.wasm",
+	] {
+		let response = app
+			.clone()
+			.oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+			.await
+			.unwrap();
+		assert_eq!(response.status(), StatusCode::OK, "{path}");
+		let policy = response.headers()["content-security-policy"]
+			.to_str()
+			.unwrap();
+		assert!(
+			policy.contains("frame-ancestors 'self'"),
+			"{path}: {policy}"
+		);
+		assert!(policy.contains("base-uri 'self'"), "{path}: {policy}");
+		assert!(policy.contains("img-src 'self' data:"), "{path}: {policy}");
+		assert_eq!(response.headers()["access-control-allow-origin"], "*");
+	}
+	for path in ["/docs/", "/console/", "/"] {
+		let response = app
+			.clone()
+			.oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+			.await
+			.unwrap();
+		let policy = response.headers()["content-security-policy"]
+			.to_str()
+			.unwrap();
+		assert!(
+			policy.contains("frame-ancestors 'none'"),
+			"{path} must not be framed: {policy}"
+		);
+		assert!(
+			!response
+				.headers()
+				.contains_key("access-control-allow-origin"),
+			"{path}"
+		);
+	}
 	for path in ["/docs", "/console"] {
 		let response = app
 			.clone()
