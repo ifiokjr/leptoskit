@@ -283,6 +283,37 @@ leptoskit rpc generate --from spec.json --target cli
 
 Functions whose encodings a client cannot speak (CBOR and friends) are skipped with the reason recorded in that client's README rather than failing the run.
 
+### Schema fidelity and `--strict`
+
+Every schema becomes a type in each client, but some JSON Schemas describe more than a target's type system can carry. By default the generators still produce a client and use the target's broad type where they must:
+
+| Schema                                | TypeScript | Python    | Go                 | Rust / CLI          | Dart            |
+| ------------------------------------- | ---------- | --------- | ------------------ | ------------------- | --------------- |
+| `true`, `{}`, an untyped map or array | `unknown`  | `Any`     | `any`              | `serde_json::Value` | `dynamic`       |
+| A union that is not a serde enum      | a union    | a `Union` | `any`              | `serde_json::Value` | `dynamic`       |
+| A tagged serde enum                   | a union    | a `Union` | `any`              | a Rust enum         | `dynamic`       |
+| A fixed-length tuple (`prefixItems`)  | a tuple    | a `tuple` | `[]any`            | a Rust tuple        | `List<dynamic>` |
+| A `$ref` to a schema the spec lacks   | `unknown`  | `Any`     | `any`              | `serde_json::Value` | `dynamic`       |
+| `type: ["string", "integer"]`         | `unknown`  | `Any`     | `any`              | `serde_json::Value` | `dynamic`       |
+| `allOf` with more than one member     | `unknown`  | `Any`     | `any`              | `serde_json::Value` | `dynamic`       |
+| `int64` / `uint64`                    | `number`   | `int`     | `int64` / `uint64` | `i64` / `u64`       | `int`           |
+
+The first row is deliberate free-form JSON and is not a loss. The others are: the generated type no longer shows the schema's shape, and a value that the server accepts may be awkward or impossible to express in that client. TypeScript is the one target that cannot represent every `int64` or `uint64` exactly, because `number` is an IEEE-754 double and rounds beyond 2<sup>53</sup>-1. Dart has one nullable field for both an absent property and an explicit `null`, so a required nullable property becomes optional and is left out when it is `null`; the other targets keep the two apart.
+
+`leptoskit rpc generate` prints a warning for each such mapping, with the schema path that caused it:
+
+```text
+warning: typescript: components.Account.properties.id: `uint64` is rendered as `number`, which cannot represent integers beyond 2^53-1 exactly
+```
+
+The warning names the generated fallback, not a validation rule the client enforces. Pass `--strict` to fail instead, before any file is written:
+
+```bash
+leptoskit rpc generate --target typescript --strict
+```
+
+Strict runs the same diagnostics for every requested target first. If one target loses a shape, nothing is written, not even for targets that would have been exact; fix the schema or generate that target without `--strict`. The OpenAPI target carries the schema verbatim, so it never reports a loss.
+
 ### What regeneration overwrites
 
 Every generated file is either **code** — the typed client, the commands, the OpenAPI document — or **scaffolding** — manifests (`package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `pubspec.yaml`), `tsconfig.json`, `.gitignore`, READMEs. Code has to track the RPC and is always rewritten. Scaffolding is yours once it exists, so `--scaffold` (or `scaffold` on a `[[rpc.targets]]` entry) decides how much of a package is generated:

@@ -114,6 +114,11 @@ pub enum RpcCommand {
 		/// Also `cargo check` the generated Rust and CLI crates.
 		#[arg(long)]
 		build: bool,
+		/// Fail before writing anything when a target cannot represent part
+		/// of the RPC exactly (a schema shape or a function's encoding),
+		/// instead of falling back to a dynamic type or skipping it.
+		#[arg(long)]
+		strict: bool,
 	},
 }
 

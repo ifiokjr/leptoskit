@@ -11,6 +11,10 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 const SPEC: &str = include_str!("fixtures/fns_spec.json");
+/// Shared with `leptoskit_rpc_codegen`'s diagnostics tests: supported shapes,
+/// deliberately free-form JSON, and real per-target loss.
+const LOSSY_SPEC: &str =
+	include_str!("../../leptoskit_rpc_codegen/tests/fixtures/schema_fidelity.json");
 
 #[path = "rpc/concurrent.rs"]
 mod concurrent;
@@ -337,6 +341,103 @@ fn regeneration_keeps_scaffolding_unless_asked_to_rewrite_it() {
 		"{}",
 		stderr(&bad)
 	);
+}
+
+#[test]
+fn generate_defaults_to_lossy_fallbacks_with_actionable_warnings() {
+	let scratch = Scratch::new("lossy-default");
+	project(&scratch.path, "");
+	std::fs::write(scratch.path.join("spec.json"), LOSSY_SPEC).expect("lossy spec");
+
+	let output = leptoskit(
+		&scratch.path,
+		&[
+			"rpc",
+			"generate",
+			"--from",
+			"spec.json",
+			"--target",
+			"typescript",
+		],
+	);
+	assert!(output.status.success(), "{}", stderr(&output));
+	assert!(
+		stderr(&output).contains("warning"),
+		"loss should be visible: {}",
+		stderr(&output)
+	);
+	assert!(
+		stderr(&output).contains("components.Mixed"),
+		"the warning names the schema path: {}",
+		stderr(&output)
+	);
+	assert!(
+		stderr(&output).contains("unknown"),
+		"the warning names the generated fallback: {}",
+		stderr(&output)
+	);
+	let index = read(&scratch.path.join("clients/typescript/index.ts"));
+	assert!(
+		index.contains("export type Mixed = unknown;"),
+		"the default keeps generating: {index}"
+	);
+}
+
+#[test]
+fn generate_strict_rejects_loss_before_writing_anything() {
+	let scratch = Scratch::new("lossy-strict");
+	project(&scratch.path, "");
+	std::fs::write(scratch.path.join("spec.json"), LOSSY_SPEC).expect("lossy spec");
+
+	let output = leptoskit(
+		&scratch.path,
+		&[
+			"rpc",
+			"generate",
+			"--from",
+			"spec.json",
+			"--target",
+			"typescript",
+			"--target",
+			"openapi",
+			"--strict",
+		],
+	);
+	assert!(!output.status.success(), "{}", stdout(&output));
+	let error = stderr(&output);
+	assert!(error.contains("target mapping"), "{error}");
+	assert!(error.contains("components.Mixed"), "{error}");
+	assert!(error.contains("Remove `--strict`"), "{error}");
+	assert!(
+		!scratch.path.join("clients/typescript").exists(),
+		"no partial TypeScript output: {error}"
+	);
+	assert!(
+		!scratch.path.join("clients/openapi").exists(),
+		"no partial OpenAPI output either: {error}"
+	);
+}
+
+#[test]
+fn strict_accepts_targets_that_preserve_the_schema() {
+	let scratch = Scratch::new("strict-openapi");
+	project(&scratch.path, "");
+	std::fs::write(scratch.path.join("spec.json"), LOSSY_SPEC).expect("lossy spec");
+
+	let output = leptoskit(
+		&scratch.path,
+		&[
+			"rpc",
+			"generate",
+			"--from",
+			"spec.json",
+			"--target",
+			"openapi",
+			"--strict",
+		],
+	);
+	assert!(output.status.success(), "{}", stderr(&output));
+	assert!(scratch.path.join("clients/openapi/openapi.json").is_file());
 }
 
 #[test]

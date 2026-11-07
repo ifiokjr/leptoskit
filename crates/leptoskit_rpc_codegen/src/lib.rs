@@ -44,6 +44,8 @@ mod cli;
 #[cfg(feature = "generators")]
 mod dart;
 #[cfg(feature = "generators")]
+mod diagnostics;
+#[cfg(feature = "generators")]
 mod generate;
 #[cfg(feature = "generators")]
 mod go;
@@ -60,6 +62,10 @@ mod schema;
 #[cfg(feature = "generators")]
 mod typescript;
 
+#[cfg(feature = "generators")]
+pub use diagnostics::Diagnostic;
+#[cfg(feature = "generators")]
+pub use diagnostics::DiagnosticKind;
 #[cfg(feature = "generators")]
 pub use generate::FileKind;
 #[cfg(feature = "generators")]

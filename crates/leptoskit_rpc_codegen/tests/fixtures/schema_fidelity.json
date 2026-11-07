@@ -1,0 +1,252 @@
+{
+	"leptoskit_rpc_spec": 3,
+	"title": "Fidelity",
+	"version": "1.0.0",
+	"description": "Schemas that exercise every generated representation.",
+	"servers": ["https://fidelity.example"],
+	"functions": [
+		{
+			"name": "get_account",
+			"kind": "call",
+			"module_path": "fidelity::api",
+			"struct_name": "GetAccount",
+			"docs": "Reads one account.",
+			"path": "/api/get_account",
+			"method": "POST",
+			"input": "Json",
+			"output": "Json",
+			"error_content_type": "text/plain",
+			"params": [],
+			"output_schema": { "$ref": "#/components/schemas/Account" },
+			"internal": false,
+			"deprecated": false,
+			"tags": []
+		},
+		{
+			"name": "choose",
+			"kind": "call",
+			"module_path": "fidelity::api",
+			"struct_name": "Choose",
+			"docs": "An untagged union.",
+			"path": "/api/choose",
+			"method": "POST",
+			"input": "Json",
+			"output": "Json",
+			"error_content_type": "text/plain",
+			"params": [],
+			"output_schema": { "$ref": "#/components/schemas/Choice" },
+			"internal": false,
+			"deprecated": false,
+			"tags": []
+		},
+		{
+			"name": "latest_event",
+			"kind": "call",
+			"module_path": "fidelity::api",
+			"struct_name": "LatestEvent",
+			"docs": "A tagged union.",
+			"path": "/api/latest_event",
+			"method": "POST",
+			"input": "Json",
+			"output": "Json",
+			"error_content_type": "text/plain",
+			"params": [],
+			"output_schema": { "$ref": "#/components/schemas/Event" },
+			"internal": false,
+			"deprecated": false,
+			"tags": []
+		},
+		{
+			"name": "point",
+			"kind": "call",
+			"module_path": "fidelity::api",
+			"struct_name": "Point",
+			"docs": "A fixed-length pair.",
+			"path": "/api/point",
+			"method": "POST",
+			"input": "Json",
+			"output": "Json",
+			"error_content_type": "text/plain",
+			"params": [],
+			"output_schema": { "$ref": "#/components/schemas/Point" },
+			"internal": false,
+			"deprecated": false,
+			"tags": []
+		},
+		{
+			"name": "mixed_inline",
+			"kind": "call",
+			"module_path": "fidelity::api",
+			"struct_name": "MixedInline",
+			"docs": "An inline multi-type argument.",
+			"path": "/api/mixed_inline",
+			"method": "POST",
+			"input": "Json",
+			"output": "Json",
+			"error_content_type": "text/plain",
+			"params": [
+				{
+					"name": "value",
+					"docs": "One string or one integer.",
+					"schema": { "type": ["string", "integer"] },
+					"required": true
+				}
+			],
+			"output_schema": { "type": "null" },
+			"internal": false,
+			"deprecated": false,
+			"tags": []
+		},
+		{
+			"name": "catalog",
+			"kind": "call",
+			"module_path": "fidelity::api",
+			"struct_name": "Catalog",
+			"docs": "Reaches the components the other functions do not.",
+			"path": "/api/catalog",
+			"method": "POST",
+			"input": "Json",
+			"output": "Json",
+			"error_content_type": "text/plain",
+			"params": [],
+			"output_schema": {
+				"type": "object",
+				"properties": {
+					"mixed": { "$ref": "#/components/schemas/Mixed" },
+					"composed": { "$ref": "#/components/schemas/Composed" },
+					"state": { "$ref": "#/components/schemas/State" },
+					"number_enum": { "$ref": "#/components/schemas/NumberEnum" },
+					"blob": { "$ref": "#/components/schemas/Blob" },
+					"loose": { "$ref": "#/components/schemas/Loose" }
+				},
+				"required": ["mixed", "composed", "state", "number_enum", "blob", "loose"]
+			},
+			"internal": false,
+			"deprecated": false,
+			"tags": []
+		},
+		{
+			"name": "missing_ref",
+			"kind": "call",
+			"module_path": "fidelity::api",
+			"struct_name": "MissingRef",
+			"docs": "A reference to a schema that is not in the spec.",
+			"path": "/api/missing_ref",
+			"method": "POST",
+			"input": "Json",
+			"output": "Json",
+			"error_content_type": "text/plain",
+			"params": [],
+			"output_schema": { "$ref": "#/components/schemas/Absent" },
+			"internal": false,
+			"deprecated": false,
+			"tags": []
+		},
+		{
+			"name": "skipped_stream",
+			"kind": "stream",
+			"module_path": "fidelity::api",
+			"struct_name": "SkippedStream",
+			"docs": "A stream, which one-shot clients cannot open.",
+			"path": "/api/skipped_stream",
+			"method": "POST",
+			"input": "Json",
+			"output": "Json",
+			"error_content_type": "text/plain",
+			"params": [],
+			"output_schema": { "$ref": "#/components/schemas/OnlySkipped" },
+			"internal": false,
+			"deprecated": false,
+			"tags": []
+		}
+	],
+	"channels": [],
+	"live_path": "/live",
+	"schemas": {
+		"Account": {
+			"description": "An account with optional and nullable fields.",
+			"type": "object",
+			"properties": {
+				"id": { "type": "integer", "format": "uint64" },
+				"deleted_at": { "type": ["string", "null"] },
+				"nickname": { "type": "string" },
+				"labels": { "type": "array", "items": { "type": "string" } },
+				"settings": {
+					"type": "object",
+					"additionalProperties": true
+				}
+			},
+			"required": ["id", "deleted_at"]
+		},
+		"Choice": {
+			"description": "An untagged union.",
+			"oneOf": [{ "type": "string" }, { "type": "integer" }]
+		},
+		"Event": {
+			"description": "A tagged union.",
+			"oneOf": [
+				{
+					"type": "object",
+					"properties": {
+						"kind": { "const": "created", "type": "string" },
+						"id": { "type": "integer", "format": "uint64" }
+					},
+					"required": ["kind", "id"]
+				},
+				{
+					"type": "object",
+					"properties": {
+						"kind": { "const": "deleted", "type": "string" },
+						"reason": { "type": ["string", "null"] }
+					},
+					"required": ["kind"]
+				}
+			]
+		},
+		"Point": {
+			"description": "A fixed-length pair.",
+			"type": "array",
+			"prefixItems": [{ "type": "number" }, { "type": "number" }],
+			"items": false
+		},
+		"Mixed": {
+			"description": "A schema with more than one non-null type.",
+			"type": ["string", "integer"]
+		},
+		"Composed": {
+			"description": "A composition the analyzer does not merge.",
+			"allOf": [
+				{
+					"type": "object",
+					"properties": { "a": { "type": "string" } },
+					"required": ["a"]
+				},
+				{
+					"type": "object",
+					"properties": { "b": { "type": "string" } },
+					"required": ["b"]
+				}
+			]
+		},
+		"OnlySkipped": {
+			"description": "Only a skipped stream references this.",
+			"type": ["string", "integer"]
+		},
+		"State": {
+			"description": "A string enum.",
+			"type": "string",
+			"enum": ["on", "off"]
+		},
+		"NumberEnum": {
+			"description": "An enum whose values are not strings.",
+			"type": "integer",
+			"enum": [1, 2]
+		},
+		"Blob": {
+			"description": "Deliberately unconstrained JSON.",
+			"type": "object",
+			"additionalProperties": true
+		},
+		"Loose": true
+	}
+}
