@@ -1,0 +1,24 @@
+[package]
+name = "leptoskit_plugin_power_monitor"
+version = "0.3.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Desktop power and idle observation for LeptosKit hosts."
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_Input", "Win32_System_SystemInformation"] }
+
+[lints]
+workspace = true

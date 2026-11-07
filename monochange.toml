@@ -84,6 +84,7 @@ packages = [
 	"leptoskit_plugin_haptics",
 	"leptoskit_plugin_home_widgets",
 	"leptoskit_plugin_battery",
+	"leptoskit_plugin_deep_link",
 	"leptoskit_plugin_device",
 	"leptoskit_plugin_device_policy",
 	"leptoskit_plugin_secure_store",
@@ -95,6 +96,7 @@ packages = [
 	"leptoskit_plugin_network",
 	"leptoskit_plugin_nfc",
 	"leptoskit_plugin_posture",
+	"leptoskit_plugin_power_monitor",
 	"leptoskit_plugin_dialog",
 	"leptoskit_plugin_document_picker",
 	"leptoskit_plugin_screen_orientation",
@@ -117,6 +119,7 @@ packages = [
 	"leptoskit_plugin_single_instance",
 	"leptoskit_plugin_menu",
 	"leptoskit_plugin_tray",
+	"leptoskit_plugin_updater",
 	"leptoskit_plugin_speech",
 	"leptoskit_plugin_sqlite",
 	"leptoskit_plugin_store",
@@ -298,6 +301,9 @@ path = "crates/leptoskit_plugin_haptics"
 [package.leptoskit_plugin_battery]
 path = "crates/leptoskit_plugin_battery"
 
+[package.leptoskit_plugin_deep_link]
+path = "crates/leptoskit_plugin_deep_link"
+
 [package.leptoskit_plugin_device]
 path = "crates/leptoskit_plugin_device"
 
@@ -388,6 +394,9 @@ path = "crates/leptoskit_plugin_permissions"
 [package.leptoskit_plugin_picture_in_picture]
 path = "crates/leptoskit_plugin_picture_in_picture"
 
+[package.leptoskit_plugin_power_monitor]
+path = "crates/leptoskit_plugin_power_monitor"
+
 [package.leptoskit_plugin_single_instance]
 path = "crates/leptoskit_plugin_single_instance"
 
@@ -396,6 +405,9 @@ path = "crates/leptoskit_plugin_menu"
 
 [package.leptoskit_plugin_tray]
 path = "crates/leptoskit_plugin_tray"
+
+[package.leptoskit_plugin_updater]
+path = "crates/leptoskit_plugin_updater"
 
 [package.leptoskit_plugin_speech]
 path = "crates/leptoskit_plugin_speech"

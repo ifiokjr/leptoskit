@@ -4,7 +4,7 @@ On macOS, your screens are drawn with AppKit: layer-backed `NSView`s for contain
 
 macOS is leptoskit's reference backend: every screenshot on this site is a leptoskit screen committed as real AppKit views.
 
-The [shell plugin](plugin-inventory.md) groups each permitted command with its descendants and terminates that group when the invocation ends. Commands that deliberately leave the group need additional containment from the host.
+The [shell plugin](plugin-inventory.md) groups each permitted command with its descendants and terminates that group when the invocation ends. Commands that deliberately leave the group need additional containment from the host. Desktop lifecycle plugins (`power_monitor`, `deep_link`, `updater`, single-instance handoff) are host-constructed; see [Electron concepts](electron.md).
 
 ## Build and run
 
