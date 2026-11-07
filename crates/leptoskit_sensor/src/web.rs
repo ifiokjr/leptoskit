@@ -13,46 +13,52 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 
 use crate::Interval;
+pub use crate::Kind;
 use crate::VectorReading;
 
-/// Generic Sensor types supported by the browser adapter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
-	/// Acceleration including gravity, in metres per second squared.
-	Accelerometer,
-	/// Rotation in radians per second.
-	Gyroscope,
-	/// Magnetic field in microteslas.
-	Magnetometer,
-}
-impl Kind {
-	fn constructor(self) -> &'static str {
-		match self {
-			Self::Accelerometer => "Accelerometer",
-			Self::Gyroscope => "Gyroscope",
-			Self::Magnetometer => "Magnetometer",
-		}
+/// The Generic Sensor constructor for a kind; browsers have no pressure one.
+fn constructor(kind: Kind) -> Option<&'static str> {
+	match kind {
+		Kind::Accelerometer => Some("Accelerometer"),
+		Kind::UserAccelerometer => Some("LinearAccelerationSensor"),
+		Kind::Gyroscope => Some("Gyroscope"),
+		Kind::Magnetometer => Some("Magnetometer"),
+		Kind::Barometer => None,
 	}
+}
 
-	fn bit(self) -> u8 {
-		match self {
-			Self::Accelerometer => 1,
-			Self::Gyroscope => 2,
-			Self::Magnetometer => 4,
-		}
-	}
+/// Reservation bit for one-shot reads of a kind.
+fn read_bit(kind: Kind) -> u32 {
+	1 << kind.code()
 }
-thread_local! { static ACTIVE: Cell<u8> = const { Cell::new(0) }; }
+
+/// Reservation bit for a kind's stream, separate from its one-shot reads.
+fn watch_bit(kind: Kind) -> u32 {
+	1 << (kind.code() + WATCH_BITS_OFFSET)
+}
+
+/// Where stream reservation bits start, past every one-shot bit.
+const WATCH_BITS_OFFSET: u32 = 8;
+
+/// Whether `DeviceMotion` can stand in for a missing Generic Sensor.
+fn device_motion_covers(kind: Kind) -> bool {
+	matches!(
+		kind,
+		Kind::Accelerometer | Kind::UserAccelerometer | Kind::Gyroscope
+	)
+}
+
+thread_local! { static ACTIVE: Cell<u32> = const { Cell::new(0) }; }
 
 /// Reservation bit for the ambient light sensor, which is not an axis kind.
-const LIGHT_RESERVATION: u8 = 8;
-struct Reservation(u8);
+const LIGHT_RESERVATION: u32 = 1 << 16;
+struct Reservation(u32);
 impl Reservation {
 	fn acquire(kind: Kind) -> Result<Self, Error> {
-		Self::acquire_bit(kind.bit())
+		Self::acquire_bit(read_bit(kind))
 	}
 
-	fn acquire_bit(bit: u8) -> Result<Self, Error> {
+	fn acquire_bit(bit: u32) -> Result<Self, Error> {
 		ACTIVE.with(|active| {
 			if active.get() & bit != 0 {
 				return Err(Error::Busy);
@@ -97,9 +103,13 @@ fn window() -> Result<web_sys::Window, Error> {
 	Ok(window)
 }
 fn generic_constructor(kind: Kind) -> Result<Option<Function>, Error> {
-	Ok(property(window()?.as_ref(), kind.constructor())?
-		.dyn_into::<Function>()
-		.ok())
+	let window = window()?;
+
+	let Some(name) = constructor(kind) else {
+		return Ok(None);
+	};
+
+	Ok(property(window.as_ref(), name)?.dyn_into::<Function>().ok())
 }
 
 /// Reports API presence, not permission or the presence of functioning
@@ -109,7 +119,7 @@ pub fn available(kind: Kind) -> Result<bool, Error> {
 		return Ok(true);
 	}
 
-	Ok(kind != Kind::Magnetometer
+	Ok(device_motion_covers(kind)
 		&& property(window()?.as_ref(), "DeviceMotionEvent")?.is_function())
 }
 
@@ -122,7 +132,7 @@ pub async fn request_permission(kind: Kind) -> Result<(), Error> {
 		return Ok(());
 	}
 
-	if kind == Kind::Magnetometer {
+	if !device_motion_covers(kind) {
 		return Err(Error::Unavailable);
 	}
 
@@ -226,7 +236,7 @@ pub async fn next(kind: Kind, interval: Interval) -> Result<VectorReading, Error
 		return generic_next(constructor, interval, parse_generic).await;
 	}
 
-	if kind == Kind::Magnetometer {
+	if !device_motion_covers(kind) {
 		return Err(Error::Unavailable);
 	}
 
@@ -265,13 +275,13 @@ async fn next_device_motion(kind: Kind) -> Result<VectorReading, Error> {
 	result
 }
 
-/// DeviceMotion reports m/s² for acceleration and degrees per second for
+/// `DeviceMotion` reports m/s² for acceleration and degrees per second for
 /// rotation, both against a millisecond clock.
 fn parse_device_motion(kind: Kind, event: &web_sys::Event) -> Result<VectorReading, Error> {
-	let (x, y, z) = if kind == Kind::Accelerometer {
-		acceleration(event)?
-	} else {
-		rotation(event)?
+	let (x, y, z) = match kind {
+		Kind::Accelerometer => acceleration(event, "accelerationIncludingGravity")?,
+		Kind::UserAccelerometer => acceleration(event, "acceleration")?,
+		_ => rotation(event)?,
 	};
 
 	validate(VectorReading {
@@ -282,9 +292,11 @@ fn parse_device_motion(kind: Kind, event: &web_sys::Event) -> Result<VectorReadi
 	})
 }
 
-/// `accelerationIncludingGravity` reports m/s² on each axis.
-fn acceleration(event: &web_sys::Event) -> Result<(f64, f64, f64), Error> {
-	let values = property(event.as_ref(), "accelerationIncludingGravity")?;
+/// `accelerationIncludingGravity` and `acceleration` report m/s² on each axis.
+/// Devices without a gyroscope leave `acceleration` null, which reads as
+/// unavailable rather than as zero.
+fn acceleration(event: &web_sys::Event, name: &str) -> Result<(f64, f64, f64), Error> {
+	let values = property(event.as_ref(), name)?;
 
 	Ok((
 		number(&values, "x")?,
@@ -432,11 +444,14 @@ async fn generic_next<T: 'static>(
 	result
 }
 
+/// The one answer a one-shot wait is still owed, shared by its listeners.
+type Pending<T> = Rc<RefCell<Option<oneshot::Sender<Result<T, Error>>>>>;
+
 /// Resolves the wait with the first sample the platform reports.
 fn reading_listener<T: 'static>(
 	target: &web_sys::EventTarget,
 	value: &JsValue,
-	sender: Rc<RefCell<Option<oneshot::Sender<Result<T, Error>>>>>,
+	sender: Pending<T>,
 	parse: fn(&JsValue) -> Result<T, Error>,
 ) -> EventListener {
 	let source = value.clone();
@@ -449,10 +464,7 @@ fn reading_listener<T: 'static>(
 }
 
 /// Resolves the wait with the error the platform reports, when it does.
-fn error_listener<T: 'static>(
-	target: &web_sys::EventTarget,
-	sender: Rc<RefCell<Option<oneshot::Sender<Result<T, Error>>>>>,
-) -> EventListener {
+fn error_listener<T: 'static>(target: &web_sys::EventTarget, sender: Pending<T>) -> EventListener {
 	EventListener::new(target, "error", move |event| {
 		if let Some(sender) = sender.borrow_mut().take() {
 			let error = property(event.as_ref(), "error").map_or_else(|error| error, js_error);
@@ -571,5 +583,304 @@ export function lightStops(){return stoppedLight;}
 		emit_light(-1.0);
 		assert_eq!(invalid.await, Err(Error::Native.into()));
 		assert_eq!(light_stops(), 4);
+	}
+}
+
+/// Samples waiting for a browser [`Watch`], bounded like the native ring.
+#[derive(Default)]
+struct Queue {
+	samples: std::collections::VecDeque<VectorReading>,
+	dropped: u64,
+	error: Option<Error>,
+	waker: Option<std::task::Waker>,
+}
+
+impl Queue {
+	/// Keeps the newest [`crate::stream::MAX_BATCH`] samples, counting the
+	/// rest.
+	fn push(&mut self, sample: Result<VectorReading, Error>) {
+		match sample {
+			Ok(sample) => {
+				if self.samples.len() == crate::stream::MAX_BATCH {
+					self.samples.pop_front();
+					self.dropped += 1;
+				}
+
+				self.samples.push_back(sample);
+			}
+			Err(error) => {
+				self.error.get_or_insert(error);
+			}
+		}
+
+		if let Some(waker) = self.waker.take() {
+			waker.wake();
+		}
+	}
+}
+
+/// A running browser sensor and the samples it has reported.
+///
+/// Dropping the watch stops the sensor and removes its listeners. One watch
+/// per kind can run at a time, alongside one-shot reads.
+pub struct Watch {
+	queue: Rc<RefCell<Queue>>,
+	listeners: Vec<EventListener>,
+	sensor: Option<Sensor>,
+	_reservation: Reservation,
+}
+
+impl std::fmt::Debug for Watch {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("Watch")
+			.field("buffered", &self.queue.borrow().samples.len())
+			.field("dropped", &self.queue.borrow().dropped)
+			.finish_non_exhaustive()
+	}
+}
+
+impl Watch {
+	/// Waits for the next sample, oldest first. A sensor error ends the watch:
+	/// every later call returns the same error.
+	pub async fn next(&mut self) -> Result<VectorReading, Error> {
+		std::future::poll_fn(|context| {
+			let mut queue = self.queue.borrow_mut();
+
+			if let Some(sample) = queue.samples.pop_front() {
+				return std::task::Poll::Ready(Ok(sample));
+			}
+
+			if let Some(error) = queue.error {
+				return std::task::Poll::Ready(Err(error));
+			}
+
+			queue.waker = Some(context.waker().clone());
+			std::task::Poll::Pending
+		})
+		.await
+	}
+
+	/// Waits for at least one sample, then returns every one that has arrived.
+	pub async fn next_batch(&mut self) -> Result<Vec<VectorReading>, Error> {
+		let first = self.next().await?;
+		let mut samples = vec![first];
+		samples.extend(self.queue.borrow_mut().samples.drain(..));
+		Ok(samples)
+	}
+
+	/// Samples discarded because they arrived faster than this watch read them.
+	#[must_use]
+	pub fn dropped(&self) -> u64 {
+		self.queue.borrow().dropped
+	}
+}
+
+impl Drop for Watch {
+	fn drop(&mut self) {
+		// Listeners go first so a stopping sensor cannot report into a queue
+		// nobody reads.
+		self.listeners.clear();
+		self.sensor.take();
+	}
+}
+
+/// Starts a continuous series of samples. Generic Sensor uses the requested
+/// rate; `DeviceMotion` delivers at the browser's own rate and asks for
+/// Safari's permission first, so call this from a click or tap handler there.
+pub async fn watch(kind: Kind, interval: Interval) -> Result<Watch, Error> {
+	let reservation = Reservation::acquire_bit(watch_bit(kind))?;
+	let queue = Rc::new(RefCell::new(Queue::default()));
+
+	if let Some(constructor) = generic_constructor(kind)? {
+		let sensor = Sensor::construct(&constructor, interval)?;
+		let target = sensor.target()?;
+		let source = sensor.value.clone();
+		let readings = Rc::clone(&queue);
+		let errors = Rc::clone(&queue);
+		let listeners = vec![
+			EventListener::new(&target, "reading", move |_| {
+				readings.borrow_mut().push(parse_generic(&source));
+			}),
+			EventListener::new(&target, "error", move |event| {
+				let error = property(event.as_ref(), "error").map_or_else(|error| error, js_error);
+				errors.borrow_mut().push(Err(error));
+			}),
+		];
+		sensor.start()?;
+
+		return Ok(Watch {
+			queue,
+			listeners,
+			sensor: Some(sensor),
+			_reservation: reservation,
+		});
+	}
+
+	if !available(kind)? {
+		return Err(Error::Unavailable);
+	}
+
+	request_permission(kind).await?;
+	let readings = Rc::clone(&queue);
+	let window = window()?;
+	let listener = EventListener::new(&window, "devicemotion", move |event| {
+		readings.borrow_mut().push(parse_device_motion(kind, event));
+	});
+
+	Ok(Watch {
+		queue,
+		listeners: vec![listener],
+		sensor: None,
+		_reservation: reservation,
+	})
+}
+
+#[cfg(test)]
+mod watch_tests {
+	use wasm_bindgen::prelude::wasm_bindgen;
+	use wasm_bindgen_test::wasm_bindgen_test;
+
+	use super::*;
+
+	#[wasm_bindgen(inline_js = "
+let saved = {}, sensors = {}, counts = {};
+export function installNamed(name) {
+  saved[name] = Object.getOwnPropertyDescriptor(window, name);
+  counts[name] = [0, 0];
+  class TestSensor extends EventTarget {
+    constructor(options) { super(); this.frequency = options.frequency; sensors[name] = this; }
+    start() { counts[name][0]++; }
+    stop() { counts[name][1]++; }
+  }
+  Object.defineProperty(window, name, {configurable: true, value: TestSensor});
+}
+export function restoreNamed(name) {
+  if (saved[name]) Object.defineProperty(window, name, saved[name]);
+  else delete window[name];
+}
+export function namedCounts(name) { return counts[name]; }
+export function namedFrequency(name) { return sensors[name].frequency; }
+export function emitNamed(name, milliseconds, x) {
+  const sensor = sensors[name];
+  sensor.timestamp = milliseconds; sensor.x = x; sensor.y = 0; sensor.z = 9.80665;
+  sensor.dispatchEvent(new Event('reading'));
+}
+export function failNamed(name) {
+  const event = new Event('error');
+  Object.defineProperty(event, 'error', {value: new DOMException('Gone', 'NotReadableError')});
+  sensors[name].dispatchEvent(event);
+}
+")]
+	extern "C" {
+		#[wasm_bindgen(js_name = installNamed)]
+		fn install_named(name: &str);
+		#[wasm_bindgen(js_name = restoreNamed)]
+		fn restore_named(name: &str);
+		#[wasm_bindgen(js_name = namedCounts)]
+		fn named_counts(name: &str) -> js_sys::Array;
+		#[wasm_bindgen(js_name = namedFrequency)]
+		fn named_frequency(name: &str) -> f64;
+		#[wasm_bindgen(js_name = emitNamed)]
+		fn emit_named(name: &str, milliseconds: f64, x: f64);
+		#[wasm_bindgen(js_name = failNamed)]
+		fn fail_named(name: &str);
+	}
+
+	struct Installed(&'static str);
+	impl Installed {
+		fn new(name: &'static str) -> Self {
+			install_named(name);
+			Self(name)
+		}
+
+		fn counts(&self) -> Vec<JsValue> {
+			named_counts(self.0).to_vec()
+		}
+	}
+	impl Drop for Installed {
+		fn drop(&mut self) {
+			restore_named(self.0);
+		}
+	}
+
+	fn counts(started: f64, stopped: f64) -> Vec<JsValue> {
+		vec![JsValue::from_f64(started), JsValue::from_f64(stopped)]
+	}
+
+	#[wasm_bindgen_test]
+	async fn a_watch_streams_in_order_bounds_its_queue_and_stops_on_drop() {
+		let sensor = Installed::new("Accelerometer");
+		let mut watch = watch(Kind::Accelerometer, Interval::GAME).await.unwrap();
+		assert_eq!(named_frequency("Accelerometer"), 50.0);
+		assert_eq!(sensor.counts(), counts(1.0, 0.0));
+		// A second stream of the same kind is refused, but a one-shot read is
+		// independent of it.
+		assert_eq!(
+			super::watch(Kind::Accelerometer, Interval::GAME)
+				.await
+				.unwrap_err(),
+			Error::Busy
+		);
+
+		for step in 0..3 {
+			emit_named("Accelerometer", 1000.0 + f64::from(step), f64::from(step));
+		}
+
+		for step in 0..3 {
+			let sample = watch.next().await.unwrap();
+			assert_eq!(sample.x, f64::from(step));
+			assert_eq!(sample.timestamp, (1000.0 + f64::from(step)) / 1000.0);
+		}
+
+		// A reader that falls behind keeps the newest samples and learns how
+		// many it missed.
+		let overflow = crate::stream::MAX_BATCH as u32 + 6;
+
+		for step in 0..overflow {
+			emit_named("Accelerometer", 2000.0 + f64::from(step), f64::from(step));
+		}
+
+		let batch = watch.next_batch().await.unwrap();
+		assert_eq!(batch.len(), crate::stream::MAX_BATCH);
+		assert_eq!(batch[0].x, 6.0);
+		assert_eq!(watch.dropped(), 6);
+
+		let mut waiting = Box::pin(watch.next());
+		assert!(futures::poll!(&mut waiting).is_pending());
+		drop(waiting);
+		drop(watch);
+		assert_eq!(sensor.counts(), counts(1.0, 1.0));
+		// The reservation went with it.
+		drop(
+			super::watch(Kind::Accelerometer, Interval::GAME)
+				.await
+				.unwrap(),
+		);
+	}
+
+	#[wasm_bindgen_test]
+	async fn user_acceleration_uses_linear_acceleration_and_errors_end_the_watch() {
+		let sensor = Installed::new("LinearAccelerationSensor");
+		let mut watch = watch(Kind::UserAccelerometer, Interval::UI).await.unwrap();
+		emit_named("LinearAccelerationSensor", 5.0, 0.25);
+		assert_eq!(watch.next().await.unwrap().x, 0.25);
+		fail_named("LinearAccelerationSensor");
+		assert_eq!(watch.next().await, Err(Error::Unavailable));
+		assert_eq!(watch.next().await, Err(Error::Unavailable));
+		drop(watch);
+		assert_eq!(sensor.counts(), counts(1.0, 1.0));
+	}
+
+	#[wasm_bindgen_test]
+	async fn browsers_have_no_barometer() {
+		assert_eq!(available(Kind::Barometer), Ok(false));
+		assert_eq!(
+			watch(Kind::Barometer, Interval::NORMAL).await.unwrap_err(),
+			Error::Unavailable
+		);
+		assert_eq!(
+			next(Kind::Barometer, Interval::NORMAL).await,
+			Err(Error::Unavailable)
+		);
 	}
 }

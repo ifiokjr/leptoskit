@@ -33,15 +33,23 @@
 
 ## Overview
 
-Shared protocol, browser implementation, and native acquisition lifecycle for the independently selected `accelerometer`, `gyroscope`, `magnetometer`, `barometer`, `light_sensor`, and `pedometer` plugin crates. This support crate is not registered as a plugin. Its `native-support` Cargo metadata makes the CLI copy its Swift package and Kotlin sources when a selected plugin depends on it.
+Shared protocol, browser implementation, and native acquisition lifecycle for the combined `sensors` plugin and the independently selected `accelerometer`, `gyroscope`, `magnetometer`, `barometer`, `light_sensor`, and `pedometer` plugin crates. This support crate is not registered as a plugin. Its `native-support` Cargo metadata makes the CLI copy its Swift package and Kotlin sources when a selected plugin depends on it.
 
 ## Contract
 
 Method 0 has an empty request and returns a four-byte little-endian boolean indicating hardware/API availability. Permission is checked separately when sampling. Method 1 accepts one little-endian `u32` interval in milliseconds, bounded to 5–60,000. Android and CoreMotion motion sensors accept this requested rate; barometer and browser DeviceMotion timing is OS-controlled. No high-sampling-rate Android permission is required.
 
-Vector results are four little-endian finite `f64`s: monotonic timestamp in seconds, x, y, z. Pressure results contain timestamp and positive pressure in hectopascals. These clocks are platform-local, not UTC, and must not be compared across devices or APIs. Coordinate axes stay in each platform's native device frame; screen rotation does not remap them. Apple acceleration in units of gravity is converted using 9.80665 m/s², and Apple pressure in kPa is converted to hPa. Browser DeviceMotion rotation is converted from degrees/s to radians/s (beta → x, gamma → y, alpha → z).
+Vector results are four little-endian finite `f64`s: monotonic timestamp in seconds, x, y, z. Pressure results contain timestamp and positive pressure in hectopascals. These clocks are platform-local, not UTC, and must not be compared across devices or APIs. Coordinates are device axes, which screen rotation does not remap, and every platform uses Android's and the W3C's directions: a phone lying face up reads about +9.8 m/s² on z. Apple acceleration in units of gravity is multiplied by −9.80665 m/s² to match, as Flutter's `sensors_plus` does; Apple rotation and magnetic axes already agree. Apple pressure in kPa is converted to hPa. Browser DeviceMotion rotation is converted from degrees/s to radians/s (beta → x, gamma → y, alpha → z).
 
-Each call waits for a fresh sample, stops acquisition before returning, and permits only one outstanding waiter per plugin. Cancellation, plugin close, and native activity backgrounding release registrations. Continuous callers must await each result before requesting another. This bounds memory and avoids an unbounded event queue; it is not a lossless fixed-rate recording API. Hardware that stops emitting can keep a request pending until cancelled. Apply an application timeout where needed.
+Each method 1 call waits for a fresh sample, stops acquisition before returning, and permits only one outstanding waiter per plugin. Cancellation, plugin close, and app backgrounding release registrations. Hardware that stops emitting can keep a request pending until cancelled. Apply an application timeout where needed.
+
+## Streams
+
+Method 2 (`WATCH`) streams. Its request is the `u32` interval followed by a `u64` cursor: the sequence number of the newest sample the caller has, or zero to start from the next fresh one. The reply is a `u64` cursor (the newest sample's number), a `u32` count of samples dropped before the caller asked, a `u32` sample count from 1 to 64, then that many samples in the method 1 layout, oldest first. A cursor the plugin never issued is refused with InvalidArgument.
+
+Between requests the sensor keeps running and the newest 64 samples wait in a ring, so a caller that asks again promptly sees every sample. After a reply the plugin waits for the next request for a grace period of two seconds, or two intervals if longer, then stops the sensor. Cancelling a pending request stops it at once; that is how `guest::Watch` stops when dropped. A dropped `Watch::next` future does not cancel: the pending request belongs to the watch, so `select!` loses nothing. One stream request per plugin and kind can be outstanding alongside one method 1 read. When the app is backgrounded the hardware stops and a pending stream request keeps waiting; it resumes when the app returns. Light and pedometer do not stream.
+
+The combined `sensors` plugin prefixes every request with a `u32` kind (0 accelerometer, 1 gravity-free acceleration, 2 gyroscope, 3 magnetometer, 4 barometer) and otherwise uses these layouts. On iOS every sensor plugin reads through one shared CoreMotion manager, and a feed runs at the fastest interval any reader asked for. Android registers one listener per reader, which SensorManager supports directly.
 
 ## Bounded light and step acquisition
 
@@ -59,7 +67,7 @@ Pedometer has its own public protocol and permission/history methods. Its Androi
 
 ## Verification
 
-Rust tests cover wire lengths, finite-value validation, interval bounds, SI units, signed vector components, and absent capabilities. Swift tests exercise the real bridge-owned payload path and unavailable/closed/malformed behavior. Android instrumentation uses real SensorManager to test acquisition, units on the stationary CI emulator, concurrent waiter rejection, cancellation, and close. Physical hardware and browser sensor permissions require device testing beyond these checks.
+Rust tests cover wire lengths, finite-value validation, interval bounds, SI units, signed vector components, stream requests and batches, and absent capabilities. Swift tests exercise the real bridge-owned payload path and unavailable/closed/malformed behavior, and drive the shared feed with a stand-in motion source to cover interval negotiation between plugins, one-shot reads, cursors, ring overflow, the grace period, cancellation, app suspension, and kind routing. Android instrumentation uses real SensorManager to test acquisition, units on the stationary CI emulator, concurrent waiter rejection, cancellation, close, streams after a cursor, the grace period, and the combined plugin's routing. Browser tests check stream order, the bounded queue, error delivery, and that dropping a stream stops the sensor. Physical hardware and browser sensor permissions require device testing beyond these checks.
 
 References: [Apple CoreMotion](https://developer.apple.com/documentation/coremotion/cmmotionmanager), [Android SensorEvent](https://developer.android.com/reference/android/hardware/SensorEvent), [Generic Sensor standard](https://www.w3.org/TR/generic-sensor/).
 

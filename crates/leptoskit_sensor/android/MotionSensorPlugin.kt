@@ -21,18 +21,27 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.floor
 
-/** One fresh sensor event per call. Cancellation/close/background unregister the sensor. */
+/**
+ * One fresh sensor event per `NEXT` call, and a stream through `WATCH` (see
+ * [SensorStream]). Cancellation, close and backgrounding unregister the sensor.
+ * Bounded plugins (light, steps) answer `NEXT` with a deadline and do not stream.
+ */
 open class MotionSensorPlugin(
     context: Context,
     final override val name: String,
     private val sensorType: Int,
     private val bounded: Boolean = false,
+    lingerFloorMs: Long = STREAM_LINGER_MS,
     private val authorize: () -> Unit = {},
 ) : NativePlugin {
-    final override val methods = intArrayOf(AVAILABLE, NEXT)
+    final override val methods = if (bounded) intArrayOf(AVAILABLE, NEXT) else intArrayOf(AVAILABLE, NEXT, WATCH)
     private val activity = context as? Activity
     private val manager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
     private val handler = Handler(Looper.getMainLooper())
+    private val stream = SensorStream(manager, sensorType, handler, activity, lingerFloorMs)
+
+    /** Whether a stream holds the sensor, for tests. */
+    val streaming: Boolean get() = stream.active
     private var waiting: CancellableContinuation<ByteArray>? = null
     private var listener: SensorEventListener? = null
     private var lifecycle: Application.ActivityLifecycleCallbacks? = null
@@ -52,6 +61,8 @@ open class MotionSensorPlugin(
 
         if (method == AVAILABLE) return availability(payload, sensor)
 
+        if (method == WATCH) return watch(payload, sensor)
+
         val request = readRequest(payload)
 
         requireVisibleContent()
@@ -68,6 +79,23 @@ open class MotionSensorPlugin(
         if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
 
         return byteArrayOf(if (sensor == null) 0 else 1, 0, 0, 0)
+    }
+
+    /** Streams samples after the request's cursor; see [SensorStream]. */
+    private suspend fun watch(
+        payload: ByteBuffer,
+        sensor: Sensor?,
+    ): ByteArray {
+        if (payload.remaining() != WATCH_REQUEST_BYTES) throw PluginException(PluginException.INVALID_ARGUMENT)
+
+        val interval = readInterval(payload)
+        val cursor = payload.long
+
+        if (sensor == null) throw PluginException(PluginException.UNAVAILABLE)
+
+        authorize()
+
+        return stream.watch(interval, cursor)
     }
 
     /** Reads the interval and, for bounded reads, the deadline that follows it. */
@@ -278,6 +306,7 @@ open class MotionSensorPlugin(
 
         cleanup()
         continuation?.cancel()
+        stream.stop(null)
     }
 
     private fun fail(
@@ -314,6 +343,12 @@ open class MotionSensorPlugin(
         /** Blocks for one fresh sample. */
         const val NEXT = 1
 
+        /** Streams samples after a cursor. */
+        const val WATCH = 2
+
+        /** A watch carries the interval and a u64 cursor. */
+        const val WATCH_REQUEST_BYTES = 12
+
         /** A request carries the interval, plus a deadline when bounded. */
         const val REQUEST_BYTES = 4
         const val BOUNDED_REQUEST_BYTES = 8
@@ -333,6 +368,9 @@ open class MotionSensorPlugin(
         const val MICROS_PER_MILLISECOND = 1000
     }
 }
+
+/** How long a stream keeps its sensor running between requests, at least. */
+const val STREAM_LINGER_MS = 2_000L
 
 /** Fixed, validated wire encoding; boot counters are not daily totals. */
 internal fun encodeSensorEvent(

@@ -23,6 +23,18 @@ pub const NEXT: MethodId = MethodId(1);
 /// Sensor operations available to the native bridge.
 pub const METHODS: &[MethodId] = &[AVAILABLE, NEXT];
 
+pub mod stream;
+pub use stream::Batch;
+pub use stream::Kind;
+pub use stream::STREAM_METHODS;
+pub use stream::Sample;
+pub use stream::WATCH;
+pub use stream::WatchRequest;
+
+/// Streaming guest clients shared by every sensor plugin.
+#[cfg(all(target_arch = "wasm32", feature = "guest"))]
+pub mod guest;
+
 /// The sampling interval range every platform accepts, in milliseconds. The
 /// fast end avoids Android's high-rate permission.
 const MIN_INTERVAL_MILLISECONDS: u32 = 5;
@@ -40,6 +52,16 @@ const DOUBLE_BYTES: usize = 8;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Interval(u32);
 impl Interval {
+	/// About 200 Hz, the fastest rate every platform accepts without Android's
+	/// high-rate permission.
+	pub const FASTEST: Self = Self(MIN_INTERVAL_MILLISECONDS);
+	/// 50 Hz, for games and gesture tracking.
+	pub const GAME: Self = Self(20);
+	/// 5 Hz, for orientation-style readouts that change slowly.
+	pub const NORMAL: Self = Self(200);
+	/// About 15 Hz, for driving interface changes.
+	pub const UI: Self = Self(66);
+
 	/// Accepts 5..=60,000 milliseconds. OS scheduling may produce a slower
 	/// sample.
 	pub fn new(milliseconds: u32) -> Result<Self, Error> {
@@ -70,9 +92,10 @@ impl Interval {
 	}
 }
 
-/// A sample in the device's native, screen-independent coordinate frame.
+/// A sample on the device's axes, which screen rotation does not remap. Every
+/// platform uses Android's directions: lying face up reads about +9.8 on z.
 /// Accelerometers include gravity (m/s²), gyroscopes use radians/s, and
-/// magnetometers use microteslas. Platform axis conventions remain unchanged.
+/// magnetometers use microteslas.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VectorReading {
 	/// Monotonic platform timestamp in seconds; not comparable across devices
@@ -86,6 +109,9 @@ pub struct VectorReading {
 	pub z: f64,
 }
 impl VectorReading {
+	/// Bytes in one encoded reading.
+	pub const BYTES: usize = 4 * DOUBLE_BYTES;
+
 	/// Decodes four little-endian f64 values, rejecting invalid samples.
 	pub fn decode(payload: &[u8]) -> Result<Self, Error> {
 		let [timestamp, x, y, z] = decode_values(payload)?;
@@ -124,6 +150,9 @@ pub struct PressureReading {
 	pub hectopascals: f64,
 }
 impl PressureReading {
+	/// Bytes in one encoded reading.
+	pub const BYTES: usize = 2 * DOUBLE_BYTES;
+
 	/// Decodes two finite little-endian f64 values and requires positive
 	/// pressure.
 	pub fn decode(payload: &[u8]) -> Result<Self, Error> {

@@ -725,6 +725,18 @@ destination, and completion only means the platform finished its API callback.
 
 <!-- {/p_sharingSummary} -->
 
+<!-- {@p_sensorsSummary} -->
+
+Add `{{ plugin_sensors.package.name }}` as a direct dependency and select the `{{ plugin_sensors.package.metadata.leptoskit.runtime.name }}` plugin
+in `native.plugins`; supported generated hosts discover it from Cargo metadata. Generated
+Windows, Linux, and terminal hosts currently omit runtime plugins; use explicit registration
+in a custom host there. Guests enable the `guest` feature and reuse `guest::Sensors`, which
+streams the accelerometer, gravity-free acceleration, gyroscope, magnetometer, and barometer
+from one plugin. iOS and Android use real system sensors on the same axes, desktop has no
+sensor, and the browser uses Generic Sensor or `DeviceMotion` and has no barometer.
+
+<!-- {/p_sensorsSummary} -->
+
 <!-- {@p_shellSummary} -->
 
 Generated desktop hosts select `{{ plugin_shell.package.metadata.leptoskit.runtime.name }}` in `native.plugins` with explicit command policies;

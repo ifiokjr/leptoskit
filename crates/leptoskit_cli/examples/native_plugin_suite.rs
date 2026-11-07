@@ -38,6 +38,7 @@ const OPTIONAL_PLUGINS: &[(&str, &str)] = &[
 	("gyroscope", "leptoskit_plugin_gyroscope"),
 	("magnetometer", "leptoskit_plugin_magnetometer"),
 	("barometer", "leptoskit_plugin_barometer"),
+	("sensors", "leptoskit_plugin_sensors"),
 	("light_sensor", "leptoskit_plugin_light_sensor"),
 	("pedometer", "leptoskit_plugin_pedometer"),
 	("document-picker", "leptoskit_plugin_document_picker"),
