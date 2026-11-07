@@ -52,6 +52,7 @@ leptoskit_plugin_posture = { path = "../../crates/leptoskit_plugin_posture" }
 leptoskit_plugin_screen_capture = { path = "../../crates/leptoskit_plugin_screen_capture" }
 leptoskit_plugin_screen_orientation = { path = "../../crates/leptoskit_plugin_screen_orientation" }
 leptoskit_plugin_secure_store = { path = "../../crates/leptoskit_plugin_secure_store" }
+leptoskit_plugin_sensors = { path = "../../crates/leptoskit_plugin_sensors" }
 leptoskit_plugin_sharing = { path = "../../crates/leptoskit_plugin_sharing" }
 leptoskit_plugin_shell = { path = "../../crates/leptoskit_plugin_shell" }
 leptoskit_plugin_single_instance = { path = "../../crates/leptoskit_plugin_single_instance" }

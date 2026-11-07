@@ -117,6 +117,7 @@ packages = [
 	"leptoskit_plugin_screen_capture",
 	"leptoskit_plugin_store_review",
 	"leptoskit_plugin_sharing",
+	"leptoskit_plugin_sensors",
 	"leptoskit_plugin_tracking_transparency",
 	"leptoskit_plugin_websocket",
 	"leptoskit_plugin_arguments",
@@ -385,6 +386,9 @@ path = "crates/leptoskit_plugin_store_review"
 
 [package.leptoskit_plugin_sharing]
 path = "crates/leptoskit_plugin_sharing"
+
+[package.leptoskit_plugin_sensors]
+path = "crates/leptoskit_plugin_sensors"
 
 [package.leptoskit_plugin_tracking_transparency]
 path = "crates/leptoskit_plugin_tracking_transparency"

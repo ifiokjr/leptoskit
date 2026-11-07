@@ -1,0 +1,28 @@
+[package]
+name = "leptoskit_plugin_sensors"
+version = "0.3.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Accelerometer, gravity-free acceleration, gyroscope, magnetometer and barometer streams from one LeptosKit plugin."
+
+[package.metadata.leptoskit.runtime]
+name = "sensors"
+apple-module = "LeptosKitSensorsPlugin"
+apple-type = "SensorsPlugin"
+android-type = "dev.leptoskit.plugins.sensors.SensorsPlugin"
+android-context = true
+
+[features]
+guest = ["leptoskit_bridge/guest", "leptoskit_sensor/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+leptoskit_sensor = { workspace = true }
+
+[lints]
+workspace = true

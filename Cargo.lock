@@ -3413,6 +3413,7 @@ dependencies = [
  "leptoskit_plugin_screen_capture",
  "leptoskit_plugin_screen_orientation",
  "leptoskit_plugin_secure_store",
+ "leptoskit_plugin_sensors",
  "leptoskit_plugin_sharing",
  "leptoskit_plugin_shell",
  "leptoskit_plugin_single_instance",
@@ -6091,6 +6092,14 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "leptoskit_plugin_sensors"
+version = "0.3.0"
+dependencies = [
+ "leptoskit_bridge",
+ "leptoskit_sensor",
 ]
 
 [[package]]

@@ -14,9 +14,10 @@
 use leptoskit_bridge::Error;
 pub use leptoskit_sensor::AVAILABLE;
 pub use leptoskit_sensor::Interval;
-pub use leptoskit_sensor::METHODS;
 pub use leptoskit_sensor::NEXT;
 pub use leptoskit_sensor::PressureReading as Reading;
+pub use leptoskit_sensor::STREAM_METHODS as METHODS;
+pub use leptoskit_sensor::WATCH;
 
 /// Native plugin registration name.
 pub const NAME: &str = "barometer";
@@ -44,6 +45,12 @@ pub mod guest {
 		/// lossless recording stream.
 		pub async fn next(self, interval: Interval) -> Result<Reading, Error> {
 			Reading::decode(&self.0.call(NEXT, &interval.encode())?.await?)
+		}
+
+		/// Streams samples until the returned watch is dropped. Await
+		/// [`Watch::next`](leptoskit_sensor::guest::Watch::next) in a loop.
+		pub fn watch(self, interval: Interval) -> leptoskit_sensor::guest::Watch<Reading> {
+			leptoskit_sensor::guest::Watch::new(self.0, interval)
 		}
 	}
 }
