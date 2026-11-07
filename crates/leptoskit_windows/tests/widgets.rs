@@ -350,7 +350,8 @@ fn percent_encoded_file_urls_and_alpha_images_render_real_pixels() {
 #[test]
 fn all_builtin_kinds_create_real_native_windows_and_exact_frames() {
 	let group = RadioGroup::new("options").unwrap();
-	let nodes = [
+	// On the heap: sixteen elements' props outgrow clippy's stack limit.
+	let nodes = vec![
 		View().class("w-20 h-8"),
 		Text("Native text"),
 		Element::new(NativeKind::TextRun)
